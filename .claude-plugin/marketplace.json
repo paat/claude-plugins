@@ -5,5 +5,17 @@
   "owner": {
     "name": "Andre Paat"
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "gemini-cli",
+      "description": "Integrate Google's Gemini CLI into Claude Code for second opinions, dual code reviews, and AI-assisted explanations",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/gemini-cli",
+      "category": "development",
+      "homepage": "https://github.com/paat/claude-plugins"
+    }
+  ]
 }

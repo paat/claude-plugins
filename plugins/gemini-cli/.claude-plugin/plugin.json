@@ -1,0 +1,11 @@
+{
+  "name": "gemini-cli",
+  "version": "0.1.0",
+  "description": "Integrate Google's Gemini CLI into Claude Code for second opinions, dual code reviews, and AI-assisted explanations",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": ["gemini", "google", "ai", "code-review", "second-opinion", "multi-model"]
+}

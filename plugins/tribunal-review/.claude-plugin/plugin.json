@@ -1,0 +1,11 @@
+{
+  "name": "tribunal-review",
+  "version": "0.1.0",
+  "description": "Multi-provider code review with Codex, Gemini, and Opus arbitration",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": ["code-review", "multi-provider", "codex", "gemini", "tribunal"]
+}
