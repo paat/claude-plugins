@@ -1,0 +1,9 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "paat-plugins",
+  "description": "Claude Code plugins for development workflows and productivity",
+  "owner": {
+    "name": "Andre Paat"
+  },
+  "plugins": []
+}
