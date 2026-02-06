@@ -29,6 +29,7 @@ The user wants to research the following topic on Reddit:
 
 3. If the response is empty or an error occurs:
    - Retry once with a rephrased or more specific query
+   - If a "model not found" error occurs, retry with `-m gemini-2.5-flash` (stable fallback)
    - If Gemini is still unavailable, inform the user and suggest alternatives (WebSearch, manual browsing)
 
 4. Present the findings in a structured format:
