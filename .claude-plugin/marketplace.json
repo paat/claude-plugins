@@ -16,6 +16,17 @@
       "source": "./plugins/gemini-cli",
       "category": "development",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "reddit-fetch",
+      "description": "Research any topic using Reddit via Gemini CLI's web access capabilities",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/reddit-fetch",
+      "category": "research",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }
