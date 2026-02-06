@@ -27,6 +27,17 @@
       "source": "./plugins/reddit-fetch",
       "category": "research",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "tribunal-review",
+      "description": "Multi-provider code review with Codex, Gemini, and Opus arbitration",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/tribunal-review",
+      "category": "development",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }
