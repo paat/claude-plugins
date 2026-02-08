@@ -1,0 +1,11 @@
+{
+  "name": "agent-sync",
+  "version": "0.1.0",
+  "description": "Generate AGENTS.md from Claude Code project configuration files (CLAUDE.md, .claude/rules/, settings.json, hooks)",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": ["agents-md", "sync", "codex", "copilot", "cursor", "amp", "config-sync"]
+}

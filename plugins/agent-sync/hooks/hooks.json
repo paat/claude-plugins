@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Check if the file that was just edited/written matches a source path tracked by agent-sync. Look for tools/agent-sync/sources.json or .agent-sync/sources.json in the project root. If the config exists, check if the edited file path matches any value in the \"files\" object. If it matches, output EXACTLY: '[agent-sync] Source file changed. Run /agent-sync:generate to update AGENTS.md.' If no config exists or the file doesn't match, output nothing."
+          }
+        ]
+      }
+    ]
+  }
+}
