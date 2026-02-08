@@ -4,8 +4,6 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 # --- Defaults ---
 CHECK_MODE=false
 CONFIG_PATH=""
@@ -19,10 +17,18 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --config)
+      if [[ -z "${2:-}" ]]; then
+        echo "[agent-sync] --config requires a path" >&2
+        exit 1
+      fi
       CONFIG_PATH="$2"
       shift 2
       ;;
     --root)
+      if [[ -z "${2:-}" ]]; then
+        echo "[agent-sync] --root requires a path" >&2
+        exit 1
+      fi
       REPO_ROOT="$2"
       shift 2
       ;;
@@ -101,7 +107,6 @@ CONFIG="$(cat "$CONFIG_PATH")"
 
 # --- v1 → v2 compatibility ---
 # If config has "outputPath" + "sections" at top level (v1), wrap into outputs array
-config_version="$(echo "$CONFIG" | jq -r '.version // 1')"
 has_outputs="$(echo "$CONFIG" | jq 'has("outputs")')"
 has_output_path="$(echo "$CONFIG" | jq 'has("outputPath")')"
 
@@ -120,8 +125,7 @@ fi
 
 # --- Validation ---
 validate_config() {
-  local files_json sections_json
-
+  local files_json
   files_json="$(echo "$CONFIG" | jq -r '.files // empty')"
   if [[ -z "$files_json" ]]; then
     echo "[agent-sync] Invalid config: files is required." >&2
@@ -265,21 +269,22 @@ extract_heading_content() {
     BEGIN { capturing=0; level=0; found=0 }
 
     /^#{1,6}[[:space:]]+/ {
-      match($0, /^(#+)[[:space:]]+(.+)$/, m)
-      if (RSTART > 0) {
-        cur_level = length(m[1])
-        cur_text = normalize(m[2])
+      line = $0
+      sub(/[[:space:]].*/, "", line)
+      cur_level = length(line)
+      cur_text = $0
+      sub(/^#+[[:space:]]+/, "", cur_text)
+      cur_text = normalize(cur_text)
 
-        if (capturing && cur_level <= level) {
-          exit
-        }
+      if (capturing && cur_level <= level) {
+        exit
+      }
 
-        if (!found && cur_text == target) {
-          found = 1
-          capturing = 1
-          level = cur_level
-          next
-        }
+      if (!found && cur_text == target) {
+        found = 1
+        capturing = 1
+        level = cur_level
+        next
       }
     }
 
@@ -302,7 +307,7 @@ read_source() {
   local key="$1"
   local rel_path
   rel_path="$(echo "$CONFIG" | jq -r --arg k "$key" '.files[$k]')"
-  cat "$REPO_ROOT/$rel_path" | strip_frontmatter
+  strip_frontmatter < "$REPO_ROOT/$rel_path"
 }
 
 # Get template variable value (with fallback to empty string)
@@ -589,6 +594,17 @@ i=0
 while [[ $i -lt $outputs_count ]]; do
   output_path="$(echo "$CONFIG" | jq -r ".outputs[$i].path")"
   abs_output="$REPO_ROOT/$output_path"
+
+  # Guard against path traversal outside repo root
+  abs_output_resolved="$(cd "$REPO_ROOT" && realpath -m "$output_path" 2>/dev/null || echo "$abs_output")"
+  case "$abs_output_resolved" in
+    "$REPO_ROOT"/*)
+      ;;
+    *)
+      echo "[agent-sync] Output path escapes project root: $output_path" >&2
+      exit 1
+      ;;
+  esac
 
   rendered="$(render_output "$i")"
 
