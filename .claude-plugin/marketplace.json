@@ -38,6 +38,17 @@
       "source": "./plugins/tribunal-review",
       "category": "development",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "agent-sync",
+      "description": "Generate AGENTS.md from Claude Code project configuration files",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/agent-sync",
+      "category": "development",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }
