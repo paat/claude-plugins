@@ -1,11 +1,11 @@
 {
   "name": "browser-test-router",
-  "version": "0.1.0",
-  "description": "Multi-model delegation for browser testing — Haiku for mechanics, Sonnet for comparison, Opus for analysis",
+  "version": "0.2.0",
+  "description": "Multi-model delegation for browser testing — Kimi K2.5 (via opencode) for execution, Opus for analysis",
   "author": {
     "name": "Andre Paat"
   },
   "repository": "https://github.com/paat/claude-plugins",
   "license": "MIT",
-  "keywords": ["browser-testing", "model-routing", "delegation", "haiku", "sonnet", "token-optimization"]
+  "keywords": ["browser-testing", "model-routing", "delegation", "kimi-k2.5", "opencode", "openweights", "token-optimization"]
 }

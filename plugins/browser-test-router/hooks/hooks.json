@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Check if the Bash command about to be executed is a curl health check, URL navigation, or browser automation command (curl, wget, playwright). If it is, output EXACTLY: '[browser-test-router] Consider delegating mechanical browser work to Haiku via Task(model:\"haiku\") for token savings. Run /browser-test-router:browser-test for the full delegation workflow.' If the command is not browser-related, output nothing."
+            "prompt": "Check if the Bash command is browser-related (curl, wget, playwright). If yes, output: '[browser-test-router] Consider delegating to Kimi K2.5 via opencode run -m opencode/kimi-k2.5-free for token savings and superior tool handling. Run /browser-test-router:browser-test for full delegation workflow.' If not browser-related, output nothing."
           }
         ]
       }

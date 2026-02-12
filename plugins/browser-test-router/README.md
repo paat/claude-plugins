@@ -1,82 +1,141 @@
 # browser-test-router
 
-Multi-model delegation plugin for browser testing workflows. Routes mechanical browser work to cheaper models, saving 45-60% of tokens on browser-heavy testing sessions.
+Multi-model delegation plugin for browser testing. Routes mechanical browser work to Kimi K2.5 (via opencode CLI), saving 40-55% tokens on browser-heavy testing sessions.
 
 ## Problem
 
-Claude Max subscriptions deplete tokens quickly when Opus handles everything — including zero-reasoning browser work like URL navigation, form filling, and screenshot capture.
+Claude Max subscriptions deplete quickly when Opus handles everything — including zero-reasoning browser work like navigation and form filling.
 
 ## Solution
 
-Route each task to the cheapest capable model:
+Delegate mechanical browser operations to Kimi K2.5 (open-weight model) via opencode CLI:
 
-| Task Type | Model | Cost vs Opus |
-|-----------|-------|--------------|
-| Navigation, health checks, screenshots | Haiku | 7% (93% savings) |
-| Form filling, button clicking, login/logout | Haiku | 7% (93% savings) |
-| Side-by-side page comparison | Sonnet | 20% (80% savings) |
-| Spec parsing, gap classification, issue drafting | Opus (inline) | 100% (no savings) |
+| Task Type | Model | Cost vs Opus | Savings |
+|-----------|-------|--------------|---------|
+| Navigation, health checks | Kimi K2.5 (via opencode) | ~15% | 85% |
+| Form operations, sessions | Kimi K2.5 (via opencode) | ~15% | 85% |
+| Page comparison, structural diff | Kimi K2.5 (via opencode) | ~15% | 85% |
+| Spec parsing, gap classification | Opus (inline) | 100% | 0% |
 
-## Installation
+**Overall session savings: 40-55%** of total token consumption.
+
+## Dependencies
+
+- bash 4+
+- curl (for L1 health checks)
+- jq (for JSON parsing)
+- **opencode CLI** with chrome-devtools MCP configured
+
+### Setup
+
+1. **Install opencode**: https://opencode.ai
+
+2. **Configure chrome-devtools MCP** in `opencode.json`:
+   ```json
+   {
+     "mcp": {
+       "chrome-devtools": {
+         "type": "local",
+         "command": ["npx", "-y", "chrome-devtools-mcp@latest"]
+       }
+     }
+   }
+   ```
+
+3. **Verify connection**:
+   ```bash
+   opencode mcp list
+   ```
+   Should show: `✓ chrome-devtools connected`
+
+4. **Install plugin**:
+   ```
+   /install browser-test-router
+   ```
+
+## How It Works
 
 ```
-/install browser-test-router
+Opus (main session, Claude Code)
+  ↓
+  Bash tool: opencode run -m opencode/kimi-k2.5-free "prompt with full context"
+  ↓
+  Kimi K2.5 executes with chrome-devtools MCP access
+  ↓
+  Returns JSON result to stdout
+  ↓
+  Opus analyzes results inline
 ```
+
+**Key insight**: Each opencode run has ZERO context. Opus must pass ALL information (URLs, credentials, test data) in the prompt.
 
 ## Usage
 
-### Command
-
-```
-/browser-test-router:browser-test [url_or_module]
-```
-
-### Standalone — test a single URL
+### Test single URL
 
 ```
 /browser-test-router:browser-test https://example.com
 ```
 
-### With acceptance-test skill — full module testing
+### Compare two systems
 
-Add the model routing section to your project's acceptance-test skill, then:
+```
+/browser-test-router:browser-test https://legacy.app.com/users https://new.app.com/users
+```
+
+### With project acceptance-test skill
 
 ```
 /acceptance-test crm
 ```
 
-The skill will automatically delegate mechanical operations to Haiku and comparisons to Sonnet.
-
-## Agents
-
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| `page-navigator` | Haiku | Navigate URLs, health checks, element inventory |
-| `form-operator` | Haiku | Fill forms, click buttons, session management |
-| `page-comparator` | Sonnet | Structural diff of two page snapshots |
-| `test-analyst` | Opus | Gap classification, issue drafting (standalone use) |
+The skill automatically delegates mechanical operations to Kimi K2.5 via opencode.
 
 ## Delegation Pattern
 
+**Navigation**:
+```bash
+opencode run -m opencode/kimi-k2.5-free "
+CRITICAL: Use chrome-devtools MCP tools only.
+Navigate to https://example.com/page
+Report JSON: {url, status, title, elements[]}
+"
 ```
-Opus (orchestrator)
-  ├── Task(haiku) → navigate legacy page  ─┐
-  ├── Task(haiku) → navigate new page     ─┤
-  │                                        ├→ Task(sonnet) → compare
-  │                                        │
-  └── Opus inline: analyze comparison, classify gaps, draft issues
+
+**Form operation with credentials from .env**:
+```bash
+opencode run -m opencode/kimi-k2.5-free "
+CRITICAL: Use chrome-devtools MCP tools only.
+Login to https://app.example.com
+Credentials: Read from .env file
+- Username variable: TEST_USER
+- Password variable: TEST_PASS
+Report: {action: 'login', success: bool, final_url}
+Note: Do NOT include actual credential values in response
+"
 ```
 
-## Advisory Hook
-
-The plugin includes a PreToolUse hook that suggests delegation when Opus is about to run curl or browser commands directly. Advisory only — never blocks execution.
-
-## Dependencies
-
-- bash 4+
-- curl (for health checks)
-- Browser automation tool (Playwright MCP or equivalent) for screenshots
+**Parallel navigation**:
+```bash
+(opencode run -m opencode/kimi-k2.5-free "..." > /tmp/legacy.json) &
+(opencode run -m opencode/kimi-k2.5-free "..." > /tmp/new.json) &
+wait
+# Opus compares results inline
+```
 
 ## Integration
 
-This plugin provides the generic delegation pattern. Project-specific testing skills reference the pattern and map their own variables (URLs, routes, test accounts). See `skills/browser-test-orchestration/SKILL.md` for the full protocol and integration instructions.
+This plugin provides the generic delegation pattern. Project-specific testing skills reference the pattern and map their domain-specific variables. See `skills/browser-test-orchestration/SKILL.md` for the full protocol.
+
+## Architecture Notes
+
+- **MCP Context**: Uses chrome-devtools MCP (via opencode), not Chrome extension MCP (Claude Code)
+- **Zero Context Isolation**: Each opencode run starts fresh with no prior session state
+- **Opus Orchestrates**: Determines which .env file to use and which variables contain credentials
+- **Kimi Executes**: Reads credentials from .env file, runs browser operations via chrome-devtools MCP, returns JSON observations (without credential values)
+- **Parallelism**: Bash background jobs enable parallel navigation (similar to parallel Task calls)
+- **Credential Security**: Credentials stay in .env files and are read by Kimi subprocess, never logged in Opus session
+
+## Cost Tracking
+
+Plugin tracks "wasted calls" where opencode returned no useful data (empty page, MCP failure, timeout). This helps identify pre-flight check failures and unreliable test environments.
