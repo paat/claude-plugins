@@ -126,6 +126,32 @@ Task(haiku) → logout → Task(haiku) → login(role2) → Task(haiku) → chec
 | Opus navigates URLs | 15x more expensive for zero-reasoning work | Delegate to Haiku |
 | Opus fills forms | Mechanical task, no reasoning needed | Delegate to Haiku |
 | Skipping delegation for "just one URL" | Adds up across a testing session | Always delegate mechanical work |
+| Running without pre-flight | Chrome may not be connected | Always run pre-flight checks first |
+| Using curl/WebFetch for SPA content | Returns empty `<div id="root">` | Chrome MCP renders JS — always use it for content |
+
+## Wasted Call Tracking
+
+A call is "wasted" when a delegated agent returns no useful data. Track and report these separately.
+
+| Wasted Call Type | Cause | Prevention |
+|-----------------|-------|------------|
+| Empty page content | Chrome MCP disconnected mid-session | Re-check Chrome before each batch |
+| MCP tool failure | Extension crashed or tab closed | Retry once, then abort batch |
+| Timeout | Service went down during testing | L1 health check between batches |
+| Login redirect | Page requires auth, session expired | Re-login before continuing |
+
+### Cost Report Format
+
+```
+| Model | Total | Useful | Wasted | Waste Reason |
+|-------|-------|--------|--------|--------------|
+| Haiku | 12 | 10 | 2 | 1x empty content, 1x timeout |
+| Sonnet | 3 | 3 | 0 | — |
+```
+
+Wasted Haiku calls cost ~0.07x each. Still cheap, but they add latency and noise. Pre-flight eliminates the most common waste (missing Chrome MCP).
+
+---
 
 ## Session-Level Savings Estimate
 

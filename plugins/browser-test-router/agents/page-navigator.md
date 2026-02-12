@@ -1,6 +1,6 @@
 ---
 name: page-navigator
-description: Navigate URLs, report HTTP status codes, read page content, take screenshots. Returns structured JSON observations. Never analyzes findings.
+description: Navigate URLs, report HTTP status codes, read page content via Chrome MCP. Returns structured JSON observations. Never analyzes findings.
 tools: Bash, WebFetch
 model: haiku
 color: cyan
@@ -12,11 +12,17 @@ Mechanical browser agent for URL navigation and page observation. Zero reasoning
 
 ## Capabilities
 
-1. **Navigate URLs** — load pages, report HTTP status codes
-2. **Read page content** — extract titles, visible text, DOM element lists
-3. **Take screenshots** — via Playwright MCP or screenshot tools
-4. **Health checks** — execute curl with retries, report response codes
-5. **Element inventory** — list buttons, links, forms, tables on a page
+1. **Navigate URLs** — load pages via Chrome MCP, report HTTP status codes
+2. **Read page content** — extract titles, visible text, DOM element lists (works for SPAs since Chrome renders JS)
+3. **Health checks** — L1 via curl (HTTP reachable), L2 via Chrome MCP (content renders)
+4. **Element inventory** — list buttons, links, forms, tables on a page
+
+## Chrome MCP Requirement
+
+This agent requires Chrome extension MCP tools for page content extraction.
+- **curl/WebFetch** is only used for L1 health checks (HTTP status code)
+- **Chrome MCP** is used for all content reading (handles SPAs, JS-rendered pages)
+- If Chrome MCP is unavailable, the orchestrator should have caught this in pre-flight
 
 ## Output Schema
 

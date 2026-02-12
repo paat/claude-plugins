@@ -11,6 +11,59 @@ Delegation protocol that routes browser testing work to the cheapest capable mod
 
 ---
 
+## Pre-flight (before any delegation)
+
+Run these checks before delegating ANY work. Abort on failure.
+
+### Step 1: Verify Chrome Extension MCP
+
+Check if Chrome extension MCP tools are available in this session. Test by attempting a simple tool call (e.g., list tabs).
+
+**If Chrome MCP is NOT available:**
+```
+CRITICAL: Chrome extension is not connected.
+
+This plugin requires Chrome extension MCP for browser interaction.
+All browser testing requires a live Chrome instance with the MCP extension.
+
+To fix:
+1. Open Chrome with the Claude MCP extension installed
+2. Ensure the extension is connected to this session
+3. Re-run /browser-test-router:browser-test
+```
+**Abort immediately. Do not fall back to curl/WebFetch.**
+
+### Step 2: Health Check (multi-level)
+
+Once Chrome MCP is confirmed, run health checks against the target URL(s):
+
+| Level | Check | Method | Pass Criteria |
+|-------|-------|--------|---------------|
+| L1 | HTTP reachable | `curl -s -o /dev/null -w "%{http_code}" {url}` | Status 200-399 |
+| L2 | Content renders | Chrome MCP: navigate to URL, check visible text length | Visible text > 20 chars |
+| L3 | App functional | Chrome MCP: attempt login if credentials provided | Redirects to authenticated page |
+
+**If L1 fails:** Service is down. Abort with error.
+**If L2 fails:** Page loads but renders empty (broken JS, missing assets). Report warning, continue with caution.
+**If L3 fails:** App may have auth issues. Report warning, continue with limited testing.
+
+Report health check results before proceeding:
+```json
+{
+  "url": "{url}",
+  "health": {
+    "l1_http_reachable": true,
+    "l1_status": 200,
+    "l2_content_renders": true,
+    "l2_visible_text_preview": "First 100 chars...",
+    "l3_app_functional": null
+  },
+  "errors": []
+}
+```
+
+---
+
 ## Model Routing Table
 
 | Task | Model | Why | Delegation |
