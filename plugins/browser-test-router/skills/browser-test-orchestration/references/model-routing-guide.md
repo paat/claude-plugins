@@ -36,13 +36,71 @@ Route each task to the cheapest model that can handle it correctly:
 
 ## Cost Comparison
 
-| Operation | Opus Cost | Delegated Cost | Savings |
-|-----------|-----------|----------------|---------|
-| Navigate URL, report elements | 1x | 0.07x (Haiku) | 93% |
-| Fill form, submit, report | 1x | 0.07x (Haiku) | 93% |
-| Health check with retries | 1x | 0.07x (Haiku) | 93% |
-| Compare two page snapshots | 1x | 0.20x (Sonnet) | 80% |
-| Analyze results, classify gaps | 1x | 1x (Opus inline) | 0% |
+Visual property descriptions add ~60% to delegation cost vs text-only. Screenshots add more but are used sparingly (<10% of operations).
+
+**Key insight**: Visual testing adds modest overhead while catching 90% of visual issues.
+
+## Visual Testing Strategy
+
+### Mental Model: Blind Guide + Sighted Assistant
+
+**Opus = Blind person** (can't see the page directly)
+**Kimi = Sighted assistant** (can see the page via chrome-devtools MCP)
+
+### Primary: Visual Properties as Text (90% of cases)
+
+Kimi extracts visual properties using `evaluate_script` and describes them as text:
+
+```json
+{
+  "type": "button",
+  "text": "Submit",
+  "visual": {
+    "color": "rgb(255, 255, 255)",
+    "backgroundColor": "rgb(0, 123, 255)",
+    "fontSize": "16px",
+    "borderColor": "rgb(0, 123, 255)",
+    "position": {"x": 100, "y": 200, "width": 120, "height": 40},
+    "state": {
+      "visible": true,
+      "enabled": true,
+      "focused": false,
+      "opacity": "1",
+      "hasError": false
+    }
+  }
+}
+```
+
+Opus compares these text descriptions to detect:
+- ✅ CSS regressions (color, sizing changes)
+- ✅ Visual error states (red borders, error indicators)
+- ✅ Layout shifts (position changes)
+- ✅ Button states (enabled vs disabled)
+- ✅ Element visibility changes
+
+**Cost**: Adds ~60% tokens vs text-only, but catches 90% of visual issues.
+
+### Fallback: Screenshots (10% of cases)
+
+Only when text descriptions are insufficient:
+- Complex layout issues (columns misaligned, grid broken)
+- Visual bugs hard to describe in words
+- Page-wide design comparisons
+- Overlapping elements (z-index issues)
+
+**Cost**: Adds 100%+ tokens, used sparingly.
+
+### Decision Flow
+
+```
+1. Kimi always provides visual property descriptions (text)
+2. Opus analyzes text descriptions
+3. If text is insufficient → Opus requests screenshot
+4. Kimi captures screenshot only when explicitly asked
+```
+
+**Key principle**: Start cheap (text descriptions), escalate only when needed (screenshots).
 
 ## When to Delegate vs Stay Inline
 
@@ -155,14 +213,18 @@ Wasted Haiku calls cost ~0.07x each. Still cheap, but they add latency and noise
 
 ## Session-Level Savings Estimate
 
-For a typical acceptance testing session on one module:
+For a typical browser testing session:
 
-| Phase | Operations | Without Routing | With Routing |
-|-------|-----------|-----------------|--------------|
-| Health checks | 3-5 curl calls | Opus | Haiku (93% saved) |
-| Navigation | 10-20 page loads | Opus | Haiku (93% saved) |
-| Form operations | 5-15 form fills | Opus | Haiku (93% saved) |
-| Page comparisons | 5-10 diffs | Opus | Sonnet (80% saved) |
-| Analysis & issues | 10-20 evaluations | Opus | Opus (0% saved) |
+| Phase | Operations | Without Routing | With Routing (Text-Only) | With Visual Testing |
+|-------|-----------|-----------------|--------------------------|---------------------|
+| Health checks | 3-5 curl calls | Opus | Kimi K2.5 (85% saved) | Kimi K2.5 (85% saved) |
+| Navigation | 10-20 page loads | Opus | Kimi K2.5 (85% saved) | Kimi K2.5 (76% saved) |
+| Form operations | 5-15 form fills | Opus | Kimi K2.5 (85% saved) | Kimi K2.5 (85% saved) |
+| Page comparisons | 5-10 diffs | Opus | Kimi K2.5 (85% saved) | Kimi K2.5 (77% saved) |
+| Analysis & issues | 10-20 evaluations | Opus | Opus (0% saved) | Opus (0% saved) |
 
-**Estimated overall savings: 45-60%** of total token consumption.
+**Estimated overall savings:**
+- Text-only delegation: 45-60% vs all-Opus
+- With visual testing: 40-55% vs all-Opus (includes 60% visual overhead)
+
+**Key insight**: Visual testing reduces savings by only 5-10 percentage points while catching 90% of visual bugs. The trade-off is strongly favorable.

@@ -92,6 +92,104 @@ Report health check results before proceeding:
 
 ---
 
+## Mental Model: Blind Guide + Sighted Assistant
+
+**Opus = Blind person** (can't see the page directly)
+**Kimi = Sighted assistant** (can see the page, uses chrome-devtools MCP)
+
+**Primary approach: Kimi describes what it sees**
+- Element colors, sizes, positions, states → as TEXT
+- Rich visual property descriptions (borderColor: "rgb(220, 53, 69)")
+- Cheap: adds ~60% tokens vs text-only (not 100%+)
+- Sufficient for 90% of visual testing
+
+**Fallback: Screenshots only when words aren't enough**
+- Complex layouts hard to describe in words
+- Visual bugs that need visual evidence (misalignment, overlap)
+- Page comparisons where layout differences matter
+- Expensive: 100-500KB per screenshot + Opus reading time
+- Use sparingly, only when Opus says "show me"
+
+---
+
+## Visual Property Extraction
+
+Kimi describes visual properties using `evaluate_script` to extract computed styles:
+
+```javascript
+// JavaScript helper for visual property extraction
+function describeElementVisually(selector) {
+  const elem = document.querySelector(selector);
+  if (!elem) return null;
+
+  const rect = elem.getBoundingClientRect();
+  const computed = window.getComputedStyle(elem);
+
+  return {
+    selector: selector,
+    visual: {
+      // Colors (most important for validation errors)
+      color: computed.color,
+      backgroundColor: computed.backgroundColor,
+      borderColor: computed.borderColor,
+
+      // Sizing
+      fontSize: computed.fontSize,
+      fontWeight: computed.fontWeight,
+      borderWidth: computed.borderWidth,
+
+      // Position and layout
+      position: {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      },
+
+      // State
+      state: {
+        visible: computed.display !== 'none' && computed.visibility !== 'hidden',
+        enabled: !elem.disabled && !elem.hasAttribute('aria-disabled'),
+        focused: document.activeElement === elem,
+        opacity: computed.opacity,
+        hasError: elem.classList.contains('error') ||
+                  elem.classList.contains('invalid') ||
+                  elem.getAttribute('aria-invalid') === 'true'
+      }
+    }
+  };
+}
+```
+
+**IMPORTANT: Visual properties are OPTIONAL based on testing goals**
+
+**Skip visual properties when** (most page comparisons):
+- ✅ Comparing content/behavior only (text, data, functionality)
+- ✅ Design is expected to be different
+- ✅ Testing functional equivalence, not visual equivalence
+- ✅ Verifying business logic, not UI styling
+
+**Capture visual properties when** (visual testing scenarios):
+- 🎨 Visual regression testing (CSS changes, layout verification)
+- 🎨 Validation error styling (border color, error indicators)
+- 🎨 Button states (enabled vs disabled appearance)
+- 🎨 Accessibility testing (visual indicators, color contrast)
+- 🎨 Responsive design testing (layout at different viewports)
+
+**Use screenshots when** (rarely needed, <10% of cases):
+- 🖼️ Complex layout issues (columns misaligned, grid broken)
+- 🖼️ Visual bugs hard to describe ("something looks wrong")
+- 🖼️ Page-wide design comparisons (before/after, variant A vs B)
+- 🖼️ Overlapping elements (z-index issues)
+- 🖼️ Responsive design testing (entire layout changes)
+
+**Decision rule:** Kimi always provides text descriptions. Opus requests screenshot only if:
+- Text description is insufficient to make judgment
+- Visual evidence needed for bug report
+- Complex layout issue suspected
+
+---
+
 ## Model Routing Table
 
 | Task | Model | Why | Delegation |
@@ -136,7 +234,9 @@ This means Opus MUST pass ALL necessary information in the prompt:
 
 ### Navigation Delegation
 
-When you need to navigate to a URL and observe the page:
+#### Default: Content/Behavior Focus (No Visual Properties)
+
+When comparing content/behavior (most use cases):
 
 ```bash
 #!/bin/bash
@@ -144,15 +244,116 @@ URL="$1"
 
 PROMPT="CRITICAL: Use chrome-devtools MCP tools only.
 
-You have NO prior context. I am providing ALL information needed.
+You have NO prior context. Navigate to $URL
 
-Navigate to $URL using chrome-devtools MCP.
-Report as JSON: {url, status, title, elements[], visible_text_summary, errors[]}
-- elements: list every button, link, form, and table with text/selector
-- visible_text_summary: first 500 chars of visible text
-- errors: any load errors, missing resources, console errors
+After page loads:
+1. List all buttons, links, forms, tables with their text/labels
+2. Extract data from tables, lists, forms
+3. Report functional states (visible, enabled, disabled)
+4. DO NOT extract visual properties (colors, positions, fonts)
 
-Do NOT analyze or interpret — just report raw observations."
+Report as JSON:
+{
+  \"url\": \"$URL\",
+  \"status\": 200,
+  \"title\": \"...\",
+  \"elements\": [
+    {\"type\": \"button\", \"text\": \"...\", \"selector\": \"...\", \"enabled\": true}
+  ],
+  \"data\": [...],
+  \"visible_text_summary\": \"first 500 chars\",
+  \"errors\": []
+}
+
+DO NOT analyze - just describe what you see."
+
+RESULT=$(opencode run -m opencode/kimi-k2.5-free --format json "$PROMPT" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text' || echo "PARSE_FAILED")
+
+echo "$RESULT"
+```
+
+#### Optional: Visual Testing Mode (With Visual Properties)
+
+Only when testing visual aspects (CSS, layout, styling):
+
+```bash
+#!/bin/bash
+URL="$1"
+
+PROMPT="CRITICAL: Use chrome-devtools MCP tools only.
+
+You have NO prior context. Navigate to $URL
+
+After page loads, extract visual properties using evaluate_script:
+1. List all buttons, links, forms, tables
+2. For EACH element, extract:
+   - Colors: color, backgroundColor, borderColor
+   - Sizing: fontSize, fontWeight, borderWidth
+   - Position: x, y, width, height (bounding box)
+   - State: visible, enabled, focused, opacity, hasError
+
+Use this JavaScript via evaluate_script:
+function describeElementVisually(selector) {
+  const elem = document.querySelector(selector);
+  if (!elem) return null;
+  const rect = elem.getBoundingClientRect();
+  const computed = window.getComputedStyle(elem);
+  return {
+    selector: selector,
+    visual: {
+      color: computed.color,
+      backgroundColor: computed.backgroundColor,
+      borderColor: computed.borderColor,
+      fontSize: computed.fontSize,
+      fontWeight: computed.fontWeight,
+      borderWidth: computed.borderWidth,
+      position: {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      },
+      state: {
+        visible: computed.display !== 'none' && computed.visibility !== 'hidden',
+        enabled: !elem.disabled && !elem.hasAttribute('aria-disabled'),
+        focused: document.activeElement === elem,
+        opacity: computed.opacity,
+        hasError: elem.classList.contains('error') ||
+                  elem.classList.contains('invalid') ||
+                  elem.getAttribute('aria-invalid') === 'true'
+      }
+    }
+  };
+}
+
+Report as JSON:
+{
+  \"url\": \"$URL\",
+  \"status\": 200,
+  \"title\": \"...\",
+  \"elements\": [
+    {
+      \"type\": \"button\",
+      \"text\": \"...\",
+      \"selector\": \"...\",
+      \"visual\": {
+        \"color\": \"rgb(...)\",
+        \"backgroundColor\": \"rgb(...)\",
+        \"borderColor\": \"rgb(...)\",
+        \"fontSize\": \"16px\",
+        \"fontWeight\": \"600\",
+        \"borderWidth\": \"2px\",
+        \"position\": {\"x\": 100, \"y\": 200, \"width\": 120, \"height\": 40},
+        \"state\": {\"visible\": true, \"enabled\": true, \"focused\": false, \"opacity\": \"1\", \"hasError\": false}
+      }
+    }
+  ],
+  \"visible_text_summary\": \"first 500 chars\",
+  \"errors\": []
+}
+
+DO NOT take screenshots unless I explicitly ask.
+DO NOT analyze - just describe what you see."
 
 # Execute with Kimi K2.5, capture text output
 # Note: --format json outputs JSONL stream, we filter for "type":"text" events
@@ -209,48 +410,54 @@ Opus must pass COMPLETE JSON from previous opencode calls:
 
 ```bash
 #!/bin/bash
-# Step 1: Navigate legacy (Opus delegates to opencode)
-LEGACY_RESULT=$(opencode run -m opencode/kimi-k2.5-free --format json "
+URL_A="$1"
+URL_B="$2"
+# Could be: legacy vs new, before vs after, variant A vs B, mobile vs desktop, etc.
+
+# Step 1: Navigate first URL with visual properties (Opus delegates to opencode)
+RESULT_A=$(opencode run -m opencode/kimi-k2.5-free --format json "
 CRITICAL: Use chrome-devtools MCP tools only.
 
-You have NO prior context. Navigate to https://legacy.app.com/users
-Report JSON: {url, status, elements[], data[]}
+You have NO prior context. Navigate to $URL_A
+Extract visual properties for all buttons, forms, tables
+Report JSON: {url, status, elements[{text, selector, visual{color, backgroundColor, fontSize, position{x,y,width,height}, state{}}}], data[]}
 " 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text')
 
-# Step 2: Navigate new (Opus delegates to opencode)
-NEW_RESULT=$(opencode run -m opencode/kimi-k2.5-free --format json "
+# Step 2: Navigate second URL with visual properties (Opus delegates to opencode)
+RESULT_B=$(opencode run -m opencode/kimi-k2.5-free --format json "
 CRITICAL: Use chrome-devtools MCP tools only.
 
-You have NO prior context. Navigate to https://new.app.com/users
-Report JSON: {url, status, elements[], data[]}
+You have NO prior context. Navigate to $URL_B
+Extract visual properties for all buttons, forms, tables
+Report JSON: {url, status, elements[{text, selector, visual{color, backgroundColor, fontSize, position{x,y,width,height}, state{}}}], data[]}
 " 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text')
 
-# Step 3: Option A - Opus compares INLINE (no delegation)
-# Opus analyzes $LEGACY_RESULT vs $NEW_RESULT directly
+# Step 3: Opus compares visual properties INLINE (primary approach)
+# Opus analyzes $RESULT_A vs $RESULT_B directly
+# Example differences detected from text:
+# - Submit button backgroundColor: rgb(0,123,255) → rgb(0,128,255) (shade changed)
+# - Submit button position.y: 200 → 210 (moved down 10px)
+# - Login form width: 400 → 350 (narrower)
 
-# Step 3: Option B - Delegate comparison to Kimi (if complex diff)
-COMPARISON=$(opencode run -m opencode/kimi-k2.5-free --format json "
-You have NO prior context. I am providing COMPLETE data from two pages.
-
-Compare these two page snapshots:
-
-LEGACY (source of truth):
-$LEGACY_RESULT
-
-NEW (being tested):
-$NEW_RESULT
-
-Report as JSON: {legacy_url, new_url, matches[], differences[], legacy_only[], new_only[], summary}
-- differences: include severity_hint (high/medium/low) but NOT final classification
-- Compare: data values, columns, record counts, sorting, buttons, filters
-
-Do NOT create issues or recommend actions — just report structural differences.
-" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text')
-
-echo "$COMPARISON"
+# Step 4: If text comparison reveals suspicious layout issues, request screenshot:
+# if [[ complex_layout_detected ]]; then
+#   echo "Layout differences detected. Requesting visual evidence..."
+#
+#   SCREENSHOT_RESULT=$(opencode run -m opencode/kimi-k2.5-free --format json "
+#   CRITICAL: Use chrome-devtools MCP tools only.
+#
+#   You have NO prior context. Navigate to $URL_B
+#   Take screenshot: /tmp/screenshots/page-b-layout-$(date +%s).png
+#   Report: {screenshot_path}
+#   " 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text')
+#
+#   SCREENSHOT_PATH=$(echo "$SCREENSHOT_RESULT" | jq -r '.screenshot_path')
+#   echo "Screenshot saved: $SCREENSHOT_PATH"
+#   echo "Opus can now read this screenshot for visual analysis"
+# fi
 ```
 
-**Key insight**: For simple comparisons, Opus can analyze inline without delegating. Only delegate comparison to Kimi if structural diff is complex and benefits from Kimi's reasoning.
+**Key insight**: Start with text-based visual comparison (cheap, 90% sufficient). Only request screenshot if text reveals layout issues that need visual evidence.
 
 ---
 
@@ -258,39 +465,154 @@ echo "$COMPARISON"
 
 **REQUIRES**: chrome-devtools MCP configured with `--isolated` flag in opencode.json to enable concurrent browser instances.
 
-When testing two systems side-by-side, navigate both in parallel using background jobs:
+When comparing two pages side-by-side, navigate both in parallel using background jobs:
 
 ```bash
 #!/bin/bash
-LEGACY_URL="$1"
-NEW_URL="$2"
+URL_A="$1"
+URL_B="$2"
 
-# Navigate legacy in background
+# Navigate first page in background
 (opencode run -m opencode/kimi-k2.5-free --format json "
 CRITICAL: Use chrome-devtools MCP tools only.
-Navigate to $LEGACY_URL. Report JSON: {url, status, title, elements[], data[]}
-" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text' > /tmp/legacy_snapshot.json) &
-PID_LEGACY=$!
+Navigate to $URL_A. Report JSON: {url, status, title, elements[], data[]}
+" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text' > /tmp/snapshot_a.json) &
+PID_A=$!
 
-# Navigate new in background (runs simultaneously with above)
+# Navigate second page in background (runs simultaneously with above)
 (opencode run -m opencode/kimi-k2.5-free --format json "
 CRITICAL: Use chrome-devtools MCP tools only.
-Navigate to $NEW_URL. Report JSON: {url, status, title, elements[], data[]}
-" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text' > /tmp/new_snapshot.json) &
-PID_NEW=$!
+Navigate to $URL_B. Report JSON: {url, status, title, elements[], data[]}
+" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text' > /tmp/snapshot_b.json) &
+PID_B=$!
 
 # Wait for both to complete
-wait $PID_LEGACY $PID_NEW
+wait $PID_A $PID_B
 
 # Load results
-LEGACY_SNAPSHOT=$(cat /tmp/legacy_snapshot.json)
-NEW_SNAPSHOT=$(cat /tmp/new_snapshot.json)
+SNAPSHOT_A=$(cat /tmp/snapshot_a.json)
+SNAPSHOT_B=$(cat /tmp/snapshot_b.json)
 
 # Opus analyzes comparison inline (no delegation)
-# Compare $LEGACY_SNAPSHOT vs $NEW_SNAPSHOT and classify gaps...
+# Compare $SNAPSHOT_A vs $SNAPSHOT_B based on user's goals...
 ```
 
 **How it works**: The `--isolated` flag creates temporary browser profiles for each opencode session, allowing multiple browser instances to run simultaneously without conflicts.
+
+---
+
+## Screenshot Delegation (Fallback Only)
+
+**Use screenshots sparingly** - only when text-based visual descriptions are insufficient.
+
+### When to Request Screenshots
+
+1. **After text comparison reveals layout issues**:
+   ```
+   Opus: "The form width decreased from 400px to 350px, and the submit button moved down 10px.
+          These changes suggest possible layout breakage. Kimi, show me a screenshot of the new page."
+   ```
+
+2. **Complex layout issues hard to describe**:
+   - Columns misaligned, grid broken
+   - Overlapping elements (z-index issues)
+   - Responsive design testing (entire layout changes)
+
+3. **Visual evidence needed for bug report**:
+   - To include in issue documentation
+   - For visual regression testing baseline
+
+### Screenshot Request Pattern
+
+```bash
+#!/bin/bash
+URL="$1"
+REASON="$2"  # Why screenshot is needed
+
+PROMPT="CRITICAL: Use chrome-devtools MCP tools only.
+
+You have NO prior context. Navigate to $URL
+
+Take a screenshot because: $REASON
+- Save to: /tmp/screenshots/$(date +%s)-screenshot.png
+
+Report: {screenshot_path, viewport_size}
+"
+
+RESULT=$(opencode run -m opencode/kimi-k2.5-free --format json "$PROMPT" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text')
+
+SCREENSHOT_PATH=$(echo "$RESULT" | jq -r '.screenshot_path')
+
+echo "Screenshot saved: $SCREENSHOT_PATH"
+echo "Opus can now read this screenshot for visual analysis"
+```
+
+**Important**: Opus must explicitly request screenshots. Kimi should NOT take screenshots by default - always prefer text-based visual descriptions.
+
+---
+
+## Visual Comparison Analysis (Opus as Blind Guide)
+
+### Level 1: Text-Based Visual Analysis (Primary)
+
+Opus analyzes visual properties from text descriptions (no screenshots needed):
+
+```
+# Example: Opus compares text descriptions
+
+button_before = {
+  "backgroundColor": "rgb(0, 123, 255)",
+  "fontSize": "16px",
+  "position": {"x": 100, "y": 200, "width": 120, "height": 40}
+}
+
+button_after = {
+  "backgroundColor": "rgb(0, 128, 255)",
+  "fontSize": "14px",
+  "position": {"x": 100, "y": 210, "width": 120, "height": 40}
+}
+
+# Opus identifies differences:
+differences = [
+  {"property": "backgroundColor", "change": "rgb(0,123,255) → rgb(0,128,255)", "type": "color_shade"},
+  {"property": "fontSize", "change": "16px → 14px", "delta": -2, "type": "sizing"},
+  {"property": "y", "change": "200 → 210", "delta": 10, "type": "position"}
+]
+
+# No screenshot needed for simple property changes
+```
+
+### Level 2: Screenshot-Based Analysis (Fallback)
+
+Only when text comparison reveals issues that need visual evidence:
+
+```
+Opus: "The form width decreased from 400px to 350px, and the submit button moved down 10px.
+       These changes suggest possible layout breakage. Kimi, show me a screenshot of page B."
+
+Kimi: Takes screenshot, saves to /tmp/screenshots/page-b-layout-1707749234.png
+
+Opus: Reads screenshot via Read tool
+      Analyzes: "The narrower form causes text wrapping in the email field label, which then
+                 pushes the submit button down. This appears to be a layout issue."
+
+Visual evidence: Screenshot confirms layout breakage from form width change
+```
+
+### Common Visual Checks (No Assumptions About Meaning)
+
+Opus can detect these visual changes from text properties alone:
+
+| Visual Change | Text Description | Screenshot? |
+|---------------|------------------|-------------|
+| Element visibility changed | visible: false, opacity: "0" | Optional |
+| Border color changed | borderColor: rgb(X) → rgb(Y) | No |
+| Layout shifted | multiple elements position changed | Yes (evidence) |
+| Element moved | position.y: 200 → 210 | No |
+| Color shade changed | backgroundColor: rgb(0,123,255) → rgb(0,128,255) | No |
+| Font size changed | fontSize: "16px" → "14px" | No |
+
+**90% of visual changes don't need screenshots** - text descriptions are sufficient!
 
 ---
 
@@ -361,21 +683,65 @@ For each numbered rule in the spec:
 
 ---
 
-## Validation Rule Testing Delegation
+## Capture Visual State After Interaction
 
-For each field/rule row in the spec's validation table:
+For any interaction that causes visual changes (form submissions, clicks, hovers, etc.):
 
-1. **Opus inline**: Determine invalid input for the rule type
-2. **Kimi via opencode**: Enter invalid input, submit, report response
+1. **Opus inline**: Determine what action to perform and what visual changes to observe
+2. **Kimi via opencode**: Perform action, wait for changes, report visual state
    ```bash
-   opencode run -m opencode/kimi-k2.5-free "
-   CRITICAL: Use chrome-devtools MCP.
-   You have NO prior context.
-   On {form_url}, leave '{field}' empty (or enter '{invalid_value}'). Click submit.
-   Report: {response_code, messages[], errors[], field_highlighted: bool}
-   "
+   #!/bin/bash
+   FORM_URL="$1"
+   ACTION="$2"  # e.g., "fill field 'email' with 'test@example.com', click 'Submit'"
+
+   PROMPT="CRITICAL: Use chrome-devtools MCP tools only.
+
+   You have NO prior context. I am providing ALL information needed.
+
+   Perform action on $FORM_URL:
+   1. Navigate to page
+   2. Perform: $ACTION
+   3. Wait 2 seconds for any visual changes
+
+   Describe the visual state of affected elements:
+   - Extract computed styles: borderColor, backgroundColor, color
+   - Check for new elements (messages, icons, indicators)
+   - Check for state changes (error classes, aria attributes)
+   - Measure positions and sizes
+
+   Report as JSON:
+   {
+     \"action_performed\": \"$ACTION\",
+     \"url\": \"$FORM_URL\",
+     \"affected_elements\": [
+       {
+         \"selector\": \"...\",
+         \"type\": \"...\",
+         \"text\": \"...\",
+         \"visual\": {
+           \"borderColor\": \"rgb(...)\",
+           \"backgroundColor\": \"rgb(...)\",
+           \"color\": \"rgb(...)\",
+           \"position\": {\"x\": 100, \"y\": 200, \"width\": 120, \"height\": 40},
+           \"state\": {\"visible\": true, \"enabled\": true, \"hasError\": false}
+         }
+       }
+     ],
+     \"new_elements\": [...],
+     \"visual_changes\": \"description of what changed\"
+   }
+
+   DO NOT take screenshot - describe in words what you see."
+
+   RESULT=$(opencode run -m opencode/kimi-k2.5-free --format json "$PROMPT" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text' || echo "PARSE_FAILED")
+
+   echo "$RESULT"
    ```
-3. **Opus inline**: Compare reported message to spec's expected message, classify result
+3. **Opus inline**: Analyze visual state changes based on user's goals:
+   - Identify what visual changes occurred (colors, visibility, new elements)
+   - Compare to expected behavior (if validating against spec)
+   - Determine if the interaction produced the desired visual outcome
+   - Use visual evidence for bug reports, QA verification, or documentation
 
 ---
 
@@ -451,13 +817,17 @@ After each testing session, report model usage breakdown:
 
 | Model | Calls | Purpose |
 |-------|-------|---------|
-| Kimi K2.5 | {N} | Navigation ({a}), forms ({b}), comparisons ({c}) |
+| Kimi K2.5 | {N} | Navigation ({a}), forms ({b}), comparisons ({c}), screenshots ({d}) |
 | Opus | inline | Spec parsing, gap classification, issue drafting |
 
 Estimated token savings: ~{X}% vs all-Opus execution
 - Kimi calls via opencode run
 - chrome-devtools MCP for browser automation
 ```
+
+### Cost Impact (Visual Testing)
+
+Visual property descriptions add ~60% tokens vs text-only. Screenshots add more but are used sparingly (<10% of operations).
 
 ---
 

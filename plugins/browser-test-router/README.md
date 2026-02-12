@@ -4,11 +4,11 @@ Multi-model delegation plugin for browser testing. Routes mechanical browser wor
 
 ## Problem
 
-Claude Max subscriptions deplete quickly when Opus handles everything — including zero-reasoning browser work like navigation and form filling.
+Claude Max subscriptions deplete quickly when Opus handles everything — including zero-reasoning browser work like navigation and form filling. Additionally, text-only browser testing misses visual/design issues like CSS regressions, validation error styling, and layout breakage.
 
 ## Solution
 
-Delegate mechanical browser operations to Kimi K2.5 (open-weight model) via opencode CLI:
+Delegate mechanical browser operations to Kimi K2.5 (open-weight model) via opencode CLI, with enhanced visual testing via text-based visual property descriptions:
 
 | Task Type | Model | Cost vs Opus | Savings |
 |-----------|-------|--------------|---------|
@@ -70,6 +70,80 @@ Opus (main session, Claude Code)
 ```
 
 **Key insight**: Each opencode run has ZERO context. Opus must pass ALL information (URLs, credentials, test data) in the prompt.
+
+## Visual Testing Capabilities (Optional)
+
+**IMPORTANT:** Visual property extraction is **optional** and should only be used when testing visual aspects. For most page comparisons (content/behavior testing), skip visual properties entirely.
+
+### When to Use Visual Testing
+
+**Skip visual testing when:**
+- Comparing content/functionality (text, data, behavior)
+- Design is expected to be different between pages
+- Testing functional equivalence only
+
+**Use visual testing when:**
+- Visual regression testing (CSS changes)
+- Validation error styling verification
+- Accessibility testing (color contrast, indicators)
+- Responsive design testing
+
+### Mental Model: Blind Guide + Sighted Assistant
+
+**Opus = Blind person** (can't see the page directly)
+**Kimi = Sighted assistant** (can see the page, uses chrome-devtools MCP)
+
+**Primary approach: Kimi describes what it sees**
+- Element colors, sizes, positions, states → as TEXT
+- Rich visual property descriptions (borderColor: "rgb(220, 53, 69)")
+- Adds ~60% tokens vs text-only
+- Sufficient for 90% of visual testing scenarios
+
+**Fallback: Screenshots only when words aren't enough**
+- Complex layouts hard to describe in words
+- Visual bugs that need visual evidence
+- Use sparingly, only when Opus requests
+
+### What Visual Testing Catches (When Enabled)
+
+**With visual property descriptions (text-based):**
+- ✅ CSS regressions (color, sizing, positioning changes)
+- ✅ Visual error states (red borders, error icons, disabled appearance)
+- ✅ Layout shifts (elements moving, size changes)
+- ✅ Validation styling (error indicators, focus states)
+- ✅ Button states (enabled vs disabled - opacity, color)
+- ✅ Element visibility (display: none vs visible)
+
+**Example visual property capture:**
+```json
+{
+  "type": "button",
+  "text": "Submit",
+  "selector": "#submit-btn",
+  "visual": {
+    "color": "rgb(255, 255, 255)",
+    "backgroundColor": "rgb(0, 123, 255)",
+    "fontSize": "16px",
+    "borderColor": "rgb(0, 123, 255)",
+    "position": {"x": 100, "y": 200, "width": 120, "height": 40},
+    "state": {
+      "visible": true,
+      "enabled": true,
+      "focused": false,
+      "opacity": "1",
+      "hasError": false
+    }
+  }
+}
+```
+
+Opus can compare these text descriptions to detect visual issues without seeing the page.
+
+### Cost Impact
+
+Visual property descriptions add ~60% tokens vs text-only. Screenshots add more but are used sparingly (<10% of operations).
+
+**Overall session savings: 40-55%** vs all-Opus execution (including visual testing overhead).
 
 ## Usage
 
@@ -133,10 +207,12 @@ This plugin provides the generic delegation pattern. Project-specific testing sk
 
 - **MCP Context**: Uses chrome-devtools MCP (via opencode), not Chrome extension MCP (Claude Code)
 - **Zero Context Isolation**: Each opencode run starts fresh with no prior session state
-- **Opus Orchestrates**: Determines which .env file to use and which variables contain credentials
-- **Kimi Executes**: Reads credentials from .env file, runs browser operations via chrome-devtools MCP, returns JSON observations (without credential values)
+- **Opus Orchestrates**: Determines which .env file to use and which variables contain credentials, analyzes visual properties from text descriptions
+- **Kimi Executes**: Reads credentials from .env file, runs browser operations via chrome-devtools MCP, extracts visual properties using evaluate_script, returns JSON observations (without credential values)
+- **Visual Testing**: Kimi describes visual properties (colors, sizes, positions, states) as text. Opus compares these descriptions without seeing the page. Screenshots only used when text descriptions are insufficient (<10% of cases)
 - **Parallelism**: Bash background jobs enable parallel navigation (requires `--isolated` flag in opencode.json)
 - **Credential Security**: Credentials stay in .env files and are read by Kimi subprocess, never logged in Opus session
+- **Screenshot Storage**: Optional screenshots saved to /tmp/screenshots/ for complex layout analysis (created by pre-flight checks)
 
 ## Cost Tracking
 
