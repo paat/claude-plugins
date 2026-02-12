@@ -46,7 +46,7 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
    opencode run -m opencode/kimi-k2.5-free --format json "
    CRITICAL: Use chrome-devtools MCP tools only.
    Navigate to $URL, report status/title/elements as JSON
-   " | jq -r '.content[0].text'
+   " 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text'
    ```
    - Review results inline as Opus
    - If a second URL is provided for comparison:

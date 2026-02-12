@@ -36,11 +36,13 @@ Delegate mechanical browser operations to Kimi K2.5 (open-weight model) via open
      "mcp": {
        "chrome-devtools": {
          "type": "local",
-         "command": ["npx", "-y", "chrome-devtools-mcp@latest"]
+         "command": ["npx", "-y", "chrome-devtools-mcp@latest", "--isolated"]
        }
      }
    }
    ```
+
+   **IMPORTANT**: The `--isolated` flag is required for parallel browser operations. It creates temporary browser profiles for each opencode session, enabling concurrent testing.
 
 3. **Verify connection**:
    ```bash
@@ -133,7 +135,7 @@ This plugin provides the generic delegation pattern. Project-specific testing sk
 - **Zero Context Isolation**: Each opencode run starts fresh with no prior session state
 - **Opus Orchestrates**: Determines which .env file to use and which variables contain credentials
 - **Kimi Executes**: Reads credentials from .env file, runs browser operations via chrome-devtools MCP, returns JSON observations (without credential values)
-- **Parallelism**: Bash background jobs enable parallel navigation (similar to parallel Task calls)
+- **Parallelism**: Bash background jobs enable parallel navigation (requires `--isolated` flag in opencode.json)
 - **Credential Security**: Credentials stay in .env files and are read by Kimi subprocess, never logged in Opus session
 
 ## Cost Tracking

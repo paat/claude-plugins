@@ -54,6 +54,13 @@ echo "✓ chrome-devtools MCP connected"
 
 **If opencode is NOT installed or MCP is NOT connected: Abort immediately. Do not fall back to curl/WebFetch.**
 
+**Troubleshooting**: If chrome-devtools MCP fails with "browser is already running" error:
+```bash
+# Clear stale browser profile lock
+rm -rf /config/.cache/chrome-devtools-mcp/chrome-profile
+# Then retry the operation
+```
+
 ### Step 2: Health Check (multi-level)
 
 Once opencode + chrome-devtools MCP are confirmed, run health checks against the target URL(s):
@@ -147,8 +154,9 @@ Report as JSON: {url, status, title, elements[], visible_text_summary, errors[]}
 
 Do NOT analyze or interpret — just report raw observations."
 
-# Execute with Kimi K2.5, capture JSON output
-RESULT=$(opencode run -m opencode/kimi-k2.5-free --format json "$PROMPT" | jq -r '.content[0].text')
+# Execute with Kimi K2.5, capture text output
+# Note: --format json outputs JSONL stream, we filter for "type":"text" events
+RESULT=$(opencode run -m opencode/kimi-k2.5-free --format json "$PROMPT" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text' || echo "PARSE_FAILED")
 
 echo "$RESULT"
 ```
@@ -188,7 +196,7 @@ Report as JSON: {action: 'login', url, env_file_read: bool, fields_filled[], fin
 Do NOT judge whether the response is correct — just report what happened.
 Do NOT include actual credential values in the response."
 
-RESULT=$(opencode run -m opencode/kimi-k2.5-free --format json "$PROMPT" | jq -r '.content[0].text')
+RESULT=$(opencode run -m opencode/kimi-k2.5-free --format json "$PROMPT" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text' || echo "PARSE_FAILED")
 
 echo "$RESULT"
 ```
@@ -207,7 +215,7 @@ CRITICAL: Use chrome-devtools MCP tools only.
 
 You have NO prior context. Navigate to https://legacy.app.com/users
 Report JSON: {url, status, elements[], data[]}
-" | jq -r '.content[0].text')
+" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text')
 
 # Step 2: Navigate new (Opus delegates to opencode)
 NEW_RESULT=$(opencode run -m opencode/kimi-k2.5-free --format json "
@@ -215,7 +223,7 @@ CRITICAL: Use chrome-devtools MCP tools only.
 
 You have NO prior context. Navigate to https://new.app.com/users
 Report JSON: {url, status, elements[], data[]}
-" | jq -r '.content[0].text')
+" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text')
 
 # Step 3: Option A - Opus compares INLINE (no delegation)
 # Opus analyzes $LEGACY_RESULT vs $NEW_RESULT directly
@@ -237,7 +245,7 @@ Report as JSON: {legacy_url, new_url, matches[], differences[], legacy_only[], n
 - Compare: data values, columns, record counts, sorting, buttons, filters
 
 Do NOT create issues or recommend actions — just report structural differences.
-" | jq -r '.content[0].text')
+" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text')
 
 echo "$COMPARISON"
 ```
@@ -247,6 +255,8 @@ echo "$COMPARISON"
 ---
 
 ## Parallel Navigation Pattern
+
+**REQUIRES**: chrome-devtools MCP configured with `--isolated` flag in opencode.json to enable concurrent browser instances.
 
 When testing two systems side-by-side, navigate both in parallel using background jobs:
 
@@ -259,14 +269,14 @@ NEW_URL="$2"
 (opencode run -m opencode/kimi-k2.5-free --format json "
 CRITICAL: Use chrome-devtools MCP tools only.
 Navigate to $LEGACY_URL. Report JSON: {url, status, title, elements[], data[]}
-" | jq -r '.content[0].text' > /tmp/legacy_snapshot.json) &
+" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text' > /tmp/legacy_snapshot.json) &
 PID_LEGACY=$!
 
-# Navigate new in background
+# Navigate new in background (runs simultaneously with above)
 (opencode run -m opencode/kimi-k2.5-free --format json "
 CRITICAL: Use chrome-devtools MCP tools only.
 Navigate to $NEW_URL. Report JSON: {url, status, title, elements[], data[]}
-" | jq -r '.content[0].text' > /tmp/new_snapshot.json) &
+" 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text' > /tmp/new_snapshot.json) &
 PID_NEW=$!
 
 # Wait for both to complete
@@ -280,7 +290,7 @@ NEW_SNAPSHOT=$(cat /tmp/new_snapshot.json)
 # Compare $LEGACY_SNAPSHOT vs $NEW_SNAPSHOT and classify gaps...
 ```
 
-This pattern achieves parallelism at the Bash level, similar to parallel Task calls.
+**How it works**: The `--isolated` flag creates temporary browser profiles for each opencode session, allowing multiple browser instances to run simultaneously without conflicts.
 
 ---
 
