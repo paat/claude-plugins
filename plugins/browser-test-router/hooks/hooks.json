@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Check if the Bash command about to be executed is a curl health check, URL navigation, or browser automation command (curl, wget, playwright). If it is, output EXACTLY: '[browser-test-router] Consider delegating mechanical browser work to Haiku via Task(model:\"haiku\") for token savings. Run /browser-test-router:browser-test for the full delegation workflow.' If the command is not browser-related, output nothing."
+          }
+        ]
+      }
+    ]
+  }
+}

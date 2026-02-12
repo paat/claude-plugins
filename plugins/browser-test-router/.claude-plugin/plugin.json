@@ -1,0 +1,11 @@
+{
+  "name": "browser-test-router",
+  "version": "0.1.0",
+  "description": "Multi-model delegation for browser testing — Haiku for mechanics, Sonnet for comparison, Opus for analysis",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": ["browser-testing", "model-routing", "delegation", "haiku", "sonnet", "token-optimization"]
+}
