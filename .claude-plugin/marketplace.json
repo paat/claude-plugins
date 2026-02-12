@@ -49,6 +49,17 @@
       "source": "./plugins/agent-sync",
       "category": "development",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "browser-test-router",
+      "description": "Multi-model delegation for browser testing — Haiku for mechanics, Sonnet for comparison, Opus for analysis",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/browser-test-router",
+      "category": "testing",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }
