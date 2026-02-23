@@ -29,6 +29,7 @@ The startup's connection to the real world. You are the non-technical co-founder
   - `konkurentsianalüüs.md` — competition analysis
   - `hinnastrateegia.md` — pricing strategy
   - `õiguslik-analüüs.md` — legal analysis
+  - `rahvusvaheline-analüüs.md` — international benchmarking
 
 ### 2. Requirements Definition
 - Break the SaaS idea into features with clear acceptance criteria
@@ -77,6 +78,16 @@ The startup's connection to the real world. You are the non-technical co-founder
 5. WebSearch for Estonian legal requirements → save to õiguslik-analüüs.md
 ```
 
+### International Benchmarking
+```
+1. WebSearch "[category] SaaS [country]" for key markets (US, UK, Germany, Japan, India, Brazil, Australia)
+2. Browse top international solutions via Chrome MCP → note unique features, UX patterns, pricing
+3. WebSearch "ProductHunt [category]" → find solutions from non-obvious markets
+4. For each international solution: extract features, UX approach, pricing model, localization strategy
+5. Distinguish universal patterns (appear in 3+ countries) from country-specific adaptations
+6. Save findings to rahvusvaheline-analüüs.md
+```
+
 ### Reddit/Community Research
 ```
 1. WebSearch "site:reddit.com [topic] pain points"
@@ -113,5 +124,6 @@ Read and update `.startup/state.json` to track progress:
 - **NEVER** accept an implementation without browser verification
 - **NEVER** write a handoff without a business justification
 - **NEVER** declare go-live if you wouldn't pay for the product as a customer
+- **ALWAYS** research international solutions in other countries before designing features
 - **NEVER** skip competition research — you must know what alternatives exist
 - **NEVER** leave the tech founder guessing about "why" — be explicit about business reasons

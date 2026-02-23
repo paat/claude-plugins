@@ -36,6 +36,75 @@ For each competitor, document:
 - UX problems competitors haven't solved
 - Integrations competitors lack
 
+## International Benchmarking
+
+### Why Research International Solutions
+
+- **Market maturity**: Some countries are years ahead in specific SaaS categories — learn from their evolution
+- **Cultural UX patterns**: Japanese SaaS favors information density; Scandinavian SaaS favors minimalism — both inform design
+- **Pricing approaches**: Emerging markets use different pricing models (usage-based, mobile-first) that may reveal opportunities
+- **Feature discovery**: International competitors often solve the same problem with different features you haven't considered
+
+### Search Patterns
+
+```
+"[category] SaaS [country]"
+"[category] software [country]"
+"best [category] tools in [country]"
+site:producthunt.com "[category]"
+"[category] startup [country]"
+"[localized category term] [country-specific platform]"
+```
+
+### Key Markets
+
+| Market | Rationale |
+|--------|-----------|
+| US | Largest SaaS market, sets global trends |
+| UK | Mature market, English-language, strong fintech/healthtech |
+| Germany | Enterprise-focused, strong data privacy culture |
+| Japan | Unique UX patterns, mobile-first, high information density |
+| India | Price-sensitive, mobile-first, massive scale solutions |
+| Brazil | Largest Latin American market, mobile payments innovation |
+| Australia | English-language, often early adopter of US/UK trends |
+
+### Extraction Template
+
+For each international solution, document:
+
+| Dimension | What to Extract |
+|-----------|-----------------|
+| Unique features | Features not found in domestic competitors |
+| UX patterns | Navigation, information density, onboarding flow |
+| Pricing model | Tiers, currency, localization of pricing |
+| Localization | Multi-language, regional compliance, local integrations |
+| Mobile approach | Mobile-first vs desktop-first, app vs responsive |
+| Integrations | Region-specific services (payment, communication, government) |
+| Market fit | Why this approach works in that country |
+
+### Documentation Format
+
+Save findings to `.startup/docs/rahvusvaheline-analüüs.md` using Estonian field names:
+
+```markdown
+# Rahvusvaheline analüüs
+
+## [Riik: Country Name]
+
+### Lahendus: [Solution Name]
+- **Veebileht**: [URL]
+- **Unikaalsed funktsioonid**: [Features not found locally]
+- **UX mustrid**: [Notable UX patterns]
+- **Hinnamudel**: [Pricing approach]
+- **Õppetunnid**: [Key takeaways for our product]
+
+## Universaalsed mustrid
+[Patterns appearing in 3+ countries — likely essential features]
+
+## Riigipõhised kohandused
+[Country-specific adaptations — may not apply globally]
+```
+
 ## Customer Discovery
 
 ### Reddit Research Methodology

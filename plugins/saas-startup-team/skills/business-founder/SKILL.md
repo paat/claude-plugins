@@ -61,12 +61,18 @@ You are the non-technical co-founder. This skill provides your domain expertise 
    - Note: pricing, features, UX, positioning
    - Identify gaps and differentiation opportunities
 
-4. Pricing Strategy (hinnastrateegia.md)
+4. International Benchmarking (rahvusvaheline-analüüs.md)
+   - WebSearch: "[category] SaaS [country]" for key markets (US, UK, Germany, Japan, India, Brazil)
+   - Browse international solutions via Chrome MCP
+   - Extract unique features, UX patterns, pricing models
+   - Distinguish universal patterns from country-specific adaptations
+
+5. Pricing Strategy (hinnastrateegia.md)
    - Research competitor pricing pages
    - Analyze value metrics for the specific product
    - Define pricing tiers
 
-5. Legal Requirements (õiguslik-analüüs.md)
+6. Legal Requirements (õiguslik-analüüs.md)
    - WebSearch: Estonian requirements for [industry]
    - Check Riigi Teataja for relevant regulations
    - Identify GDPR requirements for customer data

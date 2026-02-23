@@ -61,11 +61,12 @@ Send the initial message to the business founder:
 
 > Read `.startup/brief.md`. This is our investor's SaaS idea. Your job:
 > 1. Research the market, competition, and customer pain points (save to `.startup/docs/` in Estonian)
-> 2. Check Estonian legal requirements for this type of business
-> 3. Break the idea into prioritized features
-> 4. Write the first handoff to tech founder: `.startup/handoffs/001-business-to-tech.md`
-> 5. Add any human-only tasks to `.startup/human-tasks.md`
-> 6. Update `.startup/state.json` (iteration: 1, phase: requirements)
+> 2. Research similar solutions in other countries — extract features, UX patterns, and pricing from international competitors (save to `.startup/docs/rahvusvaheline-analüüs.md`)
+> 3. Check Estonian legal requirements for this type of business
+> 4. Break the idea into prioritized features
+> 5. Write the first handoff to tech founder: `.startup/handoffs/001-business-to-tech.md`
+> 6. Add any human-only tasks to `.startup/human-tasks.md`
+> 7. Update `.startup/state.json` (iteration: 1, phase: requirements)
 
 ## Loop Control
 

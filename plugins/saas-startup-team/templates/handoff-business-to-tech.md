@@ -15,6 +15,7 @@ One paragraph overview of what is needed.
 Why this matters to the customer and the business. Include:
 - Customer pain point this addresses
 - Competition analysis (what competitors do/don't do)
+- International benchmarks (what solutions in other countries do differently)
 - Market research findings
 - Revenue impact
 
@@ -40,6 +41,7 @@ Links to working documents in `.startup/docs/`:
 - Market research: `.startup/docs/turu-uurimine.md`
 - Customer feedback: `.startup/docs/kliendi-tagasiside.md`
 - Competition analysis: `.startup/docs/konkurentsianalüüs.md`
+- International analysis: `.startup/docs/rahvusvaheline-analüüs.md`
 
 ## Blockers / Questions
 
