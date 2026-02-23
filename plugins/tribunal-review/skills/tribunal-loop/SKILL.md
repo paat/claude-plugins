@@ -38,6 +38,9 @@ Run both scripts below as **two parallel Bash tool calls**. No Task agents -- ex
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 
+# Parallel-safe: unique temp dir per invocation
+TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
+
 DIFF=$(git diff origin/main...HEAD)
 
 if [ -z "$DIFF" ]; then
@@ -54,7 +57,7 @@ else
   DIFF_TRUNCATED=false
 fi
 
-cat > /tmp/codex-review-schema.json << 'SCHEMA'
+cat > "$TMPDIR/codex-review-schema.json" << 'SCHEMA'
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
@@ -101,10 +104,10 @@ SCHEMA
 
 codex exec - \
   --model gpt-5.3-codex \
-  --output-schema /tmp/codex-review-schema.json \
-  -o /tmp/codex-review-output.json \
+  --output-schema "$TMPDIR/codex-review-schema.json" \
+  -o "$TMPDIR/codex-review-output.json" \
   --sandbox read-only \
-  >/dev/null 2>/tmp/codex-stderr.txt <<PROMPT
+  >/dev/null 2>"$TMPDIR/codex-stderr.txt" <<PROMPT
 You are a senior code reviewer. Analyze the diff below for REAL, ACTIONABLE issues only.
 
 ## What to Report
@@ -140,21 +143,23 @@ $DIFF
 PROMPT
 CODEX_EXIT=$?
 
-if [ $CODEX_EXIT -eq 0 ] && [ -f /tmp/codex-review-output.json ]; then
-  cat /tmp/codex-review-output.json
+if [ $CODEX_EXIT -eq 0 ] && [ -f "$TMPDIR/codex-review-output.json" ]; then
+  cat "$TMPDIR/codex-review-output.json"
 else
-  STDERR_CONTENT=$(cat /tmp/codex-stderr.txt 2>/dev/null || echo "no stderr captured")
+  STDERR_CONTENT=$(cat "$TMPDIR/codex-stderr.txt" 2>/dev/null || echo "no stderr captured")
   SAFE_STDERR=$(echo "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
   printf '{"error": "Codex execution failed", "exit_code": %d, "stderr": %s}\n' "$CODEX_EXIT" "$SAFE_STDERR"
 fi
-
-rm -f /tmp/codex-review-schema.json /tmp/codex-review-output.json /tmp/codex-stderr.txt
+# trap EXIT handles cleanup of $TMPDIR
 ```
 
 ### Bash call 2: Gemini Review
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
+
+# Parallel-safe: unique temp dir per invocation
+TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
 
 DIFF=$(git diff origin/main...HEAD)
 
@@ -207,23 +212,23 @@ RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
 THE DIFF IS PROVIDED VIA STDIN ABOVE." \
   --yolo \
   -o json \
-  >/tmp/gemini-raw-output.json 2>/tmp/gemini-stderr.txt
+  >"$TMPDIR/gemini-raw-output.json" 2>"$TMPDIR/gemini-stderr.txt"
 
 GEMINI_EXIT=$?
-if [ $GEMINI_EXIT -eq 0 ] && [ -f /tmp/gemini-raw-output.json ]; then
+if [ $GEMINI_EXIT -eq 0 ] && [ -f "$TMPDIR/gemini-raw-output.json" ]; then
   # Gemini -o json wraps output in session envelope; extract .response and strip markdown fences
-  RESPONSE=$(jq -r '.response // empty' /tmp/gemini-raw-output.json 2>/dev/null)
+  RESPONSE=$(jq -r '.response // empty' "$TMPDIR/gemini-raw-output.json" 2>/dev/null)
   if [ -n "$RESPONSE" ]; then
     echo "$RESPONSE" | sed 's/^```json//;s/^```//;/^$/d' | jq . 2>/dev/null || echo "$RESPONSE"
   else
-    cat /tmp/gemini-raw-output.json
+    cat "$TMPDIR/gemini-raw-output.json"
   fi
 else
-  STDERR_CONTENT=$(cat /tmp/gemini-stderr.txt 2>/dev/null)
+  STDERR_CONTENT=$(cat "$TMPDIR/gemini-stderr.txt" 2>/dev/null)
   SAFE_STDERR=$(echo "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
   printf '{"error": "Gemini execution failed", "exit_code": %d, "stderr": %s}\n' "$GEMINI_EXIT" "$SAFE_STDERR"
 fi
-rm -f /tmp/gemini-stderr.txt /tmp/gemini-raw-output.json
+# trap EXIT handles cleanup of $TMPDIR
 ```
 
 Collect both JSON outputs. Parse them. If either returned an error JSON, note it for arbitration.

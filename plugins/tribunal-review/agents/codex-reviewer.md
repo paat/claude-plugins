@@ -30,6 +30,9 @@ enforcement. Instead we capture `git diff` ourselves and pipe it as a prompt wit
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 
+# Parallel-safe: unique temp dir per invocation
+TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
+
 DIFF=$(git diff origin/main...HEAD)
 
 if [ -z "$DIFF" ]; then
@@ -46,7 +49,7 @@ else
   DIFF_TRUNCATED=false
 fi
 
-cat > /tmp/codex-review-schema.json << 'SCHEMA'
+cat > "$TMPDIR/codex-review-schema.json" << 'SCHEMA'
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
@@ -93,10 +96,10 @@ SCHEMA
 
 codex exec - \
   --model gpt-5.3-codex \
-  --output-schema /tmp/codex-review-schema.json \
-  -o /tmp/codex-review-output.json \
+  --output-schema "$TMPDIR/codex-review-schema.json" \
+  -o "$TMPDIR/codex-review-output.json" \
   --sandbox read-only \
-  >/dev/null 2>/tmp/codex-stderr.txt <<PROMPT
+  >/dev/null 2>"$TMPDIR/codex-stderr.txt" <<PROMPT
 You are a senior code reviewer. Analyze the diff below for REAL, ACTIONABLE issues only.
 
 ## What to Report
@@ -132,15 +135,14 @@ $DIFF
 PROMPT
 CODEX_EXIT=$?
 
-if [ $CODEX_EXIT -eq 0 ] && [ -f /tmp/codex-review-output.json ]; then
-  cat /tmp/codex-review-output.json
+if [ $CODEX_EXIT -eq 0 ] && [ -f "$TMPDIR/codex-review-output.json" ]; then
+  cat "$TMPDIR/codex-review-output.json"
 else
-  STDERR_CONTENT=$(cat /tmp/codex-stderr.txt 2>/dev/null || echo "no stderr captured")
+  STDERR_CONTENT=$(cat "$TMPDIR/codex-stderr.txt" 2>/dev/null || echo "no stderr captured")
   SAFE_STDERR=$(echo "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
   printf '{"error": "Codex execution failed", "exit_code": %d, "stderr": %s}\n' "$CODEX_EXIT" "$SAFE_STDERR"
 fi
-
-rm -f /tmp/codex-review-schema.json /tmp/codex-review-output.json /tmp/codex-stderr.txt
+# trap EXIT handles cleanup of $TMPDIR
 ```
 
 ## Error Handling
