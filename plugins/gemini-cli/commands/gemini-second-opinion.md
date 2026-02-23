@@ -28,7 +28,7 @@ The user wants a second opinion on:
 
 4. Send to Gemini:
    ```bash
-   timeout 120 gemini [@relevant_files] [-m model] -p "CONTEXT AND QUESTION" -o text 2>/dev/null
+   timeout 120 gemini [-m model] -p "CONTEXT AND QUESTION [@relevant_files]" -o text 2>/dev/null
    ```
 
 5. Form your own independent opinion on the same topic.

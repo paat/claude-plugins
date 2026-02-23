@@ -29,11 +29,11 @@ The user wants a code review of:
 
 4. Send the file(s) to Gemini for review using `@file` injection:
    ```bash
-   timeout 120 gemini @path/to/file [-m model] -p "Review this code thoroughly. Look for: bugs, security vulnerabilities, performance issues, code quality problems, error handling gaps, and suggest improvements. Be specific with line references." -o text 2>/dev/null
+   timeout 120 gemini [-m model] -p "Review this code thoroughly. Look for: bugs, security vulnerabilities, performance issues, code quality problems, error handling gaps, and suggest improvements. Be specific with line references. @path/to/file" -o text 2>/dev/null
    ```
    For multiple files:
    ```bash
-   timeout 180 gemini @file1 @file2 [-m model] -p "Review these files..." -o text 2>/dev/null
+   timeout 180 gemini [-m model] -p "Review these files for bugs, security, performance, and quality issues. @file1 @file2" -o text 2>/dev/null
    ```
 
 5. Perform your own independent code review of the same file(s).

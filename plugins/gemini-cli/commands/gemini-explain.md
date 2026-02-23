@@ -25,7 +25,7 @@ The user wants an explanation of:
 
 3. For files:
    ```bash
-   timeout 90 gemini @path/to/file [-m model] -p "Explain this code clearly. Cover: what it does, how it works, key design decisions, dependencies, and any non-obvious behavior. Use simple language." -o text 2>/dev/null
+   timeout 90 gemini [-m model] -p "Explain this code clearly. Cover: what it does, how it works, key design decisions, dependencies, and any non-obvious behavior. Use simple language. @path/to/file" -o text 2>/dev/null
    ```
 
 4. For concepts:

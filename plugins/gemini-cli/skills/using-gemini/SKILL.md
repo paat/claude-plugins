@@ -49,16 +49,16 @@ gemini -p "Your prompt here" -o text 2>/dev/null
 
 ### With File Context
 
-Inject files using `@file` syntax (Gemini reads the file directly):
+Inject files using `@file` syntax inside the `-p` string (Gemini reads the file directly):
 
 ```bash
-gemini @src/main.py -p "Review this code for bugs and security issues" -o text 2>/dev/null
+gemini -p "Review this code for bugs and security issues. @src/main.py" -o text 2>/dev/null
 ```
 
 Multiple files:
 
 ```bash
-gemini @src/auth.py @src/middleware.py -p "Do these components integrate correctly?" -o text 2>/dev/null
+gemini -p "Do these components integrate correctly? @src/auth.py @src/middleware.py" -o text 2>/dev/null
 ```
 
 ### Piping Content

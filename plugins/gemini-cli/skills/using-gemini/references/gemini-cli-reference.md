@@ -23,7 +23,7 @@ To access `gemini-3-flash-preview` and `gemini-3-pro-preview`, enable experiment
 ## Command Syntax
 
 ```
-gemini [options] [@file ...] [-p prompt]
+gemini [options] -p "prompt [@file ...]" [-o format]
 ```
 
 ## Core Flags
@@ -33,7 +33,7 @@ gemini [options] [@file ...] [-p prompt]
 | `-p "prompt"` | Non-interactive prompt (required for scripted use) | `gemini -p "explain this"` |
 | `-o format` | Output format: `text`, `json`, `stream-json` | `gemini -p "hi" -o text` |
 | `-m model` | Model selection | `gemini -m gemini-3-pro-preview -p "..."` |
-| `@file` | Inject file contents into context | `gemini @main.py -p "review"` |
+| `@file` | Inject file contents into context (inside `-p` string) | `gemini -p "review @main.py"` |
 | `--sandbox` | Run code execution in sandbox | `gemini --sandbox -p "..."` |
 | `--debug` | Enable debug output | `gemini --debug -p "..."` |
 
@@ -72,18 +72,20 @@ Default (no `-m` flag) uses the configured default model.
 
 ### `@file` Syntax
 
-Gemini reads files directly when prefixed with `@`:
+Place `@file` references inside the `-p` string — Gemini reads the file contents automatically:
 
 ```bash
 # Single file
-gemini @src/main.py -p "Review this code" -o text 2>/dev/null
+gemini -p "Review this code. @src/main.py" -o text 2>/dev/null
 
 # Multiple files
-gemini @src/auth.py @src/session.py -p "Check integration" -o text 2>/dev/null
+gemini -p "Check integration between these files. @src/auth.py @src/session.py" -o text 2>/dev/null
 
 # Glob patterns (shell expands)
-gemini @src/*.py -p "Review all Python files" -o text 2>/dev/null
+gemini -p "Review all Python files. @src/*.py" -o text 2>/dev/null
 ```
+
+**Important:** Do NOT use `@file` as a separate positional argument with `-p`. The `@file` reference must be inside the `-p` string.
 
 ### Piping
 
@@ -103,10 +105,10 @@ grep -n "TODO" src/*.py | gemini -p "Prioritize these TODOs" -o text 2>/dev/null
 | Task Type | Timeout | Command |
 |---|---|---|
 | Quick question | 30s | `timeout 30 gemini -p "..." -o text 2>/dev/null` |
-| Code explanation | 60s | `timeout 60 gemini @file -p "explain" -o text 2>/dev/null` |
-| Code review | 120s | `timeout 120 gemini @file -p "review" -o text 2>/dev/null` |
-| Large file analysis | 180s | `timeout 180 gemini @file -p "analyze" -o text 2>/dev/null` |
-| Multi-file analysis | 240s | `timeout 240 gemini @f1 @f2 -p "..." -o text 2>/dev/null` |
+| Code explanation | 60s | `timeout 60 gemini -p "explain @file" -o text 2>/dev/null` |
+| Code review | 120s | `timeout 120 gemini -p "review @file" -o text 2>/dev/null` |
+| Large file analysis | 180s | `timeout 180 gemini -p "analyze @file" -o text 2>/dev/null` |
+| Multi-file analysis | 240s | `timeout 240 gemini -p "... @f1 @f2" -o text 2>/dev/null` |
 
 ## Common Error Patterns
 
@@ -124,13 +126,13 @@ grep -n "TODO" src/*.py | gemini -p "Prioritize these TODOs" -o text 2>/dev/null
 ### Get a Second Opinion
 
 ```bash
-gemini @problematic_file.py -p "I think the bug is in the error handling on line 45. Do you agree? What else might cause the issue?" -o text 2>/dev/null
+gemini -p "I think the bug is in the error handling on line 45. Do you agree? What else might cause the issue? @problematic_file.py" -o text 2>/dev/null
 ```
 
 ### Architecture Review
 
 ```bash
-gemini @src/api/ -p "Review this API structure. Are there any design pattern violations or scalability concerns?" -m gemini-3-pro-preview -o text 2>/dev/null
+gemini -m gemini-3-pro-preview -p "Review this API structure. Are there any design pattern violations or scalability concerns? @src/api/" -o text 2>/dev/null
 ```
 
 ### Diff Review
@@ -142,5 +144,5 @@ git diff main...HEAD | gemini -p "Review these changes for bugs, security issues
 ### Explain Unfamiliar Code
 
 ```bash
-gemini @legacy_module.py -p "Explain what this code does, its dependencies, and any potential issues" -o text 2>/dev/null
+gemini -p "Explain what this code does, its dependencies, and any potential issues. @legacy_module.py" -o text 2>/dev/null
 ```
