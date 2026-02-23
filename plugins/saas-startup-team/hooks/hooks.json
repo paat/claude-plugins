@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-idle.sh",
+            "description": "Validate founder wrote a handoff before going idle"
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-task-complete.sh",
+            "description": "Validate task has deliverables before marking complete"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f .startup/go-live/solution-signoff.md",
+            "description": "Only allow stop when non-techie has written solution signoff"
+          }
+        ]
+      }
+    ]
+  }
+}

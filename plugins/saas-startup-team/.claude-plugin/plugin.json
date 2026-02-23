@@ -1,0 +1,11 @@
+{
+  "name": "saas-startup-team",
+  "version": "0.1.0",
+  "description": "Two-person SaaS startup simulation — business founder and tech founder iterate via file-based handoffs using Agent Teams until the product is ready to go live",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": ["agent-teams", "multi-agent", "saas", "startup-simulation", "handoff-protocol", "iterative-development", "role-based-agents"]
+}
