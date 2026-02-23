@@ -21,8 +21,14 @@ fi
 
 # For roundtrip tasks, check that signoff exists
 if echo "$TASK_SUBJECT" | grep -qi "roundtrip\|feature\|implement"; then
-  SIGNOFF_COUNT=$(ls .startup/signoffs/roundtrip-*.md 2>/dev/null | wc -l || echo "0")
-  HANDOFF_COUNT=$(ls .startup/handoffs/ 2>/dev/null | wc -l || echo "0")
+  SIGNOFF_COUNT=0
+  for f in .startup/signoffs/roundtrip-*.md; do
+    [ -e "$f" ] && SIGNOFF_COUNT=$((SIGNOFF_COUNT + 1))
+  done
+  HANDOFF_COUNT=0
+  for f in .startup/handoffs/*; do
+    [ -e "$f" ] && HANDOFF_COUNT=$((HANDOFF_COUNT + 1))
+  done
 
   if [ "$HANDOFF_COUNT" -eq 0 ]; then
     echo "Task cannot be completed: no handoff documents found in .startup/handoffs/"

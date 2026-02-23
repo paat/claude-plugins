@@ -23,22 +23,28 @@ fi
 
 # Handoffs
 echo "--- Handoffs ---"
-HANDOFF_COUNT=$(ls "$STARTUP_DIR/handoffs/"*.md 2>/dev/null | wc -l || echo "0")
+HANDOFF_COUNT=0
+for f in "$STARTUP_DIR/handoffs/"*.md; do
+  [ -e "$f" ] && HANDOFF_COUNT=$((HANDOFF_COUNT + 1))
+done
 echo "Total handoffs: $HANDOFF_COUNT"
 if [ "$HANDOFF_COUNT" -gt 0 ]; then
-  ls -1 "$STARTUP_DIR/handoffs/"*.md 2>/dev/null | while read -r f; do
-    echo "  $(basename "$f")"
+  for f in "$STARTUP_DIR/handoffs/"*.md; do
+    [ -e "$f" ] && echo "  $(basename "$f")"
   done
 fi
 echo ""
 
 # Signoffs
 echo "--- Roundtrip Signoffs ---"
-SIGNOFF_COUNT=$(ls "$STARTUP_DIR/signoffs/"roundtrip-*.md 2>/dev/null | wc -l || echo "0")
+SIGNOFF_COUNT=0
+for f in "$STARTUP_DIR/signoffs/"roundtrip-*.md; do
+  [ -e "$f" ] && SIGNOFF_COUNT=$((SIGNOFF_COUNT + 1))
+done
 echo "Features signed off: $SIGNOFF_COUNT"
 if [ "$SIGNOFF_COUNT" -gt 0 ]; then
-  ls -1 "$STARTUP_DIR/signoffs/"roundtrip-*.md 2>/dev/null | while read -r f; do
-    echo "  $(basename "$f")"
+  for f in "$STARTUP_DIR/signoffs/"roundtrip-*.md; do
+    [ -e "$f" ] && echo "  $(basename "$f")"
   done
 fi
 echo ""
@@ -66,9 +72,11 @@ echo ""
 # Research docs
 echo "--- Research Documents ---"
 if [ -d "$STARTUP_DIR/docs" ]; then
-  ls -1 "$STARTUP_DIR/docs/"*.md 2>/dev/null | while read -r f; do
-    echo "  $(basename "$f")"
+  DOC_COUNT=0
+  for f in "$STARTUP_DIR/docs/"*.md; do
+    [ -e "$f" ] && { echo "  $(basename "$f")"; DOC_COUNT=$((DOC_COUNT + 1)); }
   done
+  [ "$DOC_COUNT" -eq 0 ] && echo "  (none)"
 else
   echo "No research docs yet"
 fi

@@ -33,7 +33,11 @@ fi
 
 # Check if at least one handoff exists from this teammate
 # shellcheck disable=SC2086
-HANDOFF_COUNT=$(ls $PATTERN 2>/dev/null | wc -l || echo "0")
+# Count matching files (avoid pipefail issues with ls | wc || echo)
+HANDOFF_COUNT=0
+for f in $PATTERN; do
+  [ -e "$f" ] && HANDOFF_COUNT=$((HANDOFF_COUNT + 1))
+done
 
 if [ "$HANDOFF_COUNT" -eq 0 ] && [ "$ITERATION" -gt 0 ]; then
   echo "You must write your handoff document before stopping. Create a file matching: $PATTERN"
