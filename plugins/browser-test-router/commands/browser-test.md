@@ -30,10 +30,13 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
      echo "Ensure chrome-devtools MCP shows 'connected' status"
      exit 1
    fi
+
+   # Create screenshot directory (for optional visual evidence capture)
+   mkdir -p /tmp/screenshots
    ```
    - If NOT connected: print error and **stop**
    - If connected: run L1 health check against target URL (if URL provided)
-   - Report: `"Pre-flight: opencode ✓, chrome-devtools MCP ✓. Target {url} is L1 reachable (HTTP {status})."`
+   - Report: `"Pre-flight: opencode ✓, chrome-devtools MCP ✓, screenshots dir ✓. Target {url} is L1 reachable (HTTP {status})."`
 
 3. **Determine target**:
    - If `$ARGUMENTS` contains a URL → single-page test mode
