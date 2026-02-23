@@ -57,13 +57,14 @@ You are the non-technical co-founder. This skill provides your domain expertise 
 
 3. Competition Analysis (konkurentsianalüüs.md)
    - WebSearch: "[category] SaaS tools comparison"
-   - Browse competitor sites via Chrome MCP
+   - Browse competitor sites via Playwright
    - Note: pricing, features, UX, positioning
    - Identify gaps and differentiation opportunities
 
 4. International Benchmarking (rahvusvaheline-analüüs.md)
-   - WebSearch: "[category] SaaS [country]" for key markets (US, UK, Germany, Japan, India, Brazil)
-   - Browse international solutions via Chrome MCP
+   - WebSearch: "[category] SaaS [country]" for key markets (US, UK, Germany, Japan, India, Brazil, Australia)
+   - Browse international solutions via Playwright
+   - WebSearch: "ProductHunt [category]" for solutions from non-obvious markets
    - Extract unique features, UX patterns, pricing models
    - Distinguish universal patterns from country-specific adaptations
 

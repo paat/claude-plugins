@@ -73,7 +73,7 @@ The `.startup/` directory is created at project root:
 ## Prerequisites
 
 - Claude Code with Agent Teams support (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
-- Chrome browser with Claude-in-Chrome extension (for business founder's browser verification)
+- Playwright MCP (`@playwright/mcp`) — automatically configured via plugin `.mcp.json`, runs headless
 - Web access enabled (for business founder's market research)
 
 ## Key Design Decisions
