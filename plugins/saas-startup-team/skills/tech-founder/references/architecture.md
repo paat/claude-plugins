@@ -29,7 +29,7 @@ When making significant technical decisions, document them in `.startup/docs/arc
 ## Common Architecture Patterns for SaaS
 
 ### Monolith First
-For MVPs, always start with a monolith:
+Always start with a monolith:
 - Single codebase, single deployment
 - Faster development, simpler debugging
 - Extract services later IF needed (usually isn't for a long time)
@@ -82,8 +82,8 @@ Static site? → Astro or Next.js static export
 
 ### Database Decision Tree
 ```
-MVP / Prototype? → SQLite
-Multi-user production? → PostgreSQL
+Local dev/testing only? → SQLite
+Production? → PostgreSQL
 Key-value / caching? → Redis
 Full-text search? → PostgreSQL (built-in) or Meilisearch
 Time-series data? → TimescaleDB (PostgreSQL extension)
