@@ -83,7 +83,7 @@ Send the initial message to the business founder:
 
 > Read `.startup/brief.md`. This is our investor's SaaS idea. Your job:
 > 1. Research the market, competition, and customer pain points (save to `.startup/docs/` in Estonian)
-> 2. Research similar solutions in other countries — extract features, UX patterns, and pricing from international competitors (save to `.startup/docs/rahvusvaheline-analüüs.md`)
+> 2. Research similar solutions in other countries — extract features, UX patterns, and pricing from international competitors (save to `.startup/docs/rahvusvaheline-analuus.md`)
 > 3. Check Estonian legal requirements for this type of business
 > 4. Break the idea into prioritized features
 > 5. Write the first handoff to tech founder: `.startup/handoffs/001-business-to-tech.md`

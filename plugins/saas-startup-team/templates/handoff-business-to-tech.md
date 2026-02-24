@@ -40,8 +40,8 @@ Any constraints discovered during research (API limitations, legal requirements,
 Links to working documents in `.startup/docs/`:
 - Market research: `.startup/docs/turu-uurimine.md`
 - Customer feedback: `.startup/docs/kliendi-tagasiside.md`
-- Competition analysis: `.startup/docs/konkurentsianalüüs.md`
-- International analysis: `.startup/docs/rahvusvaheline-analüüs.md`
+- Competition analysis: `.startup/docs/konkurentsianaluus.md`
+- International analysis: `.startup/docs/rahvusvaheline-analuus.md`
 
 ## Blockers / Questions
 

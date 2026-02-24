@@ -84,7 +84,7 @@ For each international solution, document:
 
 ### Documentation Format
 
-Save findings to `.startup/docs/rahvusvaheline-analüüs.md` using Estonian field names:
+Save findings to `.startup/docs/rahvusvaheline-analuus.md` using Estonian field names:
 
 ```markdown
 # Rahvusvaheline analüüs

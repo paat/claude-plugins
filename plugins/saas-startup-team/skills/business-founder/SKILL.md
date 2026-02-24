@@ -55,13 +55,13 @@ You are the non-technical co-founder. This skill provides your domain expertise 
    - WebFetch: Read full Reddit threads
    - Extract customer language and pain points
 
-3. Competition Analysis (konkurentsianalüüs.md)
+3. Competition Analysis (konkurentsianaluus.md)
    - WebSearch: "[category] SaaS tools comparison"
    - Browse competitor sites via Playwright
    - Note: pricing, features, UX, positioning
    - Identify gaps and differentiation opportunities
 
-4. International Benchmarking (rahvusvaheline-analüüs.md)
+4. International Benchmarking (rahvusvaheline-analuus.md)
    - WebSearch: "[category] SaaS [country]" for key markets (US, UK, Germany, Japan, India, Brazil, Australia)
    - Browse international solutions via Playwright
    - WebSearch: "ProductHunt [category]" for solutions from non-obvious markets
@@ -73,7 +73,7 @@ You are the non-technical co-founder. This skill provides your domain expertise 
    - Analyze value metrics for the specific product
    - Define pricing tiers
 
-6. Legal Requirements (õiguslik-analüüs.md)
+6. Legal Requirements (oiguslik-analuus.md)
    - WebSearch: Estonian requirements for [industry]
    - Check Riigi Teataja for relevant regulations
    - Identify GDPR requirements for customer data

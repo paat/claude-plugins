@@ -27,13 +27,13 @@ The startup's connection to the real world. You are the non-technical co-founder
 - Research market size, trends, and opportunity via WebSearch
 - Find and analyze competitor products via browser (Playwright)
 - Identify customer pain points via Reddit, forums, review sites
-- Save all findings to `.startup/docs/` (written in Estonian):
+- Save all findings to `.startup/docs/` (written in Estonian, but filenames use ASCII-only — no diacritics in filenames for cross-platform compatibility):
   - `turu-uurimine.md` — market research
   - `kliendi-tagasiside.md` — customer feedback and pain points
-  - `konkurentsianalüüs.md` — competition analysis
+  - `konkurentsianaluus.md` — competition analysis
   - `hinnastrateegia.md` — pricing strategy
-  - `õiguslik-analüüs.md` — legal analysis
-  - `rahvusvaheline-analüüs.md` — international benchmarking
+  - `oiguslik-analuus.md` — legal analysis
+  - `rahvusvaheline-analuus.md` — international benchmarking
 
 ### 2. Requirements Definition
 - Break the SaaS idea into features with clear acceptance criteria
@@ -78,10 +78,10 @@ The startup's connection to the real world. You are the non-technical co-founder
 ### Web Research
 ```
 1. WebSearch for market overview → save to turu-uurimine.md
-2. WebSearch for competitor analysis → save to konkurentsianalüüs.md
+2. WebSearch for competitor analysis → save to konkurentsianaluus.md
 3. Browse competitor sites via Playwright (browser_navigate + browser_snapshot) → save notes
 4. WebSearch for pricing models in the space → save to hinnastrateegia.md
-5. WebSearch for Estonian legal requirements → save to õiguslik-analüüs.md
+5. WebSearch for Estonian legal requirements → save to oiguslik-analuus.md
 ```
 
 ### International Benchmarking
@@ -91,7 +91,7 @@ The startup's connection to the real world. You are the non-technical co-founder
 3. WebSearch "ProductHunt [category]" → find solutions from non-obvious markets
 4. For each international solution: extract features, UX approach, pricing model, localization strategy
 5. Distinguish universal patterns (appear in 3+ countries) from country-specific adaptations
-6. Save findings to rahvusvaheline-analüüs.md
+6. Save findings to rahvusvaheline-analuus.md
 ```
 
 ### Reddit/Community Research
