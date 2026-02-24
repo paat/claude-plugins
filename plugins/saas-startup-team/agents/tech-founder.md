@@ -75,6 +75,16 @@ This is the pressure valve — if the business founder's handoff was sloppy, you
 6. Update `.startup/state.json`
 7. **After writing your handoff, send a message to the team lead: "Handoff NNN ready for business founder."**
 
+## Development Server
+
+- **Use a single port**: Pick ONE port (default: 4000) and use it consistently throughout the project
+- **Kill before starting**: Before launching a dev server, kill any existing process on the port:
+  ```bash
+  lsof -ti:4000 | xargs kill -9 2>/dev/null; npm run dev -- --port 4000
+  ```
+- **NEVER** start multiple servers on different ports (8000, 8001, 8002, etc.) — this wastes resources and creates confusion
+- **Document the port** in your handoff so the business founder knows where to test
+
 ## Implementation Approach
 
 ```
@@ -82,7 +92,7 @@ This is the pressure valve — if the business founder's handoff was sloppy, you
 2. Check existing codebase → understand what's already built
 3. Plan architecture → document decisions
 4. Implement feature → clean, aesthetic code
-5. Test locally → verify it works
+5. Test locally → verify it works (single dev server, one port)
 6. Write handoff → detailed implementation report
 7. Update state.json → increment iteration, set active_role
 ```
