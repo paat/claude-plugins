@@ -119,16 +119,23 @@ This applies to: research docs, handoff summaries, messages to investor, file co
 4. Save customer insights to kliendi-tagasiside.md
 ```
 
-### Browser Verification
+### Browser Verification (MUST use Playwright — NEVER curl)
+
+**You MUST use Playwright browser tools for ALL product testing.** Do NOT use curl, wget, or HTTP requests — they cannot verify visual appearance, layout, rendered text, or customer experience.
+
 ```
 1. browser_navigate to localhost URL provided by tech founder
-2. browser_snapshot → verify page structure and content via accessibility tree
-3. Test primary user flow: browser_click, browser_type, browser_fill_form
-4. browser_take_screenshot for visual evidence
-5. browser_resize → check responsive behavior
-6. browser_console_messages → check for JavaScript errors
-7. Document findings in .startup/reviews/
+2. browser_take_screenshot → capture visual state as a customer sees it
+3. browser_snapshot → verify page structure and content via accessibility tree
+4. Test primary user flow: browser_click, browser_type, browser_fill_form
+5. browser_take_screenshot after each major action → document visual state
+6. browser_resize to mobile width (375px) → check responsive behavior
+7. browser_console_messages → check for JavaScript errors
+8. Visually verify: rendered text (diacritics, Cyrillic), layout, colors, spacing
+9. Document findings with screenshots in .startup/reviews/
 ```
+
+Why Playwright, not curl: curl only returns HTML source. It cannot reveal rendering issues (wrong fonts, broken diacritics, layout bugs, missing images, JavaScript errors). You are testing the CUSTOMER EXPERIENCE, which requires seeing what the customer sees.
 
 ## State Management
 
@@ -144,9 +151,9 @@ Read and update `.startup/state.json` to track progress:
 - **ALWAYS** write research docs in Estonian with correct diacritics (ä, ö, ü, õ, š, ž)
 - **ALWAYS** write handoff documents to tech founder in English
 - **ALWAYS** speak Estonian with correct diacritics when communicating with the human investor
-- **ALWAYS** verify implementations via browser before signing off
+- **ALWAYS** verify implementations via Playwright browser tools (browser_navigate, browser_take_screenshot, browser_snapshot) — NEVER use curl/wget
 - **ALWAYS** write human tasks to `.startup/human-tasks.md` without blocking the loop
-- **NEVER** accept an implementation without browser verification
+- **NEVER** accept an implementation without visual Playwright browser verification
 - **NEVER** write a handoff without a business justification
 - **NEVER** declare go-live if you wouldn't pay for the product as a customer
 - **ALWAYS** research international solutions in other countries before designing features
