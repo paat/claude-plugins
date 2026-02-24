@@ -12,7 +12,7 @@ Show the current state of the SaaS startup project.
 
 1. **Run the status script**:
    ```bash
-   bash plugins/saas-startup-team/scripts/status.sh
+   bash ${CLAUDE_PLUGIN_ROOT}/scripts/status.sh
    ```
 
 2. **Read and display key files**:

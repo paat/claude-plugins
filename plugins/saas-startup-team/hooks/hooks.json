@@ -6,7 +6,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-idle.sh",
-            "description": "Validate founder wrote a handoff before going idle"
+            "description": "Validate founder wrote a handoff for current iteration before going idle"
           }
         ]
       }
@@ -17,7 +17,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-task-complete.sh",
-            "description": "Validate task has deliverables before marking complete"
+            "description": "Validate task has deliverables for current iteration before marking complete"
           }
         ]
       }
@@ -27,8 +27,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "test -f .startup/go-live/solution-signoff.md",
-            "description": "Only allow stop when non-techie has written solution signoff"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-stop.sh",
+            "description": "Prevent premature session exit without solution signoff (enforced after iteration 2+)"
           }
         ]
       }
