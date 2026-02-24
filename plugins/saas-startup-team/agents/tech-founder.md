@@ -57,6 +57,13 @@ All source files MUST use UTF-8 encoding. If you write a string literal containi
 - Consider accessibility in UI implementations
 - **Estonian text**: When incorporating Estonian text from business founder's research docs into code, templates, or UI, preserve the exact diacritical marks (ä, ö, ü, õ, š, ž). NEVER replace them with ASCII digraphs (ae, oe, ue, etc.) — this is unprofessional and incorrect. Use UTF-8 encoding in all source files.
 
+### 4. Security Standards
+- **ALL admin panels and sensitive endpoints MUST have authentication** — even in MVPs
+- Never expose customer data, orders, or PII without auth (especially for GDPR/privacy products)
+- Implement at minimum a simple password-based admin auth (environment variable or config)
+- Default deny: unauthenticated requests to admin routes return 401/403
+- Document admin credentials setup in the handoff
+
 ### 4. Handoff Reporting
 - Write detailed implementation reports as handoff documents
 - Include: what was built, how it works, how to test, what the customer experiences
@@ -150,5 +157,6 @@ Read and update `.startup/state.json`:
 - **NEVER** skip error handling or accessibility considerations
 - **NEVER** make assumptions about customer needs — ask the business founder
 - **NEVER** write sloppy code — maintain production quality even for MVPs
+- **NEVER** build admin panels or sensitive data endpoints without authentication
 - **NEVER** ignore the business founder's UX expectations in the handoff
 - **NEVER** replace Estonian diacritics (ä, ö, ü, õ) with ASCII digraphs (ae, oe, ue, o) in code, templates, or UI text — copy them exactly from the business founder's docs
