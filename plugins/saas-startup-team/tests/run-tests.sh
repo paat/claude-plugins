@@ -751,6 +751,85 @@ test_plugin_issues() {
 }
 
 # ---------------------------------------------------------------------------
+# Suite K: Auto-Commit Hook
+# ---------------------------------------------------------------------------
+
+test_auto_commit_hook() {
+  echo -e "\n${CYAN}Suite K: Auto-Commit Hook${NC}"
+  local script="$PLUGIN_ROOT/scripts/auto-commit.sh"
+  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
+
+  # K1: auto-commit.sh exists
+  assert_file_exists "K1: auto-commit.sh exists" "$script"
+
+  # K2: auto-commit.sh is executable
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} K2: auto-commit.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} K2: auto-commit.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("K2: auto-commit.sh is not executable")
+  fi
+
+  # K3: Has .startup/handoffs/ path filter
+  assert_file_contains "K3: has .startup/handoffs/ path filter" "$script" "\.startup/handoffs/"
+
+  # K4: Uses git rev-parse --show-toplevel
+  assert_file_contains "K4: uses git rev-parse --show-toplevel" "$script" "git rev-parse --show-toplevel"
+
+  # K5: Exits 0 for non-handoff file
+  local ec=0 output
+  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "K5: exits 0 for non-handoff file" "$ec" 0
+
+  # K6: Exits 0 for .startup/state.json (not a handoff)
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/state.json"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "K6: exits 0 for .startup/state.json" "$ec" 0
+
+  # K7: hooks.json PostToolUse has 2 entries
+  local ptu_count
+  ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
+  assert_equals "K7: PostToolUse has 2 entries" "$ptu_count" "2"
+
+  # K8: Second PostToolUse entry references auto-commit.sh
+  local second_cmd
+  second_cmd=$(jq -r '.hooks.PostToolUse[1].hooks[0].command' "$hooks_file" 2>/dev/null)
+  assert_output_contains "K8: second PostToolUse references auto-commit.sh" "$second_cmd" "auto-commit.sh"
+
+  # K9: Uses --no-verify flag
+  assert_file_contains "K9: uses --no-verify flag" "$script" "\-\-no-verify"
+
+  # K10: Functional test — handoff write in a git repo creates a commit
+  local workdir
+  workdir=$(mktemp -d)
+  git init -q "$workdir"
+  (cd "$workdir" && git config user.email "test@test.com" && git config user.name "Test" && git commit --allow-empty -m "init" -q)
+  mkdir -p "$workdir/.startup/handoffs"
+  echo '{"iteration":1}' > "$workdir/.startup/state.json"
+  echo "test app code" > "$workdir/app.py"
+  echo "handoff content" > "$workdir/.startup/handoffs/001-business-to-tech.md"
+
+  ec=0; output=""
+  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
+
+  local commit_count
+  commit_count=$(cd "$workdir" && git log --oneline 2>/dev/null | wc -l)
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$commit_count" -ge 2 ]; then
+    echo -e "  ${GREEN}PASS${NC} K10: functional test — handoff creates commit ($commit_count commits)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} K10: functional test — expected >=2 commits, got $commit_count"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("K10: expected >=2 commits, got $commit_count")
+  fi
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -775,6 +854,7 @@ main() {
   test_cross_file_consistency
   test_post_tool_use_hook
   test_plugin_issues
+  test_auto_commit_hook
 
   # Summary
   echo ""

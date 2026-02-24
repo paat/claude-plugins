@@ -31,6 +31,16 @@
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/auto-learn.sh"
           }
         ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/auto-commit.sh",
+            "description": "Auto-commit all work when a handoff file is written"
+          }
+        ]
       }
     ],
     "Stop": [

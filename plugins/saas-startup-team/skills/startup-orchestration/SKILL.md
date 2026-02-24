@@ -56,6 +56,17 @@ Business Founder writes solution signoff → GO LIVE
 - At iteration 15, warn about approaching the limit
 - At max_iterations, require investor decision to continue
 
+### 6. Stall Detection
+Agents can stall on network errors, unreachable services, or infinite loops. Stall indicators:
+- No new handoff files despite agent being active for an extended period
+- Agent mentions "waiting", "retrying", or connection errors
+- `active_role` unchanged across multiple messages
+
+Recovery actions:
+1. Message the stuck agent: "If blocked on a network call, log the failure, document in your handoff, and continue with other features"
+2. If unresponsive: escalate to investor
+3. Prevention: when dispatching tasks, remind tech-founder to set HTTP timeouts
+
 ## Handoff Numbering
 
 Handoffs are numbered sequentially: `001`, `002`, `003`, ...
@@ -81,6 +92,7 @@ Handoffs are numbered sequentially: `001`, `002`, `003`, ...
 - **Missing "Why"**: Tech founder implementing without business justification → block and redirect
 - **Skipping browser verification**: Business founder signing off without opening browser → reject signoff
 - **Both founders idle**: Neither has written a handoff → check state.json and nudge the active_role
+- **Agent stall**: Founder stuck on network call or infinite retry → send recovery message, escalate if unresponsive
 
 ## Reference Documents
 

@@ -85,6 +85,14 @@ The PostToolUse hook will auto-populate a `## Learnings` section in the project'
    ```
 3. If `CLAUDE.md` already has a `## Learnings` section, do nothing.
 
+## Step 2c: Ensure Git Repository
+
+The auto-commit hook requires a git repo. Ensure one exists:
+
+1. Check if in a git repo: `git rev-parse --show-toplevel`
+2. If **not** in a git repo: `git init && git add -A && git commit -m "Initial commit before startup loop"`
+3. If **already** in a git repo: `git add -A .startup/ && git commit -m "Initialize .startup/ directory" --no-verify`
+
 ## Step 3: Spawn Agent Team
 
 Use `TeamCreate` to create the agent team with both founders. Use `TaskCreate` to create their initial work items.

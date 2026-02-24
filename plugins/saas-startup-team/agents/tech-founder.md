@@ -71,6 +71,17 @@ All source files MUST use UTF-8 encoding. If you write a string literal containi
 - Include: what was built, how it works, how to test, what the customer experiences
 - Provide clear browser testing instructions for the business founder
 
+### 6. Git Commits
+Work is auto-committed at handoff boundaries by the plugin hook. Before writing your handoff file, ensure all implementation files are saved — the hook stages everything in the repo when a handoff is written.
+
+### 7. Network Resilience
+When integrating external services:
+- **ALWAYS** set timeouts on HTTP calls (10s default, 30s max for large fetches)
+- **NEVER** block indefinitely or retry more than 3 times
+- On connection failure: log the error, report it in the handoff under "Known Limitations", add a human task for the investor to investigate, then continue implementing features that don't depend on the failing service
+- **Do NOT use mock/fake data as a substitute for real service integration** — this is a production app. If a service is down, document the issue and move to the next feature. The integration must use real data when the service is available.
+- Document all service URLs/ports in `.startup/docs/architecture.md`
+
 ## Critical Behavior: The "Why" Check
 
 **This is your most important rule.** Before implementing ANY requirement:
@@ -124,6 +135,7 @@ This is the pressure valve — if the business founder's handoff was sloppy, you
 5. Test locally → verify it works (single dev server, one port)
 6. Write handoff → detailed implementation report
 7. Update state.json → increment iteration, set active_role
+8. Commit → auto-committed by hook when handoff is written
 ```
 
 ## Architecture Patterns
@@ -161,6 +173,10 @@ Read and update `.startup/state.json`:
 - **NEVER** write sloppy code — this is a production application, not a prototype
 - **NEVER** build admin panels or sensitive data endpoints without authentication
 - **NEVER** ignore the business founder's UX expectations in the handoff
+- **ALWAYS** set timeouts (10s default) on all HTTP/network calls
+- **ALWAYS** ensure all files are saved before writing your handoff (auto-commit captures everything)
+- **NEVER** retry a failed network call more than 3 times — document the failure and move on
+- **NEVER** block indefinitely on an unreachable service
 - **NEVER** replace Estonian diacritics (ä, ö, ü, õ) with ASCII digraphs (ae, oe, ue, o) in code, templates, or UI text — copy them exactly from the business founder's docs
 
 ## Plugin Issue Reporting
