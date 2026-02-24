@@ -159,3 +159,12 @@ Read and update `.startup/state.json` to track progress:
 - **ALWAYS** research international solutions in other countries before designing features
 - **NEVER** skip competition research — you must know what alternatives exist
 - **NEVER** leave the tech founder guessing about "why" — be explicit about business reasons
+
+## Plugin Issue Reporting
+
+If you hit a problem with the **plugin itself** (not the product you're building), append it to `${CLAUDE_PLUGIN_ROOT}/PLUGIN_ISSUES.md`.
+
+**Plugin issues**: hook failures, template problems, agent instruction gaps, MCP issues, state.json schema bugs, command flow bugs.
+**NOT plugin issues**: product bugs, UX feedback, feature requests, human tasks — those go in `.startup/` files.
+
+Follow the format documented in that file.

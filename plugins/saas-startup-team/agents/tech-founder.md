@@ -66,7 +66,7 @@ All source files MUST use UTF-8 encoding. If you write a string literal containi
 - Default deny: unauthenticated requests to admin routes return 401/403
 - Document admin credentials setup in the handoff
 
-### 4. Handoff Reporting
+### 5. Handoff Reporting
 - Write detailed implementation reports as handoff documents
 - Include: what was built, how it works, how to test, what the customer experiences
 - Provide clear browser testing instructions for the business founder
@@ -162,3 +162,12 @@ Read and update `.startup/state.json`:
 - **NEVER** build admin panels or sensitive data endpoints without authentication
 - **NEVER** ignore the business founder's UX expectations in the handoff
 - **NEVER** replace Estonian diacritics (ä, ö, ü, õ) with ASCII digraphs (ae, oe, ue, o) in code, templates, or UI text — copy them exactly from the business founder's docs
+
+## Plugin Issue Reporting
+
+If you hit a problem with the **plugin itself** (not the product you're building), append it to `${CLAUDE_PLUGIN_ROOT}/PLUGIN_ISSUES.md`.
+
+**Plugin issues**: hook failures, template problems, agent instruction gaps, MCP issues, state.json schema bugs, command flow bugs.
+**NOT plugin issues**: product bugs, UX feedback, feature requests, human tasks — those go in `.startup/` files.
+
+Follow the format documented in that file.

@@ -135,6 +135,7 @@ assert_json_field() {
 make_workdir() {
   local tmpdir
   tmpdir=$(mktemp -d)
+  git init -q "$tmpdir"
   echo "$tmpdir"
 }
 
@@ -196,9 +197,12 @@ test_check_idle() {
   assert_exit_code "A3: no .startup dir allows idle" "$ec" 0
   rm -rf "$workdir"
 
-  # A4: iteration 0, business-founder, no handoffs → exit 0 (exempt)
+  # A4: iteration 0, research phase, business-founder, no handoffs → exit 0 (exempt)
   workdir=$(make_workdir)
   setup_startup_dir "$workdir" 0
+  # Override phase to "research" — the default starting phase at iteration 0
+  jq '.phase = "research"' "$workdir/.startup/state.json" > "$workdir/.startup/state.tmp" \
+    && mv "$workdir/.startup/state.tmp" "$workdir/.startup/state.json"
   ec=0; output=$(cd "$workdir" && echo '{"teammate_name":"business-founder"}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "A4: iteration 0 allows idle" "$ec" 0
   rm -rf "$workdir"
@@ -208,7 +212,7 @@ test_check_idle() {
   setup_startup_dir "$workdir" 1
   ec=0; output=$(cd "$workdir" && echo '{"teammate_name":"business-founder"}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "A5: biz-founder blocks without handoff" "$ec" 2
-  assert_output_contains "A5: shows guidance message" "$output" "business-to-tech"
+  assert_output_contains "A5: shows guidance message" "$output" "must write your handoff"
   rm -rf "$workdir"
 
   # A6: iteration 1, business-founder, has handoff → exit 0
@@ -224,7 +228,7 @@ test_check_idle() {
   setup_startup_dir "$workdir" 2
   ec=0; output=$(cd "$workdir" && echo '{"teammate_name":"tech-founder"}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "A7: tech-founder blocks without handoff" "$ec" 2
-  assert_output_contains "A7: shows guidance message" "$output" "tech-to-business"
+  assert_output_contains "A7: shows guidance message" "$output" "must write your handoff"
   rm -rf "$workdir"
 
   # A8: iteration 2, tech-founder, has handoff → exit 0
@@ -647,6 +651,70 @@ test_cross_file_consistency() {
 }
 
 # ---------------------------------------------------------------------------
+# Suite I: PostToolUse Hook
+# ---------------------------------------------------------------------------
+
+test_post_tool_use_hook() {
+  echo -e "\n${CYAN}Suite I: PostToolUse Hook${NC}"
+  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
+
+  # I1: hooks.json has PostToolUse key
+  local hooks_keys
+  hooks_keys=$(jq -r '.hooks | keys[]' "$hooks_file" 2>/dev/null)
+  assert_output_contains "I1: hooks.json has PostToolUse key" "$hooks_keys" "PostToolUse"
+
+  # I2: PostToolUse matcher covers Edit|Write
+  local matcher
+  matcher=$(jq -r '.hooks.PostToolUse[0].matcher' "$hooks_file" 2>/dev/null)
+  assert_output_contains "I2: PostToolUse matcher covers Edit" "$matcher" "Edit"
+  assert_output_contains "I2b: PostToolUse matcher covers Write" "$matcher" "Write"
+
+  # I3: PostToolUse hook type is "prompt"
+  assert_json_field "I3: PostToolUse hook type is prompt" "$hooks_file" \
+    '.hooks.PostToolUse[0].hooks[0].type' "prompt"
+
+  # I4: prompt references .startup/ path check
+  local prompt
+  prompt=$(jq -r '.hooks.PostToolUse[0].hooks[0].prompt' "$hooks_file" 2>/dev/null)
+  assert_output_contains "I4: prompt references .startup/ path check" "$prompt" ".startup/"
+
+  # I5: prompt references ## Learnings section
+  assert_output_contains "I5: prompt references Learnings section" "$prompt" "## Learnings"
+
+  # I6: prompt contains duplicate-skip instruction
+  assert_output_contains "I6: prompt contains duplicate-skip instruction" "$prompt" "semantically equivalent"
+}
+
+# ---------------------------------------------------------------------------
+# Suite J: PLUGIN_ISSUES.md
+# ---------------------------------------------------------------------------
+
+test_plugin_issues() {
+  echo -e "\n${CYAN}Suite J: PLUGIN_ISSUES.md${NC}"
+  local issues_file="$PLUGIN_ROOT/PLUGIN_ISSUES.md"
+
+  # J1: PLUGIN_ISSUES.md exists at plugin root
+  assert_file_exists "J1: PLUGIN_ISSUES.md exists" "$issues_file"
+
+  # J2: contains ## Issues section
+  assert_file_contains "J2: has Issues section" "$issues_file" "## Issues"
+
+  # J3: contains ## What Goes Here section
+  assert_file_contains "J3: has What Goes Here section" "$issues_file" "## What Goes Here"
+
+  # J4: contains ## What Does NOT Go Here section
+  assert_file_contains "J4: has What Does NOT Go Here section" "$issues_file" "## What Does NOT Go Here"
+
+  # J5: business-founder.md mentions PLUGIN_ISSUES.md
+  assert_file_contains "J5: business-founder.md mentions PLUGIN_ISSUES.md" \
+    "$PLUGIN_ROOT/agents/business-founder.md" "PLUGIN_ISSUES.md"
+
+  # J6: tech-founder.md mentions PLUGIN_ISSUES.md
+  assert_file_contains "J6: tech-founder.md mentions PLUGIN_ISSUES.md" \
+    "$PLUGIN_ROOT/agents/tech-founder.md" "PLUGIN_ISSUES.md"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -669,6 +737,8 @@ main() {
   test_stop_hook
   test_startup_init
   test_cross_file_consistency
+  test_post_tool_use_hook
+  test_plugin_issues
 
   # Summary
   echo ""

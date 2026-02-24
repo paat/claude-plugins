@@ -64,6 +64,27 @@ cp ${CLAUDE_PLUGIN_ROOT}/templates/human-tasks.md .startup/human-tasks.md
 
 Tell both agents that handoff and brief templates are available at `${CLAUDE_PLUGIN_ROOT}/templates/`.
 
+## Step 2b: Initialize CLAUDE.md for Auto-Learning
+
+The PostToolUse hook will auto-populate a `## Learnings` section in the project's CLAUDE.md as agents write handoffs, reviews, and signoffs. Ensure the section exists:
+
+1. If no `CLAUDE.md` exists at git root, create it with:
+   ```markdown
+   # Project Learnings
+
+   ## Learnings
+
+   <!-- Auto-populated by the saas-startup-team plugin PostToolUse hook -->
+   ```
+2. If `CLAUDE.md` exists but has no `## Learnings` section, append:
+   ```markdown
+
+   ## Learnings
+
+   <!-- Auto-populated by the saas-startup-team plugin PostToolUse hook -->
+   ```
+3. If `CLAUDE.md` already has a `## Learnings` section, do nothing.
+
 ## Step 3: Spawn Agent Team
 
 Use `TeamCreate` to create the agent team with both founders. Use `TaskCreate` to create their initial work items.
