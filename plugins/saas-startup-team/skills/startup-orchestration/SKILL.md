@@ -67,6 +67,13 @@ Recovery actions:
 2. If unresponsive: escalate to investor
 3. Prevention: when dispatching tasks, remind tech-founder to set HTTP timeouts
 
+### 7. Service URL Consistency
+
+When dispatching tasks or reviewing handoffs, verify service URLs are consistent:
+- Check that URLs in `CLAUDE.md` match URLs in `.startup/docs/architecture.md`
+- If the tech-founder's architecture doc references a different port than CLAUDE.md, flag the mismatch
+- When the tech-founder updates architecture docs with service URLs, ensure the same URLs appear in their handoff's "how to test" section
+
 ## Handoff Numbering
 
 Handoffs are numbered sequentially: `001`, `002`, `003`, ...

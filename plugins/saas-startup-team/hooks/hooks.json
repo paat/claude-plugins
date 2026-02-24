@@ -41,6 +41,16 @@
             "description": "Auto-commit all work when a handoff file is written"
           }
         ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/enforce-tone.sh",
+            "description": "Flag MVP/prototype language in handoff files"
+          }
+        ]
       }
     ],
     "Stop": [

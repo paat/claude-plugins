@@ -792,7 +792,7 @@ test_auto_commit_hook() {
   # K7: hooks.json PostToolUse has 2 entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "K7: PostToolUse has 2 entries" "$ptu_count" "2"
+  assert_equals "K7: PostToolUse has 3 entries" "$ptu_count" "3"
 
   # K8: Second PostToolUse entry references auto-commit.sh
   local second_cmd
@@ -830,6 +830,124 @@ test_auto_commit_hook() {
 }
 
 # ---------------------------------------------------------------------------
+# Suite L: Tone Enforcement Hook
+# ---------------------------------------------------------------------------
+
+test_tone_enforcement_hook() {
+  echo -e "\n${CYAN}Suite L: Tone Enforcement Hook${NC}"
+  local script="$PLUGIN_ROOT/scripts/enforce-tone.sh"
+  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
+
+  # L1: enforce-tone.sh exists
+  assert_file_exists "L1: enforce-tone.sh exists" "$script"
+
+  # L2: enforce-tone.sh is executable
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} L2: enforce-tone.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} L2: enforce-tone.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("L2: enforce-tone.sh is not executable")
+  fi
+
+  # L3: Has .startup/handoffs/ path filter
+  assert_file_contains "L3: has .startup/handoffs/ path filter" "$script" "\.startup/handoffs/"
+
+  # L4: Exits 0 for non-handoff file (e.g., src/main.py)
+  local ec=0 output
+  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "L4: exits 0 for non-handoff file" "$ec" 0
+
+  # L5: Exits 0 for .startup/state.json
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/state.json"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "L5: exits 0 for .startup/state.json" "$ec" 0
+
+  # L6: Exits 0 for handoff without violations (clean production language)
+  local workdir
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  cat > "$workdir/.startup/handoffs/001-business-to-tech.md" <<'EOF'
+# Handoff 001: Business to Tech
+
+## Summary
+We need to build the initial release of the company search feature.
+This is a production implementation targeting real customers.
+
+## Requirements
+- Full-text search across company names
+- Filter by county and legal form
+- Production-grade error handling
+EOF
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "L6: exits 0 for clean handoff" "$ec" 0
+  rm -rf "$workdir"
+
+  # L7: Exits 2 with systemMessage for handoff containing "MVP"
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  cat > "$workdir/.startup/handoffs/001-business-to-tech.md" <<'EOF'
+# Handoff 001: Business to Tech
+
+## Summary
+Build an MVP of the company search feature.
+We just need the basics working for now.
+EOF
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "L7: exits 2 for handoff with MVP" "$ec" 2
+  assert_output_contains "L7b: systemMessage in output" "$output" "systemMessage"
+  rm -rf "$workdir"
+
+  # L8: Exits 2 for handoff containing "prototype"
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  cat > "$workdir/.startup/handoffs/002-tech-to-business.md" <<'EOF'
+# Handoff 002: Tech to Business
+
+## Summary
+I built a prototype of the search feature.
+Please review it in the browser.
+EOF
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/002-tech-to-business.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "L8: exits 2 for handoff with prototype" "$ec" 2
+  rm -rf "$workdir"
+
+  # L9: Exits 0 when "MVP" appears in a NEVER/ALWAYS guideline line (false positive protection)
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  cat > "$workdir/.startup/handoffs/001-business-to-tech.md" <<'EOF'
+# Handoff 001: Business to Tech
+
+## Guidelines
+- NEVER use MVP language in customer-facing materials
+- ALWAYS build production-quality features, do not use prototype approaches
+- You must not refer to this as an MVP
+
+## Summary
+Build the initial release of the company search feature.
+EOF
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "L9: exits 0 when MVP in NEVER/ALWAYS line" "$ec" 0
+  rm -rf "$workdir"
+
+  # L10: hooks.json PostToolUse has 3 entries
+  local ptu_count
+  ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
+  assert_equals "L10: PostToolUse has 3 entries" "$ptu_count" "3"
+
+  # L11: Third PostToolUse entry references enforce-tone.sh
+  local third_cmd
+  third_cmd=$(jq -r '.hooks.PostToolUse[2].hooks[0].command' "$hooks_file" 2>/dev/null)
+  assert_output_contains "L11: third PostToolUse references enforce-tone.sh" "$third_cmd" "enforce-tone.sh"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -855,6 +973,7 @@ main() {
   test_post_tool_use_hook
   test_plugin_issues
   test_auto_commit_hook
+  test_tone_enforcement_hook
 
   # Summary
   echo ""

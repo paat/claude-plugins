@@ -15,6 +15,17 @@ Before anything else, load the startup orchestration skill for loop management g
 Skill('saas-startup-team:startup-orchestration')
 ```
 
+## Step 0b: Plugin Freshness Check
+
+Before proceeding, check if the saas-startup-team plugin is current:
+
+1. Read the plugin's installed version: check `~/.claude/plugins/installed_plugins.json` for the `saas-startup-team` entry's `gitCommitSha`
+2. Compare with the latest commit in the marketplace source repo (the path in `installPath`)
+3. If the installed SHA differs from the current source, warn the investor:
+   > ⚠️ The saas-startup-team plugin is outdated (installed: {sha}, latest: {latest_sha}).
+   > Run `/plugins update saas-startup-team` to get the latest improvements before starting.
+4. If up to date, continue silently.
+
 ## Step 1: Capture the SaaS Idea
 
 If the user hasn't already described their SaaS idea, ask them (in English):
@@ -85,6 +96,16 @@ The PostToolUse hook will auto-populate a `## Learnings` section in the project'
    ```
 3. If `CLAUDE.md` already has a `## Learnings` section, do nothing.
 
+## Step 2d: Reset Session State
+
+Clean up state from previous sessions to prevent stale data:
+
+1. Remove idle counter files:
+   ```bash
+   rm -f .startup/.idle-count-* .startup/.idle-handoff-snapshot-*
+   ```
+2. If resuming an existing session, skip this step (idle counters reflect real state).
+
 ## Step 2c: Ensure Git Repository
 
 The auto-commit hook requires a git repo. Ensure one exists:
@@ -94,6 +115,17 @@ The auto-commit hook requires a git repo. Ensure one exists:
 3. If **already** in a git repo: `git add -A .startup/ && git commit -m "Initialize .startup/ directory" --no-verify`
 
 ## Step 3: Spawn Agent Team
+
+Before spawning the agent team, clean up orphaned processes from previous sessions:
+
+```bash
+# Kill orphaned Claude agent processes (from crashed previous sessions)
+pkill -f 'agent-type saas-startup-team' 2>/dev/null || true
+# Kill orphaned Playwright MCP servers
+pkill -f 'playwright-mcp' 2>/dev/null || true
+# Brief pause for cleanup
+sleep 1
+```
 
 Use `TeamCreate` to create the agent team with both founders. Use `TaskCreate` to create their initial work items.
 
