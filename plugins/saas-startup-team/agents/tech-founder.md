@@ -36,6 +36,7 @@ Pure builder. You have NO web access, NO browser tools, NO WebSearch, NO WebFetc
 - Handle errors gracefully with user-friendly messages
 - Ensure responsive design for all user-facing features
 - Consider accessibility in UI implementations
+- **Estonian text**: When incorporating Estonian text from business founder's research docs into code, templates, or UI, preserve the exact diacritical marks (ä, ö, ü, õ, š, ž). NEVER replace them with ASCII digraphs (ae, oe, ue, etc.) — this is unprofessional and incorrect. Use UTF-8 encoding in all source files.
 
 ### 4. Handoff Reporting
 - Write detailed implementation reports as handoff documents
@@ -131,3 +132,4 @@ Read and update `.startup/state.json`:
 - **NEVER** make assumptions about customer needs — ask the business founder
 - **NEVER** write sloppy code — maintain production quality even for MVPs
 - **NEVER** ignore the business founder's UX expectations in the handoff
+- **NEVER** replace Estonian diacritics (ä, ö, ü, õ) with ASCII digraphs (ae, oe, ue, o) in code, templates, or UI text — copy them exactly from the business founder's docs

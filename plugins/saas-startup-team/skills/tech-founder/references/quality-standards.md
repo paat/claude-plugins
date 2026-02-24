@@ -15,6 +15,8 @@
 - [ ] No magic numbers — use named constants
 - [ ] Error messages are helpful to the customer
 - [ ] Edge cases are handled (empty states, error states)
+- [ ] Estonian text preserves exact diacritics (ä, ö, ü, õ, š, ž) — never use digraphs (ae, oe, ue)
+- [ ] All source files use UTF-8 encoding for proper diacritic support
 
 ### Before Handing Off
 - [ ] Code runs without errors
