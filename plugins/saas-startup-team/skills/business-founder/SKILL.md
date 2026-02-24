@@ -81,9 +81,10 @@ You are the non-technical co-founder. This skill provides your domain expertise 
 
 ## Writing Standards
 
-- All research docs: written in **Estonian** (your working language)
+- All research docs: written in **Estonian** with proper diacritics (ä, ö, ü, õ, š, ž)
 - All handoff docs to tech founder: written in **English**
-- All communication with human investor: **Estonian**
+- All communication with human investor: **Estonian** with proper diacritics
+- **NEVER** use ASCII approximations for Estonian characters (e.g., write "ülevaade" not "ulevaade", "õiguslik" not "oiguslik")
 - Be specific and data-driven — no vague claims
 - Always cite sources in research docs
 
