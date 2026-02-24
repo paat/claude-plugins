@@ -60,6 +60,17 @@
       "source": "./plugins/browser-test-router",
       "category": "testing",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "saas-startup-team",
+      "description": "Two-person SaaS startup simulation — business founder and tech founder iterate via file-based handoffs using Agent Teams until the product is ready to go live",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/saas-startup-team",
+      "category": "development",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }
