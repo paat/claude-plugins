@@ -657,6 +657,7 @@ test_cross_file_consistency() {
 test_post_tool_use_hook() {
   echo -e "\n${CYAN}Suite I: PostToolUse Hook${NC}"
   local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
+  local script="$PLUGIN_ROOT/scripts/auto-learn.sh"
 
   # I1: hooks.json has PostToolUse key
   local hooks_keys
@@ -669,20 +670,55 @@ test_post_tool_use_hook() {
   assert_output_contains "I2: PostToolUse matcher covers Edit" "$matcher" "Edit"
   assert_output_contains "I2b: PostToolUse matcher covers Write" "$matcher" "Write"
 
-  # I3: PostToolUse hook type is "prompt"
-  assert_json_field "I3: PostToolUse hook type is prompt" "$hooks_file" \
-    '.hooks.PostToolUse[0].hooks[0].type' "prompt"
+  # I3: PostToolUse hook type is "command" (deterministic path filtering)
+  assert_json_field "I3: PostToolUse hook type is command" "$hooks_file" \
+    '.hooks.PostToolUse[0].hooks[0].type' "command"
 
-  # I4: prompt references .startup/ path check
-  local prompt
-  prompt=$(jq -r '.hooks.PostToolUse[0].hooks[0].prompt' "$hooks_file" 2>/dev/null)
-  assert_output_contains "I4: prompt references .startup/ path check" "$prompt" ".startup/"
+  # I4: auto-learn.sh script exists and is executable
+  assert_file_exists "I4: auto-learn.sh exists" "$script"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} I4b: auto-learn.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} I4b: auto-learn.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("I4b: auto-learn.sh is not executable")
+  fi
 
-  # I5: prompt references ## Learnings section
-  assert_output_contains "I5: prompt references Learnings section" "$prompt" "## Learnings"
+  # I5: auto-learn.sh contains .startup/ path check
+  assert_file_contains "I5: auto-learn.sh has .startup/ path check" "$script" "\.startup/"
 
-  # I6: prompt contains duplicate-skip instruction
-  assert_output_contains "I6: prompt contains duplicate-skip instruction" "$prompt" "semantically equivalent"
+  # I6: auto-learn.sh systemMessage contains Learnings section reference
+  assert_file_contains "I6: auto-learn.sh references Learnings section" "$script" "## Learnings"
+
+  # I7: auto-learn.sh systemMessage contains duplicate-skip instruction
+  assert_file_contains "I7: auto-learn.sh contains duplicate-skip instruction" "$script" "semantically equivalent"
+
+  # I8: auto-learn.sh exits 0 silently for non-matching file
+  local ec=0 output
+  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "I8: exits 0 for non-matching file" "$ec" 0
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -z "$output" ]; then
+    echo -e "  ${GREEN}PASS${NC} I8b: no output for non-matching file"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} I8b: unexpected output for non-matching file: '$output'"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("I8b: unexpected output for non-matching file")
+  fi
+
+  # I9: auto-learn.sh exits 0 silently for .startup/state.json (not a target subdir)
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/state.json"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "I9: exits 0 for .startup/state.json" "$ec" 0
+
+  # I10: auto-learn.sh exits 2 with systemMessage for matching handoff file
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "I10: exits 2 for matching handoff file" "$ec" 2
+  assert_output_contains "I10b: systemMessage in output" "$output" "systemMessage"
 }
 
 # ---------------------------------------------------------------------------
