@@ -4,10 +4,11 @@
 
 ```
 Human (Silent Investor)
-  ↓ /startup command
+  ↓ /startup command         ↓ /lawyer <topic>
 Team Lead (Main Session)
   ├── Business Founder (teammate, blue)
   ├── Tech Founder (teammate, green)
+  ├── Lawyer (on-demand consultant, purple)
   ├── Shared TaskList
   └── Inter-agent messaging
 ```
