@@ -8,13 +8,16 @@ set -euo pipefail
 # Allow team members and subagents to stop — only block the main orchestrator.
 # Team members are launched with --agent-id; the main session has no such flag.
 # Walk up the process tree to detect if we're inside a team member agent.
+# Uses /proc/PID/status (not /proc/PID/stat) because stat's comm field can
+# contain spaces, breaking awk field numbering.
 ppid_check=$PPID
 for _ in 1 2 3 4 5; do
-  [ -z "$ppid_check" ] || [ "$ppid_check" -le 1 ] && break
-  if cat /proc/"$ppid_check"/cmdline 2>/dev/null | tr '\0' ' ' | grep -q -- '--agent-id'; then
+  [[ "$ppid_check" =~ ^[0-9]+$ ]] || break
+  [ "$ppid_check" -le 1 ] && break
+  if tr '\0' ' ' < /proc/"$ppid_check"/cmdline 2>/dev/null | grep -q -- '--agent-id'; then
     exit 0
   fi
-  ppid_check=$(awk '{print $4}' /proc/"$ppid_check"/stat 2>/dev/null || echo "1")
+  ppid_check=$(grep -m1 '^PPid:' /proc/"$ppid_check"/status 2>/dev/null | awk '{print $2}')
 done
 
 # Resolve git root for absolute paths (MED-7)
