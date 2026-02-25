@@ -776,6 +776,12 @@ test_auto_commit_hook() {
   # K3: Has .startup/handoffs/ path filter
   assert_file_contains "K3: has .startup/handoffs/ path filter" "$script" "\.startup/handoffs/"
 
+  # K3b: Has .startup/signoffs/ path filter
+  assert_file_contains "K3b: has .startup/signoffs/ path filter" "$script" "\.startup/signoffs/"
+
+  # K3c: Has .startup/reviews/ path filter
+  assert_file_contains "K3c: has .startup/reviews/ path filter" "$script" "\.startup/reviews/"
+
   # K4: Uses git rev-parse --show-toplevel
   assert_file_contains "K4: uses git rev-parse --show-toplevel" "$script" "git rev-parse --show-toplevel"
 
@@ -826,6 +832,59 @@ test_auto_commit_hook() {
     FAIL_COUNT=$((FAIL_COUNT + 1))
     FAILURES+=("K10: expected >=2 commits, got $commit_count")
   fi
+  rm -rf "$workdir"
+
+  # K11: Functional test — signoff write in a git repo creates a commit
+  workdir=$(mktemp -d)
+  git init -q "$workdir"
+  (cd "$workdir" && git config user.email "test@test.com" && git config user.name "Test" && git commit --allow-empty -m "init" -q)
+  mkdir -p "$workdir/.startup/signoffs"
+  echo "signoff content" > "$workdir/.startup/signoffs/mvp-core.md"
+
+  ec=0; output=""
+  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/signoffs/mvp-core.md"}}' | bash "$script" 2>&1) || ec=$?
+
+  commit_count=$(cd "$workdir" && git log --oneline 2>/dev/null | wc -l)
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$commit_count" -ge 2 ]; then
+    echo -e "  ${GREEN}PASS${NC} K11: functional test — signoff creates commit ($commit_count commits)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} K11: functional test — expected >=2 commits, got $commit_count"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("K11: expected >=2 commits, got $commit_count")
+  fi
+
+  # K11b: Commit message contains "signoff:"
+  local last_msg
+  last_msg=$(cd "$workdir" && git log -1 --format=%s 2>/dev/null)
+  assert_output_contains "K11b: signoff commit message format" "$last_msg" "signoff: mvp-core"
+  rm -rf "$workdir"
+
+  # K12: Functional test — review write in a git repo creates a commit
+  workdir=$(mktemp -d)
+  git init -q "$workdir"
+  (cd "$workdir" && git config user.email "test@test.com" && git config user.name "Test" && git commit --allow-empty -m "init" -q)
+  mkdir -p "$workdir/.startup/reviews"
+  echo "review content" > "$workdir/.startup/reviews/iteration-1.md"
+
+  ec=0; output=""
+  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/reviews/iteration-1.md"}}' | bash "$script" 2>&1) || ec=$?
+
+  commit_count=$(cd "$workdir" && git log --oneline 2>/dev/null | wc -l)
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$commit_count" -ge 2 ]; then
+    echo -e "  ${GREEN}PASS${NC} K12: functional test — review creates commit ($commit_count commits)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} K12: functional test — expected >=2 commits, got $commit_count"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("K12: expected >=2 commits, got $commit_count")
+  fi
+
+  # K12b: Commit message contains "review:"
+  last_msg=$(cd "$workdir" && git log -1 --format=%s 2>/dev/null)
+  assert_output_contains "K12b: review commit message format" "$last_msg" "review: iteration-1"
   rm -rf "$workdir"
 }
 
