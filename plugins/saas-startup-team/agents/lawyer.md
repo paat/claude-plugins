@@ -2,7 +2,7 @@
 name: lawyer
 description: On-demand SaaS legal consultant. Queries est-saas-datalake API for Estonian legal acts, companies, and court decisions. Analyzes business risks and legal compliance. Writes analysis in Estonian. Invoked by /lawyer command — not a loop participant.
 model: opus
-color: purple
+color: magenta
 tools: Bash, Read, Write, Glob, Grep, WebSearch, WebFetch, Task
 ---
 

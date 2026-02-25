@@ -8,7 +8,7 @@ Human (Silent Investor)
 Team Lead (Main Session)
   ├── Business Founder (teammate, blue)
   ├── Tech Founder (teammate, green)
-  ├── Lawyer (on-demand consultant, purple)
+  ├── Lawyer (on-demand consultant, magenta)
   ├── Shared TaskList
   └── Inter-agent messaging
 ```
