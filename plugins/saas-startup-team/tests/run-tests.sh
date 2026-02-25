@@ -436,7 +436,7 @@ test_plugin_config() {
   # E1-E4: plugin.json
   assert_json_valid "E1: plugin.json is valid JSON" "$PLUGIN_ROOT/.claude-plugin/plugin.json"
   assert_json_field "E2: plugin.json has name" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".name" "saas-startup-team"
-  assert_json_field "E3: plugin.json has version" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".version" "0.1.0"
+  assert_json_field "E3: plugin.json has version" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".version" "0.2.0"
   local desc
   desc=$(jq -r '.description' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null)
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
@@ -463,35 +463,96 @@ test_plugin_config() {
 }
 
 # ---------------------------------------------------------------------------
-# Suite F: Stop Hook
+# Suite F: Stop Hook (check-stop.sh)
 # ---------------------------------------------------------------------------
 
 test_stop_hook() {
   echo -e "\n${CYAN}Suite F: Stop Hook${NC}"
-  local workdir ec
+  local workdir ec output
+  local SCRIPT="$PLUGIN_ROOT/scripts/check-stop.sh"
 
-  # The Stop hook command is: test -f .startup/go-live/solution-signoff.md
+  # F1: check-stop.sh exists
+  assert_file_exists "F1: check-stop.sh exists" "$SCRIPT"
 
-  # F1: no .startup → exit 1
+  # F2: check-stop.sh is executable
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$SCRIPT" ]; then
+    echo -e "  ${GREEN}PASS${NC} F2: check-stop.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} F2: check-stop.sh is executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("F2: check-stop.sh not executable")
+  fi
+
+  # F3: Has team-member bypass (checks --agent-id in process tree)
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if grep -q -- '--agent-id' "$SCRIPT"; then
+    echo -e "  ${GREEN}PASS${NC} F3: has team-member bypass (--agent-id check)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} F3: missing team-member bypass"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("F3: check-stop.sh missing --agent-id team-member bypass")
+  fi
+
+  # F4: no git repo → exit 0 (allow stop)
   workdir=$(make_workdir)
-  ec=0; (cd "$workdir" && test -f .startup/go-live/solution-signoff.md) || ec=$?
-  assert_exit_code "F1: no .startup dir → stop blocked" "$ec" 1
+  ec=0; (cd "$workdir" && bash "$SCRIPT") || ec=$?
+  assert_exit_code "F4: no git repo → allow stop" "$ec" 0
   rm -rf "$workdir"
 
-  # F2: empty go-live → exit 1
+  # F5: no .startup dir → exit 0
   workdir=$(make_workdir)
-  mkdir -p "$workdir/.startup/go-live"
-  ec=0; (cd "$workdir" && test -f .startup/go-live/solution-signoff.md) || ec=$?
-  assert_exit_code "F2: empty go-live → stop blocked" "$ec" 1
+  (cd "$workdir" && git init -q)
+  ec=0; (cd "$workdir" && bash "$SCRIPT") || ec=$?
+  assert_exit_code "F5: no .startup dir → allow stop" "$ec" 0
   rm -rf "$workdir"
 
-  # F3: signoff exists → exit 0
+  # F6: iteration < 2 → exit 0 (allow stop)
   workdir=$(make_workdir)
-  mkdir -p "$workdir/.startup/go-live"
+  (cd "$workdir" && git init -q && mkdir -p .startup)
+  echo '{"iteration": 1, "phase": "research"}' > "$workdir/.startup/state.json"
+  ec=0; (cd "$workdir" && bash "$SCRIPT") || ec=$?
+  assert_exit_code "F6: iteration 1 → allow stop" "$ec" 0
+  rm -rf "$workdir"
+
+  # F7: iteration >= 2, no signoff → exit 2 (block stop)
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 2, "phase": "implementation"}' > "$workdir/.startup/state.json"
+  ec=0; output=$( (cd "$workdir" && bash "$SCRIPT") 2>&1 ) || ec=$?
+  assert_exit_code "F7: iteration 2 no signoff → block stop" "$ec" 2
+  rm -rf "$workdir"
+
+  # F8: iteration >= 2 with signoff → exit 0 (allow stop)
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 3, "phase": "implementation"}' > "$workdir/.startup/state.json"
   echo "signed off" > "$workdir/.startup/go-live/solution-signoff.md"
-  ec=0; (cd "$workdir" && test -f .startup/go-live/solution-signoff.md) || ec=$?
-  assert_exit_code "F3: signoff exists → stop allowed" "$ec" 0
+  ec=0; (cd "$workdir" && bash "$SCRIPT") || ec=$?
+  assert_exit_code "F8: iteration 3 with signoff → allow stop" "$ec" 0
   rm -rf "$workdir"
+
+  # F9: block message includes iteration and phase
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 4, "phase": "review"}' > "$workdir/.startup/state.json"
+  ec=0; output=$( (cd "$workdir" && bash "$SCRIPT") 2>&1 ) || ec=$?
+  assert_output_contains "F9: block message shows iteration" "$output" "iteration 4"
+  assert_output_contains "F9b: block message shows phase" "$output" "review"
+  rm -rf "$workdir"
+
+  # F10: hooks.json Stop entry references check-stop.sh
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if jq -e '.hooks.Stop[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null | grep -q 'check-stop.sh'; then
+    echo -e "  ${GREEN}PASS${NC} F10: hooks.json Stop references check-stop.sh"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} F10: hooks.json Stop missing check-stop.sh reference"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("F10: hooks.json Stop entry missing check-stop.sh")
+  fi
 }
 
 # ---------------------------------------------------------------------------

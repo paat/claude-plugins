@@ -5,6 +5,18 @@
 
 set -euo pipefail
 
+# Allow team members and subagents to stop — only block the main orchestrator.
+# Team members are launched with --agent-id; the main session has no such flag.
+# Walk up the process tree to detect if we're inside a team member agent.
+ppid_check=$PPID
+for _ in 1 2 3 4 5; do
+  [ -z "$ppid_check" ] || [ "$ppid_check" -le 1 ] && break
+  if cat /proc/"$ppid_check"/cmdline 2>/dev/null | tr '\0' ' ' | grep -q -- '--agent-id'; then
+    exit 0
+  fi
+  ppid_check=$(awk '{print $4}' /proc/"$ppid_check"/stat 2>/dev/null || echo "1")
+done
+
 # Resolve git root for absolute paths (MED-7)
 GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
 if [ -z "$GIT_ROOT" ]; then
