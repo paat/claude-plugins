@@ -8,7 +8,7 @@ type: requirements | review | feedback
 
 ## Summary
 
-One paragraph overview of what is needed.
+One paragraph overview of what is needed. **Max 2 features per handoff** — if you have more, split into multiple sequential handoffs.
 
 ## Why (Business Justification)
 
@@ -21,11 +21,10 @@ Why this matters to the customer and the business. Include:
 
 ## What's Needed
 
-### Feature Requirements
+### Feature Requirements (max 2 features per handoff)
 
-- [ ] Requirement 1 — acceptance criteria
-- [ ] Requirement 2 — acceptance criteria
-- [ ] Requirement 3 — acceptance criteria
+- [ ] Feature 1 — acceptance criteria
+- [ ] Feature 2 — acceptance criteria
 
 ### UX Expectations
 

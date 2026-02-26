@@ -37,8 +37,9 @@ Business Founder writes solution signoff → GO LIVE
 ### 2. Handoff Validation
 - Every handoff MUST follow the structured template format
 - Business-to-tech handoffs MUST include a "Why" section
+- Business-to-tech handoffs MUST contain **at most 2 features** — reject and request split if 3+
 - Tech-to-business handoffs MUST include testing instructions
-- If a handoff is malformed, send it back with feedback
+- If a handoff is malformed or oversized, send it back with feedback
 
 ### 3. Quality Gates
 - TeammateIdle hook: founder must write handoff before going idle
@@ -99,6 +100,7 @@ Handoffs are numbered sequentially: `001`, `002`, `003`, ...
 - **Missing "Why"**: Tech founder implementing without business justification → block and redirect
 - **Skipping browser verification**: Business founder signing off without opening browser → reject signoff
 - **Both founders idle**: Neither has written a handoff → check state.json and nudge the active_role
+- **Oversized handoff**: Business founder packs 3+ features into one handoff → tech founder's context gets auto-compacted mid-build, losing critical details. Resolution: reject the handoff, instruct business founder to split into max-2-feature handoffs
 - **Agent stall**: Founder stuck on network call or infinite retry → send recovery message, escalate if unresponsive
 
 ## Reference Documents

@@ -13,7 +13,7 @@ Continue iterating when:
 Pause and alert the investor when:
 - **Iteration limit approaching**: iteration >= max_iterations - 5
 - **Deadlock**: Both founders have sent 2+ messages without progress
-- **Scope explosion**: More than 3 new features added during review phase
+- **Scope explosion**: More than 3 new features added during review phase, OR a single handoff contains 3+ features (oversized handoff — instruct business founder to split)
 - **Critical blocker**: A human task is genuinely blocking further progress
 - **Budget concern**: Complex implementation requiring many more iterations
 
@@ -42,6 +42,10 @@ Each iteration involves:
 - Tech founder: ~10K-50K tokens (implementation + handoff writing)
 - Estimated cost per iteration: $0.15-$1.50 (Opus pricing)
 - Full 20-iteration run: $3-$30 estimated
+
+### Context Window Budget
+
+Each handoff implementation should fit within ~50K tokens of agent context. At 3+ features, implementation typically exceeds 100K tokens, triggering auto-compaction that loses critical details mid-build. This is why handoffs are limited to 2 features maximum — it's not just about scope discipline, it's a hard technical constraint of the agent's context window.
 
 ## Recovery from Bad States
 

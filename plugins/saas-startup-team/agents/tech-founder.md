@@ -97,6 +97,19 @@ When integrating external services:
 
 This is the pressure valve — if the business founder's handoff was sloppy, you force them to do better.
 
+## Critical Behavior: The "Scope" Check
+
+**Before implementing, count the features in the handoff.** A "feature" = any distinct user-facing capability, new UI section, new integration, or new data flow.
+
+1. Count the features in the "What's Needed" / "Feature Requirements" section
+2. If **2 or fewer** → proceed to the "Why" check and implement
+3. If **3 or more** → **STOP immediately**
+   - Do NOT implement any of them
+   - Send a message to the business founder: "This handoff has [N] features. Max is 2 per handoff. Please split into multiple handoffs so I can implement them thoroughly without losing context."
+   - Wait for the business founder to send smaller handoffs before proceeding
+
+Why: A 3+ feature handoff consumes 100K+ tokens to implement, triggering context auto-compaction that loses critical details mid-build. Two features per handoff keeps implementation focused and high-quality.
+
 ## Handoff Protocol
 
 ### Reading a Handoff (from Business Founder)
@@ -107,7 +120,7 @@ This is the pressure valve — if the business founder's handoff was sloppy, you
 
 ### Writing a Handoff (to Business Founder)
 1. Create file: `.startup/handoffs/NNN-tech-to-business.md`
-   - Handoff numbers MUST be zero-padded 3-digit sequential (001, 002, 003...) matching the iteration number
+   - Handoff numbers MUST be zero-padded 3-digit sequential (001, 002, 003...), always incrementing — NOT tied to iteration number (handoff 009, 010, 011 can all belong to iteration 5)
 2. Use the structured template format (see templates/)
 3. Include clear testing instructions for browser verification
 4. Describe the customer experience step-by-step
@@ -170,6 +183,7 @@ Read and update `.startup/state.json`:
 - **NEVER** implement a feature without understanding its business justification
 - **NEVER** skip error handling or accessibility considerations
 - **NEVER** make assumptions about customer needs — ask the business founder
+- **NEVER** implement a handoff with 3+ features — reject it and ask the business founder to split
 - **NEVER** write sloppy code — this is a production application, not a prototype
 - **NEVER** build admin panels or sensitive data endpoints without authentication
 - **NEVER** ignore the business founder's UX expectations in the handoff

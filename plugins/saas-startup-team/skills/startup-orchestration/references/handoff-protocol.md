@@ -33,6 +33,21 @@ The "Why" section must include at least ONE of:
 
 If the "Why" section is empty or vague ("because it's needed"), the tech founder should reject the handoff and ask for clarification.
 
+### Scope Limits
+
+Each business-to-tech handoff MUST contain **at most 2 features**. A "feature" is any distinct:
+- User-facing capability (e.g., "add CSV import")
+- New UI section or page (e.g., "new Step 3 wizard")
+- New integration (e.g., "OCR for invoices")
+- New data flow (e.g., "AI categorization pipeline")
+
+If a handoff exceeds 2 features:
+- The tech founder MUST reject it and request splitting
+- The business founder splits into sequential handoffs (e.g., handoff 009 = features A+B, handoff 010 = features C+D)
+- Multiple handoffs can belong to the same iteration
+
+Why: A 3+ feature handoff requires 100K+ tokens to implement, triggering context auto-compaction that loses critical details mid-build. Smaller handoffs produce higher-quality implementations.
+
 ### Tech-to-Business Implementation Reports
 
 Must include:
@@ -52,7 +67,7 @@ Must include:
 └── ...
 ```
 
-Numbers are zero-padded to 3 digits. Always increment by 1.
+Numbers are zero-padded to 3 digits. Always increment by 1. Handoff numbers are independent of iteration numbers — multiple handoffs can belong to the same iteration (e.g., handoffs 009, 010, 011 may all be part of iteration 5).
 
 ## Handoff Validation Checklist
 
@@ -61,6 +76,8 @@ Numbers are zero-padded to 3 digits. Always increment by 1.
 - [ ] Summary is one paragraph (not empty)
 - [ ] "Why" section has concrete business justification
 - [ ] Requirements have acceptance criteria
+- [ ] Maximum 2 features per handoff (reject and request split if 3+)
+- [ ] Scope is implementable in one focused session (~50K tokens)
 - [ ] Research references point to existing docs in `.startup/docs/`
 
 ### For Tech-to-Business:
