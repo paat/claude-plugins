@@ -436,7 +436,7 @@ test_plugin_config() {
   # E1-E4: plugin.json
   assert_json_valid "E1: plugin.json is valid JSON" "$PLUGIN_ROOT/.claude-plugin/plugin.json"
   assert_json_field "E2: plugin.json has name" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".name" "saas-startup-team"
-  assert_json_field "E3: plugin.json has version" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".version" "0.4.0"
+  assert_json_field "E3: plugin.json has version" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".version" "0.4.1"
   local desc
   desc=$(jq -r '.description' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null)
   TOTAL_COUNT=$((TOTAL_COUNT + 1))

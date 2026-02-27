@@ -48,14 +48,17 @@ The tech founder has NO access to:
 
 This is intentional — it forces the business founder to be thorough in research and handoff quality.
 
-## Fresh Context Pattern
+## Context Management Pattern
 
-Each teammate gets their own context window (Agent Teams native behavior):
-- Business founder's context: research tools + handoff history
-- Tech founder's context: code tools + handoff history
-- State carries forward via files, not LLM memory
+Each teammate gets their own context window (Agent Teams native behavior), but context **accumulates** across iterations — it is NOT reset per task. By iteration 5+, auto-compaction may remove earlier conversation details.
 
-This mirrors the "Ralph Loop" insight: fresh context per iteration prevents context pollution and cognitive overload.
+Mitigations:
+- **File-based state**: All critical state lives in `.startup/` files, not LLM memory
+- **Self-contained relay messages**: Team lead sends complete task descriptions with all file paths and instructions — never assumes the founder "remembers" earlier messages
+- **2-feature handoff limit**: Keeps per-iteration token usage under ~50K, slowing accumulation
+- **Handoff templates**: Structured format ensures nothing is lost even if conversation history is compacted
+
+Key rule: treat every relay message as if the receiving founder has never seen any previous messages. Point to files, not conversation history.
 
 ## Quality Gate Hooks
 

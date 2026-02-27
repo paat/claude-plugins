@@ -154,6 +154,37 @@ Send the initial message to the business founder:
 >
 > Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
 
+## Step 5: Relay Handoffs Between Founders
+
+**This is your core loop responsibility.** When a founder signals "Handoff NNN ready for [other founder]", you MUST relay it with an explicit, self-contained task message. The receiving founder's context accumulates across iterations — they may have auto-compacted and lost earlier details. Every relay message must be complete enough to act on WITHOUT relying on prior conversation history.
+
+### When Business Founder signals "Handoff NNN ready for tech founder":
+
+Send to tech founder:
+> **New task: Implement handoff NNN.**
+> Read `.startup/handoffs/NNN-business-to-tech.md` for full requirements.
+> Read `.startup/state.json` for current iteration and phase.
+> Check `.startup/docs/architecture.md` for your previous architecture decisions.
+> Implement the features, then write your handoff to `.startup/handoffs/{NNN+1}-tech-to-business.md`.
+> Set 10s timeouts on all HTTP calls. If a service is unreachable after 3 retries, document the failure and move on.
+> After writing the handoff, message the team lead: "Handoff {NNN+1} ready for business founder."
+
+### When Tech Founder signals "Handoff NNN ready for business founder":
+
+Read the tech founder's handoff to extract the localhost URL and port, then send to business founder:
+> **New task: Review handoff NNN.**
+> Read `.startup/handoffs/NNN-tech-to-business.md` for implementation details.
+> Read `.startup/state.json` for current iteration and phase.
+> Open browser to `{localhost URL from handoff}` and verify the implementation visually using Playwright.
+> Write your review to `.startup/reviews/` and then either:
+> - Write a roundtrip signoff if the feature meets production quality
+> - Write a feedback handoff to `.startup/handoffs/{NNN+1}-business-to-tech.md` if changes are needed
+> After writing, message the team lead: "Review complete" or "Handoff {NNN+1} ready for tech founder."
+
+### Why explicit relay matters
+
+Each founder is a persistent teammate whose context grows across iterations. By iteration 5+, auto-compaction may have removed earlier conversation details. The relay message must contain ALL information the founder needs to act — file paths, state references, and behavioral reminders. Never assume the founder "remembers" anything from earlier messages.
+
 ## Loop Control
 
 The loop continues until the business founder writes `.startup/go-live/solution-signoff.md`. The Stop hook enforces this after iteration 2+ — earlier iterations allow free exit for testing.
