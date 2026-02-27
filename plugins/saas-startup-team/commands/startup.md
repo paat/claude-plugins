@@ -19,12 +19,16 @@ Skill('saas-startup-team:startup-orchestration')
 
 Before proceeding, check if the saas-startup-team plugin is current:
 
-1. Read the plugin's installed version: check `~/.claude/plugins/installed_plugins.json` for the `saas-startup-team` entry's `gitCommitSha`
-2. Compare with the latest commit in the marketplace source repo (the path in `installPath`)
-3. If the installed SHA differs from the current source, warn the investor:
-   > ⚠️ The saas-startup-team plugin is outdated (installed: {sha}, latest: {latest_sha}).
-   > Run `/plugins update saas-startup-team` to get the latest improvements before starting.
-4. If up to date, continue silently.
+1. Read `~/.claude/plugins/installed_plugins.json` — find the `saas-startup-team@paat-plugins` entry and note its `gitCommitSha`
+2. Read `~/.claude/plugins/known_marketplaces.json` — find the `paat-plugins` entry and note its `installLocation` (this is the marketplace git repo)
+3. Get the latest commit for this plugin in the marketplace:
+   ```bash
+   git -C {installLocation} log -1 --format="%H" -- plugins/saas-startup-team/
+   ```
+4. If the SHAs differ, warn the investor:
+   > ⚠️ The saas-startup-team plugin may be outdated (installed: {sha}, latest: {latest_sha}).
+   > Run `/plugins update saas-startup-team` to get the latest version before starting.
+5. If up to date or the marketplace repo is unavailable, continue silently.
 
 ## Step 1: Capture the SaaS Idea
 
