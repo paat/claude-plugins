@@ -15,21 +15,6 @@ Before anything else, load the startup orchestration skill for loop management g
 Skill('saas-startup-team:startup-orchestration')
 ```
 
-## Step 0b: Plugin Freshness Check
-
-Before proceeding, check if the saas-startup-team plugin is current:
-
-1. Read `~/.claude/plugins/installed_plugins.json` — find the `saas-startup-team@paat-plugins` entry and note its `gitCommitSha`
-2. Read `~/.claude/plugins/known_marketplaces.json` — find the `paat-plugins` entry and note its `installLocation` (this is the marketplace git repo)
-3. Get the latest commit for this plugin in the marketplace:
-   ```bash
-   git -C {installLocation} log -1 --format="%H" -- plugins/saas-startup-team/
-   ```
-4. If the SHAs differ, warn the investor:
-   > ⚠️ The saas-startup-team plugin may be outdated (installed: {sha}, latest: {latest_sha}).
-   > Run `/plugins update saas-startup-team` to get the latest version before starting.
-5. If up to date or the marketplace repo is unavailable, continue silently.
-
 ## Step 1: Capture the SaaS Idea
 
 If the user hasn't already described their SaaS idea, ask them (in English):
