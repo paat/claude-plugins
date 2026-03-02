@@ -151,6 +151,8 @@ Send the initial message to the business founder:
 
 **This is your core loop responsibility.** When a founder signals "Handoff NNN ready for [other founder]", you MUST relay it with an explicit, self-contained task message. The receiving founder's context accumulates across iterations — they may have auto-compacted and lost earlier details. Every relay message must be complete enough to act on WITHOUT relying on prior conversation history.
 
+**NEVER write handoffs yourself.** The team lead is an orchestrator, not a founder. Even when the investor gives specific technical instructions, ALWAYS route them through the appropriate founder. The business founder has accumulated product context (UX patterns, competitor analysis, Estonian nuances, edge cases from browser testing) that the team lead does not have. Pass investor instructions to the business founder and let them write the handoff — they will enrich it with context you lack.
+
 ### Agent Freshness Decision
 
 Before each relay, decide whether to message the persistent teammate or spawn a fresh one-shot agent:
