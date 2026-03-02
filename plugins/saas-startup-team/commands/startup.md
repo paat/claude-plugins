@@ -66,7 +66,11 @@ Initialize `state.json`:
   "phase": "research",
   "active_role": "business-founder",
   "status": "active",
-  "started": "<current ISO timestamp>"
+  "started": "<current ISO timestamp>",
+  "agent_handoffs": {
+    "business-founder": 0,
+    "tech-founder": 0
+  }
 }
 ```
 
@@ -161,6 +165,24 @@ Send the initial message to the business founder:
 ## Step 5: Relay Handoffs Between Founders
 
 **This is your core loop responsibility.** When a founder signals "Handoff NNN ready for [other founder]", you MUST relay it with an explicit, self-contained task message. The receiving founder's context accumulates across iterations — they may have auto-compacted and lost earlier details. Every relay message must be complete enough to act on WITHOUT relying on prior conversation history.
+
+### Agent Freshness Decision
+
+Before each relay, decide whether to message the persistent teammate or spawn a fresh one-shot agent:
+
+1. Read `state.json` → check `agent_handoffs[target_agent]`
+2. **If count < 3**: Message the persistent teammate (current behavior below). Then increment the counter in `state.json`.
+3. **If count >= 3**: Spawn a fresh agent via the Task tool (see below). Then **reset the counter to 0** in `state.json`.
+
+**Fresh spawn via Task tool** — pass ALL of the following in the Task prompt:
+- The agent's role identity: "You are the {role} of an Estonian SaaS startup. You speak {language}."
+- The agent definition file path: `${CLAUDE_PLUGIN_ROOT}/agents/{agent-name}.md` — tell the agent to read it for tools/model/behavioral constraints
+- The full relay message (same self-contained message you'd send to the persistent teammate)
+- Instruction: "After completing your work and writing the handoff file, report back with a summary of what you did and the handoff filename."
+
+Use `subagent_type: "general-purpose"` for the Task tool.
+
+**Why 3 handoffs?** Each handoff consumes ~30-50K tokens. System prompt is ~21K. After 3 handoffs: 21K + 3×40K ≈ 141K tokens — well past auto-compaction threshold. Fresh spawn gives the agent a clean context window with zero history loss.
 
 ### When Business Founder signals "Handoff NNN ready for tech founder":
 

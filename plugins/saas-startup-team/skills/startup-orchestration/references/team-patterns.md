@@ -68,6 +68,28 @@ Key rule: treat every relay message as if the receiving founder has never seen a
 | TaskCompleted | Features need full lifecycle | Implementation + signoff both required |
 | Stop | Only business founder ends loop | Solution signoff must exist |
 
+## Agent Lifecycle Management
+
+Persistent teammates accumulate context across iterations. By handoff 4+,
+auto-compaction degrades context quality unpredictably. The team lead manages
+agent freshness:
+
+- **Handoffs 1-3**: Message persistent teammate (benefits from continuity)
+- **Handoffs 4+**: Spawn fresh via Task tool (clean context, same file-based state)
+- **Counter resets** on each fresh spawn
+
+Fresh-spawn agents use the same agent definition (tools, model, system prompt)
+but start with zero conversation history. Since all state lives in `.startup/`
+files, no information is lost.
+
+The lawyer already uses this one-shot pattern — every `/lawyer` invocation
+spawns a fresh Task agent. Founders adopt the same pattern once their context
+is stale.
+
+**Hook compatibility**: PostToolUse hooks (auto-commit, auto-learn, enforce-tone)
+fire on any agent's tool use — Task agents included. TeammateIdle won't fire for
+Task agents, but that's fine — Task agents complete and return, they don't go idle.
+
 ## Escalation Protocol
 
 1. Founder sends message to team lead: "I need investor input on X"

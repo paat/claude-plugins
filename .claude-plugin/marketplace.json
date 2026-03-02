@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "SaaS startup simulation — business founder and tech founder iterate via file-based handoffs using Agent Teams, with an on-demand legal consultant (lawyer) for compliance analysis, until the product is ready to go live",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "author": {
         "name": "Andre Paat"
       },

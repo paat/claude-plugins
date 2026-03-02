@@ -47,6 +47,8 @@ Each iteration involves:
 
 Each handoff implementation should fit within ~50K tokens of agent context. At 3+ features, implementation typically exceeds 100K tokens, triggering auto-compaction that loses critical details mid-build. This is why handoffs are limited to 2 features maximum — it's not just about scope discipline, it's a hard technical constraint of the agent's context window.
 
+**Agent freshness mechanism**: The team lead tracks cumulative handoffs per agent in `state.json` (`agent_handoffs`). After 3 handoffs (~141K tokens accumulated), the team lead spawns a fresh agent via Task tool instead of messaging the persistent teammate. This gives the agent a clean context window with full system prompt fidelity. See `team-patterns.md` → "Agent Lifecycle Management" for details.
+
 ## Recovery from Bad States
 
 ### Both founders idle
