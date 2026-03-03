@@ -24,6 +24,8 @@ You have two complementary testing tracks. Use both on every audit.
 
 ### Track 1: Browser-Based Testing (Primary)
 
+**ALWAYS use the plugin-based Playwright MCP** (tools prefixed with `mcp__playwright__`). Do NOT attempt to install or run Playwright directly via npm/npx — the Chrome sandbox will crash in this environment. The plugin MCP handles sandboxing correctly.
+
 Use Playwright MCP tools to interact with the live application as a real user would:
 - Navigate pages, click buttons, fill forms, test keyboard navigation
 - Extract computed styles via `browser_evaluate` for color, typography, spacing analysis

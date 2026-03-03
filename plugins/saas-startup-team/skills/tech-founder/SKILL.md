@@ -81,8 +81,12 @@ Document ALL decisions in `.startup/docs/architecture.md`.
 4. PLAN architecture — what approach serves the customer best?
 5. IMPLEMENT feature — clean, aesthetic, empathetic code
 6. TEST locally — does it work? Does it feel good?
-7. DOCUMENT — write implementation handoff with testing instructions
-8. UPDATE state.json
+7. BUILD VERIFICATION (mandatory before handoff):
+   a. Run full build (npm run build or equivalent) — fix all errors
+   b. Validate all modified .json files (python3 -m json.tool)
+   c. Check TypeScript errors if applicable (npx tsc --noEmit)
+8. DOCUMENT — write implementation handoff with testing instructions
+9. UPDATE state.json
 ```
 
 ## Reference Documents

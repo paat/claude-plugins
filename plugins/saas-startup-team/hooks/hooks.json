@@ -33,6 +33,26 @@
         ]
       },
       {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/validate-json.sh",
+            "description": "Validate JSON syntax after editing .json files"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/enforce-delegation.sh",
+            "description": "Prevent team lead from directly editing implementation code"
+          }
+        ]
+      },
+      {
         "matcher": "Write",
         "hooks": [
           {
@@ -49,6 +69,16 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/enforce-tone.sh",
             "description": "Flag MVP/prototype language in handoff files"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/check-duplicate-handoff.sh",
+            "description": "Warn when writing a handoff that duplicates existing work"
           }
         ]
       }

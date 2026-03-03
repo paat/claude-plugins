@@ -436,7 +436,7 @@ test_plugin_config() {
   # E1-E4: plugin.json
   assert_json_valid "E1: plugin.json is valid JSON" "$PLUGIN_ROOT/.claude-plugin/plugin.json"
   assert_json_field "E2: plugin.json has name" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".name" "saas-startup-team"
-  assert_json_field "E3: plugin.json has version" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".version" "0.5.0"
+  assert_json_field "E3: plugin.json has version" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".version" "0.6.0"
   local desc
   desc=$(jq -r '.description' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null)
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
@@ -867,12 +867,12 @@ test_auto_commit_hook() {
   # K7: hooks.json PostToolUse has 2 entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "K7: PostToolUse has 3 entries" "$ptu_count" "3"
+  assert_equals "K7: PostToolUse has 6 entries" "$ptu_count" "6"
 
-  # K8: Second PostToolUse entry references auto-commit.sh
-  local second_cmd
-  second_cmd=$(jq -r '.hooks.PostToolUse[1].hooks[0].command' "$hooks_file" 2>/dev/null)
-  assert_output_contains "K8: second PostToolUse references auto-commit.sh" "$second_cmd" "auto-commit.sh"
+  # K8: Fourth PostToolUse entry references auto-commit.sh
+  local fourth_cmd
+  fourth_cmd=$(jq -r '.hooks.PostToolUse[3].hooks[0].command' "$hooks_file" 2>/dev/null)
+  assert_output_contains "K8: fourth PostToolUse references auto-commit.sh" "$fourth_cmd" "auto-commit.sh"
 
   # K9: Uses --no-verify flag
   assert_file_contains "K9: uses --no-verify flag" "$script" "\-\-no-verify"
@@ -1064,15 +1064,217 @@ EOF
   assert_exit_code "L9: exits 0 when MVP in NEVER/ALWAYS line" "$ec" 0
   rm -rf "$workdir"
 
-  # L10: hooks.json PostToolUse has 3 entries
+  # L10: hooks.json PostToolUse has 6 entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "L10: PostToolUse has 3 entries" "$ptu_count" "3"
+  assert_equals "L10: PostToolUse has 6 entries" "$ptu_count" "6"
 
-  # L11: Third PostToolUse entry references enforce-tone.sh
-  local third_cmd
-  third_cmd=$(jq -r '.hooks.PostToolUse[2].hooks[0].command' "$hooks_file" 2>/dev/null)
-  assert_output_contains "L11: third PostToolUse references enforce-tone.sh" "$third_cmd" "enforce-tone.sh"
+  # L11: Fifth PostToolUse entry references enforce-tone.sh
+  local fifth_cmd
+  fifth_cmd=$(jq -r '.hooks.PostToolUse[4].hooks[0].command' "$hooks_file" 2>/dev/null)
+  assert_output_contains "L11: fifth PostToolUse references enforce-tone.sh" "$fifth_cmd" "enforce-tone.sh"
+}
+
+# ---------------------------------------------------------------------------
+# Suite M: JSON Validation Hook
+# ---------------------------------------------------------------------------
+
+test_json_validation_hook() {
+  echo -e "\n${CYAN}Suite M: JSON Validation Hook${NC}"
+  local script="$PLUGIN_ROOT/scripts/validate-json.sh"
+  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
+
+  # M1: validate-json.sh exists
+  assert_file_exists "M1: validate-json.sh exists" "$script"
+
+  # M2: validate-json.sh is executable
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} M2: validate-json.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} M2: validate-json.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("M2: validate-json.sh is not executable")
+  fi
+
+  # M3: hooks.json references validate-json.sh
+  local hook_refs
+  hook_refs=$(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file" 2>/dev/null)
+  assert_output_contains "M3: hooks.json references validate-json.sh" "$hook_refs" "validate-json.sh"
+
+  # M4: Exits 0 for non-JSON file
+  local ec=0 output
+  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "M4: exits 0 for non-JSON file" "$ec" 0
+
+  # M5: Exits 0 for valid JSON file
+  local workdir
+  workdir=$(mktemp -d)
+  echo '{"key": "value", "count": 1}' > "$workdir/test.json"
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/test.json"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "M5: exits 0 for valid JSON" "$ec" 0
+  rm -rf "$workdir"
+
+  # M6: Exits 2 for JSON with trailing comma
+  workdir=$(mktemp -d)
+  cat > "$workdir/bad.json" <<'EOF'
+{
+  "key": "value",
+  "count": 1,
+}
+EOF
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/bad.json"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "M6: exits 2 for JSON with trailing comma" "$ec" 2
+  assert_output_contains "M6b: systemMessage in output" "$output" "systemMessage"
+  rm -rf "$workdir"
+
+  # M7: Exits 2 for JSON with missing closing bracket
+  workdir=$(mktemp -d)
+  echo '{"key": "value"' > "$workdir/unclosed.json"
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/unclosed.json"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "M7: exits 2 for unclosed JSON" "$ec" 2
+  rm -rf "$workdir"
+
+  # M8: Exits 0 for empty file_path
+  ec=0; output=""
+  output=$(echo '{"tool_input":{}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "M8: exits 0 for empty file_path" "$ec" 0
+
+  # M9: Exits 0 for nonexistent JSON file (file deleted after edit)
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"/tmp/nonexistent-test-12345.json"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "M9: exits 0 for nonexistent file" "$ec" 0
+}
+
+# ---------------------------------------------------------------------------
+# Suite N: Delegation Enforcement Hook
+# ---------------------------------------------------------------------------
+
+test_delegation_enforcement_hook() {
+  echo -e "\n${CYAN}Suite N: Delegation Enforcement Hook${NC}"
+  local script="$PLUGIN_ROOT/scripts/enforce-delegation.sh"
+  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
+
+  # N1: enforce-delegation.sh exists
+  assert_file_exists "N1: enforce-delegation.sh exists" "$script"
+
+  # N2: enforce-delegation.sh is executable
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} N2: enforce-delegation.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} N2: enforce-delegation.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("N2: enforce-delegation.sh is not executable")
+  fi
+
+  # N3: hooks.json references enforce-delegation.sh
+  local hook_refs
+  hook_refs=$(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file" 2>/dev/null)
+  assert_output_contains "N3: hooks.json references enforce-delegation.sh" "$hook_refs" "enforce-delegation.sh"
+
+  # N4: Script checks .startup directory existence
+  assert_file_contains "N4: checks .startup directory" "$script" "\.startup"
+
+  # N5: Script allows writes to CLAUDE.md
+  assert_file_contains "N5: allows CLAUDE.md writes" "$script" "CLAUDE\.md"
+
+  # N6: Script has systemMessage in block output
+  assert_file_contains "N6: has systemMessage in block" "$script" "systemMessage"
+
+  # N7: Exits 0 for .startup/ file path (always allowed)
+  local ec=0 output
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "N7: exits 0 for .startup/ path" "$ec" 0
+
+  # N8: Exits 0 for CLAUDE.md path (always allowed)
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"/workspace/CLAUDE.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "N8: exits 0 for CLAUDE.md path" "$ec" 0
+
+  # N9: Exits 0 when no .startup directory exists (not an active project)
+  local workdir
+  workdir=$(mktemp -d)
+  git init -q "$workdir"
+  ec=0; output=""
+  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "N9: exits 0 when no .startup dir" "$ec" 0
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
+# Suite O: Duplicate Handoff Prevention Hook
+# ---------------------------------------------------------------------------
+
+test_duplicate_handoff_hook() {
+  echo -e "\n${CYAN}Suite O: Duplicate Handoff Prevention Hook${NC}"
+  local script="$PLUGIN_ROOT/scripts/check-duplicate-handoff.sh"
+  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
+
+  # O1: check-duplicate-handoff.sh exists
+  assert_file_exists "O1: check-duplicate-handoff.sh exists" "$script"
+
+  # O2: check-duplicate-handoff.sh is executable
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} O2: check-duplicate-handoff.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} O2: check-duplicate-handoff.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("O2: check-duplicate-handoff.sh is not executable")
+  fi
+
+  # O3: hooks.json references check-duplicate-handoff.sh
+  local hook_refs
+  hook_refs=$(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file" 2>/dev/null)
+  assert_output_contains "O3: hooks.json references check-duplicate-handoff.sh" "$hook_refs" "check-duplicate-handoff.sh"
+
+  # O4: Exits 0 for non-handoff file
+  local ec=0 output
+  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "O4: exits 0 for non-handoff file" "$ec" 0
+
+  # O5: Exits 0 for first handoff (no duplicates possible)
+  local workdir
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  echo "handoff content" > "$workdir/.startup/handoffs/001-business-to-tech.md"
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "O5: exits 0 for first handoff" "$ec" 0
+  rm -rf "$workdir"
+
+  # O6: Exits 0 for sequential handoffs (002 after 001, different direction)
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  echo "handoff 1" > "$workdir/.startup/handoffs/001-business-to-tech.md"
+  echo "handoff 2" > "$workdir/.startup/handoffs/002-tech-to-business.md"
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/002-tech-to-business.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "O6: exits 0 for sequential handoffs" "$ec" 0
+  rm -rf "$workdir"
+
+  # O7: Exits 2 when writing handoff 001 but 003 already exists (same direction)
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  echo "handoff 3" > "$workdir/.startup/handoffs/003-business-to-tech.md"
+  echo "handoff 1 dup" > "$workdir/.startup/handoffs/001-business-to-tech.md"
+  ec=0; output=""
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "O7: exits 2 for lower-numbered duplicate" "$ec" 2
+  assert_output_contains "O7b: systemMessage in output" "$output" "systemMessage"
+  rm -rf "$workdir"
+
+  # O8: Exits 0 for empty file_path
+  ec=0; output=""
+  output=$(echo '{"tool_input":{}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "O8: exits 0 for empty file_path" "$ec" 0
 }
 
 # ---------------------------------------------------------------------------
@@ -1102,6 +1304,9 @@ main() {
   test_plugin_issues
   test_auto_commit_hook
   test_tone_enforcement_hook
+  test_json_validation_hook
+  test_delegation_enforcement_hook
+  test_duplicate_handoff_hook
 
   # Summary
   echo ""

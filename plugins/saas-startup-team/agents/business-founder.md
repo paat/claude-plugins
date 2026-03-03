@@ -131,6 +131,8 @@ Work is auto-committed when handoff files are written by the plugin hook. Ensure
 
 **You MUST use Playwright browser tools for ALL product testing.** Do NOT use curl, wget, or HTTP requests — they cannot verify visual appearance, layout, rendered text, or customer experience.
 
+**ALWAYS use the plugin-based Playwright MCP** (tools prefixed with `mcp__playwright__`). Do NOT attempt to install or run Playwright directly via npm/npx — the Chrome sandbox will crash in this environment. The plugin MCP handles sandboxing correctly.
+
 ```
 1. browser_navigate to localhost URL provided by tech founder
 2. browser_take_screenshot → capture visual state as a customer sees it

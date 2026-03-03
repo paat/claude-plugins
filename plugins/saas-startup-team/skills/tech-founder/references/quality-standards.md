@@ -19,6 +19,9 @@
 - [ ] All source files use UTF-8 encoding for proper diacritic support
 
 ### Before Handing Off
+- [ ] **Run the build** (`npm run build` or equivalent) and fix ALL errors — do not hand off with a broken build
+- [ ] **Validate all modified JSON files** — run `python3 -m json.tool <file>` on every `.json` file you touched (i18n locale files are the #1 source of trailing comma bugs)
+- [ ] **Check TypeScript errors** — `npx tsc --noEmit` if applicable
 - [ ] Code runs without errors
 - [ ] Primary user flow works end-to-end
 - [ ] Error flow is tested (what happens when things go wrong?)
@@ -111,4 +114,44 @@ GOOD: "Loading your dashboard..." with progress indication
 ```
 BAD:  Blank page with no content
 GOOD: Illustration + "No projects yet. Create your first project to get started." + CTA button
+```
+
+## Date and Time Handling
+
+**NEVER use `Date.toISOString()` for user-facing dates.** It converts to UTC, which shifts dates backward in the Europe/Tallinn timezone (UTC+2/UTC+3). This has caused bugs in multiple sessions.
+
+### Rules
+- Use date-only string formatting (`YYYY-MM-DD`) for dates without time components
+- Use `date.toLocaleDateString()` or locale-aware libraries for display
+- When parsing dates from documents/APIs, preserve the original date string — do not round-trip through `Date` objects
+- If you must use `Date` objects, use `getFullYear()`, `getMonth()`, `getDate()` — never `toISOString().slice(0,10)`
+
+### Examples
+```javascript
+// BAD — shifts date in Europe/Tallinn
+const dateStr = new Date("2024-12-31").toISOString().slice(0, 10); // "2024-12-30" !!
+
+// GOOD — preserves the date
+const dateStr = "2024-12-31"; // Keep as string
+const formatted = new Intl.DateTimeFormat('et-EE').format(new Date("2024-12-31T12:00:00")); // Noon avoids TZ shift
+```
+
+## API Integration
+
+**ALWAYS use environment variables for base URLs in external API integrations.** Never hardcode `localhost` or any specific host — external APIs (payment gateways, webhooks) will reject localhost URLs.
+
+### Rules
+- Use `process.env.BASE_URL` (or equivalent) for ALL callback, return, and notification URLs
+- Check ALL URL fields in API requests: `returnUrl`, `notificationUrl`, `callbackUrl`, `redirectUrl`
+- Validate that BASE_URL is set before making API calls — fail fast with a clear error
+- In development, BASE_URL should point to a tunnel or public URL, not localhost
+
+### Examples
+```javascript
+// BAD — localhost will be rejected by external APIs
+const returnUrl = "http://localhost:3000/payment/callback";
+
+// GOOD — uses environment variable
+const returnUrl = `${process.env.BASE_URL}/payment/callback`;
+if (!process.env.BASE_URL) throw new Error("BASE_URL not configured");
 ```
