@@ -74,7 +74,19 @@ Recovery actions:
 2. If unresponsive: escalate to investor
 3. Prevention: when dispatching tasks, remind tech-founder to set HTTP timeouts
 
-### 7. Service URL Consistency
+### 7. UX Audit Integration
+
+When the investor runs `/ux-test`, the UX Tester writes findings to `.startup/docs/ux-*.md`. After the audit completes:
+
+1. Read the UX audit files and prioritize findings by severity
+2. Group findings into max-2-feature handoff items (same limit as regular handoffs)
+3. Assign to the appropriate founder:
+   - **Tech Founder**: Code fixes — accessibility violations, responsive bugs, missing interaction states, visual consistency normalization
+   - **Business Founder**: UX research — unclear user flows needing competitive research, content/copy issues needing user perspective, feature gaps needing requirements
+4. Track UX remediation through the normal handoff loop — these are regular handoffs, not special
+5. On subsequent `/ux-test` runs, compare with previous findings to verify fixes
+
+### 8. Service URL Consistency
 
 When dispatching tasks or reviewing handoffs, verify service URLs are consistent:
 - Check that URLs in `CLAUDE.md` match URLs in `.startup/docs/architecture.md`

@@ -4,11 +4,12 @@
 
 ```
 Human (Silent Investor)
-  ↓ /startup command         ↓ /lawyer <topic>
+  ↓ /startup command    ↓ /lawyer <topic>    ↓ /ux-test <url>
 Team Lead (Main Session)
   ├── Business Founder (teammate, blue)
   ├── Tech Founder (teammate, green)
   ├── Lawyer (on-demand consultant, magenta)
+  ├── UX Tester (on-demand consultant, cyan)
   ├── Shared TaskList
   └── Inter-agent messaging
 ```
@@ -82,9 +83,18 @@ Fresh-spawn agents use the same agent definition (tools, model, system prompt)
 but start with zero conversation history. Since all state lives in `.startup/`
 files, no information is lost.
 
-The lawyer already uses this one-shot pattern — every `/lawyer` invocation
-spawns a fresh Task agent. Founders adopt the same pattern once their context
-is stale.
+The lawyer and UX tester both use this one-shot pattern — every `/lawyer` or
+`/ux-test` invocation spawns a fresh Task agent. Founders adopt the same pattern
+once their context is stale.
+
+## UX Audit Handover Pattern
+
+The UX Tester writes findings to `.startup/docs/ux-*.md`. The team lead then:
+1. Reads the findings and prioritizes by severity (Critical → Major → Minor)
+2. Groups findings into max-2-feature handoff items for founders
+3. Assigns code-fix findings (accessibility, responsive, states) to the tech founder
+4. Assigns UX research follow-ups (user flows, competitive patterns) to the business founder
+5. Tracks remediation through the normal handoff loop
 
 **Hook compatibility**: PostToolUse hooks (auto-commit, auto-learn, enforce-tone)
 fire on any agent's tool use — Task agents included. TeammateIdle won't fire for
