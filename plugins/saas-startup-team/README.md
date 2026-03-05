@@ -8,6 +8,8 @@ The human user is a **silent investor** — they describe a SaaS idea and watch 
 
 - **Business Founder** (blue): Does all real-world research (web, Reddit, browser). Defines requirements, verifies implementations via browser. Speaks Estonian to the investor, English to the developer.
 - **Tech Founder** (green): Pure builder. No web access — relies only on LLM training knowledge and the business founder's handoff documents. Stops and asks when the "why" is unclear.
+- **Lawyer** (magenta): On-demand legal consultant. Reviews compliance, GDPR, contracts, and Estonian business law. Invoked via `/lawyer`.
+- **UX Tester** (cyan): On-demand usability auditor. Runs browser-based accessibility and UX audits against live pages. Invoked via `/ux-test`.
 
 The founders iterate through structured file-based handoffs until the business founder declares the product ready for customers.
 
@@ -31,6 +33,8 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:startup` | Initialize project, spawn agent team, start the loop |
 | `/saas-startup-team:status` | Show iteration count, handoff history, human tasks |
 | `/saas-startup-team:nudge` | Unstick a deadlock or redirect a founder |
+| `/saas-startup-team:lawyer` | Spawn lawyer agent for legal/compliance review |
+| `/saas-startup-team:ux-test` | Spawn UX tester for accessibility and usability audit |
 
 ## The Loop
 
@@ -75,6 +79,7 @@ The `.startup/` directory is created at project root:
 - Claude Code with Agent Teams support (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
 - Playwright MCP (`@playwright/mcp`) — automatically configured via plugin `.mcp.json`, runs headless
 - Web access enabled (for business founder's market research)
+- **Linux environment** — hooks use `/proc/` for process tree detection (Docker containers work)
 
 ## Key Design Decisions
 

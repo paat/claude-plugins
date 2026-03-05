@@ -48,9 +48,11 @@ fi
 # Find git repo root — if not in a git repo, exit silently
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 
-# Stage all files in the repo
+# Stage .startup/ and implementation files (avoid staging sensitive files like .env)
 cd "$repo_root"
-git add -A . || true
+git add -A .startup/ || true
+git add -A backend/ frontend/ || true
+git add -A CLAUDE.md || true
 
 # Check if there's anything to commit
 if git diff --cached --quiet 2>/dev/null; then

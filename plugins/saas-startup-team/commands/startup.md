@@ -51,11 +51,7 @@ Initialize `state.json`:
   "phase": "research",
   "active_role": "business-founder",
   "status": "active",
-  "started": "<current ISO timestamp>",
-  "agent_handoffs": {
-    "business-founder": 0,
-    "tech-founder": 0
-  }
+  "started": "<current ISO timestamp>"
 }
 ```
 
@@ -89,6 +85,14 @@ The PostToolUse hook will auto-populate a `## Learnings` section in the project'
    ```
 3. If `CLAUDE.md` already has a `## Learnings` section, do nothing.
 
+## Step 2c: Ensure Git Repository
+
+The auto-commit hook requires a git repo. Ensure one exists:
+
+1. Check if in a git repo: `git rev-parse --show-toplevel`
+2. If **not** in a git repo: `git init && git add -A && git commit -m "Initial commit before startup loop"`
+3. If **already** in a git repo: `git add -A .startup/ && git commit -m "Initialize .startup/ directory" --no-verify`
+
 ## Step 2d: Reset Session State
 
 Clean up state from previous sessions to prevent stale data:
@@ -98,14 +102,6 @@ Clean up state from previous sessions to prevent stale data:
    rm -f .startup/.idle-count-* .startup/.idle-handoff-snapshot-*
    ```
 2. If resuming an existing session, skip this step (idle counters reflect real state).
-
-## Step 2c: Ensure Git Repository
-
-The auto-commit hook requires a git repo. Ensure one exists:
-
-1. Check if in a git repo: `git rev-parse --show-toplevel`
-2. If **not** in a git repo: `git init && git add -A && git commit -m "Initial commit before startup loop"`
-3. If **already** in a git repo: `git add -A .startup/ && git commit -m "Initialize .startup/ directory" --no-verify`
 
 ## Step 3: Spawn Agent Team
 
@@ -153,23 +149,34 @@ Send the initial message to the business founder:
 
 **NEVER write handoffs yourself.** The team lead is an orchestrator, not a founder. Even when the investor gives specific technical instructions, ALWAYS route them through the appropriate founder. The business founder has accumulated product context (UX patterns, competitor analysis, Estonian nuances, edge cases from browser testing) that the team lead does not have. Pass investor instructions to the business founder and let them write the handoff — they will enrich it with context you lack.
 
-### Agent Freshness Decision
+### Agent Lifecycle — Always Fresh, Right-Sized
 
-Before each relay, decide whether to message the persistent teammate or spawn a fresh one-shot agent:
+**Always spawn a fresh agent for every relay.** Never reuse agents — context bloat from prior handoffs degrades agent quality. Each dispatch starts with a clean context window.
 
-1. Read `state.json` → check `agent_handoffs[target_agent]`
-2. **If count < 3**: Message the persistent teammate (current behavior below). Then increment the counter in `state.json`.
-3. **If count >= 3**: Spawn a fresh agent via the Task tool (see below). Then **reset the counter to 0** in `state.json`.
+Before spawning a new agent, **kill any stale agents** from the same role:
+```bash
+pkill -f 'agent-type saas-startup-team:{role}' 2>/dev/null || true
+sleep 1
+```
 
 **Fresh spawn via Task tool** — pass ALL of the following in the Task prompt:
 - The agent's role identity: "You are the {role} of an Estonian SaaS startup. You speak {language}."
 - The agent definition file path: `${CLAUDE_PLUGIN_ROOT}/agents/{agent-name}.md` — tell the agent to read it for tools/model/behavioral constraints
-- The full relay message (same self-contained message you'd send to the persistent teammate)
-- Instruction: "After completing your work and writing the handoff file, report back with a summary of what you did and the handoff filename."
+- The full relay message (same self-contained message you'd send to a persistent teammate)
+- Instruction: "After completing your work and writing the handoff/review/signoff file, report back with a summary of what you did and the filename."
 
 Use `subagent_type: "general-purpose"` for the Task tool.
 
-**Why 3 handoffs?** Each handoff consumes ~30-50K tokens. System prompt is ~21K. After 3 handoffs: 21K + 3×40K ≈ 141K tokens — well past auto-compaction threshold. Fresh spawn gives the agent a clean context window with zero history loss.
+**Right-size the task.** Each agent dispatch must be a cohesive unit of work that produces exactly ONE deliverable file (handoff, review, or signoff). The sweet spot is 15-30 minutes of agent time.
+
+| Scenario | Dispatches |
+|----------|-----------|
+| 1-2 feature handoff | 1 agent |
+| Feedback with 3-4 independent fixes | 1 agent (fixes are small, bundle them) |
+| 2 large independent features | 2 agents, one per feature, each writes its own handoff |
+| Browser review of implementation | 1 agent |
+
+**NEVER micro-delegate.** Do NOT spawn separate agents for each individual fix. Bundle all fixes from a review into a single agent dispatch. If a task doesn't produce a file (handoff, review, signoff, or doc), it shouldn't be a separate agent — fold it into the next real task.
 
 ### When Business Founder signals "Handoff NNN ready for tech founder":
 

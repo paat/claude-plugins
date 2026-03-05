@@ -35,35 +35,51 @@ Business Founder writes solution signoff → GO LIVE
 - **Never assume the receiving founder remembers anything** from earlier messages — their context accumulates and may be auto-compacted by iteration 5+
 - See the `/startup` command's Step 5 for exact relay message templates
 
+### 1b. Agent Lifecycle — Fresh Agents, Right-Sized Tasks (CRITICAL)
+
+**Always spawn a fresh agent for each task.** Never reuse agents — context bloat from prior work degrades quality after 2-3 handoffs.
+
+**Right-size the task.** Each agent dispatch should be a **cohesive unit of work** that one agent can complete without exhausting its context window (~200K tokens). The sweet spot is one task that takes 15-30 minutes of agent time.
+
+**Splitting rules:**
+- A handoff with 1-2 features → ONE agent dispatch (the normal case)
+- A feedback handoff with 3-4 independent fixes → ONE agent dispatch (fixes are small, bundle them)
+- A handoff with 2 large features that each require research + implementation → SPLIT into 2 agent dispatches, one per feature
+- A review task requiring browser testing of many pages → ONE agent dispatch (verification is lightweight)
+
+**NEVER micro-delegate.** Do NOT spawn separate agents for "fix the API URL", "fix i18n", "fix the stats cards", "verify the fix". Bundle related fixes into a single dispatch. Each agent must receive a complete task and produce a complete deliverable (a handoff file, a review, or a signoff).
+
+**NEVER spawn an agent for a task that doesn't produce a file.** If it doesn't result in a handoff, review, signoff, or doc — it shouldn't be a separate agent. Fold it into the next real task.
+
 ### 2. Loop State Management
 - Monitor `.startup/state.json` for iteration count and phase
 - Enforce `max_iterations` limit (default: 20)
 - Track which founder should act next (`active_role`)
 
-### 2. Handoff Validation
+### 3. Handoff Validation
 - Every handoff MUST follow the structured template format
 - Business-to-tech handoffs MUST include a "Why" section
 - Business-to-tech handoffs MUST contain **at most 2 features** — reject and request split if 3+
 - Tech-to-business handoffs MUST include testing instructions
 - If a handoff is malformed or oversized, send it back with feedback
 
-### 3. Quality Gates
+### 4. Quality Gates
 - TeammateIdle hook: founder must write handoff before going idle
 - TaskCompleted hook: roundtrip tasks need both implementation and signoff
 - Stop hook: only exits when solution signoff exists
 
-### 4. Escalation
+### 5. Escalation
 - If a founder is stuck for more than one iteration, alert the investor
 - If founders disagree, present both positions to the investor
 - Investor communication: business founder speaks Estonian, tech founder speaks English
 
-### 5. Cost Awareness
+### 6. Cost Awareness
 - Each iteration consumes tokens across both agents
 - At iteration 10, send a status update to the investor
 - At iteration 15, warn about approaching the limit
 - At max_iterations, require investor decision to continue
 
-### 6. Stall Detection
+### 7. Stall Detection
 Agents can stall on network errors, unreachable services, or infinite loops. Stall indicators:
 - No new handoff files despite agent being active for an extended period
 - Agent mentions "waiting", "retrying", or connection errors
@@ -74,7 +90,7 @@ Recovery actions:
 2. If unresponsive: escalate to investor
 3. Prevention: when dispatching tasks, remind tech-founder to set HTTP timeouts
 
-### 7. UX Audit Integration
+### 8. UX Audit Integration
 
 When the investor runs `/ux-test`, the UX Tester writes findings to `.startup/docs/ux-*.md`. After the audit completes:
 
@@ -86,7 +102,7 @@ When the investor runs `/ux-test`, the UX Tester writes findings to `.startup/do
 4. Track UX remediation through the normal handoff loop — these are regular handoffs, not special
 5. On subsequent `/ux-test` runs, compare with previous findings to verify fixes
 
-### 8. Service URL Consistency
+### 9. Service URL Consistency
 
 When dispatching tasks or reviewing handoffs, verify service URLs are consistent:
 - Check that URLs in `CLAUDE.md` match URLs in `.startup/docs/architecture.md`
@@ -120,6 +136,8 @@ Handoffs are numbered sequentially: `001`, `002`, `003`, ...
 - **Both founders idle**: Neither has written a handoff → check state.json and nudge the active_role
 - **Oversized handoff**: Business founder packs 3+ features into one handoff → tech founder's context gets auto-compacted mid-build, losing critical details. Resolution: reject the handoff, instruct business founder to split into max-2-feature handoffs
 - **Agent stall**: Founder stuck on network call or infinite retry → send recovery message, escalate if unresponsive
+- **Micro-delegation**: Orchestrator spawns 5+ agents for one feedback cycle → bundle fixes into a single agent dispatch
+- **Stale agents**: Old agents lingering after new ones spawned → always verify old agents exited before spawning replacements; if stuck, kill them with `pkill -f 'agent-id {old-id}'`
 
 ## Reference Documents
 

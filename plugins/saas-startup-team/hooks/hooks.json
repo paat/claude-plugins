@@ -28,7 +28,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/auto-learn.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/auto-learn.sh",
+            "description": "Auto-extract project learnings from handoff/review/signoff files into CLAUDE.md"
           }
         ]
       },
@@ -37,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/validate-json.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/validate-json.sh",
             "description": "Validate JSON syntax after editing .json files"
           }
         ]
@@ -47,7 +48,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/enforce-delegation.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/enforce-delegation.sh",
             "description": "Prevent team lead from directly editing implementation code"
           }
         ]
@@ -57,7 +58,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/auto-commit.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/auto-commit.sh",
             "description": "Auto-commit all work when a handoff file is written"
           }
         ]
@@ -67,7 +68,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/enforce-tone.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/enforce-tone.sh",
             "description": "Flag MVP/prototype language in handoff files"
           }
         ]
@@ -77,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/check-duplicate-handoff.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-duplicate-handoff.sh",
             "description": "Warn when writing a handoff that duplicates existing work"
           }
         ]

@@ -71,21 +71,27 @@ Key rule: treat every relay message as if the receiving founder has never seen a
 
 ## Agent Lifecycle Management
 
-Persistent teammates accumulate context across iterations. By handoff 4+,
-auto-compaction degrades context quality unpredictably. The team lead manages
-agent freshness:
+**Always spawn fresh agents.** Every relay dispatches a new agent via the Task
+tool. Never reuse agents — context bloat from prior work degrades quality even
+after just 2-3 handoffs.
 
-- **Handoffs 1-3**: Message persistent teammate (benefits from continuity)
-- **Handoffs 4+**: Spawn fresh via Task tool (clean context, same file-based state)
-- **Counter resets** on each fresh spawn
+Before spawning a new agent, kill stale agents from the same role:
+```bash
+pkill -f 'agent-type saas-startup-team:{role}' 2>/dev/null || true
+sleep 1
+```
 
-Fresh-spawn agents use the same agent definition (tools, model, system prompt)
-but start with zero conversation history. Since all state lives in `.startup/`
+Fresh agents use the same agent definition (tools, model, system prompt) but
+start with zero conversation history. Since all state lives in `.startup/`
 files, no information is lost.
 
-The lawyer and UX tester both use this one-shot pattern — every `/lawyer` or
-`/ux-test` invocation spawns a fresh Task agent. Founders adopt the same pattern
-once their context is stale.
+**Right-size each dispatch.** Each agent should receive ONE cohesive task that
+produces exactly ONE deliverable file (handoff, review, or signoff). Do NOT
+micro-delegate — bundling 3-4 fixes from a review into a single agent dispatch
+is correct; spawning 5 agents for 5 small fixes is wrong.
+
+The lawyer and UX tester follow this same pattern — every `/lawyer` or
+`/ux-test` invocation spawns a fresh one-shot agent.
 
 ## UX Audit Handover Pattern
 

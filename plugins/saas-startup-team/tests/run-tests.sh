@@ -436,7 +436,7 @@ test_plugin_config() {
   # E1-E4: plugin.json
   assert_json_valid "E1: plugin.json is valid JSON" "$PLUGIN_ROOT/.claude-plugin/plugin.json"
   assert_json_field "E2: plugin.json has name" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".name" "saas-startup-team"
-  assert_json_field "E3: plugin.json has version" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".version" "0.6.0"
+  assert_json_field "E3: plugin.json has version" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".version" "0.7.0"
   local desc
   desc=$(jq -r '.description' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null)
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
@@ -580,11 +580,7 @@ test_startup_init() {
   "phase": "research",
   "active_role": "business-founder",
   "status": "active",
-  "started": "2026-02-23T10:00:00Z",
-  "agent_handoffs": {
-    "business-founder": 0,
-    "tech-founder": 0
-  }
+  "started": "2026-02-23T10:00:00Z"
 }
 EOF
 
@@ -624,10 +620,6 @@ EOF
     FAIL_COUNT=$((FAIL_COUNT + 1))
     FAILURES+=("G12: state.json missing started field")
   fi
-
-  # G16: agent_handoffs field exists with both founders at 0
-  assert_json_field "G16: agent_handoffs.business-founder is 0" "$workdir/.startup/state.json" '.agent_handoffs["business-founder"]' "0"
-  assert_json_field "G17: agent_handoffs.tech-founder is 0" "$workdir/.startup/state.json" '.agent_handoffs["tech-founder"]' "0"
 
   # G13: brief.md is non-empty
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
