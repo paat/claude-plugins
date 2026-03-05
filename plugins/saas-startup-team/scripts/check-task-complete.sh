@@ -38,7 +38,9 @@ fi
 # For go-live tasks, check solution signoff exists
 if echo "$TASK_SUBJECT" | grep -qi "go.live\|launch\|release\|ship"; then
   if [ ! -f "$STARTUP_DIR/go-live/solution-signoff.md" ]; then
-    echo "Task cannot be completed: solution signoff not found at $STARTUP_DIR/go-live/solution-signoff.md"
+    cat >&2 <<EOFMSG
+{"systemMessage":"Task cannot be completed: solution signoff not found at $STARTUP_DIR/go-live/solution-signoff.md"}
+EOFMSG
     exit 2
   fi
   exit 0
@@ -62,15 +64,17 @@ if echo "$TASK_SUBJECT" | grep -qi "roundtrip\|feature\|implement\|build\|create
 
   # The highest handoff number should be >= current iteration
   if [ "$HIGHEST_HANDOFF" -lt "$ITERATION" ] && [ "$ITERATION" -gt 0 ]; then
-    echo "Task cannot be completed: no handoff found for iteration $ITERATION."
-    echo "Latest handoff is #$(printf '%03d' $HIGHEST_HANDOFF), but current iteration is $ITERATION."
-    echo "Write your handoff to $STARTUP_DIR/handoffs/ before completing this task."
+    cat >&2 <<EOFMSG
+{"systemMessage":"Task cannot be completed: no handoff found for iteration $ITERATION. Latest handoff is #$(printf '%03d' $HIGHEST_HANDOFF), but current iteration is $ITERATION. Write your handoff to $STARTUP_DIR/handoffs/ before completing this task."}
+EOFMSG
     exit 2
   fi
 
   # Also check at least one handoff exists at all
   if [ "$HIGHEST_HANDOFF" -eq 0 ]; then
-    echo "Task cannot be completed: no handoff documents found in $STARTUP_DIR/handoffs/"
+    cat >&2 <<EOFMSG
+{"systemMessage":"Task cannot be completed: no handoff documents found in $STARTUP_DIR/handoffs/"}
+EOFMSG
     exit 2
   fi
 fi

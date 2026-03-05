@@ -94,13 +94,10 @@ echo "$TOTAL_HANDOFFS" > "$IDLE_HANDOFF_COUNT_FILE"
 
 # If 3+ consecutive idles without progress, block and escalate
 if [ "$CURRENT_IDLE" -ge 3 ]; then
-  echo "ESCALATION: $TEAMMATE_NAME has gone idle $CURRENT_IDLE times without producing any new output."
-  echo "This agent appears stuck in an idle loop. The team lead should:"
-  echo "  1. Check if the agent is responsive (send a direct message)"
-  echo "  2. If unresponsive, consider restarting the agent"
-  echo "  3. Escalate to the investor if the problem persists"
-  echo "Resetting idle counter. Next 3 consecutive idles will trigger again."
   echo "0" > "$IDLE_COUNT_FILE"
+  cat >&2 <<EOFMSG
+{"systemMessage":"ESCALATION: $TEAMMATE_NAME has gone idle $CURRENT_IDLE times without producing any new output. This agent appears stuck in an idle loop. The team lead should: (1) Check if the agent is responsive, (2) If unresponsive, consider restarting the agent, (3) Escalate to the investor if the problem persists. Idle counter reset."}
+EOFMSG
   exit 2
 fi
 
@@ -115,8 +112,9 @@ if [ "$ITERATION" -eq 0 ]; then
   fi
   # Phase is past research but iteration is still 0 — handoff expected
   if [ "$HIGHEST_HANDOFF" -lt 1 ]; then
-    echo "You must write your first handoff before going idle. Phase is '$PHASE' but no handoff has been written."
-    echo "Expected: $STARTUP_DIR/handoffs/001-*-to-*.md"
+    cat >&2 <<EOFMSG
+{"systemMessage":"You must write your first handoff before going idle. Phase is '$PHASE' but no handoff has been written. Expected: $STARTUP_DIR/handoffs/001-*-to-*.md"}
+EOFMSG
     exit 2
   fi
   exit 0
@@ -124,9 +122,9 @@ fi
 
 # For iteration > 0: the highest handoff number must be >= current iteration (CRIT-3)
 if [ "$HIGHEST_HANDOFF" -lt "$ITERATION" ]; then
-  echo "You must write your handoff for iteration $ITERATION before going idle."
-  echo "Latest handoff from $TEAMMATE_NAME is #$(printf '%03d' $HIGHEST_HANDOFF), but current iteration is $ITERATION."
-  echo "Expected: $STARTUP_DIR/handoffs/$(printf '%03d' $ITERATION)-*-to-*.md"
+  cat >&2 <<EOFMSG
+{"systemMessage":"You must write your handoff for iteration $ITERATION before going idle. Latest handoff from $TEAMMATE_NAME is #$(printf '%03d' $HIGHEST_HANDOFF), but current iteration is $ITERATION. Expected: $STARTUP_DIR/handoffs/$(printf '%03d' $ITERATION)-*-to-*.md"}
+EOFMSG
   exit 2
 fi
 

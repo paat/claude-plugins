@@ -55,26 +55,20 @@ if [ -f "$STARTUP_DIR/go-live/solution-signoff.md" ]; then
 fi
 
 # Block stop — session is mid-progress without signoff
-echo "Cannot stop: the startup loop is at iteration $ITERATION (phase: $PHASE) without a solution signoff."
-echo ""
-echo "Current progress:"
 
 # Show handoff count
 HANDOFF_COUNT=0
 for f in "$STARTUP_DIR/handoffs/"*.md; do
   [ -e "$f" ] && HANDOFF_COUNT=$((HANDOFF_COUNT + 1))
 done
-echo "  Handoffs written: $HANDOFF_COUNT"
 
 # Show signoff count
 SIGNOFF_COUNT=0
 for f in "$STARTUP_DIR/signoffs/"roundtrip-*.md; do
   [ -e "$f" ] && SIGNOFF_COUNT=$((SIGNOFF_COUNT + 1))
 done
-echo "  Features signed off: $SIGNOFF_COUNT"
 
-echo ""
-echo "To exit cleanly:"
-echo "  1. Have the business founder write .startup/go-live/solution-signoff.md"
-echo "  2. Or reduce iteration to < 2 in .startup/state.json to bypass this check"
+cat >&2 <<EOF
+{"systemMessage":"Cannot stop: the startup loop is at iteration $ITERATION (phase: $PHASE) without a solution signoff. Handoffs written: $HANDOFF_COUNT. Features signed off: $SIGNOFF_COUNT. To exit cleanly: (1) Have the business founder write .startup/go-live/solution-signoff.md, or (2) reduce iteration to < 2 in .startup/state.json to bypass this check."}
+EOF
 exit 2
