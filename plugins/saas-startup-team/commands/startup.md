@@ -116,16 +116,19 @@ pkill -f 'playwright-mcp' 2>/dev/null || true
 sleep 1
 ```
 
-Use `TeamCreate` to create the agent team with both founders. Use `TaskCreate` to create their initial work items.
+Spawn the initial agent pair using the **Task tool** (one-shot agents, NOT TeamCreate). Agent Teams persistent teammates cannot be dismissed — they accumulate as zombie processes. All agent dispatches (initial and subsequent) use the same one-shot pattern described in Step 5.
 
-1. **Business Founder** (teammate: `business-founder`)
-   - First task: Read `brief.md`, research the market (web + Reddit + browser), break the idea into features, write the first handoff to tech founder
+1. **Business Founder** — spawn via Task tool with `subagent_type: "general-purpose"`:
+   - Tell the agent to read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder.md` for its identity, tools, and behavioral constraints
+   - Task: Read `brief.md`, research the market (web + Reddit + browser), break the idea into features, write the first handoff to tech founder
    - Has web access, browser access, research tools
 
-2. **Tech Founder** (teammate: `tech-founder`)
-   - Initial message:
-     > Read `.startup/brief.md` to understand the product vision. While waiting for the first handoff from the business founder, plan preliminary architecture ideas and write initial thoughts to `.startup/docs/architecture.md`. Do NOT start implementing until you receive a handoff from the business founder. Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
+2. **Tech Founder** — spawn via Task tool with `subagent_type: "general-purpose"`:
+   - Tell the agent to read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder.md` for its identity, tools, and behavioral constraints
+   - Task: Read `.startup/brief.md` to understand the product vision. Plan preliminary architecture ideas and write initial thoughts to `.startup/docs/architecture.md`. Do NOT start implementing until you receive a handoff from the business founder. Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
    - Has code tools only, no web access
+
+**IMPORTANT: Do NOT use TeamCreate.** Agent Teams persistent teammates cannot be terminated once spawned. Use the Task tool for ALL agent dispatches — initial and subsequent. Each Task agent exits cleanly when done.
 
 ## Step 4: Start the Loop
 
@@ -153,11 +156,13 @@ Send the initial message to the business founder:
 
 **Always spawn a fresh agent for every relay.** Never reuse agents — context bloat from prior handoffs degrades agent quality. Each dispatch starts with a clean context window.
 
-Before spawning a new agent, **kill any stale agents** from the same role:
+Before spawning a new agent, **kill ALL stale agents** (not just same role — kill everything):
 ```bash
-pkill -f 'agent-type saas-startup-team:{role}' 2>/dev/null || true
+pkill -f 'agent-type saas-startup-team' 2>/dev/null || true
 sleep 1
 ```
+
+**Do NOT use TeamCreate for relays.** TeamCreate spawns persistent teammates that cannot be dismissed — they accumulate as zombie processes eating ~500MB each. Use the **Task tool** which spawns one-shot agents that exit cleanly when done.
 
 **Fresh spawn via Task tool** — pass ALL of the following in the Task prompt:
 - The agent's role identity: "You are the {role} of an Estonian SaaS startup. You speak {language}."

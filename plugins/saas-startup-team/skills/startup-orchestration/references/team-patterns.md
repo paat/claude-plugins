@@ -6,13 +6,16 @@
 Human (Silent Investor)
   ↓ /startup command    ↓ /lawyer <topic>    ↓ /ux-test <url>
 Team Lead (Main Session)
-  ├── Business Founder (teammate, blue)
-  ├── Tech Founder (teammate, green)
-  ├── Lawyer (on-demand consultant, magenta)
-  ├── UX Tester (on-demand consultant, cyan)
-  ├── Shared TaskList
-  └── Inter-agent messaging
+  ├── Business Founder (one-shot Task agent, blue)
+  ├── Tech Founder (one-shot Task agent, green)
+  ├── Lawyer (one-shot Task agent, magenta)
+  ├── UX Tester (one-shot Task agent, cyan)
+  └── File-based coordination via .startup/
 ```
+
+**IMPORTANT: All agents are one-shot Task tool agents, NOT persistent teammates.**
+TeamCreate spawns persistent processes that cannot be dismissed — they accumulate as
+~500MB zombie processes. The Task tool spawns agents that exit cleanly when done.
 
 ## Communication Channels
 
@@ -22,15 +25,10 @@ Team Lead (Main Session)
 - Carries full context between iterations
 - Each founder gets fresh context — handoffs carry state, not LLM memory
 
-### Secondary: Agent Team Messaging
-- Real-time clarifications between founders
-- Notifications ("I've written my handoff, your turn")
-- Escalation to team lead ("I'm stuck, need investor input")
-
-### Tertiary: Shared TaskList
-- Track features as tasks with dependencies
-- Business founder creates tasks → tech founder implements
-- TaskCompleted hook validates deliverables
+### Secondary: Task Agent Results
+- Each one-shot agent returns its result to the team lead when done
+- The team lead reads the result, then dispatches the next agent
+- No direct agent-to-agent communication — all coordination goes through the team lead and `.startup/` files
 
 ## Information Flow Rules
 
@@ -51,15 +49,14 @@ This is intentional — it forces the business founder to be thorough in researc
 
 ## Context Management Pattern
 
-Each teammate gets their own context window (Agent Teams native behavior), but context **accumulates** across iterations — it is NOT reset per task. By iteration 5+, auto-compaction may remove earlier conversation details.
+Each agent is a fresh one-shot Task agent with a clean context window. Context does NOT accumulate — every dispatch starts from zero. All state lives in `.startup/` files.
 
-Mitigations:
+Why this works:
 - **File-based state**: All critical state lives in `.startup/` files, not LLM memory
-- **Self-contained relay messages**: Team lead sends complete task descriptions with all file paths and instructions — never assumes the founder "remembers" earlier messages
-- **2-feature handoff limit**: Keeps per-iteration token usage under ~50K, slowing accumulation
-- **Handoff templates**: Structured format ensures nothing is lost even if conversation history is compacted
-
-Key rule: treat every relay message as if the receiving founder has never seen any previous messages. Point to files, not conversation history.
+- **Self-contained relay messages**: Team lead sends complete task descriptions with all file paths and instructions
+- **Fresh context every time**: No auto-compaction, no degraded context, no accumulated confusion
+- **2-feature handoff limit**: Keeps per-task token usage under ~50K, fitting comfortably in one context window
+- **Handoff templates**: Structured format ensures nothing is lost between agent dispatches
 
 ## Quality Gate Hooks
 

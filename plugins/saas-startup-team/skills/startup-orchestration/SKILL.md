@@ -37,7 +37,7 @@ Business Founder writes solution signoff → GO LIVE
 
 ### 1b. Agent Lifecycle — Fresh Agents, Right-Sized Tasks (CRITICAL)
 
-**Always spawn a fresh agent for each task.** Never reuse agents — context bloat from prior work degrades quality after 2-3 handoffs.
+**Always spawn a fresh agent for each task via the Task tool (NOT TeamCreate).** Never reuse agents — context bloat from prior work degrades quality after 2-3 handoffs. TeamCreate spawns persistent teammates that cannot be dismissed and accumulate as ~500MB zombie processes. Task tool agents exit cleanly when done. Before each spawn, run `pkill -f 'agent-type saas-startup-team' 2>/dev/null || true` to kill any stale agents.
 
 **Right-size the task.** Each agent dispatch should be a **cohesive unit of work** that one agent can complete without exhausting its context window (~200K tokens). The sweet spot is one task that takes 15-30 minutes of agent time.
 
