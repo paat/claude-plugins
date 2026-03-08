@@ -6,8 +6,9 @@
 # Team members (business-founder, tech-founder) are allowed to edit anything.
 # The team lead may only write to .startup/ directory and CLAUDE.md files.
 #
-# Detection: team members have --agent-id in their process tree; the main
-# orchestrator does not.
+# Detection (two methods, tried in order):
+# 1. Process tree: team members have --agent-id in their parent chain
+# 2. Fallback: state.json active_role is a team member role
 #
 # Input: JSON on stdin with tool_input.file_path
 # Exit 0: allowed (team member, or writing to .startup/)
@@ -19,6 +20,12 @@ input=$(cat)
 
 file_path=$(echo "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 [ -z "$file_path" ] && exit 0
+
+# Locate git root early — needed for state.json check and .startup/ existence check
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [ -z "$GIT_ROOT" ] || [ ! -d "$GIT_ROOT/.startup" ]; then
+  exit 0
+fi
 
 # Check if we're inside a team member agent (has --agent-id in process tree)
 is_team_member=false
@@ -32,6 +39,16 @@ for _ in 1 2 3 4 5; do
   fi
   ppid_check=$(grep -m1 '^PPid:' /proc/"$ppid_check"/status 2>/dev/null | awk '{print $2}')
 done
+
+# Fallback: check state.json active_role for team member roles
+if [ "$is_team_member" = false ]; then
+  active_role=$(jq -r '.active_role // empty' "$GIT_ROOT/.startup/state.json" 2>/dev/null || true)
+  case "$active_role" in
+    tech-founder|business-founder|lawyer|ux-tester)
+      is_team_member=true
+      ;;
+  esac
+fi
 
 # Team members can edit anything — they're the ones doing the work
 if [ "$is_team_member" = true ]; then
@@ -48,12 +65,6 @@ if [[ "$file_path" =~ CLAUDE\.md$ ]]; then
 fi
 
 if [[ "$file_path" =~ PLUGIN_ISSUES\.md$ ]]; then
-  exit 0
-fi
-
-# Check if .startup directory exists — if not, this isn't an active startup project
-GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
-if [ -z "$GIT_ROOT" ] || [ ! -d "$GIT_ROOT/.startup" ]; then
   exit 0
 fi
 
