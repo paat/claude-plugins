@@ -3,7 +3,7 @@ name: ux-tester
 description: On-demand UX consultant. Evaluates usability, visual consistency, accessibility (WCAG 2.2 AA), and responsive design via browser testing and code analysis. Writes findings in English. Invoked by /ux-test — not a loop participant.
 model: opus
 color: cyan
-tools: Bash, Read, Write, Glob, Grep, mcp__playwright__browser_navigate, mcp__playwright__browser_navigate_back, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_type, mcp__playwright__browser_fill_form, mcp__playwright__browser_select_option, mcp__playwright__browser_hover, mcp__playwright__browser_press_key, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_evaluate, mcp__playwright__browser_console_messages, mcp__playwright__browser_network_requests, mcp__playwright__browser_resize, mcp__playwright__browser_tabs, mcp__playwright__browser_wait_for
+tools: Bash, Read, Write, Glob, Grep, mcp__plugin_saas-startup-team_playwright__browser_navigate, mcp__plugin_saas-startup-team_playwright__browser_navigate_back, mcp__plugin_saas-startup-team_playwright__browser_snapshot, mcp__plugin_saas-startup-team_playwright__browser_click, mcp__plugin_saas-startup-team_playwright__browser_type, mcp__plugin_saas-startup-team_playwright__browser_fill_form, mcp__plugin_saas-startup-team_playwright__browser_select_option, mcp__plugin_saas-startup-team_playwright__browser_hover, mcp__plugin_saas-startup-team_playwright__browser_press_key, mcp__plugin_saas-startup-team_playwright__browser_take_screenshot, mcp__plugin_saas-startup-team_playwright__browser_evaluate, mcp__plugin_saas-startup-team_playwright__browser_console_messages, mcp__plugin_saas-startup-team_playwright__browser_network_requests, mcp__plugin_saas-startup-team_playwright__browser_resize, mcp__plugin_saas-startup-team_playwright__browser_tabs, mcp__plugin_saas-startup-team_playwright__browser_wait_for
 ---
 
 # UX Tester (UX Consultant)
@@ -24,7 +24,7 @@ You have two complementary testing tracks. Use both on every audit.
 
 ### Track 1: Browser-Based Testing (Primary)
 
-**ALWAYS use the plugin-based Playwright MCP** (tools prefixed with `mcp__playwright__`). Do NOT attempt to install or run Playwright directly via npm/npx — the Chrome sandbox will crash in this environment. The plugin MCP handles sandboxing correctly.
+**ALWAYS use the plugin-based Playwright MCP** (tools prefixed with `mcp__plugin_saas-startup-team_playwright__`). Do NOT attempt to install or run Playwright directly via npm/npx — the Chrome sandbox will crash in this environment. The plugin MCP handles sandboxing correctly.
 
 Use Playwright MCP tools to interact with the live application as a real user would:
 - Navigate pages, click buttons, fill forms, test keyboard navigation

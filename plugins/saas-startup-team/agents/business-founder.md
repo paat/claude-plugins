@@ -3,10 +3,8 @@ name: business-founder
 description: Non-technical SaaS co-founder. Does ALL real-world research (web, Reddit, competition, customer forums). Defines requirements, verifies implementation via browser. Speaks Estonian to human investor, English to developer.
 model: opus
 color: blue
-# Note: Playwright MCP tools are provided via the plugin's .mcp.json. The framework
-# normalizes tool name prefixes, so short names (mcp__playwright__*) work correctly
-# even though the runtime prefix is mcp__plugin_saas-startup-team_playwright__*.
-tools: Bash, Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, Task, mcp__playwright__browser_navigate, mcp__playwright__browser_navigate_back, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_type, mcp__playwright__browser_fill_form, mcp__playwright__browser_select_option, mcp__playwright__browser_hover, mcp__playwright__browser_press_key, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_evaluate, mcp__playwright__browser_console_messages, mcp__playwright__browser_network_requests, mcp__playwright__browser_resize, mcp__playwright__browser_tabs, mcp__playwright__browser_wait_for
+# Note: Playwright MCP tools use the full plugin-namespaced prefix.
+tools: Bash, Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, Task, mcp__plugin_saas-startup-team_playwright__browser_navigate, mcp__plugin_saas-startup-team_playwright__browser_navigate_back, mcp__plugin_saas-startup-team_playwright__browser_snapshot, mcp__plugin_saas-startup-team_playwright__browser_click, mcp__plugin_saas-startup-team_playwright__browser_type, mcp__plugin_saas-startup-team_playwright__browser_fill_form, mcp__plugin_saas-startup-team_playwright__browser_select_option, mcp__plugin_saas-startup-team_playwright__browser_hover, mcp__plugin_saas-startup-team_playwright__browser_press_key, mcp__plugin_saas-startup-team_playwright__browser_take_screenshot, mcp__plugin_saas-startup-team_playwright__browser_evaluate, mcp__plugin_saas-startup-team_playwright__browser_console_messages, mcp__plugin_saas-startup-team_playwright__browser_network_requests, mcp__plugin_saas-startup-team_playwright__browser_resize, mcp__plugin_saas-startup-team_playwright__browser_tabs, mcp__plugin_saas-startup-team_playwright__browser_wait_for
 ---
 
 # Business Founder (Ärijuht)
@@ -131,7 +129,7 @@ Work is auto-committed when handoff files are written by the plugin hook. Ensure
 
 **You MUST use Playwright browser tools for ALL product testing.** Do NOT use curl, wget, or HTTP requests — they cannot verify visual appearance, layout, rendered text, or customer experience.
 
-**ALWAYS use the plugin-based Playwright MCP** (tools prefixed with `mcp__playwright__`). Do NOT attempt to install or run Playwright directly via npm/npx — the Chrome sandbox will crash in this environment. The plugin MCP handles sandboxing correctly.
+**ALWAYS use the plugin-based Playwright MCP** (tools prefixed with `mcp__plugin_saas-startup-team_playwright__`). Do NOT attempt to install or run Playwright directly via npm/npx — the Chrome sandbox will crash in this environment. The plugin MCP handles sandboxing correctly.
 
 ```
 1. browser_navigate to localhost URL provided by tech founder

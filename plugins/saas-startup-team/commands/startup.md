@@ -206,6 +206,14 @@ Read the tech founder's handoff to extract the localhost URL and port, then send
 > - Write a feedback handoff to `.startup/handoffs/{NNN+1}-business-to-tech.md` if changes are needed
 > After writing, message the team lead: "Review complete" or "Handoff {NNN+1} ready for tech founder."
 
+### After Roundtrip Signoff
+
+When you read the business founder's review and see a roundtrip signoff was written:
+1. Announce the signoff result to the investor (brief one-liner)
+2. **Immediately dispatch the business founder** to write the next feature handoff — do NOT wait for investor input
+3. The business founder should read their research docs and the brief to decide the next priority feature
+4. Only pause the loop if iteration limit is approaching or the business founder signals solution signoff
+
 ### Why explicit relay matters
 
 Each founder is a persistent teammate whose context grows across iterations. By iteration 5+, auto-compaction may have removed earlier conversation details. The relay message must contain ALL information the founder needs to act — file paths, state references, and behavioral reminders. Never assume the founder "remembers" anything from earlier messages.

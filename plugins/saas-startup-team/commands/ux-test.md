@@ -38,7 +38,7 @@ Verify that these files exist:
 
 ### Check 3: Playwright MCP is available
 
-Test that browser tools are accessible by checking for the `mcp__playwright__browser_navigate` tool.
+Test that browser tools are accessible by checking for the `mcp__plugin_saas-startup-team_playwright__browser_navigate` tool.
 
 **If not available:**
 > **Error:** Playwright MCP tools are not available. Ensure the Playwright MCP server is configured in `.mcp.json` and running.

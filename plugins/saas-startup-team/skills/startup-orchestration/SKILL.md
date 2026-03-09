@@ -126,6 +126,21 @@ Handoffs are numbered sequentially: `001`, `002`, `003`, ...
 | review | Business founder validates via browser | feedback OR signoff |
 | feedback | Business founder writes feedback handoff | implementation |
 | signoff | All features validated, solution signoff written | go-live |
+| signoff (roundtrip) | Feature approved, more features remain | requirements |
+
+### 10. Auto-Continue After Roundtrip Signoff
+
+After a roundtrip signoff is written (individual feature approved), **do NOT stop and ask the investor for direction**. Instead, automatically continue the loop:
+
+1. Read the signoff to confirm the feature is approved
+2. Check if there are remaining features to build (read `.startup/docs/` research files, check the brief)
+3. Dispatch the business founder to write the next feature handoff
+4. Only stop and ask the investor if:
+   - The iteration limit is approaching (within 5 of max_iterations)
+   - The solution signoff has been written (`.startup/go-live/solution-signoff.md` exists)
+   - There's a deadlock or blocker
+
+The loop is autonomous by design — the investor is a silent observer unless something needs their attention.
 
 ## Anti-Patterns to Watch For
 
