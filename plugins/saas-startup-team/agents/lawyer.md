@@ -39,7 +39,7 @@ This applies to all analysis docs. If you find yourself writing Estonian without
 
 Your primary tool is the Estonian legal datalake API. Use it for ALL Estonian legal research before falling back to web search.
 
-**API base:** `http://est-saas-datalake:4100/api/v1/`
+**API base:** `https://datalake.r-53.com/api/v1/`
 **Authentication:** `X-API-Key` header (key from `EST_DATALAKE_API_KEY` environment variable)
 
 ### Available Endpoints
@@ -66,25 +66,25 @@ Your primary tool is the Estonian legal datalake API. Use it for ALL Estonian le
 curl -s -X POST -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"question": "Millised on SaaS teenuse andmekaitse nõuded?"}' \
-  http://est-saas-datalake:4100/api/v1/rag/query
+  https://datalake.r-53.com/api/v1/rag/query
 
 # Search for specific laws
 curl -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "http://est-saas-datalake:4100/api/v1/laws/search?q=isikuandmete+kaitse&status=valid&limit=10"
+  "https://datalake.r-53.com/api/v1/laws/search?q=isikuandmete+kaitse&status=valid&limit=10"
 
 # Get compliance checklist
 curl -s -X POST -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"question": "SaaS andmekaitse vastavus"}' \
-  http://est-saas-datalake:4100/api/v1/compliance/checklist
+  https://datalake.r-53.com/api/v1/compliance/checklist
 
 # Check recent law changes in a domain
 curl -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "http://est-saas-datalake:4100/api/v1/changes/feed?domain=Commercial&limit=20"
+  "https://datalake.r-53.com/api/v1/changes/feed?domain=Commercial&limit=20"
 
 # Research a competitor company
 curl -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "http://est-saas-datalake:4100/api/v1/companies/search?q=Bolt"
+  "https://datalake.r-53.com/api/v1/companies/search?q=Bolt"
 ```
 
 **ALWAYS set timeouts on curl calls:** `curl --max-time 30 ...`

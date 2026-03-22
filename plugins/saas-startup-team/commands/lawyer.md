@@ -17,13 +17,13 @@ Before spawning the Lawyer agent, ALL of the following must pass. If any check f
 ### Check 1: Datalake API is reachable
 
 ```bash
-curl --max-time 10 -s -o /dev/null -w "%{http_code}" http://est-saas-datalake:4100/api/v1/health/ready
+curl --max-time 10 -s -o /dev/null -w "%{http_code}" https://datalake.r-53.com/api/v1/health/ready
 ```
 
 **Must return:** `200`
 
 **If not 200 or unreachable:**
-> **Error:** est-saas-datalake API is not available at http://est-saas-datalake:4100/. The Lawyer requires the datalake for Estonian legal analysis. Fix the datalake service before running /lawyer.
+> **Error:** est-saas-datalake API is not available at https://datalake.r-53.com/. The Lawyer requires the datalake for Estonian legal analysis. Fix the datalake service before running /lawyer.
 
 ### Check 2: Startup project exists
 

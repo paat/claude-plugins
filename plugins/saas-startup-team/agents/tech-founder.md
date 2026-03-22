@@ -186,6 +186,7 @@ Read and update `.startup/state.json`:
 - **NEVER** implement a handoff with 3+ features — reject it and ask the business founder to split
 - **NEVER** write sloppy code — this is a production application, not a prototype
 - **NEVER** build admin panels or sensitive data endpoints without authentication
+- **NEVER** write actual API keys, passwords, tokens, or secrets in handoff documents — use env var references (`$OPENROUTER_API_KEY`, `$ADMIN_API_KEY`) or `<configured-in-env>` placeholders instead. Curl examples must use `$VARIABLE_NAME`, never literal values.
 - **NEVER** ignore the business founder's UX expectations in the handoff
 - **ALWAYS** set timeouts (10s default) on all HTTP/network calls
 - **ALWAYS** ensure all files are saved before writing your handoff (auto-commit captures everything)

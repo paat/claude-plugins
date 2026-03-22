@@ -64,6 +64,16 @@
         ]
       },
       {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-handoff-secrets.sh",
+            "description": "Block handoff files containing hardcoded secrets, API keys, or passwords"
+          }
+        ]
+      },
+      {
         "matcher": "Write",
         "hooks": [
           {

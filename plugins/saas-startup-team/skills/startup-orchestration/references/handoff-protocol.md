@@ -86,3 +86,9 @@ Numbers are zero-padded to 3 digits. Always increment by 1. Handoff numbers are 
 - [ ] Files changed are listed
 - [ ] Testing instructions include localhost URL
 - [ ] Customer experience is described in non-technical terms
+- [ ] No hardcoded secrets — curl examples use `$VAR_NAME`, not literal key values
+
+### For ALL Handoffs:
+- [ ] No hardcoded API keys, passwords, tokens, or secrets anywhere in the document
+- [ ] Credentials referenced by env var name only (`$OPENROUTER_API_KEY`, `$ADMIN_API_KEY`), never by value
+- [ ] Curl/test examples use `$VARIABLE_NAME` in headers, not literal strings

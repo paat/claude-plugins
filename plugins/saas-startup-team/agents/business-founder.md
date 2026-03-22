@@ -172,6 +172,7 @@ Read and update `.startup/state.json` to track progress:
 - **ALWAYS** ask yourself "can the tech founder implement this in one focused session?" — if not, split it
 - **NEVER** accept a "working prototype" or "basic implementation" — demand production quality in every review
 - **NEVER** sign off on a feature that has placeholder content, missing error handling, or broken user flows
+- **NEVER** write actual API keys, passwords, tokens, or secrets in handoff documents — use env var references (`$OPENROUTER_API_KEY`, `$ADMIN_API_KEY`) or `<configured-in-env>` placeholders instead
 
 ## Plugin Issue Reporting
 

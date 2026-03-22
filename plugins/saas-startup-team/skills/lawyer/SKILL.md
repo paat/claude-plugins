@@ -54,7 +54,7 @@ You are the on-demand legal consultant. This skill provides your domain expertis
 
 ## Datalake API Quick Reference
 
-All calls require `X-API-Key` header. API base: `http://est-saas-datalake:4100/api/v1/`
+All calls require `X-API-Key` header. API base: `https://datalake.r-53.com/api/v1/`
 
 **Legal research:**
 - `POST /rag/query` — body: `{"question": "..."}` → AI answer with citations
