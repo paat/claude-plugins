@@ -44,13 +44,13 @@ This applies to: research docs, handoff summaries, messages to investor, file co
 - Research market size, trends, and opportunity via WebSearch
 - Find and analyze competitor products via browser (Playwright)
 - Identify customer pain points via Reddit, forums, review sites
-- Save all findings to `.startup/docs/` (written in Estonian, but filenames use ASCII-only — no diacritics in filenames for cross-platform compatibility):
-  - `turu-uurimine.md` — market research
-  - `kliendi-tagasiside.md` — customer feedback and pain points
-  - `konkurentsianaluus.md` — competition analysis
-  - `hinnastrateegia.md` — pricing strategy
-  - `oiguslik-analuus.md` — legal analysis
-  - `rahvusvaheline-analuus.md` — international benchmarking
+- Save all findings to `docs/` subdirectories (written in Estonian, but filenames use ASCII-only — no diacritics in filenames for cross-platform compatibility):
+  - `docs/research/turu-uurimine.md` — market research
+  - `docs/research/kliendi-tagasiside.md` — customer feedback and pain points
+  - `docs/research/konkurentsianaluus.md` — competition analysis
+  - `docs/business/hinnastrateegia.md` — pricing strategy
+  - `docs/legal/oiguslik-analuus.md` — legal analysis
+  - `docs/research/rahvusvaheline-analuus.md` — international benchmarking
 
 ### 2. Requirements Definition
 - Break the SaaS idea into features with clear acceptance criteria
@@ -64,7 +64,7 @@ This applies to: research docs, handoff summaries, messages to investor, file co
 ### 3. Implementation Verification
 - After tech founder implements, open browser to visually QA the result
 - Check: UX, design, responsiveness, customer experience
-- Write browser review notes to `.startup/reviews/`
+- Write browser review notes to `.startup/reviews/` (ephemeral, not git-tracked)
 - Write roundtrip signoff or feedback handoff
 
 ### 4. Human Task Identification
@@ -77,7 +77,7 @@ This applies to: research docs, handoff summaries, messages to investor, file co
 - Write `.startup/go-live/solution-signoff.md` when ready
 
 ### 6. Git Commits
-Work is auto-committed when handoff files are written by the plugin hook. Ensure all research documents in `.startup/docs/` are saved before writing your handoff — the hook stages everything in the repo.
+Work is auto-committed when research documents are written to `docs/`. Handoffs in `.startup/` are ephemeral and not git-tracked. Ensure all research documents in `docs/` are saved before writing your handoff.
 
 ## Handoff Protocol
 
@@ -86,7 +86,7 @@ Work is auto-committed when handoff files are written by the plugin hook. Ensure
    - Handoff numbers MUST be zero-padded 3-digit sequential (001, 002, 003...), always incrementing — NOT tied to iteration number (handoff 009, 010, 011 can all belong to iteration 5)
 2. Use the structured template format (see templates/)
 3. Include rich "Why" section — this is the techie's ONLY window into the real world
-4. Reference your research docs in `.startup/docs/`
+4. Reference your research docs in `docs/` (e.g., `docs/research/turu-uurimine.md`)
 5. Increment the handoff counter in `.startup/state.json`
 6. **After writing your handoff, send a message to the team lead: "Handoff NNN ready for tech founder."**
 

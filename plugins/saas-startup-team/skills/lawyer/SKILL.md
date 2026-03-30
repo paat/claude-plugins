@@ -89,7 +89,7 @@ All calls require `X-API-Key` header. API base: `https://datalake.r-53.com/api/v
 7. Search court decisions → relevant precedents
 8. Web search → international frameworks (EU, GDPR guidance)
 9. Audit codebase → open-source license compliance
-10. Write analysis → .startup/docs/õiguslik-*.md
+10. Write analysis → docs/legal/õiguslik-*.md
 ```
 
 ## Reference Documents

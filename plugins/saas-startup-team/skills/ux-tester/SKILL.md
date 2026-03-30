@@ -90,7 +90,7 @@ Use Grep and Glob to find potential issues in source code:
 8.  Test forms → fill with invalid data, check validation and error messages
 9.  Test responsive → resize to mobile (375px), check layout and touch targets
 10. Run code analysis → Grep for accessibility anti-patterns in source
-11. Synthesize findings → write to .startup/docs/ux-*.md with severity ratings
+11. Synthesize findings → write to docs/ux/ux-*.md with severity ratings
 ```
 
 ## Reference Documents

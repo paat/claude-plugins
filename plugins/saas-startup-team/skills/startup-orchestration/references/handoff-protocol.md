@@ -78,7 +78,7 @@ Numbers are zero-padded to 3 digits. Always increment by 1. Handoff numbers are 
 - [ ] Requirements have acceptance criteria
 - [ ] Maximum 2 features per handoff (reject and request split if 3+)
 - [ ] Scope is implementable in one focused session (~50K tokens)
-- [ ] Research references point to existing docs in `.startup/docs/`
+- [ ] Research references point to existing docs in `docs/`
 
 ### For Tech-to-Business:
 - [ ] Frontmatter is complete

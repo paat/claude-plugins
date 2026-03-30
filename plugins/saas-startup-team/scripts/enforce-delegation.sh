@@ -55,21 +55,28 @@ if [ "$is_team_member" = true ]; then
   exit 0
 fi
 
-# Main orchestrator: only allow writes to .startup/, CLAUDE.md, and plugin files
-if [[ "$file_path" =~ \.startup/ ]]; then
+# Normalize to repo-relative path for anchored checks
+rel_path="${file_path#"$GIT_ROOT"/}"
+
+# Main orchestrator: only allow writes to .startup/, docs/, CLAUDE.md, and plugin files
+if [[ "$rel_path" =~ ^\.startup/ ]]; then
   exit 0
 fi
 
-if [[ "$file_path" =~ CLAUDE\.md$ ]]; then
+if [[ "$rel_path" =~ ^docs/ ]]; then
   exit 0
 fi
 
-if [[ "$file_path" =~ PLUGIN_ISSUES\.md$ ]]; then
+if [[ "$rel_path" =~ CLAUDE\.md$ ]]; then
+  exit 0
+fi
+
+if [[ "$rel_path" =~ PLUGIN_ISSUES\.md$ ]]; then
   exit 0
 fi
 
 # Block: orchestrator is trying to edit implementation code
 cat >&2 <<'EOF'
-{"systemMessage":"You are the team lead/orchestrator. Do NOT edit implementation code directly — delegate to the tech founder via a handoff document instead. Write your requirements to .startup/handoffs/NNN-business-to-tech.md and let the tech founder implement. Only .startup/ and CLAUDE.md files may be edited by the orchestrator."}
+{"systemMessage":"You are the team lead/orchestrator. Do NOT edit implementation code directly — delegate to the tech founder via a handoff document instead. Write your requirements to .startup/handoffs/NNN-business-to-tech.md and let the tech founder implement. Only .startup/, docs/, and CLAUDE.md files may be edited by the orchestrator."}
 EOF
 exit 2

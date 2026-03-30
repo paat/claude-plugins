@@ -27,20 +27,24 @@ If the user hasn't already described their SaaS idea, ask them (in English):
 > 1. **Resume** the existing session
 > 2. **Reset** and start fresh (this will delete all previous progress)
 
-If resuming, skip to Step 3 with the existing state.
+If resuming, run `/bootstrap` first (idempotent — ensures docs/ structure exists for migrated projects), then skip to Step 3 with the existing state.
 
-Create the `.startup/` directory structure:
+Run `/bootstrap` first (idempotent — safe to re-run). This creates:
+- `docs/` subdirectories: `research/`, `legal/`, `architecture/`, `ux/`, `seo/`, `business/`
+- `.startup/` subdirectories: `handoffs/`, `reviews/`, `signoffs/`, `go-live/`
+- `.gitignore` entries for ephemeral `.startup/` state
+- `## Project Knowledge` and `## Workflow Guidance` sections in CLAUDE.md
+
+Then create the loop-specific files in `.startup/`:
 
 ```
 .startup/
-├── brief.md              ← Fill with user's SaaS idea
 ├── state.json            ← Initialize loop state
 ├── human-tasks.md        ← Copy from ${CLAUDE_PLUGIN_ROOT}/templates/human-tasks.md
-├── handoffs/             ← Empty, will fill during iterations
-├── docs/                 ← Empty, business founder will populate
-├── signoffs/             ← Empty, will fill as features are validated
-├── reviews/              ← Empty, browser review notes go here
-└── go-live/              ← Empty, solution signoff goes here
+├── handoffs/             ← Ephemeral, not git-tracked
+├── signoffs/             ← Ephemeral, not git-tracked
+├── reviews/              ← Ephemeral, not git-tracked
+└── go-live/              ← Ephemeral, not git-tracked
 ```
 
 Initialize `state.json`:
@@ -55,7 +59,7 @@ Initialize `state.json`:
 }
 ```
 
-Write `brief.md` using the user's SaaS idea description.
+Write `docs/business/brief.md` using the user's SaaS idea description (skip if `/bootstrap` already created it).
 
 **Copy the human-tasks template:**
 ```bash
@@ -125,7 +129,7 @@ Spawn the initial agent pair using the **Task tool** (one-shot agents, NOT TeamC
 
 2. **Tech Founder** — spawn via Task tool with `subagent_type: "general-purpose"`:
    - Tell the agent to read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder.md` for its identity, tools, and behavioral constraints
-   - Task: Read `.startup/brief.md` to understand the product vision. Plan preliminary architecture ideas and write initial thoughts to `.startup/docs/architecture.md`. Do NOT start implementing until you receive a handoff from the business founder. Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
+   - Task: Read `docs/business/brief.md` to understand the product vision. Plan preliminary architecture ideas and write initial thoughts to `docs/architecture/architecture.md`. Do NOT start implementing until you receive a handoff from the business founder. Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
    - Has code tools only, no web access
 
 **IMPORTANT: Do NOT use TeamCreate.** Agent Teams persistent teammates cannot be terminated once spawned. Use the Task tool for ALL agent dispatches — initial and subsequent. Each Task agent exits cleanly when done.
@@ -134,9 +138,9 @@ Spawn the initial agent pair using the **Task tool** (one-shot agents, NOT TeamC
 
 Send the initial message to the business founder:
 
-> Read `.startup/brief.md`. This is our investor's SaaS idea. Your job:
-> 1. Research the market, competition, and customer pain points (save to `.startup/docs/` in Estonian)
-> 2. Research similar solutions in other countries — extract features, UX patterns, and pricing from international competitors (save to `.startup/docs/rahvusvaheline-analuus.md`)
+> Read `docs/business/brief.md`. This is our investor's SaaS idea. Your job:
+> 1. Research the market, competition, and customer pain points (save to `docs/research/` in Estonian)
+> 2. Research similar solutions in other countries — extract features, UX patterns, and pricing from international competitors (save to `docs/research/rahvusvaheline-analuus.md`)
 > 3. Check Estonian legal requirements for this type of business
 > 4. Break the idea into prioritized features
 > 5. Write the first handoff to tech founder: `.startup/handoffs/001-business-to-tech.md`
@@ -189,7 +193,7 @@ Send to tech founder:
 > **New task: Implement handoff NNN.**
 > Read `.startup/handoffs/NNN-business-to-tech.md` for full requirements.
 > Read `.startup/state.json` for current iteration and phase.
-> Check `.startup/docs/architecture.md` for your previous architecture decisions.
+> Check `docs/architecture/architecture.md` for your previous architecture decisions.
 > Implement the features, then write your handoff to `.startup/handoffs/{NNN+1}-tech-to-business.md`.
 > Set 10s timeouts on all HTTP calls. If a service is unreachable after 3 retries, document the failure and move on.
 > After writing the handoff, message the team lead: "Handoff {NNN+1} ready for business founder."

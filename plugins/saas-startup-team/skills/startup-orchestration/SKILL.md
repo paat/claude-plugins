@@ -92,7 +92,7 @@ Recovery actions:
 
 ### 8. UX Audit Integration
 
-When the investor runs `/ux-test`, the UX Tester writes findings to `.startup/docs/ux-*.md`. After the audit completes:
+When the investor runs `/ux-test`, the UX Tester writes findings to `docs/ux/ux-*.md`. After the audit completes:
 
 1. Read the UX audit files and prioritize findings by severity
 2. Group findings into max-2-feature handoff items (same limit as regular handoffs)
@@ -105,7 +105,7 @@ When the investor runs `/ux-test`, the UX Tester writes findings to `.startup/do
 ### 9. Service URL Consistency
 
 When dispatching tasks or reviewing handoffs, verify service URLs are consistent:
-- Check that URLs in `CLAUDE.md` match URLs in `.startup/docs/architecture.md`
+- Check that URLs in `CLAUDE.md` match URLs in `docs/architecture/architecture.md`
 - If the tech-founder's architecture doc references a different port than CLAUDE.md, flag the mismatch
 - When the tech-founder updates architecture docs with service URLs, ensure the same URLs appear in their handoff's "how to test" section
 
@@ -133,7 +133,7 @@ Handoffs are numbered sequentially: `001`, `002`, `003`, ...
 After a roundtrip signoff is written (individual feature approved), **do NOT stop and ask the investor for direction**. Instead, automatically continue the loop:
 
 1. Read the signoff to confirm the feature is approved
-2. Check if there are remaining features to build (read `.startup/docs/` research files, check the brief)
+2. Check if there are remaining features to build (read `docs/` research files, check the brief)
 3. Dispatch the business founder to write the next feature handoff
 4. Only stop and ask the investor if:
    - The iteration limit is approaching (within 5 of max_iterations)
