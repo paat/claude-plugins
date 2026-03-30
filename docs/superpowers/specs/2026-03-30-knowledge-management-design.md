@@ -70,6 +70,7 @@ docs/
 | `.startup/docs/rahvusvaheline-analuus.md` | `docs/research/rahvusvaheline-analuus.md` | International benchmarking is durable |
 | `.startup/docs/hinnastrateegia.md` | `docs/business/hinnastrateegia.md` | Pricing is durable |
 | `.startup/docs/oiguslik-*.md` | `docs/legal/` | Legal analyses are durable |
+| `.startup/docs/legal/*` | `docs/legal/` | Privacy policies, ToS, ROPA, legal reviews |
 | `.startup/docs/architecture*.md` | `docs/architecture/` | Architecture decisions are durable |
 | `.startup/docs/ux-*.md` | `docs/ux/` | UX findings are durable |
 | `.startup/docs/seo-*.md` | `docs/seo/` | SEO research is durable |
@@ -79,6 +80,7 @@ docs/
 | `.startup/state.json` | stays in `.startup/` | Ephemeral state, gitignored |
 | `.startup/signoffs/*` | stays in `.startup/` | Milestone approvals, gitignored |
 | `.startup/go-live/*` | stays in `.startup/` | Solution signoff, gitignored |
+| `.startup/test-data/*` | stays in `.startup/` | Test fixtures, gitignored |
 
 ### 2. .gitignore Changes
 
@@ -92,8 +94,11 @@ Append to `.gitignore` in projects using the plugin:
 .startup/signoffs/
 .startup/go-live/
 .startup/human-tasks.md
+.startup/test-data/
 .startup/.idle-*
 ```
+
+Note: `.startup/` directory itself won't survive `git clone` since git doesn't track empty directories. This is acceptable — `/bootstrap` is idempotent and `/startup` calls it first, recreating the structure. A `.startup/.gitkeep` file is tracked to preserve the directory on clone.
 
 ### 3. Git History Cleanup (Per-Project Migration)
 
@@ -176,43 +181,77 @@ Note: The specific file pointers (like `hinnastrateegia.md`) are examples — `/
 
 ### 6. Plugin Component Changes
 
-#### Agent Definitions
+All references to `.startup/docs/` and `.startup/brief.md` must update to `docs/` paths. The full list of files needing changes:
 
-**business-founder.md:**
+#### Agent Definitions (4 files)
+
+**agents/business-founder.md:**
 - Research output path: `.startup/docs/` → `docs/research/`, `docs/business/`, `docs/legal/`
 - Named files stay the same (e.g., `turu-uurimine.md`), just in new directories
 
-**tech-founder.md:**
+**agents/tech-founder.md:**
 - Architecture output: `.startup/docs/architecture.md` → `docs/architecture/architecture.md`
 
-**lawyer.md:**
+**agents/lawyer.md:**
 - Legal analysis output: `.startup/docs/õiguslik-*.md` → `docs/legal/õiguslik-*.md`
 
-**ux-tester.md:**
+**agents/ux-tester.md:**
 - UX findings output: `.startup/docs/ux-*.md` → `docs/ux/`
 
-#### Hooks
+#### Commands (4 files)
 
-**auto-commit.sh:**
+**commands/startup.md:**
+- Brief path: `.startup/brief.md` → `docs/business/brief.md`
+- Research references in relay messages: `.startup/docs/` → `docs/`
+
+**commands/lawyer.md:**
+- Context paths: `.startup/docs/` → `docs/`
+
+**commands/ux-test.md:**
+- Context paths: `.startup/docs/` → `docs/`
+
+**commands/nudge.md:**
+- Any `.startup/docs/` references → `docs/`
+
+#### Skills (5 skill trees)
+
+**skills/startup-orchestration/SKILL.md** and references:
+- `references/handoff-protocol.md` — research doc references
+- `references/loop-control.md` — state.json references (unchanged, still `.startup/`)
+- `references/team-patterns.md` — doc path references
+
+**skills/business-founder/references/market-research.md:**
+- Output path references: `.startup/docs/` → `docs/research/`
+
+**skills/tech-founder/SKILL.md** and **references/architecture.md:**
+- Architecture doc path references
+
+**skills/lawyer/SKILL.md:**
+- Output path references
+
+**skills/ux-tester/SKILL.md:**
+- Output path references
+
+#### Templates (2 files)
+
+- `templates/startup-brief.md` — output path → `docs/business/brief.md`
+- `templates/handoff-business-to-tech.md` — research references: `.startup/docs/` → `docs/`
+
+#### Hooks / Scripts (2 files)
+
+**scripts/auto-commit.sh:**
 - Stop auto-committing handoffs, reviews, signoffs (gitignored now)
 - Add auto-commit for `docs/` writes (research is worth tracking)
 
-**enforce-delegation.sh:**
+**scripts/enforce-delegation.sh:**
 - Orchestrator allowed paths: add `docs/` alongside `.startup/` and `CLAUDE.md`
 
-**auto-learn.sh:**
-- No change — still fires on local handoff writes, still appends to CLAUDE.md `## Learnings`
+**Unchanged hooks:** auto-learn.sh (still fires on local handoff writes), check-idle.sh, check-stop.sh, check-handoff-secrets.sh, enforce-tone.sh, check-duplicate-handoff.sh, validate-json.sh, check-task-complete.sh, status.sh.
 
-**All other hooks:** No changes.
+#### Version Bump (2 files)
 
-#### Templates
-
-- `startup-brief.md` output path → `docs/business/brief.md`
-- Handoff templates: research references update from `.startup/docs/` to `docs/`
-
-#### Scripts
-
-- `status.sh` — no change (reads local `.startup/state.json`)
+- `plugins/saas-startup-team/.claude-plugin/plugin.json` — 0.12.0 → 0.13.0
+- `.claude-plugin/marketplace.json` — update saas-startup-team version to 0.13.0
 
 ---
 
