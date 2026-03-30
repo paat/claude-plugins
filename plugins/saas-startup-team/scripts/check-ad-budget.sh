@@ -22,8 +22,8 @@ fi
 content=$(cat "$file_path" 2>/dev/null || exit 0)
 
 # Extract approved budget and total spend — look for patterns like "Approved budget: $500" and "Total spend: $450"
-approved=$(echo "$content" | grep -oP 'Approved budget: \$\K[0-9]+' | tail -1 || echo "0")
-spent=$(echo "$content" | grep -oP 'Total spend: \$\K[0-9]+' | tail -1 || echo "0")
+approved=$(echo "$content" | grep -ioP 'approved\s*budget:\s*\$?\K[0-9]+' | tail -1 || echo "0")
+spent=$(echo "$content" | grep -ioP 'total\s*spend:\s*\$?\K[0-9]+' | tail -1 || echo "0")
 
 if [ "$approved" -eq 0 ] 2>/dev/null; then
   # No budget line found — can't validate

@@ -32,13 +32,8 @@ ls .startup/go-live/solution-signoff.md 2>/dev/null
 
 ### Check 2: Chrome browser MCP available
 
-Check that claude-in-chrome tools are available by attempting:
-```bash
-# Just verify the tool exists — don't need to call it
-echo "Chrome MCP check: tool available"
-```
+Attempt to call `mcp__claude-in-chrome__tabs_context_mcp` to verify Chrome is reachable. If the tool call fails or is unavailable:
 
-**If tools unavailable:**
 > **Warning:** Chrome browser MCP (claude-in-chrome) is not available. The growth agent needs Chrome for external web interactions (ad dashboards, directories, forums). Some growth activities will be limited. Continue anyway? (LinkedIn MCP and cold email will still work.)
 
 ### Check 3: LinkedIn MCP available
