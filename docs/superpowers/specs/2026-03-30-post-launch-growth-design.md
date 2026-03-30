@@ -26,8 +26,8 @@ This follows the proven hybrid AI+human model: AI handles research, content, and
 
 ### Tools
 
-- **Chrome browser** (claude-in-chrome MCP): Navigate ad dashboards, publish content on platforms, submit to directories, manage analytics UIs, post on forums
-- **LinkedIn MCP**: Search prospects, research companies, monitor competitor content, identify hiring signals
+- **Chrome browser** (claude-in-chrome MCP): Navigate ad dashboards, publish content on platforms, submit to directories, manage analytics UIs, post on forums. Note: this is a real Chrome browser (headful), distinct from the Playwright MCP (headless) used by founders for localhost testing. External sites often block headless browsers, so the growth agent uses claude-in-chrome for all external web interactions.
+- **LinkedIn MCP**: Search prospects, research companies, monitor competitor content, identify hiring signals. Subject to strict rate limits (see LinkedIn Safety section below).
 - **WebSearch / WebFetch**: Keyword research, competitor monitoring, find communities where ICP lives
 - **Read / Write / Edit / Glob / Grep**: Manage content files, read product docs for context, update growth metrics
 - **Bash**: Run SEO tools, generate reports
@@ -43,12 +43,38 @@ The Growth Hacker does NOT:
 
 ### Brand Safety Gate
 
-For any new channel (first LinkedIn post, first Reddit comment, first ad campaign), the growth agent writes a draft and requests human approval via human-tasks. After the investor approves the tone/approach for a channel, subsequent posts on that channel proceed autonomously.
+Three tiers of content review:
+
+1. **First use of a new channel**: Growth agent writes a draft and requests human approval via human-tasks. Investor approves tone, messaging, and approach. Approved examples saved to `docs/growth/brand/approved-voice.md`.
+2. **Routine content on approved channels**: Growth agent proceeds autonomously but logs all published content to the relevant `docs/growth/channels/*.md` file for audit.
+3. **Sensitive content — always requires human approval**:
+   - Responding to negative comments or complaints
+   - Content touching controversial topics
+   - Any claims about competitors
+   - Pricing or discount offers
+   - Legal or compliance-adjacent statements
+
+**Periodic review**: Every 2 weeks (or every 10 published pieces, whichever comes first), the growth agent flags a sample of recent content in human-tasks for investor spot-check. This prevents tone drift.
+
+### LinkedIn Safety
+
+LinkedIn bans are a real and escalating risk (Apollo.io and Seamless.ai banned March 2025, 23% ban risk for automated accounts). Hard limits enforced by the growth agent:
+
+- **Max 15 profile views per day** via LinkedIn MCP
+- **Max 10 connection requests per week** (well under LinkedIn's 100/week limit — conservative to avoid detection)
+- **Max 5 messages per day** to non-connections
+- **All connection requests go through human-tasks** — the investor sends them from their own account
+- **No scraping or bulk data extraction** — research individual prospects, don't build databases
+- **Cool-down**: If any LinkedIn action returns an error or warning, pause all LinkedIn activity for 48 hours and flag in human-tasks
+- LinkedIn MCP is for **research and intelligence**, not for automated outreach at scale
+
+These limits are tracked in `docs/growth/channels/linkedin.md` with daily/weekly counters.
 
 ### Context Source
 
 The growth agent has no memory of the build phase. It reads:
-- `docs/` (research, architecture, business brief) for product understanding
+- `docs/growth/product-brief.md` for sales-ready product description (in English, written by business founder during `/growth` initialization — translates Estonian research into sales messaging)
+- `docs/` (research, architecture, business brief) for deeper product context if needed
 - `docs/growth/` for growth strategy, channel history, metrics, and approved brand voice
 
 ---
@@ -59,22 +85,37 @@ The growth agent has no memory of the build phase. It reads:
 
 ```
 docs/growth/
+├── product-brief.md         ← Sales-ready product description (English)
 ├── strategy.md              ← Overall growth plan, ICP, channels, priorities
 ├── channels/
 │   ├── content-marketing.md ← Published articles, keywords targeted, performance
-│   ├── linkedin.md          ← Outreach history, connection stats, what messaging works
+│   ├── linkedin.md          ← Outreach history, connection stats, daily/weekly counters
 │   ├── directories.md       ← Where listed, submission dates, status
 │   ├── ads.md               ← Campaigns, spend, ROAS, what's working
 │   └── communities.md       ← Forums/Reddit, threads engaged, tone approved
 ├── leads/
-│   └── pipeline.md          ← Prospects researched, status, next action
+│   ├── pipeline-research.md ← Prospects being researched
+│   ├── pipeline-outreach.md ← Prospects in active outreach
+│   └── pipeline-active.md   ← Prospects in trial/negotiation
 ├── metrics/
-│   └── weekly-report.md     ← KPIs tracked over time (MRR, signups, conversion)
-└── brand/
-    └── approved-voice.md    ← Investor-approved messaging, tone, examples
+│   ├── summary.md           ← Current KPIs snapshot (overwritten each update)
+│   └── weekly/
+│       └── YYYY-WNN.md      ← Weekly report archive (one file per week)
+├── brand/
+│   └── approved-voice.md    ← Investor-approved messaging, tone, examples
+└── content/
+    ├── blog/                ← Draft and published blog posts
+    └── outreach-templates/  ← Approved outreach message templates
 ```
 
 Each fresh agent spawn reads these files to know what's been done, what's working, and what to do next. Results and learnings accumulate here as durable, compounding knowledge.
+
+**Language rules for growth content:**
+- `product-brief.md`, `strategy.md`, metrics, pipeline files: **English** (operational)
+- Blog posts / SEO for international market: **English**
+- Blog posts / community posts for Estonian market: **Estonian** (proper Unicode diacritics)
+- `approved-voice.md`: **Both** — English section + Estonian section
+- LinkedIn outreach: **Language of the prospect** (English default, Estonian for Estonian prospects)
 
 ### Ephemeral Growth Handoffs
 
@@ -109,6 +150,18 @@ Business founder writes growth briefs. Growth agent executes and reports back. F
 - Growth agent spawned fresh each time (same pattern as founders)
 - Business founder is the bridge — the only role that writes to both tracks
 - If no build work is needed, the build track stays idle
+- **Urgent findings**: If the growth agent discovers something blocking sales (critical bug, broken signup, misleading content live), it writes an **urgent flag** in the growth report. The orchestrator bypasses normal sequencing and immediately dispatches business founder to triage, rather than waiting for the current build cycle to finish.
+
+### Failure Modes & Recovery
+
+| Failure | Detection | Recovery |
+|---------|-----------|----------|
+| Chrome can't log into external platform (session expired, CAPTCHA, 2FA) | Tool returns error or page shows login screen | Flag in human-tasks: "investor must re-authenticate session for [platform]". Pause that channel, continue others. |
+| LinkedIn MCP rate limited or returns errors | Any LinkedIn tool error or warning response | 48-hour cool-down on all LinkedIn activity. Log in `docs/growth/channels/linkedin.md`. |
+| All Phase 1 channels produce zero signups after 14 days | Growth report shows 0 conversions across all channels | Escalate to investor: "Phase 1 produced no results. Possible causes: wrong ICP, wrong channels, product-market fit issue. Recommend investor review before continuing." Pause growth track. |
+| Growth agent publishes inappropriate content | Periodic review catches it, or investor notices | Immediately pause autonomous posting on that channel. Revert to human-approval-required. Update `approved-voice.md` with anti-examples. |
+| Ad spend exceeds approved budget | Growth agent checks budget in growth brief before any ad action | Hard stop: never exceed approved budget. Flag in human-tasks if more budget needed. |
+| Growth agent context overload (too many channels active) | Growth report quality degrades, actions become unfocused | Orchestrator limits active channels to max 3 per growth cycle. Business founder prioritizes in growth brief. |
 
 ---
 
@@ -190,6 +243,16 @@ type: growth-report
 - Budget requires explicit investor approval via human tasks
 - First use of any new channel requires brand safety approval
 
+### Required Hooks (new additions to hooks.json)
+
+| Hook Event | Script | Purpose |
+|-----------|--------|---------|
+| `PostToolUse` (Write) | `validate-growth-brief.sh` | Ensure growth briefs have Objective + Target Customer sections |
+| `PostToolUse` (Write) | `check-brand-safety.sh` | Block writes to external-facing content files unless channel is in approved list in `approved-voice.md`, or content is flagged for human review |
+| `PostToolUse` (Write) | `check-linkedin-limits.sh` | Parse `docs/growth/channels/linkedin.md` counters; block LinkedIn MCP calls if daily/weekly limits exceeded |
+| `PostToolUse` (Write) | `check-ad-budget.sh` | Verify ad actions don't exceed approved budget from growth brief |
+| `PostToolUse` (Write) | `auto-commit-growth.sh` | Auto-commit growth content and metrics updates (same pattern as existing `auto-commit.sh`) |
+
 ---
 
 ## 5. 90-Day Sales Playbook
@@ -243,6 +306,35 @@ The growth agent follows a phased playbook. Business founder sets the phase base
 
 Phase transitions are driven by metrics, not calendar. If Phase 1 exceeds targets, advance early.
 
+### Phase 0: Pre-Launch (Optional, before go-live)
+
+If the investor wants to build audience before the product is live, `/growth` can be invoked with the `--pre-launch` flag, which skips the solution signoff check. Limited to:
+
+| Action | Executor |
+|--------|----------|
+| Build email waitlist landing page | Tech founder (via build track) |
+| Write "building in public" content | Growth agent → investor approves |
+| Research and join relevant communities | Growth agent |
+| Create `docs/growth/strategy.md` and `docs/growth/product-brief.md` | Business founder |
+
+No outreach, no ads, no directory submissions in pre-launch — just audience building and preparation.
+
+### Beyond 90 Days
+
+After Phase 3, the business founder reviews growth metrics and decides:
+
+- **Continue scaling**: Add budget to winning channels, expand to new markets. Growth agent continues with Phase 3 tactics on a rolling basis.
+- **Hire human sales**: Growth agent's documented playbook (`docs/growth/`) serves as the onboarding manual. Growth agent shifts to supporting the human (research, content drafting, analytics) rather than executing directly.
+- **Pivot**: If no channel achieved sustainable unit economics (LTV:CAC > 3:1), escalate to investor for strategic review. Possible outcomes: change ICP, change pricing, change product, or pause growth.
+
+### Token Cost Awareness
+
+Each growth agent spawn should complete its task within ~30K tokens of agent context. Guidelines:
+- One channel focus per spawn (don't try to execute across all channels in one dispatch)
+- Content creation: 1-2 articles or 5-10 outreach drafts per spawn
+- Research: max 20 prospect profiles per spawn
+- Analytics: read dashboards and write one metrics update per spawn
+
 ---
 
 ## 6. Lawyer — Extended Scope
@@ -266,18 +358,33 @@ The growth agent never does legal analysis — it flags the need via human tasks
 
 Launches the growth track. Analogous to `/startup` for the build loop.
 
-**Pre-flight checks**:
-- Solution signoff exists in `.startup/go-live/` (product is live)
-- `docs/growth/strategy.md` exists (growth plan defined)
-- Chrome browser MCP available
+### Pre-flight Checks
 
-**Behavior**:
+- Solution signoff exists in `.startup/go-live/` (product is live) — unless `--pre-launch` flag is used
+- Chrome browser MCP (claude-in-chrome) available
+- LinkedIn MCP available (warning if not, not blocking)
+
+### Initialization (first invocation)
+
+If `docs/growth/` does not exist, `/growth` runs an initialization sequence:
+
+1. Creates the full `docs/growth/` directory structure
+2. Spawns business founder to write:
+   - `docs/growth/product-brief.md` — translates Estonian research + architecture into English sales-ready product description (what it does, who it's for, why it's better, pricing)
+   - `docs/growth/strategy.md` — overall growth plan: ICP definition, prioritized channels, phase 1 goals, success metrics
+3. Creates empty `docs/growth/brand/approved-voice.md` with a human-task requesting investor to provide brand guidelines (tone, personality, things to avoid)
+4. Updates `.gitignore` if needed
+
+The growth loop does not start until initialization is complete and investor has approved the product brief and strategy.
+
+### Behavior (subsequent invocations)
+
 - Reads `docs/growth/strategy.md` for current phase and priorities
 - Spawns business founder to write growth brief OR growth agent to execute
 - Manages the growth loop alongside the build track
 - Updates `.startup/state.json` with growth track state:
-  - `growth_phase`: `"launch"` | `"outbound"` | `"optimize"`
-  - `growth_status`: `"active"` | `"paused"`
+  - `growth_phase`: `"pre-launch"` | `"launch"` | `"outbound"` | `"optimize"`
+  - `growth_status`: `"active"` | `"paused"` | `"escalated"`
   - `growth_iteration`: counter for growth handoff cycles
   - `growth_started`: ISO timestamp of when `/growth` was first invoked
 
