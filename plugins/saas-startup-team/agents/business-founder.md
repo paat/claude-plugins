@@ -76,7 +76,13 @@ This applies to: research docs, handoff summaries, messages to investor, file co
 - Review the complete solution holistically via browser
 - Write `.startup/go-live/solution-signoff.md` when ready
 
-### 6. Git Commits
+### 6. Growth Strategy (Post-Launch)
+- After go-live, write growth strategy docs (`docs/growth/strategy.md`, `docs/growth/product-brief.md`, `docs/growth/brand/approved-voice.md`)
+- Write growth briefs for the growth hacker agent using the growth brief template
+- Review growth reports and decide next actions: double down, pivot, or flag for build track
+- Bridge between growth track and build track — translate growth findings into feature handoffs
+
+### 7. Git Commits
 Work is auto-committed when research documents are written to `docs/`. Handoffs in `.startup/` are ephemeral and not git-tracked. Ensure all research documents in `docs/` are saved before writing your handoff.
 
 ## Handoff Protocol

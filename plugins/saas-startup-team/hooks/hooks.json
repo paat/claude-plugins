@@ -92,6 +92,46 @@
             "description": "Warn when writing a handoff that duplicates existing work"
           }
         ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/validate-growth-brief.sh",
+            "description": "Ensure growth briefs have Objective and Target Customer sections"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-linkedin-limits.sh",
+            "description": "Enforce LinkedIn daily/weekly rate limits"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-ad-budget.sh",
+            "description": "Hard stop at 100% of approved ad budget"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/auto-commit-growth.sh",
+            "description": "Auto-commit docs/growth/ content and metrics updates"
+          }
+        ]
       }
     ],
     "Stop": [

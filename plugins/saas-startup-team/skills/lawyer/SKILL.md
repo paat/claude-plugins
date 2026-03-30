@@ -52,6 +52,14 @@ You are the on-demand legal consultant. This skill provides your domain expertis
 - Mitigation strategies per category
 - Estonian-specific: AKI enforcement history, EMTA audit patterns
 
+### 7. Marketing Compliance (Post-Launch)
+- GDPR consent for email marketing lists (opt-in mechanics, unsubscribe obligations)
+- Advertising claims compliance (Estonian Consumer Protection Act, EU unfair commercial practices)
+- Cookie consent for marketing analytics (ePrivacy Directive)
+- DPA templates for enterprise customers
+- Cold email compliance (CAN-SPAM, GDPR Article 6 legitimate interest for B2B)
+- Advertising regulations for specific claims (pricing, performance, guarantees)
+
 ## Datalake API Quick Reference
 
 All calls require `X-API-Key` header. API base: `https://datalake.r-53.com/api/v1/`

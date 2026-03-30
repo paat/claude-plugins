@@ -41,6 +41,13 @@ You are the non-technical co-founder. This skill provides your domain expertise 
 ### 5. Competition Analysis Framework
 - See `references/market-research.md` for methodology
 
+### 6. Growth Strategy (Post-Launch)
+- ICP (Ideal Customer Profile) definition and refinement
+- Channel prioritization based on conversion data
+- Growth brief writing — translating strategy into actionable briefs for the growth hacker
+- Interpreting growth metrics to decide: scale, pivot, or pause
+- Product-led growth mechanics (free trial conversion, referral loops, onboarding optimization)
+
 ## Research Workflow
 
 ```

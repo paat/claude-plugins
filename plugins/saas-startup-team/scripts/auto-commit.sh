@@ -39,6 +39,9 @@ elif echo "$rel_path" | grep -qE '^docs/seo/.*\.md$'; then
   commit_msg="seo: ${filename%.md}"
 elif echo "$rel_path" | grep -qE '^docs/business/.*\.md$'; then
   commit_msg="business: ${filename%.md}"
+elif echo "$rel_path" | grep -qE '^docs/growth/.*\.md$'; then
+  # Let auto-commit-growth.sh handle these with more specific commit messages
+  exit 0
 elif echo "$rel_path" | grep -qE '^\.startup/handoffs/[0-9]{3}-[a-z]+-to-[a-z]+\.md$'; then
   # Handoffs are gitignored but we still auto-commit implementation code
   # that was changed alongside the handoff
@@ -47,6 +50,8 @@ elif echo "$rel_path" | grep -qE '^\.startup/handoffs/[0-9]{3}-[a-z]+-to-[a-z]+\
   case "$direction" in
     business-to-tech) founder="business-founder" ;;
     tech-to-business) founder="tech-founder" ;;
+    business-to-growth) founder="business-founder" ;;
+    growth-to-business) founder="growth-hacker" ;;
     *) founder="unknown" ;;
   esac
   commit_msg="${founder}: handoff ${handoff_num} — ${direction}"

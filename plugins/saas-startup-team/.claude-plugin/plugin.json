@@ -1,11 +1,11 @@
 {
   "name": "saas-startup-team",
-  "version": "0.13.0",
-  "description": "SaaS startup simulation — business founder and tech founder iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), until the product is ready to go live",
+  "version": "0.14.0",
+  "description": "SaaS startup simulation — business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product and acquiring customers",
   "author": {
     "name": "Andre Paat"
   },
   "repository": "https://github.com/paat/claude-plugins",
   "license": "MIT",
-  "keywords": ["agent-teams", "multi-agent", "saas", "startup-simulation", "handoff-protocol", "iterative-development", "role-based-agents", "legal-compliance", "datalake", "ux-testing", "accessibility"]
+  "keywords": ["agent-teams", "multi-agent", "saas", "startup-simulation", "handoff-protocol", "iterative-development", "role-based-agents", "legal-compliance", "datalake", "ux-testing", "accessibility", "growth", "sales"]
 }
