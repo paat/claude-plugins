@@ -124,7 +124,7 @@ When reading customer feedback, extract:
 - **Switching triggers** (what made them leave a competitor?)
 - **Price sensitivity** (comments about cost, value, alternatives)
 
-Save these in the customer language of `.startup/docs/kliendi-tagasiside.md` — this informs copywriting, positioning, and feature prioritization.
+Save these in the customer language of `docs/research/kliendi-tagasiside.md` — this informs copywriting, positioning, and feature prioritization.
 
 ## TAM/SAM/SOM Estimation
 

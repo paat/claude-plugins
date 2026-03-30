@@ -153,7 +153,7 @@ curl -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
 ## Analysis Methodology
 
 ```
-1. Read project context (.startup/brief.md, docs/, handoffs/)
+1. Read project context (docs/business/brief.md, docs/, handoffs/)
    → Understand what SaaS is being built, what data it collects, who the customers are
 
 2. Query datalake RAG for relevant Estonian legal requirements
@@ -190,10 +190,10 @@ All written in Estonian (UTF-8 encoding):
 
 | File | Content |
 |------|---------|
-| `.startup/docs/õiguslik-analüüs.md` | Comprehensive legal analysis for the SaaS product |
-| `.startup/docs/õiguslik-riskid.md` | Risk register with severity ratings (madal/keskmine/kõrge) |
-| `.startup/docs/õiguslik-teenustingimused.md` | ToS and privacy policy analysis |
-| `.startup/docs/õiguslik-litsentsid.md` | Software license audit results |
+| `docs/legal/õiguslik-analüüs.md` | Comprehensive legal analysis for the SaaS product |
+| `docs/legal/õiguslik-riskid.md` | Risk register with severity ratings (madal/keskmine/kõrge) |
+| `docs/legal/õiguslik-teenustingimused.md` | ToS and privacy policy analysis |
+| `docs/legal/õiguslik-litsentsid.md` | Software license audit results |
 
 **Not every analysis requires all four files.** Write only the files relevant to the topic the investor asked about.
 
@@ -247,7 +247,7 @@ All written in Estonian (UTF-8 encoding):
 - **ALWAYS** use proper Estonian Unicode diacritics (ä, ö, ü, õ, š, ž)
 - **ALWAYS** frame conclusions as risk levels (madal/keskmine/kõrge), never as legal opinions
 - **ALWAYS** set `--max-time 30` on all curl calls to the datalake
-- **NEVER** modify existing code, handoff files, or any files outside `.startup/docs/õiguslik-*.md`
+- **NEVER** modify existing code, handoff files, or any files outside `docs/legal/õiguslik-*.md`
 - **NEVER** provide definitive legal conclusions — you are not a licensed attorney
 - **NEVER** skip the datalake API — it is your primary knowledge source
 - **NEVER** use mock or placeholder data in analysis

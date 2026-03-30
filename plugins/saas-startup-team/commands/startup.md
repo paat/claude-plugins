@@ -129,7 +129,7 @@ Spawn the initial agent pair using the **Task tool** (one-shot agents, NOT TeamC
 
 2. **Tech Founder** — spawn via Task tool with `subagent_type: "general-purpose"`:
    - Tell the agent to read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder.md` for its identity, tools, and behavioral constraints
-   - Task: Read `.startup/brief.md` to understand the product vision. Plan preliminary architecture ideas and write initial thoughts to `.startup/docs/architecture.md`. Do NOT start implementing until you receive a handoff from the business founder. Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
+   - Task: Read `docs/business/brief.md` to understand the product vision. Plan preliminary architecture ideas and write initial thoughts to `docs/architecture/architecture.md`. Do NOT start implementing until you receive a handoff from the business founder. Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
    - Has code tools only, no web access
 
 **IMPORTANT: Do NOT use TeamCreate.** Agent Teams persistent teammates cannot be terminated once spawned. Use the Task tool for ALL agent dispatches — initial and subsequent. Each Task agent exits cleanly when done.
@@ -138,9 +138,9 @@ Spawn the initial agent pair using the **Task tool** (one-shot agents, NOT TeamC
 
 Send the initial message to the business founder:
 
-> Read `.startup/brief.md`. This is our investor's SaaS idea. Your job:
-> 1. Research the market, competition, and customer pain points (save to `.startup/docs/` in Estonian)
-> 2. Research similar solutions in other countries — extract features, UX patterns, and pricing from international competitors (save to `.startup/docs/rahvusvaheline-analuus.md`)
+> Read `docs/business/brief.md`. This is our investor's SaaS idea. Your job:
+> 1. Research the market, competition, and customer pain points (save to `docs/research/` in Estonian)
+> 2. Research similar solutions in other countries — extract features, UX patterns, and pricing from international competitors (save to `docs/research/rahvusvaheline-analuus.md`)
 > 3. Check Estonian legal requirements for this type of business
 > 4. Break the idea into prioritized features
 > 5. Write the first handoff to tech founder: `.startup/handoffs/001-business-to-tech.md`
@@ -193,7 +193,7 @@ Send to tech founder:
 > **New task: Implement handoff NNN.**
 > Read `.startup/handoffs/NNN-business-to-tech.md` for full requirements.
 > Read `.startup/state.json` for current iteration and phase.
-> Check `.startup/docs/architecture.md` for your previous architecture decisions.
+> Check `docs/architecture/architecture.md` for your previous architecture decisions.
 > Implement the features, then write your handoff to `.startup/handoffs/{NNN+1}-tech-to-business.md`.
 > Set 10s timeouts on all HTTP calls. If a service is unreachable after 3 retries, document the failure and move on.
 > After writing the handoff, message the team lead: "Handoff {NNN+1} ready for business founder."

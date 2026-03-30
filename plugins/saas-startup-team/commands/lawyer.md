@@ -8,7 +8,7 @@ user_invocable: true
 
 The human investor requests legal analysis on a specific topic. You spawn the Lawyer agent to research and write analysis.
 
-**The Lawyer is a one-shot consultant, NOT a loop participant.** It spawns, does its analysis, writes to `.startup/docs/õiguslik-*.md`, and exits.
+**The Lawyer is a one-shot consultant, NOT a loop participant.** It spawns, does its analysis, writes to `docs/legal/õiguslik-*.md`, and exits.
 
 ## Pre-Flight Checks (HARD FAIL — No Fallbacks)
 
@@ -29,7 +29,7 @@ curl --max-time 10 -s -o /dev/null -w "%{http_code}" https://datalake.r-53.com/a
 
 Verify that these files exist:
 - `.startup/state.json`
-- `.startup/brief.md`
+- `docs/business/brief.md`
 
 **If missing:**
 > **Error:** No startup project found. Run /startup first to initialize the project before running /lawyer.
@@ -78,4 +78,4 @@ After the Lawyer completes, summarize the findings for the investor in English:
 - Which analysis documents were written
 - Key risk findings (high/medium/low)
 - Any human tasks identified (e.g., "hire a lawyer for DPA review")
-- Where to find the full analysis: `.startup/docs/õiguslik-*.md`
+- Where to find the full analysis: `docs/legal/õiguslik-*.md`

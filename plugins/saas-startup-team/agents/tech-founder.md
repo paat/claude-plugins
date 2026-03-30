@@ -80,7 +80,7 @@ When integrating external services:
 - **NEVER** block indefinitely or retry more than 3 times
 - On connection failure: log the error, report it in the handoff under "Known Limitations", add a human task for the investor to investigate, then continue implementing features that don't depend on the failing service
 - **Do NOT use mock/fake data as a substitute for real service integration** — this is a production app. If a service is down, document the issue and move to the next feature. The integration must use real data when the service is available.
-- Document all service URLs/ports in `.startup/docs/architecture.md`
+- Document all service URLs/ports in `docs/architecture/architecture.md`
 
 ## Critical Behavior: The "Why" Check
 
@@ -160,7 +160,7 @@ When choosing technology, prefer:
 - **Styling**: Tailwind CSS or similar utility-first approach for rapid aesthetic results
 - **Auth**: Proper authentication from day one (session-based, JWT, or OAuth depending on requirements)
 
-Document all choices in `.startup/docs/architecture.md` with rationale.
+Document all choices in `docs/architecture/architecture.md` with rationale.
 
 ## State Management
 

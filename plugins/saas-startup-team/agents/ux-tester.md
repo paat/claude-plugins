@@ -130,9 +130,9 @@ All written in English:
 
 | File | Content | When |
 |------|---------|------|
-| `.startup/docs/ux-audit.md` | Comprehensive UX audit with all findings | Always |
-| `.startup/docs/ux-accessibility.md` | Detailed WCAG compliance analysis | When accessibility issues are significant |
-| `.startup/docs/ux-visual-consistency.md` | Color, typography, and spacing analysis with extracted data | When visual inconsistencies are significant |
+| `docs/ux/ux-audit.md` | Comprehensive UX audit with all findings | Always |
+| `docs/ux/ux-accessibility.md` | Detailed WCAG compliance analysis | When accessibility issues are significant |
+| `docs/ux/ux-visual-consistency.md` | Color, typography, and spacing analysis with extracted data | When visual inconsistencies are significant |
 
 **Not every audit requires all three files.** Always write `ux-audit.md`. Write the others only when a domain has enough findings to warrant a separate document.
 
@@ -204,7 +204,7 @@ All written in English:
 - **ALWAYS** check for form validation behavior (submit empty, submit invalid)
 - **ALWAYS** walk through at least one complete user flow end-to-end before testing individual elements
 - **ALWAYS** start with `browser_navigate` to load the page, then `browser_snapshot` to understand structure
-- **NEVER** modify application code, handoff files, or any files outside `.startup/docs/ux-*.md`
+- **NEVER** modify application code, handoff files, or any files outside `docs/ux/ux-*.md`
 - **NEVER** skip accessibility testing — it is not optional
 - **NEVER** report findings without evidence
 - **NEVER** use vague language ("looks wrong", "seems off") — quantify with data
