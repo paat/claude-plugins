@@ -29,18 +29,22 @@ If the user hasn't already described their SaaS idea, ask them (in English):
 
 If resuming, skip to Step 3 with the existing state.
 
-Create the `.startup/` directory structure:
+Run `/bootstrap` first (idempotent — safe to re-run). This creates:
+- `docs/` subdirectories: `research/`, `legal/`, `architecture/`, `ux/`, `seo/`, `business/`
+- `.startup/` subdirectories: `handoffs/`, `reviews/`, `signoffs/`, `go-live/`
+- `.gitignore` entries for ephemeral `.startup/` state
+- `## Project Knowledge` and `## Workflow Guidance` sections in CLAUDE.md
+
+Then create the loop-specific files in `.startup/`:
 
 ```
 .startup/
-├── brief.md              ← Fill with user's SaaS idea
 ├── state.json            ← Initialize loop state
 ├── human-tasks.md        ← Copy from ${CLAUDE_PLUGIN_ROOT}/templates/human-tasks.md
-├── handoffs/             ← Empty, will fill during iterations
-├── docs/                 ← Empty, business founder will populate
-├── signoffs/             ← Empty, will fill as features are validated
-├── reviews/              ← Empty, browser review notes go here
-└── go-live/              ← Empty, solution signoff goes here
+├── handoffs/             ← Ephemeral, not git-tracked
+├── signoffs/             ← Ephemeral, not git-tracked
+├── reviews/              ← Ephemeral, not git-tracked
+└── go-live/              ← Ephemeral, not git-tracked
 ```
 
 Initialize `state.json`:
@@ -55,7 +59,7 @@ Initialize `state.json`:
 }
 ```
 
-Write `brief.md` using the user's SaaS idea description.
+Write `docs/business/brief.md` using the user's SaaS idea description (skip if `/bootstrap` already created it).
 
 **Copy the human-tasks template:**
 ```bash

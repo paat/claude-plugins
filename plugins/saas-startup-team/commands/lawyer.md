@@ -56,9 +56,9 @@ Skill('saas-startup-team:lawyer')
 ### Step 2: Gather Project Context
 
 Read the following files to build context for the Lawyer:
-1. `.startup/brief.md` — what SaaS is being built
+1. `docs/business/brief.md` — what SaaS is being built
 2. `.startup/state.json` — current project phase and iteration
-3. Latest files in `.startup/docs/` — business founder's research
+3. Latest files in `docs/` — research, legal, architecture docs
 4. Latest handoff in `.startup/handoffs/` — current state of implementation
 
 ### Step 3: Spawn Lawyer Agent
@@ -68,7 +68,7 @@ Use `Task` tool to spawn the Lawyer as a one-shot agent:
 Pass the following to the Lawyer agent:
 - The investor's topic/question (from the command arguments)
 - Project context summary (from Step 2)
-- Reminder: write analysis to `.startup/docs/õiguslik-*.md` in Estonian
+- Reminder: write analysis to `docs/legal/õiguslik-*.md` in Estonian
 - Reminder: query datalake API first, web search second
 - Reminder: include disclaimers and cite all sources
 

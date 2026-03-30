@@ -54,9 +54,9 @@ Skill('saas-startup-team:ux-tester')
 ### Step 2: Gather Project Context
 
 Read the following files to build context for the UX Tester:
-1. `.startup/brief.md` — what SaaS is being built, target users
+1. `docs/business/brief.md` — what SaaS is being built, target users
 2. `.startup/state.json` — current project phase and iteration
-3. `.startup/docs/architecture.md` — tech stack, service URLs
+3. `docs/architecture/architecture.md` — tech stack, service URLs
 4. Latest handoff in `.startup/handoffs/` — current state of implementation
 
 ### Step 3: Spawn UX Tester Agent
