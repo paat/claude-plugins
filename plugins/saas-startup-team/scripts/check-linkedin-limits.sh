@@ -41,10 +41,12 @@ if [ "$views" -ge 40 ] 2>/dev/null; then
 fi
 
 if [ -n "$violations" ]; then
+  # Exit 0 to allow the counter write (agent needs to persist the limit-reached state).
+  # The warning message tells the agent to stop further LinkedIn activity.
   cat >&2 <<MSG
 {"systemMessage":"LinkedIn rate limit warning: ${violations}Pause LinkedIn activity for this period and shift effort to cold email or community engagement. See the LinkedIn Safety reference for cool-down protocol."}
 MSG
-  exit 2
+  exit 0
 fi
 
 exit 0

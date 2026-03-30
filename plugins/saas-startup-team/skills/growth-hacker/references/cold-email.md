@@ -27,6 +27,13 @@ Cold email is the #1 channel cited by B2B SaaS founders for reaching $10K MRR.
 | Reply-to-meeting | 15-30% |
 | First paying customer | Within 2-3 weeks of active sending |
 
+## Legal Compliance
+
+Before launching the first cold email campaign, request a legal review from the lawyer agent (`/lawyer cold email compliance`). Key requirements:
+- CAN-SPAM: physical address, unsubscribe link, honest subject lines
+- GDPR Article 6: legitimate interest basis for B2B cold outreach (document your reasoning)
+- Estonian e-Commerce Act requirements for commercial communications
+
 ## Troubleshooting
 
 - **Deliverability below 70%**: Pause sending, check domain reputation, reduce to 20/day for a week, warm up again

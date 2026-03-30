@@ -37,13 +37,13 @@ MSG
   exit 2
 fi
 
-# Warn at 80%
+# Warn at 80% but allow the write (exit 0, not exit 2)
 threshold=$(( approved * 80 / 100 ))
 if [ "$spent" -ge "$threshold" ] 2>/dev/null; then
   cat >&2 <<MSG
 {"systemMessage":"Ad budget warning: \$${spent} of \$${approved} spent ($(( spent * 100 / approved ))%). Add a human task alerting the investor that budget is running low."}
 MSG
-  exit 2
+  exit 0
 fi
 
 exit 0
