@@ -33,7 +33,7 @@ docs/
 ```
 
 ```bash
-mkdir -p docs/{research,legal,architecture,ux,seo,business}
+mkdir -p docs/{research,legal,architecture,ux,seo,business,growth/{channels,leads,metrics/weekly,brand,content/blog,content/outreach-templates}}
 mkdir -p .startup/{handoffs,reviews,signoffs,go-live}
 ```
 
@@ -88,6 +88,7 @@ Research and design decisions live in `docs/`. Consult these before making chang
 - **Architecture**: `docs/architecture/` — tech stack decisions and rationale
 - **UX findings**: `docs/ux/` — audit results, accessibility gaps
 - **SEO research**: `docs/seo/` — keyword strategy, content optimization
+- **Growth**: `docs/growth/` — growth strategy, channel metrics, pipeline, outreach templates
 
 When adding features or changing behavior, check relevant docs first.
 When completing research, save findings to the appropriate `docs/` subdirectory.
@@ -113,6 +114,11 @@ If CLAUDE.md does not already contain a `## Workflow Guidance` section, add it:
 - Single feature where you already know the "why"
 - Ops/infrastructure work (docker, nginx, CI)
 - Quick research tasks (use `/lawyer` or `/ux-test` standalone)
+
+### Use `/growth` (growth track) when:
+- Product is live and ready for customers — need to acquire paying users
+- Want to run outreach, content marketing, ad campaigns, community engagement
+- Pre-launch audience building (`/growth --pre-launch`)
 
 ### Either way:
 - Save research findings to `docs/` (not ad-hoc locations)
