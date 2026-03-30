@@ -17,23 +17,29 @@ input=$(cat)
 file_path=$(echo "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 [ -z "$file_path" ] && exit 0
 
+# Find git repo root early — needed to normalize absolute paths
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+
+# Normalize to repo-relative path for anchored matching
+rel_path="${file_path#"$repo_root"/}"
+
 # Determine commit type from file path
 filename=$(basename "$file_path")
 commit_msg=""
 
-if echo "$file_path" | grep -qE 'docs/research/.*\.md$'; then
+if echo "$rel_path" | grep -qE '^docs/research/.*\.md$'; then
   commit_msg="research: ${filename%.md}"
-elif echo "$file_path" | grep -qE 'docs/legal/.*\.md$'; then
+elif echo "$rel_path" | grep -qE '^docs/legal/.*\.md$'; then
   commit_msg="legal: ${filename%.md}"
-elif echo "$file_path" | grep -qE 'docs/architecture/.*\.md$'; then
+elif echo "$rel_path" | grep -qE '^docs/architecture/.*\.md$'; then
   commit_msg="architecture: ${filename%.md}"
-elif echo "$file_path" | grep -qE 'docs/ux/.*\.md$'; then
+elif echo "$rel_path" | grep -qE '^docs/ux/.*\.md$'; then
   commit_msg="ux: ${filename%.md}"
-elif echo "$file_path" | grep -qE 'docs/seo/.*\.md$'; then
+elif echo "$rel_path" | grep -qE '^docs/seo/.*\.md$'; then
   commit_msg="seo: ${filename%.md}"
-elif echo "$file_path" | grep -qE 'docs/business/.*\.md$'; then
+elif echo "$rel_path" | grep -qE '^docs/business/.*\.md$'; then
   commit_msg="business: ${filename%.md}"
-elif echo "$file_path" | grep -qE '\.startup/handoffs/[0-9]{3}-[a-z]+-to-[a-z]+\.md$'; then
+elif echo "$rel_path" | grep -qE '^\.startup/handoffs/[0-9]{3}-[a-z]+-to-[a-z]+\.md$'; then
   # Handoffs are gitignored but we still auto-commit implementation code
   # that was changed alongside the handoff
   handoff_num=$(echo "$filename" | grep -oE '^[0-9]{3}')
@@ -48,9 +54,6 @@ else
   # Not a milestone file — skip
   exit 0
 fi
-
-# Find git repo root — if not in a git repo, exit silently
-repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 
 # Stage docs/ and implementation files (avoid staging sensitive files like .env)
 cd "$repo_root"
@@ -68,5 +71,5 @@ fi
 git commit -m "${commit_msg}" --no-verify || true
 
 # Signal to Claude that we committed
-echo '{"systemMessage":"Auto-committed all work: '"${commit_msg}"'"}' >&2
+jq -n --arg msg "Auto-committed all work: ${commit_msg}" '{systemMessage: $msg}' >&2
 exit 2

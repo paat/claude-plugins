@@ -27,7 +27,7 @@ If the user hasn't already described their SaaS idea, ask them (in English):
 > 1. **Resume** the existing session
 > 2. **Reset** and start fresh (this will delete all previous progress)
 
-If resuming, skip to Step 3 with the existing state.
+If resuming, run `/bootstrap` first (idempotent — ensures docs/ structure exists for migrated projects), then skip to Step 3 with the existing state.
 
 Run `/bootstrap` first (idempotent — safe to re-run). This creates:
 - `docs/` subdirectories: `research/`, `legal/`, `architecture/`, `ux/`, `seo/`, `business/`

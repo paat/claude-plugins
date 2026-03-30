@@ -55,20 +55,23 @@ if [ "$is_team_member" = true ]; then
   exit 0
 fi
 
+# Normalize to repo-relative path for anchored checks
+rel_path="${file_path#"$GIT_ROOT"/}"
+
 # Main orchestrator: only allow writes to .startup/, docs/, CLAUDE.md, and plugin files
-if [[ "$file_path" =~ \.startup/ ]]; then
+if [[ "$rel_path" =~ ^\.startup/ ]]; then
   exit 0
 fi
 
-if [[ "$file_path" =~ docs/ ]]; then
+if [[ "$rel_path" =~ ^docs/ ]]; then
   exit 0
 fi
 
-if [[ "$file_path" =~ CLAUDE\.md$ ]]; then
+if [[ "$rel_path" =~ CLAUDE\.md$ ]]; then
   exit 0
 fi
 
-if [[ "$file_path" =~ PLUGIN_ISSUES\.md$ ]]; then
+if [[ "$rel_path" =~ PLUGIN_ISSUES\.md$ ]]; then
   exit 0
 fi
 
