@@ -39,6 +39,8 @@ elif echo "$rel_path" | grep -qE '^docs/seo/.*\.md$'; then
   commit_msg="seo: ${filename%.md}"
 elif echo "$rel_path" | grep -qE '^docs/business/.*\.md$'; then
   commit_msg="business: ${filename%.md}"
+elif echo "$rel_path" | grep -qE '^docs/growth/.*\.md$'; then
+  commit_msg="growth: ${filename%.md}"
 elif echo "$rel_path" | grep -qE '^\.startup/handoffs/[0-9]{3}-[a-z]+-to-[a-z]+\.md$'; then
   # Handoffs are gitignored but we still auto-commit implementation code
   # that was changed alongside the handoff

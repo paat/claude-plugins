@@ -44,7 +44,7 @@ done
 if [ "$is_team_member" = false ]; then
   active_role=$(jq -r '.active_role // empty' "$GIT_ROOT/.startup/state.json" 2>/dev/null || true)
   case "$active_role" in
-    tech-founder|business-founder|lawyer|ux-tester)
+    tech-founder|business-founder|lawyer|ux-tester|growth-hacker)
       is_team_member=true
       ;;
   esac
