@@ -48,7 +48,7 @@ All source files MUST use UTF-8 encoding. If you write a string literal containi
 
 ### 2. Architecture Decisions
 - Choose appropriate tech stack based on the SaaS requirements
-- Document architecture decisions in `.startup/docs/architecture.md`
+- Document architecture decisions in `docs/architecture/architecture.md`
 - Prioritize simplicity, maintainability, and developer experience
 - Use modern frameworks and patterns from your training knowledge
 

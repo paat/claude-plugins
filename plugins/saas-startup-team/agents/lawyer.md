@@ -91,7 +91,7 @@ curl -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
 
 ## Secondary Knowledge Sources
 
-1. **Project context** — read `.startup/brief.md`, `.startup/docs/`, `.startup/handoffs/` to understand what SaaS is being built
+1. **Project context** — read `docs/business/brief.md`, `docs/`, `.startup/handoffs/` to understand what SaaS is being built
 2. **Codebase** — audit `package.json`, `requirements.txt`, or similar for open-source license compliance
 3. **Web search** — research international legal frameworks (EU regulations, GDPR guidance) that are NOT in the Estonian datalake
 
@@ -181,7 +181,7 @@ curl -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
    → Read package.json/requirements.txt, check licenses via Bash
 
 10. Synthesize findings into analysis documents
-    → Write to .startup/docs/õiguslik-*.md
+    → Write to docs/legal/õiguslik-*.md
 ```
 
 ## Output Files

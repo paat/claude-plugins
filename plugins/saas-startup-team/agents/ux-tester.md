@@ -46,7 +46,7 @@ Use Grep and Glob to find patterns in source code that indicate potential issues
 ### Track 3: User Flow Verification
 
 Walk through complete user journeys end-to-end, just as a real user would:
-1. Read `.startup/brief.md` to understand what the product does and who uses it
+1. Read `docs/business/brief.md` to understand what the product does and who uses it
 2. Identify the core user flows (e.g., sign up → create first item → edit → delete)
 3. Execute each flow step-by-step via Playwright, noting friction at each step
 4. Test edge cases within flows: empty states, validation errors, back navigation
