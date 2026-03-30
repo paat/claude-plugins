@@ -154,6 +154,53 @@ The loop is autonomous by design — the investor is a silent observer unless so
 - **Micro-delegation**: Orchestrator spawns 5+ agents for one feedback cycle → bundle fixes into a single agent dispatch
 - **Stale agents**: Old agents lingering after new ones spawned → always verify old agents exited before spawning replacements; if stuck, kill them with `pkill -f 'agent-id {old-id}'`
 
+## Post-Launch: Dual-Track Orchestration
+
+After the business founder writes the solution signoff, the system transitions to dual-track mode. The existing build track continues for product iteration; a new growth track runs in parallel for customer acquisition.
+
+### Growth Track Relay
+
+When business founder signals "Growth brief NNN ready for growth hacker":
+
+> **New task: Execute growth brief NNN.**
+> Read `.startup/handoffs/NNN-business-to-growth.md` for your assignment.
+> Read `docs/growth/product-brief.md` for product context.
+> Read `docs/growth/brand/approved-voice.md` for brand guidelines.
+> Read the relevant channel doc in `docs/growth/channels/` for what's been done.
+> Read `docs/growth/channels/linkedin.md` for current LinkedIn counters (if using LinkedIn).
+> Execute the brief. Update channel docs, pipeline, and metrics.
+> Write your growth report to `.startup/handoffs/{NNN+1}-growth-to-business.md`.
+> After writing, message the team lead: "Growth report {NNN+1} ready for business founder."
+
+When growth hacker signals "Growth report NNN ready for business founder":
+
+> **New task: Review growth report NNN.**
+> Read `.startup/handoffs/NNN-growth-to-business.md` for results.
+> Read `docs/growth/strategy.md` for current phase.
+> Read `docs/growth/metrics/summary.md` for overall metrics.
+> Decide next action: write another growth brief for the same or different channel, update strategy, or flag issues for the build track.
+> Write your next growth brief to `.startup/handoffs/{NNN+1}-business-to-growth.md`.
+> After writing, message the team lead: "Growth brief {NNN+1} ready for growth hacker."
+
+### Cross-Track Interactions
+
+- **Growth → Build**: Growth report flags "customers keep asking for X" or "conversion drops at step 3" → dispatch business founder to write a feature handoff to tech founder (enters build track)
+- **Build → Growth**: Tech founder ships new feature → dispatch business founder to write growth brief to promote it (enters growth track)
+- **Growth → Lawyer**: Growth report flags legal need → tell investor to invoke `/lawyer`
+- **Growth → UX Tester**: Growth report flags conversion issue → tell investor to invoke `/ux-test`
+
+### Urgent Findings
+
+If a growth report contains an "Urgent Flags" section, bypass normal sequencing — immediately dispatch business founder to triage rather than waiting for the current build cycle.
+
+### Growth Agent Lifecycle
+
+Same rules as build track agents:
+- Always spawn fresh via Task tool (never reuse)
+- Kill stale agents before spawning (`pkill -f 'agent-type saas-startup-team'`)
+- One channel or objective per growth agent dispatch
+- Growth agent uses claude-in-chrome (real Chrome) for external sites, NOT Playwright
+
 ## Reference Documents
 
 - `references/handoff-protocol.md` — Structured handoff format details
