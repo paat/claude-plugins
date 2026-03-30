@@ -92,7 +92,7 @@ The lawyer and UX tester follow this same pattern — every `/lawyer` or
 
 ## UX Audit Handover Pattern
 
-The UX Tester writes findings to `.startup/docs/ux-*.md`. The team lead then:
+The UX Tester writes findings to `docs/ux/ux-*.md`. The team lead then:
 1. Reads the findings and prioritizes by severity (Critical → Major → Minor)
 2. Groups findings into max-2-feature handoff items for founders
 3. Assigns code-fix findings (accessibility, responsive, states) to the tech founder
