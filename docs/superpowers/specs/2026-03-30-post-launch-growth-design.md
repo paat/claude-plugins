@@ -43,32 +43,33 @@ The Growth Hacker does NOT:
 
 ### Brand Safety Gate
 
-Three tiers of content review:
+The investor's time is the scarcest resource. Approve the playbook, not every play.
 
-1. **First use of a new channel**: Growth agent writes a draft and requests human approval via human-tasks. Investor approves tone, messaging, and approach. Approved examples saved to `docs/growth/brand/approved-voice.md`.
-2. **Routine content on approved channels**: Growth agent proceeds autonomously but logs all published content to the relevant `docs/growth/channels/*.md` file for audit.
-3. **Sensitive content — always requires human approval**:
-   - Responding to negative comments or complaints
-   - Content touching controversial topics
-   - Any claims about competitors
-   - Pricing or discount offers
-   - Legal or compliance-adjacent statements
+1. **Investor approves `docs/growth/brand/approved-voice.md` once** during `/growth` initialization — tone, personality, example messages, things to never say. This is the growth agent's operating manual.
+2. **Growth agent operates autonomously** within those guidelines. All content logged to `docs/growth/channels/*.md` for audit — investor reads these when they want, no mandatory review cycle.
+3. **Human approval required ONLY for**:
+   - Pricing changes or discount offers (revenue impact)
+   - Legal or compliance-adjacent statements (irreversible risk)
+   - First paid ad campaign launch (money at stake)
 
-**Periodic review**: Every 2 weeks (or every 10 published pieces, whichever comes first), the growth agent flags a sample of recent content in human-tasks for investor spot-check. This prevents tone drift.
+No periodic review theater. The investor can spot-check anytime by reading the channel docs. The growth agent's job is to move fast, not wait for permission.
 
 ### LinkedIn Safety
 
-LinkedIn bans are a real and escalating risk (Apollo.io and Seamless.ai banned March 2025, 23% ban risk for automated accounts). Hard limits enforced by the growth agent:
+Context: Apollo.io and Seamless.ai got banned for mass scraping — thousands of profiles per hour. That's not what we're doing. Real ban rate for moderate, human-like automation (40-60 requests/week) is 2-5%, and most "bans" are temporary 24-72 hour restrictions, not permanent.
 
-- **Max 15 profile views per day** via LinkedIn MCP
-- **Max 10 connection requests per week** (well under LinkedIn's 100/week limit — conservative to avoid detection)
-- **Max 5 messages per day** to non-connections
-- **All connection requests go through human-tasks** — the investor sends them from their own account
-- **No scraping or bulk data extraction** — research individual prospects, don't build databases
-- **Cool-down**: If any LinkedIn action returns an error or warning, pause all LinkedIn activity for 48 hours and flag in human-tasks
-- LinkedIn MCP is for **research and intelligence**, not for automated outreach at scale
+Limits enforced by the growth agent:
 
-These limits are tracked in `docs/growth/channels/linkedin.md` with daily/weekly counters.
+- **Max 40 profile views per day** via LinkedIn MCP
+- **Max 50 connection requests per week** (50% of LinkedIn's limit — aggressive but within safe zone)
+- **Max 20 messages per day** to connections
+- **Growth agent sends connection requests directly** using investor-approved message templates (investor approves 3-5 templates during init, not each individual send)
+- **Rotate message templates** every 30-40 sends to avoid pattern detection
+- **No bulk scraping** — research prospects individually, with natural timing gaps
+- **Cool-down on restriction**: If LinkedIn restricts the account, pause for 72 hours, then resume at 50% volume for a week before returning to full volume
+- **Business hours only**: LinkedIn activity between 8:00-18:00 local time, Monday-Friday
+
+These limits are tracked in `docs/growth/channels/linkedin.md` with daily/weekly counters. The real risk of not doing LinkedIn outreach is far worse than a temporary restriction.
 
 ### Context Source
 
@@ -92,7 +93,9 @@ docs/growth/
 │   ├── linkedin.md          ← Outreach history, connection stats, daily/weekly counters
 │   ├── directories.md       ← Where listed, submission dates, status
 │   ├── ads.md               ← Campaigns, spend, ROAS, what's working
-│   └── communities.md       ← Forums/Reddit, threads engaged, tone approved
+│   ├── cold-email.md        ← Domains, templates, deliverability, reply rates
+│   ├── competitor-poaching.md ← Competitor complaints found, outreach sent, conversions
+│   └── communities.md       ← Forums/Reddit/Slack, threads engaged, tone
 ├── leads/
 │   ├── pipeline-research.md ← Prospects being researched
 │   ├── pipeline-outreach.md ← Prospects in active outreach
@@ -154,14 +157,14 @@ Business founder writes growth briefs. Growth agent executes and reports back. F
 
 ### Failure Modes & Recovery
 
-| Failure | Detection | Recovery |
-|---------|-----------|----------|
-| Chrome can't log into external platform (session expired, CAPTCHA, 2FA) | Tool returns error or page shows login screen | Flag in human-tasks: "investor must re-authenticate session for [platform]". Pause that channel, continue others. |
-| LinkedIn MCP rate limited or returns errors | Any LinkedIn tool error or warning response | 48-hour cool-down on all LinkedIn activity. Log in `docs/growth/channels/linkedin.md`. |
-| All Phase 1 channels produce zero signups after 14 days | Growth report shows 0 conversions across all channels | Escalate to investor: "Phase 1 produced no results. Possible causes: wrong ICP, wrong channels, product-market fit issue. Recommend investor review before continuing." Pause growth track. |
-| Growth agent publishes inappropriate content | Periodic review catches it, or investor notices | Immediately pause autonomous posting on that channel. Revert to human-approval-required. Update `approved-voice.md` with anti-examples. |
-| Ad spend exceeds approved budget | Growth agent checks budget in growth brief before any ad action | Hard stop: never exceed approved budget. Flag in human-tasks if more budget needed. |
-| Growth agent context overload (too many channels active) | Growth report quality degrades, actions become unfocused | Orchestrator limits active channels to max 3 per growth cycle. Business founder prioritizes in growth brief. |
+| Failure | Recovery |
+|---------|----------|
+| Chrome session expired on external platform | Flag in human-tasks, switch to other channels — don't stop working |
+| LinkedIn temporary restriction | 72-hour cool-down, then resume at 50% for a week. Meanwhile, shift effort to cold email and communities. A temporary restriction is a speed bump, not a crisis. |
+| Zero conversions after 7 days | Don't pause — adjust. Growth agent analyzes: is it the messaging (low reply rate)? The ICP (low open rate)? The product (high trial drop-off)? Change the variable that's failing and keep going. Only escalate to investor if ALL channels at zero AND messaging has been iterated 3+ times. |
+| Content tone miss | Fix the specific content, update `approved-voice.md` with the anti-example, keep going. Don't revert entire channel to human-approval. |
+| Ad spend approaching limit | Flag in human-tasks when 80% of approved budget is spent. Hard stop at 100%. Request increase with ROAS data. |
+| Cold email deliverability drops below 70% | Pause sending, check domain reputation, reduce volume to 20/day for a week, warm up again. |
 
 ---
 
@@ -248,92 +251,123 @@ type: growth-report
 | Hook Event | Script | Purpose |
 |-----------|--------|---------|
 | `PostToolUse` (Write) | `validate-growth-brief.sh` | Ensure growth briefs have Objective + Target Customer sections |
-| `PostToolUse` (Write) | `check-brand-safety.sh` | Block writes to external-facing content files unless channel is in approved list in `approved-voice.md`, or content is flagged for human review |
-| `PostToolUse` (Write) | `check-linkedin-limits.sh` | Parse `docs/growth/channels/linkedin.md` counters; block LinkedIn MCP calls if daily/weekly limits exceeded |
-| `PostToolUse` (Write) | `check-ad-budget.sh` | Verify ad actions don't exceed approved budget from growth brief |
-| `PostToolUse` (Write) | `auto-commit-growth.sh` | Auto-commit growth content and metrics updates (same pattern as existing `auto-commit.sh`) |
+| `PostToolUse` (Write) | `check-linkedin-limits.sh` | Parse `docs/growth/channels/linkedin.md` counters; block if daily/weekly limits exceeded |
+| `PostToolUse` (Write) | `check-ad-budget.sh` | Hard stop at 100% of approved budget |
+| `PostToolUse` (Write) | `auto-commit-growth.sh` | Auto-commit growth content and metrics updates |
 
 ---
 
-## 5. 90-Day Sales Playbook
+## 5. Sales Playbook
 
-The growth agent follows a phased playbook. Business founder sets the phase based on metrics in `docs/growth/metrics/`.
+Metrics that matter: **paying customers and MRR**, not signups. Signups without conversion is vanity.
 
-### Phase 1: Launch (Days 1-14)
+The growth agent follows a phased playbook. Phases overlap — don't wait for one to finish before starting the next. Business founder advances phases based on metrics.
 
-**Goal**: First 10-20 signups through visibility burst
+### Phase 0: Pre-Launch (before go-live, optional but recommended)
 
-| Action | Executor |
-|--------|----------|
-| Submit to SaaS directories (Product Hunt, AlternativeTo, etc.) | Growth agent via Chrome |
-| Write and publish launch blog post | Growth agent → investor approves |
-| Post in relevant Estonian communities/forums | Growth agent → investor approves first post |
-| Research and list 50 high-fit prospects via LinkedIn MCP | Growth agent |
-| Set up basic analytics tracking via Chrome | Growth agent |
-| Register accounts on platforms | **Human task** |
-| Post on Product Hunt (needs founder identity) | **Human task** |
-
-### Phase 2: Outbound + Content Engine (Days 15-45)
-
-**Goal**: 50 signups, establish repeatable acquisition
-
-| Action | Executor |
-|--------|----------|
-| Draft personalized outreach messages for top prospects | Growth agent → investor reviews first batch |
-| Write 2 SEO articles per week (bottom-of-funnel) | Growth agent |
-| Monitor competitor content via LinkedIn MCP + WebSearch | Growth agent |
-| Engage in community threads where ICP asks relevant questions | Growth agent (approved tone) |
-| Track conversions, update docs/growth/metrics/ | Growth agent |
-| Build ICP-specific landing pages | Tech founder (via build track) |
-| Send LinkedIn connection requests from investor's account | **Human task** |
-| Approve ad budget | **Human task** |
-
-### Phase 3: Optimize + Scale (Days 46-90)
-
-**Goal**: 100+ signups, identify primary growth channel, prove unit economics
-
-| Action | Executor |
-|--------|----------|
-| Manage ad campaigns via Chrome (Google Ads, Meta) | Growth agent |
-| A/B test landing page copy | Growth agent + tech founder |
-| Write first customer case study | Growth agent (interviews via human) |
-| Set up referral mechanics | Tech founder (via build track) |
-| Weekly metrics report | Growth agent |
-| Kill channels with no traction after 45 days | Business founder decision |
-| Double budget on proven channels | Business founder decision |
-| Collect customer testimonials | **Human task** |
-| Negotiate partnership deals | **Human task** |
-
-Phase transitions are driven by metrics, not calendar. If Phase 1 exceeds targets, advance early.
-
-### Phase 0: Pre-Launch (Optional, before go-live)
-
-If the investor wants to build audience before the product is live, `/growth` can be invoked with the `--pre-launch` flag, which skips the solution signoff check. Limited to:
+Start building pipeline while the product is still being built. `/growth --pre-launch` skips the solution signoff check.
 
 | Action | Executor |
 |--------|----------|
 | Build email waitlist landing page | Tech founder (via build track) |
-| Write "building in public" content | Growth agent → investor approves |
-| Research and join relevant communities | Growth agent |
+| Research ICP, build prospect list of 200+ via LinkedIn MCP + WebSearch | Growth agent |
+| Join and start contributing to communities where ICP hangs out (Reddit, Slack, forums) | Growth agent |
+| Start "building in public" content on social channels | Growth agent |
+| Set up a cold email domain (separate from primary) and start warming it | **Human task** (domain purchase + email account setup) |
 | Create `docs/growth/strategy.md` and `docs/growth/product-brief.md` | Business founder |
 
-No outreach, no ads, no directory submissions in pre-launch — just audience building and preparation.
+The goal is to have a warm prospect list and community presence by launch day.
+
+### Phase 1: Launch Blitz (Days 1-7)
+
+**Goal**: First 5 paying customers within 7 days.
+
+| Action | Executor |
+|--------|----------|
+| Submit to 10+ SaaS directories (Product Hunt, AlternativeTo, SaaSHub, etc.) via Chrome | Growth agent |
+| Launch blog post + social media announcement | Growth agent |
+| **Cold outreach blitz**: 30-50 LinkedIn messages/day + 50-100 cold emails/day to pre-built prospect list | Growth agent |
+| Monitor competitor reviews (G2, Trustpilot, Reddit) — DM unhappy users of competitors: "saw your review, we built X to solve exactly that" | Growth agent |
+| Post in communities where ICP lives (with genuine value, not pure pitch) | Growth agent |
+| Offer "done for you" onboarding to first 10 customers — tech founder personally sets up their account | Tech founder (via build track) |
+| Post on Product Hunt (needs founder identity) | **Human task** |
+| Register accounts on platforms | **Human task** |
+
+### Phase 2: Find What Works (Days 8-30)
+
+**Goal**: 20 paying customers, identify which 1-2 channels have the best conversion rate.
+
+| Action | Executor |
+|--------|----------|
+| Continue cold outreach — refine messaging based on Phase 1 reply/conversion data | Growth agent |
+| Write 2-3 bottom-of-funnel SEO articles ("alternative to [competitor]", "[pain point] solution for [ICP]") | Growth agent |
+| Set up competitor monitoring alerts — poach every publicly unhappy competitor customer | Growth agent |
+| Start affiliate/referral outreach — find micro-influencers (1K-50K audience) in niche, offer 30-50% recurring commission | Growth agent |
+| Track per-channel metrics: outreach → reply → trial → paid conversion rates | Growth agent |
+| Build ICP-specific landing pages for top-performing channels | Tech founder (via build track) |
+| Approve ad budget for first small experiment ($300-500) | **Human task** |
+
+### Phase 3: Double Down (Days 31-60)
+
+**Goal**: 50+ paying customers, $3K+ MRR, prove unit economics (LTV:CAC > 3:1).
+
+| Action | Executor |
+|--------|----------|
+| Kill channels with no conversions. Double effort on the 1-2 channels that work. | Business founder decision, growth agent executes |
+| Scale paid ads on winning channel via Chrome (Google Ads, Meta, LinkedIn Ads) | Growth agent |
+| Write first customer case study | Growth agent (investor facilitates customer interview) |
+| Set up referral/viral mechanics in product | Tech founder (via build track) |
+| A/B test landing page copy and pricing | Growth agent + tech founder |
+| Weekly metrics report to `docs/growth/metrics/weekly/` | Growth agent |
+| Collect customer testimonials | **Human task** |
+
+### Phase 4: Scale (Days 61-90+)
+
+**Goal**: $10K+ MRR, repeatable acquisition engine.
+
+| Action | Executor |
+|--------|----------|
+| Increase ad spend on proven channels | Business founder decision |
+| Expand to adjacent ICP segments | Business founder strategy → growth agent executes |
+| Content marketing at scale (4+ articles/week, SEO compounding) | Growth agent |
+| Partnership and integration outreach | Growth agent drafts → investor closes |
+| Document the sales playbook for eventual human hire | Growth agent |
+| Negotiate partnership deals | **Human task** |
+
+### Cold Email Setup (Critical Channel)
+
+Cold email is the #1 channel cited by B2B SaaS founders for reaching $10K MRR. Setup:
+
+1. **Human task**: Buy a separate domain for cold email (never use primary domain). Example: if product is `acme.com`, buy `tryacme.com` or `acme-app.com`. Cost: ~$10.
+2. **Human task**: Set up 3-5 email accounts on the cold domain with a provider like Google Workspace.
+3. **Growth agent**: Configure warm-up via a service (Instantly, Smartlead). 2-3 weeks warm-up before sending.
+4. **Growth agent**: Write 5 personalized email templates (short, under 150 words, single CTA). Rotate every 30-40 sends.
+5. **Growth agent**: Send 50-100 emails/day per domain. Track deliverability, reply rates, conversions in `docs/growth/channels/cold-email.md`.
+6. **Target metrics**: 3-5% reply rate, 15-30% reply-to-meeting, first paying customer from cold email within 2-3 weeks.
+
+### Competitor Customer Poaching (High-Conversion Tactic)
+
+Research shows 10-20% conversion when reaching out to publicly unhappy competitor customers.
+
+1. Growth agent monitors: G2 reviews (1-3 stars), Trustpilot complaints, Reddit threads, Twitter complaints about competitors via WebSearch
+2. Growth agent drafts personalized outreach: "Saw your review of [competitor] mentioning [specific complaint]. We built [product] specifically to solve that. Want to try it?"
+3. Sent via cold email or LinkedIn depending on where the review was posted
+4. Tracked in `docs/growth/channels/competitor-poaching.md`
 
 ### Beyond 90 Days
 
-After Phase 3, the business founder reviews growth metrics and decides:
-
-- **Continue scaling**: Add budget to winning channels, expand to new markets. Growth agent continues with Phase 3 tactics on a rolling basis.
-- **Hire human sales**: Growth agent's documented playbook (`docs/growth/`) serves as the onboarding manual. Growth agent shifts to supporting the human (research, content drafting, analytics) rather than executing directly.
-- **Pivot**: If no channel achieved sustainable unit economics (LTV:CAC > 3:1), escalate to investor for strategic review. Possible outcomes: change ICP, change pricing, change product, or pause growth.
+Business founder reviews metrics and decides:
+- **Continue scaling**: Growth agent continues, expand to new markets and segments
+- **Hire human sales**: `docs/growth/` IS the onboarding manual. Growth agent shifts to supporting (research, content, analytics)
+- **Pivot**: If no channel achieved LTV:CAC > 3:1 after honest effort, strategic review: change ICP, pricing, or product
 
 ### Token Cost Awareness
 
-Each growth agent spawn should complete its task within ~30K tokens of agent context. Guidelines:
-- One channel focus per spawn (don't try to execute across all channels in one dispatch)
-- Content creation: 1-2 articles or 5-10 outreach drafts per spawn
-- Research: max 20 prospect profiles per spawn
-- Analytics: read dashboards and write one metrics update per spawn
+Browser-heavy work eats tokens. Be flexible:
+- Content creation / outreach: ~30K tokens per spawn
+- Chrome-heavy work (ad dashboards, analytics): ~50K tokens per spawn
+- Research sprint: ~20K tokens per spawn
+- Focus each spawn on one channel or one objective — don't try to do everything at once
 
 ---
 
@@ -372,10 +406,19 @@ If `docs/growth/` does not exist, `/growth` runs an initialization sequence:
 2. Spawns business founder to write:
    - `docs/growth/product-brief.md` — translates Estonian research + architecture into English sales-ready product description (what it does, who it's for, why it's better, pricing)
    - `docs/growth/strategy.md` — overall growth plan: ICP definition, prioritized channels, phase 1 goals, success metrics
-3. Creates empty `docs/growth/brand/approved-voice.md` with a human-task requesting investor to provide brand guidelines (tone, personality, things to avoid)
-4. Updates `.gitignore` if needed
+   - `docs/growth/brand/approved-voice.md` — brand voice guide with tone, personality, example messages, anti-examples. Business founder drafts based on market research; investor reviews once.
+3. Growth agent drafts:
+   - 3-5 LinkedIn connection request templates
+   - 5 cold email templates (short, under 150 words each)
+   - 3 community engagement response templates
+   - Saved to `docs/growth/content/outreach-templates/`
+4. Human tasks created:
+   - Buy cold email domain (separate from primary)
+   - Set up 3-5 email accounts on cold domain
+   - Register accounts on target platforms (Product Hunt, directories, etc.)
+5. Updates `.gitignore` if needed
 
-The growth loop does not start until initialization is complete and investor has approved the product brief and strategy.
+Investor reviews product brief + strategy + templates. Growth loop starts as soon as investor approves — don't wait for cold email domain to be fully warmed up (that happens in parallel).
 
 ### Behavior (subsequent invocations)
 
