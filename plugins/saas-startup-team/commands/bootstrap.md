@@ -29,12 +29,13 @@ docs/
 ├── handoffs/
 ├── reviews/
 ├── signoffs/
-└── go-live/
+├── go-live/
+└── improvements/
 ```
 
 ```bash
 mkdir -p docs/{research,legal,architecture,ux,seo,business,growth/{channels,leads,metrics/weekly,brand,content/blog,content/outreach-templates}}
-mkdir -p .startup/{handoffs,reviews,signoffs,go-live}
+mkdir -p .startup/{handoffs,reviews,signoffs,go-live,improvements}
 ```
 
 ## Step 2: Create .gitkeep
@@ -58,6 +59,7 @@ Append the following to `.gitignore` if not already present. Check each line ind
 .startup/reviews/
 .startup/signoffs/
 .startup/go-live/
+.startup/improvements/
 .startup/human-tasks.md
 .startup/test-data/
 .startup/.idle-*
@@ -119,6 +121,11 @@ If CLAUDE.md does not already contain a `## Workflow Guidance` section, add it:
 - Product is live and ready for customers — need to acquire paying users
 - Want to run outreach, content marketing, ad campaigns, community engagement
 - Pre-launch audience building (`/growth --pre-launch`)
+
+### Use `/improve` (one-shot fixes) when:
+- Product is complete (solution signoff exists) but needs minor tweaks
+- Bug fixes, styling changes, copy updates on a shipped product
+- Changes that don't need market research or new feature design
 
 ### Either way:
 - Save research findings to `docs/` (not ad-hoc locations)
