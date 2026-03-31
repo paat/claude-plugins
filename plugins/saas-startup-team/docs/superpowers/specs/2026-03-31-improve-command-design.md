@@ -21,7 +21,7 @@ A new `/improve` command that runs **one full build cycle** (business founder br
 Every improvement goes through the full cycle: business founder → tech founder → business founder QA. No "direct to tech" shortcut. Reasons:
 
 1. **Tech founder has no browser.** Cannot verify visual changes. Even "simple" CSS fixes can break responsive layouts or cause text overflow with Estonian characters (ö, ü, õ are wider).
-2. **Business founder enriches instructions.** She accumulated product context during the build loop — market research, competitor UX patterns, Estonian nuances, accessibility considerations. "Fix the padding" becomes "fix the padding, also the mobile breakpoint at 375px overflows with Estonian text."
+2. **Business founder enriches instructions.** She reads the product context captured during the build loop (`docs/research/`, `docs/business/brief.md`) — market research, competitor UX patterns, Estonian nuances, accessibility considerations. "Fix the padding" becomes "fix the padding, also the mobile breakpoint at 375px overflows with Estonian text."
 3. **Deterministic routing.** No fragile judgment call on whether something "needs research." Always the same flow.
 4. **QA catches regressions.** Playwright-based browser verification on every change, same as the build loop.
 
@@ -72,12 +72,9 @@ user_invocable: true
 ### Pre-Flight
 
 1. Verify `.startup/` exists — if not: "Run `/startup` first to build the product."
-2. Verify `docs/architecture/architecture.md` exists — tech founder needs stack/URL context.
-3. Load orchestration skill: `Skill('saas-startup-team:startup-orchestration')`
-
-Verify solution signoff exists (`.startup/go-live/solution-signoff.md`) — if not: "The build loop hasn't completed yet. Use `/startup` to resume or `/nudge` to redirect. `/improve` is for post-completion tweaks."
-
-This keeps `/improve` scoped to its purpose and avoids Stop hook conflicts (the hook blocks exit at iteration 2+ without signoff).
+2. Verify solution signoff exists (`.startup/go-live/solution-signoff.md`) — if not: "The build loop hasn't completed yet. Use `/startup` to resume or `/nudge` to redirect. `/improve` is for post-completion tweaks." This keeps `/improve` scoped to its purpose and avoids Stop hook conflicts (the hook blocks exit at iteration 2+ without signoff).
+3. Verify `docs/architecture/architecture.md` exists — tech founder needs stack/URL context.
+4. Create improvements directory: `mkdir -p .startup/improvements` (cannot rely on bootstrap for existing projects).
 
 ### Capture Instructions
 
@@ -125,7 +122,7 @@ Kill stale agents, then spawn tech founder via Task tool:
 > - What was changed and why
 > - How to verify (localhost URL, specific page/action)
 >
-> Set 10s timeouts on all HTTP calls. Start/restart the dev server if needed.
+> Set 10s timeouts on all HTTP calls. Start the dev server using the command in `docs/architecture/architecture.md` before implementing — it is not running from a previous session.
 >
 > After completing, message the team lead: "Implementation 001 complete."
 
@@ -176,12 +173,17 @@ Same language rules as the build loop:
 - No growth track interaction
 - No human tasks generation
 
+## Implementation Notes
+
+- **Auto-commit hook:** Verify during implementation whether `auto-commit.sh` pattern-matches on `.startup/handoffs/` specifically or any `.startup/` write. If it only matches handoffs, the tech founder's code changes during `/improve` won't be auto-committed — may need to extend the hook or add manual commit to the dispatch.
+- **No template file needed.** The improvement brief format is 4 bullet points, specified inline in the dispatch message. Unlike build loop handoffs (complex frontmatter, multiple sections), improvements are intentionally simple.
+- **No orchestration skill loading.** The command is self-contained. Loading `startup-orchestration` would add irrelevant build-loop context (iterations, state transitions, dual-track) to the team lead's window.
+
 ## Files to Create/Modify
 
 | File | Action |
 |------|--------|
 | `commands/improve.md` | Create — the command definition |
-| `templates/improvement-brief.md` | Create — lightweight brief template |
 | `commands/bootstrap.md` | Modify — add `mkdir -p .startup/improvements` |
 | `.claude-plugin/plugin.json` | Modify — bump version |
 | `../../.claude-plugin/marketplace.json` | Modify — bump version, update description |
