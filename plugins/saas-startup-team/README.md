@@ -35,6 +35,7 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:nudge` | Unstick a deadlock or redirect a founder |
 | `/saas-startup-team:lawyer` | Spawn lawyer agent for legal/compliance review |
 | `/saas-startup-team:ux-test` | Spawn UX tester for accessibility and usability audit |
+| `/saas-startup-team:improve` | One-shot improvements on a completed product |
 
 ## The Loop
 
