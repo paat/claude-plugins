@@ -59,6 +59,10 @@ elif echo "$rel_path" | grep -qE '^\.startup/handoffs/[0-9]{3}-[a-z]+-to-[a-z]+\
 elif echo "$rel_path" | grep -qE '^\.startup/improvements/[0-9]{3}-implementation\.md$'; then
   imp_num=$(echo "$filename" | grep -oE '^[0-9]{3}')
   commit_msg="improve: implementation ${imp_num}"
+elif echo "$rel_path" | grep -qE '^\.startup/signoffs/.*\.md$'; then
+  commit_msg="signoff: ${filename%.md}"
+elif echo "$rel_path" | grep -qE '^\.startup/reviews/.*\.md$'; then
+  commit_msg="review: ${filename%.md}"
 else
   # Not a milestone file — skip
   exit 0
@@ -70,6 +74,8 @@ git add -A docs/ || true
 git add -A backend/ || true
 git add -A frontend/ || true
 git add -A CLAUDE.md || true
+git add -A .startup/signoffs/ || true
+git add -A .startup/reviews/ || true
 
 # Check if there's anything to commit
 if git diff --cached --quiet 2>/dev/null; then
