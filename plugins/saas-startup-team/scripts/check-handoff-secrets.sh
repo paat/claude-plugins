@@ -27,7 +27,7 @@ fi
 # Hardcoded env var assignments with actual values (KEY=value, not KEY=\$VAR or KEY=<placeholder>)
 # Match: ADMIN_API_KEY=test123, SECRET_KEY=abc123, etc.
 # Skip: KEY=${VAR}, KEY=<your-key>, KEY="", KEY=your_key_here, KEY=changeme
-if echo "$content" | grep -qE '(API_KEY|SECRET_KEY|PASSWORD|ACCESS_KEY)=[^$<"{][a-zA-Z0-9_-]{4,}' | grep -qvE '(changeme|your_|example|placeholder|xxx)' 2>/dev/null; then
+if echo "$content" | grep -E '(API_KEY|SECRET_KEY|PASSWORD|ACCESS_KEY)=[^$<"{][a-zA-Z0-9_-]{4,}' | grep -qvE '(changeme|your_|example|placeholder|xxx)' 2>/dev/null; then
   violations="${violations}Hardcoded credential assignment detected. "
 fi
 
@@ -37,7 +37,7 @@ if echo "$content" | grep -qE 'Authorization:\s*(Bearer|Basic)\s+[a-zA-Z0-9+/=_-
 fi
 
 # Curl commands with actual API key values in headers (not env var references like $API_KEY)
-if echo "$content" | grep -qE 'X-API-Key:\s*[a-zA-Z0-9_-]{8,}' | grep -qvE '\$' 2>/dev/null; then
+if echo "$content" | grep -E 'X-API-Key:\s*[a-zA-Z0-9_-]{8,}' | grep -qvE '\$' 2>/dev/null; then
   violations="${violations}Hardcoded API key in curl command. "
 fi
 
