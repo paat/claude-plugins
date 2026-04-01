@@ -1,0 +1,70 @@
+#!/bin/bash
+# pre-push hook: verify plugin versions are bumped when plugin files change
+# Also checks that plugin.json and marketplace.json versions stay in sync
+
+set -euo pipefail
+
+remote="$1"
+url="$2"
+
+MARKETPLACE="$(git rev-parse --show-toplevel)/.claude-plugin/marketplace.json"
+
+while read local_ref local_oid remote_ref remote_oid; do
+  # Skip branch deletions
+  if [ "$local_oid" = "0000000000000000000000000000000000000000" ]; then
+    continue
+  fi
+
+  # Determine diff range
+  if [ "$remote_oid" = "0000000000000000000000000000000000000000" ]; then
+    # New branch — diff against main
+    range="origin/main...$local_oid"
+  else
+    range="$remote_oid..$local_oid"
+  fi
+
+  # Get changed files in this push
+  changed_files=$(git diff --name-only "$range" 2>/dev/null) || continue
+
+  # Find which plugins have changes (excluding plugin.json and marketplace.json themselves)
+  changed_plugins=()
+  for plugin_dir in plugins/*/; do
+    plugin_name=$(basename "$plugin_dir")
+    # Check if any non-metadata file changed for this plugin
+    if echo "$changed_files" | grep -q "^plugins/${plugin_name}/" ; then
+      changed_plugins+=("$plugin_name")
+    fi
+  done
+
+  # For each changed plugin, verify version was bumped
+  for plugin_name in "${changed_plugins[@]}"; do
+    plugin_json="plugins/${plugin_name}/.claude-plugin/plugin.json"
+
+    # Check if plugin.json exists
+    if [ ! -f "$plugin_json" ]; then
+      continue
+    fi
+
+    # Check if plugin.json version changed in this push
+    if ! echo "$changed_files" | grep -q "^${plugin_json}$"; then
+      echo "ERROR: Plugin '${plugin_name}' has changes but version was not bumped."
+      echo "  Update: ${plugin_json}"
+      echo "  Update: .claude-plugin/marketplace.json"
+      exit 1
+    fi
+
+    # Verify plugin.json and marketplace.json versions match
+    plugin_version=$(jq -r '.version' "$plugin_json" 2>/dev/null)
+    marketplace_version=$(jq -r ".plugins[] | select(.name==\"${plugin_name}\") | .version" "$MARKETPLACE" 2>/dev/null)
+
+    if [ "$plugin_version" != "$marketplace_version" ]; then
+      echo "ERROR: Version mismatch for '${plugin_name}':"
+      echo "  plugin.json:      ${plugin_version}"
+      echo "  marketplace.json: ${marketplace_version}"
+      echo "  Both must match."
+      exit 1
+    fi
+  done
+done
+
+exit 0
