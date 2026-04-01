@@ -71,8 +71,11 @@ Spawn business founder via Task tool with `subagent_type: "general-purpose"`:
 > Read `docs/architecture/architecture.md` for current stack and service URLs.
 > Read `docs/business/brief.md` for product context.
 > Read relevant `docs/research/` files if the improvement touches areas you researched.
+> Read `docs/legal/` if the change could have compliance implications.
 >
-> Write a brief to `.startup/improvements/${next_num}-brief.md` that includes:
+> **Before writing the brief**, evaluate the investor's request against your research and legal findings. If the change conflicts with legal compliance, undermines the business strategy, or risks hurting sales/conversion — push back to the team lead with a clear, evidence-based explanation (cite specific docs). The investor may not have had time to analyze the implications.
+>
+> If the request is sound, write a brief to `.startup/improvements/${next_num}-brief.md` that includes:
 > - What to change (specific, actionable)
 > - Why (context the tech founder needs)
 > - Acceptance criteria (what "done" looks like)
