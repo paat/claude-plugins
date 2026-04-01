@@ -1,14 +1,18 @@
 ---
 name: improve
-description: One-shot improvements on a completed product — routes through business founder for context enrichment and browser QA. Usage: /improve [description of changes]
+description: One-shot improvements on a completed product — runs in an isolated git worktree and opens a PR when done. Routes through business founder for context enrichment and browser QA. Usage: /improve [description of changes]
 user_invocable: true
 ---
 
 # /improve — One-Shot Product Improvements
 
-You are the **Team Lead** (orchestrator) executing a single improvement cycle. The investor described changes they want. You dispatch business founder → tech founder → business founder QA. No loop, no signoff — just fix and done.
+You are the **Team Lead** (orchestrator) executing a single improvement cycle. The investor described changes they want. You create an isolated git worktree, dispatch business founder → tech founder → business founder QA, then open a PR.
+
+Each `/improve` runs in its own worktree, so the investor can launch multiple improvements in parallel.
 
 ## Pre-Flight
+
+Run these checks in the **current directory** (before entering the worktree):
 
 1. Verify `.startup/` exists — if not:
    > Run `/startup` first to build the product.
@@ -27,16 +31,6 @@ You are the **Team Lead** (orchestrator) executing a single improvement cycle. T
    If not found:
    > No architecture doc found. The tech founder needs `docs/architecture/architecture.md` to know the stack and service URLs.
 
-4. Create improvements directory:
-   ```bash
-   mkdir -p .startup/improvements
-   ```
-
-5. Determine next improvement number:
-   ```bash
-   next_num=$(printf "%03d" $(( $(ls .startup/improvements/*-brief.md 2>/dev/null | wc -l) + 1 )))
-   ```
-
 ## Capture Instructions
 
 If the user provided arguments with the command, use them as the improvement description.
@@ -52,13 +46,27 @@ Before dispatching, assess the request. If it contains 3+ distinct features or r
 
 This is advisory — proceed if the investor confirms.
 
-## Step 1: Dispatch Business Founder (Brief)
+## Enter Worktree
 
-Kill stale agents first:
+Slugify the improvement description into a branch-friendly name (lowercase, hyphens, max 40 chars). Examples:
+- "Fix header alignment on mobile" → `fix-header-alignment-mobile`
+- "Add dark mode toggle" → `add-dark-mode-toggle`
+
+Call **EnterWorktree** with name `improve/{slug}`.
+
+> This creates an isolated copy of the repo on a new branch. All agent work from this point happens in the worktree — the main branch stays clean.
+
+After entering the worktree, initialize the improvements directory (gitignored, so absent from fresh worktree):
 ```bash
-pkill -f 'agent-type saas-startup-team' 2>/dev/null || true
-sleep 1
+mkdir -p .startup/improvements
 ```
+
+The improvement number is always `001` (each worktree starts fresh):
+```bash
+next_num="001"
+```
+
+## Step 1: Dispatch Business Founder (Brief)
 
 Spawn business founder via Task tool with `subagent_type: "general-purpose"`:
 
@@ -87,12 +95,6 @@ Spawn business founder via Task tool with `subagent_type: "general-purpose"`:
 
 ## Step 2: Dispatch Tech Founder (Implementation)
 
-Kill stale agents first:
-```bash
-pkill -f 'agent-type saas-startup-team' 2>/dev/null || true
-sleep 1
-```
-
 Spawn tech founder via Task tool with `subagent_type: "general-purpose"`:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder.md` for your identity and tools.
@@ -116,12 +118,6 @@ Spawn tech founder via Task tool with `subagent_type: "general-purpose"`:
 ## Step 3: Dispatch Business Founder (QA)
 
 Read `.startup/improvements/${next_num}-implementation.md` to extract the localhost URL and verification instructions.
-
-Kill stale agents first:
-```bash
-pkill -f 'agent-type saas-startup-team' 2>/dev/null || true
-sleep 1
-```
 
 Spawn business founder via Task tool with `subagent_type: "general-purpose"`:
 
@@ -149,13 +145,13 @@ Spawn business founder via Task tool with `subagent_type: "general-purpose"`:
 
 Read `.startup/improvements/${next_num}-qa.md`.
 
-**If PASS:** Report to investor. Done — free to exit or run another `/improve`.
+**If PASS:** Proceed to **Open Pull Request**.
 
 **If FAIL (first attempt):**
 
-Increment: `fix_num=$(printf "%03d" $(( ${next_num#0} + 1 )))`
+Set `fix_num="002"`.
 
-Kill stale agents, then dispatch tech founder with QA findings:
+Dispatch tech founder:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder.md` for your identity and tools.
 >
@@ -171,7 +167,74 @@ Kill stale agents, then dispatch tech founder with QA findings:
 
 Then dispatch business founder for re-QA with the same pattern as Step 3, using `${fix_num}`.
 
-**If FAIL (second attempt):** Report both QA results to investor. Let them decide: try again, adjust instructions, or accept as-is.
+**If FAIL (second attempt):** Proceed to **Open Pull Request** anyway — mark as draft so the investor can review and decide.
+
+## Open Pull Request
+
+After the improvement cycle completes (QA passed or max retries reached):
+
+1. **Stage and commit any remaining changes** (auto-commit hook handles most, but catch stragglers):
+   ```bash
+   git add -A docs/ backend/ frontend/ CLAUDE.md
+   git diff --cached --quiet || git commit -m "improve: ${slug}" --no-verify
+   ```
+
+2. **Push the branch:**
+   ```bash
+   git push -u origin HEAD
+   ```
+
+3. **Create the PR:**
+
+   Read the QA result to determine if it passed. Build the PR:
+
+   If QA passed:
+   ```bash
+   gh pr create \
+     --title "improve: [short description]" \
+     --body "$(cat <<'EOF'
+   ## What
+
+   [investor's improvement description]
+
+   ## Changes
+
+   [summary from implementation file — files modified, what changed]
+
+   ## QA: PASS
+
+   [key observations from QA file]
+   EOF
+   )"
+   ```
+
+   If QA failed after retries — add `--draft`:
+   ```bash
+   gh pr create --draft \
+     --title "improve: [short description]" \
+     --body "$(cat <<'EOF'
+   ## What
+
+   [investor's improvement description]
+
+   ## Changes
+
+   [summary from implementation file]
+
+   ## QA: NEEDS REVIEW
+
+   [issues from QA file — what failed and why]
+   EOF
+   )"
+   ```
+
+4. **Report to investor** with the PR URL and QA status.
+
+5. **Exit worktree:**
+
+   Call **ExitWorktree** with action `keep`.
+
+   > The worktree and branch are preserved until the PR is merged or closed.
 
 ## Communication
 
