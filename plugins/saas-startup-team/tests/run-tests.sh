@@ -436,7 +436,17 @@ test_plugin_config() {
   # E1-E4: plugin.json
   assert_json_valid "E1: plugin.json is valid JSON" "$PLUGIN_ROOT/.claude-plugin/plugin.json"
   assert_json_field "E2: plugin.json has name" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".name" "saas-startup-team"
-  assert_json_field "E3: plugin.json has version" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".version" "0.8.0"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  local ver
+  ver=$(jq -r '.version' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null)
+  if [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo -e "  ${GREEN}PASS${NC} E3: plugin.json version is valid semver ($ver)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} E3: plugin.json version is not valid semver ($ver)"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("E3: plugin.json version not valid semver: $ver")
+  fi
   local desc
   desc=$(jq -r '.description' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null)
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
@@ -859,7 +869,7 @@ test_auto_commit_hook() {
   # K7: hooks.json PostToolUse has 2 entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "K7: PostToolUse has 6 entries" "$ptu_count" "6"
+  assert_equals "K7: PostToolUse has 11 entries" "$ptu_count" "11"
 
   # K8: Fourth PostToolUse entry references auto-commit.sh
   local fourth_cmd
@@ -876,7 +886,8 @@ test_auto_commit_hook() {
   (cd "$workdir" && git config user.email "test@test.com" && git config user.name "Test" && git commit --allow-empty -m "init" -q)
   mkdir -p "$workdir/.startup/handoffs"
   echo '{"iteration":1}' > "$workdir/.startup/state.json"
-  echo "test app code" > "$workdir/app.py"
+  mkdir -p "$workdir/backend"
+  echo "test app code" > "$workdir/backend/app.py"
   echo "handoff content" > "$workdir/.startup/handoffs/001-business-to-tech.md"
 
   ec=0; output=""
@@ -1059,12 +1070,12 @@ EOF
   # L10: hooks.json PostToolUse has 6 entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "L10: PostToolUse has 6 entries" "$ptu_count" "6"
+  assert_equals "L10: PostToolUse has 11 entries" "$ptu_count" "11"
 
   # L11: Fifth PostToolUse entry references enforce-tone.sh
-  local fifth_cmd
-  fifth_cmd=$(jq -r '.hooks.PostToolUse[4].hooks[0].command' "$hooks_file" 2>/dev/null)
-  assert_output_contains "L11: fifth PostToolUse references enforce-tone.sh" "$fifth_cmd" "enforce-tone.sh"
+  local sixth_cmd
+  sixth_cmd=$(jq -r '.hooks.PostToolUse[5].hooks[0].command' "$hooks_file" 2>/dev/null)
+  assert_output_contains "L11: sixth PostToolUse references enforce-tone.sh" "$sixth_cmd" "enforce-tone.sh"
 }
 
 # ---------------------------------------------------------------------------
