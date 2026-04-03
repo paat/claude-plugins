@@ -6,7 +6,7 @@ user_invocable: true
 
 # /improve — One-Shot Product Improvements
 
-You are the **Team Lead** (orchestrator) executing a single improvement cycle. The investor described changes they want. You create a feature branch, dispatch business founder → tech founder → business founder QA, then open a PR and return to main.
+Execute a single improvement cycle: create a feature branch, dispatch business founder → tech founder → business founder QA, open a PR, return to main.
 
 ## Pre-Flight
 
@@ -55,7 +55,6 @@ Slugify the improvement description into a branch-friendly name (lowercase, hyph
 - "Fix header alignment on mobile" → `fix-header-alignment-mobile`
 - "Add dark mode toggle" → `add-dark-mode-toggle`
 
-Create and switch to the feature branch:
 ```bash
 if git rev-parse --verify "improve/${slug}" >/dev/null 2>&1; then
   echo "Branch improve/${slug} already exists."
@@ -65,23 +64,11 @@ git checkout -b "improve/${slug}"
 
 If the branch already exists, tell the investor and ask them to either pick a different description or confirm deletion of the old branch (`git branch -D improve/${slug}`).
 
-Initialize the improvements directory:
-```bash
-mkdir -p .startup/improvements
-```
+## Step 1: Business Founder — Brief
 
-The improvement number is always `001`:
-```bash
-next_num="001"
-```
-
-## Step 1: Dispatch Business Founder (Brief)
-
-Spawn business founder via Task tool with `subagent_type: "general-purpose"`:
+Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder.md` for your identity and tools.
->
-> **Context: You are on branch `improve/${slug}` doing a one-shot improvement — NOT the build loop. Do NOT modify `.startup/state.json`. Do NOT use the handoff protocol. Do NOT perform git operations.**
 >
 > **Improvement task: Write a brief for the tech founder.**
 >
@@ -92,129 +79,68 @@ Spawn business founder via Task tool with `subagent_type: "general-purpose"`:
 > Read relevant `docs/research/` files if the improvement touches areas you researched.
 > Read `docs/legal/` if the change could have compliance implications.
 >
-> **Before writing the brief**, evaluate the investor's request against your research and legal findings. If the change conflicts with legal compliance, undermines the business strategy, or risks hurting sales/conversion — push back to the team lead with a clear, evidence-based explanation (cite specific docs). The investor may not have had time to analyze the implications.
+> **Before writing the brief**, evaluate the investor's request against your research and legal findings. If the change conflicts with legal compliance, undermines the business strategy, or risks hurting sales/conversion — push back with a clear, evidence-based explanation (cite specific docs). The investor may not have had time to analyze the implications.
 >
-> If the request is sound, write a brief to `.startup/improvements/${next_num}-brief.md` that includes:
-> - What to change (specific, actionable)
-> - Why (context the tech founder needs)
-> - Acceptance criteria (what "done" looks like)
-> - Any related concerns (responsive behavior, i18n, accessibility)
->
-> Do NOT use the full handoff template — keep it concise. This is a targeted improvement, not a feature.
->
-> After writing, message the team lead: "Improvement brief ${next_num} ready for tech founder."
+> If the request is sound, write a handoff to the tech founder following your standard handoff protocol. Keep it concise — this is a targeted improvement, not a full feature.
 
-## Step 2: Dispatch Tech Founder (Implementation)
+If the business founder pushes back, relay their concerns to the investor. Proceed only if the investor confirms.
 
-Spawn tech founder via Task tool with `subagent_type: "general-purpose"`:
+## Step 2: Tech Founder — Implementation
+
+Spawn tech founder via Agent tool with `subagent_type: "general-purpose"`:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder.md` for your identity and tools.
 >
-> **Context: You are on branch `improve/${slug}` doing a one-shot improvement — NOT the build loop. Do NOT modify `.startup/state.json`. Do NOT use the handoff protocol. Do NOT perform git operations.**
+> **Improvement task: Implement the latest handoff from the business founder.**
 >
-> **Improvement task: Implement changes from brief.**
->
-> Read `.startup/improvements/${next_num}-brief.md` for what to change.
 > Read `docs/architecture/architecture.md` for stack and service URLs.
+> Start the dev server using the command in the architecture doc — it is not running from a previous session.
 >
-> Start the dev server using the command in `docs/architecture/architecture.md` — it is not running from a previous session.
->
-> Implement the changes. Write a summary of what you changed to `.startup/improvements/${next_num}-implementation.md`:
-> - Files modified
-> - What was changed and why
-> - How to verify (localhost URL, specific page/action)
+> Implement the changes and write your handoff back to the business founder following your standard handoff protocol.
 >
 > Set 10s timeouts on all HTTP calls.
->
-> After completing, message the team lead: "Implementation ${next_num} complete."
 
-## Step 3: Dispatch Business Founder (QA)
+## Step 3: Business Founder — QA
 
-Read `.startup/improvements/${next_num}-implementation.md` to extract the localhost URL and verification instructions.
-
-Spawn business founder via Task tool with `subagent_type: "general-purpose"`:
+Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder.md` for your identity and tools.
 >
-> **Context: You are on branch `improve/${slug}` doing a one-shot improvement — NOT the build loop. Do NOT modify `.startup/state.json`. Do NOT use the handoff protocol. Do NOT perform git operations.**
+> **QA task: Verify the tech founder's latest implementation.**
 >
-> **QA task: Verify improvement implementation.**
+> Read the tech founder's latest handoff for what was changed and how to verify.
 >
-> Read `.startup/improvements/${next_num}-brief.md` for what was requested.
-> Read `.startup/improvements/${next_num}-implementation.md` for what was changed.
->
-> Open browser to `{localhost URL from implementation summary}` and verify:
-> - Does the change meet the acceptance criteria from the brief?
+> Open browser to the localhost URL from the handoff and verify:
+> - Does the change meet the acceptance criteria?
 > - Any visual regressions on the affected pages?
 > - Does it work on mobile viewport (375px)?
 >
-> Write your QA result to `.startup/improvements/${next_num}-qa.md`:
-> - PASS or FAIL
-> - What you verified
-> - Screenshots or observations
-> - If FAIL: specific issues found
->
-> After writing, message the team lead: "QA ${next_num} complete."
+> Write your review following your standard review process.
 
 ## Step 4: Handle QA Result
 
-Read `.startup/improvements/${next_num}-qa.md`.
+Read the business founder's review.
 
 **If PASS:** Proceed to **Open Pull Request**.
 
 **If FAIL (first attempt):**
 
-Set `fix_num="002"`.
-
-Dispatch tech founder:
+Dispatch tech founder to fix:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder.md` for your identity and tools.
 >
-> **Context: You are on branch `improve/${slug}` doing a one-shot improvement — NOT the build loop. Do NOT modify `.startup/state.json`. Do NOT use the handoff protocol. Do NOT perform git operations.**
+> **Fix task: Address the business founder's QA findings.**
 >
-> **Fix task: Address QA findings.**
+> Read the business founder's latest review for what failed.
+> Read the original handoff for the requirements.
 >
-> Read `.startup/improvements/${next_num}-qa.md` for what failed.
-> Read `.startup/improvements/${next_num}-brief.md` for original requirements.
-> Read `.startup/improvements/${next_num}-implementation.md` for what was done.
->
-> Fix the issues. Write updated summary to `.startup/improvements/${fix_num}-implementation.md`.
->
-> After completing, message the team lead: "Fix ${fix_num} complete."
+> Fix the issues and write an updated handoff back to the business founder.
 
-Then dispatch business founder for re-QA:
-
-> Read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder.md` for your identity and tools.
->
-> **Context: You are on branch `improve/${slug}` doing a one-shot improvement — NOT the build loop. Do NOT modify `.startup/state.json`. Do NOT use the handoff protocol. Do NOT perform git operations.**
->
-> **QA task: Verify fix for improvement.**
->
-> Read `.startup/improvements/${next_num}-brief.md` for what was requested.
-> Read `.startup/improvements/${fix_num}-implementation.md` for what was fixed.
->
-> Open browser to `{localhost URL from implementation summary}` and verify:
-> - Does the change meet the acceptance criteria from the brief?
-> - Any visual regressions on the affected pages?
-> - Does it work on mobile viewport (375px)?
->
-> Write your QA result to `.startup/improvements/${fix_num}-qa.md`:
-> - PASS or FAIL
-> - What you verified
-> - Screenshots or observations
-> - If FAIL: specific issues found
->
-> After writing, message the team lead: "QA ${fix_num} complete."
-
-Read `.startup/improvements/${fix_num}-qa.md`.
-
-**If PASS:** Proceed to **Open Pull Request**.
+Then dispatch business founder for re-QA following the same pattern as Step 3.
 
 **If FAIL (second attempt):** Proceed to **Open Pull Request** anyway — mark as draft so the investor can review and decide.
 
 ## Open Pull Request
-
-After the improvement cycle completes (QA passed or max retries reached):
 
 1. **Stage and commit any remaining changes** (auto-commit hook handles most, but catch stragglers):
    ```bash
@@ -230,8 +156,6 @@ After the improvement cycle completes (QA passed or max retries reached):
 
 3. **Create the PR:**
 
-   Read the QA result to determine if it passed. Build the PR:
-
    If QA passed:
    ```bash
    gh pr create \
@@ -243,11 +167,11 @@ After the improvement cycle completes (QA passed or max retries reached):
 
    ## Changes
 
-   [summary from implementation file — files modified, what changed]
+   [summary from tech founder's handoff — files modified, what changed]
 
    ## QA: PASS
 
-   [key observations from QA file]
+   [key observations from business founder's review]
    EOF
    )"
    ```
@@ -263,11 +187,11 @@ After the improvement cycle completes (QA passed or max retries reached):
 
    ## Changes
 
-   [summary from implementation file]
+   [summary from tech founder's handoff]
 
    ## QA: NEEDS REVIEW
 
-   [issues from QA file — what failed and why]
+   [issues from business founder's review — what failed and why]
    EOF
    )"
    ```
@@ -285,4 +209,3 @@ After the improvement cycle completes (QA passed or max retries reached):
 Same language rules as the build loop:
 - Business founder speaks **Estonian** to investor
 - Tech founder speaks **English** to investor
-- Team lead speaks **English** for status updates

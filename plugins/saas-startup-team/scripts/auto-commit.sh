@@ -1,9 +1,8 @@
 #!/bin/bash
 # auto-commit.sh — PostToolUse hook for Write events
 # Auto-commits work when durable knowledge files are written to docs/.
-# Also commits implementation code when handoffs or improvement
-# implementation files are written (both are gitignored, but
-# backend/frontend code is not).
+# Also commits implementation code when handoffs are written
+# (handoffs are gitignored, but backend/frontend code is not).
 #
 # Input: JSON on stdin with tool_input.file_path
 # Exit 0: no action (non-milestone file or no git repo)
@@ -56,9 +55,6 @@ elif echo "$rel_path" | grep -qE '^\.startup/handoffs/[0-9]{3}-[a-z]+-to-[a-z]+\
     *) founder="unknown" ;;
   esac
   commit_msg="${founder}: handoff ${handoff_num} — ${direction}"
-elif echo "$rel_path" | grep -qE '^\.startup/improvements/[0-9]{3}-implementation\.md$'; then
-  imp_num=$(echo "$filename" | grep -oE '^[0-9]{3}')
-  commit_msg="improve: implementation ${imp_num}"
 elif echo "$rel_path" | grep -qE '^\.startup/signoffs/.*\.md$'; then
   commit_msg="signoff: ${filename%.md}"
 elif echo "$rel_path" | grep -qE '^\.startup/reviews/.*\.md$'; then

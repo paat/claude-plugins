@@ -1281,59 +1281,6 @@ test_duplicate_handoff_hook() {
 }
 
 # ---------------------------------------------------------------------------
-# Suite P: Improve Auto-Commit Hook
-# ---------------------------------------------------------------------------
-
-test_improve_auto_commit_hook() {
-  echo -e "\n${CYAN}Suite P: Improve Auto-Commit Hook${NC}"
-  local script="$PLUGIN_ROOT/scripts/auto-commit.sh"
-
-  # P1: auto-commit.sh has .startup/improvements/ path filter
-  assert_file_contains "P1: has .startup/improvements/ path filter" "$script" "\.startup/improvements/"
-
-  # P2: Exits 0 for non-implementation improvement file (brief)
-  local ec=0 output
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/improvements/001-brief.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "P2: exits 0 for improvement brief (not a commit trigger)" "$ec" 0
-
-  # P3: Functional test — improvement implementation write creates a commit
-  local workdir
-  workdir=$(mktemp -d)
-  git init -q "$workdir"
-  (cd "$workdir" && git config user.email "test@test.com" && git config user.name "Test" && git commit --allow-empty -m "init" -q)
-  mkdir -p "$workdir/.startup/improvements"
-  mkdir -p "$workdir/backend"
-  echo "updated code" > "$workdir/backend/app.py"
-  echo "implementation summary" > "$workdir/.startup/improvements/001-implementation.md"
-
-  ec=0; output=""
-  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/improvements/001-implementation.md"}}' | bash "$script" 2>&1) || ec=$?
-
-  local commit_count
-  commit_count=$(cd "$workdir" && git log --oneline 2>/dev/null | wc -l)
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ "$commit_count" -ge 2 ]; then
-    echo -e "  ${GREEN}PASS${NC} P3: functional test — improvement implementation creates commit ($commit_count commits)"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} P3: functional test — expected >=2 commits, got $commit_count"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("P3: expected >=2 commits, got $commit_count")
-  fi
-
-  # P3b: Commit message contains "improve:"
-  local last_msg
-  last_msg=$(cd "$workdir" && git log -1 --format=%s 2>/dev/null)
-  assert_output_contains "P3b: improvement commit message format" "$last_msg" "improve:"
-  rm -rf "$workdir"
-
-  # P4: Exits 0 for QA file (not a commit trigger)
-  ec=0; output=""
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/improvements/001-qa.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "P4: exits 0 for improvement QA file (not a commit trigger)" "$ec" 0
-}
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1363,7 +1310,6 @@ main() {
   test_json_validation_hook
   test_delegation_enforcement_hook
   test_duplicate_handoff_hook
-  test_improve_auto_commit_hook
 
   # Summary
   echo ""

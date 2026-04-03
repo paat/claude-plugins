@@ -29,13 +29,12 @@ docs/
 ├── handoffs/
 ├── reviews/
 ├── signoffs/
-├── go-live/
-└── improvements/
+└── go-live/
 ```
 
 ```bash
 mkdir -p docs/{research,legal,architecture,ux,seo,business,growth/{channels,leads,metrics/weekly,brand,content/blog,content/outreach-templates}}
-mkdir -p .startup/{handoffs,reviews,signoffs,go-live,improvements}
+mkdir -p .startup/{handoffs,reviews,signoffs,go-live}
 ```
 
 ## Step 2: Create .gitkeep
@@ -59,7 +58,6 @@ Append the following to `.gitignore` if not already present. Check each line ind
 .startup/reviews/
 .startup/signoffs/
 .startup/go-live/
-.startup/improvements/
 .startup/human-tasks.md
 .startup/test-data/
 .startup/.idle-*
