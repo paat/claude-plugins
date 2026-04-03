@@ -1,0 +1,11 @@
+{
+  "name": "video-guide",
+  "version": "0.1.0",
+  "description": "Create professional video guides with TTS narration, screen recording, and YouTube upload",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": ["video", "guide", "tutorial", "tts", "youtube", "screencast"]
+}

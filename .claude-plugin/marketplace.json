@@ -82,6 +82,17 @@
       "source": "./plugins/comfyui",
       "category": "tools",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "video-guide",
+      "description": "Create professional video guides with TTS narration, screen recording, and YouTube upload",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/video-guide",
+      "category": "tools",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }
