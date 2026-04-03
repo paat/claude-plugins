@@ -68,7 +68,7 @@ If the branch already exists, tell the investor and ask them to either pick a di
 
 Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 
-> Read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder.md` for your identity and tools.
+> Read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder-maintain.md` for your identity and tools.
 >
 > **Improvement task: Write a brief for the tech founder.**
 >
@@ -89,7 +89,7 @@ If the business founder pushes back, relay their concerns to the investor. Proce
 
 Spawn tech founder via Agent tool with `subagent_type: "general-purpose"`:
 
-> Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder.md` for your identity and tools.
+> Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-maintain.md` for your identity and tools.
 >
 > **Improvement task: Implement the latest handoff from the business founder.**
 >
@@ -104,7 +104,7 @@ Spawn tech founder via Agent tool with `subagent_type: "general-purpose"`:
 
 Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 
-> Read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder.md` for your identity and tools.
+> Read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder-maintain.md` for your identity and tools.
 >
 > **QA task: Verify the tech founder's latest implementation.**
 >
@@ -127,7 +127,7 @@ Read the business founder's review.
 
 Dispatch tech founder to fix:
 
-> Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder.md` for your identity and tools.
+> Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-maintain.md` for your identity and tools.
 >
 > **Fix task: Address the business founder's QA findings.**
 >
