@@ -159,9 +159,29 @@ pkill -f 'agent-type saas-startup-team' 2>/dev/null || true
 sleep 1
 ```
 
-**Option A — Business founder writes growth brief:**
+**Choose the lightest workflow that fits:**
 
-If the growth strategy calls for a new channel, a new phase, or a strategic pivot, spawn the business founder to write a growth brief:
+**Option A — Direct execution (default for known channels):**
+
+When the investor gives a clear directive ("do Reddit marketing", "set up Google Ads"), skip the brief pipeline and dispatch the growth agent directly with inline context:
+
+> Read `${CLAUDE_PLUGIN_ROOT}/agents/growth-hacker.md` for your identity and tools.
+>
+> **New task: [what the investor asked for]**
+>
+> Read `docs/growth/product-brief.md` for product context.
+> Read `docs/growth/brand/approved-voice.md` for brand guidelines.
+> Read `docs/growth/strategy.md` for ICP and channel priorities.
+> Read the relevant channel doc in `docs/growth/channels/` for what's been done (if exists).
+>
+> **Your goal is to EXECUTE, not plan.** Post responses, create campaigns, send messages, submit listings — use Chrome browser for all external actions. If you can't act (no account, no access), flag it as a human task and move to the next actionable item.
+>
+> After executing, update the relevant `docs/growth/channels/*.md` with what you actually did (URLs, timestamps, metrics).
+> Write a short growth report to `.startup/handoffs/NNN-growth-to-business.md` summarizing actions taken and results.
+
+**Option B — Business founder writes growth brief first:**
+
+Use this ONLY when strategy input is genuinely needed — entering a new phase, pivoting channels based on metrics, or the investor asks for a strategic assessment before execution:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder.md` for your identity and tools.
 >
@@ -177,25 +197,7 @@ If the growth strategy calls for a new channel, a new phase, or a strategic pivo
 >
 > After writing, message the team lead: "Growth brief NNN ready for growth hacker."
 
-**Option B — Growth agent executes:**
-
-When a growth brief is ready, spawn the growth agent:
-
-> Read `${CLAUDE_PLUGIN_ROOT}/agents/growth-hacker.md` for your identity and tools.
->
-> **New task: Execute growth brief NNN.**
->
-> Read `.startup/handoffs/NNN-business-to-growth.md` for your assignment.
-> Read `docs/growth/product-brief.md` for product context.
-> Read `docs/growth/brand/approved-voice.md` for brand guidelines.
-> Read the relevant channel doc in `docs/growth/channels/` for what's been done.
-> Read `docs/growth/channels/linkedin.md` for current LinkedIn counters (if using LinkedIn).
->
-> Execute the brief. Update channel docs, pipeline, and metrics.
->
-> Write your growth report to `.startup/handoffs/NNN-growth-to-business.md` using the template at `${CLAUDE_PLUGIN_ROOT}/templates/handoff-growth-to-business.md`.
->
-> After writing, message the team lead: "Growth report NNN ready for business founder."
+Then dispatch the growth agent per Option A, referencing the brief as additional context.
 
 ### Growth-to-Build handoff
 
