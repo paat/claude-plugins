@@ -1,0 +1,8 @@
+# Verification screenshots — commit only the structured .md artifacts, not the PNGs
+# (PNGs are heavy and regenerable by re-running /ads-verify)
+docs/ads/**/verification/*.png
+docs/ads/**/verification/*.jpg
+docs/ads/**/verification/*.webp
+
+# Scratch SERPs (from /ads-serp without a campaign context)
+docs/ads/_scratch/

@@ -1,0 +1,11 @@
+{
+  "name": "google-ads-strategist",
+  "version": "0.1.0",
+  "description": "Senior Google Ads strategist that designs campaigns through an iterative improvement process — verifies every iteration via Chrome (Ad Preview Tool, SERP, Transparency Center), enforces single-variable changes, and accumulates learnings across campaigns. Chrome-first (no API dev-token needed). Design + verification loop for pre-launch, metrics + optimization loop for post-launch.",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": ["google-ads", "ppc", "campaign-design", "ad-preview", "iterative-improvement", "browser-automation", "chrome", "serp-analysis", "hypothesis-driven", "quality-score"]
+}

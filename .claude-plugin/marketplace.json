@@ -93,6 +93,17 @@
       "source": "./plugins/video-guide",
       "category": "tools",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "google-ads-strategist",
+      "description": "Senior Google Ads strategist — iterative campaign design + browser-based verification via Ad Preview Tool, SERP capture, and Ads Transparency Center. Enforces single-variable hypothesis discipline across iterations and accumulates per-advertiser learnings.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/google-ads-strategist",
+      "category": "growth",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }
