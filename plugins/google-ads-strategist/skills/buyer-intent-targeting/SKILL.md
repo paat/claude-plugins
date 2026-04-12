@@ -186,6 +186,14 @@ Always run `/ads-serp <keyword>` on every target keyword before including it. Th
 
 Take a screenshot of every SERP into `iterations/vN/verification/serp-<keyword>.png`. The screenshot is evidence, not decoration.
 
+## Product-Value Gate (drop even if intent is commercial)
+
+Even when a keyword has clear commercial intent and zero competition, **drop it if the product cannot deliver meaningful value to that searcher**. Paying for clicks that can't convert is waste regardless of intent class.
+
+Example: a nullaruanne (zero-activity annual report) keyword may have perfect commercial signals, but if the product only provides instructions for a free DIY portal and cannot meaningfully outperform the free option, the click produces no conversion. Drop the keyword — let SEO handle it for free.
+
+This gate runs AFTER intent classification and BEFORE the keyword enters the spec. Ask: "If this person clicks and lands on our commercial page, can we charge them for something they'd pay for?" If the answer is "they'd just use the free alternative", the keyword fails the product-value gate.
+
 ## Red Flags (refuse to add these keywords)
 
 Stop and ask the user if they insist on any of these:

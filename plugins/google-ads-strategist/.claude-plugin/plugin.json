@@ -1,7 +1,7 @@
 {
   "name": "google-ads-strategist",
-  "version": "0.1.0",
-  "description": "Senior Google Ads strategist that designs campaigns through an iterative improvement process — verifies every iteration via Chrome (Ad Preview Tool, SERP, Transparency Center), enforces single-variable changes, and accumulates learnings across campaigns. Chrome-first (no API dev-token needed). Design + verification loop for pre-launch, metrics + optimization loop for post-launch.",
+  "version": "0.2.0",
+  "description": "Senior Google Ads strategist — designs campaigns through iterative improvement, verifies via Chrome (Ad Preview Tool, SERP, Transparency Center), and creates campaigns in Google Ads UI in PAUSED state for investor review. Enforces single-variable hypothesis discipline, buyer-intent + product-value gates, and accumulates per-advertiser learnings. Chrome-first, no API dev-token needed.",
   "author": {
     "name": "Andre Paat"
   },

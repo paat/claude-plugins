@@ -19,11 +19,17 @@ This returns the current tab set. If the user has an existing Google Ads tab ope
 
 Never trigger browser modal dialogs (alert, confirm, prompt) — they block all subsequent events. If a page prompts unexpectedly, dismiss via `javascript_tool` before proceeding.
 
-## Tool 1: Anonymous Ad Preview Tool (primary verification path)
+## Tool 1: Anonymous Ad Preview Tool (SECONDARY — see warning below)
 
 **URL**: `https://ads.google.com/anon/AdPreview`
 
-This is the default verification tool. Public, no login required, no impressions counted, no account needed. Works for any keyword, any location, any device.
+Public, no login required, no impressions counted, no account needed. Works for any keyword, any location, any device.
+
+### KNOWN ISSUE: Unreliable for small markets (e.g., Estonia)
+
+During real-world testing on Estonian commercial keywords, the Anonymous Ad Preview Tool **consistently showed 0 paid ads** on every query tested (all devices, all locations), while authenticated google.com SERPs showed 3-4 paid ads on the same queries. The anonymous tool produces a "thin auction" view without personalization or advertiser context.
+
+**For small markets**: use **authenticated Google Search** (Tool 3 below) as the PRIMARY competitive baseline. Use this anonymous tool only as a floor/best-case reference, or to verify your OWN ad triggers post-launch (where it removes personalization bias).
 
 ### Navigation sequence
 

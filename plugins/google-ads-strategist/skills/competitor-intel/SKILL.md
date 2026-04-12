@@ -22,6 +22,17 @@ Google's official public archive of all running ads. Free, no API, no rate limit
 - Countries where the ad is running
 - Ad format (text, image, video)
 
+### KNOWN ISSUE: Iframe rendering blocks DOM text extraction
+
+Google Transparency Center renders ad creatives inside cross-origin iframes. `get_page_text` and `document.body.innerText` return EMPTY for the ad body text. **Workarounds**:
+
+1. **Per-creative navigation**: Each ad has a direct URL at `/advertiser/<ID>/creative/<CR_ID>`. Navigate to individual creatives to read their text — the detail page sometimes renders outside the iframe.
+2. **Screenshots**: If even per-creative pages use iframes, take screenshots and visually parse. Save screenshots to `verification/transparency-<competitor>.png`.
+3. **`document.body.innerText` slicing**: On the main advertiser page (not the creative detail), try `document.body.innerText.substring(N, M)` with different offsets — some text bleeds through from the page chrome even if ad bodies don't.
+4. **Aria labels**: Try `document.querySelectorAll('a[aria-label]')` — some ad cards expose headlines in aria labels even when the visual text is in an iframe.
+
+Budget 5-10 min for Transparency Center scraping per competitor. If a competitor has 50+ ads, stop at the most recent 20 and note the truncation.
+
 **Workflow**:
 1. Identify the competitor (domain or advertiser name)
 2. Navigate to Transparency Center

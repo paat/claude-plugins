@@ -11,9 +11,9 @@ A senior-level Google Ads strategist agent that designs campaigns through an **i
 ## Core discipline
 
 - One hypothesis per iteration, **single-variable changes only**, browser-verified at every step
-- Every iteration includes a `forecast.md` (expected daily clicks + spend + conversions) as a sanity check before the hypothesis is written
-- Every iteration includes a `negatives.md` (aggressive Day-1 informational negatives, language-specific)
-- The plugin is **design-only** — it never launches campaigns autonomously
+- Every iteration includes `forecast.md`, `negatives.md`, `keywords.md`, and `flags-for-investor.md` as standard v1 artifacts
+- **Creates campaigns in Google Ads via Chrome in PAUSED state** — the investor reviews in the Ads UI and enables when satisfied
+- The plugin **never enables, activates, or launches** campaigns — that's the investor's action after review
 
 ## What it does
 
@@ -41,6 +41,7 @@ No Google Ads API access is required for pre-launch design + verification. The A
 ### Commands
 - `/ads-brief [name]` — create a new campaign folder + brief.md (interactive intake)
 - `/ads-iterate` — run one iteration of the active campaign (delegates to ads-strategist)
+- `/ads-create` — **build the campaign in Google Ads via Chrome** — creates in PAUSED state for investor review
 - `/ads-verify [keyword]` — quick one-shot Ad Preview Tool verification
 - `/ads-serp <keyword>` — capture real Google SERP in incognito and classify buyer intent
 - `/ads-spy <competitor>` — pull all currently-running ads from the Google Ads Transparency Center
@@ -51,16 +52,17 @@ No Google Ads API access is required for pre-launch design + verification. The A
 - `/ads-distill` — roll the hypothesis log into learnings and propose graduation candidates
 
 ### Skills
-- `buyer-intent-targeting` — **first filter** — every keyword classified by intent; informational dropped
+- `buyer-intent-targeting` — **first filter** — every keyword classified by intent; informational dropped; product-value gate
 - `iterative-campaign-design` — pre-launch iteration loop discipline
 - `iterative-optimization` — post-launch iteration loop decision tree
 - `hypothesis-journaling` — how to write falsifiable hypotheses and distill learnings
-- `browser-verification` — Chrome playbook for Ad Preview Tool, SERP capture, Transparency Center, and Google Ads UI metrics
-- `competitor-intel` — Transparency Center workflow + differentiation matrix
+- `browser-verification` — Chrome playbook for Ad Preview Tool (with small-market reliability warning), SERP capture, Transparency Center, and Google Ads UI metrics
+- `competitor-intel` — Transparency Center workflow + differentiation matrix (with iframe workaround)
 - `clickable-copy` — RSA formulas per intent class, Quality Score alignment, character-count discipline
+- `chrome-campaign-creation` — **step-by-step Chrome playbook for building campaigns in Google Ads UI** in PAUSED state
 
 ### Hooks
-- **PreToolUse / Chrome navigate** → `check-launch-block.sh` — blocks navigation to Google Ads campaign creation/edit/delete URLs (the strategist never launches)
+- **PreToolUse / Chrome navigate** → `check-launch-block.sh` — allows campaign creation URLs, warns on Ads dashboard navigation (must create PAUSED), blocks billing URLs
 - **PostToolUse / Write** → `check-hypothesis-present.sh` — blocks writing `iterations/vN/spec.md` without a sibling `hypothesis.md`
 - **PostToolUse / Write** → `check-single-variable.sh` — validates that `hypothesis.md` declares exactly one variable class (or justified multivariate)
 - **PostToolUse / Write** → `check-wait-gate.sh` — post-launch only, blocks iteration specs before ≥ 7 days since last apply (for statistical significance)
@@ -107,13 +109,13 @@ State is tracked via plain marker files (`launched_at`, `applied_at`) — no emb
 
 ```
 /ads-brief aruannik-commercial-ee     # intake, create folder
-/ads-iterate                           # agent generates v1 + verifies
-# review agent report, approve next hypothesis
-/ads-iterate                           # agent generates v2 hypothesis
-# approve → agent writes v2 spec + verifies
+/ads-iterate                           # agent generates v1 hypothesis
+# review → approve → agent writes spec + verifies
+/ads-iterate                           # agent generates v2 hypothesis (if needed)
 ...
 /ads-ready                             # final audit against launch checklist
-# hand off spec.md to human or growth-hacker for actual launch
+/ads-create                            # agent builds campaign in Google Ads UI via Chrome (PAUSED)
+# investor reviews campaign in Ads UI → enables when satisfied
 ```
 
 ## Typical workflow (post-launch)
@@ -140,11 +142,13 @@ State is tracked via plain marker files (`launched_at`, `applied_at`) — no emb
 **Soft limits via skill discipline:**
 - Never targets informational buyer intent
 - Never routes paid traffic to blog/guide pages
+- Drops keywords that fail the product-value gate (product can't deliver value even if intent is commercial)
 - Never fabricates metrics or verification results — every claim requires a screenshot or page capture on disk
 
 **What the plugin does NOT do:**
-- Launch, pause, or edit campaigns in a live Google Ads account
-- Make bid or budget changes via the Google Ads API or UI
+- Enable, activate, or launch campaigns — creates in PAUSED state only, investor enables
+- Click any "Enable" toggle or status-change control in the Ads UI
+- Access Google Ads billing
 - Click on competitor ads in real SERPs
 - Use third-party SERP scrapers (Transparency Center is Google's own first-party source)
 
