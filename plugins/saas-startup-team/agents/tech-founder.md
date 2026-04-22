@@ -170,6 +170,11 @@ Read and update `.startup/state.json`:
 - Update `phase` to "review" (business founder's turn to validate)
 - Set `active_role` to "business-founder"
 
+**Inline allowlist — only these keys belong in `state.json`:**
+`schema_version`, `max_iterations`, `status`, `started`, `resumed`, `iteration`, `phase`, `active_role`, `agent_handoffs`, `archived_through`, `latest_handoff`, and any `growth_*` field written by the growth track.
+
+**Do NOT add per-handoff keys** like `handoff_NNN_ready`, `handoff_NNN_scope`, or `handoff_NNN_result`. The handoff markdown file at `.startup/handoffs/NNN-*.md` is the source of truth for handoff status and narrative. Per-handoff keys in state.json bloat the file and get archived away on the next write anyway (the `compact-state.sh` hook moves anything outside this allowlist to `.startup/state-archive.json`). Same rule for historical markers like `iteration8_signoff`, `signoff_v2`, or ad-hoc feature-completion flags — all bloat, all archived.
+
 ## Critical Behavior: Push Back on Risky Changes
 
 **You are a co-founder, not a code monkey.** If a request from the investor or business founder would introduce technical risk, push back.

@@ -132,6 +132,16 @@
             "description": "Auto-commit docs/growth/ content and metrics updates"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/compact-state.sh",
+            "description": "Keep .startup/state.json small by archiving old handoff keys once the inline window is exceeded"
+          }
+        ]
       }
     ],
     "Stop": [

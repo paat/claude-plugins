@@ -50,14 +50,19 @@ Then create the loop-specific files in `.startup/`:
 Initialize `state.json`:
 ```json
 {
+  "schema_version": 2,
   "iteration": 0,
   "max_iterations": 20,
   "phase": "research",
   "active_role": "business-founder",
   "status": "active",
-  "started": "<current ISO timestamp>"
+  "started": "<current ISO timestamp>",
+  "archived_through": 0,
+  "latest_handoff": 0
 }
 ```
+
+`schema_version: 2` opts in to the compaction system: old `handoff_NNN_*` keys get archived to `.startup/state-archive.json` automatically once the inline window (last 10 handoffs by default) is exceeded. See the State Management section of each founder agent for the full list of keys allowed inline — anything outside the allowlist is eligible for archival.
 
 Write `docs/business/brief.md` using the user's SaaS idea description (skip if `/bootstrap` already created it).
 

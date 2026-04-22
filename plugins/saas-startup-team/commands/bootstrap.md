@@ -54,6 +54,9 @@ Append the following to `.gitignore` if not already present. Check each line ind
 ```gitignore
 # Startup plugin operational state (ephemeral, not knowledge)
 .startup/state.json
+.startup/state-archive.json
+.startup/state.json.bak-*
+.startup/state.json.lock
 .startup/handoffs/
 .startup/reviews/
 .startup/signoffs/

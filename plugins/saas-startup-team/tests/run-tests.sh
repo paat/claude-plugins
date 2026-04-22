@@ -866,10 +866,10 @@ test_auto_commit_hook() {
   output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/state.json"}}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "K6: exits 0 for .startup/state.json" "$ec" 0
 
-  # K7: hooks.json PostToolUse has 2 entries
+  # K7: hooks.json PostToolUse has 12 entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "K7: PostToolUse has 11 entries" "$ptu_count" "11"
+  assert_equals "K7: PostToolUse has 12 entries" "$ptu_count" "12"
 
   # K8: Fourth PostToolUse entry references auto-commit.sh
   local fourth_cmd
@@ -1067,10 +1067,10 @@ EOF
   assert_exit_code "L9: exits 0 when MVP in NEVER/ALWAYS line" "$ec" 0
   rm -rf "$workdir"
 
-  # L10: hooks.json PostToolUse has 6 entries
+  # L10: hooks.json PostToolUse has 12 entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "L10: PostToolUse has 11 entries" "$ptu_count" "11"
+  assert_equals "L10: PostToolUse has 12 entries" "$ptu_count" "12"
 
   # L11: Fifth PostToolUse entry references enforce-tone.sh
   local sixth_cmd
@@ -1281,6 +1281,470 @@ test_duplicate_handoff_hook() {
 }
 
 # ---------------------------------------------------------------------------
+# Suite P: compact-state.sh
+# ---------------------------------------------------------------------------
+
+# Helper: seed state.json with N handoff keys (ready + scope each).
+seed_handoffs() {
+  local state_file="$1" count="$2"
+  local builder='.'
+  local i padded
+  for i in $(seq 1 "$count"); do
+    padded=$(printf '%03d' "$i")
+    builder="$builder + {\"handoff_${padded}_ready\": \"2026-02-01T10:00:00Z\", \"handoff_${padded}_scope\": \"Test scope $i\"}"
+  done
+  jq "$builder" "$state_file" > "$state_file.tmp" && mv "$state_file.tmp" "$state_file"
+}
+
+test_compact_state() {
+  echo -e "\n${CYAN}Suite P: compact-state.sh${NC}"
+  local script="$PLUGIN_ROOT/scripts/compact-state.sh"
+  local workdir ec output state before_hash after_hash
+
+  # P1: script exists and is executable
+  assert_file_exists "P1: compact-state.sh exists" "$script"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} P1b: compact-state.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P1b: compact-state.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P1b: compact-state.sh is not executable")
+  fi
+
+  # P2: no-op on fresh state (no handoff_* keys)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 1
+  before_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P2: fresh state exits 0" "$ec" 0
+  after_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
+  assert_equals "P2b: fresh state unchanged" "$after_hash" "$before_hash"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ ! -f "$workdir/.startup/state-archive.json" ]; then
+    echo -e "  ${GREEN}PASS${NC} P2c: no archive created for fresh state"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P2c: archive unexpectedly created"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P2c: archive unexpectedly created")
+  fi
+  rm -rf "$workdir"
+
+  # P3: no-op when handoff count ≤ window (default 10)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 1
+  seed_handoffs "$workdir/.startup/state.json" 5
+  before_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P3: below threshold exits 0" "$ec" 0
+  after_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
+  assert_equals "P3b: below threshold unchanged" "$after_hash" "$before_hash"
+  rm -rf "$workdir"
+
+  # P4: compacts when handoff count > window
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P4: compaction exits 0" "$ec" 0
+  assert_file_exists "P4b: archive file created" "$workdir/.startup/state-archive.json"
+  assert_json_valid "P4c: state.json still valid" "$state"
+  assert_json_valid "P4d: archive file valid JSON" "$workdir/.startup/state-archive.json"
+  # Last 10 (6-15) remain inline; 1-5 archived
+  assert_json_field "P4e: handoff_001 archived out" "$state" '.handoff_001_ready // "MISSING"' "MISSING"
+  assert_json_field "P4f: handoff_005 archived out" "$state" '.handoff_005_ready // "MISSING"' "MISSING"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$(jq -r '.handoff_015_ready // "MISSING"' "$state")" != "MISSING" ]; then
+    echo -e "  ${GREEN}PASS${NC} P4g: handoff_015 kept inline"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P4g: handoff_015 unexpectedly archived"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P4g: handoff_015 unexpectedly archived")
+  fi
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$(jq -r '.handoff_006_ready // "MISSING"' "$state")" != "MISSING" ]; then
+    echo -e "  ${GREEN}PASS${NC} P4h: handoff_006 kept inline (boundary)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P4h: handoff_006 wrongly archived (boundary)"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P4h: handoff_006 wrongly archived")
+  fi
+  rm -rf "$workdir"
+
+  # P5: coordination keys preserved after compaction
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_json_field "P5a: iteration preserved" "$state" ".iteration" "13"
+  assert_json_field "P5b: phase preserved" "$state" ".phase" "implementation"
+  assert_json_field "P5c: active_role preserved" "$state" ".active_role" "tech-founder"
+  assert_json_field "P5d: status preserved" "$state" ".status" "active"
+  assert_json_field "P5e: max_iterations preserved" "$state" ".max_iterations" "20"
+  assert_json_field "P5f: started preserved" "$state" ".started" "2026-02-23T10:00:00Z"
+  rm -rf "$workdir"
+
+  # P6: schema_version, archived_through, latest_handoff added
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_json_field "P6a: schema_version = 2" "$state" ".schema_version" "2"
+  assert_json_field "P6b: archived_through = 5" "$state" ".archived_through" "5"
+  assert_json_field "P6c: latest_handoff = 15" "$state" ".latest_handoff" "15"
+  rm -rf "$workdir"
+
+  # P7: round-trip — inline ∪ archived ⊇ original keys
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  local original_keys merged_keys missing
+  original_keys=$(jq -r 'keys[]' "$state" | sort)
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  merged_keys=$(
+    { jq -r 'keys[]' "$state"; \
+      jq -r '.entries[].keys | keys[]' "$workdir/.startup/state-archive.json"; } \
+    | grep -vE '^(schema_version|archived_through|latest_handoff)$' | sort -u
+  )
+  missing=$(comm -23 <(echo "$original_keys") <(echo "$merged_keys"))
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -z "$missing" ]; then
+    echo -e "  ${GREEN}PASS${NC} P7: round-trip preserves all original keys"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P7: missing keys after compaction: $missing"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P7: missing keys: $missing")
+  fi
+  rm -rf "$workdir"
+
+  # P8: idempotent — second run is a no-op
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  bash "$script" --state-file "$state" --archive-file "$workdir/.startup/state-archive.json" >/dev/null 2>&1 || true
+  before_hash=$(md5sum "$state" | awk '{print $1}')
+  ec=0; output=$(bash "$script" --state-file "$state" --archive-file "$workdir/.startup/state-archive.json" 2>&1) || ec=$?
+  assert_exit_code "P8: second run exits 0" "$ec" 0
+  after_hash=$(md5sum "$state" | awk '{print $1}')
+  assert_equals "P8b: second run is no-op" "$after_hash" "$before_hash"
+  rm -rf "$workdir"
+
+  # P9: --dry-run does not write
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  before_hash=$(md5sum "$state" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" --dry-run 2>&1) || ec=$?
+  assert_exit_code "P9: --dry-run exits 0" "$ec" 0
+  after_hash=$(md5sum "$state" | awk '{print $1}')
+  assert_equals "P9b: --dry-run leaves state.json unchanged" "$after_hash" "$before_hash"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ ! -f "$workdir/.startup/state-archive.json" ]; then
+    echo -e "  ${GREEN}PASS${NC} P9c: --dry-run created no archive"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P9c: --dry-run unexpectedly created archive"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P9c: --dry-run unexpectedly created archive")
+  fi
+  assert_output_contains "P9d: --dry-run output labelled" "$output" "DRY RUN"
+  rm -rf "$workdir"
+
+  # P10: no .startup/state.json → exit 0 silently
+  workdir=$(make_workdir)
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P10: no state.json exits 0" "$ec" 0
+  rm -rf "$workdir"
+
+  # P11: historical keys (iterationN_signoff, signoff_vN) archived
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  jq '. + {"iteration8_signoff": "2026-02-26T01:00:00Z", "signoff_v2": "2026-02-25T20:10:00Z", "final_signoff": "2026-02-26T09:30:00Z"}' \
+    "$state" > "$state.tmp" && mv "$state.tmp" "$state"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P11: historical+handoffs compaction exits 0" "$ec" 0
+  assert_json_field "P11b: iteration8_signoff archived" "$state" '.iteration8_signoff // "MISSING"' "MISSING"
+  assert_json_field "P11c: signoff_v2 archived"        "$state" '.signoff_v2 // "MISSING"'        "MISSING"
+  assert_json_field "P11d: final_signoff archived"     "$state" '.final_signoff // "MISSING"'     "MISSING"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$(jq -r '.entries[].keys.signoff_v2 // "MISSING"' "$workdir/.startup/state-archive.json")" != "MISSING" ]; then
+    echo -e "  ${GREEN}PASS${NC} P11e: signoff_v2 present in archive"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P11e: signoff_v2 not in archive"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P11e: signoff_v2 not in archive")
+  fi
+  rm -rf "$workdir"
+
+  # P12: growth_* keys preserved inline (never archived)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  jq '. + {"growth_phase": "launch", "growth_iteration": 2, "growth_last_brief": 399}' \
+    "$state" > "$state.tmp" && mv "$state.tmp" "$state"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_json_field "P12a: growth_phase preserved inline"    "$state" ".growth_phase" "launch"
+  assert_json_field "P12b: growth_iteration preserved"       "$state" ".growth_iteration" "2"
+  assert_json_field "P12c: growth_last_brief preserved"      "$state" ".growth_last_brief" "399"
+  rm -rf "$workdir"
+
+  # P13: archive append-only — two waves of compaction produce two entries
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  bash "$script" --state-file "$state" --archive-file "$workdir/.startup/state-archive.json" >/dev/null 2>&1 || true
+  # Add 10 more handoffs (16-25), ensuring the next wave archives some of them.
+  local builder='.'
+  local i padded
+  for i in $(seq 16 25); do
+    padded=$(printf '%03d' "$i")
+    builder="$builder + {\"handoff_${padded}_ready\": \"2026-03-01T10:00:00Z\"}"
+  done
+  jq "$builder" "$state" > "$state.tmp" && mv "$state.tmp" "$state"
+  bash "$script" --state-file "$state" --archive-file "$workdir/.startup/state-archive.json" >/dev/null 2>&1 || true
+  local entry_count
+  entry_count=$(jq '.entries | length' "$workdir/.startup/state-archive.json")
+  assert_equals "P13: two archive entries after two waves" "$entry_count" "2"
+  assert_json_valid "P13b: archive still valid JSON after two waves" "$workdir/.startup/state-archive.json"
+  rm -rf "$workdir"
+
+  # P14: state.json with schema_version=2 already set is accepted
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  jq '. + {"schema_version": 2, "archived_through": 0, "latest_handoff": 0}' \
+    "$state" > "$state.tmp" && mv "$state.tmp" "$state"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P14: schema v2 pre-set exits 0" "$ec" 0
+  assert_json_field "P14b: schema_version stays 2" "$state" ".schema_version" "2"
+  rm -rf "$workdir"
+
+  # P15: historical keys are archived even when handoff count ≤ window
+  # (Fixes a bug where 5 handoffs + 50 legacy keys yielded a no-op.)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 1
+  state="$workdir/.startup/state.json"
+  jq '. + {
+    "signoff_v2":        "2026-02-25T20:10:00Z",
+    "iteration8_signoff":"2026-02-26T01:00:00Z",
+    "final_signoff":     "2026-02-26T09:30:00Z",
+    "legacy_feature_xx": "done"
+  }' "$state" > "$state.tmp" && mv "$state.tmp" "$state"
+  seed_handoffs "$state" 3                # well below window=10
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P15: historical-only compaction exits 0" "$ec" 0
+  assert_file_exists "P15b: archive created for historical-only" "$workdir/.startup/state-archive.json"
+  assert_json_field "P15c: signoff_v2 archived"         "$state" '.signoff_v2 // "MISSING"'         "MISSING"
+  assert_json_field "P15d: legacy_feature_xx archived"  "$state" '.legacy_feature_xx // "MISSING"'  "MISSING"
+  # Handoff keys must remain inline (count ≤ window → none archived)
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$(jq -r '.handoff_001_ready // "MISSING"' "$state")" != "MISSING" ]; then
+    echo -e "  ${GREEN}PASS${NC} P15e: handoff_001 kept inline (below window)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P15e: handoff_001 wrongly archived below window"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P15e: handoff_001 wrongly archived below window")
+  fi
+  assert_json_field "P15f: schema_version set to 2"     "$state" ".schema_version" "2"
+  rm -rf "$workdir"
+
+  # P16: corrupt state.json → exit 1, file untouched
+  workdir=$(make_workdir)
+  mkdir -p "$workdir/.startup"
+  echo '{not valid json' > "$workdir/.startup/state.json"
+  before_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P16: corrupt state.json exits 1" "$ec" 1
+  after_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
+  assert_equals "P16b: corrupt state.json left unchanged" "$after_hash" "$before_hash"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ ! -f "$workdir/.startup/state-archive.json" ]; then
+    echo -e "  ${GREEN}PASS${NC} P16c: no archive created from corrupt state"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P16c: archive created from corrupt state"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P16c: archive created from corrupt state")
+  fi
+  rm -rf "$workdir"
+
+  # P17: corrupt archive → renamed to .corrupt-*, compaction still succeeds, new archive started
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  echo 'CORRUPT' > "$workdir/.startup/state-archive.json"
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P17: corrupt archive compaction exits 0" "$ec" 0
+  # Old archive preserved as .corrupt-*
+  local corrupt_count
+  corrupt_count=$(find "$workdir/.startup" -maxdepth 1 -name 'state-archive.json.corrupt-*' | wc -l)
+  assert_equals "P17b: corrupt archive preserved as .corrupt-*" "$corrupt_count" "1"
+  assert_output_contains "P17c: warns on stderr about corrupt archive" "$output" "corrupt"
+  assert_json_valid "P17d: new archive is valid JSON" "$workdir/.startup/state-archive.json"
+  assert_equals "P17e: new archive has exactly one entry" \
+    "$(jq '.entries | length' "$workdir/.startup/state-archive.json")" "1"
+  rm -rf "$workdir"
+
+  # P18: concurrency — two parallel runs produce exactly one archive entry
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  (cd "$workdir" && bash "$script" >/dev/null 2>&1) &
+  (cd "$workdir" && bash "$script" >/dev/null 2>&1) &
+  wait
+  assert_json_valid "P18: archive still valid JSON after race" "$workdir/.startup/state-archive.json"
+  assert_equals "P18b: exactly one archive entry after two parallel runs" \
+    "$(jq '.entries | length' "$workdir/.startup/state-archive.json")" "1"
+  # Each archived key must appear exactly once (no duplicate-key inflation)
+  local archived_keys_count unique_archived_keys_count
+  archived_keys_count=$(jq '[.entries[].keys | keys[]] | length' "$workdir/.startup/state-archive.json")
+  unique_archived_keys_count=$(jq '[.entries[].keys | keys[]] | unique | length' "$workdir/.startup/state-archive.json")
+  assert_equals "P18c: no duplicate keys in archive after race" \
+    "$archived_keys_count" "$unique_archived_keys_count"
+  rm -rf "$workdir"
+
+  # P19: invalid --window argument → exit 2 with clean error
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 1
+  ec=0; output=$(cd "$workdir" && bash "$script" --window abc 2>&1) || ec=$?
+  assert_exit_code "P19: --window abc exits 2" "$ec" 2
+  assert_output_contains "P19b: --window abc shows friendly error" "$output" "window"
+  rm -rf "$workdir"
+
+  # P20: --window 0 → exit 2
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 1
+  ec=0; output=$(cd "$workdir" && bash "$script" --window 0 2>&1) || ec=$?
+  assert_exit_code "P20: --window 0 exits 2" "$ec" 2
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
+# Suite Q: migrate-state.sh
+# ---------------------------------------------------------------------------
+
+test_migrate_state() {
+  echo -e "\n${CYAN}Suite Q: migrate-state.sh${NC}"
+  local script="$PLUGIN_ROOT/scripts/migrate-state.sh"
+  local workdir ec output state before_hash after_hash bak_count
+
+  # Q1: script exists and is executable
+  assert_file_exists "Q1: migrate-state.sh exists" "$script"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} Q1b: migrate-state.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} Q1b: migrate-state.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("Q1b: migrate-state.sh is not executable")
+  fi
+
+  # Q2: no args defaults to dry-run (no writes, no .bak)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  before_hash=$(md5sum "$state" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "Q2: no args exits 0" "$ec" 0
+  after_hash=$(md5sum "$state" | awk '{print $1}')
+  assert_equals "Q2b: no args leaves state.json unchanged" "$after_hash" "$before_hash"
+  assert_output_contains "Q2c: no args output mentions dry-run" "$output" "DRY RUN"
+  bak_count=$(find "$workdir/.startup" -maxdepth 1 -name 'state.json.bak-*' | wc -l)
+  assert_equals "Q2d: no args created no backup" "$bak_count" "0"
+  rm -rf "$workdir"
+
+  # Q3: --yes applies compaction
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" --yes 2>&1) || ec=$?
+  assert_exit_code "Q3: --yes exits 0" "$ec" 0
+  assert_file_exists "Q3b: archive file created" "$workdir/.startup/state-archive.json"
+  assert_json_field "Q3c: schema_version = 2 after --yes" "$state" ".schema_version" "2"
+  rm -rf "$workdir"
+
+  # Q4: --yes creates timestamped .bak backup that equals pre-migration state
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  before_hash=$(md5sum "$state" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" --yes 2>&1) || ec=$?
+  assert_exit_code "Q4: --yes exits 0" "$ec" 0
+  bak_count=$(find "$workdir/.startup" -maxdepth 1 -name 'state.json.bak-*' | wc -l)
+  assert_equals "Q4b: --yes created one backup" "$bak_count" "1"
+  local bak_file
+  bak_file=$(find "$workdir/.startup" -maxdepth 1 -name 'state.json.bak-*' | head -1)
+  assert_json_valid "Q4c: backup is valid JSON" "$bak_file"
+  after_hash=$(md5sum "$bak_file" | awk '{print $1}')
+  assert_equals "Q4d: backup matches pre-migration state" "$after_hash" "$before_hash"
+  rm -rf "$workdir"
+
+  # Q5: --yes is safe to run twice (no double-archiving)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  (cd "$workdir" && bash "$script" --yes) >/dev/null 2>&1 || true
+  local first_archive_count
+  first_archive_count=$(jq '.entries | length' "$workdir/.startup/state-archive.json")
+  ec=0; output=$(cd "$workdir" && bash "$script" --yes 2>&1) || ec=$?
+  assert_exit_code "Q5: --yes second run exits 0" "$ec" 0
+  local second_archive_count
+  second_archive_count=$(jq '.entries | length' "$workdir/.startup/state-archive.json")
+  assert_equals "Q5b: archive not double-written" "$second_archive_count" "$first_archive_count"
+  rm -rf "$workdir"
+
+  # Q6: --dry-run explicit flag is also a no-op
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  before_hash=$(md5sum "$state" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" --dry-run 2>&1) || ec=$?
+  assert_exit_code "Q6: --dry-run exits 0" "$ec" 0
+  after_hash=$(md5sum "$state" | awk '{print $1}')
+  assert_equals "Q6b: --dry-run leaves state.json unchanged" "$after_hash" "$before_hash"
+  rm -rf "$workdir"
+
+  # Q7: --yes on fresh state is no-op (no .bak needed)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 1
+  state="$workdir/.startup/state.json"
+  before_hash=$(md5sum "$state" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" --yes 2>&1) || ec=$?
+  assert_exit_code "Q7: --yes on fresh exits 0" "$ec" 0
+  after_hash=$(md5sum "$state" | awk '{print $1}')
+  assert_equals "Q7b: fresh state unchanged" "$after_hash" "$before_hash"
+  bak_count=$(find "$workdir/.startup" -maxdepth 1 -name 'state.json.bak-*' | wc -l)
+  assert_equals "Q7c: fresh state got no backup" "$bak_count" "0"
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1310,6 +1774,8 @@ main() {
   test_json_validation_hook
   test_delegation_enforcement_hook
   test_duplicate_handoff_hook
+  test_compact_state
+  test_migrate_state
 
   # Summary
   echo ""
