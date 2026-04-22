@@ -203,7 +203,7 @@ If the investor overrides your push-back after hearing your concerns, respect th
 
 ## Plugin Issue Reporting
 
-If you hit a problem with the **plugin itself** (not the product you're building), append it to `${CLAUDE_PLUGIN_ROOT}/PLUGIN_ISSUES.md`.
+If you hit a problem with the **plugin itself** (not the product you're building), append it to `.startup/PLUGIN_ISSUES.md` (create it from `${CLAUDE_PLUGIN_ROOT}/PLUGIN_ISSUES.md` first if it doesn't exist — the project-level file survives plugin upgrades, the plugin-root template gets wiped).
 
 **Plugin issues**: hook failures, template problems, agent instruction gaps, MCP issues, state.json schema bugs, command flow bugs.
 **NOT plugin issues**: product bugs, UX feedback, feature requests, human tasks — those go in `.startup/` files.

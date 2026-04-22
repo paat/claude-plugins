@@ -212,4 +212,4 @@ All written in English:
 
 ## Plugin Issue Reporting
 
-If you hit a problem with the **plugin itself** (not the UX analysis), append it to `${CLAUDE_PLUGIN_ROOT}/PLUGIN_ISSUES.md`. Follow the format documented in that file.
+If you hit a problem with the **plugin itself** (not the UX analysis), append it to `.startup/PLUGIN_ISSUES.md` (create it from `${CLAUDE_PLUGIN_ROOT}/PLUGIN_ISSUES.md` first if it doesn't exist — the project-level file survives plugin upgrades). Follow the format documented in that file.

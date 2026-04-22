@@ -812,13 +812,26 @@ test_plugin_issues() {
   # J4: contains ## What Does NOT Go Here section
   assert_file_contains "J4: has What Does NOT Go Here section" "$issues_file" "## What Does NOT Go Here"
 
-  # J5: business-founder.md mentions PLUGIN_ISSUES.md
-  assert_file_contains "J5: business-founder.md mentions PLUGIN_ISSUES.md" \
-    "$PLUGIN_ROOT/agents/business-founder.md" "PLUGIN_ISSUES.md"
+  # J5: business-founder.md points to .startup/PLUGIN_ISSUES.md (survives upgrades)
+  assert_file_contains "J5: business-founder.md points to .startup/PLUGIN_ISSUES.md" \
+    "$PLUGIN_ROOT/agents/business-founder.md" "\.startup/PLUGIN_ISSUES\.md"
 
-  # J6: tech-founder.md mentions PLUGIN_ISSUES.md
-  assert_file_contains "J6: tech-founder.md mentions PLUGIN_ISSUES.md" \
-    "$PLUGIN_ROOT/agents/tech-founder.md" "PLUGIN_ISSUES.md"
+  # J6: tech-founder.md points to .startup/PLUGIN_ISSUES.md
+  assert_file_contains "J6: tech-founder.md points to .startup/PLUGIN_ISSUES.md" \
+    "$PLUGIN_ROOT/agents/tech-founder.md" "\.startup/PLUGIN_ISSUES\.md"
+
+  # J7: tech-founder-maintain.md points to .startup/PLUGIN_ISSUES.md
+  # (regression: this agent filed the aruannik blocker that was lost on plugin upgrade)
+  assert_file_contains "J7: tech-founder-maintain.md points to .startup/PLUGIN_ISSUES.md" \
+    "$PLUGIN_ROOT/agents/tech-founder-maintain.md" "\.startup/PLUGIN_ISSUES\.md"
+
+  # J8: bootstrap seeds .startup/PLUGIN_ISSUES.md from the plugin-root template
+  assert_file_contains "J8: bootstrap seeds .startup/PLUGIN_ISSUES.md" \
+    "$PLUGIN_ROOT/commands/bootstrap.md" "cp.*CLAUDE_PLUGIN_ROOT.*PLUGIN_ISSUES\.md.*\.startup/PLUGIN_ISSUES\.md"
+
+  # J9: startup also seeds it (projects that skip bootstrap)
+  assert_file_contains "J9: startup seeds .startup/PLUGIN_ISSUES.md" \
+    "$PLUGIN_ROOT/commands/startup.md" "cp.*CLAUDE_PLUGIN_ROOT.*PLUGIN_ISSUES\.md.*\.startup/PLUGIN_ISSUES\.md"
 }
 
 # ---------------------------------------------------------------------------
