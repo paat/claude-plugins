@@ -120,6 +120,16 @@ After this spec is written, `/ads-verify` must confirm:
 - [ ] SERP captures confirm commercial intent for every target keyword
 - [ ] Copy differentiation visible against competitor matrix
 
+## Dropped keywords
+
+Keywords explored in `keywords.md` but excluded from this spec:
+
+| Keyword | Reason dropped |
+|---------|----------------|
+| <keyword> | <product-value gate / informational SERP / duplicate / etc.> |
+
+(If no keywords were dropped, write "None — all explored keywords entered the spec.")
+
 ## Notes
 
 (anything reviewer should know)

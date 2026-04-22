@@ -70,7 +70,9 @@ Spawn the ads-strategist via Task tool with `subagent_type: "general-purpose"`:
 >
 > **2. Classify EACH candidate by buyer intent** per the `buyer-intent-targeting` skill. Drop every informational query. Separate commercial investigation from transactional into different ad groups. Record the classification in a keyword table.
 >
-> **3. Verify each candidate in the real SERP** via Chrome incognito — take a screenshot to `iterations/v1/verification/serp-<keyword>.png`. Confirm commercial signals (paid ads above fold, shopping widgets, absence of dominant People Also Ask). Any keyword whose SERP is informational-dominant gets dropped and added to the negatives list. **This is mandatory — keywords without a SERP screenshot cannot enter the spec.**
+> **2b. Run the product-value gate on each ad group.** For each candidate ad group, confirm that the product delivers paid-worthy value for that segment — i.e., that a click from this keyword can lead to a paid conversion, not just a free alternative. Record the gate decision per ad group in `iterations/v1/hypothesis.md` under a `## Product-value gate` section. Any ad group that fails the gate gets dropped before entering the spec, and the dropped keywords go to `## Dropped keywords` with reason "product-value gate: [explanation]".
+>
+> **3. Verify each candidate in the real SERP** via Chrome incognito — capture evidence to `iterations/v1/verification/serp-<keyword>.png` (screenshot) or `serp-<keyword>.md` (structured extraction). Confirm commercial signals (paid ads above fold, shopping widgets, absence of dominant People Also Ask). Any keyword whose SERP is informational-dominant gets dropped and added to the negatives list. **This is mandatory — keywords without SERP evidence (.png or .md) cannot enter the spec.**
 >
 > **4. Pull competitor ads** from the Transparency Center for the top 3 competitors. Save structured matrix to `iterations/v1/verification/transparency-*.md`. Build the differentiation matrix per the `competitor-intel` skill.
 >
@@ -100,9 +102,11 @@ Spawn the ads-strategist via Task tool with `subagent_type: "general-purpose"`:
 >
 > **9. Write `iterations/v1/hypothesis.md`** — v1 hypothesis typically: "Initial commercial-intent targeting with a defensive branded ad group, forecast-validated budget, and aggressive day-1 negatives will produce top-3 preview position on ≥ 80% of target non-branded keywords plus 100% coverage on branded." Declare `**Variable class**: keywords`. Include the forecast summary (expected daily clicks + spend + conversions).
 >
-> **10. STOP.** Report the proposed keyword list (with intent classifications), competitor matrix, SERP verification count, defensive branded ad group summary, forecast sanity check results, preloaded negatives count, and the v1 hypothesis. Do NOT write `spec.md` in this call — the user approves the hypothesis first.
+> **10. STOP.** Report the proposed keyword list (with intent classifications), product-value gate results, competitor matrix, SERP verification count, defensive branded ad group summary, forecast sanity check results, preloaded negatives count, and the v1 hypothesis. Do NOT write `spec.md` in this call — the user approves the hypothesis first.
 >
-> On approval in a follow-up call: write `spec.md` per the approved hypothesis (all final URLs UTM-tagged, branded defensive AG included, negatives attached), run Ad Preview Tool verification for every keyword, write `result.md`, update the `current` symlink (`ln -sfn iterations/v1 docs/ads/<campaign>/current`).
+> On approval in a follow-up call: write `spec.md` per the approved hypothesis (all final URLs UTM-tagged, branded defensive AG included, negatives attached, extensions per ad group), write `iterations/vN/flags-for-investor.md` listing all investor-decision items discovered during this iteration (use the template in `templates/flags-for-investor.md`), run Ad Preview Tool verification for every keyword, write `result.md`, update the `current` symlink (`ln -sfn iterations/v1 docs/ads/<campaign>/current`).
+>
+> **Dropped keywords reconciliation**: If any keywords from the keyword exploration phase were dropped before entering spec.md (product-value gate failures, SERP reclassification, duplicate removal), include a `## Dropped keywords` section at the end of spec.md listing each dropped keyword with the reason.
 >
 > **If a current iteration exists**: verify it, diagnose, propose v_{n+1}.
 > 1. Read `current/spec.md` and `current/hypothesis.md`
@@ -171,3 +175,13 @@ On approval, dispatch the agent again with:
 
 - The iteration is NEVER auto-applied to a live account. The ads-strategist is design-only. After `result.md` says "READY TO LAUNCH", the human (or `growth-hacker` from saas-startup-team) handles the actual launch.
 - If the agent gets stuck (e.g., Chrome failure, auth failure, missing browser MCP), it MUST stop and report — do not let it fabricate results.
+
+### Force-override for the wait gate
+
+The `check-wait-gate.sh` hook enforces a minimum wait (default 7 days) between post-launch iterations. In rare cases where waiting is clearly wrong (e.g., obvious tracking breakage producing zero conversions, or a Google policy violation requiring immediate copy change), you can bypass the gate:
+
+1. Write the keyword `force-wait-override` anywhere in the new iteration's `hypothesis.md`
+2. Include a written justification explaining why waiting would cause more harm than iterating early
+3. The hook will detect the keyword and allow the spec write
+
+**Do not use this for impatience.** Valid reasons: tracking breakage, policy violation, budget emergency, competitor crisis. Invalid reasons: "I think 3 days is enough data", "the numbers look bad", "the client is anxious."

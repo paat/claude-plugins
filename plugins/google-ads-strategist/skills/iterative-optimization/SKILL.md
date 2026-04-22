@@ -109,6 +109,25 @@ These are hook-enforced, not agent-enforced:
 
 Override only with explicit justification in the hypothesis.
 
+## Budget Depletion Handling
+
+When the campaign hits its monthly hard cap (from brief.md `monthly_cap`):
+
+1. **STOP all iterations immediately** — do not propose new hypotheses or spec changes
+2. **Pull final metrics** via `/ads-metrics` for the period
+3. **Write a budget-depletion result.md** in the current iteration:
+   - Metrics at time of cap hit
+   - CPA vs target
+   - Which ad groups consumed the most budget (top 3)
+   - Whether the campaign was profitable at the cap point
+4. **Recommend one of**:
+   - **Raise cap**: if CPA < target and ROAS > 1, the campaign is working — recommend a specific higher cap with projected additional conversions
+   - **Reallocate**: if some ad groups are profitable and others are burning, propose pausing losers and concentrating budget
+   - **Hold**: if CPA > target, the campaign needs optimization before more budget, not more budget before optimization
+5. **Wait for investor decision** — do not auto-resume or auto-raise budget
+
+The daily budget check happens in `/ads-metrics`. If `spend_this_month ≥ monthly_cap × 0.9`, flag "approaching monthly cap" in the metrics report. At `≥ 1.0`, trigger the depletion protocol above.
+
 ## Stop Conditions (done optimizing)
 
 Declare the campaign done when any of these hold:

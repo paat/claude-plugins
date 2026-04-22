@@ -138,6 +138,9 @@ reddit
 ```
 
 Add language-specific variants. For Estonian campaigns, also include:
+
+> **Important**: Before applying these defaults, check project memory for override rules. Some projects explicitly reclassify certain words (e.g., a word that is informational in general but a buyer modifier in a specific product niche). Project memory overrides take precedence over these defaults.
+
 ```
 kuidas
 mis on

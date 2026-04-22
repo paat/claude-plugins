@@ -72,7 +72,7 @@ The current iteration is ready to launch when **all** of the following are true.
 
 1. **Trigger coverage** — every target keyword in `spec.md` triggers the ad in the Anonymous Ad Preview Tool for the target location + device. Screenshots are in `verification/preview-<keyword>.png`.
 2. **Position ≤ 3** — average position across target keywords is ≤ 3 in the preview.
-3. **Copy differentiation** — for each target keyword, a real SERP capture exists in `verification/serp-<keyword>.png`, and the ad copy shows visible differentiation from at least 80% of the competing ads visible on that SERP (headline angle, value prop, CTA, or extension mix).
+3. **Copy differentiation** — for each target keyword, a real SERP capture exists in `verification/serp-<keyword>` (.png screenshot or .md structured extraction), and the ad copy shows visible differentiation from at least 80% of the competing ads visible on that SERP (headline angle, value prop, CTA, or extension mix).
 4. **LP alignment** — the landing page contains the primary keyword(s) in H1/H2 or above-the-fold copy, CTA is ≤ 1 scroll away, page loads in < 3 seconds on mobile (check PageSpeed Insights).
 5. **Message match** — ad copy promise matches LP first impression (same value prop, same audience framing).
 6. **Budget + tracking** — `brief.md` has an approved budget line and a `tracking_configured: true` flag.

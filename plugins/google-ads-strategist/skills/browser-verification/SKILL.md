@@ -192,12 +192,14 @@ Every Chrome session produces artifacts. The artifacts are the evidence. No arti
 iterations/v{N}/verification/
 ├── preview-<keyword>-<location>-<device>.png
 ├── preview-log.md
-├── serp-<keyword>.png
-├── serp-<keyword>.md         # structured extraction
+├── serp-<keyword>.png         # screenshot (preferred)
+├── serp-<keyword>.md          # structured extraction (equivalent evidence)
 ├── transparency-<competitor>.md
-├── metrics-YYYY-MM-DD.png    # post-launch only
-└── metrics-YYYY-MM-DD.md     # structured numbers
+├── metrics-YYYY-MM-DD.png     # post-launch only
+└── metrics-YYYY-MM-DD.md      # structured numbers
 ```
+
+**SERP evidence formats**: Both `.png` screenshots and `.md` structured extractions are accepted as valid SERP evidence. A structured extraction must contain: paid ad count, organic top 3, People Also Ask presence, shopping carousel presence, and the intent classification conclusion. When Chrome screenshot capture fails or is impractical for batch verification, `.md` structured extractions are the standard fallback — do not skip SERP verification because screenshots failed.
 
 File names must encode the relevant variables (keyword, location, device) so future iterations can diff against them.
 

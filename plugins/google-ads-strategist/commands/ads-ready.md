@@ -19,7 +19,7 @@ Skill('google-ads-strategist:buyer-intent-targeting')
 
 ## Step 1: Determine campaign
 
-Detect active campaign (or ask if ambiguous). Verify it's in pre-launch mode (no `launched_at` in brief.md). If already launched, use `/ads-metrics` instead.
+Detect active campaign (or ask if ambiguous). Verify it's in pre-launch mode (no `launched_at` marker file in the campaign directory). If already launched, use `/ads-metrics` instead.
 
 ## Step 2: Read the current iteration
 
@@ -55,15 +55,30 @@ For each condition, check and report:
 - [ ] No target keyword shows position > 4
 
 ### 4. Copy differentiation
-- [ ] A SERP capture exists in `verification/serp-*.png` for every target keyword
+- [ ] A SERP capture exists in `verification/serp-*` (.png screenshot or .md structured extraction) for every target keyword
 - [ ] A competitor copy matrix exists in `verification/transparency-*.md` for each listed competitor
 - [ ] The RSA assets occupy whitespace identified in the matrix (at least 2 headlines are differentiated)
+
+### 4b. Ad extensions
+- [ ] Each ad group has at least 4 sitelinks if competitor SERP captures show sitelinks
+- [ ] At least 4 callout extensions per ad group
+- [ ] At least 1 structured snippet per ad group
+- [ ] If price is a differentiator (from competitor matrix), price extensions are present
 
 ### 5. Landing page alignment
 - [ ] LP URL is a commercial page (pricing, signup, checkout) — NOT a blog post or guide
 - [ ] LP H1 repeats primary ad headline's value prop
 - [ ] LP CTA verb matches ad CTA verb
 - [ ] PageSpeed Insights mobile score ≥ threshold (run via WebFetch if not checked yet)
+
+### 5b. Landing page voice compliance
+For each unique LP URL in spec.md, fetch the page content and check:
+- [ ] No fear-selling language (fines, penalties, legal threats used to pressure purchase)
+- [ ] Price shown on LP matches price in ad copy (no bait-and-switch)
+- [ ] No claims that contradict ad copy (ad says "15 min", LP says "1 hour")
+- [ ] If the project defines a brand voice document or memory rule about voice/tone, cross-reference and enforce its rules
+
+Flag violations as **HIGH BLOCKER** — fear-selling or voice violations must be fixed before launch, not noted as caveats.
 
 ### 6. Message match
 - [ ] Ad copy promise matches LP first impression
@@ -75,10 +90,27 @@ For each condition, check and report:
 - [ ] `approved_budget: <value>` in brief.md
 - [ ] `target_cpa` or `target_roas` in brief.md
 
+### 7b. Conversion infrastructure readiness (if tracking uses offline conversions)
+If the campaign relies on offline conversion upload (GCLID → API), check:
+- [ ] GCLID capture code is deployed to production (not just merged — verify the LP actually stores gclid from URL params)
+- [ ] Google Ads developer token is active (not "pending" or "test")
+- [ ] Conversion action exists in Google Ads account (name matches what backend expects)
+- [ ] Required environment variables are set on production (not just in .env.example)
+- [ ] End-to-end test: fake conversion uploaded and visible in Google Ads within 24h
+
+If any of these fail, flag as **MEDIUM BLOCKER** — the campaign can launch with Manual CPC but post-launch optimization will be blind without conversion data. Note in the report that the post-launch loop cannot begin until tracking is verified.
+
 ### 8. Hypothesis closed
 - [ ] `current/result.md` exists
 - [ ] `result.md` states hypothesis held or documents why it was superseded
-- [ ] `hypothesis-log.md` has an entry for every iteration
+- [ ] `hypothesis-log.md` has an entry for every iteration (the `check-hypothesis-log.sh` hook enforces this on write, but verify here in case of manual edits)
+
+### 9. Existing campaign conflict check
+If brief.md lists existing campaigns in the account (from Q14 of `/ads-brief`):
+- [ ] Decision recorded: Replace / Evolve / Parallel
+- [ ] If Replace: existing campaign will be paused before this one enables
+- [ ] If Parallel: no keyword overlap between campaigns (grep both specs for shared exact-match keywords)
+- [ ] If Evolve: learnings from old campaign incorporated into hypothesis-log.md
 
 ## Step 4: Produce the report
 
@@ -111,5 +143,6 @@ For each condition, check and report:
 ## Notes
 
 - NEVER mark READY if any Pass column is ❌
-- READY WITH CAVEATS is allowed only if failures are all in category 7 (tracking/budget) — those are human prerequisites, not ad design issues
+- READY WITH CAVEATS is allowed only if failures are all in categories 4b/7/7b/9 (extensions/tracking/budget/existing campaign) — those are human prerequisites or incremental improvements, not core ad design issues
+- Section 5b (LP voice compliance) failures are HIGH BLOCKERs — NEVER mark READY WITH CAVEATS for voice violations
 - If multiple conditions fail, pick the MOST critical one and show it prominently in the recommendation

@@ -1,5 +1,9 @@
 # Claude Plugins Repository
 
+## Target
+
+Plugins in this repo are designed for **Estonian SaaS companies** — the primary audience is small Estonian businesses, e-residents, and micro-OÜs. However, all plugins must remain generic: no hardcoded company names, product names, or project-specific paths. Use template variables for anything that varies between projects.
+
 ## Rules
 
 - All plugins in this repo must be generic and project-agnostic

@@ -40,6 +40,26 @@
             "description": "Post-launch: enforce N-day wait between iteration applies for statistical significance"
           }
         ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-hypothesis-log.sh",
+            "description": "Block writing result.md without a corresponding entry in hypothesis-log.md"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-estonian-diacritics.sh",
+            "description": "Block writing spec.md with ASCII substitutes for Estonian diacritics (ä, ö, ü, õ, š, ž)"
+          }
+        ]
       }
     ]
   }

@@ -169,7 +169,17 @@ If the LP is a commercial page that can't be modified, that constrains the ad co
 
 For Estonian: all copy uses proper diacritics (ä, ö, ü, õ, š, ž). Never ASCII-ified. "Aastaaruanne e-residendile" not "Aastaaruanne e-residendile" with wrong chars.
 
-For Russian: Cyrillic throughout, never transliterated.
+For Russian: Cyrillic throughout, never transliterated. Additional RU-specific rules:
+
+- **Numeral grammar**: Russian numerals govern noun case. This matters in headlines with numbers (prices, time, counts):
+  - 1: nominative singular ("1 год", "1 минута", "1 отчёт")
+  - 2-4: genitive singular ("2 года", "3 минуты", "4 отчёта")
+  - 5-20: genitive plural ("5 лет", "10 минут", "15 отчётов")
+  - 21: back to nominative singular ("21 год"), 22-24 genitive singular, etc.
+  - **Ad copy with wrong numeral agreement looks illiterate** — always verify after writing
+- **Character budget**: Cyrillic characters are wider than Latin in most fonts. A 30-char headline in Russian will visually appear longer than 30 chars of English. Write RU headlines 2-3 chars shorter than the limit to avoid visual cramping on mobile.
+- **Formal "вы"**: B2B and financial services use formal "Вы" (capitalized). Consumer products use lowercase "вы". Match the product's register.
+- **Price format**: Use the target market's convention. For Estonia/EU: "€29" (symbol before number). Never "29 евро" in a headline — wastes 4 chars.
 
 For English: when targeting non-native-English markets (e.g., Estonian e-residents), avoid idioms and colloquialisms that won't translate — "crush it" is a no, "save time" is yes.
 
