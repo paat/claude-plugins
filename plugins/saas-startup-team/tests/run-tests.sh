@@ -1208,6 +1208,38 @@ test_delegation_enforcement_hook() {
   output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "N9: exits 0 when no .startup dir" "$ec" 0
   rm -rf "$workdir"
+
+  # N10: Exits 2 when active_role is explicitly team-lead and editing source code
+  workdir=$(mktemp -d)
+  git init -q "$workdir"
+  mkdir -p "$workdir/.startup"
+  echo '{"active_role":"team-lead"}' > "$workdir/.startup/state.json"
+  ec=0; output=""
+  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "N10: exits 2 when active_role=team-lead edits source" "$ec" 2
+  assert_output_contains "N10b: systemMessage present" "$output" "systemMessage"
+  rm -rf "$workdir"
+
+  # N11: Exits 0 when active_role is absent — no orchestrator context to enforce
+  # (regression: /improve, /lawyer, and direct agent invocations hit this path)
+  workdir=$(mktemp -d)
+  git init -q "$workdir"
+  mkdir -p "$workdir/.startup"
+  echo '{}' > "$workdir/.startup/state.json"
+  ec=0; output=""
+  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "N11: exits 0 when active_role absent" "$ec" 0
+  rm -rf "$workdir"
+
+  # N12: Exits 0 when active_role is a team-member variant (e.g. tech-founder-maintain)
+  workdir=$(mktemp -d)
+  git init -q "$workdir"
+  mkdir -p "$workdir/.startup"
+  echo '{"active_role":"tech-founder-maintain"}' > "$workdir/.startup/state.json"
+  ec=0; output=""
+  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "N12: exits 0 when active_role=tech-founder-maintain" "$ec" 0
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
