@@ -329,6 +329,32 @@ fi
 
 After this step, the index reflects all feed changes. Flagged entries are handled by the Fix-Plan and Confirmation flow (Tasks 10–11).
 
+## Invariant Check (non-blocking warnings)
+
+```bash
+# Check 1: registered slug with no snapshot file
+jq -r '.entries | keys[]' .startup/law-registry.json | while IFS= read -r slug; do
+  [ -z "$slug" ] && continue
+  if [ ! -f ".startup/laws/${slug}.txt" ]; then
+    echo "⚠ Snapshot missing for registered slug '$slug' (.startup/laws/${slug}.txt)"
+  fi
+done
+
+# Check 2: orphan snapshot files
+if [ -d .startup/laws ]; then
+  for f in .startup/laws/*.txt; do
+    [ -f "$f" ] || continue
+    s=$(basename "$f" .txt)
+    if ! jq -e --arg s "$s" '.entries | has($s)' .startup/law-registry.json >/dev/null; then
+      echo "⚠ Orphan snapshot '$f' (no registry entry for slug '$s')"
+    fi
+  done
+fi
+
+# Check 3 & 4: requires the marker scan (Task 7). Run the scan and compare slug sets.
+# (Details: collect all slugs from marker scan output, diff against .entries | keys)
+```
+
 ## Conditional gh pre-flight
 
 If any entry has `needs_review=true` AND `gh_issue_url=null`, the investor is about to be prompted to create a GitHub issue. `gh` must work at that point.
