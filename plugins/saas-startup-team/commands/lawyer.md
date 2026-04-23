@@ -357,6 +357,76 @@ if [ -n "$needs_gh" ]; then
 fi
 ```
 
+## Fix-Plan Generation
+
+Runs only when the change-detection step produced at least one flagged-and-unacked entry (`needs_review=true AND gh_issue_url=null`). For entries where `gh_issue_url` is already set, skip — we don't re-produce a fix plan for an open issue.
+
+### Step 1: Collect flagged-and-unacked slugs
+
+```bash
+FLAGGED_SLUGS=$(jq -r '
+  .entries | to_entries[]
+  | select(.value.needs_review == true and .value.gh_issue_url == null)
+  | .key
+' .startup/law-registry.json)
+```
+
+### Step 2: Fetch current paragraph text and stash old + new + change per slug
+
+```bash
+TMP=$(mktemp -d)
+while IFS= read -r slug; do
+  [ -z "$slug" ] && continue
+  act_id=$(jq -r --arg s "$slug" '.entries[$s].act_id' .startup/law-registry.json)
+  citation=$(jq -r --arg s "$slug" '.entries[$s].citation' .startup/law-registry.json)
+  encoded=$(printf '%s' "$citation" | jq -sRr @uri)
+  resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+    "https://datalake.r-53.com/api/v1/laws/${act_id}/citation?paragraph=${encoded}")
+  new_text=$(echo "$resp" | jq -r '.text // ""')
+  old_text=$(cat ".startup/laws/${slug}.txt" 2>/dev/null || echo "")
+  # Stash for agent
+  jq -n --arg slug "$slug" --arg old "$old_text" --arg new "$new_text" \
+    --argjson change "$(jq -c --arg s "$slug" '.entries[$s].change' .startup/law-registry.json)" \
+    '{slug:$slug, old_text:$old, new_text:$new, change:$change}' \
+    > "$TMP/${slug}.json"
+done <<< "$FLAGGED_SLUGS"
+```
+
+### Step 3: Run the Marker Scan and stash results
+
+```bash
+# Output format: <slug>\t<file>:<line>
+# Run the Marker Scan logic above and redirect its output to "$TMP/markers.tsv"
+```
+
+### Step 4: Spawn the Lawyer agent
+
+Invoke the Lawyer agent via the Task tool with the following brief:
+
+> Brief: "Seadusemuudatuste parandusplaan"
+>
+> Context files (read these — they already contain old text, new text, and feed-event summaries):
+> - `$TMP/<slug>.json` for each flagged slug
+> - `$TMP/markers.tsv` — the slug → file:line map from the marker scan
+>
+> For each flagged slug:
+> 1. Read the files listed in markers.tsv for that slug; understand how each site uses the paragraph.
+> 2. Produce a plain-language fix plan per file: what needs to change, WHY (one sentence), HOW (concrete — function to call, sentence to rewrite, etc.). NOT legal language.
+> 3. Write/append `docs/legal/õiguslik-muudatused-YYYY-MM-DD.md` following the template in the design doc (fix plan up front; legal diff in `<details>` appendix).
+>
+> Do NOT modify `.startup/law-registry.json` or any `.startup/laws/*.txt` file. Those are the command body's responsibility.
+>
+> Return (as your final message): a one-sentence summary per slug for the confirmation prompt, prefixed with the slug itself. Example:
+> ```
+> consent-lawful-basis: § 10 lõige 2 lisas töötleja teavituse kohustuse — uuendada tuleb 3 faili.
+> ```
+
+### Step 5: Capture agent response
+
+Capture the agent's response summary. The command body parses it for the AskUserQuestion prompt next step.
+
+On agent failure (agent returns an error or crashes): fall back to a minimal fix plan generated in bash from the new-text diff, write a stub review doc, and continue. The investor can always improve the issue body by hand after creation.
+
 ## Execution
 
 ### Step 0: Reset active_role

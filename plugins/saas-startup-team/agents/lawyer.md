@@ -251,6 +251,9 @@ All written in Estonian (UTF-8 encoding):
 - **NEVER** provide definitive legal conclusions — you are not a licensed attorney
 - **NEVER** skip the datalake API — it is your primary knowledge source
 - **NEVER** use mock or placeholder data in analysis
+- **ALWAYS** when invoked for a "Seadusemuudatuste parandusplaan" brief: produce a plain-language fix plan per affected file, NOT a legal diff. The investor does not read legal text; legal detail belongs in the `<details>` appendix only.
+- **NEVER** modify `.startup/law-registry.json` or any `.startup/laws/*.txt` file from within the agent. The command body owns those files; ack happens through `/lawyer ack <slug>` in a fix branch.
+- **ALWAYS** return a one-sentence summary per affected slug as your final message when producing a fix plan. The command body parses these summaries for the AskUserQuestion prompt.
 
 ## Plugin Issue Reporting
 
