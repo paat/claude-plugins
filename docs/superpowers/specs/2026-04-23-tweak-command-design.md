@@ -41,19 +41,17 @@ A new slash command `/tweak <description>` that bypasses the agent loop entirely
 9. **Return to main.** `git checkout main`.
 10. **Report to investor** with the PR URL.
 
-## `enforce-delegation.sh` Change
+## `enforce-delegation.sh` — No Change Needed
 
-The hook currently blocks file edits when `active_role == "team-lead"`, preventing the orchestrator from doing implementation work. `/tweak` needs an exception.
-
-Add an early exit near the top of the hook:
+The hook at `scripts/enforce-delegation.sh:46` already short-circuits on any `active_role` that isn't exactly `"team-lead"`:
 
 ```bash
-if [ "$active_role" = "team-lead-tweak" ]; then
+if [ "$active_role" != "team-lead" ]; then
   exit 0
 fi
 ```
 
-This is a named bypass scoped to this single command. Any other context that sets `active_role = "team-lead-tweak"` incorrectly would also bypass, but that string is unique to `/tweak` and not produced by any other flow.
+Setting `active_role = "team-lead-tweak"` in Step 5 falls through this check and the orchestrator's edits are allowed. No hook modification required. This matches how `/improve` already uses `"business-founder-maintain"` as its role string to avoid the block.
 
 ## What `/tweak` Explicitly Does Not Do
 
@@ -66,7 +64,6 @@ This is a named bypass scoped to this single command. Any other context that set
 ## Files Touched in the Plugin
 
 - **New:** `plugins/saas-startup-team/commands/tweak.md` (command definition, ~40 lines).
-- **Modified:** `plugins/saas-startup-team/scripts/enforce-delegation.sh` (add the 3-line early-exit).
 - **Modified:** `plugins/saas-startup-team/.claude-plugin/plugin.json` — version bump.
 - **Modified:** `.claude-plugin/marketplace.json` — version bump (must stay in sync per CLAUDE.md).
 
@@ -80,4 +77,4 @@ This is a named bypass scoped to this single command. Any other context that set
 
 - **Scope creep:** investor uses `/tweak` for non-trivial changes because it's faster. The advisory scope guard is the only defense; the investor can override. Acceptable given the "speed over safety" preference.
 - **Skipped QA misses a regression:** the investor is now responsible for spotting visual/behavioral regressions via the PR diff instead of Playwright. Acceptable for the command's trivial-fix scope.
-- **`enforce-delegation` bypass leaks:** the `team-lead-tweak` role is the only escape hatch; any future code that sets that value unintentionally would bypass the hook. Mitigation: grep before landing — no other flow should write `team-lead-tweak`.
+- **`active_role` sprawl:** another role string (`team-lead-tweak`) added to the informal set. Not really a risk — the enforce-delegation check is a safelist of one (`"team-lead"`) and every other string passes. Just noting the growing list of role values floating around.
