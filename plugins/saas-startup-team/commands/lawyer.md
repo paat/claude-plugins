@@ -167,6 +167,37 @@ exit 0
 
 Failure: if the datalake citation call returns empty text, the helper hard-fails and does NOT leave a partial snapshot on disk (snapshot is written only after the text check passes).
 
+## Unregister subcommand
+
+Args: `unregister <slug>`
+
+Behaviour:
+
+```bash
+SLUG="$1"
+[ -n "$SLUG" ] || { echo "Error: slug required"; exit 1; }
+
+if [ ! -f .startup/law-registry.json ]; then
+  echo "No registry present; nothing to unregister."
+  exit 0
+fi
+
+existing=$(jq -r --arg slug "$SLUG" '.entries[$slug] // empty' .startup/law-registry.json)
+if [ -z "$existing" ]; then
+  echo "Slug '$SLUG' not in registry; nothing to unregister."
+  # Still remove a stray snapshot file if present (cleans orphan)
+  rm -f ".startup/laws/${SLUG}.txt"
+  exit 0
+fi
+
+jq --arg slug "$SLUG" 'del(.entries[$slug])' .startup/law-registry.json > .startup/law-registry.json.tmp
+mv .startup/law-registry.json.tmp .startup/law-registry.json
+rm -f ".startup/laws/${SLUG}.txt"
+
+echo "Unregistered: $SLUG"
+exit 0
+```
+
 ## Execution
 
 ### Step 0: Reset active_role
