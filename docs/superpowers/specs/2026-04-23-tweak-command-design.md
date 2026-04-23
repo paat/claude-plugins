@@ -18,26 +18,35 @@ A new slash command `/tweak <description>` that bypasses the agent loop entirely
    - `.startup/` exists (else: "run `/startup` first").
    - `.startup/go-live/solution-signoff.md` exists (else: "`/tweak` is for post-completion fixes; run `/startup` or `/improve` for in-progress work").
    - Working tree is clean (else: "commit or stash before running `/tweak`").
-2. **Capture description.** If no argument, prompt: "What do you want tweaked?"
+2. **Capture description.** If no argument, prompt: "What do you want tweaked?" If the response is empty or fewer than 3 non-whitespace characters, refuse: "Description too short — say what you want changed." Abort without creating anything.
 3. **Scope guard (advisory, non-blocking).** If the description contains 3+ distinct items or mentions new features/integrations/data models, warn:
    > This looks bigger than a tweak. Consider `/improve` for anything needing QA. Proceed with `/tweak` anyway?
    Proceed on confirmation.
 4. **Branch.** Slugify the description (lowercase, hyphens, max 40 chars) → `tweak/<slug>`. If the branch exists, prompt for a different slug or `git branch -D`.
 5. **Set `active_role = "team-lead-tweak"`** in `.startup/state.json`.
 6. **Edit directly.** Team lead reads the relevant files and makes the changes the investor described. No `Task` dispatch.
-7. **Commit.** `git add -A && git commit -m "tweak: <description>" --no-verify`. (`--no-verify` is intentional — same pattern as `/improve`'s catch-all commit.)
-8. **Push + PR (non-draft).**
+7. **Commit.** Defensive, because `auto-commit.sh` may have already fired on an edit inside `docs/` or similar and committed it with its own message:
+   ```bash
+   git add -A
+   git diff --cached --quiet || git commit -m "tweak: <description>"
+   ```
+   **Do not pass `--no-verify`.** Unlike `/improve`'s catch-all sweep commit (which runs after the auto-commit hook has already committed the real work), this is the primary commit for `/tweak` — project pre-commit hooks (prettier, eslint, type-check) should run. If a pre-commit hook fails, abort and report the error to the investor with instructions to fix and either retry `/tweak` or finish by hand.
+8. **Push + PR (non-draft).** Use `git diff main...HEAD --stat` for the summary (diff of the branch vs main, not of the working tree):
    ```bash
    git push -u origin HEAD
-   gh pr create --title "tweak: <short desc>" --body "$(cat <<'EOF'
+   diff_stat=$(git diff main...HEAD --stat)
+   gh pr create --title "tweak: <short desc>" --body "$(cat <<EOF
    ## What
    <investor's description>
 
    ## Diff summary
-   <git diff --stat output>
+   \`\`\`
+   ${diff_stat}
+   \`\`\`
    EOF
    )"
    ```
+   If `git push` or `gh pr create` fails, report the error to the investor and stop. The branch exists locally with the commit; the investor can push + create the PR by hand.
 9. **Return to main.** `git checkout main`.
 10. **Report to investor** with the PR URL.
 
@@ -78,3 +87,4 @@ Setting `active_role = "team-lead-tweak"` in Step 5 falls through this check and
 - **Scope creep:** investor uses `/tweak` for non-trivial changes because it's faster. The advisory scope guard is the only defense; the investor can override. Acceptable given the "speed over safety" preference.
 - **Skipped QA misses a regression:** the investor is now responsible for spotting visual/behavioral regressions via the PR diff instead of Playwright. Acceptable for the command's trivial-fix scope.
 - **`active_role` sprawl:** another role string (`team-lead-tweak`) added to the informal set. Not really a risk — the enforce-delegation check is a safelist of one (`"team-lead"`) and every other string passes. Just noting the growing list of role values floating around.
+- **Pre-commit hook failure leaves a half-done branch.** If the project's pre-commit fails in Step 7, `/tweak` exits on `tweak/<slug>` with the edit staged but not committed. The investor must either fix and commit manually or abort (`git checkout main && git branch -D tweak/<slug>`). Next `/tweak` invocation will fail the clean-tree pre-flight until this is resolved. Acceptable — silent failures would be worse.
