@@ -47,23 +47,27 @@ echo "${EST_DATALAKE_API_KEY:?not set}" > /dev/null 2>&1
 
 ### Check 4: Law registry is valid (if present)
 
-If `.startup/law-registry.json` exists, it must be valid JSON with `version: 1`:
+If `.startup/law-registry.json` exists, it must be valid JSON with `version: 1`. Missing file is fine — the command creates it on first use.
 
 ```bash
 if [ -f .startup/law-registry.json ]; then
-  if ! jq -e '.version == 1' .startup/law-registry.json >/dev/null 2>&1; then
-    echo "Error: .startup/law-registry.json is invalid or has unexpected version"
-    echo "Fix or remove the file before running /lawyer again."
-    exit 1
-  fi
-fi
-if [ -e .startup/laws ] && [ ! -d .startup/laws ]; then
-  echo "Error: .startup/laws exists but is not a directory"
-  exit 1
+  jq -e '.version == 1' .startup/law-registry.json >/dev/null 2>&1
 fi
 ```
 
-Missing `.startup/law-registry.json` is fine — the command creates it on first use.
+**If non-zero exit:**
+> **Error:** `.startup/law-registry.json` is not valid JSON or is not version 1 (expected `{"version": 1, ...}`). Fix or remove the file before running /lawyer again.
+
+### Check 5: Laws directory is a directory (if present)
+
+If `.startup/laws` exists, it must be a directory. Missing path is fine.
+
+```bash
+[ ! -e .startup/laws ] || [ -d .startup/laws ]
+```
+
+**If non-zero exit:**
+> **Error:** `.startup/laws` exists but is not a directory. Remove or rename it before running /lawyer again.
 
 ## Execution
 
