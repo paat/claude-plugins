@@ -165,9 +165,10 @@ refreshed on registration and on ack.
 | `verified_at` | ISO-8601 | When the text was last confirmed against the datalake (registration or ack). |
 | `registered_by` | string | `"lawyer"`, `"tech-founder"`, `"business-founder"`. Informational. |
 | `purpose` | string | One-line description of why this paragraph is load-bearing. Free-form — source markers carry the per-site context. |
-| `needs_review` | bool | **Work-blocking flag.** Any entry with `true` stops normal `/lawyer` operation. Cleared only by explicit `ack`. |
-| `change_detected_at` | ISO-8601 \| null | When the feed reported the change. |
-| `change` | object \| null | `{feed_event_id, type, summary}`. `type` is `"amended" \| "repealed" \| "replaced" \| "other"`. The timestamp lives on `change_detected_at`. |
+| `needs_review` | bool | **Work-pending flag.** `true` means the feed has reported a change that is not yet reflected in the `.txt` snapshot or in the code. Cleared by `ack`, which is called inside the PR that ships the code fix. Interaction with `gh_issue_url`: while `needs_review=true` AND `gh_issue_url=null`, /lawyer blocks analysis and prompts. Once `gh_issue_url` is set, /lawyer proceeds with a reminder — the fix is tracked elsewhere. |
+| `change_detected_at` | ISO-8601 \| null | When the feed reported the change. Cleared by `ack`. |
+| `change` | object \| null | `{feed_event_id, type, summary}`. `type` is `"amended" \| "repealed" \| "replaced" \| "other"`. Cleared by `ack`. The timestamp lives on `change_detected_at`. |
+| `gh_issue_url` | string \| null | Set when the investor confirms "Jah, loo issue". Preserved through `ack` as the permanent link to the GitHub issue that tracked this change. Pure reference — registry never reads the issue back; it only points at it. |
 
 ### Invariant: index ↔ snapshot files
 
@@ -280,26 +281,34 @@ If the feed reports a change at act-level only (no paragraph metadata), every
 registered entry for that act_id is marked `needs_review`. Acceptable false
 positive — the human review decides per-paragraph relevance.
 
-## Alert and Pause Flow
+## Fix-Plan and Confirmation Flow
 
 After change detection runs, if any entry has `needs_review == true` (whether
 newly flagged this run or pending from a prior run):
 
-1. **Lawyer does NOT proceed with the user's requested topic.** Analysis agent
-   is not spawned.
-2. **For each flagged slug, load both old and new paragraph text:**
+1. **Command body does NOT proceed with the user's requested topic.** Instead
+   it spawns the Lawyer agent with a specific brief: "changes have been
+   detected on slugs [...]; produce a plain-language fix plan and ask the
+   investor how to proceed."
+2. **The Lawyer agent, for each flagged slug, loads both old and new paragraph text:**
    - Old text: read `.startup/laws/<slug>.txt` (the last-verified snapshot).
    - New text: `curl --max-time 30 GET /laws/{act_id}/citation?paragraph=…`
      against the datalake. Normalise (trim + NFC). This is ONE additional API
      call per flagged entry — not per entry overall. Do NOT overwrite the
-     `.txt` file yet; the snapshot is only refreshed at ack time after the
-     investor has confirmed the review.
-   - If the new-text fetch fails (non-2xx or timeout), continue the alert flow
-     with a placeholder "⚠ uut teksti ei õnnestunud laadida — kontrolli käsitsi"
-     instead of the new-text block. Alert must still be written.
-3. **Write/append the review document** at
+     `.txt` file yet; the snapshot is only refreshed at confirmation time.
+   - If the new-text fetch fails (non-2xx or timeout), continue with a
+     placeholder "⚠ uut teksti ei õnnestunud laadida — kontrolli käsitsi"
+     instead of the new-text block; the fix plan will be less precise but
+     not absent.
+3. **The Lawyer agent reads the affected source files** (from the marker grep),
+   understands how each site uses the paragraph, and synthesises a
+   **plain-language fix plan** per file. The fix plan describes what needs to
+   change in product terms, not legal terms — the investor is explicitly not
+   expected to read the legal diff to understand what to do.
+4. **Write/append the review document** at
    `docs/legal/õiguslik-muudatused-YYYY-MM-DD.md`. If the file exists, append a
-   new section with the current timestamp. Structure:
+   new section with the current timestamp. Structure (fix plan first, legal
+   diff as appendix):
 
    ```markdown
    # Seadusemuudatused — YYYY-MM-DD
@@ -312,16 +321,28 @@ newly flagged this run or pending from a prior run):
    |------|--------|------|-----------|------------------|
    | consent-lawful-basis | Isikuandmete kaitse seadus § 10 lõige 2 | amended | 2026-04-21 | 3 |
 
-   ## Detailid
+   ## Mida tuleb teha
 
-   ### consent-lawful-basis
-   **Seadus:** Isikuandmete kaitse seadus § 10 lõige 2
-   **Muudatuse tüüp:** amended
-   **Avastatud:** 2026-04-21
-   **Riskitase:** Keskmine
+   ### consent-lawful-basis — Keskmine
 
-   **Feed'i kokkuvõte:**
-   [summary from feed]
+   Lühidalt: § 10 lõige 2 lisas uue kohustuse andmetöötleja teavitamiseks
+   andmesubjekti nõusoleku muutumisest. Praegune voog ainult salvestab
+   nõusoleku, aga ei saada teavitust töötlejale.
+
+   **Parandused failide kaupa:**
+
+   - `src/auth/consent.ts:42` — `recordConsent()` järele lisa kutse
+     `notifyProcessor(consentChange)`. Funktsioon `notifyProcessor` on vaja
+     kirjutada (pakuti välja `src/auth/processor-notify.ts`).
+   - `app/privacy/page.tsx:18` — uuenda loetelu "Mida me andmetega teeme"
+     nii, et see nimetab töötleja teavitust, kui nõusolek muutub.
+   - `docs/customer/privacy.md:10` — sama muudatus avalikus privaatsuspoliitikas,
+     sõnastus sama mis app/privacy/page.tsx.
+
+   ## Lisa — õiguslik detail (audit trail)
+
+   <details>
+   <summary>§ 10 lõige 2 — eelmine vs. uus tekst</summary>
 
    **Eelmine tekst (salvestatud `verified_at`-ga 2026-04-20):**
    > Isikuandmete töötlemine on lubatud …
@@ -329,38 +350,29 @@ newly flagged this run or pending from a prior run):
    **Uus tekst (datalake, 2026-04-23):**
    > Isikuandmete töötlemine on lubatud ning töötlejal on kohustus …
 
-   **Muutunud osa:**
    ```diff
    - Isikuandmete töötlemine on lubatud …
    + Isikuandmete töötlemine on lubatud ning töötlejal on kohustus …
    ```
-
-   **Mõjutatud failid:**
-   - src/auth/consent.ts:42
-   - app/privacy/page.tsx:18
-   - docs/customer/privacy.md:10
-
-   **Soovitatud tegevused:**
-   1. Vaata üle loetletud failid — kas loogika/sõnastus vajab uuendamist?
-   2. Pärast läbivaatust käivita /lawyer uuesti ja ütle, et oled muudatused
-      üle vaadanud (nt `/lawyer olen muudatused üle vaadanud, jätka <topic>`).
+   </details>
    ```
 
-4. **Print terminal alert:**
+5. **Ask the investor interactively** via `AskUserQuestion` (in the command
+   body, in the same run — no /lawyer re-invocation required):
 
    ```
-   ⚠ STOP: 1 seadus(t) on muutunud. Analüüsi <topic> ei alustata.
+   Seadusemuudatus avastatud — 1 kirje (consent-lawful-basis § 10 lõige 2).
+   Täielik parandusplaan: docs/legal/õiguslik-muudatused-2026-04-23.md
 
-   - consent-lawful-basis (§ 10 lõige 2): amended on 2026-04-21
-     Mõjutab: src/auth/consent.ts:42, app/privacy/page.tsx:18, docs/customer/privacy.md:10
+   Kas luua GitHubi issue koos parandusplaaniga?
 
-   Täielik raport: docs/legal/õiguslik-muudatused-2026-04-23.md
-
-   Pärast läbivaatust taaskäivita:
-     /lawyer olen muudatused üle vaadanud, jätka <original topic>
+     [1] Jah, loo issue        (soovitatud)
+     [2] Ei, jäta hiljemaks
    ```
 
-5. **Exit.**
+6. **Handle the answer** (see Confirmation Flow below). Registry and `.txt`
+   are NOT touched yet in either branch — those updates happen in the PR that
+   ships the code fix, not here.
 
 ### Risk level heuristic for the alert doc
 
@@ -424,44 +436,129 @@ the command body has a deterministic entry point callable from bash.
   a crash happens between, a re-run sees the orphan `.txt` (warning) and the
   next registration attempt recovers.
 
-## Acknowledgement Flow
+## Confirmation Flow
 
-The investor's only interface is `/lawyer <natural-language topic>`.
-Acknowledgement is signalled inside the topic string, not through a separate
-subcommand. The Lawyer agent, on entering the run, inspects the topic:
+Confirmation happens in the **same run** as detection, via an
+`AskUserQuestion` prompt from the command body. The investor answers once;
+the flow continues without needing a /lawyer re-invocation. There are only
+two answers — there is no manual-handling escape hatch. Registry and `.txt`
+updates never happen at confirmation time; they are owned by the PR that
+fixes the code (see Fix Implementation below).
 
-- **Topic contains an ack phrase** (case-insensitive match on any of:
-  `olen üle vaadanud`, `kinnita muudatused`, `muudatused on vaadatud`,
-  `i have reviewed`, `reviewed the changes`, `acked`, `ack`, `acknowledged`,
-  `proceed anyway`, `proceed with review`) → the agent runs ack logic for
-  all currently flagged entries, then continues with whatever residual
-  intent remains in the topic.
-- **Topic also names specific slugs** (e.g. `olen üle vaadanud
-  consent-lawful-basis`) → ack is limited to the named slugs.
-- **No ack phrase and entries are still flagged** → the agent re-prints the
-  alert and does not run analysis.
+### Disposition A — "Jah, loo issue" (investor confirms)
 
-Ack logic, regardless of how it was triggered:
+**Command body actions, per currently-flagged entry:**
 
-1. For each entry being acked:
-   - Fetch fresh text via `/laws/{act_id}/citation`.
-   - Normalise (trim + NFC) and overwrite `.startup/laws/<slug>.txt` with the
-     new text.
-   - On the index entry: if the response carries a `redaktsioon_id` (see Open
-     Question 3), update that field; update `verified_at` to now; clear
-     `needs_review`, `change_detected_at`, `change`.
-2. Persist the index.
-3. Print summary: `Kinnitatud: <n> kirjet. Jätkan analüüsiga: <residual topic>`.
+1. Compose issue body from the review doc's "Mida tuleb teha" section for
+   that slug (the plain-language fix plan, not the legal appendix) plus a
+   trailing block titled "Registri värskendus PR-s" that lists the exact
+   changes the PR must also include (see Fix Implementation).
+2. `gh issue create --title "Seadusemuudatus: <citation> — <slug>" \
+   --label "legal-review,seadusemuudatus" --body "$BODY"`.
+3. Capture the issue URL from `gh`'s stdout.
+4. On the index entry: set `gh_issue_url=<url>`. Do NOT touch
+   `needs_review`, `change`, `change_detected_at`, `verified_at`, or the
+   `.txt` file. Those remain as detection left them.
+5. Persist index.
 
-Acknowledgement does NOT require that the investor has actually modified any
-source files. The semantic is: "I have reviewed this change and confirmed the
-product is still correct (or will address it separately)." Tracking "did the
-user actually update src/auth/consent.ts?" would require heuristics weaker than
-an explicit ack in the investor's own words.
+After all flagged entries are issued, the run **proceeds with the
+investor's original topic** — issue creation is a sufficient acknowledgement
+for analysis to continue. The topic analysis receives the list of flagged
+slugs as context so it can note in its output "pending legal fixes tracked
+in #123, #124".
 
-The explicit `ack` subcommand below is plumbing that the lawyer agent invokes
-internally (via bash) to do this work. It is also callable directly for
-scripting or by other agents, but not part of the investor's expected UX.
+### Disposition B — "Ei, jäta hiljemaks" (investor declines)
+
+- No `gh` call. Registry and `.txt` untouched. `needs_review` stays `true`,
+  `gh_issue_url` stays `null`.
+- Run exits without running the requested topic.
+- Next /lawyer run will re-prompt.
+
+### Hard dependency on `gh`
+
+Because there is no manual-handling path, `gh issue create` must succeed for
+flagged entries to be acknowledged. The command's pre-flight therefore adds
+a conditional check: **only when any entry has `needs_review=true` AND
+`gh_issue_url=null`**, verify `gh auth status` passes and
+`gh repo view --json nameWithOwner` returns a result. On failure, hard-fail
+with:
+
+> **Error:** /lawyer detected pending legal changes that need GitHub issues,
+> but `gh` is unavailable (<reason>). Install and authenticate the `gh` CLI,
+> or ensure this repo has a GitHub remote. There is no manual-handling
+> fallback — registry coherence requires that each change be tracked in an
+> issue and fixed via a PR.
+
+For projects that are never going to use GitHub, the whole registry
+workflow is unusable. Documented as a known limitation below.
+
+### Re-detection while an issue is already open
+
+If, on a later /lawyer run, the feed reports a NEW change for an entry
+that already has `gh_issue_url` set (i.e. a second amendment arrived before
+the first PR landed):
+
+- Update `change` and `change_detected_at` to the latest event.
+- Do NOT create a second issue.
+- Surface a reminder: "Issue #N is still open for this slug; lisa kommentaar
+  uue muudatuse kohta."
+- Proceed with the topic (the existing issue is already acknowledgement).
+
+### Why `.txt` is NOT overwritten at confirmation
+
+The `.txt` snapshot represents the *last-known-good* text the product is
+aligned with. If we overwrote it at confirmation time, the source of truth
+would briefly diverge from the code (code still references the old redaktsioon
+semantics until the PR ships). The user's invariant — "logic, information on
+pages, and source of truth must be coherent" — requires `.txt` refresh to
+happen atomically with the code fix. That's done in the PR, not here.
+
+## Fix Implementation (owned by the PR)
+
+The GitHub issue contains a plain-language fix plan. Whoever implements it
+(tech founder agent via /improve, or a human) must ship these changes in a
+**single PR**:
+
+1. **Code / copy changes** per the fix plan — the files listed under each
+   entry in the review doc.
+2. **Registry snapshot update** — overwrite `.startup/laws/<slug>.txt` with
+   the new normalised paragraph text (fetched via
+   `/laws/{act_id}/citation`).
+3. **Registry index update** — on the index entry: clear `needs_review`,
+   clear `change`, clear `change_detected_at`, set `verified_at=now`,
+   update `redaktsioon_id` if present. `gh_issue_url` is preserved
+   (it's the historical link to the issue this PR closed).
+
+Step 2 and 3 are what the `/lawyer ack <slug>` helper does mechanically.
+The tech founder agent is expected to run it as the last step of its work
+inside the branch, before committing. Bash only — no analysis re-run.
+
+All three items land in the same commit (or at least in the same PR), so
+the merge is atomic with respect to registry coherence: before merge, code
+references old semantics and `.txt` holds old text; after merge, both are
+new. There is never a window where the repository is internally
+inconsistent.
+
+### Helper subcommands (internal plumbing)
+
+The command file exposes the mechanical operations as helpers. None of them
+is part of investor UX; they're called by the Lawyer agent, by other
+agents, or in scripts:
+
+- `/lawyer ack <slug>` — Fix Implementation steps 2+3 for one slug. Must be
+  called inside the branch that contains the code fix. Fetches new text,
+  overwrites `.txt`, updates index.
+- `/lawyer ack-all` — `ack` applied to every slug with `needs_review=true`.
+  Use with care — only correct if the PR's code changes cover every flagged
+  slug.
+- `/lawyer issue <slug>` — Disposition A for one slug, skipping the
+  interactive prompt. For agent use.
+- `/lawyer status` — print registry state: total entries, flagged entries,
+  entries with open gh issues, last feed check.
+- `/lawyer check` — run feed re-check without producing fix plans or
+  prompts. For scripting.
+- `/lawyer register ...`, `/lawyer unregister <slug>` — registration and
+  removal.
 
 ## Command Surface
 
@@ -473,19 +570,20 @@ The investor interacts with only one form:
 /lawyer <free-form topic, Estonian or English>
 ```
 
-Everything — analysis requests, acknowledgement of detected changes, asking
-for registry status, asking for a change re-check — is expressed inside the
-topic string. The Lawyer agent interprets intent. Example topics:
+Everything — analysis requests, asking for registry status, asking for a
+change re-check — is expressed inside the topic string. The Lawyer agent
+interprets intent. Example topics:
 
 - `analyze our ToS for GDPR gaps`
-- `olen seadusemuudatused üle vaadanud, jätka DPA analüüsiga`
 - `what's in the law registry?`
 - `recheck for law changes`
 - `register § 10 lõige 2 of the Data Protection Act — we use it for signup consent`
 
-The investor is never expected to type subcommand tokens like `ack` or
-`register` as the first argument, and the terminal alert prompts them with a
-natural-language continuation, not a subcommand.
+When a change is detected mid-run, the command body prompts the investor
+interactively via `AskUserQuestion` with two options: *"Jah, loo issue"* /
+*"Ei, jäta hiljemaks"*. The investor answers once; the flow continues in the
+same run. Re-invocation is not required. The investor is never expected to
+type subcommand tokens like `ack` or `register`.
 
 ### Agent-facing helpers (internal plumbing)
 
@@ -497,10 +595,14 @@ programmatically) and by anyone who wants scriptable, deterministic calls:
 /lawyer register <slug> <act_id> <citation> <purpose>
                                         — register an entry (idempotent by (act,citation))
 /lawyer unregister <slug>               — remove an entry
-/lawyer ack <slug> [<slug> …]           — clear needs_review, refresh the .txt snapshot
-/lawyer ack-all                         — ack every currently flagged entry
-/lawyer status                          — print registry state: total entries, pending reviews, last feed check
-/lawyer check                           — run feed re-check without spawning analysis
+/lawyer ack <slug> [<slug> …]           — Fix Implementation: refresh .txt + clear flags.
+                                          Must be called inside the PR branch that contains
+                                          the code fix.
+/lawyer ack-all                         — ack every currently flagged slug (use only if
+                                          the PR's code changes cover all of them)
+/lawyer issue <slug>                    — create a GitHub issue for one slug (non-interactive)
+/lawyer status                          — print registry state
+/lawyer check                           — run feed re-check without prompting or analysis
 ```
 
 These are helpers, not the primary UX. They are not documented in
@@ -539,6 +641,12 @@ startup project present) remain unchanged. Added:
 - Index ↔ snapshot invariant check is deferred to the change-detection step
   (surfaced as non-blocking warning), not pre-flight — missing `.txt` files
   should not prevent ack or unregister from running.
+- **Conditional gh check:** after change detection, if any entry now has
+  `needs_review=true AND gh_issue_url=null`, verify `gh auth status` passes
+  and `gh repo view --json nameWithOwner` returns a result. On failure,
+  hard-fail (see Hard dependency on `gh` above). If no entry is in that
+  state, the gh check is skipped — repos that never have flagged entries
+  don't need `gh` installed.
 
 ### Context discipline
 
@@ -597,11 +705,23 @@ Lightweight, matching the plugin's existing testing posture (markdown + bash):
    `/lawyer check`; confirm the run surfaces a non-blocking warning and does
    not crash. Unregister the slug; confirm both the index entry and any
    remaining `.txt` file are removed.
-4. **Manual integration** — in a scratch startup project, register a real
-   paragraph, run `/lawyer check`, confirm no changes. Fabricate a needs_review
-   state by editing the index JSON, run `/lawyer <topic>` — confirm alert doc
-   written, topic skipped. Run `/lawyer olen muudatused üle vaadanud, jätka`,
-   confirm flags clear and analysis proceeds.
+4. **Manual integration** — in a scratch startup project with a GitHub
+   remote:
+   a. Register a real paragraph, run `/lawyer check`, confirm no changes.
+   b. Fabricate a needs_review state by editing the index JSON. Run
+      `/lawyer <topic>` — confirm the fix-plan doc is written and the
+      interactive "Jah/Ei" prompt appears.
+   c. Answer "Jah" — confirm a gh issue is created, `gh_issue_url` is set
+      on the entry, `needs_review` remains `true`, and the topic analysis
+      runs with a reminder about the pending fix.
+   d. Create a branch, edit the marker-referenced code, run
+      `/lawyer ack <slug>` inside the branch — confirm `.txt` is
+      refreshed, flags clear, `verified_at` bumped. Commit all changes
+      in one commit and verify the diff includes code + registry
+      together.
+   e. On a separate project with no GitHub remote, fabricate a
+      needs_review state and run `/lawyer <topic>` — confirm the
+      pre-flight hard-fails with the "gh unavailable" error.
 
 ## Open Questions (resolved at implementation time)
 
@@ -628,6 +748,12 @@ accommodates either answer in each case.
 
 ## Known Limitations
 
+- **Not compatible with non-GitHub repositories.** The confirmation flow
+  depends on `gh issue create` — flagged entries can only be acknowledged by
+  opening a GitHub issue, and there is no manual fallback. Projects hosted
+  elsewhere (GitLab, self-hosted git, etc.) cannot use this workflow as
+  designed. Adapting the `issue` helper to call other forges is a future
+  extension; not in scope for v1.
 - **Externally-hosted customer content** (CMS articles, Crisp canned replies,
   Intercom saved responses, landing pages built in a site builder) cannot carry
   `LAW:` markers. Those surfaces are not covered by the registry. A future
