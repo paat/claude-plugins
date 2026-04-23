@@ -62,28 +62,38 @@ You are the on-demand legal consultant. This skill provides your domain expertis
 
 ## Datalake API Quick Reference
 
-All calls require `X-API-Key` header. API base: `https://datalake.r-53.com/api/v1/`
+All calls require `X-API-Key` header. API base: `https://datalake.r-53.com/api/v1/` (also available as `$DATALAKE_URL` if set).
 
 **Legal research:**
-- `POST /rag/query` — body: `{"question": "..."}` → AI answer with citations
-- `GET /laws/search?q=...&status=valid` → matching legal acts
-- `GET /laws/{act_id}/citation?paragraph=N` → specific law text
-- `POST /compliance/checklist` — body: `{"question": "..."}` → checklist
+- `POST /rag/query` — body: `{"question": "..."}` → AI answer with citations, disclaimer, sources[]
+- `GET /laws/search?q=...&status=valid&limit=N` → `{items:[{id, rt_id, title, act_type, issuer, publication_date, status, relevance_score}], total, limit, offset, search_mode}`. `.id` is the integer the other `/laws/{act_id}/*` endpoints want
+- `GET /laws/{act_id}/citation?paragraph=N&section=M&point=K` → specific law text. All three query params are strings; only `paragraph` is typically needed. Returns `{act_id, act_title, paragraph, section, point, text, url}`
+- `GET /laws/{act_id}/graph` → `{act:{id, title, rt_id, act_type, status, publication_date, valid_from, valid_to}, related_acts:[...]}` — cheap way to resolve rt_id + title from an integer id
+- `GET /laws/{act_id}/citing-decisions` → court decisions citing this act
+- `POST /compliance/checklist` — body: `{"business_type": "...", "emtak_code": "..."}` (business_type REQUIRED, emtak_code optional)
 
 **Change monitoring:**
-- `GET /changes/feed?domain=...&limit=N` → recent law changes
-- Domains: Labor, Tax, Commercial, Environment, Real Estate, Public Administration, Criminal, Social
+- `GET /changes/feed?since=<ISO>&limit=N` → `{items:[ChangeEvent], total}`. Each event: `{id(int), change_type, act_title, rt_id, act_type, issuer, detected_at, effective_date, description, domains[]}`. `domain=` query param exists but uses lowercase labels (`privacy`, `tax`, `aml`, `accounting`, `corporate`, `compliance`, `legislative_pipeline`) — prefer filtering client-side by rt_id to avoid enum drift
+- `GET /changes/{change_id}/impact` → impact analysis for one change event
 
 **Company intelligence:**
-- `GET /companies/search?q=...` → company list
+- `GET /companies/search?q=...` → `{items, total, limit, offset, search_mode}`
 - `GET /companies/{code}` → full profile
 - `GET /companies/{code}/board` → governance
 - `GET /companies/{code}/tax` → tax status
 - `GET /companies/{code}/financials` → financials
+- `GET /companies/{code}/obligations` → compliance obligations inferred from EMTAK
+- `GET /companies/{code}/profile/full` → combined board+tax+financials in one call
 
 **Court decisions:**
 - `GET /court/search?q=...` → case list
 - `GET /court/ecli/{ecli}` → specific decision
+- `GET /court/decision/{decision_id}/citations` → which acts a decision cites
+
+**EU law:**
+- `GET /eurlex/search?q=...` → CELEX documents
+- `GET /eurlex/{celex}` → specific EU act
+- `GET /eurlex/transpositions?celex=...` → how an EU act is transposed into Estonian law — traces GDPR/ePrivacy origins
 
 ## Analysis Workflow
 

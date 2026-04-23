@@ -6,7 +6,10 @@ datalake reachable.
 
 ## Scenario 1: Happy path end-to-end
 
-1. In the project, run `/lawyer register consent-lawful-basis 104052024010 "§ 10 lõige 2" "Lawful basis for signup consent"`. Expect success message and a `// LAW: consent-lawful-basis` suggestion.
+1. Look up the integer `act_id` for Isikuandmete kaitse seadus first:
+   `curl -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$DATALAKE_URL/api/v1/laws/search?q=isikuandmete+kaitse&limit=3" | jq '.items[] | {id, rt_id, title}'`
+   Pick the `.id` (e.g. `30087`).
+2. Run `/lawyer register consent-lawful-basis 30087 "§ 10 lõige 1" "Lawful basis for credit-default disclosures"`. Expect success message listing act_id+rt_id and a `// LAW: consent-lawful-basis` suggestion.
 2. Add a `// LAW: consent-lawful-basis` comment somewhere in `src/`.
 3. Run `/lawyer status`. Expect: 1 total, 0 flagged.
 4. Run `/lawyer check`. Expect: "Feed check complete." and no flags.

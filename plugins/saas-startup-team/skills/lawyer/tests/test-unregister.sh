@@ -6,19 +6,21 @@ trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 mkdir -p .startup/laws
 
-# Seed registry + snapshot
+# Seed registry (v2) + snapshot
 cat > .startup/law-registry.json <<'EOF'
 {
-  "version": 1,
+  "version": 2,
   "last_feed_check_at": null,
   "entries": {
     "consent-lawful-basis": {
-      "act_id": "104052024010",
+      "act_id": 30087,
+      "rt_id": "1045568",
+      "redaktsioon_id": "106032026010",
       "act_title": "Isikuandmete kaitse seadus",
-      "citation": "§ 10 lõige 2",
-      "domain": "Data Protection",
-      "rt_url": "https://www.riigiteataja.ee/akt/104052024010",
-      "redaktsioon_id": null,
+      "act_type": "seadus",
+      "citation": "§ 10 lõige 1",
+      "citation_parts": {"paragraph": "10", "section": "1", "point": ""},
+      "rt_url": "https://www.riigiteataja.ee/akt/106032026010",
       "registered_at": "2026-04-01T00:00:00Z",
       "verified_at": "2026-04-01T00:00:00Z",
       "registered_by": "lawyer",

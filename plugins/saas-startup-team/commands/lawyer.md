@@ -47,16 +47,16 @@ echo "${EST_DATALAKE_API_KEY:?not set}" > /dev/null 2>&1
 
 ### Check 4: Law registry is valid (if present)
 
-If `.startup/law-registry.json` exists, it must be valid JSON with `version: 1`. Missing file is fine — the command creates it on first use.
+If `.startup/law-registry.json` exists, it must be valid JSON with `version: 2`. Missing file is fine — the command creates it on first use. (v0.29.x wrote `version: 1` but the feature never worked against the real API; v0.30.0 introduces v2 with corrected field names. If you have a v1 file from an earlier session, delete it — nothing it contained will be usable.)
 
 ```bash
 if [ -f .startup/law-registry.json ]; then
-  jq -e '.version == 1' .startup/law-registry.json >/dev/null 2>&1
+  jq -e '.version == 2' .startup/law-registry.json >/dev/null 2>&1
 fi
 ```
 
 **If non-zero exit:**
-> **Error:** `.startup/law-registry.json` is not valid JSON or is not version 1 (expected `{"version": 1, ...}`). Fix or remove the file before running /lawyer again.
+> **Error:** `.startup/law-registry.json` is not valid JSON or is not version 2 (expected `{"version": 2, ...}`). If you have a v1 file from v0.29.x, delete it — that version's schema didn't match the real datalake API and no data in it is salvageable.
 
 ### Check 5: Laws directory is a directory (if present)
 
@@ -90,7 +90,10 @@ Disambiguation: topics that legitimately start with one of these tokens (rare) m
 
 Args: `register <slug> <act_id> <citation> <purpose>`
 
-`slug` must match `[a-z0-9-]+`. `citation` may contain spaces (quoted from the command line).
+- `slug` — kebab-case identifier matching `[a-z0-9-]+`.
+- `act_id` — **integer** from `GET /api/v1/laws/search?q=<act-name>` — the `.id` field, not `rt_id`, not the RT URL segment. Look it up first (for example: `curl -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$DATALAKE_URL/api/v1/laws/search?q=isikuandmete+kaitse&limit=5" | jq '.items[] | {id, rt_id, title}'`).
+- `citation` — Estonian compound reference like `"§ 10 lõige 1 punkt 3"`. Parsed into `paragraph`/`section`/`point` before the API call (the citation endpoint rejects the compound string directly).
+- `purpose` — one-line Estonian description of why this paragraph is load-bearing.
 
 Behaviour:
 
@@ -99,73 +102,123 @@ SLUG="$1"
 ACT_ID="$2"
 CITATION="$3"
 PURPOSE="$4"
+: "${DATALAKE_URL:=https://datalake.r-53.com}"
 
-# Validate slug format
 [[ "$SLUG" =~ ^[a-z0-9-]+$ ]] || { echo "Error: slug must match [a-z0-9-]+"; exit 1; }
+[[ "$ACT_ID" =~ ^[0-9]+$ ]] || { echo "Error: act_id must be an integer — use /laws/search .id, not rt_id or RT URL segment"; exit 1; }
 
-# Ensure registry files exist
-[ -f .startup/law-registry.json ] || echo '{"version":1,"last_feed_check_at":null,"entries":{}}' > .startup/law-registry.json
+# Parse citation → (paragraph, section, point). Paragraph is required; others optional.
+read -r PARAGRAPH SECTION POINT <<< "$(printf '%s' "$CITATION" | python3 -c '
+import re, sys
+t = sys.stdin.read()
+p = re.search(r"§\s*(\d+)", t)
+s = re.search(r"l[oõ]ige\s*(\d+)", t, re.IGNORECASE)
+k = re.search(r"punkt\s*(\d+)", t, re.IGNORECASE)
+print((p.group(1) if p else ""), (s.group(1) if s else ""), (k.group(1) if k else ""))
+')"
+[ -n "$PARAGRAPH" ] || { echo "Error: could not parse paragraph (§ N) from citation '$CITATION'"; exit 1; }
+
+# Ensure registry files exist (schema v2)
+[ -f .startup/law-registry.json ] || echo '{"version":2,"last_feed_check_at":null,"entries":{}}' > .startup/law-registry.json
 mkdir -p .startup/laws
 
-# Idempotency: is (act_id, citation) already registered?
-existing=$(jq -r --arg act "$ACT_ID" --arg cit "$CITATION" \
+# Idempotency on (act_id, citation)
+existing=$(jq -r --argjson act "$ACT_ID" --arg cit "$CITATION" \
   '.entries | to_entries[] | select(.value.act_id == $act and .value.citation == $cit) | .key' \
   .startup/law-registry.json)
-if [ -n "$existing" ]; then
-  if [ "$existing" != "$SLUG" ]; then
-    echo "Entry (act=$ACT_ID, citation=$CITATION) already registered as '$existing'. Reusing; no action taken."
-    exit 0
-  fi
-  # Same slug: treat as re-registration — refresh text below
+if [ -n "$existing" ] && [ "$existing" != "$SLUG" ]; then
+  echo "Entry (act_id=$ACT_ID, citation=$CITATION) already registered as '$existing'. Reusing; no action taken."
+  exit 0
 fi
 
-# Fetch current paragraph text
-response=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "https://datalake.r-53.com/api/v1/laws/${ACT_ID}/citation?paragraph=$(printf '%s' "$CITATION" | jq -sRr @uri)")
-text=$(echo "$response" | jq -r '.text // empty')
-# Use bare jq (no -r) so the output is a JSON scalar — either a quoted string
-# like "104052024010/1" or the literal null — which --argjson can consume.
-redaktsioon=$(echo "$response" | jq '.redaktsioon_id // null')
-if [ -z "$text" ]; then
-  echo "Error: datalake returned no text for act=$ACT_ID citation=$CITATION"
+# Resolve act metadata (rt_id, title, domains) via /laws/{act_id}/graph.
+# The graph endpoint is cheap and returns the canonical act record — avoids the
+# guesswork that v0.29.x did with RT URL segments.
+graph_resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+  "$DATALAKE_URL/api/v1/laws/${ACT_ID}/graph")
+graph_code=$(printf '%s' "$graph_resp" | tail -n1)
+graph_body=$(printf '%s' "$graph_resp" | sed '$d')
+if [ "$graph_code" != "200" ]; then
+  echo "Error: /laws/${ACT_ID}/graph returned HTTP $graph_code — act_id is probably wrong"
+  echo "       Try: $DATALAKE_URL/api/v1/laws/search?q=<act-name> to find the correct .id"
   exit 1
 fi
+RT_ID=$(echo "$graph_body" | jq -r '.act.rt_id // empty')
+ACT_TITLE=$(echo "$graph_body" | jq -r '.act.title // "Teadmata seadus"')
+ACT_TYPE=$(echo "$graph_body" | jq -r '.act.act_type // ""')
+[ -n "$RT_ID" ] || { echo "Error: /laws/${ACT_ID}/graph has no .act.rt_id"; exit 1; }
 
-# Normalise (trim + NFC)
+# Fetch paragraph text via citation endpoint with parsed parts
+cite_url="$DATALAKE_URL/api/v1/laws/${ACT_ID}/citation?paragraph=${PARAGRAPH}"
+[ -n "$SECTION" ] && cite_url="${cite_url}&section=${SECTION}"
+[ -n "$POINT" ] && cite_url="${cite_url}&point=${POINT}"
+cite_resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" "$cite_url")
+cite_code=$(printf '%s' "$cite_resp" | tail -n1)
+cite_body=$(printf '%s' "$cite_resp" | sed '$d')
+if [ "$cite_code" != "200" ]; then
+  echo "Error: /laws/${ACT_ID}/citation returned HTTP $cite_code — citation '$CITATION' parses as paragraph=$PARAGRAPH section=$SECTION point=$POINT"
+  exit 1
+fi
+text=$(echo "$cite_body" | jq -r '.text // empty')
+REDAKTSIOON_URL=$(echo "$cite_body" | jq -r '.url // empty')
+# Extract the redaktsioon ID (per-redaction RT identifier — numeric trailing segment of .url)
+REDAKTSIOON_ID=""
+if [ -n "$REDAKTSIOON_URL" ]; then
+  tail_seg="${REDAKTSIOON_URL##*/akt/}"
+  REDAKTSIOON_ID="${tail_seg%%[!0-9]*}"
+fi
+[ -n "$text" ] || { echo "Error: citation endpoint returned empty text"; exit 1; }
+
+# Normalise (trim + NFC) and write snapshot first — on crash before index write,
+# re-run sees orphan snapshot (warning), not orphan index entry.
 normalised=$(printf '%s' "$text" | python3 -c 'import sys, unicodedata; print(unicodedata.normalize("NFC", sys.stdin.read().strip()))')
-
-# Write snapshot first
 printf '%s\n' "$normalised" > ".startup/laws/${SLUG}.txt"
-
-# Compute title and rt_url from response metadata (fall back gracefully)
-ACT_TITLE=$(echo "$response" | jq -r '.act_title // "Teadmata seadus"')
-DOMAIN=$(echo "$response" | jq -r '.domain // "Unknown"')
-RT_URL=$(echo "$response" | jq -r --arg id "$ACT_ID" '.rt_url // "https://www.riigiteataja.ee/akt/\($id)"')
 
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 entry=$(jq -n \
-  --arg act "$ACT_ID" \
+  --argjson act "$ACT_ID" \
+  --arg rt "$RT_ID" \
+  --arg red "$REDAKTSIOON_ID" \
   --arg title "$ACT_TITLE" \
+  --arg atype "$ACT_TYPE" \
   --arg cit "$CITATION" \
-  --arg dom "$DOMAIN" \
-  --arg rt "$RT_URL" \
-  --argjson redaktsioon "$redaktsioon" \
+  --arg para "$PARAGRAPH" \
+  --arg sec "$SECTION" \
+  --arg pt "$POINT" \
+  --arg rturl "$REDAKTSIOON_URL" \
   --arg now "$NOW" \
   --arg by "${REGISTERED_BY:-lawyer}" \
   --arg purp "$PURPOSE" \
-  '{act_id:$act, act_title:$title, citation:$cit, domain:$dom, rt_url:$rt, redaktsioon_id:$redaktsioon, registered_at:$now, verified_at:$now, registered_by:$by, purpose:$purp, needs_review:false, change_detected_at:null, change:null, gh_issue_url:null}')
+  '{
+    act_id: $act,
+    rt_id: $rt,
+    redaktsioon_id: (if $red == "" then null else $red end),
+    act_title: $title,
+    act_type: $atype,
+    citation: $cit,
+    citation_parts: { paragraph: $para, section: $sec, point: $pt },
+    rt_url: $rturl,
+    registered_at: $now,
+    verified_at: $now,
+    registered_by: $by,
+    purpose: $purp,
+    needs_review: false,
+    change_detected_at: null,
+    change: null,
+    gh_issue_url: null
+  }')
 
 jq --arg slug "$SLUG" --argjson e "$entry" \
   '.entries[$slug] = $e' \
   .startup/law-registry.json > .startup/law-registry.json.tmp
 mv .startup/law-registry.json.tmp .startup/law-registry.json
 
-echo "Registered: $SLUG"
+echo "Registered: $SLUG (act_id=$ACT_ID, rt_id=$RT_ID, $ACT_TITLE)"
 echo "Lisa marker koodi: // LAW: $SLUG"
 exit 0
 ```
 
-Failure: if the datalake citation call returns empty text, the helper hard-fails and does NOT leave a partial snapshot on disk (snapshot is written only after the text check passes).
+Failure: if either the graph or citation call fails, the helper hard-fails and does NOT leave a partial snapshot or index entry on disk (snapshot is written only after both API calls succeed).
 
 ## Unregister subcommand
 
@@ -265,65 +318,63 @@ Both warnings are printed to the terminal but do not block the run.
 
 Runs at the start of every `/lawyer` invocation, after pre-flight and subcommand dispatch but before analysis. Reads only the index JSON; snapshot `.txt` files are never opened here.
 
+One feed call per run (no per-domain loop) — we query without `?domain=` and match client-side by `rt_id`. The server's `?domain=` filter uses an undocumented enum that doesn't match the plugin's historical domain strings; filtering client-side is cheaper than negotiating that enum and keeps the plugin honest when new domain labels appear server-side.
+
 ```bash
-[ -f .startup/law-registry.json ] || echo '{"version":1,"last_feed_check_at":null,"entries":{}}' > .startup/law-registry.json
+: "${DATALAKE_URL:=https://datalake.r-53.com}"
+[ -f .startup/law-registry.json ] || echo '{"version":2,"last_feed_check_at":null,"entries":{}}' > .startup/law-registry.json
 
-DOMAINS=$(jq -r '.entries | to_entries[] | .value.domain' .startup/law-registry.json | sort -u)
-ACT_IDS=$(jq -r '.entries | to_entries[] | .value.act_id' .startup/law-registry.json | sort -u)
+RT_IDS=$(jq -r '.entries | to_entries[] | .value.rt_id // empty' .startup/law-registry.json | sort -u)
 
-# Skip entirely if registry is empty
-if [ -z "$DOMAINS" ]; then
+if [ -z "$RT_IDS" ]; then
+  # Empty registry — nothing to match. Skip the call entirely.
   FEED_OK=1
 else
   SINCE=$(jq -r '.last_feed_check_at // ""' .startup/law-registry.json)
-  all_events='[]'
+  if [ -z "$SINCE" ]; then
+    # First run against a non-empty registry — look back 90 days (server accepts ISO-8601 on `since`).
+    SINCE=$(python3 -c 'import datetime; print((datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ"))')
+  fi
+
+  feed_url="$DATALAKE_URL/api/v1/changes/feed?since=${SINCE}&limit=500"
+  resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" "$feed_url")
+  body=$(printf '%s' "$resp" | sed '$d')
+  code=$(printf '%s' "$resp" | tail -n1)
+
   FEED_OK=1
-  while IFS= read -r d; do
-    [ -z "$d" ] && continue
-    encoded=$(printf '%s' "$d" | jq -sRr @uri)
-    if [ -n "$SINCE" ]; then
-      url="https://datalake.r-53.com/api/v1/changes/feed?domain=${encoded}&since=${SINCE}"
-    else
-      url="https://datalake.r-53.com/api/v1/changes/feed?domain=${encoded}&limit=100"
-    fi
-    resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" "$url")
-    body=$(printf '%s' "$resp" | sed '$d')
-    code=$(printf '%s' "$resp" | tail -n1)
-    if [ "$code" != "200" ]; then
-      echo "⚠ Seaduste muudatuste kontroll ebaõnnestus domeenile '$d' ($code) — vaata üle käsitsi"
-      FEED_OK=0
-      continue
-    fi
-    # If SINCE is empty (first run), filter client-side to last 90 days
-    if [ -z "$SINCE" ]; then
-      cutoff=$(python3 -c 'import datetime; print((datetime.datetime.utcnow() - datetime.timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ"))')
-      events=$(echo "$body" | jq --arg c "$cutoff" '[.events[] | select(.timestamp >= $c)]')
-    else
-      events=$(echo "$body" | jq '.events // []')
-    fi
-    all_events=$(echo "$all_events $events" | jq -s 'add')
-  done <<< "$DOMAINS"
+  if [ "$code" != "200" ]; then
+    echo "⚠ Seaduste muudatuste kontroll ebaõnnestus ($code) — vaata üle käsitsi"
+    FEED_OK=0
+    events='[]'
+  else
+    events=$(echo "$body" | jq '.items // []')
+  fi
 
-  # Filter by act_id
-  act_ids_json=$(printf '%s\n' "$ACT_IDS" | jq -R . | jq -s .)
-  matched=$(echo "$all_events" | jq --argjson acts "$act_ids_json" '[.[] | select(.act_id as $a | $acts | index($a))]')
+  # Match feed events against registered rt_ids. Each event may carry multiple
+  # domains — we ignore domain entirely and rely on rt_id as the act identity.
+  rt_ids_json=$(printf '%s\n' "$RT_IDS" | jq -R . | jq -s .)
+  matched=$(echo "$events" | jq --argjson rts "$rt_ids_json" '[.[] | select(.rt_id as $r | $rts | index($r))]')
 
-  # Apply matches to registry. Re-detection while an issue is already open
-  # (gh_issue_url != null): update change/change_detected_at but do NOT create a
-  # fresh issue later — surface as a reminder instead.
+  # Apply matches. Re-detection while an issue is already open (gh_issue_url != null)
+  # updates the change info but does NOT create a fresh issue later — surfaced as a reminder.
   updated=$(jq --argjson matched "$matched" '
     reduce ($matched[]) as $e (.;
       .entries |= with_entries(
-        if .value.act_id == $e.act_id then
+        if .value.rt_id == $e.rt_id then
           .value.needs_review = true
-          | .value.change_detected_at = $e.timestamp
-          | .value.change = { feed_event_id: $e.id, type: $e.type, summary: $e.summary }
+          | .value.change_detected_at = $e.detected_at
+          | .value.change = {
+              feed_event_id: $e.id,
+              type: $e.change_type,
+              summary: $e.description,
+              effective_date: $e.effective_date
+            }
         else . end
       )
     )
   ' .startup/law-registry.json)
 
-  # Advance last_feed_check_at only if all domain queries succeeded
+  # Advance last_feed_check_at only on a clean feed query so a failed run retries the same window next time.
   if [ "$FEED_OK" = "1" ]; then
     NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     echo "$updated" | jq --arg now "$NOW" '.last_feed_check_at = $now' > .startup/law-registry.json
@@ -333,7 +384,7 @@ else
 fi
 ```
 
-After this step, the index reflects all feed changes. Flagged entries are handled by the Fix-Plan and Confirmation flow (Tasks 10–11).
+After this step, the index reflects all feed changes. Flagged entries are handled by the Fix-Plan and Confirmation flow below.
 
 ## Invariant Check (non-blocking warnings)
 
@@ -411,20 +462,38 @@ FLAGGED_SLUGS=$(jq -r '
 ### Step 2: Fetch current paragraph text and stash old + new + change per slug
 
 ```bash
+: "${DATALAKE_URL:=https://datalake.r-53.com}"
 TMP=$(mktemp -d)
 while IFS= read -r slug; do
   [ -z "$slug" ] && continue
   act_id=$(jq -r --arg s "$slug" '.entries[$s].act_id' .startup/law-registry.json)
-  citation=$(jq -r --arg s "$slug" '.entries[$s].citation' .startup/law-registry.json)
-  encoded=$(printf '%s' "$citation" | jq -sRr @uri)
-  resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-    "https://datalake.r-53.com/api/v1/laws/${act_id}/citation?paragraph=${encoded}")
+  paragraph=$(jq -r --arg s "$slug" '.entries[$s].citation_parts.paragraph // ""' .startup/law-registry.json)
+  section=$(jq -r --arg s "$slug" '.entries[$s].citation_parts.section // ""' .startup/law-registry.json)
+  point=$(jq -r --arg s "$slug" '.entries[$s].citation_parts.point // ""' .startup/law-registry.json)
+
+  cite_url="$DATALAKE_URL/api/v1/laws/${act_id}/citation?paragraph=${paragraph}"
+  [ -n "$section" ] && cite_url="${cite_url}&section=${section}"
+  [ -n "$point" ] && cite_url="${cite_url}&point=${point}"
+
+  resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$cite_url")
   new_text=$(echo "$resp" | jq -r '.text // ""')
   old_text=$(cat ".startup/laws/${slug}.txt" 2>/dev/null || echo "")
-  # Stash for agent
+
+  # Pull the feed event's change_id (if present) and fetch /changes/{change_id}/impact
+  # to augment the fix plan with the datalake's own impact analysis. Non-fatal if missing.
+  change_id=$(jq -r --arg s "$slug" '.entries[$s].change.feed_event_id // empty' .startup/law-registry.json)
+  impact="{}"
+  if [ -n "$change_id" ]; then
+    impact=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+      "$DATALAKE_URL/api/v1/changes/${change_id}/impact" 2>/dev/null || echo "{}")
+    # Tolerate non-JSON (endpoint occasionally returns 404 for older events)
+    echo "$impact" | jq empty 2>/dev/null || impact="{}"
+  fi
+
   jq -n --arg slug "$slug" --arg old "$old_text" --arg new "$new_text" \
     --argjson change "$(jq -c --arg s "$slug" '.entries[$s].change' .startup/law-registry.json)" \
-    '{slug:$slug, old_text:$old, new_text:$new, change:$change}' \
+    --argjson impact "$impact" \
+    '{slug:$slug, old_text:$old, new_text:$new, change:$change, impact:$impact}' \
     > "$TMP/${slug}.json"
 done <<< "$FLAGGED_SLUGS"
 ```
@@ -595,6 +664,7 @@ Args: `ack <slug>` (or `ack-all` — see next section)
 Behaviour:
 
 ```bash
+: "${DATALAKE_URL:=https://datalake.r-53.com}"
 SLUG="$1"
 [ -n "$SLUG" ] || { echo "Error: slug required"; exit 1; }
 
@@ -602,25 +672,35 @@ entry=$(jq -r --arg s "$SLUG" '.entries[$s] // empty' .startup/law-registry.json
 [ -n "$entry" ] || { echo "Error: no registry entry for '$SLUG'"; exit 1; }
 
 act_id=$(jq -r --arg s "$SLUG" '.entries[$s].act_id' .startup/law-registry.json)
-citation=$(jq -r --arg s "$SLUG" '.entries[$s].citation' .startup/law-registry.json)
-encoded=$(printf '%s' "$citation" | jq -sRr @uri)
+paragraph=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.paragraph // ""' .startup/law-registry.json)
+section=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.section // ""' .startup/law-registry.json)
+point=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.point // ""' .startup/law-registry.json)
 
-resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "https://datalake.r-53.com/api/v1/laws/${act_id}/citation?paragraph=${encoded}")
+cite_url="$DATALAKE_URL/api/v1/laws/${act_id}/citation?paragraph=${paragraph}"
+[ -n "$section" ] && cite_url="${cite_url}&section=${section}"
+[ -n "$point" ] && cite_url="${cite_url}&point=${point}"
+
+resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$cite_url")
 text=$(echo "$resp" | jq -r '.text // empty')
-redaktsioon=$(echo "$resp" | jq '.redaktsioon_id // null')
-[ -n "$text" ] || { echo "Error: datalake returned empty text for act=$act_id citation=$citation"; exit 1; }
+cite_url_resp=$(echo "$resp" | jq -r '.url // empty')
+red=""
+if [ -n "$cite_url_resp" ]; then
+  tail_seg="${cite_url_resp##*/akt/}"
+  red="${tail_seg%%[!0-9]*}"
+fi
+[ -n "$text" ] || { echo "Error: datalake returned empty text for act_id=$act_id paragraph=$paragraph"; exit 1; }
 
 normalised=$(printf '%s' "$text" | python3 -c 'import sys, unicodedata; print(unicodedata.normalize("NFC", sys.stdin.read().strip()))')
 printf '%s\n' "$normalised" > ".startup/laws/${SLUG}.txt"
 
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-jq --arg slug "$SLUG" --arg now "$NOW" --argjson r "$redaktsioon" '
+jq --arg slug "$SLUG" --arg now "$NOW" --arg red "$red" --arg rturl "$cite_url_resp" '
   .entries[$slug].needs_review = false
   | .entries[$slug].change = null
   | .entries[$slug].change_detected_at = null
   | .entries[$slug].verified_at = $now
-  | .entries[$slug].redaktsioon_id = $r
+  | .entries[$slug].redaktsioon_id = (if $red == "" then null else $red end)
+  | .entries[$slug].rt_url = (if $rturl == "" then .entries[$slug].rt_url else $rturl end)
 ' .startup/law-registry.json > .startup/law-registry.json.tmp
 mv .startup/law-registry.json.tmp .startup/law-registry.json
 
@@ -646,20 +726,30 @@ FLAGGED=$(jq -r '
 
 [ -z "$FLAGGED" ] && { echo "No flagged entries to ack."; exit 0; }
 
+: "${DATALAKE_URL:=https://datalake.r-53.com}"
 while IFS= read -r SLUG; do
   [ -z "$SLUG" ] && continue
   echo "Ack-ing: $SLUG"
 
   act_id=$(jq -r --arg s "$SLUG" '.entries[$s].act_id' .startup/law-registry.json)
-  citation=$(jq -r --arg s "$SLUG" '.entries[$s].citation' .startup/law-registry.json)
-  encoded=$(printf '%s' "$citation" | jq -sRr @uri)
+  paragraph=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.paragraph // ""' .startup/law-registry.json)
+  section=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.section // ""' .startup/law-registry.json)
+  point=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.point // ""' .startup/law-registry.json)
 
-  resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-    "https://datalake.r-53.com/api/v1/laws/${act_id}/citation?paragraph=${encoded}")
+  cite_url="$DATALAKE_URL/api/v1/laws/${act_id}/citation?paragraph=${paragraph}"
+  [ -n "$section" ] && cite_url="${cite_url}&section=${section}"
+  [ -n "$point" ] && cite_url="${cite_url}&point=${point}"
+
+  resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$cite_url")
   text=$(echo "$resp" | jq -r '.text // empty')
-  redaktsioon=$(echo "$resp" | jq '.redaktsioon_id // null')
+  cite_url_resp=$(echo "$resp" | jq -r '.url // empty')
+  red=""
+  if [ -n "$cite_url_resp" ]; then
+    tail_seg="${cite_url_resp##*/akt/}"
+    red="${tail_seg%%[!0-9]*}"
+  fi
   if [ -z "$text" ]; then
-    echo "Error: datalake returned empty text for act=$act_id citation=$citation — skipping $SLUG"
+    echo "Error: datalake returned empty text for act_id=$act_id paragraph=$paragraph — skipping $SLUG"
     continue
   fi
 
@@ -667,12 +757,13 @@ while IFS= read -r SLUG; do
   printf '%s\n' "$normalised" > ".startup/laws/${SLUG}.txt"
 
   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  jq --arg slug "$SLUG" --arg now "$NOW" --argjson r "$redaktsioon" '
+  jq --arg slug "$SLUG" --arg now "$NOW" --arg red "$red" --arg rturl "$cite_url_resp" '
     .entries[$slug].needs_review = false
     | .entries[$slug].change = null
     | .entries[$slug].change_detected_at = null
     | .entries[$slug].verified_at = $now
-    | .entries[$slug].redaktsioon_id = $r
+    | .entries[$slug].redaktsioon_id = (if $red == "" then null else $red end)
+    | .entries[$slug].rt_url = (if $rturl == "" then .entries[$slug].rt_url else $rturl end)
   ' .startup/law-registry.json > .startup/law-registry.json.tmp
   mv .startup/law-registry.json.tmp .startup/law-registry.json
 done <<< "$FLAGGED"
@@ -789,52 +880,48 @@ Runs the Change Detection step and exits. Does NOT prompt, does NOT create issue
 The body is the full Change Detection logic inlined — prose reference alone would run as a bash comment and silently no-op (same failure mode caught in the ack-all fixup).
 
 ```bash
-[ -f .startup/law-registry.json ] || echo '{"version":1,"last_feed_check_at":null,"entries":{}}' > .startup/law-registry.json
+: "${DATALAKE_URL:=https://datalake.r-53.com}"
+[ -f .startup/law-registry.json ] || echo '{"version":2,"last_feed_check_at":null,"entries":{}}' > .startup/law-registry.json
 
-DOMAINS=$(jq -r '.entries | to_entries[] | .value.domain' .startup/law-registry.json | sort -u)
-ACT_IDS=$(jq -r '.entries | to_entries[] | .value.act_id' .startup/law-registry.json | sort -u)
+RT_IDS=$(jq -r '.entries | to_entries[] | .value.rt_id // empty' .startup/law-registry.json | sort -u)
 
-if [ -z "$DOMAINS" ]; then
+if [ -z "$RT_IDS" ]; then
   echo "Registry is empty; nothing to check."
 else
   SINCE=$(jq -r '.last_feed_check_at // ""' .startup/law-registry.json)
-  all_events='[]'
-  FEED_OK=1
-  while IFS= read -r d; do
-    [ -z "$d" ] && continue
-    encoded=$(printf '%s' "$d" | jq -sRr @uri)
-    if [ -n "$SINCE" ]; then
-      url="https://datalake.r-53.com/api/v1/changes/feed?domain=${encoded}&since=${SINCE}"
-    else
-      url="https://datalake.r-53.com/api/v1/changes/feed?domain=${encoded}&limit=100"
-    fi
-    resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" "$url")
-    body=$(printf '%s' "$resp" | sed '$d')
-    code=$(printf '%s' "$resp" | tail -n1)
-    if [ "$code" != "200" ]; then
-      echo "⚠ Seaduste muudatuste kontroll ebaõnnestus domeenile '$d' ($code) — vaata üle käsitsi"
-      FEED_OK=0
-      continue
-    fi
-    if [ -z "$SINCE" ]; then
-      cutoff=$(python3 -c 'import datetime; print((datetime.datetime.utcnow() - datetime.timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ"))')
-      events=$(echo "$body" | jq --arg c "$cutoff" '[.events[] | select(.timestamp >= $c)]')
-    else
-      events=$(echo "$body" | jq '.events // []')
-    fi
-    all_events=$(echo "$all_events $events" | jq -s 'add')
-  done <<< "$DOMAINS"
+  if [ -z "$SINCE" ]; then
+    SINCE=$(python3 -c 'import datetime; print((datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ"))')
+  fi
 
-  act_ids_json=$(printf '%s\n' "$ACT_IDS" | jq -R . | jq -s .)
-  matched=$(echo "$all_events" | jq --argjson acts "$act_ids_json" '[.[] | select(.act_id as $a | $acts | index($a))]')
+  feed_url="$DATALAKE_URL/api/v1/changes/feed?since=${SINCE}&limit=500"
+  resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" "$feed_url")
+  body=$(printf '%s' "$resp" | sed '$d')
+  code=$(printf '%s' "$resp" | tail -n1)
+
+  FEED_OK=1
+  if [ "$code" != "200" ]; then
+    echo "⚠ Seaduste muudatuste kontroll ebaõnnestus ($code) — vaata üle käsitsi"
+    FEED_OK=0
+    events='[]'
+  else
+    events=$(echo "$body" | jq '.items // []')
+  fi
+
+  rt_ids_json=$(printf '%s\n' "$RT_IDS" | jq -R . | jq -s .)
+  matched=$(echo "$events" | jq --argjson rts "$rt_ids_json" '[.[] | select(.rt_id as $r | $rts | index($r))]')
 
   updated=$(jq --argjson matched "$matched" '
     reduce ($matched[]) as $e (.;
       .entries |= with_entries(
-        if .value.act_id == $e.act_id then
+        if .value.rt_id == $e.rt_id then
           .value.needs_review = true
-          | .value.change_detected_at = $e.timestamp
-          | .value.change = { feed_event_id: $e.id, type: $e.type, summary: $e.summary }
+          | .value.change_detected_at = $e.detected_at
+          | .value.change = {
+              feed_event_id: $e.id,
+              type: $e.change_type,
+              summary: $e.description,
+              effective_date: $e.effective_date
+            }
         else . end
       )
     )

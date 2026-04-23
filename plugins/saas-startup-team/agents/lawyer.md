@@ -44,47 +44,81 @@ Your primary tool is the Estonian legal datalake API. Use it for ALL Estonian le
 
 ### Available Endpoints
 
+Core endpoints:
+
 | Endpoint | Method | Use For |
 |----------|--------|---------|
-| `/rag/query` | POST | Ask legal questions in Estonian — returns cited answers from 34,721 legal acts |
-| `/laws/search` | GET | Search specific legal acts by keyword, type, date, status |
-| `/laws/{act_id}/citation` | GET | Look up specific paragraphs/sections of a legal act |
-| `/changes/feed` | GET | Check recent law changes by domain (Labor, Tax, Commercial, etc.) |
-| `/compliance/checklist` | POST | Generate structured compliance requirements |
-| `/companies/search` | GET | Research Estonian companies by name |
+| `/rag/query` | POST | Ask legal questions in Estonian — returns cited answers from 34,721 legal acts. Body: `{"question": "..."}` |
+| `/laws/search` | GET | Search legal acts. Returns `{items:[{id, rt_id, title, act_type, issuer, publication_date, status, relevance_score}], total, limit, offset, search_mode}`. `.id` is what `/laws/{act_id}/...` expects |
+| `/laws/{act_id}/citation` | GET | Look up one paragraph. Takes integer `act_id` path param + `paragraph=<int>`, `section=<int>` (lõige), `point=<int>` (punkt) query params. Returns `{act_id, act_title, paragraph, section, point, text, url}` |
+| `/laws/{act_id}/graph` | GET | Act metadata + related acts. Returns `{act:{id, title, rt_id, act_type, status, publication_date, valid_from, valid_to}, related_acts:[...]}` — cheapest way to resolve rt_id + title from an integer act_id |
+| `/laws/{act_id}/provision` | GET | Full provision fetch (needs `paragraph` query param) |
+| `/laws/{act_id}/citing-decisions` | GET | Court decisions that cite this act — useful when writing risk analysis for a law we care about |
+| `/changes/feed` | GET | Recent law changes. Query params: `since=<ISO>`, `limit=<1..500>`, `domain=<str>` (optional; values are lowercase labels like `privacy`, `tax`, `aml`, `accounting`, `corporate`, `compliance`, `legislative_pipeline` — not the capitalised enum older docs suggested). Returns `{items:[ChangeEvent], total}` where each event has `id, change_type, act_title, rt_id, act_type, issuer, detected_at, effective_date, description, domains[]` |
+| `/changes/{change_id}/impact` | GET | Impact analysis for a specific change event — which downstream acts it touches |
+| `/compliance/checklist` | POST | Generate compliance checklist. Body: `{"business_type": "...", "emtak_code": "..."}` — `business_type` is REQUIRED, `emtak_code` optional |
+| `/companies/search` | GET | Search Estonian companies by name. Returns `{items, total, limit, offset, search_mode}` |
 | `/companies/{registry_code}` | GET | Full company profile |
 | `/companies/{registry_code}/board` | GET | Board members and governance |
 | `/companies/{registry_code}/tax` | GET | VAT status and tax obligations |
 | `/companies/{registry_code}/financials` | GET | Revenue, profit, assets |
+| `/companies/{registry_code}/obligations` | GET | Company-specific compliance obligations (regulations it must follow) |
+| `/companies/{registry_code}/profile/full` | GET | Combined profile — board + tax + financials in one call |
 | `/court/search` | GET | Search court decisions by keyword |
 | `/court/ecli/{ecli}` | GET | Look up specific court decision |
+| `/court/decision/{decision_id}/citations` | GET | Which legal acts a decision cites |
+| `/eurlex/search` | GET | Search EU law (CELEX documents) |
+| `/eurlex/{celex}` | GET | Fetch a specific CELEX document |
+| `/eurlex/changes` | GET | EU law changes feed |
+| `/eurlex/transpositions` | GET | EU → Estonian transposition mappings — useful for tracing GDPR/ePrivacy origins |
 
 ### API Usage Patterns
 
 ```bash
 # Ask a legal question (RAG)
-curl -s -X POST -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+curl --max-time 30 -s -X POST -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"question": "Millised on SaaS teenuse andmekaitse nõuded?"}' \
   https://datalake.r-53.com/api/v1/rag/query
 
-# Search for specific laws
-curl -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "https://datalake.r-53.com/api/v1/laws/search?q=isikuandmete+kaitse&status=valid&limit=10"
+# Search for specific laws — note the response shape is {items:[...], total, ...}
+curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+  "https://datalake.r-53.com/api/v1/laws/search?q=isikuandmete+kaitse&status=valid&limit=10" \
+  | jq '.items[] | {id, rt_id, title}'
 
-# Get compliance checklist
-curl -s -X POST -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+# Look up a specific paragraph/section — act_id is the integer .id from search
+curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+  "https://datalake.r-53.com/api/v1/laws/30087/citation?paragraph=10&section=1"
+
+# Cheapest metadata lookup for an act you already have the id for
+curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+  "https://datalake.r-53.com/api/v1/laws/30087/graph"
+
+# Compliance checklist — business_type is REQUIRED
+curl --max-time 30 -s -X POST -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"question": "SaaS andmekaitse vastavus"}' \
+  -d '{"business_type": "SaaS data-processing platform", "emtak_code": "62011"}' \
   https://datalake.r-53.com/api/v1/compliance/checklist
 
-# Check recent law changes in a domain
-curl -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "https://datalake.r-53.com/api/v1/changes/feed?domain=Commercial&limit=20"
+# Recent law changes since a date (no domain filter — it's easier and more
+# correct to filter client-side by rt_id/title)
+curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+  "https://datalake.r-53.com/api/v1/changes/feed?since=2026-03-01T00:00:00Z&limit=500" \
+  | jq '.items[] | {id, change_type, act_title, rt_id, detected_at, domains}'
 
-# Research a competitor company
-curl -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+# Impact of a specific change event
+curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+  "https://datalake.r-53.com/api/v1/changes/44863/impact"
+
+# Research a competitor company + its obligations
+curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   "https://datalake.r-53.com/api/v1/companies/search?q=Bolt"
+curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+  "https://datalake.r-53.com/api/v1/companies/17449106/obligations"
+
+# EU→Estonia transposition mapping — where does this GDPR article land in Estonian law?
+curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+  "https://datalake.r-53.com/api/v1/eurlex/transpositions?celex=32016R0679"
 ```
 
 **ALWAYS set timeouts on curl calls:** `curl --max-time 30 ...`

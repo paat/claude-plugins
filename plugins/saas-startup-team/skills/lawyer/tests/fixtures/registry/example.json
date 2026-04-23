@@ -1,18 +1,24 @@
 {
-  "version": 1,
+  "version": 2,
   "last_feed_check_at": "2026-04-23T10:00:00Z",
   "entries": {
     "consent-lawful-basis": {
-      "act_id": "104052024010",
+      "act_id": 30087,
+      "rt_id": "1045568",
+      "redaktsioon_id": "106032026010",
       "act_title": "Isikuandmete kaitse seadus",
-      "citation": "§ 10 lõige 2",
-      "domain": "Data Protection",
-      "rt_url": "https://www.riigiteataja.ee/akt/104052024010",
-      "redaktsioon_id": null,
+      "act_type": "seadus",
+      "citation": "§ 10 lõige 1",
+      "citation_parts": {
+        "paragraph": "10",
+        "section": "1",
+        "point": ""
+      },
+      "rt_url": "https://www.riigiteataja.ee/akt/106032026010",
       "registered_at": "2026-04-01T09:00:00Z",
       "verified_at": "2026-04-20T14:00:00Z",
       "registered_by": "lawyer",
-      "purpose": "Lawful basis for processing signup-confirmation emails",
+      "purpose": "Lawful basis for processing credit-default disclosures",
       "needs_review": false,
       "change_detected_at": null,
       "change": null,
