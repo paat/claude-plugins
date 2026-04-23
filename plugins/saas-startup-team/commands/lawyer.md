@@ -555,6 +555,145 @@ exit 0
 
 `gh_issue_url` is preserved through ack as the permanent link to the issue that tracked this change.
 
+## Ack-all subcommand
+
+Args: `ack-all`
+
+Runs the `ack` logic for every entry with `needs_review=true`. Use only when the PR's code changes cover every flagged slug — otherwise use per-slug `ack` calls.
+
+```bash
+FLAGGED=$(jq -r '
+  .entries | to_entries[]
+  | select(.value.needs_review == true)
+  | .key
+' .startup/law-registry.json)
+
+[ -z "$FLAGGED" ] && { echo "No flagged entries to ack."; exit 0; }
+
+while IFS= read -r slug; do
+  [ -z "$slug" ] && continue
+  # Delegate to ack: we duplicate the ack logic here rather than re-invoke the command,
+  # because slash-commands are not recursively executable mid-flow.
+  # (Copy the ack block above; or, if refactoring to a shared function, define it once and call it twice.)
+  echo "Ack-ing: $slug"
+  # ... same body as Ack subcommand, scoped to $slug ...
+done <<< "$FLAGGED"
+
+echo "Ack-all complete."
+exit 0
+```
+
+Implementation note for the engineer: factor the per-slug ack body out into a shell function in the same command file and call it from both `ack` and `ack-all` to avoid duplication.
+
+## Issue subcommand
+
+Args: `issue <slug>`
+
+Non-interactive Disposition A for one slug. Used by agents or in scripts that don't have an investor to prompt.
+
+Requires: entry has `needs_review=true` AND `gh_issue_url=null`. Otherwise, no-op with a message.
+
+Behaviour: identical to step 3 of the Confirmation flow (Task 11), but scoped to a single slug and without the AskUserQuestion prompt. Preserves the rule that registry and `.txt` are not touched here — only `gh_issue_url` is set.
+
+```bash
+SLUG="$1"
+[ -n "$SLUG" ] || { echo "Error: slug required"; exit 1; }
+
+entry=$(jq -r --arg s "$SLUG" '.entries[$s] // empty' .startup/law-registry.json)
+[ -n "$entry" ] || { echo "Error: no registry entry for '$SLUG'"; exit 1; }
+
+needs_review=$(jq -r --arg s "$SLUG" '.entries[$s].needs_review' .startup/law-registry.json)
+gh_issue_url=$(jq -r --arg s "$SLUG" '.entries[$s].gh_issue_url // empty' .startup/law-registry.json)
+
+if [ "$needs_review" != "true" ]; then
+  echo "No-op: '$SLUG' does not have needs_review=true."
+  exit 0
+fi
+if [ -n "$gh_issue_url" ]; then
+  echo "No-op: '$SLUG' already has an open issue: $gh_issue_url"
+  exit 0
+fi
+
+# Same as Confirmation flow Step 3b–3d, scoped to this slug
+TMP=$(mktemp -d)
+citation=$(jq -r --arg s "$SLUG" '.entries[$s].citation' .startup/law-registry.json)
+
+# Build minimal issue body (no fix-plan doc available in non-interactive mode)
+cat > "$TMP/${SLUG}-issue-body.md" <<ISSUEBODY
+Seadusemuudatus tuvastatud: ${citation} (${SLUG})
+
+Palun vaata muudatus üle ja uuenda vastavat koodiosa.
+Pärast parandamist käivita PR-i harul:
+
+    /lawyer ack ${SLUG}
+ISSUEBODY
+
+issue_url=$(gh issue create \
+  --title "Seadusemuudatus: ${citation} — ${SLUG}" \
+  --label "legal-review,seadusemuudatus" \
+  --body-file "$TMP/${SLUG}-issue-body.md" \
+  2>&1)
+
+jq --arg slug "$SLUG" --arg url "$issue_url" \
+  '.entries[$slug].gh_issue_url = $url' \
+  .startup/law-registry.json > .startup/law-registry.json.tmp
+mv .startup/law-registry.json.tmp .startup/law-registry.json
+
+echo "Issue created: $issue_url"
+exit 0
+```
+
+## Status subcommand
+
+Args: `status`
+
+Prints a concise summary of the registry state. No spawn, no feed call.
+
+```bash
+if [ ! -f .startup/law-registry.json ]; then
+  echo "No law registry in this project. Run /lawyer with a topic to initialise."
+  exit 0
+fi
+
+total=$(jq -r '.entries | length' .startup/law-registry.json)
+flagged=$(jq -r '[.entries[] | select(.needs_review == true)] | length' .startup/law-registry.json)
+open_issues=$(jq -r '[.entries[] | select(.needs_review == true and .gh_issue_url != null)] | length' .startup/law-registry.json)
+pending_confirm=$(jq -r '[.entries[] | select(.needs_review == true and .gh_issue_url == null)] | length' .startup/law-registry.json)
+last_check=$(jq -r '.last_feed_check_at // "never"' .startup/law-registry.json)
+
+cat <<EOF
+Law registry status
+-------------------
+Total entries:        $total
+Flagged for review:   $flagged
+  With open gh issue: $open_issues
+  Awaiting issue:     $pending_confirm
+Last feed check:      $last_check
+EOF
+
+if (( pending_confirm > 0 )); then
+  echo ""
+  echo "Slugs awaiting confirmation (will prompt on next /lawyer <topic>):"
+  jq -r '.entries | to_entries[] | select(.value.needs_review == true and .value.gh_issue_url == null) | "  - " + .key' .startup/law-registry.json
+fi
+
+exit 0
+```
+
+## Check subcommand
+
+Args: `check`
+
+Runs the Change Detection step (Task 8) and exits. Does NOT prompt, does NOT create issues, does NOT spawn the agent. After this returns, any new flags are persisted and the investor can run `/lawyer status` to see them.
+
+```bash
+# The change-detection block from the "Change Detection" section above,
+# followed by:
+echo "Feed check complete."
+echo "Run /lawyer status to see flagged entries, or /lawyer <topic> to trigger the fix-plan prompt."
+exit 0
+```
+
 ## Execution
 
 ### Step 0: Reset active_role
