@@ -329,6 +329,34 @@ fi
 
 After this step, the index reflects all feed changes. Flagged entries are handled by the Fix-Plan and Confirmation flow (Tasks 10–11).
 
+## Conditional gh pre-flight
+
+If any entry has `needs_review=true` AND `gh_issue_url=null`, the investor is about to be prompted to create a GitHub issue. `gh` must work at that point.
+
+```bash
+needs_gh=$(jq -r '
+  .entries | to_entries[]
+  | select(.value.needs_review == true and .value.gh_issue_url == null)
+  | .key
+' .startup/law-registry.json | head -n1)
+
+if [ -n "$needs_gh" ]; then
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "Error: gh CLI not installed. Install via 'brew install gh' or your platform's package manager."
+    echo "       /lawyer detected pending legal changes that need GitHub issues, and there is no manual fallback."
+    exit 1
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "Error: gh is not authenticated. Run 'gh auth login' first."
+    exit 1
+  fi
+  if ! gh repo view --json nameWithOwner >/dev/null 2>&1; then
+    echo "Error: this directory is not a GitHub-backed repository. /lawyer's change workflow requires a GitHub remote."
+    exit 1
+  fi
+fi
+```
+
 ## Execution
 
 ### Step 0: Reset active_role
