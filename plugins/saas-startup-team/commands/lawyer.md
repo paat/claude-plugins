@@ -69,6 +69,23 @@ If `.startup/laws` exists, it must be a directory. Missing path is fine.
 **If non-zero exit:**
 > **Error:** `.startup/laws` exists but is not a directory. Remove or rename it before running /lawyer again.
 
+## Subcommand Dispatch
+
+After pre-flight passes, inspect `$ARGUMENTS`:
+
+1. If the first whitespace-delimited token matches one of the following keywords, treat it as a subcommand and route accordingly:
+   - `register` — see "Register subcommand" below
+   - `unregister` — see "Unregister subcommand"
+   - `ack` — see "Ack subcommand"
+   - `ack-all` — see "Ack-all subcommand"
+   - `issue` — see "Issue subcommand"
+   - `status` — see "Status subcommand"
+   - `check` — see "Check subcommand"
+
+2. Otherwise, `$ARGUMENTS` is a free-form topic. Continue to change detection (Task 9) and analysis (existing "Execution" section).
+
+Disambiguation: topics that legitimately start with one of these tokens (rare) must be quoted: `/lawyer "register a user — GDPR-compliant?"`.
+
 ## Execution
 
 ### Step 0: Reset active_role
