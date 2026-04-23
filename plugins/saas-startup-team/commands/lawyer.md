@@ -386,6 +386,11 @@ if [ -n "$needs_gh" ]; then
     echo "Error: this directory is not a GitHub-backed repository. /lawyer's change workflow requires a GitHub remote."
     exit 1
   fi
+  # Ensure the labels used by the fix-tracking workflow exist in the repo.
+  # --force is idempotent: creates if missing, updates colour/description if present.
+  # Silenced because label provisioning is an internal detail, not user-facing progress.
+  gh label create legal-review --color FFA500 --description "Õigusküsimus või seadusemuudatus" --force >/dev/null 2>&1 || true
+  gh label create seadusemuudatus --color FF6B6B --description "Estonian law changed — fix pending" --force >/dev/null 2>&1 || true
 fi
 ```
 
@@ -540,17 +545,23 @@ Write `$TMP/${slug}-issue-body.md` with the following content (shown here as ind
 
 #### Step 3c: Create the GitHub issue
 
+Capture stdout (URL) separately from stderr (errors) and verify exit code. A non-zero exit or any error in `$TMP/gh-err-${slug}` leaves the slug flagged — next `/lawyer` run re-prompts — rather than storing the error text as a fake URL.
+
 ```bash
-issue_url=$(gh issue create \
+if ! issue_url=$(gh issue create \
   --title "Seadusemuudatus: ${citation} — ${slug}" \
   --label "legal-review,seadusemuudatus" \
-  --body-file "$TMP/${slug}-issue-body.md" \
-  2>&1)
+  --body-file "$TMP/${slug}-issue-body.md" 2>"$TMP/gh-err-${slug}"); then
+  echo "Error: gh issue create failed for '${slug}':"
+  cat "$TMP/gh-err-${slug}"
+  echo "  Slug remains flagged; next /lawyer run will re-prompt."
+  continue
+fi
 ```
 
 #### Step 3d: Store the issue URL
 
-Parse the issue URL (gh prints it on stdout). Store it on the entry — write only `gh_issue_url`; leave all other fields untouched:
+Only reached on success. Store `gh_issue_url`; leave all other fields untouched:
 
 ```bash
 jq --arg slug "$slug" --arg url "$issue_url" \
@@ -713,11 +724,15 @@ Pärast parandamist käivita PR-i harul:
     /lawyer ack ${SLUG}
 ISSUEBODY
 
-issue_url=$(gh issue create \
+if ! issue_url=$(gh issue create \
   --title "Seadusemuudatus: ${citation} — ${SLUG}" \
   --label "legal-review,seadusemuudatus" \
-  --body-file "$TMP/${SLUG}-issue-body.md" \
-  2>&1)
+  --body-file "$TMP/${SLUG}-issue-body.md" 2>"$TMP/gh-err"); then
+  echo "Error: gh issue create failed for '${SLUG}':"
+  cat "$TMP/gh-err"
+  echo "  Slug remains flagged; gh_issue_url left null. Fix the gh problem and retry."
+  exit 1
+fi
 
 jq --arg slug "$SLUG" --arg url "$issue_url" \
   '.entries[$slug].gh_issue_url = $url' \
@@ -769,11 +784,70 @@ exit 0
 
 Args: `check`
 
-Runs the Change Detection step (Task 8) and exits. Does NOT prompt, does NOT create issues, does NOT spawn the agent. After this returns, any new flags are persisted and the investor can run `/lawyer status` to see them.
+Runs the Change Detection step and exits. Does NOT prompt, does NOT create issues, does NOT spawn the agent. After this returns, any new flags are persisted and the investor can run `/lawyer status` to see them.
+
+The body is the full Change Detection logic inlined — prose reference alone would run as a bash comment and silently no-op (same failure mode caught in the ack-all fixup).
 
 ```bash
-# The change-detection block from the "Change Detection" section above,
-# followed by:
+[ -f .startup/law-registry.json ] || echo '{"version":1,"last_feed_check_at":null,"entries":{}}' > .startup/law-registry.json
+
+DOMAINS=$(jq -r '.entries | to_entries[] | .value.domain' .startup/law-registry.json | sort -u)
+ACT_IDS=$(jq -r '.entries | to_entries[] | .value.act_id' .startup/law-registry.json | sort -u)
+
+if [ -z "$DOMAINS" ]; then
+  echo "Registry is empty; nothing to check."
+else
+  SINCE=$(jq -r '.last_feed_check_at // ""' .startup/law-registry.json)
+  all_events='[]'
+  FEED_OK=1
+  while IFS= read -r d; do
+    [ -z "$d" ] && continue
+    encoded=$(printf '%s' "$d" | jq -sRr @uri)
+    if [ -n "$SINCE" ]; then
+      url="https://datalake.r-53.com/api/v1/changes/feed?domain=${encoded}&since=${SINCE}"
+    else
+      url="https://datalake.r-53.com/api/v1/changes/feed?domain=${encoded}&limit=100"
+    fi
+    resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" "$url")
+    body=$(printf '%s' "$resp" | sed '$d')
+    code=$(printf '%s' "$resp" | tail -n1)
+    if [ "$code" != "200" ]; then
+      echo "⚠ Seaduste muudatuste kontroll ebaõnnestus domeenile '$d' ($code) — vaata üle käsitsi"
+      FEED_OK=0
+      continue
+    fi
+    if [ -z "$SINCE" ]; then
+      cutoff=$(python3 -c 'import datetime; print((datetime.datetime.utcnow() - datetime.timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ"))')
+      events=$(echo "$body" | jq --arg c "$cutoff" '[.events[] | select(.timestamp >= $c)]')
+    else
+      events=$(echo "$body" | jq '.events // []')
+    fi
+    all_events=$(echo "$all_events $events" | jq -s 'add')
+  done <<< "$DOMAINS"
+
+  act_ids_json=$(printf '%s\n' "$ACT_IDS" | jq -R . | jq -s .)
+  matched=$(echo "$all_events" | jq --argjson acts "$act_ids_json" '[.[] | select(.act_id as $a | $acts | index($a))]')
+
+  updated=$(jq --argjson matched "$matched" '
+    reduce ($matched[]) as $e (.;
+      .entries |= with_entries(
+        if .value.act_id == $e.act_id then
+          .value.needs_review = true
+          | .value.change_detected_at = $e.timestamp
+          | .value.change = { feed_event_id: $e.id, type: $e.type, summary: $e.summary }
+        else . end
+      )
+    )
+  ' .startup/law-registry.json)
+
+  if [ "$FEED_OK" = "1" ]; then
+    NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    echo "$updated" | jq --arg now "$NOW" '.last_feed_check_at = $now' > .startup/law-registry.json
+  else
+    echo "$updated" > .startup/law-registry.json
+  fi
+fi
+
 echo "Feed check complete."
 echo "Run /lawyer status to see flagged entries, or /lawyer <topic> to trigger the fix-plan prompt."
 exit 0
