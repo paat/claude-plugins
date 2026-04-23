@@ -22,12 +22,22 @@ If the user hasn't already described their SaaS idea, ask them (in English):
 
 ## Step 2: Initialize Project Directory
 
-**Re-initialization guard (MED-4):** If `.startup/state.json` already exists, show the current state (iteration, phase, handoff count) and ask the investor:
-> An existing startup session was found at iteration N (phase: X). Would you like to:
+**Re-initialization guard (MED-4):** If `.startup/state.json` already exists, show the current state (iteration, phase, handoff count, and `status`) and ask the investor:
+> An existing startup session was found at iteration N (phase: X, status: Y). Would you like to:
 > 1. **Resume** the existing session
 > 2. **Reset** and start fresh (this will delete all previous progress)
 
-If resuming, run `/bootstrap` first (idempotent — ensures docs/ structure exists for migrated projects), then skip to Step 3 with the existing state.
+If resuming, run `/bootstrap` first (idempotent — ensures docs/ structure exists for migrated projects). If `status == "paused"`, clear the paused flag before continuing:
+
+```bash
+if [ "$(jq -r '.status // empty' .startup/state.json)" = "paused" ]; then
+  jq 'del(.paused_at, .paused_reason) | .status = "active" | .resumed = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
+    .startup/state.json > .startup/state.json.tmp \
+    && mv .startup/state.json.tmp .startup/state.json
+fi
+```
+
+Then skip to Step 3 with the existing state.
 
 Run `/bootstrap` first (idempotent — safe to re-run). This creates:
 - `docs/` subdirectories: `research/`, `legal/`, `architecture/`, `ux/`, `seo/`, `business/`
@@ -63,6 +73,8 @@ Initialize `state.json`:
 ```
 
 `schema_version: 2` opts in to the compaction system: old `handoff_NNN_*` keys get archived to `.startup/state-archive.json` automatically once the inline window (last 10 handoffs by default) is exceeded. See the State Management section of each founder agent for the full list of keys allowed inline — anything outside the allowlist is eligible for archival.
+
+**Never write `active_role: "team-lead"`.** The orchestrator (you) is implicit, not a tracked role. `active_role` must always name the next acting founder/agent — `business-founder`, `tech-founder`, `lawyer`, `ux-tester`, `growth-hacker`, or the `-maintain` variants. Writing `team-lead` triggers `enforce-delegation` on subsequent edits during `/improve`, `/lawyer`, `/ux-test`, and `/growth`, derailing those flows.
 
 Write `docs/business/brief.md` using the user's SaaS idea description (skip if `/bootstrap` already created it).
 
@@ -185,6 +197,20 @@ sleep 1
 - Instruction: "After completing your work and writing the handoff/review/signoff file, report back with a summary of what you did and the filename."
 
 Use `subagent_type: "general-purpose"` for the Task tool.
+
+### Sync vs. async dispatch
+
+Agent/Task tool calls default to **synchronous** — the call returns when the subagent finishes, and you act on the result immediately. This is the correct default for the relay loop. **Do not pass `run_in_background: true` unless you genuinely need to fire-and-forget.**
+
+If you *do* run a subagent in the background (long-running browser test, heavy research), you must yield control correctly while waiting:
+
+1. Launch with `run_in_background: true` — note the returned `agentId`.
+2. Use `ScheduleWakeup` with `delaySeconds: 270` (stays inside the 5-min prompt-cache window) to poll for completion.
+3. On wakeup, check the agent's output file or re-read `state.json`. If still running, schedule the next poll.
+
+The Stop hook is transcript-aware: if your last tool call was `ScheduleWakeup`, it treats the turn-end as a yield (not a quit) and lets you hand control back to the harness without firing. Skip the ScheduleWakeup step and the hook will block you on every end-of-turn until a solution signoff exists.
+
+**Never dispatch async subagents in a tight loop without `ScheduleWakeup`.** Without it, the orchestrator has no way to wait and will thrash against `check-stop.sh`, burning tokens on keepalive chatter.
 
 **Right-size the task.** Each agent dispatch must be a cohesive unit of work that produces exactly ONE deliverable file (handoff, review, or signoff). The sweet spot is 15-30 minutes of agent time.
 

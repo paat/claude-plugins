@@ -563,6 +563,59 @@ test_stop_hook() {
     FAIL_COUNT=$((FAIL_COUNT + 1))
     FAILURES+=("F10: hooks.json Stop entry missing check-stop.sh")
   fi
+
+  # F11: status=paused bypasses the block — /pause escape hatch
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review", "status": "paused"}' > "$workdir/.startup/state.json"
+  ec=0; (cd "$workdir" && bash "$SCRIPT" < /dev/null) || ec=$?
+  assert_exit_code "F11: status=paused → allow stop" "$ec" 0
+  rm -rf "$workdir"
+
+  # F12: transcript with last assistant tool_use = ScheduleWakeup → allow stop
+  # Regression for the 742-block runaway in /loop + async-Agent sessions.
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
+  cat > "$workdir/.startup/transcript.jsonl" <<'EOF'
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do work"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"polling"},{"type":"tool_use","name":"ScheduleWakeup","input":{"delaySeconds":270}}]}}
+EOF
+  ec=0; (cd "$workdir" && printf '{"transcript_path":"%s/.startup/transcript.jsonl"}' "$workdir" | bash "$SCRIPT") || ec=$?
+  assert_exit_code "F12: last tool_use=ScheduleWakeup → allow stop" "$ec" 0
+  rm -rf "$workdir"
+
+  # F13: transcript with last assistant tool_use != ScheduleWakeup → still blocks
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
+  cat > "$workdir/.startup/transcript.jsonl" <<'EOF'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"ScheduleWakeup","input":{"delaySeconds":270}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"woke"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}
+EOF
+  ec=0; (cd "$workdir" && printf '{"transcript_path":"%s/.startup/transcript.jsonl"}' "$workdir" | bash "$SCRIPT") || ec=$?
+  assert_exit_code "F13: last tool_use=Bash → block stop (baseline preserved)" "$ec" 2
+  rm -rf "$workdir"
+
+  # F14: missing transcript_path → falls back to default behavior (blocks)
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
+  ec=0; (cd "$workdir" && echo '{}' | bash "$SCRIPT") || ec=$?
+  assert_exit_code "F14: missing transcript_path → block stop" "$ec" 2
+  rm -rf "$workdir"
+
+  # F15: malformed transcript JSONL → falls back to default behavior (blocks)
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
+  echo 'not valid json' > "$workdir/.startup/transcript.jsonl"
+  ec=0; (cd "$workdir" && printf '{"transcript_path":"%s/.startup/transcript.jsonl"}' "$workdir" | bash "$SCRIPT") || ec=$?
+  assert_exit_code "F15: malformed transcript → block stop (safe default)" "$ec" 2
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
@@ -719,6 +772,33 @@ test_cross_file_consistency() {
     FAIL_COUNT=$((FAIL_COUNT + 1))
     FAILURES+=("H11: status.sh is not executable")
   fi
+
+  # H12-H15: Non-/startup commands reset active_role before dispatching
+  # subagents. Regression guard for v0.26.0 — stops enforce-delegation from
+  # firing on stale team-lead state left by a prior /startup session.
+  assert_file_contains "H12: /improve resets active_role" \
+    "$PLUGIN_ROOT/commands/improve.md" '.active_role = "business-founder-maintain"'
+  assert_file_contains "H13: /lawyer resets active_role" \
+    "$PLUGIN_ROOT/commands/lawyer.md" '.active_role = "lawyer"'
+  assert_file_contains "H14: /ux-test resets active_role" \
+    "$PLUGIN_ROOT/commands/ux-test.md" '.active_role = "ux-tester"'
+  assert_file_contains "H15: /growth state update sets active_role" \
+    "$PLUGIN_ROOT/commands/growth.md" '"active_role": "business-founder"'
+
+  # H16-H17: Orchestrator is warned never to write active_role=team-lead.
+  assert_file_contains "H16: startup.md warns against team-lead active_role" \
+    "$PLUGIN_ROOT/commands/startup.md" 'Never write `active_role: "team-lead"`'
+  assert_file_contains "H17: orchestration skill warns against team-lead active_role" \
+    "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" 'Never write `active_role: "team-lead"`'
+
+  # H18-H20: v0.27.0 — /pause command and sync-vs-async dispatch guidance.
+  assert_file_exists "H18: /pause command exists" "$PLUGIN_ROOT/commands/pause.md"
+  assert_file_contains "H18b: /pause sets status=paused" \
+    "$PLUGIN_ROOT/commands/pause.md" '.status = "paused"'
+  assert_file_contains "H19: startup.md documents sync vs async dispatch" \
+    "$PLUGIN_ROOT/commands/startup.md" 'Sync vs. async dispatch'
+  assert_file_contains "H20: startup.md clears paused status on resume" \
+    "$PLUGIN_ROOT/commands/startup.md" 'status == "paused"'
 }
 
 # ---------------------------------------------------------------------------

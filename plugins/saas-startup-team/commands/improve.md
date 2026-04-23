@@ -64,6 +64,17 @@ git checkout -b "improve/${slug}"
 
 If the branch already exists, tell the investor and ask them to either pick a different description or confirm deletion of the old branch (`git branch -D improve/${slug}`).
 
+## Reset active_role
+
+Before dispatching any subagent, overwrite `active_role` in `.startup/state.json` to clear any stale value left over from a prior `/startup` session. The `enforce-delegation` hook fires only when `active_role=="team-lead"`; if a prior orchestrator session wrote that value, it will block this flow's subagents. Reset unconditionally — `/improve` is never a team-lead context.
+
+```bash
+if [ -f .startup/state.json ]; then
+  jq '.active_role = "business-founder-maintain"' .startup/state.json \
+    > .startup/state.json.tmp && mv .startup/state.json.tmp .startup/state.json
+fi
+```
+
 ## Step 1: Business Founder — Brief
 
 Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:

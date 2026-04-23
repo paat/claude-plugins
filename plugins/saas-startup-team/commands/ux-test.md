@@ -45,6 +45,17 @@ Test that browser tools are accessible by checking for the `mcp__plugin_saas-sta
 
 ## Execution
 
+### Step 0: Reset active_role
+
+Overwrite `active_role` in `.startup/state.json` before spawning the UX Tester. The `enforce-delegation` hook fires only when `active_role=="team-lead"`; a stale value from a prior `/startup` session would otherwise block the UX Tester's writes. `/ux-test` is never a team-lead context.
+
+```bash
+if [ -f .startup/state.json ]; then
+  jq '.active_role = "ux-tester"' .startup/state.json \
+    > .startup/state.json.tmp && mv .startup/state.json.tmp .startup/state.json
+fi
+```
+
 ### Step 1: Load UX Tester Skill
 
 ```

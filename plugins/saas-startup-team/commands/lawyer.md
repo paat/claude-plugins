@@ -47,6 +47,17 @@ echo "${EST_DATALAKE_API_KEY:?not set}" > /dev/null 2>&1
 
 ## Execution
 
+### Step 0: Reset active_role
+
+Overwrite `active_role` in `.startup/state.json` before spawning the Lawyer. The `enforce-delegation` hook fires only when `active_role=="team-lead"`; a stale value from a prior `/startup` session would otherwise block the Lawyer's writes. `/lawyer` is never a team-lead context.
+
+```bash
+if [ -f .startup/state.json ]; then
+  jq '.active_role = "lawyer"' .startup/state.json \
+    > .startup/state.json.tmp && mv .startup/state.json.tmp .startup/state.json
+fi
+```
+
 ### Step 1: Load Lawyer Skill
 
 ```

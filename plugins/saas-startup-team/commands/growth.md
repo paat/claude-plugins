@@ -138,10 +138,11 @@ Add to `.startup/human-tasks.md`:
 
 ## Step 3: Update State
 
-Update `.startup/state.json` — READ it first, then add growth fields:
+Update `.startup/state.json` — READ it first, then add growth fields AND overwrite `active_role`. Resetting `active_role` is mandatory: the `enforce-delegation` hook fires only when `active_role=="team-lead"`, and a stale value from a prior `/startup` session would block the growth-track subagents' writes.
 
 ```json
 {
+  "active_role": "business-founder",
   "growth_phase": "pre-launch" or "launch",
   "growth_status": "active",
   "growth_iteration": 0,

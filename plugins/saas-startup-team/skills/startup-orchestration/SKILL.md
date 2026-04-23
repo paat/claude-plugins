@@ -55,6 +55,7 @@ Business Founder writes solution signoff → GO LIVE
 - Monitor `.startup/state.json` for iteration count and phase
 - Enforce `max_iterations` limit (default: 20)
 - Track which founder should act next (`active_role`)
+- **Never write `active_role: "team-lead"`.** The orchestrator is implicit, not a tracked role. Valid values are `business-founder`, `tech-founder`, `lawyer`, `ux-tester`, `growth-hacker`, and their `-maintain` variants. Writing `team-lead` triggers the `enforce-delegation` hook on later edits in `/improve`, `/lawyer`, `/ux-test`, and `/growth`, blocking those flows.
 
 ### 3. Handoff Validation
 - Every handoff MUST follow the structured template format
