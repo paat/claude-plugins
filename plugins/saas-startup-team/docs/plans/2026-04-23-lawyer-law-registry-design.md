@@ -287,9 +287,16 @@ newly flagged this run or pending from a prior run):
 
 1. **Lawyer does NOT proceed with the user's requested topic.** Analysis agent
    is not spawned.
-2. **Read each flagged entry's snapshot** (`.startup/laws/<slug>.txt`) — ONLY
-   for slugs with `needs_review=true`, not all entries. This is the one place
-   the alert pipeline loads snapshot content.
+2. **For each flagged slug, load both old and new paragraph text:**
+   - Old text: read `.startup/laws/<slug>.txt` (the last-verified snapshot).
+   - New text: `curl --max-time 30 GET /laws/{act_id}/citation?paragraph=…`
+     against the datalake. Normalise (trim + NFC). This is ONE additional API
+     call per flagged entry — not per entry overall. Do NOT overwrite the
+     `.txt` file yet; the snapshot is only refreshed at ack time after the
+     investor has confirmed the review.
+   - If the new-text fetch fails (non-2xx or timeout), continue the alert flow
+     with a placeholder "⚠ uut teksti ei õnnestunud laadida — kontrolli käsitsi"
+     instead of the new-text block. Alert must still be written.
 3. **Write/append the review document** at
    `docs/legal/õiguslik-muudatused-YYYY-MM-DD.md`. If the file exists, append a
    new section with the current timestamp. Structure:
@@ -316,8 +323,17 @@ newly flagged this run or pending from a prior run):
    **Feed'i kokkuvõte:**
    [summary from feed]
 
-   **Eelmine tekst (salvestatud registreerimisel):**
+   **Eelmine tekst (salvestatud `verified_at`-ga 2026-04-20):**
    > Isikuandmete töötlemine on lubatud …
+
+   **Uus tekst (datalake, 2026-04-23):**
+   > Isikuandmete töötlemine on lubatud ning töötlejal on kohustus …
+
+   **Muutunud osa:**
+   ```diff
+   - Isikuandmete töötlemine on lubatud …
+   + Isikuandmete töötlemine on lubatud ning töötlejal on kohustus …
+   ```
 
    **Mõjutatud failid:**
    - src/auth/consent.ts:42
@@ -325,10 +341,8 @@ newly flagged this run or pending from a prior run):
    - docs/customer/privacy.md:10
 
    **Soovitatud tegevused:**
-   1. Võrdle uut redaktsiooni salvestatud tekstiga datalake'is:
-      `GET /laws/104052024010/citation?paragraph=...`
-   2. Vaata üle loetletud failid — kas loogika/sõnastus vajab uuendamist?
-   3. Pärast läbivaatust käivita /lawyer uuesti ja ütle, et oled muudatused
+   1. Vaata üle loetletud failid — kas loogika/sõnastus vajab uuendamist?
+   2. Pärast läbivaatust käivita /lawyer uuesti ja ütle, et oled muudatused
       üle vaadanud (nt `/lawyer olen muudatused üle vaadanud, jätka <topic>`).
    ```
 
@@ -630,3 +644,14 @@ accommodates either answer in each case.
   investor does not run `/lawyer` for two weeks and a relevant law changes on
   day three, the alert fires on day fourteen. Acceptable by design — continuous
   monitoring was explicitly out of scope.
+- **Feed blind spots.** Change detection trusts `/changes/feed` as the source of
+  truth. If the feed is late in picking up a new redaktsioon, miscategorises
+  it under a domain the project doesn't have entries in, or reports a text
+  correction that the datalake doesn't classify as an amendment, the
+  amendment is silently missed: the snapshot `.txt` stays stale, the lawyer
+  proceeds with old text as reference, no alert fires. The only mechanism
+  that refreshes `.txt` outside an explicit alert is `ack`. Mitigation paths
+  if this proves to bite: (a) add an opt-in `/lawyer recheck all texts` that
+  re-fetches every entry and diffs against the snapshot — full N-call cost,
+  run manually as needed; (b) add a staleness warning when `verified_at` is
+  older than some threshold (e.g. 90 days). Neither is in v1.
