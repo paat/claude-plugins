@@ -627,7 +627,9 @@ fi
 response=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   "https://datalake.r-53.com/api/v1/laws/${ACT_ID}/citation?paragraph=$(printf '%s' "$CITATION" | jq -sRr @uri)")
 text=$(echo "$response" | jq -r '.text // empty')
-redaktsioon=$(echo "$response" | jq -r '.redaktsioon_id // null')
+# Bare jq (no -r) so output is a JSON scalar ("..." string or null literal)
+# that --argjson can consume without parse errors.
+redaktsioon=$(echo "$response" | jq '.redaktsioon_id // null')
 if [ -z "$text" ]; then
   echo "Error: datalake returned no text for act=$ACT_ID citation=$CITATION"
   exit 1
@@ -1542,7 +1544,7 @@ encoded=$(printf '%s' "$citation" | jq -sRr @uri)
 resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   "https://datalake.r-53.com/api/v1/laws/${act_id}/citation?paragraph=${encoded}")
 text=$(echo "$resp" | jq -r '.text // empty')
-redaktsioon=$(echo "$resp" | jq -r '.redaktsioon_id // null')
+redaktsioon=$(echo "$resp" | jq '.redaktsioon_id // null')
 [ -n "$text" ] || { echo "FAIL: ack got empty text"; exit 1; }
 
 normalised=$(printf '%s' "$text" | python3 -c 'import sys, unicodedata; print(unicodedata.normalize("NFC", sys.stdin.read().strip()))')
@@ -1604,7 +1606,7 @@ encoded=$(printf '%s' "$citation" | jq -sRr @uri)
 resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   "https://datalake.r-53.com/api/v1/laws/${act_id}/citation?paragraph=${encoded}")
 text=$(echo "$resp" | jq -r '.text // empty')
-redaktsioon=$(echo "$resp" | jq -r '.redaktsioon_id // null')
+redaktsioon=$(echo "$resp" | jq '.redaktsioon_id // null')
 [ -n "$text" ] || { echo "Error: datalake returned empty text for act=$act_id citation=$citation"; exit 1; }
 
 normalised=$(printf '%s' "$text" | python3 -c 'import sys, unicodedata; print(unicodedata.normalize("NFC", sys.stdin.read().strip()))')

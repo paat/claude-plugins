@@ -49,6 +49,10 @@ fi
 response=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   "https://datalake.r-53.com/api/v1/laws/${ACT_ID}/citation?paragraph=${CITATION}")
 text=$(echo "$response" | jq -r '.text // empty')
+# Mirror the production extraction: bare jq keeps redaktsioon as JSON scalar
+# (quoted string or null literal) so --argjson below doesn't crash when the
+# datalake returns a non-null id.
+redaktsioon=$(echo "$response" | jq '.redaktsioon_id // null')
 [ -n "$text" ] || { echo "FAIL: empty text"; exit 1; }
 
 # Normalise
@@ -65,10 +69,11 @@ entry=$(jq -n \
   --arg cit "$CITATION" \
   --arg dom "Data Protection" \
   --arg rt "https://www.riigiteataja.ee/akt/${ACT_ID}" \
+  --argjson redaktsioon "$redaktsioon" \
   --arg now "$NOW" \
   --arg by "lawyer" \
   --arg purp "$PURPOSE" \
-  '{act_id:$act, act_title:$title, citation:$cit, domain:$dom, rt_url:$rt, redaktsioon_id:null, registered_at:$now, verified_at:$now, registered_by:$by, purpose:$purp, needs_review:false, change_detected_at:null, change:null, gh_issue_url:null}')
+  '{act_id:$act, act_title:$title, citation:$cit, domain:$dom, rt_url:$rt, redaktsioon_id:$redaktsioon, registered_at:$now, verified_at:$now, registered_by:$by, purpose:$purp, needs_review:false, change_detected_at:null, change:null, gh_issue_url:null}')
 
 jq --arg slug "$SLUG" --argjson e "$entry" \
   '.entries[$slug] = $e' \
@@ -81,5 +86,10 @@ stored=$(jq -r --arg slug "$SLUG" '.entries[$slug].act_id' .startup/law-registry
 [ "$stored" = "$ACT_ID" ] || { echo "FAIL: expected act_id=$ACT_ID, got $stored"; exit 1; }
 purpose_back=$(jq -r --arg slug "$SLUG" '.entries[$slug].purpose' .startup/law-registry.json)
 [ "$purpose_back" = "$PURPOSE" ] || { echo "FAIL: purpose roundtrip"; exit 1; }
+# Verify the redaktsioon_id round-tripped through --argjson correctly — this
+# guards against the --argjson crash that happens when redaktsioon is captured
+# with `jq -r` (bare string) instead of bare jq (JSON scalar).
+redaktsioon_back=$(jq -r --arg slug "$SLUG" '.entries[$slug].redaktsioon_id // "null"' .startup/law-registry.json)
+[ "$redaktsioon_back" = "104052024010/1" ] || { echo "FAIL: expected redaktsioon_id=104052024010/1, got $redaktsioon_back"; exit 1; }
 
 echo "PASS: test-register"

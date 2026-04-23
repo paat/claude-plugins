@@ -123,7 +123,9 @@ fi
 response=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   "https://datalake.r-53.com/api/v1/laws/${ACT_ID}/citation?paragraph=$(printf '%s' "$CITATION" | jq -sRr @uri)")
 text=$(echo "$response" | jq -r '.text // empty')
-redaktsioon=$(echo "$response" | jq -r '.redaktsioon_id // null')
+# Use bare jq (no -r) so the output is a JSON scalar — either a quoted string
+# like "104052024010/1" or the literal null — which --argjson can consume.
+redaktsioon=$(echo "$response" | jq '.redaktsioon_id // null')
 if [ -z "$text" ]; then
   echo "Error: datalake returned no text for act=$ACT_ID citation=$CITATION"
   exit 1
