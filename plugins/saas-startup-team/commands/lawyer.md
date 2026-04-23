@@ -86,6 +86,85 @@ After pre-flight passes, inspect `$ARGUMENTS`:
 
 Disambiguation: topics that legitimately start with one of these tokens (rare) must be quoted: `/lawyer "register a user — GDPR-compliant?"`.
 
+## Register subcommand
+
+Args: `register <slug> <act_id> <citation> <purpose>`
+
+`slug` must match `[a-z0-9-]+`. `citation` may contain spaces (quoted from the command line).
+
+Behaviour:
+
+```bash
+SLUG="$1"
+ACT_ID="$2"
+CITATION="$3"
+PURPOSE="$4"
+
+# Validate slug format
+[[ "$SLUG" =~ ^[a-z0-9-]+$ ]] || { echo "Error: slug must match [a-z0-9-]+"; exit 1; }
+
+# Ensure registry files exist
+[ -f .startup/law-registry.json ] || echo '{"version":1,"last_feed_check_at":null,"entries":{}}' > .startup/law-registry.json
+mkdir -p .startup/laws
+
+# Idempotency: is (act_id, citation) already registered?
+existing=$(jq -r --arg act "$ACT_ID" --arg cit "$CITATION" \
+  '.entries | to_entries[] | select(.value.act_id == $act and .value.citation == $cit) | .key' \
+  .startup/law-registry.json)
+if [ -n "$existing" ]; then
+  if [ "$existing" != "$SLUG" ]; then
+    echo "Entry (act=$ACT_ID, citation=$CITATION) already registered as '$existing'. Reusing; no action taken."
+    exit 0
+  fi
+  # Same slug: treat as re-registration — refresh text below
+fi
+
+# Fetch current paragraph text
+response=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+  "https://datalake.r-53.com/api/v1/laws/${ACT_ID}/citation?paragraph=$(printf '%s' "$CITATION" | jq -sRr @uri)")
+text=$(echo "$response" | jq -r '.text // empty')
+redaktsioon=$(echo "$response" | jq -r '.redaktsioon_id // null')
+if [ -z "$text" ]; then
+  echo "Error: datalake returned no text for act=$ACT_ID citation=$CITATION"
+  exit 1
+fi
+
+# Normalise (trim + NFC)
+normalised=$(printf '%s' "$text" | python3 -c 'import sys, unicodedata; print(unicodedata.normalize("NFC", sys.stdin.read().strip()))')
+
+# Write snapshot first
+printf '%s\n' "$normalised" > ".startup/laws/${SLUG}.txt"
+
+# Compute title and rt_url from response metadata (fall back gracefully)
+ACT_TITLE=$(echo "$response" | jq -r '.act_title // "Teadmata seadus"')
+DOMAIN=$(echo "$response" | jq -r '.domain // "Unknown"')
+RT_URL=$(echo "$response" | jq -r --arg id "$ACT_ID" '.rt_url // "https://www.riigiteataja.ee/akt/\($id)"')
+
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+entry=$(jq -n \
+  --arg act "$ACT_ID" \
+  --arg title "$ACT_TITLE" \
+  --arg cit "$CITATION" \
+  --arg dom "$DOMAIN" \
+  --arg rt "$RT_URL" \
+  --argjson redaktsioon "$redaktsioon" \
+  --arg now "$NOW" \
+  --arg by "${REGISTERED_BY:-lawyer}" \
+  --arg purp "$PURPOSE" \
+  '{act_id:$act, act_title:$title, citation:$cit, domain:$dom, rt_url:$rt, redaktsioon_id:$redaktsioon, registered_at:$now, verified_at:$now, registered_by:$by, purpose:$purp, needs_review:false, change_detected_at:null, change:null, gh_issue_url:null}')
+
+jq --arg slug "$SLUG" --argjson e "$entry" \
+  '.entries[$slug] = $e' \
+  .startup/law-registry.json > .startup/law-registry.json.tmp
+mv .startup/law-registry.json.tmp .startup/law-registry.json
+
+echo "Registered: $SLUG"
+echo "Lisa marker koodi: // LAW: $SLUG"
+exit 0
+```
+
+Failure: if the datalake citation call returns empty text, the helper hard-fails and does NOT leave a partial snapshot on disk (snapshot is written only after the text check passes).
+
 ## Execution
 
 ### Step 0: Reset active_role
