@@ -107,3 +107,35 @@ All calls require `X-API-Key` header. API base: `https://datalake.r-53.com/api/v
 - `references/saas-contracts.md` — SaaS contract law essentials
 - `references/software-licensing.md` — Open-source license compliance
 - `references/risk-assessment.md` — Risk assessment framework and severity matrix
+
+## Law Registry (per-project)
+
+Every SaaS project using this plugin maintains a registry of the Estonian
+legal paragraphs its code / customer-facing pages / customer-facing docs
+depend on. The registry lives at `.startup/law-registry.json` (metadata
+index) + `.startup/laws/<slug>.txt` (snapshot text per slug). Source files
+reference entries through `LAW: <slug>` comment markers.
+
+On every `/lawyer` run the command body polls the datalake `/changes/feed`
+per unique registered domain. Matched events flag entries
+`needs_review=true`. Flagged entries block analysis and trigger a fix-plan
+step — the investor is prompted once to create a GitHub issue, and the
+registry refresh happens inside the PR that ships the code fix (via
+`/lawyer ack <slug>`).
+
+**Full schema, marker syntax, scan regex, and API templates:** see
+`references/law-registry.md`.
+
+### Critical Rules
+
+- **ALWAYS** assume the registry is the source of truth for which Estonian
+  paragraphs the product depends on. When analysis cites a paragraph that
+  the product actually depends on, register it.
+- **ALWAYS** register with a kebab-case slug and add a marker in the code /
+  page / doc that depends on the paragraph.
+- **NEVER** modify `.startup/law-registry.json` or `.startup/laws/*.txt`
+  from within the agent body. The command body owns these files; code
+  fixes use `/lawyer ack <slug>` inside the PR branch.
+- **NEVER** register a paragraph cited only in an internal analysis doc
+  (`docs/legal/õiguslik-*.md`). The registry is for load-bearing references
+  in code and customer-facing content only.
