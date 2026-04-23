@@ -66,9 +66,44 @@ ToS/privacy docs in the repo) reference the registry only through comment
 markers. Grepping the markers at check time is cheap and always-current — no
 separate denormalised "affected files" list to go stale.
 
+### Where law content lives
+
+Storage is split across two locations to keep the metadata index small enough
+to read in full without loading dozens of pages of legal prose into context:
+
+- **Metadata index — `.startup/law-registry.json`.** All per-entry metadata
+  (act_id, citation, domain, flags, timestamps, purpose) plus global state
+  (`last_feed_check_at`). ~150–250 bytes per entry; a 100-entry project is
+  roughly 20 KB. Safe to read in full on every `/lawyer` run.
+- **Paragraph snapshots — `.startup/laws/<slug>.txt`.** One file per entry,
+  containing the normalised paragraph text at last verification. Loaded only
+  when the lawyer needs that specific slug's text (diff during change
+  detection render, alert-doc generation, ack).
+
+What's stored and what isn't:
+
+- **Stored in the project:** per-entry metadata plus the normalised text of
+  each registered paragraph, at its last-verified redaktsioon. One paragraph
+  per `.txt` file.
+- **Not stored in the project:** full law acts, other paragraphs of the same
+  act that the product does not depend on, pre-amendment history, court
+  decisions, RAG citations. Those remain in the datalake and are fetched on
+  demand.
+
+When the lawyer needs the *current* paragraph text (e.g. during change
+detection or ack), it calls `/laws/{act_id}/citation` on the datalake.
+The `.txt` snapshot is kept only as the diff baseline and forensics
+reference — "this is what the paragraph said when we wired it into the
+product."
+
+The index JSON is the authoritative registry of which laws are in scope; the
+`.txt` files are addressable by slug and always derived from it. Unregistering
+a slug deletes both the JSON entry and its `.txt` file atomically (see
+Registration Flow).
+
 ## Data Model
 
-### File: `.startup/law-registry.json`
+### File: `.startup/law-registry.json` (index)
 
 ```json
 {
@@ -82,7 +117,6 @@ separate denormalised "affected files" list to go stale.
       "domain": "Data Protection",
       "rt_url": "https://www.riigiteataja.ee/akt/104052024010",
       "redaktsioon_id": "104052024010/1",
-      "text_snapshot": "Isikuandmete töötlemine on lubatud …",
       "registered_at": "2026-04-01T09:00:00Z",
       "verified_at": "2026-04-20T14:00:00Z",
       "registered_by": "lawyer",
@@ -95,15 +129,29 @@ separate denormalised "affected files" list to go stale.
 }
 ```
 
-### Field semantics
+### File: `.startup/laws/<slug>.txt` (paragraph snapshot)
+
+Plain text, normalised (trim + NFC Unicode), one file per registered slug.
+The filename is exactly `<slug>.txt`; slugs are kebab-case `[a-z0-9-]+` so
+they are filesystem-safe. Example `.startup/laws/consent-lawful-basis.txt`:
+
+```
+Isikuandmete töötlemine on lubatud …
+```
+
+One paragraph per file. No frontmatter, no metadata — all of that lives in
+the index JSON. The file is the *last-verified* text of the paragraph and is
+refreshed on registration and on ack.
+
+### Index fields
 
 | Field | Type | Notes |
 |---|---|---|
 | `version` | int | Schema version. Starts at `1`. Incremented only for breaking changes. |
 | `last_feed_check_at` | ISO-8601 | Advanced on every successful feed query, independent of whether changes were detected. |
-| `entries` | object | Keyed by slug (kebab-case, `[a-z0-9-]+`). Slug is what marker comments reference. |
+| `entries` | object | Keyed by slug (kebab-case, `[a-z0-9-]+`). Slug is what marker comments and `.txt` filenames both reference. |
 
-### Entry fields
+### Entry fields (in index)
 
 | Field | Type | Notes |
 |---|---|---|
@@ -113,7 +161,6 @@ separate denormalised "affected files" list to go stale.
 | `domain` | string | One of the datalake `/changes/feed` domains (e.g. `"Data Protection"`, `"Labor"`, `"Tax"`, `"Commercial"`). Used to decide which feeds to poll. |
 | `rt_url` | string | Riigi Teataja URL for the act. For investor-facing links. |
 | `redaktsioon_id` | string \| null | RT redaktsioon ID if the datalake exposes one on the citation endpoint. Optional; when present, enables cheap equality as a precision adjunct in the future. |
-| `text_snapshot` | string | Normalised paragraph text (trimmed, NFC Unicode) at the most recent successful verification. Refreshed on registration and on `ack`. |
 | `registered_at` | ISO-8601 | When the entry was first added. |
 | `verified_at` | ISO-8601 | When the text was last confirmed against the datalake (registration or ack). |
 | `registered_by` | string | `"lawyer"`, `"tech-founder"`, `"business-founder"`. Informational. |
@@ -121,6 +168,20 @@ separate denormalised "affected files" list to go stale.
 | `needs_review` | bool | **Work-blocking flag.** Any entry with `true` stops normal `/lawyer` operation. Cleared only by explicit `ack`. |
 | `change_detected_at` | ISO-8601 \| null | When the feed reported the change. |
 | `change` | object \| null | `{feed_event_id, type, summary}`. `type` is `"amended" \| "repealed" \| "replaced" \| "other"`. The timestamp lives on `change_detected_at`. |
+
+### Invariant: index ↔ snapshot files
+
+For every slug `X` in `entries`, a file `.startup/laws/X.txt` MUST exist, and
+no orphan `.txt` file may exist without a matching index entry. All writes
+that touch one must also touch the other:
+
+- **register** writes the index entry and the `.txt` file.
+- **unregister** deletes the `.txt` file and removes the index entry.
+- **ack** updates the `.txt` file content, bumps `verified_at`, clears the
+  review flags — all in one operation.
+
+Invariant violations (orphan files, missing files) are surfaced as
+non-blocking warnings on every `/lawyer` run, same as orphan markers.
 
 ## Source Markers
 
@@ -182,25 +243,28 @@ The lawyer greps these directories for markers (adjust per project as needed):
 ## Change Detection Flow
 
 Runs at the start of every `/lawyer` invocation, before any subcommand dispatch.
+This step reads ONLY the index (`.startup/law-registry.json`), never the per-slug
+`.txt` snapshot files — those are pulled later only for entries that get flagged.
 
 ```
-1. Read .startup/law-registry.json. If missing, create empty file and skip to step 8.
-2. If registry.entries is empty, skip to step 8.
-3. Compute unique set D of entry.domain values.
-4. Compute unique set A of entry.act_id values.
+1. Read .startup/law-registry.json (index only). If missing, create empty
+   file with {version:1, last_feed_check_at:null, entries:{}} and skip to step 8.
+2. If index.entries is empty, skip to step 8.
+3. Compute unique set D of entry.domain values from the index.
+4. Compute unique set A of entry.act_id values from the index.
 5. For each domain d in D:
      curl --max-time 30 GET /changes/feed?domain=d&since=<last_feed_check_at>
      (if last_feed_check_at is null, cap `since` at now-90d)
 6. Collect feed events whose act_id is in A.
 7. For each matched event E:
-     for each entry e with e.act_id == E.act_id:
+     for each index entry e with e.act_id == E.act_id:
        e.needs_review = true
        e.change_detected_at = E.timestamp
        e.change = { feed_event_id: E.id, type: E.type, summary: E.summary }
-8. If all feed queries succeeded, advance registry.last_feed_check_at = now
-   (independent of whether changes were detected — detection is recorded per entry,
-   not in the global timestamp).
-9. Persist registry.
+8. If all feed queries succeeded, advance index.last_feed_check_at = now
+   (independent of whether changes were detected — detection is recorded per
+   entry, not in the global timestamp).
+9. Persist index JSON. Do NOT touch any .txt file in this step.
 ```
 
 ### Feed unreachable
@@ -223,7 +287,10 @@ newly flagged this run or pending from a prior run):
 
 1. **Lawyer does NOT proceed with the user's requested topic.** Analysis agent
    is not spawned.
-2. **Write/append the review document** at
+2. **Read each flagged entry's snapshot** (`.startup/laws/<slug>.txt`) — ONLY
+   for slugs with `needs_review=true`, not all entries. This is the one place
+   the alert pipeline loads snapshot content.
+3. **Write/append the review document** at
    `docs/legal/õiguslik-muudatused-YYYY-MM-DD.md`. If the file exists, append a
    new section with the current timestamp. Structure:
 
@@ -261,10 +328,11 @@ newly flagged this run or pending from a prior run):
    1. Võrdle uut redaktsiooni salvestatud tekstiga datalake'is:
       `GET /laws/104052024010/citation?paragraph=...`
    2. Vaata üle loetletud failid — kas loogika/sõnastus vajab uuendamist?
-   3. Pärast läbivaatust kinnita: `/lawyer ack consent-lawful-basis`
+   3. Pärast läbivaatust käivita /lawyer uuesti ja ütle, et oled muudatused
+      üle vaadanud (nt `/lawyer olen muudatused üle vaadanud, jätka <topic>`).
    ```
 
-3. **Print terminal alert:**
+4. **Print terminal alert:**
 
    ```
    ⚠ STOP: 1 seadus(t) on muutunud. Analüüsi <topic> ei alustata.
@@ -274,13 +342,11 @@ newly flagged this run or pending from a prior run):
 
    Täielik raport: docs/legal/õiguslik-muudatused-2026-04-23.md
 
-   Pärast läbivaatust:
-     /lawyer ack <slug>       — kinnita üks muudatus
-     /lawyer ack-all          — kinnita kõik
-     /lawyer <topic>          — jätka algse analüüsiga
+   Pärast läbivaatust taaskäivita:
+     /lawyer olen muudatused üle vaadanud, jätka <original topic>
    ```
 
-4. **Exit.**
+5. **Exit.**
 
 ### Risk level heuristic for the alert doc
 
@@ -303,89 +369,148 @@ When the Lawyer agent produces an analysis that cites a paragraph the product
 depends on, it registers an entry as part of the analysis output:
 
 1. Pick a kebab-case slug (clear, short, domain-meaningful).
-2. Look up `(act_id, citation)` — if an entry already exists under a different
-   slug, reuse it; do not create a duplicate.
+2. Look up `(act_id, citation)` in the index — if an entry already exists under
+   a different slug, reuse it; do not create a duplicate.
 3. Fetch current paragraph text: `GET /laws/{act_id}/citation?paragraph=<normalised>`.
-4. Normalise text (trim + NFC), populate `text_snapshot`, `verified_at`, `registered_by="lawyer"`.
-5. Write entry to registry.
-6. In the analysis doc, instruct: *"Lisa marker koodi / sisusse: `LAW: <slug>`"*
+4. Normalise text (trim + NFC).
+5. Write `.startup/laws/<slug>.txt` with the normalised text.
+6. Write the index entry to `.startup/law-registry.json` with `verified_at=now`,
+   `registered_by="lawyer"`, flags cleared.
+7. In the analysis doc, instruct: *"Lisa marker koodi / sisusse: `LAW: <slug>`"*
    with suggested locations.
 
 ### Path B — marker-first (founder-initiated)
 
-Tech or business founder adds `// LAW: <new-slug>` in code while implementing a
-feature whose correctness depends on a specific law:
+A tech or business founder adds `// LAW: <new-slug>` in code while implementing
+a feature whose correctness depends on a specific law:
 
-1. On next `/lawyer` run, the marker scan finds `<new-slug>` with no registry entry.
-2. Lawyer reports the orphan and offers two remediations:
-   - `/lawyer register <slug> <act_id> "<citation>" "<purpose>"` — explicit
-     registration, lawyer fetches text and populates entry.
-   - Remove the marker if it was added in error.
+1. On next `/lawyer` run, the marker scan finds `<new-slug>` with no registry
+   entry.
+2. The Lawyer agent, given the surrounding code/comment context and the
+   founder's original handoff, attempts to identify which Estonian law the
+   marker refers to (datalake RAG + `/laws/search`). When confident, it
+   registers the entry automatically (internal call to the `register` helper).
+3. When not confident, the Lawyer surfaces the unresolved orphan in its run
+   output and asks the investor — in the next `/lawyer` topic — to provide
+   enough context to resolve it (e.g. "the consent check in auth/consent.ts
+   is based on § 10 of IKS").
 
-### Explicit subcommand
+### Explicit helper subcommand
 
-`/lawyer register <slug> <act_id> <citation> <purpose>`
+`/lawyer register <slug> <act_id> <citation> <purpose>` is the internal helper
+that Paths A and B call through. It is not part of investor UX; it exists so
+the command body has a deterministic entry point callable from bash.
 
 - Idempotent on `(act_id, citation)`: if an entry with that pair exists, print
   its current slug and exit without creating a new entry.
 - Fails hard if the citation endpoint returns 404 or the response is empty.
-  Registry is not polluted with placeholder entries.
+  Neither the index entry nor the `.txt` file is created on failure — registry
+  is not polluted with placeholder entries.
+- On success, writes the `.txt` snapshot file first, then the index entry. If
+  a crash happens between, a re-run sees the orphan `.txt` (warning) and the
+  next registration attempt recovers.
 
 ## Acknowledgement Flow
 
-`/lawyer ack <slug...>` and `/lawyer ack-all` clear `needs_review` after the
-investor has reviewed the change:
+The investor's only interface is `/lawyer <natural-language topic>`.
+Acknowledgement is signalled inside the topic string, not through a separate
+subcommand. The Lawyer agent, on entering the run, inspects the topic:
 
-1. For each slug to ack:
+- **Topic contains an ack phrase** (case-insensitive match on any of:
+  `olen üle vaadanud`, `kinnita muudatused`, `muudatused on vaadatud`,
+  `i have reviewed`, `reviewed the changes`, `acked`, `ack`, `acknowledged`,
+  `proceed anyway`, `proceed with review`) → the agent runs ack logic for
+  all currently flagged entries, then continues with whatever residual
+  intent remains in the topic.
+- **Topic also names specific slugs** (e.g. `olen üle vaadanud
+  consent-lawful-basis`) → ack is limited to the named slugs.
+- **No ack phrase and entries are still flagged** → the agent re-prints the
+  alert and does not run analysis.
+
+Ack logic, regardless of how it was triggered:
+
+1. For each entry being acked:
    - Fetch fresh text via `/laws/{act_id}/citation`.
-   - Update `text_snapshot` to the new normalised text.
-   - If the response carries a `redaktsioon_id` (see Open Question 3), update
-     that field on the entry.
-   - Update `verified_at` to now.
-   - Clear `needs_review`, `change_detected_at`, `change`.
-2. Persist registry.
-3. Print summary: `Kinnitatud: <n> kirjet. Saad jätkata: /lawyer <topic>`.
+   - Normalise (trim + NFC) and overwrite `.startup/laws/<slug>.txt` with the
+     new text.
+   - On the index entry: if the response carries a `redaktsioon_id` (see Open
+     Question 3), update that field; update `verified_at` to now; clear
+     `needs_review`, `change_detected_at`, `change`.
+2. Persist the index.
+3. Print summary: `Kinnitatud: <n> kirjet. Jätkan analüüsiga: <residual topic>`.
 
-`ack-all` is shorthand for acking every currently flagged entry.
+Acknowledgement does NOT require that the investor has actually modified any
+source files. The semantic is: "I have reviewed this change and confirmed the
+product is still correct (or will address it separately)." Tracking "did the
+user actually update src/auth/consent.ts?" would require heuristics weaker than
+an explicit ack in the investor's own words.
 
-Acknowledgement does NOT require that the user has actually modified any source
-files. The semantic is: "I have reviewed this change and confirmed the product
-is still correct (or will address it separately)." Tracking "did the user
-actually update src/auth/consent.ts?" would require heuristics that are weaker
-than a user's explicit ack.
+The explicit `ack` subcommand below is plumbing that the lawyer agent invokes
+internally (via bash) to do this work. It is also callable directly for
+scripting or by other agents, but not part of the investor's expected UX.
 
 ## Command Surface
 
-Updated `/lawyer` subcommand dispatch in `commands/lawyer.md`:
+### Investor-facing UX
+
+The investor interacts with only one form:
 
 ```
-/lawyer <topic>                         — analysis (existing behaviour), gated by change check
+/lawyer <free-form topic, Estonian or English>
+```
+
+Everything — analysis requests, acknowledgement of detected changes, asking
+for registry status, asking for a change re-check — is expressed inside the
+topic string. The Lawyer agent interprets intent. Example topics:
+
+- `analyze our ToS for GDPR gaps`
+- `olen seadusemuudatused üle vaadanud, jätka DPA analüüsiga`
+- `what's in the law registry?`
+- `recheck for law changes`
+- `register § 10 lõige 2 of the Data Protection Act — we use it for signup consent`
+
+The investor is never expected to type subcommand tokens like `ack` or
+`register` as the first argument, and the terminal alert prompts them with a
+natural-language continuation, not a subcommand.
+
+### Agent-facing helpers (internal plumbing)
+
+The command file also dispatches a set of explicit subcommands used by
+agents (the lawyer itself, or founder agents invoking the command
+programmatically) and by anyone who wants scriptable, deterministic calls:
+
+```
 /lawyer register <slug> <act_id> <citation> <purpose>
                                         — register an entry (idempotent by (act,citation))
 /lawyer unregister <slug>               — remove an entry
-/lawyer ack <slug> [<slug> …]           — clear needs_review, refresh text_snapshot
+/lawyer ack <slug> [<slug> …]           — clear needs_review, refresh the .txt snapshot
 /lawyer ack-all                         — ack every currently flagged entry
 /lawyer status                          — print registry state: total entries, pending reviews, last feed check
-/lawyer check                           — force a feed re-check without running analysis
+/lawyer check                           — run feed re-check without spawning analysis
 ```
+
+These are helpers, not the primary UX. They are not documented in
+investor-facing help text. Agents call them via bash; humans may call them
+if they want precise control, but nothing in the normal flow requires it.
 
 ### Subcommand vs. topic disambiguation
 
 If `args[0]` matches the literal keyword set
-`{register, unregister, ack, ack-all, status, check}`, treat as subcommand;
-otherwise treat full `args` as the topic string passed to the analysis agent.
+`{register, unregister, ack, ack-all, status, check}`, treat as a subcommand;
+otherwise treat the full `args` as a free-form topic for the Lawyer agent.
 
-Topics in practice are free-form Estonian/English phrases and are very unlikely
-to begin with those literal tokens. If a genuine topic collides (e.g. a user
-literally wants to analyse the verb "register"), quote the topic.
+Free-form topics are very unlikely to begin with those exact tokens. If they
+ever do, quoting (`/lawyer "register a user account — is this GDPR-compliant?"`)
+disambiguates.
 
 ### Subcommand execution model
 
 - `status`, `ack`, `ack-all`, `register`, `unregister` — run directly in the
-  command body (bash + jq). No analysis agent spawn. Fast.
+  command body (bash + jq). No agent spawn. Fast.
 - `check` — runs the change-detection flow then exits; no agent spawn.
-- `<topic>` — runs the change-detection flow; if clean, spawns the Lawyer
-  agent with the topic (existing behaviour).
+- free-form topic — runs the change-detection flow; if clean (or if the topic
+  itself contains ack phrasing that clears the flags), spawns the Lawyer
+  agent with the topic.
 
 ### Updated pre-flight checks
 
@@ -395,6 +520,19 @@ startup project present) remain unchanged. Added:
 - If `.startup/law-registry.json` exists, verify it parses as valid JSON and
   has `version == 1`. On parse failure, hard-fail with an error telling the
   user which line is broken. Do not overwrite on parse failure.
+- If `.startup/laws/` exists, verify it is a directory. On a surprise file at
+  that path, hard-fail.
+- Index ↔ snapshot invariant check is deferred to the change-detection step
+  (surfaced as non-blocking warning), not pre-flight — missing `.txt` files
+  should not prevent ack or unregister from running.
+
+### Context discipline
+
+The index JSON is bounded (roughly 20 KB at 100 entries) and always read in
+full. Snapshot `.txt` files are read per-slug and only when a specific flow
+requires the paragraph text (alert render, ack). The agent MUST NOT
+concatenate all snapshot files into a single read — that would defeat the
+purpose of the split.
 
 ## Skill / Agent / Command Changes
 
@@ -421,7 +559,8 @@ registry is a lawyer-local concern; other roles touch it only by writing
 
 ## Migration
 
-- **New projects:** registry is created empty on first `/lawyer` run.
+- **New projects:** index is created empty on first `/lawyer` run. The
+  `.startup/laws/` directory is created lazily on the first `register` call.
 - **Existing projects:** absence of `.startup/law-registry.json` is a valid
   state. The change-detection step becomes a no-op until the first entry is
   added.
@@ -432,18 +571,23 @@ registry is a lawyer-local concern; other roles touch it only by writing
 
 Lightweight, matching the plugin's existing testing posture (markdown + bash):
 
-1. **Schema smoke test** — a bash script that constructs a minimal registry,
-   round-trips through the change-detection code path with a mocked feed
-   response (local JSON fixture served by `python -m http.server`), and asserts
-   `needs_review` transitions correctly.
+1. **Schema smoke test** — a bash script that constructs a minimal index +
+   snapshot pair, round-trips through the change-detection code path with a
+   mocked feed response (local JSON fixture served by `python -m http.server`),
+   and asserts `needs_review` transitions correctly. Also asserts that change
+   detection does NOT read any `.txt` file.
 2. **Marker scan test** — a fixture directory with markers in `.ts`, `.py`,
    `.md`, `.jsx`, plus a prose false-positive ("the LAW: is clear that ...").
    The scan must match all legitimate markers and reject the prose.
-3. **Manual integration** — in a scratch startup project, register a real
+3. **Invariant test** — register a slug, delete its `.txt` file, run
+   `/lawyer check`; confirm the run surfaces a non-blocking warning and does
+   not crash. Unregister the slug; confirm both the index entry and any
+   remaining `.txt` file are removed.
+4. **Manual integration** — in a scratch startup project, register a real
    paragraph, run `/lawyer check`, confirm no changes. Fabricate a needs_review
-   state by editing the JSON, run `/lawyer <topic>` — confirm alert doc
-   written, topic skipped. Run `/lawyer ack-all`, run `/lawyer <topic>` —
-   confirm analysis proceeds.
+   state by editing the index JSON, run `/lawyer <topic>` — confirm alert doc
+   written, topic skipped. Run `/lawyer olen muudatused üle vaadanud, jätka`,
+   confirm flags clear and analysis proceeds.
 
 ## Open Questions (resolved at implementation time)
 
@@ -455,9 +599,10 @@ Lightweight, matching the plugin's existing testing posture (markdown + bash):
    metadata per event?** If paragraph-level, detection is precise; if
    act-level only, detection is coarser (acceptable).
 3. **Does the datalake expose a `redaktsioon_id` on the citation endpoint?**
-   If yes, `redaktsioon_id` is stored and compared at ack time as an adjunct
-   precision check (cheap equality before full text comparison). If no, the
-   field is simply left `null` and `text_snapshot` comparison remains primary.
+   If yes, `redaktsioon_id` is stored in the index entry and compared at ack
+   time as an adjunct precision check (cheap equality before any text diff).
+   If no, the field is simply left `null` and the snapshot `.txt` file
+   remains the only diff baseline.
 4. **Does `/changes/feed` accept a `since=<timestamp>` parameter?** The
    existing skill documents only `?domain=...&limit=N`. If `since` is not
    supported, fall back to fetching `?domain=d&limit=100` and filtering feed
@@ -474,9 +619,13 @@ accommodates either answer in each case.
   `LAW:` markers. Those surfaces are not covered by the registry. A future
   extension could add an `external_surfaces: [url, …]` array per entry that
   humans must review manually. Not in scope for v1.
-- **Concurrent writes** to `.startup/law-registry.json` by two simultaneous
-  `/lawyer` invocations can race. Same risk as `.startup/state.json`. Out of
-  scope.
+- **Concurrent writes** to `.startup/law-registry.json` or to any file under
+  `.startup/laws/` by two simultaneous `/lawyer` invocations can race. Same
+  risk as `.startup/state.json`. Out of scope.
+- **Partial writes across the two files** (index written, `.txt` not, or vice
+  versa) leave an invariant violation. Mitigated by doing snapshot writes
+  first and index writes second, and by surfacing index↔snapshot drift as a
+  warning on every run. Not fully transactional — explicit non-goal.
 - **Detection latency** is bounded by `/lawyer` invocation frequency. If the
   investor does not run `/lawyer` for two weeks and a relevant law changes on
   day three, the alert fires on day fourteen. Acceptable by design — continuous
