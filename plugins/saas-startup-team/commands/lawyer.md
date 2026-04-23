@@ -427,6 +427,89 @@ Capture the agent's response summary. The command body parses it for the AskUser
 
 On agent failure (agent returns an error or crashes): fall back to a minimal fix plan generated in bash from the new-text diff, write a stub review doc, and continue. The investor can always improve the issue body by hand after creation.
 
+## Confirmation and Issue Creation
+
+If any entry has `needs_review=true AND gh_issue_url=null`:
+
+### Step 1: AskUserQuestion prompt
+
+Build the confirmation question using `AskUserQuestion`. The question text lists each flagged slug's one-sentence summary (from the agent's response in Fix-Plan Step 5):
+
+> **Question:** "Seadusemuudatus avastatud — <N> kirje(t). Täielik parandusplaan: docs/legal/õiguslik-muudatused-<DATE>.md. Kas luua GitHubi issue(d) koos parandusplaaniga?"
+>
+> **Options:**
+> - `Jah, loo issue` (default, recommended)
+> - `Ei, jäta hiljemaks`
+
+### Step 2: On "Ei, jäta hiljemaks"
+
+- Print: "Lipp jääb üles; tuleb järgmisel /lawyer käivitusel uuesti ette."
+- Exit 0 without running the investor's requested topic.
+
+### Step 3: On "Jah, loo issue"
+
+For each flagged-and-unacked slug:
+
+#### Step 3a: Extract per-slug section from review doc
+
+Extract the per-slug "Mida tuleb teha" section from `docs/legal/õiguslik-muudatused-<DATE>.md` (the agent wrote it with recognisable slug headings).
+
+#### Step 3b: Compose issue body
+
+Write `$TMP/${slug}-issue-body.md` with the following content (shown here as indented prose; write it without the leading indentation):
+
+    <per-slug "Mida tuleb teha" section, unmodified>
+
+    ---
+
+    ## Registri värskendus PR-s
+
+    Pärast koodi parandamist, PR-i harul:
+
+        /lawyer ack <slug>
+
+    See helper fetches the new text, overwrites `.startup/laws/<slug>.txt`,
+    updates `.startup/law-registry.json` (clears flags, bumps verified_at,
+    updates redaktsioon_id), and must be committed together with the code
+    fix in the same PR.
+
+#### Step 3c: Create the GitHub issue
+
+```bash
+issue_url=$(gh issue create \
+  --title "Seadusemuudatus: ${citation} — ${slug}" \
+  --label "legal-review,seadusemuudatus" \
+  --body-file "$TMP/${slug}-issue-body.md" \
+  2>&1)
+```
+
+#### Step 3d: Store the issue URL
+
+Parse the issue URL (gh prints it on stdout). Store it on the entry — write only `gh_issue_url`; leave all other fields untouched:
+
+```bash
+jq --arg slug "$slug" --arg url "$issue_url" \
+  '.entries[$slug].gh_issue_url = $url' \
+  .startup/law-registry.json > .startup/law-registry.json.tmp
+mv .startup/law-registry.json.tmp .startup/law-registry.json
+```
+
+#### Step 3e: Fields not touched here
+
+Do NOT touch `needs_review`, `change`, `change_detected_at`, `verified_at`, `redaktsioon_id`, or the `.txt` snapshot. Those stay as detection left them — the PR that fixes the code will update them via `/lawyer ack`.
+
+### Step 4: Continue with topic analysis
+
+After all issues are created, continue with the original topic analysis (existing `## Execution` flow). The topic analysis receives the list of newly-issued slugs as context so it can note "pending legal fixes in #N, #N+1" in its output.
+
+### Step 5: Re-detection while issue is open
+
+Entries with `gh_issue_url != null` are NOT re-prompted by the confirmation flow — they are skipped silently. A reminder line is printed at the top of the run:
+
+> "Lahtised seadusemuudatuste issue'd: <url1>, <url2> — ootavad PR-i."
+
+No duplicate issue is created for these entries.
+
 ## Execution
 
 ### Step 0: Reset active_role
