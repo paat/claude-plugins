@@ -255,6 +255,80 @@ After running the scan:
 
 Both warnings are printed to the terminal but do not block the run.
 
+## Change Detection
+
+Runs at the start of every `/lawyer` invocation, after pre-flight and subcommand dispatch but before analysis. Reads only the index JSON; snapshot `.txt` files are never opened here.
+
+```bash
+[ -f .startup/law-registry.json ] || echo '{"version":1,"last_feed_check_at":null,"entries":{}}' > .startup/law-registry.json
+
+DOMAINS=$(jq -r '.entries | to_entries[] | .value.domain' .startup/law-registry.json | sort -u)
+ACT_IDS=$(jq -r '.entries | to_entries[] | .value.act_id' .startup/law-registry.json | sort -u)
+
+# Skip entirely if registry is empty
+if [ -z "$DOMAINS" ]; then
+  FEED_OK=1
+else
+  SINCE=$(jq -r '.last_feed_check_at // ""' .startup/law-registry.json)
+  all_events='[]'
+  FEED_OK=1
+  while IFS= read -r d; do
+    [ -z "$d" ] && continue
+    encoded=$(printf '%s' "$d" | jq -sRr @uri)
+    if [ -n "$SINCE" ]; then
+      url="https://datalake.r-53.com/api/v1/changes/feed?domain=${encoded}&since=${SINCE}"
+    else
+      url="https://datalake.r-53.com/api/v1/changes/feed?domain=${encoded}&limit=100"
+    fi
+    resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" "$url")
+    body=$(printf '%s' "$resp" | sed '$d')
+    code=$(printf '%s' "$resp" | tail -n1)
+    if [ "$code" != "200" ]; then
+      echo "⚠ Seaduste muudatuste kontroll ebaõnnestus domeenile '$d' ($code) — vaata üle käsitsi"
+      FEED_OK=0
+      continue
+    fi
+    # If SINCE is empty (first run), filter client-side to last 90 days
+    if [ -z "$SINCE" ]; then
+      cutoff=$(python3 -c 'import datetime; print((datetime.datetime.utcnow() - datetime.timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ"))')
+      events=$(echo "$body" | jq --arg c "$cutoff" '[.events[] | select(.timestamp >= $c)]')
+    else
+      events=$(echo "$body" | jq '.events // []')
+    fi
+    all_events=$(echo "$all_events $events" | jq -s 'add')
+  done <<< "$DOMAINS"
+
+  # Filter by act_id
+  act_ids_json=$(printf '%s\n' "$ACT_IDS" | jq -R . | jq -s .)
+  matched=$(echo "$all_events" | jq --argjson acts "$act_ids_json" '[.[] | select(.act_id as $a | $acts | index($a))]')
+
+  # Apply matches to registry. Re-detection while an issue is already open
+  # (gh_issue_url != null): update change/change_detected_at but do NOT create a
+  # fresh issue later — surface as a reminder instead.
+  updated=$(jq --argjson matched "$matched" '
+    reduce ($matched[]) as $e (.;
+      .entries |= with_entries(
+        if .value.act_id == $e.act_id then
+          .value.needs_review = true
+          | .value.change_detected_at = $e.timestamp
+          | .value.change = { feed_event_id: $e.id, type: $e.type, summary: $e.summary }
+        else . end
+      )
+    )
+  ' .startup/law-registry.json)
+
+  # Advance last_feed_check_at only if all domain queries succeeded
+  if [ "$FEED_OK" = "1" ]; then
+    NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    echo "$updated" | jq --arg now "$NOW" '.last_feed_check_at = $now' > .startup/law-registry.json
+  else
+    echo "$updated" > .startup/law-registry.json
+  fi
+fi
+```
+
+After this step, the index reflects all feed changes. Flagged entries are handled by the Fix-Plan and Confirmation flow (Tasks 10–11).
+
 ## Execution
 
 ### Step 0: Reset active_role
