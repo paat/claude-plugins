@@ -211,8 +211,14 @@ done
 
 PATTERN='(//|#|/\*|<!--|\{/\*)\s*LAW:\s*[a-z0-9-]+(\s*,\s*[a-z0-9-]+)*'
 
+# Guard: if no known source dirs exist, skip the scan entirely. Without this,
+# rg/grep with no path args would recurse from the current working directory
+# and spuriously match LAW: tokens inside docs/plans/, .startup/, node_modules,
+# etc.
+if [ ${#SCAN_DIRS[@]} -eq 0 ]; then
+  raw=""
 # Collect raw matches (rg preferred; grep fallback)
-if command -v rg >/dev/null 2>&1; then
+elif command -v rg >/dev/null 2>&1; then
   raw=$(rg -n --pcre2 "$PATTERN" "${SCAN_DIRS[@]}" 2>/dev/null | grep -v '^docs/legal/' || true)
 else
   raw=$(grep -rEn "$PATTERN" "${SCAN_DIRS[@]}" 2>/dev/null | grep -v '^docs/legal/' || true)
@@ -420,9 +426,42 @@ done <<< "$FLAGGED_SLUGS"
 
 ### Step 3: Run the Marker Scan and stash results
 
+Run the same logic as `## Marker Scan (internal helper)` above, redirecting its output to `$TMP/markers.tsv`. Output format per line: `<slug>\t<file>:<line>`.
+
 ```bash
-# Output format: <slug>\t<file>:<line>
-# Run the Marker Scan logic above and redirect its output to "$TMP/markers.tsv"
+SCAN_DIRS=()
+for d in src app pages components lib server public content docs; do
+  [ -d "$d" ] && SCAN_DIRS+=("$d")
+done
+
+if [ ${#SCAN_DIRS[@]} -eq 0 ]; then
+  : > "$TMP/markers.tsv"
+else
+  PATTERN='(//|#|/\*|<!--|\{/\*)\s*LAW:\s*[a-z0-9-]+(\s*,\s*[a-z0-9-]+)*'
+  if command -v rg >/dev/null 2>&1; then
+    raw=$(rg -n --pcre2 "$PATTERN" "${SCAN_DIRS[@]}" 2>/dev/null | grep -v '^docs/legal/' || true)
+  else
+    raw=$(grep -rEn "$PATTERN" "${SCAN_DIRS[@]}" 2>/dev/null | grep -v '^docs/legal/' || true)
+  fi
+
+  printf '%s\n' "$raw" | awk -F: '
+    {
+      file=$1; line=$2
+      tail=""
+      for (i=3; i<=NF; i++) tail = tail (i==3?"":":") $i
+      if (match(tail, /LAW:[[:space:]]*[a-z0-9,\- \t]+/) == 0) next
+      slugs = substr(tail, RSTART+4)
+      gsub(/\*\/.*/, "", slugs)
+      gsub(/-->.*/, "", slugs)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", slugs)
+      ns = split(slugs, arr, /[[:space:]]*,[[:space:]]*/)
+      for (j=1; j<=ns; j++) {
+        s = arr[j]
+        if (s ~ /^[a-z0-9-]+$/) print s "\t" file ":" line
+      }
+    }
+  ' > "$TMP/markers.tsv"
+fi
 ```
 
 ### Step 4: Spawn the Lawyer agent
@@ -596,20 +635,40 @@ FLAGGED=$(jq -r '
 
 [ -z "$FLAGGED" ] && { echo "No flagged entries to ack."; exit 0; }
 
-while IFS= read -r slug; do
-  [ -z "$slug" ] && continue
-  # Delegate to ack: we duplicate the ack logic here rather than re-invoke the command,
-  # because slash-commands are not recursively executable mid-flow.
-  # (Copy the ack block above; or, if refactoring to a shared function, define it once and call it twice.)
-  echo "Ack-ing: $slug"
-  # ... same body as Ack subcommand, scoped to $slug ...
+while IFS= read -r SLUG; do
+  [ -z "$SLUG" ] && continue
+  echo "Ack-ing: $SLUG"
+
+  act_id=$(jq -r --arg s "$SLUG" '.entries[$s].act_id' .startup/law-registry.json)
+  citation=$(jq -r --arg s "$SLUG" '.entries[$s].citation' .startup/law-registry.json)
+  encoded=$(printf '%s' "$citation" | jq -sRr @uri)
+
+  resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+    "https://datalake.r-53.com/api/v1/laws/${act_id}/citation?paragraph=${encoded}")
+  text=$(echo "$resp" | jq -r '.text // empty')
+  redaktsioon=$(echo "$resp" | jq '.redaktsioon_id // null')
+  if [ -z "$text" ]; then
+    echo "Error: datalake returned empty text for act=$act_id citation=$citation — skipping $SLUG"
+    continue
+  fi
+
+  normalised=$(printf '%s' "$text" | python3 -c 'import sys, unicodedata; print(unicodedata.normalize("NFC", sys.stdin.read().strip()))')
+  printf '%s\n' "$normalised" > ".startup/laws/${SLUG}.txt"
+
+  NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq --arg slug "$SLUG" --arg now "$NOW" --argjson r "$redaktsioon" '
+    .entries[$slug].needs_review = false
+    | .entries[$slug].change = null
+    | .entries[$slug].change_detected_at = null
+    | .entries[$slug].verified_at = $now
+    | .entries[$slug].redaktsioon_id = $r
+  ' .startup/law-registry.json > .startup/law-registry.json.tmp
+  mv .startup/law-registry.json.tmp .startup/law-registry.json
 done <<< "$FLAGGED"
 
-echo "Ack-all complete."
+echo "Ack-all complete. Remember to commit .startup/law-registry.json and .startup/laws/*.txt in this PR alongside your code changes."
 exit 0
 ```
-
-Implementation note for the engineer: factor the per-slug ack body out into a shell function in the same command file and call it from both `ack` and `ack-all` to avoid duplication.
 
 ## Issue subcommand
 

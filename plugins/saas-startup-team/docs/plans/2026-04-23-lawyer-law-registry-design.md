@@ -612,7 +612,7 @@ if they want precise control, but nothing in the normal flow requires it.
 ### Subcommand vs. topic disambiguation
 
 If `args[0]` matches the literal keyword set
-`{register, unregister, ack, ack-all, status, check}`, treat as a subcommand;
+`{register, unregister, ack, ack-all, issue, status, check}`, treat as a subcommand;
 otherwise treat the full `args` as a free-form topic for the Lawyer agent.
 
 Free-form topics are very unlikely to begin with those exact tokens. If they
