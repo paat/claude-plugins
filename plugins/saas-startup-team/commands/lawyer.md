@@ -198,6 +198,63 @@ echo "Unregistered: $SLUG"
 exit 0
 ```
 
+## Marker Scan (internal helper)
+
+Produces a `slug -> [file:line, ...]` map by scanning project source for `LAW:` markers. Used by the change-detection alert flow and the orphan-slug warning.
+
+```bash
+# Scope: source + customer-facing content; exclude docs/legal/ (lawyer output)
+SCAN_DIRS=()
+for d in src app pages components lib server public content docs; do
+  [ -d "$d" ] && SCAN_DIRS+=("$d")
+done
+
+PATTERN='(//|#|/\*|<!--|\{/\*)\s*LAW:\s*[a-z0-9-]+(\s*,\s*[a-z0-9-]+)*'
+
+# Collect raw matches (rg preferred; grep fallback)
+if command -v rg >/dev/null 2>&1; then
+  raw=$(rg -n --pcre2 "$PATTERN" "${SCAN_DIRS[@]}" 2>/dev/null | grep -v '^docs/legal/' || true)
+else
+  raw=$(grep -rEn "$PATTERN" "${SCAN_DIRS[@]}" 2>/dev/null | grep -v '^docs/legal/' || true)
+fi
+
+# Build the slug -> file:line list (newline-delimited, one entry per marker-slug pair)
+# Output format: each line is "<slug>\t<file>:<line>"
+echo "$raw" | awk -F: '
+  {
+    # Extract file (field 1) and line (field 2); the marker tail is fields 3+
+    file=$1; line=$2
+    tail=""
+    for (i=3; i<=NF; i++) tail = tail (i==3?"":":") $i
+    # Extract slugs: everything after "LAW:" up to end of line, then split on commas
+    n = match(tail, /LAW:[[:space:]]*[a-z0-9,\- \t]+/)
+    if (n == 0) next
+    slugs = substr(tail, RSTART+4)   # drop "LAW:" prefix
+    # Trim comment closers and whitespace
+    gsub(/\*\/.*/, "", slugs)
+    gsub(/-->.*/, "", slugs)
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "", slugs)
+    # Split on comma
+    ns = split(slugs, arr, /[[:space:]]*,[[:space:]]*/)
+    for (j=1; j<=ns; j++) {
+      s = arr[j]
+      if (s ~ /^[a-z0-9-]+$/) print s "\t" file ":" line
+    }
+  }
+'
+```
+
+The output is piped into downstream logic that groups by slug.
+
+### Orphan warnings
+
+After running the scan:
+
+- **Marker slugs not in the registry:** warn for each such slug and its first file:line hit. Non-blocking.
+- **Registry slugs with no marker hits:** warn for each. Non-blocking; candidate for `unregister`.
+
+Both warnings are printed to the terminal but do not block the run.
+
 ## Execution
 
 ### Step 0: Reset active_role
