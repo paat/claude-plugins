@@ -510,6 +510,51 @@ Entries with `gh_issue_url != null` are NOT re-prompted by the confirmation flow
 
 No duplicate issue is created for these entries.
 
+## Ack subcommand
+
+Args: `ack <slug>` (or `ack-all` — see next section)
+
+**Invocation contract:** this helper MUST be run inside the branch/PR that contains the code fix. It updates registry state; those changes must be committed together with the code changes so the merge is atomic.
+
+Behaviour:
+
+```bash
+SLUG="$1"
+[ -n "$SLUG" ] || { echo "Error: slug required"; exit 1; }
+
+entry=$(jq -r --arg s "$SLUG" '.entries[$s] // empty' .startup/law-registry.json)
+[ -n "$entry" ] || { echo "Error: no registry entry for '$SLUG'"; exit 1; }
+
+act_id=$(jq -r --arg s "$SLUG" '.entries[$s].act_id' .startup/law-registry.json)
+citation=$(jq -r --arg s "$SLUG" '.entries[$s].citation' .startup/law-registry.json)
+encoded=$(printf '%s' "$citation" | jq -sRr @uri)
+
+resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+  "https://datalake.r-53.com/api/v1/laws/${act_id}/citation?paragraph=${encoded}")
+text=$(echo "$resp" | jq -r '.text // empty')
+redaktsioon=$(echo "$resp" | jq '.redaktsioon_id // null')
+[ -n "$text" ] || { echo "Error: datalake returned empty text for act=$act_id citation=$citation"; exit 1; }
+
+normalised=$(printf '%s' "$text" | python3 -c 'import sys, unicodedata; print(unicodedata.normalize("NFC", sys.stdin.read().strip()))')
+printf '%s\n' "$normalised" > ".startup/laws/${SLUG}.txt"
+
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+jq --arg slug "$SLUG" --arg now "$NOW" --argjson r "$redaktsioon" '
+  .entries[$slug].needs_review = false
+  | .entries[$slug].change = null
+  | .entries[$slug].change_detected_at = null
+  | .entries[$slug].verified_at = $now
+  | .entries[$slug].redaktsioon_id = $r
+' .startup/law-registry.json > .startup/law-registry.json.tmp
+mv .startup/law-registry.json.tmp .startup/law-registry.json
+
+echo "Ack: $SLUG — snapshot refreshed, flags cleared."
+echo "Remember to commit both .startup/law-registry.json and .startup/laws/${SLUG}.txt in this PR alongside your code changes."
+exit 0
+```
+
+`gh_issue_url` is preserved through ack as the permanent link to the issue that tracked this change.
+
 ## Execution
 
 ### Step 0: Reset active_role
