@@ -2188,6 +2188,35 @@ EOF
   assert_file_exists "S12c: pre-existing attachments/421-artifacts preserved" "$workdir/.startup/attachments/421-artifacts/y.txt"
   assert_output_not_contains "S12d: no WARN lines" "$output" "[WARN]"
   rm -rf "$workdir"
+
+  # S13: orphan roles fold to canonical directions (investor, team, team-lead)
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/205-investor-to-business.md"
+  touch "$workdir/.startup/handoffs/225-investor-to-tech.md"
+  touch "$workdir/.startup/handoffs/476-business-to-team.md"
+  touch "$workdir/.startup/handoffs/tech-to-team-lead-fixes.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S13: investor-to-business folds to business-to-tech" "$output" "205-investor-to-business.md → 001-business-to-tech.md"
+  assert_output_contains "S13b: investor-to-tech folds to business-to-tech" "$output" "225-investor-to-tech.md → 002-business-to-tech.md"
+  assert_output_contains "S13c: business-to-team folds to business-to-tech" "$output" "476-business-to-team.md → 003-business-to-tech.md"
+  assert_output_contains "S13d: tech-to-team-lead folds to tech-to-business" "$output" "tech-to-team-lead-fixes.md → 004-tech-to-business.md"
+  assert_output_not_contains "S13e: no manual review" "$output" "Manual review needed"
+  rm -rf "$workdir"
+
+  # S14: widened review rule catches regression-results without trailing hyphen + sequencing-plan
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/317-regression-results.md"
+  touch "$workdir/.startup/handoffs/311-sequencing-plan.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S14: regression-results routed to reviews/" "$output" "317-regression-results.md"
+  assert_output_contains "S14b: sequencing-plan routed to reviews/" "$output" "311-sequencing-plan.md"
+  assert_output_contains "S14c: both in reviews section" "$output" "Move to .startup/reviews/ (2 files)"
+  assert_output_not_contains "S14d: no manual review" "$output" "Manual review needed"
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------

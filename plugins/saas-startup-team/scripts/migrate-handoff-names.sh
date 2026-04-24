@@ -65,6 +65,8 @@ infer_from_frontmatter() {
 
 # Map filename substring to canonical direction, or empty if none found.
 # Longest match first so "business-to-growth" isn't shadowed by "business".
+# Orphan roles (investor, team, team-lead) fold into the closest canonical
+# direction — lossy but keeps the handoffs dir clean.
 infer_from_filename() {
   local filename="$1"
   for d in business-to-growth growth-to-business business-to-tech tech-to-business; do
@@ -72,6 +74,12 @@ infer_from_filename() {
       *"$d"*) echo "$d"; return ;;
     esac
   done
+  case "$filename" in
+    *investor-to-tech*|*investor-to-business*|*business-to-team*)
+      echo "business-to-tech"; return ;;
+    *tech-to-team-lead*|*tech-to-team*)
+      echo "tech-to-business"; return ;;
+  esac
   echo ""
 }
 
@@ -132,7 +140,7 @@ for entry in "$HANDOFF_DIR"/*; do
     *-qa-review.md|*-qa-pass.md) matched_review=1 ;;
     *-business-review*.md|business-review-*.md) matched_review=1 ;;
     *-business-qa*.md|business-qa-*.md) matched_review=1 ;;
-    *-regression-tests-*.md|*-regression-results-*.md) matched_review=1 ;;
+    *regression-tests*.md|*regression-results*.md|*sequencing-plan*.md) matched_review=1 ;;
     *ux-audit*.md|*ux-fixes*.md) matched_review=1 ;;
     tribunal-*-to-tech*.md|*-tribunal-to-tech*.md|*-tribunal-review-to-tech*.md) matched_review=1 ;;
     *-tech-review-fixes*.md|*-tech-fixes*.md) matched_review=1 ;;
