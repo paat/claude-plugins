@@ -2117,6 +2117,54 @@ EOF
   output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
   assert_output_contains "S9: frontmatter-derived direction wins" "$output" "business-to-tech-misnamed.md → 001-tech-to-business.md"
   rm -rf "$workdir"
+
+  # S10: --apply performs moves and renames
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/001-business-to-tech.md"
+  touch "$workdir/.startup/handoffs/133-roundtrip-signoff.md"
+  touch "$workdir/.startup/handoffs/369-qa-review.md"
+  touch "$workdir/.startup/handoffs/arve.pdf"
+  touch "$workdir/.startup/handoffs/business-to-tech-foo.md"
+  ec=0
+  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S10: --apply exits 0" "$ec" 0
+  assert_file_exists "S10b: canonical preserved" "$workdir/.startup/handoffs/001-business-to-tech.md"
+  assert_file_exists "S10c: signoff moved" "$workdir/.startup/signoffs/133-roundtrip-signoff.md"
+  assert_file_exists "S10d: review moved" "$workdir/.startup/reviews/369-qa-review.md"
+  assert_file_exists "S10e: binary moved" "$workdir/.startup/attachments/arve.pdf"
+  assert_file_exists "S10f: slug renamed to 002-business-to-tech.md" "$workdir/.startup/handoffs/002-business-to-tech.md"
+  # Source filenames must no longer exist in handoffs/
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ ! -e "$workdir/.startup/handoffs/business-to-tech-foo.md" ]; then
+    echo -e "  ${GREEN}PASS${NC} S10g: source slug removed from handoffs/"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S10g: source slug still in handoffs/"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S10g: source slug not removed")
+  fi
+  assert_file_exists "S10h: INDEX.md regenerated" "$workdir/.startup/handoffs/INDEX.md"
+  rm -rf "$workdir"
+
+  # S11: --apply collision appends -dup suffix
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs" "$workdir/.startup/signoffs"
+  touch "$workdir/.startup/handoffs/133-roundtrip-signoff.md"
+  touch "$workdir/.startup/signoffs/133-roundtrip-signoff.md"  # pre-existing
+  ec=0
+  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S11: collision exits 0" "$ec" 0
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if ls "$workdir/.startup/signoffs/"*-dup* >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} S11b: collision produces -dup file"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S11b: no -dup file in signoffs/"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S11b: no -dup file")
+  fi
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------

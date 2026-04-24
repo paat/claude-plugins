@@ -237,3 +237,41 @@ echo "Summary: skip ${SKIP_COUNT}, move $((${#MOVE_SIGNOFFS[@]} + ${#MOVE_REVIEW
 if [ "$APPLY" -eq 0 ]; then
   echo "Dry-run — re-run with --apply to perform changes."
 fi
+
+# --- Apply pass ---
+if [ "$APPLY" -ne 1 ]; then
+  exit 0
+fi
+
+mkdir -p "$SIGNOFFS_DIR" "$REVIEWS_DIR" "$ATTACH_DIR"
+
+apply_move() {
+  local src="$1" dest="$2"
+  if [ -e "$dest" ]; then
+    local ts
+    ts=$(date +%Y%m%d%H%M%S)
+    local base="${dest%.*}"
+    local ext="${dest##*.}"
+    if [ "$base" = "$dest" ]; then
+      dest="${dest}-dup${ts}"
+    else
+      dest="${base}-dup${ts}.${ext}"
+    fi
+  fi
+  mv "$src" "$dest"
+}
+
+for item in "${MOVE_SIGNOFFS[@]}"; do apply_move "${item%%|*}" "${item##*|}"; done
+for item in "${MOVE_REVIEWS[@]}"; do apply_move "${item%%|*}" "${item##*|}"; done
+for item in "${MOVE_ATTACH[@]}"; do apply_move "${item%%|*}" "${item##*|}"; done
+for item in "${RENAMES[@]}"; do apply_move "${item%%|*}" "${item##*|}"; done
+
+echo ""
+echo "[DONE] Applied: ${#MOVE_SIGNOFFS[@]} signoffs, ${#MOVE_REVIEWS[@]} reviews, ${#MOVE_ATTACH[@]} attachments, ${#RENAMES[@]} renames."
+
+# Regenerate INDEX.md to reflect the new state
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -x "$SCRIPT_DIR/backfill-handoff-index.sh" ]; then
+  echo "Regenerating $HANDOFF_DIR/INDEX.md..."
+  bash "$SCRIPT_DIR/backfill-handoff-index.sh" "$HANDOFF_DIR"
+fi
