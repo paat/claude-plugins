@@ -1973,6 +1973,17 @@ test_enforce_handoff_naming_hook() {
   assert_output_contains "R11b: next NNN is 013" "$output" "013"
   rm -rf "$workdir"
 
+  # R11c: pre-migration timestamp-prefixed files don't poison max NNN
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/005-business-to-tech.md"
+  touch "$workdir/.startup/handoffs/2026-04-16T074318Z-business-to-tech-improve-189.md"
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/bogus.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R11c: exits 2" "$ec" 2
+  assert_output_contains "R11d: next NNN ignores timestamp prefix, is 006" "$output" "006"
+  rm -rf "$workdir"
+
   # R12: empty file_path in stdin passes (defensive)
   ec=0
   output=$(echo '{}' | bash "$script" 2>&1) || ec=$?

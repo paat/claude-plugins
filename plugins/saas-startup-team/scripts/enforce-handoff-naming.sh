@@ -28,11 +28,15 @@ if [[ "$filename" =~ ^[0-9]{3}-(business-to-tech|tech-to-business|business-to-gr
   exit 0
 fi
 
-# Compute next available NNN for the error message
+# Compute next available NNN for the error message. Filter to canonical names
+# so pre-migration timestamp-prefixed files (e.g. 2026-04-16T...) don't poison
+# the max with their year prefix.
 handoff_dir=$(dirname "$file_path")
 next_nnn="001"
 if [ -d "$handoff_dir" ]; then
-  max=$(ls "$handoff_dir" 2>/dev/null | grep -oE '^[0-9]{3}' | sort -n | tail -1 || true)
+  max=$(ls "$handoff_dir" 2>/dev/null \
+    | grep -E '^[0-9]{3}-(business-to-tech|tech-to-business|business-to-growth|growth-to-business)\.md$' \
+    | grep -oE '^[0-9]{3}' | sort -n | tail -1 || true)
   if [ -n "$max" ]; then
     next_nnn=$(printf '%03d' $((10#$max + 1)))
   fi
