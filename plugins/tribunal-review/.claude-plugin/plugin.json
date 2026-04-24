@@ -1,6 +1,6 @@
 {
   "name": "tribunal-review",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Multi-provider code review with Codex, Gemini, and Opus arbitration",
   "author": {
     "name": "Andre Paat"
