@@ -38,13 +38,19 @@ PURPOSE="Lawful basis for processing credit-default disclosures"
 [[ "$SLUG" =~ ^[a-z0-9-]+$ ]] || { echo "FAIL: slug regex"; exit 1; }
 [[ "$ACT_ID" =~ ^[0-9]+$ ]] || { echo "FAIL: act_id must be integer"; exit 1; }
 
-read -r PARAGRAPH SECTION POINT <<< "$(printf '%s' "$CITATION" | python3 -c '
+IFS='|' read -r PARAGRAPH PARAGRAPH_Q SECTION SECTION_Q POINT POINT_Q <<< "$(printf '%s' "$CITATION" | python3 -c '
 import re, sys
+SUP_TO_ASCII = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
+SUP = r"[⁰¹²³⁴-⁹]"
 t = sys.stdin.read()
-p = re.search(r"§\s*(\d+)", t)
-s = re.search(r"l[oõ]ige\s*(\d+)", t, re.IGNORECASE)
-k = re.search(r"punkt\s*(\d+)", t, re.IGNORECASE)
-print((p.group(1) if p else ""), (s.group(1) if s else ""), (k.group(1) if k else ""))
+p = re.search(rf"§\s*(\d+)({SUP}*)", t)
+s = re.search(rf"l[oõ]ige\s*(\d+)({SUP}*)", t, re.IGNORECASE)
+k = re.search(rf"punkt\s*(\d+)({SUP}*)", t, re.IGNORECASE)
+def parts(m):
+    if not m: return ("", "")
+    return (m.group(1), m.group(2).translate(SUP_TO_ASCII))
+pb, pq = parts(p); sb, sq = parts(s); kb, kq = parts(k)
+print("|".join([pb, pq, sb, sq, kb, kq]))
 ')"
 [ "$PARAGRAPH" = "10" ] || { echo "FAIL: paragraph parse (expected 10, got $PARAGRAPH)"; exit 1; }
 [ "$SECTION" = "1" ] || { echo "FAIL: section parse (expected 1, got $SECTION)"; exit 1; }
@@ -90,13 +96,16 @@ entry=$(jq -n \
   --arg atype "$ACT_TYPE" \
   --arg cit "$CITATION" \
   --arg para "$PARAGRAPH" \
+  --arg para_q "$PARAGRAPH_Q" \
   --arg sec "$SECTION" \
+  --arg sec_q "$SECTION_Q" \
   --arg pt "$POINT" \
+  --arg pt_q "$POINT_Q" \
   --arg rturl "$REDAKTSIOON_URL" \
   --arg now "$NOW" \
   --arg by "lawyer" \
   --arg purp "$PURPOSE" \
-  '{act_id:$act, rt_id:$rt, redaktsioon_id:(if $red=="" then null else $red end), act_title:$title, act_type:$atype, citation:$cit, citation_parts:{paragraph:$para, section:$sec, point:$pt}, rt_url:$rturl, registered_at:$now, verified_at:$now, registered_by:$by, purpose:$purp, needs_review:false, change_detected_at:null, change:null, gh_issue_url:null}')
+  '{act_id:$act, rt_id:$rt, redaktsioon_id:(if $red=="" then null else $red end), act_title:$title, act_type:$atype, citation:$cit, citation_parts:{paragraph:$para, paragraph_qualifier:$para_q, section:$sec, section_qualifier:$sec_q, point:$pt, point_qualifier:$pt_q}, rt_url:$rturl, registered_at:$now, verified_at:$now, registered_by:$by, purpose:$purp, needs_review:false, change_detected_at:null, change:null, gh_issue_url:null}')
 
 jq --arg slug "$SLUG" --argjson e "$entry" \
   '.entries[$slug] = $e' \

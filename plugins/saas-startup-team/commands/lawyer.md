@@ -107,14 +107,25 @@ PURPOSE="$4"
 [[ "$SLUG" =~ ^[a-z0-9-]+$ ]] || { echo "Error: slug must match [a-z0-9-]+"; exit 1; }
 [[ "$ACT_ID" =~ ^[0-9]+$ ]] || { echo "Error: act_id must be an integer — use /laws/search .id, not rt_id or RT URL segment"; exit 1; }
 
-# Parse citation → (paragraph, section, point). Paragraph is required; others optional.
-read -r PARAGRAPH SECTION POINT <<< "$(printf '%s' "$CITATION" | python3 -c '
+# Parse citation → (paragraph, paragraph_qualifier, section, section_qualifier,
+# point, point_qualifier). Qualifiers carry superscript digits (e.g. "1" for the
+# ¹ in "lõige 1¹"). Superscripts distinguish different legal clauses — § 14
+# lg 1¹ is the micro-entity exemption, NOT § 14 lg 1 (general rule).
+IFS='|' read -r PARAGRAPH PARAGRAPH_Q SECTION SECTION_Q POINT POINT_Q <<< "$(printf '%s' "$CITATION" | python3 -c '
 import re, sys
+SUP_TO_ASCII = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
+SUP = r"[⁰¹²³⁴-⁹]"
 t = sys.stdin.read()
-p = re.search(r"§\s*(\d+)", t)
-s = re.search(r"l[oõ]ige\s*(\d+)", t, re.IGNORECASE)
-k = re.search(r"punkt\s*(\d+)", t, re.IGNORECASE)
-print((p.group(1) if p else ""), (s.group(1) if s else ""), (k.group(1) if k else ""))
+p = re.search(rf"§\s*(\d+)({SUP}*)", t)
+s = re.search(rf"l[oõ]ige\s*(\d+)({SUP}*)", t, re.IGNORECASE)
+k = re.search(rf"punkt\s*(\d+)({SUP}*)", t, re.IGNORECASE)
+def parts(m):
+    if not m: return ("", "")
+    return (m.group(1), m.group(2).translate(SUP_TO_ASCII))
+pb, pq = parts(p); sb, sq = parts(s); kb, kq = parts(k)
+# Pipe-separated (non-whitespace) so consecutive empty qualifiers do not
+# collapse under bash read — tab/space would be treated as IFS whitespace.
+print("|".join([pb, pq, sb, sq, kb, kq]))
 ')"
 [ -n "$PARAGRAPH" ] || { echo "Error: could not parse paragraph (§ N) from citation '$CITATION'"; exit 1; }
 
@@ -148,15 +159,24 @@ ACT_TITLE=$(echo "$graph_body" | jq -r '.act.title // "Teadmata seadus"')
 ACT_TYPE=$(echo "$graph_body" | jq -r '.act.act_type // ""')
 [ -n "$RT_ID" ] || { echo "Error: /laws/${ACT_ID}/graph has no .act.rt_id"; exit 1; }
 
-# Fetch paragraph text via citation endpoint with parsed parts
-cite_url="$DATALAKE_URL/api/v1/laws/${ACT_ID}/citation?paragraph=${PARAGRAPH}"
-[ -n "$SECTION" ] && cite_url="${cite_url}&section=${SECTION}"
-[ -n "$POINT" ] && cite_url="${cite_url}&point=${POINT}"
+# Fetch paragraph text via citation endpoint. When a superscript qualifier
+# is present (e.g. § 14 lõige 1¹), concatenate it back as a unicode superscript
+# and URL-encode — passing just the base digit fetches the wrong clause.
+cite_url=$(python3 -c '
+import sys, urllib.parse
+base, act, para, pq, sec, sq, pt, kq = sys.argv[1:9]
+SUP = {"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹"}
+def enc(v, q): return urllib.parse.quote(v + "".join(SUP[c] for c in q))
+parts = ["paragraph=" + enc(para, pq)]
+if sec: parts.append("section=" + enc(sec, sq))
+if pt:  parts.append("point="   + enc(pt,  kq))
+print(f"{base}/api/v1/laws/{act}/citation?" + "&".join(parts))
+' "$DATALAKE_URL" "$ACT_ID" "$PARAGRAPH" "$PARAGRAPH_Q" "$SECTION" "$SECTION_Q" "$POINT" "$POINT_Q")
 cite_resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" "$cite_url")
 cite_code=$(printf '%s' "$cite_resp" | tail -n1)
 cite_body=$(printf '%s' "$cite_resp" | sed '$d')
 if [ "$cite_code" != "200" ]; then
-  echo "Error: /laws/${ACT_ID}/citation returned HTTP $cite_code — citation '$CITATION' parses as paragraph=$PARAGRAPH section=$SECTION point=$POINT"
+  echo "Error: /laws/${ACT_ID}/citation returned HTTP $cite_code — citation '$CITATION' parses as paragraph=${PARAGRAPH}${PARAGRAPH_Q:+ (qual=$PARAGRAPH_Q)} section=${SECTION}${SECTION_Q:+ (qual=$SECTION_Q)} point=${POINT}${POINT_Q:+ (qual=$POINT_Q)}"
   exit 1
 fi
 text=$(echo "$cite_body" | jq -r '.text // empty')
@@ -183,8 +203,11 @@ entry=$(jq -n \
   --arg atype "$ACT_TYPE" \
   --arg cit "$CITATION" \
   --arg para "$PARAGRAPH" \
+  --arg para_q "$PARAGRAPH_Q" \
   --arg sec "$SECTION" \
+  --arg sec_q "$SECTION_Q" \
   --arg pt "$POINT" \
+  --arg pt_q "$POINT_Q" \
   --arg rturl "$REDAKTSIOON_URL" \
   --arg now "$NOW" \
   --arg by "${REGISTERED_BY:-lawyer}" \
@@ -196,7 +219,14 @@ entry=$(jq -n \
     act_title: $title,
     act_type: $atype,
     citation: $cit,
-    citation_parts: { paragraph: $para, section: $sec, point: $pt },
+    citation_parts: {
+      paragraph: $para,
+      paragraph_qualifier: $para_q,
+      section: $sec,
+      section_qualifier: $sec_q,
+      point: $pt,
+      point_qualifier: $pt_q
+    },
     rt_url: $rturl,
     registered_at: $now,
     verified_at: $now,
@@ -468,12 +498,22 @@ while IFS= read -r slug; do
   [ -z "$slug" ] && continue
   act_id=$(jq -r --arg s "$slug" '.entries[$s].act_id' .startup/law-registry.json)
   paragraph=$(jq -r --arg s "$slug" '.entries[$s].citation_parts.paragraph // ""' .startup/law-registry.json)
+  paragraph_q=$(jq -r --arg s "$slug" '.entries[$s].citation_parts.paragraph_qualifier // ""' .startup/law-registry.json)
   section=$(jq -r --arg s "$slug" '.entries[$s].citation_parts.section // ""' .startup/law-registry.json)
+  section_q=$(jq -r --arg s "$slug" '.entries[$s].citation_parts.section_qualifier // ""' .startup/law-registry.json)
   point=$(jq -r --arg s "$slug" '.entries[$s].citation_parts.point // ""' .startup/law-registry.json)
+  point_q=$(jq -r --arg s "$slug" '.entries[$s].citation_parts.point_qualifier // ""' .startup/law-registry.json)
 
-  cite_url="$DATALAKE_URL/api/v1/laws/${act_id}/citation?paragraph=${paragraph}"
-  [ -n "$section" ] && cite_url="${cite_url}&section=${section}"
-  [ -n "$point" ] && cite_url="${cite_url}&point=${point}"
+  cite_url=$(python3 -c '
+import sys, urllib.parse
+base, act, para, pq, sec, sq, pt, kq = sys.argv[1:9]
+SUP = {"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹"}
+def enc(v, q): return urllib.parse.quote(v + "".join(SUP[c] for c in q))
+parts = ["paragraph=" + enc(para, pq)]
+if sec: parts.append("section=" + enc(sec, sq))
+if pt:  parts.append("point="   + enc(pt,  kq))
+print(f"{base}/api/v1/laws/{act}/citation?" + "&".join(parts))
+' "$DATALAKE_URL" "$act_id" "$paragraph" "$paragraph_q" "$section" "$section_q" "$point" "$point_q")
 
   resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$cite_url")
   new_text=$(echo "$resp" | jq -r '.text // ""')
@@ -673,12 +713,22 @@ entry=$(jq -r --arg s "$SLUG" '.entries[$s] // empty' .startup/law-registry.json
 
 act_id=$(jq -r --arg s "$SLUG" '.entries[$s].act_id' .startup/law-registry.json)
 paragraph=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.paragraph // ""' .startup/law-registry.json)
+paragraph_q=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.paragraph_qualifier // ""' .startup/law-registry.json)
 section=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.section // ""' .startup/law-registry.json)
+section_q=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.section_qualifier // ""' .startup/law-registry.json)
 point=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.point // ""' .startup/law-registry.json)
+point_q=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.point_qualifier // ""' .startup/law-registry.json)
 
-cite_url="$DATALAKE_URL/api/v1/laws/${act_id}/citation?paragraph=${paragraph}"
-[ -n "$section" ] && cite_url="${cite_url}&section=${section}"
-[ -n "$point" ] && cite_url="${cite_url}&point=${point}"
+cite_url=$(python3 -c '
+import sys, urllib.parse
+base, act, para, pq, sec, sq, pt, kq = sys.argv[1:9]
+SUP = {"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹"}
+def enc(v, q): return urllib.parse.quote(v + "".join(SUP[c] for c in q))
+parts = ["paragraph=" + enc(para, pq)]
+if sec: parts.append("section=" + enc(sec, sq))
+if pt:  parts.append("point="   + enc(pt,  kq))
+print(f"{base}/api/v1/laws/{act}/citation?" + "&".join(parts))
+' "$DATALAKE_URL" "$act_id" "$paragraph" "$paragraph_q" "$section" "$section_q" "$point" "$point_q")
 
 resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$cite_url")
 text=$(echo "$resp" | jq -r '.text // empty')
@@ -688,7 +738,7 @@ if [ -n "$cite_url_resp" ]; then
   tail_seg="${cite_url_resp##*/akt/}"
   red="${tail_seg%%[!0-9]*}"
 fi
-[ -n "$text" ] || { echo "Error: datalake returned empty text for act_id=$act_id paragraph=$paragraph"; exit 1; }
+[ -n "$text" ] || { echo "Error: datalake returned empty text for act_id=$act_id paragraph=${paragraph}${paragraph_q:+^$paragraph_q}"; exit 1; }
 
 normalised=$(printf '%s' "$text" | python3 -c 'import sys, unicodedata; print(unicodedata.normalize("NFC", sys.stdin.read().strip()))')
 printf '%s\n' "$normalised" > ".startup/laws/${SLUG}.txt"
@@ -733,12 +783,22 @@ while IFS= read -r SLUG; do
 
   act_id=$(jq -r --arg s "$SLUG" '.entries[$s].act_id' .startup/law-registry.json)
   paragraph=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.paragraph // ""' .startup/law-registry.json)
+  paragraph_q=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.paragraph_qualifier // ""' .startup/law-registry.json)
   section=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.section // ""' .startup/law-registry.json)
+  section_q=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.section_qualifier // ""' .startup/law-registry.json)
   point=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.point // ""' .startup/law-registry.json)
+  point_q=$(jq -r --arg s "$SLUG" '.entries[$s].citation_parts.point_qualifier // ""' .startup/law-registry.json)
 
-  cite_url="$DATALAKE_URL/api/v1/laws/${act_id}/citation?paragraph=${paragraph}"
-  [ -n "$section" ] && cite_url="${cite_url}&section=${section}"
-  [ -n "$point" ] && cite_url="${cite_url}&point=${point}"
+  cite_url=$(python3 -c '
+import sys, urllib.parse
+base, act, para, pq, sec, sq, pt, kq = sys.argv[1:9]
+SUP = {"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹"}
+def enc(v, q): return urllib.parse.quote(v + "".join(SUP[c] for c in q))
+parts = ["paragraph=" + enc(para, pq)]
+if sec: parts.append("section=" + enc(sec, sq))
+if pt:  parts.append("point="   + enc(pt,  kq))
+print(f"{base}/api/v1/laws/{act}/citation?" + "&".join(parts))
+' "$DATALAKE_URL" "$act_id" "$paragraph" "$paragraph_q" "$section" "$section_q" "$point" "$point_q")
 
   resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$cite_url")
   text=$(echo "$resp" | jq -r '.text // empty')
@@ -749,7 +809,7 @@ while IFS= read -r SLUG; do
     red="${tail_seg%%[!0-9]*}"
   fi
   if [ -z "$text" ]; then
-    echo "Error: datalake returned empty text for act_id=$act_id paragraph=$paragraph — skipping $SLUG"
+    echo "Error: datalake returned empty text for act_id=$act_id paragraph=${paragraph}${paragraph_q:+^$paragraph_q} — skipping $SLUG"
     continue
   fi
 

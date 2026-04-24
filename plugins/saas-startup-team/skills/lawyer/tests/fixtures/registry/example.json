@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "last_feed_check_at": "2026-04-23T10:00:00Z",
   "entries": {
     "consent-lawful-basis": {
@@ -11,14 +11,42 @@
       "citation": "§ 10 lõige 1",
       "citation_parts": {
         "paragraph": "10",
+        "paragraph_qualifier": "",
         "section": "1",
-        "point": ""
+        "section_qualifier": "",
+        "point": "",
+        "point_qualifier": ""
       },
       "rt_url": "https://www.riigiteataja.ee/akt/106032026010",
       "registered_at": "2026-04-01T09:00:00Z",
       "verified_at": "2026-04-20T14:00:00Z",
       "registered_by": "lawyer",
       "purpose": "Lawful basis for processing credit-default disclosures",
+      "needs_review": false,
+      "change_detected_at": null,
+      "change": null,
+      "gh_issue_url": null
+    },
+    "micro-entity-exemption": {
+      "act_id": 31234,
+      "rt_id": "1029876",
+      "redaktsioon_id": "110022026011",
+      "act_title": "Raamatupidamise seadus",
+      "act_type": "seadus",
+      "citation": "§ 14 lõige 1¹",
+      "citation_parts": {
+        "paragraph": "14",
+        "paragraph_qualifier": "",
+        "section": "1",
+        "section_qualifier": "1",
+        "point": "",
+        "point_qualifier": ""
+      },
+      "rt_url": "https://www.riigiteataja.ee/akt/110022026011",
+      "registered_at": "2026-04-01T09:00:00Z",
+      "verified_at": "2026-04-20T14:00:00Z",
+      "registered_by": "lawyer",
+      "purpose": "Mikroettevõtja erand tegevusaruande esitamisest",
       "needs_review": false,
       "change_detected_at": null,
       "change": null,

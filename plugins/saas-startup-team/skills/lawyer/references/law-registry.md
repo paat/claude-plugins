@@ -14,13 +14,14 @@ The index is always read in full; snapshots are read per-slug only when needed (
 | Version | Shipped in | Notes |
 |---|---|---|
 | 1 | v0.29.x | Field names didn't match the real datalake API; change-detection was a no-op. No user data expected in v1. |
-| 2 | v0.30.0+ | Current. Matches real `/changes/feed` + `/laws/{act_id}/citation` responses. |
+| 2 | v0.30.0 | Matches real `/changes/feed` + `/laws/{act_id}/citation` responses. |
+| 3 | v0.30.1+ | Current. Adds `paragraph_qualifier` / `section_qualifier` / `point_qualifier` to preserve Estonian superscript qualifiers (¹²³) that distinguish different legal clauses. v2 entries read as `qualifier=""` via `// ""` fallback — no migration required. |
 
-## Index schema (v2)
+## Index schema (v3)
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "last_feed_check_at": "2026-04-23T10:00:00Z",
   "entries": {
     "consent-credit-info": {
@@ -32,8 +33,11 @@ The index is always read in full; snapshots are read per-slug only when needed (
       "citation": "§ 10 lõige 1",
       "citation_parts": {
         "paragraph": "10",
+        "paragraph_qualifier": "",
         "section": "1",
-        "point": ""
+        "section_qualifier": "",
+        "point": "",
+        "point_qualifier": ""
       },
       "rt_url": "https://www.riigiteataja.ee/akt/106032026010",
       "registered_at": "2026-04-01T09:00:00Z",
@@ -59,9 +63,12 @@ The index is always read in full; snapshots are read per-slug only when needed (
 | `act_title` | string | Human-readable act title. |
 | `act_type` | string | `"seadus"`, `"määrus"`, etc. |
 | `citation` | string | Compound reference as a human writes it: `"§ 10 lõige 1 punkt 3"`. For display. |
-| `citation_parts.paragraph` | string | Integer-as-string paragraph number. Passed to `/laws/{act_id}/citation?paragraph=`. |
-| `citation_parts.section` | string | Integer-as-string `lõige` number, or empty. Passed as `section=`. |
-| `citation_parts.point` | string | Integer-as-string `punkt` number, or empty. Passed as `point=`. |
+| `citation_parts.paragraph` | string | Integer-as-string paragraph number (base). |
+| `citation_parts.paragraph_qualifier` | string | ASCII digit string for the superscript (e.g. `"1"` for `¹` in `§ 14¹`), or empty. |
+| `citation_parts.section` | string | Integer-as-string `lõige` number (base), or empty. |
+| `citation_parts.section_qualifier` | string | ASCII digit string for the `lõige` superscript (e.g. `"1"` for the `¹` in `lõige 1¹`), or empty. |
+| `citation_parts.point` | string | Integer-as-string `punkt` number (base), or empty. |
+| `citation_parts.point_qualifier` | string | ASCII digit string for the `punkt` superscript (e.g. `"1"` for the `¹` in `punkt 7¹`), or empty. |
 | `rt_url` | string | Citation URL returned by the datalake — points at the current redaktsioon. |
 | `needs_review` | bool | Feed reported a change that the code hasn't yet absorbed. Cleared by `/lawyer ack <slug>`. |
 | `change_detected_at` | ISO-8601 \| null | Detection timestamp (mirrors the feed event's `detected_at`). |
@@ -158,6 +165,8 @@ curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   "$DATALAKE_URL/api/v1/laws/${ACT_ID}/citation?paragraph=${PARAGRAPH}&section=${SECTION}&point=${POINT}"
 ```
 
+When a qualifier is set, the param value is the base digit followed by the unicode superscript digit, URL-encoded (e.g. `section=1¹` → `section=1%C2%B9`). The command body builds this via an inline Python helper; do not concatenate by hand.
+
 Response: `{act_id, act_title, paragraph, section, point, text, url}`. The trailing segment of `url` (after `/akt/`) is the per-redaction RT identifier — store as `redaktsioon_id`.
 
 **Poll changes feed since last check** (one call per run, no per-domain loop):
@@ -186,15 +195,17 @@ python3 -c 'import sys, unicodedata; print(unicodedata.normalize("NFC", sys.stdi
 
 ## Citation parsing
 
-The compound Estonian citation is parsed into `paragraph`/`section`/`point` integers because the API rejects the compound string. Python regex used by the `register` subcommand:
+The compound Estonian citation is parsed into `paragraph`/`section`/`point` (base integers) plus `*_qualifier` fields for any trailing superscript digits — e.g. `§ 14 lõige 1¹` → `section="1", section_qualifier="1"`. Dropping the qualifier silently returns the wrong clause (`lg 1` vs `lg 1¹` are different rules). Python used by the `register` subcommand:
 
 ```python
-p = re.search(r"§\s*(\d+)", text)               # paragraph
-s = re.search(r"lõige\s*(\d+)", text, re.I)     # section / lõige
-k = re.search(r"punkt\s*(\d+)", text, re.I)     # point / punkt
+SUP_TO_ASCII = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
+SUP = r"[⁰¹²³⁴-⁹]"
+p = re.search(rf"§\s*(\d+)({SUP}*)", text)
+s = re.search(rf"l[oõ]ige\s*(\d+)({SUP}*)", text, re.I)
+k = re.search(rf"punkt\s*(\d+)({SUP}*)", text, re.I)
 ```
 
-`paragraph` is required; the other two default to empty.
+Qualifiers are stored as ASCII digit strings (`"1"` for `¹`) for clean round-tripping. `paragraph` is required; everything else defaults to empty. When piping the six fields into bash variables, **emit them pipe-separated** (`"|".join([...])`) and read with `IFS='|' read -r ...` — tab/space won't work because bash treats both as IFS-whitespace and collapses consecutive empty qualifier fields.
 
 ## gh issue template
 
