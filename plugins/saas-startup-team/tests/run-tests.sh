@@ -1873,6 +1873,100 @@ test_migrate_state() {
 }
 
 # ---------------------------------------------------------------------------
+# Suite R: Enforce Handoff Naming Hook (enforce-handoff-naming.sh)
+# ---------------------------------------------------------------------------
+
+test_enforce_handoff_naming_hook() {
+  echo -e "\n${CYAN}Suite R: enforce-handoff-naming.sh${NC}"
+  local script="$PLUGIN_ROOT/scripts/enforce-handoff-naming.sh"
+  local workdir ec output
+
+  # R1: script exists and is executable
+  assert_file_exists "R1: enforce-handoff-naming.sh exists" "$script"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} R1b: script is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} R1b: script is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("R1b: script is not executable")
+  fi
+
+  # R2: path outside .startup/handoffs/ passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R2: outside handoffs exits 0" "$ec" 0
+
+  # R3: INDEX.md passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/INDEX.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R3: INDEX.md exits 0" "$ec" 0
+
+  # R4: canonical business-to-tech passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R4: canonical business-to-tech exits 0" "$ec" 0
+
+  # R5: canonical tech-to-business passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/042-tech-to-business.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R5: canonical tech-to-business exits 0" "$ec" 0
+
+  # R6: canonical business-to-growth passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/007-business-to-growth.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R6: canonical business-to-growth exits 0" "$ec" 0
+
+  # R7: slug-only filename is blocked
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/business-to-tech-foo.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R7: slug-only filename exits 2" "$ec" 2
+  assert_output_contains "R7b: block message mentions NNN" "$output" "NNN"
+  assert_output_contains "R7c: block message mentions next NNN 001" "$output" "001"
+  rm -rf "$workdir"
+
+  # R8: timestamp-prefixed filename is blocked
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/2026-04-16T074318Z-business-to-tech-improve-189.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R8: timestamp-prefix exits 2" "$ec" 2
+
+  # R9: non-.md (binary) is blocked
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/sample.pdf"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R9: .pdf exits 2" "$ec" 2
+  assert_output_contains "R9b: block message mentions attachments/" "$output" "attachments"
+
+  # R10: non-canonical direction NNN-business-to-team is blocked
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/476-business-to-team.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R10: non-canonical direction exits 2" "$ec" 2
+
+  # R11: next-NNN computation reflects actual max
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/012-business-to-tech.md"
+  touch "$workdir/.startup/handoffs/007-tech-to-business.md"
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/bogus.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R11: block with existing files exits 2" "$ec" 2
+  assert_output_contains "R11b: next NNN is 013" "$output" "013"
+  rm -rf "$workdir"
+
+  # R12: empty file_path in stdin passes (defensive)
+  ec=0
+  output=$(echo '{}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R12: empty input exits 0" "$ec" 0
+
+  # R13: signoffs/ path is not blocked (not a handoff path)
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/signoffs/roundtrip-001.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R13: signoffs/ path exits 0" "$ec" 0
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1905,6 +1999,7 @@ main() {
   test_compact_state
   test_migrate_state
   test_index_handoff_hook
+  test_enforce_handoff_naming_hook
 
   # Summary
   echo ""
