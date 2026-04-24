@@ -69,8 +69,18 @@ ACT_TITLE=$(echo "$graph_body" | jq -r '.act.title // "?"')
 ACT_TYPE=$(echo "$graph_body" | jq -r '.act.act_type // ""')
 [ -n "$RT_ID" ] || { echo "FAIL: rt_id missing from graph"; exit 1; }
 
-# Citation call (text + redaktsioon_id extraction)
-cite_url="$DATALAKE_URL/api/v1/laws/${ACT_ID}/citation?paragraph=${PARAGRAPH}&section=${SECTION}"
+# Citation call (text + redaktsioon_id extraction). URL is built by the same
+# Python helper as the real command so test + command don't drift.
+cite_url=$(python3 -c '
+import sys, urllib.parse
+base, act, para, pq, sec, sq, pt, kq = sys.argv[1:9]
+SUP = {"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹"}
+def enc(v, q): return urllib.parse.quote(v + "".join(SUP[c] for c in q))
+parts = ["paragraph=" + enc(para, pq)]
+if sec: parts.append("section=" + enc(sec, sq))
+if pt:  parts.append("point="   + enc(pt,  kq))
+print(f"{base}/api/v1/laws/{act}/citation?" + "&".join(parts))
+' "$DATALAKE_URL" "$ACT_ID" "$PARAGRAPH" "$PARAGRAPH_Q" "$SECTION" "$SECTION_Q" "$POINT" "$POINT_Q")
 cite_resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" "$cite_url")
 cite_code=$(printf '%s' "$cite_resp" | tail -n1)
 cite_body=$(printf '%s' "$cite_resp" | sed '$d')

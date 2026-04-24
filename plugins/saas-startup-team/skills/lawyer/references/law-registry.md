@@ -14,14 +14,13 @@ The index is always read in full; snapshots are read per-slug only when needed (
 | Version | Shipped in | Notes |
 |---|---|---|
 | 1 | v0.29.x | Field names didn't match the real datalake API; change-detection was a no-op. No user data expected in v1. |
-| 2 | v0.30.0 | Matches real `/changes/feed` + `/laws/{act_id}/citation` responses. |
-| 3 | v0.30.1+ | Current. Adds `paragraph_qualifier` / `section_qualifier` / `point_qualifier` to preserve Estonian superscript qualifiers (¹²³) that distinguish different legal clauses. v2 entries read as `qualifier=""` via `// ""` fallback — no migration required. |
+| 2 | v0.30.0+ | Current. Matches real `/changes/feed` + `/laws/{act_id}/citation` responses. v0.30.1 added optional `paragraph_qualifier` / `section_qualifier` / `point_qualifier` fields to preserve Estonian superscript qualifiers (¹²³) — pre-v0.30.1 entries read back as `qualifier=""` via `// ""` fallback, no migration required. The version number stays at 2 because the addition is forward-compatible. |
 
-## Index schema (v3)
+## Index schema (v2)
 
 ```json
 {
-  "version": 3,
+  "version": 2,
   "last_feed_check_at": "2026-04-23T10:00:00Z",
   "entries": {
     "consent-credit-info": {
