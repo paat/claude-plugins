@@ -1,6 +1,6 @@
 {
   "name": "saas-startup-team",
-  "version": "0.32.0",
+  "version": "0.33.0",
   "description": "SaaS startup simulation — business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product, acquiring customers, and iterating with one-shot improvements",
   "author": {
     "name": "Andre Paat"
