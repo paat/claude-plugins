@@ -84,6 +84,24 @@ Example lookups:
 
 For legacy projects that predate the hook, rebuild the index once with `bash $CLAUDE_PLUGIN_ROOT/scripts/backfill-handoff-index.sh`.
 
+### Enforcement
+
+The canonical format is enforced by a PreToolUse hook (`enforce-handoff-naming.sh`). Writes to `.startup/handoffs/` that don't match `NNN-<direction>.md` with one of the four canonical directions are blocked with an error message that names the next available NNN.
+
+Misrouted content has dedicated homes:
+- Signoffs → `.startup/signoffs/`
+- Review artifacts (QA, lawyer, UX audit, tribunal, regression) → `.startup/reviews/`
+- Binaries and directories → `.startup/attachments/`
+
+For legacy projects with pre-existing non-conforming files, run the one-time migration script:
+
+```bash
+bash $CLAUDE_PLUGIN_ROOT/scripts/migrate-handoff-names.sh          # dry-run, review the plan
+bash $CLAUDE_PLUGIN_ROOT/scripts/migrate-handoff-names.sh --apply  # execute
+```
+
+The migration moves misrouted content to the right subdirectory and renames residual topic-slug handoffs to `NNN-<direction>.md` with next-available numbers. Sort is by mtime so chronology is preserved.
+
 ## Handoff Validation Checklist
 
 ### For Business-to-Tech:

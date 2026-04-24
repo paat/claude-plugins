@@ -470,6 +470,24 @@ test_plugin_config() {
   assert_output_contains "E8: hooks.json has TeammateIdle" "$hooks_keys" "TeammateIdle"
   assert_output_contains "E9: hooks.json has TaskCompleted" "$hooks_keys" "TaskCompleted"
   assert_output_contains "E10: hooks.json has Stop" "$hooks_keys" "Stop"
+
+  # C-enforce: PreToolUse enforce-handoff-naming.sh is registered
+  local enforce_cmd
+  enforce_cmd=$(jq -r '.hooks.PreToolUse[]?.hooks[]?.command // empty' "$PLUGIN_ROOT/hooks/hooks.json" | grep -F "enforce-handoff-naming.sh" || true)
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -n "$enforce_cmd" ]; then
+    echo -e "  ${GREEN}PASS${NC} C-enforce: PreToolUse hook registers enforce-handoff-naming.sh"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} C-enforce: PreToolUse hook does not register enforce-handoff-naming.sh"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("C-enforce: missing enforce-handoff-naming.sh in PreToolUse")
+  fi
+
+  # C-enforce-matcher: the entry uses matcher "Write"
+  local enforce_matcher
+  enforce_matcher=$(jq -r '.hooks.PreToolUse[]? | select(.hooks[]?.command | test("enforce-handoff-naming.sh")) | .matcher // empty' "$PLUGIN_ROOT/hooks/hooks.json")
+  assert_equals "C-enforce-matcher: matcher is Write" "$enforce_matcher" "Write"
 }
 
 # ---------------------------------------------------------------------------
@@ -1873,6 +1891,357 @@ test_migrate_state() {
 }
 
 # ---------------------------------------------------------------------------
+# Suite R: Enforce Handoff Naming Hook (enforce-handoff-naming.sh)
+# ---------------------------------------------------------------------------
+
+test_enforce_handoff_naming_hook() {
+  echo -e "\n${CYAN}Suite R: enforce-handoff-naming.sh${NC}"
+  local script="$PLUGIN_ROOT/scripts/enforce-handoff-naming.sh"
+  local workdir ec output
+
+  # R1: script exists and is executable
+  assert_file_exists "R1: enforce-handoff-naming.sh exists" "$script"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} R1b: script is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} R1b: script is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("R1b: script is not executable")
+  fi
+
+  # R2: path outside .startup/handoffs/ passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R2: outside handoffs exits 0" "$ec" 0
+
+  # R3: INDEX.md passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/INDEX.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R3: INDEX.md exits 0" "$ec" 0
+
+  # R4: canonical business-to-tech passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R4: canonical business-to-tech exits 0" "$ec" 0
+
+  # R5: canonical tech-to-business passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/042-tech-to-business.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R5: canonical tech-to-business exits 0" "$ec" 0
+
+  # R6: canonical business-to-growth passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/007-business-to-growth.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R6: canonical business-to-growth exits 0" "$ec" 0
+
+  # R7: slug-only filename is blocked
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/business-to-tech-foo.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R7: slug-only filename exits 2" "$ec" 2
+  assert_output_contains "R7b: block message mentions NNN" "$output" "NNN"
+  assert_output_contains "R7c: block message mentions next NNN 001" "$output" "001"
+  rm -rf "$workdir"
+
+  # R8: timestamp-prefixed filename is blocked
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/2026-04-16T074318Z-business-to-tech-improve-189.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R8: timestamp-prefix exits 2" "$ec" 2
+
+  # R9: non-.md (binary) is blocked
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/sample.pdf"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R9: .pdf exits 2" "$ec" 2
+  assert_output_contains "R9b: block message mentions attachments/" "$output" "attachments"
+
+  # R10: non-canonical direction NNN-business-to-team is blocked
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/476-business-to-team.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R10: non-canonical direction exits 2" "$ec" 2
+
+  # R11: next-NNN computation reflects actual max
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/012-business-to-tech.md"
+  touch "$workdir/.startup/handoffs/007-tech-to-business.md"
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/bogus.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R11: block with existing files exits 2" "$ec" 2
+  assert_output_contains "R11b: next NNN is 013" "$output" "013"
+  rm -rf "$workdir"
+
+  # R11c: pre-migration timestamp-prefixed files don't poison max NNN
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/005-business-to-tech.md"
+  touch "$workdir/.startup/handoffs/2026-04-16T074318Z-business-to-tech-improve-189.md"
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/bogus.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R11c: exits 2" "$ec" 2
+  assert_output_contains "R11d: next NNN ignores timestamp prefix, is 006" "$output" "006"
+  rm -rf "$workdir"
+
+  # R12: empty file_path in stdin passes (defensive)
+  ec=0
+  output=$(echo '{}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R12: empty input exits 0" "$ec" 0
+
+  # R13: signoffs/ path is not blocked (not a handoff path)
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/signoffs/roundtrip-001.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R13: signoffs/ path exits 0" "$ec" 0
+}
+
+# ---------------------------------------------------------------------------
+# Suite S: Migrate Handoff Names (migrate-handoff-names.sh)
+# ---------------------------------------------------------------------------
+
+test_migrate_handoff_names() {
+  echo -e "\n${CYAN}Suite S: migrate-handoff-names.sh${NC}"
+  local script="$PLUGIN_ROOT/scripts/migrate-handoff-names.sh"
+  local workdir ec output
+
+  # S1: script exists and is executable
+  assert_file_exists "S1: migrate-handoff-names.sh exists" "$script"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} S1b: script is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S1b: script is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S1b: script is not executable")
+  fi
+
+  # S2: dry-run on empty dir returns 0 with summary
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S2: empty dir dry-run exits 0" "$ec" 0
+  assert_output_contains "S2b: output says dry-run" "$output" "Dry-run"
+  assert_output_contains "S2c: summary line present" "$output" "Summary:"
+  rm -rf "$workdir"
+
+  # S3: canonical-only dir — nothing to change
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/001-business-to-tech.md"
+  touch "$workdir/.startup/handoffs/002-tech-to-business.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S3: canonical-only exits 0" "$ec" 0
+  assert_output_contains "S3b: skip count is 2" "$output" "Skipping (already canonical): 2"
+  rm -rf "$workdir"
+
+  # S4: roundtrip-signoff moves to signoffs/
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/133-roundtrip-signoff.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S4: dry-run with signoff exits 0" "$ec" 0
+  assert_output_contains "S4b: plan moves to signoffs/" "$output" "Move to .startup/signoffs/"
+  assert_output_contains "S4c: plan lists 133-roundtrip-signoff" "$output" "133-roundtrip-signoff.md"
+  rm -rf "$workdir"
+
+  # S5: qa-review moves to reviews/
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/369-qa-review.md"
+  touch "$workdir/.startup/handoffs/business-to-tech-satisfaction-guarantee.lawyer.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S5: plan moves to reviews/" "$output" "Move to .startup/reviews/"
+  assert_output_contains "S5b: plan lists qa-review file" "$output" "369-qa-review.md"
+  assert_output_contains "S5c: .lawyer.md renamed to lawyer-*" "$output" "lawyer-business-to-tech-satisfaction-guarantee.md"
+  rm -rf "$workdir"
+
+  # S6: binary moves to attachments/
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/arve_fixed_logo_preview.pdf"
+  touch "$workdir/.startup/handoffs/arve_fixed_logo_preview.png"
+  mkdir -p "$workdir/.startup/handoffs/421-artifacts"
+  touch "$workdir/.startup/handoffs/421-artifacts/sample.pdf"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S6: plan moves to attachments/" "$output" "Move to .startup/attachments/"
+  assert_output_contains "S6b: plan lists pdf" "$output" "arve_fixed_logo_preview.pdf"
+  assert_output_contains "S6c: plan lists directory" "$output" "421-artifacts"
+  rm -rf "$workdir"
+
+  # S7: topic-slug renames to next-available NNN
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/012-business-to-tech.md"
+  # older slug file — should get NNN 013
+  touch -t 202603010000 "$workdir/.startup/handoffs/business-to-tech-foo.md"
+  # newer slug file — should get NNN 014
+  touch -t 202603020000 "$workdir/.startup/handoffs/tech-to-business-bar.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S7: rename section present" "$output" "Rename"
+  assert_output_contains "S7b: foo → 013-business-to-tech" "$output" "business-to-tech-foo.md → 013-business-to-tech.md"
+  assert_output_contains "S7c: bar → 014-tech-to-business" "$output" "tech-to-business-bar.md → 014-tech-to-business.md"
+  rm -rf "$workdir"
+
+  # S8: timestamp-prefix renames with canonical direction extracted
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/2026-04-16T074318Z-business-to-tech-improve-189.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S8: timestamp file renamed to business-to-tech" "$output" "2026-04-16T074318Z-business-to-tech-improve-189.md → 001-business-to-tech.md"
+  rm -rf "$workdir"
+
+  # S9: frontmatter wins over filename
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  cat > "$workdir/.startup/handoffs/business-to-tech-misnamed.md" <<'EOF'
+---
+from: tech-founder
+to: business-founder
+iteration: 3
+date: 2026-04-10
+type: implementation
+---
+
+## Summary
+Actually a tech-to-business handoff misnamed.
+EOF
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S9: frontmatter-derived direction wins" "$output" "business-to-tech-misnamed.md → 001-tech-to-business.md"
+  rm -rf "$workdir"
+
+  # S10: --apply performs moves and renames
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/001-business-to-tech.md"
+  touch "$workdir/.startup/handoffs/133-roundtrip-signoff.md"
+  touch "$workdir/.startup/handoffs/369-qa-review.md"
+  touch "$workdir/.startup/handoffs/arve.pdf"
+  touch "$workdir/.startup/handoffs/business-to-tech-foo.md"
+  ec=0
+  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S10: --apply exits 0" "$ec" 0
+  assert_file_exists "S10b: canonical preserved" "$workdir/.startup/handoffs/001-business-to-tech.md"
+  assert_file_exists "S10c: signoff moved" "$workdir/.startup/signoffs/133-roundtrip-signoff.md"
+  assert_file_exists "S10d: review moved" "$workdir/.startup/reviews/369-qa-review.md"
+  assert_file_exists "S10e: binary moved" "$workdir/.startup/attachments/arve.pdf"
+  assert_file_exists "S10f: slug renamed to 002-business-to-tech.md" "$workdir/.startup/handoffs/002-business-to-tech.md"
+  # Source filenames must no longer exist in handoffs/
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ ! -e "$workdir/.startup/handoffs/business-to-tech-foo.md" ]; then
+    echo -e "  ${GREEN}PASS${NC} S10g: source slug removed from handoffs/"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S10g: source slug still in handoffs/"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S10g: source slug not removed")
+  fi
+  assert_file_exists "S10h: INDEX.md regenerated" "$workdir/.startup/handoffs/INDEX.md"
+  rm -rf "$workdir"
+
+  # S11: --apply collision appends -dup suffix
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs" "$workdir/.startup/signoffs"
+  touch "$workdir/.startup/handoffs/133-roundtrip-signoff.md"
+  touch "$workdir/.startup/signoffs/133-roundtrip-signoff.md"  # pre-existing
+  ec=0
+  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S11: collision exits 0" "$ec" 0
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if ls "$workdir/.startup/signoffs/"*-dup* >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} S11b: collision produces -dup file"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S11b: no -dup file in signoffs/"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S11b: no -dup file")
+  fi
+  rm -rf "$workdir"
+
+  # S12: directory collision in attachments/ — extensionless dest doesn't corrupt path
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs/421-artifacts"
+  mkdir -p "$workdir/.startup/attachments/421-artifacts"  # pre-existing dir
+  touch "$workdir/.startup/handoffs/421-artifacts/x.txt"
+  touch "$workdir/.startup/attachments/421-artifacts/y.txt"
+  ec=0
+  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S12: dir collision exits 0" "$ec" 0
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if ls -d "$workdir/.startup/attachments/421-artifacts-dup"*/ >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} S12b: extensionless dir collision produces -dup suffix"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S12b: no -dup dir in attachments/"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S12b: no -dup dir")
+  fi
+  # The original pre-existing dir must still exist (only the new one got renamed)
+  assert_file_exists "S12c: pre-existing attachments/421-artifacts preserved" "$workdir/.startup/attachments/421-artifacts/y.txt"
+  assert_output_not_contains "S12d: no WARN lines" "$output" "[WARN]"
+  rm -rf "$workdir"
+
+  # S13: orphan roles fold to canonical directions (investor, team, team-lead)
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/205-investor-to-business.md"
+  touch "$workdir/.startup/handoffs/225-investor-to-tech.md"
+  touch "$workdir/.startup/handoffs/476-business-to-team.md"
+  touch "$workdir/.startup/handoffs/tech-to-team-lead-fixes.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S13: investor-to-business folds to business-to-tech" "$output" "205-investor-to-business.md → 001-business-to-tech.md"
+  assert_output_contains "S13b: investor-to-tech folds to business-to-tech" "$output" "225-investor-to-tech.md → 002-business-to-tech.md"
+  assert_output_contains "S13c: business-to-team folds to business-to-tech" "$output" "476-business-to-team.md → 003-business-to-tech.md"
+  assert_output_contains "S13d: tech-to-team-lead folds to tech-to-business" "$output" "tech-to-team-lead-fixes.md → 004-tech-to-business.md"
+  assert_output_not_contains "S13e: no manual review" "$output" "Manual review needed"
+  rm -rf "$workdir"
+
+  # S13e: --apply exits non-zero when a mv operation fails
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  # Pre-create a read-only destination dir so mv into it will fail
+  mkdir -p "$workdir/.startup/attachments"
+  touch "$workdir/.startup/handoffs/broken.pdf"
+  chmod -w "$workdir/.startup/attachments"
+  ec=0
+  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  chmod +w "$workdir/.startup/attachments"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$ec" -ne 0 ]; then
+    echo -e "  ${GREEN}PASS${NC} S13f: --apply exits non-zero on mv failure (got $ec)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S13f: --apply exited 0 despite mv failure"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S13f: --apply should exit non-zero on mv failure")
+  fi
+  assert_output_contains "S13g: warning line present" "$output" "[WARN]"
+  rm -rf "$workdir"
+
+  # S14: widened review rule catches regression-results without trailing hyphen + sequencing-plan
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/317-regression-results.md"
+  touch "$workdir/.startup/handoffs/311-sequencing-plan.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S14: regression-results routed to reviews/" "$output" "317-regression-results.md"
+  assert_output_contains "S14b: sequencing-plan routed to reviews/" "$output" "311-sequencing-plan.md"
+  assert_output_contains "S14c: both in reviews section" "$output" "Move to .startup/reviews/ (2 files)"
+  assert_output_not_contains "S14d: no manual review" "$output" "Manual review needed"
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1905,6 +2274,8 @@ main() {
   test_compact_state
   test_migrate_state
   test_index_handoff_hook
+  test_enforce_handoff_naming_hook
+  test_migrate_handoff_names
 
   # Summary
   echo ""
