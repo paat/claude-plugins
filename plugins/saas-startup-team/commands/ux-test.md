@@ -8,7 +8,7 @@ user_invocable: true
 
 The human investor requests a UX audit of the product. You spawn the UX Tester agent to evaluate usability, accessibility, visual consistency, and responsive design.
 
-**The UX Tester is a one-shot consultant, NOT a loop participant.** It spawns, does its audit, writes to `.startup/docs/ux-*.md`, and exits.
+**The UX Tester is a one-shot consultant, NOT a loop participant.** It spawns, does its audit, writes to `docs/ux/ux-*.md`, and exits.
 
 ## Pre-Flight Checks (HARD FAIL — No Fallbacks)
 
@@ -16,7 +16,7 @@ Before spawning the UX Tester agent, ALL of the following must pass. If any chec
 
 ### Check 1: Dev server is reachable
 
-The URL comes from command arguments. If no URL provided, try to find it from `.startup/docs/architecture.md` or `CLAUDE.md`.
+The URL comes from command arguments. If no URL provided, try to find it from `docs/architecture/architecture.md` or `CLAUDE.md`.
 
 ```bash
 curl --max-time 10 -s -o /dev/null -w "%{http_code}" <URL>
@@ -31,7 +31,7 @@ curl --max-time 10 -s -o /dev/null -w "%{http_code}" <URL>
 
 Verify that these files exist:
 - `.startup/state.json`
-- `.startup/brief.md`
+- `docs/business/brief.md`
 
 **If missing:**
 > **Error:** No startup project found. Run /startup first to initialize the project before running /ux-test.
@@ -45,6 +45,17 @@ Test that browser tools are accessible by checking for the `mcp__plugin_saas-sta
 
 ## Execution
 
+### Step 0: Reset active_role
+
+Overwrite `active_role` in `.startup/state.json` before spawning the UX Tester. The `enforce-delegation` hook fires only when `active_role=="team-lead"`; a stale value from a prior `/startup` session would otherwise block the UX Tester's writes. `/ux-test` is never a team-lead context.
+
+```bash
+if [ -f .startup/state.json ]; then
+  jq '.active_role = "ux-tester"' .startup/state.json \
+    > .startup/state.json.tmp && mv .startup/state.json.tmp .startup/state.json
+fi
+```
+
 ### Step 1: Load UX Tester Skill
 
 ```
@@ -54,9 +65,9 @@ Skill('saas-startup-team:ux-tester')
 ### Step 2: Gather Project Context
 
 Read the following files to build context for the UX Tester:
-1. `.startup/brief.md` — what SaaS is being built, target users
+1. `docs/business/brief.md` — what SaaS is being built, target users
 2. `.startup/state.json` — current project phase and iteration
-3. `.startup/docs/architecture.md` — tech stack, service URLs
+3. `docs/architecture/architecture.md` — tech stack, service URLs
 4. Latest handoff in `.startup/handoffs/` — current state of implementation
 
 ### Step 3: Spawn UX Tester Agent
@@ -67,7 +78,7 @@ Pass the following to the UX Tester agent:
 - The target URL to audit (from command arguments or architecture.md)
 - Project context summary (from Step 2)
 - Tech stack information (from architecture.md)
-- Reminder: write findings to `.startup/docs/ux-*.md` in English
+- Reminder: write findings to `docs/ux/ux-*.md` in English
 - Reminder: test at minimum 2 breakpoints (375px, 1280px)
 - Reminder: always include evidence and severity ratings
 - Reminder: check accessibility — it is not optional
@@ -78,7 +89,7 @@ After the UX Tester completes, summarize the findings for the investor:
 
 1. **Severity overview** — how many Critical, Major, Minor, Enhancement findings
 2. **Top issues** — list the Critical and Major findings with one-line descriptions
-3. **Where to find the full audit** — file paths for `.startup/docs/ux-*.md`
+3. **Where to find the full audit** — file paths for `docs/ux/ux-*.md`
 
 ### Step 5: Create Actionable Items for Founders
 

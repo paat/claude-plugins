@@ -5,6 +5,14 @@
 
 set -euo pipefail
 
+# Read hook input (JSON on stdin). May be empty when invoked manually or from
+# tests that don't pipe input.
+HOOK_INPUT=$(timeout 2 cat 2>/dev/null || true)
+TRANSCRIPT_PATH=""
+if [ -n "$HOOK_INPUT" ]; then
+  TRANSCRIPT_PATH=$(echo "$HOOK_INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)
+fi
+
 # Allow team members and subagents to stop — only block the main orchestrator.
 # Team members are launched with --agent-id; the main session has no such flag.
 # Walk up the process tree to detect if we're inside a team member agent.
@@ -43,15 +51,36 @@ fi
 
 ITERATION=$(jq -r '.iteration // 0' "$STATE_FILE" 2>/dev/null || echo "0")
 PHASE=$(jq -r '.phase // "research"' "$STATE_FILE" 2>/dev/null || echo "research")
+STATUS=$(jq -r '.status // empty' "$STATE_FILE" 2>/dev/null || true)
 
 # Allow stop early — may be testing or initial setup (CRIT-2)
 if [ "$ITERATION" -lt 2 ]; then
   exit 0
 fi
 
+# Explicit pause — the investor ran /pause to step away cleanly. Resume with
+# /startup; while paused the Stop hook is inert.
+if [ "$STATUS" = "paused" ]; then
+  exit 0
+fi
+
 # If solution signoff exists, allow stop
 if [ -f "$STARTUP_DIR/go-live/solution-signoff.md" ]; then
   exit 0
+fi
+
+# Transcript-aware bypass: when the orchestrator is using /loop +
+# ScheduleWakeup to poll async subagents, every yield between wakeups lands
+# here as a Stop event. Blocking it creates a runaway loop (observed: 742
+# blocks in a single session). If the last assistant message scheduled a
+# wakeup, it's yielding, not quitting — allow stop.
+if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
+  LAST_ASSISTANT_TOOLS=$(tail -n 200 "$TRANSCRIPT_PATH" 2>/dev/null \
+    | jq -rs '[ .[] | select(.message.role=="assistant") ] | last | .message.content[]? | select(.type=="tool_use") | .name' 2>/dev/null \
+    || true)
+  if echo "$LAST_ASSISTANT_TOOLS" | grep -qx 'ScheduleWakeup'; then
+    exit 0
+  fi
 fi
 
 # Block stop — session is mid-progress without signoff

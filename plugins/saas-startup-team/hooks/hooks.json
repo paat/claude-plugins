@@ -1,5 +1,17 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/enforce-handoff-naming.sh",
+            "description": "Block non-conforming handoff filenames (NNN-<direction>.md only)"
+          }
+        ]
+      }
+    ],
     "TeammateIdle": [
       {
         "hooks": [
@@ -64,6 +76,16 @@
         ]
       },
       {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-handoff-secrets.sh",
+            "description": "Block handoff files containing hardcoded secrets, API keys, or passwords"
+          }
+        ]
+      },
+      {
         "matcher": "Write",
         "hooks": [
           {
@@ -80,6 +102,66 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-duplicate-handoff.sh",
             "description": "Warn when writing a handoff that duplicates existing work"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/validate-growth-brief.sh",
+            "description": "Ensure growth briefs have Objective and Target Customer sections"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-linkedin-limits.sh",
+            "description": "Enforce LinkedIn daily/weekly rate limits"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-ad-budget.sh",
+            "description": "Hard stop at 100% of approved ad budget"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/auto-commit-growth.sh",
+            "description": "Auto-commit docs/growth/ content and metrics updates"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/compact-state.sh",
+            "description": "Keep .startup/state.json small by archiving old handoff keys once the inline window is exceeded"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/index-handoff.sh",
+            "description": "Append/upsert written handoff into .startup/handoffs/INDEX.md so the directory stays discoverable as it grows"
           }
         ]
       }

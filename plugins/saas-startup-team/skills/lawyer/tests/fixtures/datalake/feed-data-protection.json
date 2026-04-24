@@ -1,0 +1,29 @@
+{
+  "items": [
+    {
+      "id": 45037,
+      "change_type": "amendment",
+      "act_title": "Isikuandmete kaitse seadus",
+      "rt_id": "1045568",
+      "act_type": "seadus",
+      "issuer": "Riigikogu",
+      "detected_at": "2026-04-22T08:00:00Z",
+      "effective_date": "2026-05-01",
+      "description": "§ 10 lõige 1 täiendatud — lisandus töötleja teavituse kohustus.",
+      "domains": ["privacy", "legislative_pipeline"]
+    },
+    {
+      "id": 45038,
+      "change_type": "amendment",
+      "act_title": "Käibemaksuseadus",
+      "rt_id": "163383",
+      "act_type": "seadus",
+      "issuer": "Riigikogu",
+      "detected_at": "2026-04-22T08:00:00Z",
+      "effective_date": "2026-05-01",
+      "description": "Käibemaksuseadus muudetud — ei mõjuta käesolevat projekti.",
+      "domains": ["tax", "legislative_pipeline"]
+    }
+  ],
+  "total": 2
+}

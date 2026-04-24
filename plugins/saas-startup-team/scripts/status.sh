@@ -28,6 +28,13 @@ if [ -f "$STARTUP_DIR/state.json" ]; then
   echo "--- Loop State ---"
   jq '.' "$STARTUP_DIR/state.json"
   ITERATION=$(jq -r '.iteration // 0' "$STARTUP_DIR/state.json" 2>/dev/null || echo "0")
+  if [ -f "$STARTUP_DIR/state-archive.json" ]; then
+    ARCHIVE_ENTRIES=$(jq '.entries | length' "$STARTUP_DIR/state-archive.json" 2>/dev/null || echo "0")
+    ARCHIVE_KEYS=$(jq '[.entries[].keys | length] | add // 0' "$STARTUP_DIR/state-archive.json" 2>/dev/null || echo "0")
+    echo ""
+    echo "--- State Archive ---"
+    echo "$ARCHIVE_ENTRIES entries, $ARCHIVE_KEYS historical keys at .startup/state-archive.json"
+  fi
   echo ""
 fi
 

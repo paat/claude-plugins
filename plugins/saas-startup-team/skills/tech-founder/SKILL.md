@@ -45,7 +45,7 @@ For **API-heavy products**:
 - **PostgreSQL** (when you need relational)
 - **Redis** (when you need caching)
 
-Document ALL decisions in `.startup/docs/architecture.md`.
+Document ALL decisions in `docs/architecture/architecture.md`.
 
 ## Quality Standards
 

@@ -31,7 +31,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review with Codex, Gemini, and Opus arbitration",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -63,8 +63,8 @@
     },
     {
       "name": "saas-startup-team",
-      "description": "SaaS startup simulation — business founder and tech founder iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), until the product is ready to go live",
-      "version": "0.10.0",
+      "description": "SaaS startup simulation — business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product, acquiring customers, and iterating with one-shot improvements",
+      "version": "0.33.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -81,6 +81,28 @@
       },
       "source": "./plugins/comfyui",
       "category": "tools",
+      "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "video-guide",
+      "description": "Create professional video guides with TTS narration, screen recording, and YouTube upload",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/video-guide",
+      "category": "tools",
+      "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "google-ads-strategist",
+      "description": "Senior Google Ads strategist — iterative campaign design + Chrome-based creation in PAUSED state for investor review. Browser verification via Ad Preview Tool, SERP capture, and Ads Transparency Center. Enforces hypothesis discipline, buyer-intent + product-value gates, and accumulates learnings.",
+      "version": "0.4.1",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/google-ads-strategist",
+      "category": "growth",
       "homepage": "https://github.com/paat/claude-plugins"
     },
     {

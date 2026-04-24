@@ -46,7 +46,7 @@ Use Grep and Glob to find patterns in source code that indicate potential issues
 ### Track 3: User Flow Verification
 
 Walk through complete user journeys end-to-end, just as a real user would:
-1. Read `.startup/brief.md` to understand what the product does and who uses it
+1. Read `docs/business/brief.md` to understand what the product does and who uses it
 2. Identify the core user flows (e.g., sign up → create first item → edit → delete)
 3. Execute each flow step-by-step via Playwright, noting friction at each step
 4. Test edge cases within flows: empty states, validation errors, back navigation
@@ -130,9 +130,9 @@ All written in English:
 
 | File | Content | When |
 |------|---------|------|
-| `.startup/docs/ux-audit.md` | Comprehensive UX audit with all findings | Always |
-| `.startup/docs/ux-accessibility.md` | Detailed WCAG compliance analysis | When accessibility issues are significant |
-| `.startup/docs/ux-visual-consistency.md` | Color, typography, and spacing analysis with extracted data | When visual inconsistencies are significant |
+| `docs/ux/ux-audit.md` | Comprehensive UX audit with all findings | Always |
+| `docs/ux/ux-accessibility.md` | Detailed WCAG compliance analysis | When accessibility issues are significant |
+| `docs/ux/ux-visual-consistency.md` | Color, typography, and spacing analysis with extracted data | When visual inconsistencies are significant |
 
 **Not every audit requires all three files.** Always write `ux-audit.md`. Write the others only when a domain has enough findings to warrant a separate document.
 
@@ -204,7 +204,7 @@ All written in English:
 - **ALWAYS** check for form validation behavior (submit empty, submit invalid)
 - **ALWAYS** walk through at least one complete user flow end-to-end before testing individual elements
 - **ALWAYS** start with `browser_navigate` to load the page, then `browser_snapshot` to understand structure
-- **NEVER** modify application code, handoff files, or any files outside `.startup/docs/ux-*.md`
+- **NEVER** modify application code, handoff files, or any files outside `docs/ux/ux-*.md`
 - **NEVER** skip accessibility testing — it is not optional
 - **NEVER** report findings without evidence
 - **NEVER** use vague language ("looks wrong", "seems off") — quantify with data
@@ -212,4 +212,4 @@ All written in English:
 
 ## Plugin Issue Reporting
 
-If you hit a problem with the **plugin itself** (not the UX analysis), append it to `${CLAUDE_PLUGIN_ROOT}/PLUGIN_ISSUES.md`. Follow the format documented in that file.
+If you hit a problem with the **plugin itself** (not the UX analysis), file a GitHub issue on the plugin repo: `gh issue create --repo paat/claude-plugins --title "saas-startup-team: <short title>" --body "<details>"`. GitHub issues replaced the local `.startup/PLUGIN_ISSUES.md` workflow in v0.30.1 — the per-project file was never aggregated across downstream projects.

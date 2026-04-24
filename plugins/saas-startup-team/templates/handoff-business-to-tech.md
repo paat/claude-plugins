@@ -36,11 +36,11 @@ Any constraints discovered during research (API limitations, legal requirements,
 
 ## Research References
 
-Links to working documents in `.startup/docs/`:
-- Market research: `.startup/docs/turu-uurimine.md`
-- Customer feedback: `.startup/docs/kliendi-tagasiside.md`
-- Competition analysis: `.startup/docs/konkurentsianaluus.md`
-- International analysis: `.startup/docs/rahvusvaheline-analuus.md`
+Links to working documents in `docs/`:
+- Market research: `docs/research/turu-uurimine.md`
+- Customer feedback: `docs/research/kliendi-tagasiside.md`
+- Competition analysis: `docs/research/konkurentsianaluus.md`
+- International analysis: `docs/research/rahvusvaheline-analuus.md`
 
 ## Blockers / Questions
 

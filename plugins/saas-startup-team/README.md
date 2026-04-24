@@ -35,6 +35,7 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:nudge` | Unstick a deadlock or redirect a founder |
 | `/saas-startup-team:lawyer` | Spawn lawyer agent for legal/compliance review |
 | `/saas-startup-team:ux-test` | Spawn UX tester for accessibility and usability audit |
+| `/saas-startup-team:improve` | One-shot improvements on a completed product |
 
 ## The Loop
 
@@ -64,15 +65,20 @@ The `.startup/` directory is created at project root:
 
 ```
 .startup/
-├── brief.md          # Investor's SaaS idea
-├── state.json        # Loop state (iteration, phase, active role)
-├── human-tasks.md    # Tasks only the human can do (non-blocking)
-├── handoffs/         # Structured handoff documents
-├── docs/             # Research documents (Estonian)
-├── signoffs/         # Per-feature roundtrip signoffs
-├── reviews/          # Browser verification notes
-└── go-live/          # Solution signoff (ends the loop)
+├── brief.md              # Investor's SaaS idea
+├── state.json            # Loop state (iteration, phase, active role) — auto-compacted
+├── state-archive.json    # Historical keys moved out of state.json (append-only)
+├── human-tasks.md        # Tasks only the human can do (non-blocking)
+├── handoffs/             # Structured handoff documents
+├── docs/                 # Research documents (Estonian)
+├── signoffs/             # Per-feature roundtrip signoffs
+├── reviews/              # Browser verification notes
+└── go-live/              # Solution signoff (ends the loop)
 ```
+
+### state.json compaction
+
+`state.json` uses schema v2. A PostToolUse hook runs `compact-state.sh` after every Write and archives old handoff keys (`handoff_NNN_*`) plus other non-allowlisted entries into `state-archive.json` once the inline window (last 10 handoffs) is exceeded. The inline state stays under ~30 lines regardless of project age. Run `/status --compact --yes` on existing projects to migrate one-shot (a timestamped `.bak` is written first). Tune the window with `STARTUP_INLINE_HANDOFFS=N` if needed.
 
 ## Prerequisites
 

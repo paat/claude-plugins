@@ -436,7 +436,17 @@ test_plugin_config() {
   # E1-E4: plugin.json
   assert_json_valid "E1: plugin.json is valid JSON" "$PLUGIN_ROOT/.claude-plugin/plugin.json"
   assert_json_field "E2: plugin.json has name" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".name" "saas-startup-team"
-  assert_json_field "E3: plugin.json has version" "$PLUGIN_ROOT/.claude-plugin/plugin.json" ".version" "0.8.0"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  local ver
+  ver=$(jq -r '.version' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null)
+  if [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo -e "  ${GREEN}PASS${NC} E3: plugin.json version is valid semver ($ver)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} E3: plugin.json version is not valid semver ($ver)"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("E3: plugin.json version not valid semver: $ver")
+  fi
   local desc
   desc=$(jq -r '.description' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null)
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
@@ -460,6 +470,24 @@ test_plugin_config() {
   assert_output_contains "E8: hooks.json has TeammateIdle" "$hooks_keys" "TeammateIdle"
   assert_output_contains "E9: hooks.json has TaskCompleted" "$hooks_keys" "TaskCompleted"
   assert_output_contains "E10: hooks.json has Stop" "$hooks_keys" "Stop"
+
+  # C-enforce: PreToolUse enforce-handoff-naming.sh is registered
+  local enforce_cmd
+  enforce_cmd=$(jq -r '.hooks.PreToolUse[]?.hooks[]?.command // empty' "$PLUGIN_ROOT/hooks/hooks.json" | grep -F "enforce-handoff-naming.sh" || true)
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -n "$enforce_cmd" ]; then
+    echo -e "  ${GREEN}PASS${NC} C-enforce: PreToolUse hook registers enforce-handoff-naming.sh"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} C-enforce: PreToolUse hook does not register enforce-handoff-naming.sh"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("C-enforce: missing enforce-handoff-naming.sh in PreToolUse")
+  fi
+
+  # C-enforce-matcher: the entry uses matcher "Write"
+  local enforce_matcher
+  enforce_matcher=$(jq -r '.hooks.PreToolUse[]? | select(.hooks[]?.command | test("enforce-handoff-naming.sh")) | .matcher // empty' "$PLUGIN_ROOT/hooks/hooks.json")
+  assert_equals "C-enforce-matcher: matcher is Write" "$enforce_matcher" "Write"
 }
 
 # ---------------------------------------------------------------------------
@@ -553,6 +581,59 @@ test_stop_hook() {
     FAIL_COUNT=$((FAIL_COUNT + 1))
     FAILURES+=("F10: hooks.json Stop entry missing check-stop.sh")
   fi
+
+  # F11: status=paused bypasses the block — /pause escape hatch
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review", "status": "paused"}' > "$workdir/.startup/state.json"
+  ec=0; (cd "$workdir" && bash "$SCRIPT" < /dev/null) || ec=$?
+  assert_exit_code "F11: status=paused → allow stop" "$ec" 0
+  rm -rf "$workdir"
+
+  # F12: transcript with last assistant tool_use = ScheduleWakeup → allow stop
+  # Regression for the 742-block runaway in /loop + async-Agent sessions.
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
+  cat > "$workdir/.startup/transcript.jsonl" <<'EOF'
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do work"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"polling"},{"type":"tool_use","name":"ScheduleWakeup","input":{"delaySeconds":270}}]}}
+EOF
+  ec=0; (cd "$workdir" && printf '{"transcript_path":"%s/.startup/transcript.jsonl"}' "$workdir" | bash "$SCRIPT") || ec=$?
+  assert_exit_code "F12: last tool_use=ScheduleWakeup → allow stop" "$ec" 0
+  rm -rf "$workdir"
+
+  # F13: transcript with last assistant tool_use != ScheduleWakeup → still blocks
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
+  cat > "$workdir/.startup/transcript.jsonl" <<'EOF'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"ScheduleWakeup","input":{"delaySeconds":270}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"woke"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}
+EOF
+  ec=0; (cd "$workdir" && printf '{"transcript_path":"%s/.startup/transcript.jsonl"}' "$workdir" | bash "$SCRIPT") || ec=$?
+  assert_exit_code "F13: last tool_use=Bash → block stop (baseline preserved)" "$ec" 2
+  rm -rf "$workdir"
+
+  # F14: missing transcript_path → falls back to default behavior (blocks)
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
+  ec=0; (cd "$workdir" && echo '{}' | bash "$SCRIPT") || ec=$?
+  assert_exit_code "F14: missing transcript_path → block stop" "$ec" 2
+  rm -rf "$workdir"
+
+  # F15: malformed transcript JSONL → falls back to default behavior (blocks)
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
+  echo 'not valid json' > "$workdir/.startup/transcript.jsonl"
+  ec=0; (cd "$workdir" && printf '{"transcript_path":"%s/.startup/transcript.jsonl"}' "$workdir" | bash "$SCRIPT") || ec=$?
+  assert_exit_code "F15: malformed transcript → block stop (safe default)" "$ec" 2
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
@@ -709,6 +790,33 @@ test_cross_file_consistency() {
     FAIL_COUNT=$((FAIL_COUNT + 1))
     FAILURES+=("H11: status.sh is not executable")
   fi
+
+  # H12-H15: Non-/startup commands reset active_role before dispatching
+  # subagents. Regression guard for v0.26.0 — stops enforce-delegation from
+  # firing on stale team-lead state left by a prior /startup session.
+  assert_file_contains "H12: /improve resets active_role" \
+    "$PLUGIN_ROOT/commands/improve.md" '.active_role = "business-founder-maintain"'
+  assert_file_contains "H13: /lawyer resets active_role" \
+    "$PLUGIN_ROOT/commands/lawyer.md" '.active_role = "lawyer"'
+  assert_file_contains "H14: /ux-test resets active_role" \
+    "$PLUGIN_ROOT/commands/ux-test.md" '.active_role = "ux-tester"'
+  assert_file_contains "H15: /growth state update sets active_role" \
+    "$PLUGIN_ROOT/commands/growth.md" '"active_role": "business-founder"'
+
+  # H16-H17: Orchestrator is warned never to write active_role=team-lead.
+  assert_file_contains "H16: startup.md warns against team-lead active_role" \
+    "$PLUGIN_ROOT/commands/startup.md" 'Never write `active_role: "team-lead"`'
+  assert_file_contains "H17: orchestration skill warns against team-lead active_role" \
+    "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" 'Never write `active_role: "team-lead"`'
+
+  # H18-H20: v0.27.0 — /pause command and sync-vs-async dispatch guidance.
+  assert_file_exists "H18: /pause command exists" "$PLUGIN_ROOT/commands/pause.md"
+  assert_file_contains "H18b: /pause sets status=paused" \
+    "$PLUGIN_ROOT/commands/pause.md" '.status = "paused"'
+  assert_file_contains "H19: startup.md documents sync vs async dispatch" \
+    "$PLUGIN_ROOT/commands/startup.md" 'Sync vs. async dispatch'
+  assert_file_contains "H20: startup.md clears paused status on resume" \
+    "$PLUGIN_ROOT/commands/startup.md" 'status == "paused"'
 }
 
 # ---------------------------------------------------------------------------
@@ -783,32 +891,48 @@ test_post_tool_use_hook() {
 }
 
 # ---------------------------------------------------------------------------
-# Suite J: PLUGIN_ISSUES.md
+# Suite J: Plugin-issue reporting via GitHub
 # ---------------------------------------------------------------------------
+# The local PLUGIN_ISSUES.md workflow was retired in v0.30.1 — it was never
+# aggregated across downstream projects, so feedback was lost. Agents now file
+# GitHub issues directly on the plugin repo. These tests enforce the new
+# guidance is present and the old file/seeds are gone.
 
 test_plugin_issues() {
-  echo -e "\n${CYAN}Suite J: PLUGIN_ISSUES.md${NC}"
-  local issues_file="$PLUGIN_ROOT/PLUGIN_ISSUES.md"
+  echo -e "\n${CYAN}Suite J: plugin-issue reporting via GitHub${NC}"
 
-  # J1: PLUGIN_ISSUES.md exists at plugin root
-  assert_file_exists "J1: PLUGIN_ISSUES.md exists" "$issues_file"
+  # J1: the template file is gone from plugin root
+  if [[ ! -f "$PLUGIN_ROOT/PLUGIN_ISSUES.md" ]]; then
+    echo -e "  ${GREEN}PASS${NC} J1: PLUGIN_ISSUES.md removed from plugin root"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} J1: PLUGIN_ISSUES.md still exists at plugin root"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+  fi
 
-  # J2: contains ## Issues section
-  assert_file_contains "J2: has Issues section" "$issues_file" "## Issues"
+  # J2-J5: the four primary issue-filing agents point at gh, not the old file
+  for agent in business-founder.md tech-founder.md tech-founder-maintain.md business-founder-maintain.md; do
+    assert_file_contains "J-gh: $agent points to gh issue create" \
+      "$PLUGIN_ROOT/agents/$agent" "gh issue create --repo paat/claude-plugins"
+  done
 
-  # J3: contains ## What Goes Here section
-  assert_file_contains "J3: has What Goes Here section" "$issues_file" "## What Goes Here"
+  # J-bootstrap: bootstrap no longer seeds .startup/PLUGIN_ISSUES.md
+  if ! grep -q "PLUGIN_ISSUES" "$PLUGIN_ROOT/commands/bootstrap.md"; then
+    echo -e "  ${GREEN}PASS${NC} J-bootstrap: bootstrap.md no longer seeds PLUGIN_ISSUES.md"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} J-bootstrap: bootstrap.md still references PLUGIN_ISSUES"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+  fi
 
-  # J4: contains ## What Does NOT Go Here section
-  assert_file_contains "J4: has What Does NOT Go Here section" "$issues_file" "## What Does NOT Go Here"
-
-  # J5: business-founder.md mentions PLUGIN_ISSUES.md
-  assert_file_contains "J5: business-founder.md mentions PLUGIN_ISSUES.md" \
-    "$PLUGIN_ROOT/agents/business-founder.md" "PLUGIN_ISSUES.md"
-
-  # J6: tech-founder.md mentions PLUGIN_ISSUES.md
-  assert_file_contains "J6: tech-founder.md mentions PLUGIN_ISSUES.md" \
-    "$PLUGIN_ROOT/agents/tech-founder.md" "PLUGIN_ISSUES.md"
+  # J-startup: startup no longer seeds .startup/PLUGIN_ISSUES.md either
+  if ! grep -q "PLUGIN_ISSUES" "$PLUGIN_ROOT/commands/startup.md"; then
+    echo -e "  ${GREEN}PASS${NC} J-startup: startup.md no longer seeds PLUGIN_ISSUES.md"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} J-startup: startup.md still references PLUGIN_ISSUES"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -856,10 +980,10 @@ test_auto_commit_hook() {
   output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/state.json"}}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "K6: exits 0 for .startup/state.json" "$ec" 0
 
-  # K7: hooks.json PostToolUse has 2 entries
+  # K7: hooks.json PostToolUse has 13 entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "K7: PostToolUse has 6 entries" "$ptu_count" "6"
+  assert_equals "K7: PostToolUse has 13 entries" "$ptu_count" "13"
 
   # K8: Fourth PostToolUse entry references auto-commit.sh
   local fourth_cmd
@@ -876,7 +1000,8 @@ test_auto_commit_hook() {
   (cd "$workdir" && git config user.email "test@test.com" && git config user.name "Test" && git commit --allow-empty -m "init" -q)
   mkdir -p "$workdir/.startup/handoffs"
   echo '{"iteration":1}' > "$workdir/.startup/state.json"
-  echo "test app code" > "$workdir/app.py"
+  mkdir -p "$workdir/backend"
+  echo "test app code" > "$workdir/backend/app.py"
   echo "handoff content" > "$workdir/.startup/handoffs/001-business-to-tech.md"
 
   ec=0; output=""
@@ -1056,15 +1181,15 @@ EOF
   assert_exit_code "L9: exits 0 when MVP in NEVER/ALWAYS line" "$ec" 0
   rm -rf "$workdir"
 
-  # L10: hooks.json PostToolUse has 6 entries
+  # L10: hooks.json PostToolUse has 13 entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "L10: PostToolUse has 6 entries" "$ptu_count" "6"
+  assert_equals "L10: PostToolUse has 13 entries" "$ptu_count" "13"
 
   # L11: Fifth PostToolUse entry references enforce-tone.sh
-  local fifth_cmd
-  fifth_cmd=$(jq -r '.hooks.PostToolUse[4].hooks[0].command' "$hooks_file" 2>/dev/null)
-  assert_output_contains "L11: fifth PostToolUse references enforce-tone.sh" "$fifth_cmd" "enforce-tone.sh"
+  local sixth_cmd
+  sixth_cmd=$(jq -r '.hooks.PostToolUse[5].hooks[0].command' "$hooks_file" 2>/dev/null)
+  assert_output_contains "L11: sixth PostToolUse references enforce-tone.sh" "$sixth_cmd" "enforce-tone.sh"
 }
 
 # ---------------------------------------------------------------------------
@@ -1197,6 +1322,38 @@ test_delegation_enforcement_hook() {
   output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "N9: exits 0 when no .startup dir" "$ec" 0
   rm -rf "$workdir"
+
+  # N10: Exits 2 when active_role is explicitly team-lead and editing source code
+  workdir=$(mktemp -d)
+  git init -q "$workdir"
+  mkdir -p "$workdir/.startup"
+  echo '{"active_role":"team-lead"}' > "$workdir/.startup/state.json"
+  ec=0; output=""
+  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "N10: exits 2 when active_role=team-lead edits source" "$ec" 2
+  assert_output_contains "N10b: systemMessage present" "$output" "systemMessage"
+  rm -rf "$workdir"
+
+  # N11: Exits 0 when active_role is absent — no orchestrator context to enforce
+  # (regression: /improve, /lawyer, and direct agent invocations hit this path)
+  workdir=$(mktemp -d)
+  git init -q "$workdir"
+  mkdir -p "$workdir/.startup"
+  echo '{}' > "$workdir/.startup/state.json"
+  ec=0; output=""
+  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "N11: exits 0 when active_role absent" "$ec" 0
+  rm -rf "$workdir"
+
+  # N12: Exits 0 when active_role is a team-member variant (e.g. tech-founder-maintain)
+  workdir=$(mktemp -d)
+  git init -q "$workdir"
+  mkdir -p "$workdir/.startup"
+  echo '{"active_role":"tech-founder-maintain"}' > "$workdir/.startup/state.json"
+  ec=0; output=""
+  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "N12: exits 0 when active_role=tech-founder-maintain" "$ec" 0
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
@@ -1270,6 +1427,821 @@ test_duplicate_handoff_hook() {
 }
 
 # ---------------------------------------------------------------------------
+# Suite P: compact-state.sh
+# ---------------------------------------------------------------------------
+
+# Helper: seed state.json with N handoff keys (ready + scope each).
+seed_handoffs() {
+  local state_file="$1" count="$2"
+  local builder='.'
+  local i padded
+  for i in $(seq 1 "$count"); do
+    padded=$(printf '%03d' "$i")
+    builder="$builder + {\"handoff_${padded}_ready\": \"2026-02-01T10:00:00Z\", \"handoff_${padded}_scope\": \"Test scope $i\"}"
+  done
+  jq "$builder" "$state_file" > "$state_file.tmp" && mv "$state_file.tmp" "$state_file"
+}
+
+test_compact_state() {
+  echo -e "\n${CYAN}Suite P: compact-state.sh${NC}"
+  local script="$PLUGIN_ROOT/scripts/compact-state.sh"
+  local workdir ec output state before_hash after_hash
+
+  # P1: script exists and is executable
+  assert_file_exists "P1: compact-state.sh exists" "$script"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} P1b: compact-state.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P1b: compact-state.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P1b: compact-state.sh is not executable")
+  fi
+
+  # P2: no-op on fresh state (no handoff_* keys)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 1
+  before_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P2: fresh state exits 0" "$ec" 0
+  after_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
+  assert_equals "P2b: fresh state unchanged" "$after_hash" "$before_hash"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ ! -f "$workdir/.startup/state-archive.json" ]; then
+    echo -e "  ${GREEN}PASS${NC} P2c: no archive created for fresh state"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P2c: archive unexpectedly created"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P2c: archive unexpectedly created")
+  fi
+  rm -rf "$workdir"
+
+  # P3: no-op when handoff count ≤ window (default 10)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 1
+  seed_handoffs "$workdir/.startup/state.json" 5
+  before_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P3: below threshold exits 0" "$ec" 0
+  after_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
+  assert_equals "P3b: below threshold unchanged" "$after_hash" "$before_hash"
+  rm -rf "$workdir"
+
+  # P4: compacts when handoff count > window
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P4: compaction exits 0" "$ec" 0
+  assert_file_exists "P4b: archive file created" "$workdir/.startup/state-archive.json"
+  assert_json_valid "P4c: state.json still valid" "$state"
+  assert_json_valid "P4d: archive file valid JSON" "$workdir/.startup/state-archive.json"
+  # Last 10 (6-15) remain inline; 1-5 archived
+  assert_json_field "P4e: handoff_001 archived out" "$state" '.handoff_001_ready // "MISSING"' "MISSING"
+  assert_json_field "P4f: handoff_005 archived out" "$state" '.handoff_005_ready // "MISSING"' "MISSING"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$(jq -r '.handoff_015_ready // "MISSING"' "$state")" != "MISSING" ]; then
+    echo -e "  ${GREEN}PASS${NC} P4g: handoff_015 kept inline"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P4g: handoff_015 unexpectedly archived"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P4g: handoff_015 unexpectedly archived")
+  fi
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$(jq -r '.handoff_006_ready // "MISSING"' "$state")" != "MISSING" ]; then
+    echo -e "  ${GREEN}PASS${NC} P4h: handoff_006 kept inline (boundary)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P4h: handoff_006 wrongly archived (boundary)"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P4h: handoff_006 wrongly archived")
+  fi
+  rm -rf "$workdir"
+
+  # P5: coordination keys preserved after compaction
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_json_field "P5a: iteration preserved" "$state" ".iteration" "13"
+  assert_json_field "P5b: phase preserved" "$state" ".phase" "implementation"
+  assert_json_field "P5c: active_role preserved" "$state" ".active_role" "tech-founder"
+  assert_json_field "P5d: status preserved" "$state" ".status" "active"
+  assert_json_field "P5e: max_iterations preserved" "$state" ".max_iterations" "20"
+  assert_json_field "P5f: started preserved" "$state" ".started" "2026-02-23T10:00:00Z"
+  rm -rf "$workdir"
+
+  # P6: schema_version, archived_through, latest_handoff added
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_json_field "P6a: schema_version = 2" "$state" ".schema_version" "2"
+  assert_json_field "P6b: archived_through = 5" "$state" ".archived_through" "5"
+  assert_json_field "P6c: latest_handoff = 15" "$state" ".latest_handoff" "15"
+  rm -rf "$workdir"
+
+  # P7: round-trip — inline ∪ archived ⊇ original keys
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  local original_keys merged_keys missing
+  original_keys=$(jq -r 'keys[]' "$state" | sort)
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  merged_keys=$(
+    { jq -r 'keys[]' "$state"; \
+      jq -r '.entries[].keys | keys[]' "$workdir/.startup/state-archive.json"; } \
+    | grep -vE '^(schema_version|archived_through|latest_handoff)$' | sort -u
+  )
+  missing=$(comm -23 <(echo "$original_keys") <(echo "$merged_keys"))
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -z "$missing" ]; then
+    echo -e "  ${GREEN}PASS${NC} P7: round-trip preserves all original keys"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P7: missing keys after compaction: $missing"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P7: missing keys: $missing")
+  fi
+  rm -rf "$workdir"
+
+  # P8: idempotent — second run is a no-op
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  bash "$script" --state-file "$state" --archive-file "$workdir/.startup/state-archive.json" >/dev/null 2>&1 || true
+  before_hash=$(md5sum "$state" | awk '{print $1}')
+  ec=0; output=$(bash "$script" --state-file "$state" --archive-file "$workdir/.startup/state-archive.json" 2>&1) || ec=$?
+  assert_exit_code "P8: second run exits 0" "$ec" 0
+  after_hash=$(md5sum "$state" | awk '{print $1}')
+  assert_equals "P8b: second run is no-op" "$after_hash" "$before_hash"
+  rm -rf "$workdir"
+
+  # P9: --dry-run does not write
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  before_hash=$(md5sum "$state" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" --dry-run 2>&1) || ec=$?
+  assert_exit_code "P9: --dry-run exits 0" "$ec" 0
+  after_hash=$(md5sum "$state" | awk '{print $1}')
+  assert_equals "P9b: --dry-run leaves state.json unchanged" "$after_hash" "$before_hash"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ ! -f "$workdir/.startup/state-archive.json" ]; then
+    echo -e "  ${GREEN}PASS${NC} P9c: --dry-run created no archive"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P9c: --dry-run unexpectedly created archive"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P9c: --dry-run unexpectedly created archive")
+  fi
+  assert_output_contains "P9d: --dry-run output labelled" "$output" "DRY RUN"
+  rm -rf "$workdir"
+
+  # P10: no .startup/state.json → exit 0 silently
+  workdir=$(make_workdir)
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P10: no state.json exits 0" "$ec" 0
+  rm -rf "$workdir"
+
+  # P11: historical keys (iterationN_signoff, signoff_vN) archived
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  jq '. + {"iteration8_signoff": "2026-02-26T01:00:00Z", "signoff_v2": "2026-02-25T20:10:00Z", "final_signoff": "2026-02-26T09:30:00Z"}' \
+    "$state" > "$state.tmp" && mv "$state.tmp" "$state"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P11: historical+handoffs compaction exits 0" "$ec" 0
+  assert_json_field "P11b: iteration8_signoff archived" "$state" '.iteration8_signoff // "MISSING"' "MISSING"
+  assert_json_field "P11c: signoff_v2 archived"        "$state" '.signoff_v2 // "MISSING"'        "MISSING"
+  assert_json_field "P11d: final_signoff archived"     "$state" '.final_signoff // "MISSING"'     "MISSING"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$(jq -r '.entries[].keys.signoff_v2 // "MISSING"' "$workdir/.startup/state-archive.json")" != "MISSING" ]; then
+    echo -e "  ${GREEN}PASS${NC} P11e: signoff_v2 present in archive"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P11e: signoff_v2 not in archive"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P11e: signoff_v2 not in archive")
+  fi
+  rm -rf "$workdir"
+
+  # P12: growth_* keys preserved inline (never archived)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  jq '. + {"growth_phase": "launch", "growth_iteration": 2, "growth_last_brief": 399}' \
+    "$state" > "$state.tmp" && mv "$state.tmp" "$state"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_json_field "P12a: growth_phase preserved inline"    "$state" ".growth_phase" "launch"
+  assert_json_field "P12b: growth_iteration preserved"       "$state" ".growth_iteration" "2"
+  assert_json_field "P12c: growth_last_brief preserved"      "$state" ".growth_last_brief" "399"
+  rm -rf "$workdir"
+
+  # P13: archive append-only — two waves of compaction produce two entries
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  bash "$script" --state-file "$state" --archive-file "$workdir/.startup/state-archive.json" >/dev/null 2>&1 || true
+  # Add 10 more handoffs (16-25), ensuring the next wave archives some of them.
+  local builder='.'
+  local i padded
+  for i in $(seq 16 25); do
+    padded=$(printf '%03d' "$i")
+    builder="$builder + {\"handoff_${padded}_ready\": \"2026-03-01T10:00:00Z\"}"
+  done
+  jq "$builder" "$state" > "$state.tmp" && mv "$state.tmp" "$state"
+  bash "$script" --state-file "$state" --archive-file "$workdir/.startup/state-archive.json" >/dev/null 2>&1 || true
+  local entry_count
+  entry_count=$(jq '.entries | length' "$workdir/.startup/state-archive.json")
+  assert_equals "P13: two archive entries after two waves" "$entry_count" "2"
+  assert_json_valid "P13b: archive still valid JSON after two waves" "$workdir/.startup/state-archive.json"
+  rm -rf "$workdir"
+
+  # P14: state.json with schema_version=2 already set is accepted
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  jq '. + {"schema_version": 2, "archived_through": 0, "latest_handoff": 0}' \
+    "$state" > "$state.tmp" && mv "$state.tmp" "$state"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P14: schema v2 pre-set exits 0" "$ec" 0
+  assert_json_field "P14b: schema_version stays 2" "$state" ".schema_version" "2"
+  rm -rf "$workdir"
+
+  # P15: historical keys are archived even when handoff count ≤ window
+  # (Fixes a bug where 5 handoffs + 50 legacy keys yielded a no-op.)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 1
+  state="$workdir/.startup/state.json"
+  jq '. + {
+    "signoff_v2":        "2026-02-25T20:10:00Z",
+    "iteration8_signoff":"2026-02-26T01:00:00Z",
+    "final_signoff":     "2026-02-26T09:30:00Z",
+    "legacy_feature_xx": "done"
+  }' "$state" > "$state.tmp" && mv "$state.tmp" "$state"
+  seed_handoffs "$state" 3                # well below window=10
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P15: historical-only compaction exits 0" "$ec" 0
+  assert_file_exists "P15b: archive created for historical-only" "$workdir/.startup/state-archive.json"
+  assert_json_field "P15c: signoff_v2 archived"         "$state" '.signoff_v2 // "MISSING"'         "MISSING"
+  assert_json_field "P15d: legacy_feature_xx archived"  "$state" '.legacy_feature_xx // "MISSING"'  "MISSING"
+  # Handoff keys must remain inline (count ≤ window → none archived)
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$(jq -r '.handoff_001_ready // "MISSING"' "$state")" != "MISSING" ]; then
+    echo -e "  ${GREEN}PASS${NC} P15e: handoff_001 kept inline (below window)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P15e: handoff_001 wrongly archived below window"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P15e: handoff_001 wrongly archived below window")
+  fi
+  assert_json_field "P15f: schema_version set to 2"     "$state" ".schema_version" "2"
+  rm -rf "$workdir"
+
+  # P16: corrupt state.json → exit 1, file untouched
+  workdir=$(make_workdir)
+  mkdir -p "$workdir/.startup"
+  echo '{not valid json' > "$workdir/.startup/state.json"
+  before_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P16: corrupt state.json exits 1" "$ec" 1
+  after_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
+  assert_equals "P16b: corrupt state.json left unchanged" "$after_hash" "$before_hash"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ ! -f "$workdir/.startup/state-archive.json" ]; then
+    echo -e "  ${GREEN}PASS${NC} P16c: no archive created from corrupt state"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} P16c: archive created from corrupt state"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("P16c: archive created from corrupt state")
+  fi
+  rm -rf "$workdir"
+
+  # P17: corrupt archive → renamed to .corrupt-*, compaction still succeeds, new archive started
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  echo 'CORRUPT' > "$workdir/.startup/state-archive.json"
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P17: corrupt archive compaction exits 0" "$ec" 0
+  # Old archive preserved as .corrupt-*
+  local corrupt_count
+  corrupt_count=$(find "$workdir/.startup" -maxdepth 1 -name 'state-archive.json.corrupt-*' | wc -l)
+  assert_equals "P17b: corrupt archive preserved as .corrupt-*" "$corrupt_count" "1"
+  assert_output_contains "P17c: warns on stderr about corrupt archive" "$output" "corrupt"
+  assert_json_valid "P17d: new archive is valid JSON" "$workdir/.startup/state-archive.json"
+  assert_equals "P17e: new archive has exactly one entry" \
+    "$(jq '.entries | length' "$workdir/.startup/state-archive.json")" "1"
+  rm -rf "$workdir"
+
+  # P18: concurrency — two parallel runs produce exactly one archive entry
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  (cd "$workdir" && bash "$script" >/dev/null 2>&1) &
+  (cd "$workdir" && bash "$script" >/dev/null 2>&1) &
+  wait
+  assert_json_valid "P18: archive still valid JSON after race" "$workdir/.startup/state-archive.json"
+  assert_equals "P18b: exactly one archive entry after two parallel runs" \
+    "$(jq '.entries | length' "$workdir/.startup/state-archive.json")" "1"
+  # Each archived key must appear exactly once (no duplicate-key inflation)
+  local archived_keys_count unique_archived_keys_count
+  archived_keys_count=$(jq '[.entries[].keys | keys[]] | length' "$workdir/.startup/state-archive.json")
+  unique_archived_keys_count=$(jq '[.entries[].keys | keys[]] | unique | length' "$workdir/.startup/state-archive.json")
+  assert_equals "P18c: no duplicate keys in archive after race" \
+    "$archived_keys_count" "$unique_archived_keys_count"
+  rm -rf "$workdir"
+
+  # P19: invalid --window argument → exit 2 with clean error
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 1
+  ec=0; output=$(cd "$workdir" && bash "$script" --window abc 2>&1) || ec=$?
+  assert_exit_code "P19: --window abc exits 2" "$ec" 2
+  assert_output_contains "P19b: --window abc shows friendly error" "$output" "window"
+  rm -rf "$workdir"
+
+  # P20: --window 0 → exit 2
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 1
+  ec=0; output=$(cd "$workdir" && bash "$script" --window 0 2>&1) || ec=$?
+  assert_exit_code "P20: --window 0 exits 2" "$ec" 2
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
+# Suite Q: migrate-state.sh
+# ---------------------------------------------------------------------------
+
+test_migrate_state() {
+  echo -e "\n${CYAN}Suite Q: migrate-state.sh${NC}"
+  local script="$PLUGIN_ROOT/scripts/migrate-state.sh"
+  local workdir ec output state before_hash after_hash bak_count
+
+  # Q1: script exists and is executable
+  assert_file_exists "Q1: migrate-state.sh exists" "$script"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} Q1b: migrate-state.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} Q1b: migrate-state.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("Q1b: migrate-state.sh is not executable")
+  fi
+
+  # Q2: no args defaults to dry-run (no writes, no .bak)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  before_hash=$(md5sum "$state" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "Q2: no args exits 0" "$ec" 0
+  after_hash=$(md5sum "$state" | awk '{print $1}')
+  assert_equals "Q2b: no args leaves state.json unchanged" "$after_hash" "$before_hash"
+  assert_output_contains "Q2c: no args output mentions dry-run" "$output" "DRY RUN"
+  bak_count=$(find "$workdir/.startup" -maxdepth 1 -name 'state.json.bak-*' | wc -l)
+  assert_equals "Q2d: no args created no backup" "$bak_count" "0"
+  rm -rf "$workdir"
+
+  # Q3: --yes applies compaction
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" --yes 2>&1) || ec=$?
+  assert_exit_code "Q3: --yes exits 0" "$ec" 0
+  assert_file_exists "Q3b: archive file created" "$workdir/.startup/state-archive.json"
+  assert_json_field "Q3c: schema_version = 2 after --yes" "$state" ".schema_version" "2"
+  rm -rf "$workdir"
+
+  # Q4: --yes creates timestamped .bak backup that equals pre-migration state
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  before_hash=$(md5sum "$state" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" --yes 2>&1) || ec=$?
+  assert_exit_code "Q4: --yes exits 0" "$ec" 0
+  bak_count=$(find "$workdir/.startup" -maxdepth 1 -name 'state.json.bak-*' | wc -l)
+  assert_equals "Q4b: --yes created one backup" "$bak_count" "1"
+  local bak_file
+  bak_file=$(find "$workdir/.startup" -maxdepth 1 -name 'state.json.bak-*' | head -1)
+  assert_json_valid "Q4c: backup is valid JSON" "$bak_file"
+  after_hash=$(md5sum "$bak_file" | awk '{print $1}')
+  assert_equals "Q4d: backup matches pre-migration state" "$after_hash" "$before_hash"
+  rm -rf "$workdir"
+
+  # Q5: --yes is safe to run twice (no double-archiving)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  (cd "$workdir" && bash "$script" --yes) >/dev/null 2>&1 || true
+  local first_archive_count
+  first_archive_count=$(jq '.entries | length' "$workdir/.startup/state-archive.json")
+  ec=0; output=$(cd "$workdir" && bash "$script" --yes 2>&1) || ec=$?
+  assert_exit_code "Q5: --yes second run exits 0" "$ec" 0
+  local second_archive_count
+  second_archive_count=$(jq '.entries | length' "$workdir/.startup/state-archive.json")
+  assert_equals "Q5b: archive not double-written" "$second_archive_count" "$first_archive_count"
+  rm -rf "$workdir"
+
+  # Q6: --dry-run explicit flag is also a no-op
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  seed_handoffs "$state" 15
+  before_hash=$(md5sum "$state" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" --dry-run 2>&1) || ec=$?
+  assert_exit_code "Q6: --dry-run exits 0" "$ec" 0
+  after_hash=$(md5sum "$state" | awk '{print $1}')
+  assert_equals "Q6b: --dry-run leaves state.json unchanged" "$after_hash" "$before_hash"
+  rm -rf "$workdir"
+
+  # Q7: --yes on fresh state is no-op (no .bak needed)
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 1
+  state="$workdir/.startup/state.json"
+  before_hash=$(md5sum "$state" | awk '{print $1}')
+  ec=0; output=$(cd "$workdir" && bash "$script" --yes 2>&1) || ec=$?
+  assert_exit_code "Q7: --yes on fresh exits 0" "$ec" 0
+  after_hash=$(md5sum "$state" | awk '{print $1}')
+  assert_equals "Q7b: fresh state unchanged" "$after_hash" "$before_hash"
+  bak_count=$(find "$workdir/.startup" -maxdepth 1 -name 'state.json.bak-*' | wc -l)
+  assert_equals "Q7c: fresh state got no backup" "$bak_count" "0"
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
+# Suite R: Enforce Handoff Naming Hook (enforce-handoff-naming.sh)
+# ---------------------------------------------------------------------------
+
+test_enforce_handoff_naming_hook() {
+  echo -e "\n${CYAN}Suite R: enforce-handoff-naming.sh${NC}"
+  local script="$PLUGIN_ROOT/scripts/enforce-handoff-naming.sh"
+  local workdir ec output
+
+  # R1: script exists and is executable
+  assert_file_exists "R1: enforce-handoff-naming.sh exists" "$script"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} R1b: script is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} R1b: script is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("R1b: script is not executable")
+  fi
+
+  # R2: path outside .startup/handoffs/ passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R2: outside handoffs exits 0" "$ec" 0
+
+  # R3: INDEX.md passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/INDEX.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R3: INDEX.md exits 0" "$ec" 0
+
+  # R4: canonical business-to-tech passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R4: canonical business-to-tech exits 0" "$ec" 0
+
+  # R5: canonical tech-to-business passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/042-tech-to-business.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R5: canonical tech-to-business exits 0" "$ec" 0
+
+  # R6: canonical business-to-growth passes
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/007-business-to-growth.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R6: canonical business-to-growth exits 0" "$ec" 0
+
+  # R7: slug-only filename is blocked
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/business-to-tech-foo.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R7: slug-only filename exits 2" "$ec" 2
+  assert_output_contains "R7b: block message mentions NNN" "$output" "NNN"
+  assert_output_contains "R7c: block message mentions next NNN 001" "$output" "001"
+  rm -rf "$workdir"
+
+  # R8: timestamp-prefixed filename is blocked
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/2026-04-16T074318Z-business-to-tech-improve-189.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R8: timestamp-prefix exits 2" "$ec" 2
+
+  # R9: non-.md (binary) is blocked
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/sample.pdf"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R9: .pdf exits 2" "$ec" 2
+  assert_output_contains "R9b: block message mentions attachments/" "$output" "attachments"
+
+  # R10: non-canonical direction NNN-business-to-team is blocked
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/476-business-to-team.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R10: non-canonical direction exits 2" "$ec" 2
+
+  # R11: next-NNN computation reflects actual max
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/012-business-to-tech.md"
+  touch "$workdir/.startup/handoffs/007-tech-to-business.md"
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/bogus.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R11: block with existing files exits 2" "$ec" 2
+  assert_output_contains "R11b: next NNN is 013" "$output" "013"
+  rm -rf "$workdir"
+
+  # R11c: pre-migration timestamp-prefixed files don't poison max NNN
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/005-business-to-tech.md"
+  touch "$workdir/.startup/handoffs/2026-04-16T074318Z-business-to-tech-improve-189.md"
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/bogus.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R11c: exits 2" "$ec" 2
+  assert_output_contains "R11d: next NNN ignores timestamp prefix, is 006" "$output" "006"
+  rm -rf "$workdir"
+
+  # R12: empty file_path in stdin passes (defensive)
+  ec=0
+  output=$(echo '{}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R12: empty input exits 0" "$ec" 0
+
+  # R13: signoffs/ path is not blocked (not a handoff path)
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/signoffs/roundtrip-001.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R13: signoffs/ path exits 0" "$ec" 0
+}
+
+# ---------------------------------------------------------------------------
+# Suite S: Migrate Handoff Names (migrate-handoff-names.sh)
+# ---------------------------------------------------------------------------
+
+test_migrate_handoff_names() {
+  echo -e "\n${CYAN}Suite S: migrate-handoff-names.sh${NC}"
+  local script="$PLUGIN_ROOT/scripts/migrate-handoff-names.sh"
+  local workdir ec output
+
+  # S1: script exists and is executable
+  assert_file_exists "S1: migrate-handoff-names.sh exists" "$script"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} S1b: script is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S1b: script is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S1b: script is not executable")
+  fi
+
+  # S2: dry-run on empty dir returns 0 with summary
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S2: empty dir dry-run exits 0" "$ec" 0
+  assert_output_contains "S2b: output says dry-run" "$output" "Dry-run"
+  assert_output_contains "S2c: summary line present" "$output" "Summary:"
+  rm -rf "$workdir"
+
+  # S3: canonical-only dir — nothing to change
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/001-business-to-tech.md"
+  touch "$workdir/.startup/handoffs/002-tech-to-business.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S3: canonical-only exits 0" "$ec" 0
+  assert_output_contains "S3b: skip count is 2" "$output" "Skipping (already canonical): 2"
+  rm -rf "$workdir"
+
+  # S4: roundtrip-signoff moves to signoffs/
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/133-roundtrip-signoff.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S4: dry-run with signoff exits 0" "$ec" 0
+  assert_output_contains "S4b: plan moves to signoffs/" "$output" "Move to .startup/signoffs/"
+  assert_output_contains "S4c: plan lists 133-roundtrip-signoff" "$output" "133-roundtrip-signoff.md"
+  rm -rf "$workdir"
+
+  # S5: qa-review moves to reviews/
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/369-qa-review.md"
+  touch "$workdir/.startup/handoffs/business-to-tech-satisfaction-guarantee.lawyer.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S5: plan moves to reviews/" "$output" "Move to .startup/reviews/"
+  assert_output_contains "S5b: plan lists qa-review file" "$output" "369-qa-review.md"
+  assert_output_contains "S5c: .lawyer.md renamed to lawyer-*" "$output" "lawyer-business-to-tech-satisfaction-guarantee.md"
+  rm -rf "$workdir"
+
+  # S6: binary moves to attachments/
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/arve_fixed_logo_preview.pdf"
+  touch "$workdir/.startup/handoffs/arve_fixed_logo_preview.png"
+  mkdir -p "$workdir/.startup/handoffs/421-artifacts"
+  touch "$workdir/.startup/handoffs/421-artifacts/sample.pdf"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S6: plan moves to attachments/" "$output" "Move to .startup/attachments/"
+  assert_output_contains "S6b: plan lists pdf" "$output" "arve_fixed_logo_preview.pdf"
+  assert_output_contains "S6c: plan lists directory" "$output" "421-artifacts"
+  rm -rf "$workdir"
+
+  # S7: topic-slug renames to next-available NNN
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/012-business-to-tech.md"
+  # older slug file — should get NNN 013
+  touch -t 202603010000 "$workdir/.startup/handoffs/business-to-tech-foo.md"
+  # newer slug file — should get NNN 014
+  touch -t 202603020000 "$workdir/.startup/handoffs/tech-to-business-bar.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S7: rename section present" "$output" "Rename"
+  assert_output_contains "S7b: foo → 013-business-to-tech" "$output" "business-to-tech-foo.md → 013-business-to-tech.md"
+  assert_output_contains "S7c: bar → 014-tech-to-business" "$output" "tech-to-business-bar.md → 014-tech-to-business.md"
+  rm -rf "$workdir"
+
+  # S8: timestamp-prefix renames with canonical direction extracted
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/2026-04-16T074318Z-business-to-tech-improve-189.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S8: timestamp file renamed to business-to-tech" "$output" "2026-04-16T074318Z-business-to-tech-improve-189.md → 001-business-to-tech.md"
+  rm -rf "$workdir"
+
+  # S9: frontmatter wins over filename
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  cat > "$workdir/.startup/handoffs/business-to-tech-misnamed.md" <<'EOF'
+---
+from: tech-founder
+to: business-founder
+iteration: 3
+date: 2026-04-10
+type: implementation
+---
+
+## Summary
+Actually a tech-to-business handoff misnamed.
+EOF
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S9: frontmatter-derived direction wins" "$output" "business-to-tech-misnamed.md → 001-tech-to-business.md"
+  rm -rf "$workdir"
+
+  # S10: --apply performs moves and renames
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/001-business-to-tech.md"
+  touch "$workdir/.startup/handoffs/133-roundtrip-signoff.md"
+  touch "$workdir/.startup/handoffs/369-qa-review.md"
+  touch "$workdir/.startup/handoffs/arve.pdf"
+  touch "$workdir/.startup/handoffs/business-to-tech-foo.md"
+  ec=0
+  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S10: --apply exits 0" "$ec" 0
+  assert_file_exists "S10b: canonical preserved" "$workdir/.startup/handoffs/001-business-to-tech.md"
+  assert_file_exists "S10c: signoff moved" "$workdir/.startup/signoffs/133-roundtrip-signoff.md"
+  assert_file_exists "S10d: review moved" "$workdir/.startup/reviews/369-qa-review.md"
+  assert_file_exists "S10e: binary moved" "$workdir/.startup/attachments/arve.pdf"
+  assert_file_exists "S10f: slug renamed to 002-business-to-tech.md" "$workdir/.startup/handoffs/002-business-to-tech.md"
+  # Source filenames must no longer exist in handoffs/
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ ! -e "$workdir/.startup/handoffs/business-to-tech-foo.md" ]; then
+    echo -e "  ${GREEN}PASS${NC} S10g: source slug removed from handoffs/"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S10g: source slug still in handoffs/"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S10g: source slug not removed")
+  fi
+  assert_file_exists "S10h: INDEX.md regenerated" "$workdir/.startup/handoffs/INDEX.md"
+  rm -rf "$workdir"
+
+  # S11: --apply collision appends -dup suffix
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs" "$workdir/.startup/signoffs"
+  touch "$workdir/.startup/handoffs/133-roundtrip-signoff.md"
+  touch "$workdir/.startup/signoffs/133-roundtrip-signoff.md"  # pre-existing
+  ec=0
+  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S11: collision exits 0" "$ec" 0
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if ls "$workdir/.startup/signoffs/"*-dup* >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} S11b: collision produces -dup file"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S11b: no -dup file in signoffs/"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S11b: no -dup file")
+  fi
+  rm -rf "$workdir"
+
+  # S12: directory collision in attachments/ — extensionless dest doesn't corrupt path
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs/421-artifacts"
+  mkdir -p "$workdir/.startup/attachments/421-artifacts"  # pre-existing dir
+  touch "$workdir/.startup/handoffs/421-artifacts/x.txt"
+  touch "$workdir/.startup/attachments/421-artifacts/y.txt"
+  ec=0
+  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S12: dir collision exits 0" "$ec" 0
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if ls -d "$workdir/.startup/attachments/421-artifacts-dup"*/ >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} S12b: extensionless dir collision produces -dup suffix"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S12b: no -dup dir in attachments/"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S12b: no -dup dir")
+  fi
+  # The original pre-existing dir must still exist (only the new one got renamed)
+  assert_file_exists "S12c: pre-existing attachments/421-artifacts preserved" "$workdir/.startup/attachments/421-artifacts/y.txt"
+  assert_output_not_contains "S12d: no WARN lines" "$output" "[WARN]"
+  rm -rf "$workdir"
+
+  # S13: orphan roles fold to canonical directions (investor, team, team-lead)
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/205-investor-to-business.md"
+  touch "$workdir/.startup/handoffs/225-investor-to-tech.md"
+  touch "$workdir/.startup/handoffs/476-business-to-team.md"
+  touch "$workdir/.startup/handoffs/tech-to-team-lead-fixes.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S13: investor-to-business folds to business-to-tech" "$output" "205-investor-to-business.md → 001-business-to-tech.md"
+  assert_output_contains "S13b: investor-to-tech folds to business-to-tech" "$output" "225-investor-to-tech.md → 002-business-to-tech.md"
+  assert_output_contains "S13c: business-to-team folds to business-to-tech" "$output" "476-business-to-team.md → 003-business-to-tech.md"
+  assert_output_contains "S13d: tech-to-team-lead folds to tech-to-business" "$output" "tech-to-team-lead-fixes.md → 004-tech-to-business.md"
+  assert_output_not_contains "S13e: no manual review" "$output" "Manual review needed"
+  rm -rf "$workdir"
+
+  # S13e: --apply exits non-zero when a mv operation fails
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  # Pre-create a read-only destination dir so mv into it will fail
+  mkdir -p "$workdir/.startup/attachments"
+  touch "$workdir/.startup/handoffs/broken.pdf"
+  chmod -w "$workdir/.startup/attachments"
+  ec=0
+  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  chmod +w "$workdir/.startup/attachments"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$ec" -ne 0 ]; then
+    echo -e "  ${GREEN}PASS${NC} S13f: --apply exits non-zero on mv failure (got $ec)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S13f: --apply exited 0 despite mv failure"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S13f: --apply should exit non-zero on mv failure")
+  fi
+  assert_output_contains "S13g: warning line present" "$output" "[WARN]"
+  rm -rf "$workdir"
+
+  # S14: widened review rule catches regression-results without trailing hyphen + sequencing-plan
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/317-regression-results.md"
+  touch "$workdir/.startup/handoffs/311-sequencing-plan.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S14: regression-results routed to reviews/" "$output" "317-regression-results.md"
+  assert_output_contains "S14b: sequencing-plan routed to reviews/" "$output" "311-sequencing-plan.md"
+  assert_output_contains "S14c: both in reviews section" "$output" "Move to .startup/reviews/ (2 files)"
+  assert_output_not_contains "S14d: no manual review" "$output" "Manual review needed"
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1299,6 +2271,11 @@ main() {
   test_json_validation_hook
   test_delegation_enforcement_hook
   test_duplicate_handoff_hook
+  test_compact_state
+  test_migrate_state
+  test_index_handoff_hook
+  test_enforce_handoff_naming_hook
+  test_migrate_handoff_names
 
   # Summary
   echo ""
@@ -1317,6 +2294,140 @@ main() {
     echo -e "${GREEN}All tests passed!${NC}"
     exit 0
   fi
+}
+
+# ---------------------------------------------------------------------------
+# Suite Q: Handoff Index Hook (index-handoff.sh)
+# ---------------------------------------------------------------------------
+
+test_index_handoff_hook() {
+  echo -e "\n${CYAN}Suite Q: Handoff Index Hook${NC}"
+  local script="$PLUGIN_ROOT/scripts/index-handoff.sh"
+  local backfill="$PLUGIN_ROOT/scripts/backfill-handoff-index.sh"
+  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
+  local workdir ec output
+
+  # Q1: hook script exists and is executable
+  assert_file_exists "Q1: index-handoff.sh exists" "$script"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} Q1b: index-handoff.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} Q1b: index-handoff.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("Q1b: index-handoff.sh is not executable")
+  fi
+
+  # Q2: backfill script exists and is executable
+  assert_file_exists "Q2: backfill-handoff-index.sh exists" "$backfill"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$backfill" ]; then
+    echo -e "  ${GREEN}PASS${NC} Q2b: backfill-handoff-index.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} Q2b: backfill-handoff-index.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("Q2b: backfill-handoff-index.sh is not executable")
+  fi
+
+  # Q3: hooks.json references index-handoff.sh
+  local hook_refs
+  hook_refs=$(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file" 2>/dev/null)
+  assert_output_contains "Q3: hooks.json references index-handoff.sh" "$hook_refs" "index-handoff.sh"
+
+  # Q4: exits 0 for non-handoff file (must never block writes)
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "Q4: exits 0 for non-handoff file" "$ec" 0
+
+  # Q5: exits 0 for empty input (must never block writes)
+  ec=0
+  output=$(echo '{}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "Q5: exits 0 for empty input" "$ec" 0
+
+  # Q6: creates INDEX.md with header on first handoff write
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  cat > "$workdir/.startup/handoffs/001-business-to-tech.md" <<'EOF'
+---
+from: business-founder
+to: tech-founder
+iteration: 1
+date: 2026-02-25
+type: requirements
+---
+
+## Summary
+
+Build the initial release.
+EOF
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "Q6: exits 0 on first handoff" "$ec" 0
+  assert_file_exists "Q6b: INDEX.md created" "$workdir/.startup/handoffs/INDEX.md"
+  assert_file_contains "Q6c: INDEX has header" "$workdir/.startup/handoffs/INDEX.md" "Handoff Index"
+  assert_file_contains "Q6d: INDEX has entry for 001" "$workdir/.startup/handoffs/INDEX.md" "001 | business-to-tech | 2026-02-25 | 001-business-to-tech.md | Build the initial release."
+
+  # Q7: upsert — re-writing same file does not duplicate
+  echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" >/dev/null 2>&1 || true
+  local dup_count
+  dup_count=$(grep -c "001-business-to-tech.md" "$workdir/.startup/handoffs/INDEX.md" || echo 0)
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$dup_count" -eq 1 ]; then
+    echo -e "  ${GREEN}PASS${NC} Q7: upsert keeps exactly one entry per filename"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} Q7: expected 1 entry, got $dup_count"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("Q7: upsert failed ($dup_count entries)")
+  fi
+
+  # Q8: skips INDEX.md itself (avoid infinite recursion)
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/INDEX.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "Q8: exits 0 when target is INDEX.md" "$ec" 0
+  rm -rf "$workdir"
+
+  # Q9: handles unnumbered filename gracefully
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  cat > "$workdir/.startup/handoffs/business-to-tech-ad-hoc-topic.md" <<'EOF'
+## Summary
+Ad-hoc handoff without number prefix.
+EOF
+  ec=0
+  echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/business-to-tech-ad-hoc-topic.md"}}' | bash "$script" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "Q9: exits 0 for unnumbered handoff" "$ec" 0
+  assert_file_contains "Q9b: unnumbered gets --- prefix" "$workdir/.startup/handoffs/INDEX.md" "business-to-tech-ad-hoc-topic.md"
+  rm -rf "$workdir"
+
+  # Q10: backfill rebuilds index from directory
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  cat > "$workdir/.startup/handoffs/001-business-to-tech.md" <<'EOF'
+---
+date: 2026-03-01
+---
+
+## Summary
+First.
+EOF
+  cat > "$workdir/.startup/handoffs/002-tech-to-business.md" <<'EOF'
+---
+date: 2026-03-02
+---
+
+## Summary
+Second.
+EOF
+  ec=0
+  output=$(bash "$backfill" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "Q10: backfill exits 0" "$ec" 0
+  assert_file_exists "Q10b: INDEX.md created by backfill" "$workdir/.startup/handoffs/INDEX.md"
+  assert_file_contains "Q10c: backfill includes 001" "$workdir/.startup/handoffs/INDEX.md" "001-business-to-tech.md"
+  assert_file_contains "Q10d: backfill includes 002" "$workdir/.startup/handoffs/INDEX.md" "002-tech-to-business.md"
+  rm -rf "$workdir"
 }
 
 main "$@"

@@ -1,6 +1,6 @@
 ---
 name: status
-description: Show current state of the SaaS startup loop — iteration count, active roles, handoff history, human tasks, and blockers
+description: Show current state of the SaaS startup loop — iteration count, active roles, handoff history, human tasks, and blockers. Use `--compact` to force state.json compaction.
 user_invocable: true
 ---
 
@@ -8,7 +8,30 @@ user_invocable: true
 
 Show the current state of the SaaS startup project.
 
+## Arguments
+
+- `--compact` — run one-shot compaction of `.startup/state.json` (moves old handoff and historical keys into `.startup/state-archive.json`). Safe to run any time; dry-run by default.
+- `--compact --yes` — same as above but actually applies the compaction (creates a timestamped `.bak` first).
+- No arguments — print the normal status report.
+
 ## Actions
+
+### If the user's arguments include `--compact`
+
+Delegate to the migration wrapper and exit — do not print the normal status report. Decide the mode from the arguments:
+
+- If `--yes` also appears (e.g. `/status --compact --yes` or `/status --yes --compact`), run:
+  ```bash
+  bash ${CLAUDE_PLUGIN_ROOT}/scripts/migrate-state.sh --yes
+  ```
+- Otherwise (no `--yes`), run in dry-run mode:
+  ```bash
+  bash ${CLAUDE_PLUGIN_ROOT}/scripts/migrate-state.sh
+  ```
+
+Print the script's output verbatim and stop. Do not continue to the status report steps below.
+
+### Otherwise (no `--compact` in the arguments)
 
 1. **Run the status script**:
    ```bash

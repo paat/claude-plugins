@@ -22,40 +22,61 @@ If the user hasn't already described their SaaS idea, ask them (in English):
 
 ## Step 2: Initialize Project Directory
 
-**Re-initialization guard (MED-4):** If `.startup/state.json` already exists, show the current state (iteration, phase, handoff count) and ask the investor:
-> An existing startup session was found at iteration N (phase: X). Would you like to:
+**Re-initialization guard (MED-4):** If `.startup/state.json` already exists, show the current state (iteration, phase, handoff count, and `status`) and ask the investor:
+> An existing startup session was found at iteration N (phase: X, status: Y). Would you like to:
 > 1. **Resume** the existing session
 > 2. **Reset** and start fresh (this will delete all previous progress)
 
-If resuming, skip to Step 3 with the existing state.
+If resuming, run `/bootstrap` first (idempotent — ensures docs/ structure exists for migrated projects). If `status == "paused"`, clear the paused flag before continuing:
 
-Create the `.startup/` directory structure:
+```bash
+if [ "$(jq -r '.status // empty' .startup/state.json)" = "paused" ]; then
+  jq 'del(.paused_at, .paused_reason) | .status = "active" | .resumed = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
+    .startup/state.json > .startup/state.json.tmp \
+    && mv .startup/state.json.tmp .startup/state.json
+fi
+```
+
+Then skip to Step 3 with the existing state.
+
+Run `/bootstrap` first (idempotent — safe to re-run). This creates:
+- `docs/` subdirectories: `research/`, `legal/`, `architecture/`, `ux/`, `seo/`, `business/`
+- `.startup/` subdirectories: `handoffs/`, `reviews/`, `signoffs/`, `go-live/`
+- `.gitignore` entries for ephemeral `.startup/` state
+- `## Project Knowledge` and `## Workflow Guidance` sections in CLAUDE.md
+
+Then create the loop-specific files in `.startup/`:
 
 ```
 .startup/
-├── brief.md              ← Fill with user's SaaS idea
 ├── state.json            ← Initialize loop state
 ├── human-tasks.md        ← Copy from ${CLAUDE_PLUGIN_ROOT}/templates/human-tasks.md
-├── handoffs/             ← Empty, will fill during iterations
-├── docs/                 ← Empty, business founder will populate
-├── signoffs/             ← Empty, will fill as features are validated
-├── reviews/              ← Empty, browser review notes go here
-└── go-live/              ← Empty, solution signoff goes here
+├── handoffs/             ← Ephemeral, not git-tracked
+├── signoffs/             ← Ephemeral, not git-tracked
+├── reviews/              ← Ephemeral, not git-tracked
+└── go-live/              ← Ephemeral, not git-tracked
 ```
 
 Initialize `state.json`:
 ```json
 {
+  "schema_version": 2,
   "iteration": 0,
   "max_iterations": 20,
   "phase": "research",
   "active_role": "business-founder",
   "status": "active",
-  "started": "<current ISO timestamp>"
+  "started": "<current ISO timestamp>",
+  "archived_through": 0,
+  "latest_handoff": 0
 }
 ```
 
-Write `brief.md` using the user's SaaS idea description.
+`schema_version: 2` opts in to the compaction system: old `handoff_NNN_*` keys get archived to `.startup/state-archive.json` automatically once the inline window (last 10 handoffs by default) is exceeded. See the State Management section of each founder agent for the full list of keys allowed inline — anything outside the allowlist is eligible for archival.
+
+**Never write `active_role: "team-lead"`.** The orchestrator (you) is implicit, not a tracked role. `active_role` must always name the next acting founder/agent — `business-founder`, `tech-founder`, `lawyer`, `ux-tester`, `growth-hacker`, or the `-maintain` variants. Writing `team-lead` triggers `enforce-delegation` on subsequent edits during `/improve`, `/lawyer`, `/ux-test`, and `/growth`, derailing those flows.
+
+Write `docs/business/brief.md` using the user's SaaS idea description (skip if `/bootstrap` already created it).
 
 **Copy the human-tasks template:**
 ```bash
@@ -125,7 +146,7 @@ Spawn the initial agent pair using the **Task tool** (one-shot agents, NOT TeamC
 
 2. **Tech Founder** — spawn via Task tool with `subagent_type: "general-purpose"`:
    - Tell the agent to read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder.md` for its identity, tools, and behavioral constraints
-   - Task: Read `.startup/brief.md` to understand the product vision. Plan preliminary architecture ideas and write initial thoughts to `.startup/docs/architecture.md`. Do NOT start implementing until you receive a handoff from the business founder. Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
+   - Task: Read `docs/business/brief.md` to understand the product vision. Plan preliminary architecture ideas and write initial thoughts to `docs/architecture/architecture.md`. Do NOT start implementing until you receive a handoff from the business founder. Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
    - Has code tools only, no web access
 
 **IMPORTANT: Do NOT use TeamCreate.** Agent Teams persistent teammates cannot be terminated once spawned. Use the Task tool for ALL agent dispatches — initial and subsequent. Each Task agent exits cleanly when done.
@@ -134,9 +155,9 @@ Spawn the initial agent pair using the **Task tool** (one-shot agents, NOT TeamC
 
 Send the initial message to the business founder:
 
-> Read `.startup/brief.md`. This is our investor's SaaS idea. Your job:
-> 1. Research the market, competition, and customer pain points (save to `.startup/docs/` in Estonian)
-> 2. Research similar solutions in other countries — extract features, UX patterns, and pricing from international competitors (save to `.startup/docs/rahvusvaheline-analuus.md`)
+> Read `docs/business/brief.md`. This is our investor's SaaS idea. Your job:
+> 1. Research the market, competition, and customer pain points (save to `docs/research/` in Estonian)
+> 2. Research similar solutions in other countries — extract features, UX patterns, and pricing from international competitors (save to `docs/research/rahvusvaheline-analuus.md`)
 > 3. Check Estonian legal requirements for this type of business
 > 4. Break the idea into prioritized features
 > 5. Write the first handoff to tech founder: `.startup/handoffs/001-business-to-tech.md`
@@ -172,6 +193,20 @@ sleep 1
 
 Use `subagent_type: "general-purpose"` for the Task tool.
 
+### Sync vs. async dispatch
+
+Agent/Task tool calls default to **synchronous** — the call returns when the subagent finishes, and you act on the result immediately. This is the correct default for the relay loop. **Do not pass `run_in_background: true` unless you genuinely need to fire-and-forget.**
+
+If you *do* run a subagent in the background (long-running browser test, heavy research), you must yield control correctly while waiting:
+
+1. Launch with `run_in_background: true` — note the returned `agentId`.
+2. Use `ScheduleWakeup` with `delaySeconds: 270` (stays inside the 5-min prompt-cache window) to poll for completion.
+3. On wakeup, check the agent's output file or re-read `state.json`. If still running, schedule the next poll.
+
+The Stop hook is transcript-aware: if your last tool call was `ScheduleWakeup`, it treats the turn-end as a yield (not a quit) and lets you hand control back to the harness without firing. Skip the ScheduleWakeup step and the hook will block you on every end-of-turn until a solution signoff exists.
+
+**Never dispatch async subagents in a tight loop without `ScheduleWakeup`.** Without it, the orchestrator has no way to wait and will thrash against `check-stop.sh`, burning tokens on keepalive chatter.
+
 **Right-size the task.** Each agent dispatch must be a cohesive unit of work that produces exactly ONE deliverable file (handoff, review, or signoff). The sweet spot is 15-30 minutes of agent time.
 
 | Scenario | Dispatches |
@@ -189,7 +224,7 @@ Send to tech founder:
 > **New task: Implement handoff NNN.**
 > Read `.startup/handoffs/NNN-business-to-tech.md` for full requirements.
 > Read `.startup/state.json` for current iteration and phase.
-> Check `.startup/docs/architecture.md` for your previous architecture decisions.
+> Check `docs/architecture/architecture.md` for your previous architecture decisions.
 > Implement the features, then write your handoff to `.startup/handoffs/{NNN+1}-tech-to-business.md`.
 > Set 10s timeouts on all HTTP calls. If a service is unreachable after 3 retries, document the failure and move on.
 > After writing the handoff, message the team lead: "Handoff {NNN+1} ready for business founder."

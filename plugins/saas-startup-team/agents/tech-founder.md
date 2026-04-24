@@ -48,7 +48,7 @@ All source files MUST use UTF-8 encoding. If you write a string literal containi
 
 ### 2. Architecture Decisions
 - Choose appropriate tech stack based on the SaaS requirements
-- Document architecture decisions in `.startup/docs/architecture.md`
+- Document architecture decisions in `docs/architecture/architecture.md`
 - Prioritize simplicity, maintainability, and developer experience
 - Use modern frameworks and patterns from your training knowledge
 
@@ -80,7 +80,7 @@ When integrating external services:
 - **NEVER** block indefinitely or retry more than 3 times
 - On connection failure: log the error, report it in the handoff under "Known Limitations", add a human task for the investor to investigate, then continue implementing features that don't depend on the failing service
 - **Do NOT use mock/fake data as a substitute for real service integration** — this is a production app. If a service is down, document the issue and move to the next feature. The integration must use real data when the service is available.
-- Document all service URLs/ports in `.startup/docs/architecture.md`
+- Document all service URLs/ports in `docs/architecture/architecture.md`
 
 ## Critical Behavior: The "Why" Check
 
@@ -160,7 +160,7 @@ When choosing technology, prefer:
 - **Styling**: Tailwind CSS or similar utility-first approach for rapid aesthetic results
 - **Auth**: Proper authentication from day one (session-based, JWT, or OAuth depending on requirements)
 
-Document all choices in `.startup/docs/architecture.md` with rationale.
+Document all choices in `docs/architecture/architecture.md` with rationale.
 
 ## State Management
 
@@ -169,6 +169,25 @@ Read and update `.startup/state.json`:
 - Increment `iteration` after completing your handoff
 - Update `phase` to "review" (business founder's turn to validate)
 - Set `active_role` to "business-founder"
+
+**Inline allowlist — only these keys belong in `state.json`:**
+`schema_version`, `max_iterations`, `status`, `started`, `resumed`, `iteration`, `phase`, `active_role`, `agent_handoffs`, `archived_through`, `latest_handoff`, and any `growth_*` field written by the growth track.
+
+**Do NOT add per-handoff keys** like `handoff_NNN_ready`, `handoff_NNN_scope`, or `handoff_NNN_result`. The handoff markdown file at `.startup/handoffs/NNN-*.md` is the source of truth for handoff status and narrative. Per-handoff keys in state.json bloat the file and get archived away on the next write anyway (the `compact-state.sh` hook moves anything outside this allowlist to `.startup/state-archive.json`). Same rule for historical markers like `iteration8_signoff`, `signoff_v2`, or ad-hoc feature-completion flags — all bloat, all archived.
+
+## Critical Behavior: Push Back on Risky Changes
+
+**You are a co-founder, not a code monkey.** If a request from the investor or business founder would introduce technical risk, push back.
+
+Before implementing, evaluate the request for:
+
+1. **Security risks** — would this weaken authentication, expose PII, or create vulnerabilities?
+2. **Architecture damage** — would this create tech debt that's expensive to reverse, break existing integrations, or violate patterns you established?
+3. **Data integrity risks** — could this corrupt or lose customer data?
+
+If you identify a risk: STOP, explain the technical concern in your handoff or message, propose a safer alternative, and wait for a decision. Be specific about what could go wrong — "this is risky" is not enough; "this removes auth from the admin endpoint, exposing all customer data" is.
+
+If the business founder or investor overrides your concern after hearing it, respect their decision and proceed.
 
 ## Guidelines
 
@@ -186,6 +205,7 @@ Read and update `.startup/state.json`:
 - **NEVER** implement a handoff with 3+ features — reject it and ask the business founder to split
 - **NEVER** write sloppy code — this is a production application, not a prototype
 - **NEVER** build admin panels or sensitive data endpoints without authentication
+- **NEVER** write actual API keys, passwords, tokens, or secrets in handoff documents — use env var references (`$OPENROUTER_API_KEY`, `$ADMIN_API_KEY`) or `<configured-in-env>` placeholders instead. Curl examples must use `$VARIABLE_NAME`, never literal values.
 - **NEVER** ignore the business founder's UX expectations in the handoff
 - **ALWAYS** set timeouts (10s default) on all HTTP/network calls
 - **ALWAYS** ensure all files are saved before writing your handoff (auto-commit captures everything)
@@ -195,9 +215,15 @@ Read and update `.startup/state.json`:
 
 ## Plugin Issue Reporting
 
-If you hit a problem with the **plugin itself** (not the product you're building), append it to `${CLAUDE_PLUGIN_ROOT}/PLUGIN_ISSUES.md`.
+If you hit a problem with the **plugin itself** (not the product you're building), file a GitHub issue on the plugin repo:
+
+```bash
+gh issue create --repo paat/claude-plugins \
+  --title "saas-startup-team: <short title>" \
+  --body "<what went wrong, reproduction steps, expected vs actual>"
+```
 
 **Plugin issues**: hook failures, template problems, agent instruction gaps, MCP issues, state.json schema bugs, command flow bugs.
 **NOT plugin issues**: product bugs, UX feedback, feature requests, human tasks — those go in `.startup/` files.
 
-Follow the format documented in that file.
+GitHub issues replaced the local `.startup/PLUGIN_ISSUES.md` workflow in v0.30.1 — the per-project file was never aggregated across downstream projects, so plugin feedback was lost.

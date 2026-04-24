@@ -1,0 +1,66 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__claude-in-chrome__navigate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-launch-block.sh",
+            "description": "Block Chrome navigation to Google Ads campaign creation / edit / delete / billing URLs"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-hypothesis-present.sh",
+            "description": "Block writing an iteration spec.md without a sibling hypothesis.md"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-single-variable.sh",
+            "description": "Validate that hypothesis.md declares exactly one variable class (or justified multivariate)"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-wait-gate.sh",
+            "description": "Post-launch: enforce N-day wait between iteration applies for statistical significance"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-hypothesis-log.sh",
+            "description": "Block writing result.md without a corresponding entry in hypothesis-log.md"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-estonian-diacritics.sh",
+            "description": "Block writing spec.md with ASCII substitutes for Estonian diacritics (ä, ö, ü, õ, š, ž)"
+          }
+        ]
+      }
+    ]
+  }
+}

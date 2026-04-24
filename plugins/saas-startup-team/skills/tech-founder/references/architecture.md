@@ -2,7 +2,7 @@
 
 ## Architecture Decision Record (ADR) Template
 
-When making significant technical decisions, document them in `.startup/docs/architecture.md` using this format:
+When making significant technical decisions, document them in `docs/architecture/architecture.md` using this format:
 
 ```markdown
 ### ADR-NNN: [Decision Title]

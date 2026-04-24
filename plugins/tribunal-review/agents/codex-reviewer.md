@@ -95,7 +95,6 @@ cat > "$TMPDIR/codex-review-schema.json" << 'SCHEMA'
 SCHEMA
 
 codex exec - \
-  --model gpt-5.3-codex \
   --output-schema "$TMPDIR/codex-review-schema.json" \
   -o "$TMPDIR/codex-review-output.json" \
   --sandbox read-only \

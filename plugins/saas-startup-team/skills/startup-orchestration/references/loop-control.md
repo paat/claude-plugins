@@ -81,4 +81,4 @@ Each handoff implementation should fit within ~50K tokens of agent context. At 3
 ### Prevention
 - When dispatching tasks to the tech-founder, always include: "Set 10s timeouts on all HTTP calls. If a service is unreachable after 3 retries, document the failure and move on."
 - When dispatching review tasks to the business-founder, always include the correct localhost URL and port from the tech-founder's handoff.
-- Ensure `.startup/docs/architecture.md` has up-to-date service URLs and ports.
+- Ensure `docs/architecture/architecture.md` has up-to-date service URLs and ports.
