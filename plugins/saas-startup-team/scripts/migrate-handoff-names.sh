@@ -48,12 +48,52 @@ ATTACH_DIR="$STARTUP_DIR/attachments"
 
 CANONICAL_RE='^[0-9]{3}-(business-to-tech|tech-to-business|business-to-growth|growth-to-business)\.md$'
 
+# Map frontmatter from:/to: pair to canonical direction, or empty if no match.
+infer_from_frontmatter() {
+  local file="$1"
+  local from to
+  from=$(awk '/^from:/ {gsub(/"/,"",$0); sub(/^from:[[:space:]]*/,""); print; exit}' "$file" 2>/dev/null | tr -d '[:space:]')
+  to=$(awk '/^to:/ {gsub(/"/,"",$0); sub(/^to:[[:space:]]*/,""); print; exit}' "$file" 2>/dev/null | tr -d '[:space:]')
+  case "${from}→${to}" in
+    business-founder→tech-founder) echo "business-to-tech" ;;
+    tech-founder→business-founder) echo "tech-to-business" ;;
+    business-founder→growth-hacker) echo "business-to-growth" ;;
+    growth-hacker→business-founder) echo "growth-to-business" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Map filename substring to canonical direction, or empty if none found.
+# Longest match first so "business-to-growth" isn't shadowed by "business".
+infer_from_filename() {
+  local filename="$1"
+  for d in business-to-growth growth-to-business business-to-tech tech-to-business; do
+    case "$filename" in
+      *"$d"*) echo "$d"; return ;;
+    esac
+  done
+  echo ""
+}
+
+# Compute the maximum NNN prefix among canonical NNN-<direction>.md files
+# in the handoff dir (0 if none). Non-canonical 3-digit-prefix names (e.g.
+# timestamped files starting with 2026-...) are ignored on purpose.
+max_canonical_nnn() {
+  local dir="$1"
+  ls "$dir" 2>/dev/null \
+    | grep -E '^[0-9]{3}-(business-to-tech|tech-to-business|business-to-growth|growth-to-business)\.md$' \
+    | grep -oE '^[0-9]{3}' \
+    | sort -n \
+    | tail -1 || echo "0"
+}
+
 # Buckets: arrays of "<source>|<dest>" strings
 SKIP_COUNT=0
 MOVE_SIGNOFFS=()
 MOVE_REVIEWS=()
 MOVE_ATTACH=()
 RENAMES=()
+RENAME_CANDIDATES=()
 MANUAL=()
 
 # --- Scan pass ---
@@ -115,10 +155,38 @@ for entry in "$HANDOFF_DIR"/*; do
       continue ;;
   esac
 
-  # Fallthrough — leave unresolved for now; rules 5–6 added in later task
-  MANUAL+=("${entry}|(rules 5-6 not yet implemented)")
+  # Rule 5: infer canonical direction
+  direction=$(infer_from_frontmatter "$entry")
+  if [ -z "$direction" ]; then
+    direction=$(infer_from_filename "$filename")
+  fi
+  if [ -n "$direction" ]; then
+    # Defer NNN assignment — collect into a rename candidate list with mtime
+    mtime=$(stat -c '%Y' "$entry" 2>/dev/null || stat -f '%m' "$entry" 2>/dev/null || echo 0)
+    RENAME_CANDIDATES+=("${mtime}|${entry}|${direction}")
+    continue
+  fi
+
+  # Rule 6: manual review
+  MANUAL+=("${entry}|no canonical direction in filename or frontmatter")
 done
 shopt -u nullglob dotglob
+
+# Assign NNNs to rename candidates in mtime order, starting at max+1.
+max_nnn=$(max_canonical_nnn "$HANDOFF_DIR")
+max_nnn=$((10#${max_nnn:-0}))
+if [ "${#RENAME_CANDIDATES[@]}" -gt 0 ]; then
+  # Sort by mtime (ascending)
+  IFS=$'\n' sorted=($(printf '%s\n' "${RENAME_CANDIDATES[@]}" | sort -t'|' -k1,1n))
+  unset IFS
+  for item in "${sorted[@]}"; do
+    src="${item#*|}"; src="${src%%|*}"          # middle field
+    direction="${item##*|}"
+    max_nnn=$((max_nnn + 1))
+    nnn=$(printf '%03d' "$max_nnn")
+    RENAMES+=("${src}|${HANDOFF_DIR}/${nnn}-${direction}.md")
+  done
+fi
 
 # --- Output ---
 echo "=== Handoff migration plan for ${HANDOFF_DIR} ==="

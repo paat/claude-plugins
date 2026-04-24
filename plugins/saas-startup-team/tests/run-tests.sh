@@ -2062,6 +2062,50 @@ test_migrate_handoff_names() {
   assert_output_contains "S6b: plan lists pdf" "$output" "arve_fixed_logo_preview.pdf"
   assert_output_contains "S6c: plan lists directory" "$output" "421-artifacts"
   rm -rf "$workdir"
+
+  # S7: topic-slug renames to next-available NNN
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/012-business-to-tech.md"
+  # older slug file — should get NNN 013
+  touch -t 202603010000 "$workdir/.startup/handoffs/business-to-tech-foo.md"
+  # newer slug file — should get NNN 014
+  touch -t 202603020000 "$workdir/.startup/handoffs/tech-to-business-bar.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S7: rename section present" "$output" "Rename"
+  assert_output_contains "S7b: foo → 013-business-to-tech" "$output" "business-to-tech-foo.md → 013-business-to-tech.md"
+  assert_output_contains "S7c: bar → 014-tech-to-business" "$output" "tech-to-business-bar.md → 014-tech-to-business.md"
+  rm -rf "$workdir"
+
+  # S8: timestamp-prefix renames with canonical direction extracted
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/2026-04-16T074318Z-business-to-tech-improve-189.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S8: timestamp file renamed to business-to-tech" "$output" "2026-04-16T074318Z-business-to-tech-improve-189.md → 001-business-to-tech.md"
+  rm -rf "$workdir"
+
+  # S9: frontmatter wins over filename
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  cat > "$workdir/.startup/handoffs/business-to-tech-misnamed.md" <<'EOF'
+---
+from: tech-founder
+to: business-founder
+iteration: 3
+date: 2026-04-10
+type: implementation
+---
+
+## Summary
+Actually a tech-to-business handoff misnamed.
+EOF
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S9: frontmatter-derived direction wins" "$output" "business-to-tech-misnamed.md → 001-tech-to-business.md"
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
