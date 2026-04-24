@@ -245,20 +245,25 @@ fi
 
 mkdir -p "$SIGNOFFS_DIR" "$REVIEWS_DIR" "$ATTACH_DIR"
 
+APPLY_FAIL_COUNT=0
+
 apply_move() {
   local src="$1" dest="$2"
   if [ -e "$dest" ]; then
-    local ts
+    local ts dir name base ext
     ts=$(date +%Y%m%d%H%M%S)
-    local base="${dest%.*}"
-    local ext="${dest##*.}"
-    if [ "$base" = "$dest" ]; then
-      dest="${dest}-dup${ts}"
-    else
-      dest="${base}-dup${ts}.${ext}"
-    fi
+    dir=$(dirname "$dest")
+    name=$(basename "$dest")
+    case "$name" in
+      *.*) base="${name%.*}"; ext="${name##*.}"; dest="${dir}/${base}-dup${ts}.${ext}" ;;
+      *)   dest="${dir}/${name}-dup${ts}" ;;
+    esac
   fi
-  mv "$src" "$dest"
+  if ! mv "$src" "$dest"; then
+    echo "[WARN] mv failed: $src → $dest" >&2
+    APPLY_FAIL_COUNT=$((APPLY_FAIL_COUNT + 1))
+    return 1
+  fi
 }
 
 for item in "${MOVE_SIGNOFFS[@]}"; do apply_move "${item%%|*}" "${item##*|}"; done
@@ -268,6 +273,9 @@ for item in "${RENAMES[@]}"; do apply_move "${item%%|*}" "${item##*|}"; done
 
 echo ""
 echo "[DONE] Applied: ${#MOVE_SIGNOFFS[@]} signoffs, ${#MOVE_REVIEWS[@]} reviews, ${#MOVE_ATTACH[@]} attachments, ${#RENAMES[@]} renames."
+if [ "$APPLY_FAIL_COUNT" -gt 0 ]; then
+  echo "[WARN] ${APPLY_FAIL_COUNT} mv operation(s) failed — review output above."
+fi
 
 # Regenerate INDEX.md to reflect the new state
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

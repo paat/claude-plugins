@@ -2165,6 +2165,29 @@ EOF
     FAILURES+=("S11b: no -dup file")
   fi
   rm -rf "$workdir"
+
+  # S12: directory collision in attachments/ — extensionless dest doesn't corrupt path
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs/421-artifacts"
+  mkdir -p "$workdir/.startup/attachments/421-artifacts"  # pre-existing dir
+  touch "$workdir/.startup/handoffs/421-artifacts/x.txt"
+  touch "$workdir/.startup/attachments/421-artifacts/y.txt"
+  ec=0
+  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S12: dir collision exits 0" "$ec" 0
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if ls -d "$workdir/.startup/attachments/421-artifacts-dup"*/ >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} S12b: extensionless dir collision produces -dup suffix"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S12b: no -dup dir in attachments/"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S12b: no -dup dir")
+  fi
+  # The original pre-existing dir must still exist (only the new one got renamed)
+  assert_file_exists "S12c: pre-existing attachments/421-artifacts preserved" "$workdir/.startup/attachments/421-artifacts/y.txt"
+  assert_output_not_contains "S12d: no WARN lines" "$output" "[WARN]"
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
