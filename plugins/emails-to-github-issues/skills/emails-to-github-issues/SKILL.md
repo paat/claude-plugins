@@ -1,6 +1,6 @@
 ---
 name: emails-to-github-issues
-description: Use when asked to turn emails from named senders (support requests, bug reports, feature asks) into GitHub issues — covers IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping, screenshot handling, and scope-confirmation before writes.
+description: Use when asked to turn emails from named senders (support requests, bug reports, feature asks) into GitHub issues — triggers on phrasings like "read mail from <sender> since <date> and open/file issues/tickets". Covers IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping, screenshot handling, dedupe into existing issues via `gh issue comment`, and scope-confirmation before writes.
 ---
 
 # Emails to GitHub Issues
@@ -32,7 +32,8 @@ Do **not** use for internal FYI mail or for mail the user only wants summarized 
    - Dedicated release: `gh release upload <tag> *.png -R <repo> --clobber`, embed `![](…/releases/download/<tag>/<file>)`.
    - user-attachments CDN: save locally, tell user to drag-drop (no API).
    - Never commit PNGs to `main` unless that's the established pattern.
-9. **Create issues** via `gh issue create --body-file` (never `--body` — shell quoting mangles non-ASCII). One issue per thread. Dedupe first: `gh issue list --search "in:title <normalized>"`.
+9. **Dedupe against existing issues.** Before creating, run `gh issue list --search "in:title <normalized>"` (or search by the customer's `#NN`). If a thread maps to an existing open issue, **append via `gh issue comment <N> --body-file <file> -R <repo>`** instead of opening a duplicate — same `--body-file` rule applies (never `--body`).
+10. **Create new issues** via `gh issue create --body-file` (never `--body` — shell quoting mangles non-ASCII). One issue per new thread.
 
 ## Gotchas
 
@@ -51,6 +52,7 @@ Do **not** use for internal FYI mail or for mail the user only wants summarized 
 - About to invent a new image-hosting scheme → check existing issues' body URLs first
 - About to commit customer screenshots to `main` → look for a release tag or user-attachments pattern instead
 - About to loop over emails and create one issue each → group by thread first
+- About to open a duplicate issue for a thread that already has one → use `gh issue comment --body-file` to append instead
 
 ## Template
 

@@ -5,10 +5,11 @@ Ready-to-adapt template: fetch mails from named senders via Proton Bridge
 emit /tmp/mails.json and /tmp/mail_attachments/ with a per-thread manifest.
 
 Usage:
-    BRIDGE_PASS='...' python3 fetch_mails_template.py
+    IMAP_USER='you@example.com' BRIDGE_PASS='...' python3 fetch_mails_template.py
 
-Edit the CONFIG block below. Searches are ASCII-only (imaplib limitation) —
-pass substrings of the address (e.g. "masak"), not display names ("Mäsak").
+Edit the CONFIG block below (SENDER_TOKENS, SINCE). Searches are ASCII-only
+(imaplib limitation) — pass substrings of the address (e.g. "masak"), not
+display names ("Mäsak").
 """
 
 import email
@@ -17,14 +18,20 @@ import imaplib
 import json
 import os
 import re
+import sys
 from email.header import decode_header, make_header
 from html.parser import HTMLParser
 
 # ---- CONFIG ----------------------------------------------------------------
 
-USER = "andre@tsernikov.eu"
-PASS = os.environ["BRIDGE_PASS"]
-HOST, PORT = "127.0.0.1", 1143  # primary proton-bridge; 1144 is aruannik
+USER = os.environ.get("IMAP_USER") or sys.exit(
+    "Set IMAP_USER=you@example.com (your Proton Bridge account address)"
+)
+PASS = os.environ.get("BRIDGE_PASS") or sys.exit(
+    "Set BRIDGE_PASS=... (Proton Bridge app password — not your Proton account password)"
+)
+HOST = os.environ.get("IMAP_HOST", "127.0.0.1")
+PORT = int(os.environ.get("IMAP_PORT", "1143"))  # primary proton-bridge; other accounts use different ports
 
 # IMAP SEARCH tokens — ASCII substrings of email addresses, not display names
 SENDER_TOKENS = ["masak", "lumi"]
@@ -130,7 +137,7 @@ def thread_key(subject, frm):
     s = re.sub(r"^(re:|fwd:|vs:)\s*", "", subject.strip(), flags=re.I).strip()
     m = re.search(r"#\s*(\d+)", s)
     if m:
-        return f"num-{int(m.group(1)):02d}"
+        return f"num-{int(m.group(1)):05d}"
     sender = "unknown"
     low_frm = (frm or "").lower()
     for tok in SENDER_TOKENS:
