@@ -1,5 +1,17 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/enforce-handoff-naming.sh",
+            "description": "Block non-conforming handoff filenames (NNN-<direction>.md only)"
+          }
+        ]
+      }
+    ],
     "TeammateIdle": [
       {
         "hooks": [

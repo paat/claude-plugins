@@ -470,6 +470,24 @@ test_plugin_config() {
   assert_output_contains "E8: hooks.json has TeammateIdle" "$hooks_keys" "TeammateIdle"
   assert_output_contains "E9: hooks.json has TaskCompleted" "$hooks_keys" "TaskCompleted"
   assert_output_contains "E10: hooks.json has Stop" "$hooks_keys" "Stop"
+
+  # C-enforce: PreToolUse enforce-handoff-naming.sh is registered
+  local enforce_cmd
+  enforce_cmd=$(jq -r '.hooks.PreToolUse[]?.hooks[]?.command // empty' "$PLUGIN_ROOT/hooks/hooks.json" | grep -F "enforce-handoff-naming.sh" || true)
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -n "$enforce_cmd" ]; then
+    echo -e "  ${GREEN}PASS${NC} C-enforce: PreToolUse hook registers enforce-handoff-naming.sh"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} C-enforce: PreToolUse hook does not register enforce-handoff-naming.sh"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("C-enforce: missing enforce-handoff-naming.sh in PreToolUse")
+  fi
+
+  # C-enforce-matcher: the entry uses matcher "Write"
+  local enforce_matcher
+  enforce_matcher=$(jq -r '.hooks.PreToolUse[]? | select(.hooks[]?.command | test("enforce-handoff-naming.sh")) | .matcher // empty' "$PLUGIN_ROOT/hooks/hooks.json")
+  assert_equals "C-enforce-matcher: matcher is Write" "$enforce_matcher" "Write"
 }
 
 # ---------------------------------------------------------------------------
