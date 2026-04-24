@@ -873,45 +873,48 @@ test_post_tool_use_hook() {
 }
 
 # ---------------------------------------------------------------------------
-# Suite J: PLUGIN_ISSUES.md
+# Suite J: Plugin-issue reporting via GitHub
 # ---------------------------------------------------------------------------
+# The local PLUGIN_ISSUES.md workflow was retired in v0.30.1 — it was never
+# aggregated across downstream projects, so feedback was lost. Agents now file
+# GitHub issues directly on the plugin repo. These tests enforce the new
+# guidance is present and the old file/seeds are gone.
 
 test_plugin_issues() {
-  echo -e "\n${CYAN}Suite J: PLUGIN_ISSUES.md${NC}"
-  local issues_file="$PLUGIN_ROOT/PLUGIN_ISSUES.md"
+  echo -e "\n${CYAN}Suite J: plugin-issue reporting via GitHub${NC}"
 
-  # J1: PLUGIN_ISSUES.md exists at plugin root
-  assert_file_exists "J1: PLUGIN_ISSUES.md exists" "$issues_file"
+  # J1: the template file is gone from plugin root
+  if [[ ! -f "$PLUGIN_ROOT/PLUGIN_ISSUES.md" ]]; then
+    echo -e "  ${GREEN}PASS${NC} J1: PLUGIN_ISSUES.md removed from plugin root"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} J1: PLUGIN_ISSUES.md still exists at plugin root"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+  fi
 
-  # J2: contains ## Issues section
-  assert_file_contains "J2: has Issues section" "$issues_file" "## Issues"
+  # J2-J5: the four primary issue-filing agents point at gh, not the old file
+  for agent in business-founder.md tech-founder.md tech-founder-maintain.md business-founder-maintain.md; do
+    assert_file_contains "J-gh: $agent points to gh issue create" \
+      "$PLUGIN_ROOT/agents/$agent" "gh issue create --repo paat/claude-plugins"
+  done
 
-  # J3: contains ## What Goes Here section
-  assert_file_contains "J3: has What Goes Here section" "$issues_file" "## What Goes Here"
+  # J-bootstrap: bootstrap no longer seeds .startup/PLUGIN_ISSUES.md
+  if ! grep -q "PLUGIN_ISSUES" "$PLUGIN_ROOT/commands/bootstrap.md"; then
+    echo -e "  ${GREEN}PASS${NC} J-bootstrap: bootstrap.md no longer seeds PLUGIN_ISSUES.md"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} J-bootstrap: bootstrap.md still references PLUGIN_ISSUES"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+  fi
 
-  # J4: contains ## What Does NOT Go Here section
-  assert_file_contains "J4: has What Does NOT Go Here section" "$issues_file" "## What Does NOT Go Here"
-
-  # J5: business-founder.md points to .startup/PLUGIN_ISSUES.md (survives upgrades)
-  assert_file_contains "J5: business-founder.md points to .startup/PLUGIN_ISSUES.md" \
-    "$PLUGIN_ROOT/agents/business-founder.md" "\.startup/PLUGIN_ISSUES\.md"
-
-  # J6: tech-founder.md points to .startup/PLUGIN_ISSUES.md
-  assert_file_contains "J6: tech-founder.md points to .startup/PLUGIN_ISSUES.md" \
-    "$PLUGIN_ROOT/agents/tech-founder.md" "\.startup/PLUGIN_ISSUES\.md"
-
-  # J7: tech-founder-maintain.md points to .startup/PLUGIN_ISSUES.md
-  # (regression: this agent filed the aruannik blocker that was lost on plugin upgrade)
-  assert_file_contains "J7: tech-founder-maintain.md points to .startup/PLUGIN_ISSUES.md" \
-    "$PLUGIN_ROOT/agents/tech-founder-maintain.md" "\.startup/PLUGIN_ISSUES\.md"
-
-  # J8: bootstrap seeds .startup/PLUGIN_ISSUES.md from the plugin-root template
-  assert_file_contains "J8: bootstrap seeds .startup/PLUGIN_ISSUES.md" \
-    "$PLUGIN_ROOT/commands/bootstrap.md" "cp.*CLAUDE_PLUGIN_ROOT.*PLUGIN_ISSUES\.md.*\.startup/PLUGIN_ISSUES\.md"
-
-  # J9: startup also seeds it (projects that skip bootstrap)
-  assert_file_contains "J9: startup seeds .startup/PLUGIN_ISSUES.md" \
-    "$PLUGIN_ROOT/commands/startup.md" "cp.*CLAUDE_PLUGIN_ROOT.*PLUGIN_ISSUES\.md.*\.startup/PLUGIN_ISSUES\.md"
+  # J-startup: startup no longer seeds .startup/PLUGIN_ISSUES.md either
+  if ! grep -q "PLUGIN_ISSUES" "$PLUGIN_ROOT/commands/startup.md"; then
+    echo -e "  ${GREEN}PASS${NC} J-startup: startup.md no longer seeds PLUGIN_ISSUES.md"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} J-startup: startup.md still references PLUGIN_ISSUES"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+  fi
 }
 
 # ---------------------------------------------------------------------------

@@ -291,4 +291,4 @@ All written in Estonian (UTF-8 encoding):
 
 ## Plugin Issue Reporting
 
-If you hit a problem with the **plugin itself** (not the legal analysis), append it to `.startup/PLUGIN_ISSUES.md` (create it from `${CLAUDE_PLUGIN_ROOT}/PLUGIN_ISSUES.md` first if it doesn't exist — the project-level file survives plugin upgrades). Follow the format documented in that file.
+If you hit a problem with the **plugin itself** (not the legal analysis), file a GitHub issue on the plugin repo: `gh issue create --repo paat/claude-plugins --title "saas-startup-team: <short title>" --body "<details>"`. GitHub issues replaced the local `.startup/PLUGIN_ISSUES.md` workflow in v0.30.1 — the per-project file was never aggregated across downstream projects.

@@ -50,7 +50,7 @@ fi
 # Normalize to repo-relative path for anchored checks
 rel_path="${file_path#"$GIT_ROOT"/}"
 
-# Team lead may write to .startup/, docs/, CLAUDE.md, and PLUGIN_ISSUES.md
+# Team lead may write to .startup/, docs/, and CLAUDE.md
 if [[ "$rel_path" =~ ^\.startup/ ]]; then
   exit 0
 fi
@@ -60,10 +60,6 @@ if [[ "$rel_path" =~ ^docs/ ]]; then
 fi
 
 if [[ "$rel_path" =~ CLAUDE\.md$ ]]; then
-  exit 0
-fi
-
-if [[ "$rel_path" =~ PLUGIN_ISSUES\.md$ ]]; then
   exit 0
 fi
 

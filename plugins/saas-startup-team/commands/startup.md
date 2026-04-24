@@ -83,11 +83,6 @@ Write `docs/business/brief.md` using the user's SaaS idea description (skip if `
 cp ${CLAUDE_PLUGIN_ROOT}/templates/human-tasks.md .startup/human-tasks.md
 ```
 
-**Seed the plugin issues log (if bootstrap didn't already):**
-```bash
-[ -f .startup/PLUGIN_ISSUES.md ] || cp ${CLAUDE_PLUGIN_ROOT}/PLUGIN_ISSUES.md .startup/PLUGIN_ISSUES.md
-```
-
 Tell both agents that handoff and brief templates are available at `${CLAUDE_PLUGIN_ROOT}/templates/`.
 
 ## Step 2b: Initialize CLAUDE.md for Auto-Learning

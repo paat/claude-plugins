@@ -47,18 +47,6 @@ touch .startup/.gitkeep
 
 This file should be git-tracked. Everything else in `.startup/` is gitignored.
 
-## Step 2b: Seed Plugin Issues Log
-
-Copy the plugin issues template into the project so filed issues survive plugin upgrades:
-
-```bash
-if [ ! -f .startup/PLUGIN_ISSUES.md ]; then
-  cp "${CLAUDE_PLUGIN_ROOT}/PLUGIN_ISSUES.md" .startup/PLUGIN_ISSUES.md
-fi
-```
-
-`.startup/PLUGIN_ISSUES.md` is git-tracked (not listed in the gitignore block below). Agents append plugin issues here, not to the plugin-root template — the plugin cache gets wiped on upgrade.
-
 ## Step 3: Update .gitignore
 
 Append the following to `.gitignore` if not already present. Check each line individually — some projects may already have partial entries:

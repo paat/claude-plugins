@@ -215,9 +215,15 @@ If the business founder or investor overrides your concern after hearing it, res
 
 ## Plugin Issue Reporting
 
-If you hit a problem with the **plugin itself** (not the product you're building), append it to `.startup/PLUGIN_ISSUES.md` (create it from `${CLAUDE_PLUGIN_ROOT}/PLUGIN_ISSUES.md` first if it doesn't exist — the project-level file survives plugin upgrades, the plugin-root template gets wiped).
+If you hit a problem with the **plugin itself** (not the product you're building), file a GitHub issue on the plugin repo:
+
+```bash
+gh issue create --repo paat/claude-plugins \
+  --title "saas-startup-team: <short title>" \
+  --body "<what went wrong, reproduction steps, expected vs actual>"
+```
 
 **Plugin issues**: hook failures, template problems, agent instruction gaps, MCP issues, state.json schema bugs, command flow bugs.
 **NOT plugin issues**: product bugs, UX feedback, feature requests, human tasks — those go in `.startup/` files.
 
-Follow the format documented in that file.
+GitHub issues replaced the local `.startup/PLUGIN_ISSUES.md` workflow in v0.30.1 — the per-project file was never aggregated across downstream projects, so plugin feedback was lost.
