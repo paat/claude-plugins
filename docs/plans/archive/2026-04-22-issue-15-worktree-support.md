@@ -1,5 +1,7 @@
 # Plan: worktree support (issue #15)
 
+> **SUPERSEDED (2026-04-24):** Worktree isolation for saas-startup-team was scoped and abandoned as too complex. Preserved for reference only; not a live plan.
+
 > **Universality rule:** Pure infrastructure. Directory layout, port formula, opt-in signal, and lifecycle are all generic. No project-specific strings enter the plugin.
 
 ## Goal & Scope

@@ -143,4 +143,4 @@ Each language is verified independently in Ad Preview Tool with the correct loca
 
 ## Plugin Issue Reporting
 
-If you hit a problem with the plugin itself (not the ad work), append it to `${CLAUDE_PLUGIN_ROOT}/PLUGIN_ISSUES.md` following the format in that file.
+If you hit a problem with the **plugin itself** (not the ad work), file a GitHub issue on the plugin repo: `gh issue create --repo paat/claude-plugins --title "google-ads-strategist: <short title>" --body "<details>"`. GitHub issues replaced the local `PLUGIN_ISSUES.md` workflow — the per-project file was never aggregated across downstream projects.

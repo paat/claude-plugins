@@ -97,7 +97,7 @@
     {
       "name": "google-ads-strategist",
       "description": "Senior Google Ads strategist — iterative campaign design + Chrome-based creation in PAUSED state for investor review. Browser verification via Ad Preview Tool, SERP capture, and Ads Transparency Center. Enforces hypothesis discipline, buyer-intent + product-value gates, and accumulates learnings.",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "author": {
         "name": "Andre Paat"
       },

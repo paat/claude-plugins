@@ -1,5 +1,7 @@
 # Plan: PLUGIN_ISSUES.md capture (issue #16)
 
+> **SUPERSEDED (2026-04-24):** Resolved differently in saas-startup-team v0.30.1 — option C: agents file GitHub issues directly via `gh issue create --repo paat/claude-plugins`. No `/plugin-issue` slash command; template deleted. Preserved for reference only; not a live plan.
+
 > **Universality rule:** Pure infrastructure. `/plugin-issue` command is project-agnostic. The only hardcoded string is the plugin's OWN GitHub repo (`paat/claude-plugins`) as the target for plugin feedback — this is the plugin's meta-tracker and is not a project-specific detail.
 
 ## Goal & Scope
