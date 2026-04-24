@@ -2025,6 +2025,43 @@ test_migrate_handoff_names() {
   assert_exit_code "S3: canonical-only exits 0" "$ec" 0
   assert_output_contains "S3b: skip count is 2" "$output" "Skipping (already canonical): 2"
   rm -rf "$workdir"
+
+  # S4: roundtrip-signoff moves to signoffs/
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/133-roundtrip-signoff.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S4: dry-run with signoff exits 0" "$ec" 0
+  assert_output_contains "S4b: plan moves to signoffs/" "$output" "Move to .startup/signoffs/"
+  assert_output_contains "S4c: plan lists 133-roundtrip-signoff" "$output" "133-roundtrip-signoff.md"
+  rm -rf "$workdir"
+
+  # S5: qa-review moves to reviews/
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/369-qa-review.md"
+  touch "$workdir/.startup/handoffs/business-to-tech-satisfaction-guarantee.lawyer.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S5: plan moves to reviews/" "$output" "Move to .startup/reviews/"
+  assert_output_contains "S5b: plan lists qa-review file" "$output" "369-qa-review.md"
+  assert_output_contains "S5c: .lawyer.md renamed to lawyer-*" "$output" "lawyer-business-to-tech-satisfaction-guarantee.md"
+  rm -rf "$workdir"
+
+  # S6: binary moves to attachments/
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/arve_fixed_logo_preview.pdf"
+  touch "$workdir/.startup/handoffs/arve_fixed_logo_preview.png"
+  mkdir -p "$workdir/.startup/handoffs/421-artifacts"
+  touch "$workdir/.startup/handoffs/421-artifacts/sample.pdf"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_output_contains "S6: plan moves to attachments/" "$output" "Move to .startup/attachments/"
+  assert_output_contains "S6b: plan lists pdf" "$output" "arve_fixed_logo_preview.pdf"
+  assert_output_contains "S6c: plan lists directory" "$output" "421-artifacts"
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
