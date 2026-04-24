@@ -1985,6 +1985,49 @@ test_enforce_handoff_naming_hook() {
 }
 
 # ---------------------------------------------------------------------------
+# Suite S: Migrate Handoff Names (migrate-handoff-names.sh)
+# ---------------------------------------------------------------------------
+
+test_migrate_handoff_names() {
+  echo -e "\n${CYAN}Suite S: migrate-handoff-names.sh${NC}"
+  local script="$PLUGIN_ROOT/scripts/migrate-handoff-names.sh"
+  local workdir ec output
+
+  # S1: script exists and is executable
+  assert_file_exists "S1: migrate-handoff-names.sh exists" "$script"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} S1b: script is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S1b: script is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S1b: script is not executable")
+  fi
+
+  # S2: dry-run on empty dir returns 0 with summary
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S2: empty dir dry-run exits 0" "$ec" 0
+  assert_output_contains "S2b: output says dry-run" "$output" "Dry-run"
+  assert_output_contains "S2c: summary line present" "$output" "Summary:"
+  rm -rf "$workdir"
+
+  # S3: canonical-only dir — nothing to change
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  touch "$workdir/.startup/handoffs/001-business-to-tech.md"
+  touch "$workdir/.startup/handoffs/002-tech-to-business.md"
+  ec=0
+  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "S3: canonical-only exits 0" "$ec" 0
+  assert_output_contains "S3b: skip count is 2" "$output" "Skipping (already canonical): 2"
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -2018,6 +2061,7 @@ main() {
   test_migrate_state
   test_index_handoff_hook
   test_enforce_handoff_naming_hook
+  test_migrate_handoff_names
 
   # Summary
   echo ""
