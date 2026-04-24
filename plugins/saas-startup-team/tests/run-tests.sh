@@ -2205,6 +2205,28 @@ EOF
   assert_output_not_contains "S13e: no manual review" "$output" "Manual review needed"
   rm -rf "$workdir"
 
+  # S13e: --apply exits non-zero when a mv operation fails
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  # Pre-create a read-only destination dir so mv into it will fail
+  mkdir -p "$workdir/.startup/attachments"
+  touch "$workdir/.startup/handoffs/broken.pdf"
+  chmod -w "$workdir/.startup/attachments"
+  ec=0
+  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  chmod +w "$workdir/.startup/attachments"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$ec" -ne 0 ]; then
+    echo -e "  ${GREEN}PASS${NC} S13f: --apply exits non-zero on mv failure (got $ec)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} S13f: --apply exited 0 despite mv failure"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("S13f: --apply should exit non-zero on mv failure")
+  fi
+  assert_output_contains "S13g: warning line present" "$output" "[WARN]"
+  rm -rf "$workdir"
+
   # S14: widened review rule catches regression-results without trailing hyphen + sequencing-plan
   workdir=$(mktemp -d)
   mkdir -p "$workdir/.startup/handoffs"

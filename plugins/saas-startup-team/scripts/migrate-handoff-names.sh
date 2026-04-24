@@ -291,3 +291,8 @@ if [ -x "$SCRIPT_DIR/backfill-handoff-index.sh" ]; then
   echo "Regenerating $HANDOFF_DIR/INDEX.md..."
   bash "$SCRIPT_DIR/backfill-handoff-index.sh" "$HANDOFF_DIR"
 fi
+
+# Signal partial failure to automation via non-zero exit.
+if [ "$APPLY_FAIL_COUNT" -gt 0 ]; then
+  exit 1
+fi
