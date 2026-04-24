@@ -69,6 +69,21 @@ Must include:
 
 Numbers are zero-padded to 3 digits. Always increment by 1. Handoff numbers are independent of iteration numbers — multiple handoffs can belong to the same iteration (e.g., handoffs 009, 010, 011 may all be part of iteration 5).
 
+### Handoff Index (INDEX.md)
+
+When any handoff is written, a PostToolUse hook (`index-handoff.sh`) appends/upserts an entry into `.startup/handoffs/INDEX.md`. Agents and humans should read `INDEX.md` instead of listing the directory — it stays discoverable as handoff count grows past the hundreds.
+
+Format (pipe-separated, one per line):
+```
+NNN | direction | date | filename | summary
+```
+
+Example lookups:
+- "Which handoff introduced feature X?" → `grep -i "feature X" .startup/handoffs/INDEX.md`
+- "What was the last business-to-tech handoff?" → `grep '| business-to-tech |' .startup/handoffs/INDEX.md | tail -1`
+
+For legacy projects that predate the hook, rebuild the index once with `bash $CLAUDE_PLUGIN_ROOT/scripts/backfill-handoff-index.sh`.
+
 ## Handoff Validation Checklist
 
 ### For Business-to-Tech:

@@ -142,6 +142,16 @@
             "description": "Keep .startup/state.json small by archiving old handoff keys once the inline window is exceeded"
           }
         ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/index-handoff.sh",
+            "description": "Append/upsert written handoff into .startup/handoffs/INDEX.md so the directory stays discoverable as it grows"
+          }
+        ]
       }
     ],
     "Stop": [

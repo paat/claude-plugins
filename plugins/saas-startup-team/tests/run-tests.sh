@@ -962,10 +962,10 @@ test_auto_commit_hook() {
   output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/state.json"}}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "K6: exits 0 for .startup/state.json" "$ec" 0
 
-  # K7: hooks.json PostToolUse has 12 entries
+  # K7: hooks.json PostToolUse has 13 entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "K7: PostToolUse has 12 entries" "$ptu_count" "12"
+  assert_equals "K7: PostToolUse has 13 entries" "$ptu_count" "13"
 
   # K8: Fourth PostToolUse entry references auto-commit.sh
   local fourth_cmd
@@ -1163,10 +1163,10 @@ EOF
   assert_exit_code "L9: exits 0 when MVP in NEVER/ALWAYS line" "$ec" 0
   rm -rf "$workdir"
 
-  # L10: hooks.json PostToolUse has 12 entries
+  # L10: hooks.json PostToolUse has 13 entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "L10: PostToolUse has 12 entries" "$ptu_count" "12"
+  assert_equals "L10: PostToolUse has 13 entries" "$ptu_count" "13"
 
   # L11: Fifth PostToolUse entry references enforce-tone.sh
   local sixth_cmd
@@ -1904,6 +1904,7 @@ main() {
   test_duplicate_handoff_hook
   test_compact_state
   test_migrate_state
+  test_index_handoff_hook
 
   # Summary
   echo ""
@@ -1922,6 +1923,140 @@ main() {
     echo -e "${GREEN}All tests passed!${NC}"
     exit 0
   fi
+}
+
+# ---------------------------------------------------------------------------
+# Suite Q: Handoff Index Hook (index-handoff.sh)
+# ---------------------------------------------------------------------------
+
+test_index_handoff_hook() {
+  echo -e "\n${CYAN}Suite Q: Handoff Index Hook${NC}"
+  local script="$PLUGIN_ROOT/scripts/index-handoff.sh"
+  local backfill="$PLUGIN_ROOT/scripts/backfill-handoff-index.sh"
+  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
+  local workdir ec output
+
+  # Q1: hook script exists and is executable
+  assert_file_exists "Q1: index-handoff.sh exists" "$script"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$script" ]; then
+    echo -e "  ${GREEN}PASS${NC} Q1b: index-handoff.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} Q1b: index-handoff.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("Q1b: index-handoff.sh is not executable")
+  fi
+
+  # Q2: backfill script exists and is executable
+  assert_file_exists "Q2: backfill-handoff-index.sh exists" "$backfill"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ -x "$backfill" ]; then
+    echo -e "  ${GREEN}PASS${NC} Q2b: backfill-handoff-index.sh is executable"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} Q2b: backfill-handoff-index.sh is not executable"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("Q2b: backfill-handoff-index.sh is not executable")
+  fi
+
+  # Q3: hooks.json references index-handoff.sh
+  local hook_refs
+  hook_refs=$(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file" 2>/dev/null)
+  assert_output_contains "Q3: hooks.json references index-handoff.sh" "$hook_refs" "index-handoff.sh"
+
+  # Q4: exits 0 for non-handoff file (must never block writes)
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "Q4: exits 0 for non-handoff file" "$ec" 0
+
+  # Q5: exits 0 for empty input (must never block writes)
+  ec=0
+  output=$(echo '{}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "Q5: exits 0 for empty input" "$ec" 0
+
+  # Q6: creates INDEX.md with header on first handoff write
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  cat > "$workdir/.startup/handoffs/001-business-to-tech.md" <<'EOF'
+---
+from: business-founder
+to: tech-founder
+iteration: 1
+date: 2026-02-25
+type: requirements
+---
+
+## Summary
+
+Build the initial release.
+EOF
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "Q6: exits 0 on first handoff" "$ec" 0
+  assert_file_exists "Q6b: INDEX.md created" "$workdir/.startup/handoffs/INDEX.md"
+  assert_file_contains "Q6c: INDEX has header" "$workdir/.startup/handoffs/INDEX.md" "Handoff Index"
+  assert_file_contains "Q6d: INDEX has entry for 001" "$workdir/.startup/handoffs/INDEX.md" "001 | business-to-tech | 2026-02-25 | 001-business-to-tech.md | Build the initial release."
+
+  # Q7: upsert — re-writing same file does not duplicate
+  echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" >/dev/null 2>&1 || true
+  local dup_count
+  dup_count=$(grep -c "001-business-to-tech.md" "$workdir/.startup/handoffs/INDEX.md" || echo 0)
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$dup_count" -eq 1 ]; then
+    echo -e "  ${GREEN}PASS${NC} Q7: upsert keeps exactly one entry per filename"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} Q7: expected 1 entry, got $dup_count"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("Q7: upsert failed ($dup_count entries)")
+  fi
+
+  # Q8: skips INDEX.md itself (avoid infinite recursion)
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/INDEX.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "Q8: exits 0 when target is INDEX.md" "$ec" 0
+  rm -rf "$workdir"
+
+  # Q9: handles unnumbered filename gracefully
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  cat > "$workdir/.startup/handoffs/business-to-tech-ad-hoc-topic.md" <<'EOF'
+## Summary
+Ad-hoc handoff without number prefix.
+EOF
+  ec=0
+  echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/business-to-tech-ad-hoc-topic.md"}}' | bash "$script" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "Q9: exits 0 for unnumbered handoff" "$ec" 0
+  assert_file_contains "Q9b: unnumbered gets --- prefix" "$workdir/.startup/handoffs/INDEX.md" "business-to-tech-ad-hoc-topic.md"
+  rm -rf "$workdir"
+
+  # Q10: backfill rebuilds index from directory
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  cat > "$workdir/.startup/handoffs/001-business-to-tech.md" <<'EOF'
+---
+date: 2026-03-01
+---
+
+## Summary
+First.
+EOF
+  cat > "$workdir/.startup/handoffs/002-tech-to-business.md" <<'EOF'
+---
+date: 2026-03-02
+---
+
+## Summary
+Second.
+EOF
+  ec=0
+  output=$(bash "$backfill" "$workdir/.startup/handoffs" 2>&1) || ec=$?
+  assert_exit_code "Q10: backfill exits 0" "$ec" 0
+  assert_file_exists "Q10b: INDEX.md created by backfill" "$workdir/.startup/handoffs/INDEX.md"
+  assert_file_contains "Q10c: backfill includes 001" "$workdir/.startup/handoffs/INDEX.md" "001-business-to-tech.md"
+  assert_file_contains "Q10d: backfill includes 002" "$workdir/.startup/handoffs/INDEX.md" "002-tech-to-business.md"
+  rm -rf "$workdir"
 }
 
 main "$@"
