@@ -1,12 +1,21 @@
 ---
 name: improve
-description: One-shot improvements on a completed product — creates a branch and opens a PR when done. Routes through business founder for context enrichment and browser QA. Usage: /improve [description of changes]
+description: One-shot improvements on a completed product — creates a branch and opens a PR when run from the default branch, or appends commits to the current branch when run on a feature branch with an open PR (review follow-up). Routes through business founder for context enrichment and browser QA. Usage: /improve [description of changes]
 user_invocable: true
 ---
 
 # /improve — One-Shot Product Improvements
 
-Execute a single improvement cycle: create a feature branch, dispatch business founder → tech founder → business founder QA, open a PR, return to main.
+Execute a single improvement cycle: dispatch business founder → tech founder → business founder QA, then either open a new PR (greenfield) or append commits to the in-flight PR branch (review follow-up).
+
+## Branching Modes
+
+`/improve` detects the operating context from the current branch and the open-PR state, and chooses one of two modes:
+
+- **`new-branch` mode** — create `improve/<slug>` off the current branch, open a new PR at the end, return to the parent branch. This is the greenfield case (run on the default branch) and the "fork-off" variant of mode C below.
+- **`stay` mode** — stay on the current branch, commit and push, do NOT open a new PR. If there is an open PR for this branch, report its URL. This is the review-follow-up case: fixes stack onto the in-flight PR so reviewers and CI re-evaluate the same branch.
+
+The mode is selected automatically when unambiguous, and chosen by the investor when ambiguous. See **Detect Mode** below.
 
 ## Pre-Flight
 
@@ -49,11 +58,38 @@ Before dispatching, assess the request. If it contains 3+ distinct features or r
 
 This is advisory — proceed if the investor confirms.
 
-## Create Branch
+## Detect Mode
 
-Slugify the improvement description into a branch-friendly name (lowercase, hyphens, max 40 chars). Examples:
+Determine which mode to run in:
+
+```bash
+current=$(git rev-parse --abbrev-ref HEAD)
+default=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo main)
+pr_url=$(gh pr list --head "$current" --state open --json url --jq '.[0].url' 2>/dev/null)
+```
+
+Apply the rules:
+
+1. **`current == default`** → **`new-branch` mode** (greenfield: branch off `${default}` and open a PR at the end).
+2. **`current != default` AND `pr_url` is non-empty** → **`stay` mode** (review follow-up: append commits to the open PR's branch). Remember `pr_url` to report later.
+3. **`current != default` AND `pr_url` is empty** → ambiguous. Ask the investor:
+   > You're on `${current}` with no open PR. How should I apply this improvement?
+   > 1. **Stay** on `${current}` and append commits (no new PR).
+   > 2. **Branch off** `${current}` to `improve/<slug>` and open a new PR when done.
+
+   Wait for their answer. Choice 1 → `stay` mode (with no `pr_url` to report). Choice 2 → `new-branch` mode (branched off `${current}` rather than `${default}`).
+
+Record `mode`, `pr_url`, and the parent branch (`${default}` or `${current}`, depending on rule) for use in **Establish Branch** and **Finish**.
+
+## Establish Branch
+
+Slugify the improvement description into a branch-friendly name (lowercase, hyphens, max 40 chars). Used for the branch name in `new-branch` mode and for the catch-all commit message in both modes. Examples:
 - "Fix header alignment on mobile" → `fix-header-alignment-mobile`
 - "Add dark mode toggle" → `add-dark-mode-toggle`
+
+**`stay` mode:** no branch operation — improvement commits land on the current branch.
+
+**`new-branch` mode:**
 
 ```bash
 if git rev-parse --verify "improve/${slug}" >/dev/null 2>&1; then
@@ -132,7 +168,7 @@ Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 
 Read the business founder's review.
 
-**If PASS:** Proceed to **Open Pull Request**.
+**If PASS:** Proceed to **Finish**.
 
 **If FAIL (first attempt):**
 
@@ -149,23 +185,34 @@ Dispatch tech founder to fix:
 
 Then dispatch business founder for re-QA following the same pattern as Step 3.
 
-**If FAIL (second attempt):** Proceed to **Open Pull Request** anyway — mark as draft so the investor can review and decide.
+**If FAIL (second attempt):** Proceed to **Finish** anyway — mark as draft so the investor can review and decide.
 
-## Open Pull Request
+## Finish
 
-1. **Stage and commit any remaining changes** (auto-commit hook handles most, but catch stragglers):
+1. **Stage and commit any remaining changes** (auto-commit hook handles most, but catch stragglers). Used in both modes:
    ```bash
    git add -A
    git diff --cached --quiet || git commit -m "improve: ${slug}" --no-verify
    ```
    Note: `--no-verify` is intentional — the auto-commit hook would otherwise re-trigger on this catch-all commit.
 
-2. **Push the branch.** If push fails, report the error to the investor and do NOT proceed to PR creation.
+2. **Push.** If push fails, report the error to the investor and do NOT proceed.
+
+   `new-branch` mode (first push of a freshly created branch):
    ```bash
    git push -u origin HEAD
    ```
 
-3. **Create the PR:**
+   `stay` mode (push appended commits to the existing remote branch):
+   ```bash
+   git push origin HEAD
+   ```
+
+3. **PR handling — depends on mode.**
+
+   **`stay` mode:** do NOT call `gh pr create`. Skip to step 4.
+
+   **`new-branch` mode:** create the PR.
 
    If QA passed:
    ```bash
@@ -207,13 +254,18 @@ Then dispatch business founder for re-QA following the same pattern as Step 3.
    )"
    ```
 
-4. **Return to main branch:**
+4. **Return to parent branch — `new-branch` mode only.**
    ```bash
-   git checkout main
+   git checkout "${parent}"
    ```
-   The `improve/${slug}` branch persists until the PR is merged or the investor deletes it.
+   where `${parent}` is the branch that was current when `/improve` started (`${default}` for greenfield, or the feature branch chosen in mode-C "branch off"). The `improve/${slug}` branch persists until the PR is merged or the investor deletes it.
 
-5. **Report to investor** with the PR URL and QA status.
+   **`stay` mode:** do not switch branches. The investor stays on the current branch so they can continue reviewing or stack additional fixes.
+
+5. **Report to investor.**
+
+   - `new-branch` mode: report the new PR URL and QA status.
+   - `stay` mode: report a one-line summary of what changed and the existing PR URL (if `pr_url` was captured in **Detect Mode**); if there was no open PR (mode-C "stay"), report just the branch state and QA status.
 
 ## Communication
 
