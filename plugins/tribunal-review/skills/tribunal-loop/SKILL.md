@@ -431,19 +431,22 @@ Read both JSON outputs from Step 2 and apply the following protocol:
 Two findings are **duplicates** if they describe the same underlying issue in the same file, even if worded differently. For duplicates:
 - Keep the finding with higher confidence
 - Merge suggestions if both are valuable
-- Mark as "CONSENSUS"
+- Mark as CONSENSUS when ≥2 providers report the same underlying issue; record all supporting providers in the `providers` array
 
-### 3b: Resolve Conflicts
+### 3b: Resolve Conflicts (N providers)
+
+A finding may be reported by any subset of the four reviewers (codex, gemini, glm, deepseek).
 
 | Scenario | Action |
 |----------|--------|
-| Both agree | Include, mark CONSENSUS |
-| Severity differs | **Use higher severity**, note disagreement in arbiter_notes |
-| Only Codex found it | Include as CODEX, evaluate validity |
-| Only Gemini found it | Include as GEMINI, evaluate validity |
-| Providers contradict | Decide and document reasoning, mark ARBITRATED |
+| Reported by ≥2 providers | Include, mark CONSENSUS, list supporting providers |
+| Reported by exactly 1 provider | Include as SINGLE, evaluate validity |
+| Providers contradict each other | Decide and document reasoning, mark ARBITRATED |
+| Severities differ for the same finding | **Use the highest severity reported**, note disagreement in arbiter_notes |
 
-**HARD RULE**: When providers report different severities for the same finding, you MUST use the higher severity. No exceptions.
+**HARD RULE**: When providers report different severities for the same finding, you MUST use the highest severity. No exceptions.
+
+All four reviewers are **equal advisory peers**. Opus has final authority and may override any finding.
 
 ### 3c: Evaluate Each Finding
 
@@ -452,22 +455,22 @@ For each finding, assess:
 - Is the suggested fix correct and complete?
 - Does your software engineering expertise suggest a different conclusion?
 
-Override provider findings when they are clearly wrong. Add new findings if both providers missed something obvious.
+Override provider findings when they are clearly wrong. Add new findings if the providers missed something obvious.
 
 ### 3d: Confidence Ranges
 
 | Finding type | Confidence range |
 |-------------|-----------------|
-| CONSENSUS | 0.85 - 0.99 |
-| Single-provider (CODEX/GEMINI) | 0.60 - 0.80 |
+| CONSENSUS (≥2 providers) | 0.85 - 0.99 |
+| SINGLE (one provider) | 0.60 - 0.80 |
 | ARBITRATED (conflict resolved) | 0.50 - 0.70 |
 | Self-added (arbiter-originated) | 0.50 - 0.65 |
 
 ### 3e: Degraded Input
 
-- If one provider returned invalid JSON or failed: proceed with the other provider's findings alone. Note the failure.
-- If **both providers failed**: verdict = NEEDS_WORK, confidence = 0.0, rationale = "Both review providers failed. Manual review required."
-- If **both providers returned zero findings**: verdict = APPROVE, confidence = 0.95.
+- If a subset of providers returned invalid JSON or failed: proceed with the remaining providers' findings. Note each failure in `provider_assessment`.
+- If **all four providers failed**: verdict = NEEDS_WORK, confidence = 0.0, rationale = "All review providers failed. Manual review required."
+- If **all providers returned zero findings**: verdict = APPROVE, confidence = 0.95.
 
 ### 3f: Issue Verdict
 
@@ -479,18 +482,20 @@ Output the tribunal verdict as JSON:
 {
   "tribunal_verdict": { "decision": "APPROVE|NEEDS_WORK|BLOCK", "confidence": 0.0, "rationale": "..." },
   "findings": [{
-    "id": "T-001", "consensus": "CONSENSUS|CODEX|GEMINI|ARBITRATED",
-    "severity": "critical|high|medium|low", "category": "logic|security|performance|quality|architecture",
+    "id": "T-001", "consensus": "CONSENSUS|SINGLE|ARBITRATED", "providers": ["codex", "glm"],
+    "severity": "critical|high|medium|low", "category": "logic|security|performance|quality|architecture|edge-case|testing",
     "file": "path/to/file", "line": 0, "title": "...", "description": "...",
     "suggestion": "...", "confidence": 0.0, "arbiter_notes": "..."
   }],
   "conflicts_resolved": [{
-    "issue": "...", "codex_position": "...", "gemini_position": "...",
+    "issue": "...", "positions": {"codex": "...", "gemini": "...", "glm": "...", "deepseek": "..."},
     "ruling": "...", "reasoning": "..."
   }],
   "provider_assessment": {
-    "codex": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
-    "gemini": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" }
+    "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
+    "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
+    "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
+    "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" }
   },
   "summary": "2-3 sentence executive summary of code quality and required actions"
 }
