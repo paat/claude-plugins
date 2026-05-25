@@ -34,7 +34,7 @@ if [ -z "$DIFF" ]; then
   exit 0
 fi
 
-printf '%s\n' "$DIFF" | timeout -k 10 420 gemini --model gemini-3-pro-preview -p "You are a senior code reviewer performing a thorough security-focused review.
+printf '%s\n' "$DIFF" | timeout -k 10 600 gemini --model gemini-3-pro-preview -p "You are a senior code reviewer performing a thorough security-focused review.
 
 ANALYZE THIS DIFF FOR:
 1. Security vulnerabilities - injection, XSS, CSRF, auth issues, secrets exposure
