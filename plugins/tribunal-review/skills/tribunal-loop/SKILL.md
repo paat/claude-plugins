@@ -323,6 +323,97 @@ If `opencode` is not installed, the block emits:
 {"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "glm"}
 ```
 
+### Bash call 4: OpenCode DeepSeek Review
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+
+# Parallel-safe: unique temp dir per invocation
+TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
+
+DIFF=$(git diff origin/main...HEAD)
+
+if [ -z "$DIFF" ]; then
+  printf '%s\n' '{"provider": "deepseek", "model": "opencode-go/deepseek-v4-pro", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
+  exit 0
+fi
+
+DIFF_SIZE=${#DIFF}
+DIFF_TRUNCATED=false
+if [ "$DIFF_SIZE" -gt 204800 ]; then
+  DIFF=$(printf '%s' "$DIFF" | head -c 204800)
+  DIFF_TRUNCATED=true
+fi
+
+PROMPT="You are a senior code reviewer performing a thorough, comprehensive review.
+
+ANALYZE THIS DIFF FOR:
+1. Logic errors - off-by-one, null deref, wrong comparisons, race conditions, division by zero
+2. Security vulnerabilities - injection, XSS, CSRF, auth bypass, secrets exposure
+3. Architecture - coupling, layering violations, anti-patterns
+4. Performance - N+1 queries, memory leaks, blocking in async, unnecessary allocations
+5. Edge cases - boundary conditions, empty inputs, integer overflow, unhandled error paths
+6. Test coverage gaps - missing edge cases, untested paths
+
+RULES:
+- ONLY report findings with confidence >= 0.7
+- Use EXACT file paths from the diff headers (e.g., 'a/src/Foo.cs' -> 'src/Foo.cs')
+- Use the line number from the diff where the issue occurs
+- Each finding must have a concrete, actionable suggestion
+- Do NOT use any tools. Analyze ONLY the diff provided below.
+
+VERDICT RULES:
+- BLOCK: any critical-severity finding, OR 2+ high-severity findings
+- NEEDS_WORK: any high-severity finding, OR 3+ medium-severity findings
+- APPROVE: all other cases
+
+OUTPUT:
+Output ONLY a JSON object, wrapped EXACTLY between these markers on their own lines:
+===TRIBUNAL_JSON_BEGIN===
+{
+  \"provider\": \"deepseek\",
+  \"model\": \"opencode-go/deepseek-v4-pro\",
+  \"findings\": [
+    {\"severity\": \"critical|high|medium|low\", \"category\": \"logic|security|performance|quality|edge-case|architecture|testing\", \"file\": \"path\", \"line\": 42, \"title\": \"...\", \"description\": \"...\", \"suggestion\": \"...\", \"confidence\": 0.9}
+  ],
+  \"summary\": {\"total_findings\": 1, \"critical\": 0, \"high\": 1, \"medium\": 0, \"low\": 0, \"quality_score\": 7.5, \"verdict\": \"APPROVE|NEEDS_WORK|BLOCK\"}
+}
+===TRIBUNAL_JSON_END===
+$([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated to 200KB. Review what is provided.")
+
+THE DIFF:
+$DIFF"
+
+opencode run --agent plan -m opencode-go/deepseek-v4-pro --variant high --format default --pure "$PROMPT" \
+  >"$TMPDIR/deepseek-raw.txt" 2>"$TMPDIR/deepseek-stderr.txt"
+OC_EXIT=$?
+
+if [ $OC_EXIT -eq 0 ] && [ -s "$TMPDIR/deepseek-raw.txt" ]; then
+  JSON=$(sed -n '/===TRIBUNAL_JSON_BEGIN===/,/===TRIBUNAL_JSON_END===/p' "$TMPDIR/deepseek-raw.txt" \
+    | sed '/===TRIBUNAL_JSON_BEGIN===/d;/===TRIBUNAL_JSON_END===/d;s/^```json//;s/^```//')
+  if ! printf '%s' "$JSON" | jq -e . >/dev/null 2>&1; then
+    JSON=$(tr -d '\r' < "$TMPDIR/deepseek-raw.txt" | sed -n 'H;${x;s/^[^{]*//;s/[^}]*$//;p;}')
+  fi
+  if printf '%s' "$JSON" | jq -e . >/dev/null 2>&1; then
+    printf '%s' "$JSON" | jq -c .
+  else
+    SAFE=$(jq -Rs . < "$TMPDIR/deepseek-raw.txt" 2>/dev/null || echo '"capture failed"')
+    printf '{"error": "OpenCode DeepSeek produced unparseable output", "provider": "deepseek", "raw": %s}\n' "$SAFE"
+  fi
+else
+  STDERR_CONTENT=$(cat "$TMPDIR/deepseek-stderr.txt" 2>/dev/null)
+  SAFE_STDERR=$(printf '%s' "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
+  printf '{"error": "OpenCode DeepSeek execution failed", "provider": "deepseek", "exit_code": %d, "stderr": %s}\n' "$OC_EXIT" "$SAFE_STDERR"
+fi
+# trap EXIT handles cleanup of $TMPDIR
+```
+
+## Error Handling
+If `opencode` is not installed, the block emits:
+```json
+{"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "deepseek"}
+```
+
 Collect both JSON outputs. Parse them. If either returned an error JSON, note it for arbitration.
 
 Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {N} findings, Gemini: {M} findings"
