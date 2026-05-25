@@ -31,7 +31,7 @@ Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed"
 
 ## STEP 2: Parallel Review
 
-Run both scripts below as **two parallel Bash tool calls**. No Task agents -- execute directly.
+Run all four scripts below as **four parallel Bash tool calls**. No Task agents -- execute directly.
 
 ### Bash call 1: Codex Review
 
@@ -414,9 +414,9 @@ If `opencode` is not installed, the block emits:
 {"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "deepseek"}
 ```
 
-Collect both JSON outputs. Parse them. If either returned an error JSON, note it for arbitration.
+Collect all four JSON outputs. Parse them. If any returned an error JSON, note it for arbitration.
 
-Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {N} findings, Gemini: {M} findings"
+Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G}, GLM: {L}, DeepSeek: {D} findings"
 
 ---
 
