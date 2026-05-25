@@ -1,12 +1,17 @@
 # tribunal-review
 
-Multi-provider code review plugin for Claude Code. Runs Codex (GPT-5.3) and Gemini (3 Pro Preview) reviews in parallel, then uses Opus as the final arbiter to deduplicate findings, resolve conflicts, and issue a single authoritative verdict.
+Multi-provider code review plugin for Claude Code. Runs four reviewers in parallel — Codex (GPT-5.3), Gemini (3 Pro Preview), and two OpenCode Go models (GLM-5.1, DeepSeek-V4-Pro) — then uses Opus as the final arbiter to deduplicate findings, resolve conflicts, and issue a single authoritative verdict.
 
 ## Prerequisites
 
 - [OpenAI Codex CLI](https://github.com/openai/codex) (`npm install -g @openai/codex`)
 - [Google Gemini CLI](https://github.com/google-gemini/gemini-cli)
-- Valid API keys configured for both CLIs
+- [OpenCode CLI](https://opencode.ai) with an [OpenCode Go](https://opencode.ai/go) subscription (provides the `opencode-go/glm-5.1` and `opencode-go/deepseek-v4-pro` models)
+- `jq` (used to parse and validate reviewer JSON output)
+- `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or it will fall back to an error-JSON for that reviewer) — caps each reviewer at 5 minutes
+- Valid API keys / auth configured for each CLI
+
+Each reviewer degrades gracefully: if a CLI is missing or a model fails, that reviewer emits an error object and the arbiter proceeds with the remaining reviewers.
 
 ## Installation
 
@@ -22,7 +27,7 @@ On a feature branch with changes vs `origin/main`:
 /tribunal-loop
 ```
 
-The skill will verify you're on a feature branch, run both reviews in parallel, and produce an arbitrated verdict.
+The skill will verify you're on a feature branch, run all four reviews in parallel, and produce an arbitrated verdict.
 
 ## How It Works
 
@@ -30,10 +35,10 @@ The skill will verify you're on a feature branch, run both reviews in parallel, 
 Verifies you're on a feature branch (not main) and that there are changes to review.
 
 ### Step 2: Parallel Review
-Runs Codex and Gemini as two parallel Bash calls. Each analyzes the `git diff origin/main...HEAD` and returns structured JSON findings covering logic errors, security vulnerabilities, edge cases, performance issues, and architectural concerns.
+Runs Codex, Gemini, GLM, and DeepSeek as four parallel Bash calls. Each analyzes the `git diff origin/main...HEAD` and returns structured JSON findings covering logic errors, security vulnerabilities, edge cases, performance issues, and architectural concerns. The two OpenCode reviewers run read-only (`opencode run --agent plan`).
 
 ### Step 3: Inline Arbitration (Opus)
-Opus deduplicates findings, resolves severity conflicts (always using the higher severity), evaluates each finding for validity, and issues a final verdict: **APPROVE**, **NEEDS_WORK**, or **BLOCK**.
+Opus deduplicates findings, resolves severity conflicts (always using the highest severity), marks any issue flagged by ≥2 reviewers as CONSENSUS, evaluates each finding for validity, and issues a final verdict: **APPROVE**, **NEEDS_WORK**, or **BLOCK**.
 
 ## Output Format
 
@@ -44,12 +49,13 @@ The tribunal produces a JSON verdict:
   "tribunal_verdict": {
     "decision": "APPROVE|NEEDS_WORK|BLOCK",
     "confidence": 0.92,
-    "rationale": "Both providers agree code is production-ready..."
+    "rationale": "Multiple reviewers agree code is production-ready..."
   },
   "findings": [
     {
       "id": "T-001",
       "consensus": "CONSENSUS",
+      "providers": ["codex", "glm"],
       "severity": "medium",
       "category": "security",
       "file": "src/auth/login.ts",
@@ -58,12 +64,14 @@ The tribunal produces a JSON verdict:
       "description": "User input passed directly to query...",
       "suggestion": "Add parameterized query...",
       "confidence": 0.90,
-      "arbiter_notes": "Both providers identified this issue"
+      "arbiter_notes": "Flagged independently by codex and glm"
     }
   ],
   "provider_assessment": {
-    "codex": { "findings_accepted": 2, "findings_rejected": 1, "status": "ok" },
-    "gemini": { "findings_accepted": 3, "findings_rejected": 0, "status": "ok" }
+    "codex":    { "findings_accepted": 2, "findings_rejected": 1, "status": "ok" },
+    "gemini":   { "findings_accepted": 3, "findings_rejected": 0, "status": "ok" },
+    "glm":      { "findings_accepted": 2, "findings_rejected": 0, "status": "ok" },
+    "deepseek": { "findings_accepted": 1, "findings_rejected": 1, "status": "ok" }
   },
   "summary": "Code quality is good with one medium-severity finding to address."
 }
@@ -74,12 +82,10 @@ The tribunal produces a JSON verdict:
 ```
 Opus (Final authority, runs inline)
   |
-Codex (Trusted for logic)
-  |
-Gemini (Advisory, verify findings)
+Codex · Gemini · GLM · DeepSeek (equal advisory peers — verify findings)
 ```
 
-Opus can override any Codex or Gemini finding.
+The four reviewers are equal peers; a finding flagged by ≥2 is CONSENSUS. Opus can override any reviewer finding.
 
 ## License
 

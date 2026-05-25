@@ -1,18 +1,20 @@
 ---
 name: tribunal-loop
-description: Multi-provider code review workflow with Codex, Gemini, and Opus arbitration
+description: Multi-provider code review workflow with Codex, Gemini, OpenCode (GLM + DeepSeek), and Opus arbitration
 ---
 
 # Tribunal Loop
 
-Multi-provider code review. Codex (GPT-5.3) + Gemini (3 Pro Preview) review in parallel, Opus arbitrates inline.
+Multi-provider code review. Codex (GPT-5.3) + Gemini (3 Pro Preview) + OpenCode GLM-5.1 + OpenCode DeepSeek-V4-Pro review in parallel, Opus arbitrates inline.
 
 3-step workflow: pre-flight, parallel review, inline arbitration.
 
 ## Providers
-- **Codex** (GPT-5.3) - Logic, edge cases, code quality
-- **Gemini** (3 Pro Preview) - Security, architecture, patterns
-- **Opus** (4.5) - Final arbiter (runs inline, no agent spawn)
+- **Codex** (GPT-5.3) - comprehensive review
+- **Gemini** (3 Pro Preview) - comprehensive review + web/CVE search
+- **GLM** (opencode-go/glm-5.1) - comprehensive review (OpenCode Go)
+- **DeepSeek** (opencode-go/deepseek-v4-pro) - comprehensive review (OpenCode Go)
+- **Opus** (4.5) - final arbiter (runs inline, no agent spawn)
 
 ---
 
@@ -31,7 +33,7 @@ Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed"
 
 ## STEP 2: Parallel Review
 
-Run both scripts below as **two parallel Bash tool calls**. No Task agents -- execute directly.
+Run all four scripts below as **four parallel Bash tool calls**. No Task agents -- execute directly.
 
 ### Bash call 1: Codex Review
 
@@ -102,7 +104,7 @@ cat > "$TMPDIR/codex-review-schema.json" << 'SCHEMA'
 }
 SCHEMA
 
-codex exec - \
+timeout -k 10 300 codex exec - \
   --output-schema "$TMPDIR/codex-review-schema.json" \
   -o "$TMPDIR/codex-review-output.json" \
   --sandbox read-only \
@@ -167,7 +169,7 @@ if [ -z "$DIFF" ]; then
   exit 0
 fi
 
-printf '%s\n' "$DIFF" | gemini --model gemini-3-pro-preview -p "You are a senior code reviewer performing a thorough security-focused review.
+printf '%s\n' "$DIFF" | timeout -k 10 300 gemini --model gemini-3-pro-preview -p "You are a senior code reviewer performing a thorough security-focused review.
 
 ANALYZE THIS DIFF FOR:
 1. Security vulnerabilities - injection, XSS, CSRF, auth issues, secrets exposure
@@ -230,9 +232,193 @@ fi
 # trap EXIT handles cleanup of $TMPDIR
 ```
 
-Collect both JSON outputs. Parse them. If either returned an error JSON, note it for arbitration.
+### Bash call 3: OpenCode GLM Review
 
-Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {N} findings, Gemini: {M} findings"
+```bash
+cd "$(git rev-parse --show-toplevel)"
+
+# Parallel-safe: unique temp dir per invocation
+TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
+
+DIFF=$(git diff origin/main...HEAD)
+
+if [ -z "$DIFF" ]; then
+  printf '%s\n' '{"provider": "glm", "model": "opencode-go/glm-5.1", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
+  exit 0
+fi
+
+# Diff-size guard (GLM has large context; cap higher than Codex's 100KB)
+DIFF_SIZE=${#DIFF}
+DIFF_TRUNCATED=false
+if [ "$DIFF_SIZE" -gt 204800 ]; then
+  DIFF=$(printf '%s' "$DIFF" | head -c 204800)
+  DIFF_TRUNCATED=true
+fi
+
+PROMPT="You are a senior code reviewer performing a thorough, comprehensive review.
+
+ANALYZE THIS DIFF FOR:
+1. Logic errors - off-by-one, null deref, wrong comparisons, race conditions, division by zero
+2. Security vulnerabilities - injection, XSS, CSRF, auth bypass, secrets exposure
+3. Architecture - coupling, layering violations, anti-patterns
+4. Performance - N+1 queries, memory leaks, blocking in async, unnecessary allocations
+5. Edge cases - boundary conditions, empty inputs, integer overflow, unhandled error paths
+6. Test coverage gaps - missing edge cases, untested paths
+
+RULES:
+- ONLY report findings with confidence >= 0.7
+- Use EXACT file paths from the diff headers (e.g., 'a/src/Foo.cs' -> 'src/Foo.cs')
+- Use the line number from the diff where the issue occurs
+- Each finding must have a concrete, actionable suggestion
+- Do NOT use any tools. Analyze ONLY the diff provided below.
+
+VERDICT RULES:
+- BLOCK: any critical-severity finding, OR 2+ high-severity findings
+- NEEDS_WORK: any high-severity finding, OR 3+ medium-severity findings
+- APPROVE: all other cases
+
+OUTPUT:
+Output ONLY a JSON object, wrapped EXACTLY between these markers on their own lines:
+===TRIBUNAL_JSON_BEGIN===
+{
+  \"provider\": \"glm\",
+  \"model\": \"opencode-go/glm-5.1\",
+  \"findings\": [
+    {\"severity\": \"critical|high|medium|low\", \"category\": \"logic|security|performance|quality|edge-case|architecture|testing\", \"file\": \"path\", \"line\": 42, \"title\": \"...\", \"description\": \"...\", \"suggestion\": \"...\", \"confidence\": 0.9}
+  ],
+  \"summary\": {\"total_findings\": 1, \"critical\": 0, \"high\": 1, \"medium\": 0, \"low\": 0, \"quality_score\": 7.5, \"verdict\": \"APPROVE|NEEDS_WORK|BLOCK\"}
+}
+===TRIBUNAL_JSON_END===
+$([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated to 200KB. Review what is provided.")
+
+THE DIFF:
+$DIFF"
+
+timeout -k 10 300 opencode run --agent plan -m opencode-go/glm-5.1 --variant high --format default --pure "$PROMPT" \
+  >"$TMPDIR/glm-raw.txt" 2>"$TMPDIR/glm-stderr.txt"
+OC_EXIT=$?
+
+if [ $OC_EXIT -eq 0 ] && [ -s "$TMPDIR/glm-raw.txt" ]; then
+  # Extract between sentinels; fall back to first-{ .. last-} slice
+  JSON=$(sed -n '/===TRIBUNAL_JSON_BEGIN===/,/===TRIBUNAL_JSON_END===/p' "$TMPDIR/glm-raw.txt" \
+    | sed '/===TRIBUNAL_JSON_BEGIN===/d;/===TRIBUNAL_JSON_END===/d;s/^```json//;s/^```//')
+  if ! printf '%s' "$JSON" | jq -e . >/dev/null 2>&1; then
+    JSON=$(tr -d '\r' < "$TMPDIR/glm-raw.txt" | sed -n 'H;${x;s/^[^{]*//;s/[^}]*$//;p;}')
+  fi
+  if printf '%s' "$JSON" | jq -e . >/dev/null 2>&1; then
+    printf '%s' "$JSON" | jq -c .
+  else
+    SAFE=$(jq -Rs . < "$TMPDIR/glm-raw.txt" 2>/dev/null || echo '"capture failed"')
+    printf '{"error": "OpenCode GLM produced unparseable output", "provider": "glm", "raw": %s}\n' "$SAFE"
+  fi
+else
+  STDERR_CONTENT=$(cat "$TMPDIR/glm-stderr.txt" 2>/dev/null)
+  SAFE_STDERR=$(printf '%s' "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
+  printf '{"error": "OpenCode GLM execution failed", "provider": "glm", "exit_code": %d, "stderr": %s}\n' "$OC_EXIT" "$SAFE_STDERR"
+fi
+# trap EXIT handles cleanup of $TMPDIR
+```
+
+## Error Handling
+If `opencode` is not installed, the block emits:
+```json
+{"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "glm"}
+```
+
+### Bash call 4: OpenCode DeepSeek Review
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+
+# Parallel-safe: unique temp dir per invocation
+TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
+
+DIFF=$(git diff origin/main...HEAD)
+
+if [ -z "$DIFF" ]; then
+  printf '%s\n' '{"provider": "deepseek", "model": "opencode-go/deepseek-v4-pro", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
+  exit 0
+fi
+
+DIFF_SIZE=${#DIFF}
+DIFF_TRUNCATED=false
+if [ "$DIFF_SIZE" -gt 204800 ]; then
+  DIFF=$(printf '%s' "$DIFF" | head -c 204800)
+  DIFF_TRUNCATED=true
+fi
+
+PROMPT="You are a senior code reviewer performing a thorough, comprehensive review.
+
+ANALYZE THIS DIFF FOR:
+1. Logic errors - off-by-one, null deref, wrong comparisons, race conditions, division by zero
+2. Security vulnerabilities - injection, XSS, CSRF, auth bypass, secrets exposure
+3. Architecture - coupling, layering violations, anti-patterns
+4. Performance - N+1 queries, memory leaks, blocking in async, unnecessary allocations
+5. Edge cases - boundary conditions, empty inputs, integer overflow, unhandled error paths
+6. Test coverage gaps - missing edge cases, untested paths
+
+RULES:
+- ONLY report findings with confidence >= 0.7
+- Use EXACT file paths from the diff headers (e.g., 'a/src/Foo.cs' -> 'src/Foo.cs')
+- Use the line number from the diff where the issue occurs
+- Each finding must have a concrete, actionable suggestion
+- Do NOT use any tools. Analyze ONLY the diff provided below.
+
+VERDICT RULES:
+- BLOCK: any critical-severity finding, OR 2+ high-severity findings
+- NEEDS_WORK: any high-severity finding, OR 3+ medium-severity findings
+- APPROVE: all other cases
+
+OUTPUT:
+Output ONLY a JSON object, wrapped EXACTLY between these markers on their own lines:
+===TRIBUNAL_JSON_BEGIN===
+{
+  \"provider\": \"deepseek\",
+  \"model\": \"opencode-go/deepseek-v4-pro\",
+  \"findings\": [
+    {\"severity\": \"critical|high|medium|low\", \"category\": \"logic|security|performance|quality|edge-case|architecture|testing\", \"file\": \"path\", \"line\": 42, \"title\": \"...\", \"description\": \"...\", \"suggestion\": \"...\", \"confidence\": 0.9}
+  ],
+  \"summary\": {\"total_findings\": 1, \"critical\": 0, \"high\": 1, \"medium\": 0, \"low\": 0, \"quality_score\": 7.5, \"verdict\": \"APPROVE|NEEDS_WORK|BLOCK\"}
+}
+===TRIBUNAL_JSON_END===
+$([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated to 200KB. Review what is provided.")
+
+THE DIFF:
+$DIFF"
+
+timeout -k 10 300 opencode run --agent plan -m opencode-go/deepseek-v4-pro --variant high --format default --pure "$PROMPT" \
+  >"$TMPDIR/deepseek-raw.txt" 2>"$TMPDIR/deepseek-stderr.txt"
+OC_EXIT=$?
+
+if [ $OC_EXIT -eq 0 ] && [ -s "$TMPDIR/deepseek-raw.txt" ]; then
+  JSON=$(sed -n '/===TRIBUNAL_JSON_BEGIN===/,/===TRIBUNAL_JSON_END===/p' "$TMPDIR/deepseek-raw.txt" \
+    | sed '/===TRIBUNAL_JSON_BEGIN===/d;/===TRIBUNAL_JSON_END===/d;s/^```json//;s/^```//')
+  if ! printf '%s' "$JSON" | jq -e . >/dev/null 2>&1; then
+    JSON=$(tr -d '\r' < "$TMPDIR/deepseek-raw.txt" | sed -n 'H;${x;s/^[^{]*//;s/[^}]*$//;p;}')
+  fi
+  if printf '%s' "$JSON" | jq -e . >/dev/null 2>&1; then
+    printf '%s' "$JSON" | jq -c .
+  else
+    SAFE=$(jq -Rs . < "$TMPDIR/deepseek-raw.txt" 2>/dev/null || echo '"capture failed"')
+    printf '{"error": "OpenCode DeepSeek produced unparseable output", "provider": "deepseek", "raw": %s}\n' "$SAFE"
+  fi
+else
+  STDERR_CONTENT=$(cat "$TMPDIR/deepseek-stderr.txt" 2>/dev/null)
+  SAFE_STDERR=$(printf '%s' "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
+  printf '{"error": "OpenCode DeepSeek execution failed", "provider": "deepseek", "exit_code": %d, "stderr": %s}\n' "$OC_EXIT" "$SAFE_STDERR"
+fi
+# trap EXIT handles cleanup of $TMPDIR
+```
+
+## Error Handling
+If `opencode` is not installed, the block emits:
+```json
+{"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "deepseek"}
+```
+
+Collect all four JSON outputs. Parse them. If any returned an error JSON, note it for arbitration.
+
+Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G}, GLM: {L}, DeepSeek: {D} findings"
 
 ---
 
@@ -247,19 +433,22 @@ Read both JSON outputs from Step 2 and apply the following protocol:
 Two findings are **duplicates** if they describe the same underlying issue in the same file, even if worded differently. For duplicates:
 - Keep the finding with higher confidence
 - Merge suggestions if both are valuable
-- Mark as "CONSENSUS"
+- Mark as CONSENSUS when ≥2 providers report the same underlying issue; record all supporting providers in the `providers` array
 
-### 3b: Resolve Conflicts
+### 3b: Resolve Conflicts (N providers)
+
+A finding may be reported by any subset of the four reviewers (codex, gemini, glm, deepseek).
 
 | Scenario | Action |
 |----------|--------|
-| Both agree | Include, mark CONSENSUS |
-| Severity differs | **Use higher severity**, note disagreement in arbiter_notes |
-| Only Codex found it | Include as CODEX, evaluate validity |
-| Only Gemini found it | Include as GEMINI, evaluate validity |
-| Providers contradict | Decide and document reasoning, mark ARBITRATED |
+| Reported by ≥2 providers | Include, mark CONSENSUS, list supporting providers |
+| Reported by exactly 1 provider | Include as SINGLE, evaluate validity |
+| Providers contradict each other | Decide and document reasoning, mark ARBITRATED |
+| Severities differ for the same finding | **Use the highest severity reported**, note disagreement in arbiter_notes |
 
-**HARD RULE**: When providers report different severities for the same finding, you MUST use the higher severity. No exceptions.
+**HARD RULE**: When providers report different severities for the same finding, you MUST use the highest severity. No exceptions.
+
+All four reviewers are **equal advisory peers**. Opus has final authority and may override any finding.
 
 ### 3c: Evaluate Each Finding
 
@@ -268,22 +457,22 @@ For each finding, assess:
 - Is the suggested fix correct and complete?
 - Does your software engineering expertise suggest a different conclusion?
 
-Override provider findings when they are clearly wrong. Add new findings if both providers missed something obvious.
+Override provider findings when they are clearly wrong. Add new findings if the providers missed something obvious.
 
 ### 3d: Confidence Ranges
 
 | Finding type | Confidence range |
 |-------------|-----------------|
-| CONSENSUS | 0.85 - 0.99 |
-| Single-provider (CODEX/GEMINI) | 0.60 - 0.80 |
+| CONSENSUS (≥2 providers) | 0.85 - 0.99 |
+| SINGLE (one provider) | 0.60 - 0.80 |
 | ARBITRATED (conflict resolved) | 0.50 - 0.70 |
 | Self-added (arbiter-originated) | 0.50 - 0.65 |
 
 ### 3e: Degraded Input
 
-- If one provider returned invalid JSON or failed: proceed with the other provider's findings alone. Note the failure.
-- If **both providers failed**: verdict = NEEDS_WORK, confidence = 0.0, rationale = "Both review providers failed. Manual review required."
-- If **both providers returned zero findings**: verdict = APPROVE, confidence = 0.95.
+- If a subset of providers returned invalid JSON or failed: proceed with the remaining providers' findings. Note each failure in `provider_assessment`.
+- If **all four providers failed**: verdict = NEEDS_WORK, confidence = 0.0, rationale = "All review providers failed. Manual review required."
+- If **all providers returned zero findings**: verdict = APPROVE, confidence = 0.95.
 
 ### 3f: Issue Verdict
 
@@ -295,18 +484,20 @@ Output the tribunal verdict as JSON:
 {
   "tribunal_verdict": { "decision": "APPROVE|NEEDS_WORK|BLOCK", "confidence": 0.0, "rationale": "..." },
   "findings": [{
-    "id": "T-001", "consensus": "CONSENSUS|CODEX|GEMINI|ARBITRATED",
-    "severity": "critical|high|medium|low", "category": "logic|security|performance|quality|architecture",
+    "id": "T-001", "consensus": "CONSENSUS|SINGLE|ARBITRATED", "providers": ["codex", "glm"],
+    "severity": "critical|high|medium|low", "category": "logic|security|performance|quality|architecture|edge-case|testing",
     "file": "path/to/file", "line": 0, "title": "...", "description": "...",
     "suggestion": "...", "confidence": 0.0, "arbiter_notes": "..."
   }],
   "conflicts_resolved": [{
-    "issue": "...", "codex_position": "...", "gemini_position": "...",
+    "issue": "...", "positions": {"codex": "...", "gemini": "...", "glm": "...", "deepseek": "..."},
     "ruling": "...", "reasoning": "..."
   }],
   "provider_assessment": {
-    "codex": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
-    "gemini": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" }
+    "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
+    "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
+    "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
+    "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" }
   },
   "summary": "2-3 sentence executive summary of code quality and required actions"
 }
@@ -321,12 +512,10 @@ Output: "[TRIBUNAL 3/3] Verdict: {APPROVE|NEEDS_WORK|BLOCK} - {N} actionable fin
 ```
 OPUS 4.5 (Final authority, runs inline)
     |
-CODEX (Trusted for logic)
-    |
-GEMINI (Advisory, verify findings)
+Codex · Gemini · GLM · DeepSeek (equal advisory peers — verify findings)
 ```
 
-Opus can override any Codex or Gemini finding.
+The four reviewers are equal peers; a finding flagged by ≥2 is CONSENSUS. Opus can override any reviewer finding.
 
 ---
 
@@ -334,4 +523,4 @@ Opus can override any Codex or Gemini finding.
 
 | Mode | Steps | Tool Calls | Agent Spawns |
 |------|-------|------------|-------------|
-| Default (review) | 3 | 2 (parallel Bash) | 0 |
+| Default (review) | 3 | 4 (parallel Bash) | 0 |
