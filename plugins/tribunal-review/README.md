@@ -8,6 +8,7 @@ Multi-provider code review plugin for Claude Code. Runs four reviewers in parall
 - [Google Gemini CLI](https://github.com/google-gemini/gemini-cli)
 - [OpenCode CLI](https://opencode.ai) with an [OpenCode Go](https://opencode.ai/go) subscription (provides the `opencode-go/glm-5.1` and `opencode-go/deepseek-v4-pro` models)
 - `jq` (used to parse and validate reviewer JSON output)
+- `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or it will fall back to an error-JSON for that reviewer) — caps each reviewer at 5 minutes
 - Valid API keys / auth configured for each CLI
 
 Each reviewer degrades gracefully: if a CLI is missing or a model fails, that reviewer emits an error object and the arbiter proceeds with the remaining reviewers.

@@ -104,7 +104,7 @@ cat > "$TMPDIR/codex-review-schema.json" << 'SCHEMA'
 }
 SCHEMA
 
-codex exec - \
+timeout -k 10 300 codex exec - \
   --output-schema "$TMPDIR/codex-review-schema.json" \
   -o "$TMPDIR/codex-review-output.json" \
   --sandbox read-only \
@@ -169,7 +169,7 @@ if [ -z "$DIFF" ]; then
   exit 0
 fi
 
-printf '%s\n' "$DIFF" | gemini --model gemini-3-pro-preview -p "You are a senior code reviewer performing a thorough security-focused review.
+printf '%s\n' "$DIFF" | timeout -k 10 300 gemini --model gemini-3-pro-preview -p "You are a senior code reviewer performing a thorough security-focused review.
 
 ANALYZE THIS DIFF FOR:
 1. Security vulnerabilities - injection, XSS, CSRF, auth issues, secrets exposure
@@ -294,7 +294,7 @@ $([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated to 200KB. Revie
 THE DIFF:
 $DIFF"
 
-opencode run --agent plan -m opencode-go/glm-5.1 --variant high --format default --pure "$PROMPT" \
+timeout -k 10 300 opencode run --agent plan -m opencode-go/glm-5.1 --variant high --format default --pure "$PROMPT" \
   >"$TMPDIR/glm-raw.txt" 2>"$TMPDIR/glm-stderr.txt"
 OC_EXIT=$?
 
@@ -386,7 +386,7 @@ $([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated to 200KB. Revie
 THE DIFF:
 $DIFF"
 
-opencode run --agent plan -m opencode-go/deepseek-v4-pro --variant high --format default --pure "$PROMPT" \
+timeout -k 10 300 opencode run --agent plan -m opencode-go/deepseek-v4-pro --variant high --format default --pure "$PROMPT" \
   >"$TMPDIR/deepseek-raw.txt" 2>"$TMPDIR/deepseek-stderr.txt"
 OC_EXIT=$?
 
