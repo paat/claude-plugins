@@ -1,18 +1,20 @@
 ---
 name: tribunal-loop
-description: Multi-provider code review workflow with Codex, Gemini, and Opus arbitration
+description: Multi-provider code review workflow with Codex, Gemini, OpenCode (GLM + DeepSeek), and Opus arbitration
 ---
 
 # Tribunal Loop
 
-Multi-provider code review. Codex (GPT-5.3) + Gemini (3 Pro Preview) review in parallel, Opus arbitrates inline.
+Multi-provider code review. Codex (GPT-5.3) + Gemini (3 Pro Preview) + OpenCode GLM-5.1 + OpenCode DeepSeek-V4-Pro review in parallel, Opus arbitrates inline.
 
 3-step workflow: pre-flight, parallel review, inline arbitration.
 
 ## Providers
-- **Codex** (GPT-5.3) - Logic, edge cases, code quality
-- **Gemini** (3 Pro Preview) - Security, architecture, patterns
-- **Opus** (4.5) - Final arbiter (runs inline, no agent spawn)
+- **Codex** (GPT-5.3) - comprehensive review
+- **Gemini** (3 Pro Preview) - comprehensive review + web/CVE search
+- **GLM** (opencode-go/glm-5.1) - comprehensive review (OpenCode Go)
+- **DeepSeek** (opencode-go/deepseek-v4-pro) - comprehensive review (OpenCode Go)
+- **Opus** (4.5) - final arbiter (runs inline, no agent spawn)
 
 ---
 
@@ -510,12 +512,10 @@ Output: "[TRIBUNAL 3/3] Verdict: {APPROVE|NEEDS_WORK|BLOCK} - {N} actionable fin
 ```
 OPUS 4.5 (Final authority, runs inline)
     |
-CODEX (Trusted for logic)
-    |
-GEMINI (Advisory, verify findings)
+Codex · Gemini · GLM · DeepSeek (equal advisory peers — verify findings)
 ```
 
-Opus can override any Codex or Gemini finding.
+The four reviewers are equal peers; a finding flagged by ≥2 is CONSENSUS. Opus can override any reviewer finding.
 
 ---
 
@@ -523,4 +523,4 @@ Opus can override any Codex or Gemini finding.
 
 | Mode | Steps | Tool Calls | Agent Spawns |
 |------|-------|------------|-------------|
-| Default (review) | 3 | 2 (parallel Bash) | 0 |
+| Default (review) | 3 | 4 (parallel Bash) | 0 |
