@@ -94,7 +94,7 @@ cat > "$TMPDIR/codex-review-schema.json" << 'SCHEMA'
 }
 SCHEMA
 
-timeout -k 10 300 codex exec - \
+timeout -k 10 420 codex exec - \
   --output-schema "$TMPDIR/codex-review-schema.json" \
   -o "$TMPDIR/codex-review-output.json" \
   --sandbox read-only \
