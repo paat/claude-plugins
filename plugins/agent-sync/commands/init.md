@@ -59,11 +59,14 @@ Create the directory if needed.
 ### 6. Vendor the generator script
 
 So the CI drift-check (and anyone without the plugin installed) can run `generate.sh`, copy it
-into the repo next to `sources.json`, stamped with the plugin version. Run:
+into the repo next to `sources.json`, stamped with the plugin version. If in step 5 you wrote
+`sources.json` to `.agent-sync/` instead of `tools/agent-sync/`, change `DEST_DIR` to `.agent-sync`
+before running:
 
 ```bash
 VER=$(jq -r .version "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json")
-DEST_DIR=tools/agent-sync   # use .agent-sync if you wrote sources.json there instead
+[ "$VER" = "null" ] && VER="unknown"
+DEST_DIR=tools/agent-sync
 mkdir -p "$DEST_DIR"
 awk -v v="$VER" 'NR==1{print; print "# Vendored by agent-sync v" v " — re-run /agent-sync:init to refresh."; next} {print}' \
   "${CLAUDE_PLUGIN_ROOT}/scripts/generate.sh" > "$DEST_DIR/generate.sh"
@@ -97,7 +100,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install jq
-        run: sudo apt-get install -y jq
+        run: sudo apt-get update -qq && sudo apt-get install -y jq
 
       - name: Check AGENTS.md sync
         run: |
