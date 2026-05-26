@@ -229,20 +229,52 @@ strip_frontmatter() {
   '
 }
 
-# Remove the first H1 heading and any blank lines immediately after it
+# Remove the first H1 heading and any blank lines immediately after it.
+# Fenced code blocks are skipped so a leading '#' shell comment is never
+# mistaken for the title (and blank lines inside the fence are preserved).
 remove_title_heading() {
   awk '
-    BEGIN { found=0; skipping_blanks=0 }
-    !found && /^[[:space:]]*$/ { next }
-    !found && /^#[[:space:]]+/ { found=1; skipping_blanks=1; next }
+    function fence_tok(line) {
+      if (line ~ /^(```+|~~~+)/) { match(line, /^(`+|~+)/); return substr(line, 1, RLENGTH) }
+      return ""
+    }
+    BEGIN { found=0; skipping_blanks=0; in_fence=0; ft="" }
+    {
+      tok = fence_tok($0)
+      if (tok != "") {
+        if (!in_fence) { in_fence=1; ft=tok }
+        else if (substr(tok,1,1)==substr(ft,1,1) && length(tok)>=length(ft)) { in_fence=0; ft="" }
+        skipping_blanks=0; print; next
+      }
+    }
+    !found && !in_fence && /^[[:space:]]*$/ { next }
+    !found && !in_fence && /^#[[:space:]]+/ { found=1; skipping_blanks=1; next }
     skipping_blanks && /^[[:space:]]*$/ { next }
     { skipping_blanks=0; print }
   '
 }
 
 # Shift heading levels by +1 (## becomes ###, etc.)
+# Lines inside fenced code blocks (``` / ~~~) are emitted verbatim so that
+# '#'-prefixed shell comments are not mistaken for Markdown headings.
 shift_headings_up() {
-  sed -E 's/^(#{1,5})([[:space:]]+)/\1#\2/'
+  awk '
+    function fence_tok(line,   t) {
+      if (line ~ /^(```+|~~~+)/) { match(line, /^(`+|~+)/); return substr(line, 1, RLENGTH) }
+      return ""
+    }
+    BEGIN { in_fence = 0; ft = "" }
+    {
+      tok = fence_tok($0)
+      if (tok != "") {
+        if (!in_fence) { in_fence = 1; ft = tok }
+        else if (substr(tok, 1, 1) == substr(ft, 1, 1) && length(tok) >= length(ft)) { in_fence = 0; ft = "" }
+        print; next
+      }
+      if (!in_fence && $0 ~ /^#{1,5}[[:space:]]/) { $0 = "#" $0 }
+      print
+    }
+  '
 }
 
 # Normalize heading text for comparison: lowercase, collapse whitespace
@@ -265,10 +297,22 @@ extract_heading_content() {
       gsub(/[[:space:]]+/, " ", s)
       return s
     }
+    function fence_tok(line) {
+      if (line ~ /^(```+|~~~+)/) { match(line, /^(`+|~+)/); return substr(line, 1, RLENGTH) }
+      return ""
+    }
 
-    BEGIN { capturing=0; level=0; found=0 }
+    BEGIN { capturing=0; level=0; found=0; in_fence=0; ft="" }
 
-    /^#{1,6}[[:space:]]+/ {
+    {
+      tok = fence_tok($0)
+      if (tok != "") {
+        if (!in_fence) { in_fence=1; ft=tok }
+        else if (substr(tok,1,1)==substr(ft,1,1) && length(tok)>=length(ft)) { in_fence=0; ft="" }
+      }
+    }
+
+    !in_fence && /^#{1,6}[[:space:]]+/ {
       line = $0
       sub(/[[:space:]].*/, "", line)
       cur_level = length(line)
