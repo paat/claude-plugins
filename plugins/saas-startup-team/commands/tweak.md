@@ -1,6 +1,6 @@
 ---
 name: tweak
-description: Direct-edit shortcut for trivial fixes on a completed product — typos, copy tweaks, small CSS nudges. Creates a branch, edits files directly (no agents), opens a PR. For anything needing QA, use /improve instead. Usage: /tweak [description]
+description: Direct-edit shortcut for trivial fixes on a completed product — typos, copy tweaks, small CSS nudges. Edits files directly (no agents). On main, creates a tweak/ branch and opens a PR; on a feature branch, commits to that branch and pushes (no new PR). For anything needing QA, use /improve instead. Usage: /tweak [description]
 user_invocable: true
 ---
 
@@ -49,7 +49,22 @@ Assess the request. If it contains 3+ distinct changes, or mentions new features
 
 Proceed only on explicit confirmation. Otherwise suggest `/improve` and stop.
 
-## Create Branch
+## Determine Branch Mode
+
+Read the current branch:
+
+```bash
+current_branch=$(git rev-parse --abbrev-ref HEAD)
+```
+
+- **`current_branch` is `main`** → **new-branch mode**: create a `tweak/<slug>` branch, open a PR, return to `main` (the original `/tweak` flow).
+- **Anything else** (you're on a feature branch) → **on-branch mode**: commit the tweak to the current branch and push it. No new branch, no PR, no branch switch.
+
+This flow assumes `main` is the repo's default branch (consistent with the rest of the command). If a product repo uses a different default branch name, run `/tweak` from a feature branch.
+
+## Create Branch — new-branch mode only
+
+Skip this step in on-branch mode; the edit lands directly on `current_branch`.
 
 Slugify the description into a branch-friendly name (lowercase, hyphens, max 40 chars). Examples:
 - "Fix typo on pricing page" → `fix-typo-pricing-page`
@@ -83,9 +98,12 @@ Guidelines:
 - Read the relevant files first. Don't guess at line numbers or text.
 - Make the **minimal** edit that satisfies the investor's description.
 - If the edit location is ambiguous (e.g. "fix the broken link on the about page" but multiple candidates exist), **ask the investor** which one. Don't guess.
-- If, while making the edit, you realize the change is larger than a tweak (touches 3+ files, involves logic changes, needs theme token refactoring), stop and tell the investor:
-  > This is larger than it looked. Consider aborting and running `/improve` instead. Abort `/tweak`? (will delete branch `tweak/${slug}`)
-  On abort: `git checkout main && git branch -D tweak/${slug}`.
+- If, while making the edit, you realize the change is larger than a tweak (touches 3+ files, involves logic changes, needs theme token refactoring), stop, tell the investor, and offer to abort:
+  > This is larger than it looked. Consider aborting and running `/improve` instead. Abort `/tweak`?
+
+  On abort:
+  - **New-branch mode:** `git checkout main && git branch -D tweak/${slug}` (deletes the tweak branch and the edit).
+  - **On-branch mode:** discard the uncommitted edit with `git restore .` and stay on `current_branch`. Do not delete the branch.
 
 ## Commit
 
@@ -99,20 +117,29 @@ git diff --cached --quiet || git commit -m "tweak: ${description}"
 **Do not pass `--no-verify`.** This is `/tweak`'s primary commit — project pre-commit hooks (prettier, eslint, type-check) should run. If a pre-commit hook fails, report the error to the investor:
 
 > Pre-commit hook failed: `<error summary>`.
-> The branch `tweak/${slug}` has the edit staged but not committed. Options:
+> The edit is staged on `current_branch` but not committed. Options:
 > 1. Fix the issue and commit manually, then push.
-> 2. Abort: `git checkout main && git branch -D tweak/${slug}` (loses the edit).
+> 2. Abort (loses the edit):
+>    - **New-branch mode:** `git checkout main && git branch -D tweak/${slug}`
+>    - **On-branch mode:** `git restore --staged . && git restore .` (stays on `current_branch`)
 
 Then stop — do not proceed to push or PR.
 
-## Open Pull Request
+## Push (both modes)
 
-1. **Push the branch.** If push fails, report the error and stop. The branch and commit exist locally; the investor can retry by hand.
-   ```bash
-   git push -u origin HEAD
-   ```
+**Push the current branch.** If push fails, report the error and stop. The branch and commit exist locally; the investor can retry by hand.
 
-2. **Create the PR (non-draft):**
+```bash
+git push -u origin HEAD
+```
+
+**On-branch mode stops here.** Do **not** open a PR and do **not** switch branches — the tweak commit rides on the feature branch and is covered by that branch's existing (or eventual) PR. **Report to investor:** the tweak is committed to `current_branch` and pushed, with a one-line summary of what changed.
+
+**New-branch mode** continues to Open Pull Request below.
+
+## Open Pull Request — new-branch mode only
+
+1. **Create the PR (non-draft):**
    ```bash
    diff_stat=$(git diff main...HEAD --stat)
    gh pr create --title "tweak: ${short_description}" --body "$(cat <<EOF
@@ -131,20 +158,21 @@ Then stop — do not proceed to push or PR.
 
    If `gh pr create` fails, report the error. The branch is pushed — the investor can create the PR in the GitHub UI.
 
-3. **Return to main branch:**
+2. **Return to main branch:**
    ```bash
    git checkout main
    ```
    The `tweak/${slug}` branch persists until the PR is merged or deleted.
 
-4. **Report to investor** with the PR URL and a one-line summary of what changed.
+3. **Report to investor** with the PR URL and a one-line summary of what changed.
 
 ## What /tweak Does Not Do
 
-- No browser QA — the investor reviews the PR diff themselves.
+- No browser QA — the investor reviews the diff themselves (in the new PR, or in the feature branch's PR when in on-branch mode).
 - No retry on failure — there's no pass/fail signal from an agent; the PR review is the feedback.
 - No dev server start, no MCP calls, no `Task` dispatch.
 - No writes to `.startup/handoffs/`, `reviews/`, `signoffs/`, or `go-live/`.
+- On a feature branch (on-branch mode): no new branch, no new PR, and no branch switch — the tweak commit stays on the current branch.
 
 ## Communication
 
