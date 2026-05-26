@@ -31,7 +31,7 @@ done
 
 # 5. Resolve a path to its canonical absolute form (parent resolved via subshell cd; portable).
 abspath() {
-  local p="$1" d b
+  local p="$1" d="" b=""
   case "$p" in /*) ;; *) p="$cwd/$p" ;; esac
   d="$(dirname "$p")"; b="$(basename "$p")"
   ( cd "$d" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$b" ) || printf '%s' "$p"

@@ -13,8 +13,11 @@ FAIL=0
 # run NAME PAYLOAD EXPECT
 #   EXPECT="" means expect empty stdout; otherwise expect stdout to contain EXPECT.
 run() {
-  local name="$1" payload="$2" expect="$3" out
-  out="$(printf '%s' "$payload" | bash "$HOOK" 2>/dev/null)"
+  local name="$1" payload="$2" expect="$3" out ec
+  out="$(printf '%s' "$payload" | bash "$HOOK" 2>/dev/null)"; ec=$?
+  if [[ $ec -ne 0 ]]; then
+    echo "FAIL: $name — hook exited $ec (expected 0)"; FAIL=$((FAIL+1)); return
+  fi
   if [[ -z "$expect" ]]; then
     if [[ -z "$out" ]]; then echo "PASS: $name"; PASS=$((PASS+1));
     else echo "FAIL: $name — expected empty stdout, got: $out"; FAIL=$((FAIL+1)); fi
@@ -56,6 +59,8 @@ run "untracked file -> silent" \
   "{\"tool_input\":{\"file_path\":\"$TMP/with/README.md\"},\"cwd\":\"$TMP/with\"}" ""
 run ".agent-sync layout tracked -> reminder" \
   "{\"tool_input\":{\"file_path\":\"$TMP/alt/CLAUDE.md\"},\"cwd\":\"$TMP/alt\"}" "/agent-sync:generate"
+run "relative file_path -> reminder" \
+  "{\"tool_input\":{\"file_path\":\"CLAUDE.md\"},\"cwd\":\"$TMP/with\"}" "/agent-sync:generate"
 run "malformed stdin -> silent" "not json at all" ""
 run "missing file_path -> silent" "{\"cwd\":\"$TMP/with\"}" ""
 run "empty stdin -> silent" "" ""
