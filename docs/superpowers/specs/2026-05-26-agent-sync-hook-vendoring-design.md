@@ -44,11 +44,13 @@ Replace the prompt hook with a `"type": "command"` hook that runs a new script
 2. Search from `cwd` for the config, in order: `tools/agent-sync/sources.json`, then
    `.agent-sync/sources.json`.
    - **No config found → exit 0 with no output.** This is the fix for the noise.
-3. If a config is found, resolve the repo root using the same rule as `scripts/generate.sh`
-   (config in `tools/agent-sync/` or `.agent-sync/` → repo root is the parent / grandparent;
-   otherwise the config's directory). Build the set of tracked source files from `.files` in the
-   config, resolved to absolute paths against repo root.
-4. Normalize the edited `file_path` to an absolute path and compare against the tracked set.
+3. If a config is found, the **repo root is `cwd`**. Because the hook auto-detects the config
+   *directly under* `cwd` (the same non-recursive search `generate.sh` uses), repo root is simply
+   `cwd` — there is no need to replicate generate.sh's parent/grandparent derivation (that logic
+   only applies to explicit `--config` paths). Build the set of tracked source files from `.files`
+   in the config, resolved to absolute paths against `cwd`.
+4. Normalize the edited `file_path` to an absolute path (resolve against `cwd` if it is ever
+   relative) and compare against the tracked set.
    - **Match → emit exactly one reminder**:
      `[agent-sync] Source file changed. Run /agent-sync:generate to update AGENTS.md.`
    - **No match → exit 0 with no output.**
@@ -57,12 +59,31 @@ Replace the prompt hook with a `"type": "command"` hook that runs a new script
 
 ### Output mechanism
 
-The exact way a `PostToolUse` *command* hook surfaces a message to the user/Claude
-(exit code 2 → stderr fed back, vs. JSON stdout with a `systemMessage`/`additionalContext`
-field) will be confirmed against the `hook-development` skill during implementation. The
-**behavioral contract above is fixed**; only the surfacing mechanism is an implementation detail
-to verify. Whichever mechanism is chosen, the silent paths (steps 2 and 4 "no match") must
-produce no user-visible output and exit 0.
+The faithful equivalent of the old prompt hook (which fed reminder text to Claude as context) is
+**JSON stdout with `additionalContext`** and exit 0:
+
+```json
+{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "[agent-sync] Source file changed. Run /agent-sync:generate to update AGENTS.md."}}
+```
+
+The exact schema will be confirmed against the `hook-development` skill during implementation
+(fallback: exit code 2 with the message on stderr, which `PostToolUse` feeds back to Claude). The
+**behavioral contract above is fixed**; only the surfacing mechanism is the detail to verify.
+Whichever mechanism is chosen, the silent paths (steps 2 and 4 "no match") must produce no output
+and exit 0.
+
+### Hook registration
+
+`hooks/hooks.json` invokes the script via `bash` so it does not depend on the executable bit
+surviving plugin install, and sets a small timeout:
+
+```json
+{
+  "type": "command",
+  "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/check-source-edit.sh\"",
+  "timeout": 10
+}
+```
 
 ### Robustness requirements
 
@@ -91,6 +112,15 @@ fallback) lives in `references/github-actions-template.md`. The two are inconsis
    ```
 
    where `<version>` is read from the plugin's `plugin.json`. This is for traceability only.
+   `init.md` specifies the exact deterministic command for a future session to run, e.g.:
+
+   ```bash
+   VER=$(jq -r .version "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json")
+   mkdir -p tools/agent-sync   # or .agent-sync, matching where sources.json was written
+   awk -v v="$VER" 'NR==1{print; print "# Vendored by agent-sync v" v " — re-run /agent-sync:init to refresh."; next} {print}' \
+     "${CLAUDE_PLUGIN_ROOT}/scripts/generate.sh" > tools/agent-sync/generate.sh
+   chmod +x tools/agent-sync/generate.sh
+   ```
 
 2. **One CI template.** Both `commands/init.md` and `references/github-actions-template.md` use a
    single canonical workflow — the robust version that tries `tools/agent-sync/generate.sh` then
@@ -106,6 +136,9 @@ fallback) lives in `references/github-actions-template.md`. The two are inconsis
 - No separate `/agent-sync:vendor` refresh command.
 - No automated staleness check comparing the vendored script's stamped version against the
   installed plugin version. The stamp is informational only (YAGNI).
+- **`agents/sync-watcher.md` is intentionally unchanged.** It does not reference the prompt hook,
+  fires only when explicitly invoked as an agent (no automatic noise), and already uses the
+  correct `${CLAUDE_PLUGIN_ROOT}/scripts/generate.sh` path.
 
 ## Files touched
 
