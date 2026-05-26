@@ -51,7 +51,7 @@ done < <(jq -r '.files[]? // empty' "$config" 2>/dev/null)
 
 [[ -z "$match" ]] && exit 0
 
-# 7. Match: feed the reminder to Claude as additionalContext (faithful to the old prompt hook).
+# 7. Match: emit the reminder as additionalContext so Claude sees it next to the tool result.
 msg="[agent-sync] Source file changed. Run /agent-sync:generate to update AGENTS.md."
 jq -n --arg m "$msg" \
   '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $m}}'
