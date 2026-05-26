@@ -35,6 +35,8 @@ Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed"
 
 Run the three scripts below as **three parallel Bash tool calls**. No Task agents -- execute directly. The OpenCode call (Bash call 3) runs its two legs — GLM then DeepSeek — **sequentially within that one call**, because concurrent `opencode run` instances deadlock on the shared `~/.local/share/opencode` data dir (issue #31). It still yields four reviews total.
 
+Each reviewer is also given the repo's `AGENTS.md` (if present, capped at 16KB) as a **Project Conventions** block, so all four judge the diff against the same project standards — kept symmetric across providers rather than relying on any single CLI to read the repo itself.
+
 ### Bash call 1: Codex Review
 
 ```bash
@@ -58,6 +60,11 @@ if [ "$DIFF_SIZE" -gt 102400 ]; then
 else
   DIFF_TRUNCATED=false
 fi
+
+# Optional: inject the repo's AGENTS.md so every reviewer judges the diff against
+# the same project conventions (capped; absent file => no injection).
+CONVENTIONS=""
+[ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
 
 cat > "$TMPDIR/codex-review-schema.json" << 'SCHEMA'
 {
@@ -138,6 +145,7 @@ You are a senior code reviewer. Analyze the diff below for REAL, ACTIONABLE issu
 Your response MUST be valid JSON matching the provided output schema.
 Set "provider" to "codex" and "model" to the model you are running as.
 $([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated from ${DIFF_SIZE} bytes to 100KB. Review what is provided.")
+$([ -n "$CONVENTIONS" ] && printf '\n## Project Conventions (from AGENTS.md)\nUse these ONLY to judge whether the diff violates project standards; report findings only against the diff.\n\n%s\n' "$CONVENTIONS")
 
 THE DIFF:
 $DIFF
@@ -168,6 +176,11 @@ if [ -z "$DIFF" ]; then
   printf '%s\n' '{"provider": "gemini", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
   exit 0
 fi
+
+# Optional: inject the repo's AGENTS.md so every reviewer judges the diff against
+# the same project conventions (capped; absent file => no injection).
+CONVENTIONS=""
+[ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
 
 printf '%s\n' "$DIFF" | timeout -k 10 600 gemini --model gemini-3-pro-preview -p "You are a senior code reviewer performing a thorough security-focused review.
 
@@ -209,7 +222,7 @@ RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
     \"verdict\": \"APPROVE|NEEDS_WORK|BLOCK\"
   }
 }
-
+$([ -n "$CONVENTIONS" ] && printf '\nPROJECT CONVENTIONS (from AGENTS.md) — use ONLY to judge whether the diff violates project standards; report findings only against the diff:\n%s\n' "$CONVENTIONS")
 THE DIFF IS PROVIDED VIA STDIN ABOVE." \
   --yolo \
   -o json \
@@ -275,6 +288,12 @@ if [ "$DIFF_SIZE" -gt 204800 ]; then
   DIFF_TRUNCATED=true
 fi
 
+# Optional: inject the repo's AGENTS.md so every reviewer judges the diff against
+# the same project conventions (capped; absent file => no injection). Read while
+# still in the repo, before the cd below.
+CONVENTIONS=""
+[ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
+
 # Run OpenCode from a NON-REPO directory. `opencode run` can deadlock at init
 # when its cwd is inside a git repository (it hangs after loading internal
 # plugins, never reaching model selection — a single instance, no concurrency).
@@ -324,6 +343,7 @@ Output ONLY a JSON object, wrapped EXACTLY between these markers on their own li
 }
 ===TRIBUNAL_JSON_END===
 $([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated to 200KB. Review what is provided.")
+$([ -n "$CONVENTIONS" ] && printf '\n## Project Conventions (from AGENTS.md)\nUse these ONLY to judge whether the diff violates project standards; report findings only against the diff.\n\n%s\n' "$CONVENTIONS")
 
 THE DIFF:
 $DIFF"
