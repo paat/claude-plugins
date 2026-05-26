@@ -1,6 +1,6 @@
 {
   "name": "tribunal-review",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "Multi-provider code review with Codex, Gemini, OpenCode (GLM + DeepSeek), and Opus arbitration",
   "author": {
     "name": "Andre Paat"
