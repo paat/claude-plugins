@@ -33,7 +33,7 @@ Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed"
 
 ## STEP 2: Parallel Review
 
-Run all four scripts below as **four parallel Bash tool calls**. No Task agents -- execute directly.
+Run the three scripts below as **three parallel Bash tool calls**. No Task agents -- execute directly. The OpenCode call (Bash call 3) runs its two legs — GLM then DeepSeek — **sequentially within that one call**, because concurrent `opencode run` instances deadlock on the shared `~/.local/share/opencode` data dir (issue #31). It still yields four reviews total.
 
 ### Bash call 1: Codex Review
 
@@ -232,7 +232,15 @@ fi
 # trap EXIT handles cleanup of $TMPDIR
 ```
 
-### Bash call 3: OpenCode GLM Review
+### Bash call 3: OpenCode Review (GLM + DeepSeek, sequential)
+
+Runs both OpenCode legs **back-to-back inside a single Bash call** and prints
+**two** JSON objects on stdout (GLM first, then DeepSeek). The two legs must NOT
+overlap: concurrent `opencode run` processes deadlock on the shared
+`~/.local/share/opencode` SQLite data dir, hanging until the timeout (issue #31).
+The call also runs opencode from a non-repo scratch dir, because `opencode run`
+can also deadlock at init when its cwd is inside a git repo (see the `cd "$TMPDIR"`
+note below). Codex (Bash call 1) and Gemini (Bash call 2) stay parallel with this call.
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -240,14 +248,26 @@ cd "$(git rev-parse --show-toplevel)"
 # Parallel-safe: unique temp dir per invocation
 TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
 
-DIFF=$(git diff origin/main...HEAD)
+emit_empty() {  # provider, model
+  printf '{"provider": "%s", "model": "%s", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}\n' "$1" "$2"
+}
 
-if [ -z "$DIFF" ]; then
-  printf '%s\n' '{"provider": "glm", "model": "opencode-go/glm-5.1", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
+# If OpenCode is not installed, emit an error object for each leg and stop.
+if ! command -v opencode >/dev/null 2>&1; then
+  printf '%s\n' '{"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "glm"}'
+  printf '%s\n' '{"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "deepseek"}'
   exit 0
 fi
 
-# Diff-size guard (GLM has large context; cap higher than Codex's 100KB)
+DIFF=$(git diff origin/main...HEAD)
+
+if [ -z "$DIFF" ]; then
+  emit_empty "glm" "opencode-go/glm-5.1"
+  emit_empty "deepseek" "opencode-go/deepseek-v4-pro"
+  exit 0
+fi
+
+# Diff-size guard (GLM/DeepSeek have large context; cap higher than Codex's 100KB)
 DIFF_SIZE=${#DIFF}
 DIFF_TRUNCATED=false
 if [ "$DIFF_SIZE" -gt 204800 ]; then
@@ -255,7 +275,21 @@ if [ "$DIFF_SIZE" -gt 204800 ]; then
   DIFF_TRUNCATED=true
 fi
 
-PROMPT="You are a senior code reviewer performing a thorough, comprehensive review.
+# Run OpenCode from a NON-REPO directory. `opencode run` can deadlock at init
+# when its cwd is inside a git repository (it hangs after loading internal
+# plugins, never reaching model selection — a single instance, no concurrency).
+# The diff is already captured above and embedded in the prompt (--pure, "do NOT
+# use tools"), so opencode needs no repo/git context. $TMPDIR (mktemp -d) is a
+# scratch dir outside any repo.
+cd "$TMPDIR"
+
+# Review one OpenCode leg and print its JSON. Args: provider, label, model.
+review_opencode_leg() {
+  local provider="$1" label="$2" model="$3"
+  local raw="$TMPDIR/$provider-raw.txt" err="$TMPDIR/$provider-stderr.txt"
+  local oc_exit json safe prompt
+
+  prompt="You are a senior code reviewer performing a thorough, comprehensive review.
 
 ANALYZE THIS DIFF FOR:
 1. Logic errors - off-by-one, null deref, wrong comparisons, race conditions, division by zero
@@ -281,8 +315,8 @@ OUTPUT:
 Output ONLY a JSON object, wrapped EXACTLY between these markers on their own lines:
 ===TRIBUNAL_JSON_BEGIN===
 {
-  \"provider\": \"glm\",
-  \"model\": \"opencode-go/glm-5.1\",
+  \"provider\": \"$provider\",
+  \"model\": \"$model\",
   \"findings\": [
     {\"severity\": \"critical|high|medium|low\", \"category\": \"logic|security|performance|quality|edge-case|architecture|testing\", \"file\": \"path\", \"line\": 42, \"title\": \"...\", \"description\": \"...\", \"suggestion\": \"...\", \"confidence\": 0.9}
   ],
@@ -294,137 +328,47 @@ $([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated to 200KB. Revie
 THE DIFF:
 $DIFF"
 
-# Retry once on timeout (exit 124) — OpenCode Go latency can transiently spike past the cap
-for attempt in 1 2; do
-  timeout -k 10 600 opencode run --agent plan -m opencode-go/glm-5.1 --variant high --format default --pure "$PROMPT" </dev/null \
-    >"$TMPDIR/glm-raw.txt" 2>"$TMPDIR/glm-stderr.txt"
-  OC_EXIT=$?
-  [ "$OC_EXIT" -ne 124 ] && break
-done
+  # Retry once on timeout (exit 124) — OpenCode Go latency can transiently spike past the cap
+  for attempt in 1 2; do
+    timeout -k 10 600 opencode run --agent plan -m "$model" --variant high --format default --pure "$prompt" </dev/null \
+      >"$raw" 2>"$err"
+    oc_exit=$?
+    [ "$oc_exit" -ne 124 ] && break
+  done
 
-if [ $OC_EXIT -eq 0 ] && [ -s "$TMPDIR/glm-raw.txt" ]; then
-  # Extract between sentinels; fall back to first-{ .. last-} slice
-  JSON=$(sed -n '/===TRIBUNAL_JSON_BEGIN===/,/===TRIBUNAL_JSON_END===/p' "$TMPDIR/glm-raw.txt" \
-    | sed '/===TRIBUNAL_JSON_BEGIN===/d;/===TRIBUNAL_JSON_END===/d;s/^```json//;s/^```//')
-  if ! printf '%s' "$JSON" | jq -e . >/dev/null 2>&1; then
-    JSON=$(tr -d '\r' < "$TMPDIR/glm-raw.txt" | sed -n 'H;${x;s/^[^{]*//;s/[^}]*$//;p;}')
-  fi
-  if printf '%s' "$JSON" | jq -e . >/dev/null 2>&1; then
-    printf '%s' "$JSON" | jq -c .
+  if [ "$oc_exit" -eq 0 ] && [ -s "$raw" ]; then
+    # Extract between sentinels; fall back to first-{ .. last-} slice
+    json=$(sed -n '/===TRIBUNAL_JSON_BEGIN===/,/===TRIBUNAL_JSON_END===/p' "$raw" \
+      | sed '/===TRIBUNAL_JSON_BEGIN===/d;/===TRIBUNAL_JSON_END===/d;s/^```json//;s/^```//')
+    if ! printf '%s' "$json" | jq -e . >/dev/null 2>&1; then
+      json=$(tr -d '\r' < "$raw" | sed -n 'H;${x;s/^[^{]*//;s/[^}]*$//;p;}')
+    fi
+    if printf '%s' "$json" | jq -e . >/dev/null 2>&1; then
+      printf '%s' "$json" | jq -c .
+    else
+      safe=$(jq -Rs . < "$raw" 2>/dev/null || echo '"capture failed"')
+      printf '{"error": "OpenCode %s produced unparseable output", "provider": "%s", "raw": %s}\n' "$label" "$provider" "$safe"
+    fi
   else
-    SAFE=$(jq -Rs . < "$TMPDIR/glm-raw.txt" 2>/dev/null || echo '"capture failed"')
-    printf '{"error": "OpenCode GLM produced unparseable output", "provider": "glm", "raw": %s}\n' "$SAFE"
+    safe=$(jq -Rs . < "$err" 2>/dev/null || echo '"stderr encoding failed"')
+    printf '{"error": "OpenCode %s execution failed", "provider": "%s", "exit_code": %d, "stderr": %s}\n' "$label" "$provider" "$oc_exit" "$safe"
   fi
-else
-  STDERR_CONTENT=$(cat "$TMPDIR/glm-stderr.txt" 2>/dev/null)
-  SAFE_STDERR=$(printf '%s' "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
-  printf '{"error": "OpenCode GLM execution failed", "provider": "glm", "exit_code": %d, "stderr": %s}\n' "$OC_EXIT" "$SAFE_STDERR"
-fi
+}
+
+# SEQUENTIAL — the two legs must never overlap (see issue #31). Each is ~8-15s.
+review_opencode_leg "glm" "GLM" "opencode-go/glm-5.1"
+review_opencode_leg "deepseek" "DeepSeek" "opencode-go/deepseek-v4-pro"
 # trap EXIT handles cleanup of $TMPDIR
 ```
 
 ## Error Handling
-If `opencode` is not installed, the block emits:
+If `opencode` is not installed, the call emits one error object per leg and exits 0:
 ```json
 {"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "glm"}
-```
-
-### Bash call 4: OpenCode DeepSeek Review
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
-
-# Parallel-safe: unique temp dir per invocation
-TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
-
-DIFF=$(git diff origin/main...HEAD)
-
-if [ -z "$DIFF" ]; then
-  printf '%s\n' '{"provider": "deepseek", "model": "opencode-go/deepseek-v4-pro", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
-  exit 0
-fi
-
-DIFF_SIZE=${#DIFF}
-DIFF_TRUNCATED=false
-if [ "$DIFF_SIZE" -gt 204800 ]; then
-  DIFF=$(printf '%s' "$DIFF" | head -c 204800)
-  DIFF_TRUNCATED=true
-fi
-
-PROMPT="You are a senior code reviewer performing a thorough, comprehensive review.
-
-ANALYZE THIS DIFF FOR:
-1. Logic errors - off-by-one, null deref, wrong comparisons, race conditions, division by zero
-2. Security vulnerabilities - injection, XSS, CSRF, auth bypass, secrets exposure
-3. Architecture - coupling, layering violations, anti-patterns
-4. Performance - N+1 queries, memory leaks, blocking in async, unnecessary allocations
-5. Edge cases - boundary conditions, empty inputs, integer overflow, unhandled error paths
-6. Test coverage gaps - missing edge cases, untested paths
-
-RULES:
-- ONLY report findings with confidence >= 0.7
-- Use EXACT file paths from the diff headers (e.g., 'a/src/Foo.cs' -> 'src/Foo.cs')
-- Use the line number from the diff where the issue occurs
-- Each finding must have a concrete, actionable suggestion
-- Do NOT use any tools. Analyze ONLY the diff provided below.
-
-VERDICT RULES:
-- BLOCK: any critical-severity finding, OR 2+ high-severity findings
-- NEEDS_WORK: any high-severity finding, OR 3+ medium-severity findings
-- APPROVE: all other cases
-
-OUTPUT:
-Output ONLY a JSON object, wrapped EXACTLY between these markers on their own lines:
-===TRIBUNAL_JSON_BEGIN===
-{
-  \"provider\": \"deepseek\",
-  \"model\": \"opencode-go/deepseek-v4-pro\",
-  \"findings\": [
-    {\"severity\": \"critical|high|medium|low\", \"category\": \"logic|security|performance|quality|edge-case|architecture|testing\", \"file\": \"path\", \"line\": 42, \"title\": \"...\", \"description\": \"...\", \"suggestion\": \"...\", \"confidence\": 0.9}
-  ],
-  \"summary\": {\"total_findings\": 1, \"critical\": 0, \"high\": 1, \"medium\": 0, \"low\": 0, \"quality_score\": 7.5, \"verdict\": \"APPROVE|NEEDS_WORK|BLOCK\"}
-}
-===TRIBUNAL_JSON_END===
-$([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated to 200KB. Review what is provided.")
-
-THE DIFF:
-$DIFF"
-
-# Retry once on timeout (exit 124) — OpenCode Go latency can transiently spike past the cap
-for attempt in 1 2; do
-  timeout -k 10 600 opencode run --agent plan -m opencode-go/deepseek-v4-pro --variant high --format default --pure "$PROMPT" </dev/null \
-    >"$TMPDIR/deepseek-raw.txt" 2>"$TMPDIR/deepseek-stderr.txt"
-  OC_EXIT=$?
-  [ "$OC_EXIT" -ne 124 ] && break
-done
-
-if [ $OC_EXIT -eq 0 ] && [ -s "$TMPDIR/deepseek-raw.txt" ]; then
-  JSON=$(sed -n '/===TRIBUNAL_JSON_BEGIN===/,/===TRIBUNAL_JSON_END===/p' "$TMPDIR/deepseek-raw.txt" \
-    | sed '/===TRIBUNAL_JSON_BEGIN===/d;/===TRIBUNAL_JSON_END===/d;s/^```json//;s/^```//')
-  if ! printf '%s' "$JSON" | jq -e . >/dev/null 2>&1; then
-    JSON=$(tr -d '\r' < "$TMPDIR/deepseek-raw.txt" | sed -n 'H;${x;s/^[^{]*//;s/[^}]*$//;p;}')
-  fi
-  if printf '%s' "$JSON" | jq -e . >/dev/null 2>&1; then
-    printf '%s' "$JSON" | jq -c .
-  else
-    SAFE=$(jq -Rs . < "$TMPDIR/deepseek-raw.txt" 2>/dev/null || echo '"capture failed"')
-    printf '{"error": "OpenCode DeepSeek produced unparseable output", "provider": "deepseek", "raw": %s}\n' "$SAFE"
-  fi
-else
-  STDERR_CONTENT=$(cat "$TMPDIR/deepseek-stderr.txt" 2>/dev/null)
-  SAFE_STDERR=$(printf '%s' "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
-  printf '{"error": "OpenCode DeepSeek execution failed", "provider": "deepseek", "exit_code": %d, "stderr": %s}\n' "$OC_EXIT" "$SAFE_STDERR"
-fi
-# trap EXIT handles cleanup of $TMPDIR
-```
-
-## Error Handling
-If `opencode` is not installed, the block emits:
-```json
 {"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "deepseek"}
 ```
 
-Collect all four JSON outputs. Parse them. If any returned an error JSON, note it for arbitration.
+Collect all four JSON outputs — Codex and Gemini from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration.
 
 Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G}, GLM: {L}, DeepSeek: {D} findings"
 
@@ -531,4 +475,4 @@ The four reviewers are equal peers; a finding flagged by ≥2 is CONSENSUS. Opus
 
 | Mode | Steps | Tool Calls | Agent Spawns |
 |------|-------|------------|-------------|
-| Default (review) | 3 | 4 (parallel Bash) | 0 |
+| Default (review) | 3 | 3 (parallel Bash; OpenCode call runs GLM+DeepSeek sequentially) | 0 |

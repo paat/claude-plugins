@@ -1,6 +1,6 @@
 # tribunal-review
 
-Multi-provider code review plugin for Claude Code. Runs four reviewers in parallel — Codex (GPT-5.3), Gemini (3 Pro Preview), and two OpenCode Go models (GLM-5.1, DeepSeek-V4-Pro) — then uses Opus as the final arbiter to deduplicate findings, resolve conflicts, and issue a single authoritative verdict.
+Multi-provider code review plugin for Claude Code. Runs four reviewers — Codex (GPT-5.3), Gemini (3 Pro Preview), and two OpenCode Go models (GLM-5.1, DeepSeek-V4-Pro) — then uses Opus as the final arbiter to deduplicate findings, resolve conflicts, and issue a single authoritative verdict.
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ On a feature branch with changes vs `origin/main`:
 /tribunal-loop
 ```
 
-The skill will verify you're on a feature branch, run all four reviews in parallel, and produce an arbitrated verdict.
+The skill will verify you're on a feature branch, run the four reviews, and produce an arbitrated verdict.
 
 When the verdict comes back `NEEDS_WORK` or `BLOCK`, the `closing-tribunal-loop` skill guides the iterative close-out: per-finding triage (fix-in-PR vs file-follow-up vs reject), committing fixes one finding at a time, and re-running the tribunal until the arbiter returns `APPROVE` with zero findings on the latest diff.
 
@@ -37,7 +37,7 @@ When the verdict comes back `NEEDS_WORK` or `BLOCK`, the `closing-tribunal-loop`
 Verifies you're on a feature branch (not main) and that there are changes to review.
 
 ### Step 2: Parallel Review
-Runs Codex, Gemini, GLM, and DeepSeek as four parallel Bash calls. Each analyzes the `git diff origin/main...HEAD` and returns structured JSON findings covering logic errors, security vulnerabilities, edge cases, performance issues, and architectural concerns. The two OpenCode reviewers run read-only (`opencode run --agent plan`).
+Runs Codex, Gemini, and OpenCode as **three parallel Bash calls**. Each analyzes the `git diff origin/main...HEAD` and returns structured JSON findings covering logic errors, security vulnerabilities, edge cases, performance issues, and architectural concerns. The two OpenCode reviewers run read-only (`opencode run --agent plan`) and **sequentially within the single OpenCode call** — running them concurrently deadlocks on OpenCode's shared data dir (issue #31), so they are serialized (~8-15s each, back-to-back).
 
 ### Step 3: Inline Arbitration (Opus)
 Opus deduplicates findings, resolves severity conflicts (always using the highest severity), marks any issue flagged by ≥2 reviewers as CONSENSUS, evaluates each finding for validity, and issues a final verdict: **APPROVE**, **NEEDS_WORK**, or **BLOCK**.
