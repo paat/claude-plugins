@@ -56,35 +56,61 @@ Write to `tools/agent-sync/sources.json` (preferred) or `.agent-sync/sources.jso
 
 Create the directory if needed.
 
-### 6. Offer CI template
+### 6. Vendor the generator script
+
+So the CI drift-check (and anyone without the plugin installed) can run `generate.sh`, copy it
+into the repo next to `sources.json`, stamped with the plugin version. Run:
+
+```bash
+VER=$(jq -r .version "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json")
+DEST_DIR=tools/agent-sync   # use .agent-sync if you wrote sources.json there instead
+mkdir -p "$DEST_DIR"
+awk -v v="$VER" 'NR==1{print; print "# Vendored by agent-sync v" v " — re-run /agent-sync:init to refresh."; next} {print}' \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/generate.sh" > "$DEST_DIR/generate.sh"
+chmod +x "$DEST_DIR/generate.sh"
+```
+
+### 7. Offer CI template
 
 Ask: "Do you want a GitHub Actions workflow for drift detection?"
 
-If yes, write `.github/workflows/agents-sync.yml` using this template:
+If yes, write `.github/workflows/agents-sync.yml` using this canonical template (identical to
+`skills/agent-sync/references/github-actions-template.md`):
 
 ```yaml
 name: AGENTS.md Sync Check
+
 on:
   pull_request:
     paths:
       - 'CLAUDE.md'
       - '.claude/**'
       - 'tools/agent-sync/sources.json'
+      - '.agent-sync/sources.json'
       - 'AGENTS.md'
+      - '**/AGENTS.md'
 
 jobs:
   check-sync:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Install jq
         run: sudo apt-get install -y jq
+
       - name: Check AGENTS.md sync
-        run: bash tools/agent-sync/generate.sh --check
+        run: |
+          if [ -f "tools/agent-sync/generate.sh" ]; then
+            bash tools/agent-sync/generate.sh --check
+          elif [ -f ".agent-sync/generate.sh" ]; then
+            bash .agent-sync/generate.sh --check
+          else
+            echo "agent-sync generate.sh not found. Run /agent-sync:init to vendor it."
+            exit 1
+          fi
 ```
 
-Adapt the script path based on where generate.sh is installed.
-
-### 7. Generate
+### 8. Generate
 
 Ask the user if they want to run `/agent-sync:generate` now.

@@ -82,7 +82,9 @@ Generate scoped AGENTS.md files for subdirectories:
 
 ## CI Integration
 
-Add drift detection to your CI pipeline. See `/agent-sync:init` to generate the workflow, or see `skills/agent-sync/references/github-actions-template.md`.
+`/agent-sync:init` vendors `generate.sh` into `tools/agent-sync/` (next to `sources.json`) and can
+scaffold `.github/workflows/agents-sync.yml`, so drift detection runs in CI without the plugin
+installed. See `skills/agent-sync/references/github-actions-template.md` for the workflow.
 
 ## Migration from Node.js Version
 
@@ -91,7 +93,8 @@ If you have an existing `tools/agent-sync/generate-agents.mjs`:
 1. Your `sources.json` with `version: 1` works as-is (auto-converted to v2 format)
 2. Add `variables` to `sources.json` if you want project name/stack in the header
 3. Add a `settings` section if you want the settings summary rendered
-4. Replace `node tools/agent-sync/generate-agents.mjs` with `/agent-sync:generate`
+4. Replace `node tools/agent-sync/generate-agents.mjs` with `/agent-sync:generate` (and run
+   `/agent-sync:init` once to vendor the bash `generate.sh` for CI)
 
 ## Components
 

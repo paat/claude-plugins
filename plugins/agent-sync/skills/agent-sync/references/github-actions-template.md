@@ -2,7 +2,8 @@
 
 ## Workflow
 
-Add this to `.github/workflows/agents-sync.yml`:
+`/agent-sync:init` writes this to `.github/workflows/agents-sync.yml`. It is reproduced here for
+reference — keep the two copies identical.
 
 ```yaml
 name: AGENTS.md Sync Check
@@ -28,27 +29,26 @@ jobs:
 
       - name: Check AGENTS.md sync
         run: |
-          # Find the generate script
           if [ -f "tools/agent-sync/generate.sh" ]; then
             bash tools/agent-sync/generate.sh --check
           elif [ -f ".agent-sync/generate.sh" ]; then
             bash .agent-sync/generate.sh --check
           else
-            echo "agent-sync generate.sh not found. Copy it from the plugin or install agent-sync."
+            echo "agent-sync generate.sh not found. Run /agent-sync:init to vendor it."
             exit 1
           fi
 ```
 
 ## Setup
 
-To use this workflow, copy `generate.sh` from the agent-sync plugin into your project:
+`/agent-sync:init` vendors `generate.sh` into your repo automatically (next to `sources.json`),
+so the workflow runs without the plugin installed. If you are wiring CI by hand instead, vendor
+the script yourself:
 
 ```bash
 mkdir -p tools/agent-sync
 cp "$(claude plugin path agent-sync)/scripts/generate.sh" tools/agent-sync/generate.sh
 ```
-
-Or reference the plugin script directly if the plugin is installed in CI.
 
 ## What It Does
 
