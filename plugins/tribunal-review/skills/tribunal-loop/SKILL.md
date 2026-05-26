@@ -296,7 +296,7 @@ $DIFF"
 
 # Retry once on timeout (exit 124) — OpenCode Go latency can transiently spike past the cap
 for attempt in 1 2; do
-  timeout -k 10 600 opencode run --agent plan -m opencode-go/glm-5.1 --variant high --format default --pure "$PROMPT" \
+  timeout -k 10 600 opencode run --agent plan -m opencode-go/glm-5.1 --variant high --format default --pure "$PROMPT" </dev/null \
     >"$TMPDIR/glm-raw.txt" 2>"$TMPDIR/glm-stderr.txt"
   OC_EXIT=$?
   [ "$OC_EXIT" -ne 124 ] && break
@@ -392,7 +392,7 @@ $DIFF"
 
 # Retry once on timeout (exit 124) — OpenCode Go latency can transiently spike past the cap
 for attempt in 1 2; do
-  timeout -k 10 600 opencode run --agent plan -m opencode-go/deepseek-v4-pro --variant high --format default --pure "$PROMPT" \
+  timeout -k 10 600 opencode run --agent plan -m opencode-go/deepseek-v4-pro --variant high --format default --pure "$PROMPT" </dev/null \
     >"$TMPDIR/deepseek-raw.txt" 2>"$TMPDIR/deepseek-stderr.txt"
   OC_EXIT=$?
   [ "$OC_EXIT" -ne 124 ] && break
