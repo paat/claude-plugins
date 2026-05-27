@@ -253,7 +253,10 @@ overlap: concurrent `opencode run` processes deadlock on the shared
 `~/.local/share/opencode` SQLite data dir, hanging until the timeout (issue #31).
 The call also runs opencode from a non-repo scratch dir, because `opencode run`
 can also deadlock at init when its cwd is inside a git repo (see the `cd "$TMPDIR"`
-note below). Codex (Bash call 1) and Gemini (Bash call 2) stay parallel with this call.
+note below). Before the legs run it warms the model registry and asserts each leg's
+model resolves, so a cold/stale `~/.cache/opencode/models.json` fails loudly instead
+of silently downgrading `-m` to an unauthenticated fallback model (issue #32).
+Codex (Bash call 1) and Gemini (Bash call 2) stay parallel with this call.
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -302,11 +305,27 @@ CONVENTIONS=""
 # scratch dir outside any repo.
 cd "$TMPDIR"
 
+# Warm the OpenCode model registry. A cold/stale ~/.cache/opencode/models.json
+# makes `opencode run -m <model>` silently DROP the -m arg and fall back to an
+# unauthenticated default model — surfacing as a misleading "Missing Authentication
+# header" error and quietly downgrading the 4-provider tribunal to 2 (issue #32).
+# Refresh once, then snapshot the list so each leg can assert its model resolved.
+opencode models >/dev/null 2>&1 || true
+OC_MODELS=$(opencode models 2>/dev/null)
+
 # Review one OpenCode leg and print its JSON. Args: provider, label, model.
 review_opencode_leg() {
   local provider="$1" label="$2" model="$3"
   local raw="$TMPDIR/$provider-raw.txt" err="$TMPDIR/$provider-stderr.txt"
   local oc_exit json safe prompt
+
+  # Assert the requested model is in the (warmed) registry. If it is absent, a cold
+  # cache would silently downgrade this leg to an unauthenticated fallback model, so
+  # emit a distinct, actionable error and skip the run rather than disguise it as auth.
+  if ! printf '%s\n' "$OC_MODELS" | grep -qxF "$model"; then
+    printf '{"error": "OpenCode model %s not in registry (cold/stale cache) — run `opencode models` to refresh; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "%s"}\n' "$model" "$provider"
+    return
+  fi
 
   prompt="You are a senior code reviewer performing a thorough, comprehensive review.
 
@@ -386,6 +405,14 @@ If `opencode` is not installed, the call emits one error object per leg and exit
 ```json
 {"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "glm"}
 {"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "deepseek"}
+```
+
+If OpenCode is installed but a leg's model is missing from the (warmed) registry —
+a cold/stale `~/.cache/opencode/models.json`, which would otherwise silently downgrade
+`-m` to an unauthenticated fallback — that leg is skipped with a distinct error so the
+4→2 degradation is explicit rather than disguised as a credential failure (issue #32):
+```json
+{"error": "OpenCode model opencode-go/glm-5.1 not in registry (cold/stale cache) — run `opencode models` to refresh; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "glm"}
 ```
 
 Collect all four JSON outputs — Codex and Gemini from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration.
