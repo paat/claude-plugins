@@ -36,6 +36,7 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:lawyer` | Spawn lawyer agent for legal/compliance review |
 | `/saas-startup-team:ux-test` | Spawn UX tester for accessibility and usability audit |
 | `/saas-startup-team:improve` | One-shot improvements on a completed product |
+| `/saas-startup-team:goal-deliver` | Deliver a set of tasks (issues, milestone, spec, or free text) end-to-end: plan into chunks, ship each via `/improve` + closing tribunal loop + merge to main, then monitor and fix the GitHub Actions deploy. Pairs with built-in `/goal` for autonomy. Requires the `tribunal-review` plugin. |
 
 ## The Loop
 

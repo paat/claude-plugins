@@ -1,247 +1,128 @@
-# `/goal-deliver` — Autonomous Multi-Chunk Goal Orchestrator
+# `/goal-deliver` — Deliver-a-Goal Playbook Macro
 
-**Date:** 2026-05-29
+**Date:** 2026-05-29 (revised — lean playbook design)
 **Plugin:** saas-startup-team
-**Status:** Approved design — ready for implementation plan
+**Status:** Approved design — ready for implementation
 
 ## Overview
 
-`/goal-deliver` takes a set of tasks (GitHub issues, a milestone, a markdown
-spec file, or a free-text feature list), autonomously plans and chunks the
-work, **reviews its own plan** (no human gate), then executes each chunk by
-invoking the `/improve` flow → closing tribunal loop → merge to main,
-respecting a dependency graph between chunks. After the final merge it monitors
-the GitHub Actions deploy run and auto-fixes failures. All plan and progress
-state persists to `.startup/goals/<slug>/` so a long run resumes after
-interruption.
+`/goal-deliver` is a **playbook macro**: a reusable slash command that expands a
+set of tasks into the full deliver-to-production workflow so the investor never
+retypes it. Given GitHub issues, a milestone, a markdown spec file, or a
+free-text description, the orchestrator plans the work into manageable chunks
+and, for each chunk, runs the `/improve` build cycle → closing tribunal loop →
+merge to main, then monitors the GitHub Actions deploy after the final merge.
 
-The command is fully autonomous: there is **no human in the loop**. The only
-human-facing output is the final report. The human approval gate that a
-human-in-the-loop design would use is replaced by an autonomous two-pass plan
-review (business founder drafts → tech founder reviews/finalizes).
+The command is a **prompt, not an engine**. It deliberately contains no bash
+state machine. Chunk boundaries, ordering, dependencies, re-planning, and
+when-to-stop are left to the orchestrator's judgment — the command supplies the
+structure and the standards, not a rigid script that dictates the next move.
+This keeps Claude in control of the flow (the explicit design goal: *don't box
+the orchestrator*).
 
-The name is `goal-deliver` (not `goal`) deliberately, to avoid any collision
-with a built-in `/goal` command. The hyphenated form is a distinct,
-exact-match-safe invocation.
+### Why no scripts
 
-## Input Resolution
+An earlier revision proposed two helper scripts (`goal-input.sh` for input
+classification and `goal-chunks.sh` for a `plan.json` state machine with
+`next`/`block-dependents`/topological ordering). That was dropped: a script that
+computes "the next chunk" removes exactly the judgment the orchestrator should
+exercise, and adds a maintenance surface for marginal benefit. Input handling
+and chunk tracking are plain instructions instead.
 
-The command auto-detects the input form from its arguments:
+### Autonomy
+
+The investor's stated preference is the built-in `/goal` autonomous loop. A
+custom command **cannot** arm `/goal` programmatically (it is user-typed only;
+the condition lives in session state with no writable hook — verified against
+Claude Code docs). So autonomy is achieved by the investor pairing the two
+commands:
+
+```
+/goal all target issues are merged to main and the deploy pipeline is green
+/goal-deliver #12 #15 #20
+```
+
+The long workflow now lives inside `/goal-deliver` (typed once, reused forever);
+only a short completion condition is typed per run. The command documents this
+pattern. It works without `/goal` too — invoked alone, the orchestrator runs the
+workflow continuously within the one invocation.
+
+## Input Forms (handled inline, no script)
 
 | Form | Example | Handling |
 |---|---|---|
-| GitHub issues | `/goal-deliver #12 #15 #20` | `gh issue view <n>` for each; carry issue numbers through for closing on merge |
-| Milestone | `/goal-deliver --milestone v2` | `gh issue list --milestone v2 --state open` → issue set |
-| Markdown spec file | `/goal-deliver docs/roadmap.md` | argument is an existing file path → read file as the spec |
-| Free text | `/goal-deliver add dark mode, fix mobile nav` | fallback when no `#`, no `--milestone`, no existing path → natural-language spec |
+| GitHub issues | `/goal-deliver #12 #15 #20` | `gh issue view <n> --json title,body` each; keep numbers to close on merge |
+| Milestone | `/goal-deliver --milestone v2` | `gh issue list --milestone v2 --state open --json number,title,body` |
+| Markdown spec file | `/goal-deliver docs/roadmap.md` | the single argument is an existing path → read it as the spec |
+| Free text | `/goal-deliver add dark mode, fix nav` | otherwise → the argument text is the spec |
 
-Detection order: `--milestone` flag first; then if the single argument is an
-existing file path → file mode; then if arguments contain `#<digits>` tokens →
-issues mode; otherwise → free-text mode.
+## Pre-Flight (hard gates)
 
-All forms normalize into one **task spec**: a list of work items, each with a
-source reference (issue number where applicable) so issues can be closed when
-their chunk merges.
+1. **tribunal-review installed** — the `tribunal-review:tribunal-loop` skill must
+   be resolvable; else stop with an install hint. Hard dependency — the gate is
+   non-negotiable.
+2. **`.startup/go-live/solution-signoff.md` exists** — post-completion command,
+   like `/improve`; else direct to `/startup`.
+3. **On the default branch** and **working tree clean**.
+4. **`gh` authenticated** with a remote.
+5. **Reset `active_role`** in `.startup/state.json` (to a non-team-lead value) so
+   the `enforce-delegation` hook doesn't block dispatched founders. Never write
+   `active_role: "team-lead"`.
 
-## Pre-Flight (Hard Gates)
+## Workflow
 
-All gates must pass before any work begins. Same spirit as `/improve` —
-`/goal-deliver` is a post-completion command.
-
-1. **tribunal-review installed.** The `tribunal-review:tribunal-loop` skill must
-   be resolvable. If not, fail with an install hint. This is a **hard
-   dependency** — the tribunal gate is non-negotiable per chunk.
-2. **`.startup/` exists** and `.startup/go-live/solution-signoff.md` exists. If
-   not, instruct the investor to run `/startup` first (the build loop must have
-   completed). `/goal-deliver` is for post-completion delivery of new work, like
-   `/improve`.
-3. **`docs/architecture/architecture.md` exists** (tech founder needs stack and
-   service URLs).
-4. **Working tree clean** (`git status --porcelain` empty).
-5. **On the default branch** (chunks branch off main and merge back to main).
-   If not on default, instruct the investor to switch.
-6. **`gh` authenticated** and the repo has a remote (issue fetch, PR, merge,
-   and run-watch all require it).
-
-## Plan + Autonomous Review
-
-This replaces the human approval gate with a two-pass autonomous review.
-
-### Pass 1 — Business founder drafts the plan
-
-Dispatch the business founder (`business-founder-maintain` identity) to:
-
-- Read the normalized task spec.
-- Read `docs/business/brief.md`, `docs/architecture/architecture.md`, relevant
-  `docs/research/`, and `docs/legal/`.
-- **Push back** on anything that conflicts with legal compliance, undermines
-  business strategy, or risks sales/conversion — citing specific docs (same
-  push-back contract as `/improve`). If the business founder rejects part of the
-  spec, that work item is dropped from the plan with a recorded reason.
-- Decompose the remaining work into **PR-sized chunks** (the `/improve` sweet
-  spot: a coherent unit producing one PR, ~15–30 min of agent work each).
-- Define a **dependency graph**: each chunk lists the chunk IDs it `depends_on`.
-- Write the draft to the goal state file (see State File) and a human-readable
-  `plan.md`.
-
-### Pass 2 — Tech founder reviews and finalizes
-
-Dispatch the tech founder (`tech-founder-maintain` identity) to:
-
-- Read the draft plan and `docs/architecture/architecture.md`.
-- Review for **feasibility** (is each chunk implementable as scoped?) and
-  **dependency correctness** (are the `depends_on` edges right? any missing
-  edges that would cause merge conflicts or broken builds?).
-- Adjust chunk boundaries and dependency edges as needed and finalize.
-
-The finalized plan is written to `plan.json`. This two-pass cross-discipline
-review **is** the autonomous gate; execution begins immediately after it, with
-no human confirmation.
-
-## State File — `.startup/goals/<slug>/plan.json`
-
-`<slug>` is derived from the goal (issue list, milestone name, file name, or a
-slug of the free-text spec). The directory also holds the human-readable
-`plan.md`.
-
-```jsonc
-{
-  "goal_slug": "...",
-  "created": "<ISO timestamp>",
-  "source": { "type": "issues|milestone|file|freetext", "refs": [12, 15, 20] },
-  "chunks": [
-    {
-      "id": "C1",
-      "title": "...",
-      "description": "...",          // self-contained brief passed to /improve
-      "issue_refs": [12],            // GH issues this chunk closes on merge
-      "depends_on": [],              // chunk IDs that must be merged first
-      "status": "pending",           // pending|in-progress|merged|blocked|skipped
-      "pr_url": null,
-      "branch": null,
-      "tribunal_rounds": 0,
-      "filed_issues": [],            // GH issues filed for out-of-scope findings
-      "skip_reason": null            // set when blocked or skipped
-    }
-  ],
-  "deploy": { "status": "pending", "run_id": null }  // pending|monitoring|green|failed
-}
-```
-
-State is persisted (write-temp-then-rename, matching the existing `.startup/`
-pattern) after every status transition so the run is resumable. Re-running
-`/goal-deliver` with the same goal detects the existing state file and resumes
-from the first non-`merged` chunk.
-
-## Per-Chunk Loop
-
-Process chunks in **topological order**. A chunk is eligible only when every
-chunk in its `depends_on` has `status == "merged"`.
-
-For each eligible chunk:
-
-1. Mark `in-progress`, persist.
-2. **Invoke the `/improve` flow** with the chunk's `description` as the
-   improvement instruction, in new-branch mode off main. This runs the existing
-   business → tech → business-QA cycle and opens a PR on `improve/<chunk-slug>`.
-   Record `branch` and `pr_url`.
-3. **Closing tribunal loop** on the PR branch (per the
-   `tribunal-review:closing-tribunal-loop` skill):
-   - Run `tribunal-review:tribunal-loop`. If the arbiter returns `APPROVE` with
-     0 findings → the gate is closed, go to step 4.
-   - Otherwise triage each finding:
-     - **Critical / service-breaking** → fix in this PR (dispatch tech founder),
-       push, increment `tribunal_rounds`, re-run tribunal.
-     - **Non-critical AND out-of-scope / pre-existing** → file a GitHub issue
-       using the closing-tribunal-loop follow-up template, cross-link to the PR,
-       append to `filed_issues`, and do **not** block on it.
-     - **False positive** → reject (verified against the cited code).
-   - Repeat until `APPROVE`-0 **or** `tribunal_rounds` reaches the retry cap
-     (default **5**).
-4. **Gate closed (APPROVE-0):** squash-merge the PR to main, close the chunk's
-   `issue_refs`, delete the branch, mark the chunk `merged`, persist. Return to
-   main.
-5. **Retry cap hit with unresolved critical findings:** mark the chunk
-   `blocked` with a `skip_reason`, leave its PR open as a draft, then mark every
-   chunk that transitively `depends_on` this one as `skipped` (block dependents).
-   Continue with the remaining independent chunks.
-6. Continue until no eligible chunks remain.
-
-### Finding-severity policy (summary)
-
-- Critical / service-breaking → **fix ASAP in the PR**.
-- Non-critical, out-of-scope, or pre-existing → **file a GH issue**, don't block.
-- When a chunk genuinely can't pass the gate → **block dependents, continue
-  independents**.
-
-## Deploy Monitoring
-
-Runs after the last eligible chunk has been processed and at least one chunk
-merged to main.
-
-1. Identify the GitHub Actions run triggered by the final merge to main
-   (`gh run list` filtered to the merge commit / main branch; `gh run watch`).
-   Record `deploy.run_id`, set `deploy.status = "monitoring"`.
-2. Watch until the run concludes.
-3. **On success:** set `deploy.status = "green"`.
-4. **On failure:** read the failing job logs, dispatch the tech founder to fix
-   on a `deploy-fix/<slug>` branch → open PR → run the closing tribunal loop →
-   merge → re-monitor the new run. Repeat until green or a deploy retry cap
-   (default 3) is hit. If the cap is hit, set `deploy.status = "failed"` and
-   record it for the final report.
-
-## Final Report
-
-A single English status summary to the investor:
-
-- Chunks **merged** (with PR links).
-- Chunks **blocked** / **skipped** (with reasons and draft-PR links).
-- GitHub issues **filed** for out-of-scope tribunal findings (with links).
-- **Deploy status** (green / failed, with run link).
-
-## Reuse Mechanics
-
-The investor chose "invoke `/improve` per chunk" for maximum reuse. Slash
-commands cannot be called as a tool from inside another command, so mechanically
-this means: the `/goal-deliver` orchestrator **follows the documented `/improve`
-flow** (`${CLAUDE_PLUGIN_ROOT}/commands/improve.md`) for each chunk, keeping
-`/improve` as the single source of truth for the build cycle. If logic drift
-between the two becomes a problem later, extract the shared build cycle into a
-skill that both `/improve` and `/goal-deliver` invoke. The by-reference approach
-is chosen now to keep scope contained.
-
-## Autonomy Mechanics
-
-- Each chunk's `/improve` + tribunal work is synchronous. For any genuinely
-  long-running background wait (e.g. `gh run watch`), use the `ScheduleWakeup`
-  poll pattern documented in `/startup` (≤270 s delay to stay inside the
-  prompt-cache window) so the orchestrator yields control correctly instead of
-  thrashing the Stop hook.
-- Reset `active_role` in `.startup/state.json` before dispatching subagents (same
-  guard as `/improve`) so the `enforce-delegation` hook does not block this flow.
-- No human gate anywhere except the final report. A critical-but-unfixable chunk
-  blocks its dependents and the run continues with independent work.
+1. **Understand the tasks** — resolve the input form, build the task spec, keep
+   issue numbers.
+2. **Plan into chunks (judgment)** — break the work into PR-sized chunks and
+   order them so dependencies merge first. Recommended (not mandatory): route the
+   plan through the business founder for product/legal context and push-back,
+   then a tech-founder feasibility sanity-check — the same agents `/improve`
+   uses. Track chunks with an in-context TodoWrite list (no state file).
+3. **Deliver each chunk** (dependency order):
+   a. Run the `/improve` flow (`commands/improve.md`) in new-branch mode off the
+      default branch, using the chunk description as the improvement → a PR.
+   b. Closing tribunal loop (`tribunal-review:closing-tribunal-loop`): run
+      `tribunal-loop`; triage findings — **critical/service-breaking → fix in the
+      PR** and re-run; **non-critical + out-of-scope/pre-existing → file a GitHub
+      issue** (skill's template, cross-linked) and don't block; **false positive
+      → reject**. Loop until `APPROVE` with 0 findings. If a chunk genuinely
+      can't pass, leave its PR as a draft, skip chunks that depend on it, and
+      continue with independent chunks.
+   c. Squash-merge to main, close the chunk's issues, delete the branch, return
+      to the default branch.
+4. **Monitor the deploy** — after the last merge, watch the GitHub Actions run on
+   the default branch (`gh run watch <id> --exit-status`). On failure: read logs,
+   dispatch the tech founder to fix on a `deploy-fix/<slug>` branch → PR →
+   closing tribunal loop → merge → re-watch, until green or it needs the investor.
+5. **Final report** — chunks merged (PR links), chunks skipped/blocked (reasons +
+   draft-PR links), issues filed (links), deploy status.
 
 ## Communication
 
-Inherits the team language rules:
-
 - Business founder speaks **Estonian** to the investor.
 - Tech founder speaks **English** to the investor.
-- The orchestrator (team lead) speaks **English** for status updates and the
-  final report.
+- The orchestrator (team lead) speaks **English** for status and the final report.
 
 ## Versioning
 
-Bump `saas-startup-team` version in **both** `.claude-plugin/plugin.json` and
-the root `.claude-plugin/marketplace.json` before pushing (repo rule).
+Bump `saas-startup-team` in **both** `.claude-plugin/plugin.json` and the root
+`.claude-plugin/marketplace.json` (0.36.0 → 0.37.0).
+
+## Testing
+
+Cross-file consistency assertions in `tests/run-tests.sh` (new suite, letter
+**T** — A–S are taken): command exists, has `name`/`user_invocable` frontmatter,
+references the `/improve` flow, references `tribunal-loop` and
+`closing-tribunal-loop`, resets `active_role`, warns against `team-lead`,
+documents the `/goal` autonomy pairing, and references `gh run` (deploy monitor).
+The command is a prompt, so it is covered by consistency checks rather than unit
+tests.
 
 ## Out of Scope
 
-- Human approval checkpoints (explicitly excluded — fully autonomous).
-- Extracting a shared build-cycle skill (deferred; by-reference reuse for now).
-- Non-GitHub-Actions deploy pipelines (deploy monitoring targets GH Actions;
-  project-specific deploy commands from the architecture doc are a possible
-  future extension).
-- Parallel chunk execution (chunks run sequentially in topological order; the
-  dependency graph governs eligibility, not concurrency).
+- A `plan.json` state machine / helper scripts (explicitly dropped).
+- Programmatically arming built-in `/goal` (not possible; investor pairs the
+  commands).
+- A plugin Stop hook for hands-free autonomy (considered; not chosen — the
+  `/goal` pairing avoids the scoping risk of a session-wide stop gate).
+- Non-GitHub-Actions deploy pipelines; parallel chunk execution.
