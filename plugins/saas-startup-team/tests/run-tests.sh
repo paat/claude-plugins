@@ -2276,6 +2276,7 @@ main() {
   test_index_handoff_hook
   test_enforce_handoff_naming_hook
   test_migrate_handoff_names
+  test_goal_deliver
 
   # Summary
   echo ""
@@ -2428,6 +2429,26 @@ EOF
   assert_file_contains "Q10c: backfill includes 001" "$workdir/.startup/handoffs/INDEX.md" "001-business-to-tech.md"
   assert_file_contains "Q10d: backfill includes 002" "$workdir/.startup/handoffs/INDEX.md" "002-tech-to-business.md"
   rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
+# Suite T: /goal-deliver command
+# ---------------------------------------------------------------------------
+
+test_goal_deliver() {
+  echo -e "\n${CYAN}Suite T: /goal-deliver command${NC}"
+  local cmd="$PLUGIN_ROOT/commands/goal-deliver.md"
+
+  assert_file_exists "T1: goal-deliver.md exists" "$cmd"
+  assert_file_contains "T2: name frontmatter" "$cmd" "^name: goal-deliver"
+  assert_file_contains "T3: user_invocable" "$cmd" "user_invocable: true"
+  assert_file_contains "T4: references /improve flow" "$cmd" "/improve"
+  assert_file_contains "T5: references tribunal-loop" "$cmd" "tribunal-loop"
+  assert_file_contains "T6: references closing-tribunal-loop" "$cmd" "closing-tribunal-loop"
+  assert_file_contains "T7: resets active_role" "$cmd" '.active_role ='
+  assert_file_contains "T8: warns against team-lead" "$cmd" "team-lead"
+  assert_file_contains "T9: documents /goal autonomy pairing" "$cmd" "/goal "
+  assert_file_contains "T10: monitors GitHub Actions deploy" "$cmd" "gh run"
 }
 
 main "$@"
