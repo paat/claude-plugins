@@ -8,7 +8,7 @@ Multi-provider code review plugin for Claude Code. Runs four reviewers — Codex
 - [Google Gemini CLI](https://github.com/google-gemini/gemini-cli)
 - [OpenCode CLI](https://opencode.ai) with an [OpenCode Go](https://opencode.ai/go) subscription (provides the `opencode-go/glm-5.1` and `opencode-go/deepseek-v4-pro` models)
 - `jq` (used to parse and validate reviewer JSON output)
-- `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or it will fall back to an error-JSON for that reviewer) — caps each reviewer at 10 minutes; the two OpenCode reviewers retry once if they hit the cap (the GLM/DeepSeek reasoning models stream long, high-variance chains-of-thought via `opencode --agent plan`)
+- `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or it will fall back to an error-JSON for that reviewer) — caps Codex/Gemini at 10 minutes and each OpenCode reviewer at 6 minutes (single attempt, no retry); a leg that exceeds its cap simply degrades to the available quorum. OpenCode runs the GLM/DeepSeek reasoning models via `opencode run --agent plan`; their latency is inherent generation time with a heavy tail (the `--variant` reasoning-effort flag does **not** meaningfully change it), so the genuine speed lever is swapping in faster non-reasoning models for those slots — a quality/reliability tradeoff left to you
 - Valid API keys / auth configured for each CLI
 
 Each reviewer degrades gracefully: if a CLI is missing or a model fails, that reviewer emits an error object and the arbiter proceeds with the remaining reviewers.
@@ -34,10 +34,10 @@ When the verdict comes back `NEEDS_WORK` or `BLOCK`, the `closing-tribunal-loop`
 ## How It Works
 
 ### Step 1: Pre-flight
-Verifies you're on a feature branch (not main) and that there are changes to review.
+Verifies you're on a feature branch (not main) and that there are changes to review, then runs an **environment preflight** — checks each reviewer CLI is on `PATH`, free disk space, and that the OpenCode model IDs resolve in the (warmed) registry. Problems are reported up front so a missing CLI, full disk, or cold model cache fails fast here instead of hanging a launched reviewer; affected reviewers are skipped and the run degrades to the available quorum. Only if **zero** providers are usable does it stop.
 
 ### Step 2: Parallel Review
-Runs Codex, Gemini, and OpenCode as **three parallel Bash calls**. Each analyzes the `git diff origin/main...HEAD` and returns structured JSON findings covering logic errors, security vulnerabilities, edge cases, performance issues, and architectural concerns. The two OpenCode reviewers run read-only (`opencode run --agent plan`) and **sequentially within the single OpenCode call** — running them concurrently deadlocks on OpenCode's shared data dir (issue #31), so they are serialized (~8-15s each, back-to-back). If the repo has an `AGENTS.md`, it is injected into every reviewer's prompt (capped at 16KB) as a shared **Project Conventions** block, so all four assess the diff against the same standards.
+Runs Codex, Gemini, and OpenCode as **three parallel Bash calls**. Each analyzes the `git diff origin/main...HEAD` and returns structured JSON findings covering logic errors, security vulnerabilities, edge cases, performance issues, and architectural concerns. The two OpenCode reviewers run read-only (`opencode run --agent plan`) and **sequentially within the single OpenCode call** — running them concurrently deadlocks on OpenCode's shared data dir (issue #31), so they are serialized back-to-back. The diff is passed to OpenCode as a **file attachment** (`-f`) rather than inline in the command line, which avoids the `MAX_ARG_STRLEN` (128 KiB single-argument) limit that previously made large diffs fail with "Argument list too long". If the repo has an `AGENTS.md`, it is injected into every reviewer's prompt (capped at 16KB) as a shared **Project Conventions** block, so all four assess the diff against the same standards.
 
 ### Step 3: Inline Arbitration (Opus)
 Opus deduplicates findings, resolves severity conflicts (always using the highest severity), marks any issue flagged by ≥2 reviewers as CONSENSUS, evaluates each finding for validity, and issues a final verdict: **APPROVE**, **NEEDS_WORK**, or **BLOCK**.

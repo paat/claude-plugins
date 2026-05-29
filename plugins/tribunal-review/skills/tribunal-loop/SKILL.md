@@ -20,14 +20,69 @@ Multi-provider code review. Codex (GPT-5.3) + Gemini (3 Pro Preview) + OpenCode 
 
 ## STEP 1: Pre-flight
 
+First verify the diff is reviewable:
+
 ```
-Verify:
 1. We're on a feature branch, not main. If on main: STOP and ask which branch to review.
 2. There is a diff vs origin/main. Run: git diff origin/main...HEAD --stat
    If no diff: STOP and report "No changes to review."
 ```
 
-Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed"
+Then run the **environment preflight** below as a single Bash call. It checks each
+reviewer up front — CLI on PATH, free disk, and (for OpenCode) that the model IDs
+resolve — so a missing CLI, full disk, or cold/stale model cache fails fast here
+instead of hanging a launched reviewer for minutes. Reviewers that fail preflight
+are skipped and the run degrades to the available quorum; only if **zero** providers
+are usable do we STOP.
+
+```bash
+WARN=""
+USABLE=0
+
+# Each reviewer CLI on PATH?
+for cli in codex gemini opencode; do
+  if command -v "$cli" >/dev/null 2>&1; then
+    USABLE=$((USABLE + 1))
+  else
+    WARN="${WARN}\n  - ${cli}: NOT on PATH — that provider will be skipped"
+  fi
+done
+
+# Free disk (OpenCode + Codex write temp/session state; a full disk hangs them).
+# Warn under ~2 GiB available on the home/tmp filesystem.
+AVAIL_KB=$(df -Pk "${TMPDIR:-/tmp}" 2>/dev/null | awk 'NR==2{print $4}')
+if [ -n "$AVAIL_KB" ] && [ "$AVAIL_KB" -lt 2097152 ]; then
+  WARN="${WARN}\n  - disk: only $((AVAIL_KB / 1024)) MiB free on ${TMPDIR:-/tmp} — reviewers may stall on writes"
+fi
+
+# OpenCode model registry: warm once, then confirm BOTH leg models resolve. A cold/stale
+# cache silently downgrades `-m` to an unauthenticated fallback (issue #32) — catch it here.
+if command -v opencode >/dev/null 2>&1; then
+  opencode models >/dev/null 2>&1 || true
+  OC_MODELS=$(opencode models 2>/dev/null)
+  for m in opencode-go/glm-5.1 opencode-go/deepseek-v4-pro; do
+    printf '%s\n' "$OC_MODELS" | grep -qxF "$m" || \
+      WARN="${WARN}\n  - opencode model ${m}: not in registry (cold/stale cache) — leg will be skipped; run \`opencode models\` to refresh"
+  done
+fi
+
+# Gemini auth note: a stale key surfaces only mid-review. We cannot cheaply verify it
+# here without a billable call, so just remind to rotate if Gemini fails in Step 2.
+if [ -n "$WARN" ]; then
+  printf 'PREFLIGHT WARNINGS:%b\n' "$WARN"
+fi
+if [ "$USABLE" -eq 0 ]; then
+  echo "PREFLIGHT FAIL: no reviewer CLIs found on PATH. Cannot run tribunal."
+  exit 1
+fi
+echo "PREFLIGHT OK: ${USABLE}/3 reviewer CLIs available."
+```
+
+If preflight exits non-zero (no usable providers): STOP and report. Otherwise note any
+warnings — the affected provider(s) will be skipped in Step 2 and arbitration treats the
+result as a degraded quorum.
+
+Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/3 providers ready{, warnings if any}"
 
 ---
 
@@ -283,26 +338,35 @@ if [ -z "$DIFF" ]; then
   exit 0
 fi
 
-# Diff-size guard (GLM/DeepSeek have large context; cap higher than Codex's 100KB)
-DIFF_SIZE=${#DIFF}
-DIFF_TRUNCATED=false
-if [ "$DIFF_SIZE" -gt 204800 ]; then
-  DIFF=$(printf '%s' "$DIFF" | head -c 204800)
-  DIFF_TRUNCATED=true
-fi
-
 # Optional: inject the repo's AGENTS.md so every reviewer judges the diff against
 # the same project conventions (capped; absent file => no injection). Read while
 # still in the repo, before the cd below.
 CONVENTIONS=""
 [ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
 
+# Pass the diff as a FILE ATTACHMENT (`-f`), NOT inline in the prompt argv. Earlier
+# versions embedded the whole diff in the prompt string, which `opencode run` passes as
+# a SINGLE argv element — and Linux caps any one argv string at MAX_ARG_STRLEN = 131072
+# bytes (128 KiB) regardless of the much larger total ARG_MAX. A diff past that limit made
+# execve fail with E2BIG ("Argument list too long"), silently dropping both OpenCode legs.
+# `-f` sidesteps the argv limit entirely (the file is read by opencode, not exec'd), so no
+# truncation is needed for argv reasons. We still apply a generous context-window guard so a
+# pathological diff cannot blow the model context; GLM/DeepSeek have large windows, so cap high.
+DIFF_SIZE=${#DIFF}
+DIFF_TRUNCATED=false
+if [ "$DIFF_SIZE" -gt 524288 ]; then          # 512 KiB context guard (NOT an argv limit)
+  DIFF=$(printf '%s' "$DIFF" | head -c 524288)
+  DIFF_TRUNCATED=true
+fi
+DIFF_FILE="$TMPDIR/review.diff"
+printf '%s' "$DIFF" > "$DIFF_FILE"
+
 # Run OpenCode from a NON-REPO directory. `opencode run` can deadlock at init
 # when its cwd is inside a git repository (it hangs after loading internal
 # plugins, never reaching model selection — a single instance, no concurrency).
-# The diff is already captured above and embedded in the prompt (--pure, "do NOT
+# The diff is captured above and passed via `-f` file attachment (--pure, "do NOT
 # use tools"), so opencode needs no repo/git context. $TMPDIR (mktemp -d) is a
-# scratch dir outside any repo.
+# scratch dir outside any repo and also holds the attached review.diff.
 cd "$TMPDIR"
 
 # Warm the OpenCode model registry. A cold/stale ~/.cache/opencode/models.json
@@ -342,7 +406,7 @@ RULES:
 - Use EXACT file paths from the diff headers (e.g., 'a/src/Foo.cs' -> 'src/Foo.cs')
 - Use the line number from the diff where the issue occurs
 - Each finding must have a concrete, actionable suggestion
-- Do NOT use any tools. Analyze ONLY the diff provided below.
+- Do NOT use any tools. Analyze ONLY the attached diff file.
 
 VERDICT RULES:
 - BLOCK: any critical-severity finding, OR 2+ high-severity findings
@@ -361,19 +425,28 @@ Output ONLY a JSON object, wrapped EXACTLY between these markers on their own li
   \"summary\": {\"total_findings\": 1, \"critical\": 0, \"high\": 1, \"medium\": 0, \"low\": 0, \"quality_score\": 7.5, \"verdict\": \"APPROVE|NEEDS_WORK|BLOCK\"}
 }
 ===TRIBUNAL_JSON_END===
-$([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated to 200KB. Review what is provided.")
+$([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated for context size. Review what is provided.")
 $([ -n "$CONVENTIONS" ] && printf '\n## Project Conventions (from AGENTS.md)\nUse these ONLY to judge whether the diff violates project standards; report findings only against the diff.\n\n%s\n' "$CONVENTIONS")
 
-THE DIFF:
-$DIFF"
+The unified diff to review is in the ATTACHED FILE (review.diff)."
 
-  # Retry once on timeout (exit 124) — OpenCode Go latency can transiently spike past the cap
-  for attempt in 1 2; do
-    timeout -k 10 600 opencode run --agent plan -m "$model" --variant high --format default --pure "$prompt" </dev/null \
-      >"$raw" 2>"$err"
-    oc_exit=$?
-    [ "$oc_exit" -ne 124 ] && break
-  done
+  # Fail fast: single attempt, 360s cap. The two legs run SEQUENTIALLY (issue #31), so a
+  # per-leg timeout bounds the worst case at ~360s+360s ≈ 12 min. The previous 600s cap WITH
+  # a timeout-retry could stack to ~40 min on a genuinely-hung provider — the multi-minute
+  # "hung review" stall users reported. A timed-out leg simply degrades to the available
+  # quorum, which arbitration (Step 3e) already handles gracefully.
+  #
+  # `--variant high`: keep maximum reasoning depth. The variant is NOT a meaningful latency
+  # lever for these reasoning models — measured minimal vs high at 21/24/23s vs 24/21/23s on
+  # the same diff (no reliable difference; the cost is inherent generation time with a heavy
+  # tail, not reasoning effort). So high costs nothing extra in wall-clock and buys more depth.
+  # The genuine latency lever is switching to faster NON-reasoning models (e.g. a *-flash slot),
+  # which is a quality/reliability tradeoff left to the operator. The 360s cap below bounds the
+  # heavy tail; a leg that exceeds it degrades to quorum. Diff is passed via `-f` (file attach),
+  # never inline in argv — see the file-attachment note above.
+  timeout -k 10 360 opencode run --agent plan -m "$model" --variant high --format default --pure "$prompt" -f "$DIFF_FILE" </dev/null \
+    >"$raw" 2>"$err"
+  oc_exit=$?
 
   if [ "$oc_exit" -eq 0 ] && [ -s "$raw" ]; then
     # Extract between sentinels; fall back to first-{ .. last-} slice
