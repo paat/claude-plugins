@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "SaaS startup simulation — business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product, acquiring customers, and iterating with one-shot improvements",
-      "version": "0.37.0",
+      "version": "0.38.0",
       "author": {
         "name": "Andre Paat"
       },
@@ -97,7 +97,7 @@
     {
       "name": "google-ads-strategist",
       "description": "Senior Google Ads strategist — iterative campaign design + Chrome-based creation in PAUSED state for investor review. Browser verification via Ad Preview Tool, SERP capture, and Ads Transparency Center. Enforces hypothesis discipline, buyer-intent + product-value gates, and accumulates learnings.",
-      "version": "0.4.1",
+      "version": "0.5.0",
       "author": {
         "name": "Andre Paat"
       },
