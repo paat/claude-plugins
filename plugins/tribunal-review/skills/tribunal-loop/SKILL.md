@@ -562,7 +562,8 @@ Override provider findings when they are clearly wrong. Add new findings if the 
 ### 3e: Degraded Input
 
 - If a subset of providers returned invalid JSON or failed: proceed with the remaining providers' findings. Note each failure in `provider_assessment`.
-- If **all four providers failed**: verdict = NEEDS_WORK, confidence = 0.0, rationale = "All review providers failed. Manual review required."
+- If Gemini returned `{"status": "disabled"}` (operator set `TRIBUNAL_GEMINI=off`): this is an INTENTIONAL skip, NOT a failure. Exclude Gemini from quorum entirely, set `provider_assessment.gemini.status` to `"disabled"`, and do not count it toward the "all providers failed" branch — the verdict is computed from the remaining (non-disabled) providers.
+- If **all non-disabled providers failed**: verdict = NEEDS_WORK, confidence = 0.0, rationale = "All review providers failed. Manual review required."
 - If **all providers returned zero findings**: verdict = APPROVE, confidence = 0.95.
 
 ### 3f: Issue Verdict
@@ -586,7 +587,7 @@ Output the tribunal verdict as JSON:
   }],
   "provider_assessment": {
     "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
-    "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
+    "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
     "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" }
   },
