@@ -232,6 +232,15 @@ fi
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 
+# Config: the Gemini leg can be disabled (TRIBUNAL_GEMINI=off) or pointed at a
+# different model (TRIBUNAL_GEMINI_MODEL). Only the literal "off" disables; anything
+# else (or unset) runs as normal. Defaults reproduce the original behavior exactly.
+if [ "${TRIBUNAL_GEMINI:-on}" = "off" ]; then
+  printf '%s\n' '{"provider": "gemini", "status": "disabled", "note": "Gemini leg disabled via TRIBUNAL_GEMINI=off"}'
+  exit 0
+fi
+GEMINI_MODEL="${TRIBUNAL_GEMINI_MODEL:-gemini-3-pro-preview}"
+
 # Parallel-safe: unique temp dir per invocation
 TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
 
@@ -247,7 +256,7 @@ fi
 CONVENTIONS=""
 [ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
 
-printf '%s\n' "$DIFF" | timeout -k 10 600 gemini --model gemini-3-pro-preview -p "You are a senior code reviewer performing a thorough security-focused review.
+printf '%s\n' "$DIFF" | timeout -k 10 600 gemini --model "$GEMINI_MODEL" -p "You are a senior code reviewer performing a thorough security-focused review.
 
 ANALYZE THIS DIFF FOR:
 1. Security vulnerabilities - injection, XSS, CSRF, auth issues, secrets exposure
