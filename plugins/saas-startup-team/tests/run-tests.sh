@@ -2277,6 +2277,7 @@ main() {
   test_enforce_handoff_naming_hook
   test_migrate_handoff_names
   test_goal_deliver
+  test_ads_delegation
 
   # Summary
   echo ""
@@ -2449,6 +2450,28 @@ test_goal_deliver() {
   assert_file_contains "T8: warns against team-lead" "$cmd" "team-lead"
   assert_file_contains "T9: documents /goal autonomy pairing" "$cmd" "/goal "
   assert_file_contains "T10: monitors GitHub Actions deploy" "$cmd" "gh run"
+}
+
+# ---------------------------------------------------------------------------
+# Suite U: /ads command + growth→ads delegation
+# ---------------------------------------------------------------------------
+
+test_ads_delegation() {
+  echo -e "\n${CYAN}Suite U: /ads command + growth→ads delegation${NC}"
+  local cmd="$PLUGIN_ROOT/commands/ads.md"
+
+  # U1–U8: the new /ads command
+  assert_file_exists "U1: ads.md exists" "$cmd"
+  assert_file_contains "U2: name frontmatter" "$cmd" "^name: ads"
+  assert_file_contains "U3: user_invocable" "$cmd" "user_invocable: true"
+  assert_file_contains "U4: spawns ads-strategist by registered type" "$cmd" 'subagent_type: "ads-strategist"'
+  assert_file_contains "U5: resets active_role" "$cmd" '.active_role ='
+  assert_file_contains "U6: creates PAUSED / investor enables" "$cmd" "PAUSED"
+  assert_file_contains "U7: hard-dependency install message" "$cmd" "google-ads-strategist"
+  # U8: must NOT use the saas read-md idiom (would resolve to the wrong plugin root)
+  local ads_content
+  ads_content=$(cat "$cmd")
+  assert_output_not_contains "U8: no read-md idiom for the strategist" "$ads_content" 'agents/ads-strategist.md'
 }
 
 main "$@"
