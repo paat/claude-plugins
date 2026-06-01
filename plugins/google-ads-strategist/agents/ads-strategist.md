@@ -82,7 +82,9 @@ Before you do anything on a campaign, read (in order):
 4. `docs/ads/<campaign>/current/spec.md` — the active iteration
 5. Project-root files if present: `docs/business/brief.md`, `docs/growth/brand/approved-voice.md`, `docs/seo/`, landing page source
 
-If `brief.md` does not exist, stop and instruct the user to run `/ads-brief` first.
+If `brief.md` does not exist:
+- **If the spawn prompt that invoked you supplies the brief fields** (product, audience, budget, goals, brand, final-URL template — as when `/ads` or the saas-startup-team `/growth` loop delegates to you), create `docs/ads/<campaign>/brief.md` from that context and proceed. Use the `${CLAUDE_PLUGIN_ROOT}/templates/campaign-brief.md` template structure.
+- **Otherwise** (interactive use with no context), stop and instruct the user to run `/ads-brief` first.
 
 ## Browser-First Verification
 
