@@ -39,8 +39,18 @@ are usable do we STOP.
 WARN=""
 USABLE=0
 
+# Gemini leg can be disabled via env (TRIBUNAL_GEMINI=off). When disabled it is an
+# INTENTIONAL skip — not probed on PATH and not counted toward the zero-usable check.
+# Only the literal "off" disables; anything else (or unset) = on.
+CLIS="codex gemini opencode"
+if [ "${TRIBUNAL_GEMINI:-on}" = "off" ]; then
+  CLIS="codex opencode"
+  WARN="${WARN}\n  - gemini: disabled via TRIBUNAL_GEMINI=off — leg will be skipped"
+fi
+TOTAL=$(set -- $CLIS; echo $#)
+
 # Each reviewer CLI on PATH?
-for cli in codex gemini opencode; do
+for cli in $CLIS; do
   if command -v "$cli" >/dev/null 2>&1; then
     USABLE=$((USABLE + 1))
   else
@@ -75,14 +85,14 @@ if [ "$USABLE" -eq 0 ]; then
   echo "PREFLIGHT FAIL: no reviewer CLIs found on PATH. Cannot run tribunal."
   exit 1
 fi
-echo "PREFLIGHT OK: ${USABLE}/3 reviewer CLIs available."
+echo "PREFLIGHT OK: ${USABLE}/${TOTAL} reviewer CLIs available."
 ```
 
 If preflight exits non-zero (no usable providers): STOP and report. Otherwise note any
 warnings — the affected provider(s) will be skipped in Step 2 and arbitration treats the
 result as a degraded quorum.
 
-Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/3 providers ready{, warnings if any}"
+Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL is 2 when Gemini is disabled via TRIBUNAL_GEMINI=off, else 3)
 
 ---
 
