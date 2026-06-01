@@ -507,9 +507,9 @@ a cold/stale `~/.cache/opencode/models.json`, which would otherwise silently dow
 {"error": "OpenCode model opencode-go/glm-5.1 not in registry (cold/stale cache) — run `opencode models` to refresh; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "glm"}
 ```
 
-Collect all four JSON outputs — Codex and Gemini from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration.
+Collect all four JSON outputs — Codex and Gemini from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration. A `{"status": "disabled"}` marker (only Gemini emits one, when `TRIBUNAL_GEMINI=off`) is an INTENTIONAL skip, not a failure and not a finding source — it has no `findings` key; report that leg as `disabled` rather than a count, and hand it to Step 3 as a disabled provider.
 
-Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G}, GLM: {L}, DeepSeek: {D} findings"
+Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G or 'disabled'}, GLM: {L}, DeepSeek: {D} findings"
 
 ---
 
