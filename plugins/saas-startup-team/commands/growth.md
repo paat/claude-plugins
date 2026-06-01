@@ -212,7 +212,7 @@ When a growth report flags an urgent issue or a product change needed:
 
 When a growth report contains a `## Google Ads request` block, the growth hacker has flagged Google Ads work it must NOT do itself (the `google-ads-strategist` plugin is a hard dependency for Google Ads). Delegate it at the team-lead level — do not have the growth hacker spawn anything (no nested subagents).
 
-1. Read the `## Google Ads request` block (it carries product, ICP, approved budget cap, brand, final-URL template, and a campaign slug).
+1. Read the `## Google Ads request` block (it carries product, ICP, goals (target CPA/ROAS, primary conversion), approved budget cap, brand, final-URL template, and a campaign slug).
 2. Reset `active_role` (defensive, matches `/lawyer`):
    ```bash
    if [ -f .startup/state.json ]; then
