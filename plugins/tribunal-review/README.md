@@ -27,9 +27,29 @@ On a feature branch with changes vs `origin/main`:
 /tribunal-loop
 ```
 
-The skill will verify you're on a feature branch, run the four reviews, and produce an arbitrated verdict.
+The skill will verify you're on a feature branch, run the reviews, and produce an arbitrated verdict.
 
 When the verdict comes back `NEEDS_WORK` or `BLOCK`, the `closing-tribunal-loop` skill guides the iterative close-out: per-finding triage (fix-in-PR vs file-follow-up vs reject), committing fixes one finding at a time, and re-running the tribunal until the arbiter returns `APPROVE` with zero findings on the latest diff.
+
+## Configuration
+
+The Gemini reviewer is configurable via two environment variables (export them in your
+shell before launching `claude`). Both default to the current behavior, so leaving them
+unset changes nothing.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `TRIBUNAL_GEMINI` | `on` | Set to `off` to skip the Gemini leg entirely. The run degrades to a 3-provider quorum (Codex + GLM + DeepSeek); the arbiter reports Gemini as `disabled`, not failed. Only the literal `off` disables. |
+| `TRIBUNAL_GEMINI_MODEL` | `gemini-3-pro-preview` | Model passed to `gemini --model`. Point it at a faster/cheaper slot to keep a full 4-provider quorum while controlling latency/cost. |
+
+```bash
+export TRIBUNAL_GEMINI=off                  # skip Gemini this session
+export TRIBUNAL_GEMINI_MODEL=gemini-3-flash # or swap the model instead
+```
+
+These knobs apply to the `tribunal-loop` workflow. (The standalone `gemini-reviewer`
+agent honors `TRIBUNAL_GEMINI_MODEL` but has no disable switch — invoking it always
+means a Gemini review is wanted.)
 
 ## How It Works
 

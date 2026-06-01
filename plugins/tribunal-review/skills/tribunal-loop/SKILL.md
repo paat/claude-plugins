@@ -39,8 +39,18 @@ are usable do we STOP.
 WARN=""
 USABLE=0
 
+# Gemini leg can be disabled via env (TRIBUNAL_GEMINI=off). When disabled it is an
+# INTENTIONAL skip — not probed on PATH and not counted toward the zero-usable check.
+# Only the literal "off" disables; anything else (or unset) = on.
+CLIS="codex gemini opencode"
+if [ "${TRIBUNAL_GEMINI:-on}" = "off" ]; then
+  CLIS="codex opencode"
+  WARN="${WARN}\n  - gemini: disabled via TRIBUNAL_GEMINI=off — leg will be skipped"
+fi
+TOTAL=$(set -- $CLIS; echo $#)
+
 # Each reviewer CLI on PATH?
-for cli in codex gemini opencode; do
+for cli in $CLIS; do
   if command -v "$cli" >/dev/null 2>&1; then
     USABLE=$((USABLE + 1))
   else
@@ -75,14 +85,14 @@ if [ "$USABLE" -eq 0 ]; then
   echo "PREFLIGHT FAIL: no reviewer CLIs found on PATH. Cannot run tribunal."
   exit 1
 fi
-echo "PREFLIGHT OK: ${USABLE}/3 reviewer CLIs available."
+echo "PREFLIGHT OK: ${USABLE}/${TOTAL} reviewer CLIs available."
 ```
 
 If preflight exits non-zero (no usable providers): STOP and report. Otherwise note any
 warnings — the affected provider(s) will be skipped in Step 2 and arbitration treats the
 result as a degraded quorum.
 
-Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/3 providers ready{, warnings if any}"
+Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL is 2 when Gemini is disabled via TRIBUNAL_GEMINI=off, else 3)
 
 ---
 
@@ -222,6 +232,15 @@ fi
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 
+# Config: the Gemini leg can be disabled (TRIBUNAL_GEMINI=off) or pointed at a
+# different model (TRIBUNAL_GEMINI_MODEL). Only the literal "off" disables; anything
+# else (or unset) runs as normal. Defaults reproduce the original behavior exactly.
+if [ "${TRIBUNAL_GEMINI:-on}" = "off" ]; then
+  printf '%s\n' '{"provider": "gemini", "status": "disabled", "note": "Gemini leg disabled via TRIBUNAL_GEMINI=off"}'
+  exit 0
+fi
+GEMINI_MODEL="${TRIBUNAL_GEMINI_MODEL:-gemini-3-pro-preview}"
+
 # Parallel-safe: unique temp dir per invocation
 TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
 
@@ -237,7 +256,7 @@ fi
 CONVENTIONS=""
 [ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
 
-printf '%s\n' "$DIFF" | timeout -k 10 600 gemini --model gemini-3-pro-preview -p "You are a senior code reviewer performing a thorough security-focused review.
+printf '%s\n' "$DIFF" | timeout -k 10 600 gemini --model "$GEMINI_MODEL" -p "You are a senior code reviewer performing a thorough security-focused review.
 
 ANALYZE THIS DIFF FOR:
 1. Security vulnerabilities - injection, XSS, CSRF, auth issues, secrets exposure
@@ -488,9 +507,9 @@ a cold/stale `~/.cache/opencode/models.json`, which would otherwise silently dow
 {"error": "OpenCode model opencode-go/glm-5.1 not in registry (cold/stale cache) — run `opencode models` to refresh; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "glm"}
 ```
 
-Collect all four JSON outputs — Codex and Gemini from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration.
+Collect all four JSON outputs — Codex and Gemini from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration. A `{"status": "disabled"}` marker (only Gemini emits one, when `TRIBUNAL_GEMINI=off`) is an INTENTIONAL skip, not a failure and not a finding source — it has no `findings` key; report that leg as `disabled` rather than a count, and hand it to Step 3 as a disabled provider.
 
-Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G}, GLM: {L}, DeepSeek: {D} findings"
+Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G or 'disabled'}, GLM: {L}, DeepSeek: {D} findings"
 
 ---
 
@@ -543,8 +562,9 @@ Override provider findings when they are clearly wrong. Add new findings if the 
 ### 3e: Degraded Input
 
 - If a subset of providers returned invalid JSON or failed: proceed with the remaining providers' findings. Note each failure in `provider_assessment`.
-- If **all four providers failed**: verdict = NEEDS_WORK, confidence = 0.0, rationale = "All review providers failed. Manual review required."
-- If **all providers returned zero findings**: verdict = APPROVE, confidence = 0.95.
+- If Gemini returned `{"status": "disabled"}` (operator set `TRIBUNAL_GEMINI=off`): this is an INTENTIONAL skip, NOT a failure. Exclude Gemini from quorum entirely, set `provider_assessment.gemini.status` to `"disabled"`, and do not count it toward the "all providers failed" branch — the verdict is computed from the remaining (non-disabled) providers.
+- If **all non-disabled providers failed**: verdict = NEEDS_WORK, confidence = 0.0, rationale = "All review providers failed. Manual review required."
+- If **all non-disabled providers returned zero findings**: verdict = APPROVE, confidence = 0.95.
 
 ### 3f: Issue Verdict
 
@@ -567,7 +587,7 @@ Output the tribunal verdict as JSON:
   }],
   "provider_assessment": {
     "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
-    "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
+    "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
     "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" }
   },

@@ -24,6 +24,11 @@ You are a Gemini CLI wrapper. Your ONLY job is to run ONE bash command and retur
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 
+# Model is overridable via TRIBUNAL_GEMINI_MODEL (defaults to gemini-3-pro-preview).
+# Note: this standalone path has no enable/disable switch — disabling is a
+# tribunal-loop concern; invoking this agent always means a Gemini review is wanted.
+GEMINI_MODEL="${TRIBUNAL_GEMINI_MODEL:-gemini-3-pro-preview}"
+
 # Parallel-safe: unique temp dir per invocation
 TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
 
@@ -34,7 +39,7 @@ if [ -z "$DIFF" ]; then
   exit 0
 fi
 
-printf '%s\n' "$DIFF" | timeout -k 10 600 gemini --model gemini-3-pro-preview -p "You are a senior code reviewer performing a thorough security-focused review.
+printf '%s\n' "$DIFF" | timeout -k 10 600 gemini --model "$GEMINI_MODEL" -p "You are a senior code reviewer performing a thorough security-focused review.
 
 ANALYZE THIS DIFF FOR:
 1. Security vulnerabilities - injection, XSS, CSRF, auth issues, secrets exposure
