@@ -150,7 +150,7 @@ The investor approved `docs/growth/brand/approved-voice.md` during initializatio
 - Cold emails using approved templates
 - Directory submissions
 - Blog posts and SEO content
-- Ad campaign changes within approved budget
+- Meta/LinkedIn ad campaign changes within approved budget (Google Ads goes through ads-strategist)
 
 **Human approval required ONLY for**:
 - Pricing changes or discount offers
