@@ -37,6 +37,7 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:ux-test` | Spawn UX tester for accessibility and usability audit |
 | `/saas-startup-team:improve` | One-shot improvements on a completed product |
 | `/saas-startup-team:goal-deliver` | Deliver a set of tasks (issues, milestone, spec, or free text) end-to-end: plan into chunks, ship each via `/improve` + closing tribunal loop + merge to main, then monitor and fix the GitHub Actions deploy. Pairs with built-in `/goal` for autonomy. Requires the `tribunal-review` plugin. |
+| `/saas-startup-team:ads` | Design a Google Ads campaign — spawns the `google-ads-strategist` plugin's `ads-strategist` (hard dependency) to design, browser-verify, and create the campaign in PAUSED state for investor review. The `/growth` loop also delegates here automatically. |
 
 ## The Loop
 
@@ -81,12 +82,17 @@ The `.startup/` directory is created at project root:
 
 `state.json` uses schema v2. A PostToolUse hook runs `compact-state.sh` after every Write and archives old handoff keys (`handoff_NNN_*`) plus other non-allowlisted entries into `state-archive.json` once the inline window (last 10 handoffs) is exceeded. The inline state stays under ~30 lines regardless of project age. Run `/status --compact --yes` on existing projects to migrate one-shot (a timestamped `.bak` is written first). Tune the window with `STARTUP_INLINE_HANDOFFS=N` if needed.
 
+### Google Ads records
+
+Google Ads campaigns live under `docs/ads/<campaign>/` (owned by the `google-ads-strategist` plugin — briefs, iterations, verification screenshots, learnings). `docs/growth/channels/ads.md` is a lightweight index into them (campaign slug, status, link) and retains the `Approved budget:` / `Total spend:` summary lines the budget hard-stop hook reads. Meta/LinkedIn ads are logged inline in `ads.md`.
+
 ## Prerequisites
 
 - Claude Code with Agent Teams support (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
 - Playwright MCP (`@playwright/mcp`) — automatically configured via plugin `.mcp.json`, runs headless
 - Web access enabled (for business founder's market research)
 - **Linux environment** — hooks use `/proc/` for process tree detection (Docker containers work)
+- **google-ads-strategist plugin** — required for any Google Ads work (hard dependency). Google Ads is delegated to its `ads-strategist` agent; `growth-hacker` no longer creates Google Ads campaigns itself. There is no manifest-level dependency field, so this is enforced behaviorally: `/ads` and the `/growth` loop fail with an install instruction if the plugin is absent.
 
 ## Key Design Decisions
 

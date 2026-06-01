@@ -154,8 +154,9 @@ State is tracked via plain marker files (`launched_at`, `applied_at`) — no emb
 
 ## Relationship to other plugins
 
-- **saas-startup-team / growth-hacker** is a generalist post-launch executor that already touches Google Ads via Chrome. `ads-strategist` is a specialist designer: it produces campaign specs, growth-hacker (or a human) handles the manual launch in the Ads UI.
-- The two plugins compose: use `/ads-brief` + `/ads-iterate` + `/ads-ready` here, then hand the ready spec to growth-hacker for execution.
+- **saas-startup-team** delegates all Google Ads work to this plugin (hard dependency). Its `growth-hacker` no longer creates Google Ads campaigns: it flags a `## Google Ads request` in its growth report, and the `/growth` loop spawns `ads-strategist` at the team-lead level. The investor can also trigger it directly with `/saas-startup-team:ads`. Both spawn `ads-strategist` by its registered agent type.
+- `ads-strategist` designs, browser-verifies, and creates the campaign in **PAUSED** state; the investor enables it. saas-startup-team tracks campaigns via a `docs/growth/channels/ads.md` index that links into the `docs/ads/<campaign>/` folders this plugin owns.
+- Standalone use is unchanged: `/ads-brief` + `/ads-iterate` + `/ads-ready` + `/ads-create` work without saas-startup-team.
 
 ## License
 
