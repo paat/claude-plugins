@@ -27,7 +27,7 @@ On a feature branch with changes vs `origin/main`:
 /tribunal-loop
 ```
 
-The skill will verify you're on a feature branch, run the four reviews, and produce an arbitrated verdict.
+The skill will verify you're on a feature branch, run the reviews, and produce an arbitrated verdict.
 
 When the verdict comes back `NEEDS_WORK` or `BLOCK`, the `closing-tribunal-loop` skill guides the iterative close-out: per-finding triage (fix-in-PR vs file-follow-up vs reject), committing fixes one finding at a time, and re-running the tribunal until the arbiter returns `APPROVE` with zero findings on the latest diff.
 
