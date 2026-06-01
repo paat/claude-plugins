@@ -87,6 +87,19 @@ assert_file_contains() {
   fi
 }
 
+assert_file_not_contains() {
+  local label="$1" path="$2" unexpected="$3"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if grep -qF "$unexpected" "$path" 2>/dev/null; then
+    echo -e "  ${RED}FAIL${NC} $label (file unexpectedly contains: '$unexpected')"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("$label: file unexpectedly contains '$unexpected'")
+  else
+    echo -e "  ${GREEN}PASS${NC} $label"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  fi
+}
+
 assert_equals() {
   local label="$1" actual="$2" expected="$3"
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
@@ -2469,9 +2482,13 @@ test_ads_delegation() {
   assert_file_contains "U6: creates PAUSED / investor enables" "$cmd" "PAUSED"
   assert_file_contains "U7: hard-dependency install message" "$cmd" "google-ads-strategist"
   # U8: must NOT use the saas read-md idiom (would resolve to the wrong plugin root)
-  local ads_content
-  ads_content=$(cat "$cmd")
-  assert_output_not_contains "U8: no read-md idiom for the strategist" "$ads_content" 'agents/ads-strategist.md'
+  assert_file_not_contains "U8: no read-md idiom for the strategist" "$cmd" 'agents/ads-strategist.md'
+
+  # U9–U11: the /growth loop auto-delegation branch
+  local growth="$PLUGIN_ROOT/commands/growth.md"
+  assert_file_contains "U9: growth.md has Google Ads request branch" "$growth" "Google Ads request"
+  assert_file_contains "U10: growth loop spawns ads-strategist by type" "$growth" 'subagent_type: "ads-strategist"'
+  assert_file_not_contains "U11: growth loop uses no read-md idiom for strategist" "$growth" 'agents/ads-strategist.md'
 }
 
 main "$@"

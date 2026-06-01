@@ -208,6 +208,24 @@ When a growth report flags an urgent issue or a product change needed:
 2. Dispatch business founder to write a feature handoff to tech founder
 3. This enters the normal build track loop
 
+### Growth-to-Ads delegation (automatic)
+
+When a growth report contains a `## Google Ads request` block, the growth hacker has flagged Google Ads work it must NOT do itself (the `google-ads-strategist` plugin is a hard dependency for Google Ads). Delegate it at the team-lead level — do not have the growth hacker spawn anything (no nested subagents).
+
+1. Read the `## Google Ads request` block (it carries product, ICP, approved budget cap, brand, final-URL template, and a campaign slug).
+2. Reset `active_role` (defensive, matches `/lawyer`):
+   ```bash
+   if [ -f .startup/state.json ]; then
+     jq '.active_role = "ads-strategist"' .startup/state.json \
+       > .startup/state.json.tmp && mv .startup/state.json.tmp .startup/state.json
+   fi
+   ```
+3. Spawn the strategist with the `Task` tool using `subagent_type: "ads-strategist"` (the registered type from `google-ads-strategist` — NOT `general-purpose`+read-md, which would resolve `${CLAUDE_PLUGIN_ROOT}` to the saas plugin). Pass the request block plus `docs/business/brief.md`, `docs/growth/product-brief.md`, `docs/growth/strategy.md`, `docs/growth/brand/approved-voice.md`, and `docs/growth/channels/ads.md`, with the instruction: create `docs/ads/<slug>/brief.md` from this context if absent, run the pre-launch loop, verify in the browser, and create the campaign **PAUSED**.
+4. **If the `ads-strategist` agent type is unknown**, the `google-ads-strategist` plugin is not installed. Stop and tell the investor to install it (`/plugin install google-ads-strategist`); do NOT fall back to building the campaign inline.
+5. After the strategist returns, update the `docs/growth/channels/ads.md` index entry for the slug (status: created-paused), then continue the growth loop.
+
+**Pre-launch caveat:** if the product is not yet live (`/growth --pre-launch`, no commercial landing page / `final_url`), defer the ads request — note it as a human task and continue — rather than building a campaign that cannot route traffic.
+
 ### Relay pattern
 
 Same as the build track: relay growth briefs and reports between business founder and growth agent with self-contained messages. Never assume either agent remembers prior context.
