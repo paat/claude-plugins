@@ -2489,6 +2489,13 @@ test_ads_delegation() {
   assert_file_contains "U9: growth.md has Google Ads request branch" "$growth" "Google Ads request"
   assert_file_contains "U10: growth loop spawns ads-strategist by type" "$growth" 'subagent_type: "ads-strategist"'
   assert_file_not_contains "U11: growth loop uses no read-md idiom for strategist" "$growth" 'agents/ads-strategist.md'
+
+  # U12–U15: growth-hacker flags Google Ads instead of doing it
+  local gh="$PLUGIN_ROOT/agents/growth-hacker.md"
+  assert_file_contains "U12: boundary forbids designing/creating/spawning Google Ads" "$gh" "NEVER design, create, or spawn Google Ads"
+  assert_file_contains "U13: growth-hacker writes a Google Ads request flag" "$gh" "Google Ads request"
+  assert_file_contains "U14: ads.md index retains budget summary lines" "$gh" "Approved budget:"
+  assert_file_not_contains "U15: no inline 'create the Google Ads campaign in the dashboard'" "$gh" "the Google Ads campaign in the dashboard"
 }
 
 main "$@"
