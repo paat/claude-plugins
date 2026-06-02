@@ -34,3 +34,11 @@ def test_cli_dry_run_prints_payload(tmp_path):
     assert payload["name"] == "Test item"
     assert payload["description_html"] == "<p>hi</p>"
     assert payload["priority"] == "medium"
+
+
+def test_resolve_project_by_name_and_uuid():
+    from plane_client import Plane
+    p = Plane("https://x", "tok", "ws")
+    p.list_projects = lambda: [{"id": "uuid-1", "name": "Backend"}, {"id": "uuid-2", "name": "Web"}]
+    assert p.resolve_project("Web") == "uuid-2"
+    assert p.resolve_project("uuid-1") == "uuid-1"

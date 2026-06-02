@@ -54,8 +54,22 @@ class Plane:
                 raise SystemExit(f"Plane {method} {path} failed {e.code}: {e.read().decode('utf-8','replace')}")
         raise SystemExit(f"Plane {method} {path} failed after retries")
 
-    def create_work_item(self, project: str, payload: dict) -> dict:
-        return self._req("POST", f"/api/v1/workspaces/{self.ws}/projects/{project}/work-items/", payload)
+    def list_projects(self) -> list[dict]:
+        r = self._req("GET", f"/api/v1/workspaces/{self.ws}/projects/")
+        # Plane returns either a paginated dict or a flat list depending on version.
+        return r["results"] if isinstance(r, dict) and "results" in r else r
+
+    def resolve_project(self, name_or_id: str) -> str:
+        """Return the project UUID, accepting either a UUID or a project name."""
+        projects = self.list_projects()
+        proj = next((p for p in projects if p["id"] == name_or_id or p["name"] == name_or_id), None)
+        if not proj:
+            raise SystemExit(f"Project '{name_or_id}' not found. Available: "
+                             + ", ".join(p["name"] for p in projects))
+        return proj["id"]
+
+    def create_issue(self, project_id: str, payload: dict) -> dict:
+        return self._req("POST", f"/api/v1/workspaces/{self.ws}/projects/{project_id}/issues/", payload)
 
 
 def main(argv: list[str]) -> int:
@@ -85,7 +99,8 @@ def main(argv: list[str]) -> int:
         raise SystemExit("PLANE_API_TOKEN not set")
     base = os.environ.get("PLANE_BASE_URL", "https://plan.r-53.com")
     plane = Plane(base, token, args.workspace)
-    created = plane.create_work_item(args.project, payload)
+    project_id = plane.resolve_project(args.project)
+    created = plane.create_issue(project_id, payload)
     print(json.dumps({"id": created.get("id"), "name": created.get("name")}, ensure_ascii=False))
     return 0
 
