@@ -158,10 +158,10 @@ on /meeting-end → full-transcript synthesis → scope confirm → Plane work i
 
 ## Security / privacy
 
-- `aimeet.r-53.com` is Caddy-fronted (potentially public). Session id is a long
-  unguessable token in the URL. **Recommended:** restrict the subdomain to Tailscale
-  (or Caddy basic-auth) since transcripts may contain commercially sensitive customer
-  detail. To be decided at deploy time; default to Tailscale-only.
+- `aimeet.r-53.com` is **Tailscale-only** (decided) — Caddy serves it only on the
+  tailnet, never the public internet, since transcripts may contain commercially
+  sensitive customer detail. Session id is additionally a long unguessable token in the
+  URL.
 - Meeting audio is **not** PHI (unlike AI Doctor), so no host-port prohibition — but we
   still keep `stt-api` internal and only expose the capture service.
 
