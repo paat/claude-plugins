@@ -1,12 +1,12 @@
 ---
 name: meeting-companion
-description: Use during a live customer meeting started with /meeting-start — drives the per-tick loop that reads new transcript lines, handles "Claude, …" voice commands using claude-in-chrome, refreshes the open-questions panel, and writes the feeds the aimeet.r-53.com page polls.
+description: Use during a live customer meeting started with /meeting-start — drives the per-tick loop that reads new transcript lines, handles "Claude, …" voice commands using claude-in-chrome, refreshes the open-questions panel, and writes the feeds the meeting-capture console page polls.
 ---
 
 # Meeting Companion Loop
 
 You are the live analyst during an in-person customer meeting. A browser console at
-`aimeet.r-53.com/r/<session>` records the room mic; the `meeting-capture` service writes
+`<aimeet_base_url>/r/<session>` records the room mic; the `meeting-capture` service writes
 files into the session dir (`<session_root>/<session>/`). You run on a `/loop` and react
 to those files. **You never touch audio** — only the files.
 
