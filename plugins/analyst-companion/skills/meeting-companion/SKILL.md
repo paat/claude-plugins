@@ -10,30 +10,39 @@ You are the live analyst during an in-person customer meeting. A browser console
 files into the session dir (`<session_root>/<session>/`). You run on a `/loop` and react
 to those files. **You never touch audio** — only the files.
 
-## Session files (read/write)
+## Locations
+- `<session_root>/active` — a one-line pointer file containing the **current session id**
+  (written by `/meeting-start`, removed by `/meeting-end`). Read this FIRST each tick to
+  learn the session id, then `<dir>` = `<session_root>/<session>/`.
+
+## Session files under `<dir>` (read/write)
 - `transcript.md` — append-only `[mm:ss] text` (READ deltas)
 - `commands.jsonl` — wake-word hits, one JSON per line (READ via offset)
-- `state.json` — YOUR cursor + running needs-model (READ/WRITE)
-- `questions.json` — clarifying questions for the page (WRITE)
-- `responses.json` — You↔Claude log for the page (WRITE; append)
+- `state.json` — YOUR cursor + running needs-model, at `<dir>/state.json` (READ/WRITE)
+- `questions.json` — clarifying questions for the page, JSON array of strings (WRITE)
+- `responses.json` — You↔Claude log, JSON array of `{"you","claude"}` (WRITE; read-modify-write)
 - `ended` — present when the meeting is over (READ; stop the loop)
 
 ## Config
 Read from `.claude/analyst-companion.local.md` frontmatter: `session_root`,
-`loop_interval_seconds`, `question_refresh_seconds`. The active session id is in
-`state.json` (written by `/meeting-start`).
+`loop_interval_seconds`, `question_refresh_seconds`. The active session id comes from the
+`<session_root>/active` pointer file (written by `/meeting-start`).
 
 ## Each tick (do in order)
 
-1. **Stop check.** If `<dir>/ended` exists, stop looping and tell the user the meeting
-   ended (do NOT auto-create Plane items — that is `/meeting-end`).
+1. **Resolve session + stop check.** Read `<session_root>/active` to get the session id;
+   if the pointer is missing, the meeting is over — stop looping. Set `<dir>` =
+   `<session_root>/<session>/`. If `<dir>/ended` exists, stop looping and tell the user
+   the meeting ended (do NOT auto-create Plane items — that is `/meeting-end`).
 
-2. **Load state.** Read `state.json` → `{ "session": id, "transcript_offset": N,
+2. **Load state.** Read `<dir>/state.json` → `{ "transcript_offset": N,
    "commands_offset": M, "needs": {...}, "last_question_refresh": secs }`. If missing,
    initialize offsets to 0.
 
 3. **Handle commands first (responsive).** Read `commands.jsonl` lines after
-   `commands_offset`. For each command (the text after the wake word):
+   `commands_offset` (line-count offset). Each line is a JSON object
+   `{"seconds": N, "command": "<text after the wake word>"}` — use `command` as the
+   directive and `seconds` for timestamp context. For each command:
    - Interpret intent freely (no rigid grammar). Common cases:
      - *"kas sa näed … akent / ekraani"* → use **claude-in-chrome** (`tabs_context_mcp`
        to find the active tab, then `read_page`/screenshot) to look, then answer in
