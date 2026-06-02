@@ -109,14 +109,16 @@ plane_base_url: https://plan.r-53.com
 plane_workspace_slug: <slug>
 plane_project: <name-or-uuid>
 aimeet_base_url: https://aimeet.r-53.com
-session_root: /mnt/data/ai/analyst-companion
-stt_model: Systran/faster-whisper-large-v3
-stt_language: et
+session_root: /mnt/data/ai/analyst-companion/sessions
 loop_interval_seconds: 9
+question_refresh_seconds: 60
 wake_words: [claude, klaud, kloud, klod, klood]
 ```
 
-Plane token comes from the `PLANE_API_TOKEN` env var (not stored in the file).
+Plane token comes from the `PLANE_API_TOKEN` env var (not stored in the file). Note: the
+STT model/language are **service** config (set on the `meeting-capture` container via
+`STT_MODEL`/`STT_LANGUAGE`), not plugin settings — the plugin never calls `stt-api`
+directly, so they are intentionally absent here.
 
 ## Data flow
 
