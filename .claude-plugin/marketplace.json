@@ -115,6 +115,17 @@
       "source": "./plugins/emails-to-github-issues",
       "category": "productivity",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "analyst-companion",
+      "description": "Real-time in-person meeting analyst — live transcription, clarifying questions, voice commands with Chrome screen context, and Plane work items at meeting end",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/analyst-companion",
+      "category": "productivity",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }

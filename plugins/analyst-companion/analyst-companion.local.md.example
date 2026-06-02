@@ -1,0 +1,17 @@
+---
+plane_base_url: https://plan.r-53.com
+plane_workspace_slug: <your-workspace-slug>
+plane_project: <project-name-or-uuid>
+aimeet_base_url: https://aimeet.r-53.com
+session_root: /mnt/data/ai/analyst-companion/sessions
+loop_interval_seconds: 9
+question_refresh_seconds: 60
+wake_words: [claude, klaud, kloud, klod, klood]
+---
+
+# analyst-companion settings
+
+Copy this file to `.claude/analyst-companion.local.md` in your project and fill in the
+placeholders. The Plane API token is read from the `PLANE_API_TOKEN` environment
+variable (workspace API token from Plane → Workspace settings → API Tokens), never
+stored here.
