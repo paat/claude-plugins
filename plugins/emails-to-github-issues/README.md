@@ -7,6 +7,7 @@ Pulls mail from a local Proton Mail Bridge (IMAP), strips Outlook HTML bodies, g
 ## Prerequisites
 
 - A running local Proton Mail Bridge with IMAP on `127.0.0.1:1143` (STARTTLS). The shenxn/protonmail-bridge Docker image works out of the box.
+  - If the agent runs in a **separate container** from the bridge, `127.0.0.1:114x` will refuse (that loopback is the host's, not the container's). Set `IMAP_HOST` to the bridge container's docker DNS name and `IMAP_PORT=143` (the in-container port) and connect over the shared docker network.
 - Python 3 (stdlib only — no third-party deps).
 - `gh` CLI authenticated for the target repo.
 

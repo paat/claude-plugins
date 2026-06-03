@@ -271,7 +271,10 @@ shift_headings_up() {
         else if (substr(tok, 1, 1) == substr(ft, 1, 1) && length(tok) >= length(ft)) { in_fence = 0; ft = "" }
         print; next
       }
-      if (!in_fence && $0 ~ /^#{1,5}[[:space:]]/) { $0 = "#" $0 }
+      # Demote levels 1-5 (a level-6 heading must NOT gain a 7th '#'). The leading
+      # '#' run length is measured via match()/RLENGTH rather than an ERE interval
+      # ({1,5}), which interval-less mawk builds silently fail to match (issue #33).
+      if (!in_fence && $0 ~ /^#+[[:space:]]/ && (match($0, /^#+/) && RLENGTH <= 5)) { $0 = "#" $0 }
       print
     }
   '
@@ -312,7 +315,7 @@ extract_heading_content() {
       }
     }
 
-    !in_fence && /^#{1,6}[[:space:]]+/ {
+    !in_fence && /^#+[[:space:]]+/ {
       line = $0
       sub(/[[:space:]].*/, "", line)
       cur_level = length(line)

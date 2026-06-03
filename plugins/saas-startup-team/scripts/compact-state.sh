@@ -71,7 +71,7 @@ JQ_SELECT_ARCHIVE='
   with_entries(
     .key as $k |
     select(
-      if ($k | test("^(schema_version|max_iterations|status|started|resumed|iteration|phase|active_role|agent_handoffs|archived_through|latest_handoff)$")) then false
+      if ($k | test("^(schema_version|max_iterations|status|started|resumed|iteration|phase|active_role|agent_handoffs|archived_through|latest_handoff|paused_at|paused_reason)$")) then false
       elif ($k | startswith("growth_")) then false
       elif ($k | test("^handoff_[0-9]+_")) then
         ($k | capture("^handoff_(?<n>[0-9]+)_") | .n | tonumber) <= $cutoff
@@ -86,7 +86,7 @@ JQ_SELECT_INLINE='
   with_entries(
     .key as $k |
     select(
-      ($k | test("^(schema_version|max_iterations|status|started|resumed|iteration|phase|active_role|agent_handoffs|archived_through|latest_handoff)$"))
+      ($k | test("^(schema_version|max_iterations|status|started|resumed|iteration|phase|active_role|agent_handoffs|archived_through|latest_handoff|paused_at|paused_reason)$"))
       or ($k | startswith("growth_"))
       or (
         ($k | test("^handoff_[0-9]+_"))

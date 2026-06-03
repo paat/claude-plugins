@@ -1796,6 +1796,22 @@ test_compact_state() {
   ec=0; output=$(cd "$workdir" && bash "$script" --window 0 2>&1) || ec=$?
   assert_exit_code "P20: --window 0 exits 2" "$ec" 2
   rm -rf "$workdir"
+
+  # P21: pause metadata (paused_at, paused_reason) survives compaction (issue #24).
+  # A paused loop's pause timestamp/reason are legitimate inline state and must NOT be
+  # swept to the archive when an unrelated key triggers compaction.
+  workdir=$(make_workdir)
+  setup_startup_dir "$workdir" 13
+  state="$workdir/.startup/state.json"
+  jq '.status = "paused" | .paused_at = "2026-05-10T12:00:00Z" | .paused_reason = "investor stepped away"' \
+    "$state" > "$state.tmp" && mv "$state.tmp" "$state"
+  seed_handoffs "$state" 15
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "P21: compaction with pause metadata exits 0" "$ec" 0
+  assert_json_field "P21b: paused_at preserved inline"     "$state" '.paused_at // "MISSING"'     "2026-05-10T12:00:00Z"
+  assert_json_field "P21c: paused_reason preserved inline" "$state" '.paused_reason // "MISSING"' "investor stepped away"
+  assert_json_field "P21d: status=paused preserved"        "$state" ".status" "paused"
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------

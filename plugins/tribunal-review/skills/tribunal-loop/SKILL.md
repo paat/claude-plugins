@@ -383,9 +383,10 @@ printf '%s' "$DIFF" > "$DIFF_FILE"
 # Run OpenCode from a NON-REPO directory. `opencode run` can deadlock at init
 # when its cwd is inside a git repository (it hangs after loading internal
 # plugins, never reaching model selection — a single instance, no concurrency).
-# The diff is captured above and passed via `-f` file attachment (--pure, "do NOT
-# use tools"), so opencode needs no repo/git context. $TMPDIR (mktemp -d) is a
-# scratch dir outside any repo and also holds the attached review.diff.
+# The diff is captured above and passed via `-f` file attachment, and the prompt says
+# "do NOT use tools", so opencode needs no repo/git context. $TMPDIR (mktemp -d) is a
+# scratch dir outside any repo and also holds the attached review.diff. (Plugin loading
+# itself is suppressed separately, when supported, via the feature-detected `--pure`.)
 cd "$TMPDIR"
 
 # Warm the OpenCode model registry. A cold/stale ~/.cache/opencode/models.json
@@ -395,6 +396,17 @@ cd "$TMPDIR"
 # Refresh once, then snapshot the list so each leg can assert its model resolved.
 opencode models >/dev/null 2>&1 || true
 OC_MODELS=$(opencode models 2>/dev/null)
+
+# Feature-detect `--pure` (runs the model WITHOUT external plugins — this is what
+# avoids the plugin-load deadlock noted above, not the -f attachment). Older opencode
+# (e.g. 1.2.4) has no such flag and, on the unknown argument, aborts the WHOLE run by
+# printing `run` help to stdout and exiting 1 with empty stderr — which the leg catches
+# as a generic "OpenCode ... failed", silently degrading the 4-provider tribunal to 2
+# (issue #36). Probe once and append it only when this opencode advertises it.
+OC_PURE=""
+if opencode run --help 2>&1 | grep -q -- '--pure'; then
+  OC_PURE="--pure"
+fi
 
 # Review one OpenCode leg and print its JSON. Args: provider, label, model.
 review_opencode_leg() {
@@ -463,7 +475,7 @@ The unified diff to review is in the ATTACHED FILE (review.diff)."
   # which is a quality/reliability tradeoff left to the operator. The 360s cap below bounds the
   # heavy tail; a leg that exceeds it degrades to quorum. Diff is passed via `-f` (file attach),
   # never inline in argv — see the file-attachment note above.
-  timeout -k 10 360 opencode run --agent plan -m "$model" --variant high --format default --pure "$prompt" -f "$DIFF_FILE" </dev/null \
+  timeout -k 10 360 opencode run --agent plan -m "$model" --variant high --format default $OC_PURE "$prompt" -f "$DIFF_FILE" </dev/null \
     >"$raw" 2>"$err"
   oc_exit=$?
 

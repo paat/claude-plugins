@@ -31,7 +31,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review with Codex, Gemini, OpenCode (GLM + DeepSeek), and Opus arbitration",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -42,7 +42,7 @@
     {
       "name": "agent-sync",
       "description": "Generate AGENTS.md from Claude Code project configuration files",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "author": {
         "name": "Andre Paat"
       },
@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "SaaS startup simulation — business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product, acquiring customers, and iterating with one-shot improvements",
-      "version": "0.38.0",
+      "version": "0.38.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -108,7 +108,7 @@
     {
       "name": "emails-to-github-issues",
       "description": "Turn emails from named senders into GitHub issues — IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping that respects customer-side numbering, inline-screenshot handling, and scope confirmation before writes",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "Andre Paat"
       },

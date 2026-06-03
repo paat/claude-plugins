@@ -22,7 +22,8 @@ Do **not** use for internal FYI mail or for mail the user only wants summarized 
 ## Workflow
 
 1. **Discover repo conventions.** `git remote -v`; read 2–3 recent customer-reported issues (`gh issue list -R <repo> --label customer-reported --limit 5` + `gh api repos/<repo>/issues/<N> --jq .body`) to learn label names, title/body style, and — critically — **how images are hosted** (dedicated release tag, user-attachments CDN, committed files).
-2. **Ask user for `BRIDGE_PASS`.** Never try to read the encrypted Proton Bridge vault. Connect to `127.0.0.1:1143` STARTTLS (primary bridge; 1144 is aruannik, a different account).
+2. **Ask user for `BRIDGE_PASS`.** Never try to read the encrypted Proton Bridge vault. Connect to `127.0.0.1:1143` STARTTLS (primary bridge; a secondary account, if any, uses a different port such as `1144`).
+   - **Container caveat:** `127.0.0.1:114x` is the *bridge host's* loopback. If the agent runs in a **separate container** from Proton Bridge, that loopback refuses the connection even though `docker ps` shows the port mapped — the published-port remap only exists on the host, not inside your container. Reach the bridge over the shared docker network instead: set `IMAP_HOST` to the **bridge container's docker DNS name** and `IMAP_PORT=143` (the real in-container port, *not* the host-published 1143/1144). The container IP works too but isn't stable across stack recreation — prefer the DNS name.
 3. **Fetch.** Adapt `fetch_mails_template.py`: set `SENDER_TOKENS` to ASCII address substrings, `SINCE` to `dd-Mon-yyyy`. Use `readonly=True`.
 4. **Extract bodies.** Prefer `text/plain`; strip HTML when absent (Outlook is HTML-only). Trim quoted replies (`From:`/`Saatja:`/`On … wrote:`/leading `>`). Template does this.
 5. **Group into threads** in this priority: (a) customer's own `#NN` numbering; (b) normalized subject minus `Re:/RE:/Fwd:/VS:`; (c) RFC `References`/`In-Reply-To` only if both fail — Outlook drops these.

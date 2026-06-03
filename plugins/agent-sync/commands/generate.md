@@ -16,9 +16,19 @@ Generate or update AGENTS.md from the project's Claude Code configuration files.
 
 2. If no config found, tell the user to run `/agent-sync:init` first.
 
-3. Run the generator script:
+3. Run the generator script. **Prefer the repo's vendored copy** when present, falling back to
+   the plugin-cache copy — this is the exact precedence `/agent-sync:init` writes into CI, so the
+   skill, the vendored copy, and CI all run the *same* generator and output never disagrees with
+   the repo's own `--check`:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/generate.sh" --config "<path-to-sources.json>"
+   if [ -f "tools/agent-sync/generate.sh" ]; then
+     GEN=tools/agent-sync/generate.sh
+   elif [ -f ".agent-sync/generate.sh" ]; then
+     GEN=.agent-sync/generate.sh
+   else
+     GEN="${CLAUDE_PLUGIN_ROOT}/scripts/generate.sh"
+   fi
+   bash "$GEN" --config "<path-to-sources.json>"
    ```
 
 4. Report results:
@@ -28,10 +38,18 @@ Generate or update AGENTS.md from the project's Claude Code configuration files.
 
 ## If `--check` is passed
 
-Run in check mode to verify AGENTS.md is in sync without modifying files:
+Run in check mode to verify AGENTS.md is in sync without modifying files (same vendored-first
+generator selection as step 3, with `--check` appended):
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/generate.sh" --config "<path-to-sources.json>" --check
+if [ -f "tools/agent-sync/generate.sh" ]; then
+  GEN=tools/agent-sync/generate.sh
+elif [ -f ".agent-sync/generate.sh" ]; then
+  GEN=.agent-sync/generate.sh
+else
+  GEN="${CLAUDE_PLUGIN_ROOT}/scripts/generate.sh"
+fi
+bash "$GEN" --config "<path-to-sources.json>" --check
 ```
 
 Report pass/fail status. On failure, suggest running `/agent-sync:generate` to fix.

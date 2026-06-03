@@ -30,8 +30,13 @@ USER = os.environ.get("IMAP_USER") or sys.exit(
 PASS = os.environ.get("BRIDGE_PASS") or sys.exit(
     "Set BRIDGE_PASS=... (Proton Bridge app password — not your Proton account password)"
 )
+# IMAP_HOST/PORT default to the bridge host's loopback. NOTE: if this script runs in a
+# *different container* than Proton Bridge, 127.0.0.1:114x will refuse — the published-port
+# remap only exists on the docker host, not inside this container. In that case set
+# IMAP_HOST to the bridge container's docker DNS name and IMAP_PORT=143 (the real in-container
+# port, not the host-published 1143/1144) and reach it over the shared docker network.
 HOST = os.environ.get("IMAP_HOST", "127.0.0.1")
-PORT = int(os.environ.get("IMAP_PORT", "1143"))  # primary proton-bridge; other accounts use different ports
+PORT = int(os.environ.get("IMAP_PORT", "1143"))  # primary proton-bridge; secondary accounts use other ports (e.g. 1144)
 
 # IMAP SEARCH tokens — ASCII substrings of email addresses, not display names
 SENDER_TOKENS = ["masak", "lumi"]
