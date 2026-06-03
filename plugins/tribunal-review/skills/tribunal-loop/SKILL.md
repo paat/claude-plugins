@@ -403,9 +403,11 @@ OC_MODELS=$(opencode models 2>/dev/null)
 # printing `run` help to stdout and exiting 1 with empty stderr — which the leg catches
 # as a generic "OpenCode ... failed", silently degrading the 4-provider tribunal to 2
 # (issue #36). Probe once and append it only when this opencode advertises it.
-OC_PURE=""
+# Built as an array so the flag is either absent or passed as exactly one argv
+# element — no reliance on unquoted word-splitting (ShellCheck SC2086-clean).
+OC_PURE_ARGS=()
 if opencode run --help 2>&1 | grep -qE '(^|[[:space:]])--pure([[:space:]]|$)'; then
-  OC_PURE="--pure"
+  OC_PURE_ARGS=(--pure)
 fi
 
 # Review one OpenCode leg and print its JSON. Args: provider, label, model.
@@ -475,7 +477,7 @@ The unified diff to review is in the ATTACHED FILE (review.diff)."
   # which is a quality/reliability tradeoff left to the operator. The 360s cap below bounds the
   # heavy tail; a leg that exceeds it degrades to quorum. Diff is passed via `-f` (file attach),
   # never inline in argv — see the file-attachment note above.
-  timeout -k 10 360 opencode run --agent plan -m "$model" --variant high --format default $OC_PURE "$prompt" -f "$DIFF_FILE" </dev/null \
+  timeout -k 10 360 opencode run --agent plan -m "$model" --variant high --format default "${OC_PURE_ARGS[@]}" "$prompt" -f "$DIFF_FILE" </dev/null \
     >"$raw" 2>"$err"
   oc_exit=$?
 

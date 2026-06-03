@@ -132,6 +132,66 @@ OUT3="$REPO3/AGENTS.md"
 assert_line "no-title: leading fenced comment not stripped as title" "$OUT3" "# leading comment — file opens with a fence, no title heading"
 assert_line "no-title: heading still shifted" "$OUT3" "### Notes"
 
+# --- Fixture: mawk interval-portability edge cases (issue #33). The heading
+#     regexes use match()/RLENGTH instead of ERE intervals; assert the boundary
+#     behaviour those guards exist to preserve, on the default awk (mawk here). --
+REPO4="$TMP/mawk-shift-edges"
+mkdir -p "$REPO4/.agent-sync" "$REPO4/.claude/rules"
+
+cat > "$REPO4/.claude/rules/edges.md" <<'EOF'
+# Edges
+
+## Level Two
+###### Level Six
+####### Seven Hashes Not A Heading
+#nospace-not-a-heading
+EOF
+
+cat > "$REPO4/.agent-sync/sources.json" <<'JSON'
+{"version":2,"files":{"e":".claude/rules/edges.md"},"outputs":[{"path":"AGENTS.md","sections":[{"id":"e","title":"Edges","source":"e","type":"full-body"}]}]}
+JSON
+
+bash "$GEN" --config "$REPO4/.agent-sync/sources.json" --root "$REPO4" >/dev/null 2>&1
+OUT4="$REPO4/AGENTS.md"
+
+# Levels 1-5 demote by +1; level 6 must NOT gain a 7th '#'.
+assert_line   "mawk-shift: level-2 demoted to level-3"        "$OUT4" "### Level Two"
+assert_line   "mawk-shift: level-6 NOT demoted to level-7"    "$OUT4" "###### Level Six"
+assert_absent "mawk-shift: no 7-hash heading from level-6"    "$OUT4" "####### Level Six"
+# A 7-hash line is not a valid heading: untouched (not demoted).
+assert_line   "mawk-shift: 7-hash line preserved verbatim"    "$OUT4" "####### Seven Hashes Not A Heading"
+# A '#' run with no following space is not a heading: untouched.
+assert_line   "mawk-shift: hash-without-space preserved"      "$OUT4" "#nospace-not-a-heading"
+
+# --- Fixture: extract path must also cap at level 6 — a 7-hash line inside the
+#     captured body is content, not a heading boundary (issue #33 / tribunal T-001). -
+REPO5="$TMP/mawk-extract-edges"
+mkdir -p "$REPO5/.agent-sync" "$REPO5/.claude/rules"
+
+cat > "$REPO5/.claude/rules/doc.md" <<'EOF'
+# Doc
+
+## Section
+intro line
+####### deep marker not a heading
+tail line
+
+## Other
+Other body.
+EOF
+
+cat > "$REPO5/.agent-sync/sources.json" <<'JSON'
+{"version":2,"files":{"d":".claude/rules/doc.md"},"outputs":[{"path":"AGENTS.md","sections":[{"id":"s","title":"Section","source":"d","type":"extract","headings":["Section"]}]}]}
+JSON
+
+bash "$GEN" --config "$REPO5/.agent-sync/sources.json" --root "$REPO5" >/dev/null 2>&1
+OUT5="$REPO5/AGENTS.md"
+
+assert_line   "mawk-extract: section intro captured"          "$OUT5" "intro line"
+assert_line   "mawk-extract: 7-hash line kept as content"     "$OUT5" "####### deep marker not a heading"
+assert_line   "mawk-extract: content after 7-hash survives"   "$OUT5" "tail line"
+assert_absent "mawk-extract: sibling section excluded"        "$OUT5" "Other body."
+
 echo "-----"
 echo "PASS=$PASS FAIL=$FAIL"
 [[ $FAIL -eq 0 ]] || exit 1
