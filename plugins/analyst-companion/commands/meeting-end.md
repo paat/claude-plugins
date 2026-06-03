@@ -21,9 +21,11 @@ Close the active meeting and turn it into reviewed Plane work items.
    rm -f "<session_root>/active"
    ```
 
-3. **Synthesize work items.** Read the full `<session_root>/<id>/transcript.md` plus the
+3. **Synthesize work items.** Read the full `<session_root>/<id>/transcript.md` (lines are
+   `[mm:ss] <speaker>: text`), the `<session_root>/<id>/speakers.json` name map, and the
    accumulated `needs` in `<session_root>/<id>/state.json`. Produce a concise list of
-   proposed Plane work items. For each: a short Estonian **title**, an HTML
+   proposed Plane work items, attributing each to the participant(s) who requested it where
+   the transcript makes that clear (use display names from `speakers.json`). For each: a short Estonian **title**, an HTML
    **description** (context + what the customer asked + acceptance hint), and a
    **priority** (urgent/high/medium/low/none). Write the proposal to
    `<session_root>/<id>/work-items.md` for the record.
