@@ -2,6 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **STATUS (2026-06-03):** Implemented; verified end-to-end **Steps 1–4 on RTX 5090** (cuda True,
+> `large-v3` on sm_120, Sortformer loaded, relay+persistence proven). Three pre-flight
+> assumptions were corrected at bring-up — all reflected below: **(1)** diarization extra is
+> `diarization-sortformer` + NeMo from git `main`; **(2)** pin **CUDA-12.8 torch** (cu128) for
+> Blackwell + `libcublas.so.12`; **(3)** the flag is `--lan`, not `--language`. Also: WLK frame
+> timestamps are strings (`parseWlk` fixed), and the Caddy front uses a `remote_ip` gate, not
+> `bind`. Authoritative code lives in the committed `aimeet` repo. **Live two-speaker mic
+> rehearsal (Step 5) + Plane close (Step 6) remain** — they need a person at the laptop.
+
 **Goal:** Upgrade the in-person meeting analyst from batch transcription to **live streaming transcription with speaker-attributed dialog**, by introducing a WhisperLiveKit (WLK) container and reworking the `aimeet` service to relay mic audio to WLK and persist finalized speaker-tagged lines — the plugin loop and Plane output are unchanged.
 
 **Architecture:** A new internal-only **`wlk`** container runs WhisperLiveKit (`faster-whisper large-v3`, Estonian, Streaming Sortformer diarization) exposing a WebSocket `/asr`. The **`aimeet`** service gains a transparent WebSocket relay (`/sessions/{id}/stream` → `wlk:/asr`) so WLK stays off the tailnet, plus a deterministic `POST /line` endpoint where the browser posts each finalized `{seconds, speaker, text}` (persist + wake-word detect). The browser captures s16le PCM via an AudioWorklet, streams it through the relay, renders WLK's speaker dialog live, and posts finalized lines. The transcript-file seam (Claude polls `transcript.md` deltas) is unchanged; lines now carry a `Speaker N:` prefix.
@@ -54,17 +63,28 @@
 - [ ] **Step 1: Create `wlk/Dockerfile`**
 
 ```dockerfile
-# WhisperLiveKit — simultaneous streaming STT + Sortformer diarization.
-# GPU image. faster-whisper backend; raw PCM input (no ffmpeg needed for our path,
-# but ffmpeg is harmless to keep for fallback).
+# WhisperLiveKit — simultaneous streaming STT + Sortformer diarization. GPU image.
+# VERIFIED essentials below (RTX 5090 / Blackwell sm_120, whisperlivekit 0.2.21). The
+# committed aimeet `wlk/Dockerfile` is authoritative; the pre-flight version in this plan
+# was wrong on THREE points, all corrected here:
+#   1. CUDA — default PyPI torch is now a CUDA-13 build, but ctranslate2 needs
+#      libcublas.so.12 → pin CUDA-12.8 torch (cu128 also supports Blackwell sm_120).
+#   2. Diarization extra is `diarization-sortformer` (NOT `diarization`, which doesn't exist).
+#   3. Streaming Sortformer is unreleased → install nemo_toolkit[asr] from git main.
 FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg git \
     && rm -rf /var/lib/apt/lists/*
 
-# whisperlivekit pulls torch + faster-whisper; the diarization extra adds the
-# Sortformer/diart stack. Pin at build time once a known-good version is chosen.
-RUN pip install --no-cache-dir "whisperlivekit[diarization]"
+# CUDA-12.8 torch FIRST (Blackwell sm_120 + libcublas.so.12 for ctranslate2).
+RUN pip install --no-cache-dir torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+
+# Streaming Sortformer from NeMo git main, then whisperlivekit with the sortformer extra.
+RUN pip install --no-cache-dir "nemo_toolkit[asr] @ git+https://github.com/NVIDIA/NeMo.git@main" \
+ && pip install --no-cache-dir "whisperlivekit[diarization-sortformer]"
+
+# Build-time assertion: catch a CUDA-13 torch regression before runtime.
+RUN python -c "import ctypes; ctypes.CDLL('libcublas.so.12')"
 
 EXPOSE 8000
 # Flags are provided by docker-compose `command:` so they can be tuned without rebuild.
@@ -74,19 +94,21 @@ ENTRYPOINT ["wlk"]
 - [ ] **Step 2: Build the image**
 
 Run: `cd /mnt/data/ai/aimeet && docker build -t wlk:local -f wlk/Dockerfile wlk`
-Expected: image builds. (If the `[diarization]` extra name differs in the installed
-version, run `docker run --rm wlk:local --help` after a plain `pip install whisperlivekit`
-build and adjust; record the working extra in the Dockerfile comment.)
+Expected: image builds (slow — cu128 torch wheels are large and NeMo builds from git). The
+extra/entrypoint were resolved during bring-up: extra `diarization-sortformer`, console
+script `wlk`, flags route to `serve`. Confirm with `docker run --rm wlk:local --help`.
 
 - [ ] **Step 3: Smoke-test the server starts on GPU and serves `/asr`** (verified fully in compose at Task F6; here just confirm the binary runs)
 
 Run:
 ```bash
 docker run --rm --gpus all wlk:local \
-  --backend faster-whisper --model large-v3-turbo --language et --diarization \
-  --pcm-input --host 0.0.0.0 --port 8000 &
+  --backend faster-whisper --model large-v3-turbo --lan et --diarization \
+  --diarization-backend sortformer --pcm-input --host 0.0.0.0 --port 8000 &
 sleep 30   # first run downloads weights
 docker ps --filter ancestor=wlk:local
+# confirm GPU (must print True), not silent CPU fallback:
+docker exec "$(docker ps -q --filter ancestor=wlk:local)" python -c "import torch; print(torch.cuda.is_available())"
 ```
 Expected: container stays up (downloads `large-v3`/Sortformer weights on first run; use a
 named volume in compose to cache them — see F6). Stop it afterwards.
@@ -475,11 +497,15 @@ cd /mnt/data/ai/aimeet && git rm -q app/stt.py tests/test_chunk.py && git add -A
 **Files:**
 - Replace: `/mnt/data/ai/aimeet/app/static/record.html`
 
-> **Note on WLK's result schema:** the exact JSON WLK streams back is interpreted ONLY
-> here. The parser below is written against WLK's documented behavior (segments carrying
-> speaker + text, an in-flight partial/buffer field, and a `{"type":"ready_to_stop"}`
-> marker). At integration, open WLK's own frontend / `read_console_messages` to confirm
-> field names and adjust `parseWlk()` only. Everything else is schema-independent.
+> **Note on WLK's result schema — VERIFIED, parser since fixed.** The HTML below is the
+> **pre-flight draft**; the committed `aimeet/app/static/record.html` is authoritative and
+> contains the fix. Real WLK frames (confirmed on RTX 5090, whisperlivekit 0.2.21): segments
+> carry `text`, an **int `speaker`** where **`-2` = silence** (skip it), and **timestamps as
+> strings** like `"0:00:00.58"` (`H:MM:SS.ss`) — NOT numbers; plus a partial/buffer field and
+> a `{"type":"ready_to_stop"}` marker. The draft `parseWlk()` did `Math.round(start)` on the
+> string → `NaN` → `/line` 422 → empty transcript. **Fix:** a `toSeconds()` helper parses the
+> `"H:MM:SS.ss"` string, and the loop skips `speaker === -2`. The extracted parser was re-run
+> against a real captured frame → PASS. `parseWlk()` remains the ONLY schema-coupled spot.
 
 - [ ] **Step 1: Overwrite `app/static/record.html`**
 
@@ -728,9 +754,10 @@ services:
     container_name: wlk
     restart: unless-stopped
     command: >
-      --backend faster-whisper --model large-v3 --language et
-      --diarization --pcm-input --host 0.0.0.0 --port 8000
-    # If VRAM is tight alongside other GPU services, switch --model to large-v3-turbo.
+      --backend faster-whisper --model large-v3 --lan et
+      --diarization --diarization-backend sortformer --pcm-input --host 0.0.0.0 --port 8000
+    # Verified flags (0.2.21): it's --lan (not --language); --diarization-backend sortformer
+    # is explicit. If VRAM is tight alongside other GPU services, switch --model to large-v3-turbo.
     deploy:
       resources:
         reservations:
@@ -1037,9 +1064,10 @@ Expected: all pass (unchanged Plane-client tests).
 - Transcription shown in web UI as live dialog → F3 (partial + finalized speaker turns). ✓
 - Speaker-attributed "different persons" view → E1 (`--diarization`), F1 (speaker in transcript), F3 (dialog + rename), F1/F2 (`speakers.json`). ✓
 - WLK internal-only, aimeet sole exposed surface → F2 (relay), F4 (compose; no WLK Caddy front). ✓
-- Estonian unchanged → E1 (`--language et`, `large-v3`). ✓
+- Estonian unchanged → E1 (`--lan et`, `large-v3`). ✓ *(verified: flag is `--lan`, not `--language`)*
 - Plane output + scope confirm → unchanged (G2 only adds attribution). ✓
-- Tailscale-only → unchanged `Caddyfile.snippet`. ✓
+- Tailscale-only → `Caddyfile.snippet` corrected during bring-up to a `remote_ip 100.64.0.0/10`
+  gate (the `bind <tailnet-ip>` approach fails in a containerized Caddy). ✓
 - Config not hardcoded → `WLK_WS_URL` is service env; plugin keys unchanged. ✓
 - GPU assumption + turbo escape hatch → E1, F4 comments. ✓
 - Version bump synced → G3 (plugin.json + marketplace.json both 0.2.0). ✓

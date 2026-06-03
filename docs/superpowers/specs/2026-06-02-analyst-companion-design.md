@@ -1,7 +1,7 @@
 # analyst-companion — design
 
 **Date:** 2026-06-02 (v1) · **2026-06-03 (v2)**
-**Status:** v1 implemented; **v2 approved design, pre-implementation**
+**Status:** v1 implemented; **v2 implemented & verified end-to-end (Steps 1–4) on RTX 5090 (cuda True, `large-v3` on sm_120, Sortformer loaded, relay+persistence proven); live two-speaker mic rehearsal + Plane close pending**
 **Audience for the plugin:** Estonian SaaS founders running in-person customer meetings (generic; all site-specific values are config, not hardcoded).
 
 ## v2 changes (what's different from v1)
@@ -45,10 +45,15 @@ During an in-person customer meeting you want a real-time "analyst companion":
   datalake consumers still use it. aimeet simply stops calling it.
 - **WhisperLiveKit** ([QuentinFuxa/WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit),
   Apache-2.0) — **NEW container** in v2. Simultaneous streaming STT + diarization over a
-  WebSocket. `faster-whisper` backend (`large-v3`, `--language et`), Streaming Sortformer
-  diarization (`--diarization`). Runs on the GPU box. Internal-only on `est-datalake-net`.
-  `pip install whisperlivekit`; WebSocket endpoint `/asr`; `--pcm-input` accepts raw s16le
-  PCM and bypasses ffmpeg.
+  WebSocket. `faster-whisper` backend (`large-v3`, `--lan et`), Streaming Sortformer
+  diarization (`--diarization --diarization-backend sortformer`). Runs on the GPU box,
+  internal-only on `est-datalake-net`. WebSocket endpoint `/asr`; `--pcm-input` accepts raw
+  s16le PCM and bypasses ffmpeg. **Install reality (whisperlivekit 0.2.21, verified):** the
+  diarization extra is `whisperlivekit[diarization-sortformer]` (pulls `nemo_toolkit[asr]`);
+  streaming Sortformer isn't in any NeMo release, so install `nemo_toolkit[asr]` from git
+  `main`. On Blackwell (RTX 5090, sm_120) pin **CUDA-12.8 torch** (`torch==2.8.0`,
+  `--index-url …/cu128`) — default PyPI torch is now a CUDA-13 build and ctranslate2 needs
+  `libcublas.so.12`.
 - **Plane** (`/mnt/data/ai/plane`) — self-hosted Plane CE at `https://plan.r-53.com`,
   Caddy-fronted. The webtop is on the `plane_default` network, so it reaches Plane
   directly. Auth: `X-API-Key`. The working create endpoint on this instance is
@@ -84,17 +89,22 @@ speaker prefix) — not the seam itself.
 
 ### 1. `wlk` — WhisperLiveKit (NEW container)
 
-- **Image:** thin Dockerfile (`pip install whisperlivekit` + diarization extra) or upstream
-  image, pinned. **GPU runtime** (`--gpus all`).
-- **Command:** `wlk --backend faster-whisper --model large-v3 --language et --diarization
-  --pcm-input --host 0.0.0.0 --port 8000`. Fallback if VRAM is tight on aibox alongside
-  vLLM/ComfyUI: `--model large-v3-turbo`.
+- **Image:** thin Dockerfile, pinned: **CUDA-12.8 torch** (`torch==2.8.0 --index-url
+  …/cu128`, for Blackwell sm_120 + `libcublas.so.12`), `whisperlivekit[diarization-sortformer]`,
+  and `nemo_toolkit[asr]` from git `main` (streaming Sortformer is unreleased). **GPU
+  runtime** (`--gpus all`). ~7.3 GB VRAM loaded.
+- **Command:** `wlk --backend faster-whisper --model large-v3 --lan et --diarization
+  --diarization-backend sortformer --pcm-input --host 0.0.0.0 --port 8000`. (Verified
+  against 0.2.21: the flag is `--lan`, not `--language`.) Fallback if VRAM is tight
+  alongside vLLM/ComfyUI: `--model large-v3-turbo`.
 - **Network:** `est-datalake-net`, **internal-only** (no Caddy front of its own; reached
   only through the aimeet relay).
-- **Contract:** WebSocket `/asr`. Client sends raw **s16le mono 16 kHz PCM** bytes;
-  server streams JSON result messages (transcribed segments with speaker labels + a
-  partial/buffer field) and a `{"type":"ready_to_stop"}` marker. The exact result schema
-  is consumed **only by the browser** (see component 3) — the Python side never parses it.
+- **Contract (verified against real frames):** WebSocket `/asr`. Client sends raw **s16le
+  mono 16 kHz PCM** bytes; server streams JSON result messages and a
+  `{"type":"ready_to_stop"}` marker. Each segment carries text, an **int `speaker`** (with
+  **`-2` = silence**, skipped), and **timestamps as strings** like `"0:00:00.58"`
+  (`H:MM:SS.ss`) — not numbers. The result schema is consumed **only by the browser** (see
+  component 3) — the Python side never parses it.
 
 ### 2. `aimeet` — meeting-capture service (REWORKED, not rebuilt)
 
@@ -122,10 +132,12 @@ One unified Estonian SPA (the v1 3-panel layout stays). Changes in the recorder 
 - **Capture:** `getUserMedia` → `AudioContext({sampleRate:16000})` + an **AudioWorklet**
   that converts Float32 → **s16le PCM**; stream the PCM bytes over a WebSocket to
   `/sessions/{id}/stream` (which relays to WLK).
-- **Render:** parse WLK's streaming result messages → **speaker dialog** (chat bubbles
-  grouped by `Speaker N`), with the in-flight partial shown live and finalized text
-  settling in place. This is the one place WLK's result schema is interpreted; tuned live
-  against WLK's own frontend behavior at integration time.
+- **Render:** `parseWlk()` interprets WLK's result messages → **speaker dialog** (chat
+  bubbles grouped by `Speaker N`), in-flight partial shown live, finalized text settling in
+  place. This is the one place WLK's schema is interpreted. **Verified fix:** it converts
+  the string timestamps via a `toSeconds()` helper (`Math.round` on a `"H:MM:SS.ss"` string
+  yields `NaN` → `/line` 422 → empty transcript) and skips the `speaker === -2` silence
+  sentinel. The committed `aimeet` `record.html` is the source of truth.
 - **Persist:** on each *finalized* segment, `POST /line` with `{seconds, speaker, text}`.
 - **Rename:** click a speaker label → inline edit → `POST /speaker`; names resolved from
   the `/feed` `speakers` map on every poll.
@@ -222,7 +234,10 @@ on /meeting-end → full-transcript synthesis (speaker-attributed) → scope con
 
 ## Security / privacy (unchanged)
 
-- `aimeet.r-53.com` is **Tailscale-only** (Caddy binds the tailnet IP). WLK has **no**
+- `aimeet.r-53.com` is **Tailscale-only** — the Caddy vhost is gated to the tailnet/CGNAT
+  range (`remote_ip 100.64.0.0/10`), returning 403 off-tailnet (verified: tailnet 200,
+  non-tailnet 403). `bind <tailnet-ip>` does **not** work in a containerized Caddy — use the
+  `remote_ip` matcher. WLK has **no**
   public/tailnet front of its own — it's reachable only through the aimeet relay on
   `est-datalake-net`. Session id is a long unguessable token in the URL.
 - Meeting audio is not PHI; no host-port prohibition, but WLK and the relay stay internal.
@@ -232,8 +247,8 @@ on /meeting-end → full-transcript synthesis (speaker-attributed) → scope con
 1. Your live "second screen" is `aimeet.r-53.com` open on the meeting laptop.
 2. For Claude to "see the discussed screen," the demo runs in the Chrome instance
    claude-in-chrome is connected to.
-3. **GPU available on aibox** with headroom for `large-v3` + Sortformer alongside existing
-   models (turbo model is the escape hatch).
+3. **GPU available on aibox** — verified: RTX 5090 (Blackwell sm_120); `large-v3` +
+   Sortformer load in ~7.3 GB VRAM alongside existing models (turbo model is the escape hatch).
 4. Voice-command round-trip is faster than v1 (no VAD flush wait) but still **not
    sub-second** — streaming STT + loop tick ≈ a few seconds.
 
