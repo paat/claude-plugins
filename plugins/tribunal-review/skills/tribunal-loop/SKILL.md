@@ -404,7 +404,7 @@ OC_MODELS=$(opencode models 2>/dev/null)
 # as a generic "OpenCode ... failed", silently degrading the 4-provider tribunal to 2
 # (issue #36). Probe once and append it only when this opencode advertises it.
 OC_PURE=""
-if opencode run --help 2>&1 | grep -q -- '--pure'; then
+if opencode run --help 2>&1 | grep -qE '(^|[[:space:]])--pure([[:space:]]|$)'; then
   OC_PURE="--pure"
 fi
 

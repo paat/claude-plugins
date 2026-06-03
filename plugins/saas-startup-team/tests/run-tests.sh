@@ -1811,6 +1811,9 @@ test_compact_state() {
   assert_json_field "P21b: paused_at preserved inline"     "$state" '.paused_at // "MISSING"'     "2026-05-10T12:00:00Z"
   assert_json_field "P21c: paused_reason preserved inline" "$state" '.paused_reason // "MISSING"' "investor stepped away"
   assert_json_field "P21d: status=paused preserved"        "$state" ".status" "paused"
+  # Must be kept inline, NOT also copied into the archive (no duplication).
+  assert_json_field "P21e: paused_at not duplicated into archive"     "$workdir/.startup/state-archive.json" '([.entries[].keys.paused_at] | map(select(. != null)) | length)'     "0"
+  assert_json_field "P21f: paused_reason not duplicated into archive" "$workdir/.startup/state-archive.json" '([.entries[].keys.paused_reason] | map(select(. != null)) | length)' "0"
   rm -rf "$workdir"
 }
 

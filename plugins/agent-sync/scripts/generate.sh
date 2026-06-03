@@ -315,7 +315,10 @@ extract_heading_content() {
       }
     }
 
-    !in_fence && /^#+[[:space:]]+/ {
+    # Cap at heading level 6 via match()/RLENGTH (portable on interval-less mawk,
+    # unlike the original {1,6}). A 7+ '#' line is not a valid heading and falls
+    # through to be captured as content, exactly as the old regex did (issue #33).
+    !in_fence && /^#+[[:space:]]+/ && (match($0, /^#+/) && RLENGTH <= 6) {
       line = $0
       sub(/[[:space:]].*/, "", line)
       cur_level = length(line)
