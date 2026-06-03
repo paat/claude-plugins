@@ -1,14 +1,36 @@
 # analyst-companion — design
 
-**Date:** 2026-06-02
-**Status:** Approved design, pre-implementation
+**Date:** 2026-06-02 (v1) · **2026-06-03 (v2)**
+**Status:** v1 implemented; **v2 approved design, pre-implementation**
 **Audience for the plugin:** Estonian SaaS founders running in-person customer meetings (generic; all site-specific values are config, not hardcoded).
+
+## v2 changes (what's different from v1)
+
+v1 shipped batch transcription (browser VAD-chunks → `stt-api`) with **no speaker
+labels** and a record-time-flushed live transcript. v2 reverses the two decisions that
+limited it, on the back of research into 2025/2026 streaming diarization:
+
+1. **Real-time transcription.** Replace browser VAD-chunking + `stt-api` calls with
+   **WhisperLiveKit** (WLK) — a self-hosted FastAPI server doing *simultaneous* streaming
+   STT (Simul-Whisper / AlignAtt) over a WebSocket. Words appear as they're spoken, not
+   after a pause.
+2. **Speaker-attributed dialog view.** Enable WLK's **Streaming Sortformer** diarization
+   (2025 SOTA). The transcript becomes a chat-style dialog with `Speaker 1/2/…` labels you
+   can rename live. (v1's "content is enough / no diarization" decision is **reversed**.)
+3. **Same engine, same language.** WLK uses the `faster-whisper` backend with the same
+   Estonian `large-v3` model v1 used; diarization is acoustic/language-agnostic, so
+   Estonian carries over unchanged.
+
+Everything else (Tailscale-only, Plane-only output, the transcript-file seam, the plugin
+loop, scope-confirm before Plane writes) is unchanged. The plugin barely moves; the
+`aimeet` service is reworked.
 
 ## Problem
 
 During an in-person customer meeting you want a real-time "analyst companion":
 
-1. It transcribes the meeting (single room mic, Estonian).
+1. It transcribes the meeting **live** (single room mic, Estonian) and shows it in the
+   web console as a **speaker-attributed dialog** (who said what).
 2. It continuously surfaces **clarifying / open questions** so you capture what the
    customer *really* needs — not just what they said.
 3. You can **talk to it** mid-meeting (e.g. *"Claude, kas sa näed softbuilder akent,
@@ -16,93 +38,121 @@ During an in-person customer meeting you want a real-time "analyst companion":
 4. At the end you get a reviewed list of **Plane work items** created in
    `plan.r-53.com`.
 
-## Existing infra this builds on (no changes required to either)
+## Existing infra this builds on
 
 - **`stt-api`** (`/mnt/data/ai/stt-api`) — Speaches / faster-whisper, Estonian
-  `Systran/faster-whisper-large-v3`, OpenAI-compatible `POST /v1/audio/transcriptions`.
-  Internal-only on docker network `est-datalake-net`. **Batch, not streaming. No
-  diarization** — accepted: content-only, no speaker labels.
+  `large-v3`. **No longer on this path in v2** (WLK does STT). Left untouched — other
+  datalake consumers still use it. aimeet simply stops calling it.
+- **WhisperLiveKit** ([QuentinFuxa/WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit),
+  Apache-2.0) — **NEW container** in v2. Simultaneous streaming STT + diarization over a
+  WebSocket. `faster-whisper` backend (`large-v3`, `--language et`), Streaming Sortformer
+  diarization (`--diarization`). Runs on the GPU box. Internal-only on `est-datalake-net`.
+  `pip install whisperlivekit`; WebSocket endpoint `/asr`; `--pcm-input` accepts raw s16le
+  PCM and bypasses ffmpeg.
 - **Plane** (`/mnt/data/ai/plane`) — self-hosted Plane CE at `https://plan.r-53.com`,
-  Caddy-fronted. This webtop container is already on the `plane_default` network, so it
-  reaches Plane directly. Auth: `X-API-Key` workspace token. A reusable `Plane` client
-  class already exists in `migrate_github_issues.py` (work-item create, comments, state
-  + label mapping) and is lifted into the plugin.
-- **claude-in-chrome MCP** — already connected; used to screenshot / read the active tab
-  on demand.
-- **Caddy + r-53.com** — fronts a new subdomain `aimeet.r-53.com`.
+  Caddy-fronted. The webtop is on the `plane_default` network, so it reaches Plane
+  directly. Auth: `X-API-Key`. The working create endpoint on this instance is
+  `/api/v1/workspaces/{ws}/projects/{project_id}/issues/` (verified against the proven
+  `migrate_github_issues.py`); the client resolves a project name → id first.
+- **claude-in-chrome MCP** — screenshot / read the active tab on demand.
+- **Caddy + r-53.com** — fronts `aimeet.r-53.com` (Tailscale-only).
 - **`loop` skill** — drives the turn-based live loop.
 
-## Core architectural seam
+## Core architectural seam (unchanged)
 
-Claude Code is **turn-based**, not a continuous audio consumer. The seam that makes
-"live" work: a capture service continuously writes a rolling `transcript.md`; Claude
-**polls the delta** on a loop. Claude never touches audio.
+Claude Code is **turn-based**, not a continuous audio consumer. The seam: the capture
+service maintains a rolling `transcript.md`; Claude **polls the delta** on a loop. Claude
+never touches audio. v2 only changes *how* lines get into `transcript.md` (live, with a
+speaker prefix) — not the seam itself.
 
-## Decisions (locked during brainstorming)
+## Decisions
 
-| Decision | Choice |
-|---|---|
-| Audio source | In-person, single room mic |
-| Output target | **Plane only** (`plan.r-53.com`), with a light end-of-meeting scope confirm before writes |
-| Live interaction surface | **`aimeet.r-53.com`** bidirectional page (not the raw webtop terminal) |
-| Diarization | None — content is enough |
-| Capture mechanism | **Browser record-page** (zero-install in the room; reuses Caddy + `est-datalake-net`) |
-| Response mode | **Text on the aimeet page** (silent; won't talk over the customer). TTS is a deferred enhancement. |
-| Wake word | **"Claude"**, matched against a **configurable list of Estonian STT spellings** (e.g. `claude, klaud, kloud, klod, klood`), tuned against real audio |
+| Decision | v1 | v2 |
+|---|---|---|
+| Audio source | In-person, single room mic | unchanged |
+| Transcription | Batch VAD chunks → `stt-api` | **Live streaming → WhisperLiveKit** |
+| Diarization | None — content only | **Streaming Sortformer; `Speaker N`, renamable** |
+| Live transcript UI | Lines appended on chunk flush | **Speaker dialog, live partial words** |
+| Output target | Plane only, scope-confirm before writes | unchanged |
+| Live interaction surface | `aimeet.r-53.com` bidirectional page | unchanged |
+| Response mode | Text on the aimeet page | unchanged |
+| Wake word | "Claude" + configurable Estonian spellings | unchanged |
+| Exposure | Tailscale-only | unchanged |
+| Hardware | (n/a) | **GPU box (aibox)** for WLK |
 
 ## Components
 
-### 1. `meeting-capture` service (new container)
+### 1. `wlk` — WhisperLiveKit (NEW container)
 
-- **Stack:** FastAPI + uvicorn (matches `ocr-api`, `est-saas-datalake`).
-- **Network:** `est-datalake-net` (to reach `stt-api:8000` by name). Caddy fronts
-  `aimeet.r-53.com`.
-- **Shared volume:** `/mnt/data/ai/analyst-companion` — bind-mounted into both the
-  service and the webtop, so Claude reads/writes session files directly.
-- **Endpoints:**
-  - `POST /sessions` → mint a long unguessable session id; create session dir.
-  - `GET  /r/{id}` → the record-page SPA (recorder + 3 live panels).
-  - `POST /sessions/{id}/chunk` → receive an audio segment, forward to
-    `stt-api` (`model=large-v3`, `language=et`), append `[mm:ss] text` to
-    `transcript.md`.
-  - `GET  /sessions/{id}/feed` → returns `questions.json` + `responses.json` for the
-    page to poll.
-  - `POST /sessions/{id}/end` → mark session ended.
-- **Record page (`/r/{id}`):** `getUserMedia` + **VAD-based** chunking (flush a segment
-  on a speech pause) for responsive commands; uploads each segment to `/chunk`. Renders
-  three regions: **live transcript**, **Open questions**, **You ↔ Claude**. Polls
-  `/feed` every ~2s.
+- **Image:** thin Dockerfile (`pip install whisperlivekit` + diarization extra) or upstream
+  image, pinned. **GPU runtime** (`--gpus all`).
+- **Command:** `wlk --backend faster-whisper --model large-v3 --language et --diarization
+  --pcm-input --host 0.0.0.0 --port 8000`. Fallback if VRAM is tight on aibox alongside
+  vLLM/ComfyUI: `--model large-v3-turbo`.
+- **Network:** `est-datalake-net`, **internal-only** (no Caddy front of its own; reached
+  only through the aimeet relay).
+- **Contract:** WebSocket `/asr`. Client sends raw **s16le mono 16 kHz PCM** bytes;
+  server streams JSON result messages (transcribed segments with speaker labels + a
+  partial/buffer field) and a `{"type":"ready_to_stop"}` marker. The exact result schema
+  is consumed **only by the browser** (see component 3) — the Python side never parses it.
 
-### 2. `analyst-companion` plugin (this repo)
+### 2. `aimeet` — meeting-capture service (REWORKED, not rebuilt)
+
+Same FastAPI app, container, network, shared volume, Caddy front. Changes:
+
+- **Removed:** `app/stt.py`, the `POST /chunk` audio endpoint, the browser VAD-chunking.
+  WLK subsumes all of it.
+- **New `WS /sessions/{id}/stream`** — a **transparent relay**: forwards client PCM bytes
+  up to `wlk:/asr` and relays WLK's messages back down, both directions, byte/text
+  passthrough. Validates the session id, then pipes. This keeps WLK internal-only and the
+  aimeet origin the single exposed surface. It does **not** parse WLK JSON.
+- **New `POST /sessions/{id}/line`** — body `{seconds, text, speaker?}`. The browser posts
+  each *finalized* speaker-tagged line here. Deterministic + testable: append
+  `[mm:ss] <speaker>: text` to `transcript.md`, run wake-word detection, enqueue commands.
+  This is where transcript persistence + wake detection live (was the `/chunk` body in v1).
+- **New `POST /sessions/{id}/speaker`** — body `{speaker, name}`. Live rename; writes a
+  `speakers.json` map (raw `Speaker N` id → display name).
+- **`GET /feed`** now also returns `speakers` (the rename map) so the page renders names.
+- **`sessions.append_transcript`** gains an optional `speaker` arg; `wake.py` unchanged.
+
+### 3. Record page (`/r/{id}`) — REWORKED
+
+One unified Estonian SPA (the v1 3-panel layout stays). Changes in the recorder + transcript panel:
+
+- **Capture:** `getUserMedia` → `AudioContext({sampleRate:16000})` + an **AudioWorklet**
+  that converts Float32 → **s16le PCM**; stream the PCM bytes over a WebSocket to
+  `/sessions/{id}/stream` (which relays to WLK).
+- **Render:** parse WLK's streaming result messages → **speaker dialog** (chat bubbles
+  grouped by `Speaker N`), with the in-flight partial shown live and finalized text
+  settling in place. This is the one place WLK's result schema is interpreted; tuned live
+  against WLK's own frontend behavior at integration time.
+- **Persist:** on each *finalized* segment, `POST /line` with `{seconds, speaker, text}`.
+- **Rename:** click a speaker label → inline edit → `POST /speaker`; names resolved from
+  the `/feed` `speakers` map on every poll.
+- **Unchanged:** Open-questions + You↔Claude panels, `/feed` polling every ~2s, mic
+  release on stop/`ended`/`beforeunload`.
+
+### 4. `analyst-companion` plugin (this repo) — minor updates
 
 ```
 plugins/analyst-companion/
-  .claude-plugin/plugin.json
-  commands/meeting-start.md      # mint session, print aimeet URL, start the loop
-  commands/meeting-end.md        # stop loop, synthesize, confirm, push to Plane
-  skills/meeting-companion/SKILL.md
-  scripts/plane_client.py        # lifted from migrate_github_issues.py
-  README.md
+  .claude-plugin/plugin.json        # version bump 0.1.0 → 0.2.0
+  commands/meeting-start.md          # unchanged
+  commands/meeting-end.md            # synthesis attributes needs to speakers
+  skills/meeting-companion/SKILL.md  # ingest speaker-prefixed lines
+  scripts/plane_client.py            # unchanged (/issues/ + resolve_project)
+  README.md                          # real-time + diarization; updated Limits
+  analyst-companion.local.md.example # unchanged keys
 ```
 
-- **`/meeting-start`** → `POST /sessions`, print `https://aimeet.r-53.com/r/<id>` to open
-  on the laptop, start the live loop.
-- **Live loop** (`loop` skill, ~8–10s cadence). Each tick:
-  1. Read new `transcript.md` lines since last offset.
-  2. **Classify each line:**
-     - **Direct address** (starts with a wake-word variant) → strip wake word, interpret
-       the remainder as a command, act (e.g. claude-in-chrome screenshots the active tab
-       to answer *"kas sa näed…"*), append the reply to `responses.json`.
-     - **General talk** → update the running needs-model.
-  3. Refresh `questions.json` (open / clarifying questions).
-- **`/meeting-end`** → stop the loop, run a full-transcript synthesis into proposed work
-  items, show them for a **quick scope confirm**, then create the approved set in Plane
-  via `plane_client.py`.
+- **SKILL.md:** transcript lines now read `[mm:ss] Speaker N: text`. Fold *who* wants what
+  into the needs model; questions may target a specific speaker. Speaker display names are
+  in `speakers.json` (resolve when synthesizing).
+- **`/meeting-end`:** synthesis can attribute requests to named speakers; otherwise
+  identical (full-transcript synthesis → scope confirm → Plane via `plane_client.py`).
+- **`/meeting-start`:** unchanged (mints the session, prints the URL, starts the loop).
 
-### 3. Configuration — `.claude/analyst-companion.local.md`
-
-Per repo rule (plugins stay generic), all site-specific values live in a local settings
-file with YAML frontmatter — **never hardcoded**:
+### 5. Configuration — `.claude/analyst-companion.local.md` (unchanged keys)
 
 ```yaml
 plane_base_url: https://plan.r-53.com
@@ -115,70 +165,83 @@ question_refresh_seconds: 60
 wake_words: [claude, klaud, kloud, klod, klood]
 ```
 
-Plane token comes from the `PLANE_API_TOKEN` env var (not stored in the file). Note: the
-STT model/language are **service** config (set on the `meeting-capture` container via
-`STT_MODEL`/`STT_LANGUAGE`), not plugin settings — the plugin never calls `stt-api`
-directly, so they are intentionally absent here.
+Plane token from `PLANE_API_TOKEN` env. STT model/language/diarization are **WLK service**
+config (`wlk` container flags), not plugin settings — the plugin never calls WLK directly.
 
-## Data flow
+## Data flow (v2)
 
 ```
-room mic → aimeet record page (VAD chunks) → /chunk → capture svc → stt-api
-   → transcript.md (shared volume)
-        │
-        └─ Claude /loop reads delta
-             ├─ general talk  → questions.json   ─┐
-             └─ "Claude, …"   → act (+chrome) → responses.json ─┤
-                                                                ▼
-                          aimeet page polls /feed → renders both panels
-on /meeting-end → full-transcript synthesis → scope confirm → Plane work items
+room mic → record page: AudioWorklet → s16le PCM
+   → WS /sessions/{id}/stream  ──relay──►  wlk:/asr  (faster-whisper + Sortformer)
+        ◄───────── speaker-tagged result JSON ─────────┘
+   browser renders speaker dialog (live partial + final)
+   browser POSTs each finalized line → /line
+        → transcript.md  ([mm:ss] Speaker N: text)   (shared volume)
+        → wake-word hit → commands.jsonl
+             │
+   Claude /loop polls transcript.md delta
+        ├─ general talk  → questions.json   ─┐
+        └─ "Claude, …"   → act (+chrome) → responses.json ─┤
+                                                           ▼
+              aimeet page polls /feed (questions+responses+speakers) → renders panels
+on /meeting-end → full-transcript synthesis (speaker-attributed) → scope confirm → Plane
 ```
 
 ## Session directory layout
 
 ```
 /mnt/data/ai/analyst-companion/sessions/<id>/
-  transcript.md      # [mm:ss] line per transcribed chunk (append-only)
-  questions.json     # current open/clarifying questions
-  responses.json     # You↔Claude exchange log
+  transcript.md      # [mm:ss] <speaker>: text   (append-only; raw Speaker N ids)
+  speakers.json      # { "Speaker 1": "Mari", ... }  display-name overrides (NEW)
+  commands.jsonl     # wake-word hits {seconds, command}
+  questions.json     # current open/clarifying questions (loop writes)
+  responses.json     # You↔Claude exchange log (loop writes)
+  state.json         # loop offsets + running needs-model
   screenshots/       # chrome captures referenced by responses
-  state.json         # loop offset + running needs-model
   work-items.md      # end-of-meeting proposed items (pre-confirm)
+  ended              # marker file
 ```
+
+`active` pointer (`<session_root>/active`) is written by `/meeting-start`, removed by
+`/meeting-end` — the loop reads it first each tick to learn the session id.
 
 ## Error handling
 
-- **stt-api down / chunk fails:** record page retries the chunk; service returns the
-  error; the panel shows a non-blocking "transcription lagging" notice. Audio is not lost
-  (buffered client-side until acked).
-- **Plane write fails:** `plane_client.py` already retries on 429; other errors abort the
-  push and leave `work-items.md` intact so nothing is lost — re-run `/meeting-end`.
-- **Wake word missed/false:** configurable variant list; misclassification only affects
-  one line and self-corrects next tick.
-- **claude-in-chrome not connected / wrong browser:** the loop reports it in the response
-  panel ("ei näe brauseriakent — kontrolli ühendust") rather than failing the loop.
+- **WLK down / WS drops:** the relay closes the client socket; the page shows a
+  non-blocking "transkriptsioon ühendus katkes — proovi uuesti" notice and retries the
+  WebSocket. No audio is persisted server-side until a line is finalized, so a reconnect
+  simply resumes; already-finalized lines are safe in `transcript.md`.
+- **Diarization wobble:** single far-field mic → Sortformer may merge/split speakers or
+  relabel. Generic labels until renamed; misattribution affects only display + synthesis
+  hints, never the loop's stability.
+- **Plane write fails:** `plane_client.py` retries on 429; other errors abort the push and
+  leave `work-items.md` intact — re-run `/meeting-end`.
+- **Wake word missed/false:** configurable variant list; one-line effect, self-corrects.
+- **claude-in-chrome not connected:** the loop reports it in the response panel rather
+  than failing.
 
-## Security / privacy
+## Security / privacy (unchanged)
 
-- `aimeet.r-53.com` is **Tailscale-only** (decided) — Caddy serves it only on the
-  tailnet, never the public internet, since transcripts may contain commercially
-  sensitive customer detail. Session id is additionally a long unguessable token in the
-  URL.
-- Meeting audio is **not** PHI (unlike AI Doctor), so no host-port prohibition — but we
-  still keep `stt-api` internal and only expose the capture service.
+- `aimeet.r-53.com` is **Tailscale-only** (Caddy binds the tailnet IP). WLK has **no**
+  public/tailnet front of its own — it's reachable only through the aimeet relay on
+  `est-datalake-net`. Session id is a long unguessable token in the URL.
+- Meeting audio is not PHI; no host-port prohibition, but WLK and the relay stay internal.
 
 ## Key assumptions
 
-1. Your live "second screen" is `aimeet.r-53.com` open in a browser on the meeting laptop.
-2. For Claude to "see the discussed screen," the demo runs in the **Chrome instance
-   claude-in-chrome is connected to**.
-3. Voice-command round-trip ≈ **10–15s** (VAD flush + transcription + loop tick). Not
-   sub-second; the turn-based model can't do instant.
+1. Your live "second screen" is `aimeet.r-53.com` open on the meeting laptop.
+2. For Claude to "see the discussed screen," the demo runs in the Chrome instance
+   claude-in-chrome is connected to.
+3. **GPU available on aibox** with headroom for `large-v3` + Sortformer alongside existing
+   models (turbo model is the escape hatch).
+4. Voice-command round-trip is faster than v1 (no VAD flush wait) but still **not
+   sub-second** — streaming STT + loop tick ≈ a few seconds.
 
-## Explicitly out of scope (YAGNI for v1)
+## Explicitly out of scope (YAGNI for v2)
 
-- TTS spoken replies (deferred; design leaves room).
-- Speaker diarization.
+- TTS spoken replies (still deferred).
+- Speaker **identity** recognition (names are manual; Sortformer only separates voices).
 - Remote / multi-mic meetings.
 - GitHub as an output target (Plane only).
 - A rigid voice-command grammar — Claude interprets intent freely.
+- Server-side parsing of WLK's result schema (kept in the browser by design).
