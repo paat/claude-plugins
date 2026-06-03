@@ -16,7 +16,9 @@ to those files. **You never touch audio** — only the files.
   learn the session id, then `<dir>` = `<session_root>/<session>/`.
 
 ## Session files under `<dir>` (read/write)
-- `transcript.md` — append-only `[mm:ss] text` (READ deltas)
+- `transcript.md` — append-only `[mm:ss] <speaker>: text` (READ deltas). `<speaker>` is a
+  raw diarization label (`Speaker 1`, `Speaker 2`, …); display names live in `speakers.json`.
+- `speakers.json` — diarization label → display-name map written by the page (READ for synthesis)
 - `commands.jsonl` — wake-word hits, one JSON per line (READ via offset)
 - `state.json` — YOUR cursor + running needs-model, at `<dir>/state.json` (READ/WRITE)
 - `questions.json` — clarifying questions for the page, JSON array of strings (WRITE)
@@ -57,15 +59,20 @@ Read from `.claude/analyst-companion.local.md` frontmatter: `session_root`,
     append a reply like `"ei näe brauseriakent — kontrolli claude-in-chrome ühendust"`
     and continue. Never let one command abort the loop.
 
-4. **Ingest transcript delta.** Read `transcript.md` lines after `transcript_offset`.
-   Fold them into `needs` (what the customer wants, decisions, ambiguities, must-haves
-   vs nice-to-haves). Advance `transcript_offset`.
+4. **Ingest transcript delta.** Read `transcript.md` lines after `transcript_offset`. Each
+   line is `[mm:ss] <speaker>: text` (a line may have no speaker prefix if diarization was
+   off). Fold them into `needs`, tracking **which speaker** wants what (decisions,
+   ambiguities, must-haves vs nice-to-haves, and any disagreement between speakers). Resolve
+   `<speaker>` to a display name via `speakers.json` when available. Advance
+   `transcript_offset`.
 
 5. **Refresh questions (throttled).** Only if `current_secs - last_question_refresh >=
    question_refresh_seconds` OR there are ≥6 new transcript lines: regenerate the list of
    the most useful **open/clarifying questions** (Estonian, customer-facing wording, max
    ~6) and write them to `questions.json` as a JSON array of strings. Update
    `last_question_refresh`.
+   Where a need or gap clearly belongs to one participant, you may aim the question at
+   that person (e.g. "Mari mainis eksporti — kas see on kohustuslik?").
 
 6. **Persist** `state.json` and reschedule the next tick `loop_interval_seconds` later.
 
