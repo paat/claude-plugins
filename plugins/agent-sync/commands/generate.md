@@ -30,6 +30,10 @@ Generate or update AGENTS.md from the project's Claude Code configuration files.
    fi
    bash "$GEN" --config "<path-to-sources.json>"
    ```
+   > **Trust note:** the vendored `tools/agent-sync/generate.sh` is repo-controlled — it is the
+   > copy `/agent-sync:init` committed and the same one CI executes, so preferring it is what keeps
+   > the skill, the vendored copy, and CI byte-consistent. As with any repo build script, run this
+   > only on a branch you trust; on an untrusted branch the vendored copy could be modified.
 
 4. Report results:
    - Which output files were updated

@@ -28,6 +28,9 @@ Verify that AGENTS.md is up to date with the project's Claude Code configuration
    fi
    bash "$GEN" --config "<path-to-sources.json>" --check
    ```
+   > **Trust note:** the vendored `tools/agent-sync/generate.sh` is repo-controlled — the copy
+   > `/agent-sync:init` committed and the one CI runs. Preferring it is what keeps this check
+   > byte-consistent with CI. As with any repo build script, run it only on a branch you trust.
 
 4. Report results clearly:
    - **Pass**: "AGENTS.md is in sync with your Claude Code configuration."
