@@ -1,6 +1,6 @@
 ---
 name: tribunal-loop
-description: Multi-provider code review workflow with Codex, Gemini, OpenCode (GLM + DeepSeek), and Opus arbitration
+description: Multi-provider code review workflow with Codex, Gemini, OpenCode (GLM + DeepSeek), optional Qwen, and Opus arbitration
 ---
 
 # Tribunal Loop
@@ -14,6 +14,7 @@ Multi-provider code review. Codex (GPT-5.3) + Gemini (3 Pro Preview) + OpenCode 
 - **Gemini** (3 Pro Preview) - comprehensive review + web/CVE search
 - **GLM** (opencode-go/glm-5.1) - comprehensive review (OpenCode Go), diff-only
 - **DeepSeek** (deepseek/deepseek-v4-pro) - comprehensive review on the **direct DeepSeek API**, **repo-walking** read-only; independently switchable via `TRIBUNAL_DEEPSEEK` / `TRIBUNAL_DEEPSEEK_MODEL`
+- **Qwen** (qwen3.6-plus) - comprehensive review via the **Qwen Code CLI** (own transport, decorrelated from the OpenCode legs), **diff-only**; **off by default**, enable with `TRIBUNAL_QWEN=on`, model via `TRIBUNAL_QWEN_MODEL`
 - **Opus** (4.5) - final arbiter (runs inline, no agent spawn)
 
 ---
@@ -161,7 +162,7 @@ Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}
 
 ## STEP 2: Parallel Review
 
-Run the three scripts below as **three parallel Bash tool calls**. No Task agents -- execute directly. The OpenCode call (Bash call 3) runs its two legs **sequentially within that one call**, because concurrent `opencode run` instances deadlock on the shared `~/.local/share/opencode` data dir (issue #31). It still yields two reviews (GLM + DeepSeek), for four total. The two legs are otherwise decoupled: **GLM** runs on the opencode-go backend, diff-only, from a scratch dir; **DeepSeek** runs on the **direct DeepSeek API** and from the **repo root** so it can walk the tree. A 429/quota failure on opencode-go therefore no longer takes the DeepSeek leg down with GLM (issue #40).
+Run the scripts below as **parallel Bash tool calls** — three by default (Codex, Gemini, OpenCode), plus a fourth (Qwen) when `TRIBUNAL_QWEN=on`. No Task agents -- execute directly. The Qwen call self-emits a `disabled` marker when not enabled, so it is safe to always dispatch it as a fourth parallel call. The OpenCode call (Bash call 3) runs its two legs **sequentially within that one call**, because concurrent `opencode run` instances deadlock on the shared `~/.local/share/opencode` data dir (issue #31). It still yields two reviews (GLM + DeepSeek), for four total. The two legs are otherwise decoupled: **GLM** runs on the opencode-go backend, diff-only, from a scratch dir; **DeepSeek** runs on the **direct DeepSeek API** and from the **repo root** so it can walk the tree. A 429/quota failure on opencode-go therefore no longer takes the DeepSeek leg down with GLM (issue #40).
 
 Each reviewer is given the repo's `AGENTS.md` (if present, capped at 16KB) as a **Project Conventions** block, so all judge the diff against the same project standards. The DeepSeek leg additionally **reads beyond the diff** (read-only `--agent plan`): it is the one leg permitted to open related files and trace cross-file effects, deliberately providing harness/context diversity the other (diff-only) legs cannot.
 
@@ -761,9 +762,9 @@ credential failure (issue #32):
 {"error": "OpenCode model deepseek/deepseek-v4-pro not in registry (cold/stale cache, or direct provider not authenticated) — run `opencode models` / `opencode auth login`; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "deepseek"}
 ```
 
-Collect all four JSON outputs — Codex and Gemini from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration. A `{"status": "disabled"}` marker (Gemini emits one when `TRIBUNAL_GEMINI=off`; DeepSeek when `TRIBUNAL_DEEPSEEK=off`) is an INTENTIONAL skip, not a failure and not a finding source — it has no `findings` key; report that leg as `disabled` rather than a count, and hand it to Step 3 as a disabled provider.
+Collect all five JSON outputs — Codex, Gemini, and Qwen from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration. A `{"status": "disabled"}` marker (Gemini emits one when `TRIBUNAL_GEMINI=off`; DeepSeek when `TRIBUNAL_DEEPSEEK=off`; Qwen whenever `TRIBUNAL_QWEN` is not `on`, i.e. by default) is an INTENTIONAL skip, not a failure and not a finding source — it has no `findings` key; report that leg as `disabled` rather than a count, and hand it to Step 3 as a disabled provider.
 
-Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G or 'disabled'}, GLM: {L}, DeepSeek: {D or 'disabled'} findings"
+Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G or 'disabled'}, GLM: {L}, DeepSeek: {D or 'disabled'}, Qwen: {Q or 'disabled'} findings"
 
 ---
 
@@ -782,7 +783,7 @@ Two findings are **duplicates** if they describe the same underlying issue in th
 
 ### 3b: Resolve Conflicts (N providers)
 
-A finding may be reported by any subset of the four reviewers (codex, gemini, glm, deepseek).
+A finding may be reported by any subset of the five reviewers (codex, gemini, glm, deepseek, qwen). Some are commonly disabled (Qwen is off by default; Gemini/DeepSeek may be off) — treat disabled providers as absent, not as failures.
 
 | Scenario | Action |
 |----------|--------|
@@ -793,7 +794,7 @@ A finding may be reported by any subset of the four reviewers (codex, gemini, gl
 
 **HARD RULE**: When providers report different severities for the same finding, you MUST use the highest severity. No exceptions.
 
-All four reviewers are **equal advisory peers**. Opus has final authority and may override any finding.
+All reviewers are **equal advisory peers** (up to five; Qwen is off by default). Opus has final authority and may override any finding.
 
 ### 3c: Evaluate Each Finding
 
@@ -816,7 +817,7 @@ Override provider findings when they are clearly wrong. Add new findings if the 
 ### 3e: Degraded Input
 
 - If a subset of providers returned invalid JSON or failed: proceed with the remaining providers' findings. Note each failure in `provider_assessment`.
-- If a provider returned `{"status": "disabled"}` (operator set `TRIBUNAL_GEMINI=off` for Gemini, or `TRIBUNAL_DEEPSEEK=off` for DeepSeek): this is an INTENTIONAL skip, NOT a failure. Exclude that provider from quorum entirely, set its `provider_assessment.<provider>.status` to `"disabled"`, and do not count it toward the "all providers failed" branch — the verdict is computed from the remaining (non-disabled) providers.
+- If a provider returned `{"status": "disabled"}` (operator set `TRIBUNAL_GEMINI=off` for Gemini, `TRIBUNAL_DEEPSEEK=off` for DeepSeek, or left Qwen off — `TRIBUNAL_QWEN` not `on`, the default): this is an INTENTIONAL skip, NOT a failure. Exclude that provider from quorum entirely, set its `provider_assessment.<provider>.status` to `"disabled"`, and do not count it toward the "all providers failed" branch — the verdict is computed from the remaining (non-disabled) providers.
 - If **all non-disabled providers failed**: verdict = NEEDS_WORK, confidence = 0.0, rationale = "All review providers failed. Manual review required."
 - If **all non-disabled providers returned zero findings**: verdict = APPROVE, confidence = 0.95.
 
@@ -836,14 +837,15 @@ Output the tribunal verdict as JSON:
     "suggestion": "...", "confidence": 0.0, "arbiter_notes": "..."
   }],
   "conflicts_resolved": [{
-    "issue": "...", "positions": {"codex": "...", "gemini": "...", "glm": "...", "deepseek": "..."},
+    "issue": "...", "positions": {"codex": "...", "gemini": "...", "glm": "...", "deepseek": "...", "qwen": "..."},
     "ruling": "...", "reasoning": "..."
   }],
   "provider_assessment": {
     "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
     "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
-    "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" }
+    "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
+    "qwen":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" }
   },
   "summary": "2-3 sentence executive summary of code quality and required actions"
 }
@@ -858,10 +860,10 @@ Output: "[TRIBUNAL 3/3] Verdict: {APPROVE|NEEDS_WORK|BLOCK} - {N} actionable fin
 ```
 OPUS 4.5 (Final authority, runs inline)
     |
-Codex · Gemini · GLM · DeepSeek (equal advisory peers — verify findings)
+Codex · Gemini · GLM · DeepSeek · Qwen (equal advisory peers — verify findings)
 ```
 
-The four reviewers are equal peers; a finding flagged by ≥2 is CONSENSUS. Opus can override any reviewer finding.
+The reviewers are equal peers (up to five; Qwen is off by default); a finding flagged by ≥2 is CONSENSUS. Opus can override any reviewer finding.
 
 ---
 
@@ -869,4 +871,4 @@ The four reviewers are equal peers; a finding flagged by ≥2 is CONSENSUS. Opus
 
 | Mode | Steps | Tool Calls | Agent Spawns |
 |------|-------|------------|-------------|
-| Default (review) | 3 | 3 (parallel Bash; OpenCode call runs GLM+DeepSeek sequentially) | 0 |
+| Default (review) | 3 | 3–4 (parallel Bash; OpenCode call runs GLM+DeepSeek sequentially; +1 Qwen call when `TRIBUNAL_QWEN=on`) | 0 |
