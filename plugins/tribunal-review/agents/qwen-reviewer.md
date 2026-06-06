@@ -39,9 +39,10 @@ Qwen is a **first-class, additive** reviewer with its OWN transport — the **Qw
   `{"provider":"qwen","status":"disabled","note":"..."}` whenever it is not enabled, and the
   arbiter excludes it from quorum (`provider_assessment.qwen.status="disabled"`). Only the
   literal `on` enables; anything else (or unset) keeps it off.
-- `TRIBUNAL_QWEN_MODEL` (default `qwen3.6-plus` — 1M context, validated on DashScope Intl).
+- `TRIBUNAL_QWEN_MODEL` (default `qwen3.7-plus` — newest Plus model, validated on DashScope Intl).
   Qwen model ids change often through 2026 AND vary by account/region — **override as needed**
-  (e.g. `qwen3.7-plus`, or a coder slot like `qwen3-coder-plus` if your account enables it).
+  (e.g. `qwen3.6-plus` for a 1M-context window, or a coder slot like `qwen3-coder-plus` if your
+  account enables it).
   ⚠️ qwen-code **silently downgrades an unknown `-m` to its default model** (no error), so the
   leg rewrites the output's `model` field to the model that actually ran — check it if unsure.
 
@@ -68,7 +69,7 @@ if [ "${TRIBUNAL_QWEN:-off}" != "on" ]; then
   printf '%s\n' '{"provider": "qwen", "status": "disabled", "note": "Qwen leg disabled (default off); set TRIBUNAL_QWEN=on to enable"}'
   exit 0
 fi
-QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.6-plus}"
+QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}"
 
 # Parallel-safe: unique temp dir per invocation
 TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT

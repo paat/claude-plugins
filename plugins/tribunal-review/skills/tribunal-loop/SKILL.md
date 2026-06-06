@@ -14,7 +14,7 @@ Multi-provider code review. Codex (GPT-5.3) + Gemini (3 Pro Preview) + OpenCode 
 - **Gemini** (3 Pro Preview) - comprehensive review + web/CVE search
 - **GLM** (opencode-go/glm-5.1) - comprehensive review (OpenCode Go), diff-only
 - **DeepSeek** (deepseek/deepseek-v4-pro) - comprehensive review on the **direct DeepSeek API**, **repo-walking** read-only; independently switchable via `TRIBUNAL_DEEPSEEK` / `TRIBUNAL_DEEPSEEK_MODEL`
-- **Qwen** (qwen3.6-plus) - comprehensive review via the **Qwen Code CLI** (own transport, decorrelated from the OpenCode legs), **diff-only**; **off by default**, enable with `TRIBUNAL_QWEN=on`, model via `TRIBUNAL_QWEN_MODEL`
+- **Qwen** (qwen3.7-plus) - comprehensive review via the **Qwen Code CLI** (own transport, decorrelated from the OpenCode legs), **diff-only**; **off by default**, enable with `TRIBUNAL_QWEN=on`, model via `TRIBUNAL_QWEN_MODEL`
 - **Opus** (4.5) - final arbiter (runs inline, no agent spawn)
 
 ---
@@ -54,7 +54,7 @@ fi
 # enables. When on, `qwen` joins the CLI list (and TOTAL) so the generic PATH loop counts
 # it and the "N/TOTAL providers" accounting stays correct; when off it is an INTENTIONAL
 # skip — not probed, not counted.
-QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.6-plus}"
+QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}"
 QWEN_ON=off
 if [ "${TRIBUNAL_QWEN:-off}" = "on" ]; then
   QWEN_ON=on
@@ -633,7 +633,7 @@ if [ "${TRIBUNAL_QWEN:-off}" != "on" ]; then
   printf '%s\n' '{"provider": "qwen", "status": "disabled", "note": "Qwen leg disabled (default off); set TRIBUNAL_QWEN=on to enable"}'
   exit 0
 fi
-QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.6-plus}"
+QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}"
 
 # Parallel-safe: unique temp dir per invocation
 TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT

@@ -17,7 +17,7 @@ You receive JSON reviews from up to five providers, passed inline:
 2. **Gemini** (Gemini CLI)
 3. **GLM** (OpenCode Go — opencode-go/glm-5.1)
 4. **DeepSeek** (direct DeepSeek API — deepseek/deepseek-v4-pro)
-5. **Qwen** (Qwen Code CLI — qwen3.6-plus; diff-only, off by default)
+5. **Qwen** (Qwen Code CLI — qwen3.7-plus; diff-only, off by default)
 
 All are equal advisory peers. A finding reported by ≥2 providers is CONSENSUS. Some providers are commonly disabled (Qwen off by default; Gemini/DeepSeek may be off) — see Degraded Input.
 
