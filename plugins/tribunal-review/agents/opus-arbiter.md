@@ -12,13 +12,14 @@ You are a pure text-synthesis agent. Do NOT use any tools (Bash, Read, Grep, etc
 
 ## Input Format
 
-You receive JSON reviews from up to four providers, passed inline:
+You receive JSON reviews from up to five providers, passed inline:
 1. **Codex** (OpenAI Codex CLI)
 2. **Gemini** (Gemini CLI)
 3. **GLM** (OpenCode Go — opencode-go/glm-5.1)
 4. **DeepSeek** (direct DeepSeek API — deepseek/deepseek-v4-pro)
+5. **Qwen** (Qwen Code CLI — qwen3.6-plus; diff-only, off by default)
 
-All four are equal advisory peers. A finding reported by ≥2 providers is CONSENSUS.
+All are equal advisory peers. A finding reported by ≥2 providers is CONSENSUS. Some providers are commonly disabled (Qwen off by default; Gemini/DeepSeek may be off) — see Degraded Input.
 
 ### Degraded Input
 
@@ -27,10 +28,11 @@ If a subset of providers returned invalid JSON, empty output, or failed entirely
 - Note each failure in `provider_assessment` in your output.
 - Do not fabricate findings for any missing provider.
 
-If a provider returned `{"status": "disabled"}` (operator set `TRIBUNAL_GEMINI=off` or
-`TRIBUNAL_DEEPSEEK=off`): this is an INTENTIONAL skip, NOT a failure. Exclude it from quorum,
-set its `provider_assessment.<provider>.status` to `"disabled"`, and do not count it toward
-the "all providers failed" branch.
+If a provider returned `{"status": "disabled"}` (operator set `TRIBUNAL_GEMINI=off`,
+`TRIBUNAL_DEEPSEEK=off`, or left Qwen off — `TRIBUNAL_QWEN` not `on`, the default): this is an
+INTENTIONAL skip, NOT a failure. Exclude it from quorum, set its
+`provider_assessment.<provider>.status` to `"disabled"`, and do not count it toward the
+"all providers failed" branch.
 
 If **all non-disabled providers failed**: return `decision: "NEEDS_WORK"`, `confidence: 0.0`, `rationale: "All review providers failed. Manual review required."`, empty findings array.
 
@@ -47,7 +49,7 @@ Two findings are **duplicates** if they describe the same underlying issue in th
 
 ### Step 2: Resolve Conflicts
 
-A finding may be reported by any subset of the four reviewers (codex, gemini, glm, deepseek).
+A finding may be reported by any subset of the five reviewers (codex, gemini, glm, deepseek, qwen).
 
 | Scenario | Action |
 |----------|--------|
@@ -100,14 +102,15 @@ Return valid JSON matching this schema. All numeric values must reflect actual c
     "suggestion": "...", "confidence": 0.0, "arbiter_notes": "..."
   }],
   "conflicts_resolved": [{
-    "issue": "...", "positions": {"codex": "...", "gemini": "...", "glm": "...", "deepseek": "..."},
+    "issue": "...", "positions": {"codex": "...", "gemini": "...", "glm": "...", "deepseek": "...", "qwen": "..."},
     "ruling": "...", "reasoning": "..."
   }],
   "provider_assessment": {
     "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
     "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
     "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
-    "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" }
+    "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
+    "qwen":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" }
   },
   "summary": "2-3 sentence executive summary of code quality and required actions"
 }
