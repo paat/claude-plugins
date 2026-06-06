@@ -47,6 +47,20 @@ if [ "${TRIBUNAL_GEMINI:-on}" = "off" ]; then
   CLIS="codex opencode"
   WARN="${WARN}\n  - gemini: disabled via TRIBUNAL_GEMINI=off — leg will be skipped"
 fi
+
+# Qwen leg switch (issue #41). ADDITIVE leg on its OWN CLI/transport (Qwen Code CLI),
+# decorrelated from the OpenCode legs. OFF by default (opt-in). Only the literal "on"
+# enables. When on, `qwen` joins the CLI list (and TOTAL) so the generic PATH loop counts
+# it and the "N/TOTAL providers" accounting stays correct; when off it is an INTENTIONAL
+# skip — not probed, not counted.
+QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.6-plus}"
+QWEN_ON=off
+if [ "${TRIBUNAL_QWEN:-off}" = "on" ]; then
+  QWEN_ON=on
+  CLIS="$CLIS qwen"
+else
+  WARN="${WARN}\n  - qwen: disabled (default off) — set TRIBUNAL_QWEN=on to enable"
+fi
 TOTAL=$(set -- $CLIS; echo $#)
 
 # DeepSeek leg switch (mirrors TRIBUNAL_GEMINI). The DeepSeek leg runs on the DIRECT
@@ -104,6 +118,27 @@ if command -v opencode >/dev/null 2>&1; then
   fi
 fi
 
+# Qwen leg preflight (issue #41): only when enabled. The generic PATH loop above already
+# counted `qwen` and warned if it is missing, so here we only verify auth + liveness via a
+# 1-token probe through the CLI itself — which reuses whatever auth qwen is configured with
+# (env DASHSCOPE_API_KEY/OPENAI_API_KEY/OPENROUTER_API_KEY OR ~/.qwen/settings.json). A bad
+# key/endpoint fails fast here instead of mid-review. The probe also detects a SILENT model
+# fallback: qwen-code accepts an unknown -m and quietly downgrades to its default model.
+if [ "$QWEN_ON" = on ] && command -v qwen >/dev/null 2>&1; then
+  QWEN_PROBE=$(printf 'ok' | QWEN_CODE_SUPPRESS_YOLO_WARNING=1 timeout -k 5 45 qwen --model "$QWEN_MODEL" -p "Reply with the single token: ok" --yolo -o json 2>/dev/null)
+  if [ $? -ne 0 ] || [ -z "$QWEN_PROBE" ]; then
+    WARN="${WARN}\n  - qwen: liveness probe failed (timeout or no output) — check auth (DASHSCOPE_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY, or \`qwen\` settings) and connectivity; leg may fail in Step 2"
+  else
+    QWEN_ERR=$(printf '%s' "$QWEN_PROBE" | jq -r '[ .[]? | select(.type=="result") | .is_error ] | last // "unknown"' 2>/dev/null)
+    QWEN_ACTUAL=$(printf '%s' "$QWEN_PROBE" | jq -r '[ .[]? | (.model // .message.model // empty) ] | map(select(. != null)) | last // "unknown"' 2>/dev/null)
+    if [ "$QWEN_ERR" = "true" ]; then
+      WARN="${WARN}\n  - qwen: liveness probe returned is_error=true — auth/model rejected; check DASHSCOPE_API_KEY and TRIBUNAL_QWEN_MODEL=${QWEN_MODEL}; leg may fail in Step 2"
+    elif [ "$QWEN_ACTUAL" != "unknown" ] && [ "$QWEN_ACTUAL" != "$QWEN_MODEL" ]; then
+      WARN="${WARN}\n  - qwen: requested model '${QWEN_MODEL}' but server used '${QWEN_ACTUAL}' (qwen-code silently downgraded an unknown -m). Set TRIBUNAL_QWEN_MODEL to a valid id for your account."
+    fi
+  fi
+fi
+
 # Gemini auth note: a stale key surfaces only mid-review. We cannot cheaply verify it
 # here without a billable call, so just remind to rotate if Gemini fails in Step 2.
 if [ -n "$WARN" ]; then
@@ -120,7 +155,7 @@ If preflight exits non-zero (no usable providers): STOP and report. Otherwise no
 warnings — the affected provider(s) will be skipped in Step 2 and arbitration treats the
 result as a degraded quorum.
 
-Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL is 2 when Gemini is disabled via TRIBUNAL_GEMINI=off, else 3)
+Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL counts reviewer CLIs on PATH: base is 3 — codex, gemini, opencode; subtract 1 if Gemini is disabled via TRIBUNAL_GEMINI=off; add 1 if Qwen is enabled via TRIBUNAL_QWEN=on. The opencode CLI covers both the GLM and DeepSeek legs, so disabling DeepSeek does not change TOTAL.)
 
 ---
 
