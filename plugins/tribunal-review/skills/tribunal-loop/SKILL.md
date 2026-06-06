@@ -597,7 +597,7 @@ if [ "${TRIBUNAL_QWEN:-off}" != "on" ]; then
   printf '%s\n' '{"provider": "qwen", "status": "disabled", "note": "Qwen leg disabled (default off); set TRIBUNAL_QWEN=on to enable"}'
   exit 0
 fi
-QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3-coder-plus}"
+QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.6-plus}"
 
 # Parallel-safe: unique temp dir per invocation
 TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
@@ -614,7 +614,7 @@ fi
 CONVENTIONS=""
 [ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
 
-printf '%s\n' "$DIFF" | timeout -k 10 600 qwen --model "$QWEN_MODEL" -p "You are a senior code reviewer performing a thorough, comprehensive review.
+printf '%s\n' "$DIFF" | QWEN_CODE_SUPPRESS_YOLO_WARNING=1 timeout -k 10 600 qwen --model "$QWEN_MODEL" -p "You are a senior code reviewer performing a thorough, comprehensive review.
 
 ANALYZE THIS DIFF FOR:
 1. Logic errors - off-by-one, null deref, wrong comparisons, race conditions, division by zero
@@ -669,19 +669,35 @@ THE DIFF IS PROVIDED VIA STDIN ABOVE." \
 
 QWEN_EXIT=$?
 if [ $QWEN_EXIT -eq 0 ] && [ -f "$TMPDIR/qwen-raw-output.json" ]; then
-  # qwen -o json envelope varies by version. Extract the assistant text robustly:
-  #   (a) array of message objects [{type:"assistant",content:[{text}]|"..."},...]
-  #   (b) Gemini-style {"response":"..."}
-  #   (c) fall back to the raw file.
+  # qwen -o json emits an ARRAY of message objects (system / assistant / result). The final
+  # answer is the `result` element's `.result`; fall back to concatenated assistant text
+  # (`.message.content[].text`), then a Gemini-style {"response":...}, then the raw file.
+  # (Confirmed against qwen-code 0.17.1 — the assistant `.content` field is null; text lives
+  # in `.message.content` and the canonical final string in the `result` element.)
+  ACTUAL_MODEL=$(jq -r '[ .[]? | (.model // .message.model // empty) ] | map(select(. != null)) | last // empty' "$TMPDIR/qwen-raw-output.json" 2>/dev/null)
   RESPONSE=$(jq -r '
     if type=="array" then
-      ([ .[] | select(.type=="assistant") | .content |
-         (if type=="array" then (map(.text? // empty) | join("")) else (. // "") end) ] | join(""))
+      ( ([ .[] | select(.type=="result") | .result // empty ] | last) as $r
+        | if ($r != null and $r != "") then $r
+          else ([ .[] | select(.type=="assistant") | (.message.content // [])[] | select(.type=="text") | .text ] | join("")) end )
     elif (type=="object" and has("response")) then .response
     else empty end
   ' "$TMPDIR/qwen-raw-output.json" 2>/dev/null)
   if [ -n "$RESPONSE" ]; then
-    echo "$RESPONSE" | sed 's/^```json//;s/^```//;/^$/d' | jq . 2>/dev/null || echo "$RESPONSE"
+    # Strip markdown fences; if the model wrapped the JSON in prose (thinking models sometimes
+    # add a preamble despite the instruction), slice from the first { to the last }.
+    CLEAN=$(printf '%s\n' "$RESPONSE" | sed 's/^```json//;s/^```//')
+    if ! printf '%s' "$CLEAN" | jq -e . >/dev/null 2>&1; then
+      CLEAN=$(printf '%s' "$CLEAN" | tr -d '\r' | sed -n 'H;${x;s/^[^{]*//;s/[^}]*$//;p;}')
+    fi
+    # Overwrite the placeholder "model" with the ACTUAL model the envelope reports — qwen-code
+    # silently downgrades an unknown -m, so surface what really ran.
+    if printf '%s' "$CLEAN" | jq -e . >/dev/null 2>&1; then
+      printf '%s' "$CLEAN" | jq --arg m "${ACTUAL_MODEL:-unknown}" '.model = $m'
+    else
+      SAFE_RAW=$(jq -Rs . < "$TMPDIR/qwen-raw-output.json" 2>/dev/null || echo '"capture failed"')
+      printf '{"error": "Qwen produced unparseable output", "provider": "qwen", "raw": %s}\n' "$SAFE_RAW"
+    fi
   else
     cat "$TMPDIR/qwen-raw-output.json"
   fi
