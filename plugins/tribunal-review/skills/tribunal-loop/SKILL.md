@@ -1,20 +1,21 @@
 ---
 name: tribunal-loop
-description: Multi-provider code review workflow — Codex + DeepSeek + Qwen by default (Gemini and OpenCode GLM opt-in), with Opus arbitration
+description: Multi-provider code review workflow — Codex + DeepSeek + Qwen (repo-walking) + Claude (diff-only) by default (Gemini and OpenCode GLM opt-in), with Opus arbitration
 ---
 
 # Tribunal Loop
 
-Multi-provider code review. **By default** Codex (GPT-5.3) + DeepSeek-V4-Pro + Qwen (qwen3.7-plus) review in parallel, Opus arbitrates inline. DeepSeek runs on the **direct** DeepSeek API and **walks the repo** read-only; Qwen runs on the Qwen Code CLI, diff-only. **Gemini** (web/CVE search) and the OpenCode **GLM** leg are available opt-in (`TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`) but **off by default** — GLM shares architectural lineage with DeepSeek and tends to fail in lockstep, so the default panel keeps the decorrelated set.
+Multi-provider code review. **By default** Codex (GPT-5.5) + DeepSeek-V4-Pro + Qwen (qwen3.7-plus) + Claude (sonnet) review in parallel, Opus arbitrates inline. The first three default legs **walk the repo** read-only: Codex (in-container, no sandbox flag), DeepSeek (**direct** DeepSeek API), and Qwen (Qwen Code CLI, own transport, decorrelated from the OpenCode legs) may each open related files to verify cross-file effects. The **Claude** leg (host `claude` CLI) is the panel's one **diff-only** reviewer — it reviews the diff in isolation (run from a scratch dir with all tools disabled), deliberately restoring the harness/context diversity the walking legs give up. **Gemini** (web/CVE search) and the OpenCode **GLM** leg are available opt-in (`TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`) but **off by default** — GLM shares architectural lineage with DeepSeek and tends to fail in lockstep, so the default panel keeps the decorrelated set.
 
 3-step workflow: pre-flight, parallel review, inline arbitration.
 
 ## Providers
-- **Codex** (GPT-5.3) - comprehensive review
+- **Codex** (GPT-5.5) - comprehensive review, **repo-walking** read-only (runs in-container, no `--sandbox` flag)
 - **Gemini** (3 Pro Preview) - comprehensive review + web/CVE search; **off by default**, enable with `TRIBUNAL_GEMINI=on`, model via `TRIBUNAL_GEMINI_MODEL`
 - **GLM** (opencode-go/glm-5.1) - comprehensive review (OpenCode Go), diff-only; **off by default** (shares lineage with DeepSeek — fails in lockstep), enable with `TRIBUNAL_GLM=on`, model via `TRIBUNAL_GLM_MODEL`
 - **DeepSeek** (deepseek/deepseek-v4-pro) - comprehensive review on the **direct DeepSeek API**, **repo-walking** read-only; independently switchable via `TRIBUNAL_DEEPSEEK` / `TRIBUNAL_DEEPSEEK_MODEL`
-- **Qwen** (qwen3.7-plus) - comprehensive review via the **Qwen Code CLI** (own transport, decorrelated from the OpenCode legs), **diff-only**; **on by default**, disable with `TRIBUNAL_QWEN=off`, model via `TRIBUNAL_QWEN_MODEL`
+- **Qwen** (qwen3.7-plus) - comprehensive review via the **Qwen Code CLI** (own transport, decorrelated from the OpenCode legs), **repo-walking** read-only (issue #44); **on by default**, disable with `TRIBUNAL_QWEN=off`, model via `TRIBUNAL_QWEN_MODEL`
+- **Claude** (sonnet) - comprehensive review via the host **Claude Code CLI** (`claude -p`), **diff-only** (scratch dir + all tools disabled) — the panel's diff-only lens; **on by default**, disable with `TRIBUNAL_CLAUDE=off`, model via `TRIBUNAL_CLAUDE_MODEL`
 - **Opus** (4.5) - final arbiter (runs inline, no agent spawn)
 
 ---
@@ -64,6 +65,19 @@ if [ "${TRIBUNAL_QWEN:-on}" = "off" ]; then
   WARN="${WARN}\n  - qwen: disabled via TRIBUNAL_QWEN=off — leg will be skipped"
 else
   CLIS="$CLIS qwen"
+fi
+
+# Claude Code leg switch. The default panel's one DIFF-ONLY reviewer (the other default legs —
+# Codex/DeepSeek/Qwen — all walk the repo), on the host `claude` CLI. ON by default; only the
+# literal "off" disables. When on, `claude` joins the CLI list (and TOTAL) so the generic PATH
+# loop counts it; when off it is an INTENTIONAL skip — not probed, not counted.
+CLAUDE_MODEL="${TRIBUNAL_CLAUDE_MODEL:-sonnet}"
+CLAUDE_ON=on
+if [ "${TRIBUNAL_CLAUDE:-on}" = "off" ]; then
+  CLAUDE_ON=off
+  WARN="${WARN}\n  - claude: disabled via TRIBUNAL_CLAUDE=off — leg will be skipped"
+else
+  CLIS="$CLIS claude"
 fi
 
 # GLM leg switch (issue #41). The opencode-go GLM leg shares architectural lineage with
@@ -163,6 +177,22 @@ if [ "$QWEN_ON" = on ] && command -v qwen >/dev/null 2>&1; then
   fi
 fi
 
+# Claude Code leg preflight: only when enabled. The generic PATH loop already counted `claude`
+# and warned if missing; here a 1-token probe (from a scratch dir, tools disabled) verifies the
+# model alias resolves and auth works, so a bad TRIBUNAL_CLAUDE_MODEL or broken login fails fast
+# here instead of mid-review. `.is_error=true` in the JSON envelope flags a model/auth rejection.
+if [ "$CLAUDE_ON" = on ] && command -v claude >/dev/null 2>&1; then
+  CLAUDE_PROBE=$( (cd "$(mktemp -d)" && printf 'ok' | timeout -k 5 45 claude -p "Reply with the single token: ok" --model "$CLAUDE_MODEL" --output-format json --disallowedTools "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Task" 2>/dev/null) )
+  if [ $? -ne 0 ] || [ -z "$CLAUDE_PROBE" ]; then
+    WARN="${WARN}\n  - claude: liveness probe failed (timeout or no output) — check \`claude\` auth/login and connectivity; leg may fail in Step 2"
+  else
+    CLAUDE_ERR=$(printf '%s' "$CLAUDE_PROBE" | jq -r '.is_error // "unknown"' 2>/dev/null)
+    if [ "$CLAUDE_ERR" = "true" ]; then
+      WARN="${WARN}\n  - claude: liveness probe returned is_error=true — auth/model rejected; check \`claude\` login and TRIBUNAL_CLAUDE_MODEL=${CLAUDE_MODEL}; leg may fail in Step 2"
+    fi
+  fi
+fi
+
 # Gemini auth note: a stale key surfaces only mid-review. We cannot cheaply verify it
 # here without a billable call, so just remind to rotate if Gemini fails in Step 2.
 if [ -n "$WARN" ]; then
@@ -179,15 +209,15 @@ If preflight exits non-zero (no usable providers): STOP and report. Otherwise no
 warnings — the affected provider(s) will be skipped in Step 2 and arbitration treats the
 result as a degraded quorum.
 
-Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL counts reviewer CLIs on PATH. By default that is codex + opencode + qwen (DeepSeek on ⇒ opencode counted; Qwen on); add gemini when TRIBUNAL_GEMINI=on; subtract qwen when TRIBUNAL_QWEN=off. The opencode CLI carries both the GLM and DeepSeek legs, so it is counted whenever EITHER is enabled and is dropped only if BOTH are off.)
+Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL counts reviewer CLIs on PATH. By default that is codex + opencode + qwen + claude (DeepSeek on ⇒ opencode counted; Qwen on; Claude on); add gemini when TRIBUNAL_GEMINI=on; subtract qwen when TRIBUNAL_QWEN=off and claude when TRIBUNAL_CLAUDE=off. The opencode CLI carries both the GLM and DeepSeek legs, so it is counted whenever EITHER is enabled and is dropped only if BOTH are off.)
 
 ---
 
 ## STEP 2: Parallel Review
 
-Run the scripts below as **four parallel Bash tool calls** (Codex, Gemini, OpenCode, Qwen). No Task agents -- execute directly. Each leg self-emits a `disabled` marker when its switch is off, so all four are always safe to dispatch — by default only Codex, the OpenCode DeepSeek leg, and Qwen actually review (Gemini and GLM are opt-in). The OpenCode call (Bash call 3) runs its two legs **sequentially within that one call**, because concurrent `opencode run` instances deadlock on the shared `~/.local/share/opencode` data dir (issue #31). It yields up to two reviews (GLM + DeepSeek) — but **GLM is off by default** (`TRIBUNAL_GLM=on` to enable), so by default that call yields only DeepSeek. The two legs are otherwise decoupled: **GLM** runs on the opencode-go backend, diff-only, from a scratch dir; **DeepSeek** runs on the **direct DeepSeek API** and from the **repo root** so it can walk the tree. A 429/quota failure on opencode-go therefore no longer takes the DeepSeek leg down with GLM (issue #40).
+Run the scripts below as **five parallel Bash tool calls** (Codex, Gemini, OpenCode, Qwen, Claude). No Task agents -- execute directly. Each leg self-emits a `disabled` marker when its switch is off, so all five are always safe to dispatch — by default only Codex, the OpenCode DeepSeek leg, Qwen, and the Claude diff-only leg actually review (Gemini and GLM are opt-in). The OpenCode call (Bash call 3) runs its two legs **sequentially within that one call**, because concurrent `opencode run` instances deadlock on the shared `~/.local/share/opencode` data dir (issue #31). It yields up to two reviews (GLM + DeepSeek) — but **GLM is off by default** (`TRIBUNAL_GLM=on` to enable), so by default that call yields only DeepSeek. The two legs are otherwise decoupled: **GLM** runs on the opencode-go backend, diff-only, from a scratch dir; **DeepSeek** runs on the **direct DeepSeek API** and from the **repo root** so it can walk the tree. A 429/quota failure on opencode-go therefore no longer takes the DeepSeek leg down with GLM (issue #40).
 
-Each reviewer is given the repo's `AGENTS.md` (if present, capped at 16KB) as a **Project Conventions** block, so all judge the diff against the same project standards. The DeepSeek leg additionally **reads beyond the diff** (read-only `--agent plan`): it is the one leg permitted to open related files and trace cross-file effects, deliberately providing harness/context diversity the other (diff-only) legs cannot.
+Each reviewer is given the repo's `AGENTS.md` (if present, capped at 16KB) as a **Project Conventions** block, so all judge the diff against the same project standards. All three default legs **read beyond the diff** read-only — **Codex** (in-container, no `--sandbox` flag), **DeepSeek** (`--agent plan`, on the direct DeepSeek API), and **Qwen** (Qwen Code CLI, `--yolo`, issue #44) — opening related files and tracing cross-file effects to avoid the context-gap false positives a diff-only pass produces. The opt-in GLM and Gemini legs remain diff-only.
 
 ### Bash call 1: Codex Review
 
@@ -266,7 +296,6 @@ SCHEMA
 timeout -k 10 600 codex exec - \
   --output-schema "$TMPDIR/codex-review-schema.json" \
   -o "$TMPDIR/codex-review-output.json" \
-  --sandbox read-only \
   >/dev/null 2>"$TMPDIR/codex-stderr.txt" <<PROMPT
 You are a senior code reviewer. Analyze the diff below for REAL, ACTIONABLE issues only.
 
@@ -287,6 +316,7 @@ You are a senior code reviewer. Analyze the diff below for REAL, ACTIONABLE issu
 - Use EXACT file paths from the diff headers (e.g., "a/src/Foo.cs" -> "src/Foo.cs")
 - Use the line number from the diff where the issue occurs
 - Each finding must have a concrete, actionable suggestion
+- You are running inside the project repository. You MAY open OTHER files in the project to trace how the changed code is called elsewhere and verify framework/library semantics, variable scope, and call sites before reporting, to catch cross-file breakage and avoid context-gap false positives. This is review-only — do NOT modify any files.
 
 ## Verdict Rules
 - **BLOCK**: Any critical-severity finding, OR 2+ high-severity findings
@@ -298,6 +328,8 @@ Your response MUST be valid JSON matching the provided output schema.
 Set "provider" to "codex" and "model" to the model you are running as.
 $([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated from ${DIFF_SIZE} bytes to 100KB. Review what is provided.")
 $([ -n "$CONVENTIONS" ] && printf '\n## Project Conventions (from AGENTS.md)\nUse these ONLY to judge whether the diff violates project standards; report findings only against the diff.\n\n%s\n' "$CONVENTIONS")
+
+The changed lines are in THE DIFF below. You are running inside the project repository — read related files as needed to understand context and verify cross-file effects, but report findings only against the changed lines.
 
 THE DIFF:
 $DIFF
@@ -658,8 +690,11 @@ fi
 
 ### Bash call 4: Qwen Review
 
-Independent, **diff-only** leg on its OWN CLI (Qwen Code, `@qwen-code/qwen-code`) — NOT the
-`opencode` backend GLM/DeepSeek share, so it cannot fail in lockstep with them (issue #41).
+Independent, **repo-walking** read-only leg on its OWN CLI (Qwen Code, `@qwen-code/qwen-code`) —
+NOT the `opencode` backend GLM/DeepSeek share, so it cannot fail in lockstep with them (issue #41).
+It `cd`s to the repo root and runs with `--yolo`, so its read-only tools (read/grep/glob/list) are
+available; the prompt permits opening related files to verify cross-file effects (issue #44), while
+findings are still reported only against the changed lines.
 **On by default** (mirrors Gemini/DeepSeek); `TRIBUNAL_QWEN=off` disables it. Runs as a
 fourth parallel Bash call alongside Codex (call 1), Gemini (call 2), and OpenCode (call 3).
 
@@ -705,6 +740,7 @@ RULES:
 - Use EXACT file paths from the diff headers (e.g., 'a/src/Foo.cs' -> 'src/Foo.cs')
 - Use the line number from the diff where the issue occurs
 - Each finding must have a concrete, actionable suggestion
+- You MAY use your read-only tools (read, grep, glob, list) to open OTHER files in the project and trace how the changed code is called elsewhere, to catch cross-file breakage and verify framework/library semantics, variable scope, and call sites before reporting. You CANNOT modify files.
 
 VERDICT RULES:
 - BLOCK: any critical-severity finding, OR 2+ high-severity findings
@@ -738,7 +774,7 @@ RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
   }
 }
 $([ -n "$CONVENTIONS" ] && printf '\nPROJECT CONVENTIONS (from AGENTS.md) — use ONLY to judge whether the diff violates project standards; report findings only against the diff:\n%s\n' "$CONVENTIONS")
-THE DIFF IS PROVIDED VIA STDIN ABOVE." \
+THE DIFF IS PROVIDED VIA STDIN ABOVE. You are running inside the project repository — read related files as needed to understand context and verify cross-file effects, but report findings only against the changed lines." \
   --yolo \
   -o json \
   >"$TMPDIR/qwen-raw-output.json" 2>"$TMPDIR/qwen-stderr.txt"
@@ -781,6 +817,139 @@ else
   STDERR_CONTENT=$(cat "$TMPDIR/qwen-stderr.txt" 2>/dev/null)
   SAFE_STDERR=$(echo "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
   printf '{"error": "Qwen execution failed", "exit_code": %d, "stderr": %s}\n' "$QWEN_EXIT" "$SAFE_STDERR"
+fi
+# trap EXIT handles cleanup of $TMPDIR
+```
+
+### Bash call 5: Claude Code Review
+
+Independent, **diff-only** leg on the **Claude Code CLI** (`claude -p`). It is the default
+panel's one diff-only reviewer — the three other default legs (Codex, DeepSeek, Qwen) now all
+walk the repo, so this leg deliberately restores the harness/context diversity a diff-only pass
+provides: it reviews the unified diff in isolation, with no repository access. To guarantee that,
+the leg runs from a scratch `$TMPDIR` (no repo to walk) **and** passes `--disallowedTools` for
+every file/exec/web tool, so it cannot read beyond the diff even if asked. **On by default**
+(mirrors Qwen/DeepSeek); `TRIBUNAL_CLAUDE=off` disables it; model via `TRIBUNAL_CLAUDE_MODEL`
+(default `sonnet` — fast/cheap and decorrelated from the Opus arbiter). Runs as a fifth parallel
+Bash call alongside Codex (1), Gemini (2), OpenCode (3), and Qwen (4).
+
+> **Lineage note**: this leg shares model lineage with the Opus arbiter (both Claude). The default
+> `sonnet` model keeps the reviewer decorrelated from the Opus arbiter on capability/version; if
+> you set `TRIBUNAL_CLAUDE_MODEL=opus` the reviewer↔arbiter correlation is highest. The arbiter
+> still treats it as one advisory peer among the panel.
+
+```bash
+# Claude Code leg is ON by default (mirrors Qwen/DeepSeek). Only the literal "off" disables;
+# anything else (or unset) runs. When off, emit the disabled marker so the arbiter accounts
+# for claude as a (disabled) peer. TRIBUNAL_CLAUDE_MODEL overrides the model (default sonnet).
+if [ "${TRIBUNAL_CLAUDE:-on}" = "off" ]; then
+  printf '%s\n' '{"provider": "claude", "status": "disabled", "note": "Claude Code leg disabled via TRIBUNAL_CLAUDE=off"}'
+  exit 0
+fi
+CLAUDE_MODEL="${TRIBUNAL_CLAUDE_MODEL:-sonnet}"
+
+# Capture the diff and conventions from the repo BEFORE moving to the scratch dir.
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+DIFF=$(git -C "$REPO_ROOT" diff origin/main...HEAD)
+CONVENTIONS=""
+[ -f "$REPO_ROOT/AGENTS.md" ] && CONVENTIONS=$(head -c 16384 "$REPO_ROOT/AGENTS.md")
+
+# Parallel-safe scratch dir. Run `claude` from HERE (not the repo) so it has no project files
+# to walk — the physical guarantee behind "diff-only", mirroring the GLM leg's scratch-dir trick.
+TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
+cd "$TMPDIR" || { printf '%s\n' '{"error": "Claude leg: could not enter scratch dir", "provider": "claude"}'; exit 0; }
+
+if [ -z "$DIFF" ]; then
+  printf '%s\n' '{"provider": "claude", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
+  exit 0
+fi
+
+# Diff via STDIN (no argv length limit). --disallowedTools blocks every tool so the leg cannot
+# read files / run commands / search the web — it is strictly a diff reviewer.
+printf '%s\n' "$DIFF" | timeout -k 10 600 claude -p "You are a senior code reviewer performing a thorough, comprehensive review.
+
+ANALYZE THIS DIFF FOR:
+1. Logic errors - off-by-one, null deref, wrong comparisons, race conditions, division by zero
+2. Security vulnerabilities - injection, XSS, CSRF, auth bypass, secrets exposure
+3. Architecture - coupling, layering violations, anti-patterns
+4. Performance - N+1 queries, memory leaks, blocking in async, unnecessary allocations
+5. Edge cases - boundary conditions, empty inputs, integer overflow, unhandled error paths
+6. Test coverage gaps - missing edge cases, untested paths
+
+RULES:
+- ONLY report findings with confidence >= 0.7
+- Use EXACT file paths from the diff headers (e.g., 'a/src/Foo.cs' -> 'src/Foo.cs')
+- Use the line number from the diff where the issue occurs
+- Each finding must have a concrete, actionable suggestion
+- Do NOT use any tools. You have NO repository access — review ONLY the diff below. This is a deliberately diff-only lens; if a concern depends on context not present in the diff, lower your confidence or omit it rather than assuming.
+
+VERDICT RULES:
+- BLOCK: any critical-severity finding, OR 2+ high-severity findings
+- NEEDS_WORK: any high-severity finding, OR 3+ medium-severity findings
+- APPROVE: all other cases
+
+RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
+{
+  \"provider\": \"claude\",
+  \"model\": \"default\",
+  \"findings\": [
+    {
+      \"severity\": \"critical|high|medium|low\",
+      \"category\": \"security|architecture|logic|performance|quality|edge-case|testing\",
+      \"file\": \"path/to/file\",
+      \"line\": 42,
+      \"title\": \"Brief descriptive title\",
+      \"description\": \"What is wrong and why it matters\",
+      \"suggestion\": \"Concrete fix recommendation\",
+      \"confidence\": 0.95
+    }
+  ],
+  \"summary\": {
+    \"total_findings\": 3,
+    \"critical\": 0,
+    \"high\": 1,
+    \"medium\": 2,
+    \"low\": 0,
+    \"quality_score\": 7.5,
+    \"verdict\": \"APPROVE|NEEDS_WORK|BLOCK\"
+  }
+}
+$([ -n "$CONVENTIONS" ] && printf '\nPROJECT CONVENTIONS (from AGENTS.md) — use ONLY to judge whether the diff violates project standards; report findings only against the diff:\n%s\n' "$CONVENTIONS")
+THE DIFF IS PROVIDED VIA STDIN ABOVE. Review ONLY the changed lines shown in the diff." \
+  --model "$CLAUDE_MODEL" \
+  --output-format json \
+  --disallowedTools "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Task" \
+  >"$TMPDIR/claude-raw-output.json" 2>"$TMPDIR/claude-stderr.txt"
+
+CLAUDE_EXIT=$?
+if [ $CLAUDE_EXIT -eq 0 ] && [ -f "$TMPDIR/claude-raw-output.json" ]; then
+  # claude -p --output-format json emits a SINGLE result object: the answer is in `.result`,
+  # `.is_error` flags a model/transport error, and `.modelUsage` is keyed by the model that
+  # actually ran (confirmed against this CLI). Unlike qwen-code, claude does NOT silently
+  # downgrade an unknown -m, but we still surface the real model from the envelope.
+  IS_ERR=$(jq -r '.is_error // false' "$TMPDIR/claude-raw-output.json" 2>/dev/null)
+  ACTUAL_MODEL=$(jq -r '(.modelUsage // {} | keys | .[0]) // .model // empty' "$TMPDIR/claude-raw-output.json" 2>/dev/null)
+  RESPONSE=$(jq -r '.result // empty' "$TMPDIR/claude-raw-output.json" 2>/dev/null)
+  if [ "$IS_ERR" = "true" ] || [ -z "$RESPONSE" ]; then
+    SAFE_RAW=$(jq -Rs . < "$TMPDIR/claude-raw-output.json" 2>/dev/null || echo '"capture failed"')
+    printf '{"error": "Claude review returned an error or empty result", "provider": "claude", "raw": %s}\n' "$SAFE_RAW"
+  else
+    # Strip markdown fences; if the model wrapped JSON in prose, slice from first { to last }.
+    CLEAN=$(printf '%s\n' "$RESPONSE" | sed 's/^```json//;s/^```//')
+    if ! printf '%s' "$CLEAN" | jq -e . >/dev/null 2>&1; then
+      CLEAN=$(printf '%s' "$CLEAN" | tr -d '\r' | sed -n 'H;${x;s/^[^{]*//;s/[^}]*$//;p;}')
+    fi
+    if printf '%s' "$CLEAN" | jq -e . >/dev/null 2>&1; then
+      printf '%s' "$CLEAN" | jq --arg m "${ACTUAL_MODEL:-$CLAUDE_MODEL}" '.model = $m'
+    else
+      SAFE_RAW=$(jq -Rs . < "$TMPDIR/claude-raw-output.json" 2>/dev/null || echo '"capture failed"')
+      printf '{"error": "Claude produced unparseable output", "provider": "claude", "raw": %s}\n' "$SAFE_RAW"
+    fi
+  fi
+else
+  STDERR_CONTENT=$(cat "$TMPDIR/claude-stderr.txt" 2>/dev/null)
+  SAFE_STDERR=$(echo "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
+  printf '{"error": "Claude execution failed", "exit_code": %d, "stderr": %s}\n' "$CLAUDE_EXIT" "$SAFE_STDERR"
 fi
 # trap EXIT handles cleanup of $TMPDIR
 ```

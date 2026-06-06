@@ -28,10 +28,11 @@ DeepSeek is a **first-class** reviewer with its own transport, decoupled from th
   once with `opencode auth login` (select DeepSeek), or set `DEEPSEEK_API_KEY`.
 - **Why direct, not `opencode-go/`**: a `opencode-go` quota/429 can no longer take both
   OpenCode legs (GLM + DeepSeek) down together — the failures are now independent.
-- **Repo-walking**: this is the one tribunal leg that runs read-only **with tools enabled**
-  (`opencode run --agent plan` from the repo root), so it can open related files and trace
-  cross-file effects rather than reviewing the diff in isolation — deliberate harness/context
-  diversity the other (diff-only) legs cannot provide. It still receives the diff via `-f`.
+- **Repo-walking**: this leg runs read-only **with tools enabled** (`opencode run --agent plan`
+  from the repo root), so it can open related files and trace cross-file effects rather than
+  reviewing the diff in isolation. The default Codex and Qwen legs now walk too (issue #44); of
+  the two OpenCode-call legs, DeepSeek is the walker while GLM stays diff-only. It still receives
+  the diff via `-f`.
 
 ## Switchability (mirrors the Gemini pattern)
 

@@ -1,6 +1,6 @@
 ---
 name: qwen-reviewer
-description: Invokes the Qwen Code CLI (Alibaba Qwen, direct transport) for independent, diff-only code review. Decorrelated from the OpenCode GLM/DeepSeek legs. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
+description: Invokes the Qwen Code CLI (Alibaba Qwen, direct transport) for independent, repo-walking (read-only) code review. Decorrelated from the OpenCode GLM/DeepSeek legs. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
 tools: Bash, Read
 model: haiku
 color: cyan
@@ -29,9 +29,12 @@ Qwen is a **first-class, additive** reviewer with its OWN transport — the **Qw
   share architectural lineage and the OpenCode backend; an `opencode-go` quota/429 or a
   shared-data-dir deadlock can degrade both at once. Qwen on its own CLI/transport cannot
   fail in lockstep with them, so `DeepSeek + Qwen` is the most decorrelated cheap pair.
-- **Diff-only**: unlike the DeepSeek leg (which walks the repo), Qwen reviews the diff in
-  isolation — the same harness shape as the Gemini leg. DeepSeek already owns the
-  repo-walking lane; keeping Qwen diff-only preserves leg diversity.
+- **Repo-walking (read-only)**: like the DeepSeek leg, Qwen `cd`s to the repo root and runs
+  with `--yolo`, so its read-only tools (read/grep/glob/list) are available; the prompt permits
+  opening related files to verify framework semantics, variable scope, and call sites, avoiding
+  the context-gap false positives a diff-only pass produces (issue #44). Findings are still
+  reported only against the changed lines. Transport diversity (separate Qwen Code CLI) is
+  preserved even though the context scope now matches DeepSeek's.
 
 ## Switchability (mirrors the Gemini/DeepSeek pattern)
 
@@ -100,6 +103,7 @@ RULES:
 - Use EXACT file paths from the diff headers (e.g., 'a/src/Foo.cs' -> 'src/Foo.cs')
 - Use the line number from the diff where the issue occurs
 - Each finding must have a concrete, actionable suggestion
+- You MAY use your read-only tools (read, grep, glob, list) to open OTHER files in the project and trace how the changed code is called elsewhere, to catch cross-file breakage and verify framework/library semantics, variable scope, and call sites before reporting. You CANNOT modify files.
 
 VERDICT RULES:
 - BLOCK: any critical-severity finding, OR 2+ high-severity findings
@@ -133,7 +137,7 @@ RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
   }
 }
 $([ -n "$CONVENTIONS" ] && printf '\nPROJECT CONVENTIONS (from AGENTS.md) — use ONLY to judge whether the diff violates project standards; report findings only against the diff:\n%s\n' "$CONVENTIONS")
-THE DIFF IS PROVIDED VIA STDIN ABOVE." \
+THE DIFF IS PROVIDED VIA STDIN ABOVE. You are running inside the project repository — read related files as needed to understand context and verify cross-file effects, but report findings only against the changed lines." \
   --yolo \
   -o json \
   >"$TMPDIR/qwen-raw-output.json" 2>"$TMPDIR/qwen-stderr.txt"
