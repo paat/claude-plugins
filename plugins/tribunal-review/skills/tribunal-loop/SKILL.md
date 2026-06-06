@@ -42,9 +42,10 @@ USABLE=0
 
 # Gemini leg is OFF by default (opt-in via TRIBUNAL_GEMINI=on). When disabled it is an
 # INTENTIONAL skip — not probed on PATH and not counted toward the zero-usable check.
-# Only the literal "on" enables; anything else (or unset) = off. Codex and opencode (which
-# carries the DeepSeek leg, default-on) are the always-present base CLIs.
-CLIS="codex opencode"
+# Only the literal "on" enables; anything else (or unset) = off. Codex is the only
+# always-present base CLI; opencode is added below ONLY when an OpenCode leg (DeepSeek or GLM)
+# is actually enabled, so a fully-disabled OpenCode call is not miscounted as a usable provider.
+CLIS="codex"
 if [ "${TRIBUNAL_GEMINI:-off}" = "on" ]; then
   CLIS="$CLIS gemini"
 else
@@ -67,9 +68,7 @@ fi
 
 # GLM leg switch (issue #41). The opencode-go GLM leg shares architectural lineage with
 # DeepSeek and tends to fail in lockstep, so it is OFF by default (opt-in) — the default
-# panel keeps the decorrelated set (Codex + Gemini + DeepSeek + Qwen). Only the literal "on"
-# enables. Like DeepSeek it runs on the shared `opencode` CLI, so toggling it does NOT change
-# the CLI list / TOTAL; it only skips the GLM leg.
+# panel keeps the decorrelated set (Codex + DeepSeek + Qwen). Only the literal "on" enables.
 GLM_MODEL="${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.1}"
 GLM_ON=off
 if [ "${TRIBUNAL_GLM:-off}" = "on" ]; then
@@ -77,19 +76,26 @@ if [ "${TRIBUNAL_GLM:-off}" = "on" ]; then
 else
   WARN="${WARN}\n  - glm: disabled (default off) — set TRIBUNAL_GLM=on to enable"
 fi
-TOTAL=$(set -- $CLIS; echo $#)
 
 # DeepSeek leg switch (mirrors TRIBUNAL_GEMINI). The DeepSeek leg runs on the DIRECT
 # DeepSeek API via opencode's native `deepseek/` provider — independent of the opencode-go
 # backend GLM uses, so an opencode-go quota/429 can no longer take both OpenCode legs down
-# together (issue #40/#38). It shares the `opencode` CLI with GLM, so disabling it does NOT
-# remove opencode from the CLI list above; it only skips the DeepSeek leg. Only "off" disables.
+# together (issue #40/#38). On by default; only "off" disables.
 DEEPSEEK_MODEL="${TRIBUNAL_DEEPSEEK_MODEL:-deepseek/deepseek-v4-pro}"
 DEEPSEEK_ON=on
 if [ "${TRIBUNAL_DEEPSEEK:-on}" = "off" ]; then
   DEEPSEEK_ON=off
   WARN="${WARN}\n  - deepseek: disabled via TRIBUNAL_DEEPSEEK=off — leg will be skipped"
 fi
+
+# The `opencode` CLI is shared by the GLM and DeepSeek legs. Count it as a usable provider
+# ONLY when at least one of them is enabled — otherwise a present-but-unused opencode would
+# falsely satisfy the zero-usable check while contributing no active reviewer. DeepSeek is on
+# by default, so by default opencode IS counted.
+if [ "$DEEPSEEK_ON" = on ] || [ "$GLM_ON" = on ]; then
+  CLIS="$CLIS opencode"
+fi
+TOTAL=$(set -- $CLIS; echo $#)
 
 # Each reviewer CLI on PATH?
 for cli in $CLIS; do
@@ -173,7 +179,7 @@ If preflight exits non-zero (no usable providers): STOP and report. Otherwise no
 warnings — the affected provider(s) will be skipped in Step 2 and arbitration treats the
 result as a degraded quorum.
 
-Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL counts reviewer CLIs on PATH. Base is codex + opencode + qwen (Qwen on by default); add gemini when TRIBUNAL_GEMINI=on; subtract qwen when TRIBUNAL_QWEN=off. The opencode CLI carries both the GLM and DeepSeek legs, so toggling TRIBUNAL_GLM / TRIBUNAL_DEEPSEEK does not change TOTAL.)
+Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL counts reviewer CLIs on PATH. By default that is codex + opencode + qwen (DeepSeek on ⇒ opencode counted; Qwen on); add gemini when TRIBUNAL_GEMINI=on; subtract qwen when TRIBUNAL_QWEN=off. The opencode CLI carries both the GLM and DeepSeek legs, so it is counted whenever EITHER is enabled and is dropped only if BOTH are off.)
 
 ---
 
