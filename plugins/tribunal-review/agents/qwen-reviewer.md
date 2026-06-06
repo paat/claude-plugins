@@ -33,12 +33,12 @@ Qwen is a **first-class, additive** reviewer with its OWN transport — the **Qw
   isolation — the same harness shape as the Gemini leg. DeepSeek already owns the
   repo-walking lane; keeping Qwen diff-only preserves leg diversity.
 
-## Switchability (mirrors the Gemini/DeepSeek pattern, inverted default)
+## Switchability (mirrors the Gemini/DeepSeek pattern)
 
-- **Off by default** (additive, needs a new key). `TRIBUNAL_QWEN=on` enables it; the leg emits
-  `{"provider":"qwen","status":"disabled","note":"..."}` whenever it is not enabled, and the
-  arbiter excludes it from quorum (`provider_assessment.qwen.status="disabled"`). Only the
-  literal `on` enables; anything else (or unset) keeps it off.
+- **On by default.** `TRIBUNAL_QWEN=off` disables it; when disabled the leg emits
+  `{"provider":"qwen","status":"disabled","note":"..."}` and the arbiter excludes it from
+  quorum (`provider_assessment.qwen.status="disabled"`). Only the literal `off` disables;
+  anything else (or unset) runs.
 - `TRIBUNAL_QWEN_MODEL` (default `qwen3.7-plus` — newest Plus model, validated on DashScope Intl).
   Qwen model ids change often through 2026 AND vary by account/region — **override as needed**
   (e.g. `qwen3.6-plus` for a 1M-context window, or a coder slot like `qwen3-coder-plus` if your
@@ -61,12 +61,11 @@ Auth is handled by the Qwen Code CLI's own env, so the leg stays transport-agnos
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 
-# Qwen leg is ADDITIVE and OFF by default (opt-in until validated — issue #41).
-# Only the literal "on" enables; anything else (or unset) = off → emit disabled marker.
-# Note: this standalone path's switch matches tribunal-loop's, so the agent behaves
-# identically whether invoked directly or by the skill.
-if [ "${TRIBUNAL_QWEN:-off}" != "on" ]; then
-  printf '%s\n' '{"provider": "qwen", "status": "disabled", "note": "Qwen leg disabled (default off); set TRIBUNAL_QWEN=on to enable"}'
+# Qwen leg is ON by default (mirrors Gemini/DeepSeek). Only the literal "off" disables;
+# anything else (or unset) runs. Note: this standalone path's switch matches tribunal-loop's,
+# so the agent behaves identically whether invoked directly or by the skill.
+if [ "${TRIBUNAL_QWEN:-on}" = "off" ]; then
+  printf '%s\n' '{"provider": "qwen", "status": "disabled", "note": "Qwen leg disabled via TRIBUNAL_QWEN=off"}'
   exit 0
 fi
 QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}"

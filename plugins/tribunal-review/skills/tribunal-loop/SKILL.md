@@ -1,20 +1,20 @@
 ---
 name: tribunal-loop
-description: Multi-provider code review workflow with Codex, Gemini, OpenCode (GLM + DeepSeek), optional Qwen, and Opus arbitration
+description: Multi-provider code review workflow — Codex + DeepSeek + Qwen by default (Gemini and OpenCode GLM opt-in), with Opus arbitration
 ---
 
 # Tribunal Loop
 
-Multi-provider code review. Codex (GPT-5.3) + Gemini (3 Pro Preview) + OpenCode GLM-5.1 + DeepSeek-V4-Pro review in parallel, Opus arbitrates inline. DeepSeek runs on the **direct** DeepSeek API (decoupled from the opencode-go backend GLM uses) and is the one leg that **walks the repo** read-only rather than reviewing the diff in isolation.
+Multi-provider code review. **By default** Codex (GPT-5.3) + DeepSeek-V4-Pro + Qwen (qwen3.7-plus) review in parallel, Opus arbitrates inline. DeepSeek runs on the **direct** DeepSeek API and **walks the repo** read-only; Qwen runs on the Qwen Code CLI, diff-only. **Gemini** (web/CVE search) and the OpenCode **GLM** leg are available opt-in (`TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`) but **off by default** — GLM shares architectural lineage with DeepSeek and tends to fail in lockstep, so the default panel keeps the decorrelated set.
 
 3-step workflow: pre-flight, parallel review, inline arbitration.
 
 ## Providers
 - **Codex** (GPT-5.3) - comprehensive review
-- **Gemini** (3 Pro Preview) - comprehensive review + web/CVE search
-- **GLM** (opencode-go/glm-5.1) - comprehensive review (OpenCode Go), diff-only
+- **Gemini** (3 Pro Preview) - comprehensive review + web/CVE search; **off by default**, enable with `TRIBUNAL_GEMINI=on`, model via `TRIBUNAL_GEMINI_MODEL`
+- **GLM** (opencode-go/glm-5.1) - comprehensive review (OpenCode Go), diff-only; **off by default** (shares lineage with DeepSeek — fails in lockstep), enable with `TRIBUNAL_GLM=on`, model via `TRIBUNAL_GLM_MODEL`
 - **DeepSeek** (deepseek/deepseek-v4-pro) - comprehensive review on the **direct DeepSeek API**, **repo-walking** read-only; independently switchable via `TRIBUNAL_DEEPSEEK` / `TRIBUNAL_DEEPSEEK_MODEL`
-- **Qwen** (qwen3.7-plus) - comprehensive review via the **Qwen Code CLI** (own transport, decorrelated from the OpenCode legs), **diff-only**; **off by default**, enable with `TRIBUNAL_QWEN=on`, model via `TRIBUNAL_QWEN_MODEL`
+- **Qwen** (qwen3.7-plus) - comprehensive review via the **Qwen Code CLI** (own transport, decorrelated from the OpenCode legs), **diff-only**; **on by default**, disable with `TRIBUNAL_QWEN=off`, model via `TRIBUNAL_QWEN_MODEL`
 - **Opus** (4.5) - final arbiter (runs inline, no agent spawn)
 
 ---
@@ -40,27 +40,42 @@ are usable do we STOP.
 WARN=""
 USABLE=0
 
-# Gemini leg can be disabled via env (TRIBUNAL_GEMINI=off). When disabled it is an
+# Gemini leg is OFF by default (opt-in via TRIBUNAL_GEMINI=on). When disabled it is an
 # INTENTIONAL skip — not probed on PATH and not counted toward the zero-usable check.
-# Only the literal "off" disables; anything else (or unset) = on.
-CLIS="codex gemini opencode"
-if [ "${TRIBUNAL_GEMINI:-on}" = "off" ]; then
-  CLIS="codex opencode"
-  WARN="${WARN}\n  - gemini: disabled via TRIBUNAL_GEMINI=off — leg will be skipped"
+# Only the literal "on" enables; anything else (or unset) = off. Codex and opencode (which
+# carries the DeepSeek leg, default-on) are the always-present base CLIs.
+CLIS="codex opencode"
+if [ "${TRIBUNAL_GEMINI:-off}" = "on" ]; then
+  CLIS="$CLIS gemini"
+else
+  WARN="${WARN}\n  - gemini: disabled (default off) — set TRIBUNAL_GEMINI=on to enable"
 fi
 
-# Qwen leg switch (issue #41). ADDITIVE leg on its OWN CLI/transport (Qwen Code CLI),
-# decorrelated from the OpenCode legs. OFF by default (opt-in). Only the literal "on"
-# enables. When on, `qwen` joins the CLI list (and TOTAL) so the generic PATH loop counts
-# it and the "N/TOTAL providers" accounting stays correct; when off it is an INTENTIONAL
-# skip — not probed, not counted.
+# Qwen leg switch (issue #41). Independent leg on its OWN CLI/transport (Qwen Code CLI),
+# decorrelated from the OpenCode legs. ON by default (mirrors Gemini/DeepSeek); only the
+# literal "off" disables. When on, `qwen` joins the CLI list (and TOTAL) so the generic PATH
+# loop counts it and the "N/TOTAL providers" accounting stays correct; when off it is an
+# INTENTIONAL skip — not probed, not counted.
 QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}"
-QWEN_ON=off
-if [ "${TRIBUNAL_QWEN:-off}" = "on" ]; then
-  QWEN_ON=on
-  CLIS="$CLIS qwen"
+QWEN_ON=on
+if [ "${TRIBUNAL_QWEN:-on}" = "off" ]; then
+  QWEN_ON=off
+  WARN="${WARN}\n  - qwen: disabled via TRIBUNAL_QWEN=off — leg will be skipped"
 else
-  WARN="${WARN}\n  - qwen: disabled (default off) — set TRIBUNAL_QWEN=on to enable"
+  CLIS="$CLIS qwen"
+fi
+
+# GLM leg switch (issue #41). The opencode-go GLM leg shares architectural lineage with
+# DeepSeek and tends to fail in lockstep, so it is OFF by default (opt-in) — the default
+# panel keeps the decorrelated set (Codex + Gemini + DeepSeek + Qwen). Only the literal "on"
+# enables. Like DeepSeek it runs on the shared `opencode` CLI, so toggling it does NOT change
+# the CLI list / TOTAL; it only skips the GLM leg.
+GLM_MODEL="${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.1}"
+GLM_ON=off
+if [ "${TRIBUNAL_GLM:-off}" = "on" ]; then
+  GLM_ON=on
+else
+  WARN="${WARN}\n  - glm: disabled (default off) — set TRIBUNAL_GLM=on to enable"
 fi
 TOTAL=$(set -- $CLIS; echo $#)
 
@@ -97,9 +112,11 @@ fi
 if command -v opencode >/dev/null 2>&1; then
   opencode models >/dev/null 2>&1 || true
   OC_MODELS=$(opencode models 2>/dev/null)
-  # GLM leg model (opencode-go reseller backend) — always checked.
-  printf '%s\n' "$OC_MODELS" | grep -qxF "opencode-go/glm-5.1" || \
-    WARN="${WARN}\n  - opencode model opencode-go/glm-5.1: not in registry (cold/stale cache) — GLM leg will be skipped; run \`opencode models\` to refresh"
+  # GLM leg model (opencode-go reseller backend) — only when enabled (off by default).
+  if [ "$GLM_ON" = on ]; then
+    printf '%s\n' "$OC_MODELS" | grep -qxF "$GLM_MODEL" || \
+      WARN="${WARN}\n  - opencode model ${GLM_MODEL}: not in registry (cold/stale cache) — GLM leg will be skipped; run \`opencode models\` to refresh"
+  fi
   # DeepSeek leg model (DIRECT DeepSeek provider) — unless disabled. The native `deepseek/`
   # provider only lists its models once authenticated, so this registry check doubles as a
   # liveness/config probe (folds in #38): a missing model or missing credential surfaces
@@ -156,13 +173,13 @@ If preflight exits non-zero (no usable providers): STOP and report. Otherwise no
 warnings — the affected provider(s) will be skipped in Step 2 and arbitration treats the
 result as a degraded quorum.
 
-Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL counts reviewer CLIs on PATH: base is 3 — codex, gemini, opencode; subtract 1 if Gemini is disabled via TRIBUNAL_GEMINI=off; add 1 if Qwen is enabled via TRIBUNAL_QWEN=on. The opencode CLI covers both the GLM and DeepSeek legs, so disabling DeepSeek does not change TOTAL.)
+Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL counts reviewer CLIs on PATH. Base is codex + opencode + qwen (Qwen on by default); add gemini when TRIBUNAL_GEMINI=on; subtract qwen when TRIBUNAL_QWEN=off. The opencode CLI carries both the GLM and DeepSeek legs, so toggling TRIBUNAL_GLM / TRIBUNAL_DEEPSEEK does not change TOTAL.)
 
 ---
 
 ## STEP 2: Parallel Review
 
-Run the scripts below as **parallel Bash tool calls** — three by default (Codex, Gemini, OpenCode), plus a fourth (Qwen) when `TRIBUNAL_QWEN=on`. No Task agents -- execute directly. The Qwen call self-emits a `disabled` marker when not enabled, so it is safe to always dispatch it as a fourth parallel call. The OpenCode call (Bash call 3) runs its two legs **sequentially within that one call**, because concurrent `opencode run` instances deadlock on the shared `~/.local/share/opencode` data dir (issue #31). It still yields two reviews (GLM + DeepSeek), for four total. The two legs are otherwise decoupled: **GLM** runs on the opencode-go backend, diff-only, from a scratch dir; **DeepSeek** runs on the **direct DeepSeek API** and from the **repo root** so it can walk the tree. A 429/quota failure on opencode-go therefore no longer takes the DeepSeek leg down with GLM (issue #40).
+Run the scripts below as **four parallel Bash tool calls** (Codex, Gemini, OpenCode, Qwen). No Task agents -- execute directly. Each leg self-emits a `disabled` marker when its switch is off, so all four are always safe to dispatch — by default only Codex, the OpenCode DeepSeek leg, and Qwen actually review (Gemini and GLM are opt-in). The OpenCode call (Bash call 3) runs its two legs **sequentially within that one call**, because concurrent `opencode run` instances deadlock on the shared `~/.local/share/opencode` data dir (issue #31). It yields up to two reviews (GLM + DeepSeek) — but **GLM is off by default** (`TRIBUNAL_GLM=on` to enable), so by default that call yields only DeepSeek. The two legs are otherwise decoupled: **GLM** runs on the opencode-go backend, diff-only, from a scratch dir; **DeepSeek** runs on the **direct DeepSeek API** and from the **repo root** so it can walk the tree. A 429/quota failure on opencode-go therefore no longer takes the DeepSeek leg down with GLM (issue #40).
 
 Each reviewer is given the repo's `AGENTS.md` (if present, capped at 16KB) as a **Project Conventions** block, so all judge the diff against the same project standards. The DeepSeek leg additionally **reads beyond the diff** (read-only `--agent plan`): it is the one leg permitted to open related files and trace cross-file effects, deliberately providing harness/context diversity the other (diff-only) legs cannot.
 
@@ -299,8 +316,8 @@ cd "$(git rev-parse --show-toplevel)"
 # Config: the Gemini leg can be disabled (TRIBUNAL_GEMINI=off) or pointed at a
 # different model (TRIBUNAL_GEMINI_MODEL). Only the literal "off" disables; anything
 # else (or unset) runs as normal. Defaults reproduce the original behavior exactly.
-if [ "${TRIBUNAL_GEMINI:-on}" = "off" ]; then
-  printf '%s\n' '{"provider": "gemini", "status": "disabled", "note": "Gemini leg disabled via TRIBUNAL_GEMINI=off"}'
+if [ "${TRIBUNAL_GEMINI:-off}" != "on" ]; then
+  printf '%s\n' '{"provider": "gemini", "status": "disabled", "note": "Gemini leg disabled (default off); set TRIBUNAL_GEMINI=on to enable"}'
   exit 0
 fi
 GEMINI_MODEL="${TRIBUNAL_GEMINI_MODEL:-gemini-3-pro-preview}"
@@ -393,8 +410,10 @@ this single-call serialization is why they stay decoupled in *transport* yet sha
 Bash call. The legs differ in **backend, cwd, and context scope**:
 
 - **GLM** — opencode-go backend, **diff-only** (no tools), run from the non-repo scratch
-  `$TMPDIR`. `opencode run` can deadlock at init when its cwd is inside a git repo on
-  older builds (issue #4-class), so this diff-only leg keeps using the scratch dir.
+  `$TMPDIR`. **Off by default** (opt-in via `TRIBUNAL_GLM=on`): it shares lineage with DeepSeek
+  and tends to fail in lockstep (issue #41), so the default panel drops it. `opencode run` can
+  deadlock at init when its cwd is inside a git repo on older builds (issue #4-class), so this
+  diff-only leg keeps using the scratch dir.
 - **DeepSeek** — **direct DeepSeek API** (`deepseek/…`), **repo-walking** read-only,
   run from the **repo root** so `--agent plan` can open related files. Verified safe on
   opencode ≥ 1.15 (the git-cwd init deadlock no longer reproduces); a leg that does hang
@@ -422,13 +441,24 @@ emit_deepseek_disabled() {
   printf '%s\n' '{"provider": "deepseek", "status": "disabled", "note": "DeepSeek leg disabled via TRIBUNAL_DEEPSEEK=off"}'
 }
 
+# GLM leg config + "intentional skip" marker. GLM is OFF by default (opt-in): it shares
+# architectural lineage with DeepSeek and tends to fail in lockstep, so the default panel
+# drops it (issue #41). Model overridable via TRIBUNAL_GLM_MODEL.
+GLM_MODEL="${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.1}"
+emit_glm_disabled() {
+  printf '%s\n' '{"provider": "glm", "status": "disabled", "note": "GLM leg disabled (default off); set TRIBUNAL_GLM=on to enable"}'
+}
+
 emit_empty() {  # provider, model
   printf '{"provider": "%s", "model": "%s", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}\n' "$1" "$2"
 }
 
-# If OpenCode is not installed, emit an error object for each leg and stop.
+# If OpenCode is not installed, emit an object for each leg (error if enabled, disabled marker
+# if its switch is off) and stop.
 if ! command -v opencode >/dev/null 2>&1; then
-  printf '%s\n' '{"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "glm"}'
+  if [ "${TRIBUNAL_GLM:-off}" = "on" ]; then
+    printf '%s\n' '{"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "glm"}'
+  else emit_glm_disabled; fi
   if [ "${TRIBUNAL_DEEPSEEK:-on}" = "off" ]; then emit_deepseek_disabled; else
     printf '%s\n' '{"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "deepseek"}'
   fi
@@ -438,7 +468,7 @@ fi
 DIFF=$(git diff origin/main...HEAD)
 
 if [ -z "$DIFF" ]; then
-  emit_empty "glm" "opencode-go/glm-5.1"
+  if [ "${TRIBUNAL_GLM:-off}" = "on" ]; then emit_empty "glm" "$GLM_MODEL"; else emit_glm_disabled; fi
   if [ "${TRIBUNAL_DEEPSEEK:-on}" = "off" ]; then emit_deepseek_disabled; else
     emit_empty "deepseek" "$DEEPSEEK_MODEL"
   fi
@@ -478,7 +508,7 @@ printf '%s' "$DIFF" > "$DIFF_FILE"
 # Warm the OpenCode model registry. A cold/stale ~/.cache/opencode/models.json
 # makes `opencode run -m <model>` silently DROP the -m arg and fall back to an
 # unauthenticated default model — surfacing as a misleading "Missing Authentication
-# header" error and quietly downgrading the 4-provider tribunal to 2 (issue #32).
+# header" error and quietly downgrading the tribunal quorum (issue #32).
 # Refresh once, then snapshot the list so each leg can assert its model resolved.
 opencode models >/dev/null 2>&1 || true
 OC_MODELS=$(opencode models 2>/dev/null)
@@ -487,7 +517,7 @@ OC_MODELS=$(opencode models 2>/dev/null)
 # avoids the plugin-load deadlock noted above, not the -f attachment). Older opencode
 # (e.g. 1.2.4) has no such flag and, on the unknown argument, aborts the WHOLE run by
 # printing `run` help to stdout and exiting 1 with empty stderr — which the leg catches
-# as a generic "OpenCode ... failed", silently degrading the 4-provider tribunal to 2
+# as a generic "OpenCode ... failed", silently degrading the tribunal quorum
 # (issue #36). Probe once and append it only when this opencode advertises it.
 # Built as an array so the flag is either absent or passed as exactly one argv
 # element — no reliance on unquoted word-splitting (ShellCheck SC2086-clean).
@@ -604,8 +634,12 @@ $ctx_close"
 }
 
 # SEQUENTIAL — the two legs must never overlap (see issue #31).
-# GLM: opencode-go backend, diff-only (walk=0), from the scratch dir.
-review_opencode_leg "glm" "GLM" "opencode-go/glm-5.1" "$TMPDIR" 0
+# GLM: opencode-go backend, diff-only (walk=0), from the scratch dir — OFF by default (opt-in).
+if [ "${TRIBUNAL_GLM:-off}" = "on" ]; then
+  review_opencode_leg "glm" "GLM" "$GLM_MODEL" "$TMPDIR" 0
+else
+  emit_glm_disabled
+fi
 # DeepSeek: DIRECT DeepSeek API, repo-walking (walk=1), from the repo root — unless disabled.
 # Repo-walking can take longer than a diff-only pass; the 360s cap bounds the tail.
 if [ "${TRIBUNAL_DEEPSEEK:-on}" = "off" ]; then
@@ -620,17 +654,17 @@ fi
 
 Independent, **diff-only** leg on its OWN CLI (Qwen Code, `@qwen-code/qwen-code`) — NOT the
 `opencode` backend GLM/DeepSeek share, so it cannot fail in lockstep with them (issue #41).
-**Off by default** (additive, needs a new key); `TRIBUNAL_QWEN=on` enables it. Runs as a
+**On by default** (mirrors Gemini/DeepSeek); `TRIBUNAL_QWEN=off` disables it. Runs as a
 fourth parallel Bash call alongside Codex (call 1), Gemini (call 2), and OpenCode (call 3).
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 
-# Qwen leg is ADDITIVE and OFF by default (opt-in — issue #41). Only the literal "on"
-# enables; anything else (or unset) = off → emit the disabled marker so the arbiter
-# accounts for qwen as a (disabled) fifth peer. TRIBUNAL_QWEN_MODEL overrides the model.
-if [ "${TRIBUNAL_QWEN:-off}" != "on" ]; then
-  printf '%s\n' '{"provider": "qwen", "status": "disabled", "note": "Qwen leg disabled (default off); set TRIBUNAL_QWEN=on to enable"}'
+# Qwen leg is ON by default (mirrors Gemini/DeepSeek). Only the literal "off" disables;
+# anything else (or unset) runs. When off, emit the disabled marker so the arbiter accounts
+# for qwen as a (disabled) fifth peer. TRIBUNAL_QWEN_MODEL overrides the model.
+if [ "${TRIBUNAL_QWEN:-on}" = "off" ]; then
+  printf '%s\n' '{"provider": "qwen", "status": "disabled", "note": "Qwen leg disabled via TRIBUNAL_QWEN=off"}'
   exit 0
 fi
 QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}"
@@ -762,9 +796,9 @@ credential failure (issue #32):
 {"error": "OpenCode model deepseek/deepseek-v4-pro not in registry (cold/stale cache, or direct provider not authenticated) — run `opencode models` / `opencode auth login`; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "deepseek"}
 ```
 
-Collect all five JSON outputs — Codex, Gemini, and Qwen from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration. A `{"status": "disabled"}` marker (Gemini emits one when `TRIBUNAL_GEMINI=off`; DeepSeek when `TRIBUNAL_DEEPSEEK=off`; Qwen whenever `TRIBUNAL_QWEN` is not `on`, i.e. by default) is an INTENTIONAL skip, not a failure and not a finding source — it has no `findings` key; report that leg as `disabled` rather than a count, and hand it to Step 3 as a disabled provider.
+Collect all five JSON outputs — Codex, Gemini, and Qwen from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration. A `{"status": "disabled"}` marker (Gemini and GLM emit one unless enabled — `TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`, both off by default; DeepSeek when `TRIBUNAL_DEEPSEEK=off`; Qwen when `TRIBUNAL_QWEN=off`) is an INTENTIONAL skip, not a failure and not a finding source — it has no `findings` key; report that leg as `disabled` rather than a count, and hand it to Step 3 as a disabled provider.
 
-Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G or 'disabled'}, GLM: {L}, DeepSeek: {D or 'disabled'}, Qwen: {Q or 'disabled'} findings"
+Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G or 'disabled'}, GLM: {L or 'disabled'}, DeepSeek: {D or 'disabled'}, Qwen: {Q or 'disabled'} findings"
 
 ---
 
@@ -783,7 +817,7 @@ Two findings are **duplicates** if they describe the same underlying issue in th
 
 ### 3b: Resolve Conflicts (N providers)
 
-A finding may be reported by any subset of the five reviewers (codex, gemini, glm, deepseek, qwen). Some are commonly disabled (Qwen is off by default; Gemini/DeepSeek may be off) — treat disabled providers as absent, not as failures.
+A finding may be reported by any subset of the five reviewers (codex, gemini, glm, deepseek, qwen). By default only codex, deepseek, and qwen run — gemini and glm are off by default, and deepseek/qwen can be turned off — so treat disabled providers as absent, not as failures.
 
 | Scenario | Action |
 |----------|--------|
@@ -794,7 +828,7 @@ A finding may be reported by any subset of the five reviewers (codex, gemini, gl
 
 **HARD RULE**: When providers report different severities for the same finding, you MUST use the highest severity. No exceptions.
 
-All reviewers are **equal advisory peers** (up to five; Qwen is off by default). Opus has final authority and may override any finding.
+All reviewers are **equal advisory peers** (up to five; by default codex + deepseek + qwen, with gemini and glm opt-in). Opus has final authority and may override any finding.
 
 ### 3c: Evaluate Each Finding
 
@@ -817,7 +851,7 @@ Override provider findings when they are clearly wrong. Add new findings if the 
 ### 3e: Degraded Input
 
 - If a subset of providers returned invalid JSON or failed: proceed with the remaining providers' findings. Note each failure in `provider_assessment`.
-- If a provider returned `{"status": "disabled"}` (operator set `TRIBUNAL_GEMINI=off` for Gemini, `TRIBUNAL_DEEPSEEK=off` for DeepSeek, or left Qwen off — `TRIBUNAL_QWEN` not `on`, the default): this is an INTENTIONAL skip, NOT a failure. Exclude that provider from quorum entirely, set its `provider_assessment.<provider>.status` to `"disabled"`, and do not count it toward the "all providers failed" branch — the verdict is computed from the remaining (non-disabled) providers.
+- If a provider returned `{"status": "disabled"}` (Gemini and GLM are off by default unless `TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`; DeepSeek is disabled by `TRIBUNAL_DEEPSEEK=off`; Qwen by `TRIBUNAL_QWEN=off`): this is an INTENTIONAL skip, NOT a failure. Exclude that provider from quorum entirely, set its `provider_assessment.<provider>.status` to `"disabled"`, and do not count it toward the "all providers failed" branch — the verdict is computed from the remaining (non-disabled) providers.
 - If **all non-disabled providers failed**: verdict = NEEDS_WORK, confidence = 0.0, rationale = "All review providers failed. Manual review required."
 - If **all non-disabled providers returned zero findings**: verdict = APPROVE, confidence = 0.95.
 
@@ -843,7 +877,7 @@ Output the tribunal verdict as JSON:
   "provider_assessment": {
     "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
     "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
-    "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
+    "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "qwen":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" }
   },
@@ -863,7 +897,7 @@ OPUS 4.5 (Final authority, runs inline)
 Codex · Gemini · GLM · DeepSeek · Qwen (equal advisory peers — verify findings)
 ```
 
-The reviewers are equal peers (up to five; Qwen is off by default); a finding flagged by ≥2 is CONSENSUS. Opus can override any reviewer finding.
+The reviewers are equal peers (up to five; by default codex + deepseek + qwen, with gemini and glm opt-in); a finding flagged by ≥2 is CONSENSUS. Opus can override any reviewer finding.
 
 ---
 
@@ -871,4 +905,4 @@ The reviewers are equal peers (up to five; Qwen is off by default); a finding fl
 
 | Mode | Steps | Tool Calls | Agent Spawns |
 |------|-------|------------|-------------|
-| Default (review) | 3 | 3–4 (parallel Bash; OpenCode call runs GLM+DeepSeek sequentially; +1 Qwen call when `TRIBUNAL_QWEN=on`) | 0 |
+| Default (review) | 3 | 4 (parallel Bash: Codex, Gemini, OpenCode, Qwen; the OpenCode call runs GLM+DeepSeek sequentially. By default Gemini & GLM self-skip, so active reviewers = Codex + DeepSeek + Qwen) | 0 |
