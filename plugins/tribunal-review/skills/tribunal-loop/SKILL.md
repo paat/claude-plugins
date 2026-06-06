@@ -90,10 +90,17 @@ if command -v opencode >/dev/null 2>&1; then
   # liveness/config probe (folds in #38): a missing model or missing credential surfaces
   # here as a fast skip instead of a mid-review hang. The auth-list check is a clearer hint.
   if [ "$DEEPSEEK_ON" = on ]; then
+    # This model-in-registry check is the ACTUAL skip condition — it mirrors Bash call 3's
+    # enforcement exactly (review_opencode_leg skips iff the model is absent from $OC_MODELS).
     printf '%s\n' "$OC_MODELS" | grep -qxF "$DEEPSEEK_MODEL" || \
       WARN="${WARN}\n  - opencode model ${DEEPSEEK_MODEL}: not in registry — DeepSeek leg will be skipped; check TRIBUNAL_DEEPSEEK_MODEL, run \`opencode auth login\` (DeepSeek), or \`opencode models\` to refresh"
-    opencode auth list 2>/dev/null | grep -qi deepseek || \
-      WARN="${WARN}\n  - deepseek: direct API not authenticated — run \`opencode auth login\` (select DeepSeek) or set DEEPSEEK_API_KEY; DeepSeek leg will be skipped"
+    # Auth HINT only (not a separate skip decision): the native deepseek provider lists its
+    # models once authenticated, so a missing credential surfaces as the model-miss above.
+    # Honor DEEPSEEK_API_KEY (a documented alternative to `opencode auth login`) so key-based
+    # users don't get a false warning, and word it as a likely-cause hint, not a verdict.
+    if [ -z "${DEEPSEEK_API_KEY:-}" ] && ! opencode auth list 2>/dev/null | grep -qi deepseek; then
+      WARN="${WARN}\n  - deepseek: direct API may not be authenticated (no DEEPSEEK_API_KEY and not in \`opencode auth list\`) — if the model check above failed, run \`opencode auth login\` (select DeepSeek) or set DEEPSEEK_API_KEY"
+    fi
   fi
 fi
 
