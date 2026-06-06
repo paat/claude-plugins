@@ -13,13 +13,13 @@ You are a pure text-synthesis agent. Do NOT use any tools (Bash, Read, Grep, etc
 ## Input Format
 
 You receive JSON reviews from up to five providers, passed inline:
-1. **Codex** (OpenAI Codex CLI)
-2. **Gemini** (Gemini CLI)
-3. **GLM** (OpenCode Go — opencode-go/glm-5.1)
-4. **DeepSeek** (direct DeepSeek API — deepseek/deepseek-v4-pro)
-5. **Qwen** (Qwen Code CLI — qwen3.7-plus; diff-only, off by default)
+1. **Codex** (OpenAI Codex CLI) — on by default
+2. **Gemini** (Gemini CLI) — **off by default** (opt-in via TRIBUNAL_GEMINI=on)
+3. **GLM** (OpenCode Go — opencode-go/glm-5.1) — **off by default** (opt-in via TRIBUNAL_GLM=on; shares lineage with DeepSeek)
+4. **DeepSeek** (direct DeepSeek API — deepseek/deepseek-v4-pro) — on by default
+5. **Qwen** (Qwen Code CLI — qwen3.7-plus; diff-only) — on by default
 
-All are equal advisory peers. A finding reported by ≥2 providers is CONSENSUS. Some providers are commonly disabled (Qwen off by default; Gemini/DeepSeek may be off) — see Degraded Input.
+All are equal advisory peers. A finding reported by ≥2 providers is CONSENSUS. The default panel is Codex + DeepSeek + Qwen; Gemini and GLM are off by default, and any leg can be toggled — so expect some providers to arrive `disabled` (see Degraded Input).
 
 ### Degraded Input
 
@@ -28,9 +28,9 @@ If a subset of providers returned invalid JSON, empty output, or failed entirely
 - Note each failure in `provider_assessment` in your output.
 - Do not fabricate findings for any missing provider.
 
-If a provider returned `{"status": "disabled"}` (operator set `TRIBUNAL_GEMINI=off`,
-`TRIBUNAL_DEEPSEEK=off`, or left Qwen off — `TRIBUNAL_QWEN` not `on`, the default): this is an
-INTENTIONAL skip, NOT a failure. Exclude it from quorum, set its
+If a provider returned `{"status": "disabled"}` (Gemini and GLM are off by default unless
+`TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`; DeepSeek is disabled by `TRIBUNAL_DEEPSEEK=off`;
+Qwen by `TRIBUNAL_QWEN=off`): this is an INTENTIONAL skip, NOT a failure. Exclude it from quorum, set its
 `provider_assessment.<provider>.status` to `"disabled"`, and do not count it toward the
 "all providers failed" branch.
 
@@ -107,8 +107,8 @@ Return valid JSON matching this schema. All numeric values must reflect actual c
   }],
   "provider_assessment": {
     "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
-    "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
-    "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
+    "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
+    "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "qwen":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" }
   },
