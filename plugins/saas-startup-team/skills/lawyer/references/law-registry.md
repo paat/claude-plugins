@@ -27,6 +27,8 @@ The index is always read in full; snapshots are read per-slug only when needed (
       "act_id": 30087,
       "rt_id": "1045568",
       "redaktsioon_id": "106032026010",
+      "redaktsioon_date": "2026-03-01",
+      "status": "valid",
       "act_title": "Isikuandmete kaitse seadus",
       "act_type": "seadus",
       "citation": "§ 10 lõige 1",
@@ -59,6 +61,8 @@ The index is always read in full; snapshots are read per-slug only when needed (
 | `act_id` | int | The `/laws/search` `.id`. What `/laws/{act_id}/*` expects as a path param. **Not** `rt_id`, **not** an RT URL segment. |
 | `rt_id` | string | The terviktekst identifier (short digit string like `"1045568"`). Stable across non-breaking amendments. Used for **feed matching** — `ChangeEvent.rt_id` is the same ID. |
 | `redaktsioon_id` | string \| null | Trailing numeric segment of the citation URL (e.g. `"106032026010"`). Per-redaction RT identifier. Useful for cheap equality at ack time. |
+| `redaktsioon_date` | string \| null | `redaktsioon_date` from `/citation` — the validFrom of the served redaction (e.g. `"2026-03-01"`), or null. Stored at register and refreshed at ack. |
+| `status` | string \| null | `status` from `/citation` — `"valid"` \| `"superseded"` \| `"repealed"`, or null if the datalake didn't return it. Set at register (must be `"valid"` unless `--force`), refreshed at ack, and updated to the detected status when the lifecycle re-check flags the entry. |
 | `act_title` | string | Human-readable act title. |
 | `act_type` | string | `"seadus"`, `"määrus"`, etc. |
 | `citation` | string | Compound reference as a human writes it: `"§ 10 lõige 1 punkt 3"`. For display. |
@@ -166,7 +170,14 @@ curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
 
 When a qualifier is set, the param value is the base digit followed by the unicode superscript digit, URL-encoded (e.g. `section=1¹` → `section=1%C2%B9`). The command body builds this via an inline Python helper; do not concatenate by hand.
 
-Response: `{act_id, act_title, paragraph, section, point, text, url}`. The trailing segment of `url` (after `/akt/`) is the per-redaction RT identifier — store as `redaktsioon_id`.
+Response: `{act_id, act_title, paragraph, section, point, text, url, status, in_force, redaktsioon_date}`. The trailing segment of `url` (after `/akt/`) is the per-redaction RT identifier — store as `redaktsioon_id`. `status` (`"valid"`|`"superseded"`|`"repealed"`), `in_force` (== `status == "valid"`), and `redaktsioon_date` (validFrom of the served redaction, may be null) are additive lifecycle signals.
+
+> **⚠ 200 ≠ in force.** A repealed/superseded/never-in-force act still returns
+> **200 + text** (so callers don't 404) but carries `in_force: false`. Every
+> `/citation` consumer in the command body guards on these:
+> - **`register`** refuses a non-`valid` act (`in_force == false` or `status != "valid"`) unless `--force` is passed, and stores `status` + `redaktsioon_date` in the entry.
+> - **Change detection** re-fetches `/citation` per not-yet-flagged entry (feed-independent) and flags any whose served redaction is no longer valid — catching repeals the `/changes/feed` missed.
+> - **`ack` / `ack-all`** refuse to clear flags or overwrite the snapshot when the freshly fetched citation is not in force — a non-valid act must be resolved with a code change, not re-blessed.
 
 **Poll changes feed since last check** (one call per run, no per-domain loop):
 
@@ -223,3 +234,4 @@ Body: the "Mida tuleb teha" section for that slug from `docs/legal/õiguslik-muu
 - **Orphan snapshot file** — `.txt` file under `.startup/laws/` with no matching index entry. Non-blocking warning; can be removed manually.
 - **Feed event's rt_id doesn't match any entry** — normal; the feed covers the whole legal corpus, most events are irrelevant to a given project.
 - **Entry rt_id mismatches feed even for the right act** — possible if the terviktekst ID drifted (rare, happens on structural republications). Resolve by re-running `/lawyer register` with the same slug — it refreshes rt_id from `/laws/{act_id}/graph`.
+- **Act no longer in force (`status != "valid"`)** — the lifecycle re-check flags the entry (`needs_review=true`, `change.type="lifecycle"`) even with no feed event. A repeal/supersession has no "new text to adopt" — the fix is to remove or replace the dependency in code, then `/lawyer unregister <slug>`. `ack` refuses such an entry by design; do not `--force`-register a replacement for a repealed paragraph without confirming the new act is actually valid.
