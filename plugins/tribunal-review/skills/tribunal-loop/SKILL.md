@@ -580,6 +580,119 @@ fi
 # trap EXIT handles cleanup of $TMPDIR
 ```
 
+### Bash call 4: Qwen Review
+
+Independent, **diff-only** leg on its OWN CLI (Qwen Code, `@qwen-code/qwen-code`) — NOT the
+`opencode` backend GLM/DeepSeek share, so it cannot fail in lockstep with them (issue #41).
+**Off by default** (additive, needs a new key); `TRIBUNAL_QWEN=on` enables it. Runs as a
+fourth parallel Bash call alongside Codex (call 1), Gemini (call 2), and OpenCode (call 3).
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+
+# Qwen leg is ADDITIVE and OFF by default (opt-in — issue #41). Only the literal "on"
+# enables; anything else (or unset) = off → emit the disabled marker so the arbiter
+# accounts for qwen as a (disabled) fifth peer. TRIBUNAL_QWEN_MODEL overrides the model.
+if [ "${TRIBUNAL_QWEN:-off}" != "on" ]; then
+  printf '%s\n' '{"provider": "qwen", "status": "disabled", "note": "Qwen leg disabled (default off); set TRIBUNAL_QWEN=on to enable"}'
+  exit 0
+fi
+QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3-coder-plus}"
+
+# Parallel-safe: unique temp dir per invocation
+TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
+
+DIFF=$(git diff origin/main...HEAD)
+
+if [ -z "$DIFF" ]; then
+  printf '%s\n' '{"provider": "qwen", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
+  exit 0
+fi
+
+# Optional: inject the repo's AGENTS.md so every reviewer judges the diff against
+# the same project conventions (capped; absent file => no injection).
+CONVENTIONS=""
+[ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
+
+printf '%s\n' "$DIFF" | timeout -k 10 600 qwen --model "$QWEN_MODEL" -p "You are a senior code reviewer performing a thorough, comprehensive review.
+
+ANALYZE THIS DIFF FOR:
+1. Logic errors - off-by-one, null deref, wrong comparisons, race conditions, division by zero
+2. Security vulnerabilities - injection, XSS, CSRF, auth bypass, secrets exposure
+3. Architecture - coupling, layering violations, anti-patterns
+4. Performance - N+1 queries, memory leaks, blocking in async, unnecessary allocations
+5. Edge cases - boundary conditions, empty inputs, integer overflow, unhandled error paths
+6. Test coverage gaps - missing edge cases, untested paths
+
+RULES:
+- ONLY report findings with confidence >= 0.7
+- Use EXACT file paths from the diff headers (e.g., 'a/src/Foo.cs' -> 'src/Foo.cs')
+- Use the line number from the diff where the issue occurs
+- Each finding must have a concrete, actionable suggestion
+
+VERDICT RULES:
+- BLOCK: any critical-severity finding, OR 2+ high-severity findings
+- NEEDS_WORK: any high-severity finding, OR 3+ medium-severity findings
+- APPROVE: all other cases
+
+RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
+{
+  \"provider\": \"qwen\",
+  \"model\": \"default\",
+  \"findings\": [
+    {
+      \"severity\": \"critical|high|medium|low\",
+      \"category\": \"security|architecture|logic|performance|quality|edge-case|testing\",
+      \"file\": \"path/to/file\",
+      \"line\": 42,
+      \"title\": \"Brief descriptive title\",
+      \"description\": \"What is wrong and why it matters\",
+      \"suggestion\": \"Concrete fix recommendation\",
+      \"confidence\": 0.95
+    }
+  ],
+  \"summary\": {
+    \"total_findings\": 3,
+    \"critical\": 0,
+    \"high\": 1,
+    \"medium\": 2,
+    \"low\": 0,
+    \"quality_score\": 7.5,
+    \"verdict\": \"APPROVE|NEEDS_WORK|BLOCK\"
+  }
+}
+$([ -n "$CONVENTIONS" ] && printf '\nPROJECT CONVENTIONS (from AGENTS.md) — use ONLY to judge whether the diff violates project standards; report findings only against the diff:\n%s\n' "$CONVENTIONS")
+THE DIFF IS PROVIDED VIA STDIN ABOVE." \
+  --yolo \
+  -o json \
+  >"$TMPDIR/qwen-raw-output.json" 2>"$TMPDIR/qwen-stderr.txt"
+
+QWEN_EXIT=$?
+if [ $QWEN_EXIT -eq 0 ] && [ -f "$TMPDIR/qwen-raw-output.json" ]; then
+  # qwen -o json envelope varies by version. Extract the assistant text robustly:
+  #   (a) array of message objects [{type:"assistant",content:[{text}]|"..."},...]
+  #   (b) Gemini-style {"response":"..."}
+  #   (c) fall back to the raw file.
+  RESPONSE=$(jq -r '
+    if type=="array" then
+      ([ .[] | select(.type=="assistant") | .content |
+         (if type=="array" then (map(.text? // empty) | join("")) else (. // "") end) ] | join(""))
+    elif (type=="object" and has("response")) then .response
+    else empty end
+  ' "$TMPDIR/qwen-raw-output.json" 2>/dev/null)
+  if [ -n "$RESPONSE" ]; then
+    echo "$RESPONSE" | sed 's/^```json//;s/^```//;/^$/d' | jq . 2>/dev/null || echo "$RESPONSE"
+  else
+    cat "$TMPDIR/qwen-raw-output.json"
+  fi
+else
+  STDERR_CONTENT=$(cat "$TMPDIR/qwen-stderr.txt" 2>/dev/null)
+  SAFE_STDERR=$(echo "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
+  printf '{"error": "Qwen execution failed", "exit_code": %d, "stderr": %s}\n' "$QWEN_EXIT" "$SAFE_STDERR"
+fi
+# trap EXIT handles cleanup of $TMPDIR
+```
+
 ## Error Handling
 If `opencode` is not installed, the call emits one error object for GLM and one for DeepSeek
 (or DeepSeek's `disabled` marker if `TRIBUNAL_DEEPSEEK=off`) and exits 0:
