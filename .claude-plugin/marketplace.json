@@ -30,8 +30,8 @@
     },
     {
       "name": "tribunal-review",
-      "description": "Multi-provider code review with Codex, Gemini, OpenCode GLM, direct-API DeepSeek (repo-walking), and Opus arbitration",
-      "version": "0.7.1",
+      "description": "Multi-provider code review with Codex, Gemini, OpenCode GLM, direct-API DeepSeek (repo-walking), optional Qwen, and Opus arbitration",
+      "version": "0.8.0",
       "author": {
         "name": "Andre Paat"
       },

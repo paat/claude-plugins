@@ -1,11 +1,11 @@
 {
   "name": "tribunal-review",
-  "version": "0.7.1",
-  "description": "Multi-provider code review with Codex, Gemini, OpenCode GLM, direct-API DeepSeek (repo-walking), and Opus arbitration",
+  "version": "0.8.0",
+  "description": "Multi-provider code review with Codex, Gemini, OpenCode GLM, direct-API DeepSeek (repo-walking), optional Qwen, and Opus arbitration",
   "author": {
     "name": "Andre Paat"
   },
   "repository": "https://github.com/paat/claude-plugins",
   "license": "MIT",
-  "keywords": ["code-review", "multi-provider", "codex", "gemini", "opencode", "glm", "deepseek", "tribunal"]
+  "keywords": ["code-review", "multi-provider", "codex", "gemini", "opencode", "glm", "deepseek", "qwen", "tribunal"]
 }

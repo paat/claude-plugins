@@ -1,6 +1,6 @@
 ---
 name: tribunal-loop
-description: Multi-provider code review workflow with Codex, Gemini, OpenCode (GLM + DeepSeek), and Opus arbitration
+description: Multi-provider code review workflow with Codex, Gemini, OpenCode (GLM + DeepSeek), optional Qwen, and Opus arbitration
 ---
 
 # Tribunal Loop
@@ -14,6 +14,7 @@ Multi-provider code review. Codex (GPT-5.3) + Gemini (3 Pro Preview) + OpenCode 
 - **Gemini** (3 Pro Preview) - comprehensive review + web/CVE search
 - **GLM** (opencode-go/glm-5.1) - comprehensive review (OpenCode Go), diff-only
 - **DeepSeek** (deepseek/deepseek-v4-pro) - comprehensive review on the **direct DeepSeek API**, **repo-walking** read-only; independently switchable via `TRIBUNAL_DEEPSEEK` / `TRIBUNAL_DEEPSEEK_MODEL`
+- **Qwen** (qwen3.7-plus) - comprehensive review via the **Qwen Code CLI** (own transport, decorrelated from the OpenCode legs), **diff-only**; **off by default**, enable with `TRIBUNAL_QWEN=on`, model via `TRIBUNAL_QWEN_MODEL`
 - **Opus** (4.5) - final arbiter (runs inline, no agent spawn)
 
 ---
@@ -46,6 +47,20 @@ CLIS="codex gemini opencode"
 if [ "${TRIBUNAL_GEMINI:-on}" = "off" ]; then
   CLIS="codex opencode"
   WARN="${WARN}\n  - gemini: disabled via TRIBUNAL_GEMINI=off — leg will be skipped"
+fi
+
+# Qwen leg switch (issue #41). ADDITIVE leg on its OWN CLI/transport (Qwen Code CLI),
+# decorrelated from the OpenCode legs. OFF by default (opt-in). Only the literal "on"
+# enables. When on, `qwen` joins the CLI list (and TOTAL) so the generic PATH loop counts
+# it and the "N/TOTAL providers" accounting stays correct; when off it is an INTENTIONAL
+# skip — not probed, not counted.
+QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}"
+QWEN_ON=off
+if [ "${TRIBUNAL_QWEN:-off}" = "on" ]; then
+  QWEN_ON=on
+  CLIS="$CLIS qwen"
+else
+  WARN="${WARN}\n  - qwen: disabled (default off) — set TRIBUNAL_QWEN=on to enable"
 fi
 TOTAL=$(set -- $CLIS; echo $#)
 
@@ -104,6 +119,27 @@ if command -v opencode >/dev/null 2>&1; then
   fi
 fi
 
+# Qwen leg preflight (issue #41): only when enabled. The generic PATH loop above already
+# counted `qwen` and warned if it is missing, so here we only verify auth + liveness via a
+# 1-token probe through the CLI itself — which reuses whatever auth qwen is configured with
+# (env DASHSCOPE_API_KEY/OPENAI_API_KEY/OPENROUTER_API_KEY OR ~/.qwen/settings.json). A bad
+# key/endpoint fails fast here instead of mid-review. The probe also detects a SILENT model
+# fallback: qwen-code accepts an unknown -m and quietly downgrades to its default model.
+if [ "$QWEN_ON" = on ] && command -v qwen >/dev/null 2>&1; then
+  QWEN_PROBE=$(printf 'ok' | QWEN_CODE_SUPPRESS_YOLO_WARNING=1 timeout -k 5 45 qwen --model "$QWEN_MODEL" -p "Reply with the single token: ok" --yolo -o json 2>/dev/null)
+  if [ $? -ne 0 ] || [ -z "$QWEN_PROBE" ]; then
+    WARN="${WARN}\n  - qwen: liveness probe failed (timeout or no output) — check auth (DASHSCOPE_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY, or \`qwen\` settings) and connectivity; leg may fail in Step 2"
+  else
+    QWEN_ERR=$(printf '%s' "$QWEN_PROBE" | jq -r '[ .[]? | select(.type=="result") | .is_error ] | last // "unknown"' 2>/dev/null)
+    QWEN_ACTUAL=$(printf '%s' "$QWEN_PROBE" | jq -r '[ .[]? | (.model // .message.model // empty) ] | map(select(. != null)) | last // "unknown"' 2>/dev/null)
+    if [ "$QWEN_ERR" = "true" ]; then
+      WARN="${WARN}\n  - qwen: liveness probe returned is_error=true — auth/model rejected; check DASHSCOPE_API_KEY and TRIBUNAL_QWEN_MODEL=${QWEN_MODEL}; leg may fail in Step 2"
+    elif [ "$QWEN_ACTUAL" != "unknown" ] && [ "$QWEN_ACTUAL" != "$QWEN_MODEL" ]; then
+      WARN="${WARN}\n  - qwen: requested model '${QWEN_MODEL}' but server used '${QWEN_ACTUAL}' (qwen-code silently downgraded an unknown -m). Set TRIBUNAL_QWEN_MODEL to a valid id for your account."
+    fi
+  fi
+fi
+
 # Gemini auth note: a stale key surfaces only mid-review. We cannot cheaply verify it
 # here without a billable call, so just remind to rotate if Gemini fails in Step 2.
 if [ -n "$WARN" ]; then
@@ -120,13 +156,13 @@ If preflight exits non-zero (no usable providers): STOP and report. Otherwise no
 warnings — the affected provider(s) will be skipped in Step 2 and arbitration treats the
 result as a degraded quorum.
 
-Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL is 2 when Gemini is disabled via TRIBUNAL_GEMINI=off, else 3)
+Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL counts reviewer CLIs on PATH: base is 3 — codex, gemini, opencode; subtract 1 if Gemini is disabled via TRIBUNAL_GEMINI=off; add 1 if Qwen is enabled via TRIBUNAL_QWEN=on. The opencode CLI covers both the GLM and DeepSeek legs, so disabling DeepSeek does not change TOTAL.)
 
 ---
 
 ## STEP 2: Parallel Review
 
-Run the three scripts below as **three parallel Bash tool calls**. No Task agents -- execute directly. The OpenCode call (Bash call 3) runs its two legs **sequentially within that one call**, because concurrent `opencode run` instances deadlock on the shared `~/.local/share/opencode` data dir (issue #31). It still yields two reviews (GLM + DeepSeek), for four total. The two legs are otherwise decoupled: **GLM** runs on the opencode-go backend, diff-only, from a scratch dir; **DeepSeek** runs on the **direct DeepSeek API** and from the **repo root** so it can walk the tree. A 429/quota failure on opencode-go therefore no longer takes the DeepSeek leg down with GLM (issue #40).
+Run the scripts below as **parallel Bash tool calls** — three by default (Codex, Gemini, OpenCode), plus a fourth (Qwen) when `TRIBUNAL_QWEN=on`. No Task agents -- execute directly. The Qwen call self-emits a `disabled` marker when not enabled, so it is safe to always dispatch it as a fourth parallel call. The OpenCode call (Bash call 3) runs its two legs **sequentially within that one call**, because concurrent `opencode run` instances deadlock on the shared `~/.local/share/opencode` data dir (issue #31). It still yields two reviews (GLM + DeepSeek), for four total. The two legs are otherwise decoupled: **GLM** runs on the opencode-go backend, diff-only, from a scratch dir; **DeepSeek** runs on the **direct DeepSeek API** and from the **repo root** so it can walk the tree. A 429/quota failure on opencode-go therefore no longer takes the DeepSeek leg down with GLM (issue #40).
 
 Each reviewer is given the repo's `AGENTS.md` (if present, capped at 16KB) as a **Project Conventions** block, so all judge the diff against the same project standards. The DeepSeek leg additionally **reads beyond the diff** (read-only `--agent plan`): it is the one leg permitted to open related files and trace cross-file effects, deliberately providing harness/context diversity the other (diff-only) legs cannot.
 
@@ -580,6 +616,135 @@ fi
 # trap EXIT handles cleanup of $TMPDIR
 ```
 
+### Bash call 4: Qwen Review
+
+Independent, **diff-only** leg on its OWN CLI (Qwen Code, `@qwen-code/qwen-code`) — NOT the
+`opencode` backend GLM/DeepSeek share, so it cannot fail in lockstep with them (issue #41).
+**Off by default** (additive, needs a new key); `TRIBUNAL_QWEN=on` enables it. Runs as a
+fourth parallel Bash call alongside Codex (call 1), Gemini (call 2), and OpenCode (call 3).
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+
+# Qwen leg is ADDITIVE and OFF by default (opt-in — issue #41). Only the literal "on"
+# enables; anything else (or unset) = off → emit the disabled marker so the arbiter
+# accounts for qwen as a (disabled) fifth peer. TRIBUNAL_QWEN_MODEL overrides the model.
+if [ "${TRIBUNAL_QWEN:-off}" != "on" ]; then
+  printf '%s\n' '{"provider": "qwen", "status": "disabled", "note": "Qwen leg disabled (default off); set TRIBUNAL_QWEN=on to enable"}'
+  exit 0
+fi
+QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}"
+
+# Parallel-safe: unique temp dir per invocation
+TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
+
+DIFF=$(git diff origin/main...HEAD)
+
+if [ -z "$DIFF" ]; then
+  printf '%s\n' '{"provider": "qwen", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
+  exit 0
+fi
+
+# Optional: inject the repo's AGENTS.md so every reviewer judges the diff against
+# the same project conventions (capped; absent file => no injection).
+CONVENTIONS=""
+[ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
+
+printf '%s\n' "$DIFF" | QWEN_CODE_SUPPRESS_YOLO_WARNING=1 timeout -k 10 600 qwen --model "$QWEN_MODEL" -p "You are a senior code reviewer performing a thorough, comprehensive review.
+
+ANALYZE THIS DIFF FOR:
+1. Logic errors - off-by-one, null deref, wrong comparisons, race conditions, division by zero
+2. Security vulnerabilities - injection, XSS, CSRF, auth bypass, secrets exposure
+3. Architecture - coupling, layering violations, anti-patterns
+4. Performance - N+1 queries, memory leaks, blocking in async, unnecessary allocations
+5. Edge cases - boundary conditions, empty inputs, integer overflow, unhandled error paths
+6. Test coverage gaps - missing edge cases, untested paths
+
+RULES:
+- ONLY report findings with confidence >= 0.7
+- Use EXACT file paths from the diff headers (e.g., 'a/src/Foo.cs' -> 'src/Foo.cs')
+- Use the line number from the diff where the issue occurs
+- Each finding must have a concrete, actionable suggestion
+
+VERDICT RULES:
+- BLOCK: any critical-severity finding, OR 2+ high-severity findings
+- NEEDS_WORK: any high-severity finding, OR 3+ medium-severity findings
+- APPROVE: all other cases
+
+RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
+{
+  \"provider\": \"qwen\",
+  \"model\": \"default\",
+  \"findings\": [
+    {
+      \"severity\": \"critical|high|medium|low\",
+      \"category\": \"security|architecture|logic|performance|quality|edge-case|testing\",
+      \"file\": \"path/to/file\",
+      \"line\": 42,
+      \"title\": \"Brief descriptive title\",
+      \"description\": \"What is wrong and why it matters\",
+      \"suggestion\": \"Concrete fix recommendation\",
+      \"confidence\": 0.95
+    }
+  ],
+  \"summary\": {
+    \"total_findings\": 3,
+    \"critical\": 0,
+    \"high\": 1,
+    \"medium\": 2,
+    \"low\": 0,
+    \"quality_score\": 7.5,
+    \"verdict\": \"APPROVE|NEEDS_WORK|BLOCK\"
+  }
+}
+$([ -n "$CONVENTIONS" ] && printf '\nPROJECT CONVENTIONS (from AGENTS.md) — use ONLY to judge whether the diff violates project standards; report findings only against the diff:\n%s\n' "$CONVENTIONS")
+THE DIFF IS PROVIDED VIA STDIN ABOVE." \
+  --yolo \
+  -o json \
+  >"$TMPDIR/qwen-raw-output.json" 2>"$TMPDIR/qwen-stderr.txt"
+
+QWEN_EXIT=$?
+if [ $QWEN_EXIT -eq 0 ] && [ -f "$TMPDIR/qwen-raw-output.json" ]; then
+  # qwen -o json emits an ARRAY of message objects (system / assistant / result). The final
+  # answer is the `result` element's `.result`; fall back to concatenated assistant text
+  # (`.message.content[].text`), then a Gemini-style {"response":...}, then the raw file.
+  # (Confirmed against qwen-code 0.17.1 — the assistant `.content` field is null; text lives
+  # in `.message.content` and the canonical final string in the `result` element.)
+  ACTUAL_MODEL=$(jq -r '[ .[]? | (.model // .message.model // empty) ] | map(select(. != null)) | last // empty' "$TMPDIR/qwen-raw-output.json" 2>/dev/null)
+  RESPONSE=$(jq -r '
+    if type=="array" then
+      ( ([ .[] | select(.type=="result") | .result // empty ] | last) as $r
+        | if ($r != null and $r != "") then $r
+          else ([ .[] | select(.type=="assistant") | (.message.content // [])[] | select(.type=="text") | .text ] | join("")) end )
+    elif (type=="object" and has("response")) then .response
+    else empty end
+  ' "$TMPDIR/qwen-raw-output.json" 2>/dev/null)
+  if [ -n "$RESPONSE" ]; then
+    # Strip markdown fences; if the model wrapped the JSON in prose (thinking models sometimes
+    # add a preamble despite the instruction), slice from the first { to the last }.
+    CLEAN=$(printf '%s\n' "$RESPONSE" | sed 's/^```json//;s/^```//')
+    if ! printf '%s' "$CLEAN" | jq -e . >/dev/null 2>&1; then
+      CLEAN=$(printf '%s' "$CLEAN" | tr -d '\r' | sed -n 'H;${x;s/^[^{]*//;s/[^}]*$//;p;}')
+    fi
+    # Overwrite the placeholder "model" with the ACTUAL model the envelope reports — qwen-code
+    # silently downgrades an unknown -m, so surface what really ran.
+    if printf '%s' "$CLEAN" | jq -e . >/dev/null 2>&1; then
+      printf '%s' "$CLEAN" | jq --arg m "${ACTUAL_MODEL:-unknown}" '.model = $m'
+    else
+      SAFE_RAW=$(jq -Rs . < "$TMPDIR/qwen-raw-output.json" 2>/dev/null || echo '"capture failed"')
+      printf '{"error": "Qwen produced unparseable output", "provider": "qwen", "raw": %s}\n' "$SAFE_RAW"
+    fi
+  else
+    cat "$TMPDIR/qwen-raw-output.json"
+  fi
+else
+  STDERR_CONTENT=$(cat "$TMPDIR/qwen-stderr.txt" 2>/dev/null)
+  SAFE_STDERR=$(echo "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
+  printf '{"error": "Qwen execution failed", "exit_code": %d, "stderr": %s}\n' "$QWEN_EXIT" "$SAFE_STDERR"
+fi
+# trap EXIT handles cleanup of $TMPDIR
+```
+
 ## Error Handling
 If `opencode` is not installed, the call emits one error object for GLM and one for DeepSeek
 (or DeepSeek's `disabled` marker if `TRIBUNAL_DEEPSEEK=off`) and exits 0:
@@ -597,9 +762,9 @@ credential failure (issue #32):
 {"error": "OpenCode model deepseek/deepseek-v4-pro not in registry (cold/stale cache, or direct provider not authenticated) — run `opencode models` / `opencode auth login`; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "deepseek"}
 ```
 
-Collect all four JSON outputs — Codex and Gemini from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration. A `{"status": "disabled"}` marker (Gemini emits one when `TRIBUNAL_GEMINI=off`; DeepSeek when `TRIBUNAL_DEEPSEEK=off`) is an INTENTIONAL skip, not a failure and not a finding source — it has no `findings` key; report that leg as `disabled` rather than a count, and hand it to Step 3 as a disabled provider.
+Collect all five JSON outputs — Codex, Gemini, and Qwen from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration. A `{"status": "disabled"}` marker (Gemini emits one when `TRIBUNAL_GEMINI=off`; DeepSeek when `TRIBUNAL_DEEPSEEK=off`; Qwen whenever `TRIBUNAL_QWEN` is not `on`, i.e. by default) is an INTENTIONAL skip, not a failure and not a finding source — it has no `findings` key; report that leg as `disabled` rather than a count, and hand it to Step 3 as a disabled provider.
 
-Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G or 'disabled'}, GLM: {L}, DeepSeek: {D or 'disabled'} findings"
+Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G or 'disabled'}, GLM: {L}, DeepSeek: {D or 'disabled'}, Qwen: {Q or 'disabled'} findings"
 
 ---
 
@@ -618,7 +783,7 @@ Two findings are **duplicates** if they describe the same underlying issue in th
 
 ### 3b: Resolve Conflicts (N providers)
 
-A finding may be reported by any subset of the four reviewers (codex, gemini, glm, deepseek).
+A finding may be reported by any subset of the five reviewers (codex, gemini, glm, deepseek, qwen). Some are commonly disabled (Qwen is off by default; Gemini/DeepSeek may be off) — treat disabled providers as absent, not as failures.
 
 | Scenario | Action |
 |----------|--------|
@@ -629,7 +794,7 @@ A finding may be reported by any subset of the four reviewers (codex, gemini, gl
 
 **HARD RULE**: When providers report different severities for the same finding, you MUST use the highest severity. No exceptions.
 
-All four reviewers are **equal advisory peers**. Opus has final authority and may override any finding.
+All reviewers are **equal advisory peers** (up to five; Qwen is off by default). Opus has final authority and may override any finding.
 
 ### 3c: Evaluate Each Finding
 
@@ -652,7 +817,7 @@ Override provider findings when they are clearly wrong. Add new findings if the 
 ### 3e: Degraded Input
 
 - If a subset of providers returned invalid JSON or failed: proceed with the remaining providers' findings. Note each failure in `provider_assessment`.
-- If a provider returned `{"status": "disabled"}` (operator set `TRIBUNAL_GEMINI=off` for Gemini, or `TRIBUNAL_DEEPSEEK=off` for DeepSeek): this is an INTENTIONAL skip, NOT a failure. Exclude that provider from quorum entirely, set its `provider_assessment.<provider>.status` to `"disabled"`, and do not count it toward the "all providers failed" branch — the verdict is computed from the remaining (non-disabled) providers.
+- If a provider returned `{"status": "disabled"}` (operator set `TRIBUNAL_GEMINI=off` for Gemini, `TRIBUNAL_DEEPSEEK=off` for DeepSeek, or left Qwen off — `TRIBUNAL_QWEN` not `on`, the default): this is an INTENTIONAL skip, NOT a failure. Exclude that provider from quorum entirely, set its `provider_assessment.<provider>.status` to `"disabled"`, and do not count it toward the "all providers failed" branch — the verdict is computed from the remaining (non-disabled) providers.
 - If **all non-disabled providers failed**: verdict = NEEDS_WORK, confidence = 0.0, rationale = "All review providers failed. Manual review required."
 - If **all non-disabled providers returned zero findings**: verdict = APPROVE, confidence = 0.95.
 
@@ -672,14 +837,15 @@ Output the tribunal verdict as JSON:
     "suggestion": "...", "confidence": 0.0, "arbiter_notes": "..."
   }],
   "conflicts_resolved": [{
-    "issue": "...", "positions": {"codex": "...", "gemini": "...", "glm": "...", "deepseek": "..."},
+    "issue": "...", "positions": {"codex": "...", "gemini": "...", "glm": "...", "deepseek": "...", "qwen": "..."},
     "ruling": "...", "reasoning": "..."
   }],
   "provider_assessment": {
     "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
     "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
-    "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" }
+    "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
+    "qwen":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" }
   },
   "summary": "2-3 sentence executive summary of code quality and required actions"
 }
@@ -694,10 +860,10 @@ Output: "[TRIBUNAL 3/3] Verdict: {APPROVE|NEEDS_WORK|BLOCK} - {N} actionable fin
 ```
 OPUS 4.5 (Final authority, runs inline)
     |
-Codex · Gemini · GLM · DeepSeek (equal advisory peers — verify findings)
+Codex · Gemini · GLM · DeepSeek · Qwen (equal advisory peers — verify findings)
 ```
 
-The four reviewers are equal peers; a finding flagged by ≥2 is CONSENSUS. Opus can override any reviewer finding.
+The reviewers are equal peers (up to five; Qwen is off by default); a finding flagged by ≥2 is CONSENSUS. Opus can override any reviewer finding.
 
 ---
 
@@ -705,4 +871,4 @@ The four reviewers are equal peers; a finding flagged by ≥2 is CONSENSUS. Opus
 
 | Mode | Steps | Tool Calls | Agent Spawns |
 |------|-------|------------|-------------|
-| Default (review) | 3 | 3 (parallel Bash; OpenCode call runs GLM+DeepSeek sequentially) | 0 |
+| Default (review) | 3 | 3–4 (parallel Bash; OpenCode call runs GLM+DeepSeek sequentially; +1 Qwen call when `TRIBUNAL_QWEN=on`) | 0 |
