@@ -88,16 +88,27 @@ Disambiguation: topics that legitimately start with one of these tokens (rare) m
 
 ## Register subcommand
 
-Args: `register <slug> <act_id> <citation> <purpose>`
+Args: `register <slug> <act_id> <citation> <purpose> [--force]`
 
 - `slug` — kebab-case identifier matching `[a-z0-9-]+`.
 - `act_id` — **integer** from `GET /api/v1/laws/search?q=<act-name>` — the `.id` field, not `rt_id`, not the RT URL segment. Look it up first (for example: `curl -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$DATALAKE_URL/api/v1/laws/search?q=isikuandmete+kaitse&limit=5" | jq '.items[] | {id, rt_id, title}'`).
 - `citation` — Estonian compound reference like `"§ 10 lõige 1 punkt 3"`. Parsed into `paragraph`/`section`/`point` before the API call (the citation endpoint rejects the compound string directly).
 - `purpose` — one-line Estonian description of why this paragraph is load-bearing.
+- `--force` — override the lifecycle guard (see below). Without it, registering an act the datalake reports as not in force (`in_force == false` or `status != "valid"`) is refused. A 200 from `/citation` does **not** mean the law is current — a repealed/superseded/never-in-force act still returns 200 + text. Only `--force` when you are intentionally tracking a redaction that is not yet (or no longer) valid and accept the risk.
 
 Behaviour:
 
 ```bash
+# Strip an optional --force flag from anywhere in the args before positional
+# assignment. --force overrides the lifecycle guard below (register a paragraph
+# even though the datalake reports it is not in force).
+FORCE=0
+_args=()
+for a in "$@"; do
+  if [ "$a" = "--force" ]; then FORCE=1; else _args+=("$a"); fi
+done
+set -- "${_args[@]}"
+
 SLUG="$1"
 ACT_ID="$2"
 CITATION="$3"
@@ -189,6 +200,33 @@ if [ -n "$REDAKTSIOON_URL" ]; then
 fi
 [ -n "$text" ] || { echo "Error: citation endpoint returned empty text"; exit 1; }
 
+# Lifecycle guard — a 200 + text from /citation does NOT mean the law is in
+# force. The datalake returns three additive fields: status ("valid" |
+# "superseded" | "repealed"), in_force (== status == "valid"), and
+# redaktsioon_date (validFrom of the served redaction, may be null). A
+# repealed/superseded/never-in-force act still returns 200 + text, but carries
+# in_force:false. Registering such a paragraph as a load-bearing dependency is
+# exactly the failure that produced a customer-facing analysis built on a tax
+# that never entered force. Treat the redaction as not-in-force when in_force is
+# explicitly false OR status is present and not "valid". Absent fields (older
+# datalake) are unknown → non-blocking, preserving backward compatibility.
+CITE_STATUS=$(echo "$cite_body" | jq -r '.status // empty')
+CITE_IN_FORCE=$(echo "$cite_body" | jq -r 'if has("in_force") and .in_force != null then (.in_force|tostring) else "" end')
+REDAKTSIOON_DATE=$(echo "$cite_body" | jq -r '.redaktsioon_date // empty')
+NOT_IN_FORCE=0
+[ "$CITE_IN_FORCE" = "false" ] && NOT_IN_FORCE=1
+{ [ -n "$CITE_STATUS" ] && [ "$CITE_STATUS" != "valid" ]; } && NOT_IN_FORCE=1
+if [ "$NOT_IN_FORCE" = "1" ] && [ "$FORCE" != "1" ]; then
+  echo "Error: act ${ACT_ID} is status=${CITE_STATUS:-unknown}, in_force=${CITE_IN_FORCE:-unknown} — not in force."
+  echo "       Refusing to register a repealed/superseded/never-in-force paragraph as a load-bearing dependency."
+  echo "       A 200 from /citation does NOT mean the law is current law. Re-check the act in Riigi Teataja,"
+  echo "       or pass --force to override (e.g. you are intentionally tracking a soon-to-enter-force redaction)."
+  exit 1
+fi
+if [ "$NOT_IN_FORCE" = "1" ]; then
+  echo "⚠ Overriding lifecycle guard (--force): act ${ACT_ID} is status=${CITE_STATUS:-unknown}, in_force=${CITE_IN_FORCE:-unknown}."
+fi
+
 # Normalise (trim + NFC) and write snapshot first — on crash before index write,
 # re-run sees orphan snapshot (warning), not orphan index entry.
 normalised=$(printf '%s' "$text" | python3 -c 'import sys, unicodedata; print(unicodedata.normalize("NFC", sys.stdin.read().strip()))')
@@ -212,10 +250,14 @@ entry=$(jq -n \
   --arg now "$NOW" \
   --arg by "${REGISTERED_BY:-lawyer}" \
   --arg purp "$PURPOSE" \
+  --arg status "$CITE_STATUS" \
+  --arg reddate "$REDAKTSIOON_DATE" \
   '{
     act_id: $act,
     rt_id: $rt,
     redaktsioon_id: (if $red == "" then null else $red end),
+    redaktsioon_date: (if $reddate == "" then null else $reddate end),
+    status: (if $status == "" then null else $status end),
     act_title: $title,
     act_type: $atype,
     citation: $cit,
@@ -412,9 +454,63 @@ else
     echo "$updated" > .startup/law-registry.json
   fi
 fi
+
+# Lifecycle re-check (feed-independent). The feed can miss a repeal/supersession:
+# the event may predate last_feed_check_at, or the act may flip to repealed
+# without a matching feed event at all. For each not-yet-flagged entry, re-fetch
+# /citation and read status/in_force — a 200 + text does NOT mean the paragraph
+# is still in force. If the served redaction is no longer valid, flag the entry
+# so it flows through the same fix-plan/issue path as a feed-detected change.
+# Already-flagged entries are skipped (nothing to add); per-entry fetch failures
+# are tolerated (entry left untouched).
+LC_SLUGS=$(jq -r '.entries | to_entries[] | select(.value.needs_review != true) | .key' .startup/law-registry.json)
+while IFS= read -r lcslug; do
+  [ -z "$lcslug" ] && continue
+  lc_act=$(jq -r --arg s "$lcslug" '.entries[$s].act_id' .startup/law-registry.json)
+  lc_para=$(jq -r --arg s "$lcslug" '.entries[$s].citation_parts.paragraph // ""' .startup/law-registry.json)
+  lc_para_q=$(jq -r --arg s "$lcslug" '.entries[$s].citation_parts.paragraph_qualifier // ""' .startup/law-registry.json)
+  lc_sec=$(jq -r --arg s "$lcslug" '.entries[$s].citation_parts.section // ""' .startup/law-registry.json)
+  lc_sec_q=$(jq -r --arg s "$lcslug" '.entries[$s].citation_parts.section_qualifier // ""' .startup/law-registry.json)
+  lc_pt=$(jq -r --arg s "$lcslug" '.entries[$s].citation_parts.point // ""' .startup/law-registry.json)
+  lc_pt_q=$(jq -r --arg s "$lcslug" '.entries[$s].citation_parts.point_qualifier // ""' .startup/law-registry.json)
+  lc_url=$(python3 -c '
+import sys, urllib.parse
+base, act, para, pq, sec, sq, pt, kq = sys.argv[1:9]
+SUP = {"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹"}
+def enc(v, q): return urllib.parse.quote(v + "".join(SUP[c] for c in q))
+parts = ["paragraph=" + enc(para, pq)]
+if sec: parts.append("section=" + enc(sec, sq))
+if pt:  parts.append("point="   + enc(pt,  kq))
+print(f"{base}/api/v1/laws/{act}/citation?" + "&".join(parts))
+' "$DATALAKE_URL" "$lc_act" "$lc_para" "$lc_para_q" "$lc_sec" "$lc_sec_q" "$lc_pt" "$lc_pt_q")
+  lc_resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$lc_url" 2>/dev/null || echo "")
+  echo "$lc_resp" | jq empty 2>/dev/null || continue
+  lc_status=$(echo "$lc_resp" | jq -r '.status // empty')
+  lc_in_force=$(echo "$lc_resp" | jq -r 'if has("in_force") and .in_force != null then (.in_force|tostring) else "" end')
+  lc_notvalid=0
+  [ "$lc_in_force" = "false" ] && lc_notvalid=1
+  { [ -n "$lc_status" ] && [ "$lc_status" != "valid" ]; } && lc_notvalid=1
+  [ "$lc_notvalid" = "1" ] || continue
+  NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq --arg s "$lcslug" --arg st "$lc_status" --arg now "$NOW" '
+    .entries[$s].needs_review = true
+    | .entries[$s].status = (if $st == "" then .entries[$s].status else $st end)
+    | .entries[$s].change_detected_at = $now
+    | .entries[$s].change = {
+        feed_event_id: null,
+        type: "lifecycle",
+        summary: ("Akt ei ole enam jõus (status=" + (if $st == "" then "not_in_force" else $st end) + ") — tuvastatud /citation elutsükli-kontrolliga, mitte feed-sündmusega"),
+        effective_date: null
+      }
+  ' .startup/law-registry.json > .startup/law-registry.json.tmp
+  mv .startup/law-registry.json.tmp .startup/law-registry.json
+  echo "⚠ $lcslug: akt $lc_act ei ole enam jõus (status=${lc_status:-not_in_force}) — märgitud läbivaatamiseks"
+done <<< "$LC_SLUGS"
 ```
 
-After this step, the index reflects all feed changes. Flagged entries are handled by the Fix-Plan and Confirmation flow below.
+After this step, the index reflects all feed changes plus any feed-independent
+lifecycle changes (acts that flipped to repealed/superseded without a matching
+feed event). Flagged entries are handled by the Fix-Plan and Confirmation flow below.
 
 ## Invariant Check (non-blocking warnings)
 
@@ -519,6 +615,12 @@ print(f"{base}/api/v1/laws/{act}/citation?" + "&".join(parts))
   new_text=$(echo "$resp" | jq -r '.text // ""')
   old_text=$(cat ".startup/laws/${slug}.txt" 2>/dev/null || echo "")
 
+  # Lifecycle signals from the re-fetched citation. When the change is a repeal /
+  # supersession (rather than an amendment), there is no "new text to adopt" — the
+  # fix is to remove or replace the dependency. Surface this to the fix-plan agent.
+  cite_status=$(echo "$resp" | jq -r '.status // empty')
+  cite_in_force=$(echo "$resp" | jq -r 'if has("in_force") and .in_force != null then (.in_force|tostring) else "" end')
+
   # Pull the feed event's change_id (if present) and fetch /changes/{change_id}/impact
   # to augment the fix plan with the datalake's own impact analysis. Non-fatal if missing.
   change_id=$(jq -r --arg s "$slug" '.entries[$s].change.feed_event_id // empty' .startup/law-registry.json)
@@ -531,9 +633,13 @@ print(f"{base}/api/v1/laws/{act}/citation?" + "&".join(parts))
   fi
 
   jq -n --arg slug "$slug" --arg old "$old_text" --arg new "$new_text" \
+    --arg status "$cite_status" --arg inforce "$cite_in_force" \
     --argjson change "$(jq -c --arg s "$slug" '.entries[$s].change' .startup/law-registry.json)" \
     --argjson impact "$impact" \
-    '{slug:$slug, old_text:$old, new_text:$new, change:$change, impact:$impact}' \
+    '{slug:$slug, old_text:$old, new_text:$new,
+      status:(if $status == "" then null else $status end),
+      in_force:(if $inforce == "" then null else ($inforce == "true") end),
+      change:$change, impact:$impact}' \
     > "$TMP/${slug}.json"
 done <<< "$FLAGGED_SLUGS"
 ```
@@ -590,8 +696,9 @@ Invoke the Lawyer agent via the Task tool with the following brief:
 >
 > For each flagged slug:
 > 1. Read the files listed in markers.tsv for that slug; understand how each site uses the paragraph.
-> 2. Produce a plain-language fix plan per file: what needs to change, WHY (one sentence), HOW (concrete — function to call, sentence to rewrite, etc.). NOT legal language.
-> 3. Write/append `docs/legal/õiguslik-muudatused-YYYY-MM-DD.md` following the template in the design doc (fix plan up front; legal diff in `<details>` appendix).
+> 2. Check the slug JSON's `in_force`/`status`. If `in_force` is `false` (or `status` is not `valid`), the act was **repealed or superseded** — there is no replacement text to adopt. The fix is to **remove or replace** the dependency (the law the marker relies on no longer exists), not to update wording. Say so plainly and do not treat `new_text` as current law.
+> 3. Produce a plain-language fix plan per file: what needs to change, WHY (one sentence), HOW (concrete — function to call, sentence to rewrite, etc.). NOT legal language.
+> 4. Write/append `docs/legal/õiguslik-muudatused-YYYY-MM-DD.md` following the template in the design doc (fix plan up front; legal diff in `<details>` appendix).
 >
 > Do NOT modify `.startup/law-registry.json` or any `.startup/laws/*.txt` file. Those are the command body's responsibility.
 >
@@ -740,16 +847,36 @@ if [ -n "$cite_url_resp" ]; then
 fi
 [ -n "$text" ] || { echo "Error: datalake returned empty text for act_id=$act_id paragraph=${paragraph}${paragraph_q:+^$paragraph_q}"; exit 1; }
 
+# Lifecycle guard — refuse to re-bless a non-valid redaction. A 200 + text does
+# NOT mean the law is in force. If the freshly fetched citation is repealed /
+# superseded / not-in-force, the dependency must be resolved with a code change
+# (remove or replace the marker), not absorbed as the new "current" snapshot.
+ack_status=$(echo "$resp" | jq -r '.status // empty')
+ack_in_force=$(echo "$resp" | jq -r 'if has("in_force") and .in_force != null then (.in_force|tostring) else "" end')
+ack_red_date=$(echo "$resp" | jq -r '.redaktsioon_date // empty')
+ack_notvalid=0
+[ "$ack_in_force" = "false" ] && ack_notvalid=1
+{ [ -n "$ack_status" ] && [ "$ack_status" != "valid" ]; } && ack_notvalid=1
+if [ "$ack_notvalid" = "1" ]; then
+  echo "Error: act $act_id is status=${ack_status:-unknown}, in_force=${ack_in_force:-unknown} — not in force."
+  echo "       Refusing to ack '$SLUG': a non-valid act is exactly what must be resolved, not absorbed."
+  echo "       Remove or replace the dependency on this paragraph in code, then unregister the slug — do not re-snapshot repealed text."
+  exit 1
+fi
+
 normalised=$(printf '%s' "$text" | python3 -c 'import sys, unicodedata; print(unicodedata.normalize("NFC", sys.stdin.read().strip()))')
 printf '%s\n' "$normalised" > ".startup/laws/${SLUG}.txt"
 
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-jq --arg slug "$SLUG" --arg now "$NOW" --arg red "$red" --arg rturl "$cite_url_resp" '
+jq --arg slug "$SLUG" --arg now "$NOW" --arg red "$red" --arg rturl "$cite_url_resp" \
+   --arg st "$ack_status" --arg reddate "$ack_red_date" '
   .entries[$slug].needs_review = false
   | .entries[$slug].change = null
   | .entries[$slug].change_detected_at = null
   | .entries[$slug].verified_at = $now
   | .entries[$slug].redaktsioon_id = (if $red == "" then null else $red end)
+  | .entries[$slug].redaktsioon_date = (if $reddate == "" then .entries[$slug].redaktsioon_date else $reddate end)
+  | .entries[$slug].status = (if $st == "" then .entries[$slug].status else $st end)
   | .entries[$slug].rt_url = (if $rturl == "" then .entries[$slug].rt_url else $rturl end)
 ' .startup/law-registry.json > .startup/law-registry.json.tmp
 mv .startup/law-registry.json.tmp .startup/law-registry.json
@@ -813,16 +940,34 @@ print(f"{base}/api/v1/laws/{act}/citation?" + "&".join(parts))
     continue
   fi
 
+  # Lifecycle guard — skip (do NOT clear flags) if the freshly fetched citation
+  # is no longer in force. A 200 + text does NOT mean the law is current. The
+  # slug stays flagged so it surfaces again; resolve it with a code change, not
+  # a re-snapshot of repealed text.
+  ack_status=$(echo "$resp" | jq -r '.status // empty')
+  ack_in_force=$(echo "$resp" | jq -r 'if has("in_force") and .in_force != null then (.in_force|tostring) else "" end')
+  ack_red_date=$(echo "$resp" | jq -r '.redaktsioon_date // empty')
+  ack_notvalid=0
+  [ "$ack_in_force" = "false" ] && ack_notvalid=1
+  { [ -n "$ack_status" ] && [ "$ack_status" != "valid" ]; } && ack_notvalid=1
+  if [ "$ack_notvalid" = "1" ]; then
+    echo "⚠ Skipping $SLUG: act $act_id is status=${ack_status:-unknown}, in_force=${ack_in_force:-unknown} — not in force; flag kept."
+    continue
+  fi
+
   normalised=$(printf '%s' "$text" | python3 -c 'import sys, unicodedata; print(unicodedata.normalize("NFC", sys.stdin.read().strip()))')
   printf '%s\n' "$normalised" > ".startup/laws/${SLUG}.txt"
 
   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  jq --arg slug "$SLUG" --arg now "$NOW" --arg red "$red" --arg rturl "$cite_url_resp" '
+  jq --arg slug "$SLUG" --arg now "$NOW" --arg red "$red" --arg rturl "$cite_url_resp" \
+     --arg st "$ack_status" --arg reddate "$ack_red_date" '
     .entries[$slug].needs_review = false
     | .entries[$slug].change = null
     | .entries[$slug].change_detected_at = null
     | .entries[$slug].verified_at = $now
     | .entries[$slug].redaktsioon_id = (if $red == "" then null else $red end)
+    | .entries[$slug].redaktsioon_date = (if $reddate == "" then .entries[$slug].redaktsioon_date else $reddate end)
+    | .entries[$slug].status = (if $st == "" then .entries[$slug].status else $st end)
     | .entries[$slug].rt_url = (if $rturl == "" then .entries[$slug].rt_url else $rturl end)
   ' .startup/law-registry.json > .startup/law-registry.json.tmp
   mv .startup/law-registry.json.tmp .startup/law-registry.json
@@ -994,6 +1139,54 @@ else
     echo "$updated" > .startup/law-registry.json
   fi
 fi
+
+# Lifecycle re-check (feed-independent) — identical logic to the Change Detection
+# step. For each not-yet-flagged entry, re-fetch /citation and read status/in_force;
+# a 200 + text does NOT mean the paragraph is still in force. Flag entries whose
+# served redaction is no longer valid so /lawyer status surfaces them.
+LC_SLUGS=$(jq -r '.entries | to_entries[] | select(.value.needs_review != true) | .key' .startup/law-registry.json)
+while IFS= read -r lcslug; do
+  [ -z "$lcslug" ] && continue
+  lc_act=$(jq -r --arg s "$lcslug" '.entries[$s].act_id' .startup/law-registry.json)
+  lc_para=$(jq -r --arg s "$lcslug" '.entries[$s].citation_parts.paragraph // ""' .startup/law-registry.json)
+  lc_para_q=$(jq -r --arg s "$lcslug" '.entries[$s].citation_parts.paragraph_qualifier // ""' .startup/law-registry.json)
+  lc_sec=$(jq -r --arg s "$lcslug" '.entries[$s].citation_parts.section // ""' .startup/law-registry.json)
+  lc_sec_q=$(jq -r --arg s "$lcslug" '.entries[$s].citation_parts.section_qualifier // ""' .startup/law-registry.json)
+  lc_pt=$(jq -r --arg s "$lcslug" '.entries[$s].citation_parts.point // ""' .startup/law-registry.json)
+  lc_pt_q=$(jq -r --arg s "$lcslug" '.entries[$s].citation_parts.point_qualifier // ""' .startup/law-registry.json)
+  lc_url=$(python3 -c '
+import sys, urllib.parse
+base, act, para, pq, sec, sq, pt, kq = sys.argv[1:9]
+SUP = {"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹"}
+def enc(v, q): return urllib.parse.quote(v + "".join(SUP[c] for c in q))
+parts = ["paragraph=" + enc(para, pq)]
+if sec: parts.append("section=" + enc(sec, sq))
+if pt:  parts.append("point="   + enc(pt,  kq))
+print(f"{base}/api/v1/laws/{act}/citation?" + "&".join(parts))
+' "$DATALAKE_URL" "$lc_act" "$lc_para" "$lc_para_q" "$lc_sec" "$lc_sec_q" "$lc_pt" "$lc_pt_q")
+  lc_resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$lc_url" 2>/dev/null || echo "")
+  echo "$lc_resp" | jq empty 2>/dev/null || continue
+  lc_status=$(echo "$lc_resp" | jq -r '.status // empty')
+  lc_in_force=$(echo "$lc_resp" | jq -r 'if has("in_force") and .in_force != null then (.in_force|tostring) else "" end')
+  lc_notvalid=0
+  [ "$lc_in_force" = "false" ] && lc_notvalid=1
+  { [ -n "$lc_status" ] && [ "$lc_status" != "valid" ]; } && lc_notvalid=1
+  [ "$lc_notvalid" = "1" ] || continue
+  NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq --arg s "$lcslug" --arg st "$lc_status" --arg now "$NOW" '
+    .entries[$s].needs_review = true
+    | .entries[$s].status = (if $st == "" then .entries[$s].status else $st end)
+    | .entries[$s].change_detected_at = $now
+    | .entries[$s].change = {
+        feed_event_id: null,
+        type: "lifecycle",
+        summary: ("Akt ei ole enam jõus (status=" + (if $st == "" then "not_in_force" else $st end) + ") — tuvastatud /citation elutsükli-kontrolliga, mitte feed-sündmusega"),
+        effective_date: null
+      }
+  ' .startup/law-registry.json > .startup/law-registry.json.tmp
+  mv .startup/law-registry.json.tmp .startup/law-registry.json
+  echo "⚠ $lcslug: akt $lc_act ei ole enam jõus (status=${lc_status:-not_in_force}) — märgitud läbivaatamiseks"
+done <<< "$LC_SLUGS"
 
 echo "Feed check complete."
 echo "Run /lawyer status to see flagged entries, or /lawyer <topic> to trigger the fix-plan prompt."

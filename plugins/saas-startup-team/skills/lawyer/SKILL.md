@@ -67,7 +67,7 @@ All calls require `X-API-Key` header. API base: `https://datalake.r-53.com/api/v
 **Legal research:**
 - `POST /rag/query` — body: `{"question": "..."}` → AI answer with citations, disclaimer, sources[]
 - `GET /laws/search?q=...&status=valid&limit=N` → `{items:[{id, rt_id, title, act_type, issuer, publication_date, status, relevance_score}], total, limit, offset, search_mode}`. `.id` is the integer the other `/laws/{act_id}/*` endpoints want
-- `GET /laws/{act_id}/citation?paragraph=N&section=M&point=K` → specific law text. All three query params are strings; only `paragraph` is typically needed. Returns `{act_id, act_title, paragraph, section, point, text, url}`
+- `GET /laws/{act_id}/citation?paragraph=N&section=M&point=K` → specific law text. All three query params are strings; only `paragraph` is typically needed. Returns `{act_id, act_title, paragraph, section, point, text, url, status, in_force, redaktsioon_date}`. **`status`** is `"valid"` | `"superseded"` | `"repealed"`; **`in_force`** is `status == "valid"`; **`redaktsioon_date`** is the validFrom of the served redaction (may be `null`). A repealed/superseded/never-in-force act still returns **200 + text** (so callers don't 404) but carries `in_force: false` — see the caution in Analysis Workflow below.
 - `GET /laws/{act_id}/graph` → `{act:{id, title, rt_id, act_type, status, publication_date, valid_from, valid_to}, related_acts:[...]}` — cheap way to resolve rt_id + title from an integer id
 - `GET /laws/{act_id}/citing-decisions` → court decisions citing this act
 - `POST /compliance/checklist` — body: `{"business_type": "...", "emtak_code": "..."}` (business_type REQUIRED, emtak_code optional)
@@ -109,6 +109,15 @@ All calls require `X-API-Key` header. API base: `https://datalake.r-53.com/api/v
 9. Audit codebase → open-source license compliance
 10. Write analysis → docs/legal/õiguslik-*.md
 ```
+
+> **⚠ A 200 does not mean the law is in force.** A `200` from `/laws/{act_id}/citation`
+> (or a hit in `/laws/search`) does **not** mean the returned text is current law.
+> The datalake serves repealed, superseded, and never-in-force redactions with a
+> `200` + text so callers don't `404` — guard on **`in_force` / `status`** before
+> treating any returned paragraph as in force. Never present non-`valid` text to the
+> investor as current law, and never register it as a load-bearing dependency.
+> A past incident produced a full customer-facing FY analysis built on a tax that
+> never entered force, precisely because `200` was assumed to mean "live law".
 
 ## Reference Documents
 
