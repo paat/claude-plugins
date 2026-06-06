@@ -1,6 +1,6 @@
 # tribunal-review
 
-Multi-provider code review plugin for Claude Code. Runs four reviewers — Codex (GPT-5.3), Gemini (3 Pro Preview), OpenCode Go GLM-5.1, and DeepSeek-V4-Pro on the **direct DeepSeek API** — then uses Opus as the final arbiter to deduplicate findings, resolve conflicts, and issue a single authoritative verdict. DeepSeek runs decoupled from the OpenCode Go backend (so its quota can't take GLM down with it) and is the one leg that **walks the repo** read-only, providing context the diff-only legs cannot.
+Multi-provider code review plugin for Claude Code. Runs up to five reviewers — Codex (GPT-5.3), Gemini (3 Pro Preview), OpenCode Go GLM-5.1, DeepSeek-V4-Pro on the **direct DeepSeek API**, and an optional **Qwen** leg via the Qwen Code CLI — then uses Opus as the final arbiter to deduplicate findings, resolve conflicts, and issue a single authoritative verdict. DeepSeek runs decoupled from the OpenCode Go backend (so its quota can't take GLM down with it) and is the one leg that **walks the repo** read-only; Qwen runs on its own CLI/transport (decorrelated from the OpenCode legs) and is **off by default**.
 
 ## Prerequisites
 
@@ -9,6 +9,7 @@ Multi-provider code review plugin for Claude Code. Runs four reviewers — Codex
 - [OpenCode CLI](https://opencode.ai) (≥ 1.15) — used as the harness for **two** legs:
   - **GLM** via an [OpenCode Go](https://opencode.ai/go) subscription (model `opencode-go/glm-5.1`)
   - **DeepSeek** via the **direct DeepSeek API** (model `deepseek/deepseek-v4-pro`, pay-as-you-go) — authenticate once with `opencode auth login` (select DeepSeek), or set `DEEPSEEK_API_KEY`. This is independent of the OpenCode Go subscription.
+- [Qwen Code CLI](https://github.com/QwenLM/qwen-code) (`npm install -g @qwen-code/qwen-code`, Node 20+) — **optional**, only needed if you enable the Qwen leg (`TRIBUNAL_QWEN=on`). Auth via `DASHSCOPE_API_KEY` (pay-as-you-go DashScope; new accounts get a free 1M+1M-token tier — enough to validate the leg before spending), an OpenAI-compatible / OpenRouter key, or a credential stored in `~/.qwen/settings.json`.
 - `jq` (used to parse and validate reviewer JSON output)
 - `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or it will fall back to an error-JSON for that reviewer) — caps Codex/Gemini at 10 minutes and each OpenCode leg (GLM, DeepSeek) at 6 minutes (single attempt, no retry) — and since GLM and DeepSeek are serialized in one call, that OpenCode call can take up to ~12 minutes combined; a leg that exceeds its cap simply degrades to the available quorum. OpenCode runs the GLM/DeepSeek reasoning models via `opencode run --agent plan`; their latency is inherent generation time with a heavy tail (the `--variant` reasoning-effort flag does **not** meaningfully change it), so the genuine speed lever is swapping in faster non-reasoning models for those slots — a quality/reliability tradeoff left to you
 - Valid API keys / auth configured for each CLI
@@ -35,9 +36,9 @@ When the verdict comes back `NEEDS_WORK` or `BLOCK`, the `closing-tribunal-loop`
 
 ## Configuration
 
-The Gemini and DeepSeek reviewers are configurable via environment variables (export them
-in your shell before launching `claude`). All default to the current behavior, so leaving
-them unset changes nothing.
+The Gemini, DeepSeek, and Qwen reviewers are configurable via environment variables (export
+them in your shell before launching `claude`). All default to the current behavior, so leaving
+them unset changes nothing — in particular the Qwen leg stays **off** until you opt in.
 
 | Variable | Default | Effect |
 |---|---|---|
@@ -46,15 +47,22 @@ them unset changes nothing.
 | `TRIBUNAL_DEEPSEEK` | `on` | Set to `off` to skip the DeepSeek leg. The run degrades to a 3-provider quorum; the arbiter reports DeepSeek as `disabled`, not failed. Only the literal `off` disables. |
 | `TRIBUNAL_DEEPSEEK_MODEL` | `deepseek/deepseek-v4-pro` | Model passed to `opencode run -m`. Use `deepseek/deepseek-v4-flash` for a cheaper/faster per-commit review. |
 | `DEEPSEEK_API_KEY` | _(unset)_ | DeepSeek direct-API credential (alternative to `opencode auth login`). |
+| `TRIBUNAL_QWEN` | `off` | Set to `on` to enable the Qwen leg (additive, needs a key). Adds a fifth provider to the quorum; when off the arbiter reports Qwen as `disabled`, not failed. Only the literal `on` enables. |
+| `TRIBUNAL_QWEN_MODEL` | `qwen3.6-plus` | Model passed to `qwen --model` (1M-ctx default, validated on DashScope Intl). Qwen ids change often through 2026 **and vary by account/region**; qwen-code **silently downgrades an unknown id to its default with no error** (the leg surfaces the model that actually ran in its output `model` field, and Step-1 preflight warns on a fallback). Override with a valid id for your account — e.g. `qwen3.7-plus`, or a coder slot like `qwen3-coder-plus` if your account enables it. |
+| `DASHSCOPE_API_KEY` | _(unset)_ | Qwen DashScope credential (primary transport). The Qwen Code CLI also accepts `OPENAI_API_KEY`+`OPENAI_BASE_URL` (OpenAI-compatible) or `OPENROUTER_API_KEY` (`qwen/...` ids), or a credential stored via `~/.qwen/settings.json`. |
 
 ```bash
 export TRIBUNAL_GEMINI=off                          # skip Gemini this session
 export TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-flash  # cheaper/faster DeepSeek leg
+export TRIBUNAL_QWEN=on                             # enable the decorrelated Qwen leg
+export DASHSCOPE_API_KEY=sk-...                     # Qwen auth (DashScope, pay-as-you-go)
 ```
 
-These knobs apply to the `tribunal-loop` workflow. (The standalone `gemini-reviewer` and
+These knobs apply to the `tribunal-loop` workflow. The standalone `gemini-reviewer` and
 `deepseek-reviewer` agents honor their `_MODEL` overrides but have no disable switch —
-invoking the agent always means a review is wanted.)
+invoking the agent always means a review is wanted. The standalone `qwen-reviewer` is the
+exception: because Qwen is opt-in, it honors `TRIBUNAL_QWEN` (and `TRIBUNAL_QWEN_MODEL`) and
+emits the `disabled` marker unless `TRIBUNAL_QWEN=on`.
 
 ## How It Works
 
@@ -62,7 +70,7 @@ invoking the agent always means a review is wanted.)
 Verifies you're on a feature branch (not main) and that there are changes to review, then runs an **environment preflight** — checks each reviewer CLI is on `PATH`, free disk space, and that the OpenCode model IDs resolve in the (warmed) registry. Problems are reported up front so a missing CLI, full disk, or cold model cache fails fast here instead of hanging a launched reviewer; affected reviewers are skipped and the run degrades to the available quorum. Only if **zero** providers are usable does it stop.
 
 ### Step 2: Parallel Review
-Runs Codex, Gemini, and OpenCode as **three parallel Bash calls**. Each analyzes the `git diff origin/main...HEAD` and returns structured JSON findings covering logic errors, security vulnerabilities, edge cases, performance issues, and architectural concerns. The two OpenCode legs run read-only (`opencode run --agent plan`) and **sequentially within the single OpenCode call** — running them concurrently deadlocks on OpenCode's shared data dir (issue #31), so they are serialized back-to-back. They are otherwise decoupled: **GLM** uses the OpenCode Go backend, diff-only, from a scratch dir; **DeepSeek** uses the **direct DeepSeek API**, runs **from the repo root**, and is the one leg permitted to **walk the repo** (open related files, trace cross-file effects) rather than reviewing the diff in isolation. The diff is passed to OpenCode as a **file attachment** (`-f`) rather than inline, which avoids the `MAX_ARG_STRLEN` (128 KiB single-argument) limit that previously made large diffs fail with "Argument list too long". If the repo has an `AGENTS.md`, it is injected into every reviewer's prompt (capped at 16KB) as a shared **Project Conventions** block, so all assess the diff against the same standards.
+Runs Codex, Gemini, and OpenCode as parallel Bash calls — plus a fourth **Qwen** call when `TRIBUNAL_QWEN=on` (Qwen reviews the diff only, on its own CLI/transport, decorrelated from the OpenCode legs). Each analyzes the `git diff origin/main...HEAD` and returns structured JSON findings covering logic errors, security vulnerabilities, edge cases, performance issues, and architectural concerns. The two OpenCode legs run read-only (`opencode run --agent plan`) and **sequentially within the single OpenCode call** — running them concurrently deadlocks on OpenCode's shared data dir (issue #31), so they are serialized back-to-back. They are otherwise decoupled: **GLM** uses the OpenCode Go backend, diff-only, from a scratch dir; **DeepSeek** uses the **direct DeepSeek API**, runs **from the repo root**, and is the one leg permitted to **walk the repo** (open related files, trace cross-file effects) rather than reviewing the diff in isolation. The diff is passed to OpenCode as a **file attachment** (`-f`) rather than inline, which avoids the `MAX_ARG_STRLEN` (128 KiB single-argument) limit that previously made large diffs fail with "Argument list too long". If the repo has an `AGENTS.md`, it is injected into every reviewer's prompt (capped at 16KB) as a shared **Project Conventions** block, so all assess the diff against the same standards.
 
 ### Step 3: Inline Arbitration (Opus)
 Opus deduplicates findings, resolves severity conflicts (always using the highest severity), marks any issue flagged by ≥2 reviewers as CONSENSUS, evaluates each finding for validity, and issues a final verdict: **APPROVE**, **NEEDS_WORK**, or **BLOCK**.
@@ -98,7 +106,8 @@ The tribunal produces a JSON verdict:
     "codex":    { "findings_accepted": 2, "findings_rejected": 1, "status": "ok" },
     "gemini":   { "findings_accepted": 3, "findings_rejected": 0, "status": "ok" },
     "glm":      { "findings_accepted": 2, "findings_rejected": 0, "status": "ok" },
-    "deepseek": { "findings_accepted": 1, "findings_rejected": 1, "status": "ok" }
+    "deepseek": { "findings_accepted": 1, "findings_rejected": 1, "status": "ok" },
+    "qwen":     { "findings_accepted": 0, "findings_rejected": 0, "status": "disabled" }
   },
   "summary": "Code quality is good with one medium-severity finding to address."
 }
@@ -109,10 +118,10 @@ The tribunal produces a JSON verdict:
 ```
 Opus (Final authority, runs inline)
   |
-Codex · Gemini · GLM · DeepSeek (equal advisory peers — verify findings)
+Codex · Gemini · GLM · DeepSeek · Qwen (equal advisory peers — verify findings)
 ```
 
-The four reviewers are equal peers; a finding flagged by ≥2 is CONSENSUS. Opus can override any reviewer finding.
+The reviewers are equal peers (up to five; Qwen is off by default); a finding flagged by ≥2 is CONSENSUS. Opus can override any reviewer finding.
 
 ## License
 
