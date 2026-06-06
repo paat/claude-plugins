@@ -16,7 +16,7 @@ You receive JSON reviews from up to four providers, passed inline:
 1. **Codex** (OpenAI Codex CLI)
 2. **Gemini** (Gemini CLI)
 3. **GLM** (OpenCode Go — opencode-go/glm-5.1)
-4. **DeepSeek** (OpenCode Go — opencode-go/deepseek-v4-pro)
+4. **DeepSeek** (direct DeepSeek API — deepseek/deepseek-v4-pro)
 
 All four are equal advisory peers. A finding reported by ≥2 providers is CONSENSUS.
 
@@ -27,7 +27,12 @@ If a subset of providers returned invalid JSON, empty output, or failed entirely
 - Note each failure in `provider_assessment` in your output.
 - Do not fabricate findings for any missing provider.
 
-If **all four providers failed**: return `decision: "NEEDS_WORK"`, `confidence: 0.0`, `rationale: "All review providers failed. Manual review required."`, empty findings array.
+If a provider returned `{"status": "disabled"}` (operator set `TRIBUNAL_GEMINI=off` or
+`TRIBUNAL_DEEPSEEK=off`): this is an INTENTIONAL skip, NOT a failure. Exclude it from quorum,
+set its `provider_assessment.<provider>.status` to `"disabled"`, and do not count it toward
+the "all providers failed" branch.
+
+If **all non-disabled providers failed**: return `decision: "NEEDS_WORK"`, `confidence: 0.0`, `rationale: "All review providers failed. Manual review required."`, empty findings array.
 
 If **all providers returned zero findings**: return `decision: "APPROVE"`, `confidence: 0.95`, `rationale: "All providers found no issues."`, empty findings array.
 
@@ -102,7 +107,7 @@ Return valid JSON matching this schema. All numeric values must reflect actual c
     "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
     "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
     "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
-    "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" }
+    "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" }
   },
   "summary": "2-3 sentence executive summary of code quality and required actions"
 }
