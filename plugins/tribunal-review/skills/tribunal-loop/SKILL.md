@@ -573,7 +573,7 @@ fi
 review_opencode_leg() {
   local provider="$1" label="$2" model="$3" workdir="$4" walk="$5"
   local raw="$TMPDIR/$provider-raw.txt" err="$TMPDIR/$provider-stderr.txt"
-  local oc_exit json safe prompt ctx_rule ctx_close
+  local oc_exit json safe prompt ctx_rule ctx_close diff_attach
 
   # Assert the requested model is in the (warmed) registry. If it is absent, a cold cache
   # (or, for the direct `deepseek/` provider, a missing credential — its models only list
@@ -648,9 +648,30 @@ $ctx_close"
   # never inline in argv — see the file-attachment note above.
   # Run from $workdir in a SUBSHELL so the cwd change cannot leak between legs (GLM in
   # $TMPDIR, DeepSeek in $REPO_ROOT). Diff via -f (file attach), never inline argv.
-  ( cd "$workdir" && timeout -k 10 360 opencode run --agent plan -m "$model" --variant high --format default "${OC_PURE_ARGS[@]}" "$prompt" -f "$DIFF_FILE" </dev/null ) \
+  #
+  # Stage the diff attachment INSIDE $workdir so it falls within `--agent plan`'s read
+  # sandbox (reads are confined to cwd). The diff-only legs already run from $TMPDIR, so
+  # $DIFF_FILE is in-sandbox for them; but the repo-walking leg's cwd is $REPO_ROOT, and
+  # the shared $TMPDIR/review.diff lives OUTSIDE it — plan auto-rejects the external read
+  # and the leg cannot read the very diff it must review (issue #45). Stage a copy at the
+  # top of cwd (guaranteed in-sandbox; works for linked git worktrees too, unlike .git/),
+  # dot-prefixed + provider-named so it never collides and stays out of `git status` long
+  # — the legs are serialized and we remove it immediately after the run.
+  diff_attach="$DIFF_FILE"
+  if [ "$walk" = "1" ]; then
+    diff_attach="$workdir/.tribunal-review-$provider.diff"
+    # If staging fails (disk full, RO workdir), don't run opencode against a missing -f
+    # path and surface a misleading "file not found" — emit an actionable error and
+    # degrade this leg to the quorum, mirroring the not-in-registry early return above.
+    if ! cp "$DIFF_FILE" "$diff_attach" 2>/dev/null; then
+      printf '{"error": "OpenCode %s: failed to stage diff into workdir %s (disk full / read-only?) — leg skipped", "provider": "%s"}\n' "$label" "$workdir" "$provider"
+      return
+    fi
+  fi
+  ( cd "$workdir" && timeout -k 10 360 opencode run --agent plan -m "$model" --variant high --format default "${OC_PURE_ARGS[@]}" "$prompt" -f "$diff_attach" </dev/null ) \
     >"$raw" 2>"$err"
   oc_exit=$?
+  [ "$walk" = "1" ] && rm -f "$diff_attach"
 
   if [ "$oc_exit" -eq 0 ] && [ -s "$raw" ]; then
     # Extract between sentinels; fall back to first-{ .. last-} slice
