@@ -30,8 +30,8 @@ If a subset of providers returned invalid JSON, empty output, or failed entirely
 - Do not fabricate findings for any missing provider.
 
 If a provider returned `{"status": "disabled"}` (Gemini and GLM are off by default unless
-`TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`; DeepSeek is disabled by `TRIBUNAL_DEEPSEEK=off`;
-Qwen by `TRIBUNAL_QWEN=off`): this is an INTENTIONAL skip, NOT a failure. Exclude it from quorum, set its
+`TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`; Codex is disabled by `TRIBUNAL_CODEX=off`; DeepSeek by
+`TRIBUNAL_DEEPSEEK=off`; Qwen by `TRIBUNAL_QWEN=off`): this is an INTENTIONAL skip, NOT a failure. Exclude it from quorum, set its
 `provider_assessment.<provider>.status` to `"disabled"`, and do not count it toward the
 "all providers failed" branch.
 
@@ -107,7 +107,7 @@ Return valid JSON matching this schema. All numeric values must reflect actual c
     "ruling": "...", "reasoning": "..."
   }],
   "provider_assessment": {
-    "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
+    "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },

@@ -10,7 +10,7 @@ Multi-provider code review. **By default** Codex (GPT-5.5) + DeepSeek-V4-Pro + Q
 3-step workflow: pre-flight, parallel review, inline arbitration.
 
 ## Providers
-- **Codex** (GPT-5.5) - comprehensive review, **repo-walking** read-only (runs in-container, no `--sandbox` flag)
+- **Codex** (GPT-5.5) - comprehensive review, **repo-walking** read-only (runs in-container, no `--sandbox` flag); **on by default**, disable with `TRIBUNAL_CODEX=off`, model via `TRIBUNAL_CODEX_MODEL` (unset = codex CLI's own default)
 - **Gemini** (3 Pro Preview) - comprehensive review + web/CVE search; **off by default**, enable with `TRIBUNAL_GEMINI=on`, model via `TRIBUNAL_GEMINI_MODEL`
 - **GLM** (opencode-go/glm-5.1) - comprehensive review (OpenCode Go), diff-only; **off by default** (shares lineage with DeepSeek — fails in lockstep), enable with `TRIBUNAL_GLM=on`, model via `TRIBUNAL_GLM_MODEL`
 - **DeepSeek** (deepseek/deepseek-v4-pro) - comprehensive review on the **direct DeepSeek API**, **repo-walking** read-only; independently switchable via `TRIBUNAL_DEEPSEEK` / `TRIBUNAL_DEEPSEEK_MODEL`
@@ -41,12 +41,26 @@ are usable do we STOP.
 WARN=""
 USABLE=0
 
+# Codex leg switch (issue #43). Codex (GPT-5.5) is a default repo-walking reviewer. ON by
+# default; only the literal "off" disables. When on, `codex` seeds the CLI list (and TOTAL);
+# when off it is an INTENTIONAL skip — not probed, not counted. Model overridable via
+# TRIBUNAL_CODEX_MODEL; when UNSET the leg passes NO -m so codex uses its own configured
+# default (which the codex CLI keeps current — no stale pinned id), preserving prior behaviour.
+CODEX_MODEL="${TRIBUNAL_CODEX_MODEL:-}"
+CODEX_ON=on
+CLIS=""
+if [ "${TRIBUNAL_CODEX:-on}" = "off" ]; then
+  CODEX_ON=off
+  WARN="${WARN}\n  - codex: disabled via TRIBUNAL_CODEX=off — leg will be skipped"
+else
+  CLIS="codex"
+fi
+
 # Gemini leg is OFF by default (opt-in via TRIBUNAL_GEMINI=on). When disabled it is an
 # INTENTIONAL skip — not probed on PATH and not counted toward the zero-usable check.
-# Only the literal "on" enables; anything else (or unset) = off. Codex is the only
-# always-present base CLI; opencode is added below ONLY when an OpenCode leg (DeepSeek or GLM)
-# is actually enabled, so a fully-disabled OpenCode call is not miscounted as a usable provider.
-CLIS="codex"
+# Only the literal "on" enables; anything else (or unset) = off. opencode is added below ONLY
+# when an OpenCode leg (DeepSeek or GLM) is actually enabled, so a fully-disabled OpenCode call
+# is not miscounted as a usable provider.
 if [ "${TRIBUNAL_GEMINI:-off}" = "on" ]; then
   CLIS="$CLIS gemini"
 else
@@ -224,6 +238,21 @@ Each reviewer is given the repo's `AGENTS.md` (if present, capped at 16KB) as a 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 
+# Codex leg switch (issue #43). ON by default; only the literal "off" disables. When off this
+# is an INTENTIONAL skip — emit a disabled marker the arbiter excludes from quorum (mirrors the
+# Gemini/DeepSeek/Qwen/Claude legs), NOT a failure. Re-read here because each leg runs in its
+# own Bash process (the Step-1 preflight var does not carry over).
+if [ "${TRIBUNAL_CODEX:-on}" = "off" ]; then
+  printf '%s\n' '{"provider": "codex", "status": "disabled", "note": "Codex leg disabled via TRIBUNAL_CODEX=off"}'
+  exit 0
+fi
+
+# Model override (issue #43). When TRIBUNAL_CODEX_MODEL is set, pass it via `-m`; when UNSET,
+# pass NO -m so codex uses its own configured default (kept current by the codex CLI — no stale
+# pinned id). Built as an array so -m is either absent or exactly one argv pair (SC2086-clean).
+CODEX_MODEL_ARGS=()
+[ -n "${TRIBUNAL_CODEX_MODEL:-}" ] && CODEX_MODEL_ARGS=(-m "$TRIBUNAL_CODEX_MODEL")
+
 # Parallel-safe: unique temp dir per invocation
 TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
 
@@ -293,7 +322,7 @@ cat > "$TMPDIR/codex-review-schema.json" << 'SCHEMA'
 }
 SCHEMA
 
-timeout -k 10 600 codex exec - \
+timeout -k 10 600 codex exec - "${CODEX_MODEL_ARGS[@]}" \
   --output-schema "$TMPDIR/codex-review-schema.json" \
   -o "$TMPDIR/codex-review-output.json" \
   >/dev/null 2>"$TMPDIR/codex-stderr.txt" <<PROMPT
@@ -992,7 +1021,7 @@ credential failure (issue #32):
 {"error": "OpenCode model deepseek/deepseek-v4-pro not in registry (cold/stale cache, or direct provider not authenticated) — run `opencode models` / `opencode auth login`; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "deepseek"}
 ```
 
-Collect all five JSON outputs — Codex, Gemini, and Qwen from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration. A `{"status": "disabled"}` marker (Gemini and GLM emit one unless enabled — `TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`, both off by default; DeepSeek when `TRIBUNAL_DEEPSEEK=off`; Qwen when `TRIBUNAL_QWEN=off`) is an INTENTIONAL skip, not a failure and not a finding source — it has no `findings` key; report that leg as `disabled` rather than a count, and hand it to Step 3 as a disabled provider.
+Collect all five JSON outputs — Codex, Gemini, and Qwen from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration. A `{"status": "disabled"}` marker (Gemini and GLM emit one unless enabled — `TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`, both off by default; Codex when `TRIBUNAL_CODEX=off`; DeepSeek when `TRIBUNAL_DEEPSEEK=off`; Qwen when `TRIBUNAL_QWEN=off`) is an INTENTIONAL skip, not a failure and not a finding source — it has no `findings` key; report that leg as `disabled` rather than a count, and hand it to Step 3 as a disabled provider.
 
 Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G or 'disabled'}, GLM: {L or 'disabled'}, DeepSeek: {D or 'disabled'}, Qwen: {Q or 'disabled'} findings"
 
@@ -1047,7 +1076,7 @@ Override provider findings when they are clearly wrong. Add new findings if the 
 ### 3e: Degraded Input
 
 - If a subset of providers returned invalid JSON or failed: proceed with the remaining providers' findings. Note each failure in `provider_assessment`.
-- If a provider returned `{"status": "disabled"}` (Gemini and GLM are off by default unless `TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`; DeepSeek is disabled by `TRIBUNAL_DEEPSEEK=off`; Qwen by `TRIBUNAL_QWEN=off`): this is an INTENTIONAL skip, NOT a failure. Exclude that provider from quorum entirely, set its `provider_assessment.<provider>.status` to `"disabled"`, and do not count it toward the "all providers failed" branch — the verdict is computed from the remaining (non-disabled) providers.
+- If a provider returned `{"status": "disabled"}` (Gemini and GLM are off by default unless `TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`; Codex is disabled by `TRIBUNAL_CODEX=off`; DeepSeek by `TRIBUNAL_DEEPSEEK=off`; Qwen by `TRIBUNAL_QWEN=off`): this is an INTENTIONAL skip, NOT a failure. Exclude that provider from quorum entirely, set its `provider_assessment.<provider>.status` to `"disabled"`, and do not count it toward the "all providers failed" branch — the verdict is computed from the remaining (non-disabled) providers.
 - If **all non-disabled providers failed**: verdict = NEEDS_WORK, confidence = 0.0, rationale = "All review providers failed. Manual review required."
 - If **all non-disabled providers returned zero findings**: verdict = APPROVE, confidence = 0.95.
 
@@ -1071,7 +1100,7 @@ Output the tribunal verdict as JSON:
     "ruling": "...", "reasoning": "..."
   }],
   "provider_assessment": {
-    "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial" },
+    "codex":    { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },
     "deepseek": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled" },

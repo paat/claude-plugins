@@ -43,6 +43,8 @@ them unset changes nothing — the default panel is **Codex + DeepSeek + Qwen + 
 
 | Variable | Default | Effect |
 |---|---|---|
+| `TRIBUNAL_CODEX` | `on` | Set to `off` to skip the Codex leg. The run degrades to the remaining quorum; the arbiter reports Codex as `disabled`, not failed. Only the literal `off` disables. |
+| `TRIBUNAL_CODEX_MODEL` | _(codex CLI default)_ | Model passed to `codex exec -m`. **Unset by default** — the leg passes no `-m`, so codex uses its own configured default (kept current by the codex CLI, no stale pinned id). Set it to pin a specific model. |
 | `TRIBUNAL_GEMINI` | `off` | Set to `on` to enable the Gemini leg (web/CVE search). **Off by default**; when off the arbiter reports Gemini as `disabled`, not failed. Only the literal `on` enables. |
 | `TRIBUNAL_GEMINI_MODEL` | `gemini-3-pro-preview` | Model passed to `gemini --model`. Point it at a faster/cheaper slot to keep a full quorum while controlling latency/cost. |
 | `TRIBUNAL_DEEPSEEK` | `on` | Set to `off` to skip the DeepSeek leg. The run degrades to the remaining quorum; the arbiter reports DeepSeek as `disabled`, not failed. Only the literal `off` disables. |
