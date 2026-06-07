@@ -55,7 +55,7 @@ with. No extra setup: the leg just invokes `claude -p`.
 ## Execute This Script
 
 ```bash
-# Claude Code leg is ON by default (mirrors Qwen/DeepSeek). Only the literal "off" disables;
+# Claude Code leg is ON by default (mirrors Codex/DeepSeek). Only the literal "off" disables;
 # anything else (or unset) runs. Note: this standalone path's switch matches tribunal-loop's,
 # so the agent behaves identically whether invoked directly or by the skill.
 if [ "${TRIBUNAL_CLAUDE:-on}" = "off" ]; then

@@ -1,11 +1,11 @@
 ---
 name: tribunal-loop
-description: Multi-provider code review workflow — Codex + DeepSeek + Qwen (repo-walking) + Claude (diff-only) by default (Gemini and OpenCode GLM opt-in), with Opus arbitration
+description: Multi-provider code review workflow — Codex + DeepSeek (repo-walking) + Claude (diff-only) by default (Gemini, OpenCode GLM and Qwen opt-in), with Opus arbitration
 ---
 
 # Tribunal Loop
 
-Multi-provider code review. **By default** Codex (GPT-5.5) + DeepSeek-V4-Pro + Qwen (qwen3.7-plus) + Claude (sonnet) review in parallel, Opus arbitrates inline. The first three default legs **walk the repo** read-only: Codex (in-container, no sandbox flag), DeepSeek (**direct** DeepSeek API), and Qwen (Qwen Code CLI, own transport, decorrelated from the OpenCode legs) may each open related files to verify cross-file effects. The **Claude** leg (host `claude` CLI) is the panel's one **diff-only** reviewer — it reviews the diff in isolation (run from a scratch dir with all tools disabled), deliberately restoring the harness/context diversity the walking legs give up. **Gemini** (web/CVE search) and the OpenCode **GLM** leg are available opt-in (`TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`) but **off by default** — GLM shares architectural lineage with DeepSeek and tends to fail in lockstep, so the default panel keeps the decorrelated set.
+Multi-provider code review. **By default** Codex (GPT-5.5) + DeepSeek-V4-Pro (repo-walking) + Claude (sonnet, diff-only) review in parallel, Opus arbitrates inline. The two default walking legs **walk the repo** read-only: Codex (in-container, no sandbox flag) and DeepSeek (**direct** DeepSeek API) may each open related files to verify cross-file effects. The **Claude** leg (host `claude` CLI) is the panel's one **diff-only** reviewer — it reviews the diff in isolation (run from a scratch dir with all tools disabled), deliberately restoring the harness/context diversity the walking legs give up. **Gemini** (web/CVE search), the OpenCode **GLM** leg, and **Qwen** (qwen3.7-plus) are available opt-in (`TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on` / `TRIBUNAL_QWEN=on`) but **off by default** — GLM shares architectural lineage with DeepSeek and tends to fail in lockstep, and Qwen reasons over the diff text rather than grounding in files (repeated false positives — phantom whitespace, nonexistent symbols, hallucinated line numbers; issue #46), so the default panel keeps the decorrelated, low-false-positive set.
 
 3-step workflow: pre-flight, parallel review, inline arbitration.
 
@@ -14,7 +14,7 @@ Multi-provider code review. **By default** Codex (GPT-5.5) + DeepSeek-V4-Pro + Q
 - **Gemini** (3 Pro Preview) - comprehensive review + web/CVE search; **off by default**, enable with `TRIBUNAL_GEMINI=on`, model via `TRIBUNAL_GEMINI_MODEL`
 - **GLM** (opencode-go/glm-5.1) - comprehensive review (OpenCode Go), diff-only; **off by default** (shares lineage with DeepSeek — fails in lockstep), enable with `TRIBUNAL_GLM=on`, model via `TRIBUNAL_GLM_MODEL`
 - **DeepSeek** (deepseek/deepseek-v4-pro) - comprehensive review on the **direct DeepSeek API**, **repo-walking** read-only; independently switchable via `TRIBUNAL_DEEPSEEK` / `TRIBUNAL_DEEPSEEK_MODEL`
-- **Qwen** (qwen3.7-plus) - comprehensive review via the **Qwen Code CLI** (own transport, decorrelated from the OpenCode legs), **repo-walking** read-only (issue #44); **on by default**, disable with `TRIBUNAL_QWEN=off`, model via `TRIBUNAL_QWEN_MODEL`
+- **Qwen** (qwen3.7-plus) - comprehensive review via the **Qwen Code CLI** (own transport, decorrelated from the OpenCode legs), **repo-walking** read-only (issue #44); **off by default** (issue #46: ungrounded diff-text reasoning → repeated false positives; pending the mandatory-verification fix), enable with `TRIBUNAL_QWEN=on`, model via `TRIBUNAL_QWEN_MODEL`
 - **Claude** (sonnet) - comprehensive review via the host **Claude Code CLI** (`claude -p`), **diff-only** (scratch dir + all tools disabled) — the panel's diff-only lens; **on by default**, disable with `TRIBUNAL_CLAUDE=off`, model via `TRIBUNAL_CLAUDE_MODEL`
 - **Opus** (4.5) - final arbiter (runs inline, no agent spawn)
 
@@ -67,18 +67,19 @@ else
   WARN="${WARN}\n  - gemini: disabled (default off) — set TRIBUNAL_GEMINI=on to enable"
 fi
 
-# Qwen leg switch (issue #41). Independent leg on its OWN CLI/transport (Qwen Code CLI),
-# decorrelated from the OpenCode legs. ON by default (mirrors Gemini/DeepSeek); only the
-# literal "off" disables. When on, `qwen` joins the CLI list (and TOTAL) so the generic PATH
-# loop counts it and the "N/TOTAL providers" accounting stays correct; when off it is an
-# INTENTIONAL skip — not probed, not counted.
+# Qwen leg switch (issue #41, #46). Independent leg on its OWN CLI/transport (Qwen Code CLI),
+# decorrelated from the OpenCode legs. OFF by default (opt-in via TRIBUNAL_QWEN=on) — a real-
+# world audit found the leg reasons over the diff text rather than grounding in files, emitting
+# repeated false positives (phantom whitespace, nonexistent symbols/SQL, hallucinated line
+# numbers; issue #46). Disabled pending the mandatory-verification fix. Only the literal "on"
+# enables; anything else (or unset) = off — an INTENTIONAL skip, not probed and not counted.
 QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}"
-QWEN_ON=on
-if [ "${TRIBUNAL_QWEN:-on}" = "off" ]; then
-  QWEN_ON=off
-  WARN="${WARN}\n  - qwen: disabled via TRIBUNAL_QWEN=off — leg will be skipped"
-else
+QWEN_ON=off
+if [ "${TRIBUNAL_QWEN:-off}" = "on" ]; then
+  QWEN_ON=on
   CLIS="$CLIS qwen"
+else
+  WARN="${WARN}\n  - qwen: disabled (default off, issue #46) — set TRIBUNAL_QWEN=on to enable"
 fi
 
 # Claude Code leg switch. The default panel's one DIFF-ONLY reviewer (the other default legs —
@@ -223,7 +224,7 @@ If preflight exits non-zero (no usable providers): STOP and report. Otherwise no
 warnings — the affected provider(s) will be skipped in Step 2 and arbitration treats the
 result as a degraded quorum.
 
-Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL counts reviewer CLIs on PATH. By default that is codex + opencode + qwen + claude (DeepSeek on ⇒ opencode counted; Qwen on; Claude on); add gemini when TRIBUNAL_GEMINI=on; subtract qwen when TRIBUNAL_QWEN=off and claude when TRIBUNAL_CLAUDE=off. The opencode CLI carries both the GLM and DeepSeek legs, so it is counted whenever EITHER is enabled and is dropped only if BOTH are off.)
+Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL counts reviewer CLIs on PATH. By default that is codex + opencode + claude (DeepSeek on ⇒ opencode counted; Claude on); add gemini when TRIBUNAL_GEMINI=on and qwen when TRIBUNAL_QWEN=on; subtract claude when TRIBUNAL_CLAUDE=off. The opencode CLI carries both the GLM and DeepSeek legs, so it is counted whenever EITHER is enabled and is dropped only if BOTH are off.)
 
 ---
 
@@ -745,17 +746,19 @@ NOT the `opencode` backend GLM/DeepSeek share, so it cannot fail in lockstep wit
 It `cd`s to the repo root and runs with `--yolo`, so its read-only tools (read/grep/glob/list) are
 available; the prompt permits opening related files to verify cross-file effects (issue #44), while
 findings are still reported only against the changed lines.
-**On by default** (mirrors Gemini/DeepSeek); `TRIBUNAL_QWEN=off` disables it. Runs as a
-fourth parallel Bash call alongside Codex (call 1), Gemini (call 2), and OpenCode (call 3).
+**Off by default** (opt-in via `TRIBUNAL_QWEN=on`; disabled pending the issue #46 false-positive
+fix). When enabled, runs as a fourth parallel Bash call alongside Codex (call 1), Gemini (call 2),
+and OpenCode (call 3).
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 
-# Qwen leg is ON by default (mirrors Gemini/DeepSeek). Only the literal "off" disables;
-# anything else (or unset) runs. When off, emit the disabled marker so the arbiter accounts
-# for qwen as a (disabled) fifth peer. TRIBUNAL_QWEN_MODEL overrides the model.
-if [ "${TRIBUNAL_QWEN:-on}" = "off" ]; then
-  printf '%s\n' '{"provider": "qwen", "status": "disabled", "note": "Qwen leg disabled via TRIBUNAL_QWEN=off"}'
+# Qwen leg is OFF by default (issue #46: ungrounded diff-text reasoning → repeated false
+# positives). Only the literal "on" enables; anything else (or unset) skips. When off, emit the
+# disabled marker so the arbiter accounts for qwen as a (disabled) fifth peer. TRIBUNAL_QWEN_MODEL
+# overrides the model.
+if [ "${TRIBUNAL_QWEN:-off}" != "on" ]; then
+  printf '%s\n' '{"provider": "qwen", "status": "disabled", "note": "Qwen leg disabled (default off, issue #46); set TRIBUNAL_QWEN=on to enable"}'
   exit 0
 fi
 QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}"
@@ -889,7 +892,7 @@ Bash call alongside Codex (1), Gemini (2), OpenCode (3), and Qwen (4).
 > still treats it as one advisory peer among the panel.
 
 ```bash
-# Claude Code leg is ON by default (mirrors Qwen/DeepSeek). Only the literal "off" disables;
+# Claude Code leg is ON by default (mirrors Codex/DeepSeek). Only the literal "off" disables;
 # anything else (or unset) runs. When off, emit the disabled marker so the arbiter accounts
 # for claude as a (disabled) peer. TRIBUNAL_CLAUDE_MODEL overrides the model (default sonnet).
 if [ "${TRIBUNAL_CLAUDE:-on}" = "off" ]; then
@@ -1042,7 +1045,7 @@ Two findings are **duplicates** if they describe the same underlying issue in th
 
 ### 3b: Resolve Conflicts (N providers)
 
-A finding may be reported by any subset of the five reviewers (codex, gemini, glm, deepseek, qwen). By default only codex, deepseek, and qwen run — gemini and glm are off by default, and deepseek/qwen can be turned off — so treat disabled providers as absent, not as failures.
+A finding may be reported by any subset of the five reviewers (codex, gemini, glm, deepseek, qwen) plus the diff-only claude leg. By default only codex, deepseek, and claude run — gemini, glm, and qwen are off by default, and any leg can be turned off — so treat disabled providers as absent, not as failures.
 
 | Scenario | Action |
 |----------|--------|

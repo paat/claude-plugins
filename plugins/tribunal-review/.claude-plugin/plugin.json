@@ -1,7 +1,7 @@
 {
   "name": "tribunal-review",
-  "version": "0.12.0",
-  "description": "Multi-provider code review — Codex + direct-API DeepSeek + Qwen (repo-walking) + Claude (diff-only) by default, Gemini and OpenCode GLM opt-in, with Opus arbitration",
+  "version": "0.13.0",
+  "description": "Multi-provider code review — Codex + direct-API DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with Opus arbitration",
   "author": {
     "name": "Andre Paat"
   },
