@@ -63,7 +63,8 @@ GOOD='export function h(o){
 bad_repo="$(make_repo "$BAD")"
 good_repo="$(make_repo "$GOOD")"
 clean_cwd="$(mktemp -d)"            # a non-repo cwd, for -C / cd target tests
-trap 'rm -rf "$bad_repo" "$good_repo" "$clean_cwd"' EXIT
+chain_parent=""
+trap 'rm -rf "$bad_repo" "$good_repo" "$clean_cwd" "$chain_parent"' EXIT
 
 echo "== basics =="
 assert_allow "non-commit command (ls) ignored"                 "ls -la"                          "$bad_repo"
@@ -89,6 +90,19 @@ assert_deny  "wrapper prefix (env VAR=1 git commit)"           "env FOO=1 git co
 echo "== work-dir resolution: scan the repo being committed, not just cwd =="
 assert_deny  "git -C <repo> commit scans that repo"            "git -C $bad_repo commit -m x"    "$clean_cwd" "swallowed-exception"
 assert_deny  "cd <repo> && git commit scans that repo"         "cd $bad_repo && git commit -m x" "$clean_cwd" "swallowed-exception"
+assert_deny  "git -C<repo> (attached) commit scans that repo"  "git -C$bad_repo commit -m x"     "$clean_cwd" "swallowed-exception"
+# chained -C: git resolves each relative -C after the previous one
+chain_parent="$(mktemp -d)"; mkdir -p "$chain_parent/sub"
+( cd "$chain_parent/sub" && git init -q && git config user.email t@t.t && git config user.name t \
+  && printf '%s' "$BAD" > code.ts && git add code.ts )
+assert_deny  "chained git -C <parent> -C sub commit"          "git -C $chain_parent -C sub commit -m x" "$clean_cwd" "swallowed-exception"
+
+echo "== quote-aware: separators inside quotes are not commits (no false deny) =="
+assert_allow "echo \"... && git commit ...\" is not a commit"  'echo "later: x && git commit -m y"' "$bad_repo"
+assert_allow "printf with '; git commit' inside a string"      "printf '%s' 'then ; git commit'"    "$bad_repo"
+
+echo "== quoted-empty ACK is still empty (does not bypass) =="
+assert_deny  "SILENT_FAILURE_ACK=\"\" does NOT bypass"         'SILENT_FAILURE_ACK="" git commit -m x' "$bad_repo" "swallowed-exception"
 
 echo "== hooks.json manifest smoke test =="
 HJ="$PLUGIN_ROOT/hooks/hooks.json"

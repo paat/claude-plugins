@@ -24,59 +24,77 @@ SCAN="$HOOK_DIR/../scripts/scan.sh"
 
 allow() { exit 0; }   # no output ⇒ default-allow
 
-# Analyse the command. Sets: IS_COMMIT (0/1), HAS_ACK (0/1), WORKDIR.
-# A segment is "<env-assignments> <wrappers> git <global-opts> <subcommand> …".
-# We honor the ACK only as a leading, non-empty SILENT_FAILURE_ACK= on the commit
-# segment, and require `commit` to be the git SUBCOMMAND (not any later word), so
-# `git help commit` / `git branch commit` / `git log --grep commit` are not gated.
+# Quote-aware lexer: split a command into whitespace-separated words per segment,
+# where segments are delimited by UNQUOTED ; & | or newline. Quotes are stripped and
+# backslash escapes honored, so separators or the ACK token inside a quoted string
+# (e.g. echo "x && git commit") are NOT treated as shell structure → no false deny.
+# Each finished segment is handed to process_segment via the _WORDS global array.
+# Globals set across the analysis: IS_COMMIT, HAS_ACK, WORKDIR, plus _CWD/_PENDING_CD.
 analyze_command() {
-  local cmd="$1" cwd="$2" seg pending_cd=""
-  IS_COMMIT=0; HAS_ACK=0; WORKDIR="$cwd"
-  # normalise separators (; && || | &) to newlines, then walk each segment in order
-  while IFS= read -r seg; do
-    [[ -z "${seg//[[:space:]]/}" ]] && continue
-    seg="${seg#"${seg%%[![:space:]]*}"}"   # ltrim
-    seg="${seg#\(}"                          # strip a leading subshell/group paren
-    local -a toks=(); read -ra toks <<<"$seg"
-    local n=${#toks[@]} i=0 seg_ack=0 t
-    # leading env-assignments + simple wrappers / shell keywords (interleaved)
-    while (( i < n )); do
-      t="${toks[i]}"
-      if [[ "$t" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
-        [[ "$t" =~ ^SILENT_FAILURE_ACK=.+ ]] && seg_ack=1
-        ((i++)); continue
-      fi
-      case "$t" in
-        env|command|time|nice|nohup|builtin|exec|sudo|if|then|elif|else|while|until|do|"!") ((i++)); continue ;;
-      esac
-      break
-    done
-    (( i >= n )) && continue
-    t="${toks[i]}"
-    # `cd <dir>` sets the directory for a later `git commit` in a following segment
-    if [[ "$t" == "cd" && $((i+1)) -lt n ]]; then pending_cd="${toks[i+1]}"; continue; fi
-    # the executable must be git (bare or a path ending in /git)
-    [[ "$t" == "git" || "$t" == */git ]] || continue
-    ((i++))
-    local git_C=""
-    while (( i < n )); do
-      t="${toks[i]}"
-      case "$t" in
-        -C)                         git_C="${toks[i+1]:-}"; ((i+=2)) ;;
-        -c|--git-dir|--work-tree|--namespace|--super-prefix) ((i+=2)) ;;
-        --git-dir=*|--work-tree=*|--namespace=*|--exec-path=*|-C=*) ((i++)) ;;
-        -*)                         ((i++)) ;;
-        *)                          break ;;
-      esac
-    done
-    [[ "${toks[i]:-}" == "commit" ]] || continue
-    IS_COMMIT=1; HAS_ACK=$seg_ack
-    local base="$cwd"
-    if [[ -n "$pending_cd" ]]; then [[ "$pending_cd" == /* ]] && base="$pending_cd" || base="$cwd/$pending_cd"; fi
-    if [[ -n "$git_C" ]]; then [[ "$git_C" == /* ]] && WORKDIR="$git_C" || WORKDIR="$base/$git_C"
-    else WORKDIR="$base"; fi
-    return
-  done < <(printf '%s\n' "$cmd" | tr ';&|' '\n')
+  local cmd="$1" c nextc q="" buf="" in_word=0 k len
+  IS_COMMIT=0; HAS_ACK=0; WORKDIR="$2"; _CWD="$2"; _PENDING_CD=""; _WORDS=()
+  len=${#cmd}
+  for (( k = 0; k < len; k++ )); do
+    c="${cmd:k:1}"
+    if [[ -n "$q" ]]; then
+      if [[ "$c" == "$q" ]]; then q=""; else buf+="$c"; in_word=1; fi
+      continue
+    fi
+    case "$c" in
+      '"'|"'") q="$c"; in_word=1 ;;
+      '\') (( k++ )); buf+="${cmd:k:1}"; in_word=1 ;;
+      ' '|$'\t') (( in_word )) && { _WORDS+=("$buf"); buf=""; in_word=0; } ;;
+      ';'|'&'|'|'|$'\n')
+        (( in_word )) && { _WORDS+=("$buf"); buf=""; in_word=0; }
+        process_segment; (( IS_COMMIT )) && return ;;
+      *) buf+="$c"; in_word=1 ;;
+    esac
+  done
+  (( in_word )) && _WORDS+=("$buf")
+  process_segment
+}
+
+# Inspect _WORDS as "<env-assignments> <wrappers> git <global-opts> <subcommand> …".
+# ACK is honored only as a leading, non-empty SILENT_FAILURE_ACK= assignment; `commit`
+# must be the git SUBCOMMAND (so `git help commit` etc. are not gated); the work dir is
+# resolved from a preceding `cd` and chained `git -C` (each relative -C after the prior).
+process_segment() {
+  local n=${#_WORDS[@]} i=0 seg_ack=0 t v
+  (( n == 0 )) && return
+  while (( i < n )); do
+    t="${_WORDS[i]}"
+    if [[ "$t" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+      [[ "$t" == SILENT_FAILURE_ACK=?* ]] && seg_ack=1
+      (( i++ )); continue
+    fi
+    case "$t" in
+      env|command|time|nice|nohup|builtin|exec|sudo|if|then|elif|else|while|until|do|"!") (( i++ )); continue ;;
+    esac
+    break
+  done
+  (( i >= n )) && { _WORDS=(); return; }
+  t="${_WORDS[i]}"
+  if [[ "$t" == "cd" && $((i+1)) -lt n ]]; then _PENDING_CD="${_WORDS[i+1]}"; _WORDS=(); return; fi
+  if [[ "$t" != "git" && "$t" != */git ]]; then _WORDS=(); return; fi
+  (( i++ ))
+  # base directory for relative -C resolution
+  local gitloc="$_CWD"
+  if [[ -n "$_PENDING_CD" ]]; then [[ "$_PENDING_CD" == /* ]] && gitloc="$_PENDING_CD" || gitloc="$_CWD/$_PENDING_CD"; fi
+  while (( i < n )); do
+    t="${_WORDS[i]}"
+    case "$t" in
+      -C)  v="${_WORDS[i+1]:-}"; (( i += 2 )); [[ "$v" == /* ]] && gitloc="$v" || gitloc="$gitloc/$v" ;;
+      -C?*) v="${t#-C}";          (( i++ ));    [[ "$v" == /* ]] && gitloc="$v" || gitloc="$gitloc/$v" ;;
+      -c|--git-dir|--work-tree|--namespace|--super-prefix) (( i += 2 )) ;;
+      --git-dir=*|--work-tree=*|--namespace=*|--exec-path=*) (( i++ )) ;;
+      -*)  (( i++ )) ;;
+      *)   break ;;
+    esac
+  done
+  if [[ "${_WORDS[i]:-}" == "commit" ]]; then
+    IS_COMMIT=1; HAS_ACK=$seg_ack; WORKDIR="$gitloc"
+  fi
+  _WORDS=()
 }
 
 input="$(cat)"

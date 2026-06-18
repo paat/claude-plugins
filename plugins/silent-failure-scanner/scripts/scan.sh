@@ -19,7 +19,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AWK_PROG="$SCRIPT_DIR/scan.awk"
-VERSION="0.2.1"
+VERSION="0.2.2"
 
 FORMAT="text"
 DIFF_FILE=""
