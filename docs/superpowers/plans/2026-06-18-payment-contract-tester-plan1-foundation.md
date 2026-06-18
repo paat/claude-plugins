@@ -698,3 +698,9 @@ git commit -m "feat(payment-contract-tester): self-test orchestrator (pytest sta
 ## Execution Handoff
 
 Plan 1 of 3. Plans 2 (xUnit fixtures) and 3 (`/scaffold` + CI/hook harness) to be written when reached.
+
+## Carry-forward to Plan 2 (from Plan 1 final review)
+
+- **Harden `reference/*/run.sh` trap isolation.** Today the runner only asserts each trap reddens its *mapped* test. Non-foundational traps (03–10) should additionally assert the *other* tests stay green, so a trap that reddens its target for an unrelated reason is caught. Foundational claim traps (`trap_01_claim_shape`, `trap_02_missing_claim_guard`) legitimately redden multiple processing tests — exempt them with a comment rather than forcing single-test isolation (a broken claim shape is inherently caught by the whole suite; the reviewer's "move the break to the receiver side" does NOT isolate it). Apply the same hardened runner to the new xUnit stack.
+- **SKILL.md / invariants.md forward-references:** qualify the present-tense mentions of `/scaffold`, `harness/`, and `reference/xunit/` with "(ships in a later version)" so a v0.1.0 install doesn't point at unshipped paths. (Or land them naturally as those pieces ship in Plans 2–3.)
+- **Minor nits:** `reference/pytest/run.sh` uses a fixed `/tmp/pct_green.log` (prefer `mktemp`) and an unquoted `$traps` loop var (works — entries are space-free — but quote when touched).
