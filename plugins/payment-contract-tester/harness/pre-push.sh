@@ -2,14 +2,15 @@
 # payment-contract-tester — optional pre-push hook BODY (fast-feedback convenience ONLY; NOT the
 # security boundary — CI is the authoritative gate, and `git push --no-verify` bypasses this hook).
 # Runs the configured payment-test subset and blocks the push on red. The command comes from the
-# PCT_TEST_CMD env var, else from <repo-root>/.pct-hook.conf. Unconfigured => fail open (exit 0).
+# PCT_TEST_CMD env var, else from a conf file the installer wrote INSIDE the git dir (untracked, so
+# it cannot be set by a branch/PR). Unconfigured => fail open (exit 0).
 set -uo pipefail
 
-root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cmd="${PCT_TEST_CMD:-}"
-if [ -z "$cmd" ] && [ -f "$root/.pct-hook.conf" ]; then
+conf=$(git rev-parse --git-path payment-contract-tester-hook.conf 2>/dev/null || true)
+if [ -z "$cmd" ] && [ -n "$conf" ] && [ -f "$conf" ]; then
   # read a single `PCT_TEST_CMD=...` line without sourcing arbitrary code
-  cmd=$(sed -n 's/^PCT_TEST_CMD=//p' "$root/.pct-hook.conf" | head -n1)
+  cmd=$(sed -n 's/^PCT_TEST_CMD=//p' "$conf" | head -n1)
 fi
 
 if [ -z "$cmd" ]; then

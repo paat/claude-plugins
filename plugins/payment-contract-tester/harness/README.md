@@ -31,10 +31,13 @@ The installer:
 
 - **Detects existing hook managers** (Husky, lefthook, pre-commit, `core.hooksPath`) and, if one is
   present, prints the integration to add to *that* manager instead of writing `.git/hooks/pre-push`.
-- Otherwise writes a **clearly-delimited managed block** into `.git/hooks/pre-push`, composing with
-  any existing hook content and preserving the executable bit.
-- Records the subset command in `.pct-hook.conf` at the repo root (the hook reads it at push time;
-  you can also override per-invocation with the `PCT_TEST_CMD` environment variable).
+- Otherwise writes a **clearly-delimited managed block** into `.git/hooks/pre-push`, placed so it runs
+  **before** any existing hook content (an early exit in a pre-existing hook can't skip the gate),
+  composing with that content and preserving the executable bit.
+- Records the subset command in a conf file **inside the git directory** (e.g.
+  `.git/payment-contract-tester-hook.conf`) — never in the work tree, so it cannot be committed or set
+  by a branch/PR. The hook reads it at push time; you can also override per-invocation with the
+  `PCT_TEST_CMD` environment variable.
 - **Fails safe**: if the setup is ambiguous (e.g. a non-executable hook already exists) it prints
   manual instructions and modifies nothing.
 
