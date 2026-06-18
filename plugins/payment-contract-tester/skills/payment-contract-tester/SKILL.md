@@ -67,8 +67,8 @@ For each invariant write two test shapes:
 4. Seed one trap per RED case; assert the test fails for the right reason.
 5. Run self-verify: GREEN suite must pass against current source; RED suite must fail. A trap that
    does not turn a test RED is a broken trap, not a green invariant.
-6. Wire enforcement: CI snippet (`harness/ci/`) is the authoritative gate; optional pre-push hook
-   (`harness/pre-push.sh`) is fast-feedback convenience only.
+6. Wire enforcement: CI snippet (`harness/ci/`) is the authoritative gate; the optional pre-push hook
+   (`harness/install-pre-push.sh` / `harness/pre-push.sh`) is fast-feedback convenience only.
 
 ### Stack-specific exemplars
 

@@ -1,0 +1,34 @@
+# payment-contract-tester — GitHub Actions snippet (the AUTHORITATIVE enforcement gate).
+# This is versioned, team-propagated, present in CI, and NOT bypassable with `git push --no-verify`.
+# The local pre-push hook is convenience only; THIS is the boundary.
+#
+# /scaffold wires this in: it keeps the job matching your stack, fills the payment-test SUBSET
+# selector, and deletes the alternative below. Drop into .github/workflows/payment-contract.yml.
+name: payment-contract-tests
+on:
+  push:
+  pull_request:
+jobs:
+  payment-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Python / pytest repos -------------------------------------------------
+      # Adapt the -k expression to select ONLY your payment/webhook contract tests.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run payment contract tests (pytest)
+        run: |
+          pip install -r requirements.txt
+          pytest -k "payment or webhook or contract" -v
+
+      # --- .NET / xUnit repos (delete the pytest block above and use this instead) ---
+      # - name: Set up .NET
+      #   uses: actions/setup-dotnet@v4
+      #   with:
+      #     dotnet-version: "9.0.x"
+      # - name: Run payment contract tests (xUnit)
+      #   run: dotnet test --filter "FullyQualifiedName~Payment|FullyQualifiedName~Webhook" -v minimal
