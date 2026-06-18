@@ -44,6 +44,10 @@ block_text() {
 if [ "$uninstall" -eq 1 ]; then
   if [ ! -f "$hook" ]; then echo "No pre-push hook present — nothing to uninstall."; exit 0; fi
   if ! grep -qF "$BEGIN" "$hook"; then echo "No payment-contract-tester block found — leaving hook untouched."; exit 0; fi
+  if ! grep -qF "$END" "$hook"; then
+    echo "payment-contract-tester block is missing its end marker — manual cleanup required, nothing modified." >&2
+    exit 0
+  fi
   tmp=$(mktemp); strip_block "$hook" >"$tmp"
   # if only a shebang / blank lines remain, remove the file entirely
   if ! grep -Eq '[^[:space:]]' <(grep -vE '^#!' "$tmp"); then
@@ -52,11 +56,6 @@ if [ "$uninstall" -eq 1 ]; then
     cat "$tmp" >"$hook"; echo "Removed payment-contract-tester block; preserved the rest of the hook."
   fi
   rm -f "$tmp"; exit 0
-fi
-
-# record the test command for the hook body to read
-if [ -n "$testcmd" ]; then
-  printf 'PCT_TEST_CMD=%s\n' "$testcmd" >"$repo/.pct-hook.conf"
 fi
 
 # --- fail-safe: detect existing hook managers; print guidance, do NOT clobber ---
@@ -94,6 +93,11 @@ $(block_text)
 Then ensure the file is executable: chmod +x "$hook"
 EOF
   exit 0
+fi
+
+# record the test command for the hook body to read (only on the direct-install path)
+if [ -n "$testcmd" ]; then
+  printf 'PCT_TEST_CMD=%s\n' "$testcmd" >"$repo/.pct-hook.conf"
 fi
 
 # --- install: create fresh, or compose with an existing hook (idempotent replace) ---

@@ -120,5 +120,43 @@ else
 fi
 rm -rf "$r"
 
+# 10) manager detected (core.hooksPath) -> .pct-hook.conf must NOT be written
+r=$(newrepo)
+git -C "$r" config core.hooksPath .husky
+bash "$INSTALL" --repo "$r" --test-cmd 'echo z' >/dev/null 2>&1
+if [ ! -f "$r/.pct-hook.conf" ]; then
+  pass "core.hooksPath detected -> .pct-hook.conf not written"
+else
+  bad "core.hooksPath detected but .pct-hook.conf was written (bail-out path should not write it)"
+fi
+rm -rf "$r"
+
+# 11) fail-safe non-executable hook -> .pct-hook.conf must NOT be written
+r=$(newrepo); h="$r/.git/hooks/pre-push"
+printf '#!/usr/bin/env bash\necho weird\n' >"$h"   # intentionally not chmod +x
+bash "$INSTALL" --repo "$r" --test-cmd 'echo z' >/dev/null 2>&1
+if [ ! -f "$r/.pct-hook.conf" ]; then
+  pass "ambiguous non-executable hook -> .pct-hook.conf not written"
+else
+  bad "ambiguous non-executable hook but .pct-hook.conf was written (bail-out path should not write it)"
+fi
+rm -rf "$r"
+
+# 12) uninstall with missing END marker -> file left intact, nothing modified
+r=$(newrepo)
+bash "$INSTALL" --repo "$r" --test-cmd 'echo q' >/dev/null 2>&1
+h="$r/.git/hooks/pre-push"
+# Corrupt the hook by removing the END marker line
+grep -v "$END" "$h" >"$h.tmp" && mv "$h.tmp" "$h"
+before=$(cat "$h")
+bash "$INSTALL" --repo "$r" --uninstall >/dev/null 2>&1
+after=$(cat "$h")
+if [ "$before" = "$after" ]; then
+  pass "uninstall with missing END marker leaves file intact"
+else
+  bad "uninstall with missing END marker modified the file (should have bailed out)"
+fi
+rm -rf "$r"
+
 [ "$fail" -eq 0 ] && echo "install-pre-push tests: ALL PASS" || echo "install-pre-push tests: FAILURES"
 exit $fail
