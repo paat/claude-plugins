@@ -197,11 +197,14 @@ git -C "$r" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
 wt=$(mktemp -d)
 if git -C "$r" worktree add -q "$wt" >/dev/null 2>&1; then
   bash "$INSTALL" --repo "$wt" --test-cmd 'echo w' >/dev/null 2>&1
-  wtgit=$(git -C "$wt" rev-parse --absolute-git-dir)
-  if [ -x "$wtgit/hooks/pre-push" ] && grep -qF "$BEGIN" "$wtgit/hooks/pre-push"; then
-    pass "installs in a linked worktree (.git-as-file)"
+  # the hook must land where Git actually runs it: the common-dir hooks path (--git-path), NOT the
+  # per-worktree git dir. Resolve the same way the installer does.
+  hrel=$(git -C "$wt" rev-parse --git-path hooks/pre-push)
+  case "$hrel" in /*) wthook="$hrel";; *) wthook="$wt/$hrel";; esac
+  if [ -x "$wthook" ] && grep -qF "$BEGIN" "$wthook"; then
+    pass "installs in a linked worktree at the common-dir hooks path (.git-as-file)"
   else
-    bad "failed to install in a linked worktree (.git-as-file)"
+    bad "failed to install in a linked worktree at the path Git runs"
   fi
   git -C "$r" worktree remove --force "$wt" >/dev/null 2>&1
 else
@@ -231,6 +234,18 @@ if [ "$(cat "$h")" = "$before" ]; then
   pass "install refuses a malformed existing block (no silent content loss)"
 else
   bad "install stripped a malformed block and lost content"
+fi
+rm -rf "$r"
+
+# 18) install onto a hook with an ORPHAN END marker (no BEGIN) -> refuse, file intact (no stuck state)
+r=$(newrepo); h="$r/.git/hooks/pre-push"
+printf '#!/usr/bin/env bash\necho hi\n%s\necho more\n' "$END" >"$h"; chmod +x "$h"
+before=$(cat "$h")
+bash "$INSTALL" --repo "$r" --test-cmd 'echo z' >/dev/null 2>&1
+if [ "$(cat "$h")" = "$before" ]; then
+  pass "install refuses a hook with an orphan END marker (no stuck state)"
+else
+  bad "install composed over an orphan END marker (creates a stuck state)"
 fi
 rm -rf "$r"
 

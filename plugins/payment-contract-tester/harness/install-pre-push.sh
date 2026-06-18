@@ -24,17 +24,21 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$repo" ] || repo=$(git rev-parse --show-toplevel 2>/dev/null || true)
-# Resolve the git dir via plumbing — handles worktrees/submodules where .git is a FILE, not a dir.
+# Validate we're in a git repo (works where .git is a FILE, e.g. worktrees/submodules).
 gitdir=''
 [ -n "$repo" ] && gitdir=$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null || true)
 if [ -z "$repo" ] || [ -z "$gitdir" ]; then
   echo "Not a git repository (no --repo and not inside a work tree). Nothing to do." >&2
   exit 0
 fi
-hook="$gitdir/hooks/pre-push"
-# Store the configured command INSIDE the git dir: it is never part of the work tree, so it cannot
-# be committed or altered by a branch/PR (closes the repo-controlled-command path on push).
-conf="$gitdir/payment-contract-tester-hook.conf"
+# Resolve paths via `git rev-parse --git-path`, which honors the common-dir layout: in a linked
+# worktree `hooks/` lives in the COMMON dir (where Git actually runs it), not the per-worktree dir.
+# Absolutize relative output against $repo. The hook body reads the conf with the same `--git-path`,
+# so writer and reader always agree on the file. The conf lives in the git dir (never the work tree),
+# so it cannot be committed or altered by a branch/PR.
+abspath() { case "$1" in /*) printf '%s\n' "$1";; *) printf '%s/%s\n' "$repo" "$1";; esac; }
+hook=$(abspath "$(git -C "$repo" rev-parse --git-path hooks/pre-push)")
+conf=$(abspath "$(git -C "$repo" rev-parse --git-path payment-contract-tester-hook.conf)")
 
 # --- helpers (POSIX awk/sed/grep; no GNU-only flags) ---
 strip_block() {  # prints $1 with our block removed
@@ -154,9 +158,11 @@ payment-test subset by hand (before any early exit), invoking with PCT_TEST_CMD 
 EOF
     exit 0
   fi
-  if grep -qF "$BEGIN" "$hook"; then
+  # If EITHER marker is present, require a single well-formed block before touching it — this catches
+  # an orphan END (no BEGIN) too, which would otherwise leave a stuck state for future un/reinstall.
+  if grep -qF "$BEGIN" "$hook" || grep -qF "$END" "$hook"; then
     if ! validate_block "$hook"; then
-      echo "Existing payment-contract-tester block is malformed (markers missing, duplicated, or out of order) — manual cleanup required, nothing modified." >&2
+      echo "Existing payment-contract-tester markers are malformed (missing, duplicated, or out of order) — manual cleanup required, nothing modified." >&2
       exit 0
     fi
     stripped=$(mktemp); strip_block "$hook" >"$stripped"
