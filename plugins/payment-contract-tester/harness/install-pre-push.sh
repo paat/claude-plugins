@@ -37,6 +37,7 @@ strip_block() {  # prints $1 with our block removed
 block_text() {
   printf '%s\n' "$BEGIN"
   printf '%s\n' "# Managed by payment-contract-tester. Edit via install-pre-push.sh, not by hand."
+  printf '%s\n' "# NOTE: exec replaces the shell — any hook content after the END marker below will NOT run."
   printf 'exec "%s" "$@"\n' "$HOOKBODY"
   printf '%s\n' "$END"
 }
