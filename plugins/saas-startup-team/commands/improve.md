@@ -219,6 +219,8 @@ Then dispatch business founder for re-QA following the same pattern as Step 3.
 
    **`new-branch` mode:** create the PR.
 
+   If the improvement resolves a reported incident/issue (a GitHub issue or a Plane work item — e.g. anything the nightly monitor filed), the fix MUST include a regression test (see the tech founder's Bug Fix Protocol), and the PR body MUST link the issue (`Closes #<n>` for GitHub, or `Plane-Item: <id|url>` for Plane) and describe the test in a `## Regression test` section. An incident-linked PR with no test in its diff is **blocked at merge** by the regression-test gate; override only with `Regression-Test: none — <reason>` in the body.
+
    If QA passed:
    ```bash
    gh pr create \
@@ -231,6 +233,10 @@ Then dispatch business founder for re-QA following the same pattern as Step 3.
    ## Changes
 
    [summary from tech founder's handoff — files modified, what changed]
+
+   ## Regression test
+
+   [if this resolves an incident/issue: test file path + what it reproduces, and `Closes #<n>` / `Plane-Item: <id|url>`. Otherwise: "n/a — not an incident fix".]
 
    ## QA: PASS
 

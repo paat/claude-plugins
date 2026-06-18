@@ -1,0 +1,23 @@
+---
+# Optional per-project settings for the saas-startup-team plugin.
+# Copy to `.claude/saas-startup-team.local.md` in your product repo and edit.
+# All keys are optional; sensible defaults apply when omitted.
+
+# --- Regression-test gate (scripts/check-regression-test.sh) ---
+# Which issue labels mark a "must have a regression test" incident. The gate
+# only blocks `gh pr merge` when the PR closes an issue carrying one of these.
+# Comma-separated. Default:
+incident_labels: bug,monitor,customer-issue
+
+# POSIX extended-regex matched against `gh pr diff --name-only` to decide
+# whether the diff includes a test. Override for non-JS/Python stacks.
+# Default matches: *.test.* *.spec.* test_*.py *_test.go tests/ test/ __tests__/ spec/
+# test_path_regex: '(\.test\.|\.spec\.|(^|/)test_[^/]*\.py$|_test\.go$|(^|/)tests?/|(^|/)__tests__/|(^|/)spec/)'
+---
+
+# saas-startup-team — project settings
+
+This file configures the regression-test gate. The gate blocks `gh pr merge`
+for a PR that resolves an incident-labeled GitHub issue (or carries a
+`Plane-Item:` marker in its body) unless the diff adds a test, or the PR body
+records an override: `Regression-Test: none — <reason>`.

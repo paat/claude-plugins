@@ -116,6 +116,10 @@ on has merged):
 3. **Merge.** `gh pr merge "<pr url>" --squash --delete-branch`, close the chunk's
    issues (`gh issue close <n> --comment "Delivered in <pr url>"`), then
    `git checkout "${default}" && git pull --ff-only`. Continue to the next chunk.
+   Note: if a chunk resolves an incident-labeled issue (`bug`/`monitor`/`customer-issue`)
+   the merge is **blocked by the regression-test gate** unless the PR diff adds a test —
+   ensure the tech founder's Bug Fix Protocol test landed in the PR (or record
+   `Regression-Test: none — <reason>` in the PR body) before merging.
 
 ## Step 4: Monitor the Deploy
 

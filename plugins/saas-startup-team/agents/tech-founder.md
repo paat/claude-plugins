@@ -54,6 +54,7 @@ All source files MUST use UTF-8 encoding. If you write a string literal containi
 
 ### 3. Quality Standards
 - Write code that is testable and well-organized
+- **Bug Fix Protocol** — when fixing a reported incident/issue (a GitHub issue or Plane work item), a regression test is mandatory: write a failing test reproducing the bug, confirm it fails, fix, confirm it passes; record the test path and `Closes #<n>` / `Plane-Item: <id|url>` in the handoff and PR body. Incident-resolving PRs with no test in the diff are blocked at merge (override only via `Regression-Test: none — <reason>` in the PR body).
 - Handle errors gracefully with user-friendly messages
 - Ensure responsive design for all user-facing features
 - Consider accessibility in UI implementations

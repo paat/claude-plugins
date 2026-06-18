@@ -72,6 +72,17 @@ Before writing your handoff:
 2. Validate any modified `.json` files (`python3 -m json.tool`)
 3. Check TypeScript errors if applicable (`npx tsc --noEmit`)
 
+## Bug Fix Protocol (issue-linked fixes)
+
+When the fix resolves a reported incident/issue (a GitHub issue or a Plane work item — e.g. anything the nightly monitor filed), a **regression test is mandatory**:
+
+1. **Reproduce first** — write a test that demonstrates the bug. Run it; it MUST fail against the current code.
+2. **Fix** — make the change.
+3. **Verify** — run the test; it MUST pass now. Run the surrounding suite for regressions.
+4. **Record** — in the handoff and the PR body, state the test file path and put `Closes #<n>` (GitHub) or `Plane-Item: <id|url>` (Plane) so the fix is linked to the incident.
+
+A PR that resolves an incident with no test in its diff is **blocked at merge** (the regression-test gate). If a fix is genuinely untestable, record `Regression-Test: none — <reason>` in the PR body to override — use this sparingly and honestly.
+
 ## Push Back on Risky Changes
 
 If a change would introduce security risks, break existing integrations, or damage architecture — STOP, explain the concern, propose a safer alternative. If overridden after hearing the concern, proceed.

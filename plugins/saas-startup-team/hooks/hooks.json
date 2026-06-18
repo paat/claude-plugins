@@ -10,6 +10,16 @@
             "description": "Block non-conforming handoff filenames (NNN-<direction>.md only)"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-regression-test.sh",
+            "description": "Block `gh pr merge` for an incident-linked PR unless the diff adds a regression test (or an explicit override is recorded)"
+          }
+        ]
       }
     ],
     "TeammateIdle": [

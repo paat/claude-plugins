@@ -70,6 +70,9 @@ Document ALL decisions in `docs/architecture/architecture.md`.
 - Focus on happy path + main error path
 - Automated tests for critical business logic
 
+### Bug Fix Protocol (issue-linked fixes)
+When fixing a reported incident/issue (GitHub issue or Plane work item), a regression test is **mandatory**: write a failing test that reproduces the bug, confirm it fails, fix, confirm it passes. Record the test path and `Closes #<n>` / `Plane-Item: <id|url>` in the handoff and PR body. Incident-resolving PRs with no test in the diff are blocked at merge; override only with `Regression-Test: none — <reason>` in the PR body.
+
 ## Implementation Workflow
 
 ```
