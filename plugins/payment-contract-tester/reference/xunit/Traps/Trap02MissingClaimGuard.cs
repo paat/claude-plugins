@@ -15,9 +15,9 @@ public sealed class Trap02MissingClaimGuard : IPaymentHandler
 
     private sealed class Order { public string Status = "PENDING"; public long AmountCents; }
 
-    // The store is internally thread-safe (concurrent collections); the only thing the lock in
-    // HandleWebhook adds is check-then-act atomicity — so the concurrency trap is purely "drop the
-    // lock", never a container-corruption crash.
+    // Processed/Effects are concurrent collections; Orders is written only at setup and read
+    // concurrently afterward, so it needs no extra synchronization. The lock in HandleWebhook adds
+    // check-then-act atomicity — so the concurrency trap is purely "drop the lock", never a crash.
     private sealed class MockStore : IStore
     {
         public readonly Dictionary<string, Order> Orders = new();
@@ -71,25 +71,25 @@ public sealed class Trap02MissingClaimGuard : IPaymentHandler
             return 401;                                       // replay / recency window
         var reference = claims.TryGetValue("merchantReference", out var r) ? r.GetString() : null;
         var status = claims.TryGetValue("paymentStatus", out var st) ? st.GetString() : null;  // VERIFIED token
-        // SEEDED TRAP: required-claim guard deleted — a missing merchantReference now reaches the
-        // store lookup (TryGetValue(null)) and errors instead of returning 400.
+        var uuid = claims.TryGetValue("uuid", out var u) ? u.GetString() : null;
+        // SEEDED TRAP: required-claim guard deleted — a missing merchantReference/paymentStatus/uuid
+        // now reaches the store lookup / dedupe instead of returning 400.
 #pragma warning disable CS8604
         if (!s.Orders.TryGetValue(reference, out var order))
 #pragma warning restore CS8604
             return 404;
-        var uuid = claims["uuid"].GetString()!;
         lock (s.Lock)                                          // atomic, durable dedupe
         {
-            if (s.Processed.ContainsKey(uuid))                // idempotent-effects
+            if (s.Processed.ContainsKey(uuid!))               // idempotent-effects
                 return 200;
             if (TERMINAL.Contains(order.Status) && status != order.Status)
             {
-                s.Processed.TryAdd(uuid, 0);                  // terminal-state-ordering: no downgrade
+                s.Processed.TryAdd(uuid!, 0);                 // terminal-state-ordering: no downgrade
                 return 200;
             }
             order.Status = status!;                           // durability-before-ack: persist first
             s.Effects.Enqueue((reference!, status!));
-            s.Processed.TryAdd(uuid, 0);
+            s.Processed.TryAdd(uuid!, 0);
         }
         return 200;
     }

@@ -4,6 +4,7 @@
 # so a trap that reddens its target for an unrelated reason is caught. Exit 0 only if all hold.
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
+log=$(mktemp)
 
 if ! command -v python3 >/dev/null || ! python3 -c 'import pytest' 2>/dev/null; then
   echo "SKIP: python3 + pytest not available"; exit 0
@@ -12,10 +13,10 @@ fi
 fail=0
 
 echo "== correct handler (expect all green) =="
-if PCT_HANDLER=handler python3 -m pytest -q >/tmp/pct_green.log 2>&1; then
+if PCT_HANDLER=handler python3 -m pytest -q >"$log" 2>&1; then
   echo "OK: correct handler all green"
 else
-  echo "FAIL: correct handler was not all green"; cat /tmp/pct_green.log; fail=1
+  echo "FAIL: correct handler was not all green"; cat "$log"; fail=1
 fi
 
 # module : mapped_test : also-red allowlist (|-separated, may be empty; EXEMPT = skip others-green).
@@ -50,12 +51,12 @@ for spec in $traps; do
   if [ "$allow" = "EXEMPT" ]; then
     echo "   (exempt from others-green: foundational claim trap)"; continue
   fi
-  expr="not $tst"
+  kexpr="not $tst"
   if [ -n "$allow" ]; then
     IFS='|' read -ra extra <<< "$allow"
-    for e in "${extra[@]}"; do expr="$expr and not $e"; done
+    for e in "${extra[@]}"; do kexpr="$kexpr and not $e"; done
   fi
-  if PCT_HANDLER=$mod python3 -m pytest -q -k "$expr" >/dev/null 2>&1; then
+  if PCT_HANDLER=$mod python3 -m pytest -q -k "$kexpr" >/dev/null 2>&1; then
     echo "OK: $mod left the other tests green"
   else
     echo "FAIL: $mod reddened an unrelated test"; fail=1

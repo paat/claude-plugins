@@ -14,9 +14,9 @@ public sealed class Trap07TrustBodyStatus : IPaymentHandler
 
     private sealed class Order { public string Status = "PENDING"; public long AmountCents; }
 
-    // The store is internally thread-safe (concurrent collections); the only thing the lock in
-    // HandleWebhook adds is check-then-act atomicity — so the concurrency trap is purely "drop the
-    // lock", never a container-corruption crash.
+    // Processed/Effects are concurrent collections; Orders is written only at setup and read
+    // concurrently afterward, so it needs no extra synchronization. The lock in HandleWebhook adds
+    // check-then-act atomicity — so the concurrency trap is purely "drop the lock", never a crash.
     private sealed class MockStore : IStore
     {
         public readonly Dictionary<string, Order> Orders = new();
@@ -71,11 +71,11 @@ public sealed class Trap07TrustBodyStatus : IPaymentHandler
         var reference = claims.TryGetValue("merchantReference", out var r) ? r.GetString() : null;
         var status = claims.TryGetValue("paymentStatus", out var st) ? st.GetString() : null;  // VERIFIED token
         status = body.TryGetValue("paymentStatus", out var bs) ? bs.GetString() : status;  // SEEDED TRAP: untrusted body overrides token status
-        if (string.IsNullOrEmpty(reference) || string.IsNullOrEmpty(status))   // required claim shape
+        var uuid = claims.TryGetValue("uuid", out var u) ? u.GetString() : null;
+        if (string.IsNullOrEmpty(reference) || string.IsNullOrEmpty(status) || string.IsNullOrEmpty(uuid))  // required claim shape
             return 400;
         if (!s.Orders.TryGetValue(reference, out var order))
             return 404;
-        var uuid = claims["uuid"].GetString()!;
         lock (s.Lock)                                          // atomic, durable dedupe
         {
             if (s.Processed.ContainsKey(uuid))                // idempotent-effects

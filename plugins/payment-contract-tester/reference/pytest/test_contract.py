@@ -32,11 +32,13 @@ def test_paid_marks_order():
 
 
 def test_required_claim_missing_rejected():
-    claims = {"accessKey": "ak", "uuid": "e1", "paymentStatus": "PAID",
-              "exp": NOW + 600, "iat": NOW}  # no merchantReference
-    tok = jwtmini_encode(claims)
-    s = fresh()
-    assert H.handle_webhook(s, _wh(tok), now=NOW) == 400
+    for missing in ("merchantReference", "paymentStatus", "uuid"):
+        base = {"accessKey": "ak", "uuid": "e1", "merchantReference": "REF-1",
+                "paymentStatus": "PAID", "exp": NOW + 600, "iat": NOW}
+        del base[missing]
+        tok = jwtmini_encode(base)
+        s = fresh()
+        assert H.handle_webhook(s, _wh(tok), now=NOW) == 400, "missing %s not rejected" % missing
 
 
 def test_duplicate_reference_rejected():

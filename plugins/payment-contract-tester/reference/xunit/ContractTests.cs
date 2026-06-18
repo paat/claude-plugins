@@ -37,14 +37,18 @@ public class ContractTests
     [Fact]
     public void Required_claim_missing_rejected()
     {
-        var claims = new Dictionary<string, object?>
+        foreach (var missing in new[] { "merchantReference", "paymentStatus", "uuid" })
         {
-            ["accessKey"] = "ak", ["uuid"] = "e1", ["paymentStatus"] = "PAID",
-            ["exp"] = NOW + 600, ["iat"] = NOW,   // no merchantReference
-        };
-        var tok = JwtMini.Encode(claims, H.Secret);
-        var s = Fresh();
-        Assert.Equal(400, H.HandleWebhook(s, Wh(tok), NOW));
+            var claims = new Dictionary<string, object?>
+            {
+                ["accessKey"] = "ak", ["uuid"] = "e1", ["merchantReference"] = "REF-1",
+                ["paymentStatus"] = "PAID", ["exp"] = NOW + 600, ["iat"] = NOW,
+            };
+            claims.Remove(missing);
+            var tok = JwtMini.Encode(claims, H.Secret);
+            var s = Fresh();
+            Assert.Equal(400, H.HandleWebhook(s, Wh(tok), NOW));
+        }
     }
 
     [Fact]

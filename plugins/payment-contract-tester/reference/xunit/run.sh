@@ -5,14 +5,15 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-if ! command -v dotnet >/dev/null 2>&1; then
-  echo "SKIP: dotnet SDK not available"; exit 0
+if ! command -v dotnet >/dev/null 2>&1 || ! dotnet --list-sdks 2>/dev/null | grep -q .; then
+  echo "SKIP: .NET SDK not available"; exit 0
 fi
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+buildlog=$(mktemp); greenlog=$(mktemp)
 
 # Build once; the handler-under-test is chosen at runtime via PCT_HANDLER, so one build serves all.
-if ! dotnet build -v quiet >/tmp/pct_xunit_build.log 2>&1; then
-  echo "FAIL: xunit project did not build"; cat /tmp/pct_xunit_build.log; exit 1
+if ! dotnet build -v quiet >"$buildlog" 2>&1; then
+  echo "FAIL: xunit project did not build"; cat "$buildlog"; exit 1
 fi
 
 run() {  # run <PCT_HANDLER> [extra dotnet test args...]
@@ -23,10 +24,10 @@ run() {  # run <PCT_HANDLER> [extra dotnet test args...]
 fail=0
 
 echo "== correct handler (expect all green) =="
-if run correct >/tmp/pct_xunit_green.log 2>&1; then
+if run correct >"$greenlog" 2>&1; then
   echo "OK: correct handler all green"
 else
-  echo "FAIL: correct handler was not all green"; cat /tmp/pct_xunit_green.log; fail=1
+  echo "FAIL: correct handler was not all green"; cat "$greenlog"; fail=1
 fi
 
 # module : mapped_test : also-red allowlist (|-separated, may be empty; EXEMPT = skip others-green).
