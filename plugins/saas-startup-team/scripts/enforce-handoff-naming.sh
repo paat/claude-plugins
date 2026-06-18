@@ -24,7 +24,7 @@ filename=$(basename "$file_path")
 [ "$filename" = "INDEX.md" ] && exit 0
 
 # Canonical format
-if [[ "$filename" =~ ^[0-9]{3}-(business-to-tech|tech-to-business|business-to-growth|growth-to-business)\.md$ ]]; then
+if [[ "$filename" =~ ^([0-9]{3}|[1-9][0-9]{3,})-(business-to-tech|tech-to-business|business-to-growth|growth-to-business)\.md$ ]]; then
   exit 0
 fi
 
@@ -35,14 +35,14 @@ handoff_dir=$(dirname "$file_path")
 next_nnn="001"
 if [ -d "$handoff_dir" ]; then
   max=$(ls "$handoff_dir" 2>/dev/null \
-    | grep -E '^[0-9]{3}-(business-to-tech|tech-to-business|business-to-growth|growth-to-business)\.md$' \
-    | grep -oE '^[0-9]{3}' | sort -n | tail -1 || true)
+    | grep -E '^([0-9]{3}|[1-9][0-9]{3,})-(business-to-tech|tech-to-business|business-to-growth|growth-to-business)\.md$' \
+    | grep -oE '^[0-9]+' | sort -n | tail -1 || true)
   if [ -n "$max" ]; then
     next_nnn=$(printf '%03d' $((10#$max + 1)))
   fi
 fi
 
-msg="Handoff filename '${filename}' is not valid. Handoffs must be named NNN-<direction>.md where NNN is a zero-padded 3-digit number and <direction> is one of: business-to-tech, tech-to-business, business-to-growth, growth-to-business. Next available NNN: ${next_nnn}. Binaries (.pdf, .png) belong in .startup/attachments/; signoffs in .startup/signoffs/; reviews in .startup/reviews/."
+msg="Handoff filename '${filename}' is not valid. Handoffs must be named NNN-<direction>.md where NNN is a zero-padded number (3 digits up to 999, then 4+ digits) and <direction> is one of: business-to-tech, tech-to-business, business-to-growth, growth-to-business. Next available NNN: ${next_nnn}. Binaries (.pdf, .png) belong in .startup/attachments/; signoffs in .startup/signoffs/; reviews in .startup/reviews/."
 
 jq -n --arg msg "$msg" '{systemMessage: $msg}' >&2
 exit 2
