@@ -77,6 +77,10 @@ regressions cheaply on every diff; escalate ambiguous cases to tribunal-review.
 - Detects the structural *signature*, not semantic intent — a deliberately empty catch with a
   real reason will still be flagged (review and dismiss).
 - The medium/low heuristics trade precision for recall; treat them as prompts to look, not verdicts.
+- Empty-catch detection covers re-added empty handlers and handlers *emptied by deletion* (the body
+  removed while the `catch`/`except` line stays as context). The one known gap is an Allman-brace C#
+  catch emptied purely by deletion (`catch (...)` and `{` on separate unchanged lines); re-added
+  empty catches are still caught.
 - Only the four languages above are scanned.
 
 ## Testing

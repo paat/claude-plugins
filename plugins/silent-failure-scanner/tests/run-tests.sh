@@ -55,11 +55,16 @@ assert_codes "py  flags both"  py-bad.diff  swallowed-exception unawaited-promis
 assert_codes "cs  flags both"  cs-bad.diff  swallowed-exception unawaited-promise
 assert_codes "php flags both"  php-bad.diff swallowed-exception unawaited-promise
 
+echo "== Deletion-only emptying (body removed, opener unchanged) =="
+assert_codes "ts  catch body deleted"  ts-empty-catch-deletion.diff swallowed-exception
+assert_codes "py  except body -> pass" py-except-pass-context.diff  swallowed-exception
+
 echo "== Acceptance: zero false positives on clean diffs =="
 assert_clean "ts  clean"  ts-clean.diff
 assert_clean "py  clean"  py-clean.diff
 assert_clean "cs  clean"  cs-clean.diff
 assert_clean "php clean"  php-clean.diff
+assert_clean "ts  partial-delete (handler survives)" ts-partial-delete-clean.diff
 
 echo "== Heuristic detectors =="
 assert_codes "dropped non-2xx response" ts-dropped-response.diff dropped-error-response

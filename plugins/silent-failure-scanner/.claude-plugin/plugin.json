@@ -1,6 +1,6 @@
 {
   "name": "silent-failure-scanner",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Deterministic diff-time detector for swallowed errors & ghost transactions — flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP",
   "author": {
     "name": "Andre Paat"
