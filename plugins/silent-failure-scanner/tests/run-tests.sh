@@ -81,4 +81,9 @@ assert_codes "narrative-prose replacement" py-narrative.diff narrative-replaceme
 
 echo
 echo "Results: $PASS passed, $FAIL failed"
-[[ $FAIL -eq 0 ]]
+
+# Also run the commit-gate hook tests; the overall run fails if either suite fails.
+echo
+bash "$(dirname "$0")/run-hook-tests.sh"; hook_rc=$?
+
+[[ $FAIL -eq 0 && $hook_rc -eq 0 ]]
