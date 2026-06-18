@@ -1,0 +1,15 @@
+diff --git a/src/payment.ts b/src/payment.ts
+index 1111111..2222222 100644
+--- a/src/payment.ts
++++ b/src/payment.ts
+@@ -10,9 +10,8 @@ export async function charge(order: Order) {
+-  try {
+-    await db.persist(order);
+-  } catch (err) {
+-    logger.error("persist failed", err);
+-    throw err;
+-  }
++  try {
++    db.persist(order);
++  } catch (err) {}
+ }

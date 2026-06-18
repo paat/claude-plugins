@@ -1,0 +1,15 @@
+diff --git a/src/u.ts b/src/u.ts
+index 1111111..2222222 100644
+--- a/src/u.ts
++++ b/src/u.ts
+@@ -1,7 +1,7 @@
+ function h(req, res) {
+-  if (!req.auth) {
+-    res.status(401).json({ error: "unauthorized" });
+-    return;
+-  }
+   doWork();
++  if (debug) {
++    throw new Error("test 500 marker");
++  }
+ }

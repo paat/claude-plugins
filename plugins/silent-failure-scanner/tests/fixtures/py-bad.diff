@@ -1,0 +1,15 @@
+diff --git a/app/store.py b/app/store.py
+index 1111111..2222222 100644
+--- a/app/store.py
++++ b/app/store.py
+@@ -5,8 +5,7 @@ async def save(order):
+-    try:
+-        await db.persist(order)
+-    except Exception:
+-        logger.exception("persist failed")
+-        raise
++    try:
++        db.persist(order)
++    except Exception:
++        pass
+

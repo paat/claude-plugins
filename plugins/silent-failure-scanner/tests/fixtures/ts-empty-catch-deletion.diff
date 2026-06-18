@@ -1,0 +1,12 @@
+diff --git a/src/handler.ts b/src/handler.ts
+index 1111111..2222222 100644
+--- a/src/handler.ts
++++ b/src/handler.ts
+@@ -4,8 +4,6 @@ export function handle(o: Order) {
+   try {
+     persist(o);
+   } catch (err) {
+-    logger.error("failed", err);
+-    throw err;
+   }
+ }

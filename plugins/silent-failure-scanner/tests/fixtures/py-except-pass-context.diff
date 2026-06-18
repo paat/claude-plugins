@@ -1,0 +1,12 @@
+diff --git a/app/job.py b/app/job.py
+index 1111111..2222222 100644
+--- a/app/job.py
++++ b/app/job.py
+@@ -2,6 +2,5 @@ def run(items):
+     try:
+         process(items)
+     except Exception:
+-        logger.exception("failed")
+-        raise
++        pass
+

@@ -1,0 +1,13 @@
+diff --git a/app/sync.py b/app/sync.py
+index 1111111..2222222 100644
+--- a/app/sync.py
++++ b/app/sync.py
+@@ -12,8 +12,7 @@ def reconcile(records):
+-    for r in records:
+-        if not r.validate():
+-            raise ValidationError(r.id)
+-        store(r)
++    # validation is handled elsewhere now, so we can just store directly
++    for r in records:
++        store(r)
+
