@@ -209,5 +209,30 @@ else
 fi
 rm -rf "$r" "$wt"
 
+# 16) existing executable NON-shell hook (python) -> fail safe: don't corrupt it, write no conf
+r=$(newrepo); h="$r/.git/hooks/pre-push"
+printf '#!/usr/bin/env python3\nimport sys; sys.exit(0)\n' >"$h"; chmod +x "$h"
+before=$(cat "$h")
+out=$(bash "$INSTALL" --repo "$r" --test-cmd 'echo z' 2>&1)
+c=$(confpath "$r")
+if [ "$(cat "$h")" = "$before" ] && [ ! -f "$c" ] && printf '%s' "$out" | grep -qi 'not a shell\|shell script\|nothing was modified'; then
+  pass "non-shell existing hook -> fail-safe, not corrupted, no conf written"
+else
+  bad "non-shell existing hook was modified/corrupted or a conf was written"
+fi
+rm -rf "$r"
+
+# 17) install onto a hook with BEGIN but no END (malformed) -> refuse, file intact (no content loss)
+r=$(newrepo); h="$r/.git/hooks/pre-push"
+printf '#!/usr/bin/env bash\n%s\necho orphan\necho keep-me-too\n' "$BEGIN" >"$h"; chmod +x "$h"
+before=$(cat "$h")
+bash "$INSTALL" --repo "$r" --test-cmd 'echo z' >/dev/null 2>&1
+if [ "$(cat "$h")" = "$before" ]; then
+  pass "install refuses a malformed existing block (no silent content loss)"
+else
+  bad "install stripped a malformed block and lost content"
+fi
+rm -rf "$r"
+
 [ "$fail" -eq 0 ] && echo "install-pre-push tests: ALL PASS" || echo "install-pre-push tests: FAILURES"
 exit $fail
