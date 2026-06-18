@@ -10,7 +10,10 @@
 set -euo pipefail
 
 # Max staged learnings allowed in '### Recent (unsorted)' before auto-migration kicks in.
+# Guard a malformed override (empty/non-numeric/float) — a bad value would otherwise
+# abort the whole hook under `set -e` on the arithmetic expansion below.
 max="${SAAS_LEARNINGS_MAX:-10}"
+[[ "$max" =~ ^[1-9][0-9]*$ ]] || max=10
 
 input=$(cat)
 file_path=$(echo "$input" | jq -r '.tool_input.file_path // ""')
@@ -31,7 +34,7 @@ if [[ -n "$git_root" && -f "$claude_md" ]]; then
   recent_count=$(awk '
     /^### Recent \(unsorted\)/ { insec=1; next }
     insec && /^#{1,3} /        { insec=0 }
-    insec && /^- /             { n++ }
+    insec && /^[[:space:]]*- / { n++ }
     END                        { print n+0 }
   ' "$claude_md")
 fi
