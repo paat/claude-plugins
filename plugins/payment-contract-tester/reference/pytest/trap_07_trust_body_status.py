@@ -62,12 +62,12 @@ def handle_webhook(store, raw_body, *, now):
     ref = claims.get("merchantReference")
     status = claims.get("paymentStatus")             # status from VERIFIED token, not body
     status = body.get("paymentStatus", status)  # SEEDED TRAP: untrusted body overrides token status
-    if not ref or not status:                        # required claim shape
+    uuid = claims.get("uuid")
+    if not ref or not status or not uuid:            # required claim shape
         return 400
     order = store.orders.get(ref)
     if order is None:
         return 404
-    uuid = claims["uuid"]
     with store._lock:                                # atomic, durable dedupe
         if uuid in store.processed:                  # idempotent-effects
             return 200

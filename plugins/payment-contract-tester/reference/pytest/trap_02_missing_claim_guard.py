@@ -61,11 +61,11 @@ def handle_webhook(store, raw_body, *, now):
         return 401
     ref = claims.get("merchantReference")
     status = claims.get("paymentStatus")             # status from VERIFIED token, not body
-    # SEEDED TRAP: required claim guard deleted — missing ref/status no longer rejected
+    uuid = claims.get("uuid")
+    # SEEDED TRAP: required claim guard deleted — missing ref/status/uuid no longer rejected
     order = store.orders.get(ref)
     if order is None:
         return 404
-    uuid = claims["uuid"]
     with store._lock:                                # atomic, durable dedupe
         if uuid in store.processed:                  # idempotent-effects
             return 200

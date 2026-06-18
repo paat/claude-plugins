@@ -9,7 +9,8 @@ rc=0
 echo "### pytest reference fixtures ###"
 bash "$ROOT/reference/pytest/run.sh" || rc=1
 
-# Plan 2: bash "$ROOT/reference/xunit/run.sh" || rc=1
+echo "### xunit reference fixtures ###"
+bash "$ROOT/reference/xunit/run.sh" || rc=1
 
 if [ "$rc" -eq 0 ]; then echo "ALL SELF-TESTS PASSED"; else echo "SELF-TESTS FAILED"; fi
 exit $rc

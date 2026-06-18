@@ -141,7 +141,7 @@
     {
       "name": "payment-contract-tester",
       "description": "Research-grounded payment-integration hardening — a skill encoding Montonio/Stripe/Mollie silent-trap knowledge plus runnable contract-test reference fixtures that run green against a correct handler and red against each seeded trap",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "Andre Paat"
       },

@@ -15,7 +15,7 @@ Add this marketplace, then install the plugin at the scope you want:
 
 **Skill:** A payment-integration auditing skill that teaches best practices for webhook handling and payment data safety.
 
-**Reference fixtures:** A suite of contract tests (Python + pytest) that run green against correct payment handlers and red against each seeded trap pattern (idempotency violations, signature failures, money-as-string, terminal-state errors, replay acceptance). Use these to validate your own payment code.
+**Reference fixtures:** Suites of contract tests — **Python + pytest** and **.NET + xUnit** — that run green against correct payment handlers and red against each seeded trap pattern (idempotency violations, signature failures, money-as-string, terminal-state errors, replay acceptance). Each stack mirrors the same 10 traps. Use these to validate your own payment code.
 
 **Note:** The `/scaffold` generator and CI/hook harness for automated fixture integration arrive in a later version.
 
@@ -23,6 +23,7 @@ Add this marketplace, then install the plugin at the scope you want:
 
 - `python3` — required to run the reference contract-test fixtures
 - `pytest` — required to execute the test suite
+- `dotnet` (.NET 9 SDK) — required to run the xUnit reference fixtures; the self-test skips this stack cleanly if absent
 - `bash 4+` — required by the plugin harness
 
 ## Verified-vs-unverified policy
