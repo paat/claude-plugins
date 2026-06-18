@@ -17,7 +17,28 @@ Add this marketplace, then install the plugin at the scope you want:
 
 **Reference fixtures:** Suites of contract tests — **Python + pytest** and **.NET + xUnit** — that run green against correct payment handlers and red against each seeded trap pattern (idempotency violations, signature failures, money-as-string, terminal-state errors, replay acceptance). Each stack mirrors the same 10 traps. Use these to validate your own payment code.
 
-**Note:** The `/scaffold` generator and CI/hook harness for automated fixture integration arrive in a later version.
+**`/scaffold` command:** Generates repo-adapted payment contract tests, self-verifies them, and wires
+CI + an optional pre-push hook (see below).
+
+**Harness:** CI snippets (the authoritative gate) plus a safe, uninstallable pre-push hook installer.
+
+## `/scaffold` — generate contract tests for your repo
+
+Run `/payment-contract-tester:scaffold` in a target repo. It detects your stack (pytest or xUnit)
+and payment gateway(s) (Montonio / Stripe / Mollie), drafts contract tests adapted to your code using
+the skill knowledge and the reference fixtures as exemplars, **self-verifies** them (green against
+current source, red against a deliberately-broken copy), and wires enforcement. It never edits your
+payment source — it writes tests, a CI snippet, and (optionally) a pre-push hook — and it flags every
+assertion that still needs sandbox verification. Generated tests are meant to be skimmed by a human.
+
+## Enforcement harness
+
+- **CI snippet (authoritative gate):** `harness/ci/github-actions.yml` and `harness/ci/gitlab-ci.yml`
+  run your payment-test subset on every push/PR — versioned, team-wide, not bypassable.
+- **Optional pre-push hook (convenience):** `harness/install-pre-push.sh` installs a fast-feedback
+  hook that runs the same subset before a push. It detects existing hook managers, composes safely,
+  and uninstalls cleanly (`--uninstall`). It is bypassable (`git push --no-verify`) and is **not** the
+  security boundary — CI is. See `harness/README.md`.
 
 ## Dependencies
 
