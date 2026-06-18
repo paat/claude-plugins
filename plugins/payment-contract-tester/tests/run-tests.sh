@@ -15,6 +15,7 @@ bash "$ROOT/reference/xunit/run.sh" || rc=1
 echo "### harness tests ###"
 bash "$ROOT/harness/tests/install-pre-push.test.sh" || rc=1
 bash "$ROOT/harness/tests/ci-snippets.test.sh" || rc=1
+bash "$ROOT/harness/tests/scaffold-doc.test.sh" || rc=1
 
 if [ "$rc" -eq 0 ]; then echo "ALL SELF-TESTS PASSED"; else echo "SELF-TESTS FAILED"; fi
 exit $rc
