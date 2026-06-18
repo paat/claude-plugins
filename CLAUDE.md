@@ -13,3 +13,7 @@ Plugins in this repo are designed for **Estonian SaaS companies** — the primar
 - External dependencies (jq, awk, sed) must be documented in README
 - ALWAYS bump the plugin version in BOTH `.claude-plugin/plugin.json` AND the root `.claude-plugin/marketplace.json` before pushing — both must stay in sync
 - After cloning, run `git config core.hooksPath .githooks` to enable the pre-push version check hook
+- Every plugin's README MUST include an end-user-viewable **Installation** section listing the three recommended scopes:
+  - **Install for you** (user scope) — available in all your projects
+  - **Install for all collaborators on this repository** (project scope) — committed, shared with the team
+  - **Install for you, in this repo only** (local scope) — just you, just this repo
