@@ -1,0 +1,17 @@
+{
+  "description": "PreToolUse commit gate: blocks a git commit whose staged diff contains silent-failure signatures and hands the findings to Claude to arbitrate. Active in every session once the plugin is enabled — no per-repo setup.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-gate.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

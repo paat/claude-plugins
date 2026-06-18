@@ -55,9 +55,29 @@ ignored. For PHP, the "unawaited" analog is a removed coroutine `yield` (Amp/Rea
 - All matching is on diff lines only, so it is fast and deterministic. There is no LLM in the
   detection path.
 
-## Wiring into a gate
+## Commit gate (built-in hook)
 
-`scan.sh` exits non-zero when findings exist, so it drops into pre-commit or CI:
+The plugin ships a `PreToolUse` hook (`hooks/pre-commit-gate.sh`) that activates in **every
+session once the plugin is enabled — no per-repo setup**. Before any `git commit` you run through
+Claude Code, it scans the **staged** diff; on findings it **denies** the commit and returns them
+to Claude to arbitrate:
+
+- **Real swallowed error / ghost transaction** → fix it (rethrow or handle, restore the `await`,
+  surface the dropped response), then commit again.
+- **Genuinely benign** → re-run the same commit prefixed with `SILENT_FAILURE_ACK="<reason>"`.
+  The ack requires a reason, so every dismissal is recorded — and there is no re-flag loop.
+
+The hook is deterministic (it just runs `scan.sh --staged`); the **arbiter is the Claude already
+in your session** — no extra model call, no cost. It fails open: any scan/usage error allows the
+commit. It only gates commits made *through Claude Code* (a raw-terminal commit has no in-session
+arbiter); for a terminal backstop, vendor `scan.sh`/`scan.awk` into a real git `pre-commit` hook.
+
+> Hooks load at session start — after enabling the plugin (or editing the hook), restart Claude
+> Code for it to take effect.
+
+## Wiring into other gates
+
+`scan.sh` exits non-zero when findings exist, so it also drops into a vendored git hook or CI:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/scan.sh" --base origin/main || {

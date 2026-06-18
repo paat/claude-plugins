@@ -49,6 +49,25 @@ Or from inside Claude Code: `/silent-failure-scanner:scan [--staged | --base <re
 bash scripts/scan.sh --base origin/main || { echo "Review silent-failure findings."; exit 1; }
 ```
 
+## Commit gate (built-in hook)
+
+The plugin ships a `PreToolUse` hook that activates in **every Claude Code session once the
+plugin is enabled — there is nothing to set up per repository**. Before a `git commit` you run
+through Claude Code, it scans the **staged** diff; on findings it **blocks** the commit and hands
+them to Claude (the in-session LLM) to arbitrate:
+
+- **Real swallowed error** → Claude fixes it, then commits again.
+- **Genuinely benign** → re-run the same commit prefixed with `SILENT_FAILURE_ACK="<reason>"` to
+  record a justification and proceed. The reason is mandatory, so dismissals leave an audit trail.
+
+The hook is deterministic (just `scan.sh --staged`); the arbiter is the Claude already in your
+session, so there is no extra model call or cost. It **fails open** (any scan error allows the
+commit) and only gates commits made through Claude Code — a raw-terminal commit has no in-session
+arbiter. For a terminal backstop, vendor `scan.sh`/`scan.awk` into a git `pre-commit` hook (above).
+
+> Hooks load at session start: after enabling the plugin, restart Claude Code for the gate to
+> take effect. Use `/hooks` to confirm it is loaded.
+
 ## What it flags
 
 On **added** diff lines, across TS/JS, Python, C#, and PHP:
