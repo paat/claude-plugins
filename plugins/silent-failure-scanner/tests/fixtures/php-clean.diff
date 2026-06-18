@@ -1,0 +1,12 @@
+diff --git a/src/Payment.php b/src/Payment.php
+index 1111111..2222222 100644
+--- a/src/Payment.php
++++ b/src/Payment.php
+@@ -15,7 +15,9 @@ public function charge(Order $order): Response
+         try {
+             $result = yield $this->gateway->chargeAsync($order);
++            yield $this->auditLog->record($order->id());
+         } catch (\Throwable $e) {
+             $this->logger->error($e->getMessage());
++            throw $e;
+         }

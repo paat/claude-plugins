@@ -1,0 +1,20 @@
+diff --git a/Services/PaymentService.cs b/Services/PaymentService.cs
+index 1111111..2222222 100644
+--- a/Services/PaymentService.cs
++++ b/Services/PaymentService.cs
+@@ -20,10 +20,8 @@ public async Task Charge(Order order)
+-        try
+-        {
+-            await _db.PersistAsync(order);
+-        }
+-        catch (Exception ex)
+-        {
+-            _logger.LogError(ex, "persist failed");
+-            throw;
+-        }
++        try
++        {
++            _db.PersistAsync(order);
++        }
++        catch (Exception ex) { }
+ }
