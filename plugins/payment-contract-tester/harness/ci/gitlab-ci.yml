@@ -1,0 +1,21 @@
+# payment-contract-tester — GitLab CI snippet (the AUTHORITATIVE enforcement gate).
+# Versioned, team-propagated, present in CI, NOT bypassable with `git push --no-verify`.
+# The local pre-push hook is convenience only; THIS is the boundary.
+#
+# /scaffold wires this in: keep the job matching your stack, fill the payment-test SUBSET selector,
+# delete the alternative. Include into .gitlab-ci.yml (or use `include:`).
+payment-contract-tests:
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  # --- Python / pytest repos ---
+  image: python:3.12
+  script:
+    - pip install -r requirements.txt
+    # Adapt the -k expression to select ONLY your payment/webhook contract tests.
+    - pytest -k "payment or webhook or contract" -v
+  # --- .NET / xUnit repos (swap image + script) ---
+  # image: mcr.microsoft.com/dotnet/sdk:9.0
+  # script:
+  #   - dotnet test --filter "FullyQualifiedName~Payment|FullyQualifiedName~Webhook" -v minimal
