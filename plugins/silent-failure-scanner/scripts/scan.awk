@@ -33,21 +33,38 @@ function detect_lang(path) {
 
 function is_cstyle(lg) { return (lg == "ts" || lg == "js" || lg == "csharp" || lg == "php") }
 
-# does the line carry an async marker as a standalone keyword (await foo / await(foo))?
-function has_async_marker(s) {
-  return (s ~ /(^|[^A-Za-z0-9_])await([ \t]|\()/) || (s ~ /(^|[^A-Za-z0-9_])yield([ \t]|\()/)
+# the unawaited marker is language-specific: `await` for TS/JS/C#/Python (async/await),
+# `yield` ONLY for PHP (Amp/ReactPHP coroutines). `yield` must NOT be treated as an
+# unawaited marker in Python/JS, where it is ordinary generator syntax.
+function async_kw(lg) { return (lg == "php") ? "yield" : "await" }
+
+# does the line carry the language's async marker as a standalone keyword (kw foo / kw(foo))?
+function has_async_marker(s, lg,   kw) {
+  kw = async_kw(lg)
+  return (s ~ ("(^|[^A-Za-z0-9_])" kw "([ \t]|\\()"))
 }
 
-# strip the first async marker (await/yield), space- or paren-form, then trim
-function strip_async_marker(s) {
-  if (s ~ /(^|[^A-Za-z0-9_])await([ \t]|\()/)      { sub(/await[ \t]+/, "", s); sub(/await[ \t]*\(/, "(", s) }
-  else if (s ~ /(^|[^A-Za-z0-9_])yield([ \t]|\()/) { sub(/yield[ \t]+/, "", s); sub(/yield[ \t]*\(/, "(", s) }
+# strip the first async marker, space- or paren-form, then trim
+function strip_async_marker(s, lg,   kw) {
+  kw = async_kw(lg)
+  if (s ~ ("(^|[^A-Za-z0-9_])" kw "([ \t]|\\()")) { sub((kw "[ \t]+"), "", s); sub((kw "[ \t]*\\("), "(", s) }
   return trim(s)
 }
 
 function is_comment_line(s,   t) {
   t = trim(s)
   return (t ~ /^\/\// || t ~ /^#/ || t ~ /^\/\*/ || t ~ /^\*/ || t ~ /^--/)
+}
+
+# strip trailing line comments and inline block comments, so empty-handler detection
+# also catches "explained-away" forms: `catch (e) { /* ignored */ }`, `except: pass  # x`.
+# Used ONLY for structural handler matching — a handler with real code survives stripping
+# (the residual statement keeps it from matching the empty patterns), so this adds no FPs.
+function decomment(s) {
+  gsub(/\/\*[^*]*\*+([^\/*][^*]*\*+)*\//, " ", s)   # /* ... */ (non-nested)
+  sub(/[ \t]*\/\/.*$/, "", s)                        # // ...
+  sub(/[ \t]*#.*$/, "", s)                           # # ...  (python/php/shell)
+  return s
 }
 function is_code_line(s) { return (trim(s) != "" && !is_comment_line(s)) }
 function is_close_brace(s) { return (s ~ /^[ \t]*\}[ \t]*;?[ \t]*$/) }
@@ -61,21 +78,27 @@ function is_narrative(s,   t) {
        || t ~ /skip the/ || t ~ /leftover/ || t ~ /we can just/)
 }
 
-# response context carrying a 4xx/5xx status code
+# a 4xx/5xx status code in genuine HTTP-response context. Deliberately requires a
+# response/status keyword — a generic `throw new Error("...500...")` is NOT a response.
 function is_error_response(s,   t) {
   t = tolower(s)
-  if (!(t ~ /status|writeheader|sendstatus|httpstatus|abort\(|reject|response|throw new|res\.send/)) return 0
+  if (!(t ~ /status|writeheader|sendstatus|httpstatus|abort\(|res\.send|sendresponse/)) return 0
   return has_4xx5xx(s)
 }
 function has_4xx5xx(s) { return (s ~ /(^|[^0-9])(4[0-9][0-9]|5[0-9][0-9])([^0-9]|$)/) }
 
-# does an added line look like a replacement error response (numeric OR symbolic)?
-function is_replacement_response(s,   t) {
-  if (has_4xx5xx(s)) return 1
+# symbolic HTTP error name (covers framework error classes/enums)
+function has_symbolic_http_error(s,   t) {
   t = tolower(s)
   return (t ~ /unauthorized|forbidden|badrequest|bad_request|notfound|not_found|conflict/ \
-       || t ~ /internalservererror|internal_server_error|unprocessable|toomanyrequests|too_many_requests/ \
-       || t ~ /throw new|throw \$|raise |abort\(|reject\(/)
+       || t ~ /internalservererror|internal_server_error|unprocessable|toomanyrequests|too_many_requests/)
+}
+
+# does an added line genuinely replace a dropped error response? Only a real error
+# RESPONSE (status code in response context) or a symbolic HTTP error counts — not an
+# unrelated generic throw elsewhere in the hunk (which would mask a real dropped path).
+function is_replacement_response(s) {
+  return (is_error_response(s) || has_symbolic_http_error(s))
 }
 
 function reset_hunk() {
@@ -107,43 +130,45 @@ function removed_code_lines(   i, c) {
   return c
 }
 
-function flush_hunk(   i, k, j, line, ln, t, found, remsum, dropped, drop_snip, anchor, replaced) {
+function flush_hunk(   i, k, j, line, ln, t, dc, found, remsum, dropped, drop_snip, anchor, replaced) {
   if (lang == "") { reset_hunk(); return }
 
   # --- unawaited-promise: build the de-marked set from removed lines ---
   delete deaw
-  for (i = 0; i < nr; i++) if (has_async_marker(R[i])) deaw[strip_async_marker(R[i])] = 1
+  for (i = 0; i < nr; i++) if (has_async_marker(R[i], lang)) deaw[strip_async_marker(R[i], lang)] = 1
   for (i = 0; i < na; i++) {
     t = trim(A[i])
-    if (t != "" && !has_async_marker(A[i]) && (t in deaw))
+    if (t != "" && !has_async_marker(A[i], lang) && (t in deaw))
       emit(file, AL[i], "unawaited-promise", "high", lang, A[i])
   }
 
   # --- swallowed-exception over the reconstructed new-file view ---
+  # structural matching is done on the comment-stripped line so inline-comment swallow
+  # forms (`catch (e) { /* ignored */ }`, `except: pass  # x`) are not missed.
   for (k = 0; k < nnf; k++) {
-    line = NF_t[k]; ln = NF_ln[k]
+    line = NF_t[k]; ln = NF_ln[k]; dc = decomment(line)
     if (is_cstyle(lang)) {
-      if (line ~ /catch[ \t]*(\([^)]*\))?[ \t]*\{[ \t]*\}[ \t]*;?[ \t]*$/) {
+      if (dc ~ /catch[ \t]*(\([^)]*\))?[ \t]*\{[ \t]*\}[ \t]*;?[ \t]*$/) {
         if (NF_added[k]) emit(file, ln, "swallowed-exception", "high", lang, line)
-      } else if (line ~ /catch[ \t]*(\([^)]*\))?[ \t]*\{[ \t]*$/) {
+      } else if (dc ~ /catch[ \t]*(\([^)]*\))?[ \t]*\{[ \t]*$/) {
         remsum = 0; found = -1
         for (j = k + 1; j < nnf; j++) {
           remsum += NF_rem[j]
           if (is_code_line(NF_t[j])) { found = j; break }
         }
-        if (found >= 0 && is_close_brace(NF_t[found]) && (remsum > 0 || NF_added[k]))
+        if (found >= 0 && is_close_brace(decomment(NF_t[found])) && (remsum > 0 || NF_added[k]))
           emit(file, ln, "swallowed-exception", "high", lang, line)
       }
     } else if (lang == "python") {
-      if (line ~ /(^|[ \t])except([ \t]|:|\()/ && line ~ /:[ \t]*pass[ \t]*$/) {
+      if (dc ~ /(^|[ \t])except([ \t]|:|\()/ && dc ~ /:[ \t]*pass[ \t]*$/) {
         if (NF_added[k]) emit(file, ln, "swallowed-exception", "high", lang, line)
-      } else if (line ~ /(^|[ \t])except([ \t]|:|\()/ && line ~ /:[ \t]*$/) {
+      } else if (dc ~ /(^|[ \t])except([ \t]|:|\()/ && dc ~ /:[ \t]*$/) {
         remsum = 0; found = -1
         for (j = k + 1; j < nnf; j++) {
           remsum += NF_rem[j]
           if (is_code_line(NF_t[j])) { found = j; break }
         }
-        if (found >= 0 && NF_t[found] ~ /^[ \t]*pass[ \t]*$/ && (remsum > 0 || NF_added[k] || NF_added[found]))
+        if (found >= 0 && decomment(NF_t[found]) ~ /^[ \t]*pass[ \t]*$/ && (remsum > 0 || NF_added[k] || NF_added[found]))
           emit(file, ln, "swallowed-exception", "high", lang, line)
       }
     }

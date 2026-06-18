@@ -1,0 +1,10 @@
+diff --git a/src/h.ts b/src/h.ts
+index 1111111..2222222 100644
+--- a/src/h.ts
++++ b/src/h.ts
+@@ -1,1 +1,4 @@
+ export function h(o) {
++  try {
++    save(o);
++  } catch (e) { /* ignored */ }
+ }

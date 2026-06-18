@@ -66,8 +66,17 @@ assert_clean "cs  clean"  cs-clean.diff
 assert_clean "php clean"  php-clean.diff
 assert_clean "ts  partial-delete (handler survives)" ts-partial-delete-clean.diff
 
+echo "== Inline-comment swallow forms =="
+assert_codes "ts  catch { /* ignored */ }"     ts-inline-comment-catch.diff swallowed-exception
+assert_codes "py  except: pass  # comment"      py-inline-comment-pass.diff  swallowed-exception
+assert_clean "ts  catch w/ comment + real body" ts-inline-comment-nonempty-clean.diff
+
+echo "== Language-aware async marker =="
+assert_clean "py  generator yield removal (not unawaited)" py-generator-clean.diff
+
 echo "== Heuristic detectors =="
 assert_codes "dropped non-2xx response" ts-dropped-response.diff dropped-error-response
+assert_codes "dropped response, unrelated throw doesn't mask it" ts-dropped-unrelated-throw.diff dropped-error-response
 assert_codes "narrative-prose replacement" py-narrative.diff narrative-replacement
 
 echo
