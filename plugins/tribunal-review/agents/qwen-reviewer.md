@@ -99,6 +99,7 @@ ANALYZE THIS DIFF FOR:
 4. Performance - N+1 queries, memory leaks, blocking in async, unnecessary allocations
 5. Edge cases - boundary conditions, empty inputs, integer overflow, unhandled error paths
 6. Test coverage gaps - missing edge cases, untested paths
+7. Silent failures & payment-path traps - when the diff touches error handling, async code, webhooks, or money handling: swallowed exceptions/broadened catch blocks, unawaited promises (a removed or missing await), webhook handlers that are non-idempotent or skip signature verification, money handled as float/decimal instead of integer cents. Do NOT invent payment concerns on diffs that have none.
 
 RULES:
 - ONLY report findings with confidence >= 0.7
