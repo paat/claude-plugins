@@ -59,6 +59,17 @@ rm -rf /var/lib/postgresql	BLOCK
 # Codex review round 3 — must NOT block
 rm -rf /var/tmp/myapp-cache	PASS
 psql -c 'DROP TABLE products'	PASS
+# Codex review round 4 — must block
+echo x |& rm -rf /opt/app/data/*	BLOCK
+sleep 1 & rm -rf /opt/app/data/*	BLOCK
+env -S 'rm -rf /opt/app/data/*'	BLOCK
+ssh prod1 'psql -c "DROP TABLE users"'	BLOCK
+eval eval eval eval eval eval rm -rf /opt/app/data/*	BLOCK
+command psql postgres://prod-db/app -c 'DROP TABLE users'	BLOCK
+nohup terraform destroy -auto-approve	BLOCK
+# Codex review round 4 — must NOT block
+docker exec api-prod bash -c "echo psql 'DROP TABLE users'"	PASS
+psql -c 'select 1' 2>&1	PASS
 # Warn — recoverable
 git push --force origin main	WARN
 git reset --hard HEAD~3	WARN

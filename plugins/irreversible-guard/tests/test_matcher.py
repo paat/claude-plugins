@@ -181,6 +181,40 @@ class TestCodexRound3(unittest.TestCase):
         self.assertEqual(classify("psql -c 'DROP TABLE delivery'"), "PASS")
 
 
+class TestCodexRound4(unittest.TestCase):
+    """Fourth-round bypasses/false-positives; each must behave as asserted."""
+
+    def test_background_and_pipe_amp_split(self):  # F1, F2
+        self.assertEqual(classify("echo x |& rm -rf /opt/app/data/*"), "BLOCK")
+        self.assertEqual(classify("sleep 1 & rm -rf /opt/app/data/*"), "BLOCK")
+
+    def test_env_split_string(self):  # F3
+        self.assertEqual(classify("env -S 'rm -rf /opt/app/data/*'"), "BLOCK")
+        self.assertEqual(classify("env -S'terraform destroy'"), "BLOCK")
+
+    def test_prod_with_adjacent_digits(self):  # F4
+        for cmd in ("ssh prod1 'psql -c \"DROP TABLE users\"'",
+                    "ssh prod01 'psql -c \"DROP TABLE users\"'"):
+            self.assertEqual(classify(cmd), "BLOCK", cmd)
+
+    def test_deep_nesting_not_dropped(self):  # F5
+        self.assertEqual(
+            classify("eval eval eval eval eval eval rm -rf /opt/app/data/*"), "BLOCK")
+
+    def test_echo_of_sql_not_blocked(self):  # F6 (false positive)
+        self.assertEqual(
+            classify("docker exec api-prod bash -c \"echo psql 'DROP TABLE users'\""), "PASS")
+
+    def test_command_wrapper_unwrapped(self):  # F7
+        self.assertEqual(
+            classify("command psql postgres://prod-db/app -c 'DROP TABLE users'"), "BLOCK")
+        self.assertEqual(classify("nohup terraform destroy -auto-approve"), "BLOCK")
+
+    def test_redirects_not_missplit(self):  # guard against new false positives from & split
+        self.assertEqual(classify("psql -c 'select 1' 2>&1"), "PASS")
+        self.assertEqual(classify("echo hi &> /tmp/log"), "PASS")
+
+
 class TestConfigBehaviour(unittest.TestCase):
     def test_allow_overrides_block(self):
         rules = dict(ig.DEFAULT_RULES, allow=["rm -rf /"])

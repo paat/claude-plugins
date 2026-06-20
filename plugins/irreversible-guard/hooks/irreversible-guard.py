@@ -33,8 +33,13 @@ def _split_segments(s):
             buf.append(c); buf.append(s[i+1]); i += 2; continue
         if c in (";", "\n"):
             segs.append("".join(buf)); buf = []; i += 1; continue
-        if c == "&" and i + 1 < n and s[i+1] == "&":
-            segs.append("".join(buf)); buf = []; i += 2; continue
+        if c == "&":
+            nxt = s[i+1] if i + 1 < n else ""
+            if nxt == "&":  # && separator
+                segs.append("".join(buf)); buf = []; i += 2; continue
+            if nxt == ">" or (buf and buf[-1] == ">"):  # part of &> or 2>&1 redirect
+                buf.append(c); i += 1; continue
+            segs.append("".join(buf)); buf = []; i += 1; continue  # background &
         if c == "|":
             segs.append("".join(buf)); buf = []
             i += 2 if (i + 1 < n and s[i+1] == "|") else 1
@@ -52,6 +57,10 @@ VALUE_FLAGS = {"-p", "--profile", "--region", "--project", "-n", "--namespace",
                "-f", "--file", "-H", "--host"}
 # Shells we unwrap `-c`/`-lc`/`-ec` from.
 SHELLS = ("bash", "sh", "zsh", "ash", "dash")
+# Transparent prefix wrappers: they run their (post-flag) argument as the real
+# command, e.g. `command psql ...`, `nohup rm ...`, `nice -n 5 terraform destroy`.
+TRANSPARENT = {"command", "builtin", "nohup", "setsid", "stdbuf", "nice",
+               "ionice", "time"}
 # DB clients — Tier-2 SQL only counts when the command is actually a client call.
 DB_CLIENTS = {"psql", "mysql", "mysqladmin", "mariadb", "mongosh", "mongo",
               "sqlite3", "cockroach", "pgcli", "mycli", "dotnet"}
@@ -139,11 +148,18 @@ def _docker_inner(t):
 
 
 def _env_inner(toks):
-    """Unwrap `env [opts] [VAR=val ...] cmd args`. Returns (inner_cmd_str, assigns)."""
+    """Unwrap `env [opts] [VAR=val ...] cmd args`. Returns (inner_cmd_str, assigns).
+    Handles `env -S '<cmd>'` / `--split-string`, where the value is itself a command."""
     rest = toks[1:]; i = 0; assigns = []
     while i < len(rest):
         tk = rest[i]
-        if tk in ("-u", "--unset", "-C", "--chdir", "-S", "--split-string"):
+        if tk in ("-S", "--split-string"):
+            return (rest[i+1] if i + 1 < len(rest) else None), assigns
+        if tk.startswith("-S") and len(tk) > 2:
+            return tk[2:], assigns
+        if tk.startswith("--split-string="):
+            return tk[len("--split-string="):], assigns
+        if tk in ("-u", "--unset", "-C", "--chdir"):
             i += 2; continue
         if tk.startswith("-"):
             i += 1; continue
@@ -198,8 +214,13 @@ def _extract_heredocs(cmd):
 
 def deobfuscate(cmd, context=None, depth=0):
     context = context or []; atoms = []
-    if depth > 5:
-        return atoms
+    if depth > 25:
+        # Pathological nesting: stop recursing but still classify the raw remainder
+        # (fail safe) rather than dropping a possibly-dangerous command silently.
+        try:
+            return [Atom(shlex.split(cmd), context)]
+        except ValueError:
+            return [Atom(cmd.split(), context)]
     bodies, stripped = _extract_heredocs(cmd)
     chunks = [(stripped, context)] + [(b, context + [inv]) for inv, b in bodies]
     for chunk, ctx in chunks:
@@ -224,6 +245,13 @@ def deobfuscate(cmd, context=None, depth=0):
                 inner, assigns = _env_inner(toks)
                 if inner:
                     atoms += deobfuscate(inner, lctx + assigns, depth + 1); continue
+            if v in TRANSPARENT:
+                rest = toks[1:]; k = 0
+                while k < len(rest) and rest[k].startswith("-"):
+                    k += 2 if rest[k] in VALUE_FLAGS else 1
+                inner = rest[k:]
+                if inner and inner != toks:
+                    atoms += deobfuscate(shlex.join(inner), lctx, depth + 1); continue
             if v == "ssh":
                 inner, tg = _ssh_inner(toks)
                 if inner:
@@ -251,9 +279,10 @@ def _prod_marked(hay, rules):
         core = m.strip("*").lower()
         if not core:
             continue
-        # Word-boundary match so `prod` matches db-prod / prod_db / --context prod
-        # / *.production.* but NOT substrings like "products" or "delivery".
-        if re.search(r'(?<![a-z0-9])' + re.escape(core) + r'(?![a-z0-9])', h):
+        # Letter-boundary match so `prod` matches db-prod / prod_db / prod1 / prod01
+        # / --context prod / *.production.* but NOT substrings like "products" or
+        # "delivery" (boundary is letters only, so adjacent digits are allowed).
+        if re.search(r'(?<![a-z])' + re.escape(core) + r'(?![a-z])', h):
             return True
     return False
 
@@ -300,10 +329,13 @@ def _entry_match(entry, argv):
 def _is_db_client(atom):
     if atom.argv and os.path.basename(atom.argv[0]) in DB_CLIENTS:
         return True
-    # Context lines are transport targets or heredoc invocation lines (e.g.
-    # "psql "$DB" <<EOF" or "ssh db-prod 'psql x <<EOF"). Scan their tokens, but
-    # ignore redirect targets so `cat > prod/psql <<EOF` is not seen as a client.
+    # Only heredoc invocation lines (which contain `<<`) name the client out-of-band;
+    # transport wrappers do not (the inner command's argv[0] already carries it). This
+    # avoids false positives like `docker exec c bash -c "echo psql 'DROP ...'"` whose
+    # wrapper context merely mentions psql. Redirect targets are also ignored.
     for c in atom.context:
+        if "<<" not in c:
+            continue
         toks = c.replace("'", " ").replace('"', " ").split()
         for idx, tok in enumerate(toks):
             if tok[:1] in "<>":
