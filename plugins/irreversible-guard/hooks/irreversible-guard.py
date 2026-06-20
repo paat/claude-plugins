@@ -15,17 +15,29 @@ SEPARATORS = re.compile(r'\s*(?:&&|\|\||;|\||\n)\s*')
 HEREDOC = re.compile(r'<<-?\s*[\'"]?([A-Za-z_]\w*)[\'"]?')
 ENVPREFIX = re.compile(r'^[A-Za-z_]\w*=')
 # Flags that consume the following token as a value. Used to drop flag *values*
-# when extracting the positional (non-flag) tokens of a command, so that a global
-# flag like `kubectl --context prod delete namespace` does not hide the verb.
+# when extracting positional (non-flag) tokens, so a global flag like
+# `kubectl --context prod delete namespace` or `docker compose -f prod.yml down -v`
+# cannot hide the verb.
 VALUE_FLAGS = {"-p", "--profile", "--region", "--project", "-n", "--namespace",
                "--context", "--cluster", "-u", "--user", "--config",
-               "--kubeconfig", "-i", "-o", "-l", "-F", "-C", "--chdir"}
+               "--kubeconfig", "-i", "-o", "-l", "-F", "-C", "--chdir",
+               "-f", "--file", "-H", "--host"}
+# Shells we unwrap `-c`/`-lc`/`-ec` from.
+SHELLS = ("bash", "sh", "zsh", "ash", "dash")
+# DB clients — Tier-2 SQL only counts when the command is actually a client call.
+DB_CLIENTS = {"psql", "mysql", "mysqladmin", "mariadb", "mongosh", "mongo",
+              "sqlite3", "cockroach", "pgcli", "mycli", "dotnet"}
+# Top-level dirs whose recursive deletion has no practical undo.
+CRITICAL_ROOTS = {"etc", "usr", "bin", "sbin", "lib", "lib64", "boot", "var",
+                  "sys", "proc", "dev", "opt", "srv", "data", "root", "home"}
 
 DEFAULT_RULES = {
  # Structured "binary + subcommand" rules — matched on exact positional tokens
  # (flag/flag-value aware) so intervening global flags cannot smuggle the verb past.
  "tier1_cmd": [
    {"seq": ["terraform", "destroy"]}, {"seq": ["tofu", "destroy"]},
+   {"seq": ["terraform", "apply"], "flag": "-destroy"},
+   {"seq": ["tofu", "apply"], "flag": "-destroy"},
    {"seq": ["fly", "volumes", "destroy"]}, {"seq": ["flyctl", "volumes", "destroy"]},
    {"seq": ["railway", "volume", "delete"]},
    {"seq": ["aws", "s3", "rb"]}, {"seq": ["aws", "s3", "rm"], "flag": "--recursive"},
@@ -34,12 +46,20 @@ DEFAULT_RULES = {
    {"seq": ["gcloud", "sql", "instances", "delete"]},
    {"seq": ["gcloud", "compute", "disks", "delete"]},
    {"seq": ["heroku", "pg:reset"]},
-   {"seq": ["kubectl", "delete", ["namespace", "ns", "pv", "pvc"]]}],
+   {"seq": ["kubectl", "delete",
+            ["namespace", "namespaces", "ns", "pv", "persistentvolume",
+             "persistentvolumes", "pvc", "persistentvolumeclaim",
+             "persistentvolumeclaims"]]}],
  "tier1_regex": [r'\bdd\b[^\n]*\bof=/dev/', r'\bmkfs(\.\w+)?\b', r'\bwipefs\b'],
- "tier2_regex": [
-   r'\bDROP\s+(TABLE|DATABASE)\b', r'\bTRUNCATE\b', r'\bef\s+database\s+drop\b',
-   r'\bdocker[\s-]compose\b[^\n]*\bdown\b[^\n]*(--volumes|\s-v\b)',
-   r'\bdocker\s+volume\s+(rm|prune)\b'],
+ # Tier-2 structured commands — block only when the command names production.
+ "tier2_cmd": [
+   {"seq": ["docker", "volume", "rm"]}, {"seq": ["docker", "volume", "prune"]},
+   {"seq": ["docker", "compose", "down"], "flag_any": ["-v", "--volumes"]},
+   {"seq": ["docker-compose", "down"], "flag_any": ["-v", "--volumes"]}],
+ # Tier-2 SQL — block only when prod-marked AND issued via a DB client.
+ "tier2_sql_regex": [r'\bDROP\s+(TABLE|DATABASE)\b', r'\bTRUNCATE\b'],
+ # Tier-2 other — block only when prod-marked.
+ "tier2_regex": [r'\bef\s+database\s+drop\b'],
  "warn_regex": [
    r'\bgit\s+push\b[^\n]*(--force\b|--force-with-lease\b|\s-f\b)',
    r'\bgit\s+reset\s+--hard\b', r'\bgit\s+clean\s+-\w*[fd]\w*'],
@@ -75,11 +95,16 @@ def _after_exec(args):
 
 
 def _docker_inner(t):
-    r = t[1:]
-    if r and r[0] == "exec":
-        return _after_exec(r[1:])
-    if r and r[0] == "compose" and "exec" in r:
-        return _after_exec(r[r.index("exec")+1:])
+    # Skip docker global flags (and their values) to find exec / compose exec.
+    args = t[1:]; i = 0
+    while i < len(args) and args[i].startswith("-"):
+        i += 2 if args[i] in VALUE_FLAGS else 1
+    if i < len(args) and args[i] == "exec":
+        return _after_exec(args[i+1:])
+    if i < len(args) and args[i] == "compose":
+        rest = args[i+1:]
+        if "exec" in rest:
+            return _after_exec(rest[rest.index("exec")+1:])
     return None, ""
 
 
@@ -93,6 +118,17 @@ def _ssh_inner(t):
     if i >= len(a):
         return None, ""
     return (" ".join(a[i+1:]) or None), a[i]
+
+
+def _shell_c_inner(toks):
+    """For bash/sh/zsh ... -c|-lc|-ec '<cmd>', return the inner command string."""
+    for k in range(1, len(toks)):
+        tk = toks[k]
+        if tk == "-c" or (tk.startswith("-") and not tk.startswith("--") and "c" in tk):
+            return toks[k+1] if k + 1 < len(toks) else None
+        if not tk.startswith("-"):
+            break  # reached an operand before any -c
+    return None
 
 
 def _extract_heredocs(cmd):
@@ -124,28 +160,30 @@ def deobfuscate(cmd, context=None, depth=0):
                 toks = shlex.split(s)
             except ValueError:
                 toks = s.split()
+            env = []
             while toks and ENVPREFIX.match(toks[0]):
-                toks.pop(0)
+                env.append(toks.pop(0))  # keep as context — names may carry prod markers
             if toks and toks[0] == "--":
                 toks.pop(0)
             if not toks:
                 continue
+            lctx = ctx + env
             v = os.path.basename(toks[0])
             if v == "ssh":
                 inner, tg = _ssh_inner(toks)
                 if inner:
-                    atoms += deobfuscate(inner, ctx + [tg], depth + 1); continue
-            if v in ("bash", "sh") and "-c" in toks:
-                j = toks.index("-c")
-                if j + 1 < len(toks):
-                    atoms += deobfuscate(toks[j+1], ctx, depth + 1); continue
+                    atoms += deobfuscate(inner, lctx + [tg], depth + 1); continue
+            if v in SHELLS:
+                inner = _shell_c_inner(toks)
+                if inner:
+                    atoms += deobfuscate(inner, lctx, depth + 1); continue
             if v == "eval" and len(toks) > 1:
-                atoms += deobfuscate(" ".join(toks[1:]), ctx, depth + 1); continue
+                atoms += deobfuscate(" ".join(toks[1:]), lctx, depth + 1); continue
             if v in ("docker", "docker-compose"):
                 inner, tg = _docker_inner(toks)
                 if inner:
-                    atoms.append(Atom(inner, ctx + [tg])); continue
-            atoms.append(Atom(toks, ctx))
+                    atoms += deobfuscate(shlex.join(inner), lctx + [tg], depth + 1); continue
+            atoms.append(Atom(toks, lctx))
     return atoms
 
 
@@ -185,6 +223,30 @@ def _seq_match(argv, seq):
     return False
 
 
+def _entry_match(entry, argv):
+    if not _seq_match(argv, entry.get("seq", [])):
+        return False
+    f = entry.get("flag")
+    if f and f not in argv:
+        return False
+    fa = entry.get("flag_any")
+    if fa and not any(x in argv for x in fa):
+        return False
+    return True
+
+
+def _is_db_client(atom):
+    if atom.argv and os.path.basename(atom.argv[0]) in DB_CLIENTS:
+        return True
+    # Context lines are transport targets or heredoc invocation lines (e.g.
+    # "psql "$DB" <<EOF" or "ssh db-prod 'psql x <<EOF"); scan their tokens.
+    for c in atom.context:
+        for tok in c.replace("'", " ").replace('"', " ").split():
+            if os.path.basename(tok) in DB_CLIENTS:
+                return True
+    return False
+
+
 def _is_protected_target(t, cwd):
     raw = t
     if raw in ("/", "~", "~/", "$HOME", "${HOME}", "*", ".*", "./*",
@@ -196,9 +258,7 @@ def _is_protected_target(t, cwd):
         norm = os.path.normpath(exp); parts = [p for p in norm.split("/") if p]
         if norm in ("/", "//") or len(parts) <= 1:
             return True
-        if parts[0] in ("opt", "srv", "data"):
-            return True
-        if norm.startswith("/var/lib"):
+        if parts[0] in CRITICAL_ROOTS:
             return True
         if norm == home:
             return True
@@ -237,14 +297,12 @@ def classify_atom(atom, rules, cwd):
         if _match(p, cmd):
             return OUTCOME_PASS, ""
     outcome, reason = OUTCOME_PASS, ""
+    # --- Tier 1: irreversible everywhere -> block always ---
     if atom.argv and os.path.basename(atom.argv[0]) == "rm" and _rm_protected(atom.argv, cwd):
         outcome, reason = OUTCOME_BLOCK, "rm of a protected/irreversible path: " + cmd
     if outcome != OUTCOME_BLOCK:
         for entry in rules.get("tier1_cmd", []):
-            if _seq_match(atom.argv, entry.get("seq", [])):
-                flag = entry.get("flag")
-                if flag and flag not in atom.argv:
-                    continue
+            if _entry_match(entry, atom.argv):
                 outcome, reason = OUTCOME_BLOCK, "irreversible op: " + cmd
                 break
     if outcome != OUTCOME_BLOCK:
@@ -252,12 +310,26 @@ def classify_atom(atom, rules, cwd):
             if re.search(p, cmd, re.I):
                 outcome, reason = OUTCOME_BLOCK, "irreversible op: " + cmd
                 break
-    if outcome != OUTCOME_BLOCK:
-        for p in rules.get("tier2_regex", []):
-            if re.search(p, cmd, re.I):
-                if _prod_marked(hay, rules):
-                    outcome, reason = OUTCOME_BLOCK, "destructive op against production: " + cmd
+    # --- Tier 2: catastrophic against prod, reversible locally ---
+    if outcome != OUTCOME_BLOCK and _prod_marked(hay, rules):
+        prod_hit = False
+        for entry in rules.get("tier2_cmd", []):
+            if _entry_match(entry, atom.argv):
+                prod_hit = True
                 break
+        if not prod_hit:
+            for p in rules.get("tier2_sql_regex", []):
+                if re.search(p, cmd, re.I) and _is_db_client(atom):
+                    prod_hit = True
+                    break
+        if not prod_hit:
+            for p in rules.get("tier2_regex", []):
+                if re.search(p, cmd, re.I):
+                    prod_hit = True
+                    break
+        if prod_hit:
+            outcome, reason = OUTCOME_BLOCK, "destructive op against production: " + cmd
+    # --- Warn: recoverable ---
     if outcome == OUTCOME_PASS:
         for p in rules.get("warn_regex", []):
             if re.search(p, cmd, re.I):

@@ -98,6 +98,53 @@ class TestEvasionRegression(unittest.TestCase):
             self.assertEqual(classify(cmd), "PASS", cmd)
 
 
+class TestCodexRegression(unittest.TestCase):
+    """Second-round bypasses found by codex review; each must now be caught."""
+
+    def test_docker_exec_inner_recursed(self):  # F1
+        for cmd in ("docker exec api-prod bash -c 'rm -rf /'",
+                    "docker exec api-prod sh -c 'terraform destroy'",
+                    "docker exec api-prod eval 'rm -rf /'"):
+            self.assertEqual(classify(cmd), "BLOCK", cmd)
+
+    def test_combined_shell_flags(self):  # F2
+        for cmd in ("bash -lc 'rm -rf /'", "sh -ec 'terraform destroy'",
+                    "ssh prod-host 'bash -lc \"rm -rf /\"'"):
+            self.assertEqual(classify(cmd), "BLOCK", cmd)
+
+    def test_env_prefix_prod_marker_retained(self):  # F3
+        for cmd in ("PROD_DATABASE_URL=postgres://prod-db psql -c 'DROP TABLE users'",
+                    "DATABASE_URL=postgres://prod-db psql -c 'TRUNCATE users'"):
+            self.assertEqual(classify(cmd), "BLOCK", cmd)
+
+    def test_terraform_apply_destroy(self):  # F4
+        for cmd in ("terraform apply -destroy -auto-approve",
+                    "tofu apply -destroy -auto-approve"):
+            self.assertEqual(classify(cmd), "BLOCK", cmd)
+
+    def test_kubectl_plural_resources(self):  # F5
+        for cmd in ("kubectl delete namespaces --all",
+                    "kubectl delete persistentvolumes --all",
+                    "kubectl delete persistentvolumeclaims --all -n prod"):
+            self.assertEqual(classify(cmd), "BLOCK", cmd)
+
+    def test_critical_top_level_globs(self):  # F6
+        for cmd in ("rm -rf /etc/*", "rm -rf /home/*", "rm -rf /usr/*"):
+            self.assertEqual(classify(cmd), "BLOCK", cmd)
+
+    def test_sql_in_files_not_blocked(self):  # F7 (false positive)
+        for cmd in ("echo 'DROP TABLE users;' > production-migration.sql",
+                    "grep -R 'DROP TABLE' docs/production-migrations.md",
+                    "cat > production-cleanup.sql <<'EOF'\nDROP TABLE old_users;\nEOF"):
+            self.assertEqual(classify(cmd), "PASS", cmd)
+
+    def test_docker_global_flags_before_subcommand(self):  # F8
+        for cmd in ("docker --context prod volume prune -f",
+                    "docker --context prod volume rm db-data",
+                    "docker --context prod compose down -v"):
+            self.assertEqual(classify(cmd), "BLOCK", cmd)
+
+
 class TestConfigBehaviour(unittest.TestCase):
     def test_allow_overrides_block(self):
         rules = dict(ig.DEFAULT_RULES, allow=["rm -rf /"])

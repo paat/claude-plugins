@@ -39,6 +39,17 @@ ssh host -- rm -rf /	BLOCK
 aws s3 ls	PASS
 terraform plan -out destroy.tfplan	PASS
 kubectl get namespace	PASS
+# Codex review round 2 — must block
+docker exec api-prod bash -c 'rm -rf /'	BLOCK
+bash -lc 'rm -rf /'	BLOCK
+PROD_DATABASE_URL=postgres://prod-db psql -c 'DROP TABLE users'	BLOCK
+terraform apply -destroy -auto-approve	BLOCK
+kubectl delete namespaces --all	BLOCK
+rm -rf /etc/*	BLOCK
+docker --context prod volume prune -f	BLOCK
+# Codex review round 2 — must NOT block (file work, not a DB client)
+echo 'DROP TABLE users;' > production-migration.sql	PASS
+grep -R 'DROP TABLE' docs/production-migrations.md	PASS
 # Warn — recoverable
 git push --force origin main	WARN
 git reset --hard HEAD~3	WARN
