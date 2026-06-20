@@ -1,0 +1,34 @@
+{
+  "tier1_regex": [
+    "\\b(terraform|tofu)\\s+destroy\\b",
+    "\\bdd\\b[^\\n]*\\bof=/dev/",
+    "\\bmkfs(\\.\\w+)?\\b",
+    "\\bwipefs\\b",
+    "\\b(fly|flyctl)\\s+volumes\\s+destroy\\b",
+    "\\brailway\\s+volume\\s+delete\\b",
+    "\\baws\\s+s3\\s+rb\\b",
+    "\\baws\\s+s3\\s+rm\\b[^\\n]*--recursive",
+    "\\baws\\s+ec2\\s+delete-volume\\b",
+    "\\baws\\s+rds\\s+delete-db-(instance|cluster)\\b",
+    "\\bgcloud\\s+sql\\s+instances\\s+delete\\b",
+    "\\bgcloud\\s+compute\\s+disks\\s+delete\\b",
+    "\\bheroku\\s+pg:reset\\b",
+    "\\bkubectl\\s+delete\\s+(namespace|ns|pv|pvc)\\b"
+  ],
+  "tier2_regex": [
+    "\\bDROP\\s+(TABLE|DATABASE)\\b",
+    "\\bTRUNCATE\\b",
+    "\\bef\\s+database\\s+drop\\b",
+    "\\bdocker\\s+compose\\b[^\\n]*\\bdown\\b[^\\n]*(--volumes|\\s-v\\b)",
+    "\\bdocker\\s+volume\\s+(rm|prune)\\b"
+  ],
+  "warn_regex": [
+    "\\bgit\\s+push\\b[^\\n]*(--force\\b|--force-with-lease\\b|\\s-f\\b)",
+    "\\bgit\\s+reset\\s+--hard\\b",
+    "\\bgit\\s+clean\\s+-\\w*[fd]\\w*"
+  ],
+  "prod_markers": ["*prod*", "*production*", "*-live"],
+  "allow": [],
+  "extra_block": [],
+  "warn_only": []
+}

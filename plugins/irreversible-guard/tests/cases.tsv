@@ -1,0 +1,33 @@
+# Tier 1 — block always
+rm -rf /	BLOCK
+rm -rf ~	BLOCK
+rm -rf $HOME	BLOCK
+rm -rf /opt/app/data/*	BLOCK
+dd if=/dev/zero of=/dev/sda	BLOCK
+terraform destroy	BLOCK
+ENV=x tofu destroy -auto-approve	BLOCK
+fly volumes destroy vol_1	BLOCK
+railway volume delete	BLOCK
+aws s3 rb s3://b --force	BLOCK
+kubectl delete namespace prod	BLOCK
+DEBUG=true rm -rf /	BLOCK
+cd /tmp && rm -rf /	BLOCK
+# Transport-wrapped → block (prod)
+ssh app-live 'rm -rf /opt/app/data/*'	BLOCK
+docker exec api-prod psql d -c 'DROP TABLE t'	BLOCK
+docker compose -f docker-compose.production.yml down -v	BLOCK
+# Tier 2 local → pass (reversible)
+psql "$DB" -c 'DROP TABLE t'	PASS
+docker compose down -v	PASS
+dotnet ef database drop	PASS
+# False-positive guards → pass
+rm -rf node_modules	PASS
+rm -rf .next	PASS
+rm -rf build dist	PASS
+git push origin main	PASS
+npm ci	PASS
+dotnet ef database update	PASS
+# Warn — recoverable
+git push --force origin main	WARN
+git reset --hard HEAD~3	WARN
+git clean -fdx	WARN

@@ -148,6 +148,17 @@
       "source": "./plugins/payment-contract-tester",
       "category": "testing",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "irreversible-guard",
+      "description": "PreToolUse gate that blocks Bash commands with no practical local undo — de-obfuscates ssh/docker-exec transports, heredocs, chains, and env prefixes before matching a tiered deny-set",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/irreversible-guard",
+      "category": "security",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }
