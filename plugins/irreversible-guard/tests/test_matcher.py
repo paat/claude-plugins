@@ -65,6 +65,39 @@ class TestWarn(unittest.TestCase):
             self.assertEqual(classify(cmd), "WARN", cmd)
 
 
+class TestEvasionRegression(unittest.TestCase):
+    """Bypasses found in adversarial review; each must now be caught."""
+
+    def test_double_slash_root_no_crash(self):  # F1: was IndexError -> fail-open
+        self.assertEqual(classify("rm -rf //"), "BLOCK")
+        self.assertEqual(classify("rm -rf /./"), "BLOCK")
+
+    def test_lowercase_sql_against_prod(self):  # F2: SQL is case-insensitive
+        self.assertEqual(classify("ssh db-prod 'psql -c \"drop table users\"'"), "BLOCK")
+        self.assertEqual(classify("ssh db-prod 'psql -c \"truncate annetused\"'"), "BLOCK")
+
+    def test_hyphenated_docker_compose_prod(self):  # F3
+        self.assertEqual(
+            classify("docker-compose -f docker-compose.production.yml down -v"), "BLOCK")
+
+    def test_global_flags_before_subcommand(self):  # F4
+        for cmd in ("terraform -chdir=env/prod destroy -auto-approve",
+                    "aws --profile prod s3 rb s3://bucket --force",
+                    "kubectl --context prod delete namespace app",
+                    "gcloud --project=p sql instances delete x"):
+            self.assertEqual(classify(cmd), "BLOCK", cmd)
+
+    def test_ssh_double_dash_separator(self):  # F5
+        self.assertEqual(classify("ssh host -- rm -rf /"), "BLOCK")
+
+    def test_no_new_false_positives(self):
+        for cmd in ("aws s3 ls", "aws s3 cp a s3://b/rb", "terraform plan",
+                    "terraform plan -out destroy.tfplan", "kubectl get namespace",
+                    "git push origin main", "dotnet ef database update",
+                    "docker compose up -d"):
+            self.assertEqual(classify(cmd), "PASS", cmd)
+
+
 class TestConfigBehaviour(unittest.TestCase):
     def test_allow_overrides_block(self):
         rules = dict(ig.DEFAULT_RULES, allow=["rm -rf /"])

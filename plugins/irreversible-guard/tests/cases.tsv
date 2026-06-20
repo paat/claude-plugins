@@ -27,6 +27,18 @@ rm -rf build dist	PASS
 git push origin main	PASS
 npm ci	PASS
 dotnet ef database update	PASS
+# Evasion regressions (adversarial review) — must block
+rm -rf //	BLOCK
+ssh db-prod 'psql -c "drop table users"'	BLOCK
+docker-compose -f docker-compose.production.yml down -v	BLOCK
+terraform -chdir=env/prod destroy -auto-approve	BLOCK
+aws --profile prod s3 rb s3://b --force	BLOCK
+kubectl --context prod delete namespace app	BLOCK
+ssh host -- rm -rf /	BLOCK
+# No new false positives
+aws s3 ls	PASS
+terraform plan -out destroy.tfplan	PASS
+kubectl get namespace	PASS
 # Warn — recoverable
 git push --force origin main	WARN
 git reset --hard HEAD~3	WARN

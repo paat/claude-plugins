@@ -14,18 +14,32 @@ Atom = namedtuple("Atom", ["argv", "context"])
 SEPARATORS = re.compile(r'\s*(?:&&|\|\||;|\||\n)\s*')
 HEREDOC = re.compile(r'<<-?\s*[\'"]?([A-Za-z_]\w*)[\'"]?')
 ENVPREFIX = re.compile(r'^[A-Za-z_]\w*=')
+# Flags that consume the following token as a value. Used to drop flag *values*
+# when extracting the positional (non-flag) tokens of a command, so that a global
+# flag like `kubectl --context prod delete namespace` does not hide the verb.
+VALUE_FLAGS = {"-p", "--profile", "--region", "--project", "-n", "--namespace",
+               "--context", "--cluster", "-u", "--user", "--config",
+               "--kubeconfig", "-i", "-o", "-l", "-F", "-C", "--chdir"}
 
 DEFAULT_RULES = {
- "tier1_regex": [
-   r'\b(terraform|tofu)\s+destroy\b', r'\bdd\b[^\n]*\bof=/dev/', r'\bmkfs(\.\w+)?\b', r'\bwipefs\b',
-   r'\b(fly|flyctl)\s+volumes\s+destroy\b', r'\brailway\s+volume\s+delete\b', r'\baws\s+s3\s+rb\b',
-   r'\baws\s+s3\s+rm\b[^\n]*--recursive', r'\baws\s+ec2\s+delete-volume\b',
-   r'\baws\s+rds\s+delete-db-(instance|cluster)\b', r'\bgcloud\s+sql\s+instances\s+delete\b',
-   r'\bgcloud\s+compute\s+disks\s+delete\b', r'\bheroku\s+pg:reset\b',
-   r'\bkubectl\s+delete\s+(namespace|ns|pv|pvc)\b'],
+ # Structured "binary + subcommand" rules — matched on exact positional tokens
+ # (flag/flag-value aware) so intervening global flags cannot smuggle the verb past.
+ "tier1_cmd": [
+   {"seq": ["terraform", "destroy"]}, {"seq": ["tofu", "destroy"]},
+   {"seq": ["fly", "volumes", "destroy"]}, {"seq": ["flyctl", "volumes", "destroy"]},
+   {"seq": ["railway", "volume", "delete"]},
+   {"seq": ["aws", "s3", "rb"]}, {"seq": ["aws", "s3", "rm"], "flag": "--recursive"},
+   {"seq": ["aws", "ec2", "delete-volume"]},
+   {"seq": ["aws", "rds", ["delete-db-instance", "delete-db-cluster"]]},
+   {"seq": ["gcloud", "sql", "instances", "delete"]},
+   {"seq": ["gcloud", "compute", "disks", "delete"]},
+   {"seq": ["heroku", "pg:reset"]},
+   {"seq": ["kubectl", "delete", ["namespace", "ns", "pv", "pvc"]]}],
+ "tier1_regex": [r'\bdd\b[^\n]*\bof=/dev/', r'\bmkfs(\.\w+)?\b', r'\bwipefs\b'],
  "tier2_regex": [
    r'\bDROP\s+(TABLE|DATABASE)\b', r'\bTRUNCATE\b', r'\bef\s+database\s+drop\b',
-   r'\bdocker\s+compose\b[^\n]*\bdown\b[^\n]*(--volumes|\s-v\b)', r'\bdocker\s+volume\s+(rm|prune)\b'],
+   r'\bdocker[\s-]compose\b[^\n]*\bdown\b[^\n]*(--volumes|\s-v\b)',
+   r'\bdocker\s+volume\s+(rm|prune)\b'],
  "warn_regex": [
    r'\bgit\s+push\b[^\n]*(--force\b|--force-with-lease\b|\s-f\b)',
    r'\bgit\s+reset\s+--hard\b', r'\bgit\s+clean\s+-\w*[fd]\w*'],
@@ -72,6 +86,9 @@ def _docker_inner(t):
 def _ssh_inner(t):
     a = t[1:]; i = 0
     while i < len(a) and a[i].startswith("-"):
+        if a[i] == "--":
+            i += 1
+            break
         i += 2 if a[i] in ("-p", "-i", "-o", "-l", "-F") else 1
     if i >= len(a):
         return None, ""
@@ -109,6 +126,8 @@ def deobfuscate(cmd, context=None, depth=0):
                 toks = s.split()
             while toks and ENVPREFIX.match(toks[0]):
                 toks.pop(0)
+            if toks and toks[0] == "--":
+                toks.pop(0)
             if not toks:
                 continue
             v = os.path.basename(toks[0])
@@ -139,6 +158,33 @@ def _prod_marked(hay, rules):
     return False
 
 
+def _nonflag(argv):
+    """Positional tokens, dropping flags and the values of value-taking flags."""
+    out = []; skip = False
+    for a in argv:
+        if skip:
+            skip = False
+            continue
+        if a.startswith("-"):
+            if a in VALUE_FLAGS:
+                skip = True
+            continue
+        out.append(a)
+    return out
+
+
+def _seq_match(argv, seq):
+    """True if seq appears as contiguous positional tokens. Each seq element is a
+    token, or a list of acceptable alternatives."""
+    toks = _nonflag(argv); n = len(seq)
+    if not n:
+        return False
+    for s in range(len(toks) - n + 1):
+        if all(toks[s+k] in (w if isinstance(w, list) else [w]) for k, w in enumerate(seq)):
+            return True
+    return False
+
+
 def _is_protected_target(t, cwd):
     raw = t
     if raw in ("/", "~", "~/", "$HOME", "${HOME}", "*", ".*", "./*",
@@ -148,7 +194,7 @@ def _is_protected_target(t, cwd):
     home = os.path.normpath(os.path.expanduser("~"))
     if os.path.isabs(exp):
         norm = os.path.normpath(exp); parts = [p for p in norm.split("/") if p]
-        if norm == "/" or len(parts) == 1:
+        if norm in ("/", "//") or len(parts) <= 1:
             return True
         if parts[0] in ("opt", "srv", "data"):
             return True
@@ -179,7 +225,7 @@ def _rm_protected(argv, cwd):
 def _match(p, text):
     if len(p) >= 2 and p[0] == "/" and p[-1] == "/":
         try:
-            return re.search(p[1:-1], text) is not None
+            return re.search(p[1:-1], text, re.I) is not None
         except re.error:
             return False
     return p in text
@@ -194,19 +240,27 @@ def classify_atom(atom, rules, cwd):
     if atom.argv and os.path.basename(atom.argv[0]) == "rm" and _rm_protected(atom.argv, cwd):
         outcome, reason = OUTCOME_BLOCK, "rm of a protected/irreversible path: " + cmd
     if outcome != OUTCOME_BLOCK:
+        for entry in rules.get("tier1_cmd", []):
+            if _seq_match(atom.argv, entry.get("seq", [])):
+                flag = entry.get("flag")
+                if flag and flag not in atom.argv:
+                    continue
+                outcome, reason = OUTCOME_BLOCK, "irreversible op: " + cmd
+                break
+    if outcome != OUTCOME_BLOCK:
         for p in rules.get("tier1_regex", []) + rules.get("extra_block", []):
-            if re.search(p, cmd):
+            if re.search(p, cmd, re.I):
                 outcome, reason = OUTCOME_BLOCK, "irreversible op: " + cmd
                 break
     if outcome != OUTCOME_BLOCK:
         for p in rules.get("tier2_regex", []):
-            if re.search(p, cmd):
+            if re.search(p, cmd, re.I):
                 if _prod_marked(hay, rules):
                     outcome, reason = OUTCOME_BLOCK, "destructive op against production: " + cmd
                 break
     if outcome == OUTCOME_PASS:
         for p in rules.get("warn_regex", []):
-            if re.search(p, cmd):
+            if re.search(p, cmd, re.I):
                 outcome, reason = OUTCOME_WARN, "recoverable but destructive: " + cmd
                 break
     if outcome == OUTCOME_BLOCK:

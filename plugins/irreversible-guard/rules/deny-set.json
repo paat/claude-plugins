@@ -1,25 +1,29 @@
 {
+  "tier1_cmd": [
+    {"seq": ["terraform", "destroy"]},
+    {"seq": ["tofu", "destroy"]},
+    {"seq": ["fly", "volumes", "destroy"]},
+    {"seq": ["flyctl", "volumes", "destroy"]},
+    {"seq": ["railway", "volume", "delete"]},
+    {"seq": ["aws", "s3", "rb"]},
+    {"seq": ["aws", "s3", "rm"], "flag": "--recursive"},
+    {"seq": ["aws", "ec2", "delete-volume"]},
+    {"seq": ["aws", "rds", ["delete-db-instance", "delete-db-cluster"]]},
+    {"seq": ["gcloud", "sql", "instances", "delete"]},
+    {"seq": ["gcloud", "compute", "disks", "delete"]},
+    {"seq": ["heroku", "pg:reset"]},
+    {"seq": ["kubectl", "delete", ["namespace", "ns", "pv", "pvc"]]}
+  ],
   "tier1_regex": [
-    "\\b(terraform|tofu)\\s+destroy\\b",
     "\\bdd\\b[^\\n]*\\bof=/dev/",
     "\\bmkfs(\\.\\w+)?\\b",
-    "\\bwipefs\\b",
-    "\\b(fly|flyctl)\\s+volumes\\s+destroy\\b",
-    "\\brailway\\s+volume\\s+delete\\b",
-    "\\baws\\s+s3\\s+rb\\b",
-    "\\baws\\s+s3\\s+rm\\b[^\\n]*--recursive",
-    "\\baws\\s+ec2\\s+delete-volume\\b",
-    "\\baws\\s+rds\\s+delete-db-(instance|cluster)\\b",
-    "\\bgcloud\\s+sql\\s+instances\\s+delete\\b",
-    "\\bgcloud\\s+compute\\s+disks\\s+delete\\b",
-    "\\bheroku\\s+pg:reset\\b",
-    "\\bkubectl\\s+delete\\s+(namespace|ns|pv|pvc)\\b"
+    "\\bwipefs\\b"
   ],
   "tier2_regex": [
     "\\bDROP\\s+(TABLE|DATABASE)\\b",
     "\\bTRUNCATE\\b",
     "\\bef\\s+database\\s+drop\\b",
-    "\\bdocker\\s+compose\\b[^\\n]*\\bdown\\b[^\\n]*(--volumes|\\s-v\\b)",
+    "\\bdocker[\\s-]compose\\b[^\\n]*\\bdown\\b[^\\n]*(--volumes|\\s-v\\b)",
     "\\bdocker\\s+volume\\s+(rm|prune)\\b"
   ],
   "warn_regex": [
