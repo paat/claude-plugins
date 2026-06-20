@@ -1,0 +1,89 @@
+# Tier 1 — block always
+rm -rf /	BLOCK
+rm -rf ~	BLOCK
+rm -rf $HOME	BLOCK
+rm -rf /opt/app/data/*	BLOCK
+dd if=/dev/zero of=/dev/sda	BLOCK
+terraform destroy	BLOCK
+ENV=x tofu destroy -auto-approve	BLOCK
+fly volumes destroy vol_1	BLOCK
+railway volume delete	BLOCK
+aws s3 rb s3://b --force	BLOCK
+kubectl delete namespace prod	BLOCK
+DEBUG=true rm -rf /	BLOCK
+cd /tmp && rm -rf /	BLOCK
+# Transport-wrapped → block (prod)
+ssh app-live 'rm -rf /opt/app/data/*'	BLOCK
+docker exec api-prod psql d -c 'DROP TABLE t'	BLOCK
+docker compose -f docker-compose.production.yml down -v	BLOCK
+# Tier 2 local → pass (reversible)
+psql "$DB" -c 'DROP TABLE t'	PASS
+docker compose down -v	PASS
+dotnet ef database drop	PASS
+# False-positive guards → pass
+rm -rf node_modules	PASS
+rm -rf .next	PASS
+rm -rf build dist	PASS
+git push origin main	PASS
+npm ci	PASS
+dotnet ef database update	PASS
+# Evasion regressions (adversarial review) — must block
+rm -rf //	BLOCK
+ssh db-prod 'psql -c "drop table users"'	BLOCK
+docker-compose -f docker-compose.production.yml down -v	BLOCK
+terraform -chdir=env/prod destroy -auto-approve	BLOCK
+aws --profile prod s3 rb s3://b --force	BLOCK
+kubectl --context prod delete namespace app	BLOCK
+ssh host -- rm -rf /	BLOCK
+# No new false positives
+aws s3 ls	PASS
+terraform plan -out destroy.tfplan	PASS
+kubectl get namespace	PASS
+# Codex review round 2 — must block
+docker exec api-prod bash -c 'rm -rf /'	BLOCK
+bash -lc 'rm -rf /'	BLOCK
+PROD_DATABASE_URL=postgres://prod-db psql -c 'DROP TABLE users'	BLOCK
+terraform apply -destroy -auto-approve	BLOCK
+kubectl delete namespaces --all	BLOCK
+rm -rf /etc/*	BLOCK
+docker --context prod volume prune -f	BLOCK
+# Codex review round 2 — must NOT block (file work, not a DB client)
+echo 'DROP TABLE users;' > production-migration.sql	PASS
+grep -R 'DROP TABLE' docs/production-migrations.md	PASS
+# Codex review round 3 — must block
+env rm -rf /	BLOCK
+bash -c 'echo ok && terraform destroy'	BLOCK
+bash -O extglob -c 'rm -rf /'	BLOCK
+docker compose -f docker-compose.production.yml exec db psql -c 'DROP TABLE users'	BLOCK
+rm -rf /var/lib/postgresql	BLOCK
+# Codex review round 3 — must NOT block
+rm -rf /var/tmp/myapp-cache	PASS
+psql -c 'DROP TABLE products'	PASS
+# Codex review round 4 — must block
+echo x |& rm -rf /opt/app/data/*	BLOCK
+sleep 1 & rm -rf /opt/app/data/*	BLOCK
+env -S 'rm -rf /opt/app/data/*'	BLOCK
+ssh prod1 'psql -c "DROP TABLE users"'	BLOCK
+eval eval eval eval eval eval rm -rf /opt/app/data/*	BLOCK
+command psql postgres://prod-db/app -c 'DROP TABLE users'	BLOCK
+nohup terraform destroy -auto-approve	BLOCK
+# Codex review round 4 — must NOT block
+docker exec api-prod bash -c "echo psql 'DROP TABLE users'"	PASS
+psql -c 'select 1' 2>&1	PASS
+# Codex review round 5 — must block
+sudo rm -rf /opt/app/data	BLOCK
+sudo -u postgres psql postgres://prod-db/app -c 'DROP TABLE users'	BLOCK
+doas rm -rf /opt/app/data	BLOCK
+su -c 'rm -rf /opt/app/data'	BLOCK
+time -p rm -rf /opt/app/data	BLOCK
+ionice -c 2 rm -rf /opt/app/data	BLOCK
+env -Srm -rf /opt/app/data	BLOCK
+flock /tmp/guard.lock rm -rf /opt/app/data	BLOCK
+watch 'rm -rf /opt/app/data'	BLOCK
+# Codex review round 5 — must NOT block
+sudo apt-get install foo	PASS
+sudo -u postgres pg_dump db	PASS
+# Warn — recoverable
+git push --force origin main	WARN
+git reset --hard HEAD~3	WARN
+git clean -fdx	WARN

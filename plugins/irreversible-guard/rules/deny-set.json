@@ -1,0 +1,46 @@
+{
+  "tier1_cmd": [
+    {"seq": ["terraform", "destroy"]},
+    {"seq": ["tofu", "destroy"]},
+    {"seq": ["terraform", "apply"], "flag": "-destroy"},
+    {"seq": ["tofu", "apply"], "flag": "-destroy"},
+    {"seq": ["fly", "volumes", "destroy"]},
+    {"seq": ["flyctl", "volumes", "destroy"]},
+    {"seq": ["railway", "volume", "delete"]},
+    {"seq": ["aws", "s3", "rb"]},
+    {"seq": ["aws", "s3", "rm"], "flag": "--recursive"},
+    {"seq": ["aws", "ec2", "delete-volume"]},
+    {"seq": ["aws", "rds", ["delete-db-instance", "delete-db-cluster"]]},
+    {"seq": ["gcloud", "sql", "instances", "delete"]},
+    {"seq": ["gcloud", "compute", "disks", "delete"]},
+    {"seq": ["heroku", "pg:reset"]},
+    {"seq": ["kubectl", "delete", ["namespace", "namespaces", "ns", "pv", "persistentvolume", "persistentvolumes", "pvc", "persistentvolumeclaim", "persistentvolumeclaims"]]}
+  ],
+  "tier1_regex": [
+    "\\bdd\\b[^\\n]*\\bof=/dev/",
+    "\\bmkfs(\\.\\w+)?\\b",
+    "\\bwipefs\\b"
+  ],
+  "tier2_cmd": [
+    {"seq": ["docker", "volume", "rm"]},
+    {"seq": ["docker", "volume", "prune"]},
+    {"seq": ["docker", "compose", "down"], "flag_any": ["-v", "--volumes"]},
+    {"seq": ["docker-compose", "down"], "flag_any": ["-v", "--volumes"]}
+  ],
+  "tier2_sql_regex": [
+    "\\bDROP\\s+(TABLE|DATABASE)\\b",
+    "\\bTRUNCATE\\b"
+  ],
+  "tier2_regex": [
+    "\\bef\\s+database\\s+drop\\b"
+  ],
+  "warn_regex": [
+    "\\bgit\\s+push\\b[^\\n]*(--force\\b|--force-with-lease\\b|\\s-f\\b)",
+    "\\bgit\\s+reset\\s+--hard\\b",
+    "\\bgit\\s+clean\\s+-\\w*[fd]\\w*"
+  ],
+  "prod_markers": ["*prod*", "*production*", "*-live"],
+  "allow": [],
+  "extra_block": [],
+  "warn_only": []
+}
