@@ -70,6 +70,19 @@ nohup terraform destroy -auto-approve	BLOCK
 # Codex review round 4 — must NOT block
 docker exec api-prod bash -c "echo psql 'DROP TABLE users'"	PASS
 psql -c 'select 1' 2>&1	PASS
+# Codex review round 5 — must block
+sudo rm -rf /opt/app/data	BLOCK
+sudo -u postgres psql postgres://prod-db/app -c 'DROP TABLE users'	BLOCK
+doas rm -rf /opt/app/data	BLOCK
+su -c 'rm -rf /opt/app/data'	BLOCK
+time -p rm -rf /opt/app/data	BLOCK
+ionice -c 2 rm -rf /opt/app/data	BLOCK
+env -Srm -rf /opt/app/data	BLOCK
+flock /tmp/guard.lock rm -rf /opt/app/data	BLOCK
+watch 'rm -rf /opt/app/data'	BLOCK
+# Codex review round 5 — must NOT block
+sudo apt-get install foo	PASS
+sudo -u postgres pg_dump db	PASS
 # Warn — recoverable
 git push --force origin main	WARN
 git reset --hard HEAD~3	WARN

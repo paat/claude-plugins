@@ -215,6 +215,42 @@ class TestCodexRound4(unittest.TestCase):
         self.assertEqual(classify("echo hi &> /tmp/log"), "PASS")
 
 
+class TestCodexRound5(unittest.TestCase):
+    """Fifth-round wrapper bypasses; each must be caught."""
+
+    def test_sudo_doas_su(self):  # F1
+        for cmd in ("sudo rm -rf /opt/app/data",
+                    "sudo -u postgres psql postgres://prod-db/app -c 'DROP TABLE users'",
+                    "doas rm -rf /opt/app/data",
+                    "su -c 'rm -rf /opt/app/data'",
+                    "su - postgres -c 'psql prod-db -c \"DROP TABLE users\"'"):
+            self.assertEqual(classify(cmd), "BLOCK", cmd)
+
+    def test_wrapper_flag_parsing(self):  # F2
+        for cmd in ("time -p rm -rf /opt/app/data",
+                    "command -p rm -rf /opt/app/data",
+                    "ionice -c 2 rm -rf /opt/app/data",
+                    "nice -n 5 terraform destroy"):
+            self.assertEqual(classify(cmd), "BLOCK", cmd)
+
+    def test_env_split_string_attached_keeps_operands(self):  # F3
+        for cmd in ("env -Srm -rf /opt/app/data",
+                    "env -Sterraform destroy -auto-approve",
+                    "env --split-string='rm -rf /opt/app/data'"):
+            self.assertEqual(classify(cmd), "BLOCK", cmd)
+
+    def test_flock_watch_xargs(self):  # F4
+        self.assertEqual(classify("flock /tmp/guard.lock rm -rf /opt/app/data"), "BLOCK")
+        self.assertEqual(classify("watch 'rm -rf /opt/app/data'"), "BLOCK")
+        self.assertEqual(classify("xargs rm -rf /opt/app/data"), "BLOCK")
+
+    def test_wrappers_no_false_positive(self):
+        for cmd in ("sudo apt-get install foo", "sudo systemctl restart api",
+                    "command -v psql", "nice -n 10 make", "time ls -la",
+                    "sudo -u postgres pg_dump db"):
+            self.assertEqual(classify(cmd), "PASS", cmd)
+
+
 class TestConfigBehaviour(unittest.TestCase):
     def test_allow_overrides_block(self):
         rules = dict(ig.DEFAULT_RULES, allow=["rm -rf /"])

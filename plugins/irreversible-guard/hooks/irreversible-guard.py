@@ -57,10 +57,24 @@ VALUE_FLAGS = {"-p", "--profile", "--region", "--project", "-n", "--namespace",
                "-f", "--file", "-H", "--host"}
 # Shells we unwrap `-c`/`-lc`/`-ec` from.
 SHELLS = ("bash", "sh", "zsh", "ash", "dash")
-# Transparent prefix wrappers: they run their (post-flag) argument as the real
-# command, e.g. `command psql ...`, `nohup rm ...`, `nice -n 5 terraform destroy`.
-TRANSPARENT = {"command", "builtin", "nohup", "setsid", "stdbuf", "nice",
-               "ionice", "time"}
+# Prefix wrappers that run their (post-flag) operand as the real command, mapped
+# to that wrapper's value-taking flags (so `time -p`/`command -p` stay boolean but
+# `sudo -u user` / `ionice -c 2` consume their value). The inner is already-split
+# argv, re-joined and recursed.
+ARGV_WRAPPERS = {
+    "command": set(), "builtin": set(), "nohup": set(), "setsid": set(),
+    "time": set(),
+    "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
+    "nice": {"-n", "--adjustment"},
+    "ionice": {"-c", "--class", "-n", "--classdata", "-p", "--pid"},
+    "sudo": {"-u", "--user", "-g", "--group", "-p", "--prompt", "-C",
+             "--close-from", "-r", "--role", "-t", "--type", "-U",
+             "--other-user", "-h", "--host", "-D", "--chdir", "-R", "--chroot"},
+    "doas": {"-u", "-C"},
+    "xargs": {"-n", "--max-args", "-L", "--max-lines", "-I", "-i", "--replace",
+              "-P", "--max-procs", "-d", "--delimiter", "-E", "-s",
+              "--max-chars", "-a", "--arg-file"}}
+FLOCK_VALUE_FLAGS = {"-w", "--timeout", "-E", "--conflict-exit-code"}
 # DB clients — Tier-2 SQL only counts when the command is actually a client call.
 DB_CLIENTS = {"psql", "mysql", "mysqladmin", "mariadb", "mongosh", "mongo",
               "sqlite3", "cockroach", "pgcli", "mycli", "dotnet"}
@@ -154,11 +168,12 @@ def _env_inner(toks):
     while i < len(rest):
         tk = rest[i]
         if tk in ("-S", "--split-string"):
-            return (rest[i+1] if i + 1 < len(rest) else None), assigns
+            parts = ([rest[i+1]] if i + 1 < len(rest) else []) + rest[i+2:]
+            return (" ".join(parts) if parts else None), assigns
         if tk.startswith("-S") and len(tk) > 2:
-            return tk[2:], assigns
+            return " ".join([tk[2:]] + rest[i+1:]), assigns
         if tk.startswith("--split-string="):
-            return tk[len("--split-string="):], assigns
+            return " ".join([tk[len("--split-string="):]] + rest[i+1:]), assigns
         if tk in ("-u", "--unset", "-C", "--chdir"):
             i += 2; continue
         if tk.startswith("-"):
@@ -168,6 +183,34 @@ def _env_inner(toks):
         break
     inner = rest[i:]
     return (shlex.join(inner) if inner else None), assigns
+
+
+def _su_inner(toks):
+    """Unwrap `su [-] [user] -c '<cmd>'` — return the -c command string."""
+    for k in range(1, len(toks)):
+        if toks[k] == "-c" and k + 1 < len(toks):
+            return toks[k+1]
+    return None
+
+
+def _wrapper_inner(rest, value_flags, skip_pos=0):
+    """Skip leading flags (consuming values for value_flags) and skip_pos
+    positionals, return the remaining argv list (the wrapped command) or None."""
+    k = 0
+    while k < len(rest):
+        tk = rest[k]
+        if tk == "--":
+            k += 1; break
+        if tk in value_flags:
+            k += 2; continue
+        if tk.startswith("-"):
+            k += 1; continue
+        break
+    for _ in range(skip_pos):
+        if k < len(rest):
+            k += 1
+    inner = rest[k:]
+    return inner or None
 
 
 def _ssh_inner(t):
@@ -245,12 +288,21 @@ def deobfuscate(cmd, context=None, depth=0):
                 inner, assigns = _env_inner(toks)
                 if inner:
                     atoms += deobfuscate(inner, lctx + assigns, depth + 1); continue
-            if v in TRANSPARENT:
-                rest = toks[1:]; k = 0
-                while k < len(rest) and rest[k].startswith("-"):
-                    k += 2 if rest[k] in VALUE_FLAGS else 1
-                inner = rest[k:]
-                if inner and inner != toks:
+            if v == "su":
+                inner = _su_inner(toks)
+                if inner:
+                    atoms += deobfuscate(inner, lctx, depth + 1); continue
+            if v == "watch":  # runs its operand as a shell command string
+                inner = _wrapper_inner(toks[1:], {"-n", "--interval"})
+                if inner:
+                    atoms += deobfuscate(" ".join(inner), lctx, depth + 1); continue
+            if v == "flock":  # flock [opts] <lockfile> <cmd...>
+                inner = _wrapper_inner(toks[1:], FLOCK_VALUE_FLAGS, skip_pos=1)
+                if inner:
+                    atoms += deobfuscate(shlex.join(inner), lctx, depth + 1); continue
+            if v in ARGV_WRAPPERS:  # sudo/doas/command/nohup/nice/ionice/xargs/...
+                inner = _wrapper_inner(toks[1:], ARGV_WRAPPERS[v])
+                if inner:
                     atoms += deobfuscate(shlex.join(inner), lctx, depth + 1); continue
             if v == "ssh":
                 inner, tg = _ssh_inner(toks)
