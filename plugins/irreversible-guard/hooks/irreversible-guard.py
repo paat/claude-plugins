@@ -11,9 +11,37 @@ from collections import namedtuple
 OUTCOME_BLOCK, OUTCOME_WARN, OUTCOME_PASS = "BLOCK", "WARN", "PASS"
 SEVERITY = {OUTCOME_PASS: 0, OUTCOME_WARN: 1, OUTCOME_BLOCK: 2}
 Atom = namedtuple("Atom", ["argv", "context"])
-SEPARATORS = re.compile(r'\s*(?:&&|\|\||;|\||\n)\s*')
 HEREDOC = re.compile(r'<<-?\s*[\'"]?([A-Za-z_]\w*)[\'"]?')
 ENVPREFIX = re.compile(r'^[A-Za-z_]\w*=')
+REDIRECTS = (">", ">>", "<", "<<", ">&", "&>", "|", "tee")
+
+
+def _split_segments(s):
+    """Split on && || ; | and newlines, but only outside quotes (quote-aware),
+    so separators inside a `bash -c '... && ...'` payload are not split early."""
+    segs = []; buf = []; i = 0; q = None; n = len(s)
+    while i < n:
+        c = s[i]
+        if q:
+            buf.append(c)
+            if c == q:
+                q = None
+            i += 1; continue
+        if c in ("'", '"'):
+            q = c; buf.append(c); i += 1; continue
+        if c == "\\" and i + 1 < n:
+            buf.append(c); buf.append(s[i+1]); i += 2; continue
+        if c in (";", "\n"):
+            segs.append("".join(buf)); buf = []; i += 1; continue
+        if c == "&" and i + 1 < n and s[i+1] == "&":
+            segs.append("".join(buf)); buf = []; i += 2; continue
+        if c == "|":
+            segs.append("".join(buf)); buf = []
+            i += 2 if (i + 1 < n and s[i+1] == "|") else 1
+            continue
+        buf.append(c); i += 1
+    segs.append("".join(buf))
+    return [x for x in segs if x.strip()]
 # Flags that consume the following token as a value. Used to drop flag *values*
 # when extracting positional (non-flag) tokens, so a global flag like
 # `kubectl --context prod delete namespace` or `docker compose -f prod.yml down -v`
@@ -27,8 +55,10 @@ SHELLS = ("bash", "sh", "zsh", "ash", "dash")
 # DB clients — Tier-2 SQL only counts when the command is actually a client call.
 DB_CLIENTS = {"psql", "mysql", "mysqladmin", "mariadb", "mongosh", "mongo",
               "sqlite3", "cockroach", "pgcli", "mycli", "dotnet"}
-# Top-level dirs whose recursive deletion has no practical undo.
-CRITICAL_ROOTS = {"etc", "usr", "bin", "sbin", "lib", "lib64", "boot", "var",
+# Top-level dirs whose recursive deletion has no practical undo. NOTE: `var` is
+# intentionally excluded (only /var/lib is protected, checked separately) so that
+# routine /var/tmp and /var/cache cleanup is not blocked.
+CRITICAL_ROOTS = {"etc", "usr", "bin", "sbin", "lib", "lib64", "boot",
                   "sys", "proc", "dev", "opt", "srv", "data", "root", "home"}
 
 DEFAULT_RULES = {
@@ -108,6 +138,22 @@ def _docker_inner(t):
     return None, ""
 
 
+def _env_inner(toks):
+    """Unwrap `env [opts] [VAR=val ...] cmd args`. Returns (inner_cmd_str, assigns)."""
+    rest = toks[1:]; i = 0; assigns = []
+    while i < len(rest):
+        tk = rest[i]
+        if tk in ("-u", "--unset", "-C", "--chdir", "-S", "--split-string"):
+            i += 2; continue
+        if tk.startswith("-"):
+            i += 1; continue
+        if ENVPREFIX.match(tk):
+            assigns.append(tk); i += 1; continue
+        break
+    inner = rest[i:]
+    return (shlex.join(inner) if inner else None), assigns
+
+
 def _ssh_inner(t):
     a = t[1:]; i = 0
     while i < len(a) and a[i].startswith("-"):
@@ -121,13 +167,18 @@ def _ssh_inner(t):
 
 
 def _shell_c_inner(toks):
-    """For bash/sh/zsh ... -c|-lc|-ec '<cmd>', return the inner command string."""
-    for k in range(1, len(toks)):
-        tk = toks[k]
+    """For bash/sh/zsh ... -c|-lc|-ec '<cmd>', return the inner command string.
+    Skips shell options that take a value (-o/-O/+o/+O/--rcfile/--init-file)."""
+    i = 1
+    while i < len(toks):
+        tk = toks[i]
         if tk == "-c" or (tk.startswith("-") and not tk.startswith("--") and "c" in tk):
-            return toks[k+1] if k + 1 < len(toks) else None
-        if not tk.startswith("-"):
-            break  # reached an operand before any -c
+            return toks[i+1] if i + 1 < len(toks) else None
+        if tk in ("-o", "+o", "-O", "+O", "--rcfile", "--init-file"):
+            i += 2; continue
+        if tk.startswith("-"):
+            i += 1; continue
+        break  # reached an operand (e.g. a script path) before any -c
     return None
 
 
@@ -152,7 +203,7 @@ def deobfuscate(cmd, context=None, depth=0):
     bodies, stripped = _extract_heredocs(cmd)
     chunks = [(stripped, context)] + [(b, context + [inv]) for inv, b in bodies]
     for chunk, ctx in chunks:
-        for s in SEPARATORS.split(chunk):
+        for s in _split_segments(chunk):
             s = s.strip()
             if not s:
                 continue
@@ -169,6 +220,10 @@ def deobfuscate(cmd, context=None, depth=0):
                 continue
             lctx = ctx + env
             v = os.path.basename(toks[0])
+            if v == "env":
+                inner, assigns = _env_inner(toks)
+                if inner:
+                    atoms += deobfuscate(inner, lctx + assigns, depth + 1); continue
             if v == "ssh":
                 inner, tg = _ssh_inner(toks)
                 if inner:
@@ -180,9 +235,12 @@ def deobfuscate(cmd, context=None, depth=0):
             if v == "eval" and len(toks) > 1:
                 atoms += deobfuscate(" ".join(toks[1:]), lctx, depth + 1); continue
             if v in ("docker", "docker-compose"):
-                inner, tg = _docker_inner(toks)
+                inner, _tg = _docker_inner(toks)
                 if inner:
-                    atoms += deobfuscate(shlex.join(inner), lctx + [tg], depth + 1); continue
+                    # carry the full docker invocation as context so prod markers in
+                    # global/compose flags (-f docker-compose.production.yml) survive.
+                    atoms += deobfuscate(shlex.join(inner), lctx + [" ".join(toks)], depth + 1)
+                    continue
             atoms.append(Atom(toks, lctx))
     return atoms
 
@@ -191,7 +249,11 @@ def _prod_marked(hay, rules):
     h = hay.lower()
     for m in rules.get("prod_markers", []):
         core = m.strip("*").lower()
-        if core and core in h:
+        if not core:
+            continue
+        # Word-boundary match so `prod` matches db-prod / prod_db / --context prod
+        # / *.production.* but NOT substrings like "products" or "delivery".
+        if re.search(r'(?<![a-z0-9])' + re.escape(core) + r'(?![a-z0-9])', h):
             return True
     return False
 
@@ -239,10 +301,17 @@ def _is_db_client(atom):
     if atom.argv and os.path.basename(atom.argv[0]) in DB_CLIENTS:
         return True
     # Context lines are transport targets or heredoc invocation lines (e.g.
-    # "psql "$DB" <<EOF" or "ssh db-prod 'psql x <<EOF"); scan their tokens.
+    # "psql "$DB" <<EOF" or "ssh db-prod 'psql x <<EOF"). Scan their tokens, but
+    # ignore redirect targets so `cat > prod/psql <<EOF` is not seen as a client.
     for c in atom.context:
-        for tok in c.replace("'", " ").replace('"', " ").split():
-            if os.path.basename(tok) in DB_CLIENTS:
+        toks = c.replace("'", " ").replace('"', " ").split()
+        for idx, tok in enumerate(toks):
+            if tok[:1] in "<>":
+                continue
+            if os.path.basename(tok.lstrip("<>&|")) in DB_CLIENTS:
+                prev = toks[idx-1] if idx > 0 else ""
+                if prev in REDIRECTS:
+                    continue
                 return True
     return False
 
@@ -259,6 +328,8 @@ def _is_protected_target(t, cwd):
         if norm in ("/", "//") or len(parts) <= 1:
             return True
         if parts[0] in CRITICAL_ROOTS:
+            return True
+        if norm.startswith("/var/lib"):
             return True
         if norm == home:
             return True

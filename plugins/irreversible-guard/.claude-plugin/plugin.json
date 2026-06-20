@@ -1,6 +1,6 @@
 {
   "name": "irreversible-guard",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "PreToolUse gate that blocks Bash commands with no practical local undo \u2014 de-obfuscates ssh/docker-exec transports, heredocs, command chains, and env prefixes, then matches a tiered deny-set (irreversible-everywhere ops block unconditionally; locally-reversible ops block only when the command names production)",
   "author": {
     "name": "Andre Paat"

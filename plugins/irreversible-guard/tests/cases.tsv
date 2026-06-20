@@ -50,6 +50,15 @@ docker --context prod volume prune -f	BLOCK
 # Codex review round 2 — must NOT block (file work, not a DB client)
 echo 'DROP TABLE users;' > production-migration.sql	PASS
 grep -R 'DROP TABLE' docs/production-migrations.md	PASS
+# Codex review round 3 — must block
+env rm -rf /	BLOCK
+bash -c 'echo ok && terraform destroy'	BLOCK
+bash -O extglob -c 'rm -rf /'	BLOCK
+docker compose -f docker-compose.production.yml exec db psql -c 'DROP TABLE users'	BLOCK
+rm -rf /var/lib/postgresql	BLOCK
+# Codex review round 3 — must NOT block
+rm -rf /var/tmp/myapp-cache	PASS
+psql -c 'DROP TABLE products'	PASS
 # Warn — recoverable
 git push --force origin main	WARN
 git reset --hard HEAD~3	WARN

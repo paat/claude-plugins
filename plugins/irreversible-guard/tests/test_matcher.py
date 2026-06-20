@@ -145,6 +145,42 @@ class TestCodexRegression(unittest.TestCase):
             self.assertEqual(classify(cmd), "BLOCK", cmd)
 
 
+class TestCodexRound3(unittest.TestCase):
+    """Third-round bypasses/false-positives; each must behave as asserted."""
+
+    def test_env_wrapper_unwrapped(self):  # F1
+        self.assertEqual(classify("env rm -rf /"), "BLOCK")
+        self.assertEqual(
+            classify("env PROD_DATABASE_URL=postgres://prod-db psql -c 'DROP TABLE users'"),
+            "BLOCK")
+
+    def test_quote_aware_split_preserves_recursion(self):  # F2
+        self.assertEqual(classify("bash -c 'echo ok && terraform destroy'"), "BLOCK")
+        self.assertEqual(
+            classify("ssh db-prod 'echo ok && psql -c \"DROP TABLE users\"'"), "BLOCK")
+
+    def test_shell_value_options_before_c(self):  # F3
+        self.assertEqual(classify("bash -O extglob -c 'rm -rf /'"), "BLOCK")
+        self.assertEqual(classify("bash -o pipefail -c 'terraform destroy'"), "BLOCK")
+
+    def test_compose_exec_prod_marker_kept(self):  # F4
+        self.assertEqual(
+            classify("docker compose -f docker-compose.production.yml exec db "
+                     "psql -c 'DROP TABLE users'"), "BLOCK")
+
+    def test_redirect_target_not_db_client(self):  # F5 (false positive)
+        self.assertEqual(
+            classify("cat > prod/psql <<'EOF'\nDROP TABLE users;\nEOF"), "PASS")
+
+    def test_var_tmp_not_protected(self):  # F6 (false positive)
+        self.assertEqual(classify("rm -rf /var/tmp/myapp-cache"), "PASS")
+        self.assertEqual(classify("rm -rf /var/lib/postgresql"), "BLOCK")
+
+    def test_prod_substring_not_marked(self):  # latent false positive
+        self.assertEqual(classify("psql -c 'DROP TABLE products'"), "PASS")
+        self.assertEqual(classify("psql -c 'DROP TABLE delivery'"), "PASS")
+
+
 class TestConfigBehaviour(unittest.TestCase):
     def test_allow_overrides_block(self):
         rules = dict(ig.DEFAULT_RULES, allow=["rm -rf /"])
