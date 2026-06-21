@@ -2351,10 +2351,10 @@ test_check_sh_template() {
   local ci="$PLUGIN_ROOT/templates/ci-workflow.yml"
   assert_file_exists "W12: ci-workflow.yml exists" "$ci"
   assert_file_contains "W13: workflow name is CI" "$ci" '^name: CI'
-  assert_file_contains "W14: pull_request trigger" "$ci" 'pull_request'
+  assert_file_contains "W14: pull_request trigger" "$ci" '^  pull_request:'
   assert_file_contains "W15: job id check" "$ci" '^  check:'
-  assert_file_contains "W16: runs ./check.sh" "$ci" './check.sh'
-  assert_file_contains "W17: has STACK_SETUP token" "$ci" '{{STACK_SETUP}}'
+  assert_file_contains "W16: runs ./check.sh" "$ci" 'run: ./check.sh'
+  assert_file_contains "W17: STACK_SETUP token alone on its own comment line" "$ci" '^      # {{STACK_SETUP}}$'
 }
 
 # ---------------------------------------------------------------------------
