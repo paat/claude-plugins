@@ -201,13 +201,14 @@ For each group in `exclusiveGroups`:
 - Output is human-readable, grouped by check, each line prefixed `[agent-sync lint]`. Example:
 
   ```
-  [agent-sync lint] contradiction: group {Supabase, Postgres} — both terms present
-      Supabase  -> README.md
-      Postgres  -> CLAUDE.md
+  [agent-sync lint] contradiction: group {Supabase, Postgres} — multiple exclusive terms present
   [agent-sync lint] line-budget: .claude/rules/architecture.md is 250 lines (budget 200)
   [agent-sync lint] soft-preference: CLAUDE.md:42: Prefer composition over inheritance
   [agent-sync lint] summary: 0 errors, 3 warnings
   ```
+
+  (Per-term file attribution — e.g. `Supabase -> README.md` — is not emitted in v1; the finding
+  names the group and its present terms. Attribution is a possible future enhancement.)
 
 - **Exit code:**
   - `0` — no `error`-severity findings (warnings may be present, or no `lint` block at all).
@@ -266,7 +267,9 @@ the snippet below shows the default `tools/agent-sync/` layout:
 ## Testing
 
 New `tests/run-lint-tests.sh` following the existing harness style (`assert_*` helpers, `mktemp -d`
-fixtures, `PASS`/`FAIL` counters). Wire it into `tests/run-tests.sh`.
+fixtures, `PASS`/`FAIL` counters). The plugin has no aggregator script — each suite
+(`run-lint-tests.sh`, `run-generate-tests.sh`, `run-tests.sh`) is run independently, so the new
+suite is added alongside the others rather than wired into `run-tests.sh` (which is the hook suite).
 
 **Acceptance-criteria cases:**
 1. Injected README/CLAUDE.md stack contradiction (`Supabase` in README, `Postgres` in CLAUDE.md,
