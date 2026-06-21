@@ -134,9 +134,11 @@ already relies on `gh`).
 - Steps: `actions/checkout`, then a clearly-marked
   `# [TECH-FOUNDER: language/runtime setup for your stack — e.g. setup-node / setup-python]`
   placeholder block, then `run: ./check.sh`.
-- For migrated repos where a stack already exists, bootstrap pre-fills the setup
-  block by detection (see Component 3), but the placeholder/marker remains visible
-  for the founder to confirm.
+- The setup block ships as a `{{STACK_SETUP}}` placeholder token. For migrated repos
+  where a stack already exists, bootstrap substitutes it with a detected runtime
+  setup snippet (Node when `package.json`; Python when `pyproject.toml` /
+  `requirements.txt`); when no stack is detected the token is replaced with the
+  commented `# [TECH-FOUNDER: ...]` marker for the founder to fill.
 
 ### Component 3 — `commands/bootstrap.md` (edits)
 
@@ -147,11 +149,15 @@ style). Inserted as new numbered steps before the final git commit step:
   `templates/ci-workflow.yml`. If a stack is already detectable, pre-fill the setup
   block (Node when `package.json`; Python when `pyproject.toml`/`requirements.txt`).
 - **Scaffold `check.sh`:** if absent, write it from `templates/check.sh` and
-  `chmod +x`. Pre-fill `REQUIRED_SUITES` + obvious suite wirings **only by
-  detection**, and emit a visible banner in the file header:
-  `# VERIFY COMPLETE: these suites were auto-detected and may be incomplete —
-  confirm every real suite is listed before relying on this gate.` Detection is a
-  convenience, never authoritative.
+  `chmod +x`. The shipped file has an **empty `REQUIRED_SUITES`** (so it fails
+  vacuously until the founder wires suites) and a visible header banner:
+  `# VERIFY COMPLETE: wire REQUIRED_SUITES + each suite to your real commands —
+  this gate fails until you do.` Detection does **not** auto-enable suites; it
+  appends **commented suggestions** (e.g. `# DETECTED package.json test script →
+  consider: REQUIRED_SUITES+=(frontend_tests); frontend_tests(){ run_suite
+  frontend_tests 'npm test'; }`). Suggestions are inert comments, so a mis-detection
+  can never produce a falsely-green gate — the founder uncomments/edits. This makes
+  detection a pure convenience, never authoritative.
 - **Branch-protection `[HUMAN]` task:** append to `.startup/human-tasks.md` a
   `[HUMAN]` item that is **explicitly sequenced**: "After the tech-founder finalizes
   `check.sh` and the first CI run on a PR is green, require the CI check on the
