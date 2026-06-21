@@ -159,6 +159,17 @@
       "source": "./plugins/irreversible-guard",
       "category": "security",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "i18n-parity",
+      "description": "Vendorable zero-dependency translation key-parity gate for multilingual next-intl apps — diffs locale catalogs (presence, empty values, ICU args, leaf shape, namespaces) with declarable waivers, wired as a hard CI/pre-push gate",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/i18n-parity",
+      "category": "quality",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }
