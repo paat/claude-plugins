@@ -30,7 +30,7 @@
     },
     {
       "name": "tribunal-review",
-      "description": "Multi-provider code review \u2014 Codex + direct-API DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with Opus arbitration",
+      "description": "Multi-provider code review — Codex + direct-API DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with Opus arbitration",
       "version": "0.14.0",
       "author": {
         "name": "Andre Paat"
@@ -52,7 +52,7 @@
     },
     {
       "name": "browser-test-router",
-      "description": "Multi-model delegation for browser testing \u2014 Haiku for mechanics, Sonnet for comparison, Opus for analysis",
+      "description": "Multi-model delegation for browser testing — Haiku for mechanics, Sonnet for comparison, Opus for analysis",
       "version": "0.1.0",
       "author": {
         "name": "Andre Paat"
@@ -63,8 +63,8 @@
     },
     {
       "name": "saas-startup-team",
-      "description": "SaaS startup simulation \u2014 business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product, acquiring customers, and iterating with one-shot improvements",
-      "version": "0.43.0",
+      "description": "SaaS startup simulation — business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product, acquiring customers, and iterating with one-shot improvements",
+      "version": "0.43.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -74,7 +74,7 @@
     },
     {
       "name": "comfyui",
-      "description": "Manage ComfyUI workflows, models, and API \u2014 build workflows from natural language, queue executions, monitor progress, and download models",
+      "description": "Manage ComfyUI workflows, models, and API — build workflows from natural language, queue executions, monitor progress, and download models",
       "version": "0.1.0",
       "author": {
         "name": "Andre Paat"
@@ -96,7 +96,7 @@
     },
     {
       "name": "google-ads-strategist",
-      "description": "Senior Google Ads strategist \u2014 iterative campaign design + Chrome-based creation in PAUSED state for investor review. Browser verification via Ad Preview Tool, SERP capture, and Ads Transparency Center. Enforces hypothesis discipline, buyer-intent + product-value gates, and accumulates learnings.",
+      "description": "Senior Google Ads strategist — iterative campaign design + Chrome-based creation in PAUSED state for investor review. Browser verification via Ad Preview Tool, SERP capture, and Ads Transparency Center. Enforces hypothesis discipline, buyer-intent + product-value gates, and accumulates learnings.",
       "version": "0.5.0",
       "author": {
         "name": "Andre Paat"
@@ -107,7 +107,7 @@
     },
     {
       "name": "emails-to-github-issues",
-      "description": "Turn emails from named senders into GitHub issues \u2014 IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping that respects customer-side numbering, inline-screenshot handling, and scope confirmation before writes",
+      "description": "Turn emails from named senders into GitHub issues — IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping that respects customer-side numbering, inline-screenshot handling, and scope confirmation before writes",
       "version": "0.1.1",
       "author": {
         "name": "Andre Paat"
@@ -118,7 +118,7 @@
     },
     {
       "name": "analyst-companion",
-      "description": "Real-time in-person meeting analyst \u2014 live transcription with speaker diarization via WhisperLiveKit, clarifying questions, voice commands with Chrome screen context, and Plane work items at meeting end",
+      "description": "Real-time in-person meeting analyst — live transcription with speaker diarization via WhisperLiveKit, clarifying questions, voice commands with Chrome screen context, and Plane work items at meeting end",
       "version": "0.2.0",
       "author": {
         "name": "Andre Paat"
@@ -129,7 +129,7 @@
     },
     {
       "name": "silent-failure-scanner",
-      "description": "Deterministic diff-time detector for swallowed errors & ghost transactions \u2014 flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook that hands findings to Claude to arbitrate",
+      "description": "Deterministic diff-time detector for swallowed errors & ghost transactions — flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook that hands findings to Claude to arbitrate",
       "version": "0.2.2",
       "author": {
         "name": "Andre Paat"
@@ -140,7 +140,7 @@
     },
     {
       "name": "payment-contract-tester",
-      "description": "Research-grounded payment-integration hardening \u2014 a skill encoding Montonio/Stripe/Mollie silent-trap knowledge plus runnable contract-test reference fixtures that run green against a correct handler and red against each seeded trap",
+      "description": "Research-grounded payment-integration hardening — a skill encoding Montonio/Stripe/Mollie silent-trap knowledge plus runnable contract-test reference fixtures that run green against a correct handler and red against each seeded trap",
       "version": "0.2.0",
       "author": {
         "name": "Andre Paat"
@@ -151,7 +151,7 @@
     },
     {
       "name": "irreversible-guard",
-      "description": "PreToolUse gate that blocks Bash commands with no practical local undo \u2014 de-obfuscates ssh/docker-exec transports, heredocs, chains, and env prefixes before matching a tiered deny-set",
+      "description": "PreToolUse gate that blocks Bash commands with no practical local undo — de-obfuscates ssh/docker-exec transports, heredocs, chains, and env prefixes before matching a tiered deny-set",
       "version": "0.1.5",
       "author": {
         "name": "Andre Paat"
