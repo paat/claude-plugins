@@ -97,10 +97,10 @@ cmd_commit() {
   local state_file="" failed=0; local malformed=()
   while [ $# -gt 0 ]; do
     case "$1" in
-      --state)        state_file="$2"; shift 2 ;;
-      --repo)         REPO="$2"; shift 2 ;;
-      --labels)       LABELS="$2"; shift 2 ;;
-      --repro-recipe) REPRO_RECIPE="$2"; shift 2 ;;
+      --state)        [ $# -ge 2 ] || _die "commit: --state needs a value"; state_file="$2"; shift 2 ;;
+      --repo)         [ $# -ge 2 ] || _die "commit: --repo needs a value"; REPO="$2"; shift 2 ;;
+      --labels)       [ $# -ge 2 ] || _die "commit: --labels needs a value"; LABELS="$2"; shift 2 ;;
+      --repro-recipe) [ $# -ge 2 ] || _die "commit: --repro-recipe needs a value"; REPRO_RECIPE="$2"; shift 2 ;;
       --dry-run)      DRY_RUN=1; shift ;;
       *) _die "commit: unknown arg $1" ;;
     esac

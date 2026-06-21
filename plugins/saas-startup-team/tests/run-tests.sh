@@ -138,18 +138,10 @@ assert_json_valid() {
 }
 
 assert_json_field() {
+  local label="$1" path="$2" field="$3" expected="$4"
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
   local actual
-  local label="$1" path="$2" field="$3"
-  # 3-arg form: assert_json_field label pre_evaluated_value expected
-  # 4-arg form: assert_json_field label file jq_expression expected
-  if [ $# -eq 3 ]; then
-    actual="$path"
-    local expected="$field"
-  else
-    local expected="$4"
-    actual=$(jq -r "$field" "$path" 2>/dev/null || echo "__JQ_ERROR__")
-  fi
+  actual=$(jq -r "$field" "$path" 2>/dev/null || echo "__JQ_ERROR__")
   if [ "$actual" = "$expected" ]; then
     echo -e "  ${GREEN}PASS${NC} $label"
     PASS_COUNT=$((PASS_COUNT + 1))
@@ -2545,7 +2537,7 @@ test_monitor_dedup() {
   assert_output_contains "W5: action create" "$output" '"action":"create"'
   assert_file_contains "W5: gh issue create called" "$L" "issue create"
   assert_equals "W5: every gh call carries --repo" "$(grep -c -- '--repo o/r' "$L")" "$(wc -l < "$L" | tr -d ' ')"
-  assert_json_field "W5: state records 142" "$(jq -c '.patterns["pipeline:err:categorize"].gh_issue' "$state")" "142"
+  assert_equals "W5: state records 142" "$(jq -c '.patterns["pipeline:err:categorize"].gh_issue' "$state")" "142"
 
   # W6: same (entity,pattern) in state → SKIP, NO gh calls at all
   workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
@@ -2567,7 +2559,7 @@ test_monitor_dedup() {
     bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
   assert_output_contains "W7: action comment" "$output" '"action":"comment"'
   assert_file_contains "W7: commented on 142" "$L" "issue comment 142"
-  assert_json_field "W7: 2 sessions" "$(jq -c '.patterns["pipeline:err:categorize"].sessions|length' "$state")" "2"
+  assert_equals "W7: 2 sessions" "$(jq -c '.patterns["pipeline:err:categorize"].sessions|length' "$state")" "2"
 
   # W8: same entity, DIFFERENT pattern → CREATE (not collapsed)
   workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
@@ -2577,7 +2569,7 @@ test_monitor_dedup() {
     bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
   assert_output_contains "W8: action create" "$output" '"action":"create"'
   assert_output_not_contains "W8: not a comment" "$output" '"action":"comment"'
-  assert_json_field "W8: new pattern stored" "$(jq -c '.patterns["pipeline:timeout:narrative"].gh_issue' "$state")" "143"
+  assert_equals "W8: new pattern stored" "$(jq -c '.patterns["pipeline:timeout:narrative"].gh_issue' "$state")" "143"
 
   # W9: two findings, same pattern, different entity, ONE run → 1 create + 1 comment, both entities stored
   workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
@@ -2588,7 +2580,7 @@ test_monitor_dedup() {
     bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
   assert_equals "W9: one create" "$(grep -c 'issue create' "$L")" "1"
   assert_equals "W9: one comment" "$(grep -c 'issue comment' "$L")" "1"
-  assert_json_field "W9: both entities stored" "$(jq -c '.patterns["payment:stuck"].sessions|length' "$state")" "2"
+  assert_equals "W9: both entities stored" "$(jq -c '.patterns["payment:stuck"].sessions|length' "$state")" "2"
 
   # W9b: empty stdin → exit 0, state initialized, last_run_at advanced (non-null)
   workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
