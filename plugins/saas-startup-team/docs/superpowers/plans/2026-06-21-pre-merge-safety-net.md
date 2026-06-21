@@ -66,9 +66,11 @@ test_check_sh_template() {
   # W8: a wired, green suite → exit 0
   workdir=$(mktemp -d)
   cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
-  # declare + wire frontend_tests to a trivially-green command
+  # declare + wire frontend_tests to a trivially-green command.
+  # NOTE: the wiring seds match `^name().*` so they are agnostic to the
+  # template's column-aligned spacing between `()` and `{`.
   sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(frontend_tests)/' "$workdir/check.sh"
-  sed -i "s|^frontend_tests() { suite_stub frontend_tests; }|frontend_tests() { run_suite frontend_tests 'true'; }|" "$workdir/check.sh"
+  sed -i "s|^frontend_tests().*|frontend_tests() { run_suite frontend_tests 'true'; }|" "$workdir/check.sh"
   ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
   assert_exit_code "W8: wired green suite passes" "$ec" 0
   rm -rf "$workdir"
@@ -82,11 +84,21 @@ test_check_sh_template() {
   assert_output_contains "W9b: names the unwired suite" "$output" "backend_tests"
   rm -rf "$workdir"
 
+  # W9c: declared suite hand-edited to return 0 WITHOUT run_suite → still fails (Guard 2)
+  workdir=$(mktemp -d)
+  cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(backend_tests)/' "$workdir/check.sh"
+  sed -i 's|^backend_tests().*|backend_tests() { true; }|' "$workdir/check.sh"
+  ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
+  assert_equals "W9c: declared-but-never-ran suite fails" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+  assert_output_contains "W9d: Guard 2 names never-ran suite" "$output" "never ran a command"
+  rm -rf "$workdir"
+
   # W10: a wired, RED suite → non-zero
   workdir=$(mktemp -d)
   cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
   sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(lint)/' "$workdir/check.sh"
-  sed -i "s|^lint() { suite_stub lint; }|lint() { run_suite lint 'false'; }|" "$workdir/check.sh"
+  sed -i "s|^lint().*|lint() { run_suite lint 'false'; }|" "$workdir/check.sh"
   ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
   assert_equals "W10: wired red suite fails" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
   rm -rf "$workdir"
@@ -95,7 +107,7 @@ test_check_sh_template() {
   workdir=$(mktemp -d)
   cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
   sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(typecheck)/' "$workdir/check.sh"
-  sed -i "s|^typecheck() { suite_stub typecheck; }|typecheck() { run_suite typecheck 'false \&\& true'; }|" "$workdir/check.sh"
+  sed -i "s|^typecheck().*|typecheck() { run_suite typecheck 'false \&\& true'; }|" "$workdir/check.sh"
   ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
   assert_equals "W11: &&-chain mid failure fails" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
   rm -rf "$workdir"
@@ -148,11 +160,18 @@ typecheck()      { suite_stub typecheck; }
 golden_tests()   { suite_stub golden_tests; }
 
 # --- Machinery (do not edit below) -------------------------------------------
-RAN=()
-FAILED=()
+RAN=()                 # suites that actually invoked run_suite
+FAILED=()              # suites that failed (red command, or never ran)
+declare -A STATUS      # label -> pass|fail (only set by run_suite)
 
 suite_stub() {
   echo "  ✗ SUITE '$1' is declared in REQUIRED_SUITES but not wired up — edit check.sh"
+  return 1
+}
+
+ran_contains() {
+  local x="$1" r
+  for r in "${RAN[@]:-}"; do [ "$r" = "$x" ] && return 0; done
   return 1
 }
 
@@ -162,32 +181,48 @@ run_suite() {
   echo "  ▶ $label: $cmd"
   if bash -c "$cmd"; then
     echo "  ✓ $label passed"
+    STATUS[$label]="pass"
     return 0
   else
     echo "  ✗ $label failed"
+    STATUS[$label]="fail"
     return 1
   fi
 }
 
 main() {
   local suite
-  for suite in "${REQUIRED_SUITES[@]:-}"; do
-    [ -z "$suite" ] && continue
-    if ! "$suite"; then
-      FAILED+=("$suite")
-    fi
-  done
 
-  # Guard 1: anti-vacuous — nothing actually ran.
-  if [ "${#RAN[@]}" -eq 0 ]; then
+  # Guard 1: anti-vacuous — nothing declared at all (the freshly-scaffolded
+  # state). Triggers before running so an empty manifest can never look green.
+  local declared=0
+  for suite in "${REQUIRED_SUITES[@]:-}"; do [ -n "$suite" ] && declared=$((declared+1)); done
+  if [ "$declared" -eq 0 ]; then
     echo "check.sh: no suites ran — refusing to report success."
     echo "Declare and wire suites in REQUIRED_SUITES (see VERIFY COMPLETE banner)."
     exit 1
   fi
 
-  # Guard 2 is enforced structurally: a declared-but-unwired suite calls
-  # suite_stub (never run_suite), so it never lands in RAN and returns 1 →
-  # it is in FAILED below.
+  # Run each declared suite. We judge by RAN + STATUS, not the function's raw
+  # return, so a suite that returns 0 WITHOUT calling run_suite cannot slip by.
+  for suite in "${REQUIRED_SUITES[@]:-}"; do
+    [ -z "$suite" ] && continue
+    "$suite" || true
+  done
+
+  # Guard 2: every declared suite must have actually run a command via
+  # run_suite (catches both unwired suite_stub and a hand-edited `{ true; }`),
+  # and any suite whose command failed is a failure.
+  for suite in "${REQUIRED_SUITES[@]:-}"; do
+    [ -z "$suite" ] && continue
+    if ! ran_contains "$suite"; then
+      echo "  ✗ SUITE '$suite' declared but never ran a command (Guard 2)"
+      FAILED+=("$suite")
+    elif [ "${STATUS[$suite]:-}" = "fail" ]; then
+      FAILED+=("$suite")
+    fi
+  done
+
   if [ "${#FAILED[@]}" -gt 0 ]; then
     echo "check.sh: FAILED suites: ${FAILED[*]}"
     exit 1
@@ -266,16 +301,12 @@ jobs:
       - uses: actions/checkout@v4
 
       # {{STACK_SETUP}}
-      # [TECH-FOUNDER: add language/runtime setup for your stack here, e.g.
-      #   - uses: actions/setup-node@v4   (with: node-version + cache: npm)
-      #   - uses: actions/setup-python@v5 (with: python-version)
-      # then install deps (npm ci / pip install -r requirements.txt).]
 
       - name: Run full regression suite
         run: ./check.sh
 ```
 
-Note: the literal `{{STACK_SETUP}}` token sits on its own comment line so bootstrap can substitute the whole line. The `[TECH-FOUNDER: ...]` block below it is the fallback shown when no stack is detected.
+Note: the literal `{{STACK_SETUP}}` token sits alone on its own comment line so bootstrap can replace the whole line — with a detected runtime-setup block (Node/Python), or, when no stack is detected, with a `[TECH-FOUNDER: ...]` marker for the founder to fill. Keeping it a single token (no inline fallback) avoids leaving a stale comment in detected-stack repos.
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -342,7 +373,9 @@ test_bootstrap_safety_net() {
   ec=0; output=$(cd "$workdir/repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/scaffold.sh" 2>&1) || ec=$?
   assert_exit_code "X9: re-run is idempotent (clean exit)" "$ec" 0
   local count
-  count=$(grep -c "branch protection" "$workdir/repo/.startup/human-tasks.md")
+  # Count the unique idempotency-guard heading (the phrase "branch protection"
+  # itself appears twice per block: in the heading and in the UI instructions).
+  count=$(grep -c "Require the CI check (branch protection)" "$workdir/repo/.startup/human-tasks.md")
   assert_equals "X10: branch-protection task not duplicated" "$count" "1"
 
   # X11-X13: node stack detected → STACK_SETUP substituted with setup-node
@@ -409,19 +442,36 @@ if [ ! -f .github/workflows/ci.yml ]; then
   mkdir -p .github/workflows
   cp "${CLAUDE_PLUGIN_ROOT}/templates/ci-workflow.yml" .github/workflows/ci.yml
 
+  # Build the runtime-setup block. Install command depends on which lock/manifest
+  # files exist so CI does not fail before ./check.sh (npm ci needs a lockfile;
+  # pip -r needs requirements.txt).
+  setup=""
   if [ -f package.json ]; then
-    setup='      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n          cache: npm\n      - run: npm ci'
-    sed -i "s|.*{{STACK_SETUP}}.*|$setup|" .github/workflows/ci.yml
+    if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+      setup='      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n          cache: npm\n      - run: npm ci'
+    else
+      setup='      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: npm install'
+    fi
   elif [ -f pyproject.toml ] || [ -f requirements.txt ] || [ -f setup.cfg ]; then
-    setup='      - uses: actions/setup-python@v5\n        with:\n          python-version: \"3.12\"\n      - run: pip install -r requirements.txt'
-    sed -i "s|.*{{STACK_SETUP}}.*|$setup|" .github/workflows/ci.yml
+    if [ -f requirements.txt ]; then
+      pyinstall='pip install -r requirements.txt'
+    else
+      pyinstall='pip install -e .'
+    fi
+    setup="      - uses: actions/setup-python@v5\n        with:\n          python-version: \"3.12\"\n      - run: $pyinstall"
   else
-    # No stack detected: drop the token line, leave the TECH-FOUNDER marker.
-    sed -i '/{{STACK_SETUP}}/d' .github/workflows/ci.yml
+    # No stack detected: leave a marker for the tech-founder to fill in.
+    setup='      # [TECH-FOUNDER: add language/runtime setup for your stack, then\n      #  install deps, before ./check.sh runs.]'
   fi
+  # Replace the whole {{STACK_SETUP}} token line. GNU sed expands \n in the
+  # replacement to newlines, producing the multi-line YAML block.
+  sed -i "s|.*{{STACK_SETUP}}.*|$setup|" .github/workflows/ci.yml
 fi
 
-# 3. Branch-protection [HUMAN] task (sequenced, idempotent)
+# 3. Branch-protection [HUMAN] task (sequenced, idempotent).
+# NOTE: do NOT put fenced code blocks inside this heredoc — the test harness's
+# markdown bash-block extractor stops at the first closing fence. Commands are
+# shown indented as plain text instead.
 mkdir -p .startup
 touch .startup/human-tasks.md
 if ! grep -q "Require the CI check (branch protection)" .startup/human-tasks.md; then
@@ -433,26 +483,26 @@ Sequencing: do this ONLY after the tech-founder has finalized `check.sh` and the
 first CI run on a real PR is green — otherwise you block every PR on a stub.
 
 1. Get the exact check name from the first green PR:
-   `gh pr checks <pr-number>`   (it is `check` or `CI / check` — copy verbatim)
+   gh pr checks <pr-number>      (it is `check` or `CI / check` — copy verbatim)
 2. Primary path — GitHub UI: Settings → Branches → Add branch protection rule →
    "Require status checks to pass before merging" → select that check.
 3. CLI alternative (ONLY for a repo with no existing protection rule — a PUT to
-   /protection REPLACES all protection settings):
-   ```bash
-   BR=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
-   CTX="check"   # replace with the exact name from step 1
-   gh api -X PUT "repos/{owner}/{repo}/branches/$BR/protection" \
-     -H "Accept: application/vnd.github+json" --input - <<JSON
-   {
-     "required_status_checks": { "strict": true, "contexts": ["$CTX"] },
-     "enforce_admins": false,
-     "required_pull_request_reviews": null,
-     "restrictions": null
-   }
-   JSON
-   ```
-   Requires repo-admin + a token with the right scope. `enforce_admins:false`
-   lets admins merge a red PR in an emergency — set `true` to bind admins too.
+   /protection REPLACES all protection settings; use the UI otherwise):
+
+       BR=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+       CTX="check"   # replace with the exact name from step 1
+       gh api -X PUT "repos/{owner}/{repo}/branches/$BR/protection" \
+         -H "Accept: application/vnd.github+json" --input - <<JSON
+       {
+         "required_status_checks": { "strict": true, "contexts": ["$CTX"] },
+         "enforce_admins": false,
+         "required_pull_request_reviews": null,
+         "restrictions": null
+       }
+       JSON
+
+   Requires repo-admin + a token with the right scope. enforce_admins:false
+   lets admins merge a red PR in an emergency — set true to bind admins too.
 TASK
 fi
 ```
@@ -756,6 +806,10 @@ Append to `test_canonical_entrypoint_wiring`:
     "$PLUGIN_ROOT/agents/business-founder-maintain.md" "independent source"
   assert_file_contains "Y11: build agent has independent spot-check" \
     "$PLUGIN_ROOT/agents/business-founder.md" "independent source"
+  assert_file_contains "Y12: maintain agent has duplicated-rule awareness" \
+    "$PLUGIN_ROOT/agents/business-founder-maintain.md" "another layer"
+  assert_file_contains "Y13: build agent has duplicated-rule awareness" \
+    "$PLUGIN_ROOT/agents/business-founder.md" "another layer"
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -774,16 +828,17 @@ In `plugins/saas-startup-team/agents/business-founder-maintain.md`, in the `### 
 
 - [ ] **Step 4: Edit `business-founder.md`**
 
-In `plugins/saas-startup-team/agents/business-founder.md`, in the browser-QA workflow list (the numbered "QA workflow" steps ending around step 9 "Visually verify..."), add a final step:
+In `plugins/saas-startup-team/agents/business-founder.md`, in the browser-QA workflow list (the numbered "QA workflow" steps ending around step 9 "Visually verify..."), add two final steps (both phrases are asserted — keep "independent source" and "another layer"):
 
 ```
 10. For computed/derived outputs, spot-check at least one value against an independent source (hand calc / reference doc) — do not trust in-app green checks; the app can be green on a wrong result.
+11. When a change touches a business rule, check whether the same rule lives in another layer that may now be desynced.
 ```
 
 - [ ] **Step 5: Run to verify it passes**
 
-Run: `bash plugins/saas-startup-team/tests/run-tests.sh 2>&1 | grep -E 'Y1[01]'`
-Expected: `Y10`, `Y11` PASS.
+Run: `bash plugins/saas-startup-team/tests/run-tests.sh 2>&1 | grep -E 'Y1[0-3]'`
+Expected: `Y10`–`Y13` PASS.
 
 - [ ] **Step 6: Commit**
 
