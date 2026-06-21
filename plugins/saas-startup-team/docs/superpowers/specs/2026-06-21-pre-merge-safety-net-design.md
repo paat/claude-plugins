@@ -67,6 +67,7 @@ Component 3), rather than pretending the plugin can flip branch protection itsel
 ### Component 1 — `templates/check.sh` (new)
 
 Stack-agnostic bash, bash 4+ / POSIX tools only. The canonical full-suite entrypoint.
+Shebang is `#!/usr/bin/env bash` (never relies on `/bin/sh`).
 
 **Structure:**
 
@@ -84,18 +85,23 @@ Stack-agnostic bash, bash 4+ / POSIX tools only. The canonical full-suite entryp
   wired up — edit check.sh` and returns non-zero. So a declared-but-unwired suite
   makes `check.sh` fail (Guard 2 below) by construction, not by heuristics.
 
-- A `run_suite <label> <command...>` helper the founder uses to wire a suite:
+- A `run_suite <label> <command-string>` helper the founder uses to wire a suite.
+  **Fixed calling convention:** exactly two arguments — a label and a *single shell
+  command string* — which the helper runs via `bash -c "$cmd"`. This avoids the
+  argv-vs-shell-string ambiguity; multi-command suites are a single `&&`-chained
+  string:
 
   ```bash
-  frontend_tests() { run_suite frontend_tests npm test; }
+  frontend_tests() { run_suite frontend_tests 'npm test'; }
+  lint()           { run_suite lint 'npm run lint && npm run format:check'; }
   ```
 
   `run_suite` records that the suite **ran** (increments a counter / appends to a
-  `RAN` list), executes the command, captures its exit status, records pass/fail,
-  and returns that status. Wiring multiple commands uses `&&` so any failure
-  propagates (`run_suite lint "npm run lint && npm run format:check"` via a single
-  string the helper runs through `bash -c`), avoiding the `pipefail`-without-`-e`
-  masking failure mode (a multi-command function whose last command succeeds).
+  `RAN` list), runs the command string under `bash -c`, captures its exit status,
+  records pass/fail, and returns that status. Because the whole string runs under
+  one `bash -c`, an `&&`-chained mid-command failure propagates — avoiding the
+  `pipefail`-without-`-e` masking mode (a multi-command function whose last command
+  succeeds).
 
 **Driver / guards:**
 
@@ -148,26 +154,46 @@ style). Inserted as new numbered steps before the final git commit step:
   convenience, never authoritative.
 - **Branch-protection `[HUMAN]` task:** append to `.startup/human-tasks.md` a
   `[HUMAN]` item that is **explicitly sequenced**: "After the tech-founder finalizes
-  `check.sh` and the first CI run on a PR is green, enable branch protection
-  requiring the `check` status check on the default branch." Include a ready-to-paste
-  command that derives the default branch itself, e.g.:
+  `check.sh` and the first CI run on a PR is green, require the CI check on the
+  default branch."
 
-  ```bash
-  BR=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
-  gh api -X PUT "repos/{owner}/{repo}/branches/$BR/protection" \
-    -H "Accept: application/vnd.github+json" \
-    -f 'required_status_checks[strict]=true' \
-    -f 'required_status_checks[contexts][]=check' \
-    -F 'enforce_admins=true' -F 'required_pull_request_reviews=null' \
-    -F 'restrictions=null'
-  ```
+  - **Primary path: the GitHub UI** — *Settings → Branches → Add branch protection
+    rule → Require status checks to pass → select the CI check.* This is the
+    recommended path because it composes with any existing protections and shows the
+    exact check name to select.
+  - **Get the exact check-context name first** (it can be `check` or `CI / check`
+    depending on GitHub's surfacing — do not guess): run `gh pr checks <pr>` on the
+    first green PR and copy the check name verbatim.
+  - **CLI alternative (only for repos with no existing protection rule —** a `PUT` to
+    `/protection` *replaces* the whole protection object and would wipe existing
+    review/restriction/linear-history settings**):** use a full JSON payload via
+    `--input` so `null` fields serialize correctly (the `-F key=null` form is
+    error-prone):
 
-  With a note that this requires repo-admin and a token with the right scope; classic
-  branch protection is used (a rulesets alternative is mentioned as out of scope).
+    ```bash
+    BR=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+    CTX="check"   # <- replace with the exact name from `gh pr checks`
+    gh api -X PUT "repos/{owner}/{repo}/branches/$BR/protection" \
+      -H "Accept: application/vnd.github+json" --input - <<JSON
+    {
+      "required_status_checks": { "strict": true, "contexts": ["$CTX"] },
+      "enforce_admins": false,
+      "required_pull_request_reviews": null,
+      "restrictions": null
+    }
+    JSON
+    ```
+
+    Notes baked into the task: requires repo-admin and a token with the right scope;
+    `enforce_admins` defaults to `false` here (admins can still merge a red PR in an
+    emergency — matches the investor's speed-over-safety preference; flip to `true` to
+    bind admins too); classic branch protection only (rulesets out of scope).
 - **Record canonical-entrypoint expectation:** the bootstrap CLAUDE.md / workflow
   guidance notes that `./check.sh` is the canonical full-suite entrypoint and that the
   tech-founder must finalize it and record the resolved commands in
-  `docs/architecture/architecture.md`.
+  `docs/architecture/architecture.md`. (Recording happens at tech-founder
+  finalization time, by which point `architecture.md` exists; if absent, the founder
+  creates it — `docs/architecture/` is already made in bootstrap Step 1.)
 - **Commit:** add `.github/workflows/ci.yml` and `check.sh` to the bootstrap commit's
   `git add` list.
 
@@ -272,3 +298,26 @@ Codex (gpt-5.5) raised 8 concerns; dispositions:
 7. **Migrated-repo detection false confidence** → accepted; detection is convenience
    prefill with a visible "VERIFY COMPLETE" banner, never authoritative.
 8. **README/version scope creep** → accepted; Component 9 kept strictly minimal.
+
+### Round 2 (2026-06-21, on the written spec)
+
+Codex (gpt-5.5) raised 8 more; dispositions:
+
+1. **Required-check context may be `CI / check` not `check`** → accepted; `[HUMAN]`
+   task instructs getting the exact name via `gh pr checks` before pasting; UI path
+   shows it directly.
+2. **`PUT /protection` replaces existing settings (wipe risk)** → accepted; UI is now
+   the primary path; CLI alternative is scoped to repos with no existing rule and
+   warned.
+3. **`-F key=null` serialization fragility** → accepted; CLI alternative switched to a
+   full JSON payload via `--input -`.
+4. **Shebang** → accepted; `#!/usr/bin/env bash` mandated in Component 1.
+5. **`run_suite` calling convention ambiguous** → accepted; fixed to exactly
+   `run_suite <label> <single-shell-string>` run via `bash -c`.
+6. **Born-failing scaffold + immediate CI sequencing** → already covered by the
+   sequenced `[HUMAN]` task and the `check.sh` "VERIFY COMPLETE" banner; reinforced.
+7. **`architecture.md` may not exist** → accepted; note added (created at finalization
+   time; founder creates if absent).
+8. **Drift guard only checks presence, not absence of ad-hoc commands** → acknowledged
+   as a known limitation; rejecting arbitrary "ad-hoc command" patterns generically is
+   too noisy (same rationale as out-of-scope gap #3). Presence check retained.
