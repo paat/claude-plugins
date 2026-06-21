@@ -93,3 +93,82 @@ def load_config(path):
         if not isinstance(d["present"], str) or not _is_str_list(d["absentIn"]) or not _is_str_list(d["prefixes"]):
             raise ConfigError("directionPrefixes types: present=str, absentIn=[str], prefixes=[str]")
     return raw
+
+
+# ---------- catalog parsing ----------
+
+_ICU_ARG = re.compile(r"\{\s*([A-Za-z0-9_]+)")
+_ICU_QUOTED = re.compile(r"'(?:''|[^'])*'")
+
+
+def extract_icu_args(s):
+    """Argument names in an ICU string. Deliberately limited grammar:
+    first identifier after each '{', with apostrophe-quoted spans stripped
+    best-effort. Branch categories (one/other/=0) are NOT parsed."""
+    cleaned = _ICU_QUOTED.sub("", s)
+    return set(_ICU_ARG.findall(cleaned))
+
+
+_OBJ = "\x00obj"  # sentinel tag: object_pairs_hook wraps every JSON object so
+                  # duplicate keys survive (a plain dict would collapse last-wins).
+
+
+def _is_obj(x):
+    return isinstance(x, tuple) and len(x) == 2 and x[0] is _OBJ
+
+
+def _leaf(value):
+    """Build a leaf record (shape/value/icu) for a non-object JSON value."""
+    if value is None:
+        shape = "null"
+    elif isinstance(value, list):
+        shape = "array"
+    else:
+        shape = "scalar"
+    icu = extract_icu_args(value) if isinstance(value, str) else set()
+    return {"shape": shape, "value": value, "icu": frozenset(icu)}
+
+
+def flatten(obj, prefix=""):
+    """Nested dict -> {dotted-path: leaf}. Objects recurse; arrays/null/scalars
+    are opaque leaves (intra-array structure out of scope). For plain dicts."""
+    out = {}
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            key = "%s.%s" % (prefix, k) if prefix else k
+            if isinstance(v, dict):
+                out.update(flatten(v, key))
+            else:
+                out[key] = _leaf(v)
+    return out
+
+
+def _walk_pairs(node, prefix, flat, dups):
+    """Walk a ('\x00obj', [(k, v), ...]) tree, filling flat (dotted leaf map)
+    and dups (dotted paths declared more than once in the same object)."""
+    seen = set()
+    for k, v in node[1]:
+        key = "%s.%s" % (prefix, k) if prefix else k
+        if k in seen:
+            dups.append(key)
+        seen.add(k)
+        if _is_obj(v):
+            _walk_pairs(v, key, flat, dups)
+        else:
+            flat[key] = _leaf(v)
+
+
+def load_catalog(path):
+    """Return ({"flat":..., "dups":[dotted...]}, None) or (None, (kind, detail))."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            tree = json.load(f, object_pairs_hook=lambda pairs: (_OBJ, pairs))
+    except FileNotFoundError:
+        return None, ("missing-file", path)
+    except json.JSONDecodeError as e:
+        return None, ("invalid-json", "%s: %s" % (path, e))
+    if not _is_obj(tree):
+        return None, ("invalid-json", "%s: root is not a JSON object" % path)
+    flat, dups = {}, []
+    _walk_pairs(tree, "", flat, dups)
+    return {"flat": flat, "dups": sorted(set(dups))}, None
