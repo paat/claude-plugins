@@ -2456,6 +2456,10 @@ test_canonical_entrypoint_wiring() {
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "green-but-wrong"
   assert_file_contains "Y7: tech-founder mentions golden suite" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "golden"
+  assert_file_contains "Y8: quality-standards has single-source-of-truth principle" \
+    "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "Single source of truth"
+  assert_file_contains "Y9: quality-standards warns about re-derived rules" \
+    "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "re-derive"
 }
 
 # ---------------------------------------------------------------------------

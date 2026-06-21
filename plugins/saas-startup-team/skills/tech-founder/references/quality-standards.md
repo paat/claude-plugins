@@ -13,6 +13,7 @@
 - [ ] Variable names describe what they hold
 - [ ] Function names describe what they do
 - [ ] No magic numbers — use named constants
+- [ ] Did this change **re-derive a rule that already exists in another layer**? If a business predicate (tax test, acquisition check, VAT sign, eligibility rule) now lives in >1 place, consolidate or derive from one source — divergent copies are the #1 regression generator.
 - [ ] Error messages are helpful to the customer
 - [ ] Edge cases are handled (empty states, error states)
 - [ ] Estonian text preserves exact diacritics (ä, ö, ü, õ, š, ž) — never use digraphs (ae, oe, ue)
@@ -27,6 +28,15 @@
 - [ ] Error flow is tested (what happens when things go wrong?)
 - [ ] Mobile view is acceptable (if user-facing)
 - [ ] Testing instructions are clear enough for non-technical reviewer
+
+## Single source of truth for domain invariants
+
+**Derive, don't duplicate domain/business rules across layers.** When the same
+predicate is coded independently in the backend engine, an aggregator, and a
+frontend gate, patching one silently desyncs the others — the dominant source of
+recurring bugs. Define each business rule once and have every layer call or derive
+from that single definition. In review, when a rule appears in more than one layer,
+treat it as a defect to consolidate, not a coincidence.
 
 ## UI Quality Standards
 
