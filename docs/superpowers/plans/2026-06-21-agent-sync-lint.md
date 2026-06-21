@@ -301,8 +301,13 @@ cfg_err() { echo "[agent-sync lint] config error: $1" >&2; exit 2; }
 
 validate_lint_config() {
   local check sev t
+  # lint itself must be an object.
+  [[ "$(jq -r '.lint | type' <<<"$CONFIG")" == "object" ]] || cfg_err "lint must be an object"
   for check in contradictions lineBudget softPreferences; do
     [[ "$(jq --arg c "$check" 'has("lint") and (.lint｜has($c))' <<<"$CONFIG")" == "true" ]] || continue
+    # each configured check must be an object.
+    [[ "$(jq -r --arg c "$check" '.lint[$c] | type' <<<"$CONFIG")" == "object" ]] \
+      || cfg_err "$check must be an object"
     # severity
     sev="$(jq -r --arg c "$check" '.lint[$c].severity // "warn"' <<<"$CONFIG")"
     case "$sev" in error|warn|off) ;; *) cfg_err "invalid severity '$sev' for $check (use error|warn|off)";; esac
@@ -427,6 +432,8 @@ resolve_files() {
   fi
   local -A seen=()
   local e abs
+  # Save/restore caller's nullglob state.
+  local nullglob_was=0; shopt -q nullglob && nullglob_was=1
   shopt -s nullglob
   for e in "${entries[@]}"; do
     # Unquoted $e enables glob expansion (paths assumed free of spaces, like generate.sh).
@@ -435,7 +442,7 @@ resolve_files() {
       if [[ -z "${seen[$abs]:-}" ]]; then seen[$abs]=1; printf '%s\n' "$abs"; fi
     done
   done
-  shopt -u nullglob
+  (( nullglob_was )) && shopt -s nullglob || shopt -u nullglob
 }
 ```
 
@@ -508,11 +515,12 @@ JSON
 
 SP_BODY=$'# Style\n\nPrefer composition over inheritance.\n- prefer using hooks\n1. Prefer X\nUsers prefer dark mode here.\nWe preferred the old API.\n'
 SP1="$(mk_repo_sp "$TMP/sp" "$SP_BODY" '{"softPreferences":{"files":[".claude/rules/*.md"]}}')"
-assert_stdout_contains "leading Prefer flagged" "soft-preference: style.md:3" -- --config "$SP1" --root "$TMP/sp"
-assert_stdout_contains "bullet prefer flagged" "style.md:4" -- --config "$SP1" --root "$TMP/sp"
-assert_stdout_contains "numbered Prefer flagged" "style.md:5" -- --config "$SP1" --root "$TMP/sp"
-assert_stdout_absent "mid-sentence prefer NOT flagged" "style.md:6" -- --config "$SP1" --root "$TMP/sp"
-assert_stdout_absent "mid-sentence preferred NOT flagged" "style.md:7" -- --config "$SP1" --root "$TMP/sp"
+# NOTE: the file lives at .claude/rules/style.md, so the reported path is the full relative path.
+assert_stdout_contains "leading Prefer flagged" "soft-preference: .claude/rules/style.md:3" -- --config "$SP1" --root "$TMP/sp"
+assert_stdout_contains "bullet prefer flagged" ".claude/rules/style.md:4" -- --config "$SP1" --root "$TMP/sp"
+assert_stdout_contains "numbered Prefer flagged" ".claude/rules/style.md:5" -- --config "$SP1" --root "$TMP/sp"
+assert_stdout_absent "mid-sentence prefer NOT flagged" ".claude/rules/style.md:6:" -- --config "$SP1" --root "$TMP/sp"
+assert_stdout_absent "mid-sentence preferred NOT flagged" ".claude/rules/style.md:7:" -- --config "$SP1" --root "$TMP/sp"
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -670,8 +678,15 @@ check_contradictions() {
       [[ -n "$found" ]] && present+=("$term")
     done
     if [[ "${#present[@]}" -ge 2 ]]; then
-      local joined; joined="$(IFS=', '; echo "${present[*]}")"
-      add_finding "$sev" 0 "${terms[0]}" \
+      # Join with ", " explicitly — the IFS-on-[*] trick only uses IFS's first char.
+      local joined="" t
+      for t in "${present[@]}"; do
+        [[ -n "$joined" ]] && joined+=", "
+        joined+="$t"
+      done
+      # Sort key includes the zero-padded group index so groups keep config order
+      # even when two groups share a first term.
+      add_finding "$sev" 0 "$(printf '%010d:%s' "$gi" "${terms[0]}")" \
         "[agent-sync lint] contradiction: group {$joined} — multiple exclusive terms present"
     fi
     gi=$((gi+1))
@@ -681,7 +696,7 @@ check_contradictions
 ```
 
 > **NOTE:** The finding message lists the present terms in config order (`{Supabase, Postgres}`),
-> matching the test substrings. The sort key is the group's first declared term. Emit order is
+> matching the test substrings. The sort key is `<zero-padded group index>:<first term>`. Emit order is
 > fixed at CHECK_IDX `0`, so contradictions print before line-budget (`1`) and soft-prefs (`2`).
 > Reminder: ensure `check_contradictions` is invoked **before** the final `report` call, and the
 > three check calls appear in source order contradictions/line-budget/soft-prefs is **not**
@@ -810,14 +825,18 @@ block is byte-identical to the one now in `init.md` (the file itself states "kee
 identical"). Replace the old single-step `Check AGENTS.md sync` block with the combined
 sync-and-lint block from Step 3.
 
-- [ ] **Step 5: Verify the two workflow copies match**
+- [ ] **Step 5: Verify both workflow copies run the linter**
 
-Run:
+Markdown range-diffing is brittle, so just confirm both embedded workflows invoke `lint.sh`:
+
 ```bash
-diff <(awk '/Check AGENTS.md sync and lint/,/lint.sh/' plugins/agent-sync/commands/init.md) \
-     <(awk '/Check AGENTS.md sync and lint/,/lint.sh/' plugins/agent-sync/skills/agent-sync/references/github-actions-template.md)
+for f in plugins/agent-sync/commands/init.md \
+         plugins/agent-sync/skills/agent-sync/references/github-actions-template.md; do
+  grep -q 'bash "$DIR/lint.sh"' "$f" && echo "OK: $f" || echo "MISSING lint.sh in: $f"
+done
 ```
-Expected: empty diff (identical).
+Expected: `OK:` for both files. Visually confirm the two YAML blocks are identical (the
+reference file states the two copies must match).
 
 - [ ] **Step 6: Document the `lint` block in sources-json-format.md**
 
