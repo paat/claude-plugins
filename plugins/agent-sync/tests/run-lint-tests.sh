@@ -131,6 +131,26 @@ DEDUP_OUT="$(bash "$LINT" --config "$LB6" --root "$TMP/lb_dedup" 2>/dev/null | g
 if [[ "$DEDUP_OUT" -eq 1 ]]; then echo "PASS: dedup overlapping globs"; PASS=$((PASS+1));
 else echo "FAIL: dedup overlapping globs — got $DEDUP_OUT finding lines"; FAIL=$((FAIL+1)); fi
 
+# --- Soft preferences ---
+mk_repo_sp() {  # $1 dir, $2 body-file-content (heredoc text), $3 lint-json
+  local d="$1" lint="$3"; mkdir -p "$d/.agent-sync" "$d/.claude/rules"
+  printf '%s' "$2" > "$d/.claude/rules/style.md"
+  echo "# c" > "$d/CLAUDE.md"
+  cat > "$d/.agent-sync/sources.json" <<JSON
+{"version":2,"files":{"m":"CLAUDE.md"},"outputs":[{"path":"AGENTS.md","sections":[{"id":"a","title":"R","source":"m","type":"full-body"}]}],"lint":$lint}
+JSON
+  echo "$d/.agent-sync/sources.json"
+}
+
+SP_BODY=$'# Style\n\nPrefer composition over inheritance.\n- prefer using hooks\n1. Prefer X\nUsers prefer dark mode here.\nWe preferred the old API.\n'
+SP1="$(mk_repo_sp "$TMP/sp" "$SP_BODY" '{"softPreferences":{"files":[".claude/rules/*.md"]}}')"
+# NOTE: the file lives at .claude/rules/style.md, so the reported path is the full relative path.
+assert_stdout_contains "leading Prefer flagged" "soft-preference: .claude/rules/style.md:3" -- --config "$SP1" --root "$TMP/sp"
+assert_stdout_contains "bullet prefer flagged" ".claude/rules/style.md:4" -- --config "$SP1" --root "$TMP/sp"
+assert_stdout_contains "numbered Prefer flagged" ".claude/rules/style.md:5" -- --config "$SP1" --root "$TMP/sp"
+assert_stdout_absent "mid-sentence prefer NOT flagged" ".claude/rules/style.md:6:" -- --config "$SP1" --root "$TMP/sp"
+assert_stdout_absent "mid-sentence preferred NOT flagged" ".claude/rules/style.md:7:" -- --config "$SP1" --root "$TMP/sp"
+
 echo "-----"
 echo "PASS=$PASS FAIL=$FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

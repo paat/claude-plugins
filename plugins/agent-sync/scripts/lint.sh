@@ -182,4 +182,26 @@ check_line_budget() {
 }
 check_line_budget
 
+# --- Check: soft preferences ---
+SOFT_PREF_RE='^[[:space:]]*([-*+]|#{1,6}|[0-9]+[.)])?[[:space:]]*prefer(s|red)?([[:space:]]|$)'
+check_soft_preferences() {
+  [[ "$(jq 'has("lint") and (.lint|has("softPreferences"))' <<<"$CONFIG")" == "true" ]] || return 0
+  local sev abs rel lineno text
+  sev="$(jq -r '.lint.softPreferences.severity // "warn"' <<<"$CONFIG")"
+  [[ "$sev" == "off" ]] && return 0
+  while IFS= read -r abs; do
+    [[ -z "$abs" ]] && continue
+    rel="$(relpath "$abs")"
+    # grep -niE: line numbers + case-insensitive ERE. Each hit: "N:full text".
+    while IFS=: read -r lineno text; do
+      [[ -z "$lineno" ]] && continue
+      # trim leading whitespace from reported text
+      text="${text#"${text%%[![:space:]]*}"}"
+      add_finding "$sev" 2 "$(printf '%s:%010d' "$rel" "$lineno")" \
+        "[agent-sync lint] soft-preference: $rel:$lineno: $text"
+    done < <(grep -niE "$SOFT_PREF_RE" "$abs" || true)
+  done < <(resolve_files ".lint.softPreferences.files" "CLAUDE.md" ".claude/rules/*.md")
+}
+check_soft_preferences
+
 report
