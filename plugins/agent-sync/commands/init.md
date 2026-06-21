@@ -68,9 +68,11 @@ VER=$(jq -r .version "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json")
 [ "$VER" = "null" ] && VER="unknown"
 DEST_DIR=tools/agent-sync
 mkdir -p "$DEST_DIR"
-awk -v v="$VER" 'NR==1{print; print "# Vendored by agent-sync v" v " — re-run /agent-sync:init to refresh."; next} {print}' \
-  "${CLAUDE_PLUGIN_ROOT}/scripts/generate.sh" > "$DEST_DIR/generate.sh"
-chmod +x "$DEST_DIR/generate.sh"
+for s in generate.sh lint.sh; do
+  awk -v v="$VER" 'NR==1{print; print "# Vendored by agent-sync v" v " — re-run /agent-sync:init to refresh."; next} {print}' \
+    "${CLAUDE_PLUGIN_ROOT}/scripts/$s" > "$DEST_DIR/$s"
+  chmod +x "$DEST_DIR/$s"
+done
 ```
 
 ### 7. Offer CI template
@@ -102,16 +104,18 @@ jobs:
       - name: Install jq
         run: sudo apt-get update -qq && sudo apt-get install -y jq
 
-      - name: Check AGENTS.md sync
+      - name: Check AGENTS.md sync and lint
         run: |
           if [ -f "tools/agent-sync/generate.sh" ]; then
-            bash tools/agent-sync/generate.sh --check
+            DIR=tools/agent-sync
           elif [ -f ".agent-sync/generate.sh" ]; then
-            bash .agent-sync/generate.sh --check
+            DIR=.agent-sync
           else
-            echo "agent-sync generate.sh not found. Run /agent-sync:init to vendor it."
+            echo "agent-sync scripts not found. Run /agent-sync:init to vendor them."
             exit 1
           fi
+          bash "$DIR/generate.sh" --check
+          bash "$DIR/lint.sh"
 ```
 
 ### 8. Generate
