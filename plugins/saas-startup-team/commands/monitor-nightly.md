@@ -112,7 +112,10 @@ Pipe the collected findings file to the engine (the engine owns all `gh` I/O):
 
 ```bash
 FINDINGS="${STATE_FILE:-.startup/monitor-state.json}.findings"
-grep -v '^[[:space:]]*$' "$FINDINGS" \
+# `grep` exits 1 when there are zero findings (the common "all clear" night). The `|| true`
+# keeps that from tripping the pipeline under `set -o pipefail`; the engine handles empty stdin
+# (advances last_run_at, writes initialized state) and exits 0.
+{ grep -v '^[[:space:]]*$' "$FINDINGS" || true; } \
   | bash "$ENGINE" commit --state "$STATE_FILE" $REPO_FLAG \
       --labels "$LABELS" --repro-recipe "$REPRO_RECIPE" $DRY_RUN_FLAG
 ```
