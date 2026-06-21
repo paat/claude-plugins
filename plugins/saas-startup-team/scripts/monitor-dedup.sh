@@ -21,6 +21,7 @@ _read_state() {
 }
 
 REPO=""; DRY_RUN=0; LABELS="monitor,customer-issue"; REPRO_RECIPE=""
+declare -A ISSUE_STATE_CACHE
 
 _gh() {
   if [ "$DRY_RUN" = 1 ]; then echo "[DRY RUN] gh $*" >&2; return 0; fi
@@ -93,6 +94,30 @@ cmd_window() {
   echo "MONITOR_SINCE=$since"
 }
 
+_issue_open() {  # echo yes/no; gh failure or UNKNOWN → yes (conservative: keep mapping)
+  local num="$1" st
+  if [ -z "${ISSUE_STATE_CACHE[$num]:-}" ]; then
+    st="$(_gh issue view "$num" --json state -q .state 2>/dev/null || echo UNKNOWN)"
+    ISSUE_STATE_CACHE[$num]="$st"
+  fi
+  [ "${ISSUE_STATE_CACHE[$num]}" = "CLOSED" ] && echo no || echo yes
+}
+# Echo a VERIFIED existing open issue number for (pk,ent), or empty. Checks EVERY
+# search hit's body for the embedded markers (not just the first result).
+_recover_issue() {  # args: pattern_key entity("" if none)
+  local pk="$1" ent="$2" q="$pk" json nums n vbody
+  [ -n "$ent" ] && q="$pk $ent"
+  json="$(_gh issue list --state open --search "$q" --json number -q '.' 2>/dev/null || echo '[]')"
+  nums="$(printf '%s' "$json" | jq -r 'if type=="array" then .[].number else empty end' 2>/dev/null || true)"
+  for n in $nums; do
+    vbody="$(_gh issue view "$n" --json body -q .body 2>/dev/null || echo "")"
+    printf '%s' "$vbody" | grep -qF "**Pattern:** \`$pk\`" || continue
+    if [ -n "$ent" ]; then printf '%s' "$vbody" | grep -qF "**Entity:** \`$ent\`" || continue; fi
+    echo "$n"; return
+  done
+  echo ""
+}
+
 cmd_commit() {
   local state_file="" failed=0; local malformed=()
   while [ $# -gt 0 ]; do
@@ -129,6 +154,13 @@ cmd_commit() {
     # === Task 3 inserts: closed-issue reconciliation (drop stale CLOSED mapping) ===
 
     if printf '%s' "$state" | jq -e --arg k "$pk" '.patterns|has($k)' >/dev/null; then
+      local cur_issue; cur_issue="$(printf '%s' "$state" | jq -r --arg k "$pk" '.patterns[$k].gh_issue')"
+      if [ "$(_issue_open "$cur_issue")" = no ]; then
+        state="$(printf '%s' "$state" | jq --arg k "$pk" 'del(.patterns[$k])')"
+      fi
+    fi
+
+    if printf '%s' "$state" | jq -e --arg k "$pk" '.patterns|has($k)' >/dev/null; then
       local issue seen
       issue="$(printf '%s' "$state" | jq -r --arg k "$pk" '.patterns[$k].gh_issue')"
       seen="$(printf '%s' "$state" | jq -r --arg k "$pk" --arg e "$ent" '(.patterns[$k].sessions // [])|index($e)|tostring')"
@@ -146,6 +178,17 @@ cmd_commit() {
     fi
 
     # === Task 3 inserts: state-loss recovery search (adopt verified existing issue) ===
+
+    local rec; rec="$(_recover_issue "$pk" "$ent")"
+    if [ -n "$rec" ]; then
+      if _gh issue comment "$rec" --body "Recurrence ($(_now_iso)): $summary"; then
+        state="$(printf '%s' "$state" | jq --arg k "$pk" --argjson n "$rec" --arg e "$ent" --arg ts "$(_now_iso)" '.patterns[$k]={gh_issue:$n,sessions:[$e],first_seen:$ts,last_seen:$ts}')"
+        jq -nc --arg pk "$pk" --arg e "$ent" --argjson i "$rec" '{action:"comment",pattern_key:$pk,entity:$e,issue:$i}'
+      else
+        failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
+      fi
+      continue
+    fi
 
     # --- CREATE ---
     local _lbls; IFS=',' read -ra _lbls <<< "$LABELS"
