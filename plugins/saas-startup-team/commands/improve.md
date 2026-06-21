@@ -146,7 +146,7 @@ Spawn tech founder via Agent tool with `subagent_type: "general-purpose"`:
 > Implement the changes and write your handoff back to the business founder following your standard handoff protocol.
 >
 > **Before writing your handoff, self-verify the change at the code level** — browser QA in the next step does not catch type errors, failing units, or parse/enum bugs:
-> - Run the project's typecheck/lint and test commands (from `docs/architecture/architecture.md`; e.g. the build, unit, and relevant E2E suites). Fix every failure before handing off — do not hand off red.
+> - Run `./check.sh` — the canonical full-suite entrypoint (recorded in `docs/architecture/architecture.md`; it runs every suite: build, unit, lint, typecheck, golden/E2E). Fix every failure before handing off — do not hand off red.
 > - Re-read your own diff for the bug classes that slip past visual QA: enum/string parsing, off-by-one and boundary cases, null/undefined handling, and untested error paths.
 > - In your handoff, state explicitly which checks you ran and that they passed. If a check could not be run, say so and why.
 >
@@ -186,7 +186,7 @@ Dispatch tech founder to fix:
 > Read the business founder's latest review for what failed.
 > Read the original handoff for the requirements.
 >
-> Fix the issues, then re-run the project's typecheck/lint and test commands and confirm they pass before handing off. Write an updated handoff back to the business founder stating which checks you ran.
+> Fix the issues, then re-run `./check.sh` (the canonical full-suite entrypoint) and confirm it passes before handing off. Write an updated handoff back to the business founder stating that check.sh passed.
 
 Then dispatch business founder for re-QA following the same pattern as Step 3.
 

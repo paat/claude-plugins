@@ -147,6 +147,8 @@ Work is auto-committed when research documents are written to `docs/`. Handoffs 
 7. browser_console_messages → check for JavaScript errors
 8. Visually verify: rendered text (diacritics, Cyrillic), layout, colors, spacing
 9. Document findings with screenshots in .startup/reviews/
+10. For computed/derived outputs, spot-check at least one value against an independent source (hand calc / reference doc) — do not trust in-app green checks; the app can be green on a wrong result.
+11. When a change touches a business rule, check whether the same rule lives in another layer that may now be desynced.
 ```
 
 Why Playwright, not curl: curl only returns HTML source. It cannot reveal rendering issues (wrong fonts, broken diacritics, layout bugs, missing images, JavaScript errors). You are testing the CUSTOMER EXPERIENCE, which requires seeing what the customer sees.

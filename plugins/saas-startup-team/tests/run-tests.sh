@@ -2274,6 +2274,205 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# Suite W: check.sh template (canonical full-suite entrypoint)
+# ---------------------------------------------------------------------------
+
+test_check_sh_template() {
+  echo -e "\n${CYAN}Suite W: check.sh template${NC}"
+  local tmpl="$PLUGIN_ROOT/templates/check.sh"
+  local workdir ec output
+
+  # W1: template exists and has the bash shebang
+  assert_file_exists "W1: check.sh template exists" "$tmpl"
+  assert_file_contains "W2: uses env bash shebang" "$tmpl" '#!/usr/bin/env bash'
+  assert_file_contains "W3: has REQUIRED_SUITES array" "$tmpl" 'REQUIRED_SUITES='
+  assert_file_contains "W4: has run_suite helper" "$tmpl" 'run_suite()'
+  assert_file_contains "W5: has suite_stub helper" "$tmpl" 'suite_stub()'
+  assert_file_contains "W6: VERIFY COMPLETE banner present" "$tmpl" 'VERIFY COMPLETE'
+
+  # W7: vacuous run (no suites declared) → non-zero, refuses to report success
+  workdir=$(mktemp -d)
+  cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
+  assert_equals "W7: vacuous run fails (non-zero)" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+  assert_output_contains "W7b: refuses to report success" "$output" "no suites ran"
+  rm -rf "$workdir"
+
+  # W8: a wired, green suite → exit 0
+  workdir=$(mktemp -d)
+  cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  # declare + wire frontend_tests to a trivially-green command.
+  # NOTE: the wiring seds match `^name().*` so they are agnostic to the
+  # template's column-aligned spacing between `()` and `{`.
+  sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(frontend_tests)/' "$workdir/check.sh"
+  sed -i "s|^frontend_tests().*|frontend_tests() { run_suite frontend_tests 'true'; }|" "$workdir/check.sh"
+  ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
+  assert_exit_code "W8: wired green suite passes" "$ec" 0
+  rm -rf "$workdir"
+
+  # W9: a declared-but-unwired suite → non-zero (Guard 2)
+  workdir=$(mktemp -d)
+  cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(backend_tests)/' "$workdir/check.sh"
+  ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
+  assert_equals "W9: unwired declared suite fails" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+  assert_output_contains "W9b: names the unwired suite" "$output" "backend_tests"
+  rm -rf "$workdir"
+
+  # W9c: declared suite hand-edited to return 0 WITHOUT run_suite → still fails (Guard 2)
+  workdir=$(mktemp -d)
+  cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(backend_tests)/' "$workdir/check.sh"
+  sed -i 's|^backend_tests().*|backend_tests() { true; }|' "$workdir/check.sh"
+  ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
+  assert_equals "W9c: declared-but-never-ran suite fails" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+  assert_output_contains "W9d: Guard 2 names never-ran suite" "$output" "never ran a command"
+  rm -rf "$workdir"
+
+  # W10: a wired, RED suite → non-zero
+  workdir=$(mktemp -d)
+  cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(lint)/' "$workdir/check.sh"
+  sed -i "s|^lint().*|lint() { run_suite lint 'false'; }|" "$workdir/check.sh"
+  ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
+  assert_equals "W10: wired red suite fails" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+  rm -rf "$workdir"
+
+  # W11: mid-command failure in an &&-chain propagates (no pipefail masking)
+  workdir=$(mktemp -d)
+  cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(typecheck)/' "$workdir/check.sh"
+  sed -i "s|^typecheck().*|typecheck() { run_suite typecheck 'false \&\& true'; }|" "$workdir/check.sh"
+  ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
+  assert_equals "W11: &&-chain mid failure fails" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+  rm -rf "$workdir"
+
+  # W12-W16: CI workflow template
+  local ci="$PLUGIN_ROOT/templates/ci-workflow.yml"
+  assert_file_exists "W12: ci-workflow.yml exists" "$ci"
+  assert_file_contains "W13: workflow name is CI" "$ci" '^name: CI'
+  assert_file_contains "W14: pull_request trigger" "$ci" '^  pull_request:'
+  assert_file_contains "W15: job id check" "$ci" '^  check:'
+  assert_file_contains "W16: runs ./check.sh" "$ci" 'run: ./check.sh'
+  assert_file_contains "W17: STACK_SETUP token alone on its own comment line" "$ci" '^      # {{STACK_SETUP}}$'
+}
+
+# ---------------------------------------------------------------------------
+# Suite X: bootstrap pre-merge safety-net scaffolding
+# ---------------------------------------------------------------------------
+
+test_bootstrap_safety_net() {
+  echo -e "\n${CYAN}Suite X: bootstrap safety-net scaffolding${NC}"
+  local cmd="$PLUGIN_ROOT/commands/bootstrap.md"
+  local workdir ec output
+
+  # Extract the scaffolding bash block from bootstrap.md
+  local script
+  workdir=$(mktemp -d)
+  extract_md_bash "$cmd" "## Step 6.5: Scaffold the pre-merge safety net" > "$workdir/scaffold.sh"
+
+  # X1: the block is non-empty
+  assert_equals "X1: scaffold block extracted" "$([ -s "$workdir/scaffold.sh" ] && echo yes || echo no)" "yes"
+
+  # X2-X5: no stack present → scaffolds files with the placeholder marker
+  mkdir -p "$workdir/repo"; (cd "$workdir/repo" && git init -q)
+  mkdir -p "$workdir/repo/.startup"
+  ec=0; output=$(cd "$workdir/repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/scaffold.sh" 2>&1) || ec=$?
+  assert_exit_code "X2: scaffold runs cleanly" "$ec" 0
+  assert_file_exists "X3: ci.yml created" "$workdir/repo/.github/workflows/ci.yml"
+  assert_file_exists "X4: check.sh created" "$workdir/repo/check.sh"
+  assert_equals "X5: check.sh executable" "$([ -x "$workdir/repo/check.sh" ] && echo yes || echo no)" "yes"
+  assert_file_contains "X6: human-tasks has branch-protection task" "$workdir/repo/.startup/human-tasks.md" "branch protection"
+  assert_file_contains "X7: human task is sequenced after green CI" "$workdir/repo/.startup/human-tasks.md" "first CI run"
+  # no stack detected → placeholder marker remains in ci.yml
+  assert_file_contains "X8: no-stack keeps TECH-FOUNDER marker" "$workdir/repo/.github/workflows/ci.yml" "TECH-FOUNDER"
+
+  # X9: idempotent — re-run does not duplicate the human task or error
+  ec=0; output=$(cd "$workdir/repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/scaffold.sh" 2>&1) || ec=$?
+  assert_exit_code "X9: re-run is idempotent (clean exit)" "$ec" 0
+  local count
+  # Count the unique idempotency-guard heading (the phrase "branch protection"
+  # itself appears twice per block: in the heading and in the UI instructions).
+  count=$(grep -c "Require the CI check (branch protection)" "$workdir/repo/.startup/human-tasks.md")
+  assert_equals "X10: branch-protection task not duplicated" "$count" "1"
+
+  # X11-X13: node stack detected → STACK_SETUP substituted with setup-node
+  rm -rf "$workdir/repo2"; mkdir -p "$workdir/repo2/.startup"; (cd "$workdir/repo2" && git init -q)
+  echo '{"scripts":{"test":"jest"}}' > "$workdir/repo2/package.json"
+  ec=0; output=$(cd "$workdir/repo2" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/scaffold.sh" 2>&1) || ec=$?
+  assert_exit_code "X11: node scaffold runs cleanly" "$ec" 0
+  assert_file_contains "X12: node setup injected" "$workdir/repo2/.github/workflows/ci.yml" "setup-node"
+  assert_file_contains "X13: check.sh has node detection hint" "$workdir/repo2/check.sh" "DETECTED"
+
+  # X14-X15: node WITHOUT lockfile → npm install, not npm ci
+  assert_file_contains "X14: no-lockfile uses npm install" "$workdir/repo2/.github/workflows/ci.yml" "npm install"
+  assert_file_not_contains "X15: no-lockfile avoids npm ci" "$workdir/repo2/.github/workflows/ci.yml" "npm ci"
+
+  # X16-X17: node WITH lockfile → npm ci + cache
+  rm -rf "$workdir/repo3"; mkdir -p "$workdir/repo3/.startup"; (cd "$workdir/repo3" && git init -q)
+  echo '{"scripts":{"test":"jest"}}' > "$workdir/repo3/package.json"
+  echo '{}' > "$workdir/repo3/package-lock.json"
+  (cd "$workdir/repo3" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/scaffold.sh" >/dev/null 2>&1)
+  assert_file_contains "X16: lockfile uses npm ci" "$workdir/repo3/.github/workflows/ci.yml" "npm ci"
+  assert_file_contains "X17: lockfile sets cache npm" "$workdir/repo3/.github/workflows/ci.yml" "cache: npm"
+
+  # X18: python WITH requirements.txt → pip install -r
+  rm -rf "$workdir/repo4"; mkdir -p "$workdir/repo4/.startup"; (cd "$workdir/repo4" && git init -q)
+  echo 'pytest' > "$workdir/repo4/requirements.txt"
+  (cd "$workdir/repo4" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/scaffold.sh" >/dev/null 2>&1)
+  assert_file_contains "X18: requirements uses pip -r" "$workdir/repo4/.github/workflows/ci.yml" "pip install -r requirements.txt"
+  assert_file_contains "X18b: python setup injected" "$workdir/repo4/.github/workflows/ci.yml" "setup-python"
+
+  # X19: python pyproject-only (no requirements.txt) → pip install -e .
+  rm -rf "$workdir/repo5"; mkdir -p "$workdir/repo5/.startup"; (cd "$workdir/repo5" && git init -q)
+  printf '[project]\nname = "x"\n' > "$workdir/repo5/pyproject.toml"
+  (cd "$workdir/repo5" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/scaffold.sh" >/dev/null 2>&1)
+  assert_file_contains "X19: pyproject-only uses pip install -e ." "$workdir/repo5/.github/workflows/ci.yml" "pip install -e \."
+
+  # X20: the extracted Step 6.5 block has NO nested triple-backtick fences
+  fence_cnt=$(grep -c '^```' "$workdir/scaffold.sh" || true)
+  assert_equals "X20: no nested code fences in scaffold block" "$fence_cnt" "0"
+
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
+# Suite Y: canonical entrypoint wiring (plugin-self drift guard)
+# ---------------------------------------------------------------------------
+
+test_canonical_entrypoint_wiring() {
+  echo -e "\n${CYAN}Suite Y: canonical entrypoint wiring${NC}"
+  assert_file_contains "Y1: improve.md names check.sh" \
+    "$PLUGIN_ROOT/commands/improve.md" "check.sh"
+  assert_file_contains "Y2: tech-founder SKILL names check.sh" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "check.sh"
+  assert_file_contains "Y3: ci-workflow names check.sh" \
+    "$PLUGIN_ROOT/templates/ci-workflow.yml" "check.sh"
+  assert_file_contains "Y4: tech-founder names canonical entrypoint" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "Canonical entrypoint"
+  assert_file_contains "Y5: tech-founder has derived-output guidance" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "Derived-output correctness"
+  assert_file_contains "Y6: tech-founder names green-but-wrong risk" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "green-but-wrong"
+  assert_file_contains "Y7: tech-founder mentions golden suite" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "golden"
+  assert_file_contains "Y8: quality-standards has single-source-of-truth principle" \
+    "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "Single source of truth"
+  assert_file_contains "Y9: quality-standards warns about re-derived rules" \
+    "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "re-derive"
+  assert_file_contains "Y10: maintain agent has independent spot-check" \
+    "$PLUGIN_ROOT/agents/business-founder-maintain.md" "independent source"
+  assert_file_contains "Y11: build agent has independent spot-check" \
+    "$PLUGIN_ROOT/agents/business-founder.md" "independent source"
+  assert_file_contains "Y12: maintain agent has duplicated-rule awareness" \
+    "$PLUGIN_ROOT/agents/business-founder-maintain.md" "another layer"
+  assert_file_contains "Y13: build agent has duplicated-rule awareness" \
+    "$PLUGIN_ROOT/agents/business-founder.md" "another layer"
+  assert_file_contains "Y14: quality-standards handoff checklist names check.sh" \
+    "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "check.sh"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -2292,6 +2491,9 @@ main() {
   test_check_task_complete
   test_status_script
   test_templates
+  test_check_sh_template
+  test_bootstrap_safety_net
+  test_canonical_entrypoint_wiring
   test_plugin_config
   test_stop_hook
   test_startup_init

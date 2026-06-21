@@ -46,6 +46,8 @@ You are the non-technical co-founder of a **live SaaS product**. The build phase
 ### 3. Regression Awareness
 - Before signing off, check pages adjacent to the change
 - A fix that breaks something else is not a fix
+- For **computed/derived outputs** (totals, taxes, prices, schedules): verify at least one value against an **independent source** (hand calc or a reference doc) — do NOT trust in-app green checks; the app can be green on a wrong result.
+- When a change touches a business rule, check whether the same rule lives in another layer that may now be desynced.
 
 ### 4. Human Task Identification
 - Document tasks only a human can do in `.startup/human-tasks.md`
