@@ -2650,6 +2650,15 @@ test_monitor_dedup() {
     bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
   assert_equals "W12b: one malformed issue" "$(grep -c 'monitor-input:malformed' "$L")" "1"
 
+  # W12c: an OPEN malformed-input tracking issue already in state → do NOT file a duplicate
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{"ops:monitor-input:malformed":{"gh_issue":300,"sessions":[""],"first_seen":"2026-06-01T00:00:00Z","last_seen":"2026-06-01T00:00:00Z"}}}' > "$state"
+  printf '%s\n' 'garbage' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_STATE=OPEN GH_CREATE_NUMBER=301 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W12c: malformed run still non-zero" "$ec" 1
+  assert_file_not_contains "W12c: no duplicate malformed issue created" "$L" "issue create"
+
   # W13: gh create fails → not in state, non-zero, window unchanged
   workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
   printf '{"version":1,"last_run_at":"2026-06-01T00:00:00Z","patterns":{}}' > "$state"
@@ -2687,6 +2696,17 @@ test_monitor_dedup() {
   assert_exit_code "W14d: dry-run without --repo exits 0" "$ec" 0
   assert_file_not_exists "W14d: no gh calls (no repo resolution)" "$L"
   assert_output_contains "W14d: would create" "$output" '"action":"create"'
+
+  # W14e: dry-run previews within-batch dedup — two same-pattern/different-entity findings → 1 create + 1 comment, not 2 creates
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '%s\n%s\n' \
+    '{"pattern_key":"payment:stuck","severity":"high","entity":"P-1","title":"T","body":"B"}' \
+    '{"pattern_key":"payment:stuck","severity":"high","entity":"P-2","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    bash "$script" commit --state "$state" --repo o/r --dry-run < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W14e: dry-run exits 0" "$ec" 0
+  assert_equals "W14e: one create previewed" "$(printf '%s' "$output" | grep -c '"action":"create"')" "1"
+  assert_equals "W14e: one comment previewed" "$(printf '%s' "$output" | grep -c '"action":"comment"')" "1"
 
   # W15: invalid pattern_key → malformed
   workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"

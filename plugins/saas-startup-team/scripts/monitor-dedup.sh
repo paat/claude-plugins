@@ -199,6 +199,7 @@ cmd_commit() {
     _ensure_labels "${_lbls[@]}" "$sev"
     if [ "$DRY_RUN" = 1 ]; then
       _gh issue create --title "$title" --label "$LABELS,$sev" --body "x" >/dev/null 2>&1 || true
+      state="$(printf '%s' "$state" | jq --arg k "$pk" --arg e "$ent" --arg ts "$(_now_iso)" '.patterns[$k]={gh_issue:0,sessions:[$e],first_seen:$ts,last_seen:$ts}')"
       jq -nc --arg pk "$pk" --arg e "$ent" '{action:"create",pattern_key:$pk,entity:$e,issue:null}'
       continue
     fi
@@ -218,13 +219,22 @@ cmd_commit() {
   # === Task 4 inserts: file one ops:monitor-input:malformed issue if malformed[] non-empty ===
 
   if [ "${#malformed[@]}" -gt 0 ]; then
-    local _mlbls; IFS=',' read -ra _mlbls <<< "$LABELS"
-    _ensure_labels "${_mlbls[@]}" high
-    local mbody
-    mbody="$(printf 'The monitor received %s unparseable / invalid finding line(s):\n\n```\n%s\n```\n' \
-      "${#malformed[@]}" "$(printf '%s\n' "${malformed[@]}")")"
-    _gh issue create --title "[Monitor] malformed monitor input" --label "$LABELS,high" \
-      --body "$(_new_body "$mbody" "ops:monitor-input:malformed" "")" >/dev/null 2>&1 || true
+    local mpk="ops:monitor-input:malformed" missue
+    missue="$(printf '%s' "$state" | jq -r --arg k "$mpk" '.patterns[$k].gh_issue // empty')"
+    if [ -n "$missue" ] && [ "$(_issue_open "$missue")" = yes ]; then
+      :   # an open malformed-input tracking issue already exists — don't file a duplicate every run
+    else
+      local _mlbls; IFS=',' read -ra _mlbls <<< "$LABELS"
+      _ensure_labels "${_mlbls[@]}" high
+      local mbody mout mnum
+      mbody="$(printf 'The monitor received %s unparseable / invalid finding line(s):\n\n```\n%s\n```\n' \
+        "${#malformed[@]}" "$(printf '%s\n' "${malformed[@]}")")"
+      if mout="$(_gh issue create --title "[Monitor] malformed monitor input" --label "$LABELS,high" \
+                 --body "$(_new_body "$mbody" "$mpk" "")")"; then
+        mnum="$(printf '%s' "$mout" | grep -oE '[0-9]+$' | tail -1)"
+        [ -n "$mnum" ] && [ "$mnum" != 0 ] && state="$(printf '%s' "$state" | jq --arg k "$mpk" --argjson n "$mnum" --arg ts "$(_now_iso)" '.patterns[$k]={gh_issue:$n,sessions:[""],first_seen:$ts,last_seen:$ts}')"
+      fi
+    fi
   fi
 
   if [ "$failed" = 0 ]; then
