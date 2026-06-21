@@ -2448,6 +2448,14 @@ test_canonical_entrypoint_wiring() {
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "check.sh"
   assert_file_contains "Y3: ci-workflow names check.sh" \
     "$PLUGIN_ROOT/templates/ci-workflow.yml" "check.sh"
+  assert_file_contains "Y4: tech-founder names canonical entrypoint" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "canonical"
+  assert_file_contains "Y5: tech-founder has derived-output guidance" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "Derived-output correctness"
+  assert_file_contains "Y6: tech-founder names green-but-wrong risk" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "green-but-wrong"
+  assert_file_contains "Y7: tech-founder mentions golden suite" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "golden"
 }
 
 # ---------------------------------------------------------------------------

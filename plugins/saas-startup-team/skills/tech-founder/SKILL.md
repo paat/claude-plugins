@@ -70,6 +70,28 @@ Document ALL decisions in `docs/architecture/architecture.md`.
 - Focus on happy path + main error path
 - Automated tests for critical business logic
 
+**Canonical entrypoint — `./check.sh`.** Every project has ONE script that runs
+the full regression suite (backend + frontend + lint + typecheck + golden). CI,
+your pre-handoff verification, and `/improve` all call it by name, so the local
+and CI suites cannot drift. When you choose the stack, finalize `check.sh`: set
+`REQUIRED_SUITES` to every suite the project has, wire each to its real command,
+fill the CI `{{STACK_SETUP}}` block in `.github/workflows/ci.yml`, and record the
+resolved commands in `docs/architecture/architecture.md`. A declared suite left
+unwired fails the gate on purpose — never weaken `check.sh` to make it pass.
+
+#### Derived-output correctness
+For products whose correctness is *computed* — financial, billing, tax, invoicing,
+scheduling, pricing — example-based unit tests pass while the integrated output is
+wrong. Build a **golden / characterization / invariant fixture suite** over real
+(anonymized) cases and wire it into `check.sh` (`golden_tests`) as a CI gate.
+Treat invariants explicitly (e.g. balance sheet balances; VAT sign; totals
+reconcile) and fail the suite when they break.
+
+**"green-but-wrong" risk class.** The app's own in-app validation passing does NOT
+mean the output is correct — validation can be green on a wrong result. For
+computed outputs, a green app is insufficient evidence; require golden-fixture
+coverage and an independent spot-check (the business founder does the latter in QA).
+
 ### Bug Fix Protocol (issue-linked fixes)
 When fixing a reported incident/issue (GitHub issue or Plane work item), a regression test is **mandatory**: write a failing test that reproduces the bug, confirm it fails, fix, confirm it passes. Record the test path and `Closes #<n>` / `Plane-Item: <id|url>` in the handoff and PR body. Incident-resolving PRs with no test in the diff are blocked at merge; override only with `Regression-Test: none — <reason>` in the PR body.
 
