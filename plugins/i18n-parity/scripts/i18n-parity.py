@@ -370,3 +370,85 @@ def run_checks(config, ns_by_cat, loaded):
             out.append(("stale-waiver", "directionPrefixes", ",".join(d["prefixes"]),
                         [d["present"]], "suppressed no live divergence under prefixes"))
     return out
+
+
+# ---------- reporting + CLI ----------
+
+
+def _sort_key(v):
+    return (v[1], v[0], v[2], ",".join(v[3]))
+
+
+def format_text(violations):
+    if not violations:
+        return "i18n-parity: OK — all locales in parity.\n"
+    lines = [
+        "i18n-parity: %d violation(s).\n" % len(violations),
+        "(Strict all-locales parity is the default; declare intentional "
+        "divergences as waivers in %s.)\n" % CONFIG_NAME,
+    ]
+    for check, scope, key, locs, detail in sorted(violations, key=_sort_key):
+        kd = (" " + key) if key else ""
+        lines.append("  [%s] %s%s  (%s) %s\n"
+                     % (check, scope, kd, ",".join(locs), detail))
+    return "".join(lines)
+
+
+def to_json(violations):
+    return json.dumps(
+        [{"check": c, "scope": s, "key": k, "locales": list(l), "detail": d}
+         for (c, s, k, l, d) in sorted(violations, key=_sort_key)],
+        ensure_ascii=False, indent=2)
+
+
+def find_repo_root():
+    try:
+        out = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True)
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except (OSError, ValueError):
+        pass
+    return os.getcwd()
+
+
+def resolve_config_path(args_config):
+    if args_config:
+        return args_config
+    env = os.environ.get("I18N_PARITY_CONFIG")
+    if env:
+        return env
+    return os.path.join(find_repo_root(), CONFIG_NAME)
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    ap = argparse.ArgumentParser(
+        prog="i18n-parity", description="Translation key-parity gate (stdlib-only).")
+    ap.add_argument("--config", help="path to %s" % CONFIG_NAME)
+    ap.add_argument("--root", help="repo root (default: git toplevel or cwd)")
+    ap.add_argument("--json", action="store_true",
+                    help="emit JSON violations to stdout")
+    args = ap.parse_args(argv)
+    try:
+        config = load_config(resolve_config_path(args.config))
+        root = args.root or find_repo_root()
+        grid, ns_by_cat = resolve_catalogs(config, root)
+    except ConfigError as e:
+        sys.stderr.write("i18n-parity: config error: %s\n" % e)
+        return 2
+    loaded, json_errors = load_all(grid)
+    if json_errors:
+        for je in json_errors:
+            sys.stderr.write("i18n-parity: invalid JSON: %s\n" % je)
+        return 2
+    violations = run_checks(config, ns_by_cat, loaded)
+    if args.json:
+        sys.stdout.write(to_json(violations) + "\n")
+    else:
+        sys.stderr.write(format_text(violations))
+    return 1 if violations else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -336,5 +336,68 @@ class TestRunChecks(unittest.TestCase):
         self.assertFalse(any(v[0] == "missing-key" and v[2] == "x" for v in full))
 
 
+class TestCli(unittest.TestCase):
+    def _repo(self, d, cfg, files):
+        with open(os.path.join(d, ".i18n-parity.json"), "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
+        for rel, obj in files.items():
+            p = os.path.join(d, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump(obj, fh)
+
+    def test_clean_exit_zero(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {"primaryLocale": "et", "locales": ["et", "en"],
+                   "catalogs": [{"pattern": "messages/{locale}.json"}]}
+            self._repo(d, cfg, {"messages/et.json": {"a": "x"},
+                                "messages/en.json": {"a": "y"}})
+            rc = ip.main(["--config", os.path.join(d, ".i18n-parity.json"), "--root", d])
+            self.assertEqual(rc, 0)
+
+    def test_violation_exit_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {"primaryLocale": "et", "locales": ["et", "en"],
+                   "catalogs": [{"pattern": "messages/{locale}.json"}]}
+            self._repo(d, cfg, {"messages/et.json": {"a": "x", "b": "z"},
+                                "messages/en.json": {"a": "y"}})
+            rc = ip.main(["--config", os.path.join(d, ".i18n-parity.json"), "--root", d])
+            self.assertEqual(rc, 1)
+
+    def test_config_error_exit_two(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {"primaryLocale": "et", "locales": ["et"],
+                   "catalogs": [{"pattern": "messages/{locale}.json"}], "bogus": 1}
+            self._repo(d, cfg, {})
+            rc = ip.main(["--config", os.path.join(d, ".i18n-parity.json"), "--root", d])
+            self.assertEqual(rc, 2)
+
+    def test_invalid_json_exit_two(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {"primaryLocale": "et", "locales": ["et"],
+                   "catalogs": [{"pattern": "messages/{locale}.json"}]}
+            self._repo(d, cfg, {})
+            p = os.path.join(d, "messages")
+            os.makedirs(p, exist_ok=True)
+            with open(os.path.join(p, "et.json"), "w", encoding="utf-8") as f:
+                f.write("{bad")
+            rc = ip.main(["--config", os.path.join(d, ".i18n-parity.json"), "--root", d])
+            self.assertEqual(rc, 2)
+
+    def test_json_output_is_valid(self):
+        import io, contextlib
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {"primaryLocale": "et", "locales": ["et", "en"],
+                   "catalogs": [{"pattern": "messages/{locale}.json"}]}
+            self._repo(d, cfg, {"messages/et.json": {"a": "x", "b": "z"},
+                                "messages/en.json": {"a": "y"}})
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                ip.main(["--config", os.path.join(d, ".i18n-parity.json"),
+                         "--root", d, "--json"])
+            parsed = json.loads(buf.getvalue())
+            self.assertTrue(any(v["check"] == "missing-key" for v in parsed))
+
+
 if __name__ == "__main__":
     unittest.main()
