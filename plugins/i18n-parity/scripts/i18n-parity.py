@@ -172,3 +172,80 @@ def load_catalog(path):
     flat, dups = {}, []
     _walk_pairs(tree, "", flat, dups)
     return {"flat": flat, "dups": sorted(set(dups))}, None
+
+
+# ---------- catalog resolution ----------
+
+
+def derive_id(pattern):
+    """Stable slug from a pattern's literal (non-placeholder) segments."""
+    lit = pattern.replace("{locale}", "").replace("{namespace}", "")
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", lit).strip("-")
+    return slug or "catalog"
+
+
+def resolve_catalogs(config, root):
+    """Build grid[(cid, ns, locale)] = abspath|None and ns_by_cat[cid] = set(ns).
+    ns is "" for catalogs without {namespace}. Raise ConfigError on id collision
+    or a catalog that matches zero files across all locales."""
+    locales = config["locales"]
+    grid = {}
+    ns_by_cat = {}
+    seen_ids = {}
+    for c in config["catalogs"]:
+        pattern = c["pattern"]
+        cid = c.get("id") or derive_id(pattern)
+        if cid in seen_ids:
+            raise ConfigError(
+                "catalog id collision: '%s' — give each catalog a unique 'id'" % cid)
+        seen_ids[cid] = pattern
+        has_ns = "{namespace}" in pattern
+        namespaces = set()
+        per_locale = {}  # locale -> {ns: abspath}
+        for loc in locales:
+            loc_pat = pattern.replace("{locale}", loc)
+            files = {}
+            if has_ns:
+                glob_pat = os.path.join(root, loc_pat.replace("{namespace}", "*"))
+                regex = re.compile(
+                    "^" + re.escape(os.path.join(root, loc_pat)).replace(
+                        re.escape("{namespace}"), "(.+)") + "$")
+                for fp in glob.glob(glob_pat):
+                    m = regex.match(fp)
+                    if m:
+                        ns = m.group(1)
+                        files[ns] = fp
+                        namespaces.add(ns)
+            else:
+                fp = os.path.join(root, loc_pat)
+                if os.path.isfile(fp):
+                    files[""] = fp
+                    namespaces.add("")
+            per_locale[loc] = files
+        if not namespaces:
+            raise ConfigError(
+                "catalog '%s' matched zero files for pattern '%s'" % (cid, pattern))
+        ns_by_cat[cid] = namespaces
+        for loc in locales:
+            for ns in namespaces:
+                grid[(cid, ns, loc)] = per_locale[loc].get(ns)
+    return grid, ns_by_cat
+
+
+def load_all(grid):
+    """Load every grid cell. Return (loaded, json_errors). A None path stays
+    None (namespace/catalog-missing -> violation later). Invalid JSON -> error."""
+    loaded = {}
+    json_errors = []
+    for key, path in grid.items():
+        if path is None:
+            loaded[key] = None
+            continue
+        data, err = load_catalog(path)
+        if err is None:
+            loaded[key] = data
+        else:
+            loaded[key] = None
+            if err[0] == "invalid-json":
+                json_errors.append(err[1])
+    return loaded, json_errors

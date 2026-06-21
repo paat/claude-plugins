@@ -149,5 +149,64 @@ class TestLoadCatalog(unittest.TestCase):
             self.assertEqual(err[0], "invalid-json")
 
 
+class TestResolveCatalogs(unittest.TestCase):
+    def _mk(self, root, rel, obj):
+        p = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(obj, f)
+        return p
+
+    def test_single_file_grid(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._mk(d, "messages/et.json", {"a": "x"})
+            self._mk(d, "messages/en.json", {"a": "y"})
+            cfg = {"primaryLocale": "et", "locales": ["et", "en"],
+                   "catalogs": [{"pattern": "messages/{locale}.json"}]}
+            grid, ns = ip.resolve_catalogs(cfg, d)
+            cid = ip.derive_id("messages/{locale}.json")
+            self.assertEqual(ns[cid], {""})
+            self.assertIsNotNone(grid[(cid, "", "et")])
+            self.assertIsNotNone(grid[(cid, "", "en")])
+
+    def test_namespaced_discovery(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._mk(d, "loc/et/common.json", {"a": "x"})
+            self._mk(d, "loc/et/admin.json", {"b": "x"})
+            self._mk(d, "loc/en/common.json", {"a": "y"})
+            cfg = {"primaryLocale": "et", "locales": ["et", "en"],
+                   "catalogs": [{"id": "pkg", "pattern": "loc/{locale}/{namespace}.json"}]}
+            grid, ns = ip.resolve_catalogs(cfg, d)
+            self.assertEqual(ns["pkg"], {"common", "admin"})
+            # admin missing for en -> grid cell is None (a violation later, not an error)
+            self.assertIsNone(grid[("pkg", "admin", "en")])
+            self.assertIsNotNone(grid[("pkg", "common", "en")])
+
+    def test_zero_match_catalog_is_config_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {"primaryLocale": "et", "locales": ["et"],
+                   "catalogs": [{"pattern": "nowhere/{locale}.json"}]}
+            with self.assertRaises(ip.ConfigError):
+                ip.resolve_catalogs(cfg, d)
+
+    def test_id_collision_is_config_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._mk(d, "messages/et.json", {"a": "x"})
+            cfg = {"primaryLocale": "et", "locales": ["et"],
+                   "catalogs": [
+                       {"id": "dup", "pattern": "messages/{locale}.json"},
+                       {"id": "dup", "pattern": "messages/{locale}.json"},
+                   ]}
+            with self.assertRaises(ip.ConfigError):
+                ip.resolve_catalogs(cfg, d)
+
+
+class TestLoadAll(unittest.TestCase):
+    def test_missing_cell_is_none_not_error(self):
+        loaded, errs = ip.load_all({("c", "", "et"): None})
+        self.assertIsNone(loaded[("c", "", "et")])
+        self.assertEqual(errs, [])
+
+
 if __name__ == "__main__":
     unittest.main()
