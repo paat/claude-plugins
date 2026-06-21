@@ -399,5 +399,37 @@ class TestCli(unittest.TestCase):
             self.assertTrue(any(v["check"] == "missing-key" for v in parsed))
 
 
+class TestUnreadableInputs(unittest.TestCase):
+    """Regression: PermissionError/IsADirectoryError must route to exit 2, not crash."""
+
+    def test_directory_as_config_path_exits_two(self):
+        # Opening a directory raises IsADirectoryError (an OSError), not FileNotFoundError.
+        # Before the fix this escaped as a traceback (exit 1); must now be exit 2.
+        with tempfile.TemporaryDirectory() as d:
+            # Use d itself as the config path — it is a directory, not a file.
+            rc = ip.main(["--config", d, "--root", d])
+            self.assertEqual(rc, 2)
+
+    def test_load_catalog_directory_routes_invalid_json(self):
+        # Directly call load_catalog with a directory path.
+        # Opening a directory raises IsADirectoryError (OSError but NOT FileNotFoundError).
+        # Before the fix: uncaught traceback. After fix: (None, ("invalid-json", ...)).
+        with tempfile.TemporaryDirectory() as d:
+            dir_path = os.path.join(d, "catalog_dir")
+            os.makedirs(dir_path)
+            data, err = ip.load_catalog(dir_path)
+            self.assertIsNone(data)
+            self.assertIsNotNone(err)
+            self.assertEqual(err[0], "invalid-json")
+            self.assertIn(dir_path, err[1])
+
+    def test_load_catalog_missing_file_still_routes_missing_file(self):
+        # FileNotFoundError must still route to "missing-file" (regression guard).
+        data, err = ip.load_catalog("/nonexistent/path/catalog.json")
+        self.assertIsNone(data)
+        self.assertIsNotNone(err)
+        self.assertEqual(err[0], "missing-file")
+
+
 if __name__ == "__main__":
     unittest.main()

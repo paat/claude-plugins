@@ -40,8 +40,8 @@ def load_config(path):
     try:
         with open(path, "r", encoding="utf-8") as f:
             raw = json.load(f)
-    except FileNotFoundError:
-        raise ConfigError("config not found: %s" % path)
+    except OSError as e:
+        raise ConfigError("config not readable: %s (%s)" % (path, e))
     except json.JSONDecodeError as e:
         raise ConfigError("config is not valid JSON (%s): %s" % (path, e))
     if not isinstance(raw, dict):
@@ -163,8 +163,10 @@ def load_catalog(path):
     try:
         with open(path, "r", encoding="utf-8") as f:
             tree = json.load(f, object_pairs_hook=lambda pairs: (_OBJ, pairs))
-    except FileNotFoundError:
-        return None, ("missing-file", path)
+    except OSError as e:
+        if isinstance(e, FileNotFoundError):
+            return None, ("missing-file", path)
+        return None, ("invalid-json", "%s: %s" % (path, e))
     except json.JSONDecodeError as e:
         return None, ("invalid-json", "%s: %s" % (path, e))
     if not _is_obj(tree):
