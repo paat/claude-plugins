@@ -1,0 +1,12 @@
+{
+  "primaryLocale": "et",
+  "locales": ["et", "en", "ru"],
+  "catalogs": [{ "id": "messages", "pattern": "messages/{locale}.json" }],
+  "waivers": {
+    "localeOnlyKeys": { "en": ["common.enExtra"] },
+    "emptyAllowed": { "ru": ["common.blankByDesign"] },
+    "directionPrefixes": [
+      { "present": "ru", "absentIn": ["et", "en"], "prefixes": ["ruOnly."] }
+    ]
+  }
+}
