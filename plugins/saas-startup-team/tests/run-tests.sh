@@ -2772,7 +2772,10 @@ CC
   assert_file_contains "W19: example has monitor block" "$PLUGIN_ROOT/saas-startup-team.local.md.example" "monitor:"
   assert_file_contains "W19: README documents command" "$PLUGIN_ROOT/README.md" "/monitor-nightly"
   assert_file_contains "W19: README custom-checks contract" "$PLUGIN_ROOT/README.md" "monitor-checks.sh"
-  assert_file_contains "W19: README labels config" "$PLUGIN_ROOT/README.md" "repro_recipe"
+  assert_file_contains "W19: README documents repro_recipe" "$PLUGIN_ROOT/README.md" "repro_recipe"
+  # the dropped `severities` key must not reappear in either doc
+  assert_file_not_contains "W19: no severities in example" "$PLUGIN_ROOT/saas-startup-team.local.md.example" "severities"
+  assert_file_not_contains "W19: no severities in README" "$PLUGIN_ROOT/README.md" "severities"
   local pv mv
   pv="$(jq -r '.version' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
   mv="$(jq -r '.plugins[] | select(.name=="saas-startup-team") | .version' "$PLUGIN_ROOT/../../.claude-plugin/marketplace.json")"

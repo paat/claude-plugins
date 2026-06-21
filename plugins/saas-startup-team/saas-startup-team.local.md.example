@@ -22,7 +22,7 @@ monitor:
   marker_dir: .monitor
   state_file: .startup/monitor-state.json
   custom_checks: .startup/monitor-checks.sh
-  # repro_recipe: ssh prod-readonly "session-tar {entity}"
+  # repro_recipe: ssh <readonly-host> "session-tar {entity}"
 ---
 
 # saas-startup-team — project settings

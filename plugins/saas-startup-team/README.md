@@ -107,7 +107,7 @@ All keys live under `monitor:` in `.claude/saas-startup-team.local.md`. Every ke
 | `marker_dir` | `.monitor` | Directory where marker files are written by producers (see contract below) |
 | `state_file` | `.startup/monitor-state.json` | Persisted dedup state (issue numbers, seen entities, last-run timestamp) |
 | `custom_checks` | `.startup/monitor-checks.sh` | Path to a custom-checks executable (see contract below) |
-| `repro_recipe` | _(none)_ | Single-line shell snippet appended to every issue body; `{entity}` is substituted with the finding's entity value. Example: `ssh prod-readonly "session-tar {entity}"`. Must be a single line — no newlines. |
+| `repro_recipe` | _(none)_ | Single-line shell snippet appended to every issue body; `{entity}` is substituted with the finding's entity value. Example: `ssh <readonly-host> "session-tar {entity}"`. Must be a single line — no newlines. |
 
 ### Marker producer contract
 
