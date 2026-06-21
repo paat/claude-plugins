@@ -2767,6 +2767,16 @@ CC
   assert_exit_code "W18c: collect survives failing custom-checks" "$ec" 0
   assert_file_contains "W18c: keeps emitted finding" "$workdir/state.json.findings" '"pattern_key":"feedback:received"'
   assert_file_contains "W18c: appends checks-failure finding" "$workdir/state.json.findings" '"pattern_key":"ops:monitor-checks:failure"'
+
+  # W19: config example, README, and versions are consistent
+  assert_file_contains "W19: example has monitor block" "$PLUGIN_ROOT/saas-startup-team.local.md.example" "monitor:"
+  assert_file_contains "W19: README documents command" "$PLUGIN_ROOT/README.md" "/monitor-nightly"
+  assert_file_contains "W19: README custom-checks contract" "$PLUGIN_ROOT/README.md" "monitor-checks.sh"
+  assert_file_contains "W19: README labels config" "$PLUGIN_ROOT/README.md" "repro_recipe"
+  local pv mv
+  pv="$(jq -r '.version' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
+  mv="$(jq -r '.plugins[] | select(.name=="saas-startup-team") | .version' "$PLUGIN_ROOT/../../.claude-plugin/marketplace.json")"
+  assert_equals "W19: plugin/marketplace versions match" "$pv" "$mv"
 }
 
 # ---------------------------------------------------------------------------

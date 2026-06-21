@@ -13,6 +13,16 @@ incident_labels: bug,monitor,customer-issue
 # whether the diff includes a test. Override for non-JS/Python stacks.
 # Default matches: *.test.* *.spec.* test_*.py *_test.go tests/ test/ __tests__/ spec/
 # test_path_regex: '(\.test\.|\.spec\.|(^|/)test_[^/]*\.py$|_test\.go$|(^|/)tests?/|(^|/)__tests__/|(^|/)spec/)'
+
+# --- Nightly monitor (/monitor-nightly, scripts/monitor-dedup.sh) ---
+# All optional. Defaults shown. repro_recipe is single-line; {entity} is substituted.
+monitor:
+  repo: owner/name                          # default: resolved via `gh repo view`
+  labels: [monitor, customer-issue]         # base labels; the finding's severity is appended
+  marker_dir: .monitor
+  state_file: .startup/monitor-state.json
+  custom_checks: .startup/monitor-checks.sh
+  # repro_recipe: ssh prod-readonly "session-tar {entity}"
 ---
 
 # saas-startup-team — project settings
