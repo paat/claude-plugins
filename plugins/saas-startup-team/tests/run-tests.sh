@@ -2715,6 +2715,8 @@ test_monitor_dedup() {
   # the command must NOT call gh itself (engine owns all gh). Match a gh word-boundary command form.
   assert_file_not_contains "W16: no gh issue calls" "$cmd" 'gh issue'
   assert_file_not_contains "W16: no gh repo calls" "$cmd" 'gh repo'
+  assert_file_not_contains "W16: no gh label calls" "$cmd" 'gh label'
+  assert_file_not_contains "W16: no gh auth calls" "$cmd" 'gh auth'
 
   # W17: extracted collect block writes a JSONL finding per marker (sanitized kind) to $STATE_FILE.findings
   workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
@@ -2751,6 +2753,20 @@ CC
   extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
   ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/checks.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
   assert_file_contains "W18b: custom-checks merged" "$workdir/state.json.findings" '"pattern_key":"feedback:received"'
+
+  # W18c: custom-checks exits non-zero → keeps its emitted findings AND appends a tracking finding; collect still exits 0
+  workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
+  cat > "$workdir/checks.sh" <<'CC'
+#!/usr/bin/env bash
+echo '{"pattern_key":"feedback:received","severity":"low","entity":"fb-9","title":"T","body":"B"}'
+exit 3
+CC
+  chmod +x "$workdir/checks.sh"
+  extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/checks.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  assert_exit_code "W18c: collect survives failing custom-checks" "$ec" 0
+  assert_file_contains "W18c: keeps emitted finding" "$workdir/state.json.findings" '"pattern_key":"feedback:received"'
+  assert_file_contains "W18c: appends checks-failure finding" "$workdir/state.json.findings" '"pattern_key":"ops:monitor-checks:failure"'
 }
 
 # ---------------------------------------------------------------------------

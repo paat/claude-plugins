@@ -28,7 +28,7 @@ CONFIG="$GIT_ROOT/.claude/saas-startup-team.local.md"
 # Scope parsing to the `monitor:` block only (from `monitor:` to the next top-level key
 # or the closing `---`), so keys never collide with the regression-gate's top-level keys.
 mon_block=""; [ -f "$CONFIG" ] && mon_block="$(sed -n '/^[[:space:]]*monitor:[[:space:]]*$/,/^[^[:space:]#]/p' "$CONFIG")"
-cfg() { printf '%s\n' "$mon_block" | grep -oP "^\s*$1:\s*\K.*" | head -1 | sed -E 's/^["'"'"']//; s/["'"'"']$//'; }
+cfg() { printf '%s\n' "$mon_block" | grep -oP "^\s+$1:\s*\K.*" | head -1 | sed -E 's/^["'"'"']//; s/["'"'"']$//'; }
 
 REPO=""; MARKER_DIR=".monitor"; STATE_FILE=".startup/monitor-state.json"
 CUSTOM_CHECKS=".startup/monitor-checks.sh"; LABELS="monitor,customer-issue"; REPRO_RECIPE=""
