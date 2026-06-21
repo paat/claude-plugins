@@ -2723,7 +2723,7 @@ test_monitor_dedup() {
   ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/none.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
   assert_exit_code "W17: collect exits 0" "$ec" 0
   assert_file_contains "W17: pattern key from filename" "$workdir/state.json.findings" '"pattern_key":"ops:ocr-api:failure"'
-  assert_json_valid "W17: emits valid JSON" "$(head -1 "$workdir/state.json.findings")"
+  assert_json_valid "W17: emits valid JSON" "$workdir/state.json.findings"
 
   # W17b: messy marker filename → sanitized to a valid pattern_key (dot/space/case → dashes)
   workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
