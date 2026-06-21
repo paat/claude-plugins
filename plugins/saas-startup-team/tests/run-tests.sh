@@ -2404,6 +2404,35 @@ test_bootstrap_safety_net() {
   assert_file_contains "X12: node setup injected" "$workdir/repo2/.github/workflows/ci.yml" "setup-node"
   assert_file_contains "X13: check.sh has node detection hint" "$workdir/repo2/check.sh" "DETECTED"
 
+  # X14-X15: node WITHOUT lockfile → npm install, not npm ci
+  assert_file_contains "X14: no-lockfile uses npm install" "$workdir/repo2/.github/workflows/ci.yml" "npm install"
+  assert_file_not_contains "X15: no-lockfile avoids npm ci" "$workdir/repo2/.github/workflows/ci.yml" "npm ci"
+
+  # X16-X17: node WITH lockfile → npm ci + cache
+  rm -rf "$workdir/repo3"; mkdir -p "$workdir/repo3/.startup"; (cd "$workdir/repo3" && git init -q)
+  echo '{"scripts":{"test":"jest"}}' > "$workdir/repo3/package.json"
+  echo '{}' > "$workdir/repo3/package-lock.json"
+  (cd "$workdir/repo3" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/scaffold.sh" >/dev/null 2>&1)
+  assert_file_contains "X16: lockfile uses npm ci" "$workdir/repo3/.github/workflows/ci.yml" "npm ci"
+  assert_file_contains "X17: lockfile sets cache npm" "$workdir/repo3/.github/workflows/ci.yml" "cache: npm"
+
+  # X18: python WITH requirements.txt → pip install -r
+  rm -rf "$workdir/repo4"; mkdir -p "$workdir/repo4/.startup"; (cd "$workdir/repo4" && git init -q)
+  echo 'pytest' > "$workdir/repo4/requirements.txt"
+  (cd "$workdir/repo4" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/scaffold.sh" >/dev/null 2>&1)
+  assert_file_contains "X18: requirements uses pip -r" "$workdir/repo4/.github/workflows/ci.yml" "pip install -r requirements.txt"
+  assert_file_contains "X18b: python setup injected" "$workdir/repo4/.github/workflows/ci.yml" "setup-python"
+
+  # X19: python pyproject-only (no requirements.txt) → pip install -e .
+  rm -rf "$workdir/repo5"; mkdir -p "$workdir/repo5/.startup"; (cd "$workdir/repo5" && git init -q)
+  printf '[project]\nname = "x"\n' > "$workdir/repo5/pyproject.toml"
+  (cd "$workdir/repo5" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/scaffold.sh" >/dev/null 2>&1)
+  assert_file_contains "X19: pyproject-only uses pip install -e ." "$workdir/repo5/.github/workflows/ci.yml" "pip install -e \."
+
+  # X20: the extracted Step 6.5 block has NO nested triple-backtick fences
+  fence_cnt=$(grep -c '^```' "$workdir/scaffold.sh" || true)
+  assert_equals "X20: no nested code fences in scaffold block" "$fence_cnt" "0"
+
   rm -rf "$workdir"
 }
 
