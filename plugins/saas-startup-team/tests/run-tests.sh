@@ -2460,6 +2460,14 @@ test_canonical_entrypoint_wiring() {
     "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "Single source of truth"
   assert_file_contains "Y9: quality-standards warns about re-derived rules" \
     "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "re-derive"
+  assert_file_contains "Y10: maintain agent has independent spot-check" \
+    "$PLUGIN_ROOT/agents/business-founder-maintain.md" "independent source"
+  assert_file_contains "Y11: build agent has independent spot-check" \
+    "$PLUGIN_ROOT/agents/business-founder.md" "independent source"
+  assert_file_contains "Y12: maintain agent has duplicated-rule awareness" \
+    "$PLUGIN_ROOT/agents/business-founder-maintain.md" "another layer"
+  assert_file_contains "Y13: build agent has duplicated-rule awareness" \
+    "$PLUGIN_ROOT/agents/business-founder.md" "another layer"
 }
 
 # ---------------------------------------------------------------------------
