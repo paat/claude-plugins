@@ -2630,6 +2630,78 @@ test_monitor_dedup() {
     bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
   assert_output_contains "W11b: mismatch → create" "$output" '"action":"create"'
   assert_file_not_contains "W11b: did not comment on 777" "$L" "issue comment 777"
+
+  # W12: malformed line → tracking issue + non-zero + window unchanged
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":"2026-06-01T00:00:00Z","patterns":{}}' > "$state"
+  printf '%s\n' 'this is not json' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=400 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W12: malformed → non-zero" "$ec" 1
+  assert_file_contains "W12: monitor-input:malformed filed" "$L" "monitor-input:malformed"
+  assert_equals "W12: window unchanged" "$(jq -r '.last_run_at' "$state")" "2026-06-01T00:00:00Z"
+
+  # W12b: multiple malformed lines → exactly ONE tracking issue
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n%s\n' 'garbage one' 'garbage two' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=401 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_equals "W12b: one malformed issue" "$(grep -c 'monitor-input:malformed' "$L")" "1"
+
+  # W13: gh create fails → not in state, non-zero, window unchanged
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":"2026-06-01T00:00:00Z","patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"P-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_FAIL_ON="issue create" \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W13: gh fail → non-zero" "$ec" 1
+  assert_equals "W13: not in state" "$(jq -c '.patterns["payment:stuck"] // "absent"' "$state")" '"absent"'
+  assert_equals "W13: window unchanged" "$(jq -r '.last_run_at' "$state")" "2026-06-01T00:00:00Z"
+
+  # W13b: comment fails on known new entity → non-zero, entity NOT appended, window unchanged
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":"2026-06-01T00:00:00Z","patterns":{"payment:stuck":{"gh_issue":50,"sessions":["P-1"],"first_seen":"2026-06-01T00:00:00Z","last_seen":"2026-06-01T00:00:00Z"}}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"P-2","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_STATE=OPEN GH_FAIL_ON="issue comment" \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W13b: comment fail → non-zero" "$ec" 1
+  assert_equals "W13b: entity not appended" "$(jq -c '.patterns["payment:stuck"].sessions|length' "$state")" "1"
+
+  # W14: --dry-run → exit 0, no state file, no gh calls
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"P-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    bash "$script" commit --state "$state" --repo o/r --dry-run < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W14: dry-run exits 0" "$ec" 0
+  assert_file_not_exists "W14: no state written" "$state"
+  assert_file_not_exists "W14: no gh calls" "$L"
+  assert_output_contains "W14: would create" "$output" '"action":"create"'
+
+  # W15: invalid pattern_key → malformed
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"BAD KEY!!","severity":"high","entity":"X","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=402 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W15: invalid key → non-zero" "$ec" 1
+  assert_output_contains "W15: action malformed" "$output" '"action":"malformed"'
+
+  # W15b: missing required field (no body) → malformed
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"X","title":"T"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=403 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_output_contains "W15b: missing body → malformed" "$output" '"action":"malformed"'
+
+  # W15c: entity wrong type (object) → malformed
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":{"x":1},"title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=404 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_output_contains "W15c: bad entity type → malformed" "$output" '"action":"malformed"'
 }
 
 # ---------------------------------------------------------------------------

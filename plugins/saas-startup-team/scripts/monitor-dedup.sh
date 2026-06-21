@@ -213,6 +213,16 @@ cmd_commit() {
 
   # === Task 4 inserts: file one ops:monitor-input:malformed issue if malformed[] non-empty ===
 
+  if [ "${#malformed[@]}" -gt 0 ]; then
+    local _mlbls; IFS=',' read -ra _mlbls <<< "$LABELS"
+    _ensure_labels "${_mlbls[@]}" high
+    local mbody
+    mbody="$(printf 'The monitor received %s unparseable / invalid finding line(s):\n\n```\n%s\n```\n' \
+      "${#malformed[@]}" "$(printf '%s\n' "${malformed[@]}")")"
+    _gh issue create --title "[Monitor] malformed monitor input" --label "$LABELS,high" \
+      --body "$(_new_body "$mbody" "ops:monitor-input:malformed" "")" >/dev/null 2>&1 || true
+  fi
+
   if [ "$failed" = 0 ]; then
     state="$(printf '%s' "$state" | jq --arg ts "$(_now_iso)" '.last_run_at=$ts')"
   fi
