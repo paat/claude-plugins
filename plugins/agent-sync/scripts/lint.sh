@@ -204,4 +204,61 @@ check_soft_preferences() {
 }
 check_soft_preferences
 
+# --- Check: contradictions ---
+# Escape ERE metacharacters in a term so it is matched literally.
+ere_escape() { printf '%s' "$1" | sed 's/[][\\^$.*+?(){}|]/\\&/g'; }
+
+# term_present ABS_FILE TERM -> 0 if TERM appears with non-alphanumeric boundaries
+term_present() {
+  local file="$1" term="$2" esc
+  esc="$(ere_escape "$term")"
+  grep -iEq -- "(^|[^[:alnum:]])${esc}([^[:alnum:]]|\$)" "$file"
+}
+
+check_contradictions() {
+  [[ "$(jq 'has("lint") and (.lint|has("contradictions"))' <<<"$CONFIG")" == "true" ]] || return 0
+  local sev gcount gi tcount
+  sev="$(jq -r '.lint.contradictions.severity // "warn"' <<<"$CONFIG")"
+  [[ "$sev" == "off" ]] && return 0
+  gcount="$(jq '.lint.contradictions.exclusiveGroups | length // 0' <<<"$CONFIG")"
+  [[ "$gcount" -eq 0 ]] && return 0
+
+  # Resolve files once (union); store absolute paths.
+  local -a files=()
+  mapfile -t files < <(resolve_files ".lint.contradictions.files" "README.md" "CLAUDE.md")
+  [[ "${#files[@]}" -eq 0 ]] && return 0
+
+  gi=0
+  while [[ $gi -lt $gcount ]]; do
+    tcount="$(jq --argjson g "$gi" '.lint.contradictions.exclusiveGroups[$g] | length' <<<"$CONFIG")"
+    if [[ "$tcount" -lt 2 ]]; then gi=$((gi+1)); continue; fi
+    local -a terms=()
+    mapfile -t terms < <(jq -r --argjson g "$gi" '.lint.contradictions.exclusiveGroups[$g][]' <<<"$CONFIG")
+    # Collect terms that are present anywhere across the union, in config order.
+    local -a present=()
+    local term abs found
+    for term in "${terms[@]}"; do
+      found=""
+      for abs in "${files[@]}"; do
+        if term_present "$abs" "$term"; then found="yes"; break; fi
+      done
+      [[ -n "$found" ]] && present+=("$term")
+    done
+    if [[ "${#present[@]}" -ge 2 ]]; then
+      # Join with ", " explicitly — the IFS-on-[*] trick only uses IFS's first char.
+      local joined="" t
+      for t in "${present[@]}"; do
+        [[ -n "$joined" ]] && joined+=", "
+        joined+="$t"
+      done
+      # Sort key includes the zero-padded group index so groups keep config order
+      # even when two groups share a first term.
+      add_finding "$sev" 0 "$(printf '%010d:%s' "$gi" "${terms[0]}")" \
+        "[agent-sync lint] contradiction: group {$joined} — multiple exclusive terms present"
+    fi
+    gi=$((gi+1))
+  done
+}
+check_contradictions
+
 report

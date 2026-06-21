@@ -151,6 +151,61 @@ assert_stdout_contains "numbered Prefer flagged" ".claude/rules/style.md:5" -- -
 assert_stdout_absent "mid-sentence prefer NOT flagged" ".claude/rules/style.md:6:" -- --config "$SP1" --root "$TMP/sp"
 assert_stdout_absent "mid-sentence preferred NOT flagged" ".claude/rules/style.md:7:" -- --config "$SP1" --root "$TMP/sp"
 
+# --- Contradictions ---
+mk_repo_ct() {  # $1 dir, $2 README content, $3 CLAUDE content, $4 lint-json
+  local d="$1" lint="$4"; mkdir -p "$d/.agent-sync"
+  printf '%s' "$2" > "$d/README.md"
+  printf '%s' "$3" > "$d/CLAUDE.md"
+  cat > "$d/.agent-sync/sources.json" <<JSON
+{"version":2,"files":{"m":"CLAUDE.md"},"outputs":[{"path":"AGENTS.md","sections":[{"id":"a","title":"R","source":"m","type":"full-body"}]}],"lint":$lint}
+JSON
+  echo "$d/.agent-sync/sources.json"
+}
+
+# Contradiction across README + CLAUDE.md
+CT1="$(mk_repo_ct "$TMP/ct" $'We use Supabase.\n' $'We use Postgres.\n' '{"contradictions":{"files":["README.md","CLAUDE.md"],"exclusiveGroups":[["Supabase","Postgres"]]}}')"
+assert_stdout_contains "contradiction flagged" "contradiction: group {Supabase, Postgres}" -- --config "$CT1" --root "$TMP/ct"
+assert_exit "contradiction warn default -> exit 0" 0 -- --config "$CT1" --root "$TMP/ct"
+
+CT1e="$(mk_repo_ct "$TMP/ct_err" $'Supabase\n' $'Postgres\n' '{"contradictions":{"severity":"error","files":["README.md","CLAUDE.md"],"exclusiveGroups":[["Supabase","Postgres"]]}}')"
+assert_exit "contradiction error -> exit 1" 1 -- --config "$CT1e" --root "$TMP/ct_err"
+
+# Single term present -> no finding
+CT2="$(mk_repo_ct "$TMP/ct_single" $'Postgres only\n' $'Postgres again\n' '{"contradictions":{"files":["README.md","CLAUDE.md"],"exclusiveGroups":[["Supabase","Postgres"]]}}')"
+assert_stdout_absent "single term -> no contradiction" "contradiction:" -- --config "$CT2" --root "$TMP/ct_single"
+
+# Boundary guard: Postgres term must NOT match inside PostgreSQL
+CT3="$(mk_repo_ct "$TMP/ct_bound" $'We use Supabase.\n' $'We use PostgreSQL 16.\n' '{"contradictions":{"files":["README.md","CLAUDE.md"],"exclusiveGroups":[["Supabase","Postgres"]]}}')"
+assert_stdout_absent "Postgres not matched in PostgreSQL" "contradiction:" -- --config "$CT3" --root "$TMP/ct_bound"
+
+# Punctuation + multiword terms match literally
+CT4="$(mk_repo_ct "$TMP/ct_punct" $'Built with .NET and Node.js.\n' $'Also uses Claude Code.\n' '{"contradictions":{"files":["README.md","CLAUDE.md"],"exclusiveGroups":[[".NET","Claude Code"]]}}')"
+assert_stdout_contains "punct/multiword terms match" "contradiction: group {.NET, Claude Code}" -- --config "$CT4" --root "$TMP/ct_punct"
+
+# Group with <2 terms -> skipped, no error
+CT5="$(mk_repo_ct "$TMP/ct_short" $'Supabase\n' $'Supabase\n' '{"contradictions":{"files":["README.md","CLAUDE.md"],"exclusiveGroups":[["Supabase"]]}}')"
+assert_exit "group <2 terms skipped -> exit 0" 0 -- --config "$CT5" --root "$TMP/ct_short"
+
+# --- Acceptance: clean synced fixture -> no findings, exit 0 ---
+CLEAN="$TMP/clean"; mkdir -p "$CLEAN/.agent-sync" "$CLEAN/.claude/rules"
+printf '# App\nWe use Postgres on Hetzner.\n' > "$CLEAN/README.md"
+printf '# Claude\nWe use Postgres on Hetzner.\n' > "$CLEAN/CLAUDE.md"
+printf '# Arch\nKeep modules small.\n' > "$CLEAN/.claude/rules/architecture.md"
+cat > "$CLEAN/.agent-sync/sources.json" <<'JSON'
+{"version":2,"files":{"m":"CLAUDE.md"},"outputs":[{"path":"AGENTS.md","sections":[{"id":"a","title":"R","source":"m","type":"full-body"}]}],
+"lint":{"contradictions":{"files":["README.md","CLAUDE.md"],"exclusiveGroups":[["Supabase","Postgres"],["Vercel","Hetzner"]]},
+"lineBudget":{"max":200,"files":["CLAUDE.md",".claude/rules/*.md"]},
+"softPreferences":{"files":["CLAUDE.md",".claude/rules/*.md"]}}}
+JSON
+assert_stdout_contains "clean fixture -> 0/0 summary" "0 errors, 0 warnings" -- --config "$CLEAN/.agent-sync/sources.json" --root "$CLEAN"
+assert_exit "clean fixture -> exit 0" 0 -- --config "$CLEAN/.agent-sync/sources.json" --root "$CLEAN"
+
+# --- Determinism: two runs of CT1 produce byte-identical output ---
+D1="$(bash "$LINT" --config "$CT1" --root "$TMP/ct" 2>/dev/null)"
+D2="$(bash "$LINT" --config "$CT1" --root "$TMP/ct" 2>/dev/null)"
+if [[ "$D1" == "$D2" ]]; then echo "PASS: deterministic output"; PASS=$((PASS+1));
+else echo "FAIL: deterministic output differs"; FAIL=$((FAIL+1)); fi
+
 echo "-----"
 echo "PASS=$PASS FAIL=$FAIL"
 [[ $FAIL -eq 0 ]] || exit 1
