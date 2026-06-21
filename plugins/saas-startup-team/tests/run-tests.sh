@@ -2618,6 +2618,7 @@ test_monitor_dedup() {
     bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
   assert_output_contains "W11: recovered → comment" "$output" '"action":"comment"'
   assert_file_contains "W11: commented on 321" "$L" "issue comment 321"
+  assert_file_contains "W11: recovery search is colon-tokenized" "$L" "payment failed"
   assert_file_not_contains "W11: no duplicate create" "$L" "issue create"
 
   # W11b: search hit but body lacks the entity marker → do NOT adopt → CREATE
@@ -2702,6 +2703,14 @@ test_monitor_dedup() {
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=404 \
     bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
   assert_output_contains "W15c: bad entity type → malformed" "$output" '"action":"malformed"'
+
+  # W15d: entity containing a backtick → malformed (would corrupt markers / inject markdown)
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"a`b","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=410 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_output_contains "W15d: backtick entity → malformed" "$output" '"action":"malformed"'
 
   local cmd="$PLUGIN_ROOT/commands/monitor-nightly.md"
   # W16: command exists, right frontmatter, calls engine, uses flock, parses config — and NEVER calls gh

@@ -130,7 +130,7 @@ Each line written to stdout by the engine or by `custom_checks` (the script is a
 |-------|----------|-------------|
 | `pattern_key` | yes | Stable identifier for this finding type. Regex: `^[a-z0-9][a-z0-9:_-]*$` |
 | `severity` | yes | Severity label appended to `labels` (e.g. `high`, `low`) |
-| `entity` | yes | Single-line identifier for the affected entity, or `null` |
+| `entity` | yes | Single-line identifier for the affected entity, or `null` (entities containing newlines or backticks are rejected as malformed) |
 | `title` | yes | Issue title |
 | `body` | yes | Issue body (Markdown) |
 | `summary` | no | One-line summary appended to comment when recurrence is detected |

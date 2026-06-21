@@ -57,7 +57,7 @@ _validate() {  # arg: raw line
     select(
       (.pattern_key|type=="string") and (.pattern_key|test("^[a-z0-9][a-z0-9:_-]*$")) and
       (.severity|type=="string") and (.title|type=="string") and (.body|type=="string") and
-      (has("entity")) and (.entity == null or (.entity|type=="string"))
+      (has("entity")) and (.entity == null or ((.entity|type=="string") and (.entity|test("[\n`]")|not)))
     )' 2>/dev/null | head -1 || true
 }
 _write_state() {  # atomic, same-dir temp, inline cleanup (no RETURN trap)
@@ -105,8 +105,8 @@ _issue_open() {  # echo yes/no; gh failure or UNKNOWN → yes (conservative: kee
 # Echo a VERIFIED existing open issue number for (pk,ent), or empty. Checks EVERY
 # search hit's body for the embedded markers (not just the first result).
 _recover_issue() {  # args: pattern_key entity("" if none)
-  local pk="$1" ent="$2" q="$pk" json nums n vbody
-  [ -n "$ent" ] && q="$pk $ent"
+  local pk="$1" ent="$2" q="${pk//:/ }" json nums n vbody
+  [ -n "$ent" ] && q="$q $ent"
   json="$(_gh issue list --state open --search "$q" --json number -q '.' 2>/dev/null || echo '[]')"
   nums="$(printf '%s' "$json" | jq -r 'if type=="array" then .[].number else empty end' 2>/dev/null || true)"
   for n in $nums; do
