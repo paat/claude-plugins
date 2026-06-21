@@ -1,0 +1,6 @@
+{
+  "primaryLocale": "et",
+  "locales": ["et"],
+  "catalogs": [{ "pattern": "messages/{locale}.json" }],
+  "nonsense": true
+}

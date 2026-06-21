@@ -1,0 +1,5 @@
+{
+  "primaryLocale": "et",
+  "locales": ["et", "en", "ru"],
+  "catalogs": [{ "id": "pkg", "pattern": "locales/{locale}/{namespace}.json" }]
+}

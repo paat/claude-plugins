@@ -1,0 +1,21 @@
+{
+  "name": "i18n-parity",
+  "version": "0.1.0",
+  "description": "Vendorable zero-dependency translation key-parity gate for multilingual next-intl apps — diffs locale catalogs (presence, empty values, ICU args, leaf shape, namespaces) with declarable waivers, wired as a hard CI/pre-push gate",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "i18n",
+    "next-intl",
+    "translation",
+    "key-parity",
+    "locale",
+    "icu",
+    "ci-gate",
+    "pre-push",
+    "estonian-saas"
+  ]
+}
