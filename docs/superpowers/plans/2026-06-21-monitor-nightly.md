@@ -756,9 +756,11 @@ Append to `test_monitor_dedup()`:
   assert_file_contains "W16: runs engine window" "$cmd" '"$ENGINE" window'
   assert_file_contains "W16: flock" "$cmd" 'flock'
   assert_file_contains "W16: reads .local.md" "$cmd" 'saas-startup-team.local.md'
-  # the command must NOT call gh itself (engine owns all gh). Match a gh word-boundary command form.
+  # the command must NOT call gh itself (engine owns all gh). Forbid every gh mutation form.
   assert_file_not_contains "W16: no gh issue calls" "$cmd" 'gh issue'
   assert_file_not_contains "W16: no gh repo calls" "$cmd" 'gh repo'
+  assert_file_not_contains "W16: no gh label calls" "$cmd" 'gh label'
+  assert_file_not_contains "W16: no gh auth calls" "$cmd" 'gh auth'
 
   # W17: extracted collect block writes a JSONL finding per marker (sanitized kind) to $STATE_FILE.findings
   workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
@@ -795,6 +797,20 @@ CC
   extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
   ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/checks.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
   assert_file_contains "W18b: custom-checks merged" "$workdir/state.json.findings" '"pattern_key":"feedback:received"'
+
+  # W18c: custom-checks exits non-zero → keeps its emitted findings AND appends a tracking finding; collect still exits 0
+  workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
+  cat > "$workdir/checks.sh" <<'CC'
+#!/usr/bin/env bash
+echo '{"pattern_key":"feedback:received","severity":"low","entity":"fb-9","title":"T","body":"B"}'
+exit 3
+CC
+  chmod +x "$workdir/checks.sh"
+  extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/checks.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  assert_exit_code "W18c: collect survives failing custom-checks" "$ec" 0
+  assert_file_contains "W18c: keeps emitted finding" "$workdir/state.json.findings" '"pattern_key":"feedback:received"'
+  assert_file_contains "W18c: appends checks-failure finding" "$workdir/state.json.findings" '"pattern_key":"ops:monitor-checks:failure"'
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -837,7 +853,7 @@ CONFIG="$GIT_ROOT/.claude/saas-startup-team.local.md"
 # Scope parsing to the `monitor:` block only (from `monitor:` to the next top-level key
 # or the closing `---`), so keys never collide with the regression-gate's top-level keys.
 mon_block=""; [ -f "$CONFIG" ] && mon_block="$(sed -n '/^[[:space:]]*monitor:[[:space:]]*$/,/^[^[:space:]#]/p' "$CONFIG")"
-cfg() { printf '%s\n' "$mon_block" | grep -oP "^\s*$1:\s*\K.*" | head -1 | sed -E 's/^["'"'"']//; s/["'"'"']$//'; }
+cfg() { printf '%s\n' "$mon_block" | grep -oP "^\s+$1:\s*\K.*" | head -1 | sed -E 's/^["'"'"']//; s/["'"'"']$//'; }  # ^\s+ → indented monitor sub-keys only, never a top-level key
 
 REPO=""; MARKER_DIR=".monitor"; STATE_FILE=".startup/monitor-state.json"
 CUSTOM_CHECKS=".startup/monitor-checks.sh"; LABELS="monitor,customer-issue"; REPRO_RECIPE=""
