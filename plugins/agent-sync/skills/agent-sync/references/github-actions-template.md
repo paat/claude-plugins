@@ -29,9 +29,9 @@ jobs:
 
       - name: Check AGENTS.md sync and lint
         run: |
-          if [ -f "tools/agent-sync/generate.sh" ]; then
+          if [ -f "tools/agent-sync/generate.sh" ] && [ -f "tools/agent-sync/lint.sh" ]; then
             DIR=tools/agent-sync
-          elif [ -f ".agent-sync/generate.sh" ]; then
+          elif [ -f ".agent-sync/generate.sh" ] && [ -f ".agent-sync/lint.sh" ]; then
             DIR=.agent-sync
           else
             echo "agent-sync scripts not found. Run /agent-sync:init to vendor them."
@@ -43,7 +43,7 @@ jobs:
 
 ## Setup
 
-`/agent-sync:init` vendors `generate.sh` into your repo automatically (next to `sources.json`),
+`/agent-sync:init` vendors both `generate.sh` and `lint.sh` into your repo automatically (next to `sources.json`),
 so the workflow runs without the plugin installed. If you are wiring CI by hand instead, vendor
 the script yourself:
 

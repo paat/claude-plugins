@@ -106,9 +106,9 @@ jobs:
 
       - name: Check AGENTS.md sync and lint
         run: |
-          if [ -f "tools/agent-sync/generate.sh" ]; then
+          if [ -f "tools/agent-sync/generate.sh" ] && [ -f "tools/agent-sync/lint.sh" ]; then
             DIR=tools/agent-sync
-          elif [ -f ".agent-sync/generate.sh" ]; then
+          elif [ -f ".agent-sync/generate.sh" ] && [ -f ".agent-sync/lint.sh" ]; then
             DIR=.agent-sync
           else
             echo "agent-sync scripts not found. Run /agent-sync:init to vendor them."
