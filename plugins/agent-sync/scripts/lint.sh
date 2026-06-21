@@ -74,6 +74,44 @@ jq empty <<<"$CONFIG" 2>/dev/null || { echo "[agent-sync lint] config error: mal
 # --- Gate: no lint block -> silent success ---
 [[ "$(jq 'has("lint")' <<<"$CONFIG")" == "true" ]] || exit 0
 
+# --- Config validation ---
+cfg_err() { echo "[agent-sync lint] config error: $1" >&2; exit 2; }
+
+validate_lint_config() {
+  local check sev t
+  # lint itself must be an object.
+  [[ "$(jq -r '.lint | type' <<<"$CONFIG")" == "object" ]] || cfg_err "lint must be an object"
+  for check in contradictions lineBudget softPreferences; do
+    [[ "$(jq --arg c "$check" 'has("lint") and (.lint|has($c))' <<<"$CONFIG")" == "true" ]] || continue
+    # each configured check must be an object.
+    [[ "$(jq -r --arg c "$check" '.lint[$c] | type' <<<"$CONFIG")" == "object" ]] \
+      || cfg_err "$check must be an object"
+    # severity
+    sev="$(jq -r --arg c "$check" '.lint[$c].severity // "warn"' <<<"$CONFIG")"
+    case "$sev" in error|warn|off) ;; *) cfg_err "invalid severity '$sev' for $check (use error|warn|off)";; esac
+    # files type
+    t="$(jq -r --arg c "$check" '.lint[$c].files | type' <<<"$CONFIG")"
+    [[ "$t" == "array" || "$t" == "null" ]] || cfg_err "$check.files must be an array"
+    if [[ "$t" == "array" ]]; then
+      [[ "$(jq --arg c "$check" '[.lint[$c].files[] | type] | all(. == "string")' <<<"$CONFIG")" == "true" ]] \
+        || cfg_err "$check.files must be an array of strings"
+    fi
+  done
+  # lineBudget.max must be a positive integer when present
+  if [[ "$(jq 'has("lint") and (.lint|has("lineBudget")) and (.lint.lineBudget|has("max"))' <<<"$CONFIG")" == "true" ]]; then
+    [[ "$(jq -r '.lint.lineBudget.max | (type == "number" and . == floor and . > 0)' <<<"$CONFIG")" == "true" ]] \
+      || cfg_err "lineBudget.max must be a positive integer"
+  fi
+  # exclusiveGroups must be an array of arrays of strings when present
+  if [[ "$(jq 'has("lint") and (.lint|has("contradictions")) and (.lint.contradictions|has("exclusiveGroups"))' <<<"$CONFIG")" == "true" ]]; then
+    [[ "$(jq '.lint.contradictions.exclusiveGroups | type' <<<"$CONFIG")" == '"array"' ]] \
+      || cfg_err "contradictions.exclusiveGroups must be an array"
+    [[ "$(jq '[.lint.contradictions.exclusiveGroups[] | (type == "array") and ([.[] | type] | all(. == "string"))] | all' <<<"$CONFIG")" == "true" ]] \
+      || cfg_err "contradictions.exclusiveGroups must be an array of arrays of strings"
+  fi
+}
+validate_lint_config
+
 # --- Findings collector ---
 # Each entry: "SEVERITY<TAB>CHECK_IDX<TAB>SORT_KEY<TAB>MESSAGE"
 FINDINGS=()

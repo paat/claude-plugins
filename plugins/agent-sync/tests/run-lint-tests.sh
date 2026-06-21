@@ -61,6 +61,35 @@ JSON
 assert_stdout_contains "empty lint -> summary 0/0" "summary: 0 errors, 0 warnings" -- --config "$EMPTY/.agent-sync/sources.json" --root "$EMPTY"
 assert_exit "empty lint -> exit 0" 0 -- --config "$EMPTY/.agent-sync/sources.json" --root "$EMPTY"
 
+# --- Config validation (exit 2) ---
+mk_cfg() {  # $1 dir, $2 lint-json  -> writes sources.json, echoes its path
+  local d="$1" lint="$2"; mkdir -p "$d/.agent-sync"; echo "# c" > "$d/CLAUDE.md"
+  cat > "$d/.agent-sync/sources.json" <<JSON
+{"version":2,"files":{"m":"CLAUDE.md"},"outputs":[{"path":"AGENTS.md","sections":[{"id":"a","title":"R","source":"m","type":"full-body"}]}],"lint":$lint}
+JSON
+  echo "$d/.agent-sync/sources.json"
+}
+
+C1="$(mk_cfg "$TMP/badsev" '{"lineBudget":{"severity":"loud","max":200}}')"
+assert_exit "invalid severity -> exit 2" 2 -- --config "$C1" --root "$TMP/badsev"
+
+C2="$(mk_cfg "$TMP/badmax" '{"lineBudget":{"max":0}}')"
+assert_exit "max=0 -> exit 2" 2 -- --config "$C2" --root "$TMP/badmax"
+
+C2b="$(mk_cfg "$TMP/badmax2" '{"lineBudget":{"max":"two"}}')"
+assert_exit "max non-numeric -> exit 2" 2 -- --config "$C2b" --root "$TMP/badmax2"
+
+C3="$(mk_cfg "$TMP/badfiles" '{"lineBudget":{"files":"CLAUDE.md"}}')"
+assert_exit "files not array -> exit 2" 2 -- --config "$C3" --root "$TMP/badfiles"
+
+C4="$(mk_cfg "$TMP/badgroups" '{"contradictions":{"exclusiveGroups":["Supabase","Postgres"]}}')"
+assert_exit "exclusiveGroups not array-of-arrays -> exit 2" 2 -- --config "$C4" --root "$TMP/badgroups"
+
+# malformed JSON -> exit 2
+MJ="$TMP/malformed"; mkdir -p "$MJ/.agent-sync"; echo "# c" > "$MJ/CLAUDE.md"
+printf '{ this is not json' > "$MJ/.agent-sync/sources.json"
+assert_exit "malformed JSON -> exit 2" 2 -- --config "$MJ/.agent-sync/sources.json" --root "$MJ"
+
 echo "-----"
 echo "PASS=$PASS FAIL=$FAIL"
 [[ $FAIL -eq 0 ]] || exit 1
