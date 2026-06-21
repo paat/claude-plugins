@@ -2274,6 +2274,81 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# Suite W: check.sh template (canonical full-suite entrypoint)
+# ---------------------------------------------------------------------------
+
+test_check_sh_template() {
+  echo -e "\n${CYAN}Suite W: check.sh template${NC}"
+  local tmpl="$PLUGIN_ROOT/templates/check.sh"
+  local workdir ec output
+
+  # W1: template exists and has the bash shebang
+  assert_file_exists "W1: check.sh template exists" "$tmpl"
+  assert_file_contains "W2: uses env bash shebang" "$tmpl" '#!/usr/bin/env bash'
+  assert_file_contains "W3: has REQUIRED_SUITES array" "$tmpl" 'REQUIRED_SUITES='
+  assert_file_contains "W4: has run_suite helper" "$tmpl" 'run_suite()'
+  assert_file_contains "W5: has suite_stub helper" "$tmpl" 'suite_stub()'
+  assert_file_contains "W6: VERIFY COMPLETE banner present" "$tmpl" 'VERIFY COMPLETE'
+
+  # W7: vacuous run (no suites declared) → non-zero, refuses to report success
+  workdir=$(mktemp -d)
+  cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
+  assert_equals "W7: vacuous run fails (non-zero)" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+  assert_output_contains "W7b: refuses to report success" "$output" "no suites ran"
+  rm -rf "$workdir"
+
+  # W8: a wired, green suite → exit 0
+  workdir=$(mktemp -d)
+  cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  # declare + wire frontend_tests to a trivially-green command.
+  # NOTE: the wiring seds match `^name().*` so they are agnostic to the
+  # template's column-aligned spacing between `()` and `{`.
+  sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(frontend_tests)/' "$workdir/check.sh"
+  sed -i "s|^frontend_tests().*|frontend_tests() { run_suite frontend_tests 'true'; }|" "$workdir/check.sh"
+  ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
+  assert_exit_code "W8: wired green suite passes" "$ec" 0
+  rm -rf "$workdir"
+
+  # W9: a declared-but-unwired suite → non-zero (Guard 2)
+  workdir=$(mktemp -d)
+  cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(backend_tests)/' "$workdir/check.sh"
+  ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
+  assert_equals "W9: unwired declared suite fails" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+  assert_output_contains "W9b: names the unwired suite" "$output" "backend_tests"
+  rm -rf "$workdir"
+
+  # W9c: declared suite hand-edited to return 0 WITHOUT run_suite → still fails (Guard 2)
+  workdir=$(mktemp -d)
+  cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(backend_tests)/' "$workdir/check.sh"
+  sed -i 's|^backend_tests().*|backend_tests() { true; }|' "$workdir/check.sh"
+  ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
+  assert_equals "W9c: declared-but-never-ran suite fails" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+  assert_output_contains "W9d: Guard 2 names never-ran suite" "$output" "never ran a command"
+  rm -rf "$workdir"
+
+  # W10: a wired, RED suite → non-zero
+  workdir=$(mktemp -d)
+  cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(lint)/' "$workdir/check.sh"
+  sed -i "s|^lint().*|lint() { run_suite lint 'false'; }|" "$workdir/check.sh"
+  ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
+  assert_equals "W10: wired red suite fails" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+  rm -rf "$workdir"
+
+  # W11: mid-command failure in an &&-chain propagates (no pipefail masking)
+  workdir=$(mktemp -d)
+  cp "$tmpl" "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  sed -i 's/^REQUIRED_SUITES=()/REQUIRED_SUITES=(typecheck)/' "$workdir/check.sh"
+  sed -i "s|^typecheck().*|typecheck() { run_suite typecheck 'false \&\& true'; }|" "$workdir/check.sh"
+  ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
+  assert_equals "W11: &&-chain mid failure fails" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -2292,6 +2367,7 @@ main() {
   test_check_task_complete
   test_status_script
   test_templates
+  test_check_sh_template
   test_plugin_config
   test_stop_hook
   test_startup_init
