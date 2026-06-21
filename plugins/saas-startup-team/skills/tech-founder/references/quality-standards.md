@@ -20,9 +20,8 @@
 - [ ] All source files use UTF-8 encoding for proper diacritic support
 
 ### Before Handing Off
-- [ ] **Run the build** (`npm run build` or equivalent) and fix ALL errors — do not hand off with a broken build
+- [ ] **Run `./check.sh`** — the canonical full-suite entrypoint (build, unit, lint, typecheck, golden/E2E). Fix ALL failures — do not hand off red. Never weaken `check.sh` to make it pass.
 - [ ] **Validate all modified JSON files** — run `python3 -m json.tool <file>` on every `.json` file you touched (i18n locale files are the #1 source of trailing comma bugs)
-- [ ] **Check TypeScript errors** — `npx tsc --noEmit` if applicable
 - [ ] Code runs without errors
 - [ ] Primary user flow works end-to-end
 - [ ] Error flow is tested (what happens when things go wrong?)

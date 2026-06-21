@@ -2468,6 +2468,8 @@ test_canonical_entrypoint_wiring() {
     "$PLUGIN_ROOT/agents/business-founder-maintain.md" "another layer"
   assert_file_contains "Y13: build agent has duplicated-rule awareness" \
     "$PLUGIN_ROOT/agents/business-founder.md" "another layer"
+  assert_file_contains "Y14: quality-standards handoff checklist names check.sh" \
+    "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "check.sh"
 }
 
 # ---------------------------------------------------------------------------
