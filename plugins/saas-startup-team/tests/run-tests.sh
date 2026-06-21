@@ -2346,6 +2346,15 @@ test_check_sh_template() {
   ec=0; output=$(cd "$workdir" && ./check.sh 2>&1) || ec=$?
   assert_equals "W11: &&-chain mid failure fails" "$([ "$ec" -ne 0 ] && echo nonzero || echo zero)" "nonzero"
   rm -rf "$workdir"
+
+  # W12-W16: CI workflow template
+  local ci="$PLUGIN_ROOT/templates/ci-workflow.yml"
+  assert_file_exists "W12: ci-workflow.yml exists" "$ci"
+  assert_file_contains "W13: workflow name is CI" "$ci" '^name: CI'
+  assert_file_contains "W14: pull_request trigger" "$ci" 'pull_request'
+  assert_file_contains "W15: job id check" "$ci" '^  check:'
+  assert_file_contains "W16: runs ./check.sh" "$ci" './check.sh'
+  assert_file_contains "W17: has STACK_SETUP token" "$ci" '{{STACK_SETUP}}'
 }
 
 # ---------------------------------------------------------------------------
