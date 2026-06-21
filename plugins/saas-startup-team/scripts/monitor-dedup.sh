@@ -20,6 +20,53 @@ _read_state() {
   fi
 }
 
+REPO=""; DRY_RUN=0; LABELS="monitor,customer-issue"; REPRO_RECIPE=""
+
+_gh() {
+  if [ "$DRY_RUN" = 1 ]; then echo "[DRY RUN] gh $*" >&2; return 0; fi
+  gh "$@" --repo "$REPO"
+}
+_label_color() {
+  case "$1" in
+    monitor) echo "0E8A16" ;; customer-issue) echo "D93F0B" ;;
+    high) echo "B60205" ;; medium) echo "FBCA04" ;; low) echo "0075CA" ;;
+    *) echo "ededed" ;;
+  esac
+}
+_ensure_labels() {  # never fatal — a label failure must not stop filing
+  local l
+  for l in "$@"; do
+    [ -n "$l" ] || continue
+    _gh label create "$l" --color "$(_label_color "$l")" --description "monitor" --force >/dev/null 2>&1 \
+      || echo "monitor-dedup: WARNING could not ensure label '$l'" >&2
+  done
+}
+_new_body() {  # args: body pattern_key entity   (entity "" means none)
+  local body="$1" pk="$2" ent="$3"
+  printf '%s\n\n**Pattern:** `%s`\n' "$body" "$pk"
+  if [ -n "$ent" ]; then
+    printf '**Entity:** `%s`\n' "$ent"
+    [ -n "$REPRO_RECIPE" ] && printf '\n### Reproduction\n```\n%s\n```\n' "${REPRO_RECIPE//\{entity\}/$ent}"
+  fi
+  printf '\n*Fixing this requires a regression test (or an explicit `Regression-Test: none — <reason>` override), per the regression-test gate.*\n'
+}
+# Echo the validated finding as ONE compact JSON line, or empty if malformed.
+_validate() {  # arg: raw line
+  printf '%s' "$1" | jq -c '
+    select(
+      (.pattern_key|type=="string") and (.pattern_key|test("^[a-z0-9][a-z0-9:_-]*$")) and
+      (.severity|type=="string") and (.title|type=="string") and (.body|type=="string") and
+      (has("entity")) and (.entity == null or (.entity|type=="string"))
+    )' 2>/dev/null | head -1 || true
+}
+_write_state() {  # atomic, same-dir temp, inline cleanup (no RETURN trap)
+  local f="$1" content="$2" dir tmp
+  [ "$DRY_RUN" = 1 ] && return 0
+  dir="$(dirname "$f")"; mkdir -p "$dir"
+  tmp="$(mktemp "$dir/.monitor-state.XXXXXX")"
+  if printf '%s\n' "$content" > "$tmp" && mv "$tmp" "$f"; then :; else rm -f "$tmp"; return 1; fi
+}
+
 cmd_window() {
   local state_file="" minutes since now last epoch
   while [ $# -gt 0 ]; do
@@ -46,8 +93,89 @@ cmd_window() {
   echo "MONITOR_SINCE=$since"
 }
 
-# cmd_commit added in Task 2; stub keeps the dispatcher honest under set -u.
-cmd_commit() { _die "commit: not yet implemented"; }
+cmd_commit() {
+  local state_file="" failed=0; local malformed=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --state)        state_file="$2"; shift 2 ;;
+      --repo)         REPO="$2"; shift 2 ;;
+      --labels)       LABELS="$2"; shift 2 ;;
+      --repro-recipe) REPRO_RECIPE="$2"; shift 2 ;;
+      --dry-run)      DRY_RUN=1; shift ;;
+      *) _die "commit: unknown arg $1" ;;
+    esac
+  done
+  [ -n "$state_file" ] || _die "commit: --state required"
+  if [ -z "$REPO" ]; then
+    REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+    [ -n "$REPO" ] || _die "commit: could not resolve repo (set monitor.repo)"
+  fi
+
+  local state; state="$(_read_state "$state_file")"
+  [ -n "$state" ] || state='{"version":1,"last_run_at":null,"patterns":{}}'
+
+  local raw f pk sev ent title body summary
+  while IFS= read -r raw || [ -n "$raw" ]; do
+    [ -z "$raw" ] && continue
+    f="$(_validate "$raw")"
+    if [ -z "$f" ]; then failed=1; malformed+=("$raw"); echo '{"action":"malformed"}'; continue; fi
+    pk="$(printf '%s' "$f"      | jq -r '.pattern_key')"
+    sev="$(printf '%s' "$f"     | jq -r '.severity')"
+    ent="$(printf '%s' "$f"     | jq -r '.entity // ""')"     # null → ""
+    title="$(printf '%s' "$f"   | jq -r '.title')"
+    body="$(printf '%s' "$f"    | jq -r '.body')"
+    summary="$(printf '%s' "$f" | jq -r '.summary // .title')"
+
+    # === Task 3 inserts: closed-issue reconciliation (drop stale CLOSED mapping) ===
+
+    if printf '%s' "$state" | jq -e --arg k "$pk" '.patterns|has($k)' >/dev/null; then
+      local issue seen
+      issue="$(printf '%s' "$state" | jq -r --arg k "$pk" '.patterns[$k].gh_issue')"
+      seen="$(printf '%s' "$state" | jq -r --arg k "$pk" --arg e "$ent" '(.patterns[$k].sessions // [])|index($e)|tostring')"
+      if [ "$seen" != "null" ]; then
+        printf '%s' "$f" | jq -nc --arg pk "$pk" --arg e "$ent" --argjson i "$issue" '{action:"skip",pattern_key:$pk,entity:$e,issue:$i}'
+        continue
+      fi
+      if _gh issue comment "$issue" --body "Recurrence ($(_now_iso)): $summary"; then
+        state="$(printf '%s' "$state" | jq --arg k "$pk" --arg e "$ent" --arg ts "$(_now_iso)" '.patterns[$k].sessions += [$e] | .patterns[$k].last_seen=$ts')"
+        jq -nc --arg pk "$pk" --arg e "$ent" --argjson i "$issue" '{action:"comment",pattern_key:$pk,entity:$e,issue:$i}'
+      else
+        failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
+      fi
+      continue
+    fi
+
+    # === Task 3 inserts: state-loss recovery search (adopt verified existing issue) ===
+
+    # --- CREATE ---
+    local _lbls; IFS=',' read -ra _lbls <<< "$LABELS"
+    _ensure_labels "${_lbls[@]}" "$sev"
+    if [ "$DRY_RUN" = 1 ]; then
+      _gh issue create --title "$title" --label "$LABELS,$sev" --body "x" >/dev/null 2>&1 || true
+      jq -nc --arg pk "$pk" --arg e "$ent" '{action:"create",pattern_key:$pk,entity:$e,issue:null}'
+      continue
+    fi
+    local out num
+    if out="$(_gh issue create --title "$title" --label "$LABELS,$sev" --body "$(_new_body "$body" "$pk" "$ent")")"; then
+      num="$(printf '%s' "$out" | grep -oE '[0-9]+$' | tail -1)"
+      if [ -z "$num" ] || [ "$num" = 0 ]; then
+        failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'; continue
+      fi
+      state="$(printf '%s' "$state" | jq --arg k "$pk" --argjson n "$num" --arg e "$ent" --arg ts "$(_now_iso)" '.patterns[$k]={gh_issue:$n,sessions:[$e],first_seen:$ts,last_seen:$ts}')"
+      jq -nc --arg pk "$pk" --arg e "$ent" --argjson n "$num" '{action:"create",pattern_key:$pk,entity:$e,issue:$n}'
+    else
+      failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
+    fi
+  done
+
+  # === Task 4 inserts: file one ops:monitor-input:malformed issue if malformed[] non-empty ===
+
+  if [ "$failed" = 0 ]; then
+    state="$(printf '%s' "$state" | jq --arg ts "$(_now_iso)" '.last_run_at=$ts')"
+  fi
+  _write_state "$state_file" "$state"
+  [ "$failed" = 0 ]
+}
 
 main() {
   local sub="${1:-}"; shift || true
