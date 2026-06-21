@@ -74,6 +74,17 @@ assert_file_exists() {
   fi
 }
 
+assert_file_not_exists() {
+  local label="$1" path="$2"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ ! -e "$path" ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label (file unexpectedly exists: $path)"
+    FAIL_COUNT=$((FAIL_COUNT + 1)); FAILURES+=("$label: file exists $path")
+  fi
+}
+
 assert_file_contains() {
   local label="$1" path="$2" pattern="$3"
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
@@ -2473,6 +2484,50 @@ test_canonical_entrypoint_wiring() {
 }
 
 # ---------------------------------------------------------------------------
+# Suite W: monitor-dedup.sh
+# ---------------------------------------------------------------------------
+
+test_monitor_dedup() {
+  echo -e "\n${CYAN}Suite W: monitor-dedup.sh${NC}"
+  local script="$PLUGIN_ROOT/scripts/monitor-dedup.sh"
+  local workdir ec output state mins
+
+  # W1: first run (no state) → 1440-minute window, exit 0
+  workdir=$(make_workdir)
+  ec=0; output=$(cd "$workdir" && bash "$script" window --state "$workdir/state.json" 2>&1) || ec=$?
+  assert_exit_code "W1: window first-run exits 0" "$ec" 0
+  assert_output_contains "W1: first-run window is 1440" "$output" "MONITOR_SINCE_MINUTES=1440"
+
+  # W2: recent last_run_at (30m ago) → window between 1 and 60
+  workdir=$(make_workdir); state="$workdir/state.json"
+  printf '{"version":1,"last_run_at":"%s","patterns":{}}' "$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)" > "$state"
+  ec=0; output=$(cd "$workdir" && bash "$script" window --state "$state" 2>&1) || ec=$?
+  mins=$(printf '%s\n' "$output" | sed -n 's/^MONITOR_SINCE_MINUTES=//p')
+  assert_exit_code "W2: window exits 0" "$ec" 0
+  assert_equals "W2: ~30m window within (1,60]" "$([ "$mins" -ge 1 ] && [ "$mins" -le 60 ] && echo ok)" "ok"
+
+  # W3: old last_run_at → capped at 2880, exit 0
+  workdir=$(make_workdir); state="$workdir/state.json"
+  printf '{"version":1,"last_run_at":"%s","patterns":{}}' "$(date -u -d '10 days ago' +%Y-%m-%dT%H:%M:%SZ)" > "$state"
+  ec=0; output=$(cd "$workdir" && bash "$script" window --state "$state" 2>&1) || ec=$?
+  assert_exit_code "W3: window exits 0" "$ec" 0
+  assert_output_contains "W3: capped at 2880" "$output" "MONITOR_SINCE_MINUTES=2880"
+
+  # W4: corrupt JSON state → first-run window
+  workdir=$(make_workdir); echo 'not json {{{' > "$workdir/state.json"
+  ec=0; output=$(cd "$workdir" && bash "$script" window --state "$workdir/state.json" 2>&1) || ec=$?
+  assert_exit_code "W4: corrupt state exits 0" "$ec" 0
+  assert_output_contains "W4: corrupt → 1440" "$output" "MONITOR_SINCE_MINUTES=1440"
+
+  # W4b: valid JSON but unparseable last_run_at → first-run window (must not crash under set -e)
+  workdir=$(make_workdir)
+  printf '{"version":1,"last_run_at":"not-a-date","patterns":{}}' > "$workdir/state.json"
+  ec=0; output=$(cd "$workdir" && bash "$script" window --state "$workdir/state.json" 2>&1) || ec=$?
+  assert_exit_code "W4b: bad timestamp exits 0" "$ec" 0
+  assert_output_contains "W4b: bad timestamp → 1440" "$output" "MONITOR_SINCE_MINUTES=1440"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -2513,6 +2568,7 @@ main() {
   test_goal_deliver
   test_ads_delegation
   test_lawyer_lifecycle
+  test_monitor_dedup
 
   # Summary
   echo ""
@@ -2762,6 +2818,35 @@ esac
 if [ "$emit_code" = 1 ]; then printf '%s\n%s' "$body" "${FAKE_CODE:-200}"; else printf '%s' "$body"; fi
 MOCK
   chmod +x "$bindir/curl"
+}
+
+# Mock `gh` under $1/bin. Logs argv (one line/call) to $GH_CALLS_LOG. Env knobs:
+#   GH_CREATE_NUMBER  number echoed (as URL) by `gh issue create`
+#   GH_VIEW_STATE     value for `gh issue view --json state` (OPEN/CLOSED)
+#   GH_VIEW_BODY      value for `gh issue view --json body`   (recovery verification)
+#   GH_SEARCH_JSON    JSON for `gh issue list ... --json number` (default [])
+#   GH_FAIL_ON        if argv contains this substring, exit 1 (simulate gh failure)
+make_mock_gh() {
+  local bindir="$1/bin"
+  mkdir -p "$bindir"
+  cat > "$bindir/gh" <<'MOCK'
+#!/usr/bin/env bash
+_args="$*"; printf '%s\n' "${_args//$'\n'/ }" >> "${GH_CALLS_LOG:?}"  # one line/call (flatten bodies)
+if [ -n "${GH_FAIL_ON:-}" ] && [[ "$*" == *"$GH_FAIL_ON"* ]]; then
+  echo "mock gh: forced failure" >&2; exit 1
+fi
+case "$1 $2" in
+  "repo view")   echo "${GH_REPO:-o/r}" ;;
+  "issue create") echo "https://github.com/o/r/issues/${GH_CREATE_NUMBER:?GH_CREATE_NUMBER unset}" ;;
+  "issue comment") echo "https://github.com/o/r/issues/commented" ;;
+  "issue view")
+     if [[ "$*" == *"body"* ]]; then echo "${GH_VIEW_BODY:-}"; else echo "${GH_VIEW_STATE:-OPEN}"; fi ;;
+  "issue list")  echo "${GH_SEARCH_JSON:-[]}" ;;
+  "label create") : ;;
+  *) : ;;
+esac
+MOCK
+  chmod +x "$bindir/gh"
 }
 
 test_lawyer_lifecycle() {
