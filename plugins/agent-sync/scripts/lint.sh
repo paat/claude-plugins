@@ -109,8 +109,8 @@ validate_lint_config() {
   if [[ "$(jq 'has("lint") and (.lint|has("contradictions")) and (.lint.contradictions|has("exclusiveGroups"))' <<<"$CONFIG")" == "true" ]]; then
     [[ "$(jq '.lint.contradictions.exclusiveGroups | type' <<<"$CONFIG")" == '"array"' ]] \
       || cfg_err "contradictions.exclusiveGroups must be an array"
-    [[ "$(jq '[.lint.contradictions.exclusiveGroups[] | (type == "array") and ([.[] | type] | all(. == "string"))] | all' <<<"$CONFIG")" == "true" ]] \
-      || cfg_err "contradictions.exclusiveGroups must be an array of arrays of strings"
+    [[ "$(jq '[.lint.contradictions.exclusiveGroups[] | (type == "array") and ([.[] | (type == "string" and length > 0)] | all)] | all' <<<"$CONFIG")" == "true" ]] \
+      || cfg_err "contradictions.exclusiveGroups must be arrays of non-empty strings"
   fi
 }
 validate_lint_config
@@ -127,6 +127,7 @@ resolve_files() {
   else
     entries=("$@")
   fi
+  local root_p; root_p="$(cd "$REPO_ROOT" && pwd -P)"
   local -A seen=()
   local e abs
   # Save/restore caller's nullglob state.
@@ -136,6 +137,8 @@ resolve_files() {
     # Unquoted $e enables glob expansion (paths assumed free of spaces, like generate.sh).
     for abs in "$REPO_ROOT"/$e; do
       [[ -f "$abs" ]] || continue
+      local canon; canon="$(cd "$(dirname "$abs")" 2>/dev/null && pwd -P)/$(basename "$abs")"
+      [[ -n "$canon" && "$canon" == "$root_p/"* ]] || continue
       if [[ -z "${seen[$abs]:-}" ]]; then seen[$abs]=1; printf '%s\n' "$abs"; fi
     done
   done

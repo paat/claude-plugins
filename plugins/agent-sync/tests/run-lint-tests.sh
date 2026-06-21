@@ -186,6 +186,34 @@ assert_stdout_contains "punct/multiword terms match" "contradiction: group {.NET
 CT5="$(mk_repo_ct "$TMP/ct_short" $'Supabase\n' $'Supabase\n' '{"contradictions":{"files":["README.md","CLAUDE.md"],"exclusiveGroups":[["Supabase"]]}}')"
 assert_exit "group <2 terms skipped -> exit 0" 0 -- --config "$CT5" --root "$TMP/ct_short"
 
+# --- FIX 1: resolve_files must not scan files outside REPO_ROOT ---
+# Structure: real repo at $TMP/escape/repo; outside file at $TMP/escape_outside.md
+# The outside file has 5 lines; max=3 so it WOULD trigger a finding if scanned.
+# Since it is outside root it must be silently skipped (no finding, exit 0).
+ESCAPE_OUTSIDE="$TMP/escape_outside.md"
+printf 'line1\nline2\nline3\nline4\nline5\n' > "$ESCAPE_OUTSIDE"
+mkdir -p "$TMP/escape/repo/.agent-sync"
+echo "# c" > "$TMP/escape/repo/CLAUDE.md"
+cat > "$TMP/escape/repo/.agent-sync/sources.json" <<'JSON'
+{"version":2,"files":{"m":"CLAUDE.md"},"outputs":[{"path":"AGENTS.md","sections":[{"id":"a","title":"R","source":"m","type":"full-body"}]}],"lint":{"lineBudget":{"max":3,"files":["../escape_outside.md"]}}}
+JSON
+assert_stdout_absent "escape-root: outside file name absent from output" "escape_outside.md" \
+  -- --config "$TMP/escape/repo/.agent-sync/sources.json" --root "$TMP/escape/repo"
+assert_exit "escape-root: exit 0 (0/0 scan)" 0 \
+  -- --config "$TMP/escape/repo/.agent-sync/sources.json" --root "$TMP/escape/repo"
+
+# Positive control: a file inside the repo IS still scanned and flagged
+awk 'BEGIN{for(i=1;i<=5;i++) print "line " i}' > "$TMP/escape/repo/inside.md"
+cat > "$TMP/escape/repo/.agent-sync/sources-inside.json" <<'JSON'
+{"version":2,"files":{"m":"CLAUDE.md"},"outputs":[{"path":"AGENTS.md","sections":[{"id":"a","title":"R","source":"m","type":"full-body"}]}],"lint":{"lineBudget":{"max":3,"files":["inside.md"]}}}
+JSON
+assert_stdout_contains "escape-root positive control: inside file is scanned" "inside.md is 5 lines" \
+  -- --config "$TMP/escape/repo/.agent-sync/sources-inside.json" --root "$TMP/escape/repo"
+
+# --- FIX 2: exclusiveGroups must reject empty string terms ---
+C_EMPTY_TERM="$(mk_cfg "$TMP/emptyterm" '{"contradictions":{"exclusiveGroups":[["","Postgres"]]}}')"
+assert_exit "empty exclusiveGroups term -> exit 2" 2 -- --config "$C_EMPTY_TERM" --root "$TMP/emptyterm"
+
 # --- Acceptance: clean synced fixture -> no findings, exit 0 ---
 CLEAN="$TMP/clean"; mkdir -p "$CLEAN/.agent-sync" "$CLEAN/.claude/rules"
 printf '# App\nWe use Postgres on Hetzner.\n' > "$CLEAN/README.md"

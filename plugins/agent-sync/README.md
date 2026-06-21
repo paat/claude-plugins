@@ -2,6 +2,17 @@
 
 Generate AGENTS.md from your Claude Code project configuration. Keep your `.claude/rules/`, `CLAUDE.md`, and `.claude/settings.json` as the source of truth — agent-sync assembles them into a single AGENTS.md that other AI coding tools (Codex, Copilot, Cursor, AMP) can read.
 
+## Installation
+
+Add this marketplace, then install the plugin at the scope you want:
+
+- **Install for you** (user scope) — available in all your projects:
+  `/plugin install agent-sync@paat-plugins`
+- **Install for all collaborators on this repository** (project scope) — committed to the repo and
+  shared with your team via `.claude/settings.json`.
+- **Install for you, in this repo only** (local scope) — just you, just this repository, via
+  `.claude/settings.local.json`.
+
 ## Prerequisites
 
 - `bash` 4+

@@ -92,6 +92,10 @@ on:
       - '.claude/**'
       - 'tools/agent-sync/sources.json'
       - '.agent-sync/sources.json'
+      - 'tools/agent-sync/generate.sh'
+      - 'tools/agent-sync/lint.sh'
+      - '.agent-sync/generate.sh'
+      - '.agent-sync/lint.sh'
       - 'AGENTS.md'
       - '**/AGENTS.md'
 
