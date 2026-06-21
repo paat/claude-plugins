@@ -106,6 +106,6 @@ Google Ads campaigns live under `docs/ads/<campaign>/` (owned by the `google-ads
 - **Information asymmetry**: Tech founder has no web access, forcing the business founder to be thorough
 - **File-based state**: Handoff documents carry context between iterations, not LLM memory
 - **Quality gates**: Hooks enforce handoff writing, deliverable validation, and solution signoff
-- **Pre-merge safety net**: `/bootstrap` scaffolds a canonical `check.sh` full-suite entrypoint and a `pull_request` CI workflow, and queues a branch-protection task — so regressions are caught before merge, not after.
+- **Pre-merge safety net**: `/bootstrap` scaffolds a canonical `check.sh` full-suite entrypoint and a `pull_request` CI workflow, and queues a branch-protection task.
 - **Non-blocking human tasks**: Tasks for the investor are documented but don't stop the loop
 - **Estonian working language**: Business founder thinks and researches in Estonian, translates for handoffs
