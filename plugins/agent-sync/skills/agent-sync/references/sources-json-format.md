@@ -145,3 +145,26 @@ Version 1 configs with `outputPath` + `sections` at the top level are automatica
 ```
 
 This is equivalent to a v2 config with a single output.
+
+## Lint (optional)
+
+```jsonc
+"lint": {
+  "contradictions": {
+    "severity": "warn",                      // error | warn | off (default warn)
+    "files": ["README.md", "CLAUDE.md"],     // default if omitted
+    "exclusiveGroups": [["Supabase", "Postgres"], ["Vercel", "Hetzner"]]
+  },
+  "lineBudget":     { "severity": "warn", "max": 200, "files": ["CLAUDE.md", ".claude/rules/*.md"] },
+  "softPreferences":{ "severity": "warn",             "files": ["CLAUDE.md", ".claude/rules/*.md"] }
+}
+```
+
+- **No `lint` block** → linter prints nothing and exits 0 (fully backward compatible).
+- Exit codes: `0` no error-severity findings · `1` an error-severity finding · `2` config error.
+- Contradiction matching is whole-word with non-alphanumeric boundaries (handles `.NET`, `Node.js`,
+  `C++`; `Postgres` does not match inside `PostgreSQL`). Co-occurrence is a heuristic, not proof —
+  hence the `warn` default. Aliases and section scoping are out of scope in v1.
+- Line budget counts raw lines (`wc -l`, blanks and code fences included).
+- Soft-preference flags line-leading `prefer`/`prefers`/`prefer to`/`preferred`; mid-sentence prose
+  is not flagged. All lines are scanned, including fenced code examples.

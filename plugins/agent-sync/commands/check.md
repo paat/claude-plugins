@@ -32,6 +32,27 @@ Verify that AGENTS.md is up to date with the project's Claude Code configuration
    > `/agent-sync:init` committed and the one CI runs. Preferring it is what keeps this check
    > byte-consistent with CI. As with any repo build script, run it only on a branch you trust.
 
-4. Report results clearly:
-   - **Pass**: "AGENTS.md is in sync with your Claude Code configuration."
-   - **Fail**: "AGENTS.md is out of sync. Run `/agent-sync:generate` to update."
+4. Run the linter (doc-drift contradictions + rules-file bloat). Use the same vendored-first
+   precedence as the generator so the command matches CI:
+   ```bash
+   if [ -f "tools/agent-sync/lint.sh" ]; then
+     LINT=tools/agent-sync/lint.sh
+   elif [ -f ".agent-sync/lint.sh" ]; then
+     LINT=.agent-sync/lint.sh
+   else
+     LINT="${CLAUDE_PLUGIN_ROOT}/scripts/lint.sh"
+   fi
+   bash "$LINT" --config "<path-to-sources.json>"; lint_rc=$?
+   ```
+   - `lint_rc=0`: no error-severity findings (warnings may still print).
+   - `lint_rc=1`: at least one error-severity finding.
+   - `lint_rc=2`: a **configuration error** in the `lint` block — surface it as a config problem to
+     fix, distinct from drift or content findings.
+
+5. Report results clearly. The overall result is a failure if **either** the drift check or the
+   lint returns non-zero. Report drift, lint findings, and lint config errors (`rc=2`) distinctly:
+   - **Drift pass, lint pass**: "AGENTS.md is in sync and lint found no issues."
+   - **Drift fail**: "AGENTS.md is out of sync. Run `/agent-sync:generate` to update."
+   - **Lint error findings** (`lint_rc=1`): "Lint found error-severity issues (see above). Fix them in `sources.json` or the flagged files."
+   - **Lint config error** (`lint_rc=2`): "Lint configuration error — check the `lint` block in `sources.json`."
+   - If both drift and lint fail, report both problems separately before stating the combined failure.

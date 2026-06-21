@@ -2,6 +2,17 @@
 
 Generate AGENTS.md from your Claude Code project configuration. Keep your `.claude/rules/`, `CLAUDE.md`, and `.claude/settings.json` as the source of truth — agent-sync assembles them into a single AGENTS.md that other AI coding tools (Codex, Copilot, Cursor, AMP) can read.
 
+## Installation
+
+Add this marketplace, then install the plugin at the scope you want:
+
+- **Install for you** (user scope) — available in all your projects:
+  `/plugin install agent-sync@paat-plugins`
+- **Install for all collaborators on this repository** (project scope) — committed to the repo and
+  shared with your team via `.claude/settings.json`.
+- **Install for you, in this repo only** (local scope) — just you, just this repository, via
+  `.claude/settings.local.json`.
+
 ## Prerequisites
 
 - `bash` 4+
@@ -80,11 +91,24 @@ Generate scoped AGENTS.md files for subdirectories:
 }
 ```
 
+## Linting
+
+`/agent-sync:check` also runs `lint.sh` against your `sources.json` config after the drift check.
+Three checks are available (all optional, configured in the `lint` block of `sources.json`):
+
+- **Contradictions** — flags exclusive technology pairs co-occurring in the same doc (e.g. `Supabase` + `Postgres`).
+- **Line budget** — warns when a rules file exceeds a raw-line-count threshold.
+- **Soft preferences** — flags line-leading `prefer`/`prefers`/`prefer to`/`preferred` directives that should be rewritten as hard rules.
+
+If no `lint` block is present, `lint.sh` exits 0 silently (fully backward compatible). See
+`skills/agent-sync/references/sources-json-format.md` for the full `lint` block reference.
+
 ## CI Integration
 
-`/agent-sync:init` vendors `generate.sh` into `tools/agent-sync/` (next to `sources.json`) and can
-scaffold `.github/workflows/agents-sync.yml`, so drift detection runs in CI without the plugin
-installed. See `skills/agent-sync/references/github-actions-template.md` for the workflow.
+`/agent-sync:init` vendors both `generate.sh` and `lint.sh` into `tools/agent-sync/` (next to
+`sources.json`) and can scaffold `.github/workflows/agents-sync.yml`, so drift detection and
+linting run in CI without the plugin installed. See
+`skills/agent-sync/references/github-actions-template.md` for the workflow.
 
 ## Migration from Node.js Version
 
@@ -106,3 +130,4 @@ If you have an existing `tools/agent-sync/generate-agents.mjs`:
 | `agent-sync` | Skill | Usage reference and troubleshooting |
 | `sync-watcher` | Agent | Proactively checks sync when configs change |
 | PostToolUse hook | Hook | Warns when tracked source file is edited |
+| `lint.sh` | Script | Lint config for stack contradictions, rules-file bloat, and soft directives |
