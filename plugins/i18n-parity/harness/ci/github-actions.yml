@@ -1,0 +1,13 @@
+# i18n-parity — authoritative key-parity gate. Copy into .github/workflows/.
+name: i18n-parity
+on: [push, pull_request]
+jobs:
+  i18n-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Run i18n-parity gate
+        run: python3 scripts/i18n-parity.py --root .

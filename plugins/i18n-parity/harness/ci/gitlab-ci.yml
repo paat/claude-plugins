@@ -1,0 +1,5 @@
+# i18n-parity — authoritative key-parity gate. Include into .gitlab-ci.yml.
+i18n-parity:
+  image: python:3
+  script:
+    - python3 scripts/i18n-parity.py --root .
