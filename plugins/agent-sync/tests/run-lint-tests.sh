@@ -90,6 +90,12 @@ MJ="$TMP/malformed"; mkdir -p "$MJ/.agent-sync"; echo "# c" > "$MJ/CLAUDE.md"
 printf '{ this is not json' > "$MJ/.agent-sync/sources.json"
 assert_exit "malformed JSON -> exit 2" 2 -- --config "$MJ/.agent-sync/sources.json" --root "$MJ"
 
+C5="$(mk_cfg "$TMP/badsevfalse" '{"lineBudget":{"severity":false,"max":10}}')"
+assert_exit "severity false -> exit 2" 2 -- --config "$C5" --root "$TMP/badsevfalse"
+
+C6="$(mk_cfg "$TMP/badcheck" '{"typoCheck":false}')"
+assert_exit "non-object lint child -> exit 2" 2 -- --config "$C6" --root "$TMP/badcheck"
+
 echo "-----"
 echo "PASS=$PASS FAIL=$FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

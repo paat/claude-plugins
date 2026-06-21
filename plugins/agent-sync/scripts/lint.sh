@@ -81,13 +81,16 @@ validate_lint_config() {
   local check sev t
   # lint itself must be an object.
   [[ "$(jq -r '.lint | type' <<<"$CONFIG")" == "object" ]] || cfg_err "lint must be an object"
+  # every child of lint must be an object.
+  [[ "$(jq '.lint | to_entries | all(.value | type == "object")' <<<"$CONFIG")" == "true" ]] \
+    || cfg_err "each lint check must be an object"
   for check in contradictions lineBudget softPreferences; do
     [[ "$(jq --arg c "$check" 'has("lint") and (.lint|has($c))' <<<"$CONFIG")" == "true" ]] || continue
     # each configured check must be an object.
     [[ "$(jq -r --arg c "$check" '.lint[$c] | type' <<<"$CONFIG")" == "object" ]] \
       || cfg_err "$check must be an object"
     # severity
-    sev="$(jq -r --arg c "$check" '.lint[$c].severity // "warn"' <<<"$CONFIG")"
+    sev="$(jq -r --arg c "$check" '.lint[$c] | if has("severity") then .severity else "warn" end' <<<"$CONFIG")"
     case "$sev" in error|warn|off) ;; *) cfg_err "invalid severity '$sev' for $check (use error|warn|off)";; esac
     # files type
     t="$(jq -r --arg c "$check" '.lint[$c].files | type' <<<"$CONFIG")"
