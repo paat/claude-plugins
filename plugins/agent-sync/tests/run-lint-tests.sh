@@ -96,6 +96,41 @@ assert_exit "severity false -> exit 2" 2 -- --config "$C5" --root "$TMP/badsevfa
 C6="$(mk_cfg "$TMP/badcheck" '{"typoCheck":false}')"
 assert_exit "non-object lint child -> exit 2" 2 -- --config "$C6" --root "$TMP/badcheck"
 
+# --- Line budget ---
+mk_repo_lb() {  # $1 dir, $2 line-count for big.md, $3 lint-json
+  local d="$1" n="$2" lint="$3"; mkdir -p "$d/.agent-sync" "$d/.claude/rules"
+  echo "# c" > "$d/CLAUDE.md"
+  awk -v n="$n" 'BEGIN{for(i=1;i<=n;i++) print "line " i}' > "$d/.claude/rules/big.md"
+  cat > "$d/.agent-sync/sources.json" <<JSON
+{"version":2,"files":{"m":"CLAUDE.md"},"outputs":[{"path":"AGENTS.md","sections":[{"id":"a","title":"R","source":"m","type":"full-body"}]}],"lint":$lint}
+JSON
+  echo "$d/.agent-sync/sources.json"
+}
+
+LB1="$(mk_repo_lb "$TMP/lb_over" 250 '{"lineBudget":{"max":200,"files":[".claude/rules/*.md"]}}')"
+assert_stdout_contains "250-line file flagged" "big.md is 250 lines (budget 200)" -- --config "$LB1" --root "$TMP/lb_over"
+assert_exit "line-budget warn -> exit 0" 0 -- --config "$LB1" --root "$TMP/lb_over"
+
+LB2="$(mk_repo_lb "$TMP/lb_under" 50 '{"lineBudget":{"max":200,"files":[".claude/rules/*.md"]}}')"
+assert_stdout_absent "in-budget file not flagged" "big.md" -- --config "$LB2" --root "$TMP/lb_under"
+
+LB3="$(mk_repo_lb "$TMP/lb_off" 250 '{"lineBudget":{"severity":"off","max":200,"files":[".claude/rules/*.md"]}}')"
+assert_stdout_absent "severity off -> no finding" "big.md" -- --config "$LB3" --root "$TMP/lb_off"
+
+LB4="$(mk_repo_lb "$TMP/lb_err" 250 '{"lineBudget":{"severity":"error","max":200,"files":[".claude/rules/*.md"]}}')"
+assert_exit "line-budget error -> exit 1" 1 -- --config "$LB4" --root "$TMP/lb_err"
+
+# Missing glob / missing literal file -> no crash, no finding
+LB5="$(mk_repo_lb "$TMP/lb_missing" 50 '{"lineBudget":{"max":200,"files":["does-not-exist.md","nope/*.md"]}}')"
+assert_exit "missing files skipped -> exit 0" 0 -- --config "$LB5" --root "$TMP/lb_missing"
+assert_stdout_contains "missing files -> summary 0/0" "0 errors, 0 warnings" -- --config "$LB5" --root "$TMP/lb_missing"
+
+# Dedup: overlapping glob + literal resolve to one file -> single finding line
+LB6="$(mk_repo_lb "$TMP/lb_dedup" 250 '{"lineBudget":{"max":200,"files":[".claude/rules/*.md",".claude/rules/big.md"]}}')"
+DEDUP_OUT="$(bash "$LINT" --config "$LB6" --root "$TMP/lb_dedup" 2>/dev/null | grep -c 'big.md is 250')"
+if [[ "$DEDUP_OUT" -eq 1 ]]; then echo "PASS: dedup overlapping globs"; PASS=$((PASS+1));
+else echo "FAIL: dedup overlapping globs — got $DEDUP_OUT finding lines"; FAIL=$((FAIL+1)); fi
+
 echo "-----"
 echo "PASS=$PASS FAIL=$FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

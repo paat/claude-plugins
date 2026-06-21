@@ -115,6 +115,33 @@ validate_lint_config() {
 }
 validate_lint_config
 
+# --- Path helpers ---
+relpath() { local p="$1"; p="${p#"$REPO_ROOT"/}"; p="${p#./}"; printf '%s' "$p"; }
+
+# resolve_files JQ_FILES_PATH DEFAULT...  -> absolute existing paths, deduplicated, one per line
+resolve_files() {
+  local jqpath="$1"; shift
+  local -a entries=()
+  if [[ "$(jq -r "($jqpath) | type" <<<"$CONFIG" 2>/dev/null)" == "array" ]]; then
+    mapfile -t entries < <(jq -r "($jqpath)[]" <<<"$CONFIG")
+  else
+    entries=("$@")
+  fi
+  local -A seen=()
+  local e abs
+  # Save/restore caller's nullglob state.
+  local nullglob_was=0; shopt -q nullglob && nullglob_was=1
+  shopt -s nullglob
+  for e in "${entries[@]}"; do
+    # Unquoted $e enables glob expansion (paths assumed free of spaces, like generate.sh).
+    for abs in "$REPO_ROOT"/$e; do
+      [[ -f "$abs" ]] || continue
+      if [[ -z "${seen[$abs]:-}" ]]; then seen[$abs]=1; printf '%s\n' "$abs"; fi
+    done
+  done
+  (( nullglob_was )) && shopt -s nullglob || shopt -u nullglob
+}
+
 # --- Findings collector ---
 # Each entry: "SEVERITY<TAB>CHECK_IDX<TAB>SORT_KEY<TAB>MESSAGE"
 FINDINGS=()
@@ -137,6 +164,22 @@ report() {
   exit 0
 }
 
-# (checks wired in later tasks call add_finding before report)
+# --- Check: line budget ---
+check_line_budget() {
+  [[ "$(jq 'has("lint") and (.lint|has("lineBudget"))' <<<"$CONFIG")" == "true" ]] || return 0
+  local sev max abs rel n
+  sev="$(jq -r '.lint.lineBudget.severity // "warn"' <<<"$CONFIG")"
+  [[ "$sev" == "off" ]] && return 0
+  max="$(jq -r '.lint.lineBudget.max // 200' <<<"$CONFIG")"
+  while IFS= read -r abs; do
+    [[ -z "$abs" ]] && continue
+    n="$(wc -l < "$abs" | tr -d ' ')"
+    if (( n > max )); then
+      rel="$(relpath "$abs")"
+      add_finding "$sev" 1 "$rel" "[agent-sync lint] line-budget: $rel is $n lines (budget $max)"
+    fi
+  done < <(resolve_files ".lint.lineBudget.files" "CLAUDE.md" ".claude/rules/*.md")
+}
+check_line_budget
 
 report
