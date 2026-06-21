@@ -132,8 +132,12 @@ cmd_commit() {
   done
   [ -n "$state_file" ] || _die "commit: --state required"
   if [ -z "$REPO" ]; then
-    REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
-    [ -n "$REPO" ] || _die "commit: could not resolve repo (set monitor.repo)"
+    if [ "$DRY_RUN" = 1 ]; then
+      REPO="(dry-run)"   # dry-run touches no GitHub; skip the `gh repo view` resolution call
+    else
+      REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+      [ -n "$REPO" ] || _die "commit: could not resolve repo (set monitor.repo)"
+    fi
   fi
 
   local state; state="$(_read_state "$state_file")"

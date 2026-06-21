@@ -2679,6 +2679,15 @@ test_monitor_dedup() {
   assert_file_not_exists "W14: no gh calls" "$L"
   assert_output_contains "W14: would create" "$output" '"action":"create"'
 
+  # W14d: --dry-run WITHOUT --repo must not call `gh repo view` to resolve the repo (offline-safe)
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"P-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    bash "$script" commit --state "$state" --dry-run < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W14d: dry-run without --repo exits 0" "$ec" 0
+  assert_file_not_exists "W14d: no gh calls (no repo resolution)" "$L"
+  assert_output_contains "W14d: would create" "$output" '"action":"create"'
+
   # W15: invalid pattern_key → malformed
   workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
   printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
