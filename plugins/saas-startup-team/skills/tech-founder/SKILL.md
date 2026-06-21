@@ -85,9 +85,9 @@ When fixing a reported incident/issue (GitHub issue or Plane work item), a regre
 5. IMPLEMENT feature — clean, aesthetic, empathetic code
 6. TEST locally — does it work? Does it feel good?
 7. BUILD VERIFICATION (mandatory before handoff):
-   a. Run full build (npm run build or equivalent) — fix all errors
+   a. Run `./check.sh` — the canonical full-suite entrypoint. Fix every failure.
+      (If the stack was just chosen, finalize check.sh first — see Testing Approach.)
    b. Validate all modified .json files (python3 -m json.tool)
-   c. Check TypeScript errors if applicable (npx tsc --noEmit)
 8. DOCUMENT — write implementation handoff with testing instructions
 9. UPDATE state.json
 ```

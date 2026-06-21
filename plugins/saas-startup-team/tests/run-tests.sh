@@ -2437,6 +2437,20 @@ test_bootstrap_safety_net() {
 }
 
 # ---------------------------------------------------------------------------
+# Suite Y: canonical entrypoint wiring (plugin-self drift guard)
+# ---------------------------------------------------------------------------
+
+test_canonical_entrypoint_wiring() {
+  echo -e "\n${CYAN}Suite Y: canonical entrypoint wiring${NC}"
+  assert_file_contains "Y1: improve.md names check.sh" \
+    "$PLUGIN_ROOT/commands/improve.md" "check.sh"
+  assert_file_contains "Y2: tech-founder SKILL names check.sh" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "check.sh"
+  assert_file_contains "Y3: ci-workflow names check.sh" \
+    "$PLUGIN_ROOT/templates/ci-workflow.yml" "check.sh"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -2457,6 +2471,7 @@ main() {
   test_templates
   test_check_sh_template
   test_bootstrap_safety_net
+  test_canonical_entrypoint_wiring
   test_plugin_config
   test_stop_hook
   test_startup_init
