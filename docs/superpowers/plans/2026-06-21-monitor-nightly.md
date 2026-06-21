@@ -64,7 +64,7 @@ make_mock_gh() {
   mkdir -p "$bindir"
   cat > "$bindir/gh" <<'MOCK'
 #!/usr/bin/env bash
-echo "$*" >> "${GH_CALLS_LOG:?}"
+_args="$*"; printf '%s\n' "${_args//$'\n'/ }" >> "${GH_CALLS_LOG:?}"  # one line/call (flatten bodies)
 if [ -n "${GH_FAIL_ON:-}" ] && [[ "$*" == *"$GH_FAIL_ON"* ]]; then
   echo "mock gh: forced failure" >&2; exit 1
 fi
@@ -188,7 +188,8 @@ cmd_window() {
   local state; state="$(_read_state "$state_file")"
   last="$(printf '%s' "$state" | jq -r '.last_run_at // empty' 2>/dev/null || true)"
   now="$(date -u +%s)"
-  epoch=""; [ -n "$last" ] && [ "$last" != "null" ] && epoch="$(_iso_to_epoch "$last")"
+  epoch=""
+  if [ -n "$last" ] && [ "$last" != "null" ]; then epoch="$(_iso_to_epoch "$last" || true)"; fi
   if [ -z "$epoch" ]; then
     minutes=1440
   else
@@ -265,10 +266,13 @@ Append to `test_monitor_dedup()`:
   workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
   printf '{"version":1,"last_run_at":null,"patterns":{"pipeline:err:categorize":{"gh_issue":142,"sessions":["S-1"],"first_seen":"2026-06-19T00:00:00Z","last_seen":"2026-06-19T00:00:00Z"}}}' > "$state"
   printf '%s\n' '{"pattern_key":"pipeline:err:categorize","severity":"high","entity":"S-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_STATE=OPEN \
     bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
   assert_output_contains "W6: action skip" "$output" '"action":"skip"'
-  assert_file_not_exists "W6: no gh calls made" "$L"
+  # reconciliation may `gh issue view` to confirm the stored issue is still open, but
+  # an already-seen (entity,pattern) must never create or comment.
+  assert_file_not_contains "W6: no create" "$L" "issue create"
+  assert_file_not_contains "W6: no comment" "$L" "issue comment"
 
   # W7: known pattern, NEW entity → COMMENT; entity appended (sessions length 2)
   workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
@@ -350,23 +354,21 @@ _new_body() {  # args: body pattern_key entity   (entity "" means none)
   fi
   printf '\n*Fixing this requires a regression test (or an explicit `Regression-Test: none — <reason>` override), per the regression-test gate.*\n'
 }
-# Echo a validated finding as compact JSON, or empty if malformed.
+# Echo the validated finding as ONE compact JSON line, or empty if malformed.
 _validate() {  # arg: raw line
   printf '%s' "$1" | jq -c '
     select(
       (.pattern_key|type=="string") and (.pattern_key|test("^[a-z0-9][a-z0-9:_-]*$")) and
       (.severity|type=="string") and (.title|type=="string") and (.body|type=="string") and
-      (.entity == null or (.entity|type=="string"))
-    )' 2>/dev/null || true
+      (has("entity")) and (.entity == null or (.entity|type=="string"))
+    )' 2>/dev/null | head -1 || true
 }
-_write_state() {  # atomic, same-dir temp, trap-cleaned
+_write_state() {  # atomic, same-dir temp, inline cleanup (no RETURN trap)
   local f="$1" content="$2" dir tmp
   [ "$DRY_RUN" = 1 ] && return 0
   dir="$(dirname "$f")"; mkdir -p "$dir"
   tmp="$(mktemp "$dir/.monitor-state.XXXXXX")"
-  trap 'rm -f "$tmp"' RETURN
-  printf '%s\n' "$content" > "$tmp"
-  mv "$tmp" "$f"
+  if printf '%s\n' "$content" > "$tmp" && mv "$tmp" "$f"; then :; else rm -f "$tmp"; return 1; fi
 }
 ```
 
@@ -428,7 +430,13 @@ cmd_commit() {
     # === Task 3 inserts: state-loss recovery search (adopt verified existing issue) ===
 
     # --- CREATE ---
-    _ensure_labels ${LABELS//,/ } "$sev"
+    local _lbls; IFS=',' read -ra _lbls <<< "$LABELS"
+    _ensure_labels "${_lbls[@]}" "$sev"
+    if [ "$DRY_RUN" = 1 ]; then
+      _gh issue create --title "$title" --label "$LABELS,$sev" --body "x" >/dev/null 2>&1 || true
+      jq -nc --arg pk "$pk" --arg e "$ent" '{action:"create",pattern_key:$pk,entity:$e,issue:null}'
+      continue
+    fi
     local out num
     if out="$(_gh issue create --title "$title" --label "$LABELS,$sev" --body "$(_new_body "$body" "$pk" "$ent")")"; then
       num="$(printf '%s' "$out" | grep -oE '[0-9]+$' | tail -1)"
@@ -542,17 +550,20 @@ _issue_open() {  # echo yes/no; gh failure or UNKNOWN → yes (conservative: kee
   fi
   [ "${ISSUE_STATE_CACHE[$num]}" = "CLOSED" ] && echo no || echo yes
 }
-# Echo a VERIFIED existing open issue number for (pk,ent), or empty.
+# Echo a VERIFIED existing open issue number for (pk,ent), or empty. Checks EVERY
+# search hit's body for the embedded markers (not just the first result).
 _recover_issue() {  # args: pattern_key entity("" if none)
-  local pk="$1" ent="$2" q="$pk" json num vbody
+  local pk="$1" ent="$2" q="$pk" json nums n vbody
   [ -n "$ent" ] && q="$pk $ent"
   json="$(_gh issue list --state open --search "$q" --json number -q '.' 2>/dev/null || echo '[]')"
-  num="$(printf '%s' "$json" | jq -r 'if type=="array" and length>0 then .[0].number else empty end' 2>/dev/null || true)"
-  [ -n "$num" ] || { echo ""; return; }
-  vbody="$(_gh issue view "$num" --json body -q .body 2>/dev/null || echo "")"
-  printf '%s' "$vbody" | grep -qF "**Pattern:** \`$pk\`" || { echo ""; return; }
-  if [ -n "$ent" ]; then printf '%s' "$vbody" | grep -qF "**Entity:** \`$ent\`" || { echo ""; return; }; fi
-  echo "$num"
+  nums="$(printf '%s' "$json" | jq -r 'if type=="array" then .[].number else empty end' 2>/dev/null || true)"
+  for n in $nums; do
+    vbody="$(_gh issue view "$n" --json body -q .body 2>/dev/null || echo "")"
+    printf '%s' "$vbody" | grep -qF "**Pattern:** \`$pk\`" || continue
+    if [ -n "$ent" ]; then printf '%s' "$vbody" | grep -qF "**Entity:** \`$ent\`" || continue; fi
+    echo "$n"; return
+  done
+  echo ""
 }
 ```
 
@@ -695,7 +706,8 @@ Fill the Task-4 insert point (after the read loop, before the `last_run_at` adva
 
 ```bash
   if [ "${#malformed[@]}" -gt 0 ]; then
-    _ensure_labels ${LABELS//,/ } high
+    local _mlbls; IFS=',' read -ra _mlbls <<< "$LABELS"
+    _ensure_labels "${_mlbls[@]}" high
     local mbody
     mbody="$(printf 'The monitor received %s unparseable / invalid finding line(s):\n\n```\n%s\n```\n' \
       "${#malformed[@]}" "$(printf '%s\n' "${malformed[@]}")")"
@@ -739,41 +751,41 @@ Append to `test_monitor_dedup()`:
   # W16: command exists, right frontmatter, calls engine, uses flock, parses config — and NEVER calls gh
   assert_file_exists "W16: command exists" "$cmd"
   assert_file_contains "W16: argument-hint" "$cmd" 'argument-hint'
-  assert_file_contains "W16: engine commit" "$cmd" 'monitor-dedup.sh commit'
-  assert_file_contains "W16: engine window" "$cmd" 'monitor-dedup.sh window'
+  assert_file_contains "W16: defines engine path" "$cmd" 'scripts/monitor-dedup.sh'
+  assert_file_contains "W16: runs engine commit" "$cmd" '"$ENGINE" commit'
+  assert_file_contains "W16: runs engine window" "$cmd" '"$ENGINE" window'
   assert_file_contains "W16: flock" "$cmd" 'flock'
   assert_file_contains "W16: reads .local.md" "$cmd" 'saas-startup-team.local.md'
   # the command must NOT call gh itself (engine owns all gh). Match a gh word-boundary command form.
   assert_file_not_contains "W16: no gh issue calls" "$cmd" 'gh issue'
   assert_file_not_contains "W16: no gh repo calls" "$cmd" 'gh repo'
 
-  # W17: extracted collect block emits a JSONL finding per marker (sanitized kind)
+  # W17: extracted collect block writes a JSONL finding per marker (sanitized kind) to $STATE_FILE.findings
   workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
   printf '2026-06-21 02:00:00 UTC ocr-api down\nconnection refused\n' > "$workdir/.monitor/ocr-api-last-failure.txt"
   extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
-  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/none.sh" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/none.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
   assert_exit_code "W17: collect exits 0" "$ec" 0
-  assert_output_contains "W17: pattern key from filename" "$output" '"pattern_key":"ops:ocr-api:failure"'
-  assert_json_valid "W17: emits valid JSON" "$(printf '%s' "$output" | head -1)"
+  assert_file_contains "W17: pattern key from filename" "$workdir/state.json.findings" '"pattern_key":"ops:ocr-api:failure"'
+  assert_json_valid "W17: emits valid JSON" "$(head -1 "$workdir/state.json.findings")"
 
-  # W17b: messy marker filename → sanitized to a valid pattern_key
+  # W17b: messy marker filename → sanitized to a valid pattern_key (dot/space/case → dashes)
   workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
   printf 'boom\n' > "$workdir/.monitor/OCR Api.Bad-last-failure.txt"
   extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
-  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/none.sh" bash "$workdir/collect.sh" 2>&1) || ec=$?
-  assert_output_contains "W17b: sanitized kind" "$output" '"pattern_key":"ops:ocr-api.bad:failure"'
-  # validate the whole emitted pattern_key matches the engine regex
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/none.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  assert_file_contains "W17b: sanitized kind" "$workdir/state.json.findings" '"pattern_key":"ops:ocr-api-bad:failure"'
   assert_equals "W17b: key valid per regex" \
-    "$(printf '%s' "$output" | jq -r '.pattern_key' | grep -cE '^[a-z0-9][a-z0-9:_-]*$')" "1"
+    "$(jq -r '.pattern_key' "$workdir/state.json.findings" | grep -cE '^[a-z0-9][a-z0-9:_-]*$')" "1"
 
-  # W18: no markers, no custom-checks → no output, exit 0
+  # W18: no markers, no custom-checks → empty findings file, exit 0
   workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
   extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
-  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/none.sh" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/none.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
   assert_exit_code "W18: empty collect exits 0" "$ec" 0
-  assert_equals "W18: no output" "$(printf '%s' "$output" | tr -d '[:space:]')" ""
+  assert_equals "W18: no findings" "$(tr -d '[:space:]' < "$workdir/state.json.findings")" ""
 
-  # W18b: custom-checks script output is merged
+  # W18b: custom-checks script output is merged into the findings file
   workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
   cat > "$workdir/checks.sh" <<'CC'
 #!/usr/bin/env bash
@@ -781,8 +793,8 @@ echo '{"pattern_key":"feedback:received","severity":"low","entity":"fb-7","title
 CC
   chmod +x "$workdir/checks.sh"
   extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
-  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/checks.sh" bash "$workdir/collect.sh" 2>&1) || ec=$?
-  assert_output_contains "W18b: custom-checks merged" "$output" '"pattern_key":"feedback:received"'
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/checks.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  assert_file_contains "W18b: custom-checks merged" "$workdir/state.json.findings" '"pattern_key":"feedback:received"'
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -822,7 +834,10 @@ convention. List value `labels` is normalized to a comma string.
 ENGINE="${CLAUDE_PLUGIN_ROOT}/scripts/monitor-dedup.sh"
 GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 CONFIG="$GIT_ROOT/.claude/saas-startup-team.local.md"
-cfg() { grep -oP "^\s*$1:\s*\K.*" "$CONFIG" 2>/dev/null | head -1 | sed -E 's/^["'"'"']//; s/["'"'"']$//'; }
+# Scope parsing to the `monitor:` block only (from `monitor:` to the next top-level key
+# or the closing `---`), so keys never collide with the regression-gate's top-level keys.
+mon_block=""; [ -f "$CONFIG" ] && mon_block="$(sed -n '/^[[:space:]]*monitor:[[:space:]]*$/,/^[^[:space:]#]/p' "$CONFIG")"
+cfg() { printf '%s\n' "$mon_block" | grep -oP "^\s*$1:\s*\K.*" | head -1 | sed -E 's/^["'"'"']//; s/["'"'"']$//'; }
 
 REPO=""; MARKER_DIR=".monitor"; STATE_FILE=".startup/monitor-state.json"
 CUSTOM_CHECKS=".startup/monitor-checks.sh"; LABELS="monitor,customer-issue"; REPRO_RECIPE=""
@@ -857,17 +872,22 @@ export MONITOR_SINCE MONITOR_SINCE_MINUTES
 
 ## Collect findings
 
-Self-contained: reads `MARKER_DIR` and `CUSTOM_CHECKS` from the environment and writes findings
-JSONL to stdout. Marker `kind` is sanitized to a valid `pattern_key` segment.
+Self-contained: reads `MARKER_DIR`, `CUSTOM_CHECKS`, and `STATE_FILE` from the environment and
+writes findings JSONL (one object per line) to the file `${STATE_FILE}.findings` (the `## Commit`
+step reads that file — file-based handoff survives separate shell invocations). Marker `kind` is
+sanitized to a valid `pattern_key` segment.
 
 ```bash
 MARKER_DIR="${MARKER_DIR:-.monitor}"
 CUSTOM_CHECKS="${CUSTOM_CHECKS:-.startup/monitor-checks.sh}"
+FINDINGS="${STATE_FILE:-.startup/monitor-state.json}.findings"
+mkdir -p "$(dirname "$FINDINGS")"; : > "$FINDINGS"
 
 shopt -s nullglob
 for marker in "$MARKER_DIR"/*-last-failure.txt; do
   [ -f "$marker" ] || continue
-  kind="$(basename "$marker" -last-failure.txt | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9._-')"
+  # lowercase, replace every non [a-z0-9_-] char with '-', collapse/trim dashes → valid key segment
+  kind="$(basename "$marker" -last-failure.txt | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-' | sed -E 's/-+/-/g; s/^-+//; s/-+$//')"
   [ -n "$kind" ] || continue
   first_line="$(head -1 "$marker" 2>/dev/null || true)"
   body="$(cat "$marker" 2>/dev/null || true)"
@@ -876,38 +896,32 @@ for marker in "$MARKER_DIR"/*-last-failure.txt; do
   done
   body="$body"$'\n\n(The marker auto-clears on the producer'"'"'s next successful run.)'
   jq -nc --arg pk "ops:${kind}:failure" --arg t "[Monitor] ${kind} failed — ${first_line}" --arg b "$body" \
-    '{pattern_key:$pk, severity:"high", entity:null, title:$t, body:$b}'
+    '{pattern_key:$pk, severity:"high", entity:null, title:$t, body:$b}' >> "$FINDINGS"
 done
 shopt -u nullglob
 
 if [ -x "$CUSTOM_CHECKS" ]; then
-  err_file="$(mktemp)"; set +e
-  "$CUSTOM_CHECKS"; cc_ec=$?
+  set +e
+  "$CUSTOM_CHECKS" >> "$FINDINGS"; cc_ec=$?
   set -e
   if [ "$cc_ec" -ne 0 ]; then
     jq -nc --arg b "custom-checks exited $cc_ec" \
-      '{pattern_key:"ops:monitor-checks:failure", severity:"high", entity:null, title:"[Monitor] custom-checks script failed", body:$b}'
+      '{pattern_key:"ops:monitor-checks:failure", severity:"high", entity:null, title:"[Monitor] custom-checks script failed", body:$b}' >> "$FINDINGS"
   fi
-  rm -f "$err_file"
 fi
 ```
 
-> The custom-checks script writes its **own** findings JSONL to stdout (so it flows straight into
-> the stream above) and may write diagnostics to stderr.
+> The custom-checks script writes its **own** findings JSONL to stdout (appended straight into
+> `$FINDINGS`) and may write diagnostics to stderr. A non-zero exit still keeps the findings it
+> already emitted and adds one `ops:monitor-checks:failure` tracking finding.
 
 ## Commit
 
-Run the **Collect findings** block, capture its stdout, and pipe to the engine:
+Pipe the collected findings file to the engine (the engine owns all `gh` I/O):
 
 ```bash
-findings="$(bash -c "$(sed -n '/^## Collect findings$/,/^```$/p' "$ENGINE_CMD" 2>/dev/null)")" 2>/dev/null || true
-```
-
-In execution you do not need the `sed` indirection — simply run the Collect-findings block,
-capture its output into `$findings`, then:
-
-```bash
-printf '%s\n' "$findings" | grep -v '^[[:space:]]*$' \
+FINDINGS="${STATE_FILE:-.startup/monitor-state.json}.findings"
+grep -v '^[[:space:]]*$' "$FINDINGS" \
   | bash "$ENGINE" commit --state "$STATE_FILE" $REPO_FLAG \
       --labels "$LABELS" --repro-recipe "$REPRO_RECIPE" $DRY_RUN_FLAG
 ```
@@ -936,9 +950,10 @@ cron environment.
 ````
 
 > **Implementer note:** keep the literal `## Collect findings` header with a single ```` ```bash ````
-> block under it (the test extracts it). Do **not** add any `gh` call to this file. The illustrative
-> `sed` line under `## Commit` is non-essential narration — the real flow is "run Collect block →
-> capture stdout → pipe to engine"; if it reads awkwardly, replace it with a one-line comment.
+> block under it (the test extracts it). The block writes JSONL to `${STATE_FILE}.findings`; the
+> `## Commit` block reads that same file, so the two stay decoupled across separate shell
+> invocations. Do **not** add any `gh` call to this file — repo resolution and all issue I/O belong
+> to the engine.
 
 - [ ] **Step 4: Run to verify passing**
 
@@ -1006,7 +1021,7 @@ Add a `## Nightly monitor (`/monitor-nightly`)` section to `README.md` covering:
 - one paragraph + the `--dry-run` note;
 - a config table for every `monitor:` key (default + meaning), incl. `labels` and `repro_recipe`;
 - the **marker producer contract** (write `<marker_dir>/<kind>-last-failure.txt` on failure, delete on recovery; `kind` kebab-case; human closes the issue when fixed; recurrence-after-close → fresh issue);
-- the **custom-checks contract** (executable at `custom_checks`; receives `MONITOR_SINCE`/`MONITOR_SINCE_MINUTES`; writes findings JSONL to stdout; non-zero exit still keeps stdout findings and adds a tracking finding);
+- the **custom-checks contract** (executable at `custom_checks`; receives `MONITOR_SINCE`/`MONITOR_SINCE_MINUTES`; writes findings JSONL to stdout; non-zero exit still keeps stdout findings and adds a tracking finding; **`entity` must be a single-line identifier** — no newlines/backticks, so recovery-search marker matching stays reliable);
 - the **findings JSONL schema** (`pattern_key`,`severity`,`entity`,`title`,`body`,`summary?`) and the `pattern_key` regex `^[a-z0-9][a-z0-9:_-]*$`;
 - the **cron** snippet;
 - a **Dependencies** line: authenticated `gh`, `jq`, GNU coreutils `date`, `flock`.
@@ -1052,3 +1067,21 @@ git commit -m "feat(saas-startup-team): monitor docs, config example, version bu
 **Accepted & implemented:** repo resolution moved into the engine (command makes zero `gh` calls; W16 asserts it); null entity normalized to `""` not `"null"` (W10 fixture fixed); strict `_validate` (required keys, `entity` string|null, `pattern_key` regex) → malformed (W15/W15b/W15c); action JSON via `jq -nc` (injection-safe); `known` via `jq -e has($k)`; issue number `0`/empty treated as failure (no state corruption); `_issue_open` treats `gh` failure as **open** (conservative, W10b) so a transient error never spawns duplicates; recovery search **verifies** embedded `**Pattern:**`/`**Entity:**` markers before adopting (W11/W11b); `window` survives an unparseable `last_run_at` (W4b); `_write_state` traps temp-file cleanup; `flock` block does `mkdir -p` and fails closed; marker `kind` sanitized to a valid key (W17b); `monitor.labels` + `repro_recipe` wired end-to-end (config → command → engine → issue body); `.local.md` parser added (modeled on `check-regression-test.sh`); strengthened tests (window range W2, "no gh calls" W6/W14, comment-failure W13b, multi-malformed W12b, empty-stdin W9b, custom-checks merge W18b).
 
 **Deferred (with reason):** strict severity validation — kept lenient and **dropped the unused `severities` config key** instead (a label typo must not drop a real incident); atomic-write-preserves-old-state-on-write-failure, standalone-engine concurrency, and missing-`jq`/`gh` environment tests — out of scope for unit tests (environment/preflight concerns), noted in README dependencies; future-`last_run_at` floor of 1 minute — documented behavior, not separately tested.
+
+### Round 2 (re-review of the revised plan)
+
+A second Codex pass on the *revised* engine found bugs introduced by the round-1 edits; all fixed in place:
+- **`window` crash on bad timestamp** — `epoch="$(_iso_to_epoch "$last")"` was the last command in an `&&` chain, so a bad date exited under `set -e`. Now `... || true` → empty epoch → 1440 (W4b now genuinely passes).
+- **`--dry-run` exited non-zero** — `_gh issue create` writes only to stderr under dry-run, so number parsing failed → `error`. Added an explicit dry-run create branch emitting `{action:create, issue:null}` (W14 fixed).
+- **W17b was an impossible RED** — sanitizer kept `.` but the key regex forbids it. Sanitizer now maps every non-`[a-z0-9_-]` char to `-` and collapses; expected key is `ops:ocr-api-bad:failure`.
+- **`_write_state` RETURN trap** persisted and could fire `rm -f "$tmp"` with `$tmp` unset under `set -u` on a later return → replaced with inline cleanup.
+- **`_validate` let missing `entity` through** (`.entity==null` is true for an absent key) and could emit multiple objects → added `has("entity")` + `head -1`.
+- **Unsafe label word-splitting** `${LABELS//,/ }` → now `IFS=',' read -ra` arrays in both create and malformed paths.
+- **`cfg()` matched unrelated top-level keys** → parsing now scoped to the `monitor:` block via a `sed` range.
+- **Command `## Commit` referenced an undefined `$ENGINE_CMD`/`sed`** (non-runnable) → replaced with a deterministic file handoff: `## Collect findings` writes `${STATE_FILE}.findings`, `## Commit` reads it. Collection tests (W17–W18b) assert on that file.
+- **`_recover_issue` only checked the first search hit** → now verifies every hit's embedded `**Pattern:**`/`**Entity:**` markers before adopting (W11b: a hit with the wrong entity → create, not adopt).
+- **Reconciliation legitimately calls `gh issue view`** even on a skip → W6 now asserts "no create/comment" rather than "no gh calls".
+- **Mock `gh` flattened** multi-line argv to one log line so per-call counts (`--repo` on every call, exactly-one malformed issue) are accurate.
+- **W16 string asserts** aligned to the real command text (`"$ENGINE" commit`/`window`, `scripts/monitor-dedup.sh`).
+
+**Round-2 deferred:** entity values are assumed to be single-line identifiers (newlines/backticks in an `entity` could weaken the recovery marker grep) — documented as a custom-checks contract constraint in the README rather than escaped in code.
