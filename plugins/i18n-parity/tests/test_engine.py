@@ -208,5 +208,133 @@ class TestLoadAll(unittest.TestCase):
         self.assertEqual(errs, [])
 
 
+class TestRunChecks(unittest.TestCase):
+    def _leaf(self, value):
+        icu = ip.extract_icu_args(value) if isinstance(value, str) else set()
+        shape = "null" if value is None else "array" if isinstance(value, list) else "scalar"
+        return {"shape": shape, "value": value, "icu": frozenset(icu)}
+
+    def _cell(self, mapping, dups=None):
+        return {"flat": {k: self._leaf(v) for k, v in mapping.items()}, "dups": dups or []}
+
+    def _run(self, locales, cells, waivers=None, cid="c", namespaces=None):
+        config = {"primaryLocale": locales[0], "locales": locales,
+                  "catalogs": [{"pattern": "x/{locale}.json"}]}
+        if waivers:
+            config["waivers"] = waivers
+        ns_by_cat = {cid: set(namespaces or [""])}
+        loaded = {}
+        for (ns, loc), cell in cells.items():
+            loaded[(cid, ns, loc)] = cell
+        return [v[0] for v in ip.run_checks(config, ns_by_cat, loaded)], \
+               ip.run_checks(config, ns_by_cat, loaded)
+
+    def test_balanced_passes(self):
+        cells = {("", "et"): self._cell({"a": "x"}), ("", "en"): self._cell({"a": "y"})}
+        kinds, _ = self._run(["et", "en"], cells)
+        self.assertEqual(kinds, [])
+
+    def test_missing_key_flagged(self):
+        cells = {("", "et"): self._cell({"a": "x", "b": "z"}),
+                 ("", "en"): self._cell({"a": "y"})}
+        kinds, full = self._run(["et", "en"], cells)
+        self.assertIn("missing-key", kinds)
+        self.assertTrue(any(v[2] == "b" and v[3] == ["en"] for v in full if v[0] == "missing-key"))
+
+    def test_missing_key_waived_by_locale_only(self):
+        cells = {("", "et"): self._cell({"a": "x", "b": "z"}),
+                 ("", "en"): self._cell({"a": "y"})}
+        kinds, _ = self._run(["et", "en"], cells,
+                             waivers={"localeOnlyKeys": {"et": ["b"]}})
+        self.assertEqual(kinds, [])
+
+    def test_empty_value_flagged_and_waivable(self):
+        cells = {("", "et"): self._cell({"a": "x"}), ("", "en"): self._cell({"a": "  "})}
+        kinds, _ = self._run(["et", "en"], cells)
+        self.assertIn("empty-value", kinds)
+        kinds2, _ = self._run(["et", "en"], cells,
+                              waivers={"emptyAllowed": {"en": ["a"]}})
+        self.assertEqual(kinds2, [])
+
+    def test_icu_arg_mismatch(self):
+        cells = {("", "et"): self._cell({"a": "hi {count}"}),
+                 ("", "en"): self._cell({"a": "hi there"})}
+        kinds, _ = self._run(["et", "en"], cells)
+        self.assertIn("icu-arg-mismatch", kinds)
+
+    def test_shape_mismatch(self):
+        cells = {("", "et"): self._cell({"a": ["x"]}), ("", "en"): self._cell({"a": "y"})}
+        kinds, _ = self._run(["et", "en"], cells)
+        self.assertIn("shape-mismatch", kinds)
+
+    def test_missing_namespace_single_violation(self):
+        cells = {("common", "et"): self._cell({"a": "x"}),
+                 ("common", "en"): self._cell({"a": "y"}),
+                 ("admin", "et"): self._cell({"b": "x"}),
+                 ("admin", "en"): None}
+        config = {"primaryLocale": "et", "locales": ["et", "en"],
+                  "catalogs": [{"pattern": "x/{locale}/{namespace}.json"}]}
+        loaded = {("c", ns, loc): cell for (ns, loc), cell in cells.items()}
+        full = ip.run_checks(config, {"c": {"common", "admin"}}, loaded)
+        mn = [v for v in full if v[0] == "missing-namespace"]
+        self.assertEqual(len(mn), 1)
+        self.assertEqual(mn[0][3], ["en"])
+
+    def test_duplicate_key_surfaced(self):
+        cells = {("", "et"): self._cell({"a": "x"}, dups=["a"]),
+                 ("", "en"): self._cell({"a": "y"})}
+        kinds, _ = self._run(["et", "en"], cells)
+        self.assertIn("duplicate-key", kinds)
+
+    def test_stale_locale_only_waiver(self):
+        cells = {("", "et"): self._cell({"a": "x"}), ("", "en"): self._cell({"a": "y"})}
+        kinds, full = self._run(["et", "en"], cells,
+                                waivers={"localeOnlyKeys": {"et": ["ghost"]}})
+        self.assertIn("stale-waiver", kinds)
+
+    def test_direction_prefix_waiver_and_stale(self):
+        cells = {("", "ru"): self._cell({"only.ru.x": "z", "a": "r"}),
+                 ("", "en"): self._cell({"a": "e"})}
+        # ru-only key under waived prefix -> no missing-key
+        kinds, _ = self._run(["ru", "en"], cells, waivers={"directionPrefixes": [
+            {"present": "ru", "absentIn": ["en"], "prefixes": ["only.ru."]}]})
+        self.assertNotIn("missing-key", kinds)
+        # a prefix matching nothing live -> stale
+        kinds2, _ = self._run(["ru", "en"], cells, waivers={"directionPrefixes": [
+            {"present": "ru", "absentIn": ["en"], "prefixes": ["dead.prefix."]}]})
+        self.assertIn("stale-waiver", kinds2)
+
+    def test_stale_locale_only_when_present_everywhere(self):
+        # 'a' exists in BOTH locales, so a localeOnlyKeys waiver protects nothing.
+        cells = {("", "et"): self._cell({"a": "x"}), ("", "en"): self._cell({"a": "y"})}
+        kinds, _ = self._run(["et", "en"], cells,
+                             waivers={"localeOnlyKeys": {"et": ["a"]}})
+        self.assertIn("stale-waiver", kinds)
+
+    def test_stale_direction_prefix_when_present_in_all(self):
+        # prefix present in BOTH locales -> no real divergence -> stale.
+        cells = {("", "ru"): self._cell({"only.ru.x": "z"}),
+                 ("", "en"): self._cell({"only.ru.x": "z"})}
+        kinds, _ = self._run(["ru", "en"], cells, waivers={"directionPrefixes": [
+            {"present": "ru", "absentIn": ["en"], "prefixes": ["only.ru."]}]})
+        self.assertIn("stale-waiver", kinds)
+
+    def test_locale_only_waiver_is_namespace_scoped(self):
+        # 'x' exists in both locales under 'common', but only in 'et' under 'admin'.
+        # A localeOnlyKeys et:['x'] waiver suppresses the real admin missing-key and
+        # must NOT be marked stale by a cross-namespace union (the original bug).
+        cells = {
+            ("common", "et"): self._cell({"x": "a"}),
+            ("common", "en"): self._cell({"x": "b"}),
+            ("admin", "et"): self._cell({"x": "c"}),
+            ("admin", "en"): self._cell({"y": "d"}),
+        }
+        kinds, full = self._run(["et", "en"], cells,
+                                waivers={"localeOnlyKeys": {"et": ["x"]}},
+                                namespaces=["common", "admin"])
+        self.assertNotIn("stale-waiver", kinds)
+        self.assertFalse(any(v[0] == "missing-key" and v[2] == "x" for v in full))
+
+
 if __name__ == "__main__":
     unittest.main()

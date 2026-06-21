@@ -249,3 +249,124 @@ def load_all(grid):
             if err[0] == "invalid-json":
                 json_errors.append(err[1])
     return loaded, json_errors
+
+
+# ---------- checks ----------
+
+
+def scope_label(cid, ns):
+    return "%s/%s" % (cid, ns) if ns else cid
+
+
+def is_blank(v):
+    return isinstance(v, str) and v.strip() == ""
+
+
+def run_checks(config, ns_by_cat, loaded):
+    """Run all parity checks. Return a list of (check, scope, key, locales, detail)."""
+    locales = config["locales"]
+    waivers = config.get("waivers", {}) or {}
+    lok = waivers.get("localeOnlyKeys", {}) or {}
+    ea = waivers.get("emptyAllowed", {}) or {}
+    dps = waivers.get("directionPrefixes", []) or []
+    out = []
+
+    groups = defaultdict(dict)  # (cid, ns) -> {locale: cell|None}
+    for (cid, ns, loc), cell in loaded.items():
+        groups[(cid, ns)][loc] = cell
+
+    # Waiver usage is tracked DURING the per-namespace pass below — never
+    # reconstructed from a global key union, which would be wrong for
+    # multi-namespace catalogs (the same dotted key can live in two namespaces,
+    # so a union view could falsely mark a genuinely-used waiver stale).
+    used_lok = set()   # (owner, key) suppressed at least one missing-key
+    used_ea = set()    # (locale, key) suppressed at least one empty-value
+    used_dp = set()    # indices of directionPrefixes rules that suppressed something
+
+    def dp_waives(key, present, absent):
+        """True if any directionPrefixes rule waives key for present->absent;
+        marks every matching rule used."""
+        hit = False
+        for i, d in enumerate(dps):
+            if d["present"] == present and absent in d["absentIn"] and \
+                    any(key.startswith(p) for p in d["prefixes"]):
+                used_dp.add(i)
+                hit = True
+        return hit
+
+    for cid in sorted(ns_by_cat):
+        for ns in sorted(ns_by_cat[cid]):
+            scope = scope_label(cid, ns)
+            byloc = groups.get((cid, ns), {})
+            present_locales = [l for l in locales if byloc.get(l) is not None]
+            missing_locales = [l for l in locales if byloc.get(l) is None]
+            if present_locales and missing_locales:
+                for ml in missing_locales:
+                    out.append(("missing-namespace", scope, "", [ml],
+                                "present for %s, missing for %s"
+                                % (",".join(present_locales), ml)))
+            if not present_locales:
+                continue
+            flats = {l: byloc[l]["flat"] for l in present_locales}
+            for l in present_locales:
+                for dk in byloc[l]["dups"]:
+                    out.append(("duplicate-key", scope, dk, [l],
+                                "declared more than once"))
+            # presence parity — ordered pairs. Evaluate BOTH waiver kinds so each
+            # that applies is marked used (do not short-circuit one behind the other).
+            for a in present_locales:
+                for b in present_locales:
+                    if a == b:
+                        continue
+                    for key in flats[a]:
+                        if key in flats[b]:
+                            continue
+                        waived = False
+                        if key in lok.get(a, []):
+                            used_lok.add((a, key))
+                            waived = True
+                        if dp_waives(key, a, b):
+                            waived = True
+                        if waived:
+                            continue
+                        out.append(("missing-key", scope, key, [b],
+                                    "present in %s, missing in %s" % (a, b)))
+            # per-key checks over the union
+            allkeys = set()
+            for l in present_locales:
+                allkeys.update(flats[l])
+            for key in allkeys:
+                holders = [l for l in present_locales if key in flats[l]]
+                for l in holders:
+                    if is_blank(flats[l][key]["value"]):
+                        if key in ea.get(l, []):
+                            used_ea.add((l, key))
+                        else:
+                            out.append(("empty-value", scope, key, [l], "value is empty"))
+                if len(holders) < 2:
+                    continue
+                if len(set(flats[l][key]["shape"] for l in holders)) > 1:
+                    detail = ", ".join("%s=%s" % (l, flats[l][key]["shape"]) for l in holders)
+                    out.append(("shape-mismatch", scope, key, list(holders), detail))
+                if len(set(flats[l][key]["icu"] for l in holders)) > 1:
+                    detail = ", ".join(
+                        "%s={%s}" % (l, ",".join(sorted(flats[l][key]["icu"]))) for l in holders)
+                    out.append(("icu-arg-mismatch", scope, key, list(holders), detail))
+
+    # stale waivers — a waiver that suppressed nothing live fails loudly.
+    for owner in sorted(lok):
+        for k in lok[owner]:
+            if (owner, k) not in used_lok:
+                out.append(("stale-waiver", "localeOnlyKeys", k, [owner],
+                            "suppressed no live missing-key "
+                            "(key absent in owner, or present in every locale)"))
+    for owner in sorted(ea):
+        for k in ea[owner]:
+            if (owner, k) not in used_ea:
+                out.append(("stale-waiver", "emptyAllowed", k, [owner],
+                            "no actually-empty key matched in locale"))
+    for i, d in enumerate(dps):
+        if i not in used_dp:
+            out.append(("stale-waiver", "directionPrefixes", ",".join(d["prefixes"]),
+                        [d["present"]], "suppressed no live divergence under prefixes"))
+    return out
