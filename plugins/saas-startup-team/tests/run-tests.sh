@@ -2702,6 +2702,55 @@ test_monitor_dedup() {
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=404 \
     bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
   assert_output_contains "W15c: bad entity type → malformed" "$output" '"action":"malformed"'
+
+  local cmd="$PLUGIN_ROOT/commands/monitor-nightly.md"
+  # W16: command exists, right frontmatter, calls engine, uses flock, parses config — and NEVER calls gh
+  assert_file_exists "W16: command exists" "$cmd"
+  assert_file_contains "W16: argument-hint" "$cmd" 'argument-hint'
+  assert_file_contains "W16: defines engine path" "$cmd" 'scripts/monitor-dedup.sh'
+  assert_file_contains "W16: runs engine commit" "$cmd" '"$ENGINE" commit'
+  assert_file_contains "W16: runs engine window" "$cmd" '"$ENGINE" window'
+  assert_file_contains "W16: flock" "$cmd" 'flock'
+  assert_file_contains "W16: reads .local.md" "$cmd" 'saas-startup-team.local.md'
+  # the command must NOT call gh itself (engine owns all gh). Match a gh word-boundary command form.
+  assert_file_not_contains "W16: no gh issue calls" "$cmd" 'gh issue'
+  assert_file_not_contains "W16: no gh repo calls" "$cmd" 'gh repo'
+
+  # W17: extracted collect block writes a JSONL finding per marker (sanitized kind) to $STATE_FILE.findings
+  workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
+  printf '2026-06-21 02:00:00 UTC ocr-api down\nconnection refused\n' > "$workdir/.monitor/ocr-api-last-failure.txt"
+  extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/none.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  assert_exit_code "W17: collect exits 0" "$ec" 0
+  assert_file_contains "W17: pattern key from filename" "$workdir/state.json.findings" '"pattern_key":"ops:ocr-api:failure"'
+  assert_json_valid "W17: emits valid JSON" "$(head -1 "$workdir/state.json.findings")"
+
+  # W17b: messy marker filename → sanitized to a valid pattern_key (dot/space/case → dashes)
+  workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
+  printf 'boom\n' > "$workdir/.monitor/OCR Api.Bad-last-failure.txt"
+  extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/none.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  assert_file_contains "W17b: sanitized kind" "$workdir/state.json.findings" '"pattern_key":"ops:ocr-api-bad:failure"'
+  assert_equals "W17b: key valid per regex" \
+    "$(jq -r '.pattern_key' "$workdir/state.json.findings" | grep -cE '^[a-z0-9][a-z0-9:_-]*$')" "1"
+
+  # W18: no markers, no custom-checks → empty findings file, exit 0
+  workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
+  extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/none.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  assert_exit_code "W18: empty collect exits 0" "$ec" 0
+  assert_equals "W18: no findings" "$(tr -d '[:space:]' < "$workdir/state.json.findings")" ""
+
+  # W18b: custom-checks script output is merged into the findings file
+  workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
+  cat > "$workdir/checks.sh" <<'CC'
+#!/usr/bin/env bash
+echo '{"pattern_key":"feedback:received","severity":"low","entity":"fb-7","title":"T","body":"B"}'
+CC
+  chmod +x "$workdir/checks.sh"
+  extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/checks.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  assert_file_contains "W18b: custom-checks merged" "$workdir/state.json.findings" '"pattern_key":"feedback:received"'
 }
 
 # ---------------------------------------------------------------------------
