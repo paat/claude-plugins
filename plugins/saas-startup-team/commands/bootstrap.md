@@ -144,12 +144,119 @@ Save the response to `docs/business/brief.md` using the template from `${CLAUDE_
 
 If `docs/business/brief.md` already exists, skip this step.
 
+## Step 6.5: Scaffold the pre-merge safety net
+
+Scaffold the CI gate and the canonical full-suite entrypoint so every project
+inherits a pre-merge safety net. Idempotent — existing files are left untouched.
+
+```bash
+set -uo pipefail
+
+# 1. Canonical entrypoint: check.sh (copy template, make executable)
+if [ ! -f check.sh ]; then
+  cp "${CLAUDE_PLUGIN_ROOT}/templates/check.sh" check.sh
+  chmod +x check.sh
+
+  # Detection: append INERT commented suggestions only. REQUIRED_SUITES stays
+  # empty, so a mis-detection can never produce a falsely-green gate.
+  if [ -f package.json ]; then
+    {
+      echo ""
+      echo "# DETECTED package.json — consider:"
+      if command -v jq >/dev/null 2>&1 && jq -e '.scripts.test' package.json >/dev/null 2>&1; then
+        echo "#   REQUIRED_SUITES+=(frontend_tests); frontend_tests() { run_suite frontend_tests 'npm test'; }"
+      fi
+      if command -v jq >/dev/null 2>&1 && jq -e '.scripts.lint' package.json >/dev/null 2>&1; then
+        echo "#   REQUIRED_SUITES+=(lint); lint() { run_suite lint 'npm run lint'; }"
+      fi
+      [ -f tsconfig.json ] && echo "#   REQUIRED_SUITES+=(typecheck); typecheck() { run_suite typecheck 'npx tsc --noEmit'; }"
+    } >> check.sh
+  fi
+  if [ -f pyproject.toml ] || [ -f requirements.txt ] || [ -f setup.cfg ]; then
+    {
+      echo ""
+      echo "# DETECTED Python project — consider:"
+      echo "#   REQUIRED_SUITES+=(backend_tests); backend_tests() { run_suite backend_tests 'pytest -q'; }"
+    } >> check.sh
+  fi
+fi
+
+# 2. CI workflow: .github/workflows/ci.yml (copy template, substitute STACK_SETUP)
+if [ ! -f .github/workflows/ci.yml ]; then
+  mkdir -p .github/workflows
+  cp "${CLAUDE_PLUGIN_ROOT}/templates/ci-workflow.yml" .github/workflows/ci.yml
+
+  # Build the runtime-setup block. Install command depends on which lock/manifest
+  # files exist so CI does not fail before ./check.sh (npm ci needs a lockfile;
+  # pip -r needs requirements.txt).
+  setup=""
+  if [ -f package.json ]; then
+    if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+      setup='      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n          cache: npm\n      - run: npm ci'
+    else
+      setup='      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: npm install'
+    fi
+  elif [ -f pyproject.toml ] || [ -f requirements.txt ] || [ -f setup.cfg ]; then
+    if [ -f requirements.txt ]; then
+      pyinstall='pip install -r requirements.txt'
+    else
+      pyinstall='pip install -e .'
+    fi
+    setup="      - uses: actions/setup-python@v5\n        with:\n          python-version: \"3.12\"\n      - run: $pyinstall"
+  else
+    # No stack detected: leave a marker for the tech-founder to fill in.
+    setup='      # [TECH-FOUNDER: add language/runtime setup for your stack, then\n      #  install deps, before ./check.sh runs.]'
+  fi
+  # Replace the whole {{STACK_SETUP}} token line. GNU sed expands \n in the
+  # replacement to newlines, producing the multi-line YAML block.
+  sed -i "s|.*{{STACK_SETUP}}.*|$setup|" .github/workflows/ci.yml
+fi
+
+# 3. Branch-protection [HUMAN] task (sequenced, idempotent).
+# NOTE: do NOT put fenced code blocks inside this heredoc — the test harness's
+# markdown bash-block extractor stops at the first closing fence. Commands are
+# shown indented as plain text instead.
+mkdir -p .startup
+touch .startup/human-tasks.md
+if ! grep -q "Require the CI check (branch protection)" .startup/human-tasks.md; then
+  cat >> .startup/human-tasks.md <<'TASK'
+
+## [HUMAN] Require the CI check (branch protection)
+
+Sequencing: do this ONLY after the tech-founder has finalized `check.sh` and the
+first CI run on a real PR is green — otherwise you block every PR on a stub.
+
+1. Get the exact check name from the first green PR:
+   gh pr checks <pr-number>      (it is `check` or `CI / check` — copy verbatim)
+2. Primary path — GitHub UI: Settings → Branches → Add branch protection rule →
+   "Require status checks to pass before merging" → select that check.
+3. CLI alternative (ONLY for a repo with no existing protection rule — a PUT to
+   /protection REPLACES all protection settings; use the UI otherwise):
+
+       BR=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+       CTX="check"   # replace with the exact name from step 1
+       gh api -X PUT "repos/{owner}/{repo}/branches/$BR/protection" \
+         -H "Accept: application/vnd.github+json" --input - <<JSON
+       {
+         "required_status_checks": { "strict": true, "contexts": ["$CTX"] },
+         "enforce_admins": false,
+         "required_pull_request_reviews": null,
+         "restrictions": null
+       }
+       JSON
+
+   Requires repo-admin + a token with the right scope. enforce_admins:false
+   lets admins merge a red PR in an emergency — set true to bind admins too.
+TASK
+fi
+```
+
 ## Step 7: Initialize Git and Commit
 
 1. If not already in a git repo, run `git init`
 2. Stage and commit the scaffolding:
 
 ```bash
-git add docs/ .startup/.gitkeep .gitignore CLAUDE.md
+git add docs/ .startup/.gitkeep .gitignore CLAUDE.md check.sh .github/workflows/ci.yml
 git commit -m "chore: bootstrap project structure for saas-startup-team plugin"
 ```

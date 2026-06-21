@@ -2358,6 +2358,56 @@ test_check_sh_template() {
 }
 
 # ---------------------------------------------------------------------------
+# Suite X: bootstrap pre-merge safety-net scaffolding
+# ---------------------------------------------------------------------------
+
+test_bootstrap_safety_net() {
+  echo -e "\n${CYAN}Suite X: bootstrap safety-net scaffolding${NC}"
+  local cmd="$PLUGIN_ROOT/commands/bootstrap.md"
+  local workdir ec output
+
+  # Extract the scaffolding bash block from bootstrap.md
+  local script
+  workdir=$(mktemp -d)
+  extract_md_bash "$cmd" "## Step 6.5: Scaffold the pre-merge safety net" > "$workdir/scaffold.sh"
+
+  # X1: the block is non-empty
+  assert_equals "X1: scaffold block extracted" "$([ -s "$workdir/scaffold.sh" ] && echo yes || echo no)" "yes"
+
+  # X2-X5: no stack present → scaffolds files with the placeholder marker
+  mkdir -p "$workdir/repo"; (cd "$workdir/repo" && git init -q)
+  mkdir -p "$workdir/repo/.startup"
+  ec=0; output=$(cd "$workdir/repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/scaffold.sh" 2>&1) || ec=$?
+  assert_exit_code "X2: scaffold runs cleanly" "$ec" 0
+  assert_file_exists "X3: ci.yml created" "$workdir/repo/.github/workflows/ci.yml"
+  assert_file_exists "X4: check.sh created" "$workdir/repo/check.sh"
+  assert_equals "X5: check.sh executable" "$([ -x "$workdir/repo/check.sh" ] && echo yes || echo no)" "yes"
+  assert_file_contains "X6: human-tasks has branch-protection task" "$workdir/repo/.startup/human-tasks.md" "branch protection"
+  assert_file_contains "X7: human task is sequenced after green CI" "$workdir/repo/.startup/human-tasks.md" "first CI run"
+  # no stack detected → placeholder marker remains in ci.yml
+  assert_file_contains "X8: no-stack keeps TECH-FOUNDER marker" "$workdir/repo/.github/workflows/ci.yml" "TECH-FOUNDER"
+
+  # X9: idempotent — re-run does not duplicate the human task or error
+  ec=0; output=$(cd "$workdir/repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/scaffold.sh" 2>&1) || ec=$?
+  assert_exit_code "X9: re-run is idempotent (clean exit)" "$ec" 0
+  local count
+  # Count the unique idempotency-guard heading (the phrase "branch protection"
+  # itself appears twice per block: in the heading and in the UI instructions).
+  count=$(grep -c "Require the CI check (branch protection)" "$workdir/repo/.startup/human-tasks.md")
+  assert_equals "X10: branch-protection task not duplicated" "$count" "1"
+
+  # X11-X13: node stack detected → STACK_SETUP substituted with setup-node
+  rm -rf "$workdir/repo2"; mkdir -p "$workdir/repo2/.startup"; (cd "$workdir/repo2" && git init -q)
+  echo '{"scripts":{"test":"jest"}}' > "$workdir/repo2/package.json"
+  ec=0; output=$(cd "$workdir/repo2" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/scaffold.sh" 2>&1) || ec=$?
+  assert_exit_code "X11: node scaffold runs cleanly" "$ec" 0
+  assert_file_contains "X12: node setup injected" "$workdir/repo2/.github/workflows/ci.yml" "setup-node"
+  assert_file_contains "X13: check.sh has node detection hint" "$workdir/repo2/check.sh" "DETECTED"
+
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -2377,6 +2427,7 @@ main() {
   test_status_script
   test_templates
   test_check_sh_template
+  test_bootstrap_safety_net
   test_plugin_config
   test_stop_hook
   test_startup_init
