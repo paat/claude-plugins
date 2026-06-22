@@ -302,8 +302,18 @@ Tracking issue: **#79** (keep open until the loop runs end-to-end live).
   - **Precision (measured on real logs):** aruannik → 5 interrupts (all genuine),
     21 tool-failures, **0 false-positive corrections/nudges** after the wrapper +
     anchor fixes. This is the "prove precision before filing" gate codex required.
-- [ ] Manual review of a larger record sample; deterministic fingerprinting + redaction tests.
-- [ ] Harvester (genericity/scope gate + de-identify + **PII gate** + dedup → dry-run).
+- [x] **v2 — `harvest.sh` + `/harvest`** (dry-run candidate generator). Component #2.
+  - Deterministic safety layer: clusters records by de-identified fingerprint
+    (`sha1`), aggregates recurrence, **hard PII/secrets gate** (blocks the whole
+    cluster), project-noun → `{{PROJECT}}` de-identification, recurrence
+    thresholds per signal, dedup vs `harvest-ledger.json`. Emits
+    `candidates.jsonl` (Observation/Hypothesis/Recommendation skeleton) + report.
+    **No `gh`, no network, no filing.** Genericity/phrasing is the `/harvest`
+    agent + human review, not the script.
+  - Tests: Suite H (HV1–HV9) in `tests/run-tests.sh` (660 total, all green).
+  - End-to-end on aruannik: 26 records → 2 candidates (5 interrupts, 21
+    tool-failures), 0 PII-blocked, 0 deduped.
+- [ ] Manual review of a larger record sample; cross-project recurrence.
 - [ ] Public filing to `paat/claude-plugins` (opt-in, after precision proven at scale).
 - [ ] `/lessons-review` human gate; generalize replay producer; auto-implement approved issues.
 
