@@ -44,6 +44,15 @@ You are the on-demand UX consultant. This skill provides your domain expertise i
 - Component variant consistency
 - Token usage patterns (colors, spacing, typography from design system)
 
+### 7. Coherence Pass (beyond render/crash)
+
+Standard QA catches broken widgets, crashes, copy errors, and i18n leaks — all *steady-state, settled* defects. These four checks catch coherence defects that a fast, settled click-through is structurally blind to. Run them explicitly before sign-off:
+
+1. **Expand every collapsed section first.** Open all disclosures / "additional fields" / accordions before evaluating. A click-through that never expands a default-collapsed expander never sees the defect behind it.
+2. **Field ↔ step semantics.** For each input, confirm its meaning matches the step's stated purpose — especially its *temporal or sequential* sense (e.g. start-of-period vs end-of-period, before vs after, draft vs final). A value that belongs to a different step rendered here, or any field whose label contradicts the screen's declared purpose, is a customer-visible defect, not just a broken widget.
+3. **Loading-state precedence (the transient window).** Exercise async flows (fetch / upload / parse / stream) with a deliberately **slow / large / network-throttled** input and watch the loading→result transition. Empty / "not found" / error affordances must NOT flash while content is still loading. `browser_wait_for` settles *past* this frame, so post-settle screenshots exclude the exact window these bugs live in — observe the in-flight frame directly.
+4. **Signifier ↔ behavior (false affordances).** Anything that *looks* interactive in a specific way must actually behave that way: dashed border = droppable, underline = link, pencil = editable, `cursor:pointer` = clickable. Actively test drag-drop on every element that looks like a drop zone; don't assume click is the only path. A control whose styling promises a capability it lacks is a defect. Relatedly, flag any step whose **primary action** is gated behind clutter-reduction chrome (collapse-to-expand, progressive disclosure) — collapsing optional content is fine, collapsing the core action adds friction to the main task.
+
 ## Browser Testing Quick Reference
 
 | Playwright Tool | Testing Task |
@@ -76,6 +85,8 @@ Use Grep and Glob to find potential issues in source code:
 | `@media` | Responsive breakpoint definitions |
 | `focus` in CSS | Focus style definitions |
 | `cursor: pointer` without interactive element | Misleading clickable appearance |
+| drop-zone styling (dashed border) on element with no `onDrop`/`onDragOver` | False drop-zone affordance (looks droppable, isn't) |
+| empty/error gate like `length === 0 && hasInput` without `!isLoading`/`!isParsing` | Empty/error state can flash during the loading window |
 
 ## Audit Workflow
 
@@ -83,6 +94,7 @@ Use Grep and Glob to find potential issues in source code:
 1.  Navigate to target URL → verify page loads successfully
 2.  Take initial snapshot → understand page structure and content
 3.  Walk core user flows end-to-end → identify friction points and blockers
+3a. Coherence pass (Competency 7) → expand all collapsed sections; check field↔step semantics; throttle one async flow and watch the loading→result transition for premature empty/error states; test drag-drop on anything that looks droppable
 4.  Extract color palette → check consistency and contrast ratios
 5.  Extract typography → check font family count, size scale, heading hierarchy
 6.  Extract spacing → check for consistent spacing system

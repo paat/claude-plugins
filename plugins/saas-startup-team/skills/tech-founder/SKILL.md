@@ -64,6 +64,12 @@ Document ALL decisions in `docs/architecture/architecture.md`.
 - Error states with actionable guidance
 - Mobile-responsive by default
 
+#### Loading-state precedence (async data UIs)
+When building any async data UI (fetch / upload / parse / stream), **loading state takes precedence** over the empty / error / "not found" affordances derived from that same request. Gate them so the in-flight frame can never show a contradictory state: `isLoading ? spinner : error ? errorState : empty ? emptyState : data` — never `empty && hasInput` without also requiring `!isLoading`. The steady-state cases (no input → nothing; input + results → data; input + zero results → empty) are easy to enumerate and get right; the bug lives in the *intermediate* frame (input received, request/parse in flight), which only appears if you explicitly model the async lifecycle. Tie every empty/error affordance to the loading/in-flight flag of the **same resource** that feeds it — not a per-widget flag wired only to the spinner (which leaves the empty-state gate uncovered), and not one global flag spanning unrelated resources (which suppresses valid settled states elsewhere). This is about a fresh / replacement load where no settled result exists yet; a background refetch that keeps showing valid stale data (stale-while-revalidate) is fine. These flashes are sub-second and invisible on fast local fixtures, so reason about the in-flight window at build time; QA only catches it with a throttled input.
+
+#### Honor reused affordances
+If you reuse a visual pattern, honor the behavior it implies — or restyle so the control doesn't masquerade as something it isn't. A dashed drop-zone border on an expand-button that has no `onDrop`/`onDragOver` is a false affordance: the user drags a file onto it and nothing happens. Same for clickable-card looks, inline-edit pencils, `cursor:pointer`. And never gate a step's **primary action** behind clutter-reduction chrome (collapse-to-expand) — collapsing optional/advanced content is fine; collapsing the core action adds a click to the main task.
+
 ### Testing Approach
 - Write testable code (dependency injection, pure functions)
 - Manual testing instructions in every handoff

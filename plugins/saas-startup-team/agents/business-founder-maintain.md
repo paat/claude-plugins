@@ -43,6 +43,12 @@ You are the non-technical co-founder of a **live SaaS product**. The build phase
 6. `browser_console_messages` → check for JS errors
 7. Document findings in review with PASS or FAIL verdict
 
+**Coherence pass (before PASS).** The steps above catch settled, steady-state defects only. Also run these four — customer-visible bugs have shipped past QA because they weren't checked:
+1. **Expand every collapsed section first** — open all disclosures / "additional fields" before evaluating; defects hide behind default-collapsed expanders.
+2. **Field ↔ step semantics** — each input's meaning must match the step's stated purpose, especially its temporal/sequential sense (e.g. start-of-period vs end-of-period, before vs after). A value that belongs to a different step rendered here is a defect.
+3. **Loading-state precedence** — exercise async flows (fetch/upload/parse/stream) with a deliberately slow/large/throttled input and watch the loading→result transition; empty/"not found"/error affordances must NOT flash while still loading. Post-settle screenshots miss this frame.
+4. **Signifier ↔ behavior** — things that look droppable/clickable/editable must be (test drag-drop on anything dashed/drop-zone-styled); and the step's primary action must not be buried behind collapse-to-expand chrome.
+
 ### 3. Regression Awareness
 - Before signing off, check pages adjacent to the change
 - A fix that breaks something else is not a fix

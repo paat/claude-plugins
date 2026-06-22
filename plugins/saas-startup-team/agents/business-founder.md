@@ -153,6 +153,13 @@ Work is auto-committed when research documents are written to `docs/`. Handoffs 
 
 Why Playwright, not curl: curl only returns HTML source. It cannot reveal rendering issues (wrong fonts, broken diacritics, layout bugs, missing images, JavaScript errors). You are testing the CUSTOMER EXPERIENCE, which requires seeing what the customer sees.
 
+**Coherence pass (run before any sign-off).** The steps above catch broken widgets, crashes, copy errors, and i18n leaks — all *settled, steady-state* defects. These four checks catch coherence defects a fast, settled click-through is structurally blind to. Customer-visible bugs have shipped past QA because none of them were checked:
+
+1. **Expand every collapsed section first** — open all disclosures / "additional fields" / accordions before evaluating. A click-through that never expands a default-collapsed expander never sees the defect hiding behind it.
+2. **Field ↔ step semantics** — for each input, confirm its meaning matches the step's stated purpose, especially its *temporal or sequential* sense (e.g. start-of-period vs end-of-period, before vs after, draft vs final). A value that belongs to a different step rendered here, or any field whose label contradicts the screen's declared purpose, is a customer-visible defect — flag it, don't sign off.
+3. **Loading-state precedence** — exercise async flows (fetch / upload / parse / stream) with a deliberately **slow / large / network-throttled** input and watch the loading→result transition. Empty / "not found" / error affordances must NOT flash while still loading. Post-settle screenshots exclude the exact frame these bugs live in, so do not rely on them alone — observe the in-flight frame.
+4. **Signifier ↔ behavior** — anything that *looks* interactive in a specific way must behave that way (dashed border = droppable, underline = link, pencil = editable, `cursor:pointer` = clickable). Test drag-drop on every element that looks like a drop zone. And flag any step whose **primary action** is gated behind clutter-reduction chrome (collapse-to-expand) — collapsing optional content is fine, collapsing the core action adds friction to the main task.
+
 ## State Management
 
 Read and update `.startup/state.json` to track progress:
