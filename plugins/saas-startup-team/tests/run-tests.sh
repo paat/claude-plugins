@@ -2830,6 +2830,234 @@ CC
 # Main
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Suite Z: session-insights.sh (local-only intervention extractor)
+# ---------------------------------------------------------------------------
+
+test_session_insights() {
+  echo -e "\n${CYAN}Suite Z: session-insights.sh (local intervention extractor)${NC}"
+  local script="$PLUGIN_ROOT/scripts/session-insights.sh"
+  local workdir logs state out report ec output
+
+  _si_run() { # logs state out report -> sets ec/output
+    ec=0
+    output=$(bash "$script" --logs-dir "$1" --state "$2" --out "$3" --report "$4" 2>&1) || ec=$?
+  }
+  _si_count() { grep -c "\"signal_type\":\"$2\"" "$1" 2>/dev/null || true; }
+  _si_total() { grep -c '"signal_type"' "$1" 2>/dev/null || true; }
+
+  # --- Z1: interrupt detection, ignores plain prompts + assistant lines ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/.startup/insights/watermark.json"
+  out="$workdir/.startup/insights/records.jsonl"
+  report="$workdir/.startup/insights/report.md"
+  cat > "$logs/S1.jsonl" <<'JSONL'
+{"type":"user","sessionId":"S1","timestamp":"2026-06-20T10:00:00Z","message":{"role":"user","content":"Build the invoice export"}}
+{"type":"assistant","sessionId":"S1","message":{"role":"assistant","content":[{"type":"text","text":"working on it"}]}}
+{"type":"user","sessionId":"S1","timestamp":"2026-06-20T10:01:00Z","message":{"role":"user","content":"[Request interrupted by user]"}}
+JSONL
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_exit_code "Z1: scan exits 0" "$ec" 0
+  assert_file_exists "Z1: records file created" "$out"
+  assert_equals "Z1: one interrupt record" "$(_si_count "$out" interrupt)" "1"
+  assert_equals "Z1: no false positives (total=1)" "$(_si_total "$out")" "1"
+  assert_file_exists "Z1: report created" "$report"
+  rm -rf "$workdir"
+
+  # --- Z2: /nudge detection ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  cat > "$logs/S2.jsonl" <<'JSONL'
+{"type":"user","sessionId":"S2","message":{"role":"user","content":"/nudge tech-founder is stuck on the payment form"}}
+JSONL
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z2: one nudge record" "$(_si_count "$out" nudge)" "1"
+  rm -rf "$workdir"
+
+  # --- Z3: correction vocabulary ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  cat > "$logs/S3.jsonl" <<'JSONL'
+{"type":"user","sessionId":"S3","message":{"role":"user","content":"No, that's wrong. Use the existing helper instead."}}
+JSONL
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z3: one correction record" "$(_si_count "$out" correction)" "1"
+  rm -rf "$workdir"
+
+  # --- Z4: tool_result-only user line is NOT a false intervention ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  cat > "$logs/S4.jsonl" <<'JSONL'
+{"type":"user","sessionId":"S4","message":{"role":"user","content":[{"type":"tool_result","content":"ok done"}]}}
+{"type":"assistant","sessionId":"S4","message":{"role":"assistant","content":[{"type":"text","text":"finished"}]}}
+JSONL
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_exit_code "Z4: scan exits 0" "$ec" 0
+  assert_equals "Z4: zero records (no false positive)" "$(_si_total "$out")" "0"
+  rm -rf "$workdir"
+
+  # --- Z5: malformed line skipped, valid signal still found, exit 0 ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  cat > "$logs/S5.jsonl" <<'JSONL'
+this is not valid json {{{
+{"type":"user","sessionId":"S5","message":{"role":"user","content":"[Request interrupted by user]"}}
+JSONL
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_exit_code "Z5: tolerates malformed line" "$ec" 0
+  assert_equals "Z5: still finds interrupt" "$(_si_count "$out" interrupt)" "1"
+  rm -rf "$workdir"
+
+  # --- Z6: watermark — second run with no new content adds nothing ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  cat > "$logs/S6.jsonl" <<'JSONL'
+{"type":"user","sessionId":"S6","message":{"role":"user","content":"[Request interrupted by user]"}}
+JSONL
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z6: first run finds 1" "$(_si_total "$out")" "1"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z6: second run adds nothing (still 1)" "$(_si_total "$out")" "1"
+  rm -rf "$workdir"
+
+  # --- Z7: watermark — appended complete line is picked up once ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  printf '%s\n' '{"type":"user","sessionId":"S7","message":{"role":"user","content":"[Request interrupted by user]"}}' > "$logs/S7.jsonl"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z7: first run finds 1" "$(_si_total "$out")" "1"
+  printf '%s\n' '{"type":"user","sessionId":"S7","message":{"role":"user","content":"/nudge try again"}}' >> "$logs/S7.jsonl"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z7: append adds exactly 1 (total 2)" "$(_si_total "$out")" "2"
+  rm -rf "$workdir"
+
+  # --- Z8: emitted records are valid JSON with required fields ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  cat > "$logs/S8.jsonl" <<'JSONL'
+{"type":"user","sessionId":"S8-abc","message":{"role":"user","content":"[Request interrupted by user]"}}
+JSONL
+  _si_run "$logs" "$state" "$out" "$report"
+  ec=0; jq -e . "$out" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "Z8: records are valid JSON" "$ec" 0
+  assert_equals "Z8: signal_type present" "$(jq -r '.signal_type' "$out" 2>/dev/null | head -1)" "interrupt"
+  assert_equals "Z8: session_id captured" "$(jq -r '.session_id' "$out" 2>/dev/null | head -1)" "S8-abc"
+  assert_equals "Z8: confidence captured" "$(jq -r '.confidence' "$out" 2>/dev/null | head -1)" "high"
+  rm -rf "$workdir"
+
+  # --- Z9: structural tool_failure (is_error true) ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  cat > "$logs/S9.jsonl" <<'JSONL'
+{"type":"user","sessionId":"S9","message":{"role":"user","content":[{"type":"tool_result","is_error":true,"content":"command failed: exit 2"}]}}
+JSONL
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z9: one tool_failure record" "$(_si_count "$out" tool_failure)" "1"
+  rm -rf "$workdir"
+
+  # --- Z10: no network calls in the script (static safety) ---
+  assert_file_not_contains "Z10: no gh in script" "$script" "gh "
+  assert_file_not_contains "Z10: no curl in script" "$script" "curl"
+
+  # --- Z11: partial (unterminated) line is not processed until completed ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  printf '%s\n' '{"type":"user","sessionId":"SB","message":{"role":"user","content":"[Request interrupted by user]"}}' > "$logs/SB.jsonl"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z11: first run 1" "$(_si_total "$out")" "1"
+  printf '%s' '{"type":"user","sessionId":"SB","message":{"role":"user","content":"/nudge incomplete' >> "$logs/SB.jsonl"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z11: partial line not processed (still 1)" "$(_si_total "$out")" "1"
+  printf '%s\n' '"}}' >> "$logs/SB.jsonl"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z11: completed line processed once (total 2)" "$(_si_total "$out")" "2"
+  rm -rf "$workdir"
+
+  # --- Z12: interrupt marker inside ARRAY text block (real-log shape) ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  cat > "$logs/SC.jsonl" <<'JSONL'
+{"type":"user","sessionId":"SC","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}
+JSONL
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z12: interrupt in array text detected" "$(_si_count "$out" interrupt)" "1"
+  rm -rf "$workdir"
+
+  # --- Z13: <local-command-caveat> wrapper is NOT an investor correction ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  printf '%s\n' '{"type":"user","sessionId":"SD","message":{"role":"user","content":"<local-command-caveat>Caveat: messages below were generated by the user. DO NOT respond to these unless asked.</local-command-caveat>"}}' > "$logs/SD.jsonl"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z13: command-output wrapper not a correction" "$(_si_total "$out")" "0"
+  rm -rf "$workdir"
+
+  # --- Z14: long pasted content with a late cue is NOT a correction ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  long="$(printf 'x%.0s' {1..700}) and we should do it instead"
+  printf '%s\n' "{\"type\":\"user\",\"sessionId\":\"SE\",\"message\":{\"role\":\"user\",\"content\":\"$long\"}}" > "$logs/SE.jsonl"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z14: long pasted content not a correction" "$(_si_total "$out")" "0"
+  rm -rf "$workdir"
+
+  # --- Z15: a command-doc body mentioning /nudge is NOT a nudge invocation ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  printf '%s\n' '{"type":"user","sessionId":"SF","message":{"role":"user","content":"# /improve command — execute one cycle; if a founder is stuck, use /nudge to redirect."}}' > "$logs/SF.jsonl"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z15: /nudge mentioned mid-doc is not a nudge" "$(_si_total "$out")" "0"
+  rm -rf "$workdir"
+
+  # --- Z16: budget defers whole files (no data loss across runs) ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  printf '%s\n' '{"type":"user","sessionId":"A","message":{"role":"user","content":"[Request interrupted by user]"}}' > "$logs/A.jsonl"
+  printf '%s\n' '{"type":"user","sessionId":"B","message":{"role":"user","content":"[Request interrupted by user]"}}' > "$logs/B.jsonl"
+  ec=0; bash "$script" --logs-dir "$logs" --state "$state" --out "$out" --report "$report" --max-records 1 2>&1 || ec=$?
+  assert_exit_code "Z16: capped run exits 0" "$ec" 0
+  assert_equals "Z16: first run captures 1 (one file deferred)" "$(_si_total "$out")" "1"
+  bash "$script" --logs-dir "$logs" --state "$state" --out "$out" --report "$report" --max-records 1 >/dev/null 2>&1
+  assert_equals "Z16: deferred file picked up next run (total 2, no loss)" "$(_si_total "$out")" "2"
+  rm -rf "$workdir"
+
+  # --- Z17: a mid-sentence correction word is NOT a correction (anchored) ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  printf '%s\n' '{"type":"user","sessionId":"SG","message":{"role":"user","content":"Please use the shared helper instead of the old one."}}' > "$logs/SG.jsonl"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z17: mid-sentence cue is not a correction" "$(_si_total "$out")" "0"
+  rm -rf "$workdir"
+
+  # --- Z18: missing logs dir is tolerated (exit 0, empty, report written) ---
+  workdir=$(make_workdir)
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  _si_run "$workdir/does-not-exist" "$state" "$out" "$report"
+  assert_exit_code "Z18: missing logs dir exits 0" "$ec" 0
+  assert_equals "Z18: zero records" "$(_si_total "$out")" "0"
+  assert_file_exists "Z18: report still written" "$report"
+  rm -rf "$workdir"
+
+  # --- Z19: corrupt watermark is treated as fresh (exit 0, still scans) ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  printf 'not json {{{' > "$state"
+  printf '%s\n' '{"type":"user","sessionId":"SH","message":{"role":"user","content":"[Request interrupted by user]"}}' > "$logs/SH.jsonl"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_exit_code "Z19: corrupt watermark tolerated" "$ec" 0
+  assert_equals "Z19: still finds interrupt" "$(_si_count "$out" interrupt)" "1"
+  rm -rf "$workdir"
+
+  # --- Z20: interrupt across multiple array text blocks ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  cat > "$logs/SI.jsonl" <<'JSONL'
+{"type":"user","sessionId":"SI","message":{"role":"user","content":[{"type":"text","text":"hello there"},{"type":"text","text":"[Request interrupted by user]"}]}}
+JSONL
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z20: interrupt across joined text blocks" "$(_si_count "$out" interrupt)" "1"
+  rm -rf "$workdir"
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -2868,6 +3096,7 @@ main() {
   test_ads_delegation
   test_lawyer_lifecycle
   test_monitor_dedup
+  test_session_insights
 
   # Summary
   echo ""
