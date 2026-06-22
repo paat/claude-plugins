@@ -92,6 +92,61 @@ To keep `CLAUDE.md` lean, the hook caps `### Recent (unsorted)` at **10 entries*
 
 Google Ads campaigns live under `docs/ads/<campaign>/` (owned by the `google-ads-strategist` plugin — briefs, iterations, verification screenshots, learnings). `docs/growth/channels/ads.md` is a lightweight index into them (campaign slug, status, link) and retains the `Approved budget:` / `Total spend:` summary lines the budget hard-stop hook reads. Meta/LinkedIn ads are logged inline in `ads.md`.
 
+## Nightly monitor (`/monitor-nightly`)
+
+`/monitor-nightly` is an optional stand-alone command that runs a nightly health-check loop against your product repo and files GitHub issues for recurring failures. It delegates all GitHub operations to `scripts/monitor-dedup.sh` — the command itself never calls `gh` directly. Pass `--dry-run` to preview what would be filed without writing state or touching GitHub.
+
+### Configuration
+
+All keys live under `monitor:` in `.claude/saas-startup-team.local.md`. Every key is optional; defaults apply when omitted.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `repo` | resolved via `gh repo view` | GitHub repo in `owner/name` form |
+| `labels` | `[monitor, customer-issue]` | Base labels applied to every created issue; the finding's severity is appended as an additional label |
+| `marker_dir` | `.monitor` | Directory where marker files are written by producers (see contract below) |
+| `state_file` | `.startup/monitor-state.json` | Persisted dedup state (issue numbers, seen entities, last-run timestamp) |
+| `custom_checks` | `.startup/monitor-checks.sh` | Path to a custom-checks executable (see contract below) |
+| `repro_recipe` | _(none)_ | Single-line shell snippet appended to every issue body; `{entity}` is substituted with the finding's entity value. Example: `ssh <readonly-host> "session-tar {entity}"`. Must be a single line — no newlines. |
+
+### Marker producer contract
+
+A marker producer writes `<marker_dir>/<kind>-last-failure.txt` on failure and deletes the file on recovery. `kind` must be kebab-case. When the failure file is present, `/monitor-nightly` files (or comments on) a GitHub issue. When the file is absent, the engine attempts verified recovery — it closes and re-opens if needed. Human closes the GitHub issue when the root cause is fixed; a recurrence after close always opens a fresh issue.
+
+### Custom-checks contract
+
+The file at `custom_checks` must be executable. It is invoked with two environment variables:
+
+- `MONITOR_SINCE` — ISO-8601 timestamp of the previous run's start time
+- `MONITOR_SINCE_MINUTES` — integer minutes since the previous run (minimum 1)
+
+The script writes zero or more findings as JSONL to **stdout**. A non-zero exit code does not suppress findings already written — those are kept, and an additional `ops:monitor-checks:failure` tracking issue is filed automatically. `entity` must be a single-line identifier (no newlines, no backticks) so that recovery-search marker matching stays reliable. The default filename for this script is `.startup/monitor-checks.sh` (matching the `custom_checks` config default, so teams can commit it alongside `.startup/` state).
+
+### Findings JSONL schema
+
+Each line written to stdout by the engine or by `custom_checks` (the script is also named `monitor-checks.sh` by convention) must be a JSON object with these fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `pattern_key` | yes | Stable identifier for this finding type. Regex: `^[a-z0-9][a-z0-9:_-]*$` |
+| `severity` | yes | Severity label appended to `labels` (e.g. `high`, `low`) |
+| `entity` | yes | Single-line identifier for the affected entity, or `null` (entities containing newlines or backticks are rejected as malformed) |
+| `title` | yes | Issue title |
+| `body` | yes | Issue body (Markdown) |
+| `summary` | no | One-line summary appended to comment when recurrence is detected |
+
+`pattern_key` must match `^[a-z0-9][a-z0-9:_-]*$`. Invalid keys are treated as malformed and filed as `monitor-input:malformed` tracking issues.
+
+### Cron setup
+
+```cron
+0 6 * * * cd /path/to/repo && /monitor-nightly >> .startup/monitor.log 2>&1
+```
+
+### Dependencies
+
+Authenticated `gh` (GitHub CLI), `jq`, GNU coreutils `date` (for `date -d` relative time parsing), `flock`.
+
 ## Prerequisites
 
 - Claude Code with Agent Teams support (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)

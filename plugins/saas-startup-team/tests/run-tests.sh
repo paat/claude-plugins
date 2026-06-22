@@ -74,6 +74,17 @@ assert_file_exists() {
   fi
 }
 
+assert_file_not_exists() {
+  local label="$1" path="$2"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ ! -e "$path" ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label (file unexpectedly exists: $path)"
+    FAIL_COUNT=$((FAIL_COUNT + 1)); FAILURES+=("$label: file exists $path")
+  fi
+}
+
 assert_file_contains() {
   local label="$1" path="$2" pattern="$3"
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
@@ -135,9 +146,9 @@ assert_json_field() {
     echo -e "  ${GREEN}PASS${NC} $label"
     PASS_COUNT=$((PASS_COUNT + 1))
   else
-    echo -e "  ${RED}FAIL${NC} $label (field $field: expected '$expected', got '$actual')"
+    echo -e "  ${RED}FAIL${NC} $label (expected '$expected', got '$actual')"
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("$label: field $field expected '$expected', got '$actual'")
+    FAILURES+=("$label: expected '$expected', got '$actual'")
   fi
 }
 
@@ -2473,6 +2484,343 @@ test_canonical_entrypoint_wiring() {
 }
 
 # ---------------------------------------------------------------------------
+# Suite W: monitor-dedup.sh
+# ---------------------------------------------------------------------------
+
+test_monitor_dedup() {
+  echo -e "\n${CYAN}Suite W: monitor-dedup.sh${NC}"
+  local script="$PLUGIN_ROOT/scripts/monitor-dedup.sh"
+  local workdir ec output state mins
+
+  # W1: first run (no state) → 1440-minute window, exit 0
+  workdir=$(make_workdir)
+  ec=0; output=$(cd "$workdir" && bash "$script" window --state "$workdir/state.json" 2>&1) || ec=$?
+  assert_exit_code "W1: window first-run exits 0" "$ec" 0
+  assert_output_contains "W1: first-run window is 1440" "$output" "MONITOR_SINCE_MINUTES=1440"
+
+  # W2: recent last_run_at (30m ago) → window between 1 and 60
+  workdir=$(make_workdir); state="$workdir/state.json"
+  printf '{"version":1,"last_run_at":"%s","patterns":{}}' "$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)" > "$state"
+  ec=0; output=$(cd "$workdir" && bash "$script" window --state "$state" 2>&1) || ec=$?
+  mins=$(printf '%s\n' "$output" | sed -n 's/^MONITOR_SINCE_MINUTES=//p')
+  assert_exit_code "W2: window exits 0" "$ec" 0
+  assert_equals "W2: ~30m window within (1,60]" "$([ "$mins" -ge 1 ] && [ "$mins" -le 60 ] && echo ok)" "ok"
+
+  # W3: old last_run_at → capped at 2880, exit 0
+  workdir=$(make_workdir); state="$workdir/state.json"
+  printf '{"version":1,"last_run_at":"%s","patterns":{}}' "$(date -u -d '10 days ago' +%Y-%m-%dT%H:%M:%SZ)" > "$state"
+  ec=0; output=$(cd "$workdir" && bash "$script" window --state "$state" 2>&1) || ec=$?
+  assert_exit_code "W3: window exits 0" "$ec" 0
+  assert_output_contains "W3: capped at 2880" "$output" "MONITOR_SINCE_MINUTES=2880"
+
+  # W4: corrupt JSON state → first-run window
+  workdir=$(make_workdir); echo 'not json {{{' > "$workdir/state.json"
+  ec=0; output=$(cd "$workdir" && bash "$script" window --state "$workdir/state.json" 2>&1) || ec=$?
+  assert_exit_code "W4: corrupt state exits 0" "$ec" 0
+  assert_output_contains "W4: corrupt → 1440" "$output" "MONITOR_SINCE_MINUTES=1440"
+
+  # W4b: valid JSON but unparseable last_run_at → first-run window (must not crash under set -e)
+  workdir=$(make_workdir)
+  printf '{"version":1,"last_run_at":"not-a-date","patterns":{}}' > "$workdir/state.json"
+  ec=0; output=$(cd "$workdir" && bash "$script" window --state "$workdir/state.json" 2>&1) || ec=$?
+  assert_exit_code "W4b: bad timestamp exits 0" "$ec" 0
+  assert_output_contains "W4b: bad timestamp → 1440" "$output" "MONITOR_SINCE_MINUTES=1440"
+
+  local L  # gh calls log path, per-test
+
+  # W5: new pattern → CREATE; --repo present on every gh call; state records issue
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '%s\n' '{"pattern_key":"pipeline:err:categorize","severity":"high","entity":"S-1","title":"[Monitor] err","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=142 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W5: create exits 0" "$ec" 0
+  assert_output_contains "W5: action create" "$output" '"action":"create"'
+  assert_file_contains "W5: gh issue create called" "$L" "issue create"
+  assert_equals "W5: every gh call carries --repo" "$(grep -c -- '--repo o/r' "$L")" "$(wc -l < "$L" | tr -d ' ')"
+  assert_equals "W5: state records 142" "$(jq -c '.patterns["pipeline:err:categorize"].gh_issue' "$state")" "142"
+
+  # W6: same (entity,pattern) in state → SKIP, NO gh calls at all
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{"pipeline:err:categorize":{"gh_issue":142,"sessions":["S-1"],"first_seen":"2026-06-19T00:00:00Z","last_seen":"2026-06-19T00:00:00Z"}}}' > "$state"
+  printf '%s\n' '{"pattern_key":"pipeline:err:categorize","severity":"high","entity":"S-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_STATE=OPEN \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_output_contains "W6: action skip" "$output" '"action":"skip"'
+  # reconciliation may `gh issue view` to confirm the stored issue is still open, but
+  # an already-seen (entity,pattern) must never create or comment.
+  assert_file_not_contains "W6: no create" "$L" "issue create"
+  assert_file_not_contains "W6: no comment" "$L" "issue comment"
+
+  # W7: known pattern, NEW entity → COMMENT; entity appended (sessions length 2)
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{"pipeline:err:categorize":{"gh_issue":142,"sessions":["S-1"],"first_seen":"2026-06-19T00:00:00Z","last_seen":"2026-06-19T00:00:00Z"}}}' > "$state"
+  printf '%s\n' '{"pattern_key":"pipeline:err:categorize","severity":"high","entity":"S-2","title":"T","body":"B","summary":"recurred"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_STATE=OPEN \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_output_contains "W7: action comment" "$output" '"action":"comment"'
+  assert_file_contains "W7: commented on 142" "$L" "issue comment 142"
+  assert_equals "W7: 2 sessions" "$(jq -c '.patterns["pipeline:err:categorize"].sessions|length' "$state")" "2"
+
+  # W8: same entity, DIFFERENT pattern → CREATE (not collapsed)
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{"pipeline:err:categorize":{"gh_issue":142,"sessions":["S-1"],"first_seen":"2026-06-19T00:00:00Z","last_seen":"2026-06-19T00:00:00Z"}}}' > "$state"
+  printf '%s\n' '{"pattern_key":"pipeline:timeout:narrative","severity":"high","entity":"S-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=143 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_output_contains "W8: action create" "$output" '"action":"create"'
+  assert_output_not_contains "W8: not a comment" "$output" '"action":"comment"'
+  assert_equals "W8: new pattern stored" "$(jq -c '.patterns["pipeline:timeout:narrative"].gh_issue' "$state")" "143"
+
+  # W9: two findings, same pattern, different entity, ONE run → 1 create + 1 comment, both entities stored
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '%s\n%s\n' \
+    '{"pattern_key":"payment:stuck","severity":"high","entity":"P-1","title":"T","body":"B"}' \
+    '{"pattern_key":"payment:stuck","severity":"high","entity":"P-2","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=150 GH_VIEW_STATE=OPEN \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_equals "W9: one create" "$(grep -c 'issue create' "$L")" "1"
+  assert_equals "W9: one comment" "$(grep -c 'issue comment' "$L")" "1"
+  assert_equals "W9: both entities stored" "$(jq -c '.patterns["payment:stuck"].sessions|length' "$state")" "2"
+
+  # W9b: empty stdin → exit 0, state initialized, last_run_at advanced (non-null)
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    bash "$script" commit --state "$state" --repo o/r < /dev/null 2>&1) || ec=$?
+  assert_exit_code "W9b: empty stdin exits 0" "$ec" 0
+  assert_file_exists "W9b: state written" "$state"
+  assert_output_not_contains "W9b: last_run_at advanced" "$(jq -r '.last_run_at' "$state")" "null"
+
+  # W10: stored issue CLOSED → CREATE fresh (sessions fixture uses "" for null entity)
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{"ops:llm-gap:failure":{"gh_issue":99,"sessions":[""],"first_seen":"2026-06-01T00:00:00Z","last_seen":"2026-06-01T00:00:00Z"}}}' > "$state"
+  printf '%s\n' '{"pattern_key":"ops:llm-gap:failure","severity":"high","entity":null,"title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_STATE=CLOSED GH_CREATE_NUMBER=200 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_output_contains "W10: closed → create" "$output" '"action":"create"'
+  assert_equals "W10: now issue 200" "$(jq -c '.patterns["ops:llm-gap:failure"].gh_issue' "$state")" "200"
+
+  # W10b: stored issue, gh view FAILS → conservative: treat as OPEN → COMMENT, not create
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{"ops:llm-gap:failure":{"gh_issue":99,"sessions":[""],"first_seen":"2026-06-01T00:00:00Z","last_seen":"2026-06-01T00:00:00Z"}}}' > "$state"
+  printf '%s\n' '{"pattern_key":"ops:llm-gap:failure","severity":"high","entity":"E-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_FAIL_ON="issue view" \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_output_contains "W10b: view-fail → comment" "$output" '"action":"comment"'
+  assert_file_not_contains "W10b: no duplicate create" "$L" "issue create"
+
+  # W11: lost state, an existing open issue whose body embeds the markers → adopt/COMMENT
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:failed","severity":"high","entity":"P-9","title":"T","body":"B","summary":"again"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    GH_SEARCH_JSON='[{"number":321}]' GH_VIEW_BODY='**Pattern:** `payment:failed`
+**Entity:** `P-9`' \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_output_contains "W11: recovered → comment" "$output" '"action":"comment"'
+  assert_file_contains "W11: commented on 321" "$L" "issue comment 321"
+  assert_file_contains "W11: recovery search is colon-tokenized" "$L" "payment failed"
+  assert_file_not_contains "W11: no duplicate create" "$L" "issue create"
+
+  # W11b: search hit but body lacks the entity marker → do NOT adopt → CREATE
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:failed","severity":"high","entity":"P-9","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=500 \
+    GH_SEARCH_JSON='[{"number":777}]' GH_VIEW_BODY='**Pattern:** `payment:failed`
+**Entity:** `SOMEONE-ELSE`' \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_output_contains "W11b: mismatch → create" "$output" '"action":"create"'
+  assert_file_not_contains "W11b: did not comment on 777" "$L" "issue comment 777"
+
+  # W12: malformed line → tracking issue + non-zero + window unchanged
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":"2026-06-01T00:00:00Z","patterns":{}}' > "$state"
+  printf '%s\n' 'this is not json' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=400 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W12: malformed → non-zero" "$ec" 1
+  assert_file_contains "W12: monitor-input:malformed filed" "$L" "monitor-input:malformed"
+  assert_equals "W12: window unchanged" "$(jq -r '.last_run_at' "$state")" "2026-06-01T00:00:00Z"
+
+  # W12b: multiple malformed lines → exactly ONE tracking issue
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n%s\n' 'garbage one' 'garbage two' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=401 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_equals "W12b: one malformed issue" "$(grep -c 'monitor-input:malformed' "$L")" "1"
+
+  # W12c: an OPEN malformed-input tracking issue already in state → do NOT file a duplicate
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{"ops:monitor-input:malformed":{"gh_issue":300,"sessions":[""],"first_seen":"2026-06-01T00:00:00Z","last_seen":"2026-06-01T00:00:00Z"}}}' > "$state"
+  printf '%s\n' 'garbage' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_STATE=OPEN GH_CREATE_NUMBER=301 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W12c: malformed run still non-zero" "$ec" 1
+  assert_file_not_contains "W12c: no duplicate malformed issue created" "$L" "issue create"
+
+  # W13: gh create fails → not in state, non-zero, window unchanged
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":"2026-06-01T00:00:00Z","patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"P-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_FAIL_ON="issue create" \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W13: gh fail → non-zero" "$ec" 1
+  assert_equals "W13: not in state" "$(jq -c '.patterns["payment:stuck"] // "absent"' "$state")" '"absent"'
+  assert_equals "W13: window unchanged" "$(jq -r '.last_run_at' "$state")" "2026-06-01T00:00:00Z"
+
+  # W13b: comment fails on known new entity → non-zero, entity NOT appended, window unchanged
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":"2026-06-01T00:00:00Z","patterns":{"payment:stuck":{"gh_issue":50,"sessions":["P-1"],"first_seen":"2026-06-01T00:00:00Z","last_seen":"2026-06-01T00:00:00Z"}}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"P-2","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_STATE=OPEN GH_FAIL_ON="issue comment" \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W13b: comment fail → non-zero" "$ec" 1
+  assert_equals "W13b: entity not appended" "$(jq -c '.patterns["payment:stuck"].sessions|length' "$state")" "1"
+
+  # W14: --dry-run → exit 0, no state file, no gh calls
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"P-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    bash "$script" commit --state "$state" --repo o/r --dry-run < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W14: dry-run exits 0" "$ec" 0
+  assert_file_not_exists "W14: no state written" "$state"
+  assert_file_not_exists "W14: no gh calls" "$L"
+  assert_output_contains "W14: would create" "$output" '"action":"create"'
+
+  # W14d: --dry-run WITHOUT --repo must not call `gh repo view` to resolve the repo (offline-safe)
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"P-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    bash "$script" commit --state "$state" --dry-run < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W14d: dry-run without --repo exits 0" "$ec" 0
+  assert_file_not_exists "W14d: no gh calls (no repo resolution)" "$L"
+  assert_output_contains "W14d: would create" "$output" '"action":"create"'
+
+  # W14e: dry-run previews within-batch dedup — two same-pattern/different-entity findings → 1 create + 1 comment, not 2 creates
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '%s\n%s\n' \
+    '{"pattern_key":"payment:stuck","severity":"high","entity":"P-1","title":"T","body":"B"}' \
+    '{"pattern_key":"payment:stuck","severity":"high","entity":"P-2","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    bash "$script" commit --state "$state" --repo o/r --dry-run < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W14e: dry-run exits 0" "$ec" 0
+  assert_equals "W14e: one create previewed" "$(printf '%s' "$output" | grep -c '"action":"create"')" "1"
+  assert_equals "W14e: one comment previewed" "$(printf '%s' "$output" | grep -c '"action":"comment"')" "1"
+
+  # W15: invalid pattern_key → malformed
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"BAD KEY!!","severity":"high","entity":"X","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=402 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W15: invalid key → non-zero" "$ec" 1
+  assert_output_contains "W15: action malformed" "$output" '"action":"malformed"'
+
+  # W15b: missing required field (no body) → malformed
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"X","title":"T"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=403 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_output_contains "W15b: missing body → malformed" "$output" '"action":"malformed"'
+
+  # W15c: entity wrong type (object) → malformed
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":{"x":1},"title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=404 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_output_contains "W15c: bad entity type → malformed" "$output" '"action":"malformed"'
+
+  # W15d: entity containing a backtick → malformed (would corrupt markers / inject markdown)
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"a`b","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=410 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_output_contains "W15d: backtick entity → malformed" "$output" '"action":"malformed"'
+
+  local cmd="$PLUGIN_ROOT/commands/monitor-nightly.md"
+  # W16: command exists, right frontmatter, calls engine, uses flock, parses config — and NEVER calls gh
+  assert_file_exists "W16: command exists" "$cmd"
+  assert_file_contains "W16: argument-hint" "$cmd" 'argument-hint'
+  assert_file_contains "W16: defines engine path" "$cmd" 'scripts/monitor-dedup.sh'
+  assert_file_contains "W16: runs engine commit" "$cmd" '"$ENGINE" commit'
+  assert_file_contains "W16: runs engine window" "$cmd" '"$ENGINE" window'
+  assert_file_contains "W16: flock" "$cmd" 'flock'
+  assert_file_contains "W16: reads .local.md" "$cmd" 'saas-startup-team.local.md'
+  # the command must NOT call gh itself (engine owns all gh). Match a gh word-boundary command form.
+  assert_file_not_contains "W16: no gh issue calls" "$cmd" 'gh issue'
+  assert_file_not_contains "W16: no gh repo calls" "$cmd" 'gh repo'
+  assert_file_not_contains "W16: no gh label calls" "$cmd" 'gh label'
+  assert_file_not_contains "W16: no gh auth calls" "$cmd" 'gh auth'
+
+  # W17: extracted collect block writes a JSONL finding per marker (sanitized kind) to $STATE_FILE.findings
+  workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
+  printf '2026-06-21 02:00:00 UTC ocr-api down\nconnection refused\n' > "$workdir/.monitor/ocr-api-last-failure.txt"
+  extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/none.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  assert_exit_code "W17: collect exits 0" "$ec" 0
+  assert_file_contains "W17: pattern key from filename" "$workdir/state.json.findings" '"pattern_key":"ops:ocr-api:failure"'
+  assert_json_valid "W17: emits valid JSON" "$workdir/state.json.findings"
+
+  # W17b: messy marker filename → sanitized to a valid pattern_key (dot/space/case → dashes)
+  workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
+  printf 'boom\n' > "$workdir/.monitor/OCR Api.Bad-last-failure.txt"
+  extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/none.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  assert_file_contains "W17b: sanitized kind" "$workdir/state.json.findings" '"pattern_key":"ops:ocr-api-bad:failure"'
+  assert_equals "W17b: key valid per regex" \
+    "$(jq -r '.pattern_key' "$workdir/state.json.findings" | grep -cE '^[a-z0-9][a-z0-9:_-]*$')" "1"
+
+  # W18: no markers, no custom-checks → empty findings file, exit 0
+  workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
+  extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/none.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  assert_exit_code "W18: empty collect exits 0" "$ec" 0
+  assert_equals "W18: no findings" "$(tr -d '[:space:]' < "$workdir/state.json.findings")" ""
+
+  # W18b: custom-checks script output is merged into the findings file
+  workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
+  cat > "$workdir/checks.sh" <<'CC'
+#!/usr/bin/env bash
+echo '{"pattern_key":"feedback:received","severity":"low","entity":"fb-7","title":"T","body":"B"}'
+CC
+  chmod +x "$workdir/checks.sh"
+  extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/checks.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  assert_file_contains "W18b: custom-checks merged" "$workdir/state.json.findings" '"pattern_key":"feedback:received"'
+
+  # W18c: custom-checks exits non-zero → keeps its emitted findings AND appends a tracking finding; collect still exits 0
+  workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
+  cat > "$workdir/checks.sh" <<'CC'
+#!/usr/bin/env bash
+echo '{"pattern_key":"feedback:received","severity":"low","entity":"fb-9","title":"T","body":"B"}'
+exit 3
+CC
+  chmod +x "$workdir/checks.sh"
+  extract_md_bash "$cmd" "## Collect findings" > "$workdir/collect.sh"
+  ec=0; output=$(cd "$workdir" && MARKER_DIR="$workdir/.monitor" CUSTOM_CHECKS="$workdir/checks.sh" STATE_FILE="$workdir/state.json" bash "$workdir/collect.sh" 2>&1) || ec=$?
+  assert_exit_code "W18c: collect survives failing custom-checks" "$ec" 0
+  assert_file_contains "W18c: keeps emitted finding" "$workdir/state.json.findings" '"pattern_key":"feedback:received"'
+  assert_file_contains "W18c: appends checks-failure finding" "$workdir/state.json.findings" '"pattern_key":"ops:monitor-checks:failure"'
+
+  # W19: config example, README, and versions are consistent
+  assert_file_contains "W19: example has monitor block" "$PLUGIN_ROOT/saas-startup-team.local.md.example" "monitor:"
+  assert_file_contains "W19: README documents command" "$PLUGIN_ROOT/README.md" "/monitor-nightly"
+  assert_file_contains "W19: README custom-checks contract" "$PLUGIN_ROOT/README.md" "monitor-checks.sh"
+  assert_file_contains "W19: README documents repro_recipe" "$PLUGIN_ROOT/README.md" "repro_recipe"
+  # the dropped `severities` key must not reappear in either doc
+  assert_file_not_contains "W19: no severities in example" "$PLUGIN_ROOT/saas-startup-team.local.md.example" "severities"
+  assert_file_not_contains "W19: no severities in README" "$PLUGIN_ROOT/README.md" "severities"
+  local pv mv
+  pv="$(jq -r '.version' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
+  mv="$(jq -r '.plugins[] | select(.name=="saas-startup-team") | .version' "$PLUGIN_ROOT/../../.claude-plugin/marketplace.json")"
+  assert_equals "W19: plugin/marketplace versions match" "$pv" "$mv"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -2513,6 +2861,7 @@ main() {
   test_goal_deliver
   test_ads_delegation
   test_lawyer_lifecycle
+  test_monitor_dedup
 
   # Summary
   echo ""
@@ -2762,6 +3111,35 @@ esac
 if [ "$emit_code" = 1 ]; then printf '%s\n%s' "$body" "${FAKE_CODE:-200}"; else printf '%s' "$body"; fi
 MOCK
   chmod +x "$bindir/curl"
+}
+
+# Mock `gh` under $1/bin. Logs argv (one line/call) to $GH_CALLS_LOG. Env knobs:
+#   GH_CREATE_NUMBER  number echoed (as URL) by `gh issue create`
+#   GH_VIEW_STATE     value for `gh issue view --json state` (OPEN/CLOSED)
+#   GH_VIEW_BODY      value for `gh issue view --json body`   (recovery verification)
+#   GH_SEARCH_JSON    JSON for `gh issue list ... --json number` (default [])
+#   GH_FAIL_ON        if argv contains this substring, exit 1 (simulate gh failure)
+make_mock_gh() {
+  local bindir="$1/bin"
+  mkdir -p "$bindir"
+  cat > "$bindir/gh" <<'MOCK'
+#!/usr/bin/env bash
+_args="$*"; printf '%s\n' "${_args//$'\n'/ }" >> "${GH_CALLS_LOG:?}"  # one line/call (flatten bodies)
+if [ -n "${GH_FAIL_ON:-}" ] && [[ "$*" == *"$GH_FAIL_ON"* ]]; then
+  echo "mock gh: forced failure" >&2; exit 1
+fi
+case "$1 $2" in
+  "repo view")   echo "${GH_REPO:-o/r}" ;;
+  "issue create") echo "https://github.com/o/r/issues/${GH_CREATE_NUMBER:?GH_CREATE_NUMBER unset}" ;;
+  "issue comment") echo "https://github.com/o/r/issues/commented" ;;
+  "issue view")
+     if [[ "$*" == *"body"* ]]; then echo "${GH_VIEW_BODY:-}"; else echo "${GH_VIEW_STATE:-OPEN}"; fi ;;
+  "issue list")  echo "${GH_SEARCH_JSON:-[]}" ;;
+  "label create") : ;;
+  *) : ;;
+esac
+MOCK
+  chmod +x "$bindir/gh"
 }
 
 test_lawyer_lifecycle() {
