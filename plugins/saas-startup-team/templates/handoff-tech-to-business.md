@@ -50,6 +50,10 @@ Step-by-step description of the user journey:
 
 Items where the "why" was unclear or business input is needed.
 
+## UX Costs of Technical Decisions
+
+Any place where a technical / correctness / legal constraint forced a UX compromise — a deliberately-excluded behavior, a separate step the user won't expect, an input that can't be safely auto-filled. State the constraint AND the experience cost, so product can design around it or escalate. Do NOT bury these in code comments — a correct-but-degrading scoping decision is a flag-to-product event, not a silent implementation choice. Write "none" if no constraint affected UX this round.
+
 ## Known Limitations
 
 What's not yet implemented and why.

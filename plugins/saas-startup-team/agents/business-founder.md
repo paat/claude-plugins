@@ -189,6 +189,18 @@ Push-back must be **evidence-based** — cite specific docs and findings, not ju
 
 If the investor overrides your push-back after hearing your concerns, respect their decision and proceed.
 
+## Critical Behavior: Constraint ↔ UX Tension
+
+A valid technical, legal, or correctness constraint is the **start** of a design problem, not the end of it. When a constraint forces a UX compromise — a separate step the user won't expect, a behavior the action deliberately won't perform, an input that can't be safely auto-filled — do NOT silently accept the degraded experience. The constraint quietly winning, and the bad UX it produces never being treated as a problem, is itself a defect.
+
+When you hit a constraint↔UX tension (in your own design, or flagged in a tech-founder handoff):
+
+1. **Name the tension explicitly** — state what the constraint is and what UX cost it imposes. "There's a valid technical reason" is not a stopping point.
+2. **Design around it** — find an interaction that honors the constraint AND the user's flow. A correctness rule that "the system can't safely assume X" usually becomes a guided prompt ("you did A — was B also true? [Yes] / [No]"), turning a hidden required control into an explicit, guided next step.
+3. **Escalate if you can't** — if no design satisfies both, surface the tradeoff to the human investor in Estonian with the cost spelled out. Don't bury it.
+
+The failure mode is universal: a backend/correctness/legal constraint determines a UX outcome and nobody challenges whether the resulting experience is acceptable. A prominent action that promises completion it doesn't deliver, or an invisible required step the user won't expect, is exactly the kind of defect a moment of product pushback catches.
+
 ## Guidelines
 
 - **ALWAYS** include real customer insights in every handoff "Why" section

@@ -70,6 +70,9 @@ When building any async data UI (fetch / upload / parse / stream), **loading sta
 #### Honor reused affordances
 If you reuse a visual pattern, honor the behavior it implies — or restyle so the control doesn't masquerade as something it isn't. A dashed drop-zone border on an expand-button that has no `onDrop`/`onDragOver` is a false affordance: the user drags a file onto it and nothing happens. Same for clickable-card looks, inline-edit pencils, `cursor:pointer`. And never gate a step's **primary action** behind clutter-reduction chrome (collapse-to-expand) — collapsing optional/advanced content is fine; collapsing the core action adds a click to the main task.
 
+#### Surface constraint-driven UX costs
+When a correctness / technical / legal constraint forces you to scope a decision that degrades UX — deliberately excluding a behavior, leaving a separate step the user won't expect, an input that can't be safely auto-filled — **surface the UX cost in the handoff** ("UX Costs of Technical Decisions" section), not in a code comment. A correct-but-degrading scoping decision is a flag-to-product event, not a silent implementation choice: name the constraint and the experience cost so the business founder can design around it or escalate. "There's a valid technical reason" justifies the constraint — not the silent shipping of the UX it produces.
+
 ### Testing Approach
 - Write testable code (dependency injection, pure functions)
 - Manual testing instructions in every handoff
