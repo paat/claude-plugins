@@ -3058,6 +3058,158 @@ JSONL
   rm -rf "$workdir"
 }
 
+# ---------------------------------------------------------------------------
+# Suite H: harvest.sh (dry-run candidate generator — no network, no filing)
+# ---------------------------------------------------------------------------
+
+test_harvest() {
+  echo -e "\n${CYAN}Suite H: harvest.sh (dry-run candidate generator)${NC}"
+  local hscript="$PLUGIN_ROOT/scripts/harvest.sh"
+  local workdir in led cand report ec output
+
+  _h_run() { # in ledger cand report [project]
+    ec=0
+    output=$(bash "$hscript" --in "$1" --ledger "$2" --candidates "$3" --report "$4" --project "${5:-acme}" 2>&1) || ec=$?
+  }
+  _h_total() { grep -c '"fingerprint"' "$1" 2>/dev/null || true; }
+  _rec() { # signal summary ref -> one record JSON line
+    jq -cn --arg s "$1" --arg sum "$2" --arg ref "$3" \
+      '{signal_type:$s, sanitized_summary:$sum, local_evidence_ref:$ref, confidence:"medium", source_project:"acme"}'
+  }
+
+  # --- H1: identical signals cluster into one candidate with aggregated count ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  { _rec tool_failure "tool_result error" "/f#L1"; _rec tool_failure "tool_result error" "/f#L2"; _rec tool_failure "tool_result error" "/f#L3"; } > "$in"
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_exit_code "HV1: exits 0" "$ec" 0
+  assert_equals "HV1: one cluster" "$(_h_total "$cand")" "1"
+  assert_equals "HV1: count aggregated to 3" "$(jq -r '.count' "$cand" | head -1)" "3"
+  rm -rf "$workdir"
+
+  # --- H2: de-identify replaces the project name with a template var ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  { _rec correction "acme dashboard layout is wrong" "/f#L1"; _rec correction "acme dashboard layout is wrong" "/f#L2"; } > "$in"
+  _h_run "$in" "$led" "$cand" "$report" "acme"
+  assert_equals "HV2: correction surfaced (count>=2)" "$(_h_total "$cand")" "1"
+  assert_file_contains "HV2: project name templated" "$cand" "{{PROJECT}}"
+  assert_file_not_contains "HV2: raw project name removed" "$cand" "acme dashboard"
+  rm -rf "$workdir"
+
+  # --- H3: PII/secret in a candidate blocks it from surfacing ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  local sec="sk-""or-v1-""deadbeefdeadbeefdeadbeef"   # fragmented so the repo holds no real-looking secret
+  _rec nudge "use key $sec now" "/f#L1" > "$in"
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_equals "HV3: secret-bearing candidate not surfaced" "$(_h_total "$cand")" "0"
+  assert_file_contains "HV3: report notes a blocked candidate" "$report" "blocked"
+  rm -rf "$workdir"
+
+  # --- H4: dedup against the ledger (already-surfaced fingerprint) ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  _rec interrupt "[Request interrupted by user]" "/f#L1" > "$in"
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_equals "HV4: first run surfaces it" "$(_h_total "$cand")" "1"
+  local fp; fp="$(jq -r '.fingerprint' "$cand" | head -1)"
+  jq -n --arg fp "$fp" '{($fp): {}}' > "$led"
+  _h_run "$in" "$led" "$workdir/cand2.jsonl" "$report"
+  assert_equals "HV4: deduped on second run" "$(_h_total "$workdir/cand2.jsonl")" "0"
+  rm -rf "$workdir"
+
+  # --- H5: recurrence threshold (a lone low-confidence signal stays below the bar) ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  _rec tool_failure "tool_result error" "/f#L1" > "$in"   # count 1 < default 3
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_equals "HV5: single tool_failure below threshold" "$(_h_total "$cand")" "0"
+  _rec interrupt "[Request interrupted by user]" "/f#L1" > "$in"  # count 1 >= default 1
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_equals "HV5: single interrupt meets threshold" "$(_h_total "$cand")" "1"
+  rm -rf "$workdir"
+
+  # --- H6: candidates are valid JSON; report is written ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  _rec interrupt "[Request interrupted by user]" "/f#L1" > "$in"
+  _h_run "$in" "$led" "$cand" "$report"
+  ec=0; jq -e . "$cand" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "HV6: candidates valid JSON" "$ec" 0
+  assert_file_exists "HV6: report written" "$report"
+  rm -rf "$workdir"
+
+  # --- H7: malformed record line tolerated ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  { printf 'garbage {{{\n'; _rec interrupt "[Request interrupted by user]" "/f#L2"; } > "$in"
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_exit_code "HV7: tolerates malformed line" "$ec" 0
+  assert_equals "HV7: still surfaces the valid signal" "$(_h_total "$cand")" "1"
+  rm -rf "$workdir"
+
+  # --- H8: no network in the script ---
+  assert_file_not_contains "HV8: no gh in script" "$hscript" "gh "
+  assert_file_not_contains "HV8: no curl in script" "$hscript" "curl"
+
+  # --- H9: empty/missing records tolerated ---
+  workdir=$(make_workdir); led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  _h_run "$workdir/missing.jsonl" "$led" "$cand" "$report"
+  assert_exit_code "HV9: missing input exits 0" "$ec" 0
+  assert_equals "HV9: zero candidates" "$(_h_total "$cand")" "0"
+  assert_file_exists "HV9: report still written" "$report"
+  rm -rf "$workdir"
+
+  # --- HV10: a secret in the evidence_ref (not just the summary) blocks the cluster ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  local akia="AKIA""1234567890ABCD"   # fragmented (no contiguous secret in source)
+  _rec interrupt "[Request interrupted by user]" "/logs/${akia}.jsonl#L1" > "$in"
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_equals "HV10: ref-borne secret blocks the cluster" "$(_h_total "$cand")" "0"
+  rm -rf "$workdir"
+
+  # --- HV11: broader token formats are all caught by the PII gate ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  # fragmented so the committed bytes contain no contiguous secret; runtime rebuilds the full string
+  local t_ant="sk-""ant-""deadbeefdeadbeefdeadbeef0001"
+  local t_strp="sk""_live_""deadbeefdeadbeef0002abcd"
+  local t_goog="AIza""SyDeadbeefdeadbeefdeadbeefdeadbeef00"
+  local t_jwt="eyJabcdefgh.""eyJpayloadxx.""sigsig0001"
+  local t_gen="API""_KEY=""supersecretvalue123"
+  {
+    _rec interrupt "leak $t_ant here" "/f#L1"
+    _rec interrupt "leak $t_strp here" "/f#L2"
+    _rec interrupt "leak $t_goog here" "/f#L3"
+    _rec interrupt "leak $t_jwt here" "/f#L4"
+    _rec interrupt "leak $t_gen here" "/f#L5"
+  } > "$in"
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_equals "HV11: all token formats blocked (0 surfaced)" "$(_h_total "$cand")" "0"
+  assert_file_contains "HV11: report counts 5 blocked" "$report" "blocked (PII/secret detected): 5"
+  rm -rf "$workdir"
+
+  # --- HV12: refs with spaces/glob chars do not corrupt output (no word-split/glob) ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  _rec interrupt "[Request interrupted by user]" "/tmp/a b*.jsonl#L1" > "$in"
+  _h_run "$in" "$led" "$cand" "$report"
+  ec=0; jq -e . "$cand" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "HV12: candidates still valid JSON" "$ec" 0
+  assert_equals "HV12: exactly one evidence ref (no split/glob)" "$(jq -r '.evidence_refs | length' "$cand" | head -1)" "1"
+  rm -rf "$workdir"
+
+  # --- HV13: project name with regex metacharacters is de-identified ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  { _rec correction "acme.app checkout is broken in acme.app" "/f#L1"; _rec correction "acme.app checkout is broken in acme.app" "/f#L2"; } > "$in"
+  _h_run "$in" "$led" "$cand" "$report" "acme.app"
+  assert_file_contains "HV13: metachar project templated" "$cand" "{{PROJECT}}"
+  assert_file_not_contains "HV13: raw metachar project removed" "$cand" "acme.app"
+  rm -rf "$workdir"
+
+  # --- HV14: candidate output order is deterministic across runs ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  { _rec interrupt "[Request interrupted by user]" "/f#L1"
+    _rec tool_failure "tool_result error" "/f#L2"; _rec tool_failure "tool_result error" "/f#L3"; _rec tool_failure "tool_result error" "/f#L4"; } > "$in"
+  _h_run "$in" "$led" "$workdir/c1.jsonl" "$report"
+  _h_run "$in" "$led" "$workdir/c2.jsonl" "$report"
+  local dord=same; diff -q "$workdir/c1.jsonl" "$workdir/c2.jsonl" >/dev/null 2>&1 || dord=diff
+  assert_equals "HV14: deterministic candidate ordering" "$dord" "same"
+  rm -rf "$workdir"
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -3097,6 +3249,7 @@ main() {
   test_lawyer_lifecycle
   test_monitor_dedup
   test_session_insights
+  test_harvest
 
   # Summary
   echo ""
