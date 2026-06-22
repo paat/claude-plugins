@@ -36,15 +36,17 @@ fi
 ITERATION=$(jq -r '.iteration // 0' "$STATE_FILE" 2>/dev/null || echo "0")
 PHASE=$(jq -r '.phase // "research"' "$STATE_FILE" 2>/dev/null || echo "research")
 
-# Determine handoff pattern for this teammate
-if [ "$TEAMMATE_NAME" = "business-founder" ]; then
-  PATTERN="$STARTUP_DIR/handoffs/*-business-to-tech.md"
-elif [ "$TEAMMATE_NAME" = "tech-founder" ]; then
-  PATTERN="$STARTUP_DIR/handoffs/*-tech-to-business.md"
-else
-  # Unknown teammate, allow idle
-  exit 0
-fi
+# Determine handoff pattern for this teammate. Prefix-match so engine-suffixed
+# dispatch names (tech-founder-claude, tech-founder-codex, *-maintain) all map to
+# the tech-founder role — the role token stays "tech-founder", the engine varies.
+case "$TEAMMATE_NAME" in
+  business-founder*) PATTERN="$STARTUP_DIR/handoffs/*-business-to-tech.md" ;;
+  tech-founder*)     PATTERN="$STARTUP_DIR/handoffs/*-tech-to-business.md" ;;
+  *)
+    # Unknown teammate, allow idle
+    exit 0
+    ;;
+esac
 
 # Find the highest-numbered handoff from this teammate
 HIGHEST_HANDOFF=0

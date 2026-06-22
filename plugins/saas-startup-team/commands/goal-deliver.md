@@ -86,7 +86,9 @@ Recommended (not mandatory): dispatch the **business founder**
 plan against `docs/business/brief.md`, `docs/research/`, and `docs/legal/`, and
 to **push back** (citing docs) on anything that conflicts with legal/strategy;
 then dispatch the **tech founder**
-(`${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-maintain.md`) for a quick feasibility
+(`${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude-maintain.md` — feasibility/dependency
+reasoning is judgment, so use the Claude engine here; later per-chunk implementation
+still routes by engine per the engine-selection guidance) for a quick feasibility
 and dependency-order sanity check. You own the final chunk list and order — this
 is judgment, not a script.
 

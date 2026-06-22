@@ -41,7 +41,10 @@ done
 # Top-level Claude session: only block when state.json explicitly marks us as
 # team-lead. Missing state.json, unset active_role, or any non-team-lead value
 # (business-founder, tech-founder, tech-founder-maintain, lawyer, ux-tester,
-# growth-hacker, etc.) means no orchestrator is active and we bypass.
+# growth-hacker, etc.) means no orchestrator is active and we bypass. NOTE: the
+# implementation role's active_role stays "tech-founder"/"tech-founder-maintain"
+# regardless of engine — tech-founder-claude / tech-founder-codex are agent files
+# the orchestrator dispatches, not active_role values.
 active_role=$(jq -r '.active_role // empty' "$GIT_ROOT/.startup/state.json" 2>/dev/null || true)
 if [ "$active_role" != "team-lead" ]; then
   exit 0

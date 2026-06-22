@@ -764,13 +764,18 @@ test_cross_file_consistency() {
   assert_file_exists "H2: TaskCompleted hook script exists" "$task_script"
 
   # H3-H4: Agent names in agents/*.md match what check-idle.sh handles
-  local biz_name tech_name
+  local biz_name tech_claude_name tech_codex_name
   biz_name=$(grep '^name:' "$PLUGIN_ROOT/agents/business-founder.md" | head -1 | sed 's/^name: *//')
-  tech_name=$(grep '^name:' "$PLUGIN_ROOT/agents/tech-founder.md" | head -1 | sed 's/^name: *//')
+  tech_claude_name=$(grep '^name:' "$PLUGIN_ROOT/agents/tech-founder-claude.md" | head -1 | sed 's/^name: *//')
+  tech_codex_name=$(grep '^name:' "$PLUGIN_ROOT/agents/tech-founder-codex.md" | head -1 | sed 's/^name: *//')
 
-  # check-idle.sh handles "business-founder" and "tech-founder"
+  # check-idle.sh handles "business-founder" and the "tech-founder*" role (both engines).
   assert_equals "H3: business-founder agent name matches script" "$biz_name" "business-founder"
-  assert_equals "H4: tech-founder agent name matches script" "$tech_name" "tech-founder"
+  assert_equals "H4a: tech-founder-claude agent name correct" "$tech_claude_name" "tech-founder-claude"
+  assert_equals "H4b: tech-founder-codex agent name correct" "$tech_codex_name" "tech-founder-codex"
+  # both engine names must prefix-match the tech-founder role check-idle.sh keys on
+  case "$tech_claude_name" in tech-founder*) assert_equals "H4c: claude engine matches tech-founder role" "ok" "ok";; *) assert_equals "H4c: claude engine matches tech-founder role" "no" "ok";; esac
+  case "$tech_codex_name" in tech-founder*) assert_equals "H4d: codex engine matches tech-founder role" "ok" "ok";; *) assert_equals "H4d: codex engine matches tech-founder role" "no" "ok";; esac
 
   # H5-H6: check-idle.sh patterns match template filenames
   assert_file_contains "H5: check-idle.sh handles business-to-tech pattern" \
@@ -935,7 +940,8 @@ test_plugin_issues() {
   fi
 
   # J2-J5: the four primary issue-filing agents point at gh, not the old file
-  for agent in business-founder.md tech-founder.md tech-founder-maintain.md business-founder-maintain.md; do
+  # tech-founder-codex* inherit plugin-issue reporting via tech-founder-claude.md (which they read).
+  for agent in business-founder.md tech-founder-claude.md tech-founder-claude-maintain.md business-founder-maintain.md; do
     assert_file_contains "J-gh: $agent points to gh issue create" \
       "$PLUGIN_ROOT/agents/$agent" "gh issue create --repo paat/claude-plugins"
   done

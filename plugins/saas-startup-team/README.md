@@ -152,9 +152,19 @@ Authenticated `gh` (GitHub CLI), `jq`, GNU coreutils `date` (for `date -d` relat
 - Claude Code with Agent Teams support (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
 - Playwright MCP (`@playwright/mcp`) — automatically configured via plugin `.mcp.json`, runs headless
 - Web access enabled (for business founder's market research)
-- **Linux environment** — hooks use `/proc/` for process tree detection (Docker containers work)
+- **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. It dispatches autonomous agents with broad filesystem/Bash authority, and the **Codex engine runs unsandboxed** (`scripts/codex-implement.sh` bypasses Codex's own approvals/sandbox) — the container is the isolation boundary. Hooks also use `/proc/` for process-tree detection. Do not run it on a host machine.
 - **`jq` and `awk`** — required by hook scripts (`auto-learn.sh`, state compaction, JSON validation)
 - **google-ads-strategist plugin** — required for any Google Ads work (hard dependency). Google Ads is delegated to its `ads-strategist` agent; `growth-hacker` no longer creates Google Ads campaigns itself. There is no manifest-level dependency field, so this is enforced behaviorally: `/ads` and the `/growth` loop fail with an install instruction if the plugin is absent.
+- **`codex` CLI (optional)** — only needed to use the **Codex implementation engine**. Without it, the orchestrator simply routes all implementation to the Claude engine (`tech-founder-codex` reports back and is re-dispatched as `tech-founder-claude`).
+
+## Implementation engines: Claude vs Codex
+
+The tech-founder (implementation) role has two interchangeable engines; the orchestrator picks one per task (`active_role` stays `tech-founder`):
+
+- **`tech-founder-claude`** (Claude / Opus) — frontend/UI, architecture & design judgment, surgical/minimal diffs, careful refactors, nuanced debugging. The safe default.
+- **`tech-founder-codex`** (OpenAI Codex / gpt-5.5, via `scripts/codex-implement.sh`) — implementing a detailed multi-point spec to completion, backend/data/algorithmic logic, exhaustive tests, config/plumbing/integrations. It delegates the coding to Codex, then verifies (gate green, minimal Unicode-clean diff, regression test) and writes the handoff.
+
+`-maintain` variants of both exist for the `/improve` flow. Routing rules: see **"1c. Choosing the implementation engine"** in the startup-orchestration skill. Basis: a verified blind A/B (Codex won on completeness + brief-/convention-following; Claude won on minimality + design taste) plus developer consensus.
 
 ## Key Design Decisions
 
