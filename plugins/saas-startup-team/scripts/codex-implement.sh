@@ -16,8 +16,10 @@
 # container (see README "Prerequisites"). The container IS the isolation boundary, so
 # Codex is run with its own approvals/sandbox bypassed (the container's bwrap is also
 # typically unavailable). This default is only safe under that container-only design —
-# do NOT run this on a host. To harden anyway: CODEX_NO_BYPASS=1 (drops the bypass and
-# defaults to a workspace-write sandbox), or set CODEX_SANDBOX=read-only|workspace-write.
+# do NOT run this on a host. To harden anyway, set CODEX_NO_BYPASS=1 — that drops the
+# bypass flag and enables a REAL sandbox (default workspace-write). CODEX_SANDBOX only
+# selects the mode (read-only|workspace-write) AFTER bypass is disabled; on its own,
+# while the bypass flag is active, it has no effect.
 set -euo pipefail
 
 HANDOFF="" TASK="" MODEL="${TF_CODEX_MODEL:-gpt-5.5}" TIMEOUT="${TF_CODEX_TIMEOUT:-30m}" LOG=""
@@ -38,8 +40,10 @@ command -v codex >/dev/null 2>&1 || { echo "ERROR: codex CLI not found — canno
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: not inside a git repo" >&2; exit 4; }
 
 if [ -n "$HANDOFF" ]; then
-  # resolve a non-absolute handoff path against the repo root (callers pass .startup/...)
-  if [ ! -f "$HANDOFF" ] && [ "${HANDOFF#/}" = "$HANDOFF" ]; then HANDOFF="$REPO_ROOT/$HANDOFF"; fi
+  # Handoff paths are repo-root-relative by contract: always resolve a non-absolute
+  # path against $REPO_ROOT (don't fall back to the caller's cwd, which could match a
+  # different file in a subdir).
+  case "$HANDOFF" in /*) : ;; *) HANDOFF="$REPO_ROOT/$HANDOFF" ;; esac
   [ -f "$HANDOFF" ] || { echo "ERROR: handoff file not found: $HANDOFF" >&2; exit 4; }
   TASK_TEXT="$(cat "$HANDOFF")"
 elif [ -n "$TASK" ]; then
