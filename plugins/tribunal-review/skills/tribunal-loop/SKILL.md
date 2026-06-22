@@ -13,7 +13,7 @@ Multi-provider code review. **By default** Codex (GPT-5.5) + DeepSeek-V4-Pro (re
 - **Codex** (GPT-5.5) - comprehensive review, **repo-walking** read-only (runs in-container, no `--sandbox` flag); **on by default**, disable with `TRIBUNAL_CODEX=off`, model via `TRIBUNAL_CODEX_MODEL` (unset = codex CLI's own default)
 - **Gemini** (3 Pro Preview) - comprehensive review + web/CVE search; **off by default**, enable with `TRIBUNAL_GEMINI=on`, model via `TRIBUNAL_GEMINI_MODEL`
 - **GLM** (opencode-go/glm-5.1) - comprehensive review (OpenCode Go), diff-only; **off by default** (shares lineage with DeepSeek — fails in lockstep), enable with `TRIBUNAL_GLM=on`, model via `TRIBUNAL_GLM_MODEL`
-- **DeepSeek** (deepseek/deepseek-v4-pro) - comprehensive review on the **direct DeepSeek API**, **repo-walking** read-only; independently switchable via `TRIBUNAL_DEEPSEEK` / `TRIBUNAL_DEEPSEEK_MODEL`
+- **DeepSeek** (opencode-go/deepseek-v4-pro) - comprehensive review via the **OpenCode Go** backend (subscription → credits on overage), **repo-walking** read-only; independently switchable via `TRIBUNAL_DEEPSEEK` / `TRIBUNAL_DEEPSEEK_MODEL` (set the latter to `deepseek/deepseek-v4-pro` for the direct DeepSeek API)
 - **Qwen** (qwen3.7-plus) - comprehensive review via the **Qwen Code CLI** (own transport, decorrelated from the OpenCode legs), **repo-walking** read-only (issue #44); **off by default** (issue #46: ungrounded diff-text reasoning → repeated false positives; pending the mandatory-verification fix), enable with `TRIBUNAL_QWEN=on`, model via `TRIBUNAL_QWEN_MODEL`
 - **Claude** (sonnet) - comprehensive review via the host **Claude Code CLI** (`claude -p`), **diff-only** (scratch dir + all tools disabled) — the panel's diff-only lens; **on by default**, disable with `TRIBUNAL_CLAUDE=off`, model via `TRIBUNAL_CLAUDE_MODEL`
 - **Opus** (4.5) - final arbiter (runs inline, no agent spawn)
@@ -106,11 +106,15 @@ else
   WARN="${WARN}\n  - glm: disabled (default off) — set TRIBUNAL_GLM=on to enable"
 fi
 
-# DeepSeek leg switch (mirrors TRIBUNAL_GEMINI). The DeepSeek leg runs on the DIRECT
-# DeepSeek API via opencode's native `deepseek/` provider — independent of the opencode-go
-# backend GLM uses, so an opencode-go quota/429 can no longer take both OpenCode legs down
-# together (issue #40/#38). On by default; only "off" disables.
-DEEPSEEK_MODEL="${TRIBUNAL_DEEPSEEK_MODEL:-deepseek/deepseek-v4-pro}"
+# DeepSeek leg switch (mirrors TRIBUNAL_GEMINI). The DeepSeek leg runs through the
+# `opencode-go/` reseller backend (OpenCode Go subscription, then credits on overage) —
+# the same backend GLM uses. This trades the old #40/#38 decorrelation (DeepSeek was on the
+# direct `deepseek/` API so an opencode-go 429 couldn't take both OpenCode legs down) for
+# OpenCode Go billing: in the default panel only DeepSeek runs here (GLM is off), so the
+# correlation only bites if you also opt GLM in. For an independent transport set
+# TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro (direct API; needs DEEPSEEK_API_KEY or
+# `opencode auth login` → DeepSeek). On by default; only "off" disables.
+DEEPSEEK_MODEL="${TRIBUNAL_DEEPSEEK_MODEL:-opencode-go/deepseek-v4-pro}"
 DEEPSEEK_ON=on
 if [ "${TRIBUNAL_DEEPSEEK:-on}" = "off" ]; then
   DEEPSEEK_ON=off
@@ -152,22 +156,30 @@ if command -v opencode >/dev/null 2>&1; then
     printf '%s\n' "$OC_MODELS" | grep -qxF "$GLM_MODEL" || \
       WARN="${WARN}\n  - opencode model ${GLM_MODEL}: not in registry (cold/stale cache) — GLM leg will be skipped; run \`opencode models\` to refresh"
   fi
-  # DeepSeek leg model (DIRECT DeepSeek provider) — unless disabled. The native `deepseek/`
-  # provider only lists its models once authenticated, so this registry check doubles as a
-  # liveness/config probe (folds in #38): a missing model or missing credential surfaces
-  # here as a fast skip instead of a mid-review hang. The auth-list check is a clearer hint.
+  # DeepSeek leg model — unless disabled. The provider only lists its models once
+  # authenticated, so this registry check doubles as a liveness/config probe (folds in #38):
+  # a missing model or missing credential surfaces here as a fast skip instead of a mid-review
+  # hang. The auth-list hint below is provider-aware (opencode-go vs direct deepseek/).
   if [ "$DEEPSEEK_ON" = on ]; then
     # This model-in-registry check is the ACTUAL skip condition — it mirrors Bash call 3's
     # enforcement exactly (review_opencode_leg skips iff the model is absent from $OC_MODELS).
     printf '%s\n' "$OC_MODELS" | grep -qxF "$DEEPSEEK_MODEL" || \
-      WARN="${WARN}\n  - opencode model ${DEEPSEEK_MODEL}: not in registry — DeepSeek leg will be skipped; check TRIBUNAL_DEEPSEEK_MODEL, run \`opencode auth login\` (DeepSeek), or \`opencode models\` to refresh"
-    # Auth HINT only (not a separate skip decision): the native deepseek provider lists its
-    # models once authenticated, so a missing credential surfaces as the model-miss above.
-    # Honor DEEPSEEK_API_KEY (a documented alternative to `opencode auth login`) so key-based
-    # users don't get a false warning, and word it as a likely-cause hint, not a verdict.
-    if [ -z "${DEEPSEEK_API_KEY:-}" ] && ! opencode auth list 2>/dev/null | grep -qi deepseek; then
-      WARN="${WARN}\n  - deepseek: direct API may not be authenticated (no DEEPSEEK_API_KEY and not in \`opencode auth list\`) — if the model check above failed, run \`opencode auth login\` (select DeepSeek) or set DEEPSEEK_API_KEY"
-    fi
+      WARN="${WARN}\n  - opencode model ${DEEPSEEK_MODEL}: not in registry — DeepSeek leg will be skipped; check TRIBUNAL_DEEPSEEK_MODEL, run \`opencode auth login\`, or \`opencode models\` to refresh"
+    # Auth HINT only (not a separate skip decision): a missing credential surfaces as the
+    # model-miss above. Tailor the hint to the configured provider so the suggested fix is
+    # right — opencode-go uses the OpenCode Go credential; deepseek/ uses the direct API.
+    case "$DEEPSEEK_MODEL" in
+      opencode-go/*)
+        if ! opencode auth list 2>/dev/null | grep -Eqi 'opencode[- ]?go'; then
+          WARN="${WARN}\n  - deepseek: OpenCode Go may not be authenticated (not in \`opencode auth list\`) — if the model check above failed, run \`opencode auth login\` and select OpenCode Go"
+        fi
+        ;;
+      deepseek/*)
+        if [ -z "${DEEPSEEK_API_KEY:-}" ] && ! opencode auth list 2>/dev/null | grep -qi deepseek; then
+          WARN="${WARN}\n  - deepseek: direct API may not be authenticated (no DEEPSEEK_API_KEY and not in \`opencode auth list\`) — if the model check above failed, run \`opencode auth login\` (select DeepSeek) or set DEEPSEEK_API_KEY"
+        fi
+        ;;
+    esac
   fi
 fi
 
@@ -230,9 +242,9 @@ Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}
 
 ## STEP 2: Parallel Review
 
-Run the scripts below as **five parallel Bash tool calls** (Codex, Gemini, OpenCode, Qwen, Claude). No Task agents -- execute directly. Each leg self-emits a `disabled` marker when its switch is off, so all five are always safe to dispatch — by default only Codex, the OpenCode DeepSeek leg, Qwen, and the Claude diff-only leg actually review (Gemini and GLM are opt-in). The OpenCode call (Bash call 3) runs its two legs **sequentially within that one call**, because concurrent `opencode run` instances deadlock on the shared `~/.local/share/opencode` data dir (issue #31). It yields up to two reviews (GLM + DeepSeek) — but **GLM is off by default** (`TRIBUNAL_GLM=on` to enable), so by default that call yields only DeepSeek. The two legs are otherwise decoupled: **GLM** runs on the opencode-go backend, diff-only, from a scratch dir; **DeepSeek** runs on the **direct DeepSeek API** and from the **repo root** so it can walk the tree. A 429/quota failure on opencode-go therefore no longer takes the DeepSeek leg down with GLM (issue #40).
+Run the scripts below as **five parallel Bash tool calls** (Codex, Gemini, OpenCode, Qwen, Claude). No Task agents -- execute directly. Each leg self-emits a `disabled` marker when its switch is off, so all five are always safe to dispatch — by default only Codex, the OpenCode DeepSeek leg, and the Claude diff-only leg actually review (Gemini, GLM, and Qwen are opt-in). The OpenCode call (Bash call 3) runs its two legs **sequentially within that one call**, because concurrent `opencode run` instances deadlock on the shared `~/.local/share/opencode` data dir (issue #31). It yields up to two reviews (GLM + DeepSeek) — but **GLM is off by default** (`TRIBUNAL_GLM=on` to enable), so by default that call yields only DeepSeek. The two legs differ in cwd/context: **GLM** runs diff-only from a scratch dir; **DeepSeek** runs from the **repo root** so it can walk the tree. Both now run on the **opencode-go** backend by default (DeepSeek bills against the OpenCode Go subscription, then credits) — so the issue-#40 decorrelation is given up, but it only matters if you also opt GLM in, and GLM is off by default. Point `TRIBUNAL_DEEPSEEK_MODEL` at `deepseek/deepseek-v4-pro` to put DeepSeek back on the independent direct API.
 
-Each reviewer is given the repo's `AGENTS.md` (if present, capped at 16KB) as a **Project Conventions** block, so all judge the diff against the same project standards. All three default legs **read beyond the diff** read-only — **Codex** (in-container, no `--sandbox` flag), **DeepSeek** (`--agent plan`, on the direct DeepSeek API), and **Qwen** (Qwen Code CLI, `--yolo`, issue #44) — opening related files and tracing cross-file effects to avoid the context-gap false positives a diff-only pass produces. The opt-in GLM and Gemini legs remain diff-only.
+Each reviewer is given the repo's `AGENTS.md` (if present, capped at 16KB) as a **Project Conventions** block, so all judge the diff against the same project standards. The two default walking legs **read beyond the diff** read-only — **Codex** (in-container, no `--sandbox` flag) and **DeepSeek** (`--agent plan`, on the opencode-go backend) — opening related files and tracing cross-file effects to avoid the context-gap false positives a diff-only pass produces; the opt-in **Qwen** leg (Qwen Code CLI, `--yolo`, issue #44) also walks when enabled. The default **Claude** leg and the opt-in GLM and Gemini legs remain diff-only.
 
 ### Bash call 1: Codex Review
 
@@ -484,13 +496,15 @@ Bash call. The legs differ in **backend, cwd, and context scope**:
   and tends to fail in lockstep (issue #41), so the default panel drops it. `opencode run` can
   deadlock at init when its cwd is inside a git repo on older builds (issue #4-class), so this
   diff-only leg keeps using the scratch dir.
-- **DeepSeek** — **direct DeepSeek API** (`deepseek/…`), **repo-walking** read-only,
-  run from the **repo root** so `--agent plan` can open related files. Verified safe on
-  opencode ≥ 1.15 (the git-cwd init deadlock no longer reproduces); a leg that does hang
-  is bounded by the 360s cap and degrades to quorum. Switchable via `TRIBUNAL_DEEPSEEK`.
+- **DeepSeek** — `opencode-go/…` backend (OpenCode Go subscription → credits on overage),
+  **repo-walking** read-only, run from the **repo root** so `--agent plan` can open related
+  files. Verified safe on opencode ≥ 1.15 (the git-cwd init deadlock no longer reproduces);
+  a leg that does hang is bounded by the 360s cap and degrades to quorum. Switchable via
+  `TRIBUNAL_DEEPSEEK`; point `TRIBUNAL_DEEPSEEK_MODEL` at `deepseek/deepseek-v4-pro` to use
+  the direct DeepSeek API instead (decorrelated transport, separate billing).
 
 Before the legs run it warms the model registry and asserts each leg's model resolves,
-so a cold/stale `~/.cache/opencode/models.json` (or an unauthenticated direct provider)
+so a cold/stale `~/.cache/opencode/models.json` (or an unauthenticated provider)
 fails loudly instead of silently downgrading `-m` to an unauthenticated fallback model
 (issue #32). Codex (Bash call 1) and Gemini (Bash call 2) stay parallel with this call.
 
@@ -501,9 +515,10 @@ cd "$REPO_ROOT"
 # Parallel-safe: unique temp dir per invocation
 TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
 
-# DeepSeek leg config (mirrors the Gemini switch). Direct DeepSeek API via opencode's
-# native `deepseek/` provider — independent of the opencode-go backend GLM uses (issue #40).
-DEEPSEEK_MODEL="${TRIBUNAL_DEEPSEEK_MODEL:-deepseek/deepseek-v4-pro}"
+# DeepSeek leg config (mirrors the Gemini switch). Runs through the opencode-go backend
+# (OpenCode Go subscription → credits on overage). Override with `deepseek/deepseek-v4-pro`
+# for the direct DeepSeek API (decorrelated from opencode-go; see Step-1 rationale, issue #40).
+DEEPSEEK_MODEL="${TRIBUNAL_DEEPSEEK_MODEL:-opencode-go/deepseek-v4-pro}"
 
 # DeepSeek leg's "intentional skip" marker (emitted when TRIBUNAL_DEEPSEEK=off). Shaped
 # exactly like Gemini's disabled marker so Step 3 treats it as a disabled provider, not a failure.
@@ -612,7 +627,7 @@ review_opencode_leg() {
   # once authenticated) would silently downgrade this leg to an unauthenticated fallback
   # model, so emit a distinct, actionable error and skip the run rather than disguise it.
   if ! printf '%s\n' "$OC_MODELS" | grep -qxF "$model"; then
-    printf '{"error": "OpenCode model %s not in registry (cold/stale cache, or direct provider not authenticated) — run `opencode models` / `opencode auth login`; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "%s"}\n' "$model" "$provider"
+    printf '{"error": "OpenCode model %s not in registry (cold/stale cache, or provider not authenticated) — run `opencode models` / `opencode auth login`; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "%s"}\n' "$model" "$provider"
     return
   fi
 
@@ -1021,12 +1036,12 @@ If `opencode` is not installed, the call emits one error object for GLM and one 
 ```
 
 If OpenCode is installed but a leg's model is missing from the (warmed) registry — a
-cold/stale `~/.cache/opencode/models.json`, OR (for the direct `deepseek/` provider) a
-missing credential, since its models only list once authenticated — that leg is skipped
-with a distinct error so the 4→3 degradation is explicit rather than disguised as a
+cold/stale `~/.cache/opencode/models.json`, OR a missing credential for the leg's provider
+(opencode-go or direct `deepseek/`), since models only list once authenticated — that leg is
+skipped with a distinct error so the 4→3 degradation is explicit rather than disguised as a
 credential failure (issue #32):
 ```json
-{"error": "OpenCode model deepseek/deepseek-v4-pro not in registry (cold/stale cache, or direct provider not authenticated) — run `opencode models` / `opencode auth login`; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "deepseek"}
+{"error": "OpenCode model opencode-go/deepseek-v4-pro not in registry (cold/stale cache, or provider not authenticated) — run `opencode models` / `opencode auth login`; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "deepseek"}
 ```
 
 Collect all five JSON outputs — Codex, Gemini, and Qwen from their calls, GLM and DeepSeek from the single OpenCode call (which prints two JSON objects, GLM first). Parse them. If any returned an error JSON, note it for arbitration. A `{"status": "disabled"}` marker (Gemini and GLM emit one unless enabled — `TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`, both off by default; Codex when `TRIBUNAL_CODEX=off`; DeepSeek when `TRIBUNAL_DEEPSEEK=off`; Qwen when `TRIBUNAL_QWEN=off`) is an INTENTIONAL skip, not a failure and not a finding source — it has no `findings` key; report that leg as `disabled` rather than a count, and hand it to Step 3 as a disabled provider.

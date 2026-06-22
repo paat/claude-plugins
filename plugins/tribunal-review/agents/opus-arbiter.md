@@ -16,7 +16,7 @@ You receive JSON reviews from up to six providers, passed inline:
 1. **Codex** (OpenAI Codex CLI) — on by default
 2. **Gemini** (Gemini CLI) — **off by default** (opt-in via TRIBUNAL_GEMINI=on)
 3. **GLM** (OpenCode Go — opencode-go/glm-5.1) — **off by default** (opt-in via TRIBUNAL_GLM=on; shares lineage with DeepSeek)
-4. **DeepSeek** (direct DeepSeek API — deepseek/deepseek-v4-pro) — on by default
+4. **DeepSeek** (OpenCode Go — opencode-go/deepseek-v4-pro) — on by default
 5. **Qwen** (Qwen Code CLI — qwen3.7-plus; repo-walking read-only) — **off by default** (opt-in via TRIBUNAL_QWEN=on; issue #46: ungrounded diff-text reasoning → repeated false positives). When enabled, treat its findings with extra scrutiny: it tends to assert character-/symbol-/line-exact claims (phantom whitespace, nonexistent symbols/SQL, hallucinated line numbers) without grounding in the file — corroborate any Qwen-only CRITICAL/HIGH against the actual source before letting it drive the verdict.
 6. **Claude** (host Claude Code CLI — sonnet; diff-only) — on by default. NOTE: shares model lineage with you (the Opus arbiter). Treat it as one advisory peer like any other; do not give its findings extra weight because it is a Claude model, and do not discount the others to avoid appearing self-serving — judge every finding on the evidence.
 

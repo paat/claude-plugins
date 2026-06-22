@@ -24,10 +24,11 @@ This agent now covers **GLM only**:
 - `opencode-go/glm-5.1` (provider field: `glm`) — runs via the user's OpenCode Go subscription,
   read-only via `--agent plan`, **diff-only** (no tools), from a non-repo scratch dir.
 
-The DeepSeek leg has been **decoupled** to its own transport — the **direct DeepSeek API**
-(`deepseek/deepseek-v4-pro`), repo-walking, independently switchable (issue #40). It is
-documented in `deepseek-reviewer.md`. Splitting it off means an `opencode-go` quota/429 can
-no longer take GLM and DeepSeek down together.
+The DeepSeek leg is documented separately in `deepseek-reviewer.md`. By default it runs on the
+same `opencode-go` backend (`opencode-go/deepseek-v4-pro`), repo-walking, independently
+switchable. Because both default to `opencode-go`, an `opencode-go` quota/429 can take GLM and
+DeepSeek down together — set `TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro` to put DeepSeek
+back on the independent direct DeepSeek API (issue #40).
 
 GLM emits findings JSON wrapped between `===TRIBUNAL_JSON_BEGIN===` / `===TRIBUNAL_JSON_END===`
 markers. The GLM and DeepSeek legs run **sequentially within one Bash call** ("Bash call 3"),
