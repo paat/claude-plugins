@@ -50,7 +50,7 @@ Core endpoints:
 |----------|--------|---------|
 | `/rag/query` | POST | Ask legal questions in Estonian — returns cited answers from 34,721 legal acts. Body: `{"question": "..."}` |
 | `/laws/search` | GET | Search legal acts. Returns `{items:[{id, rt_id, title, act_type, issuer, publication_date, status, relevance_score}], total, limit, offset, search_mode}`. `.id` is what `/laws/{act_id}/...` expects |
-| `/laws/{act_id}/citation` | GET | Look up one paragraph. Takes integer `act_id` path param + `paragraph=<int>`, `section=<int>` (lõige), `point=<int>` (punkt) query params. Returns `{act_id, act_title, paragraph, section, point, text, url}` |
+| `/laws/{act_id}/citation` | GET | Look up one paragraph. Takes integer `act_id` path param + `paragraph`, `section` (lõige), `point` (punkt) query params. **Preserve superscript qualifiers (¹²³): `§ 14 lõige 1¹` is `section=1¹` URL-encoded as `section=1%C2%B9` — NOT bare `section=1`. Dropping the superscript silently returns a different clause with a 200 OK** (`lõige 1` general rule vs `lõige 1¹` micro-entity exemption are distinct rules). See the citation-URL builder below. Returns `{act_id, act_title, paragraph, section, point, text, url}` |
 | `/laws/{act_id}/graph` | GET | Act metadata + related acts. Returns `{act:{id, title, rt_id, act_type, status, publication_date, valid_from, valid_to}, related_acts:[...]}` — cheapest way to resolve rt_id + title from an integer act_id |
 | `/laws/{act_id}/provision` | GET | Full provision fetch (needs `paragraph` query param) |
 | `/laws/{act_id}/citing-decisions` | GET | Court decisions that cite this act — useful when writing risk analysis for a law we care about |
@@ -89,6 +89,24 @@ curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
 # Look up a specific paragraph/section — act_id is the integer .id from search
 curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   "https://datalake.r-53.com/api/v1/laws/30087/citation?paragraph=10&section=1"
+
+# Superscript qualifiers (¹²³) are LOAD-BEARING — § 14 lõige 1¹ ≠ § 14 lõige 1.
+# Estonian micro law leans on prim paragraphs (RPS § 14 lg 1¹, KMS § 19¹, ÄS § 50¹).
+# NEVER hand-build the param: the bare digit silently fetches the wrong clause
+# with a 200 OK. Build the URL with this superscript-aware helper (same one the
+# `/lawyer register` path uses), passing the parsed base + qualifier for each part:
+cite_url=$(python3 -c '
+import sys, urllib.parse
+base, act, para, pq, sec, sq, pt, kq = sys.argv[1:9]
+SUP = {"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹"}
+def enc(v, q): return urllib.parse.quote(v + "".join(SUP[c] for c in q))
+parts = ["paragraph=" + enc(para, pq)]
+if sec: parts.append("section=" + enc(sec, sq))
+if pt:  parts.append("point="   + enc(pt,  kq))
+print(f"{base}/api/v1/laws/{act}/citation?" + "&".join(parts))
+' "https://datalake.r-53.com" 30087 14 "" 1 1 "" "")
+# → .../laws/30087/citation?paragraph=14&section=1%C2%B9  (= § 14 lõige 1¹)
+curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$cite_url"
 
 # Cheapest metadata lookup for an act you already have the id for
 curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
