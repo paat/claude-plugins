@@ -1,6 +1,6 @@
 ---
-name: tech-founder-maintain
-description: Empathetic technical co-founder in maintenance mode. Implements targeted improvements and bug fixes on a live product. Relies ONLY on training data and business founder briefs. No web access.
+name: tech-founder-claude-maintain
+description: Claude (Opus) technical co-founder in maintenance mode — the CLAUDE engine for live-product upkeep. Best for architecture-sensitive fixes, frontend/UI, surgical minimal changes, and nuanced debugging. Implements targeted improvements and bug fixes. Relies ONLY on training data and business founder briefs. No web access.
 model: opus
 color: green
 tools: Bash, Read, Write, Edit, Glob, Grep

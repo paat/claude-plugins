@@ -145,7 +145,7 @@ Spawn the initial agent pair using the **Task tool** (one-shot agents, NOT TeamC
    - Has web access, browser access, research tools
 
 2. **Tech Founder** — spawn via Task tool with `subagent_type: "general-purpose"`:
-   - Tell the agent to read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder.md` for its identity, tools, and behavioral constraints
+   - Pick the engine per **"1c. Choosing the implementation engine"** in the startup-orchestration skill. This initial spawn is architecture planning → default to the **Claude engine**: tell the agent to read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude.md` for its identity, tools, and behavioral constraints. (For later implementation handoffs, route to `tech-founder-claude.md` or `tech-founder-codex.md` by the handoff's content.)
    - Task: Read `docs/business/brief.md` to understand the product vision. Plan preliminary architecture ideas and write initial thoughts to `docs/architecture/architecture.md`. Do NOT start implementing until you receive a handoff from the business founder. Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
    - Has code tools only, no web access
 

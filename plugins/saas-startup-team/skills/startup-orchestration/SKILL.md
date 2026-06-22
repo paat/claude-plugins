@@ -51,6 +51,32 @@ Business Founder writes solution signoff → GO LIVE
 
 **NEVER spawn an agent for a task that doesn't produce a file.** If it doesn't result in a handoff, review, signoff, or doc — it shouldn't be a separate agent. Fold it into the next real task.
 
+### 1c. Choosing the implementation engine: tech-founder-claude vs tech-founder-codex
+
+The implementation role has **two interchangeable engines**. `active_role` stays
+`tech-founder` (or `tech-founder-maintain`) — the engine is an orchestration choice,
+not a tracked role. YOU pick the engine at dispatch time and spawn the matching agent
+(`tech-founder-claude` / `tech-founder-codex`; the `-maintain` variants in `/improve`).
+Decide from the handoff's dominant work:
+
+Dispatch **tech-founder-codex** (Codex / gpt-5.5 — thorough, literal, completeness-first) when the task is:
+- a detailed multi-point spec/checklist to implement **to completion** (it won't leave stubs or skip requirements)
+- backend / data / algorithmic logic, migrations, integrations
+- exhaustive tests / edge-case coverage
+- config / CI / boilerplate / plumbing
+- broad mechanical changes where completeness matters more than elegance
+
+Dispatch **tech-founder-claude** (Claude / Opus — design taste, disciplined, minimal) when the task is:
+- frontend / UI / UX / visual polish
+- architecture or new-module design; choosing patterns
+- surgical / minimal changes to existing code, or careful cross-file refactors where NOT breaking adjacent code matters
+- hard logical/design debugging, or nuanced product / "why" judgment
+- correctness-critical domain logic where subtle invariants beat raw thoroughness
+
+Basis: a verified head-to-head A/B (Codex won on completeness + following the brief + repo-rule compliance; Claude won on minimality + design taste) plus developer consensus. When unsure, **default to tech-founder-claude** (safer for this codebase). For a mixed handoff, pick by the dominant work — or better, have the business founder split it.
+
+**Codex-availability preflight:** before routing a task to `tech-founder-codex`, confirm the engine is present — run `command -v codex` once. If it's not installed, route to `tech-founder-claude` instead. (Backstop: if you route to codex anyway, `tech-founder-codex` / `codex-implement.sh` exit **3** and report back so you re-dispatch `tech-founder-claude` — but the preflight avoids a wasted dispatch.)
+
 ### 2. Loop State Management
 - Monitor `.startup/state.json` for iteration count and phase
 - Enforce `max_iterations` limit (default: 20)
