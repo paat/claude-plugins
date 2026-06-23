@@ -3210,6 +3210,144 @@ test_harvest() {
   rm -rf "$workdir"
 }
 
+# ---------------------------------------------------------------------------
+# Suite F: lesson-file.sh (gated public filing of harvested candidates)
+# ---------------------------------------------------------------------------
+
+test_lesson_file() {
+  echo -e "\n${CYAN}Suite F: lesson-file.sh (gated public filing)${NC}"
+  local script="$PLUGIN_ROOT/scripts/lesson-file.sh"
+  local workdir cand led report L ec output
+
+  _cand() { # fingerprint signal observation [domain]
+    jq -cn --arg fp "$1" --arg s "$2" --arg o "$3" --arg d "${4:-process}" \
+      '{fingerprint:$fp, signal_type:$s, confidence:"high", domain:$d, observation:$o,
+        recommendation:"When X happens, the plugin should do Y.", evidence_refs:["sess.jsonl#L1"], count:2}'
+  }
+  _creates() { grep -c 'issue create' "$1" 2>/dev/null || true; }
+
+  # --- F1: dry-run by default (enable flag absent) — never calls gh issue create ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp1 interrupt "investor interrupted repeatedly during payment work" process > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=900 \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F1: dry-run exits 0" "$ec" 0
+  assert_equals "F1: no gh issue create when not enabled" "$(_creates "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- F2: enabled + pinned repo -> files one issue, records the fingerprint ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp1 interrupt "investor interrupted repeatedly during payment work" process > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=901 SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F2: enabled run exits 0" "$ec" 0
+  assert_equals "F2: exactly one issue created" "$(_creates "$L")" "1"
+  assert_file_contains "F2: filed to the pinned repo" "$L" "paat/claude-plugins"
+  assert_file_contains "F2: labeled lesson-candidate" "$L" "lesson-candidate"
+  ec=0; jq -e '.["fp1"]' "$led" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "F2: ledger records the fingerprint" "$ec" 0
+  rm -rf "$workdir"
+
+  # --- F3: refuses to file without a pinned repo (even when enabled) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp1 interrupt "obs" process > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F3: refuses without repo (exit 2)" "$ec" 2
+  assert_equals "F3: no gh create without repo" "$(_creates "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- F4: idempotent — a fingerprint already in the ledger is not re-filed ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp1 interrupt "obs" process > "$cand"
+  jq -n '{"fp1":{"issue":"https://github.com/paat/claude-plugins/issues/1"}}' > "$led"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=902 SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_equals "F4: already-filed fingerprint not re-filed" "$(_creates "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- F5: PII re-gate at the filing boundary blocks a secret-bearing candidate ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  local sec="AKIA""1234567890ABCD"
+  _cand fp5 interrupt "leak $sec in the summary" process > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=903 SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_equals "F5: secret-bearing candidate not filed" "$(_creates "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- F6: budget caps the number filed per run ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  { _cand a interrupt "obs a" process; _cand b correction "obs b" process; _cand c nudge "obs c" process; } > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=910 SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" --max-issues 2 2>&1) || ec=$?
+  assert_equals "F6: max-issues caps creation at 2" "$(_creates "$L")" "2"
+  rm -rf "$workdir"
+
+  # --- F7: advisory dedup — an existing matching issue suppresses creation ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp7 interrupt "obs" process > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=911 GH_SEARCH_JSON='[{"number":5,"title":"existing"}]' SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_equals "F7: existing issue suppresses create" "$(_creates "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- F8: malformed candidate line tolerated ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  { printf 'garbage {{{\n'; _cand fp8 interrupt "obs" process; } > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=912 SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F8: tolerates malformed line" "$ec" 0
+  assert_equals "F8: still files the valid candidate" "$(_creates "$L")" "1"
+  rm -rf "$workdir"
+
+  # --- F9: enable flag must be exactly 'true' (a truthy-looking value stays dry-run) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp9 interrupt "obs" process > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=913 SAAS_LESSON_SYNC_ENABLED=1 \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_equals "F9: non-'true' flag stays dry-run" "$(_creates "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- F10: fatal (no filing) when the shared PII gate can't be sourced ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  cp "$script" "$workdir/lf.sh"   # copied WITHOUT pii-gate.sh alongside it
+  _cand fp interrupt "obs" process > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=921 SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$workdir/lf.sh" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F10: fatal when PII gate not sourceable" "$ec" 2
+  assert_equals "F10: nothing filed without the PII gate" "$(_creates "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- F11: invalid --max-issues is refused (must not disable the budget) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp interrupt "obs" process > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=922 SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" --max-issues abc 2>&1) || ec=$?
+  assert_exit_code "F11: invalid --max-issues refused (exit 2)" "$ec" 2
+  assert_equals "F11: no create on invalid budget" "$(_creates "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- F12: a dedup-search failure fails CLOSED (no create) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp interrupt "obs" process > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=923 GH_FAIL_ON="issue list" SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_equals "F12: search failure does not create (fail-closed)" "$(_creates "$L")" "0"
+  rm -rf "$workdir"
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -3250,6 +3388,7 @@ main() {
   test_monitor_dedup
   test_session_insights
   test_harvest
+  test_lesson_file
 
   # Summary
   echo ""

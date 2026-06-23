@@ -52,12 +52,13 @@ thr_for() {
   esac
 }
 
-# HARD PII/secrets gate (case-insensitive; errs toward over-blocking — safety > recall).
-# A hit on the summary OR any evidence ref blocks the whole cluster from surfacing.
-pii_hit() {
-  printf '%s' "$1" | grep -qiE \
-    'sk-[a-z0-9_-]{18,}|(sk|rk|pk)_(live|test)_[a-z0-9]{16,}|dl-[a-f0-9]{20,}|gh[oprsu]_[a-z0-9]{20,}|glpat-[a-z0-9_-]{18,}|akia[0-9a-z]{12,}|aiza[0-9a-z_-]{30,}|ya29\.[0-9a-z_-]{20,}|xox[baprs]-[a-z0-9-]{10,}|eyj[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\.[a-z0-9_-]{6,}|-----begin [a-z ]*private key-----|authorization:[[:space:]]*(bearer|basic)[[:space:]]+[a-z0-9+/=_-]{20,}|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|(token|secret|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|auth[_-]?token)[[:space:]]*[:=][[:space:]]*[^[:space:]]{8,}|[a-z][a-z0-9+.-]*://[^/[:space:]:@]+:[^/[:space:]:@]+@'
-}
+# HARD PII/secrets gate — shared single source of truth (see pii-gate.sh). Sourced
+# FATALLY: if the gate is missing/unsourceable, refuse to run rather than emit
+# ungated candidates. Resolve via BASH_SOURCE so cwd invocation can't break it.
+_sd="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 2
+# shellcheck source=pii-gate.sh
+. "$_sd/pii-gate.sh" || exit 2
+command -v pii_hit >/dev/null 2>&1 || { echo "harvest: PII gate unavailable; refusing to run" >&2; exit 2; }
 
 # De-identify: replace literal project-name occurrences with a template var.
 pj_esc="$(printf '%s' "$PROJECT" | sed 's/[][\.*^$/]/\\&/g')"
