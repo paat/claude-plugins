@@ -313,8 +313,18 @@ Tracking issue: **#79** (keep open until the loop runs end-to-end live).
   - Tests: Suite H (HV1–HV9) in `tests/run-tests.sh` (660 total, all green).
   - End-to-end on aruannik: 26 records → 2 candidates (5 interrupts, 21
     tool-failures), 0 PII-blocked, 0 deduped.
+- [x] **v3 — `lesson-file.sh`** (gated public filing). Component (filing stage).
+  - Files harvester candidates as `lesson-candidate` issues in the pinned plugin
+    repo, but ONLY when `SAAS_LESSON_SYNC_ENABLED=true` AND a repo is pinned —
+    otherwise **dry-run** (files nothing). Re-runs the shared PII gate at the
+    filing boundary; idempotent via the fingerprint ledger; advisory dedup vs
+    open issues; per-run budget. PII gate extracted to shared `pii-gate.sh`
+    (single source of truth for `harvest.sh` + `lesson-file.sh`).
+  - Tests: Suite F (F1–F9) with the mock-`gh` harness (684 total, all green).
+  - End-to-end on aruannik stays dry-run by default: 2 candidates → "would file
+    2, filed 0", ledger empty, no `gh` contact.
 - [ ] Manual review of a larger record sample; cross-project recurrence.
-- [ ] Public filing to `paat/claude-plugins` (opt-in, after precision proven at scale).
+- [ ] `/lessons-review` human gate + auto-implement approved issues via `/goal-deliver`.
 - [ ] `/lessons-review` human gate; generalize replay producer; auto-implement approved issues.
 
 Everything past v1 stays **local-only / not built** until the data model and privacy

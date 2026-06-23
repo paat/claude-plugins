@@ -50,6 +50,26 @@ and a deterministic `observation`. For each one:
    verbatim quotes, no paths/IDs survived. When unsure, drop it.
 
 Present the surviving drafts to the investor as a short review list (title +
-one-line recommendation + evidence count). **Do not file anything.** Filing to
-`paat/claude-plugins` happens only after the investor approves, in the separate
-opt-in filing stage (not built yet).
+one-line recommendation + evidence count).
+
+## Filing (opt-in, gated — `lesson-file.sh`)
+
+Filing is a separate, explicitly-gated step. By default it is a **dry run** that
+files nothing:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/lesson-file.sh" --repo paat/claude-plugins
+```
+
+To actually open `lesson-candidate` issues in the plugin repo, the investor sets
+the enable flag and pins the repo:
+
+```bash
+SAAS_LESSON_SYNC_ENABLED=true \
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/lesson-file.sh" --repo paat/claude-plugins
+```
+
+`lesson-file.sh` re-runs the hard PII gate on every issue at the filing boundary,
+is idempotent (the ledger prevents re-filing), and dedups against existing open
+issues. The filed issues are `lesson-candidate`s — they still pass through the
+human review gate (`/lessons-review`, not built yet) before any implementation.
