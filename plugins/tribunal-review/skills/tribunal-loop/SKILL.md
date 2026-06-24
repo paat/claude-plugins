@@ -289,6 +289,10 @@ fi
 # the same project conventions (capped; absent file => no injection).
 CONVENTIONS=""
 [ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
+# Deployment/reachability facts a diff cannot reveal (worker model, concurrency,
+# single-user-per-session, money/data-loss paths). Capped; absent => no injection.
+REACHABILITY=""
+[ -f reachability.md ] && REACHABILITY=$(head -c 8192 reachability.md)
 
 cat > "$TMPDIR/codex-review-schema.json" << 'SCHEMA'
 {
@@ -371,6 +375,7 @@ Your response MUST be valid JSON matching the provided output schema.
 Set "provider" to "codex" and "model" to the model you are running as.
 $([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated from ${DIFF_SIZE} bytes to 100KB. Review what is provided.")
 $([ -n "$CONVENTIONS" ] && printf '\n## Project Conventions (from AGENTS.md)\nUse these ONLY to judge whether the diff violates project standards; report findings only against the diff.\n\n%s\n' "$CONVENTIONS")
+$([ -n "$REACHABILITY" ] && printf '\n## Production Reachability (from reachability.md)\nUse to judge whether a finding is reachable in production. A critical/high finding must still independently prove a reachable path; this file is supporting context, not a severity override.\n\n%s\n' "$REACHABILITY")
 
 The changed lines are in THE DIFF below. You are running inside the project repository — read related files as needed to understand context and verify cross-file effects, but report findings only against the changed lines.
 
@@ -417,6 +422,10 @@ fi
 # the same project conventions (capped; absent file => no injection).
 CONVENTIONS=""
 [ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
+# Deployment/reachability facts a diff cannot reveal (worker model, concurrency,
+# single-user-per-session, money/data-loss paths). Capped; absent => no injection.
+REACHABILITY=""
+[ -f reachability.md ] && REACHABILITY=$(head -c 8192 reachability.md)
 
 printf '%s\n' "$DIFF" | timeout -k 10 600 gemini --model "$GEMINI_MODEL" -p "You are a senior code reviewer performing a thorough security-focused review.
 
@@ -460,6 +469,7 @@ RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
   }
 }
 $([ -n "$CONVENTIONS" ] && printf '\nPROJECT CONVENTIONS (from AGENTS.md) — use ONLY to judge whether the diff violates project standards; report findings only against the diff:\n%s\n' "$CONVENTIONS")
+$([ -n "$REACHABILITY" ] && printf '\n## Production Reachability (from reachability.md)\nUse to judge whether a finding is reachable in production. A critical/high finding must still independently prove a reachable path; this file is supporting context, not a severity override.\n\n%s\n' "$REACHABILITY")
 THE DIFF IS PROVIDED VIA STDIN ABOVE." \
   --yolo \
   -o json \
@@ -565,6 +575,10 @@ fi
 # still in the repo, before the cd below.
 CONVENTIONS=""
 [ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
+# Deployment/reachability facts a diff cannot reveal (worker model, concurrency,
+# single-user-per-session, money/data-loss paths). Capped; absent => no injection.
+REACHABILITY=""
+[ -f reachability.md ] && REACHABILITY=$(head -c 8192 reachability.md)
 
 # Pass the diff as a FILE ATTACHMENT (`-f`), NOT inline in the prompt argv. Earlier
 # versions embedded the whole diff in the prompt string, which `opencode run` passes as
@@ -677,6 +691,7 @@ Output ONLY a JSON object, wrapped EXACTLY between these markers on their own li
 ===TRIBUNAL_JSON_END===
 $([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated for context size. Review what is provided.")
 $([ -n "$CONVENTIONS" ] && printf '\n## Project Conventions (from AGENTS.md)\nUse these ONLY to judge whether the diff violates project standards; report findings only against the diff.\n\n%s\n' "$CONVENTIONS")
+$([ -n "$REACHABILITY" ] && printf '\n## Production Reachability (from reachability.md)\nUse to judge whether a finding is reachable in production. A critical/high finding must still independently prove a reachable path; this file is supporting context, not a severity override.\n\n%s\n' "$REACHABILITY")
 
 $ctx_close"
 
@@ -795,6 +810,10 @@ fi
 # the same project conventions (capped; absent file => no injection).
 CONVENTIONS=""
 [ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
+# Deployment/reachability facts a diff cannot reveal (worker model, concurrency,
+# single-user-per-session, money/data-loss paths). Capped; absent => no injection.
+REACHABILITY=""
+[ -f reachability.md ] && REACHABILITY=$(head -c 8192 reachability.md)
 
 printf '%s\n' "$DIFF" | QWEN_CODE_SUPPRESS_YOLO_WARNING=1 timeout -k 10 600 qwen --model "$QWEN_MODEL" -p "You are a senior code reviewer performing a thorough, comprehensive review.
 
@@ -846,6 +865,7 @@ RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
   }
 }
 $([ -n "$CONVENTIONS" ] && printf '\nPROJECT CONVENTIONS (from AGENTS.md) — use ONLY to judge whether the diff violates project standards; report findings only against the diff:\n%s\n' "$CONVENTIONS")
+$([ -n "$REACHABILITY" ] && printf '\n## Production Reachability (from reachability.md)\nUse to judge whether a finding is reachable in production. A critical/high finding must still independently prove a reachable path; this file is supporting context, not a severity override.\n\n%s\n' "$REACHABILITY")
 THE DIFF IS PROVIDED VIA STDIN ABOVE. You are running inside the project repository — read related files as needed to understand context and verify cross-file effects, but report findings only against the changed lines." \
   --yolo \
   -o json \
@@ -925,6 +945,10 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 DIFF=$(git -C "$REPO_ROOT" diff origin/main...HEAD)
 CONVENTIONS=""
 [ -f "$REPO_ROOT/AGENTS.md" ] && CONVENTIONS=$(head -c 16384 "$REPO_ROOT/AGENTS.md")
+# Deployment/reachability facts a diff cannot reveal (worker model, concurrency,
+# single-user-per-session, money/data-loss paths). Capped; absent => no injection.
+REACHABILITY=""
+[ -f reachability.md ] && REACHABILITY=$(head -c 8192 reachability.md)
 
 # Parallel-safe scratch dir. Run `claude` from HERE (not the repo) so it has no project files
 # to walk — the physical guarantee behind "diff-only", mirroring the GLM leg's scratch-dir trick.
@@ -988,6 +1012,7 @@ RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
   }
 }
 $([ -n "$CONVENTIONS" ] && printf '\nPROJECT CONVENTIONS (from AGENTS.md) — use ONLY to judge whether the diff violates project standards; report findings only against the diff:\n%s\n' "$CONVENTIONS")
+$([ -n "$REACHABILITY" ] && printf '\n## Production Reachability (from reachability.md)\nUse to judge whether a finding is reachable in production. A critical/high finding must still independently prove a reachable path; this file is supporting context, not a severity override.\n\n%s\n' "$REACHABILITY")
 THE DIFF IS PROVIDED VIA STDIN ABOVE. Review ONLY the changed lines shown in the diff." \
   --model "$CLAUDE_MODEL" \
   --output-format json \
@@ -1055,6 +1080,14 @@ Output: "[TRIBUNAL 2/3] Reviews complete - Codex: {C}, Gemini: {G or 'disabled'}
 Do NOT spawn a Task agent. You are already Opus -- perform arbitration directly.
 
 Read both JSON outputs from Step 2 and apply the following protocol:
+
+Also read `reachability.md` from the repo root if present (capped at 8 KB):
+it states deployment facts (worker/process model, whether the same
+session/resource can be acted on concurrently, single-user assumptions,
+money/data-loss paths) used when applying the **3b-0** standard. Treat it as
+**rebuttable** — cross-check any claim a finding hinges on against the actual
+code/config before relying on it, and lower your confidence in it when its
+`last-verified:` marker is old relative to the area under review.
 
 ### 3a: Deduplicate Findings
 
