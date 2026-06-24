@@ -1063,6 +1063,13 @@ Two findings are **duplicates** if they describe the same underlying issue in th
 - Merge suggestions if both are valuable
 - Mark as CONSENSUS when ≥2 providers report the same underlying issue; record all supporting providers in the `providers` array
 
+**Same-class merge (every round):** Beyond exact duplicates, collapse
+findings that are *variants of the same underlying concern* — e.g. several
+different "ordering window" or "unawaited write" findings on the same
+mechanism — into ONE finding for the round, keeping the strongest statement
+and listing the rest under `arbiter_notes`. N rephrasings of one concern
+count as one finding, so a reviewer cannot keep the loop open by restating.
+
 ### 3b-0: Blocking-finding standard (severity eligibility — apply FIRST)
 
 Before resolving severities, gate each finding's *eligibility* to be rated
