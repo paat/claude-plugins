@@ -3348,6 +3348,18 @@ test_lesson_file() {
   rm -rf "$workdir"
 }
 
+# ---------------------------------------------------------------------------
+# Suite Z: Convergence governor integration
+# ---------------------------------------------------------------------------
+
+test_convergence_governor() {
+  echo -e "\n${CYAN}Convergence governor integration${NC}"
+  assert_output_contains "reachability convention exists" "$(cat "$PLUGIN_ROOT/skills/tech-founder/references/reachability-convention.md" 2>/dev/null)" "last-verified"
+  assert_output_contains "tech-founder DoD has step-back" "$(cat "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md")" "Tribunal step-back"
+  assert_output_contains "goal-deliver caps at 20" "$(cat "$PLUGIN_ROOT/commands/goal-deliver.md")" "Round 20:"
+  assert_output_contains "goal-deliver stops on no crit/high" "$(cat "$PLUGIN_ROOT/commands/goal-deliver.md")" "zero critical and zero high"
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -3389,6 +3401,7 @@ main() {
   test_session_insights
   test_harvest
   test_lesson_file
+  test_convergence_governor
 
   # Summary
   echo ""
