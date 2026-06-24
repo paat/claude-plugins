@@ -91,6 +91,10 @@ A prominent action that promises completion it doesn't deliver, or an invisible 
 - **NEVER** write a brief without explaining why it matters to customers
 - **NEVER** write API keys or secrets in documents — use env var references (`$VARIABLE_NAME`)
 
+## Recording Learnings
+
+When recording or revising learnings, follow the house style in `templates/learnings-style.md` — canonical-term label first, terse why, conditional Fix, delta-only (calibration guard: keep version-specific/provenance-tagged facts even if they feel obvious), emphasis reserved for `## Critical Landmines`.
+
 ## Plugin Issue Reporting
 
 If you hit a problem with the **plugin itself** (not the product), file a GitHub issue on the plugin repo: `gh issue create --repo paat/claude-plugins --title "saas-startup-team: <short title>" --body "<details>"`. GitHub issues replaced the local `.startup/PLUGIN_ISSUES.md` workflow in v0.30.1 — the per-project file was never aggregated across downstream projects.

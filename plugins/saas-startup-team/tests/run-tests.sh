@@ -3427,6 +3427,14 @@ test_learnings_migrate_house_style() {
   assert_file_contains "M4: carries calibration guard"        "$f" "when unsure, keep"
 }
 
+test_maintain_agents_reference_style() {
+  echo -e "\n${CYAN}== maintain agents reference house style ==${NC}"
+  for a in business-founder-maintain tech-founder-claude-maintain tech-founder-codex-maintain; do
+    assert_file_contains "N:$a references house style" \
+      "$PLUGIN_ROOT/agents/$a.md" "learnings-style.md"
+  done
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -3472,6 +3480,7 @@ main() {
   test_learnings_style_block
   test_founder_standards_routing
   test_learnings_migrate_house_style
+  test_maintain_agents_reference_style
 
   # Summary
   echo ""
