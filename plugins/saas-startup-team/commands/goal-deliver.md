@@ -106,15 +106,15 @@ on has merged):
    a PR on `improve/<chunk-slug>`.
 2. **Close the tribunal loop** on the PR branch. Load and follow
    `tribunal-review:closing-tribunal-loop`. Run `tribunal-review:tribunal-loop`;
-   if the arbiter returns `APPROVE` with 0 findings, the gate is closed. Otherwise
-   triage each finding:
-   - **Critical / service-breaking** → fix in this PR (tech founder), push, re-run.
-   - **Non-critical AND out-of-scope / pre-existing** → file a GitHub issue
-     (closing-tribunal-loop template, cross-linked to the PR) and don't block.
-   - **False positive** → reject (verified against the cited code).
-   Loop until `APPROVE` with 0 findings. Use judgment on the number of rounds; if
-   a chunk genuinely can't pass, leave its PR as a **draft**, **skip the chunks
-   that depend on it**, and continue with the independent ones.
+   if the arbiter returns **zero critical and zero high**, the gate is closed
+   (leftover medium/low → YAGNI triage: file a follow-up only if real and worth
+   acting on, else drop with a PR-body note). While any critical/high remains:
+   - **Rounds 1–2:** fix directly (tech founder), push, re-run.
+   - **Round 3+:** step-back mode — simplify, descope (remove mechanism + file
+     follow-up), or have the arbiter down-rate the class; never guard-pile.
+   - **Round 10:** notify the investor (still grinding) without stopping.
+   - **Round 20:** stop and escalate to the investor with the standing finding.
+   Then **skip the chunks that depend on it** and continue with independent ones.
 3. **Merge.** `gh pr merge "<pr url>" --squash --delete-branch`, close the chunk's
    issues (`gh issue close <n> --comment "Delivered in <pr url>"`), then
    `git checkout "${default}" && git pull --ff-only`. Continue to the next chunk.

@@ -289,6 +289,10 @@ fi
 # the same project conventions (capped; absent file => no injection).
 CONVENTIONS=""
 [ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
+# Deployment/reachability facts a diff cannot reveal (worker model, concurrency,
+# single-user-per-session, money/data-loss paths). Capped; absent => no injection.
+REACHABILITY=""
+[ -f reachability.md ] && REACHABILITY=$(head -c 8192 reachability.md)
 
 cat > "$TMPDIR/codex-review-schema.json" << 'SCHEMA'
 {
@@ -371,6 +375,7 @@ Your response MUST be valid JSON matching the provided output schema.
 Set "provider" to "codex" and "model" to the model you are running as.
 $([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated from ${DIFF_SIZE} bytes to 100KB. Review what is provided.")
 $([ -n "$CONVENTIONS" ] && printf '\n## Project Conventions (from AGENTS.md)\nUse these ONLY to judge whether the diff violates project standards; report findings only against the diff.\n\n%s\n' "$CONVENTIONS")
+$([ -n "$REACHABILITY" ] && printf '\n## Production Reachability (from reachability.md)\nUse to judge whether a finding is reachable in production. A critical/high finding must still independently prove a reachable path; this file is supporting context, not a severity override.\n\n%s\n' "$REACHABILITY")
 
 The changed lines are in THE DIFF below. You are running inside the project repository — read related files as needed to understand context and verify cross-file effects, but report findings only against the changed lines.
 
@@ -417,6 +422,10 @@ fi
 # the same project conventions (capped; absent file => no injection).
 CONVENTIONS=""
 [ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
+# Deployment/reachability facts a diff cannot reveal (worker model, concurrency,
+# single-user-per-session, money/data-loss paths). Capped; absent => no injection.
+REACHABILITY=""
+[ -f reachability.md ] && REACHABILITY=$(head -c 8192 reachability.md)
 
 printf '%s\n' "$DIFF" | timeout -k 10 600 gemini --model "$GEMINI_MODEL" -p "You are a senior code reviewer performing a thorough security-focused review.
 
@@ -460,6 +469,7 @@ RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
   }
 }
 $([ -n "$CONVENTIONS" ] && printf '\nPROJECT CONVENTIONS (from AGENTS.md) — use ONLY to judge whether the diff violates project standards; report findings only against the diff:\n%s\n' "$CONVENTIONS")
+$([ -n "$REACHABILITY" ] && printf '\n## Production Reachability (from reachability.md)\nUse to judge whether a finding is reachable in production. A critical/high finding must still independently prove a reachable path; this file is supporting context, not a severity override.\n\n%s\n' "$REACHABILITY")
 THE DIFF IS PROVIDED VIA STDIN ABOVE." \
   --yolo \
   -o json \
@@ -565,6 +575,10 @@ fi
 # still in the repo, before the cd below.
 CONVENTIONS=""
 [ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
+# Deployment/reachability facts a diff cannot reveal (worker model, concurrency,
+# single-user-per-session, money/data-loss paths). Capped; absent => no injection.
+REACHABILITY=""
+[ -f reachability.md ] && REACHABILITY=$(head -c 8192 reachability.md)
 
 # Pass the diff as a FILE ATTACHMENT (`-f`), NOT inline in the prompt argv. Earlier
 # versions embedded the whole diff in the prompt string, which `opencode run` passes as
@@ -677,6 +691,7 @@ Output ONLY a JSON object, wrapped EXACTLY between these markers on their own li
 ===TRIBUNAL_JSON_END===
 $([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated for context size. Review what is provided.")
 $([ -n "$CONVENTIONS" ] && printf '\n## Project Conventions (from AGENTS.md)\nUse these ONLY to judge whether the diff violates project standards; report findings only against the diff.\n\n%s\n' "$CONVENTIONS")
+$([ -n "$REACHABILITY" ] && printf '\n## Production Reachability (from reachability.md)\nUse to judge whether a finding is reachable in production. A critical/high finding must still independently prove a reachable path; this file is supporting context, not a severity override.\n\n%s\n' "$REACHABILITY")
 
 $ctx_close"
 
@@ -795,6 +810,10 @@ fi
 # the same project conventions (capped; absent file => no injection).
 CONVENTIONS=""
 [ -f AGENTS.md ] && CONVENTIONS=$(head -c 16384 AGENTS.md)
+# Deployment/reachability facts a diff cannot reveal (worker model, concurrency,
+# single-user-per-session, money/data-loss paths). Capped; absent => no injection.
+REACHABILITY=""
+[ -f reachability.md ] && REACHABILITY=$(head -c 8192 reachability.md)
 
 printf '%s\n' "$DIFF" | QWEN_CODE_SUPPRESS_YOLO_WARNING=1 timeout -k 10 600 qwen --model "$QWEN_MODEL" -p "You are a senior code reviewer performing a thorough, comprehensive review.
 
@@ -846,6 +865,7 @@ RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
   }
 }
 $([ -n "$CONVENTIONS" ] && printf '\nPROJECT CONVENTIONS (from AGENTS.md) — use ONLY to judge whether the diff violates project standards; report findings only against the diff:\n%s\n' "$CONVENTIONS")
+$([ -n "$REACHABILITY" ] && printf '\n## Production Reachability (from reachability.md)\nUse to judge whether a finding is reachable in production. A critical/high finding must still independently prove a reachable path; this file is supporting context, not a severity override.\n\n%s\n' "$REACHABILITY")
 THE DIFF IS PROVIDED VIA STDIN ABOVE. You are running inside the project repository — read related files as needed to understand context and verify cross-file effects, but report findings only against the changed lines." \
   --yolo \
   -o json \
@@ -925,6 +945,10 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 DIFF=$(git -C "$REPO_ROOT" diff origin/main...HEAD)
 CONVENTIONS=""
 [ -f "$REPO_ROOT/AGENTS.md" ] && CONVENTIONS=$(head -c 16384 "$REPO_ROOT/AGENTS.md")
+# Deployment/reachability facts a diff cannot reveal (worker model, concurrency,
+# single-user-per-session, money/data-loss paths). Capped; absent => no injection.
+REACHABILITY=""
+[ -f "$REPO_ROOT/reachability.md" ] && REACHABILITY=$(head -c 8192 "$REPO_ROOT/reachability.md")
 
 # Parallel-safe scratch dir. Run `claude` from HERE (not the repo) so it has no project files
 # to walk — the physical guarantee behind "diff-only", mirroring the GLM leg's scratch-dir trick.
@@ -988,6 +1012,7 @@ RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
   }
 }
 $([ -n "$CONVENTIONS" ] && printf '\nPROJECT CONVENTIONS (from AGENTS.md) — use ONLY to judge whether the diff violates project standards; report findings only against the diff:\n%s\n' "$CONVENTIONS")
+$([ -n "$REACHABILITY" ] && printf '\n## Production Reachability (from reachability.md)\nUse to judge whether a finding is reachable in production. A critical/high finding must still independently prove a reachable path; this file is supporting context, not a severity override.\n\n%s\n' "$REACHABILITY")
 THE DIFF IS PROVIDED VIA STDIN ABOVE. Review ONLY the changed lines shown in the diff." \
   --model "$CLAUDE_MODEL" \
   --output-format json \
@@ -1056,12 +1081,48 @@ Do NOT spawn a Task agent. You are already Opus -- perform arbitration directly.
 
 Read both JSON outputs from Step 2 and apply the following protocol:
 
+Also read `reachability.md` from the repo root if present (capped at 8 KB):
+it states deployment facts (worker/process model, whether the same
+session/resource can be acted on concurrently, single-user assumptions,
+money/data-loss paths) used when applying the **3b-0** standard. Treat it as
+**rebuttable** — cross-check any claim a finding hinges on against the actual
+code/config before relying on it, and lower your confidence in it when its
+`last-verified:` marker is old relative to the area under review.
+
 ### 3a: Deduplicate Findings
 
 Two findings are **duplicates** if they describe the same underlying issue in the same file, even if worded differently. For duplicates:
 - Keep the finding with higher confidence
 - Merge suggestions if both are valuable
 - Mark as CONSENSUS when ≥2 providers report the same underlying issue; record all supporting providers in the `providers` array
+
+**Same-class merge (every round):** Beyond exact duplicates, collapse
+findings that are *variants of the same underlying concern* — e.g. several
+different "ordering window" or "unawaited write" findings on the same
+mechanism — into ONE finding for the round, keeping the strongest statement
+and listing the rest under `arbiter_notes`. N rephrasings of one concern
+count as one finding, so a reviewer cannot keep the loop open by restating.
+
+### 3b-0: Blocking-finding standard (severity eligibility — apply FIRST)
+
+Before resolving severities, gate each finding's *eligibility* to be rated
+critical or high. A finding may be rated **critical or high only if it
+demonstrates ALL THREE**:
+
+1. **Production-reachable path** — a concrete actor + trigger + state
+   transition. "An interleaving exists", "a malformed file could…", or a
+   race that needs two concurrent operations on the same single-user
+   resource is NOT sufficient unless the path shows how a real caller
+   reaches that state.
+2. **Material impact** — money, data-loss, legal/compliance, or
+   user-visible correctness.
+3. **Caused or exposed by THIS change** — a pre-existing, untouched code
+   path that a repo-walking reviewer merely *found* is at most low/follow-up.
+
+The **burden of proof is on the finding**. If any leg is absent or unproven,
+cap the finding at **medium** (informational / triage). Use `reachability.md`
+(if injected) as supporting context, but a missing/stale reachability.md does
+NOT lower the bar — a blocking finding must independently prove reachability.
 
 ### 3b: Resolve Conflicts (N providers)
 
@@ -1074,7 +1135,7 @@ A finding may be reported by any subset of the five reviewers (codex, gemini, gl
 | Providers contradict each other | Decide and document reasoning, mark ARBITRATED |
 | Severities differ for the same finding | **Use the highest severity reported**, note disagreement in arbiter_notes |
 
-**HARD RULE**: When providers report different severities for the same finding, you MUST use the highest severity. No exceptions.
+**HARD RULE (severity)**: First apply **3b-0** to decide whether the finding is *eligible* for critical/high. THEN, among the eligible severities providers reported, use the highest. The highest-severity rule never overrides 3b-0: a finding that fails 3b-0 is medium even if a provider rated it critical.
 
 All reviewers are **equal advisory peers** (up to five; by default codex + deepseek + qwen, with gemini and glm opt-in). Opus has final authority and may override any finding.
 
@@ -1116,7 +1177,8 @@ Output the tribunal verdict as JSON:
     "id": "T-001", "consensus": "CONSENSUS|SINGLE|ARBITRATED", "providers": ["codex", "glm"],
     "severity": "critical|high|medium|low", "category": "logic|security|performance|quality|architecture|edge-case|testing",
     "file": "path/to/file", "line": 0, "title": "...", "description": "...",
-    "suggestion": "...", "confidence": 0.0, "arbiter_notes": "..."
+    "suggestion": "...", "confidence": 0.0, "arbiter_notes": "...",
+    "blocking_proof": { "reachable_path": "actor+trigger+state transition, or null", "material_impact": "money|data-loss|legal|correctness, or null", "caused_by_change": true }
   }],
   "conflicts_resolved": [{
     "issue": "...", "positions": {"codex": "...", "gemini": "...", "glm": "...", "deepseek": "...", "qwen": "..."},
@@ -1132,6 +1194,12 @@ Output the tribunal verdict as JSON:
   "summary": "2-3 sentence executive summary of code quality and required actions"
 }
 ```
+
+**Required for critical/high:** every finding rated `critical` or `high` MUST
+carry a `blocking_proof` whose three legs are all non-null/true (per 3b-0). If
+you cannot fill all three, downgrade the finding to `medium` and set
+`blocking_proof` legs to null where unproven. `medium`/`low` findings may omit
+`blocking_proof`.
 
 Output: "[TRIBUNAL 3/3] Verdict: {APPROVE|NEEDS_WORK|BLOCK} - {N} actionable findings"
 

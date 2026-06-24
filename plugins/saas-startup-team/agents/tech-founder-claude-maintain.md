@@ -102,3 +102,13 @@ If a change would introduce security risks, break existing integrations, or dama
 ## Plugin Issue Reporting
 
 If you hit a problem with the **plugin itself** (not the product), file a GitHub issue on the plugin repo: `gh issue create --repo paat/claude-plugins --title "saas-startup-team: <short title>" --body "<details>"`. GitHub issues replaced the local `.startup/PLUGIN_ISSUES.md` workflow in v0.30.1 — the per-project file was never aggregated across downstream projects.
+
+## Definition-of-Done Checklist (additional items)
+
+- **reachability.md** — if this change touches the deployment, concurrency, or
+  session model, update `reachability.md` (and its `last-verified:` marker) in
+  this PR. See `skills/tech-founder/references/reachability-convention.md`.
+- **Tribunal step-back** — from review round 3, stop adding guards: simplify,
+  descope (remove the mechanism + file a follow-up), or take the finding class
+  to the arbiter. A step-back round must not increase the net count of
+  defensive mechanisms. See `tribunal-review:closing-tribunal-loop`.

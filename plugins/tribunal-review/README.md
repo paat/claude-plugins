@@ -33,7 +33,26 @@ On a feature branch with changes vs `origin/main`:
 
 The skill will verify you're on a feature branch, run the reviews, and produce an arbitrated verdict.
 
-When the verdict comes back `NEEDS_WORK` or `BLOCK`, the `closing-tribunal-loop` skill guides the iterative close-out: per-finding triage (fix-in-PR vs file-follow-up vs reject), committing fixes one finding at a time, and re-running the tribunal until the arbiter returns `APPROVE` with zero findings on the latest diff.
+When the verdict comes back `NEEDS_WORK` or `BLOCK`, the `closing-tribunal-loop` skill guides the iterative close-out: per-finding triage (fix-in-PR vs file-follow-up vs reject), committing fixes one finding at a time, and re-running the tribunal until the arbiter returns a verdict with **zero critical and high findings** on the latest diff (see Convergence governor below).
+
+## Convergence governor
+
+The closing loop is **capped and severity-honest** so it cannot spiral:
+
+- **Blocking-finding standard** — a finding is critical/high only if it proves
+  a production-reachable path, material impact, and that it is caused/exposed
+  by the change under review. Otherwise it is capped at medium.
+- **Stop condition** — the loop closes on **zero critical/high** (not zero
+  findings). Leftover medium/low go to YAGNI triage (filed only if real and
+  worth acting on; else dropped with a PR-body note).
+- **Step-back at round 3** — stop adding guards; simplify, descope, or
+  down-rate the finding *class*. A step-back round may not increase the net
+  count of defensive mechanisms.
+- **Grind to a ceiling** — keep looping while any critical/high remains;
+  investor checkpoint at round 10; hard escalation at round 20.
+- **`reachability.md`** — an optional per-repo file (worker model, concurrency,
+  single-user assumptions, money paths) injected into reviewers + arbiter as
+  rebuttable context.
 
 ## Configuration
 
