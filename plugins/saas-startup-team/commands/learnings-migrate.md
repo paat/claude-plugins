@@ -26,7 +26,7 @@ The `auto-learn.sh` PostToolUse hook normally routes new learnings directly into
 5. **First-time bootstrap** — only if the topic catalog is empty after step 4:
    - Cluster the Recent entries by theme (use your own reasoning). Each cluster becomes a candidate topic.
    - For each cluster, propose a kebab-case filename (e.g. `estonian-compliance.md`) and a display heading. Ask the user, one cluster at a time: `Cluster "<display heading>": create docs/learnings/<filename>? (y/rename/skip)`. On `rename`, prompt for a new filename. On `skip`, drop the cluster (entries stay in Recent).
-   - After confirmations, create each confirmed topic file with a `# <display heading>` H1 and a blank line underneath.
+   - After confirmations, create each confirmed topic file with a `# <display heading>` H1 and a blank line underneath. Seed each new topic file with a `## Critical Landmines` section (placeholder comment `<!-- catastrophic rules only; stronger language allowed here -->`) followed by failure-mode `##` sections inferred from the cluster. Append every entry in the house style defined in `templates/learnings-style.md` (`- <Label>: <rule> — <why>. Fix: <pattern>. (ref)`); reserve `ALWAYS`/`NEVER`/caps for `## Critical Landmines` only. During clustering, do not discard a line as obvious if it is project-specific, library/version-specific, exact-behavior, post-cutoff, counterintuitive, or provenance-tagged — when unsure, keep and route it.
    - If the user declined or skipped every cluster, exit with no changes.
    - Rebuild the topic catalog.
 
@@ -55,7 +55,7 @@ The `auto-learn.sh` PostToolUse hook normally routes new learnings directly into
 10. Ask the user: `apply / skip: <row numbers> / cancel`. On `cancel`, exit with no changes. On `skip: 3,7`, mark those rows to remain in Recent and re-show the preview. On `apply`, proceed.
 
 11. Apply edits:
-    - For each target file, append the planned entries as dash-bullets (one per line) at the end of the file. Create the file with a `# <heading>` H1 if it was a new topic.
+    - For each target file, append the planned entries as dash-bullets in house style (`templates/learnings-style.md`), routing any catastrophic rule to the target file's `## Critical Landmines` section and routine rules to the best-fit failure-mode `##` section. Create the file with a `# <heading>` H1 if it was a new topic.
     - Rewrite CLAUDE.md: keep the `### Recent (unsorted)` subsection and its comment, but remove every migrated or deduplicated entry. Skipped entries stay.
 
 12. Print summary: `Migrated N entries into M files. K skipped. J new topics created. D duplicates dropped.`

@@ -3418,6 +3418,15 @@ test_founder_standards_routing() {
     "$PLUGIN_ROOT/agents/tech-founder-claude.md" "handoff with 3+ features — reject it and ask the business founder to split"
 }
 
+test_learnings_migrate_house_style() {
+  echo -e "\n${CYAN}== learnings-migrate house style ==${NC}"
+  local f="$PLUGIN_ROOT/commands/learnings-migrate.md"
+  assert_file_contains "M1: references the house-style block" "$f" "learnings-style.md"
+  assert_file_contains "M2: bootstraps Critical Landmines"    "$f" "Critical Landmines"
+  assert_file_contains "M3: routes routine to failure-mode sections" "$f" "failure-mode"
+  assert_file_contains "M4: carries calibration guard"        "$f" "when unsure, keep"
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -3462,6 +3471,7 @@ main() {
   test_convergence_governor
   test_learnings_style_block
   test_founder_standards_routing
+  test_learnings_migrate_house_style
 
   # Summary
   echo ""
