@@ -1063,6 +1063,27 @@ Two findings are **duplicates** if they describe the same underlying issue in th
 - Merge suggestions if both are valuable
 - Mark as CONSENSUS when ≥2 providers report the same underlying issue; record all supporting providers in the `providers` array
 
+### 3b-0: Blocking-finding standard (severity eligibility — apply FIRST)
+
+Before resolving severities, gate each finding's *eligibility* to be rated
+critical or high. A finding may be rated **critical or high only if it
+demonstrates ALL THREE**:
+
+1. **Production-reachable path** — a concrete actor + trigger + state
+   transition. "An interleaving exists", "a malformed file could…", or a
+   race that needs two concurrent operations on the same single-user
+   resource is NOT sufficient unless the path shows how a real caller
+   reaches that state.
+2. **Material impact** — money, data-loss, legal/compliance, or
+   user-visible correctness.
+3. **Caused or exposed by THIS change** — a pre-existing, untouched code
+   path that a repo-walking reviewer merely *found* is at most low/follow-up.
+
+The **burden of proof is on the finding**. If any leg is absent or unproven,
+cap the finding at **medium** (informational / triage). Use `reachability.md`
+(if injected) as supporting context, but a missing/stale reachability.md does
+NOT lower the bar — a blocking finding must independently prove reachability.
+
 ### 3b: Resolve Conflicts (N providers)
 
 A finding may be reported by any subset of the five reviewers (codex, gemini, glm, deepseek, qwen) plus the diff-only claude leg. By default only codex, deepseek, and claude run — gemini, glm, and qwen are off by default, and any leg can be turned off — so treat disabled providers as absent, not as failures.
@@ -1074,7 +1095,7 @@ A finding may be reported by any subset of the five reviewers (codex, gemini, gl
 | Providers contradict each other | Decide and document reasoning, mark ARBITRATED |
 | Severities differ for the same finding | **Use the highest severity reported**, note disagreement in arbiter_notes |
 
-**HARD RULE**: When providers report different severities for the same finding, you MUST use the highest severity. No exceptions.
+**HARD RULE (severity)**: First apply **3b-0** to decide whether the finding is *eligible* for critical/high. THEN, among the eligible severities providers reported, use the highest. The highest-severity rule never overrides 3b-0: a finding that fails 3b-0 is medium even if a provider rated it critical.
 
 All reviewers are **equal advisory peers** (up to five; by default codex + deepseek + qwen, with gemini and glm opt-in). Opus has final authority and may override any finding.
 

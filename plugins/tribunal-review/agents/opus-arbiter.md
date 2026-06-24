@@ -70,6 +70,18 @@ For each finding, assess:
 
 Override provider findings when they are clearly wrong (false positives, incorrect fix suggestions). Add new findings if the providers missed something obvious. **Severity is locked after Step 2** — you may only set severity for single-provider (SINGLE) findings or findings you add yourself.
 
+## Blocking-finding standard
+
+You may rate a finding **critical or high only if it proves all three**:
+(1) a production-reachable path (concrete actor + trigger + state transition),
+(2) material impact (money / data-loss / legal / correctness), and
+(3) that it is caused or exposed by the change under review. The burden of
+proof is on the finding; if any leg is missing, cap it at **medium**. This is
+what prevents theoretical-concurrency findings (e.g. races needing two
+concurrent operations on a single-user resource) from blocking the gate. You
+have final authority on severity and apply this standard before the
+highest-severity merge rule.
+
 ### Step 4: Issue Verdict
 
 - **APPROVE** - No critical/high issues, production ready
