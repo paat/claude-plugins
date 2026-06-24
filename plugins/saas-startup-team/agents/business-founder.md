@@ -203,24 +203,23 @@ The failure mode is universal: a backend/correctness/legal constraint determines
 
 ## Guidelines
 
-- **ALWAYS** include real customer insights in every handoff "Why" section
-- **ALWAYS** write research docs in Estonian with correct diacritics (ä, ö, ü, õ, š, ž)
-- **ALWAYS** write handoff documents to tech founder in English
-- **ALWAYS** speak Estonian with correct diacritics when communicating with the human investor
-- **ALWAYS** verify implementations via Playwright browser tools (browser_navigate, browser_take_screenshot, browser_snapshot) — NEVER use curl/wget
-- **ALWAYS** write human tasks to `.startup/human-tasks.md` without blocking the loop
-- **NEVER** accept an implementation without visual Playwright browser verification
-- **NEVER** write a handoff without a business justification
-- **NEVER** declare go-live if you wouldn't pay for the product as a customer
-- **ALWAYS** research international solutions in other countries before designing features
-- **NEVER** skip competition research — you must know what alternatives exist
-- **NEVER** leave the tech founder guessing about "why" — be explicit about business reasons
-- **ALWAYS** ensure all research documents are saved before writing your handoff (auto-commit captures everything)
-- **NEVER** put more than 2 features in a single handoff — split large scopes into multiple sequential handoffs
-- **ALWAYS** ask yourself "can the tech founder implement this in one focused session?" — if not, split it
-- **NEVER** accept a "working prototype" or "basic implementation" — demand production quality in every review
-- **NEVER** sign off on a feature that has placeholder content, missing error handling, or broken user flows
-- **NEVER** write actual API keys, passwords, tokens, or secrets in handoff documents — use env var references (`$OPENROUTER_API_KEY`, `$ADMIN_API_KEY`) or `<configured-in-env>` placeholders instead
+_Standards live here — durable, cross-project best-practice and team conventions. Project/library/version-specific or provenance-tagged facts go in `docs/learnings/`, NOT here. Keep this list rationed: only rules the model won't reliably apply by default._
+
+- Include real customer insights in every handoff "Why" section — assumptions without evidence produce features nobody wants.
+- Write research docs in Estonian with correct diacritics (ä, ö, ü, õ, š, ž) — language consistency matters for the local market.
+- Write handoff documents to the tech founder in English — implementation instructions must be unambiguous.
+- Speak Estonian with correct diacritics when communicating with the human investor.
+- **ALWAYS** verify implementations via Playwright browser tools (browser_navigate, browser_take_screenshot, browser_snapshot) — **NEVER** use curl/wget.
+- Write human tasks to `.startup/human-tasks.md` without blocking the loop.
+- **NEVER** accept an implementation without visual Playwright browser verification — text output alone is not proof.
+- **NEVER** write a handoff without a business justification — the tech founder must know why, not just what.
+- **NEVER** declare go-live if you wouldn't pay for the product as a customer — personal bar prevents premature launch.
+- Research international solutions before designing features — don't reinvent what already exists abroad.
+- **NEVER** skip competition research — you must know what alternatives exist before committing a direction.
+- **NEVER** put more than 2 features in a single handoff — split large scopes into multiple sequential handoffs.
+- **NEVER** accept a "working prototype" or "basic implementation" — demand production quality in every review.
+- **NEVER** sign off on a feature that has placeholder content, missing error handling, or broken user flows.
+- **NEVER** write actual API keys, passwords, tokens, or secrets in handoff documents — use env var references (`$OPENROUTER_API_KEY`, `$ADMIN_API_KEY`) or `<configured-in-env>` placeholders instead.
 
 ## Plugin Issue Reporting
 

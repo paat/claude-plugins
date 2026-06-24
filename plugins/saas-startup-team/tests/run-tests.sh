@@ -88,7 +88,7 @@ assert_file_not_exists() {
 assert_file_contains() {
   local label="$1" path="$2" pattern="$3"
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if grep -q "$pattern" "$path" 2>/dev/null; then
+  if grep -q -- "$pattern" "$path" 2>/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label"
     PASS_COUNT=$((PASS_COUNT + 1))
   else
@@ -917,6 +917,29 @@ test_post_tool_use_hook() {
   output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "I10: exits 2 for matching handoff file" "$ec" 2
   assert_output_contains "I10b: systemMessage in output" "$output" "systemMessage"
+
+  # I11: script parses (catches any quoting breakage)
+  ec=0; bash -n "$script" 2>/dev/null || ec=$?
+  assert_exit_code "I11: auto-learn.sh parses (bash -n)" "$ec" 0
+  # I12: still emits valid JSON with a systemMessage on a matching handoff
+  out="$(printf '{"tool_input":{"file_path":"/tmp/x/.startup/handoffs/h.md"}}' | bash "$script" 2>&1 || true)"
+  ec=0; printf '%s\n' "$out" | jq -e '.systemMessage | type == "string"' >/dev/null 2>&1 || ec=$?
+  assert_exit_code "I12: emits JSON systemMessage" "$ec" 0
+  # I13: no longer instructs blanket NEVER/ALWAYS for rules
+  assert_file_not_contains "I13: drops blanket NEVER/ALWAYS instruction" "$script" "NEVER/ALWAYS for rules"
+  # I14: embeds the house-style label shape
+  assert_file_contains "I14: house-style label shape" "$script" "<Label>:"
+  # I15: keeps the terse why mandate
+  assert_file_contains "I15: mandates terse why" "$script" "terse why"
+  # I16: rations emphasis
+  assert_file_contains "I16: rations emphasis" "$script" "landmine"
+  # I17: applies novelty gate + calibration guard
+  assert_file_contains "I17: novelty gate" "$script" "surprising to a competent model"
+  assert_file_contains "I18: keeps version-specific facts" "$script" "version-specific"
+  # I19: routes tier-2 standards out of learnings
+  assert_file_contains "I19: promotes general standards" "$script" "general standard"
+  # I20: still caps entries at 3
+  assert_file_contains "I20: caps at 3 entries" "$script" "Max 3 new entries"
 }
 
 # ---------------------------------------------------------------------------
@@ -3360,6 +3383,90 @@ test_convergence_governor() {
   assert_output_contains "goal-deliver stops on no crit/high" "$(cat "$PLUGIN_ROOT/commands/goal-deliver.md")" "zero critical and zero high"
 }
 
+test_learnings_style_block() {
+  echo -e "\n${CYAN}== Learnings house-style block ==${NC}"
+  local f="$PLUGIN_ROOT/templates/learnings-style.md"
+  assert_file_exists "L1: learnings-style.md exists" "$f"
+  assert_file_contains "L2: defines the line shape"        "$f" "<Label>: <imperative rule>"
+  assert_file_contains "L3: mandates terse why"            "$f" "terse why"
+  assert_file_contains "L4: Fix is conditional"            "$f" "include only when there is a concrete reusable action"
+  assert_file_contains "L5: rations emphasis"              "$f" "catastrophic landmine, never for routine rules"
+  assert_file_contains "L6: names Critical Landmines"      "$f" "Critical Landmines"
+  assert_file_contains "L7: canonical vs overloaded terms" "$f" "the model silently picks a sense — spell out"
+  assert_file_contains "L8: novelty/delta gate"            "$f" "surprising to a competent model"
+  assert_file_contains "L9: calibration guard"             "$f" "provenance"
+  assert_file_contains "L10: three-tier routing"           "$f" "agent prompt"
+  assert_file_contains "L11: exact routine line shape"     "$f" "- <Label>: <imperative rule> — <terse why>. Fix: <reusable pattern>. (ref)"
+  assert_file_contains "L12: when-unsure-keep rule"        "$f" "When unsure, keep it"
+}
+
+test_founder_standards_routing() {
+  echo -e "\n${CYAN}== founder prompts are tier-2 standards home ==${NC}"
+  for a in tech-founder-claude business-founder; do
+    assert_file_contains "S1:$a declares standards-vs-learnings routing" \
+      "$PLUGIN_ROOT/agents/$a.md" "Standards live here"
+    assert_file_contains "S2:$a warns off version-specific promotion" \
+      "$PLUGIN_ROOT/agents/$a.md" "docs/learnings/"
+  done
+  # ration: model-default lines removed
+  assert_file_not_contains "S3: drops model-default polished-UI guideline" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "build aesthetic, polished UI"
+  # capability constraints MUST survive (regression guard)
+  assert_file_contains "S4: tech no-web constraint survives" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "tools (you have no web access)"
+  assert_file_contains "S5: handoff-split constraint survives" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "handoff with 3+ features — reject it and ask the business founder to split"
+}
+
+test_learnings_migrate_house_style() {
+  echo -e "\n${CYAN}== learnings-migrate house style ==${NC}"
+  local f="$PLUGIN_ROOT/commands/learnings-migrate.md"
+  assert_file_contains "M1: references the house-style block" "$f" "learnings-style.md"
+  assert_file_contains "M2: bootstraps Critical Landmines"    "$f" "Critical Landmines"
+  assert_file_contains "M3: routes routine to failure-mode sections" "$f" "failure-mode"
+  assert_file_contains "M4: carries calibration guard"        "$f" "when unsure, keep"
+}
+
+test_maintain_agents_reference_style() {
+  echo -e "\n${CYAN}== maintain agents reference house style ==${NC}"
+  for a in business-founder-maintain tech-founder-claude-maintain tech-founder-codex-maintain; do
+    assert_file_contains "N:$a references house style" \
+      "$PLUGIN_ROOT/agents/$a.md" "learnings-style.md"
+  done
+}
+
+test_compress_golden_sample() {
+  echo -e "\n${CYAN}== compress golden sample ==${NC}"
+  local f="$PLUGIN_ROOT/templates/learnings-compress-golden.md"
+  assert_file_exists "G1: golden sample exists" "$f"
+  assert_file_contains "G2: has before sections"   "$f" "BEFORE"
+  assert_file_contains "G3: has after sections"    "$f" "AFTER"
+  assert_file_contains "G4: has reviewer checklist" "$f" "Reviewer checklist"
+  local count; count="$(grep -c '^## Transformation ' "$f" || true)"
+  assert_equals "G5: >=8 transformations" "$([ "$count" -ge 8 ] && echo ok || echo "only-$count")" "ok"
+  assert_file_contains "G6: DELETE-obvious transform" "$f" "DELETE: pure ingrained knowledge"
+  assert_file_contains "G7: KEEP calibration transform" "$f" "library-version-specific"
+  assert_file_contains "G8: overloaded-term transform" "$f" "overloaded"
+  assert_file_contains "G9: merge transform" "$f" "MERGED"
+}
+
+test_learnings_compress_command() {
+  echo -e "\n${CYAN}== learnings-compress command ==${NC}"
+  local f="$PLUGIN_ROOT/commands/learnings-compress.md"
+  assert_file_exists "C1: command exists" "$f"
+  assert_file_contains "C2: user_invocable"        "$f" "user_invocable: true"
+  assert_file_contains "C3: references golden"      "$f" "learnings-compress-golden.md"
+  assert_file_contains "C4: emits a changelog"      "$f" "changelog"
+  assert_file_contains "C5: gates critical rules"   "$f" "Critical Landmines"
+  assert_file_contains "C6: 30KB split rule"        "$f" "30"
+  assert_file_contains "C7: one doc per run"        "$f" "one topic"
+  assert_file_contains "C8: promotes tier-2 standards" "$f" "PROMOTE"
+  assert_file_contains "C9: gates obvious drops"    "$f" "DROP-as-obvious"
+  assert_file_contains "C10: calibration guard"     "$f" "calibration guard"
+  assert_file_contains "C11: requires approval"     "$f" "approve critical"
+  assert_file_contains "C12: exact-duplicate drop"  "$f" "exact duplicate"
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -3402,6 +3509,12 @@ main() {
   test_harvest
   test_lesson_file
   test_convergence_governor
+  test_learnings_style_block
+  test_founder_standards_routing
+  test_learnings_migrate_house_style
+  test_maintain_agents_reference_style
+  test_compress_golden_sample
+  test_learnings_compress_command
 
   # Summary
   echo ""

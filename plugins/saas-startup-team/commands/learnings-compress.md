@@ -1,0 +1,71 @@
+---
+name: learnings-compress
+description: Compress one docs/learnings/<topic>.md into the house style behind a semantic-preservation gate — strips over-emphasis, adds canonical labels, routes landmines, promotes general standards, splits docs over 30KB. Non-destructive preview + changelog before any write.
+user_invocable: true
+---
+
+# /learnings-compress — gated backlog compression
+
+Compresses ONE topic doc per run. Never trust an autonomous rewrite: every run
+produces a changelog and a hard gate on risky changes. Style source:
+`${CLAUDE_PLUGIN_ROOT}/templates/learnings-style.md`. Worked transforms + reviewer checklist:
+`${CLAUDE_PLUGIN_ROOT}/templates/learnings-compress-golden.md`.
+
+## Actions
+
+1. Resolve git root (`git rev-parse --show-toplevel`). Argument is one topic path
+   under `docs/learnings/`; if absent, list candidates by size (largest first) and
+   ask which **one** to compress. Process **one topic** per run.
+2. Read `${CLAUDE_PLUGIN_ROOT}/templates/learnings-style.md` and `${CLAUDE_PLUGIN_ROOT}/templates/learnings-compress-golden.md`.
+   Match the golden transformations exactly in shape, and apply the golden file's
+   "If DROPPED as obvious" checklist before any DROP.
+3. For each dash-bullet, produce a candidate compressed line: strip rationed emphasis,
+   add a canonical-term Label, keep the terse why, keep Fix only if concrete, reduce
+   ref to a terse token. Keep overloaded terms spelled out.
+4. Classify each change as:
+   - **REWRITE** — same rule, tighter.
+   - **MERGE** — fold into a named duplicate line (changelog must name the target).
+   - **RELABEL** — add/fix the Label only.
+   - **DROP** — allowed ONLY when the line is an exact duplicate elsewhere, OR pure
+     general best-practice with NO project/library/version specificity, NO exact-behavior
+     claim, NO counterintuitive claim, NO post-cutoff fact, and NO provenance tag (issue,
+     incident, test, filename, observed failure). Calibration guard: ambiguous
+     obviousness defaults to KEEP. When DROPping an exact duplicate, the changelog
+     **must name the surviving canonical line and its file** (same requirement as MERGE),
+     so a reviewer can verify the duplication claim.
+   - **PROMOTE** — a general standard / team convention worth enforcing but not
+     project/library-specific → move to the relevant agent prompt's Standards section,
+     remove from learnings.
+   Route any catastrophic rule to a `## Critical Landmines` section at the top.
+5. Emit a **changelog** grouped by class, applying the golden reviewer checklist to each
+   REWRITE/MERGE. Show before→after for every changed line.
+6. **Gate — require explicit `approve critical`** before any change that (a) touches a
+   `## Critical Landmines` rule (DROP/MERGE/severity downgrade), (b) is a **DROP-as-obvious**
+   (the calibration guard makes this the highest-risk class — gated even outside Critical
+   Landmines), or (c) is a PROMOTE (edits a different file). Routine REWRITE/RELABEL and
+   non-critical MERGE proceed on the changelog alone, and only when the changelog names the
+   duplicate target and the checklist shows no semantic loss.
+7. **Size cap:** if the compressed doc still exceeds **30KB**, propose a split by `##`
+   section into sibling `docs/learnings/<topic>-<section>.md` files and update the
+   `## Domain Learnings` index. Confirm before writing. Split rules:
+   - Split on **whole `##` sections only** — never cut mid-section or mid-bullet.
+   - Preserve the **original section order** within each sibling file and across the
+     set of sibling files (sections appear in the same sequence as in the source).
+   - **Before confirming the write**, verify that the union of all sibling files
+     contains every original `##` section and every original bullet **exactly once**:
+     no omission, no duplication, no reordering. Abort and report any discrepancy.
+8. Print the preview (changelog + resulting byte size + any split plan). Ask
+   `apply / skip: <line numbers> / cancel`. On `apply`, write the doc (and any splits)
+   and update the index — but a gated change (a `## Critical Landmines` edit, a DROP-as-obvious, or a PROMOTE) is written ONLY if `approve critical` was already given; `apply` alone never authorizes a gated change. Never drop a learning except an exact duplicate or a gated
+   pure no-delta best-practice.
+
+## Guarantees
+
+- One topic per run; smallest-impact, reviewable diffs.
+- Changelog before any write; nothing changes on `cancel` or session death.
+- Critical-rule changes, DROP-as-obvious, and promotions are human-gated.
+- Never silently loses a learning; ambiguous obviousness defaults to KEEP. DROP only an
+  exact duplicate or a gated pure no-delta best-practice; PROMOTE relocates a standard into
+  an agent prompt; everything else is rewritten, merged, relabeled, or split.
+- Split is completeness-checked: every pre-split section and bullet appears exactly once
+  across the resulting files, in original order; never mid-file reordering.
