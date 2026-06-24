@@ -30,7 +30,9 @@ produces a changelog and a hard gate on risky changes. Style source:
      general best-practice with NO project/library/version specificity, NO exact-behavior
      claim, NO counterintuitive claim, NO post-cutoff fact, and NO provenance tag (issue,
      incident, test, filename, observed failure). Calibration guard: ambiguous
-     obviousness defaults to KEEP.
+     obviousness defaults to KEEP. When DROPping an exact duplicate, the changelog
+     **must name the surviving canonical line and its file** (same requirement as MERGE),
+     so a reviewer can verify the duplication claim.
    - **PROMOTE** — a general standard / team convention worth enforcing but not
      project/library-specific → move to the relevant agent prompt's Standards section,
      remove from learnings.
@@ -45,7 +47,13 @@ produces a changelog and a hard gate on risky changes. Style source:
    duplicate target and the checklist shows no semantic loss.
 7. **Size cap:** if the compressed doc still exceeds **30KB**, propose a split by `##`
    section into sibling `docs/learnings/<topic>-<section>.md` files and update the
-   `## Domain Learnings` index. Confirm before writing.
+   `## Domain Learnings` index. Confirm before writing. Split rules:
+   - Split on **whole `##` sections only** — never cut mid-section or mid-bullet.
+   - Preserve the **original section order** within each sibling file and across the
+     set of sibling files (sections appear in the same sequence as in the source).
+   - **Before confirming the write**, verify that the union of all sibling files
+     contains every original `##` section and every original bullet **exactly once**:
+     no omission, no duplication, no reordering. Abort and report any discrepancy.
 8. Print the preview (changelog + resulting byte size + any split plan). Ask
    `apply / skip: <line numbers> / cancel`. On `apply`, write the doc (and any splits)
    and update the index. Never drop a learning except an exact duplicate or a gated
@@ -59,3 +67,5 @@ produces a changelog and a hard gate on risky changes. Style source:
 - Never silently loses a learning; ambiguous obviousness defaults to KEEP. DROP only an
   exact duplicate or a gated pure no-delta best-practice; PROMOTE relocates a standard into
   an agent prompt; everything else is rewritten, merged, relabeled, or split.
+- Split is completeness-checked: every pre-split section and bullet appears exactly once
+  across the resulting files, in original order; never mid-file reordering.
