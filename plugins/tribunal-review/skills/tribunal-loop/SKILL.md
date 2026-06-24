@@ -948,7 +948,7 @@ CONVENTIONS=""
 # Deployment/reachability facts a diff cannot reveal (worker model, concurrency,
 # single-user-per-session, money/data-loss paths). Capped; absent => no injection.
 REACHABILITY=""
-[ -f reachability.md ] && REACHABILITY=$(head -c 8192 reachability.md)
+[ -f "$REPO_ROOT/reachability.md" ] && REACHABILITY=$(head -c 8192 "$REPO_ROOT/reachability.md")
 
 # Parallel-safe scratch dir. Run `claude` from HERE (not the repo) so it has no project files
 # to walk — the physical guarantee behind "diff-only", mirroring the GLM leg's scratch-dir trick.

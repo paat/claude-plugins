@@ -37,7 +37,7 @@ echo "Same-class merge (piece 5):"
 assert_grep "same-class merge" "$SK" "Same-class merge (every round)"
 
 echo "reachability.md injection (piece 1):"
-assert_count_ge "injected into >=5 legs" "$SK" "head -c 8192 reachability.md" 5
+assert_count_ge "injected into >=5 legs" "$SK" "head -c 8192" 5
 assert_grep "arbiter reads reachability" "$SK" "Also read .reachability.md. from the repo root"
 
 echo "blocking_proof schema (piece 0 structured):"

@@ -9,7 +9,7 @@ description: Use when tribunal-loop returned NEEDS_WORK or BLOCK and you have fi
 
 `tribunal-loop` is one round of review. **Closing the loop is iterative**: after any code change, the diff has changed and findings can change with it — new bugs introduced by the fix, old findings invalidated, false positives clarified. The loop closes when the Opus arbiter returns a verdict with **zero critical and zero high findings** on the latest diff (medium/low go to YAGNI triage). Every code change re-opens the diff, so re-run after any fix.
 
-**Core principle:** Tribunal is a quality gate, not a checklist. The gate stays closed until the diff itself stops generating findings — including findings caused by your own fixes.
+**Core principle:** Tribunal is a quality gate, not a checklist. The gate stays closed until the diff itself stops generating critical/high findings — including findings caused by your own fixes.
 
 ## When to Use
 
