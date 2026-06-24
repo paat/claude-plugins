@@ -35,21 +35,21 @@ RULE: KEEP — exact library-version-specific inheritance fact the model is over
 BEFORE:
 - NEVER check file existence then open separately — check-then-act is a TOCTOU race; use atomic open with O_CREAT|O_EXCL or try/except FileExistsError instead
 AFTER:
-- TOCTOU race: never check-then-act on filesystem paths — use atomic `open(path, "x")` (O_CREAT|O_EXCL) or catch `FileExistsError` directly. Fix: collapse check+open into one syscall.
-PRESERVED: the TOCTOU label, the atomic open pattern, the O_CREAT|O_EXCL flag, the FileExistsError branch.
+- TOCTOU race: never os.path.exists()-then-open() as two steps — the file can change in the window between check and use. Fix: atomic open(path, "x") (O_CREAT|O_EXCL), or catch FileExistsError.
+PRESERVED: the specific check-existence-then-open pattern, the race window between check and use, and the atomic-open fix via O_CREAT|O_EXCL or FileExistsError.
 
 ## Transformation 6 — cache-stampede landmine routed
 BEFORE:
 - NEVER invalidate a shared cache key without a lock — concurrent misses will all recompute and write back simultaneously (thundering-herd / cache stampede)
 AFTER (goes under `## Critical Landmines`):
-- Cache stampede: never invalidate a shared cache key without a lock — concurrent misses all recompute and write simultaneously (thundering-herd). Fix: lock-or-lease (e.g. Redis SET NX PX) before recomputation.
-PRESERVED: the thundering-herd / stampede framing, the concurrent-miss mechanism, the SET NX pattern recommendation.
+- Cache stampede: on cache miss, don't let every concurrent request recompute — single-flight the rebuild behind a per-key lock so one recomputes while others wait. Fix: per-key lock / single-flight guard.
+PRESERVED: the thundering-herd / stampede framing, the concurrent-miss mechanism, the single-recompute constraint.
 
 ## Transformation 7 — overloaded term must stay spelled out
 BEFORE:
 - "Timeout" in requests means connect+read by default; setting `timeout=5` applies to each phase, not the total round-trip
 AFTER:
-- Timeout semantics: the overloaded `timeout=` parameter in requests applies per-phase (connect + read separately), not to the total round-trip — set `Timeout(connect=2, read=10)` for independent control.
+- Timeout semantics: in requests, timeout=5 applies per phase (connect and read separately), NOT the total round-trip — use timeout=(2, 10) for separate connect/read limits.
 PRESERVED: the overloaded qualifier is kept spelled out because "timeout" means different things in connect vs. read context; silently collapsing it loses the warning.
 RULE: overloaded terms MUST stay spelled out — dropping the qualifier silently changes meaning.
 
