@@ -88,7 +88,7 @@ assert_file_not_exists() {
 assert_file_contains() {
   local label="$1" path="$2" pattern="$3"
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if grep -q "$pattern" "$path" 2>/dev/null; then
+  if grep -q -- "$pattern" "$path" 2>/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label"
     PASS_COUNT=$((PASS_COUNT + 1))
   else
@@ -3360,6 +3360,23 @@ test_convergence_governor() {
   assert_output_contains "goal-deliver stops on no crit/high" "$(cat "$PLUGIN_ROOT/commands/goal-deliver.md")" "zero critical and zero high"
 }
 
+test_learnings_style_block() {
+  echo -e "\n${CYAN}== Learnings house-style block ==${NC}"
+  local f="$PLUGIN_ROOT/templates/learnings-style.md"
+  assert_file_exists "L1: learnings-style.md exists" "$f"
+  assert_file_contains "L2: defines the line shape"        "$f" "<Label>: <imperative rule>"
+  assert_file_contains "L3: mandates terse why"            "$f" "terse why"
+  assert_file_contains "L4: Fix is conditional"            "$f" "only when"
+  assert_file_contains "L5: rations emphasis"              "$f" "Ration"
+  assert_file_contains "L6: names Critical Landmines"      "$f" "Critical Landmines"
+  assert_file_contains "L7: canonical vs overloaded terms" "$f" "overloaded"
+  assert_file_contains "L8: novelty/delta gate"            "$f" "delta"
+  assert_file_contains "L9: calibration guard"             "$f" "provenance"
+  assert_file_contains "L10: three-tier routing"           "$f" "agent prompt"
+  assert_file_contains "L11: exact routine line shape"     "$f" "- <Label>: <imperative rule> — <terse why>. Fix: <reusable pattern>. (ref)"
+  assert_file_contains "L12: when-unsure-keep rule"        "$f" "When unsure, keep it"
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -3402,6 +3419,7 @@ main() {
   test_harvest
   test_lesson_file
   test_convergence_governor
+  test_learnings_style_block
 
   # Summary
   echo ""
