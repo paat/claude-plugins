@@ -917,6 +917,14 @@ test_post_tool_use_hook() {
   output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "I10: exits 2 for matching handoff file" "$ec" 2
   assert_output_contains "I10b: systemMessage in output" "$output" "systemMessage"
+
+  # I11: script parses (catches any quoting breakage)
+  ec=0; bash -n "$script" 2>/dev/null || ec=$?
+  assert_exit_code "I11: auto-learn.sh parses (bash -n)" "$ec" 0
+  # I12: still emits valid JSON with a systemMessage on a matching handoff
+  out="$(printf '{"tool_input":{"file_path":"/tmp/x/.startup/handoffs/h.md"}}' | bash "$script" 2>&1 || true)"
+  ec=0; printf '%s\n' "$out" | jq -e '.systemMessage | type == "string"' >/dev/null 2>&1 || ec=$?
+  assert_exit_code "I12: emits JSON systemMessage" "$ec" 0
 }
 
 # ---------------------------------------------------------------------------
