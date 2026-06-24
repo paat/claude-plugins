@@ -3435,6 +3435,21 @@ test_maintain_agents_reference_style() {
   done
 }
 
+test_compress_golden_sample() {
+  echo -e "\n${CYAN}== compress golden sample ==${NC}"
+  local f="$PLUGIN_ROOT/templates/learnings-compress-golden.md"
+  assert_file_exists "G1: golden sample exists" "$f"
+  assert_file_contains "G2: has before sections"   "$f" "BEFORE"
+  assert_file_contains "G3: has after sections"    "$f" "AFTER"
+  assert_file_contains "G4: has reviewer checklist" "$f" "Reviewer checklist"
+  local count; count="$(grep -c '^## Transformation ' "$f")"
+  assert_equals "G5: >=8 transformations" "$([ "$count" -ge 8 ] && echo ok || echo "only-$count")" "ok"
+  assert_file_contains "G6: DELETE-obvious transform" "$f" "DELETE: pure ingrained knowledge"
+  assert_file_contains "G7: KEEP calibration transform" "$f" "library-version-specific"
+  assert_file_contains "G8: overloaded-term transform" "$f" "overloaded"
+  assert_file_contains "G9: merge transform" "$f" "MERGED"
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -3481,6 +3496,7 @@ main() {
   test_founder_standards_routing
   test_learnings_migrate_house_style
   test_maintain_agents_reference_style
+  test_compress_golden_sample
 
   # Summary
   echo ""
