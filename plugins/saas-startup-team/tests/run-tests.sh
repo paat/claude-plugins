@@ -3467,6 +3467,15 @@ test_learnings_compress_command() {
   assert_file_contains "C12: exact-duplicate drop"  "$f" "exact duplicate"
 }
 
+test_version_sync() {
+  echo -e "\n${CYAN}== plugin/marketplace version sync ==${NC}"
+  local repo_root pv mv
+  repo_root="$(git -C "$PLUGIN_ROOT" rev-parse --show-toplevel)"
+  pv="$(jq -r '.version' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
+  mv="$(jq -r '.plugins[] | select(.name=="saas-startup-team") | .version' "$repo_root/.claude-plugin/marketplace.json")"
+  assert_equals "version sync: plugin == marketplace" "$pv" "$mv"
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -3515,6 +3524,7 @@ main() {
   test_maintain_agents_reference_style
   test_compress_golden_sample
   test_learnings_compress_command
+  test_version_sync
 
   # Summary
   echo ""
