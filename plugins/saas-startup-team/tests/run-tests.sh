@@ -3450,6 +3450,23 @@ test_compress_golden_sample() {
   assert_file_contains "G9: merge transform" "$f" "MERGED"
 }
 
+test_learnings_compress_command() {
+  echo -e "\n${CYAN}== learnings-compress command ==${NC}"
+  local f="$PLUGIN_ROOT/commands/learnings-compress.md"
+  assert_file_exists "C1: command exists" "$f"
+  assert_file_contains "C2: user_invocable"        "$f" "user_invocable: true"
+  assert_file_contains "C3: references golden"      "$f" "learnings-compress-golden.md"
+  assert_file_contains "C4: emits a changelog"      "$f" "changelog"
+  assert_file_contains "C5: gates critical rules"   "$f" "Critical Landmines"
+  assert_file_contains "C6: 30KB split rule"        "$f" "30"
+  assert_file_contains "C7: one doc per run"        "$f" "one topic"
+  assert_file_contains "C8: promotes tier-2 standards" "$f" "PROMOTE"
+  assert_file_contains "C9: gates obvious drops"    "$f" "DROP-as-obvious"
+  assert_file_contains "C10: calibration guard"     "$f" "calibration guard"
+  assert_file_contains "C11: requires approval"     "$f" "approve critical"
+  assert_file_contains "C12: exact-duplicate drop"  "$f" "exact duplicate"
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -3497,6 +3514,7 @@ main() {
   test_learnings_migrate_house_style
   test_maintain_agents_reference_style
   test_compress_golden_sample
+  test_learnings_compress_command
 
   # Summary
   echo ""
