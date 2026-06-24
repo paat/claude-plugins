@@ -1177,7 +1177,8 @@ Output the tribunal verdict as JSON:
     "id": "T-001", "consensus": "CONSENSUS|SINGLE|ARBITRATED", "providers": ["codex", "glm"],
     "severity": "critical|high|medium|low", "category": "logic|security|performance|quality|architecture|edge-case|testing",
     "file": "path/to/file", "line": 0, "title": "...", "description": "...",
-    "suggestion": "...", "confidence": 0.0, "arbiter_notes": "..."
+    "suggestion": "...", "confidence": 0.0, "arbiter_notes": "...",
+    "blocking_proof": { "reachable_path": "actor+trigger+state transition, or null", "material_impact": "money|data-loss|legal|correctness, or null", "caused_by_change": true }
   }],
   "conflicts_resolved": [{
     "issue": "...", "positions": {"codex": "...", "gemini": "...", "glm": "...", "deepseek": "...", "qwen": "..."},
@@ -1193,6 +1194,12 @@ Output the tribunal verdict as JSON:
   "summary": "2-3 sentence executive summary of code quality and required actions"
 }
 ```
+
+**Required for critical/high:** every finding rated `critical` or `high` MUST
+carry a `blocking_proof` whose three legs are all non-null/true (per 3b-0). If
+you cannot fill all three, downgrade the finding to `medium` and set
+`blocking_proof` legs to null where unproven. `medium`/`low` findings may omit
+`blocking_proof`.
 
 Output: "[TRIBUNAL 3/3] Verdict: {APPROVE|NEEDS_WORK|BLOCK} - {N} actionable findings"
 
