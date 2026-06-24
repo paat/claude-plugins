@@ -207,6 +207,7 @@ _Standards live here — durable, cross-project best-practice and team conventio
 - Never retry a failed network call more than 3 times — document the failure and move on.
 - Never block indefinitely on an unreachable service — fail fast and surface the error.
 - **NEVER** replace Estonian diacritics (ä, ö, ü, õ) with ASCII digraphs (ae, oe, ue, o) in code, templates, or UI text — copy them exactly from the business founder's docs.
+- Honor the business founder's UX/design expectations in the handoff — meeting the functional "Why" is not enough.
 
 ## Plugin Issue Reporting
 

@@ -52,7 +52,7 @@ Bug-Fix regression-test protocol, and reporting). They are not repeated here.
 
 ## Recording Learnings
 
-When recording or revising learnings, follow the house style in `templates/learnings-style.md` — canonical-term label first, terse why, conditional Fix, delta-only (calibration guard: keep version-specific/provenance-tagged facts even if they feel obvious), emphasis reserved for `## Critical Landmines`.
+When recording or revising learnings, follow the house style in `${CLAUDE_PLUGIN_ROOT}/templates/learnings-style.md` — canonical-term label first, terse why, conditional Fix, delta-only (calibration guard: keep version-specific/provenance-tagged facts even if they feel obvious), emphasis reserved for `## Critical Landmines`.
 
 ## Definition-of-Done Checklist (additional items)
 

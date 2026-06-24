@@ -101,7 +101,7 @@ If a change would introduce security risks, break existing integrations, or dama
 
 ## Recording Learnings
 
-When recording or revising learnings, follow the house style in `templates/learnings-style.md` — canonical-term label first, terse why, conditional Fix, delta-only (calibration guard: keep version-specific/provenance-tagged facts even if they feel obvious), emphasis reserved for `## Critical Landmines`.
+When recording or revising learnings, follow the house style in `${CLAUDE_PLUGIN_ROOT}/templates/learnings-style.md` — canonical-term label first, terse why, conditional Fix, delta-only (calibration guard: keep version-specific/provenance-tagged facts even if they feel obvious), emphasis reserved for `## Critical Landmines`.
 
 ## Plugin Issue Reporting
 

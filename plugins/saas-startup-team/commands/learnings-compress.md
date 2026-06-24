@@ -8,15 +8,15 @@ user_invocable: true
 
 Compresses ONE topic doc per run. Never trust an autonomous rewrite: every run
 produces a changelog and a hard gate on risky changes. Style source:
-`templates/learnings-style.md`. Worked transforms + reviewer checklist:
-`templates/learnings-compress-golden.md`.
+`${CLAUDE_PLUGIN_ROOT}/templates/learnings-style.md`. Worked transforms + reviewer checklist:
+`${CLAUDE_PLUGIN_ROOT}/templates/learnings-compress-golden.md`.
 
 ## Actions
 
 1. Resolve git root (`git rev-parse --show-toplevel`). Argument is one topic path
    under `docs/learnings/`; if absent, list candidates by size (largest first) and
    ask which **one** to compress. Process **one topic** per run.
-2. Read `templates/learnings-style.md` and `templates/learnings-compress-golden.md`.
+2. Read `${CLAUDE_PLUGIN_ROOT}/templates/learnings-style.md` and `${CLAUDE_PLUGIN_ROOT}/templates/learnings-compress-golden.md`.
    Match the golden transformations exactly in shape, and apply the golden file's
    "If DROPPED as obvious" checklist before any DROP.
 3. For each dash-bullet, produce a candidate compressed line: strip rationed emphasis,

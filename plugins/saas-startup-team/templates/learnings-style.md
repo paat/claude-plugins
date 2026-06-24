@@ -2,7 +2,7 @@
 
 How every learnings entry is written. One source of truth for the learnings pipeline, used by
 `scripts/auto-learn.sh`, `commands/learnings-migrate.md`, `commands/learnings-compress.md`,
-and the maintain-agent prompts. Do not duplicate these rules elsewhere; link here.
+and the maintain-agent prompts. Consumers link here rather than restating these rules — except `scripts/auto-learn.sh`, which must inline them because a PostToolUse hook cannot read a file at fire time.
 
 ## Why terse-but-reasoned
 

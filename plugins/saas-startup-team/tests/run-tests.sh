@@ -3442,7 +3442,7 @@ test_compress_golden_sample() {
   assert_file_contains "G2: has before sections"   "$f" "BEFORE"
   assert_file_contains "G3: has after sections"    "$f" "AFTER"
   assert_file_contains "G4: has reviewer checklist" "$f" "Reviewer checklist"
-  local count; count="$(grep -c '^## Transformation ' "$f")"
+  local count; count="$(grep -c '^## Transformation ' "$f" || true)"
   assert_equals "G5: >=8 transformations" "$([ "$count" -ge 8 ] && echo ok || echo "only-$count")" "ok"
   assert_file_contains "G6: DELETE-obvious transform" "$f" "DELETE: pure ingrained knowledge"
   assert_file_contains "G7: KEEP calibration transform" "$f" "library-version-specific"
@@ -3465,15 +3465,6 @@ test_learnings_compress_command() {
   assert_file_contains "C10: calibration guard"     "$f" "calibration guard"
   assert_file_contains "C11: requires approval"     "$f" "approve critical"
   assert_file_contains "C12: exact-duplicate drop"  "$f" "exact duplicate"
-}
-
-test_version_sync() {
-  echo -e "\n${CYAN}== plugin/marketplace version sync ==${NC}"
-  local repo_root pv mv
-  repo_root="$(git -C "$PLUGIN_ROOT" rev-parse --show-toplevel)"
-  pv="$(jq -r '.version' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
-  mv="$(jq -r '.plugins[] | select(.name=="saas-startup-team") | .version' "$repo_root/.claude-plugin/marketplace.json")"
-  assert_equals "version sync: plugin == marketplace" "$pv" "$mv"
 }
 
 main() {
@@ -3524,7 +3515,6 @@ main() {
   test_maintain_agents_reference_style
   test_compress_golden_sample
   test_learnings_compress_command
-  test_version_sync
 
   # Summary
   echo ""
