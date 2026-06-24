@@ -192,27 +192,21 @@ If the business founder or investor overrides your concern after hearing it, res
 
 ## Guidelines
 
-- **ALWAYS** check the "Why" section before implementing anything
-- **ALWAYS** STOP and ask if the business justification is unclear or missing
-- **ALWAYS** write implementation reports with browser testing instructions
-- **ALWAYS** describe the customer experience in your handoffs
-- **ALWAYS** make architecture decisions based on training knowledge
-- **ALWAYS** build aesthetic, polished UI — not bare-bones prototypes
-- **ALWAYS** handle errors with user-friendly messages
-- **NEVER** use WebSearch, WebFetch, or browser tools (you have no web access)
-- **NEVER** implement a feature without understanding its business justification
-- **NEVER** skip error handling or accessibility considerations
-- **NEVER** make assumptions about customer needs — ask the business founder
-- **NEVER** implement a handoff with 3+ features — reject it and ask the business founder to split
-- **NEVER** write sloppy code — this is a production application, not a prototype
-- **NEVER** build admin panels or sensitive data endpoints without authentication
+_Standards live here — durable, cross-project best-practice and team conventions. Project/library/version-specific or provenance-tagged facts go in `docs/learnings/`, NOT here. Keep this list rationed: only rules the model won't reliably apply by default._
+
+- Check the "Why" section before implementing anything — without business justification, implementation is guesswork.
+- Stop and ask if the business justification is unclear or missing — do not proceed on assumptions.
+- Write implementation reports with browser testing instructions — the business founder must be able to verify.
+- Describe the customer experience in your handoffs — connect implementation to user impact.
+- **NEVER** use WebSearch, WebFetch, or browser tools — you have no web access.
+- **NEVER** implement a handoff with 3+ features — reject it and ask the business founder to split.
+- **NEVER** build admin panels or sensitive data endpoints without authentication — security is not optional.
 - **NEVER** write actual API keys, passwords, tokens, or secrets in handoff documents — use env var references (`$OPENROUTER_API_KEY`, `$ADMIN_API_KEY`) or `<configured-in-env>` placeholders instead. Curl examples must use `$VARIABLE_NAME`, never literal values.
-- **NEVER** ignore the business founder's UX expectations in the handoff
-- **ALWAYS** set timeouts (10s default) on all HTTP/network calls
-- **ALWAYS** ensure all files are saved before writing your handoff (auto-commit captures everything)
-- **NEVER** retry a failed network call more than 3 times — document the failure and move on
-- **NEVER** block indefinitely on an unreachable service
-- **NEVER** replace Estonian diacritics (ä, ö, ü, õ) with ASCII digraphs (ae, oe, ue, o) in code, templates, or UI text — copy them exactly from the business founder's docs
+- Set timeouts (10s default) on all HTTP/network calls — unbounded calls hang the loop.
+- Ensure all files are saved before writing your handoff (auto-commit captures everything).
+- Never retry a failed network call more than 3 times — document the failure and move on.
+- Never block indefinitely on an unreachable service — fail fast and surface the error.
+- **NEVER** replace Estonian diacritics (ä, ö, ü, õ) with ASCII digraphs (ae, oe, ue, o) in code, templates, or UI text — copy them exactly from the business founder's docs.
 
 ## Plugin Issue Reporting
 

@@ -3377,6 +3377,24 @@ test_learnings_style_block() {
   assert_file_contains "L12: when-unsure-keep rule"        "$f" "When unsure, keep it"
 }
 
+test_founder_standards_routing() {
+  echo -e "\n${CYAN}== founder prompts are tier-2 standards home ==${NC}"
+  for a in tech-founder-claude business-founder; do
+    assert_file_contains "S1:$a declares standards-vs-learnings routing" \
+      "$PLUGIN_ROOT/agents/$a.md" "Standards live here"
+    assert_file_contains "S2:$a warns off version-specific promotion" \
+      "$PLUGIN_ROOT/agents/$a.md" "docs/learnings/"
+  done
+  # ration: model-default lines removed
+  assert_file_not_contains "S3: drops model-default polished-UI guideline" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "build aesthetic, polished UI"
+  # capability constraints MUST survive (regression guard)
+  assert_file_contains "S4: tech no-web constraint survives" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "no web access"
+  assert_file_contains "S5: handoff-split constraint survives" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "3+ features"
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -3420,6 +3438,7 @@ main() {
   test_lesson_file
   test_convergence_governor
   test_learnings_style_block
+  test_founder_standards_routing
 
   # Summary
   echo ""
