@@ -925,6 +925,21 @@ test_post_tool_use_hook() {
   out="$(printf '{"tool_input":{"file_path":"/tmp/x/.startup/handoffs/h.md"}}' | bash "$script" 2>&1 || true)"
   ec=0; printf '%s\n' "$out" | jq -e '.systemMessage | type == "string"' >/dev/null 2>&1 || ec=$?
   assert_exit_code "I12: emits JSON systemMessage" "$ec" 0
+  # I13: no longer instructs blanket NEVER/ALWAYS for rules
+  assert_file_not_contains "I13: drops blanket NEVER/ALWAYS instruction" "$script" "NEVER/ALWAYS for rules"
+  # I14: embeds the house-style label shape
+  assert_file_contains "I14: house-style label shape" "$script" "<Label>:"
+  # I15: keeps the terse why mandate
+  assert_file_contains "I15: mandates terse why" "$script" "terse why"
+  # I16: rations emphasis
+  assert_file_contains "I16: rations emphasis" "$script" "landmine"
+  # I17: applies novelty gate + calibration guard
+  assert_file_contains "I17: novelty gate" "$script" "surprising to a competent model"
+  assert_file_contains "I18: keeps version-specific facts" "$script" "version-specific"
+  # I19: routes tier-2 standards out of learnings
+  assert_file_contains "I19: promotes general standards" "$script" "general standard"
+  # I20: still caps entries at 3
+  assert_file_contains "I20: caps at 3 entries" "$script" "Max 3 new entries"
 }
 
 # ---------------------------------------------------------------------------
