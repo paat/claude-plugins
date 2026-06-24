@@ -483,13 +483,13 @@ Claude-Session: https://claude.ai/code/session_016zBgBwPwYPufKPTAF2x2Kp"
 ### Task 8: saas-startup-team — reachability.md convention + tech-founder DoD + step-back
 
 **Files:**
-- Create: `plugins/saas-startup-team/skills/tech-founder/references/reachability.md` (the convention/template doc)
+- Create: `plugins/saas-startup-team/skills/tech-founder/references/reachability-convention.md` (the convention/template doc — NOT named `reachability.md`, which is the per-consumer-repo file the plugin must never ship)
 - Modify: `plugins/saas-startup-team/agents/tech-founder-claude-maintain.md` and `plugins/saas-startup-team/agents/tech-founder-codex-maintain.md` (DoD line + step-back pointer)
 
 **Interfaces:**
 - Consumes: tribunal-review's reachability injection (Task 3) and closing loop (Task 5). Produces: the convention consumer repos follow.
 
-- [ ] **Step 1: Write the convention doc (template, not a real repo's facts).** Create `plugins/saas-startup-team/skills/tech-founder/references/reachability.md`:
+- [ ] **Step 1: Write the convention doc (template, not a real repo's facts).** Create `plugins/saas-startup-team/skills/tech-founder/references/reachability-convention.md`:
 
 ```markdown
 # reachability.md — convention
@@ -536,7 +536,7 @@ ordinary ```` ``` ```` fences.
 ```markdown
 - **reachability.md** — if this change touches the deployment, concurrency, or
   session model, update `reachability.md` (and its `last-verified:` marker) in
-  this PR. See `skills/tech-founder/references/reachability.md`.
+  this PR. See `skills/tech-founder/references/reachability-convention.md`.
 - **Tribunal step-back** — from review round 3, stop adding guards: simplify,
   descope (remove the mechanism + file a follow-up), or take the finding class
   to the arbiter. A step-back round must not increase the net count of
@@ -546,8 +546,8 @@ ordinary ```` ``` ```` fences.
 - [ ] **Step 3: Verify.** Run:
 
 ```bash
-test -f plugins/saas-startup-team/skills/tech-founder/references/reachability.md && \
-grep -q "last-verified" plugins/saas-startup-team/skills/tech-founder/references/reachability.md && \
+test -f plugins/saas-startup-team/skills/tech-founder/references/reachability-convention.md && \
+grep -q "last-verified" plugins/saas-startup-team/skills/tech-founder/references/reachability-convention.md && \
 grep -q "Tribunal step-back" plugins/saas-startup-team/agents/tech-founder-claude-maintain.md && \
 grep -q "Tribunal step-back" plugins/saas-startup-team/agents/tech-founder-codex-maintain.md && echo OK
 ```
@@ -556,7 +556,7 @@ Expected: `OK`
 - [ ] **Step 4: Commit.**
 
 ```bash
-git add plugins/saas-startup-team/skills/tech-founder/references/reachability.md plugins/saas-startup-team/agents/tech-founder-claude-maintain.md plugins/saas-startup-team/agents/tech-founder-codex-maintain.md
+git add plugins/saas-startup-team/skills/tech-founder/references/reachability-convention.md plugins/saas-startup-team/agents/tech-founder-claude-maintain.md plugins/saas-startup-team/agents/tech-founder-codex-maintain.md
 git commit -m "feat(saas-startup-team): reachability.md convention + tech-founder step-back DoD (#951)
 
 Claude-Session: https://claude.ai/code/session_016zBgBwPwYPufKPTAF2x2Kp"
@@ -619,7 +619,7 @@ Claude-Session: https://claude.ai/code/session_016zBgBwPwYPufKPTAF2x2Kp"
 
 ```bash
 echo -e "${CYAN}Convergence governor integration${NC}"
-assert_output_contains "reachability convention exists" "$(cat "$PLUGIN_ROOT/skills/tech-founder/references/reachability.md" 2>/dev/null)" "last-verified"
+assert_output_contains "reachability convention exists" "$(cat "$PLUGIN_ROOT/skills/tech-founder/references/reachability-convention.md" 2>/dev/null)" "last-verified"
 assert_output_contains "tech-founder DoD has step-back" "$(cat "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md")" "Tribunal step-back"
 assert_output_contains "goal-deliver caps at 20" "$(cat "$PLUGIN_ROOT/commands/goal-deliver.md")" "Round 20:"
 assert_output_contains "goal-deliver stops on no crit/high" "$(cat "$PLUGIN_ROOT/commands/goal-deliver.md")" "zero critical and zero high"
