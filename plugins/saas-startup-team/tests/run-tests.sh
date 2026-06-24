@@ -3390,9 +3390,9 @@ test_founder_standards_routing() {
     "$PLUGIN_ROOT/agents/tech-founder-claude.md" "build aesthetic, polished UI"
   # capability constraints MUST survive (regression guard)
   assert_file_contains "S4: tech no-web constraint survives" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "no web access"
+    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "tools (you have no web access)"
   assert_file_contains "S5: handoff-split constraint survives" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "3+ features"
+    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "handoff with 3+ features — reject it and ask the business founder to split"
 }
 
 main() {
