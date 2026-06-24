@@ -56,7 +56,7 @@ produces a changelog and a hard gate on risky changes. Style source:
      no omission, no duplication, no reordering. Abort and report any discrepancy.
 8. Print the preview (changelog + resulting byte size + any split plan). Ask
    `apply / skip: <line numbers> / cancel`. On `apply`, write the doc (and any splits)
-   and update the index. Never drop a learning except an exact duplicate or a gated
+   and update the index — but a gated change (a `## Critical Landmines` edit, a DROP-as-obvious, or a PROMOTE) is written ONLY if `approve critical` was already given; `apply` alone never authorizes a gated change. Never drop a learning except an exact duplicate or a gated
    pure no-delta best-practice.
 
 ## Guarantees
