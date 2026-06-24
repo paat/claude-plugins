@@ -27,24 +27,24 @@ description: Use when tribunal-loop returned NEEDS_WORK or BLOCK and you have fi
 ```dot
 digraph close_tribunal {
     "tribunal verdict" [shape=doublecircle];
-    "APPROVE, 0 findings?" [shape=diamond];
+    "Zero critical & high?" [shape=diamond];
     "Per-finding triage" [shape=box];
     "Apply fixes + tests" [shape=box];
     "Push" [shape=box];
     "Re-run tribunal-loop" [shape=box];
     "DONE — ready to merge / hand off" [shape=doublecircle];
 
-    "tribunal verdict" -> "APPROVE, 0 findings?";
-    "APPROVE, 0 findings?" -> "DONE — ready to merge / hand off" [label="yes (arbiter verdict)"];
-    "APPROVE, 0 findings?" -> "Per-finding triage" [label="no"];
+    "tribunal verdict" -> "Zero critical & high?";
+    "Zero critical & high?" -> "DONE — ready to merge / hand off" [label="yes (arbiter verdict)"];
+    "Zero critical & high?" -> "Per-finding triage" [label="no"];
     "Per-finding triage" -> "Apply fixes + tests";
     "Apply fixes + tests" -> "Push";
     "Push" -> "Re-run tribunal-loop";
-    "Re-run tribunal-loop" -> "APPROVE, 0 findings?";
+    "Re-run tribunal-loop" -> "Zero critical & high?";
 }
 ```
 
-The loop only exits when the Opus arbiter issues **`APPROVE` with 0 findings** on the current diff. The arbiter runs four advisory reviewers (Codex, Gemini, GLM, DeepSeek) in parallel precisely because any single reviewer can miss things — so a verdict built on the latest diff is the only verdict that counts.
+The loop only exits when the Opus arbiter's verdict has **zero critical and zero high findings** on the current diff (medium/low go to YAGNI triage). The arbiter runs four advisory reviewers (Codex, Gemini, GLM, DeepSeek) in parallel precisely because any single reviewer can miss things — so a verdict built on the latest diff is the only verdict that counts.
 
 ## Per-Finding Triage
 
