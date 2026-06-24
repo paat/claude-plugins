@@ -49,3 +49,13 @@ Bug-Fix regression-test protocol, and reporting). They are not repeated here.
   this task should be re-routed to `tech-founder-claude-maintain`. Any other non-zero
   exit is a real run/setup error — report the specific blocker, don't claim codex is
   unavailable.
+
+## Definition-of-Done Checklist (additional items)
+
+- **reachability.md** — if this change touches the deployment, concurrency, or
+  session model, update `reachability.md` (and its `last-verified:` marker) in
+  this PR. See `skills/tech-founder/references/reachability-convention.md`.
+- **Tribunal step-back** — from review round 3, stop adding guards: simplify,
+  descope (remove the mechanism + file a follow-up), or take the finding class
+  to the arbiter. A step-back round must not increase the net count of
+  defensive mechanisms. See `tribunal-review:closing-tribunal-loop`.
