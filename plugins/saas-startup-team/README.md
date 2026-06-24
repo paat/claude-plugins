@@ -41,7 +41,7 @@ Team Lead (Orchestrator)
 
 ### Convergence governor (`/goal-deliver`)
 
-`/goal-deliver` integrates with the `tribunal-review` plugin's convergence governor to prevent review spirals. The governor enforces a hard ceiling of 20 rounds, triggers an investor escalation step-back from round 10 onward, and closes the loop automatically once the arbiter returns zero critical and zero high findings. The reachability convention (`skills/tech-founder/references/reachability-convention.md`) defines what counts as a reachable path for tribunal reviewers and is updated alongside the governor; the `last-verified:` field in that file tracks when the convention was last confirmed against production traffic.
+`/goal-deliver` integrates with the `tribunal-review` plugin's convergence governor to prevent review spirals. The governor enforces a hard ceiling of 20 rounds, triggers an investor escalation step-back from round 10 onward, and closes the loop automatically once the arbiter returns zero critical and zero high findings. The reachability convention (`skills/tech-founder/references/reachability-convention.md`) defines what counts as a reachable path for tribunal reviewers and is updated alongside the governor; the `last-verified:` field — documented by the convention but written into each consumer repo's own `reachability.md` — tracks when that repo's assumptions were last confirmed against production traffic.
 
 ## The Loop
 

@@ -18,7 +18,7 @@ description: Use when tribunal-loop returned NEEDS_WORK or BLOCK and you have fi
 - About to mark the PR ready / merge / hand off, but haven't re-run tribunal since the last commit
 
 **Don't use when:**
-- Tribunal verdict is `APPROVE` with 0 findings on the current diff
+- Tribunal verdict is `APPROVE` with zero critical/high findings on the current diff
 - Reading findings only (no code change planned)
 - The PR is documentation-only or you're not running tribunal at all
 

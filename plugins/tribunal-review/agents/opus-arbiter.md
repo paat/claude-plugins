@@ -59,7 +59,7 @@ A finding may be reported by any subset of the five reviewers (codex, gemini, gl
 | Providers contradict each other | Decide and document reasoning, mark ARBITRATED |
 | Severities differ for the same finding | Use the highest severity reported, note disagreement in arbiter_notes |
 
-**HARD RULE**: When providers report different severities for the same finding, you MUST use the highest severity. Note the disagreement in `arbiter_notes` but never downgrade. This has no exceptions.
+**HARD RULE (severity)**: First apply the **Blocking-finding standard** (below) to decide whether the finding is *eligible* for critical/high. THEN, among the eligible severities providers reported, use the highest (note any disagreement in arbiter_notes). The highest-severity rule never overrides the blocking-finding standard: a finding that fails the standard is medium even if a provider rated it higher.
 
 ### Step 3: Evaluate Each Finding
 
@@ -70,7 +70,7 @@ For each finding, assess:
 
 Override provider findings when they are clearly wrong (false positives, incorrect fix suggestions). Add new findings if the providers missed something obvious. **Severity is locked after Step 2** — you may only set severity for single-provider (SINGLE) findings or findings you add yourself.
 
-## Blocking-finding standard
+### Blocking-finding standard
 
 You may rate a finding **critical or high only if it proves all three**:
 (1) a production-reachable path (concrete actor + trigger + state transition),
