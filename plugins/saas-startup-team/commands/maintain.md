@@ -42,10 +42,17 @@ stateless-from-disk re-derivation + auto-compaction.
 - `--max-pass-minutes N` → wall-clock budget per pass (default 90 minutes).
 - `--max-run-minutes N` → total wall-clock budget across all passes (default 0 = unlimited).
 
-All gates must pass before the loop starts. Reuse the `/goal-deliver` preflight
-(`${CLAUDE_PLUGIN_ROOT}/commands/goal-deliver.md`) for: default branch, clean tree,
-`gh auth status`, remote present, and `tribunal-review:tribunal-loop` skill
-available (hard dependency — if `tribunal-review` is not installed, stop and say so).
+All gates must pass before the loop starts. On a **normal run**, reuse the
+`/goal-deliver` preflight (`${CLAUDE_PLUGIN_ROOT}/commands/goal-deliver.md`) for:
+default branch, clean tree, `gh auth status`, remote present, and
+`tribunal-review:tribunal-loop` skill available (hard dependency — if
+`tribunal-review` is not installed, stop and say so).
+
+**Under `--dry-run`, do NOT invoke the `/goal-deliver` preflight** — it writes
+`.startup/state.json` (resets `active_role`), which is a mutation. Instead run only
+these read-only checks directly: `gh auth status`, confirm the current branch is the
+default branch, `git remote get-url origin`, and confirm the `tribunal-review` skill
+is present. Write nothing.
 
 In addition, run these at startup and as a cheap re-check at the start of each pass
 (**skip the label-creation step under `--dry-run`**):
@@ -166,10 +173,14 @@ The triage subagent emits **only two verdicts**: `agent-fixable` or `needs-human
 `blocked` is **not** a triage verdict — it is set by the supervisor during delivery
 (no-progress / deploy-blocked) and recorded with a cooldown.
 
-- **`agent-fixable`** → enters the delivery queue. High-risk surfaces (payments,
-  auth, DB migrations, money math, legal/compliance) are still `agent-fixable` per
-  investor decision — they are delivered and merged like any other issue, gated only
-  by the mandatory green gate. There is **no hold tier**.
+- **`agent-fixable`** → enters the delivery queue. A well-specified *code fix* on a
+  sensitive surface (payments, auth, DB migrations, money math, or a compliance-rule
+  change with a clear, objectively-checkable spec) is still `agent-fixable` per
+  investor decision — delivered and merged like any other issue, gated only by the
+  mandatory green gate. There is **no hold tier**. The escalation boundary is
+  *judgment*, not the surface: anything requiring legal/compliance/tax
+  **interpretation** (deciding what is compliant, not implementing a stated rule) is
+  `needs-human` — see below.
 - **`needs-human`** → genuine human decision required. Canonical human-visible
   bucket: `needs-human` label + `.startup/human-tasks.md` entry.
 
@@ -273,9 +284,9 @@ fi
 - **Iteration cap:** reuse `/goal-deliver` tribunal round caps — notify the investor
   at round 10, hard-stop at round 20.
 - **No-progress signal (heuristic):** if successive rounds show the same failure
-  signature with no advancing green check → abandon → `blocked` + label
-  `escalated:no-progress` + cooldown. The real gates are the iteration cap + required
-  checks + tribunal.
+  signature with no advancing green check → abandon → apply the `maintain:blocked`
+  label, record final state `escalated:no-progress` in the digest, set a cooldown.
+  The real gates are the iteration cap + required checks + tribunal.
 - **Branch hygiene:** start from clean default branch, unique branch name, no
   uncommitted changes. A failed branch is left (not force-deleted) after its state is
   logged.
@@ -307,8 +318,9 @@ whether main moved during the run, and any health-check/migration output:
 - **Code regression** (the merged diff is implicated) → auto-fix on
   `deploy-fix/<slug>` (existing `/goal-deliver` behaviour).
 - **Infra / flaky / external-dependency / credentials / migration-data**, or **low
-  confidence** → do not grind: label `escalated:deploy-blocked`, **stop merging
-  further issues this pass**, surface to the investor.
+  confidence** → do not grind: apply the `maintain:blocked` label, record final state
+  `escalated:deploy-blocked` in the digest, **stop merging further issues this pass**,
+  surface to the investor.
 - v1 does **not** auto-open revert PRs (deferred); on a clearly broken deploy it
   stops the pass and escalates.
 
