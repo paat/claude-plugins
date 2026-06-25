@@ -3013,6 +3013,45 @@ CC
   assert_file_contains "W18c: keeps emitted finding" "$workdir/state.json.findings" '"pattern_key":"feedback:received"'
   assert_file_contains "W18c: appends checks-failure finding" "$workdir/state.json.findings" '"pattern_key":"ops:monitor-checks:failure"'
 
+  # W22: the config parser strips YAML-style inline comments (the shipped example uses them)
+  # and converts a literal \n escape to a real newline, instead of silently corrupting the
+  # value (broken paths / literal `|`) — issue #87.
+  workdir=$(make_workdir); mkdir -p "$workdir/.claude"
+  cat > "$workdir/.claude/saas-startup-team.local.md" <<'CFG'
+---
+monitor:
+  repo: owner/name                 # default via gh repo view
+  state_file: .data/monitor.json   # keep co-located
+  labels: [monitor, customer-issue]   # base labels
+  repro_recipe: "curl -s https://api/{entity}\necho done"
+---
+CFG
+  extract_md_bash "$cmd" "## Configuration" > "$workdir/cfg.sh"
+  printf '\nprintf "REPO=[%%s]\\nSTATE=[%%s]\\nRECIPE<<%%s>>\\n" "$REPO" "$STATE_FILE" "$REPRO_RECIPE"\n' >> "$workdir/cfg.sh"
+  ec=0; output=$(cd "$workdir" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/cfg.sh" 2>&1) || ec=$?
+  assert_exit_code "W22: config block runs" "$ec" 0
+  assert_output_contains "W22: repo inline comment stripped" "$output" "REPO=[owner/name]"
+  assert_output_contains "W22: state_file inline comment stripped" "$output" "STATE=[.data/monitor.json]"
+  assert_output_contains "W22: repro recipe first line" "$output" "curl -s https://api/{entity}"
+  assert_output_contains "W22: repro recipe second line kept" "$output" "echo done"
+  assert_output_not_contains "W22: \\n converted to a real newline" "$output" 'api/{entity}\necho'
+  rm -rf "$workdir"
+
+  # W22b: a QUOTED value preserves an inner ` #` — inline-comment stripping applies to unquoted
+  # values only, so a `#` inside quotes is real content, not a comment (#87; codex review).
+  workdir=$(make_workdir); mkdir -p "$workdir/.claude"
+  cat > "$workdir/.claude/saas-startup-team.local.md" <<'CFG'
+---
+monitor:
+  repro_recipe: "run probe #42 for {entity}"
+---
+CFG
+  extract_md_bash "$cmd" "## Configuration" > "$workdir/cfg.sh"
+  printf '\nprintf "RECIPE=[%%s]\\n" "$REPRO_RECIPE"\n' >> "$workdir/cfg.sh"
+  ec=0; output=$(cd "$workdir" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$workdir/cfg.sh" 2>&1) || ec=$?
+  assert_output_contains "W22b: quoted inner # preserved" "$output" "RECIPE=[run probe #42 for {entity}]"
+  rm -rf "$workdir"
+
   # W19: config example, README, and versions are consistent
   assert_file_contains "W19: example has monitor block" "$PLUGIN_ROOT/saas-startup-team.local.md.example" "monitor:"
   assert_file_contains "W19: README documents command" "$PLUGIN_ROOT/README.md" "/monitor-nightly"

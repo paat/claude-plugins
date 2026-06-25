@@ -28,7 +28,19 @@ CONFIG="$GIT_ROOT/.claude/saas-startup-team.local.md"
 # Scope parsing to the `monitor:` block only (from `monitor:` to the next top-level key
 # or the closing `---`), so keys never collide with the regression-gate's top-level keys.
 mon_block=""; [ -f "$CONFIG" ] && mon_block="$(sed -n '/^[[:space:]]*monitor:[[:space:]]*$/,/^[^[:space:]#]/p' "$CONFIG")"
-cfg() { printf '%s\n' "$mon_block" | grep -oP "^\s+$1:\s*\K.*" | head -1 | sed -E 's/^["'"'"']//; s/["'"'"']$//'; }
+# Each value is single-line. A trailing ` # comment` (YAML-style: whitespace before the `#`)
+# and trailing whitespace are stripped, surrounding quotes are removed, a bare block scalar
+# (`|`/`>`) yields empty (block scalars are NOT supported), and a literal `\n` becomes a real
+# newline — so a multi-line value (e.g. repro_recipe) has a safe single-line spelling. (#87)
+cfg() {
+  # sed1 (on the raw value, quotes intact): for UNQUOTED values only, strip a ` # comment`;
+  #   always trim trailing whitespace and blank a bare block scalar (`|`/`>`).
+  # sed2: remove a single pair of surrounding quotes. sed3: literal `\n` → real newline.
+  printf '%s\n' "$mon_block" | grep -oP "^\s+$1:\s*\K.*" | head -1 \
+    | sed -E '/["'"'"']/!s/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^[|>]$//' \
+    | sed -E 's/^["'"'"']//; s/["'"'"']$//' \
+    | sed -E 's/\\n/\n/g'
+}
 
 REPO=""; MARKER_DIR=".monitor"; STATE_FILE=".startup/monitor-state.json"
 CUSTOM_CHECKS=".startup/monitor-checks.sh"; LABELS="monitor,customer-issue"; REPRO_RECIPE=""
