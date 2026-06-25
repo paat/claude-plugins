@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# gh-issue-fetch — download auth-gated GitHub issue images locally and resolve
+# epic task-lists. Read-only toward GitHub. See README.md.
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+gh-issue-fetch — fetch GitHub issue details with images, resolve epics.
+
+Usage:
+  gh-issue-fetch.sh issue <n>  [-R owner/repo] [--no-images] [--max-assets N] [--max-bytes BYTES] [--strict]
+  gh-issue-fetch.sh epic  <n>  [-R owner/repo] [--with-images] [--strict]
+  gh-issue-fetch.sh epics      [-R owner/repo] [--label L]
+
+Output: /tmp/gh-issue-<owner>-<repo>-<n>/ (issue.md, assets/, manifest.json)
+Read-only: never writes to GitHub.
+USAGE
+}
+
+main() {
+  local cmd="${1:-}"
+  case "$cmd" in
+    -h|--help|"") usage; exit 0 ;;
+    issue|epic|epics) shift; "cmd_${cmd}" "$@" ;;
+    *) echo "error: unknown subcommand '$cmd'" >&2; usage >&2; exit 2 ;;
+  esac
+}
+
+# Stub subcommands (filled in later tasks).
+cmd_issue() { echo "not yet implemented" >&2; exit 1; }
+cmd_epic()  { echo "not yet implemented" >&2; exit 1; }
+cmd_epics() { echo "not yet implemented" >&2; exit 1; }
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

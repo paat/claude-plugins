@@ -1,0 +1,18 @@
+{
+  "name": "gh-issue-fetch",
+  "version": "0.1.0",
+  "description": "Fetch GitHub issue details with auth-gated images downloaded locally, plus epic task-list resolution — so Claude can read issue screenshots and reason about epic progress",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "github",
+    "github-issues",
+    "gh-cli",
+    "screenshots",
+    "epics",
+    "productivity"
+  ]
+}
