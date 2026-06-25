@@ -243,7 +243,7 @@ if [ -n "${GHIF_SMOKE:-}" ]; then
   so="$("$SCRIPT" issue "$sn" -R "$sr")"; sd="${so#OUTDIR=}"
   imgs="$(ls "$sd/assets" 2>/dev/null | wc -l | tr -d ' ')"
   check "smoke downloaded >=1 asset" 1 "$( [ "${imgs:-0}" -ge 1 ] && echo 1 || echo 0 )"
-  check "smoke asset is an image" 1 "$(file --mime-type -b "$sd/assets/"* 2>/dev/null | grep -c '^image/' || echo 0)"
+  check "smoke asset is an image" 1 "$( [ "$(file --mime-type -b "$sd/assets/"* 2>/dev/null | grep -c '^image/')" -ge 1 ] && echo 1 || echo 0 )"
 fi
 
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"

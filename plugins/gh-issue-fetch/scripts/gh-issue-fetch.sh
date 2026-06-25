@@ -9,7 +9,7 @@ gh-issue-fetch — fetch GitHub issue details with images, resolve epics.
 
 Usage:
   gh-issue-fetch.sh issue <n>  [-R owner/repo] [--no-images] [--max-assets N] [--max-bytes BYTES] [--strict]
-  gh-issue-fetch.sh epic  <n>  [-R owner/repo] [--with-images] [--strict]
+  gh-issue-fetch.sh epic  <n>  [-R owner/repo] [--with-images]
   gh-issue-fetch.sh epics      [-R owner/repo] [--label L]
 
 Output: /tmp/gh-issue-<owner>-<repo>-<n>/ (issue.md, assets/, manifest.json)

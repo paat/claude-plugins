@@ -51,7 +51,7 @@ Lists open issues that carry the epic label and prints a one-line progress summa
 | `--with-images` | off | Also download images when running `epic` |
 | `--max-assets N` | 50 | Cap on assets to download per issue |
 | `--max-bytes BYTES` | 52428800 | Per-asset size cap (bytes) |
-| `--strict` | off | Exit non-zero if any asset fails to download |
+| `--strict` | off | (issue only) Exit non-zero if any asset fails to download |
 | `--label L` | `epic` | Label filter for `epics` subcommand |
 
 ### Output layout
