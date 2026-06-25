@@ -152,5 +152,30 @@ check "no-image issue.md created" 1 "$( [ -f "$t6b/issue.md" ] && echo 1 || echo
 check "no-image manifest has empty assets" 0 "$(jq -e '.assets|length==0' "$t6b/manifest.json" >/dev/null 2>&1; echo $?)"
 rm -rf "$t6b"
 
+# --- Task 6: escape_glob exact-string rewrite ---
+md_t='see https://x/y.png?z=* twice: https://x/y.png?z=*'
+url_t='https://x/y.png?z=*'
+url_pat_t="$(escape_glob "$url_t")"
+out_t="${md_t//$url_pat_t/LOCAL}"
+check "escape_glob literal rewrite" "see LOCAL twice: LOCAL" "$out_t"
+
+# --- Task 6: arg parser — flag-before-number does not steal the issue number ---
+t6c="$(mktemp -d)"
+GHIF_OUTDIR="$t6c" bash -c '
+  source "'"$SCRIPT"'"
+  gh_json() {
+    case "$*" in
+      *"issue view"*) cat "'"$FIX"'/issue-view.json" ;;
+      *"issues/"*"/comments"*) cat "'"$FIX"'/comments.json" ;;
+      *) echo "{}" ;;
+    esac
+  }
+  download_url() { cp "'"$FIX"'/pixel.png" "$2"; printf "200\timage/png\t70"; }
+  cmd_issue --max-assets 5 7 -R o/r
+' >/dev/null 2>&1
+check "flag-before-number: issue.md created" 1 "$( [ -f "$t6c/issue.md" ] && echo 1 || echo 0 )"
+check "flag-before-number: issue 7 used (not 5)" 1 "$(grep -c '(#7)' "$t6c/issue.md" 2>/dev/null || echo 0)"
+rm -rf "$t6c"
+
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"
 exit "$fail"

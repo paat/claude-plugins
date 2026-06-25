@@ -93,24 +93,33 @@ repo_from_flag_or_remote() {
   gh repo view --json nameWithOwner -q .nameWithOwner
 }
 
+# Escape bash pattern metacharacters so ${str//pat/rep} matches PAT literally.
+escape_glob() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\*/\\*}"
+  s="${s//\?/\\?}"
+  s="${s//\[/\\[}"
+  printf '%s' "$s"
+}
+
 cmd_issue() {
   require_tools
   local issue="" repo="" no_images=0 strict=0 max_assets=50
-  local prev=""
   # first positional is the issue number; flags handled in a loop
-  local args=("$@")
-  local i
-  for ((i=0; i<${#args[@]}; i++)); do
+  local args=("$@") i argc=$#
+  for ((i=0; i<argc; i++)); do
     case "${args[$i]}" in
       --no-images) no_images=1 ;;
       --strict) strict=1 ;;
-      --max-assets) max_assets="${args[$((i+1))]}" ;;
-      --max-bytes) export GHIF_MAX_BYTES="${args[$((i+1))]}" ;;
-      -R) repo="${args[$((i+1))]}" ;;
+      --max-assets) i=$((i+1)); [ "$i" -lt "$argc" ] || { echo "error: --max-assets needs a value" >&2; exit 2; }; max_assets="${args[$i]}" ;;
+      --max-bytes)  i=$((i+1)); [ "$i" -lt "$argc" ] || { echo "error: --max-bytes needs a value" >&2; exit 2; }; export GHIF_MAX_BYTES="${args[$i]}" ;;
+      -R)           i=$((i+1)); [ "$i" -lt "$argc" ] || { echo "error: -R needs a value" >&2; exit 2; }; repo="${args[$i]}" ;;
       [0-9]*) [ -z "$issue" ] && issue="${args[$i]}" ;;
     esac
   done
   [ -n "$issue" ] || { echo "error: issue number required" >&2; exit 2; }
+  case "$issue" in *[!0-9]*) echo "error: issue must be numeric, got '$issue'" >&2; exit 2 ;; esac
   [ -n "$repo" ] || repo="$(repo_from_flag_or_remote "$@")"
   local owner="${repo%%/*}" name="${repo##*/}"
 
@@ -145,16 +154,17 @@ cmd_issue() {
       status="$(printf '%s' "$statusline" | cut -f1)"
       ctype="$(printf '%s' "$statusline" | cut -f2)"
       bytes="$(printf '%s' "$statusline" | cut -f3)"
+      local url_pat; url_pat="$(escape_glob "$url")"
       if [ -s "$tmp" ] && [ "${status:-0}" -lt 400 ] 2>/dev/null; then
         ext="$(ext_for_mime "$(file --mime-type -b "$tmp")")"
         rel="assets/$seq.$ext"
         mv "$tmp" "$outdir/$rel"
         # exact-string rewrite in the rendered md
-        md="${md//$url/$rel}"
+        md="${md//$url_pat/$rel}"
       else
         had_fail=1
         rm -f "$tmp"
-        md="${md//$url/$url <!-- download failed: HTTP ${status:-?} -->}"
+        md="${md//$url_pat/$url <!-- download failed: HTTP ${status:-?} -->}"
         rel=""
       fi
       manifest_items+=("$(jq -nc --arg url "$url" --arg lp "$rel" \
