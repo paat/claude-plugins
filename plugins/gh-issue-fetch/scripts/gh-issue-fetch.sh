@@ -53,7 +53,7 @@ ext_for_mime() {
 
 # stdin: issue body. stdout: "checked\t<num>" / "unchecked\t<num>" per child.
 parse_task_list() {
-  grep -oE '^[[:space:]]*[-*][[:space:]]+\[[ xX]\][[:space:]]+#[0-9]+' \
+  { grep -oE '^[[:space:]]*[-*][[:space:]]+\[[ xX]\][[:space:]]+#[0-9]+' || true; } \
     | sed -E 's/^[[:space:]]*[-*][[:space:]]+\[([ xX])\][[:space:]]+#([0-9]+)/\1:\2/' \
     | awk -F: '{ st=($1=="x"||$1=="X")?"checked":"unchecked"; print st"\t"$2 }'
 }
@@ -69,15 +69,15 @@ gh_json() { gh "$@"; }
 
 # download_url <url> <dest>. Prints "<status>\t<ctype>\t<bytes>". 0 ok, 1 http>=400.
 download_url() {
-  local url="$1" dest="$2" maxbytes="${GHIF_MAX_BYTES:-52428800}" line status
+  local url="$1" dest="$2" maxbytes="${GHIF_MAX_BYTES:-52428800}" line status rc=0
   line="$(curl -sSL \
       -H "Authorization: token $(gh auth token)" \
       --max-filesize "$maxbytes" \
       -w '%{http_code}\t%{content_type}\t%{size_download}' \
-      -o "$dest" "$url" 2>/dev/null)" || true
+      -o "$dest" "$url" 2>/dev/null)" || rc=$?
   printf '%s' "$line"
   status="${line%%$'\t'*}"
-  if [ -n "$status" ] && [ "$status" -lt 400 ] 2>/dev/null; then
+  if [ "$rc" -eq 0 ] && [ -n "$status" ] && [ "$status" -lt 400 ] 2>/dev/null; then
     return 0
   else
     return 1

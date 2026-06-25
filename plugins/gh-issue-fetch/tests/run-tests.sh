@@ -92,5 +92,25 @@ check "download_url returns 1 on 404" "1
 SURVIVED" "$rc40x"
 rm -rf "$sd2"
 
+nokids="$(printf 'just text\nno checklist here\n' | bash -c 'set -euo pipefail; source "'"$SCRIPT"'"; parse_task_list; echo "RC=$?"')"
+check "parse_task_list empty+ok on no children" "RC=0" "$nokids"
+
+sd3="$(mktemp -d)"
+cat > "$sd3/curl" <<'STUB'
+#!/usr/bin/env bash
+printf '000\t\t0'; exit 7
+STUB
+chmod +x "$sd3/curl"
+cat > "$sd3/gh" <<'STUB'
+#!/usr/bin/env bash
+[ "$1 $2" = "auth token" ] && { echo gho_T; exit 0; }
+exit 0
+STUB
+chmod +x "$sd3/gh"
+rctf="$(PATH="$sd3:$PATH" bash -c 'set -euo pipefail; source "'"$SCRIPT"'"; if download_url https://x "'"$sd3"'/o" >/dev/null; then echo 0; else echo 1; fi; echo SURVIVED')"
+check "download_url returns 1 on transport failure" "1
+SURVIVED" "$rctf"
+rm -rf "$sd3"
+
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"
 exit "$fail"
