@@ -77,7 +77,11 @@ download_url() {
       -o "$dest" "$url" 2>/dev/null)" || true
   printf '%s' "$line"
   status="${line%%$'\t'*}"
-  [ -n "$status" ] && [ "$status" -lt 400 ] 2>/dev/null
+  if [ -n "$status" ] && [ "$status" -lt 400 ] 2>/dev/null; then
+    return 0
+  else
+    return 1
+  fi
 }
 
 repo_from_flag_or_remote() {

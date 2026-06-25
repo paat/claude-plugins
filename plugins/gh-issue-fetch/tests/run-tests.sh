@@ -55,7 +55,7 @@ check "tab-split number" "101" "$num_tab"
 stubdir="$(mktemp -d)"
 cat > "$stubdir/curl" <<'STUB'
 #!/usr/bin/env bash
-echo "$@" > "$GHIF_CURL_ARGS_OUT"
+printf '%s\n' "$@" > "$GHIF_CURL_ARGS_OUT"
 # emulate -w output for the -o success path
 printf '200\timage/png\t1234'
 STUB
@@ -73,6 +73,24 @@ args="$(cat "$stubdir/args.txt")"
 check "no --location-trusted" 0 "$(echo "$args" | grep -c -- '--location-trusted' || true)"
 check "sends auth header" 1 "$(echo "$args" | grep -c 'Authorization: token gho_TESTTOKEN')"
 rm -rf "$stubdir"
+
+# download_url returns 1 on HTTP>=400, and does not abort the runner
+sd2="$(mktemp -d)"
+cat > "$sd2/curl" <<'STUB'
+#!/usr/bin/env bash
+printf '404\ttext/plain\t9'
+STUB
+chmod +x "$sd2/curl"
+cat > "$sd2/gh" <<'STUB'
+#!/usr/bin/env bash
+[ "$1 $2" = "auth token" ] && { echo "gho_TESTTOKEN"; exit 0; }
+exit 0
+STUB
+chmod +x "$sd2/gh"
+rc40x="$(PATH="$sd2:$PATH" bash -c 'set -euo pipefail; source "'"$SCRIPT"'"; if download_url https://github.com/user-attachments/assets/x "'"$sd2"'/o" >/dev/null; then echo 0; else echo 1; fi; echo SURVIVED')"
+check "download_url returns 1 on 404" "1
+SURVIVED" "$rc40x"
+rm -rf "$sd2"
 
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"
 exit "$fail"
