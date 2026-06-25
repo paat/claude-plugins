@@ -989,7 +989,54 @@ test_plugin_issues() {
 }
 
 # ---------------------------------------------------------------------------
-# Suite K: Auto-Commit Hook
+# Suite K: /maintain command
+# ---------------------------------------------------------------------------
+
+test_maintain() {
+  echo -e "\n${CYAN}== /maintain command ==${NC}"
+  local cmd="$PLUGIN_ROOT/commands/maintain.md"
+  assert_file_exists "M1: maintain.md exists" "$cmd"
+  # Frontmatter
+  assert_file_contains "M2: name frontmatter"          "$cmd" "name: maintain"
+  assert_file_contains "M3: user_invocable"            "$cmd" "user_invocable: true"
+  # Reuse / dependencies
+  assert_file_contains "M4: invokes goal-deliver"      "$cmd" "goal-deliver"
+  assert_file_contains "M5: tribunal hard dep"         "$cmd" "tribunal-review"
+  # Stateless supervisor + disk state
+  assert_file_contains "M6: disk state dir"            "$cmd" ".startup/maintain"
+  assert_file_contains "M7: current-run persisted"     "$cmd" "current-run.json"
+  assert_file_contains "M8: stateless re-read"         "$cmd" "stateless"
+  # Read-only triage + supervisor-only mutation
+  assert_file_contains "M9: read-only triage"          "$cmd" "read-only"
+  # Verdicts (no deliver-hold; hold tier removed)
+  assert_file_contains "M10: agent-fixable verdict"    "$cmd" "agent-fixable"
+  assert_file_contains "M11: needs-human verdict"      "$cmd" "needs-human"
+  assert_file_contains "M12: blocked verdict"          "$cmd" "maintain:blocked"
+  assert_file_contains "M13: claimed label"            "$cmd" "maintain:claimed"
+  # Triage fences humans into human-tasks.md
+  assert_file_contains "M14: human-tasks.md"           "$cmd" "human-tasks.md"
+  # Dependency ordering in v1
+  assert_file_contains "M15: dependency order"         "$cmd" "depends on"
+  # Idempotency: linked-PR detection
+  assert_file_contains "M16: linked-PR detection"      "$cmd" "closedByPullRequestsReferences"
+  # Injection firewall + external side-effect ban
+  assert_file_contains "M17: injection firewall"       "$cmd" "inform requirements only"
+  assert_file_contains "M18: side-effect ban"          "$cmd" "side-effect"
+  # Merge safety (no --auto default; explicit rerun)
+  assert_file_contains "M19: squash merge"             "$cmd" "gh pr merge --squash"
+  # Circuit breakers
+  assert_file_contains "M20: max-issues breaker"       "$cmd" "max-issues"
+  assert_file_contains "M21: max-merges breaker"       "$cmd" "max-merges"
+  # Safety flags
+  assert_file_contains "M22: --once flag"              "$cmd" "--once"
+  assert_file_contains "M23: --dry-run flag"           "$cmd" "--dry-run"
+  # Explicit final state / digest
+  assert_file_contains "M24: run digest"               "$cmd" "runs/"
+  assert_file_contains "M25: deploy classification"    "$cmd" "deploy-blocked"
+}
+
+# ---------------------------------------------------------------------------
+# Suite L: Auto-Commit Hook
 # ---------------------------------------------------------------------------
 
 test_auto_commit_hook() {
@@ -3491,6 +3538,7 @@ main() {
   test_cross_file_consistency
   test_post_tool_use_hook
   test_plugin_issues
+  test_maintain
   test_auto_commit_hook
   test_tone_enforcement_hook
   test_json_validation_hook
