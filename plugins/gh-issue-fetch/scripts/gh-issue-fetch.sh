@@ -213,12 +213,13 @@ render_issue_md() {
 }
 
 cmd_epic() {
-  local with_images=0 a repo="" issue=""
-  local args=("$@") i
-  for ((i=0; i<${#args[@]}; i++)); do
+  require_tools
+  local with_images=0 repo="" issue=""
+  local args=("$@") i argc=$#
+  for ((i=0; i<argc; i++)); do
     case "${args[$i]}" in
       --with-images) with_images=1 ;;
-      -R) repo="${args[$((i+1))]}" ;;
+      -R) i=$((i+1)); [ "$i" -lt "$argc" ] || { echo "error: -R needs a value" >&2; exit 2; }; repo="${args[$i]}" ;;
       [0-9]*) [ -z "$issue" ] && issue="${args[$i]}" ;;
     esac
   done
@@ -226,8 +227,10 @@ cmd_epic() {
   [ -n "$repo" ] || repo="$(repo_from_flag_or_remote "$@")"
 
   # Render the epic itself (reuse issue flow, drop its own --with-images concept).
-  local out; out="$(cmd_issue "$issue" -R "$repo")"
-  local outdir="${out#OUTDIR=}"
+  local out outdir
+  out="$(cmd_issue "$issue" -R "$repo")"
+  outdir="$(printf '%s\n' "$out" | sed -n 's/^OUTDIR=//p' | tail -n1)"
+  [ -n "$outdir" ] || { echo "error: could not determine epic output dir from cmd_issue" >&2; exit 1; }
 
   local body; body="$(gh_json issue view "$issue" -R "$repo" --json body | jq -r '.body // ""')"
   local rows="" total=0 checked=0 closed=0
@@ -241,7 +244,7 @@ cmd_epic() {
     ctitle="$(printf '%s' "$cj" | jq -r '.title // ""')"
     [ "$cstate" = "CLOSED" ] && closed=$((closed+1))
     rows+="| #$num | $cbstate | $cstate | $ctitle |"$'\n'
-    if [ "$with_images" -eq 1 ]; then cmd_issue "$num" -R "$repo" >/dev/null || true; fi
+    if [ "$with_images" -eq 1 ]; then cmd_issue "$num" -R "$repo" >/dev/null || echo "warn: failed to fetch images for child #$num" >&2; fi
   done < <(parse_task_list <<< "$body")
 
   {
@@ -258,11 +261,11 @@ cmd_epic() {
 cmd_epics() {
   require_tools
   local repo="" label="epic"
-  local args=("$@") i
-  for ((i=0; i<${#args[@]}; i++)); do
+  local args=("$@") i argc=$#
+  for ((i=0; i<argc; i++)); do
     case "${args[$i]}" in
-      --label) label="${args[$((i+1))]}" ;;
-      -R) repo="${args[$((i+1))]}" ;;
+      --label) i=$((i+1)); [ "$i" -lt "$argc" ] || { echo "error: --label needs a value" >&2; exit 2; }; label="${args[$i]}" ;;
+      -R)      i=$((i+1)); [ "$i" -lt "$argc" ] || { echo "error: -R needs a value" >&2; exit 2; }; repo="${args[$i]}" ;;
     esac
   done
   [ -n "$repo" ] || repo="$(repo_from_flag_or_remote "$@")"
@@ -270,9 +273,10 @@ cmd_epics() {
   nums="$(gh_json issue list -R "$repo" --label "$label" --state all --limit 200 --json number -q '.[].number')"
   while IFS= read -r n; do
     [ -z "$n" ] && continue
-    local body title total done_c
-    body="$(gh_json issue view "$n" -R "$repo" --json body -q .body)"
-    title="$(gh_json issue view "$n" -R "$repo" --json title -q .title)"
+    local meta body title total done_c
+    meta="$(gh_json issue view "$n" -R "$repo" --json body,title)"
+    body="$(printf '%s' "$meta" | jq -r '.body // ""')"
+    title="$(printf '%s' "$meta" | jq -r '.title // ""')"
     total="$(parse_task_list <<< "$body" | wc -l | tr -d ' ')"
     done_c="$(parse_task_list <<< "$body" | grep -c '^checked' || true)"
     printf '#%s  %s/%s  %s\n' "$n" "$done_c" "$total" "$title"

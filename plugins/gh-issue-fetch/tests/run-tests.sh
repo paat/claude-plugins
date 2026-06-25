@@ -217,5 +217,25 @@ check "closed real state 1/2" 1 "$(grep -c 'Closed (real state): 1/2' "$t7/issue
 check "child 101 row present" 1 "$(grep -c '| #101 |' "$t7/issue.md")"
 rm -rf "$t7"
 
+# cmd_epics: lists labeled epics with done/total progress
+out_epics="$(bash -c 'set -euo pipefail; source "'"$SCRIPT"'"
+  gh_json() {
+    case "$*" in
+      *"issue list"*) printf "%s\n" 9 10 ;;
+      *"issue view 9 "*|*"issue view 9"*) jq -n "{body:\"- [ ] #1 a\n- [x] #2 b\n\",title:\"Epic Nine\"}" ;;
+      *"issue view 10 "*|*"issue view 10"*) jq -n "{body:\"no tasks here\",title:\"Epic Ten\"}" ;;
+      *) echo "{}" ;;
+    esac
+  }
+  cmd_epics -R o/r --label epic')"
+check "cmd_epics epic9 progress 1/2" 1 "$(printf '%s\n' "$out_epics" | grep -c '#9  1/2  Epic Nine')"
+check "cmd_epics epic10 progress 0/0" 1 "$(printf '%s\n' "$out_epics" | grep -c '#10  0/0  Epic Ten')"
+
+# cmd_epics: zero label matches -> no output, no abort
+out_zero="$(bash -c 'set -euo pipefail; source "'"$SCRIPT"'"
+  gh_json() { case "$*" in *"issue list"*) printf "" ;; *) echo "{}" ;; esac; }
+  cmd_epics -R o/r; echo DONE')"
+check "cmd_epics zero match clean" "DONE" "$out_zero"
+
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"
 exit "$fail"
