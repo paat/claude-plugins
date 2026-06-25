@@ -2,6 +2,13 @@
 
 A Claude Code plugin that simulates a two-person SaaS startup team using **Agent Teams** (experimental). A non-technical business co-founder and a technical developer co-founder iterate via file-based handoffs until both agree the product is ready to go live.
 
+## Installation
+
+- **Install for you** (user scope) — available in all your projects:
+  `/plugin install saas-startup-team@paat-plugins`
+- **Install for all collaborators on this repository** (project scope) — commit `.claude/settings.json` with the plugin enabled.
+- **Install for you, in this repo only** (local scope) — enable it in `.claude/settings.local.json`.
+
 ## How It Works
 
 The human user is a **silent investor** — they describe a SaaS idea and watch two AI co-founders build it:
