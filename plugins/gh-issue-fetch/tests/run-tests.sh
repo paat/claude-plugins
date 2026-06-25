@@ -244,6 +244,33 @@ check "render metadata state line" 1 "$(printf '%s\n' "$rendered" | grep -c '^- 
 check "render metadata author line" 1 "$(printf '%s\n' "$rendered" | grep -c '^- \*\*Author:\*\* alice')"
 check "render metadata url line" 1 "$(printf '%s\n' "$rendered" | grep -c '^- \*\*URL:\*\* http://u')"
 
+# --- Security: scraper CDN host allowlist ---
+check "scraper rejects evil cdn host" 0 "$(printf '%s\n' '![x](https://evilgithubusercontent.com/a.png)' | extract_asset_urls | grep -c 'evilgithubusercontent' || true)"
+check "scraper rejects cdn suffix-trick host" 0 "$(printf '%s\n' '![x](https://githubusercontent.com.evil.com/a.png)' | extract_asset_urls | grep -c 'evil.com' || true)"
+check "scraper accepts real cdn host" 1 "$(printf '%s\n' '![x](https://user-images.githubusercontent.com/1/a.png)' | extract_asset_urls | grep -c 'user-images.githubusercontent.com')"
+
+# --- Security: download_url host allowlist (token never sent to evil host) ---
+sdh="$(mktemp -d)"
+cat > "$sdh/curl" <<'STUB'
+#!/usr/bin/env bash
+echo CALLED > "$GHIF_CURL_CALLED"
+printf '200\timage/png\t1'
+STUB
+chmod +x "$sdh/curl"
+cat > "$sdh/gh" <<'STUB'
+#!/usr/bin/env bash
+[ "$1 $2" = "auth token" ] && { echo gho_SECRET; exit 0; }
+exit 0
+STUB
+chmod +x "$sdh/gh"
+export GHIF_CURL_CALLED="$sdh/called"
+evilres="$(PATH="$sdh:$PATH" bash -c 'set -euo pipefail; source "'"$SCRIPT"'"; if download_url https://evilgithubusercontent.com/a "'"$sdh"'/o" >/dev/null 2>&1; then echo 0; else echo 1; fi; echo SURVIVED')"
+check "download_url refuses evil host (returns 1)" "1
+SURVIVED" "$evilres"
+check "download_url did NOT invoke curl for evil host" 0 "$( [ -f "$sdh/called" ] && echo 1 || echo 0 )"
+unset GHIF_CURL_CALLED
+rm -rf "$sdh"
+
 # --- Live smoke (opt-in): GHIF_SMOKE="owner/repo:N" with a known image issue ---
 if [ -n "${GHIF_SMOKE:-}" ]; then
   sr="${GHIF_SMOKE%%:*}"; sn="${GHIF_SMOKE##*:}"

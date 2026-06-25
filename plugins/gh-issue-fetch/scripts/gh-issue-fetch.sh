@@ -28,7 +28,7 @@ main() {
 
 # Read text on stdin, print unique attachment URLs (first-seen order).
 extract_asset_urls() {
-  { grep -oE '(https://github\.com/user-attachments/assets/[A-Za-z0-9-]+|https://[A-Za-z0-9.-]*githubusercontent\.com/[^][:space:]"'"'"'<>)]+)' || true; } \
+  { grep -oE '(https://github\.com/user-attachments/assets/[A-Za-z0-9-]+|https://([A-Za-z0-9-]+\.)+githubusercontent\.com/[^][:space:]"'"'"'<>)]+)' || true; } \
     | sed -E 's/[")'"'"'>.,\]]+$//' \
     | awk '!seen[$0]++'
 }
@@ -70,6 +70,11 @@ gh_json() { gh "$@"; }
 # download_url <url> <dest>. Prints "<status>\t<ctype>\t<bytes>". 0 ok, 1 http>=400.
 download_url() {
   local url="$1" dest="$2" maxbytes="${GHIF_MAX_BYTES:-52428800}" line status rc=0
+  local host="${url#*://}"; host="${host%%/*}"; host="${host%%\?*}"
+  case "$host" in
+    github.com|*.githubusercontent.com) : ;;
+    *) printf '000\t\t0'; echo "error: refusing to send token to non-GitHub host: $host" >&2; return 1 ;;
+  esac
   line="$(curl -sSL \
       -H "Authorization: token $(gh auth token)" \
       --max-filesize "$maxbytes" \
@@ -124,6 +129,7 @@ cmd_issue() {
   local owner="${repo%%/*}" name="${repo##*/}"
 
   local outdir="${GHIF_OUTDIR:-/tmp/gh-issue-$(sanitize_component "$owner")-$(sanitize_component "$name")-$issue}"
+  [ -L "$outdir" ] && { echo "error: refusing to write to symlinked output dir: $outdir" >&2; exit 1; }
   mkdir -p "$outdir/assets"
 
   local meta body comments
