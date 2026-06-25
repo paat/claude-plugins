@@ -99,7 +99,8 @@ On-disk state layout (`.startup/maintain/`):
   fresh mint); survives context loss within a session. Skipped under `--dry-run`.
 - `triage-cache.jsonl` — body-classification keyed by `{number, updatedAt}`; lets a
   pass skip re-classifying unchanged issues. Eligibility and final state are always
-  recomputed from GitHub each pass, never cached.
+  recomputed from GitHub each pass, never cached. Written only on a normal pass;
+  **skipped under `--dry-run`** (classify in-memory, write nothing).
 - `blocked.jsonl` — transiently-blocked issues: `{number, reason, cooldown_until}`.
 - `runs/<run-id>.md` — append-only audit digest (the morning-review artifact).
 - `human-tasks/<issue>.md` — one file per escalated human-gated issue (avoids
