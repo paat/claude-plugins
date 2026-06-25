@@ -321,8 +321,16 @@ whether main moved during the run, and any health-check/migration output:
   confidence** → do not grind: apply the `maintain:blocked` label, record final state
   `escalated:deploy-blocked` in the digest, **stop merging further issues this pass**,
   surface to the investor.
-- v1 does **not** auto-open revert PRs (deferred); on a clearly broken deploy it
-  stops the pass and escalates.
+- **Clearly broken deploy** (default-branch deploy failing and not quickly fixable,
+  or a low-confidence classification): **roll production back to last-good.** Revert
+  the loop's OWN merge from this pass — open a `revert/<pr-slug>` branch via
+  `git revert -m 1 <merge-sha>`, run the required CI checks (a revert restores
+  already-reviewed code, so it does **not** need a full tribunal round), and merge it
+  so main returns to a deploying state; record `escalated:deploy-blocked` with the
+  revert-PR link. **Never** revert commits from other crons or humans — only the
+  merge this pass created. If the revert itself cannot go green, **stop the whole run
+  and escalate hard** to the investor — production is broken and needs a human now.
+  Either way, **stop merging further issues this pass.**
 
 ---
 
