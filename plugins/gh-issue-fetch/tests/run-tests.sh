@@ -237,5 +237,14 @@ out_zero="$(bash -c 'set -euo pipefail; source "'"$SCRIPT"'"
   cmd_epics -R o/r; echo DONE')"
 check "cmd_epics zero match clean" "DONE" "$out_zero"
 
+# --- Live smoke (opt-in): GHIF_SMOKE="owner/repo:N" with a known image issue ---
+if [ -n "${GHIF_SMOKE:-}" ]; then
+  sr="${GHIF_SMOKE%%:*}"; sn="${GHIF_SMOKE##*:}"
+  so="$("$SCRIPT" issue "$sn" -R "$sr")"; sd="${so#OUTDIR=}"
+  imgs="$(ls "$sd/assets" 2>/dev/null | wc -l | tr -d ' ')"
+  check "smoke downloaded >=1 asset" 1 "$( [ "${imgs:-0}" -ge 1 ] && echo 1 || echo 0 )"
+  check "smoke asset is an image" 1 "$(file --mime-type -b "$sd/assets/"* 2>/dev/null | grep -c '^image/' || echo 0)"
+fi
+
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"
 exit "$fail"
