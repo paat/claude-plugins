@@ -20,6 +20,39 @@ _read_state() {
   fi
 }
 
+# Echo a usable v1 state for `commit`. If the file exists but is NOT v1, never silently
+# discard-then-overwrite it (#88): back it up to <file>.pre-v1.bak first, then best-effort
+# upgrade a recognizably-compatible legacy shape ({patterns:{...}}, e.g. a pre-existing
+# bespoke monitor) to version:1 in place; if it is unparseable/incompatible, warn and seed
+# fresh (the original is still preserved in the backup). Under --dry-run, mutate nothing.
+_migrate_state() {  # arg: state_file → echoes a v1 state JSON
+  local f="$1" s up
+  s="$(_read_state "$f")"
+  [ -n "$s" ] && { printf '%s' "$s"; return; }                 # already v1
+  [ -f "$f" ] || { printf '%s' '{"version":1,"last_run_at":null,"patterns":{}}'; return; }
+  # Exists but not v1 — preserve before any overwrite (skip the write under --dry-run). A
+  # FAILED backup must abort, never proceed to overwrite the original (the #88 guarantee).
+  if [ "$DRY_RUN" != 1 ]; then
+    cp -p "$f" "$f.pre-v1.bak" \
+      || { echo "monitor-dedup: ERROR could not back up non-v1 state '$f' — refusing to overwrite" >&2; return 1; }
+  fi
+  # Best-effort upgrade: keep only entries matching the v1 pattern schema (object with a
+  # numeric gh_issue and an array sessions); drop the rest so commit can't crash indexing
+  # a malformed legacy entry — dropped keys are re-discovered via the recovery search.
+  up="$(jq -c 'if (type=="object" and (.patterns|type=="object"))
+                 then {version:1, last_run_at:(.last_run_at // null),
+                       patterns:(.patterns | with_entries(select(.value
+                         | type=="object" and (.gh_issue|type=="number") and (.sessions|type=="array"))))}
+                 else empty end' "$f" 2>/dev/null || true)"
+  if [ -n "$up" ]; then
+    echo "monitor-dedup: NOTICE upgraded legacy state to version:1 (compatible patterns preserved; original at $f.pre-v1.bak)" >&2
+    printf '%s' "$up"
+  else
+    echo "monitor-dedup: WARNING existing state is not version:1 and not upgradable — starting fresh (original kept at $f.pre-v1.bak)" >&2
+    printf '%s' '{"version":1,"last_run_at":null,"patterns":{}}'
+  fi
+}
+
 REPO=""; DRY_RUN=0; LABELS="monitor,customer-issue"; REPRO_RECIPE=""
 declare -A ISSUE_STATE_CACHE
 
@@ -140,8 +173,9 @@ cmd_commit() {
     fi
   fi
 
-  local state; state="$(_read_state "$state_file")"
-  [ -n "$state" ] || state='{"version":1,"last_run_at":null,"patterns":{}}'
+  local state
+  state="$(_migrate_state "$state_file")" \
+    || _die "aborting: could not safely migrate non-v1 state file '$state_file' (backup failed; original left intact)"
 
   local raw f pk sev ent title body summary
   while IFS= read -r raw || [ -n "$raw" ]; do

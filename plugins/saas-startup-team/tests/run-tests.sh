@@ -2838,6 +2838,81 @@ test_monitor_dedup() {
     bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
   assert_output_contains "W15d: backtick entity → malformed" "$output" '"action":"malformed"'
 
+  # W20: legacy unversioned state with a compatible patterns shape → UPGRADE in place,
+  # back up the original first, and preserve existing mappings — no data loss, no duplicate
+  # issues for already-tracked patterns (#88).
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"last_run_at":"2026-05-01T00:00:00Z","patterns":{"payment:stuck":{"gh_issue":77,"sessions":["P-1"],"first_seen":"2026-05-01T00:00:00Z","last_seen":"2026-05-01T00:00:00Z"}}}' > "$state"
+  cp "$state" "$workdir/orig.json"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"P-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_STATE=OPEN \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W20: legacy-state commit exits 0" "$ec" 0
+  assert_output_contains "W20: existing mapping recognized → skip" "$output" '"action":"skip"'
+  assert_file_not_contains "W20: no duplicate issue created" "$L" "issue create"
+  assert_file_exists "W20: original backed up" "$state.pre-v1.bak"
+  assert_equals "W20: backup preserves original bytes" "$(cat "$state.pre-v1.bak")" "$(cat "$workdir/orig.json")"
+  assert_json_field "W20: upgraded to version 1" "$state" ".version" "1"
+  assert_equals "W20: mapping preserved" "$(jq -c '.patterns["payment:stuck"].gh_issue' "$state")" "77"
+
+  # W20b: existing-but-incompatible state (valid JSON, no patterns object) → back up + warn,
+  # then start fresh and proceed — never a silent overwrite (#88).
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"hello":"world","reported_cids":[1,2,3]}' > "$state"
+  cp "$state" "$workdir/orig.json"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"P-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=88 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W20b: incompatible-state commit exits 0" "$ec" 0
+  assert_output_contains "W20b: warns about incompatible state" "$output" "WARNING"
+  assert_file_exists "W20b: original backed up" "$state.pre-v1.bak"
+  assert_equals "W20b: backup preserves original bytes" "$(cat "$state.pre-v1.bak")" "$(cat "$workdir/orig.json")"
+  assert_output_contains "W20b: filed the new finding" "$output" '"action":"create"'
+  assert_json_field "W20b: upgraded to version 1" "$state" ".version" "1"
+
+  # W20c: a healthy v1 state file must NOT spawn a .pre-v1.bak (no needless backup every run).
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    bash "$script" commit --state "$state" --repo o/r < /dev/null 2>&1) || ec=$?
+  assert_exit_code "W20c: v1 state commit exits 0" "$ec" 0
+  assert_file_not_exists "W20c: no backup for healthy v1 state" "$state.pre-v1.bak"
+
+  # W20d: dry-run must not mutate — no backup written even for a legacy state file.
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"high","entity":"P-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    bash "$script" commit --state "$state" --repo o/r --dry-run < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W20d: dry-run legacy exits 0" "$ec" 0
+  assert_file_not_exists "W20d: dry-run writes no backup" "$state.pre-v1.bak"
+
+  # W20e: legacy state with a malformed pattern entry → the upgrade DROPS schema-incompatible
+  # entries (must be an object with numeric gh_issue + array sessions) so downstream commit
+  # never crashes indexing them; the dropped key is re-created cleanly (#88 robustness).
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"patterns":{"good:one":{"gh_issue":55,"sessions":["E-1"],"first_seen":"2026-05-01T00:00:00Z","last_seen":"2026-05-01T00:00:00Z"},"bad:two":"not-an-object"}}' > "$state"
+  printf '%s\n' '{"pattern_key":"bad:two","severity":"high","entity":"E-2","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_STATE=OPEN GH_CREATE_NUMBER=66 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W20e: malformed-entry legacy commit exits 0" "$ec" 0
+  assert_output_contains "W20e: dropped bad entry → fresh create" "$output" '"action":"create"'
+  assert_equals "W20e: compatible entry preserved" "$(jq -c '.patterns["good:one"].gh_issue' "$state")" "55"
+  assert_equals "W20e: bad:two re-created cleanly" "$(jq -c '.patterns["bad:two"].gh_issue' "$state")" "66"
+
+  # W20g: if the .pre-v1.bak backup cannot be written, ABORT before any gh op or overwrite —
+  # never silently destroy the original (the core #88 guarantee; codex review).
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"
+  mkdir -p "$workdir/ro"; printf '{"patterns":{}}' > "$workdir/ro/state.json"; cp "$workdir/ro/state.json" "$workdir/orig.json"
+  chmod 555 "$workdir/ro"
+  printf '%s\n' '{"pattern_key":"x:y","severity":"high","entity":"E","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=9 \
+    bash "$script" commit --state "$workdir/ro/state.json" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  chmod 755 "$workdir/ro"
+  assert_exit_code "W20g: backup-failure aborts non-zero" "$ec" 1
+  assert_file_not_contains "W20g: aborted before any gh create" "$L" "issue create"
+  assert_equals "W20g: original state untouched" "$(cat "$workdir/ro/state.json")" "$(cat "$workdir/orig.json")"
+
   local cmd="$PLUGIN_ROOT/commands/monitor-nightly.md"
   # W16: command exists, right frontmatter, calls engine, uses flock, parses config — and NEVER calls gh
   assert_file_exists "W16: command exists" "$cmd"
