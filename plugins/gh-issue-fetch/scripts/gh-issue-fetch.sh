@@ -53,9 +53,9 @@ ext_for_mime() {
 
 # stdin: issue body. stdout: "checked\t<num>" / "unchecked\t<num>" per child.
 parse_task_list() {
-  grep -oiE '^[[:space:]]*[-*][[:space:]]+\[[ xX]\][[:space:]]+#[0-9]+' \
-    | sed -E 's/^[[:space:]]*[-*][[:space:]]+\[([ xX])\][[:space:]]+#([0-9]+).*/\1\t\2/' \
-    | awk -F'\t' '{ st=($1=="x"||$1=="X")?"checked":"unchecked"; print st"\t"$2 }'
+  grep -oE '^[[:space:]]*[-*][[:space:]]+\[[ xX]\][[:space:]]+#[0-9]+' \
+    | sed -E 's/^[[:space:]]*[-*][[:space:]]+\[([ xX])\][[:space:]]+#([0-9]+)/\1:\2/' \
+    | awk -F: '{ st=($1=="x"||$1=="X")?"checked":"unchecked"; print st"\t"$2 }'
 }
 
 # Stub subcommands (filled in later tasks).
