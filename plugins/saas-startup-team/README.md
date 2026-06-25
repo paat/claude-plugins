@@ -38,6 +38,7 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:improve` | One-shot improvements on a completed product |
 | `/saas-startup-team:goal-deliver` | Deliver a set of tasks (issues, milestone, spec, or free text) end-to-end: plan into chunks, ship each via `/improve` + closing tribunal loop + merge to main, then monitor and fix the GitHub Actions deploy. Pairs with built-in `/goal` for autonomy. Requires the `tribunal-review` plugin. |
 | `/saas-startup-team:ads` | Design a Google Ads campaign — spawns the `google-ads-strategist` plugin's `ads-strategist` (hard dependency) to design, browser-verify, and create the campaign in PAUSED state for investor review. The `/growth` loop also delegates here automatically. |
+| `/saas-startup-team:maintain` | Continuous autonomous maintenance loop: triage open issues, fence human-gated ones into `human-tasks.md`, and deliver the rest to production via `/goal-deliver` one-at-a-time in dependency order. Stateless supervisor; watch remotely via `/rc`. Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`. Requires the `tribunal-review` plugin. |
 
 ### Convergence governor (`/goal-deliver`)
 
@@ -150,6 +151,45 @@ Each line written to stdout by the engine or by `custom_checks` (the script is a
 ### Dependencies
 
 Authenticated `gh` (GitHub CLI), `jq`, GNU coreutils `date` (for `date -d` relative time parsing), `flock`.
+
+## Maintenance loop (`/maintain`)
+
+`/maintain` is a **stateless supervisor** that runs an unattended continuous maintenance loop: it re-reads GitHub issues and triage state from disk each pass, classifies open issues into `agent-fixable` or `needs-human`, and delivers eligible issues to production via inline `/goal-deliver` calls, one issue at a time in dependency order. The supervisor holds no durable context — every pass reconstructs its working state from disk and GitHub, making context loss or compaction harmless.
+
+### Operation model
+
+The supervisor is watched remotely via `/rc` (the human is a silent investor); it is **launched once** and runs indefinitely in multiple passes with backoff between passes, respecting circuit breakers (`--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`). Per-issue delivery is scoped to a single `goal-deliver` call (respecting the subagent nesting limit); the issue body, diff, tribunal work, and CI logs stay inside the `/goal-deliver` subagent's context and never flow back into the supervisor.
+
+### Triage verdicts
+
+- **`agent-fixable`** → enters the delivery queue and is delivered like any other work, gated only by the mandatory green gate (zero critical/high tribunal findings + required CI checks).
+- **`needs-human`** → genuine human decision required; labelled `needs-human` and escalated to `.startup/human-tasks.md`.
+- **`blocked`** (supervisor-set, not a triage verdict) → transiently un-deliverable (no-progress, deploy-blocked, or cooldown); auto-retried after cooldown, never silently promoted to human work.
+
+### Dependency ordering
+
+An issue is delivered only **after** its explicitly-declared prerequisites (`depends on #N`, `blocked by #N`) have merged. The supervisor builds a DAG per pass; a cycle or a prerequisite that is itself `needs-human` / blocked → defer the dependent. Within the dependency-eligible set, order by severity (`critical` → `high` → `medium` → `low`); absent or unlabelled → oldest-first.
+
+### Merge safety gate
+
+**The green gate is mandatory:** every PR that clears it is merged immediately. The gate comprises tribunal zero critical/high findings + required CI checks passing. Incident-labelled issues (`bug`, `monitor`, `customer-issue`) cannot merge unless the PR diff adds a test or the PR body records `Regression-Test: none — <reason>`. No human-hold tier — the merged diff is the authority on whether the fix is correct.
+
+### Safe rollout and circuit breakers
+
+Start with `--dry-run` (read-only: classify issues, print the planned queue, then stop — no mutations). Once confident, use `--once` (single pass, then report). Default flags:
+
+- `--max-issues N` — cap delivered issues per pass (default 10).
+- `--max-merges N` — cap merges per pass (default 5).
+- `--max-pass-minutes N` — wall-clock budget per pass (default 90 minutes).
+- `--max-run-minutes N` — total wall-clock budget across all passes (default 0 = unlimited).
+
+The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues halt further merges that pass), or hard tribunal round ceiling (notify investor at round 10, hard-stop at round 20 per issue). Between passes, backoff ~5 minutes to avoid hot-spinning on an empty backlog.
+
+### Prerequisites and integration
+
+- **Requires the `tribunal-review` plugin** (hard dependency).
+- **Authenticated `gh` (GitHub CLI)** and standard tooling: `jq`, `flock`.
+- **Dev container only** (inherits the plugin's dev-container-only design).
 
 ## Prerequisites
 
