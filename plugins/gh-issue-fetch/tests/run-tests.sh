@@ -280,5 +280,49 @@ if [ -n "${GHIF_SMOKE:-}" ]; then
   check "smoke asset is an image" 1 "$( [ "$(file --mime-type -b "$sd/assets/"* 2>/dev/null | grep -c '^image/')" -ge 1 ] && echo 1 || echo 0 )"
 fi
 
+# --- Security: download_url host normalization (fragment/userinfo/port tricks refused) ---
+sdf="$(mktemp -d)"
+cat > "$sdf/curl" <<'STUB'
+#!/usr/bin/env bash
+echo CALLED > "$GHIF_CURL_CALLED2"
+printf '200\timage/png\t1'
+STUB
+chmod +x "$sdf/curl"
+cat > "$sdf/gh" <<'STUB'
+#!/usr/bin/env bash
+[ "$1 $2" = "auth token" ] && { echo gho_SECRET; exit 0; }
+exit 0
+STUB
+chmod +x "$sdf/gh"
+export GHIF_CURL_CALLED2="$sdf/called"
+for evilurl in 'https://evil.com#x.githubusercontent.com/p' 'https://x.githubusercontent.com@evil.com/p' 'https://evil.com:443/p'; do
+  rm -f "$sdf/called"
+  r="$(PATH="$sdf:$PATH" bash -c 'set -euo pipefail; source "'"$SCRIPT"'"; if download_url "'"$evilurl"'" "'"$sdf"'/o" >/dev/null 2>&1; then echo 0; else echo 1; fi')"
+  check "download_url refuses trick host ($evilurl)" "1" "$r"
+  check "no curl call for ($evilurl)" 0 "$( [ -f "$sdf/called" ] && echo 1 || echo 0 )"
+done
+unset GHIF_CURL_CALLED2
+rm -rf "$sdf"
+
+# --- Security: download_url allows legit githubusercontent host (curl IS invoked) ---
+sdg="$(mktemp -d)"
+cat > "$sdg/curl" <<'STUB'
+#!/usr/bin/env bash
+echo CALLED > "$GHIF_OKCALL"
+printf '200\timage/png\t10'
+STUB
+chmod +x "$sdg/curl"
+cat > "$sdg/gh" <<'STUB'
+#!/usr/bin/env bash
+[ "$1 $2" = "auth token" ] && { echo gho_OK; exit 0; }
+exit 0
+STUB
+chmod +x "$sdg/gh"
+export GHIF_OKCALL="$sdg/ok"
+PATH="$sdg:$PATH" bash -c 'set -euo pipefail; source "'"$SCRIPT"'"; download_url https://user-images.githubusercontent.com/1/a.png "'"$sdg"'/o" >/dev/null 2>&1 || true'
+check "download_url allows real cdn host (curl invoked)" 1 "$( [ -f "$sdg/ok" ] && echo 1 || echo 0 )"
+unset GHIF_OKCALL
+rm -rf "$sdg"
+
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"
 exit "$fail"

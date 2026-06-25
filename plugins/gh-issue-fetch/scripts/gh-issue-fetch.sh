@@ -70,7 +70,11 @@ gh_json() { gh "$@"; }
 # download_url <url> <dest>. Prints "<status>\t<ctype>\t<bytes>". 0 ok, 1 http>=400.
 download_url() {
   local url="$1" dest="$2" maxbytes="${GHIF_MAX_BYTES:-52428800}" line status rc=0
-  local host="${url#*://}"; host="${host%%/*}"; host="${host%%\?*}"
+  local host="${url#*://}"      # strip scheme
+  host="${host%%[/?#]*}"        # strip at first / ? or #  (path, query, fragment)
+  host="${host##*@}"            # strip userinfo (user:pass@)
+  host="${host%%:*}"            # strip :port
+  host="${host,,}"              # lowercase (DNS is case-insensitive)
   case "$host" in
     github.com|*.githubusercontent.com) : ;;
     *) printf '000\t\t0'; echo "error: refusing to send token to non-GitHub host: $host" >&2; return 1 ;;
@@ -129,7 +133,10 @@ cmd_issue() {
   local owner="${repo%%/*}" name="${repo##*/}"
 
   local outdir="${GHIF_OUTDIR:-/tmp/gh-issue-$(sanitize_component "$owner")-$(sanitize_component "$name")-$issue}"
-  [ -L "$outdir" ] && { echo "error: refusing to write to symlinked output dir: $outdir" >&2; exit 1; }
+  local _p
+  for _p in "$outdir" "$outdir/assets"; do
+    [ -L "$_p" ] && { echo "error: refusing to write to symlinked path: $_p" >&2; exit 1; }
+  done
   mkdir -p "$outdir/assets"
 
   local meta body comments
