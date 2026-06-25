@@ -195,5 +195,27 @@ check "paginated comments render" 1 "$(grep -c '## Comments' "$t6d/issue.md")"
 check "both paginated comment images downloaded" 2 "$(ls "$t6d/assets" | wc -l | tr -d ' ')"
 rm -rf "$t6d"
 
+# --- Task 7: cmd_epic roll-up ---
+t7="$(mktemp -d)"
+GHIF_OUTDIR="$t7" bash -c '
+  source "'"$SCRIPT"'"
+  gh_json() {
+    case "$*" in
+      *"issue view 9"*) jq -n "{number:9,title:\"Epic\",state:\"OPEN\",url:\"u\",author:{login:\"a\"},labels:[{name:\"epic\"}],body:(\"- [ ] #101 a\n- [x] #102 b\n\")}" ;;
+      *"issues/9/comments"*) echo "[]" ;;
+      *"issue view 101"*) jq -n "{number:101,state:\"OPEN\",title:\"child a\",labels:[]}" ;;
+      *"issue view 102"*) jq -n "{number:102,state:\"CLOSED\",title:\"child b\",labels:[]}" ;;
+      *) echo "{}" ;;
+    esac
+  }
+  download_url() { return 0; }
+  cmd_epic 9 -R o/r
+' >/dev/null 2>&1
+check "epic issue.md has children table" 1 "$(grep -c '## Children' "$t7/issue.md")"
+check "progress checkboxes 1/2" 1 "$(grep -c 'Progress (checkboxes): 1/2' "$t7/issue.md")"
+check "closed real state 1/2" 1 "$(grep -c 'Closed (real state): 1/2' "$t7/issue.md")"
+check "child 101 row present" 1 "$(grep -c '| #101 |' "$t7/issue.md")"
+rm -rf "$t7"
+
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"
 exit "$fail"

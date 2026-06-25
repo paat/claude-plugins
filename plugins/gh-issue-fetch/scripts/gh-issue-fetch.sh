@@ -212,8 +212,72 @@ render_issue_md() {
   }
 }
 
-cmd_epic()  { echo "not yet implemented" >&2; exit 1; }
-cmd_epics() { echo "not yet implemented" >&2; exit 1; }
+cmd_epic() {
+  local with_images=0 a repo="" issue=""
+  local args=("$@") i
+  for ((i=0; i<${#args[@]}; i++)); do
+    case "${args[$i]}" in
+      --with-images) with_images=1 ;;
+      -R) repo="${args[$((i+1))]}" ;;
+      [0-9]*) [ -z "$issue" ] && issue="${args[$i]}" ;;
+    esac
+  done
+  [ -n "$issue" ] || { echo "error: epic issue number required" >&2; exit 2; }
+  [ -n "$repo" ] || repo="$(repo_from_flag_or_remote "$@")"
+
+  # Render the epic itself (reuse issue flow, drop its own --with-images concept).
+  local out; out="$(cmd_issue "$issue" -R "$repo")"
+  local outdir="${out#OUTDIR=}"
+
+  local body; body="$(gh_json issue view "$issue" -R "$repo" --json body | jq -r '.body // ""')"
+  local rows="" total=0 checked=0 closed=0
+  while IFS=$'\t' read -r cbstate num; do
+    [ -z "$num" ] && continue
+    total=$((total+1))
+    [ "$cbstate" = "checked" ] && checked=$((checked+1))
+    local cj cstate ctitle
+    cj="$(gh_json issue view "$num" -R "$repo" --json state,title,labels 2>/dev/null || echo '{}')"
+    cstate="$(printf '%s' "$cj" | jq -r '.state // "?"')"
+    ctitle="$(printf '%s' "$cj" | jq -r '.title // ""')"
+    [ "$cstate" = "CLOSED" ] && closed=$((closed+1))
+    rows+="| #$num | $cbstate | $cstate | $ctitle |"$'\n'
+    if [ "$with_images" -eq 1 ]; then cmd_issue "$num" -R "$repo" >/dev/null || true; fi
+  done < <(parse_task_list <<< "$body")
+
+  {
+    printf '\n## Children\n\n'
+    printf 'Progress (checkboxes): %s/%s\n' "$checked" "$total"
+    printf 'Closed (real state): %s/%s\n\n' "$closed" "$total"
+    printf '| # | checkbox | issue state | title |\n|---|---|---|---|\n'
+    printf '%s' "$rows"
+  } >> "$outdir/issue.md"
+
+  echo "OUTDIR=$outdir"
+}
+
+cmd_epics() {
+  require_tools
+  local repo="" label="epic"
+  local args=("$@") i
+  for ((i=0; i<${#args[@]}; i++)); do
+    case "${args[$i]}" in
+      --label) label="${args[$((i+1))]}" ;;
+      -R) repo="${args[$((i+1))]}" ;;
+    esac
+  done
+  [ -n "$repo" ] || repo="$(repo_from_flag_or_remote "$@")"
+  local nums
+  nums="$(gh_json issue list -R "$repo" --label "$label" --state all --limit 200 --json number -q '.[].number')"
+  while IFS= read -r n; do
+    [ -z "$n" ] && continue
+    local body title total done_c
+    body="$(gh_json issue view "$n" -R "$repo" --json body -q .body)"
+    title="$(gh_json issue view "$n" -R "$repo" --json title -q .title)"
+    total="$(parse_task_list <<< "$body" | wc -l | tr -d ' ')"
+    done_c="$(parse_task_list <<< "$body" | grep -c '^checked' || true)"
+    printf '#%s  %s/%s  %s\n' "$n" "$done_c" "$total" "$title"
+  done <<< "$nums"
+}
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   main "$@"
