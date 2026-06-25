@@ -25,6 +25,55 @@ stateless-from-disk re-derivation + auto-compaction.
 
 ---
 
+## Unattended Execution — How to Actually Run This
+
+**This loop is built to run hands-off, but typing `/maintain` into an interactive
+session is the wrong vehicle and will feel like it "requires constant input."** Two
+reasons, both inherent to a foreground interactive turn — not bugs to grind on:
+
+1. **Per-tool permission prompts.** The supervisor and the inline `/goal-deliver`
+   fire many `gh` / `git` / `jq` / `gh pr merge` calls plus founder/tribunal
+   subagents. Without a permission grant, each one prompts.
+2. **The between-pass backoff can't self-resume.** Loop Body step 7 ("back off
+   ~5 min and repeat") cannot sleep-and-continue inside one foreground turn, so the
+   model ends its turn after each pass and waits for you to re-prompt.
+
+**The correct pattern is one pass per tick under an external cadence**, headless, with
+permissions pre-granted. `--once` exists exactly for this:
+
+```bash
+# Trusted/dev box — simplest, fully hands-off:
+while :; do
+  claude -p "/maintain --once" --dangerously-skip-permissions
+  sleep 300
+done
+# or:  /loop 5m /maintain --once     (the harness re-invokes per tick)
+# or:  a cron / systemd timer firing the same `claude -p "/maintain --once" …` line
+```
+
+`--once` + the external scheduler supplies the cross-pass cadence (fixing reason 2);
+headless `--dangerously-skip-permissions` removes the prompts (fixing reason 1).
+
+**Production / shared environments** that don't want a blanket skip should grant a
+permission set instead — note this is necessarily *broad*, not the narrow utility
+allowlist `monitor-nightly` uses, because `/maintain` runs `/goal-deliver` inline and
+that **writes code and merges PRs**:
+
+```bash
+# 0 * * * *  cd /path/to/product && claude -p "/maintain --once" \
+#   --allowedTools 'Bash,Edit,Write,Read,Grep,Glob,Task,WebFetch' \
+#   >> /var/log/maintain.log 2>&1
+```
+
+Prefer enforcing the real safety boundary server-side (branch protection + required
+checks) rather than via the tool allowlist; the loop's green gate (§Merge Safety)
+already assumes required CI checks are authoritative.
+
+Bare interactive `/maintain` is still useful for a **single supervised pass** — run it
+with `--once`, approve as you go, and watch the digest.
+
+---
+
 ## Workspace — Dedicated Worktree
 
 **You operate from a dedicated git worktree, never the investor's primary
@@ -188,7 +237,9 @@ Each pass follows this sequence:
 6. **Write pass digest** to `.startup/maintain/runs/<run-id>.md`.
 
 7. If `--once`, stop and report. Otherwise **back off** (default ~5 min) and repeat
-   from step 1.
+   from step 1. (A foreground interactive turn cannot sleep-and-resume across this
+   backoff — so continuous mode must be driven as `--once` per tick by an external
+   scheduler; see §Unattended Execution.)
 
 **Stop conditions:** a hard circuit breaker trips (`--max-pass-minutes`,
 `--max-run-minutes`, `--max-issues`, `--max-merges`, stop-after-deploy-failure),
