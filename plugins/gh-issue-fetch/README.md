@@ -28,7 +28,7 @@ Downloads the issue body + comments, rewrites image URLs to relative paths, and 
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/gh-issue-fetch.sh" epic <n> \
-  [-R owner/repo] [--with-images] [--strict]
+  [-R owner/repo] [--with-images]
 ```
 
 Fetches the parent issue, resolves every `- [ ] #NNN` / `- [x] #NNN` child to its real GitHub state, and writes a roll-up table (checkbox progress + real-state progress) to `issue.md`.
