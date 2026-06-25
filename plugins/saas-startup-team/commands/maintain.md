@@ -25,6 +25,43 @@ stateless-from-disk re-derivation + auto-compaction.
 
 ---
 
+## Workspace — Dedicated Worktree
+
+**You operate from a dedicated git worktree, never the investor's primary
+checkout.** This keeps the main repo folder free for the investor to do their own
+dev work in parallel while the loop runs. On a **normal run** (skipped under
+`--dry-run`, which is read-only and needs no working tree), set up and enter the
+worktree first, then run **every** working-tree operation — delivery branches,
+commits, `.startup/maintain/` state, `human-tasks.md` updates — inside it:
+
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+default=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo main)
+WT="$REPO_ROOT/.worktrees/maintain"
+# Keep the worktree dir out of the investor's `git status` — local, uncommitted:
+grep -qxF '.worktrees/' "$REPO_ROOT/.git/info/exclude" 2>/dev/null \
+  || echo '.worktrees/' >> "$REPO_ROOT/.git/info/exclude"
+git -C "$REPO_ROOT" fetch origin "$default" --quiet
+if ! git -C "$REPO_ROOT" worktree list --porcelain | grep -qx "worktree $WT"; then
+  # --detach off the default tip: the worktree never holds the `main` branch itself,
+  # so it can never collide with the investor's checkout of `main` in the primary
+  # folder (a branch can be checked out in only one worktree at a time).
+  git -C "$REPO_ROOT" worktree add --detach "$WT" "origin/$default"
+fi
+cd "$WT"
+git checkout --detach "origin/$default"   # start every pass from the latest default tip
+```
+
+All working-tree checks below (clean tree, at the default tip) apply to **`$WT`**,
+**never** the investor's primary checkout — do not require the primary folder to be
+clean. Per-issue delivery creates its branch from `origin/$default` **inside `$WT`**
+(`git checkout -b improve/<slug> origin/$default`); merges happen server-side via
+`gh pr merge`. The worktree persists across passes (reused, not removed). If a pass
+finds the worktree stale or dirty and cannot reset it, recreate it from
+`origin/$default`.
+
+---
+
 ## Pre-Flight
 
 > **`--dry-run` rule: if `--dry-run` was passed, the ENTIRE run is read-only.
@@ -42,11 +79,12 @@ stateless-from-disk re-derivation + auto-compaction.
 - `--max-pass-minutes N` → wall-clock budget per pass (default 90 minutes).
 - `--max-run-minutes N` → total wall-clock budget across all passes (default 0 = unlimited).
 
-All gates must pass before the loop starts. On a **normal run**, reuse the
-`/goal-deliver` preflight (`${CLAUDE_PLUGIN_ROOT}/commands/goal-deliver.md`) for:
-default branch, clean tree, `gh auth status`, remote present, and
-`tribunal-review:tribunal-loop` skill available (hard dependency — if
-`tribunal-review` is not installed, stop and say so).
+All gates must pass before the loop starts. On a **normal run**, after entering the
+dedicated worktree (see Workspace above), reuse the `/goal-deliver` preflight
+(`${CLAUDE_PLUGIN_ROOT}/commands/goal-deliver.md`) for: clean tree, `gh auth status`,
+remote present, and `tribunal-review:tribunal-loop` skill available (hard dependency
+— if `tribunal-review` is not installed, stop and say so). The clean-tree check
+targets **`$WT`**, not the investor's primary checkout.
 
 **Under `--dry-run`, do NOT invoke the `/goal-deliver` preflight** — it writes
 `.startup/state.json` (resets `active_role`), which is a mutation. Instead run only

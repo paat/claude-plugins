@@ -50,10 +50,16 @@ automatically.
 - **Continuous**: keeps running and re-scans, so monitor-filed issues are picked
   up on the next pass without a human re-invoking.
 - **Context-bloat-free by construction** (see §3).
+- **Filesystem-isolated**: the loop operates from a **dedicated git worktree**
+  (`.worktrees/maintain`, detached off the default-branch tip), never the
+  investor's primary checkout — so the investor can keep doing their own dev work
+  in the main repo folder while the loop runs. The two meet only at GitHub
+  (branches, PRs, `main`); the loop's merge-safety handles `main` moving under it.
 
-**Non-goals:** parallel issue delivery (we deliver sequentially — RALPH
-discipline, consistent with the prior decision not to run parallel worktrees); a
-cron/tmux/web-terminal deployment layer; replacing `/goal-deliver`.
+**Non-goals:** parallel issue *delivery* (we deliver sequentially — RALPH
+discipline; a single dedicated worktree is used for isolation, but we do **not** run
+multiple delivery worktrees in parallel); a cron/tmux/web-terminal deployment layer;
+replacing `/goal-deliver`.
 
 This command must stay **generic and project-agnostic** (repo rule): no hardcoded
 project names, paths, ports, or label *semantics* beyond the plugin's own

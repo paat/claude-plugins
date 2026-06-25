@@ -1033,6 +1033,9 @@ test_maintain() {
   # Explicit final state / digest
   assert_file_contains "M24: run digest"               "$cmd" "runs/"
   assert_file_contains "M25: deploy classification"    "$cmd" "deploy-blocked"
+  # Dedicated worktree isolation (primary checkout stays free)
+  assert_file_contains "M26: dedicated worktree"        "$cmd" "worktree add --detach"
+  assert_file_contains "M27: worktree path convention"  "$cmd" ".worktrees/maintain"
 }
 
 # ---------------------------------------------------------------------------

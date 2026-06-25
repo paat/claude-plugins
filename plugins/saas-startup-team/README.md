@@ -167,6 +167,8 @@ Authenticated `gh` (GitHub CLI), `jq`, GNU coreutils `date` (for `date -d` relat
 
 The supervisor is watched remotely via `/rc` (the human is a silent investor); it is **launched once** and runs indefinitely in multiple passes with backoff between passes, respecting circuit breakers (`--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`). Per-issue delivery is scoped to a single `goal-deliver` call (respecting the subagent nesting limit); the issue body, diff, tribunal work, and CI logs stay inside the `/goal-deliver` subagent's context and never flow back into the supervisor.
 
+**Runs in a dedicated worktree.** The loop operates from `.worktrees/maintain` (a detached git worktree off the default-branch tip), never your primary checkout — so you can keep doing your own dev work in the main repo folder while it runs. The loop and your work meet only at GitHub (branches, PRs, `main`); its merge-safety re-validates if `main` moves under it. (`--dry-run` is read-only and creates no worktree.)
+
 ### Triage verdicts
 
 - **`agent-fixable`** → enters the delivery queue and is delivered like any other work, gated only by the mandatory green gate (zero critical/high tribunal findings + required CI checks).
