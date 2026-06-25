@@ -181,7 +181,9 @@ silently promoted to permanent human work. Label: `maintain:blocked`.
 
 product/design/UX/prioritization call · credentials/secrets needed · manual external
 verification (portal upload, real card, ID-card auth) · legal/compliance/tax judgment
-· too ambiguous (no repro/spec).
+· too ambiguous (no repro/spec) · **epic / tracking / meta issue** (an `epic`-labelled
+or umbrella issue is `needs-human` — never deliver the epic itself; its individual
+child issues are triaged and delivered separately).
 
 ### Idempotent escalation comments
 
@@ -225,7 +227,10 @@ Cross-check against PR body `closes/fixes #N` and the issue's
 
 1. **Dependency order first** — an issue is delivered only after the issues it
    depends on have merged. Dependencies are read from explicit links in the issue
-   body/title (`depends on #N`, `blocked by #N`) — no guessing. Build a DAG; a
+   body/title (`depends on #N`, `blocked by #N`) — no guessing. A bare `#N`
+   mention as *context/consolidation* ("coordinate with #N", "follow-up to #N") is
+   **not** a dependency edge; only the explicit `depends on`/`blocked by` phrasing
+   is. Build a DAG; a
    dependent is ineligible until every prerequisite has a **merged PR on the default
    branch** (not merely closed). A dependency cycle or a prerequisite that is itself
    `needs-human`/blocked → defer the dependent and log it (never silently deliver
