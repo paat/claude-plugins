@@ -237,6 +237,13 @@ out_zero="$(bash -c 'set -euo pipefail; source "'"$SCRIPT"'"
   cmd_epics -R o/r; echo DONE')"
 check "cmd_epics zero match clean" "DONE" "$out_zero"
 
+# --- Task 6: render_issue_md metadata lines ---
+meta_t='{"number":5,"title":"T","state":"OPEN","url":"http://u","author":{"login":"alice"},"labels":[{"name":"bug"}],"body":"hi"}'
+rendered="$(render_issue_md "$meta_t" '[]')"
+check "render metadata state line" 1 "$(printf '%s\n' "$rendered" | grep -c '^- \*\*State:\*\* OPEN')"
+check "render metadata author line" 1 "$(printf '%s\n' "$rendered" | grep -c '^- \*\*Author:\*\* alice')"
+check "render metadata url line" 1 "$(printf '%s\n' "$rendered" | grep -c '^- \*\*URL:\*\* http://u')"
+
 # --- Live smoke (opt-in): GHIF_SMOKE="owner/repo:N" with a known image issue ---
 if [ -n "${GHIF_SMOKE:-}" ]; then
   sr="${GHIF_SMOKE%%:*}"; sn="${GHIF_SMOKE##*:}"

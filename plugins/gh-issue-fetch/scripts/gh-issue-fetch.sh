@@ -199,10 +199,10 @@ render_issue_md() {
   local meta="$1" comments="$2"
   {
     printf '# %s (#%s)\n\n' "$(printf '%s' "$meta" | jq -r .title)" "$(printf '%s' "$meta" | jq -r .number)"
-    printf '- **State:** %s\n' "$(printf '%s' "$meta" | jq -r .state)"
-    printf '- **Author:** %s\n' "$(printf '%s' "$meta" | jq -r '.author.login // "?"')"
-    printf '- **Labels:** %s\n' "$(printf '%s' "$meta" | jq -r '[.labels[].name] | join(", ")')"
-    printf '- **URL:** %s\n\n' "$(printf '%s' "$meta" | jq -r .url)"
+    printf -- '- **State:** %s\n' "$(printf '%s' "$meta" | jq -r .state)"
+    printf -- '- **Author:** %s\n' "$(printf '%s' "$meta" | jq -r '.author.login // "?"')"
+    printf -- '- **Labels:** %s\n' "$(printf '%s' "$meta" | jq -r '[.labels[].name] | join(", ")')"
+    printf -- '- **URL:** %s\n\n' "$(printf '%s' "$meta" | jq -r .url)"
     printf '## Description\n\n%s\n\n' "$(printf '%s' "$meta" | jq -r '.body // ""')"
     local clen; clen="$(printf '%s' "$comments" | jq 'length')"
     if [ "${clen:-0}" -gt 0 ]; then
