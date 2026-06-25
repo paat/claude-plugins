@@ -20,6 +20,39 @@ _read_state() {
   fi
 }
 
+# Echo a usable v1 state for `commit`. If the file exists but is NOT v1, never silently
+# discard-then-overwrite it (#88): back it up to <file>.pre-v1.bak first, then best-effort
+# upgrade a recognizably-compatible legacy shape ({patterns:{...}}, e.g. a pre-existing
+# bespoke monitor) to version:1 in place; if it is unparseable/incompatible, warn and seed
+# fresh (the original is still preserved in the backup). Under --dry-run, mutate nothing.
+_migrate_state() {  # arg: state_file → echoes a v1 state JSON
+  local f="$1" s up
+  s="$(_read_state "$f")"
+  [ -n "$s" ] && { printf '%s' "$s"; return; }                 # already v1
+  [ -f "$f" ] || { printf '%s' '{"version":1,"last_run_at":null,"patterns":{}}'; return; }
+  # Exists but not v1 — preserve before any overwrite (skip the write under --dry-run). A
+  # FAILED backup must abort, never proceed to overwrite the original (the #88 guarantee).
+  if [ "$DRY_RUN" != 1 ]; then
+    cp -p "$f" "$f.pre-v1.bak" \
+      || { echo "monitor-dedup: ERROR could not back up non-v1 state '$f' — refusing to overwrite" >&2; return 1; }
+  fi
+  # Best-effort upgrade: keep only entries matching the v1 pattern schema (object with a
+  # numeric gh_issue and an array sessions); drop the rest so commit can't crash indexing
+  # a malformed legacy entry — dropped keys are re-discovered via the recovery search.
+  up="$(jq -c 'if (type=="object" and (.patterns|type=="object"))
+                 then {version:1, last_run_at:(.last_run_at // null),
+                       patterns:(.patterns | with_entries(select(.value
+                         | type=="object" and (.gh_issue|type=="number") and (.sessions|type=="array"))))}
+                 else empty end' "$f" 2>/dev/null || true)"
+  if [ -n "$up" ]; then
+    echo "monitor-dedup: NOTICE upgraded legacy state to version:1 (compatible patterns preserved; original at $f.pre-v1.bak)" >&2
+    printf '%s' "$up"
+  else
+    echo "monitor-dedup: WARNING existing state is not version:1 and not upgradable — starting fresh (original kept at $f.pre-v1.bak)" >&2
+    printf '%s' '{"version":1,"last_run_at":null,"patterns":{}}'
+  fi
+}
+
 REPO=""; DRY_RUN=0; LABELS="monitor,customer-issue"; REPRO_RECIPE=""
 declare -A ISSUE_STATE_CACHE
 
@@ -119,7 +152,7 @@ _recover_issue() {  # args: pattern_key entity("" if none)
 }
 
 cmd_commit() {
-  local state_file="" failed=0; local malformed=()
+  local state_file="" op_failed=0; local malformed=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --state)        [ $# -ge 2 ] || _die "commit: --state needs a value"; state_file="$2"; shift 2 ;;
@@ -140,16 +173,21 @@ cmd_commit() {
     fi
   fi
 
-  local state; state="$(_read_state "$state_file")"
-  [ -n "$state" ] || state='{"version":1,"last_run_at":null,"patterns":{}}'
+  local state
+  state="$(_migrate_state "$state_file")" \
+    || _die "aborting: could not safely migrate non-v1 state file '$state_file' (backup failed; original left intact)"
 
   local raw f pk sev ent title body summary
   while IFS= read -r raw || [ -n "$raw" ]; do
     [ -z "$raw" ] && continue
     f="$(_validate "$raw")"
-    if [ -z "$f" ]; then failed=1; malformed+=("$raw"); echo '{"action":"malformed"}'; continue; fi
+    if [ -z "$f" ]; then malformed+=("$raw"); echo '{"action":"malformed"}'; continue; fi
     pk="$(printf '%s' "$f"      | jq -r '.pattern_key')"
-    sev="$(printf '%s' "$f"     | jq -r '.severity')"
+    sev="$(printf '%s' "$f"     | jq -r '.severity' | tr '[:upper:]' '[:lower:]')"
+    # Constrain severity to the known label set so a typo'd/unsupported value can't fork a
+    # junk grey label (#86). Pure case differences normalize silently; truly-unknown values
+    # fall back to "medium" with a one-line warning.
+    case "$sev" in high|medium|low) ;; *) echo "monitor-dedup: WARNING unsupported severity '$sev' for '$pk' — using 'medium'" >&2; sev="medium" ;; esac
     ent="$(printf '%s' "$f"     | jq -r '.entity // ""')"     # null → ""
     title="$(printf '%s' "$f"   | jq -r '.title')"
     body="$(printf '%s' "$f"    | jq -r '.body')"
@@ -176,7 +214,7 @@ cmd_commit() {
         state="$(printf '%s' "$state" | jq --arg k "$pk" --arg e "$ent" --arg ts "$(_now_iso)" '.patterns[$k].sessions += [$e] | .patterns[$k].last_seen=$ts')"
         jq -nc --arg pk "$pk" --arg e "$ent" --argjson i "$issue" '{action:"comment",pattern_key:$pk,entity:$e,issue:$i}'
       else
-        failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
+        op_failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
       fi
       continue
     fi
@@ -189,7 +227,7 @@ cmd_commit() {
         state="$(printf '%s' "$state" | jq --arg k "$pk" --argjson n "$rec" --arg e "$ent" --arg ts "$(_now_iso)" '.patterns[$k]={gh_issue:$n,sessions:[$e],first_seen:$ts,last_seen:$ts}')"
         jq -nc --arg pk "$pk" --arg e "$ent" --argjson i "$rec" '{action:"comment",pattern_key:$pk,entity:$e,issue:$i}'
       else
-        failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
+        op_failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
       fi
       continue
     fi
@@ -207,12 +245,12 @@ cmd_commit() {
     if out="$(_gh issue create --title "$title" --label "$LABELS,$sev" --body "$(_new_body "$body" "$pk" "$ent")")"; then
       num="$(printf '%s' "$out" | grep -oE '[0-9]+$' | tail -1)"
       if [ -z "$num" ] || [ "$num" = 0 ]; then
-        failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'; continue
+        op_failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'; continue
       fi
       state="$(printf '%s' "$state" | jq --arg k "$pk" --argjson n "$num" --arg e "$ent" --arg ts "$(_now_iso)" '.patterns[$k]={gh_issue:$n,sessions:[$e],first_seen:$ts,last_seen:$ts}')"
       jq -nc --arg pk "$pk" --arg e "$ent" --argjson n "$num" '{action:"create",pattern_key:$pk,entity:$e,issue:$n}'
     else
-      failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
+      op_failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
     fi
   done
 
@@ -222,7 +260,11 @@ cmd_commit() {
     local mpk="ops:monitor-input:malformed" missue
     missue="$(printf '%s' "$state" | jq -r --arg k "$mpk" '.patterns[$k].gh_issue // empty')"
     if [ -n "$missue" ] && [ "$(_issue_open "$missue")" = yes ]; then
-      :   # an open malformed-input tracking issue already exists — don't file a duplicate every run
+      # An open tracking issue already exists — don't file a duplicate, but append the new
+      # malformed lines as a recurrence comment so recurring-but-changing bad input stays
+      # visible run-to-run (#85). A failed comment must not freeze the window, hence `|| true`.
+      _gh issue comment "$missue" --body "$(printf 'Recurrence (%s): %s more unparseable / invalid finding line(s):\n\n```\n%s\n```\n' \
+        "$(_now_iso)" "${#malformed[@]}" "$(printf '%s\n' "${malformed[@]}")")" || true
     else
       local _mlbls; IFS=',' read -ra _mlbls <<< "$LABELS"
       _ensure_labels "${_mlbls[@]}" high
@@ -237,11 +279,16 @@ cmd_commit() {
     fi
   fi
 
-  if [ "$failed" = 0 ]; then
+  # Advance the window whenever there was no transient gh op failure. Malformed input does
+  # NOT freeze the window: it is escalated via the tracking issue and re-emits every run, so
+  # freezing on it pins the look-back at the 48h cap forever (silent degradation, #85).
+  if [ "$op_failed" = 0 ]; then
     state="$(printf '%s' "$state" | jq --arg ts "$(_now_iso)" '.last_run_at=$ts')"
   fi
   _write_state "$state_file" "$state"
-  [ "$failed" = 0 ]
+  # Non-zero exit if a gh op failed OR any malformed input was seen — both warrant operator
+  # attention — even though only op failures freeze the window.
+  [ "$op_failed" = 0 ] && [ "${#malformed[@]}" -eq 0 ]
 }
 
 main() {

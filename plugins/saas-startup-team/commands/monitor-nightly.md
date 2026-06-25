@@ -28,7 +28,19 @@ CONFIG="$GIT_ROOT/.claude/saas-startup-team.local.md"
 # Scope parsing to the `monitor:` block only (from `monitor:` to the next top-level key
 # or the closing `---`), so keys never collide with the regression-gate's top-level keys.
 mon_block=""; [ -f "$CONFIG" ] && mon_block="$(sed -n '/^[[:space:]]*monitor:[[:space:]]*$/,/^[^[:space:]#]/p' "$CONFIG")"
-cfg() { printf '%s\n' "$mon_block" | grep -oP "^\s+$1:\s*\K.*" | head -1 | sed -E 's/^["'"'"']//; s/["'"'"']$//'; }
+# Each value is single-line. A trailing ` # comment` (YAML-style: whitespace before the `#`)
+# and trailing whitespace are stripped, surrounding quotes are removed, a bare block scalar
+# (`|`/`>`) yields empty (block scalars are NOT supported), and a literal `\n` becomes a real
+# newline — so a multi-line value (e.g. repro_recipe) has a safe single-line spelling. (#87)
+cfg() {
+  # sed1 (on the raw value, quotes intact): for UNQUOTED values only, strip a ` # comment`;
+  #   always trim trailing whitespace and blank a bare block scalar (`|`/`>`).
+  # sed2: remove a single pair of surrounding quotes. sed3: literal `\n` → real newline.
+  printf '%s\n' "$mon_block" | grep -oP "^\s+$1:\s*\K.*" | head -1 \
+    | sed -E '/["'"'"']/!s/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^[|>]$//' \
+    | sed -E 's/^["'"'"']//; s/["'"'"']$//' \
+    | sed -E 's/\\n/\n/g'
+}
 
 REPO=""; MARKER_DIR=".monitor"; STATE_FILE=".startup/monitor-state.json"
 CUSTOM_CHECKS=".startup/monitor-checks.sh"; LABELS="monitor,customer-issue"; REPRO_RECIPE=""
@@ -57,7 +69,7 @@ flock -n 9 || { echo "monitor: another run holds the lock; exiting"; exit 0; }
 ## Scan window
 
 ```bash
-eval "$(bash "$ENGINE" window --state "$STATE_FILE")"
+eval "$("$ENGINE" window --state "$STATE_FILE")"
 export MONITOR_SINCE MONITOR_SINCE_MINUTES
 ```
 
@@ -116,7 +128,7 @@ FINDINGS="${STATE_FILE:-.startup/monitor-state.json}.findings"
 # keeps that from tripping the pipeline under `set -o pipefail`; the engine handles empty stdin
 # (advances last_run_at, writes initialized state) and exits 0.
 { grep -v '^[[:space:]]*$' "$FINDINGS" || true; } \
-  | bash "$ENGINE" commit --state "$STATE_FILE" $REPO_FLAG \
+  | "$ENGINE" commit --state "$STATE_FILE" $REPO_FLAG \
       --labels "$LABELS" --repro-recipe "$REPRO_RECIPE" $DRY_RUN_FLAG
 ```
 
@@ -141,3 +153,28 @@ If `--dry-run`, prefix every line with `[DRY RUN]`.
 
 Ensure `ANTHROPIC_API_KEY`, authenticated `gh`, `jq`, GNU `date`, and `flock` are available in the
 cron environment.
+
+### Hardened cron (narrow tool scope)
+
+This monitor pulls **customer-controlled content** (feedback text, custom-checks output) into
+Claude's context, so it is prompt-injection-sensitive. For that threat model, scope
+`--allowedTools` to the *narrowest* Bash set instead of a blanket `Bash`. The engine
+(`monitor-dedup.sh`) is invoked **directly** (it is executable with a shebang — not wrapped in
+a `bash <script>` call), so you can grant just the engine path and drop the full-shell
+`Bash(bash:*)` that a `bash <script>` invocation would otherwise force:
+
+```bash
+# 0 2 * * *  cd /path/to/product && claude -p "/monitor-nightly" --allowedTools \
+#   'Bash($CLAUDE_PLUGIN_ROOT/scripts/monitor-dedup.sh:*),Bash(flock:*),Bash(mkdir:*),Bash(jq:*),Bash(grep:*),Bash(sed:*),Bash(tr:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(basename:*),Bash(dirname:*),Bash(date:*),Read,Write,Grep,Glob' \
+#   >> /var/log/monitor-nightly.log 2>&1
+```
+
+Add `Bash(<your custom_checks path>:*)` if a `custom_checks` script is configured. A successful
+injection via customer content then cannot exec arbitrary commands — only the allowlisted
+utilities — because `Bash(bash:*)` is no longer in scope.
+
+Note the GitHub CLI is intentionally **absent** from this list: the command never calls it
+directly — all GitHub I/O is encapsulated in the engine and runs as a *child process* of the
+allowlisted engine, so it never reaches the Bash permission layer. The CLI only needs to be
+installed and authenticated in the environment (per the prerequisites above), not granted as a
+tool. Granting it here would needlessly widen the blast radius.
