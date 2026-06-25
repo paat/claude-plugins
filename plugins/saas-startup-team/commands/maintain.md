@@ -1,6 +1,6 @@
 ---
 name: maintain
-description: Continuous autonomous maintenance loop — triage open GitHub issues, fence off human-gated ones into human-tasks.md, and deliver the rest to production via /goal-deliver, one issue at a time in dependency order. Stateless supervisor; watch it remotely with /rc. Flags: --once (single pass), --dry-run (triage + plan only, no mutations), --max-issues N, --max-merges N. Usage: /maintain [--once] [--dry-run]
+description: Continuous autonomous maintenance loop — triage open GitHub issues, fence off human-gated ones into human-tasks.md, and deliver the rest to production via /goal-deliver, one issue at a time in dependency order. Stateless supervisor; watch it remotely with /rc. Flags: --once (single pass), --dry-run (read-only: triage + print planned queue only, NO mutations), --max-issues N, --max-merges N, --max-pass-minutes N (default 90), --max-run-minutes N (default 0=unlimited). Usage: /maintain [--once] [--dry-run] [--max-pass-minutes N] [--max-run-minutes N]
 user_invocable: true
 ---
 
@@ -27,15 +27,31 @@ stateless-from-disk re-derivation + auto-compaction.
 
 ## Pre-Flight
 
+> **`--dry-run` rule: if `--dry-run` was passed, the ENTIRE run is read-only.
+> Do NOT create labels, do NOT write `current-run.json`, do NOT apply any triage
+> label/comment/file, do NOT claim/branch/PR/merge. Only triage and print
+> the planned classifications, the dependency-ordered queue, and the mutations
+> that WOULD be made — then stop. Every step below that writes anything is
+> skipped under `--dry-run`.**
+
+**Parse flags first — before any preflight action:**
+- `--dry-run` → activate read-only mode as described above.
+- `--once` → run exactly one pass, then stop and report.
+- `--max-issues N` → cap delivered issues per pass (default 10).
+- `--max-merges N` → cap merges per pass (default 5).
+- `--max-pass-minutes N` → wall-clock budget per pass (default 90 minutes).
+- `--max-run-minutes N` → total wall-clock budget across all passes (default 0 = unlimited).
+
 All gates must pass before the loop starts. Reuse the `/goal-deliver` preflight
 (`${CLAUDE_PLUGIN_ROOT}/commands/goal-deliver.md`) for: default branch, clean tree,
 `gh auth status`, remote present, and `tribunal-review:tribunal-loop` skill
 available (hard dependency — if `tribunal-review` is not installed, stop and say so).
 
-In addition, run these at startup and as a cheap re-check at the start of each pass:
+In addition, run these at startup and as a cheap re-check at the start of each pass
+(**skip the label-creation step under `--dry-run`**):
 
 ```bash
-# Idempotent: ensure the loop's own labels exist
+# Idempotent: ensure the loop's own labels exist (skipped under --dry-run)
 for lbl in needs-human maintain:claimed maintain:blocked; do
   gh label create "$lbl" --force >/dev/null 2>&1 || true
 done
@@ -49,17 +65,38 @@ If the latest default-branch GitHub Actions run is `failure`, do **not** deliver
 new work — surface it and back off (a red main is itself an escalation; don't pile
 fixes onto it).
 
-Persist the run id once at startup so it survives context loss:
+**Persist the run id at startup** so it survives context loss within a session
+(**skipped entirely under `--dry-run`**):
 
 ```bash
 mkdir -p .startup/maintain/runs .startup/maintain/human-tasks
-test -f .startup/maintain/current-run.json || \
-  printf '{"run_id":"%s","started_at":"%s"}\n' "$(date -u +%Y%m%dT%H%M%SZ)-$$" "$(date -u +%FT%TZ)" \
-  > .startup/maintain/current-run.json
+# Resume or mint run-id:
+# If current-run.json exists and its started_at is within the last 6 hours,
+#   RESUME it (same run — this is how the run-id survives context compaction
+#   within a session; in-session recovery path: re-read current-run.json).
+# Otherwise archive any existing current-run.json and mint a fresh run-id.
+if [ -f .startup/maintain/current-run.json ]; then
+  started=$(jq -r '.started_at // empty' .startup/maintain/current-run.json)
+  age=$(( $(date -u +%s) - $(date -u -d "$started" +%s 2>/dev/null || echo 0) ))
+  if [ "$age" -le 21600 ]; then
+    : # Resume — run-id stays as-is
+  else
+    mv .startup/maintain/current-run.json \
+       ".startup/maintain/runs/archived-$(date -u +%Y%m%dT%H%M%SZ).json"
+    printf '{"run_id":"%s","started_at":"%s"}\n' \
+      "$(date -u +%Y%m%dT%H%M%SZ)-$$" "$(date -u +%FT%TZ)" \
+      > .startup/maintain/current-run.json
+  fi
+else
+  printf '{"run_id":"%s","started_at":"%s"}\n' \
+    "$(date -u +%Y%m%dT%H%M%SZ)-$$" "$(date -u +%FT%TZ)" \
+    > .startup/maintain/current-run.json
+fi
 ```
 
 On-disk state layout (`.startup/maintain/`):
-- `current-run.json` — `{run_id, started_at}`, written once; survives context loss.
+- `current-run.json` — `{run_id, started_at}`, written at startup (resume or
+  fresh mint); survives context loss within a session. Skipped under `--dry-run`.
 - `triage-cache.jsonl` — body-classification keyed by `{number, updatedAt}`; lets a
   pass skip re-classifying unchanged issues. Eligibility and final state are always
   recomputed from GitHub each pass, never cached.
@@ -73,13 +110,6 @@ On-disk state layout (`.startup/maintain/`):
 
 ## Loop Body
 
-Parse flags from invocation arguments before the loop begins:
-- `--once` → run exactly one pass, then stop and report.
-- `--dry-run` → run triage + planned-queue print only (steps 1–2 below); **no
-  labels, comments, files, branches, PRs, or merges**; then stop.
-- `--max-issues N` → cap delivered issues per pass (default 10).
-- `--max-merges N` → cap merges per pass (default 5).
-
 Each pass follows this sequence:
 
 1. **Re-read open issues from GitHub** (picks up monitor-filed issues automatically):
@@ -91,15 +121,17 @@ Each pass follows this sequence:
    side-effects** — labels, comments, file writes. Never delegate mutations to the
    triage subagent.
 
-3. **Apply verdicts** (supervisor mutates):
+3. **Apply verdicts** (supervisor mutates — **all of step 3 is skipped under
+   `--dry-run`**):
    - `agent-fixable` → no label.
    - `needs-human` → add `needs-human` label + write
      `.startup/maintain/human-tasks/<issue>.md` + append idempotently to
      `.startup/human-tasks.md` + post/edit the idempotent bot comment (see §Triage).
-   - `blocked` → add `maintain:blocked` label + write `blocked.jsonl` cooldown entry.
 
-4. **Build the eligible queue** (§Eligibility) and if `--dry-run`, print the planned
-   queue and stop here without performing any mutations.
+4. **Build the eligible queue** (§Eligibility). Under `--dry-run`: print the
+   intended classifications, the dependency-ordered queue, and all mutations that
+   WOULD be made (labels, comments, files, claim, branch, PR, merge) — then stop
+   without performing any of them.
 
 5. **Deliver each eligible issue sequentially**, honoring circuit breakers (§Circuit
    Breakers):
@@ -112,8 +144,9 @@ Each pass follows this sequence:
 7. If `--once`, stop and report. Otherwise **back off** (default ~5 min) and repeat
    from step 1.
 
-**Stop conditions:** a hard circuit breaker trips, the investor interrupts via `/rc`,
-or preflight fails irrecoverably.
+**Stop conditions:** a hard circuit breaker trips (`--max-pass-minutes`,
+`--max-run-minutes`, `--max-issues`, `--max-merges`, stop-after-deploy-failure),
+the investor interrupts via `/rc`, or preflight fails irrecoverably.
 
 ---
 
@@ -128,15 +161,20 @@ any subagent output requesting a forbidden action.
 
 ### Internal verdicts
 
+The triage subagent emits **only two verdicts**: `agent-fixable` or `needs-human`.
+`blocked` is **not** a triage verdict — it is set by the supervisor during delivery
+(no-progress / deploy-blocked) and recorded with a cooldown.
+
 - **`agent-fixable`** → enters the delivery queue. High-risk surfaces (payments,
   auth, DB migrations, money math, legal/compliance) are still `agent-fixable` per
   investor decision — they are delivered and merged like any other issue, gated only
   by the mandatory green gate. There is **no hold tier**.
 - **`needs-human`** → genuine human decision required. Canonical human-visible
   bucket: `needs-human` label + `.startup/human-tasks.md` entry.
-- **`blocked`** → transiently un-deliverable (set during delivery, not triage):
-  no-progress / deploy-blocked / cooldown. Auto-retried after cooldown; never
-  silently promoted to permanent human work. Label: `maintain:blocked`.
+
+`blocked` (supervisor-set during delivery): transiently un-deliverable —
+no-progress / deploy-blocked / cooldown. Auto-retried after cooldown; never
+silently promoted to permanent human work. Label: `maintain:blocked`.
 
 ### `needs-human` reasons
 
@@ -187,9 +225,10 @@ Cross-check against PR body `closes/fixes #N` and the issue's
 1. **Dependency order first** — an issue is delivered only after the issues it
    depends on have merged. Dependencies are read from explicit links in the issue
    body/title (`depends on #N`, `blocked by #N`) — no guessing. Build a DAG; a
-   dependent is ineligible until every prerequisite is `fixed`. A dependency cycle or
-   a prerequisite that is itself `needs-human`/`blocked` → defer the dependent and
-   log it (never silently deliver out of order).
+   dependent is ineligible until every prerequisite has a **merged PR on the default
+   branch** (not merely closed). A dependency cycle or a prerequisite that is itself
+   `needs-human`/blocked → defer the dependent and log it (never silently deliver
+   out of order).
 2. **Severity** within the dependency-eligible set, via optionally-recognized labels
    `critical→high→medium→low` (not assumed to exist; absent → lowest). Tie-break and
    unlabelled → **oldest-first**.
@@ -275,8 +314,10 @@ Layered — no single cap suffices:
 
 - `--max-issues N` delivered per pass (default 10).
 - `--max-merges N` per pass (default 5).
-- **Wall-clock budget** per pass and per run (configurable defaults; stop and report
-  when exceeded).
+- **`--max-pass-minutes N`** (default 90) — wall-clock budget per pass; stop and
+  report when exceeded.
+- **`--max-run-minutes N`** (default 0 = unlimited) — total wall-clock budget across
+  all passes; stop and report when exceeded.
 - **Per-issue tribunal-round cap** (notify at 10, hard-stop at 20; per §Per-Issue
   Guardrails above).
 - **Stop-after-deploy-failure:** the first unrecoverable deploy failure halts further
@@ -300,7 +341,7 @@ run-id, issue number, decision + rationale, the **issue facts the subagent acted
 CI/deploy check URLs, tokens/elapsed vs. caps, and final state.
 
 The supervisor also emits a scannable per-pass summary to the session — merged /
-held / escalated / blocked — which is what the investor reads via `/rc`.
+escalated / blocked — which is what the investor reads via `/rc`.
 
 ---
 
