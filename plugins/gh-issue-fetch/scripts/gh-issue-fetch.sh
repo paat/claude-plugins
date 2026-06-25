@@ -51,6 +51,13 @@ ext_for_mime() {
   esac
 }
 
+# stdin: issue body. stdout: "checked\t<num>" / "unchecked\t<num>" per child.
+parse_task_list() {
+  grep -oiE '^[[:space:]]*[-*][[:space:]]+\[[ xX]\][[:space:]]+#[0-9]+' \
+    | sed -E 's/^[[:space:]]*[-*][[:space:]]+\[([ xX])\][[:space:]]+#([0-9]+).*/\1\t\2/' \
+    | awk -F'\t' '{ st=($1=="x"||$1=="X")?"checked":"unchecked"; print st"\t"$2 }'
+}
+
 # Stub subcommands (filled in later tasks).
 cmd_issue() { echo "not yet implemented" >&2; exit 1; }
 cmd_epic()  { echo "not yet implemented" >&2; exit 1; }

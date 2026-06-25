@@ -38,5 +38,13 @@ check "mime jpeg" "jpg" "$(ext_for_mime image/jpeg)"
 check "mime pdf"  "pdf" "$(ext_for_mime application/pdf)"
 check "mime unknown" "bin" "$(ext_for_mime application/octet-stream)"
 
+# --- Task 4: parse_task_list ---
+total="$(parse_task_list < "$FIX/epic-body.md" | wc -l | tr -d ' ')"
+check "parses 4 children" 4 "$total"
+checked="$(parse_task_list < "$FIX/epic-body.md" | grep -c '^checked')"
+check "2 checked" 2 "$checked"
+nums="$(parse_task_list < "$FIX/epic-body.md" | awk '{print $2}' | paste -sd, -)"
+check "child numbers in order" "101,102,103,104" "$nums"
+
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"
 exit "$fail"
