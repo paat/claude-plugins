@@ -149,15 +149,33 @@ In addition, run these at startup and as a cheap re-check at the start of each p
 for lbl in needs-human maintain:claimed maintain:blocked; do
   gh label create "$lbl" --force >/dev/null 2>&1 || true
 done
-# Light health gate: do not deliver onto a red main
+# Health gate: back off only if a REQUIRED check on the default tip is failing.
+# A non-required check (docs-sync, lint, advisory job) must NEVER wedge the loop —
+# `gh run list --limit 1` would do exactly that, latching onto whichever workflow ran
+# most recently, so it is NOT used. The real safety gate is required-check enforcement
+# at MERGE time (§Merge Safety); this is only an optimization to skip a pass when main
+# is genuinely broken.
 default=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo main)
-last=$(gh run list --branch "$default" --limit 1 --json conclusion -q '.[0].conclusion')
-# if "$last" is failure -> surface + back off, do not deliver this pass
+# Names of required checks (empty if branch protection is unreadable or none configured):
+req=$(gh api "repos/{owner}/{repo}/branches/$default/protection/required_status_checks" \
+        --jq '(.contexts // [])[], (.checks // [])[].context' 2>/dev/null | sort -u)
+# Names of checks/statuses currently FAILING on the default tip (check-runs + legacy statuses):
+failed=$( { gh api "repos/{owner}/{repo}/commits/$default/check-runs" --paginate \
+              --jq '.check_runs[] | select(.conclusion=="failure" or .conclusion=="timed_out" or .conclusion=="cancelled" or .conclusion=="startup_failure") | .name'; \
+            gh api "repos/{owner}/{repo}/commits/$default/status" \
+              --jq '.statuses[] | select(.state=="failure" or .state=="error") | .context'; \
+          } 2>/dev/null | sort -u )
+# Back off ONLY if a failing check is also required. Empty `req` (protection unreadable)
+# → do NOT back off: merge-time enforcement still guards every PR.
+blocked=$(comm -12 <(printf '%s\n' "$req") <(printf '%s\n' "$failed"))
+# if [ -n "$blocked" ] -> surface "$blocked" + back off, do not deliver this pass
 ```
 
-If the latest default-branch GitHub Actions run is `failure`, do **not** deliver
-new work — surface it and back off (a red main is itself an escalation; don't pile
-fixes onto it).
+If a **required** check on the default tip is `failure`, do **not** deliver new work —
+surface the failing required check(s) and back off (a genuinely red main is itself an
+escalation; don't pile fixes onto it). A failing **non-required** check (e.g. a
+docs-sync or lint job) does **not** gate delivery — note it in the digest and proceed;
+the merge-time required-check gate is the real safety boundary.
 
 **Persist the run id at startup** so it survives context loss within a session
 (**skipped entirely under `--dry-run`**):
