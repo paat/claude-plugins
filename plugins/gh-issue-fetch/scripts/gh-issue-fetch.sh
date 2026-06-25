@@ -33,6 +33,24 @@ extract_asset_urls() {
     | awk '!seen[$0]++'
 }
 
+# Sanitize a path component: replace non-alphanumeric (except . _ -) with -.
+sanitize_component() {
+  printf '%s' "$1" | sed -E 's/[^A-Za-z0-9._-]/-/g'
+}
+
+# Map mime type to file extension; default "bin" for unknown.
+ext_for_mime() {
+  case "$1" in
+    image/png)      echo png ;;
+    image/jpeg)     echo jpg ;;
+    image/gif)      echo gif ;;
+    image/webp)     echo webp ;;
+    image/svg+xml)  echo svg ;;
+    application/pdf) echo pdf ;;
+    *)              echo bin ;;
+  esac
+}
+
 # Stub subcommands (filled in later tasks).
 cmd_issue() { echo "not yet implemented" >&2; exit 1; }
 cmd_epic()  { echo "not yet implemented" >&2; exit 1; }

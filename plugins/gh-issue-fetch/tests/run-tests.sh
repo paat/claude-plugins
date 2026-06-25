@@ -29,5 +29,14 @@ no_example="$(extract_asset_urls < "$FIX/body-urls.md" | grep -c 'example.com' |
 check "excludes non-asset link" 0 "$no_example"
 check "strips trailing dot" 1 "$(extract_asset_urls < "$FIX/body-urls.md" | grep -c '/punct-test.png$')"
 
+# --- Task 3: sanitize_component + ext_for_mime ---
+check "sanitize slashes" "r-53-ou-aruannik" "$(sanitize_component 'r-53-ou/aruannik')"
+check "sanitize dots ok"  "a.b_c-d"          "$(sanitize_component 'a.b_c-d')"
+check "sanitize traversal" "..-..-etc-passwd" "$(sanitize_component '../../etc/passwd')"
+check "mime png" "png" "$(ext_for_mime image/png)"
+check "mime jpeg" "jpg" "$(ext_for_mime image/jpeg)"
+check "mime pdf"  "pdf" "$(ext_for_mime application/pdf)"
+check "mime unknown" "bin" "$(ext_for_mime application/octet-stream)"
+
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"
 exit "$fail"
