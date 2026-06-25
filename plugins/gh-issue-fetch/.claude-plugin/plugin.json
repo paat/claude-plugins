@@ -1,6 +1,6 @@
 {
   "name": "gh-issue-fetch",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "Fetch GitHub issue details with auth-gated images downloaded locally, plus epic task-list resolution — so Claude can read issue screenshots and reason about epic progress",
   "author": {
     "name": "Andre Paat"
