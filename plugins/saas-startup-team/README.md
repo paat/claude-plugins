@@ -45,7 +45,7 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:improve` | One-shot improvements on a completed product |
 | `/saas-startup-team:goal-deliver` | Deliver a set of tasks (issues, milestone, spec, or free text) end-to-end: plan into chunks, ship each via `/improve` + closing tribunal loop + merge to main, then monitor and fix the GitHub Actions deploy. Pairs with built-in `/goal` for autonomy. Requires the `tribunal-review` plugin. |
 | `/saas-startup-team:ads` | Design a Google Ads campaign — spawns the `google-ads-strategist` plugin's `ads-strategist` (hard dependency) to design, browser-verify, and create the campaign in PAUSED state for investor review. The `/growth` loop also delegates here automatically. |
-| `/saas-startup-team:maintain` | Continuous autonomous maintenance loop: triage open issues, fence human-gated ones into `human-tasks.md`, and deliver the rest to production via `/goal-deliver` one-at-a-time in dependency order. Stateless supervisor; watch remotely via `/rc`. Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`. Requires the `tribunal-review` plugin. |
+| `/saas-startup-team:maintain` | Continuous autonomous maintenance loop: triage open issues, fence human-gated ones into `human-tasks.md`, and deliver the rest to production via `/goal-deliver` one-at-a-time in dependency order. Stateless supervisor; watch remotely via `/rc`. Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`. Requires the `tribunal-review` plugin. |
 
 ### Convergence governor (`/goal-deliver`)
 
@@ -157,7 +157,7 @@ Each line written to stdout by the engine or by `custom_checks` (the script is a
 
 ### Dependencies
 
-Authenticated `gh` (GitHub CLI), `jq`, GNU coreutils `date` (for `date -d` relative time parsing), `flock`.
+Authenticated `gh` (GitHub CLI), `jq`, GNU coreutils `date` (for `date -d` relative time parsing).
 
 ## Maintenance loop (`/maintain`)
 
@@ -195,7 +195,7 @@ The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues h
 ### Prerequisites and integration
 
 - **Requires the `tribunal-review` plugin** (hard dependency).
-- **Authenticated `gh` (GitHub CLI)** and standard tooling: `jq`, `flock`.
+- **Authenticated `gh` (GitHub CLI)** and standard tooling: `jq`, GNU coreutils `date`.
 - **Dev container only** (inherits the plugin's dev-container-only design).
 
 ## Prerequisites
