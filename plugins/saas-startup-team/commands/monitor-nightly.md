@@ -57,7 +57,7 @@ flock -n 9 || { echo "monitor: another run holds the lock; exiting"; exit 0; }
 ## Scan window
 
 ```bash
-eval "$(bash "$ENGINE" window --state "$STATE_FILE")"
+eval "$("$ENGINE" window --state "$STATE_FILE")"
 export MONITOR_SINCE MONITOR_SINCE_MINUTES
 ```
 
@@ -116,7 +116,7 @@ FINDINGS="${STATE_FILE:-.startup/monitor-state.json}.findings"
 # keeps that from tripping the pipeline under `set -o pipefail`; the engine handles empty stdin
 # (advances last_run_at, writes initialized state) and exits 0.
 { grep -v '^[[:space:]]*$' "$FINDINGS" || true; } \
-  | bash "$ENGINE" commit --state "$STATE_FILE" $REPO_FLAG \
+  | "$ENGINE" commit --state "$STATE_FILE" $REPO_FLAG \
       --labels "$LABELS" --repro-recipe "$REPRO_RECIPE" $DRY_RUN_FLAG
 ```
 
@@ -141,3 +141,28 @@ If `--dry-run`, prefix every line with `[DRY RUN]`.
 
 Ensure `ANTHROPIC_API_KEY`, authenticated `gh`, `jq`, GNU `date`, and `flock` are available in the
 cron environment.
+
+### Hardened cron (narrow tool scope)
+
+This monitor pulls **customer-controlled content** (feedback text, custom-checks output) into
+Claude's context, so it is prompt-injection-sensitive. For that threat model, scope
+`--allowedTools` to the *narrowest* Bash set instead of a blanket `Bash`. The engine
+(`monitor-dedup.sh`) is invoked **directly** (it is executable with a shebang — not wrapped in
+a `bash <script>` call), so you can grant just the engine path and drop the full-shell
+`Bash(bash:*)` that a `bash <script>` invocation would otherwise force:
+
+```bash
+# 0 2 * * *  cd /path/to/product && claude -p "/monitor-nightly" --allowedTools \
+#   'Bash($CLAUDE_PLUGIN_ROOT/scripts/monitor-dedup.sh:*),Bash(flock:*),Bash(mkdir:*),Bash(jq:*),Bash(grep:*),Bash(sed:*),Bash(tr:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(basename:*),Bash(dirname:*),Bash(date:*),Read,Write,Grep,Glob' \
+#   >> /var/log/monitor-nightly.log 2>&1
+```
+
+Add `Bash(<your custom_checks path>:*)` if a `custom_checks` script is configured. A successful
+injection via customer content then cannot exec arbitrary commands — only the allowlisted
+utilities — because `Bash(bash:*)` is no longer in scope.
+
+Note the GitHub CLI is intentionally **absent** from this list: the command never calls it
+directly — all GitHub I/O is encapsulated in the engine and runs as a *child process* of the
+allowlisted engine, so it never reaches the Bash permission layer. The CLI only needs to be
+installed and authenticated in the environment (per the prerequisites above), not granted as a
+tool. Granting it here would needlessly widen the blast radius.

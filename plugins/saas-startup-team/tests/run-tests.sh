@@ -2957,6 +2957,11 @@ test_monitor_dedup() {
   assert_file_not_contains "W16: no gh repo calls" "$cmd" 'gh repo'
   assert_file_not_contains "W16: no gh label calls" "$cmd" 'gh label'
   assert_file_not_contains "W16: no gh auth calls" "$cmd" 'gh auth'
+  # W16e: the engine is invoked DIRECTLY (executable + shebang), never via `bash "$ENGINE"`,
+  # so an injection-sensitive cron can scope --allowedTools to the engine path and drop the
+  # full-shell `Bash(bash:*)` grant (#89); a hardened narrow-scope cron is documented.
+  assert_file_not_contains "W16e: engine invoked directly, not via bash (#89)" "$cmd" 'bash "$ENGINE"'
+  assert_file_contains "W16e: documents hardened narrow tool-scope" "$cmd" "Hardened cron"
 
   # W17: extracted collect block writes a JSONL finding per marker (sanitized kind) to $STATE_FILE.findings
   workdir=$(make_workdir); mkdir -p "$workdir/.monitor"
