@@ -1,0 +1,9 @@
+{
+  "number": 7,
+  "title": "Button overflows on mobile",
+  "state": "OPEN",
+  "url": "https://github.com/o/r/issues/7",
+  "author": { "login": "alice" },
+  "labels": [ { "name": "bug" } ],
+  "body": "Repro screenshot:\n![bug](https://github.com/user-attachments/assets/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa)\n"
+}

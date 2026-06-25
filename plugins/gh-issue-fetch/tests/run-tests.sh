@@ -112,5 +112,45 @@ check "download_url returns 1 on transport failure" "1
 SURVIVED" "$rctf"
 rm -rf "$sd3"
 
+# --- Task 6: cmd_issue ---
+t6="$(mktemp -d)"
+GHIF_OUTDIR="$t6" bash -c '
+  source "'"$SCRIPT"'"
+  gh_json() {
+    case "$*" in
+      *"issue view"*) cat "'"$FIX"'/issue-view.json" ;;
+      *"issues/"*"/comments"*) cat "'"$FIX"'/comments.json" ;;
+      *) echo "{}" ;;
+    esac
+  }
+  download_url() { cp "'"$FIX"'/pixel.png" "$2"; printf "200\timage/png\t70"; }
+  cmd_issue 7 -R o/r
+' >/dev/null 2>&1
+check "issue.md created" 1 "$( [ -f "$t6/issue.md" ] && echo 1 || echo 0 )"
+check "two assets downloaded" 2 "$(ls "$t6/assets" 2>/dev/null | wc -l | tr -d ' ')"
+check "assets are png by sniff" 2 "$(ls "$t6/assets"/*.png 2>/dev/null | wc -l | tr -d ' ')"
+check "body url rewritten to relative" 1 "$(grep -c 'assets/001.png' "$t6/issue.md")"
+check "no raw asset url remains" 0 "$(grep -c 'user-attachments/assets' "$t6/issue.md" || true)"
+check "manifest valid json" 0 "$(jq -e '.assets|length==2' "$t6/manifest.json" >/dev/null 2>&1; echo $?)"
+rm -rf "$t6"
+
+# --- Task 6: no-image edge case ---
+t6b="$(mktemp -d)"
+GHIF_OUTDIR="$t6b" bash -c '
+  source "'"$SCRIPT"'"
+  gh_json() {
+    case "$*" in
+      *"issue view"*) cat "'"$FIX"'/issue-no-images.json" ;;
+      *"issues/"*"/comments"*) echo "[]" ;;
+      *) echo "{}" ;;
+    esac
+  }
+  download_url() { cp "'"$FIX"'/pixel.png" "$2"; printf "200\timage/png\t70"; }
+  cmd_issue 9 -R o/r
+' >/dev/null 2>&1
+check "no-image issue.md created" 1 "$( [ -f "$t6b/issue.md" ] && echo 1 || echo 0 )"
+check "no-image manifest has empty assets" 0 "$(jq -e '.assets|length==0' "$t6b/manifest.json" >/dev/null 2>&1; echo $?)"
+rm -rf "$t6b"
+
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"
 exit "$fail"
