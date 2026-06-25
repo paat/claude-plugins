@@ -58,6 +58,37 @@ parse_task_list() {
     | awk -F: '{ st=($1=="x"||$1=="X")?"checked":"unchecked"; print st"\t"$2 }'
 }
 
+require_tools() {
+  local t
+  for t in gh jq curl file; do
+    command -v "$t" >/dev/null 2>&1 || { echo "error: required tool '$t' not found" >&2; exit 3; }
+  done
+}
+
+gh_json() { gh "$@"; }
+
+# download_url <url> <dest>. Prints "<status>\t<ctype>\t<bytes>". 0 ok, 1 http>=400.
+download_url() {
+  local url="$1" dest="$2" maxbytes="${GHIF_MAX_BYTES:-52428800}" line status
+  line="$(curl -sSL \
+      -H "Authorization: token $(gh auth token)" \
+      --max-filesize "$maxbytes" \
+      -w '%{http_code}\t%{content_type}\t%{size_download}' \
+      -o "$dest" "$url" 2>/dev/null)" || true
+  printf '%s' "$line"
+  status="${line%%$'\t'*}"
+  [ -n "$status" ] && [ "$status" -lt 400 ] 2>/dev/null
+}
+
+repo_from_flag_or_remote() {
+  local prev="" a
+  for a in "$@"; do
+    if [ "$prev" = "-R" ]; then printf '%s' "$a"; return 0; fi
+    prev="$a"
+  done
+  gh repo view --json nameWithOwner -q .nameWithOwner
+}
+
 # Stub subcommands (filled in later tasks).
 cmd_issue() { echo "not yet implemented" >&2; exit 1; }
 cmd_epic()  { echo "not yet implemented" >&2; exit 1; }

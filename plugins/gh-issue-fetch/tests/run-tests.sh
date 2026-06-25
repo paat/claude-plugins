@@ -50,5 +50,29 @@ IFS=$'\t' read -r st_tab num_tab <<< "$line1"
 check "tab-split state" "unchecked" "$st_tab"
 check "tab-split number" "101" "$num_tab"
 
+# --- Task 5: wrappers ---
+# download_url builds the right curl invocation: stub curl, capture args.
+stubdir="$(mktemp -d)"
+cat > "$stubdir/curl" <<'STUB'
+#!/usr/bin/env bash
+echo "$@" > "$GHIF_CURL_ARGS_OUT"
+# emulate -w output for the -o success path
+printf '200\timage/png\t1234'
+STUB
+chmod +x "$stubdir/curl"
+cat > "$stubdir/gh" <<'STUB'
+#!/usr/bin/env bash
+[ "$1 $2" = "auth token" ] && { echo "gho_TESTTOKEN"; exit 0; }
+exit 0
+STUB
+chmod +x "$stubdir/gh"
+export GHIF_CURL_ARGS_OUT="$stubdir/args.txt"
+out="$(PATH="$stubdir:$PATH" bash -c 'source "'"$SCRIPT"'"; download_url https://github.com/user-attachments/assets/x "'"$stubdir"'/o.png"')"
+check "download_url prints status line" "200	image/png	1234" "$out"
+args="$(cat "$stubdir/args.txt")"
+check "no --location-trusted" 0 "$(echo "$args" | grep -c -- '--location-trusted' || true)"
+check "sends auth header" 1 "$(echo "$args" | grep -c 'Authorization: token gho_TESTTOKEN')"
+rm -rf "$stubdir"
+
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"
 exit "$fail"
