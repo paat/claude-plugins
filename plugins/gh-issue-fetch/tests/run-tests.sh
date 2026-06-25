@@ -177,5 +177,23 @@ check "flag-before-number: issue.md created" 1 "$( [ -f "$t6c/issue.md" ] && ech
 check "flag-before-number: issue 7 used (not 5)" 1 "$(grep -c '(#7)' "$t6c/issue.md" 2>/dev/null || echo 0)"
 rm -rf "$t6c"
 
+# --- Task 6: paginated comments (two concatenated JSON arrays) ---
+t6d="$(mktemp -d)"
+GHIF_OUTDIR="$t6d" bash -c '
+  source "'"$SCRIPT"'"
+  gh_json() {
+    case "$*" in
+      *"issue view"*) printf '\''%s'\'' '\''{"number":7,"title":"Paginated test","state":"OPEN","url":"https://github.com/o/r/issues/7","author":{"login":"alice"},"labels":[],"body":""}'\'' ;;
+      *"issues/"*"/comments"*) printf '\''%s'\'' '\''[{"id":1,"user":{"login":"u1"},"body":"![a](https://github.com/user-attachments/assets/cccccccc-cccc-cccc-cccc-cccccccccccc)"}][{"id":2,"user":{"login":"u2"},"body":"![b](https://github.com/user-attachments/assets/dddddddd-dddd-dddd-dddd-dddddddddddd)"}]'\'' ;;
+      *) echo "{}" ;;
+    esac
+  }
+  download_url() { cp "'"$FIX"'/pixel.png" "$2"; printf "200\timage/png\t70"; }
+  cmd_issue 7 -R o/r
+' >/dev/null 2>&1
+check "paginated comments render" 1 "$(grep -c '## Comments' "$t6d/issue.md")"
+check "both paginated comment images downloaded" 2 "$(ls "$t6d/assets" | wc -l | tr -d ' ')"
+rm -rf "$t6d"
+
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"
 exit "$fail"

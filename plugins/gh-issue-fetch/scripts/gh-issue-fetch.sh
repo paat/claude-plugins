@@ -129,7 +129,7 @@ cmd_issue() {
   local meta body comments
   meta="$(gh_json issue view "$issue" -R "$repo" --json number,title,state,author,labels,body,url)"
   body="$(printf '%s' "$meta" | jq -r '.body // ""')"
-  comments="$(gh_json api --paginate "repos/$owner/$name/issues/$issue/comments")"
+  comments="$(gh_json api --paginate "repos/$owner/$name/issues/$issue/comments" | jq -sc 'add // []')"
 
   # Combined text for URL extraction + the rendered markdown we will rewrite.
   local md
