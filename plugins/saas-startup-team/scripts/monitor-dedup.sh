@@ -119,7 +119,7 @@ _recover_issue() {  # args: pattern_key entity("" if none)
 }
 
 cmd_commit() {
-  local state_file="" failed=0; local malformed=()
+  local state_file="" op_failed=0; local malformed=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --state)        [ $# -ge 2 ] || _die "commit: --state needs a value"; state_file="$2"; shift 2 ;;
@@ -147,7 +147,7 @@ cmd_commit() {
   while IFS= read -r raw || [ -n "$raw" ]; do
     [ -z "$raw" ] && continue
     f="$(_validate "$raw")"
-    if [ -z "$f" ]; then failed=1; malformed+=("$raw"); echo '{"action":"malformed"}'; continue; fi
+    if [ -z "$f" ]; then malformed+=("$raw"); echo '{"action":"malformed"}'; continue; fi
     pk="$(printf '%s' "$f"      | jq -r '.pattern_key')"
     sev="$(printf '%s' "$f"     | jq -r '.severity')"
     ent="$(printf '%s' "$f"     | jq -r '.entity // ""')"     # null → ""
@@ -176,7 +176,7 @@ cmd_commit() {
         state="$(printf '%s' "$state" | jq --arg k "$pk" --arg e "$ent" --arg ts "$(_now_iso)" '.patterns[$k].sessions += [$e] | .patterns[$k].last_seen=$ts')"
         jq -nc --arg pk "$pk" --arg e "$ent" --argjson i "$issue" '{action:"comment",pattern_key:$pk,entity:$e,issue:$i}'
       else
-        failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
+        op_failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
       fi
       continue
     fi
@@ -189,7 +189,7 @@ cmd_commit() {
         state="$(printf '%s' "$state" | jq --arg k "$pk" --argjson n "$rec" --arg e "$ent" --arg ts "$(_now_iso)" '.patterns[$k]={gh_issue:$n,sessions:[$e],first_seen:$ts,last_seen:$ts}')"
         jq -nc --arg pk "$pk" --arg e "$ent" --argjson i "$rec" '{action:"comment",pattern_key:$pk,entity:$e,issue:$i}'
       else
-        failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
+        op_failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
       fi
       continue
     fi
@@ -207,12 +207,12 @@ cmd_commit() {
     if out="$(_gh issue create --title "$title" --label "$LABELS,$sev" --body "$(_new_body "$body" "$pk" "$ent")")"; then
       num="$(printf '%s' "$out" | grep -oE '[0-9]+$' | tail -1)"
       if [ -z "$num" ] || [ "$num" = 0 ]; then
-        failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'; continue
+        op_failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'; continue
       fi
       state="$(printf '%s' "$state" | jq --arg k "$pk" --argjson n "$num" --arg e "$ent" --arg ts "$(_now_iso)" '.patterns[$k]={gh_issue:$n,sessions:[$e],first_seen:$ts,last_seen:$ts}')"
       jq -nc --arg pk "$pk" --arg e "$ent" --argjson n "$num" '{action:"create",pattern_key:$pk,entity:$e,issue:$n}'
     else
-      failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
+      op_failed=1; jq -nc --arg pk "$pk" --arg e "$ent" '{action:"error",pattern_key:$pk,entity:$e,issue:null}'
     fi
   done
 
@@ -222,7 +222,11 @@ cmd_commit() {
     local mpk="ops:monitor-input:malformed" missue
     missue="$(printf '%s' "$state" | jq -r --arg k "$mpk" '.patterns[$k].gh_issue // empty')"
     if [ -n "$missue" ] && [ "$(_issue_open "$missue")" = yes ]; then
-      :   # an open malformed-input tracking issue already exists — don't file a duplicate every run
+      # An open tracking issue already exists — don't file a duplicate, but append the new
+      # malformed lines as a recurrence comment so recurring-but-changing bad input stays
+      # visible run-to-run (#85). A failed comment must not freeze the window, hence `|| true`.
+      _gh issue comment "$missue" --body "$(printf 'Recurrence (%s): %s more unparseable / invalid finding line(s):\n\n```\n%s\n```\n' \
+        "$(_now_iso)" "${#malformed[@]}" "$(printf '%s\n' "${malformed[@]}")")" || true
     else
       local _mlbls; IFS=',' read -ra _mlbls <<< "$LABELS"
       _ensure_labels "${_mlbls[@]}" high
@@ -237,11 +241,16 @@ cmd_commit() {
     fi
   fi
 
-  if [ "$failed" = 0 ]; then
+  # Advance the window whenever there was no transient gh op failure. Malformed input does
+  # NOT freeze the window: it is escalated via the tracking issue and re-emits every run, so
+  # freezing on it pins the look-back at the 48h cap forever (silent degradation, #85).
+  if [ "$op_failed" = 0 ]; then
     state="$(printf '%s' "$state" | jq --arg ts "$(_now_iso)" '.last_run_at=$ts')"
   fi
   _write_state "$state_file" "$state"
-  [ "$failed" = 0 ]
+  # Non-zero exit if a gh op failed OR any malformed input was seen — both warrant operator
+  # attention — even though only op failures freeze the window.
+  [ "$op_failed" = 0 ] && [ "${#malformed[@]}" -eq 0 ]
 }
 
 main() {

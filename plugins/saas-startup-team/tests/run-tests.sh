@@ -2711,7 +2711,10 @@ test_monitor_dedup() {
   assert_output_contains "W11b: mismatch → create" "$output" '"action":"create"'
   assert_file_not_contains "W11b: did not comment on 777" "$L" "issue comment 777"
 
-  # W12: malformed line → tracking issue + non-zero + window unchanged
+  # W12: malformed line → tracking issue + non-zero, BUT the window ADVANCES.
+  # Malformed input is NOT a transient op failure — it is already escalated via the
+  # tracking issue, and re-emits every run; freezing last_run_at on it causes silent
+  # window degradation (issue #85). Only real gh op failures may freeze the window.
   workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
   printf '{"version":1,"last_run_at":"2026-06-01T00:00:00Z","patterns":{}}' > "$state"
   printf '%s\n' 'this is not json' > "$workdir/f.jsonl"
@@ -2719,7 +2722,7 @@ test_monitor_dedup() {
     bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
   assert_exit_code "W12: malformed → non-zero" "$ec" 1
   assert_file_contains "W12: monitor-input:malformed filed" "$L" "monitor-input:malformed"
-  assert_equals "W12: window unchanged" "$(jq -r '.last_run_at' "$state")" "2026-06-01T00:00:00Z"
+  assert_output_not_contains "W12: window advanced past frozen ts" "$(jq -r '.last_run_at' "$state")" "2026-06-01T00:00:00Z"
 
   # W12b: multiple malformed lines → exactly ONE tracking issue
   workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
@@ -2729,7 +2732,9 @@ test_monitor_dedup() {
     bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
   assert_equals "W12b: one malformed issue" "$(grep -c 'monitor-input:malformed' "$L")" "1"
 
-  # W12c: an OPEN malformed-input tracking issue already in state → do NOT file a duplicate
+  # W12c: an OPEN malformed-input tracking issue already in state → do NOT file a duplicate,
+  # but DO append the new malformed lines as a recurrence comment (recurring signal, #85),
+  # and the window still ADVANCES (malformed is not a transient op failure).
   workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
   printf '{"version":1,"last_run_at":null,"patterns":{"ops:monitor-input:malformed":{"gh_issue":300,"sessions":[""],"first_seen":"2026-06-01T00:00:00Z","last_seen":"2026-06-01T00:00:00Z"}}}' > "$state"
   printf '%s\n' 'garbage' > "$workdir/f.jsonl"
@@ -2737,6 +2742,19 @@ test_monitor_dedup() {
     bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
   assert_exit_code "W12c: malformed run still non-zero" "$ec" 1
   assert_file_not_contains "W12c: no duplicate malformed issue created" "$L" "issue create"
+  assert_file_contains "W12c: recurrence comment appended to open tracking issue" "$L" "issue comment 300"
+  assert_output_not_contains "W12c: window advanced (null→ts)" "$(jq -r '.last_run_at' "$state")" "null"
+
+  # W12e: a malformed line PLUS a real gh op failure → op_failed freezes the window.
+  # Proves the window advances ONLY when there is no transient op failure (#85): the
+  # malformed line alone would advance it, but the failed create must still freeze it.
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":"2026-06-02T00:00:00Z","patterns":{}}' > "$state"
+  printf '%s\n%s\n' 'not json' '{"pattern_key":"payment:stuck","severity":"high","entity":"P-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=420 GH_FAIL_ON="issue create" \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W12e: op failure → non-zero" "$ec" 1
+  assert_equals "W12e: window frozen on op failure" "$(jq -r '.last_run_at' "$state")" "2026-06-02T00:00:00Z"
 
   # W13: gh create fails → not in state, non-zero, window unchanged
   workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
