@@ -183,7 +183,11 @@ cmd_commit() {
     f="$(_validate "$raw")"
     if [ -z "$f" ]; then malformed+=("$raw"); echo '{"action":"malformed"}'; continue; fi
     pk="$(printf '%s' "$f"      | jq -r '.pattern_key')"
-    sev="$(printf '%s' "$f"     | jq -r '.severity')"
+    sev="$(printf '%s' "$f"     | jq -r '.severity' | tr '[:upper:]' '[:lower:]')"
+    # Constrain severity to the known label set so a typo'd/unsupported value can't fork a
+    # junk grey label (#86). Pure case differences normalize silently; truly-unknown values
+    # fall back to "medium" with a one-line warning.
+    case "$sev" in high|medium|low) ;; *) echo "monitor-dedup: WARNING unsupported severity '$sev' for '$pk' — using 'medium'" >&2; sev="medium" ;; esac
     ent="$(printf '%s' "$f"     | jq -r '.entity // ""')"     # null → ""
     title="$(printf '%s' "$f"   | jq -r '.title')"
     body="$(printf '%s' "$f"    | jq -r '.body')"

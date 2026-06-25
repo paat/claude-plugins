@@ -2913,6 +2913,36 @@ test_monitor_dedup() {
   assert_file_not_contains "W20g: aborted before any gh create" "$L" "issue create"
   assert_equals "W20g: original state untouched" "$(cat "$workdir/ro/state.json")" "$(cat "$workdir/orig.json")"
 
+  # W21: a non-canonical severity ("High") is normalized to lowercase — no junk grey label (#86).
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"High","entity":"P-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=86 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W21: normalized-severity commit exits 0" "$ec" 0
+  assert_file_contains "W21: applies canonical 'high' label" "$L" ",high"
+  assert_file_not_contains "W21: no capitalized 'High' label" "$L" "High"
+
+  # W21b: an unsupported severity ("critical") maps to the default "medium" with a warning (#86).
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"payment:stuck","severity":"critical","entity":"P-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=87 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_exit_code "W21b: unknown-severity commit exits 0" "$ec" 0
+  assert_output_contains "W21b: warns about unsupported severity" "$output" "unsupported severity"
+  assert_file_contains "W21b: applies default 'medium' label" "$L" ",medium"
+  assert_file_not_contains "W21b: no junk 'critical' label" "$L" "critical"
+
+  # W21c: a canonical severity passes through unchanged, no warning (regression guard).
+  workdir=$(make_workdir); make_mock_gh "$workdir"; state="$workdir/state.json"; L="$workdir/gh.log"
+  printf '{"version":1,"last_run_at":null,"patterns":{}}' > "$state"
+  printf '%s\n' '{"pattern_key":"feedback:got","severity":"low","entity":"F-1","title":"T","body":"B"}' > "$workdir/f.jsonl"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=89 \
+    bash "$script" commit --state "$state" --repo o/r < "$workdir/f.jsonl" 2>&1) || ec=$?
+  assert_file_contains "W21c: applies 'low' label" "$L" ",low"
+  assert_output_not_contains "W21c: no warning for canonical severity" "$output" "unsupported severity"
+
   local cmd="$PLUGIN_ROOT/commands/monitor-nightly.md"
   # W16: command exists, right frontmatter, calls engine, uses flock, parses config — and NEVER calls gh
   assert_file_exists "W16: command exists" "$cmd"
