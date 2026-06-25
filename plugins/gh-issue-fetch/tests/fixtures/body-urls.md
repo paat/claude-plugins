@@ -7,3 +7,4 @@ Bare: https://github.com/user-attachments/assets/55555555-5555-5555-5555-5555555
 Legacy CDN: ![old](https://user-images.githubusercontent.com/123/abc-def.png)
 Duplicate of first: ![dup](https://github.com/user-attachments/assets/11111111-1111-1111-1111-111111111111)
 Not an asset: [a link](https://example.com/page)
+Trailing punctuation: ![p](https://user-images.githubusercontent.com/123/punct-test.png).

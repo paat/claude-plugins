@@ -17,15 +17,17 @@ check() { # check <name> <expected> <actual>
 
 # --- Task 2: extract_asset_urls ---
 source "$SCRIPT"
+set +e  # sourced script enabled errexit; keep the runner resilient
 got_count="$(extract_asset_urls < "$FIX/body-urls.md" | wc -l | tr -d ' ')"
-check "extracts 6 unique urls" 6 "$got_count"
+check "extracts 7 unique urls" 7 "$got_count"
 first="$(extract_asset_urls < "$FIX/body-urls.md" | head -1)"
 check "first url clean (no paren/title)" \
   "https://github.com/user-attachments/assets/11111111-1111-1111-1111-111111111111" "$first"
 has_cdn="$(extract_asset_urls < "$FIX/body-urls.md" | grep -c 'user-images.githubusercontent.com')"
-check "includes legacy cdn" 1 "$has_cdn"
+check "includes legacy cdn" 2 "$has_cdn"
 no_example="$(extract_asset_urls < "$FIX/body-urls.md" | grep -c 'example.com' || true)"
 check "excludes non-asset link" 0 "$no_example"
+check "strips trailing dot" 1 "$(extract_asset_urls < "$FIX/body-urls.md" | grep -c '/punct-test.png$')"
 
 [ "$fail" -eq 0 ] && echo "ALL GREEN" || echo "SOME RED"
 exit "$fail"

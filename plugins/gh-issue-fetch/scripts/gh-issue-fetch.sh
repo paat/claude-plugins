@@ -29,7 +29,7 @@ main() {
 # Read text on stdin, print unique attachment URLs (first-seen order).
 extract_asset_urls() {
   grep -oE '(https://github\.com/user-attachments/assets/[A-Za-z0-9-]+|https://[A-Za-z0-9.-]*githubusercontent\.com/[^][:space:]"'"'"'<>)]+)' \
-    | sed -E 's/[")'"'"'>]+$//' \
+    | sed -E 's/[")'"'"'>.,\]]+$//' \
     | awk '!seen[$0]++'
 }
 
