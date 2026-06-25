@@ -299,7 +299,8 @@ whether main moved during the run, and any health-check/migration output:
   further issues this pass**, surface to the investor.
 - **clearly broken deploy** (failing + not quickly fixable, or low-confidence) →
   **roll production back to last-good**: revert the loop's OWN merge from this pass
-  (`git revert -m 1 <merge-sha>` on a `revert/<slug>` branch), run required CI checks
+  (`git revert <squash-sha>` on a `revert/<slug>` branch — squash merges are a single
+  commit, so no `-m 1`), run required CI checks
   (no full tribunal — a revert restores already-reviewed code), merge to restore a
   deploying main, record `escalated:deploy-blocked` + revert-PR link, stop merging
   this pass. Never revert other actors' commits. If the revert can't go green, stop
