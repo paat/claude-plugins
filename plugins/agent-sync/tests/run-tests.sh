@@ -115,7 +115,7 @@ out_edit="$(printf '%s' "{\"tool_input\":{\"file_path\":\"$REGEN/AGENTS.md\"},\"
 if [[ -z "$out_edit" ]]; then echo "PASS: regen: editing AGENTS.md output is silent"; PASS=$((PASS+1));
 else echo "FAIL: regen: editing AGENTS.md output is silent — got: $out_edit"; FAIL=$((FAIL+1)); fi
 
-# --- Auto-stage (opt-in) in a git repo: default off, on only with AGENT_SYNC_AUTO_STAGE. --------
+# --- Auto-stage in a git repo: ON by default, opt out with AGENT_SYNC_AUTO_STAGE=0. ------------
 GITREPO="$TMP/gitregen"
 mkdir -p "$GITREPO/tools/agent-sync"
 cp "$GEN" "$GITREPO/tools/agent-sync/generate.sh"
@@ -132,25 +132,31 @@ git -C "$GITREPO" init -q
 git -C "$GITREPO" config user.email t@t.t
 git -C "$GITREPO" config user.name t
 
-# Default (no env): regenerate but DO NOT stage.
+# Default (no env): regenerate AND stage.
 printf 'changed' >> "$GITREPO/CLAUDE.md"
-printf '%s' "{\"tool_input\":{\"file_path\":\"$GITREPO/CLAUDE.md\"},\"cwd\":\"$GITREPO\"}" | bash "$HOOK" >/dev/null 2>&1
+stage_out="$(printf '%s' "{\"tool_input\":{\"file_path\":\"$GITREPO/CLAUDE.md\"},\"cwd\":\"$GITREPO\"}" | bash "$HOOK" 2>/dev/null)"
 if git -C "$GITREPO" diff --cached --name-only | grep -q '^AGENTS.md$'; then
-  echo "FAIL: auto-stage: AGENTS.md staged without opt-in"; FAIL=$((FAIL+1))
+  echo "PASS: auto-stage: staged by default"; PASS=$((PASS+1))
 else
-  echo "PASS: auto-stage: not staged by default"; PASS=$((PASS+1))
-fi
-
-# Opt-in: AGENT_SYNC_AUTO_STAGE=1 stages the regenerated output.
-printf 'more' >> "$GITREPO/CLAUDE.md"
-stage_out="$(printf '%s' "{\"tool_input\":{\"file_path\":\"$GITREPO/CLAUDE.md\"},\"cwd\":\"$GITREPO\"}" | AGENT_SYNC_AUTO_STAGE=1 bash "$HOOK" 2>/dev/null)"
-if git -C "$GITREPO" diff --cached --name-only | grep -q '^AGENTS.md$'; then
-  echo "PASS: auto-stage: staged with AGENT_SYNC_AUTO_STAGE=1"; PASS=$((PASS+1))
-else
-  echo "FAIL: auto-stage: not staged despite opt-in — got: $stage_out"; FAIL=$((FAIL+1))
+  echo "FAIL: auto-stage: not staged by default — got: $stage_out"; FAIL=$((FAIL+1))
 fi
 if [[ "$stage_out" == *"staged"* ]]; then echo "PASS: auto-stage: message reports staging"; PASS=$((PASS+1));
 else echo "FAIL: auto-stage: message reports staging — got: $stage_out"; FAIL=$((FAIL+1)); fi
+
+# Opt out: AGENT_SYNC_AUTO_STAGE=0 regenerates but leaves staging to the user.
+git -C "$GITREPO" reset -q
+printf 'more' >> "$GITREPO/CLAUDE.md"
+optout_out="$(printf '%s' "{\"tool_input\":{\"file_path\":\"$GITREPO/CLAUDE.md\"},\"cwd\":\"$GITREPO\"}" | AGENT_SYNC_AUTO_STAGE=0 bash "$HOOK" 2>/dev/null)"
+if git -C "$GITREPO" diff --cached --name-only | grep -q '^AGENTS.md$'; then
+  echo "FAIL: auto-stage: staged despite AGENT_SYNC_AUTO_STAGE=0 — got: $optout_out"; FAIL=$((FAIL+1))
+else
+  echo "PASS: auto-stage: opt-out (=0) does not stage"; PASS=$((PASS+1))
+fi
+if [[ "$optout_out" == *"regenerated AGENTS.md"* && "$optout_out" != *"staged"* ]]; then
+  echo "PASS: auto-stage: opt-out message omits staging"; PASS=$((PASS+1))
+else
+  echo "FAIL: auto-stage: opt-out message omits staging — got: $optout_out"; FAIL=$((FAIL+1))
+fi
 
 echo "-----"
 echo "PASS=$PASS FAIL=$FAIL"

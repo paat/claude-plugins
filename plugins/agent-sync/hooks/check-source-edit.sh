@@ -90,11 +90,12 @@ if [[ $gen_rc -ne 0 ]]; then
   emit "[agent-sync] Source changed but AGENTS.md auto-regeneration failed (exit $gen_rc): ${gen_out##*$'\n'}. Run /agent-sync:generate."
 fi
 
-# 11. Opt-in: stage regenerated outputs so the derived file rides along with the source change.
-#     Off by default — staging inside a hook is surprising and interferes with partial commits.
-auto_stage=""
+# 11. Stage regenerated outputs by default so the derived AGENTS.md rides along with the source
+#     change (correct-by-construction commits). Opt out with AGENT_SYNC_AUTO_STAGE=0 (or
+#     false/no/off) if you'd rather manage staging yourself.
+auto_stage="yes"
 case "$(printf '%s' "${AGENT_SYNC_AUTO_STAGE:-}" | tr '[:upper:]' '[:lower:]')" in
-  1|true|yes|on) auto_stage="yes" ;;
+  0|false|no|off) auto_stage="" ;;
 esac
 
 staged=""

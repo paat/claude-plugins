@@ -30,7 +30,8 @@ in an unpinned environment:
 
 - The **PostToolUse hook** regenerates `AGENTS.md` whenever a tracked source (`CLAUDE.md`,
   `.claude/**`, `sources.json`) is edited — in the same environment that made the edit, so the
-  working tree never drifts. `AGENT_SYNC_AUTO_STAGE=1` also stages the regenerated file (off by default).
+  working tree never drifts. It also `git add`s the regenerated file by default; set
+  `AGENT_SYNC_AUTO_STAGE=0` to opt out.
 - **CI** runs `lint.sh` only and does **not** regenerate `AGENTS.md` on the runner — regenerating a
   derived artifact in an environment that isn't pinned to where it was authored causes false drift
   when shell-tool flavors differ (issues #33, #92). A pinned, opt-in backstop is documented in
