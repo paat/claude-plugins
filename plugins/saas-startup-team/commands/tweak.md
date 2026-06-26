@@ -111,6 +111,13 @@ Defensive commit — the plugin's `auto-commit.sh` hook may have already fired o
 
 ```bash
 git add -A
+# Guard the catch-all `git add -A`: abort if a dependency tree, package store, or >50 MB blob got
+# staged (e.g. a build artifact produced by the edit), which would make the push fail and require a
+# history rewrite. Actionable message on failure; STARTUP_MAX_STAGED_MB overrides the limit.
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-staged-size.sh" || {
+  echo "Aborting: staged tree has oversized/ignored files (see above). Fix .gitignore + git rm -r --cached, then retry." >&2
+  exit 1
+}
 git diff --cached --quiet || git commit -m "tweak: ${description}"
 ```
 
