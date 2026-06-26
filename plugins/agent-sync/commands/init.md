@@ -143,5 +143,5 @@ Ask the user if they want to run `/agent-sync:generate` now.
 
 > Once the plugin is installed, the agent-sync PostToolUse hook regenerates `AGENTS.md` whenever a
 > tracked source (`CLAUDE.md`, `.claude/**`, `sources.json`) is edited — so the working tree stays
-> in sync without a manual step. Set `AGENT_SYNC_AUTO_STAGE=1` if you also want the regenerated
-> `AGENTS.md` auto-staged alongside the source change (off by default).
+> in sync without a manual step. The regenerated `AGENTS.md` is also `git add`-ed alongside the
+> source change by default; set `AGENT_SYNC_AUTO_STAGE=0` to opt out and manage staging yourself.

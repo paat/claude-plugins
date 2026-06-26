@@ -110,8 +110,8 @@ re-deriving it later in an unpinned environment:
 
 - **PostToolUse hook** — whenever you edit a tracked source (`CLAUDE.md`, `.claude/**`,
   `sources.json`), the hook regenerates `AGENTS.md` in the same environment that made the change,
-  so the working tree never drifts. Set `AGENT_SYNC_AUTO_STAGE=1` to also `git add` the regenerated
-  file alongside your source change (off by default — staging stays under your control).
+  so the working tree never drifts. The regenerated file is also `git add`-ed alongside your source
+  change by default; set `AGENT_SYNC_AUTO_STAGE=0` to opt out and stage it yourself.
 - **CI** — `/agent-sync:init` scaffolds `.github/workflows/agents-sync.yml` that runs `lint.sh`
   only. It deliberately does **not** regenerate `AGENTS.md` on the runner: re-deriving a generated
   artifact in an environment that isn't pinned to where it was authored produces false drift when
@@ -138,5 +138,5 @@ If you have an existing `tools/agent-sync/generate-agents.mjs`:
 | `/agent-sync:init` | Command | Scaffold sources.json |
 | `agent-sync` | Skill | Usage reference and troubleshooting |
 | `sync-watcher` | Agent | Proactively checks sync when configs change |
-| PostToolUse hook | Hook | Regenerates AGENTS.md when a tracked source file is edited (opt-in auto-stage) |
+| PostToolUse hook | Hook | Regenerates AGENTS.md when a tracked source file is edited (auto-stages by default; `AGENT_SYNC_AUTO_STAGE=0` to opt out) |
 | `lint.sh` | Script | Lint config for stack contradictions, rules-file bloat, and soft directives |
