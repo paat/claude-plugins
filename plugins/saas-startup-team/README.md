@@ -46,6 +46,8 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:goal-deliver` | Deliver a set of tasks (issues, milestone, spec, or free text) end-to-end: plan into chunks, ship each via `/improve` + closing tribunal loop + merge to main, then monitor and fix the GitHub Actions deploy. Pairs with built-in `/goal` for autonomy. Requires the `tribunal-review` plugin. |
 | `/saas-startup-team:ads` | Design a Google Ads campaign — spawns the `google-ads-strategist` plugin's `ads-strategist` (hard dependency) to design, browser-verify, and create the campaign in PAUSED state for investor review. The `/growth` loop also delegates here automatically. |
 | `/saas-startup-team:maintain` | Continuous autonomous maintenance loop: triage open issues, fence human-gated ones into `human-tasks.md`, and deliver the rest to production via `/goal-deliver` one-at-a-time in dependency order. Stateless supervisor; watch remotely via `/rc`. Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`. Requires the `tribunal-review` plugin. |
+| `/saas-startup-team:lessons-review` | The single human gate of the self-improvement loop: list open `lesson-candidate` issues in the pinned plugin repo and `--approve N` (→ `lesson-approved`) or `--close N` (rejected). |
+| `/saas-startup-team:lessons-deliver` | Autonomously implements `lesson-approved` issues into this plugin repo end-to-end (claim → implement → diff firewall → tribunal → test suite → dual version bump → PR `Closes #N` → merge on green). No manual trigger after approval; plugin-native (not `/goal-deliver`). Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`, `--repo`. Requires the `tribunal-review` plugin. |
 
 ### Convergence governor (`/goal-deliver`)
 
@@ -199,6 +201,40 @@ The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues h
 - **Requires the `tribunal-review` plugin** (hard dependency).
 - **Authenticated `gh` (GitHub CLI)** and standard tooling: `jq`, GNU coreutils `date`.
 - **Dev container only** (inherits the plugin's dev-container-only design).
+
+## Self-improvement loop (`/lessons-deliver`)
+
+The plugin improves itself: it harvests genuine, generic lessons from production monitors
+and session history, files them as de-identified, PII-gated `lesson-candidate` issues in a
+pinned plugin repo (`SAAS_PLUGIN_REPO`), and — after the **single human gate**
+(`/lessons-review --approve N` → `lesson-approved`) — implements them autonomously.
+
+`/lessons-deliver` is the implementer. Because lessons land in a *plugin monorepo* (no
+`.startup/`, no `solution-signoff.md`, no GitHub Actions deploy), it is **not**
+`/goal-deliver`: it borrows `/maintain`'s safety skeleton (stateless supervisor, dedicated
+`.worktrees/lessons-deliver`, circuit breakers, GitHub-native claim/idempotency,
+merge-on-green, run digest) but uses a plugin-native delivery body — claim → implement
+(fresh implementer subagent) → **mechanical diff firewall** → tribunal gate → `run-tests.sh`
+→ dual version bump (`plugin.json` **and** `marketplace.json`) → PR with `Closes #N` →
+merge on green → ship. The deterministic, fail-closed surface lives in
+`scripts/lessons-deliver.sh` (tested by Suite L with a mock-`gh` harness).
+
+**The mechanical firewall** treats lesson bodies as untrusted: it blocks any change outside
+`plugins/` (+ the root marketplace manifest), any change to the loop's own safety
+infrastructure (self-modification → `lessons:needs-human`), and any secret in the diff
+(`pii-gate.sh`). Test deletions are blocked because the single test harness is itself
+self-mod-protected.
+
+**Autonomy.** The production runner is a nightly `flock` cron (the loop's "deploy"):
+
+```
+0 3 * * * /usr/bin/flock -n /tmp/lessons-deliver.lock -c \
+  'cd <plugin repo> && claude -p "/lessons-deliver --once" --dangerously-skip-permissions >> /var/log/lessons-deliver.log 2>&1'
+```
+
+`/loop 5m /lessons-deliver --once` is the supervised/dev equivalent. Note this runs in the
+**plugin repo** (cwd = where the plugin source lives), independently of `/maintain` which
+runs in each **product** repo.
 
 ## Prerequisites
 

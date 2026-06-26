@@ -208,10 +208,14 @@ Loop control (so the nightly job can't amplify cost):
 | 3 | replay producer for `monitor-nightly` | agent | (live projects) simulate non-payers/error-hitters → findings JSONL via `monitor-checks.sh` contract — **aruannik already has this; generalize it** |
 | 4 | `/lessons-review` | cmd | the human gate: list open plugin improvement issues for approve/close before implementation |
 | 5 | config keys | `.claude/saas-startup-team.local.md` | `SAAS_PLUGIN_REPO` pin, enable flags, budgets, watermark file, telemetry sources |
-| 6 | per-project cron line | crontab | nightly harvester under `flock` (matches existing `0 2 * * *` pattern) |
+| 6 | `lessons-deliver.sh` + `/lessons-deliver` cmd | script+cmd | autonomous implementation of `lesson-approved` issues into the plugin repo: claim → implement (impl subagent) → mechanical diff firewall → tribunal → `run-tests.sh` → dual version bump → PR `Closes #N` → merge on green → ship. Plugin-native (no SaaS gates / deploy-watch); cron-driven. See `lessons-deliver.md`. |
+| 7 | per-project cron line | crontab | nightly harvester **and** nightly `/lessons-deliver` under `flock` (matches existing `0 2 * * *` pattern) |
 
-Reuse: `monitor-dedup.sh`, `monitor-nightly`, `check-handoff-secrets.sh`,
-`/goal-deliver` (automated implementation of approved issues).
+Reuse: `monitor-dedup.sh`, `monitor-nightly`, `check-handoff-secrets.sh`, `pii-gate.sh`
+(the firewall's secret scan), `tribunal-review:tribunal-loop` (the lesson quality gate).
+Note: `/goal-deliver` is the SaaS-product implementer; lessons land in the plugin monorepo
+(no `.startup/`/signoff/Actions deploy), so component #6 `/lessons-deliver` is the
+plugin-native implementer — see `lessons-deliver.md` §2.
 
 ---
 
@@ -335,10 +339,15 @@ Tracking issue: **#79** (keep open until the loop runs end-to-end live).
   - Tests: Suite R (R1–R17) with the mock-`gh` harness (extended for
     `issue view --json` / `issue edit` / `issue close`). All green.
 - [ ] Manual review of a larger record sample; cross-project recurrence.
-- [ ] Auto-implement approved issues via `/goal-deliver` (currently the investor
-  runs `/goal-deliver #N` on approved issues by hand); generalize the replay producer.
-- [ ] Deploy the nightly harvester cron in-container so candidates accumulate where
-  the sessions live.
+- [x] Auto-implement approved issues via **`/lessons-deliver`** (autonomous,
+  cron-driven). The original "`/goal-deliver #N` by hand" path does not fit the plugin
+  monorepo — `/goal-deliver` is the SaaS-product implementer; `/lessons-deliver` is the
+  plugin-native one (no `.startup/`/signoff/Actions deploy). Script surface fully tested
+  (Suite L, mock-`gh`); the nightly cron line is the same runner (folds the cron item
+  below). See `lessons-deliver.md`.
+- [ ] Deploy the nightly `flock` cron in-container (harvester **and** `/lessons-deliver`)
+  so candidates accumulate and approved lessons ship where the sessions live.
+- [ ] (replay) generalize aruannik's replay producer for `monitor-nightly`.
 
 Everything past v1 stays **local-only / not built** until the data model and privacy
 boundary are proven — no public-repo writes yet.
