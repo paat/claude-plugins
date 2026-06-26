@@ -197,6 +197,13 @@ Then dispatch business founder for re-QA following the same pattern as Step 3.
 1. **Stage and commit any remaining changes** (auto-commit hook handles most, but catch stragglers). Used in both modes:
    ```bash
    git add -A
+   # Guard the catch-all `git add -A`: a dependency install during the build can drop a fresh
+   # >100 MB blob (e.g. a sharp prebuilt) or an in-repo package store into the staged tree, which
+   # would make the push fail and require a history rewrite. Abort with an actionable message first.
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-staged-size.sh" || {
+     echo "Aborting: staged tree has oversized/ignored files (see above). Fix .gitignore + git rm -r --cached, then retry." >&2
+     exit 1
+   }
    git diff --cached --quiet || git commit -m "improve: ${slug}" --no-verify
    ```
    Note: `--no-verify` is intentional — the auto-commit hook would otherwise re-trigger on this catch-all commit.
