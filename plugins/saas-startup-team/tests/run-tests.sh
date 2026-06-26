@@ -1175,6 +1175,116 @@ test_auto_commit_hook() {
   last_msg=$(cd "$workdir" && git log -1 --format=%s 2>/dev/null)
   assert_output_contains "K12b: review commit message format" "$last_msg" "review: iteration-1"
   rm -rf "$workdir"
+
+  # K13: auto-commit stages src/ (Next.js-style layout — issue #90 gap 1)
+  assert_file_contains "K13: auto-commit stages src/" "$script" "git add -A src/"
+
+  # K14: Functional — implementation code under src/ is committed alongside a handoff write
+  workdir=$(mktemp -d)
+  git init -q "$workdir"
+  (cd "$workdir" && git config user.email "test@test.com" && git config user.name "Test" && git commit --allow-empty -m "init" -q)
+  mkdir -p "$workdir/.startup/handoffs" "$workdir/src/app"
+  echo "export const Page = () => null" > "$workdir/src/app/page.tsx"
+  echo "handoff content" > "$workdir/.startup/handoffs/002-tech-to-business.md"
+  ec=0; output=""
+  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/002-tech-to-business.md"}}' | bash "$script" 2>&1) || ec=$?
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if (cd "$workdir" && git ls-files --error-unmatch src/app/page.tsx >/dev/null 2>&1); then
+    echo -e "  ${GREEN}PASS${NC} K14: functional — src/ code auto-committed"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} K14: functional — src/ code was NOT committed"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("K14: src/ code was not auto-committed")
+  fi
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
+# Suite G2: Staged-size / package-store guard (check-staged-size.sh) — issue #90
+# ---------------------------------------------------------------------------
+
+test_check_staged_size() {
+  echo -e "\n${CYAN}Suite G2: Large-file / package-store commit guard${NC}"
+  local script="$PLUGIN_ROOT/scripts/check-staged-size.sh"
+  local workdir ec output
+
+  # G1: script exists
+  assert_file_exists "G1: check-staged-size.sh exists" "$script"
+
+  # G2: clean small staged tree passes (exit 0)
+  workdir=$(mktemp -d); git init -q "$workdir"
+  (cd "$workdir" && git config user.email t@t.t && git config user.name t)
+  echo "hello" > "$workdir/README.md"
+  (cd "$workdir" && git add README.md)
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "G2: clean staged tree passes" "$ec" 0
+  rm -rf "$workdir"
+
+  # G3: staged node_modules/ is rejected by name (exit 1)
+  workdir=$(mktemp -d); git init -q "$workdir"
+  (cd "$workdir" && git config user.email t@t.t && git config user.name t)
+  mkdir -p "$workdir/node_modules/pkg"; echo "x" > "$workdir/node_modules/pkg/index.js"
+  (cd "$workdir" && git add -A node_modules/)
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "G3: staged node_modules rejected" "$ec" 1
+  assert_output_contains "G3b: names dependency/store path" "$output" "dependency/store"
+  rm -rf "$workdir"
+
+  # G4: staged .pnpm-store/ is rejected (the exact issue #90 failure)
+  workdir=$(mktemp -d); git init -q "$workdir"
+  (cd "$workdir" && git config user.email t@t.t && git config user.name t)
+  mkdir -p "$workdir/.pnpm-store/v11/files/0a"; echo "blob" > "$workdir/.pnpm-store/v11/files/0a/x"
+  (cd "$workdir" && git add -A .pnpm-store/)
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "G4: staged .pnpm-store rejected" "$ec" 1
+  rm -rf "$workdir"
+
+  # G5: oversized blob rejected (threshold lowered to 1 MB for the test)
+  workdir=$(mktemp -d); git init -q "$workdir"
+  (cd "$workdir" && git config user.email t@t.t && git config user.name t)
+  head -c 2097152 /dev/zero > "$workdir/big.bin"
+  (cd "$workdir" && git add big.bin)
+  ec=0; output=$(cd "$workdir" && STARTUP_MAX_STAGED_MB=1 bash "$script" 2>&1) || ec=$?
+  assert_exit_code "G5: oversized blob rejected" "$ec" 1
+  assert_output_contains "G5b: names the size limit" "$output" "limit"
+  rm -rf "$workdir"
+
+  # G6: same blob passes when the limit is raised above its size (override works)
+  workdir=$(mktemp -d); git init -q "$workdir"
+  (cd "$workdir" && git config user.email t@t.t && git config user.name t)
+  head -c 2097152 /dev/zero > "$workdir/big.bin"
+  (cd "$workdir" && git add big.bin)
+  ec=0; output=$(cd "$workdir" && STARTUP_MAX_STAGED_MB=5 bash "$script" 2>&1) || ec=$?
+  assert_exit_code "G6: oversized blob passes under raised limit" "$ec" 0
+  rm -rf "$workdir"
+
+  # G7: outside a git repo it is a silent no-op (exit 0)
+  workdir=$(mktemp -d)
+  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
+  assert_exit_code "G7: non-git dir is a no-op" "$ec" 0
+  rm -rf "$workdir"
+
+  # G8: /bootstrap gitignores dependency trees and package stores (issue #90 primary fix)
+  local bootstrap="$PLUGIN_ROOT/commands/bootstrap.md"
+  assert_file_contains "G8a: bootstrap gitignores node_modules/" "$bootstrap" "node_modules/"
+  assert_file_contains "G8b: bootstrap gitignores .pnpm-store/" "$bootstrap" ".pnpm-store/"
+  assert_file_contains "G8c: bootstrap gitignores build output (dist/)" "$bootstrap" "dist/"
+
+  # G9: the guard is wired into the bootstrap commit and the /improve catch-all commit
+  assert_file_contains "G9a: bootstrap runs the guard before commit" "$bootstrap" "check-staged-size.sh"
+  assert_file_contains "G9b: improve runs the guard before commit" "$PLUGIN_ROOT/commands/improve.md" "check-staged-size.sh"
+
+  # G10: measures the STAGED blob, not the working tree — stage a big blob, then truncate the
+  # working-tree copy. The commit would still carry the big blob, so the guard must still reject.
+  workdir=$(mktemp -d); git init -q "$workdir"
+  (cd "$workdir" && git config user.email t@t.t && git config user.name t)
+  head -c 2097152 /dev/zero > "$workdir/big.bin"
+  (cd "$workdir" && git add big.bin)
+  : > "$workdir/big.bin"   # working tree now 0 bytes; index still holds the 2 MB blob
+  ec=0; output=$(cd "$workdir" && STARTUP_MAX_STAGED_MB=1 bash "$script" 2>&1) || ec=$?
+  assert_exit_code "G10: sizes the staged blob, not the working tree" "$ec" 1
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
@@ -3909,6 +4019,7 @@ main() {
   test_plugin_issues
   test_maintain
   test_auto_commit_hook
+  test_check_staged_size
   test_tone_enforcement_hook
   test_json_validation_hook
   test_delegation_enforcement_hook

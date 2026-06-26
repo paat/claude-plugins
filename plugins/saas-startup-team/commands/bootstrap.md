@@ -64,9 +64,33 @@ Append the following to `.gitignore` if not already present. Check each line ind
 .startup/human-tasks.md
 .startup/test-data/
 .startup/.idle-*
+
+# Dependencies & package stores (NEVER commit — an in-repo pnpm store can be GBs and a single
+# prebuilt binary >100 MB makes the repo unpushable to GitHub, recoverable only by history rewrite)
+node_modules/
+.pnpm-store/
+.pnpm/
+.yarn/
+bower_components/
+
+# Build output & caches
+.next/
+dist/
+build/
+out/
+.turbo/
+.cache/
+coverage/
+*.log
 ```
 
 **Check before appending:** Read `.gitignore` and only add lines that are not already present.
+
+> A freshly scaffolded project — the exact case `/bootstrap` is built for — often has no
+> `.gitignore` yet, and a dev-container pnpm store configured with `store-dir=.pnpm-store` lives
+> *inside* the repo. Without these entries a later broad `git add` sweeps the entire store into
+> history. Because `.gitignore` does not untrack already-committed paths, the only recovery is
+> `git filter-repo` + force-push. The dependency/build block above is what prevents that.
 
 ## Step 4: Update CLAUDE.md — Project Knowledge
 
@@ -254,9 +278,12 @@ fi
 ## Step 7: Initialize Git and Commit
 
 1. If not already in a git repo, run `git init`
-2. Stage and commit the scaffolding:
+2. Stage and commit the scaffolding. Run the large-file/store guard between staging and committing
+   so a stray dependency tree or >50 MB blob aborts the commit with an actionable message instead
+   of silently entering history:
 
 ```bash
 git add docs/ .startup/.gitkeep .gitignore CLAUDE.md check.sh .github/workflows/ci.yml
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-staged-size.sh" || exit 1
 git commit -m "chore: bootstrap project structure for saas-startup-team plugin"
 ```

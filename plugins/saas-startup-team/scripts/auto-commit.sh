@@ -64,11 +64,14 @@ else
   exit 0
 fi
 
-# Stage docs/ and implementation files (avoid staging sensitive files like .env)
+# Stage docs/ and implementation files (avoid staging sensitive files like .env).
+# src/ is included because the plugin's own default stack is a Next.js-style src/ layout — without
+# it, implementation code in src/ would never be auto-committed, only docs/handoffs.
 cd "$repo_root"
 git add -A docs/ || true
 git add -A backend/ || true
 git add -A frontend/ || true
+git add -A src/ || true
 git add -A CLAUDE.md || true
 git add -A .startup/signoffs/ || true
 git add -A .startup/reviews/ || true
