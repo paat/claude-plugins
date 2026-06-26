@@ -3926,6 +3926,7 @@ main() {
   test_harvest
   test_lesson_file
   test_lesson_review
+  test_lessons_deliver
   test_convergence_governor
   test_learnings_style_block
   test_founder_standards_routing
@@ -4211,10 +4212,351 @@ case "$1 $2" in
   "issue edit")  : ;;
   "issue close") : ;;
   "label create") : ;;
+  "pr create")   echo "https://github.com/o/r/pull/${GH_PR_NUMBER:-999}" ;;
+  "pr merge")    : ;;
+  "pr list")     echo "${GH_PR_LIST_JSON:-[]}" ;;
+  "pr view")     echo "${GH_PR_VIEW_JSON:-{}}" ;;
   *) : ;;
 esac
 MOCK
   chmod +x "$bindir/gh"
+}
+
+test_lessons_deliver() {
+  echo -e "\n${CYAN}Suite L: lessons-deliver.sh (autonomous lesson implementer)${NC}"
+  local script="$PLUGIN_ROOT/scripts/lessons-deliver.sh"
+  local workdir ec output
+
+  # L1: script exists
+  assert_file_exists "L1: lessons-deliver.sh exists" "$script"
+
+  # L2: no repo pin -> exit 2
+  ec=0; output=$(bash "$script" --list 2>&1) || ec=$?
+  assert_exit_code "L2: no repo pin refuses" "$ec" 2
+  assert_output_contains "L2: pin message" "$output" "no repo pinned"
+
+  # L3: malformed pin -> exit 2
+  ec=0; output=$(bash "$script" --list --repo "not-a-repo" 2>&1) || ec=$?
+  assert_exit_code "L3: malformed pin refuses" "$ec" 2
+
+  # L4: lists only lesson-approved, excludes blocked/claimed/needs-human/linked-PR
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_LIST_JSON='[
+    {"number":10,"title":"good lesson","labels":[{"name":"lesson-approved"}],"url":"u10","createdAt":"2026-01-01T00:00:00Z","closedByPullRequestsReferences":[]},
+    {"number":11,"title":"blocked","labels":[{"name":"lesson-approved"},{"name":"lessons:blocked"}],"url":"u11","createdAt":"2026-01-02T00:00:00Z","closedByPullRequestsReferences":[]},
+    {"number":12,"title":"claimed","labels":[{"name":"lesson-approved"},{"name":"lessons:claimed"}],"url":"u12","createdAt":"2026-01-03T00:00:00Z","closedByPullRequestsReferences":[]},
+    {"number":13,"title":"has PR","labels":[{"name":"lesson-approved"}],"url":"u13","createdAt":"2026-01-04T00:00:00Z","closedByPullRequestsReferences":[{"number":5}]}
+  ]'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --list --json --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L4: list exits 0" "$ec" 0
+  assert_output_contains "L4: includes eligible #10" "$output" '"number": 10'
+  assert_output_not_contains "L4: excludes blocked #11" "$output" '"number": 11'
+  assert_output_not_contains "L4: excludes claimed #12" "$output" '"number": 12'
+  assert_output_not_contains "L4: excludes linked-PR #13" "$output" '"number": 13'
+  unset GH_LIST_JSON; rm -rf "$workdir"
+
+  # L5: unparseable list -> fail closed (exit 1), not "empty queue"
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_LIST_JSON='not json'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --list --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L5: unparseable list fails closed" "$ec" 1
+  unset GH_LIST_JSON; rm -rf "$workdir"
+
+  # --- firewall ---
+  # L10: path outside plugins/ -> blocked
+  workdir=$(make_workdir)
+  cat > "$workdir/d.diff" <<'DIFF'
+diff --git a/etc/passwd b/etc/passwd
++++ b/etc/passwd
++pwn
+DIFF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L10: out-of-tree path blocked" "$ec" 3
+  assert_output_contains "L10: names path violation" "$output" "BLOCKED"
+  rm -rf "$workdir"
+
+  # L11: self-mod of the loop's own safety infra -> blocked
+  workdir=$(make_workdir)
+  cat > "$workdir/d.diff" <<'DIFF'
+diff --git a/plugins/saas-startup-team/scripts/lessons-deliver.sh b/plugins/saas-startup-team/scripts/lessons-deliver.sh
++++ b/plugins/saas-startup-team/scripts/lessons-deliver.sh
++# sneaky
+DIFF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L11: self-mod blocked" "$ec" 3
+  assert_output_contains "L11: self-mod reason" "$output" "self-mod"
+  rm -rf "$workdir"
+
+  # L11b: self-mod of the deliverer's OWN command playbook -> blocked
+  workdir=$(make_workdir)
+  cat > "$workdir/d.diff" <<'DIFF'
+diff --git a/plugins/saas-startup-team/commands/lessons-deliver.md b/plugins/saas-startup-team/commands/lessons-deliver.md
++++ b/plugins/saas-startup-team/commands/lessons-deliver.md
++weaken the gate
+DIFF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L11b: self-mod of playbook blocked" "$ec" 3
+  rm -rf "$workdir"
+
+  # L12: test-harness change -> blocked (self-mod)
+  workdir=$(make_workdir)
+  cat > "$workdir/d.diff" <<'DIFF'
+diff --git a/plugins/saas-startup-team/tests/run-tests.sh b/plugins/saas-startup-team/tests/run-tests.sh
++++ b/plugins/saas-startup-team/tests/run-tests.sh
+-  assert_exit_code "X" "$ec" 0
+DIFF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L12: test-harness change blocked (self-mod)" "$ec" 3
+  rm -rf "$workdir"
+
+  # L13: clean in-tree plugin change -> passes
+  workdir=$(make_workdir)
+  cat > "$workdir/d.diff" <<'DIFF'
+diff --git a/plugins/saas-startup-team/commands/status.md b/plugins/saas-startup-team/commands/status.md
++++ b/plugins/saas-startup-team/commands/status.md
++a harmless documentation line
+DIFF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L13: clean change passes" "$ec" 0
+  rm -rf "$workdir"
+
+  # L14: root marketplace.json is allowed
+  workdir=$(make_workdir)
+  cat > "$workdir/d.diff" <<'DIFF'
+diff --git a/.claude-plugin/marketplace.json b/.claude-plugin/marketplace.json
++++ b/.claude-plugin/marketplace.json
++  "version": "0.58.0"
+DIFF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L14: marketplace.json allowed" "$ec" 0
+  rm -rf "$workdir"
+
+  # L15: a secret in the diff body -> blocked by pii_hit
+  workdir=$(make_workdir)
+  cat > "$workdir/d.diff" <<'DIFF'
+diff --git a/plugins/saas-startup-team/commands/status.md b/plugins/saas-startup-team/commands/status.md
++++ b/plugins/saas-startup-team/commands/status.md
++export TOKEN=sk-abcdefghijklmnopqrstuvwxyz0123
+DIFF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L15: secret in diff blocked" "$ec" 3
+  assert_output_contains "L15: secret reason" "$output" "secret/PII"
+  rm -rf "$workdir"
+
+  # L16: quoted-path diff header -> blocked (fail closed)
+  workdir=$(make_workdir)
+  printf 'diff --git "a/plugins/x y.md" "b/plugins/x y.md"\n+a\n' > "$workdir/d.diff"
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L16: quoted path blocked" "$ec" 3
+  rm -rf "$workdir"
+
+  # L17: rename from OUT-OF-TREE into plugins/ -> blocked (the a/ side fails the allowlist)
+  workdir=$(make_workdir)
+  cat > "$workdir/d.diff" <<'DIFF'
+diff --git a/secrets/key.txt b/plugins/saas-startup-team/commands/key.txt
+rename from secrets/key.txt
+rename to plugins/saas-startup-team/commands/key.txt
+DIFF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L17: out-of-tree rename source blocked" "$ec" 3
+  rm -rf "$workdir"
+
+  # --- claim ---
+  # L20: claim an eligible issue edits labels
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-approved"}],"closedByPullRequestsReferences":[]}'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r --run-id RUN1 2>&1) || ec=$?
+  assert_exit_code "L20: claim exits 0" "$ec" 0
+  assert_file_contains "L20: adds claimed label" "$GH_CALLS_LOG" "lessons:claimed"
+  unset GH_VIEW_JSON; rm -rf "$workdir"
+
+  # L21: claim refuses when a linked PR exists (fail closed)
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-approved"}],"closedByPullRequestsReferences":[{"number":7}]}'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L21: claim with linked PR refuses" "$ec" 1
+  unset GH_VIEW_JSON; rm -rf "$workdir"
+
+  # L22: claim fails closed when issue cannot be inspected
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"; export GH_FAIL_ON="issue view"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L22: claim fails closed on view error" "$ec" 1
+  unset GH_FAIL_ON; rm -rf "$workdir"
+
+  # L23b: claim refuses when already claimed (not a no-op)
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-approved"},{"name":"lessons:claimed"}],"closedByPullRequestsReferences":[]}'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L23b: already-claimed refuses" "$ec" 1
+  unset GH_VIEW_JSON; rm -rf "$workdir"
+
+  # L23c: claim refuses a closed issue
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_VIEW_JSON='{"state":"CLOSED","labels":[{"name":"lesson-approved"}],"closedByPullRequestsReferences":[]}'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L23c: closed issue refused" "$ec" 1
+  unset GH_VIEW_JSON; rm -rf "$workdir"
+
+  # --- block ---
+  # L23: block removes lesson-approved and adds lessons:blocked
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-approved"},{"name":"lessons:claimed"}],"closedByPullRequestsReferences":[]}'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --block 10 --reason "tribunal stuck" --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L23: block exits 0" "$ec" 0
+  assert_file_contains "L23: adds blocked label" "$GH_CALLS_LOG" "lessons:blocked"
+  assert_file_contains "L23: removes approved label" "$GH_CALLS_LOG" "remove-label lesson-approved"
+  assert_file_contains "L23: removes claimed label" "$GH_CALLS_LOG" "remove-label lessons:claimed"
+  unset GH_VIEW_JSON; rm -rf "$workdir"
+
+  # L23d: block fails closed when the label edit fails
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"; export GH_FAIL_ON="issue edit"
+  export GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-approved"}],"closedByPullRequestsReferences":[]}'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --block 10 --reason x --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L23d: block edit failure -> exit 1" "$ec" 1
+  unset GH_VIEW_JSON GH_FAIL_ON; rm -rf "$workdir"
+
+  # --- needs-human ---
+  # L23e: needs-human relabels and drops approved+claimed
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-approved"},{"name":"lessons:claimed"}],"closedByPullRequestsReferences":[]}'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --needs-human 10 --reason "self-mod" --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L23e: needs-human exits 0" "$ec" 0
+  assert_file_contains "L23e: adds needs-human label" "$GH_CALLS_LOG" "lessons:needs-human"
+  unset GH_VIEW_JSON; rm -rf "$workdir"
+
+  # --- ship ---
+  # L24: ship adds lesson-shipped, removes claimed
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-approved"},{"name":"lessons:claimed"}],"closedByPullRequestsReferences":[]}'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --ship 10 --pr "https://github.com/o/r/pull/3" --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L24: ship exits 0" "$ec" 0
+  assert_file_contains "L24: adds shipped label" "$GH_CALLS_LOG" "lesson-shipped"
+  assert_file_contains "L24: removes claimed label" "$GH_CALLS_LOG" "remove-label lessons:claimed"
+  unset GH_VIEW_JSON; rm -rf "$workdir"
+
+  # L24b: ship is idempotent — already shipped is a no-op (no duplicate comment)
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_VIEW_JSON='{"state":"CLOSED","labels":[{"name":"lesson-shipped"}],"closedByPullRequestsReferences":[{"number":3}]}'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --ship 10 --pr "https://github.com/o/r/pull/3" --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L24b: re-ship no-op exits 0" "$ec" 0
+  assert_output_contains "L24b: reports no-op" "$output" "already shipped"
+  unset GH_VIEW_JSON; rm -rf "$workdir"
+
+  # --- version bump ---
+  # L30: bumps BOTH plugin.json and marketplace.json in sync
+  workdir=$(make_workdir)
+  mkdir -p "$workdir/plugins/saas-startup-team/.claude-plugin" "$workdir/.claude-plugin"
+  echo '{"name":"saas-startup-team","version":"1.2.3"}' > "$workdir/plugins/saas-startup-team/.claude-plugin/plugin.json"
+  echo '{"plugins":[{"name":"saas-startup-team","version":"1.2.3"}]}' > "$workdir/.claude-plugin/marketplace.json"
+  ec=0; output=$(cd "$workdir" && bash "$script" --bump-version minor 2>&1) || ec=$?
+  assert_exit_code "L30: bump exits 0" "$ec" 0
+  assert_json_field "L30: plugin.json bumped" "$workdir/plugins/saas-startup-team/.claude-plugin/plugin.json" '.version' "1.3.0"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if [ "$(jq -r '.plugins[] | select(.name=="saas-startup-team") | .version' "$workdir/.claude-plugin/marketplace.json")" = "1.3.0" ]; then
+    echo -e "  ${GREEN}PASS${NC} L31: marketplace.json bumped in sync"; PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} L31: marketplace.json not bumped"; FAIL_COUNT=$((FAIL_COUNT + 1)); FAILURES+=("L31")
+  fi
+  rm -rf "$workdir"
+
+  # --- gh error classification ---
+  # L32: rate limit is retriable
+  output=$(bash "$script" --classify-gh-error "API rate limit exceeded" 2>&1)
+  assert_equals "L32: rate limit retriable" "$output" "retriable"
+  # L33: merge conflict is terminal
+  output=$(bash "$script" --classify-gh-error "merge conflict between base and head" 2>&1)
+  assert_equals "L33: conflict terminal" "$output" "terminal"
+  # L34: HTTP 503 is retriable
+  output=$(bash "$script" --classify-gh-error "HTTP 503 service unavailable" 2>&1)
+  assert_equals "L34: 503 retriable" "$output" "retriable"
+  # L35: auth failure is terminal
+  output=$(bash "$script" --classify-gh-error "HTTP 401: Bad credentials" 2>&1)
+  assert_equals "L35: auth terminal" "$output" "terminal"
+  # L36: protected-branch denial is terminal
+  output=$(bash "$script" --classify-gh-error "Protected branch update failed (403)" 2>&1)
+  assert_equals "L36: protected branch terminal" "$output" "terminal"
+  # L37: HTTP 500 is retriable (any 5xx)
+  output=$(bash "$script" --classify-gh-error "HTTP 500: internal server error" 2>&1)
+  assert_equals "L37: 500 retriable" "$output" "retriable"
+
+  # --- reconcile ---
+  # L40: a claimed issue whose lesson PR merged is repaired to shipped
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_LIST_JSON='[{"number":10,"labels":[{"name":"lessons:claimed"}]}]'
+  export GH_PR_LIST_JSON='[{"number":3,"state":"MERGED","headRefName":"lesson/10-foo","body":"Closes #10"}]'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --reconcile --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L40: reconcile exits 0" "$ec" 0
+  assert_file_contains "L40: repaired to shipped" "$GH_CALLS_LOG" "lesson-shipped"
+  unset GH_LIST_JSON GH_PR_LIST_JSON; rm -rf "$workdir"
+
+  # L41: reconcile fails closed on a gh issue-list error (no mass relabel)
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"; export GH_FAIL_ON="issue list"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --reconcile --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L41: reconcile fails closed on issue list" "$ec" 1
+  unset GH_FAIL_ON; rm -rf "$workdir"
+
+  # L42: reconcile fails closed on a gh pr-list error (transient != 'nothing merged')
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_LIST_JSON='[{"number":10,"labels":[{"name":"lessons:claimed"}]}]'
+  export GH_FAIL_ON="pr list"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --reconcile --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L42: reconcile fails closed on pr list" "$ec" 1
+  unset GH_LIST_JSON GH_FAIL_ON; rm -rf "$workdir"
+
+  # L43: Closes #N boundary — claimed #1 with a PR closing #10 is NOT repaired
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_LIST_JSON='[{"number":1,"labels":[{"name":"lessons:claimed"}]}]'
+  export GH_PR_LIST_JSON='[{"number":3,"state":"MERGED","headRefName":"lesson/10-foo","body":"Closes #10"}]'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --reconcile --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L43: reconcile exits 0" "$ec" 0
+  assert_output_contains "L43: repaired 0" "$output" "repaired 0"
+  assert_file_not_contains "L43: #1 not relabelled shipped" "$GH_CALLS_LOG" "lesson-shipped"
+  unset GH_LIST_JSON GH_PR_LIST_JSON; rm -rf "$workdir"
+
+  # L44: reconcile lists claimed with --state all (a Closes-#N merge auto-closed the issue)
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_LIST_JSON='[{"number":10,"labels":[{"name":"lessons:claimed"}]}]'
+  export GH_PR_LIST_JSON='[{"number":3,"state":"MERGED","headRefName":"lesson/10-foo","body":"Closes #10"}]'
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --reconcile --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L44: reconcile exits 0" "$ec" 0
+  assert_file_contains "L44: lists claimed with --state all" "$GH_CALLS_LOG" "issue list --repo o/r --label lessons:claimed --state all"
+  assert_file_contains "L44: repaired closed-but-claimed to shipped" "$GH_CALLS_LOG" "lesson-shipped"
+  unset GH_LIST_JSON GH_PR_LIST_JSON; rm -rf "$workdir"
+
+  # --- command playbook ---
+  local cmd="$PLUGIN_ROOT/commands/lessons-deliver.md"
+  assert_file_exists "L50: command exists" "$cmd"
+  assert_file_contains "L50a: user_invocable" "$cmd" "user_invocable: true"
+  assert_file_contains "L51: pins repo via SAAS_PLUGIN_REPO" "$cmd" "SAAS_PLUGIN_REPO"
+  assert_file_contains "L52: dedicated worktree" "$cmd" ".worktrees/lessons-deliver"
+  assert_file_contains "L53: reconcile on startup" "$cmd" "--reconcile"
+  assert_file_contains "L54: calls firewall before merge" "$cmd" "--firewall"
+  assert_file_contains "L55: tribunal gate" "$cmd" "tribunal"
+  assert_file_contains "L56: runs the test suite" "$cmd" "run-tests.sh"
+  assert_file_contains "L57: bumps version" "$cmd" "--bump-version"
+  assert_file_contains "L58: PR carries Closes #N" "$cmd" "Closes #"
+  assert_file_contains "L59: merge on green only" "$cmd" "gh pr merge"
+  assert_file_contains "L60: dispatches implementer agent" "$cmd" "tech-founder-claude-maintain"
+  assert_file_contains "L61: dry-run is read-only" "$cmd" "--dry-run"
+  assert_file_contains "L62: injection firewall note" "$cmd" "informs requirements only"
+  assert_file_contains "L63: self-mod escalates to needs-human" "$cmd" "lessons:needs-human"
 }
 
 test_lawyer_lifecycle() {
