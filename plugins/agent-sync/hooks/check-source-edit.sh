@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# agent-sync PostToolUse hook: remind to regenerate AGENTS.md when a tracked source file is edited.
-# Silent (exit 0, no output) on every path EXCEPT: a sources.json exists under cwd AND the edited
-# file is one of its tracked sources. Missing jq, malformed input, or no match -> silent exit 0.
+# agent-sync PostToolUse hook: regenerate AGENTS.md when a tracked source file is edited.
+# Correct-by-construction (issue #93): rather than only nudging, this regenerates AGENTS.md in the
+# same environment that changed the source, so the working tree never drifts. Staging is opt-in via
+# AGENT_SYNC_AUTO_STAGE. Non-blocking: every path exits 0. Silent unless the edited file is a
+# tracked source under a discoverable sources.json. Degrades to a nudge when no generator is found.
 
 set -uo pipefail
 
@@ -39,7 +41,16 @@ abspath() {
 
 abs_edited="$(abspath "$file_path")"
 
-# 6. Compare against each tracked source. On first match, emit reminder; otherwise stay silent.
+# 6. Never react to a generated output being edited (defends against any re-trigger loop and
+#    against an output path that happens to also be listed as a source).
+while IFS= read -r out; do
+  [[ -z "$out" ]] && continue
+  if [[ "$(abspath "$out")" == "$abs_edited" ]]; then
+    exit 0
+  fi
+done < <(jq -r '.outputs[]?.path // empty' "$config" 2>/dev/null)
+
+# 7. Compare against each tracked source. On first match, proceed; otherwise stay silent.
 match=""
 while IFS= read -r rel; do
   [[ -z "$rel" ]] && continue
@@ -51,8 +62,61 @@ done < <(jq -r '.files[]? // empty' "$config" 2>/dev/null)
 
 [[ -z "$match" ]] && exit 0
 
-# 7. Match: emit the reminder as additionalContext so Claude sees it next to the tool result.
-msg="[agent-sync] Source file changed. Run /agent-sync:generate to update AGENTS.md."
-jq -n --arg m "$msg" \
-  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $m}}'
-exit 0
+# 8. Emit a PostToolUse additionalContext message and exit 0 (non-blocking).
+emit() {
+  jq -n --arg m "$1" \
+    '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $m}}'
+  exit 0
+}
+
+# 9. Locate the generator: prefer the repo's vendored copy (the same one CI/`/agent-sync:check`
+#    use), fall back to the plugin's bundled copy. If neither exists, degrade to a nudge.
+gen=""
+# `${CLAUDE_PLUGIN_ROOT:+...}` yields an empty element when the var is unset, so we never probe a
+# bare "/scripts/generate.sh" at the filesystem root (which could match a stray system file).
+for cand in "$cwd/tools/agent-sync/generate.sh" "$cwd/.agent-sync/generate.sh" "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/generate.sh}"; do
+  [[ -n "$cand" && -f "$cand" ]] || continue
+  gen="$cand"
+  break
+done
+if [[ -z "$gen" ]]; then
+  emit "[agent-sync] Source file changed. Run /agent-sync:generate to update AGENTS.md."
+fi
+
+# 10. Regenerate in this same environment (correct-by-construction). Capture output; never abort.
+gen_out="$(bash "$gen" --config "$config" --root "$cwd" 2>&1)"; gen_rc=$?
+
+if [[ $gen_rc -ne 0 ]]; then
+  emit "[agent-sync] Source changed but AGENTS.md auto-regeneration failed (exit $gen_rc): ${gen_out##*$'\n'}. Run /agent-sync:generate."
+fi
+
+# 11. Opt-in: stage regenerated outputs so the derived file rides along with the source change.
+#     Off by default — staging inside a hook is surprising and interferes with partial commits.
+auto_stage=""
+case "$(printf '%s' "${AGENT_SYNC_AUTO_STAGE:-}" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on) auto_stage="yes" ;;
+esac
+
+staged=""
+if [[ -n "$auto_stage" ]] && command -v git >/dev/null 2>&1 \
+   && git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  while IFS= read -r out; do
+    [[ -z "$out" ]] && continue
+    if [[ -f "$cwd/$out" ]] && git -C "$cwd" add -- "$out" >/dev/null 2>&1; then
+      staged="yes"
+    fi
+  done < <(jq -r '.outputs[]?.path // empty' "$config" 2>/dev/null)
+fi
+
+# 12. Report what happened. "No changes" output means the file was already in sync. Use bash
+#     pattern matching (no pipe) so this can't take SIGPIPE under pipefail — the same bug class
+#     this change removes from generate.sh (issue #92).
+if [[ "$gen_out" == *"[agent-sync] Updated"* ]]; then
+  if [[ -n "$staged" ]]; then
+    emit "[agent-sync] Source changed; regenerated AGENTS.md and staged it."
+  else
+    emit "[agent-sync] Source changed; regenerated AGENTS.md (review and commit it alongside your change)."
+  fi
+else
+  emit "[agent-sync] Source changed; AGENTS.md already in sync."
+fi

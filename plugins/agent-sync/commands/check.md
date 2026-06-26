@@ -16,8 +16,9 @@ Verify that AGENTS.md is up to date with the project's Claude Code configuration
 2. If no config found, tell the user to run `/agent-sync:init` first.
 
 3. Run the check. **Prefer the repo's vendored generator** when present, falling back to the
-   plugin-cache copy — the same precedence `/agent-sync:init` writes into CI, so this check
-   validates against the identical generator CI uses (no false drift from version skew):
+   plugin-cache copy — the same precedence the agent-sync hook (and the optional pinned CI
+   backstop) uses, so this check validates against the identical generator that keeps the working
+   tree in sync (no false drift from version skew):
    ```bash
    if [ -f "tools/agent-sync/generate.sh" ]; then
      GEN=tools/agent-sync/generate.sh
@@ -29,8 +30,9 @@ Verify that AGENTS.md is up to date with the project's Claude Code configuration
    bash "$GEN" --config "<path-to-sources.json>" --check
    ```
    > **Trust note:** the vendored `tools/agent-sync/generate.sh` is repo-controlled — the copy
-   > `/agent-sync:init` committed and the one CI runs. Preferring it is what keeps this check
-   > byte-consistent with CI. As with any repo build script, run it only on a branch you trust.
+   > `/agent-sync:init` committed and the one the hook runs. Preferring it is what keeps this check
+   > byte-consistent with how `AGENTS.md` was generated. As with any repo build script, run it only
+   > on a branch you trust.
 
 4. Run the linter (doc-drift contradictions + rules-file bloat). Use the same vendored-first
    precedence as the generator so the command matches CI:

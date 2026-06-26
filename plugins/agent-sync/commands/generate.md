@@ -17,9 +17,9 @@ Generate or update AGENTS.md from the project's Claude Code configuration files.
 2. If no config found, tell the user to run `/agent-sync:init` first.
 
 3. Run the generator script. **Prefer the repo's vendored copy** when present, falling back to
-   the plugin-cache copy — this is the exact precedence `/agent-sync:init` writes into CI, so the
-   skill, the vendored copy, and CI all run the *same* generator and output never disagrees with
-   the repo's own `--check`:
+   the plugin-cache copy — this is the exact precedence the agent-sync hook uses, so the skill, the
+   hook, and the vendored copy all run the *same* generator and the output never disagrees with the
+   repo's own `--check`:
    ```bash
    if [ -f "tools/agent-sync/generate.sh" ]; then
      GEN=tools/agent-sync/generate.sh
@@ -31,9 +31,10 @@ Generate or update AGENTS.md from the project's Claude Code configuration files.
    bash "$GEN" --config "<path-to-sources.json>"
    ```
    > **Trust note:** the vendored `tools/agent-sync/generate.sh` is repo-controlled — it is the
-   > copy `/agent-sync:init` committed and the same one CI executes, so preferring it is what keeps
-   > the skill, the vendored copy, and CI byte-consistent. As with any repo build script, run this
-   > only on a branch you trust; on an untrusted branch the vendored copy could be modified.
+   > copy `/agent-sync:init` committed and the same one the hook executes, so preferring it is what
+   > keeps the skill, the hook, and the vendored copy byte-consistent. As with any repo build
+   > script, run this only on a branch you trust; on an untrusted branch the vendored copy could be
+   > modified.
 
 4. Report results:
    - Which output files were updated

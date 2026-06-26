@@ -23,6 +23,19 @@ The generator reads `sources.json` which maps Claude Code config files to sectio
 
 Template variables (`{{project_name}}`, `{{stack}}`, `{{primary_agent}}`) are substituted in the generated header.
 
+## Staying in sync
+
+`AGENTS.md` is generated, so it is kept correct **at authoring time**, not by re-deriving it later
+in an unpinned environment:
+
+- The **PostToolUse hook** regenerates `AGENTS.md` whenever a tracked source (`CLAUDE.md`,
+  `.claude/**`, `sources.json`) is edited — in the same environment that made the edit, so the
+  working tree never drifts. `AGENT_SYNC_AUTO_STAGE=1` also stages the regenerated file (off by default).
+- **CI** runs `lint.sh` only and does **not** regenerate `AGENTS.md` on the runner — regenerating a
+  derived artifact in an environment that isn't pinned to where it was authored causes false drift
+  when shell-tool flavors differ (issues #33, #92). A pinned, opt-in backstop is documented in
+  `references/github-actions-template.md`.
+
 ## Configuration
 
 Config lives at `tools/agent-sync/sources.json` or `.agent-sync/sources.json`. See `references/sources-json-format.md` for the full schema.
@@ -44,7 +57,10 @@ The extract section references a heading that doesn't exist in the source file. 
 A file listed in `sources.json` `files` doesn't exist. Update the path or remove the entry.
 
 ### Drift detected
-AGENTS.md is out of date with your Claude Code config. Run `/agent-sync:generate` to update.
+AGENTS.md is out of date with your Claude Code config. Run `/agent-sync:generate` to update. With
+the plugin installed the PostToolUse hook normally regenerates it for you on each source edit; you
+only see drift if the file was edited without the hook (e.g. on another machine, or with the plugin
+uninstalled).
 
 ### Subdirectory outputs
 Add multiple entries to the `outputs` array, each with its own `path` and `sections`. Use `parent` to add a back-reference link to the root AGENTS.md.
