@@ -72,4 +72,4 @@ SAAS_LESSON_SYNC_ENABLED=true \
 `lesson-file.sh` re-runs the hard PII gate on every issue at the filing boundary,
 is idempotent (the ledger prevents re-filing), and dedups against existing open
 issues. The filed issues are `lesson-candidate`s — they still pass through the
-human review gate (`/lessons-review`, not built yet) before any implementation.
+human review gate (`/lessons-review`) before any implementation.
