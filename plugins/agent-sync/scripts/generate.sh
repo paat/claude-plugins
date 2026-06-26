@@ -285,6 +285,25 @@ normalize_heading() {
   echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[[:space:]]+/ /g' | sed 's/^ //;s/ $//'
 }
 
+# Trim leading and trailing blank lines in a single pipe-free awk pass.
+# The previous `echo "$x" | sed … | sed …` pipeline could take SIGPIPE on the
+# CI runner's bash — under `set -o pipefail` that truncated the captured section
+# and produced a corrupt AGENTS.md / false drift (issue #92). awk reads the whole
+# input via a here-string, so there is no producer to receive a broken pipe.
+# Portable on mawk/gawk/BSD awk (POSIX character classes, no ERE intervals).
+trim_blank_lines() {
+  awk '
+    { lines[NR] = $0 }
+    END {
+      s = 1
+      while (s <= NR && lines[s] ~ /^[[:space:]]*$/) s++
+      e = NR
+      while (e >= s && lines[e] ~ /^[[:space:]]*$/) e--
+      for (i = s; i <= e; i++) print lines[i]
+    }
+  ' <<<"$1"
+}
+
 # Extract content under a specific heading (up to next heading of same or higher level)
 extract_heading_content() {
   local markdown="$1"
@@ -341,8 +360,8 @@ extract_heading_content() {
     capturing { print }
   ')"
 
-  # Trim leading/trailing blank lines
-  result="$(echo "$result" | sed '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')"
+  # Trim leading/trailing blank lines (SIGPIPE-safe; see trim_blank_lines, issue #92)
+  result="$(trim_blank_lines "$result")"
 
   if [[ -z "$result" ]]; then
     echo "[agent-sync] Heading not found or empty: \"$heading_text\"" >&2
@@ -413,8 +432,8 @@ render_full_body_section() {
   content="$(echo "$content" | remove_title_heading)"
   content="$(echo "$content" | shift_headings_up)"
 
-  # Trim
-  content="$(echo "$content" | sed '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')"
+  # Trim (SIGPIPE-safe; see trim_blank_lines, issue #92)
+  content="$(trim_blank_lines "$content")"
 
   echo "## $title"
   echo ""
@@ -666,6 +685,11 @@ while [[ $i -lt $outputs_count ]]; do
 
     if [[ "$existing" != "$rendered" ]]; then
       echo "[agent-sync] DRIFT: $output_path is out of sync. Run: /agent-sync:generate" >&2
+      # Show exactly which lines drifted so a failing log names the offending
+      # section instead of being a guessing game (issue #92). `diff` exits 1 on
+      # difference; `|| true` keeps that from aborting under `set -e`. Trailing
+      # newline added so process substitution doesn't emit "\ No newline" noise.
+      diff -u <(printf '%s\n' "$existing") <(printf '%s\n' "$rendered") | sed 's/^/  /' >&2 || true
       exit_code=1
     else
       echo "[agent-sync] OK: $output_path is in sync."

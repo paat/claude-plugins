@@ -103,12 +103,21 @@ Three checks are available (all optional, configured in the `lint` block of `sou
 If no `lint` block is present, `lint.sh` exits 0 silently (fully backward compatible). See
 `skills/agent-sync/references/sources-json-format.md` for the full `lint` block reference.
 
-## CI Integration
+## Staying in sync
 
-`/agent-sync:init` vendors both `generate.sh` and `lint.sh` into `tools/agent-sync/` (next to
-`sources.json`) and can scaffold `.github/workflows/agents-sync.yml`, so drift detection and
-linting run in CI without the plugin installed. See
-`skills/agent-sync/references/github-actions-template.md` for the workflow.
+`AGENTS.md` is generated, so agent-sync keeps it correct **at authoring time** rather than
+re-deriving it later in an unpinned environment:
+
+- **PostToolUse hook** — whenever you edit a tracked source (`CLAUDE.md`, `.claude/**`,
+  `sources.json`), the hook regenerates `AGENTS.md` in the same environment that made the change,
+  so the working tree never drifts. Set `AGENT_SYNC_AUTO_STAGE=1` to also `git add` the regenerated
+  file alongside your source change (off by default — staging stays under your control).
+- **CI** — `/agent-sync:init` scaffolds `.github/workflows/agents-sync.yml` that runs `lint.sh`
+  only. It deliberately does **not** regenerate `AGENTS.md` on the runner: re-deriving a generated
+  artifact in an environment that isn't pinned to where it was authored produces false drift when
+  the runner's `bash`/`awk`/`sed` differ (issues #33, #92). An optional, commented drift backstop
+  is included for teams that pin their toolchain. See
+  `skills/agent-sync/references/github-actions-template.md`.
 
 ## Migration from Node.js Version
 
@@ -129,5 +138,5 @@ If you have an existing `tools/agent-sync/generate-agents.mjs`:
 | `/agent-sync:init` | Command | Scaffold sources.json |
 | `agent-sync` | Skill | Usage reference and troubleshooting |
 | `sync-watcher` | Agent | Proactively checks sync when configs change |
-| PostToolUse hook | Hook | Warns when tracked source file is edited |
+| PostToolUse hook | Hook | Regenerates AGENTS.md when a tracked source file is edited (opt-in auto-stage) |
 | `lint.sh` | Script | Lint config for stack contradictions, rules-file bloat, and soft directives |

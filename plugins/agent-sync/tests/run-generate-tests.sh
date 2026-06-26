@@ -192,6 +192,60 @@ assert_line   "mawk-extract: 7-hash line kept as content"     "$OUT5" "####### d
 assert_line   "mawk-extract: content after 7-hash survives"   "$OUT5" "tail line"
 assert_absent "mawk-extract: sibling section excluded"        "$OUT5" "Other body."
 
+# --- Fixture: blank-line trimming (issue #92). A source with leading and
+#     trailing blank lines around the body must render with those stripped, and
+#     no "Broken pipe" must reach stderr from the SIGPIPE-safe trim helper. ------
+REPO6="$TMP/trim"
+mkdir -p "$REPO6/.agent-sync" "$REPO6/.claude/rules"
+
+# Leading + trailing blank lines (and interior blanks that must be preserved).
+printf '# Trimmed\n\n\n## First\nalpha\n\n\nbeta\n\n\n' > "$REPO6/.claude/rules/trim.md"
+
+cat > "$REPO6/.agent-sync/sources.json" <<'JSON'
+{"version":2,"files":{"t":".claude/rules/trim.md"},"outputs":[{"path":"AGENTS.md","sections":[{"id":"t","title":"Trimmed","source":"t","type":"full-body"}]}]}
+JSON
+
+TRIM_ERR="$REPO6/stderr.log"
+bash "$GEN" --config "$REPO6/.agent-sync/sources.json" --root "$REPO6" >/dev/null 2>"$TRIM_ERR"
+OUT6="$REPO6/AGENTS.md"
+
+assert_line   "trim: body content present"            "$OUT6" "alpha"
+assert_line   "trim: interior blank preserved"        "$OUT6" "beta"
+assert_absent "trim: no broken pipe on stderr"        "$TRIM_ERR" "Broken pipe"
+# The source's trailing triple-blank after "beta" must be stripped: without the
+# trim, those would leak as a run of 3+ blank lines before the footer. Interior
+# double-blanks (alpha .. beta) are preserved, so a max run of 2 is expected.
+max_run="$(awk '/^[[:space:]]*$/{r++; if(r>m)m=r; next} {r=0} END{print m+0}' "$OUT6")"
+if [[ "$max_run" -le 2 ]]; then
+  echo "PASS: trim: trailing blank lines stripped (max blank run=$max_run)"; PASS=$((PASS+1))
+else
+  echo "FAIL: trim: trailing blank lines stripped — max blank run=$max_run (expected <=2)"; FAIL=$((FAIL+1))
+  echo "----- actual $OUT6 -----"; cat "$OUT6"; echo "------------------------"
+fi
+
+# --- Fixture: --check prints a unified diff on drift (issue #92). After a
+#     successful generate, mutate AGENTS.md and assert --check exits non-zero
+#     AND emits a diff hunk naming the changed line. -----------------------------
+DRIFT_ERR="$REPO6/check.log"
+printf '\nMUTATED LINE\n' >> "$OUT6"
+set +e
+bash "$GEN" --config "$REPO6/.agent-sync/sources.json" --root "$REPO6" --check >/dev/null 2>"$DRIFT_ERR"
+check_rc=$?
+set -e 2>/dev/null || true
+
+if [[ $check_rc -ne 0 ]]; then
+  echo "PASS: check: drift exits non-zero"; PASS=$((PASS+1))
+else
+  echo "FAIL: check: drift exits non-zero — got rc=$check_rc"; FAIL=$((FAIL+1))
+fi
+assert_line   "check: drift message printed"   "$DRIFT_ERR" "[agent-sync] DRIFT: AGENTS.md is out of sync. Run: /agent-sync:generate"
+if grep -q '^  @@' "$DRIFT_ERR" && grep -q 'MUTATED LINE' "$DRIFT_ERR"; then
+  echo "PASS: check: unified diff names drifted line"; PASS=$((PASS+1))
+else
+  echo "FAIL: check: unified diff names drifted line"; FAIL=$((FAIL+1))
+  echo "----- actual $DRIFT_ERR -----"; cat "$DRIFT_ERR"; echo "------------------------"
+fi
+
 echo "-----"
 echo "PASS=$PASS FAIL=$FAIL"
 [[ $FAIL -eq 0 ]] || exit 1
