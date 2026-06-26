@@ -3589,6 +3589,205 @@ test_lesson_file() {
 }
 
 # ---------------------------------------------------------------------------
+# Suite R: lesson-review.sh (the single human gate — list / approve / close)
+# ---------------------------------------------------------------------------
+
+test_lesson_review() {
+  echo -e "\n${CYAN}Suite R: lesson-review.sh (human gate)${NC}"
+  local script="$PLUGIN_ROOT/scripts/lesson-review.sh"
+  local workdir L ec output cnt
+  local REPO="paat/claude-plugins"
+  local CAND_OPEN='{"state":"OPEN","labels":[{"name":"lesson-candidate"},{"name":"tooling"}]}'
+  local APPROVED_OPEN='{"state":"OPEN","labels":[{"name":"lesson-approved"}]}'
+  local CLOSED_CAND='{"state":"CLOSED","labels":[{"name":"lesson-candidate"}]}'
+  local NONLESSON_OPEN='{"state":"OPEN","labels":[{"name":"bug"}]}'
+  local ONE='[{"number":5,"title":"lesson: recurring tool_failure","labels":[{"name":"lesson-candidate"},{"name":"tooling"}],"url":"https://github.com/paat/claude-plugins/issues/5","body":"## Observation\nstuff"}]'
+  _edits() { grep -c 'issue edit' "$1" 2>/dev/null || true; }
+  _closes() { grep -c 'issue close' "$1" 2>/dev/null || true; }
+
+  # --- R1: --list shows the candidate queue, querying the candidate label ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_LIST_JSON="$ONE" SAAS_PLUGIN_REPO= \
+    bash "$script" --list --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R1: list exits 0" "$ec" 0
+  assert_output_contains "R1: lists candidate #5" "$output" "#5"
+  assert_file_contains "R1: queries lesson-candidate label" "$L" "--label lesson-candidate"
+  rm -rf "$workdir"
+
+  # --- R2: --list without a pinned repo refuses (exit 2) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO= \
+    bash "$script" --list 2>&1) || ec=$?
+  assert_exit_code "R2: list without repo exits 2" "$ec" 2
+  rm -rf "$workdir"
+
+  # --- R2b: a malformed repo pin is refused (exit 2) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO= \
+    bash "$script" --list --repo notaslash 2>&1) || ec=$?
+  assert_exit_code "R2b: malformed repo refused (exit 2)" "$ec" 2
+  rm -rf "$workdir"
+
+  # --- R3: --approve does a single atomic candidate->approved relabel ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CAND_OPEN" SAAS_PLUGIN_REPO= \
+    bash "$script" --approve 5 --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R3: approve exits 0" "$ec" 0
+  assert_file_contains "R3: adds lesson-approved" "$L" "add-label lesson-approved"
+  assert_file_contains "R3: removes lesson-candidate" "$L" "remove-label lesson-candidate"
+  assert_equals "R3: exactly one edit call" "$(_edits "$L")" "1"
+  rm -rf "$workdir"
+
+  # --- R4: approve refuses an issue that is not a candidate (label guard) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$NONLESSON_OPEN" SAAS_PLUGIN_REPO= \
+    bash "$script" --approve 7 --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R4: refuse non-candidate (non-zero)" "$ec" 1
+  assert_equals "R4: no edit on refusal" "$(_edits "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- R5: approve without a pinned repo refuses (exit 2) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO= \
+    bash "$script" --approve 5 2>&1) || ec=$?
+  assert_exit_code "R5: approve without repo exits 2" "$ec" 2
+  rm -rf "$workdir"
+
+  # --- R6: approve with a non-integer issue number refuses (exit 2) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO= \
+    bash "$script" --approve abc --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R6: non-integer issue refused (exit 2)" "$ec" 2
+  rm -rf "$workdir"
+
+  # --- R7: --close rejects a candidate as not planned ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CAND_OPEN" SAAS_PLUGIN_REPO= \
+    bash "$script" --close 5 --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R7: close exits 0" "$ec" 0
+  assert_file_contains "R7: closes the issue" "$L" "issue close 5"
+  assert_file_contains "R7: closes as not planned" "$L" "not planned"
+  rm -rf "$workdir"
+
+  # --- R8: a relabel failure fails CLOSED (non-zero, no false success) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CAND_OPEN" GH_FAIL_ON="issue edit" SAAS_PLUGIN_REPO= \
+    bash "$script" --approve 5 --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R8: relabel failure is non-zero" "$ec" 1
+  rm -rf "$workdir"
+
+  # --- R9: approving an already-approved issue is an idempotent no-op ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$APPROVED_OPEN" SAAS_PLUGIN_REPO= \
+    bash "$script" --approve 5 --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R9: idempotent approve exits 0" "$ec" 0
+  assert_equals "R9: no edit on idempotent approve" "$(_edits "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- R10: cannot-inspect (issue view fails) fails CLOSED, no mutation ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_FAIL_ON="issue view" SAAS_PLUGIN_REPO= \
+    bash "$script" --approve 5 --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R10: view failure is non-zero" "$ec" 1
+  assert_equals "R10: no edit when cannot inspect" "$(_edits "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- R11: approving a CLOSED candidate is refused (reopen first) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CLOSED_CAND" SAAS_PLUGIN_REPO= \
+    bash "$script" --approve 5 --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R11: refuse approve on closed (non-zero)" "$ec" 1
+  assert_equals "R11: no edit on closed" "$(_edits "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- R12: closing an already-closed issue is an idempotent no-op ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CLOSED_CAND" SAAS_PLUGIN_REPO= \
+    bash "$script" --close 5 --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R12: idempotent close exits 0" "$ec" 0
+  assert_equals "R12: no close call when already closed" "$(_closes "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- R13: an empty queue lists cleanly (exit 0, not an error) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_LIST_JSON='[]' SAAS_PLUGIN_REPO= \
+    bash "$script" --list --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R13: empty queue exits 0" "$ec" 0
+  assert_output_contains "R13: reports empty queue" "$output" "No lesson candidates"
+  rm -rf "$workdir"
+
+  # --- R14: a list failure (cannot determine the queue) is non-zero ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_FAIL_ON="issue list" SAAS_PLUGIN_REPO= \
+    bash "$script" --list --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R14: list gh failure is non-zero" "$ec" 1
+  rm -rf "$workdir"
+
+  # --- R15: --list --json passes structured data through for the command ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_LIST_JSON="$ONE" SAAS_PLUGIN_REPO= \
+    bash "$script" --list --json --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R15: json list exits 0" "$ec" 0
+  cnt="$(printf '%s' "$output" | jq 'length' 2>/dev/null || echo bad)"
+  assert_equals "R15: json passthrough is parseable array" "$cnt" "1"
+  rm -rf "$workdir"
+
+  # --- R16: closing a non-lesson issue is refused (is-a-lesson guard) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$NONLESSON_OPEN" SAAS_PLUGIN_REPO= \
+    bash "$script" --close 9 --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R16: refuse close non-lesson (non-zero)" "$ec" 1
+  assert_equals "R16: no close call on refusal" "$(_closes "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- R17: --note on approve posts an annotation comment ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CAND_OPEN" SAAS_PLUGIN_REPO= \
+    bash "$script" --approve 5 --note "clearly generic" --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R17: approve with note exits 0" "$ec" 0
+  assert_file_contains "R17: posts the note as a comment" "$L" "issue comment 5"
+  rm -rf "$workdir"
+
+  # --- R18: a value-taking flag with no value errors (no infinite loop) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO= \
+    timeout 10 bash "$script" --approve 2>&1) || ec=$?
+  assert_exit_code "R18: missing --approve value exits 2 (no hang)" "$ec" 2
+  rm -rf "$workdir"
+
+  # --- R19: a malformed issue list fails CLOSED (not "empty queue") ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_LIST_JSON='not json {{' SAAS_PLUGIN_REPO= \
+    bash "$script" --list --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R19: unparseable list fails closed (non-zero)" "$ec" 1
+  rm -rf "$workdir"
+
+  # --- R20: approving a CLOSED+approved issue is refused (no silent resurrect) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    GH_VIEW_JSON='{"state":"CLOSED","labels":[{"name":"lesson-approved"}]}' SAAS_PLUGIN_REPO= \
+    bash "$script" --approve 5 --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R20: refuse approve on closed+approved" "$ec" 1
+  assert_equals "R20: no edit on closed+approved" "$(_edits "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- R21: a malformed issue-view fails CLOSED on close (no false no-op success) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON='garbage {{' SAAS_PLUGIN_REPO= \
+    bash "$script" --close 5 --repo "$REPO" 2>&1) || ec=$?
+  assert_exit_code "R21: unparseable view fails closed on close" "$ec" 1
+  assert_equals "R21: no close call on unparseable view" "$(_closes "$L")" "0"
+  rm -rf "$workdir"
+
+  # --- R22: --limit 0 is rejected (must be >= 1) ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO= \
+    bash "$script" --list --repo "$REPO" --limit 0 2>&1) || ec=$?
+  assert_exit_code "R22: --limit 0 refused (exit 2)" "$ec" 2
+  rm -rf "$workdir"
+}
+
+# ---------------------------------------------------------------------------
 # Suite Z: Convergence governor integration
 # ---------------------------------------------------------------------------
 
@@ -3726,6 +3925,7 @@ main() {
   test_session_insights
   test_harvest
   test_lesson_file
+  test_lesson_review
   test_convergence_governor
   test_learnings_style_block
   test_founder_standards_routing
@@ -4004,8 +4204,12 @@ case "$1 $2" in
   "issue create") echo "https://github.com/o/r/issues/${GH_CREATE_NUMBER:?GH_CREATE_NUMBER unset}" ;;
   "issue comment") echo "https://github.com/o/r/issues/commented" ;;
   "issue view")
-     if [[ "$*" == *"body"* ]]; then echo "${GH_VIEW_BODY:-}"; else echo "${GH_VIEW_STATE:-OPEN}"; fi ;;
-  "issue list")  echo "${GH_SEARCH_JSON:-[]}" ;;
+     if [[ "$*" == *"--json"* ]] && [ -n "${GH_VIEW_JSON:-}" ]; then echo "$GH_VIEW_JSON";
+     elif [[ "$*" == *"body"* ]]; then echo "${GH_VIEW_BODY:-}";
+     else echo "${GH_VIEW_STATE:-OPEN}"; fi ;;
+  "issue list")  echo "${GH_LIST_JSON:-${GH_SEARCH_JSON:-[]}}" ;;
+  "issue edit")  : ;;
+  "issue close") : ;;
   "label create") : ;;
   *) : ;;
 esac

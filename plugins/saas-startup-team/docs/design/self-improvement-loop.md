@@ -323,9 +323,22 @@ Tracking issue: **#79** (keep open until the loop runs end-to-end live).
   - Tests: Suite F (F1–F9) with the mock-`gh` harness (684 total, all green).
   - End-to-end on aruannik stays dry-run by default: 2 candidates → "would file
     2, filed 0", ledger empty, no `gh` contact.
+- [x] **v4 — `lesson-review.sh` + `/lessons-review`** (the single human gate). Component #4.
+  - Lists open `lesson-candidate` issues from the PINNED repo (`--list [--json]`),
+    and lets the investor `--approve N` (single atomic relabel
+    `lesson-candidate` → `lesson-approved`, marking it ready for `/goal-deliver`)
+    or `--close N` (reject, closed as *not planned*). Repo pin required + validated
+    as `OWNER/REPO` for every action; mutations act only on a verified lesson issue
+    (label guard); idempotent approve/close; **fails closed** on any `gh` error.
+    Deliberate per-issue human action ⇒ no `SAAS_LESSON_SYNC_ENABLED` gate (that
+    flag guards automated filing only).
+  - Tests: Suite R (R1–R17) with the mock-`gh` harness (extended for
+    `issue view --json` / `issue edit` / `issue close`). All green.
 - [ ] Manual review of a larger record sample; cross-project recurrence.
-- [ ] `/lessons-review` human gate + auto-implement approved issues via `/goal-deliver`.
-- [ ] `/lessons-review` human gate; generalize replay producer; auto-implement approved issues.
+- [ ] Auto-implement approved issues via `/goal-deliver` (currently the investor
+  runs `/goal-deliver #N` on approved issues by hand); generalize the replay producer.
+- [ ] Deploy the nightly harvester cron in-container so candidates accumulate where
+  the sessions live.
 
 Everything past v1 stays **local-only / not built** until the data model and privacy
 boundary are proven — no public-repo writes yet.
