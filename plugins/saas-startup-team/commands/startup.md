@@ -111,7 +111,17 @@ The PostToolUse hook will auto-populate a `## Learnings` section in the project'
 The auto-commit hook requires a git repo. Ensure one exists:
 
 1. Check if in a git repo: `git rev-parse --show-toplevel`
-2. If **not** in a git repo: `git init && git add -A && git commit -m "Initial commit before startup loop"`
+2. If **not** in a git repo, guard the broad initial `git add -A` so a stray >50 MB file (or a
+   package store the `.gitignore` from `/bootstrap` didn't already cover) can't land in the very
+   first commit and make the repo unpushable:
+   ```bash
+   git init && git add -A
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-staged-size.sh" || {
+     echo "Aborting: staged tree has oversized/ignored files (see above). Fix .gitignore + git rm -r --cached, then retry." >&2
+     exit 1
+   }
+   git commit -m "Initial commit before startup loop"
+   ```
 3. If **already** in a git repo: `git add -A .startup/ && git commit -m "Initialize .startup/ directory" --no-verify`
 
 ## Step 2d: Reset Session State

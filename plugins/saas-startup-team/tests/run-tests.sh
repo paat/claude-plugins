@@ -1274,6 +1274,8 @@ test_check_staged_size() {
   # G9: the guard is wired into the bootstrap commit and the /improve catch-all commit
   assert_file_contains "G9a: bootstrap runs the guard before commit" "$bootstrap" "check-staged-size.sh"
   assert_file_contains "G9b: improve runs the guard before commit" "$PLUGIN_ROOT/commands/improve.md" "check-staged-size.sh"
+  assert_file_contains "G9c: tweak runs the guard before commit" "$PLUGIN_ROOT/commands/tweak.md" "check-staged-size.sh"
+  assert_file_contains "G9d: startup guards the initial git add -A" "$PLUGIN_ROOT/commands/startup.md" "check-staged-size.sh"
 
   # G10: measures the STAGED blob, not the working tree — stage a big blob, then truncate the
   # working-tree copy. The commit would still carry the big blob, so the guard must still reject.
