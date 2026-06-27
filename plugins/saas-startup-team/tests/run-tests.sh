@@ -3408,6 +3408,33 @@ JSONL
   _si_run "$logs" "$state" "$out" "$report"
   assert_equals "Z20: interrupt across joined text blocks" "$(_si_count "$out" interrupt)" "1"
   rm -rf "$workdir"
+
+  # --- Z21: a Stop-hook feedback turn is NOT an investor correction ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  printf '%s\n' '{"type":"user","sessionId":"SJ","message":{"role":"user","content":"Stop hook feedback: [all issues merged]: only #1017 remains"}}' > "$logs/SJ.jsonl"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z21: Stop-hook feedback is not a correction" "$(_si_total "$out")" "0"
+  rm -rf "$workdir"
+
+  # --- Z22: a <system-reminder> turn is NOT an investor correction ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  printf '%s\n' '{"type":"user","sessionId":"SK","message":{"role":"user","content":"<system-reminder>Do not respond to this context.</system-reminder>"}}' > "$logs/SK.jsonl"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z22: system-reminder is not a correction" "$(_si_total "$out")" "0"
+  rm -rf "$workdir"
+
+  # --- Z23: tool_failure carries the specific error text, not a constant ---
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  cat > "$logs/SL.jsonl" <<'JSONL'
+{"type":"user","sessionId":"SL","message":{"role":"user","content":[{"type":"tool_result","is_error":true,"content":"ENOSPC: no space left on device"}]}}
+JSONL
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z23: one tool_failure" "$(_si_count "$out" tool_failure)" "1"
+  assert_file_contains "Z23: summary carries the real error text" "$out" "ENOSPC: no space left on device"
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
@@ -3431,7 +3458,7 @@ test_harvest() {
 
   # --- H1: identical signals cluster into one candidate with aggregated count ---
   workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
-  { _rec tool_failure "tool_result error" "/f#L1"; _rec tool_failure "tool_result error" "/f#L2"; _rec tool_failure "tool_result error" "/f#L3"; } > "$in"
+  { _rec tool_failure "eslint failed: rule no-undef" "/f#L1"; _rec tool_failure "eslint failed: rule no-undef" "/f#L2"; _rec tool_failure "eslint failed: rule no-undef" "/f#L3"; } > "$in"
   _h_run "$in" "$led" "$cand" "$report"
   assert_exit_code "HV1: exits 0" "$ec" 0
   assert_equals "HV1: one cluster" "$(_h_total "$cand")" "1"
@@ -3458,7 +3485,7 @@ test_harvest() {
 
   # --- H4: dedup against the ledger (already-surfaced fingerprint) ---
   workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
-  _rec interrupt "[Request interrupted by user]" "/f#L1" > "$in"
+  _rec interrupt "[Request interrupted by user] stop — wrong migration order" "/f#L1" > "$in"
   _h_run "$in" "$led" "$cand" "$report"
   assert_equals "HV4: first run surfaces it" "$(_h_total "$cand")" "1"
   local fp; fp="$(jq -r '.fingerprint' "$cand" | head -1)"
@@ -3469,17 +3496,17 @@ test_harvest() {
 
   # --- H5: recurrence threshold (a lone low-confidence signal stays below the bar) ---
   workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
-  _rec tool_failure "tool_result error" "/f#L1" > "$in"   # count 1 < default 3
+  _rec tool_failure "webpack build failed: module not found" "/f#L1" > "$in"   # count 1 < default 3
   _h_run "$in" "$led" "$cand" "$report"
   assert_equals "HV5: single tool_failure below threshold" "$(_h_total "$cand")" "0"
-  _rec interrupt "[Request interrupted by user]" "/f#L1" > "$in"  # count 1 >= default 1
+  _rec interrupt "[Request interrupted by user] stop — wrong branch" "/f#L1" > "$in"  # count 1 >= default 1
   _h_run "$in" "$led" "$cand" "$report"
   assert_equals "HV5: single interrupt meets threshold" "$(_h_total "$cand")" "1"
   rm -rf "$workdir"
 
   # --- H6: candidates are valid JSON; report is written ---
   workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
-  _rec interrupt "[Request interrupted by user]" "/f#L1" > "$in"
+  _rec interrupt "[Request interrupted by user] stop — wrong migration order" "/f#L1" > "$in"
   _h_run "$in" "$led" "$cand" "$report"
   ec=0; jq -e . "$cand" >/dev/null 2>&1 || ec=$?
   assert_exit_code "HV6: candidates valid JSON" "$ec" 0
@@ -3488,7 +3515,7 @@ test_harvest() {
 
   # --- H7: malformed record line tolerated ---
   workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
-  { printf 'garbage {{{\n'; _rec interrupt "[Request interrupted by user]" "/f#L2"; } > "$in"
+  { printf 'garbage {{{\n'; _rec interrupt "[Request interrupted by user] stop — wrong migration order" "/f#L2"; } > "$in"
   _h_run "$in" "$led" "$cand" "$report"
   assert_exit_code "HV7: tolerates malformed line" "$ec" 0
   assert_equals "HV7: still surfaces the valid signal" "$(_h_total "$cand")" "1"
@@ -3536,7 +3563,7 @@ test_harvest() {
 
   # --- HV12: refs with spaces/glob chars do not corrupt output (no word-split/glob) ---
   workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
-  _rec interrupt "[Request interrupted by user]" "/tmp/a b*.jsonl#L1" > "$in"
+  _rec interrupt "[Request interrupted by user] stop — wrong migration order" "/tmp/a b*.jsonl#L1" > "$in"
   _h_run "$in" "$led" "$cand" "$report"
   ec=0; jq -e . "$cand" >/dev/null 2>&1 || ec=$?
   assert_exit_code "HV12: candidates still valid JSON" "$ec" 0
@@ -3553,12 +3580,52 @@ test_harvest() {
 
   # --- HV14: candidate output order is deterministic across runs ---
   workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
-  { _rec interrupt "[Request interrupted by user]" "/f#L1"
-    _rec tool_failure "tool_result error" "/f#L2"; _rec tool_failure "tool_result error" "/f#L3"; _rec tool_failure "tool_result error" "/f#L4"; } > "$in"
+  { _rec interrupt "[Request interrupted by user] stop — wrong migration order" "/f#L1"
+    _rec tool_failure "eslint failed: rule no-undef" "/f#L2"; _rec tool_failure "eslint failed: rule no-undef" "/f#L3"; _rec tool_failure "eslint failed: rule no-undef" "/f#L4"; } > "$in"
   _h_run "$in" "$led" "$workdir/c1.jsonl" "$report"
   _h_run "$in" "$led" "$workdir/c2.jsonl" "$report"
   local dord=same; diff -q "$workdir/c1.jsonl" "$workdir/c2.jsonl" >/dev/null 2>&1 || dord=diff
   assert_equals "HV14: deterministic candidate ordering" "$dord" "same"
+  rm -rf "$workdir"
+
+  # --- HV15: a bare interrupt marker is low-signal and does NOT surface ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  _rec interrupt "[Request interrupted by user]" "/f#L1" > "$in"
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_equals "HV15: bare interrupt dropped as low-signal" "$(_h_total "$cand")" "0"
+  assert_file_contains "HV15: report counts the low-signal drop" "$report" "low-signal (no actionable content): 1"
+  rm -rf "$workdir"
+
+  # --- HV16: a generic 'tool_result error' (no specifics) is low-signal ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  { _rec tool_failure "tool_result error" "/f#L1"; _rec tool_failure "tool_result error" "/f#L2"; _rec tool_failure "tool_result error" "/f#L3"; } > "$in"
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_equals "HV16: generic tool error dropped as low-signal" "$(_h_total "$cand")" "0"
+  rm -rf "$workdir"
+
+  # --- HV17: project-specific issue numbers are de-identified ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  { _rec correction "the /goal-deliver #864 flow only handled #1017" "/f#L1"; _rec correction "the /goal-deliver #864 flow only handled #1017" "/f#L2"; } > "$in"
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_equals "HV17: surfaced" "$(_h_total "$cand")" "1"
+  assert_file_contains "HV17: issue numbers templated to #N" "$cand" "#N"
+  assert_file_not_contains "HV17: raw issue number removed" "$cand" "#864"
+  rm -rf "$workdir"
+
+  # --- HV18: evidence_refs are capped (a high-count cluster doesn't dump all refs) ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  : > "$in"; for i in $(seq 1 25); do _rec correction "the checkout flow validation is wrong" "/f#L$i" >> "$in"; done
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_equals "HV18: one cluster" "$(_h_total "$cand")" "1"
+  assert_equals "HV18: evidence_refs capped at 10" "$(jq -r '.evidence_refs | length' "$cand" | head -1)" "10"
+  assert_equals "HV18: occurrence count still full (25)" "$(jq -r '.count' "$cand" | head -1)" "25"
+  rm -rf "$workdir"
+
+  # --- HV19: a substantive interrupt (marker + real text) still surfaces ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  _rec interrupt "[Request interrupted by user] stop — do not deploy without migrations" "/f#L1" > "$in"
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_equals "HV19: substantive interrupt surfaces" "$(_h_total "$cand")" "1"
   rm -rf "$workdir"
 }
 
