@@ -3467,7 +3467,7 @@ test_harvest() {
 
   # --- H1: identical signals cluster into one candidate with aggregated count ---
   workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
-  { _rec tool_failure "eslint failed: rule no-undef" "/f#L1"; _rec tool_failure "eslint failed: rule no-undef" "/f#L2"; _rec tool_failure "eslint failed: rule no-undef" "/f#L3"; } > "$in"
+  { _rec correction "the checkout total is computed wrong" "/f#L1"; _rec correction "the checkout total is computed wrong" "/f#L2"; _rec correction "the checkout total is computed wrong" "/f#L3"; } > "$in"
   _h_run "$in" "$led" "$cand" "$report"
   assert_exit_code "HV1: exits 0" "$ec" 0
   assert_equals "HV1: one cluster" "$(_h_total "$cand")" "1"
@@ -3505,9 +3505,9 @@ test_harvest() {
 
   # --- H5: recurrence threshold (a lone low-confidence signal stays below the bar) ---
   workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
-  _rec tool_failure "webpack build failed: module not found" "/f#L1" > "$in"   # count 1 < default 3
+  _rec correction "the totals page is off by one" "/f#L1" > "$in"   # count 1 < correction threshold 2
   _h_run "$in" "$led" "$cand" "$report"
-  assert_equals "HV5: single tool_failure below threshold" "$(_h_total "$cand")" "0"
+  assert_equals "HV5: single correction below threshold" "$(_h_total "$cand")" "0"
   _rec interrupt "[Request interrupted by user] stop — wrong branch" "/f#L1" > "$in"  # count 1 >= default 1
   _h_run "$in" "$led" "$cand" "$report"
   assert_equals "HV5: single interrupt meets threshold" "$(_h_total "$cand")" "1"
@@ -3590,7 +3590,7 @@ test_harvest() {
   # --- HV14: candidate output order is deterministic across runs ---
   workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
   { _rec interrupt "[Request interrupted by user] stop — wrong migration order" "/f#L1"
-    _rec tool_failure "eslint failed: rule no-undef" "/f#L2"; _rec tool_failure "eslint failed: rule no-undef" "/f#L3"; _rec tool_failure "eslint failed: rule no-undef" "/f#L4"; } > "$in"
+    _rec correction "the invoice rounding is wrong" "/f#L2"; _rec correction "the invoice rounding is wrong" "/f#L3"; } > "$in"
   _h_run "$in" "$led" "$workdir/c1.jsonl" "$report"
   _h_run "$in" "$led" "$workdir/c2.jsonl" "$report"
   local dord=same; diff -q "$workdir/c1.jsonl" "$workdir/c2.jsonl" >/dev/null 2>&1 || dord=diff
@@ -3605,11 +3605,13 @@ test_harvest() {
   assert_file_contains "HV15: report counts the low-signal drop" "$report" "low-signal (no actionable content): 1"
   rm -rf "$workdir"
 
-  # --- HV16: a generic 'tool_result error' (no specifics) is low-signal ---
+  # --- HV16: a recurring tool_failure (even with real error text) is never filed ---
+  # tool_failure is agent/environment friction, not a generic plugin lesson.
   workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
-  { _rec tool_failure "tool_result error" "/f#L1"; _rec tool_failure "tool_result error" "/f#L2"; _rec tool_failure "tool_result error" "/f#L3"; } > "$in"
+  { _rec tool_failure "eslint failed: rule no-undef" "/f#L1"; _rec tool_failure "eslint failed: rule no-undef" "/f#L2"; _rec tool_failure "eslint failed: rule no-undef" "/f#L3"; } > "$in"
   _h_run "$in" "$led" "$cand" "$report"
-  assert_equals "HV16: generic tool error dropped as low-signal" "$(_h_total "$cand")" "0"
+  assert_equals "HV16: tool_failure not filed (non-intervention)" "$(_h_total "$cand")" "0"
+  assert_file_contains "HV16: report counts the non-intervention skip" "$report" "non-intervention signal): 1"
   rm -rf "$workdir"
 
   # --- HV17: project-specific issue numbers are de-identified ---

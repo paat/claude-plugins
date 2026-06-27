@@ -93,6 +93,17 @@ is_low_signal() {
   return 1
 }
 
+# Only genuine investor interventions become filed lesson candidates. tool_failure
+# is still EXTRACTED (local diagnostics) but is agent/environment friction — browser
+# timeouts, model-unavailable, permission denials, read-before-write, user
+# rejections — not a generic plugin lesson, so it is never surfaced for filing.
+is_filed_signal() {
+  case "$1" in
+    interrupt|nudge|correction) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Ledger of already-surfaced/filed fingerprints (object; tolerate missing/corrupt).
 LEDGER_JSON="$(cat "$LEDGER" 2>/dev/null || true)"
 printf '%s' "$LEDGER_JSON" | jq -e 'type=="object"' >/dev/null 2>&1 || LEDGER_JSON='{}'
@@ -127,11 +138,12 @@ if [ -f "$IN" ]; then
   done < "$IN"
 fi
 
-SURFACED=0; BELOW=0; BLOCKED=0; DEDUP=0; LOWSIG=0
+SURFACED=0; BELOW=0; BLOCKED=0; DEDUP=0; LOWSIG=0; NONINTERVENTION=0
 # Iterate fingerprints in sorted order so candidate output is deterministic.
 while IFS= read -r fp; do
   [ -n "$fp" ] || continue
   sig="${SIG[$fp]}"; count="${CNT[$fp]}"; thr="$(thr_for "$sig")"
+  if ! is_filed_signal "$sig"; then NONINTERVENTION=$((NONINTERVENTION + 1)); continue; fi
   if printf '%s' "$LEDGER_JSON" | jq -e --arg fp "$fp" 'has($fp)' >/dev/null 2>&1; then
     DEDUP=$((DEDUP + 1)); continue
   fi
@@ -165,6 +177,7 @@ done < <(printf '%s\n' "${!CNT[@]}" | sort)
   echo "- surfaced (written to candidates): $SURFACED"
   echo "- below recurrence threshold: $BELOW"
   echo "- low-signal (no actionable content): $LOWSIG"
+  echo "- skipped (non-intervention signal): $NONINTERVENTION"
   echo "- blocked (PII/secret detected): $BLOCKED"
   echo "- deduped (already in ledger): $DEDUP"
   echo
