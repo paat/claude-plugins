@@ -40,6 +40,10 @@ done
 mkdir -p "$(dirname "$CANDIDATES")" "$(dirname "$REPORT")" "$(dirname "$LEDGER")"
 : > "$CANDIDATES"   # regenerated each run
 
+# Cap evidence refs per candidate so a high-count cluster doesn't dump hundreds of
+# refs into the issue body (the occurrence count is reported separately).
+MAX_REFS="${SAAS_HARVEST_MAX_REFS:-10}"
+
 # Recurrence thresholds per signal (env-overridable). High-confidence signals
 # surface from a single occurrence; noisier ones must recur.
 thr_for() {
@@ -63,13 +67,31 @@ command -v pii_hit >/dev/null 2>&1 || { echo "harvest: PII gate unavailable; ref
 # De-identify: replace literal project-name occurrences with a template var.
 pj_esc="$(printf '%s' "$PROJECT" | sed 's/[][\.*^$/]/\\&/g')"
 deidentify() {
+  local s="$1"
   if [ -n "$pj_esc" ]; then
-    printf '%s' "$1" | sed "s/${pj_esc}/{{PROJECT}}/Ig"
-  else
-    printf '%s' "$1"
+    s="$(printf '%s' "$s" | sed "s/${pj_esc}/{{PROJECT}}/Ig")"
   fi
+  # Strip project-specific issue references (e.g. #864) — never generic. Evidence
+  # refs like "file.jsonl#L42" keep their letter-prefixed line marker (not matched).
+  printf '%s' "$s" | sed -E 's/#[0-9]+/#N/g'
 }
 normalize() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'; }
+
+# Low-signal floor: a cluster whose summary carries no lesson — the bare interrupt
+# marker, a generic tool error, or degenerate near-empty text — is noise, not a
+# candidate. Compared on a lowercased alnum-only "core" so spacing/punctuation
+# don't matter. The length guard is deliberately small (<4) so it only catches
+# degenerate residue, never terse-but-real lessons ("fix ci", "use pnpm").
+is_low_signal() {
+  local core
+  core="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' \
+    | sed 's/\[request interrupted by user\]//g' \
+    | tr -cd 'a-z0-9')"
+  [ -z "$core" ] && return 0
+  [ "$core" = "toolresulterror" ] && return 0
+  [ "${#core}" -lt 4 ] && return 0
+  return 1
+}
 
 # Ledger of already-surfaced/filed fingerprints (object; tolerate missing/corrupt).
 LEDGER_JSON="$(cat "$LEDGER" 2>/dev/null || true)"
@@ -105,7 +127,7 @@ if [ -f "$IN" ]; then
   done < "$IN"
 fi
 
-SURFACED=0; BELOW=0; BLOCKED=0; DEDUP=0
+SURFACED=0; BELOW=0; BLOCKED=0; DEDUP=0; LOWSIG=0
 # Iterate fingerprints in sorted order so candidate output is deterministic.
 while IFS= read -r fp; do
   [ -n "$fp" ] || continue
@@ -115,9 +137,10 @@ while IFS= read -r fp; do
   fi
   if [ -n "${PII[$fp]:-}" ]; then BLOCKED=$((BLOCKED + 1)); continue; fi
   if [ "$count" -lt "$thr" ]; then BELOW=$((BELOW + 1)); continue; fi
+  if is_low_signal "${SUM[$fp]}"; then LOWSIG=$((LOWSIG + 1)); continue; fi
 
-  # build evidence_refs as a JSON array — quoted to avoid word-split/glob; deduped+sorted.
-  refs_json="$(printf '%s' "${REFS[$fp]}" | jq -R . | jq -cs 'map(select(length>0)) | unique')"
+  # build evidence_refs as a JSON array — quoted to avoid word-split/glob; deduped+sorted+capped.
+  refs_json="$(printf '%s' "${REFS[$fp]}" | jq -R . | jq -cs --argjson n "$MAX_REFS" 'map(select(length>0)) | unique | .[0:$n]')"
   jq -cn \
     --arg fp "$fp" --arg sig "$sig" --argjson count "$count" \
     --arg conf "${CONF[$fp]}" --arg sum "${SUM[$fp]}" --argjson refs "$refs_json" \
@@ -141,6 +164,7 @@ done < <(printf '%s\n' "${!CNT[@]}" | sort)
   echo "## Disposition"
   echo "- surfaced (written to candidates): $SURFACED"
   echo "- below recurrence threshold: $BELOW"
+  echo "- low-signal (no actionable content): $LOWSIG"
   echo "- blocked (PII/secret detected): $BLOCKED"
   echo "- deduped (already in ledger): $DEDUP"
   echo
