@@ -148,10 +148,10 @@ it so `active_role` is never left as `team-lead-tweak`.
    sees **new files too** (a plain `git diff` lists only modified tracked files):
    ```bash
    git add -A
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-staged-size.sh" || {
-     echo "Oversized/ignored files staged — reset and go gated"; }
-     # on failure → run the "reset and go gated" block, then Step 2
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-staged-size.sh"
    ```
+   If `check-staged-size.sh` exits non-zero (oversized/ignored files staged), **run the
+   "reset and go gated" block and go to Step 2.**
 4. **Containment self-check — mechanical, on the STAGED diff.** Classification was a
    guess; the staged diff is the truth, and `--cached` includes added files so a new
    file under a sensitive path cannot slip past the denylist. Run:
@@ -170,23 +170,23 @@ it so `active_role` is never left as `team-lead-tweak`.
    applies on top of it.)
 5. **Commit — keep hooks.**
    ```bash
-   git commit -m "tweak: <summary> (#<n>)" || {
-     echo "Pre-commit hook failed — reset and go gated"; }
-     # on failure → run the "reset and go gated" block, then Step 2
+   git commit -m "tweak: <summary> (#<n>)"
    ```
-   **Never pass `--no-verify`** — project pre-commit hooks (lint/type-check) are part
-   of the CI backstop; a hook failure means the edit isn't clean, so fall back to the
-   gated path (founders + tribunal) rather than forcing it through.
-6. **Push + PR with the closing-metadata contract, and capture the PR number.** If
-   either the push or `gh pr create` fails, run the **"reset and go gated"** block and
-   go to Step 2 (do not leave a half-open fast-path delivery):
+   If the commit fails (a pre-commit hook — lint/type-check — rejected it), the edit
+   isn't clean: **run the "reset and go gated" block and go to Step 2**, letting the
+   gated path's founders + tribunal handle it. **Never pass `--no-verify`** — those
+   hooks are part of the CI backstop.
+6. **Push + PR with the closing-metadata contract, and capture the PR number.**
    ```bash
-   git push -u origin HEAD || { echo "push failed — reset and go gated"; }
+   git push -u origin HEAD
    gh pr create --title "tweak: <summary> (#<n>)" --body "Fixes #<n>
 
-   Trivial fast-path delivery (bare edit, CI-gated, no agents)." || { echo "PR create failed — reset and go gated"; }
+   Trivial fast-path delivery (bare edit, CI-gated, no agents)."
    pr_num=$(gh pr view --json number --jq .number)   # explicit — never guess from branch
    ```
+   If the push or `gh pr create` fails, **stop immediately — run the "reset and go
+   gated" block and go to Step 2**; do not continue to capture `pr_num` or leave a
+   half-open fast-path delivery.
 7. **Pre-merge CI gate.** A green merge requires that the PR has **at least one CI
    check AND every check passes** — a repo with no CI cannot satisfy the bare-ship
    backstop, so "no checks" is treated as not-green (gated), never as a free pass.
