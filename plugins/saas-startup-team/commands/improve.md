@@ -134,7 +134,7 @@ If the business founder pushes back, relay their concerns to the investor. Proce
 
 ## Step 2: Tech Founder — Implementation
 
-Pick the maintenance engine per **"1c. Choosing the implementation engine"** in the startup-orchestration skill (Codex engine for spec-complete / backend / test-heavy / plumbing work; Claude engine for frontend / architecture / surgical / nuanced work; default Claude when unsure). Spawn the tech founder via Agent tool with `subagent_type: "general-purpose"`:
+Pick the maintenance engine per **"1c. Choosing the implementation engine"** in the startup-orchestration skill (Codex engine for spec-complete / backend / test-heavy / plumbing work; Claude engine for frontend / architecture / surgical / nuanced work; **prefer Codex on the margin and default Codex when unsure** to spare scarce Claude/Opus capacity — reserve Claude for work that genuinely needs its strengths). Spawn the tech founder via Agent tool with `subagent_type: "general-purpose"`:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude-maintain.md` (Claude engine) **or** `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-codex-maintain.md` (Codex engine) — whichever the orchestrator selected — for your identity and tools.
 >
@@ -179,7 +179,7 @@ Read the business founder's review.
 
 Dispatch tech founder to fix:
 
-> Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude-maintain.md` (Claude engine) **or** `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-codex-maintain.md` (Codex engine) — match the engine to the fix per the engine-selection guidance (default Claude) — for your identity and tools.
+> Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude-maintain.md` (Claude engine) **or** `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-codex-maintain.md` (Codex engine) — match the engine to the fix per the engine-selection guidance (prefer Codex on the margin; default Codex when unsure) — for your identity and tools.
 >
 > **Fix task: Address the business founder's QA findings.**
 >

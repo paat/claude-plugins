@@ -73,7 +73,9 @@ Dispatch **tech-founder-claude** (Claude / Opus — design taste, disciplined, m
 - hard logical/design debugging, or nuanced product / "why" judgment
 - correctness-critical domain logic where subtle invariants beat raw thoroughness
 
-Basis: a verified head-to-head A/B (Codex won on completeness + following the brief + repo-rule compliance; Claude won on minimality + design taste) plus developer consensus. When unsure, **default to tech-founder-claude** (safer for this codebase). For a mixed handoff, pick by the dominant work — or better, have the business founder split it.
+Basis: a verified head-to-head A/B (Codex won on completeness + following the brief + repo-rule compliance; Claude won on minimality + design taste) plus developer consensus.
+
+**Capacity balancing — prefer Codex on the margin.** Claude/Opus usage is the scarcer, rate-limited resource, so lean toward **tech-founder-codex** whenever a task could reasonably go either way. Reserve **tech-founder-claude** for work that *genuinely* needs its strengths (the Claude list above) — frontend/UX polish, architecture/new-module design, surgical or correctness-critical changes with subtle invariants. For borderline, mixed, or "unsure" handoffs, **default to tech-founder-codex**. Only fall back to Claude when Codex is unavailable (see preflight) or the task is squarely in Claude's column. For a clearly mixed handoff, pick by the dominant work — or better, have the business founder split it so the Claude-flavored part is its own smaller dispatch.
 
 **Codex-availability preflight:** before routing a task to `tech-founder-codex`, confirm the engine is present — run `command -v codex` once. If it's not installed, route to `tech-founder-claude` instead. (Backstop: if you route to codex anyway, `tech-founder-codex` / `codex-implement.sh` exit **3** and report back so you re-dispatch `tech-founder-claude` — but the preflight avoids a wasted dispatch.)
 
