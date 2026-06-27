@@ -167,17 +167,25 @@ Then continue at **Step 2**. Use this on every abort below.
    Trivial fast-path delivery (bare edit, CI-gated, no agents)."
    pr_num=$(gh pr view --json number --jq .number)   # explicit — never guess from branch
    ```
-6. **Pre-merge CI gate.** Wait for checks and interpret conservatively:
+6. **Pre-merge CI gate.** A green merge requires that the PR has **at least one CI
+   check AND every check passes** — a repo with no CI cannot satisfy the bare-ship
+   backstop, so "no checks" is treated as not-green (gated), never as a free pass.
+   Count the checks first, then wait:
    ```bash
-   gh pr checks "$pr_num" --watch --fail-fast; checks_status=$?
+   n_checks=$(gh pr checks "$pr_num" 2>/dev/null | grep -c .)   # 0 if none reported
+   if [ "${n_checks:-0}" -eq 0 ]; then
+     checks_status=1                                            # no CI → not-green
+   else
+     gh pr checks "$pr_num" --watch --fail-fast; checks_status=$?
+   fi
    ```
-   - `checks_status` **0** (all checks passed) → run the **role reset only**
+   - `checks_status` **0** (checks exist and all passed) → run the **role reset only**
      (`jq '.active_role="business-founder-maintain"' …` — keep the branch/commit),
      `git checkout "${default}"`, then hand **`$pr_num`** to **Step 3 item 3** (merge
      `--squash --delete-branch` + close the issue) and continue to **Step 4**
      (deploy watch). No tribunal, no founder, no QA.
-   - `checks_status` **non-zero** (a check failed, or no checks could be determined —
-     treat either as not-green) → main was never touched. Close the trivial PR
+   - `checks_status` **non-zero** (a check failed, OR no CI checks exist — both are
+     not-green) → main was never touched. Close the trivial PR
      (`gh pr close "$pr_num" --delete-branch`), then run the **"reset and go gated"**
      block and re-deliver this issue on the normal gated path (Step 2). Inside
      `/maintain` this fallback runs in the same inline `/goal-deliver`, so it does
