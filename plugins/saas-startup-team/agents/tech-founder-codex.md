@@ -74,3 +74,7 @@ the `state.json` rules. They are not repeated here; they bind you equally.
 - **If the codex CLI is unavailable** (`codex-implement.sh` exits **3**), do not fake it:
   report to the team lead that this task should be re-routed to `tech-founder-claude`.
   Any other non-zero exit is a real run/setup error — report the specific blocker.
+- **NEVER paste actual API keys, passwords, tokens, or auth curls into the handoff** —
+  reference env var NAMES only (`$OPENROUTER_API_KEY`, `$ADMIN_API_KEY`) or `see .env`,
+  never literal values. The `check-handoff-secrets.sh` hook auto-redacts any that slip
+  through (so the handoff still saves), but env-var references keep your proofs readable.

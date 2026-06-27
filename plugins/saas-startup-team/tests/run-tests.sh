@@ -4080,6 +4080,96 @@ test_learnings_compress_command() {
   assert_file_contains "C12: exact-duplicate drop"  "$f" "exact duplicate"
 }
 
+test_handoff_secret_redaction() {
+  echo -e "\n${CYAN}Suite SR: Handoff Secret Redaction Hook${NC}"
+  local script="$PLUGIN_ROOT/scripts/check-handoff-secrets.sh"
+  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
+
+  assert_file_exists "SR1: check-handoff-secrets.sh exists" "$script"
+
+  # SR2: wired into PostToolUse
+  local hook_refs
+  hook_refs=$(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file" 2>/dev/null)
+  assert_output_contains "SR2: hooks.json references check-handoff-secrets.sh" "$hook_refs" "check-handoff-secrets.sh"
+
+  local workdir ec out
+  # Fragmented so this repo's bytes hold no contiguous real-looking secret
+  local OR="sk-""or-v1-""abcdef0123456789abcdef0123456789"
+
+  # SR3: non-handoff file ignored, exit 0
+  ec=0; out=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "SR3: exits 0 for non-handoff file" "$ec" 0
+
+  # SR4–SR7: secret-bearing handoff is REDACTED in place (not blocked), exit 0
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  local hf="$workdir/.startup/handoffs/020-tech-to-business.md"
+  printf 'curl -H "Authorization: Bearer %s" x\nOPENROUTER_API_KEY=%s\n' "$OR" "$OR" > "$hf"
+  ec=0; out=$(echo '{"tool_input":{"file_path":"'"$hf"'"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "SR4: redacting handoff still exits 0 (never blocks)" "$ec" 0
+  assert_output_contains "SR5: emits redaction systemMessage" "$out" "auto-redacted"
+  assert_file_contains "SR6: secret replaced with marker" "$hf" "***REDACTED***"
+  assert_file_not_contains "SR7: literal key scrubbed from disk" "$hf" "$OR"
+  rm -rf "$workdir"
+
+  # SR8: env-var REFERENCES are preserved untouched, exit 0 silent (no message)
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  hf="$workdir/.startup/handoffs/018-tech-to-business.md"
+  printf 'Use $OPENROUTER_API_KEY (see .env)\ncurl -H "Authorization: Bearer $OPENROUTER_API_KEY"\nADMIN_API_KEY=<configured-in-env>\n' > "$hf"
+  local sha_before; sha_before=$(cksum < "$hf")
+  ec=0; out=$(echo '{"tool_input":{"file_path":"'"$hf"'"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "SR8: exits 0 for env-var references" "$ec" 0
+  assert_output_not_contains "SR9: no redaction message for clean refs" "$out" "auto-redacted"
+  assert_equals "SR10: reference-only handoff left unchanged" "$(cksum < "$hf")" "$sha_before"
+  rm -rf "$workdir"
+
+  # SR11: emitted systemMessage is valid JSON
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  hf="$workdir/.startup/handoffs/021-tech-to-business.md"
+  printf 'OPENROUTER_API_KEY=%s\n' "$OR" > "$hf"
+  out=$(echo '{"tool_input":{"file_path":"'"$hf"'"}}' | bash "$script" 2>/dev/null)
+  ec=0; echo "$out" | jq -e .systemMessage >/dev/null 2>&1 || ec=$?
+  assert_exit_code "SR11: redaction message is valid JSON" "$ec" 0
+  rm -rf "$workdir"
+
+  # SR12: missing file is a quiet no-op (exit 0)
+  ec=0; out=$(echo '{"tool_input":{"file_path":"/nonexistent/.startup/handoffs/099-x.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "SR12: exits 0 for missing handoff file" "$ec" 0
+
+  # SR13: quoted secret values are redacted (double + single quote)
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  hf="$workdir/.startup/handoffs/022-tech-to-business.md"
+  printf 'ADMIN_PASSWORD="hunter2plaintextvalue"\nDB_PASSWORD='\''s3cr3tLongValue'\''\n' > "$hf"
+  out=$(echo '{"tool_input":{"file_path":"'"$hf"'"}}' | bash "$script" 2>/dev/null)
+  assert_file_not_contains "SR13a: double-quoted secret scrubbed" "$hf" "hunter2plaintextvalue"
+  assert_file_not_contains "SR13b: single-quoted secret scrubbed" "$hf" "s3cr3tLongValue"
+  rm -rf "$workdir"
+
+  # SR14: lowercase 'authorization: bearer' header is redacted (case-insensitive)
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  hf="$workdir/.startup/handoffs/023-tech-to-business.md"
+  printf 'curl -H "authorization: bearer eyJhbGciOiJIUzI1NiwidHlwIn0longjwtvalue"\n' > "$hf"
+  out=$(echo '{"tool_input":{"file_path":"'"$hf"'"}}' | bash "$script" 2>/dev/null)
+  assert_file_not_contains "SR14: lowercase bearer token scrubbed" "$hf" "eyJhbGciOiJIUzI1NiwidHlwIn0longjwtvalue"
+  assert_file_contains "SR14b: redaction marker present" "$hf" "***REDACTED***"
+  rm -rf "$workdir"
+
+  # SR15: quoted empty value and ${VAR} reference are preserved
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/handoffs"
+  hf="$workdir/.startup/handoffs/024-tech-to-business.md"
+  printf 'KEY=""\nTOKEN="${MY_TOKEN}"\nPASSWORD="$PW"\n' > "$hf"
+  local sha2; sha2=$(cksum < "$hf")
+  ec=0; out=$(echo '{"tool_input":{"file_path":"'"$hf"'"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "SR15: exits 0 for quoted refs/empty" "$ec" 0
+  assert_equals "SR15b: quoted refs/empty left unchanged" "$(cksum < "$hf")" "$sha2"
+  rm -rf "$workdir"
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -4111,6 +4201,7 @@ main() {
   test_json_validation_hook
   test_delegation_enforcement_hook
   test_duplicate_handoff_hook
+  test_handoff_secret_redaction
   test_compact_state
   test_migrate_state
   test_index_handoff_hook

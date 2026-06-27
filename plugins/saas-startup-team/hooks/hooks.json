@@ -91,7 +91,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-handoff-secrets.sh",
-            "description": "Block handoff files containing hardcoded secrets, API keys, or passwords"
+            "description": "Auto-redact hardcoded secrets, API keys, and passwords from handoff files (never blocks the write — handoffs are gitignored, so blocking lost them silently)"
           }
         ]
       },

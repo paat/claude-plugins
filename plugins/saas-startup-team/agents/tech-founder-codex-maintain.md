@@ -49,6 +49,10 @@ Bug-Fix regression-test protocol, and reporting). They are not repeated here.
   this task should be re-routed to `tech-founder-claude-maintain`. Any other non-zero
   exit is a real run/setup error — report the specific blocker, don't claim codex is
   unavailable.
+- **NEVER paste actual API keys, passwords, tokens, or auth curls into the handoff** —
+  reference env var NAMES only (`$OPENROUTER_API_KEY`, `$ADMIN_API_KEY`) or `see .env`.
+  The `check-handoff-secrets.sh` hook auto-redacts any that slip through (the handoff
+  still saves), but env-var references keep your proofs readable.
 
 ## Recording Learnings
 

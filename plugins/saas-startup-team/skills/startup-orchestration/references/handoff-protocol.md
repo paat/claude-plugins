@@ -125,3 +125,10 @@ The migration moves misrouted content to the right subdirectory and renames resi
 - [ ] No hardcoded API keys, passwords, tokens, or secrets anywhere in the document
 - [ ] Credentials referenced by env var name only (`$OPENROUTER_API_KEY`, `$ADMIN_API_KEY`), never by value
 - [ ] Curl/test examples use `$VARIABLE_NAME` in headers, not literal strings
+
+> **Note:** The `check-handoff-secrets.sh` PostToolUse hook **auto-redacts** any
+> secret value that slips through (replacing it with `***REDACTED***`) and lets the
+> write succeed — it does **not** block the handoff. This is deliberate: handoffs are
+> gitignored, so an older block-on-secret hook silently lost the file and forced
+> costly re-dispatches (issue #102). Write env-var references anyway to keep your
+> proofs readable; redaction is the safety net, not the plan.
