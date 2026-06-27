@@ -63,6 +63,11 @@ until the condition holds.
 
 ## Step 1: Understand the Tasks
 
+**First, strip flags.** If the arguments contain `--full`, set `FULL_MODE=1` and
+remove the token from the argument list before resolving the input form below.
+`FULL_MODE` forces the normal gated path (Step 1.5 is skipped entirely). All other
+arguments resolve as usual; `--full` is never treated as spec text.
+
 If no arguments were given, ask:
 > What should I deliver? Give me GitHub issues (`#12 #15`), `--milestone <name>`,
 > a markdown spec path, or describe the features.
@@ -74,6 +79,112 @@ Resolve the input form (handle inline — no scripts):
   --json number,title,body`. Keep the numbers.
 - **a single existing file path** → read it; it is the spec.
 - **anything else** → the argument text is the spec.
+
+## Step 1.5: Trivial Fast-Path Routing (single issue only)
+
+Go straight to **Step 2** (skip this whole section) if ANY hold:
+- `FULL_MODE` is set (the `--full` flag forced the gated path);
+- the delivery resolved to more than one issue, a `--milestone`, a file spec, or
+  free text — the fast path handles a **single GitHub issue** only;
+- the issue carries any gated label (below).
+
+Otherwise classify the single issue. **Bias: if any check is uncertain, do NOT
+fast-path — fall through to Step 2.** A wrong fast-path call ships an unreviewed
+edit; a wrong gated call only costs tokens.
+
+### Gated labels — never fast-path
+
+Read the issue labels. If any matches (case-insensitive substring) `bug`, `monitor`,
+`customer-issue` (incident/regression — also blocked by the Step 3 regression-test
+gate), `security`, `auth`, `payment`, `billing`, `data`, `migration`, `regression`,
+`hotfix`, `incident`, `production` — or a repo-specific equivalent — go to Step 2.
+
+### Tweak-eligible rubric (ALL must hold)
+
+- The change is pure copy/text, CSS/visual styling, a **non-sensitive
+  presentation/product-copy constant**, or docs/comments.
+- No logic or behavior change, no new dependency, no data-model/migration change.
+- The exact change is objectively specified in the issue (no design judgment).
+
+If eligible, announce one line, then take the **Trivial Path**:
+> Issue #<n> classified as trivial — taking the fast path (bare edit, CI-gated, no agents).
+
+If not eligible, go to **Step 2**.
+
+### Trivial Path
+
+Define the fallback once — **"reset and go gated"** means:
+```bash
+# discard any uncommitted edit, leave the tweak branch, restore the gated role
+git checkout -f "${default}"
+git branch -D "tweak/${slug}" 2>/dev/null || true
+if [ -f .startup/state.json ]; then
+  jq '.active_role = "business-founder-maintain"' .startup/state.json \
+    > .startup/state.json.tmp && mv .startup/state.json.tmp .startup/state.json
+fi
+```
+Then continue at **Step 2**. Use this on every abort below.
+
+1. **Set the edit role** so the `enforce-delegation` hook lets the orchestrator edit
+   code directly (no agent is dispatched here):
+   ```bash
+   if [ -f .startup/state.json ]; then
+     jq '.active_role = "team-lead-tweak"' .startup/state.json \
+       > .startup/state.json.tmp && mv .startup/state.json.tmp .startup/state.json
+   fi
+   ```
+2. **Branch + edit.** `slug=` a hyphenated lowercase form of the issue title (≤40
+   chars); `git checkout -b "tweak/${slug}" "${default}"`. Read the relevant file(s);
+   make the **minimal** edit the issue specifies. No founders, QA, or tribunal.
+3. **Containment self-check — mechanical, on the real diff.** The classification was a
+   guess; the diff is the truth. Run:
+   ```bash
+   changed=$(git diff "${default}" --name-only)
+   nfiles=$(printf '%s\n' "$changed" | grep -c .)
+   nlines=$(git diff "${default}" --numstat | awk '{a+=$1+$2} END{print a+0}')
+   denylist='(^|/)(auth|login|session|oauth|passwd|password|payment|billing|invoice|checkout|stripe|security|secret|crypto|token)|\.env|(^|/)\.github/|[Dd]ockerfile|(^|/)migrations?/|\.sql$|(^|/)package(-lock)?\.json$|(^|/)(yarn\.lock|pnpm-lock\.yaml)$|\.(lock|min\.js|map)$|(^|/)(dist|build|vendor|node_modules)/'
+   if [ "$nfiles" -gt 3 ] || [ "$nlines" -gt 15 ] || printf '%s\n' "$changed" | grep -iqE "$denylist"; then
+     echo "Containment breach (files=$nfiles lines=$nlines or sensitive path) — reset and go gated"
+     # → run the "reset and go gated" block, then Step 2
+   fi
+   ```
+   (The denylist is a mechanical backstop; the rubric's judgment about sensitive
+   surfaces still applies on top of it.)
+4. **Commit — keep hooks.**
+   ```bash
+   git add -A
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-staged-size.sh" || {
+     echo "Aborting: staged tree has oversized/ignored files." >&2; exit 1; }
+   git commit -m "tweak: <summary> (#<n>)"
+   ```
+   **Never pass `--no-verify`** — project pre-commit hooks (lint/type-check) are part
+   of the CI backstop.
+5. **Push + PR with the closing-metadata contract, and capture the PR number.**
+   ```bash
+   git push -u origin HEAD
+   gh pr create --title "tweak: <summary> (#<n>)" --body "Fixes #<n>
+
+   Trivial fast-path delivery (bare edit, CI-gated, no agents)."
+   pr_num=$(gh pr view --json number --jq .number)   # explicit — never guess from branch
+   ```
+6. **Pre-merge CI gate.** Wait for checks and interpret conservatively:
+   ```bash
+   gh pr checks "$pr_num" --watch --fail-fast; checks_status=$?
+   ```
+   - `checks_status` **0** (all checks passed) → run the **role reset only**
+     (`jq '.active_role="business-founder-maintain"' …` — keep the branch/commit),
+     `git checkout "${default}"`, then hand **`$pr_num`** to **Step 3 item 3** (merge
+     `--squash --delete-branch` + close the issue) and continue to **Step 4**
+     (deploy watch). No tribunal, no founder, no QA.
+   - `checks_status` **non-zero** (a check failed, or no checks could be determined —
+     treat either as not-green) → main was never touched. Close the trivial PR
+     (`gh pr close "$pr_num" --delete-branch`), then run the **"reset and go gated"**
+     block and re-deliver this issue on the normal gated path (Step 2). Inside
+     `/maintain` this fallback runs in the same inline `/goal-deliver`, so it does
+     not trip a cooldown.
+
+A red **deploy** after a green merge is the post-merge case — the existing **Step 4**
+deploy-fix handling, unchanged.
 
 ## Step 2: Plan Into Manageable Chunks (use judgment)
 
