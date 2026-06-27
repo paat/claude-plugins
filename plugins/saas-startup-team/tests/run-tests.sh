@@ -3435,6 +3435,15 @@ JSONL
   assert_equals "Z23: one tool_failure" "$(_si_count "$out" tool_failure)" "1"
   assert_file_contains "Z23: summary carries the real error text" "$out" "ENOSPC: no space left on device"
   rm -rf "$workdir"
+
+  # --- Z24: a hook-injected turn carrying an error tool_result is still excluded ---
+  # (noise exclusion must run BEFORE the tool_failure branch, else it re-admits noise)
+  workdir=$(make_workdir); logs="$workdir/logs"; mkdir -p "$logs"
+  state="$workdir/wm.json"; out="$workdir/rec.jsonl"; report="$workdir/rep.md"
+  printf '%s\n' '{"type":"user","sessionId":"SM","message":{"role":"user","content":[{"type":"text","text":"Stop hook feedback: tighten the gate"},{"type":"tool_result","is_error":true,"content":"boom"}]}}' > "$logs/SM.jsonl"
+  _si_run "$logs" "$state" "$out" "$report"
+  assert_equals "Z24: hook turn with error tool_result excluded" "$(_si_total "$out")" "0"
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
@@ -3626,6 +3635,13 @@ test_harvest() {
   _rec interrupt "[Request interrupted by user] stop — do not deploy without migrations" "/f#L1" > "$in"
   _h_run "$in" "$led" "$cand" "$report"
   assert_equals "HV19: substantive interrupt surfaces" "$(_h_total "$cand")" "1"
+  rm -rf "$workdir"
+
+  # --- HV20: a terse but real lesson is NOT dropped by the low-signal floor ---
+  workdir=$(make_workdir); in="$workdir/rec.jsonl"; led="$workdir/led.json"; cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  { _rec correction "use pnpm" "/f#L1"; _rec correction "use pnpm" "/f#L2"; } > "$in"
+  _h_run "$in" "$led" "$cand" "$report"
+  assert_equals "HV20: terse real lesson surfaces (not low-signal)" "$(_h_total "$cand")" "1"
   rm -rf "$workdir"
 }
 

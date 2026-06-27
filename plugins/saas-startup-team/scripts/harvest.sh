@@ -78,8 +78,10 @@ deidentify() {
 normalize() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'; }
 
 # Low-signal floor: a cluster whose summary carries no lesson — the bare interrupt
-# marker, a generic tool error, or near-empty text — is noise, not a candidate.
-# Compared on a lowercased alnum-only "core" so spacing/punctuation don't matter.
+# marker, a generic tool error, or degenerate near-empty text — is noise, not a
+# candidate. Compared on a lowercased alnum-only "core" so spacing/punctuation
+# don't matter. The length guard is deliberately small (<4) so it only catches
+# degenerate residue, never terse-but-real lessons ("fix ci", "use pnpm").
 is_low_signal() {
   local core
   core="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' \
@@ -87,7 +89,7 @@ is_low_signal() {
     | tr -cd 'a-z0-9')"
   [ -z "$core" ] && return 0
   [ "$core" = "toolresulterror" ] && return 0
-  [ "${#core}" -lt 8 ] && return 0
+  [ "${#core}" -lt 4 ] && return 0
   return 1
 }
 

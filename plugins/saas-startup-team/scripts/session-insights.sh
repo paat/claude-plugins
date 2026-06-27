@@ -114,14 +114,17 @@ process_line() {
   [ -n "$sid" ] && [ "$sid" != "null" ] || sid="$default_sid"
 
   local sig="" conf="" summary=""
-  if [ "$f_toolerr" = "true" ]; then
+  # Harness/hook-injected turns are never investor turns — exclude them first, even
+  # when they also carry an error tool_result (otherwise the tool_failure branch
+  # would re-admit the very noise we exclude).
+  if [ "$f_noise" = "true" ]; then
+    return 0
+  elif [ "$f_toolerr" = "true" ]; then
     sig="tool_failure"; conf="medium"
     # Carry the specific error text so distinct failures cluster distinctly;
     # fall back to the generic marker only when no message text is present.
     summary="$(printf '%s' "$f_err" | cut -c1-160)"
     [ -n "$summary" ] || summary="tool_result error"
-  elif [ "$f_noise" = "true" ]; then
-    return 0  # harness/hook-injected turn, not an investor turn
   elif [ -n "$f_text" ]; then
     if printf '%s' "$f_text" | grep -qF '[Request interrupted by user]'; then
       sig="interrupt"; conf="high"
