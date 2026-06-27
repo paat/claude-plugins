@@ -256,6 +256,12 @@ Each pass follows this sequence:
    Breakers):
    - Claim the issue (§Delivery — Claim & Idempotency).
    - Run `/goal-deliver` inline scoped to that one issue.
+   > `/goal-deliver` self-routes a trivially-scoped single issue to its built-in
+   > fast path (bare edit, CI-gated, no agents). If the fast path aborts before
+   > merge — for any reason (containment breach, sensitive path, or red pre-merge
+   > checks) — it resets state and falls back to the full gated path **inside the
+   > same inline run**, so a failed fast-path attempt is not a maintain-level
+   > failure and triggers no cooldown.
    - Record explicit final state (§Observability).
 
 6. **Write pass digest** to `.startup/maintain/runs/<run-id>.md`.
