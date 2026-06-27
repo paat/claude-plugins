@@ -115,18 +115,26 @@ If not eligible, go to **Step 2**.
 
 Define the fallback once — **"reset and go gated"** means:
 ```bash
-# discard any uncommitted edit, leave the tweak branch, restore the gated role
-git checkout -f "${default}"
+# switch off and delete the tweak branch, discarding the fast-path edit, then
+# restore the gated role. The Pre-Flight clean-tree gate guarantees the only
+# tracked-or-untracked changes present are the fast path's own, so the forced
+# discard + clean cannot touch unrelated work.
+git checkout -f "${default}"        # discards tracked edits
+git clean -fd                       # removes any file the fast-path edit CREATED
 git branch -D "tweak/${slug}" 2>/dev/null || true
 if [ -f .startup/state.json ]; then
   jq '.active_role = "business-founder-maintain"' .startup/state.json \
     > .startup/state.json.tmp && mv .startup/state.json.tmp .startup/state.json
 fi
 ```
-Then continue at **Step 2**. Use this on every abort below.
+Then continue at **Step 2**. **Use this block on EVERY trivial-path abort or failure
+below** — containment breach, an oversized stage, a failed pre-commit hook, a failed
+push or PR creation, or red/absent CI. Any exit from the fast path must pass through
+it so `active_role` is never left as `team-lead-tweak`.
 
-1. **Set the edit role** so the `enforce-delegation` hook lets the orchestrator edit
-   code directly (no agent is dispatched here):
+1. **Mark the fast-path edit window.** Set `active_role` to `team-lead-tweak` — a
+   marker for this window that the `enforce-delegation` hook treats as non-`team-lead`
+   (so direct edits pass). It is reset on every exit (above):
    ```bash
    if [ -f .startup/state.json ]; then
      jq '.active_role = "team-lead-tweak"' .startup/state.json \
@@ -136,38 +144,50 @@ Then continue at **Step 2**. Use this on every abort below.
 2. **Branch + edit.** `slug=` a hyphenated lowercase form of the issue title (≤40
    chars); `git checkout -b "tweak/${slug}" "${default}"`. Read the relevant file(s);
    make the **minimal** edit the issue specifies. No founders, QA, or tribunal.
-3. **Containment self-check — mechanical, on the real diff.** The classification was a
-   guess; the diff is the truth. Run:
-   ```bash
-   changed=$(git diff "${default}" --name-only)
-   nfiles=$(printf '%s\n' "$changed" | grep -c .)
-   nlines=$(git diff "${default}" --numstat | awk '{a+=$1+$2} END{print a+0}')
-   denylist='(^|/)(auth|login|session|oauth|passwd|password|payment|billing|invoice|checkout|stripe|security|secret|crypto|token)|\.env|(^|/)\.github/|[Dd]ockerfile|(^|/)migrations?/|\.sql$|(^|/)package(-lock)?\.json$|(^|/)(yarn\.lock|pnpm-lock\.yaml)$|\.(lock|min\.js|map)$|(^|/)(dist|build|vendor|node_modules)/'
-   if [ "$nfiles" -gt 3 ] || [ "$nlines" -gt 15 ] || printf '%s\n' "$changed" | grep -iqE "$denylist"; then
-     echo "Containment breach (files=$nfiles lines=$nlines or sensitive path) — reset and go gated"
-     # → run the "reset and go gated" block, then Step 2
-   fi
-   ```
-   (The denylist is a mechanical backstop; the rubric's judgment about sensitive
-   surfaces still applies on top of it.)
-4. **Commit — keep hooks.**
+3. **Stage everything, then size-guard.** Stage first so the containment check below
+   sees **new files too** (a plain `git diff` lists only modified tracked files):
    ```bash
    git add -A
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-staged-size.sh" || {
-     echo "Aborting: staged tree has oversized/ignored files." >&2; exit 1; }
-   git commit -m "tweak: <summary> (#<n>)"
+     echo "Oversized/ignored files staged — reset and go gated"; }
+     # on failure → run the "reset and go gated" block, then Step 2
+   ```
+4. **Containment self-check — mechanical, on the STAGED diff.** Classification was a
+   guess; the staged diff is the truth, and `--cached` includes added files so a new
+   file under a sensitive path cannot slip past the denylist. Run:
+   ```bash
+   changed=$(git diff --cached "${default}" --name-only)
+   nfiles=$(printf '%s\n' "$changed" | grep -c .)
+   nlines=$(git diff --cached "${default}" --numstat | awk '{a+=$1+$2} END{print a+0}')
+   denylist='(auth|login|session|oauth|passwd|password|payment|billing|invoice|checkout|stripe|security|secret|crypto|token)|\.env|(^|/)\.github/|[Dd]ockerfile|(^|/)migrations?/|\.sql$|(^|/)package(-lock)?\.json$|(^|/)(yarn\.lock|pnpm-lock\.yaml)$|\.(lock|min\.js|map)$|(^|/)(dist|build|vendor|node_modules)/'
+   if [ "$nfiles" -gt 3 ] || [ "$nlines" -gt 15 ] || printf '%s\n' "$changed" | grep -iqE "$denylist"; then
+     echo "Containment breach (files=$nfiles lines=$nlines or sensitive path)"
+     # → run the "reset and go gated" block, then Step 2
+   fi
+   ```
+   (The denylist is a mechanical backstop — deliberately broad, so it over-gates
+   rather than under-gates; the rubric's judgment about sensitive surfaces still
+   applies on top of it.)
+5. **Commit — keep hooks.**
+   ```bash
+   git commit -m "tweak: <summary> (#<n>)" || {
+     echo "Pre-commit hook failed — reset and go gated"; }
+     # on failure → run the "reset and go gated" block, then Step 2
    ```
    **Never pass `--no-verify`** — project pre-commit hooks (lint/type-check) are part
-   of the CI backstop.
-5. **Push + PR with the closing-metadata contract, and capture the PR number.**
+   of the CI backstop; a hook failure means the edit isn't clean, so fall back to the
+   gated path (founders + tribunal) rather than forcing it through.
+6. **Push + PR with the closing-metadata contract, and capture the PR number.** If
+   either the push or `gh pr create` fails, run the **"reset and go gated"** block and
+   go to Step 2 (do not leave a half-open fast-path delivery):
    ```bash
-   git push -u origin HEAD
+   git push -u origin HEAD || { echo "push failed — reset and go gated"; }
    gh pr create --title "tweak: <summary> (#<n>)" --body "Fixes #<n>
 
-   Trivial fast-path delivery (bare edit, CI-gated, no agents)."
+   Trivial fast-path delivery (bare edit, CI-gated, no agents)." || { echo "PR create failed — reset and go gated"; }
    pr_num=$(gh pr view --json number --jq .number)   # explicit — never guess from branch
    ```
-6. **Pre-merge CI gate.** A green merge requires that the PR has **at least one CI
+7. **Pre-merge CI gate.** A green merge requires that the PR has **at least one CI
    check AND every check passes** — a repo with no CI cannot satisfy the bare-ship
    backstop, so "no checks" is treated as not-green (gated), never as a free pass.
    Count the checks first, then wait:
