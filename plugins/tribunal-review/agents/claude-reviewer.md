@@ -66,7 +66,19 @@ CLAUDE_MODEL="${TRIBUNAL_CLAUDE_MODEL:-sonnet}"
 
 # Capture the diff and conventions from the repo BEFORE moving to the scratch dir.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-DIFF=$(git -C "$REPO_ROOT" diff origin/main...HEAD)
+resolve_base_ref() {
+  local branch
+  branch="${TRIBUNAL_BASE_BRANCH:-}"
+  [ -n "$branch" ] || branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+  [ -n "$branch" ] || branch="$(git -C "$REPO_ROOT" remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p' | head -1)"
+  [ -n "$branch" ] || branch="$(git -C "$REPO_ROOT" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+  printf '%s\n' "${TRIBUNAL_BASE_REF:-origin/${branch:-main}}"
+}
+BASE_REF="$(resolve_base_ref)"
+if ! DIFF=$(git -C "$REPO_ROOT" diff "$BASE_REF"...HEAD 2>/dev/null); then
+  printf '{"error": "Claude leg: cannot diff against %s", "provider": "claude"}\n' "$BASE_REF"
+  exit 0
+fi
 CONVENTIONS=""
 [ -f "$REPO_ROOT/AGENTS.md" ] && CONVENTIONS=$(head -c 16384 "$REPO_ROOT/AGENTS.md")
 
@@ -76,7 +88,7 @@ TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR" || { printf '%s\n' '{"error": "Claude leg: could not enter scratch dir", "provider": "claude"}'; exit 0; }
 
 if [ -z "$DIFF" ]; then
-  printf '%s\n' '{"provider": "claude", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
+  printf '{"provider": "claude", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs %s"}}\n' "$BASE_REF"
   exit 0
 fi
 

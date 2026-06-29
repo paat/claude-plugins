@@ -33,10 +33,22 @@ cd "$(git rev-parse --show-toplevel)"
 # Parallel-safe: unique temp dir per invocation
 TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
 
-DIFF=$(git diff origin/main...HEAD)
+resolve_base_ref() {
+  local branch
+  branch="${TRIBUNAL_BASE_BRANCH:-}"
+  [ -n "$branch" ] || branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+  [ -n "$branch" ] || branch="$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p' | head -1)"
+  [ -n "$branch" ] || branch="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+  printf '%s\n' "${TRIBUNAL_BASE_REF:-origin/${branch:-main}}"
+}
+BASE_REF="$(resolve_base_ref)"
+if ! DIFF=$(git diff "$BASE_REF"...HEAD 2>/dev/null); then
+  printf '{"error": "Codex leg: cannot diff against %s", "provider": "codex"}\n' "$BASE_REF"
+  exit 0
+fi
 
 if [ -z "$DIFF" ]; then
-  printf '%s\n' '{"provider": "codex", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
+  printf '{"provider": "codex", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs %s"}}\n' "$BASE_REF"
   exit 0
 fi
 

@@ -25,8 +25,8 @@ Multi-provider code review. **By default** Codex (GPT-5.5) + DeepSeek-V4-Pro (re
 First verify the diff is reviewable:
 
 ```
-1. We're on a feature branch, not main. If on main: STOP and ask which branch to review.
-2. There is a diff vs origin/main. Run: git diff origin/main...HEAD --stat
+1. Resolve the repo default branch. If on that branch: STOP and ask which branch to review.
+2. There is a diff vs the resolved base ref. Run: git diff "$BASE_REF"...HEAD --stat
    If no diff: STOP and report "No changes to review."
 ```
 
@@ -40,104 +40,212 @@ are usable do we STOP.
 ```bash
 WARN=""
 USABLE=0
+ACTIVE=0
+DISABLED=0
+SKIPPED=0
+FAILED=0
+USABLE_PROVIDERS=""
+DISABLED_PROVIDERS=""
+SKIPPED_PROVIDERS=""
+FAILED_PROVIDERS=""
 
-# Codex leg switch (issue #43). Codex (GPT-5.5) is a default repo-walking reviewer. ON by
-# default; only the literal "off" disables. When on, `codex` seeds the CLI list (and TOTAL);
-# when off it is an INTENTIONAL skip — not probed, not counted. Model overridable via
-# TRIBUNAL_CODEX_MODEL; when UNSET the leg passes NO -m so codex uses its own configured
-# default (which the codex CLI keeps current — no stale pinned id), preserving prior behaviour.
+append_name() {
+  local list="$1" name="$2"
+  if [ -n "$list" ]; then printf '%s, %s' "$list" "$name"; else printf '%s' "$name"; fi
+}
+mark_disabled() {
+  DISABLED=$((DISABLED + 1))
+  DISABLED_PROVIDERS="$(append_name "$DISABLED_PROVIDERS" "$1")"
+  WARN="${WARN}\n  - $1: $2"
+}
+mark_usable() {
+  ACTIVE=$((ACTIVE + 1))
+  USABLE=$((USABLE + 1))
+  USABLE_PROVIDERS="$(append_name "$USABLE_PROVIDERS" "$1")"
+}
+mark_skipped() {
+  ACTIVE=$((ACTIVE + 1))
+  SKIPPED=$((SKIPPED + 1))
+  SKIPPED_PROVIDERS="$(append_name "$SKIPPED_PROVIDERS" "$1")"
+  WARN="${WARN}\n  - $1: $2"
+}
+mark_failed() {
+  ACTIVE=$((ACTIVE + 1))
+  FAILED=$((FAILED + 1))
+  FAILED_PROVIDERS="$(append_name "$FAILED_PROVIDERS" "$1")"
+  WARN="${WARN}\n  - $1: $2"
+}
+
+resolve_default_branch() {
+  local branch
+  branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+  [ -n "$branch" ] || branch="$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p' | head -1)"
+  [ -n "$branch" ] || branch="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+  printf '%s\n' "${branch:-main}"
+}
+
+DEFAULT_BRANCH="${TRIBUNAL_BASE_BRANCH:-$(resolve_default_branch)}"
+BASE_REF="${TRIBUNAL_BASE_REF:-origin/$DEFAULT_BRANCH}"
+CURRENT_BRANCH="$(git branch --show-current 2>/dev/null || true)"
+
+if [ -n "$CURRENT_BRANCH" ] && [ "$CURRENT_BRANCH" = "$DEFAULT_BRANCH" ]; then
+  echo "PREFLIGHT FAIL: on default branch '$DEFAULT_BRANCH'. Check out a review branch first."
+  exit 1
+fi
+if ! git rev-parse --verify --quiet "$BASE_REF" >/dev/null; then
+  git fetch origin "$DEFAULT_BRANCH" --quiet 2>/dev/null || {
+    echo "PREFLIGHT FAIL: cannot resolve base ref $BASE_REF. Set TRIBUNAL_BASE_REF or fetch origin/$DEFAULT_BRANCH."
+    exit 1
+  }
+fi
+if ! DIFF_STAT="$(git diff --stat "$BASE_REF"...HEAD 2>/dev/null)"; then
+  echo "PREFLIGHT FAIL: cannot diff against $BASE_REF."
+  exit 1
+fi
+if [ -z "$DIFF_STAT" ]; then
+  echo "PREFLIGHT FAIL: no changes to review against $BASE_REF."
+  exit 1
+fi
+CHANGED_FILES="$(git diff --name-only "$BASE_REF"...HEAD | wc -l | tr -d ' ')"
+
+# Codex leg switch (issue #43). Codex (GPT-5.5) is a default repo-walking reviewer.
 CODEX_MODEL="${TRIBUNAL_CODEX_MODEL:-}"
 CODEX_ON=on
-CLIS=""
 if [ "${TRIBUNAL_CODEX:-on}" = "off" ]; then
   CODEX_ON=off
-  WARN="${WARN}\n  - codex: disabled via TRIBUNAL_CODEX=off — leg will be skipped"
+  mark_disabled codex "disabled via TRIBUNAL_CODEX=off"
+elif command -v codex >/dev/null 2>&1; then
+  mark_usable codex
 else
-  CLIS="codex"
+  mark_skipped codex "CLI not on PATH"
 fi
 
-# Gemini leg is OFF by default (opt-in via TRIBUNAL_GEMINI=on). When disabled it is an
-# INTENTIONAL skip — not probed on PATH and not counted toward the zero-usable check.
-# Only the literal "on" enables; anything else (or unset) = off. opencode is added below ONLY
-# when an OpenCode leg (DeepSeek or GLM) is actually enabled, so a fully-disabled OpenCode call
-# is not miscounted as a usable provider.
+# Gemini leg is OFF by default (opt-in via TRIBUNAL_GEMINI=on).
 if [ "${TRIBUNAL_GEMINI:-off}" = "on" ]; then
-  CLIS="$CLIS gemini"
+  if command -v gemini >/dev/null 2>&1; then
+    mark_usable gemini
+  else
+    mark_skipped gemini "CLI not on PATH"
+  fi
 else
-  WARN="${WARN}\n  - gemini: disabled (default off) — set TRIBUNAL_GEMINI=on to enable"
+  mark_disabled gemini "disabled (default off); set TRIBUNAL_GEMINI=on to enable"
 fi
 
-# Qwen leg switch (issue #41, #46). Independent leg on its OWN CLI/transport (Qwen Code CLI),
-# decorrelated from the OpenCode legs. OFF by default (opt-in via TRIBUNAL_QWEN=on) — a real-
-# world audit found the leg reasons over the diff text rather than grounding in files, emitting
-# repeated false positives (phantom whitespace, nonexistent symbols/SQL, hallucinated line
-# numbers; issue #46). Disabled pending the mandatory-verification fix. Only the literal "on"
-# enables; anything else (or unset) = off — an INTENTIONAL skip, not probed and not counted.
+# Qwen leg switch (issue #41, #46). Independent leg on its own CLI/transport.
 QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}"
 QWEN_ON=off
 if [ "${TRIBUNAL_QWEN:-off}" = "on" ]; then
   QWEN_ON=on
-  CLIS="$CLIS qwen"
 else
-  WARN="${WARN}\n  - qwen: disabled (default off, issue #46) — set TRIBUNAL_QWEN=on to enable"
+  mark_disabled qwen "disabled (default off, issue #46); set TRIBUNAL_QWEN=on to enable"
 fi
 
-# Claude Code leg switch. The default panel's one DIFF-ONLY reviewer (the other default legs —
-# Codex/DeepSeek/Qwen — all walk the repo), on the host `claude` CLI. ON by default; only the
-# literal "off" disables. When on, `claude` joins the CLI list (and TOTAL) so the generic PATH
-# loop counts it; when off it is an INTENTIONAL skip — not probed, not counted.
+# Claude Code leg switch. The default panel's one diff-only reviewer.
 CLAUDE_MODEL="${TRIBUNAL_CLAUDE_MODEL:-sonnet}"
 CLAUDE_ON=on
 if [ "${TRIBUNAL_CLAUDE:-on}" = "off" ]; then
   CLAUDE_ON=off
-  WARN="${WARN}\n  - claude: disabled via TRIBUNAL_CLAUDE=off — leg will be skipped"
-else
-  CLIS="$CLIS claude"
+  mark_disabled claude "disabled via TRIBUNAL_CLAUDE=off"
 fi
 
-# GLM leg switch (issue #41). The opencode-go GLM leg shares architectural lineage with
-# DeepSeek and tends to fail in lockstep, so it is OFF by default (opt-in) — the default
-# panel keeps the decorrelated set (Codex + DeepSeek + Qwen). Only the literal "on" enables.
+# GLM leg switch (issue #41). Off by default.
 GLM_MODEL="${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.1}"
 GLM_ON=off
 if [ "${TRIBUNAL_GLM:-off}" = "on" ]; then
   GLM_ON=on
 else
-  WARN="${WARN}\n  - glm: disabled (default off) — set TRIBUNAL_GLM=on to enable"
+  mark_disabled glm "disabled (default off); set TRIBUNAL_GLM=on to enable"
 fi
 
-# DeepSeek leg switch (mirrors TRIBUNAL_GEMINI). The DeepSeek leg runs through the
-# `opencode-go/` reseller backend (OpenCode Go subscription, then credits on overage) —
-# the same backend GLM uses. This trades the old #40/#38 decorrelation (DeepSeek was on the
-# direct `deepseek/` API so an opencode-go 429 couldn't take both OpenCode legs down) for
-# OpenCode Go billing: in the default panel only DeepSeek runs here (GLM is off), so the
-# correlation only bites if you also opt GLM in. For an independent transport set
-# TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro (direct API; needs DEEPSEEK_API_KEY or
-# `opencode auth login` → DeepSeek). On by default; only "off" disables.
+# DeepSeek leg switch. On by default.
 DEEPSEEK_MODEL="${TRIBUNAL_DEEPSEEK_MODEL:-opencode-go/deepseek-v4-pro}"
 DEEPSEEK_ON=on
 if [ "${TRIBUNAL_DEEPSEEK:-on}" = "off" ]; then
   DEEPSEEK_ON=off
-  WARN="${WARN}\n  - deepseek: disabled via TRIBUNAL_DEEPSEEK=off — leg will be skipped"
+  mark_disabled deepseek "disabled via TRIBUNAL_DEEPSEEK=off"
 fi
 
-# The `opencode` CLI is shared by the GLM and DeepSeek legs. Count it as a usable provider
-# ONLY when at least one of them is enabled — otherwise a present-but-unused opencode would
-# falsely satisfy the zero-usable check while contributing no active reviewer. DeepSeek is on
-# by default, so by default opencode IS counted.
+# OpenCode model registry: count each OpenCode leg only when its model is actually usable.
+OPENCODE_AVAILABLE=0
+OC_MODELS=""
 if [ "$DEEPSEEK_ON" = on ] || [ "$GLM_ON" = on ]; then
-  CLIS="$CLIS opencode"
-fi
-TOTAL=$(set -- $CLIS; echo $#)
-
-# Each reviewer CLI on PATH?
-for cli in $CLIS; do
-  if command -v "$cli" >/dev/null 2>&1; then
-    USABLE=$((USABLE + 1))
+  if command -v opencode >/dev/null 2>&1; then
+    OPENCODE_AVAILABLE=1
+    opencode models >/dev/null 2>&1 || true
+    OC_MODELS="$(opencode models 2>/dev/null)"
   else
-    WARN="${WARN}\n  - ${cli}: NOT on PATH — that provider will be skipped"
+    [ "$GLM_ON" = on ] && mark_skipped glm "opencode CLI not on PATH"
+    [ "$DEEPSEEK_ON" = on ] && mark_skipped deepseek "opencode CLI not on PATH"
   fi
-done
+fi
+if [ "$OPENCODE_AVAILABLE" -eq 1 ] && [ "$GLM_ON" = on ]; then
+  if printf '%s\n' "$OC_MODELS" | grep -qxF "$GLM_MODEL"; then
+    mark_usable glm
+  else
+    mark_skipped glm "OpenCode model ${GLM_MODEL} not in registry; run opencode models/auth login"
+  fi
+fi
+if [ "$OPENCODE_AVAILABLE" -eq 1 ] && [ "$DEEPSEEK_ON" = on ]; then
+  if printf '%s\n' "$OC_MODELS" | grep -qxF "$DEEPSEEK_MODEL"; then
+    mark_usable deepseek
+  else
+    mark_skipped deepseek "OpenCode model ${DEEPSEEK_MODEL} not in registry; check TRIBUNAL_DEEPSEEK_MODEL, opencode auth, or opencode models"
+    case "$DEEPSEEK_MODEL" in
+      opencode-go/*)
+        if ! opencode auth list 2>/dev/null | grep -Eqi 'opencode[- ]?go'; then
+          WARN="${WARN}\n  - deepseek: OpenCode Go may not be authenticated; run opencode auth login and select OpenCode Go"
+        fi
+        ;;
+      deepseek/*)
+        if [ -z "${DEEPSEEK_API_KEY:-}" ] && ! opencode auth list 2>/dev/null | grep -qi deepseek; then
+          WARN="${WARN}\n  - deepseek: direct API may not be authenticated; set DEEPSEEK_API_KEY or run opencode auth login and select DeepSeek"
+        fi
+        ;;
+    esac
+  fi
+fi
+
+# Qwen leg preflight: only when enabled. Verify auth/model liveness because qwen-code can
+# silently downgrade unknown models.
+if [ "$QWEN_ON" = on ]; then
+  if ! command -v qwen >/dev/null 2>&1; then
+    mark_skipped qwen "CLI not on PATH"
+  else
+    QWEN_PROBE=$(printf 'ok' | QWEN_CODE_SUPPRESS_YOLO_WARNING=1 timeout -k 5 45 qwen --model "$QWEN_MODEL" -p "Reply with the single token: ok" --yolo -o json 2>/dev/null)
+    if [ $? -ne 0 ] || [ -z "$QWEN_PROBE" ]; then
+      mark_failed qwen "liveness probe failed; check auth/connectivity and TRIBUNAL_QWEN_MODEL=${QWEN_MODEL}"
+    else
+      QWEN_ERR=$(printf '%s' "$QWEN_PROBE" | jq -r '[ .[]? | select(.type=="result") | .is_error ] | last // "unknown"' 2>/dev/null)
+      QWEN_ACTUAL=$(printf '%s' "$QWEN_PROBE" | jq -r '[ .[]? | (.model // .message.model // empty) ] | map(select(. != null)) | last // "unknown"' 2>/dev/null)
+      if [ "$QWEN_ERR" = "true" ]; then
+        mark_failed qwen "liveness probe returned is_error=true; check auth and TRIBUNAL_QWEN_MODEL=${QWEN_MODEL}"
+      elif [ "$QWEN_ACTUAL" != "unknown" ] && [ "$QWEN_ACTUAL" != "$QWEN_MODEL" ]; then
+        mark_skipped qwen "requested model '${QWEN_MODEL}' but server used '${QWEN_ACTUAL}'"
+      else
+        mark_usable qwen
+      fi
+    fi
+  fi
+fi
+
+# Claude Code leg preflight: only when enabled.
+if [ "$CLAUDE_ON" = on ]; then
+  if ! command -v claude >/dev/null 2>&1; then
+    mark_skipped claude "CLI not on PATH"
+  else
+    CLAUDE_PROBE=$( (cd "$(mktemp -d)" && printf 'ok' | timeout -k 5 45 claude -p "Reply with the single token: ok" --model "$CLAUDE_MODEL" --output-format json --disallowedTools "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Task" 2>/dev/null) )
+    if [ $? -ne 0 ] || [ -z "$CLAUDE_PROBE" ]; then
+      mark_failed claude "liveness probe failed; check claude auth/login and TRIBUNAL_CLAUDE_MODEL=${CLAUDE_MODEL}"
+    else
+      CLAUDE_ERR=$(printf '%s' "$CLAUDE_PROBE" | jq -r '.is_error // "unknown"' 2>/dev/null)
+      if [ "$CLAUDE_ERR" = "true" ]; then
+        mark_failed claude "liveness probe returned is_error=true; check claude login and TRIBUNAL_CLAUDE_MODEL=${CLAUDE_MODEL}"
+      else
+        mark_usable claude
+      fi
+    fi
+  fi
+fi
 
 # Free disk (OpenCode + Codex write temp/session state; a full disk hangs them).
 # Warn under ~2 GiB available on the home/tmp filesystem.
@@ -146,97 +254,26 @@ if [ -n "$AVAIL_KB" ] && [ "$AVAIL_KB" -lt 2097152 ]; then
   WARN="${WARN}\n  - disk: only $((AVAIL_KB / 1024)) MiB free on ${TMPDIR:-/tmp} — reviewers may stall on writes"
 fi
 
-# OpenCode model registry: warm once, then confirm BOTH leg models resolve. A cold/stale
-# cache silently downgrades `-m` to an unauthenticated fallback (issue #32) — catch it here.
-if command -v opencode >/dev/null 2>&1; then
-  opencode models >/dev/null 2>&1 || true
-  OC_MODELS=$(opencode models 2>/dev/null)
-  # GLM leg model (opencode-go reseller backend) — only when enabled (off by default).
-  if [ "$GLM_ON" = on ]; then
-    printf '%s\n' "$OC_MODELS" | grep -qxF "$GLM_MODEL" || \
-      WARN="${WARN}\n  - opencode model ${GLM_MODEL}: not in registry (cold/stale cache) — GLM leg will be skipped; run \`opencode models\` to refresh"
-  fi
-  # DeepSeek leg model — unless disabled. The provider only lists its models once
-  # authenticated, so this registry check doubles as a liveness/config probe (folds in #38):
-  # a missing model or missing credential surfaces here as a fast skip instead of a mid-review
-  # hang. The auth-list hint below is provider-aware (opencode-go vs direct deepseek/).
-  if [ "$DEEPSEEK_ON" = on ]; then
-    # This model-in-registry check is the ACTUAL skip condition — it mirrors Bash call 3's
-    # enforcement exactly (review_opencode_leg skips iff the model is absent from $OC_MODELS).
-    printf '%s\n' "$OC_MODELS" | grep -qxF "$DEEPSEEK_MODEL" || \
-      WARN="${WARN}\n  - opencode model ${DEEPSEEK_MODEL}: not in registry — DeepSeek leg will be skipped; check TRIBUNAL_DEEPSEEK_MODEL, run \`opencode auth login\`, or \`opencode models\` to refresh"
-    # Auth HINT only (not a separate skip decision): a missing credential surfaces as the
-    # model-miss above. Tailor the hint to the configured provider so the suggested fix is
-    # right — opencode-go uses the OpenCode Go credential; deepseek/ uses the direct API.
-    case "$DEEPSEEK_MODEL" in
-      opencode-go/*)
-        if ! opencode auth list 2>/dev/null | grep -Eqi 'opencode[- ]?go'; then
-          WARN="${WARN}\n  - deepseek: OpenCode Go may not be authenticated (not in \`opencode auth list\`) — if the model check above failed, run \`opencode auth login\` and select OpenCode Go"
-        fi
-        ;;
-      deepseek/*)
-        if [ -z "${DEEPSEEK_API_KEY:-}" ] && ! opencode auth list 2>/dev/null | grep -qi deepseek; then
-          WARN="${WARN}\n  - deepseek: direct API may not be authenticated (no DEEPSEEK_API_KEY and not in \`opencode auth list\`) — if the model check above failed, run \`opencode auth login\` (select DeepSeek) or set DEEPSEEK_API_KEY"
-        fi
-        ;;
-    esac
-  fi
-fi
-
-# Qwen leg preflight (issue #41): only when enabled. The generic PATH loop above already
-# counted `qwen` and warned if it is missing, so here we only verify auth + liveness via a
-# 1-token probe through the CLI itself — which reuses whatever auth qwen is configured with
-# (env DASHSCOPE_API_KEY/OPENAI_API_KEY/OPENROUTER_API_KEY OR ~/.qwen/settings.json). A bad
-# key/endpoint fails fast here instead of mid-review. The probe also detects a SILENT model
-# fallback: qwen-code accepts an unknown -m and quietly downgrades to its default model.
-if [ "$QWEN_ON" = on ] && command -v qwen >/dev/null 2>&1; then
-  QWEN_PROBE=$(printf 'ok' | QWEN_CODE_SUPPRESS_YOLO_WARNING=1 timeout -k 5 45 qwen --model "$QWEN_MODEL" -p "Reply with the single token: ok" --yolo -o json 2>/dev/null)
-  if [ $? -ne 0 ] || [ -z "$QWEN_PROBE" ]; then
-    WARN="${WARN}\n  - qwen: liveness probe failed (timeout or no output) — check auth (DASHSCOPE_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY, or \`qwen\` settings) and connectivity; leg may fail in Step 2"
-  else
-    QWEN_ERR=$(printf '%s' "$QWEN_PROBE" | jq -r '[ .[]? | select(.type=="result") | .is_error ] | last // "unknown"' 2>/dev/null)
-    QWEN_ACTUAL=$(printf '%s' "$QWEN_PROBE" | jq -r '[ .[]? | (.model // .message.model // empty) ] | map(select(. != null)) | last // "unknown"' 2>/dev/null)
-    if [ "$QWEN_ERR" = "true" ]; then
-      WARN="${WARN}\n  - qwen: liveness probe returned is_error=true — auth/model rejected; check DASHSCOPE_API_KEY and TRIBUNAL_QWEN_MODEL=${QWEN_MODEL}; leg may fail in Step 2"
-    elif [ "$QWEN_ACTUAL" != "unknown" ] && [ "$QWEN_ACTUAL" != "$QWEN_MODEL" ]; then
-      WARN="${WARN}\n  - qwen: requested model '${QWEN_MODEL}' but server used '${QWEN_ACTUAL}' (qwen-code silently downgraded an unknown -m). Set TRIBUNAL_QWEN_MODEL to a valid id for your account."
-    fi
-  fi
-fi
-
-# Claude Code leg preflight: only when enabled. The generic PATH loop already counted `claude`
-# and warned if missing; here a 1-token probe (from a scratch dir, tools disabled) verifies the
-# model alias resolves and auth works, so a bad TRIBUNAL_CLAUDE_MODEL or broken login fails fast
-# here instead of mid-review. `.is_error=true` in the JSON envelope flags a model/auth rejection.
-if [ "$CLAUDE_ON" = on ] && command -v claude >/dev/null 2>&1; then
-  CLAUDE_PROBE=$( (cd "$(mktemp -d)" && printf 'ok' | timeout -k 5 45 claude -p "Reply with the single token: ok" --model "$CLAUDE_MODEL" --output-format json --disallowedTools "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Task" 2>/dev/null) )
-  if [ $? -ne 0 ] || [ -z "$CLAUDE_PROBE" ]; then
-    WARN="${WARN}\n  - claude: liveness probe failed (timeout or no output) — check \`claude\` auth/login and connectivity; leg may fail in Step 2"
-  else
-    CLAUDE_ERR=$(printf '%s' "$CLAUDE_PROBE" | jq -r '.is_error // "unknown"' 2>/dev/null)
-    if [ "$CLAUDE_ERR" = "true" ]; then
-      WARN="${WARN}\n  - claude: liveness probe returned is_error=true — auth/model rejected; check \`claude\` login and TRIBUNAL_CLAUDE_MODEL=${CLAUDE_MODEL}; leg may fail in Step 2"
-    fi
-  fi
-fi
-
-# Gemini auth note: a stale key surfaces only mid-review. We cannot cheaply verify it
-# here without a billable call, so just remind to rotate if Gemini fails in Step 2.
 if [ -n "$WARN" ]; then
   printf 'PREFLIGHT WARNINGS:%b\n' "$WARN"
 fi
 if [ "$USABLE" -eq 0 ]; then
-  echo "PREFLIGHT FAIL: no reviewer CLIs found on PATH. Cannot run tribunal."
+  echo "PREFLIGHT FAIL: no usable reviewer legs. Cannot run tribunal."
   exit 1
 fi
-echo "PREFLIGHT OK: ${USABLE}/${TOTAL} reviewer CLIs available."
+printf 'PREFLIGHT STATUS: usable=[%s] disabled=[%s] skipped=[%s] failed=[%s]\n' \
+  "${USABLE_PROVIDERS:-none}" "${DISABLED_PROVIDERS:-none}" "${SKIPPED_PROVIDERS:-none}" "${FAILED_PROVIDERS:-none}"
+echo "PREFLIGHT OK: branch=${CURRENT_BRANCH:-detached} base=$BASE_REF changed_files=${CHANGED_FILES:-?} usable=${USABLE}/${ACTIVE} active reviewer legs (disabled=$DISABLED skipped=$SKIPPED failed=$FAILED)."
 ```
 
-If preflight exits non-zero (no usable providers): STOP and report. Otherwise note any
-warnings — the affected provider(s) will be skipped in Step 2 and arbitration treats the
-result as a degraded quorum.
+If preflight exits non-zero (on the default branch, no diff, unresolved base ref, or no
+usable reviewer legs): STOP and report. Otherwise note any warnings — skipped/failed
+providers are absent from the effective quorum, while disabled providers are intentional.
 
-Output: "[TRIBUNAL 1/3] On branch: {branch_name}, {N} files changed — {USABLE}/{TOTAL} providers ready{, warnings if any}" (TOTAL counts reviewer CLIs on PATH. By default that is codex + opencode + claude (DeepSeek on ⇒ opencode counted; Claude on); add gemini when TRIBUNAL_GEMINI=on and qwen when TRIBUNAL_QWEN=on; subtract claude when TRIBUNAL_CLAUDE=off. The opencode CLI carries both the GLM and DeepSeek legs, so it is counted whenever EITHER is enabled and is dropped only if BOTH are off.)
+Output: "[TRIBUNAL 1/3] On branch: {branch_name}, base={BASE_REF}, {N} files changed —
+{USABLE}/{ACTIVE} active reviewer legs usable; disabled={D}, skipped={S}, failed={F}."
+OpenCode counts are per review leg: DeepSeek and GLM are usable only when the `opencode`
+CLI exists **and** their configured model appears in the warmed registry.
 
 ---
 
@@ -269,10 +306,22 @@ CODEX_MODEL_ARGS=()
 # Parallel-safe: unique temp dir per invocation
 TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
 
-DIFF=$(git diff origin/main...HEAD)
+resolve_base_ref() {
+  local branch
+  branch="${TRIBUNAL_BASE_BRANCH:-}"
+  [ -n "$branch" ] || branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+  [ -n "$branch" ] || branch="$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p' | head -1)"
+  [ -n "$branch" ] || branch="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+  printf '%s\n' "${TRIBUNAL_BASE_REF:-origin/${branch:-main}}"
+}
+BASE_REF="$(resolve_base_ref)"
+if ! DIFF=$(git diff "$BASE_REF"...HEAD 2>/dev/null); then
+  printf '{"error": "Codex leg: cannot diff against %s", "provider": "codex"}\n' "$BASE_REF"
+  exit 0
+fi
 
 if [ -z "$DIFF" ]; then
-  printf '%s\n' '{"provider": "codex", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
+  printf '{"provider": "codex", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs %s"}}\n' "$BASE_REF"
   exit 0
 fi
 
@@ -411,10 +460,22 @@ GEMINI_MODEL="${TRIBUNAL_GEMINI_MODEL:-gemini-3-pro-preview}"
 # Parallel-safe: unique temp dir per invocation
 TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
 
-DIFF=$(git diff origin/main...HEAD)
+resolve_base_ref() {
+  local branch
+  branch="${TRIBUNAL_BASE_BRANCH:-}"
+  [ -n "$branch" ] || branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+  [ -n "$branch" ] || branch="$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p' | head -1)"
+  [ -n "$branch" ] || branch="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+  printf '%s\n' "${TRIBUNAL_BASE_REF:-origin/${branch:-main}}"
+}
+BASE_REF="$(resolve_base_ref)"
+if ! DIFF=$(git diff "$BASE_REF"...HEAD 2>/dev/null); then
+  printf '{"error": "Gemini leg: cannot diff against %s", "provider": "gemini"}\n' "$BASE_REF"
+  exit 0
+fi
 
 if [ -z "$DIFF" ]; then
-  printf '%s\n' '{"provider": "gemini", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
+  printf '{"provider": "gemini", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs %s"}}\n' "$BASE_REF"
   exit 0
 fi
 
@@ -545,7 +606,7 @@ emit_glm_disabled() {
 }
 
 emit_empty() {  # provider, model
-  printf '{"provider": "%s", "model": "%s", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}\n' "$1" "$2"
+  printf '{"provider": "%s", "model": "%s", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs %s"}}\n' "$1" "$2" "$BASE_REF"
 }
 
 # If OpenCode is not installed, emit an object for each leg (error if enabled, disabled marker
@@ -560,7 +621,24 @@ if ! command -v opencode >/dev/null 2>&1; then
   exit 0
 fi
 
-DIFF=$(git diff origin/main...HEAD)
+resolve_base_ref() {
+  local branch
+  branch="${TRIBUNAL_BASE_BRANCH:-}"
+  [ -n "$branch" ] || branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+  [ -n "$branch" ] || branch="$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p' | head -1)"
+  [ -n "$branch" ] || branch="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+  printf '%s\n' "${TRIBUNAL_BASE_REF:-origin/${branch:-main}}"
+}
+BASE_REF="$(resolve_base_ref)"
+if ! DIFF=$(git diff "$BASE_REF"...HEAD 2>/dev/null); then
+  if [ "${TRIBUNAL_GLM:-off}" = "on" ]; then
+    printf '{"error": "OpenCode GLM leg: cannot diff against %s", "provider": "glm"}\n' "$BASE_REF"
+  else emit_glm_disabled; fi
+  if [ "${TRIBUNAL_DEEPSEEK:-on}" = "off" ]; then emit_deepseek_disabled; else
+    printf '{"error": "OpenCode DeepSeek leg: cannot diff against %s", "provider": "deepseek"}\n' "$BASE_REF"
+  fi
+  exit 0
+fi
 
 if [ -z "$DIFF" ]; then
   if [ "${TRIBUNAL_GLM:-off}" = "on" ]; then emit_empty "glm" "$GLM_MODEL"; else emit_glm_disabled; fi
@@ -799,10 +877,22 @@ QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}"
 # Parallel-safe: unique temp dir per invocation
 TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
 
-DIFF=$(git diff origin/main...HEAD)
+resolve_base_ref() {
+  local branch
+  branch="${TRIBUNAL_BASE_BRANCH:-}"
+  [ -n "$branch" ] || branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+  [ -n "$branch" ] || branch="$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p' | head -1)"
+  [ -n "$branch" ] || branch="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+  printf '%s\n' "${TRIBUNAL_BASE_REF:-origin/${branch:-main}}"
+}
+BASE_REF="$(resolve_base_ref)"
+if ! DIFF=$(git diff "$BASE_REF"...HEAD 2>/dev/null); then
+  printf '{"error": "Qwen leg: cannot diff against %s", "provider": "qwen"}\n' "$BASE_REF"
+  exit 0
+fi
 
 if [ -z "$DIFF" ]; then
-  printf '%s\n' '{"provider": "qwen", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
+  printf '{"provider": "qwen", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs %s"}}\n' "$BASE_REF"
   exit 0
 fi
 
@@ -942,7 +1032,19 @@ CLAUDE_MODEL="${TRIBUNAL_CLAUDE_MODEL:-sonnet}"
 
 # Capture the diff and conventions from the repo BEFORE moving to the scratch dir.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-DIFF=$(git -C "$REPO_ROOT" diff origin/main...HEAD)
+resolve_base_ref() {
+  local branch
+  branch="${TRIBUNAL_BASE_BRANCH:-}"
+  [ -n "$branch" ] || branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+  [ -n "$branch" ] || branch="$(git -C "$REPO_ROOT" remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p' | head -1)"
+  [ -n "$branch" ] || branch="$(git -C "$REPO_ROOT" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+  printf '%s\n' "${TRIBUNAL_BASE_REF:-origin/${branch:-main}}"
+}
+BASE_REF="$(resolve_base_ref)"
+if ! DIFF=$(git -C "$REPO_ROOT" diff "$BASE_REF"...HEAD 2>/dev/null); then
+  printf '{"error": "Claude leg: cannot diff against %s", "provider": "claude"}\n' "$BASE_REF"
+  exit 0
+fi
 CONVENTIONS=""
 [ -f "$REPO_ROOT/AGENTS.md" ] && CONVENTIONS=$(head -c 16384 "$REPO_ROOT/AGENTS.md")
 # Deployment/reachability facts a diff cannot reveal (worker model, concurrency,
@@ -956,7 +1058,7 @@ TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR" || { printf '%s\n' '{"error": "Claude leg: could not enter scratch dir", "provider": "claude"}'; exit 0; }
 
 if [ -z "$DIFF" ]; then
-  printf '%s\n' '{"provider": "claude", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs origin/main"}}'
+  printf '{"provider": "claude", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs %s"}}\n' "$BASE_REF"
   exit 0
 fi
 
@@ -1210,10 +1312,10 @@ Output: "[TRIBUNAL 3/3] Verdict: {APPROVE|NEEDS_WORK|BLOCK} - {N} actionable fin
 ```
 OPUS 4.5 (Final authority, runs inline)
     |
-Codex · Gemini · GLM · DeepSeek · Qwen (equal advisory peers — verify findings)
+Codex · Gemini · GLM · DeepSeek · Qwen · Claude (equal advisory peers — verify findings)
 ```
 
-The reviewers are equal peers (up to five; by default codex + deepseek + qwen, with gemini and glm opt-in); a finding flagged by ≥2 is CONSENSUS. Opus can override any reviewer finding.
+The reviewers are equal peers (up to six; by default codex + deepseek + claude, with gemini, glm, and qwen opt-in); a finding flagged by ≥2 is CONSENSUS. Opus can override any reviewer finding.
 
 ---
 
@@ -1221,4 +1323,4 @@ The reviewers are equal peers (up to five; by default codex + deepseek + qwen, w
 
 | Mode | Steps | Tool Calls | Agent Spawns |
 |------|-------|------------|-------------|
-| Default (review) | 3 | 4 (parallel Bash: Codex, Gemini, OpenCode, Qwen; the OpenCode call runs GLM+DeepSeek sequentially. By default Gemini & GLM self-skip, so active reviewers = Codex + DeepSeek + Qwen) | 0 |
+| Default (review) | 3 | 5 (parallel Bash: Codex, Gemini, OpenCode, Qwen, Claude; the OpenCode call runs GLM+DeepSeek sequentially. By default Gemini, GLM, and Qwen self-skip, so active reviewers = Codex + DeepSeek + Claude) | 0 |
