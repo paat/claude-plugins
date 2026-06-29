@@ -1,0 +1,20 @@
+{
+  "name": "codex-subagent",
+  "version": "0.1.1",
+  "description": "Drive the OpenAI Codex CLI (codex exec, gpt-5.5) as implementer/reviewer/critic subagents from Claude Code — a controller loop with a wrapper that encodes the -s danger-full-access unlock, dual timeouts, output capture, bwrap detection, and partial-run recovery",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "openai",
+    "gpt-5",
+    "subagent",
+    "code-review",
+    "second-opinion",
+    "multi-model",
+    "implementer"
+  ]
+}

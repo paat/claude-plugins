@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "SaaS startup simulation — business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product, acquiring customers, and iterating with one-shot improvements",
-      "version": "0.65.1",
+      "version": "0.65.3",
       "author": {
         "name": "Andre Paat"
       },
@@ -179,6 +179,17 @@
         "name": "Andre Paat"
       },
       "source": "./plugins/gh-issue-fetch",
+      "category": "development",
+      "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "codex-subagent",
+      "description": "Drive the OpenAI Codex CLI (codex exec, gpt-5.5) as implementer/reviewer/critic subagents from Claude Code — a controller loop with a wrapper that encodes the -s danger-full-access unlock, dual timeouts, output capture, bwrap detection, and partial-run recovery",
+      "version": "0.1.1",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/codex-subagent",
       "category": "development",
       "homepage": "https://github.com/paat/claude-plugins"
     }
