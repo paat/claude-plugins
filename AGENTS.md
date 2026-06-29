@@ -1,0 +1,19 @@
+# Claude Plugins Repository
+
+## Target
+
+Plugins in this repo are designed for **Estonian SaaS companies** — the primary audience is small Estonian businesses, e-residents, and micro-OÜs. However, all plugins must remain generic: no hardcoded company names, product names, or project-specific paths. Use template variables for anything that varies between projects.
+
+## Rules
+
+- All plugins in this repo must be generic and project-agnostic
+- Project-specific values must use template variables, not hardcoded strings
+- No hardcoded project names, paths, stacks, or team conventions in plugin code
+- Plugins must work with bash 4+ and standard POSIX tools
+- External dependencies (jq, awk, sed) must be documented in README
+- ALWAYS bump the plugin version in BOTH `.claude-plugin/plugin.json` AND the root `.claude-plugin/marketplace.json` before pushing — both must stay in sync
+- After cloning, run `git config core.hooksPath .githooks` to enable the pre-push version check hook
+- Every plugin's README MUST include an end-user-viewable **Installation** section listing the three recommended scopes:
+  - **Install for you** (user scope) — available in all your projects
+  - **Install for all collaborators on this repository** (project scope) — committed, shared with the team
+  - **Install for you, in this repo only** (local scope) — just you, just this repo

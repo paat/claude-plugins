@@ -77,3 +77,11 @@ plugins/<plugin-name>/
 3. Add skill, command, hook, or agent files as needed
 4. Add an entry to `.claude-plugin/marketplace.json` in the `plugins` array
 5. Run `python3 scripts/sync-codex-marketplace.py` to update Codex manifests and `.agents/plugins/marketplace.json`
+
+Before pushing plugin changes, bump that plugin's version in both
+`plugins/<plugin-name>/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+Enable the guard locally with:
+
+```bash
+git config core.hooksPath .githooks
+```
