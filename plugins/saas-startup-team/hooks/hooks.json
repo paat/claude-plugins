@@ -22,28 +22,6 @@
         ]
       }
     ],
-    "TeammateIdle": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-idle.sh",
-            "description": "Validate founder wrote a handoff for current iteration before going idle"
-          }
-        ]
-      }
-    ],
-    "TaskCompleted": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-task-complete.sh",
-            "description": "Validate task has deliverables for current iteration before marking complete"
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
@@ -172,16 +150,6 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/index-handoff.sh",
             "description": "Append/upsert written handoff into .startup/handoffs/INDEX.md so the directory stays discoverable as it grows"
-          }
-        ]
-      },
-      {
-        "matcher": "ScheduleWakeup",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mark-yield.sh",
-            "description": "Mark a self-expiring yield sentinel when the orchestrator schedules a wakeup, so the Stop hook recognizes the yield without depending on transcript flush timing (issue #103)"
           }
         ]
       }

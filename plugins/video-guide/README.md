@@ -2,6 +2,13 @@
 
 Create professional video guides with TTS narration, screen recording, and YouTube upload.
 
+## Installation
+
+- **Install for you** (user scope) — available in all your projects:
+  `/plugin install video-guide@paat-plugins`
+- **Install for all collaborators on this repository** (project scope) — commit `.claude/settings.json` with the plugin enabled.
+- **Install for you, in this repo only** (local scope) — enable it in `.claude/settings.local.json`.
+
 ## Container Requirements
 
 This plugin delegates all rendering to a `video-guide-creator` Docker container. The container must provide:
@@ -13,7 +20,7 @@ This plugin delegates all rendering to a `video-guide-creator` Docker container.
 | Playwright + Chromium | Headless browser for screencast recording |
 | Python runtime | Orchestrator that parses YAML guides and drives rendering |
 
-The container project lives at `/mnt/data/ai/video-guide-creator/` with this layout:
+Set `VIDEO_GUIDE_CREATOR_ROOT` to the container project directory. The directory should use this layout:
 
 ```
 video-guide-creator/
@@ -29,7 +36,7 @@ video-guide-creator/
 Build the container (one-time):
 
 ```bash
-docker compose -f /mnt/data/ai/video-guide-creator/docker-compose.yml build
+docker compose -f "${VIDEO_GUIDE_CREATOR_ROOT}/docker-compose.yml" build
 ```
 
 ## Usage
@@ -40,7 +47,7 @@ docker compose -f /mnt/data/ai/video-guide-creator/docker-compose.yml build
 
 Or naturally: "Make a video guide about..."
 
-The plugin can be invoked from any repository. Frontend code research uses the current working directory; all container operations target the centralized path above.
+The plugin can be invoked from any repository. Frontend code research uses the current working directory; all container operations target `VIDEO_GUIDE_CREATOR_ROOT`.
 
 ## Components
 

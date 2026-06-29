@@ -9,7 +9,7 @@ Create professional video guides with TTS narration, auto-generated subtitles, a
 
 ## Container Requirements
 
-This skill requires a pre-built `video-guide-creator` Docker container at `/mnt/data/ai/video-guide-creator/`. The container must provide:
+This skill requires a pre-built `video-guide-creator` Docker container. Set `VIDEO_GUIDE_CREATOR_ROOT` to that container project directory before running container commands. The container must provide:
 
 - **Edge TTS** — Microsoft neural text-to-speech engine (internet access required)
 - **FFmpeg** — video encoding and muxing
@@ -29,7 +29,7 @@ Expected directory layout inside the container project:
 Build the container (one-time):
 
 ```bash
-docker compose -f /mnt/data/ai/video-guide-creator/docker-compose.yml build
+docker compose -f "${VIDEO_GUIDE_CREATOR_ROOT}/docker-compose.yml" build
 ```
 
 ## Cross-Repo Usage
@@ -37,7 +37,7 @@ docker compose -f /mnt/data/ai/video-guide-creator/docker-compose.yml build
 This skill can be invoked from any repository. When working across repos:
 
 - **Frontend code research** happens in the **current working directory** (the repo you're in)
-- **Container operations** (YAML output, rendering, brands, auth) always target `/mnt/data/ai/video-guide-creator/`
+- **Container operations** (YAML output, rendering, brands, auth) always target `VIDEO_GUIDE_CREATOR_ROOT`
 - Brand presets and auth states are shared across all projects
 
 ## Workflow
@@ -48,24 +48,24 @@ Determine from the user's request:
 - **Topic**: What the guide is about
 - **Type**: slides-only (educational/explainer), screencast (UI walkthrough), or mixed
 - **Language**: What language for narration (check brand preset first)
-- **Brand**: Check if a brand preset exists at `/mnt/data/ai/video-guide-creator/brands/`
+- **Brand**: Check if a brand preset exists at `${VIDEO_GUIDE_CREATOR_ROOT}/brands/`
 - **Defaults**: If no brand preset and language is not specified, default to English with `en-US-AriaNeural` voice
 - If the topic or argument text is in a non-English language, match the voice to that language
 
 ### 2. Load brand preset (if available)
 
-Check `/mnt/data/ai/video-guide-creator/brands/` for a YAML file matching the product name. Brand presets contain default colors, voice, language, and logo — use them instead of hardcoding values in every guide.
+Check `${VIDEO_GUIDE_CREATOR_ROOT}/brands/` for a YAML file matching the product name. Brand presets contain default colors, voice, language, and logo — use them instead of hardcoding values in every guide.
 
 ### 3. Research the topic (for screencast guides)
 
 If the guide involves recording a web application:
 - Read the application's frontend code **in the current working directory** to find correct CSS selectors
 - Understand the user flow (which pages, which buttons, what order)
-- Check if an auth state file exists at `/mnt/data/ai/video-guide-creator/auth/`
+- Check if an auth state file exists at `${VIDEO_GUIDE_CREATOR_ROOT}/auth/`
 
 ### 4. Generate the YAML guide definition
 
-Write a complete YAML file to `/mnt/data/ai/video-guide-creator/guides/<slug>.yml`.
+Write a complete YAML file to `${VIDEO_GUIDE_CREATOR_ROOT}/guides/<slug>.yml`.
 
 #### YAML Structure
 
@@ -135,7 +135,7 @@ youtube:                     # Optional — omit to skip upload
 Always validate before rendering to catch YAML errors early:
 
 ```bash
-docker compose -f /mnt/data/ai/video-guide-creator/docker-compose.yml \
+docker compose -f "${VIDEO_GUIDE_CREATOR_ROOT}/docker-compose.yml" \
   run --rm video-guide-creator validate guides/<slug>.yml
 ```
 
@@ -144,14 +144,14 @@ If validation fails, fix the YAML and re-validate before proceeding.
 ### 6. Run the container
 
 ```bash
-docker compose -f /mnt/data/ai/video-guide-creator/docker-compose.yml \
+docker compose -f "${VIDEO_GUIDE_CREATOR_ROOT}/docker-compose.yml" \
   run --rm video-guide-creator generate guides/<slug>.yml
 ```
 
 ### 7. Report the result
 
 Tell the user:
-- Output path: `/mnt/data/ai/video-guide-creator/output/<slug>.mp4`
+- Output path: `${VIDEO_GUIDE_CREATOR_ROOT}/output/<slug>.mp4`
 - Video duration (from ffprobe if needed)
 - Ask if the user wants to upload to YouTube (requires prior `youtube-auth` setup)
 - If yes, re-run with `--upload` flag or run the upload separately
@@ -161,7 +161,7 @@ Tell the user:
 To find voices for a language:
 
 ```bash
-docker compose -f /mnt/data/ai/video-guide-creator/docker-compose.yml \
+docker compose -f "${VIDEO_GUIDE_CREATOR_ROOT}/docker-compose.yml" \
   run --rm video-guide-creator voices --language <code>
 ```
 
@@ -201,7 +201,7 @@ Edge TTS reads URLs and domains literally. Write them phonetically in narration 
 
 | Error | Fix |
 |-------|-----|
-| Container not built | Run `docker compose -f /mnt/data/ai/video-guide-creator/docker-compose.yml build` |
+| Container not built | Run `docker compose -f "${VIDEO_GUIDE_CREATOR_ROOT}/docker-compose.yml" build` |
 | Edge TTS network error | Check internet connectivity from container |
 | Playwright selector not found | Verify selectors against current frontend code |
 | YouTube auth missing | Run `youtube-auth` command first |

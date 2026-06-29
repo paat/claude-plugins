@@ -2,6 +2,13 @@
 
 A senior-level Google Ads strategist agent that designs campaigns through an **iterative improvement process** and verifies every iteration in the real browser before a cent is spent.
 
+## Installation
+
+- **Install for you** (user scope) — available in all your projects:
+  `/plugin install google-ads-strategist@paat-plugins`
+- **Install for all collaborators on this repository** (project scope) — commit `.claude/settings.json` with the plugin enabled.
+- **Install for you, in this repo only** (local scope) — enable it in `.claude/settings.local.json`.
+
 ## Three revenue rules (enforced, not suggested)
 
 1. **Every final URL has UTM parameters.** Without attribution, iteration can't learn what drove revenue. Every spec carries `utm_source`, `utm_medium`, `utm_campaign`, `utm_content=<iteration>`, and `utm_term={keyword}`. `/ads-ready` refuses to pass a spec without them.

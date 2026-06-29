@@ -7,6 +7,8 @@ import argparse
 import json
 import re
 import sys
+import textwrap
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,14 @@ CODEX_DESCRIPTION_OVERRIDES = {
         "Mirror AGENTS.md to CLAUDE.md for Codex-first projects. In Codex, AGENTS.md is the "
         "source of truth; Claude Code keeps its existing Claude-to-AGENTS generation behavior."
     ),
+    "saas-startup-team": (
+        "Codex-native SaaS startup orchestration using file-based founder handoffs, business "
+        "research, implementation, growth, legal, UX, and review loops for Estonian SaaS projects."
+    ),
+    "silent-failure-scanner": (
+        "Deterministic diff-time detector for swallowed errors and ghost transactions, with a "
+        "global PreToolUse commit gate that hands findings to the current Codex session to review."
+    ),
 }
 
 
@@ -34,7 +44,7 @@ def main() -> int:
     marketplace_name = read_required_string(claude_marketplace, "name", CLAUDE_MARKETPLACE_PATH)
     entries = read_required_list(claude_marketplace, "plugins", CLAUDE_MARKETPLACE_PATH)
 
-    planned_files: dict[Path, dict[str, Any]] = {}
+    planned_files: dict[Path, str] = {}
     codex_entries: list[dict[str, Any]] = []
     errors: list[str] = []
 
@@ -62,7 +72,8 @@ def main() -> int:
             continue
 
         codex_manifest = build_codex_manifest(plugin_dir, claude_manifest, raw_entry)
-        planned_files[plugin_dir / ".codex-plugin" / "plugin.json"] = codex_manifest
+        planned_files[plugin_dir / ".codex-plugin" / "plugin.json"] = render_json(codex_manifest)
+        planned_files.update(build_command_skill_files(plugin_dir, plugin_name))
         codex_entries.append(build_marketplace_entry(plugin_name, raw_entry))
 
     if errors:
@@ -77,7 +88,7 @@ def main() -> int:
         },
         "plugins": codex_entries,
     }
-    planned_files[CODEX_MARKETPLACE_PATH] = codex_marketplace
+    planned_files[CODEX_MARKETPLACE_PATH] = render_json(codex_marketplace)
 
     changed = write_or_check(planned_files, check=args.check)
     if args.check and changed:
@@ -231,9 +242,13 @@ def build_marketplace_entry(plugin_name: str, raw_entry: dict[str, Any]) -> dict
 
 def has_codex_skills(plugin_dir: Path) -> bool:
     skills_dir = plugin_dir / "skills"
-    if not skills_dir.is_dir():
-        return False
-    return any(path.is_file() for path in skills_dir.glob("*/SKILL.md"))
+    has_existing_skill = skills_dir.is_dir() and any(path.is_file() for path in skills_dir.glob("*/SKILL.md"))
+    return has_existing_skill or has_command_files(plugin_dir)
+
+
+def has_command_files(plugin_dir: Path) -> bool:
+    commands_dir = plugin_dir / "commands"
+    return commands_dir.is_dir() and any(commands_dir.glob("*.md"))
 
 
 def infer_capabilities(plugin_dir: Path) -> list[str]:
@@ -287,12 +302,222 @@ def read_optional_string(payload: dict[str, Any], key: str) -> str | None:
     return None
 
 
-def write_or_check(planned_files: dict[Path, dict[str, Any]], *, check: bool) -> bool:
+def build_command_skill_files(plugin_dir: Path, plugin_name: str) -> dict[Path, str]:
+    commands_dir = plugin_dir / "commands"
+    if not commands_dir.is_dir():
+        return {}
+
+    planned: dict[Path, str] = {}
+    for command_path in sorted(commands_dir.glob("*.md")):
+        metadata = read_command_metadata(command_path)
+        command_name = command_metadata_name(command_path, metadata)
+        skill_name = command_skill_name(plugin_name, command_name)
+        skill_path = plugin_dir / "skills" / skill_name / "SKILL.md"
+        planned[skill_path] = render_command_skill(
+            plugin_name=plugin_name,
+            command_name=command_name,
+            command_path=command_path,
+            metadata=metadata,
+            skill_name=skill_name,
+        )
+    return planned
+
+
+def read_command_metadata(command_path: Path) -> dict[str, str]:
+    contents = command_path.read_text(encoding="utf-8")
+    if not contents.startswith("---\n"):
+        return {}
+    frontmatter_end = contents.find("\n---", 4)
+    if frontmatter_end == -1:
+        return {}
+
+    metadata: dict[str, str] = {}
+    for raw_line in contents[4:frontmatter_end].splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip().strip("\"'")
+        if key and value:
+            metadata[key] = value
+    return metadata
+
+
+def command_metadata_name(command_path: Path, metadata: dict[str, str]) -> str:
+    raw_name = metadata.get("name") or command_path.stem
+    return slugify(raw_name) or command_path.stem
+
+
+def command_skill_name(plugin_name: str, command_name: str) -> str:
+    return slugify(f"{plugin_name}-{command_name}-workflow")
+
+
+def render_command_skill(
+    *,
+    plugin_name: str,
+    command_name: str,
+    command_path: Path,
+    metadata: dict[str, str],
+    skill_name: str,
+) -> str:
+    aliases = command_aliases(plugin_name, command_name, command_path)
+    source_path = f"../../commands/{command_path.name}"
+    source_description = sanitize_command_description(
+        metadata.get("description", "Run this plugin workflow."),
+        plugin_name=plugin_name,
+    )
+    description = sanitize_description(
+        f"Codex workflow for {', '.join(aliases)}. {source_description} "
+        f"Triggers: {', '.join(aliases)}"
+    )
+    plugin_notes = command_plugin_notes(plugin_name)
+
+    sections = [
+        textwrap.dedent(
+            f"""\
+            ---
+            name: {skill_name}
+            description: {json.dumps(description)}
+            ---
+
+            # {aliases[0]} Codex Workflow
+
+            This generated skill is the Codex-native plugin surface for `{aliases[0]}`.
+            Also use it when the user invokes {format_alias_list(aliases[1:])} or asks for the same workflow by name.
+
+            Source command: `{source_path}`
+
+            ## Run Protocol
+
+            1. Treat the user text after the command name as `$ARGUMENTS`.
+            2. Read the source command file before executing. It is the workflow checklist after applying the Codex replacements in this skill.
+            3. Execute the workflow through Codex-native mechanisms: Codex skills, direct task sequencing in the current session, the Codex CLI, or Codex-supported multi-agent tooling when available.
+            4. Do not create user-local `~/.codex/prompts` wrappers. This skill is the reusable plugin-bundled workflow surface.
+            5. When the source command says `Skill('plugin:skill')`, load the named plugin skill normally.
+            6. When the source command references `${{CLAUDE_PLUGIN_ROOT}}/path`, resolve it to this installed plugin root and use `path` under that root. Do not require the environment variable to exist.
+            7. When the source command contains a Claude-only primitive, use the Codex replacement:
+               - `AskUserQuestion` -> ask the user directly; in non-interactive runs, stop and report the exact required input.
+               - Claude slash-command execution -> invoke this skill or the corresponding plugin skill.
+               - Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent tooling if available, `codex exec` when a separate Codex process is useful, or a fresh role phase in the current Codex session.
+               - `ScheduleWakeup` -> use Codex session continuation or an explicit user-visible status checkpoint; do not depend on a Claude lifecycle hook.
+            """
+        ).rstrip(),
+        plugin_notes,
+        textwrap.dedent(
+            f"""\
+            ## Command Metadata
+
+            - Plugin: `{plugin_name}`
+            - Command aliases: {format_alias_list(aliases)}
+            - Source description: {source_description}
+            """
+        ).rstrip(),
+    ]
+    return "\n\n".join(section for section in sections if section.strip()) + "\n"
+
+
+def command_aliases(plugin_name: str, command_name: str, command_path: Path) -> list[str]:
+    aliases = [f"/{plugin_name}:{command_name}"]
+    heading_alias = read_heading_alias(command_path)
+    if heading_alias is not None:
+        aliases.append(heading_alias)
+    else:
+        aliases.append(f"/{command_name}")
+    return dedupe(aliases)
+
+
+def read_heading_alias(command_path: Path) -> str | None:
+    contents = command_path.read_text(encoding="utf-8")
+    match = re.search(r"^#\s+(/[A-Za-z0-9:_-]+)\b", contents, flags=re.MULTILINE)
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def dedupe(values: list[str]) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            continue
+        output.append(value)
+        seen.add(value)
+    return output
+
+
+def format_alias_list(aliases: list[str]) -> str:
+    if not aliases:
+        return "that command"
+    return ", ".join(f"`{alias}`" for alias in aliases)
+
+
+def command_plugin_notes(plugin_name: str) -> str:
+    if plugin_name != "saas-startup-team":
+        return ""
+    return textwrap.dedent(
+        """\
+        ## SaaS Startup Codex Rules
+
+        For `saas-startup-team` workflows in Codex:
+
+        - Use Codex as the primary and only coding agent.
+        - Do not invoke `claude`, `claude-code`, Claude Code, TeamCreate, or Claude subagent workflows.
+        - Do not route implementation to `tech-founder-claude` or `tech-founder-claude-maintain`; use the `tech-founder` skill, Codex CLI, or direct Codex implementation instead.
+        - Treat business-founder, tech-founder, growth-hacker, lawyer, UX tester, and review loops as Codex role phases backed by `.startup/` files.
+        - Keep the file-based handoff protocol intact: every role phase reads the relevant handoff/state files and writes its expected deliverable before the next phase starts.
+        """
+    ).rstrip()
+
+
+def sanitize_description(value: str) -> str:
+    replacements = {
+        "—": "-",
+        "–": "-",
+        "→": "->",
+        "≤": "<=",
+        "≥": ">=",
+        "×": "x",
+        "“": '"',
+        "”": '"',
+        "’": "'",
+    }
+    for old, new in replacements.items():
+        value = value.replace(old, new)
+    value = unicodedata.normalize("NFKD", value)
+    value = value.encode("ascii", "ignore").decode("ascii")
+    value = re.sub(r"\s+", " ", value).strip()
+    return value
+
+
+def sanitize_command_description(value: str, *, plugin_name: str) -> str:
+    value = value.replace("Gemini + Claude", "Gemini + the current Codex agent")
+    if plugin_name == "saas-startup-team":
+        value = value.replace(
+            "spawns business founder and tech founder agent team",
+            "starts business-founder and tech-founder role phases",
+        )
+        value = value.replace("spawn agent team", "start founder role phases")
+        value = value.replace("Spawn ", "Run ")
+        value = value.replace("spawns ", "runs ")
+    return sanitize_description(value)
+
+
+def slugify(value: str) -> str:
+    value = sanitize_description(value).lower()
+    value = re.sub(r"[^a-z0-9]+", "-", value).strip("-")
+    return value
+
+
+def render_json(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, indent=2, ensure_ascii=True) + "\n"
+
+
+def write_or_check(planned_files: dict[Path, str], *, check: bool) -> bool:
     changed = False
     for path, payload in sorted(planned_files.items(), key=lambda item: item[0].as_posix()):
-        rendered = json.dumps(payload, indent=2, ensure_ascii=True) + "\n"
         current = path.read_text(encoding="utf-8") if path.is_file() else None
-        if current == rendered:
+        if current == payload:
             continue
 
         changed = True
@@ -301,7 +526,7 @@ def write_or_check(planned_files: dict[Path, dict[str, Any]], *, check: bool) ->
             continue
 
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(rendered, encoding="utf-8")
+        path.write_text(payload, encoding="utf-8")
 
     return changed
 

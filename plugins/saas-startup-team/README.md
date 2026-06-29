@@ -1,6 +1,6 @@
 # saas-startup-team
 
-A Claude Code plugin that simulates a two-person SaaS startup team using **Agent Teams** (experimental). A non-technical business co-founder and a technical developer co-founder iterate via file-based handoffs until both agree the product is ready to go live.
+A SaaS startup orchestration plugin for Claude Code and Codex. A non-technical business co-founder and a technical developer co-founder iterate via file-based handoffs until both agree the product is ready to go live.
 
 ## Installation
 
@@ -8,6 +8,24 @@ A Claude Code plugin that simulates a two-person SaaS startup team using **Agent
   `/plugin install saas-startup-team@paat-plugins`
 - **Install for all collaborators on this repository** (project scope) — commit `.claude/settings.json` with the plugin enabled.
 - **Install for you, in this repo only** (local scope) — enable it in `.claude/settings.local.json`.
+
+## Codex Compatibility
+
+Codex installs expose the command workflows as plugin-bundled skills, so `/startup`,
+`/growth`, `/improve`, `/lawyer`, `/ux-test`, `/status`, and the other command-style flows
+travel with the plugin. No user-local `~/.codex/prompts` wrappers are required.
+
+In Codex, implementation is Codex-only:
+
+- Do not install or switch to Claude Code for the startup workflow.
+- Do not invoke `claude`, `claude-code`, TeamCreate, or Claude subagent workflows.
+- Run business-founder, tech-founder, growth-hacker, lawyer, UX tester, and review work as Codex role phases backed by `.startup/` files.
+- Use Codex skills, direct Codex sequencing, Codex CLI, or Codex-supported multi-agent tooling when a separate worker is useful.
+
+The shared hook bundle intentionally contains only Codex-supported lifecycle keys:
+`PreToolUse`, `PostToolUse`, and `Stop`. Handoff and task-completion checks that used to
+depend on Claude-only `TeammateIdle` / `TaskCompleted` events are enforced as explicit
+workflow gates in the Codex orchestration skill.
 
 ## How It Works
 
@@ -27,9 +45,9 @@ Human (Silent Investor)
   ↓ describes SaaS idea
   ↓ /saas-startup-team:startup
 Team Lead (Orchestrator)
-  ├── Business Founder (teammate, web + browser access)
-  ├── Tech Founder (teammate, code tools only)
-  ├── Shared TaskList
+  ├── Business Founder (role phase, web + browser research)
+  ├── Tech Founder (role phase, code tools)
+  ├── Shared state.json
   └── File-based handoffs in .startup/
 ```
 
@@ -37,7 +55,7 @@ Team Lead (Orchestrator)
 
 | Command | Purpose |
 |---------|---------|
-| `/saas-startup-team:startup` | Initialize project, spawn agent team, start the loop |
+| `/saas-startup-team:startup` | Initialize project, start founder role phases, start the loop |
 | `/saas-startup-team:status` | Show iteration count, handoff history, human tasks |
 | `/saas-startup-team:nudge` | Unstick a deadlock or redirect a founder |
 | `/saas-startup-team:lawyer` | Spawn lawyer agent for legal/compliance review |
@@ -98,9 +116,9 @@ The `.startup/` directory is created at project root:
 
 ### Learnings capture
 
-A PostToolUse hook (`auto-learn.sh`) fires after every handoff/review/signoff/go-live write under `.startup/` and extracts up to 3 reusable project learnings into `CLAUDE.md`. Entries that clearly fit an existing `docs/learnings/<topic>.md` file are routed there directly; uncertain or new-topic learnings stage in the `### Recent (unsorted)` section of `CLAUDE.md`.
+A PostToolUse hook (`auto-learn.sh`) fires after every handoff/review/signoff/go-live write under `.startup/` and extracts up to 3 reusable project learnings into the project guidance file (`CLAUDE.md` in Claude Code projects; Codex projects may mirror this into `AGENTS.md` with `agent-sync`). Entries that clearly fit an existing `docs/learnings/<topic>.md` file are routed there directly; uncertain or new-topic learnings stage in the `### Recent (unsorted)` section.
 
-To keep `CLAUDE.md` lean, the hook caps `### Recent (unsorted)` at **10 entries** (tune with `SAAS_LEARNINGS_MAX=N`). It counts the staged bullets deterministically in bash, and once the section nears the cap the same systemMessage instructs Claude to migrate the surplus (oldest first) into the best-fit `docs/learnings/` topic file — creating the file and a `## Domain Learnings` index line when no topic fits — so the staging area self-heals back to ≤ cap. Run `/saas-startup-team:learnings-migrate` for a human-in-the-loop sweep of whatever remains.
+To keep the guidance file lean, the hook caps `### Recent (unsorted)` at **10 entries** (tune with `SAAS_LEARNINGS_MAX=N`). It counts the staged bullets deterministically in bash, and once the section nears the cap the assistant migrates the surplus (oldest first) into the best-fit `docs/learnings/` topic file — creating the file and a `## Domain Learnings` index line when no topic fits — so the staging area self-heals back to ≤ cap. Run `/saas-startup-team:learnings-migrate` for a human-in-the-loop sweep of whatever remains.
 
 ### Google Ads records
 
@@ -229,7 +247,7 @@ self-mod-protected.
 
 ```
 0 3 * * * /usr/bin/flock -n /tmp/lessons-deliver.lock -c \
-  'cd <plugin repo> && claude -p "/lessons-deliver --once" --dangerously-skip-permissions >> /var/log/lessons-deliver.log 2>&1'
+  'cd <plugin repo> && <assistant command for this plugin> "/lessons-deliver --once" >> /var/log/lessons-deliver.log 2>&1'
 ```
 
 `/loop 5m /lessons-deliver --once` is the supervised/dev equivalent. Note this runs in the
@@ -238,28 +256,30 @@ runs in each **product** repo.
 
 ## Prerequisites
 
-- Claude Code with Agent Teams support (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
+- Codex or Claude Code. Codex runs the command-style workflows as plugin-bundled skills and does not require Claude Code.
 - Playwright MCP (`@playwright/mcp`) — automatically configured via plugin `.mcp.json`, runs headless
 - Web access enabled (for business founder's market research)
-- **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. It dispatches autonomous agents with broad filesystem/Bash authority, and the **Codex engine runs with `-s danger-full-access`** (`scripts/codex-implement.sh` disables Codex's sandbox *mode* for full FS access — no bwrap — without the `--dangerously-bypass-approvals-and-sandbox` flag; set `CODEX_SANDBOX=workspace-write` to harden) — the container is the isolation boundary. Hooks also use `/proc/` for process-tree detection. Do not run it on a host machine.
+- **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. Codex implementation can run with broad filesystem/Bash authority, and `scripts/codex-implement.sh` may use `-s danger-full-access` unless `CODEX_SANDBOX=workspace-write` is set to harden it. The container is the isolation boundary. Hooks also use `/proc/` for process-tree detection. Do not run it on a host machine.
 - **`jq` and `awk`** — required by hook scripts (`auto-learn.sh`, state compaction, JSON validation)
 - **google-ads-strategist plugin** — required for any Google Ads work (hard dependency). Google Ads is delegated to its `ads-strategist` agent; `growth-hacker` no longer creates Google Ads campaigns itself. There is no manifest-level dependency field, so this is enforced behaviorally: `/ads` and the `/growth` loop fail with an install instruction if the plugin is absent.
-- **`codex` CLI (optional)** — only needed to use the **Codex implementation engine**. Without it, the orchestrator simply routes all implementation to the Claude engine (`tech-founder-codex` reports back and is re-dispatched as `tech-founder-claude`).
+- **`codex` CLI (optional in interactive Codex, required for separate worker dispatch)** — only needed when the workflow launches a separate Codex process via `codex exec` or `scripts/codex-implement.sh`. Without it, Codex continues inline or asks for an environment fix; it never falls back to a Claude implementation engine.
 
-## Implementation engines: Claude vs Codex
+## Implementation Engine
 
-The tech-founder (implementation) role has two interchangeable engines; the orchestrator picks one per task (`active_role` stays `tech-founder`):
+For Codex installs, the tech-founder implementation role uses Codex only (`active_role` stays `tech-founder`):
 
-- **`tech-founder-claude`** (Claude / Opus) — frontend/UI, architecture & design judgment, surgical/minimal diffs, careful refactors, nuanced debugging. The safe default.
-- **`tech-founder-codex`** (OpenAI Codex / gpt-5.5, via `scripts/codex-implement.sh`) — implementing a detailed multi-point spec to completion, backend/data/algorithmic logic, exhaustive tests, config/plumbing/integrations. It delegates the coding to Codex, then verifies (gate green, minimal Unicode-clean diff, regression test) and writes the handoff.
+- Use the `tech-founder` skill for implementation standards and handoff requirements.
+- Implement inline in the current Codex session when that is simplest.
+- Use `codex exec` or `scripts/codex-implement.sh` when a separate Codex worker is useful and the Codex CLI is installed.
+- For extra review, use Codex-native review passes or the `tribunal-review` plugin.
 
-`-maintain` variants of both exist for the `/improve` flow. Routing rules: see **"1c. Choosing the implementation engine"** in the startup-orchestration skill. Basis: a verified blind A/B (Codex won on completeness + brief-/convention-following; Claude won on minimality + design taste) plus developer consensus.
+Claude Code installs may still use their Claude-specific command and agent files, but the Codex marketplace surface does not depend on them.
 
 ## Key Design Decisions
 
 - **Information asymmetry**: Tech founder has no web access, forcing the business founder to be thorough
 - **File-based state**: Handoff documents carry context between iterations, not LLM memory
-- **Quality gates**: Hooks enforce handoff writing, deliverable validation, and solution signoff
+- **Quality gates**: Codex-supported hooks enforce file/tool gates and solution signoff; handoff and deliverable validation are explicit workflow gates
 - **Pre-merge safety net**: `/bootstrap` scaffolds a canonical `check.sh` full-suite entrypoint and a `pull_request` CI workflow, and queues a branch-protection task.
 - **Non-blocking human tasks**: Tasks for the investor are documented but don't stop the loop
 - **Estonian working language**: Business founder thinks and researches in Estonian, translates for handoffs

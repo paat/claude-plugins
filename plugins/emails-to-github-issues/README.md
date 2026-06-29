@@ -4,6 +4,13 @@ Turn emails from named senders — support requests, bug reports, feature asks �
 
 Pulls mail from a local Proton Mail Bridge (IMAP), strips Outlook HTML bodies, groups threaded replies into single topics, extracts inline screenshots, and files one issue per thread against a GitHub repo you nominate. Matches the target repo's existing conventions (labels, image-hosting pattern, title style) instead of inventing new ones, and always confirms scope with you before any write.
 
+## Installation
+
+- **Install for you** (user scope) — available in all your projects:
+  `/plugin install emails-to-github-issues@paat-plugins`
+- **Install for all collaborators on this repository** (project scope) — commit `.claude/settings.json` with the plugin enabled.
+- **Install for you, in this repo only** (local scope) — enable it in `.claude/settings.local.json`.
+
 ## Prerequisites
 
 - A running local Proton Mail Bridge with IMAP on `127.0.0.1:1143` (STARTTLS). The shenxn/protonmail-bridge Docker image works out of the box.
@@ -22,7 +29,7 @@ Pulls mail from a local Proton Mail Bridge (IMAP), strips Outlook HTML bodies, g
 
 ## Usage
 
-Ask Claude Code something like:
+Ask your assistant something like:
 
 > Read emails from Alice and Bob since Monday and create GitHub issues.
 

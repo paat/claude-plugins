@@ -1,5 +1,4 @@
 {
-  "description": "PreToolUse commit gate: blocks a git commit whose staged diff contains silent-failure signatures and hands the findings to Claude to arbitrate. Active in every session once the plugin is enabled — no per-repo setup.",
   "hooks": {
     "PreToolUse": [
       {

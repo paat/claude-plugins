@@ -1,14 +1,14 @@
 {
   "name": "saas-startup-team",
-  "version": "0.65.4",
-  "description": "SaaS startup simulation \u2014 business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product, acquiring customers, and iterating with one-shot improvements",
+  "version": "0.66.0",
+  "description": "Codex-native SaaS startup orchestration using file-based founder handoffs, business research, implementation, growth, legal, UX, and review loops for Estonian SaaS projects.",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "SaaS Startup Team",
-    "shortDescription": "SaaS startup simulation \u2014 business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product, acquiring customers, and iterating with one-shot improvements",
-    "longDescription": "SaaS startup simulation \u2014 business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product, acquiring customers, and iterating with one-shot improvements",
+    "shortDescription": "Codex-native SaaS startup orchestration using file-based founder handoffs, business research, implementation, growth, legal, UX, and review loops for Estonian SaaS projects.",
+    "longDescription": "Codex-native SaaS startup orchestration using file-based founder handoffs, business research, implementation, growth, legal, UX, and review loops for Estonian SaaS projects.",
     "developerName": "Andre Paat",
     "category": "Development",
     "capabilities": [

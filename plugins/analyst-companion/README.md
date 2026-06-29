@@ -6,6 +6,13 @@ A real-time analyst for in-person customer meetings. It transcribes the room mic
 web console, lets you talk to Claude mid-meeting ("Claude, kas sa näed…") using the
 on-screen Chrome context, and creates reviewed Plane work items when the meeting ends.
 
+## Installation
+
+- **Install for you** (user scope) — available in all your projects:
+  `/plugin install analyst-companion@paat-plugins`
+- **Install for all collaborators on this repository** (project scope) — commit `.claude/settings.json` with the plugin enabled.
+- **Install for you, in this repo only** (local scope) — enable it in `.claude/settings.local.json`.
+
 ## Architecture
 
 ```

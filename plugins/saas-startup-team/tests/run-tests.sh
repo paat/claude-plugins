@@ -487,13 +487,15 @@ test_plugin_config() {
   assert_json_valid "E5: settings.json is valid JSON" "$PLUGIN_ROOT/settings.json"
   assert_json_field "E6: Agent Teams enabled" "$PLUGIN_ROOT/settings.json" '.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS' "1"
 
-  # E7-E10: hooks.json
+  # E7-E12: hooks.json
   assert_json_valid "E7: hooks.json is valid JSON" "$PLUGIN_ROOT/hooks/hooks.json"
   local hooks_keys
   hooks_keys=$(jq -r '.hooks | keys[]' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null)
-  assert_output_contains "E8: hooks.json has TeammateIdle" "$hooks_keys" "TeammateIdle"
-  assert_output_contains "E9: hooks.json has TaskCompleted" "$hooks_keys" "TaskCompleted"
+  assert_output_contains "E8: hooks.json has PreToolUse" "$hooks_keys" "PreToolUse"
+  assert_output_contains "E9: hooks.json has PostToolUse" "$hooks_keys" "PostToolUse"
   assert_output_contains "E10: hooks.json has Stop" "$hooks_keys" "Stop"
+  assert_output_not_contains "E11: hooks.json omits Codex-unsupported TeammateIdle" "$hooks_keys" "TeammateIdle"
+  assert_output_not_contains "E12: hooks.json omits Codex-unsupported TaskCompleted" "$hooks_keys" "TaskCompleted"
 
   # C-enforce: PreToolUse enforce-handoff-naming.sh is registered
   local enforce_cmd
@@ -606,16 +608,10 @@ test_stop_hook() {
     FAILURES+=("F10: hooks.json Stop entry missing check-stop.sh")
   fi
 
-  # F10b: a ScheduleWakeup PostToolUse entry wires mark-yield.sh (issue #103)
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if jq -e '.hooks.PostToolUse[] | select(.matcher=="ScheduleWakeup") | .hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null | grep -q 'mark-yield.sh'; then
-    echo -e "  ${GREEN}PASS${NC} F10b: ScheduleWakeup PostToolUse references mark-yield.sh"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} F10b: ScheduleWakeup PostToolUse missing mark-yield.sh"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("F10b: ScheduleWakeup PostToolUse entry missing mark-yield.sh")
-  fi
+  # F10b: Codex hook bundle omits Claude-only ScheduleWakeup matcher.
+  local post_matchers
+  post_matchers=$(jq -r '.hooks.PostToolUse[]?.matcher // empty' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null)
+  assert_output_not_contains "F10b: PostToolUse omits ScheduleWakeup matcher" "$post_matchers" "ScheduleWakeup"
 
   # F11: status=paused bypasses the block — /pause escape hatch
   workdir=$(make_workdir)
@@ -854,17 +850,17 @@ EOF
 test_cross_file_consistency() {
   echo -e "\n${CYAN}Suite H: Cross-File Consistency${NC}"
 
-  # H1-H2: Hook script paths resolve to real files
-  local idle_script task_script
-  idle_script=$(jq -r '.hooks.TeammateIdle[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null)
-  task_script=$(jq -r '.hooks.TaskCompleted[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null)
+  # H1-H2: Codex-supported hook script paths resolve to real files
+  local stop_script handoff_script
+  stop_script=$(jq -r '.hooks.Stop[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null)
+  handoff_script=$(jq -r '.hooks.PreToolUse[] | select(.matcher=="Write") | .hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null)
 
   # Replace ${CLAUDE_PLUGIN_ROOT} with actual plugin root
-  idle_script="${idle_script//\$\{CLAUDE_PLUGIN_ROOT\}/$PLUGIN_ROOT}"
-  task_script="${task_script//\$\{CLAUDE_PLUGIN_ROOT\}/$PLUGIN_ROOT}"
+  stop_script="${stop_script//\$\{CLAUDE_PLUGIN_ROOT\}/$PLUGIN_ROOT}"
+  handoff_script="${handoff_script//\$\{CLAUDE_PLUGIN_ROOT\}/$PLUGIN_ROOT}"
 
-  assert_file_exists "H1: TeammateIdle hook script exists" "$idle_script"
-  assert_file_exists "H2: TaskCompleted hook script exists" "$task_script"
+  assert_file_exists "H1: Stop hook script exists" "$stop_script"
+  assert_file_exists "H2: PreToolUse handoff hook script exists" "$handoff_script"
 
   # H3-H4: Agent names in agents/*.md match what check-idle.sh handles
   local biz_name tech_claude_name tech_codex_name
@@ -1186,10 +1182,10 @@ test_auto_commit_hook() {
   output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/state.json"}}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "K6: exits 0 for .startup/state.json" "$ec" 0
 
-  # K7: hooks.json PostToolUse has 14 entries
+  # K7: hooks.json PostToolUse has 13 Codex-supported entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "K7: PostToolUse has 14 entries" "$ptu_count" "14"
+  assert_equals "K7: PostToolUse has 13 entries" "$ptu_count" "13"
 
   # K8: Fourth PostToolUse entry references auto-commit.sh
   local fourth_cmd
@@ -1499,10 +1495,10 @@ EOF
   assert_exit_code "L9: exits 0 when MVP in NEVER/ALWAYS line" "$ec" 0
   rm -rf "$workdir"
 
-  # L10: hooks.json PostToolUse has 14 entries
+  # L10: hooks.json PostToolUse has 13 Codex-supported entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "L10: PostToolUse has 14 entries" "$ptu_count" "14"
+  assert_equals "L10: PostToolUse has 13 entries" "$ptu_count" "13"
 
   # L11: Fifth PostToolUse entry references enforce-tone.sh
   local sixth_cmd

@@ -4,6 +4,13 @@ Research any topic using Reddit via Gemini CLI's web access capabilities.
 
 Claude's WebFetch cannot access Reddit content. This plugin delegates Reddit research to Gemini CLI, which has full web access and can search, read, and summarize Reddit discussions.
 
+## Installation
+
+- **Install for you** (user scope) — available in all your projects:
+  `/plugin install reddit-fetch@paat-plugins`
+- **Install for all collaborators on this repository** (project scope) — commit `.claude/settings.json` with the plugin enabled.
+- **Install for you, in this repo only** (local scope) — enable it in `.claude/settings.local.json`.
+
 ## Prerequisites
 
 1. **Gemini CLI** must be installed and authenticated:

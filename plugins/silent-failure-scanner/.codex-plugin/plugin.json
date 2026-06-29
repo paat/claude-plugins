@@ -1,14 +1,14 @@
 {
   "name": "silent-failure-scanner",
-  "version": "0.2.3",
-  "description": "Deterministic diff-time detector for swallowed errors & ghost transactions \u2014 flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook that hands findings to Claude to arbitrate",
+  "version": "0.2.4",
+  "description": "Deterministic diff-time detector for swallowed errors and ghost transactions, with a global PreToolUse commit gate that hands findings to the current Codex session to review.",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "Silent Failure Scanner",
-    "shortDescription": "Deterministic diff-time detector for swallowed errors & ghost transactions \u2014 flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook that hands findings to Claude to arbitrate",
-    "longDescription": "Deterministic diff-time detector for swallowed errors & ghost transactions \u2014 flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook that hands findings to Claude to arbitrate",
+    "shortDescription": "Deterministic diff-time detector for swallowed errors and ghost transactions, with a global PreToolUse commit gate that hands findings to the current Codex session to review.",
+    "longDescription": "Deterministic diff-time detector for swallowed errors and ghost transactions, with a global PreToolUse commit gate that hands findings to the current Codex session to review.",
     "developerName": "Andre Paat",
     "category": "Development",
     "capabilities": [

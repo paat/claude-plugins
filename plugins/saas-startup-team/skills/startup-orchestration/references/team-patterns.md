@@ -1,21 +1,22 @@
-# Agent Teams Coordination Patterns
+# Codex Role Coordination Patterns
 
 ## Architecture
 
 ```
 Human (Silent Investor)
   ↓ /startup command    ↓ /lawyer <topic>    ↓ /ux-test <url>
-Team Lead (Main Session)
-  ├── Business Founder (one-shot Task agent, blue)
-  ├── Tech Founder (one-shot Task agent, green)
-  ├── Lawyer (one-shot Task agent, magenta)
-  ├── UX Tester (one-shot Task agent, cyan)
+Team Lead (Codex Session)
+  ├── Business Founder (fresh Codex role phase, blue)
+  ├── Tech Founder (fresh Codex role phase, green)
+  ├── Lawyer (fresh Codex role phase, magenta)
+  ├── UX Tester (fresh Codex role phase, cyan)
   └── File-based coordination via .startup/
 ```
 
-**IMPORTANT: All agents are one-shot Task tool agents, NOT persistent teammates.**
-TeamCreate spawns persistent processes that cannot be dismissed — they accumulate as
-~500MB zombie processes. The Task tool spawns agents that exit cleanly when done.
+**IMPORTANT: Codex workflows use fresh role phases, not Claude Agent Teams.**
+Use the current Codex session, Codex-supported multi-agent tooling, or `codex exec`
+when a separate Codex worker is useful. Do not invoke Claude Code, `claude`,
+`claude-code`, TeamCreate, or Claude subagent workflows from the Codex flow.
 
 ## Communication Channels
 
@@ -25,10 +26,10 @@ TeamCreate spawns persistent processes that cannot be dismissed — they accumul
 - Carries full context between iterations
 - Each founder gets fresh context — handoffs carry state, not LLM memory
 
-### Secondary: Task Agent Results
-- Each one-shot agent returns its result to the team lead when done
-- The team lead reads the result, then dispatches the next agent
-- No direct agent-to-agent communication — all coordination goes through the team lead and `.startup/` files
+### Secondary: Role Phase Results
+- Each role phase reports its result to the team lead when done
+- The team lead reads the result, then starts the next role phase
+- No direct role-to-role communication - all coordination goes through the team lead and `.startup/` files
 
 ## Information Flow Rules
 
@@ -49,37 +50,31 @@ This is intentional — it forces the business founder to be thorough in researc
 
 ## Context Management Pattern
 
-Each agent is a fresh one-shot Task agent with a clean context window. Context does NOT accumulate — every dispatch starts from zero. All state lives in `.startup/` files.
+Each role phase starts from the relevant skill, `.startup/state.json`, and the named handoff files. Context does NOT accumulate across phases. All state lives in `.startup/` files.
 
 Why this works:
 - **File-based state**: All critical state lives in `.startup/` files, not LLM memory
 - **Self-contained relay messages**: Team lead sends complete task descriptions with all file paths and instructions
-- **Fresh context every time**: No auto-compaction, no degraded context, no accumulated confusion
+- **Fresh context every time**: No degraded context and no accumulated confusion
 - **2-feature handoff limit**: Keeps per-task token usage under ~50K, fitting comfortably in one context window
 - **Handoff templates**: Structured format ensures nothing is lost between agent dispatches
 
-## Quality Gate Hooks
+## Quality Gates
 
-| Hook | Purpose | Enforces |
+| Gate | Purpose | Enforces |
 |------|---------|----------|
-| TeammateIdle | Founders must write handoffs | No idle without deliverable |
-| TaskCompleted | Features need full lifecycle | Implementation + signoff both required |
-| Stop | Only business founder ends loop | Solution signoff must exist |
+| Handoff phase check | Founders must write handoffs | No phase ends without deliverable |
+| Completion phase check | Features need full lifecycle | Implementation + signoff both required |
+| Stop hook | Only business founder ends loop | Solution signoff must exist |
 
-## Agent Lifecycle Management
+Codex only triggers the shared `PreToolUse`, `PostToolUse`, and `Stop` hook keys.
+`TeammateIdle` and `TaskCompleted` are Claude-only lifecycle events and are enforced
+as explicit workflow checks in Codex.
 
-**Always spawn fresh agents.** Every relay dispatches a new agent via the Task
-tool. Never reuse agents — context bloat from prior work degrades quality even
-after just 2-3 handoffs.
+## Role Lifecycle Management
 
-Before spawning a new agent, kill stale agents from the same role:
-```bash
-pkill -f 'agent-type saas-startup-team:{role}' 2>/dev/null || true
-sleep 1
-```
-
-Fresh agents use the same agent definition (tools, model, system prompt) but
-start with zero conversation history. Since all state lives in `.startup/`
+**Always start fresh role phases.** Every relay starts from the role skill and the
+current files. Never depend on old role context. Since all state lives in `.startup/`
 files, no information is lost.
 
 **Right-size each dispatch.** Each agent should receive ONE cohesive task that
@@ -87,8 +82,8 @@ produces exactly ONE deliverable file (handoff, review, or signoff). Do NOT
 micro-delegate — bundling 3-4 fixes from a review into a single agent dispatch
 is correct; spawning 5 agents for 5 small fixes is wrong.
 
-The lawyer and UX tester follow this same pattern — every `/lawyer` or
-`/ux-test` invocation spawns a fresh one-shot agent.
+The lawyer and UX tester follow this same pattern - every `/lawyer` or
+`/ux-test` invocation starts from a fresh role phase.
 
 ## UX Audit Handover Pattern
 
@@ -100,8 +95,8 @@ The UX Tester writes findings to `docs/ux/ux-*.md`. The team lead then:
 5. Tracks remediation through the normal handoff loop
 
 **Hook compatibility**: PostToolUse hooks (auto-commit, auto-learn, enforce-tone)
-fire on any agent's tool use — Task agents included. TeammateIdle won't fire for
-Task agents, but that's fine — Task agents complete and return, they don't go idle.
+fire on supported Codex file/tool events. Handoff and completion guarantees are
+checked explicitly by the team lead before moving to the next role phase.
 
 ## Escalation Protocol
 

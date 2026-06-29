@@ -2,6 +2,13 @@
 
 Multi-model delegation plugin for browser testing. Routes mechanical browser work to Kimi K2.5 (via opencode CLI), saving 40-55% tokens on browser-heavy testing sessions.
 
+## Installation
+
+- **Install for you** (user scope) — available in all your projects:
+  `/plugin install browser-test-router@paat-plugins`
+- **Install for all collaborators on this repository** (project scope) — commit `.claude/settings.json` with the plugin enabled.
+- **Install for you, in this repo only** (local scope) — enable it in `.claude/settings.local.json`.
+
 ## Problem
 
 Claude Max subscriptions deplete quickly when Opus handles everything — including zero-reasoning browser work like navigation and form filling. Additionally, text-only browser testing misses visual/design issues like CSS regressions, validation error styling, and layout breakage.

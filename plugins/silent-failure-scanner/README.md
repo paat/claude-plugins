@@ -10,10 +10,14 @@ its exceptions, and thousands of requests return HTTP 200 without ever persistin
 **Reports only — it never edits code.** There is no LLM in the detection path: matching is pure
 regex over a `git diff`, so it is fast, deterministic, and safe to wire into a pre-commit hook or CI.
 
-## Install
+## Installation
 
-Add the `paat-plugins` marketplace and install `silent-failure-scanner`, or point Claude Code at
-this repo. After cloning the repo for development:
+- **Install for you** (user scope) — available in all your projects:
+  `/plugin install silent-failure-scanner@paat-plugins`
+- **Install for all collaborators on this repository** (project scope) — commit `.claude/settings.json` with the plugin enabled.
+- **Install for you, in this repo only** (local scope) — enable it in `.claude/settings.local.json`.
+
+After cloning the repo for development:
 
 ```bash
 git config core.hooksPath .githooks   # enables the version-sync pre-push check
@@ -41,7 +45,7 @@ bash scripts/scan.sh --format json --base origin/main
 git diff | bash scripts/scan.sh
 ```
 
-Or from inside Claude Code: `/silent-failure-scanner:scan [--staged | --base <ref> | <rev-range>]`
+Or from inside Claude Code or Codex: `/silent-failure-scanner:scan [--staged | --base <ref> | <rev-range>]`
 
 `scan.sh` exits **non-zero when findings exist**, so it gates cleanly:
 
@@ -51,22 +55,23 @@ bash scripts/scan.sh --base origin/main || { echo "Review silent-failure finding
 
 ## Commit gate (built-in hook)
 
-The plugin ships a `PreToolUse` hook that activates in **every Claude Code session once the
+The plugin ships a `PreToolUse` hook that activates in **every supported assistant session once the
 plugin is enabled — there is nothing to set up per repository**. Before a `git commit` you run
-through Claude Code, it scans the **staged** diff; on findings it **blocks** the commit and hands
-them to Claude (the in-session LLM) to arbitrate:
+through the assistant, it scans the **staged** diff; on findings it **blocks** the commit and hands
+them to the in-session assistant to arbitrate:
 
-- **Real swallowed error** → Claude fixes it, then commits again.
+- **Real swallowed error** → the assistant fixes it, then commits again.
 - **Genuinely benign** → re-run the same commit prefixed with `SILENT_FAILURE_ACK="<reason>"` to
   record a justification and proceed. The reason is mandatory, so dismissals leave an audit trail.
 
-The hook is deterministic (just `scan.sh --staged`); the arbiter is the Claude already in your
+The hook is deterministic (just `scan.sh --staged`); the arbiter is the assistant already in your
 session, so there is no extra model call or cost. It **fails open** (any scan error allows the
-commit) and only gates commits made through Claude Code — a raw-terminal commit has no in-session
-arbiter. For a terminal backstop, vendor `scan.sh`/`scan.awk` into a git `pre-commit` hook (above).
+commit) and only gates commits made through an assistant session — a raw-terminal commit has no
+in-session arbiter. For a terminal backstop, vendor `scan.sh`/`scan.awk` into a git `pre-commit`
+hook (above).
 
-> Hooks load at session start: after enabling the plugin, restart Claude Code for the gate to
-> take effect. Use `/hooks` to confirm it is loaded.
+> Hooks load at session start: after enabling the plugin, restart your assistant session for the
+> gate to take effect.
 
 ## What it flags
 

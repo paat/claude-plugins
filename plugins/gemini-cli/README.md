@@ -2,6 +2,13 @@
 
 Integrate Google's Gemini CLI into Claude Code for second opinions, dual code reviews, and AI-assisted explanations. Get two AI perspectives on your code and technical decisions.
 
+## Installation
+
+- **Install for you** (user scope) — available in all your projects:
+  `/plugin install gemini-cli@paat-plugins`
+- **Install for all collaborators on this repository** (project scope) — commit `.claude/settings.json` with the plugin enabled.
+- **Install for you, in this repo only** (local scope) — enable it in `.claude/settings.local.json`.
+
 ## Prerequisites
 
 1. **Install Gemini CLI:**

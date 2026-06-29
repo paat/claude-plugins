@@ -1,17 +1,18 @@
 ---
 name: startup-orchestration
-description: This skill should be used when a .startup/ directory exists in the project, when the user asks to start a SaaS startup project, build a SaaS product with co-founders, run the founder loop, coordinate between business and tech founder agents, or manage the iterative build-and-review cycle. Provides team lead orchestration protocol for the two-founder handoff loop.
+description: This skill should be used when a .startup/ directory exists in the project, when the user invokes /startup, /growth, /improve, /lawyer, /ux-test, /status, or asks to start a SaaS startup project, build a SaaS product with co-founders, run the founder loop, coordinate business-founder and tech-founder role phases, or manage the iterative build-and-review cycle in Codex. Provides Codex-native team lead orchestration protocol for the two-founder handoff loop.
 ---
 
 # Startup Orchestration — Team Lead Protocol
 
-You are the Team Lead orchestrating a two-person SaaS startup. The business founder and tech founder iterate via file-based handoffs until the product is ready for customers.
+You are the Team Lead orchestrating a two-person SaaS startup in Codex. The business founder and tech founder are role phases backed by skills and file-based handoffs. They iterate until the product is ready for customers.
 
 ## When This Skill Activates
 
 - `.startup/` directory exists in the project
 - User discusses SaaS startup, co-founders, or the build loop
-- Agent team with business-founder and tech-founder is active
+- User invokes a command-style workflow such as `/startup`, `/growth`, `/improve`, `/lawyer`, `/ux-test`, or `/status`
+- Business-founder and tech-founder role phases are active
 
 ## The Loop
 
@@ -35,49 +36,38 @@ Business Founder writes solution signoff → GO LIVE
 - **Never assume the receiving founder remembers anything** from earlier messages — their context accumulates and may be auto-compacted by iteration 5+
 - See the `/startup` command's Step 5 for exact relay message templates
 
-### 1b. Agent Lifecycle — Fresh Agents, Right-Sized Tasks (CRITICAL)
+### 1b. Role Lifecycle - Fresh Context, Right-Sized Tasks (CRITICAL)
 
-**Always spawn a fresh agent for each task via the Task tool (NOT TeamCreate).** Never reuse agents — context bloat from prior work degrades quality after 2-3 handoffs. TeamCreate spawns persistent teammates that cannot be dismissed and accumulate as ~500MB zombie processes. Task tool agents exit cleanly when done. Before each spawn, run `pkill -f 'agent-type saas-startup-team' 2>/dev/null || true` to kill any stale agents.
+Run each founder assignment as a fresh Codex role phase. Use the current Codex session, Codex-supported multi-agent tooling, or `codex exec` when a separate Codex worker is useful. Do not invoke Claude Code, `claude`, `claude-code`, `TeamCreate`, or Claude subagent workflows from the Codex workflow.
 
-**Right-size the task.** Each agent dispatch should be a **cohesive unit of work** that one agent can complete without exhausting its context window (~200K tokens). The sweet spot is one task that takes 15-30 minutes of agent time.
+Every role phase starts from the relevant skill, `.startup/state.json`, the current handoff, and any named project docs. Do not rely on conversational memory from prior phases. The handoff files carry state.
+
+**Right-size the task.** Each role phase should be a **cohesive unit of work** that can complete without exhausting the context window. The sweet spot is one task that takes 15-30 minutes of agent time.
 
 **Splitting rules:**
-- A handoff with 1-2 features → ONE agent dispatch (the normal case)
-- A feedback handoff with 3-4 independent fixes → ONE agent dispatch (fixes are small, bundle them)
-- A handoff with 2 large features that each require research + implementation → SPLIT into 2 agent dispatches, one per feature
-- A review task requiring browser testing of many pages → ONE agent dispatch (verification is lightweight)
+- A handoff with 1-2 features -> ONE Codex role phase (the normal case)
+- A feedback handoff with 3-4 independent fixes -> ONE Codex role phase (fixes are small, bundle them)
+- A handoff with 2 large features that each require research + implementation -> SPLIT into 2 role phases, one per feature
+- A review task requiring browser testing of many pages -> ONE role phase (verification is lightweight)
 
-**NEVER micro-delegate.** Do NOT spawn separate agents for "fix the API URL", "fix i18n", "fix the stats cards", "verify the fix". Bundle related fixes into a single dispatch. Each agent must receive a complete task and produce a complete deliverable (a handoff file, a review, or a signoff).
+**NEVER micro-delegate.** Do NOT split "fix the API URL", "fix i18n", "fix the stats cards", and "verify the fix" into separate workers. Bundle related fixes into a single phase. Each phase must receive a complete task and produce a complete deliverable (a handoff file, a review, or a signoff).
 
-**NEVER spawn an agent for a task that doesn't produce a file.** If it doesn't result in a handoff, review, signoff, or doc — it shouldn't be a separate agent. Fold it into the next real task.
+**NEVER create a separate phase for a task that doesn't produce a file.** If it doesn't result in a handoff, review, signoff, or doc, fold it into the next real task.
 
-### 1c. Choosing the implementation engine: tech-founder-claude vs tech-founder-codex
+### 1c. Codex-Only Implementation Engine
 
-The implementation role has **two interchangeable engines**. `active_role` stays
-`tech-founder` (or `tech-founder-maintain`) — the engine is an orchestration choice,
-not a tracked role. YOU pick the engine at dispatch time and spawn the matching agent
-(`tech-founder-claude` / `tech-founder-codex`; the `-maintain` variants in `/improve`).
-Decide from the handoff's dominant work:
+Codex is the primary and only coding agent for Codex installs. `active_role` stays
+`tech-founder` (or `tech-founder-maintain`) and the implementation work runs through
+Codex-native mechanisms:
 
-Dispatch **tech-founder-codex** (Codex / gpt-5.5 — thorough, literal, completeness-first) when the task is:
-- a detailed multi-point spec/checklist to implement **to completion** (it won't leave stubs or skip requirements)
-- backend / data / algorithmic logic, migrations, integrations
-- exhaustive tests / edge-case coverage
-- config / CI / boilerplate / plumbing
-- broad mechanical changes where completeness matters more than elegance
+- Use the `tech-founder` skill for implementation standards and handoff rules.
+- Implement inline in the current Codex session when that is simplest.
+- Use `codex exec` or `scripts/codex-implement.sh` when a separate Codex worker is useful and the Codex CLI is installed.
+- If the Codex CLI is unavailable, continue inline in Codex or ask the investor for an environment fix. Do not fall back to a Claude engine.
 
-Dispatch **tech-founder-claude** (Claude / Opus — design taste, disciplined, minimal) when the task is:
-- frontend / UI / UX / visual polish
-- architecture or new-module design; choosing patterns
-- surgical / minimal changes to existing code, or careful cross-file refactors where NOT breaking adjacent code matters
-- hard logical/design debugging, or nuanced product / "why" judgment
-- correctness-critical domain logic where subtle invariants beat raw thoroughness
-
-Basis: a verified head-to-head A/B (Codex won on completeness + following the brief + repo-rule compliance; Claude won on minimality + design taste) plus developer consensus.
-
-**Capacity balancing — prefer Codex on the margin.** Claude/Opus usage is the scarcer, rate-limited resource, so lean toward **tech-founder-codex** whenever a task could reasonably go either way. Reserve **tech-founder-claude** for work that *genuinely* needs its strengths (the Claude list above) — frontend/UX polish, architecture/new-module design, surgical or correctness-critical changes with subtle invariants. For borderline, mixed, or "unsure" handoffs, **default to tech-founder-codex**. Only fall back to Claude when Codex is unavailable (see preflight) or the task is squarely in Claude's column. For a clearly mixed handoff, pick by the dominant work — or better, have the business founder split it so the Claude-flavored part is its own smaller dispatch.
-
-**Codex-availability preflight:** before routing a task to `tech-founder-codex`, confirm the engine is present — run `command -v codex` once. If it's not installed, route to `tech-founder-claude` instead. (Backstop: if you route to codex anyway, `tech-founder-codex` / `codex-implement.sh` exit **3** and report back so you re-dispatch `tech-founder-claude` — but the preflight avoids a wasted dispatch.)
+For frontend, UX, architecture, surgical refactors, backend logic, tests, CI, and integrations,
+Codex remains the implementation agent. When extra review is needed, use Codex-native review
+passes or the `tribunal-review` plugin rather than switching tools.
 
 ### 2. Loop State Management
 - Monitor `.startup/state.json` for iteration count and phase
@@ -93,9 +83,10 @@ Basis: a verified head-to-head A/B (Codex won on completeness + following the br
 - If a handoff is malformed or oversized, send it back with feedback
 
 ### 4. Quality Gates
-- TeammateIdle hook: founder must write handoff before going idle
-- TaskCompleted hook: roundtrip tasks need both implementation and signoff
-- Stop hook: only exits when solution signoff exists
+- Codex lifecycle hooks active in this plugin are `PreToolUse`, `PostToolUse`, and `Stop`.
+- Codex does not trigger the Claude-only `TeammateIdle` or `TaskCompleted` lifecycle events, so enforce those checks as workflow gates before ending each role phase.
+- Before a founder phase is considered complete, verify the expected handoff/review/signoff file exists and `.startup/state.json` names the next role.
+- Stop hook: only exits when solution signoff exists.
 
 ### 5. Escalation
 - If a founder is stuck for more than one iteration, alert the investor
@@ -134,8 +125,8 @@ When the investor runs `/ux-test`, the UX Tester writes findings to `docs/ux/ux-
 ### 9. Service URL Consistency
 
 When dispatching tasks or reviewing handoffs, verify service URLs are consistent:
-- Check that URLs in `CLAUDE.md` match URLs in `docs/architecture/architecture.md`
-- If the tech-founder's architecture doc references a different port than CLAUDE.md, flag the mismatch
+- Check that URLs in `AGENTS.md` or `CLAUDE.md` match URLs in `docs/architecture/architecture.md`
+- If the tech-founder's architecture doc references a different port than project guidance, flag the mismatch
 - When the tech-founder updates architecture docs with service URLs, ensure the same URLs appear in their handoff's "how to test" section
 
 ## Handoff Numbering
@@ -178,7 +169,7 @@ The loop is autonomous by design — the investor is a silent observer unless so
 - **Missing "Why"**: Tech founder implementing without business justification → block and redirect
 - **Skipping browser verification**: Business founder signing off without opening browser → reject signoff
 - **Both founders idle**: Neither has written a handoff → check state.json and nudge the active_role
-- **Oversized handoff**: Business founder packs 3+ features into one handoff → tech founder's context gets auto-compacted mid-build, losing critical details. Resolution: reject the handoff, instruct business founder to split into max-2-feature handoffs
+- **Oversized handoff**: Business founder packs 3+ features into one handoff -> tech founder's context gets auto-compacted mid-build, losing critical details. Resolution: reject the handoff, instruct business founder to split into max-2-feature handoffs
 - **Agent stall**: Founder stuck on network call or infinite retry → send recovery message, escalate if unresponsive
 - **Micro-delegation**: Orchestrator spawns 5+ agents for one feedback cycle → bundle fixes into a single agent dispatch
 - **Stale agents**: Old agents lingering after new ones spawned → always verify old agents exited before spawning replacements; if stuck, kill them with `pkill -f 'agent-id {old-id}'`
@@ -222,16 +213,15 @@ When growth hacker signals "Growth report NNN ready for business founder":
 
 If a growth report contains an "Urgent Flags" section, bypass normal sequencing — immediately dispatch business founder to triage rather than waiting for the current build cycle.
 
-### Growth Agent Lifecycle
+### Growth Role Lifecycle
 
 Same rules as build track agents:
-- Always spawn fresh via Task tool (never reuse)
-- Kill stale agents before spawning (`pkill -f 'agent-type saas-startup-team'`)
-- One channel or objective per growth agent dispatch
-- Growth agent uses claude-in-chrome (real Chrome) for external sites, NOT Playwright
+- Always start from fresh Codex context for each growth role phase.
+- One channel or objective per growth phase.
+- Use configured Codex browser tooling for external sites. If a required browser integration is unavailable, document the limitation in the growth report and continue with channels that can be verified.
 
 ## Reference Documents
 
 - `references/handoff-protocol.md` — Structured handoff format details
 - `references/loop-control.md` — When to continue, pause, or stop the loop
-- `references/team-patterns.md` — Agent Teams coordination patterns
+- `references/team-patterns.md` — Codex role coordination patterns
