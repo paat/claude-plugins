@@ -1,0 +1,32 @@
+{
+  "name": "emails-to-github-issues",
+  "version": "0.1.2",
+  "description": "Turn emails from named senders into GitHub issues \u2014 IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping that respects customer-side numbering, inline-screenshot handling, and scope confirmation before writes",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Emails To GitHub Issues",
+    "shortDescription": "Turn emails from named senders into GitHub issues \u2014 IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping that respects customer-side numbering, inline-screenshot handling, and scope confirmation before writes",
+    "longDescription": "Turn emails from named senders into GitHub issues \u2014 IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping that respects customer-side numbering, inline-screenshot handling, and scope confirmation before writes",
+    "developerName": "Andre Paat",
+    "category": "Productivity",
+    "capabilities": [
+      "Skills"
+    ],
+    "defaultPrompt": "Use the emails-to-github-issues plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "email",
+    "imap",
+    "proton-bridge",
+    "github-issues",
+    "customer-support",
+    "productivity"
+  ],
+  "skills": "./skills/"
+}

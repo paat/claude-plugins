@@ -1,0 +1,212 @@
+{
+  "name": "paat-plugins",
+  "interface": {
+    "displayName": "Paat Plugins"
+  },
+  "plugins": [
+    {
+      "name": "gemini-cli",
+      "source": {
+        "source": "local",
+        "path": "./plugins/gemini-cli"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
+      "name": "reddit-fetch",
+      "source": {
+        "source": "local",
+        "path": "./plugins/reddit-fetch"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Research"
+    },
+    {
+      "name": "tribunal-review",
+      "source": {
+        "source": "local",
+        "path": "./plugins/tribunal-review"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
+      "name": "agent-sync",
+      "source": {
+        "source": "local",
+        "path": "./plugins/agent-sync"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
+      "name": "browser-test-router",
+      "source": {
+        "source": "local",
+        "path": "./plugins/browser-test-router"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Testing"
+    },
+    {
+      "name": "saas-startup-team",
+      "source": {
+        "source": "local",
+        "path": "./plugins/saas-startup-team"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
+      "name": "comfyui",
+      "source": {
+        "source": "local",
+        "path": "./plugins/comfyui"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Tools"
+    },
+    {
+      "name": "video-guide",
+      "source": {
+        "source": "local",
+        "path": "./plugins/video-guide"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Tools"
+    },
+    {
+      "name": "google-ads-strategist",
+      "source": {
+        "source": "local",
+        "path": "./plugins/google-ads-strategist"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Growth"
+    },
+    {
+      "name": "emails-to-github-issues",
+      "source": {
+        "source": "local",
+        "path": "./plugins/emails-to-github-issues"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "analyst-companion",
+      "source": {
+        "source": "local",
+        "path": "./plugins/analyst-companion"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "silent-failure-scanner",
+      "source": {
+        "source": "local",
+        "path": "./plugins/silent-failure-scanner"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
+      "name": "payment-contract-tester",
+      "source": {
+        "source": "local",
+        "path": "./plugins/payment-contract-tester"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Testing"
+    },
+    {
+      "name": "irreversible-guard",
+      "source": {
+        "source": "local",
+        "path": "./plugins/irreversible-guard"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Security"
+    },
+    {
+      "name": "i18n-parity",
+      "source": {
+        "source": "local",
+        "path": "./plugins/i18n-parity"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Quality"
+    },
+    {
+      "name": "gh-issue-fetch",
+      "source": {
+        "source": "local",
+        "path": "./plugins/gh-issue-fetch"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
+      "name": "codex-subagent",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-subagent"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    }
+  ]
+}

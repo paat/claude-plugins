@@ -1,11 +1,22 @@
 {
   "name": "payment-contract-tester",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Research-grounded payment-integration hardening — a skill encoding Montonio/Stripe/Mollie silent-trap knowledge plus runnable contract-test reference fixtures (webhook idempotency, signature/authenticity, money-as-integer, terminal-state, replay) that run green against a correct handler and red against each seeded trap",
   "author": {
     "name": "Andre Paat"
   },
   "repository": "https://github.com/paat/claude-plugins",
   "license": "MIT",
-  "keywords": ["payment", "contract-test", "webhook-idempotency", "signature-verification", "montonio", "stripe", "mollie", "silent-failure", "money-as-cents", "estonian-saas"]
+  "keywords": [
+    "payment",
+    "contract-test",
+    "webhook-idempotency",
+    "signature-verification",
+    "montonio",
+    "stripe",
+    "mollie",
+    "silent-failure",
+    "money-as-cents",
+    "estonian-saas"
+  ]
 }

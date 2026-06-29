@@ -1,0 +1,35 @@
+{
+  "name": "agent-sync",
+  "version": "0.4.2",
+  "description": "Generate AGENTS.md from Claude Code project configuration files (CLAUDE.md, .claude/rules/, settings.json, hooks)",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Agent Sync",
+    "shortDescription": "Generate AGENTS.md from Claude Code project configuration files (CLAUDE.md, .claude/rules/, settings.json, hooks)",
+    "longDescription": "Generate AGENTS.md from Claude Code project configuration files (CLAUDE.md, .claude/rules/, settings.json, hooks)",
+    "developerName": "Andre Paat",
+    "category": "Development",
+    "capabilities": [
+      "Skills",
+      "Lifecycle Hooks",
+      "Scripts"
+    ],
+    "defaultPrompt": "Use the agent-sync plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "agents-md",
+    "sync",
+    "codex",
+    "copilot",
+    "cursor",
+    "amp",
+    "config-sync"
+  ],
+  "skills": "./skills/"
+}

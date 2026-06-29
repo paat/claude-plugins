@@ -1,0 +1,36 @@
+{
+  "name": "silent-failure-scanner",
+  "version": "0.2.3",
+  "description": "Deterministic diff-time detector for swallowed errors & ghost transactions \u2014 flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook that hands findings to Claude to arbitrate",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Silent Failure Scanner",
+    "shortDescription": "Deterministic diff-time detector for swallowed errors & ghost transactions \u2014 flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook that hands findings to Claude to arbitrate",
+    "longDescription": "Deterministic diff-time detector for swallowed errors & ghost transactions \u2014 flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook that hands findings to Claude to arbitrate",
+    "developerName": "Andre Paat",
+    "category": "Development",
+    "capabilities": [
+      "Skills",
+      "Lifecycle Hooks",
+      "Scripts"
+    ],
+    "defaultPrompt": "Use the silent-failure-scanner plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "silent-failure",
+    "ghost-transaction",
+    "swallowed-exception",
+    "empty-catch",
+    "unawaited-promise",
+    "diff-scan",
+    "code-review",
+    "agentic-slop"
+  ],
+  "skills": "./skills/"
+}

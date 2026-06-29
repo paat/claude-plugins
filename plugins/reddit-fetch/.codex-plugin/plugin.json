@@ -1,0 +1,31 @@
+{
+  "name": "reddit-fetch",
+  "version": "0.1.1",
+  "description": "Research any topic using Reddit via Gemini CLI's web access capabilities",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Reddit Fetch",
+    "shortDescription": "Research any topic using Reddit via Gemini CLI's web access capabilities",
+    "longDescription": "Research any topic using Reddit via Gemini CLI's web access capabilities",
+    "developerName": "Andre Paat",
+    "category": "Research",
+    "capabilities": [
+      "Skills"
+    ],
+    "defaultPrompt": "Use the reddit-fetch plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "reddit",
+    "research",
+    "gemini",
+    "web-search",
+    "community"
+  ],
+  "skills": "./skills/"
+}

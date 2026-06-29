@@ -1,0 +1,35 @@
+{
+  "name": "comfyui",
+  "version": "0.1.1",
+  "description": "Manage ComfyUI workflows, models, and API \u2014 build workflows from natural language, queue executions, monitor progress, and download models",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Comfyui",
+    "shortDescription": "Manage ComfyUI workflows, models, and API \u2014 build workflows from natural language, queue executions, monitor progress, and download models",
+    "longDescription": "Manage ComfyUI workflows, models, and API \u2014 build workflows from natural language, queue executions, monitor progress, and download models",
+    "developerName": "Andre Paat",
+    "category": "Tools",
+    "capabilities": [
+      "Skills"
+    ],
+    "defaultPrompt": "Use the comfyui plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "comfyui",
+    "stable-diffusion",
+    "image-generation",
+    "workflow",
+    "api",
+    "models",
+    "controlnet",
+    "ip-adapter",
+    "video"
+  ],
+  "skills": "./skills/"
+}

@@ -1,0 +1,34 @@
+{
+  "name": "irreversible-guard",
+  "version": "0.1.6",
+  "description": "PreToolUse gate that blocks Bash commands with no practical local undo \u2014 de-obfuscates ssh/docker-exec transports, heredocs, command chains, and env prefixes, then matches a tiered deny-set (irreversible-everywhere ops block unconditionally; locally-reversible ops block only when the command names production)",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Irreversible Guard",
+    "shortDescription": "PreToolUse gate that blocks Bash commands with no practical local undo \u2014 de-obfuscates ssh/docker-exec transports, heredocs, command chains, and env prefixes, then matches a tiered deny-set (irreversible-everywhere ops block unconditionally; locally-reversible ops block only when the command names production)",
+    "longDescription": "PreToolUse gate that blocks Bash commands with no practical local undo \u2014 de-obfuscates ssh/docker-exec transports, heredocs, command chains, and env prefixes, then matches a tiered deny-set (irreversible-everywhere ops block unconditionally; locally-reversible ops block only when the command names production)",
+    "developerName": "Andre Paat",
+    "category": "Security",
+    "capabilities": [
+      "Lifecycle Hooks"
+    ],
+    "defaultPrompt": "Use the irreversible-guard plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "pretooluse",
+    "guardrail",
+    "irreversible",
+    "deny-list",
+    "blast-radius",
+    "rm-rf",
+    "terraform-destroy",
+    "drop-table",
+    "safety"
+  ]
+}

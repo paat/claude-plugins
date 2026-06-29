@@ -1,11 +1,17 @@
 {
   "name": "reddit-fetch",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Research any topic using Reddit via Gemini CLI's web access capabilities",
   "author": {
     "name": "Andre Paat"
   },
   "repository": "https://github.com/paat/claude-plugins",
   "license": "MIT",
-  "keywords": ["reddit", "research", "gemini", "web-search", "community"]
+  "keywords": [
+    "reddit",
+    "research",
+    "gemini",
+    "web-search",
+    "community"
+  ]
 }

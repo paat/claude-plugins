@@ -1,0 +1,34 @@
+{
+  "name": "browser-test-router",
+  "version": "0.2.1",
+  "description": "Multi-model delegation for browser testing \u2014 Kimi K2.5 (via opencode) for execution, Opus for analysis",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Browser Test Router",
+    "shortDescription": "Multi-model delegation for browser testing \u2014 Kimi K2.5 (via opencode) for execution, Opus for analysis",
+    "longDescription": "Multi-model delegation for browser testing \u2014 Kimi K2.5 (via opencode) for execution, Opus for analysis",
+    "developerName": "Andre Paat",
+    "category": "Testing",
+    "capabilities": [
+      "Skills",
+      "Lifecycle Hooks"
+    ],
+    "defaultPrompt": "Use the browser-test-router plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "browser-testing",
+    "model-routing",
+    "delegation",
+    "kimi-k2.5",
+    "opencode",
+    "openweights",
+    "token-optimization"
+  ],
+  "skills": "./skills/"
+}
