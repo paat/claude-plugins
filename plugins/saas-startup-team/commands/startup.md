@@ -213,7 +213,7 @@ If you *do* run a subagent in the background (long-running browser test, heavy r
 2. Use `ScheduleWakeup` with `delaySeconds: 270` (stays inside the 5-min prompt-cache window) to poll for completion.
 3. On wakeup, check the agent's output file or re-read `state.json`. If still running, schedule the next poll.
 
-The Stop hook is transcript-aware: if your last tool call was `ScheduleWakeup`, it treats the turn-end as a yield (not a quit) and lets you hand control back to the harness without firing. Skip the ScheduleWakeup step and the hook will block you on every end-of-turn until a solution signoff exists.
+The Stop hook recognizes the yield two ways: a `ScheduleWakeup` PostToolUse hook drops a short-lived `.startup/.yielding` marker the moment you schedule the wakeup, and the hook also inspects the transcript. The marker is authoritative — it survives the transcript flush race that used to make the hook block every yield anyway — and self-expires when the wake fires, so it can't disable the block. You don't manage the marker; just call `ScheduleWakeup`. Skip the ScheduleWakeup step and the hook will block you on every end-of-turn until a solution signoff exists.
 
 **Never dispatch async subagents in a tight loop without `ScheduleWakeup`.** Without it, the orchestrator has no way to wait and will thrash against `check-stop.sh`, burning tokens on keepalive chatter.
 

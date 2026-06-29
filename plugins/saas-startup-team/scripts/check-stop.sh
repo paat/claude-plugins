@@ -83,6 +83,34 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
   fi
 fi
 
+# Yield sentinel (issue #103): the transcript bypass above depends on the
+# wakeup turn already being flushed to the transcript, which loses a flush race
+# in the common case (the bypass then misses and the hook blocks every yield —
+# the exact 742-block runaway). The ScheduleWakeup PostToolUse hook
+# (mark-yield.sh) drops a self-expiring sentinel the moment the wakeup is
+# scheduled, so this check does not depend on transcript timing. The sentinel
+# holds an expiry epoch; while it is in the future the orchestrator is yielding,
+# not quitting — allow stop. Once the wake fires the window passes and we resume
+# blocking genuine premature quits (so a stale sentinel cannot disable the hook).
+YIELD_SENTINEL="$STARTUP_DIR/.yielding"
+if [ -f "$YIELD_SENTINEL" ]; then
+  YIELD_EXPIRY=$(head -n1 "$YIELD_SENTINEL" 2>/dev/null || true)
+  # Strict integer validation — a corrupt/garbage sentinel must not be coerced
+  # into a bypass (don't strip non-digits; reject the whole value instead).
+  case "$YIELD_EXPIRY" in
+    ''|*[!0-9]*) YIELD_EXPIRY="" ;;
+  esac
+  if [ -n "$YIELD_EXPIRY" ]; then
+    NOW=$(date +%s)
+    if [ "$NOW" -lt "$YIELD_EXPIRY" ]; then
+      exit 0
+    fi
+    # Expired: the yield window has passed. Remove the marker so it can't
+    # linger, get committed, or confuse debugging — then fall through to block.
+    rm -f "$YIELD_SENTINEL" 2>/dev/null || true
+  fi
+fi
+
 # Block stop — session is mid-progress without signoff
 
 # Show handoff count

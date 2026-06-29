@@ -606,6 +606,17 @@ test_stop_hook() {
     FAILURES+=("F10: hooks.json Stop entry missing check-stop.sh")
   fi
 
+  # F10b: a ScheduleWakeup PostToolUse entry wires mark-yield.sh (issue #103)
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if jq -e '.hooks.PostToolUse[] | select(.matcher=="ScheduleWakeup") | .hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null | grep -q 'mark-yield.sh'; then
+    echo -e "  ${GREEN}PASS${NC} F10b: ScheduleWakeup PostToolUse references mark-yield.sh"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} F10b: ScheduleWakeup PostToolUse missing mark-yield.sh"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("F10b: ScheduleWakeup PostToolUse entry missing mark-yield.sh")
+  fi
+
   # F11: status=paused bypasses the block — /pause escape hatch
   workdir=$(make_workdir)
   (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
@@ -657,6 +668,98 @@ EOF
   echo 'not valid json' > "$workdir/.startup/transcript.jsonl"
   ec=0; (cd "$workdir" && printf '{"transcript_path":"%s/.startup/transcript.jsonl"}' "$workdir" | bash "$SCRIPT") || ec=$?
   assert_exit_code "F15: malformed transcript → block stop (safe default)" "$ec" 2
+  rm -rf "$workdir"
+
+  local MARKYIELD="$PLUGIN_ROOT/scripts/mark-yield.sh"
+
+  # F16: fresh yield sentinel → allow stop EVEN when the transcript's last
+  # assistant tool is not ScheduleWakeup. This is the issue #103 race: the
+  # wakeup turn isn't flushed yet, so the `... | last` transcript check resolves
+  # to the previous (Bash) turn and misses — the sentinel is authoritative.
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
+  cat > "$workdir/.startup/transcript.jsonl" <<'EOF'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}
+EOF
+  echo "$(($(date +%s) + 270))" > "$workdir/.startup/.yielding"
+  ec=0; (cd "$workdir" && printf '{"transcript_path":"%s/.startup/transcript.jsonl"}' "$workdir" | bash "$SCRIPT") || ec=$?
+  assert_exit_code "F16: fresh yield sentinel → allow stop (race-proof)" "$ec" 0
+  rm -rf "$workdir"
+
+  # F17: STALE (expired) yield sentinel → still blocks. Self-expiry must not
+  # permanently disable the hook; a genuine post-wakeup quit is still caught.
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
+  echo "$(($(date +%s) - 60))" > "$workdir/.startup/.yielding"
+  ec=0; (cd "$workdir" && bash "$SCRIPT" < /dev/null) || ec=$?
+  assert_exit_code "F17: expired yield sentinel → block stop" "$ec" 2
+  rm -rf "$workdir"
+
+  # F18: mark-yield.sh writes a future-dated sentinel from the ScheduleWakeup
+  # PostToolUse payload (delaySeconds honored).
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup)
+  ec=0; (cd "$workdir" && printf '{"tool_name":"ScheduleWakeup","tool_input":{"delaySeconds":270}}' | bash "$MARKYIELD") || ec=$?
+  assert_exit_code "F18: mark-yield exits 0" "$ec" 0
+  assert_file_exists "F18: mark-yield wrote .yielding" "$workdir/.startup/.yielding"
+  if [ -f "$workdir/.startup/.yielding" ] && [ "$(cat "$workdir/.startup/.yielding")" -gt "$(date +%s)" ]; then
+    echo -e "  ${GREEN}PASS${NC} F18: sentinel expiry is in the future"; PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} F18: sentinel expiry not in the future"; FAIL_COUNT=$((FAIL_COUNT + 1)); FAILURES+=("F18: sentinel expiry not in the future")
+  fi
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  rm -rf "$workdir"
+
+  # F19: mark-yield.sh defaults delaySeconds when the payload omits it.
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup)
+  ec=0; (cd "$workdir" && printf '{"tool_name":"ScheduleWakeup","tool_input":{}}' | bash "$MARKYIELD") || ec=$?
+  assert_exit_code "F19: mark-yield (no delaySeconds) exits 0" "$ec" 0
+  assert_file_exists "F19: mark-yield wrote .yielding with default delay" "$workdir/.startup/.yielding"
+  rm -rf "$workdir"
+
+  # F20: mark-yield.sh is a no-op outside an initialized .startup project.
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q)
+  ec=0; (cd "$workdir" && printf '{"tool_name":"ScheduleWakeup","tool_input":{"delaySeconds":270}}' | bash "$MARKYIELD") || ec=$?
+  assert_exit_code "F20: mark-yield no .startup → exit 0 (no-op)" "$ec" 0
+  assert_file_not_exists "F20: no sentinel written without .startup" "$workdir/.startup/.yielding"
+  rm -rf "$workdir"
+
+  # F21: garbage sentinel contents → rejected (not coerced into a bypass) → block.
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
+  printf 'not-a-number\n' > "$workdir/.startup/.yielding"
+  ec=0; (cd "$workdir" && bash "$SCRIPT" < /dev/null) || ec=$?
+  assert_exit_code "F21: garbage sentinel → block stop (strict validation)" "$ec" 2
+  rm -rf "$workdir"
+
+  # F22: check-stop removes an EXPIRED sentinel as it falls through to block.
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
+  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
+  echo "$(($(date +%s) - 60))" > "$workdir/.startup/.yielding"
+  ec=0; (cd "$workdir" && bash "$SCRIPT" < /dev/null) || ec=$?
+  assert_exit_code "F22: expired sentinel → block stop" "$ec" 2
+  assert_file_not_exists "F22: expired sentinel cleaned up" "$workdir/.startup/.yielding"
+  rm -rf "$workdir"
+
+  # F23: mark-yield clamps an absurd delaySeconds so a stale sentinel can't
+  # disable the Stop block for an unreasonable span (cap = 600s).
+  workdir=$(make_workdir)
+  (cd "$workdir" && git init -q && mkdir -p .startup)
+  now=$(date +%s)
+  ec=0; (cd "$workdir" && printf '{"tool_name":"ScheduleWakeup","tool_input":{"delaySeconds":999999999}}' | bash "$MARKYIELD") || ec=$?
+  assert_exit_code "F23: mark-yield (huge delay) exits 0" "$ec" 0
+  if [ -f "$workdir/.startup/.yielding" ] && [ "$(cat "$workdir/.startup/.yielding")" -le "$((now + 600 + 5))" ]; then
+    echo -e "  ${GREEN}PASS${NC} F23: absurd delaySeconds clamped to <= now+600"; PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    echo -e "  ${RED}FAIL${NC} F23: absurd delaySeconds not clamped"; FAIL_COUNT=$((FAIL_COUNT + 1)); FAILURES+=("F23: absurd delaySeconds not clamped")
+  fi
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
   rm -rf "$workdir"
 }
 
@@ -1083,10 +1186,10 @@ test_auto_commit_hook() {
   output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/state.json"}}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "K6: exits 0 for .startup/state.json" "$ec" 0
 
-  # K7: hooks.json PostToolUse has 13 entries
+  # K7: hooks.json PostToolUse has 14 entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "K7: PostToolUse has 13 entries" "$ptu_count" "13"
+  assert_equals "K7: PostToolUse has 14 entries" "$ptu_count" "14"
 
   # K8: Fourth PostToolUse entry references auto-commit.sh
   local fourth_cmd
@@ -1396,10 +1499,10 @@ EOF
   assert_exit_code "L9: exits 0 when MVP in NEVER/ALWAYS line" "$ec" 0
   rm -rf "$workdir"
 
-  # L10: hooks.json PostToolUse has 13 entries
+  # L10: hooks.json PostToolUse has 14 entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "L10: PostToolUse has 13 entries" "$ptu_count" "13"
+  assert_equals "L10: PostToolUse has 14 entries" "$ptu_count" "14"
 
   # L11: Fifth PostToolUse entry references enforce-tone.sh
   local sixth_cmd
