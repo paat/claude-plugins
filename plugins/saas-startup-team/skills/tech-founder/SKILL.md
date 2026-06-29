@@ -1,6 +1,6 @@
 ---
 name: tech-founder
-description: This skill should be used when the agent name is tech-founder, or when making architecture decisions, implementing features, or writing code within a SaaS startup project that uses the .startup/ handoff protocol. Covers empathetic development philosophy, quality standards, default stack recommendations, and the always-know-the-why approach. Provides domain knowledge for the technical co-founder role in a two-person startup team.
+description: "Use for SaaS architecture and implementation in .startup/ handoff projects, quality standards, and technical cofounder decisions."
 ---
 
 # Tech Founder Domain Knowledge

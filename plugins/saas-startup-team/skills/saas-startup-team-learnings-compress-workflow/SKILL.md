@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-learnings-compress-workflow
-description: "Codex workflow for /saas-startup-team:learnings-compress, /learnings-compress. Compress one docs/learnings/<topic>.md into the house style behind a semantic-preservation gate - strips over-emphasis, adds canonical labels, routes landmines, promotes general standards, splits docs over 30KB. Non-destructive preview + changelog before any write. Triggers: /saas-startup-team:learnings-compress, /learnings-compress"
+description: "Run /learnings-compress workflow from saas-startup-team; alias /saas-startup-team:learnings-compress."
 ---
 
 # /saas-startup-team:learnings-compress Codex Workflow

@@ -1,6 +1,6 @@
 ---
 name: iterative-campaign-design
-description: Use when entering the pre-launch iteration loop of a Google Ads campaign — guides hypothesis-driven, single-variable campaign design with browser verification between iterations. Load before writing any iteration spec, when entering a new campaign, or when diagnosing why a pre-launch ad is not appearing or not differentiating on target SERPs.
+description: "Use for pre-launch Google Ads iteration design, single-variable hypotheses, browser verification, and SERP differentiation checks."
 ---
 
 # Iterative Campaign Design (Pre-Launch Loop)

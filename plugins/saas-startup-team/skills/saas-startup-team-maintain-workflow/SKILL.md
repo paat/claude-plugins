@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-maintain-workflow
-description: "Codex workflow for /saas-startup-team:maintain, /maintain. Continuous autonomous maintenance loop - triage open GitHub issues, fence off human-gated ones into human-tasks.md, and deliver the rest to production via /goal-deliver, one issue at a time in dependency order. Stateless supervisor; watch it remotely with /rc. Flags: --once (single pass), --dry-run (read-only: triage + print planned queue only, NO mutations), --max-issues N, --max-merges N, --max-pass-minutes N (default 90), --max-run-minutes N (default 0=unlimited). Usage: /maintain [--once] [--dry-run] [--max-pass-minutes N] [--max-run-minutes N] Triggers: /saas-startup-team:maintain, /maintain"
+description: "Run /maintain workflow from saas-startup-team; alias /saas-startup-team:maintain."
 ---
 
 # /saas-startup-team:maintain Codex Workflow

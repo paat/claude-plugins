@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-harvest-workflow
-description: "Codex workflow for /saas-startup-team:harvest, /harvest. Dry-run harvester for the self-improvement loop. Clusters local session-insights signals into candidate GENERIC plugin improvements, de-identifies them, runs a hard PII gate, dedups against a ledger, and presents drafts for review. No network, no issue filing - review precedes any filing. Usage: /harvest Triggers: /saas-startup-team:harvest, /harvest"
+description: "Run /harvest workflow from saas-startup-team; alias /saas-startup-team:harvest."
 ---
 
 # /saas-startup-team:harvest Codex Workflow

@@ -1,6 +1,6 @@
 ---
 name: hypothesis-journaling
-description: Use when writing any iteration hypothesis, logging an iteration result, or distilling learnings across iterations — teaches how to write falsifiable hypotheses, record outcomes without post-hoc rationalization, and distill patterns into the cross-campaign learnings file. Load when starting a new iteration, when writing result.md, or when running /ads-distill.
+description: "Use for Google Ads iteration hypotheses, result logs, falsifiability checks, and cross-iteration learning distillation."
 ---
 
 # Hypothesis Journaling

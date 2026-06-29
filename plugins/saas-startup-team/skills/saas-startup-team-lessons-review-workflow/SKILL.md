@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-lessons-review-workflow
-description: "Codex workflow for /saas-startup-team:lessons-review, /lessons-review. The single human gate of the self-improvement loop. Lists open `lesson-candidate` issues in the pinned plugin repo and lets the investor approve (mark ready for /goal-deliver) or close (not generic) each one, before any implementation. Usage: /lessons-review Triggers: /saas-startup-team:lessons-review, /lessons-review"
+description: "Run /lessons-review workflow from saas-startup-team; alias /saas-startup-team:lessons-review."
 ---
 
 # /saas-startup-team:lessons-review Codex Workflow

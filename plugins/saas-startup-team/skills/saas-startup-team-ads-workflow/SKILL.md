@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-ads-workflow
-description: "Codex workflow for /saas-startup-team:ads, /ads. On-demand Google Ads campaign design - runs the google-ads-strategist's ads-strategist agent to design, browser-verify, and create a campaign in PAUSED state for investor review. Usage: /ads <campaign brief or objective> Triggers: /saas-startup-team:ads, /ads"
+description: "Run /ads workflow from saas-startup-team; alias /saas-startup-team:ads."
 ---
 
 # /saas-startup-team:ads Codex Workflow

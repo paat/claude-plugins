@@ -1,6 +1,6 @@
 ---
 name: comfyui-status-workflow
-description: "Codex workflow for /comfyui:status, /status. Check ComfyUI server health - GPU stats, VRAM usage, queue depth, and connectivity Triggers: /comfyui:status, /status"
+description: "Run /status workflow from comfyui; alias /comfyui:status."
 ---
 
 # /comfyui:status Codex Workflow

@@ -1,6 +1,6 @@
 ---
 name: clickable-copy
-description: Use when writing or rewriting Google Ads headlines, descriptions, extensions, or landing-page-match copy — provides intent-class-specific copy formulas, Quality Score alignment rules, differentiation frameworks against the competitor matrix, and character-count discipline for Responsive Search Ads. Load when the iteration hypothesis touches the copy variable class or when competitor analysis reveals undifferentiated copy.
+description: "Use for Google Ads headlines, descriptions, extensions, landing-page-match copy, competitor differentiation, and RSA character limits."
 ---
 
 # Clickable Copy for Google Ads

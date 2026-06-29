@@ -1,6 +1,6 @@
 ---
 name: analyst-companion-meeting-end-workflow
-description: "Codex workflow for /analyst-companion:meeting-end, /meeting-end. End the meeting - stop the loop, mark the session ended, synthesize proposed Plane work items from the full transcript, confirm scope, then create them in Plane. Triggers: /analyst-companion:meeting-end, /meeting-end"
+description: "Run /meeting-end workflow from analyst-companion; alias /analyst-companion:meeting-end."
 ---
 
 # /analyst-companion:meeting-end Codex Workflow

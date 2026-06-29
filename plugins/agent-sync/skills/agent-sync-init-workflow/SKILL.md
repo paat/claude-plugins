@@ -1,6 +1,6 @@
 ---
 name: agent-sync-init-workflow
-description: "Codex workflow for /agent-sync:init. Scaffold sources.json by scanning existing Claude Code configuration Triggers: /agent-sync:init"
+description: "Run /agent-sync:init workflow from agent-sync."
 ---
 
 # /agent-sync:init Codex Workflow

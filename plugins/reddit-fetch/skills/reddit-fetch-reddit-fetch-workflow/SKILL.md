@@ -1,6 +1,6 @@
 ---
 name: reddit-fetch-reddit-fetch-workflow
-description: "Codex workflow for /reddit-fetch:reddit-fetch, /reddit-fetch. Research any topic using Reddit via Gemini CLI Triggers: /reddit-fetch:reddit-fetch, /reddit-fetch"
+description: "Run /reddit-fetch workflow from reddit-fetch; alias /reddit-fetch:reddit-fetch."
 ---
 
 # /reddit-fetch:reddit-fetch Codex Workflow

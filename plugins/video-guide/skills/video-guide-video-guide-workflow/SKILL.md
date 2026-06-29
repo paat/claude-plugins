@@ -1,6 +1,6 @@
 ---
 name: video-guide-video-guide-workflow
-description: "Codex workflow for /video-guide:video-guide, /video-guide. Create a video guide with TTS narration and optional screen recording Triggers: /video-guide:video-guide, /video-guide"
+description: "Run /video-guide workflow from video-guide; alias /video-guide:video-guide."
 ---
 
 # /video-guide:video-guide Codex Workflow

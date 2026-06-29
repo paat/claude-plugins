@@ -1,6 +1,6 @@
 ---
 name: google-ads-strategist-ads-create-workflow
-description: "Codex workflow for /google-ads-strategist:ads-create, /ads-create. Create the v1 campaign in Google Ads via Chrome automation. Reads spec.md, builds the campaign in the Ads UI step by step, and saves it in PAUSED state for investor review. The investor enables the campaign after reviewing it in the Ads UI. Usage: /ads-create [campaign] Triggers: /google-ads-strategist:ads-create, /ads-create"
+description: "Run /ads-create workflow from google-ads-strategist; alias /google-ads-strategist:ads-create."
 ---
 
 # /google-ads-strategist:ads-create Codex Workflow

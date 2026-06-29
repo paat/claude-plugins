@@ -1,6 +1,6 @@
 ---
 name: agent-sync-generate-workflow
-description: "Codex workflow for /agent-sync:generate. Generate or update AGENTS.md from Claude Code configuration files Triggers: /agent-sync:generate"
+description: "Run /agent-sync:generate workflow from agent-sync."
 ---
 
 # /agent-sync:generate Codex Workflow

@@ -1,6 +1,6 @@
 ---
 name: google-ads-strategist-ads-serp-workflow
-description: "Codex workflow for /google-ads-strategist:ads-serp, /ads-serp. Capture a real Google SERP (in incognito) for a keyword to classify its buyer intent and see competing ads. Writes screenshot + structured intent analysis. Usage: /ads-serp <keyword> [--country X] [--lang Y] Triggers: /google-ads-strategist:ads-serp, /ads-serp"
+description: "Run /ads-serp workflow from google-ads-strategist; alias /google-ads-strategist:ads-serp."
 ---
 
 # /google-ads-strategist:ads-serp Codex Workflow

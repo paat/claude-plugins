@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-learnings-migrate-workflow
-description: "Codex workflow for /saas-startup-team:learnings-migrate, /learnings-migrate. Organise learnings staged in '### Recent (unsorted)' of CLAUDE.md into topic files under docs/learnings/. Bootstraps the topic catalog on first use. Non-destructive - flat pre-existing '## Learnings' bullets outside Recent are left alone. Triggers: /saas-startup-team:learnings-migrate, /learnings-migrate"
+description: "Run /learnings-migrate workflow from saas-startup-team; alias /saas-startup-team:learnings-migrate."
 ---
 
 # /saas-startup-team:learnings-migrate Codex Workflow

@@ -1,6 +1,6 @@
 ---
 name: agent-sync
-description: "Use when the user asks about AGENTS.md generation, agent-sync configuration, sources.json format, syncing Claude Code config to other AI tools, or troubleshooting agent-sync issues. Triggers: 'agents.md', 'agent sync', 'sync agents', 'sources.json', 'generate agents', 'agents file', 'codex config', 'copilot config', 'cursor rules', 'amp config'"
+description: "Use for AGENTS.md generation, agent-sync config, sources.json, and syncing assistant instructions across AI tools."
 ---
 
 # agent-sync

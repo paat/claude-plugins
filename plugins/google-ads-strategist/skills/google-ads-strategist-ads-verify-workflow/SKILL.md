@@ -1,6 +1,6 @@
 ---
 name: google-ads-strategist-ads-verify-workflow
-description: "Codex workflow for /google-ads-strategist:ads-verify, /ads-verify. Quick one-shot verification of a single keyword or the current iteration via the Anonymous Ad Preview Tool. Captures screenshot + structured result. Usage: /ads-verify [campaign] [keyword] [--location X] [--device mobile|desktop] Triggers: /google-ads-strategist:ads-verify, /ads-verify"
+description: "Run /ads-verify workflow from google-ads-strategist; alias /google-ads-strategist:ads-verify."
 ---
 
 # /google-ads-strategist:ads-verify Codex Workflow

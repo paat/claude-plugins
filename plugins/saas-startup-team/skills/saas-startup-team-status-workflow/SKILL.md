@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-status-workflow
-description: "Codex workflow for /saas-startup-team:status, /status. Show current state of the SaaS startup loop - iteration count, active roles, handoff history, human tasks, and blockers. Use `--compact` to force state.json compaction. Triggers: /saas-startup-team:status, /status"
+description: "Run /status workflow from saas-startup-team; alias /saas-startup-team:status."
 ---
 
 # /saas-startup-team:status Codex Workflow

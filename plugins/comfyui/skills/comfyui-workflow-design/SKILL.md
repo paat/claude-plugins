@@ -1,6 +1,6 @@
 ---
 name: comfyui-workflow-design
-description: Use when creating, designing, building, or modifying ComfyUI workflows, generating images with specific techniques (IP-Adapter, ControlNet, LoRA, upscaling, video), constructing workflow JSON, connecting nodes, or asking about ComfyUI node types and workflow patterns. Activates for "comfyui workflow", "stable diffusion workflow", "generate image workflow", "ip adapter", "controlnet workflow", "animatediff", "wan2", "build pipeline", "design workflow", "lora workflow".
+description: "Use for designing or editing ComfyUI workflow JSON, image/video pipelines, nodes, LoRA, ControlNet, IP-Adapter, or upscaling."
 ---
 
 ### Workflow JSON Structure

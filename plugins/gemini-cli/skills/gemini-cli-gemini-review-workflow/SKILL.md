@@ -1,6 +1,6 @@
 ---
 name: gemini-cli-gemini-review-workflow
-description: "Codex workflow for /gemini-cli:gemini-review, /gemini-review. Get a dual AI code review - Gemini + the current Codex agent analyze code together Triggers: /gemini-cli:gemini-review, /gemini-review"
+description: "Run /gemini-review workflow from gemini-cli; alias /gemini-cli:gemini-review."
 ---
 
 # /gemini-cli:gemini-review Codex Workflow

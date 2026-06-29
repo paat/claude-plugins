@@ -1,6 +1,6 @@
 ---
 name: gemini-cli-gemini-ask-workflow
-description: "Codex workflow for /gemini-cli:gemini-ask, /gemini-ask. Ask Gemini a question and get a response Triggers: /gemini-cli:gemini-ask, /gemini-ask"
+description: "Run /gemini-ask workflow from gemini-cli; alias /gemini-cli:gemini-ask."
 ---
 
 # /gemini-cli:gemini-ask Codex Workflow

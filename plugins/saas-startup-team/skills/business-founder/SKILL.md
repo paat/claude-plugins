@@ -1,6 +1,6 @@
 ---
 name: business-founder
-description: This skill should be used when the agent name is business-founder, or when the user asks about SaaS business strategy, market research, Estonian business environment and OÜ formation, pricing strategy, competition analysis, customer validation, TAM/SAM/SOM estimation, or SaaS metrics like MRR, churn, and LTV. Provides domain knowledge for the non-technical co-founder role.
+description: "Use for SaaS business strategy, market research, Estonian OÜ context, pricing, competition, validation, and SaaS metrics."
 ---
 
 # Business Founder Domain Knowledge

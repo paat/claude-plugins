@@ -1,6 +1,6 @@
 ---
 name: gh-issue-fetch
-description: Use when you need to SEE images/screenshots attached to a GitHub issue (they are auth-gated and 404 for normal fetches), or to resolve an epic's child task-list with progress. Triggers on "look at issue #N", "the issue has a screenshot", "what's left in epic #N". For plain issue text/listing/search, use `gh` directly instead.
+description: "Use to inspect GitHub issue screenshots/images behind auth or resolve epic child task lists; use gh directly for plain text."
 ---
 
 # gh-issue-fetch

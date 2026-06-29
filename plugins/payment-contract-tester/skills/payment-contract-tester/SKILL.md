@@ -1,6 +1,6 @@
 ---
 name: payment-contract-tester
-description: "Use when hardening payment integrations, writing or reviewing webhook handlers, checking for double-charge risks, verifying idempotency, testing signature validation, or generating contract tests. Triggers: 'payment', 'webhook', 'contract test', 'idempotency', 'signature verification', 'double charge', 'silent webhook failure', 'Montonio', 'Stripe', 'Mollie', 'HMAC', 'webhook authenticity', 'replay attack', 'at-least-once delivery', 'order status', 'refund reconciliation'."
+description: "Use for payment/webhook hardening, idempotency, signature validation, double-charge risks, and contract-test generation."
 ---
 
 # payment-contract-tester

@@ -1,6 +1,6 @@
 ---
 name: comfyui-models-workflow
-description: "Codex workflow for /comfyui:models, /models. List available models by category - checkpoints, loras, vae, controlnet, upscale_models, embeddings Triggers: /comfyui:models, /models"
+description: "Run /models workflow from comfyui; alias /comfyui:models."
 ---
 
 # /comfyui:models Codex Workflow

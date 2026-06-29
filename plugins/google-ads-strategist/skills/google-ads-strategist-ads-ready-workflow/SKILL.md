@@ -1,6 +1,6 @@
 ---
 name: google-ads-strategist-ads-ready-workflow
-description: "Codex workflow for /google-ads-strategist:ads-ready, /ads-ready. Audit the current iteration against the launch-readiness checklist. Does NOT launch - only reports pass/fail per condition, with evidence links. Usage: /ads-ready [campaign] Triggers: /google-ads-strategist:ads-ready, /ads-ready"
+description: "Run /ads-ready workflow from google-ads-strategist; alias /google-ads-strategist:ads-ready."
 ---
 
 # /google-ads-strategist:ads-ready Codex Workflow

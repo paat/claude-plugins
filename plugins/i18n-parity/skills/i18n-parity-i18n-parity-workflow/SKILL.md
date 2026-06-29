@@ -1,6 +1,6 @@
 ---
 name: i18n-parity-i18n-parity-workflow
-description: "Codex workflow for /i18n-parity:i18n-parity, /i18n-parity. Run the translation key-parity gate, or bootstrap its config by inspecting the repo Triggers: /i18n-parity:i18n-parity, /i18n-parity"
+description: "Run /i18n-parity workflow from i18n-parity; alias /i18n-parity:i18n-parity."
 ---
 
 # /i18n-parity:i18n-parity Codex Workflow

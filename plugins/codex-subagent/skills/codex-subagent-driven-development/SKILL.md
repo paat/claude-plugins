@@ -1,6 +1,6 @@
 ---
 name: codex-subagent-driven-development
-description: Use when driving the OpenAI Codex CLI (codex exec, gpt-5.5) as the implementer/reviewer subagent while Claude acts as controller — task-by-task implementation from a written plan, with a second-model review gate. Triggers on "use codex as implementer", "dispatch codex", "codex subagent", "implement with codex", "second model review with codex".
+description: "Use to drive Codex CLI as implementer or reviewer from a written plan, with task dispatch and second-model review gates."
 ---
 
 # Codex Subagent-Driven Development

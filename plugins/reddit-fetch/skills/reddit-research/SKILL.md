@@ -1,6 +1,6 @@
 ---
 name: reddit-research
-description: This skill should be used when the user asks to "research on reddit", "what does reddit say about", "reddit opinions on", "search reddit for", "check reddit for", "reddit discussion about", "reddit recommendations for", "community feedback on", "what do people think about", "has anyone on reddit", or needs real-world user experiences, community opinions, troubleshooting solutions, or tool/product comparisons from Reddit. Also applies when Claude's WebFetch cannot access Reddit content.
+description: "Use to research Reddit opinions, recommendations, troubleshooting, product feedback, and real user experiences."
 ---
 
 # Reddit Research via Gemini CLI

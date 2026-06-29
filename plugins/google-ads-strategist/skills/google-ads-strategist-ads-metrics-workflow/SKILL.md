@@ -1,6 +1,6 @@
 ---
 name: google-ads-strategist-ads-metrics-workflow
-description: "Codex workflow for /google-ads-strategist:ads-metrics, /ads-metrics. Pull current metrics for a live campaign via the Google Ads UI (Chrome). Compares to baseline + previous iteration. Post-launch only. Delegates to ads-strategist. Usage: /ads-metrics [campaign] [--range 7d|30d] Triggers: /google-ads-strategist:ads-metrics, /ads-metrics"
+description: "Run /ads-metrics workflow from google-ads-strategist; alias /google-ads-strategist:ads-metrics."
 ---
 
 # /google-ads-strategist:ads-metrics Codex Workflow

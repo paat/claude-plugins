@@ -1,6 +1,6 @@
 ---
 name: chrome-campaign-creation
-description: Use when building a Google Ads campaign in the Ads UI via Chrome automation — provides the step-by-step creation workflow for campaign settings, ad groups, keywords, RSAs, extensions, and negatives. Creates everything in PAUSED state. Load when running /ads-create.
+description: "Use to create paused Google Ads campaigns in Chrome: settings, ad groups, keywords, RSAs, extensions, and negatives."
 ---
 
 # Chrome Campaign Creation

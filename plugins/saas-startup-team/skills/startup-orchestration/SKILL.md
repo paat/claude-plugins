@@ -1,6 +1,6 @@
 ---
 name: startup-orchestration
-description: This skill should be used when a .startup/ directory exists in the project, when the user invokes /startup, /growth, /improve, /lawyer, /ux-test, /status, or asks to start a SaaS startup project, build a SaaS product with co-founders, run the founder loop, coordinate business-founder and tech-founder role phases, or manage the iterative build-and-review cycle in Codex. Provides Codex-native team lead orchestration protocol for the two-founder handoff loop.
+description: "Use for /startup, /growth, /improve, /lawyer, /ux-test, /status, or .startup/ founder-loop orchestration in Codex."
 ---
 
 # Startup Orchestration — Team Lead Protocol

@@ -1,6 +1,6 @@
 ---
 name: tribunal-loop
-description: Multi-provider code review workflow — Codex + DeepSeek (repo-walking) + Claude (diff-only) by default (Gemini, OpenCode GLM and Qwen opt-in), with Opus arbitration
+description: "Use for multi-provider code review with repo-walking reviewers, diff-only review, and arbitration."
 ---
 
 # Tribunal Loop

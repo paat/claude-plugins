@@ -1,6 +1,6 @@
 ---
 name: video-guide-creator
-description: This skill should be used when the user asks to "create a video guide", "make a tutorial video", "record a video showing how to", "video for YouTube", "make a video about" a product or feature, "create video instructions", "generate a video tutorial", "make a screencast", "record a demo", "create a walkthrough video", or "how-to video". It handles professional video guides with TTS narration, auto-generated subtitles, and optional YouTube upload, rendered via the video-guide-creator Docker container.
+description: "Use to create tutorial, walkthrough, demo, screencast, or YouTube-style video guides with TTS, subtitles, and optional upload."
 ---
 
 # Video Guide Creator

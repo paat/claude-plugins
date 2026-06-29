@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-goal-deliver-workflow
-description: "Codex workflow for /saas-startup-team:goal-deliver, /goal-deliver. Reusable playbook that delivers a set of tasks (GitHub issues, a milestone, a markdown spec, or free text) end-to-end - plan into manageable chunks, then for each chunk run the /improve build cycle, close the tribunal loop, and merge to main; after the final merge, monitor and fix the GitHub Actions deploy. Pairs with built-in /goal for autonomous looping. Usage: /goal-deliver #12 #15 | --milestone v2 | docs/roadmap.md | <free text> Triggers: /saas-startup-team:goal-deliver, /goal-deliver"
+description: "Run /goal-deliver workflow from saas-startup-team; alias /saas-startup-team:goal-deliver."
 ---
 
 # /saas-startup-team:goal-deliver Codex Workflow

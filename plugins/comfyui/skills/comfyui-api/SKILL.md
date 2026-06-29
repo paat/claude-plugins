@@ -1,6 +1,6 @@
 ---
 name: comfyui-api
-description: Use when interacting with the ComfyUI API, queuing workflows, checking server status, listing models, downloading models, monitoring execution progress, viewing queue, checking history, or troubleshooting ComfyUI connectivity. Activates for "comfyui api", "queue prompt", "comfyui server", "comfyui status", "execution progress", "comfyui models", "comfyui history", "comfyui queue".
+description: "Use for ComfyUI API work: queue prompts, status, models, downloads, progress, queue/history, and connectivity troubleshooting."
 ---
 
 ## Configuration

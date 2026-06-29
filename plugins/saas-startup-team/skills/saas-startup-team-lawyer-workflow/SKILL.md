@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-lawyer-workflow
-description: "Codex workflow for /saas-startup-team:lawyer, /lawyer. On-demand legal analysis - queries the est-saas-datalake API and project context to produce Estonian-language legal compliance and risk analysis. Usage: /lawyer <topic> Triggers: /saas-startup-team:lawyer, /lawyer"
+description: "Run /lawyer workflow from saas-startup-team; alias /saas-startup-team:lawyer."
 ---
 
 # /saas-startup-team:lawyer Codex Workflow

@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-pause-workflow
-description: "Codex workflow for /saas-startup-team:pause, /pause. Pause an active /startup loop so you can exit the session cleanly without completing the product. Resume with /startup. Usage: /pause [reason] Triggers: /saas-startup-team:pause, /pause"
+description: "Run /pause workflow from saas-startup-team; alias /saas-startup-team:pause."
 ---
 
 # /saas-startup-team:pause Codex Workflow

@@ -1,6 +1,6 @@
 {
   "name": "analyst-companion",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Real-time in-person meeting analyst — live transcription with speaker diarization via self-hosted WhisperLiveKit, surfaces live clarifying questions on a Tailscale-only console, answers voice commands using the on-screen Chrome context, and creates reviewed Plane work items at meeting end",
   "author": {
     "name": "Andre Paat"

@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-startup-workflow
-description: "Codex workflow for /saas-startup-team:startup, /startup. Initialize a new SaaS startup project - creates .startup/ directory, starts business-founder and tech-founder role phases, and kicks off the iterative build loop Triggers: /saas-startup-team:startup, /startup"
+description: "Run /startup workflow from saas-startup-team; alias /saas-startup-team:startup."
 ---
 
 # /saas-startup-team:startup Codex Workflow

@@ -1,6 +1,6 @@
 ---
 name: google-ads-strategist-ads-distill-workflow
-description: "Codex workflow for /google-ads-strategist:ads-distill, /ads-distill. Roll the hypothesis log into the learnings file - distill patterns that hold across >= 3 iterations into principles, and propose graduation candidates for project-level auto-memory. Usage: /ads-distill [campaign] Triggers: /google-ads-strategist:ads-distill, /ads-distill"
+description: "Run /ads-distill workflow from google-ads-strategist; alias /google-ads-strategist:ads-distill."
 ---
 
 # /google-ads-strategist:ads-distill Codex Workflow

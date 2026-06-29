@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-bootstrap-workflow
-description: "Codex workflow for /saas-startup-team:bootstrap, /bootstrap. Initialize project structure for the saas-startup-team plugin - creates docs/ and .startup/ directories, updates .gitignore and CLAUDE.md. Idempotent (safe to re-run). Triggers: /saas-startup-team:bootstrap, /bootstrap"
+description: "Run /bootstrap workflow from saas-startup-team; alias /saas-startup-team:bootstrap."
 ---
 
 # /saas-startup-team:bootstrap Codex Workflow

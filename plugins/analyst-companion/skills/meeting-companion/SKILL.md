@@ -1,6 +1,6 @@
 ---
 name: meeting-companion
-description: Use during a live customer meeting started with /meeting-start — drives the per-tick loop that reads new transcript lines, handles "Claude, …" voice commands using claude-in-chrome, refreshes the open-questions panel, and writes the feeds the meeting-capture console page polls.
+description: "Use during /meeting-start live customer meetings to read transcript ticks, handle voice commands, update questions, and write console feeds."
 ---
 
 # Meeting Companion Loop

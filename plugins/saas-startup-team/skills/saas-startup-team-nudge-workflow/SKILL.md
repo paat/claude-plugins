@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-nudge-workflow
-description: "Codex workflow for /saas-startup-team:nudge, /nudge. Unstick a deadlocked startup loop - manually send direction to a stuck founder or resolve a conflict between founders Triggers: /saas-startup-team:nudge, /nudge"
+description: "Run /nudge workflow from saas-startup-team; alias /saas-startup-team:nudge."
 ---
 
 # /saas-startup-team:nudge Codex Workflow

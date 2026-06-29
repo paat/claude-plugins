@@ -1,6 +1,6 @@
 ---
 name: browser-test-router-browser-test-workflow
-description: "Codex workflow for /browser-test-router:browser-test. Run browser testing with multi-model delegation for token efficiency Triggers: /browser-test-router:browser-test"
+description: "Run /browser-test-router:browser-test workflow from browser-test-router."
 ---
 
 # /browser-test-router:browser-test Codex Workflow

@@ -1,6 +1,6 @@
 ---
 name: codex-subagent-codex-review-workflow
-description: "Codex workflow for /codex-subagent:codex-review, /codex-review. Independent second-model (Codex/gpt-5.5) review of a diff, plan, or file - repo-walking, read-only Triggers: /codex-subagent:codex-review, /codex-review"
+description: "Run /codex-review workflow from codex-subagent; alias /codex-subagent:codex-review."
 ---
 
 # /codex-subagent:codex-review Codex Workflow

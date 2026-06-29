@@ -1,6 +1,6 @@
 ---
 name: competitor-intel
-description: Use when researching what competitors are doing in Google Ads — guides the Google Ads Transparency Center workflow for pulling competitor ad copy, identifying differentiation gaps, and reading Auction Insights to diagnose competitive pressure. Load before /ads-spy, when rewriting ad copy under competitive pressure, or when a SERP capture shows undifferentiated copy.
+description: "Use for Google Ads competitor research, Transparency Center pulls, ad-copy gaps, Auction Insights, and SERP pressure."
 ---
 
 # Competitor Intelligence

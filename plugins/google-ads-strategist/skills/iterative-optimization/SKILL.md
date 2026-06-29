@@ -1,6 +1,6 @@
 ---
 name: iterative-optimization
-description: Use when the campaign is live and real metrics exist — guides hypothesis-driven post-launch optimization with a strict wait gate, single-variable changes, and symptom → root-cause → single-hypothesis decision tree. Load before pulling metrics, before proposing any live-account change, or when diagnosing CPA / CTR / CVR / impression share problems on a running campaign.
+description: "Use for live Google Ads optimization with metrics, wait gates, single-variable changes, and CPA/CTR/CVR diagnosis."
 ---
 
 # Iterative Optimization (Post-Launch Loop)

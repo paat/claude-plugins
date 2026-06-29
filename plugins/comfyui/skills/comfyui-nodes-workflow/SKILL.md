@@ -1,6 +1,6 @@
 ---
 name: comfyui-nodes-workflow
-description: "Codex workflow for /comfyui:nodes, /nodes. Search available ComfyUI node types and show their input/output schemas Triggers: /comfyui:nodes, /nodes"
+description: "Run /nodes workflow from comfyui; alias /comfyui:nodes."
 ---
 
 # /comfyui:nodes Codex Workflow

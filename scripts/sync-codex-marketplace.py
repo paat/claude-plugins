@@ -367,10 +367,7 @@ def render_command_skill(
         metadata.get("description", "Run this plugin workflow."),
         plugin_name=plugin_name,
     )
-    description = sanitize_description(
-        f"Codex workflow for {', '.join(aliases)}. {source_description} "
-        f"Triggers: {', '.join(aliases)}"
-    )
+    description = command_skill_description(plugin_name, aliases)
     plugin_notes = command_plugin_notes(plugin_name)
 
     sections = [
@@ -425,6 +422,15 @@ def command_aliases(plugin_name: str, command_name: str, command_path: Path) -> 
     else:
         aliases.append(f"/{command_name}")
     return dedupe(aliases)
+
+
+def command_skill_description(plugin_name: str, aliases: list[str]) -> str:
+    primary_alias = aliases[-1]
+    if len(aliases) == 1:
+        return sanitize_description(f"Run {primary_alias} workflow from {plugin_name}.")
+    return sanitize_description(
+        f"Run {primary_alias} workflow from {plugin_name}; alias {aliases[0]}."
+    )
 
 
 def read_heading_alias(command_path: Path) -> str | None:

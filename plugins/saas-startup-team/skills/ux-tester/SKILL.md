@@ -1,6 +1,6 @@
 ---
 name: ux-tester
-description: This skill should be used when the agent name is ux-tester, when the /ux-test command is invoked, or when the user asks about UX testing, usability audit, accessibility testing, WCAG compliance, responsive design testing, visual consistency, Nielsen heuristics, browser-based testing, interaction design review, or design system adherence. Provides domain knowledge for the UX consultant role using Playwright browser testing and code analysis.
+description: "Use for UX audits, usability, accessibility, responsive design, visual consistency, heuristics, and Playwright browser testing."
 ---
 
 # UX Testing Domain Knowledge

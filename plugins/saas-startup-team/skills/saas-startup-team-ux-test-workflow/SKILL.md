@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-ux-test-workflow
-description: "Codex workflow for /saas-startup-team:ux-test, /ux-test. On-demand UX audit - evaluates usability, accessibility (WCAG 2.2 AA), visual consistency, and responsive design via Playwright browser testing. Usage: /ux-test <url> Triggers: /saas-startup-team:ux-test, /ux-test"
+description: "Run /ux-test workflow from saas-startup-team; alias /saas-startup-team:ux-test."
 ---
 
 # /saas-startup-team:ux-test Codex Workflow

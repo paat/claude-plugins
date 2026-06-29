@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-improve-workflow
-description: "Codex workflow for /saas-startup-team:improve, /improve. One-shot improvements on a completed product - creates a branch and opens a PR when run from the default branch, or appends commits to the current branch when run on a feature branch with an open PR (review follow-up). Routes through business founder for context enrichment and browser QA. Usage: /improve [description of changes] Triggers: /saas-startup-team:improve, /improve"
+description: "Run /improve workflow from saas-startup-team; alias /saas-startup-team:improve."
 ---
 
 # /saas-startup-team:improve Codex Workflow

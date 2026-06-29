@@ -1,6 +1,6 @@
 ---
 name: emails-to-github-issues
-description: Use when asked to turn emails from named senders (support requests, bug reports, feature asks) into GitHub issues — triggers on phrasings like "read mail from <sender> since <date> and open/file issues/tickets". Covers IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping, screenshot handling, dedupe into existing issues via `gh issue comment`, and scope-confirmation before writes.
+description: "Use to fetch emails from named senders and turn support, bug, or feature request threads into deduped GitHub issues."
 ---
 
 # Emails to GitHub Issues

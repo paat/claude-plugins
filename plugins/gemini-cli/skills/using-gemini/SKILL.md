@@ -1,6 +1,6 @@
 ---
 name: using-gemini
-description: This skill should be used when consulting Gemini CLI for second opinions on code, architecture decisions, code reviews, debugging help, or when the user asks to "ask gemini", "get gemini's opinion", "consult gemini", "what does gemini think", or "use gemini". Also applies when the user wants a "second opinion", "alternative perspective", or "another AI's take" on technical decisions.
+description: "Use to consult Gemini CLI for second opinions on code, architecture, reviews, debugging, or alternative technical perspectives."
 ---
 
 # Using Gemini CLI

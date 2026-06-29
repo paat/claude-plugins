@@ -1,6 +1,6 @@
 ---
 name: google-ads-strategist-ads-hypothesize-workflow
-description: "Codex workflow for /google-ads-strategist:ads-hypothesize, /ads-hypothesize. Given the current state of a campaign (pre-launch or post-launch), propose a ranked list of candidate hypotheses for the next iteration - expected impact x confidence. Does NOT write the hypothesis, only suggests. Usage: /ads-hypothesize [campaign] Triggers: /google-ads-strategist:ads-hypothesize, /ads-hypothesize"
+description: "Run /ads-hypothesize workflow from google-ads-strategist; alias /google-ads-strategist:ads-hypothesize."
 ---
 
 # /google-ads-strategist:ads-hypothesize Codex Workflow

@@ -1,6 +1,6 @@
 ---
 name: analyst-companion-meeting-start-workflow
-description: "Codex workflow for /analyst-companion:meeting-start, /meeting-start. Start a live meeting analyst session - mints an aimeet session, prints the console URL to open on the laptop, and starts the companion loop. Triggers: /analyst-companion:meeting-start, /meeting-start"
+description: "Run /meeting-start workflow from analyst-companion; alias /analyst-companion:meeting-start."
 ---
 
 # /analyst-companion:meeting-start Codex Workflow

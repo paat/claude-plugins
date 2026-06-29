@@ -1,6 +1,6 @@
 ---
 name: codex-subagent-codex-critique-workflow
-description: "Codex workflow for /codex-subagent:codex-critique, /codex-critique. Pure-reasoning critic via Codex/gpt-5.5 - paste the artifact + context, no repo access needed Triggers: /codex-subagent:codex-critique, /codex-critique"
+description: "Run /codex-critique workflow from codex-subagent; alias /codex-subagent:codex-critique."
 ---
 
 # /codex-subagent:codex-critique Codex Workflow

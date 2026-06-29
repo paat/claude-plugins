@@ -1,6 +1,6 @@
 ---
 name: lawyer
-description: This skill should be used when the agent name is lawyer, when the /lawyer command is invoked, or when the user asks about legal compliance, GDPR, data protection, terms of service, privacy policies, data processing agreements, software licensing, open-source license audit, Estonian business law (OÜ, e-Residency, EMTA, AKI), or SaaS business risk analysis. Provides domain knowledge for the legal consultant role using the est-saas-datalake API.
+description: "Use for legal compliance, GDPR, privacy, contracts, licensing, Estonian OÜ/e-Residency/EMTA/AKI topics, and SaaS risk."
 ---
 
 # Legal Consultant Domain Knowledge

@@ -1,6 +1,6 @@
 ---
 name: growth-hacker
-description: This skill should be used when the agent name is growth-hacker, when the /growth command is invoked, or when the user asks about post-launch sales execution, customer acquisition, outbound outreach strategy, LinkedIn prospecting, cold email campaigns, competitor customer poaching, content marketing, SEO articles, SaaS directory submissions, paid ad management (Google/Meta/LinkedIn Ads), ROAS optimization, community engagement, affiliate/referral programs, or growth metrics like MRR, CAC, LTV, reply rates, trial-to-paid conversion, and channel prioritization for early-stage SaaS.
+description: "Use for post-launch SaaS growth, acquisition channels, outbound, SEO/content, ads, and MRR/CAC/LTV metric decisions."
 ---
 
 # Growth Hacker Domain Knowledge

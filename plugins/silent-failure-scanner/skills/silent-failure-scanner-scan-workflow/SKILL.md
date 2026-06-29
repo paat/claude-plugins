@@ -1,6 +1,6 @@
 ---
 name: silent-failure-scanner-scan-workflow
-description: "Codex workflow for /silent-failure-scanner:scan. Scan a git diff for silent-failure signatures (swallowed errors, ghost transactions) Triggers: /silent-failure-scanner:scan"
+description: "Run /silent-failure-scanner:scan workflow from silent-failure-scanner."
 ---
 
 # /silent-failure-scanner:scan Codex Workflow

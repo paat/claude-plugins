@@ -1,6 +1,6 @@
 {
   "name": "browser-test-router",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Multi-model delegation for browser testing \u2014 Kimi K2.5 (via opencode) for execution, Opus for analysis",
   "author": {
     "name": "Andre Paat"

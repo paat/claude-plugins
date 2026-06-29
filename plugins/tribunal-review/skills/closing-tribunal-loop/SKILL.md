@@ -1,6 +1,6 @@
 ---
 name: closing-tribunal-loop
-description: Use when tribunal-loop returned NEEDS_WORK or BLOCK and you have findings to triage, fix, file, and re-validate. Triggers when you have a per-finding decision to make (fix-in-PR vs file-follow-up vs reject) AND a code change that changes the diff under review.
+description: "Use after tribunal-loop returns NEEDS_WORK or BLOCK to triage findings, fix or file follow-ups, and revalidate the changed diff."
 ---
 
 # Closing the Tribunal Loop

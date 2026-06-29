@@ -1,6 +1,6 @@
 ---
 name: comfyui-run-workflow
-description: "Codex workflow for /comfyui:run, /run. Queue a ComfyUI workflow for execution, monitor progress, and return results Triggers: /comfyui:run, /run"
+description: "Run /run workflow from comfyui; alias /comfyui:run."
 ---
 
 # /comfyui:run Codex Workflow

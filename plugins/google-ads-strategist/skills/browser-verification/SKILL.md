@@ -1,6 +1,6 @@
 ---
 name: browser-verification
-description: Use when verifying a Google Ads iteration in Chrome — provides the exact navigation sequences, selectors, and screenshot-capture playbook for the Anonymous Ad Preview Tool, the authenticated Ad Preview & Diagnosis Tool, real Google SERP capture in incognito, and metric pulls from the Google Ads UI. Load before running /ads-verify, /ads-serp, or /ads-metrics.
+description: "Use for Google Ads browser verification, Ad Preview tools, incognito SERP captures, screenshots, and UI metric pulls."
 ---
 
 # Browser Verification Playbook

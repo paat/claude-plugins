@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-tweak-workflow
-description: "Codex workflow for /saas-startup-team:tweak, /tweak. Direct-edit shortcut for trivial fixes on a completed product - typos, copy tweaks, small CSS nudges. Edits files directly (no agents). On main, creates a tweak/ branch and opens a PR; on a feature branch, commits to that branch and pushes (no new PR). For anything needing QA, use /improve instead. Usage: /tweak [description] Triggers: /saas-startup-team:tweak, /tweak"
+description: "Run /tweak workflow from saas-startup-team; alias /saas-startup-team:tweak."
 ---
 
 # /saas-startup-team:tweak Codex Workflow

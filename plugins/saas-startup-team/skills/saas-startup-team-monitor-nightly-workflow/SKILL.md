@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-monitor-nightly-workflow
-description: "Codex workflow for /saas-startup-team:monitor-nightly, /monitor-nightly. Nightly automated monitor - sweeps failure markers + an optional project custom-checks script, files/dedups GitHub issues with reproduction context, persists state across runs. Usage: /monitor-nightly [--dry-run] Triggers: /saas-startup-team:monitor-nightly, /monitor-nightly"
+description: "Run /monitor-nightly workflow from saas-startup-team; alias /saas-startup-team:monitor-nightly."
 ---
 
 # /saas-startup-team:monitor-nightly Codex Workflow

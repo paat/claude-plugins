@@ -1,6 +1,6 @@
 ---
 name: google-ads-strategist-ads-iterate-workflow
-description: "Codex workflow for /google-ads-strategist:ads-iterate, /ads-iterate. Run the core iteration loop - read the current iteration state, verify it, diagnose gaps, and produce the next hypothesis + spec. Delegates to the ads-strategist agent. Works for both pre-launch and post-launch loops. Usage: /ads-iterate [campaign-name] Triggers: /google-ads-strategist:ads-iterate, /ads-iterate"
+description: "Run /ads-iterate workflow from google-ads-strategist; alias /google-ads-strategist:ads-iterate."
 ---
 
 # /google-ads-strategist:ads-iterate Codex Workflow

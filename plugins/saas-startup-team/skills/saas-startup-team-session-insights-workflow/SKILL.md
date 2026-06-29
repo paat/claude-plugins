@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-session-insights-workflow
-description: "Codex workflow for /saas-startup-team:session-insights, /session-insights. Local-only scan of this project's Claude Code session logs for investor interventions (interrupts, /nudge, corrections) and agent friction (tool failures). Emits typed records + a Markdown report under .startup/insights/. No network, no issue filing, no arguments. Usage: /session-insights Triggers: /saas-startup-team:session-insights, /session-insights"
+description: "Run /session-insights workflow from saas-startup-team; alias /saas-startup-team:session-insights."
 ---
 
 # /saas-startup-team:session-insights Codex Workflow

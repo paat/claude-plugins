@@ -1,6 +1,6 @@
 ---
 name: comfyui-download-workflow
-description: "Codex workflow for /comfyui:download, /download. Download a model to ComfyUI via Manager API or direct URL Triggers: /comfyui:download, /download"
+description: "Run /download workflow from comfyui; alias /comfyui:download."
 ---
 
 # /comfyui:download Codex Workflow

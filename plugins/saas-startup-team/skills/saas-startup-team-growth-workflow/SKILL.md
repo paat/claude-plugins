@@ -1,6 +1,6 @@
 ---
 name: saas-startup-team-growth-workflow
-description: "Codex workflow for /saas-startup-team:growth, /growth. Launch the post-launch growth track - initializes docs/growth/ structure, runs business founder for strategy, then runs the growth agent for customer acquisition. Usage: /growth [--pre-launch] Triggers: /saas-startup-team:growth, /growth"
+description: "Run /growth workflow from saas-startup-team; alias /saas-startup-team:growth."
 ---
 
 # /saas-startup-team:growth Codex Workflow

@@ -1,6 +1,6 @@
 ---
 name: buyer-intent-targeting
-description: Use whenever classifying keywords, selecting seed terms, building negative keyword lists, choosing landing pages, or writing ad copy — enforces the rule that Google Ads spend only follows commercial and transactional buyer intent, never informational intent, even when the site has high-quality content matching informational queries. Load FIRST in any pre-launch iteration, before iterative-campaign-design.
+description: "Use for commercial-intent keyword selection, negatives, landing pages, and ad copy before Google Ads spend."
 ---
 
 # Buyer-Intent Targeting

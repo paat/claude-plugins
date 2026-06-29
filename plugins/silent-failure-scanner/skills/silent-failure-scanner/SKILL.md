@@ -1,6 +1,6 @@
 ---
 name: silent-failure-scanner
-description: "Use when reviewing a diff or change for swallowed errors, ghost transactions, or silent failures — code that keeps returning success while an operation actually failed. Triggers: 'silent failure', 'ghost transaction', 'swallowed exception', 'empty catch', 'except pass', 'unawaited promise', 'removed await', 'fire and forget', 'why did this fail silently', reviewing error-handling changes, pre-commit error-handling check."
+description: "Use to find swallowed errors, ghost transactions, empty catches, missing awaits, fire-and-forget calls, and false-success paths."
 ---
 
 # silent-failure-scanner

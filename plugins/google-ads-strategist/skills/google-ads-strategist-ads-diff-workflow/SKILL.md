@@ -1,6 +1,6 @@
 ---
 name: google-ads-strategist-ads-diff-workflow
-description: "Codex workflow for /google-ads-strategist:ads-diff, /ads-diff. Show what changed between two iterations of a campaign - the diff across keywords, copy, targeting, bids, and landing pages - plus the hypothesis that drove the change. Usage: /ads-diff [campaign] <v_a> <v_b> Triggers: /google-ads-strategist:ads-diff, /ads-diff"
+description: "Run /ads-diff workflow from google-ads-strategist; alias /google-ads-strategist:ads-diff."
 ---
 
 # /google-ads-strategist:ads-diff Codex Workflow

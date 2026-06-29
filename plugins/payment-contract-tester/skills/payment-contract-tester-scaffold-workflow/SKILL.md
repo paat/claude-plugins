@@ -1,6 +1,6 @@
 ---
 name: payment-contract-tester-scaffold-workflow
-description: "Codex workflow for /payment-contract-tester:scaffold. Detect a repo's payment stack + gateway, draft repo-adapted contract tests using the payment-contract-tester skill, self-verify them (green on current source, red on a broken copy), and wire CI + an optional pre-push hook. Never edits payment source. Triggers: /payment-contract-tester:scaffold"
+description: "Run /payment-contract-tester:scaffold workflow from payment-contract-tester."
 ---
 
 # /payment-contract-tester:scaffold Codex Workflow

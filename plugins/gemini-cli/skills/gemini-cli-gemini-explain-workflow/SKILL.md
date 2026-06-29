@@ -1,6 +1,6 @@
 ---
 name: gemini-cli-gemini-explain-workflow
-description: "Codex workflow for /gemini-cli:gemini-explain, /gemini-explain. Get Gemini to explain code or a concept Triggers: /gemini-cli:gemini-explain, /gemini-explain"
+description: "Run /gemini-explain workflow from gemini-cli; alias /gemini-cli:gemini-explain."
 ---
 
 # /gemini-cli:gemini-explain Codex Workflow

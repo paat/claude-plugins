@@ -1,6 +1,6 @@
 ---
 name: agent-sync-check-workflow
-description: "Codex workflow for /agent-sync:check. Verify AGENTS.md is in sync with Claude Code configuration files Triggers: /agent-sync:check"
+description: "Run /agent-sync:check workflow from agent-sync."
 ---
 
 # /agent-sync:check Codex Workflow

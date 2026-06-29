@@ -1,6 +1,6 @@
 ---
 name: google-ads-strategist-ads-spy-workflow
-description: "Codex workflow for /google-ads-strategist:ads-spy, /ads-spy. Pull all currently-running ads for a competitor from the Google Ads Transparency Center. Produces a structured competitor matrix for copy differentiation. Delegates to ads-strategist. Usage: /ads-spy <competitor-domain-or-name> [--country X] Triggers: /google-ads-strategist:ads-spy, /ads-spy"
+description: "Run /ads-spy workflow from google-ads-strategist; alias /google-ads-strategist:ads-spy."
 ---
 
 # /google-ads-strategist:ads-spy Codex Workflow

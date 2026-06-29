@@ -1,6 +1,6 @@
 ---
 name: codex-subagent-codex-implement-workflow
-description: "Codex workflow for /codex-subagent:codex-implement, /codex-implement. Dispatch OpenAI Codex CLI as the implementer for ONE named task from a plan file Triggers: /codex-subagent:codex-implement, /codex-implement"
+description: "Run /codex-implement workflow from codex-subagent; alias /codex-subagent:codex-implement."
 ---
 
 # /codex-subagent:codex-implement Codex Workflow

@@ -1,6 +1,6 @@
 ---
 name: google-ads-strategist-ads-brief-workflow
-description: "Codex workflow for /google-ads-strategist:ads-brief, /ads-brief. Start a new Google Ads campaign by creating the brief.md + folder structure. Interactive intake that captures product, audience, commercial pages, budget, goals, and buyer-intent context. Usage: /ads-brief [campaign-name] Triggers: /google-ads-strategist:ads-brief, /ads-brief"
+description: "Run /ads-brief workflow from google-ads-strategist; alias /google-ads-strategist:ads-brief."
 ---
 
 # /google-ads-strategist:ads-brief Codex Workflow

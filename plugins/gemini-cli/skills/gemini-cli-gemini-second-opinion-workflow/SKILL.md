@@ -1,6 +1,6 @@
 ---
 name: gemini-cli-gemini-second-opinion-workflow
-description: "Codex workflow for /gemini-cli:gemini-second-opinion, /gemini-second-opinion. Get Gemini's second opinion on an approach or decision Triggers: /gemini-cli:gemini-second-opinion, /gemini-second-opinion"
+description: "Run /gemini-second-opinion workflow from gemini-cli; alias /gemini-cli:gemini-second-opinion."
 ---
 
 # /gemini-cli:gemini-second-opinion Codex Workflow
