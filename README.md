@@ -52,6 +52,8 @@ python3 scripts/sync-codex-marketplace.py
 
 In Codex, invoke the `update-codex-marketplace` skill from this repo for the same workflow.
 
+Codex-specific behavior differences are tracked in `docs/codex-plugin-behavior.md`.
+
 ## Plugin Structure
 
 Each plugin lives under `plugins/` with this structure:

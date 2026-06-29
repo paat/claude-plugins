@@ -11,9 +11,9 @@ GEN="$PLUGIN_ROOT/scripts/generate.sh"
 PASS=0
 FAIL=0
 
-# The bundled tests below exercise the no-generator "nudge fallback" path; keep the inherited
-# environment from steering the hook into live regeneration. Regeneration tests set these per-run.
-unset CLAUDE_PLUGIN_ROOT AGENT_SYNC_AUTO_STAGE 2>/dev/null || true
+# The bundled tests below exercise the Claude runtime by default. Keep inherited Codex/Codex-like
+# environment from steering those assertions into the Codex-only reverse-sync branch.
+unset CLAUDE_PLUGIN_ROOT AGENT_SYNC_AUTO_STAGE CODEX_HOME CODEX_MANAGED_BY_NPM CODEX_MANAGED_BY_BUN CODEX_MANAGED_PACKAGE_ROOT 2>/dev/null || true
 
 # run NAME PAYLOAD EXPECT
 #   EXPECT="" means expect empty stdout; otherwise expect stdout to contain EXPECT.
@@ -69,6 +69,64 @@ run "relative file_path -> reminder" \
 run "malformed stdin -> silent" "not json at all" ""
 run "missing file_path -> silent" "{\"cwd\":\"$TMP/with\"}" ""
 run "empty stdin -> silent" "" ""
+
+# --- Codex mode: AGENTS.md is source of truth and CLAUDE.md is only a mirror. ---------------
+CODEXREPO="$TMP/codex"
+mkdir -p "$CODEXREPO"
+cat > "$CODEXREPO/AGENTS.md" <<'EOF'
+# AGENTS.md
+
+Codex-first instructions.
+EOF
+cat > "$CODEXREPO/CLAUDE.md" <<'EOF'
+# CLAUDE.md
+
+Old Claude mirror.
+EOF
+
+codex_agents_out="$(printf '%s' "{\"tool_input\":{\"file_path\":\"$CODEXREPO/AGENTS.md\"},\"cwd\":\"$CODEXREPO\"}" | CODEX_HOME="$TMP/codex-home" bash "$HOOK" 2>/dev/null)"
+if [[ "$codex_agents_out" == *"mirrored it to CLAUDE.md"* ]] && cmp -s "$CODEXREPO/AGENTS.md" "$CODEXREPO/CLAUDE.md"; then
+  echo "PASS: codex: AGENTS.md edit mirrors to CLAUDE.md"; PASS=$((PASS+1))
+else
+  echo "FAIL: codex: AGENTS.md edit mirrors to CLAUDE.md — got: $codex_agents_out"; FAIL=$((FAIL+1))
+fi
+
+cat > "$CODEXREPO/CLAUDE.md" <<'EOF'
+# CLAUDE.md
+
+Manual Claude-side edit that Codex must ignore.
+EOF
+codex_claude_out="$(printf '%s' "{\"tool_input\":{\"file_path\":\"$CODEXREPO/CLAUDE.md\"},\"cwd\":\"$CODEXREPO\"}" | CODEX_HOME="$TMP/codex-home" bash "$HOOK" 2>/dev/null)"
+if [[ -z "$codex_claude_out" ]] && grep -Fq "Manual Claude-side edit" "$CODEXREPO/CLAUDE.md"; then
+  echo "PASS: codex: CLAUDE.md edit is ignored"; PASS=$((PASS+1))
+else
+  echo "FAIL: codex: CLAUDE.md edit is ignored — got: $codex_claude_out"; FAIL=$((FAIL+1))
+fi
+
+CODEXGIT="$TMP/codex-git"
+mkdir -p "$CODEXGIT"
+cat > "$CODEXGIT/AGENTS.md" <<'EOF'
+# AGENTS.md
+
+Initial instructions.
+EOF
+cp "$CODEXGIT/AGENTS.md" "$CODEXGIT/CLAUDE.md"
+git -C "$CODEXGIT" init -q
+git -C "$CODEXGIT" config user.email t@t.t
+git -C "$CODEXGIT" config user.name t
+git -C "$CODEXGIT" add AGENTS.md CLAUDE.md
+git -C "$CODEXGIT" commit -q -m init
+cat > "$CODEXGIT/AGENTS.md" <<'EOF'
+# AGENTS.md
+
+Patch-style Codex change.
+EOF
+codex_patch_out="$(printf '%s' "{\"tool_input\":{},\"cwd\":\"$CODEXGIT\"}" | CODEX_HOME="$TMP/codex-home" bash "$HOOK" 2>/dev/null)"
+if [[ "$codex_patch_out" == *"mirrored it to CLAUDE.md"* ]] && cmp -s "$CODEXGIT/AGENTS.md" "$CODEXGIT/CLAUDE.md"; then
+  echo "PASS: codex: missing file_path falls back to AGENTS.md git drift"; PASS=$((PASS+1))
+else
+  echo "FAIL: codex: missing file_path falls back to AGENTS.md git drift — got: $codex_patch_out"; FAIL=$((FAIL+1))
+fi
 
 # Fallback-path tests run with no generator present, so the hook only nudges and never writes.
 assert_file_absent() {

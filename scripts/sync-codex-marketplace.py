@@ -19,6 +19,13 @@ DEFAULT_INSTALL_POLICY = "AVAILABLE"
 DEFAULT_AUTH_POLICY = "ON_INSTALL"
 DEFAULT_MARKETPLACE_DISPLAY_NAME = "Paat Plugins"
 
+CODEX_DESCRIPTION_OVERRIDES = {
+    "agent-sync": (
+        "Mirror AGENTS.md to CLAUDE.md for Codex-first projects. In Codex, AGENTS.md is the "
+        "source of truth; Claude Code keeps its existing Claude-to-AGENTS generation behavior."
+    ),
+}
+
 
 def main() -> int:
     args = parse_args()
@@ -127,9 +134,9 @@ def build_codex_manifest(
     marketplace_entry: dict[str, Any],
 ) -> dict[str, Any]:
     plugin_name = read_required_string(claude_manifest, "name", plugin_dir)
-    description = read_optional_string(claude_manifest, "description") or read_optional_string(
-        marketplace_entry, "description"
-    )
+    description = CODEX_DESCRIPTION_OVERRIDES.get(plugin_name) or read_optional_string(
+        claude_manifest, "description"
+    ) or read_optional_string(marketplace_entry, "description")
     if description is None:
         raise SystemExit(f"{plugin_name}: description is required")
 

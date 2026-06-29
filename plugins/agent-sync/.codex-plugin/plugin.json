@@ -1,14 +1,14 @@
 {
   "name": "agent-sync",
-  "version": "0.4.2",
-  "description": "Generate AGENTS.md from Claude Code project configuration files (CLAUDE.md, .claude/rules/, settings.json, hooks)",
+  "version": "0.4.3",
+  "description": "Mirror AGENTS.md to CLAUDE.md for Codex-first projects. In Codex, AGENTS.md is the source of truth; Claude Code keeps its existing Claude-to-AGENTS generation behavior.",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "Agent Sync",
-    "shortDescription": "Generate AGENTS.md from Claude Code project configuration files (CLAUDE.md, .claude/rules/, settings.json, hooks)",
-    "longDescription": "Generate AGENTS.md from Claude Code project configuration files (CLAUDE.md, .claude/rules/, settings.json, hooks)",
+    "shortDescription": "Mirror AGENTS.md to CLAUDE.md for Codex-first projects. In Codex, AGENTS.md is the source of truth; Claude Code keeps its existing Claude-to-AGENTS generation behavior.",
+    "longDescription": "Mirror AGENTS.md to CLAUDE.md for Codex-first projects. In Codex, AGENTS.md is the source of truth; Claude Code keeps its existing Claude-to-AGENTS generation behavior.",
     "developerName": "Andre Paat",
     "category": "Development",
     "capabilities": [
