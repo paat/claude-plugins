@@ -90,17 +90,24 @@ else
 fi
 
 echo "[codex-implement] model=$MODEL timeout=$TIMEOUT sandbox=$SANDBOX root=$REPO_ROOT" >&2
+# Keep codex's content stream (stdout, the --json events the agent reads) in $LOG, and
+# codex's OWN diagnostics (stderr) in $ERRLOG. bwrap detection must scan stderr only:
+# the --json stdout can echo file/diff content containing the bwrap error string, which
+# would false-positive a stdout scan. Re-emit stderr afterward so it stays visible.
+ERRLOG="${LOG}.stderr"
 set +e
 timeout "$TIMEOUT" codex exec --json -s "$SANDBOX" -m "$MODEL" -C "$REPO_ROOT" - \
-  <<<"$PROMPT" | tee "$LOG"
+  <<<"$PROMPT" 2>"$ERRLOG" | tee "$LOG"
 rc=${PIPESTATUS[0]}
 set -e
+cat "$ERRLOG" >&2 2>/dev/null || true
 # Diagnostics only — these surface remedies on stderr but do NOT change the exit-code
 # contract the agents depend on (3 = codex unavailable → reroute; 2 = usage; 4 = env).
 # bwrap-sandbox failure: codex couldn't touch the FS, so the implementation no-ops.
 # Only possible when a REAL sandbox was selected (CODEX_SANDBOX=workspace-write|read-only)
-# inside a container with broken bwrap; the default danger-full-access avoids it.
-if grep -qE 'bwrap:.*(Permission denied|Operation not permitted|Failed to make)' "$LOG" 2>/dev/null; then
+# inside a container with broken bwrap; the default danger-full-access avoids it. Guard on
+# rc != 0 so a stray "bwrap:" line never fires on an otherwise-successful run.
+if [ "$rc" != "0" ] && grep -qE 'bwrap:.*(Permission denied|Operation not permitted|Failed to make)' "$ERRLOG" 2>/dev/null; then
   echo "[codex-implement] codex's bwrap sandbox failed to initialize — it could not read/write repo files." >&2
   echo "[codex-implement] Re-run with the default -s danger-full-access (unset CODEX_SANDBOX). Do NOT use" >&2
   echo "[codex-implement] --dangerously-bypass-approvals-and-sandbox: Claude Code's classifier blocks it." >&2

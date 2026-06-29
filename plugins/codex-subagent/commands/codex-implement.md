@@ -12,7 +12,7 @@ Dispatch the OpenAI Codex CLI (`codex exec`, gpt-5.5) as an **implementer subage
 
 1. **Parse arguments.** First token is the plan file path (`<plan.md>`), second is the task identifier (`<taskN>`, e.g. `Task 3`). Optional `--model <id>` overrides Codex's default, `--dir <repo>` sets the repo (default: current repo root). Read the plan file yourself so you know which files and tests the task touches — but do NOT paste it; Codex reads the plan itself.
 
-2. **Determine the commit trailer.** If this project requires a trailer on commits (check `CLAUDE.md` / project conventions), capture it as `${COMMIT_TRAILER}`. If none, omit the trailer instruction.
+2. **Determine the commit trailer.** If this project requires a trailer on commits (check `CLAUDE.md` / project conventions), note its literal text — you'll substitute it for `<COMMIT_TRAILER>` in the prompt below. If none, omit the trailer instruction.
 
 3. **Dispatch Codex with the implementer contract.** Build the prompt below and run it through the wrapper. Pass the prompt on stdin (never as a giant argv string), and set a generous Bash-tool `timeout` (≥ 900000 ms) so the tool does not SIGTERM Codex mid-task:
 
@@ -28,11 +28,13 @@ Dispatch the OpenAI Codex CLI (`codex exec`, gpt-5.5) as an **implementer subage
      NOT match the real file, STOP and report the mismatch. Do not guess.
    - Run the test(s) the task specifies. All must pass.
    - Commit exactly the files the task names, using the plan's commit message
-     plus this required trailer line: ${COMMIT_TRAILER}
+     plus this required trailer line: <COMMIT_TRAILER>
    - Report ONLY: the final test PASS line(s) and the output of
      `git --no-pager show --stat HEAD`. No prose, no summary.
    PROMPT
    ```
+
+   The heredoc is single-quoted (`<<'PROMPT'`) so the shell does NOT expand `$` or backticks — this protects code anchors in the prompt. That also means `<COMMIT_TRAILER>` is **not** auto-substituted: before dispatching, replace it with your project's actual trailer text (from step 2). If the project needs no trailer, drop that bullet entirely.
 
    Set the Bash-tool `timeout` parameter to at least 900000 (15 min) to match `--timeout 900`. **Both layers must be generous** — see the partial-run recovery note below.
 

@@ -85,6 +85,20 @@ err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
 check "bwrap path returns 1" 1 "$rc"
 contains "bwrap remedy mentions danger-full-access" "-s danger-full-access" "$err"
 
+# (c2) REGRESSION: bwrap string in stdout CONTENT of a SUCCESSFUL run must NOT abort.
+# (codex reviewing this very repo echoes docs containing the bwrap error string.)
+make_stub <<'STUB'
+#!/usr/bin/env bash
+ofile=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && ofile="$2"; shift; done
+echo "reviewing... the file says: bwrap: Failed to make / slave: Permission denied"
+echo "tokens used: 42"
+[ -n "$ofile" ] && printf 'REVIEW: APPROVE\n' > "$ofile"
+exit 0
+STUB
+got="$(run -C /tmp "x" 2>/dev/null)"; rc=$?
+check "bwrap-in-stdout-content not flagged (exit 0)" 0 "$rc"
+check "successful review survives stray bwrap string" "REVIEW: APPROVE" "$got"
+
 # (d) Timeout: stub sleeps; tiny --timeout forces a kill (exit 124/143).
 make_stub <<'STUB'
 #!/usr/bin/env bash

@@ -118,21 +118,29 @@ cs_main() {
     return 127
   }
 
-  local log final
+  local log final errlog
   log="${out:-$(mktemp -t codex-run-log.XXXXXX)}"
   final="$(mktemp -t codex-run-final.XXXXXX)"
+  # errlog is a PERSISTED sibling of the log (not in the trap), so the remedy/footer
+  # messages that reference it point at a file that still exists after we return.
+  errlog="${log}.stderr"
   # shellcheck disable=SC2064
   trap "rm -f '$final'" RETURN
   : > "$log"
+  : > "$errlog"
 
   # Build argv from cs_build_cmd, then run under a hard timeout. -k 10 sends
   # SIGKILL 10s after SIGTERM if codex ignores the term.
   local -a cmd=()
   while IFS= read -r arg; do cmd+=("$arg"); done < <(cs_build_cmd "$dir" "$model" "$sandbox")
 
+  # Keep stdout (codex's streamed content — diffs, file dumps, the answer) and stderr
+  # (codex's OWN diagnostics) in SEPARATE files. bwrap detection must scan stderr only:
+  # stdout legitimately echoes file/diff content that can contain the bwrap error string
+  # verbatim (e.g. reviewing this very repo), which would false-positive a combined scan.
   set +e
   printf '%s' "$prompt" | timeout -k 10 "$timeout_secs" \
-    "${cmd[@]}" -o "$final" >"$log" 2>&1
+    "${cmd[@]}" -o "$final" >"$log" 2>"$errlog"
   local rc=$?
   set -e
 
@@ -145,19 +153,22 @@ codex-run: TIMEOUT after ${timeout_secs}s (exit $rc). codex was killed mid-task.
     git -C "$dir" checkout -- .     # discard tracked-file edits
     # remove any newly-created files codex left behind, then retry with:
     #   a larger --timeout AND a larger Claude Code Bash-tool timeout.
-  Full log: $log
+  Full log: $log (stderr: $errlog)
 EOF
     return "$rc"
   fi
 
   # bwrap sandbox failure => codex couldn't touch the FS; reviews come back empty.
-  if cs_detect_bwrap "$log"; then
+  # Scan codex's OWN stderr only, and only treat it as fatal when the run actually
+  # failed or produced no answer — so a stray "bwrap:" mention in a successful run's
+  # output never aborts a good result.
+  if cs_detect_bwrap "$errlog" && { [ "$rc" -ne 0 ] || [ ! -s "$final" ]; }; then
     cat >&2 <<EOF
 codex-run: codex's bwrap sandbox failed to initialize (containerized environment).
   In this state codex cannot read or write repo files. Re-run with:
     -s danger-full-access
   (current sandbox: $sandbox). Do NOT use --dangerously-bypass-approvals-and-sandbox:
-  Claude Code's permission classifier blocks it. Full log: $log
+  Claude Code's permission classifier blocks it. Full log: $log (stderr: $errlog)
 EOF
     return 1
   fi
@@ -169,7 +180,8 @@ EOF
     cs_extract_final_answer < "$log"
   fi
 
-  printf 'codex-run: exit %d, full log: %s\n' "$rc" "$log" >&2
+  # stdout is in $log, stderr in $errlog — both persist for inspection.
+  printf 'codex-run: exit %d, full log: %s (stderr: %s)\n' "$rc" "$log" "$errlog" >&2
   return "$rc"
 }
 
