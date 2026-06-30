@@ -116,7 +116,7 @@ The `.startup/` directory is created at project root:
 
 ### Learnings capture
 
-A PostToolUse hook (`auto-learn.sh`) fires after every handoff/review/signoff/go-live write under `.startup/` and extracts up to 3 reusable project learnings into the project guidance file (`CLAUDE.md` in Claude Code projects; Codex projects may mirror this into `AGENTS.md` with `agent-sync`). Entries that clearly fit an existing `docs/learnings/<topic>.md` file are routed there directly; uncertain or new-topic learnings stage in the `### Recent (unsorted)` section.
+A PostToolUse hook (`auto-learn.sh`) supplies non-blocking additional context after every handoff/review/signoff/go-live write under `.startup/`, asking the agent to extract up to 3 reusable project learnings into the project guidance file (`CLAUDE.md` in Claude Code projects; Codex projects may mirror this into `AGENTS.md` with `agent-sync`). Entries that clearly fit an existing `docs/learnings/<topic>.md` file are routed there directly; uncertain or new-topic learnings stage in the `### Recent (unsorted)` section.
 
 To keep the guidance file lean, the hook caps `### Recent (unsorted)` at **10 entries** (tune with `SAAS_LEARNINGS_MAX=N`). It counts the staged bullets deterministically in bash, and once the section nears the cap the assistant migrates the surplus (oldest first) into the best-fit `docs/learnings/` topic file — creating the file and a `## Domain Learnings` index line when no topic fits — so the staging area self-heals back to ≤ cap. Run `/saas-startup-team:learnings-migrate` for a human-in-the-loop sweep of whatever remains.
 

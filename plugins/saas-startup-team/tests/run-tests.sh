@@ -986,10 +986,10 @@ test_post_tool_use_hook() {
   # I5: auto-learn.sh contains .startup/ path check
   assert_file_contains "I5: auto-learn.sh has .startup/ path check" "$script" "\.startup/"
 
-  # I6: auto-learn.sh systemMessage contains Learnings section reference
+  # I6: auto-learn.sh guidance contains Learnings section reference
   assert_file_contains "I6: auto-learn.sh references Learnings section" "$script" "## Learnings"
 
-  # I7: auto-learn.sh systemMessage contains duplicate-skip instruction
+  # I7: auto-learn.sh guidance contains duplicate-skip instruction
   assert_file_contains "I7: auto-learn.sh contains duplicate-skip instruction" "$script" "semantically equivalent"
 
   # I8: auto-learn.sh exits 0 silently for non-matching file
@@ -1011,19 +1011,27 @@ test_post_tool_use_hook() {
   output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/state.json"}}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "I9: exits 0 for .startup/state.json" "$ec" 0
 
-  # I10: auto-learn.sh exits 2 with systemMessage for matching handoff file
+  # I10: auto-learn.sh exits 0 with non-blocking PostToolUse context for matching handoff file
+  local errfile stderr
+  errfile=$(mktemp)
   ec=0; output=""
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "I10: exits 2 for matching handoff file" "$ec" 2
-  assert_output_contains "I10b: systemMessage in output" "$output" "systemMessage"
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>"$errfile") || ec=$?
+  stderr=$(cat "$errfile")
+  rm -f "$errfile"
+  assert_exit_code "I10: exits 0 for matching handoff file" "$ec" 0
+  assert_output_contains "I10b: hookSpecificOutput in stdout" "$output" "hookSpecificOutput"
+  assert_output_contains "I10c: PostToolUse event name in stdout" "$output" '"hookEventName":"PostToolUse"'
+  assert_output_contains "I10d: additionalContext in stdout" "$output" "additionalContext"
+  assert_output_not_contains "I10e: no legacy systemMessage output" "$output" "systemMessage"
+  assert_equals "I10f: no stderr for matching handoff file" "$stderr" ""
 
   # I11: script parses (catches any quoting breakage)
   ec=0; bash -n "$script" 2>/dev/null || ec=$?
   assert_exit_code "I11: auto-learn.sh parses (bash -n)" "$ec" 0
-  # I12: still emits valid JSON with a systemMessage on a matching handoff
-  out="$(printf '{"tool_input":{"file_path":"/tmp/x/.startup/handoffs/h.md"}}' | bash "$script" 2>&1 || true)"
-  ec=0; printf '%s\n' "$out" | jq -e '.systemMessage | type == "string"' >/dev/null 2>&1 || ec=$?
-  assert_exit_code "I12: emits JSON systemMessage" "$ec" 0
+  # I12: still emits valid JSON additionalContext on a matching handoff
+  out="$(printf '{"tool_input":{"file_path":"/tmp/x/.startup/handoffs/h.md"}}' | bash "$script")"
+  ec=0; printf '%s\n' "$out" | jq -e '.hookSpecificOutput.hookEventName == "PostToolUse" and (.hookSpecificOutput.additionalContext | type == "string")' >/dev/null 2>&1 || ec=$?
+  assert_exit_code "I12: emits JSON additionalContext" "$ec" 0
   # I13: no longer instructs blanket NEVER/ALWAYS for rules
   assert_file_not_contains "I13: drops blanket NEVER/ALWAYS instruction" "$script" "NEVER/ALWAYS for rules"
   # I14: embeds the house-style label shape
