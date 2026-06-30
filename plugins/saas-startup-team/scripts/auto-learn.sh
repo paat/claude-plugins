@@ -1,11 +1,11 @@
 #!/bin/bash
 # PostToolUse hook: auto-extract learnings from .startup/ handoffs/reviews/signoffs/go-live
-# Deterministic path filter in bash — only fires systemMessage for matching files.
-# Non-matching files get exit 0 with no output (guaranteed no "stopped continuation").
+# Deterministic path filter in bash — only emits additional PostToolUse context for
+# matching files. Non-matching files get exit 0 with no output.
 #
 # Caps the '### Recent (unsorted)' staging area in CLAUDE.md at SAAS_LEARNINGS_MAX
-# entries (default 10). When the staged count nears the cap, the systemMessage also
-# instructs Claude to migrate the surplus into docs/learnings/<topic>.md topic files,
+# entries (default 10). When the staged count nears the cap, the additional context
+# also asks Claude to migrate the surplus into docs/learnings/<topic>.md topic files,
 # keeping CLAUDE.md lean. Requires: jq, awk.
 set -euo pipefail
 
@@ -52,6 +52,7 @@ if (( recent_count >= threshold )); then
   msg="$msg"' THEN enforce the '"'"'### Recent (unsorted)'"'"' cap of '"$max"' entries (it currently holds ~'"$recent_count"'): after appending, if Recent holds more than '"$max"' dash-bullets, migrate the surplus — oldest first (entries nearest the top of Recent) — into docs/learnings/. For each migrated entry: route it to the best-fit existing topic file by matching against the '"'"'## Domain Learnings'"'"' catalog and append a dash-bullet there; if no topic fits, create docs/learnings/<kebab-topic>.md with a '"'"'# <Topic>'"'"' H1, append the entry, and add a '"'"'- [<Topic>](docs/learnings/<kebab-topic>.md) — <hook>'"'"' line to the '"'"'## Domain Learnings'"'"' index. Then delete every migrated bullet from Recent so it ends with at most '"$max"' entries. Never drop a learning — only relocate it. Skip an entry only if it is semantically equivalent to one already in its target topic file (still remove it from Recent).'
 fi
 
-# Emit the systemMessage as valid JSON (jq handles escaping).
-jq -cn --arg m "$msg" '{systemMessage: $m}' >&2
-exit 2
+# Emit non-blocking PostToolUse context as valid JSON (jq handles escaping).
+jq -cn --arg m "$msg" \
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $m}}'
+exit 0
