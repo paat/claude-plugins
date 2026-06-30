@@ -23,6 +23,7 @@ Pulls mail from a local Proton Mail Bridge (IMAP), strips Outlook HTML bodies, g
 - IMAP `SINCE` + `FROM` search that works around `imaplib`'s ASCII-only gotcha
 - HTML-body extraction + quoted-reply trimming for Outlook mail
 - Thread grouping that respects customer-side numbering conventions (`#17 - …`) over RFC `References` headers (Outlook drops these)
+- Per-thread intelligence drafts before confirmation: participant map, deduped timeline, current asks, action items, open questions, source citations, and attachment manifest
 - Discovering target repo conventions (labels, image hosting) before writing
 - Uploading inline screenshots via a dedicated GitHub release when that's the repo's pattern
 - Scope confirmation via `AskUserQuestion` before any `gh issue create`
@@ -33,7 +34,20 @@ Ask your assistant something like:
 
 > Read emails from Alice and Bob since Monday and create GitHub issues.
 
-The skill auto-activates, prompts you for the bridge password, fetches and groups the mail, confirms scope with you, and files the issues.
+The skill auto-activates, prompts you for the bridge password, fetches and groups the mail, writes local thread-intelligence drafts, confirms scope with you, and files the issues.
+
+## Draft artifacts
+
+Before the confirmation gate, each thread gets:
+
+```text
+.mail-issue-drafts/<run-id>/<thread-id>/thread-intelligence.json
+.mail-issue-drafts/<run-id>/<thread-id>/thread-summary.md
+```
+
+The JSON carries normalized title, participants, timeline, unique current content vs quoted history, explicit customer asks, action items, decisions, open questions, severity hints, message/file citations, and attachment mapping. Created issues include a concise timeline or link to the local summary, and duplicate issue comments are generated from the same structured thread intelligence.
+
+Drafts may contain customer context. Do not commit them by default; clean up `.mail-issue-drafts/<run-id>/` after the user no longer needs the local evidence.
 
 ## Contents
 

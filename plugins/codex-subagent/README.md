@@ -81,6 +81,19 @@ It encodes every gotcha:
 
 Codex commits as the configured git user; the contract makes it append your project's required trailer.
 
+## Minimal-diff scope control
+
+`/codex-implement` includes a post-implementation scope check. Because each invocation names exactly one plan task, the controller should reject:
+
+- files changed outside the task and its required tests/build plumbing;
+- opportunistic refactors mixed into a bug fix;
+- new abstractions without repeated call sites;
+- defensive branches for impossible internal states;
+- rename/reformat/import churn unrelated to the task;
+- tests that assert implementation details outside the requested behavior.
+
+Necessary fixture, test, or build-file updates are allowed, but the controller should state why they are required by the named task. Split unrelated cleanup into a follow-up task.
+
 ## Why the pre-flight review is high-value
 
 Pointed at a written plan + the real source files, gpt-5.5 finds real integration defects a same-model pass misses: line-anchor drift, dispatch-signature mismatches (builder arity/return type), a second validator recomputing totals with the wrong formula, renderers hardcoding old field names. Run `/codex-review <plan.md>` **before** implementing.

@@ -79,7 +79,7 @@ Spawn the ads-strategist via Task tool with `subagent_type: "general-purpose"`:
 > **5. Auto-generate the defensive branded ad group.** If `brand_name` is set in brief.md, v1 MUST include an ad group named `AG_branded_defensive` containing:
 >    - Brand name on `[exact]` match
 >    - Every brand variant from brief.md on `[exact]` match
->    - Brand + category combos on `"phrase"` match (e.g., `"aruannik service"`, `"aruannik pricing"`)
+>    - Brand + category combos on `"phrase"` match (e.g., `"<brand> service"`, `"<brand> pricing"`)
 >    - One RSA with H1 = `"<Brand> — Official Site"`, H2 = product category, H3 = primary CTA
 >    - Final URL = the official site URL from brief.md + full UTM tagging
 >    - Bidding = manual CPC capped at `brand_defensive_bid_cap` from brief.md

@@ -217,7 +217,7 @@ On-disk state layout (`.startup/maintain/`):
 - `blocked.jsonl` — transiently-blocked issues: `{number, reason, cooldown_until}`.
 - `runs/<run-id>.md` — append-only audit digest (the morning-review artifact).
 - `human-tasks/<issue>.md` — one file per escalated human-gated issue (avoids
-  append conflicts); a summary is appended idempotently to `.startup/human-tasks.md`
+  append conflicts); a summary is appended idempotently to `docs/human-tasks.md`
   if present.
 
 ---
@@ -245,7 +245,7 @@ Each pass follows this sequence:
      issue that WOULD be filed instead of filing it.
    - `needs-human` → add `needs-human` label + write
      `.startup/maintain/human-tasks/<issue>.md` + append idempotently to
-     `.startup/human-tasks.md` + post/edit the idempotent bot comment (see §Triage).
+     `docs/human-tasks.md` + post/edit the idempotent bot comment (see §Triage).
 
 4. **Build the eligible queue** (§Eligibility). Under `--dry-run`: print the
    intended classifications, the dependency-ordered queue, and all mutations that
@@ -328,7 +328,7 @@ visible surface.
   cleanly separated from the judgment, it's `needs-human`.
 - **`needs-human`** → genuine human decision required — the whole issue hinges on a
   human judgment with no objectively-checkable default. Canonical human-visible bucket:
-  `needs-human` label + `.startup/human-tasks.md` entry.
+  `needs-human` label + `docs/human-tasks.md` entry.
 
 `blocked` (supervisor-set during delivery): transiently un-deliverable —
 no-progress / deploy-blocked / cooldown. Auto-retried after cooldown; never

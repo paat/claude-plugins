@@ -44,7 +44,7 @@ fi
 
 ## Step 1: Determine the campaign slug
 
-If `docs/growth/channels/ads.md` exists and names an active campaign slug, reuse it (so this command and the `/growth` loop converge on one campaign, not two). Otherwise derive a stable slug `<product>-<intent>-<market>` (e.g. `aruannik-commercial-ee`) from the brief.
+If `docs/growth/channels/ads.md` exists and names an active campaign slug, reuse it (so this command and the `/growth` loop converge on one campaign, not two). Otherwise derive a stable slug `<product>-<intent>-<market>` (e.g. `<product>-commercial-ee`) from the brief.
 
 ```bash
 mkdir -p docs/ads

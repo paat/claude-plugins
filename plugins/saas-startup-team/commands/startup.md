@@ -42,19 +42,23 @@ Then skip to Step 3 with the existing state.
 Run `/bootstrap` first (idempotent — safe to re-run). This creates:
 - `docs/` subdirectories: `research/`, `legal/`, `architecture/`, `ux/`, `seo/`, `business/`
 - `.startup/` subdirectories: `handoffs/`, `reviews/`, `signoffs/`, `go-live/`
+- `.startup/workflows/` registry/spec files (git-trackable workflow contracts)
 - `.gitignore` entries for ephemeral `.startup/` state
 - `## Project Knowledge` and `## Workflow Guidance` sections in CLAUDE.md
 
-Then create the loop-specific files in `.startup/`:
+Then create the loop-specific files in `.startup/` and the durable human task file in `docs/`:
 
 ```
 .startup/
 ├── state.json            ← Initialize loop state
-├── human-tasks.md        ← Copy from ${CLAUDE_PLUGIN_ROOT}/templates/human-tasks.md
+├── workflows/            ← Git-trackable workflow registry/specs
 ├── handoffs/             ← Ephemeral, not git-tracked
 ├── signoffs/             ← Ephemeral, not git-tracked
 ├── reviews/              ← Ephemeral, not git-tracked
 └── go-live/              ← Ephemeral, not git-tracked
+
+docs/
+└── human-tasks.md        ← Git-tracked investor action list
 ```
 
 Initialize `state.json`:
@@ -78,12 +82,31 @@ Initialize `state.json`:
 
 Write `docs/business/brief.md` using the user's SaaS idea description (skip if `/bootstrap` already created it).
 
-**Copy the human-tasks template:**
+**Create or migrate the human-tasks file:**
 ```bash
-cp ${CLAUDE_PLUGIN_ROOT}/templates/human-tasks.md .startup/human-tasks.md
+mkdir -p docs
+if [ ! -f docs/human-tasks.md ]; then
+  if [ -f .startup/human-tasks.md ]; then
+    cp .startup/human-tasks.md docs/human-tasks.md
+  else
+    cp ${CLAUDE_PLUGIN_ROOT}/templates/human-tasks.md docs/human-tasks.md
+  fi
+fi
 ```
 
 Tell both agents that handoff and brief templates are available at `${CLAUDE_PLUGIN_ROOT}/templates/`.
+
+Ensure the workflow registry exists (copy templates only if missing):
+```bash
+mkdir -p .startup/workflows
+touch .startup/workflows/.gitkeep
+if [ ! -f .startup/workflows/registry.md ]; then
+  cp "${CLAUDE_PLUGIN_ROOT}/templates/workflow-registry.md" .startup/workflows/registry.md
+fi
+if [ ! -f .startup/workflows/WORKFLOW-template.md ]; then
+  cp "${CLAUDE_PLUGIN_ROOT}/templates/workflow-spec.md" .startup/workflows/WORKFLOW-template.md
+fi
+```
 
 ## Step 2b: Initialize CLAUDE.md for Auto-Learning
 
@@ -122,7 +145,7 @@ The auto-commit hook requires a git repo. Ensure one exists:
    }
    git commit -m "Initial commit before startup loop"
    ```
-3. If **already** in a git repo: `git add -A .startup/ && git commit -m "Initialize .startup/ directory" --no-verify`
+3. If **already** in a git repo: `git add -A .startup/workflows/ docs/human-tasks.md docs/business/brief.md && git commit -m "Initialize startup loop" --no-verify`
 
 ## Step 2d: Reset Session State
 
@@ -170,10 +193,11 @@ Send the initial message to the business founder:
 > 2. Research similar solutions in other countries — extract features, UX patterns, and pricing from international competitors (save to `docs/research/rahvusvaheline-analuus.md`)
 > 3. Check Estonian legal requirements for this type of business
 > 4. Break the idea into prioritized features
-> 5. Write the first handoff to tech founder: `.startup/handoffs/001-business-to-tech.md`
-> 6. Add any human-only tasks to `.startup/human-tasks.md`
-> 7. Update `.startup/state.json` (iteration: 1, phase: requirements)
-> 8. After writing the handoff, send a message to the team lead: "Handoff 001 ready for tech founder."
+> 5. Create or update workflow specs in `.startup/workflows/` for any non-trivial routes, jobs, state machines, payments, onboarding, support intake, or operator workflows. Mark unknown specs as `Missing` in `registry.md` rather than silently ignoring them.
+> 6. Write the first handoff to tech founder: `.startup/handoffs/001-business-to-tech.md`, referencing affected workflow spec files.
+> 7. Add any human-only tasks to `docs/human-tasks.md`
+> 8. Update `.startup/state.json` (iteration: 1, phase: requirements)
+> 9. After writing the handoff, send a message to the team lead: "Handoff 001 ready for tech founder."
 >
 > Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
 
@@ -233,9 +257,11 @@ The Stop hook recognizes the yield two ways: a `ScheduleWakeup` PostToolUse hook
 Send to tech founder:
 > **New task: Implement handoff NNN.**
 > Read `.startup/handoffs/NNN-business-to-tech.md` for full requirements.
+> Read any `.startup/workflows/WORKFLOW-*.md` files referenced by the handoff. If the handoff introduces workflow behavior but no spec exists, stop and ask the business founder to create or mark the missing spec.
 > Read `.startup/state.json` for current iteration and phase.
 > Check `docs/architecture/architecture.md` for your previous architecture decisions.
 > Implement the features, then write your handoff to `.startup/handoffs/{NNN+1}-tech-to-business.md`.
+> In your handoff, list affected workflow spec files and any route/job/state/handoff-contract changes you made.
 > Set 10s timeouts on all HTTP calls. If a service is unreachable after 3 retries, document the failure and move on.
 > After writing the handoff, message the team lead: "Handoff {NNN+1} ready for business founder."
 
@@ -244,6 +270,7 @@ Send to tech founder:
 Read the tech founder's handoff to extract the localhost URL and port, then send to business founder:
 > **New task: Review handoff NNN.**
 > Read `.startup/handoffs/NNN-tech-to-business.md` for implementation details.
+> Read any workflow specs referenced by the handoff and use their QA cases as a test oracle. If code reveals an undocumented workflow, mark it as `Missing` in `.startup/workflows/registry.md`.
 > Read `.startup/state.json` for current iteration and phase.
 > Open browser to `{localhost URL from handoff}` and verify the implementation visually using Playwright.
 > Write your review to `.startup/reviews/` and then either:

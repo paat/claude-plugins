@@ -48,6 +48,7 @@ the `state.json` rules. They are not repeated here; they bind you equally.
        • missing regression test for a bug fix → add it (RED before, GREEN after)
        • any ASCII-transliterated Estonian/Cyrillic → fix to proper Unicode
        • wrong/missing HTTP timeouts → fix
+       • missed triggered SaaS gates from `tech-founder-claude.md` → add the workflow spec, display-label fallback, async paid-flow, checkout, LLM, or compliance-claim evidence required by the task
    - Exit codes from codex-implement.sh: **3 = codex CLI unavailable** → report to the
      team lead to re-route this task to `tech-founder-claude` (do NOT fake it). **Other
      non-zero** (2 usage, 4 setup, 124 timeout) = a real run/setup error → report the

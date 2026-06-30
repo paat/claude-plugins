@@ -55,6 +55,7 @@ No Google Ads API access is required for pre-launch design + verification. The A
 - `/ads-diff <v_a> <v_b>` — show what changed between two iterations
 - `/ads-hypothesize` — propose 3-5 ranked candidate hypotheses for the next iteration
 - `/ads-ready` — audit the current iteration against the launch-readiness checklist
+- `/ads-audit [account|campaign]` — read-only audit of an existing account/campaign before takeover, scaling, or iteration; produces severity-rated findings with evidence and follow-up hypotheses
 - `/ads-metrics` — pull live campaign metrics via Chrome (post-launch only)
 - `/ads-distill` — roll the hypothesis log into learnings and propose graduation candidates
 
@@ -115,7 +116,7 @@ State is tracked via plain marker files (`launched_at`, `applied_at`) — no emb
 ## Typical workflow (pre-launch)
 
 ```
-/ads-brief aruannik-commercial-ee     # intake, create folder
+/ads-brief <product>-commercial-ee     # intake, create folder
 /ads-iterate                           # agent generates v1 hypothesis
 # review → approve → agent writes spec + verifies
 /ads-iterate                           # agent generates v2 hypothesis (if needed)
@@ -136,6 +137,24 @@ State is tracked via plain marker files (`launched_at`, `applied_at`) — no emb
 /ads-metrics                           # measure the delta
 /ads-distill                           # every ~5 iterations, distill learnings
 ```
+
+## Existing account audit
+
+Use `/ads-audit` when the campaign or account already exists and you need a takeover/scaling/readiness assessment before changing spend.
+
+```
+/ads-audit campaign --tracking --search-terms
+```
+
+`/ads-ready` checks whether this plugin's current pre-launch iteration is ready to create/launch. `/ads-audit` inspects an existing account/campaign and stays read-only. It writes `docs/ads/<campaign>/audit/YYYY-MM-DD.md` or `docs/ads/_account-audits/YYYY-MM-DD.md` with:
+
+- executive summary;
+- critical/high/medium/low findings;
+- evidence links or screenshots;
+- exact fix instructions;
+- follow-up one-variable hypotheses that can feed `/ads-iterate`.
+
+Every high/critical finding needs concrete evidence. If evidence is unavailable, the audit states the access gap instead of fabricating a conclusion.
 
 ## Safety & boundaries
 

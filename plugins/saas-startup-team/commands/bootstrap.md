@@ -23,9 +23,10 @@ docs/
 └── business/        ← brief, pricing strategy, business plans
 ```
 
-**Ephemeral loop state (gitignored):**
+**Startup metadata and loop state:**
 ```
 .startup/
+├── workflows/       ← Workflow registry/specs (git-trackable, shared test oracle)
 ├── handoffs/
 ├── reviews/
 ├── signoffs/
@@ -34,18 +35,19 @@ docs/
 
 ```bash
 mkdir -p docs/{research,legal,architecture,ux,seo,business,growth/{channels,leads,metrics/weekly,brand,content/blog,content/outreach-templates}}
-mkdir -p .startup/{handoffs,reviews,signoffs,go-live}
+mkdir -p .startup/{workflows,handoffs,reviews,signoffs,go-live}
 ```
 
 ## Step 2: Create .gitkeep
 
-Create `.startup/.gitkeep` so the directory survives `git clone`:
+Create `.startup/.gitkeep` and `.startup/workflows/.gitkeep` so the directory and workflow registry survive `git clone`:
 
 ```bash
 touch .startup/.gitkeep
+touch .startup/workflows/.gitkeep
 ```
 
-This file should be git-tracked. Everything else in `.startup/` is gitignored.
+These files should be git-tracked. Runtime state, handoffs, reviews, signoffs, and go-live artifacts are gitignored; `.startup/workflows/` is intentionally git-trackable so route/job/state contracts can be reviewed with code.
 
 ## Step 3: Update .gitignore
 
@@ -61,7 +63,6 @@ Append the following to `.gitignore` if not already present. Check each line ind
 .startup/reviews/
 .startup/signoffs/
 .startup/go-live/
-.startup/human-tasks.md
 .startup/test-data/
 .startup/.idle-*
 
@@ -116,9 +117,11 @@ Research and design decisions live in `docs/`. Consult these before making chang
 - **UX findings**: `docs/ux/` — audit results, accessibility gaps
 - **SEO research**: `docs/seo/` — keyword strategy, content optimization
 - **Growth**: `docs/growth/` — growth strategy, channel metrics, pipeline, outreach templates
+- **Workflow registry**: `.startup/workflows/registry.md` — routes, jobs, states, handoff contracts, and QA coverage
 
 When adding features or changing behavior, check relevant docs first.
 When completing research, save findings to the appropriate `docs/` subdirectory.
+When introducing or changing a workflow, update `.startup/workflows/registry.md` and the affected `WORKFLOW-<slug>.md` spec.
 ```
 
 Only include bullets for subdirectories that exist. If a subdirectory has notable files, list them specifically (e.g., `docs/business/hinnastrateegia.md` for pricing).
@@ -156,6 +159,7 @@ If CLAUDE.md does not already contain a `## Workflow Guidance` section, add it:
 - Save research findings to `docs/` (not ad-hoc locations)
 - Check relevant `docs/` before making design decisions
 - Update `docs/` when decisions change
+- Update `.startup/workflows/` when routes, jobs, states, or handoff contracts change
 ```
 
 ## Step 6: Project Brief
@@ -167,6 +171,23 @@ If `docs/business/brief.md` does not exist, ask the user:
 Save the response to `docs/business/brief.md` using the template from `${CLAUDE_PLUGIN_ROOT}/templates/startup-brief.md`.
 
 If `docs/business/brief.md` already exists, skip this step.
+
+## Step 6.25: Scaffold the workflow registry
+
+Create the workflow registry used by business planning, tech implementation, and UX QA. Idempotent — existing files are left untouched.
+
+```bash
+mkdir -p .startup/workflows
+touch .startup/workflows/.gitkeep
+if [ ! -f .startup/workflows/registry.md ]; then
+  cp "${CLAUDE_PLUGIN_ROOT}/templates/workflow-registry.md" .startup/workflows/registry.md
+fi
+if [ ! -f .startup/workflows/WORKFLOW-template.md ]; then
+  cp "${CLAUDE_PLUGIN_ROOT}/templates/workflow-spec.md" .startup/workflows/WORKFLOW-template.md
+fi
+```
+
+When a new route, webhook, background job, state machine, checkout/payment flow, LLM pipeline, support intake, or operator workflow is introduced, copy `WORKFLOW-template.md` to `WORKFLOW-<slug>.md`, fill it, and add it to `registry.md`.
 
 ## Step 6.5: Scaffold the pre-merge safety net
 
@@ -240,10 +261,16 @@ fi
 # NOTE: do NOT put fenced code blocks inside this heredoc — the test harness's
 # markdown bash-block extractor stops at the first closing fence. Commands are
 # shown indented as plain text instead.
-mkdir -p .startup
-touch .startup/human-tasks.md
-if ! grep -q "Require the CI check (branch protection)" .startup/human-tasks.md; then
-  cat >> .startup/human-tasks.md <<'TASK'
+mkdir -p .startup docs
+if [ ! -f docs/human-tasks.md ]; then
+  if [ -f .startup/human-tasks.md ]; then
+    cp .startup/human-tasks.md docs/human-tasks.md
+  else
+    cp "${CLAUDE_PLUGIN_ROOT}/templates/human-tasks.md" docs/human-tasks.md
+  fi
+fi
+if ! grep -q "Require the CI check (branch protection)" docs/human-tasks.md; then
+  cat >> docs/human-tasks.md <<'TASK'
 
 ## [HUMAN] Require the CI check (branch protection)
 

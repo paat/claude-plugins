@@ -96,6 +96,17 @@ Check for: horizontal scroll, content overflow, touch target sizing, navigation 
 - Loading states: async feedback, skeleton screens, progress indicators
 - Destructive actions: confirmation dialogs, undo options
 
+### 5a. Triggered SaaS UX Gates
+
+Apply these when the product surface exists:
+
+- **Async paid-flow UX gate**: verify payment-confirmed, in-progress, ETA or honest indeterminate, close-browser behavior, terminal success, terminal failure, and long-running/still-working states. Capture desktop and mobile evidence, including a seeded or real slow-job path.
+- **Checkout CTA proximity gate**: required fields must appear before or next to the payment CTA in the natural flow; disabled/error states must explain what is missing; sticky/mobile layouts must not hide required validation; keyboard completion must work.
+- **Customer copy/value-unit gate**: scan public UI, titles, meta/OG/Twitter copy, onboarding, pricing, checkout, empty states, and generated customer text for internal implementation terms. Paid options must describe buyer value units, not backend capabilities.
+- **Structured-result raw-value scan**: search rendered output for `undefined`, `null`, `NaN`, `[object Object]`, raw enum keys, empty comma slots, and placeholder labels; verify unknown/missing labels fall back intentionally.
+- **Compliance/risk claim taxonomy**: for compliance, legal, security, accessibility, privacy, trust, or risk-scoring products, test ambiguous/inconclusive examples and ensure claims do not overstate evidence.
+- **Workflow registry coverage**: when `.startup/workflows/` specs exist, derive QA cases from affected workflow specs and report missing coverage back to `registry.md`.
+
 ### 6. Design System Adherence
 
 - Check if CSS custom properties (design tokens) exist and are used consistently

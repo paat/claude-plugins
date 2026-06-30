@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/enforce-handoff-naming.sh",
+            "command": "bash -c 'p=scripts/enforce-handoff-naming.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Block non-conforming handoff filenames (NNN-<direction>.md only)"
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-regression-test.sh",
+            "command": "bash -c 'p=scripts/check-regression-test.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Block `gh pr merge` for an incident-linked PR unless the diff adds a regression test (or an explicit override is recorded)"
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/auto-learn.sh",
+            "command": "bash -c 'p=scripts/auto-learn.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Auto-extract project learnings from handoff/review/signoff files into CLAUDE.md"
           }
         ]
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/validate-json.sh",
+            "command": "bash -c 'p=scripts/validate-json.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Validate JSON syntax after editing .json files"
           }
         ]
@@ -48,7 +48,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/enforce-delegation.sh",
+            "command": "bash -c 'p=scripts/enforce-delegation.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Prevent team lead from directly editing implementation code"
           }
         ]
@@ -58,7 +58,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/auto-commit.sh",
+            "command": "bash -c 'p=scripts/auto-commit.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Auto-commit all work when a handoff file is written"
           }
         ]
@@ -68,7 +68,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-handoff-secrets.sh",
+            "command": "bash -c 'p=scripts/check-handoff-secrets.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Auto-redact hardcoded secrets, API keys, and passwords from handoff files (never blocks the write — handoffs are gitignored, so blocking lost them silently)"
           }
         ]
@@ -78,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/enforce-tone.sh",
+            "command": "bash -c 'p=scripts/enforce-tone.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Flag MVP/prototype language in handoff files"
           }
         ]
@@ -88,7 +88,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-duplicate-handoff.sh",
+            "command": "bash -c 'p=scripts/check-duplicate-handoff.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Warn when writing a handoff that duplicates existing work"
           }
         ]
@@ -98,7 +98,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/validate-growth-brief.sh",
+            "command": "bash -c 'p=scripts/validate-growth-brief.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Ensure growth briefs have Objective and Target Customer sections"
           }
         ]
@@ -108,7 +108,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-linkedin-limits.sh",
+            "command": "bash -c 'p=scripts/check-linkedin-limits.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Enforce LinkedIn daily/weekly rate limits"
           }
         ]
@@ -118,7 +118,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-ad-budget.sh",
+            "command": "bash -c 'p=scripts/check-ad-budget.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Hard stop at 100% of approved ad budget"
           }
         ]
@@ -128,7 +128,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/auto-commit-growth.sh",
+            "command": "bash -c 'p=scripts/auto-commit-growth.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Auto-commit docs/growth/ content and metrics updates"
           }
         ]
@@ -138,7 +138,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/compact-state.sh",
+            "command": "bash -c 'p=scripts/compact-state.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Keep .startup/state.json small by archiving old handoff keys once the inline window is exceeded"
           }
         ]
@@ -148,7 +148,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/index-handoff.sh",
+            "command": "bash -c 'p=scripts/index-handoff.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Append/upsert written handoff into .startup/handoffs/INDEX.md so the directory stays discoverable as it grows"
           }
         ]
@@ -159,7 +159,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-stop.sh",
+            "command": "bash -c 'p=scripts/check-stop.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
             "description": "Prevent premature session exit without solution signoff (enforced after iteration 2+)"
           }
         ]

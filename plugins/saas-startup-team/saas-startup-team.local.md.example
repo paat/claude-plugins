@@ -23,11 +23,50 @@ monitor:
   state_file: .startup/monitor-state.json
   custom_checks: .startup/monitor-checks.sh
   # repro_recipe: ssh <readonly-host> "session-tar {entity}"
+
+# --- Post-launch operate phase (/operate, /monitor, /investigate, /replay-abandoned) ---
+# All keys are optional until the matching command is used. Values below are placeholders;
+# replace them with project-specific values in your repo-local copy.
+operate:
+  api_base_url: https://api.example.invalid
+  auth_header: Authorization
+  auth_env_var: ADMIN_API_TOKEN
+  app_base_url: https://app.example.invalid
+  incidents:
+    repo: owner/name
+    labels: [bug, customer-issue]
+    issue_template_path: .github/ISSUE_TEMPLATE/bug.md
+  funnel:
+    abandoned_sessions_source: .startup/operate/abandoned-sessions.json
+    steps:
+      - name: signup
+        warning_abandonment_pct: 25
+        critical_abandonment_pct: 40
+      - name: checkout
+        warning_abandonment_pct: 20
+        critical_abandonment_pct: 35
+  support_api:
+    base_url: https://support-api.example.invalid
+    auth_header: X-Support-Key
+    auth_env_var: SUPPORT_API_KEY
+    feedback_path: /feedback?status=open
+    session_path_template: /sessions/{cid}
+    logs_path_template: /sessions/{cid}/logs
+    items_json_path: .items
+  log_sources:
+    - name: app-errors
+      command: ./scripts/export-recent-errors.sh
+    - name: app-health
+      path: .monitor/health-last-failure.txt
+  analytics_sources:
+    - name: funnel
+      command: ./scripts/export-funnel-metrics.sh
 ---
 
 # saas-startup-team — project settings
 
-This file configures the regression-test gate. The gate blocks `gh pr merge`
-for a PR that resolves an incident-labeled GitHub issue (or carries a
-`Plane-Item:` marker in its body) unless the diff adds a test, or the PR body
-records an override: `Regression-Test: none — <reason>`.
+This file configures the regression-test gate, the nightly monitor, and optional
+post-launch operate commands. The regression-test gate blocks `gh pr merge` for a
+PR that resolves an incident-labeled GitHub issue (or carries a `Plane-Item:`
+marker in its body) unless the diff adds a test, or the PR body records an
+override: `Regression-Test: none — <reason>`.

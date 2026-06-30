@@ -123,6 +123,7 @@ Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 >
 > Read `docs/architecture/architecture.md` for current stack and service URLs.
 > Read `docs/business/brief.md` for product context.
+> Read `.startup/workflows/registry.md` if it exists. If this improvement changes routes, jobs, states, webhooks, checkout/payment, LLM pipelines, support intake, operator flows, or handoff contracts, update the affected workflow spec or mark it `Missing` in the registry.
 > Read relevant `docs/research/` files if the improvement touches areas you researched.
 > Read `docs/legal/` if the change could have compliance implications.
 >
@@ -141,6 +142,7 @@ Pick the maintenance engine per **"1c. Choosing the implementation engine"** in 
 > **Improvement task: Implement the latest handoff from the business founder.**
 >
 > Read `docs/architecture/architecture.md` for stack and service URLs.
+> Read any `.startup/workflows/WORKFLOW-*.md` files referenced by the business-founder brief and update them if route/job/state/handoff-contract behavior changes.
 > Start the dev server using the command in the architecture doc — it is not running from a previous session.
 >
 > Implement the changes and write your handoff back to the business founder following your standard handoff protocol.
@@ -148,6 +150,7 @@ Pick the maintenance engine per **"1c. Choosing the implementation engine"** in 
 > **Before writing your handoff, self-verify the change at the code level** — browser QA in the next step does not catch type errors, failing units, or parse/enum bugs:
 > - Run `./check.sh` — the canonical full-suite entrypoint (recorded in `docs/architecture/architecture.md`; it runs every suite: build, unit, lint, typecheck, golden/E2E). Fix every failure before handing off — do not hand off red.
 > - Re-read your own diff for the bug classes that slip past visual QA: enum/string parsing, off-by-one and boundary cases, null/undefined handling, and untested error paths.
+> - For triggered SaaS gates, verify the smallest relevant evidence: workflow spec update, slow async paid state, missing display-label fallback, mobile checkout field/CTA flow, malformed LLM output, or inconclusive compliance claim fixture.
 > - In your handoff, state explicitly which checks you ran and that they passed. If a check could not be run, say so and why.
 >
 > Set 10s timeouts on all HTTP calls.
@@ -166,6 +169,8 @@ Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 > - Does the change meet the acceptance criteria?
 > - Any visual regressions on the affected pages?
 > - Does it work on mobile viewport (375px)?
+> - If the change touched a workflow spec, do the QA cases in `.startup/workflows/WORKFLOW-*.md` pass or need registry follow-up?
+> - If relevant, are async paid-flow states, checkout CTA proximity, customer copy/value units, structured-result labels, LLM quality evidence, and compliance claim boundaries acceptable?
 >
 > Write your review following your standard review process.
 

@@ -165,6 +165,7 @@ make_workdir() {
 
 setup_startup_dir() {
   local workdir="$1" iteration="${2:-1}"
+  mkdir -p "$workdir/docs"
   mkdir -p "$workdir/.startup/handoffs"
   mkdir -p "$workdir/.startup/docs"
   mkdir -p "$workdir/.startup/signoffs"
@@ -374,7 +375,7 @@ test_status_script() {
   # C5: with human tasks
   workdir=$(make_workdir)
   setup_startup_dir "$workdir" 3
-  cat > "$workdir/.startup/human-tasks.md" <<'TASKS'
+  cat > "$workdir/docs/human-tasks.md" <<'TASKS'
 # Human Tasks
 ## Pending
 - [ ] Register OÜ
@@ -795,7 +796,8 @@ EOF
 A project management tool for Estonian small businesses.
 EOF
 
-  cp "$PLUGIN_ROOT/templates/human-tasks.md" "$workdir/.startup/human-tasks.md"
+  mkdir -p "$workdir/docs"
+  cp "$PLUGIN_ROOT/templates/human-tasks.md" "$workdir/docs/human-tasks.md"
 
   # G1-G5: Directory structure
   assert_file_exists "G1: handoffs/ dir exists" "$workdir/.startup/handoffs"
@@ -837,8 +839,8 @@ EOF
   fi
 
   # G14: human-tasks.md matches template structure
-  assert_file_contains "G14: human-tasks has Pending section" "$workdir/.startup/human-tasks.md" "## Pending"
-  assert_file_contains "G15: human-tasks has Completed section" "$workdir/.startup/human-tasks.md" "## Completed"
+  assert_file_contains "G14: human-tasks has Pending section" "$workdir/docs/human-tasks.md" "## Pending"
+  assert_file_contains "G15: human-tasks has Completed section" "$workdir/docs/human-tasks.md" "## Completed"
 
   rm -rf "$workdir"
 }
@@ -850,17 +852,19 @@ EOF
 test_cross_file_consistency() {
   echo -e "\n${CYAN}Suite H: Cross-File Consistency${NC}"
 
-  # H1-H2: Codex-supported hook script paths resolve to real files
-  local stop_script handoff_script
+  # H1-H2: Codex-supported hook resolver targets resolve to real files
+  local stop_script handoff_script hook_commands
   stop_script=$(jq -r '.hooks.Stop[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null)
   handoff_script=$(jq -r '.hooks.PreToolUse[] | select(.matcher=="Write") | .hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null)
+  hook_commands=$(jq -r '.. | objects | .command? // empty' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null)
 
-  # Replace ${CLAUDE_PLUGIN_ROOT} with actual plugin root
-  stop_script="${stop_script//\$\{CLAUDE_PLUGIN_ROOT\}/$PLUGIN_ROOT}"
-  handoff_script="${handoff_script//\$\{CLAUDE_PLUGIN_ROOT\}/$PLUGIN_ROOT}"
+  assert_output_not_contains "H0: hook commands do not directly depend on CLAUDE_PLUGIN_ROOT" "$hook_commands" '${CLAUDE_PLUGIN_ROOT}/'
 
-  assert_file_exists "H1: Stop hook script exists" "$stop_script"
-  assert_file_exists "H2: PreToolUse handoff hook script exists" "$handoff_script"
+  stop_script=$(printf '%s\n' "$stop_script" | sed -n 's/.*p=\([^;]*\);.*/\1/p')
+  handoff_script=$(printf '%s\n' "$handoff_script" | sed -n 's/.*p=\([^;]*\);.*/\1/p')
+
+  assert_file_exists "H1: Stop hook script exists" "$PLUGIN_ROOT/$stop_script"
+  assert_file_exists "H2: PreToolUse handoff hook script exists" "$PLUGIN_ROOT/$handoff_script"
 
   # H3-H4: Agent names in agents/*.md match what check-idle.sh handles
   local biz_name tech_claude_name tech_codex_name
@@ -2691,8 +2695,8 @@ test_bootstrap_safety_net() {
   assert_file_exists "X3: ci.yml created" "$workdir/repo/.github/workflows/ci.yml"
   assert_file_exists "X4: check.sh created" "$workdir/repo/check.sh"
   assert_equals "X5: check.sh executable" "$([ -x "$workdir/repo/check.sh" ] && echo yes || echo no)" "yes"
-  assert_file_contains "X6: human-tasks has branch-protection task" "$workdir/repo/.startup/human-tasks.md" "branch protection"
-  assert_file_contains "X7: human task is sequenced after green CI" "$workdir/repo/.startup/human-tasks.md" "first CI run"
+  assert_file_contains "X6: human-tasks has branch-protection task" "$workdir/repo/docs/human-tasks.md" "branch protection"
+  assert_file_contains "X7: human task is sequenced after green CI" "$workdir/repo/docs/human-tasks.md" "first CI run"
   # no stack detected → placeholder marker remains in ci.yml
   assert_file_contains "X8: no-stack keeps TECH-FOUNDER marker" "$workdir/repo/.github/workflows/ci.yml" "TECH-FOUNDER"
 
@@ -2702,7 +2706,7 @@ test_bootstrap_safety_net() {
   local count
   # Count the unique idempotency-guard heading (the phrase "branch protection"
   # itself appears twice per block: in the heading and in the UI instructions).
-  count=$(grep -c "Require the CI check (branch protection)" "$workdir/repo/.startup/human-tasks.md")
+  count=$(grep -c "Require the CI check (branch protection)" "$workdir/repo/docs/human-tasks.md")
   assert_equals "X10: branch-protection task not duplicated" "$count" "1"
 
   # X11-X13: node stack detected → STACK_SETUP substituted with setup-node
@@ -3283,6 +3287,55 @@ CFG
   pv="$(jq -r '.version' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
   mv="$(jq -r '.plugins[] | select(.name=="saas-startup-team") | .version' "$PLUGIN_ROOT/../../.claude-plugin/marketplace.json")"
   assert_equals "W19: plugin/marketplace versions match" "$pv" "$mv"
+}
+
+# ---------------------------------------------------------------------------
+# Suite Y: Operate phase, workflow registry, and triggered SaaS gates
+# ---------------------------------------------------------------------------
+
+test_operate_workflow_registry_and_gates() {
+  echo -e "\n${CYAN}Suite Y: Operate/workflow/gate guidance${NC}"
+
+  # Public command surface.
+  assert_file_exists "Y1: /operate command exists" "$PLUGIN_ROOT/commands/operate.md"
+  assert_file_exists "Y2: /monitor command exists" "$PLUGIN_ROOT/commands/monitor.md"
+  assert_file_exists "Y3: /investigate command exists" "$PLUGIN_ROOT/commands/investigate.md"
+  assert_file_exists "Y4: /replay-abandoned command exists" "$PLUGIN_ROOT/commands/replay-abandoned.md"
+  assert_file_contains "Y5: /operate uses operate block" "$PLUGIN_ROOT/commands/operate.md" "operate:"
+  assert_file_contains "Y6: /operate rejects operate.yml" "$PLUGIN_ROOT/commands/operate.md" ".startup/operate.yml"
+  assert_file_contains "Y7: /monitor reuses monitor engine" "$PLUGIN_ROOT/commands/monitor.md" "scripts/monitor-dedup.sh"
+  assert_file_contains "Y8: /investigate files dedup issue" "$PLUGIN_ROOT/commands/investigate.md" "deduplicated GitHub issue"
+  assert_file_contains "Y9: /replay emits finding schema" "$PLUGIN_ROOT/commands/replay-abandoned.md" "finding.json"
+
+  # Agent surface.
+  assert_file_exists "Y10: incident-investigator agent exists" "$PLUGIN_ROOT/agents/incident-investigator.md"
+  assert_file_exists "Y11: session-replay agent exists" "$PLUGIN_ROOT/agents/session-replay.md"
+  assert_file_exists "Y12: support-triage agent exists" "$PLUGIN_ROOT/agents/support-triage.md"
+  assert_file_contains "Y13: support agent config-driven" "$PLUGIN_ROOT/agents/support-triage.md" "operate:"
+
+  # Workflow registry.
+  assert_file_exists "Y14: workflow registry template exists" "$PLUGIN_ROOT/templates/workflow-registry.md"
+  assert_file_exists "Y15: workflow spec template exists" "$PLUGIN_ROOT/templates/workflow-spec.md"
+  assert_file_contains "Y16: bootstrap creates workflow registry" "$PLUGIN_ROOT/commands/bootstrap.md" ".startup/workflows/registry.md"
+  assert_file_contains "Y17: startup creates workflow registry" "$PLUGIN_ROOT/commands/startup.md" ".startup/workflows/registry.md"
+  assert_file_contains "Y18: improve reads workflow registry" "$PLUGIN_ROOT/commands/improve.md" ".startup/workflows/registry.md"
+  assert_file_contains "Y19: orchestration validates workflow specs" "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" "WORKFLOW-<slug>.md"
+
+  # Config and README.
+  assert_file_contains "Y20: example has operate block" "$PLUGIN_ROOT/saas-startup-team.local.md.example" "operate:"
+  assert_file_contains "Y21: README documents operate phase" "$PLUGIN_ROOT/README.md" "Operate phase"
+  assert_file_contains "Y22: README documents workflow registry" "$PLUGIN_ROOT/README.md" "Workflow registry"
+
+  # Triggered SaaS gates across roles/templates.
+  assert_file_contains "Y23: business founder async paid-flow gate" "$PLUGIN_ROOT/agents/business-founder.md" "Async paid-flow UX gate"
+  assert_file_contains "Y24: business founder customer value unit" "$PLUGIN_ROOT/agents/business-founder.md" "customer value unit"
+  assert_file_contains "Y25: tech founder display-label registry" "$PLUGIN_ROOT/agents/tech-founder-claude.md" "Display-label registry"
+  assert_file_contains "Y26: tech founder LLM gate" "$PLUGIN_ROOT/agents/tech-founder-claude.md" "LLM pipeline quality gate"
+  assert_file_contains "Y27: UX tester raw-value scan" "$PLUGIN_ROOT/agents/ux-tester.md" "Structured-result raw-value scan"
+  assert_file_contains "Y28: lawyer claim taxonomy" "$PLUGIN_ROOT/agents/lawyer.md" "Compliance/Risk Product Claim Taxonomy"
+  assert_file_contains "Y29: handoff template triggered gates" "$PLUGIN_ROOT/templates/handoff-business-to-tech.md" "Triggered gates"
+  assert_file_contains "Y30: tech handoff template gate evidence" "$PLUGIN_ROOT/templates/handoff-tech-to-business.md" "Triggered Gate Evidence"
+  assert_file_contains "Y31: solution signoff CI/CD readiness" "$PLUGIN_ROOT/templates/solution-signoff.md" "CI/CD Readiness"
 }
 
 # ---------------------------------------------------------------------------
@@ -4318,6 +4371,7 @@ main() {
   test_ads_delegation
   test_lawyer_lifecycle
   test_monitor_dedup
+  test_operate_workflow_registry_and_gates
   test_session_insights
   test_harvest
   test_lesson_file

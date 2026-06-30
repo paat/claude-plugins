@@ -44,7 +44,18 @@ You are the on-demand UX consultant. This skill provides your domain expertise i
 - Component variant consistency
 - Token usage patterns (colors, spacing, typography from design system)
 
-### 7. Coherence Pass (beyond render/crash)
+### 7. Triggered SaaS UX Gates
+
+Apply these when the product surface exists:
+
+- **Async paid-flow UX gate**: verify payment-confirmed, in-progress, ETA or honest indeterminate, close-browser behavior, terminal success, terminal failure, and long-running/still-working states. Capture desktop and mobile evidence, including a seeded or real slow-job path.
+- **Checkout CTA proximity gate**: required fields must appear before or next to the payment CTA in the natural flow; disabled/error states must explain what is missing; sticky/mobile layouts must not hide required validation; keyboard completion must work.
+- **Customer copy/value-unit gate**: scan public UI, titles, meta/OG/Twitter copy, onboarding, pricing, checkout, empty states, and generated customer text for internal implementation terms. Paid options must describe buyer value units, not backend capabilities.
+- **Structured-result raw-value scan**: search rendered output for `undefined`, `null`, `NaN`, `[object Object]`, raw enum keys, empty comma slots, and placeholder labels; verify unknown/missing labels fall back intentionally.
+- **Compliance/risk claim taxonomy**: for compliance, legal, security, accessibility, privacy, trust, or risk-scoring products, test ambiguous/inconclusive examples and ensure claims do not overstate evidence.
+- **Workflow registry coverage**: when `.startup/workflows/` specs exist, derive QA cases from affected workflow specs and report missing coverage back to `registry.md`.
+
+### 8. Coherence Pass (beyond render/crash)
 
 Standard QA catches broken widgets, crashes, copy errors, and i18n leaks — all *steady-state, settled* defects. These four checks catch coherence defects that a fast, settled click-through is structurally blind to. Run them explicitly before sign-off:
 
@@ -94,7 +105,8 @@ Use Grep and Glob to find potential issues in source code:
 1.  Navigate to target URL → verify page loads successfully
 2.  Take initial snapshot → understand page structure and content
 3.  Walk core user flows end-to-end → identify friction points and blockers
-3a. Coherence pass (Competency 7) → expand all collapsed sections; check field↔step semantics; throttle one async flow and watch the loading→result transition for premature empty/error states; test drag-drop on anything that looks droppable
+3a. Coherence pass (Competency 8) → expand all collapsed sections; check field↔step semantics; throttle one async flow and watch the loading→result transition for premature empty/error states; test drag-drop on anything that looks droppable
+3b. Triggered SaaS gates → async paid-flow UX, checkout CTA proximity, customer copy/value-unit, structured-result raw-value scan, compliance/risk claim taxonomy, and workflow registry coverage when applicable
 4.  Extract color palette → check consistency and contrast ratios
 5.  Extract typography → check font family count, size scale, heading hierarchy
 6.  Extract spacing → check for consistent spacing system

@@ -11,7 +11,7 @@ You are the Team Lead orchestrating a two-person SaaS startup in Codex. The busi
 
 - `.startup/` directory exists in the project
 - User discusses SaaS startup, co-founders, or the build loop
-- User invokes a command-style workflow such as `/startup`, `/growth`, `/improve`, `/lawyer`, `/ux-test`, or `/status`
+- User invokes a command-style workflow such as `/startup`, `/growth`, `/improve`, `/operate`, `/monitor`, `/investigate`, `/replay-abandoned`, `/lawyer`, `/ux-test`, or `/status`
 - Business-founder and tech-founder role phases are active
 
 ## The Loop
@@ -80,6 +80,7 @@ passes or the `tribunal-review` plugin rather than switching tools.
 - Business-to-tech handoffs MUST include a "Why" section
 - Business-to-tech handoffs MUST contain **at most 2 features** — reject and request split if 3+
 - Tech-to-business handoffs MUST include testing instructions
+- Handoffs that introduce or change routes, jobs, states, webhooks, checkout/payment, LLM pipelines, support intake, operator flows, or handoff contracts MUST reference affected `.startup/workflows/WORKFLOW-<slug>.md` files, or mark the missing workflow in `.startup/workflows/registry.md`
 - If a handoff is malformed or oversized, send it back with feedback
 
 ### 4. Quality Gates
@@ -121,6 +122,18 @@ When the investor runs `/ux-test`, the UX Tester writes findings to `docs/ux/ux-
    - **Business Founder**: UX research — unclear user flows needing competitive research, content/copy issues needing user perspective, feature gaps needing requirements
 4. Track UX remediation through the normal handoff loop — these are regular handoffs, not special
 5. On subsequent `/ux-test` runs, compare with previous findings to verify fixes
+
+### 8b. Triggered Product Gates
+
+When a task touches the relevant product class, require the appropriate evidence before signoff:
+
+- Async paid/background flows: progress, ETA or honest indeterminate state, close-browser behavior, terminal `DONE`/`FAILED`/still-working states, and slow-job evidence.
+- Customer-facing copy/value units: public copy, metadata, pricing, checkout, onboarding, empty states, and generated customer text avoid internal implementation terms.
+- Structured-result UI: display labels/fallbacks for statuses, enums, categories, and result domains; no raw values like `undefined`, `null`, `NaN`, `[object Object]`, raw enum keys, or empty joins.
+- Checkout UX: required fields and payment CTA stay together in the natural desktop/mobile flow with accessible validation.
+- LLM products: model/provider tier, fallback metadata, parse-failure evidence, structured-output hardening, and customer-critical quality checks.
+- Compliance/risk products: facts, signals, automated findings, violations, drafts, recommendations, and needs-review claims have separate evidence rules.
+- Go-live CI/CD: deploy workflow, environment approvals, separated permissions, managed secrets, visible logs, migration/restart docs, and runner recovery instructions.
 
 ### 9. Service URL Consistency
 
@@ -177,6 +190,8 @@ The loop is autonomous by design — the investor is a silent observer unless so
 ## Post-Launch: Dual-Track Orchestration
 
 After the business founder writes the solution signoff, the system transitions to dual-track mode. The existing build track continues for product iteration; a new growth track runs in parallel for customer acquisition.
+
+Operate is the third post-launch track for live-product signals. Use `/operate` as the entry point, `/monitor` for on-demand reports, `/investigate` for correlation-ID RCA and deduplicated issue drafts, `/replay-abandoned` for configured funnel replay findings, and `support-triage` for configurable support API feedback triage. All operate behavior reads `.claude/saas-startup-team.local.md` under `operate:` plus the existing `monitor:` block; do not create `.startup/operate.yml`.
 
 ### Growth Track Relay
 

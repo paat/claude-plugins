@@ -105,7 +105,7 @@ After business founder completes, spawn growth agent via Task tool:
 
 ### 2e: Create human tasks
 
-Add to `.startup/human-tasks.md`:
+Add to `docs/human-tasks.md`:
 
 ```markdown
 - [ ] **Buy cold email domain** — needed for: cold outreach (Phase 1)
@@ -132,7 +132,7 @@ Add to `.startup/human-tasks.md`:
 > - `docs/growth/brand/approved-voice.md` — brand voice guide
 > - `docs/growth/content/outreach-templates/` — outreach message templates
 >
-> Also check the human tasks in `.startup/human-tasks.md` for account setup needed.
+> Also check the human tasks in `docs/human-tasks.md` for account setup needed.
 >
 > Say **"go"** when approved, or let me know what to change.
 

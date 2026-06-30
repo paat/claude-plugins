@@ -9,4 +9,5 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 0
 fi
 
-exec python3 "${CLAUDE_PLUGIN_ROOT}/hooks/irreversible-guard.py"
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$HOOK_DIR/irreversible-guard.py"

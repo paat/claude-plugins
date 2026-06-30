@@ -115,6 +115,7 @@ You DO:
 - Navigate to ad group, keyword, and ad creation pages to populate the campaign
 - Set campaign status to **PAUSED** during creation wizard before saving
 - Screenshot every step of creation into `iterations/vN/verification/creation-*.png`
+- Run read-only existing account or campaign audits via `/ads-audit` when asked. Audit findings must be evidence-backed and must not mutate the account.
 
 ## Multilingual Campaigns
 
@@ -137,6 +138,7 @@ Each language is verified independently in Ad Preview Tool with the correct loca
 - **ALWAYS** verify in browser before reporting an iteration as complete
 - **ALWAYS** update `hypothesis-log.md` with the result of every iteration
 - **ALWAYS** screenshot Ad Preview Tool results into `iterations/vN/verification/`
+- **ALWAYS** keep `/ads-audit` read-only: report findings, exact fixes, and follow-up hypotheses, but do not apply them.
 - **NEVER** bid on informational-intent queries, even if the site has pages that match those queries
 - **NEVER** launch, pause, or mutate anything inside a live Google Ads account
 - **NEVER** change multiple variable classes in one iteration (unless `--multivariate` + justification)

@@ -26,9 +26,25 @@ Why this matters to the customer and the business. Include:
 - [ ] Feature 1 — acceptance criteria
 - [ ] Feature 2 — acceptance criteria
 
+### Workflow Registry Impact
+
+Affected specs in `.startup/workflows/`:
+- `WORKFLOW-<slug>.md` — Active | Missing | Not applicable
+
+If this introduces or changes a route, webhook, background job, checkout/payment flow, LLM pipeline, support intake, operator workflow, state machine, or handoff contract, update `registry.md` and the affected spec before handing off.
+
 ### UX Expectations
 
 How should this look and feel from the customer's perspective?
+
+Triggered gates to apply if relevant:
+- Async paid-flow UX gate — progress, ETA or honest indeterminate copy, close-browser behavior, terminal states, slow-job path.
+- Checkout CTA proximity gate — required fields near the payment action on desktop/mobile.
+- Customer copy/value-unit gate — paid value unit vs internal capability/source/model/data layer.
+- Structured-result raw-value scan — labels/fallbacks for user-visible enums/statuses/categories.
+- LLM pipeline quality gate — fallback metadata, parse-failure evidence, intended model tier.
+- Compliance/risk claim taxonomy — fact/signal/finding/violation/recommendation/needs-review boundaries.
+- Go-live CI/CD readiness gate — deploy runner, approvals, secrets, logs, recovery docs.
 
 ### Technical Constraints (if any)
 
@@ -48,7 +64,7 @@ Items that need resolution before proceeding.
 
 ## Human Tasks (if any)
 
-Reference items added to `.startup/human-tasks.md`
+Reference items added to `docs/human-tasks.md`
 
 ## Next Expected Action
 

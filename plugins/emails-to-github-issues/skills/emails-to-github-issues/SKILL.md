@@ -28,13 +28,18 @@ Do **not** use for internal FYI mail or for mail the user only wants summarized 
 4. **Extract bodies.** Prefer `text/plain`; strip HTML when absent (Outlook is HTML-only). Trim quoted replies (`From:`/`Saatja:`/`On … wrote:`/leading `>`). Template does this.
 5. **Group into threads** in this priority: (a) customer's own `#NN` numbering; (b) normalized subject minus `Re:/RE:/Fwd:/VS:`; (c) RFC `References`/`In-Reply-To` only if both fail — Outlook drops these.
 6. **Pull context** for third parties mentioned in bodies (consultants, external stakeholders). A second IMAP pass over the last few weeks often yields a prior thread worth splicing into the issue body.
-7. **Confirm with `AskUserQuestion`** before any write: scope (which threads to file), image strategy (matches repo convention?). Never skip this gate.
-8. **Upload screenshots** using the pattern from step 1. Common ones:
+7. **Generate thread intelligence artifacts before confirmation.** For each grouped thread, write:
+   - `.mail-issue-drafts/<run-id>/<thread-id>/thread-intelligence.json`
+   - `.mail-issue-drafts/<run-id>/<thread-id>/thread-summary.md`
+
+   `thread-intelligence.json` should include: normalized title, customer ticket number if present, participants and inferred roles, message timeline, unique body summaries distinct from quoted/repeated content, explicit asks, implied action items with owner attribution when safe, decisions/commitments already made, open questions, severity/impact hints, source citations back to message IDs or local extracted files, and an attachment manifest that maps screenshots/images to the message where they appeared.
+8. **Confirm with `AskUserQuestion`** before any write: scope (which threads to file), image strategy (matches repo convention?), and a compact summary of each candidate thread from `thread-summary.md`. Never skip this gate.
+9. **Upload screenshots** using the pattern from step 1. Common ones:
    - Dedicated release: `gh release upload <tag> *.png -R <repo> --clobber`, embed `![](…/releases/download/<tag>/<file>)`.
    - user-attachments CDN: save locally, tell user to drag-drop (no API).
    - Never commit PNGs to `main` unless that's the established pattern.
-9. **Dedupe against existing issues.** Before creating, run `gh issue list --search "in:title <normalized>"` (or search by the customer's `#NN`). If a thread maps to an existing open issue, **append via `gh issue comment <N> --body-file <file> -R <repo>`** instead of opening a duplicate — same `--body-file` rule applies (never `--body`).
-10. **Create new issues** via `gh issue create --body-file` (never `--body` — shell quoting mangles non-ASCII). One issue per new thread.
+10. **Dedupe against existing issues.** Before creating, run `gh issue list --search "in:title <normalized>"` (or search by the customer's `#NN`). If a thread maps to an existing open issue, **append via `gh issue comment <N> --body-file <file> -R <repo>`** instead of opening a duplicate — same `--body-file` rule applies (never `--body`). The comment should be generated from the thread intelligence artifact and include only the new timeline/update delta.
+11. **Create new issues** via `gh issue create --body-file` (never `--body` — shell quoting mangles non-ASCII). One issue per new thread. Issue bodies should include customer ask, evidence/screenshots, concise timeline or a link to `thread-summary.md`, acceptance criteria or reproduction notes when present, open questions, and clear separation between current customer text and quoted historical replies.
 
 ## Gotchas
 
@@ -46,10 +51,12 @@ Do **not** use for internal FYI mail or for mail the user only wants summarized 
 | Inline images may have `Content-Disposition: inline` (no "attachment") and no filename | Filter on `ctype.startswith("image/")` + non-empty `get_payload(decode=True)` |
 | `gh issue create --body "…"` mangles Estonian/Cyrillic chars | Use `--body-file` |
 | Customer's `#NN` is their ticket ID, not GitHub's — keep it verbatim in the title | Don't try to align to GitHub issue numbering |
+| Quoted replies look like new customer requests | Use `thread-intelligence.json` to separate unique current content from quoted/repeated history |
 
 ## Red Flags — STOP
 
 - About to `gh issue create` without running `AskUserQuestion` on scope → confirm first
+- About to ask for confirmation before writing `thread-intelligence.json` and `thread-summary.md` → generate the artifacts first
 - About to invent a new image-hosting scheme → check existing issues' body URLs first
 - About to commit customer screenshots to `main` → look for a release tag or user-attachments pattern instead
 - About to loop over emails and create one issue each → group by thread first
@@ -62,3 +69,7 @@ See `fetch_mails_template.py` in this directory — ready to adapt. Handles IMAP
 ## Where project-specific facts belong
 
 Label names, the repo's image-hosting release tag, and the customer's ticket-numbering scheme are repo-specific — store them in project memory (in the repo's memory directory), not in this skill.
+
+## Draft Artifacts and Cleanup
+
+Drafts live under `.mail-issue-drafts/<run-id>/`. They are local working artifacts for user confirmation, issue body generation, attachment mapping, and dedupe comments. They may contain sensitive customer context, so do not commit them unless the target repo has explicitly chosen to track sanitized drafts. After issues are filed and the user no longer needs local evidence, ask before deleting the draft run directory.

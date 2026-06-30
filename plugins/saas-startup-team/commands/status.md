@@ -40,7 +40,7 @@ Print the script's output verbatim and stop. Do not continue to the status repor
 
 2. **Read and display key files**:
    - `.startup/state.json` — current loop state
-   - `.startup/human-tasks.md` — pending investor actions
+   - `docs/human-tasks.md` — pending investor actions
    - Latest handoff file in `.startup/handoffs/` — most recent activity
 
 3. **Summarize for the investor**:

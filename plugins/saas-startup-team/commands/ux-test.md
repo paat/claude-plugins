@@ -69,6 +69,7 @@ Read the following files to build context for the UX Tester:
 2. `.startup/state.json` — current project phase and iteration
 3. `docs/architecture/architecture.md` — tech stack, service URLs
 4. Latest handoff in `.startup/handoffs/` — current state of implementation
+5. Any affected `.startup/workflows/WORKFLOW-*.md` specs — QA cases and expected state transitions
 
 ### Step 3: Spawn UX Tester Agent
 
@@ -82,6 +83,8 @@ Pass the following to the UX Tester agent:
 - Reminder: test at minimum 2 breakpoints (375px, 1280px)
 - Reminder: always include evidence and severity ratings
 - Reminder: check accessibility — it is not optional
+- Reminder: derive QA cases from `.startup/workflows/` when specs exist and report missing workflow coverage back to `registry.md`
+- Reminder: apply triggered SaaS gates when relevant: async paid-flow states, checkout CTA proximity, customer copy/value units, structured-result raw-value scan, LLM quality evidence, and compliance/risk claim taxonomy
 
 ### Step 4: Report to Investor
 

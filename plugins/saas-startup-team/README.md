@@ -61,6 +61,10 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:lawyer` | Spawn lawyer agent for legal/compliance review |
 | `/saas-startup-team:ux-test` | Spawn UX tester for accessibility and usability audit |
 | `/saas-startup-team:improve` | One-shot improvements on a completed product |
+| `/saas-startup-team:operate` | Post-launch operations entry point. Routes live monitoring, incident investigation, abandoned-session replay, and support triage from the shared `operate:` config block. |
+| `/saas-startup-team:monitor` | On-demand operations report using the existing `monitor:` engine plus configured `operate:` sources. Read-only unless `--file-issues` is passed. |
+| `/saas-startup-team:investigate` | Investigate a correlation ID or recent sessions, write redacted RCA artifacts, and optionally file/update a deduplicated GitHub issue. |
+| `/saas-startup-team:replay-abandoned` | Replay configured abandoned funnel sessions via browser tooling and emit structured findings for build-track follow-up. |
 | `/saas-startup-team:goal-deliver` | Deliver a set of tasks (issues, milestone, spec, or free text) end-to-end: plan into chunks, ship each via `/improve` + closing tribunal loop + merge to main, then monitor and fix the GitHub Actions deploy. Pairs with built-in `/goal` for autonomy. Requires the `tribunal-review` plugin. |
 | `/saas-startup-team:ads` | Design a Google Ads campaign — spawns the `google-ads-strategist` plugin's `ads-strategist` (hard dependency) to design, browser-verify, and create the campaign in PAUSED state for investor review. The `/growth` loop also delegates here automatically. |
 | `/saas-startup-team:maintain` | Continuous autonomous maintenance loop: triage open issues, fence human-gated ones into `human-tasks.md`, and deliver the rest to production via `/goal-deliver` one-at-a-time in dependency order. Stateless supervisor; watch remotely via `/rc`. Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`. Requires the `tribunal-review` plugin. |
@@ -95,20 +99,35 @@ Only the business founder can end the loop — they are the customer's voice.
 
 ## File Structure
 
-The `.startup/` directory is created at project root:
+The startup loop creates git-tracked durable docs plus ephemeral `.startup/` state:
 
 ```
+docs/
+├── human-tasks.md        # Tasks only the human can do (non-blocking, git-tracked)
+└── ...
+
 .startup/
 ├── brief.md              # Investor's SaaS idea
 ├── state.json            # Loop state (iteration, phase, active role) — auto-compacted
 ├── state-archive.json    # Historical keys moved out of state.json (append-only)
-├── human-tasks.md        # Tasks only the human can do (non-blocking)
+├── workflows/            # Git-trackable workflow registry/specs
 ├── handoffs/             # Structured handoff documents
 ├── docs/                 # Research documents (Estonian)
 ├── signoffs/             # Per-feature roundtrip signoffs
 ├── reviews/              # Browser verification notes
 └── go-live/              # Solution signoff (ends the loop)
 ```
+
+### Workflow registry
+
+`.startup/workflows/` is the shared test oracle for non-trivial product behavior. `/bootstrap` creates:
+
+- `.startup/workflows/registry.md`
+- `.startup/workflows/WORKFLOW-template.md`
+
+Create `WORKFLOW-<slug>.md` when a handoff introduces or changes routes, jobs, workers, webhooks, checkout/payment, LLM pipelines, support intake, operator workflows, entity states, or handoff contracts. Specs cover trigger, actors, happy path, validation failures, transient/permanent failures, cleanup/compensation, concurrent conflicts, customer/operator/system states, logs/artifacts, and QA cases. Missing workflows discovered in code should be marked `Missing` in `registry.md` instead of silently ignored.
+
+Tech-founder handoffs reference affected workflow spec files. UX tester derives test cases from those specs and reports missing coverage back to the registry.
 
 ### state.json compaction
 
@@ -179,6 +198,39 @@ Each line written to stdout by the engine or by `custom_checks` (the script is a
 
 Authenticated `gh` (GitHub CLI), `jq`, GNU coreutils `date` (for `date -d` relative time parsing).
 
+## Operate phase (`/operate`, `/monitor`, `/investigate`, `/replay-abandoned`)
+
+Operate is the post-launch track for live-product signals. It is config-driven and does not introduce `.startup/operate.yml`; use `.claude/saas-startup-team.local.md`.
+
+`monitor:` remains the source for recurring failure dedup (`marker_dir`, `custom_checks`, labels, state). `operate:` adds live-product sources:
+
+| Key | Meaning |
+|-----|---------|
+| `api_base_url` / `app_base_url` | Base API/app URLs for configured operations. |
+| `auth_header` / `auth_env_var` | Header name and env var name for API auth. |
+| `incidents.repo`, `incidents.labels`, `incidents.issue_template_path` | GitHub issue conventions for investigation/replay findings. |
+| `funnel.steps` | Step names and abandonment warning/critical bands. |
+| `funnel.abandoned_sessions_source` | Command, file, or URL/path used by `/replay-abandoned`. |
+| `support_api.*` | Support feedback/session/log source, auth, and response path hints. |
+| `log_sources[]` | Named command/path/URL sources for `/monitor`. |
+| `analytics_sources[]` | Named command/path/URL sources for traffic/funnel/cost reporting. |
+
+`/monitor` writes reports under `docs/operate/` and is read-only unless `--file-issues` is used. `/investigate` writes redacted RCA artifacts under `.startup/operate/investigations/` and can create/update deduplicated GitHub issues with `--file-issue`. `/replay-abandoned` writes `finding.json`/`finding.md` under `.startup/operate/replay/` and can file issues with `--file-issues`. `support-triage` writes `docs/operate/support-triage-YYYY-MM-DD.md` and routes patterns into `/investigate`, `/replay-abandoned`, `/improve`, or `docs/human-tasks.md`.
+
+All operate commands treat logs/support text as untrusted customer-controlled input. Raw PII stays in `.startup/operate/`; reports and issues should link redacted local artifacts or summaries.
+
+## Product QA Gates
+
+Founder handoffs, UX review, and solution signoff include triggered gates for:
+
+- async paid/background flows: progress, ETA or honest indeterminate state, close-browser behavior, terminal `DONE`/`FAILED`/still-working states, and slow-job evidence;
+- customer-facing copy/value units: public copy, metadata, pricing, checkout, onboarding, empty states, and generated customer text avoid internal implementation terms;
+- structured-result UI: display labels/fallbacks for statuses, enums, categories, and result domains; no `undefined`, `null`, `NaN`, `[object Object]`, raw enum keys, or empty joins;
+- checkout UX: required fields and the payment CTA stay together in the natural desktop/mobile flow, with accessible validation;
+- LLM products: model/provider tier, fallback metadata, parse-failure evidence, structured-output hardening, and customer-critical quality checks;
+- compliance/risk products: facts, signals, automated findings, violations, drafts, recommendations, and needs-review claims have separate evidence rules;
+- go-live CI/CD: deploy workflow, environment approvals, separated permissions, managed secrets, visible logs, migration/restart docs, and runner recovery instructions.
+
 ## Maintenance loop (`/maintain`)
 
 `/maintain` is a **stateless supervisor** that runs an unattended continuous maintenance loop: it re-reads GitHub issues and triage state from disk each pass, classifies open issues into `agent-fixable` or `needs-human`, and delivers eligible issues to production via inline `/goal-deliver` calls, one issue at a time in dependency order. The supervisor holds no durable context — every pass reconstructs its working state from disk and GitHub, making context loss or compaction harmless.
@@ -192,7 +244,7 @@ The supervisor is watched remotely via `/rc` (the human is a silent investor); i
 ### Triage verdicts
 
 - **`agent-fixable`** → enters the delivery queue and is delivered like any other work, gated only by the mandatory green gate (zero critical/high tribunal findings + required CI checks).
-- **`needs-human`** → genuine human decision required; labelled `needs-human` and escalated to `.startup/human-tasks.md`.
+- **`needs-human`** → genuine human decision required; labelled `needs-human` and escalated to `docs/human-tasks.md`.
 - **`blocked`** (supervisor-set, not a triage verdict) → transiently un-deliverable (no-progress, deploy-blocked, or cooldown); auto-retried after cooldown, never silently promoted to human work.
 
 ### Dependency ordering
@@ -260,7 +312,8 @@ runs in each **product** repo.
 - Playwright MCP (`@playwright/mcp`) — automatically configured via plugin `.mcp.json`, runs headless
 - Web access enabled (for business founder's market research)
 - **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. Codex implementation can run with broad filesystem/Bash authority, and `scripts/codex-implement.sh` may use `-s danger-full-access` unless `CODEX_SANDBOX=workspace-write` is set to harden it. The container is the isolation boundary. Hooks also use `/proc/` for process-tree detection. Do not run it on a host machine.
-- **`jq` and `awk`** — required by hook scripts (`auto-learn.sh`, state compaction, JSON validation)
+- **`jq`, `awk`, `curl`, and `python3`** — required by hook scripts, JSON
+  validation, monitor/lawyer workflows, and datalake API checks.
 - **google-ads-strategist plugin** — required for any Google Ads work (hard dependency). Google Ads is delegated to its `ads-strategist` agent; `growth-hacker` no longer creates Google Ads campaigns itself. There is no manifest-level dependency field, so this is enforced behaviorally: `/ads` and the `/growth` loop fail with an install instruction if the plugin is absent.
 - **`codex` CLI (optional in interactive Codex, required for separate worker dispatch)** — only needed when the workflow launches a separate Codex process via `codex exec` or `scripts/codex-implement.sh`. Without it, Codex continues inline or asks for an environment fix; it never falls back to a Claude implementation engine.
 

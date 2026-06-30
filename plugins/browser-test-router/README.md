@@ -160,6 +160,22 @@ Visual property descriptions add ~60% tokens vs text-only. Screenshots add more 
 /browser-test-router:browser-test https://example.com
 ```
 
+### Evidence QA report mode
+
+```
+/browser-test-router:browser-test https://example.com --evidence
+```
+
+Evidence mode writes a persistent report directory such as `docs/qa/browser-test/<timestamp>/` with:
+
+- `report.md`
+- `test-results.json`
+- mandatory desktop and mobile screenshots
+- interaction evidence when safe to exercise
+- verdict: `FAILED`, `NEEDS_WORK`, or `READY`
+
+Use lightweight mode for quick navigation/behavior checks. Use `--evidence` before release, before declaring readiness, or when a QA result must be auditable. Evidence mode defaults to `NEEDS_WORK` unless desktop and mobile evidence are complete and no critical/high issues are found.
+
 ### Compare two systems
 
 ```
@@ -208,7 +224,7 @@ wait
 
 ## Integration
 
-This plugin provides the generic delegation pattern. Project-specific testing skills reference the pattern and map their domain-specific variables. See `skills/browser-test-orchestration/SKILL.md` for the full protocol.
+This plugin provides the generic delegation pattern. Project-specific testing skills reference the pattern and map their domain-specific variables. The core skill is a compact router; detailed scenario playbooks live under `skills/browser-test-orchestration/references/` and are loaded only when relevant.
 
 ## Architecture Notes
 

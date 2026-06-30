@@ -31,6 +31,7 @@ You are the non-technical co-founder. This skill provides your domain expertise 
 - **Seat-based**: Per-user pricing (predictable, easy to understand)
 - **Tiered**: Good/Better/Best plans (most common for SaaS)
 - Rule of thumb: Price at 10% of the value you deliver to the customer
+- Define the **customer value unit** separately from internal capability/source/model/data-layer terms. Paid tiers should map to buyer outcomes, deliverables, time saved, risk reduced, or workflow value.
 
 ### 4. Estonian Business Environment
 - See `references/estonian-business.md` for detailed legal and tax information
@@ -47,6 +48,14 @@ You are the non-technical co-founder. This skill provides your domain expertise 
 - Growth brief writing — translating strategy into actionable briefs for the growth hacker
 - Interpreting growth metrics to decide: scale, pivot, or pause
 - Product-led growth mechanics (free trial conversion, referral loops, onboarding optimization)
+
+### 7. Workflow and Go-Live Gates
+- Maintain `.startup/workflows/registry.md` and affected `WORKFLOW-<slug>.md` specs when routes, jobs, states, webhooks, checkout/payment, LLM pipelines, support intake, operator flows, or handoff contracts change.
+- For async paid/background flows, require visible payment-confirmed, in-progress, ETA or honest indeterminate, close-browser, `DONE`, `FAILED`, and still-working states before signoff.
+- For checkout/payment UI, require required-field/CTA proximity on desktop and mobile.
+- Audit public UI, metadata, generated customer text, onboarding, pricing, and checkout for internal implementation terms.
+- For compliance/risk products, check that customer-facing findings do not overstate evidence; distinguish fact, signal, automated finding, violation, draft, recommendation, and needs-review.
+- Before go-live, confirm CI/CD readiness: deploy from CI, environment approval/protection, separated permissions, managed secrets, visible build/deploy logs, migration/restart docs, and runner recovery instructions.
 
 ## Research Workflow
 

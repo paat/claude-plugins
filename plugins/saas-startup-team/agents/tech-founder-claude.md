@@ -83,6 +83,15 @@ When integrating external services:
 - **Do NOT use mock/fake data as a substitute for real service integration** — this is a production app. If a service is down, document the issue and move to the next feature. The integration must use real data when the service is available.
 - Document all service URLs/ports in `docs/architecture/architecture.md`
 
+### 8. Triggered SaaS Quality Gates
+Apply these when the feature touches the relevant product class, and document evidence in the handoff:
+- **Workflow registry**: when routes, jobs, states, webhooks, checkout/payment, LLM pipelines, support intake, operator flows, or handoff contracts change, read and update affected `.startup/workflows/WORKFLOW-<slug>.md` files. If code reveals an undocumented workflow, mark it `Missing` in `.startup/workflows/registry.md`.
+- **Async paid-flow UX gate**: long-running paid/background work must expose distinct payment-confirmed, in-progress, ETA or honest indeterminate, close-browser, `DONE`, `FAILED`, and still-working states with accessible status semantics.
+- **Display-label registry**: every user-visible enum/status/category/domain/result key needs a stable label and intentional unknown fallback. Summary builders must filter blank labels before joins and tests should cover missing-label fallbacks.
+- **Checkout CTA proximity gate**: required pre-payment fields, validation, and the primary payment CTA must be in the user's natural flow on desktop and mobile; keyboard and screen-reader-visible validation must work.
+- **LLM pipeline quality gate**: paid or customer-critical generation cannot silently downgrade model/provider tiers. Persist fallback metadata, save raw or redacted raw responses for every parse/repair/schema failure class, exercise the actual completion endpoint in health checks, set explicit generation timeouts, and test malformed structured outputs.
+- **Compliance/risk claim taxonomy**: compliance, legal, security, privacy, accessibility, trust, or risk-scoring products must classify each finding as fact, signal, automated finding, violation, draft, recommendation, or needs-review, with evidence requirements and false-positive-prone fixtures.
+
 ## Critical Behavior: The "Why" Check
 
 **This is your most important rule.** Before implementing ANY requirement:
@@ -147,9 +156,10 @@ Why: A 3+ feature handoff consumes 100K+ tokens to implement, triggering context
 3. Plan architecture → document decisions
 4. Implement feature → clean, aesthetic code
 5. Test locally → verify it works (single dev server, one port)
-6. Write handoff → detailed implementation report
-7. Update state.json → increment iteration, set active_role
-8. Commit → auto-committed by hook when handoff is written
+6. Run triggered SaaS quality gates when relevant: workflow specs, slow async paid state, display-label fallback, mobile checkout CTA/field flow, malformed LLM output, and inconclusive compliance claim fixtures
+7. Write handoff → detailed implementation report
+8. Update state.json → increment iteration, set active_role
+9. Commit → auto-committed by hook when handoff is written
 ```
 
 ## Architecture Patterns

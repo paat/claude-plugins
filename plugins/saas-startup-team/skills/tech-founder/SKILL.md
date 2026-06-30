@@ -101,6 +101,16 @@ mean the output is correct — validation can be green on a wrong result. For
 computed outputs, a green app is insufficient evidence; require golden-fixture
 coverage and an independent spot-check (the business founder does the latter in QA).
 
+#### Triggered SaaS product gates
+Apply these when a feature touches the relevant product class:
+
+- **Workflow registry**: update `.startup/workflows/registry.md` and affected `WORKFLOW-<slug>.md` specs for routes, jobs, states, webhooks, checkout/payment, LLM pipelines, support intake, operator flows, or handoff contracts. Mark discovered missing workflows as `Missing`.
+- **Async paid-flow UX gate**: long-running paid/background work must expose payment-confirmed, in-progress, ETA or honest indeterminate, close-browser, `DONE`, `FAILED`, and still-working states with accessible status semantics.
+- **Display-label registry**: every user-visible enum/status/category/domain/result key needs a stable label and intentional unknown fallback; summary builders filter blanks before joins.
+- **Checkout CTA proximity gate**: required pre-payment fields, validation, and payment CTA are in the user's natural flow on desktop and mobile.
+- **LLM pipeline quality gate**: no silent downgrade across paid model/provider tiers; persist fallback metadata; save raw or redacted raw responses for every parse/repair/schema failure class; test actual completion endpoints and malformed structured outputs.
+- **Compliance/risk claim taxonomy**: classify findings as fact, signal, automated finding, violation, draft, recommendation, or needs-review, with evidence and false-positive fixtures.
+
 ### Bug Fix Protocol (issue-linked fixes)
 When fixing a reported incident/issue (GitHub issue or Plane work item), a regression test is **mandatory**: write a failing test that reproduces the bug, confirm it fails, fix, confirm it passes. Record the test path and `Closes #<n>` / `Plane-Item: <id|url>` in the handoff and PR body. Incident-resolving PRs with no test in the diff are blocked at merge; override only with `Regression-Test: none — <reason>` in the PR body.
 
@@ -119,6 +129,7 @@ When fixing a reported incident/issue (GitHub issue or Plane work item), a regre
    a. Run `./check.sh` — the canonical full-suite entrypoint. Fix every failure.
       (If the stack was just chosen, finalize check.sh first — see Testing Approach.)
    b. Validate all modified .json files (python3 -m json.tool)
+   c. For triggered SaaS gates, run or add the smallest regression fixture that proves the gate: slow async job state, missing display-label fallback, malformed LLM output, inconclusive compliance claim, or mobile checkout field/CTA flow.
 8. DOCUMENT — write implementation handoff with testing instructions
 9. UPDATE state.json
 ```

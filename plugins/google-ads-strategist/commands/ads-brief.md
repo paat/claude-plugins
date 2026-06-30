@@ -21,7 +21,7 @@ Skill('google-ads-strategist:iterative-campaign-design')
 
 If the user passed an argument, use it (kebab-case). If not, ask:
 
-> What should we call this campaign? Short kebab-case slug, e.g., `aruannik-commercial-ee` or `acme-signup-us`.
+> What should we call this campaign? Short kebab-case slug, e.g., `<product>-commercial-ee` or `<brand>-signup-us`.
 
 ## Step 2: Check for existing brief
 

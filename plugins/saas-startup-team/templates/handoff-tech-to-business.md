@@ -21,6 +21,12 @@ One paragraph overview of what was built or what clarification is needed.
 
 Key technical decisions made and their rationale.
 
+### Workflow Registry Updates
+
+- Affected `.startup/workflows/WORKFLOW-<slug>.md` files:
+- Route/job/state/handoff-contract changes:
+- Missing workflow specs discovered:
+
 ### How It Works
 
 Brief explanation of the implementation for non-technical review.
@@ -45,6 +51,19 @@ Step-by-step description of the user journey:
 - [ ] Primary workflow completes end-to-end
 - [ ] Error states handled gracefully
 - [ ] Mobile responsive (if applicable)
+- [ ] Triggered SaaS gates covered where relevant: async paid-flow wait/terminal states, checkout required-field/CTA proximity, customer copy/value-unit scan, structured-result raw-value scan, LLM pipeline fallback/parse evidence, compliance claim taxonomy, and workflow registry QA cases.
+
+### Triggered Gate Evidence
+
+State "not applicable" for gates that do not apply.
+
+- Async paid-flow UX gate:
+- Checkout CTA proximity gate:
+- Customer copy/value-unit gate:
+- Structured-result raw-value scan:
+- LLM pipeline quality gate:
+- Compliance/risk claim taxonomy:
+- CI/CD readiness:
 
 ## Questions for Business Founder
 

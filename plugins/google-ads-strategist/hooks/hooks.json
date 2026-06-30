@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-launch-block.sh",
+            "command": "bash -c 'p=scripts/check-launch-block.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[google-ads-strategist] hook target not found: $p\" >&2; exit 0'",
             "description": "Block Chrome navigation to Google Ads campaign creation / edit / delete / billing URLs"
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-hypothesis-present.sh",
+            "command": "bash -c 'p=scripts/check-hypothesis-present.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[google-ads-strategist] hook target not found: $p\" >&2; exit 0'",
             "description": "Block writing an iteration spec.md without a sibling hypothesis.md"
           }
         ]
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-single-variable.sh",
+            "command": "bash -c 'p=scripts/check-single-variable.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[google-ads-strategist] hook target not found: $p\" >&2; exit 0'",
             "description": "Validate that hypothesis.md declares exactly one variable class (or justified multivariate)"
           }
         ]
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-wait-gate.sh",
+            "command": "bash -c 'p=scripts/check-wait-gate.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[google-ads-strategist] hook target not found: $p\" >&2; exit 0'",
             "description": "Post-launch: enforce N-day wait between iteration applies for statistical significance"
           }
         ]
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-hypothesis-log.sh",
+            "command": "bash -c 'p=scripts/check-hypothesis-log.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[google-ads-strategist] hook target not found: $p\" >&2; exit 0'",
             "description": "Block writing result.md without a corresponding entry in hypothesis-log.md"
           }
         ]
@@ -56,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/check-estonian-diacritics.sh",
+            "command": "bash -c 'p=scripts/check-estonian-diacritics.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[google-ads-strategist] hook target not found: $p\" >&2; exit 0'",
             "description": "Block writing spec.md with ASCII substitutes for Estonian diacritics (ä, ö, ü, õ, š, ž)"
           }
         ]

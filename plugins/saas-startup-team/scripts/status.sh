@@ -13,6 +13,8 @@ if [ -z "$GIT_ROOT" ]; then
 fi
 
 STARTUP_DIR="$GIT_ROOT/.startup"
+HUMAN_TASKS_FILE="$GIT_ROOT/docs/human-tasks.md"
+LEGACY_HUMAN_TASKS_FILE="$STARTUP_DIR/human-tasks.md"
 
 if [ ! -d "$STARTUP_DIR" ]; then
   echo "No active startup session found. Run /saas-startup-team:startup to begin."
@@ -114,10 +116,13 @@ echo ""
 
 # Human tasks
 echo "--- Human Tasks ---"
-if [ -f "$STARTUP_DIR/human-tasks.md" ]; then
-  PENDING=$(grep -c '^\- \[ \]' "$STARTUP_DIR/human-tasks.md" 2>/dev/null || echo "0")
-  COMPLETED=$(grep -c '^\- \[x\]' "$STARTUP_DIR/human-tasks.md" 2>/dev/null || echo "0")
+if [ -f "$HUMAN_TASKS_FILE" ] || [ -f "$LEGACY_HUMAN_TASKS_FILE" ]; then
+  TASK_FILE="$HUMAN_TASKS_FILE"
+  [ -f "$TASK_FILE" ] || TASK_FILE="$LEGACY_HUMAN_TASKS_FILE"
+  PENDING=$(grep -c '^\- \[ \]' "$TASK_FILE" 2>/dev/null || echo "0")
+  COMPLETED=$(grep -c '^\- \[x\]' "$TASK_FILE" 2>/dev/null || echo "0")
   echo "Pending: $PENDING | Completed: $COMPLETED"
+  [ "$TASK_FILE" = "$LEGACY_HUMAN_TASKS_FILE" ] && echo "Legacy path: .startup/human-tasks.md (move to docs/human-tasks.md)"
 else
   echo "No human tasks file found"
 fi

@@ -52,7 +52,15 @@ You are the on-demand legal consultant. This skill provides your domain expertis
 - Mitigation strategies per category
 - Estonian-specific: AKI enforcement history, EMTA audit patterns
 
-### 7. Marketing Compliance (Post-Launch)
+### 7. Compliance/Risk Product Claim Taxonomy
+- For legal, compliance, security, accessibility, privacy, trust, risk-scoring, and regulatory SaaS findings, classify each finding as fact, signal, automated finding, violation, draft, recommendation, or needs-review.
+- Define required evidence for each claim class: page evidence, user answer, registry/company data, verified law citation, external probe result, or manual review.
+- Define confidence/severity rules and downgrade conditions.
+- Use inconclusive wording such as `unable to verify`, `needs review`, or `not enough evidence` when proof is incomplete.
+- Verify legal citations/sources before customer-facing authority is shown.
+- Ask for tests or fixtures for false-positive-prone checks.
+
+### 8. Marketing Compliance (Post-Launch)
 - GDPR consent for email marketing lists (opt-in mechanics, unsubscribe obligations)
 - Advertising claims compliance (Estonian Consumer Protection Act, EU unfair commercial practices)
 - Cookie consent for marketing analytics (ePrivacy Directive)

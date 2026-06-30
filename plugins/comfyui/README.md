@@ -10,18 +10,19 @@ Manage ComfyUI workflows, models, and API from Claude Code — build workflows f
 
 ## Installation
 
-Add to your project's `.claude/settings.json`:
+- **Install for you** (user scope) — available in all your projects:
+  `/plugin install comfyui@paat-plugins`
+- **Install for all collaborators on this repository** (project scope) — commit
+  `.claude/settings.json` with the plugin enabled.
+- **Install for you, in this repo only** (local scope) — enable it in
+  `.claude/settings.local.json`.
+
+Project-scope settings example:
 
 ```json
 {
   "plugins": ["paat-plugins/comfyui"]
 }
-```
-
-Or test locally:
-
-```bash
-claude --plugin-dir /path/to/plugins/comfyui
 ```
 
 ## Configuration

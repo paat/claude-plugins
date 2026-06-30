@@ -1,7 +1,7 @@
 ---
-allowed-tools: Bash, Read, WebFetch
+allowed-tools: Bash, Read, Write, WebFetch
 description: Run browser testing with multi-model delegation for token efficiency
-argument-hint: "[url_or_module] (optional - URL to test or module name)"
+argument-hint: "[url_or_module] [--evidence] [--out docs/qa/browser-test/<run>]"
 ---
 
 # /browser-test-router:browser-test
@@ -11,6 +11,8 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
 ## What to do
 
 1. **Load the orchestration skill** from this plugin's `skills/browser-test-orchestration/SKILL.md`
+
+   If arguments include `--evidence`, also load `skills/browser-test-orchestration/references/evidence-reporting.md`.
 
 2. **Run pre-flight checks** (MUST pass before any delegation):
    ```bash
@@ -31,7 +33,7 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
      exit 1
    fi
 
-   # Create screenshot directory (for optional visual evidence capture)
+   # Create screenshot directory (optional for lightweight mode, mandatory for --evidence)
    mkdir -p /tmp/screenshots
    ```
    - If NOT connected: print error and **stop**
@@ -41,9 +43,18 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
 3. **Determine target**:
    - If `$ARGUMENTS` contains a URL → single-page test mode
    - If `$ARGUMENTS` contains a module name → module test mode (requires acceptance-test skill)
+   - If `$ARGUMENTS` contains `--evidence` → evidence QA report mode, with persistent artifacts
    - If no arguments → prompt user for target
 
-4. **Single-page test mode** (URL provided):
+4. **Evidence QA mode** (`--evidence`):
+   - Create the output directory from `--out` or default to `docs/qa/browser-test/<timestamp>/`.
+   - Capture desktop and mobile browser observations.
+   - Capture mandatory desktop and mobile screenshots under `screenshots/`.
+   - For safe discovered/supplied interactions, capture before/after observations and screenshots.
+   - Write `test-results.json` and `report.md`.
+   - Verdict must be `FAILED`, `NEEDS_WORK`, or `READY`. Default to `NEEDS_WORK` unless evidence is complete and no critical/high issues are found.
+
+5. **Single-page lightweight mode** (URL provided and no `--evidence`):
    ```bash
    URL="$1"
    opencode run -m opencode/kimi-k2.5-free --format json "
@@ -61,12 +72,12 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
      # Opus compares results inline
      ```
 
-5. **Module test mode** (module name provided):
+6. **Module test mode** (module name provided):
    - Activate the project's acceptance-test skill with model routing enabled
    - Follow the delegation protocol from the orchestration skill
    - Pass all test data and credentials explicitly in each opencode run call
 
-6. **Report model usage** at the end:
+7. **Report model usage** at the end:
    ```
    Pre-flight: opencode ✓, chrome-devtools MCP ✓, L1 ✓, L2 ✓
    Model Usage:
@@ -76,3 +87,12 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
    Estimated savings: ~{X}% vs all-Opus
    ```
    A call is "wasted" if it returned no useful data (empty page, MCP failure, timeout).
+
+   In evidence mode, also print:
+   ```
+   Evidence artifacts: docs/qa/browser-test/<timestamp>/
+   - report.md
+   - test-results.json
+   - screenshots/<files>
+   Verdict: FAILED | NEEDS_WORK | READY
+   ```

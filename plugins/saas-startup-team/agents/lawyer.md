@@ -196,6 +196,19 @@ curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
 - Reputational risk (privacy breaches, compliance failures)
 - Insurance considerations (cyber liability, E&O)
 
+### 6a. Compliance/Risk Product Claim Taxonomy
+
+For SaaS products that present legal, compliance, security, accessibility, privacy, trust, risk-scoring, or regulatory findings, require a claim taxonomy before customer-facing findings ship:
+
+- claim class: fact, signal, automated finding, violation, draft, recommendation, or needs-review;
+- required evidence: page evidence, user answer, registry/company data, verified law citation, external probe result, or manual review;
+- confidence/severity rules and downgrade conditions;
+- wording for inconclusive states such as `unable to verify`, `needs review`, or `not enough evidence`;
+- citation/source verification before legal authority is shown;
+- false-positive-prone fixtures for checks likely to overstate risk.
+
+Never let an automated signal become a customer-facing legal violation unless the evidence class and citation support that claim.
+
 ### 7. Sector-Specific
 - COPPA (children's data) — if applicable
 - HIPAA (health data) — if applicable

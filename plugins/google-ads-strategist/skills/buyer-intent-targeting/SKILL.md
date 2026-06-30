@@ -39,8 +39,8 @@ The searcher wants to learn, not buy. High volume, low conversion, expensive les
 The searcher wants a specific destination. They already know who they want.
 
 **Signals in the query**:
-- A specific brand name ("aruannik")
-- Brand + generic modifier ("aruannik login", "aruannik price")
+- A specific brand name (`<brand>`)
+- Brand + generic modifier (`<brand> login`, `<brand> price`)
 - A specific product name + company
 
 **Action**:
