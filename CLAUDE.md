@@ -11,6 +11,7 @@ Plugins in this repo are designed for **Estonian SaaS companies** — the primar
 - No hardcoded project names, paths, stacks, or team conventions in plugin code
 - Plugins must work with bash 4+ and standard POSIX tools
 - External dependencies (jq, awk, sed) must be documented in README
+- Before implementing any fix or enhancement, evaluate whether the change is needed for both plugin surfaces: Claude Code (`commands/`, `skills/`, `agents/`, `hooks/`, README, `.claude-plugin/plugin.json`) and Codex (`.codex-plugin/plugin.json`, generated workflow skills, `.agents/plugins/marketplace.json`). The two surfaces go hand-in-hand; keep behavior equivalent or document any host-specific difference.
 - ALWAYS bump the plugin version in BOTH `.claude-plugin/plugin.json` AND the root `.claude-plugin/marketplace.json` before pushing — both must stay in sync
 - After cloning, run `git config core.hooksPath .githooks` to enable the pre-push version check hook
 - Every plugin's README MUST include an end-user-viewable **Installation** section listing the three recommended scopes:
