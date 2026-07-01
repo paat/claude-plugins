@@ -27,14 +27,15 @@ affected capability is not needed.
 
 ## Step 1: Capture the SaaS Idea
 
-If the user hasn't already described their SaaS idea, first try internal demand discovery
-instead of blocking on new feedback:
+If the user hasn't already described their SaaS idea, first try market scouting instead of
+blocking on new feedback. The scout uses configured external market evidence when available
+and falls back to internal demand discovery when browsing/source data is unavailable:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/demand-discovery.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/market-scout.sh"
 ```
 
-If `.startup/demand/candidates.jsonl` contains candidates, use the top-ranked candidate
+If `.startup/demand/market-scout.jsonl` contains candidates, use the top-ranked candidate
 as the initial SaaS/customer need and write `docs/business/brief.md` from its
 `target_customer_segment`, `discovered_need`, evidence, desired outcome, selected
 acceptance packs, and non-goals. Only ask the investor when no demand evidence exists:

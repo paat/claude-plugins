@@ -70,6 +70,7 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:operate` | Post-launch operations entry point. Routes live monitoring, incident investigation, abandoned-session replay, and support triage from the shared `operate:` config block. |
 | `/saas-startup-team:monitor` | On-demand operations report using the existing `monitor:` engine plus configured `operate:` sources. Read-only unless `--file-issues` is passed. |
 | `/saas-startup-team:harvest` | Internal evidence harvester for self-improvement and market-need candidates. Runs local session insight clustering plus broader internal demand discovery; no external research and no filing unless the separate gated filing step is enabled. |
+| `/saas-startup-team:market-scout` | External market-demand scout. Converts configured public evidence, source links, and dates into ranked SaaS improvement candidates; falls back to internal demand discovery when browsing/source data is unavailable. |
 | `/saas-startup-team:investigate` | Investigate a correlation ID or recent sessions, write redacted RCA artifacts, and optionally file/update a deduplicated GitHub issue. |
 | `/saas-startup-team:replay-abandoned` | Replay configured abandoned funnel sessions via browser tooling and emit structured findings for build-track follow-up. |
 | `/saas-startup-team:goal-deliver` | Deliver a set of tasks (issues, milestone, spec, or free text) end-to-end: plan into chunks, ship each via `/improve` + closing tribunal loop + merge to main, then monitor and fix the GitHub Actions deploy. Pairs with built-in `/goal` for autonomy. Requires the `tribunal-review` plugin. |
@@ -229,20 +230,33 @@ All operate commands treat logs/support text as untrusted customer-controlled in
 ## Demand Signal Intake
 
 The maintenance loop consumes GitHub issues, but `/startup`, `/growth`, `/improve`,
-`/tweak`, and `/goal-deliver` can also start from internally discovered evidence when no
-fresh investor instruction is provided. The deterministic entrypoint is:
+`/tweak`, and `/goal-deliver` can also start from discovered evidence when no fresh
+investor instruction is provided. The market-scout entrypoint uses configured external
+market evidence when available, and falls back to internal discovery when browsing/source
+data is unavailable:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/market-scout.sh"
+```
+
+`market-scout.sh` accepts public evidence as source JSON/URLs and emits
+`.startup/demand/market-scout.jsonl` plus `.startup/demand/market-scout-report.md`. Each
+candidate includes evidence, source links, source dates, confidence, acceptance criteria,
+non-goals, rollout checks, and ranking scores for customer pain, willingness to pay,
+urgency, implementation complexity, and Estonian small-business fit. It converts findings
+into generic customer needs rather than copying competitor-specific features.
+
+When external evidence is unavailable, it runs the internal fallback:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/demand-discovery.sh"
 ```
 
-It ingests configured local sources: Claude Code session JSONL, Codex session/history
-JSONL, GitHub issue/PR JSON exports, local docs/learnings, test logs, runtime/error logs,
-and analytics exports. It clusters repeated signals into customer pain areas, ranks them,
-de-identifies project names/paths/issue IDs, and writes `.startup/demand/candidates.jsonl`
-plus `.startup/demand/report.md`. It deliberately does **not** browse the web or use paid
-market data; when external research is unavailable, internal discovery still runs and the
-report states the limitation.
+The fallback ingests configured local sources: Claude Code session JSONL, Codex
+session/history JSONL, GitHub issue/PR JSON exports, local docs/learnings, test logs,
+runtime/error logs, and analytics exports. It clusters repeated signals into customer pain
+areas, ranks them, de-identifies project names/paths/issue IDs, and records the limitation
+in the market-scout report.
 
 External signal plugins should bridge into issues rather than directly invoking
 implementation:
@@ -329,10 +343,17 @@ The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues h
   auto-fixed states as both human-readable Markdown and machine-readable JSON, checks
   `bash` 4+, `git`, `gh`, `jq`, `awk`, `sed`, `timeout`, Codex CLI when required,
   GitHub auth, hook targets, dirty worktree classification, and Codex/Claude surface sync.
+- **Issue-closure audit:** `/improve` and `/goal-deliver` call
+  `scripts/issue-closure-audit.sh` for PRs using `Closes`, `Fixes`, or `Resolves`. It
+  compares closing issue body/comments against PR files and requires a closure-audit
+  explanation, follow-up issue, `Refs #N`, or implementation of any explicitly named
+  surface that was not touched.
 - **Single-flight leases:** `scripts/single-flight.sh` owns issue/job/scan/report/deploy
   work units with owner, heartbeat, stale replacement audit notes, and release/status
   commands. Long-running work is treated as alive when the heartbeat/logs advance.
 - **Authenticated `gh` (GitHub CLI)** and standard tooling: `bash` 4+, `git`, `jq`, `awk`, `sed`, and GNU coreutils `date`/`timeout`.
+- **Optional `curl`** for `market-scout.sh --source-url`; without it, market scouting still
+  runs source JSON ingestion or the internal discovery fallback.
 - **Dev container only** (inherits the plugin's dev-container-only design).
 
 ## Self-improvement loop (`/lessons-deliver`)
