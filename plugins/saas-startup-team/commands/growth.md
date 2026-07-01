@@ -1,12 +1,14 @@
 ---
 name: growth
-description: Launch the post-launch growth track — initializes docs/growth/ structure, spawns business founder for strategy, then runs the growth agent for customer acquisition. Usage: /growth [--pre-launch]
+description: Launch the lifecycle-aware growth track — initializes docs/growth/ structure, detects prelive/live/postlive/paused state, stages go-live readiness before outreach, and runs customer acquisition only when lifecycle gates allow it. Usage: /growth [--prelive|--pre-launch|--live|--postlive|--paused]
 user_invocable: true
 ---
 
 # /growth — Launch Growth Track
 
-You are the **Team Lead** (orchestrator) launching the growth track for customer acquisition. This runs in parallel with the existing build track.
+You are the **Team Lead** (orchestrator) launching the growth track. Growth is lifecycle-aware:
+pre-live projects get go-live readiness and staged assets only; live-but-unvalidated projects
+start with inbound/controlled validation; post-live projects execute acquisition channels.
 
 ## Step 0: Load Skills
 
@@ -27,30 +29,55 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/health-preflight.sh" --require-gh --check-sy
 In Codex, include `--require-codex`; missing Codex CLI/auth is an environment blocker
 when a separate Codex worker or GitHub mutation is required.
 
-### Check 1: Product is live (unless --pre-launch)
+### Check 1: Detect lifecycle state
 
-If the user passed `--pre-launch`, skip this check.
+Resolve one lifecycle value before creating tasks: `prelive`, `live`, `postlive`, or `paused`.
+Explicit flags win (`--prelive`, legacy `--pre-launch`, `--live`, `--postlive`, `--paused`);
+otherwise infer from state and launch evidence:
 
-Otherwise, verify solution signoff exists:
 ```bash
-ls .startup/go-live/solution-signoff.md 2>/dev/null
+lifecycle=""
+case " $* " in
+  *" --prelive "*|*" --pre-launch "*) lifecycle="prelive" ;;
+  *" --live "*) lifecycle="live" ;;
+  *" --postlive "*) lifecycle="postlive" ;;
+  *" --paused "*) lifecycle="paused" ;;
+esac
+
+if [ -z "$lifecycle" ] && [ -f .startup/state.json ] \
+  && [ "$(jq -r '.status // empty' .startup/state.json)" = "paused" ]; then
+  lifecycle="paused"
+fi
+if [ -z "$lifecycle" ] && [ ! -f .startup/go-live/solution-signoff.md ]; then
+  lifecycle="prelive"
+fi
+if [ -z "$lifecycle" ]; then
+  if [ -f docs/growth/metrics/summary.md ] \
+    && grep -qiE 'paid conversion|customer acquisition cost|CAC|reply rate|scan conversion' docs/growth/metrics/summary.md; then
+    lifecycle="postlive"
+  else
+    lifecycle="live"
+  fi
+fi
+printf '%s\n' "$lifecycle" > .startup/growth-lifecycle
 ```
 
-**If not found:**
-> **Error:** No solution signoff found. The product must be live before launching the growth track. Run `/startup` first to build and ship the product, or use `/growth --pre-launch` to start pre-launch audience building.
+If lifecycle is `prelive`, do **not** execute outreach, prospect scans, paid ads, directory
+submissions, or customer contact. Create/maintain launch-readiness and staged growth assets.
+If lifecycle is `paused`, run diagnostics and blocker removal only.
 
 ### Check 2: Chrome browser MCP available
 
 Attempt to call `mcp__claude-in-chrome__tabs_context_mcp` to verify Chrome is reachable. If the tool call fails or is unavailable:
 
-> **Warning:** Chrome browser MCP (claude-in-chrome) is not available. The growth agent needs Chrome for external web interactions (ad dashboards, directories, forums). Some growth activities will be limited. Continue anyway? (LinkedIn MCP and cold email will still work.)
+> **Warning:** Chrome browser MCP (claude-in-chrome) is not available. External growth research and live channel work will be limited. Continue with local readiness/staging where possible.
 
 ### Check 3: LinkedIn MCP available
 
 Check for LinkedIn tools availability.
 
 **If unavailable:**
-> **Warning:** LinkedIn MCP is not available. LinkedIn prospecting will be limited to manual research via WebSearch. Other channels (cold email, content, communities) will work normally.
+> **Warning:** LinkedIn MCP is not available. LinkedIn prospect research will be limited to public/browser research. Pre-live projects still stage assets only.
 
 ## Step 2: Initialization (first invocation)
 
@@ -59,7 +86,7 @@ If `docs/growth/` does not exist, run the initialization sequence:
 ### 2a: Create directory structure
 
 ```bash
-mkdir -p docs/growth/{channels,leads,metrics/weekly,brand,content/blog,content/outreach-templates}
+mkdir -p docs/growth/{channels,leads,metrics/weekly,brand,content/blog,content/outreach-templates,readiness}
 ```
 
 ### 2b: Run /bootstrap (idempotent)
@@ -75,11 +102,13 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
   --acquire "growth:init:${PWD}" --state-dir .startup/leases --owner "growth:init:$$" --ttl-seconds 1800
 ```
 
-If no explicit channel or strategy direction was provided, run internal demand discovery
-and use the top candidate as one input into `docs/growth/strategy.md`:
+If no explicit channel or strategy direction was provided, run the market scout first. It
+uses configured external market evidence when available and falls back to internal demand
+discovery when browsing/source data is unavailable. Use the top candidate as one input into
+`docs/growth/strategy.md`:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/demand-discovery.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/market-scout.sh"
 ```
 
 Spawn business founder via Task tool with `subagent_type: "general-purpose"`:
@@ -89,16 +118,21 @@ Spawn business founder via Task tool with `subagent_type: "general-purpose"`:
 > **New task: Write growth initialization documents.**
 >
 > Read your market research from `docs/research/` and the business brief from `docs/business/brief.md`.
+> Read `.startup/growth-lifecycle` and any market-scout output under `.startup/demand/`.
 >
 > Write the following files:
 >
 > 1. `docs/growth/product-brief.md` — Translate your Estonian market research and the product architecture into an English sales-ready product description. Include: what the product does, who it's for (specific ICP), what problem it solves, why it's better than competitors, and pricing. This is the growth agent's primary context — make it complete.
 >
-> 2. `docs/growth/strategy.md` — Overall growth plan: ICP definition (role, company size, pain point, where they hang out), prioritized channels for Phase 1, goals and success metrics, and the current phase (`pre-launch` or `launch` depending on whether the product is live).
+> 2. `docs/growth/strategy.md` — Overall growth plan: ICP definition (role, company size, pain point, where they hang out), prioritized channels, goals and success metrics, and the current lifecycle (`prelive`, `live`, `postlive`, or `paused`).
 >
 > 3. `docs/growth/brand/approved-voice.md` — Brand voice guide: tone and personality, example messages (English section + Estonian section), things to never say, and anti-examples. Base this on your market research — use the customer language you extracted from Reddit/forums.
 >
-> After writing all three files, message the team lead: "Growth initialization docs ready for investor review."
+> 4. `docs/growth/autonomous-operations.md` — Autonomy-first operating policy. Include: autonomy principle; agent-owned work list; owner authorization gates for legal identity, domain/account ownership, public claim boundaries, paid spend caps, credential/recovery ownership, and pricing/offer envelope; automation targets to remove future gates; stop rules for legal, reputation, opt-out, platform, and spend risk. Do not create recurring manual review work.
+>
+> 5. `docs/growth/readiness/go-live-checklist.md` — For `prelive`, make this the primary artifact: public URL, production env, operator identity, legal wrapper, payment/report delivery, transactional email, retention/suppression, observability, smoke tests, and launch metrics. For other lifecycles, keep it as a short verification record.
+>
+> After writing the files, message the team lead: "Lifecycle-aware growth initialization docs ready."
 
 ### 2d: Growth agent drafts outreach templates
 
@@ -106,9 +140,10 @@ After business founder completes, spawn growth agent via Task tool:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/growth-hacker.md` for your identity and tools.
 >
-> **New task: Draft outreach templates.**
+> **New task: Draft lifecycle-gated growth assets.**
 >
 > Read `docs/growth/product-brief.md`, `docs/growth/strategy.md`, and `docs/growth/brand/approved-voice.md`.
+> Read `.startup/growth-lifecycle`.
 >
 > Write the following to `docs/growth/content/outreach-templates/`:
 >
@@ -118,40 +153,9 @@ After business founder completes, spawn growth agent via Task tool:
 >
 > 3. `community-templates.md` — 3 community engagement response templates. Value-first, product mention natural, not pushy.
 >
-> After writing, message the team lead: "Outreach templates ready for investor review."
-
-### 2e: Create human tasks
-
-Add to `docs/human-tasks.md`:
-
-```markdown
-- [ ] **Buy cold email domain** — needed for: cold outreach (Phase 1)
-  - Priority: HIGH
-  - Deadline: before growth Phase 1 launch
-  - Notes: Separate domain from primary (e.g., tryacme.com). Cost ~$10. Set up 3-5 email accounts with Google Workspace.
-
-- [ ] **Register accounts on target platforms** — needed for: directory submissions, community engagement
-  - Priority: HIGH
-  - Deadline: before growth Phase 1 launch
-  - Notes: Product Hunt, AlternativeTo, SaaSHub, relevant forums/communities
-
-- [ ] **Review growth strategy and templates** — needed for: growth track launch
-  - Priority: HIGH
-  - Deadline: before growth loop starts
-  - Notes: Review docs/growth/strategy.md, docs/growth/brand/approved-voice.md, and docs/growth/content/outreach-templates/. Approve or request changes.
-```
-
-### 2f: Wait for investor approval
-
-> **Growth initialization complete.** Please review:
-> - `docs/growth/product-brief.md` — product description for sales
-> - `docs/growth/strategy.md` — growth plan and ICP
-> - `docs/growth/brand/approved-voice.md` — brand voice guide
-> - `docs/growth/content/outreach-templates/` — outreach message templates
+> If lifecycle is `prelive`, prepend "STAGED - DO NOT CONTACT UNTIL GO-LIVE GATES PASS" to every outreach/template file and do not build/send lead batches. Lead-source research is allowed only as staged source notes in `docs/growth/leads/`.
 >
-> Also check the human tasks in `docs/human-tasks.md` for account setup needed.
->
-> Say **"go"** when approved, or let me know what to change.
+> After writing, message the team lead: "Lifecycle-gated growth assets ready."
 
 ## Step 3: Update State
 
@@ -160,7 +164,8 @@ Update `.startup/state.json` — READ it first, then add growth fields AND overw
 ```json
 {
   "active_role": "business-founder",
-  "growth_phase": "pre-launch" or "launch",
+  "growth_lifecycle": "prelive" or "live" or "postlive" or "paused",
+  "growth_phase": "prelive" or "live" or "postlive" or "paused",
   "growth_status": "active",
   "growth_iteration": 0,
   "growth_started": "<current ISO timestamp>"
@@ -194,9 +199,17 @@ When the investor gives a clear directive ("do Reddit marketing", "set up Google
 > Read `docs/growth/product-brief.md` for product context.
 > Read `docs/growth/brand/approved-voice.md` for brand guidelines.
 > Read `docs/growth/strategy.md` for ICP and channel priorities.
+> Read `docs/growth/autonomous-operations.md` for owner authorization gates and stop rules.
+> Read `.startup/growth-lifecycle`.
 > Read the relevant channel doc in `docs/growth/channels/` for what's been done (if exists).
 >
-> **Your goal is to EXECUTE, not plan.** Post responses, create campaigns, send messages, submit listings — use Chrome browser for all external actions. If you can't act (no account, no access), flag it as a human task and move to the next actionable item.
+> **Lifecycle contract:**
+> - `prelive`: do not contact prospects, send cold email, run paid ads, submit listings, perform prospect scans, or execute outreach. Stage assets only; maintain `docs/growth/readiness/go-live-checklist.md`; mark lead-source research and templates "STAGED - DO NOT CONTACT"; route app/code launch blockers through the startup-team build track; report launch metrics (gates verified, smoke tests passed, staged leads, launch content drafted).
+> - `live`: launch inbound first (free scan, checklist/content page, passive demand capture). Run warm intros or very low-volume controlled validation only when sender identity, legal claim, opt-out, and suppression gates are clear. Keep paid ads research-only until conversion tracking and offer proof exist.
+> - `postlive`: execute approved acquisition channels within policy and budget caps: outbound, communities, agency partners, SEO/content, paid ads. Track reply, scan, paid conversion, CAC, and stop-loss rules.
+> - `paused`: run diagnostics and blocker removal; do not start acquisition.
+>
+> **Your goal is to EXECUTE only where the lifecycle contract permits execution.** For blocked authority boundaries (domain ownership, legal identity, credentials, spend caps, pricing envelope), update `docs/growth/autonomous-operations.md` as an owner authorization gate and continue with agent-owned work.
 >
 > After executing, update the relevant `docs/growth/channels/*.md` with what you actually did (URLs, timestamps, metrics).
 > Write a short growth report to `.startup/handoffs/NNN-growth-to-business.md` summarizing actions taken and results.
@@ -245,7 +258,7 @@ When a growth report contains a `## Google Ads request` block, the growth hacker
 4. **If the `ads-strategist` agent type is unknown**, the `google-ads-strategist` plugin is not installed. Stop and tell the investor to install it (`/plugin install google-ads-strategist`); do NOT fall back to building the campaign inline.
 5. After the strategist returns, update the `docs/growth/channels/ads.md` index entry for the slug (status: created-paused), then continue the growth loop.
 
-**Pre-launch caveat:** if the product is not yet live (`/growth --pre-launch`, no commercial landing page / `final_url`), defer the ads request — note it as a human task and continue — rather than building a campaign that cannot route traffic.
+**Pre-live caveat:** if lifecycle is `prelive` (no commercial landing page / `final_url` or launch gates incomplete), defer ads execution. The strategist may draft/research campaign assets in PAUSED/planning form only; record the blocker as an owner authorization gate or go-live checklist item, not as recurring manual review work.
 
 ### Relay pattern
 

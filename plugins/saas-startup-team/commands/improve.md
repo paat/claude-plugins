@@ -55,13 +55,15 @@ The mode is selected automatically when unambiguous, and chosen by the investor 
 
 If the user provided arguments with the command, use them as the improvement description.
 
-Otherwise run internal demand discovery and select the top ranked candidate:
+Otherwise run market scouting and select the top ranked candidate. The scout uses external
+market evidence when configured and falls back to internal demand discovery when external
+research is unavailable:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/demand-discovery.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/market-scout.sh"
 ```
 
-If `.startup/demand/candidates.jsonl` contains a candidate, use its
+If `.startup/demand/market-scout.jsonl` contains a candidate, use its
 `discovered_need`, `target_customer_segment`, evidence refs, desired customer outcome,
 acceptance packs, non-goals, and rollout checks as the improvement description. If no
 candidate is available, ask:
@@ -277,6 +279,16 @@ Then dispatch business founder for re-QA following the same pattern as Step 3.
 
    If the improvement resolves a reported incident/issue (a GitHub issue or a Plane work item — e.g. anything the nightly monitor filed), the fix MUST include a regression test (see the tech founder's Bug Fix Protocol), and the PR body MUST link the issue (`Closes #<n>` for GitHub, or `Plane-Item: <id|url>` for Plane) and describe the test in a `## Regression test` section. An incident-linked PR with no test in its diff is **blocked at merge** by the regression-test gate; override only with `Regression-Test: none — <reason>` in the body.
 
+   If the PR body/title uses a GitHub closing keyword (`Closes`, `Fixes`, or `Resolves`),
+   run the closure audit before the PR is considered ready:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/issue-closure-audit.sh" --pr "<pr-url-or-number>"
+   ```
+   If it flags an issue surface named in the original issue/comments that the PR did not
+   touch, do one of three things before merge: implement that surface, add a `## Closure
+   audit` explanation with a follow-up issue for the remaining acceptance, or change the
+   closing keyword to `Refs #<n>`.
+
    If QA passed:
    ```bash
    gh pr create \
@@ -293,6 +305,10 @@ Then dispatch business founder for re-QA following the same pattern as Step 3.
    ## Regression test
 
    [if this resolves an incident/issue: test file path + what it reproduces, and `Closes #<n>` / `Plane-Item: <id|url>`. Otherwise: "n/a — not an incident fix".]
+
+   ## Closure audit
+
+   [if this PR uses `Closes`/`Fixes`/`Resolves`: state whether the PR satisfies every material promise in the full issue body and comments. If any named surface is intentionally not touched, link the follow-up issue or explain why that acceptance is no longer relevant. Otherwise: "n/a — no closing keyword".]
 
    ## QA: PASS
 

@@ -4336,13 +4336,17 @@ test_autonomous_demand_infra() {
   local lease="$PLUGIN_ROOT/scripts/single-flight.sh"
   local packs="$PLUGIN_ROOT/scripts/acceptance-packs.sh"
   local demand="$PLUGIN_ROOT/scripts/demand-discovery.sh"
+  local market="$PLUGIN_ROOT/scripts/market-scout.sh"
+  local closure="$PLUGIN_ROOT/scripts/issue-closure-audit.sh"
   local workdir ec output count
 
   assert_file_exists "AD1: health-preflight exists" "$health"
   assert_file_exists "AD2: single-flight exists" "$lease"
   assert_file_exists "AD3: acceptance-packs exists" "$packs"
   assert_file_exists "AD4: demand-discovery exists" "$demand"
-  for s in "$health" "$lease" "$packs" "$demand"; do
+  assert_file_exists "AD4b: market-scout exists" "$market"
+  assert_file_exists "AD4c: issue-closure-audit exists" "$closure"
+  for s in "$health" "$lease" "$packs" "$demand" "$market" "$closure"; do
     ec=0; bash -n "$s" || ec=$?
     assert_exit_code "AD syntax: $(basename "$s")" "$ec" 0
   done
@@ -4411,29 +4415,99 @@ JSONL
   assert_file_contains "AD15d: includes acceptance packs" "$workdir/candidates.jsonl" "acceptance_packs"
   assert_file_contains "AD15e: report notes no external research" "$workdir/report.md" "external research: not used"
   rm -rf "$workdir"
+
+  workdir=$(mktemp -d)
+  cat > "$workdir/sources.json" <<'JSON'
+[
+  {
+    "source_type": "public-review",
+    "title": "Micro-OÜ owners complain about manual VAT evidence collection",
+    "url": "https://example.invalid/reviews/vat-gap",
+    "date": "2026-06-30",
+    "snippet": "Estonian e-resident micro-OÜ operators say pricing is unclear, report collection is too manual, and exports leak /srv/customer/data.csv paths."
+  }
+]
+JSON
+  ec=0; output=$(bash "$market" --project "demo-product" --source-json "$workdir/sources.json" --out "$workdir/market.jsonl" --report "$workdir/market.md" 2>&1) || ec=$?
+  assert_exit_code "AD16: market scout external source exits 0" "$ec" 0
+  count=$(wc -l < "$workdir/market.jsonl" | tr -d ' ')
+  assert_equals "AD16b: one market candidate emitted" "$count" "1"
+  assert_file_contains "AD16c: candidate includes source link" "$workdir/market.jsonl" "https://example.invalid/reviews/vat-gap"
+  assert_file_contains "AD16d: candidate includes source date" "$workdir/market.jsonl" "2026-06-30"
+  assert_file_contains "AD16e: candidate includes confidence" "$workdir/market.jsonl" "confidence"
+  assert_file_contains "AD16f: report notes external research used" "$workdir/market.md" "external research: used"
+  assert_file_contains "AD16g: de-identifies path placeholders cleanly" "$workdir/market.jsonl" "{{PATH}}"
+  assert_file_not_contains "AD16h: no stray bracket before path placeholder" "$workdir/market.jsonl" "[ {{PATH}}"
+  rm -rf "$workdir"
+
+  workdir=$(mktemp -d)
+  ec=0; output=$(cd "$workdir" && bash "$market" --project "demo-product" --out "$workdir/fallback.jsonl" --report "$workdir/fallback.md" 2>&1) || ec=$?
+  assert_exit_code "AD17: market scout fallback exits 0" "$ec" 0
+  assert_file_contains "AD17b: fallback report notes unavailable external research" "$workdir/fallback.md" "external research: unavailable"
+  assert_file_contains "AD17c: fallback report notes internal discovery" "$workdir/fallback.md" "fallback: internal demand discovery"
+  rm -rf "$workdir"
+
+  workdir=$(mktemp -d)
+  cat > "$workdir/pr.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Closes #55\n\n## Changes\nFrontend default selection only."}
+JSON
+  cat > "$workdir/issue.json" <<'JSON'
+{"number":55,"title":"Use actual prior dates","body":"Acceptance requires `backend/app/services/xbrl_generator.py` and `frontend/step2.tsx`.","comments":[{"body":"Also check `backend/app/services/pdf_renderer.py` labels."}]}
+JSON
+  printf 'frontend/step2.tsx\n' > "$workdir/files.txt"
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr.json" --issue-json "$workdir/issue.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD18: closure audit fails missing named surfaces" "$ec" 1
+  assert_output_contains "AD18b: closure audit names missing backend path" "$output" "backend/app/services/xbrl_generator.py"
+  cat > "$workdir/pr-ok.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Closes #55\n\n## Closure audit\n#55 frontend scope shipped here; remaining scope has follow-up #56 for backend date emission."}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-ok.json" --issue-json "$workdir/issue.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19: closure audit accepts explicit follow-up" "$ec" 0
+  mkdir -p "$workdir/bin"
+  printf '#!/bin/sh\nexit 1\n' > "$workdir/bin/gh"
+  chmod +x "$workdir/bin/gh"
+  cat > "$workdir/issue-mismatch.json" <<'JSON'
+{"number":54,"title":"Different issue","body":"Acceptance requires `frontend/step2.tsx`."}
+JSON
+  ec=0; output=$(PATH="$workdir/bin:$PATH" bash "$closure" --pr-json "$workdir/pr.json" --issue-json "$workdir/issue-mismatch.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD20: closure audit rejects mismatched single fixture" "$ec" 1
+  assert_output_contains "AD20b: mismatched fixture does not stand in for closed issue" "$output" "cannot inspect closing issue #55"
+  cat > "$workdir/issue-anon.json" <<'JSON'
+{"title":"Anonymous fixture","body":"Acceptance requires `frontend/step2.tsx`."}
+JSON
+  ec=0; output=$(PATH="$workdir/bin:$PATH" bash "$closure" --pr-json "$workdir/pr.json" --issue-json "$workdir/issue-anon.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD21: closure audit accepts anonymous single fixture" "$ec" 0
+  rm -rf "$workdir"
 }
 
 test_autonomous_workflow_alignment() {
   echo -e "\n${CYAN}Suite AE: autonomous workflow alignment${NC}"
   local repo_root; repo_root="$(cd "$PLUGIN_ROOT/../.." && pwd)"
   assert_file_contains "AE1: startup calls health preflight" "$PLUGIN_ROOT/commands/startup.md" "health-preflight.sh"
-  assert_file_contains "AE2: startup uses demand discovery" "$PLUGIN_ROOT/commands/startup.md" "demand-discovery.sh"
+  assert_file_contains "AE2: startup uses market scout" "$PLUGIN_ROOT/commands/startup.md" "market-scout.sh"
   assert_file_contains "AE3: startup uses single-flight" "$PLUGIN_ROOT/commands/startup.md" "single-flight.sh"
   assert_file_not_contains "AE4: startup no broad stale pkill command" "$PLUGIN_ROOT/commands/startup.md" "pkill -f 'agent-type saas-startup-team'"
   assert_file_contains "AE5: improve calls health preflight" "$PLUGIN_ROOT/commands/improve.md" "health-preflight.sh"
-  assert_file_contains "AE6: goal-deliver calls demand discovery" "$PLUGIN_ROOT/commands/goal-deliver.md" "demand-discovery.sh"
+  assert_file_contains "AE6: goal-deliver calls market scout" "$PLUGIN_ROOT/commands/goal-deliver.md" "market-scout.sh"
   assert_file_contains "AE7: goal-deliver requires acceptance packs" "$PLUGIN_ROOT/commands/goal-deliver.md" "acceptance-packs.sh"
   assert_file_contains "AE8: goal-deliver completion artifact" "$PLUGIN_ROOT/commands/goal-deliver.md" "completion artifact"
   assert_file_contains "AE9: lessons-review points to lessons-deliver" "$PLUGIN_ROOT/commands/lessons-review.md" "/lessons-deliver"
   assert_file_not_contains "AE10: lessons-review no longer routes to goal-deliver command" "$PLUGIN_ROOT/commands/lessons-review.md" "/goal-deliver #<number>"
   assert_file_contains "AE11: lessons-deliver documents Codex host behavior" "$PLUGIN_ROOT/commands/lessons-deliver.md" "Codex surface"
   assert_file_contains "AE12: README documents health preflight" "$PLUGIN_ROOT/README.md" "health-preflight.sh"
-  assert_file_contains "AE13: README documents demand discovery" "$PLUGIN_ROOT/README.md" "demand-discovery.sh"
+  assert_file_contains "AE13: README documents market scout" "$PLUGIN_ROOT/README.md" "market-scout.sh"
   assert_file_contains "AE14: README documents acceptance packs" "$PLUGIN_ROOT/README.md" "acceptance-packs.sh"
   assert_file_contains "AE15: README documents single-flight" "$PLUGIN_ROOT/README.md" "single-flight.sh"
+  assert_file_contains "AE16: improve runs closure audit" "$PLUGIN_ROOT/commands/improve.md" "issue-closure-audit.sh"
+  assert_file_contains "AE17: goal-deliver runs closure audit" "$PLUGIN_ROOT/commands/goal-deliver.md" "issue-closure-audit.sh"
+  assert_file_contains "AE18: goal-deliver asks material promise question" "$PLUGIN_ROOT/commands/goal-deliver.md" "material promise"
+  assert_file_contains "AE19: growth detects lifecycle" "$PLUGIN_ROOT/commands/growth.md" "growth_lifecycle"
+  assert_file_contains "AE20: growth prelive forbids outreach" "$PLUGIN_ROOT/commands/growth.md" "do not contact prospects"
+  assert_file_contains "AE21: growth uses autonomous operations gates" "$PLUGIN_ROOT/commands/growth.md" "owner authorization gates"
+  assert_file_not_contains "AE22: growth no longer creates recurring human tasks" "$PLUGIN_ROOT/commands/growth.md" "### 2e: Create human tasks"
   local ec
   ec=0; (cd "$repo_root" && python3 scripts/sync-codex-marketplace.py --check >/dev/null) || ec=$?
-  assert_exit_code "AE16: Codex marketplace surfaces in sync" "$ec" 0
+  assert_exit_code "AE23: Codex marketplace surfaces in sync" "$ec" 0
 }
 
 main() {

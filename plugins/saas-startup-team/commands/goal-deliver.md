@@ -75,12 +75,14 @@ remove the token from the argument list before resolving the input form below.
 `FULL_MODE` forces the normal gated path (Step 1.5 is skipped entirely). All other
 arguments resolve as usual; `--full` is never treated as spec text.
 
-If no arguments were given, run internal demand discovery before asking for feedback:
+If no arguments were given, run market scouting before asking for feedback. The scout uses
+configured external market evidence when available and falls back to internal demand
+discovery when browsing/source data is unavailable:
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/demand-discovery.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/market-scout.sh"
 ```
 
-If `.startup/demand/candidates.jsonl` contains one or more candidates, take the top
+If `.startup/demand/market-scout.jsonl` contains one or more candidates, take the top
 ranked candidate as the selected market need and continue without asking the investor.
 If no candidate exists, ask:
 > What should I deliver? Give me GitHub issues (`#12 #15`), `--milestone <name>`,
@@ -276,7 +278,10 @@ on has merged):
    a PR on `improve/<chunk-slug>`.
 2. **Close the tribunal loop** on the PR branch. Load and follow
    `tribunal-review:closing-tribunal-loop`. Run `tribunal-review:tribunal-loop`;
-   if the arbiter returns **zero critical and zero high**, the gate is closed
+   include this explicit issue-closure question in the review request whenever the PR
+   body/title uses `Closes`, `Fixes`, or `Resolves`: **Does this PR satisfy every
+   material promise in the full issue body and comments it closes, or only a subset?**
+   If the arbiter returns **zero critical and zero high**, the gate is closed
    (leftover medium/low → YAGNI triage: file a follow-up only if real and worth
    acting on, else drop with a PR-body note). While any critical/high remains:
    - **Rounds 1–2:** fix directly (tech founder), push, re-run.
@@ -285,7 +290,18 @@ on has merged):
    - **Round 10:** notify the investor (still grinding) without stopping.
    - **Round 20:** stop and escalate to the investor with the standing finding.
    Then **skip the chunks that depend on it** and continue with independent ones.
-3. **Merge.** `gh pr merge "<pr url>" --squash --delete-branch`, close the chunk's
+3. **Issue-closure audit, then merge.** Before merging any PR whose title/body contains
+   `Closes`, `Fixes`, or `Resolves`, run:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/issue-closure-audit.sh" --pr "<pr url>"
+   ```
+   If the audit fails, do not merge. Either implement the missing named surface, add a
+   `## Closure audit` PR-body explanation with a follow-up issue for remaining acceptance,
+   or change the closing keyword to `Refs #<n>` so GitHub does not close the parent issue.
+   Then re-run the audit.
+
+   Merge only after the closure audit passes:
+   `gh pr merge "<pr url>" --squash --delete-branch`, close the chunk's
    issues (`gh issue close <n> --comment "Delivered in <pr url>"`), then
    `git checkout "${default}" && git pull --ff-only`. Continue to the next chunk.
    Note: if a chunk resolves an incident-labeled issue (`bug`/`monitor`/`customer-issue`)

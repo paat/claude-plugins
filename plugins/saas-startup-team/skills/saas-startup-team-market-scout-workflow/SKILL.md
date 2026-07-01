@@ -1,14 +1,14 @@
 ---
-name: saas-startup-team-growth-workflow
-description: "Run /growth workflow from saas-startup-team; alias /saas-startup-team:growth."
+name: saas-startup-team-market-scout-workflow
+description: "Run /market-scout workflow from saas-startup-team; alias /saas-startup-team:market-scout."
 ---
 
-# /saas-startup-team:growth Codex Workflow
+# /saas-startup-team:market-scout Codex Workflow
 
-This generated skill is the Codex-native plugin surface for `/saas-startup-team:growth`.
-Also use it when the user invokes `/growth` or asks for the same workflow by name.
+This generated skill is the Codex-native plugin surface for `/saas-startup-team:market-scout`.
+Also use it when the user invokes `/market-scout` or asks for the same workflow by name.
 
-Source command: `../../commands/growth.md`
+Source command: `../../commands/market-scout.md`
 
 ## Run Protocol
 
@@ -37,5 +37,5 @@ For `saas-startup-team` workflows in Codex:
 ## Command Metadata
 
 - Plugin: `saas-startup-team`
-- Command aliases: `/saas-startup-team:growth`, `/growth`
-- Source description: Launch the lifecycle-aware growth track - initializes docs/growth/ structure, detects prelive/live/postlive/paused state, stages go-live readiness before outreach, and runs customer acquisition only when lifecycle gates allow it. Usage: /growth [--prelive|--pre-launch|--live|--postlive|--paused]
+- Command aliases: `/saas-startup-team:market-scout`, `/market-scout`
+- Source description: Generate ranked SaaS improvement candidates from external market evidence when configured, with an internal demand-discovery fallback when browsing/source data is unavailable. Usage: /market-scout [category or source guidance]
