@@ -69,6 +69,7 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:improve` | One-shot improvements on a completed product |
 | `/saas-startup-team:operate` | Post-launch operations entry point. Routes live monitoring, incident investigation, abandoned-session replay, and support triage from the shared `operate:` config block. |
 | `/saas-startup-team:monitor` | On-demand operations report using the existing `monitor:` engine plus configured `operate:` sources. Read-only unless `--file-issues` is passed. |
+| `/saas-startup-team:harvest` | Internal evidence harvester for self-improvement and market-need candidates. Runs local session insight clustering plus broader internal demand discovery; no external research and no filing unless the separate gated filing step is enabled. |
 | `/saas-startup-team:investigate` | Investigate a correlation ID or recent sessions, write redacted RCA artifacts, and optionally file/update a deduplicated GitHub issue. |
 | `/saas-startup-team:replay-abandoned` | Replay configured abandoned funnel sessions via browser tooling and emit structured findings for build-track follow-up. |
 | `/saas-startup-team:goal-deliver` | Deliver a set of tasks (issues, milestone, spec, or free text) end-to-end: plan into chunks, ship each via `/improve` + closing tribunal loop + merge to main, then monitor and fix the GitHub Actions deploy. Pairs with built-in `/goal` for autonomy. Requires the `tribunal-review` plugin. |
@@ -227,8 +228,24 @@ All operate commands treat logs/support text as untrusted customer-controlled in
 
 ## Demand Signal Intake
 
-The maintenance loop consumes GitHub issues, so external signal plugins should bridge into
-issues rather than directly invoking implementation:
+The maintenance loop consumes GitHub issues, but `/startup`, `/growth`, `/improve`,
+`/tweak`, and `/goal-deliver` can also start from internally discovered evidence when no
+fresh investor instruction is provided. The deterministic entrypoint is:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/demand-discovery.sh"
+```
+
+It ingests configured local sources: Claude Code session JSONL, Codex session/history
+JSONL, GitHub issue/PR JSON exports, local docs/learnings, test logs, runtime/error logs,
+and analytics exports. It clusters repeated signals into customer pain areas, ranks them,
+de-identifies project names/paths/issue IDs, and writes `.startup/demand/candidates.jsonl`
+plus `.startup/demand/report.md`. It deliberately does **not** browse the web or use paid
+market data; when external research is unavailable, internal discovery still runs and the
+report states the limitation.
+
+External signal plugins should bridge into issues rather than directly invoking
+implementation:
 
 - `analyst-companion` can mirror approved meeting work items into issues when trusted
   bridge mode is explicitly configured.
@@ -245,7 +262,15 @@ and dedupe keys; they should not decide that every signal is implementation-read
 
 ## Product QA Gates
 
-Founder handoffs, UX review, and solution signoff include triggered gates for:
+Founder handoffs, UX review, and solution signoff include triggered gates. The reusable
+pack surface is:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/acceptance-packs.sh" --select --category <category> --text <need>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/acceptance-packs.sh" --render paid_async_workflow,report_output_product
+```
+
+Available packs cover:
 
 - async paid/background flows: progress, ETA or honest indeterminate state, close-browser behavior, terminal `DONE`/`FAILED`/still-working states, and slow-job evidence;
 - customer-facing copy/value units: public copy, metadata, pricing, checkout, onboarding, empty states, and generated customer text avoid internal implementation terms;
@@ -254,6 +279,12 @@ Founder handoffs, UX review, and solution signoff include triggered gates for:
 - LLM products: model/provider tier, fallback metadata, parse-failure evidence, structured-output hardening, and customer-critical quality checks;
 - compliance/risk products: facts, signals, automated findings, violations, drafts, recommendations, and needs-review claims have separate evidence rules;
 - go-live CI/CD: deploy workflow, environment approvals, separated permissions, managed secrets, visible logs, migration/restart docs, and runner recovery instructions.
+
+Report/output products can be fixture-checked with:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/acceptance-packs.sh" --verify-report path/to/report.md
+```
 
 ## Maintenance loop (`/maintain`)
 
@@ -293,7 +324,15 @@ The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues h
 ### Prerequisites and integration
 
 - **Requires the `tribunal-review` plugin** (hard dependency).
-- **Authenticated `gh` (GitHub CLI)** and standard tooling: `jq`, GNU coreutils `date`.
+- **Reusable health preflight:** `/improve` and `/goal-deliver` call
+  `scripts/health-preflight.sh` before autonomous work. It reports blocking, warning, and
+  auto-fixed states as both human-readable Markdown and machine-readable JSON, checks
+  `bash` 4+, `git`, `gh`, `jq`, `awk`, `sed`, `timeout`, Codex CLI when required,
+  GitHub auth, hook targets, dirty worktree classification, and Codex/Claude surface sync.
+- **Single-flight leases:** `scripts/single-flight.sh` owns issue/job/scan/report/deploy
+  work units with owner, heartbeat, stale replacement audit notes, and release/status
+  commands. Long-running work is treated as alive when the heartbeat/logs advance.
+- **Authenticated `gh` (GitHub CLI)** and standard tooling: `bash` 4+, `git`, `jq`, `awk`, `sed`, and GNU coreutils `date`/`timeout`.
 - **Dev container only** (inherits the plugin's dev-container-only design).
 
 ## Self-improvement loop (`/lessons-deliver`)
@@ -336,8 +375,9 @@ runs in each **product** repo.
 - Playwright MCP (`@playwright/mcp`) — automatically configured via plugin `.mcp.json`, runs headless
 - Web access enabled (for business founder's market research)
 - **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. Codex implementation can run with broad filesystem/Bash authority, and `scripts/codex-implement.sh` may use `-s danger-full-access` unless `CODEX_SANDBOX=workspace-write` is set to harden it. The container is the isolation boundary. Hooks also use `/proc/` for process-tree detection. Do not run it on a host machine.
-- **`jq`, `awk`, `curl`, and `python3`** — required by hook scripts, JSON
-  validation, monitor/lawyer workflows, and datalake API checks.
+- **`jq`, `awk`, `sed`, `curl`, `timeout`, and `python3`** — required by hook scripts,
+  JSON validation, monitor/lawyer workflows, preflight checks, Codex marketplace sync, and
+  datalake API checks.
 - **google-ads-strategist plugin** — required for any Google Ads work (hard dependency). Google Ads is delegated to its `ads-strategist` agent; `growth-hacker` no longer creates Google Ads campaigns itself. There is no manifest-level dependency field, so this is enforced behaviorally: `/ads` and the `/growth` loop fail with an install instruction if the plugin is absent.
 - **`codex` CLI (optional in interactive Codex, required for separate worker dispatch)** — only needed when the workflow launches a separate Codex process via `codex exec` or `scripts/codex-implement.sh`. Without it, Codex continues inline or asks for an environment fix; it never falls back to a Claude implementation engine.
 

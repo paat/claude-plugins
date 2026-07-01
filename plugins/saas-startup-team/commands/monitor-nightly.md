@@ -147,8 +147,12 @@ If `--dry-run`, prefix every line with `[DRY RUN]`.
 ## Cron setup
 
 ```bash
+# Claude Code example:
 # 0 2 * * *  cd /path/to/product && claude -p "/monitor-nightly" \
 #   --allowedTools "Bash,Read,Write,Grep,Glob" >> /var/log/monitor-nightly.log 2>&1
+# Codex example:
+# 0 2 * * *  cd /path/to/product && <codex command for this plugin> "/monitor-nightly" \
+#   >> /var/log/monitor-nightly.log 2>&1
 ```
 
 Ensure `ANTHROPIC_API_KEY`, authenticated `gh`, `jq`, GNU `date`, and `flock` are available in the
@@ -164,6 +168,7 @@ a `bash <script>` call), so you can grant just the engine path and drop the full
 `Bash(bash:*)` that a `bash <script>` invocation would otherwise force:
 
 ```bash
+# Claude Code example:
 # 0 2 * * *  cd /path/to/product && claude -p "/monitor-nightly" --allowedTools \
 #   'Bash($CLAUDE_PLUGIN_ROOT/scripts/monitor-dedup.sh:*),Bash(flock:*),Bash(mkdir:*),Bash(jq:*),Bash(grep:*),Bash(sed:*),Bash(tr:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(basename:*),Bash(dirname:*),Bash(date:*),Read,Write,Grep,Glob' \
 #   >> /var/log/monitor-nightly.log 2>&1

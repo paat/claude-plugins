@@ -18,6 +18,15 @@ Skill('saas-startup-team:growth-hacker')
 
 ## Step 1: Pre-Flight Checks
 
+Run the reusable health preflight first:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/health-preflight.sh" --require-gh --check-sync
+```
+
+In Codex, include `--require-codex`; missing Codex CLI/auth is an environment blocker
+when a separate Codex worker or GitHub mutation is required.
+
 ### Check 1: Product is live (unless --pre-launch)
 
 If the user passed `--pre-launch`, skip this check.
@@ -59,10 +68,18 @@ Run `/bootstrap` to ensure all docs/ subdirectories exist.
 
 ### 2c: Spawn business founder for strategy
 
-Kill stale agents first:
+Before dispatching, claim the growth initialization lease:
+
 ```bash
-pkill -f 'agent-type saas-startup-team' 2>/dev/null || true
-sleep 1
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
+  --acquire "growth:init:${PWD}" --state-dir .startup/leases --owner "growth:init:$$" --ttl-seconds 1800
+```
+
+If no explicit channel or strategy direction was provided, run internal demand discovery
+and use the top candidate as one input into `docs/growth/strategy.md`:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/demand-discovery.sh"
 ```
 
 Spawn business founder via Task tool with `subagent_type: "general-purpose"`:
@@ -154,11 +171,15 @@ Update `.startup/state.json` — READ it first, then add growth fields AND overw
 
 ### Dispatching the growth agent
 
-Kill stale agents first:
+Claim a lease for the channel/objective before dispatching:
+
 ```bash
-pkill -f 'agent-type saas-startup-team' 2>/dev/null || true
-sleep 1
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
+  --acquire "growth:${channel_or_objective}" --state-dir .startup/leases --owner "growth:$$" --ttl-seconds 1800
 ```
+
+If a live owner exists, read its heartbeat/logs and continue from existing artifacts
+instead of starting over.
 
 **Choose the lightest workflow that fits:**
 

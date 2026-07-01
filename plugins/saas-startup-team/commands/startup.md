@@ -15,9 +15,30 @@ Before anything else, load the startup orchestration skill for loop management g
 Skill('saas-startup-team:startup-orchestration')
 ```
 
+Run the reusable health preflight before any discovery or implementation dispatch:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/health-preflight.sh" --require-gh --check-sync
+```
+
+In Codex, add `--require-codex`. Treat blocker findings as environment blockers with the
+reported remediation; warnings can be logged and the workflow may continue when the
+affected capability is not needed.
+
 ## Step 1: Capture the SaaS Idea
 
-If the user hasn't already described their SaaS idea, ask them (in English):
+If the user hasn't already described their SaaS idea, first try internal demand discovery
+instead of blocking on new feedback:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/demand-discovery.sh"
+```
+
+If `.startup/demand/candidates.jsonl` contains candidates, use the top-ranked candidate
+as the initial SaaS/customer need and write `docs/business/brief.md` from its
+`target_customer_segment`, `discovered_need`, evidence, desired outcome, selected
+acceptance packs, and non-goals. Only ask the investor when no demand evidence exists:
+
 > What SaaS product should we build? Describe the core idea, target customers, and the problem it solves.
 
 ## Step 2: Initialize Project Directory
@@ -159,16 +180,17 @@ Clean up state from previous sessions to prevent stale data:
 
 ## Step 3: Spawn Agent Team
 
-Before spawning the agent team, clean up orphaned processes from previous sessions:
+Before spawning the agent team, claim a single-flight lease for this startup session:
 
 ```bash
-# Kill orphaned Claude agent processes (from crashed previous sessions)
-pkill -f 'agent-type saas-startup-team' 2>/dev/null || true
-# Kill orphaned Playwright MCP servers
-pkill -f 'playwright-mcp' 2>/dev/null || true
-# Brief pause for cleanup
-sleep 1
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
+  --acquire "startup:${PWD}" --state-dir .startup/leases --owner "startup:$$" --ttl-seconds 1800
 ```
+
+If a live owner exists, read its heartbeat/logs and resume from artifacts instead of
+starting over. If it is stale, replace it only with `--replace-stale --reason "<evidence>"`
+after checking the heartbeat and output files. Do not use broad `pkill` cleanup as the
+default stale-agent strategy.
 
 Spawn the initial agent pair using the **Task tool** (one-shot agents, NOT TeamCreate). Agent Teams persistent teammates cannot be dismissed — they accumulate as zombie processes. All agent dispatches (initial and subsequent) use the same one-shot pattern described in Step 5.
 
@@ -178,7 +200,8 @@ Spawn the initial agent pair using the **Task tool** (one-shot agents, NOT TeamC
    - Has web access, browser access, research tools
 
 2. **Tech Founder** — spawn via Task tool with `subagent_type: "general-purpose"`:
-   - Pick the engine per **"1c. Choosing the implementation engine"** in the startup-orchestration skill. This initial spawn is architecture planning → default to the **Claude engine**: tell the agent to read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude.md` for its identity, tools, and behavioral constraints. (For later implementation handoffs, route to `tech-founder-claude.md` or `tech-founder-codex.md` by the handoff's content.)
+   - **Claude Code surface:** pick the engine per **"1c. Choosing the implementation engine"** in the startup-orchestration skill. This initial spawn is architecture planning → default to the Claude engine: tell the agent to read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude.md` for its identity, tools, and behavioral constraints. (For later implementation handoffs, route to `tech-founder-claude.md` or `tech-founder-codex.md` by the handoff's content.)
+   - **Codex surface:** do not route to `tech-founder-claude*` or invoke Claude Code primitives. Run the tech-founder role as a Codex role phase using the `tech-founder` skill, direct Codex implementation, or `codex exec` when a separate worker is useful.
    - Task: Read `docs/business/brief.md` to understand the product vision. Plan preliminary architecture ideas and write initial thoughts to `docs/architecture/architecture.md`. Do NOT start implementing until you receive a handoff from the business founder. Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
    - Has code tools only, no web access
 
@@ -211,11 +234,22 @@ Send the initial message to the business founder:
 
 **Always spawn a fresh agent for every relay.** Never reuse agents — context bloat from prior handoffs degrades agent quality. Each dispatch starts with a clean context window.
 
-Before spawning a new agent, **kill ALL stale agents** (not just same role — kill everything):
+Before spawning a new agent, claim a lease for the exact relay/work unit:
+
 ```bash
-pkill -f 'agent-type saas-startup-team' 2>/dev/null || true
-sleep 1
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
+  --acquire "handoff:${handoff_number}:${target_role}" \
+  --state-dir .startup/leases \
+  --owner "${target_role}:${handoff_number}" \
+  --ttl-seconds 1800
 ```
+
+If the lease is active, do not re-dispatch. Check its heartbeat, logs, and expected output
+artifact; long-running LLM, report, browser, test, or deploy work is expected when the
+heartbeat advances or logs show progress. Replace a stale owner only with
+`--replace-stale --reason "<heartbeat/log evidence>"`, which writes an audit note. Never
+terminate broad process patterns as a routine recovery step; exact process termination is
+allowed only after the lease and heartbeat prove staleness.
 
 **Do NOT use TeamCreate for relays.** TeamCreate spawns persistent teammates that cannot be dismissed — they accumulate as zombie processes eating ~500MB each. Use the **Task tool** which spawns one-shot agents that exit cleanly when done.
 

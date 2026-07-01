@@ -71,7 +71,7 @@ for every project regardless of launch status.
                                      │ before implementing│
                                      └────────┬─────────┘
                                               ▼
-                                     AUTOMATED implement (/goal-deliver on plugin)
+                                     AUTOMATED implement (/lessons-deliver on plugin)
                                      → lesson becomes plugin code/prompt/hook
 ```
 
@@ -85,7 +85,7 @@ PII gate (§4) before any write.
 
 **The only human step:** the investor reviews the GH improvement issues in
 `paat/claude-plugins` **before they are implemented**. Approve → automated
-implementation via `/goal-deliver`. Everything else — detection, distillation,
+implementation via `/lessons-deliver`. Everything else — detection, distillation,
 de-identification, dedup, issue filing — is automated.
 
 **Non-negotiable automated gate (safety, not burden):** a hard **PII/secrets
@@ -330,7 +330,7 @@ Tracking issue: **#79** (keep open until the loop runs end-to-end live).
 - [x] **v4 — `lesson-review.sh` + `/lessons-review`** (the single human gate). Component #4.
   - Lists open `lesson-candidate` issues from the PINNED repo (`--list [--json]`),
     and lets the investor `--approve N` (single atomic relabel
-    `lesson-candidate` → `lesson-approved`, marking it ready for `/goal-deliver`)
+    `lesson-candidate` → `lesson-approved`, marking it ready for `/lessons-deliver`)
     or `--close N` (reject, closed as *not planned*). Repo pin required + validated
     as `OWNER/REPO` for every action; mutations act only on a verified lesson issue
     (label guard); idempotent approve/close; **fails closed** on any `gh` error.

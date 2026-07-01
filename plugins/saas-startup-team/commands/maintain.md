@@ -42,13 +42,14 @@ reasons, both inherent to a foreground interactive turn — not bugs to grind on
 permissions pre-granted. `--once` exists exactly for this:
 
 ```bash
-# Trusted/dev box — simplest, fully hands-off:
+# Claude Code trusted/dev box — simplest, fully hands-off:
 while :; do
   claude -p "/maintain --once" --dangerously-skip-permissions
   sleep 300
 done
-# or:  /loop 5m /maintain --once     (the harness re-invokes per tick)
-# or:  a cron / systemd timer firing the same `claude -p "/maintain --once" …` line
+# Codex trusted/dev box — use the Codex plugin skill or codex exec equivalent per tick.
+# Shared harness: /loop 5m /maintain --once     (the harness re-invokes per tick)
+# Cron/systemd: fire the host-appropriate assistant command for "/maintain --once".
 ```
 
 `--once` + the external scheduler supplies the cross-pass cadence (fixing reason 2);
@@ -60,8 +61,12 @@ allowlist `monitor-nightly` uses, because `/maintain` runs `/goal-deliver` inlin
 that **writes code and merges PRs**:
 
 ```bash
+# Claude Code example:
 # 0 * * * *  cd /path/to/product && claude -p "/maintain --once" \
 #   --allowedTools 'Bash,Edit,Write,Read,Grep,Glob,Task,WebFetch' \
+#   >> /var/log/maintain.log 2>&1
+# Codex example:
+# 0 * * * *  cd /path/to/product && <codex command for this plugin> "/maintain --once" \
 #   >> /var/log/maintain.log 2>&1
 ```
 

@@ -1,6 +1,6 @@
 ---
 name: lessons-review
-description: The single human gate of the self-improvement loop. Lists open `lesson-candidate` issues in the pinned plugin repo and lets the investor approve (mark ready for /goal-deliver) or close (not generic) each one, before any implementation. Usage: /lessons-review
+description: The single human gate of the self-improvement loop. Lists open `lesson-candidate` issues in the pinned plugin repo and lets the investor approve (mark ready for /lessons-deliver) or close (not generic) each one, before any implementation. Usage: /lessons-review
 allowed-tools: Bash, Read
 user_invocable: true
 ---
@@ -73,12 +73,14 @@ not make.
 
 ## 5. Hand off approved lessons to implementation
 
-Approved issues carry `lesson-approved`. Implement them with the existing
-playbook, by issue number:
+Approved issues carry `lesson-approved`. In this plugin repository they are picked up by
+the plugin-native autonomous implementer:
 
 ```
-/goal-deliver #<number> [#<number> ...]
+/lessons-deliver --once --repo <OWNER/REPO>
 ```
 
-Offer to run `/goal-deliver` for the issues just approved. That step turns the
-approved lesson into plugin code / prompt / hook changes — the loop's payoff.
+Do not route approved plugin lessons to `/goal-deliver`; that playbook targets finished
+SaaS product repos with `.startup/go-live/solution-signoff.md`. `/lessons-deliver` turns
+approved lessons into plugin code / prompt / hook changes with the plugin-specific test,
+version-bump, PR, review, and merge gates.

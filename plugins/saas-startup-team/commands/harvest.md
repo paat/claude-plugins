@@ -31,7 +31,21 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/harvest.sh"
 nouns → `{{PROJECT}}`), **hard-blocks any candidate containing a secret/PII
 pattern**, enforces recurrence thresholds, and dedups against
 `.startup/insights/harvest-ledger.json`. It decides nothing about genericity or
-phrasing. Output: `.startup/insights/candidates.jsonl` + `harvest-report.md`.
+phrasing. Output: `.startup/insights/candidates.jsonl` + `.startup/insights/harvest-report.md`.
+
+3. For market/customer/product demand candidates, run the broader internal evidence
+   harvester:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/demand-discovery.sh"
+```
+
+It ingests configured Claude/Codex session JSONL, GitHub issue/PR exports, local
+docs/learnings, test logs, runtime/error logs, and analytics exports. It clusters signals
+by customer pain area, ranks needs by evidence/confidence/value/complexity, de-identifies
+project-specific strings, and attaches acceptance packs. It does **not** perform external
+market research; when no browsing or paid data is available, internal discovery still runs
+and the report states that limitation.
 
 ## Your job (the genericity + drafting step)
 

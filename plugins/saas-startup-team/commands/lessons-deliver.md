@@ -110,10 +110,16 @@ Each pass:
       refusal (already claimed / linked PR / not approved / closed) **skip** to the next
       lesson; never force.
    2. **Branch** — `git checkout -b "lesson/<N>-<slug>" "origin/$default"` inside `$WT`.
-   3. **Implement** — dispatch ONE fresh implementer subagent,
-      `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude-maintain.md` (Claude/Opus; the
-      tribunal supplies the independent/Codex review). Give it the lesson body + this repo's
-      `CLAUDE.md` conventions; it makes the plugin edit **and adds/updates tests** in
+   3. **Implement** — dispatch ONE fresh implementer for the current host:
+      - **Claude Code surface:** use
+        `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude-maintain.md` (Claude/Opus; the
+        tribunal supplies the independent/Codex review).
+      - **Codex surface:** do not invoke Claude Code or route to `tech-founder-claude*`.
+        Use the `tech-founder` skill, direct Codex implementation, or `codex exec` when a
+        separate Codex worker is useful and the Codex CLI is installed.
+
+      Give the implementer the lesson body + this repo's `CLAUDE.md` / `AGENTS.md`
+      conventions; it makes the plugin edit **and adds/updates tests** in
       `plugins/saas-startup-team/tests/run-tests.sh`. The implementer returns the specific
       lesson facts it acted on (surfaced in the digest).
    4. **Mechanical firewall** — produce the diff and gate it:
@@ -204,7 +210,7 @@ the existing `0 2 * * *` pattern, headless with permissions pre-granted:
 
 ```
 0 3 * * * /usr/bin/flock -n /tmp/lessons-deliver.lock -c \
-  'cd <plugin repo> && claude -p "/lessons-deliver --once" --dangerously-skip-permissions >> /var/log/lessons-deliver.log 2>&1'
+  'cd <plugin repo> && <assistant command for this plugin> "/lessons-deliver --once" >> /var/log/lessons-deliver.log 2>&1'
 ```
 
 cron is the production runner; `/loop` is for a supervised session only.

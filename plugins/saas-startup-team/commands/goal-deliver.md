@@ -34,6 +34,13 @@ until the condition holds.
 
 ## Pre-Flight (all gates must pass)
 
+0. **Reusable health preflight.** Run:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/health-preflight.sh" --require-gh --check-sync
+   ```
+   In Codex, include `--require-codex` when a separate Codex worker may be used. Missing
+   Codex CLI/auth is a blocker for Codex surfaces that need it; do not route the work to
+   Claude as a fallback.
 1. **tribunal-review installed.** Confirm the `tribunal-review:tribunal-loop`
    skill is available. If not:
    > `/goal-deliver` requires the `tribunal-review` plugin (the tribunal gate is
@@ -68,7 +75,14 @@ remove the token from the argument list before resolving the input form below.
 `FULL_MODE` forces the normal gated path (Step 1.5 is skipped entirely). All other
 arguments resolve as usual; `--full` is never treated as spec text.
 
-If no arguments were given, ask:
+If no arguments were given, run internal demand discovery before asking for feedback:
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/demand-discovery.sh"
+```
+
+If `.startup/demand/candidates.jsonl` contains one or more candidates, take the top
+ranked candidate as the selected market need and continue without asking the investor.
+If no candidate exists, ask:
 > What should I deliver? Give me GitHub issues (`#12 #15`), `--milestone <name>`,
 > a markdown spec path, or describe the features.
 
@@ -79,6 +93,9 @@ Resolve the input form (handle inline — no scripts):
   --json number,title,body`. Keep the numbers.
 - **a single existing file path** → read it; it is the spec.
 - **anything else** → the argument text is the spec.
+- **demand candidate JSON** → treat it as the implementation brief: customer segment,
+  discovered need, evidence, desired outcome, acceptance packs, non-goals, validation plan,
+  and rollout checks.
 
 ## Step 1.5: Trivial Fast-Path Routing (single issue only)
 
@@ -232,11 +249,27 @@ list and order — this is judgment, not a script.
 Track the chunks with a **TodoWrite list** (in-context) so progress is visible.
 Do not write a state file or build an ordering engine.
 
+For every chunk, attach selected acceptance packs from
+`${CLAUDE_PLUGIN_ROOT}/scripts/acceptance-packs.sh --render <pack ids>` to the brief and
+final verification. When a selected candidate has no packs, run
+`acceptance-packs.sh --select --category <category> --text <need>` and use the result.
+
 ## Step 3: Deliver Each Chunk
 
 For each chunk, in dependency order (a chunk is ready once everything it depends
 on has merged):
 
+0. **Claim the work unit.** Before dispatch or branch creation:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
+     --acquire "goal-deliver:${chunk_slug}" \
+     --state-dir .startup/leases \
+     --owner "goal-deliver:${chunk_slug}:$$" \
+     --ttl-seconds 1800
+   ```
+   If an active owner exists, inspect its heartbeat, logs, and completion artifact. Resume
+   from existing artifacts when possible; replace only with `--replace-stale --reason`
+   after recording heartbeat/log evidence.
 1. **Build via `/improve`.** Follow `${CLAUDE_PLUGIN_ROOT}/commands/improve.md`
    in `new-branch` mode off the default branch, using the chunk's description as
    the improvement instruction. This runs business → tech → business-QA and opens
@@ -280,6 +313,12 @@ or you judge it needs the investor.
 Report to the investor (English): chunks **merged** (PR links), chunks
 **blocked/skipped** (reasons + draft-PR links), GitHub issues **filed** for
 out-of-scope findings (links), and **deploy status** (green/failed + run link).
+Every completed run must include a completion artifact in the PR body or final report:
+the market/customer need addressed, what changed, how it was verified, selected
+acceptance packs, remaining risks, and any follow-up issues filed. Ask the investor only
+for true blockers: missing secrets/credentials, paid external access, destructive
+production action, legal approval or regulated claims needing human signoff, or ambiguity
+that materially changes customer promise or pricing.
 
 ## Communication
 
