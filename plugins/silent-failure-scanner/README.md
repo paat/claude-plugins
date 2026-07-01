@@ -10,6 +10,12 @@ its exceptions, and thousands of requests return HTTP 200 without ever persistin
 **Reports only — it never edits code.** There is no LLM in the detection path: matching is pure
 regex over a `git diff`, so it is fast, deterministic, and safe to wire into a pre-commit hook or CI.
 
+## Mission Fit
+
+`silent-failure-scanner` is delivery infrastructure. It catches quiet false-success paths
+that autonomous agents commonly introduce, especially around persistence, async work, and
+error handling in production SaaS flows.
+
 ## Installation
 
 - **Install for you** (user scope) — available in all your projects:

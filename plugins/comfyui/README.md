@@ -2,6 +2,12 @@
 
 Manage ComfyUI workflows, models, and API from Claude Code — build workflows from natural language, queue executions, monitor progress, and download models.
 
+## Mission Fit
+
+`comfyui` is a supporting asset plugin, not a core demand or delivery gate. Use it when a
+SaaS loop needs generated marketing visuals, onboarding media, product imagery, or other
+creative assets that support acquisition and activation.
+
 ## Prerequisites
 
 - A running ComfyUI instance accessible via HTTP

@@ -135,7 +135,17 @@ If the business founder pushes back, relay their concerns to the investor. Proce
 
 ## Step 2: Tech Founder — Implementation
 
-Pick the maintenance engine per **"1c. Choosing the implementation engine"** in the startup-orchestration skill (Codex engine for spec-complete / backend / test-heavy / plumbing work; Claude engine for frontend / architecture / surgical / nuanced work; **prefer Codex on the margin and default Codex when unsure** to spare scarce Claude/Opus capacity — reserve Claude for work that genuinely needs its strengths). Spawn the tech founder via Agent tool with `subagent_type: "general-purpose"`:
+Use the host-native implementation path:
+
+- **Claude Code surface:** pick the maintenance engine per the startup-orchestration
+  guidance (Codex for spec-complete/backend/test-heavy/plumbing work; Claude for work
+  that genuinely needs its frontend, architecture, or surgical-edit strengths), then
+  spawn the tech founder via Agent tool with `subagent_type: "general-purpose"`.
+- **Codex surface:** do not route to `tech-founder-claude*` or invoke Claude Code
+  primitives. Run a fresh Codex tech-founder role phase using the `tech-founder` skill,
+  direct Codex implementation, or `codex exec` when a separate worker is useful.
+
+Claude Code agent prompt:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude-maintain.md` (Claude engine) **or** `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-codex-maintain.md` (Codex engine) — whichever the orchestrator selected — for your identity and tools.
 >
@@ -154,6 +164,9 @@ Pick the maintenance engine per **"1c. Choosing the implementation engine"** in 
 > - In your handoff, state explicitly which checks you ran and that they passed. If a check could not be run, say so and why.
 >
 > Set 10s timeouts on all HTTP calls.
+
+Codex role phase uses the same task body, but replaces the agent-definition read with the
+`tech-founder` skill and Codex-native implementation.
 
 ## Step 3: Business Founder — QA
 
@@ -182,7 +195,7 @@ Read the business founder's review.
 
 **If FAIL (first attempt):**
 
-Dispatch tech founder to fix:
+Dispatch tech founder to fix using the same host-native split as Step 2:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude-maintain.md` (Claude engine) **or** `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-codex-maintain.md` (Codex engine) — match the engine to the fix per the engine-selection guidance (prefer Codex on the margin; default Codex when unsure) — for your identity and tools.
 >
@@ -192,6 +205,9 @@ Dispatch tech founder to fix:
 > Read the original handoff for the requirements.
 >
 > Fix the issues, then re-run `./check.sh` (the canonical full-suite entrypoint) and confirm it passes before handing off. Write an updated handoff back to the business founder stating that check.sh passed.
+
+In Codex, load the `tech-founder` skill and run this as a fresh Codex role phase instead
+of reading a `tech-founder-claude*` agent file.
 
 Then dispatch business founder for re-QA following the same pattern as Step 3.
 

@@ -2,6 +2,12 @@
 
 Generate AGENTS.md from your Claude Code project configuration. Keep your `.claude/rules/`, `CLAUDE.md`, and `.claude/settings.json` as the source of truth — agent-sync assembles them into a single AGENTS.md that other AI coding tools (Codex, Copilot, Cursor, AMP) can read.
 
+## Mission Fit
+
+`agent-sync` is delivery infrastructure. It keeps project instructions consistent across
+AI tools so autonomous SaaS workflows do not drift between Claude Code, Codex, and other
+agents when handing work from demand discovery to implementation.
+
 ## Installation
 
 Add this marketplace, then install the plugin at the scope you want:

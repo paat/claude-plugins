@@ -6,6 +6,12 @@ GitHub `user-attachments` image URLs return 404 without a valid auth token; this
 
 **Read-only toward GitHub** — it never writes to GitHub, creates issues, or leaves comments.
 
+## Mission Fit
+
+`gh-issue-fetch` is demand-to-work plumbing. It lets agents read issue screenshots,
+comments, and epic progress accurately before converting customer-reported work into
+implementation plans or `/maintain` delivery.
+
 ## Dependencies
 
 - `gh` CLI, authenticated with `repo` scope (`gh auth login`).

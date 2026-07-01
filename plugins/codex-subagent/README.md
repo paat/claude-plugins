@@ -4,6 +4,12 @@ Drive the **OpenAI Codex CLI** (`codex exec`, gpt-5.5) as implementer, reviewer,
 
 This plugin packages the non-obvious operational gotchas so you don't re-derive them.
 
+## Mission Fit
+
+`codex-subagent` is implementation infrastructure. It gives a controller agent an
+independent Codex worker for plan-driven implementation and review, reducing same-model
+blind spots in one-shot SaaS delivery.
+
 ## The one unlock: `-s danger-full-access`, not `--dangerously-bypass-*`
 
 This is the whole ballgame in containerized / already-sandboxed environments:

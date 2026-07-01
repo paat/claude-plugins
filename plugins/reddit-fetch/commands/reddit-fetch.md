@@ -1,7 +1,7 @@
 ---
-allowed-tools: Bash(gemini:*)
+allowed-tools: Bash(gemini:*), Bash(gh:*), Bash(mkdir:*), Write, Read
 description: Research any topic using Reddit via Gemini CLI
-argument-hint: <topic to research on Reddit>
+argument-hint: <topic to research on Reddit> [--file-issue] [--repo owner/name]
 ---
 
 Research a topic by searching Reddit via Gemini CLI. Gemini has web access and can fetch Reddit content that Claude's WebFetch cannot.
@@ -11,6 +11,11 @@ Research a topic by searching Reddit via Gemini CLI. Gemini has web access and c
 The user wants to research the following topic on Reddit:
 
 **Topic:** $ARGUMENTS
+
+If `$ARGUMENTS` contains `--file-issue`, treat that as an explicit request to file
+maintenance-ready GitHub issues for repeated, objectively-checkable SaaS pain points.
+If it contains `--repo owner/name`, use that repo for issue filing; otherwise resolve the
+current repo with `gh repo view`.
 
 ## Steps
 
@@ -56,3 +61,15 @@ The user wants to research the following topic on Reddit:
    ```
 
 5. After presenting Reddit's findings, add own analysis or synthesis where relevant — note agreements or disagreements with the Reddit consensus.
+
+6. **Optional SaaS demand bridge.** If `--file-issue` is present:
+   - Write the research summary to `docs/research/reddit-<slug>.md` with clear caveats that
+     Reddit is anecdotal public evidence.
+   - File GitHub issues only for pain points supported by at least two independent threads
+     or subreddits, and only when the proposed product work is specific and objectively
+     checkable.
+   - Use `gh issue create --body-file`, never inline `--body`.
+   - Label issues `market-signal` and `customer-issue` unless project conventions indicate
+     different labels.
+   - Do not file issues for broad positioning, legal judgment, pricing strategy, or feature
+     ideas that require founder choice; list those as research notes instead.

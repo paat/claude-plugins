@@ -2,6 +2,12 @@
 
 Multi-provider code review plugin for Claude Code. **By default** it runs Codex (GPT-5.5), DeepSeek-V4-Pro via the **OpenCode Go** backend (subscription, then credits on overage), and **Claude** (sonnet) via the host Claude Code CLI, then uses Opus as the final arbiter to deduplicate findings, resolve conflicts, and issue a single authoritative verdict. **Gemini** (3 Pro Preview, web/CVE search), the **OpenCode Go GLM-5.1** leg, and **Qwen** (qwen3.7-plus) via the Qwen Code CLI are available **opt-in** (`TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on` / `TRIBUNAL_QWEN=on`) but off by default — GLM shares architectural lineage with DeepSeek and tends to fail in lockstep, and Qwen reasons over the diff text rather than grounding in files, producing repeated false positives (phantom whitespace, nonexistent symbols, hallucinated line numbers; see [issue #46](https://github.com/paat/claude-plugins/issues/46)), so the default panel keeps the low-false-positive set. (For an independent transport that survives an OpenCode Go quota/429, point `TRIBUNAL_DEEPSEEK_MODEL` at the direct API — `deepseek/deepseek-v4-pro`.) Two of the three default legs — Codex and DeepSeek — **walk the repo** read-only (Codex runs in-container with no `--sandbox` flag); the third, **Claude**, is the panel's **diff-only** lens (run from a scratch dir with all tools disabled), restoring the harness/context diversity the walking legs give up. The opt-in GLM/Gemini legs are also diff-only; the opt-in Qwen leg walks the repo on its own CLI/transport.
 
+## Mission Fit
+
+`tribunal-review` is the production-quality gate for one-shot SaaS delivery. It gives
+autonomous implementation loops an independent review quorum and a bounded convergence
+process before merge.
+
 ## Prerequisites
 
 - [OpenAI Codex CLI](https://github.com/openai/codex) (`npm install -g @openai/codex`)

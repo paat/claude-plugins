@@ -2,6 +2,12 @@
 
 Multi-model delegation plugin for browser testing. Routes mechanical browser work to Kimi K2.5 (via opencode CLI), saving 40-55% tokens on browser-heavy testing sessions.
 
+## Mission Fit
+
+`browser-test-router` is delivery infrastructure. It makes browser verification cheaper
+and more repeatable, which helps SaaS agents validate customer-facing fixes before they
+are merged or shipped.
+
 ## Installation
 
 - **Install for you** (user scope) — available in all your projects:

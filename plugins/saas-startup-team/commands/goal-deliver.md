@@ -220,16 +220,14 @@ Break the work into **PR-sized chunks** — each a coherent unit that produces o
 PR (the `/improve` sweet spot, ~15–30 min of implementation). Order them so any
 chunk's dependencies merge first; note which chunks depend on which.
 
-Recommended (not mandatory): dispatch the **business founder**
-(`${CLAUDE_PLUGIN_ROOT}/agents/business-founder-maintain.md`) to draft the chunk
+Recommended (not mandatory): run a **business founder** role phase to draft the chunk
 plan against `docs/business/brief.md`, `docs/research/`, and `docs/legal/`, and
-to **push back** (citing docs) on anything that conflicts with legal/strategy;
-then dispatch the **tech founder**
-(`${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude-maintain.md` — feasibility/dependency
-reasoning is judgment, so use the Claude engine here; later per-chunk implementation
-still routes by engine per the engine-selection guidance) for a quick feasibility
-and dependency-order sanity check. You own the final chunk list and order — this
-is judgment, not a script.
+to **push back** (citing docs) on anything that conflicts with legal/strategy.
+Then run a **tech founder** feasibility/dependency-order sanity check. On Claude Code,
+these can be dispatched with the `business-founder-maintain` and host-appropriate
+tech-founder agent files. On Codex, do not route to `tech-founder-claude*`; use the
+`tech-founder` skill, direct Codex role phases, or `codex exec`. You own the final chunk
+list and order — this is judgment, not a script.
 
 Track the chunks with a **TodoWrite list** (in-context) so progress is visible.
 Do not write a state file or build an ordering engine.

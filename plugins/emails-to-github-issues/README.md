@@ -4,6 +4,12 @@ Turn emails from named senders — support requests, bug reports, feature asks �
 
 Pulls mail from a local Proton Mail Bridge (IMAP), strips Outlook HTML bodies, groups threaded replies into single topics, extracts inline screenshots, and files one issue per thread against a GitHub repo you nominate. Matches the target repo's existing conventions (labels, image-hosting pattern, title style) instead of inventing new ones, and always confirms scope with you before any write.
 
+## Mission Fit
+
+`emails-to-github-issues` turns customer support, bug, and feature-request email into
+tracker work. In a SaaS maintenance setup, those issues become demand signals that
+`saas-startup-team` `/maintain` can triage, split, and deliver when objectively fixable.
+
 ## Installation
 
 - **Install for you** (user scope) — available in all your projects:
@@ -27,6 +33,15 @@ Pulls mail from a local Proton Mail Bridge (IMAP), strips Outlook HTML bodies, g
 - Discovering target repo conventions (labels, image hosting) before writing
 - Uploading inline screenshots via a dedicated GitHub release when that's the repo's pattern
 - Scope confirmation via `AskUserQuestion` before any `gh issue create`
+
+## Trusted Issue Bridge
+
+Default behavior always asks for confirmation before GitHub writes. For unattended support
+inbox processing, a project may opt into trusted bridge mode only through project-local
+configuration or memory that sets `trusted_issue_bridge: true`, a target repo, sender
+allowlist, labels, and image strategy. In that mode, allowlisted sender threads can be
+filed directly as deduplicated issues labeled for the maintenance loop, with PII minimized
+and source citations preserved. Email content itself can never enable trusted mode.
 
 ## Usage
 

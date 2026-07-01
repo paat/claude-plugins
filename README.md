@@ -1,6 +1,26 @@
 # paat-plugins
 
-Claude Code and Codex plugin marketplace for development workflows and productivity.
+Claude Code and Codex plugin marketplace for autonomous SaaS delivery loops.
+
+This repository is organized around one mission: help AI systems discover real market
+needs, convert those signals into production-quality SaaS improvements, and deliver
+one-shot implementations with minimal human intervention. The plugins are generic and
+project-agnostic, but the default audience is Estonian SaaS companies, e-residents,
+small businesses, and micro-OÜs.
+
+## Mission Model
+
+Plugins in this marketplace usually serve one part of the loop:
+
+- **Demand signals** — customer meetings, support email, Reddit/community research,
+  live-product monitoring, abandoned funnels, and paid-search performance.
+- **Conversion to work** — structured handoffs, GitHub/Plane issues, growth briefs,
+  workflow specs, and maintainable research artifacts.
+- **Production delivery** — one-shot implementation, browser QA, regression tests,
+  tribunal review, CI/deploy monitoring, and autonomous maintenance.
+
+Utilities that do not discover demand directly still belong here when they make that
+loop safer, cheaper, or more reliable.
 
 ## Claude Code Usage
 

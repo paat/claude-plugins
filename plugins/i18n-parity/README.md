@@ -7,6 +7,12 @@ structurally different in another — before a real user sees a raw `dotted.key.
 The enforcement is a **hard gate** (CI + optional pre-push), not a command you must remember to
 run. An optional `/i18n-parity` command runs it ad-hoc and bootstraps the config.
 
+## Mission Fit
+
+`i18n-parity` is delivery infrastructure for multilingual SaaS products. It prevents
+localized customer-facing flows from shipping with missing keys, blank strings, or broken
+ICU arguments after an autonomous implementation.
+
 ## What it checks
 
 Per namespace, across every locale (strict all-locales parity by default):

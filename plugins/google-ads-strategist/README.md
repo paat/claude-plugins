@@ -2,6 +2,12 @@
 
 A senior-level Google Ads strategist agent that designs campaigns through an **iterative improvement process** and verifies every iteration in the real browser before a cent is spent.
 
+## Mission Fit
+
+`google-ads-strategist` is the paid-acquisition and revenue-learning arm of the SaaS loop.
+It turns buyer-intent hypotheses, SERP evidence, and campaign metrics into growth actions
+and product feedback while keeping spend controlled and attributable.
+
 ## Installation
 
 - **Install for you** (user scope) — available in all your projects:

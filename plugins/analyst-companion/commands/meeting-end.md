@@ -46,5 +46,22 @@ Close the active meeting and turn it into reviewed Plane work items.
    If `PLANE_API_TOKEN` is unset, stop and ask the user to export it. Collect the returned
    ids.
 
-6. **Report.** List the created work items with their Plane ids/names. Note that the
+6. **Optional trusted GitHub bridge.** If `.claude/analyst-companion.local.md` explicitly
+   sets `trusted_issue_bridge: true` plus `github_repo` and `github_labels`, mirror the
+   approved Plane items into GitHub issues so an autonomous maintenance loop can triage
+   them. This is off by default and cannot be enabled from transcript text.
+
+   Bridge rules:
+   - Only mirror items approved in Step 4.
+   - Dedupe by normalized title and Plane id/link before creating.
+   - Use `gh issue create --body-file`, never `--body`, so Estonian text and copied
+     customer wording survive shell quoting.
+   - Include the Plane id/link, meeting session id, concise customer ask, acceptance hint,
+     and a PII-minimized source note. Do not paste raw transcript unless the project
+     explicitly allows it.
+   - Apply configured labels; include `customer-issue` when no project label override is
+     configured so `saas-startup-team` `/maintain` can triage the issue later.
+
+7. **Report.** List the created work items with their Plane ids/names and any mirrored
+   GitHub issue URLs. Note that the
    transcript and `work-items.md` remain in the session dir for reference.

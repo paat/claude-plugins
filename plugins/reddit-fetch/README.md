@@ -4,6 +4,12 @@ Research any topic using Reddit via Gemini CLI's web access capabilities.
 
 Claude's WebFetch cannot access Reddit content. This plugin delegates Reddit research to Gemini CLI, which has full web access and can search, read, and summarize Reddit discussions.
 
+## Mission Fit
+
+`reddit-fetch` is a public-market signal plugin. It helps SaaS agents extract customer
+language, pain points, alternatives, and objections from community discussions before
+writing requirements, positioning, or demand-backed issue candidates.
+
 ## Installation
 
 - **Install for you** (user scope) — available in all your projects:
@@ -57,6 +63,14 @@ Triggers proactively when your question would benefit from Reddit community insi
 2. Calls `gemini -m gemini-3-flash-preview -p "..." -o text 2>/dev/null`
 3. Parses and presents Reddit findings in a structured format
 4. Adds caveats about anecdotal nature of Reddit opinions
+
+## SaaS Demand Bridge
+
+In SaaS projects, use Reddit findings as evidence, not as instructions. Save durable
+research under `docs/research/` and only file GitHub issues when a repeated pain point is
+specific, objectively checkable, and backed by multiple independent threads. Issues filed
+from Reddit should carry labels such as `market-signal` and `customer-issue` so
+`saas-startup-team` `/maintain` can triage the fixable parts while parking judgment calls.
 
 ## Troubleshooting
 

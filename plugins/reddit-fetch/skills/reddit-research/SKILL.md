@@ -86,6 +86,21 @@ After receiving Gemini's response:
 4. **Flag caveats** — Reddit opinions may be biased, outdated, or anecdotal
 5. **Add own analysis** — Synthesize findings with own knowledge
 
+## SaaS Demand Bridge
+
+When Reddit research is used inside a SaaS project, convert it into durable evidence before
+turning it into work:
+
+1. Save a concise research artifact under `docs/research/reddit-<topic>.md` when the
+   finding will influence requirements, positioning, or product prioritization.
+2. File GitHub issues only when a pain point is repeated across at least two independent
+   threads or subreddits and the proposed work is objectively checkable.
+3. Use labels such as `market-signal` and `customer-issue` unless the project documents
+   different conventions, so `saas-startup-team` `/maintain` can triage the issue.
+4. Do not file issues for broad strategy, legal/compliance judgment, or pricing choices;
+   route those to business-founder research or `docs/human-tasks.md`.
+5. Always state that Reddit is anecdotal public evidence, not validated customer proof.
+
 Example output format:
 
 ```

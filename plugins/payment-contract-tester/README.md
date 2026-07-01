@@ -2,6 +2,12 @@
 
 A plugin for hardening payment integrations against silent failure traps common in Montonio, Stripe, and Mollie webhooks. It encodes research-grounded knowledge of webhook idempotency, signature verification, money-as-integer semantics, terminal-state transitions, and replay attack prevention — and provides runnable contract-test reference fixtures that validate correct handlers while catching seeded trap patterns.
 
+## Mission Fit
+
+`payment-contract-tester` is delivery infrastructure for revenue-critical SaaS flows. It
+turns common payment-provider failure modes into contract tests so autonomous changes do
+not silently break checkout, billing, or webhook settlement.
+
 ## Installation
 
 Add this marketplace, then install the plugin at the scope you want:

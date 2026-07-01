@@ -2,6 +2,12 @@
 
 Integrate Google's Gemini CLI into Claude Code for second opinions, dual code reviews, and AI-assisted explanations. Get two AI perspectives on your code and technical decisions.
 
+## Mission Fit
+
+`gemini-cli` is a supporting review and research utility. It is not a demand source by
+itself, but it can improve SaaS delivery by adding an independent perspective for
+architecture, debugging, and code-review decisions.
+
 ## Installation
 
 - **Install for you** (user scope) — available in all your projects:

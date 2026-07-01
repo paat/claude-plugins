@@ -9,7 +9,7 @@
     {
       "name": "gemini-cli",
       "description": "Integrate Google's Gemini CLI into Claude Code for second opinions, dual code reviews, and AI-assisted explanations",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "author": {
         "name": "Andre Paat"
       },
@@ -20,7 +20,7 @@
     {
       "name": "reddit-fetch",
       "description": "Research any topic using Reddit via Gemini CLI's web access capabilities",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "author": {
         "name": "Andre Paat"
       },
@@ -31,7 +31,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with Opus arbitration",
-      "version": "0.17.0",
+      "version": "0.17.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -42,7 +42,7 @@
     {
       "name": "agent-sync",
       "description": "Generate AGENTS.md from Claude Code project configuration files",
-      "version": "0.4.6",
+      "version": "0.4.7",
       "author": {
         "name": "Andre Paat"
       },
@@ -53,7 +53,7 @@
     {
       "name": "browser-test-router",
       "description": "Multi-model delegation for browser testing — Haiku for mechanics, Sonnet for comparison, Opus for analysis",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "SaaS startup simulation — business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product, acquiring customers, and iterating with one-shot improvements",
-      "version": "0.67.0",
+      "version": "0.67.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -75,7 +75,7 @@
     {
       "name": "comfyui",
       "description": "Manage ComfyUI workflows, models, and API — build workflows from natural language, queue executions, monitor progress, and download models",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "author": {
         "name": "Andre Paat"
       },
@@ -86,7 +86,7 @@
     {
       "name": "video-guide",
       "description": "Create professional video guides with TTS narration, screen recording, and YouTube upload",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "author": {
         "name": "Andre Paat"
       },
@@ -97,7 +97,7 @@
     {
       "name": "google-ads-strategist",
       "description": "Senior Google Ads strategist — iterative campaign design + Chrome-based creation in PAUSED state for investor review. Browser verification via Ad Preview Tool, SERP capture, and Ads Transparency Center. Enforces hypothesis discipline, buyer-intent + product-value gates, and accumulates learnings.",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -108,7 +108,7 @@
     {
       "name": "emails-to-github-issues",
       "description": "Turn emails from named senders into GitHub issues — IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping that respects customer-side numbering, inline-screenshot handling, and scope confirmation before writes",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -119,7 +119,7 @@
     {
       "name": "analyst-companion",
       "description": "Real-time in-person meeting analyst — live transcription with speaker diarization via WhisperLiveKit, clarifying questions, voice commands with Chrome screen context, and Plane work items at meeting end",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "author": {
         "name": "Andre Paat"
       },
@@ -130,7 +130,7 @@
     {
       "name": "silent-failure-scanner",
       "description": "Deterministic diff-time detector for swallowed errors & ghost transactions — flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook that hands findings to Claude to arbitrate",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "author": {
         "name": "Andre Paat"
       },
@@ -141,7 +141,7 @@
     {
       "name": "payment-contract-tester",
       "description": "Research-grounded payment-integration hardening — a skill encoding Montonio/Stripe/Mollie silent-trap knowledge plus runnable contract-test reference fixtures that run green against a correct handler and red against each seeded trap",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "author": {
         "name": "Andre Paat"
       },
@@ -152,7 +152,7 @@
     {
       "name": "irreversible-guard",
       "description": "PreToolUse gate that blocks Bash commands with no practical local undo — de-obfuscates ssh/docker-exec transports, heredocs, chains, and env prefixes before matching a tiered deny-set",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "author": {
         "name": "Andre Paat"
       },
@@ -163,7 +163,7 @@
     {
       "name": "i18n-parity",
       "description": "Vendorable zero-dependency translation key-parity gate for multilingual next-intl apps — diffs locale catalogs (presence, empty values, ICU args, leaf shape, namespaces) with declarable waivers, wired as a hard CI/pre-push gate",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "author": {
         "name": "Andre Paat"
       },
@@ -174,7 +174,7 @@
     {
       "name": "gh-issue-fetch",
       "description": "Fetch GitHub issue details with auth-gated images downloaded locally, plus epic task-list resolution",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "author": {
         "name": "Andre Paat"
       },
@@ -185,7 +185,7 @@
     {
       "name": "codex-subagent",
       "description": "Drive the OpenAI Codex CLI (codex exec, gpt-5.5) as implementer/reviewer/critic subagents from Claude Code — a controller loop with a wrapper that encodes the -s danger-full-access unlock, dual timeouts, output capture, bwrap detection, and partial-run recovery",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": {
         "name": "Andre Paat"
       },

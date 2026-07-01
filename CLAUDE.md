@@ -4,6 +4,10 @@
 
 Plugins in this repo are designed for **Estonian SaaS companies** — the primary audience is small Estonian businesses, e-residents, and micro-OÜs. However, all plugins must remain generic: no hardcoded company names, product names, or project-specific paths. Use template variables for anything that varies between projects.
 
+## Mission
+
+The main goal of this repository is to reach fully automatic market-demand satisfaction for SaaS projects: autonomous AI systems should discover real market needs, convert them into production-quality SaaS improvements, and deliver one-shot implementations without requiring user feedback to identify or complete the work.
+
 ## Rules
 
 - All plugins in this repo must be generic and project-agnostic

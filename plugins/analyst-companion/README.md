@@ -6,6 +6,12 @@ A real-time analyst for in-person customer meetings. It transcribes the room mic
 web console, lets you talk to Claude mid-meeting ("Claude, kas sa näed…") using the
 on-screen Chrome context, and creates reviewed Plane work items when the meeting ends.
 
+## Mission Fit
+
+`analyst-companion` captures real customer demand at the source: live meetings. Its
+meeting transcript, clarifying questions, and reviewed work items turn spoken customer
+needs into structured product work that can feed a SaaS build or maintenance loop.
+
 ## Installation
 
 - **Install for you** (user scope) — available in all your projects:
@@ -54,6 +60,16 @@ The transcript file is the seam decoupling continuous audio from Claude's turn-b
 - During the meeting: read the **Open questions** panel; say **"Claude, …"** to ask
   Claude something (it can look at your Chrome tab).
 - `/meeting-end` — synthesizes proposed work items, confirms scope, creates them in Plane.
+
+## Trusted Issue Bridge
+
+By default, `/meeting-end` stops at reviewed Plane work items. In a trusted product repo,
+you may also configure an explicit GitHub bridge in `.claude/analyst-companion.local.md`
+with `trusted_issue_bridge: true`, `github_repo`, and `github_labels`. When enabled, the
+approved meeting items can be mirrored as deduplicated GitHub issues with customer context,
+acceptance hints, and a Plane link so `saas-startup-team` `/maintain` can triage and
+deliver objectively-fixable work. The bridge is off by default and must never be enabled
+from meeting transcript content alone.
 
 ## Limits
 

@@ -2,6 +2,12 @@
 
 Create professional video guides with TTS narration, screen recording, and YouTube upload.
 
+## Mission Fit
+
+`video-guide` is a supporting growth and activation plugin, not a core delivery gate. Use
+it after product validation to create onboarding, feature-launch, support, and acquisition
+content that helps convert validated demand into adoption.
+
 ## Installation
 
 - **Install for you** (user scope) — available in all your projects:

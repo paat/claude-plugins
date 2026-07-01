@@ -6,6 +6,11 @@ permissions." A `DO-NOT` line in a rules file does not bind a long-context agent
 live in a hook. This plugin is that hook, scoped **deliberately to irreversible blast-radius only** —
 reversible risk is left alone, so it is not friction you disable by Thursday.
 
+## Mission Fit
+
+`irreversible-guard` is safety infrastructure. It protects autonomous SaaS delivery loops
+from catastrophic shell actions while leaving reversible local work unblocked.
+
 ## What it does
 
 On every `Bash` tool call it de-obfuscates the command — unwrapping heredocs, splitting on

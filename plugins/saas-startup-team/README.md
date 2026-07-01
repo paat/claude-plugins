@@ -2,6 +2,12 @@
 
 A SaaS startup orchestration plugin for Claude Code and Codex. A non-technical business co-founder and a technical developer co-founder iterate via file-based handoffs until both agree the product is ready to go live.
 
+## Mission Fit
+
+`saas-startup-team` is the core mission plugin. It owns the demand -> requirements ->
+implementation -> browser QA -> go-live -> growth -> operations -> maintenance loop for
+generic SaaS projects, with Estonian SaaS context available where relevant.
+
 ## Installation
 
 - **Install for you** (user scope) — available in all your projects:
@@ -218,6 +224,24 @@ Operate is the post-launch track for live-product signals. It is config-driven a
 `/monitor` writes reports under `docs/operate/` and is read-only unless `--file-issues` is used. `/investigate` writes redacted RCA artifacts under `.startup/operate/investigations/` and can create/update deduplicated GitHub issues with `--file-issue`. `/replay-abandoned` writes `finding.json`/`finding.md` under `.startup/operate/replay/` and can file issues with `--file-issues`. `support-triage` writes `docs/operate/support-triage-YYYY-MM-DD.md` and routes patterns into `/investigate`, `/replay-abandoned`, `/improve`, or `docs/human-tasks.md`.
 
 All operate commands treat logs/support text as untrusted customer-controlled input. Raw PII stays in `.startup/operate/`; reports and issues should link redacted local artifacts or summaries.
+
+## Demand Signal Intake
+
+The maintenance loop consumes GitHub issues, so external signal plugins should bridge into
+issues rather than directly invoking implementation:
+
+- `analyst-companion` can mirror approved meeting work items into issues when trusted
+  bridge mode is explicitly configured.
+- `emails-to-github-issues` turns support, bug, and feature-request threads into deduped
+  issues after confirmation or trusted allowlisted sender processing.
+- `reddit-fetch` can file `market-signal` / `customer-issue` issues only for repeated,
+  objectively-checkable public pain points.
+- `monitor-nightly`, `/investigate`, and `/replay-abandoned` file recurring failure and
+  funnel issues from configured live-product sources.
+
+`/maintain` then triages those issues as `agent-fixable`, `partially-fixable`, or
+`needs-human`. Signal plugins should preserve evidence, acceptance hints, source labels,
+and dedupe keys; they should not decide that every signal is implementation-ready.
 
 ## Product QA Gates
 

@@ -1,6 +1,6 @@
 {
   "name": "silent-failure-scanner",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Deterministic diff-time detector for swallowed errors and ghost transactions, with a global PreToolUse commit gate that hands findings to the current Codex session to review.",
   "author": {
     "name": "Andre Paat"
