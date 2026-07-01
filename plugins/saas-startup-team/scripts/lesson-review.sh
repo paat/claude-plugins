@@ -5,7 +5,7 @@
 # `lesson-file.sh` files harvested, de-identified, PII-gated improvements as
 # `lesson-candidate` issues in the PINNED plugin repo. This script is the investor's
 # review surface over that queue: list the pending candidates, then APPROVE (mark
-# ready for `/goal-deliver` implementation) or CLOSE (not generic / not wanted) each.
+# ready for `/lessons-deliver` implementation) or CLOSE (not generic / not wanted) each.
 #
 # State machine (one gh call per action — no partial-mutation window):
 #   pending   = open issue labeled `lesson-candidate`
@@ -131,7 +131,7 @@ case "$ACTION" in
     exit 0
     ;;
 
-  # --- approve: mark ready for /goal-deliver ----------------------------------
+  # --- approve: mark ready for /lessons-deliver -------------------------------
   approve)
     case "$NUM" in ''|*[!0-9]*) echo "lesson-review: --approve needs a positive integer issue number" >&2; exit 2 ;; esac
     info="$(_issue_view "$NUM")" || { echo "lesson-review: cannot inspect #$NUM in $REPO (not found / no access / gh failed). Refusing." >&2; exit 1; }
@@ -164,7 +164,7 @@ case "$ACTION" in
       gh issue comment "$NUM" --repo "$REPO" --body "$NOTE" >/dev/null 2>&1 \
         || echo "lesson-review: warning: relabel succeeded but note comment failed on #$NUM." >&2
     fi
-    echo "lesson-review: #$NUM approved (now $APPROVED_LABEL). Implement with: /goal-deliver #$NUM"
+    echo "lesson-review: #$NUM approved (now $APPROVED_LABEL). Implement with: /lessons-deliver --once"
     exit 0
     ;;
 

@@ -171,12 +171,12 @@ Two **independent** scheduled runners (different repos/cwds — cannot be one `/
 # plugin repo  (dev/supervised): cd /mnt/data/ai/claude-plugins && /loop 5m /lessons-deliver --once
 ```
 
-**Production (in-container, unattended)** — cron + flock + headless claude, matching the
-design doc's `0 2 * * *` flock pattern:
+**Production (in-container, unattended)** — cron + flock + the host-appropriate
+assistant command, matching the design doc's `0 2 * * *` flock pattern:
 
 ```
 0 3 * * * /usr/bin/flock -n /tmp/lessons-deliver.lock -c \
-  'cd /mnt/data/ai/claude-plugins && claude -p "/lessons-deliver --once" --dangerously-skip-permissions >> /var/log/lessons-deliver.log 2>&1'
+  'cd <plugin repo> && <assistant command for this plugin> "/lessons-deliver --once" >> /var/log/lessons-deliver.log 2>&1'
 ```
 
 cron is the production runner; `/loop` is for a supervised session only.

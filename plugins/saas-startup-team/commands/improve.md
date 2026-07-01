@@ -19,6 +19,14 @@ The mode is selected automatically when unambiguous, and chosen by the investor 
 
 ## Pre-Flight
 
+0. Run the reusable health preflight:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/health-preflight.sh" --require-gh --check-sync
+   ```
+   In Codex, include `--require-codex` when a separate Codex worker may be used. Treat
+   blocker findings as environment blockers; continue through warnings only when the
+   affected capability is not needed for this improvement.
+
 1. Verify `.startup/` exists — if not:
    > Run `/startup` first to build the product.
 
@@ -47,7 +55,16 @@ The mode is selected automatically when unambiguous, and chosen by the investor 
 
 If the user provided arguments with the command, use them as the improvement description.
 
-Otherwise ask:
+Otherwise run internal demand discovery and select the top ranked candidate:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/demand-discovery.sh"
+```
+
+If `.startup/demand/candidates.jsonl` contains a candidate, use its
+`discovered_need`, `target_customer_segment`, evidence refs, desired customer outcome,
+acceptance packs, non-goals, and rollout checks as the improvement description. If no
+candidate is available, ask:
 > What would you like improved? Describe the changes.
 
 ## Scope Guard
@@ -111,6 +128,16 @@ if [ -f .startup/state.json ]; then
 fi
 ```
 
+Claim a single-flight lease for the improvement target before dispatch:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
+  --acquire "improve:${slug}" --state-dir .startup/leases --owner "improve:$$" --ttl-seconds 1800
+```
+
+If a live owner exists, read its heartbeat/logs and completion artifact instead of
+dispatching another worker for the same improvement.
+
 ## Step 1: Business Founder — Brief
 
 Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
@@ -120,6 +147,7 @@ Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 > **Improvement task: Write a brief for the tech founder.**
 >
 > The investor wants these changes: [investor's instructions]
+> Selected acceptance packs, if any: [pack ids + rendered gates from `scripts/acceptance-packs.sh --render`].
 >
 > Read `docs/architecture/architecture.md` for current stack and service URLs.
 > Read `docs/business/brief.md` for product context.

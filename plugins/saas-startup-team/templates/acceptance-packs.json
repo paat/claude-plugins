@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "packs": [
+    {
+      "id": "paid_async_workflow",
+      "title": "Paid async workflow",
+      "triggers": ["async", "background", "payment", "checkout", "webhook", "job", "report generation"],
+      "gates": [
+        "Show payment-confirmed and in-progress states separately.",
+        "Expose ETA when known, or honest indeterminate progress when not known.",
+        "Provide email, account, or recovery path after browser close.",
+        "Show clear DONE, FAILED, retry, and still-working states.",
+        "Keep payment/report state customer-readable and accessible."
+      ],
+      "verification": [
+        "Exercise success, retryable failure, permanent failure, and browser-close recovery.",
+        "Confirm no paid state can silently disappear without customer-visible recovery."
+      ]
+    },
+    {
+      "id": "report_output_product",
+      "title": "Report or output product",
+      "triggers": ["report", "output", "finding", "citation", "summary", "analysis"],
+      "gates": [
+        "Findings are actionable and written in customer-facing language.",
+        "Each material claim has proof, source citation, or clear limitation.",
+        "Every finding includes remedy or next-step guidance.",
+        "No raw enum labels, internal jargon, implementation terms, undefined, null, NaN, or empty list joins appear in customer output."
+      ],
+      "verification": [
+        "Run a fixture with raw enum/internal jargon and confirm signoff fails.",
+        "Run a fixture with customer copy, citations, and remedies and confirm signoff passes."
+      ]
+    },
+    {
+      "id": "compliance_risk_product",
+      "title": "Compliance or risk product",
+      "triggers": ["compliance", "risk", "legal", "gdpr", "privacy", "security", "regulation"],
+      "gates": [
+        "Classify each claim as fact, signal, automated finding, draft, recommendation, or needs-review.",
+        "Fail hard when required external data is unavailable for a regulated claim.",
+        "State limitations and confidence plainly.",
+        "Do not make unsupported accusations or violation claims."
+      ],
+      "verification": [
+        "Exercise unavailable-source and inconclusive-evidence fixtures.",
+        "Confirm unsupported violation wording is rejected or downgraded."
+      ]
+    },
+    {
+      "id": "estonian_saas_context",
+      "title": "Estonian SaaS context",
+      "triggers": ["estonia", "estonian", "e-resident", "micro-ou", "micro-oü", " oü", " vat", "value-added tax", "emta"],
+      "gates": [
+        "Explain relevance to small Estonian businesses, e-residents, or micro-OUs when applicable.",
+        "Use template variables for company, product, route, stack, repo, and project-specific values.",
+        "Check Estonian regulatory fit where the workflow touches tax, accounting, privacy, payments, employment, or corporate records."
+      ],
+      "verification": [
+        "Scan the generated brief for hardcoded company names, repo paths, or tenant/customer identifiers.",
+        "Confirm Estonian-specific claims cite a source or are marked as assumptions."
+      ]
+    },
+    {
+      "id": "paid_conversion",
+      "title": "Paid conversion",
+      "triggers": ["pricing", "conversion", "paid", "plan", "upgrade", "billing", "trial", "checkout"],
+      "gates": [
+        "Make free versus paid value explicit.",
+        "Paid output includes free output plus additional customer value.",
+        "Options map to outcomes, not raw data sources or implementation knobs.",
+        "Payment CTA is near required fields and validation on desktop and mobile."
+      ],
+      "verification": [
+        "Check free and paid paths side by side.",
+        "Confirm the paid promise is visible before payment and fulfilled after payment."
+      ]
+    }
+  ]
+}

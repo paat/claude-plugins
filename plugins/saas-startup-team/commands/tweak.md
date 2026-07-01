@@ -12,6 +12,11 @@ Use this for typos, copy changes, small CSS nudges, broken link fixes. For anyth
 
 ## Pre-Flight
 
+0. Run the reusable health preflight:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/health-preflight.sh" --require-gh --check-sync
+   ```
+
 1. Verify `.startup/` exists — if not:
    > Run `/startup` first to build the product.
 
@@ -33,7 +38,10 @@ Use this for typos, copy changes, small CSS nudges, broken link fixes. For anyth
 
 If the user provided arguments with the command, use them as the tweak description.
 
-Otherwise ask:
+Otherwise run internal demand discovery. If the top candidate is a pure copy/docs/CSS
+change with objective file targets, use it as the tweak description. If it is behavioral,
+payment, compliance, data, or acceptance-pack heavy, route to `/improve` instead. If no
+candidate exists, ask:
 > What do you want tweaked?
 
 If the response is empty or fewer than 3 non-whitespace characters, refuse:

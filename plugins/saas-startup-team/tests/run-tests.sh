@@ -4330,6 +4330,112 @@ test_handoff_secret_redaction() {
   rm -rf "$workdir"
 }
 
+test_autonomous_demand_infra() {
+  echo -e "\n${CYAN}Suite AD: autonomous demand/preflight/single-flight infrastructure${NC}"
+  local health="$PLUGIN_ROOT/scripts/health-preflight.sh"
+  local lease="$PLUGIN_ROOT/scripts/single-flight.sh"
+  local packs="$PLUGIN_ROOT/scripts/acceptance-packs.sh"
+  local demand="$PLUGIN_ROOT/scripts/demand-discovery.sh"
+  local workdir ec output count
+
+  assert_file_exists "AD1: health-preflight exists" "$health"
+  assert_file_exists "AD2: single-flight exists" "$lease"
+  assert_file_exists "AD3: acceptance-packs exists" "$packs"
+  assert_file_exists "AD4: demand-discovery exists" "$demand"
+  for s in "$health" "$lease" "$packs" "$demand"; do
+    ec=0; bash -n "$s" || ec=$?
+    assert_exit_code "AD syntax: $(basename "$s")" "$ec" 0
+  done
+
+  workdir=$(make_workdir)
+  mkdir -p "$workdir/plugin/hooks"
+  printf '{"hooks":{}}\n' > "$workdir/plugin/hooks/hooks.json"
+  ec=0; output=$(SAAS_PREFLIGHT_MISSING=jq bash "$health" --json --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
+  assert_exit_code "AD5: missing jq is blocking" "$ec" 1
+  assert_output_contains "AD5b: reports missing jq" "$output" '"check": "tool:jq"'
+  rm -rf "$workdir"
+
+  workdir=$(make_workdir)
+  mkdir -p "$workdir/plugin/hooks"
+  cat > "$workdir/plugin/hooks/hooks.json" <<'JSON'
+{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"p=scripts/missing.sh; \"$p\""}]}]}}
+JSON
+  ec=0; output=$(bash "$health" --json --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
+  assert_exit_code "AD6: broken hook target blocks" "$ec" 1
+  assert_output_contains "AD6b: names missing hook target" "$output" "missing hook target"
+  rm -rf "$workdir"
+
+  workdir=$(mktemp -d)
+  ec=0; output=$(bash "$lease" --acquire issue/42 --state-dir "$workdir" --owner one 2>&1) || ec=$?
+  assert_exit_code "AD7: lease acquire exits 0" "$ec" 0
+  ec=0; output=$(bash "$lease" --acquire issue/42 --state-dir "$workdir" --owner two 2>&1) || ec=$?
+  assert_exit_code "AD8: second active owner refused" "$ec" 1
+  assert_output_contains "AD8b: active owner reported" "$output" "active owner"
+  printf '1\n' > "$workdir/issue-42/heartbeat"
+  ec=0; output=$(bash "$lease" --acquire issue/42 --state-dir "$workdir" --owner two --ttl-seconds 1 2>&1) || ec=$?
+  assert_exit_code "AD9: stale owner needs explicit replace" "$ec" 2
+  ec=0; output=$(bash "$lease" --acquire issue/42 --state-dir "$workdir" --owner two --ttl-seconds 1 --replace-stale --reason "heartbeat expired" 2>&1) || ec=$?
+  assert_exit_code "AD10: stale owner replaced with reason" "$ec" 0
+  assert_file_contains "AD10b: replacement audited" "$workdir/issue-42/audit.log" "heartbeat expired"
+  ec=0; output=$(bash "$lease" --status issue/42 --state-dir "$workdir" --json 2>&1) || ec=$?
+  assert_exit_code "AD11: lease status exits 0" "$ec" 0
+  assert_output_contains "AD11b: status has owner two" "$output" '"owner":"two"'
+  rm -rf "$workdir"
+
+  ec=0; output=$(bash "$packs" --select --category report_output_quality --text "customer report has citations and remedies" --json 2>&1) || ec=$?
+  assert_exit_code "AD12: pack select exits 0" "$ec" 0
+  assert_output_contains "AD12b: selects report pack" "$output" "report_output_product"
+  assert_output_not_contains "AD12c: does not match Estonian pack through generic words" "$output" "estonian_saas_context"
+  workdir=$(mktemp -d)
+  printf 'Finding: STATUS_PENDING\nNo citation.\n' > "$workdir/bad.md"
+  ec=0; output=$(bash "$packs" --verify-report "$workdir/bad.md" 2>&1) || ec=$?
+  assert_exit_code "AD13: bad report fixture fails" "$ec" 1
+  cat > "$workdir/good.md" <<'MD'
+Finding: Payment status is still pending.
+Citation: https://example.invalid/source
+Recommendation: Next step is to retry the payment status check in the dashboard.
+MD
+  ec=0; output=$(bash "$packs" --verify-report "$workdir/good.md" 2>&1) || ec=$?
+  assert_exit_code "AD14: good report fixture passes" "$ec" 0
+  rm -rf "$workdir"
+
+  workdir=$(mktemp -d)
+  cat > "$workdir/codex.jsonl" <<'JSONL'
+{"message":{"content":"Customers abandon onboarding because the generated report shows raw STATUS_PENDING, has no citation, and gives no next step."}}
+JSONL
+  ec=0; output=$(bash "$demand" --project "demo-product" --codex-jsonl "$workdir/codex.jsonl" --out "$workdir/candidates.jsonl" --report "$workdir/report.md" 2>&1) || ec=$?
+  assert_exit_code "AD15: demand discovery exits 0" "$ec" 0
+  count=$(wc -l < "$workdir/candidates.jsonl" | tr -d ' ')
+  assert_equals "AD15b: one demand candidate emitted" "$count" "1"
+  assert_file_contains "AD15c: includes Codex evidence" "$workdir/candidates.jsonl" "codex-session"
+  assert_file_contains "AD15d: includes acceptance packs" "$workdir/candidates.jsonl" "acceptance_packs"
+  assert_file_contains "AD15e: report notes no external research" "$workdir/report.md" "external research: not used"
+  rm -rf "$workdir"
+}
+
+test_autonomous_workflow_alignment() {
+  echo -e "\n${CYAN}Suite AE: autonomous workflow alignment${NC}"
+  local repo_root; repo_root="$(cd "$PLUGIN_ROOT/../.." && pwd)"
+  assert_file_contains "AE1: startup calls health preflight" "$PLUGIN_ROOT/commands/startup.md" "health-preflight.sh"
+  assert_file_contains "AE2: startup uses demand discovery" "$PLUGIN_ROOT/commands/startup.md" "demand-discovery.sh"
+  assert_file_contains "AE3: startup uses single-flight" "$PLUGIN_ROOT/commands/startup.md" "single-flight.sh"
+  assert_file_not_contains "AE4: startup no broad stale pkill command" "$PLUGIN_ROOT/commands/startup.md" "pkill -f 'agent-type saas-startup-team'"
+  assert_file_contains "AE5: improve calls health preflight" "$PLUGIN_ROOT/commands/improve.md" "health-preflight.sh"
+  assert_file_contains "AE6: goal-deliver calls demand discovery" "$PLUGIN_ROOT/commands/goal-deliver.md" "demand-discovery.sh"
+  assert_file_contains "AE7: goal-deliver requires acceptance packs" "$PLUGIN_ROOT/commands/goal-deliver.md" "acceptance-packs.sh"
+  assert_file_contains "AE8: goal-deliver completion artifact" "$PLUGIN_ROOT/commands/goal-deliver.md" "completion artifact"
+  assert_file_contains "AE9: lessons-review points to lessons-deliver" "$PLUGIN_ROOT/commands/lessons-review.md" "/lessons-deliver"
+  assert_file_not_contains "AE10: lessons-review no longer routes to goal-deliver command" "$PLUGIN_ROOT/commands/lessons-review.md" "/goal-deliver #<number>"
+  assert_file_contains "AE11: lessons-deliver documents Codex host behavior" "$PLUGIN_ROOT/commands/lessons-deliver.md" "Codex surface"
+  assert_file_contains "AE12: README documents health preflight" "$PLUGIN_ROOT/README.md" "health-preflight.sh"
+  assert_file_contains "AE13: README documents demand discovery" "$PLUGIN_ROOT/README.md" "demand-discovery.sh"
+  assert_file_contains "AE14: README documents acceptance packs" "$PLUGIN_ROOT/README.md" "acceptance-packs.sh"
+  assert_file_contains "AE15: README documents single-flight" "$PLUGIN_ROOT/README.md" "single-flight.sh"
+  local ec
+  ec=0; (cd "$repo_root" && python3 scripts/sync-codex-marketplace.py --check >/dev/null) || ec=$?
+  assert_exit_code "AE16: Codex marketplace surfaces in sync" "$ec" 0
+}
+
 main() {
   echo -e "${YELLOW}=== saas-startup-team Plugin Tests ===${NC}"
   echo "Plugin root: $PLUGIN_ROOT"
@@ -4374,6 +4480,8 @@ main() {
   test_operate_workflow_registry_and_gates
   test_session_insights
   test_harvest
+  test_autonomous_demand_infra
+  test_autonomous_workflow_alignment
   test_lesson_file
   test_lesson_review
   test_lessons_deliver
