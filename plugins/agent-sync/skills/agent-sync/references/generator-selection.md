@@ -14,8 +14,11 @@ elif [ -f ".agent-sync/generate.sh" ]; then
 else
   GEN="${CLAUDE_PLUGIN_ROOT}/scripts/generate.sh"
 fi
-bash "$GEN" --config "<path-to-sources.json>"   # append --check to verify without writing
+bash "$GEN" --config "<path-to-sources.json>"
 ```
+
+To verify without writing (what `/agent-sync:check` does), append `--check` as the final
+argument of the `bash "$GEN"` line.
 
 > **Trust note:** the vendored `tools/agent-sync/generate.sh` is repo-controlled — it is the copy
 > `/agent-sync:init` committed and the same one the hook executes, so preferring it is what keeps

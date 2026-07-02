@@ -81,7 +81,8 @@ Ask: "Do you want a GitHub Actions workflow for agent-sync checks?"
 
 If yes, read `skills/agent-sync/references/github-actions-template.md` for the canonical workflow
 YAML (and the rationale for why it lints only, not regenerates `AGENTS.md` on the runner — issues
-#33, #92, #93), and write its contents to `.github/workflows/agents-sync.yml`.
+#33, #92, #93), and write the contents of its fenced YAML block — not the surrounding markdown —
+to `.github/workflows/agents-sync.yml`.
 
 ### 8. Generate
 
