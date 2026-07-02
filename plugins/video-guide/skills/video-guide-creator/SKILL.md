@@ -9,28 +9,7 @@ Create professional video guides with TTS narration, auto-generated subtitles, a
 
 ## Container Requirements
 
-This skill requires a pre-built `video-guide-creator` Docker container. Set `VIDEO_GUIDE_CREATOR_ROOT` to that container project directory before running container commands. The container must provide:
-
-- **Edge TTS** — Microsoft neural text-to-speech engine (internet access required)
-- **FFmpeg** — video encoding and muxing
-- **Playwright + Chromium** — headless browser for screencast recording
-- **Python runtime** — orchestrator that parses YAML guides and drives rendering
-
-Expected directory layout inside the container project:
-
-| Directory | Purpose |
-|-----------|---------|
-| `brands/` | Brand presets (YAML) — colors, voice, language, logo per product |
-| `guides/` | Generated guide definitions (YAML) — input for rendering |
-| `output/` | Rendered video files (MP4) |
-| `auth/` | Playwright auth state files for authenticated screencasts |
-| `credentials/` | YouTube API OAuth credentials (for upload feature) |
-
-Build the container (one-time):
-
-```bash
-docker compose -f "${VIDEO_GUIDE_CREATOR_ROOT}/docker-compose.yml" build
-```
+This skill requires a pre-built `video-guide-creator` Docker container reachable via `VIDEO_GUIDE_CREATOR_ROOT`. See the plugin README for the container requirements table, directory layout, and build command.
 
 ## Cross-Repo Usage
 
@@ -59,76 +38,13 @@ Check `${VIDEO_GUIDE_CREATOR_ROOT}/brands/` for a YAML file matching the product
 ### 3. Research the topic (for screencast guides)
 
 If the guide involves recording a web application:
-- Read the application's frontend code **in the current working directory** to find correct CSS selectors
+- Identify the specific pages/routes/components involved in this flow, then Grep/Glob for them by filename, route, or button/label text — read only those files **in the current working directory** to find correct CSS selectors. Do not read the whole frontend tree.
 - Understand the user flow (which pages, which buttons, what order)
 - Check if an auth state file exists at `${VIDEO_GUIDE_CREATOR_ROOT}/auth/`
 
 ### 4. Generate the YAML guide definition
 
-Write a complete YAML file to `${VIDEO_GUIDE_CREATOR_ROOT}/guides/<slug>.yml`.
-
-#### YAML Structure
-
-```yaml
-meta:
-  title: "Guide Title"
-  description: "Brief description"
-  language: et              # Language code
-  voice: et-EE-AnuNeural    # Edge TTS voice ID
-  resolution: [1920, 1080]
-
-brand:
-  logo: "brands/logo.png"   # Optional
-  colors:
-    primary: "#2563eb"
-    background: "#0f172a"
-    text: "#f8fafc"
-
-intro:                       # Optional
-  title: "Guide Title"
-  subtitle: "Product name"
-  narration: "Welcome narration text in target language."
-  duration_padding: 1.5
-
-steps:
-  - type: slide              # Slide step
-    template: bullet-points  # title-card | bullet-points | outro
-    title: "Slide Title"
-    bullets:
-      - "Point one"
-      - "Point two"
-    narration: "Narration for this slide."
-
-  - type: screencast         # Screencast step
-    narration: "Narration describing what's happening."
-    auth:
-      storage_state: "auth/session.json"  # Optional
-    actions:
-      - navigate: "https://app.example.com"
-      - wait: 1.5
-      - highlight: "#button"
-      - click: "#button"
-      - fill:
-          selector: "#input"
-          value: "text"
-      - scroll:
-          y: 500
-      - hover: "#element"
-      - screenshot_pause: 2.0
-
-outro:                       # Optional
-  narration: "Thank you narration."
-  cta_text: "Visit Us"
-  cta_url: "https://example.com"
-
-youtube:                     # Optional — omit to skip upload
-  title: "YouTube Title"
-  description: "YouTube description"
-  tags: ["tag1", "tag2"]
-  category: 27               # Education
-  privacy: unlisted
-  language: et
-```
+Write a complete YAML file to `${VIDEO_GUIDE_CREATOR_ROOT}/guides/<slug>.yml`. See `references/yaml-schema.md` for the full structure.
 
 ### 5. Validate the guide
 
@@ -156,19 +72,6 @@ Tell the user:
 - Ask if the user wants to upload to YouTube (requires prior `youtube-auth` setup)
 - If yes, re-run with `--upload` flag or run the upload separately
 
-## Available Edge TTS Voices
-
-To find voices for a language:
-
-```bash
-docker compose -f "${VIDEO_GUIDE_CREATOR_ROOT}/docker-compose.yml" \
-  run --rm video-guide-creator voices --language <code>
-```
-
-Common voices:
-- Estonian: `et-EE-AnuNeural` (female), `et-EE-KertNeural` (male)
-- English: `en-US-AriaNeural` (female), `en-US-GuyNeural` (male)
-
 ## Writing Good Narration
 
 - Keep sentences short (1-2 clauses)
@@ -176,33 +79,12 @@ Common voices:
 - For screencasts: describe the action before it happens ("Click the blue button")
 - For slides: explain the content, don't just read bullet points
 - Use natural, conversational tone
+- Non-English domains need phonetic narration text — see `references/pronunciation.md`
 
-### TTS Pronunciation Fixes
+## References
 
-Edge TTS reads URLs and domains literally. Write them phonetically in narration text:
-
-| Written in narration | TTS reads as |
-|---------------------|--------------|
-| `aruannik.ee` | "aruannik-e" (wrong) |
-| `aruannik ee ee` | "aruannik ee ee" (correct, how Estonians say it) |
-| `example.com` | "example dot com" (usually fine in English) |
-
-**Rule:** For non-English domains, write them as locals pronounce them. Estonians say "ee ee" not "punkt ee ee". The visual slides still show the real domain — only the narration text needs the spoken version.
-
-## Slide Templates
-
-| Template | Use for |
-|----------|---------|
-| `title-card` | Intro screens, section dividers |
-| `bullet-points` | Key points, feature lists, step summaries |
-| `outro` | Final CTA, closing screen |
-
-## Error Handling
-
-| Error | Fix |
-|-------|-----|
-| Container not built | Run `docker compose -f "${VIDEO_GUIDE_CREATOR_ROOT}/docker-compose.yml" build` |
-| Edge TTS network error | Check internet connectivity from container |
-| Playwright selector not found | Verify selectors against current frontend code |
-| YouTube auth missing | Run `youtube-auth` command first |
-| ffmpeg error | Check container logs for encoding details |
+- `${CLAUDE_PLUGIN_ROOT}/skills/video-guide-creator/references/yaml-schema.md` — Full YAML guide schema
+- `${CLAUDE_PLUGIN_ROOT}/skills/video-guide-creator/references/voice-catalog.md` — Listing Edge TTS voices, common voice IDs
+- `${CLAUDE_PLUGIN_ROOT}/skills/video-guide-creator/references/pronunciation.md` — TTS pronunciation fixes for domains/URLs
+- `${CLAUDE_PLUGIN_ROOT}/skills/video-guide-creator/references/slide-templates.md` — Available slide templates
+- `${CLAUDE_PLUGIN_ROOT}/skills/video-guide-creator/references/error-handling.md` — Common errors and fixes

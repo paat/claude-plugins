@@ -86,7 +86,7 @@
     {
       "name": "video-guide",
       "description": "Create professional video guides with TTS narration, screen recording, and YouTube upload",
-      "version": "0.1.4",
+      "version": "0.2.0",
       "author": {
         "name": "Andre Paat"
       },
