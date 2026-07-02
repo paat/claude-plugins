@@ -35,7 +35,9 @@ writing requirements, positioning, or demand-backed issue candidates.
    ```
    This is required to use the `gemini-3-flash-preview` model.
 
-> **Note:** This plugin does not install Gemini CLI. It must already be available in your PATH.
+3. **`gh` CLI**, authenticated (`gh auth status`), required by `--file-issue`.
+
+> **Note:** This plugin does not install Gemini CLI or `gh`. Both must already be available in your PATH.
 
 ## Components
 
@@ -64,13 +66,24 @@ Triggers proactively when your question would benefit from Reddit community insi
 3. Parses and presents Reddit findings in a structured format
 4. Adds caveats about anecdotal nature of Reddit opinions
 
+## Fabrication Risk
+
+Gemini CLI has fabricated Reddit thread titles, subreddits, quotes, and consensus in
+production use. All three surfaces (command, skill, agent) treat Gemini's output as a
+directional lead, not verified fact, and require independently confirming that a thread
+actually exists (fetching the URL, e.g. via `old.reddit.com`, or a narrow follow-up search)
+before it can support a filed issue. `--file-issue` is hard-blocked for any pain point whose
+supporting threads cannot be confirmed. See `skills/reddit-research/references/protocol.md`
+for the full verification protocol.
+
 ## SaaS Demand Bridge
 
 In SaaS projects, use Reddit findings as evidence, not as instructions. Save durable
 research under `docs/research/` and only file GitHub issues when a repeated pain point is
-specific, objectively checkable, and backed by multiple independent threads. Issues filed
-from Reddit should carry labels such as `market-signal` and `customer-issue` so
-`saas-startup-team` `/maintain` can triage the fixable parts while parking judgment calls.
+specific, objectively checkable, backed by multiple independent threads, and verified per the
+protocol above. Issues filed from Reddit should carry labels such as `market-signal` and
+`customer-issue` so `saas-startup-team` `/maintain` can triage the fixable parts while parking
+judgment calls.
 
 ## Troubleshooting
 

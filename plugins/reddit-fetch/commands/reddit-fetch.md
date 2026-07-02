@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(gemini:*), Bash(gh:*), Bash(mkdir:*), Write, Read
+allowed-tools: Bash(gemini:*), Bash(gh:*), Bash(mkdir:*), WebFetch, Write, Read
 description: Research any topic using Reddit via Gemini CLI
 argument-hint: <topic to research on Reddit> [--file-issue] [--repo owner/name]
 ---
@@ -12,64 +12,27 @@ The user wants to research the following topic on Reddit:
 
 **Topic:** $ARGUMENTS
 
+Read `${CLAUDE_PLUGIN_ROOT}/skills/reddit-research/references/protocol.md` now. It is the
+canonical prompt template, retry ladder, output format, verification protocol, and SaaS
+demand-bridge rules for this command — follow it exactly for every step below. Gemini has
+fabricated thread titles, subreddits, quotes, and consensus in production, so treat its output
+as directional, not verified.
+
 If `$ARGUMENTS` contains `--file-issue`, treat that as an explicit request to file
-maintenance-ready GitHub issues for repeated, objectively-checkable SaaS pain points.
+maintenance-ready GitHub issues for repeated, objectively-checkable SaaS pain points — subject
+to the protocol's hard block on filing from unverified threads.
 If it contains `--repo owner/name`, use that repo for issue filing; otherwise resolve the
 current repo with `gh repo view`.
 
 ## Steps
 
-1. Analyze the topic and determine the best search approach:
-   - If the topic maps to specific subreddits, include them in the prompt
-   - If it's a comparison ("X vs Y"), use comparison framing
-   - If it's troubleshooting, focus on threads with solutions
-   - Otherwise, use a general research prompt
-
-2. Run the Gemini command with a Reddit-focused prompt:
-   ```bash
-   timeout 120 gemini -m gemini-3-flash-preview -p "Search Reddit for discussions about TOPIC. Find the most relevant and recent threads. For each thread, provide: the subreddit, thread title, key opinions and advice from top comments, and any consensus or disagreements. Focus on practical, experience-based insights rather than speculation." -o text 2>/dev/null
-   ```
-
-   Replace TOPIC with the user's actual topic, expanding it into a clear search query.
-
-3. If the response is empty or an error occurs:
-   - Retry once with a rephrased or more specific query
-   - If a "model not found" error occurs, retry with `-m gemini-2.5-flash` (stable fallback)
-   - If Gemini is still unavailable, inform the user and suggest alternatives (WebSearch, manual browsing)
-
-4. Present the findings in a structured format:
-
-   ```
-   ## Reddit Research: [Topic]
-
-   *Sourced from Reddit via Gemini CLI*
-
-   ### Key Findings
-   [Organized summary of what Reddit discussions reveal]
-
-   ### Popular Recommendations
-   [Bullet points of common advice/recommendations]
-
-   ### Common Concerns
-   [Issues or caveats people mention]
-
-   ### Notable Threads
-   [Specific threads worth reading, with subreddit and title]
-
-   ### Caveats
-   - Reddit opinions are anecdotal and may not reflect current state
-   ```
-
-5. After presenting Reddit's findings, add own analysis or synthesis where relevant — note agreements or disagreements with the Reddit consensus.
-
-6. **Optional SaaS demand bridge.** If `--file-issue` is present:
-   - Write the research summary to `docs/research/reddit-<slug>.md` with clear caveats that
-     Reddit is anecdotal public evidence.
-   - File GitHub issues only for pain points supported by at least two independent threads
-     or subreddits, and only when the proposed product work is specific and objectively
-     checkable.
-   - Use `gh issue create --body-file`, never inline `--body`.
-   - Label issues `market-signal` and `customer-issue` unless project conventions indicate
-     different labels.
-   - Do not file issues for broad positioning, legal judgment, pricing strategy, or feature
-     ideas that require founder choice; list those as research notes instead.
+1. Analyze the topic and pick the matching prompt template from the protocol file (targeted
+   subreddit, comparison, troubleshooting, or general).
+2. Run the Gemini command from the protocol file, substituting the user's actual topic.
+3. Follow the protocol's retry/fallback ladder if the response is empty or an error occurs.
+4. Present the findings in the protocol's output format, including each notable thread's URL.
+5. Add your own analysis or synthesis — note agreements or disagreements with the Reddit consensus.
+6. **Optional SaaS demand bridge.** If `--file-issue` is present, run the protocol's
+   verification step for every pain point before filing, then follow its SaaS demand bridge
+   rules in full (issue labels, `gh issue create --body-file`, what to exclude). Never call
+   `gh issue create` for a pain point that verification could not confirm.
