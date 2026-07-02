@@ -6,17 +6,33 @@ emit /tmp/mails.json and /tmp/mail_attachments/ with a per-thread manifest.
 
 Usage:
     IMAP_USER='you@example.com' BRIDGE_PASS='...' python3 fetch_mails_template.py
+    python3 fetch_mails_template.py --commit-cursor   # after the fetched mail is handled
 
 Edit the CONFIG block below (SENDER_TOKENS, SINCE). Searches are ASCII-only
 (imaplib limitation) — pass substrings of the address (e.g. "mueller"), not
 display names ("Müller").
 
-Unattended runs persist a cursor (CURSOR_FILE): last synced date + the
-Message-IDs seen that day. Each run searches only mail since that date and
-drops anything already in the persisted set. If nothing new comes back, the
-script prints a one-line summary and exits before writing any output files —
-callers (e.g. an autonomous SKILL workflow) should treat that as a no-op and
-skip repo-convention discovery, artifact generation, and GitHub calls.
+Docker networking note (agent in a separate container from the bridge):
+127.0.0.1:114x is the *bridge host's* loopback. If this script runs in a
+different container than Proton Bridge, that loopback refuses the connection
+even though `docker ps` shows the port mapped — the published-port remap only
+exists on the docker host, not inside your container. Reach the bridge over
+the shared docker network instead: set IMAP_HOST to the bridge container's
+docker DNS name and IMAP_PORT=143 (the real in-container port, *not* the
+host-published 1143/1144). The container IP works too but isn't stable across
+stack recreation — prefer the DNS name.
+
+Unattended runs use a cursor (CURSOR_FILE): last synced date + the Message-IDs
+already handled. The fetch searches only mail since that date, drops anything
+already in the persisted set, and if nothing new comes back prints a one-line
+summary and exits before writing any output files — callers (e.g. an
+autonomous SKILL workflow) should treat that as a no-op and skip
+repo-convention discovery, artifact generation, and GitHub calls. The fetch
+itself never writes the cursor: after the fetched mail has actually been
+handled (issues filed/appended, or explicitly classified as no-action), run
+`python3 fetch_mails_template.py --commit-cursor` to mark it processed. A
+downstream failure before that step leaves the cursor untouched, so the next
+run refetches the same messages instead of silently skipping them.
 """
 
 import email
@@ -32,17 +48,10 @@ from html.parser import HTMLParser
 
 # ---- CONFIG ----------------------------------------------------------------
 
-USER = os.environ.get("IMAP_USER") or sys.exit(
-    "Set IMAP_USER=you@example.com (your Proton Bridge account address)"
-)
-PASS = os.environ.get("BRIDGE_PASS") or sys.exit(
-    "Set BRIDGE_PASS=... (Proton Bridge app password — not your Proton account password)"
-)
-# IMAP_HOST/PORT default to the bridge host's loopback. NOTE: if this script runs in a
-# *different container* than Proton Bridge, 127.0.0.1:114x will refuse — the published-port
-# remap only exists on the docker host, not inside this container. In that case set
-# IMAP_HOST to the bridge container's docker DNS name and IMAP_PORT=143 (the real in-container
-# port, not the host-published 1143/1144) and reach it over the shared docker network.
+# Checked in main() — `--commit-cursor` needs no credentials.
+USER = os.environ.get("IMAP_USER")
+PASS = os.environ.get("BRIDGE_PASS")
+# Defaults assume the bridge host's loopback; separate-container setups: see docstring.
 HOST = os.environ.get("IMAP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("IMAP_PORT", "1143"))  # primary proton-bridge; secondary accounts use other ports (e.g. 1144)
 
@@ -164,6 +173,16 @@ def thread_key(subject, frm):
     return f"{sender}-{slug}"
 
 
+# IMAP date tokens must be English regardless of locale — never strftime("%b").
+IMAP_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def imap_today():
+    t = date.today()
+    return f"{t.day:02d}-{IMAP_MONTHS[t.month - 1]}-{t.year}"
+
+
 def load_cursor():
     if not os.path.exists(CURSOR_FILE):
         return {"last_date": None, "message_ids": []}
@@ -172,17 +191,40 @@ def load_cursor():
 
 
 def save_cursor(message_ids):
+    today = imap_today()
+    prev = load_cursor()
+    ids = set(message_ids)
+    if prev["last_date"] == today:
+        # Same-day runs: earlier IDs are still inside the new SINCE window — keep them.
+        # IDs from older dates can't reappear under SINCE=today, so they are pruned.
+        ids |= set(prev["message_ids"])
     d = os.path.dirname(CURSOR_FILE)
     if d:
         os.makedirs(d, exist_ok=True)
     with open(CURSOR_FILE, "w") as f:
-        json.dump({"last_date": date.today().strftime("%d-%b-%Y"),
-                   "message_ids": message_ids}, f, indent=2)
+        json.dump({"last_date": today, "message_ids": sorted(ids)}, f, indent=2)
+
+
+def commit_cursor():
+    """Mark the last fetch as processed. Run only after issues are filed/appended
+    (or the batch is explicitly classified no-action) so a downstream failure
+    leaves the mail refetchable instead of silently skipped."""
+    if not os.path.exists(OUT_MAILS):
+        sys.exit(f"{OUT_MAILS} not found — run the fetch first")
+    with open(OUT_MAILS) as f:
+        mails = json.load(f)
+    save_cursor(m["message_id"] for m in mails)
+    print(f"Cursor committed: {len(mails)} message ids -> {CURSOR_FILE}")
 
 
 # ---- MAIN ------------------------------------------------------------------
 
 def main():
+    if not USER:
+        sys.exit("Set IMAP_USER=you@example.com (your Proton Bridge account address)")
+    if not PASS:
+        sys.exit("Set BRIDGE_PASS=... (Proton Bridge app password — not your Proton account password)")
+
     cursor = load_cursor()
     since = cursor["last_date"] or SINCE
     already_seen = set(cursor["message_ids"])
@@ -255,8 +297,6 @@ def main():
     with open(OUT_MANIFEST, "w") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
 
-    save_cursor([m["message_id"] for m in raw_hits])
-
     # summary
     threads = {}
     for m in raw_hits:
@@ -265,7 +305,8 @@ def main():
     for tk, items in sorted(threads.items()):
         print(f"  {tk}: {len(items)} msg | {len(manifest.get(tk, []))} attachments "
               f"| {items[0]['subject'][:60]}")
+    print("Cursor NOT updated — run with --commit-cursor after these are handled.")
 
 
 if __name__ == "__main__":
-    main()
+    commit_cursor() if "--commit-cursor" in sys.argv[1:] else main()

@@ -45,17 +45,20 @@ Do **not** use for internal FYI mail or for mail the user only wants summarized 
    - Never commit PNGs to `main` unless that's the established pattern.
 9. **Dedupe against existing issues.** Before creating, run `gh issue list --search "in:title <normalized>"` (or search by the customer's `#NN`). If a thread maps to an existing open issue, **append via `gh issue comment <N> --body-file <file> -R <repo>`** instead of opening a duplicate — same `--body-file` rule applies (never `--body`). The comment should be generated from the thread intelligence artifact and include only the new timeline/update delta.
 10. **Create new issues** via `gh issue create --body-file` (never `--body` — shell quoting mangles non-ASCII). One issue per new thread. Issue bodies should include customer ask, evidence/screenshots, concise timeline or a link to `thread-summary.md`, acceptance criteria or reproduction notes when present, open questions, and clear separation between current customer text and quoted historical replies. Body text must be conclusion-first and skimmable in 30 seconds — lead with the customer ask and impact, no emoji, no padded summaries. In trusted bridge mode, apply the configured maintenance labels and include `customer-issue` when no project override exists so `saas-startup-team` `/maintain` can triage objectively-fixable work.
+11. **Commit the cursor.** Only after every fetched thread has been filed, appended, or explicitly classified as no-action, run `python3 fetch_mails_template.py --commit-cursor`. If any GitHub write failed, skip this — the next run refetches the unprocessed mail instead of silently dropping it.
 
 ## Unattended-Run Cursor
 
-For unattended (trusted bridge mode) runs, the template persists a cursor so a run with no
-new mail costs almost nothing. State lives in one JSON file, `MAIL_CURSOR_FILE` (default
-`.mail-issue-drafts/cursor.json`): `{"last_date": "dd-Mon-yyyy", "message_ids": [...]}`. Each
-run searches `SINCE last_date`, drops any fetched Message-ID already in that set (handles the
-day-granularity overlap of IMAP `SINCE`), and only proceeds past the fetch step if new
-messages remain. On a run with new mail, the cursor is rewritten to today's date and this
-run's Message-IDs. First run (no cursor file yet) falls back to the template's static `SINCE`
-config value.
+For unattended (trusted bridge mode) runs, the template keeps a cursor so a run with no new
+mail costs almost nothing. State lives in one JSON file, `MAIL_CURSOR_FILE` (default
+`.mail-issue-drafts/cursor.json`): `{"last_date": "dd-Mon-yyyy", "message_ids": [...]}`. The
+fetch searches `SINCE last_date`, drops any fetched Message-ID already in that set (handles
+the day-granularity overlap of IMAP `SINCE`), and only proceeds past the fetch step if new
+messages remain. The fetch never writes the cursor — step 11's `--commit-cursor` records it
+only after the mail is actually handled, so a failed run refetches instead of skipping.
+Committing unions same-day Message-IDs into the existing set and prunes only IDs from dates
+older than the new `SINCE` window. First run (no cursor file yet) falls back to the
+template's static `SINCE` config value.
 
 ## Gotchas
 
