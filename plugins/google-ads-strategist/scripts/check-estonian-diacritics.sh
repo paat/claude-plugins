@@ -28,7 +28,14 @@ fi
 # PRE-edit content and let the edit introduce ASCII forms unchecked.
 content=$(echo "$input" | jq -r '.tool_input.content // .tool_input.new_string // empty' 2>/dev/null)
 
-# Fallback: payload has no inline content at all — read the existing file
+# An Edit whose new_string is empty deletes text and cannot introduce ASCII
+# forms — never fall back to the (pre-edit) file for it.
+tool_name=$(echo "$input" | jq -r '.tool_name // empty' 2>/dev/null)
+if [ -z "$content" ] && [ "$tool_name" = "Edit" ]; then
+  exit 0
+fi
+
+# Fallback: Write payload has no inline content at all — read the existing file
 if [ -z "$content" ] && [ -f "$file_path" ]; then
   content=$(cat "$file_path")
 fi
