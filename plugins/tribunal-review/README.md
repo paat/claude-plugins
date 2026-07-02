@@ -105,9 +105,10 @@ Enable `TRIBUNAL_SCOPE_LENS=on` for bug fixes, hotfixes, incident patches, and p
 
 Scope findings are reported separately from correctness/security findings. `must-remove-before-merge` scope findings make the verdict at least `NEEDS_WORK`; `follow-up-only` findings document cleanup without blocking approval.
 
-These knobs apply everywhere. The standalone reviewer agents are thin wrappers over the same
-`scripts/run-*.sh` runners, so they honor every variable identically to the loop — including the
-enable/disable switches. An off-by-default leg (Gemini, GLM, Qwen) therefore emits its `disabled`
+These knobs apply everywhere. The standalone Codex/Gemini/Qwen/Claude reviewer agents are thin
+wrappers over the same `scripts/run-*.sh` runners (DeepSeek/OpenCode remain documentation pointers
+to the combined OpenCode runner), so runner invocations honor every variable identically to the
+loop — including the enable/disable switches. An off-by-default leg (Gemini, GLM, Qwen) therefore emits its `disabled`
 marker when invoked standalone unless you opt in (`TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on` /
 `TRIBUNAL_QWEN=on`).
 
