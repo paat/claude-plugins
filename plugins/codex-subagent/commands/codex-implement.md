@@ -48,7 +48,16 @@ Dispatch the OpenAI Codex CLI (`codex exec`, gpt-5.5) as an **implementer subage
    - the change matches the plan's intent,
    - the commit message + required trailer are present,
    - the reported tests actually correspond to the task.
-   - **Minimal-diff scope control:** every changed file and hunk is required by `<taskN>` or by the tests/build plumbing named for that task. Challenge opportunistic refactors, unrelated formatting/import churn, new abstractions without repeated call sites, defensive code for impossible internal states, and tests that assert unrelated implementation details. If a change is outside the named task, either revert it, ask for explicit justification, or split it into a follow-up task before reporting success.
+
+   **Minimal-diff scope control.** Every changed file and hunk must be required by `<taskN>` or the tests/build plumbing it names. Reject:
+   - files changed outside the task and its required tests/build plumbing;
+   - opportunistic refactors mixed into a bug fix;
+   - new abstractions without repeated call sites;
+   - defensive branches for impossible internal states;
+   - rename/reformat/import churn unrelated to the task;
+   - tests that assert implementation details outside the requested behavior.
+
+   Necessary fixture, test, or build-file updates are allowed if you can state why `<taskN>` requires them. Otherwise revert the change or split it into a follow-up task before reporting success.
 
 6. **Report to the user:** the task implemented, the test result, a one-line diff summary, and any follow-up (e.g. plan drift you reconciled). If the review found a problem Codex missed, fix it or dispatch a follow-up — you own the final state.
 

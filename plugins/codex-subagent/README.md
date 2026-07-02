@@ -12,13 +12,7 @@ blind spots in one-shot SaaS delivery.
 
 ## The one unlock: `-s danger-full-access`, not `--dangerously-bypass-*`
 
-This is the whole ballgame in containerized / already-sandboxed environments:
-
-- Codex's own sandbox (`bwrap`) fails inside containers — `bwrap: Failed to make / slave: Permission denied`. In that state Codex **cannot read or write repo files**, so reviews come back empty and implementations silently no-op.
-- `--dangerously-bypass-approvals-and-sandbox` *is* Codex's documented mode for externally-sandboxed environments, **but Claude Code's auto-mode permission classifier blocks it** (Safety-Bypass-Flag rule) — and also blocks Claude from self-editing `settings.json` to allowlist it (Self-Modification rule).
-- ✅ **Use `-s danger-full-access` instead.** It disables only Codex's broken sandbox *mode*, gives real FS read/write/exec, **and passes the Claude Code classifier** without a bypass flag.
-
-The bundled wrapper defaults to this. You generally won't touch the flag.
+Codex's own sandbox fails inside containers, and Codex's documented bypass flag is blocked by Claude Code's permission classifier. `-s danger-full-access` sidesteps both. The bundled wrapper defaults to this — you generally won't touch the flag. Full rationale: [`skills/codex-subagent-driven-development/SKILL.md`](skills/codex-subagent-driven-development/SKILL.md#the-one-unlock-you-must-know).
 
 ## Prerequisites
 
@@ -57,12 +51,7 @@ scripts/codex-run.sh [--dir D] [--model M] [--sandbox MODE] [--timeout S] [--out
 echo "build a prompt" | scripts/codex-run.sh --dir /path/to/repo --timeout 600
 ```
 
-It encodes every gotcha:
-
-- **Dual timeouts.** Codex runs take minutes. Set the wrapper's `--timeout` **and** the Claude Code Bash-tool `timeout` parameter — **both** must be generous. If only the inner one is set, the Bash tool's 120s default SIGTERMs Codex (`exit 143`) mid-task, leaving **uncommitted partial edits**. The wrapper detects exit 124/143 and prints recovery steps (`git checkout -- .`, remove stray files, retry with larger timeouts on both layers).
-- **Output capture.** A single review can stream ~87k tokens of file reads + reasoning, with the final answer duplicated. The wrapper captures the full stream to a log, prints only Codex's **clean final message** (via `-o/--output-last-message`), and falls back to the text after the last `tokens used` marker if needed.
-- **bwrap detection.** If the sandbox fails to initialize, the wrapper surfaces the `-s danger-full-access` remedy instead of returning an empty result.
-- **Missing-codex handling.** Exits 127 with an install hint.
+It encodes every gotcha — dual timeouts, output capture, bwrap detection, missing-codex handling. Full list: [`skills/codex-subagent-driven-development/SKILL.md`](skills/codex-subagent-driven-development/SKILL.md#operational-gotchas-all-handled-by-the-wrapper-but-know-them).
 
 `--print-cmd` shows exactly what would run without executing it.
 
@@ -76,29 +65,11 @@ It encodes every gotcha:
 
 ## The implementer contract (what made it reliable)
 
-`/codex-implement` tells Codex to:
-
-- implement **only one named task** from the plan file (Codex reads the plan itself — nothing is pasted),
-- use the **exact code** in the plan; do **not** touch unrelated lines or other tasks,
-- run the specified tests; all must pass,
-- commit exactly the named files with the plan's message **plus a required trailer line** (`${COMMIT_TRAILER}`, configured per project),
-- report only the final test PASS line(s) + `git --no-pager show --stat HEAD`,
-- **STOP and report** if any code anchor doesn't match the real file — instead of guessing.
-
-Codex commits as the configured git user; the contract makes it append your project's required trailer.
+`/codex-implement` dispatches Codex with a strict contract: one named task only, exact plan code, a test gate, commit with the required trailer, and stop-and-report on any code-anchor mismatch. Full text: [`commands/codex-implement.md`](commands/codex-implement.md) steps 2-3.
 
 ## Minimal-diff scope control
 
-`/codex-implement` includes a post-implementation scope check. Because each invocation names exactly one plan task, the controller should reject:
-
-- files changed outside the task and its required tests/build plumbing;
-- opportunistic refactors mixed into a bug fix;
-- new abstractions without repeated call sites;
-- defensive branches for impossible internal states;
-- rename/reformat/import churn unrelated to the task;
-- tests that assert implementation details outside the requested behavior.
-
-Necessary fixture, test, or build-file updates are allowed, but the controller should state why they are required by the named task. Split unrelated cleanup into a follow-up task.
+`/codex-implement` includes a post-implementation scope check: reject anything outside the named task — unrelated files, opportunistic refactors, new abstractions, defensive dead code, formatting/import churn, or over-broad tests. Full checklist: [`commands/codex-implement.md`](commands/codex-implement.md) step 5.
 
 ## Why the pre-flight review is high-value
 

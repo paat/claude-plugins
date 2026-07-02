@@ -31,9 +31,9 @@ digraph { "Plan" -> "Pre-flight review (/codex-review on plan+source)";
 
 1. **Write the plan first.** Use superpowers `writing-plans`. Each task names the exact files, the exact code, and the tests that gate it. Codex reads the plan file itself — you never paste it.
 2. **Pre-flight review the plan against real source** with `/codex-review <plan.md>`. Pointing gpt-5.5 at the plan + the actual tree reliably surfaces line-anchor drift, dispatch-signature mismatches (arity/return type), a second validator recomputing a total with the wrong formula, renderers hardcoding old field names. **Reconcile every defect into the plan before implementing** — this is the highest-leverage step.
-3. **Dispatch one task** with `/codex-implement <plan.md> <taskN>`. The implementer contract: implement only that task, use the plan's exact code, don't touch unrelated lines, run the named tests, commit exactly the named files with the plan's message + required trailer, report only the test PASS line(s) and `git show --stat HEAD`, and **STOP and report if any code anchor doesn't match** the real file (no guessing).
+3. **Dispatch one task** with `/codex-implement <plan.md> <taskN>` — see that command's steps 2-3 for the full implementer contract (one task only, exact plan code, test gate, commit + trailer, stop on anchor mismatch).
 4. **Review the resulting diff yourself.** Only the named files changed? Matches the plan? Trailer present? Tests real? If not, fix it or re-dispatch — you own the final state.
-5. **Run the minimal-diff scope-control check.** Every changed file and hunk must be required by the named task or its specified tests/build plumbing. Challenge unrelated files, opportunistic refactors, new abstractions without repeated call sites, defensive code for impossible internal states, import/format churn, and tests that assert unrelated implementation details. Revert or split out-of-scope work unless the plan explicitly asked for it.
+5. **Run the minimal-diff scope-control check** — see `/codex-implement` step 5 for the full reject-list. Revert or split out-of-scope work unless the plan explicitly asked for it.
 6. **Update the ledger** (which task is done, its commit, test result) and move to the next task.
 
 ## Two Codex roles, two access modes
