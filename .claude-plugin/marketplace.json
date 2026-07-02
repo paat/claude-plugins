@@ -9,7 +9,7 @@
     {
       "name": "gemini-cli",
       "description": "Integrate Google's Gemini CLI into Claude Code for second opinions, dual code reviews, and AI-assisted explanations",
-      "version": "0.1.4",
+      "version": "0.2.0",
       "author": {
         "name": "Andre Paat"
       },

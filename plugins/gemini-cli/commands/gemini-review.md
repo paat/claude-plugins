@@ -16,7 +16,7 @@ The user wants a code review of:
 
 1. Determine what to review:
    - If `$ARGUMENTS` contains file paths, review those files
-   - If `$ARGUMENTS` contains a directory, review key files in it
+   - If `$ARGUMENTS` contains a directory, review key files in it — cap at ~10 files, skip generated/vendored paths (`node_modules/`, `dist/`, `build/`, lockfiles, minified assets)
    - If unclear, ask the user what to review
 
 2. Determine the model to use:
@@ -25,7 +25,7 @@ The user wants a code review of:
    - If the user included `--pro` in their arguments, use `-m gemini-3-pro-preview` explicitly
    - Remove the model flag from the file path arguments
 
-3. Read the file(s) yourself first to understand the code.
+3. Read the file(s) yourself first to understand the code. Stay frugal: for large files, read targeted ranges (the changed hunks, or the relevant functions) instead of the full file.
 
 4. Send the file(s) to Gemini for review using `@file` injection:
    ```bash
