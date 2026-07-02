@@ -143,6 +143,5 @@ If you have an existing `tools/agent-sync/generate-agents.mjs`:
 | `/agent-sync:check` | Command | Verify AGENTS.md is in sync |
 | `/agent-sync:init` | Command | Scaffold sources.json |
 | `agent-sync` | Skill | Usage reference and troubleshooting |
-| `sync-watcher` | Agent | Proactively checks sync when configs change |
 | PostToolUse hook | Hook | Regenerates AGENTS.md when a tracked source file is edited (auto-stages by default; `AGENT_SYNC_AUTO_STAGE=0` to opt out) |
 | `lint.sh` | Script | Lint config for stack contradictions, rules-file bloat, and soft directives |
