@@ -20,7 +20,7 @@
     {
       "name": "reddit-fetch",
       "description": "Research any topic using Reddit via Gemini CLI's web access capabilities",
-      "version": "0.1.4",
+      "version": "0.2.0",
       "author": {
         "name": "Andre Paat"
       },
