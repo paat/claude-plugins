@@ -214,6 +214,7 @@ Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 > - Does it work on mobile viewport (375px)?
 > - If the change touched a workflow spec, do the QA cases in `.startup/workflows/WORKFLOW-*.md` pass or need registry follow-up?
 > - If relevant, are async paid-flow states, checkout CTA proximity, customer copy/value units, structured-result labels, LLM quality evidence, and compliance claim boundaries acceptable?
+> - Does the new element cohere with its *rendered* neighbors (alignment, width, spacing, hierarchy) in the state that will actually ship — judged independently of whether the brief said to reuse existing tokens/patterns?
 >
 > Write your review following your standard review process.
 

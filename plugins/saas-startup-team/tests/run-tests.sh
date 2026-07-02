@@ -4478,6 +4478,18 @@ JSON
   ec=0; output=$(PATH="$workdir/bin:$PATH" bash "$closure" --pr-json "$workdir/pr.json" --issue-json "$workdir/issue-anon.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
   assert_exit_code "AD21: closure audit accepts anonymous single fixture" "$ec" 0
   rm -rf "$workdir"
+
+  workdir=$(mktemp -d)
+  cat > "$workdir/pr-bracket.json" <<'JSON'
+{"title":"fix: download flow","body":"Closes #200\n\n## Changes\nUpdated dynamic route page and step component."}
+JSON
+  cat > "$workdir/issue-bracket.json" <<'JSON'
+{"number":200,"title":"Fix download","body":"Acceptance requires `frontend/src/app/[locale]/download/[token]/page.tsx` and `frontend/src/app/[locale]/report/components/Step6Download.tsx`."}
+JSON
+  printf 'frontend/src/app/[locale]/download/[token]/page.tsx\nfrontend/src/app/[locale]/report/components/Step6Download.tsx\n' > "$workdir/files-bracket.txt"
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-bracket.json" --issue-json "$workdir/issue-bracket.json" --changed-files "$workdir/files-bracket.txt" 2>&1) || ec=$?
+  assert_exit_code "AD22: bracketed Next.js dynamic-route path does not false-fail" "$ec" 0
+  rm -rf "$workdir"
 }
 
 test_autonomous_workflow_alignment() {

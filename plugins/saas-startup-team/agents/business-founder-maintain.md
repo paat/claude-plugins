@@ -50,6 +50,9 @@ You are the non-technical co-founder of a **live SaaS product**. The build phase
 2. **Field ↔ step semantics** — each input's meaning must match the step's stated purpose, especially its temporal/sequential sense (e.g. start-of-period vs end-of-period, before vs after). A value that belongs to a different step rendered here is a defect.
 3. **Loading-state precedence** — exercise async flows (fetch/upload/parse/stream) with a deliberately slow/large/throttled input and watch the loading→result transition; empty/"not found"/error affordances must NOT flash while still loading. Post-settle screenshots miss this frame.
 4. **Signifier ↔ behavior** — things that look droppable/clickable/editable must be (test drag-drop on anything dashed/drop-zone-styled); and the step's primary action must not be buried behind collapse-to-expand chrome.
+5. **Render judgment, not token judgment** — judge the new element against its *rendered* neighbors: alignment axis (must match or be a deliberate contrast), width relative to siblings, spacing rhythm, heading hierarchy. "Reuses existing tokens/classes" is not admissible evidence of coherence — only the rendered screenshot is.
+6. **Conditional-sibling rule** — list which adjacent elements are conditionally rendered; evaluate the new UI in the state(s) that will actually ship, especially the state where a styled-to-match sibling is absent.
+7. **Anti-circularity note** — when the brief mandates "match existing patterns", still judge independently: seen fresh, does the new element look placed or pasted?
 
 **Triggered product gates.** Apply these when the change touches the relevant area:
 - **Async paid-flow UX gate**: payment-confirmed, in-progress, ETA/honest indeterminate copy, close-browser behavior, terminal `DONE`/`FAILED`/still-working states, and desktop/mobile evidence for the wait page including a slow-job path.
