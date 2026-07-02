@@ -75,7 +75,7 @@
     {
       "name": "comfyui",
       "description": "Manage ComfyUI workflows, models, and API — build workflows from natural language, queue executions, monitor progress, and download models",
-      "version": "0.1.5",
+      "version": "0.2.0",
       "author": {
         "name": "Andre Paat"
       },

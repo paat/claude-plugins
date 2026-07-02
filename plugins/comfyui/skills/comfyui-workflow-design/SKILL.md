@@ -29,13 +29,13 @@ Key rules:
 
 ### Workflow Construction Process
 1. Read `.claude/comfyui.local.md` for ComfyUI URL
-2. Query `GET {url}/object_info` to discover available nodes
+2. Discover available nodes — query `GET {url}/object_info/{class_name}` per candidate node, or pipe the full `GET {url}/object_info` through jq to filter by name/category (the unfiltered response can be 1MB+)
 3. Query `GET {url}/models/{folder}` to discover available models
 4. Identify required pipeline stages for the user's goal
-5. Select appropriate node classes (verify they exist in /object_info)
+5. Select appropriate node classes (verify they exist via step 2)
 6. Assign sequential string IDs
 7. Wire connections — ensure output type matches expected input type
-8. Set all required inputs (check /object_info for required vs optional)
+8. Set all required inputs (check the node's schema for required vs optional)
 9. Validate: every connection references an existing node, all required inputs filled
 
 ### Common Pipeline Patterns
