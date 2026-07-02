@@ -31,12 +31,6 @@ The marker file is plain text with an ISO timestamp as its contents. Written eit
 
 ## Step 2: Dispatch the ads-strategist
 
-Kill any stale ads-strategist agents first:
-
-```bash
-pkill -f 'agent-type ads-strategist' 2>/dev/null || true
-```
-
 Spawn the ads-strategist via Task tool with `subagent_type: "general-purpose"`:
 
 ### For pre-launch iteration:
@@ -45,13 +39,15 @@ Spawn the ads-strategist via Task tool with `subagent_type: "general-purpose"`:
 >
 > **Task: Run one pre-launch iteration on campaign `<campaign>`.**
 >
-> Load skills in this order:
-> 1. `google-ads-strategist:buyer-intent-targeting`
-> 2. `google-ads-strategist:iterative-campaign-design`
-> 3. `google-ads-strategist:hypothesis-journaling`
-> 4. `google-ads-strategist:browser-verification`
-> 5. `google-ads-strategist:competitor-intel`
-> 6. `google-ads-strategist:clickable-copy`
+> Be token-frugal: read only what each step needs (targeted ranges, not full files) and never re-read content already in context.
+>
+> Load each skill only when the cycle reaches a step that needs it — a verify-only cycle on an existing iteration loads only `browser-verification`:
+> - `google-ads-strategist:buyer-intent-targeting` — when classifying candidate keywords (v1 or any keyword-change hypothesis)
+> - `google-ads-strategist:iterative-campaign-design` — when generating v1 or diagnosing gaps to propose v_{n+1}
+> - `google-ads-strategist:browser-verification` — when running Ad Preview / SERP capture in the browser
+> - `google-ads-strategist:hypothesis-journaling` — when writing a hypothesis (v1 or v_{n+1})
+> - `google-ads-strategist:competitor-intel` — when building or refreshing the differentiation matrix
+> - `google-ads-strategist:clickable-copy` — when writing or revising RSA copy
 >
 > Read in order:
 > - `docs/ads/<campaign>/brief.md` — campaign context
@@ -178,10 +174,4 @@ On approval, dispatch the agent again with:
 
 ### Force-override for the wait gate
 
-The `check-wait-gate.sh` hook enforces a minimum wait (default 7 days) between post-launch iterations. In rare cases where waiting is clearly wrong (e.g., obvious tracking breakage producing zero conversions, or a Google policy violation requiring immediate copy change), you can bypass the gate:
-
-1. Write the keyword `force-wait-override` anywhere in the new iteration's `hypothesis.md`
-2. Include a written justification explaining why waiting would cause more harm than iterating early
-3. The hook will detect the keyword and allow the spec write
-
-**Do not use this for impatience.** Valid reasons: tracking breakage, policy violation, budget emergency, competitor crisis. Invalid reasons: "I think 3 days is enough data", "the numbers look bad", "the client is anxious."
+The wait-gate rule and its rationale live in the `iterative-optimization` skill ("The Wait Gate"). To bypass in a genuine emergency (tracking breakage, policy violation, budget emergency, competitor crisis — never impatience): write `force-wait-override` in the new `hypothesis.md` with a written justification, and `check-wait-gate.sh` allows the spec write.

@@ -35,12 +35,12 @@ Common corrections:
 4. On the campaign settings page, configure:
    - **Campaign name**: from spec.md `Campaign name` field
    - **Networks**: UNCHECK "Include Google search partners" and "Include Google Display Network"
-   - **Locations**: 
+   - **Locations**: for each target location in spec.md:
      - Click "Enter another location"
-     - Search for "Estonia" → select it
+     - Search for the location name → select it
      - Under "Location options" → select "Presence: People in your targeted locations"
-     - Add location exclusions (India, Pakistan, Bangladesh, Philippines, Nigeria) under "Exclude"
-   - **Languages**: Add "Estonian" and "English"
+     - Add each location exclusion from spec.md under "Exclude"
+   - **Languages**: add each target language from spec.md
    - **Budget**: Enter the daily budget from spec.md
    - **Bidding**: Select "Manual CPC". UNCHECK "Enhanced CPC" if it auto-selects.
    - **More settings** → **Start and end dates**: Set start date to today (or per spec), end date from spec.md
@@ -192,7 +192,7 @@ The agent's job is done after the campaign is created in PAUSED state and the cr
 1. **Investor reviews** the campaign in Google Ads UI
 2. **Investor enables** the campaign when satisfied
 3. **After 7 days**, run `/ads-metrics` to pull the first post-launch data
-4. **After 100 impressions per ad group**, evaluate the watch groups (kuidas/juhend, tegevusaruanne)
+4. **After 100 impressions per ad group**, evaluate the watch groups defined in spec.md
 
 ## Related Skills
 

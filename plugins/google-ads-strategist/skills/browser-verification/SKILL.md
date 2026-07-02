@@ -124,12 +124,9 @@ Use for: competitor ad copy analysis, SERP layout intent classification, "is thi
    - Local pack? (local-intent signal)
 ```
 
-### SERP intent classification cheat sheet
+### SERP intent classification
 
-- **≥ 3 paid ads + shopping carousel + commercial organic**: strong commercial/transactional — proceed
-- **1-2 paid ads + mixed organic**: commercial investigation — proceed with emphasis on differentiation
-- **0 paid ads + "People Also Ask" at top + listicles**: informational — DROP THE KEYWORD
-- **Only brand result + knowledge panel**: navigational — branded campaign only
+Classify the captured SERP with the intent cheat sheet in the `buyer-intent-targeting` skill ("Verification in the SERP") — that skill is the single source for the paid-ad / carousel / People-Also-Ask thresholds.
 
 **NEVER** click on competitor ads in the real SERP — that costs them money, wastes your own visit budget (Google flags repeated clicks from the same IP as suspicious), and is unethical. Read-only inspection via `get_page_text`.
 

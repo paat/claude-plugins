@@ -100,14 +100,14 @@ Diagnosis is symptom-driven. Pick the **dominant** symptom — the one whose imp
 
 ## Budget and blast-radius rails
 
-These are hook-enforced, not agent-enforced:
+You enforce these yourself — no hook checks them. Before writing a post-launch spec, STOP and get explicit user confirmation for any change that:
 
-- Bid changes > 30% from prior iteration require confirmation (`check-blast-radius.sh`)
-- Pausing > 20% of keywords at once requires confirmation
-- Budget increases > 50% in one iteration require confirmation
-- Any change that would touch a keyword with > 30% of the campaign's spend requires confirmation
+- Moves a bid > 30% from the prior iteration
+- Pauses > 20% of a campaign's keywords at once
+- Raises daily budget > 50% in one iteration
+- Touches a keyword that carries > 30% of the campaign's spend
 
-Override only with explicit justification in the hypothesis.
+State the rail you are crossing and the reason in the hypothesis, and do not proceed until the user approves.
 
 ## Budget Depletion Handling
 

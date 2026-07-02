@@ -100,7 +100,7 @@ If `result.md` doesn't exist yet, note: "v_b is still pending verification — r
 If the diff shows changes across more than one variable class, flag it:
 
 ```markdown
-⚠ **MULTIVARIATE change detected** — this iteration modified more than one variable class.
+WARNING: **MULTIVARIATE change detected** — this iteration modified more than one variable class.
 Confounded attribution — cannot cleanly ascribe the result to either change.
 Check iterations/<v_b>/hypothesis.md for a --multivariate marker + justification.
 ```

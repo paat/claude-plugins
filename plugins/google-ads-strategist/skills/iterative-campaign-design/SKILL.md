@@ -9,7 +9,7 @@ The pre-launch iteration loop exists to squeeze every wasted click out of a camp
 
 ## Prerequisite: Buyer-Intent Classification
 
-**Before v1 is even designed**, run the `buyer-intent-targeting` skill on every candidate keyword. Drop everything informational. Route navigational to branded-only. Keep only commercial-investigation and transactional queries. This is the first filter and it is non-negotiable — content relevance is not buyer intent, and the strategist must not spend budget on queries where searchers want free help rather than a paid service.
+**Before v1 is even designed**, run the `buyer-intent-targeting` skill on every candidate keyword: drop informational, route navigational to branded-only, keep only commercial-investigation and transactional queries. This is the first filter and it is non-negotiable — see that skill for the full rule.
 
 ## The Loop
 

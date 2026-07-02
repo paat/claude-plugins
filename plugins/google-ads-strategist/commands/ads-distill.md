@@ -26,7 +26,7 @@ Detect active or ask which campaign. Must have ≥ 3 iterations with result.md t
 - Every `iterations/vN/result.md`
 - Current `learnings.md`
 - `docs/ads/*/learnings.md` across OTHER campaigns (for cross-campaign patterns)
-- Project memory at `/config/.claude/projects/*/memory/MEMORY.md` — check what's already graduated
+- Project memory at `$HOME/.claude/projects/*/memory/MEMORY.md` — check what's already graduated
 
 ## Step 3: Find patterns
 
@@ -80,7 +80,7 @@ These patterns held across multiple campaigns and are candidates for promotion t
 
 2. ...
 
-Approve any (e.g., "yes 1 2") and I'll write them to `/config/.claude/projects/<project>/memory/` and update MEMORY.md.
+Approve any (e.g., "yes 1 2") and I'll write them to `$HOME/.claude/projects/<project>/memory/` and update MEMORY.md.
 ```
 
 DO NOT auto-write project memory — user must confirm, because project memory survives across sessions and subtly shapes future decisions.
@@ -89,7 +89,7 @@ DO NOT auto-write project memory — user must confirm, because project memory s
 
 For each approved candidate:
 
-1. Write `/config/.claude/projects/<project>/memory/ads_<slug>.md`:
+1. Write `$HOME/.claude/projects/<project>/memory/ads_<slug>.md`:
 
 ```markdown
 ---
@@ -105,7 +105,7 @@ type: project
 **How to apply:** [when/where this kicks in for future PPC work]
 ```
 
-2. Append to `/config/.claude/projects/<project>/memory/MEMORY.md`:
+2. Append to `$HOME/.claude/projects/<project>/memory/MEMORY.md`:
 
 ```markdown
 - [<Principle name>](ads_<slug>.md) — <one-line hook>

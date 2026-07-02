@@ -24,7 +24,7 @@ and product feedback while keeping spend controlled and attributable.
 ## Core discipline
 
 - One hypothesis per iteration, **single-variable changes only**, browser-verified at every step
-- Every iteration includes `forecast.md`, `negatives.md`, `keywords.md`, and `flags-for-investor.md` as standard v1 artifacts
+- Every iteration includes `forecast.md`, `negatives.md`, and `flags-for-investor.md` as standard v1 artifacts
 - **Creates campaigns in Google Ads via Chrome in PAUSED state** — the investor reviews in the Ads UI and enables when satisfied
 - The plugin **never enables, activates, or launches** campaigns — that's the investor's action after review
 
@@ -40,7 +40,8 @@ and product feedback while keeping spend controlled and attributable.
 
 - Claude Code with the `claude-in-chrome` MCP server installed and logged into the user's Chrome browser
 - `jq` on PATH (hook scripts parse the tool input JSON via jq)
-- GNU `grep` with PCRE support (`grep -P`) — used by `check-single-variable.sh`; default on Linux, not on macOS unless replaced with `ggrep`
+- GNU `grep` with PCRE support (`grep -P`) — used by `check-single-variable.sh`, `check-estonian-diacritics.sh`, and `check-hypothesis-log.sh`; default on Linux, not on macOS unless replaced with `ggrep`
+- GNU `date` (`date -d`) — used by `check-wait-gate.sh` to parse ISO timestamps; default on Linux. On macOS install `coreutils` — the script prefers `gdate` when available.
 - Bash 4+ / standard POSIX tools
 - Optional: logged-in Google Ads account in Chrome, for authenticated Ad Preview & Diagnosis and for metrics pulls (post-launch loop only)
 
@@ -76,10 +77,13 @@ No Google Ads API access is required for pre-launch design + verification. The A
 - `chrome-campaign-creation` — **step-by-step Chrome playbook for building campaigns in Google Ads UI** in PAUSED state
 
 ### Hooks
-- **PreToolUse / Chrome navigate** → `check-launch-block.sh` — allows campaign creation URLs, warns on Ads dashboard navigation (must create PAUSED), blocks billing URLs
-- **PostToolUse / Write** → `check-hypothesis-present.sh` — blocks writing `iterations/vN/spec.md` without a sibling `hypothesis.md`
-- **PostToolUse / Write** → `check-single-variable.sh` — validates that `hypothesis.md` declares exactly one variable class (or justified multivariate)
-- **PostToolUse / Write** → `check-wait-gate.sh` — post-launch only, blocks iteration specs before ≥ 7 days since last apply (for statistical significance)
+All hooks are **PreToolUse** — they block before the tool runs. The Write-gated checks match both `Write` and `Edit`.
+- **Chrome navigate** → `check-launch-block.sh` — allows campaign creation URLs, warns on Ads dashboard navigation (must create PAUSED), blocks billing URLs
+- **Write / Edit** → `check-hypothesis-present.sh` — blocks writing `iterations/vN/spec.md` without a sibling `hypothesis.md`
+- **Write / Edit** → `check-single-variable.sh` — validates that `hypothesis.md` declares exactly one variable class (or justified multivariate)
+- **Write / Edit** → `check-wait-gate.sh` — post-launch only, blocks iteration specs before ≥ 7 days since last apply (for statistical significance)
+- **Write / Edit** → `check-hypothesis-log.sh` — blocks writing `result.md` without a corresponding `hypothesis-log.md` entry
+- **Write / Edit** → `check-estonian-diacritics.sh` — blocks writing an Estonian `spec.md` that uses ASCII substitutes for diacritics (ä, ö, ü, õ, š, ž)
 
 ### Templates
 Located in `${CLAUDE_PLUGIN_ROOT}/templates/`:
@@ -165,7 +169,7 @@ Every high/critical finding needs concrete evidence. If evidence is unavailable,
 ## Safety & boundaries
 
 **Hard limits enforced by hooks:**
-- Never navigates to campaign creation / edit / delete / billing URLs in ads.google.com
+- Never navigates to Google Ads billing URLs (campaign creation is allowed; Ads dashboard navigation is warned to enforce PAUSED-only)
 - Never writes a spec.md without a hypothesis.md
 - Never accepts a hypothesis without a declared variable class
 - Never accepts a multivariate hypothesis without written justification

@@ -41,10 +41,6 @@ date -Iseconds > "docs/ads/<campaign>/current/applied_at"
 
 ## Step 2: Dispatch
 
-```bash
-pkill -f 'agent-type ads-strategist' 2>/dev/null || true
-```
-
 Spawn ads-strategist via Task tool:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/ads-strategist.md`.

@@ -40,11 +40,14 @@ applied_file="${campaign_dir}/iterations/v${prev_v}/applied_at"
 # (may happen during pre→post transition)
 [ -f "$applied_file" ] || exit 0
 
+# GNU date is required for -d; on macOS coreutils installs it as gdate
+date_bin=$(command -v gdate || command -v date)
+
 applied_timestamp=$(head -1 "$applied_file")
-applied_epoch=$(date -d "$applied_timestamp" +%s 2>/dev/null || echo "0")
+applied_epoch=$("$date_bin" -d "$applied_timestamp" +%s 2>/dev/null || echo "0")
 [ "$applied_epoch" -eq 0 ] && exit 0  # unparseable, allow
 
-now_epoch=$(date +%s)
+now_epoch=$("$date_bin" +%s)
 days_passed=$(( (now_epoch - applied_epoch) / 86400 ))
 
 # Check for force-override marker in the current hypothesis

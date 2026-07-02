@@ -122,9 +122,9 @@ If brief.md lists existing campaigns in the account (from Q14 of `/ads-brief`):
 ## Checklist
 | # | Condition | Pass | Evidence |
 |---|-----------|------|----------|
-| 1.1 | Buyer-intent classified | ✅ | spec.md intent column |
-| 1.2 | Zero informational | ✅ | — |
-| 2.1 | Trigger coverage | ❌ | 3/10 keywords missing preview |
+| 1.1 | Buyer-intent classified | PASS | spec.md intent column |
+| 1.2 | Zero informational | PASS | — |
+| 2.1 | Trigger coverage | FAIL | 3/10 keywords missing preview |
 | ... | ... | ... | ... |
 
 ## Failures
@@ -142,7 +142,7 @@ If brief.md lists existing campaigns in the account (from Q14 of `/ads-brief`):
 
 ## Notes
 
-- NEVER mark READY if any Pass column is ❌
+- NEVER mark READY if any Pass column is FAIL
 - READY WITH CAVEATS is allowed only if failures are all in categories 4b/7/7b/9 (extensions/tracking/budget/existing campaign) — those are human prerequisites or incremental improvements, not core ad design issues
 - Section 5b (LP voice compliance) failures are HIGH BLOCKERs — NEVER mark READY WITH CAVEATS for voice violations
 - If multiple conditions fail, pick the MOST critical one and show it prominently in the recommendation

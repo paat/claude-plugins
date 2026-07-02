@@ -22,10 +22,6 @@ If a campaign is active (`docs/ads/<campaign>/` exists), the output goes into th
 
 ## Step 2: Dispatch the agent
 
-```bash
-pkill -f 'agent-type ads-strategist' 2>/dev/null || true
-```
-
 Spawn the ads-strategist via Task tool:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/ads-strategist.md` for your identity.

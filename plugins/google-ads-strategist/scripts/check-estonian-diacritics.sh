@@ -1,5 +1,5 @@
 #!/bin/bash
-# check-estonian-diacritics.sh — PreToolUse hook for Write events
+# check-estonian-diacritics.sh — PreToolUse hook for Write/Edit events
 # Blocks writing spec.md if Estonian ad copy contains ASCII substitutes
 # for diacritical characters (ö→o, ä→a, ü→u, õ→o, š→s, ž→z).
 #
@@ -7,6 +7,7 @@
 # Checks for common Estonian words that are ALWAYS wrong in ASCII form.
 #
 # Input: JSON on stdin with tool_input.file_path and tool_input.content
+# (Write) or tool_input.new_string (Edit)
 # Exit 0: not a spec.md, or no diacritics violations found
 # Exit 2: blocked — ASCII-for-diacritics detected
 
@@ -22,12 +23,34 @@ if [[ ! "$file_path" =~ docs/ads/[^/]+/iterations/v[0-9]+/spec\.md$ ]]; then
   exit 0
 fi
 
-content=$(echo "$input" | jq -r '.tool_input.content // empty' 2>/dev/null)
+# Write payloads carry .content; Edit payloads carry .new_string — the text
+# being introduced. Validating the on-disk file for an Edit would only see
+# PRE-edit content and let the edit introduce ASCII forms unchecked.
+content=$(echo "$input" | jq -r '.tool_input.content // .tool_input.new_string // empty' 2>/dev/null)
+
+# An Edit whose new_string is empty deletes text and cannot introduce ASCII
+# forms — never fall back to the (pre-edit) file for it.
+tool_name=$(echo "$input" | jq -r '.tool_name // empty' 2>/dev/null)
+if [ -z "$content" ] && [ "$tool_name" = "Edit" ]; then
+  exit 0
+fi
+
+# Fallback: Write payload has no inline content at all — read the existing file
+if [ -z "$content" ] && [ -f "$file_path" ]; then
+  content=$(cat "$file_path")
+fi
+
 [ -z "$content" ] && exit 0
 
-# Check if the spec contains Estonian language markers
-# Only enforce diacritics check if Estonian content is present
-if ! echo "$content" | grep -qiP '(language:\s*et|— language: et|estonian)'; then
+# Only enforce the diacritics check if Estonian content is present.
+# An Edit fragment may not contain the language marker even though the spec
+# is Estonian, so also consult the existing file for the marker.
+marker_context="$content"
+if [ -f "$file_path" ]; then
+  marker_context="${marker_context}
+$(cat "$file_path")"
+fi
+if ! echo "$marker_context" | grep -qiP '(language:\s*et|— language: et|estonian)'; then
   exit 0
 fi
 
@@ -46,9 +69,9 @@ if echo "$content" | grep -qP '\bTahtaeg\b'; then
   violations+=("'Tahtaeg' should be 'Tähtaeg'")
 fi
 
-# ö → o violations
-if echo "$content" | grep -qP '(?i)\bkottejotlik\b'; then
-  violations+=("'kottejotlik' should be 'kõttejõtlik'")
+# õ → o violations
+if echo "$content" | grep -qP '(?i)\bettevotlik\b'; then
+  violations+=("'ettevotlik' should be 'ettevõtlik'")
 fi
 
 # õ → o violations
