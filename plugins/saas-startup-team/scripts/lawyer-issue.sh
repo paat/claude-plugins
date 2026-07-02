@@ -8,9 +8,9 @@
 set -uo pipefail
 source "$(dirname "$0")/lawyer-common.sh"
 
-SLUG="$1"
+SLUG="${1:-}"
 BODY_FILE="${2:-}"
-[ -n "$SLUG" ] || { echo "Error: slug required"; exit 1; }
+[ -n "$SLUG" ] || { echo "Usage: lawyer-issue.sh <slug> [body-file]"; exit 1; }
 
 entry=$(jq -r --arg s "$SLUG" '.entries[$s] // empty' "$REGISTRY")
 [ -n "$entry" ] || { echo "Error: no registry entry for '$SLUG'"; exit 1; }
@@ -47,6 +47,15 @@ if ! issue_url=$(gh issue create \
   --body-file "$BODY_FILE" 2>"$TMP/gh-err"); then
   echo "Error: gh issue create failed for '${SLUG}':"
   cat "$TMP/gh-err"
+  echo "  Slug remains flagged; gh_issue_url left null. Next /lawyer run will re-prompt."
+  exit 1
+fi
+
+# gh can exit 0 while still reporting an error on stderr, and a stored non-URL
+# would permanently mask the flag. Store only a clean, plausible issue URL.
+if [ -s "$TMP/gh-err" ] || ! printf '%s' "$issue_url" | grep -qE '^https://[^[:space:]]+/issues/[0-9]+$'; then
+  echo "Error: gh issue create for '${SLUG}' did not return a clean issue URL (got: '${issue_url}')."
+  [ -s "$TMP/gh-err" ] && cat "$TMP/gh-err"
   echo "  Slug remains flagged; gh_issue_url left null. Next /lawyer run will re-prompt."
   exit 1
 fi

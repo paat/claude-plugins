@@ -133,14 +133,14 @@ After running the scan (non-blocking):
 # Registered slug with no snapshot file
 jq -r '.entries | keys[]' .startup/law-registry.json | while IFS= read -r slug; do
   [ -z "$slug" ] && continue
-  [ -f ".startup/laws/${slug}.txt" ] || echo "⚠ Snapshot missing for registered slug '$slug'"
+  [ -f ".startup/laws/${slug}.txt" ] || echo "WARNING: snapshot missing for registered slug '$slug'"
 done
 # Orphan snapshot files
 if [ -d .startup/laws ]; then
   for f in .startup/laws/*.txt; do
     [ -f "$f" ] || continue
     s=$(basename "$f" .txt)
-    jq -e --arg s "$s" '.entries | has($s)' .startup/law-registry.json >/dev/null || echo "⚠ Orphan snapshot '$f' (no registry entry for '$s')"
+    jq -e --arg s "$s" '.entries | has($s)' .startup/law-registry.json >/dev/null || echo "WARNING: orphan snapshot '$f' (no registry entry for '$s')"
   done
 fi
 ```

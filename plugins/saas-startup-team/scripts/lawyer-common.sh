@@ -72,7 +72,8 @@ lawyer_normalise() {
 
 # Ack one slug: re-fetch /citation, refuse a non-valid redaction, else refresh the
 # snapshot and clear flags. Sets globals ACK_ACT_ID / ACK_STATUS / ACK_IN_FORCE for
-# the caller's message. Returns: 0 ok, 2 empty-text, 3 not-in-force.
+# the caller's message. Returns: 0 ok, 2 empty-text, 3 not-in-force,
+# 4 snapshot-write-failed (registry left untouched).
 lawyer_ack_one() {
   local SLUG="$1" resp text cite_url_resp red tail_seg ack_red_date ack_notvalid NOW normalised
   ACK_ACT_ID=$(jq -r --arg s "$SLUG" '.entries[$s].act_id' "$REGISTRY")
@@ -96,8 +97,9 @@ lawyer_ack_one() {
   { [ -n "$ACK_STATUS" ] && [ "$ACK_STATUS" != "valid" ]; } && ack_notvalid=1
   [ "$ack_notvalid" = "1" ] && return 3
 
+  # Snapshot first; only a verified write may clear registry flags.
   normalised=$(printf '%s' "$text" | lawyer_normalise)
-  printf '%s\n' "$normalised" > "${LAWS_DIR}/${SLUG}.txt"
+  printf '%s\n' "$normalised" > "${LAWS_DIR}/${SLUG}.txt" || return 4
 
   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   jq --arg slug "$SLUG" --arg now "$NOW" --arg red "$red" --arg rturl "$cite_url_resp" \

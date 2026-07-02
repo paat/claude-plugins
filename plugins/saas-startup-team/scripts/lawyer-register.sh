@@ -16,10 +16,14 @@ for a in "$@"; do
 done
 set -- "${_args[@]}"
 
-SLUG="$1"
-ACT_ID="$2"
-CITATION="$3"
-PURPOSE="$4"
+SLUG="${1:-}"
+ACT_ID="${2:-}"
+CITATION="${3:-}"
+PURPOSE="${4:-}"
+if [ -z "$SLUG" ] || [ -z "$ACT_ID" ] || [ -z "$CITATION" ] || [ -z "$PURPOSE" ]; then
+  echo "Usage: lawyer-register.sh <slug> <act_id> <citation> <purpose> [--force]"
+  exit 1
+fi
 
 [[ "$SLUG" =~ ^[a-z0-9-]+$ ]] || { echo "Error: slug must match [a-z0-9-]+"; exit 1; }
 [[ "$ACT_ID" =~ ^[0-9]+$ ]] || { echo "Error: act_id must be an integer — use /laws/search .id, not rt_id or RT URL segment"; exit 1; }
@@ -88,13 +92,14 @@ if [ "$NOT_IN_FORCE" = "1" ] && [ "$FORCE" != "1" ]; then
   exit 1
 fi
 if [ "$NOT_IN_FORCE" = "1" ]; then
-  echo "⚠ Overriding lifecycle guard (--force): act ${ACT_ID} is status=${CITE_STATUS:-unknown}, in_force=${CITE_IN_FORCE:-unknown}."
+  echo "WARNING: overriding lifecycle guard (--force): act ${ACT_ID} is status=${CITE_STATUS:-unknown}, in_force=${CITE_IN_FORCE:-unknown}."
 fi
 
 # Write snapshot first — on crash before index write, re-run sees an orphan
 # snapshot (warning), not an orphan index entry.
 normalised=$(printf '%s' "$text" | lawyer_normalise)
-printf '%s\n' "$normalised" > "${LAWS_DIR}/${SLUG}.txt"
+printf '%s\n' "$normalised" > "${LAWS_DIR}/${SLUG}.txt" \
+  || { echo "Error: could not write snapshot ${LAWS_DIR}/${SLUG}.txt — no registry entry written."; exit 1; }
 
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 entry=$(jq -n \

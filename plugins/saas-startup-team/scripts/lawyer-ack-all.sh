@@ -13,7 +13,8 @@ while IFS= read -r SLUG; do
   lawyer_ack_one "$SLUG"; rc=$?
   case "$rc" in
     2) echo "Error: datalake returned empty text for act_id=$ACK_ACT_ID — skipping $SLUG"; continue ;;
-    3) echo "⚠ Skipping $SLUG: act $ACK_ACT_ID is status=${ACK_STATUS:-unknown}, in_force=${ACK_IN_FORCE:-unknown} — not in force; flag kept."; continue ;;
+    3) echo "WARNING: skipping $SLUG: act $ACK_ACT_ID is status=${ACK_STATUS:-unknown}, in_force=${ACK_IN_FORCE:-unknown} — not in force; flag kept."; continue ;;
+    4) echo "Error: could not write snapshot .startup/laws/${SLUG}.txt — registry left untouched; flag kept. Skipping $SLUG."; continue ;;
   esac
 done <<< "$FLAGGED"
 

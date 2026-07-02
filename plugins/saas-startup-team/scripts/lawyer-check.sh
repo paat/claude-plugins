@@ -2,7 +2,7 @@
 # /lawyer change detection. Runs the feed poll + feed-independent lifecycle
 # re-check and persists new flags. Reads only the index JSON; snapshots untouched.
 # Used by both the `check` subcommand and the start of every /lawyer run.
-# Prints only ⚠ warnings; the caller prints any completion summary.
+# Prints only WARNING lines; the caller prints any completion summary.
 set -uo pipefail
 source "$(dirname "$0")/lawyer-common.sh"
 
@@ -28,7 +28,7 @@ else
 
   FEED_OK=1
   if [ "$code" != "200" ]; then
-    echo "⚠ Seaduste muudatuste kontroll ebaõnnestus ($code) — vaata üle käsitsi"
+    echo "WARNING: seaduste muudatuste kontroll ebaõnnestus ($code) — vaata üle käsitsi"
     FEED_OK=0
     events='[]'
   else
@@ -96,5 +96,5 @@ while IFS= read -r lcslug; do
       }
   ' "$REGISTRY" > "${REGISTRY}.tmp"
   mv "${REGISTRY}.tmp" "$REGISTRY"
-  echo "⚠ $lcslug: akt $lc_act ei ole enam jõus (status=${lc_status:-not_in_force}) — märgitud läbivaatamiseks"
+  echo "WARNING: $lcslug: akt $lc_act ei ole enam jõus (status=${lc_status:-not_in_force}) — märgitud läbivaatamiseks"
 done <<< "$LC_SLUGS"

@@ -8,8 +8,8 @@
 set -uo pipefail
 source "$(dirname "$0")/lawyer-common.sh"
 
-TMP="$1"
-[ -n "$TMP" ] || { echo "Error: tmpdir required"; exit 1; }
+TMP="${1:-}"
+[ -n "$TMP" ] || { echo "Usage: lawyer-fixplan-collect.sh <tmpdir>"; exit 1; }
 
 FLAGGED_SLUGS=$(jq -r '.entries | to_entries[] | select(.value.needs_review == true and .value.gh_issue_url == null) | .key' "$REGISTRY")
 

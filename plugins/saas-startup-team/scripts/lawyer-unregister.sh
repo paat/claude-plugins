@@ -3,8 +3,8 @@
 set -uo pipefail
 source "$(dirname "$0")/lawyer-common.sh"
 
-SLUG="$1"
-[ -n "$SLUG" ] || { echo "Error: slug required"; exit 1; }
+SLUG="${1:-}"
+[ -n "$SLUG" ] || { echo "Usage: lawyer-unregister.sh <slug>"; exit 1; }
 
 if [ ! -f "$REGISTRY" ]; then
   echo "No registry present; nothing to unregister."
