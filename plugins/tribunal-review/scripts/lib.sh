@@ -130,6 +130,7 @@ Rules:
 - Critical/high findings must prove production reachability, material impact, and that the change caused or exposed the issue.
 - Watch for logic, security, performance, architecture, edge cases, testing gaps, silent failures, unawaited async, webhook/payment traps, and money-as-float.
 - Use exact file paths from diff headers and line numbers from the changed hunk.
+- In repo-walking mode, open only the files needed to verify a finding — do not scan the tree.
 - If context is insufficient, lower confidence or omit the finding.
 
 $(cat "$context_path" 2>/dev/null)

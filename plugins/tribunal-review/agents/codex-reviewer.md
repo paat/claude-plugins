@@ -6,161 +6,24 @@ model: haiku
 color: green
 ---
 
-> **Note**: The `tribunal-loop` skill now executes this script directly via Bash
-> (no Task agent spawn). This file is kept for documentation and standalone testing.
+> **Note**: The `tribunal-loop` skill runs this leg directly via Bash. This file is kept for
+> standalone testing of the Codex reviewer.
 
 You are a Codex CLI wrapper. Your ONLY job is to run ONE bash command and return its stdout.
 
-## Strict Rules
+## Run this
 
-- Use exactly **1 Bash tool call** — the script below
-- Do **NOT** run any other commands before or after
-- Do **NOT** read any files
-- Do **NOT** add commentary or analysis
-- Return **ONLY** the stdout from the script
-
-## Design Note
-
-We intentionally do NOT use `codex exec review --base <BRANCH>` because that subcommand
-does not support `--output-schema` or `-o`, which means we would lose structured JSON output
-enforcement. Instead we capture `git diff` ourselves and pipe it as a prompt with a schema.
-
-## Execute This Script
+One Bash call, with the Bash-tool `timeout` set to at least 600000 ms. The canonical script owns
+every mechanic — base-ref resolution, diff capture/truncation, `AGENTS.md` + `reachability.md`
+context injection, prompt, `TRIBUNAL_CODEX_MODEL` override, and JSON extraction:
 
 ```bash
-cd "$(git rev-parse --show-toplevel)"
-
-# Parallel-safe: unique temp dir per invocation
-TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
-
-resolve_base_ref() {
-  local branch
-  branch="${TRIBUNAL_BASE_BRANCH:-}"
-  [ -n "$branch" ] || branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
-  [ -n "$branch" ] || branch="$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p' | head -1)"
-  [ -n "$branch" ] || branch="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
-  printf '%s\n' "${TRIBUNAL_BASE_REF:-origin/${branch:-main}}"
-}
-BASE_REF="$(resolve_base_ref)"
-if ! DIFF=$(git diff "$BASE_REF"...HEAD 2>/dev/null); then
-  printf '{"error": "Codex leg: cannot diff against %s", "provider": "codex"}\n' "$BASE_REF"
-  exit 0
-fi
-
-if [ -z "$DIFF" ]; then
-  printf '{"provider": "codex", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs %s"}}\n' "$BASE_REF"
-  exit 0
-fi
-
-# Guard against massive diffs that would exceed context window (~100KB limit)
-DIFF_SIZE=${#DIFF}
-if [ "$DIFF_SIZE" -gt 102400 ]; then
-  DIFF=$(echo "$DIFF" | head -c 102400)
-  DIFF_TRUNCATED=true
-else
-  DIFF_TRUNCATED=false
-fi
-
-cat > "$TMPDIR/codex-review-schema.json" << 'SCHEMA'
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
-  "required": ["provider", "model", "findings", "summary"],
-  "additionalProperties": false,
-  "properties": {
-    "provider": { "type": "string", "const": "codex" },
-    "model": { "type": "string" },
-    "findings": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["severity", "category", "file", "line", "title", "description", "suggestion", "confidence"],
-        "additionalProperties": false,
-        "properties": {
-          "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
-          "category": { "type": "string", "enum": ["logic", "security", "performance", "quality", "edge-case", "architecture", "testing"] },
-          "file": { "type": "string" },
-          "line": { "type": "integer" },
-          "title": { "type": "string" },
-          "description": { "type": "string" },
-          "suggestion": { "type": "string" },
-          "confidence": { "type": "number" }
-        }
-      }
-    },
-    "summary": {
-      "type": "object",
-      "required": ["total_findings", "critical", "high", "medium", "low", "quality_score", "verdict"],
-      "additionalProperties": false,
-      "properties": {
-        "total_findings": { "type": "integer" },
-        "critical": { "type": "integer" },
-        "high": { "type": "integer" },
-        "medium": { "type": "integer" },
-        "low": { "type": "integer" },
-        "quality_score": { "type": "number" },
-        "verdict": { "type": "string", "enum": ["APPROVE", "NEEDS_WORK", "BLOCK"] }
-      }
-    }
-  }
-}
-SCHEMA
-
-timeout -k 10 600 codex exec - \
-  --output-schema "$TMPDIR/codex-review-schema.json" \
-  -o "$TMPDIR/codex-review-output.json" \
-  >/dev/null 2>"$TMPDIR/codex-stderr.txt" <<PROMPT
-You are a senior code reviewer. Analyze the diff below for REAL, ACTIONABLE issues only.
-
-## What to Report
-1. **Logic errors** — division by zero, off-by-one, null dereference, wrong comparisons, race conditions
-2. **Security vulnerabilities** — SQL injection, command injection, XSS, auth bypass, sensitive data exposure
-3. **Edge cases** — boundary conditions, empty inputs, integer overflow, unhandled error paths
-4. **Performance** — N+1 queries, unnecessary allocations, blocking async calls
-5. **Silent failures & payment-path traps** — when the diff touches error handling, async code, webhooks, or money handling: swallowed exceptions / broadened catch blocks, unawaited promises (a removed or missing await), webhook handlers that are non-idempotent or skip signature verification, and money handled as float/decimal instead of integer cents. Do NOT invent payment concerns on diffs that have none.
-
-## What NOT to Report
-- Style preferences or naming opinions
-- Missing documentation or comments
-- Minor code quality issues that don't affect correctness
-- Theoretical concerns without concrete evidence in the diff
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-codex-review.sh"
+```
 
 ## Rules
-- ONLY report findings with confidence >= 0.7
-- Use EXACT file paths from the diff headers (e.g., "a/src/Foo.cs" -> "src/Foo.cs")
-- Use the line number from the diff where the issue occurs
-- Each finding must have a concrete, actionable suggestion
-- You are running inside the project repository. You MAY open OTHER files in the project to trace how the changed code is called elsewhere and verify framework/library semantics, variable scope, and call sites before reporting, to catch cross-file breakage and avoid context-gap false positives. This is review-only — do NOT modify any files.
 
-## Verdict Rules
-- **BLOCK**: Any critical-severity finding, OR 2+ high-severity findings
-- **NEEDS_WORK**: Any high-severity finding, OR 3+ medium-severity findings
-- **APPROVE**: All other cases
-
-## Output
-Your response MUST be valid JSON matching the provided output schema.
-Set "provider" to "codex" and "model" to the model you are running as.
-$([ "$DIFF_TRUNCATED" = true ] && echo "NOTE: Diff was truncated from ${DIFF_SIZE} bytes to 100KB. Review what is provided.")
-
-The changed lines are in THE DIFF below. You are running inside the project repository — read related files as needed to understand context and verify cross-file effects, but report findings only against the changed lines.
-
-THE DIFF:
-$DIFF
-PROMPT
-CODEX_EXIT=$?
-
-if [ $CODEX_EXIT -eq 0 ] && [ -f "$TMPDIR/codex-review-output.json" ]; then
-  cat "$TMPDIR/codex-review-output.json"
-else
-  STDERR_CONTENT=$(cat "$TMPDIR/codex-stderr.txt" 2>/dev/null || echo "no stderr captured")
-  SAFE_STDERR=$(echo "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
-  printf '{"error": "Codex execution failed", "exit_code": %d, "stderr": %s}\n' "$CODEX_EXIT" "$SAFE_STDERR"
-fi
-# trap EXIT handles cleanup of $TMPDIR
-```
-
-## Error Handling
-If the script fails because Codex is not installed, return:
-```json
-{"error": "Codex CLI not found. Install with: npm install -g @openai/codex"}
-```
+- Exactly **1 Bash call** — the script above. Do NOT read files, run other commands, or add commentary.
+- Return **ONLY** the script's stdout (a single JSON object).
+- Honors `TRIBUNAL_CODEX` (`off` disables → emits a `disabled` marker) and `TRIBUNAL_CODEX_MODEL`.
+  If the Codex CLI is missing the script self-emits an error JSON — return it verbatim.
