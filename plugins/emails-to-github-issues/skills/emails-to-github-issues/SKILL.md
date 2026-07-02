@@ -28,31 +28,40 @@ Do **not** use for internal FYI mail or for mail the user only wants summarized 
 
 ## Workflow
 
-1. **Discover repo conventions.** `git remote -v`; read 2–3 recent customer-reported issues (`gh issue list -R <repo> --label customer-reported --limit 5` + `gh api repos/<repo>/issues/<N> --jq .body`) to learn label names, title/body style, and — critically — **how images are hosted** (dedicated release tag, user-attachments CDN, committed files).
-2. **Ask user for `BRIDGE_PASS`.** Never try to read the encrypted Proton Bridge vault. Connect to `127.0.0.1:1143` STARTTLS (primary bridge; a secondary account, if any, uses a different port such as `1144`).
-   - **Container caveat:** `127.0.0.1:114x` is the *bridge host's* loopback. If the agent runs in a **separate container** from Proton Bridge, that loopback refuses the connection even though `docker ps` shows the port mapped — the published-port remap only exists on the host, not inside your container. Reach the bridge over the shared docker network instead: set `IMAP_HOST` to the **bridge container's docker DNS name** and `IMAP_PORT=143` (the real in-container port, *not* the host-published 1143/1144). The container IP works too but isn't stable across stack recreation — prefer the DNS name.
-3. **Fetch.** Adapt `fetch_mails_template.py`: set `SENDER_TOKENS` to ASCII address substrings, `SINCE` to `dd-Mon-yyyy`. Use `readonly=True`.
-4. **Extract bodies.** Prefer `text/plain`; strip HTML when absent (Outlook is HTML-only). Trim quoted replies (`From:`/`Saatja:`/`On … wrote:`/leading `>`). Template does this.
-5. **Group into threads** in this priority: (a) customer's own `#NN` numbering; (b) normalized subject minus `Re:/RE:/Fwd:/VS:`; (c) RFC `References`/`In-Reply-To` only if both fail — Outlook drops these.
-6. **Pull context** for third parties mentioned in bodies (consultants, external stakeholders). A second IMAP pass over the last few weeks often yields a prior thread worth splicing into the issue body.
-7. **Generate thread intelligence artifacts before confirmation.** For each grouped thread, write:
+1. **Fetch first; exit early if there's nothing new.** Ask the user for `BRIDGE_PASS` (never try to read the encrypted Proton Bridge vault) and connect to `127.0.0.1:1143` STARTTLS (primary bridge; a secondary account, if any, uses a different port such as `1144`). Running in a separate container from the bridge? See the docker-networking note in `fetch_mails_template.py`'s docstring. Adapt the template: set `SENDER_TOKENS` to ASCII address substrings, use `readonly=True`. The template loads the persisted cursor (see "Unattended-Run Cursor" below), searches only mail newer than it, and dedupes against the persisted Message-ID set. **If the delta is empty, it exits immediately** — do not run repo-convention discovery, artifact generation, or GitHub dedupe searches for a no-op run.
+2. **Discover repo conventions** (only once step 1 found new mail). `git remote -v`; read 2–3 recent customer-reported issues (`gh issue list -R <repo> --label customer-reported --limit 5` + `gh api repos/<repo>/issues/<N> --jq .body`) to learn label names, title/body style, and — critically — **how images are hosted** (dedicated release tag, user-attachments CDN, committed files).
+3. **Extract bodies.** Prefer `text/plain`; strip HTML when absent (Outlook is HTML-only). Trim quoted replies (`From:`/`Saatja:`/`On … wrote:`/leading `>`). Template does this.
+4. **Group into threads** in this priority: (a) customer's own `#NN` numbering; (b) normalized subject minus `Re:/RE:/Fwd:/VS:`; (c) RFC `References`/`In-Reply-To` only if both fail — Outlook drops these.
+5. **Pull context** for third parties mentioned in bodies (consultants, external stakeholders). A second IMAP pass over the last few weeks often yields a prior thread worth splicing into the issue body.
+6. **Generate thread intelligence artifacts before confirmation.** For each grouped thread, write:
    - `.mail-issue-drafts/<run-id>/<thread-id>/thread-intelligence.json`
    - `.mail-issue-drafts/<run-id>/<thread-id>/thread-summary.md`
 
    `thread-intelligence.json` should include: normalized title, customer ticket number if present, participants and inferred roles, message timeline, unique body summaries distinct from quoted/repeated content, explicit asks, implied action items with owner attribution when safe, decisions/commitments already made, open questions, severity/impact hints, source citations back to message IDs or local extracted files, and an attachment manifest that maps screenshots/images to the message where they appeared.
-8. **Confirm with `AskUserQuestion`** before any write unless trusted bridge mode is explicitly configured and all fetched senders match its allowlist: scope (which threads to file), image strategy (matches repo convention?), and a compact summary of each candidate thread from `thread-summary.md`. Never skip this gate outside trusted bridge mode.
-9. **Upload screenshots** using the pattern from step 1. Common ones:
+7. **Confirm with `AskUserQuestion`** before any write unless trusted bridge mode is explicitly configured and all fetched senders match its allowlist: scope (which threads to file), image strategy (matches repo convention?), and a compact summary of each candidate thread from `thread-summary.md`. Never skip this gate outside trusted bridge mode.
+8. **Upload screenshots** using the pattern from step 2. Common ones:
    - Dedicated release: `gh release upload <tag> *.png -R <repo> --clobber`, embed `![](…/releases/download/<tag>/<file>)`.
    - user-attachments CDN: save locally, tell user to drag-drop (no API).
    - Never commit PNGs to `main` unless that's the established pattern.
-10. **Dedupe against existing issues.** Before creating, run `gh issue list --search "in:title <normalized>"` (or search by the customer's `#NN`). If a thread maps to an existing open issue, **append via `gh issue comment <N> --body-file <file> -R <repo>`** instead of opening a duplicate — same `--body-file` rule applies (never `--body`). The comment should be generated from the thread intelligence artifact and include only the new timeline/update delta.
-11. **Create new issues** via `gh issue create --body-file` (never `--body` — shell quoting mangles non-ASCII). One issue per new thread. Issue bodies should include customer ask, evidence/screenshots, concise timeline or a link to `thread-summary.md`, acceptance criteria or reproduction notes when present, open questions, and clear separation between current customer text and quoted historical replies. In trusted bridge mode, apply the configured maintenance labels and include `customer-issue` when no project override exists so `saas-startup-team` `/maintain` can triage objectively-fixable work.
+9. **Dedupe against existing issues.** Before creating, run `gh issue list --search "in:title <normalized>"` (or search by the customer's `#NN`). If a thread maps to an existing open issue, **append via `gh issue comment <N> --body-file <file> -R <repo>`** instead of opening a duplicate — same `--body-file` rule applies (never `--body`). The comment should be generated from the thread intelligence artifact and include only the new timeline/update delta.
+10. **Create new issues** via `gh issue create --body-file` (never `--body` — shell quoting mangles non-ASCII). One issue per new thread. Issue bodies should include customer ask, evidence/screenshots, concise timeline or a link to `thread-summary.md`, acceptance criteria or reproduction notes when present, open questions, and clear separation between current customer text and quoted historical replies. Body text must be conclusion-first and skimmable in 30 seconds — lead with the customer ask and impact, no emoji, no padded summaries. In trusted bridge mode, apply the configured maintenance labels and include `customer-issue` when no project override exists so `saas-startup-team` `/maintain` can triage objectively-fixable work.
+
+## Unattended-Run Cursor
+
+For unattended (trusted bridge mode) runs, the template persists a cursor so a run with no
+new mail costs almost nothing. State lives in one JSON file, `MAIL_CURSOR_FILE` (default
+`.mail-issue-drafts/cursor.json`): `{"last_date": "dd-Mon-yyyy", "message_ids": [...]}`. Each
+run searches `SINCE last_date`, drops any fetched Message-ID already in that set (handles the
+day-granularity overlap of IMAP `SINCE`), and only proceeds past the fetch step if new
+messages remain. On a run with new mail, the cursor is rewritten to today's date and this
+run's Message-IDs. First run (no cursor file yet) falls back to the template's static `SINCE`
+config value.
 
 ## Gotchas
 
 | Gotcha | Fix |
 |---|---|
-| `imaplib.search` raises `UnicodeEncodeError` on non-ASCII senders ("Mäsak") | Search by ASCII substring of the email address (`masak`), not display name |
+| `imaplib.search` raises `UnicodeEncodeError` on non-ASCII senders ("Müller") | Search by ASCII substring of the email address (`mueller`), not display name |
 | IMAP `SINCE` is server internal date, not `Date:` header | Accept ~1d drift or post-filter on parsed `Date` |
 | Outlook `text/plain` part is often empty | Strip HTML; stdlib `html.parser` is enough, no BeautifulSoup needed |
 | Inline images may have `Content-Disposition: inline` (no "attachment") and no filename | Filter on `ctype.startswith("image/")` + non-empty `get_payload(decode=True)` |

@@ -20,12 +20,13 @@ tracker work. In a SaaS maintenance setup, those issues become demand signals th
 ## Prerequisites
 
 - A running local Proton Mail Bridge with IMAP on `127.0.0.1:1143` (STARTTLS). The shenxn/protonmail-bridge Docker image works out of the box.
-  - If the agent runs in a **separate container** from the bridge, `127.0.0.1:114x` will refuse (that loopback is the host's, not the container's). Set `IMAP_HOST` to the bridge container's docker DNS name and `IMAP_PORT=143` (the in-container port) and connect over the shared docker network.
+  - Agent in a separate container from the bridge? See the docker-networking note in `fetch_mails_template.py`'s docstring.
 - Python 3 (stdlib only — no third-party deps).
 - `gh` CLI authenticated for the target repo.
 
 ## What it covers
 
+- A persisted cursor so unattended runs with no new mail exit immediately, skipping repo discovery and GitHub calls
 - IMAP `SINCE` + `FROM` search that works around `imaplib`'s ASCII-only gotcha
 - HTML-body extraction + quoted-reply trimming for Outlook mail
 - Thread grouping that respects customer-side numbering conventions (`#17 - …`) over RFC `References` headers (Outlook drops these)

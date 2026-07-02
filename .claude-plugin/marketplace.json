@@ -108,7 +108,7 @@
     {
       "name": "emails-to-github-issues",
       "description": "Turn emails from named senders into GitHub issues — IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping that respects customer-side numbering, inline-screenshot handling, and scope confirmation before writes",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "author": {
         "name": "Andre Paat"
       },

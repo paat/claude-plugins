@@ -8,8 +8,15 @@ Usage:
     IMAP_USER='you@example.com' BRIDGE_PASS='...' python3 fetch_mails_template.py
 
 Edit the CONFIG block below (SENDER_TOKENS, SINCE). Searches are ASCII-only
-(imaplib limitation) — pass substrings of the address (e.g. "masak"), not
-display names ("Mäsak").
+(imaplib limitation) — pass substrings of the address (e.g. "mueller"), not
+display names ("Müller").
+
+Unattended runs persist a cursor (CURSOR_FILE): last synced date + the
+Message-IDs seen that day. Each run searches only mail since that date and
+drops anything already in the persisted set. If nothing new comes back, the
+script prints a one-line summary and exits before writing any output files —
+callers (e.g. an autonomous SKILL workflow) should treat that as a no-op and
+skip repo-convention discovery, artifact generation, and GitHub calls.
 """
 
 import email
@@ -19,6 +26,7 @@ import json
 import os
 import re
 import sys
+from datetime import date
 from email.header import decode_header, make_header
 from html.parser import HTMLParser
 
@@ -39,9 +47,12 @@ HOST = os.environ.get("IMAP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("IMAP_PORT", "1143"))  # primary proton-bridge; secondary accounts use other ports (e.g. 1144)
 
 # IMAP SEARCH tokens — ASCII substrings of email addresses, not display names
-SENDER_TOKENS = ["masak", "lumi"]
-SINCE = "20-Apr-2026"  # dd-Mon-yyyy
+SENDER_TOKENS = ["acme", "globex"]
+SINCE = "20-Apr-2026"  # dd-Mon-yyyy — fallback used only on the very first run (no cursor file yet)
 MAILBOX = "INBOX"
+
+# Unattended-run cursor: {"last_date": "dd-Mon-yyyy", "message_ids": [...]}. See docstring.
+CURSOR_FILE = os.environ.get("MAIL_CURSOR_FILE", ".mail-issue-drafts/cursor.json")
 
 OUT_MAILS = "/tmp/mails.json"
 OUT_ATTACH_DIR = "/tmp/mail_attachments"
@@ -153,10 +164,28 @@ def thread_key(subject, frm):
     return f"{sender}-{slug}"
 
 
+def load_cursor():
+    if not os.path.exists(CURSOR_FILE):
+        return {"last_date": None, "message_ids": []}
+    with open(CURSOR_FILE) as f:
+        return json.load(f)
+
+
+def save_cursor(message_ids):
+    d = os.path.dirname(CURSOR_FILE)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    with open(CURSOR_FILE, "w") as f:
+        json.dump({"last_date": date.today().strftime("%d-%b-%Y"),
+                   "message_ids": message_ids}, f, indent=2)
+
+
 # ---- MAIN ------------------------------------------------------------------
 
 def main():
-    os.makedirs(OUT_ATTACH_DIR, exist_ok=True)
+    cursor = load_cursor()
+    since = cursor["last_date"] or SINCE
+    already_seen = set(cursor["message_ids"])
 
     M = imaplib.IMAP4(HOST, PORT)
     M.starttls()
@@ -166,7 +195,7 @@ def main():
     raw_hits = []
     seen_mids = set()
     for token in SENDER_TOKENS:
-        typ, data = M.search(None, "SINCE", SINCE, "FROM", token)
+        typ, data = M.search(None, "SINCE", since, "FROM", token)
         if typ != "OK":
             continue
         for i in data[0].split():
@@ -179,7 +208,7 @@ def main():
                 continue
             msg = email.message_from_bytes(rfc822)
             mid = msg.get("Message-ID") or f"{MAILBOX}-{i.decode()}"
-            if mid in seen_mids:
+            if mid in seen_mids or mid in already_seen:
                 continue
             seen_mids.add(mid)
             body, atts = extract_body(msg)
@@ -196,6 +225,11 @@ def main():
             })
     M.logout()
 
+    if not raw_hits:
+        print(f"No new mail since {since}. Nothing to do.")
+        return
+
+    os.makedirs(OUT_ATTACH_DIR, exist_ok=True)
     raw_hits.sort(key=lambda x: x.get("date") or "")
 
     # persist attachments + manifest
@@ -220,6 +254,8 @@ def main():
         json.dump(raw_hits, f, ensure_ascii=False, indent=2)
     with open(OUT_MANIFEST, "w") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    save_cursor([m["message_id"] for m in raw_hits])
 
     # summary
     threads = {}
