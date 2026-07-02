@@ -9,7 +9,8 @@ Close the active meeting and turn it into reviewed Plane work items.
 ## Steps
 
 1. **Read settings** (`.claude/analyst-companion.local.md`): `aimeet_base_url`,
-   `session_root`, `plane_base_url`, `plane_workspace_slug`, `plane_project`. Read the
+   `session_root`, `plane_base_url`, `plane_workspace_slug`, `plane_project`,
+   `meeting_language`. Read the
    active session id from `<session_root>/active`. If the pointer is missing, there is no
    live meeting — ask the user which session id to close (list dirs under `session_root`).
 
@@ -25,7 +26,7 @@ Close the active meeting and turn it into reviewed Plane work items.
    `[mm:ss] <speaker>: text`), the `<session_root>/<id>/speakers.json` name map, and the
    accumulated `needs` in `<session_root>/<id>/state.json`. Produce a concise list of
    proposed Plane work items, attributing each to the participant(s) who requested it where
-   the transcript makes that clear (use display names from `speakers.json`). For each: a short Estonian **title**, an HTML
+   the transcript makes that clear (use display names from `speakers.json`). For each: a short **title** (in `meeting_language`), an HTML
    **description** (context + what the customer asked + acceptance hint), and a
    **priority** (urgent/high/medium/low/none). Write the proposal to
    `<session_root>/<id>/work-items.md` for the record.
@@ -54,8 +55,8 @@ Close the active meeting and turn it into reviewed Plane work items.
    Bridge rules:
    - Only mirror items approved in Step 4.
    - Dedupe by normalized title and Plane id/link before creating.
-   - Use `gh issue create --body-file`, never `--body`, so Estonian text and copied
-     customer wording survive shell quoting.
+   - Use `gh issue create --body-file`, never `--body`, so `meeting_language` text and
+     copied customer wording survive shell quoting.
    - Include the Plane id/link, meeting session id, concise customer ask, acceptance hint,
      and a PII-minimized source note. Do not paste raw transcript unless the project
      explicitly allows it.

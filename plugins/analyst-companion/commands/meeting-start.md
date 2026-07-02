@@ -9,8 +9,8 @@ Start an in-person customer meeting analyst session.
 ## Steps
 
 1. **Read settings** from `.claude/analyst-companion.local.md` frontmatter:
-   `aimeet_base_url`, `session_root`, `loop_interval_seconds`. If the file is missing,
-   tell the user to copy `analyst-companion.local.md.example` and stop.
+   `aimeet_base_url`, `session_root`, `loop_interval_seconds`, `meeting_language`. If the
+   file is missing, tell the user to copy `analyst-companion.local.md.example` and stop.
 
 2. **Mint a session** — POST to the capture service:
 
@@ -29,9 +29,12 @@ Start an in-person customer meeting analyst session.
        "needs": {}, "last_question_refresh": 0 }
      ```
 
-4. **Tell the user to open the console** on the meeting laptop (Tailscale required):
+4. **Tell the user to open the console** on the meeting laptop (Tailscale required).
+   Write the message in `meeting_language`, covering: open the console at
+   `<aimeet_base_url>/r/<id>`, press the record button and allow the mic, say
+   "Claude, …" to talk to you. E.g. for Estonian:
 
-   > 🎙 Ava koosoleku konsool: `<aimeet_base_url>/r/<id>`
+   > Ava koosoleku konsool: `<aimeet_base_url>/r/<id>`
    > Vajuta **● Salvesta** ja luba mikrofon. Ütle "Claude, …" et minuga rääkida.
 
 5. **Start the loop.** Invoke the `loop` skill to run the `meeting-companion` skill every

@@ -1,9 +1,10 @@
 ---
-plane_base_url: https://plan.r-53.com
+plane_base_url: <your-plane-base-url>
 plane_workspace_slug: <your-workspace-slug>
 plane_project: <project-name-or-uuid>
-aimeet_base_url: https://aimeet.r-53.com
-session_root: /mnt/data/ai/analyst-companion/sessions
+aimeet_base_url: <your-aimeet-base-url>
+session_root: <path-to-session-storage-directory>
+meeting_language: Estonian
 loop_interval_seconds: 9
 question_refresh_seconds: 60
 wake_words: [claude, klaud, kloud, klod, klood]
@@ -14,4 +15,6 @@ wake_words: [claude, klaud, kloud, klod, klood]
 Copy this file to `.claude/analyst-companion.local.md` in your project and fill in the
 placeholders. The Plane API token is read from the `PLANE_API_TOKEN` environment
 variable (workspace API token from Plane → Workspace settings → API Tokens), never
-stored here.
+stored here. `meeting_language` is the natural language spoken in meetings and used for
+transcripts, clarifying questions, and synthesized work-item titles — set it to whatever
+your meetings are conducted in.

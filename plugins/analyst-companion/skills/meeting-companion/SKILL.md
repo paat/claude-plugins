@@ -27,8 +27,9 @@ to those files. **You never touch audio** — only the files.
 
 ## Config
 Read from `.claude/analyst-companion.local.md` frontmatter: `session_root`,
-`loop_interval_seconds`, `question_refresh_seconds`. The active session id comes from the
-`<session_root>/active` pointer file (written by `/meeting-start`).
+`loop_interval_seconds`, `question_refresh_seconds`, `meeting_language`. The active
+session id comes from the `<session_root>/active` pointer file (written by
+`/meeting-start`).
 
 ## Each tick (do in order)
 
@@ -48,7 +49,7 @@ Read from `.claude/analyst-companion.local.md` frontmatter: `session_root`,
    - Interpret intent freely (no rigid grammar). Common cases:
      - *"kas sa näed … akent / ekraani"* → use **claude-in-chrome** (`tabs_context_mcp`
        to find the active tab, then `read_page`/screenshot) to look, then answer in
-       Estonian what you see.
+       `meeting_language` what you see.
      - *"tee sellest tööülesanne / lisa märkus"* → note it into `needs` for the final
        synthesis and confirm briefly.
      - Otherwise → answer the question directly from meeting context.
@@ -56,7 +57,8 @@ Read from `.claude/analyst-companion.local.md` frontmatter: `session_root`,
    - Advance `commands_offset`.
 
 3a. **claude-in-chrome unavailable.** If the chrome tools error or no tab is connected,
-    append a reply like `"ei näe brauseriakent — kontrolli claude-in-chrome ühendust"`
+    append a reply in `meeting_language` explaining the browser view isn't available
+    (e.g. for Estonian: `"ei näe brauseriakent — kontrolli claude-in-chrome ühendust"`)
     and continue. Never let one command abort the loop.
 
 4. **Ingest transcript delta.** Read `transcript.md` lines after `transcript_offset`. Each
@@ -68,8 +70,8 @@ Read from `.claude/analyst-companion.local.md` frontmatter: `session_root`,
 
 5. **Refresh questions (throttled).** Only if `current_secs - last_question_refresh >=
    question_refresh_seconds` OR there are ≥6 new transcript lines: regenerate the list of
-   the most useful **open/clarifying questions** (Estonian, customer-facing wording, max
-   ~6) and write them to `questions.json` as a JSON array of strings. Update
+   the most useful **open/clarifying questions** (in `meeting_language`, customer-facing
+   wording, max ~6) and write them to `questions.json` as a JSON array of strings. Update
    `last_question_refresh`.
    Where a need or gap clearly belongs to one participant, you may aim the question at
    that person (e.g. "Mari mainis eksporti — kas see on kohustuslik?").
@@ -77,6 +79,8 @@ Read from `.claude/analyst-companion.local.md` frontmatter: `session_root`,
 6. **Persist** `state.json` and reschedule the next tick `loop_interval_seconds` later.
 
 ## Style for questions
-Estonian, specific, and aimed at uncovering true need — gaps, unstated assumptions,
-scope edges. Prefer "Mis juhtub kui…", "Kas X on kohustuslik või soovituslik?",
-"Kuidas te seda täna teete?". Drop questions already answered in the transcript.
+Write in `meeting_language`, specific, and aimed at uncovering true need — gaps, unstated
+assumptions, scope edges. Prefer forms like "What happens when…", "Is X mandatory or
+optional?", "How do you do this today?" (e.g. for Estonian: "Mis juhtub kui…", "Kas X on
+kohustuslik või soovituslik?", "Kuidas te seda täna teete?"). Drop questions already
+answered in the transcript.
