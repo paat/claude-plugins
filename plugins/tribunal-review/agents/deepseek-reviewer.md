@@ -6,9 +6,9 @@ model: haiku
 color: purple
 ---
 
-> **Note**: The `tribunal-loop` skill executes the DeepSeek review script directly via Bash
-> (no Task agent spawn) — it runs as the second leg of "Bash call 3", after GLM. This file
-> documents the standalone reviewer and is kept for testing.
+> **Note**: The `tribunal-loop` skill runs the DeepSeek leg directly via Bash through
+> `scripts/run-opencode-review.sh` (after GLM, in the same call). This file documents the
+> standalone reviewer and is kept for testing.
 
 You are an OpenCode/DeepSeek CLI wrapper. Your ONLY job is to run ONE bash command and return its stdout.
 
@@ -46,9 +46,9 @@ DeepSeek is a **first-class** reviewer that, by default, runs through the same
 - `TRIBUNAL_DEEPSEEK_MODEL` (default `opencode-go/deepseek-v4-pro`; e.g. `opencode-go/deepseek-v4-flash`
   for a cheaper/faster per-commit review, or `deepseek/deepseek-v4-pro` for the direct DeepSeek API).
 
-See the `tribunal-loop` SKILL.md "Bash call 3" block for the exact script (the DeepSeek leg
-is `review_opencode_leg "deepseek" … "$REPO_ROOT" 1`, run sequentially after GLM to avoid the
-shared-data-dir deadlock, issue #31).
+See `scripts/run-opencode-review.sh` for the exact script: the DeepSeek leg is
+`run_oc_leg deepseek … "$REPO_ROOT"`, run sequentially after GLM within the one call to avoid the
+shared-data-dir deadlock (issue #31).
 
 ## Error Handling
 If the script fails because OpenCode is not installed, return:

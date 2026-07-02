@@ -17,8 +17,9 @@ process before merge.
   - **GLM** via the same [OpenCode Go](https://opencode.ai/go) subscription (model `opencode-go/glm-5.1`) — **opt-in** (`TRIBUNAL_GLM=on`), off by default.
 - [Qwen Code CLI](https://github.com/QwenLM/qwen-code) (`npm install -g @qwen-code/qwen-code`, Node 20+) — **optional**, only for the **Qwen leg, which is opt-in** (`TRIBUNAL_QWEN=on`; off by default pending the issue #46 false-positive fix). Auth via `DASHSCOPE_API_KEY` (pay-as-you-go DashScope; new accounts get a free 1M+1M-token tier), an OpenAI-compatible / OpenRouter key, or a credential stored in `~/.qwen/settings.json`.
 - [Claude Code CLI](https://docs.claude.com/claude-code) (`claude`) — needed for the **Claude diff-only leg, which runs by default** (disable with `TRIBUNAL_CLAUDE=off`). This is the same CLI you launch the tribunal from, so it is already present and authenticated; the leg just invokes `claude -p` with the configured `TRIBUNAL_CLAUDE_MODEL` (default `sonnet`).
+- [GitHub CLI](https://cli.github.com) (`gh`) — used to resolve the repository default branch; **optional** (falls back to `git remote show origin`, then `origin/HEAD`, when `gh` is absent)
 - `jq` (used to parse and validate reviewer JSON output)
-- `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or it will fall back to an error-JSON for that reviewer) — caps Codex/Gemini at 10 minutes and each OpenCode leg (GLM, DeepSeek) at 6 minutes (single attempt, no retry) — and since GLM and DeepSeek are serialized in one call, that OpenCode call can take up to ~12 minutes combined; a leg that exceeds its cap simply degrades to the available quorum. OpenCode runs the GLM/DeepSeek reasoning models via `opencode run --agent plan`; their latency is inherent generation time with a heavy tail (the `--variant` reasoning-effort flag does **not** meaningfully change it), so the genuine speed lever is swapping in faster non-reasoning models for those slots — a quality/reliability tradeoff left to you
+- `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or it will fall back to an error-JSON for that reviewer) — caps Codex, Gemini, Qwen, and Claude at 10 minutes and each OpenCode leg (GLM, DeepSeek) at 12 minutes (single attempt, no retry) — and since GLM and DeepSeek are serialized in one call, that OpenCode call can take up to ~24 minutes combined; a leg that exceeds its cap simply degrades to the available quorum. OpenCode runs the GLM/DeepSeek reasoning models via `opencode run --agent plan`; their latency is inherent generation time with a heavy tail (the `--variant` reasoning-effort flag does **not** meaningfully change it), so the genuine speed lever is swapping in faster non-reasoning models for those slots — a quality/reliability tradeoff left to you
 - Valid API keys / auth configured for each CLI
 
 Each reviewer degrades gracefully: if a CLI is missing or a model fails, that reviewer emits an error object and the arbiter proceeds with the remaining reviewers.
@@ -58,7 +59,7 @@ The closing loop is **capped and severity-honest** so it cannot spiral:
   down-rate the finding *class*. A step-back round may not increase the net
   count of defensive mechanisms.
 - **Grind to a ceiling** — keep looping while any critical/high remains;
-  investor checkpoint at round 10; hard escalation at round 20.
+  checkpoint at round 10; hard escalation at round 20.
 - **`reachability.md`** — an optional per-repo file (worker model, concurrency,
   single-user assumptions, money paths) injected into reviewers + arbiter as
   rebuttable context.
@@ -104,11 +105,11 @@ Enable `TRIBUNAL_SCOPE_LENS=on` for bug fixes, hotfixes, incident patches, and p
 
 Scope findings are reported separately from correctness/security findings. `must-remove-before-merge` scope findings make the verdict at least `NEEDS_WORK`; `follow-up-only` findings document cleanup without blocking approval.
 
-These knobs apply to the `tribunal-loop` workflow. The standalone `gemini-reviewer` and
-`deepseek-reviewer` agents honor their `_MODEL` overrides but have no disable switch —
-invoking the agent always means a review is wanted. The standalone `qwen-reviewer` additionally
-honors `TRIBUNAL_QWEN` (and `TRIBUNAL_QWEN_MODEL`): since Qwen is off by default it only runs when
-`TRIBUNAL_QWEN=on`; otherwise it emits the `disabled` marker.
+These knobs apply everywhere. The standalone reviewer agents are thin wrappers over the same
+`scripts/run-*.sh` runners, so they honor every variable identically to the loop — including the
+enable/disable switches. An off-by-default leg (Gemini, GLM, Qwen) therefore emits its `disabled`
+marker when invoked standalone unless you opt in (`TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on` /
+`TRIBUNAL_QWEN=on`).
 
 ## How It Works
 

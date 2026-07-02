@@ -99,7 +99,6 @@ EOF
 
 SK=skills/tribunal-loop/SKILL.md
 CL=skills/closing-tribunal-loop/SKILL.md
-AR=agents/opus-arbiter.md
 LIB=scripts/lib.sh
 PF=scripts/preflight.sh
 
@@ -159,7 +158,6 @@ test_qwen_envelope_parser
 echo "Arbitration contract:"
 assert_grep "3b-0 in SKILL" "$SK" "3b-0: Blocking-Finding Standard"
 assert_grep "standard overrides highest-severity" "$SK" "never override 3b-0"
-assert_grep "standard in arbiter agent" "$AR" "Blocking-finding standard"
 assert_grep "same-class merge" "$SK" "Same-Class Merge (Every Round)"
 assert_grep "reachability read by arbiter" "$SK" "Also read .reachability.md"
 assert_grep "blocking_proof schema" "$SK" '"blocking_proof"'
@@ -171,7 +169,7 @@ assert_grep "stop on no crit/high" "$CL" "zero .critical. and"
 assert_grep "YAGNI triage" "$CL" "YAGNI triage"
 assert_grep "step-back workflow" "$CL" "Step-back workflow (anti-spiral)"
 assert_grep "no-net-increase guard" "$CL" "no-net-increase"
-assert_grep "round 10 checkpoint" "$CL" "Round 10 — investor checkpoint"
+assert_grep "round 10 checkpoint" "$CL" "Round 10 — checkpoint"
 assert_grep "round 20 ceiling" "$CL" "Round 20 — hard ceiling"
 
 echo ""

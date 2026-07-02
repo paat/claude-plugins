@@ -1,122 +1,30 @@
 ---
 name: gemini-reviewer
-description: Invokes Google Gemini CLI for independent code review with 1M token context and security scanning. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
-tools: Bash, Read
+description: Invokes Google Gemini CLI for independent code review with a large context window and web/CVE search. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
+tools: Bash
 model: haiku
 color: blue
 ---
 
-> **Note**: The `tribunal-loop` skill now executes this script directly via Bash
-> (no Task agent spawn). This file is kept for documentation and standalone testing.
+> **Note**: The `tribunal-loop` skill runs this leg directly via Bash. This file is kept for
+> standalone testing of the Gemini reviewer.
 
 You are a Gemini CLI wrapper. Your ONLY job is to run ONE bash command and return its stdout.
 
-## Strict Rules
+## Run this
 
-- Use exactly **1 Bash tool call** — the script below
-- Do **NOT** run any other commands before or after
-- Do **NOT** read any files
-- Do **NOT** add commentary or analysis
-- Return **ONLY** the stdout from the script
-
-## Execute This Script
+One Bash call, with the Bash-tool `timeout` set to at least 600000 ms. The canonical script owns
+every mechanic — base-ref resolution, diff capture/truncation, context injection, prompt,
+`TRIBUNAL_GEMINI_MODEL` override, and JSON extraction from Gemini's session envelope:
 
 ```bash
-cd "$(git rev-parse --show-toplevel)"
-
-# Model is overridable via TRIBUNAL_GEMINI_MODEL (defaults to gemini-3-pro-preview).
-# Note: this standalone path has no enable/disable switch — disabling is a
-# tribunal-loop concern; invoking this agent always means a Gemini review is wanted.
-GEMINI_MODEL="${TRIBUNAL_GEMINI_MODEL:-gemini-3-pro-preview}"
-
-# Parallel-safe: unique temp dir per invocation
-TMPDIR=$(mktemp -d) && trap 'rm -rf "$TMPDIR"' EXIT
-
-resolve_base_ref() {
-  local branch
-  branch="${TRIBUNAL_BASE_BRANCH:-}"
-  [ -n "$branch" ] || branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
-  [ -n "$branch" ] || branch="$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p' | head -1)"
-  [ -n "$branch" ] || branch="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
-  printf '%s\n' "${TRIBUNAL_BASE_REF:-origin/${branch:-main}}"
-}
-BASE_REF="$(resolve_base_ref)"
-if ! DIFF=$(git diff "$BASE_REF"...HEAD 2>/dev/null); then
-  printf '{"error": "Gemini leg: cannot diff against %s", "provider": "gemini"}\n' "$BASE_REF"
-  exit 0
-fi
-
-if [ -z "$DIFF" ]; then
-  printf '{"provider": "gemini", "model": "default", "findings": [], "summary": {"total_findings": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "quality_score": 10.0, "verdict": "APPROVE", "note": "No changes detected vs %s"}}\n' "$BASE_REF"
-  exit 0
-fi
-
-printf '%s\n' "$DIFF" | timeout -k 10 600 gemini --model "$GEMINI_MODEL" -p "You are a senior code reviewer performing a thorough security-focused review.
-
-ANALYZE THIS DIFF FOR:
-1. Security vulnerabilities - injection, XSS, CSRF, auth issues, secrets exposure
-2. Architectural issues - coupling, layering violations, anti-patterns
-3. Logic errors - race conditions, null refs, wrong comparisons
-4. Performance - N+1 queries, memory leaks, blocking in async
-5. Test coverage gaps - missing edge cases, untested paths
-6. Silent failures & payment-path traps - when the diff touches error handling, async code, webhooks, or money handling: swallowed exceptions/broadened catch blocks, unawaited promises (a removed or missing await), webhook handlers that are non-idempotent or skip signature verification, money handled as float/decimal instead of integer cents. Do NOT invent payment concerns on diffs that have none.
-
-USE YOUR SEARCH CAPABILITY to check for:
-- Known CVEs in any dependencies mentioned
-- Security best practices for patterns used
-- Current recommendations for the frameworks detected
-
-RESPOND WITH ONLY THIS JSON (no markdown, no explanation):
-{
-  \"provider\": \"gemini\",
-  \"model\": \"default\",
-  \"findings\": [
-    {
-      \"severity\": \"critical|high|medium|low\",
-      \"category\": \"security|architecture|logic|performance|testing\",
-      \"file\": \"path/to/file\",
-      \"line\": 42,
-      \"title\": \"Brief descriptive title\",
-      \"description\": \"What is wrong and why it matters\",
-      \"suggestion\": \"Concrete fix recommendation\",
-      \"confidence\": 0.95
-    }
-  ],
-  \"summary\": {
-    \"total_findings\": 3,
-    \"critical\": 0,
-    \"high\": 1,
-    \"medium\": 2,
-    \"low\": 0,
-    \"quality_score\": 7.5,
-    \"verdict\": \"APPROVE|NEEDS_WORK|BLOCK\"
-  }
-}
-
-THE DIFF IS PROVIDED VIA STDIN ABOVE." \
-  --yolo \
-  -o json \
-  >"$TMPDIR/gemini-raw-output.json" 2>"$TMPDIR/gemini-stderr.txt"
-
-GEMINI_EXIT=$?
-if [ $GEMINI_EXIT -eq 0 ] && [ -f "$TMPDIR/gemini-raw-output.json" ]; then
-  # Gemini -o json wraps output in session envelope; extract .response and strip markdown fences
-  RESPONSE=$(jq -r '.response // empty' "$TMPDIR/gemini-raw-output.json" 2>/dev/null)
-  if [ -n "$RESPONSE" ]; then
-    echo "$RESPONSE" | sed 's/^```json//;s/^```//;/^$/d' | jq . 2>/dev/null || echo "$RESPONSE"
-  else
-    cat "$TMPDIR/gemini-raw-output.json"
-  fi
-else
-  STDERR_CONTENT=$(cat "$TMPDIR/gemini-stderr.txt" 2>/dev/null)
-  SAFE_STDERR=$(echo "$STDERR_CONTENT" | jq -Rs . 2>/dev/null || echo '"stderr encoding failed"')
-  printf '{"error": "Gemini execution failed", "exit_code": %d, "stderr": %s}\n' "$GEMINI_EXIT" "$SAFE_STDERR"
-fi
-# trap EXIT handles cleanup of $TMPDIR
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-gemini-review.sh"
 ```
 
-## Error Handling
-If the script fails because Gemini is not installed, return:
-```json
-{"error": "Gemini CLI not found. Install from: https://github.com/google-gemini/gemini-cli"}
-```
+## Rules
+
+- Exactly **1 Bash call** — the script above. Do NOT read files, run other commands, or add commentary.
+- Return **ONLY** the script's stdout (a single JSON object).
+- Gemini is **off by default**: the script emits a `disabled` marker unless `TRIBUNAL_GEMINI=on`.
+  Honors `TRIBUNAL_GEMINI_MODEL` (default `gemini-3-pro-preview`). If the Gemini CLI is missing the
+  script self-emits an error JSON — return it verbatim.

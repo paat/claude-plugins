@@ -42,9 +42,11 @@ providers fail the verdict must be `NEEDS_WORK` with confidence `0.0`.
 
 ## Step 1: Preflight
 
-Resolve the tribunal-review plugin root, then run:
+Set the plugin root and a per-run scratch dir for the provider JSON, then run preflight:
 
 ```bash
+TRIBUNAL_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"   # this plugin's root
+RUN_DIR="$(mktemp -d)"                          # collects one JSON file per leg
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/preflight.sh"
 ```
 
@@ -166,58 +168,10 @@ Any `must-remove-before-merge` scope finding makes the verdict at least
 
 ## Output Contract
 
-Return JSON only:
-
-```json
-{
-  "tribunal_verdict": {
-    "decision": "APPROVE|NEEDS_WORK|BLOCK",
-    "confidence": 0.92,
-    "rationale": "..."
-  },
-  "findings": [
-    {
-      "id": "T-001",
-      "consensus": "CONSENSUS|SINGLE_PROVIDER",
-      "providers": ["codex", "deepseek"],
-      "severity": "critical|high|medium|low",
-      "category": "logic|security|performance|quality|edge-case|architecture|testing",
-      "file": "src/example.ts",
-      "line": 42,
-      "title": "...",
-      "description": "...",
-      "suggestion": "...",
-      "confidence": 0.9,
-      "blocking_proof": {
-        "reachable_path": "...",
-        "material_impact": "...",
-        "caused_by_change": "..."
-      },
-      "arbiter_notes": "..."
-    }
-  ],
-  "scope_findings": [
-    {
-      "id": "S-001",
-      "path": "src/example.ts",
-      "why_out_of_scope": "...",
-      "disposition": "must-remove-before-merge|follow-up-only",
-      "conflicting_task_text": "...",
-      "smallest_acceptable_diff": "..."
-    }
-  ],
-  "provider_assessment": {
-    "codex": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled"},
-    "gemini": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled"},
-    "glm": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled"},
-    "deepseek": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled"},
-    "qwen": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled"},
-    "claude": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|partial|disabled"}
-  },
-  "conflicts_resolved": [],
-  "summary": "..."
-}
-```
+Return JSON only, matching the schema in `references/output-contract.md` (top-level keys:
+`tribunal_verdict`, `findings`, `scope_findings`, `provider_assessment`, `conflicts_resolved`,
+`summary`; each finding carries a `consensus` of `CONSENSUS` or `SINGLE_PROVIDER`, and every
+critical/high finding must include the `blocking_proof` block from 3b-0).
 
 ## Trust Hierarchy
 

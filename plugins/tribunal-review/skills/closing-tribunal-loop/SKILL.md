@@ -44,11 +44,11 @@ digraph close_tribunal {
 }
 ```
 
-The loop only exits when the Opus arbiter's verdict has **zero critical and zero high findings** on the current diff (medium/low go to YAGNI triage). The arbiter runs four advisory reviewers (Codex, Gemini, GLM, DeepSeek) in parallel precisely because any single reviewer can miss things — so a verdict built on the latest diff is the only verdict that counts.
+The loop only exits when the Opus arbiter's verdict has **zero critical and zero high findings** on the current diff (medium/low go to YAGNI triage). The arbiter runs the panel in parallel (by default Codex, DeepSeek, and Claude; Gemini, GLM, and Qwen opt-in) precisely because any single reviewer can miss things — so a verdict built on the latest diff is the only verdict that counts.
 
 ## Per-Finding Triage
 
-You triage the **arbiter's findings** (`T-001`, `T-002`, …), each already deduplicated and tagged with a `consensus` type (`CONSENSUS`/`SINGLE`/`ARBITRATED`) and supporting `providers`. For every finding, decide one of three outcomes:
+You triage the **arbiter's findings** (`T-001`, `T-002`, …), each already deduplicated and tagged with a `consensus` type (`CONSENSUS` or `SINGLE_PROVIDER`, per the `tribunal-loop` output contract) and supporting `providers`. For every finding, decide one of three outcomes:
 
 | Outcome | When |
 |---|---|
@@ -87,10 +87,10 @@ For each remaining medium/low finding:
 
 - **Grind:** keep looping while ANY critical/high remains. Critical/high are
   never YAGNI-dropped.
-- **Round 10 — investor checkpoint:** notify the investor
+- **Round 10 — checkpoint:** surface a progress note to the caller
   ("still grinding on #<issue>; standing finding: <title>") WITHOUT stopping.
 - **Round 20 — hard ceiling:** if critical/high are still unresolved, STOP and
-  escalate to the investor with the standing finding.
+  escalate to the caller with the standing finding.
 
 ## Step-back workflow (anti-spiral)
 

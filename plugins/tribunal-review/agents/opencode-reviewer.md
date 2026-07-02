@@ -30,10 +30,10 @@ switchable. Because both default to `opencode-go`, an `opencode-go` quota/429 ca
 DeepSeek down together — set `TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro` to put DeepSeek
 back on the independent direct DeepSeek API (issue #40).
 
-GLM emits findings JSON wrapped between `===TRIBUNAL_JSON_BEGIN===` / `===TRIBUNAL_JSON_END===`
-markers. The GLM and DeepSeek legs run **sequentially within one Bash call** ("Bash call 3"),
-because concurrent `opencode run` processes deadlock on the shared data dir (issue #31). See
-the `tribunal-loop` SKILL.md "Bash call 3" block for the exact script.
+The GLM and DeepSeek legs run **sequentially within one Bash call** (`scripts/run-opencode-review.sh`,
+via the `run_oc_leg` function), because concurrent `opencode run` processes deadlock on the shared
+data dir (issue #31). Each leg's JSON is recovered from the CLI output by `tribunal_extract_json_object`
+in `scripts/lib.sh`.
 
 ## Error Handling
 If the script fails because OpenCode is not installed, return:
