@@ -74,6 +74,11 @@ Create `.claude/irreversible-guard.json` in a project to tune behavior:
 - **`warn_only`** — downgrade a would-be block to a warning.
 
 Defaults live as data in `rules/deny-set.json` and can be edited directly when vendoring the plugin.
+`deny-set.json` **replaces** the loader's built-in fallback category-by-category (it is not merged),
+so when editing it keep every category complete — a category you drop reverts to the minimal
+in-code fallback, not to the shipped default. The in-code `DEFAULT_RULES` is only that fallback
+(used when `deny-set.json` is missing/unreadable); it is intentionally minimal, not a copy of the
+full set.
 
 ## Testing
 

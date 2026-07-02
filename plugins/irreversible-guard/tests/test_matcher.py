@@ -7,7 +7,9 @@ ig = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ig)
 
 CWD = "/repo"
-RULES = ig.DEFAULT_RULES
+# Exercise the SHIPPED rule set (rules/deny-set.json), not the minimal in-code
+# fallback. load_rules() layers deny-set.json over DEFAULT_RULES.
+RULES = ig.load_rules(ROOT, CWD)
 
 
 def classify(cmd):
@@ -17,7 +19,7 @@ def classify(cmd):
 class TestBlockAlways(unittest.TestCase):
     def test_rm_dangerous_roots(self):
         for cmd in ("rm -rf /", "rm -rf ~", "rm -rf $HOME",
-                    "rm -rf /opt/aruannik/data/*", "rm -rf --no-preserve-root /x",
+                    "rm -rf /opt/app/data/*", "rm -rf --no-preserve-root /x",
                     "DEBUG=true rm -rf /", "cd /tmp && rm -rf /"):
             self.assertEqual(classify(cmd), "BLOCK", cmd)
 
@@ -34,9 +36,9 @@ class TestBlockAlways(unittest.TestCase):
 
 class TestTransportWrapped(unittest.TestCase):
     def test_ssh_and_docker_to_prod(self):
-        for cmd in ("ssh aruannik-live 'rm -rf /opt/aruannik/data/*'",
+        for cmd in ("ssh app-live 'rm -rf /opt/app/data/*'",
                     "ssh db-prod \"psql x -c 'DROP TABLE users'\"",
-                    "docker exec varustame-prod-api psql d -c 'DROP TABLE annetused'",
+                    "docker exec app-prod-api psql d -c 'DROP TABLE orders'",
                     "docker compose -f docker-compose.production.yml down -v",
                     "ssh db-prod 'psql x <<EOF\nDROP TABLE users;\nEOF'"):
             self.assertEqual(classify(cmd), "BLOCK", cmd)
@@ -74,7 +76,7 @@ class TestEvasionRegression(unittest.TestCase):
 
     def test_lowercase_sql_against_prod(self):  # F2: SQL is case-insensitive
         self.assertEqual(classify("ssh db-prod 'psql -c \"drop table users\"'"), "BLOCK")
-        self.assertEqual(classify("ssh db-prod 'psql -c \"truncate annetused\"'"), "BLOCK")
+        self.assertEqual(classify("ssh db-prod 'psql -c \"truncate orders\"'"), "BLOCK")
 
     def test_hyphenated_docker_compose_prod(self):  # F3
         self.assertEqual(

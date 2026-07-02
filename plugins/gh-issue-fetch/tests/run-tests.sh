@@ -30,7 +30,7 @@ check "excludes non-asset link" 0 "$no_example"
 check "strips trailing dot" 1 "$(extract_asset_urls < "$FIX/body-urls.md" | grep -c '/punct-test.png$')"
 
 # --- Task 3: sanitize_component + ext_for_mime ---
-check "sanitize slashes" "r-53-ou-aruannik" "$(sanitize_component 'r-53-ou/aruannik')"
+check "sanitize slashes" "my-org-my-repo" "$(sanitize_component 'my-org/my-repo')"
 check "sanitize dots ok"  "a.b_c-d"          "$(sanitize_component 'a.b_c-d')"
 check "sanitize traversal" "..-..-etc-passwd" "$(sanitize_component '../../etc/passwd')"
 check "mime png" "png" "$(ext_for_mime image/png)"

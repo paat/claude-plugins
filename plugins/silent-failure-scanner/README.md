@@ -109,7 +109,9 @@ For PHP, the "unawaited" analog is a removed coroutine `yield` (Amp / ReactPHP).
 - bash 4+
 - `awk` (gawk, mawk, or busybox awk — POSIX features only)
 - `git`
-- `jq` (only for running the test suite)
+- `jq` — required at runtime by the commit-gate hook (`hooks/pre-commit-gate.sh`) to parse the tool
+  input and emit the deny decision, and by the test suite. If jq is missing the gate fails open
+  (allows the commit) after a one-time stderr warning. `scan.sh` itself does not need jq.
 
 ## Testing
 

@@ -84,44 +84,26 @@ DB_CLIENTS = {"psql", "mysql", "mysqladmin", "mariadb", "mongosh", "mongo",
 CRITICAL_ROOTS = {"etc", "usr", "bin", "sbin", "lib", "lib64", "boot",
                   "sys", "proc", "dev", "opt", "srv", "data", "root", "home"}
 
+# Minimal fail-safe fallback, used ONLY when rules/deny-set.json is missing or
+# unreadable. The full, authoritative rule set lives in rules/deny-set.json — do NOT
+# hand-sync the complete set here. load_rules() below REPLACES each category with the
+# deny-set's version (dict.update semantics), so in normal operation none of these
+# values are used. It keeps just the disk-wipe + IaC-destroy essentials so a missing
+# rules file still blocks the most catastrophic ops (rm -rf of protected paths is
+# handled in code, independent of this dict).
 DEFAULT_RULES = {
- # Structured "binary + subcommand" rules — matched on exact positional tokens
- # (flag/flag-value aware) so intervening global flags cannot smuggle the verb past.
- "tier1_cmd": [
-   {"seq": ["terraform", "destroy"]}, {"seq": ["tofu", "destroy"]},
-   {"seq": ["terraform", "apply"], "flag": "-destroy"},
-   {"seq": ["tofu", "apply"], "flag": "-destroy"},
-   {"seq": ["fly", "volumes", "destroy"]}, {"seq": ["flyctl", "volumes", "destroy"]},
-   {"seq": ["railway", "volume", "delete"]},
-   {"seq": ["aws", "s3", "rb"]}, {"seq": ["aws", "s3", "rm"], "flag": "--recursive"},
-   {"seq": ["aws", "ec2", "delete-volume"]},
-   {"seq": ["aws", "rds", ["delete-db-instance", "delete-db-cluster"]]},
-   {"seq": ["gcloud", "sql", "instances", "delete"]},
-   {"seq": ["gcloud", "compute", "disks", "delete"]},
-   {"seq": ["heroku", "pg:reset"]},
-   {"seq": ["kubectl", "delete",
-            ["namespace", "namespaces", "ns", "pv", "persistentvolume",
-             "persistentvolumes", "pvc", "persistentvolumeclaim",
-             "persistentvolumeclaims"]]}],
+ "tier1_cmd": [{"seq": ["terraform", "destroy"]}, {"seq": ["tofu", "destroy"]}],
  "tier1_regex": [r'\bdd\b[^\n]*\bof=/dev/', r'\bmkfs(\.\w+)?\b', r'\bwipefs\b'],
- # Tier-2 structured commands — block only when the command names production.
- "tier2_cmd": [
-   {"seq": ["docker", "volume", "rm"]}, {"seq": ["docker", "volume", "prune"]},
-   {"seq": ["docker", "compose", "down"], "flag_any": ["-v", "--volumes"]},
-   {"seq": ["docker-compose", "down"], "flag_any": ["-v", "--volumes"]}],
- # Tier-2 SQL — block only when prod-marked AND issued via a DB client.
- "tier2_sql_regex": [r'\bDROP\s+(TABLE|DATABASE)\b', r'\bTRUNCATE\b'],
- # Tier-2 other — block only when prod-marked.
- "tier2_regex": [r'\bef\s+database\s+drop\b'],
- "warn_regex": [
-   r'\bgit\s+push\b[^\n]*(--force\b|--force-with-lease\b|\s-f\b)',
-   r'\bgit\s+reset\s+--hard\b', r'\bgit\s+clean\s+-\w*[fd]\w*'],
- "prod_markers": ["*prod*", "*production*", "*-live"], "allow": [], "extra_block": [], "warn_only": []}
+ "tier2_cmd": [], "tier2_sql_regex": [], "tier2_regex": [], "warn_regex": [],
+ "prod_markers": ["*prod*", "*production*", "*-live"],
+ "allow": [], "extra_block": [], "warn_only": []}
 
 
 def load_rules(plugin_root, cwd):
     rules = json.loads(json.dumps(DEFAULT_RULES))
     try:
+        # NOTE: dict.update REPLACES whole categories (does not merge), so
+        # deny-set.json must be a COMPLETE rule set, not a delta over DEFAULT_RULES.
         with open(os.path.join(plugin_root, "rules", "deny-set.json")) as f:
             rules.update(json.load(f))
     except Exception:
