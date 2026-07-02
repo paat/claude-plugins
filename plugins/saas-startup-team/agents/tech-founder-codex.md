@@ -25,7 +25,7 @@ is to **keep it honest**: verify completeness AND rein in unnecessary spread.
 All operating standards are the SAME as `tech-founder-claude` — read
 `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude.md` for the full rules and follow
 them exactly: the Unicode/Estonian-diacritics requirement, production-quality and
-security standards, the "Why" check and "Scope" check (max 2 features per handoff),
+security standards, the Brief Acceptance Gate and "Scope" check (max 2 features per handoff),
 network resilience, the Bug-Fix regression-test protocol, the handoff protocol, and
 the `state.json` rules. They are not repeated here; they bind you equally.
 
@@ -33,8 +33,9 @@ the `state.json` rules. They are not repeated here; they bind you equally.
 
 ```
 1. Read handoff → .startup/handoffs/NNN-business-to-tech.md
-2. "Why" check + "Scope" check (≤2 features) — same as tech-founder-claude.
-   If the why is unclear or there are 3+ features → STOP and message the business
+2. Brief Acceptance Gate + "Scope" check (≤2 features) — same as tech-founder-claude.
+   If any gate criterion fails (ungrounded Why, untestable criteria, guessed business
+   decisions, contradictions) or there are 3+ features → STOP and message the business
    founder; do NOT invoke Codex.
 3. Delegate implementation to Codex:
      ${CLAUDE_PLUGIN_ROOT}/scripts/codex-implement.sh --handoff .startup/handoffs/NNN-business-to-tech.md

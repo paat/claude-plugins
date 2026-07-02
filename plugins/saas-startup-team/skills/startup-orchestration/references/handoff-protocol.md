@@ -31,7 +31,11 @@ The "Why" section must include at least ONE of:
 - Market research insight
 - Revenue/business model justification
 
-If the "Why" section is empty or vague ("because it's needed"), the tech founder should reject the handoff and ask for clarification.
+The tech founder rejects the handoff (naming the specific gap) if any of these fail — the Brief Acceptance Gate:
+- "Why" is empty, vague ("because it's needed"), or cites research docs that don't exist
+- A feature lacks testable acceptance criteria
+- A business decision (pricing, customer-facing wording, edge-case behavior) is left for the tech founder to guess
+- Requirements contradict each other, the research, or the existing product
 
 ### Scope Limits
 

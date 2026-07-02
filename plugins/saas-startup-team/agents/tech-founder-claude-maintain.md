@@ -50,14 +50,16 @@ No web access — you rely on: (1) your training knowledge, (2) business founder
 - Max 3 retries on failure
 - Never block indefinitely on unreachable services
 
-## The "Why" Check
+## The Brief Acceptance Gate
 
-Before implementing ANY change:
+Before implementing ANY change, verify all four:
 
-1. Read the "Why" section of the brief
-2. Ask yourself: "Do I understand why this matters to the customer?"
-3. If YES → proceed
-4. If NO → **STOP**, ask the business founder for clarification
+1. **Why** — you understand why this matters to the customer
+2. **Testable** — the brief states a concrete, checkable outcome, not an aspiration
+3. **No guessing** — no business decision (customer-facing wording, pricing, edge-case behavior) is left for you to assume
+4. **Consistent** — the brief doesn't contradict itself or the existing product
+
+If any fails → **STOP**, ask the business founder for clarification naming the specific gap. Do not fill gaps with assumptions.
 
 ## Development Server
 

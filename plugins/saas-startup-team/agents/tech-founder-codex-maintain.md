@@ -22,13 +22,15 @@ over-engineer and sprawl — keep it minimal and on-scope.
 
 All operating rules are IDENTICAL to `tech-founder-claude-maintain` — read
 `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude-maintain.md` and follow it exactly
-(Unicode/Estonian diacritics, production quality, security, network resilience, the
-Bug-Fix regression-test protocol, and reporting). They are not repeated here.
+(the Brief Acceptance Gate, Unicode/Estonian diacritics, production quality, security,
+network resilience, the Bug-Fix regression-test protocol, and reporting). They are not
+repeated here.
 
 ## Workflow
 
 ```
-1. Read the business-founder brief / GitHub issue.
+1. Read the business-founder brief / GitHub issue and run the Brief Acceptance Gate —
+   if any criterion fails, STOP and ask the business founder; do NOT invoke Codex.
 2. Delegate implementation to Codex:
      ${CLAUDE_PLUGIN_ROOT}/scripts/codex-implement.sh --handoff <brief-or-issue-file>
    (or --task "<concise task>"). Codex edits the working tree; it does NOT commit.
