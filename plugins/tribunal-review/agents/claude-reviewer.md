@@ -44,7 +44,7 @@ treats it as one advisory peer among the panel and weighs findings on the eviden
   `{"provider":"claude","status":"disabled","note":"..."}` and the arbiter excludes it from
   quorum. Only the literal `off` disables; anything else (or unset) runs.
 - `TRIBUNAL_CLAUDE_MODEL` (default `sonnet`). Accepts an alias (`sonnet`, `haiku`, `opus`) or a
-  full id (e.g. `claude-sonnet-4-6`). The leg surfaces the model that actually ran (from the
+  full id (e.g. `claude-sonnet-5`). The leg surfaces the model that actually ran (from the
   `.modelUsage` envelope key) in its output `model` field.
 
 ## Authentication / transport
