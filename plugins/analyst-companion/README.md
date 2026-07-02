@@ -50,7 +50,7 @@ The transcript file is the seam decoupling continuous audio from Claude's turn-b
    reverse proxy.
 2. Copy `analyst-companion.local.md.example` → `.claude/analyst-companion.local.md` and
    fill in `plane_workspace_slug`, `plane_project`, `aimeet_base_url`, `plane_base_url`,
-   and `session_root`.
+   `session_root`, and `meeting_language`.
 3. `export PLANE_API_TOKEN=<workspace token>`.
 
 ## Use

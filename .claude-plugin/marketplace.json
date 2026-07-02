@@ -119,7 +119,7 @@
     {
       "name": "analyst-companion",
       "description": "Real-time in-person meeting analyst — live transcription with speaker diarization via WhisperLiveKit, clarifying questions, voice commands with Chrome screen context, and Plane work items at meeting end",
-      "version": "0.2.4",
+      "version": "0.3.0",
       "author": {
         "name": "Andre Paat"
       },

@@ -28,12 +28,25 @@ def test_cli_dry_run_prints_payload(tmp_path):
          "--workspace", "ws", "--project", "proj-uuid",
          "--name", "Test item", "--description-html-file", str(desc),
          "--priority", "medium", "--dry-run"],
-        text=True, env={"PLANE_API_TOKEN": "x", "PLANE_BASE_URL": "https://plan.r-53.com", "PATH": ""},
+        text=True, env={"PLANE_API_TOKEN": "x", "PLANE_BASE_URL": "https://plane.example.com", "PATH": ""},
     )
     payload = json.loads(out)
     assert payload["name"] == "Test item"
     assert payload["description_html"] == "<p>hi</p>"
     assert payload["priority"] == "medium"
+
+
+def test_cli_requires_plane_base_url(tmp_path):
+    desc = tmp_path / "d.html"; desc.write_text("<p>hi</p>", encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(HERE / "plane_client.py"), "create",
+         "--workspace", "ws", "--project", "proj-uuid",
+         "--name", "Test item", "--description-html-file", str(desc)],
+        text=True, capture_output=True,
+        env={"PLANE_API_TOKEN": "x", "PATH": ""},
+    )
+    assert result.returncode != 0
+    assert "set PLANE_BASE_URL" in result.stderr
 
 
 def test_resolve_project_by_name_and_uuid():

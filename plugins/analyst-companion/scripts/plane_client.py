@@ -2,7 +2,8 @@
 """Minimal Plane work-item client for the analyst-companion plugin.
 
 Auth: PLANE_API_TOKEN (workspace API token). Base URL: PLANE_BASE_URL
-(default https://plan.r-53.com). Used by /meeting-end to create reviewed work items.
+(required, no default — set it to your Plane instance's URL). Used by /meeting-end to
+create reviewed work items.
 
 CLI:
     PLANE_API_TOKEN=... python plane_client.py create \
@@ -97,7 +98,9 @@ def main(argv: list[str]) -> int:
     token = os.environ.get("PLANE_API_TOKEN")
     if not token:
         raise SystemExit("PLANE_API_TOKEN not set")
-    base = os.environ.get("PLANE_BASE_URL", "https://plan.r-53.com")
+    base = os.environ.get("PLANE_BASE_URL")
+    if not base:
+        raise SystemExit("set PLANE_BASE_URL to your Plane instance URL")
     plane = Plane(base, token, args.workspace)
     project_id = plane.resolve_project(args.project)
     created = plane.create_issue(project_id, payload)
