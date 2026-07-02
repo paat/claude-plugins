@@ -11,16 +11,6 @@ Use Google's Gemini CLI (`gemini`) to get second opinions, alternative perspecti
 
 Gemini CLI must be installed (`npm install -g @google/gemini-cli`) and authenticated. The user must have run `gemini` interactively at least once to complete OAuth login.
 
-To use Gemini 3 preview models, the user must enable experimental features in `~/.gemini/settings.json`:
-
-```json
-{
-  "general": {
-    "previewFeatures": true
-  }
-}
-```
-
 ## When to Use Gemini
 
 **Good candidates for Gemini consultation:**
@@ -39,68 +29,18 @@ To use Gemini 3 preview models, the user must enable experimental features in `~
 
 ## How to Call Gemini
 
-### Basic Usage
-
 Always use `-o text` for clean output and `2>/dev/null` to suppress OAuth/hook noise:
 
 ```bash
 gemini -p "Your prompt here" -o text 2>/dev/null
 ```
 
-### With File Context
-
-Inject files using `@file` syntax inside the `-p` string (Gemini reads the file directly):
+Inject files with `@file` syntax inside the `-p` string, or pipe content when you need computed/filtered output instead:
 
 ```bash
 gemini -p "Review this code for bugs and security issues. @src/main.py" -o text 2>/dev/null
-```
-
-Multiple files:
-
-```bash
-gemini -p "Do these components integrate correctly? @src/auth.py @src/middleware.py" -o text 2>/dev/null
-```
-
-### Piping Content
-
-Pipe content when you need to send computed/filtered output:
-
-```bash
 cat src/utils.py | gemini -p "Explain what this code does" -o text 2>/dev/null
 ```
-
-### Model Selection
-
-Available models (fastest to most capable):
-- **`gemini-2.5-flash`** — Stable fast model
-- **`gemini-2.5-pro`** — Stable deep reasoning
-- **`gemini-3-flash-preview`** — Fast, good for general queries, explanations, quick reviews (default for speed tasks). Requires `previewFeatures: true`.
-- **`gemini-3-pro-preview`** — Deep reasoning, thorough code review, architecture decisions (default for depth tasks). Requires `previewFeatures: true`.
-
-Select model with `-m`:
-
-```bash
-gemini -m gemini-3-pro-preview -p "Analyze this architecture decision..." -o text 2>/dev/null
-```
-
-**Guidelines:**
-- Use `-m gemini-3-flash-preview` for speed: general queries, explanations, quick checks
-- Use `-m gemini-3-pro-preview` when the task requires deep reasoning: complex code review, architecture analysis, security audit
-- Fall back to `gemini-2.5-flash` / `gemini-2.5-pro` if the preview models return errors
-- When in doubt, start with flash; escalate to pro if the response lacks depth
-
-### Timeout
-
-Use `timeout` for safety on large prompts:
-
-```bash
-timeout 120 gemini -p "..." -o text 2>/dev/null
-```
-
-Recommended timeouts:
-- Quick questions: 30s
-- Code review: 120s
-- Large file analysis: 180s
 
 ## Presenting Results
 
@@ -128,15 +68,6 @@ Example format:
 **Recommendation:** [your synthesized recommendation]
 ```
 
-## Error Handling
-
-| Error Pattern | Cause | Action |
-|---|---|---|
-| `OAuth token expired` or auth errors | Token needs refresh | Tell user to run `gemini` interactively to re-authenticate |
-| Timeout / no response | Network or rate limit | Retry once with longer timeout; if still fails, proceed without Gemini |
-| `model not found` | Invalid model name | Fall back to `gemini-2.5-flash` (stable). If preview models fail, the user may need to enable `previewFeatures` in `~/.gemini/settings.json` |
-| Empty response | Prompt too vague or API issue | Rephrase with more context and retry once |
-
 If Gemini is unavailable, don't block the user's workflow — proceed with your own analysis and note that Gemini was unavailable.
 
-For the complete CLI reference (all flags, models, error patterns, and usage examples), see `references/gemini-cli-reference.md`.
+For model selection, timeouts, `@file`/piping details, and the full error-handling table, see `references/gemini-cli-reference.md`.
