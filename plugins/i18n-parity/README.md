@@ -43,10 +43,10 @@ that owns it.
     { "pattern": "frontend/messages/{locale}.json" }
   ],
   "waivers": {
-    "localeOnlyKeys": { "en": ["guide.sections.H.title"] },
-    "emptyAllowed":   { "ru": ["legal.placeholder.notice"] },
+    "localeOnlyKeys": { "en": ["faq.section3.title"] },
+    "emptyAllowed":   { "ru": ["legal.disclaimer.text"] },
     "directionPrefixes": [
-      { "present": "ru", "absentIn": ["en", "et"], "prefixes": ["landing.eresidentInfo."] }
+      { "present": "ru", "absentIn": ["en", "et"], "prefixes": ["promo.seasonalBanner."] }
     ]
   }
 }

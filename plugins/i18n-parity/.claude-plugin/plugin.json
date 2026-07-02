@@ -1,6 +1,6 @@
 {
   "name": "i18n-parity",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Vendorable zero-dependency translation key-parity gate for multilingual next-intl apps — diffs locale catalogs (presence, empty values, ICU args, leaf shape, namespaces) with declarable waivers, wired as a hard CI/pre-push gate",
   "author": {
     "name": "Andre Paat"

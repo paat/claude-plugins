@@ -24,9 +24,9 @@ Run the i18n key-parity gate against this repo and explain any failures. This co
    - Exit 2 → surface the config/usage error verbatim and help fix the config.
 
 3. **If no config exists**, inspect the repo to propose one:
-   - Look for `**/messages/{et,en,ru,...}.json` (next-intl single-file-per-locale) → propose a
+   - Look for `**/messages/{locale}.json` (next-intl single-file-per-locale) → propose a
      `{ "pattern": "<dir>/{locale}.json" }` catalog.
-   - Look for `**/locales/<locale>/<namespace>.json` (multi-namespace) → propose a
+   - Look for `**/locales/{locale}/{namespace}.json` (multi-namespace) → propose a
      `{ "pattern": "<dir>/{locale}/{namespace}.json" }` catalog.
    - Infer `locales[]` from the discovered locale codes and set `primaryLocale` (ask the user
      which locale is the source of truth; default to the most-complete one).
