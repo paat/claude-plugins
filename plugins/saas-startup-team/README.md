@@ -399,6 +399,11 @@ runs in each **product** repo.
 - **`jq`, `awk`, `sed`, `curl`, `timeout`, and `python3`** — required by hook scripts,
   JSON validation, monitor/lawyer workflows, preflight checks, Codex marketplace sync, and
   datalake API checks.
+- **est-saas-datalake API (required for `/lawyer`)** — the Lawyer's Estonian legal analysis and law-change monitoring query an external est-saas-datalake service. Two environment variables control access:
+  - `DATALAKE_URL` — API base URL. Defaults to `https://datalake.r-53.com`; export it to point `/lawyer` (command, agent, and `scripts/lawyer-*.sh`) at your own datalake deployment.
+  - `EST_DATALAKE_API_KEY` — API key sent as the `X-API-Key` header. **Required** — `/lawyer` pre-flight hard-fails if it is unset. Set it with `export EST_DATALAKE_API_KEY=your-key`.
+
+  `/lawyer` pre-flight also hard-fails if `DATALAKE_URL/api/v1/health/ready` does not return `200`; there is no offline fallback. The rest of the plugin works without the datalake.
 - **google-ads-strategist plugin** — required for any Google Ads work (hard dependency). Google Ads is delegated to its `ads-strategist` agent; `growth-hacker` no longer creates Google Ads campaigns itself. There is no manifest-level dependency field, so this is enforced behaviorally: `/ads` and the `/growth` loop fail with an install instruction if the plugin is absent.
 - **`codex` CLI (optional in interactive Codex, required for separate worker dispatch)** — only needed when the workflow launches a separate Codex process via `codex exec` or `scripts/codex-implement.sh`. Without it, Codex continues inline or asks for an environment fix; it never falls back to a Claude implementation engine.
 

@@ -39,7 +39,7 @@ This applies to all analysis docs. If you find yourself writing Estonian without
 
 Your primary tool is the Estonian legal datalake API. Use it for ALL Estonian legal research before falling back to web search.
 
-**API base:** `https://datalake.r-53.com/api/v1/`
+**API base:** `$DATALAKE_URL/api/v1/` — `DATALAKE_URL` defaults to `https://datalake.r-53.com`; override by exporting it. Set it once at the start of any shell you run these calls in: `: "${DATALAKE_URL:=https://datalake.r-53.com}"`.
 **Authentication:** `X-API-Key` header (key from `EST_DATALAKE_API_KEY` environment variable)
 
 ### Available Endpoints
@@ -79,16 +79,16 @@ Core endpoints:
 curl --max-time 30 -s -X POST -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"question": "Millised on SaaS teenuse andmekaitse nõuded?"}' \
-  https://datalake.r-53.com/api/v1/rag/query
+  "$DATALAKE_URL/api/v1/rag/query"
 
 # Search for specific laws — note the response shape is {items:[...], total, ...}
 curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "https://datalake.r-53.com/api/v1/laws/search?q=isikuandmete+kaitse&status=valid&limit=10" \
+  "$DATALAKE_URL/api/v1/laws/search?q=isikuandmete+kaitse&status=valid&limit=10" \
   | jq '.items[] | {id, rt_id, title}'
 
 # Look up a specific paragraph/section — act_id is the integer .id from search
 curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "https://datalake.r-53.com/api/v1/laws/30087/citation?paragraph=10&section=1"
+  "$DATALAKE_URL/api/v1/laws/30087/citation?paragraph=10&section=1"
 
 # Superscript qualifiers (¹²³) are LOAD-BEARING — § 14 lõige 1¹ ≠ § 14 lõige 1.
 # Estonian micro law leans on prim paragraphs (RPS § 14 lg 1¹, KMS § 19¹, ÄS § 50¹).
@@ -104,39 +104,39 @@ parts = ["paragraph=" + enc(para, pq)]
 if sec: parts.append("section=" + enc(sec, sq))
 if pt:  parts.append("point="   + enc(pt,  kq))
 print(f"{base}/api/v1/laws/{act}/citation?" + "&".join(parts))
-' "https://datalake.r-53.com" 30087 14 "" 1 1 "" "")
+' "$DATALAKE_URL" 30087 14 "" 1 1 "" "")
 # → .../laws/30087/citation?paragraph=14&section=1%C2%B9  (= § 14 lõige 1¹)
 curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$cite_url"
 
 # Cheapest metadata lookup for an act you already have the id for
 curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "https://datalake.r-53.com/api/v1/laws/30087/graph"
+  "$DATALAKE_URL/api/v1/laws/30087/graph"
 
 # Compliance checklist — business_type is REQUIRED
 curl --max-time 30 -s -X POST -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"business_type": "SaaS data-processing platform", "emtak_code": "62011"}' \
-  https://datalake.r-53.com/api/v1/compliance/checklist
+  "$DATALAKE_URL/api/v1/compliance/checklist"
 
 # Recent law changes since a date (no domain filter — it's easier and more
 # correct to filter client-side by rt_id/title)
 curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "https://datalake.r-53.com/api/v1/changes/feed?since=2026-03-01T00:00:00Z&limit=500" \
+  "$DATALAKE_URL/api/v1/changes/feed?since=2026-03-01T00:00:00Z&limit=500" \
   | jq '.items[] | {id, change_type, act_title, rt_id, detected_at, domains}'
 
 # Impact of a specific change event
 curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "https://datalake.r-53.com/api/v1/changes/44863/impact"
+  "$DATALAKE_URL/api/v1/changes/44863/impact"
 
 # Research a competitor company + its obligations
 curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "https://datalake.r-53.com/api/v1/companies/search?q=Bolt"
+  "$DATALAKE_URL/api/v1/companies/search?q=Bolt"
 curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "https://datalake.r-53.com/api/v1/companies/17449106/obligations"
+  "$DATALAKE_URL/api/v1/companies/17449106/obligations"
 
 # EU→Estonia transposition mapping — where does this GDPR article land in Estonian law?
 curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
-  "https://datalake.r-53.com/api/v1/eurlex/transpositions?celex=32016R0679"
+  "$DATALAKE_URL/api/v1/eurlex/transpositions?celex=32016R0679"
 ```
 
 **ALWAYS set timeouts on curl calls:** `curl --max-time 30 ...`

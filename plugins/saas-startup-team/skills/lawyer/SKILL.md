@@ -70,7 +70,7 @@ You are the on-demand legal consultant. This skill provides your domain expertis
 
 ## Datalake API Quick Reference
 
-All calls require `X-API-Key` header. API base: `https://datalake.r-53.com/api/v1/` (also available as `$DATALAKE_URL` if set).
+All calls require `X-API-Key` header. API base: `$DATALAKE_URL/api/v1/` (`DATALAKE_URL` defaults to `https://datalake.r-53.com`; override by exporting it).
 
 **Legal research:**
 - `POST /rag/query` — body: `{"question": "..."}` → AI answer with citations, disclaimer, sources[]
