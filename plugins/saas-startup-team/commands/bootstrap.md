@@ -51,116 +51,33 @@ These files should be git-tracked. Runtime state, handoffs, reviews, signoffs, a
 
 ## Step 3: Update .gitignore
 
-Append the following to `.gitignore` if not already present. Check each line individually — some projects may already have partial entries:
+Append the plugin's ignore rules from `${CLAUDE_PLUGIN_ROOT}/templates/gitignore-block.txt`, checking each line individually so partial pre-existing entries are not duplicated:
 
-```gitignore
-# Startup plugin operational state (ephemeral, not knowledge)
-.startup/state.json
-.startup/state-archive.json
-.startup/state.json.bak-*
-.startup/state.json.lock
-.startup/handoffs/
-.startup/reviews/
-.startup/signoffs/
-.startup/go-live/
-.startup/test-data/
-.startup/.idle-*
-
-# Dependencies & package stores (NEVER commit — an in-repo pnpm store can be GBs and a single
-# prebuilt binary >100 MB makes the repo unpushable to GitHub, recoverable only by history rewrite)
-node_modules/
-.pnpm-store/
-.pnpm/
-.yarn/
-bower_components/
-
-# Build output & caches
-.next/
-dist/
-build/
-out/
-.turbo/
-.cache/
-coverage/
-*.log
+```bash
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  grep -qxF "$line" .gitignore 2>/dev/null || printf '%s\n' "$line" >> .gitignore
+done < "${CLAUDE_PLUGIN_ROOT}/templates/gitignore-block.txt"
 ```
 
-**Check before appending:** Read `.gitignore` and only add lines that are not already present.
-
-> A freshly scaffolded project — the exact case `/bootstrap` is built for — often has no
-> `.gitignore` yet, and a dev-container pnpm store configured with `store-dir=.pnpm-store` lives
-> *inside* the repo. Without these entries a later broad `git add` sweeps the entire store into
-> history. Because `.gitignore` does not untrack already-committed paths, the only recovery is
-> `git filter-repo` + force-push. The dependency/build block above is what prevents that.
+The block covers ephemeral `.startup/` state plus dependency trees and build output. A
+freshly scaffolded project — the exact case `/bootstrap` is built for — often has no
+`.gitignore` yet, and a dev-container pnpm store configured with `store-dir=.pnpm-store`
+lives *inside* the repo; without these entries a later broad `git add` sweeps the entire
+store into history, recoverable only by `git filter-repo` + force-push.
 
 ## Step 4: Update CLAUDE.md — Project Knowledge
 
-If CLAUDE.md does not already contain a `## Project Knowledge` section, add it.
-
-Scan the `docs/` subdirectories to generate the content dynamically:
-
-1. List files in each `docs/` subdirectory
-2. For each non-empty subdirectory, add a bullet with the directory and a description of its contents
-3. For key individual files (like `brief.md`), add specific file-level pointers
-
-**Template** (adapt based on what actually exists in `docs/`):
-
-```markdown
-## Project Knowledge
-
-Research and design decisions live in `docs/`. Consult these before making changes:
-
-- **Business brief**: `docs/business/brief.md` — what we're building and why
-- **Market research**: `docs/research/` — market size, customer pain points, competition
-- **Legal/compliance**: `docs/legal/` — GDPR, Estonian business law, compliance
-- **Architecture**: `docs/architecture/` — tech stack decisions and rationale
-- **UX findings**: `docs/ux/` — audit results, accessibility gaps
-- **SEO research**: `docs/seo/` — keyword strategy, content optimization
-- **Growth**: `docs/growth/` — growth strategy, channel metrics, pipeline, outreach templates
-- **Workflow registry**: `.startup/workflows/registry.md` — routes, jobs, states, handoff contracts, and QA coverage
-
-When adding features or changing behavior, check relevant docs first.
-When completing research, save findings to the appropriate `docs/` subdirectory.
-When introducing or changing a workflow, update `.startup/workflows/registry.md` and the affected `WORKFLOW-<slug>.md` spec.
-```
-
-Only include bullets for subdirectories that exist. If a subdirectory has notable files, list them specifically (e.g., `docs/business/hinnastrateegia.md` for pricing).
+If CLAUDE.md does not already contain a `## Project Knowledge` section, append the template
+at `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-project-knowledge.md`, then adapt it to what
+actually exists in `docs/`: scan the `docs/` subdirectories, keep a bullet only for each
+non-empty subdirectory, and add file-level pointers for key individual files (e.g.
+`docs/business/brief.md`, or `docs/business/hinnastrateegia.md` for pricing).
 
 ## Step 5: Update CLAUDE.md — Workflow Guidance
 
-If CLAUDE.md does not already contain a `## Workflow Guidance` section, add it:
-
-```markdown
-## Workflow Guidance
-
-### Use `/startup` (agent loop) when:
-- Starting a new product or major pivot — needs market research, competition analysis, pricing
-- Building 3+ features that need business justification and browser verification
-- You want structured business-to-tech-to-review cycles with quality gates
-
-### Use plain Claude Code when:
-- Bug fixes, hotfixes, deployment issues
-- SEO tweaks, content updates, copy changes
-- Single feature where you already know the "why"
-- Ops/infrastructure work (docker, nginx, CI)
-- Quick research tasks (use `/lawyer` or `/ux-test` standalone)
-
-### Use `/growth` (growth track) when:
-- Product is live and ready for customers — need to acquire paying users
-- Want to run outreach, content marketing, ad campaigns, community engagement
-- Pre-launch audience building (`/growth --pre-launch`)
-
-### Use `/improve` (one-shot fixes) when:
-- Product is complete (solution signoff exists) but needs minor tweaks
-- Bug fixes, styling changes, copy updates on a shipped product
-- Changes that don't need market research or new feature design
-
-### Either way:
-- Save research findings to `docs/` (not ad-hoc locations)
-- Check relevant `docs/` before making design decisions
-- Update `docs/` when decisions change
-- Update `.startup/workflows/` when routes, jobs, states, or handoff contracts change
-```
+If CLAUDE.md does not already contain a `## Workflow Guidance` section, append the template
+at `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-workflow-guidance.md`.
 
 ## Step 6: Project Brief
 
@@ -258,9 +175,6 @@ if [ ! -f .github/workflows/ci.yml ]; then
 fi
 
 # 3. Branch-protection [HUMAN] task (sequenced, idempotent).
-# NOTE: do NOT put fenced code blocks inside this heredoc — the test harness's
-# markdown bash-block extractor stops at the first closing fence. Commands are
-# shown indented as plain text instead.
 mkdir -p .startup docs
 if [ ! -f docs/human-tasks.md ]; then
   if [ -f .startup/human-tasks.md ]; then
@@ -270,35 +184,7 @@ if [ ! -f docs/human-tasks.md ]; then
   fi
 fi
 if ! grep -q "Require the CI check (branch protection)" docs/human-tasks.md; then
-  cat >> docs/human-tasks.md <<'TASK'
-
-## [HUMAN] Require the CI check (branch protection)
-
-Sequencing: do this ONLY after the tech-founder has finalized `check.sh` and the
-first CI run on a real PR is green — otherwise you block every PR on a stub.
-
-1. Get the exact check name from the first green PR:
-   gh pr checks <pr-number>      (it is `check` or `CI / check` — copy verbatim)
-2. Primary path — GitHub UI: Settings → Branches → Add branch protection rule →
-   "Require status checks to pass before merging" → select that check.
-3. CLI alternative (ONLY for a repo with no existing protection rule — a PUT to
-   /protection REPLACES all protection settings; use the UI otherwise):
-
-       BR=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
-       CTX="check"   # replace with the exact name from step 1
-       gh api -X PUT "repos/{owner}/{repo}/branches/$BR/protection" \
-         -H "Accept: application/vnd.github+json" --input - <<JSON
-       {
-         "required_status_checks": { "strict": true, "contexts": ["$CTX"] },
-         "enforce_admins": false,
-         "required_pull_request_reviews": null,
-         "restrictions": null
-       }
-       JSON
-
-   Requires repo-admin + a token with the right scope. enforce_admins:false
-   lets admins merge a red PR in an emergency — set true to bind admins too.
-TASK
+  cat "${CLAUDE_PLUGIN_ROOT}/templates/branch-protection-task.md" >> docs/human-tasks.md
 fi
 ```
 

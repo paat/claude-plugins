@@ -104,31 +104,7 @@ Initialize `state.json`:
 
 Write `docs/business/brief.md` using the user's SaaS idea description (skip if `/bootstrap` already created it).
 
-**Create or migrate the human-tasks file:**
-```bash
-mkdir -p docs
-if [ ! -f docs/human-tasks.md ]; then
-  if [ -f .startup/human-tasks.md ]; then
-    cp .startup/human-tasks.md docs/human-tasks.md
-  else
-    cp ${CLAUDE_PLUGIN_ROOT}/templates/human-tasks.md docs/human-tasks.md
-  fi
-fi
-```
-
-Tell both agents that handoff and brief templates are available at `${CLAUDE_PLUGIN_ROOT}/templates/`.
-
-Ensure the workflow registry exists (copy templates only if missing):
-```bash
-mkdir -p .startup/workflows
-touch .startup/workflows/.gitkeep
-if [ ! -f .startup/workflows/registry.md ]; then
-  cp "${CLAUDE_PLUGIN_ROOT}/templates/workflow-registry.md" .startup/workflows/registry.md
-fi
-if [ ! -f .startup/workflows/WORKFLOW-template.md ]; then
-  cp "${CLAUDE_PLUGIN_ROOT}/templates/workflow-spec.md" .startup/workflows/WORKFLOW-template.md
-fi
-```
+`/bootstrap` (run first in this step) already created `docs/human-tasks.md` and scaffolded the `.startup/workflows/` registry and spec templates — both idempotent, so there is nothing more to scaffold here. Handoff and brief templates live at `${CLAUDE_PLUGIN_ROOT}/templates/`.
 
 ## Step 2b: Initialize CLAUDE.md for Auto-Learning
 
@@ -258,6 +234,7 @@ allowed only after the lease and heartbeat prove staleness.
 - The agent's role identity: "You are the {role} of an Estonian SaaS startup. You speak {language}."
 - The agent definition file path: `${CLAUDE_PLUGIN_ROOT}/agents/{agent-name}.md` — tell the agent to read it for tools/model/behavioral constraints
 - The full relay message (same self-contained message you'd send to a persistent teammate)
+- The token-frugality instruction: read only what the task needs, in targeted ranges (not whole-file dumps), and never re-read content already in context
 - Instruction: "After completing your work and writing the handoff/review/signoff file, report back with a summary of what you did and the filename."
 
 Use `subagent_type: "general-purpose"` for the Task tool.
@@ -335,7 +312,4 @@ The loop continues until the business founder writes `.startup/go-live/solution-
 
 ## Communication to Investor
 
-When communicating with the human investor:
-- The business founder speaks **Estonian**
-- The tech founder speaks **English**
-- You (team lead) speak **English** for status updates
+Investor-communication language: see `${CLAUDE_PLUGIN_ROOT}/templates/communication.md`.

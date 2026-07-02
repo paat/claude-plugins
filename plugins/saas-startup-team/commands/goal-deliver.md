@@ -338,6 +338,5 @@ that materially changes customer promise or pricing.
 
 ## Communication
 
-- Business founder speaks **Estonian** to the investor.
-- Tech founder speaks **English** to the investor.
-- You (team lead) speak **English** for status updates and the final report.
+Investor-communication language: see `${CLAUDE_PLUGIN_ROOT}/templates/communication.md`
+(team lead speaks English for status updates and the final report).

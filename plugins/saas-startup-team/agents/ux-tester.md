@@ -223,4 +223,4 @@ All written in English:
 
 ## Plugin Issue Reporting
 
-If you hit a problem with the **plugin itself** (not the UX analysis), file a GitHub issue on the plugin repo: `gh issue create --repo paat/claude-plugins --title "saas-startup-team: <short title>" --body "<details>"`. GitHub issues replaced the local `.startup/PLUGIN_ISSUES.md` workflow in v0.30.1 — the per-project file was never aggregated across downstream projects.
+If the **plugin itself** misbehaves (not the UX analysis), file a plugin issue — see `${CLAUDE_PLUGIN_ROOT}/templates/plugin-issue-reporting.md`.

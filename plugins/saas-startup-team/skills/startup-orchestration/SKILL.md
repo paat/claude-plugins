@@ -97,7 +97,7 @@ switching engines mid-task.
 ### 5. Escalation
 - If a founder is stuck for more than one iteration, alert the investor
 - If founders disagree, present both positions to the investor
-- Investor communication: business founder speaks Estonian, tech founder speaks English
+- Investor-communication language: see `${CLAUDE_PLUGIN_ROOT}/templates/communication.md`
 
 ### 6. Cost Awareness
 - Each iteration consumes tokens across both agents

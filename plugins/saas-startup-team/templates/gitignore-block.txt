@@ -1,0 +1,29 @@
+# Startup plugin operational state (ephemeral, not knowledge)
+.startup/state.json
+.startup/state-archive.json
+.startup/state.json.bak-*
+.startup/state.json.lock
+.startup/handoffs/
+.startup/reviews/
+.startup/signoffs/
+.startup/go-live/
+.startup/test-data/
+.startup/.idle-*
+
+# Dependencies & package stores (NEVER commit — an in-repo pnpm store can be GBs and a single
+# prebuilt binary >100 MB makes the repo unpushable to GitHub, recoverable only by history rewrite)
+node_modules/
+.pnpm-store/
+.pnpm/
+.yarn/
+bower_components/
+
+# Build output & caches
+.next/
+dist/
+build/
+out/
+.turbo/
+.cache/
+coverage/
+*.log

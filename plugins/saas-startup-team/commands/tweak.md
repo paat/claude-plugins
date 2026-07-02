@@ -59,16 +59,15 @@ Proceed only on explicit confirmation. Otherwise suggest `/improve` and stop.
 
 ## Determine Branch Mode
 
-Read the current branch:
+Read the current branch and resolve the repo's default branch:
 
 ```bash
 current_branch=$(git rev-parse --abbrev-ref HEAD)
+default=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo main)
 ```
 
-- **`current_branch` is `main`** → **new-branch mode**: create a `tweak/<slug>` branch, open a PR, return to `main` (the original `/tweak` flow).
+- **`current_branch` equals `${default}`** → **new-branch mode**: create a `tweak/<slug>` branch, open a PR, return to `${default}` (the original `/tweak` flow).
 - **Anything else** (you're on a feature branch) → **on-branch mode**: commit the tweak to the current branch and push it. No new branch, no PR, no branch switch.
-
-This flow assumes `main` is the repo's default branch (consistent with the rest of the command). If a product repo uses a different default branch name, run `/tweak` from a feature branch.
 
 ## Create Branch — new-branch mode only
 
@@ -110,7 +109,7 @@ Guidelines:
   > This is larger than it looked. Consider aborting and running `/improve` instead. Abort `/tweak`?
 
   On abort:
-  - **New-branch mode:** `git checkout main && git branch -D tweak/${slug}` (deletes the tweak branch and the edit).
+  - **New-branch mode:** `git checkout "${default}" && git branch -D tweak/${slug}` (deletes the tweak branch and the edit).
   - **On-branch mode:** discard the uncommitted edit with `git restore .` and stay on `current_branch`. Do not delete the branch.
 
 ## Commit
@@ -135,7 +134,7 @@ git diff --cached --quiet || git commit -m "tweak: ${description}"
 > The edit is staged on `current_branch` but not committed. Options:
 > 1. Fix the issue and commit manually, then push.
 > 2. Abort (loses the edit):
->    - **New-branch mode:** `git checkout main && git branch -D tweak/${slug}`
+>    - **New-branch mode:** `git checkout "${default}" && git branch -D tweak/${slug}`
 >    - **On-branch mode:** `git restore --staged . && git restore .` (stays on `current_branch`)
 
 Then stop — do not proceed to push or PR.
@@ -156,7 +155,7 @@ git push -u origin HEAD
 
 1. **Create the PR (non-draft):**
    ```bash
-   diff_stat=$(git diff main...HEAD --stat)
+   diff_stat=$(git diff "${default}"...HEAD --stat)
    gh pr create --title "tweak: ${short_description}" --body "$(cat <<EOF
    ## What
 
@@ -173,9 +172,9 @@ git push -u origin HEAD
 
    If `gh pr create` fails, report the error. The branch is pushed — the investor can create the PR in the GitHub UI.
 
-2. **Return to main branch:**
+2. **Return to the default branch:**
    ```bash
-   git checkout main
+   git checkout "${default}"
    ```
    The `tweak/${slug}` branch persists until the PR is merged or deleted.
 

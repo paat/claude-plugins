@@ -72,15 +72,15 @@ Filing is a separate, explicitly-gated step. By default it is a **dry run** that
 files nothing:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/lesson-file.sh" --repo paat/claude-plugins
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/lesson-file.sh" --repo "${SAAS_PLUGIN_REPO}"
 ```
 
 To actually open `lesson-candidate` issues in the plugin repo, the investor sets
-the enable flag and pins the repo:
+the enable flag and pins the repo (`SAAS_PLUGIN_REPO`, or `--repo OWNER/REPO`):
 
 ```bash
 SAAS_LESSON_SYNC_ENABLED=true \
-  bash "${CLAUDE_PLUGIN_ROOT}/scripts/lesson-file.sh" --repo paat/claude-plugins
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/lesson-file.sh" --repo "${SAAS_PLUGIN_REPO}"
 ```
 
 `lesson-file.sh` re-runs the hard PII gate on every issue at the filing boundary,

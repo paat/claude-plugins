@@ -145,6 +145,7 @@ dispatching another worker for the same improvement.
 Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder-maintain.md` for your identity and tools.
+> Be token-frugal: read only what the task needs, in targeted ranges (not whole-file dumps), and never re-read content already in your context.
 >
 > **Improvement task: Write a brief for the tech founder.**
 >
@@ -178,6 +179,7 @@ Use the host-native implementation path:
 Claude Code agent prompt:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude-maintain.md` (Claude engine) **or** `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-codex-maintain.md` (Codex engine) — whichever the orchestrator selected — for your identity and tools.
+> Be token-frugal: read only what the task needs, in targeted ranges (not whole-file dumps), and never re-read content already in your context.
 >
 > **Improvement task: Implement the latest handoff from the business founder.**
 >
@@ -203,6 +205,7 @@ Codex role phase uses the same task body, but replaces the agent-definition read
 Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder-maintain.md` for your identity and tools.
+> Be token-frugal: read only what the task needs, in targeted ranges (not whole-file dumps), and never re-read content already in your context.
 >
 > **QA task: Verify the tech founder's latest implementation.**
 >
@@ -353,6 +356,4 @@ Then dispatch business founder for re-QA following the same pattern as Step 3.
 
 ## Communication
 
-Same language rules as the build loop:
-- Business founder speaks **Estonian** to investor
-- Tech founder speaks **English** to investor
+Investor-communication language: see `${CLAUDE_PLUGIN_ROOT}/templates/communication.md`.

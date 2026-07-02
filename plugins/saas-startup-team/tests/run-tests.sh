@@ -1073,11 +1073,14 @@ test_plugin_issues() {
     FAIL_COUNT=$((FAIL_COUNT + 1))
   fi
 
-  # J2-J5: the four primary issue-filing agents point at gh, not the old file
+  # J2-J5: the shared reference holds the gh filing command; the four primary
+  # issue-filing agents point at that reference (stated once, referenced elsewhere).
   # tech-founder-codex* inherit plugin-issue reporting via tech-founder-claude.md (which they read).
+  assert_file_contains "J-gh-ref: reference holds the gh issue create command" \
+    "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" "gh issue create --repo paat/claude-plugins"
   for agent in business-founder.md tech-founder-claude.md tech-founder-claude-maintain.md business-founder-maintain.md; do
-    assert_file_contains "J-gh: $agent points to gh issue create" \
-      "$PLUGIN_ROOT/agents/$agent" "gh issue create --repo paat/claude-plugins"
+    assert_file_contains "J-gh: $agent references the plugin-issue-reporting doc" \
+      "$PLUGIN_ROOT/agents/$agent" "templates/plugin-issue-reporting.md"
   done
 
   # J-bootstrap: bootstrap no longer seeds .startup/PLUGIN_ISSUES.md
@@ -1376,11 +1379,14 @@ test_check_staged_size() {
   assert_exit_code "G7: non-git dir is a no-op" "$ec" 0
   rm -rf "$workdir"
 
-  # G8: /bootstrap gitignores dependency trees and package stores (issue #90 primary fix)
+  # G8: /bootstrap gitignores dependency trees and package stores (issue #90 primary fix).
+  # The ignore rules live in templates/gitignore-block.txt, applied by bootstrap.md.
   local bootstrap="$PLUGIN_ROOT/commands/bootstrap.md"
-  assert_file_contains "G8a: bootstrap gitignores node_modules/" "$bootstrap" "node_modules/"
-  assert_file_contains "G8b: bootstrap gitignores .pnpm-store/" "$bootstrap" ".pnpm-store/"
-  assert_file_contains "G8c: bootstrap gitignores build output (dist/)" "$bootstrap" "dist/"
+  local gitignore_block="$PLUGIN_ROOT/templates/gitignore-block.txt"
+  assert_file_contains "G8-ref: bootstrap applies the gitignore block" "$bootstrap" "templates/gitignore-block.txt"
+  assert_file_contains "G8a: gitignore block has node_modules/" "$gitignore_block" "node_modules/"
+  assert_file_contains "G8b: gitignore block has .pnpm-store/" "$gitignore_block" ".pnpm-store/"
+  assert_file_contains "G8c: gitignore block has build output (dist/)" "$gitignore_block" "dist/"
 
   # G9: the guard is wired into the bootstrap commit and the /improve catch-all commit
   assert_file_contains "G9a: bootstrap runs the guard before commit" "$bootstrap" "check-staged-size.sh"
@@ -3317,7 +3323,7 @@ test_operate_workflow_registry_and_gates() {
   assert_file_exists "Y14: workflow registry template exists" "$PLUGIN_ROOT/templates/workflow-registry.md"
   assert_file_exists "Y15: workflow spec template exists" "$PLUGIN_ROOT/templates/workflow-spec.md"
   assert_file_contains "Y16: bootstrap creates workflow registry" "$PLUGIN_ROOT/commands/bootstrap.md" ".startup/workflows/registry.md"
-  assert_file_contains "Y17: startup creates workflow registry" "$PLUGIN_ROOT/commands/startup.md" ".startup/workflows/registry.md"
+  assert_file_contains "Y17: startup references the workflow registry (bootstrap scaffolds it)" "$PLUGIN_ROOT/commands/startup.md" ".startup/workflows/"
   assert_file_contains "Y18: improve reads workflow registry" "$PLUGIN_ROOT/commands/improve.md" ".startup/workflows/registry.md"
   assert_file_contains "Y19: orchestration validates workflow specs" "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" "WORKFLOW-<slug>.md"
 
