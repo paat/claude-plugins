@@ -39,7 +39,7 @@ FAILED=()              # suites that failed (red command, or never ran)
 declare -A STATUS      # label -> pass|fail (only set by run_suite)
 
 suite_stub() {
-  echo "  ✗ SUITE '$1' is declared in REQUIRED_SUITES but not wired up — edit check.sh"
+  echo "  FAIL: SUITE '$1' is declared in REQUIRED_SUITES but not wired up — edit check.sh"
   return 1
 }
 
@@ -54,11 +54,11 @@ run_suite() {
   RAN+=("$label")
   echo "  ▶ $label: $cmd"
   if bash -c "$cmd"; then
-    echo "  ✓ $label passed"
+    echo "  OK: $label passed"
     STATUS[$label]="pass"
     return 0
   else
-    echo "  ✗ $label failed"
+    echo "  FAIL: $label failed"
     STATUS[$label]="fail"
     return 1
   fi
@@ -90,7 +90,7 @@ main() {
   for suite in "${REQUIRED_SUITES[@]:-}"; do
     [ -z "$suite" ] && continue
     if ! ran_contains "$suite"; then
-      echo "  ✗ SUITE '$suite' declared but never ran a command (Guard 2)"
+      echo "  FAIL: SUITE '$suite' declared but never ran a command (Guard 2)"
       FAILED+=("$suite")
     elif [ "${STATUS[$suite]:-}" = "fail" ]; then
       FAILED+=("$suite")

@@ -169,7 +169,7 @@ When a qualifier is set, the param value is the base digit followed by the unico
 
 Response: `{act_id, act_title, paragraph, section, point, text, url, status, in_force, redaktsioon_date}`. The trailing segment of `url` (after `/akt/`) is the per-redaction RT identifier — store as `redaktsioon_id`. `status` (`"valid"`|`"superseded"`|`"repealed"`), `in_force` (== `status == "valid"`), and `redaktsioon_date` (validFrom of the served redaction, may be null) are additive lifecycle signals.
 
-> **⚠ 200 ≠ in force.** A repealed/superseded/never-in-force act still returns
+> **WARNING: 200 ≠ in force.** A repealed/superseded/never-in-force act still returns
 > **200 + text** (so callers don't 404) but carries `in_force: false`. Every
 > `/citation` consumer in the command body guards on these:
 > - **`register`** refuses a non-`valid` act (`in_force == false` or `status != "valid"`) unless `--force` is passed, and stores `status` + `redaktsioon_date` in the entry.

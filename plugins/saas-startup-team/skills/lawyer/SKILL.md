@@ -118,7 +118,7 @@ All calls require `X-API-Key` header. API base: `$DATALAKE_URL/api/v1/` (`DATALA
 10. Write analysis → docs/legal/õiguslik-*.md
 ```
 
-> **⚠ A 200 does not mean the law is in force.** A `200` from `/laws/{act_id}/citation`
+> **WARNING: A 200 does not mean the law is in force.** A `200` from `/laws/{act_id}/citation`
 > (or a hit in `/laws/search`) does **not** mean the returned text is current law.
 > The datalake serves repealed, superseded, and never-in-force redactions with a
 > `200` + text so callers don't `404` — guard on **`in_force` / `status`** before

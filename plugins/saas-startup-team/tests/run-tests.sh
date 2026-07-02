@@ -1076,8 +1076,8 @@ test_plugin_issues() {
   # J2-J5: the shared reference holds the gh filing command; the four primary
   # issue-filing agents point at that reference (stated once, referenced elsewhere).
   # tech-founder-codex* inherit plugin-issue reporting via tech-founder-claude.md (which they read).
-  assert_file_contains "J-gh-ref: reference holds the gh issue create command" \
-    "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" "gh issue create --repo paat/claude-plugins"
+  assert_file_contains "J-gh-ref: reference files via the pinned repo variable" \
+    "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" 'gh issue create --repo "${SAAS_PLUGIN_REPO}"'
   for agent in business-founder.md tech-founder-claude.md tech-founder-claude-maintain.md business-founder-maintain.md; do
     assert_file_contains "J-gh: $agent references the plugin-issue-reporting doc" \
       "$PLUGIN_ROOT/agents/$agent" "templates/plugin-issue-reporting.md"

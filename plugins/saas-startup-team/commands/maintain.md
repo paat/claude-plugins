@@ -82,20 +82,30 @@ with `--once`, approve as you go, and watch the digest.
 ## Fast No-Op Exit — Probe Before Any Setup
 
 **Before entering the worktree or running any preflight — including on the very first pass —
-probe for deliverable work with a single cheap read-only call:**
+probe for new work with one cheap read-only call plus the triage cache:**
 
 ```bash
-open=$(gh issue list --state open --json number,labels \
-  --jq '[.[] | select([.labels[].name] | (index("needs-human") or index("maintain:blocked")) | not)] | length')
+cache=.startup/maintain/triage-cache.jsonl
+open_json=$(gh issue list --state open --json number,labels,updatedAt \
+  --jq '[.[] | select([.labels[].name] | (index("needs-human") or index("maintain:blocked")) | not)]')
+open=$(jq length <<<"$open_json")
+# not-in-cache = open unparked issues with no matching {number, updatedAt} cache entry
+new=$open
+if [ -s "$cache" ]; then
+  new=$(jq --slurpfile seen <(jq -c '{number, updatedAt}' "$cache") \
+    '[.[] | select({number, updatedAt} as $k | ($seen | index($k)) | not)] | length' <<<"$open_json")
+fi
 ```
 
 If `open` is `0` (no open issues, or every open one is already parked
-`needs-human`/`maintain:blocked`), the pass has no deliverable work: emit a one-line no-op
-digest to the session (e.g. `no-op: 0 deliverable issues — nothing to do`) and **stop this
-pass immediately**. Do NOT enter the worktree, run the `/goal-deliver` preflight, ensure
-labels, query branch protection or check-runs, or dispatch triage. Under `--once`, stop the
-run; otherwise back off (§Loop Body step 7) and re-probe next pass. This keeps an
-empty-backlog cycle at near-zero cost.
+`needs-human`/`maintain:blocked`) **or `new` is `0`** (every remaining open issue has a
+matching `{number, updatedAt}` triage-cache entry — already triaged, nothing new or changed
+since), the pass has no work: emit a one-line no-op digest to the session (e.g.
+`no-op: $open open, $new new/changed — nothing to do`) and **stop this pass immediately**.
+Do NOT enter the worktree, run the `/goal-deliver` preflight, ensure labels, query branch
+protection or check-runs, or dispatch triage. Under `--once`, stop the run; otherwise back
+off (§Loop Body step 7) and re-probe next pass. Any issue edit bumps `updatedAt` past its
+cache entry and reopens the pass. This keeps a no-work cycle at near-zero cost.
 
 ---
 
@@ -609,6 +619,4 @@ immediately rather than after a human audits the backlog.
 
 ## Communication
 
-Investor-communication language: see `${CLAUDE_PLUGIN_ROOT}/templates/communication.md`
-(business founder → Estonian; tech founder and you, the team lead/supervisor → English for
-status updates, pass summaries, and escalation notices).
+Investor-communication language: see `${CLAUDE_PLUGIN_ROOT}/templates/communication.md`.
