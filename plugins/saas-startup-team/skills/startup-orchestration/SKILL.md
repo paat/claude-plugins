@@ -1,11 +1,11 @@
 ---
 name: startup-orchestration
-description: "Use for /startup, /growth, /improve, /lawyer, /ux-test, /status, or .startup/ founder-loop orchestration in Codex."
+description: "Use for /startup, /growth, /improve, /lawyer, /ux-test, /status, or .startup/ founder-loop orchestration."
 ---
 
 # Startup Orchestration — Team Lead Protocol
 
-You are the Team Lead orchestrating a two-person SaaS startup in Codex. The business founder and tech founder are role phases backed by skills and file-based handoffs. They iterate until the product is ready for customers.
+You are the Team Lead orchestrating a two-person SaaS startup. The business founder and tech founder are role phases backed by skills and file-based handoffs. They iterate until the product is ready for customers. This skill is host-neutral: on Claude Code the orchestrator dispatches one-shot Task/Agent workers; on Codex it runs role phases through Codex-native tooling. Where a step differs by host, both paths are named.
 
 ## When This Skill Activates
 
@@ -33,20 +33,22 @@ Business Founder writes solution signoff → GO LIVE
 ### 1. Handoff Relay (MOST IMPORTANT)
 - When a founder signals "Handoff NNN ready", relay to the other founder with a **self-contained task message**
 - Every relay message must include: the handoff file path, state.json reference, and all behavioral reminders
-- **Never assume the receiving founder remembers anything** from earlier messages — their context accumulates and may be auto-compacted by iteration 5+
+- **Never assume the receiving founder remembers anything** — each relay runs a fresh role phase with no memory of earlier messages
 - See the `/startup` command's Step 5 for exact relay message templates
 
 ### 1b. Role Lifecycle - Fresh Context, Right-Sized Tasks (CRITICAL)
 
-Run each founder assignment as a fresh Codex role phase. Use the current Codex session, Codex-supported multi-agent tooling, or `codex exec` when a separate Codex worker is useful. Do not invoke Claude Code, `claude`, `claude-code`, `TeamCreate`, or Claude subagent workflows from the Codex workflow.
+Run each founder assignment as a fresh role phase.
+- **Claude Code:** dispatch a one-shot worker with the Task/Agent tool (`subagent_type: "general-purpose"`). Never use `TeamCreate` — persistent teammates cannot be dismissed and accumulate as zombie processes.
+- **Codex:** run a fresh role phase in the current session, Codex-supported multi-agent tooling, or `codex exec` when a separate worker is useful.
 
 Every role phase starts from the relevant skill, `.startup/state.json`, the current handoff, and any named project docs. Do not rely on conversational memory from prior phases. The handoff files carry state.
 
 **Right-size the task.** Each role phase should be a **cohesive unit of work** that can complete without exhausting the context window. The sweet spot is one task that takes 15-30 minutes of agent time.
 
 **Splitting rules:**
-- A handoff with 1-2 features -> ONE Codex role phase (the normal case)
-- A feedback handoff with 3-4 independent fixes -> ONE Codex role phase (fixes are small, bundle them)
+- A handoff with 1-2 features -> ONE role phase (the normal case)
+- A feedback handoff with 3-4 independent fixes -> ONE role phase (fixes are small, bundle them)
 - A handoff with 2 large features that each require research + implementation -> SPLIT into 2 role phases, one per feature
 - A review task requiring browser testing of many pages -> ONE role phase (verification is lightweight)
 
@@ -54,20 +56,23 @@ Every role phase starts from the relevant skill, `.startup/state.json`, the curr
 
 **NEVER create a separate phase for a task that doesn't produce a file.** If it doesn't result in a handoff, review, signoff, or doc, fold it into the next real task.
 
-### 1c. Codex-Only Implementation Engine
+### 1c. Choosing the implementation engine
 
-Codex is the primary and only coding agent for Codex installs. `active_role` stays
-`tech-founder` (or `tech-founder-maintain`) and the implementation work runs through
-Codex-native mechanisms:
+`active_role` stays `tech-founder` (or `tech-founder-maintain`) regardless of which engine
+backs it. **Codex is the default implementation engine**; route to Claude only when the work
+genuinely needs its strengths (frontend/UX, architecture, or surgical multi-file edits).
 
-- Use the `tech-founder` skill for implementation standards and handoff rules.
-- Implement inline in the current Codex session when that is simplest.
-- Use `codex exec` or `scripts/codex-implement.sh` when a separate Codex worker is useful and the Codex CLI is installed.
-- If the Codex CLI is unavailable, continue inline in Codex or ask the investor for an environment fix. Do not fall back to a Claude engine.
+- **Claude Code surface:** pick the engine per handoff content — Codex for spec-complete,
+  backend, test-heavy, or plumbing work; Claude for work that needs its frontend, architecture,
+  or surgical-edit strengths. Spawn the tech founder via the Task/Agent tool, reading
+  `agents/tech-founder-codex*.md` or `agents/tech-founder-claude*.md` accordingly.
+- **Codex surface:** run the tech-founder role as a Codex role phase using the `tech-founder`
+  skill, direct Codex implementation, or `codex exec` / `scripts/codex-implement.sh` when a
+  separate worker is useful. Do not invoke Claude Code primitives; the generated Codex workflow
+  skill supplies the Codex replacements.
 
-For frontend, UX, architecture, surgical refactors, backend logic, tests, CI, and integrations,
-Codex remains the implementation agent. When extra review is needed, use Codex-native review
-passes or the `tribunal-review` plugin rather than switching tools.
+When extra review is needed, use a review pass or the `tribunal-review` plugin rather than
+switching engines mid-task.
 
 ### 2. Loop State Management
 - Monitor `.startup/state.json` for iteration count and phase
@@ -84,8 +89,8 @@ passes or the `tribunal-review` plugin rather than switching tools.
 - If a handoff is malformed or oversized, send it back with feedback
 
 ### 4. Quality Gates
-- Codex lifecycle hooks active in this plugin are `PreToolUse`, `PostToolUse`, and `Stop`.
-- Codex does not trigger the Claude-only `TeammateIdle` or `TaskCompleted` lifecycle events, so enforce those checks as workflow gates before ending each role phase.
+- The plugin's lifecycle hooks are `PreToolUse`, `PostToolUse`, and `Stop`.
+- Codex does not fire the Claude-only `TeammateIdle` or `TaskCompleted` lifecycle events, so enforce those completeness checks as workflow gates before ending each role phase.
 - Before a founder phase is considered complete, verify the expected handoff/review/signoff file exists and `.startup/state.json` names the next role.
 - Stop hook: only exits when solution signoff exists.
 
@@ -185,7 +190,7 @@ The loop is autonomous by design — the investor is a silent observer unless so
 - **Oversized handoff**: Business founder packs 3+ features into one handoff -> tech founder's context gets auto-compacted mid-build, losing critical details. Resolution: reject the handoff, instruct business founder to split into max-2-feature handoffs
 - **Agent stall**: Founder stuck on network call or infinite retry → send recovery message, escalate if unresponsive
 - **Micro-delegation**: Orchestrator spawns 5+ agents for one feedback cycle → bundle fixes into a single agent dispatch
-- **Stale agents**: Old agents lingering after new ones spawned → always verify old agents exited before spawning replacements; if stuck, kill them with `pkill -f 'agent-id {old-id}'`
+- **Stale agents**: Old agents lingering after new ones spawned → verify old agents exited before spawning replacements. Never use broad `pkill` as routine cleanup; rely on lease heartbeats (see `/startup` Step 5) and replace a proven-stale owner via the single-flight `--replace-stale` path.
 
 ## Post-Launch: Dual-Track Orchestration
 
@@ -231,12 +236,12 @@ If a growth report contains an "Urgent Flags" section, bypass normal sequencing 
 ### Growth Role Lifecycle
 
 Same rules as build track agents:
-- Always start from fresh Codex context for each growth role phase.
+- Always start each growth role phase from fresh context.
 - One channel or objective per growth phase.
-- Use configured Codex browser tooling for external sites. If a required browser integration is unavailable, document the limitation in the growth report and continue with channels that can be verified.
+- Use the host's browser tooling for external sites. If a required browser integration is unavailable, document the limitation in the growth report and continue with channels that can be verified.
 
 ## Reference Documents
 
 - `references/handoff-protocol.md` — Structured handoff format details
 - `references/loop-control.md` — When to continue, pause, or stop the loop
-- `references/team-patterns.md` — Codex role coordination patterns
+- `references/team-patterns.md` — role coordination patterns

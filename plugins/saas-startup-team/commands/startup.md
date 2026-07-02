@@ -323,7 +323,7 @@ When you read the business founder's review and see a roundtrip signoff was writ
 
 ### Why explicit relay matters
 
-Each founder is a persistent teammate whose context grows across iterations. By iteration 5+, auto-compaction may have removed earlier conversation details. The relay message must contain ALL information the founder needs to act — file paths, state references, and behavioral reminders. Never assume the founder "remembers" anything from earlier messages.
+Every relay spawns a **fresh agent** with an empty context window — the founder has no memory of prior handoffs or messages. The relay message must therefore contain ALL information the founder needs to act: file paths, state references, and behavioral reminders. State lives in the handoff files and `.startup/state.json`, never in conversational memory.
 
 ## Loop Control
 
