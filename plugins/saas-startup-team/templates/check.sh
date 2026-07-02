@@ -52,7 +52,7 @@ ran_contains() {
 run_suite() {
   local label="$1" cmd="$2"
   RAN+=("$label")
-  echo "  ▶ $label: $cmd"
+  echo "  RUN: $label: $cmd"
   if bash -c "$cmd"; then
     echo "  OK: $label passed"
     STATUS[$label]="pass"
