@@ -79,63 +79,10 @@ done
 
 Ask: "Do you want a GitHub Actions workflow for agent-sync checks?"
 
-If yes, write `.github/workflows/agents-sync.yml` using this canonical template (identical to
-`skills/agent-sync/references/github-actions-template.md`).
-
-**Do NOT scaffold a runner-side `generate.sh --check` gate.** Regenerating `AGENTS.md` on the
-runner re-derives a generated artifact in an environment that is, by construction, not pinned to
-wherever the file was authored. Any difference in the runner's `bash`/`awk`/`sed`/locale becomes a
-CI false-positive (issues #33, #92, #93). `AGENTS.md` is kept correct at authoring time by the
-agent-sync PostToolUse hook (it regenerates the file in the same environment that edited the
-source). CI only runs the static linter, which does not re-derive the file:
-
-```yaml
-name: agent-sync checks
-
-on:
-  pull_request:
-    paths:
-      - 'CLAUDE.md'
-      - '.claude/**'
-      - 'tools/agent-sync/sources.json'
-      - '.agent-sync/sources.json'
-      - 'tools/agent-sync/lint.sh'
-      - '.agent-sync/lint.sh'
-      - 'AGENTS.md'
-      - '**/AGENTS.md'
-
-jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install jq
-        run: sudo apt-get update -qq && sudo apt-get install -y jq
-
-      - name: Lint agent-sync sources
-        run: |
-          if [ -f "tools/agent-sync/lint.sh" ]; then
-            DIR=tools/agent-sync
-          elif [ -f ".agent-sync/lint.sh" ]; then
-            DIR=.agent-sync
-          else
-            echo "agent-sync scripts not found. Run /agent-sync:init to vendor them."
-            exit 1
-          fi
-          bash "$DIR/lint.sh"
-
-      # OPTIONAL drift backstop — DISABLED by default. Only enable this if your team pins the
-      # toolchain so generation is deterministic across machines: a fixed runner image plus an
-      # explicit `gawk` (and ideally `LC_ALL=C`). Without pinning this step false-positives when
-      # the runner's shell tools differ from the author's. Uncomment to enable:
-      #
-      # - name: Verify AGENTS.md is in sync (pinned toolchain only)
-      #   run: |
-      #     sudo apt-get update -qq && sudo apt-get install -y gawk
-      #     if [ -f "tools/agent-sync/generate.sh" ]; then DIR=tools/agent-sync; else DIR=.agent-sync; fi
-      #     LC_ALL=C bash "$DIR/generate.sh" --check
-```
+If yes, read `skills/agent-sync/references/github-actions-template.md` for the canonical workflow
+YAML (and the rationale for why it lints only, not regenerates `AGENTS.md` on the runner — issues
+#33, #92, #93), and write the contents of its fenced YAML block — not the surrounding markdown —
+to `.github/workflows/agents-sync.yml`.
 
 ### 8. Generate
 

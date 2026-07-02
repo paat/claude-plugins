@@ -14,8 +14,8 @@ included for teams that pin their toolchain.
 
 ## Workflow
 
-`/agent-sync:init` writes this to `.github/workflows/agents-sync.yml`. It is reproduced here for
-reference — keep the two copies identical.
+`/agent-sync:init` reads this template on demand and writes it to
+`.github/workflows/agents-sync.yml` — this is the single source of truth for the YAML.
 
 ```yaml
 name: agent-sync checks
