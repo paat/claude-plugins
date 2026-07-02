@@ -9,7 +9,7 @@ A good hypothesis is the difference between an experiment and a guess. A good lo
 
 ## What Makes a Hypothesis Good
 
-A hypothesis is **falsifiable** — there is a specific observation that would prove it wrong. "This will improve the campaign" is not a hypothesis. "Rewriting H1 from 'AI Annual Reports' to 'E-resident Annual Report in 15 min' will lift CTR on commercial-intent keywords by ≥ 20%" is a hypothesis.
+A hypothesis is **falsifiable** — there is a specific observation that would prove it wrong. "This will improve the campaign" is not a hypothesis. "Rewriting H1 from '[old value prop]' to '[new specific value prop]' will lift CTR on commercial-intent keywords by ≥ 20%" is a hypothesis.
 
 A hypothesis is **single-variable**. If your sentence contains "and" between two change descriptions, split it into two iterations.
 
@@ -136,7 +136,7 @@ Last distilled: YYYY-MM-DD from vN
 
 When a learning holds across ≥ 2 different campaigns for the same advertiser, promote it to auto-memory as a `project` memory:
 
-- Write a new file in `/config/.claude/projects/<project-hash>/memory/ads_<principle>.md` with the principle and its scope
+- Write a new file in `$HOME/.claude/projects/<project-hash>/memory/ads_<principle>.md` with the principle and its scope
 - Add an entry to `MEMORY.md` pointing to it
 - Reference the graduation in `learnings.md` under "Promoted to project memory"
 

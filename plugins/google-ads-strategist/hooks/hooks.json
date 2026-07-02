@@ -7,12 +7,12 @@
           {
             "type": "command",
             "command": "bash -c 'p=scripts/check-launch-block.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[google-ads-strategist] hook target not found: $p\" >&2; exit 0'",
-            "description": "Block Chrome navigation to Google Ads campaign creation / edit / delete / billing URLs"
+            "description": "Warn on Google Ads dashboard navigation (create PAUSED only) and block billing URLs"
           }
         ]
       },
       {
-        "matcher": "Write",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
@@ -22,7 +22,7 @@
         ]
       },
       {
-        "matcher": "Write",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
@@ -32,7 +32,7 @@
         ]
       },
       {
-        "matcher": "Write",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
@@ -42,7 +42,7 @@
         ]
       },
       {
-        "matcher": "Write",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
@@ -52,7 +52,7 @@
         ]
       },
       {
-        "matcher": "Write",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",

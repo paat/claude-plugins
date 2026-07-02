@@ -29,7 +29,7 @@ Google rotates the assets to find the best combinations. **You cannot control th
 ### Pinning Strategy
 
 Pinning removes an asset from the rotation and forces it to a specific position. Use pinning to:
-- Protect brand integrity (pin "Aruannik — AI Annual Reports" to position 1)
+- Protect brand integrity (pin "[Brand] — [Category tagline]" to position 1)
 - Guarantee a legal disclosure shows (pin a compliance headline)
 - Force a specific value prop to position 1
 
@@ -49,11 +49,11 @@ H3: [Proof point]
 D1: [Expanded differentiator] + [benefit to audience]
 ```
 
-Example (Aruannik):
-- H1: "Annual Report for E-Residents"
-- H2: "Built for e-residents, not accountants"
-- H3: "Used by 500+ e-resident OÜs"
-- D1: "Purpose-built for e-resident micro-OÜs — XBRL-compliant, guided wizard, no accounting background needed."
+Example:
+- H1: "[Category] for [Specific Audience]"
+- H2: "Built for [audience], not [wrong-fit user]"
+- H3: "Used by [N]+ [audience]"
+- D1: "Purpose-built for [audience] — [compliance/standard], [ease-of-use proof], no [barrier] needed."
 
 **Formula 2: Price-anchor**
 ```
@@ -72,7 +72,7 @@ H2: [Your advantage]
 H3: [Audience]
 ```
 
-Example: "Annual Report Without the Accountant" (implies competitors = accountants, positions as DIY-friendly).
+Example: "[Category] Without [Competitor Pain Point]" — e.g. positioning against a costly manual alternative to imply a DIY-friendly advantage.
 
 ### Transactional Formulas
 
@@ -88,10 +88,10 @@ CTA in every extension: Start Now / Order Now / Book Now
 ```
 
 Example:
-- H1: "File Annual Report in 15 Min"
-- H2: "No Accountant Needed"
-- H3: "From €49"
-- D1: "Six guided steps from bank CSV to legally-compliant XBRL. Ready for Business Register upload."
+- H1: "[Action] [Category] in [Time]"
+- H2: "No [Friction] Needed"
+- H3: "From €[Price]"
+- D1: "[Step count] guided steps from [input] to [compliant output]. Ready for [next action]."
 
 **Formula 2: Deadline urgency** (only if honest)
 ```
@@ -109,7 +109,7 @@ H2: [Value prop]
 H3: [Social proof]
 ```
 
-Example: "File Annual Report — Money-Back if Rejected"
+Example: "[Action] [Category] — Money-Back if [Failure Condition]"
 
 ### Branded (defensive) formulas
 
@@ -167,7 +167,7 @@ If the LP is a commercial page that can't be modified, that constrains the ad co
 
 ## Multilingual Copy Discipline
 
-For Estonian: all copy uses proper diacritics (ä, ö, ü, õ, š, ž). Never ASCII-ified. "Aastaaruanne e-residendile" not "Aastaaruanne e-residendile" with wrong chars.
+For Estonian: all copy uses proper diacritics (ä, ö, ü, õ, š, ž). Never ASCII-ified — always the correctly-accented form, never its bare-ASCII fallback.
 
 For Russian: Cyrillic throughout, never transliterated. Additional RU-specific rules:
 

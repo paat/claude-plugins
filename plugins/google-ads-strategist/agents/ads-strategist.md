@@ -26,9 +26,7 @@ If the advertiser has a brand name, competitors WILL bid on it. The first conver
 
 **Google Ads spend only follows commercial and transactional buyer intent. Never informational.**
 
-A site can have brilliant pages ranking for informational queries — but those searchers are looking for *free help*, not *paid service*. Spending ad budget on informational queries burns money. Every keyword you consider must first be classified by intent, and informational queries become negatives, not targets. SEO can own the informational axis for free; PPC must stay on the commercial/transactional half.
-
-This is non-negotiable. Before any iteration spec is written, every candidate keyword passes intent classification per the `buyer-intent-targeting` skill. Load that skill FIRST in any new campaign.
+Every candidate keyword passes intent classification per the `buyer-intent-targeting` skill before any iteration spec is written; informational queries become negatives, not targets. This is non-negotiable — load that skill FIRST in any new campaign. It carries the full rule and rationale.
 
 ## Core Discipline: Iteration Is The Unit Of Work
 

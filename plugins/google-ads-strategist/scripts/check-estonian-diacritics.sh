@@ -23,6 +23,12 @@ if [[ ! "$file_path" =~ docs/ads/[^/]+/iterations/v[0-9]+/spec\.md$ ]]; then
 fi
 
 content=$(echo "$input" | jq -r '.tool_input.content // empty' 2>/dev/null)
+
+# Fallback: if content is not in the input (e.g., invoked via Edit), read the existing file
+if [ -z "$content" ] && [ -f "$file_path" ]; then
+  content=$(cat "$file_path")
+fi
+
 [ -z "$content" ] && exit 0
 
 # Check if the spec contains Estonian language markers
@@ -46,9 +52,9 @@ if echo "$content" | grep -qP '\bTahtaeg\b'; then
   violations+=("'Tahtaeg' should be 'Tähtaeg'")
 fi
 
-# ö → o violations
-if echo "$content" | grep -qP '(?i)\bkottejotlik\b'; then
-  violations+=("'kottejotlik' should be 'kõttejõtlik'")
+# õ → o violations
+if echo "$content" | grep -qP '(?i)\bettevotlik\b'; then
+  violations+=("'ettevotlik' should be 'ettevõtlik'")
 fi
 
 # õ → o violations

@@ -32,7 +32,7 @@ If any fail, STOP and direct the user.
 >
 > **Prerequisites**:
 > - You must be logged into Google Ads at `ads.google.com` in Chrome
-> - The existing FY2025 campaign should be paused first (if applicable)
+> - Any existing campaign that conflicts with this one should be paused first (if applicable)
 >
 > Proceed?
 
@@ -57,7 +57,7 @@ Spawn the ads-strategist via Task tool:
 > Follow the `chrome-campaign-creation` skill step by step. Key rules:
 >
 > 1. **Create the campaign in PAUSED state** — set status to Paused in the campaign creation wizard BEFORE saving. NEVER enable.
-> 2. **Use proper Estonian diacritics** in all ad copy (ä, ö, ü, õ, š, ž) — the spec.md uses ASCII for portability, but the Ads UI must have proper Unicode.
+> 2. **Use the proper diacritics of the target language(s) from brief.md** in all ad copy — the spec.md uses ASCII for portability, but the Ads UI must have proper Unicode.
 > 3. **Screenshot every major step** into `iterations/v1/verification/creation-step-NN.png` (or note screenshot IDs if inline).
 > 4. **Build in this order**: campaign settings → ad groups (one at a time: keywords + RSA + extensions) → campaign-level negatives → campaign-level extensions (sitelinks, callouts) → verify PAUSED status
 > 5. If any step fails (form not loading, selector not found, unexpected UI), STOP and report — do not guess or retry blindly.

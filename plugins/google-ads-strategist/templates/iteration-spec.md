@@ -122,7 +122,7 @@ After this spec is written, `/ads-verify` must confirm:
 
 ## Dropped keywords
 
-Keywords explored in `keywords.md` but excluded from this spec:
+Keywords explored during this iteration but excluded from this spec:
 
 | Keyword | Reason dropped |
 |---------|----------------|

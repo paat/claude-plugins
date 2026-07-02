@@ -20,9 +20,10 @@ Skill('google-ads-strategist:browser-verification')
 ## Step 1: Parse arguments
 
 - `<keyword>` is required
-- `--country` defaults to `ee` if not specified
-- `--lang` defaults to `et` if not specified
-- If a campaign context is active (docs/ads/* exists), default country+lang to the first entry in brief.md
+- Resolve country + language in this priority order:
+  1. Explicit `--country` / `--lang` flags, if passed
+  2. Else, if a campaign context is active (`docs/ads/*` exists), the first target country + language in brief.md
+  3. Else, ask the user for the target country + language — do not assume a market
 
 ## Step 2: Capture the SERP
 
@@ -43,12 +44,7 @@ Skill('google-ads-strategist:browser-verification')
 
 ## Step 3: Classify the intent
 
-Apply the `buyer-intent-targeting` cheat sheet:
-
-- **≥ 3 paid ads + shopping carousel + commercial organic** → TRANSACTIONAL
-- **1-2 paid ads + mixed organic** → COMMERCIAL INVESTIGATION
-- **0 paid ads + People Also Ask at top + listicles dominant** → INFORMATIONAL — do not target
-- **Brand-only results + knowledge panel** → NAVIGATIONAL (to that brand)
+Apply the SERP intent-classification cheat sheet in the `buyer-intent-targeting` skill (loaded in Step 0) to assign the intent class from the SERP signals captured above.
 
 ## Step 4: Write the analysis
 
