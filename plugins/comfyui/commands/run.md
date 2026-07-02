@@ -23,10 +23,10 @@ argument-hint: "<workflow.json path>"
    - Check that each top-level key (node ID) has `class_type` and `inputs` fields
    - Report any structural issues before attempting to queue
 
-4. **Generate a prompt_id:**
+4. **Generate a prompt_id.** Prefer `uuidgen`; fall back to `/dev/urandom` if it's unavailable — no new hard dependency beyond `curl`/`jq`:
 
 ```bash
-python3 -c "import uuid; print(uuid.uuid4())"
+uuidgen 2>/dev/null || od -An -tx1 -N16 /dev/urandom | tr -d ' \n' | sed -E 's/^(.{8})(.{4})(.{4})(.{4})(.{12})$/\1-\2-\3-\4-\5/'
 ```
 
 5. **Queue the workflow:**
