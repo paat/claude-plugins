@@ -4789,8 +4789,8 @@ test_ads_delegation() {
 # Suite V: /lawyer lifecycle guard (in_force / status) — issue #37
 #
 # A 200 + text from /laws/{act_id}/citation does NOT mean the law is in force.
-# These tests extract the embedded register/check bash from commands/lawyer.md
-# and run it against a mock curl, asserting the guard refuses / flags correctly.
+# These tests run the scripts/lawyer-*.sh helpers against a mock curl, asserting
+# the guard refuses / flags correctly, plus the pure text-processing helpers.
 # ---------------------------------------------------------------------------
 
 # Extract the first ```bash fenced block within a "## <heading>" section of a
@@ -5205,19 +5205,23 @@ DIFF
 
 test_lawyer_lifecycle() {
   echo -e "\n${CYAN}Suite V: /lawyer lifecycle guard (in_force/status)${NC}"
-  local cmd="$PLUGIN_ROOT/commands/lawyer.md"
   local skill="$PLUGIN_ROOT/skills/lawyer/SKILL.md"
   local ref="$PLUGIN_ROOT/skills/lawyer/references/law-registry.md"
+  local scr="$PLUGIN_ROOT/scripts"
+  local reg="$scr/lawyer-register.sh"
+  local chk="$scr/lawyer-check.sh"
+  local ackscr="$scr/lawyer-ack.sh"
+  local ackall="$scr/lawyer-ack-all.sh"
   local workdir ec output has
 
-  # --- Spec assertions: guard present on all four /citation paths + docs ---
-  assert_file_contains "V1: register parses in_force" "$cmd" 'CITE_IN_FORCE='
-  assert_file_contains "V2: register refuses non-valid (message)" "$cmd" "not in force"
-  assert_file_contains "V3: register honours --force" "$cmd" 'FORCE=1'
-  assert_file_contains "V4: change detection lifecycle re-check" "$cmd" 'lc_notvalid'
-  assert_file_contains "V5: check subcommand lifecycle re-check" "$cmd" 'elutsükli-kontrolliga'
-  assert_file_contains "V6: ack refuses non-valid" "$cmd" 'Refusing to ack'
-  assert_file_contains "V7: ack-all skips non-valid" "$cmd" 'flag kept'
+  # --- Spec assertions: guard present on each script + docs ---
+  assert_file_contains "V1: register parses in_force" "$reg" 'CITE_IN_FORCE='
+  assert_file_contains "V2: register refuses non-valid (message)" "$reg" "not in force"
+  assert_file_contains "V3: register honours --force" "$reg" 'FORCE=1'
+  assert_file_contains "V4: change detection lifecycle re-check" "$chk" 'lc_notvalid'
+  assert_file_contains "V5: check lifecycle re-check" "$chk" 'elutsükli-kontrolliga'
+  assert_file_contains "V6: ack refuses non-valid" "$ackscr" 'Refusing to ack'
+  assert_file_contains "V7: ack-all skips non-valid" "$ackall" 'flag kept'
   assert_file_contains "V8: SKILL documents in_force/status" "$skill" 'in_force'
   assert_file_contains "V9: SKILL workflow 200 caution" "$skill" 'A 200 does not mean the law is in force'
   assert_file_contains "V10: law-registry doc 200 caution" "$ref" '200 ≠ in force'
@@ -5226,12 +5230,11 @@ test_lawyer_lifecycle() {
   workdir=$(make_workdir)
   make_mock_curl "$workdir"
   mkdir -p "$workdir/.startup"  # /lawyer pre-flight guarantees .startup/ exists
-  extract_md_bash "$cmd" "## Register subcommand" > "$workdir/register.sh"
-  assert_file_contains "V11: register block extracted" "$workdir/register.sh" "NOT_IN_FORCE"
+  assert_file_exists "V11: register script present" "$reg"
   export FAKE_GRAPH='{"act":{"rt_id":"1061448","title":"Julgeolekumaksu seadus","act_type":"seadus"}}'
   export FAKE_CITATION='{"act_id":34398,"act_title":"Julgeolekumaksu seadus","paragraph":"18","text":"Maksumäär on 2%.","url":"https://www.riigiteataja.ee/akt/106032026010","status":"repealed","in_force":false,"redaktsioon_date":"2026-01-01"}'
   ec=0
-  output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" EST_DATALAKE_API_KEY=test bash register.sh julgeolekumaks 34398 "§ 18" "phantom tax" 2>&1) || ec=$?
+  output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" EST_DATALAKE_API_KEY=test bash "$reg" julgeolekumaks 34398 "§ 18" "phantom tax" 2>&1) || ec=$?
   assert_exit_code "V12: register refuses repealed (non-zero)" "$ec" 1
   assert_output_contains "V13: refusal explains not in force" "$output" "not in force"
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
@@ -5252,9 +5255,8 @@ test_lawyer_lifecycle() {
   workdir=$(make_workdir)
   make_mock_curl "$workdir"
   mkdir -p "$workdir/.startup"  # /lawyer pre-flight guarantees .startup/ exists
-  extract_md_bash "$cmd" "## Register subcommand" > "$workdir/register.sh"
   ec=0
-  output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" EST_DATALAKE_API_KEY=test bash register.sh julgeolekumaks 34398 "§ 18" "phantom tax" --force 2>&1) || ec=$?
+  output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" EST_DATALAKE_API_KEY=test bash "$reg" julgeolekumaks 34398 "§ 18" "phantom tax" --force 2>&1) || ec=$?
   assert_exit_code "V16: register --force on repealed exits 0" "$ec" 0
   assert_file_exists "V17: --force writes snapshot" "$workdir/.startup/laws/julgeolekumaks.txt"
   assert_json_field "V18: --force stores status=repealed" "$workdir/.startup/law-registry.json" '.entries.julgeolekumaks.status' "repealed"
@@ -5264,11 +5266,10 @@ test_lawyer_lifecycle() {
   workdir=$(make_workdir)
   make_mock_curl "$workdir"
   mkdir -p "$workdir/.startup"  # /lawyer pre-flight guarantees .startup/ exists
-  extract_md_bash "$cmd" "## Register subcommand" > "$workdir/register.sh"
   export FAKE_GRAPH='{"act":{"rt_id":"1045568","title":"Isikuandmete kaitse seadus","act_type":"seadus"}}'
   export FAKE_CITATION='{"act_id":30087,"act_title":"Isikuandmete kaitse seadus","paragraph":"10","text":"Töötlemine on lubatud.","url":"https://www.riigiteataja.ee/akt/106032026010","status":"valid","in_force":true,"redaktsioon_date":"2026-03-01"}'
   ec=0
-  output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" EST_DATALAKE_API_KEY=test bash register.sh consent 30087 "§ 10" "lawful basis" 2>&1) || ec=$?
+  output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" EST_DATALAKE_API_KEY=test bash "$reg" consent 30087 "§ 10" "lawful basis" 2>&1) || ec=$?
   assert_exit_code "V19: register valid act exits 0" "$ec" 0
   assert_json_field "V20: valid act stored status=valid" "$workdir/.startup/law-registry.json" '.entries.consent.status' "valid"
   assert_json_field "V21: valid act stored redaktsioon_date" "$workdir/.startup/law-registry.json" '.entries.consent.redaktsioon_date' "2026-03-01"
@@ -5277,8 +5278,6 @@ test_lawyer_lifecycle() {
   # --- Executable: `check` flags an act that flipped to repealed (no feed event) ---
   workdir=$(make_workdir)
   make_mock_curl "$workdir"
-  extract_md_bash "$cmd" "## Check subcommand" > "$workdir/check.sh"
-  assert_file_contains "V22: check block extracted" "$workdir/check.sh" "lc_notvalid"
   mkdir -p "$workdir/.startup/laws"
   cat > "$workdir/.startup/law-registry.json" <<'REG'
 {"version":2,"last_feed_check_at":null,"entries":{
@@ -5288,7 +5287,7 @@ REG
   export FAKE_FEED='{"items":[],"total":0}'
   export FAKE_CITATION='{"act_id":34398,"act_title":"Julgeolekumaksu seadus","paragraph":"18","text":"Maksumäär on 2%.","url":"https://www.riigiteataja.ee/akt/106032026010","status":"repealed","in_force":false,"redaktsioon_date":"2026-01-01"}'
   ec=0
-  output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" EST_DATALAKE_API_KEY=test bash check.sh 2>&1) || ec=$?
+  output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" EST_DATALAKE_API_KEY=test bash "$chk" 2>&1) || ec=$?
   assert_exit_code "V23: check exits 0" "$ec" 0
   assert_json_field "V24: repealed entry flagged needs_review" "$workdir/.startup/law-registry.json" '.entries.phantom.needs_review' "true"
   assert_json_field "V25: change.type is lifecycle" "$workdir/.startup/law-registry.json" '.entries.phantom.change.type' "lifecycle"
@@ -5299,7 +5298,6 @@ REG
   # --- Executable: `ack` MUST REFUSE to re-bless a repealed redaction ---
   workdir=$(make_workdir)
   make_mock_curl "$workdir"
-  extract_md_bash "$cmd" "## Ack subcommand" > "$workdir/ack.sh"
   mkdir -p "$workdir/.startup/laws"
   printf 'OLD TEXT\n' > "$workdir/.startup/laws/phantom.txt"
   cat > "$workdir/.startup/law-registry.json" <<'REG'
@@ -5309,12 +5307,33 @@ REG
 REG
   export FAKE_CITATION='{"act_id":34398,"act_title":"Julgeolekumaksu seadus","paragraph":"18","text":"Maksumäär on 2%.","url":"https://www.riigiteataja.ee/akt/106032026010","status":"repealed","in_force":false,"redaktsioon_date":"2026-01-01"}'
   ec=0
-  output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" EST_DATALAKE_API_KEY=test bash ack.sh phantom 2>&1) || ec=$?
+  output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" EST_DATALAKE_API_KEY=test bash "$ackscr" phantom 2>&1) || ec=$?
   assert_exit_code "V27: ack refuses repealed (non-zero)" "$ec" 1
   assert_output_contains "V28: ack refusal message" "$output" "Refusing to ack"
   assert_json_field "V29: ack kept needs_review=true" "$workdir/.startup/law-registry.json" '.entries.phantom.needs_review' "true"
   assert_equals "V30: ack did not overwrite snapshot" "$(cat "$workdir/.startup/laws/phantom.txt")" "OLD TEXT"
   unset FAKE_CITATION
+  rm -rf "$workdir"
+
+  # --- Pure text-processing helpers (no network) ---
+  # V31: citation parser preserves the superscript qualifier (§ 14 lõige 1¹ punkt 3)
+  output=$(bash -c 'source "$1/lawyer-common.sh"; lawyer_parse_citation "§ 14 lõige 1¹ punkt 3"' _ "$scr")
+  assert_equals "V31: parse_citation pipes parts + qualifier" "$output" "14||1|1|3|"
+  # V32: citation-URL builder re-attaches + URL-encodes the superscript
+  output=$(bash -c 'source "$1/lawyer-common.sh"; lawyer_cite_url 30087 14 "" 1 1 "" ""' _ "$scr")
+  assert_equals "V32: cite_url encodes section=1¹" "$output" "https://datalake.r-53.com/api/v1/laws/30087/citation?paragraph=14&section=1%C2%B9"
+  # V33: DATALAKE_URL override is honoured by the builder
+  output=$(DATALAKE_URL="https://example.test" bash -c 'source "$1/lawyer-common.sh"; lawyer_cite_url 30087 10 "" "" "" "" ""' _ "$scr")
+  assert_output_contains "V33: cite_url honours DATALAKE_URL override" "$output" "https://example.test/api/v1/laws/30087/citation"
+  # V34: marker scan maps every comma-separated slug to file:line, skips docs/legal/
+  workdir=$(make_workdir)
+  mkdir -p "$workdir/src" "$workdir/docs/legal"
+  printf '// LAW: consent-basis, cookie-x\n' > "$workdir/src/a.ts"
+  printf '<!-- LAW: should-not-appear -->\n' > "$workdir/docs/legal/out.md"
+  output=$(cd "$workdir" && bash "$scr/lawyer-marker-scan.sh")
+  assert_output_contains "V34a: marker scan finds first slug" "$output" $'consent-basis\tsrc/a.ts:1'
+  assert_output_contains "V34b: marker scan splits comma slug" "$output" $'cookie-x\tsrc/a.ts:1'
+  assert_output_not_contains "V34c: marker scan excludes docs/legal/" "$output" "should-not-appear"
   rm -rf "$workdir"
 }
 
