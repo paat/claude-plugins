@@ -53,7 +53,7 @@ fi
 
 # gh can exit 0 while still reporting an error on stderr, and a stored non-URL
 # would permanently mask the flag. Store only a clean, plausible issue URL.
-if [ -s "$TMP/gh-err" ] || ! printf '%s' "$issue_url" | grep -qE '^https://[^[:space:]]+/issues/[0-9]+$'; then
+if [ -s "$TMP/gh-err" ] || [[ ! "$issue_url" =~ ^https://[^[:space:]]+/issues/[0-9]+$ ]]; then
   echo "Error: gh issue create for '${SLUG}' did not return a clean issue URL (got: '${issue_url}')."
   [ -s "$TMP/gh-err" ] && cat "$TMP/gh-err"
   echo "  Slug remains flagged; gh_issue_url left null. Next /lawyer run will re-prompt."
