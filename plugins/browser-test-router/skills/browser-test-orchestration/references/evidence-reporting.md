@@ -60,12 +60,12 @@ Attempt safe interactions: nav links, forms with harmless test data, modals, acc
 
 ## Markdown Report
 
-Include:
+Include, in this order:
 
+- verdict and rationale;
 - command and target;
 - artifact directory;
 - screenshots linked by relative path;
 - what the page actually showed;
 - interaction pass/fail;
-- accessibility/responsive red flags visible from evidence;
-- verdict and rationale.
+- accessibility/responsive red flags visible from evidence.

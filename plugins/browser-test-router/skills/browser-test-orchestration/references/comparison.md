@@ -15,8 +15,9 @@ Do not delegate final severity or business meaning.
 Parallel opencode calls require chrome-devtools MCP configured with isolated browser profiles. If isolation is not confirmed, run comparisons sequentially.
 
 ```bash
-(opencode run -m opencode/kimi-k2.5-free "...navigate URL A and return JSON..." > /tmp/page-a.json) &
-(opencode run -m opencode/kimi-k2.5-free "...navigate URL B and return JSON..." > /tmp/page-b.json) &
+RUN_DIR=$(mktemp -d)
+(opencode run -m "$MODEL" "...navigate URL A and return JSON..." > "$RUN_DIR/page-a.json") &
+(opencode run -m "$MODEL" "...navigate URL B and return JSON..." > "$RUN_DIR/page-b.json") &
 wait
 ```
 

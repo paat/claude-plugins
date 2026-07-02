@@ -15,16 +15,17 @@ Before delegation:
 
 1. Verify `opencode` is installed.
 2. Verify `chrome-devtools` MCP is connected in `opencode mcp list`.
-3. Run L1 HTTP reachability for target URLs.
-4. Run L2 browser render check before deeper testing.
-5. Create `/tmp/screenshots` only when screenshots or evidence mode are requested.
+3. Read `.claude/browser-test-router.local.md` for the `model` setting; default to `opencode/kimi-k2.5-free` if the file or key is missing. Use this value as `$MODEL` for every delegated call.
+4. Run L1 HTTP reachability for target URLs.
+5. Run L2 browser render check before deeper testing.
+6. Create a run-specific directory via `mktemp -d` only when screenshots or evidence mode are requested.
 
 Abort when opencode or chrome-devtools MCP is missing. Do not fall back to curl/WebFetch for browser verification.
 
 ## Delegation Model
 
 - **Main session**: parse the task, choose scenarios, pass complete context, classify findings, assign severity, write final report.
-- **Kimi K2.5 via opencode**: navigation, snapshots, forms, clicks, screenshots, visual property extraction, repeated mechanical checks.
+- **Kimi K2.5 via opencode (`$MODEL`)**: navigation, snapshots, forms, clicks, screenshots, visual property extraction, repeated mechanical checks.
 
 Every `opencode run` starts with zero context. Pass full URLs, credentials file path and variable names, test data, expected state, and prior result JSON explicitly.
 
@@ -63,11 +64,11 @@ When `/browser-test-router:browser-test ... --evidence` is requested, load `refe
 For normal lightweight runs, report:
 
 ```text
+Verdict: FAILED | NEEDS_WORK | READY
 Pre-flight: opencode <ok/fail>, chrome-devtools MCP <ok/fail>, L1 <status>, L2 <ok/fail>
 Target(s): <urls/modules>
 Findings:
 - <severity>: <finding> (evidence: <structured observation or screenshot path>)
-Verdict: FAILED | NEEDS_WORK | READY
 Model usage: Kimi calls <n>, wasted calls <n>, main-session reasoning inline
 ```
 
