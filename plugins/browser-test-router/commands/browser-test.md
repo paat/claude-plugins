@@ -14,6 +14,8 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
 
    If arguments include `--evidence`, also load `skills/browser-test-orchestration/references/evidence-reporting.md`.
 
+   Read `.claude/browser-test-router.local.md` for the `model` setting (frontmatter key `model`). If the file or key is missing, default to `opencode/kimi-k2.5-free`. Use this value as `$MODEL` in every `opencode run` call in this command.
+
 2. **Run pre-flight checks** (MUST pass before any delegation):
    ```bash
    # Check opencode is installed
@@ -33,12 +35,12 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
      exit 1
    fi
 
-   # Create screenshot directory (optional for lightweight mode, mandatory for --evidence)
-   mkdir -p /tmp/screenshots
+   # Create a run-specific screenshot directory (optional for lightweight mode, mandatory for --evidence)
+   SCREENSHOT_DIR=$(mktemp -d)
    ```
    - If NOT connected: print error and **stop**
    - If connected: run L1 health check against target URL (if URL provided)
-   - Report: `"Pre-flight: opencode ✓, chrome-devtools MCP ✓, screenshots dir ✓. Target {url} is L1 reachable (HTTP {status})."`
+   - Report: `"Pre-flight: opencode ok, chrome-devtools MCP ok, screenshots dir ok ($SCREENSHOT_DIR). Target {url} is L1 reachable (HTTP {status})."`
 
 3. **Determine target**:
    - If `$ARGUMENTS` contains a URL → single-page test mode
@@ -57,7 +59,7 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
 5. **Single-page lightweight mode** (URL provided and no `--evidence`):
    ```bash
    URL="$1"
-   opencode run -m opencode/kimi-k2.5-free --format json "
+   opencode run -m "$MODEL" --format json "
    CRITICAL: Use chrome-devtools MCP tools only.
    Navigate to $URL, report status/title/elements as JSON
    " 2>&1 | grep '"type":"text"' | tail -1 | jq -r '.part.text'
@@ -66,8 +68,9 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
    - If a second URL is provided for comparison:
      ```bash
      # Parallel navigation
-     (opencode run -m opencode/kimi-k2.5-free "Navigate to $URL1..." > /tmp/page1.json) &
-     (opencode run -m opencode/kimi-k2.5-free "Navigate to $URL2..." > /tmp/page2.json) &
+     RUN_DIR=$(mktemp -d)
+     (opencode run -m "$MODEL" "Navigate to $URL1..." > "$RUN_DIR/page1.json") &
+     (opencode run -m "$MODEL" "Navigate to $URL2..." > "$RUN_DIR/page2.json") &
      wait
      # Opus compares results inline
      ```
@@ -79,7 +82,7 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
 
 7. **Report model usage** at the end:
    ```
-   Pre-flight: opencode ✓, chrome-devtools MCP ✓, L1 ✓, L2 ✓
+   Pre-flight: opencode ok, chrome-devtools MCP ok, L1 ok, L2 ok
    Model Usage:
    - Kimi K2.5 (opencode run): {N} calls ({description}) [{W} wasted]
    - Opus: inline (analysis, classification)
@@ -90,9 +93,9 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
 
    In evidence mode, also print:
    ```
+   Verdict: FAILED | NEEDS_WORK | READY
    Evidence artifacts: docs/qa/browser-test/<timestamp>/
    - report.md
    - test-results.json
    - screenshots/<files>
-   Verdict: FAILED | NEEDS_WORK | READY
    ```

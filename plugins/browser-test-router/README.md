@@ -68,12 +68,24 @@ Delegate mechanical browser operations to Kimi K2.5 (open-weight model) via open
    /install browser-test-router
    ```
 
+### Configuration
+
+Free-tier model ids on opencode churn. Override the default by creating `.claude/browser-test-router.local.md`:
+
+```yaml
+---
+model: "opencode/kimi-k2.5-free"
+---
+```
+
+If the file or the `model` key is missing, the plugin defaults to `opencode/kimi-k2.5-free`. Every `opencode run -m` call below reads this setting once (as `$MODEL`) and reuses it for the rest of the session.
+
 ## How It Works
 
 ```
 Opus (main session, Claude Code)
   ↓
-  Bash tool: opencode run -m opencode/kimi-k2.5-free "prompt with full context"
+  Bash tool: opencode run -m "$MODEL" "prompt with full context"
   ↓
   Kimi K2.5 executes with chrome-devtools MCP access
   ↓
@@ -119,13 +131,13 @@ Opus (main session, Claude Code)
 
 ### What Visual Testing Catches (When Enabled)
 
-**With visual property descriptions (text-based):**
-- ✅ CSS regressions (color, sizing, positioning changes)
-- ✅ Visual error states (red borders, error icons, disabled appearance)
-- ✅ Layout shifts (elements moving, size changes)
-- ✅ Validation styling (error indicators, focus states)
-- ✅ Button states (enabled vs disabled - opacity, color)
-- ✅ Element visibility (display: none vs visible)
+**With visual property descriptions (text-based), catches:**
+- CSS regressions (color, sizing, positioning changes)
+- Visual error states (red borders, error icons, disabled appearance)
+- Layout shifts (elements moving, size changes)
+- Validation styling (error indicators, focus states)
+- Button states (enabled vs disabled - opacity, color)
+- Element visibility (display: none vs visible)
 
 **Example visual property capture:**
 ```json
@@ -200,7 +212,7 @@ The skill automatically delegates mechanical operations to Kimi K2.5 via opencod
 
 **Navigation**:
 ```bash
-opencode run -m opencode/kimi-k2.5-free "
+opencode run -m "$MODEL" "
 CRITICAL: Use chrome-devtools MCP tools only.
 Navigate to https://example.com/page
 Report JSON: {url, status, title, elements[]}
@@ -209,7 +221,7 @@ Report JSON: {url, status, title, elements[]}
 
 **Form operation with credentials from .env**:
 ```bash
-opencode run -m opencode/kimi-k2.5-free "
+opencode run -m "$MODEL" "
 CRITICAL: Use chrome-devtools MCP tools only.
 Login to https://app.example.com
 Credentials: Read from .env file
@@ -222,8 +234,9 @@ Note: Do NOT include actual credential values in response
 
 **Parallel navigation**:
 ```bash
-(opencode run -m opencode/kimi-k2.5-free "..." > /tmp/legacy.json) &
-(opencode run -m opencode/kimi-k2.5-free "..." > /tmp/new.json) &
+RUN_DIR=$(mktemp -d)
+(opencode run -m "$MODEL" "..." > "$RUN_DIR/legacy.json") &
+(opencode run -m "$MODEL" "..." > "$RUN_DIR/new.json") &
 wait
 # Opus compares results inline
 ```
@@ -241,7 +254,7 @@ This plugin provides the generic delegation pattern. Project-specific testing sk
 - **Visual Testing**: Kimi describes visual properties (colors, sizes, positions, states) as text. Opus compares these descriptions without seeing the page. Screenshots only used when text descriptions are insufficient (<10% of cases)
 - **Parallelism**: Bash background jobs enable parallel navigation (requires `--isolated` flag in opencode.json)
 - **Credential Security**: Credentials stay in .env files and are read by Kimi subprocess, never logged in Opus session
-- **Screenshot Storage**: Optional screenshots saved to /tmp/screenshots/ for complex layout analysis (created by pre-flight checks)
+- **Screenshot Storage**: Optional screenshots saved to a run-specific directory created via `mktemp -d` for complex layout analysis (created by pre-flight checks); this avoids collisions when parallel sessions run concurrently
 
 ## Cost Tracking
 
