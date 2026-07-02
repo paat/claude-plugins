@@ -31,7 +31,7 @@ Start an in-person customer meeting analyst session.
 
 4. **Tell the user to open the console** on the meeting laptop (Tailscale required).
    Write the message in `meeting_language`, covering: open the console at
-   `<aimeet_base_url>/r/<id>`, press **● Salvesta** (record) and allow the mic, say
+   `<aimeet_base_url>/r/<id>`, press the record button and allow the mic, say
    "Claude, …" to talk to you. E.g. for Estonian:
 
    > Ava koosoleku konsool: `<aimeet_base_url>/r/<id>`
