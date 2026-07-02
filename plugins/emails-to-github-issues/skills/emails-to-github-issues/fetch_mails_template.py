@@ -28,11 +28,15 @@ already in the persisted set, and if nothing new comes back prints a one-line
 summary and exits before writing any output files — callers (e.g. an
 autonomous SKILL workflow) should treat that as a no-op and skip
 repo-convention discovery, artifact generation, and GitHub calls. The fetch
-itself never writes the cursor: after the fetched mail has actually been
-handled (issues filed/appended, or explicitly classified as no-action), run
-`python3 fetch_mails_template.py --commit-cursor` to mark it processed. A
-downstream failure before that step leaves the cursor untouched, so the next
-run refetches the same messages instead of silently skipping them.
+itself never writes the cursor: it records the fetch-window date + fetched IDs
+in CURSOR_FILE + ".pending"; after the mail has actually been handled (issues
+filed/appended, or explicitly classified as no-action), run
+`python3 fetch_mails_template.py --commit-cursor` to promote that pending
+state. The cursor advances to the fetch-window date, never the
+processing-completion date, so mail arriving between the fetch and a
+post-midnight commit stays fetchable. A downstream failure before the commit
+leaves the cursor untouched, so the next run refetches the same messages
+instead of silently skipping them.
 """
 
 import email
@@ -62,6 +66,8 @@ MAILBOX = "INBOX"
 
 # Unattended-run cursor: {"last_date": "dd-Mon-yyyy", "message_ids": [...]}. See docstring.
 CURSOR_FILE = os.environ.get("MAIL_CURSOR_FILE", ".mail-issue-drafts/cursor.json")
+# Candidate cursor written by the fetch; promoted by --commit-cursor.
+PENDING_FILE = CURSOR_FILE + ".pending"
 
 OUT_MAILS = "/tmp/mails.json"
 OUT_ATTACH_DIR = "/tmp/mail_attachments"
@@ -190,31 +196,35 @@ def load_cursor():
         return json.load(f)
 
 
-def save_cursor(message_ids):
-    today = imap_today()
+def save_cursor(message_ids, last_date):
+    # last_date is the fetch-window date, never the processing-completion date:
+    # mail arriving between the fetch and a post-midnight commit stays inside
+    # the next run's SINCE window instead of being skipped forever.
     prev = load_cursor()
     ids = set(message_ids)
-    if prev["last_date"] == today:
-        # Same-day runs: earlier IDs are still inside the new SINCE window — keep them.
-        # IDs from older dates can't reappear under SINCE=today, so they are pruned.
+    if prev["last_date"] == last_date:
+        # Same-window runs: earlier IDs are still inside the new SINCE window — keep them.
+        # IDs from older dates can't reappear under SINCE=last_date, so they are pruned.
         ids |= set(prev["message_ids"])
     d = os.path.dirname(CURSOR_FILE)
     if d:
         os.makedirs(d, exist_ok=True)
     with open(CURSOR_FILE, "w") as f:
-        json.dump({"last_date": today, "message_ids": sorted(ids)}, f, indent=2)
+        json.dump({"last_date": last_date, "message_ids": sorted(ids)}, f, indent=2)
 
 
 def commit_cursor():
     """Mark the last fetch as processed. Run only after issues are filed/appended
     (or the batch is explicitly classified no-action) so a downstream failure
     leaves the mail refetchable instead of silently skipped."""
-    if not os.path.exists(OUT_MAILS):
-        sys.exit(f"{OUT_MAILS} not found — run the fetch first")
-    with open(OUT_MAILS) as f:
-        mails = json.load(f)
-    save_cursor(m["message_id"] for m in mails)
-    print(f"Cursor committed: {len(mails)} message ids -> {CURSOR_FILE}")
+    if not os.path.exists(PENDING_FILE):
+        sys.exit(f"{PENDING_FILE} not found — run the fetch first")
+    with open(PENDING_FILE) as f:
+        pending = json.load(f)
+    save_cursor(pending["message_ids"], pending["last_date"])
+    os.remove(PENDING_FILE)
+    print(f"Cursor committed: {len(pending['message_ids'])} message ids "
+          f"@ {pending['last_date']} -> {CURSOR_FILE}")
 
 
 # ---- MAIN ------------------------------------------------------------------
@@ -228,6 +238,7 @@ def main():
     cursor = load_cursor()
     since = cursor["last_date"] or SINCE
     already_seen = set(cursor["message_ids"])
+    fetch_date = imap_today()  # captured before the search — the cursor never advances past this
 
     M = imaplib.IMAP4(HOST, PORT)
     M.starttls()
@@ -296,6 +307,13 @@ def main():
         json.dump(raw_hits, f, ensure_ascii=False, indent=2)
     with open(OUT_MANIFEST, "w") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    d = os.path.dirname(PENDING_FILE)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    with open(PENDING_FILE, "w") as f:
+        json.dump({"last_date": fetch_date,
+                   "message_ids": [m["message_id"] for m in raw_hits]}, f, indent=2)
 
     # summary
     threads = {}

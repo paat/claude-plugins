@@ -54,10 +54,13 @@ mail costs almost nothing. State lives in one JSON file, `MAIL_CURSOR_FILE` (def
 `.mail-issue-drafts/cursor.json`): `{"last_date": "dd-Mon-yyyy", "message_ids": [...]}`. The
 fetch searches `SINCE last_date`, drops any fetched Message-ID already in that set (handles
 the day-granularity overlap of IMAP `SINCE`), and only proceeds past the fetch step if new
-messages remain. The fetch never writes the cursor — step 11's `--commit-cursor` records it
-only after the mail is actually handled, so a failed run refetches instead of skipping.
-Committing unions same-day Message-IDs into the existing set and prunes only IDs from dates
-older than the new `SINCE` window. First run (no cursor file yet) falls back to the
+messages remain. The fetch never writes the cursor — it stores the fetch-window date and
+fetched IDs in `cursor.json.pending`; step 11's `--commit-cursor` promotes that only after
+the mail is actually handled, so a failed run refetches instead of skipping. The committed
+`last_date` is always the fetch date, never the processing-completion date — mail arriving
+between the fetch and a post-midnight commit stays inside the next `SINCE` window.
+Committing unions same-window Message-IDs into the existing set and prunes only IDs from
+dates older than the new `SINCE` window. First run (no cursor file yet) falls back to the
 template's static `SINCE` config value.
 
 ## Gotchas
