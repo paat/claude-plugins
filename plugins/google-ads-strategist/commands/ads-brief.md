@@ -53,7 +53,7 @@ Also read (if they exist):
 - `docs/growth/strategy.md`
 - `docs/seo/` — SEO research may already have keyword lists and intent classifications
 
-Do NOT assume the project's existing SEO keywords are the right PPC keywords — SEO often targets informational queries. The strategist must reclassify every keyword by buyer intent before using it.
+Do NOT carry SEO keywords into the brief unfiltered — every keyword must first pass the intent classification in the `buyer-intent-targeting` skill (the canonical buyer-intent rule).
 
 ## Step 4: Interactive intake — single batched message
 

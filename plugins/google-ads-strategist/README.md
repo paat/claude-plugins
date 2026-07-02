@@ -41,7 +41,7 @@ and product feedback while keeping spend controlled and attributable.
 - Claude Code with the `claude-in-chrome` MCP server installed and logged into the user's Chrome browser
 - `jq` on PATH (hook scripts parse the tool input JSON via jq)
 - GNU `grep` with PCRE support (`grep -P`) — used by `check-single-variable.sh`, `check-estonian-diacritics.sh`, and `check-hypothesis-log.sh`; default on Linux, not on macOS unless replaced with `ggrep`
-- GNU `date` (`date -d`) — used by `check-wait-gate.sh` to parse ISO timestamps; default on Linux, install `coreutils` (`gdate`) on macOS
+- GNU `date` (`date -d`) — used by `check-wait-gate.sh` to parse ISO timestamps; default on Linux. On macOS install `coreutils` — the script prefers `gdate` when available.
 - Bash 4+ / standard POSIX tools
 - Optional: logged-in Google Ads account in Chrome, for authenticated Ad Preview & Diagnosis and for metrics pulls (post-launch loop only)
 

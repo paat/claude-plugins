@@ -41,14 +41,12 @@ Spawn the ads-strategist via Task tool with `subagent_type: "general-purpose"`:
 >
 > Be token-frugal: read only what each step needs (targeted ranges, not full files) and never re-read content already in context.
 >
-> Always load:
-> 1. `google-ads-strategist:buyer-intent-targeting`
-> 2. `google-ads-strategist:iterative-campaign-design`
-> 3. `google-ads-strategist:browser-verification`
->
-> Load only when the cycle needs them (skip for verify-only cycles on an existing iteration):
+> Load each skill only when the cycle reaches a step that needs it — a verify-only cycle on an existing iteration loads only `browser-verification`:
+> - `google-ads-strategist:buyer-intent-targeting` — when classifying candidate keywords (v1 or any keyword-change hypothesis)
+> - `google-ads-strategist:iterative-campaign-design` — when generating v1 or diagnosing gaps to propose v_{n+1}
+> - `google-ads-strategist:browser-verification` — when running Ad Preview / SERP capture in the browser
 > - `google-ads-strategist:hypothesis-journaling` — when writing a hypothesis (v1 or v_{n+1})
-> - `google-ads-strategist:competitor-intel` — when building or refreshing the differentiation matrix (v1 or a competitor-driven hypothesis)
+> - `google-ads-strategist:competitor-intel` — when building or refreshing the differentiation matrix
 > - `google-ads-strategist:clickable-copy` — when writing or revising RSA copy
 >
 > Read in order:
