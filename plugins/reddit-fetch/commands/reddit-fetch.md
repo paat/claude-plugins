@@ -35,4 +35,5 @@ current repo with `gh repo view`.
 6. **Optional SaaS demand bridge.** If `--file-issue` is present, run the protocol's
    verification step for every pain point before filing, then follow its SaaS demand bridge
    rules in full (issue labels, `gh issue create --body-file`, what to exclude). Never call
-   `gh issue create` for a pain point that verification could not confirm.
+   `gh issue create` for a pain point without at least two independent supporting threads
+   each verified via a non-Gemini source.

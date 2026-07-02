@@ -98,20 +98,23 @@ Gemini's citations are leads, not proof. Before any thread is used to justify a 
 issue:
 
 1. Collect the thread URL(s) Gemini cited for the pain point.
-2. Attempt to independently confirm each thread exists:
+2. Attempt to confirm each thread exists using a **non-Gemini** source only — asking Gemini
+   to re-confirm its own citation repeats the fabrication path and counts for nothing:
    - Fetch the URL with WebFetch. If `www.reddit.com` fails or is blocked, retry with the
      `old.reddit.com` equivalent (swap the host, keep the path) — it renders as plain HTML and
      is more likely to succeed.
-   - If WebFetch cannot confirm it, run one narrow follow-up Gemini query asking it to fetch
-     that exact URL and quote the real title and subreddit back verbatim. Only accept this as
-     confirmation if the returned subreddit and title match what was originally cited — a
-     Gemini response that "confirms" a thread it cannot actually fetch is worthless.
-3. A pain point is **verified** only if at least one of its supporting threads resolves to a
-   real, matching thread by step 2. A pain point resting solely on threads that fail
-   verification is **unverified**.
-4. **Hard block:** never run `--file-issue` behavior (never call `gh issue create`) for an
-   unverified pain point. List unverified findings as research notes instead, explicitly
-   flagged as "unverified — could not confirm this thread exists."
+   - If direct fetch fails, search Reddit independently: `old.reddit.com/search?q=...` via
+     WebFetch, or a `site:reddit.com` web search for the cited title. The result must match
+     the cited subreddit and title.
+   - A thread with no confirming non-Gemini source stays **unverified**.
+3. A pain point is **verifiably filed-worthy** only when at least **two independent
+   supporting threads** — different threads, ideally different subreddits — have **each** been
+   verified per step 2. Unverified threads never count toward this threshold. Anything short
+   of two verified threads leaves the pain point **unverified** for filing purposes.
+4. **Hard block:** never run `--file-issue` behavior (never call `gh issue create`) for a
+   pain point below the two-verified-threads threshold. List such findings as research notes
+   instead, explicitly flagged as "unverified — could not confirm enough supporting threads
+   exist."
 
 ## SaaS demand bridge
 
@@ -121,9 +124,9 @@ unverified, possibly-fabricated threads reach `saas-startup-team` `/maintain` tr
 1. Save a concise research artifact under `docs/research/reddit-<topic>.md` when the finding
    will influence requirements, positioning, or product prioritization. Mark each cited thread
    as verified or unverified.
-2. File GitHub issues only for pain points that are (a) verified per the protocol above, (b)
-   repeated across at least two independent threads or subreddits, and (c) objectively
-   checkable as a specific piece of product work.
+2. File GitHub issues only for pain points that are (a) supported by at least two independent
+   threads that have EACH been verified per the protocol above, and (b) objectively checkable
+   as a specific piece of product work.
 3. Use `gh issue create --body-file`, never inline `--body`.
 4. Label issues `market-signal` and `customer-issue` unless project conventions indicate
    different labels, so `saas-startup-team` `/maintain` can triage them.

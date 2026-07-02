@@ -39,8 +39,8 @@ Enable preview features in `~/.gemini/settings.json` to use `gemini-3-flash-prev
    (see `references/protocol.md` for prompt templates).
 2. Present structured findings, clearly labeled as directional and unverified.
 3. If filing issues, first run the verification protocol in `references/protocol.md` — never
-   call `gh issue create` for a pain point whose supporting threads couldn't be confirmed to
-   exist.
+   call `gh issue create` for a pain point without at least two independent supporting threads
+   each verified via a non-Gemini source.
 
 Read `references/protocol.md` now for the full prompt patterns, model/timeout guidance, retry
 ladder, output format, error handling, verification protocol, and SaaS demand bridge rules.

@@ -55,7 +55,7 @@ demand-bridge rules for this agent — follow it exactly.
 2. Construct the matching Gemini prompt from the protocol file.
 3. Follow the protocol's retry/fallback ladder if the first query returns empty or vague results.
 4. Present findings in the protocol's output format, with URLs for notable threads.
-5. If asked to file GitHub issues or otherwise turn findings into work, run the protocol's verification step first and hard-block any pain point whose supporting threads couldn't be confirmed.
+5. If asked to file GitHub issues or otherwise turn findings into work, run the protocol's verification step first and hard-block any pain point without at least two independent supporting threads each verified via a non-Gemini source.
 
 **Quality Standards:**
 - Always attribute findings to specific subreddits and thread URLs when possible

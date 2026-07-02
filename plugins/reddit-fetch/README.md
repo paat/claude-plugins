@@ -70,20 +70,20 @@ Triggers proactively when your question would benefit from Reddit community insi
 
 Gemini CLI has fabricated Reddit thread titles, subreddits, quotes, and consensus in
 production use. All three surfaces (command, skill, agent) treat Gemini's output as a
-directional lead, not verified fact, and require independently confirming that a thread
-actually exists (fetching the URL, e.g. via `old.reddit.com`, or a narrow follow-up search)
-before it can support a filed issue. `--file-issue` is hard-blocked for any pain point whose
-supporting threads cannot be confirmed. See `skills/reddit-research/references/protocol.md`
-for the full verification protocol.
+directional lead, not verified fact, and require confirming threads exist via non-Gemini
+sources only (fetching the URL, e.g. via `old.reddit.com`, or an independent Reddit/web
+search). `--file-issue` is hard-blocked unless at least two independent supporting threads
+have each been verified. See `skills/reddit-research/references/protocol.md` for the full
+verification protocol.
 
 ## SaaS Demand Bridge
 
 In SaaS projects, use Reddit findings as evidence, not as instructions. Save durable
 research under `docs/research/` and only file GitHub issues when a repeated pain point is
-specific, objectively checkable, backed by multiple independent threads, and verified per the
-protocol above. Issues filed from Reddit should carry labels such as `market-signal` and
-`customer-issue` so `saas-startup-team` `/maintain` can triage the fixable parts while parking
-judgment calls.
+specific, objectively checkable, and backed by at least two independent threads that have each
+been verified per the protocol above. Issues filed from Reddit should carry labels such as
+`market-signal` and `customer-issue` so `saas-startup-team` `/maintain` can triage the fixable
+parts while parking judgment calls.
 
 ## Troubleshooting
 
