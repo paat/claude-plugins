@@ -1,22 +1,21 @@
-# Codex Role Coordination Patterns
+# Role Coordination Patterns
 
 ## Architecture
 
 ```
 Human (Silent Investor)
   ↓ /startup command    ↓ /lawyer <topic>    ↓ /ux-test <url>
-Team Lead (Codex Session)
-  ├── Business Founder (fresh Codex role phase, blue)
-  ├── Tech Founder (fresh Codex role phase, green)
-  ├── Lawyer (fresh Codex role phase, magenta)
-  ├── UX Tester (fresh Codex role phase, cyan)
+Team Lead (orchestrator session)
+  ├── Business Founder (fresh role phase, blue)
+  ├── Tech Founder (fresh role phase, green)
+  ├── Lawyer (fresh role phase, magenta)
+  ├── UX Tester (fresh role phase, cyan)
   └── File-based coordination via .startup/
 ```
 
-**IMPORTANT: Codex workflows use fresh role phases, not Claude Agent Teams.**
-Use the current Codex session, Codex-supported multi-agent tooling, or `codex exec`
-when a separate Codex worker is useful. Do not invoke Claude Code, `claude`,
-`claude-code`, TeamCreate, or Claude subagent workflows from the Codex flow.
+**IMPORTANT: every relay runs a fresh role phase, never a persistent teammate.**
+- **Claude Code:** dispatch one-shot Task/Agent workers; never use `TeamCreate` (persistent teammates cannot be dismissed).
+- **Codex:** use the current session, Codex-supported multi-agent tooling, or `codex exec` when a separate worker is useful.
 
 ## Communication Channels
 
@@ -67,9 +66,9 @@ Why this works:
 | Completion phase check | Features need full lifecycle | Implementation + signoff both required |
 | Stop hook | Only business founder ends loop | Solution signoff must exist |
 
-Codex only triggers the shared `PreToolUse`, `PostToolUse`, and `Stop` hook keys.
-`TeammateIdle` and `TaskCompleted` are Claude-only lifecycle events and are enforced
-as explicit workflow checks in Codex.
+The active lifecycle hook keys are `PreToolUse`, `PostToolUse`, and `Stop`.
+`TeammateIdle` and `TaskCompleted` are Claude-only lifecycle events; on Codex they
+do not fire, so enforce those completeness checks as explicit workflow gates.
 
 ## Role Lifecycle Management
 
