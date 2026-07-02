@@ -46,7 +46,7 @@ Fetches the parent issue, resolves every `- [ ] #NNN` / `- [x] #NNN` child to it
   [-R owner/repo] [--label epic]
 ```
 
-Lists open issues that carry the epic label and prints a one-line progress summary (`#N  done/total  Title`) for each.
+Lists issues (open and closed — `--state all`) that carry the epic label and prints a one-line progress summary (`#N  done/total  Title`) for each.
 
 ### Flags
 

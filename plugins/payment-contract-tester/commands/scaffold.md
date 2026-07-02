@@ -11,8 +11,9 @@ GREEN/RED test shapes you will adapt. Follow this flow. It is instructions for y
 rigid script — adapt to the repo, but never skip the honesty checks.
 
 **Non-negotiable framing (do not regress):**
-- **CI is the authoritative gate.** The local pre-push hook is convenience only and is bypassable
-  (`git push --no-verify`); never claim a local hook gives "automatic correctness".
+- The skill's non-negotiables bind here too — apply them, don't restate them: **CI is the
+  authoritative gate** (the pre-push hook is bypassable convenience), and **a test that cannot go RED
+  is worthless**. See the skill's *How to write* → GREEN/RED method and workflow §6.
 - **Never edit payment source.** You write tests, the CI snippet, and (optionally) the hook — nothing else.
 - **Webhook authenticity is per-gateway:** signed-payload is authoritative for Stripe/Montonio;
   for **Mollie** the webhook body is id-only and (legacy) unsigned, so the handler MUST re-fetch
@@ -67,7 +68,7 @@ shapes, adapted to the repo's idioms and the discovered seam. Use `reference/<st
 - Run the drafts against the **current source** → expect **green**.
 - Run them against a **deliberately-broken copy** of the handler (seed one trap per invariant, mirroring
   `reference/<stack>/` traps) → expect **red**.
-- **Report any test that does not move.** A test that cannot go red is worthless — reject it.
+- **Report any test that does not move** — reject it (a test that cannot go RED is not a contract test).
 
 ## 6. Wire enforcement
 
@@ -76,7 +77,7 @@ shapes, adapted to the repo's idioms and the discovered seam. Use `reference/<st
   (`pytest -k "…"` / `dotnet test --filter "…"`), and delete the other stack's block.
 - **Optional pre-push hook (convenience):** offer to run
   `harness/install-pre-push.sh --test-cmd '<subset command>'`. It detects existing hook managers and
-  fails safe; see `harness/README.md`. CI remains the boundary.
+  fails safe; see `harness/README.md`.
 
 ## 7. Report
 

@@ -19,7 +19,11 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AWK_PROG="$SCRIPT_DIR/scan.awk"
-VERSION="0.2.2"
+# Derive the reported version from the plugin manifest so it never drifts. Safe
+# fallback ("unknown") if the manifest is absent (e.g. scripts vendored alone).
+VERSION="$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+  "$SCRIPT_DIR/../.claude-plugin/plugin.json" 2>/dev/null | head -n1)"
+[[ -n "$VERSION" ]] || VERSION="unknown"
 
 FORMAT="text"
 DIFF_FILE=""

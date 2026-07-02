@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'p=hooks/pre-commit-gate.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[silent-failure-scanner] hook target not found: $p\" >&2; exit 0'",
+            "command": "bash -c 'p=hooks/pre-commit-gate.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && grep -qF silent-failure-scanner \"$r/.claude-plugin/plugin.json\" 2>/dev/null && exec bash \"$r/$p\"; done; echo \"[silent-failure-scanner] hook target not found: $p\" >&2; exit 0'",
             "timeout": 30
           }
         ]

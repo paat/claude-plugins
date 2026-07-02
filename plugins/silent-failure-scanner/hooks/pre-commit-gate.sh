@@ -24,6 +24,18 @@ SCAN="$HOOK_DIR/../scripts/scan.sh"
 
 allow() { exit 0; }   # no output ⇒ default-allow
 
+# jq is a runtime dependency: without it the gate cannot parse tool input or emit a
+# deny, so it fails open. Warn once (per TMPDIR) so the silent no-op is at least loud —
+# this hook fires on every Bash call, so a per-invocation warning would spam.
+if ! command -v jq >/dev/null 2>&1; then
+  warn_marker="${TMPDIR:-/tmp}/.silent-failure-scanner-jq-missing"
+  [[ -e "$warn_marker" ]] || {
+    echo "[silent-failure-scanner] jq not found — commit gate disabled (fail-open). Install jq to re-enable silent-failure blocking on commits." >&2
+    : > "$warn_marker" 2>/dev/null || true
+  }
+  allow
+fi
+
 # Quote-aware lexer: split a command into whitespace-separated words per segment,
 # where segments are delimited by UNQUOTED ; & | or newline. Quotes are stripped and
 # backslash escapes honored, so separators or the ACK token inside a quoted string
