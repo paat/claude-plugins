@@ -102,9 +102,15 @@ fetch_issue() {
 extract_paths() {
   # Extract explicit path-like tokens from issue body/comments. This is a mechanical
   # backstop; the workflow prompt still audits non-path surfaces by judgment.
-  tr '`",;()[]' '\n' \
+  #
+  # `[` `]` are kept out of the split set: they're legitimate path characters in
+  # Next.js/React Router dynamic-route segments (e.g. app/[locale]/[token]/page.tsx),
+  # and splitting on them shatters such a path into a bare basename that can never
+  # match the changed-files list. Markdown-link splitting still works because `(` `)`
+  # remain split characters, isolating the link target.
+  tr '`",;()' '\n' \
     | sed -E 's/^[[:space:][:punct:]]+//; s/[[:space:][:punct:]]+$//' \
-    | grep -E '(^|/)[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+$|^[A-Za-z0-9_./-]+\.(py|js|jsx|ts|tsx|go|rb|php|java|md|json|ya?ml|sql|sh|css|html)$' \
+    | grep -E '(^|/)[][A-Za-z0-9_.-]+/[][A-Za-z0-9_./-]+\.[A-Za-z0-9]+$|^[][A-Za-z0-9_./-]+\.(py|js|jsx|ts|tsx|go|rb|php|java|md|json|ya?ml|sql|sh|css|html)$' \
     | grep -vE '^https?://' \
     | sort -u || true
 }
