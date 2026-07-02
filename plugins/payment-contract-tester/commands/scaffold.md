@@ -11,9 +11,8 @@ GREEN/RED test shapes you will adapt. Follow this flow. It is instructions for y
 rigid script — adapt to the repo, but never skip the honesty checks.
 
 **Non-negotiable framing (do not regress):**
-- The skill's non-negotiables bind here too — apply them, don't restate them: **CI is the
-  authoritative gate** (the pre-push hook is bypassable convenience), and **a test that cannot go RED
-  is worthless**. See the skill's *How to write* → GREEN/RED method and workflow §6.
+- The skill's enforcement and GREEN/RED non-negotiables bind here too — see the skill's
+  *How to write a payment contract test* section.
 - **Never edit payment source.** You write tests, the CI snippet, and (optionally) the hook — nothing else.
 - **Webhook authenticity is per-gateway:** signed-payload is authoritative for Stripe/Montonio;
   for **Mollie** the webhook body is id-only and (legacy) unsigned, so the handler MUST re-fetch
@@ -68,7 +67,7 @@ shapes, adapted to the repo's idioms and the discovered seam. Use `reference/<st
 - Run the drafts against the **current source** → expect **green**.
 - Run them against a **deliberately-broken copy** of the handler (seed one trap per invariant, mirroring
   `reference/<stack>/` traps) → expect **red**.
-- **Report any test that does not move** — reject it (a test that cannot go RED is not a contract test).
+- **Report any test that does not move** — reject it, per the skill's GREEN/RED method.
 
 ## 6. Wire enforcement
 
