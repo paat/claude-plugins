@@ -97,6 +97,47 @@ EOF
   rm -rf "$work"
 }
 
+test_codex_degenerate_guard() {
+  local label="codex degenerate empty-BLOCK downgraded to leg error" label2="codex bypass flag forwarded when TRIBUNAL_CODEX_SANDBOX_BYPASS=on"
+  local work fake
+  work="$(mktemp -d)"
+  fake="$work/bin"
+  mkdir -p "$fake"
+  cat > "$fake/codex" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$work/codex.args"
+cat >/dev/null
+cat <<'JSON'
+{"provider":"codex","model":"default","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":0.0,"verdict":"BLOCK"}}
+JSON
+EOF
+  chmod +x "$fake/codex"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    PATH="$fake:$PATH" TRIBUNAL_CODEX_SANDBOX_BYPASS=on TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
+  ) && jq -e '.provider=="codex" and (.error | test("degenerate"))' "$work/out.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  if grep -q -- "--dangerously-bypass-approvals-and-sandbox" "$work/codex.args" 2>/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label2"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label2"; FAIL=$((FAIL+1)); FAILURES+=("$label2")
+  fi
+  rm -rf "$work"
+}
+
 SK=skills/tribunal-loop/SKILL.md
 CL=skills/closing-tribunal-loop/SKILL.md
 LIB=scripts/lib.sh
@@ -145,6 +186,8 @@ assert_grep "reachability.md capped" "$LIB" "head -c 8192"
 assert_grep "diff limit env" "$LIB" "TRIBUNAL_DIFF_LIMIT_BYTES"
 assert_grep "large diff uses head -c" "$LIB" 'head -c "$max"'
 assert_grep "OpenCode uses file attachment" "scripts/run-opencode-review.sh" '-f "$diff_attach"'
+assert_grep "OpenCode prompt positional precedes -f (array flag swallows positionals, issue #170)" "scripts/run-opencode-review.sh" '"$(cat "$prompt")" -f "$diff_attach"'
+assert_no_grep "OpenCode -f does not precede prompt positional" "scripts/run-opencode-review.sh" '-f "$diff_attach" "$(cat'
 assert_grep "OpenCode stages diff in cwd" "scripts/run-opencode-review.sh" ".tribunal-review-"
 
 echo "Disabled-provider markers:"
@@ -154,6 +197,7 @@ assert_json_field "qwen disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-qwen-revi
 assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT/scripts/run-claude-review.sh' | jq -e '.provider==\"claude\" and .status==\"disabled\"'"
 assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and all(.[]; .status==\"disabled\")'"
 test_qwen_envelope_parser
+test_codex_degenerate_guard
 
 echo "Arbitration contract:"
 assert_grep "3b-0 in SKILL" "$SK" "3b-0: Blocking-Finding Standard"

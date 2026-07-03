@@ -20,9 +20,18 @@ tribunal_review_prompt codex "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PRO
 
 model_args=()
 [ -n "${TRIBUNAL_CODEX_MODEL:-}" ] && model_args=(-m "$TRIBUNAL_CODEX_MODEL")
+[ "${TRIBUNAL_CODEX_SANDBOX_BYPASS:-off}" = "on" ] && model_args+=(--dangerously-bypass-approvals-and-sandbox)
 if timeout -k 10 600 codex exec "${model_args[@]}" -C "$REPO_ROOT" - < "$PROMPT_FILE" > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt"; then
   json="$(tribunal_extract_json_object < "$TMPDIR/out.txt")"
-  printf '%s' "$json" | jq -e . >/dev/null 2>&1 && printf '%s\n' "$json" || tribunal_error codex "unparseable Codex output"
+  if ! printf '%s' "$json" | jq -e . >/dev/null 2>&1; then
+    tribunal_error codex "unparseable Codex output"
+  elif printf '%s' "$json" | jq -e '((.findings // []) == []) and ((.summary.quality_score // 0) == 0) and (.summary.verdict == "BLOCK")' >/dev/null 2>&1; then
+    # Sandboxed codex that cannot exec anything emits this exact contradictory
+    # shape as parseable JSON; it must fail the leg, not reach arbitration (issue #167).
+    tribunal_error codex "degenerate empty-BLOCK output (0 findings, quality 0.0, verdict BLOCK) — codex sandbox likely cannot run commands; set TRIBUNAL_CODEX_SANDBOX_BYPASS=on"
+  else
+    printf '%s\n' "$json"
+  fi
 else
   tribunal_error codex "Codex execution failed or timed out"
 fi
