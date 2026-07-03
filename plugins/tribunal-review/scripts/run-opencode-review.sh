@@ -43,7 +43,9 @@ run_oc_leg() {
     tribunal_error "$provider" "failed to copy staged diff into $cwd"
     return
   }
-  if (cd "$cwd" && timeout -k 10 720 opencode run --agent plan -m "$model" --variant high --format default -f "$diff_attach" "$(cat "$prompt")" > "$out" 2> "$err"); then
+  # Prompt positional must precede -f: since opencode 1.15 -f is an array flag
+  # that swallows a trailing positional as a file path (issue #170).
+  if (cd "$cwd" && timeout -k 10 720 opencode run --agent plan -m "$model" --variant high --format default "$(cat "$prompt")" -f "$diff_attach" > "$out" 2> "$err"); then
     rm -f "$diff_attach"
     json="$(tribunal_extract_json_object < "$out")"
     printf '%s' "$json" | jq -e . >/dev/null 2>&1 && printf '%s\n' "$json" || tribunal_error "$provider" "unparseable OpenCode output"
