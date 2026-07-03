@@ -30,8 +30,10 @@ while read local_ref local_oid remote_ref remote_oid; do
   changed_plugins=()
   for plugin_dir in plugins/*/; do
     plugin_name=$(basename "$plugin_dir")
-    # Check if any non-metadata file changed for this plugin
-    if echo "$changed_files" | grep -q "^plugins/${plugin_name}/" ; then
+    # Check if any non-metadata file changed for this plugin; the generated
+    # .codex-plugin/plugin.json is synced from plugin.json after a bump, so a
+    # sync-only push must not require another bump
+    if echo "$changed_files" | grep "^plugins/${plugin_name}/" | grep -qv "^plugins/${plugin_name}/.codex-plugin/plugin.json$"; then
       changed_plugins+=("$plugin_name")
     fi
   done
