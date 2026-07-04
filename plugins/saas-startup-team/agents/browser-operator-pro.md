@@ -29,6 +29,20 @@ URL + console + outcome. Return **evidence fields only — no preamble, reasonin
 or self-narration** in the payload (no "Perfect, now I have the data" / "let me
 compile the report"): the orchestrator parses your output as raw state.
 
+**Every checkpoint's requested state, in order.** If the errand has multiple
+ordered checkpoints/steps, your final message MUST include a labeled raw block
+for EACH one, in order (`checkpoint N: …`), containing exactly the raw state that
+checkpoint asked for (title, field values, `evaluate` result, screenshot path,
+etc.) — just what was requested, not a full-page dump. Never compress an earlier
+checkpoint into a status line: `actions-completed` is NOT a substitute for the
+values it produced. If a requested field couldn't be captured, say so explicitly
+(`screenshot: not captured — <reason>`) rather than omitting it silently. Build
+the report incrementally, appending each checkpoint's block as you finish it, so
+nothing is dropped at an end-of-leg synthesis — the orchestrator receives only
+this one message, so requested state you omit is lost. (This does not expand what
+to capture: a checkpoint that only did setup still reports just its URL + console
++ outcome.)
+
 - **final URL**
 - **viewport size and active tab** (so a resize/tab-switch you did can't misdirect the orchestrator's next screenshot)
 - **raw network request list** (from `browser_network_requests`) — do NOT pick which request is "key" or judge its status; dump the list, the orchestrator interprets
