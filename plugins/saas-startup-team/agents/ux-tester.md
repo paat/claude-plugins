@@ -41,7 +41,7 @@ Send an operator errand to navigate the flow under test, click through it, fill
 forms with given data, exercise keyboard navigation, and resize to mobile
 (375px) — it returns screenshots, a snapshot, and console messages per step.
 Then, as a real user would, judge the returned evidence:
-- Extract computed styles via `browser_evaluate` for color, typography, spacing analysis — run this yourself against the live page
+- Analyze the computed-style JSON (color, typography, spacing) the operator extracted via `browser_evaluate` — the extraction is a delegated errand; judging the numbers is yours
 - Judge focus order/visibility, error handling, and friction from the returned evidence
 - Capture screenshots yourself only for what you must judge in-flight (coherence pass, loading states) — evidence for standard findings comes from the operator
 

@@ -101,14 +101,17 @@ Use Grep and Glob to find potential issues in source code:
 
 ## Audit Workflow
 
-**Delegate the mechanical legs, keep the judgment.** The mechanical steps below
-(navigate, walk the flow, fill forms, extract computed styles, resize) are
-judgment-free — hand them to the `browser-operator` subagent **blocking** as
-enumerated errands and let it return raw state (URL, snapshot, console, network,
-screenshots). Use `browser-operator-pro` for a leg you judge fiddly. Every
-*judgment* — the coherence pass, in-flight loading→result observation, severity,
-sign-off — stays on you; capture those screenshots yourself. Never delegate a
-verdict. While an operator leg is in flight, don't touch the browser.
+**Delegate the mechanical legs, keep the judgment.** On the **Claude Code
+surface**, the mechanical steps below (navigate, walk the flow, fill forms,
+extract computed styles, resize) are judgment-free — hand them to the
+`browser-operator` subagent **blocking** as enumerated errands and let it return
+raw state (URL, snapshot, console, network, screenshots). Use
+`browser-operator-pro` for a leg you judge fiddly. On the **Codex surface** (no
+subagents) drive the browser yourself in a single-agent flow — same steps, no
+delegation. Either way, every *judgment* — the coherence pass, in-flight
+loading→result observation, severity, sign-off — stays on you; capture those
+screenshots yourself. Never delegate a verdict. While an operator leg is in
+flight, don't touch the browser.
 
 ```
 1.  Navigate to target URL → verify page loads successfully

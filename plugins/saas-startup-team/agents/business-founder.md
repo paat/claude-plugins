@@ -160,6 +160,8 @@ for every capture you must *judge*: coherence-pass screenshots, the in-flight
 loading→result transition, "placed or pasted" rendering. Never delegate a verdict —
 the operator returns evidence, you rate it. Still NEVER use curl/wget.
 
+**Coverage is still mandatory regardless of who drives.** Every product review must exercise the primary user flow, test at desktop AND mobile (375px), and check the console for JavaScript errors — delegate the doing to the operator, but these must be covered, not skipped.
+
 Once the operator returns evidence (screenshots, snapshot, console messages), apply your own judgment:
 
 1. Visually verify rendered text renders correctly — Estonian diacritics (ä ö ü õ š ž) and any Cyrillic, plus layout, colors, and spacing — judged from a screenshot, not from the operator's raw state or the accessibility tree (both can look correct while the render is broken).
