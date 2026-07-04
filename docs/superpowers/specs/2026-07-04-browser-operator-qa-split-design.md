@@ -185,3 +185,15 @@ Caveat: this used `claude-in-chrome` (shared external Chrome), not the plugin's
 sharing the parent session's MCP connection — is generic to Claude Code, so the
 result transfers; a fully faithful confirmation with the plugin's Playwright MCP
 is still recommended before relying on it in production.
+
+## Implementation deviations from this design
+
+Two decisions changed during build (see plan + PR #173):
+1. **No separate skill.** The "thin agents sharing `skills/browser-operator/SKILL.md`"
+   structure above was dropped: this plugin's agents are self-contained and cannot
+   rely on subagent skill-loading (verified — no agent invokes its paired skill).
+   The contract is inlined into both operator agents, variant-duplicated like
+   `tech-founder-claude`/`tech-founder-codex`.
+2. **Outcome enum broadened** to `actions-completed | element-not-found | timed-out`.
+   The original `navigated | element-not-found | form-submitted | timed-out` had no
+   valid value for a successful resize/extract/click-through leg (whole-branch review).
