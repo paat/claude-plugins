@@ -38,13 +38,9 @@ stdio Playwright server preserves browser state across the parent↔subagent
 handoff. When the operator subagent returns, the browser is still in the state it
 left it in — the orchestrator takes its own screenshot with no handoff.
 
-**This holds only under these conditions** (all true for our design, but load-
-bearing): the operator is a subagent in the *same* Claude session, it does **not**
-declare its own inline `mcpServers` entry (which would spawn a second browser),
-and it reaches the server through the inherited connection. **Implementation
-step 1 is a smoke test** proving state persists: operator navigates → returns →
-parent confirms the same URL without re-navigating. If it fails, fall back to
-Seam A and revisit.
+This is a Claude-internals assumption, so **implementation step 1 is a smoke
+test**: operator navigates → returns → parent confirms the same URL without
+re-navigating. If it fails, fall back to Seam A.
 
 Rejected: **Seam A** (operator runs the whole session, Opus reviews a bundle) —
 puts capture-timing, a quality decision, on the cheap model.
@@ -133,18 +129,10 @@ forces Seam A. Dropped by decision.
 
 ## Concurrency (the one hard constraint)
 
-The shared browser is a single stateful process, so access must stay **strictly
-sequential**: orchestrator delegates a leg → blocks → operator runs → returns →
-orchestrator resumes. **This is NOT automatic.** Claude Code spawns subagents in
-the *background* by default; a backgrounded operator would run concurrently with
-the parent and race the shared browser. The orchestrator MUST invoke the operator
-**synchronously/blocking** (foreground, `run_in_background: false` semantics) and
-must not issue any browser tool call while an operator leg is in flight. The
-orchestrator prompt and the operator skill both state this explicitly (same
-serialize-to-avoid-deadlock family as the OpenCode SQLite lesson). Two
-browser-driving agents must never be active at once — including
-`business-founder` and `ux-tester` themselves (already non-concurrent: ux-tester
-is on-demand, not a loop participant).
+The shared browser is a single stateful process, so only one agent may drive it
+at a time. The orchestrator needs the operator's returned state to judge, so it
+blocks on the result inherently — but the operator skill states **invoke blocking,
+never backgrounded** explicitly, as belt-and-suspenders against a race.
 
 ## Edits to existing agents
 
