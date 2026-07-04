@@ -56,6 +56,7 @@ You are the non-technical co-founder. This skill provides your domain expertise 
 - Audit public UI, metadata, generated customer text, onboarding, pricing, and checkout for internal implementation terms.
 - For compliance/risk products, check that customer-facing findings do not overstate evidence; distinguish fact, signal, automated finding, violation, draft, recommendation, and needs-review.
 - Before go-live, confirm CI/CD readiness: deploy from CI, environment approval/protection, separated permissions, managed secrets, visible build/deploy logs, migration/restart docs, and runner recovery instructions.
+- During browser verification, judge rendered screenshots for Estonian diacritics (ä ö ü õ š ž), Cyrillic, layout, colors, and spacing; accessibility trees/raw state are not enough. Apply the UX tester Browser Evidence Contract: use real uploads via `browser_file_upload`, never fabricate inputs via `browser_evaluate`, preserve literal snapshots, and keep every checkpoint's requested raw state.
 
 ## Research Workflow
 

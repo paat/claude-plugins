@@ -64,6 +64,12 @@ Standard QA catches broken widgets, crashes, copy errors, and i18n leaks — all
 3. **Loading-state precedence (the transient window).** Exercise async flows (fetch / upload / parse / stream) with a deliberately **slow / large / network-throttled** input and watch the loading→result transition. Empty / "not found" / error affordances must NOT flash while content is still loading. `browser_wait_for` settles *past* this frame, so post-settle screenshots exclude the exact window these bugs live in — observe the in-flight frame directly.
 4. **Signifier ↔ behavior (false affordances).** Anything that *looks* interactive in a specific way must actually behave that way: dashed border = droppable, underline = link, pencil = editable, `cursor:pointer` = clickable. Actively test drag-drop on every element that looks like a drop zone; don't assume click is the only path. A control whose styling promises a capability it lacks is a defect. Relatedly, flag any step whose **primary action** is gated behind clutter-reduction chrome (collapse-to-expand, progressive disclosure) — collapsing optional content is fine, collapsing the core action adds friction to the main task.
 
+### 9. Browser Evidence Contract
+
+- If a flow needs an upload, use `browser_file_upload` with a real file. If a required tool, element, file, or value is unavailable, stop that leg and record the gap as raw state; never fabricate uploads, form values, or responses through `browser_evaluate` to keep moving.
+- Treat `browser_snapshot` output as literal tree evidence: preserve roles, accessible names/text, state/value metadata, hierarchy, and order. If you must shorten it, drop whole subtrees and mark each omission; never invent section titles, borrow nearby headings, or regroup unlabeled nodes.
+- For multi-step QA, record each checkpoint's requested raw state in order before final synthesis. Include missing requested fields explicitly (`not captured: <reason>`); long evidence is preferable to silently dropping earlier checkpoint state.
+
 ## Browser Testing Quick Reference
 
 | Playwright Tool | Testing Task |
@@ -73,6 +79,7 @@ Standard QA catches broken widgets, crashes, copy errors, and i18n leaks — all
 | `browser_evaluate` | Extract computed styles, measure elements, run contrast checks |
 | `browser_click` | Test interactive elements, trigger states |
 | `browser_fill_form` | Test form validation and error handling |
+| `browser_file_upload` | Upload a real local file for upload-gated flows |
 | `browser_press_key` | Test keyboard navigation (Tab, Escape, Enter) |
 | `browser_hover` | Test hover states and tooltips |
 | `browser_resize` | Test responsive breakpoints |
@@ -108,7 +115,7 @@ extract computed styles, resize) are judgment-free — hand them to the
 raw state (URL, snapshot, console, network, screenshots). Use
 `browser-operator-pro` for a leg you judge fiddly. On the **Codex surface** (no
 subagents) drive the browser yourself in a single-agent flow — same steps, no
-delegation. Either way, every *judgment* — the coherence pass, in-flight
+delegation. Apply the Browser Evidence Contract above. Either way, every *judgment* — the coherence pass, in-flight
 loading→result observation, severity, sign-off — stays on you; capture those
 screenshots yourself. Never delegate a verdict. While an operator leg is in
 flight, don't touch the browser.
