@@ -22,8 +22,7 @@ tribunal_review_prompt claude "$DIFF_FILE" "$CONTEXT_FILE" "diff-only" > "$PROMP
 SCRATCH="$(mktemp -d "$TMPDIR/claude.XXXXXX")"
 if (cd "$SCRATCH" && printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 claude -p "$(cat "$PROMPT_FILE")" --model "${TRIBUNAL_CLAUDE_MODEL:-sonnet}" --output-format json --disallowedTools "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Task" > "$TMPDIR/out.json" 2> "$TMPDIR/err.txt"); then
   response="$(jq -r '.result // empty' "$TMPDIR/out.json" 2>/dev/null || true)"
-  json="$(printf '%s\n' "$response" | tribunal_extract_json_object)"
-  printf '%s' "$json" | jq -e . >/dev/null 2>&1 && printf '%s\n' "$json" || tribunal_error claude "unparseable Claude output"
+  printf '%s\n' "$response" | tribunal_extract_json_object | tribunal_emit_review claude
 else
   tribunal_error claude "Claude execution failed or timed out"
 fi

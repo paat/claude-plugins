@@ -19,8 +19,7 @@ PROMPT_FILE="$TMPDIR/prompt.md"
 tribunal_review_prompt gemini "$DIFF_FILE" "$CONTEXT_FILE" "diff-with-web-cve-search" > "$PROMPT_FILE"
 
 if printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 gemini --model "${TRIBUNAL_GEMINI_MODEL:-gemini-3-pro-preview}" -p "$(cat "$PROMPT_FILE")" > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt"; then
-  json="$(tribunal_extract_json_object < "$TMPDIR/out.txt")"
-  printf '%s' "$json" | jq -e . >/dev/null 2>&1 && printf '%s\n' "$json" || tribunal_error gemini "unparseable Gemini output"
+  tribunal_extract_json_object < "$TMPDIR/out.txt" | tribunal_emit_review gemini
 else
   tribunal_error gemini "Gemini execution failed or timed out"
 fi

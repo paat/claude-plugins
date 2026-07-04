@@ -137,6 +137,32 @@ $(cat "$context_path" 2>/dev/null)
 PROMPT
 }
 
+# Validate one leg's extracted review JSON (read from stdin) and emit it, or
+# emit a provider error. A blocking verdict (BLOCK/NEEDS_WORK) with zero findings
+# is self-contradictory: per the arbitration contract a blocking verdict must be
+# backed by a proven finding, so an empty one means the provider was blind to the
+# code (sandboxed/degraded), not that the change is truly blocked. Counting it as
+# a real review silently drops the provider from the panel (issue #171).
+# $1 provider  $2 optional hint appended to the vacuous-verdict error message.
+tribunal_emit_review() {
+  local provider="$1" hint="${2:-}" json verdict
+  json="$(cat)"
+  if ! printf '%s' "$json" | jq -e . >/dev/null 2>&1; then
+    tribunal_error "$provider" "unparseable $provider output"
+    return
+  fi
+  if printf '%s' "$json" | jq -e '
+      (((.findings // []) | length) == 0)
+      and (((.summary.verdict // "APPROVE") | tostring | gsub("^\\s+|\\s+$"; "") | ascii_upcase) as $v
+           | ($v == "BLOCK" or $v == "NEEDS_WORK"))
+    ' >/dev/null 2>&1; then
+    verdict="$(printf '%s' "$json" | jq -r '.summary.verdict // "?"')"
+    tribunal_error "$provider" "vacuous verdict ($verdict with 0 findings): a blocking verdict must carry a finding; provider likely blind to the repo (sandbox/degraded), excluded from quorum${hint:+ — $hint}"
+    return
+  fi
+  printf '%s\n' "$json"
+}
+
 tribunal_extract_json_object() {
   sed 's/^```json//;s/^```//' | awk '
     BEGIN { seen=0 }

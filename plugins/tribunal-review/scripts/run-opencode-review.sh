@@ -47,8 +47,7 @@ run_oc_leg() {
   # that swallows a trailing positional as a file path (issue #170).
   if (cd "$cwd" && timeout -k 10 720 opencode run --agent plan -m "$model" --variant high --format default "$(cat "$prompt")" -f "$diff_attach" > "$out" 2> "$err"); then
     rm -f "$diff_attach"
-    json="$(tribunal_extract_json_object < "$out")"
-    printf '%s' "$json" | jq -e . >/dev/null 2>&1 && printf '%s\n' "$json" || tribunal_error "$provider" "unparseable OpenCode output"
+    tribunal_extract_json_object < "$out" | tribunal_emit_review "$provider"
   else
     rm -f "$diff_attach"
     tribunal_error "$provider" "OpenCode execution failed or timed out"
