@@ -165,3 +165,23 @@ current single-agent browser flow unless/until the same seam is confirmed there.
 - `business-founder.md` and `ux-tester.md` no longer duplicate mechanical
   browser-driving instructions; those live once in the operator skill.
 - Both plugin surfaces evaluated; Codex difference documented.
+
+## Smoke-test result (2026-07-04)
+
+Proxy smoke test PASSED (via `claude-in-chrome`, since this session lacks the
+plugin's stdio Playwright MCP):
+1. **Subagent shares the parent's browser MCP session** — a spawned subagent's
+   `tabs_context_mcp` saw exactly the parent's tab (same tabId/URL), confirming a
+   Claude Code subagent attaches to the same session-scoped MCP server instance.
+2. **State persists across the handoff** — the subagent navigated the shared tab;
+   the parent then observed the new URL WITHOUT re-navigating. This is the Seam B
+   invariant.
+3. **Operator contract holds behaviorally** — a Haiku agent given the contract
+   returned raw state only (tab list, final URL, extracted computed-style JSON,
+   `actions-completed`), made no judgments, and did the mechanical work correctly.
+
+Caveat: this used `claude-in-chrome` (shared external Chrome), not the plugin's
+`@playwright/mcp` stdio singleton. The load-bearing mechanism tested — subagent
+sharing the parent session's MCP connection — is generic to Claude Code, so the
+result transfers; a fully faithful confirmation with the plugin's Playwright MCP
+is still recommended before relying on it in production.
