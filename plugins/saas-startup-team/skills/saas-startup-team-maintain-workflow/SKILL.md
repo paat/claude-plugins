@@ -34,6 +34,18 @@ For `saas-startup-team` workflows in Codex:
 - Treat business-founder, tech-founder, growth-hacker, lawyer, UX tester, and review loops as Codex role phases backed by `.startup/` files.
 - Keep the file-based handoff protocol intact: every role phase reads the relevant handoff/state files and writes its expected deliverable before the next phase starts.
 
+## Codex Maintain Hard Gates
+
+During each Codex `/maintain` issue-delivery cycle, enforce these merge predicates directly:
+
+- Before implementation, identify the root cause / recurrence class; fix the class, not only the observed instance.
+- For bug, monitor, customer, accounting, replay, and incident-class issues, add a locking regression test, durable contract test, monitor assertion, or equivalent guard that would fail on the old behavior.
+- The PR body must state the red-before/green-after proof and why the same issue should not recur. If a durable guard is genuinely impossible, split or file a follow-up, or mark the issue human/blocked with the reason.
+- Before starting `tribunal-review:closing-tribunal-loop`, run the Codex business-founder QA phase with Playwright on affected browser-visible flows and record the checked flows/evidence in the PR body. If no browser-visible surface changed, record `Business-founder Playwright QA: not applicable - <reason>` before tribunal.
+- For every code PR, `tribunal-review:closing-tribunal-loop` is the main merge prerequisite: it runs `tribunal-review:tribunal-loop`, triages findings, applies fixes or follow-ups, and revalidates until the arbiter clears the gate.
+- Any code diff, PR body edit that changes validation facts, rebase/update-from-main, or HEAD change invalidates the prior tribunal result and reopens the closing loop.
+- Merge is forbidden unless the closing loop's latest arbiter verdict covers the current PR HEAD and latest diff, has zero critical/high findings, and recurrence proof is present when required. Medium/low findings may be triaged per the tribunal plugin.
+
 ## Command Metadata
 
 - Plugin: `saas-startup-team`

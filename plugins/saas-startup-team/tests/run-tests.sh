@@ -1109,6 +1109,7 @@ test_plugin_issues() {
 test_maintain() {
   echo -e "\n${CYAN}== /maintain command ==${NC}"
   local cmd="$PLUGIN_ROOT/commands/maintain.md"
+  local codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-workflow/SKILL.md"
   assert_file_exists "M1: maintain.md exists" "$cmd"
   # Frontmatter
   assert_file_contains "M2: name frontmatter"          "$cmd" "name: maintain"
@@ -1150,6 +1151,16 @@ test_maintain() {
   # Dedicated worktree isolation (primary checkout stays free)
   assert_file_contains "M26: dedicated worktree"        "$cmd" "worktree add --detach"
   assert_file_contains "M27: worktree path convention"  "$cmd" ".worktrees/maintain"
+  # Codex workflow hard gates
+  assert_file_exists "M28: Codex maintain workflow exists" "$codex_cmd"
+  assert_file_contains "M29: Codex recurrence class gate" "$codex_cmd" "root cause / recurrence class"
+  assert_file_contains "M30: Codex recurrence proof gate" "$codex_cmd" "red-before/green-after proof"
+  assert_file_contains "M31: Codex closing loop prerequisite" "$codex_cmd" "main merge prerequisite"
+  assert_file_contains "M32: Codex stale verdict invalidation" "$codex_cmd" "reopens the closing loop"
+  assert_file_contains "M33: Codex current HEAD predicate" "$codex_cmd" "current PR HEAD and latest diff"
+  assert_file_contains "M34: Codex gates run in maintain cycle" "$codex_cmd" "issue-delivery cycle"
+  assert_file_contains "M35: Codex QA before closing loop" "$codex_cmd" "business-founder QA phase with Playwright"
+  assert_file_contains "M36: Codex QA not-applicable record" "$codex_cmd" "Business-founder Playwright QA: not applicable"
 }
 
 # ---------------------------------------------------------------------------
@@ -2775,6 +2786,14 @@ test_canonical_entrypoint_wiring() {
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "green-but-wrong"
   assert_file_contains "Y7: tech-founder mentions golden suite" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "golden"
+  assert_file_contains "Y7a: tech-founder requires recurrence class" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "root cause / recurrence class"
+  assert_file_contains "Y7b: tech-founder fixes failure class" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "fix the class"
+  assert_file_contains "Y7c: tech-founder requires mechanical guard" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "durable mechanical guard"
+  assert_file_contains "Y7d: tech-founder records red-green proof" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "red-before/green-after proof"
   assert_file_contains "Y8: quality-standards has single-source-of-truth principle" \
     "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "Single source of truth"
   assert_file_contains "Y9: quality-standards warns about re-derived rules" \
