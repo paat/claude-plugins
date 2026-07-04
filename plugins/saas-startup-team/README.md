@@ -79,6 +79,22 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:lessons-review` | The single human gate of the self-improvement loop: list open `lesson-candidate` issues in the pinned plugin repo and `--approve N` (→ `lesson-approved`) or `--close N` (rejected). |
 | `/saas-startup-team:lessons-deliver` | Autonomously implements `lesson-approved` issues into this plugin repo end-to-end (claim → implement → diff firewall → tribunal → test suite → dual version bump → PR `Closes #N` → merge on green). No manual trigger after approval; plugin-native (not `/goal-deliver`). Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`, `--repo`. Requires the `tribunal-review` plugin. |
 
+## Agents
+
+| Agent | Purpose |
+|-------|---------|
+| `browser-operator` | Haiku-powered mechanical browser driver; executes judgment-free legs (navigate, auth, fill, resize, extract) for the QA orchestrators and returns raw state only — never a verdict. |
+| `browser-operator-pro` | Sonnet variant of `browser-operator` for mechanically fiddly legs (multi-page wizards, ambiguous page snapshots); same raw-state-only contract — the orchestrator, not the operator, makes every QA judgment. |
+| `business-founder` | Business context research and browser-based requirement validation. |
+| `tech-founder` | Implementation from handoff documents. |
+| `growth-hacker` | Growth and sales strategy. |
+| `lawyer` | Legal compliance review. |
+| `ux-tester` | Accessibility and usability audit. |
+
+### Dual-Surface Note
+
+The `browser-operator` subagent split (delegating mechanical browser legs to Haiku/Sonnet agents) is a **Claude Code surface optimization** that improves response latency and cost for the QA loop. The Codex surface retains a single-agent browser flow until the singleton seam is confirmed there; Codex users experience equivalent QA outcomes via the native orchestration skill.
+
 ### Convergence governor (`/goal-deliver`)
 
 `/goal-deliver` integrates with the `tribunal-review` plugin's convergence governor to prevent review spirals. The governor enforces a hard ceiling of 20 rounds, triggers an investor escalation step-back from round 10 onward, and closes the loop automatically once the arbiter returns zero critical and zero high findings. The reachability convention (`skills/tech-founder/references/reachability-convention.md`) defines what counts as a reachable path for tribunal reviewers and is updated alongside the governor; the `last-verified:` field — documented by the convention but written into each consumer repo's own `reachability.md` — tracks when that repo's assumptions were last confirmed against production traffic.
