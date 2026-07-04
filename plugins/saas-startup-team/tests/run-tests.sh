@@ -1109,6 +1109,7 @@ test_plugin_issues() {
 test_maintain() {
   echo -e "\n${CYAN}== /maintain command ==${NC}"
   local cmd="$PLUGIN_ROOT/commands/maintain.md"
+  local codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-workflow/SKILL.md"
   assert_file_exists "M1: maintain.md exists" "$cmd"
   # Frontmatter
   assert_file_contains "M2: name frontmatter"          "$cmd" "name: maintain"
@@ -1150,6 +1151,82 @@ test_maintain() {
   # Dedicated worktree isolation (primary checkout stays free)
   assert_file_contains "M26: dedicated worktree"        "$cmd" "worktree add --detach"
   assert_file_contains "M27: worktree path convention"  "$cmd" ".worktrees/maintain"
+  # Fast no-op must not strand cached deliverable issues.
+  assert_file_contains "M28: cached deliverable gate" "$cmd" "cached_deliverable"
+  assert_file_contains "M29: cached agent-fixable enters queue" "$cmd" "deliverable queue input"
+  assert_file_contains "M30: cache hit still feeds queue" "$cmd" "A cache hit supplies the cached verdict"
+  # Claude /maintain recurrence + tribunal gates.
+  assert_file_contains "M31: command recurrence class gate" "$cmd" "root cause / recurrence class"
+  assert_file_contains "M32: command fixes recurrence class" "$cmd" "fix the class, not only the observed instance"
+  assert_file_contains "M33: command red-green proof" "$cmd" "red-before/green-after proof"
+  assert_file_contains "M34: command current HEAD tribunal predicate" "$cmd" "current PR HEAD and latest diff"
+  assert_file_contains "M35: command stale verdict invalidation" "$cmd" "reopens tribunal validation"
+  assert_file_contains "M36: command missing recurrence proof blocks merge" "$cmd" "missing recurrence proof"
+  # Codex workflow hard gates
+  assert_file_exists "M37: Codex maintain workflow exists" "$codex_cmd"
+  assert_file_contains "M38: Codex recurrence class gate" "$codex_cmd" "root cause / recurrence class"
+  assert_file_contains "M39: Codex recurrence proof gate" "$codex_cmd" "red-before/green-after proof"
+  assert_file_contains "M40: Codex closing loop prerequisite" "$codex_cmd" "main merge prerequisite"
+  assert_file_contains "M41: Codex stale verdict invalidation" "$codex_cmd" "reopens the closing loop"
+  assert_file_contains "M42: Codex current HEAD predicate" "$codex_cmd" "current PR HEAD and latest diff"
+  assert_file_contains "M43: Codex gates run in maintain cycle" "$codex_cmd" "issue-delivery cycle"
+  assert_file_contains "M44: Codex QA before closing loop" "$codex_cmd" "business-founder QA phase with Playwright"
+  assert_file_contains "M45: Codex QA not-applicable record" "$codex_cmd" "Business-founder Playwright QA: not applicable"
+
+  # Regression for fast no-op: open>0, new=0, cached agent-fixable => no fast no-op.
+  local workdir cache open_json open new cached_deliverable fast_noop
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/.startup/maintain"
+  cache="$workdir/.startup/maintain/triage-cache.jsonl"
+  open_json='[{"number":1350,"updatedAt":"2026-07-04T00:00:00Z","labels":[]},{"number":1351,"updatedAt":"2026-07-04T00:01:00Z","labels":[]}]'
+  printf '%s\n' \
+    '{"number":1350,"updatedAt":"2026-07-04T00:00:00Z","verdict":"agent-fixable"}' \
+    '{"number":1351,"updatedAt":"2026-07-04T00:01:00Z","verdict":"needs-human"}' \
+    > "$cache"
+  open=$(jq length <<<"$open_json")
+  new=$(jq --slurpfile seen <(jq -c '{number, updatedAt}' "$cache") \
+    '[.[] | select({number, updatedAt} as $k | ($seen | index($k)) | not)] | length' <<<"$open_json")
+  cached_deliverable=$(jq -s --slurpfile open <(printf '%s\n' "$open_json") '
+    def matching_open($c):
+      any($open[0][]; .number == $c.number and .updatedAt == $c.updatedAt);
+    def nonfinal($c):
+      (($c.final_state // $c.finalState // "") as $s
+       | ($s == "" or ($s | test("^(fixed:|needs-human:|escalated:|skipped:|split:)") | not)));
+    [ .[]
+      | select(matching_open(.))
+      | select(.verdict == "agent-fixable" or .verdict == "partially-fixable")
+      | select(nonfinal(.))
+    ] | length' "$cache")
+  fast_noop=false
+  if [ "$open" -eq 0 ] || { [ "$new" -eq 0 ] && [ "$cached_deliverable" -eq 0 ]; }; then
+    fast_noop=true
+  fi
+  assert_equals "M46: cached agent-fixable has no cache miss" "$new" "0"
+  assert_equals "M47: cached agent-fixable counted deliverable" "$cached_deliverable" "1"
+  assert_equals "M48: cached agent-fixable prevents fast no-op" "$fast_noop" "false"
+
+  printf '%s\n' \
+    '{"number":1350,"updatedAt":"2026-07-04T00:00:00Z","verdict":"agent-fixable","final_state":"fixed:PR#12"}' \
+    '{"number":1351,"updatedAt":"2026-07-04T00:01:00Z","verdict":"needs-human"}' \
+    > "$cache"
+  cached_deliverable=$(jq -s --slurpfile open <(printf '%s\n' "$open_json") '
+    def matching_open($c):
+      any($open[0][]; .number == $c.number and .updatedAt == $c.updatedAt);
+    def nonfinal($c):
+      (($c.final_state // $c.finalState // "") as $s
+       | ($s == "" or ($s | test("^(fixed:|needs-human:|escalated:|skipped:|split:)") | not)));
+    [ .[]
+      | select(matching_open(.))
+      | select(.verdict == "agent-fixable" or .verdict == "partially-fixable")
+      | select(nonfinal(.))
+    ] | length' "$cache")
+  fast_noop=false
+  if [ "$open" -eq 0 ] || { [ "$new" -eq 0 ] && [ "$cached_deliverable" -eq 0 ]; }; then
+    fast_noop=true
+  fi
+  assert_equals "M49: cached final state removes deliverability" "$cached_deliverable" "0"
+  assert_equals "M50: cached final state permits fast no-op" "$fast_noop" "true"
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
@@ -2775,6 +2852,14 @@ test_canonical_entrypoint_wiring() {
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "green-but-wrong"
   assert_file_contains "Y7: tech-founder mentions golden suite" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "golden"
+  assert_file_contains "Y7a: tech-founder requires recurrence class" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "root cause / recurrence class"
+  assert_file_contains "Y7b: tech-founder fixes failure class" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "fix the class"
+  assert_file_contains "Y7c: tech-founder requires mechanical guard" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "durable mechanical guard"
+  assert_file_contains "Y7d: tech-founder records red-green proof" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "red-before/green-after proof"
   assert_file_contains "Y8: quality-standards has single-source-of-truth principle" \
     "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "Single source of truth"
   assert_file_contains "Y9: quality-standards warns about re-derived rules" \

@@ -112,7 +112,9 @@ Apply these when a feature touches the relevant product class:
 - **Compliance/risk claim taxonomy**: classify findings as fact, signal, automated finding, violation, draft, recommendation, or needs-review, with evidence and false-positive fixtures.
 
 ### Bug Fix Protocol (issue-linked fixes)
-When fixing a reported incident/issue (GitHub issue or Plane work item), a regression test is **mandatory**: write a failing test that reproduces the bug, confirm it fails, fix, confirm it passes. Record the test path and `Closes #<n>` / `Plane-Item: <id|url>` in the handoff and PR body. Incident-resolving PRs with no test in the diff are blocked at merge; override only with `Regression-Test: none — <reason>` in the PR body.
+When fixing a reported incident/issue (GitHub issue or Plane work item), first identify the root cause / recurrence class, then fix the class, not only the observed instance. Add a durable mechanical guard that would fail on the old behavior: usually a failing regression test, but a contract test, monitor assertion, invariant/golden fixture, or equivalent guard is valid when it better locks the recurrence class. Confirm red-before/green-after proof, and record the guard path plus `Closes #<n>` / `Plane-Item: <id|url>` in the handoff and PR body.
+
+If a durable guard is genuinely impossible, do not silently close the issue: split or file a follow-up, or mark the issue human/blocked with the reason. Issue-resolving PRs with no test or guard in the diff are blocked at merge; override only with `Regression-Test: none — <reason>` in the PR body.
 
 ## Implementation Workflow
 
