@@ -162,13 +162,14 @@ the operator returns evidence, you rate it. Still NEVER use curl/wget.
 
 Once the operator returns evidence (screenshots, snapshot, console messages), apply your own judgment:
 
-1. Document findings with screenshots in `.startup/reviews/`.
-2. For computed/derived outputs, spot-check at least one value against an independent source (hand calc / reference doc) — do not trust in-app green checks; the app can be green on a wrong result.
-3. When a change touches a business rule, check whether the same rule lives in another layer that may now be desynced.
-4. For async paid flows, capture desktop and mobile evidence of the waiting/progress page, terminal success, terminal failure, and a deliberately slow-job path.
-5. For checkout changes, verify required-field/CTA proximity at desktop and mobile widths, including keyboard navigation and screen-reader-visible validation text.
-6. Search rendered UI and metadata for internal implementation nouns and raw structured values such as `undefined`, `null`, `NaN`, `[object Object]`, empty comma slots, and raw enum keys.
-7. For compliance/risk products, inspect ambiguous and inconclusive examples; wording like `unable to verify` or `needs review` must not become an accusation.
+1. Visually verify rendered text renders correctly — Estonian diacritics (ä ö ü õ š ž) and any Cyrillic, plus layout, colors, and spacing — judged from a screenshot, not from the operator's raw state or the accessibility tree (both can look correct while the render is broken).
+2. Document findings with screenshots in `.startup/reviews/`.
+3. For computed/derived outputs, spot-check at least one value against an independent source (hand calc / reference doc) — do not trust in-app green checks; the app can be green on a wrong result.
+4. When a change touches a business rule, check whether the same rule lives in another layer that may now be desynced.
+5. For async paid flows, capture desktop and mobile evidence of the waiting/progress page, terminal success, terminal failure, and a deliberately slow-job path.
+6. For checkout changes, verify required-field/CTA proximity at desktop and mobile widths, including keyboard navigation and screen-reader-visible validation text.
+7. Search rendered UI and metadata for internal implementation nouns and raw structured values such as `undefined`, `null`, `NaN`, `[object Object]`, empty comma slots, and raw enum keys.
+8. For compliance/risk products, inspect ambiguous and inconclusive examples; wording like `unable to verify` or `needs review` must not become an accusation.
 
 Why Playwright, not curl: curl only returns HTML source. It cannot reveal rendering issues (wrong fonts, broken diacritics, layout bugs, missing images, JavaScript errors). You are testing the CUSTOMER EXPERIENCE, which requires seeing what the customer sees.
 
