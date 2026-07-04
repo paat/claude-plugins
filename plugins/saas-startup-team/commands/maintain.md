@@ -91,21 +91,40 @@ open_json=$(gh issue list --state open --json number,labels,updatedAt \
 open=$(jq length <<<"$open_json")
 # not-in-cache = open unparked issues with no matching {number, updatedAt} cache entry
 new=$open
+cached_deliverable=0
 if [ -s "$cache" ]; then
   new=$(jq --slurpfile seen <(jq -c '{number, updatedAt}' "$cache") \
     '[.[] | select({number, updatedAt} as $k | ($seen | index($k)) | not)] | length' <<<"$open_json")
+  cached_deliverable=$(jq -s --slurpfile open <(printf '%s\n' "$open_json") '
+    def matching_open($c):
+      any($open[0][]; .number == $c.number and .updatedAt == $c.updatedAt);
+    def nonfinal($c):
+      (($c.final_state // $c.finalState // "") as $s
+       | ($s == "" or ($s | test("^(fixed:|needs-human:|escalated:|skipped:|split:)") | not)));
+    [ .[]
+      | select(matching_open(.))
+      | select(.verdict == "agent-fixable" or .verdict == "partially-fixable")
+      | select(nonfinal(.))
+    ] | length' "$cache")
 fi
 ```
 
 If `open` is `0` (no open issues, or every open one is already parked
-`needs-human`/`maintain:blocked`) **or `new` is `0`** (every remaining open issue has a
-matching `{number, updatedAt}` triage-cache entry — already triaged, nothing new or changed
-since), the pass has no work: emit a one-line no-op digest to the session (e.g.
-`no-op: $open open, $new new/changed — nothing to do`) and **stop this pass immediately**.
-Do NOT enter the worktree, run the `/goal-deliver` preflight, ensure labels, query branch
-protection or check-runs, or dispatch triage. Under `--once`, stop the run; otherwise back
-off (§Loop Body step 7) and re-probe next pass. Any issue edit bumps `updatedAt` past its
-cache entry and reopens the pass. This keeps a no-work cycle at near-zero cost.
+`needs-human`/`maintain:blocked`) **or** both `new` and `cached_deliverable` are `0`,
+the pass has no work: emit a one-line no-op digest to the session (e.g.
+`no-op: $open open, $new new/changed, $cached_deliverable cached-deliverable — nothing to do`)
+and **stop this pass immediately**. Do NOT stop merely because `new` is `0`: a cached
+open `agent-fixable` or `partially-fixable` verdict is deliverable queue input, not
+"already handled." In that case, enter setup/preflight and build the queue from the
+cached classification. When the predicate above proves no deliverable cached or
+changed issue exists, do NOT enter the worktree, run the `/goal-deliver` preflight,
+ensure labels, query branch protection or check-runs, or dispatch triage. Under
+`--once`, stop the run; otherwise back off (§Loop Body step 7) and re-probe next
+pass. Any issue edit bumps `updatedAt` past its cache entry and reopens triage.
+Linked PRs, dependency blocks, and other final eligibility are recomputed during queue
+construction; the fast gate errs toward continuing when the current state cannot prove
+an issue is non-deliverable. This keeps a true no-work cycle at near-zero cost without
+stranding cached work.
 
 ---
 
@@ -246,8 +265,9 @@ On-disk state layout (`.startup/maintain/`):
 - `current-run.json` — `{run_id, started_at}`, written at startup (resume or
   fresh mint); survives context loss within a session. Skipped under `--dry-run`.
 - `triage-cache.jsonl` — body-classification keyed by `{number, updatedAt}`; lets a
-  pass skip re-classifying unchanged issues. Eligibility and final state are always
-  recomputed from GitHub each pass, never cached. Written only on a normal pass;
+  pass skip re-classifying unchanged issues. A cache hit supplies the cached verdict
+  for queue construction; it never means "skip this issue." Eligibility and linked-PR
+  state are always recomputed from GitHub each pass. Written only on a normal pass;
   **skipped under `--dry-run`** (classify in-memory, write nothing).
 - `blocked.jsonl` — transiently-blocked issues: `{number, reason, cooldown_until}`.
 - `runs/<run-id>.md` — append-only audit digest (the morning-review artifact).
@@ -265,10 +285,10 @@ Each pass follows this sequence:
    `gh issue list --state open --json number,title,body,labels,updatedAt,assignees`
 
 2. **Dispatch the read-only triage subagent** (skip body-classify if
-   `triage-cache.jsonl` has a matching `{number, updatedAt}` entry). The triage
-   subagent returns a structured verdict list; **you (the supervisor) apply all
-   side-effects** — labels, comments, file writes. Never delegate mutations to the
-   triage subagent.
+   `triage-cache.jsonl` has a matching `{number, updatedAt}` entry, but still feed
+   that cached verdict into step 3/4). The triage subagent returns a structured verdict
+   list; **you (the supervisor) apply all side-effects** — labels, comments, file
+   writes. Never delegate mutations to the triage subagent.
 
 3. **Apply verdicts** (supervisor mutates — **all of step 3 is skipped under
    `--dry-run`**):
@@ -511,6 +531,16 @@ fi
 
 ### Per-Issue Guardrails
 
+- **Recurrence-class closure is mandatory.** Before implementation, identify the
+  root cause / recurrence class and fix the class, not only the observed instance.
+- For bug, monitor, customer, accounting, replay, and incident-class issues, add a
+  locking regression test, durable contract test, monitor assertion, invariant/golden
+  fixture, or equivalent mechanical guard that would fail on the old behavior.
+- The PR body must state the red-before/green-after proof, the guard path or monitor
+  assertion, and why the same issue should not recur.
+- If a durable guard is genuinely impossible, do not silently close the issue. Split or
+  file a follow-up for the missing guard, change the closing keyword to `Refs`, or mark
+  the issue human/blocked with the reason.
 - **Iteration cap:** reuse `/goal-deliver` tribunal round caps — notify the investor
   at round 10, hard-stop at round 20.
 - **No-progress signal (heuristic):** if successive rounds show the same failure
@@ -533,11 +563,22 @@ If main advanced during final validation, **restart final validation**. `--auto`
 allowed only when branch protection enforces up-to-date required checks (off by
 default).
 
-**The green gate is mandatory:** tribunal zero critical/high + required CI checks +
-the regression-test gate. Per `/goal-deliver` §3, an incident-labelled issue
-(`bug`/`monitor`/`customer-issue`) cannot merge unless the PR diff adds a test, or
-the PR body records `Regression-Test: none — <reason>`. There is no human-hold tier
-— every PR that clears the green gate is merged.
+**The green gate is mandatory:** latest-HEAD tribunal clearance + required CI checks
++ the recurrence/regression gate. For every code PR, run
+`tribunal-review:tribunal-loop` before merge. If the tribunal returns `NEEDS_WORK` or
+`BLOCK`, load and follow `tribunal-review:closing-tribunal-loop` and keep iterating.
+Any code diff, PR body edit that changes validation facts, rebase/update-from-main, or
+other PR `HEAD` change **reopens tribunal validation**. Merge is forbidden unless the
+latest arbiter verdict covers the current PR HEAD and latest diff and has zero
+critical/high findings. Medium/low findings may be triaged per the tribunal plugin,
+but critical/high must be zero.
+
+Per `/goal-deliver` §3, an incident-labelled issue (`bug`/`monitor`/`customer-issue`)
+cannot merge unless the PR diff adds a test, or the PR body records
+`Regression-Test: none — <reason>`. For bug, monitor, customer, accounting, replay,
+and incident-class issues, missing recurrence proof or missing durable guard is also a
+merge blocker. There is no human-hold tier — every PR that clears the green gate is
+merged.
 
 ### Deploy Watch, Classification & Escalation
 

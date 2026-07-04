@@ -318,7 +318,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/acceptance-packs.sh" --verify-report path/to
 
 ## Maintenance loop (`/maintain`)
 
-`/maintain` is a **stateless supervisor** that runs an unattended continuous maintenance loop: it re-reads GitHub issues and triage state from disk each pass, classifies open issues into `agent-fixable` or `needs-human`, and delivers eligible issues to production via inline `/goal-deliver` calls, one issue at a time in dependency order. The supervisor holds no durable context — every pass reconstructs its working state from disk and GitHub, making context loss or compaction harmless.
+`/maintain` is a **stateless supervisor** that runs an unattended continuous maintenance loop: it re-reads GitHub issues and triage state from disk each pass, classifies open issues into `agent-fixable`, `partially-fixable`, or `needs-human`, and delivers eligible issues to production via inline `/goal-deliver` calls, one issue at a time in dependency order. The supervisor holds no durable context — every pass reconstructs its working state from disk and GitHub, making context loss or compaction harmless.
 
 ### Operation model
 
@@ -338,7 +338,7 @@ An issue is delivered only **after** its explicitly-declared prerequisites (`dep
 
 ### Merge safety gate
 
-**The green gate is mandatory:** every PR that clears it is merged immediately. The gate comprises tribunal zero critical/high findings + required CI checks passing. Incident-labelled issues (`bug`, `monitor`, `customer-issue`) cannot merge unless the PR diff adds a test or the PR body records `Regression-Test: none — <reason>`. No human-hold tier — the merged diff is the authority on whether the fix is correct.
+**The green gate is mandatory:** every PR that clears it is merged immediately. The gate comprises latest-HEAD tribunal clearance with zero critical/high findings, required CI checks passing, and recurrence proof. Bug, monitor, customer, accounting, replay, and incident-class issues must fix the recurrence class and add a regression/contract/monitor guard that would fail on the old behavior, or explicitly record why no durable guard is possible. No human-hold tier — the merged diff is the authority on whether the fix is correct.
 
 ### Safe rollout and circuit breakers
 
