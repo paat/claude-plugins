@@ -83,8 +83,8 @@ Team Lead (Orchestrator)
 
 | Agent | Purpose |
 |-------|---------|
-| `browser-operator` | Haiku-powered browser automation agent for QA flows; handles mechanical browser interaction, screenshot capture, and form filling during founder browser verification. |
-| `browser-operator-pro` | Sonnet-powered browser automation agent for complex QA scenarios; escalated from `browser-operator` when analysis depth or multi-step reasoning is required. |
+| `browser-operator` | Haiku-powered mechanical browser driver; executes judgment-free legs (navigate, auth, fill, resize, extract) for the QA orchestrators and returns raw state only — never a verdict. |
+| `browser-operator-pro` | Sonnet variant of `browser-operator` for mechanically fiddly legs (multi-page wizards, ambiguous page snapshots); same raw-state-only contract — the orchestrator, not the operator, makes every QA judgment. |
 | `business-founder` | Business context research and browser-based requirement validation. |
 | `tech-founder` | Implementation from handoff documents. |
 | `growth-hacker` | Growth and sales strategy. |
