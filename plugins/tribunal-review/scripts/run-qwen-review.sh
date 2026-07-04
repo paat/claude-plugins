@@ -41,11 +41,8 @@ if printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 qwen --model "${TRIBU
         .model // .message.model // empty
       else empty end
     ' "$TMPDIR/out.txt" 2>/dev/null || true)"
-    if [ -n "$actual_model" ]; then
-      printf '%s' "$json" | jq --arg m "$actual_model" '.model = $m'
-    else
-      printf '%s\n' "$json"
-    fi
+    [ -n "$actual_model" ] && json="$(printf '%s' "$json" | jq --arg m "$actual_model" '.model = $m')"
+    printf '%s' "$json" | tribunal_emit_review qwen
   else
     tribunal_error qwen "unparseable Qwen output"
   fi

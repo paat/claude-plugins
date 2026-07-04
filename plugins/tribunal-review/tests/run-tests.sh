@@ -97,8 +97,11 @@ EOF
   rm -rf "$work"
 }
 
-test_codex_degenerate_guard() {
-  local label="codex degenerate empty-BLOCK downgraded to leg error" label2="codex bypass flag forwarded when TRIBUNAL_CODEX_SANDBOX_BYPASS=on"
+# Vacuous verdict = zero findings + a blocking verdict. Both the reported BLOCK
+# shape (quality 0.0) and the broader NEEDS_WORK / nonzero-quality shape must be
+# downgraded to a leg error, never passed through as a real review (issue #171).
+test_codex_vacuous_guard() {
+  local verdict="$1" quality="$2" label="$3"
   local work fake
   work="$(mktemp -d)"
   fake="$work/bin"
@@ -108,7 +111,7 @@ test_codex_degenerate_guard() {
 printf '%s\n' "\$@" > "$work/codex.args"
 cat >/dev/null
 cat <<'JSON'
-{"provider":"codex","model":"default","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":0.0,"verdict":"BLOCK"}}
+{"provider":"codex","model":"default","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":$quality,"verdict":"$verdict"}}
 JSON
 EOF
   chmod +x "$fake/codex"
@@ -125,15 +128,18 @@ EOF
     printf 'two\n' > file.txt
     git commit -q -am change
     PATH="$fake:$PATH" TRIBUNAL_CODEX_SANDBOX_BYPASS=on TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
-  ) && jq -e '.provider=="codex" and (.error | test("degenerate"))' "$work/out.json" >/dev/null; then
+  ) && jq -e '.provider=="codex" and (.error | test("vacuous"))' "$work/out.json" >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
   fi
-  if grep -q -- "--dangerously-bypass-approvals-and-sandbox" "$work/codex.args" 2>/dev/null; then
-    echo -e "  ${GREEN}PASS${NC} $label2"; PASS=$((PASS+1))
-  else
-    echo -e "  ${RED}FAIL${NC} $label2"; FAIL=$((FAIL+1)); FAILURES+=("$label2")
+  if [ "$verdict" = "BLOCK" ] && [ "$quality" = "0.0" ]; then
+    local label2="codex bypass flag forwarded when TRIBUNAL_CODEX_SANDBOX_BYPASS=on"
+    if grep -q -- "--dangerously-bypass-approvals-and-sandbox" "$work/codex.args" 2>/dev/null; then
+      echo -e "  ${GREEN}PASS${NC} $label2"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} $label2"; FAIL=$((FAIL+1)); FAILURES+=("$label2")
+    fi
   fi
   rm -rf "$work"
 }
@@ -197,7 +203,9 @@ assert_json_field "qwen disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-qwen-revi
 assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT/scripts/run-claude-review.sh' | jq -e '.provider==\"claude\" and .status==\"disabled\"'"
 assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and all(.[]; .status==\"disabled\")'"
 test_qwen_envelope_parser
-test_codex_degenerate_guard
+test_codex_vacuous_guard BLOCK 0.0 "codex vacuous empty-BLOCK downgraded to leg error"
+test_codex_vacuous_guard NEEDS_WORK 7.5 "codex vacuous empty-NEEDS_WORK (nonzero quality) downgraded to leg error"
+test_codex_vacuous_guard " BLOCK " 0.0 "codex vacuous verdict tolerates surrounding whitespace"
 
 echo "Arbitration contract:"
 assert_grep "3b-0 in SKILL" "$SK" "3b-0: Blocking-Finding Standard"
