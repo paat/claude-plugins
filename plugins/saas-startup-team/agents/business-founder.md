@@ -149,23 +149,26 @@ Work is auto-committed when research documents are written to `docs/`. Handoffs 
 
 **ALWAYS use the plugin-based Playwright MCP** (tools prefixed with `mcp__plugin_saas-startup-team_playwright__`). Do NOT attempt to install or run Playwright directly via npm/npx — the Chrome sandbox will crash in this environment. The plugin MCP handles sandboxing correctly.
 
-```
-1. browser_navigate to localhost URL provided by tech founder
-2. browser_take_screenshot → capture visual state as a customer sees it
-3. browser_snapshot → verify page structure and content via accessibility tree
-4. Test primary user flow: browser_click, browser_type, browser_fill_form
-5. browser_take_screenshot after each major action → document visual state
-6. browser_resize to mobile width (375px) → check responsive behavior
-7. browser_console_messages → check for JavaScript errors
-8. Visually verify: rendered text (diacritics, Cyrillic), layout, colors, spacing
-9. Document findings with screenshots in .startup/reviews/
-10. For computed/derived outputs, spot-check at least one value against an independent source (hand calc / reference doc) — do not trust in-app green checks; the app can be green on a wrong result.
-11. When a change touches a business rule, check whether the same rule lives in another layer that may now be desynced.
-12. For async paid flows, capture desktop and mobile evidence of the waiting/progress page, terminal success, terminal failure, and a deliberately slow-job path.
-13. For checkout changes, verify required-field/CTA proximity at desktop and mobile widths, including keyboard navigation and screen-reader-visible validation text.
-14. Search rendered UI and metadata for internal implementation nouns and raw structured values such as `undefined`, `null`, `NaN`, `[object Object]`, empty comma slots, and raw enum keys.
-15. For compliance/risk products, inspect ambiguous and inconclusive examples; wording like `unable to verify` or `needs review` must not become an accusation.
-```
+**Delegate the mechanical legs, keep the judgment.** For judgment-free browser
+work — logging in, navigating to a target state, filling forms with given data,
+resizing, extracting computed styles — spawn the `browser-operator` subagent
+**blocking** with a self-contained errand (enumerate the exact actions; it returns
+raw state, never a verdict). Spawn `browser-operator-pro` instead when you judge
+the leg fiddly (multi-page wizard, ambiguous snapshot). While an operator leg is
+in flight, do not touch the browser yourself. You still drive the browser directly
+for every capture you must *judge*: coherence-pass screenshots, the in-flight
+loading→result transition, "placed or pasted" rendering. Never delegate a verdict —
+the operator returns evidence, you rate it. Still NEVER use curl/wget.
+
+Once the operator returns evidence (screenshots, snapshot, console messages), apply your own judgment:
+
+1. Document findings with screenshots in `.startup/reviews/`.
+2. For computed/derived outputs, spot-check at least one value against an independent source (hand calc / reference doc) — do not trust in-app green checks; the app can be green on a wrong result.
+3. When a change touches a business rule, check whether the same rule lives in another layer that may now be desynced.
+4. For async paid flows, capture desktop and mobile evidence of the waiting/progress page, terminal success, terminal failure, and a deliberately slow-job path.
+5. For checkout changes, verify required-field/CTA proximity at desktop and mobile widths, including keyboard navigation and screen-reader-visible validation text.
+6. Search rendered UI and metadata for internal implementation nouns and raw structured values such as `undefined`, `null`, `NaN`, `[object Object]`, empty comma slots, and raw enum keys.
+7. For compliance/risk products, inspect ambiguous and inconclusive examples; wording like `unable to verify` or `needs review` must not become an accusation.
 
 Why Playwright, not curl: curl only returns HTML source. It cannot reveal rendering issues (wrong fonts, broken diacritics, layout bugs, missing images, JavaScript errors). You are testing the CUSTOMER EXPERIENCE, which requires seeing what the customer sees.
 
