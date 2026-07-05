@@ -359,6 +359,7 @@ The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues h
   `scripts/health-preflight.sh` before autonomous work. It reports blocking, warning, and
   auto-fixed states as both human-readable Markdown and machine-readable JSON, checks
   `bash` 4+, `git`, `gh`, `jq`, `awk`, `sed`, `timeout`, Codex CLI when required,
+  a direct Codex worker shell smoke under the selected sandbox when Codex is required,
   GitHub auth, hook targets, dirty worktree classification, and Codex/Claude surface sync.
 - **Issue-closure audit:** `/improve` and `/goal-deliver` call
   `scripts/issue-closure-audit.sh` for PRs using `Closes`, `Fixes`, or `Resolves`. It
@@ -383,6 +384,12 @@ Playwright acceptance QA before review, completes
 `tribunal-review:closing-tribunal-loop`, merges on green, watches the default-branch
 deploy, and verifies the live URL with Playwright. An issue is not counted fixed unless
 deploy is green and live Playwright verification passed.
+
+The worker launch uses `-s "${CODEX_SANDBOX:-workspace-write}"` by default. If that
+sandbox cannot execute commands in a disposable dev container, set
+`CODEX_SANDBOX=danger-full-access`; preflight fails early when the selected sandbox is
+unusable, when `danger-full-access` is selected outside a detected container, or when
+`read-only` is selected for implementation workers.
 
 ## Self-improvement loop (`/lessons-deliver`)
 
@@ -433,7 +440,7 @@ runs in each **product** repo.
 
   `/lawyer` pre-flight also hard-fails if `DATALAKE_URL/api/v1/health/ready` does not return `200`; there is no offline fallback. The rest of the plugin works without the datalake.
 - **google-ads-strategist plugin** — required for any Google Ads work (hard dependency). Google Ads is delegated to its `ads-strategist` agent; `growth-hacker` no longer creates Google Ads campaigns itself. There is no manifest-level dependency field, so this is enforced behaviorally: `/ads` and the `/growth` loop fail with an install instruction if the plugin is absent.
-- **`codex` CLI (optional in interactive Codex, required for separate worker dispatch)** — only needed when the workflow launches a separate Codex process via `codex exec` or `scripts/codex-implement.sh`. Without it, Codex continues inline or asks for an environment fix; it never falls back to a Claude implementation engine.
+- **`codex` CLI (optional in interactive Codex, required for separate worker dispatch)** — only needed when the workflow launches a separate Codex process via `codex exec` or `scripts/codex-implement.sh`. When required, preflight verifies that the selected Codex sandbox can run a trivial shell command. Without it, Codex continues inline or asks for an environment fix; it never falls back to a Claude implementation engine.
 
 ## Implementation Engine
 

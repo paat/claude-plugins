@@ -5,6 +5,10 @@
 # Usage:
 #   health-preflight.sh [--json] [--markdown] [--require-gh] [--require-codex]
 #                       [--check-sync] [--self-repair] [--repo-root DIR] [--plugin-root DIR]
+#
+# With --require-codex, this also verifies that a fresh Codex worker shell can
+# execute under the selected sandbox. CODEX_SANDBOX overrides the default
+# workspace-write mode.
 
 set -uo pipefail
 
@@ -53,6 +57,82 @@ add() {
   printf '{"check": "%s", "status": "%s", "message": "%s"}\n' "$check" "$status_value" "$message" >> "$RESULTS"
 }
 
+codex_sandbox_mode() {
+  printf '%s\n' "${CODEX_SANDBOX:-workspace-write}"
+}
+
+codex_permissions_profile() {
+  case "$1" in
+    danger-full-access) printf '%s\n' ":danger-full-access" ;;
+    workspace-write) printf '%s\n' ":workspace" ;;
+    read-only) printf '%s\n' ":read-only" ;;
+    *) return 1 ;;
+  esac
+}
+
+compact_output() {
+  printf '%s' "$1" \
+    | tr '\n' ' ' \
+    | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//' \
+    | cut -c 1-300
+}
+
+running_in_container() {
+  case "${SAAS_PREFLIGHT_CONTAINER:-auto}" in
+    1|true|yes) return 0 ;;
+    0|false|no) return 1 ;;
+  esac
+  if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
+    return 0
+  fi
+  if [ -r /proc/1/cgroup ] && grep -qaE 'docker|containerd|kubepods|podman|libpod|lxc' /proc/1/cgroup; then
+    return 0
+  fi
+  return 1
+}
+
+codex_worker_shell_smoke() {
+  sandbox="$(codex_sandbox_mode)"
+  if ! profile="$(codex_permissions_profile "$sandbox")"; then
+    add "codex:worker-shell" blocker "unsupported CODEX_SANDBOX=$sandbox"
+    return
+  fi
+  if [ "$sandbox" = "read-only" ]; then
+    add "codex:worker-shell" blocker "Codex implementation workers require write access; use CODEX_SANDBOX=workspace-write or danger-full-access inside a disposable dev container"
+    return
+  fi
+  if [ "$sandbox" = "danger-full-access" ] && ! running_in_container; then
+    add "codex:worker-shell" blocker "Codex worker -s danger-full-access requires a disposable dev container; set CODEX_SANDBOX=workspace-write or run inside a container"
+    return
+  fi
+  if ! have_cmd timeout; then
+    add "codex:worker-shell" blocker "timeout missing; cannot bound Codex worker smoke"
+    return
+  fi
+  if ! codex sandbox --help >/dev/null 2>&1; then
+    add "codex:worker-shell" blocker "Codex CLI lacks sandbox smoke support; update Codex before launching separate workers"
+    return
+  fi
+
+  timeout_secs="${SAAS_CODEX_PREFLIGHT_TIMEOUT:-15}"
+  case "$timeout_secs" in ''|0|*[!0-9]*) timeout_secs=15 ;; esac
+
+  output="$(timeout "$timeout_secs" codex sandbox --permissions-profile "$profile" -C "$REPO_ROOT" /bin/pwd 2>&1)"
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    add "codex:worker-shell" ok "Codex worker shell smoke passed with -s $sandbox"
+    return
+  fi
+
+  summary="$(compact_output "$output")"
+  [ -n "$summary" ] || summary="exit $rc"
+  if printf '%s\n' "$output" | grep -qiE 'bwrap|namespace|sandbox'; then
+    add "codex:worker-shell" blocker "Codex worker shell sandbox unusable with -s $sandbox: $summary; use CODEX_SANDBOX=danger-full-access inside a disposable dev container or fix unprivileged user namespaces"
+  else
+    add "codex:worker-shell" blocker "Codex worker shell smoke failed with -s $sandbox: $summary"
+  fi
+}
+
 bash_major="${BASH_VERSINFO[0]:-0}"
 if [ "$bash_major" -ge 4 ]; then add bash ok "bash $BASH_VERSION"; else add bash blocker "bash 4+ is required"; fi
 
@@ -68,7 +148,12 @@ for cmd in git gh jq awk sed timeout; do
 done
 
 if [ "$REQUIRE_CODEX" -eq 1 ]; then
-  have_cmd codex && add "tool:codex" ok "codex found" || add "tool:codex" blocker "Codex CLI missing"
+  if have_cmd codex; then
+    add "tool:codex" ok "codex found"
+    codex_worker_shell_smoke
+  else
+    add "tool:codex" blocker "Codex CLI missing"
+  fi
 elif have_cmd codex; then
   add "tool:codex" ok "codex found"
 else

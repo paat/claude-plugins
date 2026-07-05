@@ -28,6 +28,7 @@ implementing in the supervisor context.
 
 1. Parse flags before doing anything that writes.
 2. Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/health-preflight.sh" --require-gh --require-codex --check-sync`.
+   This must pass the `codex:worker-shell` smoke check before queue selection.
 3. Confirm `tribunal-review:closing-tribunal-loop` and `tribunal-review:tribunal-loop` are available.
 4. Confirm Playwright browser QA is available through the plugin MCP tools or the
    project already has a Playwright runner. Do not install Playwright ad hoc.
@@ -69,17 +70,19 @@ issue body/comments itself in its fresh context.
 Reset the worktree before every issue:
 
 ```bash
+SANDBOX="${CODEX_SANDBOX:-workspace-write}"
 git -C "$WT" fetch origin "$default" --quiet
 git -C "$WT" checkout --detach "origin/$default"
 git -C "$WT" reset --hard "origin/$default"
 git -C "$WT" clean -fd
-codex exec --ephemeral --cd "$WT" - < ".startup/maintain-loop/prompts/issue-$N.md"
+codex exec --ephemeral -s "$SANDBOX" --cd "$WT" - < ".startup/maintain-loop/prompts/issue-$N.md"
 ```
 
-Trusted automation may add `--dangerously-bypass-approvals-and-sandbox` only when
-externally sandboxed; otherwise use the configured approval policy. Each
-`codex exec --ephemeral` invocation is the required fresh Codex context for
-exactly one issue.
+The default `-s workspace-write` is the normal worker sandbox. If that sandbox
+cannot execute commands in a disposable dev container, set
+`CODEX_SANDBOX=danger-full-access`; preflight blocks that mode unless container isolation is detected. `read-only` is not valid for implementation workers. Do not use
+`--dangerously-bypass-approvals-and-sandbox`. Each `codex exec --ephemeral`
+invocation is the required fresh Codex context for exactly one issue.
 
 ## Per-Issue Worker Protocol
 
