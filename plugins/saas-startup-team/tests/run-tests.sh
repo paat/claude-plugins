@@ -1229,6 +1229,33 @@ test_maintain() {
   rm -rf "$workdir"
 }
 
+test_maintain_loop() {
+  echo -e "\n${CYAN}== /maintain-loop command ==${NC}"
+  local cmd="$PLUGIN_ROOT/commands/maintain-loop.md"
+  local codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-loop-workflow/SKILL.md"
+
+  assert_file_exists "ML1: maintain-loop.md exists" "$cmd"
+  assert_file_contains "ML2: name frontmatter" "$cmd" "name: maintain-loop"
+  assert_file_contains "ML3: user_invocable" "$cmd" "user_invocable: true"
+  assert_file_contains "ML4: fresh Codex context" "$cmd" "fresh Codex context"
+  assert_file_contains "ML5: codex ephemeral worker" "$cmd" "codex exec --ephemeral"
+  assert_file_contains "ML6: one issue per worker" "$cmd" "exactly one issue"
+  assert_file_contains "ML7: dedicated worktree" "$cmd" ".worktrees/maintain-loop"
+  assert_file_contains "ML8: Playwright acceptance QA" "$cmd" "Playwright acceptance QA"
+  assert_file_contains "ML9: QA not-applicable marker" "$cmd" "Business-founder Playwright QA: not applicable"
+  assert_file_contains "ML10: closing tribunal loop" "$cmd" "tribunal-review:closing-tribunal-loop"
+  assert_file_contains "ML11: review-fix cycles" "$cmd" "review/fix"
+  assert_file_contains "ML12: closure audit" "$cmd" "issue-closure-audit.sh"
+  assert_file_contains "ML13: squash merge" "$cmd" "gh pr merge"
+  assert_file_contains "ML14: deploy watch" "$cmd" "gh run watch"
+  assert_file_contains "ML15: live Playwright verification" "$cmd" "live Playwright"
+  assert_file_contains "ML16: deploy and live required" "$cmd" "deploy green, and live Playwright verification passed"
+  assert_file_contains "ML17: not fixed without live URL" "$cmd" "do not report it as live working"
+  assert_file_exists "ML18: Codex maintain-loop workflow exists" "$codex_cmd"
+  assert_file_contains "ML19: Codex workflow aliases command" "$codex_cmd" "/maintain-loop"
+  assert_file_contains "ML20: Codex workflow hard gates" "$codex_cmd" "Codex Maintain Hard Gates"
+}
+
 # ---------------------------------------------------------------------------
 # Suite L: Auto-Commit Hook
 # ---------------------------------------------------------------------------
@@ -4638,6 +4665,7 @@ main() {
   test_post_tool_use_hook
   test_plugin_issues
   test_maintain
+  test_maintain_loop
   test_auto_commit_hook
   test_check_staged_size
   test_tone_enforcement_hook

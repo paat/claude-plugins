@@ -479,13 +479,14 @@ def command_plugin_notes(plugin_name: str) -> str:
 
 
 def command_specific_notes(plugin_name: str, command_name: str) -> str:
-    if plugin_name != "saas-startup-team" or command_name != "maintain":
+    if plugin_name != "saas-startup-team" or command_name not in {"maintain", "maintain-loop"}:
         return ""
+    command_alias = f"/{command_name}"
     return textwrap.dedent(
-        """\
+        f"""\
         ## Codex Maintain Hard Gates
 
-        During each Codex `/maintain` issue-delivery cycle, enforce these merge predicates directly:
+        During each Codex `{command_alias}` issue-delivery cycle, enforce these merge predicates directly:
 
         - Before implementation, identify the root cause / recurrence class; fix the class, not only the observed instance.
         - For bug, monitor, customer, accounting, replay, and incident-class issues, add a locking regression test, durable contract test, monitor assertion, or equivalent guard that would fail on the old behavior.
