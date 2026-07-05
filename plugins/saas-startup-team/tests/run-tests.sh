@@ -1239,6 +1239,9 @@ test_maintain_loop() {
   assert_file_contains "ML3: user_invocable" "$cmd" "user_invocable: true"
   assert_file_contains "ML4: fresh Codex context" "$cmd" "fresh Codex context"
   assert_file_contains "ML5: codex ephemeral worker" "$cmd" "codex exec --ephemeral"
+  assert_file_contains "ML5a: worker shell preflight" "$cmd" "codex:worker-shell"
+  assert_file_contains "ML5b: explicit Codex sandbox" "$cmd" "CODEX_SANDBOX"
+  assert_file_contains "ML5c: worker passes sandbox mode" "$cmd" "codex exec --ephemeral -s"
   assert_file_contains "ML6: one issue per worker" "$cmd" "exactly one issue"
   assert_file_contains "ML7: dedicated worktree" "$cmd" ".worktrees/maintain-loop"
   assert_file_contains "ML8: Playwright acceptance QA" "$cmd" "Playwright acceptance QA"
@@ -4485,6 +4488,42 @@ JSON
   ec=0; output=$(bash "$health" --json --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
   assert_exit_code "AD6: broken hook target blocks" "$ec" 1
   assert_output_contains "AD6b: names missing hook target" "$output" "missing hook target"
+  rm -rf "$workdir"
+
+  workdir=$(make_workdir)
+  mkdir -p "$workdir/plugin/hooks" "$workdir/bin"
+  printf '{"hooks":{}}\n' > "$workdir/plugin/hooks/hooks.json"
+  cat > "$workdir/bin/codex" <<'SH'
+#!/bin/sh
+if [ "$1" = "sandbox" ] && [ "${2:-}" = "--help" ]; then exit 0; fi
+if [ "$1" = "sandbox" ]; then
+  profile=""
+  root=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --permissions-profile) profile="$2"; shift 2 ;;
+      -C|--cd) root="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  if [ "$profile" = ":danger-full-access" ]; then
+    printf '%s\n' "$root"
+    exit 0
+  fi
+  printf '%s\n' "bwrap: No permissions to create a new namespace" >&2
+  exit 1
+fi
+exit 0
+SH
+  chmod +x "$workdir/bin/codex"
+  ec=0; output=$(PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
+  assert_exit_code "AD6c: required Codex smoke passes on default sandbox" "$ec" 0
+  assert_output_contains "AD6d: reports worker shell smoke" "$output" '"check": "codex:worker-shell"'
+  assert_output_contains "AD6e: default sandbox is danger full access" "$output" "danger-full-access"
+  ec=0; output=$(CODEX_SANDBOX=workspace-write PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
+  assert_exit_code "AD6f: unusable Codex sandbox blocks" "$ec" 1
+  assert_output_contains "AD6g: bwrap failure is surfaced" "$output" "bwrap:"
+  assert_output_contains "AD6h: remediation names safe sandbox" "$output" "CODEX_SANDBOX=danger-full-access"
   rm -rf "$workdir"
 
   workdir=$(mktemp -d)
