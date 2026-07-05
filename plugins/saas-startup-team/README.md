@@ -388,7 +388,8 @@ deploy is green and live Playwright verification passed.
 The worker launch uses `-s "${CODEX_SANDBOX:-danger-full-access}"` by default, matching
 the plugin's disposable-dev-container sandbox posture. Set `CODEX_SANDBOX=workspace-write`
 or `read-only` only on hosts where the Codex sandbox can execute shell commands; preflight
-fails early when that sandbox is unusable.
+fails early when that sandbox is unusable or when `danger-full-access` is selected outside
+a detected container.
 
 ## Self-improvement loop (`/lessons-deliver`)
 

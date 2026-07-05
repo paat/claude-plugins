@@ -1242,6 +1242,7 @@ test_maintain_loop() {
   assert_file_contains "ML5a: worker shell preflight" "$cmd" "codex:worker-shell"
   assert_file_contains "ML5b: explicit Codex sandbox" "$cmd" "CODEX_SANDBOX"
   assert_file_contains "ML5c: worker passes sandbox mode" "$cmd" "codex exec --ephemeral -s"
+  assert_file_contains "ML5d: danger mode requires container" "$cmd" "container isolation is detected"
   assert_file_contains "ML6: one issue per worker" "$cmd" "exactly one issue"
   assert_file_contains "ML7: dedicated worktree" "$cmd" ".worktrees/maintain-loop"
   assert_file_contains "ML8: Playwright acceptance QA" "$cmd" "Playwright acceptance QA"
@@ -4520,10 +4521,13 @@ SH
   assert_exit_code "AD6c: required Codex smoke passes on default sandbox" "$ec" 0
   assert_output_contains "AD6d: reports worker shell smoke" "$output" '"check": "codex:worker-shell"'
   assert_output_contains "AD6e: default sandbox is danger full access" "$output" "danger-full-access"
+  ec=0; output=$(SAAS_PREFLIGHT_CONTAINER=0 PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
+  assert_exit_code "AD6f: danger sandbox outside container blocks" "$ec" 1
+  assert_output_contains "AD6g: container requirement surfaced" "$output" "requires a disposable dev container"
   ec=0; output=$(CODEX_SANDBOX=workspace-write PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
-  assert_exit_code "AD6f: unusable Codex sandbox blocks" "$ec" 1
-  assert_output_contains "AD6g: bwrap failure is surfaced" "$output" "bwrap:"
-  assert_output_contains "AD6h: remediation names safe sandbox" "$output" "CODEX_SANDBOX=danger-full-access"
+  assert_exit_code "AD6h: unusable Codex sandbox blocks" "$ec" 1
+  assert_output_contains "AD6i: bwrap failure is surfaced" "$output" "bwrap:"
+  assert_output_contains "AD6j: remediation names safe sandbox" "$output" "CODEX_SANDBOX=danger-full-access"
   rm -rf "$workdir"
 
   workdir=$(mktemp -d)

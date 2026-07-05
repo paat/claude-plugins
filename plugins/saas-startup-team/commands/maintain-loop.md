@@ -83,9 +83,10 @@ codex exec --ephemeral -s "$SANDBOX" --cd "$WT" - < ".startup/maintain-loop/prom
 ```
 
 The default `-s danger-full-access` matches the plugin's dev-container-only
-sandbox posture and avoids container bwrap failures. Set `CODEX_SANDBOX` to
-`workspace-write` or `read-only` only when that Codex sandbox can execute shell
-commands; the preflight verifies this. Do not use
+sandbox posture and avoids container bwrap failures. Preflight blocks this mode
+unless container isolation is detected. Set `CODEX_SANDBOX` to `workspace-write`
+or `read-only` only when that Codex sandbox can execute shell commands; the
+preflight verifies this. Do not use
 `--dangerously-bypass-approvals-and-sandbox`. Each `codex exec --ephemeral`
 invocation is the required fresh Codex context for exactly one issue.
 

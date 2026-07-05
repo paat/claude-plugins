@@ -81,10 +81,28 @@ compact_output() {
     | cut -c 1-300
 }
 
+running_in_container() {
+  case "${SAAS_PREFLIGHT_CONTAINER:-auto}" in
+    1|true|yes) return 0 ;;
+    0|false|no) return 1 ;;
+  esac
+  if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
+    return 0
+  fi
+  if [ -r /proc/1/cgroup ] && grep -qaE 'docker|containerd|kubepods|podman|libpod|lxc' /proc/1/cgroup; then
+    return 0
+  fi
+  return 1
+}
+
 codex_worker_shell_smoke() {
   sandbox="$(codex_sandbox_mode)"
   if ! profile="$(codex_permissions_profile "$sandbox")"; then
     add "codex:worker-shell" blocker "unsupported CODEX_SANDBOX=$sandbox"
+    return
+  fi
+  if [ "$sandbox" = "danger-full-access" ] && ! running_in_container; then
+    add "codex:worker-shell" blocker "Codex worker -s danger-full-access requires a disposable dev container; set CODEX_SANDBOX=workspace-write or run inside a container"
     return
   fi
   if ! have_cmd timeout; then
