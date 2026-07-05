@@ -70,11 +70,7 @@ issue body/comments itself in its fresh context.
 Reset the worktree before every issue:
 
 ```bash
-if [ "${CODEX_NO_BYPASS:-0}" = "1" ]; then
-  SANDBOX="${CODEX_SANDBOX:-workspace-write}"
-else
-  SANDBOX="${CODEX_SANDBOX:-danger-full-access}"
-fi
+SANDBOX="${CODEX_SANDBOX:-workspace-write}"
 git -C "$WT" fetch origin "$default" --quiet
 git -C "$WT" checkout --detach "origin/$default"
 git -C "$WT" reset --hard "origin/$default"
@@ -82,11 +78,9 @@ git -C "$WT" clean -fd
 codex exec --ephemeral -s "$SANDBOX" --cd "$WT" - < ".startup/maintain-loop/prompts/issue-$N.md"
 ```
 
-The default `-s danger-full-access` matches the plugin's dev-container-only
-sandbox posture and avoids container bwrap failures. Preflight blocks this mode
-unless container isolation is detected. Set `CODEX_SANDBOX` to `workspace-write`
-or `read-only` only when that Codex sandbox can execute shell commands; the
-preflight verifies this. Do not use
+The default `-s workspace-write` is the normal worker sandbox. If that sandbox
+cannot execute commands in a disposable dev container, set
+`CODEX_SANDBOX=danger-full-access`; preflight blocks that mode unless container isolation is detected. `read-only` is not valid for implementation workers. Do not use
 `--dangerously-bypass-approvals-and-sandbox`. Each `codex exec --ephemeral`
 invocation is the required fresh Codex context for exactly one issue.
 

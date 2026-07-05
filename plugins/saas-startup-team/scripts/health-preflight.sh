@@ -8,7 +8,7 @@
 #
 # With --require-codex, this also verifies that a fresh Codex worker shell can
 # execute under the selected sandbox. CODEX_SANDBOX overrides the default
-# danger-full-access mode; CODEX_NO_BYPASS=1 keeps the legacy workspace-write default.
+# workspace-write mode.
 
 set -uo pipefail
 
@@ -58,11 +58,7 @@ add() {
 }
 
 codex_sandbox_mode() {
-  if [ "${CODEX_NO_BYPASS:-0}" = "1" ]; then
-    printf '%s\n' "${CODEX_SANDBOX:-workspace-write}"
-  else
-    printf '%s\n' "${CODEX_SANDBOX:-danger-full-access}"
-  fi
+  printf '%s\n' "${CODEX_SANDBOX:-workspace-write}"
 }
 
 codex_permissions_profile() {
@@ -101,6 +97,10 @@ codex_worker_shell_smoke() {
     add "codex:worker-shell" blocker "unsupported CODEX_SANDBOX=$sandbox"
     return
   fi
+  if [ "$sandbox" = "read-only" ]; then
+    add "codex:worker-shell" blocker "Codex implementation workers require write access; use CODEX_SANDBOX=workspace-write or danger-full-access inside a disposable dev container"
+    return
+  fi
   if [ "$sandbox" = "danger-full-access" ] && ! running_in_container; then
     add "codex:worker-shell" blocker "Codex worker -s danger-full-access requires a disposable dev container; set CODEX_SANDBOX=workspace-write or run inside a container"
     return
@@ -115,7 +115,7 @@ codex_worker_shell_smoke() {
   fi
 
   timeout_secs="${SAAS_CODEX_PREFLIGHT_TIMEOUT:-15}"
-  case "$timeout_secs" in ''|*[!0-9]*) timeout_secs=15 ;; esac
+  case "$timeout_secs" in ''|0|*[!0-9]*) timeout_secs=15 ;; esac
 
   output="$(timeout "$timeout_secs" codex sandbox --permissions-profile "$profile" -C "$REPO_ROOT" /bin/pwd 2>&1)"
   rc=$?
