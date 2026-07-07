@@ -50,4 +50,4 @@ During each Codex `/maintain-loop` issue-delivery cycle, enforce these merge pre
 
 - Plugin: `saas-startup-team`
 - Command aliases: `/saas-startup-team:maintain-loop`, `/maintain-loop`
-- Source description: Codex-first GitHub issue delivery loop. For each eligible issue, launch a fresh Codex context from the latest default branch, implement the issue, run Playwright acceptance QA, close the tribunal review/fix loop, merge to main, watch deploy, and verify the live app. Flags: --once, --dry-run, --issue N, --label LABEL, --max-issues N, --max-run-minutes N. Usage: /maintain-loop [--once] [--issue N] [--max-issues N]
+- Source description: Codex-first GitHub issue delivery loop. For each eligible issue, launch a fresh Codex context from the latest default branch, implement the issue, run Playwright acceptance QA, close the tribunal review/fix loop, merge to main, watch deploy, and verify the live app. Flags: --once, --dry-run, --issue N, --label LABEL, --max-issues N, --max-merges N, --max-run-minutes N. Usage: /maintain-loop [--once] [--issue N] [--max-issues N] [--max-merges N]
