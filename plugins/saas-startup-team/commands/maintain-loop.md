@@ -18,10 +18,11 @@ implementing in the supervisor context.
 ## Flags
 
 - `--dry-run`: read-only; list the queue and planned worker prompts only.
-- `--once`: run one pass, then stop.
+- `--once`: deliver at most one issue, then stop.
 - `--issue N`: deliver only that issue.
 - `--label LABEL`: include only issues with this label.
-- `--max-issues N`: cap delivered issues this pass; default `1`.
+- `--max-issues N`: cap delivered issues this pass; default unset, meaning no
+  issue-count cap.
 - `--max-run-minutes N`: total wall-clock cap; default `120`, `0` means unlimited.
 
 ## Preflight
@@ -62,8 +63,11 @@ Build the queue from GitHub, not local memory:
 
 For each queued issue, write a small prompt file under
 `.startup/maintain-loop/prompts/issue-<N>.md` containing only the issue number,
-default branch, required protocol below, and the run id. The worker must fetch the
-issue body/comments itself in its fresh context.
+default branch, assigned worktree path, required protocol below, and the run id.
+The prompt must explicitly tell the worker that every shell command touching the
+repo starts with `cd <assigned worktree> &&`; the worker must not rely on tool
+`workdir` / `--cd` alone. The worker must fetch the issue body/comments itself in
+its fresh context.
 
 ## Fresh Worker Launch
 
@@ -71,11 +75,12 @@ Reset the worktree before every issue:
 
 ```bash
 SANDBOX="${CODEX_SANDBOX:-workspace-write}"
+PROMPT="$REPO_ROOT/.startup/maintain-loop/prompts/issue-$N.md"
 git -C "$WT" fetch origin "$default" --quiet
 git -C "$WT" checkout --detach "origin/$default"
 git -C "$WT" reset --hard "origin/$default"
 git -C "$WT" clean -fd
-codex exec --ephemeral -s "$SANDBOX" --cd "$WT" - < ".startup/maintain-loop/prompts/issue-$N.md"
+(cd "$WT" && codex exec --ephemeral -s "$SANDBOX" --cd "$WT" - < "$PROMPT")
 ```
 
 The default `-s workspace-write` is the normal worker sandbox. If that sandbox
@@ -86,7 +91,10 @@ invocation is the required fresh Codex context for exactly one issue.
 
 ## Per-Issue Worker Protocol
 
-The fresh worker owns the whole issue delivery:
+The fresh worker owns the whole issue delivery. At the start, verify `pwd` and
+`git rev-parse --show-toplevel` both point at the assigned worktree. Prefix every
+repo-touching shell command with `cd <assigned worktree> &&` even when the Codex
+tool call has a workdir. Stop if a command runs in any other checkout.
 
 1. Fetch the issue with `gh issue view N --json number,title,body,labels,comments,updatedAt`
    and linked PR state. Stop if closed, parked, already claimed by an open PR, or
@@ -110,8 +118,18 @@ The fresh worker owns the whole issue delivery:
 8. Open a PR with `Closes #N` only when every material issue promise is satisfied.
    The PR body must include the root-cause class, red-before/green-after proof,
    guard path or not-applicable reason, Playwright acceptance evidence, and risk notes.
-9. Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/issue-closure-audit.sh" --pr "<pr url>"`
-   for closing PRs and fix any mismatch or switch the PR to `Refs #N`.
+9. Resolve and run the closure audit in the worker at execution time; do not
+   paste a previously resolved versioned plugin-cache path into the prompt:
+   ```bash
+   PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-}"
+   if [ -z "$PLUGIN_ROOT" ] || [ ! -f "$PLUGIN_ROOT/scripts/issue-closure-audit.sh" ]; then
+     PLUGIN_ROOT="$(find "${CODEX_HOME:-$HOME/.codex}/plugins/cache/paat-plugins/saas-startup-team" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1)"
+   fi
+   AUDIT_SCRIPT="$PLUGIN_ROOT/scripts/issue-closure-audit.sh"
+   [ -f "$AUDIT_SCRIPT" ] || { echo "issue-closure-audit.sh not found" >&2; exit 1; }
+   bash "$AUDIT_SCRIPT" --pr "<pr url>"
+   ```
+   Fix any mismatch or switch the PR to `Refs #N`.
 10. Load and follow `tribunal-review:closing-tribunal-loop`. Iterate review/fix
     cycles until the latest arbiter verdict covers the current PR HEAD and latest
     diff with zero critical/high findings. Any code diff, validation-changing PR
@@ -145,8 +163,10 @@ The supervisor counts an issue as delivered only when the worker artifact record
 
 ## Stop Rules
 
-Stop the pass when `--max-issues`, `--max-run-minutes`, a required dependency is
-missing, a tribunal loop reaches its hard ceiling, or any deploy/live failure is
-not confidently fixed. Under `--once`, report the pass summary and exit.
+Stop the pass when no eligible issues remain, an explicit `--max-issues` cap is
+reached, `--max-run-minutes` is reached, a required dependency is missing, a
+tribunal loop reaches its hard ceiling, or any deploy/live failure is not
+confidently fixed. Under `--once`, stop after one issue and report the pass
+summary.
 Final report: queue size, issue final states, PR links, deploy/live status, and
 blockers requiring human action. Keep implementation details in the worker artifact.

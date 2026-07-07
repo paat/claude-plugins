@@ -317,7 +317,8 @@ whether main moved during the run, and any health-check/migration output:
 ## 8. Circuit Breakers (cost & blast-radius)
 
 Layered — no single cap suffices:
-- `--max-issues N` delivered per pass (default 10).
+- `--max-issues N` delivered per pass (default unset: continue until no
+  eligible issues or another stop rule applies; use `--once` for one issue).
 - `--max-merges N` per pass (default 5).
 - **Wall-clock budget** per pass and per run (configurable defaults).
 - Per-issue tribunal-round cap (§7.2).

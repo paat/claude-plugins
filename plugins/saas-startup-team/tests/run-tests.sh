@@ -1246,19 +1246,28 @@ test_maintain_loop() {
   assert_file_contains "ML5e: default sandbox is workspace-write" "$cmd" 'CODEX_SANDBOX:-workspace-write'
   assert_file_contains "ML6: one issue per worker" "$cmd" "exactly one issue"
   assert_file_contains "ML7: dedicated worktree" "$cmd" ".worktrees/maintain-loop"
-  assert_file_contains "ML8: Playwright acceptance QA" "$cmd" "Playwright acceptance QA"
-  assert_file_contains "ML9: QA not-applicable marker" "$cmd" "Business-founder Playwright QA: not applicable"
-  assert_file_contains "ML10: closing tribunal loop" "$cmd" "tribunal-review:closing-tribunal-loop"
-  assert_file_contains "ML11: review-fix cycles" "$cmd" "review/fix"
-  assert_file_contains "ML12: closure audit" "$cmd" "issue-closure-audit.sh"
-  assert_file_contains "ML13: squash merge" "$cmd" "gh pr merge"
-  assert_file_contains "ML14: deploy watch" "$cmd" "gh run watch"
-  assert_file_contains "ML15: live Playwright verification" "$cmd" "live Playwright"
-  assert_file_contains "ML16: deploy and live required" "$cmd" "deploy green, and live Playwright verification passed"
-  assert_file_contains "ML17: not fixed without live URL" "$cmd" "do not report it as live working"
-  assert_file_exists "ML18: Codex maintain-loop workflow exists" "$codex_cmd"
-  assert_file_contains "ML19: Codex workflow aliases command" "$codex_cmd" "/maintain-loop"
-  assert_file_contains "ML20: Codex workflow hard gates" "$codex_cmd" "Codex Maintain Hard Gates"
+  assert_file_contains "ML8: maintain-loop default has no issue-count cap" "$cmd" "default unset, meaning no"
+  assert_file_not_contains "ML8b: maintain-loop no longer defaults max-issues to one" "$cmd" 'default `1`'
+  assert_file_contains "ML9: --once is one-issue mode" "$cmd" '--once`: deliver at most one issue'
+  assert_file_contains "ML10: worker prompt carries assigned worktree" "$cmd" "assigned worktree path"
+  assert_file_contains "ML11: worker commands cd into worktree" "$cmd" 'cd <assigned worktree> &&'
+  assert_file_contains "ML12: supervisor launches from worktree" "$cmd" '(cd "$WT" && codex exec'
+  assert_file_contains "ML13: worker verifies actual cwd" "$cmd" "git rev-parse --show-toplevel"
+  assert_file_contains "ML14: closure audit runtime resolver" "$cmd" "Resolve and run the closure audit in the worker at execution time"
+  assert_file_not_contains "ML14b: closure audit does not bake Claude plugin root path" "$cmd" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/issue-closure-audit.sh" --pr "<pr url>"'
+  assert_file_contains "ML15: Playwright acceptance QA" "$cmd" "Playwright acceptance QA"
+  assert_file_contains "ML16: QA not-applicable marker" "$cmd" "Business-founder Playwright QA: not applicable"
+  assert_file_contains "ML17: closing tribunal loop" "$cmd" "tribunal-review:closing-tribunal-loop"
+  assert_file_contains "ML18: review-fix cycles" "$cmd" "review/fix"
+  assert_file_contains "ML19: closure audit" "$cmd" "issue-closure-audit.sh"
+  assert_file_contains "ML20: squash merge" "$cmd" "gh pr merge"
+  assert_file_contains "ML21: deploy watch" "$cmd" "gh run watch"
+  assert_file_contains "ML22: live Playwright verification" "$cmd" "live Playwright"
+  assert_file_contains "ML23: deploy and live required" "$cmd" "deploy green, and live Playwright verification passed"
+  assert_file_contains "ML24: not fixed without live URL" "$cmd" "do not report it as live working"
+  assert_file_exists "ML25: Codex maintain-loop workflow exists" "$codex_cmd"
+  assert_file_contains "ML26: Codex workflow aliases command" "$codex_cmd" "/maintain-loop"
+  assert_file_contains "ML27: Codex workflow hard gates" "$codex_cmd" "Codex Maintain Hard Gates"
 }
 
 # ---------------------------------------------------------------------------
