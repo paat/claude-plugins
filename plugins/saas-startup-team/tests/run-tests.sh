@@ -1248,26 +1248,54 @@ test_maintain_loop() {
   assert_file_contains "ML7: dedicated worktree" "$cmd" ".worktrees/maintain-loop"
   assert_file_contains "ML8: maintain-loop default has no issue-count cap" "$cmd" "default unset, meaning no"
   assert_file_not_contains "ML8b: maintain-loop no longer defaults max-issues to one" "$cmd" 'default `1`'
-  assert_file_contains "ML9: --once is one-issue mode" "$cmd" '--once`: deliver at most one issue'
-  assert_file_contains "ML10: worker prompt carries assigned worktree" "$cmd" "assigned worktree path"
-  assert_file_contains "ML11: worker commands cd into worktree" "$cmd" 'cd <assigned worktree> &&'
-  assert_file_contains "ML12: supervisor launches from worktree" "$cmd" '(cd "$WT" && codex exec'
-  assert_file_contains "ML13: worker verifies actual cwd" "$cmd" "git rev-parse --show-toplevel"
-  assert_file_contains "ML14: closure audit runtime resolver" "$cmd" "Resolve and run the closure audit in the worker at execution time"
-  assert_file_not_contains "ML14b: closure audit does not bake Claude plugin root path" "$cmd" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/issue-closure-audit.sh" --pr "<pr url>"'
-  assert_file_contains "ML15: Playwright acceptance QA" "$cmd" "Playwright acceptance QA"
-  assert_file_contains "ML16: QA not-applicable marker" "$cmd" "Business-founder Playwright QA: not applicable"
-  assert_file_contains "ML17: closing tribunal loop" "$cmd" "tribunal-review:closing-tribunal-loop"
-  assert_file_contains "ML18: review-fix cycles" "$cmd" "review/fix"
-  assert_file_contains "ML19: closure audit" "$cmd" "issue-closure-audit.sh"
-  assert_file_contains "ML20: squash merge" "$cmd" "gh pr merge"
-  assert_file_contains "ML21: deploy watch" "$cmd" "gh run watch"
-  assert_file_contains "ML22: live Playwright verification" "$cmd" "live Playwright"
-  assert_file_contains "ML23: deploy and live required" "$cmd" "deploy green, and live Playwright verification passed"
-  assert_file_contains "ML24: not fixed without live URL" "$cmd" "do not report it as live working"
-  assert_file_exists "ML25: Codex maintain-loop workflow exists" "$codex_cmd"
-  assert_file_contains "ML26: Codex workflow aliases command" "$codex_cmd" "/maintain-loop"
-  assert_file_contains "ML27: Codex workflow hard gates" "$codex_cmd" "Codex Maintain Hard Gates"
+  assert_file_contains "ML9: max-merges cap" "$cmd" '--max-merges N`: cap issue and deploy-fix merges this pass'
+  assert_file_contains "ML9b: max-merges stop rule" "$cmd" 'the `--max-merges` cap is reached'
+  assert_file_contains "ML9c: max-merges appears in usage" "$cmd" "Usage: /maintain-loop .*--max-merges N"
+  assert_file_contains "ML9c2: max-merges initialized" "$cmd" 'MAX_MERGES="${MAX_MERGES:-5}"'
+  assert_file_contains "ML9c3: merges-used initialized" "$cmd" 'MERGES_USED="${MERGES_USED:-0}"'
+  assert_file_contains "ML9c4: supervisor reads worker artifact from worktree" "$cmd" 'ARTIFACT="$WT/.startup/maintain-loop/runs/$RUN_ID/issue-$N.md"'
+  assert_file_contains "ML9c5: supervisor increments merge budget" "$cmd" 'MERGES_USED=$((MERGES_USED + merge_count))'
+  assert_file_contains "ML9c6: malformed merge_count fails closed" "$cmd" "malformed merge_count"
+  assert_file_contains "ML9c7: max-issues initialized" "$cmd" 'ISSUES_DELIVERED="${ISSUES_DELIVERED:-0}"'
+  assert_file_contains "ML9c8: max-issues enforced in loop" "$cmd" 'ISSUES_DELIVERED=$((ISSUES_DELIVERED + 1))'
+  assert_file_contains "ML9c9: once sets one-issue cap" "$cmd" 'MAX_ISSUES=1'
+  assert_file_contains "ML9c10: run id initialized" "$cmd" 'RUN_ID="${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"'
+  assert_file_contains "ML9c11: over-budget artifact fails closed" "$cmd" "over-budget merge_count"
+  assert_file_contains "ML9c12: rollback overage exception" "$cmd" 'overage_reason" != "rollback"'
+  assert_file_contains "ML9c13: rollback overage capped to one merge" "$cmd" 'REMAINING_MERGES + 1'
+  assert_file_contains "ML9d: supervisor passes remaining merge budget" "$cmd" "remaining merge budget"
+  assert_file_contains "ML9e: worker stops before budget overflow" "$cmd" "blocked:merge-budget-exhausted"
+  assert_file_contains "ML9f: artifact reports merge count" "$cmd" "merge_count:<N>"
+  assert_file_contains "ML9g: artifact reports merged PRs" "$cmd" "merged_prs:<list>"
+  assert_file_contains "ML9h: prompt generated after budget calculation" "$cmd" "Generate/rewrite"
+  assert_file_contains "ML9i: worker tracks local merge count" "$cmd" "worker_merges_used"
+  assert_file_contains "ML9j: rollback may exceed budget to restore production" "$cmd" "merge_budget_overage:rollback"
+  assert_file_contains "ML9k: rollback overage halts pass" "$cmd" "rollback overage was recorded"
+  assert_file_contains "ML9l: budget-exhausted regression rolls back" "$cmd" "no forward merge budget remains"
+  assert_file_contains "ML9m: strict artifact markers" "$cmd" "markers must start at column 1"
+  assert_file_contains "ML10: --once is one-issue mode" "$cmd" '--once`: deliver at most one issue'
+  assert_file_contains "ML11: worker prompt carries assigned worktree" "$cmd" "assigned worktree path"
+  assert_file_contains "ML12: worker commands cd into worktree" "$cmd" 'cd <assigned worktree> &&'
+  assert_file_contains "ML13: supervisor launches from worktree" "$cmd" '(cd "$WT" && codex exec'
+  assert_file_contains "ML14: worker verifies actual cwd" "$cmd" "git rev-parse --show-toplevel"
+  assert_file_contains "ML15: closure audit runtime resolver" "$cmd" "Resolve and run the closure audit in the worker at execution time"
+  assert_file_contains "ML15b: closure audit searches marketplace-agnostic cache" "$cmd" "saas-startup-team/.*/scripts/issue-closure-audit\\.sh"
+  assert_file_contains "ML15c: closure audit compares numeric version keys" "$cmd" "version_key"
+  assert_file_not_contains "ML15d: closure audit does not hardcode marketplace" "$cmd" "paat-plugins/saas-startup-team"
+  assert_file_not_contains "ML15e: closure audit does not bake Claude plugin root path" "$cmd" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/issue-closure-audit.sh" --pr "<pr url>"'
+  assert_file_contains "ML16: Playwright acceptance QA" "$cmd" "Playwright acceptance QA"
+  assert_file_contains "ML17: QA not-applicable marker" "$cmd" "Business-founder Playwright QA: not applicable"
+  assert_file_contains "ML18: closing tribunal loop" "$cmd" "tribunal-review:closing-tribunal-loop"
+  assert_file_contains "ML19: review-fix cycles" "$cmd" "review/fix"
+  assert_file_contains "ML20: closure audit" "$cmd" "issue-closure-audit.sh"
+  assert_file_contains "ML21: squash merge" "$cmd" "gh pr merge"
+  assert_file_contains "ML22: deploy watch" "$cmd" "gh run watch"
+  assert_file_contains "ML23: live Playwright verification" "$cmd" "live Playwright"
+  assert_file_contains "ML24: deploy and live required" "$cmd" "deploy green, live Playwright verification passed"
+  assert_file_contains "ML25: not fixed without live URL" "$cmd" "do not report it as live working"
+  assert_file_exists "ML26: Codex maintain-loop workflow exists" "$codex_cmd"
+  assert_file_contains "ML27: Codex workflow aliases command" "$codex_cmd" "/maintain-loop"
+  assert_file_contains "ML28: Codex workflow hard gates" "$codex_cmd" "Codex Maintain Hard Gates"
 }
 
 # ---------------------------------------------------------------------------
