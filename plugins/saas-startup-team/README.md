@@ -337,6 +337,8 @@ The supervisor is watched remotely via `/rc` (the human is a silent investor); i
 
 An issue is delivered only **after** its explicitly-declared prerequisites (`depends on #N`, `blocked by #N`) have merged. The supervisor builds a DAG per pass; a cycle or a prerequisite that is itself `needs-human` / blocked → defer the dependent. Within the dependency-eligible set, order by severity (`critical` → `high` → `medium` → `low`); absent or unlabelled → oldest-first.
 
+Queue construction runs through `scripts/maintain-queue.sh`, so no-dependency issues are preserved, linked PRs and excluded labels are accounted for, and an unexplained empty queue fails the pass instead of silently no-oping.
+
 ### Merge safety gate
 
 **The green gate is mandatory:** every PR that clears it is merged immediately. The gate comprises latest-HEAD tribunal clearance with zero critical/high findings, required CI checks passing, and recurrence proof. Bug, monitor, customer, accounting, replay, and incident-class issues must fix the recurrence class and add a regression/contract/monitor guard that would fail on the old behavior, or explicitly record why no durable guard is possible. No human-hold tier — the merged diff is the authority on whether the fix is correct.

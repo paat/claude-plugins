@@ -59,7 +59,8 @@ Under `--dry-run`, skip the worktree create/update and print what would run.
 
 ## Queue
 
-Build the queue from GitHub, not local memory:
+Build the queue from GitHub, not local memory. Use the plugin-owned queue
+builder; do not hand-roll dependency parsing with ad hoc `jq scan(...)`.
 
 - `--issue N` means only that issue.
 - Otherwise list open issues, optionally filtered by `--label`.
@@ -68,6 +69,21 @@ Build the queue from GitHub, not local memory:
 - Honor explicit `depends on #N` / `blocked by #N` dependencies; do not infer edges.
 - Order dependency-ready issues by severity labels `critical`, `high`, `medium`,
   `low`, then oldest first.
+
+```bash
+queue_args=()
+[ -n "${ISSUE:-}" ] && queue_args+=(--issue "$ISSUE")
+[ -n "${LABEL:-}" ] && queue_args+=(--label "$LABEL")
+[ -f .startup/maintain/blocked.jsonl ] && queue_args+=(--blocked-file .startup/maintain/blocked.jsonl)
+if ! QUEUE_JSON="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-queue.sh" "${queue_args[@]}")"; then
+  exit 1
+fi
+mapfile -t QUEUE < <(printf '%s\n' "$QUEUE_JSON" | jq -r '.queue[].number')
+```
+
+If the builder exits non-zero, stop the pass and report its stderr. A zero
+eligible queue is acceptable only when the JSON report accounts for every open
+issue under `excluded`; otherwise the builder fails loudly.
 
 For each queued issue, generate or rewrite a small prompt file immediately before
 worker launch, after computing the current remaining merge budget. Write it under
