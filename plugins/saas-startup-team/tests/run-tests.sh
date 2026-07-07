@@ -1132,8 +1132,8 @@ test_maintain() {
   assert_file_contains "M14: human-tasks.md"           "$cmd" "human-tasks.md"
   # Dependency ordering in v1
   assert_file_contains "M15: dependency order"         "$cmd" "depends on"
-  # Idempotency: linked-PR detection
-  assert_file_contains "M16: linked-PR detection"      "$cmd" "closedByPullRequestsReferences"
+  # Idempotency: linked-PR detection is delegated to the queue builder.
+  assert_file_contains "M16: linked-PR detection"      "$cmd" ".excluded.linked_pr"
   # Injection firewall + external side-effect ban
   assert_file_contains "M17: injection firewall"       "$cmd" "inform requirements only"
   assert_file_contains "M18: side-effect ban"          "$cmd" "side-effect"
@@ -1172,6 +1172,339 @@ test_maintain() {
   assert_file_contains "M43: Codex gates run in maintain cycle" "$codex_cmd" "issue-delivery cycle"
   assert_file_contains "M44: Codex QA before closing loop" "$codex_cmd" "business-founder QA phase with Playwright"
   assert_file_contains "M45: Codex QA not-applicable record" "$codex_cmd" "Business-founder Playwright QA: not applicable"
+  assert_file_contains "M45a: maintain uses queue builder" "$cmd" "maintain-queue.sh"
+  assert_file_contains "M45a1: maintain checks queue builder exit" "$cmd" "if ! QUEUE_JSON="
+  assert_file_contains "M45a2: maintain dry-run uses fixture queue state" "$cmd" "--issues-file <issues.json>"
+
+  # Queue builder regression: no-dependency issues must survive dependency parsing.
+  local queue_script issues_file prs_file blocked_file bad_blocked_file bad_blocked_err dep_issues_file dep_status_file serial_dep_issues_file serial_dep_status_file closed_issues_file fake_bin live_out repo_live_out closed_status closed_err missing_status missing_err fixture_closed_status fixture_closed_err zero_status zero_err bad_blocked_status out filtered single_issue cooled dep_out serial_dep_out queue_numbers
+  queue_script="$PLUGIN_ROOT/scripts/maintain-queue.sh"
+  assert_file_exists "M45b: queue builder script exists" "$queue_script"
+  assert_file_contains "M45b1: queue builder fetches linked PR refs" "$queue_script" "closedByPullRequestsReferences"
+  workdir=$(mktemp -d)
+  issues_file="$workdir/issues.json"
+  prs_file="$workdir/open-prs.json"
+  cat > "$issues_file" <<'JSON'
+[
+  {
+    "number": 101,
+    "title": "Unlabelled no-dependency issue",
+    "body": "No dependency markers here.",
+    "labels": [],
+    "createdAt": "2026-01-05T00:00:00Z",
+    "updatedAt": "2026-01-05T00:00:00Z"
+  },
+  {
+    "number": 102,
+    "title": "Critical no-dependency issue",
+    "body": "No dependency markers here either.",
+    "labels": [{"name": "critical"}, {"name": "release"}],
+    "createdAt": "2026-01-04T00:00:00Z",
+    "updatedAt": "2026-01-04T00:00:00Z"
+  },
+  {
+    "number": 103,
+    "title": "Already has PR",
+    "body": "Fix is in flight.",
+    "labels": [{"name": "high"}],
+    "createdAt": "2026-01-01T00:00:00Z",
+    "updatedAt": "2026-01-01T00:00:00Z"
+  },
+  {
+    "number": 104,
+    "title": "Depends on queued work",
+    "body": "Blocked by #101, #102; context from #110.",
+    "labels": [{"name": "medium"}],
+    "createdAt": "2026-01-03T00:00:00Z",
+    "updatedAt": "2026-01-03T00:00:00Z"
+  },
+  {
+    "number": 105,
+    "title": "Human decision",
+    "body": "Needs a product call.",
+    "labels": [{"name": "needs-human"}],
+    "createdAt": "2026-01-06T00:00:00Z",
+    "updatedAt": "2026-01-06T00:00:00Z"
+  },
+  {
+    "number": 106,
+    "title": "Temporarily blocked",
+    "body": "External dependency.",
+    "labels": [{"name": "maintain:blocked"}],
+    "createdAt": "2026-01-07T00:00:00Z",
+    "updatedAt": "2026-01-07T00:00:00Z"
+  },
+  {
+    "number": 107,
+    "title": "Umbrella epic",
+    "body": "Tracking issue.",
+    "labels": [{"name": "epic"}],
+    "createdAt": "2026-01-08T00:00:00Z",
+    "updatedAt": "2026-01-08T00:00:00Z"
+  },
+  {
+    "number": 108,
+    "title": "Low no-dependency issue",
+    "body": "No dependency markers.",
+    "labels": [{"name": "low"}],
+    "createdAt": "2026-01-02T00:00:00Z",
+    "updatedAt": "2026-01-02T00:00:00Z"
+  },
+  {
+    "number": 109,
+    "title": "Mentioned by in-flight PR",
+    "body": "No dependency markers.",
+    "labels": [{"name": "high"}],
+    "createdAt": "2026-01-08T00:00:00Z",
+    "updatedAt": "2026-01-08T00:00:00Z"
+  },
+  {
+    "number": 110,
+    "title": "High no-dependency issue",
+    "body": "No dependency markers.",
+    "labels": [{"name": "high"}],
+    "createdAt": "2026-01-09T00:00:00Z",
+    "updatedAt": "2026-01-09T00:00:00Z"
+  },
+  {
+    "number": 111,
+    "title": "Medium no-dependency issue",
+    "body": "No dependency markers.",
+    "labels": [{"name": "medium"}],
+    "createdAt": "2026-01-10T00:00:00Z",
+    "updatedAt": "2026-01-10T00:00:00Z"
+  }
+]
+JSON
+  cat > "$prs_file" <<'JSON'
+[
+  {
+    "number": 20,
+    "title": "Fix linked issue",
+    "body": "Closes #103",
+    "closingIssuesReferences": [{"number": 103}]
+  },
+  {
+    "number": 21,
+    "title": "WIP for #109",
+    "body": "Implementation notes only; no closing keyword.",
+    "closingIssuesReferences": []
+  }
+]
+JSON
+  out=$(bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file")
+  queue_numbers=$(jq -r '.queue[].number' <<<"$out")
+  assert_equals "M45c: queue preserves no-dependency issues and orders by severity" \
+    "$queue_numbers" $'102\n110\n111\n108\n101'
+  assert_equals "M45d: no-dependency issue has empty deps" \
+    "$(jq -r '.queue[] | select(.number == 101) | (.deps | length)' <<<"$out")" "0"
+  assert_equals "M45e: linked open PR is excluded" \
+    "$(jq -r '.excluded.linked_pr | index(103) != null' <<<"$out")" "true"
+  assert_equals "M45e2: ambiguous open PR mention is excluded" \
+    "$(jq -r '.excluded.linked_pr | index(109) != null' <<<"$out")" "true"
+  assert_equals "M45f: explicit dependencies defer dependent issue" \
+    "$(jq -r '.excluded.dependency_wait[] | select(.number == 104) | (.deps | join(","))' <<<"$out")" "101,102"
+  assert_equals "M45g: needs-human label is excluded" \
+    "$(jq -r '.excluded.needs_human | index(105) != null' <<<"$out")" "true"
+  assert_equals "M45h: maintain:blocked label is excluded" \
+    "$(jq -r '.excluded.maintain_blocked | index(106) != null' <<<"$out")" "true"
+  assert_equals "M45i: epic label is excluded" \
+    "$(jq -r '.excluded.epic | index(107) != null' <<<"$out")" "true"
+  assert_equals "M45j: all open issues are accounted for" \
+    "$(jq -r '.unaccounted | length' <<<"$out")" "0"
+  filtered=$(bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" --label release)
+  assert_equals "M45k: label filter keeps matching eligible issue" \
+    "$(jq -r '.queue[].number' <<<"$filtered")" "102"
+  assert_equals "M45l: label filter accounts for nonmatching issues" \
+    "$(jq -r '.excluded.label_filter | index(101) != null' <<<"$filtered")" "true"
+  single_issue=$(bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" --issue 101 --label release)
+  assert_equals "M45m: explicit issue bypasses label filter" \
+    "$(jq -r '.queue[].number' <<<"$single_issue")" "101"
+  missing_err="$workdir/missing-issue.err"
+  set +e
+  bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" --issue 999 > /dev/null 2> "$missing_err"
+  missing_status=$?
+  set -e
+  assert_exit_code "M45m1: missing fixture issue fails loudly" "$missing_status" 3
+  assert_file_contains "M45m1b: missing fixture issue is named" "$missing_err" "issue #999 was not found in fixture"
+  zero_err="$workdir/leading-zero.err"
+  set +e
+  bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" --issue 007 > /dev/null 2> "$zero_err"
+  zero_status=$?
+  set -e
+  assert_exit_code "M45m2: leading-zero issue is rejected before jq" "$zero_status" 2
+  assert_file_contains "M45m3: leading-zero issue error is clear" "$zero_err" "without leading zeros"
+  closed_issues_file="$workdir/closed-issues.json"
+  cat > "$closed_issues_file" <<'JSON'
+[
+  {
+    "number": 112,
+    "state": "CLOSED",
+    "title": "Closed fixture issue",
+    "body": "Already done.",
+    "labels": [],
+    "createdAt": "2026-01-12T00:00:00Z",
+    "updatedAt": "2026-01-12T00:00:00Z"
+  }
+]
+JSON
+  fixture_closed_err="$workdir/fixture-closed.err"
+  set +e
+  bash "$queue_script" --issues-file "$closed_issues_file" --open-prs-file "$prs_file" --issue 112 > /dev/null 2> "$fixture_closed_err"
+  fixture_closed_status=$?
+  set -e
+  assert_exit_code "M45m4: closed fixture issue fails loudly" "$fixture_closed_status" 3
+  assert_file_contains "M45m5: closed fixture issue names state problem" "$fixture_closed_err" "issue #112 is not open"
+  blocked_file="$workdir/blocked.jsonl"
+  printf '%s\n' '{"number":101,"reason":"cooldown","cooldown_until":"2099-01-01T00:00:00Z"}' > "$blocked_file"
+  cooled=$(bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" --blocked-file "$blocked_file")
+  assert_equals "M45n: blocked-file cooldown excludes issue" \
+    "$(jq -r '.excluded.cooldown | index(101) != null' <<<"$cooled")" "true"
+  bad_blocked_file="$workdir/bad-blocked.jsonl"
+  bad_blocked_err="$workdir/bad-blocked.err"
+  printf '%s\n' '{"number":101,"reason":"cooldown","cooldown_until":"2099-01-01T00:00:00Z"}' 'not-json' > "$bad_blocked_file"
+  set +e
+  bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" --blocked-file "$bad_blocked_file" > /dev/null 2> "$bad_blocked_err"
+  bad_blocked_status=$?
+  set -e
+  assert_exit_code "M45n1: malformed blocked-file fails loudly" "$bad_blocked_status" 3
+  assert_file_contains "M45n2: malformed blocked-file names file" "$bad_blocked_err" "invalid blocked file: $bad_blocked_file"
+  dep_issues_file="$workdir/dependency-issues.json"
+  dep_status_file="$workdir/dependency-status.json"
+  cat > "$dep_issues_file" <<'JSON'
+[
+  {
+    "number": 201,
+    "title": "Depends on completed prerequisite",
+    "body": "Depends on #200; context from #999.",
+    "labels": [{"name": "high"}],
+    "createdAt": "2026-01-11T00:00:00Z",
+    "updatedAt": "2026-01-11T00:00:00Z"
+  }
+]
+JSON
+  cat > "$dep_status_file" <<'JSON'
+[
+  {
+    "number": 200,
+    "state": "CLOSED",
+    "closedByPullRequestsReferences": [
+      {"number": 77, "mergedAt": "2026-01-11T00:00:00Z", "baseRefName": "main"}
+    ]
+  }
+]
+JSON
+  dep_out=$(bash "$queue_script" --issues-file "$dep_issues_file" --open-prs-file "$prs_file" --dependency-status-file "$dep_status_file" --default-branch main)
+  assert_equals "M45o: dependency status fixture marks closed PR-backed prerequisite satisfied" \
+    "$(jq -r '.queue[].number' <<<"$dep_out")" "201"
+  serial_dep_issues_file="$workdir/serial-dependency-issues.json"
+  serial_dep_status_file="$workdir/serial-dependency-status.json"
+  cat > "$serial_dep_issues_file" <<'JSON'
+[
+  {
+    "number": 203,
+    "title": "Depends on completed and pending prerequisites",
+    "body": "Depends on #200, and #202; context from #999.",
+    "labels": [{"name": "high"}],
+    "createdAt": "2026-01-12T00:00:00Z",
+    "updatedAt": "2026-01-12T00:00:00Z"
+  },
+  {
+    "number": 204,
+    "title": "Depends on: #205",
+    "body": "**Blocked by:** #200\n\nDepends on:\n- #202\nContext from #999.",
+    "labels": [{"name": "high"}],
+    "createdAt": "2026-01-13T00:00:00Z",
+    "updatedAt": "2026-01-13T00:00:00Z"
+  }
+]
+JSON
+  cat > "$serial_dep_status_file" <<'JSON'
+[
+  {
+    "number": 200,
+    "state": "CLOSED",
+    "closedByPullRequestsReferences": [
+      {"number": 77, "mergedAt": "2026-01-11T00:00:00Z", "baseRefName": "main"}
+    ]
+  }
+]
+JSON
+  serial_dep_out=$(bash "$queue_script" --issues-file "$serial_dep_issues_file" --open-prs-file "$prs_file" --dependency-status-file "$serial_dep_status_file" --default-branch main)
+  assert_equals "M45o1: serial-comma dependency keeps pending prerequisite blocked" \
+    "$(jq -r '.excluded.dependency_wait[] | select(.number == 203) | (.deps | join(","))' <<<"$serial_dep_out")" "202"
+  assert_equals "M45o2: markdown dependency syntax keeps pending prerequisites blocked" \
+    "$(jq -r '.excluded.dependency_wait[] | select(.number == 204) | (.deps | join(","))' <<<"$serial_dep_out")" "202,205"
+  fake_bin="$workdir/bin"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/gh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$1 $2" in
+  "issue list")
+    cat <<'JSON'
+[
+  {
+    "number": 201,
+    "title": "Depends on completed prerequisite",
+    "body": "Depends on #200; context from #999.",
+    "labels": [{"name": "high"}],
+    "createdAt": "2026-01-11T00:00:00Z",
+    "updatedAt": "2026-01-11T00:00:00Z",
+    "closedByPullRequestsReferences": []
+  }
+]
+JSON
+    ;;
+  "pr list")
+    printf '[]\n'
+    ;;
+  "repo view")
+    for arg in "$@"; do
+      [ "$arg" = "--repo" ] && exit 42
+    done
+    printf 'main\n'
+    ;;
+  "issue view")
+    if [ "${3:-}" = "200" ]; then
+      cat <<'JSON'
+{"number":200,"state":"CLOSED","closedByPullRequestsReferences":[{"number":77}]}
+JSON
+    elif [ "${3:-}" = "202" ]; then
+      cat <<'JSON'
+{"number":202,"state":"CLOSED","closedByPullRequestsReferences":[]}
+JSON
+    else
+      exit 1
+    fi
+    ;;
+  "pr view")
+    [ "${3:-}" = "77" ] || exit 1
+    cat <<'JSON'
+{"number":77,"state":"MERGED","mergedAt":"2026-01-11T00:00:00Z","baseRefName":"main"}
+JSON
+    ;;
+  *)
+    echo "unexpected gh call: $*" >&2
+    exit 1
+    ;;
+esac
+SH
+  chmod +x "$fake_bin/gh"
+  live_out=$(PATH="$fake_bin:$PATH" bash "$queue_script")
+  assert_equals "M45p: live gh dependency lookup marks closed PR-backed prerequisite satisfied" \
+    "$(jq -r '.queue[].number' <<<"$live_out")" "201"
+  repo_live_out=$(PATH="$fake_bin:$PATH" bash "$queue_script" --repo owner/repo)
+  assert_equals "M45p2: live --repo default-branch lookup uses gh repo view owner/repo" \
+    "$(jq -r '.queue[].number' <<<"$repo_live_out")" "201"
+  closed_err="$workdir/closed.err"
+  set +e
+  PATH="$fake_bin:$PATH" bash "$queue_script" --issue 202 > /dev/null 2> "$closed_err"
+  closed_status=$?
+  set -e
+  assert_exit_code "M45q: explicit closed issue fails loudly" "$closed_status" 3
+  assert_file_contains "M45r: explicit closed issue names state problem" "$closed_err" "issue #202 is not open"
+  rm -rf "$workdir"
 
   # Regression for fast no-op: open>0, new=0, cached agent-fixable => no fast no-op.
   local workdir cache open_json open new cached_deliverable fast_noop
@@ -1248,6 +1581,9 @@ test_maintain_loop() {
   assert_file_contains "ML7: dedicated worktree" "$cmd" ".worktrees/maintain-loop"
   assert_file_contains "ML8: maintain-loop default has no issue-count cap" "$cmd" "default unset, meaning no"
   assert_file_not_contains "ML8b: maintain-loop no longer defaults max-issues to one" "$cmd" 'default `1`'
+  assert_file_contains "ML8c: maintain-loop uses queue builder" "$cmd" "maintain-queue.sh"
+  assert_file_contains "ML8c2: maintain-loop checks queue builder exit" "$cmd" "if ! QUEUE_JSON="
+  assert_file_contains "ML8d: maintain-loop fails unexplained empty queue" "$cmd" "fails loudly"
   assert_file_contains "ML9: max-merges cap" "$cmd" '--max-merges N`: cap issue and deploy-fix merges this pass'
   assert_file_contains "ML9b: max-merges stop rule" "$cmd" 'the `--max-merges` cap is reached'
   assert_file_contains "ML9c: max-merges appears in usage" "$cmd" "Usage: /maintain-loop .*--max-merges N"

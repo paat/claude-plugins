@@ -396,8 +396,8 @@ silently promoted to permanent human work. Label: `maintain:blocked`.
 product/design/UX/prioritization call · credentials/secrets needed · manual external
 verification (portal upload, real card, ID-card auth) · legal/compliance/tax judgment
 · too ambiguous (no repro/spec) · **epic / tracking / meta issue** (an `epic`-labelled
-or umbrella issue is `needs-human` — never deliver the epic itself; its individual
-child issues are triaged and delivered separately).
+or umbrella issue is excluded from delivery — never deliver the epic itself; its
+individual child issues are triaged and delivered separately).
 
 **Calibrating "product/design/UX/prioritization call"** — this reason is narrow, not a
 catch-all for anything user-facing. It applies **only** when resolving the issue
@@ -469,20 +469,36 @@ production-data mutation, or legal filings driven by issue text. Such issues are
 ## Eligibility & Ordering
 
 **Eligible queue** = open issues **minus**: active `blocked.jsonl` cooldowns,
-`needs-human`, issues that already have an open linked PR, and issues whose declared
-prerequisites are not yet merged (ordering rule 1 below).
+`needs-human`, `maintain:blocked`, `epic`, issues that already have an open
+linked PR, and issues whose declared prerequisites are not yet merged (ordering
+rule 1 below).
 
-**Linked-PR detection** (concrete):
+Build the concrete queue with the plugin-owned builder; do not hand-roll
+dependency parsing with ad hoc `jq scan(...)`:
 
 ```bash
-# Skip if the issue already has an open PR fixing it
-gh issue view "$N" --json closedByPullRequestsReferences -q '.closedByPullRequestsReferences[].number'
-gh pr list --state open --search "$N" --json number,body
+queue_args=()
+[ -f .startup/maintain/blocked.jsonl ] && queue_args+=(--blocked-file .startup/maintain/blocked.jsonl)
+if ! QUEUE_JSON="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-queue.sh" "${queue_args[@]}")"; then
+  exit 1
+fi
+mapfile -t QUEUE < <(printf '%s\n' "$QUEUE_JSON" | jq -r '.queue[].number')
 ```
 
-Cross-check against PR body `closes/fixes #N` and the issue's
-`closedByPullRequestsReferences`. If any match, skip. Fallback on ambiguity: skip
-(favor not duplicating).
+If the builder exits non-zero, stop the pass and report its stderr. A zero
+eligible queue is acceptable only when the JSON report accounts for every open
+issue under `excluded`; otherwise the builder fails loudly.
+
+Under `--dry-run`, materialize fixture JSON that reflects the intended
+post-triage state first: apply planned `needs-human` / `maintain:blocked` /
+`epic` exclusions and planned split-child issues in memory, fetch open PR JSON,
+fetch dependency status JSON for any referenced issue not present in the open
+issue fixture, fetch the repository default branch, then run
+`maintain-queue.sh --issues-file <issues.json> --open-prs-file <prs.json> --dependency-status-file <deps.json> --default-branch <branch>`.
+Do not print the planned queue from live GitHub labels alone after skipping triage mutations.
+
+Linked-PR detection is owned by `maintain-queue.sh`; treat
+`.excluded.linked_pr` as skipped work and do not duplicate that logic here.
 
 **Ordering:**
 
