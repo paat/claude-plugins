@@ -49,6 +49,18 @@ When unsure, keep it.
   provenance sentence.
 - ~25 words max excluding ref.
 
+## One-off grants expire (memory lifecycle)
+
+A **one-off grant** — a time- or task-scoped permission ("deploy access for this
+launch", "skip the gate this once") — is not a durable rule and must never be stored
+as one; left un-retired it misdirects later autonomy. Record it with an explicit scope
+and expiry so `scripts/memory-gc.sh` can auto-retire it once past:
+
+    - Grant: <what> — scope: <scope>, expires: <YYYY-MM-DD>
+
+Only entries in this exact shape are auto-retired (moved to `docs/learnings/retired.md`);
+everything else the gc pass only flags for human review.
+
 ## Emphasis is rationed
 
 `ALWAYS` / `NEVER` / ALL-CAPS now over-trigger and dilute on current models —
