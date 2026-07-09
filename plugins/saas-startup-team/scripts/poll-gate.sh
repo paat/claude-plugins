@@ -46,8 +46,13 @@ if [ "$MODE" = "pr" ]; then
   fi
   if [ "$(printf '%s' "$out" | jq 'length')" -eq 0 ]; then echo "pending"; exit 0; fi
   if printf '%s' "$out" | jq -e 'any(.[]; .bucket=="fail" or .bucket=="cancel")' >/dev/null; then echo "red"; exit 0; fi
-  if printf '%s' "$out" | jq -e 'any(.[]; .bucket=="pending")' >/dev/null; then echo "pending"; exit 0; fi
-  echo "green"; exit 0
+  # green only by whitelist: every bucket recognized-passing and >=1 real pass;
+  # anything unrecognized (null, missing, future gh values) stays pending — the
+  # caller's poll budget converts sustained pending to red, never to green.
+  if printf '%s' "$out" | jq -e '(all(.[]; .bucket=="pass" or .bucket=="skipping")) and any(.[]; .bucket=="pass")' >/dev/null; then
+    echo "green"; exit 0
+  fi
+  echo "pending"; exit 0
 fi
 
 # MODE=run — a single workflow run is the unit of green/red.

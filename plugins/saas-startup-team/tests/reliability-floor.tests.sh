@@ -83,6 +83,14 @@ EOF
   ec=0; out=$(GH_STDOUT='[{"bucket":"pass"},{"bucket":"pending"}]' probe --pr 1) || ec=$?
   assert_equals "RF7: PR in-progress → pending" "$out" "pending"; assert_exit_code "RF7b: pending exit 0" "$ec" 0
 
+  # RF7c: unrecognized/missing bucket never reads green (whitelist, review fix)
+  ec=0; out=$(GH_STDOUT='[{"bucket":"pass"},{"bucket":"unknown"}]' probe --pr 1) || ec=$?
+  assert_equals "RF7c: unknown bucket → pending" "$out" "pending"
+  ec=0; out=$(GH_STDOUT='[{}]' probe --pr 1) || ec=$?
+  assert_equals "RF7d: missing bucket → pending" "$out" "pending"
+  ec=0; out=$(GH_STDOUT='[{"bucket":"skipping"}]' probe --pr 1) || ec=$?
+  assert_equals "RF7e: all-skipping, no real pass → pending" "$out" "pending"
+
   # RF8: empty check array → pending (no CI is never green)
   ec=0; out=$(GH_STDOUT='[]' probe --pr 1) || ec=$?
   assert_equals "RF8: PR no checks (empty) → pending" "$out" "pending"; assert_exit_code "RF8b: exit 0" "$ec" 0

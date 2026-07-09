@@ -119,12 +119,18 @@ for f in "$STARTUP_DIR/handoffs/"*.md; do
   [ -e "$f" ] && HANDOFF_COUNT=$((HANDOFF_COUNT + 1))
 done
 
+# Show signoff count
+SIGNOFF_COUNT=0
+for f in "$STARTUP_DIR/signoffs/"roundtrip-*.md; do
+  [ -e "$f" ] && SIGNOFF_COUNT=$((SIGNOFF_COUNT + 1))
+done
+
 # Circuit breaker (#197): if this hook blocks the SAME state over and over, the
 # orchestrator is wedged, not making progress — re-blocking only floods context
 # (observed: 742 consecutive blocks in one session). Count consecutive blocks
 # against a state fingerprint; after 25 identical-state blocks, open the breaker
 # (allow the stop) and say so once. Any state change resets the counter.
-FINGERPRINT="$ITERATION|$PHASE|$HANDOFF_COUNT"
+FINGERPRINT="$ITERATION|$PHASE|$HANDOFF_COUNT|$SIGNOFF_COUNT"
 BREAKER_FILE="$STARTUP_DIR/.stop-block-count"
 PREV_FP=""; PREV_N=0
 if [ -f "$BREAKER_FILE" ]; then
@@ -145,12 +151,6 @@ if [ "$BLOCK_N" -ge 25 ]; then
 EOF
   exit 0
 fi
-
-# Show signoff count
-SIGNOFF_COUNT=0
-for f in "$STARTUP_DIR/signoffs/"roundtrip-*.md; do
-  [ -e "$f" ] && SIGNOFF_COUNT=$((SIGNOFF_COUNT + 1))
-done
 
 cat >&2 <<EOF
 {"systemMessage":"Cannot stop: the startup loop is at iteration $ITERATION (phase: $PHASE) without a solution signoff. Handoffs written: $HANDOFF_COUNT. Features signed off: $SIGNOFF_COUNT. To exit cleanly: (1) Have the business founder write .startup/go-live/solution-signoff.md, or (2) reduce iteration to < 2 in .startup/state.json to bypass this check."}
