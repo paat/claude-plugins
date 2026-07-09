@@ -646,6 +646,13 @@ whether main moved during the run, and any health-check/migration output:
   and escalate hard** to the investor — production is broken and needs a human now.
   Either way, **stop merging further issues this pass.**
 
+**Post-deploy visual smoke.** When the deploy is green AND this pass merged at
+`scripts/ui-touch.sh --range <pre-pass SHA>..HEAD` (re-run over the pass's merged range) printing anything but `no-ui`, run one visual smoke per
+the post-deploy section of
+`${CLAUDE_PLUGIN_ROOT}/skills/ux-tester/references/design-review-leg.md`. A render
+regression attributable to this pass's merge → the `revert/<pr-slug>` rollback
+above; non-attributable or ambiguous → `maintain:blocked` escalation.
+
 ---
 
 ## Circuit Breakers
