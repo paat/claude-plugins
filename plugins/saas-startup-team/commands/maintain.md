@@ -34,7 +34,7 @@ reasons, both inherent to a foreground interactive turn — not bugs to grind on
 1. **Per-tool permission prompts.** The supervisor and the inline `/goal-deliver`
    fire many `gh` / `git` / `jq` / `gh pr merge` calls plus founder/tribunal
    subagents. Without a permission grant, each one prompts.
-2. **The between-pass backoff can't self-resume.** Loop Body step 7 ("back off
+2. **The between-pass backoff can't self-resume.** Loop Body step 8 ("back off
    ~5 min and repeat") cannot sleep-and-continue inside one foreground turn, so the
    model ends its turn after each pass and waits for you to re-prompt.
 
@@ -119,7 +119,7 @@ open `agent-fixable` or `partially-fixable` verdict is deliverable queue input, 
 cached classification. When the predicate above proves no deliverable cached or
 changed issue exists, do NOT enter the worktree, run the `/goal-deliver` preflight,
 ensure labels, query branch protection or check-runs, or dispatch triage. Under
-`--once`, stop the run; otherwise back off (§Loop Body step 7) and re-probe next
+`--once`, stop the run; otherwise back off (§Loop Body step 8) and re-probe next
 pass. Any issue edit bumps `updatedAt` past its cache entry and reopens triage.
 Linked PRs, dependency blocks, and other final eligibility are recomputed during queue
 construction; the fast gate errs toward continuing when the current state cannot prove
@@ -321,9 +321,17 @@ Each pass follows this sequence:
    > failure and triggers no cooldown.
    - Record explicit final state (§Observability).
 
-6. **Write pass digest** to `.startup/maintain/runs/<run-id>.md`.
+6. **Weekly memory-gc leg** (skipped under `--dry-run`): run
+   `${CLAUDE_PLUGIN_ROOT}/scripts/memory-gc.sh --weekly` from the repo root. Its own
+   7-day cursor (`.startup/memory-gc/state.json`) makes this a no-op most passes.
+   Conservative by design: it only auto-retires expired one-off grants (to
+   `docs/learnings/retired.md`) and *flags* stale/contradiction candidates for human
+   review — it never deletes a durable rule. If it prints a report path, add a one-line
+   `memory-gc: <report>` note to the digest so the investor can review it.
 
-7. If `--once`, stop and report. Otherwise **back off** (default ~5 min) and repeat
+7. **Write pass digest** to `.startup/maintain/runs/<run-id>.md`.
+
+8. If `--once`, stop and report. Otherwise **back off** (default ~5 min) and repeat
    from step 1. (A foreground interactive turn cannot sleep-and-resume across this
    backoff — so continuous mode must be driven as `--once` per tick by an external
    scheduler; see §Unattended Execution.)
