@@ -1,7 +1,7 @@
 ---
 name: replay-abandoned
 description: Replay abandoned funnel sessions against the configured funnel definition and emit structured findings for build-track follow-up.
-argument-hint: "[--band NAME] [--max N] [--dry-run] [--file-issues]"
+argument-hint: "[--band NAME] [--max N] [--dry-run] [--no-file-issues]"
 allowed-tools: Bash, Read, Write, Grep, Glob, Task
 user_invocable: true
 ---
@@ -18,7 +18,7 @@ The `operate:` block should provide:
 - a source for abandoned sessions, as a command, file, or URL/path;
 - app URL or route template for browser replay;
 - auth env var names when replay needs authenticated support/admin data;
-- incident labels or issue template if `--file-issues` is used.
+- incident labels or issue template for filed findings.
 
 If any required value is absent, stop with a clear `not configured` message.
 
@@ -61,4 +61,12 @@ Each `finding.json` must include:
 
 ## Issue Filing
 
-Default is artifact-only. If `--file-issues` is present, deduplicate by `pattern_key` and configured repo before creating or commenting on a GitHub issue. Use `--body-file` for non-ASCII and generated text. If `--dry-run` is present, do not mutate GitHub.
+Actionable findings (`ux_bug`, `functional_bug`, `instrumentation_gap`, `infra_error`) are filed by default — do not ask first. For each, run the shared helper (dedup + sensitive-content carve-out) with the finding's `pattern_key` in the title:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/issue-file.sh" --repo <configured repo> \
+  --title "<pattern_key>: <finding summary>" --body-file <finding.md> \
+  --labels "<configured incident labels>" --digest-file <current run digest, if any>
+```
+
+It comments on an existing open match instead of duplicating, and parks the finding in `docs/human-tasks.md` when it carries customer data or a secret. Skip with `--no-file-issues`; pass `--dry-run` to preview without mutating GitHub.
