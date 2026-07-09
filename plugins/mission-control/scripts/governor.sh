@@ -1,8 +1,8 @@
 #!/bin/bash
 # governor.sh — budget policy library sourced by mission-control.sh AFTER its
-# helpers are defined; may use cfg/state_get/state_set/now/today/alert and
-# the exported MC_CONFIG / MC_STATE_DIR. This is the #198 STUB: permissive,
-# stateless. #199 replaces the bodies; the signatures are the contract.
+# helpers are defined; may use cfg/pj/state_get/state_set/now/today/hour_now/
+# run_in/slot_free/alert/log and the exported MC_CONFIG / MC_STATE_DIR.
+# The four governor_* functions are the scheduler's contract (#198 spec).
 
 # Atomic check-and-reserve. One critical section: lazy date roll, backoff
 # check, quota check, increment. DO NOT call state_set in here — it takes
@@ -125,7 +125,8 @@ _orphans_mark() { # stale dispatch log, no outcome json, slot free, >120min old
     slot="$(basename "$base" | sed -E 's/^[^-]*-([AB])-.*$/\1/')"
     slot_free "$slot" || continue
     find "$logf" -mmin +120 2>/dev/null | grep -q . || continue
-    jq -n --arg b "$(basename "$base")" '{outcome:"orphaned", dispatch:$b}' > "$base.json"
+    jq -n --arg b "$(basename "$base")" '{outcome:"orphaned", dispatch:$b}' > "$base.json.tmp"
+    mv "$base.json.tmp" "$base.json"
     echo "- orphaned dispatch: $(basename "$base")"
   done
 }
@@ -207,7 +208,9 @@ governor_daily() {
     { awk '/^## Needs-human/{f=1;print;next} /^## /{f=0} f' "$out"
       awk '/^## Mission control warnings/,/^## Spend/' "$out" | grep -v '^## Spend'
       awk '/^## Spend & pass summary/,0' "$out"
-    } | head -c 3500 | bash "$SCRIPT_DIR/notify.sh" "$var" "mission-control digest $d"
+    } | head -c 3500 | bash "$SCRIPT_DIR/notify.sh" "$var" "mission-control digest $d" || true
+    # || true: head's truncation SIGPIPEs the upstream awk; under pipefail that
+    # would abort the daily job before last_sent_date is marked -> resend loop
   fi
 
   local exp; exp="$(cfg '.digest_export_path // empty')"

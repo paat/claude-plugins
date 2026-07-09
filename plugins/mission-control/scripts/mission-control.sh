@@ -357,6 +357,18 @@ cmd_arm() {
   if [ -n "$bad" ]; then echo "mission-control: unknown engine on project(s): $bad" >&2; exit 2; fi
   bad="$(jq -r '.projects[].name | select(test("^[A-Za-z0-9_-]+$") | not)' "$MC_CONFIG")"
   if [ -n "$bad" ]; then echo "mission-control: project names must match ^[A-Za-z0-9_-]+$: $bad" >&2; exit 2; fi
+  bad="$(jq -r '[ (.admission.wip_cap // 1), (.admission.veto_hours // 72),
+                  (.admission.confidence_min // 0.7), (.digest_hour // 7), (.retention_days // 14),
+                  (.pools[]?.daily_pass_quota // 0),
+                  (.engines[]?.pass_timeout_minutes // 90), (.projects[]?.pass_timeout_minutes // 90) ]
+                | map(select(type != "number")) | length' "$MC_CONFIG")"
+  if [ "$bad" != 0 ]; then echo "mission-control: budget fields (quotas, envelopes, hours, caps) must be JSON numbers" >&2; exit 2; fi
+  local pat rc
+  while IFS= read -r pat; do
+    [ -n "$pat" ] || continue
+    rc=0; printf '' | grep -qiE "$pat" || rc=$?
+    if [ "$rc" -gt 1 ]; then echo "mission-control: invalid rate_limit_patterns regex: $pat" >&2; exit 2; fi
+  done < <(jq -r '.engines[]?.rate_limit_patterns[]? // empty' "$MC_CONFIG")
   local pinned
   pinned="$(cfg '.slots.A.pinned // empty')"
   if [ -n "$pinned" ] && [ -z "$(pj "$pinned" '.name')" ]; then
