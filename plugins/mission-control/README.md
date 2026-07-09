@@ -68,3 +68,5 @@ never asked to economize — an over-budget pass is simply not dispatched.
 - `scripts/governor.sh` — budget policy library sourced by the dispatcher
 - `scripts/notify.sh <ENV_VAR_NAME> <title>` — minimal push sender, body on
   stdin; no-op when the env var is unset
+- `scripts/bus.sh {send|poll|wait|gc}` — cross-container handoff bus over a
+  shared-mount dir (`bus_dir`/`bus_path`); see `docs/runbook.md`
