@@ -14,6 +14,10 @@ governor_reserve() { # <engine>
     alert "config-engine-$engine" "unknown engine '$engine' (no pool) — refusing dispatch"
     return 1
   fi
+  if [ "$(cfg ".pools | has(\"$pool\")")" != "true" ]; then
+    alert "config-pool-$pool" "engine '$engine' references undefined pool '$pool' — refusing dispatch"
+    return 1
+  fi
   quota="$(cfg ".pools[\"$pool\"].daily_pass_quota // empty")"
   d="$(today)"
   (
