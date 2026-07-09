@@ -1,0 +1,56 @@
+{
+  "timezone": "Europe/Tallinn",
+  "docker_cmd": "sudo docker",
+  "notify_env": "MC_NTFY_URL",
+  "digest_hour": 7,
+  "retention_days": 14,
+  "engines": {
+    "claude-opus": {
+      "pool": "claude",
+      "cmd": "claude --model opus --dangerously-skip-permissions -p '{prompt}'"
+    },
+    "codex": {
+      "pool": "codex",
+      "cmd": "codex exec --ephemeral -s workspace-write '{prompt}'"
+    }
+  },
+  "pools": {
+    "claude": { "daily_pass_quota": 6 },
+    "codex": { "daily_pass_quota": 8 }
+  },
+  "slots": {
+    "A": { "pinned": "project-a" },
+    "B": {}
+  },
+  "projects": [
+    {
+      "name": "project-a",
+      "container": "project-a-dev",
+      "repo_path": "/workspace/project-a",
+      "stage": "live",
+      "engine": "codex",
+      "command": "/maintain --once",
+      "hold": false,
+      "incident_labels": ["incident", "production", "critical"]
+    },
+    {
+      "name": "project-b",
+      "container": "project-b-dev",
+      "repo_path": "/workspace/project-b",
+      "stage": "pre-launch",
+      "engine": "codex",
+      "command": "/maintain-loop --once",
+      "hold": false
+    },
+    {
+      "name": "plugin-repo",
+      "container": "local",
+      "repo_path": "/path/to/plugin-repo",
+      "stage": "meta",
+      "engine": "claude-opus",
+      "command": "/lessons-deliver --once",
+      "hold": false
+    }
+  ],
+  "admission": { "wip_cap": 1, "confidence_min": 0.7, "veto_hours": 72 }
+}
