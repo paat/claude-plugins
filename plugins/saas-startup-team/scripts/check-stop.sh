@@ -119,6 +119,33 @@ for f in "$STARTUP_DIR/handoffs/"*.md; do
   [ -e "$f" ] && HANDOFF_COUNT=$((HANDOFF_COUNT + 1))
 done
 
+# Circuit breaker (#197): if this hook blocks the SAME state over and over, the
+# orchestrator is wedged, not making progress — re-blocking only floods context
+# (observed: 742 consecutive blocks in one session). Count consecutive blocks
+# against a state fingerprint; after 25 identical-state blocks, open the breaker
+# (allow the stop) and say so once. Any state change resets the counter.
+FINGERPRINT="$ITERATION|$PHASE|$HANDOFF_COUNT"
+BREAKER_FILE="$STARTUP_DIR/.stop-block-count"
+PREV_FP=""; PREV_N=0
+if [ -f "$BREAKER_FILE" ]; then
+  PREV_FP=$(sed -n '1p' "$BREAKER_FILE" 2>/dev/null || true)
+  PREV_N=$(sed -n '2p' "$BREAKER_FILE" 2>/dev/null || echo 0)
+  case "$PREV_N" in ''|*[!0-9]*) PREV_N=0 ;; esac
+fi
+if [ "$PREV_FP" = "$FINGERPRINT" ]; then
+  BLOCK_N=$((PREV_N + 1))
+else
+  BLOCK_N=1
+fi
+printf '%s\n%s\n' "$FINGERPRINT" "$BLOCK_N" > "$BREAKER_FILE"
+if [ "$BLOCK_N" -ge 25 ]; then
+  rm -f "$BREAKER_FILE" 2>/dev/null || true
+  cat >&2 <<EOF
+{"systemMessage":"Stop circuit breaker opened: blocked $BLOCK_N consecutive stops with unchanged state (iteration $ITERATION, phase $PHASE, handoffs $HANDOFF_COUNT). Allowing this stop to avoid a runaway block loop. Write .startup/go-live/solution-signoff.md or advance the loop before resuming."}
+EOF
+  exit 0
+fi
+
 # Show signoff count
 SIGNOFF_COUNT=0
 for f in "$STARTUP_DIR/signoffs/"roundtrip-*.md; do

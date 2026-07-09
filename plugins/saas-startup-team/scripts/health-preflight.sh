@@ -160,6 +160,34 @@ else
   add "tool:codex" warning "Codex CLI missing; Codex surfaces cannot spawn separate workers"
 fi
 
+# Disk headroom on the repo filesystem. Disk-full cascades were the top
+# mechanical failure (vastav 14x, varustame 4x, both needed manual recovery).
+# Below threshold is a blocker; with --self-repair, prune only safe caches
+# (pruned worktrees, git gc) before re-checking — never touch working dirs,
+# node_modules, or anything under .startup/.
+min_free_gb="${SAAS_MIN_FREE_GB:-2}"
+case "$min_free_gb" in ''|*[!0-9]*) min_free_gb=2 ;; esac
+disk_free_gb() {
+  df -Pk "$REPO_ROOT" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1024/1024}'
+}
+free_gb="$(disk_free_gb)"
+if [ -z "$free_gb" ]; then
+  add "disk:free" warning "could not determine free space on $REPO_ROOT"
+elif [ "$free_gb" -ge "$min_free_gb" ]; then
+  add "disk:free" ok "${free_gb}GB free (min ${min_free_gb}GB)"
+elif [ "$SELF_REPAIR" -eq 1 ]; then
+  git -C "$REPO_ROOT" worktree prune >/dev/null 2>&1 || true
+  git -C "$REPO_ROOT" gc --auto >/dev/null 2>&1 || true
+  free_gb="$(disk_free_gb)"
+  if [ "${free_gb:-0}" -ge "$min_free_gb" ]; then
+    add "disk:free" auto-fixed "pruned safe caches; ${free_gb}GB free (min ${min_free_gb}GB)"
+  else
+    add "disk:free" blocker "only ${free_gb}GB free after cache prune (min ${min_free_gb}GB); free disk space before running"
+  fi
+else
+  add "disk:free" blocker "only ${free_gb}GB free (min ${min_free_gb}GB); run with --self-repair to prune caches or free disk space"
+fi
+
 if have_cmd gh; then
   if gh auth status >/dev/null 2>&1; then
     add "gh:auth" ok "GitHub auth is available"
