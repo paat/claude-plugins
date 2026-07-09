@@ -225,10 +225,12 @@ admission_eligible() { # <name> — exit 0 iff admitted; advances the gate
   [ "$(admitted_unheld_count)" -lt "$cap" ] || return 1
   local c rp conf min
   c="$(pj "$name" '.container')"; rp="$(pj "$name" '.repo_path')"
+  local prc
   set +e
   conf="$(run_in "$c" "$rp" "jq -r '.validation.confidence // empty' .startup/provenance.json 2>/dev/null" 15)"
+  prc=$?
   set -e
-  [ -n "$conf" ] || return 1
+  [ "$prc" -eq 0 ] && [ -n "$conf" ] || return 1
   min="$(cfg '.admission.confidence_min // 0.7')"
   awk -v c="$conf" -v m="$min" 'BEGIN { exit !(c + 0 >= m + 0) }' || return 1
   state_set '.admissions[$n].requested_at = ($t|tonumber)' --arg n "$name" --arg t "$(now)"
@@ -367,7 +369,7 @@ mission-control is NOT armed by agents. A human installs ONE cron line, once.
 1. Edit your persistent crontab file (on LinuxServer-style containers:
    /config/crontabs/<user> — edit the file, not 'crontab -e'). Add:
 
-*/30 * * * * bash $script tick --config $MC_CONFIG >> $MC_STATE_DIR/cron.log 2>&1
+*/30 * * * * bash "$script" tick --config "$MC_CONFIG" >> "$MC_STATE_DIR/cron.log" 2>&1
 
 2. In the same crontab file, DELETE any standalone lessons-deliver cron line —
    mission-control now dispatches lessons-deliver as Slot B's idle rung.
@@ -388,9 +390,9 @@ cmd_status() {
   echo "state: $MC_STATE_DIR/state.json"
   jq '{date, pools, projects, admissions, digest}' "$MC_STATE_DIR/state.json"
   echo "recent dispatches:"
-  ls -1t "$MC_STATE_DIR/dispatches/" 2>/dev/null | grep '\.json$' | head -10 | while read -r f; do
+  { ls -1t "$MC_STATE_DIR/dispatches/" 2>/dev/null | grep '\.json$' | head -10 | while read -r f; do
     jq -r '"  \(.started_at | todate) \(.slot) \(.project) (\(.engine)) -> \(.outcome)"' "$MC_STATE_DIR/dispatches/$f"
-  done
+  done; } || true
 }
 
 cmd_wrapper() {
@@ -412,7 +414,8 @@ cmd_wrapper() {
         --arg s "$started" --arg t "$(now)" --arg rc "$rc" --arg o "$outcome" \
         '{slot:$slot, project:$p, engine:$e, started_at:($s|tonumber),
           ended_at:($t|tonumber), exit_code:($rc|tonumber), outcome:$o}' \
-        > "$base.json"
+        > "$base.json.tmp"
+  mv "$base.json.tmp" "$base.json"
   log "pass done slot=$slot project=$name outcome=$outcome rc=$rc"
 }
 
