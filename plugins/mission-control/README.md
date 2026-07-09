@@ -44,6 +44,19 @@ marks for architecture, UX, or Estonian-language judgment. Slots and pools
 are decoupled — the governor charges each pass to the pool of the engine
 that actually ran.
 
+## Budget governor
+
+Behavioral, not a ledger (remaining subscription quota is not reliably
+readable): per-pool daily pass quotas (`pools.<name>.daily_pass_quota`,
+absent = unlimited), per-pass wall-clock envelopes
+(`pass_timeout_minutes` on engine or project, default 90), rate-limit
+backoff (parsed reset time when the CLI prints one, else exponential
+30m/1h/2h/4h) with clean resume on the next tick, and a 3-strike 24h
+per-project cooldown. A daily digest lands in `state/digests/<date>.md`
+(pushed via `notify_env`, copied to `digest_export_path` if set) with a
+Spend & pass summary computed from dispatch outcome records. Passes are
+never asked to economize — an over-budget pass is simply not dispatched.
+
 ## Commands
 
 - `/mission-status` — read-only view of slots, quotas, backoffs, admissions,
