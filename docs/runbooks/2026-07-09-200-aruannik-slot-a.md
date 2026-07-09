@@ -62,3 +62,6 @@ project CLAUDE.md:
 - [ ] >= 3 consecutive days on the Slot A schedule with human turns limited to
       digest review + hard-human items (money, legal identity, credentials).
 - [ ] Reconciliation checklist above fully ticked on #200, then close #200.
+- [ ] Post-deploy auto-revert path (#203) exercised once end-to-end on live: a
+      `ui`-classified merge triggered a visual-smoke regression and the
+      `revert/<pr-slug>` rollback restored a green deploy.

@@ -21,8 +21,9 @@ mechanics:
   a sensitive surface (payments, auth, a DB migration, money math, a stated
   compliance rule) is still delivered and merged like any other issue. Only work
   hinging on legal/compliance/tax/pricing **interpretation** is carved out.
-- **UI-touching diffs** must additionally clear the browser-QA screenshot gate
-  (Playwright acceptance evidence in the PR body) as part of the green gate.
+- **UI-touching diffs** (per `scripts/ui-touch.sh`) must additionally carry
+  `## Design-review: PASS` evidence in the PR body — the design-review leg's
+  screenshot verdict — as part of the green gate.
 
 ## Obsolete: per-run auto-merge grants
 
