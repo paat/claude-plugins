@@ -78,9 +78,9 @@ the rollout issues into self-contained runbooks; nothing runs in this repo.
 | #201 vastav/varustame rollout | 3 | after #200 beds in |
 | #202 handoff bus | 2 | after #198 |
 | #203 UX quality gate | 2 | design judgment |
-| #204 spend envelope | 1 | label after Phase 2 |
-| #205 demand validation | 1 | label after Phase 2; may depend on #204 |
-| #206 non-interactive bootstrap | 1 | label after Phase 2 |
+| #204 spend envelope | 1 | labeled immediately — no mission-control dependency |
+| #205 demand validation | 1 | labeled immediately; ad-smoke leg refuses without #204's envelope, oldest-first ordering guarantees #204 ships first |
+| #206 non-interactive bootstrap | 1 | plugin side only; admission gate (WIP cap, veto) moved into #198's scope |
 | #207 lessons-gate decision | Fable direct | decision doc, written last with real data |
 
 Final loop-safe vs self-mod classification is made in the spec pass against
@@ -113,7 +113,8 @@ flow into the same Lane 1 loop. Process obligations:
 Phase 1 rides Lane 1 immediately after the spec pass (oldest-first serial
 delivery preserves intra-phase order). #198/#199 proceed in Lane 2 in
 parallel (different pools). #202 after #198. Rollouts after Phase 2. Phase 3
-labels applied when Phase 2 merges; #207 last.
+loop-safe children are labeled up front (oldest-first delivery keeps them
+behind Phase 1); #207 last.
 
 ## Accepted risks / judgment calls
 
