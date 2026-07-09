@@ -20,7 +20,7 @@ mechanics:
   *judgment*, not the surface — a well-specified, objectively-checkable code fix on
   a sensitive surface (payments, auth, a DB migration, money math, a stated
   compliance rule) is still delivered and merged like any other issue. Only work
-  hinging on legal/compliance/pricing **interpretation** is carved out.
+  hinging on legal/compliance/tax/pricing **interpretation** is carved out.
 - **UI-touching diffs** must additionally clear the browser-QA screenshot gate
   (Playwright acceptance evidence in the PR body) as part of the green gate.
 
@@ -28,4 +28,5 @@ mechanics:
 
 Per-run auto-merge grant memories are **obsolete** — this standing policy
 supersedes them. Ignore any "auto-merge granted for this run" memory; merge
-eligibility is decided solely by the green gate and the carve-outs above.
+eligibility is decided by the green gate, the carve-outs above, and each
+workflow's own audits (closure audit, merge budget) — never by per-run grants.
