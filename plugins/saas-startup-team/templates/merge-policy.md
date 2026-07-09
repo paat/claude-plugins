@@ -1,0 +1,31 @@
+# Merge policy — standing green-gate auto-merge
+
+Canonical statement for `/maintain`, `/maintain-loop`, and `/goal-deliver`.
+
+## Standing policy
+
+There is **no hold tier**. Every PR that clears the green gate is merged
+immediately — no per-run human approval. The green gate is: latest-HEAD tribunal
+clearance (zero critical/high) + required CI checks + the recurrence/regression
+gate.
+
+## Carve-outs
+
+The only exceptions. They gate *what may ship autonomously*, not the merge
+mechanics:
+
+- **Regulated/legal claims** needing human signoff, **pricing or customer-promise
+  changes**, and **destructive/irreversible production migrations** stay
+  `needs-human`: parked for a human decision, not auto-delivered. The boundary is
+  *judgment*, not the surface — a well-specified, objectively-checkable code fix on
+  a sensitive surface (payments, auth, a DB migration, money math, a stated
+  compliance rule) is still delivered and merged like any other issue. Only work
+  hinging on legal/compliance/pricing **interpretation** is carved out.
+- **UI-touching diffs** must additionally clear the browser-QA screenshot gate
+  (Playwright acceptance evidence in the PR body) as part of the green gate.
+
+## Obsolete: per-run auto-merge grants
+
+Per-run auto-merge grant memories are **obsolete** — this standing policy
+supersedes them. Ignore any "auto-merge granted for this run" memory; merge
+eligibility is decided solely by the green gate and the carve-outs above.
