@@ -276,10 +276,72 @@ pick_slot_b() {
   done < <(rotate 4 $(names_by_stage meta))
   return 0
 }
-# DISPATCH-FUNCTIONS-PLACEHOLDER (Task 6)
+# ---------- dispatch ----------
+dispatch() { # <slot> <name> — reserve, take slot lock on an FD, spawn wrapper
+  local slot="$1" name="$2"
+  local engine container rp command tmpl rendered env_min base lfd
+  engine="$(pj "$name" '.engine')"
+  container="$(pj "$name" '.container')"
+  rp="$(pj "$name" '.repo_path')"
+  command="$(pj "$name" '.command')"
+  tmpl="$(cfg ".engines[\"$engine\"].cmd")"
+  rendered="${tmpl//\{prompt\}/$command}"
+  env_min="$(governor_envelope "$engine" "$name")"
+  if [ "$DRY_RUN" = 1 ]; then
+    log "DRY: would dispatch slot=$slot project=$name engine=$engine envelope=${env_min}m cmd: $rendered"
+    return 0
+  fi
+  exec {lfd}>>"$MC_STATE_DIR/slot-$slot.lock"
+  if ! flock -n "$lfd"; then exec {lfd}>&-; return 1; fi
+  if ! governor_reserve "$engine"; then
+    log "reserve refused slot=$slot project=$name engine=$engine"
+    exec {lfd}>&-
+    return 1
+  fi
+  base="$MC_STATE_DIR/dispatches/$(date -u +%Y%m%dT%H%M%SZ)-$slot-$name"
+  : > "$base.log"
+  log "dispatch slot=$slot project=$name engine=$engine envelope=${env_min}m"
+  # Wrapper inherits the lock FD: held continuously until the pass ends.
+  setsid bash "$0" wrapper --config "$MC_CONFIG" --slot "$slot" --project "$name" \
+    --engine "$engine" --container "$container" --repo-path "$rp" \
+    --envelope "$env_min" --base "$base" --cmd "$rendered" \
+    >>"$base.log" 2>&1 &
+  exec {lfd}>&-   # parent's copy closed; child's inherited copy keeps the lock
+  return 0
+}
 
 cmd_tick() {
-  echo "mission-control: tick not implemented yet" >&2; exit 3
+  exec 8>>"$MC_STATE_DIR/tick.lock"
+  flock -n 8 || exit 0                       # overlapping ticks impossible
+  local d; d="$(today)"
+  if [ "$DRY_RUN" != 1 ] && [ "$(state_get '.date // ""')" != "$d" ]; then
+    state_set '.date = $d' --arg d "$d"      # scheduler-owned; pool counters roll in governor_reserve
+  fi
+  [ "$DRY_RUN" = 1 ] || admission_housekeeping
+  local slot cand tries
+  for slot in A B; do
+    if ! slot_free "$slot"; then log "slot $slot busy"; continue; fi
+    if [ "$slot" = A ]; then
+      cand="$(pick_slot_a)"
+      if [ -n "$cand" ]; then
+        dispatch A "$cand" || { DENIED_ENGINES+=("$(pj "$cand" '.engine')"); log "slot A reserve refused: $cand"; }
+      else
+        log "slot A idle"
+      fi
+    else
+      tries=0
+      while :; do
+        cand="$(pick_slot_b)"
+        [ -n "$cand" ] || { log "slot B idle"; break; }
+        dispatch B "${cand#* }" && break
+        DENIED_ENGINES+=("$(pj "${cand#* }" '.engine')")
+        log "slot B reserve refused: $cand — re-walking ladder without that engine"
+        tries=$((tries + 1))
+        [ "$tries" -lt 4 ] || break
+      done
+    fi
+  done
+  [ "$DRY_RUN" = 1 ] || governor_daily
 }
 
 cmd_arm() {
@@ -329,7 +391,26 @@ cmd_status() {
 }
 
 cmd_wrapper() {
-  echo "mission-control: wrapper not implemented yet" >&2; exit 3
+  local slot="${WRAP[slot]}" name="${WRAP[project]}" engine="${WRAP[engine]}"
+  local container="${WRAP[container]}" rp="${WRAP[repo-path]}"
+  local envelope="${WRAP[envelope]}" base="${WRAP[base]}" rendered="${WRAP[cmd]}"
+  local started rc outcome
+  started="$(now)"
+  set +e
+  if [ "$container" = "local" ]; then
+    bash -c "cd $(printf %q "$rp") && timeout ${envelope}m $rendered"
+  else
+    $DOCKER_CMD exec "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m $rendered"
+  fi
+  rc=$?
+  set -e
+  outcome="$(governor_report "$engine" "$name" "$rc" "$base.log")"
+  jq -n --arg slot "$slot" --arg p "$name" --arg e "$engine" \
+        --arg s "$started" --arg t "$(now)" --arg rc "$rc" --arg o "$outcome" \
+        '{slot:$slot, project:$p, engine:$e, started_at:($s|tonumber),
+          ended_at:($t|tonumber), exit_code:($rc|tonumber), outcome:$o}' \
+        > "$base.json"
+  log "pass done slot=$slot project=$name outcome=$outcome rc=$rc"
 }
 
 # Library seam: when sourced (tests, #199 governor), define all functions
