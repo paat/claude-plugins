@@ -65,7 +65,10 @@ cmd_send() {
   mkdir -p "$dir/.tmp" "$dir/$TO/inbox" "$dir/$TO/done" 2>/dev/null \
     || { echo "bus: cannot create bus dirs under $dir" >&2; exit 1; }
   local id created tmp
-  id="$(now_epoch)-$FROM-$(rand4)"
+  id="$(now_epoch)-$FROM-$$-$(rand4)"
+  while [ -e "$dir/$TO/inbox/$id.json" ] || [ -e "$dir/$TO/done/$id.json" ]; do
+    id="$(now_epoch)-$FROM-$$-$(rand4)"
+  done
   created="$(date -u -d "@$(now_epoch)" +%FT%TZ)"
   tmp="$dir/.tmp/$id.json"
   jq -n --arg id "$id" --arg from "$FROM" --arg to "$TO" --arg created "$created" \
@@ -83,12 +86,13 @@ cmd_poll() {
   valid_name "$NAME" || { echo "bus: poll needs --name (allowed: [A-Za-z0-9_-])" >&2; exit 2; }
   local inbox="$dir/$NAME/inbox" done_d="$dir/$NAME/done" f p
   [ -d "$inbox" ] || return 0
-  [ "$CONSUME" = 0 ] || mkdir -p "$done_d" 2>/dev/null || true
+  [ "$CONSUME" = 0 ] || mkdir -p "$done_d" \
+    || { echo "bus: cannot create $done_d" >&2; exit 1; }
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     p="$inbox/$f"; [ -f "$p" ] || continue
+    if [ "$CONSUME" = 1 ]; then mv "$p" "$done_d/$f"; p="$done_d/$f"; fi
     if [ "$JSON" = 1 ]; then jq -c . "$p"; else jq . "$p"; fi
-    [ "$CONSUME" = 0 ] || mv "$p" "$done_d/$f"
   done < <(inbox_files "$inbox")
 }
 
@@ -96,7 +100,7 @@ cmd_wait() {
   local dir; dir="$(resolve_dir "$DIR")"
   valid_name "$NAME" || { echo "bus: wait needs --name (allowed: [A-Za-z0-9_-])" >&2; exit 2; }
   [ -n "$REPLY_TO" ] || { echo "bus: wait needs --reply-to" >&2; exit 2; }
-  [ -n "$TIMEOUT" ] || { echo "bus: wait needs --timeout" >&2; exit 2; }
+  case "$TIMEOUT" in ''|*[!0-9]*) echo "bus: wait needs --timeout <seconds>" >&2; exit 2 ;; esac
   # real wall clock: wait is a live primitive, independent of MC_NOW_EPOCH
   local deadline=$(( $(date +%s) + TIMEOUT )) backoff=1
   local inbox="$dir/$NAME/inbox" done_d="$dir/$NAME/done" f p
@@ -106,8 +110,8 @@ cmd_wait() {
         [ -n "$f" ] || continue
         p="$inbox/$f"; [ -f "$p" ] || continue
         if [ "$(jq -r '.reply_to // empty' "$p")" = "$REPLY_TO" ]; then
-          mkdir -p "$done_d" 2>/dev/null || true
-          jq . "$p"; mv "$p" "$done_d/$f"; return 0
+          mkdir -p "$done_d" || { echo "bus: cannot create $done_d" >&2; exit 1; }
+          mv "$p" "$done_d/$f"; jq . "$done_d/$f"; return 0
         fi
       done < <(inbox_files "$inbox")
     fi
