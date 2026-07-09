@@ -42,7 +42,7 @@ t "tick dispatches both slots; outcomes ok" bash -c '
   grep -q ran-A "$TD/alpha/MARKER" && grep -q ran-B "$TD/beta/MARKER" || exit 1
   for f in "$SD/dispatches/"*.json; do jq -e ".outcome == \"ok\" and .exit_code == 0" "$f" >/dev/null || exit 1; done'
 
-mkenv '.projects[1].container="some-container"'; echo yes > "$TD/alpha/WORK"; echo yes > "$TD/beta/WORK"
+mkenv '.projects[1].container="some-container" | .digest_hour=24'; echo yes > "$TD/alpha/WORK"; echo yes > "$TD/beta/WORK"
 t "busy slots: zero dispatches, zero docker calls" bash -c '
   '"$(declare -f tick)"'; TD="'"$TD"'"; SD="'"$SD"'"; MC="'"$MC"'"
   mkdir -p "$SD"
