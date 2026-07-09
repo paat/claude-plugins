@@ -300,8 +300,8 @@ on has merged):
    or change the closing keyword to `Refs #<n>` so GitHub does not close the parent issue.
    Then re-run the audit.
 
-   Merge only after the closure audit passes:
-   `gh pr merge "<pr url>" --squash --delete-branch`, close the chunk's
+   Merge follows the standing policy + carve-outs (`${CLAUDE_PLUGIN_ROOT}/templates/merge-policy.md`),
+   only after the audit passes: `gh pr merge "<pr url>" --squash --delete-branch`, close the chunk's
    issues (`gh issue close <n> --comment "Delivered in <pr url>"`), then
    `git checkout "${default}" && git pull --ff-only`. Continue to the next chunk.
    Note: if a chunk resolves an incident-labeled issue (`bug`/`monitor`/`customer-issue`)

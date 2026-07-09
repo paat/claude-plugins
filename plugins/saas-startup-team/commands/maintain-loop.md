@@ -208,8 +208,10 @@ tool call has a workdir. Stop if a command runs in any other checkout.
     cycles until the latest arbiter verdict covers the current PR HEAD and latest
     diff with zero critical/high findings. Any code diff, validation-changing PR
     body edit, rebase, update-from-main, or HEAD change reopens the closing loop.
-11. Final merge gate: update from default, rerun required checks, re-run closure
-    audit if closing metadata changed, then check the remaining merge budget.
+11. Final merge gate (standing policy + carve-outs:
+    `${CLAUDE_PLUGIN_ROOT}/templates/merge-policy.md`): update from default, rerun
+    required checks, re-run closure audit if closing metadata changed, then check
+    the remaining merge budget.
     Maintain `worker_merges_used`, initially `0`; before each issue or
     deploy-fix merge, require `worker_merges_used < remaining merge budget`. If
     no budget remains, stop before merging and write

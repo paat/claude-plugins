@@ -365,17 +365,14 @@ issue sits silently until a human audits. Reserve `needs-human` for work that ge
 *cannot* be objectively checked, not for work that merely touches a sensitive or
 visible surface.
 
-- **`agent-fixable`** → enters the delivery queue. A well-specified *code fix* on a
-  sensitive surface (payments, auth, DB migrations, money math, or a compliance-rule
-  change with a clear, objectively-checkable spec) is still `agent-fixable` per
-  investor decision — delivered and merged like any other issue, gated only by the
-  mandatory green gate. There is **no hold tier**. The escalation boundary is
-  *judgment*, not the surface: anything requiring legal/compliance/tax
-  **interpretation** (deciding what is compliant, not implementing a stated rule) is
-  `needs-human` — see below. A reproducible failure with an objectively-checkable
-  default fix stays `agent-fixable` **even when it also touches UX/presentation** — a
-  sign/classification/data-integrity bug is not a "design call" just because the wrong
-  value happens to be on screen.
+- **`agent-fixable`** → enters the delivery queue. Per the standing merge policy
+  (`${CLAUDE_PLUGIN_ROOT}/templates/merge-policy.md`), a well-specified,
+  objectively-checkable *code fix* is delivered and merged like any other issue —
+  there is **no hold tier** — even on a sensitive surface or a UX/presentation one.
+  The escalation boundary is *judgment*, not the surface: only work hinging on
+  legal/compliance/pricing **interpretation**, or another carve-out listed there, is
+  `needs-human` (see below). A sign/classification/data-integrity bug is not a
+  "design call" just because the wrong value happens to be on screen.
 - **`partially-fixable`** → the issue **bundles a clearly agent-fixable sub-part with a
   genuine judgment sub-part**. Do not park the whole issue: the subagent returns both a
   scoped `fixable_part` (a self-contained, objectively-checkable code fix) and the
@@ -618,7 +615,8 @@ cannot merge unless the PR diff adds a test, or the PR body records
 `Regression-Test: none — <reason>`. For bug, monitor, customer, accounting, replay,
 and incident-class issues, missing recurrence proof or missing durable guard is also a
 merge blocker. There is no human-hold tier — every PR that clears the green gate is
-merged.
+merged. The standing policy and its carve-outs (what stays `needs-human`, plus the
+UI browser-QA gate) are canonical in `${CLAUDE_PLUGIN_ROOT}/templates/merge-policy.md`.
 
 ### Deploy Watch, Classification & Escalation
 
