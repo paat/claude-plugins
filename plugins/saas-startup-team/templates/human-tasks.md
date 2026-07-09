@@ -11,6 +11,8 @@ without blocking — complete these when you can.
   - Priority: HIGH | MEDIUM | LOW
   - Deadline: before go-live | before feature X | no rush
   - Notes: additional context
+  For credential/secret asks, put the exact copy-paste steps in Notes (e.g. where to
+  find the key + the command to store it) — /digest surfaces them verbatim.
 -->
 
 ## Completed

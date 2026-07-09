@@ -144,6 +144,14 @@ Created: <n>  Commented: <m>  Skipped: <k>
 
 If `--dry-run`, prefix every line with `[DRY RUN]`.
 
+## Daily digest
+
+Once per day, after the monitor pass, assemble and send the batched needs-human digest
+(`/digest`) so the investor gets one message instead of a ping per run. Add a second
+daily cron entry invoking `/digest` (same tool scope as below, plus the notify channel:
+`.startup/notify.json` or `SAAS_NOTIFY_KIND`/`SAAS_NOTIFY_URL`/`SAAS_NOTIFY_TOKEN_ENV`).
+Unconfigured channel is a clean no-op.
+
 ## Cron setup
 
 ```bash

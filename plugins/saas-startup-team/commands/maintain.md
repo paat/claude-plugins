@@ -300,7 +300,9 @@ Each pass follows this sequence:
      issue that WOULD be filed instead of filing it.
    - `needs-human` → add `needs-human` label + write
      `.startup/maintain/human-tasks/<issue>.md` + append idempotently to
-     `docs/human-tasks.md` + post/edit the idempotent bot comment (see §Triage).
+     `docs/human-tasks.md` + post/edit the idempotent bot comment (see §Triage). If the
+     item is a **blocker** (§Blocker vs non-blocker escalation), also push it
+     immediately via `notify.sh --blocker`; otherwise park and continue.
 
 4. **Build the eligible queue** (§Eligibility). Under `--dry-run`: print the
    intended classifications, the dependency-ordered queue, and all mutations that
@@ -412,6 +414,28 @@ total assets" when total assets cannot be legitimately negative in a valid balan
 sheet — that's a bug to fix, not a layout to debate). When a "presentation" framing
 rests on a factual claim about the domain, check the claim before parking; if the
 value itself is wrong, it's `agent-fixable`.
+
+### Blocker vs non-blocker escalation (canonical)
+
+Every `needs-human` item is parked and **the pass continues** — never wait on a human
+answer. Among parked items, exactly three are **blockers**: deploy is broken and **not**
+cleanly revertable, a spend gate is hit, or a legal/compliance signoff is required before
+shipping. Everything else (product/UX call, ambiguity, non-gating credentials, FYI) is a
+**non-blocker** — parked via the existing mechanics only, no push.
+
+A blocker is parked *and* pushed immediately. The push never aborts the pass (the
+blocker stays parked via the existing mechanics), but a REAL send failure must not be
+swallowed like the exit-3 no-op — surface it to stderr:
+
+```bash
+rc=0
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh" --blocker \
+  --title "#<issue> blocked" --body "<one-line reason + link>" || rc=$?
+{ [ "$rc" = 0 ] || [ "$rc" = 3 ]; } || echo "blocker push failed (rc=$rc)" >&2
+```
+
+This list is canonical; `/goal-deliver` and `/digest` reference it rather than restating
+it.
 
 ### Idempotent escalation comments
 

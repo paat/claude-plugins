@@ -334,7 +334,12 @@ the market/customer need addressed, what changed, how it was verified, selected
 acceptance packs, remaining risks, and any follow-up issues filed. Ask the investor only
 for true blockers: missing secrets/credentials, paid external access, destructive
 production action, legal approval or regulated claims needing human signoff, or ambiguity
-that materially changes customer promise or pricing.
+that materially changes customer promise or pricing. Of these, only the narrow
+push-blocker set (deploy broken and unrevertable, spend gate, legal — §Blocker vs
+non-blocker escalation in `/maintain`) triggers a `notify.sh --blocker` push (per the
+rc-handling snippet there: exit 3 = no channel is a silent no-op, but a real send
+failure is surfaced to stderr; the run never blocks on it); the rest are parked into the
+daily `/digest`. Either way the run continues — never wait on them.
 
 ## Communication
 
