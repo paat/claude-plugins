@@ -38,3 +38,39 @@ the cron line — you do, once.
    summary. When mission-control owns a project's digest delivery, disable
    that project's own digest send wiring (monitor-nightly) — two senders
    race the mark-sent cursor and double-deliver.
+
+# Cross-container handoff bus
+
+`scripts/bus.sh` lets one loop hand a message to another over a shared-mount
+directory — no daemon, no queue. Transport is one JSON file per message,
+written tmp+mv so a poller never sees a partial. Layout under the bus dir:
+`<recipient>/inbox/<msg-id>.json`; a reader acks by `mv` into
+`<recipient>/done/`. Envelope: `{id, from, to, created, reply_to?, subject,
+body}`, msg-id `<epoch>-<from>-<hex>`. Bodies cap at 64KB — put large payloads
+on the shared mount and send the path.
+
+**Dir resolution:** `--dir` flag > `MC_BUS_DIR` env > `bus_dir` from the config
+(`MC_CONFIG`). Names (`--to`/`--from`/`--name`) must match `[A-Za-z0-9_-]`.
+
+**Shared mount across containers.** Set the top-level `bus_dir` to the host
+path of the shared directory. A container that mounts it elsewhere records the
+in-container path as that project's `bus_path`; inside that container, export
+`MC_BUS_DIR=<bus_path>` (or pass `--dir`) so both ends read and write the same
+files. Example — host bind-mounts `/srv/mission-control/bus` into
+`project-b-dev` at `/workspace/bus`:
+
+```
+# on the host (config .bus_dir = /srv/mission-control/bus)
+bus.sh send --to project-b --from host --subject deploy --body "cut rc" --config <path>
+
+# inside project-b-dev (bus_path = /workspace/bus)
+MC_BUS_DIR=/workspace/bus bus.sh poll --name project-b --consume
+MC_BUS_DIR=/workspace/bus bus.sh send --to host --from project-b \
+  --subject ack --body done --reply-to <msg-id>
+
+# host waits for the round trip
+bus.sh wait --name host --reply-to <msg-id> --timeout 300 --config <path>
+```
+
+`gc` deletes `done/` entries older than `retention_days` (default 14); run it
+from cron alongside the tick if the bus sees heavy traffic.
