@@ -87,9 +87,22 @@ t "slot lock held when tick exits (no free window)" bash -c '
 mkenv; echo yes > "$TD/alpha/WORK"; echo yes > "$TD/beta/WORK"
 t "dry-run: prints decisions, mutates nothing" bash -c '
   '"$(declare -f tick)"'; TD="'"$TD"'"; SD="'"$SD"'"; MC="'"$MC"'"
-  out="$(tick --dry-run)" || exit 1
+  out="$(tick --dry-run 2>&1)" || exit 1
   grep -qi "would dispatch" <<<"$out" || exit 1
-  [ -z "$(ls "$SD/dispatches" 2>/dev/null)" ] && [ ! -f "$TD/alpha/MARKER" ]'
+  [ -z "$(ls "$SD/dispatches" 2>/dev/null)" ] && [ ! -f "$TD/alpha/MARKER" ] &&
+  [ "$(cat "$SD/state.json")" = "{}" ]'
+
+mkenv; echo yes > "$TD/alpha/WORK"
+t "second tick runs while a pass is live (tick lock not leaked)" bash -c '
+  '"$(declare -f tick)"'; TD="'"$TD"'"; SD="'"$SD"'"; MC="'"$MC"'"
+  jq ".engines.e.cmd = \"sleep 3 # {prompt}\"" "$TD/portfolio.json" > "$TD/x" && mv "$TD/x" "$TD/portfolio.json"
+  tick || exit 1        # dispatches only slot A (beta has no work yet)
+  sleep 0.3
+  [ "$(ls "$SD/dispatches/"*.log | wc -l)" = 1 ] || exit 1
+  echo yes > "$TD/beta/WORK"
+  tick || exit 1        # must not be blocked by the running pass holding tick.lock
+  sleep 0.3
+  [ "$(ls "$SD/dispatches/"*.log | wc -l)" = 2 ]'
 
 mkenv; echo yes > "$TD/alpha/WORK"
 t "envelope timeout yields timeout outcome" bash -c '

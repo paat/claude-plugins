@@ -50,11 +50,13 @@ hour_now() {
 
 log() {
   printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$MC_STATE_DIR/mission-control.log"
-  if [ "$DRY_RUN" = 1 ]; then echo "$*"; fi
+  # stderr, not stdout: pick_slot_* are consumed via $() and must stay clean
+  if [ "$DRY_RUN" = 1 ]; then echo "$*" >&2; fi
 }
 
 state_get() { jq -r "$1" "$MC_STATE_DIR/state.json"; }
 state_set() { # <jq-program> [jq options...]  — atomic under state.lock
+  [ "${DRY_RUN:-0}" = 1 ] && return 0   # dry-run mutates nothing, anywhere
   local prog="$1"; shift
   (
     flock -w 10 9 || { echo "mission-control: state.lock timeout" >&2; exit 1; }
@@ -114,11 +116,11 @@ probe_run() { # <name> <snippet> — run probe, maintain probe_failures streak
   c="$(pj "$name" '.container')"; rp="$(pj "$name" '.repo_path')"
   set +e; out="$(run_in "$c" "$rp" "$snip" 30)"; rc=$?; set -e
   if [ "$rc" -ne 0 ]; then
-    [ "$DRY_RUN" = 1 ] || state_set '.projects[$n].probe_failures = ((.projects[$n].probe_failures // 0) + 1)' --arg n "$name"
+    state_set '.projects[$n].probe_failures = ((.projects[$n].probe_failures // 0) + 1)' --arg n "$name"
     log "probe failed project=$name rc=$rc"
     return 1              # fail toward idle: treated as no work
   fi
-  [ "$DRY_RUN" = 1 ] || state_set '.projects[$n].probe_failures = 0' --arg n "$name"
+  state_set '.projects[$n].probe_failures = 0' --arg n "$name"
   [ -n "$out" ]
 }
 
@@ -301,11 +303,12 @@ dispatch() { # <slot> <name> — reserve, take slot lock on an FD, spawn wrapper
   base="$MC_STATE_DIR/dispatches/$(date -u +%Y%m%dT%H%M%SZ)-$slot-$name"
   : > "$base.log"
   log "dispatch slot=$slot project=$name engine=$engine envelope=${env_min}m"
-  # Wrapper inherits the lock FD: held continuously until the pass ends.
+  # Wrapper inherits the slot-lock FD: held continuously until the pass ends.
+  # fd 8 (tick.lock) must NOT leak into it, or a long pass blocks every tick.
   setsid bash "$0" wrapper --config "$MC_CONFIG" --slot "$slot" --project "$name" \
     --engine "$engine" --container "$container" --repo-path "$rp" \
     --envelope "$env_min" --base "$base" --cmd "$rendered" \
-    >>"$base.log" 2>&1 &
+    >>"$base.log" 2>&1 8>&- &
   exec {lfd}>&-   # parent's copy closed; child's inherited copy keeps the lock
   return 0
 }
