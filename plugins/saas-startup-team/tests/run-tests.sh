@@ -5118,6 +5118,18 @@ main() {
   test_compress_golden_sample
   test_learnings_compress_command
 
+  # Discovered suites: tests/*.tests.sh are sourced here so contributors add
+  # tests as new files without editing this harness (which the lessons-deliver
+  # firewall protects). Sourced files use the assert_* helpers above.
+  local suite
+  for suite in "$PLUGIN_ROOT"/tests/*.tests.sh; do
+    [ -e "$suite" ] || continue
+    echo ""
+    echo -e "${CYAN}Discovered suite: $(basename "$suite")${NC}"
+    # shellcheck source=/dev/null
+    . "$suite"
+  done
+
   # Summary
   echo ""
   echo -e "${YELLOW}=== Summary ===${NC}"
