@@ -140,6 +140,10 @@ Each pass:
       "${CLAUDE_PLUGIN_ROOT}/scripts/lessons-deliver.sh" --bump-version minor
       ```
       (run from `$WT`; it rewrites both `plugin.json` and root `marketplace.json` atomically).
+      Then regenerate the Codex surface so the two plugin surfaces stay in sync —
+      `python3 scripts/sync-codex-marketplace.py` from `$WT` root — and stage any
+      regenerated files under `plugins/` (the generated `.codex-plugin/plugin.json`
+      and workflow skills; never out-of-tree files, which the firewall rejects).
    7. **Test gate** — `bash plugins/saas-startup-team/tests/run-tests.sh` must be green
       (this run now also covers the version bump). Otherwise
       `lessons-deliver.sh --block N --reason "tests red" --repo "$REPO"` and continue.
