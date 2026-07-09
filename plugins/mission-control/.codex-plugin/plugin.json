@@ -1,0 +1,32 @@
+{
+  "name": "mission-control",
+  "version": "0.1.0",
+  "description": "Portfolio supervisor: two-slot scheduler + budget governor keeping at most two autonomous SaaS loops running 24/7 from one human-installed cron line, spending zero LLM tokens on scheduling",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Mission Control",
+    "shortDescription": "Portfolio supervisor: two-slot scheduler + budget governor keeping at most two autonomous SaaS loops running 24/7 from one human-installed cron line, spending zero LLM tokens on scheduling",
+    "longDescription": "Portfolio supervisor: two-slot scheduler + budget governor keeping at most two autonomous SaaS loops running 24/7 from one human-installed cron line, spending zero LLM tokens on scheduling",
+    "developerName": "Andre Paat",
+    "category": "Development",
+    "capabilities": [
+      "Skills",
+      "Scripts"
+    ],
+    "defaultPrompt": "Use the mission-control plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "scheduler",
+    "autonomous-loops",
+    "portfolio",
+    "budget-governor",
+    "cron"
+  ],
+  "skills": "./skills/"
+}
