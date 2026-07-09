@@ -69,6 +69,7 @@ created on first tick (overridable with top-level `state_dir`).
 | Field | Type | Meaning |
 |---|---|---|
 | `timezone` | string, optional | TZ for date roll and digest hour; default system TZ |
+| `docker_cmd` | string, optional | how to reach docker; default `docker`, e.g. `sudo docker` on hosts where the cron user lacks socket group membership |
 | `digest_export_path` | string, optional | if set, daily digest is additionally copied there |
 | `notify_env` | string | NAME of the env var holding the push (ntfy/webhook) URL; unset var = pushes silently skipped, logged |
 | `engines.<name>.pool` | string | pool this engine's passes are charged to |
@@ -161,8 +162,11 @@ Candidate selection:
   4. `meta` projects with a nonempty work probe.
 
 Probes are mechanical, run only for free slots, wrapped in `timeout 30`:
-`docker exec <container> bash -lc 'cd <repo_path> && <probe>'` (or plain
-`bash -lc` for `local`). Stage defaults: incident probe =
+`<docker_cmd> exec <container> bash -c 'cd <repo_path> && <probe>'` (or plain
+`bash -c` for `local`). Non-login shells keep behavior independent of each
+container's profile; PATH/env provisioning is the config's job (an engine
+`cmd` template or `work_probe` may itself invoke `bash -lc` or absolute
+paths where a host needs it). Stage defaults: incident probe =
 `gh issue list --state open --label <l> --limit 1` per incident label; work
 probe = open issues excluding `needs-human`, `maintain:blocked`,
 `lessons:blocked`, `lessons:needs-human`, `epic` labels, `--limit 1`; `meta`
@@ -200,9 +204,12 @@ admitted:
 A detached subshell holding the slot-lock FD inherited from the tick. In
 order: renders the command from the engine template (`{prompt}` ← project
 `command`, literal string substitution, no eval; the rendered string is
-passed as a single argument to `bash -lc`); runs it via
-`timeout <envelope> docker exec <container> bash -lc '<rendered>'` (or plain
-`bash -lc` for `local`) with stdout+stderr to the dispatch log; calls
+passed as a single argument to `bash -c`); runs it via
+`<docker_cmd> exec <container> bash -c 'cd <repo_path> && timeout <envelope> <rendered>'`
+(or plain `bash -c` for `local`) with stdout+stderr to the dispatch log —
+`timeout` runs *inside* the container: a client-side timeout would kill only
+the `docker exec` client, leaving the pass running while the freed slot
+could double-dispatch into the same container; calls
 `governor_report` with the exit code and log path; writes the outcome
 `.json`; releases the flock by exiting. The pool counter was already
 reserved by the tick — the wrapper never touches pool state directly. A
