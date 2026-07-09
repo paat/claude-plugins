@@ -194,78 +194,6 @@ run_in_dir() {
 }
 
 # ---------------------------------------------------------------------------
-# Suite A: check-idle.sh
-# ---------------------------------------------------------------------------
-
-test_check_idle() {
-  echo -e "\n${CYAN}Suite A: check-idle.sh${NC}"
-  local script="$PLUGIN_ROOT/scripts/check-idle.sh"
-  local workdir ec output
-
-  # A1: empty JSON — no teammate_name → exit 0
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  ec=0; output=$(cd "$workdir" && echo '{}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "A1: empty JSON allows idle" "$ec" 0
-  rm -rf "$workdir"
-
-  # A2: unknown teammate → exit 0
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  ec=0; output=$(cd "$workdir" && echo '{"teammate_name":"designer"}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "A2: unknown teammate allows idle" "$ec" 0
-  rm -rf "$workdir"
-
-  # A3: no .startup dir → exit 0
-  workdir=$(make_workdir)
-  ec=0; output=$(cd "$workdir" && echo '{"teammate_name":"business-founder"}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "A3: no .startup dir allows idle" "$ec" 0
-  rm -rf "$workdir"
-
-  # A4: iteration 0, research phase, business-founder, no handoffs → exit 0 (exempt)
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 0
-  # Override phase to "research" — the default starting phase at iteration 0
-  jq '.phase = "research"' "$workdir/.startup/state.json" > "$workdir/.startup/state.tmp" \
-    && mv "$workdir/.startup/state.tmp" "$workdir/.startup/state.json"
-  ec=0; output=$(cd "$workdir" && echo '{"teammate_name":"business-founder"}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "A4: iteration 0 allows idle" "$ec" 0
-  rm -rf "$workdir"
-
-  # A5: iteration 1, business-founder, no handoffs → exit 2 (BLOCKS)
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  ec=0; output=$(cd "$workdir" && echo '{"teammate_name":"business-founder"}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "A5: biz-founder blocks without handoff" "$ec" 2
-  assert_output_contains "A5: shows guidance message" "$output" "must write your handoff"
-  rm -rf "$workdir"
-
-  # A6: iteration 1, business-founder, has handoff → exit 0
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  echo "handoff content" > "$workdir/.startup/handoffs/001-business-to-tech.md"
-  ec=0; output=$(cd "$workdir" && echo '{"teammate_name":"business-founder"}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "A6: biz-founder with handoff allows idle" "$ec" 0
-  rm -rf "$workdir"
-
-  # A7: iteration 2, tech-founder, no handoffs → exit 2 (BLOCKS)
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 2
-  ec=0; output=$(cd "$workdir" && echo '{"teammate_name":"tech-founder"}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "A7: tech-founder blocks without handoff" "$ec" 2
-  assert_output_contains "A7: shows guidance message" "$output" "must write your handoff"
-  rm -rf "$workdir"
-
-  # A8: iteration 2, tech-founder, has handoff → exit 0
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 2
-  echo "handoff content" > "$workdir/.startup/handoffs/002-tech-to-business.md"
-  ec=0; output=$(cd "$workdir" && echo '{"teammate_name":"tech-founder"}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "A8: tech-founder with handoff allows idle" "$ec" 0
-  rm -rf "$workdir"
-}
-
-# ---------------------------------------------------------------------------
 # Suite B: check-task-complete.sh
 # ---------------------------------------------------------------------------
 
@@ -866,25 +794,19 @@ test_cross_file_consistency() {
   assert_file_exists "H1: Stop hook script exists" "$PLUGIN_ROOT/$stop_script"
   assert_file_exists "H2: PreToolUse handoff hook script exists" "$PLUGIN_ROOT/$handoff_script"
 
-  # H3-H4: Agent names in agents/*.md match what check-idle.sh handles
+  # H3-H4: Agent names in agents/*.md match the role tokens the handoff/dispatch
+  # conventions key on (business-founder, tech-founder* for both engines).
   local biz_name tech_claude_name tech_codex_name
   biz_name=$(grep '^name:' "$PLUGIN_ROOT/agents/business-founder.md" | head -1 | sed 's/^name: *//')
   tech_claude_name=$(grep '^name:' "$PLUGIN_ROOT/agents/tech-founder-claude.md" | head -1 | sed 's/^name: *//')
   tech_codex_name=$(grep '^name:' "$PLUGIN_ROOT/agents/tech-founder-codex.md" | head -1 | sed 's/^name: *//')
 
-  # check-idle.sh handles "business-founder" and the "tech-founder*" role (both engines).
-  assert_equals "H3: business-founder agent name matches script" "$biz_name" "business-founder"
+  assert_equals "H3: business-founder agent name matches role token" "$biz_name" "business-founder"
   assert_equals "H4a: tech-founder-claude agent name correct" "$tech_claude_name" "tech-founder-claude"
   assert_equals "H4b: tech-founder-codex agent name correct" "$tech_codex_name" "tech-founder-codex"
-  # both engine names must prefix-match the tech-founder role check-idle.sh keys on
+  # both engine names must prefix-match the tech-founder role token
   case "$tech_claude_name" in tech-founder*) assert_equals "H4c: claude engine matches tech-founder role" "ok" "ok";; *) assert_equals "H4c: claude engine matches tech-founder role" "no" "ok";; esac
   case "$tech_codex_name" in tech-founder*) assert_equals "H4d: codex engine matches tech-founder role" "ok" "ok";; *) assert_equals "H4d: codex engine matches tech-founder role" "no" "ok";; esac
-
-  # H5-H6: check-idle.sh patterns match template filenames
-  assert_file_contains "H5: check-idle.sh handles business-to-tech pattern" \
-    "$PLUGIN_ROOT/scripts/check-idle.sh" "business-to-tech"
-  assert_file_contains "H6: check-idle.sh handles tech-to-business pattern" \
-    "$PLUGIN_ROOT/scripts/check-idle.sh" "tech-to-business"
 
   # H7: Template filenames match the patterns that scripts expect
   assert_file_exists "H7: handoff-business-to-tech template exists" \
@@ -892,17 +814,7 @@ test_cross_file_consistency() {
   assert_file_exists "H8: handoff-tech-to-business template exists" \
     "$PLUGIN_ROOT/templates/handoff-tech-to-business.md"
 
-  # H9: Scripts are executable
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -x "$PLUGIN_ROOT/scripts/check-idle.sh" ]; then
-    echo -e "  ${GREEN}PASS${NC} H9: check-idle.sh is executable"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} H9: check-idle.sh is not executable"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("H9: check-idle.sh is not executable")
-  fi
-
+  # H10-H11: Scripts are executable
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
   if [ -x "$PLUGIN_ROOT/scripts/check-task-complete.sh" ]; then
     echo -e "  ${GREEN}PASS${NC} H10: check-task-complete.sh is executable"
@@ -1625,7 +1537,7 @@ test_maintain_loop() {
   assert_file_contains "ML19: review-fix cycles" "$cmd" "review/fix"
   assert_file_contains "ML20: closure audit" "$cmd" "issue-closure-audit.sh"
   assert_file_contains "ML21: squash merge" "$cmd" "gh pr merge"
-  assert_file_contains "ML22: deploy watch" "$cmd" "gh run watch"
+  assert_file_contains "ML22: deploy watch via poll-gate" "$cmd" "poll-gate.sh --run"
   assert_file_contains "ML23: live Playwright verification" "$cmd" "live Playwright"
   assert_file_contains "ML24: deploy and live required" "$cmd" "deploy green, live Playwright verification passed"
   assert_file_contains "ML25: not fixed without live URL" "$cmd" "do not report it as live working"
@@ -5071,7 +4983,6 @@ main() {
     exit 1
   fi
 
-  test_check_idle
   test_check_task_complete
   test_status_script
   test_templates

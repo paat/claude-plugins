@@ -220,8 +220,10 @@ tool call has a workdir. Stop if a command runs in any other checkout.
     increment `worker_merges_used` and record the merged PR in `merged_prs`. If
     default moves, restart final validation.
 12. Watch the default-branch deploy:
-    `gh run list --branch "$default" --limit 1 --json databaseId -q '.[0].databaseId'`
-    then `gh run watch "$run_id" --exit-status`.
+    `gh run list --branch "$default" --limit 1 --json databaseId -q '.[0].databaseId'`,
+    then poll with backoff via `${CLAUDE_PLUGIN_ROOT}/scripts/poll-gate.sh --run "$run_id"`
+    (never a blocking `--watch`): on `pending`, `sleep` a 60s backoff doubling to a 480s
+    cap and re-poll; treat as failed after a 30-minute budget.
 13. Ensure live working after deploy. Determine the live URL from `SAAS_LIVE_URL`,
     the deployment output, or repo docs/config. Run a safe Playwright smoke or the
     issue acceptance flow against that live URL. "Done" requires both deploy green

@@ -180,6 +180,7 @@ Claude Code agent prompt:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude-maintain.md` (Claude engine) **or** `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-codex-maintain.md` (Codex engine) — whichever the orchestrator selected — for your identity and tools.
 > Be token-frugal: read only what the task needs, in targeted ranges (not whole-file dumps), and never re-read content already in your context.
+> Follow the worker reliability rules in `${CLAUDE_PLUGIN_ROOT}/templates/worker-reliability.md` (re-resolve absolute paths after any checkout/worktree switch; retry a stale read once before re-editing).
 >
 > **Improvement task: Implement the latest handoff from the business founder.**
 >

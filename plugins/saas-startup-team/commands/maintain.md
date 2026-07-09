@@ -566,6 +566,9 @@ if [ -f .startup/state.json ]; then
 fi
 ```
 
+Carry the worker reliability rules (`${CLAUDE_PLUGIN_ROOT}/templates/worker-reliability.md`)
+into each founder brief: re-resolve paths after any checkout/worktree switch; retry a stale read once.
+
 ### Per-Issue Guardrails
 
 - **Recurrence-class closure is mandatory.** Before implementation, identify the

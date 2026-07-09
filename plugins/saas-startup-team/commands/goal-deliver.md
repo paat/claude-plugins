@@ -206,18 +206,18 @@ it so `active_role` is never left as `team-lead-tweak`.
    If the push or `gh pr create` fails, **stop immediately — run the "reset and go
    gated" block and go to Step 2**; do not continue to capture `pr_num` or leave a
    half-open fast-path delivery.
-7. **Pre-merge CI gate.** A green merge requires that the PR has **at least one CI
-   check AND every check passes** — a repo with no CI cannot satisfy the bare-ship
-   backstop, so "no checks" is treated as not-green (gated), never as a free pass.
-   Count the checks first, then wait:
+7. **Pre-merge CI gate.** A green merge requires **at least one CI check AND every
+   check passes** — a repo with no CI is not-green (gated), never a free pass. Count
+   the checks first:
    ```bash
    n_checks=$(gh pr checks "$pr_num" 2>/dev/null | grep -c .)   # 0 if none reported
-   if [ "${n_checks:-0}" -eq 0 ]; then
-     checks_status=1                                            # no CI → not-green
-   else
-     gh pr checks "$pr_num" --watch --fail-fast; checks_status=$?
-   fi
    ```
+   If `n_checks` is 0, set `checks_status=1` (no CI → not-green) and skip polling.
+   Otherwise poll with backoff — never a blocking `--watch`, which gets Exit-143 killed:
+   repeatedly `bash "${CLAUDE_PLUGIN_ROOT}/scripts/poll-gate.sh" --pr "$pr_num"` —
+   `green`→`checks_status=0`, `red`→`checks_status=1`, `pending`→`sleep` the backoff
+   (60s, doubling each round to a 480s cap) then re-poll. Give up as `checks_status=1`
+   after a 45-minute total budget. Run each probe and each sleep as its own short Bash call.
    - `checks_status` **0** (checks exist and all passed) → run the **role reset only**
      (`jq '.active_role="business-founder-maintain"' …` — keep the branch/commit),
      `git checkout "${default}"`, then hand **`$pr_num`** to **Step 3 item 3** (merge
@@ -311,13 +311,16 @@ on has merged):
 
 ## Step 4: Monitor the Deploy
 
-After the last chunk merges (and at least one merged), watch the GitHub Actions
-run triggered on the default branch:
+After the last chunk merges (and at least one merged), watch the default-branch
+GitHub Actions run:
 
 ```bash
 run_id=$(gh run list --branch "${default}" --limit 1 --json databaseId -q '.[0].databaseId')
-gh run watch "$run_id" --exit-status
 ```
+Poll with backoff — never a blocking `--watch`: repeatedly `bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/poll-gate.sh" --run "$run_id"` — `green`=passed,
+`red`=failed, `pending`→`sleep` a 60s backoff doubling to a 480s cap, then re-poll.
+Treat as failed after a 30-minute total budget. Each probe and sleep is its own short Bash call.
 
 On failure: read the failing logs (`gh run view "$run_id" --log-failed`),
 dispatch the tech founder to fix on a `deploy-fix/<slug>` branch → open a PR →
