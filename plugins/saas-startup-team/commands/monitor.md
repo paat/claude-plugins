@@ -1,7 +1,7 @@
 ---
 name: monitor
 description: On-demand post-launch monitor using the shared monitor and operate config blocks. Produces an interactive operations report without duplicating /monitor-nightly.
-argument-hint: "[sessions|payments|health|costs|traffic|funnel|support|all] [--minutes=N] [--days=N] [--dry-run] [--file-issues]"
+argument-hint: "[sessions|payments|health|costs|traffic|funnel|support|all] [--minutes=N] [--days=N] [--dry-run] [--no-file-issues]"
 allowed-tools: Bash, Read, Write, Grep, Glob
 user_invocable: true
 ---
@@ -62,8 +62,6 @@ Include:
 
 ## Issue Filing
 
-Default is read/report-only.
-
-If `--file-issues` is present, use the existing `scripts/monitor-dedup.sh` commit path and the configured `monitor:` labels. If `--dry-run` is present, preview the dedup actions without creating or commenting on GitHub issues.
+Discovered failures are filed by default — do not ask first. Use the existing `scripts/monitor-dedup.sh` commit path (its `pattern_key`/entity dedup and the configured `monitor:` labels), and record one digest line per filed/updated issue in the current run digest so `/digest` surfaces it. Pass `--no-file-issues` for report-only, or `--dry-run` to preview the dedup actions without mutating GitHub.
 
 Never call `gh` directly from this command; the monitor engine owns GitHub I/O.
