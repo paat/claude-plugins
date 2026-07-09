@@ -221,7 +221,9 @@ Each line written to stdout by the engine or by `custom_checks` (the script is a
 
 ### Dependencies
 
-Authenticated `gh` (GitHub CLI), `jq`, GNU coreutils `date` (for `date -d` relative time parsing).
+Authenticated `gh` (GitHub CLI), `jq`, GNU coreutils `date` (for `date -d` relative time parsing), and `curl` (used by `notify.sh` for the optional `/digest` and blocker push channel).
+
+`notify.sh` exit contract (callers gate the digest cursor on it): `0` = sent, `3` = no channel configured / `kind=none` (clean no-op, not an error), `2` = usage error, `1` = config error (unknown kind or malformed `notify.json`), `10` = send attempted but failed (fixed code — curl's raw exit never leaks into the `0`–`3` sentinel space). `/digest` advances its run cursor only on `0`, so a no-op or a failed send re-appears in a later digest.
 
 ## Operate phase (`/operate`, `/monitor`, `/investigate`, `/replay-abandoned`)
 
