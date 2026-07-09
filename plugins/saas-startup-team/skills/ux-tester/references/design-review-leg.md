@@ -19,17 +19,23 @@ Trigger: `scripts/ui-touch.sh` classifies the branch diff as `ui`.
    - responsive integrity at both breakpoints (no overflow, overlap, clipping)
    - diacritics/Cyrillic render correctly (no mojibake/tofu)
    - loading and empty states on the affected pages
-4. Emit this verdict block into the PR body (one line per FAILED heuristic only):
+4. Emit this verdict block into the **PR body** (a QA comment may repeat it,
+   but the PR body is what the merge gate checks):
    ```
    ## Design-review: PASS|FAIL
-   - <heuristic>: <severity> — <one line>
+   Pages: <urls> | Viewports: 375+1280 | Locales: <list> | Shots: <.startup/reviews/ paths>
+   - <heuristic>: <severity> — <one line, FAILED heuristics only>
    ```
    FAIL on any **critical** or **major** finding. QA cannot PASS while the
-   design-review is FAIL.
+   design-review is FAIL. A block without the Pages/Shots line is not valid
+   evidence. The classifier is a mechanical floor — when in doubt, run the leg
+   even on `no-ui`.
 
 ## Post-deploy visual smoke
 
-Trigger: deploy is green AND this pass merged ≥1 `ui`-classified PR.
+Trigger: deploy is green AND `scripts/ui-touch.sh --range <pre-pass
+SHA>..HEAD` over the pass's merged range prints `ui` (re-run it — do not rely
+on remembered per-PR classifications).
 
 1. Visit the live URL (`SAAS_LIVE_URL`, else the architecture-doc config) key
    pages (project smoke list from config/docs; fallback: landing page + app

@@ -219,7 +219,7 @@ Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 > - If the change touched a workflow spec, do the QA cases in `.startup/workflows/WORKFLOW-*.md` pass or need registry follow-up?
 > - If relevant, are async paid-flow states, checkout CTA proximity, customer copy/value units, structured-result labels, LLM quality evidence, and compliance claim boundaries acceptable?
 > - Does the new element cohere with its *rendered* neighbors (alignment, width, spacing, hierarchy) in the state that will actually ship — judged independently of whether the brief said to reuse existing tokens/patterns?
-> - Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/ui-touch.sh" --range "$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name || echo main)...HEAD"`. If it prints `ui`, you MUST run the pre-merge leg in `${CLAUDE_PLUGIN_ROOT}/skills/ux-tester/references/design-review-leg.md` and include its `## Design-review: PASS|FAIL` verdict block in your review — you cannot return PASS while the design-review is FAIL.
+> - Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/ui-touch.sh" --range "$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name || echo main)...HEAD"`. Unless it prints exactly `no-ui`, you MUST run the pre-merge leg in `${CLAUDE_PLUGIN_ROOT}/skills/ux-tester/references/design-review-leg.md` and its `## Design-review: PASS|FAIL` verdict block (with the Pages/Shots evidence line) must land in the PR body — you cannot return PASS while the design-review is FAIL.
 >
 > Write your review following your standard review process.
 

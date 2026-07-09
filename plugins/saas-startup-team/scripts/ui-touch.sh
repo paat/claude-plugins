@@ -11,19 +11,22 @@ usage() { echo "usage: ui-touch.sh --range <git-range> | --files (paths on stdin
 
 case "${1:-}" in
   --range) range="${2:-}"; [ -n "$range" ] || usage
-           files=$(git diff --name-only "$range" 2>/dev/null) || usage ;;
+           # a failing git range must not skip the review gate: classify ui
+           files=$(git diff --name-only "$range" 2>/dev/null) \
+             || { echo "ui-touch: git diff failed for '$range' — classifying ui (fail-closed)" >&2; echo ui; exit 0; } ;;
   --files) files=$(cat) ;;
   *) usage ;;
 esac
 
 # UI-touching file patterns — single source of truth. One ERE branch per line.
 PATTERNS='\.(css|scss|sass|less)$
-\.(tsx|jsx|vue|svelte)$
+\.(tsx|jsx|vue|svelte|html?|mdx)$
+\.(svg|png|jpe?g|gif|webp|ico)$
+(^|/)(public|static|assets)/
 (^|/)[^/]*(tailwind|theme)[^/]*\.(js|ts|cjs|mjs|json)$
-(^|/)(components?|layouts?|pages|views|templates|partials)/.*\.(ts|js|html|erb|blade\.php|razor|cshtml)$
+(^|/)(components?|layouts?|pages|views|templates|partials)/.*\.(ts|js|erb|blade\.php|razor|cshtml)$
 (^|/)(locales?|i18n|lang|translations?)/
-\.(po|pot)$
-(^|/)public/.*\.(svg|png|ico)$'
+\.(po|pot)$'
 
 if [ -n "$files" ] && printf '%s\n' "$files" | grep -Eq "$(printf '%s' "$PATTERNS" | paste -sd'|' -)"; then
   echo ui

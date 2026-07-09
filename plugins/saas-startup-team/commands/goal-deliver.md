@@ -327,7 +327,7 @@ dispatch the tech founder to fix on a `deploy-fix/<slug>` branch → open a PR �
 close the tribunal loop on it → merge → re-watch the new run. Repeat until green
 or you judge it needs the investor.
 
-After green, when this run merged ≥1 PR classified `ui` by `scripts/ui-touch.sh`,
+After green, when `scripts/ui-touch.sh --range <pre-run SHA>..HEAD` over this run's merged range prints anything but `no-ui`,
 run the post-deploy visual smoke per the post-deploy section of
 `${CLAUDE_PLUGIN_ROOT}/skills/ux-tester/references/design-review-leg.md`. A render
 regression attributable to a merged chunk → roll it back via `/maintain`'s

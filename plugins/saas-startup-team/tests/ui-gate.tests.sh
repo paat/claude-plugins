@@ -17,6 +17,10 @@ test_ui_gate() {
   assert_equals "UG3: scripts/*.sh → no-ui"  "$(classify 'scripts/deploy.sh')" "no-ui"
   assert_equals "UG4: locale json → ui"      "$(classify 'locales/et.json')" "ui"
   assert_equals "UG5: empty → no-ui"         "$(classify '')" "no-ui"
+  assert_equals "UG5b: index.html → ui"      "$(classify 'index.html')" "ui"
+  assert_equals "UG5c: public asset jpg → ui" "$(classify 'public/hero.jpg')" "ui"
+  assert_equals "UG5d: assets/ dir → ui"     "$(classify 'assets/logo.svg')" "ui"
+  assert_equals "UG5e: bad git range → ui (fail-closed)" "$(cd "$(mktemp -d)" && git init -q . && bash "$script" --range 'nosuch...HEAD' 2>/dev/null)" "ui"
   assert_equals "UG6: mixed (md+css) → ui"   "$(printf 'README.md\nstyles/app.css\n' | bash "$script" --files)" "ui"
   assert_equals "UG7: docs-only → no-ui"     "$(printf 'README.md\nsrc/util.go\n' | bash "$script" --files)" "no-ui"
 
