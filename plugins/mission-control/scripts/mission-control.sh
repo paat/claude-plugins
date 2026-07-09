@@ -105,10 +105,127 @@ pj() { jq -r --arg n "$1" ".projects[] | select(.name == \$n) | $2" "$MC_CONFIG"
 # shellcheck source=governor.sh
 source "${MC_GOVERNOR:-$SCRIPT_DIR/governor.sh}"
 
-[ "${MC_LIB_ONLY:-0}" = 1 ] && return 0
-
 # ---------- subcommand bodies ----------
-# LADDER-FUNCTIONS-PLACEHOLDER (Task 4)
+# ---------- probes & ladder ----------
+EXCLUDE_LABELS='"needs-human","maintain:blocked","lessons:blocked","lessons:needs-human","epic"'
+
+probe_run() { # <name> <snippet> — run probe, maintain probe_failures streak
+  local name="$1" snip="$2" c rp out rc
+  c="$(pj "$name" '.container')"; rp="$(pj "$name" '.repo_path')"
+  set +e; out="$(run_in "$c" "$rp" "$snip" 30)"; rc=$?; set -e
+  if [ "$rc" -ne 0 ]; then
+    [ "$DRY_RUN" = 1 ] || state_set '.projects[$n].probe_failures = ((.projects[$n].probe_failures // 0) + 1)' --arg n "$name"
+    log "probe failed project=$name rc=$rc"
+    return 1              # fail toward idle: treated as no work
+  fi
+  [ "$DRY_RUN" = 1 ] || state_set '.projects[$n].probe_failures = 0' --arg n "$name"
+  [ -n "$out" ]
+}
+
+default_work_probe() { # <stage>
+  if [ "$1" = "meta" ]; then
+    printf '%s' "gh issue list --state open --label lesson-approved --limit 50 --json number,labels --jq 'first(.[] | select(([.labels[].name] | map(IN($EXCLUDE_LABELS)) | any | not)) | .number) // empty'"
+  else
+    printf '%s' "gh issue list --state open --limit 50 --json number,labels --jq 'first(.[] | select(([.labels[].name] | map(IN($EXCLUDE_LABELS)) | any | not)) | .number) // empty'"
+  fi
+}
+
+probe_work() { # <name>
+  local name="$1" snip stage
+  stage="$(pj "$name" '.stage')"
+  snip="$(pj "$name" '.work_probe // empty')"
+  [ -n "$snip" ] || snip="$(default_work_probe "$stage")"
+  probe_run "$name" "$snip"
+}
+
+probe_incident() { # <name> — any open issue with an incident label
+  local name="$1" snip l
+  snip="$(pj "$name" '.work_probe // empty')"
+  if [ -n "$snip" ]; then probe_run "$name" "$snip"; return; fi
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    if probe_run "$name" "gh issue list --state open --label $(printf %q "$l") --limit 1 --json number --jq '.[].number'"; then
+      return 0
+    fi
+  done < <(pj "$name" '(.incident_labels // ["incident","production","critical"])[]')
+  return 1
+}
+
+project_blocked() { # <name> — hold or active cooldown
+  [ "$(pj "$1" '.hold')" = "true" ] && return 0
+  local cd; cd="$(state_get ".projects[\"$1\"].cooldown_until // 0")"
+  [ "$(now)" -lt "$cd" ]
+}
+
+# Engines refused by governor_reserve earlier THIS tick (set by cmd_tick's
+# retry loop, Task 6). Lets the ladder continue past an exhausted pool.
+declare -ga DENIED_ENGINES=()
+engine_denied() { # <name> — is this project's engine denied this tick?
+  local e d; e="$(pj "$1" '.engine')"
+  for d in "${DENIED_ENGINES[@]:-}"; do [ "$d" = "$e" ] && return 0; done
+  return 1
+}
+
+rotate() { # <rung> <names...> — start after this rung's cursor
+  local rung="$1"; shift
+  [ $# -gt 0 ] || return 0
+  local cur i n=$#
+  cur="$(state_get ".cursor[\"$rung\"] // \"\"")"
+  local -a a=("$@")
+  local start=0
+  for i in "${!a[@]}"; do
+    if [ "${a[$i]}" = "$cur" ]; then start=$(( (i + 1) % n )); break; fi
+  done
+  for ((i = 0; i < n; i++)); do echo "${a[$(( (start + i) % n ))]}"; done
+}
+
+names_by_stage() { jq -r --arg s "$1" '.projects[] | select(.stage == $s) | .name' "$MC_CONFIG"; }
+
+# ADMISSION-ELIGIBLE-PLACEHOLDER (Task 5)
+admission_eligible() { return 1; }
+
+pick_slot_a() {
+  local p; p="$(cfg '.slots.A.pinned // empty')"
+  [ -n "$p" ] || return 0
+  project_blocked "$p" && { log "slot A pinned $p blocked"; return 0; }
+  engine_denied "$p" && return 0
+  probe_work "$p" && echo "$p" || true
+}
+
+pick_slot_b() {
+  local pinned n
+  pinned="$(cfg '.slots.A.pinned // empty')"
+  # rung 1: live incidents, excluding the pinned project
+  while IFS= read -r n; do
+    [ -n "$n" ] && [ "$n" != "$pinned" ] || continue
+    project_blocked "$n" && continue
+    engine_denied "$n" && continue
+    if probe_incident "$n"; then state_set '.cursor["1"]=$n' --arg n "$n"; echo "1 $n"; return 0; fi
+  done < <(rotate 1 $(names_by_stage live))
+  # rung 2: admitted pre-launch with work
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    project_blocked "$n" && continue
+    engine_denied "$n" && continue
+    admission_eligible "$n" || continue
+    if probe_work "$n"; then state_set '.cursor["2"]=$n' --arg n "$n"; echo "2 $n"; return 0; fi
+  done < <(rotate 2 $(names_by_stage pre-launch))
+  # rung 3: validation
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    project_blocked "$n" && continue
+    engine_denied "$n" && continue
+    if probe_work "$n"; then state_set '.cursor["3"]=$n' --arg n "$n"; echo "3 $n"; return 0; fi
+  done < <(rotate 3 $(names_by_stage validation))
+  # rung 4: meta
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    project_blocked "$n" && continue
+    engine_denied "$n" && continue
+    if probe_work "$n"; then state_set '.cursor["4"]=$n' --arg n "$n"; echo "4 $n"; return 0; fi
+  done < <(rotate 4 $(names_by_stage meta))
+  return 0
+}
 # ADMISSION-FUNCTIONS-PLACEHOLDER (Task 5)
 # DISPATCH-FUNCTIONS-PLACEHOLDER (Task 6)
 
@@ -165,6 +282,10 @@ cmd_status() {
 cmd_wrapper() {
   echo "mission-control: wrapper not implemented yet" >&2; exit 3
 }
+
+# Library seam: when sourced (tests, #199 governor), define all functions
+# above but run no subcommand.
+[ "${MC_LIB_ONLY:-0}" = 1 ] && return 0
 
 case "$CMD" in
   tick)    cmd_tick ;;
