@@ -4,6 +4,7 @@
   "notify_env": "MC_NTFY_URL",
   "digest_hour": 7,
   "retention_days": 14,
+  "bus_dir": "/srv/mission-control/bus",
   "engines": {
     "claude-opus": {
       "pool": "claude",
@@ -40,7 +41,8 @@
       "stage": "pre-launch",
       "engine": "codex",
       "command": "/maintain-loop --once",
-      "hold": false
+      "hold": false,
+      "bus_path": "/workspace/bus"
     },
     {
       "name": "plugin-repo",

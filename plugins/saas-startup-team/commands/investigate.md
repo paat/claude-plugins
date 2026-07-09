@@ -1,7 +1,7 @@
 ---
 name: investigate
 description: Investigate a live incident by correlation ID or recent sessions, create a redacted RCA artifact, and file or update a deduplicated GitHub issue when requested.
-argument-hint: "{CID | --recent N} [--dry-run] [--file-issue]"
+argument-hint: "{CID | --recent N} [--dry-run] [--no-file-issues]"
 allowed-tools: Bash, Read, Write, Grep, Glob, Task
 user_invocable: true
 ---
@@ -15,7 +15,7 @@ Investigate a live incident using a correlation ID or a recent-session sweep. Al
 - `{CID}` - a full correlation/session/customer-visible incident ID.
 - `--recent N` - inspect the N most recent configured sessions and choose the highest-signal candidates.
 - `--dry-run` - write artifacts and show the issue body without creating/updating GitHub.
-- `--file-issue` - create or update a deduplicated GitHub issue after the RCA is complete.
+- `--no-file-issues` - skip the GitHub filing step (artifact-only).
 
 If neither `{CID}` nor `--recent` is provided, show the configured recent-session source and ask the user which mode to run.
 
@@ -49,13 +49,15 @@ Spawn the incident investigator:
 
 ## GitHub Issue
 
-If `--file-issue` is present:
+File by default — do not ask "shall I file it?". Once the RCA artifact exists, run the shared helper (it searches, dedups, and applies the sensitive-content carve-out):
 
-1. Search the configured repo for an open issue with the same pattern key, correlation ID, or root-cause title.
-2. If found, append a compact update comment using `--body-file`.
-3. If not found, create a new issue using `--body-file`, configured labels, and the generated title.
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/issue-file.sh" --repo <configured repo> \
+  --title "<root-cause title>" --body-file .startup/operate/investigations/<cid>/issue-body.md \
+  --labels "<configured labels>" --digest-file <current run digest, if any>
+```
 
-If `--dry-run` is present, print the planned issue/comment action and do not mutate GitHub.
+The helper comments on an existing open match instead of creating a duplicate, and parks the defect in `docs/human-tasks.md` (exit 3) when the draft carries customer data or a secret. Skip filing with `--no-file-issues`; pass `--dry-run` through to preview without mutating GitHub.
 
 ## Output
 
