@@ -181,8 +181,58 @@ rotate() { # <rung> <names...> — start after this rung's cursor
 
 names_by_stage() { jq -r --arg s "$1" '.projects[] | select(.stage == $s) | .name' "$MC_CONFIG"; }
 
-# ADMISSION-ELIGIBLE-PLACEHOLDER (Task 5)
-admission_eligible() { return 1; }
+# ---------- admission gate (absorbed from #206) ----------
+admitted_unheld_count() {
+  local n c=0
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    [ "$(state_get ".admissions[\"$n\"].admitted_at // 0")" != 0 ] || continue
+    [ "$(pj "$n" '.hold')" = "true" ] && continue
+    c=$((c + 1))
+  done < <(names_by_stage pre-launch)
+  echo "$c"
+}
+
+admission_housekeeping() { # held + never-admitted => veto clock restarts later
+  local n
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    [ "$(pj "$n" '.hold')" = "true" ] || continue
+    [ "$(state_get ".admissions[\"$n\"].admitted_at // 0")" = 0 ] || continue
+    [ "$(state_get ".admissions[\"$n\"].requested_at // 0")" != 0 ] || continue
+    state_set 'del(.admissions[$n].requested_at)' --arg n "$n"
+    log "admission clock cleared (held): $n"
+  done < <(names_by_stage pre-launch)
+}
+
+admission_eligible() { # <name> — exit 0 iff admitted; advances the gate
+  local name="$1" req veto
+  [ "$(state_get ".admissions[\"$name\"].admitted_at // 0")" != 0 ] && return 0
+  veto="$(cfg '.admission.veto_hours // 72')"
+  req="$(state_get ".admissions[\"$name\"].requested_at // 0")"
+  if [ "$req" != 0 ]; then
+    if [ "$(now)" -ge $((req + veto * 3600)) ]; then
+      state_set '.admissions[$n].admitted_at = ($t|tonumber)' --arg n "$name" --arg t "$(now)"
+      log "admitted: $name"
+      return 0
+    fi
+    return 1                                    # veto window still open
+  fi
+  # not yet requested: evaluate the gate (fail closed at every step)
+  local cap; cap="$(cfg '.admission.wip_cap // 1')"
+  [ "$(admitted_unheld_count)" -lt "$cap" ] || return 1
+  local c rp conf min
+  c="$(pj "$name" '.container')"; rp="$(pj "$name" '.repo_path')"
+  set +e
+  conf="$(run_in "$c" "$rp" "jq -r '.validation.confidence // empty' .startup/provenance.json 2>/dev/null" 15)"
+  set -e
+  [ -n "$conf" ] || return 1
+  min="$(cfg '.admission.confidence_min // 0.7')"
+  awk -v c="$conf" -v m="$min" 'BEGIN { exit !(c + 0 >= m + 0) }' || return 1
+  state_set '.admissions[$n].requested_at = ($t|tonumber)' --arg n "$name" --arg t "$(now)"
+  alert "admission-$name" "$name enters Slot B delivery in ${veto}h — set hold:true in portfolio.json to veto"
+  return 1                                      # never dispatch on request tick
+}
 
 pick_slot_a() {
   local p; p="$(cfg '.slots.A.pinned // empty')"
@@ -226,7 +276,6 @@ pick_slot_b() {
   done < <(rotate 4 $(names_by_stage meta))
   return 0
 }
-# ADMISSION-FUNCTIONS-PLACEHOLDER (Task 5)
 # DISPATCH-FUNCTIONS-PLACEHOLDER (Task 6)
 
 cmd_tick() {
