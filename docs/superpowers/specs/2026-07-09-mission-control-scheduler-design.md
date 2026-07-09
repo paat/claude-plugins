@@ -117,22 +117,30 @@ Project entry:
 ## Tick algorithm (`mission-control.sh tick --config <path> [--dry-run]`)
 
 1. Acquire `tick.lock` non-blocking; already held → exit 0 silently.
-2. Preflight: config parses (`jq`), required tools present, `docker info`
-   reachable (skipped if every project is `local`). Failure → deduped alert
-   (push at most once per 24h per key) + exit non-zero.
-3. Date roll: if `state.json .date` ≠ today (config TZ), reset pool counters,
-   set `.date`.
+2. Preflight: config parses (`jq`), required tools present. The docker
+   reachability check runs lazily, immediately before the tick's first
+   `docker` use — busy-slot and all-local ticks make no docker calls.
+   Failure → deduped alert (push at most once per 24h per key) + exit
+   non-zero.
+3. Date roll: if `state.json .date` ≠ today (config TZ), set `.date` and
+   reset scheduler-owned per-day keys only. Pool counters are
+   governor-owned and roll lazily inside `governor_reserve`.
 4. For each slot in order A, B — only if its flock is free (a held lock means
    a pass is running; long passes span ticks; never preempt):
-   - Build the candidate list (below). Skip candidates whose `hold` is true,
-     whose project cooldown is active, or whose engine fails
-     `governor_check` — on governor refusal continue down the ladder (a
-     backed-off Codex pool must not block a Claude-pool rung).
-   - First surviving candidate wins. No candidate → slot idles this tick.
-5. Dispatch (per winning candidate): spawn a detached wrapper (`setsid`);
-   the tick exits without waiting.
-6. Call `governor_daily <config> <state_dir>` — every tick; the governor owns
-   the once-per-day guard (stub: no-op).
+   - Build the candidate list (below). Skip candidates whose `hold` is true
+     or whose project cooldown is active.
+   - For the first surviving candidate, call `governor_reserve <engine>` —
+     an atomic check-and-reserve. On refusal, continue down the ladder (a
+     backed-off Codex pool must not block a Claude-pool rung). No candidate
+     reserves → slot idles this tick.
+5. Dispatch (per reserved candidate): the tick itself acquires the slot
+   flock on an open FD, then spawns a detached wrapper (`setsid`) that
+   inherits that FD — the lock is held continuously from dispatch decision
+   to pass completion, so a manual tick racing the cron tick can never
+   double-fill a slot. The tick exits without waiting. If the wrapper fails
+   to launch, the reservation is not refunded (fail toward under-spend).
+6. Call `governor_daily` — every tick; the governor owns the once-per-day
+   guard (stub: no-op).
 
 Under `--dry-run`, print every decision (slot states, ladder walk, probe
 results, would-dispatch) and mutate nothing, including skipping
@@ -180,37 +188,49 @@ admitted:
 - After `veto_hours` with `hold` still false: stamp `admitted_at`; project is
   rung-2 eligible thereafter.
 - `hold` flipped true at any point pauses immediately (pre- or
-  post-admission). Clearing `hold` on a never-admitted project restarts the
-  veto clock (fresh `requested_at`). Admitted projects keep `admitted_at`
-  across holds.
+  post-admission). Mechanically: each tick clears `requested_at` for any
+  held, never-admitted project (the tick reads all entries even when they
+  are skipped as candidates), so clearing `hold` later makes the gate stamp
+  a fresh `requested_at` — the veto clock restarts without the scheduler
+  needing to observe the hold/unhold transition. Admitted projects keep
+  `admitted_at` across holds.
 
 ## Dispatch wrapper
 
-A detached subshell that, in order: acquires the slot flock non-blocking
-(failure → log + exit; the tick already checked, this is belt-and-braces);
-increments the engine's pool counter under `state.lock` (counted at dispatch
-— fail toward under-spend); renders the command from the engine template
-(`{prompt}` ← project `command`); runs it via
-`timeout <envelope> docker exec <container> bash -lc 'cd <repo_path> && …'`
-(or `bash -lc` for `local`) with stdout+stderr to the dispatch log; calls
+A detached subshell holding the slot-lock FD inherited from the tick. In
+order: renders the command from the engine template (`{prompt}` ← project
+`command`, literal string substitution, no eval; the rendered string is
+passed as a single argument to `bash -lc`); runs it via
+`timeout <envelope> docker exec <container> bash -lc '<rendered>'` (or plain
+`bash -lc` for `local`) with stdout+stderr to the dispatch log; calls
 `governor_report` with the exit code and log path; writes the outcome
-`.json`; releases the flock by exiting. A wrapper crash releases the flock
-automatically; the next tick logs the missing outcome file as `orphaned`
-(the pass stays counted).
+`.json`; releases the flock by exiting. The pool counter was already
+reserved by the tick — the wrapper never touches pool state directly. A
+wrapper crash releases the flock automatically; orphan marking (dispatch log
+without outcome `.json`, slot lock free, log mtime older than the envelope
+plus 30 min grace) has a single owner: `governor_daily` housekeeping. The
+crashed pass stays counted.
 
 ## Governor interface (stub here; implemented by #199)
 
-`scripts/governor.sh` is sourced by `mission-control.sh` and owns all budget
-policy:
+`scripts/governor.sh` is sourced by `mission-control.sh`, which first
+exports `MC_CONFIG` (config path) and `MC_STATE_DIR`; every governor
+function may rely on those two variables — that env contract is part of the
+interface. The four functions own all budget policy:
 
-- `governor_check <engine>` → exit 0 = may dispatch. Stub: always 0.
+- `governor_reserve <engine>` → atomic check-and-reserve under `state.lock`:
+  refuse (exit 1) or increment the pool counter and allow (exit 0), rolling
+  the pool's per-day counters lazily when the date (config TZ) has changed.
+  Atomicity closes the two-slots-one-pool race a read-only check would
+  allow. Stub: always 0, no state.
 - `governor_envelope <engine> <project>` → prints pass timeout in minutes.
   Stub: 90.
 - `governor_report <engine> <project> <exit_code> <log_path>` → post-pass
   accounting; prints the outcome word. Stub: `ok` on exit 0, `error`
   otherwise; no state mutation.
-- `governor_daily <config> <state_dir>` → daily digest/housekeeping job,
-  invoked by every tick; owns its own once-per-day guard. Stub: no-op.
+- `governor_daily` → daily digest/housekeeping job, invoked by every tick;
+  its once-per-day + digest-hour guard is its first action, so the guarded
+  no-op path costs one `jq` read. Stub: no-op.
 
 The scheduler calls only these four; #199 changes no scheduler code.
 
@@ -244,9 +264,13 @@ scheduler retries within a tick; cron cadence is the retry loop.
 config/state dirs and PATH-shimmed `docker`/`gh`/`date` stubs:
 
 - Two-slot enforcement (#198 acceptance): two stub passes hold both slot
-  locks; a tick must dispatch nothing.
+  locks; a tick must dispatch nothing. Lock continuity: the slot lock is
+  already held when the tick exits (no free window between decision and
+  wrapper start).
+- Reservation atomicity: with a quota-1 stub governor, two free slots on the
+  same pool produce exactly one dispatch.
 - Ladder order and round-robin cursor; pinned project excluded from rung 1;
-  held/cooldown/governor-refused candidates skipped with ladder continuing.
+  held/cooldown/reserve-refused candidates skipped with ladder continuing.
 - Admission: fail-closed on missing provenance; veto-window stamping; hold
   semantics incl. clock restart; wip_cap.
 - No-op cost (#198 acceptance): busy-slots tick and empty-portfolio tick make

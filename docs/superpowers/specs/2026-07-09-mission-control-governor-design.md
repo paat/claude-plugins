@@ -23,10 +23,13 @@ additions. No
 scheduler (`mission-control.sh`) changes — the four-function interface is the
 contract:
 
-- `governor_check <engine>`
+- `governor_reserve <engine>`
 - `governor_envelope <engine> <project>`
 - `governor_report <engine> <project> <exit_code> <log_path>`
-- `governor_daily <config> <state_dir>`
+- `governor_daily`
+
+All four may rely on the exported `MC_CONFIG` / `MC_STATE_DIR` env contract
+defined in the scheduler spec.
 
 ## Config additions (portfolio.json)
 
@@ -46,14 +49,19 @@ it is the example config plus one README section: Codex is the default
 Estonian-language judgment. The governor attributes and enforces; it never
 chooses engines.
 
-## `governor_check <engine>`
+## `governor_reserve <engine>`
 
-Resolve `pool = engines.<engine>.pool`. Refuse (exit 1) when
-`pools.<pool>.backoff_until` is in the future, or `daily_pass_quota` is set
-and `passes_today >= quota`. Otherwise allow. Unknown engine/pool → refuse
-with an alert (config error, fail closed). The scheduler already continues
-down the ladder on refusal, so one pool's exhaustion never blocks the other
-pool's rungs.
+One atomic transaction under `state.lock`: resolve
+`pool = engines.<engine>.pool`; roll the pool's per-day counters if the date
+(config TZ) has changed since they were last touched; refuse (exit 1) when
+`backoff_until` is in the future, or `daily_pass_quota` is set and
+`passes_today >= quota`; otherwise increment `passes_today` and allow
+(exit 0). Check and increment are one critical section — two free slots on
+the same pool can never both pass a quota with one remaining. A reservation
+whose wrapper fails to launch is not refunded (fail toward under-spend).
+Unknown engine/pool → refuse with an alert (config error, fail closed). The
+scheduler already continues down the ladder on refusal, so one pool's
+exhaustion never blocks the other pool's rungs.
 
 ## `governor_envelope <engine> <project>`
 
@@ -90,10 +98,10 @@ is always safe (clean resume comes free from the tick cadence: first tick
 after `backoff_until` with a free slot just dispatches; nothing to resume
 because the loops are stateless supervisors).
 
-## `governor_daily <config> <state_dir>`
+## `governor_daily`
 
-Idempotent per day (`digest.last_sent_date` guard); runs on the first tick
-after `digest_hour`. Steps:
+Idempotent per day; the `digest.last_sent_date` + `digest_hour` guard is its
+first action, so the guarded no-op path costs one `jq` read. Steps:
 
 1. **Per-project digests**: for each non-`meta` project, resolve
    saas-startup-team's `digest.sh` inside the container —
@@ -111,8 +119,11 @@ after `digest_hour`. Steps:
 2. **Assemble** `state/digests/<date>.md`: per-project sections (content from
    step 1), a `## Mission control warnings` section (probe-failure streaks,
    orphaned dispatches, cooldowns, pending admissions with veto deadlines),
-   and `## Spend & pass summary` — per pool: passes used / quota, backoff
-   status with until-time; per slot: dispatches today as
+   and `## Spend & pass summary`, computed from the `dispatches/*.json`
+   outcome records in the covered window (since the last sent digest) — not
+   from live pool counters, which the lazy date roll may already have reset
+   — per pool: passes used / quota, plus current backoff status with
+   until-time; per slot: dispatches in the window as
    `project (engine) → outcome`. The per-project digest files keep their own
    placeholder section; this aggregated digest is the human-facing artifact
    (#194's named-section handoff lands here, where the cross-pool view
@@ -121,8 +132,9 @@ after `digest_hour`. Steps:
    + warnings + spend summary (not the full digest).
 4. **Copy** the digest to `digest_export_path` if configured.
 5. **Housekeeping**: delete `dispatches/*` older than `retention_days`; mark
-   orphaned outcomes (dispatch log without outcome JSON and lock no longer
-   held).
+   orphaned outcomes — sole owner of orphan marking; condition: dispatch log
+   without outcome JSON, slot lock free, and log mtime older than the pass
+   envelope plus 30 min grace (never marks a live or just-finishing pass).
 
 Alert pushes elsewhere in mission-control (preflight failures, admission
 announcements, cooldown breakers) go through the same `notify.sh` with 24h
@@ -140,12 +152,15 @@ under `state.lock` (tmp + `mv`).
 `tests/governor.tests.sh` (auto-discovered), fixture logs + stubbed
 `docker`/`curl`/`date`:
 
-- Quota: check refuses at quota, allows after date roll (#199 acceptance:
-  quotas configurable).
+- Quota: reserve refuses at quota, allows after date roll; two consecutive
+  reserves against quota-remaining-1 yield exactly one success (atomicity)
+  (#199 acceptance: quotas configurable).
 - Backoff: fixture rate-limit logs → `backoff_until` set (parsed reset time
-  and exponential fallback paths); check refuses during backoff; a
+  and exponential fallback paths); reserve refuses during backoff; a
   simulated post-reset tick dispatches again (#199 acceptance: observed
   rate-limit produces backoff + clean resume); `ok` clears `backoff_level`.
+- Spend summary reflects the covered window's dispatch records even when
+  the date roll has already reset live counters.
 - Classification precedence: rate-limit beats exit 0; timeout ≠ backoff;
   3-strike cooldown sets/clears correctly.
 - Daily job: idempotent per day; digest contains all sections; spend summary
