@@ -33,3 +33,8 @@ the cron line — you do, once.
 8. **Veto / pause.** Set `"hold": true` on any project entry. Pre-launch
    admissions announce via push + digest and wait `veto_hours` (default 72)
    before the first dispatch.
+9. **Digest.** The daily digest (first tick after `digest_hour`, default 7)
+   aggregates each project's own digest, then warnings and the spend
+   summary. When mission-control owns a project's digest delivery, disable
+   that project's own digest send wiring (monitor-nightly) — two senders
+   race the mark-sent cursor and double-deliver.
