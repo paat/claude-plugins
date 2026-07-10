@@ -13,6 +13,7 @@ PASS=0; FAIL=0
 t() { local name="$1"; shift; if "$@" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "ok - $name"; else FAIL=$((FAIL+1)); echo "FAIL - $name"; fi; }
 
 TD="$(mktemp -d)"
+trap 'rm -rf "$TD"' EXIT
 mkdir -p "$TD/alpha/plugins/saas-startup-team/scripts" "$TD/alpha/.startup/loop/runs"
 cp "$HERE/../../saas-startup-team/scripts/digest.sh" "$TD/alpha/plugins/saas-startup-team/scripts/"
 echo "shipped PR #1" > "$TD/alpha/.startup/loop/runs/run-1.md"
