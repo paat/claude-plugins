@@ -81,13 +81,33 @@ at `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-workflow-guidance.md`.
 
 ## Step 6: Project Brief
 
-If `docs/business/brief.md` does not exist, ask the user:
+If `docs/business/brief.md` already exists, skip this step.
+
+**Non-interactive (plan file).** When a plan file is supplied — `--plan-file <path>` or
+`$SAAS_BOOTSTRAP_PLAN` — render the brief and record provenance without prompting:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-plan.sh" --plan-file "<path>"
+```
+
+The plan is JSON or frontmattered markdown supplying the `startup-brief.md` fields
+(`idea_description` mandatory; `investor_notes`, `budget`, `timeline`, `target_market`
+optional). It fails closed — a missing plan or empty `idea_description` exits non-zero
+instead of prompting — and writes `.startup/provenance.json`
+(`{idea_id, source:"plan-file", plan_sha256, validated_confidence, experiment_evidence,
+created_at}`) from the plan's optional provenance fields.
+
+**Interactive (no plan file).** Ask the user:
 
 > "Describe your SaaS idea in a few sentences — what does it do, who is it for, and what problem does it solve?"
 
 Save the response to `docs/business/brief.md` using the template from `${CLAUDE_PLUGIN_ROOT}/templates/startup-brief.md`.
 
-If `docs/business/brief.md` already exists, skip this step.
+**Admission seam.** `bootstrap-plan.sh` only *records* provenance; it does not gate. When
+mission-control drives an autonomous bootstrap it enforces admission first — Slot B
+capacity, the pre-launch WIP cap, the validated-confidence bar, and the 72h human veto
+window — reading `.startup/provenance.json`, then invokes this step. Company registration,
+banking, and signing stay human.
 
 ## Step 6.25: Scaffold the workflow registry
 
