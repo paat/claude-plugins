@@ -82,6 +82,8 @@ change_effdate=$(jq -r '.entries["future-act"].change.effective_date' "$WORK/.st
 [ "$change_effdate" = "2026-09-01" ] || { echo "FAIL: case1 expected change.effective_date=2026-09-01, got $change_effdate"; exit 1; }
 summary=$(jq -r '.entries["future-act"].change.summary' "$WORK/.startup/law-registry.json")
 [[ "$summary" == *"2026-08-01"* && "$summary" == *"2026-09-01"* ]] || { echo "FAIL: case1 summary missing old/new dates: $summary"; exit 1; }
+rebased=$(jq -r '.entries["future-act"].expected_effective_date' "$WORK/.startup/law-registry.json")
+[ "$rebased" = "2026-09-01" ] || { echo "FAIL: case1 expected_effective_date should re-baseline to 2026-09-01, got $rebased"; exit 1; }
 rm -rf "$WORK"
 
 # ---- Case 2: unchanged date -> not flagged ----
@@ -123,6 +125,50 @@ needs_review=$(jq -r '.entries["future-act"].needs_review' "$WORK/.startup/law-r
 expected=$(jq -r '.entries["future-act"].expected_effective_date' "$WORK/.startup/law-registry.json")
 [ "$expected" = "2026-08-01" ] || { echo "FAIL: case4 expected expected_effective_date untouched, got $expected"; exit 1; }
 unset BLOB_FAIL
+rm -rf "$WORK"
+
+# ---- Case 5: full cycle — flagged once, ack, no re-flag, eventual clear ----
+ACK_SCRIPT="$PLUGIN_ROOT/scripts/lawyer-ack.sh"
+WORK=$(mktemp -d)
+seed_registry "$WORK" '"2026-08-01"'
+export BLOB_HTML='<div>Jõustumise kp: 01.09.2026</div>'
+unset BLOB_FAIL
+
+# 5a: postponement flagged, baseline re-based to the announced date
+run_check "$WORK" >/dev/null
+[ "$(jq -r '.entries["future-act"].needs_review' "$WORK/.startup/law-registry.json")" = "true" ] \
+  || { echo "FAIL: case5a not flagged"; exit 1; }
+[ "$(jq -r '.entries["future-act"].expected_effective_date' "$WORK/.startup/law-registry.json")" = "2026-09-01" ] \
+  || { echo "FAIL: case5a baseline not re-based"; exit 1; }
+
+# 5b: real ack clears the flags and keeps the re-based baseline
+(cd "$WORK" && bash "$ACK_SCRIPT" future-act) >/dev/null \
+  || { echo "FAIL: case5b ack failed"; exit 1; }
+[ "$(jq -r '.entries["future-act"].needs_review' "$WORK/.startup/law-registry.json")" = "false" ] \
+  || { echo "FAIL: case5b needs_review not cleared by ack"; exit 1; }
+[ "$(jq -r '.entries["future-act"].change' "$WORK/.startup/law-registry.json")" = "null" ] \
+  || { echo "FAIL: case5b change not cleared by ack"; exit 1; }
+[ "$(jq -r '.entries["future-act"].expected_effective_date' "$WORK/.startup/law-registry.json")" = "2026-09-01" ] \
+  || { echo "FAIL: case5b ack must not touch expected_effective_date"; exit 1; }
+
+# 5c: same RT response again -> NOT re-flagged (baseline now matches)
+run_check "$WORK" >/dev/null
+[ "$(jq -r '.entries["future-act"].needs_review' "$WORK/.startup/law-registry.json")" = "false" ] \
+  || { echo "FAIL: case5c re-flagged after ack (permanent loop)"; exit 1; }
+[ "$(jq -r '.entries["future-act"].change' "$WORK/.startup/law-registry.json")" = "null" ] \
+  || { echo "FAIL: case5c change set again after ack"; exit 1; }
+
+# 5d: the announced date arrives and passes (simulated by re-basing both the
+# registry and RT to a past date) -> expected_effective_date cleared, no flag
+jq '.entries["future-act"].expected_effective_date = "2020-06-01"' \
+  "$WORK/.startup/law-registry.json" > "$WORK/.startup/law-registry.json.tmp"
+mv "$WORK/.startup/law-registry.json.tmp" "$WORK/.startup/law-registry.json"
+export BLOB_HTML='<div>Jõustumise kp: 01.06.2020</div>'
+run_check "$WORK" >/dev/null
+[ "$(jq -r '.entries["future-act"].expected_effective_date' "$WORK/.startup/law-registry.json")" = "null" ] \
+  || { echo "FAIL: case5d expected_effective_date not cleared after date passed"; exit 1; }
+[ "$(jq -r '.entries["future-act"].needs_review' "$WORK/.startup/law-registry.json")" = "false" ] \
+  || { echo "FAIL: case5d flagged on a matching passed date"; exit 1; }
 rm -rf "$WORK"
 
 echo "PASS: test-rt-watch"

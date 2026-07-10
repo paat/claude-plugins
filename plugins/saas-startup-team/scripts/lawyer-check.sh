@@ -118,9 +118,12 @@ while IFS= read -r feslug; do
   [ -n "$fe_new" ] || continue
   if [ "$fe_new" != "$fe_expected" ]; then
     NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    # Re-baseline to the announced date so the same postponement is flagged
+    # once, not again on every run after ack.
     jq --arg s "$feslug" --arg now "$NOW" --arg old "$fe_expected" --arg new "$fe_new" '
       .entries[$s].needs_review = true
       | .entries[$s].change_detected_at = $now
+      | .entries[$s].expected_effective_date = $new
       | .entries[$s].change = {
           feed_event_id: null,
           type: "postponement",

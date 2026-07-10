@@ -61,7 +61,7 @@ default them to `""` via `// ""`, so no migration is needed.
 | `redaktsioon_id` | string \| null | Trailing numeric segment of the citation URL (e.g. `"106032026010"`). Per-redaction RT identifier. Useful for cheap equality at ack time. |
 | `redaktsioon_date` | string \| null | `redaktsioon_date` from `/citation` — the validFrom of the served redaction (e.g. `"2026-03-01"`), or null. Stored at register and refreshed at ack. |
 | `status` | string \| null | `status` from `/citation` — `"valid"` \| `"superseded"` \| `"repealed"`, or null if the datalake didn't return it. Set at register (must be `"valid"` unless `--force`), refreshed at ack, and updated to the detected status when the lifecycle re-check flags the entry. |
-| `expected_effective_date` | string \| null | `redaktsioon_date` at register time when the served redaction was future-dated, or when `--force` overrode a not-yet-valid act. Absent (`null`) for already-effective acts registered normally. Watched directly against Riigi Teataja — see "Future-effective watch" below. |
+| `expected_effective_date` | string \| null | `redaktsioon_date` at register time when the served redaction was future-dated. Absent (`null`) for already-effective acts. Re-baselined to the newly announced date when the watch flags a postponement; cleared once the date passes and Riigi Teataja agrees. See "Future-effective watch" below. |
 | `act_title` | string | Human-readable act title. |
 | `act_type` | string | `"seadus"`, `"määrus"`, etc. |
 | `citation` | string | Compound reference as a human writes it: `"§ 10 lõige 1 punkt 3"`. For display. |
@@ -182,13 +182,13 @@ Response: `{act_id, act_title, paragraph, section, point, text, url, status, in_
 
 `/changes/feed` and the `/citation` lifecycle re-check both cover *this project's current* corpus state — neither can see a postponement of an act that has not yet entered into force, because there is no "change" for the feed to emit and `/citation` still serves the same not-yet-effective redaction either way. This is the datalake blind spot the watch closes.
 
-`register` stores `expected_effective_date` (see field table above) when the served redaction is future-dated, or when `--force` was needed because the act was not yet valid. `check` then polls Riigi Teataja directly — not the datalake — for every entry carrying a non-null `expected_effective_date` that isn't already flagged:
+`register` stores `expected_effective_date` (see field table above) when the served redaction is future-dated. `check` then polls Riigi Teataja directly — not the datalake — for every entry carrying a non-null `expected_effective_date` that isn't already flagged:
 
 ```bash
 curl --max-time 30 -s "$RT_PUBLIC_API/akt/${rt_id}/blob-html"
 ```
 
-(`RT_PUBLIC_API` defaults to `https://www.riigiteataja.ee/public-api/api/v1`; override for tests.) The response is server-rendered HTML — the `Jõustumise kp:` header is extracted defensively (tags stripped before the regex match) and its `dd.mm.yyyy` value normalised to ISO. If it differs from `expected_effective_date`, the entry is flagged `needs_review=true` with `change.type="postponement"`. If it matches and the date has passed, `expected_effective_date` is cleared (the act is now ordinary in-force law, covered by the regular feed + lifecycle checks going forward). A curl failure or an unparseable header skips that entry silently — the watch is best-effort and never fails the `check` run.
+(`RT_PUBLIC_API` defaults to `https://www.riigiteataja.ee/public-api/api/v1`; override for tests.) The response is server-rendered HTML — the `Jõustumise kp:` header is extracted defensively (tags stripped before the regex match) and its `dd.mm.yyyy` value normalised to ISO. If it differs from `expected_effective_date`, the entry is flagged `needs_review=true` with `change.type="postponement"` and `expected_effective_date` is re-baselined to the newly announced date — the same postponement is flagged once, and after `/lawyer ack` the watch keeps tracking the new date rather than re-flagging. If it matches and the date has passed, `expected_effective_date` is cleared (the act is now ordinary in-force law, covered by the regular feed + lifecycle checks going forward). A curl failure or an unparseable header skips that entry silently — the watch is best-effort and never fails the `check` run.
 
 **Poll changes feed since last check** (one call per run, no per-domain loop):
 

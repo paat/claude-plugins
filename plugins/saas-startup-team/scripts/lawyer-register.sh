@@ -95,16 +95,16 @@ if [ "$NOT_IN_FORCE" = "1" ]; then
   echo "WARNING: overriding lifecycle guard (--force): act ${ACT_ID} is status=${CITE_STATUS:-unknown}, in_force=${CITE_IN_FORCE:-unknown}."
 fi
 
-# Future-effective-date watch: store expected_effective_date when the served
-# redaction is future-dated, or when --force overrode a not-yet-valid act — the
-# /changes/feed cannot see a later postponement of either. Absent (null) for an
-# already-effective act registered normally.
+# Future-effective-date watch: store expected_effective_date only when the
+# served redaction is future-dated — the /changes/feed cannot see a later
+# postponement of a not-yet-in-force act. Absent (null) otherwise; a past-dated
+# redaction (e.g. a --force-registered repealed act) must not arm the watch or
+# a repeal would be misflagged as a postponement. ISO yyyy-mm-dd strings
+# compare correctly as strings.
 TODAY=$(date -u +%Y-%m-%d)
 EXPECTED_EFFECTIVE_DATE=""
-if [ -n "$REDAKTSIOON_DATE" ]; then
-  if [[ "$REDAKTSIOON_DATE" > "$TODAY" ]] || { [ "$NOT_IN_FORCE" = "1" ] && [ "$FORCE" = "1" ]; }; then
-    EXPECTED_EFFECTIVE_DATE="$REDAKTSIOON_DATE"
-  fi
+if [ -n "$REDAKTSIOON_DATE" ] && [[ "$REDAKTSIOON_DATE" > "$TODAY" ]]; then
+  EXPECTED_EFFECTIVE_DATE="$REDAKTSIOON_DATE"
 fi
 
 # Write snapshot first — on crash before index write, re-run sees an orphan
