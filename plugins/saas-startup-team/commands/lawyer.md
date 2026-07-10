@@ -105,7 +105,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/lawyer-unregister.sh" <slug>
 
 ## Change Detection
 
-Runs at the start of every `/lawyer` invocation, after pre-flight and subcommand dispatch but before analysis. Polls `/changes/feed` once (matched client-side by `rt_id`) and re-checks each not-yet-flagged entry's lifecycle via `/citation`, persisting any new flags. Reads only the index JSON.
+Runs at the start of every `/lawyer` invocation, after pre-flight and subcommand dispatch but before analysis. Polls `/changes/feed` once (matched client-side by `rt_id`), re-checks each not-yet-flagged entry's lifecycle via `/citation`, and for entries with `expected_effective_date` polls the Riigi Teataja blob-html header to flag postponements the feed cannot see, persisting any new flags. Reads only the index JSON.
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/lawyer-check.sh"
