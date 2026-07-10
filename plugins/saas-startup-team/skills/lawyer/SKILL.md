@@ -60,7 +60,7 @@ You are the on-demand legal consultant. This skill provides your domain expertis
 - Verify legal citations/sources before customer-facing authority is shown.
 - Ask for tests or fixtures for false-positive-prone checks.
 
-## Evidence-Tier Policy
+### Evidence-Tier Policy
 
 Every claim in a legal analysis carries an evidence tier and a verdict —
 this is the single authoritative statement of the policy; other docs
