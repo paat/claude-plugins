@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<!--
+  Generic fake-door / waitlist landing page for /validate-experiment.
+  Placeholders ({{...}}) are filled by scripts/validate-experiment.sh from the plan file.
+  Honesty rules (Estonian SaaS; do not remove):
+    - This page NEVER takes payment. It measures demand via a waitlist signup only.
+    - The email field is opt-in and carries explicit consent wording.
+  Data attributes let the deploy target's analytics count visits/signups without edits.
+-->
+<html lang="en" data-experiment="{{IDEA_ID}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{VALUE_PROP}}</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1.25rem; line-height: 1.5; }
+    h1 { font-size: 1.9rem; }
+    p.audience { opacity: 0.75; }
+    form { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1.5rem; }
+    input[type=email] { padding: 0.7rem; font-size: 1rem; }
+    button { padding: 0.8rem; font-size: 1rem; cursor: pointer; }
+    small.consent { display: block; opacity: 0.75; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{{VALUE_PROP}}</h1>
+    <p class="audience">For {{AUDIENCE}}.</p>
+    <form method="post" action="{{SIGNUP_ENDPOINT}}" data-experiment-signup="{{IDEA_ID}}">
+      <input type="email" name="email" placeholder="Your email address" required aria-label="Email for the waitlist">
+      <button type="submit">{{CTA}}</button>
+      <small class="consent">{{CONSENT}}</small>
+    </form>
+  </main>
+</body>
+</html>
