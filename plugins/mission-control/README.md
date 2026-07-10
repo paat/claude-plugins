@@ -27,7 +27,10 @@ The scheduler itself runs from cron, not from a Claude session: see
 - bash 4+, `jq`, `flock` (util-linux), GNU `date`, `curl` (push notifications)
 - `docker` CLI reaching the project dev containers (set `docker_cmd` to
   `sudo docker` if the cron user lacks docker socket group membership)
-- `gh` CLI authenticated *inside each project container* (probes run there)
+- `gh` CLI authenticated *inside each project container* (probes run there),
+  reachable **as the exec user**. If the container's agent toolchain lives under
+  a non-root user reached via SSH login (so `docker exec` defaults to root and
+  sees no auth), set `docker_exec_user` (e.g. `"dev"`) to run `docker exec -u`.
 
 ## Configuration
 

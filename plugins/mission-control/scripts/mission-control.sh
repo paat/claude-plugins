@@ -36,6 +36,18 @@ mkdir -p "$MC_STATE_DIR/dispatches" "$MC_STATE_DIR/digests"
 [ -f "$MC_STATE_DIR/state.json" ] || echo '{}' > "$MC_STATE_DIR/state.json"
 
 DOCKER_CMD="$(cfg '.docker_cmd // "docker"')"
+# Optional: run `docker exec` as this user instead of the image default.
+# Needed when the container's agent toolchain (gh auth, git identity, engine
+# config) lives under a non-root user reached via SSH login — `docker exec`
+# skips that login and would otherwise land on the image default (often root).
+DOCKER_EXEC_USER="$(cfg '.docker_exec_user // empty')"
+# charset guard: the option is expanded unquoted into argv (like docker_cmd),
+# so a value with whitespace/globs would shift arguments — refuse it outright
+case "$DOCKER_EXEC_USER" in *[!A-Za-z0-9_:.-]*)
+  echo "mission-control: invalid docker_exec_user '$DOCKER_EXEC_USER' (allowed: [A-Za-z0-9_:.-])" >&2; exit 2 ;;
+esac
+DOCKER_USER_OPT=""
+[ -n "$DOCKER_EXEC_USER" ] && DOCKER_USER_OPT="-u $DOCKER_EXEC_USER"
 TZCFG="$(cfg '.timezone // empty')"
 
 now() { echo "${MC_NOW_EPOCH:-$(date +%s)}"; }
@@ -92,7 +104,7 @@ run_in() { # <container> <repo_path> <snippet> <timeout_s> — non-login bash -c
     timeout "$t" bash -c "cd $(printf %q "$rp") && $snip"
   else
     docker_check || return 1
-    timeout "$t" $DOCKER_CMD exec "$c" bash -c "cd $(printf %q "$rp") && $snip"
+    timeout "$t" $DOCKER_CMD exec $DOCKER_USER_OPT "$c" bash -c "cd $(printf %q "$rp") && $snip"
   fi
 }
 
@@ -417,7 +429,7 @@ cmd_wrapper() {
   if [ "$container" = "local" ]; then
     bash -c "cd $(printf %q "$rp") && timeout ${envelope}m $rendered"
   else
-    $DOCKER_CMD exec "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m $rendered"
+    $DOCKER_CMD exec $DOCKER_USER_OPT "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m $rendered"
   fi
   rc=$?
   set -e
