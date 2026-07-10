@@ -1,6 +1,7 @@
 #!/bin/bash
 # legal-verdict-gate.sh — hedge-propagation gate for docs/legal/*.md verdict
-# frontmatter (see skills/lawyer/SKILL.md "Output" for the schema).
+# frontmatter (schema: skills/lawyer/SKILL.md "Analysis Workflow" section;
+# policy: its "Evidence-Tier Policy" section).
 #
 # A hedged verdict is verdict != CONFIRMED OR blocking_human_tasks non-empty.
 # Missing file, missing frontmatter, or missing verdict key is treated as
@@ -45,10 +46,14 @@ for doc in "$@"; do
   evidence_tier=""
   count=0
 
-  if [ -f "$doc" ] && [ "$(sed -n '1p' "$doc" 2>/dev/null || true)" = "---" ]; then
-    end_line=$(awk 'NR>1 && /^---[[:space:]]*$/ { print NR; exit }' "$doc" || true)
+  # Strip \r so CRLF docs parse identically to LF docs.
+  content=""
+  [ -f "$doc" ] && content=$(tr -d '\r' < "$doc" 2>/dev/null || true)
+
+  if [ "$(printf '%s\n' "$content" | sed -n '1p')" = "---" ]; then
+    end_line=$(printf '%s\n' "$content" | awk 'NR>1 && /^---[[:space:]]*$/ { print NR; exit }' || true)
     if [ -n "$end_line" ] && [ "$end_line" -gt 2 ]; then
-      fm=$(sed -n "2,$((end_line - 1))p" "$doc")
+      fm=$(printf '%s\n' "$content" | sed -n "2,$((end_line - 1))p")
 
       verdict=$(printf '%s\n' "$fm" | extract_scalar "verdict" | trim)
       evidence_tier=$(printf '%s\n' "$fm" | extract_scalar "evidence_tier" | trim)

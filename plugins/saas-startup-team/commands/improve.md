@@ -339,6 +339,8 @@ Then dispatch business founder for re-QA following the same pattern as Step 3.
 
    [summary from tech founder's handoff]
 
+   [if any `docs/legal/*.md` analysis informed this change, add one `Legal-Verdict: <verdict> — <path>` line per consumed doc, from the gate's JSON output.]
+
    ## QA: NEEDS REVIEW
 
    [issues from business founder's review — what failed and why]

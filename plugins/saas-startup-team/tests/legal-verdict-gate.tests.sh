@@ -122,6 +122,27 @@ EOF
   ec=0; bash "$script" >/dev/null 2>&1 || ec=$?
   assert_exit_code "LVG9: no docs given -> exit 2" "$ec" 2
 
+  # LVG10: CRLF line endings parse identically to LF
+  printf -- '---\r\nverdict: CONFIRMED\r\nevidence_tier: A\r\nblocking_human_tasks: []\r\nclaims: []\r\n---\r\n\r\n# Analysis\r\n' > "$dir/crlf.md"
+  bash "$script" "$dir/crlf.md" > "$dir/out10.json"
+  assert_json_field "LVG10: CRLF doc verdict parsed" "$dir/out10.json" '.verdict' "CONFIRMED"
+  assert_json_field "LVG10b: CRLF doc hedged=false" "$dir/out10.json" '.hedged' "false"
+
+  # LVG11: inline non-empty blocking_human_tasks list -> hedged
+  cat > "$dir/inline-blocking.md" <<'EOF'
+---
+verdict: CONFIRMED
+evidence_tier: A
+blocking_human_tasks: ["verify paragraph in RT", "confirm date with EMTA"]
+claims: []
+---
+
+# Analysis
+EOF
+  bash "$script" "$dir/inline-blocking.md" > "$dir/out11.json"
+  assert_json_field "LVG11: inline list count=2" "$dir/out11.json" '.blocking_human_tasks' "2"
+  assert_json_field "LVG11b: inline list hedged=true" "$dir/out11.json" '.hedged' "true"
+
   rm -rf "$dir"
 }
 test_legal_verdict_gate
