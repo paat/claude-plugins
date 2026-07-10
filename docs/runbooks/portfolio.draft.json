@@ -1,0 +1,68 @@
+{
+  "_comment": "Runbook #200/#201 arming draft — fill the three TODO repo_path values, save outside the repo (e.g. ~/.config/mission-control/portfolio.json), then: bash plugins/mission-control/scripts/mission-control.sh arm --config <path> and paste the printed cron line (human-only step). Container names verified against docker ps 2026-07-10.",
+  "timezone": "Europe/Tallinn",
+  "docker_cmd": "sudo docker",
+  "notify_env": "MC_NTFY_URL",
+  "digest_hour": 7,
+  "retention_days": 14,
+  "bus_dir": "/srv/mission-control/bus",
+  "engines": {
+    "claude-opus": {
+      "pool": "claude",
+      "cmd": "claude --model opus --dangerously-skip-permissions -p '{prompt}'"
+    },
+    "codex": {
+      "pool": "codex",
+      "cmd": "codex exec --skip-git-repo-check -s workspace-write '{prompt}'"
+    }
+  },
+  "pools": {
+    "claude": { "daily_pass_quota": 6 },
+    "codex": { "daily_pass_quota": 8 }
+  },
+  "slots": {
+    "A": { "pinned": "aruannik" },
+    "B": {}
+  },
+  "projects": [
+    {
+      "name": "aruannik",
+      "container": "est-biz-aruannik-dev",
+      "repo_path": "TODO:/in-container/path/to/aruannik/repo",
+      "stage": "live",
+      "engine": "codex",
+      "command": "/maintain --once",
+      "hold": false,
+      "incident_labels": ["incident", "production", "critical"]
+    },
+    {
+      "name": "vastav",
+      "container": "est-biz-vastav-dev",
+      "repo_path": "TODO:/in-container/path/to/vastav/repo",
+      "stage": "live",
+      "engine": "codex",
+      "command": "/maintain --once",
+      "hold": false,
+      "incident_labels": ["incident", "production", "critical"]
+    },
+    {
+      "name": "varustame",
+      "container": "varustame-dev",
+      "repo_path": "TODO:/in-container/path/to/varustame/repo",
+      "stage": "pre-launch",
+      "engine": "codex",
+      "command": "/maintain --once",
+      "hold": false
+    },
+    {
+      "name": "plugin-repo",
+      "container": "local",
+      "repo_path": "/mnt/data/ai/claude-plugins",
+      "stage": "meta",
+      "engine": "claude-opus",
+      "command": "/lessons-deliver --once",
+      "hold": false
+    }
+  ],
+  "admission": { "wip_cap": 1, "confidence_min": 0.7, "veto_hours": 72 }
+}
