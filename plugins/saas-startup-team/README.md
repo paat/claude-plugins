@@ -92,6 +92,13 @@ Team Lead (Orchestrator)
 | `lawyer` | Legal compliance review. |
 | `ux-tester` | Accessibility and usability audit. |
 
+### Legal verdict rigor
+
+Every `docs/legal/õiguslik-*.md` analysis carries YAML verdict frontmatter (`verdict`, `evidence_tier`, `blocking_human_tasks`) per the Evidence-Tier Policy in `skills/lawyer/SKILL.md` — `CONFIRMED` requires a verbatim Tier A (Riigi Teataja/EUR-Lex) quote; corpus silence is `UNVERIFIABLE-IN-CORPUS`, never proof a claim is wrong.
+
+- **`scripts/legal-verdict-gate.sh`** — mechanically parses that frontmatter and flags a doc as hedged whenever `verdict != CONFIRMED` or `blocking_human_tasks` is non-empty. Wired into `/improve`, `/startup`, and `templates/merge-policy.md`; `--enforce` exits 2 on any hedged doc.
+- **Future-effective-date watch** — the law registry's `expected_effective_date` field lets `scripts/lawyer-check.sh` poll Riigi Teataja's `blob-html` endpoint directly for not-yet-in-force acts and flag a postponement the `/changes/feed` doesn't itself surface, re-baselining so the same change isn't re-flagged after ack.
+
 ### Dual-Surface Note
 
 The `browser-operator` subagent split (delegating mechanical browser legs to Haiku/Sonnet agents) is a **Claude Code surface optimization** that improves response latency and cost for the QA loop. The Codex surface retains a single-agent browser flow until the singleton seam is confirmed there; Codex users experience equivalent QA outcomes via the native orchestration skill.
