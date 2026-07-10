@@ -1,7 +1,10 @@
 #!/bin/bash
 # check-ad-budget.sh — PostToolUse hook for Write events
-# Hard stop at 100% of approved ad budget.
-# Checks docs/growth/channels/ads.md for spend vs approved budget.
+# Hard stop at 100% of the ad-spend cap.
+# Cap source: docs/growth/envelope.json (owner pre-authorized, unexpired) if valid,
+# else the "Approved budget:" text line in docs/growth/channels/ads.md (fallback).
+# Fail closed: a missing / expired / malformed envelope reverts to the text-line cap;
+# no cap anywhere → cannot validate → allow (unchanged from the pre-envelope behavior).
 #
 # Input: JSON on stdin with tool_input.file_path
 # Exit 0: not ads.md, or within budget
@@ -21,27 +24,53 @@ fi
 
 content=$(cat "$file_path" 2>/dev/null || exit 0)
 
-# Extract approved budget and total spend — look for patterns like "Approved budget: $500" and "Total spend: $450"
-approved=$(echo "$content" | grep -ioP 'approved\s*budget:\s*\$?\K[0-9]+' | tail -1 || echo "0")
-spent=$(echo "$content" | grep -ioP 'total\s*spend:\s*\$?\K[0-9]+' | tail -1 || echo "0")
+# Spend from the ads.md summary line. Tolerate a currency token (EUR/€/$) between the
+# label and the number; the integer part is authoritative (bash arithmetic is integer).
+spent=$(echo "$content" | grep -ioP 'total\s*spend:\s*[^0-9]*\K[0-9]+' | tail -1)
+spent=${spent:-0}
 
-if [ "$approved" -eq 0 ] 2>/dev/null; then
-  # No budget line found — can't validate
-  exit 0
+# Cap: prefer an owner-authorized, unexpired envelope monthly cap. A valid envelope is
+# AUTHORITATIVE — including a cap of 0 (no spend) — and never falls back to the text line.
+cap=0
+cap_src="approved-budget line"
+have_envelope_cap=0
+envelope="${file_path%docs/growth/channels/ads.md}docs/growth/envelope.json"
+if [ -f "$envelope" ]; then
+  monthly=$(jq -r '.monthly_cap_eur // empty' "$envelope" 2>/dev/null || echo "")
+  expires=$(jq -r '.expires_at // empty' "$envelope" 2>/dev/null || echo "")
+  if [[ "$monthly" =~ ^[0-9]+$ ]] && [ -n "$expires" ]; then
+    exp_epoch=$(date -d "$expires" +%s 2>/dev/null || echo "")
+    now_epoch=$(date +%s)
+    if [ -n "$exp_epoch" ] && [ "$now_epoch" -le "$exp_epoch" ]; then
+      cap="$monthly"
+      cap_src="spend envelope (monthly cap)"
+      have_envelope_cap=1
+    fi
+  fi
 fi
 
-if [ "$spent" -ge "$approved" ] 2>/dev/null; then
+if [ "$have_envelope_cap" -eq 0 ]; then
+  # No valid envelope — fall back to the ads.md approved-budget line.
+  cap=$(echo "$content" | grep -ioP 'approved\s*budget:\s*[^0-9]*\K[0-9]+' | tail -1)
+  cap=${cap:-0}
+  if [ "$cap" -eq 0 ] 2>/dev/null; then
+    # No cap anywhere — pre-envelope behavior: cannot validate, allow the write.
+    exit 0
+  fi
+fi
+
+if [ "$spent" -ge "$cap" ] 2>/dev/null; then
   cat >&2 <<MSG
-{"systemMessage":"AD BUDGET HARD STOP: Total spend (\$${spent}) has reached or exceeded approved budget (\$${approved}). Do NOT make any further ad purchases. Add a human task requesting the investor to approve additional budget with ROAS data."}
+{"systemMessage":"AD BUDGET HARD STOP: Total spend (${spent}) has reached or exceeded the ${cap_src} of ${cap}. Do NOT make any further ad purchases. Add a human task requesting the investor to raise the spend envelope with ROAS data."}
 MSG
   exit 2
 fi
 
-# Warn at 80% but allow the write (exit 0, not exit 2)
-threshold=$(( approved * 80 / 100 ))
+# Warn at 80% but allow the write (exit 0, not exit 2). cap > 0 here (cap==0 blocks above).
+threshold=$(( cap * 80 / 100 ))
 if [ "$spent" -ge "$threshold" ] 2>/dev/null; then
   cat >&2 <<MSG
-{"systemMessage":"Ad budget warning: \$${spent} of \$${approved} spent ($(( spent * 100 / approved ))%). Add a human task alerting the investor that budget is running low."}
+{"systemMessage":"Ad budget warning: ${spent} of ${cap} spent ($(( spent * 100 / cap ))%) against the ${cap_src}. Add a human task alerting the investor that budget is running low."}
 MSG
   exit 0
 fi

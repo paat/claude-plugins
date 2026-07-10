@@ -124,6 +124,7 @@ credentials="$(group credentials || true)"
 fyi="$(group fyi || true)"
 shipped="$(scrape 'PR #[0-9]+|/pull/[0-9]+' || true)"
 queued="$(scrape '[Qq]ueued|issue #[0-9]+' || true)"
+spend="$(scrape '^- Spend:' || true)"
 
 section() {
   printf '\n## %s\n\n' "$1"
@@ -144,7 +145,7 @@ section() {
     printf '_None._\n'
   fi
   printf '\n## Spend & pass summary\n\n'
-  printf '_Populated by the budget governor once wired. No spend/pass data yet._\n'
+  if [ -n "$spend" ]; then printf '%s\n' "$spend"; else printf '_No spend reported this cycle._\n'; fi
 } > "$OUT"
 
 # Persist the exact ROOT-relative run paths this digest included, tagged with its date, so
