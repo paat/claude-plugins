@@ -143,6 +143,22 @@ EOF
   assert_json_field "LVG11: inline list count=2" "$dir/out11.json" '.blocking_human_tasks' "2"
   assert_json_field "LVG11b: inline list hedged=true" "$dir/out11.json" '.hedged' "true"
 
+  # LVG12: inline single-item list whose task string contains a comma ->
+  # must count as 1, not 2 (a plain awk -F',' split would miscount this).
+  cat > "$dir/inline-comma-task.md" <<'EOF'
+---
+verdict: CONFIRMED
+evidence_tier: A
+blocking_human_tasks: ["confirm with counsel, then file with EMTA"]
+claims: []
+---
+
+# Analysis
+EOF
+  bash "$script" "$dir/inline-comma-task.md" > "$dir/out12.json"
+  assert_json_field "LVG12: inline single task with comma -> count=1" "$dir/out12.json" '.blocking_human_tasks' "1"
+  assert_json_field "LVG12b: inline single task with comma -> hedged=true" "$dir/out12.json" '.hedged' "true"
+
   rm -rf "$dir"
 }
 test_legal_verdict_gate

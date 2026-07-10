@@ -86,6 +86,22 @@ rebased=$(jq -r '.entries["future-act"].expected_effective_date' "$WORK/.startup
 [ "$rebased" = "2026-09-01" ] || { echo "FAIL: case1 expected_effective_date should re-baseline to 2026-09-01, got $rebased"; exit 1; }
 rm -rf "$WORK"
 
+# ---- Case 1b: earlier announced date -> flagged with type=acceleration ----
+WORK=$(mktemp -d)
+seed_registry "$WORK" '"2026-08-01"'
+export BLOB_HTML='<div>Jõustumise kp: 01.07.2026</div>'
+unset BLOB_FAIL
+run_check "$WORK" >/dev/null
+needs_review=$(jq -r '.entries["future-act"].needs_review' "$WORK/.startup/law-registry.json")
+[ "$needs_review" = "true" ] || { echo "FAIL: case1b expected needs_review=true, got $needs_review"; exit 1; }
+change_type=$(jq -r '.entries["future-act"].change.type' "$WORK/.startup/law-registry.json")
+[ "$change_type" = "acceleration" ] || { echo "FAIL: case1b expected change.type=acceleration, got $change_type"; exit 1; }
+change_effdate=$(jq -r '.entries["future-act"].change.effective_date' "$WORK/.startup/law-registry.json")
+[ "$change_effdate" = "2026-07-01" ] || { echo "FAIL: case1b expected change.effective_date=2026-07-01, got $change_effdate"; exit 1; }
+rebased=$(jq -r '.entries["future-act"].expected_effective_date' "$WORK/.startup/law-registry.json")
+[ "$rebased" = "2026-07-01" ] || { echo "FAIL: case1b expected_effective_date should re-baseline to 2026-07-01, got $rebased"; exit 1; }
+rm -rf "$WORK"
+
 # ---- Case 2: unchanged date -> not flagged ----
 WORK=$(mktemp -d)
 seed_registry "$WORK" '"2099-01-01"'

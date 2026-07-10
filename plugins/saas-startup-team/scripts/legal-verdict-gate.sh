@@ -71,13 +71,17 @@ for doc in "$@"; do
           END { print c + 0 }
         ')
       elif [[ "$bht_raw" == \[*\] ]]; then
-        # Inline non-empty list, e.g. ["a", "b"].
+        # Inline non-empty list, e.g. ["a", "b"]. Parse as JSON so a comma
+        # inside a quoted task string doesn't inflate the count; fall back to
+        # the old comma-count heuristic (never a crash) if jq can't parse it.
         inner="${bht_raw#\[}"
         inner="${inner%\]}"
         if [ -z "$(printf '%s' "$inner" | tr -d '[:space:]')" ]; then
           count=0
         else
-          count=$(printf '%s\n' "$inner" | awk -F',' '{ print NF }')
+          count=$(printf '%s' "$bht_raw" | jq 'length' 2>/dev/null) \
+            || count=$(printf '%s\n' "$inner" | awk -F',' '{ print NF }')
+          [ -n "$count" ] || count=1
         fi
       fi
     fi
