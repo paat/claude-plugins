@@ -95,6 +95,18 @@ if [ "$NOT_IN_FORCE" = "1" ]; then
   echo "WARNING: overriding lifecycle guard (--force): act ${ACT_ID} is status=${CITE_STATUS:-unknown}, in_force=${CITE_IN_FORCE:-unknown}."
 fi
 
+# Future-effective-date watch: store expected_effective_date when the served
+# redaction is future-dated, or when --force overrode a not-yet-valid act — the
+# /changes/feed cannot see a later postponement of either. Absent (null) for an
+# already-effective act registered normally.
+TODAY=$(date -u +%Y-%m-%d)
+EXPECTED_EFFECTIVE_DATE=""
+if [ -n "$REDAKTSIOON_DATE" ]; then
+  if [[ "$REDAKTSIOON_DATE" > "$TODAY" ]] || { [ "$NOT_IN_FORCE" = "1" ] && [ "$FORCE" = "1" ]; }; then
+    EXPECTED_EFFECTIVE_DATE="$REDAKTSIOON_DATE"
+  fi
+fi
+
 # Write snapshot first — on crash before index write, re-run sees an orphan
 # snapshot (warning), not an orphan index entry.
 normalised=$(printf '%s' "$text" | lawyer_normalise)
@@ -121,12 +133,14 @@ entry=$(jq -n \
   --arg purp "$PURPOSE" \
   --arg status "$CITE_STATUS" \
   --arg reddate "$REDAKTSIOON_DATE" \
+  --arg expeff "$EXPECTED_EFFECTIVE_DATE" \
   '{
     act_id: $act,
     rt_id: $rt,
     redaktsioon_id: (if $red == "" then null else $red end),
     redaktsioon_date: (if $reddate == "" then null else $reddate end),
     status: (if $status == "" then null else $status end),
+    expected_effective_date: (if $expeff == "" then null else $expeff end),
     act_title: $title,
     act_type: $atype,
     citation: $cit,

@@ -98,3 +98,40 @@ while IFS= read -r lcslug; do
   mv "${REGISTRY}.tmp" "$REGISTRY"
   echo "WARNING: $lcslug: akt $lc_act ei ole enam jõus (status=${lc_status:-not_in_force}) — märgitud läbivaatamiseks"
 done <<< "$LC_SLUGS"
+
+# Future-effective-date watch (feed- and lifecycle-independent). /changes/feed
+# only reports events it detects; a postponement of a not-yet-in-force act's
+# effective date is not itself an "event" the feed necessarily surfaces, so an
+# entry can silently drift out of sync with reality. Poll RT directly for any
+# entry carrying expected_effective_date and compare against the served
+# redaction's "Jõustumise kp:" header. Best-effort: a curl failure or
+# unparseable header skips that entry silently — never fails the run.
+FE_SLUGS=$(jq -r '.entries | to_entries[] | select(.value.expected_effective_date != null and .value.needs_review != true) | .key' "$REGISTRY")
+TODAY=$(date -u +%Y-%m-%d)
+while IFS= read -r feslug; do
+  [ -z "$feslug" ] && continue
+  fe_rt_id=$(jq -r --arg s "$feslug" '.entries[$s].rt_id' "$REGISTRY")
+  fe_expected=$(jq -r --arg s "$feslug" '.entries[$s].expected_effective_date' "$REGISTRY")
+  [ -n "$fe_rt_id" ] || continue
+  fe_html=$(curl --max-time 30 -s "$RT_PUBLIC_API/akt/${fe_rt_id}/blob-html" 2>/dev/null) || continue
+  fe_new=$(printf '%s' "$fe_html" | lawyer_extract_effective_date 2>/dev/null) || continue
+  [ -n "$fe_new" ] || continue
+  if [ "$fe_new" != "$fe_expected" ]; then
+    NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    jq --arg s "$feslug" --arg now "$NOW" --arg old "$fe_expected" --arg new "$fe_new" '
+      .entries[$s].needs_review = true
+      | .entries[$s].change_detected_at = $now
+      | .entries[$s].change = {
+          feed_event_id: null,
+          type: "postponement",
+          summary: ("Jõustumise kp muutus: " + $old + " -> " + $new),
+          effective_date: $new
+        }
+    ' "$REGISTRY" > "${REGISTRY}.tmp"
+    mv "${REGISTRY}.tmp" "$REGISTRY"
+    echo "WARNING: $feslug: jõustumise kuupäev muutus ($fe_expected -> $fe_new) — märgitud läbivaatamiseks"
+  elif [[ "$fe_expected" < "$TODAY" || "$fe_expected" == "$TODAY" ]]; then
+    jq --arg s "$feslug" '.entries[$s].expected_effective_date = null' "$REGISTRY" > "${REGISTRY}.tmp"
+    mv "${REGISTRY}.tmp" "$REGISTRY"
+  fi
+done <<< "$FE_SLUGS"

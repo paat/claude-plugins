@@ -7,6 +7,7 @@
 #   - citation parsing, NFC normalisation, registry init, and the per-slug ack.
 
 : "${DATALAKE_URL:=https://datalake.r-53.com}"
+: "${RT_PUBLIC_API:=https://www.riigiteataja.ee/public-api/api/v1}"
 REGISTRY=".startup/law-registry.json"
 LAWS_DIR=".startup/laws"
 
@@ -68,6 +69,25 @@ print("|".join([pb, pq, sb, sq, kb, kq]))
 # Trim + NFC-normalise stdin.
 lawyer_normalise() {
   python3 -c 'import sys, unicodedata; print(unicodedata.normalize("NFC", sys.stdin.read().strip()))'
+}
+
+# Extract the "Jõustumise kp:" (effective date) header from a blob-html page and
+# normalise dd.mm.yyyy to ISO (yyyy-mm-dd). blob-html is server-rendered HTML, not
+# JSON — tags are stripped defensively so markup between the label and the date
+# doesn't break the match. Prints nothing and exits 1 if the header is absent or
+# unparseable; callers must treat that as best-effort and skip the entry.
+lawyer_extract_effective_date() {
+  python3 -c '
+import re, sys
+html = sys.stdin.read()
+text = re.sub(r"<[^>]+>", " ", html)
+text = text.replace("&nbsp;", " ")
+m = re.search(r"J[oõ]ustumise\s+kp\.?:?\s*([0-3]?\d)\.([01]?\d)\.(\d{4})", text)
+if not m:
+    sys.exit(1)
+d, mo, y = m.groups()
+print(f"{int(y):04d}-{int(mo):02d}-{int(d):02d}")
+'
 }
 
 # Ack one slug: re-fetch /citation, refuse a non-valid redaction, else refresh the
