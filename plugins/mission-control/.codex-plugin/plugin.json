@@ -1,6 +1,6 @@
 {
   "name": "mission-control",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Portfolio supervisor: two-slot scheduler + budget governor keeping at most two autonomous SaaS loops running 24/7 from one human-installed cron line, spending zero LLM tokens on scheduling",
   "author": {
     "name": "Andre Paat"

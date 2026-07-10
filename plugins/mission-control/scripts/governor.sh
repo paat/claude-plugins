@@ -197,7 +197,7 @@ governor_daily() {
         run_in "$c" "$rp" "find .startup/lessons-deliver/runs -type f -name '*.md' 2>/dev/null | sort | tail -5 | while read -r f; do echo \"### \$f\"; cat \"\$f\"; done" 60 \
           || echo "_meta digest unavailable_"
       else
-        run_in "$c" "$rp" "$(_digest_snippet)" 120 || echo "_digest unavailable for $n_"
+        run_in "$c" "$rp" "$(_digest_snippet)" 120 || echo "_digest unavailable for ${n}_"
       fi
     done < <(jq -r '.projects[].name' "$MC_CONFIG")
     echo; echo "## Mission control warnings"
