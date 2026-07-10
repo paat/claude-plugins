@@ -21,6 +21,9 @@ mechanics:
   a sensitive surface (payments, auth, a DB migration, money math, a stated
   compliance rule) is still delivered and merged like any other issue. Only work
   hinging on legal/compliance/tax/pricing **interpretation** is carved out.
+- Work that states a hedged `docs/legal/*.md` verdict (see
+  `skills/lawyer/SKILL.md` "Output") as unconditional fact stays `needs-human`.
+  `scripts/legal-verdict-gate.sh --enforce <doc>...` is the mechanical check.
 - **UI-touching diffs** (per `scripts/ui-touch.sh`) must additionally carry
   `## Design-review: PASS` evidence in the PR body — the design-review leg's
   screenshot verdict — as part of the green gate.

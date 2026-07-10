@@ -283,6 +283,7 @@ Read the tech founder's handoff to extract the localhost URL and port, then send
 > **New task: Review handoff NNN.**
 > Read `.startup/handoffs/NNN-tech-to-business.md` for implementation details.
 > Read any workflow specs referenced by the handoff and use their QA cases as a test oracle. If code reveals an undocumented workflow, mark it as `Missing` in `.startup/workflows/registry.md`.
+> If the handoff is built on a `docs/legal/` analysis, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/legal-verdict-gate.sh" <doc>...` on it and apply the same hedged-verdict rules as `/improve`'s QA step (conditional wording only — never state a hedged claim as fact).
 > Read `.startup/state.json` for current iteration and phase.
 > Open browser to `{localhost URL from handoff}` and verify the implementation visually using Playwright.
 > Write your review to `.startup/reviews/` and then either:

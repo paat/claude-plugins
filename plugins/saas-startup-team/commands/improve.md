@@ -156,7 +156,7 @@ Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 > Read `docs/business/brief.md` for product context.
 > Read `.startup/workflows/registry.md` if it exists. If this improvement changes routes, jobs, states, webhooks, checkout/payment, LLM pipelines, support intake, operator flows, or handoff contracts, update the affected workflow spec or mark it `Missing` in the registry.
 > Read relevant `docs/research/` files if the improvement touches areas you researched.
-> Read `docs/legal/` if the change could have compliance implications.
+> Read `docs/legal/` if the change could have compliance implications. If the brief draws on any `docs/legal/*.md` analysis, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/legal-verdict-gate.sh" <doc>...` on those docs and copy each JSON verdict line into the brief verbatim.
 >
 > **Before writing the brief**, evaluate the investor's request against your research and legal findings. If the change conflicts with legal compliance, undermines the business strategy, or risks hurting sales/conversion — push back with a clear, evidence-based explanation (cite specific docs). The investor may not have had time to analyze the implications.
 >
@@ -220,6 +220,7 @@ Spawn business founder via Agent tool with `subagent_type: "general-purpose"`:
 > - If relevant, are async paid-flow states, checkout CTA proximity, customer copy/value units, structured-result labels, LLM quality evidence, and compliance claim boundaries acceptable?
 > - Does the new element cohere with its *rendered* neighbors (alignment, width, spacing, hierarchy) in the state that will actually ship — judged independently of whether the brief said to reuse existing tokens/patterns?
 > - Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/ui-touch.sh" --range "$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name || echo main)...HEAD"`. Unless it prints exactly `no-ui`, you MUST run the pre-merge leg in `${CLAUDE_PLUGIN_ROOT}/skills/ux-tester/references/design-review-leg.md` and its `## Design-review: PASS|FAIL` verdict block (with the Pages/Shots evidence line) must land in the PR body — you cannot return PASS while the design-review is FAIL.
+> - If any consumed `docs/legal/*.md` analysis is hedged, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/legal-verdict-gate.sh" <doc>...` (mechanical, not from memory) and FAIL the diff if it states the hedged claim as unconditional fact in code/copy/prompts, or adds tests asserting the hedged value as fact — conditional wording only.
 >
 > Write your review following your standard review process.
 
@@ -315,6 +316,8 @@ Then dispatch business founder for re-QA following the same pattern as Step 3.
    ## Closure audit
 
    [if this PR uses `Closes`/`Fixes`/`Resolves`: state whether the PR satisfies every material promise in the full issue body and comments. If any named surface is intentionally not touched, link the follow-up issue or explain why that acceptance is no longer relevant. Otherwise: "n/a — no closing keyword".]
+
+   [if any `docs/legal/*.md` analysis informed this change, add one `Legal-Verdict: <verdict> — <path>` line per consumed doc, from the gate's JSON output.]
 
    ## QA: PASS
 
