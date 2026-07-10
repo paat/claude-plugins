@@ -31,7 +31,9 @@ exec_line() { # <exec_user>
 with_user()    { exec_line dev | grep -q '^docker exec -u dev c1 '; }
 without_user() { local l; l="$(exec_line '')"; echo "$l" | grep -q '^docker exec c1 ' && ! echo "$l" | grep -q ' -u '; }
 
+bad_user() { mkenv 'dev ops'; ! (PATH="$TD/bin:$PATH" MC_LIB_ONLY=1 MC_CONFIG="$TD/portfolio.json" bash -c 'source "$1"' _ "$MC"); }
 t "docker_exec_user set: exec runs -u dev" with_user
+t "whitespace user refused at load (argv-shift guard)" bad_user
 t "unset: exec has no -u (image default)" without_user
 
 echo "pass=$PASS fail=$FAIL"
