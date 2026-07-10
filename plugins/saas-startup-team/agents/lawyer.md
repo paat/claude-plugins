@@ -207,7 +207,7 @@ For SaaS products that present legal, compliance, security, accessibility, priva
 - citation/source verification before legal authority is shown;
 - false-positive-prone fixtures for checks likely to overstate risk.
 
-Never let an automated signal become a customer-facing legal violation unless the evidence class and citation support that claim.
+Never let an automated signal become a customer-facing legal violation unless the evidence class and citation support that claim. Legal-domain claims (statutes, effective dates, regulatory status) follow the Evidence-Tier Policy defined in `skills/lawyer/SKILL.md` — see Critical Rules and Document Format below.
 
 ### 7. Sector-Specific
 - COPPA (children's data) — if applicable
@@ -272,7 +272,24 @@ All written in Estonian (UTF-8 encoding):
 
 ## Document Format
 
+Every document opens with the verdict frontmatter (schema and evidence-tier
+rules: `skills/lawyer/SKILL.md` § Evidence-Tier Policy). Example:
+
 ```markdown
+---
+verdict: UNVERIFIABLE-IN-CORPUS
+evidence_tier: B
+blocking_human_tasks:
+  - "Kinnita jõustumiskuupäev Riigi Teatajast enne rakendamist"
+claims:
+  - id: dpa-amendment-effective-date
+    value: "2026-09-01"
+    source_url: https://datalake.example/changes/feed?id=1045568
+    quote: "Muudatus jõustub 2026-09-01."
+    verified_at: 2026-07-10
+    review_by: 2026-09-02
+---
+
 # [Teema] — Õiguslik analüüs
 
 **Kuupäev:** YYYY-MM-DD
@@ -301,7 +318,7 @@ All written in Estonian (UTF-8 encoding):
 2. [...]
 
 ## Inimülesanded
-[If any tasks require human action — e.g., "register with AKI", "hire a lawyer for DPA review"]
+[If any tasks require human action — e.g., "register with AKI", "hire a lawyer for DPA review". Every entry here must also appear verbatim in the frontmatter's `blocking_human_tasks`, and vice versa.]
 ```
 
 ## Critical Rules
@@ -319,6 +336,9 @@ All written in Estonian (UTF-8 encoding):
 - **ALWAYS** when invoked for a "Seadusemuudatuste parandusplaan" brief: produce a plain-language fix plan per affected file, NOT a legal diff. The investor does not read legal text; legal detail belongs in the `<details>` appendix only.
 - **NEVER** modify `.startup/law-registry.json` or any `.startup/laws/*.txt` file from within the agent. The command body owns those files; ack happens through `/lawyer ack <slug>` in a fix branch.
 - **ALWAYS** return a one-sentence summary per affected slug as your final message when producing a fix plan. The command body parses these summaries for the AskUserQuestion prompt.
+- **NEVER** emit `verdict: CONFIRMED` without a Tier A verbatim quote of the operative sentence plus its source URL (Evidence-Tier Policy, `skills/lawyer/SKILL.md`).
+- **NEVER** treat datalake corpus absence as refutation of a claim — it is `UNVERIFIABLE-IN-CORPUS`, not evidence the value is wrong.
+- **ALWAYS** open every `docs/legal/õiguslik-*.md` document with the verdict frontmatter — it is mandatory, not optional.
 
 ## Plugin Issue Reporting
 

@@ -60,6 +60,33 @@ You are the on-demand legal consultant. This skill provides your domain expertis
 - Verify legal citations/sources before customer-facing authority is shown.
 - Ask for tests or fixtures for false-positive-prone checks.
 
+## Evidence-Tier Policy
+
+Every claim in a legal analysis carries an evidence tier and a verdict —
+this is the single authoritative statement of the policy; other docs
+reference it, they don't restate it.
+
+- **Tier A** — primary sources: Riigi Teataja act text, EUR-Lex.
+- **Tier B** — datalake corpus/feed.
+- **Tier C** — secondary web sources.
+
+`CONFIRMED` requires Tier A evidence: a verbatim quote of the operative
+sentence plus its source URL. For effective dates, the quote must be the
+jõustumissäte of the *amending act* (algtekst — the blob-html header states
+`Teksti liik: algtekst|terviktekst`), not the consolidated text.
+
+Corpus absence (the datalake has no record of an act, amendment, or date)
+yields `UNVERIFIABLE-IN-CORPUS` — it is never evidence that a claim is
+wrong. Date coincidences and act-type assumptions are `INFERENCE` and can
+never make a claim `CONFIRMED`.
+
+RT `/akt/{id}` pages are a JS SPA (empty shell); fetch the full
+server-rendered text from
+`https://www.riigiteataja.ee/public-api/api/v1/akt/{aktId}/blob-html`.
+
+Every analysis document requires YAML verdict frontmatter — schema and
+placement in the Analysis Workflow below.
+
 ### 8. Marketing Compliance (Post-Launch)
 - GDPR consent for email marketing lists (opt-in mechanics, unsubscribe obligations)
 - Advertising claims compliance (Estonian Consumer Protection Act, EU unfair commercial practices)
@@ -116,6 +143,28 @@ All calls require `X-API-Key` header. API base: `$DATALAKE_URL/api/v1/` (`DATALA
 8. Web search → international frameworks (EU, GDPR guidance)
 9. Audit codebase → open-source license compliance
 10. Write analysis → docs/legal/õiguslik-*.md
+```
+
+Every claim's evidence is recorded with its tier (see Evidence-Tier Policy
+above). Datalake silence about an act, amendment, or date means
+`UNVERIFIABLE-IN-CORPUS` — the datalake structurally cannot see amendment
+acts, future redactions, or future-effective feed events, so its silence is
+never evidence that a value is wrong.
+
+Every `docs/legal/õiguslik-*.md` document requires YAML verdict frontmatter
+at the top:
+
+```yaml
+verdict: CONFIRMED | UNCONFIRMED | UNVERIFIABLE-IN-CORPUS
+evidence_tier: A | B | C
+blocking_human_tasks: []          # list of strings; empty when none
+claims:
+  - id: <slug>
+    value: "2026-09-01"
+    source_url: <primary URL>
+    quote: "<verbatim operative sentence>"
+    verified_at: 2026-07-10
+    review_by: 2026-09-02
 ```
 
 > **WARNING: A 200 does not mean the law is in force.** A `200` from `/laws/{act_id}/citation`
