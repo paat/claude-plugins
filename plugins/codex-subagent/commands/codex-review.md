@@ -1,23 +1,23 @@
 ---
 allowed-tools: Bash, Read, Grep
-description: Independent second-model (Codex/gpt-5.5) review of a diff, plan, or file — repo-walking, read-only
-argument-hint: [<target>] [--model <id>] [--dir <repo>]
+description: Independent second-model (Codex/GPT-5.6 Sol) review of a diff, plan, or file — repo-walking, read-only
+argument-hint: [<target>] [--model <id>] [--effort <level>] [--dir <repo>]
 ---
 
-Get an independent **second-model review** from the OpenAI Codex CLI (`codex exec`, gpt-5.5). Codex reads the real source tree itself to verify cross-file effects — this catches integration defects a same-model pass rationalizes past (line-anchor drift, dispatch-signature mismatches, wrong recomputed formulas, renderers hardcoding old field names). Then synthesize with your own review.
+Get an independent **second-model review** from the OpenAI Codex CLI (`codex exec`, GPT-5.6 Sol at `high` reasoning effort by default). Codex reads the real source tree itself to verify cross-file effects — this catches integration defects a same-model pass rationalizes past (line-anchor drift, dispatch-signature mismatches, wrong recomputed formulas, renderers hardcoding old field names). Then synthesize with your own review.
 
 **Target:** $ARGUMENTS
 
 ## Steps
 
-1. **Decide the review target.** If `$ARGUMENTS` names a file or plan, review that. If it is empty or says "diff"/"changes", review the working diff (`git diff` / `git diff origin/main...HEAD`). Optional `--model <id>` and `--dir <repo>` (default: repo root).
+1. **Decide the review target.** If `$ARGUMENTS` names a file or plan, review that. If it is empty or says "diff"/"changes", review the working diff (`git diff` / `git diff origin/main...HEAD`). Optional `--model <id>` and `--effort <level>` override the pinned defaults; `--dir <repo>` sets the repo (default: repo root).
 
 2. **Do your own review first** so you can compare, not just relay. Read the target and note the issues you find.
 
 3. **Dispatch Codex (read-only, repo-walking).** It needs FS access to walk the tree, so keep the default `-s danger-full-access` but instruct it NOT to modify anything. Point it at the artifact by path (it opens files itself — don't paste large diffs). Use a generous Bash-tool timeout (≥ 600000 ms):
 
    ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.sh" --dir <repo> [--model <id>] --timeout 600 <<'PROMPT'
+   "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.sh" --dir <repo> [--model <id>] [--effort <level>] --timeout 600 <<'PROMPT'
    You are a senior reviewer. Review <target: the working diff / plan file <path> / file <path>>.
    You are inside the project repo and MAY open any other file to trace call sites,
    verify framework/library semantics, and check cross-file effects. This is

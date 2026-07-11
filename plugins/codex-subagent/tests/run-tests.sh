@@ -16,20 +16,28 @@ contains() { # contains <name> <needle> <haystack>
 }
 
 # --- Dispatch / arg handling (executed, not sourced) ---
-"$SCRIPT" --help >/dev/null 2>&1;            check "help exits 0" 0 "$?"
+help="$("$SCRIPT" --help)";                   check "help exits 0" 0 "$?"
+contains "help documents effort" "--effort LEVEL" "$help"
+check "help hides implementation" 0 "$(printf '%s\n' "$help" | grep -c 'set -euo pipefail')"
 "$SCRIPT" --bogus </dev/null >/dev/null 2>&1; check "unknown option exits 2" 2 "$?"
 "$SCRIPT" "" </dev/null >/dev/null 2>&1;      check "empty prompt exits 2" 2 "$?"
 
 # --- cs_build_cmd via --print-cmd ---
-cmd="$("$SCRIPT" --print-cmd -C /repo -m gpt-5.5 -s danger-full-access)"
+cmd="$("$SCRIPT" --print-cmd -C /repo -m gpt-5.6-terra -e medium -s danger-full-access)"
 contains "print-cmd has danger-full-access" "danger-full-access" "$cmd"
 contains "print-cmd has skip-git-repo-check" "--skip-git-repo-check" "$cmd"
 contains "print-cmd has -C dir"              "/repo"               "$cmd"
-contains "print-cmd has model"               "gpt-5.5"             "$cmd"
+contains "print-cmd has model"               "gpt-5.6-terra"       "$cmd"
+contains "print-cmd has effort"              'model_reasoning_effort="medium"' "$cmd"
 check "print-cmd ends with stdin dash" "-" "$(printf '%s' "$cmd" | tail -1)"
-# No model => no -m line.
-nomodel="$("$SCRIPT" --print-cmd -C /repo)"
-check "no model => no -m" 0 "$(printf '%s\n' "$nomodel" | grep -c -- '^-m$')"
+
+defaults="$("$SCRIPT" --print-cmd -C /repo)"
+contains "default model is pinned" "gpt-5.6-sol" "$defaults"
+contains "default effort is pinned" 'model_reasoning_effort="high"' "$defaults"
+
+env_defaults="$(CODEX_SUBAGENT_MODEL=gpt-5.6-terra CODEX_SUBAGENT_EFFORT=low "$SCRIPT" --print-cmd -C /repo)"
+contains "environment overrides model" "gpt-5.6-terra" "$env_defaults"
+contains "environment overrides effort" 'model_reasoning_effort="low"' "$env_defaults"
 
 # --- Source for pure-function unit tests ---
 source "$SCRIPT"

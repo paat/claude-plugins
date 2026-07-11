@@ -5,7 +5,7 @@ description: "Use to drive Codex CLI as implementer or reviewer from a written p
 
 # Codex Subagent-Driven Development
 
-This mirrors superpowers subagent-driven-development, but the **implementer is the OpenAI Codex CLI** (`codex exec`, gpt-5.5) and **Claude is the controller**. Codex reads the repo, edits files, runs tests, and commits — one plan task at a time. Claude dispatches, reviews each diff, fixes or re-dispatches, and keeps the ledger. The payoff is an independent second model: Codex catches integration defects a same-model pass rationalizes past.
+This mirrors superpowers subagent-driven-development, but the **implementer is the OpenAI Codex CLI** (`codex exec`, GPT-5.6 Sol at `high` reasoning effort by default) and **Claude is the controller**. Codex reads the repo, edits files, runs tests, and commits — one plan task at a time. Claude dispatches, reviews each diff, fixes or re-dispatches, and keeps the ledger. The payoff is an independent second model: Codex catches integration defects a same-model pass rationalizes past.
 
 ## The one unlock you must know
 
@@ -14,7 +14,7 @@ This mirrors superpowers subagent-driven-development, but the **implementer is t
 - Codex's own bwrap sandbox fails inside containers (`bwrap: Failed to make / slave: Permission denied`); in that state Codex can't read or write repo files, so reviews come back empty and implementations no-op.
 - `-s danger-full-access` disables only the broken sandbox *mode*, gives real FS read/write/exec, **and passes Claude Code's auto-mode permission classifier**. The `--dangerously-bypass-*` flag is blocked by the classifier (Safety-Bypass-Flag rule), and the classifier also blocks Claude from self-editing `settings.json` to allowlist it.
 
-The `${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.sh` wrapper defaults to this and encodes the rest of the gotchas (dual timeouts, output capture, bwrap detection, partial-run recovery). Prefer the commands (`/codex-implement`, `/codex-review`, `/codex-critique`) — they call the wrapper for you.
+The `${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.sh` wrapper defaults to this, pins model and effort on every call, and encodes the rest of the gotchas (dual timeouts, output capture, bwrap detection, partial-run recovery). Prefer the commands (`/codex-implement`, `/codex-review`, `/codex-critique`) — they call the wrapper for you. Override with `--model` / `--effort` or `CODEX_SUBAGENT_MODEL` / `CODEX_SUBAGENT_EFFORT`.
 
 ## The controller loop
 
@@ -30,7 +30,7 @@ digraph { "Plan" -> "Pre-flight review (/codex-review on plan+source)";
 ```
 
 1. **Write the plan first.** Use superpowers `writing-plans`. Each task names the exact files, the exact code, and the tests that gate it. Codex reads the plan file itself — you never paste it.
-2. **Pre-flight review the plan against real source** with `/codex-review <plan.md>`. Pointing gpt-5.5 at the plan + the actual tree reliably surfaces line-anchor drift, dispatch-signature mismatches (arity/return type), a second validator recomputing a total with the wrong formula, renderers hardcoding old field names. **Reconcile every defect into the plan before implementing** — this is the highest-leverage step.
+2. **Pre-flight review the plan against real source** with `/codex-review <plan.md>`. Pointing GPT-5.6 Sol at the plan + the actual tree reliably surfaces line-anchor drift, dispatch-signature mismatches (arity/return type), a second validator recomputing a total with the wrong formula, renderers hardcoding old field names. **Reconcile every defect into the plan before implementing** — this is the highest-leverage step.
 3. **Dispatch one task** with `/codex-implement <plan.md> <taskN>` — see that command's steps 2-3 for the full implementer contract (one task only, exact plan code, test gate, commit + trailer, stop on anchor mismatch).
 4. **Review the resulting diff yourself.** Only the named files changed? Matches the plan? Trailer present? Tests real? If not, fix it or re-dispatch — you own the final state.
 5. **Run the minimal-diff scope-control check** — see `/codex-implement` step 5 for the full reject-list. Revert or split out-of-scope work unless the plan explicitly asked for it.

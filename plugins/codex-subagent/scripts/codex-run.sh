@@ -6,13 +6,15 @@
 #      `-s danger-full-access` disables only codex's broken bwrap sandbox mode
 #      (which fails inside containers), gives real FS read/write/exec, AND passes
 #      Claude Code's auto-mode permission classifier without a bypass flag.
-#   2. Canonical invocation: codex exec -s <mode> --skip-git-repo-check -C <dir>.
-#   3. Dual timeouts — the inner `timeout` here AND the Claude Code Bash-tool
+#   2. Model and reasoning effort are pinned explicitly so unattended calls do
+#      not inherit surprising cost or behavior from ~/.codex/config.toml.
+#   3. Canonical invocation: codex exec -s <mode> --skip-git-repo-check -C <dir>.
+#   4. Dual timeouts — the inner `timeout` here AND the Claude Code Bash-tool
 #      `timeout` parameter must both be generous, or the tool SIGTERMs codex
 #      mid-task (exit 143) leaving uncommitted partial edits.
-#   4. Output is huge and the final answer is duplicated; capture the clean final
+#   5. Output is huge and the final answer is duplicated; capture the clean final
 #      message via codex's `-o/--output-last-message`, fall back to tail-parsing.
-#   5. Detect the bwrap failure and surface the `-s danger-full-access` remedy.
+#   6. Detect the bwrap failure and surface the `-s danger-full-access` remedy.
 #
 # Usage:
 #   codex-run.sh [options] [PROMPT]
@@ -20,7 +22,8 @@
 #
 # Options:
 #   -C, --dir DIR        Repo/working dir codex runs in (default: $PWD).
-#   -m, --model MODEL    Override codex model (default: codex's default, gpt-5.5).
+#   -m, --model MODEL    Codex model (default: gpt-5.6-sol).
+#   -e, --effort LEVEL   Reasoning effort (default: high).
 #   -s, --sandbox MODE   codex sandbox mode (default: danger-full-access).
 #   -t, --timeout SECS   Inner timeout for the codex run (default: 600).
 #   -f, --prompt-file F  Read the prompt from file F instead of argv/stdin.
@@ -35,9 +38,12 @@ set -euo pipefail
 
 CS_DEFAULT_SANDBOX="danger-full-access"
 CS_DEFAULT_TIMEOUT="600"
+CS_DEFAULT_MODEL="${CODEX_SUBAGENT_MODEL:-gpt-5.6-sol}"
+CS_DEFAULT_EFFORT="${CODEX_SUBAGENT_EFFORT:-high}"
 
 cs_usage() {
-  sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' \
+    "${BASH_SOURCE[0]}"
 }
 
 # cs_extract_final_answer — fallback extractor. codex streams reasoning + file
@@ -62,18 +68,19 @@ cs_detect_bwrap() {
 }
 
 # cs_build_cmd — print, one argument per line, the codex command for the given
-# dir/model/sandbox. Kept separate so it is unit-testable and so --print-cmd can
-# show exactly what will run. The prompt itself is fed on stdin (codex exec -),
+# dir/model/effort/sandbox. Kept separate so it is unit-testable and so
+# --print-cmd can show exactly what will run. The prompt itself is fed on stdin,
 # never as argv, to dodge the MAX_ARG_STRLEN "Argument list too long" trap.
 cs_build_cmd() {
-  local dir="$1" model="$2" sandbox="$3"
+  local dir="$1" model="$2" effort="$3" sandbox="$4"
   printf '%s\n' codex exec -s "$sandbox" --skip-git-repo-check -C "$dir"
-  [ -n "$model" ] && printf '%s\n' -m "$model"
+  printf '%s\n' -m "$model" -c "model_reasoning_effort=\"$effort\""
   printf '%s\n' -
 }
 
 cs_main() {
-  local dir="$PWD" model="" sandbox="$CS_DEFAULT_SANDBOX"
+  local dir="$PWD" model="$CS_DEFAULT_MODEL" effort="$CS_DEFAULT_EFFORT"
+  local sandbox="$CS_DEFAULT_SANDBOX"
   local timeout_secs="$CS_DEFAULT_TIMEOUT" prompt_file="" out="" print_cmd=0
   local prompt=""
 
@@ -81,6 +88,7 @@ cs_main() {
     case "$1" in
       -C|--dir)        dir="$2"; shift 2 ;;
       -m|--model)      model="$2"; shift 2 ;;
+      -e|--effort)     effort="$2"; shift 2 ;;
       -s|--sandbox)    sandbox="$2"; shift 2 ;;
       -t|--timeout)    timeout_secs="$2"; shift 2 ;;
       -f|--prompt-file) prompt_file="$2"; shift 2 ;;
@@ -94,7 +102,7 @@ cs_main() {
   done
 
   if [ "$print_cmd" -eq 1 ]; then
-    cs_build_cmd "$dir" "$model" "$sandbox"
+    cs_build_cmd "$dir" "$model" "$effort" "$sandbox"
     return 0
   fi
 
@@ -132,7 +140,7 @@ cs_main() {
   # Build argv from cs_build_cmd, then run under a hard timeout. -k 10 sends
   # SIGKILL 10s after SIGTERM if codex ignores the term.
   local -a cmd=()
-  while IFS= read -r arg; do cmd+=("$arg"); done < <(cs_build_cmd "$dir" "$model" "$sandbox")
+  while IFS= read -r arg; do cmd+=("$arg"); done < <(cs_build_cmd "$dir" "$model" "$effort" "$sandbox")
 
   # Keep stdout (codex's streamed content — diffs, file dumps, the answer) and stderr
   # (codex's OWN diagnostics) in SEPARATE files. bwrap detection must scan stderr only:
@@ -181,7 +189,8 @@ EOF
   fi
 
   # stdout is in $log, stderr in $errlog — both persist for inspection.
-  printf 'codex-run: exit %d, full log: %s (stderr: %s)\n' "$rc" "$log" "$errlog" >&2
+  printf 'codex-run: exit %d, model=%s, effort=%s, full log: %s (stderr: %s)\n' \
+    "$rc" "$model" "$effort" "$log" "$errlog" >&2
   return "$rc"
 }
 

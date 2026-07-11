@@ -28,4 +28,4 @@ Source command: `../../commands/codex-review.md`
 
 - Plugin: `codex-subagent`
 - Command aliases: `/codex-subagent:codex-review`, `/codex-review`
-- Source description: Independent second-model (Codex/gpt-5.5) review of a diff, plan, or file - repo-walking, read-only
+- Source description: Independent second-model (Codex/GPT-5.6 Sol) review of a diff, plan, or file - repo-walking, read-only

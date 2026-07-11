@@ -1,23 +1,23 @@
 ---
 allowed-tools: Bash, Read, Edit, Grep
 description: Dispatch OpenAI Codex CLI as the implementer for ONE named task from a plan file
-argument-hint: <plan.md> <taskN> [--model <id>] [--dir <repo>]
+argument-hint: <plan.md> <taskN> [--model <id>] [--effort <level>] [--dir <repo>]
 ---
 
-Dispatch the OpenAI Codex CLI (`codex exec`, gpt-5.5) as an **implementer subagent** to implement exactly one task from a written plan, then review what it produced. You are the controller — Codex edits and commits, you verify.
+Dispatch the OpenAI Codex CLI (`codex exec`, GPT-5.6 Sol at `high` reasoning effort by default) as an **implementer subagent** to implement exactly one task from a written plan, then review what it produced. You are the controller — Codex edits and commits, you verify.
 
 **Arguments:** $ARGUMENTS
 
 ## Steps
 
-1. **Parse arguments.** First token is the plan file path (`<plan.md>`), second is the task identifier (`<taskN>`, e.g. `Task 3`). Optional `--model <id>` overrides Codex's default, `--dir <repo>` sets the repo (default: current repo root). Read the plan file yourself so you know which files and tests the task touches — but do NOT paste it; Codex reads the plan itself.
+1. **Parse arguments.** First token is the plan file path (`<plan.md>`), second is the task identifier (`<taskN>`, e.g. `Task 3`). Optional `--model <id>` and `--effort <level>` override the pinned defaults; `--dir <repo>` sets the repo (default: current repo root). Read the plan file yourself so you know which files and tests the task touches — but do NOT paste it; Codex reads the plan itself.
 
 2. **Determine the commit trailer.** If this project requires a trailer on commits (check `CLAUDE.md` / project conventions), note its literal text — you'll substitute it for `<COMMIT_TRAILER>` in the prompt below. If none, omit the trailer instruction.
 
 3. **Dispatch Codex with the implementer contract.** Build the prompt below and run it through the wrapper. Pass the prompt on stdin (never as a giant argv string), and set a generous Bash-tool `timeout` (≥ 900000 ms) so the tool does not SIGTERM Codex mid-task:
 
    ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.sh" --dir <repo> [--model <id>] --timeout 900 <<'PROMPT'
+   "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.sh" --dir <repo> [--model <id>] [--effort <level>] --timeout 900 <<'PROMPT'
    You are an implementer. Implement ONLY "<taskN>" from the plan file <plan.md>.
    Read the plan file yourself.
 

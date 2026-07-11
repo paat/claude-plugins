@@ -1,6 +1,6 @@
 # codex-subagent
 
-Drive the **OpenAI Codex CLI** (`codex exec`, gpt-5.5) as implementer, reviewer, and critic **subagents** from Claude Code, with Claude as the controller. You get an independent second model that reads the repo, edits files, runs tests, and commits — orchestrated task-by-task from a written plan — plus a high-value pre-flight review that catches integration defects a same-model pass rationalizes past.
+Drive the **OpenAI Codex CLI** (`codex exec`, GPT-5.6 Sol at `high` reasoning effort) as implementer, reviewer, and critic **subagents** from Claude Code, with Claude as the controller. You get an independent second model that reads the repo, edits files, runs tests, and commits — orchestrated task-by-task from a written plan — plus a high-value pre-flight review that catches integration defects a same-model pass rationalizes past.
 
 This plugin packages the non-obvious operational gotchas so you don't re-derive them.
 
@@ -34,20 +34,21 @@ Codex's own sandbox fails inside containers, and Codex's documented bypass flag 
 All three call `scripts/codex-run.sh`, which builds the canonical invocation:
 
 ```bash
-codex exec -s danger-full-access --skip-git-repo-check -C <repo-abs-path> -
+codex exec -s danger-full-access --skip-git-repo-check -C <repo-abs-path> \
+  -m gpt-5.6-sol -c 'model_reasoning_effort="high"' -
 ```
 
 - `-C` sets the working dir (avoids a leading `cd`, which complicates Bash permission matching).
 - `--skip-git-repo-check` avoids the repo-check prompt.
 - The prompt is fed on **stdin** (`codex exec -`), never as a giant argv string — this dodges the `MAX_ARG_STRLEN` "Argument list too long" trap on large prompts.
-- Default model is Codex's default (gpt-5.5); override with `--model`.
+- Model and effort are always explicit, so `~/.codex/config.toml` cannot silently change unattended cost or behavior. Defaults are `gpt-5.6-sol` + `high`; override with `--model` / `--effort` or `CODEX_SUBAGENT_MODEL` / `CODEX_SUBAGENT_EFFORT`.
 
 ## The wrapper: `scripts/codex-run.sh`
 
 A standalone, role-agnostic runner you can also call directly:
 
 ```bash
-scripts/codex-run.sh [--dir D] [--model M] [--sandbox MODE] [--timeout S] [--out F] [--prompt-file F] [PROMPT]
+scripts/codex-run.sh [--dir D] [--model M] [--effort E] [--sandbox MODE] [--timeout S] [--out F] [--prompt-file F] [PROMPT]
 echo "build a prompt" | scripts/codex-run.sh --dir /path/to/repo --timeout 600
 ```
 
@@ -73,7 +74,7 @@ It encodes every gotcha — dual timeouts, output capture, bwrap detection, miss
 
 ## Why the pre-flight review is high-value
 
-Pointed at a written plan + the real source files, gpt-5.5 finds real integration defects a same-model pass misses: line-anchor drift, dispatch-signature mismatches (builder arity/return type), a second validator recomputing totals with the wrong formula, renderers hardcoding old field names. Run `/codex-review <plan.md>` **before** implementing.
+Pointed at a written plan + the real source files, GPT-5.6 Sol finds real integration defects a same-model pass misses: line-anchor drift, dispatch-signature mismatches (builder arity/return type), a second validator recomputing totals with the wrong formula, renderers hardcoding old field names. Run `/codex-review <plan.md>` **before** implementing.
 
 ## Relationship to other plugins
 
