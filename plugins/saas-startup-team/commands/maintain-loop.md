@@ -109,6 +109,10 @@ fi
 ISSUES_DELIVERED="${ISSUES_DELIVERED:-0}"
 RUN_ID="${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 SANDBOX="${CODEX_SANDBOX:-workspace-write}"
+# Pin model + effort explicitly so the user's ~/.codex/config.toml can never leak in
+# (a config pinned to `ultra` effort would silently multiply the cost of every issue).
+CODEX_MODEL="${TF_CODEX_MODEL:-gpt-5.6-sol}"
+CODEX_EFFORT="${TF_CODEX_EFFORT:-high}"
 for N in "${QUEUE[@]}"; do
   if [ -n "$MAX_ISSUES" ] && [ "$ISSUES_DELIVERED" -ge "$MAX_ISSUES" ]; then
     break
@@ -121,7 +125,8 @@ for N in "${QUEUE[@]}"; do
   git -C "$WT" checkout --detach "origin/$default"
   git -C "$WT" reset --hard "origin/$default"
   git -C "$WT" clean -fd
-  (cd "$WT" && codex exec --ephemeral -s "$SANDBOX" --cd "$WT" - < "$PROMPT")
+  (cd "$WT" && codex exec --ephemeral -s "$SANDBOX" -m "$CODEX_MODEL" \
+    -c model_reasoning_effort="\"$CODEX_EFFORT\"" --cd "$WT" - < "$PROMPT")
   ARTIFACT="$WT/.startup/maintain-loop/runs/$RUN_ID/issue-$N.md"
   [ -f "$ARTIFACT" ] || { echo "missing worker artifact: $ARTIFACT" >&2; break; }
   merge_count="$(awk -F: '/^merge_count:/ { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit }' "$ARTIFACT")"

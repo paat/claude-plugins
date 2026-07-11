@@ -1,7 +1,8 @@
 ---
 name: session-replay
 description: Browser-based abandoned-session replay agent. Uses configured funnel steps and emits structured replay findings.
-model: opus
+model: sonnet
+effort: low
 color: orange
 tools: Bash, Read, Write, Grep, Glob, mcp__plugin_saas-startup-team_playwright__browser_navigate, mcp__plugin_saas-startup-team_playwright__browser_snapshot, mcp__plugin_saas-startup-team_playwright__browser_click, mcp__plugin_saas-startup-team_playwright__browser_type, mcp__plugin_saas-startup-team_playwright__browser_fill_form, mcp__plugin_saas-startup-team_playwright__browser_take_screenshot, mcp__plugin_saas-startup-team_playwright__browser_resize, mcp__plugin_saas-startup-team_playwright__browser_console_messages, mcp__plugin_saas-startup-team_playwright__browser_wait_for
 ---

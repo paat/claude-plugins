@@ -59,8 +59,9 @@ Every role phase starts from the relevant skill, `.startup/state.json`, the curr
 ### 1c. Choosing the implementation engine
 
 `active_role` stays `tech-founder` (or `tech-founder-maintain`) regardless of which engine
-backs it. **Codex is the default implementation engine**; route to Claude only when the work
-genuinely needs its strengths (frontend/UX, architecture, or surgical multi-file edits).
+backs it. **Codex (GPT-5.6 Sol, pinned effort — see `scripts/codex-implement.sh`) is the
+default implementation engine**; route to Claude only when the work genuinely needs its
+strengths (frontend/UX, architecture, or surgical multi-file edits).
 
 - **Claude Code surface:** pick the engine per handoff content — Codex for spec-complete,
   backend, test-heavy, or plumbing work; Claude for work that needs its frontend, architecture,
@@ -70,6 +71,18 @@ genuinely needs its strengths (frontend/UX, architecture, or surgical multi-file
   skill, direct Codex implementation, or `codex exec` / `scripts/codex-implement.sh` when a
   separate worker is useful. Do not invoke Claude Code primitives; the generated Codex workflow
   skill supplies the Codex replacements.
+
+**Architect pass (Codex-routed, non-trivial work).** Before spawning the Codex engine for a
+handoff that introduces a new feature, a schema/data-model change, a new workflow, or a
+cross-cutting refactor, run a short **plan-only** role phase reading
+`agents/tech-founder-claude*.md`: it writes `.startup/handoffs/NNN-tech-plan.md` — interface
+contracts, files to touch, invariants, and a test plan; NO code, NO working-tree edits. The
+Codex tech founder then implements from handoff + plan (`codex-implement.sh --plan`). Skip
+the pass for small fixes, copy changes, and single-file work — the extra hop is pure overhead
+there. This closes the cheap-executor failure mode (ambiguity leaking into implementation)
+without adding a new role: `active_role` semantics are unchanged. On the **Codex surface**,
+run the same plan-only phase as a Codex role phase (no Claude Code primitives) — the
+`NNN-tech-plan.md` contract and the skip conditions are identical.
 
 When extra review is needed, use a review pass or the `tribunal-review` plugin rather than
 switching engines mid-task.

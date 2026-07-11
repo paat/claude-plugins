@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
-# codex-implement.sh — delegate an implementation task to OpenAI Codex (gpt-5.5).
+# codex-implement.sh — delegate an implementation task to OpenAI Codex
+# (gpt-5.6-sol at "high" reasoning effort by default).
 #
 # Used by the tech-founder-codex / tech-founder-codex-maintain agents: they read a
 # business->tech handoff and call this script to do the actual coding via `codex
 # exec`, then verify the result and write their own tech->business handoff (which
 # the plugin's auto-commit hook stages). Codex itself must NOT commit.
 #
-# Usage:  codex-implement.sh --handoff <file>   [--model M] [--timeout T] [--log F]
-#         codex-implement.sh --task "<text>"    [--model M] [--timeout T] [--log F]
+# Usage:  codex-implement.sh --handoff <file>   [--plan <file>] [--model M] [--effort E] [--timeout T] [--log F]
+#         codex-implement.sh --task "<text>"    [--model M] [--effort E] [--timeout T] [--log F]
+#
+# MODEL/EFFORT PINNING: both are passed explicitly on every invocation so the user's
+# ~/.codex/config.toml can never leak in (a config pinned to `ultra` effort would
+# silently multiply the cost of every unattended loop run). Override via
+# TF_CODEX_MODEL / TF_CODEX_EFFORT or --model / --effort. Effort values:
+# low|medium|high|xhigh|max|ultra — do NOT use `ultra` in unattended loops; it spawns
+# parallel subagents and burns tokens roughly 4x faster.
+#
+# --plan attaches the architect pass output (NNN-tech-plan.md) when the orchestrator
+# ran one; its content is appended to the prompt after the handoff.
 #
 # Dependencies (documented per repo policy): the `codex` CLI must be installed and
 # authenticated. Runs from the git repo root.
@@ -24,12 +35,14 @@
 # alias that selects workspace-write.
 set -euo pipefail
 
-HANDOFF="" TASK="" MODEL="${TF_CODEX_MODEL:-gpt-5.5}" TIMEOUT="${TF_CODEX_TIMEOUT:-30m}" LOG=""
+HANDOFF="" TASK="" PLAN="" MODEL="${TF_CODEX_MODEL:-gpt-5.6-sol}" EFFORT="${TF_CODEX_EFFORT:-high}" TIMEOUT="${TF_CODEX_TIMEOUT:-30m}" LOG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --handoff) HANDOFF="$2"; shift 2;;
     --task)    TASK="$2"; shift 2;;
+    --plan)    PLAN="$2"; shift 2;;
     --model)   MODEL="$2"; shift 2;;
+    --effort)  EFFORT="$2"; shift 2;;
     --timeout) TIMEOUT="$2"; shift 2;;
     --log)     LOG="$2"; shift 2;;
     *) echo "codex-implement.sh: unknown arg $1" >&2; exit 2;;
@@ -79,6 +92,14 @@ EOF
 )"
 PROMPT="$PROMPT
 $TASK_TEXT"
+if [ -n "$PLAN" ]; then
+  case "$PLAN" in /*) : ;; *) PLAN="$REPO_ROOT/$PLAN" ;; esac
+  [ -f "$PLAN" ] || { echo "ERROR: plan file not found: $PLAN" >&2; exit 4; }
+  PROMPT="$PROMPT
+
+================  TECHNICAL PLAN (follow its contracts and file map)  ================
+$(cat "$PLAN")"
+fi
 
 # Sandbox handling: default to danger-full-access mode (no bypass flag) — see the
 # SANDBOX POSTURE note above. The bypass flag is never used now. CODEX_NO_BYPASS=1 is a
@@ -89,14 +110,15 @@ else
   SANDBOX="${CODEX_SANDBOX:-danger-full-access}"
 fi
 
-echo "[codex-implement] model=$MODEL timeout=$TIMEOUT sandbox=$SANDBOX root=$REPO_ROOT" >&2
+echo "[codex-implement] model=$MODEL effort=$EFFORT timeout=$TIMEOUT sandbox=$SANDBOX root=$REPO_ROOT" >&2
 # Keep codex's content stream (stdout, the --json events the agent reads) in $LOG, and
 # codex's OWN diagnostics (stderr) in $ERRLOG. bwrap detection must scan stderr only:
 # the --json stdout can echo file/diff content containing the bwrap error string, which
 # would false-positive a stdout scan. Re-emit stderr afterward so it stays visible.
 ERRLOG="${LOG}.stderr"
 set +e
-timeout "$TIMEOUT" codex exec --json -s "$SANDBOX" -m "$MODEL" -C "$REPO_ROOT" - \
+timeout "$TIMEOUT" codex exec --json -s "$SANDBOX" -m "$MODEL" \
+  -c model_reasoning_effort="\"$EFFORT\"" -C "$REPO_ROOT" - \
   <<<"$PROMPT" 2>"$ERRLOG" | tee "$LOG"
 rc=${PIPESTATUS[0]}
 set -e

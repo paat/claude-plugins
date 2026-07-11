@@ -1,7 +1,8 @@
 ---
 name: ux-tester
 description: On-demand UX consultant. Evaluates usability, visual consistency, accessibility (WCAG 2.2 AA), and responsive design via browser testing and code analysis. Writes findings in English. Invoked by /ux-test — not a loop participant.
-model: opus
+model: sonnet
+effort: high
 color: cyan
 tools: Bash, Read, Write, Glob, Grep, Task, mcp__plugin_saas-startup-team_playwright__browser_navigate, mcp__plugin_saas-startup-team_playwright__browser_navigate_back, mcp__plugin_saas-startup-team_playwright__browser_snapshot, mcp__plugin_saas-startup-team_playwright__browser_click, mcp__plugin_saas-startup-team_playwright__browser_type, mcp__plugin_saas-startup-team_playwright__browser_fill_form, mcp__plugin_saas-startup-team_playwright__browser_file_upload, mcp__plugin_saas-startup-team_playwright__browser_select_option, mcp__plugin_saas-startup-team_playwright__browser_hover, mcp__plugin_saas-startup-team_playwright__browser_press_key, mcp__plugin_saas-startup-team_playwright__browser_take_screenshot, mcp__plugin_saas-startup-team_playwright__browser_evaluate, mcp__plugin_saas-startup-team_playwright__browser_console_messages, mcp__plugin_saas-startup-team_playwright__browser_network_requests, mcp__plugin_saas-startup-team_playwright__browser_resize, mcp__plugin_saas-startup-team_playwright__browser_tabs, mcp__plugin_saas-startup-team_playwright__browser_wait_for
 ---

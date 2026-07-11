@@ -101,7 +101,25 @@ Every `docs/legal/õiguslik-*.md` analysis carries YAML verdict frontmatter (`ve
 
 ### Dual-Surface Note
 
-The `browser-operator` subagent split (delegating mechanical browser legs to Haiku/Sonnet agents) is a **Claude Code surface optimization** that improves response latency and cost for the QA loop. The Codex surface retains a single-agent browser flow until the singleton seam is confirmed there; Codex users experience equivalent QA outcomes via the native orchestration skill.
+The `browser-operator` subagent split (delegating mechanical browser legs to Haiku/Sonnet agents) is a **Claude Code surface optimization** that improves response latency and cost for the QA loop. The Codex surface retains a single-agent browser flow until the singleton seam is confirmed there; Codex users experience equivalent QA outcomes via the native orchestration skill. Per-agent `model:`/`effort:` frontmatter is likewise Claude-Code-only; on the Codex surface the implementation engine's model/effort pinning (below) is the routing control.
+
+### Model routing
+
+Judgment seats run on the frontier tier, execution volume on cheaper tiers — spec quality up, token burn down:
+
+| Seat | Model / effort |
+|------|----------------|
+| Business founder (spec, QA verdicts) | Claude Fable 5, `effort: high` |
+| Tech founder — Claude engine (architecture, frontend, surgical edits; architect pass) | Opus, `effort: xhigh` |
+| Tech founder — Codex engine (default implementation) | GPT-5.6 Sol at `high` reasoning effort (`TF_CODEX_MODEL` / `TF_CODEX_EFFORT` to override; frugal alternative: `gpt-5.6-terra` + `medium`) |
+| UX tester, incident investigator | Sonnet, `effort: high` |
+| Session replay, browser-operator-pro | Sonnet, `effort: low` |
+| Browser operator, support triage | Haiku |
+| Growth hacker, lawyer | Opus |
+
+The Codex model and reasoning effort are **pinned explicitly on every `codex exec` invocation** (`scripts/codex-implement.sh`, `/maintain-loop`) so a user-level `~/.codex/config.toml` — e.g. one pinned to `ultra` effort — never silently sets the cost of unattended loops. Do not use `ultra` effort in unattended loops: it spawns parallel subagents and burns tokens roughly 4× faster.
+
+On non-trivial Codex-routed handoffs the orchestrator first runs a plan-only **architect pass** on the Claude engine (interface contracts, file map, invariants, test plan → `NNN-tech-plan.md`), then Codex implements from handoff + plan — see `skills/startup-orchestration/SKILL.md` §1c.
 
 ### Convergence governor (`/goal-deliver`)
 
