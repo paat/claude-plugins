@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "SaaS startup simulation — business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product, acquiring customers, and iterating with one-shot improvements",
-      "version": "0.84.0",
+      "version": "0.84.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -75,7 +75,7 @@
     {
       "name": "comfyui",
       "description": "Manage ComfyUI workflows, models, and API — build workflows from natural language, queue executions, monitor progress, and download models",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": {
         "name": "Andre Paat"
       },

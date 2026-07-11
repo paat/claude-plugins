@@ -220,7 +220,6 @@ Update `.startup/state.json` — READ it first, then add growth fields AND overw
 {
   "active_role": "business-founder",
   "growth_lifecycle": "prelive" or "live" or "postlive" or "paused",
-  "growth_phase": "prelive" or "live" or "postlive" or "paused",
   "growth_status": "active",
   "growth_iteration": 0,
   "growth_started": "<current ISO timestamp>"

@@ -9,7 +9,7 @@ Read `.claude/comfyui.local.md` YAML frontmatter for `comfyui_url`. Default to `
 
 ## Server Health
 
-Query `GET {url}/system_stats` for GPU info and VRAM usage. Query `GET {url}/queue` for queue depth (`running_size`, `pending_size`).
+Query `GET {url}/system_stats` for GPU info and VRAM usage. Query `GET {url}/queue` for queue depth — the lengths of the `queue_running` and `queue_pending` arrays.
 
 ## Queuing a Workflow
 

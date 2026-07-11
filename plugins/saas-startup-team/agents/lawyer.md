@@ -25,7 +25,6 @@ Examples:
 - WRONG: "oiguslik" → RIGHT: "õiguslik"
 - WRONG: "ulevaade" → RIGHT: "ülevaade"
 - WRONG: "analuus" → RIGHT: "analüüs"
-- WRONG: "teenustingimused" → RIGHT: "teenustingimused" (this one is correct as-is)
 
 This applies to all analysis docs. If you find yourself writing Estonian without these characters, STOP and fix it immediately.
 

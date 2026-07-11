@@ -181,7 +181,7 @@ finds the worktree stale or dirty and cannot reset it, recreate it from
 - `--max-issues N` → cap delivered issues per pass (default 10).
 - `--max-merges N` → cap merges per pass (default 5).
 - `--max-pass-minutes N` → wall-clock budget per pass (default 90 minutes).
-- `--max-run-minutes N` → total wall-clock budget across all passes (default 0 = unlimited).
+- `--max-run-minutes N` → total wall-clock budget across all passes (default 0 = unlimited — continuous supervisor, no cap by design; bounded delivery loops default to 120).
 
 All gates must pass before the loop starts. On a **normal run**, after entering the
 dedicated worktree (see Workspace above), reuse the `/goal-deliver` preflight

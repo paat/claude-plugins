@@ -23,7 +23,7 @@ argument-hint: "<workflow.json path>"
    - Check that each top-level key (node ID) has `class_type` and `inputs` fields
    - Report any structural issues before attempting to queue
 
-4. **Generate a prompt_id.** Prefer `uuidgen`; fall back to `/dev/urandom` if it's unavailable — no new hard dependency beyond `curl`/`jq`:
+4. **Generate a `client_id`.** Prefer `uuidgen`; fall back to `/dev/urandom` if it's unavailable — no new hard dependency beyond `curl`/`jq`:
 
 ```bash
 uuidgen 2>/dev/null || od -An -tx1 -N16 /dev/urandom | tr -d ' \n' | sed -E 's/^(.{8})(.{4})(.{4})(.{4})(.{12})$/\1-\2-\3-\4-\5/'
@@ -34,10 +34,10 @@ uuidgen 2>/dev/null || od -An -tx1 -N16 /dev/urandom | tr -d ' \n' | sed -E 's/^
 ```bash
 curl -s -X POST "${url}/prompt" \
   -H "Content-Type: application/json" \
-  -d '{"prompt": <workflow_json>, "client_id": "<prompt_id>"}'
+  -d '{"prompt": <workflow_json>, "client_id": "<client_id>"}'
 ```
 
-Capture the response. The server returns `{"prompt_id": "..."}` on success.
+Capture the response and extract the server-assigned prompt_id (`jq -r '.prompt_id'`) — this, not the `client_id`, is the key `/history` is keyed by.
 
 6. **Check for immediate errors.** If the response contains `node_errors` with non-empty entries, report each error (node ID, class_type, exception message) and abort — do not proceed to polling.
 
