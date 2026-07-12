@@ -40,10 +40,17 @@ if envelope_state=$(bash "$SCRIPT_DIR/validate-spend-envelope.sh" --channel ads 
   cap=$(jq -r '.monthly_cap_eur' <<< "$envelope_state")
   cap_src="spend envelope (monthly cap)"
   have_envelope_cap=1
+elif [ -f "$envelope" ]; then
+  # An envelope file that exists but fails canonical validation (legacy shape,
+  # expired, channel not authorized, malformed) must never fall back to a
+  # possibly-higher approved-budget line: cap 0, hard stop on any spend.
+  cap=0
+  cap_src="invalid spend envelope (fails canonical validation — fix docs/growth/envelope.json)"
+  have_envelope_cap=1
 fi
 
 if [ "$have_envelope_cap" -eq 0 ]; then
-  # No valid envelope — fall back to the ads.md approved-budget line.
+  # No envelope file at all — fall back to the ads.md approved-budget line.
   cap=$(echo "$content" | grep -ioP 'approved\s*budget:\s*[^0-9]*\K[0-9]+' | tail -1)
   cap=${cap:-0}
   if [ "$cap" -eq 0 ] 2>/dev/null; then

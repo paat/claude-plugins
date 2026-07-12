@@ -49,13 +49,14 @@ test_growth_envelope() {
   ec=0; run_hook "$ads" || ec=$?
   assert_exit_code "E3: expired envelope falls back to text cap (blocks)" "$ec" 2
 
-  # E4: malformed envelope JSON → treated as absent, fall back to text; no crash. Text
-  # approved=100, spend=50 → allow (exit 0).
+  # E4: malformed envelope JSON → fail CLOSED (an existing-but-broken authorization file
+  # must never fall back to a possibly-higher text cap). Spend is under the text cap, so
+  # only the fail-closed path can block; no crash either way.
   wd="$(make_workdir)"; ads="$(setup_ads "$wd")"
   printf 'Approved budget: $100\nTotal spend: $50\n' > "$ads"
   printf '{ this is not json' > "$wd/docs/growth/envelope.json"
   ec=0; run_hook "$ads" || ec=$?
-  assert_exit_code "E4: malformed envelope treated as absent (no crash, allows)" "$ec" 0
+  assert_exit_code "E4: malformed envelope fails closed (hard stop, no text fallback)" "$ec" 2
 
   # E5: no envelope at all → unchanged text-line behavior (fail closed). spend=150 >= 100.
   wd="$(make_workdir)"; ads="$(setup_ads "$wd")"
@@ -107,6 +108,27 @@ test_growth_envelope() {
   jq '.channels = ["seo"]' "$wd/docs/growth/envelope.json" > "$wd/e" && mv "$wd/e" "$wd/docs/growth/envelope.json"
   ec=0; run_hook "$ads" || ec=$?
   assert_exit_code "E12: envelope without ads channel is rejected" "$ec" 2
+
+  # E13: a legacy-shape envelope (pre-canonical fields) must fail CLOSED — never fall
+  # back to a higher Approved-budget line. Spend is UNDER the text cap, so only the
+  # fail-closed path can block here.
+  wd="$(make_workdir)"; ads="$(setup_ads "$wd")"
+  printf 'Approved budget: $500\nTotal spend: $50\n' > "$ads"
+  printf '{"monthly_cap_eur":100,"expires_at":"2099-12-31T23:59:59Z"}\n' > "$wd/docs/growth/envelope.json"
+  ec=0; out=$(printf '{"tool_input":{"file_path":"%s"}}' "$ads" | bash "$hook" 2>&1 >/dev/null) || ec=$?
+  assert_exit_code "E13: legacy envelope fails closed, no text-cap fallback" "$ec" 2
+  assert_output_contains "E13b: message names the invalid envelope" "$out" "invalid spend envelope"
+
+  # E14/E15: validator contract directly — bounds and exit codes.
+  wd="$(make_workdir)"
+  mkdir -p "$wd/docs/growth"
+  write_envelope "$wd" 200 "2099-12-31T23:59:59Z"
+  ec=0; out=$(bash "$PLUGIN_ROOT/scripts/validate-spend-envelope.sh" --channel ads "$wd/docs/growth/envelope.json") || ec=$?
+  assert_exit_code "E14: valid envelope exits 0" "$ec" 0
+  assert_output_contains "E14b: normalized JSON is printed" "$out" '"monthly_cap_eur":200'
+  jq '.monthly_cap_eur = 100000000000000000000' "$wd/docs/growth/envelope.json" > "$wd/e" && mv "$wd/e" "$wd/docs/growth/envelope.json"
+  ec=0; bash "$PLUGIN_ROOT/scripts/validate-spend-envelope.sh" "$wd/docs/growth/envelope.json" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "E15: absurd cap beyond bounds is rejected" "$ec" 2
 
   # E6: the daily digest (#194) scrapes the growth pass's `- Spend:` line from a run
   # artifact into its Spend summary.
