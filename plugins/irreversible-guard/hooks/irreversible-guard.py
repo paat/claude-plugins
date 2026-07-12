@@ -488,6 +488,201 @@ def classify(cmd, rules, cwd):
     return out, reason
 
 
+# --- Footgun signatures: known self-inflicted failure shapes, caught pre-exec ---
+ZERO_WIDTH = "\u200b\u200c\u200d\u2060\ufeff"
+CURLY_QUOTES = "\u201c\u201d\u2018\u2019\u00ab\u00bb"
+# Process names whose kill-by-name takes down the agent's own shell or runtime.
+AGENT_PROC_NAMES = {"bash", "sh", "zsh", "dash", "ash", "node", "claude", "codex"}
+# Heredoc consumers where a curly quote inside the body is a string-termination
+# or posting hazard (a heredoc redirected into a plain file is fine).
+INTERPRETER_NAMES = {"python", "python3", "node", "psql", "mysql", "sqlite3",
+                     "mongosh", "gh", "curl", "osascript"}
+
+
+def _feeds_interpreter(inv):
+    """True when the heredoc's invocation line runs an interpreter/poster.
+    Redirect targets are skipped so `cat > /tmp/python <<EOF` stays a file write."""
+    toks = inv.replace("'", " ").replace('"', " ").split()
+    skip_next = False
+    for t in toks:
+        if skip_next:
+            skip_next = False
+            continue
+        if t in (">", ">>", "<"):
+            skip_next = True
+            continue
+        if t.startswith((">", "<")) and len(t) > 1:
+            continue
+        if os.path.basename(t) in INTERPRETER_NAMES:
+            return True
+    return False
+PKILL_VALUE_FLAGS = {"--signal", "-u", "--euid", "-U", "--uid", "-g", "--pgroup",
+                     "-G", "--group", "-P", "--parent", "-s", "--session",
+                     "-t", "--terminal", "-d", "--delay"}
+
+
+def load_footguns(plugin_root, cwd):
+    fg = {"detectors": [], "regex": []}
+    try:
+        with open(os.path.join(plugin_root, "rules", "footgun-signatures.json")) as f:
+            data = json.load(f)
+        fg["detectors"] = list(data.get("detectors", []))
+        fg["regex"] = list(data.get("regex", []))
+    except Exception:
+        # Fail-safe: built-in detectors stay active even without the rules file.
+        fg["detectors"] = ["self_kill", "heredoc_hazards", "inline_body"]
+    try:
+        with open(os.path.join(cwd, ".claude", "irreversible-guard.json")) as f:
+            user = json.load(f)
+        fg["regex"] += list(user.get("footgun_regex", []))
+        disabled = set(user.get("footgun_disable", []))
+        fg["detectors"] = [d for d in fg["detectors"] if d not in disabled]
+        fg["regex"] = [s for s in fg["regex"]
+                       if not (isinstance(s, dict) and s.get("id") in disabled)]
+    except Exception:
+        pass
+    return fg
+
+
+def _self_kill(atom, raw):
+    if not atom.argv:
+        return None
+    v = os.path.basename(atom.argv[0])
+    if v not in ("pkill", "killall"):
+        return None
+    args = atom.argv[1:]
+    pats = []
+    skip = False
+    full_match = False
+    for a in args:
+        if skip:
+            skip = False
+            continue
+        if a.startswith("-"):
+            if a in PKILL_VALUE_FLAGS:
+                skip = True
+            elif v == "pkill" and not a.startswith("--") and "f" in a[1:]:
+                full_match = True
+            elif a in ("-f", "--full"):
+                full_match = True
+            continue
+        pats.append(a)
+    if not pats:
+        return None
+    pat = pats[-1]
+    if v == "pkill" and full_match:
+        if "$" in pat or "`" in pat:
+            # Unexpandable statically — but the raw text (assignment included)
+            # usually still self-matches at runtime, so flag it.
+            return (OUTCOME_WARN,
+                    "pkill -f with a variable pattern cannot be checked for a "
+                    "self-match — if the expanded pattern appears anywhere in this "
+                    "command's text it kills the running agent (exit 143); prefer "
+                    "an exact pgrep or a self-excluding '[w]orker'-style pattern")
+        try:
+            self_match = re.search(pat, raw) is not None
+        except re.error:
+            self_match = pat in raw
+        if self_match:
+            return (OUTCOME_BLOCK,
+                    "pkill -f pattern %r also matches this shell's own command line "
+                    "— it would kill the running agent (exit 143). Inspect with an "
+                    "exact pgrep first, or use a self-excluding pattern like "
+                    "'[%s]%s'" % (pat, pat[:1], pat[1:]))
+        return None
+    if pat in AGENT_PROC_NAMES:
+        return (OUTCOME_BLOCK,
+                "%s %s would kill the agent's own shell/runtime. Target the exact "
+                "PID from pgrep instead" % (v, pat))
+    return None
+
+
+def _heredoc_hazards(raw):
+    notes = []
+    zw = sorted({c for c in raw if c in ZERO_WIDTH})
+    if zw:
+        notes.append("invisible zero-width character(s) %s in this command — they "
+                     "corrupt payloads silently; retype the text or write the "
+                     "payload with the Write tool"
+                     % ",".join("U+%04X" % ord(c) for c in zw))
+    for inv, body in _extract_heredocs(raw)[0]:
+        if any(c in body for c in CURLY_QUOTES) and _feeds_interpreter(inv):
+            notes.append("curly quotes inside a heredoc feeding an interpreter or "
+                         "poster — a known empty-post/broken-string hazard; write "
+                         "the payload to a file with the Write tool and pass the "
+                         "file instead")
+            break
+    return notes
+
+
+def _inline_body(atom):
+    if not atom.argv or os.path.basename(atom.argv[0]) != "gh":
+        return None
+    positionals = [a for a in atom.argv[1:] if not a.startswith("-")]
+    if len(positionals) < 2 or positionals[0] not in ("pr", "issue") or \
+            positionals[1] not in ("create", "comment", "edit"):
+        return None
+    for i, a in enumerate(atom.argv):
+        if a in ("--body", "-b") and i + 1 < len(atom.argv):
+            val = atom.argv[i + 1]
+        elif a.startswith("--body="):
+            val = a[len("--body="):]
+        else:
+            continue
+        if "\n" in val or len(val) > 1000:
+            return ("multi-line/large inline --body is corrupted by shell quoting; "
+                    "write the body with the Write tool and pass --body-file")
+    return None
+
+
+def scan_footguns(cmd, fg, rules):
+    """Returns (outcome, block_reason, warn_notes)."""
+    outcome, reason, notes = OUTCOME_PASS, "", []
+    atoms = deobfuscate(cmd)
+    if "self_kill" in fg["detectors"]:
+        for a in atoms:
+            hit = _self_kill(a, cmd)
+            if not hit:
+                continue
+            if hit[0] == OUTCOME_BLOCK:
+                outcome, reason = hit
+                break
+            notes.append(hit[1])
+    if "heredoc_hazards" in fg["detectors"]:
+        notes += _heredoc_hazards(cmd)
+    if "inline_body" in fg["detectors"]:
+        for a in atoms:
+            n = _inline_body(a)
+            if n:
+                notes.append(n)
+                break
+    for sig in fg["regex"]:
+        if not isinstance(sig, dict):
+            continue
+        pattern = sig.get("pattern")
+        if not pattern or not isinstance(pattern, str):
+            continue
+        try:
+            if not re.search(pattern, cmd, re.I):
+                continue
+        except re.error:
+            continue
+        msg = "%s: %s" % (sig.get("id", "footgun"), sig.get("message", "known footgun"))
+        if sig.get("action") == "block" and outcome != OUTCOME_BLOCK:
+            outcome, reason = OUTCOME_BLOCK, msg
+        else:
+            notes.append(msg)
+    if outcome == OUTCOME_BLOCK:
+        for p in rules.get("allow", []):
+            if _match(p, cmd):
+                return OUTCOME_PASS, "", notes
+        for p in rules.get("warn_only", []):
+            if _match(p, cmd):
+                notes.insert(0, "downgraded (warn_only): " + reason)
+                return OUTCOME_PASS, "", notes
+    return outcome, reason, notes
+
+
 def main():
     raw = sys.stdin.read()
     try:
@@ -508,17 +703,34 @@ def main():
     except Exception as e:
         sys.stderr.write("[irreversible-guard] internal error, allowing: %s\n" % e)
         return 0
+    # Footgun scanning must never fail open past a Tier-1/2 verdict: its own
+    # failure degrades to "no footgun findings", not to allowing the command.
+    try:
+        fg_outcome, fg_reason, fg_notes = scan_footguns(
+            command, load_footguns(plugin_root, cwd), rules)
+    except Exception:
+        fg_outcome, fg_reason, fg_notes = OUTCOME_PASS, "", []
     if outcome == OUTCOME_BLOCK:
         sys.stderr.write(
             "[irreversible-guard] BLOCKED: %s\n"
             "This operation has no practical undo. If you are certain it is safe, add an "
             "`allow` pattern to .claude/irreversible-guard.json and retry.\n" % reason)
         return 2
+    if fg_outcome == OUTCOME_BLOCK:
+        sys.stderr.write(
+            "[irreversible-guard] BLOCKED (footgun): %s\n"
+            "If this is genuinely safe here, add an `allow` pattern or a "
+            "`footgun_disable` entry to .claude/irreversible-guard.json and retry.\n"
+            % fg_reason)
+        return 2
+    warn_bits = []
     if outcome == OUTCOME_WARN:
-        note = "[irreversible-guard] CAUTION: %s (recoverable; proceeding)" % reason
+        warn_bits.append("CAUTION: %s (recoverable; proceeding)" % reason)
+    warn_bits += ["footgun: " + n for n in fg_notes]
+    if warn_bits:
+        note = "[irreversible-guard] " + "; ".join(warn_bits)
         print(json.dumps({"hookSpecificOutput": {
             "hookEventName": "PreToolUse", "additionalContext": note}}))
-        return 0
     return 0
 
 

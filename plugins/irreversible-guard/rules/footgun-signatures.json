@@ -1,0 +1,4 @@
+{
+  "detectors": ["self_kill", "heredoc_hazards", "inline_body"],
+  "regex": []
+}
