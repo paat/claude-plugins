@@ -26,14 +26,15 @@ back, compare. This plugin makes that shape one command.
   - `post --via issue-comment|issue-body|pr-body --repo O/R --number N
     --file F` — lints, posts via `gh api -F body=@file` (request body, never
     argv — ARG_MAX-safe by construction), then fetches the stored content and
-    byte-compares it to the file. Exit 6 means the stored content differs:
+    byte-compares it to the file (insensitive only to trailing newlines at
+    EOF, which targets commonly canonicalize). Exit 6 means the stored content differs:
     treat the post as corrupted, delete and repost.
   - `verify` — standalone read-back comparison for content posted by other
     means (e.g. `gh pr create --body-file`).
 
 ## Requirements
 
-- bash 4+, `gh` (authenticated), `diff`, GNU `grep` (`-P` for the zero-width
+- bash 4+, `gh` (authenticated), GNU `grep` (`-P` for the zero-width
   lint; without it the lint degrades to the empty-payload check).
 
 ## Installation

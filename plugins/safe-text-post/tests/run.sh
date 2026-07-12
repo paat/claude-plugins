@@ -91,11 +91,37 @@ verify_mismatch() {
 }
 t "verify: standalone mismatch exits 6" verify_mismatch
 
+# Trailing-newline symmetry: extra EOF newlines on either side still verify.
+printf 'body\n\n\n' > "$WD/multinl.md"
+run post --via issue-body --repo o/r --number 42 --file "$WD/multinl.md" >/dev/null
+printf 'body' > "$WD/singlenl.md"
+trailing_nl_symmetric() { run verify --via issue-body --repo o/r --number 42 --file "$WD/singlenl.md" | grep -q verified; }
+t "verify: EOF-newline differences tolerated symmetrically" trailing_nl_symmetric
+
+# Embedded carriage returns are real content: a difference must fail.
+printf 'line1\r\nline2\n' > "$WD/crlf.md"
+run post --via issue-body --repo o/r --number 42 --file "$WD/crlf.md" >/dev/null
+printf 'line1\nline2\n' > "$WD/lf.md"
+embedded_cr_detected() { run verify --via issue-body --repo o/r --number 42 --file "$WD/lf.md"; [ $? -eq 6 ]; }
+t "verify: embedded CR difference detected (exit 6)" embedded_cr_detected
+
+# Fetch failure is UNKNOWN state (exit 5), not a mismatch.
+fetch_failure() {
+  rm -f "$WD/store"
+  run verify --via issue-body --repo o/r --number 42 --file "$WD/lf.md"
+  [ $? -eq 5 ]
+}
+t "verify: read-back fetch failure exits 5 (state unknown)" fetch_failure
+
 # Usage errors
 usage_bad_adapter() { run post --via nope --repo o/r --number 1 --file "$WD/ok.md"; [ $? -eq 2 ]; }
 t "unknown adapter exits 2" usage_bad_adapter
 usage_missing_file() { run post --via issue-body --repo o/r --number 1 --file "$WD/nope.md"; [ $? -eq 2 ]; }
 t "missing file exits 2" usage_missing_file
+usage_missing_comment_id() { run verify --via issue-comment --repo o/r --number 1 --file "$WD/ok.md"; [ $? -eq 2 ]; }
+t "verify comment without --comment-id exits 2" usage_missing_comment_id
+usage_dangling_value() { run post --via issue-body --repo o/r --number 1 --file; [ $? -eq 2 ]; }
+t "dangling option value exits 2" usage_dangling_value
 
 echo "pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]

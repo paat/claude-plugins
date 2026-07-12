@@ -10,18 +10,20 @@
 #   (a PR comment IS an issue comment on GitHub — use issue-comment with the PR number)
 #
 # Exit codes: 0 posted+verified (or lint clean); 2 usage; 4 lint hazard;
-#             5 post failed; 6 read-back verification FAILED (content differs).
+#             5 post or read-back fetch failed; 6 verification FAILED
+#             (stored content differs from the file).
 set -uo pipefail
 
 MODE="${1:-}"; [ "$#" -gt 0 ] && shift || { echo "safe-post: mode required" >&2; exit 2; }
 VIA=""; REPO=""; NUMBER=""; FILE=""; VERIFY=1; COMMENT_ID=""
+need() { [ "$#" -ge 2 ] || { echo "safe-post: $1 needs a value" >&2; exit 2; }; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --via)        VIA="${2:?}"; shift 2 ;;
-    --repo)       REPO="${2:?}"; shift 2 ;;
-    --number)     NUMBER="${2:?}"; shift 2 ;;
-    --file)       FILE="${2:?}"; shift 2 ;;
-    --comment-id) COMMENT_ID="${2:?}"; shift 2 ;;
+    --via)        need "$@"; VIA="$2"; shift 2 ;;
+    --repo)       need "$@"; REPO="$2"; shift 2 ;;
+    --number)     need "$@"; NUMBER="$2"; shift 2 ;;
+    --file)       need "$@"; FILE="$2"; shift 2 ;;
+    --comment-id) need "$@"; COMMENT_ID="$2"; shift 2 ;;
     --no-verify)  VERIFY=0; shift ;;
     *) [ "$MODE" = "lint" ] && [ -z "$FILE" ] && { FILE="$1"; shift; continue; }
        echo "safe-post: unknown arg: $1" >&2; exit 2 ;;
@@ -48,24 +50,33 @@ lint_file() { # exit 0 clean, 4 hazards. Curly quotes are legitimate content —
   return "$rc"
 }
 
-normalize() { tr -d '\r' < "$1"; }
-
-fetch_body() { # -> stored body on stdout
+fetch_body() { # -> stored body on stdout; exit 2 usage, nonzero on API failure
   case "$VIA" in
     issue-comment)
-      [ -n "$COMMENT_ID" ] || { echo "safe-post: --comment-id required to verify a comment" >&2; return 2; }
+      if [ -z "$COMMENT_ID" ]; then
+        echo "safe-post: --comment-id required to verify a comment" >&2; exit 2
+      fi
       gh api "repos/$REPO/issues/comments/$COMMENT_ID" --jq .body ;;
     issue-body) gh api "repos/$REPO/issues/$NUMBER" --jq .body ;;
     pr-body)    gh api "repos/$REPO/pulls/$NUMBER" --jq .body ;;
-    *) echo "safe-post: unknown adapter: $VIA (issue-comment|issue-body|pr-body)" >&2; return 2 ;;
+    *) echo "safe-post: unknown adapter: $VIA (issue-comment|issue-body|pr-body)" >&2; exit 2 ;;
   esac
 }
 
-verify_body() { # read back and byte-compare (line endings normalized)
-  local stored rc=0
-  stored="$(fetch_body)" || return 6
-  if ! diff -q <(normalize "$FILE") <(printf '%s\n' "$stored" | tr -d '\r') >/dev/null 2>&1 \
-     && ! diff -q <(normalize "$FILE") <(printf '%s' "$stored" | tr -d '\r') >/dev/null 2>&1; then
+verify_body() {
+  # Byte-exact comparison except trailing newlines at EOF: command substitution
+  # strips them from BOTH sides symmetrically (targets commonly canonicalize
+  # the final newline; everything else — including embedded \r — must match).
+  local stored expected rc=0
+  stored="$(fetch_body)" || rc=$?
+  [ "$rc" -ne 2 ] || exit 2                     # usage error, not a fetch failure
+  if [ "$rc" -ne 0 ]; then
+    echo "safe-post: read-back fetch failed — post state UNKNOWN, do not report done" >&2
+    return 5
+  fi
+  expected="$(cat -- "$FILE")" || {
+    echo "safe-post: cannot read $FILE" >&2; return 5; }
+  if [ "$expected" != "$stored" ]; then
     echo "safe-post: VERIFY FAILED — stored content differs from $FILE; treat the post as corrupted, delete and repost" >&2
     return 6
   fi
