@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Model-free readiness/no-op probe for recurring workflows.
-# Exit 0: launch the workflow. Exit 3: clean no-op. Exit 1/2: real failure/usage.
+# Exit 0: launch the workflow. Exit 3: clean no-op. Exit 4: blocked environment
+# (hard prerequisite unmet; fix the host, do not launch). Exit 1/2: real failure/usage.
 set -euo pipefail
 
 MODE="${1:-}"; [ "$#" -gt 0 ] && shift || true
-ROOT=""; REPO=""; ISSUE=""; LABEL=""; DATE=""
+ROOT=""; REPO=""; ISSUE=""; LABEL=""; DATE=""; DRY_RUN=0
 usage() {
   echo "usage: workflow-probe.sh {maintain|maintain-loop|monitor-nightly|digest|lessons-deliver} [--root DIR] [--repo OWNER/REPO] [--issue N] [--label LABEL] [--date YYYY-MM-DD]" >&2
 }
@@ -16,7 +17,8 @@ while [ "$#" -gt 0 ]; do
     --issue) need_value "$@"; ISSUE="$2"; shift 2 ;;
     --label) need_value "$@"; LABEL="$2"; shift 2 ;;
     --date) need_value "$@"; DATE="$2"; shift 2 ;;
-    --once|--dry-run) shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --once) shift ;;
     --max-issues|--max-merges|--max-pass-minutes|--max-run-minutes)
       need_value "$@"; shift 2 ;;
     *) echo "workflow-probe: unsupported argument: $1" >&2; usage; exit 2 ;;
@@ -32,6 +34,30 @@ ROOT="$(cd "$ROOT" && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 noop() { echo "workflow-probe: $MODE no work to do"; exit 3; }
 ready() { echo "workflow-probe: $MODE work available"; exit 0; }
+
+# Mutating scheduled modes require a usable Codex writer sandbox; an unchanged
+# hard host block must not spend one doomed model launch per tick. A --dry-run
+# planning pass is read-only and never blocked here. $1=1 additionally treats a
+# missing Codex CLI as a hard block (workflows that always need the worker).
+codex_writer_gate() {
+  [ "$DRY_RUN" -eq 0 ] || return 0
+  require_codex_cli="${1:-0}"
+  gate_rc=0
+  diag="$(bash "$SCRIPT_DIR/codex-sandbox-check.sh" --root "$ROOT")" || gate_rc=$?
+  case "$gate_rc" in
+    0) return 0 ;;
+    10)
+      [ "$require_codex_cli" -eq 1 ] || return 0
+      echo "workflow-probe: $MODE blocked: Codex CLI not found; install/authenticate Codex before scheduling this workflow" >&2
+      exit 4 ;;
+    4)
+      echo "workflow-probe: $MODE blocked: $diag" >&2
+      exit 4 ;;
+    *)
+      echo "workflow-probe: Codex sandbox check failed" >&2
+      exit 1 ;;
+  esac
+}
 
 case "$MODE" in
   maintain)
@@ -61,6 +87,7 @@ case "$MODE" in
           |select(pending)]|length' "$cache")"
     fi
     [ "$new" -gt 0 ] || [ "$cached_resumable" -gt 0 ] || noop
+    codex_writer_gate 0
     ready
     ;;
 
@@ -69,6 +96,7 @@ case "$MODE" in
     [ -f "$ROOT/.startup/maintain/blocked.jsonl" ] && args+=(--blocked-file "$ROOT/.startup/maintain/blocked.jsonl")
     queue="$(cd "$ROOT" && bash "$SCRIPT_DIR/maintain-queue.sh" "${args[@]}")" || exit 1
     [ "$(printf '%s' "$queue" | jq '.queue|length')" -gt 0 ] || noop
+    codex_writer_gate 1
     ready
     ;;
 

@@ -122,6 +122,33 @@ EOF
   # RF15: usage errors → exit 2
   ec=0; out=$(probe 2>/dev/null) || ec=$?; assert_exit_code "RF15: no args → exit 2" "$ec" 2
   ec=0; out=$(probe --pr 2>/dev/null) || ec=$?; assert_exit_code "RF15b: --pr without value → exit 2" "$ec" 2
+  ec=0; out=$(probe --pr 1 --workflow deploy 2>/dev/null) || ec=$?
+  assert_exit_code "RF15c: --workflow outside --deploy-sha → exit 2" "$ec" 2
+
+  # deploy-sha mode: the watch is bound to the exact merge commit (#248) — an
+  # unrelated latest run must never determine the delivery outcome.
+  sha="1111111111111111111111111111111111111111"
+  # RF15d: only an unrelated newer successful run exists → pending, not green
+  ec=0; out=$(GH_STDOUT='[{"databaseId":9,"headSha":"2222222222222222222222222222222222222222","status":"completed","conclusion":"success"}]' probe --deploy-sha "$sha") || ec=$?
+  assert_equals "RF15d: unrelated success is not our green" "$out" "pending"; assert_exit_code "RF15d2: exit 0" "$ec" 0
+  # RF15e: matching run still pending while unrelated is green → pending
+  ec=0; out=$(GH_STDOUT='[{"databaseId":9,"headSha":"2222222222222222222222222222222222222222","status":"completed","conclusion":"success"},{"databaseId":8,"headSha":"1111111111111111111111111111111111111111","status":"in_progress","conclusion":null}]' probe --deploy-sha "$sha") || ec=$?
+  assert_equals "RF15e: matching in-progress → pending" "$out" "pending"
+  # RF15f: matching run failed while unrelated is green → red
+  ec=0; out=$(GH_STDOUT='[{"databaseId":9,"headSha":"2222222222222222222222222222222222222222","status":"completed","conclusion":"success"},{"databaseId":8,"headSha":"1111111111111111111111111111111111111111","status":"completed","conclusion":"failure"}]' probe --deploy-sha "$sha") || ec=$?
+  assert_equals "RF15f: matching failure → red" "$out" "red"
+  # RF15g: matching run succeeded → green (unrelated failure is ignored)
+  ec=0; out=$(GH_STDOUT='[{"databaseId":9,"headSha":"2222222222222222222222222222222222222222","status":"completed","conclusion":"failure"},{"databaseId":8,"headSha":"1111111111111111111111111111111111111111","status":"completed","conclusion":"success"}]' probe --deploy-sha "$sha") || ec=$?
+  assert_equals "RF15g: matching success → green" "$out" "green"
+  # RF15h: no runs at all yet → pending (never falls back to latest)
+  ec=0; out=$(GH_STDOUT='[]' probe --deploy-sha "$sha") || ec=$?
+  assert_equals "RF15h: no matching run yet → pending" "$out" "pending"; assert_exit_code "RF15h2: exit 0" "$ec" 0
+  # RF15i: all matching runs skipped, no real success → pending, not green
+  ec=0; out=$(GH_STDOUT='[{"databaseId":8,"headSha":"1111111111111111111111111111111111111111","status":"completed","conclusion":"skipped"}]' probe --deploy-sha "$sha") || ec=$?
+  assert_equals "RF15i: skipped-only → pending" "$out" "pending"
+  # RF15j: gh error → fail-closed pending, exit 3
+  ec=0; out=$(GH_STDOUT='' GH_EXIT=1 probe --deploy-sha "$sha") || ec=$?
+  assert_equals "RF15j: gh error → pending" "$out" "pending"; assert_exit_code "RF15j2: exit 3" "$ec" 3
 
   # --- check-stop.sh circuit breaker ---
   # RF16: 25 identical-state blocks opens the breaker (allow stop) with a message.

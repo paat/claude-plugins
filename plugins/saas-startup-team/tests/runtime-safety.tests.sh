@@ -686,7 +686,9 @@ SH
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS21a: QA mutation of an existing ignored file is rejected" "$ec" 1
   printf 'ignored baseline\n' > "$workdir/ignored-product.txt"
-  cp "$(git -C "$workdir" rev-parse --git-path info/exclude)" "$workdir/.startup/reviews/exclude.before"
+  exclude_path="$(git -C "$workdir" rev-parse --git-path info/exclude)"
+  mkdir -p "$(dirname "$exclude_path")"; touch "$exclude_path"
+  cp "$exclude_path" "$workdir/.startup/reviews/exclude.before"
   printf 'hidden-source.ts\n' >> "$(git -C "$workdir" rev-parse --git-path info/exclude)"
   printf 'hidden\n' > "$workdir/hidden-source.ts"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
@@ -976,6 +978,11 @@ case "$1 $2" in
 esac
 SH
   chmod +x "$workdir/bin/gh"
+  cat > "$workdir/bin/codex" <<'SH'
+#!/bin/sh
+exit 0
+SH
+  chmod +x "$workdir/bin/codex"
   ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
   assert_exit_code "RS38: empty maintain queue is model-free no-op" "$ec" 3
   ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" maintain-loop 2>&1) || ec=$?
@@ -1047,6 +1054,63 @@ SH
   printf '{bad\n' > "$workdir/.startup/maintain/triage-cache.jsonl"
   ec=0; out=$(cd "$workdir" && GH_ISSUES_JSON='[{"number":42,"updatedAt":"2026-01-01T00:00:00Z","labels":[]}]' PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
   assert_exit_code "RS47: malformed triage cache fails closed" "$ec" 1
+  rm -rf "$workdir"
+
+  # Codex writer-sandbox gate: an unchanged hard host block must not launch a
+  # doomed model tick (#249). Fixture: userns_clone=1 plus bwrap/unshare EPERM.
+  workdir=$(make_workdir); mkdir -p "$workdir/bin"
+  probe_issues='[{"number":42,"updatedAt":"2026-01-01T00:00:00Z","labels":[]}]'
+  cat > "$workdir/bin/gh" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "issue list") printf '%s\n' "${GH_ISSUES_JSON:-[]}" ;;
+  "pr list") printf '%s\n' "${GH_PRS_JSON:-[]}" ;;
+  "repo view") printf 'main\n' ;;
+  *) exit 1 ;;
+esac
+SH
+  cat > "$workdir/bin/codex" <<'SH'
+#!/bin/sh
+if [ "$1" = "sandbox" ] && [ "${2:-}" = "--help" ]; then exit 0; fi
+if [ "$1" = "sandbox" ]; then
+  printf '%s\n' "bwrap: No permissions to create a new namespace" >&2
+  exit 1
+fi
+exit 0
+SH
+  cat > "$workdir/bin/sysctl" <<'SH'
+#!/bin/sh
+shift $(( $# - 1 ))
+case "$1" in
+  kernel.unprivileged_userns_clone) echo "${FAKE_USERNS_CLONE:-1}" ;;
+  user.max_user_namespaces) echo 2059994 ;;
+  kernel.apparmor_restrict_unprivileged_userns) echo 1 ;;
+  *) exit 1 ;;
+esac
+SH
+  cat > "$workdir/bin/unshare" <<'SH'
+#!/bin/sh
+echo "unshare: unshare failed: Operation not permitted" >&2
+exit 1
+SH
+  chmod +x "$workdir/bin/gh" "$workdir/bin/codex" "$workdir/bin/sysctl" "$workdir/bin/unshare"
+  ec=0; out=$(cd "$workdir" && GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
+  assert_exit_code "RS51: hard sandbox block is a stable non-launch outcome" "$ec" 4
+  assert_output_contains "RS51a: enabled sysctl points at outer runtime/LSM denial" "$out" "outer runtime/LSM"
+  assert_output_contains "RS51b: apparmor restriction is named" "$out" "apparmor_restrict_unprivileged_userns=1"
+  assert_output_not_contains "RS51c: remedy never repeats the enabled sysctl" "$out" "set kernel.unprivileged_userns_clone=1"
+  assert_output_not_contains "RS51d: remedy never suggests danger-full-access" "$out" "danger-full-access"
+  ec=0; out=$(cd "$workdir" && GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain --dry-run 2>&1) || ec=$?
+  assert_exit_code "RS51e: read-only dry-run planning pass is not blocked" "$ec" 0
+  ec=0; out=$(cd "$workdir" && FAKE_USERNS_CLONE=0 GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
+  assert_exit_code "RS51f: disabled sysctl still blocks the launch" "$ec" 4
+  assert_output_contains "RS51g: disabled sysctl names the sysctl remedy" "$out" "kernel.unprivileged_userns_clone=1"
+  ec=0; out=$(cd "$workdir" && SAAS_PREFLIGHT_MISSING=codex GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
+  assert_exit_code "RS51h: maintain without a Codex CLI launches as before" "$ec" 0
+  ec=0; out=$(cd "$workdir" && SAAS_PREFLIGHT_MISSING=codex GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain-loop 2>&1) || ec=$?
+  assert_exit_code "RS51i: maintain-loop without its required Codex CLI never launches" "$ec" 4
+  ec=0; out=$(cd "$workdir" && GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain-loop 2>&1) || ec=$?
+  assert_exit_code "RS51j: blocked sandbox blocks maintain-loop launch" "$ec" 4
   rm -rf "$workdir"
 
   # Artifact hooks reject traversal and isolate the commit from hook-added paths.
@@ -1141,8 +1205,8 @@ SH
     [ "$bytes" -le "$ceiling" ] && out=yes || out=no
     assert_equals "RS prompt ceiling:$name ($bytes <= $ceiling)" "$out" yes
   }
-  check_ceiling maintain 744
-  check_ceiling maintain-loop 698
+  check_ceiling maintain 918
+  check_ceiling maintain-loop 815
   check_ceiling goal-deliver 539
   check_ceiling improve 494
   check_ceiling tweak 453

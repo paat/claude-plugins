@@ -30,12 +30,12 @@ done
 
 [ "$JSON" -eq 1 ] || [ "$MARKDOWN" -eq 1 ] || MARKDOWN=1
 
+SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 2
 if [ -z "$REPO_ROOT" ]; then
   REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 fi
 if [ -z "$PLUGIN_ROOT" ]; then
-  SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 2
-  PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)" || exit 2
+  PLUGIN_ROOT="$(cd "$SELF_DIR/.." && pwd)" || exit 2
 fi
 
 RESULTS="$(mktemp)"
@@ -78,7 +78,7 @@ compact_output() {
 
 codex_worker_shell_smoke() {
   sandbox="$(codex_sandbox_mode)"
-  if ! profile="$(codex_permissions_profile "$sandbox")"; then
+  if ! codex_permissions_profile "$sandbox" >/dev/null; then
     add "codex:worker-shell" blocker "unsupported CODEX_SANDBOX=$sandbox"
     return
   fi
@@ -86,33 +86,15 @@ codex_worker_shell_smoke() {
     add "codex:worker-shell" blocker "Codex implementation workers require isolated CODEX_SANDBOX=workspace-write; read-only and danger-full-access are not valid writer modes"
     return
   fi
-  if ! have_cmd timeout; then
-    add "codex:worker-shell" blocker "timeout missing; cannot bound Codex worker smoke"
-    return
-  fi
-  if ! codex sandbox --help >/dev/null 2>&1; then
-    add "codex:worker-shell" blocker "Codex CLI lacks sandbox smoke support; update Codex before launching separate workers"
-    return
-  fi
 
-  timeout_secs="${SAAS_CODEX_PREFLIGHT_TIMEOUT:-15}"
-  case "$timeout_secs" in ''|0|*[!0-9]*) timeout_secs=15 ;; esac
-
-  output="$(timeout "$timeout_secs" codex sandbox --permission-profile "$profile" \
-    --sandbox-state-disable-network -C "$REPO_ROOT" /bin/pwd 2>&1)"
-  rc=$?
-  if [ "$rc" -eq 0 ]; then
-    add "codex:worker-shell" ok "Codex worker shell smoke passed with -s $sandbox"
-    return
-  fi
-
-  summary="$(compact_output "$output")"
-  [ -n "$summary" ] || summary="exit $rc"
-  if printf '%s\n' "$output" | grep -qiE 'bwrap|namespace|sandbox'; then
-    add "codex:worker-shell" blocker "Codex worker shell sandbox unusable with -s $sandbox: $summary; fix the sandbox or unprivileged user namespaces"
-  else
-    add "codex:worker-shell" blocker "Codex worker shell smoke failed with -s $sandbox: $summary"
-  fi
+  diag_rc=0
+  diag="$(bash "$SELF_DIR/codex-sandbox-check.sh" --root "$REPO_ROOT")" || diag_rc=$?
+  diag="$(compact_output "$diag")"
+  case "$diag_rc" in
+    0) add "codex:worker-shell" ok "Codex worker shell smoke passed with -s $sandbox" ;;
+    10) add "codex:worker-shell" blocker "Codex CLI not found" ;;
+    *) add "codex:worker-shell" blocker "Codex worker shell sandbox unusable with -s $sandbox: $diag" ;;
+  esac
 }
 
 bash_major="${BASH_VERSINFO[0]:-0}"
