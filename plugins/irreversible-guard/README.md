@@ -31,6 +31,20 @@ each resulting sub-command against a tiered deny-set:
   `*production*`, or `*-live` (configurable). No prod marker → treated as local & reversible → allowed.
 - **Warn (non-blocking)**: `git push --force`/`--force-with-lease`, `git reset --hard`,
   `git clean -fdx` — recoverable, so they proceed with a caution note.
+- **Footgun signatures** — known self-inflicted failure shapes, caught before execution:
+  - `pkill -f <pattern>` whose pattern also matches this shell's own command line (the classic
+    exit-143 self-kill) → **blocked**, with the `pgrep`-first / `'[w]orker.py'` self-excluding fix
+    suggested. A self-excluding pattern passes. `pkill`/`killall` of the agent's own runtime by
+    name (`bash`, `node`, `claude`, `codex`, …) is blocked too.
+  - Heredoc bodies containing curly quotes that feed an interpreter or poster (`python`, `node`,
+    `gh`, `curl`, DB clients) → **warn**, suggesting a file-based payload. Writing the same text
+    into a plain file is fine and stays silent. Invisible zero-width characters anywhere in a
+    command always warn.
+  - `gh pr|issue create/comment/edit` with a multi-line or >1 KB inline `--body` → **warn**,
+    suggesting `--body-file`.
+  - The signature list is data-driven: `rules/footgun-signatures.json` ships the detector switches
+    plus a `regex` list (`{id, pattern, action: block|warn, message}`), and new lessons append new
+    signatures without code changes.
 
 Outcomes: **BLOCK** → the tool call is denied (exit 2) and the reason is fed back to the agent so it
 self-corrects; **WARN** → a caution is added to context and the call proceeds; **PASS** → silent.
@@ -72,6 +86,10 @@ Create `.claude/irreversible-guard.json` in a project to tune behavior:
 - **`prod_markers`** — substrings (leading/trailing `*` are ignored) that mark a Tier-2 op as
   production-bound. Overrides the defaults.
 - **`warn_only`** — downgrade a would-be block to a warning.
+- **`footgun_regex`** — additional footgun signatures, same shape as the entries in
+  `rules/footgun-signatures.json`.
+- **`footgun_disable`** — built-in detector ids to switch off (`self_kill`, `heredoc_hazards`,
+  `inline_body`). `allow` patterns also override footgun blocks.
 
 Defaults live as data in `rules/deny-set.json` and can be edited directly when vendoring the plugin.
 `deny-set.json` **replaces** the loader's built-in fallback category-by-category (it is not merged),

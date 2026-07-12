@@ -253,6 +253,61 @@ class TestCodexRound5(unittest.TestCase):
             self.assertEqual(classify(cmd), "PASS", cmd)
 
 
+FG = ig.load_footguns(ROOT, CWD)
+
+
+def footgun(cmd, fg=None, rules=None):
+    return ig.scan_footguns(cmd, fg or FG, rules or RULES)
+
+
+class TestFootguns(unittest.TestCase):
+    def test_self_matching_pkill_blocks(self):
+        for cmd in ("pkill -f worker.py", "pkill -9 -f my-server",
+                    "sudo pkill -f worker.py", "bash -c 'pkill -f worker.py'"):
+            self.assertEqual(footgun(cmd)[0], "BLOCK", cmd)
+
+    def test_self_excluding_pattern_passes(self):
+        self.assertEqual(footgun('pkill -f "[w]orker.py"')[0], "PASS")
+
+    def test_agent_runtime_kill_by_name_blocks(self):
+        for cmd in ("pkill bash", "killall node", "pkill claude", "killall codex"):
+            self.assertEqual(footgun(cmd)[0], "BLOCK", cmd)
+
+    def test_ordinary_kills_pass(self):
+        for cmd in ("pkill nginx", "killall gunicorn", "kill -9 12345",
+                    "pkill -u www-data uwsgi"):
+            self.assertEqual(footgun(cmd)[0], "PASS", cmd)
+
+    def test_heredoc_curly_into_interpreter_warns(self):
+        cmd = 'python3 - <<EOF\nprint("“tere”")\nEOF'
+        self.assertTrue(footgun(cmd)[2])
+
+    def test_heredoc_curly_into_file_passes(self):
+        cmd = 'cat > /tmp/x.md <<EOF\n“tere” Eesti\nEOF'
+        out, _, notes = footgun(cmd)
+        self.assertEqual((out, notes), ("PASS", []))
+
+    def test_zero_width_warns_anywhere(self):
+        self.assertTrue(footgun("echo zero​width")[2])
+
+    def test_inline_multiline_body_warns(self):
+        out, _, notes = footgun('gh pr create --title x --body "a\nb"')
+        self.assertEqual(out, "PASS")
+        self.assertTrue(any("--body-file" in n for n in notes))
+        self.assertEqual(footgun("gh pr create --title x --body-file /tmp/b.md")[2], [])
+
+    def test_regex_signature_and_disable(self):
+        fg = {"detectors": [], "regex": [
+            {"id": "x", "pattern": r"\bfoo-danger\b", "action": "block",
+             "message": "known failure"}]}
+        self.assertEqual(footgun("foo-danger --run", fg)[0], "BLOCK")
+        self.assertEqual(footgun("pkill -f worker.py", fg)[0], "PASS")
+
+    def test_allow_overrides_footgun_block(self):
+        rules = dict(ig.DEFAULT_RULES, allow=["pkill -f worker.py"])
+        self.assertEqual(footgun("pkill -f worker.py", rules=rules)[0], "PASS")
+
+
 class TestConfigBehaviour(unittest.TestCase):
     def test_allow_overrides_block(self):
         rules = dict(ig.DEFAULT_RULES, allow=["rm -rf /"])

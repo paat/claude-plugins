@@ -87,3 +87,13 @@ sudo -u postgres pg_dump db	PASS
 git push --force origin main	WARN
 git reset --hard HEAD~3	WARN
 git clean -fdx	WARN
+# Footgun signatures (#244) — self-matching kills
+pkill -f worker.py	BLOCK
+sudo pkill -f worker.py	BLOCK
+pkill -9 -f my-server	BLOCK
+pkill -f "[w]orker.py"	PASS
+pkill bash	BLOCK
+killall node	BLOCK
+pkill nginx	PASS
+kill -9 12345	PASS
+gh pr create --title x --body-file /tmp/b.md	PASS

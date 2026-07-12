@@ -488,6 +488,159 @@ def classify(cmd, rules, cwd):
     return out, reason
 
 
+# --- Footgun signatures: known self-inflicted failure shapes, caught pre-exec ---
+ZERO_WIDTH = "\u200b\u200c\u200d\u2060\ufeff"
+CURLY_QUOTES = "\u201c\u201d\u2018\u2019\u00ab\u00bb"
+# Process names whose kill-by-name takes down the agent's own shell or runtime.
+AGENT_PROC_NAMES = {"bash", "sh", "zsh", "dash", "ash", "node", "claude", "codex"}
+# Heredoc consumers where a curly quote inside the body is a string-termination
+# or posting hazard (a heredoc redirected into a plain file is fine).
+INTERPRETER_INVOKERS = re.compile(
+    r'\b(python3?|node|psql|mysql|sqlite3|mongosh|gh|curl|osascript)\b')
+PKILL_VALUE_FLAGS = {"--signal", "-u", "--euid", "-U", "--uid", "-g", "--pgroup",
+                     "-G", "--group", "-P", "--parent", "-s", "--session",
+                     "-t", "--terminal", "-d", "--delay"}
+
+
+def load_footguns(plugin_root, cwd):
+    fg = {"detectors": [], "regex": []}
+    try:
+        with open(os.path.join(plugin_root, "rules", "footgun-signatures.json")) as f:
+            data = json.load(f)
+        fg["detectors"] = list(data.get("detectors", []))
+        fg["regex"] = list(data.get("regex", []))
+    except Exception:
+        # Fail-safe: built-in detectors stay active even without the rules file.
+        fg["detectors"] = ["self_kill", "heredoc_hazards", "inline_body"]
+    try:
+        with open(os.path.join(cwd, ".claude", "irreversible-guard.json")) as f:
+            user = json.load(f)
+        fg["regex"] += list(user.get("footgun_regex", []))
+        for d in user.get("footgun_disable", []):
+            if d in fg["detectors"]:
+                fg["detectors"].remove(d)
+    except Exception:
+        pass
+    return fg
+
+
+def _self_kill(atom, raw):
+    if not atom.argv:
+        return None
+    v = os.path.basename(atom.argv[0])
+    if v not in ("pkill", "killall"):
+        return None
+    args = atom.argv[1:]
+    pats = []
+    skip = False
+    full_match = False
+    for a in args:
+        if skip:
+            skip = False
+            continue
+        if a.startswith("-"):
+            if a in PKILL_VALUE_FLAGS:
+                skip = True
+            elif v == "pkill" and not a.startswith("--") and "f" in a[1:]:
+                full_match = True
+            elif a in ("-f", "--full"):
+                full_match = True
+            continue
+        pats.append(a)
+    if not pats:
+        return None
+    pat = pats[-1]
+    if v == "pkill" and full_match:
+        try:
+            self_match = re.search(pat, raw) is not None
+        except re.error:
+            self_match = pat in raw
+        if self_match:
+            return (OUTCOME_BLOCK,
+                    "pkill -f pattern %r also matches this shell's own command line "
+                    "— it would kill the running agent (exit 143). Inspect with an "
+                    "exact pgrep first, or use a self-excluding pattern like "
+                    "'[%s]%s'" % (pat, pat[:1], pat[1:]))
+        return None
+    if pat in AGENT_PROC_NAMES:
+        return (OUTCOME_BLOCK,
+                "%s %s would kill the agent's own shell/runtime. Target the exact "
+                "PID from pgrep instead" % (v, pat))
+    return None
+
+
+def _heredoc_hazards(raw):
+    notes = []
+    zw = sorted({c for c in raw if c in ZERO_WIDTH})
+    if zw:
+        notes.append("invisible zero-width character(s) %s in this command — they "
+                     "corrupt payloads silently; retype the text or write the "
+                     "payload with the Write tool"
+                     % ",".join("U+%04X" % ord(c) for c in zw))
+    for inv, body in _extract_heredocs(raw)[0]:
+        if any(c in body for c in CURLY_QUOTES) and INTERPRETER_INVOKERS.search(inv):
+            notes.append("curly quotes inside a heredoc feeding an interpreter or "
+                         "poster — a known empty-post/broken-string hazard; write "
+                         "the payload to a file with the Write tool and pass the "
+                         "file instead")
+            break
+    return notes
+
+
+def _inline_body(atom):
+    if not atom.argv or os.path.basename(atom.argv[0]) != "gh":
+        return None
+    if not any(t in atom.argv for t in ("create", "comment", "edit")):
+        return None
+    for i, a in enumerate(atom.argv):
+        if a in ("--body", "-b") and i + 1 < len(atom.argv):
+            val = atom.argv[i + 1]
+        elif a.startswith("--body="):
+            val = a[len("--body="):]
+        else:
+            continue
+        if "\n" in val or len(val) > 1000:
+            return ("multi-line/large inline --body is corrupted by shell quoting; "
+                    "write the body with the Write tool and pass --body-file")
+    return None
+
+
+def scan_footguns(cmd, fg, rules):
+    """Returns (outcome, block_reason, warn_notes)."""
+    outcome, reason, notes = OUTCOME_PASS, "", []
+    atoms = deobfuscate(cmd)
+    if "self_kill" in fg["detectors"]:
+        for a in atoms:
+            hit = _self_kill(a, cmd)
+            if hit:
+                outcome, reason = hit
+                break
+    if "heredoc_hazards" in fg["detectors"]:
+        notes += _heredoc_hazards(cmd)
+    if "inline_body" in fg["detectors"]:
+        for a in atoms:
+            n = _inline_body(a)
+            if n:
+                notes.append(n)
+                break
+    for sig in fg["regex"]:
+        try:
+            if not re.search(sig.get("pattern", ""), cmd, re.I):
+                continue
+        except re.error:
+            continue
+        msg = "%s: %s" % (sig.get("id", "footgun"), sig.get("message", "known footgun"))
+        if sig.get("action") == "block" and outcome != OUTCOME_BLOCK:
+            outcome, reason = OUTCOME_BLOCK, msg
+        else:
+            notes.append(msg)
+    if outcome == OUTCOME_BLOCK:
+        for p in rules.get("allow", []):
+            if _match(p, cmd):
+                return OUTCOME_PASS, "", notes
+    return outcome, reason, notes
+
+
 def main():
     raw = sys.stdin.read()
     try:
@@ -505,6 +658,8 @@ def main():
     rules = load_rules(plugin_root, cwd)
     try:
         outcome, reason = classify(command, rules, cwd)
+        fg_outcome, fg_reason, fg_notes = scan_footguns(
+            command, load_footguns(plugin_root, cwd), rules)
     except Exception as e:
         sys.stderr.write("[irreversible-guard] internal error, allowing: %s\n" % e)
         return 0
@@ -514,11 +669,21 @@ def main():
             "This operation has no practical undo. If you are certain it is safe, add an "
             "`allow` pattern to .claude/irreversible-guard.json and retry.\n" % reason)
         return 2
+    if fg_outcome == OUTCOME_BLOCK:
+        sys.stderr.write(
+            "[irreversible-guard] BLOCKED (footgun): %s\n"
+            "If this is genuinely safe here, add an `allow` pattern or a "
+            "`footgun_disable` entry to .claude/irreversible-guard.json and retry.\n"
+            % fg_reason)
+        return 2
+    warn_bits = []
     if outcome == OUTCOME_WARN:
-        note = "[irreversible-guard] CAUTION: %s (recoverable; proceeding)" % reason
+        warn_bits.append("CAUTION: %s (recoverable; proceeding)" % reason)
+    warn_bits += ["footgun: " + n for n in fg_notes]
+    if warn_bits:
+        note = "[irreversible-guard] " + "; ".join(warn_bits)
         print(json.dumps({"hookSpecificOutput": {
             "hookEventName": "PreToolUse", "additionalContext": note}}))
-        return 0
     return 0
 
 
