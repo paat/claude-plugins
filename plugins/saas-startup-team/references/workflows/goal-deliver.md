@@ -301,21 +301,33 @@ on has merged):
 
 ## Step 4: Monitor the Deploy
 
-After the last chunk merges (and at least one merged), watch the default-branch
-GitHub Actions run:
+After the last chunk merges (and at least one merged), watch the run(s) for the
+exact final merge commit — never "the latest run", which in a repo with several
+`push` workflows can be an unrelated CI/docs/concurrent run reading falsely green:
 
 ```bash
-run_id=$(gh run list --branch "${default}" --limit 1 --json databaseId -q '.[0].databaseId')
+merge_sha=$(gh pr view "<final pr url>" --json mergeCommit -q .mergeCommit.oid)
 ```
-Poll with backoff — never a blocking `--watch`: repeatedly `bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/poll-gate.sh" --run "$run_id"` — `green`=passed,
+If the local config block (`.claude/saas-startup-team.local.md`) has a `deploy:`
+section with `workflow: <name>`, pass `--workflow "<name>"` so only the deployment
+workflow's matching run counts. Poll with backoff — never a blocking `--watch`:
+repeatedly `bash "${CLAUDE_PLUGIN_ROOT}/scripts/poll-gate.sh" --deploy-sha
+"$merge_sha" --branch "${default}" [--workflow "<name>"]` — `green`=passed,
 `red`=failed, `pending`→`sleep` a 60s backoff doubling to a 480s cap, then re-poll.
+A matching run that never appears stays `pending` and fails closed at the budget.
 Treat as failed after a 30-minute total budget. Each probe and sleep is its own short Bash call.
+Without a pinned workflow, green covers only the runs that exist for the SHA at
+probe time — a chained (`workflow_run`-triggered) deployment may not have appeared
+yet, so on first green sleep 60s and re-poll once; pin `deploy.workflow` in the
+config block when the repo deploys through a chained workflow.
 
-On failure: read the failing logs (`gh run view "$run_id" --log-failed`),
+On failure: find the failing matching run's id (`gh run list --branch "${default}"
+--json databaseId,headSha,conclusion` filtered to `headSha == $merge_sha`), read
+its logs (`gh run view "$run_id" --log-failed`),
 dispatch the tech founder to fix on a `deploy-fix/<slug>` branch → open a PR →
-close the tribunal loop on it → merge → re-watch the new run. Repeat until green
-or you judge it needs the investor.
+close the tribunal loop on it → merge → refresh `merge_sha` from the deploy-fix
+PR's `mergeCommit` → re-watch with the new SHA. Repeat until green or you judge
+it needs the investor.
 
 After green, when `scripts/ui-touch.sh --range <pre-run SHA>..HEAD` over this run's merged range prints anything but `no-ui`,
 run the post-deploy visual smoke per the post-deploy section of

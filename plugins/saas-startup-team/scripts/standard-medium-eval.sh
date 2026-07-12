@@ -495,7 +495,9 @@ assess_pairs() {
     GIT_INDEX_FILE="$index_file" git -C "$repo" read-tree "$commit" >/dev/null 2>&1 || return 1
     GIT_INDEX_FILE="$index_file" git -C "$repo" apply --cached --check --binary --whitespace=nowarn \
       "$patch" >/dev/null 2>&1 || return 1
-    git apply --numstat -- "$patch" 2>/dev/null | grep -q . || return 1
+    # -C "$repo": from a repo subdirectory, bare `git apply` silently ignores
+    # patch paths outside the cwd and reports an empty numstat.
+    git -C "$repo" apply --numstat -- "$patch" 2>/dev/null | grep -q . || return 1
     rm -f -- "$index_file"
   }
 

@@ -49,9 +49,12 @@ mkdir -p "$GIT_COMMON/saas-startup-team"
 exec 9>"$GIT_COMMON/saas-startup-team/maintain-scheduler.lock"
 flock -n 9 || exit 0
 while :; do
-  if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" maintain; then
-    claude -p "/maintain --once" --dangerously-skip-permissions
-  elif [ "$?" -ne 3 ]; then exit 1; fi
+  rc=0; bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" maintain || rc=$?
+  case "$rc" in
+    0) claude -p "/maintain --once" --dangerously-skip-permissions ;;
+    3|4) : ;; # 3 = no work; 4 = blocked host (probe printed the remedy; loop resumes once fixed)
+    *) exit 1 ;;
+  esac
   sleep 300
 done
 # Codex trusted/dev box — invoke the installed plugin skill per tick; separate roles use codex-run-role.sh.
@@ -71,7 +74,7 @@ that **writes code and merges PRs**:
 # Claude Code example:
 # 0 * * * * /usr/bin/flock -n <product-repo>/.git/maintain-scheduler.lock -c 'cd <product-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" maintain; then claude -p "/maintain --once" \
 #   --allowedTools 'Bash,Edit,Write,Read,Grep,Glob,Task,WebFetch' \
-#   >> <log-path> 2>&1; else test $? -eq 3; fi'
+#   >> <log-path> 2>&1; else rc=$?; test "$rc" -eq 3 -o "$rc" -eq 4; fi'
 # Codex example:
 # 0 * * * *  cd /path/to/product && <codex command for this plugin> "/maintain --once" \
 #   >> /var/log/maintain.log 2>&1

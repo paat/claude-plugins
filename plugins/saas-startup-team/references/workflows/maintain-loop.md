@@ -8,7 +8,9 @@ user_invocable: true
 
 Use this after `/maintain` has produced deliverable issues. Scheduled runners call
 `scripts/workflow-probe.sh maintain-loop` before loading this file; exit 3 is a
-model-free no-op. Load `references/workflows/routing-telemetry.md` once.
+model-free no-op and exit 4 is a model-free blocked environment (unusable Codex
+writer sandbox — the probe prints the host remedy). The launch-time preflight
+below stays authoritative. Load `references/workflows/routing-telemetry.md` once.
 
 ## Ownership invariant
 

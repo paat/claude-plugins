@@ -4795,10 +4795,10 @@ test_autonomous_demand_infra() {
   assert_file_exists "AD4: demand-discovery exists" "$demand"
   assert_file_exists "AD4b: market-scout exists" "$market"
   assert_file_exists "AD4c: issue-closure-audit exists" "$closure"
-  assert_file_contains "AD4d: Codex smoke uses supported permission flag" "$health" "--permission-profile"
+  assert_file_contains "AD4d: Codex smoke uses supported permission flag" "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" "--permission-profile"
   assert_file_not_contains "AD4e: Codex smoke drops obsolete plural flag" "$health" "--permissions-profile"
-  assert_file_contains "AD4f: shell smoke disables unneeded network" "$health" "--sandbox-state-disable-network"
-  for s in "$health" "$lease" "$packs" "$demand" "$market" "$closure"; do
+  assert_file_contains "AD4f: shell smoke disables unneeded network" "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" "--sandbox-state-disable-network"
+  for s in "$health" "$lease" "$packs" "$demand" "$market" "$closure" "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh"; do
     ec=0; bash -n "$s" || ec=$?
     assert_exit_code "AD syntax: $(basename "$s")" "$ec" 0
   done
@@ -4849,11 +4849,30 @@ fi
 exit 0
 SH
   chmod +x "$workdir/bin/codex"
+  cat > "$workdir/bin/sysctl" <<'SH'
+#!/bin/sh
+shift $(( $# - 1 ))
+case "$1" in
+  kernel.unprivileged_userns_clone) echo 1 ;;
+  user.max_user_namespaces) echo 2059994 ;;
+  kernel.apparmor_restrict_unprivileged_userns) echo 1 ;;
+  *) exit 1 ;;
+esac
+SH
+  cat > "$workdir/bin/unshare" <<'SH'
+#!/bin/sh
+echo "unshare: unshare failed: Operation not permitted" >&2
+exit 1
+SH
+  chmod +x "$workdir/bin/sysctl" "$workdir/bin/unshare"
   ec=0; output=$(PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
   assert_exit_code "AD6c: default workspace-write sandbox blocks when unusable" "$ec" 1
   assert_output_contains "AD6d: reports worker shell smoke" "$output" '"check": "codex:worker-shell"'
   assert_output_contains "AD6e: bwrap failure is surfaced" "$output" "bwrap:"
-  assert_output_contains "AD6f: remediation requires sandbox repair" "$output" "fix the sandbox"
+  assert_output_contains "AD6f: enabled sysctl points at outer runtime/LSM denial" "$output" "outer runtime/LSM"
+  assert_output_contains "AD6f2: apparmor restriction is named" "$output" "apparmor_restrict_unprivileged_userns=1"
+  assert_output_not_contains "AD6f3: remedy never suggests the already-enabled sysctl" "$output" "set kernel.unprivileged_userns_clone=1"
+  assert_output_not_contains "AD6f4: remedy never suggests weakening the writer boundary" "$output" "danger-full-access"
   ec=0; output=$(SAAS_PREFLIGHT_CONTAINER=1 CODEX_SANDBOX=danger-full-access PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
   assert_exit_code "AD6g: danger sandbox is rejected inside containers" "$ec" 1
   assert_output_contains "AD6h: danger rejection names isolated writer mode" "$output" "isolated CODEX_SANDBOX=workspace-write"
