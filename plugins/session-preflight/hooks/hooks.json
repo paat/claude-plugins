@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'p=hooks/preflight.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && grep -qF session-preflight \"$r/.claude-plugin/plugin.json\" 2>/dev/null && exec bash \"$r/$p\"; done; echo \"[session-preflight] hook target not found: $p\" >&2; exit 0'",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
