@@ -1,0 +1,35 @@
+{
+  "name": "safe-text-post",
+  "version": "0.1.1",
+  "description": "File-based text posting with unicode lint and read-back verification \u2014 payloads always travel via files (never inline argv/heredocs), zero-width characters are rejected before posting, and every post is fetched back and byte-compared so curly quotes and non-ASCII content provably survived. Kills the empty-comment / corrupted-PR-body failure class.",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Safe Text Post",
+    "shortDescription": "File-based text posting with unicode lint and read-back verification \u2014 payloads always travel via files (never inline argv/heredocs), zero-width characters are rejected before posting, and every post is fetched back and byte-compared so curly quotes and non-ASCII content provably survived. Kills the empty-comment / corrupted-PR-body failure class.",
+    "longDescription": "File-based text posting with unicode lint and read-back verification \u2014 payloads always travel via files (never inline argv/heredocs), zero-width characters are rejected before posting, and every post is fetched back and byte-compared so curly quotes and non-ASCII content provably survived. Kills the empty-comment / corrupted-PR-body failure class.",
+    "developerName": "Andre Paat",
+    "category": "Productivity",
+    "capabilities": [
+      "Skills",
+      "Scripts"
+    ],
+    "defaultPrompt": "Use the safe-text-post plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "posting",
+    "non-ascii",
+    "curly-quotes",
+    "zero-width",
+    "read-back",
+    "verification",
+    "body-file",
+    "arg-max"
+  ],
+  "skills": "./skills/"
+}

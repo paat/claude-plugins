@@ -214,6 +214,17 @@
       "source": "./plugins/session-preflight",
       "category": "productivity",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "safe-text-post",
+      "description": "File-based non-ASCII text posting with unicode lint and read-back verification — payloads travel via files, zero-width chars are rejected, and every post is fetched back and byte-compared before reporting done",
+      "version": "0.1.1",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/safe-text-post",
+      "category": "productivity",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }
