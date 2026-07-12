@@ -112,6 +112,9 @@ blocked_in_warnings() {
   run "$NOW" _warnings_section | grep -q "blocked: p1 — soak"
 }
 t "digest warnings surface blocked project with reason" blocked_in_warnings
+mkenv; echo "the pass should print MC-BLOCKED recheck_after=10 when stuck" > "$TD/prose.log"
+prose_not_blocked() { [ "$(run "$NOW" governor_report e p1 0 "$TD/prose.log")" = ok ]; }
+t "prose mentioning the sentinel mid-line does not classify blocked" prose_not_blocked
 
 echo "pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -79,7 +79,8 @@ governor_report() { # <engine> <project> <exit_code> <log_path>
   patterns="$RL_BUILTIN"
   extra="$(cfg "(.engines[\"$engine\"].rate_limit_patterns // []) | join(\"|\")")"
   [ -z "$extra" ] || patterns="$patterns|$extra"
-  blk="$(grep -oE 'MC-BLOCKED.*' "$logf" 2>/dev/null | tail -1 || true)"
+  # Line-anchored: prose merely mentioning the sentinel must not classify.
+  blk="$(grep -oE '^MC-BLOCKED([[:space:]].*)?$' "$logf" 2>/dev/null | tail -1 || true)"
   if grep -qiE "$patterns" "$logf" 2>/dev/null; then
     outcome="rate-limit"                       # wins even over exit 0
     _gov_backoff "$pool" "$logf"
