@@ -165,10 +165,13 @@ probe_incident() { # <name> — any open issue with an incident label
   return 1
 }
 
-project_blocked() { # <name> — hold or active cooldown
+project_blocked() { # <name> — hold, active cooldown, or declared MC-BLOCKED window
   [ "$(pj "$1" '.hold')" = "true" ] && return 0
-  local cd; cd="$(state_get ".projects[\"$1\"].cooldown_until // 0")"
-  [ "$(now)" -lt "$cd" ]
+  local cd bu t; t="$(now)"
+  cd="$(state_get ".projects[\"$1\"].cooldown_until // 0")"
+  [ "$t" -lt "$cd" ] && return 0
+  bu="$(state_get ".projects[\"$1\"].blocked_until // 0")"
+  [ "$t" -lt "$bu" ]
 }
 
 # Engines refused by governor_reserve earlier THIS tick (set by cmd_tick's
