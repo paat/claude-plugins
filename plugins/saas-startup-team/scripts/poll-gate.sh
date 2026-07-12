@@ -73,7 +73,8 @@ if [ "$MODE" = "deploy-sha" ]; then
   [ -n "$WORKFLOW" ] && list_args+=(--workflow "$WORKFLOW")
   [ -n "$BRANCH" ] && list_args+=(--branch "$BRANCH")
   out="$(gh run list "${repo_args[@]}" "${list_args[@]}" 2>"$ERR")"
-  if ! printf '%s' "$out" | jq -e 'type=="array"' >/dev/null 2>&1; then
+  gh_rc=$?
+  if [ "$gh_rc" -ne 0 ] || ! printf '%s' "$out" | jq -e 'type=="array"' >/dev/null 2>&1; then
     echo "pending"; exit 3
   fi
   matches="$(printf '%s' "$out" | jq --arg sha "$TARGET" '[.[] | select(.headSha == $sha)]')"

@@ -149,6 +149,9 @@ EOF
   # RF15j: gh error → fail-closed pending, exit 3
   ec=0; out=$(GH_STDOUT='' GH_EXIT=1 probe --deploy-sha "$sha") || ec=$?
   assert_equals "RF15j: gh error → pending" "$out" "pending"; assert_exit_code "RF15j2: exit 3" "$ec" 3
+  # RF15k: gh nonzero exit with plausible JSON still fails closed
+  ec=0; out=$(GH_STDOUT='[{"databaseId":8,"headSha":"1111111111111111111111111111111111111111","status":"completed","conclusion":"success"}]' GH_EXIT=1 probe --deploy-sha "$sha") || ec=$?
+  assert_equals "RF15k: gh error with JSON → pending" "$out" "pending"; assert_exit_code "RF15k2: exit 3" "$ec" 3
 
   # --- check-stop.sh circuit breaker ---
   # RF16: 25 identical-state blocks opens the breaker (allow stop) with a message.
