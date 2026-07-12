@@ -1,0 +1,33 @@
+{
+  "name": "session-preflight",
+  "version": "0.1.1",
+  "description": "SessionStart hook that runs a fast, read-only environment preflight \u2014 auth commands, expected tokens (shell env AND known env files), required CLIs, and a host/user/repo/branch identity line \u2014 and surfaces failures at the top of the session so the first tool call is never wasted on a dead environment. Never blocks the session.",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Session Preflight",
+    "shortDescription": "SessionStart hook that runs a fast, read-only environment preflight \u2014 auth commands, expected tokens (shell env AND known env files), required CLIs, and a host/user/repo/branch identity line \u2014 and surfaces failures at the top of the session so the first tool call is never wasted on a dead environment. Never blocks the session.",
+    "longDescription": "SessionStart hook that runs a fast, read-only environment preflight \u2014 auth commands, expected tokens (shell env AND known env files), required CLIs, and a host/user/repo/branch identity line \u2014 and surfaces failures at the top of the session so the first tool call is never wasted on a dead environment. Never blocks the session.",
+    "developerName": "Andre Paat",
+    "category": "Productivity",
+    "capabilities": [
+      "Lifecycle Hooks"
+    ],
+    "defaultPrompt": "Use the session-preflight plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "sessionstart",
+    "preflight",
+    "auth",
+    "tokens",
+    "environment",
+    "identity",
+    "gh-auth",
+    "credentials"
+  ]
+}

@@ -203,6 +203,17 @@
       "source": "./plugins/mission-control",
       "category": "development",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "session-preflight",
+      "description": "SessionStart hook running a fast read-only environment preflight — auth commands, expected tokens in shell env and known env files, required CLIs, and a host/user/repo/branch identity line — surfacing failures before the first tool call",
+      "version": "0.1.1",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/session-preflight",
+      "category": "productivity",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }
