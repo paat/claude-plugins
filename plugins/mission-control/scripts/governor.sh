@@ -74,22 +74,42 @@ _gov_backoff() { # <pool> <log_path> — set backoff_until (parsed reset or expo
 }
 
 governor_report() { # <engine> <project> <exit_code> <log_path>
-  local engine="$1" name="$2" rc="$3" logf="$4" pool patterns extra outcome errs
+  local engine="$1" name="$2" rc="$3" logf="$4" pool patterns extra outcome errs blk
   pool="$(cfg ".engines[\"$engine\"].pool // \"unknown\"")"
   patterns="$RL_BUILTIN"
   extra="$(cfg "(.engines[\"$engine\"].rate_limit_patterns // []) | join(\"|\")")"
   [ -z "$extra" ] || patterns="$patterns|$extra"
+  # Line-anchored: prose merely mentioning the sentinel must not classify.
+  blk="$(grep -oE '^MC-BLOCKED([[:space:]].*)?$' "$logf" 2>/dev/null | tail -1 || true)"
   if grep -qiE "$patterns" "$logf" 2>/dev/null; then
     outcome="rate-limit"                       # wins even over exit 0
     _gov_backoff "$pool" "$logf"
+  elif [ -n "$blk" ]; then outcome="blocked"   # declared terminal state, any rc
   elif [ "$rc" -eq 124 ]; then outcome="timeout"
   elif [ "$rc" -eq 0 ]; then outcome="ok"
   else outcome="error"
   fi
   case "$outcome" in
     ok)
-      state_set '.pools[$p].backoff_level = 0 | .projects[$n].consecutive_errors = 0' \
+      state_set '.pools[$p].backoff_level = 0 | .projects[$n].consecutive_errors = 0
+                 | del(.projects[$n].blocked_until) | del(.projects[$n].blocked_reason)' \
         --arg p "$pool" --arg n "$name" ;;
+    blocked)
+      # Not a failure: no strike, no pool backoff. The pass declared the block
+      # and its recheck window; the ladder pivots to other work until it expires.
+      local mins reason
+      mins="$(printf '%s' "$blk" | grep -oE 'recheck_after=[0-9]+' | head -1 | cut -d= -f2 || true)"
+      [ -n "$mins" ] || mins="$(cfg '.blocked_default_recheck_minutes // 360')"
+      case "$mins" in ''|*[!0-9]*) mins=360 ;; esac
+      [ "$mins" -ge 5 ] || mins=5
+      [ "$mins" -le 10080 ] || mins=10080
+      reason="$(printf '%s' "$blk" | sed -E 's/^MC-BLOCKED *//; s/recheck_after=[0-9]+ *//; s/^reason= *//')"
+      [ -n "$reason" ] || reason="unspecified"
+      state_set '.projects[$n].consecutive_errors = 0
+                 | .projects[$n].blocked_until = ($u|tonumber)
+                 | .projects[$n].blocked_reason = $r' \
+        --arg n "$name" --arg u "$(( $(now) + mins * 60 ))" --arg r "$reason"
+      log "blocked project=$name recheck_in=${mins}m reason=$reason" ;;
     timeout|error)
       state_set '.projects[$n].consecutive_errors = ((.projects[$n].consecutive_errors // 0) + 1)' --arg n "$name"
       errs="$(state_get ".projects[\"$name\"].consecutive_errors // 0")"
@@ -141,6 +161,8 @@ _warnings_section() { # prints warning lines (or nothing)
       | "- probe failing x\(.value.probe_failures): \(.key)"),
     ((.projects // {}) | to_entries[] | select((.value.cooldown_until // 0) > ($now|tonumber))
       | "- cooldown active: \(.key) until \(.value.cooldown_until | todate)"),
+    ((.projects // {}) | to_entries[] | select((.value.blocked_until // 0) > ($now|tonumber))
+      | "- blocked: \(.key) — \(.value.blocked_reason // "unspecified") (recheck \(.value.blocked_until | todate))"),
     ((.admissions // {}) | to_entries[] | select((.value.admitted_at // 0) == 0 and (.value.requested_at // 0) != 0)
       | "- admission pending: \(.key) (requested \(.value.requested_at | todate))")
   ' "$MC_STATE_DIR/state.json"

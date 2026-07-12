@@ -64,5 +64,57 @@ three_strikes() {
 }
 t "three strikes set 24h cooldown" three_strikes
 
+# --- MC-BLOCKED terminal state (#243) ---
+mkenv; echo "MC-BLOCKED recheck_after=90 reason=CI runner offline until soak ends" > "$TD/blk.log"
+blocked_outcome() {
+  [ "$(run "$NOW" governor_report e p1 0 "$TD/blk.log")" = blocked ] &&
+  [ "$(run "$NOW" state_get ".projects.p1.blocked_until")" = "$((NOW + 90 * 60))" ] &&
+  [ "$(run "$NOW" state_get ".projects.p1.blocked_reason")" = "CI runner offline until soak ends" ]
+}
+t "MC-BLOCKED records blocked outcome, recheck window, reason" blocked_outcome
+blocked_is_not_a_strike() {
+  run "$NOW" governor_report e p1 0 "$TD/blk.log" >/dev/null
+  run "$NOW" governor_report e p1 0 "$TD/blk.log" >/dev/null
+  [ "$(run "$NOW" state_get ".projects.p1.consecutive_errors // 0")" = 0 ] &&
+  [ "$(run "$NOW" state_get ".projects.p1.cooldown_until // 0")" = 0 ] &&
+  [ "$(run "$NOW" state_get ".pools.claude.backoff_until // 0")" = 0 ]
+}
+t "blocked is terminal, not a failure: no strike, no cooldown, no backoff" blocked_is_not_a_strike
+blocked_nonzero_rc() { [ "$(run "$NOW" governor_report e p1 1 "$TD/blk.log")" = blocked ]; }
+t "declared block wins over nonzero exit" blocked_nonzero_rc
+mkenv; echo "MC-BLOCKED reason=waiting on human signoff" > "$TD/blk2.log"
+blocked_default_recheck() {
+  [ "$(run "$NOW" governor_report e p1 0 "$TD/blk2.log")" = blocked ] &&
+  [ "$(run "$NOW" state_get ".projects.p1.blocked_until")" = "$((NOW + 360 * 60))" ]
+}
+t "missing recheck_after uses 360m default" blocked_default_recheck
+mkenv; echo "MC-BLOCKED recheck_after=999999 reason=x" > "$TD/blk3.log"
+blocked_clamped() {
+  run "$NOW" governor_report e p1 0 "$TD/blk3.log" >/dev/null
+  [ "$(run "$NOW" state_get ".projects.p1.blocked_until")" = "$((NOW + 10080 * 60))" ]
+}
+t "recheck window clamps at 7 days" blocked_clamped
+mkenv; echo "Error: 429 Too Many Requests" > "$TD/rlblk.log"; echo "MC-BLOCKED reason=x" >> "$TD/rlblk.log"
+rl_beats_blocked() { [ "$(run "$NOW" governor_report e p1 0 "$TD/rlblk.log")" = rate-limit ]; }
+t "rate-limit precedence over declared block" rl_beats_blocked
+mkenv; echo "MC-BLOCKED recheck_after=90 reason=soak" > "$TD/blk.log"; : > "$TD/ok.log"
+blocked_ladder_and_clear() {
+  run "$NOW" governor_report e p1 0 "$TD/blk.log" >/dev/null
+  run "$NOW" project_blocked p1 &&
+  ! run "$((NOW + 90 * 60))" project_blocked p1 &&
+  { run "$NOW" governor_report e p1 0 "$TD/ok.log" >/dev/null
+    [ "$(run "$NOW" state_get ".projects.p1.blocked_until // 0")" = 0 ] &&
+    [ "$(run "$NOW" state_get ".projects.p1.blocked_reason // \"\"")" = "" ]; }
+}
+t "ladder skips blocked project until expiry; ok clears the block" blocked_ladder_and_clear
+blocked_in_warnings() {
+  run "$NOW" governor_report e p1 0 "$TD/blk.log" >/dev/null
+  run "$NOW" _warnings_section | grep -q "blocked: p1 — soak"
+}
+t "digest warnings surface blocked project with reason" blocked_in_warnings
+mkenv; echo "the pass should print MC-BLOCKED recheck_after=10 when stuck" > "$TD/prose.log"
+prose_not_blocked() { [ "$(run "$NOW" governor_report e p1 0 "$TD/prose.log")" = ok ]; }
+t "prose mentioning the sentinel mid-line does not classify blocked" prose_not_blocked
+
 echo "pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]

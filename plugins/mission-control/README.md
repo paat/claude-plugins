@@ -60,6 +60,32 @@ per-project cooldown. A daily digest lands in `state/digests/<date>.md`
 Spend & pass summary computed from dispatch outcome records. Passes are
 never asked to economize — an over-budget pass is simply not dispatched.
 
+## Blocked passes (pivot, don't idle)
+
+A dispatched pass that finds its remaining work **structurally blocked** on an
+external dependency (a soak window, a broken CI runner, a human verification
+gate) must not idle, retry, or report failure. It prints one sentinel line and
+exits:
+
+```
+MC-BLOCKED recheck_after=<minutes> reason=<free text>
+```
+
+The governor records the pass outcome as `blocked` — a valid terminal state,
+not a failure: no error strike, no pool backoff. The project is skipped by
+both slots until the recheck window expires (default
+`blocked_default_recheck_minutes`, 360; clamped to 5m–7d), so the ladder
+pivots to the next project with runnable work instead of burning passes. The
+next successful pass clears the block. Blocked projects appear in the daily
+digest and `/mission-status` with their reason and recheck time.
+
+The same vocabulary applies inside loop-style commands (maintain,
+lessons-deliver): a completion gate or Stop hook must accept
+`blocked(<unblock condition>, <recheck-after>)` as a valid outcome for an
+item, park the item (the label-based work probes already exclude
+`needs-human`/`maintain:blocked` issues), and move to the next
+tree-independent item rather than idling on the dependency.
+
 ## Commands
 
 - `/mission-status` — read-only view of slots, quotas, backoffs, admissions,
