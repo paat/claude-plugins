@@ -127,6 +127,73 @@ printf 'v2\n' > "$R/app.txt"; git -C "$R" commit -qam clean
 cleanup_nothing() { run cleanup --base "$BASE"; [ $? -eq 3 ]; }
 t "cleanup with nothing to clean exits 3" cleanup_nothing
 
+# Unintended DELETION is a change too.
+mkrepo
+printf 'app v2\n' > "$R/app.txt"
+git -C "$R" rm -q src/checkout/pay.js && git -C "$R" commit -qam del
+printf 'app.txt\n' > "$R/intended.txt"
+deletion_flagged() {
+  out="$(run check --base "$BASE" --intended-file intended.txt)"; rc=$?
+  [ "$rc" -eq 3 ] && printf '%s' "$out" | grep -q "UNINTENDED change: src/checkout/pay.js"
+}
+t "unintended deletion flagged" deletion_flagged
+
+# Junk filename with spaces survives reporting intact.
+mkrepo
+printf 'x\n' > "$R/My Draft.tmp"
+git -C "$R" add -f "My Draft.tmp" && git -C "$R" commit -qm space-junk
+space_junk() {
+  out="$(run check --base "$BASE")"; rc=$?
+  [ "$rc" -eq 3 ] && printf '%s' "$out" | grep -qF "  My Draft.tmp"
+}
+t "junk path with spaces reported intact" space_junk
+
+# Malformed config and invalid invariant regex fail loudly, never false-clean.
+mkrepo
+mkdir -p "$R/.claude"; printf '{broken' > "$R/.claude/merge-guard.json"
+malformed_cfg() { run check --base "$BASE"; [ $? -eq 1 ]; }
+t "malformed config exits 1" malformed_cfg
+printf '{"invariants":[{"id":"bad","pattern":"([unclosed","must":"absent"}]}\n' > "$R/.claude/merge-guard.json"
+git -C "$R" add -A >/dev/null 2>&1
+bad_regex() { run check --base "$BASE"; [ $? -eq 1 ]; }
+t "invalid invariant regex exits 1 (never false-clean)" bad_regex
+
+# cleanup --apply end-to-end against a local bare origin and a stub gh;
+# gh failure must still leave the branch pushed and report exit 1.
+mkrepo
+ORIGIN="$(mktemp -d)"; git init -q --bare "$ORIGIN"
+git -C "$R" remote add origin "$ORIGIN"
+printf 'x\n' > "$R/.DS_Store"
+git -C "$R" add -f .DS_Store && git -C "$R" commit -qm leak
+STUB="$(mktemp -d)"
+printf '#!/bin/sh\nexit 0\n' > "$STUB/gh"; chmod +x "$STUB/gh"
+git -C "$R" branch -M main
+CB="cleanup/merge-guard-$(git -C "$R" rev-parse --short main)"
+apply_flow() {
+  (cd "$R" && PATH="$STUB:$PATH" bash "$MG" cleanup --base "$BASE" --apply) &&
+  git -C "$ORIGIN" rev-parse --verify --quiet "refs/heads/$CB" >/dev/null &&
+  ! git -C "$ORIGIN" cat-file -e "$CB:.DS_Store" 2>/dev/null
+}
+t "cleanup --apply removes junk on a pushed branch" apply_flow
+rm -rf "$ORIGIN" "$STUB"
+
+# Partial failure restores the original branch (push fails: no remote).
+mkrepo
+printf 'x\n' > "$R/.DS_Store"
+git -C "$R" add -f .DS_Store && git -C "$R" commit -qm leak
+git -C "$R" branch -M main
+STUB="$(mktemp -d)"; printf '#!/bin/sh\nexit 0\n' > "$STUB/gh"; chmod +x "$STUB/gh"
+apply_restore() {
+  (cd "$R" && PATH="$STUB:$PATH" bash "$MG" cleanup --base "$BASE" --apply)
+  rc=$?
+  [ "$rc" -eq 1 ] &&
+  [ "$(git -C "$R" branch --show-current)" = "main" ] &&
+  [ -z "$(git -C "$R" branch --list 'cleanup/*' | tr -d ' ')" ] &&
+  [ -f "$R/.DS_Store" ]
+}
+t "cleanup failure restores the original branch" apply_restore
+rm -rf "$STUB"
+
 # Usage errors.
 mkrepo
 usage_no_base() { run check; [ $? -eq 2 ]; }

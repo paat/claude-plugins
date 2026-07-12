@@ -38,10 +38,16 @@ git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null || { echo "merge-guar
 git rev-parse --verify --quiet "$HEAD^{commit}" >/dev/null || { echo "merge-guard: unknown head ref: $HEAD" >&2; exit 2; }
 CONFIG="$ROOT/.claude/merge-guard.json"
 HAVE_JQ=0; command -v jq >/dev/null 2>&1 && HAVE_JQ=1
+# A present-but-unreadable config must fail loudly, never silently skip the
+# invariants it was supposed to enforce.
+if [ -f "$CONFIG" ]; then
+  [ "$HAVE_JQ" -eq 1 ] || { echo "merge-guard: $CONFIG exists but jq is missing" >&2; exit 1; }
+  jq -e . "$CONFIG" >/dev/null 2>&1 || { echo "merge-guard: malformed config: $CONFIG" >&2; exit 1; }
+fi
 
-cfg_list() { # <jq filter> — config values, empty when absent
+cfg_list() { # <jq filter> — config values, empty when config absent
   [ "$HAVE_JQ" -eq 1 ] && [ -f "$CONFIG" ] || return 0
-  jq -r "$1" "$CONFIG" 2>/dev/null || true
+  jq -r "$1" "$CONFIG"
 }
 
 # Editor droppings, temp files, and agent-session artifacts that leak onto
@@ -88,8 +94,10 @@ $(cfg_list '(.extra_junk // [])[]')"
   return 1
 }
 
-changed_files() { git diff --name-only --diff-filter=d "$BASE..$HEAD" -- 2>/dev/null; }
-added_files()   { git diff --name-only --diff-filter=A "$BASE..$HEAD" -- 2>/dev/null; }
+# quotePath=false keeps non-ASCII names literal so junk globs still match.
+# Filenames containing newlines are unsupported (documented).
+changed_files() { git -c core.quotePath=false diff --name-only "$BASE..$HEAD" --; }
+added_files()   { git -c core.quotePath=false diff --name-only --diff-filter=A "$BASE..$HEAD" --; }
 
 find_junk() { # junk among files ADDED in the range (pre-existing files are not the merge's leak)
   local f
@@ -107,7 +115,7 @@ case "$MODE" in
     if [ -n "$junk" ]; then
       findings=1
       echo "JUNK files leaked into $BASE..$HEAD (run 'merge-guard.sh cleanup --base $BASE --apply'):"
-      printf '  %s\n' $junk
+      printf '%s\n' "$junk" | sed 's/^/  /'
     fi
     if [ -n "$INTENDED" ]; then
       [ -f "$INTENDED" ] || { echo "merge-guard: intended file not found: $INTENDED" >&2; exit 2; }
@@ -125,16 +133,23 @@ case "$MODE" in
       done < <(changed_files)
     fi
     if [ "$HAVE_JQ" -eq 1 ] && [ -f "$CONFIG" ]; then
-      while IFS=$'\t' read -r id pglob pattern must message; do
+      US=$'\x1f'
+      while IFS="$US" read -r id pglob pattern must message; do
         [ -n "$id" ] && [ -n "$pattern" ] || continue
-        hit=0
-        if git --no-pager grep -qE "$pattern" "$HEAD" -- "${pglob:-*}" 2>/dev/null; then hit=1; fi
+        hit=0; grc=0
+        git --no-pager grep -qE "$pattern" "$HEAD" -- "${pglob:-*}" 2>/dev/null || grc=$?
+        if [ "$grc" -eq 0 ]; then hit=1
+        elif [ "$grc" -gt 1 ]; then
+          # Invalid regex/pathspec or a git failure must not read as clean.
+          echo "merge-guard: invariant $id failed to evaluate (git grep rc=$grc; check pattern/path_glob)" >&2
+          exit 1
+        fi
         case "$must" in
           present) [ "$hit" -eq 1 ] || { findings=1; echo "INVARIANT $id VIOLATED: pattern absent from ${pglob:-repo} — ${message:-}"; } ;;
           absent)  [ "$hit" -eq 0 ] || { findings=1; echo "INVARIANT $id VIOLATED: forbidden pattern present in ${pglob:-repo} — ${message:-}"; } ;;
           *) echo "merge-guard: invariant $id has invalid must='$must' (present|absent)" >&2; exit 2 ;;
         esac
-      done < <(jq -r '(.invariants // [])[] | [(.id // ""), (.path_glob // ""), (.pattern // ""), (.must // ""), (.message // "")] | @tsv' "$CONFIG" 2>/dev/null)
+      done < <(jq -r '(.invariants // [])[] | [(.id // ""), (.path_glob // ""), (.pattern // ""), (.must // ""), (.message // "")] | join("\u001f")' "$CONFIG")
     fi
     if [ "$findings" -eq 0 ]; then
       echo "merge-guard: clean — no junk, no unintended files, invariants hold ($BASE..$HEAD)"
@@ -146,23 +161,30 @@ case "$MODE" in
     [ -n "$junk" ] || { echo "merge-guard: nothing to clean in $BASE..$HEAD"; exit 3; }
     if [ "$APPLY" -eq 0 ]; then
       echo "merge-guard: would remove (re-run with --apply):"
-      printf '  %s\n' $junk
+      printf '%s\n' "$junk" | sed 's/^/  /'
       exit 0
     fi
     command -v gh >/dev/null 2>&1 || { echo "merge-guard: gh required for --apply" >&2; exit 1; }
     [ -z "$(git status --porcelain)" ] || { echo "merge-guard: working tree not clean" >&2; exit 1; }
+    orig="$(git rev-parse --abbrev-ref HEAD)"
     short="$(git rev-parse --short "$HEAD")"
     branch="cleanup/merge-guard-$short"
+    restore() { # failure never strands the caller on a half-built cleanup branch
+      git checkout -qf "$orig" 2>/dev/null
+      git branch -qD "$branch" 2>/dev/null
+      echo "merge-guard: $1 — restored $orig" >&2
+      exit 1
+    }
     git checkout -b "$branch" "$HEAD" >/dev/null 2>&1 || { echo "merge-guard: cannot create $branch" >&2; exit 1; }
-    # shellcheck disable=SC2086 — junk paths are newline-split intentionally below
     while IFS= read -r f; do
       [ -n "$f" ] || continue
-      git rm -q -- "$f" || { echo "merge-guard: git rm failed for $f" >&2; exit 1; }
+      git rm -q -- "$f" || restore "git rm failed for $f"
     done <<< "$junk"
-    git commit -q -m "chore: remove junk files leaked by merge ($short)" || exit 1
-    git push -u origin "$branch" >/dev/null 2>&1 || { echo "merge-guard: push failed" >&2; exit 1; }
-    gh pr create --title "chore: remove junk files leaked by merge ($short)" \
-      --body "$(printf 'merge-guard post-merge tail: these files leaked onto the default branch in %s..%s and match junk signatures:\n\n%s\n' "$BASE" "$HEAD" "$(printf '- %s\n' $junk)")" \
+    git commit -q -m "chore: remove junk files leaked by merge ($short)" || restore "commit failed"
+    git push -u origin "$branch" >/dev/null 2>&1 || restore "push failed"
+    body="$(printf 'merge-guard post-merge tail: these files leaked onto the default branch in %s..%s and match junk signatures:\n\n%s\n' \
+      "$BASE" "$HEAD" "$(printf '%s\n' "$junk" | sed 's/^/- /')")"
+    gh pr create --title "chore: remove junk files leaked by merge ($short)" --body "$body" \
       || { echo "merge-guard: PR creation failed (branch $branch is pushed)" >&2; exit 1; }
     ;;
   *) echo "merge-guard: unknown mode: $MODE (check|cleanup)" >&2; exit 2 ;;

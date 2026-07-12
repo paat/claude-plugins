@@ -42,7 +42,9 @@ Add this marketplace, then install the plugin at the scope you want:
 
 `.claude/merge-guard.json`: `extra_junk` / `not_junk` glob lists and an
 `invariants` array (`{id, path_glob, pattern, must: present|absent, message}`)
-— see the skill for a worked example.
+— see the skill for a worked example. Junk globs match the full path with `*`
+crossing `/`, plus a basename match; invariant `path_glob` uses git pathspec
+matching. Filenames containing newlines are unsupported.
 
 ## Testing
 
