@@ -1,0 +1,34 @@
+{
+  "name": "merge-guard",
+  "version": "0.1.0",
+  "description": "Post-merge verification tail: diffs merged main against the pre-merge state to catch junk files leaked by squash merges and unintended path changes, checks configurable grep-based business invariants (attribution parameters, forbidden patterns), auto-opens a cleanup PR for leaked junk, and guides an adjacent-behavior regression spot-check. Complements pre-merge review gates.",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Merge Guard",
+    "shortDescription": "Post-merge verification tail: diffs merged main against the pre-merge state to catch junk files leaked by squash merges and unintended path changes, checks configurable grep-based business invariants (attribution parameters, forbidden patterns), auto-opens a cleanup PR for leaked junk, and guides an adjacent-behavior regression spot-check. Complements pre-merge review gates.",
+    "longDescription": "Post-merge verification tail: diffs merged main against the pre-merge state to catch junk files leaked by squash merges and unintended path changes, checks configurable grep-based business invariants (attribution parameters, forbidden patterns), auto-opens a cleanup PR for leaked junk, and guides an adjacent-behavior regression spot-check. Complements pre-merge review gates.",
+    "developerName": "Andre Paat",
+    "category": "Quality",
+    "capabilities": [
+      "Skills",
+      "Scripts"
+    ],
+    "defaultPrompt": "Use the merge-guard plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "post-merge",
+    "verification",
+    "junk-files",
+    "squash-merge",
+    "invariants",
+    "cleanup-pr",
+    "regression"
+  ],
+  "skills": "./skills/"
+}

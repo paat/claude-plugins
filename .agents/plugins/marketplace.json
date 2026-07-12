@@ -243,6 +243,18 @@
         "authentication": "ON_INSTALL"
       },
       "category": "Productivity"
+    },
+    {
+      "name": "merge-guard",
+      "source": {
+        "source": "local",
+        "path": "./plugins/merge-guard"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Quality"
     }
   ]
 }

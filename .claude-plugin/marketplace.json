@@ -225,6 +225,17 @@
       "source": "./plugins/safe-text-post",
       "category": "productivity",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "merge-guard",
+      "description": "Post-merge verification tail — flags junk files leaked by squash merges and unintended path changes, checks configurable grep-based business invariants, auto-opens a cleanup PR, and guides an adjacent-behavior regression spot-check",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/merge-guard",
+      "category": "quality",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }
