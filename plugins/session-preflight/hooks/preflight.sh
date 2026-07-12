@@ -36,36 +36,66 @@ identity="host=$host user=$user"
 
 # ---------- required CLIs ----------
 clis="$(mf '(.clis // [])[]')"
-if [ -z "$clis" ] && [ ! -f "$MANIFEST" ]; then clis=$'git\njq\ngh'; fi
+# Defaults apply with no manifest AND when jq is unavailable to read one.
+if [ -z "$clis" ] && { [ ! -f "$MANIFEST" ] || [ "$HAVE_JQ" -eq 0 ]; }; then clis=$'git\njq\ngh'; fi
 while IFS= read -r c; do
   [ -n "$c" ] || continue
   if command -v "$c" >/dev/null 2>&1; then note_ok "cli:$c"; else note_bad "cli:$c missing from PATH"; fi
 done <<< "$clis"
 
-# ---------- auth checks ----------
-run_auth() { # <name> <cmd>
-  if timeout 10 bash -c "$2" >/dev/null 2>&1; then
+# ---------- auth checks (built-in catalog ONLY) ----------
+# The manifest selects checks BY NAME from this fixed read-only catalog. It
+# never supplies command text: a repo-local file must not gain arbitrary code
+# execution at session start, and a fixed catalog can never embed secrets in
+# output.
+auth_cmd_for() { # <name> -> catalog command on stdout, or nothing
+  case "$1" in
+    github)  echo "gh auth status" ;;
+    npm)     echo "npm whoami" ;;
+    docker)  echo "docker info" ;;
+    gcloud)  echo "gcloud auth list --filter=status:ACTIVE --format=value(account)" ;;
+    aws)     echo "aws sts get-caller-identity" ;;
+    codex)   echo "codex login status" ;;
+    *)       return 1 ;;
+  esac
+}
+with_timeout() { # <secs> <cmd...> — degrade gracefully where timeout is absent
+  if command -v timeout >/dev/null 2>&1; then timeout "$@"; else shift; "$@"; fi
+}
+run_auth() { # <name>
+  local cmd
+  if ! cmd="$(auth_cmd_for "$1")"; then
+    note_bad "auth:$1 unknown check name (supported: github npm docker gcloud aws codex)"
+    return
+  fi
+  # shellcheck disable=SC2086 — catalog commands are fixed word lists
+  if with_timeout 10 $cmd >/dev/null 2>&1; then
     note_ok "auth:$1"
   else
-    note_bad "auth:$1 FAILED ($2)"
+    note_bad "auth:$1 FAILED"
   fi
 }
 if [ "$HAVE_JQ" -eq 1 ] && [ -f "$MANIFEST" ]; then
-  while IFS=$'\t' read -r name cmd; do
-    [ -n "$name" ] && [ -n "$cmd" ] || continue
-    run_auth "$name" "$cmd"
-  done < <(jq -r '(.auth // [])[] | [.name, .cmd] | @tsv' "$MANIFEST" 2>/dev/null)
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    run_auth "$name"
+  done < <(jq -r '(.auth // [])[] | if type == "object" then (.name // empty) else . end' "$MANIFEST" 2>/dev/null)
 elif command -v gh >/dev/null 2>&1; then
-  run_auth github "gh auth status"
+  run_auth github
 fi
 
 # ---------- expected tokens: shell env AND known file locations ----------
 token_in_file() { # <var> <file> — set as VAR=... or export VAR=...
   [ -f "$2" ] && grep -qE "^(export[[:space:]]+)?$1=." "$2" 2>/dev/null
 }
+US=$'\x1f'
 if [ "$HAVE_JQ" -eq 1 ] && [ -f "$MANIFEST" ]; then
-  while IFS=$'\t' read -r var files; do
+  while IFS="$US" read -r var files; do
     [ -n "$var" ] || continue
+    case "$var" in
+      [A-Za-z_]*) case "$var" in *[!A-Za-z0-9_]*) note_bad "token:$var invalid variable name"; continue ;; esac ;;
+      *) note_bad "token:$var invalid variable name"; continue ;;
+    esac
     if [ -n "$(printenv "$var" 2>/dev/null || true)" ]; then
       note_ok "token:$var (env)"
       continue
@@ -73,9 +103,9 @@ if [ "$HAVE_JQ" -eq 1 ] && [ -f "$MANIFEST" ]; then
     found=""
     while IFS= read -r f; do
       [ -n "$f" ] || continue
-      case "$f" in /*) p="$f" ;; "~/"*) p="$HOME/${f#\~/}" ;; *) p="$CWD/$f" ;; esac
+      case "$f" in /*) p="$f" ;; "~/"*) p="${HOME:-/nonexistent}/${f#\~/}" ;; *) p="$CWD/$f" ;; esac
       if token_in_file "$var" "$p"; then found="$p"; break; fi
-    done <<< "$(printf '%s' "$files" | tr ',' '\n')"
+    done <<< "${files//$US/$'\n'}"
     if [ -z "$found" ]; then
       for p in "$CWD/.env" "$CWD/.env.local"; do
         if token_in_file "$var" "$p"; then found="$p"; break; fi
@@ -86,16 +116,17 @@ if [ "$HAVE_JQ" -eq 1 ] && [ -f "$MANIFEST" ]; then
     else
       note_bad "token:$var not in shell env, .env, or configured files"
     fi
-  done < <(jq -r '(.tokens // [])[] | [.env, ((.files // []) | join(","))] | @tsv' "$MANIFEST" 2>/dev/null)
+  done < <(jq -r '(.tokens // [])[] | [(.env // ""), ((.files // []) | join("\u001f"))] | join("\u001f")' "$MANIFEST" 2>/dev/null)
 fi
 
-# ---------- report ----------
-echo "[session-preflight] $identity"
+# ---------- report (control chars stripped: manifest text cannot forge lines) ----------
+emit() { printf '%s\n' "$1" | tr -d '\000-\010\013-\037'; }
+emit "[session-preflight] $identity"
 if [ "${#BAD[@]}" -gt 0 ]; then
-  echo "[session-preflight] ATTENTION — ${#BAD[@]} check(s) failed; fix or work around these BEFORE relying on them:"
-  for b in "${BAD[@]}"; do echo "  !! $b"; done
+  emit "[session-preflight] ATTENTION — ${#BAD[@]} check(s) failed; fix or work around these BEFORE relying on them:"
+  for b in "${BAD[@]}"; do emit "  !! $b"; done
 fi
 if [ "${#OK[@]}" -gt 0 ]; then
-  echo "[session-preflight] ok: ${OK[*]}"
+  emit "[session-preflight] ok: ${OK[*]}"
 fi
 exit 0
