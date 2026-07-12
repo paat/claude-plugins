@@ -1,0 +1,19 @@
+{
+  "name": "fleet-propagate",
+  "version": "0.1.1",
+  "description": "Idempotent fleet-wide config propagation: enumerates host, dev containers, init scripts, and container-creator skills from a per-host manifest, applies changes as marker-delimited managed blocks (rerun-safe), verifies each target, bakes changes into creator skills so future containers inherit them, and reports a per-target changed/verified/needs-manual matrix.",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "fleet",
+    "propagation",
+    "idempotent",
+    "managed-block",
+    "containers",
+    "drift",
+    "config"
+  ]
+}
