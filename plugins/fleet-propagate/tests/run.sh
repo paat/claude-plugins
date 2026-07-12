@@ -77,6 +77,54 @@ t "missing file without --create exits 1" no_create
 bad_id() { bash "$MB" apply --file "$WD/rc" --id 'bad id!' --content-file "$WD/c1"; [ $? -eq 2 ]; }
 t "invalid id exits 2" bad_id
 
+# Missing final newline in file or content never corrupts markers.
+printf 'no newline at end' > "$WD/nonl"
+printf 'body no nl' > "$WD/cnonl"
+no_final_newline() {
+  [ "$(bash "$MB" apply --file "$WD/nonl" --id nl --content-file "$WD/cnonl")" = changed ] &&
+  grep -qx 'no newline at end' "$WD/nonl" &&
+  grep -qx '# FLEET-BLOCK BEGIN nl' "$WD/nonl" &&
+  grep -qx '# FLEET-BLOCK END nl' "$WD/nonl" &&
+  bash "$MB" verify --file "$WD/nonl" --id nl --content-file "$WD/cnonl" >/dev/null &&
+  [ "$(bash "$MB" apply --file "$WD/nonl" --id nl --content-file "$WD/cnonl")" = unchanged ]
+}
+t "missing final newlines normalized, idempotency preserved" no_final_newline
+
+# Trailing-blank-line differences are real differences.
+printf 'x\n' > "$WD/ct1"; printf 'x\n\n' > "$WD/ct2"
+bash "$MB" apply --file "$WD/trail" --id tr --content-file "$WD/ct1" --create >/dev/null
+trailing_blank_detected() {
+  bash "$MB" verify --file "$WD/trail" --id tr --content-file "$WD/ct2"; [ $? -eq 4 ] &&
+  [ "$(bash "$MB" apply --file "$WD/trail" --id tr --content-file "$WD/ct2")" = changed ]
+}
+t "trailing blank line is a real difference" trailing_blank_detected
+
+# Content containing the markers themselves is rejected.
+printf '# FLEET-BLOCK END evil\n' > "$WD/cevil"
+marker_in_content() { bash "$MB" apply --file "$WD/rc" --id evil --content-file "$WD/cevil" --create; [ $? -eq 2 ]; }
+t "content containing its own markers rejected" marker_in_content
+
+# Duplicate blocks with the same id fail instead of multi-editing.
+printf '# FLEET-BLOCK BEGIN dup\na\n# FLEET-BLOCK END dup\n# FLEET-BLOCK BEGIN dup\nb\n# FLEET-BLOCK END dup\n' > "$WD/dup"
+dup_blocks() { bash "$MB" apply --file "$WD/dup" --id dup --content-file "$WD/c1"; [ $? -eq 1 ]; }
+t "duplicate block id fails loudly" dup_blocks
+
+# File mode (executable init script) survives replacement.
+printf '#!/bin/sh\necho hi\n' > "$WD/init.sh"; chmod 755 "$WD/init.sh"
+bash "$MB" apply --file "$WD/init.sh" --id perm --content-file "$WD/c1" >/dev/null
+bash "$MB" apply --file "$WD/init.sh" --id perm --content-file "$WD/c2" >/dev/null
+perm_kept() { [ -x "$WD/init.sh" ]; }
+t "executable mode survives block replacement" perm_kept
+
+# fleet-targets: glob with spaces in path; wrong manifest field type.
+mkdir -p "$WD/spaced dir"; printf 'x\n' > "$WD/spaced dir/a.sh"
+jq -n --arg g "$WD/spaced dir/*.sh" '{init_scripts:[$g]}' > "$WD/fleet2.json"
+spaced_glob() { bash "$FT" list --manifest "$WD/fleet2.json" | grep -qF "a.sh	file	$WD/spaced dir/a.sh"; }
+t "glob path with spaces resolves intact" spaced_glob
+printf '{"init_scripts":"not-an-array"}\n' > "$WD/badtype.json"
+bad_type() { bash "$FT" list --manifest "$WD/badtype.json"; [ $? -eq 2 ]; }
+t "wrong manifest field type exits 2" bad_type
+
 # --- fleet-targets ---
 mkdir -p "$WD/bin" "$WD/init"
 printf 'echo init\n' > "$WD/init/setup.sh"

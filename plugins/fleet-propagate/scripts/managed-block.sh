@@ -36,6 +36,25 @@ case "$MODE" in apply|verify) [ -n "$CONTENT" ] || { echo "managed-block: --cont
 BEGIN="$PREFIX FLEET-BLOCK BEGIN $ID"
 END="$PREFIX FLEET-BLOCK END $ID"
 
+# Content containing marker-shaped lines would self-corrupt the block.
+if [ -n "$CONTENT" ]; then
+  [ -r "$CONTENT" ] || { echo "managed-block: cannot read content file: $CONTENT" >&2; exit 1; }
+  if grep -qF -e "$BEGIN" -e "$END" -- "$CONTENT"; then
+    echo "managed-block: content file contains the block markers themselves" >&2; exit 2
+  fi
+fi
+
+# Resolve symlinked targets so the write updates the real file in place.
+if [ -e "$FILE" ] && command -v readlink >/dev/null 2>&1; then
+  resolved="$(readlink -f -- "$FILE" 2>/dev/null)" && [ -n "$resolved" ] && FILE="$resolved"
+fi
+
+check_single() { # duplicate blocks must fail, never silently multi-edit
+  local n
+  n="$(grep -cxF -- "$BEGIN" "$FILE")" || n=0
+  [ "$n" -le 1 ] || { echo "managed-block: duplicate block $ID in $FILE — repair manually" >&2; exit 1; }
+}
+
 extract_block() { # current block body from $FILE (between markers), fails if unterminated
   awk -v b="$BEGIN" -v e="$END" '
     $0 == b { inb=1; found=1; next }
@@ -45,52 +64,75 @@ extract_block() { # current block body from $FILE (between markers), fails if un
   ' "$FILE"
 }
 
+# `awk 1` normalizes a missing final newline; the trailing sentinel keeps the
+# comparison exact for trailing blank lines despite $() newline stripping.
+content_key() { awk 1 "$CONTENT" 2>/dev/null; printf .; }
+block_key()   { extract_block; local rc=$?; printf .; return "$rc"; }
+
+write_over() { # <producer...> — same-dir temp, mode preserved, atomic rename
+  local tmp mode
+  tmp="$(mktemp "$(dirname "$FILE")/.managed-block.XXXXXX")" || return 1
+  "$@" > "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod --reference="$FILE" "$tmp" 2>/dev/null || {
+    mode="$(stat -c %a -- "$FILE" 2>/dev/null || stat -f %Lp -- "$FILE" 2>/dev/null)" \
+      && chmod "$mode" "$tmp" 2>/dev/null
+  }
+  mv -- "$tmp" "$FILE"
+}
+
+emit_append()  { awk 1 "$FILE"; printf '%s\n' "$BEGIN"; awk 1 "$CONTENT"; printf '%s\n' "$END"; }
+emit_replace() {
+  awk -v b="$BEGIN" -v e="$END" -v cf="$CONTENT" '
+    $0 == b { print; while ((getline line < cf) > 0) print line; close(cf); skip=1; next }
+    $0 == e { skip=0; print; next }
+    !skip { print }
+  ' "$FILE"
+}
+emit_remove() {
+  awk -v b="$BEGIN" -v e="$END" '
+    $0 == b { skip=1; next }
+    $0 == e { skip=0; next }
+    !skip { print }
+  ' "$FILE"
+}
+
 case "$MODE" in
   apply)
     if [ ! -f "$FILE" ]; then
       [ "$CREATE" -eq 1 ] || { echo "managed-block: no such file: $FILE (use --create)" >&2; exit 1; }
       mkdir -p "$(dirname "$FILE")" || exit 1
-      { printf '%s\n' "$BEGIN"; cat "$CONTENT"; printf '%s\n' "$END"; } > "$FILE" || exit 1
+      { printf '%s\n' "$BEGIN"; awk 1 "$CONTENT"; printf '%s\n' "$END"; } > "$FILE" || exit 1
       echo "created"; exit 0
     fi
-    current="$(extract_block)"; rc=$?
+    check_single
+    current="$(block_key)"; rc=$?
     if [ "$rc" -eq 3 ]; then echo "managed-block: unterminated block $ID in $FILE" >&2; exit 1; fi
-    if [ "$rc" -eq 0 ] && [ "$current" = "$(cat "$CONTENT")" ]; then
+    if [ "$rc" -eq 0 ] && [ "$current" = "$(content_key)" ]; then
       echo "unchanged"; exit 0
     fi
-    tmp="$(mktemp)" || exit 1
     if [ "$rc" -eq 4 ]; then
-      { cat "$FILE"; printf '%s\n' "$BEGIN"; cat "$CONTENT"; printf '%s\n' "$END"; } > "$tmp" || exit 1
+      write_over emit_append || { echo "managed-block: write failed for $FILE" >&2; exit 1; }
     else
-      awk -v b="$BEGIN" -v e="$END" -v cf="$CONTENT" '
-        $0 == b { print; while ((getline line < cf) > 0) print line; close(cf); skip=1; next }
-        $0 == e { skip=0; print; next }
-        !skip { print }
-      ' "$FILE" > "$tmp" || exit 1
+      write_over emit_replace || { echo "managed-block: write failed for $FILE" >&2; exit 1; }
     fi
-    mv "$tmp" "$FILE" || exit 1
     echo "changed"; exit 0 ;;
   verify)
     [ -f "$FILE" ] || { echo "managed-block: no such file: $FILE" >&2; exit 4; }
-    current="$(extract_block)"; rc=$?
+    check_single
+    current="$(block_key)"; rc=$?
     if [ "$rc" -eq 3 ]; then echo "managed-block: unterminated block $ID in $FILE" >&2; exit 1; fi
     if [ "$rc" -eq 4 ]; then echo "managed-block: block $ID missing from $FILE" >&2; exit 4; fi
-    if [ "$current" != "$(cat "$CONTENT")" ]; then
+    if [ "$current" != "$(content_key)" ]; then
       echo "managed-block: block $ID in $FILE differs from intended content" >&2; exit 4
     fi
     echo "verified"; exit 0 ;;
   remove)
     [ -f "$FILE" ] || { echo "unchanged"; exit 0; }
+    check_single
     extract_block >/dev/null; rc=$?
     if [ "$rc" -eq 3 ]; then echo "managed-block: unterminated block $ID in $FILE" >&2; exit 1; fi
     if [ "$rc" -eq 4 ]; then echo "unchanged"; exit 0; fi
-    tmp="$(mktemp)" || exit 1
-    awk -v b="$BEGIN" -v e="$END" '
-      $0 == b { skip=1; next }
-      $0 == e { skip=0; next }
-      !skip { print }
-    ' "$FILE" > "$tmp" || exit 1
-    mv "$tmp" "$FILE" || exit 1
+    write_over emit_remove || { echo "managed-block: write failed for $FILE" >&2; exit 1; }
     echo "changed"; exit 0 ;;
   *) echo "managed-block: unknown mode: $MODE (apply|verify|remove)" >&2; exit 2 ;;
 esac

@@ -240,7 +240,7 @@
     {
       "name": "fleet-propagate",
       "description": "Idempotent fleet-wide config propagation — enumerates host, dev containers, init scripts, and creator skills from a per-host manifest, applies marker-delimited managed blocks (rerun-safe), verifies each target, and reports a per-target matrix",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "Andre Paat"
       },

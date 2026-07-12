@@ -28,6 +28,13 @@ done
 command -v jq >/dev/null 2>&1 || { echo "fleet-targets: jq required" >&2; exit 2; }
 [ -f "$MANIFEST" ] || { echo "fleet-targets: manifest not found: $MANIFEST" >&2; exit 2; }
 jq -e . "$MANIFEST" >/dev/null 2>&1 || { echo "fleet-targets: malformed manifest: $MANIFEST" >&2; exit 2; }
+# Wrong field types must fail loudly, not silently shorten the target list.
+jq -e '
+  ([.container_filters, .exclude_containers, .init_scripts, .creator_skills]
+   | map(. == null or (type == "array" and all(.[]; type == "string"))) | all)
+  and ((.docker_cmd == null) or (.docker_cmd | type == "string"))
+  and ((.docker_exec_user == null) or (.docker_exec_user | type == "string"))
+' "$MANIFEST" >/dev/null 2>&1 || { echo "fleet-targets: manifest field types invalid (lists must be arrays of strings)" >&2; exit 2; }
 
 DOCKER_CMD="$(jq -r '.docker_cmd // "docker"' "$MANIFEST")"
 EXEC_USER="$(jq -r '.docker_exec_user // empty' "$MANIFEST")"
@@ -62,9 +69,10 @@ fi
 while IFS= read -r pat; do
   [ -n "$pat" ] || continue
   case "$pat" in "~/"*) pat="${HOME:-/nonexistent}/${pat#\~/}" ;; esac
-  for f in $pat; do
+  # compgen expands the glob without word-splitting paths containing spaces.
+  while IFS= read -r f; do
     [ -e "$f" ] || continue
     printf '%s\tfile\t%s\n' "$(basename "$f")" "$f"
-  done
+  done < <(compgen -G "$pat" || true)
 done < <(jq -r '((.init_scripts // []) + (.creator_skills // []))[]' "$MANIFEST")
 exit 0
