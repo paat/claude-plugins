@@ -107,8 +107,10 @@ do not restate them in other prompts.
 - **Buyer-intent only** (standing rule): paid targeting must be commercial/transactional
   intent only; exclude informational queries. This is a non-negotiable envelope condition.
 - **Within envelope** (present, unexpired, channel listed, projected spend within
-  `daily_cap_eur`/`monthly_cap_eur`): ads may go PAUSED→live and SEO/content ship without a
-  per-action owner gate. **Outside it**: PAUSED / owner-gated exactly as before.
+  `daily_cap_eur`/`monthly_cap_eur`): paid actions may proceed without a per-action owner
+  gate, except Google Ads activation. The Google Ads plugin cannot mechanically guard every
+  browser status control, so it always creates PAUSED for the owner to enable. **Outside the
+  envelope**: all paid actions remain owner-gated.
 - **Mechanical backstop.** `scripts/check-ad-budget.sh` reads `monthly_cap_eur` from the
   envelope (unexpired) as the hard stop; the `Approved budget:` line in `ads.md` is the
   fallback when no valid envelope exists. `daily_cap_eur` is a forecast constraint the
@@ -123,15 +125,10 @@ Resolve the envelope once per pass:
 ```bash
 env_file="docs/growth/envelope.json"
 envelope_active=false
-# Well-formed AND unexpired: a positive monthly cap, buyer-intent-only set, at least one
-# channel, and a future expiry. Anything missing ⇒ inactive ⇒ owner-gated (fail closed).
-if [ -f "$env_file" ] && jq -e '
-  (.monthly_cap_eur // 0) > 0 and (.buyer_intent_only == true)
-  and ((.channels // []) | length > 0) and (.expires_at != null)
-' "$env_file" >/dev/null 2>&1; then
-  exp=$(jq -r '.expires_at' "$env_file")
-  [ "$(date +%s)" -le "$(date -d "$exp" +%s 2>/dev/null || echo 0)" ] && envelope_active=true
-fi
+# Canonical validation covers caps, buyer intent, channels, owner identity, and absolute
+# authorization/expiry timestamps. A zero cap is valid but authorizes no spend.
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/validate-spend-envelope.sh" "$env_file" \
+  >/dev/null 2>&1 && envelope_active=true
 ```
 
 ## Step 2: Initialization (first invocation)
@@ -277,7 +274,7 @@ When the investor gives a clear directive ("do Reddit marketing", "set up Google
 > - `postlive`: execute approved acquisition channels within policy and budget caps: outbound, communities, agency partners, SEO/content, paid ads. Track reply, scan, paid conversion, CAC, and stop-loss rules.
 > - `paused`: run diagnostics and blocker removal; do not start acquisition.
 >
-> **Paid spend** is governed by `docs/growth/envelope.json` (see Spend Envelope): within an active envelope's caps and listed channels, paid activation is pre-authorized and needs no per-action owner gate; outside it, spend stays owner-gated. Record the `- Spend:` line in the pass run artifact whenever a pass touches paid channels (see Spend Envelope).
+> **Paid spend** is governed by `docs/growth/envelope.json` (see Spend Envelope): within an active envelope's caps and listed channels, paid activation is pre-authorized and needs no per-action owner gate, except Google Ads activation: the Google Ads specialist always leaves campaigns PAUSED for the owner because its browser status action is not mechanically coupled to the ledger. Outside the envelope, spend stays owner-gated. Record the `- Spend:` line in the pass run artifact whenever a pass touches paid channels (see Spend Envelope).
 >
 > **Your goal is to EXECUTE only where the lifecycle contract and spend envelope permit execution.** For blocked authority boundaries (domain ownership, legal identity, credentials, spend beyond the envelope, pricing), update `docs/growth/autonomous-operations.md` as an owner authorization gate and continue with agent-owned work.
 >
@@ -324,7 +321,7 @@ When a growth report contains a `## Google Ads request` block, the growth hacker
        > .startup/state.json.tmp && mv .startup/state.json.tmp .startup/state.json
    fi
    ```
-3. Spawn the strategist with the `Task` tool using `subagent_type: "google-ads-strategist:ads-strategist"`. Pass the request block plus `docs/business/brief.md`, `docs/growth/product-brief.md`, `docs/growth/strategy.md`, `docs/growth/brand/approved-voice.md`, and `docs/growth/channels/ads.md`, with the instruction: create `docs/ads/<slug>/brief.md` from this context if absent, run the pre-launch loop, verify in the browser, and create the campaign **PAUSED**. Enablement is gated by the envelope (see Spend Envelope): pass `enable_authorized: true` only when `envelope_active` is true, `ads` is in `channels`, and the campaign forecast is within `daily_cap_eur`/`monthly_cap_eur` — then the strategist may take the campaign PAUSED→live. Otherwise it stays PAUSED for the owner to enable.
+3. Spawn the strategist with the `Task` tool using `subagent_type: "google-ads-strategist:ads-strategist"`. Pass the request block plus `docs/business/brief.md`, `docs/growth/product-brief.md`, `docs/growth/strategy.md`, `docs/growth/brand/approved-voice.md`, and `docs/growth/channels/ads.md`, with the instruction: create `docs/ads/<slug>/brief.md` from this context if absent, run the pre-launch loop, verify in the browser, and create the campaign **PAUSED**. It must not enable the campaign; the owner performs that browser action after review.
 4. **If the `ads-strategist` agent type is unknown**, the `google-ads-strategist` plugin is not installed. Stop and tell the investor to install it (`/plugin install google-ads-strategist`); do NOT fall back to building the campaign inline.
 5. After the strategist returns, update the `docs/growth/channels/ads.md` index entry for the slug (status: created-paused), then continue the growth loop.
 
