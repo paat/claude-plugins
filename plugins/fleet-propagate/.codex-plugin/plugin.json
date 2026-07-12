@@ -1,0 +1,34 @@
+{
+  "name": "fleet-propagate",
+  "version": "0.1.0",
+  "description": "Idempotent fleet-wide config propagation: enumerates host, dev containers, init scripts, and container-creator skills from a per-host manifest, applies changes as marker-delimited managed blocks (rerun-safe), verifies each target, bakes changes into creator skills so future containers inherit them, and reports a per-target changed/verified/needs-manual matrix.",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Fleet Propagate",
+    "shortDescription": "Idempotent fleet-wide config propagation: enumerates host, dev containers, init scripts, and container-creator skills from a per-host manifest, applies changes as marker-delimited managed blocks (rerun-safe), verifies each target, bakes changes into creator skills so future containers inherit them, and reports a per-target changed/verified/needs-manual matrix.",
+    "longDescription": "Idempotent fleet-wide config propagation: enumerates host, dev containers, init scripts, and container-creator skills from a per-host manifest, applies changes as marker-delimited managed blocks (rerun-safe), verifies each target, bakes changes into creator skills so future containers inherit them, and reports a per-target changed/verified/needs-manual matrix.",
+    "developerName": "Andre Paat",
+    "category": "Productivity",
+    "capabilities": [
+      "Skills",
+      "Scripts"
+    ],
+    "defaultPrompt": "Use the fleet-propagate plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "fleet",
+    "propagation",
+    "idempotent",
+    "managed-block",
+    "containers",
+    "drift",
+    "config"
+  ],
+  "skills": "./skills/"
+}

@@ -255,6 +255,18 @@
         "authentication": "ON_INSTALL"
       },
       "category": "Quality"
+    },
+    {
+      "name": "fleet-propagate",
+      "source": {
+        "source": "local",
+        "path": "./plugins/fleet-propagate"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
     }
   ]
 }
