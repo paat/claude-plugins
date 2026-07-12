@@ -27,7 +27,6 @@ live in the script:
 
 - Exactly **1 Bash call** — the script above. Do NOT read files, run other commands, or add commentary.
 - Return **ONLY** the script's stdout (a single JSON object).
-- On by default; `TRIBUNAL_CLAUDE=off` emits a `disabled` marker. Honors `TRIBUNAL_CLAUDE_MODEL`
-  (default `sonnet` — decorrelated from the Opus arbiter; `opus` maximizes reviewer↔arbiter
-  correlation). Auth is the host Claude Code login. If `claude` is missing the script self-emits an
-  error JSON — return it verbatim.
+- On by default; `TRIBUNAL_CLAUDE=off` emits a `disabled` marker. Honors
+  `TRIBUNAL_CLAUDE_MODEL` (default `sonnet`). Auth is the host Claude Code login. If
+  `claude` is missing the script self-emits an error JSON — return it verbatim.

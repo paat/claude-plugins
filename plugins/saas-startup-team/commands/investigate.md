@@ -38,9 +38,9 @@ Redact or summarize PII before writing any artifact outside `.startup/operate/`.
 
 ## RCA Agent
 
-Spawn the incident investigator:
+Spawn the incident investigator with
+`subagent_type: "saas-startup-team:incident-investigator"`:
 
-> Read `${CLAUDE_PLUGIN_ROOT}/agents/incident-investigator.md`.
 > Read `.claude/saas-startup-team.local.md` and use only the `operate:` block.
 > Investigate `<correlation-id or recent list>` using the collected local artifacts.
 > Write `.startup/operate/investigations/<cid>/rca.md` and `.startup/operate/investigations/<cid>/issue-body.md`.

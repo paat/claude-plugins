@@ -26,7 +26,8 @@ In Codex, implementation is Codex-only:
 - Do not install or switch to Claude Code for the startup workflow.
 - Do not invoke `claude`, `claude-code`, TeamCreate, or Claude subagent workflows.
 - Run business-founder, tech-founder, growth-hacker, lawyer, UX tester, and review work as Codex role phases backed by `.startup/` files.
-- Use Codex skills, direct Codex sequencing, Codex CLI, or Codex-supported multi-agent tooling when a separate worker is useful.
+- Use Codex skills or direct Codex sequencing in the current session. Separate workers
+  go through `scripts/codex-run-role.sh` with an explicit role and semantic profile.
 
 The shared hook bundle intentionally contains only Codex-supported lifecycle keys:
 `PreToolUse`, `PostToolUse`, and `Stop`. Handoff and task-completion checks that used to
@@ -76,7 +77,7 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:goal-deliver` | Deliver a set of tasks (issues, milestone, spec, or free text) end-to-end: plan into chunks, ship each via `/improve` + closing tribunal loop + merge to main, then monitor and fix the GitHub Actions deploy. Pairs with built-in `/goal` for autonomy. Requires the `tribunal-review` plugin. |
 | `/saas-startup-team:ads` | Design a Google Ads campaign — spawns the `google-ads-strategist` plugin's `ads-strategist` (hard dependency) to design, browser-verify, and create the campaign in PAUSED state for investor review. The `/growth` loop also delegates here automatically. |
 | `/saas-startup-team:maintain` | Continuous autonomous maintenance loop: triage open issues, fence human-gated ones into `human-tasks.md`, and deliver the rest to production via `/goal-deliver` one-at-a-time in dependency order. Stateless supervisor; watch remotely via `/rc`. Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`. Requires the `tribunal-review` plugin. |
-| `/saas-startup-team:maintain-loop` | Codex-first issue delivery loop for already-deliverable GitHub issues: each issue starts in a fresh `codex exec --ephemeral` context, implements one PR, runs Playwright acceptance QA, closes the tribunal review/fix loop, merges to `main`, watches deploy, and verifies the live app. Flags: `--once`, `--dry-run`, `--issue`, `--label`, `--max-issues`, `--max-merges`, `--max-run-minutes`. Requires the `tribunal-review` plugin. |
+| `/saas-startup-team:maintain-loop` | Codex-first issue delivery loop for already-deliverable GitHub issues: a supervisor owns Git/GitHub, checks, QA, tribunal, merge, deploy, and rollback while a fresh pinned tech role writes only the scoped source/tests. Flags: `--once`, `--dry-run`, `--issue`, `--label`, `--max-issues`, `--max-merges`, `--max-run-minutes`. Requires the `tribunal-review` plugin. |
 | `/saas-startup-team:lessons-review` | The single human gate of the self-improvement loop: list open `lesson-candidate` issues in the pinned plugin repo and `--approve N` (→ `lesson-approved`) or `--close N` (rejected). |
 | `/saas-startup-team:lessons-deliver` | Autonomously implements `lesson-approved` issues into this plugin repo end-to-end (claim → implement → diff firewall → tribunal → test suite → dual version bump → PR `Closes #N` → merge on green). No manual trigger after approval; plugin-native (not `/goal-deliver`). Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`, `--repo`. Requires the `tribunal-review` plugin. |
 
@@ -91,6 +92,7 @@ Team Lead (Orchestrator)
 | `growth-hacker` | Growth and sales strategy. |
 | `lawyer` | Legal compliance review. |
 | `ux-tester` | Accessibility and usability audit. |
+| `maintain-triage` | Low-cost, read-only GitHub issue classification for `/maintain`. |
 
 ### Legal verdict rigor
 
@@ -101,7 +103,11 @@ Every `docs/legal/õiguslik-*.md` analysis carries YAML verdict frontmatter (`ve
 
 ### Dual-Surface Note
 
-The `browser-operator` subagent split (delegating mechanical browser legs to Haiku/Sonnet agents) is a **Claude Code surface optimization** that improves response latency and cost for the QA loop. The Codex surface retains a single-agent browser flow until the singleton seam is confirmed there; Codex users experience equivalent QA outcomes via the native orchestration skill. Per-agent `model:`/`effort:` frontmatter is likewise Claude-Code-only; on the Codex surface the implementation engine's model/effort pinning (below) is the routing control.
+Claude Code supports bounded nested browser operators: founder/UX agents may delegate
+mechanical browser legs to Haiku/Sonnet operators while retaining every judgment and
+verdict. Codex keeps the equivalent browser flow flattened in its current role phase.
+Per-agent `model:`/`effort:` frontmatter is Claude-Code-only; Codex launchers pin their
+own model and effort explicitly.
 
 ### Model routing
 
@@ -111,15 +117,37 @@ Judgment seats run on the frontier tier, execution volume on cheaper tiers — s
 |------|----------------|
 | Business founder (spec, QA verdicts) | Claude Fable 5, `effort: high` |
 | Tech founder — Claude engine (architecture, frontend, surgical edits; architect pass) | Opus, `effort: xhigh` |
-| Tech founder — Codex engine (default implementation) | GPT-5.6 Sol at `high` reasoning effort (`TF_CODEX_MODEL` / `TF_CODEX_EFFORT` to override; frugal alternative: `gpt-5.6-terra` + `medium`) |
+| Tech founder — Codex engine (standard/deep implementation) | GPT-5.6 Sol, `high` |
 | UX tester, incident investigator | Sonnet, `effort: high` |
 | Session replay, browser-operator-pro | Sonnet, `effort: low` |
-| Browser operator, support triage | Haiku |
-| Growth hacker, lawyer | Opus |
+| Browser operator, support triage, maintain triage | Haiku, `effort: low` |
+| Growth hacker, lawyer | Opus, `effort: high` |
+| Codex-controller agents | Sonnet, `effort: medium` |
 
-The Codex model and reasoning effort are **pinned explicitly on every `codex exec` invocation** (`scripts/codex-implement.sh`, `/maintain-loop`) so a user-level `~/.codex/config.toml` — e.g. one pinned to `ultra` effort — never silently sets the cost of unattended loops. Do not use `ultra` effort in unattended loops: it spawns parallel subagents and burns tokens roughly 4× faster.
+`scripts/delivery-route.sh` assigns execution profiles before dispatch:
 
-On non-trivial Codex-routed handoffs the orchestrator first runs a plan-only **architect pass** on the Claude engine (interface contracts, file map, invariants, test plan → `NNN-tech-plan.md`), then Codex implements from handoff + plan — see `skills/startup-orchestration/SKILL.md` §1c.
+| Profile | Work | Codex default |
+|---------|------|---------------|
+| `mechanical` | Exact existing scripts only; no model worker | none |
+| `light` | Bounded read-only work or autonomous docs/comments/typos/literal links | GPT-5.6 Terra, `medium` |
+| `standard` | Routine scoped delivery | GPT-5.6 Sol, `high` |
+| `deep` | Product/legal/architecture/security/auth/payment/data/migration/concurrency judgment or arbitration | GPT-5.6 Sol, `high` |
+
+Interactive `/tweak` additionally permits explicitly requested non-behavioral copy and
+small CSS edits, always behind post-diff containment and a reviewable PR. Autonomous
+light routing excludes CSS, UI/product copy, localization, tests, dependencies,
+workflows, and behavioral changes.
+
+Every separate worker goes through `scripts/codex-run-role.sh`, which passes an explicit
+model and reasoning effort so user-level Codex configuration cannot silently select
+either. Profile overrides use `SAAS_CODEX_<PROFILE>_MODEL` and
+`SAAS_CODEX_<PROFILE>_EFFORT`; they remain explicit launch arguments. Terra falls back
+once to Sol/medium only when Codex reports that Terra itself is unavailable. Review,
+QA, triage, and unknown roles are forced into a read-only sandbox. Source writers use
+network-off `workspace-write` by default; a writable override is rejected for read-only
+roles.
+
+On Claude hosts, non-trivial Codex-routed handoffs first run a plan-only **architect pass** through the registered Claude role (interface contracts, file map, invariants, test plan → `NNN-tech-plan.md`), then Codex implements from handoff + plan. Codex hosts run the equivalent model-neutral architect role phase without launching Claude — see `skills/startup-orchestration/SKILL.md` §1c.
 
 ### Convergence governor (`/goal-deliver`)
 
@@ -241,7 +269,7 @@ Each line written to stdout by the engine or by `custom_checks` (the script is a
 ### Cron setup
 
 ```cron
-0 6 * * * cd /path/to/repo && /monitor-nightly >> .startup/monitor.log 2>&1
+0 6 * * * cd <product-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" monitor-nightly; then <assistant-command> "/monitor-nightly" >> <log-path> 2>&1; else test $? -eq 3; fi
 ```
 
 ### Dependencies
@@ -398,7 +426,11 @@ The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues h
 - **Single-flight leases:** `scripts/single-flight.sh` owns issue/job/scan/report/deploy
   work units with owner, heartbeat, stale replacement audit notes, and release/status
   commands. Long-running work is treated as alive when the heartbeat/logs advance.
-- **Authenticated `gh` (GitHub CLI)** and standard tooling: `bash` 4+, `git`, `jq`, `awk`, `sed`, and GNU coreutils `date`/`timeout`.
+- **Authenticated `gh` (GitHub CLI)** and standard tooling: `bash` 4+, `git`, `jq`,
+  `awk`, `sed`, OpenSSL, GNU coreutils `date`/`timeout`/`realpath`/`sha256sum`, and
+  util-linux `flock`.
+- **Codex sandbox support** for credentialless, network-off product checks before a
+  supervisor commit. The commit path fails closed when these controls are unavailable.
 - **Optional `curl`** for `market-scout.sh --source-url`; without it, market scouting still
   runs source JSON ingestion or the internal discovery fallback.
 - **Dev container only** (inherits the plugin's dev-container-only design).
@@ -406,19 +438,56 @@ The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues h
 ### Fresh Codex issue loop (`/maintain-loop`)
 
 `/maintain-loop` is the Codex-first path for an already-triaged issue backlog. The
-supervisor only schedules work; every issue is delivered by a fresh
-`codex exec --ephemeral` worker from `.worktrees/maintain-loop` at the latest default
-branch tip. The worker fetches the issue itself, implements one branch/PR, runs
-Playwright acceptance QA before review, completes
-`tribunal-review:closing-tribunal-loop`, merges on green, watches the default-branch
-deploy, and verifies the live URL with Playwright. An issue is not counted fixed unless
-deploy is green and live Playwright verification passed.
+supervisor owns queue facts, branches/worktrees, staging and commits, GitHub/PR state,
+deterministic checks, QA mutation guards, tribunal, merge, deployment, and rollback.
+For each attempt it launches a fresh profile-pinned tech role in
+`.worktrees/maintain-loop`; that worker writes only the scoped source, tests, and any
+task-required canonical workflow-spec delta, then reports without staging, committing,
+or contacting GitHub. An issue counts as fixed only after supervisor-run QA and tribunal,
+a green deployment, and live Playwright verification.
 
-The worker launch uses `-s "${CODEX_SANDBOX:-workspace-write}"` by default. If that
-sandbox cannot execute commands in a disposable dev container, set
-`CODEX_SANDBOX=danger-full-access`; preflight fails early when the selected sandbox is
-unusable, when `danger-full-access` is selected outside a detected container, or when
-`read-only` is selected for implementation workers.
+Light attempts run semantic post-diff containment before any PR or remote mutation.
+When the diff requires deep work, the supervisor writes the versioned escalation
+artifact, cleans any PR/remote branch and its dedicated worktree, and retries once at
+deep while preserving queue eligibility. Missing artifacts and repeated escalation fail
+closed.
+
+Worker launches always use isolated `workspace-write` with network disabled; writable
+or unrestricted overrides for read-only roles and unrestricted overrides for writers
+are rejected. Supervisor product checks run the immutable base harness in a
+credentialless, network-off Codex sandbox before the checked tree can be committed.
+One-use supervisor-held HMAC tokens authenticate role guards and commit receipts; the
+receipt binds the exact allowed paths, branch, refs, base, Git configuration, and hooks.
+Tokens are supplied over stdin and are never put in worker prompts, files, environments,
+or process arguments. Candidate staging occurs only in the disposable clone, outside
+the product checkout and its ignored dependency directories. An adversarial same-UID
+process still requires host-level process isolation; these gates enforce cooperative
+agent ownership and detect persisted repository tampering, not a hostile OS peer.
+Paths with Git clean filters (including LFS) fail closed in this generic commit path;
+projects that use them need a dedicated trusted staging path that reproduces the filter.
+
+### Delivery telemetry and local evaluation
+
+Versioned, append-only events stay local in `.startup/runs/agent-events.jsonl`. They
+contain profile/model/effort, opaque writer/run IDs, timing/token fields when available,
+gate statuses, and outcomes—never prompts, issue text, diffs, secrets, customer/project
+names, URLs, or paths. `scripts/agent-events-export.sh` runs the secret/PII gate and
+exports only anonymous counts, rates, durations, profile/model/effort, and outcomes.
+`scripts/agent-events-aggregate.sh` combines sanitized exports without project identity.
+Provider/model labels such as Gemini are telemetry categories, not CLI dependencies.
+
+`scripts/standard-medium-eval.sh` supports isolated local high-versus-medium replay for
+20–50 standard deliveries. Replays use detached worktrees at recorded base SHAs, never
+push or deploy, behaviorally verify workspace and network isolation, ignore user Codex
+configuration, and keep raw material only under `.startup/evaluation/`. A schema-v2
+assessment verifies each base and check harness against its source repository, validates
+non-empty patches, and binds each unique opaque sample, task, result, diff, blinded input,
+mapping receipt, and tribunal result by hash. Mapping receipts contain no model/effort
+identity, and marked candidate content is rejected. Persisted same-user artifacts are not
+a sufficient authorization boundary: assessments remain metrics-only `no-go` until a
+supervisor-owned end-to-end controller can issue receipts unavailable to workers and
+reviewers. Standard therefore remains Sol/high; unverified provenance, isolation, or
+economics cannot authorize a downgrade.
 
 ## Self-improvement loop (`/lessons-deliver`)
 
@@ -440,17 +509,18 @@ merge on green → ship. The deterministic, fail-closed surface lives in
 **The mechanical firewall** treats lesson bodies as untrusted: it blocks any change outside
 `plugins/` (+ the root marketplace manifest), any change to the loop's own safety
 infrastructure (self-modification → `lessons:needs-human`), and any secret in the diff
-(`pii-gate.sh`). Test deletions are blocked because the single test harness is itself
-self-mod-protected.
+(`pii-gate.sh`). Deletion or renaming of any discovered test file is blocked, as are
+reductions in assertion/test counts; the firewall itself is self-protected.
 
 **Autonomy.** The production runner is a nightly `flock` cron (the loop's "deploy"):
 
 ```
 0 3 * * * /usr/bin/flock -n /tmp/lessons-deliver.lock -c \
-  'cd <plugin repo> && <assistant command for this plugin> "/lessons-deliver --once" >> /var/log/lessons-deliver.log 2>&1'
+  'cd <plugin-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" lessons-deliver; then <assistant-command> "/lessons-deliver --once" >> <log-path> 2>&1; else test $? -eq 3; fi'
 ```
 
-`/loop 5m /lessons-deliver --once` is the supervised/dev equivalent. Note this runs in the
+For supervised/dev ticks, run `workflow-probe.sh lessons-deliver` first and invoke
+`/loop 5m /lessons-deliver --once` only on exit 0. Note this runs in the
 **plugin repo** (cwd = where the plugin source lives), independently of `/maintain` which
 runs in each **product** repo.
 
@@ -459,8 +529,9 @@ runs in each **product** repo.
 - Codex or Claude Code. Codex runs the command-style workflows as plugin-bundled skills and does not require Claude Code.
 - Playwright MCP (`@playwright/mcp`) — automatically configured via plugin `.mcp.json`, runs headless
 - Web access enabled (for business founder's market research)
-- **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. Codex implementation can run with broad filesystem/Bash authority, and `scripts/codex-implement.sh` may use `-s danger-full-access` unless `CODEX_SANDBOX=workspace-write` is set to harden it. The container is the isolation boundary. Hooks also use `/proc/` for process-tree detection. Do not run it on a host machine.
-- **`jq`, `awk`, `sed`, `curl`, `timeout`, and `python3`** — required by hook scripts,
+- **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. Separate Codex writers are still confined to isolated, network-off `workspace-write`; the container is an additional boundary, not permission to use `danger-full-access`. Hooks also use `/proc/` for process-tree detection. Do not run it on a host machine.
+- **`jq`, `awk`, `sed`, `curl`, OpenSSL, GNU coreutils (`timeout`, `realpath`, `sha256sum`),
+  `flock` (util-linux), and `python3`** — required by hook scripts,
   JSON validation, monitor/lawyer workflows, preflight checks, Codex marketplace sync, and
   datalake API checks.
 - **est-saas-datalake API (required for `/lawyer`)** — the Lawyer's Estonian legal analysis and law-change monitoring query an external est-saas-datalake service. Two environment variables control access:
@@ -469,7 +540,7 @@ runs in each **product** repo.
 
   `/lawyer` pre-flight also hard-fails if `DATALAKE_URL/api/v1/health/ready` does not return `200`; there is no offline fallback. The rest of the plugin works without the datalake.
 - **google-ads-strategist plugin** — required for any Google Ads work (hard dependency). Google Ads is delegated to its `ads-strategist` agent; `growth-hacker` no longer creates Google Ads campaigns itself. There is no manifest-level dependency field, so this is enforced behaviorally: `/ads` and the `/growth` loop fail with an install instruction if the plugin is absent.
-- **`codex` CLI (optional in interactive Codex, required for separate worker dispatch)** — only needed when the workflow launches a separate Codex process via `codex exec` or `scripts/codex-implement.sh`. When required, preflight verifies that the selected Codex sandbox can run a trivial shell command. Without it, Codex continues inline or asks for an environment fix; it never falls back to a Claude implementation engine.
+- **`codex` CLI (optional in interactive Codex, required for separate worker dispatch)** — only needed for `scripts/codex-run-role.sh` or its `codex-implement.sh` compatibility wrapper. When required, preflight verifies that the selected Codex sandbox can run a trivial shell command. Without it, Codex continues inline or asks for an environment fix; it never falls back to a Claude implementation engine.
 
 ## Implementation Engine
 
@@ -477,7 +548,8 @@ For Codex installs, the tech-founder implementation role uses Codex only (`activ
 
 - Use the `tech-founder` skill for implementation standards and handoff requirements.
 - Implement inline in the current Codex session when that is simplest.
-- Use `codex exec` or `scripts/codex-implement.sh` when a separate Codex worker is useful and the Codex CLI is installed.
+- Use `scripts/codex-run-role.sh` with an explicit role/profile/task file, or the
+  `scripts/codex-implement.sh` compatibility wrapper, for a separate worker.
 - For extra review, use Codex-native review passes or the `tribunal-review` plugin.
 
 Claude Code installs may still use their Claude-specific command and agent files, but the Codex marketplace surface does not depend on them.

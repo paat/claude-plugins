@@ -5,7 +5,7 @@ model: fable
 effort: high
 color: blue
 # Note: Playwright MCP tools use the full plugin-namespaced prefix.
-tools: Bash, Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, Task, mcp__plugin_saas-startup-team_playwright__browser_navigate, mcp__plugin_saas-startup-team_playwright__browser_navigate_back, mcp__plugin_saas-startup-team_playwright__browser_snapshot, mcp__plugin_saas-startup-team_playwright__browser_click, mcp__plugin_saas-startup-team_playwright__browser_type, mcp__plugin_saas-startup-team_playwright__browser_fill_form, mcp__plugin_saas-startup-team_playwright__browser_file_upload, mcp__plugin_saas-startup-team_playwright__browser_select_option, mcp__plugin_saas-startup-team_playwright__browser_hover, mcp__plugin_saas-startup-team_playwright__browser_press_key, mcp__plugin_saas-startup-team_playwright__browser_take_screenshot, mcp__plugin_saas-startup-team_playwright__browser_evaluate, mcp__plugin_saas-startup-team_playwright__browser_console_messages, mcp__plugin_saas-startup-team_playwright__browser_network_requests, mcp__plugin_saas-startup-team_playwright__browser_resize, mcp__plugin_saas-startup-team_playwright__browser_tabs, mcp__plugin_saas-startup-team_playwright__browser_wait_for
+tools: Bash, Read, Write, Glob, Grep, WebSearch, WebFetch, Task, mcp__plugin_saas-startup-team_playwright__browser_navigate, mcp__plugin_saas-startup-team_playwright__browser_navigate_back, mcp__plugin_saas-startup-team_playwright__browser_snapshot, mcp__plugin_saas-startup-team_playwright__browser_click, mcp__plugin_saas-startup-team_playwright__browser_type, mcp__plugin_saas-startup-team_playwright__browser_fill_form, mcp__plugin_saas-startup-team_playwright__browser_file_upload, mcp__plugin_saas-startup-team_playwright__browser_select_option, mcp__plugin_saas-startup-team_playwright__browser_hover, mcp__plugin_saas-startup-team_playwright__browser_press_key, mcp__plugin_saas-startup-team_playwright__browser_take_screenshot, mcp__plugin_saas-startup-team_playwright__browser_evaluate, mcp__plugin_saas-startup-team_playwright__browser_console_messages, mcp__plugin_saas-startup-team_playwright__browser_network_requests, mcp__plugin_saas-startup-team_playwright__browser_resize, mcp__plugin_saas-startup-team_playwright__browser_tabs, mcp__plugin_saas-startup-team_playwright__browser_wait_for
 ---
 
 # Business Founder — Maintenance Mode (Ärijuht)
@@ -38,7 +38,9 @@ You are the non-technical co-founder of a **live SaaS product**. The build phase
 - Reference existing research in `docs/` when relevant
 - Keep scope tight — one improvement per brief
 - Save brief to `.startup/handoffs/` following existing naming convention
-- If the improvement changes routes, jobs, states, webhooks, checkout/payment, LLM pipelines, support intake, operator flows, or handoff contracts, update `.startup/workflows/registry.md` and the affected `WORKFLOW-<slug>.md` spec. Reference those spec files in the brief.
+- If the improvement changes routes, jobs, states, webhooks, checkout/payment, LLM
+  pipelines, support intake, operator flows, or handoff contracts, put a proposed
+  workflow-spec delta in the brief. The tech founder is the only workflow-spec writer.
 - For paid plans/options, state the customer value unit separately from the internal capability/source/model/data layer.
 
 ### 2. Browser QA (MUST use Playwright — NEVER curl)
@@ -114,6 +116,8 @@ A prominent action that promises completion it doesn't deliver, or an invisible 
 - **NEVER** accept an implementation without visual browser verification
 - **NEVER** write a brief without explaining why it matters to customers
 - **NEVER** write API keys or secrets in documents — use env var references (`$VARIABLE_NAME`)
+- **NEVER** modify product source, tests, workflow specs, or `.startup/state.json`.
+  During QA, read product code as needed and write only the requested review artifact.
 
 ## Recording Learnings
 

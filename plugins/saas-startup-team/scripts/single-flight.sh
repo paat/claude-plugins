@@ -3,15 +3,17 @@
 # single-flight.sh - lease/heartbeat helper for autonomous SaaS work units.
 #
 # Usage:
-#   single-flight.sh --acquire KEY [--state-dir DIR] [--owner ID] [--ttl-seconds N] [--replace-stale --reason TEXT]
-#   single-flight.sh --heartbeat KEY [--state-dir DIR] [--owner ID]
-#   single-flight.sh --release KEY [--state-dir DIR] [--owner ID]
+#   single-flight.sh --acquire KEY [--state-dir DIR] [--owner ID|--owner-file FILE] [--ttl-seconds N] [--replace-stale --reason TEXT]
+#   single-flight.sh --heartbeat KEY [--state-dir DIR] (--owner ID|--owner-file FILE)
+#   single-flight.sh --release KEY [--state-dir DIR] (--owner ID|--owner-file FILE)
 #   single-flight.sh --status KEY [--state-dir DIR] [--json]
 
-set -uo pipefail
+set -euo pipefail
 
 ACTION=""; KEY=""; STATE_DIR="${SAAS_SINGLE_FLIGHT_DIR:-.startup/leases}"
-OWNER="${SAAS_SINGLE_FLIGHT_OWNER:-$$}"; TTL="${SAAS_SINGLE_FLIGHT_TTL:-900}"
+OWNER="${SAAS_SINGLE_FLIGHT_OWNER:-}"; OWNER_FILE=""; OWNER_KEY_FILE=""
+OWNER_FILE_CREATED=0; OWNER_FILE_LOADED=0
+TTL="${SAAS_SINGLE_FLIGHT_TTL:-900}"
 REPLACE_STALE=0; REASON=""; JSON=0
 
 _need_val() { [ "$1" -ge 2 ] || { echo "single-flight: $2 needs a value" >&2; exit 2; }; }
@@ -24,6 +26,7 @@ while [ $# -gt 0 ]; do
     --status) _need_val "$#" "$1"; ACTION="status"; KEY="$2"; shift 2 ;;
     --state-dir) _need_val "$#" "$1"; STATE_DIR="$2"; shift 2 ;;
     --owner) _need_val "$#" "$1"; OWNER="$2"; shift 2 ;;
+    --owner-file) _need_val "$#" "$1"; OWNER_FILE="$2"; shift 2 ;;
     --ttl-seconds) _need_val "$#" "$1"; TTL="$2"; shift 2 ;;
     --replace-stale) REPLACE_STALE=1; shift ;;
     --reason) _need_val "$#" "$1"; REASON="$2"; shift 2 ;;
@@ -34,6 +37,7 @@ done
 
 [ -n "$ACTION" ] || { echo "single-flight: action required" >&2; exit 2; }
 [ -n "$KEY" ] || { echo "single-flight: key required" >&2; exit 2; }
+[ -z "$OWNER" ] || [ -z "$OWNER_FILE" ] || { echo "single-flight: use --owner or --owner-file, not both" >&2; exit 2; }
 case "$TTL" in ''|*[!0-9]*) echo "single-flight: --ttl-seconds must be numeric" >&2; exit 2 ;; esac
 
 slug="$(printf '%s' "$KEY" | tr '/: ' '---' | tr -cd 'A-Za-z0-9._-')"
@@ -42,6 +46,72 @@ LEASE="$STATE_DIR/$slug"
 now="$(date +%s)"
 
 mkdir -p "$STATE_DIR" || { echo "single-flight: cannot create $STATE_DIR" >&2; exit 1; }
+command -v flock >/dev/null 2>&1 || { echo "single-flight: flock is required" >&2; exit 2; }
+exec 9>"$STATE_DIR/.single-flight-$slug.lock"
+flock -x 9
+
+write_owner_identity() {
+  local token="$1" old_umask owner_tmp key_tmp
+  old_umask="$(umask)"; umask 077
+  owner_tmp="${OWNER_FILE}.tmp.$$"; key_tmp="${OWNER_KEY_FILE}.tmp.$$"
+  printf '%s\n' "$token" > "$owner_tmp"
+  printf '%s\n' "$KEY" > "$key_tmp"
+  mv "$owner_tmp" "$OWNER_FILE"
+  mv "$key_tmp" "$OWNER_KEY_FILE"
+  umask "$old_umask"
+}
+
+if [ -n "$OWNER_FILE" ]; then
+  mkdir -p "$(dirname "$OWNER_FILE")" || { echo "single-flight: cannot create owner-file directory" >&2; exit 1; }
+  OWNER_KEY_FILE="${OWNER_FILE}.key"
+  owner_lock_id="$(printf '%s' "$(realpath -m -- "$OWNER_FILE")" | cksum | awk '{print $1}')"
+  exec 8>"$STATE_DIR/.single-flight-owner-$owner_lock_id.lock"
+  flock -x 8
+fi
+
+# Owner-token creation and lease inspection share key and owner-file locks.
+if [ "$ACTION" != "status" ] && [ -n "$OWNER_FILE" ]; then
+  if [ -s "$OWNER_FILE" ]; then
+    OWNER="$(sed -n '1p' "$OWNER_FILE")"
+    if [ -s "$OWNER_KEY_FILE" ]; then
+      stored_key="$(sed -n '1p' "$OWNER_KEY_FILE")"
+      [ "$stored_key" = "$KEY" ] || {
+        echo "single-flight: owner file is bound to another key: $stored_key" >&2; exit 2; }
+    elif [ -d "$LEASE" ] && [ "$(cat "$LEASE/owner" 2>/dev/null || true)" = "$OWNER" ]; then
+      # Adopt a pre-metadata owner file only when its existing lease proves identity.
+      printf '%s\n' "$KEY" > "$OWNER_KEY_FILE"
+    else
+      echo "single-flight: legacy owner file cannot be safely bound to $KEY" >&2
+      exit 2
+    fi
+    OWNER_FILE_LOADED=1
+  elif [ "$ACTION" = "acquire" ]; then
+    OWNER="run-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM:-0}"
+    write_owner_identity "$OWNER"
+    OWNER_FILE_CREATED=1
+  elif [ "$ACTION" = "release" ]; then
+    # Idempotent handled cleanup: the lease may already be gone with its owner file.
+    OWNER="__missing_owner_file__"
+  else
+    echo "single-flight: owner file missing or empty: $OWNER_FILE" >&2
+    exit 2
+  fi
+fi
+if [ "$ACTION" != "status" ] && [ -z "$OWNER" ]; then
+  if [ "$ACTION" = "acquire" ]; then
+    OWNER="run-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM:-0}"
+  else
+    echo "single-flight: heartbeat/release requires --owner or --owner-file" >&2
+    exit 2
+  fi
+fi
+
+remove_created_owner() {
+  local current=""
+  [ "$OWNER_FILE_CREATED" -eq 1 ] || return 0
+  [ -f "$OWNER_FILE" ] && current="$(sed -n '1p' "$OWNER_FILE")"
+  [ "$current" != "$OWNER" ] || rm -f "$OWNER_FILE" "$OWNER_KEY_FILE"
+}
 
 read_heartbeat() {
   cat "$LEASE/heartbeat" 2>/dev/null || echo 0
@@ -67,7 +137,8 @@ emit_status() {
   if [ "$JSON" -eq 1 ]; then
     jq -cn --arg key "$KEY" --arg state "$state" --arg owner "$owner" \
       --argjson heartbeat "${heartbeat:-0}" --arg age "${age:-}" \
-      '{key:$key,state:$state,owner:$owner,heartbeat:$heartbeat,age_seconds:($age|tonumber?)}'
+      '{key:$key,state:$state,owner:$owner,heartbeat:$heartbeat,
+        age_seconds:(if $age=="" then null else ($age|tonumber) end)}'
   else
     echo "single-flight: $KEY is $state${owner:+ (owner=$owner)}"
   fi
@@ -84,15 +155,23 @@ case "$ACTION" in
       exit 0
     fi
     if is_fresh; then
+      remove_created_owner
       echo "single-flight: active owner exists for $KEY: $(read_owner)" >&2
       exit 1
     fi
     if [ "$REPLACE_STALE" -ne 1 ]; then
+      remove_created_owner
       echo "single-flight: stale owner exists for $KEY: $(read_owner); require --replace-stale --reason" >&2
       exit 2
     fi
-    [ -n "$REASON" ] || { echo "single-flight: stale replacement requires --reason" >&2; exit 2; }
+    [ -n "$REASON" ] || {
+      remove_created_owner
+      echo "single-flight: stale replacement requires --reason" >&2; exit 2; }
     old_owner="$(read_owner)"
+    if [ "$OWNER_FILE_LOADED" -eq 1 ]; then
+      OWNER="run-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM:-0}"
+      write_owner_identity "$OWNER"
+    fi
     rm -rf "$LEASE" || { echo "single-flight: cannot clear stale lease" >&2; exit 1; }
     mkdir "$LEASE" || { echo "single-flight: cannot replace stale lease" >&2; exit 1; }
     printf '%s\n' "$OWNER" > "$LEASE/owner"
@@ -114,11 +193,14 @@ case "$ACTION" in
     ;;
 
   release)
-    [ -d "$LEASE" ] || { echo "single-flight: no lease for $KEY"; exit 0; }
+    [ -d "$LEASE" ] || {
+      [ -z "$OWNER_FILE" ] || rm -f "$OWNER_FILE" "$OWNER_KEY_FILE"
+      echo "single-flight: no lease for $KEY"; exit 0; }
     lease_owner="$(read_owner)"
     [ "$lease_owner" = "$OWNER" ] || { echo "single-flight: owner mismatch for $KEY: $lease_owner" >&2; exit 1; }
     printf '%s released by %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$OWNER" >> "$LEASE/audit.log"
     rm -rf "$LEASE"
+    [ -z "$OWNER_FILE" ] || rm -f "$OWNER_FILE" "$OWNER_KEY_FILE"
     echo "single-flight: released $KEY"
     exit 0
     ;;

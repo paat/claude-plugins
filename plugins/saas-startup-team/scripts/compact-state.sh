@@ -25,6 +25,8 @@
 #   STARTUP_INLINE_HANDOFFS — default window size (must be positive integer; default 10).
 
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$SCRIPT_DIR/guard-active.sh" && exit 0
 
 DRY_RUN=0
 WINDOW="${STARTUP_INLINE_HANDOFFS:-10}"

@@ -59,7 +59,7 @@
           {
             "type": "command",
             "command": "bash -c 'p=scripts/auto-commit.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
-            "description": "Auto-commit all work when a handoff file is written"
+            "description": "Persist the triggering artifact only; product commits remain supervisor-owned"
           }
         ]
       },

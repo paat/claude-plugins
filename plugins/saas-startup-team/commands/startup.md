@@ -1,6 +1,6 @@
 ---
 name: startup
-description: Initialize a new SaaS startup project — creates .startup/ directory, spawns business founder and tech founder agent team, and kicks off the iterative build loop
+description: Initialize a new SaaS startup project — creates .startup/ state, launches scoped founder role phases, and starts the iterative build loop
 user_invocable: true
 ---
 
@@ -25,6 +25,46 @@ In Codex, add `--require-codex`. Treat blocker findings as environment blockers 
 reported remediation; warnings can be logged and the workflow may continue when the
 affected capability is not needed.
 
+Before any command that may write project state (including market scouting, `/bootstrap`,
+state initialization, or Git initialization), claim the startup-session lease:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
+  --acquire "startup:${PWD}" --state-dir .startup/leases \
+  --owner-file .startup/leases/.owners/startup.owner --ttl-seconds 1800
+```
+
+The owner file is the session identity. Every later heartbeat and release uses this exact
+key, state directory, and owner file, even when those operations run in different shell
+processes. If acquisition refuses because another owner is live, do not run market
+scouting, bootstrap, change state, initialize Git, or dispatch a worker. Resume from its
+artifacts or stop. Replace a stale owner only with `--replace-stale --reason
+"<heartbeat/log evidence>"` after inspecting its heartbeat and output files.
+
+Heartbeat after idea capture, mutable initialization/commit, every founder phase, and
+every verified handoff transition:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
+  --heartbeat "startup:${PWD}" --state-dir .startup/leases \
+  --owner-file .startup/leases/.owners/startup.owner
+```
+
+On solution signoff and every handled terminal failure or cancellation, release with the
+same arguments and `--release`. Do not leave an acquired startup lease to expire merely
+because initialization or a worker failed.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
+  --release "startup:${PWD}" --state-dir .startup/leases \
+  --owner-file .startup/leases/.owners/startup.owner
+```
+
+After a concrete idea or handoff exists, load
+`${CLAUDE_PLUGIN_ROOT}/references/workflows/routing-telemetry.md`. Reuse one run ID per
+delivery attempt; Codex launch events are automatic, while Claude role phases use the
+privacy-safe event contract from that reference.
+
 ## Step 1: Capture the SaaS Idea
 
 If the user hasn't already described their SaaS idea, first try market scouting instead of
@@ -40,7 +80,15 @@ as the initial SaaS/customer need and write `docs/business/brief.md` from its
 `target_customer_segment`, `discovered_need`, evidence, desired outcome, selected
 acceptance packs, and non-goals. Only ask the investor when no demand evidence exists:
 
+Before yielding for that answer, release the startup-session lease. After the investor
+responds, reacquire it with the same command from Step 0 before writing the brief or
+initializing state. Do not hold a live lease across an unbounded human wait.
+
 > What SaaS product should we build? Describe the core idea, target customers, and the problem it solves.
+
+Once a concrete need is selected, mint/export `SAAS_RUN_ID` with `agent-events.sh
+new-run-id`. The initial product/architecture work is deep; later implementation
+handoffs are classified separately and reuse the same ID only within that attempt.
 
 ## Step 2: Initialize Project Directory
 
@@ -143,7 +191,12 @@ The auto-commit hook requires a git repo. Ensure one exists:
    }
    git commit -m "Initial commit before startup loop"
    ```
-3. If **already** in a git repo: `git add -A .startup/workflows/ docs/human-tasks.md docs/business/brief.md && git commit -m "Initialize startup loop" --no-verify`
+3. If **already** in a git repo, stage only the startup artifacts, run the staged-size guard, and commit with normal hooks:
+   ```bash
+   git add -A -- .startup/workflows/ docs/human-tasks.md docs/business/brief.md
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-staged-size.sh"
+   git commit -m "Initialize startup loop"
+   ```
 
 ## Step 2d: Reset Session State
 
@@ -155,32 +208,40 @@ Clean up state from previous sessions to prevent stale data:
    ```
 2. If resuming an existing session, skip this step (idle counters reflect real state).
 
-## Step 3: Spawn Agent Team
+## Step 3: Launch Initial Role Phases
 
-Before spawning the agent team, claim a single-flight lease for this startup session:
+The startup-session lease was acquired before Step 1. Heartbeat it now, before the first
+dispatch. Do not mint or acquire a second session identity here.
 
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --acquire "startup:${PWD}" --state-dir .startup/leases --owner "startup:$$" --ttl-seconds 1800
-```
+Launch the initial role pair using the **Task tool** (one-shot agents, NOT TeamCreate).
+Persistent Agent Teams cannot be dismissed and accumulate as zombie processes. All
+dispatches use the same one-shot pattern described in Step 5.
 
-If a live owner exists, read its heartbeat/logs and resume from artifacts instead of
-starting over. If it is stale, replace it only with `--replace-stale --reason "<evidence>"`
-after checking the heartbeat and output files. Do not use broad `pkill` cleanup as the
-default stale-agent strategy.
+Read `${CLAUDE_PLUGIN_ROOT}/references/workflows/mutation-ownership.md` first. Run the
+initial business and architecture phases sequentially under separate role guards: the
+business allowlist is its exact research/brief/handoff outputs, and the architecture
+allowlist is only `docs/architecture/architecture.md`. Verify each guard before starting
+the next phase. After each successful verification, the supervisor must persist every
+verified durable `docs/` file with `commit-artifact.sh`, replay `index-handoff.sh` for
+the exact handoff, and run `compact-state.sh` before the next dispatch.
 
-Spawn the initial agent pair using the **Task tool** (one-shot agents, NOT TeamCreate). Agent Teams persistent teammates cannot be dismissed — they accumulate as zombie processes. All agent dispatches (initial and subsequent) use the same one-shot pattern described in Step 5.
+Append started/terminal events around the initial Fable/high business phase and the
+Opus/xhigh architecture phase. A separate Codex architecture launch records itself;
+record any Sonnet/medium controller phase separately and never credit it with code edits.
 
-1. **Business Founder** — spawn via Task tool with `subagent_type: "general-purpose"`:
-   - Tell the agent to read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder.md` for its identity, tools, and behavioral constraints
+1. **Business Founder** — spawn via Task tool with `subagent_type: "saas-startup-team:business-founder"`:
    - Task: Read `brief.md`, research the market (web + Reddit + browser), break the idea into features, write the first handoff to tech founder
    - Has web access, browser access, research tools
 
-2. **Tech Founder** — spawn via Task tool with `subagent_type: "general-purpose"`:
-   - **Claude Code surface:** pick the engine per **"1c. Choosing the implementation engine"** in the startup-orchestration skill. This initial spawn is architecture planning → default to the Claude engine: tell the agent to read `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude.md` for its identity, tools, and behavioral constraints. (For later implementation handoffs, route to `tech-founder-claude.md` or `tech-founder-codex.md` by the handoff's content.)
-   - **Codex surface:** do not route to `tech-founder-claude*` or invoke Claude Code primitives. Run the tech-founder role as a Codex role phase using the `tech-founder` skill, direct Codex implementation, or `codex exec` when a separate worker is useful.
+2. **Tech Founder** — on Claude Code, spawn via Task tool with `subagent_type: "saas-startup-team:tech-founder-claude"` for this architecture-planning phase. For later implementation handoffs, choose exactly one registered type: `saas-startup-team:tech-founder-claude` or `saas-startup-team:tech-founder-codex`.
+   - **Claude Code surface:** pick the engine per **"1c. Choosing the implementation engine"** in the startup-orchestration skill. This initial spawn is architecture planning → default to the Claude engine.
+   - **Codex surface:** do not route to `tech-founder-claude*` or invoke Claude Code primitives. Run the tech-founder role in the current session using the `tech-founder` skill, or use `scripts/codex-run-role.sh` with the classified profile and a task file for a separate worker.
    - Task: Read `docs/business/brief.md` to understand the product vision. Plan preliminary architecture ideas and write initial thoughts to `docs/architecture/architecture.md`. Do NOT start implementing until you receive a handoff from the business founder. Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
    - Has code tools only, no web access
+
+The initial architecture phase is `PROFILE=deep`; it contains product and architecture
+judgment. On Codex, a separate process uses `codex-run-role.sh --role tech-founder
+--profile deep` with a task file. Do not downgrade this phase.
 
 **IMPORTANT: Do NOT use TeamCreate.** Agent Teams persistent teammates cannot be terminated once spawned. Use the Task tool for ALL agent dispatches — initial and subsequent. Each Task agent exits cleanly when done.
 
@@ -193,11 +254,10 @@ Send the initial message to the business founder:
 > 2. Research similar solutions in other countries — extract features, UX patterns, and pricing from international competitors (save to `docs/research/rahvusvaheline-analuus.md`)
 > 3. Check Estonian legal requirements for this type of business
 > 4. Break the idea into prioritized features
-> 5. Create or update workflow specs in `.startup/workflows/` for any non-trivial routes, jobs, state machines, payments, onboarding, support intake, or operator workflows. Mark unknown specs as `Missing` in `registry.md` rather than silently ignoring them.
-> 6. Write the first handoff to tech founder: `.startup/handoffs/001-business-to-tech.md`, referencing affected workflow spec files.
+> 5. Describe proposed workflow-spec deltas for non-trivial routes, jobs, state machines, payments, onboarding, support intake, or operator workflows in the handoff. The tech founder writes the specs.
+> 6. Write the first handoff to tech founder: `.startup/handoffs/001-business-to-tech.md`.
 > 7. Add any human-only tasks to `docs/human-tasks.md`
-> 8. Update `.startup/state.json` (iteration: 1, phase: requirements)
-> 9. After writing the handoff, send a message to the team lead: "Handoff 001 ready for tech founder."
+> 8. After writing the handoff, send a message to the team lead: "Handoff 001 ready for tech founder." The supervisor updates state.
 >
 > Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
 
@@ -217,7 +277,7 @@ Before spawning a new agent, claim a lease for the exact relay/work unit:
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
   --acquire "handoff:${handoff_number}:${target_role}" \
   --state-dir .startup/leases \
-  --owner "${target_role}:${handoff_number}" \
+  --owner-file ".startup/leases/.owners/handoff-${handoff_number}-${target_role}.owner" \
   --ttl-seconds 1800
 ```
 
@@ -228,16 +288,26 @@ heartbeat advances or logs show progress. Replace a stale owner only with
 terminate broad process patterns as a routine recovery step; exact process termination is
 allowed only after the lease and heartbeat prove staleness.
 
+After each worker returns, heartbeat with the same key and `--owner-file`. Once its
+expected artifact is verified, release that relay lease. Release the startup-session
+lease when solution signoff is reached or on any handled terminal failure; acquisition,
+heartbeat, and release may run in separate shell processes because the owner token is
+persisted in the owner file.
+
 **Do NOT use TeamCreate for relays.** TeamCreate spawns persistent teammates that cannot be dismissed — they accumulate as zombie processes eating ~500MB each. Use the **Task tool** which spawns one-shot agents that exit cleanly when done.
 
-**Fresh spawn via Task tool** — pass ALL of the following in the Task prompt:
+**Fresh spawn via Task tool** — select the exact registered type for the role:
+`saas-startup-team:business-founder`, `saas-startup-team:tech-founder-claude`, or
+`saas-startup-team:tech-founder-codex`. Pass all of the following in the Task prompt:
 - The agent's role identity: "You are the {role} of an Estonian SaaS startup. You speak {language}."
-- The agent definition file path: `${CLAUDE_PLUGIN_ROOT}/agents/{agent-name}.md` — tell the agent to read it for tools/model/behavioral constraints
 - The full relay message (same self-contained message you'd send to a persistent teammate)
 - The token-frugality instruction: read only what the task needs, in targeted ranges (not whole-file dumps), and never re-read content already in context
 - Instruction: "After completing your work and writing the handoff/review/signoff file, report back with a summary of what you did and the filename."
 
-Use `subagent_type: "general-purpose"` for the Task tool.
+Every Claude dispatch gets a privacy-safe started and terminal event using the actual
+registered model/effort and the current semantic profile. After each supervisor check,
+commit, QA guard, and state transition, append a progress status event. Do not include a
+handoff path, prompt, project name, issue text, or diff.
 
 ### Sync vs. async dispatch
 
@@ -266,10 +336,22 @@ The Stop hook recognizes the yield two ways: a `ScheduleWakeup` PostToolUse hook
 
 ### When Business Founder signals "Handoff NNN ready for tech founder":
 
-Send to tech founder:
+The supervisor updates `.startup/state.json` for the completed brief (iteration/phase/
+active role only), heartbeats and releases the business relay lease, then classifies the
+handoff file with `delivery-route.sh classify --mode autonomous`. Exit 2 stops; exit 20
+sets `PROFILE=deep`. A mechanical result may run only an exact named script. Pass the
+accepted profile and stable routing reasons to the selected tech role, then send:
+
+Before this tech dispatch, execute the tech role-guard and trusted-commit preflights in
+`${CLAUDE_PLUGIN_ROOT}/references/workflows/mutation-ownership.md`. Allow only the exact
+source/test/workflow-spec paths approved by the handoff plus the expected tech handoff.
+After return, verify the role guard before diff containment.
+
 > **New task: Implement handoff NNN.**
+> Execution profile: `{PROFILE}`. A Codex controller must pass this exact profile to
+> `scripts/codex-implement.sh`; a separate Codex role uses `codex-run-role.sh`.
 > Read `.startup/handoffs/NNN-business-to-tech.md` for full requirements.
-> Read any `.startup/workflows/WORKFLOW-*.md` files referenced by the handoff. If the handoff introduces workflow behavior but no spec exists, stop and ask the business founder to create or mark the missing spec.
+> Read affected `.startup/workflows/WORKFLOW-*.md` files. Implement any proposed workflow-spec delta from the handoff; the tech founder is the spec writer.
 > Read `.startup/state.json` for current iteration and phase.
 > Check `docs/architecture/architecture.md` for your previous architecture decisions.
 > Implement the features, then write your handoff to `.startup/handoffs/{NNN+1}-tech-to-business.md`.
@@ -279,25 +361,70 @@ Send to tech founder:
 
 ### When Tech Founder signals "Handoff NNN ready for business founder":
 
-Read the tech founder's handoff to extract the localhost URL and port, then send to business founder:
+Before QA, the supervisor commits the exact implementation diff after deterministic
+checks, then opens a review-only mutation window:
+
+For a light autonomous attempt, inspect the guarded working tree with shared
+`check-diff --base "$ATTEMPT_BASE"` before committing. Continue only when it remains light and
+`ui_touch=false`. Otherwise write a versioned escalation artifact, discard only this
+clean-start delivery diff, and rerun the tech phase once with `PROFILE=deep`; do not
+dispatch QA or repeat the light-to-deep transition.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/supervisor-commit.sh" \
+  --message "tech-founder: handoff ${handoff_number}" --check ./check.sh \
+  --trust-receipt "$COMMIT_TRUST" --auth-stdin <<<"$MUTATION_AUTH"
+QA_AUTH=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/mutation-auth-token.sh")
+QA_GUARD="$(git rev-parse --git-path "saas-startup-team/qa-handoff-${handoff_number}.json")"
+QA_REVIEW=".startup/reviews/handoff-${handoff_number}-${run_id}.md"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/delivery-mutation-guard.sh" \
+  --snapshot "$QA_GUARD" --auth-stdin --allow "$QA_REVIEW" <<<"$QA_AUTH"
+```
+
+If the gate fails, do not dispatch QA. Otherwise update state as supervisor, read the
+handoff to extract the localhost URL and port, then send to business founder with
+`subagent_type: "saas-startup-team:business-founder"`:
+
+Before that QA dispatch, the supervisor must replay `index-handoff.sh` for the verified
+tech handoff and run `compact-state.sh`; guarded PostToolUse hooks deliberately deferred
+both operations.
 > **New task: Review handoff NNN.**
 > Read `.startup/handoffs/NNN-tech-to-business.md` for implementation details.
-> Read any workflow specs referenced by the handoff and use their QA cases as a test oracle. If code reveals an undocumented workflow, mark it as `Missing` in `.startup/workflows/registry.md`.
+> Read any workflow specs referenced by the handoff and use their QA cases as a test oracle. If code reveals an undocumented workflow, record the missing-spec finding in the review; do not edit the registry.
 > If the handoff is built on a `docs/legal/` analysis, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/legal-verdict-gate.sh" <doc>...` on it and apply the same hedged-verdict rules as `/improve`'s QA step (conditional wording only — never state a hedged claim as fact).
 > Read `.startup/state.json` for current iteration and phase.
 > Open browser to `{localhost URL from handoff}` and verify the implementation visually using Playwright.
-> Write your review to `.startup/reviews/` and then either:
-> - Write a roundtrip signoff if the feature meets production quality
-> - Write a feedback handoff to `.startup/handoffs/{NNN+1}-business-to-tech.md` if changes are needed
-> After writing, message the team lead: "Review complete" or "Handoff {NNN+1} ready for tech founder."
+> Write exactly one review artifact at the supervisor-provided `$QA_REVIEW` path. Do
+> not replace or delete any other review. Include an explicit
+> `PASS` or `FAIL` verdict and, for `FAIL`, all feedback needed for the next brief.
+> After writing, message the team lead: "Review complete."
+> This is review-only: do not write a handoff or signoff and do not modify source,
+> tests, workflow specs, or state.
+
+Immediately after the reviewer returns, run
+`delivery-mutation-guard.sh --verify "$QA_GUARD" --auth-stdin <<<"$QA_AUTH"`. Reject any unauthorized mutation;
+only then read the verdict. On `FAIL`, dispatch a fresh business-founder brief phase to
+turn the verified review into the next business-to-tech feedback handoff; that separate
+phase uses a business role guard and may write only the exact brief/handoff with proposed
+workflow-spec deltas. On `PASS`, the
+supervisor mechanically materializes the roundtrip signoff from the verified PASS review,
+updates supervisor-owned state, and releases the relay lease.
+
+Append one authoritative terminal handoff event only after the implementation commit,
+QA guard, and PASS/FAIL outcome agree. Every handled failure, blocked relay, or cancelled
+session receives an explicit terminal outcome; a worker process exit is not completion.
 
 ### After Roundtrip Signoff
 
-When you read the business founder's review and see a roundtrip signoff was written:
+When the verified business-founder review is PASS and the supervisor has materialized the
+roundtrip signoff:
 1. Announce the signoff result to the investor (brief one-liner)
 2. **Immediately dispatch the business founder** to write the next feature handoff — do NOT wait for investor input
 3. The business founder should read their research docs and the brief to decide the next priority feature
 4. Only pause the loop if iteration limit is approaching or the business founder signals solution signoff
+
+Every next-feature dispatch uses and verifies a business role guard from
+`mutation-ownership.md`; only its exact new handoff/brief artifacts are allowed.
 
 ### Why explicit relay matters
 

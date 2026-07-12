@@ -15,7 +15,8 @@ Team Lead (orchestrator session)
 
 **IMPORTANT: every relay runs a fresh role phase, never a persistent teammate.**
 - **Claude Code:** dispatch one-shot Task/Agent workers; never use `TeamCreate` (persistent teammates cannot be dismissed).
-- **Codex:** use the current session, Codex-supported multi-agent tooling, or `codex exec` when a separate worker is useful.
+- **Codex:** use the current session, Codex-supported multi-agent tooling, or the
+  profile-pinned `scripts/codex-run-role.sh` for a separate worker.
 
 ## Communication Channels
 

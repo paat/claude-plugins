@@ -42,14 +42,20 @@ Unknown arguments should produce the valid route list above and exit without sid
 
 ## Support Triage Route
 
-For `support`, spawn the support triage agent with a self-contained task:
+For `support`, spawn the support triage agent with
+`subagent_type: "saas-startup-team:support-triage"` and a self-contained task:
 
-> Read `${CLAUDE_PLUGIN_ROOT}/agents/support-triage.md`.
 > Read `.claude/saas-startup-team.local.md` and use only the `operate:` block for API URLs, auth header names, env var names, response paths, and routing conventions.
 > Fetch support items from the configured support source, group them by customer-visible problem, and write `docs/operate/support-triage-YYYY-MM-DD.md`.
 > Do not expose raw PII in the report. Link to local redacted artifacts under `.startup/operate/support/` when evidence is needed.
 > For actionable product defects, recommend whether they should enter `/investigate`, `/replay-abandoned`, `/improve`, or `docs/human-tasks.md`.
 > Do not create GitHub issues unless the command arguments explicitly include `--file-issues` or the human confirms.
+
+After the agent returns, the supervisor verifies that only its report/local evidence
+artifacts changed. When `--file-issues` was explicitly authorized, the supervisor runs
+the secret/PII gate, validates each proposed issue body, then calls
+`scripts/issue-file.sh` for deduplication/filing. Without that flag it performs no
+GitHub mutation. The support agent never owns GitHub operations.
 
 ## Output
 

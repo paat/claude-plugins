@@ -1,8 +1,8 @@
 #!/bin/bash
 # auto-commit.sh — PostToolUse hook for Write events
-# Auto-commits work when durable knowledge files are written to docs/.
-# Also commits implementation code when handoffs are written
-# (handoffs are gitignored, but backend/frontend code is not).
+# Auto-commits only the durable artifact file that triggered the hook.
+# Product source, tests, workflow specs, and unrelated staged changes are owned by
+# the supervisor commit path and are never staged or swept into this commit.
 #
 # Input: JSON on stdin with tool_input.file_path
 # Exit 0: no action (non-milestone file or no git repo)
@@ -19,12 +19,18 @@ file_path=$(echo "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 
 # Find git repo root early — needed to normalize absolute paths
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-
-# Normalize to repo-relative path for anchored matching
-rel_path="${file_path#"$repo_root"/}"
+repo_root=$(realpath -e -- "$repo_root" 2>/dev/null) || exit 0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$SCRIPT_DIR/guard-active.sh" && exit 0
+case "$file_path" in /*) candidate="$file_path" ;; *) candidate="$repo_root/$file_path" ;; esac
+canonical_path=$(realpath -m -- "$candidate" 2>/dev/null) || exit 0
+case "$canonical_path" in
+  "$repo_root"/*) rel_path="${canonical_path#"$repo_root"/}" ;;
+  *) exit 0 ;;
+esac
 
 # Determine commit type from file path
-filename=$(basename "$file_path")
+filename=$(basename "$canonical_path")
 commit_msg=""
 
 if echo "$rel_path" | grep -qE '^docs/research/.*\.md$'; then
@@ -43,18 +49,9 @@ elif echo "$rel_path" | grep -qE '^docs/growth/.*\.md$'; then
   # Let auto-commit-growth.sh handle these with more specific commit messages
   exit 0
 elif echo "$rel_path" | grep -qE '^\.startup/handoffs/[0-9]{3}-[a-z]+-to-[a-z]+\.md$'; then
-  # Handoffs are gitignored but we still auto-commit implementation code
-  # that was changed alongside the handoff
-  handoff_num=$(echo "$filename" | grep -oE '^[0-9]{3}')
-  direction=$(echo "$filename" | sed 's/^[0-9]*-//; s/\.md$//')
-  case "$direction" in
-    business-to-tech) founder="business-founder" ;;
-    tech-to-business) founder="tech-founder" ;;
-    business-to-growth) founder="business-founder" ;;
-    growth-to-business) founder="growth-hacker" ;;
-    *) founder="unknown" ;;
-  esac
-  commit_msg="${founder}: handoff ${handoff_num} — ${direction}"
+  # Handoffs are delivery signals, not commit triggers. In particular, never stage
+  # the source diff merely because a tech handoff was written.
+  exit 0
 elif echo "$rel_path" | grep -qE '^\.startup/signoffs/.*\.md$'; then
   commit_msg="signoff: ${filename%.md}"
 elif echo "$rel_path" | grep -qE '^\.startup/reviews/.*\.md$'; then
@@ -64,27 +61,16 @@ else
   exit 0
 fi
 
-# Stage docs/ and implementation files (avoid staging sensitive files like .env).
-# src/ is included because the plugin's own default stack is a Next.js-style src/ layout — without
-# it, implementation code in src/ would never be auto-committed, only docs/handoffs.
 cd "$repo_root"
-git add -A docs/ || true
-git add -A backend/ || true
-git add -A frontend/ || true
-git add -A src/ || true
-git add -A CLAUDE.md || true
-git add -A .startup/signoffs/ || true
-git add -A .startup/reviews/ || true
-
-# Check if there's anything to commit
-if git diff --cached --quiet 2>/dev/null; then
-  # Nothing staged — skip
+rc=0
+bash "$SCRIPT_DIR/commit-artifact.sh" --path "$rel_path" --message "$commit_msg" >/dev/null || rc=$?
+if [ "$rc" -eq 3 ]; then
+  exit 0
+elif [ "$rc" -ne 0 ]; then
+  echo "auto-commit: artifact commit failed; product diff was not committed" >&2
   exit 0
 fi
 
-# Commit with --no-verify to skip project-level pre-commit hooks
-git commit -m "${commit_msg}" --no-verify || true
-
 # Signal to Claude that we committed
-jq -n --arg msg "Auto-committed all work: ${commit_msg}" '{systemMessage: $msg}' >&2
+jq -n --arg msg "Auto-committed artifact only: ${commit_msg}" '{systemMessage: $msg}' >&2
 exit 2

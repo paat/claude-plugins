@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 usage() {
   cat >&2 <<'EOF'
 Usage: maintain-queue.sh [--repo OWNER/REPO] [--issue N] [--label LABEL]
@@ -21,7 +23,7 @@ blocked_file=""
 issues_file=""
 open_prs_file=""
 dependency_status_file=""
-default_branch="${MAINTAIN_QUEUE_DEFAULT_BRANCH:-main}"
+default_branch="${MAINTAIN_QUEUE_DEFAULT_BRANCH:-}"
 default_branch_explicit=0
 [ -n "${MAINTAIN_QUEUE_DEFAULT_BRANCH:-}" ] && default_branch_explicit=1
 dep_clause_re='(?i)\b(?:depends on|blocked by)\b\s*\*{0,2}\s*:?\s*\*{0,2}\s*(?<refs>(?:[-*]\s*)?#[0-9]+(?:(?:[ \t]*(?:(?:,\s*)?and\s+|,\s*)|\s*\n\s*[-*]\s*)#[0-9]+)*)'
@@ -69,6 +71,11 @@ case "$issue" in
   "") ;;
   *[!0-9]*|0*) echo "maintain-queue: --issue must be a positive integer without leading zeros" >&2; exit 2 ;;
 esac
+if [ "$default_branch_explicit" -eq 1 ] \
+  && ! git check-ref-format --branch "$default_branch" >/dev/null 2>&1; then
+  echo "maintain-queue: default branch is invalid: $default_branch" >&2
+  exit 2
+fi
 
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
@@ -84,14 +91,6 @@ gh_with_repo() {
     gh "$@" --repo "$repo"
   else
     gh "$@"
-  fi
-}
-
-gh_default_branch() {
-  if [ -n "$repo" ]; then
-    gh repo view "$repo" --json defaultBranchRef -q .defaultBranchRef.name
-  else
-    gh repo view --json defaultBranchRef -q .defaultBranchRef.name
   fi
 }
 
@@ -136,7 +135,9 @@ else
   gh_with_repo pr list --state open --limit "$list_limit" \
     --json number,title,body,closingIssuesReferences > "$open_prs_json"
   if [ "$default_branch_explicit" -eq 0 ]; then
-    if fetched_default_branch="$(gh_default_branch 2>/dev/null)" \
+    resolver_args=()
+    [ -z "$repo" ] || resolver_args+=(--repo "$repo")
+    if fetched_default_branch="$(bash "$SCRIPT_DIR/default-branch.sh" "${resolver_args[@]}" 2>/dev/null)" \
       && [ -n "$fetched_default_branch" ]; then
       default_branch="$fetched_default_branch"
     else

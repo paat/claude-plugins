@@ -97,6 +97,57 @@ EOF
   rm -rf "$work"
 }
 
+test_codex_pins() {
+  local expected_model="$1" expected_effort="$2" overrides="$3" label="$4"
+  local work fake
+  work="$(mktemp -d)"
+  fake="$work/bin"
+  mkdir -p "$fake"
+  cat > "$fake/codex" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$work/codex.args"
+cat >/dev/null
+cat <<'JSON'
+{"provider":"codex","model":"fake","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10.0,"verdict":"APPROVE"}}
+JSON
+EOF
+  chmod +x "$fake/codex"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    export PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1
+    unset TRIBUNAL_CODEX_MODEL TRIBUNAL_CODEX_EFFORT TRIBUNAL_CODEX_SANDBOX_BYPASS
+    if [ "$overrides" = "yes" ]; then
+      export TRIBUNAL_CODEX_MODEL="$expected_model" TRIBUNAL_CODEX_EFFORT="$expected_effort"
+    fi
+    bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
+  ) && jq -e '.provider=="codex" and .summary.verdict=="APPROVE"' "$work/out.json" >/dev/null &&
+    awk -v model="$expected_model" -v effort="model_reasoning_effort=\"$expected_effort\"" '
+      previous == "-m" && $0 == model { model_seen = 1 }
+      previous == "-c" && $0 == effort { effort_seen = 1 }
+      previous == "-s" && $0 == "read-only" { read_only_seen = 1 }
+      $0 == "--ignore-user-config" { isolated_seen = 1 }
+      $0 == "mcp_servers={}" { mcp_disabled = 1 }
+      { previous = $0 }
+      END { exit !(model_seen && effort_seen && read_only_seen && isolated_seen && mcp_disabled) }
+    ' "$work/codex.args"
+  then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
 # Vacuous verdict = zero findings + a blocking verdict. Both the reported BLOCK
 # shape (quality 0.0) and the broader NEEDS_WORK / nonzero-quality shape must be
 # downgraded to a leg error, never passed through as a real review (issue #171).
@@ -203,6 +254,8 @@ assert_json_field "qwen disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-qwen-revi
 assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT/scripts/run-claude-review.sh' | jq -e '.provider==\"claude\" and .status==\"disabled\"'"
 assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and all(.[]; .status==\"disabled\")'"
 test_qwen_envelope_parser
+test_codex_pins gpt-5.6-sol medium no "codex defaults pin Sol and medium in argv"
+test_codex_pins test-model high yes "codex model and effort environment overrides stay explicit"
 test_codex_vacuous_guard BLOCK 0.0 "codex vacuous empty-BLOCK downgraded to leg error"
 test_codex_vacuous_guard NEEDS_WORK 7.5 "codex vacuous empty-NEEDS_WORK (nonzero quality) downgraded to leg error"
 test_codex_vacuous_guard " BLOCK " 0.0 "codex vacuous verdict tolerates surrounding whitespace"
@@ -215,6 +268,15 @@ assert_grep "reachability read by arbiter" "$SK" "Also read .reachability.md"
 assert_grep "blocking_proof schema" "$SK" '"blocking_proof"'
 assert_grep "scope lens switch" "$SK" "TRIBUNAL_SCOPE_LENS"
 assert_grep "scope findings schema" "$SK" "scope_findings"
+assert_grep "calling context arbitrates" "$SK" "calling context arbitrates"
+assert_grep "caller provider metadata optional" "$SK" "TRIBUNAL_CALLER_PROVIDER"
+assert_grep "caller model metadata optional" "$SK" "TRIBUNAL_CALLER_MODEL"
+assert_grep "caller effort metadata optional" "$SK" "TRIBUNAL_CALLER_EFFORT"
+assert_grep "standalone caller identity is optional" "$SK" "standalone runs may leave all three unset"
+assert_no_grep "tribunal skill has no Opus authority claim" "$SK" "Opus"
+assert_no_grep "closing skill has no Opus authority claim" "$CL" "Opus"
+assert_no_grep "README has no Opus authority claim" "README.md" "Opus"
+assert_no_grep "Claude reviewer has no Opus authority claim" "agents/claude-reviewer.md" "Opus"
 
 echo "Closing loop governor:"
 assert_grep "stop on no crit/high" "$CL" "zero .critical. and"

@@ -27,6 +27,8 @@ rollback. See `${CLAUDE_PLUGIN_ROOT}/docs/design/lessons-deliver.md`.
 
 All deterministic, fail-closed decisions live in
 `${CLAUDE_PLUGIN_ROOT}/scripts/lessons-deliver.sh` — call it; do not re-implement its logic.
+After the model-free queue probe finds work, load
+`${CLAUDE_PLUGIN_ROOT}/references/workflows/routing-telemetry.md` and reuse one run ID.
 
 ---
 
@@ -59,7 +61,7 @@ Parse flags first, before any action:
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
-default=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo main)
+default=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/default-branch.sh" --repo "$REPO" --repo-root "$REPO_ROOT")
 WT="$REPO_ROOT/.worktrees/lessons-deliver"
 grep -qxF '.worktrees/' "$REPO_ROOT/.git/info/exclude" 2>/dev/null \
   || echo '.worktrees/' >> "$REPO_ROOT/.git/info/exclude"
@@ -106,35 +108,71 @@ Each pass:
 3. **Deliver each eligible lesson — sequential, one PR in flight** (the merge-serialization
    guard), honoring the circuit breakers. For each lesson `#N`, in this exact order:
 
+   0. **Route** — fetch the issue title/body/labels into temporary local files and call
+      `delivery-route.sh classify --mode autonomous`. Exit 2 stops; exit 20 selects
+      `PROFILE=deep`. Run `mechanical` only when the issue names an exact existing
+      repository script; otherwise escalate uncertainty. Retain only profile and stable
+      reason codes, never lesson text, in telemetry.
    1. **Claim** — `lessons-deliver.sh --claim N --run-id <run_id> --repo "$REPO"`. On
       refusal (already claimed / linked PR / not approved / closed) **skip** to the next
       lesson; never force.
-   2. **Branch** — `git checkout -b "lesson/<N>-<slug>" "origin/$default"` inside `$WT`.
+   2. **Branch** — require an empty `git status --porcelain`, then record
+      `ATTEMPT_BASE=$(git rev-parse "origin/$default")` and the exact
+      `ATTEMPT_BRANCH="lesson/<N>-<slug>"` before running
+      `git checkout -b "$ATTEMPT_BRANCH" "$ATTEMPT_BASE"` inside `$WT`.
    3. **Implement** — dispatch ONE fresh implementer for the current host:
-      - **Claude Code surface:** use
-        `${CLAUDE_PLUGIN_ROOT}/agents/tech-founder-claude-maintain.md` (Claude/Opus; the
-        tribunal supplies the independent/Codex review).
+      Before dispatch, execute the tech role-guard and trusted-commit preflights in
+      `${CLAUDE_PLUGIN_ROOT}/references/workflows/mutation-ownership.md`. The role
+      allowlist is the exact lesson-approved plugin source/tests/manifests; verify it
+      immediately after return and before the firewall. Add
+      `--require-approved-diff --firewall-script
+      "${CLAUDE_PLUGIN_ROOT}/scripts/lessons-deliver.sh"` to this workflow's
+      trust-snapshot invocation.
+      - **Claude Code surface:** dispatch
+        `subagent_type: "saas-startup-team:tech-founder-claude-maintain"`
+        (Claude/Opus; the tribunal supplies the independent/Codex review).
       - **Codex surface:** do not invoke Claude Code or route to `tech-founder-claude*`.
-        Use the `tech-founder` skill, direct Codex implementation, or `codex exec` when a
-        separate Codex worker is useful and the Codex CLI is installed.
+        Use the `tech-founder` skill or a current-session role phase. A separate worker
+        must use `scripts/codex-run-role.sh --role tech-founder --profile "$PROFILE"`
+        with a task file.
+
+      Around a Claude implementer, append Opus/xhigh started and terminal events with
+      only stable profile/outcome codes. Separate Codex launches record their own events.
 
       Give the implementer the lesson body + this repo's `CLAUDE.md` / `AGENTS.md`
       conventions; it makes the plugin edit **and adds/updates tests** in
       `plugins/saas-startup-team/tests/run-tests.sh`. The implementer returns the specific
       lesson facts it acted on (surfaced in the digest).
-   4. **Mechanical firewall** — produce the diff and gate it:
+      For a light attempt, run shared post-diff containment against `origin/$default`
+      before any push or PR. If the diff is non-light or UI-touching, write a versioned
+      escalation artifact, reset the dedicated branch/worktree, and retry once at deep;
+      a missing artifact or second escalation fails closed while the lesson remains
+      eligible for reconciliation.
+   4. **Mechanical firewall + supervisor commit.** The implementer leaves its diff
+      uncommitted. The supervisor reconstructs and stages only the authenticated
+      allowlist in its disposable clone, runs the frozen pre-worker firewall against
+      that exact candidate, checks it, and commits it in one transaction:
       ```bash
-      git diff "origin/$default"... > /tmp/lesson-$N.diff
-      "${CLAUDE_PLUGIN_ROOT}/scripts/lessons-deliver.sh" --firewall /tmp/lesson-$N.diff
+      bash "${CLAUDE_PLUGIN_ROOT}/scripts/supervisor-commit.sh" \
+        --message "lesson: #$N implementation" \
+        --check plugins/saas-startup-team/tests/run-tests.sh \
+        --trust-receipt "$COMMIT_TRUST" --auth-stdin <<<"$MUTATION_AUTH"
       ```
       A firewall block (exit 3) is a **self-mod / out-of-tree / secret** violation →
       `lessons-deliver.sh --needs-human N --reason "<firewall reason>" --repo "$REPO"` and
-      continue to the next lesson (NOT `--block`).
+      run **Failed-attempt cleanup** below before continuing to the next lesson (NOT
+      `--block`).
+      Any tribunal fix gets a fresh role guard and `COMMIT_TRUST`, then returns through
+      this staged firewall/check/commit gate before the next review round; the controller
+      or reviewer never patches or commits product code.
+      Record firewall/check/commit status as a supervisor progress event.
    5. **Tribunal gate** — load and follow `tribunal-review:closing-tribunal-loop`; run
       `tribunal-review:tribunal-loop`. Require **zero critical and zero high** (and no
       safety-class medium: test deletion, auth/secrets, filesystem, autonomous-control).
-      Otherwise `lessons-deliver.sh --block N --reason "tribunal: <summary>" --repo "$REPO"`
-      and continue. Reuse the round caps: notify the investor at round 10, hard-stop at 20.
+      Otherwise `lessons-deliver.sh --block N --reason "tribunal: <summary>" --repo "$REPO"`,
+      run **Failed-attempt cleanup**, and continue. Reuse the round caps: notify the
+      investor at round 10, hard-stop at 20.
+      Append the latest-head tribunal status as a supervisor progress event.
    6. **Bump the version BEFORE the final test run** so the bump itself is validated:
       ```bash
       "${CLAUDE_PLUGIN_ROOT}/scripts/lessons-deliver.sh" --bump-version minor
@@ -144,20 +182,70 @@ Each pass:
       `python3 scripts/sync-codex-marketplace.py` from `$WT` root — and stage any
       regenerated files under `plugins/` (the generated `.codex-plugin/plugin.json`
       and workflow skills; never out-of-tree files, which the firewall rejects).
-   7. **Test gate** — `bash plugins/saas-startup-team/tests/run-tests.sh` must be green
-      (this run now also covers the version bump). Otherwise
-      `lessons-deliver.sh --block N --reason "tests red" --repo "$REPO"` and continue.
-   8. **PR + merge on green** — push the branch; open the PR with **`Closes #N`** in the
+   7. **Final test + version commit gate** — run the supervisor commit helper again with
+      `--message "lesson: #$N version and Codex surface"` and
+      `--check plugins/saas-startup-team/tests/run-tests.sh`. It stages only the
+      version/generated delivery and keeps hooks enabled; this run covers the bump.
+      Otherwise `lessons-deliver.sh --block N --reason "tests red" --repo "$REPO"`, run
+      **Failed-attempt cleanup**, and continue.
+   8. **Final-head tribunal gate.** The version bump and generated Codex surface changed
+      `HEAD`, so the earlier verdict is stale. Run `tribunal-review:tribunal-loop` again
+      against the final version/generated `HEAD` and latest diff, then record
+      `TRIBUNAL_HEAD=$(git rev-parse HEAD)`. Require the same zero-critical/high and
+      safety-medium policy. Any fix returns through the firewall, regeneration when
+      applicable, full test, and `supervisor-commit.sh` gates; then rerun this final
+      tribunal. The controller/reviewer never patches or commits. A blocking verdict
+      runs `lessons-deliver.sh --block`, then **Failed-attempt cleanup**, before the next
+      lesson.
+   9. **PR + merge on green** — immediately before push and merge, require
+      `git rev-parse HEAD == $TRIBUNAL_HEAD`; any changed `HEAD` invalidates the verdict
+      and returns to step 8. Push the branch; open the PR with **`Closes #N`** in the
       body (merge auto-closes the lesson issue — no post-merge relabel race). Merge on green:
       ```bash
       gh pr merge "<pr url>" --squash --delete-branch
       ```
       If `origin/$default` advanced during final validation, reset onto it and **restart
-      from step 6** (re-bump from fresh main, re-test). Classify any `gh` error with
+      from step 6** (re-bump from fresh main, re-test, and rerun the final tribunal).
+      Classify any `gh` error with
       `lessons-deliver.sh --classify-gh-error "<msg>"`: `retriable` → bounded backoff +
-      retry; `terminal` → `--block` + continue.
-   9. **Ship** — on a successful merge:
+      retry; `terminal` → `--block`, reconcile any exact PR/remote branch, run
+      **Failed-attempt cleanup**, then continue only when all cleanup checks pass.
+   10. **Ship** — on a successful merge:
       `lessons-deliver.sh --ship N --pr "<pr url>" --repo "$REPO"` (idempotent).
+      Append one authoritative per-lesson terminal event with checks, tribunal, PR,
+      merge, and outcome codes. Blocked, needs-human, skipped, firewall-failed, and
+      cancelled paths also get terminal events; a worker's process success is not a
+      shipped outcome.
+
+   **Failed-attempt cleanup (mandatory before the next issue).** This dedicated
+   worktree was required clean before `ATTEMPT_BRANCH`, so every staged, tracked, and
+   untracked non-ignored change now belongs to this exact attempt. Verify the current
+   branch is `$ATTEMPT_BRANCH`, reset tracked/index state to `$ATTEMPT_BASE`, remove only
+   the non-ignored untracked files from this clean-start attempt, detach at
+   `origin/$default`, and delete only `$ATTEMPT_BRANCH`. Require an empty
+   `git status --porcelain` afterward. If the attempt reached a push or PR, close/verify
+   only that PR and delete/verify only that remote branch first. If identity or any
+   cleanup postcondition is unknown, stop the pass; never carry a staged diff, commit,
+   branch, PR, or remote branch into the next lesson.
+
+   ```bash
+   test "$(git branch --show-current)" = "$ATTEMPT_BRANCH"
+   git reset --hard "$ATTEMPT_BASE"
+   git clean -fd
+   git checkout --detach "origin/$default"
+   git branch -D "$ATTEMPT_BRANCH"
+   test -z "$(git status --porcelain)"
+   ```
+
+   `git clean -fd` is permitted only here, after the clean-start assertion in step 2;
+   it does not remove ignored run state and therefore removes only non-ignored files the
+   failed attempt created.
+
+   On a successful merge/ship, fetch and detach at the new `origin/$default`, delete the
+   exact merged local branch, and require the same clean-worktree postcondition before
+   considering the next lesson. This cleanup never commits: all product, fix, version,
+   and generated changes that survive remain supervisor-owned commits made through
+   `supervisor-commit.sh`.
 
 4. **Write the pass digest** to `.startup/lessons-deliver/runs/<run-id>.md`: per lesson —
    number, decision + rationale, the facts the implementer acted on (injection
@@ -205,8 +293,8 @@ Two **independent** scheduled runners — different repos/cwds, so they cannot b
 line:
 
 ```bash
-# product repos (supervised/dev):  /loop 5m /maintain --once
-# plugin repo  (supervised/dev):   cd <plugin repo> && /loop 5m /lessons-deliver --once
+# product repos: probe maintain, then /loop 5m /maintain --once only on exit 0
+# plugin repo: probe lessons-deliver, then /loop 5m /lessons-deliver --once only on exit 0
 ```
 
 The **production** runner (the loop's nightly deploy) is a cron line under `flock`, matching
@@ -214,7 +302,7 @@ the existing `0 2 * * *` pattern, headless with permissions pre-granted:
 
 ```
 0 3 * * * /usr/bin/flock -n /tmp/lessons-deliver.lock -c \
-  'cd <plugin repo> && <assistant command for this plugin> "/lessons-deliver --once" >> /var/log/lessons-deliver.log 2>&1'
+  'cd <plugin-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" lessons-deliver; then <assistant-command> "/lessons-deliver --once" >> <log-path> 2>&1; else test $? -eq 3; fi'
 ```
 
 cron is the production runner; `/loop` is for a supervised session only.

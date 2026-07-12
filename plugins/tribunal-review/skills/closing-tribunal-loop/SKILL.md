@@ -7,7 +7,7 @@ description: "Use after tribunal-loop returns NEEDS_WORK or BLOCK to triage find
 
 ## Overview
 
-`tribunal-loop` is one round of review. **Closing the loop is iterative**: after any code change, the diff has changed and findings can change with it — new bugs introduced by the fix, old findings invalidated, false positives clarified. The loop closes when the Opus arbiter returns a verdict with **zero critical and zero high findings** on the latest diff (medium/low go to YAGNI triage). Every code change re-opens the diff, so re-run after any fix.
+`tribunal-loop` is one round of review. **Closing the loop is iterative**: after any code change, the diff has changed and findings can change with it — new bugs introduced by the fix, old findings invalidated, false positives clarified. The loop closes when the arbiter returns a verdict with **zero critical and zero high findings** on the latest diff (medium/low go to YAGNI triage). Every code change re-opens the diff, so re-run after any fix.
 
 **Core principle:** Tribunal is a quality gate, not a checklist. The gate stays closed until the diff itself stops generating critical/high findings — including findings caused by your own fixes.
 
@@ -44,7 +44,7 @@ digraph close_tribunal {
 }
 ```
 
-The loop only exits when the Opus arbiter's verdict has **zero critical and zero high findings** on the current diff (medium/low go to YAGNI triage). The arbiter runs the panel in parallel (by default Codex, DeepSeek, and Claude; Gemini, GLM, and Qwen opt-in) precisely because any single reviewer can miss things — so a verdict built on the latest diff is the only verdict that counts.
+The loop only exits when the calling context's verdict has **zero critical and zero high findings** on the current diff (medium/low go to YAGNI triage). The panel runs in parallel (by default Codex, DeepSeek, and Claude; Gemini, GLM, and Qwen opt-in) precisely because any single reviewer can miss things — so a verdict built on the latest diff is the only verdict that counts.
 
 ## Per-Finding Triage
 
@@ -62,7 +62,7 @@ Verify each finding by reading the cited line and reasoning about it (or running
 
 ## Stop Condition
 
-The loop **closes** when the Opus arbiter's verdict has **zero `critical` and
+The loop **closes** when the arbiter's verdict has **zero `critical` and
 zero `high` findings** remaining on the latest diff. Medium/low findings do
 NOT hold the gate open — they go to YAGNI triage below.
 

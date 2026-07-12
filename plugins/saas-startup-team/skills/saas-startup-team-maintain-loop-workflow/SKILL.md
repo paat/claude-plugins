@@ -21,7 +21,7 @@ Source command: `../../commands/maintain-loop.md`
 7. When the source command contains a Claude-only primitive, use the Codex replacement:
    - `AskUserQuestion` -> ask the user directly; in non-interactive runs, stop and report the exact required input.
    - Claude slash-command execution -> invoke this skill or the corresponding plugin skill.
-   - Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent tooling if available, `codex exec` when a separate Codex process is useful, or a fresh role phase in the current Codex session.
+   - Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent tooling when available, the bundled `scripts/codex-run-role.sh` with an explicit role/profile and task file for a separate process, or a fresh role phase in the current Codex session.
    - `ScheduleWakeup` -> use Codex session continuation or an explicit user-visible status checkpoint; do not depend on a Claude lifecycle hook.
 
 ## SaaS Startup Codex Rules
@@ -30,7 +30,8 @@ For `saas-startup-team` workflows in Codex:
 
 - Use Codex as the primary and only coding agent.
 - Do not invoke `claude`, `claude-code`, Claude Code, TeamCreate, or Claude subagent workflows.
-- Do not route implementation to `tech-founder-claude` or `tech-founder-claude-maintain`; use the `tech-founder` skill, Codex CLI, or direct Codex implementation instead.
+- Do not route implementation to `tech-founder-claude` or `tech-founder-claude-maintain`; use the `tech-founder` skill, direct Codex implementation, or the bundled `scripts/codex-run-role.sh` for a separate process.
+- Every separate Codex role launch uses `scripts/codex-run-role.sh` with an explicit semantic profile. The adapter stays model-neutral; the launcher owns model and effort pinning.
 - Treat business-founder, tech-founder, growth-hacker, lawyer, UX tester, and review loops as Codex role phases backed by `.startup/` files.
 - Keep the file-based handoff protocol intact: every role phase reads the relevant handoff/state files and writes its expected deliverable before the next phase starts.
 
@@ -50,4 +51,4 @@ During each Codex `/maintain-loop` issue-delivery cycle, enforce these merge pre
 
 - Plugin: `saas-startup-team`
 - Command aliases: `/saas-startup-team:maintain-loop`, `/maintain-loop`
-- Source description: Codex-first GitHub issue delivery loop. For each eligible issue, launch a fresh Codex context from the latest default branch, implement the issue, run Playwright acceptance QA, close the tribunal review/fix loop, merge to main, watch deploy, and verify the live app. Flags: --once, --dry-run, --issue N, --label LABEL, --max-issues N, --max-merges N, --max-run-minutes N. Usage: /maintain-loop [--once] [--issue N] [--max-issues N] [--max-merges N]
+- Source description: Fresh-context issue delivery. Probe model-free, then load the Codex worker playbook only when an eligible issue exists. Usage: /maintain-loop [flags]

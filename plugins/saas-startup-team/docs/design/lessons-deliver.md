@@ -86,7 +86,7 @@ Ordering: dependency order first, then oldest-first. **Sequential — one PR in 
    linked-PR exists, `lessons:blocked`/`needs-human`, or claimed by a live run. Add
    `lessons:claimed` + a run-id marker comment. The linked-PR/branch check — not local
    state — is the real guard against double-delivery.
-2. **Branch** `lesson/<issue>-<slug>` off `origin/main` inside the worktree.
+2. **Branch** `lesson/<issue>-<slug>` off `origin/${default}` inside the worktree.
 3. **Implement**: dispatch ONE fresh implementer subagent — `tech-founder-claude-maintain`
    (Claude/Opus; tribunal supplies the independent/Codex review). It reads the lesson body
    + this repo's `CLAUDE.md` conventions, makes the plugin edit, and **adds/updates tests**.
@@ -100,17 +100,26 @@ Ordering: dependency order first, then oldest-first. **Sequential — one PR in 
    - **Secret scan** of the diff via `pii-gate.sh`; any hit → block.
    - **No test deletion:** assert the diff does not remove existing test assertions /
      test files; reduction in test count → block.
-5. **Tribunal gate** (mandatory): zero critical/high, else blocked. A **medium** finding
-   in a safety class (test deletion, auth/secrets, filesystem, autonomous-control) also
-   blocks.
-6. **Test gate:** `bash plugins/saas-startup-team/tests/run-tests.sh` green.
-7. **Version bump:** reset onto fresh `origin/main`, recompute the bump from current main,
-   bump **both** `plugin.json` and root `marketplace.json` (CLAUDE.md rule; pre-push hook
-   enforces sync). One bump per lesson PR.
-8. **PR**: body carries `Closes #N` (merge auto-closes the issue — no post-merge relabel
-   race). **Merge on green** via `gh pr merge --squash --delete-branch`. If `origin/main`
+5. **Preliminary tribunal gate** (mandatory): zero critical/high, else blocked. A
+   **medium** finding in a safety class (test deletion, auth/secrets, filesystem,
+   autonomous-control) also blocks.
+6. **Test + supervisor commit gate:**
+   `bash plugins/saas-startup-team/tests/run-tests.sh` green; implementers and reviewers
+   never commit.
+7. **Version bump + generated surface:** reset onto fresh `origin/${default}`, recompute the
+   bump from the current default tip, bump **both** `plugin.json` and root `marketplace.json`
+   (CLAUDE.md rule; pre-push hook enforces sync), regenerate the Codex surface, rerun the
+   full suite, and commit through the supervisor gate. One bump per lesson PR.
+8. **Final-head tribunal gate:** rerun the tribunal on the committed version/generated
+   `HEAD`. Any later commit or regenerated change invalidates the verdict; fixes return
+   through firewall, generation, tests, and supervisor commit before another tribunal.
+9. **PR**: body carries `Closes #N` (merge auto-closes the issue — no post-merge relabel
+   race). **Merge on green** via `gh pr merge --squash --delete-branch`. If `origin/${default}`
    advanced during final validation, restart final validation.
-9. Post an idempotent shipped comment + apply `lesson-shipped`; `lessons:claimed` removed.
+10. Post an idempotent shipped comment + apply `lesson-shipped`; `lessons:claimed`
+    removed. Before another issue, detach at the latest default and verify a clean
+    worktree. Every failed attempt resets its exact clean-start branch/index/worktree and
+    reconciles any exact PR/remote branch first; unknown cleanup state stops the pass.
 
 ## 7. Hardening (codex-accepted findings)
 
@@ -140,7 +149,7 @@ Ordering: dependency order first, then oldest-first. **Sequential — one PR in 
 Plugin repo carries **no** runtime state in git. State dir `.startup/lessons-deliver/`
 (current-run.json, runs/<run-id>.md digest) and worktree `.worktrees/lessons-deliver`
 are gitignored via `.git/info/exclude` (mirrors `/maintain`). Worktree is `--detach` off
-`origin/main`, reused across passes; if stale/dirty and unrecoverable, recreate. Durable
+`origin/${default}`, reused across passes; if stale/dirty and unrecoverable, recreate. Durable
 coordination state (claimed / blocked / shipped) lives in **GitHub labels**, not local
 files — local state is only a per-session optimization.
 
@@ -167,8 +176,8 @@ surfaced in the digest.
 Two **independent** scheduled runners (different repos/cwds — cannot be one `/loop` line):
 
 ```bash
-# product repos (dev/supervised): /loop 5m /maintain --once
-# plugin repo  (dev/supervised): cd /mnt/data/ai/claude-plugins && /loop 5m /lessons-deliver --once
+# product repos: probe maintain, then /loop 5m /maintain --once only on exit 0
+# plugin repo: probe lessons-deliver, then /loop 5m /lessons-deliver --once only on exit 0
 ```
 
 **Production (in-container, unattended)** — cron + flock + the host-appropriate
@@ -176,7 +185,7 @@ assistant command, matching the design doc's `0 2 * * *` flock pattern:
 
 ```
 0 3 * * * /usr/bin/flock -n /tmp/lessons-deliver.lock -c \
-  'cd <plugin repo> && <assistant command for this plugin> "/lessons-deliver --once" >> /var/log/lessons-deliver.log 2>&1'
+  'cd <plugin-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" lessons-deliver; then <assistant-command> "/lessons-deliver --once" >> <log-path> 2>&1; else test $? -eq 3; fi'
 ```
 
 cron is the production runner; `/loop` is for a supervised session only.

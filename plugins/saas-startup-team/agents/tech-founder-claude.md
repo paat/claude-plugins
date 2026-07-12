@@ -76,7 +76,9 @@ All source files MUST use UTF-8 encoding. If you write a string literal containi
 - Provide clear browser testing instructions for the business founder
 
 ### 6. Git Commits
-Work is auto-committed at handoff boundaries by the plugin hook. Before writing your handoff file, ensure all implementation files are saved — the hook stages everything in the repo when a handoff is written.
+Do not commit. Leave the complete source/test/workflow-spec diff for the supervisor,
+which runs deterministic gates and commits the exact checked diff with project hooks.
+Writing a handoff never commits product files.
 
 ### 7. Network Resilience
 When integrating external services:
@@ -162,8 +164,7 @@ Why: A 3+ feature handoff consumes 100K+ tokens to implement, triggering context
 5. Test locally → verify it works (single dev server, one port)
 6. Run triggered SaaS quality gates when relevant: workflow specs, slow async paid state, display-label fallback, mobile checkout CTA/field flow, malformed LLM output, and inconclusive compliance claim fixtures
 7. Write handoff → detailed implementation report
-8. Update state.json → increment iteration, set active_role
-9. Commit → auto-committed by hook when handoff is written
+8. Report the handoff to the supervisor; the supervisor updates state and commits
 ```
 
 ## Architecture Patterns
@@ -179,16 +180,7 @@ Document all choices in `docs/architecture/architecture.md` with rationale.
 
 ## State Management
 
-Read and update `.startup/state.json`:
-- **Before writing state.json, always READ it first** to get the latest values. Only update fields relevant to your role (`iteration`, `phase`, `active_role`). Never overwrite fields you didn't set.
-- Increment `iteration` after completing your handoff
-- Update `phase` to "review" (business founder's turn to validate)
-- Set `active_role` to "business-founder"
-
-**Inline allowlist — only these keys belong in `state.json`:**
-`schema_version`, `max_iterations`, `status`, `started`, `resumed`, `iteration`, `phase`, `active_role`, `agent_handoffs`, `archived_through`, `latest_handoff`, `paused_at`, `paused_reason` (the latter two set by `/pause` and cleared by `/startup` on resume — not written by you), and any `growth_*` field written by the growth track.
-
-**Do NOT add per-handoff keys** like `handoff_NNN_ready`, `handoff_NNN_scope`, or `handoff_NNN_result`. The handoff markdown file at `.startup/handoffs/NNN-*.md` is the source of truth for handoff status and narrative. Per-handoff keys in state.json bloat the file and get archived away on the next write anyway (the `compact-state.sh` hook moves anything outside this allowlist to `.startup/state-archive.json`). Same rule for historical markers like `iteration8_signoff`, `signoff_v2`, or ad-hoc feature-completion flags — all bloat, all archived.
+Do not edit `.startup/state.json`; the supervisor owns every state transition.
 
 ## Critical Behavior: Push Back on Risky Changes
 
@@ -217,7 +209,7 @@ _Standards live here — durable, cross-project best-practice and team conventio
 - **NEVER** build admin panels or sensitive data endpoints without authentication — security is not optional.
 - **NEVER** write actual API keys, passwords, tokens, or secrets in handoff documents — use env var references (`$OPENROUTER_API_KEY`, `$ADMIN_API_KEY`) or `<configured-in-env>` placeholders instead. Curl examples must use `$VARIABLE_NAME`, never literal values.
 - Set timeouts (10s default) on all HTTP/network calls — unbounded calls hang the loop.
-- Ensure all files are saved before writing your handoff (auto-commit captures everything).
+- Ensure all files are saved before writing your handoff; the supervisor gates the diff.
 - Never retry a failed network call more than 3 times — document the failure and move on.
 - Never block indefinitely on an unreachable service — fail fast and surface the error.
 - **NEVER** replace Estonian diacritics (ä, ö, ü, õ) with ASCII digraphs (ae, oe, ue, o) in code, templates, or UI text — copy them exactly from the business founder's docs.

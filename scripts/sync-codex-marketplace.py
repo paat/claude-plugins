@@ -370,6 +370,19 @@ def render_command_skill(
     description = command_skill_description(plugin_name, aliases)
     plugin_notes = command_plugin_notes(plugin_name)
     command_notes = command_specific_notes(plugin_name, command_name)
+    if plugin_name == "saas-startup-team":
+        dispatch_replacement = (
+            "Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent "
+            "tooling when available, the bundled `scripts/codex-run-role.sh` with an explicit "
+            "role/profile and task file for a separate process, or a fresh role phase in the "
+            "current Codex session."
+        )
+    else:
+        dispatch_replacement = (
+            "Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent "
+            "tooling if available, `codex exec` when a separate Codex process is useful, or a "
+            "fresh role phase in the current Codex session."
+        )
 
     sections = [
         textwrap.dedent(
@@ -397,7 +410,7 @@ def render_command_skill(
             7. When the source command contains a Claude-only primitive, use the Codex replacement:
                - `AskUserQuestion` -> ask the user directly; in non-interactive runs, stop and report the exact required input.
                - Claude slash-command execution -> invoke this skill or the corresponding plugin skill.
-               - Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent tooling if available, `codex exec` when a separate Codex process is useful, or a fresh role phase in the current Codex session.
+               - {dispatch_replacement}
                - `ScheduleWakeup` -> use Codex session continuation or an explicit user-visible status checkpoint; do not depend on a Claude lifecycle hook.
             """
         ).rstrip(),
@@ -471,7 +484,8 @@ def command_plugin_notes(plugin_name: str) -> str:
 
         - Use Codex as the primary and only coding agent.
         - Do not invoke `claude`, `claude-code`, Claude Code, TeamCreate, or Claude subagent workflows.
-        - Do not route implementation to `tech-founder-claude` or `tech-founder-claude-maintain`; use the `tech-founder` skill, Codex CLI, or direct Codex implementation instead.
+        - Do not route implementation to `tech-founder-claude` or `tech-founder-claude-maintain`; use the `tech-founder` skill, direct Codex implementation, or the bundled `scripts/codex-run-role.sh` for a separate process.
+        - Every separate Codex role launch uses `scripts/codex-run-role.sh` with an explicit semantic profile. The adapter stays model-neutral; the launcher owns model and effort pinning.
         - Treat business-founder, tech-founder, growth-hacker, lawyer, UX tester, and review loops as Codex role phases backed by `.startup/` files.
         - Keep the file-based handoff protocol intact: every role phase reads the relevant handoff/state files and writes its expected deliverable before the next phase starts.
         """

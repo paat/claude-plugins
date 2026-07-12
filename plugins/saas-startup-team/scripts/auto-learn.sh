@@ -8,6 +8,8 @@
 # also asks Claude to migrate the surplus into docs/learnings/<topic>.md topic files,
 # keeping CLAUDE.md lean. Requires: jq, awk.
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$SCRIPT_DIR/guard-active.sh" && exit 0
 
 # Max staged learnings allowed in '### Recent (unsorted)' before auto-migration kicks in.
 # Guard a malformed override (empty/non-numeric/float) — a bad value would otherwise

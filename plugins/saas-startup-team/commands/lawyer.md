@@ -178,7 +178,8 @@ This writes `$TMP/<slug>.json` (old + new text, lifecycle status, feed change, d
 
 ### Step 2: Spawn the Lawyer agent
 
-Invoke the Lawyer agent via the Task tool with the following brief:
+Invoke the Lawyer agent via the Task tool with
+`subagent_type: "saas-startup-team:lawyer"` and the following brief:
 
 > Brief: "Seadusemuudatuste parandusplaan"
 >
@@ -310,7 +311,7 @@ Read: `docs/business/brief.md`, `.startup/state.json`, the latest files in `docs
 
 ### Step 3: Spawn Lawyer Agent
 
-Use `Task` to spawn the Lawyer as a one-shot agent. Pass: the investor's topic, the project-context summary, and reminders to write to `docs/legal/õiguslik-*.md` in Estonian, query the datalake API first (web search second), and include disclaimers + cite all sources.
+Use `Task` with `subagent_type: "saas-startup-team:lawyer"`. Pass: the investor's topic, the project-context summary, and reminders to write to `docs/legal/õiguslik-*.md` in Estonian, query the datalake API first (web search second), and include disclaimers + cite all sources.
 
 ### Step 4: Report to Investor
 

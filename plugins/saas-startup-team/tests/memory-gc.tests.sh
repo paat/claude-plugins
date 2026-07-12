@@ -95,7 +95,7 @@ EOF
 
   # MG8: /maintain runs the weekly gc leg.
   assert_file_contains "MG8: maintain invokes memory-gc" \
-    "$PLUGIN_ROOT/commands/maintain.md" "memory-gc.sh"
+    "$PLUGIN_ROOT/references/workflows/maintain.md" "memory-gc.sh"
 
   # MG9: retirement is gated on the '- Grant:' shape — a durable rule merely mentioning an
   # 'expires:' date is flagged, never deleted (data-loss guard).

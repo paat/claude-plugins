@@ -73,7 +73,7 @@ Read the following files to build context for the UX Tester:
 
 ### Step 3: Spawn UX Tester Agent
 
-Use `Task` tool to spawn the UX Tester as a one-shot agent:
+Use `Task` with `subagent_type: "saas-startup-team:ux-tester"` to spawn the UX Tester as a one-shot agent:
 
 Pass the following to the UX Tester agent:
 - The target URL to audit (from command arguments or architecture.md)
@@ -83,7 +83,7 @@ Pass the following to the UX Tester agent:
 - Reminder: test at minimum 2 breakpoints (375px, 1280px)
 - Reminder: always include evidence and severity ratings
 - Reminder: check accessibility — it is not optional
-- Reminder: derive QA cases from `.startup/workflows/` when specs exist and report missing workflow coverage back to `registry.md`
+- Reminder: derive QA cases from `.startup/workflows/` when specs exist and report missing workflow coverage in the audit; do not edit the registry
 - Reminder: apply triggered SaaS gates when relevant: async paid-flow states, checkout CTA proximity, customer copy/value units, structured-result raw-value scan, LLM quality evidence, and compliance/risk claim taxonomy
 
 ### Step 4: Report to Investor

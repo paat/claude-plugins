@@ -78,7 +78,7 @@ fi
 
 ## Step 3: Spawn the ads-strategist
 
-Use the `Task` tool with `subagent_type: "ads-strategist"` — the registered agent type provided by the `google-ads-strategist` plugin. Do **NOT** spawn `general-purpose` and have it read the strategist's agent-definition markdown by `${CLAUDE_PLUGIN_ROOT}` path: in this command `${CLAUDE_PLUGIN_ROOT}` is the saas plugin, so that path does not exist, and the strategist's own `${CLAUDE_PLUGIN_ROOT}` skill/template references only resolve when it runs natively under its own plugin.
+Use the `Task` tool with `subagent_type: "google-ads-strategist:ads-strategist"` — the scoped registered agent type provided by the `google-ads-strategist` plugin. Do not use a generic worker or read another plugin's agent-definition markdown by path.
 
 **If Claude Code reports the `ads-strategist` agent type is unknown**, the `google-ads-strategist` plugin is not installed. Stop with:
 > **Error:** The `ads-strategist` agent is not available. `/ads` requires the **google-ads-strategist** plugin. Install it from the marketplace (`/plugin marketplace … && /plugin install google-ads-strategist`), then retry.

@@ -7,8 +7,7 @@
 #                       [--check-sync] [--self-repair] [--repo-root DIR] [--plugin-root DIR]
 #
 # With --require-codex, this also verifies that a fresh Codex worker shell can
-# execute under the selected sandbox. CODEX_SANDBOX overrides the default
-# workspace-write mode.
+# execute under the required workspace-write, network-off sandbox.
 
 set -uo pipefail
 
@@ -77,32 +76,14 @@ compact_output() {
     | cut -c 1-300
 }
 
-running_in_container() {
-  case "${SAAS_PREFLIGHT_CONTAINER:-auto}" in
-    1|true|yes) return 0 ;;
-    0|false|no) return 1 ;;
-  esac
-  if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
-    return 0
-  fi
-  if [ -r /proc/1/cgroup ] && grep -qaE 'docker|containerd|kubepods|podman|libpod|lxc' /proc/1/cgroup; then
-    return 0
-  fi
-  return 1
-}
-
 codex_worker_shell_smoke() {
   sandbox="$(codex_sandbox_mode)"
   if ! profile="$(codex_permissions_profile "$sandbox")"; then
     add "codex:worker-shell" blocker "unsupported CODEX_SANDBOX=$sandbox"
     return
   fi
-  if [ "$sandbox" = "read-only" ]; then
-    add "codex:worker-shell" blocker "Codex implementation workers require write access; use CODEX_SANDBOX=workspace-write or danger-full-access inside a disposable dev container"
-    return
-  fi
-  if [ "$sandbox" = "danger-full-access" ] && ! running_in_container; then
-    add "codex:worker-shell" blocker "Codex worker -s danger-full-access requires a disposable dev container; set CODEX_SANDBOX=workspace-write or run inside a container"
+  if [ "$sandbox" != "workspace-write" ]; then
+    add "codex:worker-shell" blocker "Codex implementation workers require isolated CODEX_SANDBOX=workspace-write; read-only and danger-full-access are not valid writer modes"
     return
   fi
   if ! have_cmd timeout; then
@@ -117,7 +98,8 @@ codex_worker_shell_smoke() {
   timeout_secs="${SAAS_CODEX_PREFLIGHT_TIMEOUT:-15}"
   case "$timeout_secs" in ''|0|*[!0-9]*) timeout_secs=15 ;; esac
 
-  output="$(timeout "$timeout_secs" codex sandbox --permissions-profile "$profile" -C "$REPO_ROOT" /bin/pwd 2>&1)"
+  output="$(timeout "$timeout_secs" codex sandbox --permission-profile "$profile" \
+    --sandbox-state-disable-network -C "$REPO_ROOT" /bin/pwd 2>&1)"
   rc=$?
   if [ "$rc" -eq 0 ]; then
     add "codex:worker-shell" ok "Codex worker shell smoke passed with -s $sandbox"
@@ -127,7 +109,7 @@ codex_worker_shell_smoke() {
   summary="$(compact_output "$output")"
   [ -n "$summary" ] || summary="exit $rc"
   if printf '%s\n' "$output" | grep -qiE 'bwrap|namespace|sandbox'; then
-    add "codex:worker-shell" blocker "Codex worker shell sandbox unusable with -s $sandbox: $summary; use CODEX_SANDBOX=danger-full-access inside a disposable dev container or fix unprivileged user namespaces"
+    add "codex:worker-shell" blocker "Codex worker shell sandbox unusable with -s $sandbox: $summary; fix the sandbox or unprivileged user namespaces"
   else
     add "codex:worker-shell" blocker "Codex worker shell smoke failed with -s $sandbox: $summary"
   fi
@@ -136,7 +118,7 @@ codex_worker_shell_smoke() {
 bash_major="${BASH_VERSINFO[0]:-0}"
 if [ "$bash_major" -ge 4 ]; then add bash ok "bash $BASH_VERSION"; else add bash blocker "bash 4+ is required"; fi
 
-for cmd in git gh jq awk sed timeout; do
+for cmd in git gh jq awk sed timeout flock openssl; do
   if have_cmd "$cmd"; then
     add "tool:$cmd" ok "$cmd found"
   else

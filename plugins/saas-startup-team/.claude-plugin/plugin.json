@@ -1,14 +1,14 @@
 {
   "name": "saas-startup-team",
-  "version": "0.85.0",
-  "description": "SaaS startup simulation — business founder, tech founder, and growth hacker iterate via file-based handoffs using Agent Teams, with on-demand consultants (lawyer for compliance, UX tester for usability and accessibility), building the product, acquiring customers, and iterating with one-shot improvements",
+  "version": "0.86.0",
+  "description": "Autonomous SaaS delivery — routed founder and specialist roles turn market demand into gated implementation, QA, deployment, growth, and maintenance",
   "author": {
     "name": "Andre Paat"
   },
   "repository": "https://github.com/paat/claude-plugins",
   "license": "MIT",
   "keywords": [
-    "agent-teams",
+    "autonomous-delivery",
     "multi-agent",
     "saas",
     "startup-simulation",

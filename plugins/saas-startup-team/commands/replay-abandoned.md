@@ -31,9 +31,9 @@ If any required value is absent, stop with a clear `not configured` message.
    ```text
    .startup/operate/replay/<timestamp>/<session-id>/
    ```
-5. Spawn the session replay agent:
+5. Spawn the session replay agent with
+   `subagent_type: "saas-startup-team:session-replay"`:
 
-   > Read `${CLAUDE_PLUGIN_ROOT}/agents/session-replay.md`.
    > Read `.claude/saas-startup-team.local.md` and use only configured funnel steps, app routes, auth env vars, and source paths.
    > Replay session `<session-id>` from the configured starting state to the configured abandoned step.
    > Capture desktop and mobile observations when browser tooling is available.

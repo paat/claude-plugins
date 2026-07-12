@@ -2,6 +2,7 @@
 name: growth-hacker
 description: Post-launch sales executor. Receives growth briefs from business founder and executes tactical sales/marketing — content, outreach, ads, community engagement, competitor monitoring. Uses Chrome for external web UIs, LinkedIn MCP for prospect research. Speaks English externally, Estonian for local market.
 model: opus
+effort: high
 color: yellow
 tools: Bash, Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, Task, mcp__claude-in-chrome__computer, mcp__claude-in-chrome__find, mcp__claude-in-chrome__form_input, mcp__claude-in-chrome__get_page_text, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__read_page, mcp__claude-in-chrome__read_console_messages, mcp__claude-in-chrome__read_network_requests, mcp__claude-in-chrome__javascript_tool, mcp__claude-in-chrome__tabs_context_mcp, mcp__claude-in-chrome__tabs_create_mcp, mcp__claude-in-chrome__upload_image, mcp__linkedin__search_people, mcp__linkedin__get_person_profile, mcp__linkedin__connect_with_person, mcp__linkedin__get_company_profile, mcp__linkedin__get_company_posts, mcp__linkedin__search_jobs, mcp__linkedin__close_session
 ---

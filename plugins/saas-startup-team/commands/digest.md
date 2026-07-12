@@ -12,6 +12,10 @@ Batches a day of loop activity into one message so the investor gets one push, n
 ping per run. Assembles locally and sends once via `notify.sh --digest`. Token-frugal:
 reads only `.startup/` state and `docs/human-tasks.md`.
 
+Scheduled runners call `scripts/workflow-probe.sh digest` before launching an
+assistant; an already-sent date, empty activity, or unconfigured channel exits 3 and
+launches no model.
+
 ```bash
 set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"

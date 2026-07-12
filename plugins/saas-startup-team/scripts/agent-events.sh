@@ -1,0 +1,777 @@
+#!/usr/bin/env bash
+# Append and read privacy-safe delivery events.
+#
+# append --run-id ID --command CODE --phase CODE --surface claude|codex|script
+#        --profile mechanical|light|standard|deep --writer-id ID [fields...]
+# read [--events FILE] [--legacy-root DIR]
+# import-guarded [--check] --receipt FILE
+# new-run-id
+# schema-version
+
+set -euo pipefail
+
+SCHEMA_VERSION=1
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROUTING_SCHEMA_VERSION=$(bash "$SCRIPT_DIR/delivery-route.sh" schema-version 2>/dev/null | jq -er '.schema_version') || {
+  echo "agent-events: could not resolve delivery routing schema" >&2
+  exit 2
+}
+
+usage() {
+  echo "usage: agent-events.sh append --run-id ID --command CODE --phase CODE --surface SURFACE --profile PROFILE --writer-id ID [options]" >&2
+  echo "       agent-events.sh read [--events FILE] [--legacy-root DIR]" >&2
+  echo "       agent-events.sh import-guarded [--check] --receipt FILE" >&2
+  echo "       agent-events.sh new-run-id | schema-version" >&2
+  exit 2
+}
+
+now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+default_events_file() {
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+  printf '%s\n' "$root/.startup/runs/agent-events.jsonl"
+}
+
+safe_path_string() {
+  case "$1" in
+    ''|*$'\n'*|*$'\r'*|*$'\t'*|../*|*/../*|*/..|./*|*/./*|*/.) return 1 ;;
+  esac
+}
+
+ensure_real_directory() {
+  local target="$1" create="${2:-0}" current=/ rel part
+  local parts=()
+  [[ "$target" == /* ]] && safe_path_string "$target" || return 1
+  rel=${target#/}
+  IFS=/ read -r -a parts <<< "$rel"
+  for part in "${parts[@]}"; do
+    [ -n "$part" ] && [ "$part" != . ] && [ "$part" != .. ] || return 1
+    current="${current%/}/$part"
+    [ ! -L "$current" ] || return 1
+    if [ -e "$current" ]; then
+      [ -d "$current" ] || return 1
+      [ "$(cd "$current" && pwd -P)" = "$current" ] || return 1
+    elif [ "$create" -eq 1 ]; then
+      mkdir -- "$current" || return 1
+      [ -d "$current" ] && [ ! -L "$current" ] \
+        && [ "$(cd "$current" && pwd -P)" = "$current" ] || return 1
+    else
+      return 0
+    fi
+  done
+}
+
+safe_append_target() {
+  local events_file="$1" parent leaf candidate
+  [[ "$events_file" == /* ]] && safe_path_string "$events_file" || return 1
+  parent=$(dirname -- "$events_file"); leaf=$(basename -- "$events_file")
+  [ "$leaf" != . ] && [ "$leaf" != .. ] || return 1
+  ensure_real_directory "$parent" 1 || return 1
+  for candidate in "$events_file" "${events_file}.identity-key" "${events_file}.lock"; do
+    if [ -e "$candidate" ] || [ -L "$candidate" ]; then
+      [ -f "$candidate" ] && [ ! -L "$candidate" ] || return 1
+    fi
+  done
+}
+
+guard_identity_key() {
+  local prefix="$1" destination="$2" shared
+  local destination_key="${destination}.identity-key" tmp key
+  shared="${prefix}.telemetry-identity-key"
+  if [ -e "$shared" ] || [ -L "$shared" ]; then
+    [ -f "$shared" ] && [ ! -L "$shared" ] || return 1
+  else
+    tmp=$(mktemp "${shared}.tmp.XXXXXX") || return 1
+    if [ -s "$destination_key" ]; then
+      [ -f "$destination_key" ] && [ ! -L "$destination_key" ] || { rm -f "$tmp"; return 1; }
+      cp -- "$destination_key" "$tmp"
+    else
+      key=$(random_hex 32) || { rm -f "$tmp"; return 1; }
+      printf '%s\n' "$key" > "$tmp"
+    fi
+    chmod 600 "$tmp"
+    if ! ln -- "$tmp" "$shared" 2>/dev/null; then
+      [ -f "$shared" ] && [ ! -L "$shared" ] || { rm -f "$tmp"; return 1; }
+    fi
+    rm -f "$tmp"
+  fi
+  IFS= read -r key < "$shared" || return 1
+  [[ "$key" =~ ^[0-9a-f]{64}$ ]] || return 1
+  printf '%s\n' "$shared"
+}
+
+prepare_guarded_append() {
+  local destination="$1" root git_dir guard_dir active prefix buffer_id source receipt key receipt_tmp
+  local active_guards=()
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || { printf '%s\n' "$destination"; return 0; }
+  root=$(cd "$root" && pwd -P)
+  [ "$destination" = "$root/.startup/runs/agent-events.jsonl" ] || { printf '%s\n' "$destination"; return 0; }
+  git_dir=$(git rev-parse --absolute-git-dir)
+  git_dir=$(cd "$git_dir" && pwd -P); guard_dir="$git_dir/saas-startup-team"
+  [ -e "$guard_dir" ] || { printf '%s\n' "$destination"; return 0; }
+  [ -d "$guard_dir" ] && [ ! -L "$guard_dir" ] \
+    && [ "$(cd "$guard_dir" && pwd -P)" = "$guard_dir" ] || return 1
+  shopt -s nullglob
+  active_guards=("$guard_dir"/*.active)
+  shopt -u nullglob
+  [ "${#active_guards[@]}" -le 1 ] || return 1
+  [ "${#active_guards[@]}" -eq 1 ] || { printf '%s\n' "$destination"; return 0; }
+  active=${active_guards[0]}
+  [ -f "$active" ] && [ ! -L "$active" ] || return 1
+  prefix=${active%.active}; buffer_id=$(random_hex 16) || return 1
+  source="$prefix.events-$buffer_id.jsonl"
+  receipt="$prefix.telemetry-$buffer_id.json"
+  [ ! -e "$source" ] && [ ! -L "$source" ] \
+    && [ ! -e "$receipt" ] && [ ! -L "$receipt" ] || return 1
+  key=$(guard_identity_key "$prefix" "$destination") || return 1
+  cp -- "$key" "${source}.identity-key"; chmod 600 "${source}.identity-key"
+  : > "$source"; chmod 600 "$source"
+  receipt_tmp=$(mktemp "${receipt}.tmp.XXXXXX") || return 1
+  jq -n --arg buffer_id "$buffer_id" --arg source "$source" --arg destination "$destination" \
+    '{schema_version:2,buffer_id:$buffer_id,source:$source,destination:$destination,
+      log_source:null,log_destination:null}' > "$receipt_tmp"
+  chmod 600 "$receipt_tmp"; mv -- "$receipt_tmp" "$receipt"
+  printf '%s\n' "$source"
+}
+
+valid_code() { [[ "$1" =~ ^[a-z][a-z0-9_.:-]{0,63}$ ]]; }
+valid_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$ ]]; }
+valid_model() { [ -z "$1" ] || [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$ ]]; }
+valid_sha() { [ -z "$1" ] || [[ "$1" =~ ^[0-9a-fA-F]{7,64}$ ]]; }
+valid_time() { [ -z "$1" ] || [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; }
+valid_uint_or_empty() { [ -z "$1" ] || [[ "$1" =~ ^[0-9]+$ ]]; }
+valid_status() { [ -z "$1" ] || [[ "$1" =~ ^[a-z][a-z0-9_-]{0,31}$ ]]; }
+
+random_hex() {
+  local bytes="$1" value
+  value=$(od -An -N"$bytes" -tx1 /dev/urandom 2>/dev/null | tr -d ' \n') || value=""
+  if [ "${#value}" -ne "$((bytes * 2))" ]; then
+    value=$(printf '%s\037%s\037%s\037%s\n' "$(date +%s%N 2>/dev/null || date +%s)" "$$" "${RANDOM:-0}" "$bytes" \
+      | sha256_stream) || return 1
+  fi
+  [[ "$value" =~ ^[0-9a-f]+$ ]] || return 1
+  printf '%s\n' "$value"
+}
+
+sha256_stream() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 | awk '{print $1}'
+  else
+    echo "agent-events: sha256sum or shasum is required" >&2
+    return 2
+  fi
+}
+
+identity_key_for_append() {
+  local events_file="$1" key_file="${1}.identity-key" key old_umask tmp
+  if [ -e "$key_file" ] || [ -L "$key_file" ]; then
+    [ -f "$key_file" ] && [ ! -L "$key_file" ] || {
+      echo "agent-events: unsafe identity key for $events_file" >&2
+      return 1
+    }
+  fi
+  if [ ! -s "$key_file" ]; then
+    key=$(random_hex 32) || return 1
+    old_umask=$(umask); umask 077
+    tmp="${key_file}.$$.$RANDOM.tmp"
+    printf '%s\n' "$key" > "$tmp"
+    mv -f -- "$tmp" "$key_file"
+    umask "$old_umask"
+  fi
+  IFS= read -r key < "$key_file" || return 1
+  [[ "$key" =~ ^[0-9a-f]{64}$ ]] || {
+    echo "agent-events: invalid identity key for $events_file" >&2
+    return 1
+  }
+  chmod 600 "$key_file" 2>/dev/null || true
+  printf '%s\n' "$key"
+}
+
+identity_key_for_read() {
+  local events_file="$1" key_file="${1}.identity-key" key
+  if [ -s "$key_file" ]; then
+    IFS= read -r key < "$key_file" || return 1
+    [[ "$key" =~ ^[0-9a-f]{64}$ ]] || {
+      echo "agent-events: invalid identity key for $events_file" >&2
+      return 1
+    }
+    printf '%s\n' "$key"
+  else
+    random_hex 32
+  fi
+}
+
+opaque_id() {
+  local kind="$1" raw="$2" key="$3" digest
+  if [[ "$raw" =~ ^${kind}-[0-9a-f]{32}$ ]]; then
+    printf '%s\n' "$raw"
+    return 0
+  fi
+  digest=$(printf '%s\037%s\037%s\n' "$key" "$kind" "$raw" | sha256_stream) || return 1
+  printf '%s-%s\n' "$kind" "${digest:0:32}"
+}
+
+normalize_event_identity() {
+  local key="$1" line raw_run raw_writer safe_run safe_writer
+  line=$(cat)
+  raw_run=$(jq -r '.run_id' <<< "$line") || return 1
+  raw_writer=$(jq -r '.writer_id' <<< "$line") || return 1
+  safe_run=$(opaque_id run "$raw_run" "$key") || return 1
+  safe_writer=$(opaque_id writer "$raw_writer" "$key") || return 1
+  jq -c --arg run_id "$safe_run" --arg writer_id "$safe_writer" \
+    '.run_id=$run_id | .writer_id=$writer_id' <<< "$line"
+}
+
+normalize_event_dimensions() {
+  jq -c '
+    def norm_code($allowed):
+      if type != "string" then "other"
+      else . as $v | if ($allowed | index($v)) != null then $v else "other" end
+      end;
+    def commands: [
+      "ads","bootstrap","codex-run-role","digest","goal-deliver","growth","harvest","improve","investigate",
+      "lawyer","learnings-compress","learnings-migrate","lessons-deliver","lessons-review","maintain","maintain-loop",
+      "market-scout","monitor","monitor-nightly","nudge","operate","pause","replay-abandoned","session-insights",
+      "standard-medium-eval","startup","status","tweak","ux-test","validate-experiment","legacy"
+    ];
+    def phases: [
+      "browser-operator","browser-operator-pro","business-brief","business-founder","business-founder-maintain","business-qa",
+      "checks","commit","delivery","delivery-supervisor","deployment","discovery","escalation","firewall","growth-hacker",
+      "handoff","implementation","implementation-controller","implementation-fix","incident-investigator","issue-outcome",
+      "lawyer","legacy-artifact","lesson-outcome","maintain-triage","market-research","mechanical","merge","mutation",
+      "pass-outcome","pr","qa","replay","rollback","routing","selection","session-replay","supervisor","support-triage",
+      "tech-founder","tech-founder-claude","tech-founder-claude-maintain","tech-founder-codex","tech-founder-codex-maintain",
+      "triage","tribunal","ux-tester","verdict","work-unit"
+    ];
+    def reasons: [
+      "ambiguous_rca_or_arbitration","autonomous_exact_text","autonomous_light_exclusion","bounded_read_only",
+      "diff_behavioral_code","diff_behavioral_ui_code","diff_bounded_text","diff_bounded_ui_text_or_css",
+      "diff_containment_exceeded","diff_ignored_sensitive_path","diff_legal_judgment","diff_product_judgment","diff_sensitive_surface",
+      "diff_tests_dependencies_workflows","diff_untracked_file","empty_diff","interactive_behavior_excluded",
+      "interactive_nonbehavioral_tweak","interactive_scope_uncertain","legacy_artifact","product_judgment",
+      "routine_scoped_work","script_only","sensitive_architecture_concurrency","sensitive_data_migration",
+      "sensitive_legal","sensitive_payment_pricing","sensitive_security_auth","terra_unavailable_fallback"
+    ];
+    def norm_provider:
+      if . == null or . == "" then null
+      else (ascii_downcase) as $v
+      | if ["openai","anthropic","google","xai","local"] | index($v) then $v else "other" end
+      end;
+    def norm_model:
+      if . == null or . == "" then null
+      else (ascii_downcase) as $v
+      | if $v == "gpt-5.6-sol" or $v == "gpt-5.6-terra" then $v
+        elif $v == "fable" or ($v | test("^claude-fable(-[0-9]+)*$")) then "claude-fable"
+        elif $v == "opus" or ($v | test("^claude-opus(-[0-9]+)*$")) then "claude-opus"
+        elif $v == "sonnet" or ($v | test("^claude-sonnet(-[0-9]+)*$")) then "claude-sonnet"
+        elif $v == "haiku" or ($v | test("^claude-haiku(-[0-9]+)*$")) then "claude-haiku"
+        elif ($v | test("^gemini-[0-9]+([.-][a-z0-9]+)*$")) then "gemini"
+        elif ($v | test("^grok-[0-9]+([.-][a-z0-9]+)*$")) then "grok"
+        else "other"
+        end
+      end;
+    def norm_effort:
+      if . == null or . == "" then null
+      else (ascii_downcase) as $v
+      | if ["low","medium","high","xhigh","max"] | index($v) then $v else "other" end
+      end;
+    def norm_profile:
+      if . == null or . == "" then null
+      else (ascii_downcase) as $v
+      | if ["mechanical","light","standard","deep"] | index($v) then $v else "other" end
+      end;
+    def norm_status:
+      if . == null or . == "" then null
+      else (ascii_downcase) as $v
+      | if ["not_run","not_started","not_created","not_applicable","not_needed","pending","passed","failed","blocked","skipped","incomplete","draft","open","closed","merged","rolled_back","cancelled","success"] | index($v)
+        then $v else "other" end
+      end;
+    def norm_outcome:
+      if . == null or . == "" then null
+      else (ascii_downcase) as $v
+      | if ["incomplete","success","failure","blocked","skipped","no-op","escalated","cancelled"] | index($v)
+        then $v else "other" end
+      end;
+    .command |= norm_code(commands)
+    | .phase |= norm_code(phases)
+    | .surface |= norm_code(["claude","codex","script","legacy"])
+    | .routing_reasons |= (if type == "array" then map(norm_code(reasons)) | unique else ["other"] end)
+    | .profile |= norm_profile
+    | .outcome |= norm_outcome
+    | .requested_provider |= norm_provider | .effective_provider |= norm_provider
+    | .requested_model |= norm_model | .effective_model |= norm_model
+    | .requested_effort |= norm_effort | .effective_effort |= norm_effort
+    | .checks |= norm_status | .qa |= norm_status | .tribunal |= norm_status
+    | .pr |= norm_status | .merge |= norm_status | .deployment |= norm_status | .rollback |= norm_status
+  '
+}
+
+append_event() {
+  local run_id="" command="" phase="" surface="" profile="" writer_id=""
+  local event_type="started" attempt=1 started_at="" finished_at="" duration_ms=""
+  local requested_provider="" requested_model="" requested_effort=""
+  local effective_provider="" effective_model="" effective_effort=""
+  local tokens_before="" tokens_after="" input_tokens="" output_tokens="" cached_input_tokens="" cost_microunits=""
+  local checks="" qa="" tribunal="" pr="" merge="" deployment="" rollback=""
+  local outcome="incomplete" events_file="" base_sha="" result_sha="" recorded_at payload lock_file identity_key
+  local reasons=() reasons_json
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --run-id) [ "$#" -ge 2 ] || usage; run_id="$2"; shift 2 ;;
+      --command) [ "$#" -ge 2 ] || usage; command="$2"; shift 2 ;;
+      --phase) [ "$#" -ge 2 ] || usage; phase="$2"; shift 2 ;;
+      --surface) [ "$#" -ge 2 ] || usage; surface="$2"; shift 2 ;;
+      --profile) [ "$#" -ge 2 ] || usage; profile="$2"; shift 2 ;;
+      --routing-reason) [ "$#" -ge 2 ] || usage; reasons+=("$2"); shift 2 ;;
+      --writer-id) [ "$#" -ge 2 ] || usage; writer_id="$2"; shift 2 ;;
+      --event-type) [ "$#" -ge 2 ] || usage; event_type="$2"; shift 2 ;;
+      --attempt) [ "$#" -ge 2 ] || usage; attempt="$2"; shift 2 ;;
+      --started-at) [ "$#" -ge 2 ] || usage; started_at="$2"; shift 2 ;;
+      --finished-at) [ "$#" -ge 2 ] || usage; finished_at="$2"; shift 2 ;;
+      --duration-ms) [ "$#" -ge 2 ] || usage; duration_ms="$2"; shift 2 ;;
+      --requested-provider) [ "$#" -ge 2 ] || usage; requested_provider="$2"; shift 2 ;;
+      --requested-model) [ "$#" -ge 2 ] || usage; requested_model="$2"; shift 2 ;;
+      --requested-effort) [ "$#" -ge 2 ] || usage; requested_effort="$2"; shift 2 ;;
+      --effective-provider) [ "$#" -ge 2 ] || usage; effective_provider="$2"; shift 2 ;;
+      --effective-model) [ "$#" -ge 2 ] || usage; effective_model="$2"; shift 2 ;;
+      --effective-effort) [ "$#" -ge 2 ] || usage; effective_effort="$2"; shift 2 ;;
+      --tokens-available-before) [ "$#" -ge 2 ] || usage; tokens_before="$2"; shift 2 ;;
+      --tokens-available-after) [ "$#" -ge 2 ] || usage; tokens_after="$2"; shift 2 ;;
+      --input-tokens) [ "$#" -ge 2 ] || usage; input_tokens="$2"; shift 2 ;;
+      --output-tokens) [ "$#" -ge 2 ] || usage; output_tokens="$2"; shift 2 ;;
+      --cached-input-tokens) [ "$#" -ge 2 ] || usage; cached_input_tokens="$2"; shift 2 ;;
+      --cost-microunits) [ "$#" -ge 2 ] || usage; cost_microunits="$2"; shift 2 ;;
+      --checks) [ "$#" -ge 2 ] || usage; checks="$2"; shift 2 ;;
+      --qa) [ "$#" -ge 2 ] || usage; qa="$2"; shift 2 ;;
+      --tribunal) [ "$#" -ge 2 ] || usage; tribunal="$2"; shift 2 ;;
+      --pr) [ "$#" -ge 2 ] || usage; pr="$2"; shift 2 ;;
+      --merge) [ "$#" -ge 2 ] || usage; merge="$2"; shift 2 ;;
+      --deployment) [ "$#" -ge 2 ] || usage; deployment="$2"; shift 2 ;;
+      --rollback) [ "$#" -ge 2 ] || usage; rollback="$2"; shift 2 ;;
+      --outcome) [ "$#" -ge 2 ] || usage; outcome="$2"; shift 2 ;;
+      --base-sha) [ "$#" -ge 2 ] || usage; base_sha="$2"; shift 2 ;;
+      --result-sha) [ "$#" -ge 2 ] || usage; result_sha="$2"; shift 2 ;;
+      --events) [ "$#" -ge 2 ] || usage; events_file="$2"; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+
+  valid_id "$run_id" || { echo "agent-events: invalid --run-id" >&2; exit 2; }
+  valid_code "$command" || { echo "agent-events: invalid --command" >&2; exit 2; }
+  valid_code "$phase" || { echo "agent-events: invalid --phase" >&2; exit 2; }
+  case "$surface" in claude|codex|script) : ;; *) echo "agent-events: invalid --surface" >&2; exit 2 ;; esac
+  case "$profile" in mechanical|light|standard|deep) : ;; *) echo "agent-events: invalid --profile" >&2; exit 2 ;; esac
+  valid_id "$writer_id" || { echo "agent-events: invalid --writer-id" >&2; exit 2; }
+  case "$event_type" in started|progress|completed) : ;; *) echo "agent-events: invalid --event-type" >&2; exit 2 ;; esac
+  [[ "$attempt" =~ ^[1-9][0-9]*$ ]] || { echo "agent-events: invalid --attempt" >&2; exit 2; }
+  valid_time "$started_at" && valid_time "$finished_at" || { echo "agent-events: timestamps must be UTC ISO seconds" >&2; exit 2; }
+  for value in "$duration_ms" "$tokens_before" "$tokens_after" "$input_tokens" "$output_tokens" "$cached_input_tokens" "$cost_microunits"; do
+    valid_uint_or_empty "$value" || { echo "agent-events: numeric metrics must be non-negative integers" >&2; exit 2; }
+  done
+  for value in "$requested_provider" "$requested_model" "$requested_effort" "$effective_provider" "$effective_model" "$effective_effort"; do
+    valid_model "$value" || { echo "agent-events: invalid provider/model/effort value" >&2; exit 2; }
+  done
+  for value in "$checks" "$qa" "$tribunal" "$pr" "$merge" "$deployment" "$rollback" "$outcome"; do
+    valid_status "$value" || { echo "agent-events: invalid status value" >&2; exit 2; }
+  done
+  case "$outcome" in incomplete|success|failure|blocked|skipped|no-op|escalated|cancelled) : ;; *) echo "agent-events: invalid --outcome" >&2; exit 2 ;; esac
+  if [ "$event_type" = completed ] && [ "$outcome" = incomplete ]; then
+    echo "agent-events: completed events require a terminal outcome" >&2
+    exit 2
+  fi
+  if [ "$event_type" != completed ] && [ "$outcome" != incomplete ]; then
+    echo "agent-events: nonterminal events require outcome=incomplete" >&2
+    exit 2
+  fi
+  valid_sha "$base_sha" && valid_sha "$result_sha" || { echo "agent-events: invalid commit SHA" >&2; exit 2; }
+  local reason
+  for reason in "${reasons[@]}"; do
+    valid_code "$reason" || { echo "agent-events: invalid routing reason" >&2; exit 2; }
+  done
+
+  recorded_at=$(now_iso)
+  [ -n "$started_at" ] || started_at="$recorded_at"
+  [ "$event_type" != completed ] || [ -n "$finished_at" ] || finished_at="$recorded_at"
+  reasons_json=$(printf '%s\n' "${reasons[@]:-}" | jq -Rsc 'split("\n") | map(select(length > 0)) | unique')
+
+  payload=$(jq -cn \
+    --argjson schema_version "$SCHEMA_VERSION" --argjson routing_schema_version "$ROUTING_SCHEMA_VERSION" \
+    --arg run_id "$run_id" --arg command "$command" --arg phase "$phase" --arg surface "$surface" \
+    --arg profile "$profile" --argjson routing_reasons "$reasons_json" --arg writer_id "$writer_id" \
+    --arg event_type "$event_type" --argjson attempt "$attempt" --arg recorded_at "$recorded_at" \
+    --arg started_at "$started_at" --arg finished_at "$finished_at" --arg duration_ms "$duration_ms" \
+    --arg requested_provider "$requested_provider" --arg requested_model "$requested_model" --arg requested_effort "$requested_effort" \
+    --arg effective_provider "$effective_provider" --arg effective_model "$effective_model" --arg effective_effort "$effective_effort" \
+    --arg tokens_before "$tokens_before" --arg tokens_after "$tokens_after" --arg input_tokens "$input_tokens" \
+    --arg output_tokens "$output_tokens" --arg cached_input_tokens "$cached_input_tokens" --arg cost_microunits "$cost_microunits" \
+    --arg checks "$checks" --arg qa "$qa" --arg tribunal "$tribunal" --arg pr "$pr" --arg merge "$merge" \
+    --arg deployment "$deployment" --arg rollback "$rollback" --arg outcome "$outcome" \
+    --arg base_sha "$base_sha" --arg result_sha "$result_sha" '
+      def ns: if . == "" then null else tonumber end;
+      def ss: if . == "" then null else . end;
+      {
+        schema_version:$schema_version,routing_schema_version:$routing_schema_version,
+        run_id:$run_id,command:$command,phase:$phase,surface:$surface,profile:$profile,
+        routing_reasons:$routing_reasons,writer_id:$writer_id,event_type:$event_type,attempt:$attempt,
+        recorded_at:$recorded_at,started_at:$started_at,finished_at:($finished_at|ss),duration_ms:($duration_ms|ns),
+        requested_provider:($requested_provider|ss),requested_model:($requested_model|ss),requested_effort:($requested_effort|ss),
+        effective_provider:($effective_provider|ss),effective_model:($effective_model|ss),effective_effort:($effective_effort|ss),
+        tokens_available_before:($tokens_before|ns),tokens_available_after:($tokens_after|ns),
+        input_tokens:($input_tokens|ns),output_tokens:($output_tokens|ns),cached_input_tokens:($cached_input_tokens|ns),cost_microunits:($cost_microunits|ns),
+        checks:($checks|ss),qa:($qa|ss),tribunal:($tribunal|ss),pr:($pr|ss),merge:($merge|ss),
+        deployment:($deployment|ss),rollback:($rollback|ss),outcome:$outcome,
+        base_sha:($base_sha|ss),result_sha:($result_sha|ss),source_schema_version:$schema_version
+      }')
+
+  # Inspect caller values before unknown public dimensions are collapsed to "other".
+  # shellcheck source=pii-gate.sh
+  . "$SCRIPT_DIR/pii-gate.sh" || { echo "agent-events: PII gate unavailable" >&2; exit 2; }
+  if pii_hit "$payload"; then
+    echo "agent-events: event rejected by secret/PII gate" >&2
+    exit 3
+  fi
+  payload=$(printf '%s\n' "$payload" | normalize_event_dimensions) || {
+    echo "agent-events: dimension normalization failed" >&2
+    exit 3
+  }
+
+  [ -n "$events_file" ] || events_file=$(default_events_file)
+  case "$events_file" in /*) : ;; *) events_file="$PWD/$events_file" ;; esac
+  safe_append_target "$events_file" || {
+    echo "agent-events: unsafe event destination" >&2
+    exit 3
+  }
+  events_file=$(prepare_guarded_append "$events_file") || {
+    echo "agent-events: could not initialize guarded telemetry" >&2
+    exit 3
+  }
+  safe_append_target "$events_file" || {
+    echo "agent-events: unsafe guarded event buffer" >&2
+    exit 3
+  }
+  lock_file="${events_file}.lock"
+  command -v flock >/dev/null 2>&1 || { echo "agent-events: flock is required" >&2; exit 2; }
+  exec 9>>"$lock_file"
+  flock 9
+  identity_key=$(identity_key_for_append "$events_file") || {
+    flock -u 9
+    echo "agent-events: could not initialize opaque identities" >&2
+    exit 3
+  }
+  payload=$(printf '%s\n' "$payload" | normalize_event_identity "$identity_key") || {
+    flock -u 9
+    echo "agent-events: identity normalization failed" >&2
+    exit 3
+  }
+  printf '%s\n' "$payload" >> "$events_file"
+  flock -u 9
+  printf '%s\n' "$payload"
+}
+
+validate_event_line() {
+  jq -ce '
+    def uint: type == "number" and . >= 0 and floor == .;
+    def nullable_string: . == null or type == "string";
+    def nullable_uint: . == null or uint;
+    def nullable_time: . == null or (type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"));
+    def nullable_sha: . == null or (type == "string" and test("^[0-9a-fA-F]{7,64}$"));
+    type == "object" and
+    (.schema_version | uint) and
+    (.routing_schema_version | uint) and
+    (.run_id | type == "string") and
+    (.command | type == "string") and
+    (.phase | type == "string") and
+    (.surface | type == "string") and
+    (.profile | nullable_string) and
+    (.routing_reasons | type == "array" and all(.[]; type == "string")) and
+    (.writer_id | type == "string") and
+    (.event_type | . == "started" or . == "progress" or . == "completed") and
+    (.attempt | uint and . >= 1) and
+    (.recorded_at | nullable_time) and (.started_at | nullable_time) and (.finished_at | nullable_time) and
+    (.duration_ms | nullable_uint) and
+    (.requested_provider | nullable_string) and (.requested_model | nullable_string) and (.requested_effort | nullable_string) and
+    (.effective_provider | nullable_string) and (.effective_model | nullable_string) and (.effective_effort | nullable_string) and
+    (.tokens_available_before | nullable_uint) and (.tokens_available_after | nullable_uint) and
+    (.input_tokens | nullable_uint) and (.output_tokens | nullable_uint) and (.cached_input_tokens | nullable_uint) and
+    (.cost_microunits | nullable_uint) and
+    (.checks | nullable_string) and (.qa | nullable_string) and (.tribunal | nullable_string) and
+    (.pr | nullable_string) and (.merge | nullable_string) and (.deployment | nullable_string) and (.rollback | nullable_string) and
+    (.outcome | type == "string") and
+    (if .event_type == "completed" then .outcome != "incomplete" else .outcome == "incomplete" end) and
+    (.base_sha | nullable_sha) and (.result_sha | nullable_sha) and
+    (.source_schema_version | uint) and
+    ((keys - [
+      "schema_version","routing_schema_version","run_id","command","phase","surface","profile","routing_reasons",
+      "writer_id","event_type","attempt","recorded_at","started_at","finished_at","duration_ms",
+      "requested_provider","requested_model","requested_effort","effective_provider","effective_model","effective_effort",
+      "tokens_available_before","tokens_available_after","input_tokens","output_tokens","cached_input_tokens","cost_microunits",
+      "checks","qa","tribunal","pr","merge","deployment","rollback","outcome","base_sha","result_sha","source_schema_version"
+    ]) | length == 0)
+  ' >/dev/null
+}
+
+emit_legacy() {
+  local file="$1" index="$2" outcome=incomplete event_type=started duration=""
+  if grep -qE '^(fixed:|shipped:)' "$file"; then
+    outcome=success; event_type=completed
+  elif grep -qE '^(blocked:|needs-human:|escalated:)' "$file"; then
+    outcome=blocked; event_type=completed
+  elif grep -qE '^skipped:' "$file"; then
+    outcome=skipped; event_type=completed
+  fi
+  duration=$(awk -F: '/^(duration_ms|elapsed_ms):[[:space:]]*[0-9]+/ {gsub(/[[:space:]]/,"",$2); print $2; exit}' "$file")
+  jq -cn --argjson schema_version "$SCHEMA_VERSION" --argjson index "$index" \
+    --arg outcome "$outcome" --arg event_type "$event_type" --arg duration "$duration" '
+      {
+        schema_version:$schema_version,routing_schema_version:0,
+        run_id:("legacy-" + ($index|tostring)),command:"legacy",phase:"legacy-artifact",surface:"legacy",profile:null,
+        routing_reasons:["legacy_artifact"],writer_id:"legacy-reader",event_type:$event_type,attempt:1,
+        recorded_at:null,started_at:null,finished_at:null,duration_ms:(if $duration=="" then null else ($duration|tonumber) end),
+        requested_provider:null,requested_model:null,requested_effort:null,effective_provider:null,effective_model:null,effective_effort:null,
+        tokens_available_before:null,tokens_available_after:null,input_tokens:null,output_tokens:null,cached_input_tokens:null,cost_microunits:null,
+        checks:null,qa:null,tribunal:null,pr:null,merge:null,deployment:null,rollback:null,outcome:$outcome,
+        base_sha:null,result_sha:null,source_schema_version:0
+      }'
+}
+
+read_events() {
+  local events_file="" legacy_root="" line normalized identity_key n=0 index=0 file
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --events) [ "$#" -ge 2 ] || usage; events_file="$2"; shift 2 ;;
+      --legacy-root) [ "$#" -ge 2 ] || usage; legacy_root="$2"; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  [ -n "$events_file" ] || events_file=$(default_events_file)
+  # shellcheck source=pii-gate.sh
+  . "$SCRIPT_DIR/pii-gate.sh" || { echo "agent-events: PII gate unavailable" >&2; exit 2; }
+  if [ -f "$events_file" ]; then
+    identity_key=$(identity_key_for_read "$events_file") || {
+      echo "agent-events: could not initialize opaque identities" >&2
+      exit 3
+    }
+    while IFS= read -r line || [ -n "$line" ]; do
+      n=$((n + 1))
+      [ -n "$line" ] || continue
+      if pii_hit "$line"; then
+        echo "agent-events: secret/PII detected at line $n" >&2
+        exit 3
+      fi
+      if ! printf '%s\n' "$line" | validate_event_line; then
+        echo "agent-events: invalid event at line $n" >&2
+        exit 3
+      fi
+      normalized=$(printf '%s\n' "$line" | normalize_event_dimensions) || {
+        echo "agent-events: invalid dimensions at line $n" >&2
+        exit 3
+      }
+      if ! printf '%s\n' "$normalized" | normalize_event_identity "$identity_key"; then
+        echo "agent-events: invalid identities at line $n" >&2
+        exit 3
+      fi
+    done < "$events_file"
+  fi
+  if [ -n "$legacy_root" ]; then
+    [ -d "$legacy_root" ] || { echo "agent-events: legacy root is not a directory" >&2; exit 2; }
+    while IFS= read -r file; do
+      index=$((index + 1))
+      if pii_hit "$(cat "$file")"; then
+        echo "agent-events: secret/PII detected in legacy artifact" >&2
+        exit 3
+      fi
+      emit_legacy "$file" "$index"
+    done < <(find "$legacy_root" -type f -path '*/runs/*' -name '*.md' -print | LC_ALL=C sort)
+  fi
+}
+
+import_guarded() {
+  local receipt="" check_only=0 root git_dir guard_dir source destination source_key destination_key
+  local log_source log_destination line n=0 lock_file tmp old_umask file buffer_id receipt_name prefix shared_key candidate
+  local event_total=0 event_matches=0 log_final_dir log_target log_tmp key
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --check) check_only=1; shift ;;
+      --receipt) [ "$#" -ge 2 ] || usage; receipt="$2"; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  [ -n "$receipt" ] || usage
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    echo "agent-events: guarded import requires a Git worktree" >&2; exit 2; }
+  root=$(cd "$root" && pwd -P)
+  git_dir=$(git rev-parse --absolute-git-dir)
+  git_dir=$(cd "$git_dir" && pwd -P); guard_dir="$git_dir/saas-startup-team"
+  case "$receipt" in /*) : ;; *) receipt="$root/$receipt" ;; esac
+  safe_path_string "$receipt" || { echo "agent-events: unsafe guarded telemetry receipt" >&2; exit 2; }
+  [ -d "$guard_dir" ] && [ ! -L "$guard_dir" ] \
+    && [ "$(cd "$guard_dir" && pwd -P)" = "$guard_dir" ] || {
+      echo "agent-events: unsafe mutation guard directory" >&2; exit 2; }
+  [ -f "$receipt" ] && [ ! -L "$receipt" ] \
+    && [ "$(dirname -- "$receipt")" = "$guard_dir" ] \
+    && [ "$(cd "$(dirname -- "$receipt")" && pwd -P)" = "$guard_dir" ] || {
+      echo "agent-events: unsafe guarded telemetry receipt" >&2; exit 2; }
+  jq -e '.schema_version == 2 and (.buffer_id|type=="string") and (.source|type=="string") and
+    (.destination|type=="string") and (.log_source == null or (.log_source|type=="string")) and
+    (.log_destination == null or (.log_destination|type=="string")) and
+    (keys|sort == ["buffer_id","destination","log_destination","log_source","schema_version","source"])' \
+    "$receipt" >/dev/null || { echo "agent-events: malformed guarded telemetry receipt" >&2; exit 3; }
+  buffer_id=$(jq -r .buffer_id "$receipt")
+  [[ "$buffer_id" =~ ^[0-9a-f]{32}$ ]] || { echo "agent-events: invalid guarded buffer id" >&2; exit 3; }
+  source=$(jq -r .source "$receipt"); destination=$(jq -r .destination "$receipt")
+  log_source=$(jq -r '.log_source // ""' "$receipt")
+  log_destination=$(jq -r '.log_destination // ""' "$receipt")
+  receipt_name=$(basename -- "$receipt")
+  case "$receipt_name" in *.telemetry-"$buffer_id".json) : ;; *) echo "agent-events: receipt id mismatch" >&2; exit 3 ;; esac
+  prefix=${receipt_name%".telemetry-$buffer_id.json"}
+  [ -n "$prefix" ] && [ "$receipt" = "$guard_dir/$prefix.telemetry-$buffer_id.json" ] || {
+    echo "agent-events: unsafe guarded receipt structure" >&2; exit 3; }
+  [ "$source" = "$guard_dir/$prefix.events-$buffer_id.jsonl" ] || {
+    echo "agent-events: unsafe guarded event source" >&2; exit 3; }
+  [ "$destination" = "$root/.startup/runs/agent-events.jsonl" ] || {
+    echo "agent-events: unsafe guarded event destination" >&2; exit 3; }
+  if [ -n "$log_source" ] || [ -n "$log_destination" ]; then
+    [ "$log_source" = "$guard_dir/$prefix.logs-$buffer_id" ] \
+      && [ "$log_destination" = "$root/.startup/runs/codex" ] || {
+        echo "agent-events: unsafe guarded log destination" >&2; exit 3; }
+  fi
+  safe_path_string "$source" && safe_path_string "$destination" || {
+    echo "agent-events: unsafe guarded telemetry path" >&2; exit 3; }
+  [ -f "$source" ] && [ ! -L "$source" ] || {
+    echo "agent-events: guarded event source is missing" >&2; exit 3; }
+  # shellcheck source=pii-gate.sh
+  . "$SCRIPT_DIR/pii-gate.sh" || { echo "agent-events: PII gate unavailable" >&2; exit 2; }
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1)); [ -n "$line" ] || continue
+    ! pii_hit "$line" && printf '%s\n' "$line" | validate_event_line || {
+      echo "agent-events: invalid guarded event at line $n" >&2; exit 3; }
+  done < "$source"
+  source_key="${source}.identity-key"; destination_key="${destination}.identity-key"
+  [ -s "$source_key" ] && [ ! -L "$source_key" ] || {
+    echo "agent-events: guarded identity key is missing" >&2; exit 3; }
+  shared_key="$guard_dir/$prefix.telemetry-identity-key"
+  [ -s "$shared_key" ] && [ -f "$shared_key" ] && [ ! -L "$shared_key" ] \
+    && cmp -s "$source_key" "$shared_key" || {
+      echo "agent-events: guarded identity key is not bound to its guard" >&2; exit 3; }
+  IFS= read -r key < "$source_key" || key=""
+  [[ "$key" =~ ^[0-9a-f]{64}$ ]] || { echo "agent-events: guarded identity key is invalid" >&2; exit 3; }
+  ensure_real_directory "$(dirname -- "$destination")" 0 || {
+    echo "agent-events: unsafe guarded destination ancestry" >&2; exit 3; }
+  for candidate in "$destination" "$destination_key" "${destination}.lock"; do
+    if [ -e "$candidate" ] || [ -L "$candidate" ]; then
+      [ -f "$candidate" ] && [ ! -L "$candidate" ] || {
+        echo "agent-events: unsafe guarded destination file" >&2; exit 3; }
+    fi
+  done
+  if [ -s "$destination_key" ]; then
+    cmp -s "$source_key" "$destination_key" || {
+      echo "agent-events: guarded identity key mismatch" >&2; exit 3; }
+  elif [ -s "$destination" ]; then
+    echo "agent-events: event destination has no identity key" >&2; exit 3
+  fi
+  if [ -n "$log_source" ]; then
+    [ -d "$log_source" ] && [ ! -L "$log_source" ] \
+      && [ "$(cd "$log_source" && pwd -P)" = "$log_source" ] || {
+        echo "agent-events: unsafe guarded log source" >&2; exit 3; }
+    ensure_real_directory "$log_destination" 0 || {
+      echo "agent-events: unsafe guarded log destination ancestry" >&2; exit 3; }
+    log_final_dir="$log_destination/$buffer_id"
+    ensure_real_directory "$log_final_dir" 0 || {
+      echo "agent-events: unsafe guarded log buffer destination" >&2; exit 3; }
+    while IFS= read -r -d '' file; do
+      [ -f "$file" ] && [ ! -L "$file" ] && safe_path_string "$file" || {
+        echo "agent-events: unsafe guarded log file" >&2; exit 3; }
+      log_target="$log_final_dir/$(basename -- "$file")"
+      if [ -e "$log_target" ] || [ -L "$log_target" ]; then
+        [ -f "$log_target" ] && [ ! -L "$log_target" ] && cmp -s "$file" "$log_target" || {
+          echo "agent-events: guarded log collision" >&2; exit 3; }
+      fi
+    done < <(find "$log_source" -mindepth 1 -maxdepth 1 -print0)
+  fi
+  if [ "$check_only" -eq 1 ]; then
+    echo "agent-events: guarded telemetry preflight passed"
+    return 0
+  fi
+  ensure_real_directory "$(dirname -- "$destination")" 1 || {
+    echo "agent-events: could not create guarded event destination" >&2; exit 3; }
+  if [ -n "$log_source" ]; then
+    ensure_real_directory "$log_destination" 1 || {
+      echo "agent-events: could not create guarded log destination" >&2; exit 3; }
+    log_final_dir="$log_destination/$buffer_id"
+    ensure_real_directory "$log_final_dir" 1 || {
+      echo "agent-events: could not create guarded log buffer destination" >&2; exit 3; }
+  fi
+  for candidate in "$destination" "$destination_key" "${destination}.lock"; do
+    if [ -e "$candidate" ] || [ -L "$candidate" ]; then
+      [ -f "$candidate" ] && [ ! -L "$candidate" ] || {
+        echo "agent-events: guarded destination changed after preflight" >&2; exit 3; }
+    fi
+  done
+  lock_file="${destination}.lock"; exec 8>>"$lock_file"; flock 8
+  if [ -s "$destination_key" ]; then
+    cmp -s "$source_key" "$destination_key" || {
+      flock -u 8; echo "agent-events: guarded identity key mismatch" >&2; exit 3; }
+  else
+    if [ -s "$destination" ]; then
+      flock -u 8; echo "agent-events: event destination has no identity key" >&2; exit 3
+    fi
+    old_umask=$(umask); umask 077; cp -- "$source_key" "$destination_key"; umask "$old_umask"
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    event_total=$((event_total + 1))
+    if [ -f "$destination" ] && grep -Fqx -- "$line" "$destination"; then
+      event_matches=$((event_matches + 1))
+    fi
+  done < "$source"
+  if [ "$event_matches" -ne 0 ] && [ "$event_matches" -ne "$event_total" ]; then
+    flock -u 8; echo "agent-events: partial guarded event import detected" >&2; exit 3
+  fi
+  if [ "$event_matches" -ne "$event_total" ]; then
+    tmp=$(mktemp "${destination}.import.XXXXXX")
+    { [ ! -f "$destination" ] || cat "$destination"; cat "$source"; } > "$tmp"
+    chmod 600 "$tmp"; mv -f -- "$tmp" "$destination"
+  fi
+  flock -u 8
+  if [ -n "$log_source" ]; then
+    while IFS= read -r -d '' file; do
+      [ -f "$file" ] && [ ! -L "$file" ] || {
+        echo "agent-events: unsafe guarded log file" >&2; exit 3; }
+      log_target="$log_final_dir/$(basename -- "$file")"
+      if [ -e "$log_target" ] || [ -L "$log_target" ]; then
+        [ -f "$log_target" ] && [ ! -L "$log_target" ] && cmp -s "$file" "$log_target" || {
+          echo "agent-events: guarded log collision" >&2; exit 3; }
+        rm -f -- "$file"
+      else
+        log_tmp=$(mktemp "$log_final_dir/.import.XXXXXX")
+        cp -- "$file" "$log_tmp"; chmod 600 "$log_tmp"; mv -- "$log_tmp" "$log_target"
+        rm -f -- "$file"
+      fi
+    done < <(find "$log_source" -mindepth 1 -maxdepth 1 -print0)
+  fi
+  rm -f -- "$receipt"
+  rm -f -- "$source" "${source}.lock" "$source_key"
+  [ -z "$log_source" ] || rmdir -- "$log_source"
+  echo "agent-events: imported guarded telemetry"
+}
+
+case "${1:-}" in
+  append) shift; append_event "$@" ;;
+  read) shift; read_events "$@" ;;
+  import-guarded) shift; import_guarded "$@" ;;
+  new-run-id)
+    [ "$#" -eq 1 ] || usage
+    token=$(random_hex 16) || { echo "agent-events: could not generate run id" >&2; exit 3; }
+    printf 'run-%s\n' "$token"
+    ;;
+  schema-version)
+    [ "$#" -eq 1 ] || usage
+    jq -cn --argjson schema_version "$SCHEMA_VERSION" --argjson routing_schema_version "$ROUTING_SCHEMA_VERSION" \
+      '{schema_version:$schema_version,routing_schema_version:$routing_schema_version}'
+    ;;
+  *) usage ;;
+esac

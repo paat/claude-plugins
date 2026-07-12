@@ -47,6 +47,7 @@ No web access — you rely on: (1) your training knowledge, (2) business founder
 - Include browser testing instructions for the business founder
 - Describe the customer experience impact
 - Save handoff to `.startup/handoffs/` following existing naming convention
+- Do not commit or edit `.startup/state.json`; the supervisor owns both operations.
 
 ### 5. Network Resilience
 - Set timeouts on HTTP calls (10s default, 30s max)

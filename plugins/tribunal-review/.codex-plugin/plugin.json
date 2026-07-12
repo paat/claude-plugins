@@ -1,14 +1,14 @@
 {
   "name": "tribunal-review",
-  "version": "0.18.1",
-  "description": "Multi-provider code review \u2014 Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with Opus arbitration",
+  "version": "0.18.2",
+  "description": "Multi-provider code review \u2014 Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with calling-context arbitration",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "Tribunal Review",
-    "shortDescription": "Multi-provider code review \u2014 Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with Opus arbitration",
-    "longDescription": "Multi-provider code review \u2014 Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with Opus arbitration",
+    "shortDescription": "Multi-provider code review \u2014 Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with calling-context arbitration",
+    "longDescription": "Multi-provider code review \u2014 Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with calling-context arbitration",
     "developerName": "Andre Paat",
     "category": "Development",
     "capabilities": [

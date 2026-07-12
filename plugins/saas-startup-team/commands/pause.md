@@ -49,5 +49,5 @@ HANDOFFS=$(ls .startup/handoffs/*.md 2>/dev/null | wc -l)
 ## Notes
 
 - `/pause` does not kill subagents. If you have an Agent running in the background, finish or abort it before walking away so the handoff isn't lost.
-- The auto-commit hook still runs on Writes during `/pause`; nothing is lost.
+- The artifact-only auto-commit hook still runs on supported durable documents during `/pause`; product changes remain supervisor-owned.
 - `/pause` is for the investor. The orchestrator yielding between `ScheduleWakeup` polls is handled automatically by the Stop hook's transcript-aware bypass — the investor does not need to `/pause` just to let Claude wait for a subagent.

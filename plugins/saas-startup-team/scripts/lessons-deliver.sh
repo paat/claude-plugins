@@ -218,14 +218,54 @@ case "$ACTION" in
     if grep -qE '^diff --git "' "$DIFF"; then
       echo "lessons-deliver: BLOCKED: quoted path in diff header (unsupported, fail closed)" >&2; exit 3
     fi
+    if ! awk '
+      /^diff --git / {
+        seen=1
+        if ($0 !~ /^diff --git a\/[^[:space:]]+ b\/[^[:space:]]+$/) bad=1
+      }
+      END { exit(seen && !bad ? 0 : 1) }
+    ' "$DIFF"; then
+      echo "lessons-deliver: BLOCKED: malformed or whitespace-bearing diff header" >&2; exit 3
+    fi
     # Changed paths from BOTH sides of each `diff --git a/<A> b/<B>` header — a rename
     # moves <A> (possibly out-of-tree) to <B>, so both must satisfy the allowlist.
     # Quoted headers were rejected above, so paths contain no spaces -> `[^ ]*` is exact.
     paths="$( { grep -E '^diff --git ' "$DIFF" | sed -E 's#^diff --git a/([^ ]*) b/.*#\1#'; \
                 grep -E '^diff --git ' "$DIFF" | sed -E 's#^diff --git a/[^ ]* b/##'; } | sort -u )"
     [ -n "$paths" ] || { echo "lessons-deliver: BLOCKED: no changed paths parsed from diff" >&2; exit 3; }
+    if awk '
+      function is_test(p) {
+        return p ~ /(^|\/)(__tests__|tests?|specs?|e2e)\// \
+          || p ~ /(^|[._-])(tests?|spec|e2e)\.[^/]+$/ \
+          || p ~ /(^|\/)(test_|spec_)[^/]+$/ \
+          || p ~ /(^|\/)[^/]+_(test|spec)\.[^/]+$/
+      }
+      /^diff --git / {
+        src=$3; dst=$4; sub(/^a\//,"",src); sub(/^b\//,"",dst); p=dst
+        if (src != dst && is_test(src)) found=1
+      }
+      /^deleted file mode / && is_test(p) { found=1 }
+      END { exit(found ? 0 : 1) }
+    ' "$DIFF"; then
+      echo "lessons-deliver: BLOCKED: autonomous deletion or removal-by-rename of a test file" >&2; exit 3
+    fi
+    removed_assertions=$(grep -E '^-[^-]' "$DIFF" \
+      | grep -E '(assert[_.(]|expect\(|describe\(|it\(|test\(|def test_|#\[test\])' \
+      | wc -l | tr -d ' ')
+    added_assertions=$(grep -E '^\+[^+]' "$DIFF" \
+      | grep -E '(assert[_.(]|expect\(|describe\(|it\(|test\(|def test_|#\[test\])' \
+      | wc -l | tr -d ' ')
+    if [ "$removed_assertions" -gt "$added_assertions" ]; then
+      echo "lessons-deliver: BLOCKED: autonomous assertion/test-count reduction" >&2; exit 3
+    fi
     while IFS= read -r p; do
       [ -n "$p" ] || continue
+      case "/$p/" in */../*|*/./*|*//*)
+        echo "lessons-deliver: BLOCKED: unsafe path in diff header: $p" >&2; exit 3 ;;
+      esac
+      case "$p" in /*|*\\*)
+        echo "lessons-deliver: BLOCKED: unsafe path in diff header: $p" >&2; exit 3 ;;
+      esac
       # Allowlist: anywhere under plugins/ OR the root marketplace manifest.
       case "$p" in
         plugins/*) : ;;
@@ -237,6 +277,10 @@ case "$ACTION" in
         plugins/saas-startup-team/scripts/lessons-deliver.sh \
         | plugins/saas-startup-team/scripts/lesson-*.sh \
         | plugins/saas-startup-team/scripts/pii-gate.sh \
+        | plugins/saas-startup-team/scripts/supervisor-commit.sh \
+        | plugins/saas-startup-team/scripts/delivery-mutation-guard.sh \
+        | plugins/saas-startup-team/scripts/mutation-auth-token.sh \
+        | plugins/saas-startup-team/references/workflows/mutation-ownership.md \
         | plugins/saas-startup-team/tests/run-tests.sh \
         | plugins/saas-startup-team/commands/lessons-*.md)
           echo "lessons-deliver: BLOCKED: self-mod of safety infra: $p" >&2; exit 3 ;;

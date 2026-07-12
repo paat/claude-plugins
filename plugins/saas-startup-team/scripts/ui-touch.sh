@@ -6,13 +6,17 @@
 # Prints "ui" or "no-ui" (exit 0). Usage error → exit 2.
 # Fails toward "ui" only on real signal; empty input prints "no-ui".
 set -euo pipefail
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+export GIT_CONFIG_NOSYSTEM=1
+unset GIT_EXTERNAL_DIFF
 
 usage() { echo "usage: ui-touch.sh --range <git-range> | --files (paths on stdin)" >&2; exit 2; }
 
 case "${1:-}" in
   --range) range="${2:-}"; [ -n "$range" ] || usage
            # a failing git range must not skip the review gate: classify ui
-           files=$(git diff --name-only "$range" 2>/dev/null) \
+           files=$(git -c core.fsmonitor=false diff --no-ext-diff --no-textconv --name-only "$range" 2>/dev/null) \
              || { echo "ui-touch: git diff failed for '$range' — classifying ui (fail-closed)" >&2; echo ui; exit 0; } ;;
   --files) files=$(cat) ;;
   *) usage ;;

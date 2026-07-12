@@ -5,7 +5,7 @@ test_ui_gate() {
   local script="$PLUGIN_ROOT/scripts/ui-touch.sh"
   local leg="$PLUGIN_ROOT/skills/ux-tester/references/design-review-leg.md"
   local policy="$PLUGIN_ROOT/templates/merge-policy.md"
-  local out ec
+  local ec
 
   assert_file_exists "UG0: ui-touch.sh present" "$script"
 
@@ -25,9 +25,9 @@ test_ui_gate() {
   assert_equals "UG7: docs-only → no-ui"     "$(printf 'README.md\nsrc/util.go\n' | bash "$script" --files)" "no-ui"
 
   # usage errors → exit 2
-  ec=0; out=$(bash "$script" 2>/dev/null) || ec=$?
+  ec=0; bash "$script" >/dev/null 2>&1 || ec=$?
   assert_exit_code "UG8: no args → exit 2" "$ec" 2
-  ec=0; out=$(bash "$script" --range 2>/dev/null) || ec=$?
+  ec=0; bash "$script" --range >/dev/null 2>&1 || ec=$?
   assert_exit_code "UG8b: --range without value → exit 2" "$ec" 2
 
   # design-review-leg.md: verdict block contract + both sections
@@ -41,9 +41,9 @@ test_ui_gate() {
   assert_file_contains "UG14: merge-policy requires Design-review PASS" "$policy" "## Design-review: PASS"
 
   # commands reference the leg + classifier
-  assert_file_contains "UG15: improve.md runs ui-touch.sh" "$PLUGIN_ROOT/commands/improve.md" "scripts/ui-touch.sh"
-  assert_file_contains "UG16: improve.md references the leg" "$PLUGIN_ROOT/commands/improve.md" "design-review-leg.md"
-  assert_file_contains "UG17: maintain.md references the leg" "$PLUGIN_ROOT/commands/maintain.md" "design-review-leg.md"
-  assert_file_contains "UG18: goal-deliver.md references the leg" "$PLUGIN_ROOT/commands/goal-deliver.md" "design-review-leg.md"
+  assert_file_contains "UG15: improve playbook runs ui-touch.sh" "$PLUGIN_ROOT/references/workflows/improve.md" "scripts/ui-touch.sh"
+  assert_file_contains "UG16: improve playbook references the leg" "$PLUGIN_ROOT/references/workflows/improve.md" "design-review-leg.md"
+  assert_file_contains "UG17: maintain playbook references the leg" "$PLUGIN_ROOT/references/workflows/maintain.md" "design-review-leg.md"
+  assert_file_contains "UG18: goal playbook references the leg" "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "design-review-leg.md"
 }
 test_ui_gate

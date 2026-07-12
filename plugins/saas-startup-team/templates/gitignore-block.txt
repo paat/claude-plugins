@@ -9,6 +9,16 @@
 .startup/go-live/
 .startup/test-data/
 .startup/.idle-*
+.startup/leases/
+.startup/runs/
+.startup/evaluation/
+.startup/maintain/
+.startup/maintain-loop/
+.startup/operate/
+.startup/demand/
+.startup/lessons-deliver/
+.startup/memory-gc/
+.startup/*.probe-findings
 
 # Dependencies & package stores (NEVER commit — an in-repo pnpm store can be GBs and a single
 # prebuilt binary >100 MB makes the repo unpushable to GitHub, recoverable only by history rewrite)

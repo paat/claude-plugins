@@ -29,9 +29,10 @@ You have two complementary testing tracks. Use both on every audit.
 
 **Delegate the mechanical legs, keep the judgment.** For judgment-free browser
 work — logging in, navigating to a target state, filling forms with given data,
-resizing, extracting computed styles — spawn the `browser-operator` subagent
-**blocking** with a self-contained errand (enumerate the exact actions; it returns
-raw state, never a verdict). Spawn `browser-operator-pro` instead when you judge
+resizing, extracting computed styles — spawn with
+`subagent_type: "saas-startup-team:browser-operator"` **blocking** and a
+self-contained errand (enumerate the exact actions; it returns raw state, never a
+verdict). Use `subagent_type: "saas-startup-team:browser-operator-pro"` when you judge
 the leg fiddly (multi-page wizard, ambiguous snapshot). While an operator leg is
 in flight, do not touch the browser yourself. You still drive the browser directly
 for every capture you must *judge*: coherence-pass screenshots, the in-flight

@@ -103,7 +103,12 @@ for marker in "$MARKER_DIR"/*-last-failure.txt; do
 done
 shopt -u nullglob
 
-if [ -x "$CUSTOM_CHECKS" ]; then
+PROBE_FINDINGS="${STATE_FILE:-.startup/monitor-state.json}.probe-findings"
+if [ -f "$PROBE_FINDINGS" ] && find "$PROBE_FINDINGS" -mmin -60 -print -quit | grep -q .; then
+  cat "$PROBE_FINDINGS" >> "$FINDINGS"
+  rm -f "$PROBE_FINDINGS"
+elif [ -x "$CUSTOM_CHECKS" ]; then
+  rm -f "$PROBE_FINDINGS"
   set +e
   "$CUSTOM_CHECKS" >> "$FINDINGS"; cc_ec=$?
   set -e
@@ -114,6 +119,9 @@ if [ -x "$CUSTOM_CHECKS" ]; then
 fi
 ```
 
+> The model-free workflow probe runs custom checks once with the same monitor window and
+> stores non-empty output in `${STATE_FILE}.probe-findings`; this block consumes that file
+> exactly once. A direct interactive run without a fresh probe executes the script here.
 > The custom-checks script writes its **own** findings JSONL to stdout (appended straight into
 > `$FINDINGS`) and may write diagnostics to stderr. A non-zero exit still keeps the findings it
 > already emitted and adds one `ops:monitor-checks:failure` tracking finding.
@@ -156,8 +164,9 @@ Unconfigured channel is a clean no-op.
 
 ```bash
 # Claude Code example:
-# 0 2 * * *  cd /path/to/product && claude -p "/monitor-nightly" \
+# 0 2 * * *  cd <product-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" monitor-nightly; then claude -p "/monitor-nightly" \
 #   --allowedTools "Bash,Read,Write,Grep,Glob" >> /var/log/monitor-nightly.log 2>&1
+#   else test $? -eq 3; fi
 # Codex example:
 # 0 2 * * *  cd /path/to/product && <codex command for this plugin> "/monitor-nightly" \
 #   >> /var/log/monitor-nightly.log 2>&1
@@ -177,9 +186,10 @@ a `bash <script>` call), so you can grant just the engine path and drop the full
 
 ```bash
 # Claude Code example:
-# 0 2 * * *  cd /path/to/product && claude -p "/monitor-nightly" --allowedTools \
+# 0 2 * * *  cd <product-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" monitor-nightly; then claude -p "/monitor-nightly" --allowedTools \
 #   'Bash($CLAUDE_PLUGIN_ROOT/scripts/monitor-dedup.sh:*),Bash(flock:*),Bash(mkdir:*),Bash(jq:*),Bash(grep:*),Bash(sed:*),Bash(tr:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(basename:*),Bash(dirname:*),Bash(date:*),Read,Write,Grep,Glob' \
 #   >> /var/log/monitor-nightly.log 2>&1
+#   else test $? -eq 3; fi
 ```
 
 Add `Bash(<your custom_checks path>:*)` if a `custom_checks` script is configured. A successful

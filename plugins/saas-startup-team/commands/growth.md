@@ -154,7 +154,8 @@ Before dispatching, claim the growth initialization lease:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --acquire "growth:init:${PWD}" --state-dir .startup/leases --owner "growth:init:$$" --ttl-seconds 1800
+  --acquire "growth:init:${PWD}" --state-dir .startup/leases \
+  --owner-file .startup/leases/.owners/growth-init.owner --ttl-seconds 1800
 ```
 
 If no explicit channel or strategy direction was provided, run the market scout first. It
@@ -166,10 +167,8 @@ discovery when browsing/source data is unavailable. Use the top candidate as one
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/market-scout.sh"
 ```
 
-Spawn business founder via Task tool with `subagent_type: "general-purpose"`:
+Spawn business founder via Task tool with `subagent_type: "saas-startup-team:business-founder"`:
 
-> Read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder.md` for your identity and tools.
->
 > **New task: Write growth initialization documents.**
 >
 > Read your market research from `docs/research/` and the business brief from `docs/business/brief.md`.
@@ -191,10 +190,9 @@ Spawn business founder via Task tool with `subagent_type: "general-purpose"`:
 
 ### 2d: Growth agent drafts outreach templates
 
-After business founder completes, spawn growth agent via Task tool:
+After business founder completes, spawn growth agent via Task tool with
+`subagent_type: "saas-startup-team:growth-hacker"`:
 
-> Read `${CLAUDE_PLUGIN_ROOT}/agents/growth-hacker.md` for your identity and tools.
->
 > **New task: Draft lifecycle-gated growth assets.**
 >
 > Read `docs/growth/product-brief.md`, `docs/growth/strategy.md`, and `docs/growth/brand/approved-voice.md`.
@@ -211,6 +209,19 @@ After business founder completes, spawn growth agent via Task tool:
 > If lifecycle is `prelive`, prepend "STAGED - DO NOT CONTACT UNTIL GO-LIVE GATES PASS" to every outreach/template file and do not build/send lead batches. Lead-source research is allowed only as staged source notes in `docs/growth/leads/`.
 >
 > After writing, message the team lead: "Lifecycle-gated growth assets ready."
+
+After both initialization phases return and their artifacts are verified, heartbeat and
+release the initialization lease. Run the same release on every handled initialization
+failure before reporting it:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
+  --heartbeat "growth:init:${PWD}" --state-dir .startup/leases \
+  --owner-file .startup/leases/.owners/growth-init.owner
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
+  --release "growth:init:${PWD}" --state-dir .startup/leases \
+  --owner-file .startup/leases/.owners/growth-init.owner
+```
 
 ## Step 3: Update State
 
@@ -233,21 +244,24 @@ Update `.startup/state.json` — READ it first, then add growth fields AND overw
 Claim a lease for the channel/objective before dispatching:
 
 ```bash
+channel_slug="$(printf '%s' "${channel_or_objective}" | tr '[:upper:] /:' '[:lower:]---' | tr -cd 'a-z0-9._-' | cut -c1-48)"
+[ -n "$channel_slug" ] || channel_slug=work
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --acquire "growth:${channel_or_objective}" --state-dir .startup/leases --owner "growth:$$" --ttl-seconds 1800
+  --acquire "growth:${channel_or_objective}" --state-dir .startup/leases \
+  --owner-file ".startup/leases/.owners/growth-${channel_slug}.owner" --ttl-seconds 1800
 ```
 
 If a live owner exists, read its heartbeat/logs and continue from existing artifacts
 instead of starting over.
+Heartbeat after each growth phase and release with the same owner file on success or
+handled failure.
 
 **Choose the lightest workflow that fits:**
 
 **Option A — Direct execution (default for known channels):**
 
-When the investor gives a clear directive ("do Reddit marketing", "set up Google Ads"), skip the brief pipeline and dispatch the growth agent directly with inline context:
+When the investor gives a clear directive ("do Reddit marketing", "set up Google Ads"), skip the brief pipeline and dispatch the growth agent directly with `subagent_type: "saas-startup-team:growth-hacker"` and inline context:
 
-> Read `${CLAUDE_PLUGIN_ROOT}/agents/growth-hacker.md` for your identity and tools.
->
 > **New task: [what the investor asked for]**
 >
 > Read `docs/growth/product-brief.md` for product context.
@@ -274,7 +288,7 @@ When the investor gives a clear directive ("do Reddit marketing", "set up Google
 
 Use this ONLY when strategy input is genuinely needed — entering a new phase, pivoting channels based on metrics, or the investor asks for a strategic assessment before execution:
 
-> Read `${CLAUDE_PLUGIN_ROOT}/agents/business-founder.md` for your identity and tools.
+> Dispatch with `subagent_type: "saas-startup-team:business-founder"`.
 >
 > **New task: Write growth brief for the growth hacker.**
 >
@@ -310,7 +324,7 @@ When a growth report contains a `## Google Ads request` block, the growth hacker
        > .startup/state.json.tmp && mv .startup/state.json.tmp .startup/state.json
    fi
    ```
-3. Spawn the strategist with the `Task` tool using `subagent_type: "ads-strategist"` (the registered type from `google-ads-strategist` — NOT `general-purpose`+read-md, which would resolve `${CLAUDE_PLUGIN_ROOT}` to the saas plugin). Pass the request block plus `docs/business/brief.md`, `docs/growth/product-brief.md`, `docs/growth/strategy.md`, `docs/growth/brand/approved-voice.md`, and `docs/growth/channels/ads.md`, with the instruction: create `docs/ads/<slug>/brief.md` from this context if absent, run the pre-launch loop, verify in the browser, and create the campaign **PAUSED**. Enablement is gated by the envelope (see Spend Envelope): pass `enable_authorized: true` only when `envelope_active` is true, `ads` is in `channels`, and the campaign forecast is within `daily_cap_eur`/`monthly_cap_eur` — then the strategist may take the campaign PAUSED→live. Otherwise it stays PAUSED for the owner to enable.
+3. Spawn the strategist with the `Task` tool using `subagent_type: "google-ads-strategist:ads-strategist"`. Pass the request block plus `docs/business/brief.md`, `docs/growth/product-brief.md`, `docs/growth/strategy.md`, `docs/growth/brand/approved-voice.md`, and `docs/growth/channels/ads.md`, with the instruction: create `docs/ads/<slug>/brief.md` from this context if absent, run the pre-launch loop, verify in the browser, and create the campaign **PAUSED**. Enablement is gated by the envelope (see Spend Envelope): pass `enable_authorized: true` only when `envelope_active` is true, `ads` is in `channels`, and the campaign forecast is within `daily_cap_eur`/`monthly_cap_eur` — then the strategist may take the campaign PAUSED→live. Otherwise it stays PAUSED for the owner to enable.
 4. **If the `ads-strategist` agent type is unknown**, the `google-ads-strategist` plugin is not installed. Stop and tell the investor to install it (`/plugin install google-ads-strategist`); do NOT fall back to building the campaign inline.
 5. After the strategist returns, update the `docs/growth/channels/ads.md` index entry for the slug (status: created-paused), then continue the growth loop.
 

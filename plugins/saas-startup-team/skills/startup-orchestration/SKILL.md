@@ -39,8 +39,9 @@ Business Founder writes solution signoff → GO LIVE
 ### 1b. Role Lifecycle - Fresh Context, Right-Sized Tasks (CRITICAL)
 
 Run each founder assignment as a fresh role phase.
-- **Claude Code:** dispatch a one-shot worker with the Task/Agent tool (`subagent_type: "general-purpose"`). Never use `TeamCreate` — persistent teammates cannot be dismissed and accumulate as zombie processes.
-- **Codex:** run a fresh role phase in the current session, Codex-supported multi-agent tooling, or `codex exec` when a separate worker is useful.
+- **Claude Code:** dispatch a one-shot worker with the Task/Agent tool using the exact registered `saas-startup-team:<agent-name>` type. Never use `general-purpose` or `TeamCreate`.
+- **Codex:** run a fresh role phase in the current session, Codex-supported multi-agent
+  tooling, or `scripts/codex-run-role.sh` with an explicit profile and task file.
 
 Every role phase starts from the relevant skill, `.startup/state.json`, the current handoff, and any named project docs. Do not rely on conversational memory from prior phases. The handoff files carry state.
 
@@ -59,8 +60,8 @@ Every role phase starts from the relevant skill, `.startup/state.json`, the curr
 ### 1c. Choosing the implementation engine
 
 `active_role` stays `tech-founder` (or `tech-founder-maintain`) regardless of which engine
-backs it. **Codex (GPT-5.6 Sol, pinned effort — see `scripts/codex-implement.sh`) is the
-default implementation engine**; route to Claude only when the work genuinely needs its
+backs it. **The profile-pinned Codex launcher is the default implementation engine**;
+route to Claude only when the work genuinely needs its
 strengths (frontend/UX, architecture, or surgical multi-file edits).
 
 - **Claude Code surface:** pick the engine per handoff content — Codex for spec-complete,
@@ -68,8 +69,9 @@ strengths (frontend/UX, architecture, or surgical multi-file edits).
   or surgical-edit strengths. Spawn the tech founder via the Task/Agent tool, reading
   `agents/tech-founder-codex*.md` or `agents/tech-founder-claude*.md` accordingly.
 - **Codex surface:** run the tech-founder role as a Codex role phase using the `tech-founder`
-  skill, direct Codex implementation, or `codex exec` / `scripts/codex-implement.sh` when a
-  separate worker is useful. Do not invoke Claude Code primitives; the generated Codex workflow
+  skill or direct Codex implementation. Use `scripts/codex-run-role.sh` (or the
+  `scripts/codex-implement.sh` compatibility wrapper) with an explicit semantic profile
+  for a separate worker. Do not invoke Claude Code primitives; the generated Codex workflow
   skill supplies the Codex replacements.
 
 **Architect pass (Codex-routed, non-trivial work).** Before spawning the Codex engine for a

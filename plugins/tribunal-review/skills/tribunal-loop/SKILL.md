@@ -7,8 +7,8 @@ description: "Use for multi-provider code review with repo-walking reviewers, di
 
 Multi-provider code review with inline arbitration. By default the panel is Codex
 (repo-walking), DeepSeek through OpenCode Go (repo-walking), and Claude Code
-(diff-only). Gemini, GLM, and Qwen are opt-in. Opus arbitrates inline and is the
-final authority.
+(diff-only). Gemini, GLM, and Qwen are opt-in. The calling context arbitrates
+inline and makes the final decision.
 
 This skill is intentionally orchestration-only. Provider shell mechanics live in
 the plugin `scripts/` directory:
@@ -23,8 +23,9 @@ the plugin `scripts/` directory:
 
 ## Provider Policy
 
-- Codex: on by default; disable with `TRIBUNAL_CODEX=off`; model override
-  `TRIBUNAL_CODEX_MODEL`; repo-walking read-only.
+- Codex: on by default; disable with `TRIBUNAL_CODEX=off`; defaults to
+  `gpt-5.6-sol` at `medium` effort; override with `TRIBUNAL_CODEX_MODEL` and
+  `TRIBUNAL_CODEX_EFFORT`; repo-walking read-only.
 - DeepSeek: on by default through OpenCode; disable with
   `TRIBUNAL_DEEPSEEK=off`; model override `TRIBUNAL_DEEPSEEK_MODEL`; repo-walking
   read-only.
@@ -86,7 +87,11 @@ provider failure and continue with remaining non-disabled providers.
 
 ## Step 3: Inline Arbitration
 
-Arbitrate inline. Do not spawn another agent.
+Arbitrate inline in the current calling context. Do not spawn another agent.
+`TRIBUNAL_CALLER_PROVIDER`, `TRIBUNAL_CALLER_MODEL`, and
+`TRIBUNAL_CALLER_EFFORT` may identify that context when supplied. They are
+informational metadata, not routing controls. Do not infer missing values;
+standalone runs may leave all three unset and must continue normally.
 
 Also read `reachability.md` from the repo root if present. It is supporting
 context only; it never lowers the evidence bar for a blocking finding.
@@ -175,6 +180,6 @@ critical/high finding must include the `blocking_proof` block from 3b-0).
 
 ## Trust Hierarchy
 
-Opus is final authority. Codex, Gemini, GLM, DeepSeek, Qwen, and Claude are equal
-advisory peers. Verify reviewer claims against the diff and reachable code
-before accepting them.
+The calling context makes the final decision. Codex, Gemini, GLM, DeepSeek,
+Qwen, and Claude are equal advisory peers. Verify reviewer claims against the
+diff and reachable code before accepting them.

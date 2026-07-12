@@ -839,7 +839,7 @@ test_cross_file_consistency() {
   # subagents. Regression guard for v0.26.0 — stops enforce-delegation from
   # firing on stale team-lead state left by a prior /startup session.
   assert_file_contains "H12: /improve resets active_role" \
-    "$PLUGIN_ROOT/commands/improve.md" '.active_role = "business-founder-maintain"'
+    "$PLUGIN_ROOT/references/workflows/improve.md" '.active_role = "business-founder-maintain"'
   assert_file_contains "H13: /lawyer resets active_role" \
     "$PLUGIN_ROOT/commands/lawyer.md" '.active_role = "lawyer"'
   assert_file_contains "H14: /ux-test resets active_role" \
@@ -1020,7 +1020,7 @@ test_plugin_issues() {
 
 test_maintain() {
   echo -e "\n${CYAN}== /maintain command ==${NC}"
-  local cmd="$PLUGIN_ROOT/commands/maintain.md"
+  local cmd="$PLUGIN_ROOT/references/workflows/maintain.md"
   local codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-workflow/SKILL.md"
   assert_file_exists "M1: maintain.md exists" "$cmd"
   # Frontmatter
@@ -1064,7 +1064,7 @@ test_maintain() {
   assert_file_contains "M26: dedicated worktree"        "$cmd" "worktree add --detach"
   assert_file_contains "M27: worktree path convention"  "$cmd" ".worktrees/maintain"
   # Fast no-op must not strand cached deliverable issues.
-  assert_file_contains "M28: cached deliverable gate" "$cmd" "cached_deliverable"
+  assert_file_contains "M28: cached resumable gate" "$cmd" "cached_resumable"
   assert_file_contains "M29: cached agent-fixable enters queue" "$cmd" "deliverable queue input"
   assert_file_contains "M30: cache hit still feeds queue" "$cmd" "A cache hit supplies the cached verdict"
   # Claude /maintain recurrence + tribunal gates.
@@ -1476,74 +1476,99 @@ SH
 
 test_maintain_loop() {
   echo -e "\n${CYAN}== /maintain-loop command ==${NC}"
-  local cmd="$PLUGIN_ROOT/commands/maintain-loop.md"
+  local cmd="$PLUGIN_ROOT/references/workflows/maintain-loop.md"
   local codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-loop-workflow/SKILL.md"
 
   assert_file_exists "ML1: maintain-loop.md exists" "$cmd"
   assert_file_contains "ML2: name frontmatter" "$cmd" "name: maintain-loop"
   assert_file_contains "ML3: user_invocable" "$cmd" "user_invocable: true"
-  assert_file_contains "ML4: fresh Codex context" "$cmd" "fresh Codex context"
-  assert_file_contains "ML5: codex ephemeral worker" "$cmd" "codex exec --ephemeral"
-  assert_file_contains "ML5a: worker shell preflight" "$cmd" "codex:worker-shell"
-  assert_file_contains "ML5b: explicit Codex sandbox" "$cmd" "CODEX_SANDBOX"
-  assert_file_contains "ML5c: worker passes sandbox mode" "$cmd" "codex exec --ephemeral -s"
-  assert_file_contains "ML5d: danger mode requires container" "$cmd" "container isolation is detected"
-  assert_file_contains "ML5e: default sandbox is workspace-write" "$cmd" 'CODEX_SANDBOX:-workspace-write'
-  assert_file_contains "ML6: one issue per worker" "$cmd" "exactly one issue"
-  assert_file_contains "ML7: dedicated worktree" "$cmd" ".worktrees/maintain-loop"
-  assert_file_contains "ML8: maintain-loop default has no issue-count cap" "$cmd" "default unset, meaning no"
-  assert_file_not_contains "ML8b: maintain-loop no longer defaults max-issues to one" "$cmd" 'default `1`'
-  assert_file_contains "ML8c: maintain-loop uses queue builder" "$cmd" "maintain-queue.sh"
-  assert_file_contains "ML8c2: maintain-loop checks queue builder exit" "$cmd" "if ! QUEUE_JSON="
-  assert_file_contains "ML8d: maintain-loop fails unexplained empty queue" "$cmd" "fails loudly"
-  assert_file_contains "ML9: max-merges cap" "$cmd" '--max-merges N`: cap issue and deploy-fix merges this pass'
-  assert_file_contains "ML9b: max-merges stop rule" "$cmd" 'the `--max-merges` cap is reached'
-  assert_file_contains "ML9c: max-merges appears in usage" "$cmd" "Usage: /maintain-loop .*--max-merges N"
-  assert_file_contains "ML9c2: max-merges initialized" "$cmd" 'MAX_MERGES="${MAX_MERGES:-5}"'
-  assert_file_contains "ML9c3: merges-used initialized" "$cmd" 'MERGES_USED="${MERGES_USED:-0}"'
-  assert_file_contains "ML9c4: supervisor reads worker artifact from worktree" "$cmd" 'ARTIFACT="$WT/.startup/maintain-loop/runs/$RUN_ID/issue-$N.md"'
-  assert_file_contains "ML9c5: supervisor increments merge budget" "$cmd" 'MERGES_USED=$((MERGES_USED + merge_count))'
-  assert_file_contains "ML9c6: malformed merge_count fails closed" "$cmd" "malformed merge_count"
-  assert_file_contains "ML9c7: max-issues initialized" "$cmd" 'ISSUES_DELIVERED="${ISSUES_DELIVERED:-0}"'
-  assert_file_contains "ML9c8: max-issues enforced in loop" "$cmd" 'ISSUES_DELIVERED=$((ISSUES_DELIVERED + 1))'
-  assert_file_contains "ML9c9: once sets one-issue cap" "$cmd" 'MAX_ISSUES=1'
-  assert_file_contains "ML9c10: run id initialized" "$cmd" 'RUN_ID="${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"'
-  assert_file_contains "ML9c11: over-budget artifact fails closed" "$cmd" "over-budget merge_count"
-  assert_file_contains "ML9c12: rollback overage exception" "$cmd" 'overage_reason" != "rollback"'
-  assert_file_contains "ML9c13: rollback overage capped to one merge" "$cmd" 'REMAINING_MERGES + 1'
-  assert_file_contains "ML9d: supervisor passes remaining merge budget" "$cmd" "remaining merge budget"
-  assert_file_contains "ML9e: worker stops before budget overflow" "$cmd" "blocked:merge-budget-exhausted"
-  assert_file_contains "ML9f: artifact reports merge count" "$cmd" "merge_count:<N>"
-  assert_file_contains "ML9g: artifact reports merged PRs" "$cmd" "merged_prs:<list>"
-  assert_file_contains "ML9h: prompt generated after budget calculation" "$cmd" "Generate/rewrite"
-  assert_file_contains "ML9i: worker tracks local merge count" "$cmd" "worker_merges_used"
-  assert_file_contains "ML9j: rollback may exceed budget to restore production" "$cmd" "merge_budget_overage:rollback"
-  assert_file_contains "ML9k: rollback overage halts pass" "$cmd" "rollback overage was recorded"
-  assert_file_contains "ML9l: budget-exhausted regression rolls back" "$cmd" "no forward merge budget remains"
-  assert_file_contains "ML9m: strict artifact markers" "$cmd" "markers must start at column 1"
-  assert_file_contains "ML10: --once is one-issue mode" "$cmd" '--once`: deliver at most one issue'
-  assert_file_contains "ML11: worker prompt carries assigned worktree" "$cmd" "assigned worktree path"
-  assert_file_contains "ML12: worker commands cd into worktree" "$cmd" 'cd <assigned worktree> &&'
-  assert_file_contains "ML13: supervisor launches from worktree" "$cmd" '(cd "$WT" && codex exec'
-  assert_file_contains "ML14: worker verifies actual cwd" "$cmd" "git rev-parse --show-toplevel"
-  assert_file_contains "ML15: closure audit runtime resolver" "$cmd" "Resolve and run the closure audit in the worker at execution time"
-  assert_file_contains "ML15b: closure audit searches marketplace-agnostic cache" "$cmd" "saas-startup-team/.*/scripts/issue-closure-audit\\.sh"
-  assert_file_contains "ML15c: closure audit compares numeric version keys" "$cmd" "version_key"
-  assert_file_not_contains "ML15d: closure audit does not hardcode marketplace" "$cmd" "paat-plugins/saas-startup-team"
-  assert_file_not_contains "ML15e: closure audit does not bake Claude plugin root path" "$cmd" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/issue-closure-audit.sh" --pr "<pr url>"'
-  assert_file_contains "ML16: Playwright acceptance QA" "$cmd" "Playwright acceptance QA"
-  assert_file_contains "ML17: QA not-applicable marker" "$cmd" "Business-founder Playwright QA: not applicable"
-  assert_file_contains "ML18: closing tribunal loop" "$cmd" "tribunal-review:closing-tribunal-loop"
-  assert_file_contains "ML19: review-fix cycles" "$cmd" "review/fix"
-  assert_file_contains "ML20: closure audit" "$cmd" "issue-closure-audit.sh"
-  assert_file_contains "ML21: squash merge" "$cmd" "gh pr merge"
-  assert_file_contains "ML22: deploy watch via poll-gate" "$cmd" "poll-gate.sh --run"
-  assert_file_contains "ML23: live Playwright verification" "$cmd" "live Playwright"
-  assert_file_contains "ML24: deploy and live required" "$cmd" "deploy green, live Playwright verification passed"
-  assert_file_contains "ML25: not fixed without live URL" "$cmd" "do not report it as live working"
-  assert_file_exists "ML26: Codex maintain-loop workflow exists" "$codex_cmd"
-  assert_file_contains "ML27: Codex workflow aliases command" "$codex_cmd" "/maintain-loop"
-  assert_file_contains "ML28: Codex workflow hard gates" "$codex_cmd" "Codex Maintain Hard Gates"
+  assert_file_contains "ML4: worker is fresh tech-founder" "$cmd" '--role tech-founder --profile "$PROFILE"'
+  assert_file_not_contains "ML5: no composite maintain-loop supervisor launch" "$cmd" '--role maintain-loop-supervisor'
+  assert_file_contains "ML6: supervisor is sole delivery mutation owner" "$cmd" "only delivery-state mutation owner"
+  assert_file_contains "ML7: worker edits source and tests only" "$cmd" "task-required product source and tests"
+  assert_file_contains "ML8: worker cannot stage or commit" "$cmd" "must not stage or commit"
+  assert_file_contains "ML9: worker cannot mutate GitHub or deployment" "$cmd" "push, open or edit a PR, merge, deploy, or"
+  assert_file_contains "ML10: supervisor never patches source" "$cmd" "supervisor never patches product source itself"
+  assert_file_contains "ML11: one writer at a time" "$cmd" "Only one source writer may run at a time"
+  assert_file_contains "ML12: browser stays flattened on Codex" "$cmd" "browser work stays flattened"
+  assert_file_contains "ML13: source fixes use fresh tech-founder" "$cmd" "tech-founder attempt, then repeats containment"
+  assert_file_contains "ML14: worker shell preflight" "$cmd" "codex:worker-shell"
+  assert_file_contains "ML15: default branch is resolved, not assumed" "$cmd" "default-branch.sh"
+  assert_file_contains "ML16: dedicated worktree" "$cmd" ".worktrees/maintain-loop"
+  assert_file_contains "ML17: run id initialized by event library" "$cmd" 'agent-events.sh" new-run-id'
+  assert_file_contains "ML18: pass lease acquired" "$cmd" "--acquire maintain-loop:pass"
+  assert_file_contains "ML19: worktree lease acquired" "$cmd" '--acquire "$WT_KEY"'
+  assert_file_contains "ML20: pass owner persists" "$cmd" 'PASS_OWNER="$LEASE_DIR/.owners/maintain-loop-pass-$RUN_ID.owner"'
+  assert_file_contains "ML21: worktree owner persists" "$cmd" 'WT_OWNER="$LEASE_DIR/.owners/maintain-loop-worktree-$RUN_ID.owner"'
+  assert_file_contains "ML22: lease guardian crosses shell PIDs" "$cmd" 'lease-guardian.sh" start'
+  assert_file_contains "ML23: heartbeat failure is fail-closed" "$cmd" "HEARTBEAT_FAILED"
+  assert_file_contains "ML24: guardian state persists beyond setup shell" "$cmd" 'GUARDIAN_PID_FILE='
+  assert_file_contains "ML25: one-shot shell traps are not trusted" "$cmd" 'Never rely on shell variables or traps surviving a Bash tool call'
+  assert_file_contains "ML26: worktree lease released" "$cmd" '--release "$WT_KEY"'
+  assert_file_contains "ML27: pass lease released" "$cmd" "--release maintain-loop:pass"
+  assert_file_contains "ML28: stale replacement requires reason" "$cmd" "--replace-stale --reason"
+  assert_file_contains "ML29: maintain-loop uses queue builder" "$cmd" "maintain-queue.sh"
+  assert_file_contains "ML30: unexplained empty queue fails" "$cmd" "otherwise fail"
+  assert_file_contains "ML31: autonomous semantic router" "$cmd" "delivery-route.sh classify --mode autonomous"
+  assert_file_contains "ML32: autonomous light rejects UI" "$cmd" 'requires `ui_touch=false`'
+  assert_file_contains "ML33: one task file per attempt" "$cmd" "issue-<N>-attempt-<A>.md"
+  assert_file_contains "ML34: task text excluded from events" "$cmd" "Do not put issue text or the prompt in events"
+  assert_file_contains "ML35: supervisor launches from worktree" "$cmd" '(cd "$WT" && env SAAS_RUN_ID='
+  assert_file_contains "ML36: writer sandbox is fixed workspace-write" "$cmd" 'CODEX_SANDBOX=workspace-write'
+  assert_file_not_contains "ML37: no direct unpinned Codex launch" "$cmd" 'codex exec'
+  assert_file_contains "ML38: supervisor checks worker HEAD boundary" "$cmd" "HEAD, branch, index, refs"
+  assert_file_contains "ML39: worker-authored commits rejected" "$cmd" "all worker-authored commits"
+  assert_file_contains "ML40: source-free success rejected" "$cmd" "source-free"
+  assert_file_contains "ML41: only isolated supervisor path stages" "$cmd" 'only `supervisor-commit.sh` stages the accepted candidate'
+  assert_file_contains "ML42: working-tree post-diff containment" "$cmd" 'check-diff --base "$BASE_SHA"'
+  assert_file_not_contains "ML42b: containment does not stage on the host" "$cmd" '--base "$BASE_SHA" --cached'
+  assert_file_contains "ML42c: source writer opens an exact mutation guard" "$cmd" '--snapshot "$ROLE_GUARD"'
+  assert_file_contains "ML42d: source writer guard is verified after exit" "$cmd" '--verify "$ROLE_GUARD"'
+  assert_file_contains "ML43: light continuation needs non-UI light diff" "$cmd" 'and `ui_touch=false`'
+  assert_file_contains "ML44: escalation artifact is primary and attempt-specific" "$cmd" 'escalations/<RUN_ID>/issue-<N>-attempt-<A>.json'
+  assert_file_contains "ML45: escalation artifact is outside disposable worktree" "$cmd" "never placed in or deleted with the disposable worktree"
+  assert_file_contains "ML46: supervisor writes escalation artifact" "$cmd" "supervisor atomically writes"
+  assert_file_contains "ML47: escalation verifies PR cleanup" "$cmd" "open_pr=false"
+  assert_file_contains "ML48: escalation verifies remote cleanup" "$cmd" "remote_branch=false"
+  assert_file_contains "ML49: escalation verifies base reset" "$cmd" "head_at_base=true"
+  assert_file_contains "ML50: escalation verifies clean worktree" "$cmd" "worktree_clean=true"
+  assert_file_contains "ML51: missing escalation evidence blocks restart" "$cmd" "artifact exists, validates, and all four facts are true"
+  assert_file_contains "ML52: queue eligibility survives escalation" "$cmd" "Keep queue eligibility unchanged"
+  assert_file_contains "ML53: deep restart is once only" "$cmd" "never perform another lower-to-deep restart"
+  assert_file_contains "ML54: supervisor owns gated commit" "$cmd" "supervisor-commit.sh --repo-root"
+  assert_file_contains "ML55: product hooks stay enabled" "$cmd" '--no-verify'
+  assert_file_contains "ML56: QA mutation boundary enforced" "$cmd" "delivery-mutation-guard.sh"
+  assert_file_contains "ML57: QA not-applicable marker" "$cmd" "Business-founder Playwright QA: not applicable"
+  assert_file_contains "ML58: supervisor owns PR closure audit" "$cmd" "issue-closure-audit.sh"
+  assert_file_contains "ML59: supervisor owns tribunal" "$cmd" 'closing-tribunal-loop` from the supervisor'
+  assert_file_contains "ML60: tribunal is read-only" "$cmd" "read-only"
+  assert_file_contains "ML61: tribunal fixes return to writer" "$cmd" "needs source changes returns to a fresh tech-founder"
+  assert_file_contains "ML62: concrete PR number required" "$cmd" 'concrete numeric `PR_NUMBER`'
+  assert_file_contains "ML63: PR head SHA is independently matched" "$cmd" 'matching remote `headRefOid`'
+  assert_file_contains "ML64: default ancestry required before merge" "$cmd" 'merge-base --is-ancestor "origin/$default" "$PR_HEAD_SHA"'
+  assert_file_contains "ML65: merge is supervisor-owned" "$cmd" 'gh pr merge "$PR_NUMBER"'
+  assert_file_contains "ML66: merged SHA must land on default" "$cmd" 'merge-base --is-ancestor "$MERGE_SHA" "origin/$default"'
+  assert_file_contains "ML67: deploy run is tied to merge SHA" "$cmd" '`headSha` equals `MERGE_SHA`'
+  assert_file_contains "ML68: deploy poll uses concrete run" "$cmd" 'poll-gate.sh --run "$DEPLOY_RUN_ID"'
+  assert_file_contains "ML69: latest deploy is not trusted" "$cmd" 'never trust "latest"'
+  assert_file_contains "ML70: live QA requires timestamped assertions" "$cmd" "timestamped assertion evidence"
+  assert_file_contains "ML71: unresolved deploy/live blocks success" "$cmd" "Missing URL, mismatched SHA"
+  assert_file_contains "ML72: rollback gets deploy and live verification" "$cmd" "waits for the rollback-SHA deploy"
+  assert_file_contains "ML73: rollback never counts fixed" "$cmd" "increment the delivered count for a rolled-back"
+  assert_file_contains "ML74: result artifact lives in primary state" "$cmd" ".startup/maintain-loop/runs/<RUN_ID>/issue-<N>.md"
+  assert_file_contains "ML75: result binds PR head SHA" "$cmd" "pr_head_sha:<sha>"
+  assert_file_contains "ML76: result binds merge SHA" "$cmd" "merge_sha:<sha>"
+  assert_file_contains "ML77: result binds tribunal SHA" "$cmd" 'verdict SHA equal to `pr_head_sha`'
+  assert_file_contains "ML78: result binds deploy SHA" "$cmd" 'head SHA equal to `merge_sha`'
+  assert_file_contains "ML79: evidence is re-queried before fixed/count/event" "$cmd" 'independently re-query those facts before writing `fixed:`'
+  assert_file_contains "ML80: no-op emits no worker event" "$cmd" "emit no worker event"
+  assert_file_contains "ML81: once sets one-issue cap" "$cmd" 'MAX_ISSUES=1'
+  assert_file_contains "ML82: default max-issues is uncapped" "$cmd" "unset means no issue-count cap"
+  assert_file_contains "ML83: max-merges default and rollback carveout" "$cmd" 'forward-merge cap, default `5`'
+  assert_file_contains "ML84: rollback overage is explicit" "$cmd" "merge_budget_overage:rollback"
+  assert_file_exists "ML85: Codex maintain-loop workflow exists" "$codex_cmd"
+  assert_file_contains "ML86: Codex workflow aliases command" "$codex_cmd" "/maintain-loop"
+  assert_file_contains "ML87: Codex workflow hard gates" "$codex_cmd" "Codex Maintain Hard Gates"
 }
 
 # ---------------------------------------------------------------------------
@@ -1601,10 +1626,11 @@ test_auto_commit_hook() {
   fourth_cmd=$(jq -r '.hooks.PostToolUse[3].hooks[0].command' "$hooks_file" 2>/dev/null)
   assert_output_contains "K8: fourth PostToolUse references auto-commit.sh" "$fourth_cmd" "auto-commit.sh"
 
-  # K9: Uses --no-verify flag
-  assert_file_contains "K9: uses --no-verify flag" "$script" "\-\-no-verify"
+  # K9: Artifact commits use the exact-file helper and never use a hook bypass flag.
+  assert_file_not_contains "K9: artifact hook does not use a bypass flag" "$script" "\-\-no-verify"
+  assert_file_contains "K9b: artifact commit uses isolated helper" "$script" "commit-artifact.sh"
 
-  # K10: Functional test — handoff write in a git repo creates a commit
+  # K10: Handoff writes never commit product code.
   local workdir
   workdir=$(mktemp -d)
   git init -q "$workdir"
@@ -1621,13 +1647,13 @@ test_auto_commit_hook() {
   local commit_count
   commit_count=$(cd "$workdir" && git log --oneline 2>/dev/null | wc -l)
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ "$commit_count" -ge 2 ]; then
-    echo -e "  ${GREEN}PASS${NC} K10: functional test — handoff creates commit ($commit_count commits)"
+  if [ "$commit_count" -eq 1 ] && ! (cd "$workdir" && git ls-files --error-unmatch backend/app.py >/dev/null 2>&1); then
+    echo -e "  ${GREEN}PASS${NC} K10: handoff leaves product code uncommitted"
     PASS_COUNT=$((PASS_COUNT + 1))
   else
-    echo -e "  ${RED}FAIL${NC} K10: functional test — expected >=2 commits, got $commit_count"
+    echo -e "  ${RED}FAIL${NC} K10: handoff swept product code into a commit"
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("K10: expected >=2 commits, got $commit_count")
+    FAILURES+=("K10: handoff committed product code")
   fi
   rm -rf "$workdir"
 
@@ -1684,10 +1710,12 @@ test_auto_commit_hook() {
   assert_output_contains "K12b: review commit message format" "$last_msg" "review: iteration-1"
   rm -rf "$workdir"
 
-  # K13: auto-commit stages src/ (Next.js-style layout — issue #90 gap 1)
-  assert_file_contains "K13: auto-commit stages src/" "$script" "git add -A src/"
+  # K13: no implementation directory is staged by the artifact hook.
+  assert_file_not_contains "K13a: auto-commit never stages src" "$script" "git add -A src/"
+  assert_file_not_contains "K13b: auto-commit never stages backend" "$script" "git add -A backend/"
+  assert_file_not_contains "K13c: auto-commit never stages frontend" "$script" "git add -A frontend/"
 
-  # K14: Functional — implementation code under src/ is committed alongside a handoff write
+  # K14: Functional — src remains untracked and no commit is created at handoff.
   workdir=$(mktemp -d)
   git init -q "$workdir"
   (cd "$workdir" && git config user.email "test@test.com" && git config user.name "Test" && git commit --allow-empty -m "init" -q)
@@ -1697,14 +1725,27 @@ test_auto_commit_hook() {
   ec=0; output=""
   output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/002-tech-to-business.md"}}' | bash "$script" 2>&1) || ec=$?
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if (cd "$workdir" && git ls-files --error-unmatch src/app/page.tsx >/dev/null 2>&1); then
-    echo -e "  ${GREEN}PASS${NC} K14: functional — src/ code auto-committed"
+  commit_count=$(cd "$workdir" && git log --oneline | wc -l)
+  if [ "$commit_count" -eq 1 ] && ! (cd "$workdir" && git ls-files --error-unmatch src/app/page.tsx >/dev/null 2>&1); then
+    echo -e "  ${GREEN}PASS${NC} K14: src code remains supervisor-owned"
     PASS_COUNT=$((PASS_COUNT + 1))
   else
-    echo -e "  ${RED}FAIL${NC} K14: functional — src/ code was NOT committed"
+    echo -e "  ${RED}FAIL${NC} K14: src code was auto-committed"
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("K14: src/ code was not auto-committed")
+    FAILURES+=("K14: src code was auto-committed")
   fi
+  rm -rf "$workdir"
+
+  # K15: An artifact commit must not sweep a pre-staged product diff.
+  workdir=$(mktemp -d); git init -q "$workdir"
+  (cd "$workdir" && git config user.email test@test.com && git config user.name Test && git commit --allow-empty -m init -q)
+  mkdir -p "$workdir/docs/research" "$workdir/src"
+  echo 'product' > "$workdir/src/app.js"; (cd "$workdir" && git add src/app.js)
+  echo '# research' > "$workdir/docs/research/market.md"
+  ec=0; output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/docs/research/market.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_output_contains "K15a: artifact was committed" "$(cd "$workdir" && git show --name-only --format= HEAD)" "docs/research/market.md"
+  assert_output_not_contains "K15b: staged product absent from artifact commit" "$(cd "$workdir" && git show --name-only --format= HEAD)" "src/app.js"
+  assert_output_contains "K15c: product remains staged" "$(cd "$workdir" && git diff --cached --name-only)" "src/app.js"
   rm -rf "$workdir"
 }
 
@@ -1784,8 +1825,8 @@ test_check_staged_size() {
 
   # G9: the guard is wired into the bootstrap commit and the /improve catch-all commit
   assert_file_contains "G9a: bootstrap runs the guard before commit" "$bootstrap" "check-staged-size.sh"
-  assert_file_contains "G9b: improve runs the guard before commit" "$PLUGIN_ROOT/commands/improve.md" "check-staged-size.sh"
-  assert_file_contains "G9c: tweak runs the guard before commit" "$PLUGIN_ROOT/commands/tweak.md" "check-staged-size.sh"
+  assert_file_contains "G9b: improve uses supervisor commit guard" "$PLUGIN_ROOT/references/workflows/improve.md" "supervisor-commit.sh"
+  assert_file_contains "G9c: tweak uses trapped commit guard" "$PLUGIN_ROOT/references/workflows/tweak.md" "tweak-run.sh"
   assert_file_contains "G9d: startup guards the initial git add -A" "$PLUGIN_ROOT/commands/startup.md" "check-staged-size.sh"
 
   # G10: measures the STAGED blob, not the working tree — stage a big blob, then truncate the
@@ -3156,7 +3197,7 @@ test_bootstrap_safety_net() {
 test_canonical_entrypoint_wiring() {
   echo -e "\n${CYAN}Suite Y: canonical entrypoint wiring${NC}"
   assert_file_contains "Y1: improve.md names check.sh" \
-    "$PLUGIN_ROOT/commands/improve.md" "check.sh"
+    "$PLUGIN_ROOT/references/workflows/improve.md" "check.sh"
   assert_file_contains "Y2: tech-founder SKILL names check.sh" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "check.sh"
   assert_file_contains "Y3: ci-workflow names check.sh" \
@@ -3726,7 +3767,7 @@ test_operate_workflow_registry_and_gates() {
   assert_file_exists "Y15: workflow spec template exists" "$PLUGIN_ROOT/templates/workflow-spec.md"
   assert_file_contains "Y16: bootstrap creates workflow registry" "$PLUGIN_ROOT/commands/bootstrap.md" ".startup/workflows/registry.md"
   assert_file_contains "Y17: startup references the workflow registry (bootstrap scaffolds it)" "$PLUGIN_ROOT/commands/startup.md" ".startup/workflows/"
-  assert_file_contains "Y18: improve reads workflow registry" "$PLUGIN_ROOT/commands/improve.md" ".startup/workflows/registry.md"
+  assert_file_contains "Y18: improve reads workflow registry" "$PLUGIN_ROOT/references/workflows/improve.md" ".startup/workflows/registry.md"
   assert_file_contains "Y19: orchestration validates workflow specs" "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" "WORKFLOW-<slug>.md"
 
   # Config and README.
@@ -4161,7 +4202,7 @@ test_harvest() {
     _rec correction "the invoice rounding is wrong" "/f#L2"; _rec correction "the invoice rounding is wrong" "/f#L3"; } > "$in"
   _h_run "$in" "$led" "$workdir/c1.jsonl" "$report"
   _h_run "$in" "$led" "$workdir/c2.jsonl" "$report"
-  local dord=same; diff -q "$workdir/c1.jsonl" "$workdir/c2.jsonl" >/dev/null 2>&1 || dord=diff
+  local dord="same"; diff -q "$workdir/c1.jsonl" "$workdir/c2.jsonl" >/dev/null 2>&1 || dord="diff"
   assert_equals "HV14: deterministic candidate ordering" "$dord" "same"
   rm -rf "$workdir"
 
@@ -4372,7 +4413,7 @@ test_lesson_review() {
 
   # --- R1: --list shows the candidate queue, querying the candidate label ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_LIST_JSON="$ONE" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_LIST_JSON="$ONE" SAAS_PLUGIN_REPO='' \
     bash "$script" --list --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R1: list exits 0" "$ec" 0
   assert_output_contains "R1: lists candidate #5" "$output" "#5"
@@ -4381,21 +4422,21 @@ test_lesson_review() {
 
   # --- R2: --list without a pinned repo refuses (exit 2) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO='' \
     bash "$script" --list 2>&1) || ec=$?
   assert_exit_code "R2: list without repo exits 2" "$ec" 2
   rm -rf "$workdir"
 
   # --- R2b: a malformed repo pin is refused (exit 2) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO='' \
     bash "$script" --list --repo notaslash 2>&1) || ec=$?
   assert_exit_code "R2b: malformed repo refused (exit 2)" "$ec" 2
   rm -rf "$workdir"
 
   # --- R3: --approve does a single atomic candidate->approved relabel ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CAND_OPEN" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CAND_OPEN" SAAS_PLUGIN_REPO='' \
     bash "$script" --approve 5 --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R3: approve exits 0" "$ec" 0
   assert_file_contains "R3: adds lesson-approved" "$L" "add-label lesson-approved"
@@ -4405,7 +4446,7 @@ test_lesson_review() {
 
   # --- R4: approve refuses an issue that is not a candidate (label guard) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$NONLESSON_OPEN" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$NONLESSON_OPEN" SAAS_PLUGIN_REPO='' \
     bash "$script" --approve 7 --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R4: refuse non-candidate (non-zero)" "$ec" 1
   assert_equals "R4: no edit on refusal" "$(_edits "$L")" "0"
@@ -4413,21 +4454,21 @@ test_lesson_review() {
 
   # --- R5: approve without a pinned repo refuses (exit 2) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO='' \
     bash "$script" --approve 5 2>&1) || ec=$?
   assert_exit_code "R5: approve without repo exits 2" "$ec" 2
   rm -rf "$workdir"
 
   # --- R6: approve with a non-integer issue number refuses (exit 2) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO='' \
     bash "$script" --approve abc --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R6: non-integer issue refused (exit 2)" "$ec" 2
   rm -rf "$workdir"
 
   # --- R7: --close rejects a candidate as not planned ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CAND_OPEN" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CAND_OPEN" SAAS_PLUGIN_REPO='' \
     bash "$script" --close 5 --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R7: close exits 0" "$ec" 0
   assert_file_contains "R7: closes the issue" "$L" "issue close 5"
@@ -4436,14 +4477,14 @@ test_lesson_review() {
 
   # --- R8: a relabel failure fails CLOSED (non-zero, no false success) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CAND_OPEN" GH_FAIL_ON="issue edit" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CAND_OPEN" GH_FAIL_ON="issue edit" SAAS_PLUGIN_REPO='' \
     bash "$script" --approve 5 --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R8: relabel failure is non-zero" "$ec" 1
   rm -rf "$workdir"
 
   # --- R9: approving an already-approved issue is an idempotent no-op ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$APPROVED_OPEN" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$APPROVED_OPEN" SAAS_PLUGIN_REPO='' \
     bash "$script" --approve 5 --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R9: idempotent approve exits 0" "$ec" 0
   assert_equals "R9: no edit on idempotent approve" "$(_edits "$L")" "0"
@@ -4451,7 +4492,7 @@ test_lesson_review() {
 
   # --- R10: cannot-inspect (issue view fails) fails CLOSED, no mutation ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_FAIL_ON="issue view" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_FAIL_ON="issue view" SAAS_PLUGIN_REPO='' \
     bash "$script" --approve 5 --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R10: view failure is non-zero" "$ec" 1
   assert_equals "R10: no edit when cannot inspect" "$(_edits "$L")" "0"
@@ -4459,7 +4500,7 @@ test_lesson_review() {
 
   # --- R11: approving a CLOSED candidate is refused (reopen first) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CLOSED_CAND" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CLOSED_CAND" SAAS_PLUGIN_REPO='' \
     bash "$script" --approve 5 --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R11: refuse approve on closed (non-zero)" "$ec" 1
   assert_equals "R11: no edit on closed" "$(_edits "$L")" "0"
@@ -4467,7 +4508,7 @@ test_lesson_review() {
 
   # --- R12: closing an already-closed issue is an idempotent no-op ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CLOSED_CAND" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CLOSED_CAND" SAAS_PLUGIN_REPO='' \
     bash "$script" --close 5 --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R12: idempotent close exits 0" "$ec" 0
   assert_equals "R12: no close call when already closed" "$(_closes "$L")" "0"
@@ -4475,7 +4516,7 @@ test_lesson_review() {
 
   # --- R13: an empty queue lists cleanly (exit 0, not an error) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_LIST_JSON='[]' SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_LIST_JSON='[]' SAAS_PLUGIN_REPO='' \
     bash "$script" --list --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R13: empty queue exits 0" "$ec" 0
   assert_output_contains "R13: reports empty queue" "$output" "No lesson candidates"
@@ -4483,14 +4524,14 @@ test_lesson_review() {
 
   # --- R14: a list failure (cannot determine the queue) is non-zero ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_FAIL_ON="issue list" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_FAIL_ON="issue list" SAAS_PLUGIN_REPO='' \
     bash "$script" --list --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R14: list gh failure is non-zero" "$ec" 1
   rm -rf "$workdir"
 
   # --- R15: --list --json passes structured data through for the command ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_LIST_JSON="$ONE" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_LIST_JSON="$ONE" SAAS_PLUGIN_REPO='' \
     bash "$script" --list --json --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R15: json list exits 0" "$ec" 0
   cnt="$(printf '%s' "$output" | jq 'length' 2>/dev/null || echo bad)"
@@ -4499,7 +4540,7 @@ test_lesson_review() {
 
   # --- R16: closing a non-lesson issue is refused (is-a-lesson guard) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$NONLESSON_OPEN" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$NONLESSON_OPEN" SAAS_PLUGIN_REPO='' \
     bash "$script" --close 9 --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R16: refuse close non-lesson (non-zero)" "$ec" 1
   assert_equals "R16: no close call on refusal" "$(_closes "$L")" "0"
@@ -4507,7 +4548,7 @@ test_lesson_review() {
 
   # --- R17: --note on approve posts an annotation comment ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CAND_OPEN" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON="$CAND_OPEN" SAAS_PLUGIN_REPO='' \
     bash "$script" --approve 5 --note "clearly generic" --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R17: approve with note exits 0" "$ec" 0
   assert_file_contains "R17: posts the note as a comment" "$L" "issue comment 5"
@@ -4515,14 +4556,14 @@ test_lesson_review() {
 
   # --- R18: a value-taking flag with no value errors (no infinite loop) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO='' \
     timeout 10 bash "$script" --approve 2>&1) || ec=$?
   assert_exit_code "R18: missing --approve value exits 2 (no hang)" "$ec" 2
   rm -rf "$workdir"
 
   # --- R19: a malformed issue list fails CLOSED (not "empty queue") ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_LIST_JSON='not json {{' SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_LIST_JSON='not json {{' SAAS_PLUGIN_REPO='' \
     bash "$script" --list --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R19: unparseable list fails closed (non-zero)" "$ec" 1
   rm -rf "$workdir"
@@ -4530,7 +4571,7 @@ test_lesson_review() {
   # --- R20: approving a CLOSED+approved issue is refused (no silent resurrect) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
-    GH_VIEW_JSON='{"state":"CLOSED","labels":[{"name":"lesson-approved"}]}' SAAS_PLUGIN_REPO= \
+    GH_VIEW_JSON='{"state":"CLOSED","labels":[{"name":"lesson-approved"}]}' SAAS_PLUGIN_REPO='' \
     bash "$script" --approve 5 --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R20: refuse approve on closed+approved" "$ec" 1
   assert_equals "R20: no edit on closed+approved" "$(_edits "$L")" "0"
@@ -4538,7 +4579,7 @@ test_lesson_review() {
 
   # --- R21: a malformed issue-view fails CLOSED on close (no false no-op success) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON='garbage {{' SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_VIEW_JSON='garbage {{' SAAS_PLUGIN_REPO='' \
     bash "$script" --close 5 --repo "$REPO" 2>&1) || ec=$?
   assert_exit_code "R21: unparseable view fails closed on close" "$ec" 1
   assert_equals "R21: no close call on unparseable view" "$(_closes "$L")" "0"
@@ -4546,7 +4587,7 @@ test_lesson_review() {
 
   # --- R22: --limit 0 is rejected (must be >= 1) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO= \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" SAAS_PLUGIN_REPO='' \
     bash "$script" --list --repo "$REPO" --limit 0 2>&1) || ec=$?
   assert_exit_code "R22: --limit 0 refused (exit 2)" "$ec" 2
   rm -rf "$workdir"
@@ -4560,8 +4601,8 @@ test_convergence_governor() {
   echo -e "\n${CYAN}Convergence governor integration${NC}"
   assert_output_contains "reachability convention exists" "$(cat "$PLUGIN_ROOT/skills/tech-founder/references/reachability-convention.md" 2>/dev/null)" "last-verified"
   assert_output_contains "tech-founder DoD has step-back" "$(cat "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md")" "Tribunal step-back"
-  assert_output_contains "goal-deliver caps at 20" "$(cat "$PLUGIN_ROOT/commands/goal-deliver.md")" "Round 20:"
-  assert_output_contains "goal-deliver stops on no crit/high" "$(cat "$PLUGIN_ROOT/commands/goal-deliver.md")" "zero critical and zero high"
+  assert_output_contains "goal-deliver caps at 20" "$(cat "$PLUGIN_ROOT/references/workflows/goal-deliver.md")" "Round 20:"
+  assert_output_contains "goal-deliver stops on no crit/high" "$(cat "$PLUGIN_ROOT/references/workflows/goal-deliver.md")" "zero critical and zero high"
 }
 
 test_learnings_style_block() {
@@ -4754,6 +4795,9 @@ test_autonomous_demand_infra() {
   assert_file_exists "AD4: demand-discovery exists" "$demand"
   assert_file_exists "AD4b: market-scout exists" "$market"
   assert_file_exists "AD4c: issue-closure-audit exists" "$closure"
+  assert_file_contains "AD4d: Codex smoke uses supported permission flag" "$health" "--permission-profile"
+  assert_file_not_contains "AD4e: Codex smoke drops obsolete plural flag" "$health" "--permissions-profile"
+  assert_file_contains "AD4f: shell smoke disables unneeded network" "$health" "--sandbox-state-disable-network"
   for s in "$health" "$lease" "$packs" "$demand" "$market" "$closure"; do
     ec=0; bash -n "$s" || ec=$?
     assert_exit_code "AD syntax: $(basename "$s")" "$ec" 0
@@ -4786,14 +4830,16 @@ if [ "$1" = "sandbox" ] && [ "${2:-}" = "--help" ]; then exit 0; fi
 if [ "$1" = "sandbox" ]; then
   profile=""
   root=""
+  network_disabled=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --permissions-profile) profile="$2"; shift 2 ;;
+      --permission-profile) profile="$2"; shift 2 ;;
+      --sandbox-state-disable-network) network_disabled=1; shift ;;
       -C|--cd) root="$2"; shift 2 ;;
       *) shift ;;
     esac
   done
-  if [ "$profile" = ":danger-full-access" ]; then
+  if [ "$profile" = ":danger-full-access" ] && [ "$network_disabled" -eq 1 ]; then
     printf '%s\n' "$root"
     exit 0
   fi
@@ -4807,16 +4853,16 @@ SH
   assert_exit_code "AD6c: default workspace-write sandbox blocks when unusable" "$ec" 1
   assert_output_contains "AD6d: reports worker shell smoke" "$output" '"check": "codex:worker-shell"'
   assert_output_contains "AD6e: bwrap failure is surfaced" "$output" "bwrap:"
-  assert_output_contains "AD6f: remediation names safe sandbox" "$output" "CODEX_SANDBOX=danger-full-access"
+  assert_output_contains "AD6f: remediation requires sandbox repair" "$output" "fix the sandbox"
   ec=0; output=$(SAAS_PREFLIGHT_CONTAINER=1 CODEX_SANDBOX=danger-full-access PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
-  assert_exit_code "AD6g: explicit danger sandbox passes inside container" "$ec" 0
-  assert_output_contains "AD6h: explicit danger sandbox reported" "$output" "danger-full-access"
+  assert_exit_code "AD6g: danger sandbox is rejected inside containers" "$ec" 1
+  assert_output_contains "AD6h: danger rejection names isolated writer mode" "$output" "isolated CODEX_SANDBOX=workspace-write"
   ec=0; output=$(SAAS_PREFLIGHT_CONTAINER=0 CODEX_SANDBOX=danger-full-access PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
-  assert_exit_code "AD6i: danger sandbox outside container blocks" "$ec" 1
-  assert_output_contains "AD6j: container requirement surfaced" "$output" "requires a disposable dev container"
+  assert_exit_code "AD6i: danger sandbox outside container also blocks" "$ec" 1
+  assert_output_contains "AD6j: danger rejection is invariant" "$output" "danger-full-access are not valid writer modes"
   ec=0; output=$(CODEX_SANDBOX=read-only PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
   assert_exit_code "AD6k: read-only worker sandbox blocks" "$ec" 1
-  assert_output_contains "AD6l: read-only rejection names write access" "$output" "require write access"
+  assert_output_contains "AD6l: read-only rejection names writer isolation" "$output" "read-only and danger-full-access"
   rm -rf "$workdir"
 
   workdir=$(mktemp -d)
@@ -4949,10 +4995,10 @@ test_autonomous_workflow_alignment() {
   assert_file_contains "AE2: startup uses market scout" "$PLUGIN_ROOT/commands/startup.md" "market-scout.sh"
   assert_file_contains "AE3: startup uses single-flight" "$PLUGIN_ROOT/commands/startup.md" "single-flight.sh"
   assert_file_not_contains "AE4: startup no broad stale pkill command" "$PLUGIN_ROOT/commands/startup.md" "pkill -f 'agent-type saas-startup-team'"
-  assert_file_contains "AE5: improve calls health preflight" "$PLUGIN_ROOT/commands/improve.md" "health-preflight.sh"
-  assert_file_contains "AE6: goal-deliver calls market scout" "$PLUGIN_ROOT/commands/goal-deliver.md" "market-scout.sh"
-  assert_file_contains "AE7: goal-deliver requires acceptance packs" "$PLUGIN_ROOT/commands/goal-deliver.md" "acceptance-packs.sh"
-  assert_file_contains "AE8: goal-deliver completion artifact" "$PLUGIN_ROOT/commands/goal-deliver.md" "completion artifact"
+  assert_file_contains "AE5: improve calls health preflight" "$PLUGIN_ROOT/references/workflows/improve.md" "health-preflight.sh"
+  assert_file_contains "AE6: goal-deliver calls market scout" "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "market-scout.sh"
+  assert_file_contains "AE7: goal-deliver requires acceptance packs" "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "acceptance-packs.sh"
+  assert_file_contains "AE8: goal-deliver completion artifact" "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "completion artifact"
   assert_file_contains "AE9: lessons-review points to lessons-deliver" "$PLUGIN_ROOT/commands/lessons-review.md" "/lessons-deliver"
   assert_file_not_contains "AE10: lessons-review no longer routes to goal-deliver command" "$PLUGIN_ROOT/commands/lessons-review.md" "/goal-deliver #<number>"
   assert_file_contains "AE11: lessons-deliver documents Codex host behavior" "$PLUGIN_ROOT/commands/lessons-deliver.md" "Codex surface"
@@ -4960,9 +5006,9 @@ test_autonomous_workflow_alignment() {
   assert_file_contains "AE13: README documents market scout" "$PLUGIN_ROOT/README.md" "market-scout.sh"
   assert_file_contains "AE14: README documents acceptance packs" "$PLUGIN_ROOT/README.md" "acceptance-packs.sh"
   assert_file_contains "AE15: README documents single-flight" "$PLUGIN_ROOT/README.md" "single-flight.sh"
-  assert_file_contains "AE16: improve runs closure audit" "$PLUGIN_ROOT/commands/improve.md" "issue-closure-audit.sh"
-  assert_file_contains "AE17: goal-deliver runs closure audit" "$PLUGIN_ROOT/commands/goal-deliver.md" "issue-closure-audit.sh"
-  assert_file_contains "AE18: goal-deliver asks material promise question" "$PLUGIN_ROOT/commands/goal-deliver.md" "material promise"
+  assert_file_contains "AE16: improve runs closure audit" "$PLUGIN_ROOT/references/workflows/improve.md" "issue-closure-audit.sh"
+  assert_file_contains "AE17: goal-deliver runs closure audit" "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "issue-closure-audit.sh"
+  assert_file_contains "AE18: goal-deliver asks material promise question" "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "material promise"
   assert_file_contains "AE19: growth detects lifecycle" "$PLUGIN_ROOT/commands/growth.md" "growth_lifecycle"
   assert_file_contains "AE20: growth prelive forbids outreach" "$PLUGIN_ROOT/commands/growth.md" "do not contact prospects"
   assert_file_contains "AE21: growth uses autonomous operations gates" "$PLUGIN_ROOT/commands/growth.md" "owner authorization gates"
@@ -5200,7 +5246,7 @@ EOF
 
 test_goal_deliver() {
   echo -e "\n${CYAN}Suite T: /goal-deliver command${NC}"
-  local cmd="$PLUGIN_ROOT/commands/goal-deliver.md"
+  local cmd="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
 
   assert_file_exists "T1: goal-deliver.md exists" "$cmd"
   assert_file_contains "T2: name frontmatter" "$cmd" "^name: goal-deliver"
@@ -5226,7 +5272,7 @@ test_ads_delegation() {
   assert_file_exists "U1: ads.md exists" "$cmd"
   assert_file_contains "U2: name frontmatter" "$cmd" "^name: ads"
   assert_file_contains "U3: user_invocable" "$cmd" "user_invocable: true"
-  assert_file_contains "U4: spawns ads-strategist by registered type" "$cmd" 'subagent_type: "ads-strategist"'
+  assert_file_contains "U4: spawns ads-strategist by scoped registered type" "$cmd" 'subagent_type: "google-ads-strategist:ads-strategist"'
   assert_file_contains "U5: resets active_role" "$cmd" '.active_role ='
   assert_file_contains "U6: creates PAUSED / investor enables" "$cmd" "PAUSED"
   assert_file_contains "U7: hard-dependency install message" "$cmd" "google-ads-strategist"
@@ -5236,7 +5282,7 @@ test_ads_delegation() {
   # U9–U11: the /growth loop auto-delegation branch
   local growth="$PLUGIN_ROOT/commands/growth.md"
   assert_file_contains "U9: growth.md has Google Ads request branch" "$growth" "Google Ads request"
-  assert_file_contains "U10: growth loop spawns ads-strategist by type" "$growth" 'subagent_type: "ads-strategist"'
+  assert_file_contains "U10: growth loop spawns ads-strategist by scoped type" "$growth" 'subagent_type: "google-ads-strategist:ads-strategist"'
   assert_file_not_contains "U11: growth loop uses no read-md idiom for strategist" "$growth" 'agents/ads-strategist.md'
 
   # U12–U15: growth-hacker flags Google Ads instead of doing it
@@ -5393,6 +5439,79 @@ DIFF
   ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
   assert_exit_code "L11: self-mod blocked" "$ec" 3
   assert_output_contains "L11: self-mod reason" "$output" "self-mod"
+
+  cat > "$workdir/d.diff" <<'EOF'
+diff --git a/plugins/saas-startup-team/scripts/supervisor-commit.sh b/plugins/saas-startup-team/scripts/supervisor-commit.sh
+--- a/plugins/saas-startup-team/scripts/supervisor-commit.sh
++++ b/plugins/saas-startup-team/scripts/supervisor-commit.sh
+@@ -1 +1 @@
+-safe
++worker-controlled
+EOF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L11a: supervisor trust code self-mod blocked" "$ec" 3
+
+  cat > "$workdir/d.diff" <<'EOF'
+diff --git a/plugins/x b/plugins/decoy b/plugins/saas-startup-team/scripts/lessons-deliver.sh
+--- a/plugins/x b/plugins/decoy
++++ b/plugins/saas-startup-team/scripts/lessons-deliver.sh
+@@ -1 +1 @@
+-safe
++worker-controlled
+EOF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L11aa: whitespace header cannot hide protected destination" "$ec" 3
+
+  {
+    echo 'diff --git a/plugins/x b/plugins/decoy b/plugins/saas-startup-team/scripts/lessons-deliver.sh'
+    for n in $(seq 1 10000); do
+      printf 'diff --git a/plugins/example/file-%s b/plugins/example/file-%s\n' "$n" "$n"
+    done
+  } > "$workdir/d.diff"
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L11aaa: large header stream cannot bypass strict parsing" "$ec" 3
+
+  cat > "$workdir/d.diff" <<'EOF'
+diff --git a/plugins/saas-startup-team/tests/runtime-safety.tests.sh b/plugins/saas-startup-team/tests/runtime-safety.tests.sh
+deleted file mode 100644
+--- a/plugins/saas-startup-team/tests/runtime-safety.tests.sh
++++ /dev/null
+@@ -1 +0,0 @@
+-assert_equals "safety" yes yes
+EOF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L11ab: discovered test deletion is blocked" "$ec" 3
+
+  cat > "$workdir/d.diff" <<'EOF'
+diff --git a/plugins/example/component.spec.ts b/plugins/example/component.spec.ts
+deleted file mode 100644
+--- a/plugins/example/component.spec.ts
++++ /dev/null
+@@ -1 +0,0 @@
+-export const fixture = true
+EOF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L11aba: spec-file deletion is blocked without assertion text" "$ec" 3
+
+  cat > "$workdir/d.diff" <<'EOF'
+diff --git a/plugins/example/tests/security.test.ts b/plugins/example/archive/security.test.ts
+similarity index 100%
+rename from plugins/example/tests/security.test.ts
+rename to plugins/example/archive/security.test.ts
+EOF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L11abb: test removal by rename is blocked" "$ec" 3
+
+  cat > "$workdir/d.diff" <<'EOF'
+diff --git a/plugins/example/tests/unit.sh b/plugins/example/tests/unit.sh
+--- a/plugins/example/tests/unit.sh
++++ b/plugins/example/tests/unit.sh
+@@ -1,2 +1 @@
+-assert_equals "one" yes yes
+ assert_equals "two" yes yes
+EOF
+  ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
+  assert_exit_code "L11ac: assertion-count reduction is blocked" "$ec" 3
   rm -rf "$workdir"
 
   # L11b: self-mod of the deliverer's OWN command playbook -> blocked
