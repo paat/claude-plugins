@@ -130,23 +130,15 @@ cmd_ad_smoke() {
 
   local env_file="$root/docs/growth/envelope.json"
   [ -f "$env_file" ] || die "ad-smoke refused: no spend envelope ($env_file) — paid smoke-test stays owner-gated"
-  # Same fail-closed predicate as /growth: positive monthly cap, buyer-intent-only,
-  # a listed channel, and a valid future expiry. "ads" must be an authorized channel.
-  jq -e '
-    (.monthly_cap_eur // 0) > 0 and (.buyer_intent_only == true)
-    and ((.channels // []) | index("ads") != null) and (.expires_at != null)
-  ' "$env_file" >/dev/null 2>&1 \
-    || die "ad-smoke refused: envelope invalid (needs positive monthly_cap_eur, buyer_intent_only, \"ads\" channel, expires_at)"
-  local exp exp_epoch now_epoch
-  exp=$(jq -r '.expires_at' "$env_file")
-  exp_epoch=$(date -d "$exp" +%s 2>/dev/null || echo 0)
-  now_epoch=$(date +%s)
-  [ "$now_epoch" -le "$exp_epoch" ] || die "ad-smoke refused: spend envelope expired ($exp)"
+  local script_dir envelope_state
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  envelope_state=$(bash "$script_dir/validate-spend-envelope.sh" --channel ads "$env_file" 2>&1) \
+    || die "ad-smoke refused: $envelope_state"
 
   # Remaining = monthly cap minus spend already recorded in ads.md (integer math,
   # matching check-ad-budget.sh). Missing spend line ⇒ 0 spent.
   local monthly spent ads="$root/docs/growth/channels/ads.md"
-  monthly=$(jq -r '.monthly_cap_eur' "$env_file")
+  monthly=$(jq -r '.monthly_cap_eur' <<< "$envelope_state")
   spent=0
   if [ -f "$ads" ]; then
     spent=$(grep -ioP 'total\s*spend:\s*[^0-9]*\K[0-9]+' "$ads" | tail -1)

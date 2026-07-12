@@ -58,23 +58,7 @@ Read whichever of these exist, to pass as context:
 - `docs/growth/strategy.md` — ICP, channels, goals
 - `docs/growth/brand/approved-voice.md` — tone, approved messaging
 - `docs/growth/channels/ads.md` — existing campaign index + approved budget
-- `docs/growth/envelope.json` — owner's pre-authorized spend envelope (schema + rules in `/growth`)
-
-Resolve whether the envelope pre-authorizes enablement (else the campaign stays PAUSED for the owner):
-
-```bash
-enable_authorized=false
-env_file="docs/growth/envelope.json"
-# Fail closed: authorize enablement only for a well-formed, unexpired envelope with a
-# positive monthly cap, buyer-intent-only set, and "ads" among its channels.
-if [ -f "$env_file" ] && jq -e '
-  (.monthly_cap_eur // 0) > 0 and (.buyer_intent_only == true)
-  and ((.channels // []) | index("ads") != null) and (.expires_at != null)
-' "$env_file" >/dev/null 2>&1; then
-  exp=$(jq -r '.expires_at' "$env_file")
-  [ "$(date +%s)" -le "$(date -d "$exp" +%s 2>/dev/null || echo 0)" ] && enable_authorized=true
-fi
-```
+- `docs/growth/envelope.json` — owner's pre-authorized spend envelope (schema + rules in `/growth`); use its caps for the forecast, but do not activate the campaign
 
 ## Step 3: Spawn the ads-strategist
 
@@ -97,13 +81,13 @@ Pass the strategist this brief:
 > - `docs/growth/channels/ads.md` (existing campaigns + approved budget cap — do NOT exceed it in forecasts)
 >
 > If `docs/ads/<campaign>/brief.md` does not exist, create it from the context above (product, audience, budget, goals, brand, final-URL template), then run your pre-launch iteration loop, verify in the browser, and create the campaign in **PAUSED** state.
-> **Enablement:** `enable_authorized: <value from the check above>`. When `true` and the forecast is within the envelope's `daily_cap_eur`/`monthly_cap_eur`, you may take the campaign PAUSED→live. When `false`, leave it PAUSED — the investor enables after review.
+> **Do not enable it.** Browser UI activation is not mechanically coupled to the spend ledger, so the strategist always leaves the campaign PAUSED for the investor.
 
 ## Step 4: Report to the investor (English)
 
 After the strategist completes, summarize:
 - Campaign folder written: `docs/ads/<slug>/`
 - Iteration / verification status (which keywords trigger the ad, position, competitor differentiation)
-- Whether the campaign was created PAUSED in the Ads UI
-- **Next action for the investor:** review the campaign in Google Ads and enable it when satisfied — the plugin never enables.
-- Update `docs/growth/channels/ads.md` index entry for `<slug>` (status: designed/created-paused) if it changed.
+- Confirmation that the Ads UI status is `created-paused`
+- **Next action for the investor:** review the campaign in Google Ads and enable it when satisfied.
+- Update `docs/growth/channels/ads.md` index entry for `<slug>` to `created-paused` if it changed.

@@ -22,8 +22,8 @@ You are the post-launch sales executor. This skill provides your domain expertis
 - "Building in public" content
 
 ### 3. Paid Acquisition
-- Google Ads, Meta Ads, LinkedIn Ads management via Chrome
-- Budget discipline — hard stop at approved amount
+- In Claude Code, delegate Google Ads to the ads-strategist specialist, which leaves campaigns PAUSED. In Codex, report that branch blocked unless an equivalent authenticated-browser specialist is explicitly available
+- Fail closed on paid spend unless `docs/growth/envelope.json` is active; never exceed its daily/monthly caps or listed channels
 - ROAS tracking and optimization
 
 ### 4. Growth Metrics (what matters)

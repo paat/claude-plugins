@@ -27,7 +27,7 @@ Markdown files are for tracking what you DID, not for planning what you WILL do.
 **The only exceptions requiring human action first:**
 - Account creation (you can't create Reddit/Google/LinkedIn accounts)
 - Payment setup (you can't add credit cards)
-- Budget approval for first paid campaign
+- Paid spend without an active `docs/growth/envelope.json` authorization
 
 Everything else: act now, track after.
 
@@ -66,7 +66,7 @@ This applies to: Estonian blog posts, community posts, and any Estonian-language
 - Track published content in `docs/growth/channels/content-marketing.md`
 
 ### 3. Ad Campaign Management
-- **Google Ads → flag, do NOT do.** You never design, create, or spawn Google Ads campaigns. When Google Ads work is needed, write a `## Google Ads request` block into your growth report (`.startup/handoffs/NNN-growth-to-business.md`) with: product description, ICP, goals (target CPA/ROAS, primary conversion), the spend cap from `docs/growth/envelope.json` (or the `Approved budget:` line if no active envelope), brand name, final-URL template (from `docs/growth/product-brief.md`, `docs/growth/strategy.md`, `docs/growth/brand/approved-voice.md`), and a stable campaign slug (`<product>-<intent>-<market>`, e.g. `<product>-commercial-ee`). The team lead sets `enable_authorized` from the envelope; do not decide enablement yourself. The team lead reads this and spawns the `ads-strategist` specialist (from the `google-ads-strategist` plugin). The investor can also trigger it directly with `/ads`.
+- **Google Ads → flag, do NOT do.** You never design, create, or spawn Google Ads campaigns. When Google Ads work is needed, write a `## Google Ads request` block into your growth report (`.startup/handoffs/NNN-growth-to-business.md`) with: product description, ICP, goals (target CPA/ROAS, primary conversion), the spend cap from `docs/growth/envelope.json` (or the `Approved budget:` line if no active envelope), brand name, final-URL template (from `docs/growth/product-brief.md`, `docs/growth/strategy.md`, `docs/growth/brand/approved-voice.md`), and a stable campaign slug (`<product>-<intent>-<market>`, e.g. `<product>-commercial-ee`). The team lead reads this and spawns the `ads-strategist` specialist (from the `google-ads-strategist` plugin). The investor can also trigger it directly with `/ads`. The strategist always leaves the campaign PAUSED.
 - **Meta Ads / LinkedIn Ads → inline.** You still manage these dashboards via Chrome. Never exceed the active spend envelope's caps — check `docs/growth/envelope.json` before any ad action.
 - **Tracking.** `docs/growth/channels/ads.md` is a lightweight index for Google Ads (one line per campaign: slug, status, link to `docs/ads/<campaign>/`). Keep the `Total spend:` summary line at the top — the budget hard-stop hook reads it against the envelope's monthly cap (falling back to the `Approved budget:` line when no active envelope exists). Meta/LinkedIn ad performance is logged inline in `ads.md` as before.
 
@@ -151,7 +151,7 @@ The investor approved `docs/growth/brand/approved-voice.md` during initializatio
 - Cold emails using approved templates
 - Directory submissions
 - Blog posts and SEO content
-- Paid ad changes **within an active spend envelope** (`docs/growth/envelope.json`): Meta/LinkedIn inline, Google Ads via ads-strategist. Stay inside the envelope's `daily_cap_eur`/`monthly_cap_eur` and listed channels.
+- Paid ad changes **within an active spend envelope** (`docs/growth/envelope.json`): Meta/LinkedIn inline; Google Ads design and PAUSED creation via ads-strategist. Stay inside the envelope's `daily_cap_eur`/`monthly_cap_eur` and listed channels.
 
 **Human approval required ONLY for**:
 - Pricing changes or discount offers

@@ -29,24 +29,17 @@ content=$(cat "$file_path" 2>/dev/null || exit 0)
 spent=$(echo "$content" | grep -ioP 'total\s*spend:\s*[^0-9]*\K[0-9]+' | tail -1)
 spent=${spent:-0}
 
-# Cap: prefer an owner-authorized, unexpired envelope monthly cap. A valid envelope is
+# Cap: prefer a complete owner-authorized, currently active envelope. A valid envelope is
 # AUTHORITATIVE — including a cap of 0 (no spend) — and never falls back to the text line.
 cap=0
 cap_src="approved-budget line"
 have_envelope_cap=0
 envelope="${file_path%docs/growth/channels/ads.md}docs/growth/envelope.json"
-if [ -f "$envelope" ]; then
-  monthly=$(jq -r '.monthly_cap_eur // empty' "$envelope" 2>/dev/null || echo "")
-  expires=$(jq -r '.expires_at // empty' "$envelope" 2>/dev/null || echo "")
-  if [[ "$monthly" =~ ^[0-9]+$ ]] && [ -n "$expires" ]; then
-    exp_epoch=$(date -d "$expires" +%s 2>/dev/null || echo "")
-    now_epoch=$(date +%s)
-    if [ -n "$exp_epoch" ] && [ "$now_epoch" -le "$exp_epoch" ]; then
-      cap="$monthly"
-      cap_src="spend envelope (monthly cap)"
-      have_envelope_cap=1
-    fi
-  fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if envelope_state=$(bash "$SCRIPT_DIR/validate-spend-envelope.sh" --channel ads "$envelope" 2>/dev/null); then
+  cap=$(jq -r '.monthly_cap_eur' <<< "$envelope_state")
+  cap_src="spend envelope (monthly cap)"
+  have_envelope_cap=1
 fi
 
 if [ "$have_envelope_cap" -eq 0 ]; then

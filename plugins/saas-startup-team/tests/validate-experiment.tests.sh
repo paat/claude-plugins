@@ -16,6 +16,23 @@ test_validate_experiment() {
     } * $x' > "$1"
   }
 
+  write_envelope() {  # $1=root  $2=monthly cap  $3=expiry  $4=daily cap (optional)
+    mkdir -p "$1/docs/growth"
+    jq -n \
+      --argjson monthly "$2" \
+      --argjson daily "${4:-20}" \
+      --arg expires "$3" \
+      '{
+        monthly_cap_eur:$monthly,
+        daily_cap_eur:$daily,
+        channels:["ads"],
+        buyer_intent_only:true,
+        authorized_by:"owner",
+        authorized_at:"2026-01-01T00:00:00Z",
+        expires_at:$expires
+      }' > "$1/docs/growth/envelope.json"
+  }
+
   # VE1: missing cap_eur → non-zero, and no output written (no side effects).
   wd="$(make_workdir)"
   write_plan "$wd/plan.json" '{"cap_eur":null}'
@@ -66,9 +83,7 @@ test_validate_experiment() {
   # VE3c: expired envelope → refused (must be UNEXPIRED, per the epic dependency).
   wd="$(make_workdir)"
   write_plan "$wd/plan.json" '{}'
-  mkdir -p "$wd/docs/growth"
-  printf '{"monthly_cap_eur":200,"buyer_intent_only":true,"channels":["ads"],"expires_at":"2000-01-01T00:00:00Z"}' \
-    > "$wd/docs/growth/envelope.json"
+  write_envelope "$wd" 200 "2000-01-01T00:00:00Z"
   ec=0; out=$(bash "$S" ad-smoke "$wd/plan.json" --landing-url "https://x.test" --root "$wd" 2>&1) || ec=$?
   assert_exit_code "VE3c: ad-smoke refuses on expired envelope" "$ec" 2
   rm -rf "$wd"
@@ -78,8 +93,7 @@ test_validate_experiment() {
   wd="$(make_workdir)"
   write_plan "$wd/plan.json" '{}'
   mkdir -p "$wd/docs/growth/channels"
-  printf '{"monthly_cap_eur":30,"buyer_intent_only":true,"channels":["ads"],"expires_at":"2099-12-31T23:59:59Z"}' \
-    > "$wd/docs/growth/envelope.json"
+  write_envelope "$wd" 30 "2099-12-31T23:59:59Z"
   printf 'Total spend: EUR 15\n' > "$wd/docs/growth/channels/ads.md"
   ec=0; out=$(bash "$S" ad-smoke "$wd/plan.json" --landing-url "https://x.test" --root "$wd" 2>&1) || ec=$?
   assert_exit_code "VE3d: ad-smoke refuses when remaining < cap" "$ec" 2
@@ -90,19 +104,46 @@ test_validate_experiment() {
   wd="$(make_workdir)"
   write_plan "$wd/plan.json" '{"cap_eur":20.99}'
   mkdir -p "$wd/docs/growth/channels"
-  printf '{"monthly_cap_eur":30,"buyer_intent_only":true,"channels":["ads"],"expires_at":"2099-12-31T23:59:59Z"}' \
-    > "$wd/docs/growth/envelope.json"
+  write_envelope "$wd" 30 "2099-12-31T23:59:59Z"
   printf 'Total spend: EUR 10\n' > "$wd/docs/growth/channels/ads.md"
   ec=0; out=$(bash "$S" ad-smoke "$wd/plan.json" --landing-url "https://x.test" --root "$wd" 2>&1) || ec=$?
   assert_exit_code "VE3e: fractional cap ceils, refuses when remaining below it" "$ec" 2
   rm -rf "$wd"
 
+  # VE3f: missing daily cap leaves the authorization contract incomplete.
+  wd="$(make_workdir)"
+  write_plan "$wd/plan.json" '{}'
+  write_envelope "$wd" 200 "2099-12-31T23:59:59Z"
+  jq 'del(.daily_cap_eur)' "$wd/docs/growth/envelope.json" > "$wd/envelope.tmp"
+  mv "$wd/envelope.tmp" "$wd/docs/growth/envelope.json"
+  ec=0; out=$(bash "$S" ad-smoke "$wd/plan.json" --landing-url "https://x.test" --root "$wd" 2>&1) || ec=$?
+  assert_exit_code "VE3f: ad-smoke refuses without daily cap" "$ec" 2
+  rm -rf "$wd"
+
+  # VE3g: owner identity and authorization time are required.
+  wd="$(make_workdir)"
+  write_plan "$wd/plan.json" '{}'
+  write_envelope "$wd" 200 "2099-12-31T23:59:59Z"
+  jq 'del(.authorized_by, .authorized_at)' "$wd/docs/growth/envelope.json" > "$wd/envelope.tmp"
+  mv "$wd/envelope.tmp" "$wd/docs/growth/envelope.json"
+  ec=0; out=$(bash "$S" ad-smoke "$wd/plan.json" --landing-url "https://x.test" --root "$wd" 2>&1) || ec=$?
+  assert_exit_code "VE3g: ad-smoke refuses without authorization metadata" "$ec" 2
+  rm -rf "$wd"
+
+  # VE3h: an authorization timestamp cannot pre-authorize future activity.
+  wd="$(make_workdir)"
+  write_plan "$wd/plan.json" '{}'
+  write_envelope "$wd" 200 "2100-12-31T23:59:59Z"
+  jq '.authorized_at = "2099-01-01T00:00:00Z"' "$wd/docs/growth/envelope.json" > "$wd/envelope.tmp"
+  mv "$wd/envelope.tmp" "$wd/docs/growth/envelope.json"
+  ec=0; out=$(bash "$S" ad-smoke "$wd/plan.json" --landing-url "https://x.test" --root "$wd" 2>&1) || ec=$?
+  assert_exit_code "VE3h: ad-smoke refuses future authorization" "$ec" 2
+  rm -rf "$wd"
+
   # VE4: valid, unexpired, funded envelope → authorized (proves the gate is not always-refuse).
   wd="$(make_workdir)"
   write_plan "$wd/plan.json" '{}'
-  mkdir -p "$wd/docs/growth"
-  printf '{"monthly_cap_eur":200,"buyer_intent_only":true,"channels":["ads"],"expires_at":"2099-12-31T23:59:59Z"}' \
-    > "$wd/docs/growth/envelope.json"
+  write_envelope "$wd" 200 "2099-12-31T23:59:59Z"
   ec=0; out=$(bash "$S" ad-smoke "$wd/plan.json" --landing-url "https://x.test" --root "$wd" 2>&1) || ec=$?
   assert_exit_code "VE4: ad-smoke authorized within a funded envelope" "$ec" 0
   assert_output_contains "VE4b: authorization echoes the cap" "$out" "cap 20 EUR"

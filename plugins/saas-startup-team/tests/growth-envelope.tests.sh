@@ -14,19 +14,30 @@ test_growth_envelope() {
   run_hook() {  # $1=ads.md abs path → hook exit code via $ec
     printf '{"tool_input":{"file_path":"%s"}}' "$1" | bash "$hook" >/dev/null 2>&1
   }
+  write_envelope() {  # $1=root $2=monthly $3=expiry [$4=daily]
+    jq -n --argjson monthly "$2" --argjson daily "${4:-20}" --arg expires "$3" '{
+      monthly_cap_eur: $monthly,
+      daily_cap_eur: $daily,
+      channels: ["ads"],
+      buyer_intent_only: true,
+      authorized_by: "owner",
+      authorized_at: "2026-01-01T00:00:00Z",
+      expires_at: $expires
+    }' > "$1/docs/growth/envelope.json"
+  }
 
   # E1: active envelope, spend under monthly cap → allow. The envelope cap (200) is in
   # force, not the text line — text approved=100 < spend=150 would block on its own.
   wd="$(make_workdir)"; ads="$(setup_ads "$wd")"
   printf 'Approved budget: $100\nTotal spend: $150\n' > "$ads"
-  printf '{"monthly_cap_eur":200,"expires_at":"2099-12-31T23:59:59Z"}' > "$wd/docs/growth/envelope.json"
+  write_envelope "$wd" 200 "2099-12-31T23:59:59Z"
   ec=0; run_hook "$ads" || ec=$?
   assert_exit_code "E1: under envelope monthly cap allows write" "$ec" 0
 
   # E2: active envelope, spend at/over monthly cap → block (exit 2).
   wd="$(make_workdir)"; ads="$(setup_ads "$wd")"
   printf 'Total spend: $150\n' > "$ads"
-  printf '{"monthly_cap_eur":100,"expires_at":"2099-12-31T23:59:59Z"}' > "$wd/docs/growth/envelope.json"
+  write_envelope "$wd" 100 "2099-12-31T23:59:59Z"
   ec=0; run_hook "$ads" || ec=$?
   assert_exit_code "E2: over envelope monthly cap blocks write" "$ec" 2
 
@@ -34,7 +45,7 @@ test_growth_envelope() {
   # (500) would have allowed; the text cap (100) blocks — proving the fallback path.
   wd="$(make_workdir)"; ads="$(setup_ads "$wd")"
   printf 'Approved budget: $100\nTotal spend: $150\n' > "$ads"
-  printf '{"monthly_cap_eur":500,"expires_at":"2000-01-01T00:00:00Z"}' > "$wd/docs/growth/envelope.json"
+  write_envelope "$wd" 500 "2000-01-01T00:00:00Z"
   ec=0; run_hook "$ads" || ec=$?
   assert_exit_code "E3: expired envelope falls back to text cap (blocks)" "$ec" 2
 
@@ -56,7 +67,7 @@ test_growth_envelope() {
   # the number used to yield spend=0 and silently bypass the hard stop). cap 100, spend 150.
   wd="$(make_workdir)"; ads="$(setup_ads "$wd")"
   printf 'Total spend: EUR 150\n' > "$ads"
-  printf '{"monthly_cap_eur":100,"expires_at":"2099-12-31T23:59:59Z"}' > "$wd/docs/growth/envelope.json"
+  write_envelope "$wd" 100 "2099-12-31T23:59:59Z"
   ec=0; run_hook "$ads" || ec=$?
   assert_exit_code "E7: EUR-formatted spend is parsed and blocks over cap" "$ec" 2
 
@@ -64,9 +75,38 @@ test_growth_envelope() {
   # fall back to a nonzero Approved budget: line — any spend is blocked.
   wd="$(make_workdir)"; ads="$(setup_ads "$wd")"
   printf 'Approved budget: $500\nTotal spend: $50\n' > "$ads"
-  printf '{"monthly_cap_eur":0,"expires_at":"2099-12-31T23:59:59Z"}' > "$wd/docs/growth/envelope.json"
+  write_envelope "$wd" 0 "2099-12-31T23:59:59Z" 0
   ec=0; run_hook "$ads" || ec=$?
   assert_exit_code "E8: zero-cap envelope blocks (no fallback to text cap)" "$ec" 2
+
+  # E9-E12: incomplete or relative authorization metadata never activates the envelope.
+  # The high envelope cap would allow; the fallback text cap proves each case is rejected.
+  wd="$(make_workdir)"; ads="$(setup_ads "$wd")"
+  printf 'Approved budget: $100\nTotal spend: $150\n' > "$ads"
+  write_envelope "$wd" 500 "tomorrow"
+  ec=0; run_hook "$ads" || ec=$?
+  assert_exit_code "E9: relative expiry is rejected" "$ec" 2
+
+  wd="$(make_workdir)"; ads="$(setup_ads "$wd")"
+  printf 'Approved budget: $100\nTotal spend: $150\n' > "$ads"
+  write_envelope "$wd" 500 "2099-12-31T23:59:59Z"
+  jq 'del(.authorized_by)' "$wd/docs/growth/envelope.json" > "$wd/e" && mv "$wd/e" "$wd/docs/growth/envelope.json"
+  ec=0; run_hook "$ads" || ec=$?
+  assert_exit_code "E10: missing owner authorization is rejected" "$ec" 2
+
+  wd="$(make_workdir)"; ads="$(setup_ads "$wd")"
+  printf 'Approved budget: $100\nTotal spend: $150\n' > "$ads"
+  write_envelope "$wd" 500 "2099-12-31T23:59:59Z"
+  jq '.authorized_at = "2099-01-01T00:00:00Z"' "$wd/docs/growth/envelope.json" > "$wd/e" && mv "$wd/e" "$wd/docs/growth/envelope.json"
+  ec=0; run_hook "$ads" || ec=$?
+  assert_exit_code "E11: future authorization is rejected" "$ec" 2
+
+  wd="$(make_workdir)"; ads="$(setup_ads "$wd")"
+  printf 'Approved budget: $100\nTotal spend: $150\n' > "$ads"
+  write_envelope "$wd" 500 "2099-12-31T23:59:59Z"
+  jq '.channels = ["seo"]' "$wd/docs/growth/envelope.json" > "$wd/e" && mv "$wd/e" "$wd/docs/growth/envelope.json"
+  ec=0; run_hook "$ads" || ec=$?
+  assert_exit_code "E12: envelope without ads channel is rejected" "$ec" 2
 
   # E6: the daily digest (#194) scrapes the growth pass's `- Spend:` line from a run
   # artifact into its Spend summary.
