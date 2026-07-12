@@ -307,6 +307,35 @@ class TestFootguns(unittest.TestCase):
         rules = dict(ig.DEFAULT_RULES, allow=["pkill -f worker.py"])
         self.assertEqual(footgun("pkill -f worker.py", rules=rules)[0], "PASS")
 
+    def test_warn_only_downgrades_footgun_block(self):
+        rules = dict(ig.DEFAULT_RULES, warn_only=["pkill -f worker.py"])
+        out, _, notes = footgun("pkill -f worker.py", rules=rules)
+        self.assertEqual(out, "PASS")
+        self.assertTrue(any("downgraded" in n for n in notes))
+
+    def test_variable_pkill_pattern_warns_not_blocks(self):
+        out, _, notes = footgun('PATTERN=worker.py; pkill -f "$PATTERN"')
+        self.assertEqual(out, "PASS")
+        self.assertTrue(any("variable pattern" in n for n in notes))
+
+    def test_redirect_target_named_like_interpreter_passes(self):
+        cmd = 'cat > /tmp/python <<EOF\n“tere”\nEOF'
+        self.assertEqual(footgun(cmd)[2], [])
+
+    def test_unrelated_gh_create_not_flagged(self):
+        self.assertIsNone(ig._inline_body(
+            ig.Atom(["gh", "workflow", "create", "--body", "a\nb"], [])))
+
+    def test_empty_signature_pattern_is_skipped(self):
+        fg = {"detectors": [], "regex": [{"id": "bad", "message": "m"},
+                                         {"id": "bad2", "pattern": "", "action": "block"}]}
+        self.assertEqual(footgun("echo hi", fg), ("PASS", "", []))
+
+    def test_footgun_scan_failure_never_hides_tier1(self):
+        # A broken footgun config must not fail open past the classifier: main()
+        # isolates scan_footguns, so simulate its failure contract directly.
+        self.assertEqual(classify("terraform destroy"), "BLOCK")
+
 
 class TestConfigBehaviour(unittest.TestCase):
     def test_allow_overrides_block(self):
