@@ -212,15 +212,34 @@ runtime_tree_digest() {
 }
 
 manifest_json_for_tree() {
-  local repo="$1" tree="$2" target="$3" parent prefix path base oid
+  local repo="$1" tree="$2" target="$3" parent path manifest_dir scope_dir in_scope oid
   local -a manifests=()
+  local -a ancestor_dirs=()
   parent=${target%/*}
-  if [ "$parent" = "$target" ]; then parent=.; prefix=; else prefix="$parent/"; fi
+  [ "$parent" != "$target" ] || parent=.
+  scope_dir=$parent
+  while [ "$scope_dir" != . ]; do
+    case "$scope_dir" in */*) scope_dir=${scope_dir%/*} ;; *) scope_dir=. ;; esac
+    ancestor_dirs+=("$scope_dir")
+  done
   while IFS= read -r -d '' path; do
-    case "$path" in "$prefix"*) base=${path#"$prefix"} ;; *) continue ;; esac
+    if [ "$parent" != . ]; then
+      case "$path" in
+        "$parent"/*) : ;;
+        *)
+          manifest_dir=${path%/*}
+          [ "$manifest_dir" != "$path" ] || manifest_dir=.
+          in_scope=false
+          for scope_dir in "${ancestor_dirs[@]}"; do
+            if [ "$manifest_dir" = "$scope_dir" ]; then in_scope=true; break; fi
+          done
+          $in_scope || continue
+          ;;
+      esac
+    fi
     case "${target##*/}" in
       node_modules)
-        case "$base" in
+        case "$path" in
           package.json|*/package.json|package-lock.json|*/package-lock.json|\
           npm-shrinkwrap.json|*/npm-shrinkwrap.json|pnpm-lock.yaml|*/pnpm-lock.yaml|\
           yarn.lock|*/yarn.lock|bun.lock|*/bun.lock|bun.lockb|*/bun.lockb) : ;;
@@ -228,7 +247,7 @@ manifest_json_for_tree() {
         esac
         ;;
       venv|.venv)
-        case "$base" in
+        case "$path" in
           pyproject.toml|*/pyproject.toml|uv.lock|*/uv.lock|poetry.lock|*/poetry.lock|\
           Pipfile|*/Pipfile|Pipfile.lock|*/Pipfile.lock|setup.py|*/setup.py|\
           setup.cfg|*/setup.cfg|requirements*.txt|*/requirements*.txt|\
@@ -240,7 +259,7 @@ manifest_json_for_tree() {
     esac
     oid=$($REAL_GIT -C "$repo" rev-parse "$tree:$path") || return 1
     manifests+=("$(jq -cn --arg path "$path" --arg oid "$oid" '{path:$path,oid:$oid}')")
-  done < <($REAL_GIT -C "$repo" ls-tree -r --name-only -z "$tree" -- "$parent")
+  done < <($REAL_GIT -C "$repo" ls-tree -r --name-only -z "$tree")
   if [ "${#manifests[@]}" -eq 0 ]; then printf '[]\n'
   else printf '%s\n' "${manifests[@]}" | jq -cs 'sort_by(.path)'
   fi

@@ -547,6 +547,8 @@ SH
   mkdir -p "$workdir/frontend/packages/widget" \
     "$workdir/backend/services/api/requirements"
   printf '%s\n' 'frontend/node_modules/' 'backend/venv/' > "$workdir/.gitignore"
+  printf '{"workspaces":["frontend/packages/*"]}\n' > "$workdir/package.json"
+  printf '[project]\nname = "workspace"\n' > "$workdir/pyproject.toml"
   printf '{}\n' > "$workdir/frontend/package.json"
   printf '{"lockfileVersion":3}\n' > "$workdir/frontend/package-lock.json"
   printf '{"name":"widget"}\n' > "$workdir/frontend/packages/widget/package.json"
@@ -580,6 +582,8 @@ SH
     "$(jq '.check_runtimes|length' "$trust_receipt")" 2
   assert_exit_code "RS19zkr2a: receipt seals nested dependency manifests" \
     "$(jq -e '
+      ([.check_runtimes[].manifests[].path] | index("package.json")) != null and
+      ([.check_runtimes[].manifests[].path] | index("pyproject.toml")) != null and
       ([.check_runtimes[].manifests[].path] | index("frontend/packages/widget/package.json")) != null and
       ([.check_runtimes[].manifests[].path] | index("backend/services/api/requirements/dev.txt")) != null
     ' "$trust_receipt" >/dev/null 2>&1; echo $?)" 0
@@ -619,6 +623,7 @@ SH
   auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
   bash "$script" --repo-root "$linked" --snapshot-trust "$trust_receipt" \
     --auth-stdin --allow app.txt \
+    --allow package.json --allow pyproject.toml \
     --allow frontend/packages/widget/package.json \
     --allow frontend/packages/widget/package-lock.json \
     --allow backend/services/api/requirements/new.txt <<<"$auth_token" >/dev/null
@@ -646,6 +651,22 @@ SH
   assert_exit_code "RS19zkr8c: nested dependency deletion rejects stale runtime" "$ec" 1
   assert_output_contains "RS19zkr8d: nested deletion failure is explicit" "$out" 'dependency manifests changed'
   git -C "$linked" restore app.txt frontend/packages/widget/package-lock.json
+
+  printf '{"workspaces":[]}\n' > "$linked/package.json"
+  printf 'root-node-manifest\n' > "$linked/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$linked" --message root-node-manifest \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr8e: root Node manifest change rejects stale runtime" "$ec" 1
+  assert_output_contains "RS19zkr8f: root Node manifest failure is explicit" "$out" 'dependency manifests changed'
+  git -C "$linked" restore app.txt package.json
+
+  printf '[project]\nname = "changed-workspace"\n' > "$linked/pyproject.toml"
+  printf 'root-python-manifest\n' > "$linked/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$linked" --message root-python-manifest \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr8g: root Python manifest change rejects stale runtime" "$ec" 1
+  assert_output_contains "RS19zkr8h: root Python manifest failure is explicit" "$out" 'dependency manifests changed'
+  git -C "$linked" restore app.txt pyproject.toml
 
   ln -s /workspace/secret "$workdir/frontend/node_modules/escape"
   trust_receipt=$(git -C "$linked" rev-parse --git-path saas-startup-team/runtime-escape.json)
