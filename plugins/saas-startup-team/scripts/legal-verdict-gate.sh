@@ -141,13 +141,19 @@ for doc in "$@"; do
       # Validate every claim's own schema. Confirmed Tier A claims additionally
       # require a complete scalar sentence from an HTTPS primary source.
       claim_check=$(printf '%s\n' "$fm" | awk '
+        function terminal_quote_escaped(text, i, slashes) {
+          for (i=length(text) - 1; i > 1 && substr(text, i, 1) == "\\"; i--)
+            slashes++
+          return slashes % 2
+        }
         function scalar(line, first, last) {
           sub(/^[^:]*:[[:space:]]*/, "", line)
           sub(/[[:space:]]+$/, "", line)
           first=substr(line, 1, 1)
           last=substr(line, length(line), 1)
           if (first == "\"" || first == "\047") {
-            if (length(line) < 2 || last != first) {
+            if (length(line) < 2 || last != first ||
+                (first == "\"" && terminal_quote_escaped(line))) {
               scalar_invalid=1
               return ""
             }
@@ -165,13 +171,25 @@ for doc in "$@"; do
         function valid_https(url) {
           return url ~ /^https:\/\/[[:alnum:]]([[:alnum:].-]*[[:alnum:]])?(:[0-9]+)?([\/?#].*)?$/
         }
+        function leap_year(year) {
+          return year % 400 == 0 || (year % 4 == 0 && year % 100 != 0)
+        }
+        function valid_date(text, parts, year, month, day, maximum) {
+          if (text !~ /^[0-9][0-9][0-9][0-9]-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/)
+            return 0
+          split(text, parts, "-")
+          year=parts[1] + 0; month=parts[2] + 0; day=parts[3] + 0
+          maximum=31
+          if (month == 4 || month == 6 || month == 9 || month == 11) maximum=30
+          if (month == 2) maximum=28 + leap_year(year)
+          return day <= maximum
+        }
         function finish() {
           if (!claim) return
-          date_re="^[0-9][0-9][0-9][0-9]-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
           if (scalar_invalid || blank(id) || claim_verdict !~ /^(CONFIRMED|UNCONFIRMED|UNVERIFIABLE-IN-CORPUS)$/ ||
               claim_tier !~ /^(A|B|C)$/ || blank(value) ||
               !valid_https(source) || blank(quote) ||
-              verified !~ date_re || review !~ date_re) {
+              !valid_date(verified) || !valid_date(review)) {
             schema_invalid=1
           }
           if (claim_verdict != "CONFIRMED") claim_hedged=1
