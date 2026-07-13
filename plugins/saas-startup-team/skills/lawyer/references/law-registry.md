@@ -75,19 +75,19 @@ default them to `""` via `// ""`, so no migration is needed.
 | `needs_review` | bool | Feed reported a change that the code hasn't yet absorbed. Cleared by `/lawyer ack <slug>`. |
 | `change_detected_at` | ISO-8601 \| null | Detection timestamp (mirrors the feed event's `detected_at`). |
 | `change` | object \| null | `{feed_event_id(int), type(str), summary(str), effective_date(str\|null)}`. Cleared by ack. |
-| `gh_issue_url` | string \| null | Set when investor confirms "Jah, loo issue". Preserved through ack as a historical pointer. |
+| `gh_issue_url` | string \| null | Set after interactive confirmation or explicit `/lawyer issue`. Preserved through ack as a historical pointer. |
 
 ## State machine
 
 | needs_review | gh_issue_url | Meaning | /lawyer behaviour |
 |---|---|---|---|
 | `false` | any | Clean | Runs topic as normal |
-| `true` | `null` | Detected, not yet confirmed | Blocks topic, prompts for issue creation |
+| `true` | `null` | Detected, not yet confirmed | Interactive topic prompts; non-interactive topic warns once and continues; explicit `issue` creates tracking |
 | `true` | `<url>` | Issue open, PR pending | Runs topic with reminder |
 
 Transitions:
 - clean → `(true, null)` by feed detection (matches `ChangeEvent.rt_id` against `entry.rt_id`)
-- `(true, null)` → `(true, <url>)` by investor answering "Jah, loo issue"
+- `(true, null)` → `(true, <url>)` by interactive confirmation or explicit `/lawyer issue <slug>`
 - `(true, <url>)` → clean by `/lawyer ack <slug>` inside the PR branch that ships the code fix
 
 ## Source markers

@@ -1410,6 +1410,15 @@ SH
   chmod +x "$workdir/bin/gh"
   cat > "$workdir/bin/codex" <<'SH'
 #!/bin/sh
+if [ "${1:-}" = sandbox ]; then
+  root=
+  previous=
+  for argument in "$@"; do
+    if [ "$previous" = -C ]; then root=$argument; fi
+    previous=$argument
+  done
+  case " $* " in *" /bin/pwd "*) printf '%s\n' "$root" ;; esac
+fi
 exit 0
 SH
   cat > "$workdir/bin/bwrap" <<'SH'

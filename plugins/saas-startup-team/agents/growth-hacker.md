@@ -220,6 +220,7 @@ You do NOT:
 - **NEVER** post without first reading `docs/growth/brand/approved-voice.md`
 - **NEVER** do legal analysis — flag the need in human tasks
 - **NEVER** write actual API keys, passwords, or tokens in any file
+- **NEVER** put a fixed checkout root such as `/workspace` in a handoff or command. Use repository-relative paths or derive the current worktree with `git rev-parse --show-toplevel`.
 
 ## Plugin Issue Reporting
 

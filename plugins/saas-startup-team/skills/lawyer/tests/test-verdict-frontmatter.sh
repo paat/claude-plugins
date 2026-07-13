@@ -31,7 +31,7 @@ for key in "${REQUIRED_KEYS[@]}"; do
   echo "$hedged_fm" | grep -q "^${key}:" || { echo "FAIL: hedged fixture missing key '$key'"; exit 1; }
 done
 
-for claim_key in id value source_url quote verified_at review_by; do
+for claim_key in id verdict evidence_tier value source_url quote verified_at review_by; do
   echo "$confirmed_fm" | grep -qE "^[[:space:]]*-?[[:space:]]*${claim_key}:" || { echo "FAIL: confirmed fixture claims[] missing '$claim_key'"; exit 1; }
   echo "$hedged_fm" | grep -qE "^[[:space:]]*-?[[:space:]]*${claim_key}:" || { echo "FAIL: hedged fixture claims[] missing '$claim_key'"; exit 1; }
 done
@@ -78,11 +78,15 @@ if not isinstance(data["blocking_human_tasks"], list):
     raise SystemExit("blocking_human_tasks must be a list")
 if not isinstance(data["claims"], list) or not data["claims"]:
     raise SystemExit("claims must be a non-empty list")
-claim_keys = {"id", "value", "source_url", "quote", "verified_at", "review_by"}
+claim_keys = {"id", "verdict", "evidence_tier", "value", "source_url", "quote", "verified_at", "review_by"}
 for claim in data["claims"]:
     missing_claim_keys = claim_keys - set(claim)
     if missing_claim_keys:
         raise SystemExit(f"claim missing keys: {missing_claim_keys}")
+    if claim["verdict"] not in ("CONFIRMED", "UNCONFIRMED", "UNVERIFIABLE-IN-CORPUS"):
+        raise SystemExit(f"bad claim verdict: {claim['verdict']!r}")
+    if claim["evidence_tier"] not in ("A", "B", "C"):
+        raise SystemExit(f"bad claim evidence_tier: {claim['evidence_tier']!r}")
 ' || { echo "FAIL: $doc frontmatter is not well-formed per schema"; exit 1; }
   done
 fi

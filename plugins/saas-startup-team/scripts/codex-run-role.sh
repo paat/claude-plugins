@@ -38,6 +38,14 @@ command -v codex >/dev/null 2>&1 || { echo "codex-run-role: codex CLI not found"
 command -v timeout >/dev/null 2>&1 || { echo "codex-run-role: timeout is required" >&2; exit 4; }
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "codex-run-role: not inside a git worktree" >&2; exit 4; }
 REPO_ROOT=$(cd "$REPO_ROOT" && pwd -P)
+LOGIN_REPO_ROOT=$(cd "$REPO_ROOT" && timeout --signal=TERM --kill-after=1s 5s /bin/bash -lc 'pwd -P') || {
+  echo "codex-run-role: could not verify the login-shell working directory" >&2
+  exit 4
+}
+[ "$LOGIN_REPO_ROOT" = "$REPO_ROOT" ] || {
+  echo "codex-run-role: login startup changes cwd; remove that cd or preserve the repository directory" >&2
+  exit 4
+}
 SOURCE=${TASK_FILE:-$HANDOFF}
 case "$SOURCE" in /*) : ;; *) SOURCE="$REPO_ROOT/$SOURCE" ;; esac
 [ -f "$SOURCE" ] && [ -r "$SOURCE" ] || { echo "codex-run-role: task input is not readable" >&2; exit 4; }
@@ -56,6 +64,8 @@ case "$EFFORT" in low|medium|high|xhigh|max) : ;; *) echo "codex-run-role: inval
 
 case "$ROLE" in
   delivery-supervisor) ROLE_ACCESS=supervisor ;;
+  growth-hacker|lawyer|ux-tester|incident-investigator|session-replay|support-triage)
+    ROLE_ACCESS=artifact-writer ;;
   *triage*|*review*|qa|qa-*|*-qa|*-qa-*) ROLE_ACCESS=read-only ;;
   business-founder|business-founder-*) ROLE_ACCESS=artifact-writer ;;
   tech-founder|tech-founder-*) ROLE_ACCESS=source-writer ;;
@@ -270,6 +280,9 @@ TASK_TEXT=$(cat "$SOURCE")
 case "$ROLE" in
   delivery-supervisor)
     MUTATION_RULES='You are the sole supervisor mutation owner for this task. You may perform only the Git, GitHub, merge, deployment, and rollback operations explicitly authorized by the task, and only after its deterministic gates pass. Do not delegate mutations to review or QA roles.'
+    ;;
+  growth-hacker|lawyer|ux-tester|incident-investigator|session-replay|support-triage)
+    MUTATION_RULES='You may write only task-designated local artifacts. Never modify product source, tests, or the canonical workflow-spec registry. Do not commit, push, create or edit pull requests, merge, deploy, or roll back.'
     ;;
   *triage*|*review*|qa|qa-*|*-qa|*-qa-*)
     MUTATION_RULES='This is a read-only/review role. Do not edit product files, commit, push, create or edit pull requests, merge, deploy, or roll back. Return only the requested structured verdict or review artifact.'

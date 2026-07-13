@@ -5,13 +5,31 @@ test_delivery_routing() {
   local route="$PLUGIN_ROOT/scripts/delivery-route.sh"
   local launcher="$PLUGIN_ROOT/scripts/codex-run-role.sh"
   local wrapper="$PLUGIN_ROOT/scripts/codex-implement.sh"
-  local wd task labels out ec repo bin calls events auth_signal sensitive_signal ui_file
+  local wd task labels out ec repo bin calls events auth_signal sensitive_signal ui_file artifact_role login_home
 
   assert_file_exists "DR1: delivery router exists" "$route"
   assert_file_exists "DR2: pinned role launcher exists" "$launcher"
+  assert_file_contains "DR2a: generated workflows abandon failed thread handles" \
+    "$PLUGIN_ROOT/skills/saas-startup-team-growth-workflow/SKILL.md" \
+    "do not wait or poll that handle"
+  assert_file_contains "DR2a1: generated workflows inspect the artifact before fallback" \
+    "$PLUGIN_ROOT/skills/saas-startup-team-growth-workflow/SKILL.md" \
+    "Check its expected artifact once"
+  assert_file_contains "DR2a2: generated workflows prohibit concurrent fallback writers" \
+    "$PLUGIN_ROOT/skills/saas-startup-team-growth-workflow/SKILL.md" \
+    "Never let an original and fallback worker write the same artifact concurrently"
+  assert_file_contains "DR2a3: generated workflows reject stale fallback artifacts" \
+    "$PLUGIN_ROOT/skills/saas-startup-team-growth-workflow/SKILL.md" \
+    "a stale or unproven artifact counts as absent"
   assert_file_exists "DR2b: compatibility wrapper exists" "$wrapper"
   assert_file_contains "DR2c: wrapper delegates to the shared launcher" "$wrapper" 'codex-run-role.sh'
   assert_file_not_contains "DR2d: wrapper never launches Codex directly" "$wrapper" 'codex exec'
+  assert_file_contains "DR2e: generated workflows prohibit fixed checkout roots" \
+    "$PLUGIN_ROOT/skills/saas-startup-team-growth-workflow/SKILL.md" \
+    'Never emit a hardcoded checkout root such as `/workspace`'
+  assert_file_contains "DR2f: growth handoffs prohibit fixed checkout roots" \
+    "$PLUGIN_ROOT/agents/growth-hacker.md" \
+    'NEVER.*fixed checkout root such as `/workspace`'
   assert_equals "DR3: routing schema probe" "$(bash "$route" schema-version | jq -r .schema_version)" "1"
 
   wd=$(mktemp -d)
@@ -336,6 +354,32 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_toke
 SH
   chmod +x "$bin/codex"
 
+  login_home="$repo/login-home"
+  mkdir -p "$login_home" "$repo/login-elsewhere"
+  printf 'cd "%s"\n' "$repo/login-elsewhere" > "$login_home/.profile"
+  : > "$calls"; ec=0
+  out=$(cd "$repo" && HOME="$login_home" PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" \
+    bash "$launcher" --role analyst --profile standard --task-file task.md 2>&1) || ec=$?
+  assert_exit_code "DR20j: login startup cwd change fails closed" "$ec" 4
+  assert_output_contains "DR20k: login startup failure is actionable" "$out" \
+    'login startup changes cwd'
+  assert_equals "DR20l: login startup cwd change launches no worker" \
+    "$(wc -l < "$calls" | tr -d ' ')" "0"
+  rm -rf "$login_home" "$repo/login-elsewhere"
+
+  login_home="$repo/login-home"
+  mkdir -p "$login_home"
+  printf '%s\n' 'sleep 30' > "$login_home/.profile"
+  : > "$calls"; ec=0
+  out=$(cd "$repo" && HOME="$login_home" PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" \
+    bash "$launcher" --role analyst --profile standard --task-file task.md 2>&1) || ec=$?
+  assert_exit_code "DR20m: hanging login startup fails closed" "$ec" 4
+  assert_output_contains "DR20n: hanging login startup failure is actionable" "$out" \
+    'could not verify the login-shell working directory'
+  assert_equals "DR20o: hanging login startup launches no worker" \
+    "$(wc -l < "$calls" | tr -d ' ')" "0"
+  rm -rf "$login_home"
+
   : > "$calls"
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_PROMPT="$repo/tech-prompt.txt" SAAS_AGENT_EVENTS_FILE="$events" \
     bash "$launcher" --role tech-founder --profile standard --task-file task.md >/dev/null)
@@ -374,6 +418,24 @@ SH
   assert_file_contains "DR25e: business role is brief and proposal only" "$repo/business-prompt.txt" 'write only business/product briefs and proposed workflow-spec deltas'
   assert_file_contains "DR25f: business role cannot mutate source tests or registry" "$repo/business-prompt.txt" 'Never modify product source, tests, or the canonical workflow-spec registry'
 
+  for artifact_role in growth-hacker lawyer ux-tester incident-investigator session-replay support-triage; do
+    : > "$calls"; : > "$events"
+    (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" \
+      FAKE_CODEX_PROMPT="$repo/$artifact_role-prompt.txt" SAAS_AGENT_EVENTS_FILE="$events" \
+      bash "$launcher" --role "$artifact_role" --profile standard --task-file task.md >/dev/null)
+    assert_file_contains "DR25f1: $artifact_role uses workspace-write" "$calls" '-s workspace-write'
+    assert_file_contains "DR25f2: $artifact_role may write local artifacts" \
+      "$repo/$artifact_role-prompt.txt" 'write only task-designated local artifacts'
+  done
+
+  : > "$calls"; : > "$events"
+  (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" \
+    FAKE_CODEX_PROMPT="$repo/maintain-triage-prompt.txt" SAAS_AGENT_EVENTS_FILE="$events" \
+    bash "$launcher" --role maintain-triage --profile standard --task-file task.md >/dev/null)
+  assert_file_contains "DR25f3: maintain triage remains read-only" \
+    "$repo/maintain-triage-prompt.txt" 'This is a read-only/review role'
+  assert_file_contains "DR25f4: maintain triage uses the read-only sandbox" "$calls" '-s read-only'
+
   : > "$calls"; : > "$events"
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_PROMPT="$repo/qa-prompt.txt" SAAS_AGENT_EVENTS_FILE="$events" \
     bash "$launcher" --role qa --profile standard --task-file task.md >/dev/null)
@@ -391,6 +453,7 @@ SH
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_PROMPT="$repo/unknown-prompt.txt" SAAS_AGENT_EVENTS_FILE="$events" \
     bash "$launcher" --role analyst --profile standard --task-file task.md >/dev/null)
   assert_file_contains "DR25h: unknown role fails closed to read-only" "$repo/unknown-prompt.txt" 'no mutation grant and must remain read-only'
+  assert_file_contains "DR25h1: unknown role uses the read-only sandbox" "$calls" '-s read-only'
 
   : > "$calls"; : > "$events"
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=terra_unavailable \
