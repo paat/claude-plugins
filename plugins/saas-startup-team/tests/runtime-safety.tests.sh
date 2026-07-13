@@ -916,6 +916,8 @@ SH
   printf 'test log\n' > "$workdir/backend/logs/test.log"
   printf 'sqlite test output\n' > "$workdir/backend/data/test-results.db"
   printf 'SECRET=phase-only\n' > "$workdir/.env"
+  mkdir -p "$workdir/.startup/leases/worker-created"
+  printf 'fake\n' > "$workdir/.startup/leases/worker-created/heartbeat"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" \
     --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19znn5: allowed change, lease heartbeat, and generated check output verify" "$ec" 0
@@ -926,6 +928,8 @@ SH
     "$workdir/backend/data/test-results.db"
   assert_file_exists "RS19znn5d: active lease heartbeat is preserved" \
     "$workdir/.startup/leases/guarded-test/heartbeat"
+  assert_file_not_exists "RS19znn5e: worker-created lease heartbeat is removed" \
+    "$workdir/.startup/leases/worker-created/heartbeat"
 
   git -C "$workdir" restore app.txt
   mkdir -p "$workdir/existing-cache"

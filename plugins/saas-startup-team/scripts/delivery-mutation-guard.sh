@@ -244,10 +244,15 @@ always_exempt_ignored_path() {
     */node_modules/*|*/.pnpm-store/*|*/.pnpm/*|*/bower_components/*|\
     */.yarn/cache/*|*/.yarn/unplugged/*) return 0 ;;
   esac
-  case "$path" in
-    .startup/leases/*/heartbeat|.startup/leases/*/audit.log) return 0 ;;
-  esac
   return 1
+}
+
+mutable_control_ignored_path() {
+  local path="$1" rest lease
+  case "$path" in .startup/leases/*/heartbeat|.startup/leases/*/audit.log) : ;; *) return 1 ;; esac
+  rest=${path#.startup/leases/}
+  lease=${rest%/*}
+  case "$lease" in ''|*/*) return 1 ;; *) return 0 ;; esac
 }
 
 ignored_paths() {
@@ -344,7 +349,13 @@ ignored_fingerprint() {
 fingerprint_one() {
   local kind="$1" path="$2" tmp="$3"
   allowed_path "$path" && return 0
-  fingerprint_entry "$path"
+  if [ "$kind" = ignored ] && mutable_control_ignored_path "$path" \
+    && [ -f "$path" ] && [ ! -L "$path" ]; then
+    if [ -x "$path" ]; then ENTRY_MODE=100755; else ENTRY_MODE=100644; fi
+    ENTRY_OID=mutable-control
+  else
+    fingerprint_entry "$path"
+  fi
   printf '%s\0%s\0%s\0%s\0' "$kind" "$path" "$ENTRY_MODE" "$ENTRY_OID" >> "$tmp"
 }
 
