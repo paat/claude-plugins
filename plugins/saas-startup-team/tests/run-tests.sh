@@ -4803,6 +4803,40 @@ test_autonomous_demand_infra() {
     assert_exit_code "AD syntax: $(basename "$s")" "$ec" 0
   done
 
+  # A start-only smoke was a false green (issues #260/#261): the smoke must also
+  # prove out-of-sandbox candidate staging and in-sandbox Python thread wakeups.
+  assert_file_contains "AD4g: smoke probes trusted staging outside the sandbox" \
+    "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" 'core.hooksPath=/dev/null add -A'
+  assert_file_contains "AD4h: smoke probes in-sandbox thread wakeups" \
+    "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" 'asyncio.to_thread'
+  if command -v python3 >/dev/null 2>&1; then
+    workdir=$(make_workdir)
+    mkdir -p "$workdir/bin"
+    cat > "$workdir/bin/codex" <<'SH'
+#!/bin/sh
+[ "$1" = sandbox ] || exit 2
+for a in "$@"; do
+  [ "$a" = python3 ] && sleep 5
+done
+exit 0
+SH
+    chmod +x "$workdir/bin/codex"
+    ec=0; output=$(PATH="$workdir/bin:$PATH" SAAS_CODEX_PREFLIGHT_TIMEOUT=1 \
+      bash "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" --root "$workdir" 2>&1) || ec=$?
+    assert_exit_code "AD4i: hung in-sandbox thread wakeup blocks" "$ec" 4
+    assert_output_contains "AD4j: wakeup diagnosis names the deadlock" "$output" "cross-thread wakeup"
+    cat > "$workdir/bin/codex" <<'SH'
+#!/bin/sh
+[ "$1" = sandbox ] || exit 2
+exit 0
+SH
+    chmod +x "$workdir/bin/codex"
+    ec=0; output=$(PATH="$workdir/bin:$PATH" bash "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" --root "$workdir" 2>&1) || ec=$?
+    assert_exit_code "AD4k: healthy sandbox passes staging and wakeup probes" "$ec" 0
+    assert_output_contains "AD4l: success names the added probes" "$output" "thread-wakeup probes"
+    rm -rf "$workdir"
+  fi
+
   workdir=$(make_workdir)
   mkdir -p "$workdir/plugin/hooks"
   printf '{"hooks":{}}\n' > "$workdir/plugin/hooks/hooks.json"

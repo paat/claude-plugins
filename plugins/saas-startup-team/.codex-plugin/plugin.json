@@ -1,6 +1,6 @@
 {
   "name": "saas-startup-team",
-  "version": "0.88.1",
+  "version": "0.89.0",
   "description": "Codex-native SaaS startup orchestration using file-based founder handoffs, business research, implementation, growth, legal, UX, and review loops for Estonian SaaS projects.",
   "author": {
     "name": "Andre Paat"

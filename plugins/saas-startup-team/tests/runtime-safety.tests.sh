@@ -99,6 +99,14 @@ while [ "$#" -gt 0 ]; do
 done
 [ "$#" -gt 0 ]
 [ -z "$sandbox_cwd" ] || cd "$sandbox_cwd"
+# Codex's :workspace profile denies writes to the workspace .git (issues
+# #260/#261); emulate that so in-sandbox Git metadata writes fail here too.
+if [ -d .git ] && [ ! -L .git ]; then
+  chmod -R a-w .git
+  rc=0; "$@" || rc=$?
+  chmod -R u+w .git
+  exit "$rc"
+fi
 "$@"
 SH
     chmod +x "$root/bin/codex"
@@ -230,6 +238,14 @@ SH
   assert_equals "RS19j: rejected hook change creates no commit" "$(git -C "$workdir" rev-list --count HEAD)" 1
   rm -rf "$workdir" "$remote"
 
+  # The nested Codex sandbox keeps the candidate clone's .git read-only, so no
+  # Git metadata write may run inside sandbox_exec (issues #260/#261).
+  assert_file_not_contains "RS19k: no in-sandbox git invocation remains" "$script" 'sandbox_exec "$SHADOW" "$REAL_GIT"'
+  assert_file_contains "RS19l: staging uses trusted git outside the sandbox" "$script" \
+    '$REAL_GIT -C "$SHADOW" -c core.fsmonitor=false -c core.hooksPath=/dev/null add -A'
+  assert_file_contains "RS19m: commit is created by trusted git outside the sandbox" "$script" 'commit -q -F "$MSG_FILE"'
+  assert_file_contains "RS19n: frozen hooks still run inside the sandbox" "$script" 'sandbox_exec "$SHADOW" "$FROZEN_HOOKS/$hook"'
+
   workdir=$(make_workdir); make_supervisor_sandbox "$workdir"; (cd "$workdir" && git config user.email t@t.t && git config user.name t)
   mkdir -p "$workdir/.startup"
   printf '.startup/state.json\n' > "$workdir/.gitignore"
@@ -326,7 +342,8 @@ SH
   assert_file_contains "RS19za: user-owned untracked file remains" "$workdir/.claude/local.md" user-owned
   rm -rf "$workdir"
 
-  # A check-created hook-slot symlink is removed without following it.
+  # A check that tries to plant a hook-slot symlink hits the read-only .git
+  # sandbox boundary and fails the delivery; the trusted copy is never redirected.
   workdir=$(make_workdir); make_supervisor_sandbox "$workdir"; (cd "$workdir" && git config user.email t@t.t && git config user.name t)
   remote=$(mktemp -d)
   printf 'base\n' > "$workdir/app.txt"
@@ -336,7 +353,8 @@ SH
   printf 'changed\n' > "$workdir/app.txt"
   ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" \
     --message test --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
-  assert_exit_code "RS19zb: hook-slot symlink cannot redirect trusted copy" "$ec" 0
+  assert_exit_code "RS19zb: hook-slot tampering check fails the delivery" "$ec" 1
+  assert_equals "RS19zb1: tampering check creates no commit" "$(git -C "$workdir" rev-list --count HEAD)" 1
   assert_equals "RS19zc: external hook target stays empty" "$(find "$remote" -mindepth 1 -print -quit)" ""
   rm -rf "$workdir" "$remote"
 

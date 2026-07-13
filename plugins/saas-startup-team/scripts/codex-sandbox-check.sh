@@ -43,7 +43,35 @@ rc=0
 out="$(timeout "$TIMEOUT" codex sandbox --permission-profile :workspace \
   --sandbox-state-disable-network -C "$ROOT" /bin/pwd 2>&1)" || rc=$?
 if [ "$rc" -eq 0 ]; then
-  echo "ok: Codex writer sandbox usable with network-off workspace-write"
+  # A bare start smoke is a false green for delivery (issues #260/#261):
+  # the trusted commit path stages candidates with git outside the sandbox,
+  # and validation checks need Python cross-thread wakeups inside it.
+  stage_dir="$(mktemp -d)"
+  stage_rc=0
+  (
+    cd "$stage_dir" \
+      && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git init -q . \
+      && echo probe > staged.txt \
+      && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        git -c core.fsmonitor=false -c core.hooksPath=/dev/null add -A
+  ) >/dev/null 2>&1 || stage_rc=$?
+  rm -rf "$stage_dir"
+  if [ "$stage_rc" -ne 0 ]; then
+    echo "candidate staging probe failed (exit $stage_rc): trusted git cannot stage a disposable clone outside the sandbox"
+    exit 4
+  fi
+  if have_cmd python3; then
+    thread_rc=0
+    timeout "$TIMEOUT" codex sandbox --permission-profile :workspace \
+      --sandbox-state-disable-network -C "$ROOT" python3 -c \
+      'import asyncio; asyncio.run(asyncio.to_thread(lambda: None))' >/dev/null 2>&1 || thread_rc=$?
+    if [ "$thread_rc" -ne 0 ]; then
+      if [ "$thread_rc" -ge 124 ]; then reason="hang"; else reason="exit $thread_rc"; fi
+      echo "Python cross-thread wakeup failed inside the Codex sandbox ($reason): threaded checks (asyncio.to_thread, HTTP test clients) will deadlock; update the Codex CLI or the container sandbox policy so ordinary thread wakeups work"
+      exit 4
+    fi
+  fi
+  echo "ok: Codex writer sandbox usable with network-off workspace-write (start, staging, and thread-wakeup probes)"
   exit 0
 fi
 
