@@ -240,11 +240,11 @@ SH
 
   # The nested Codex sandbox keeps the candidate clone's .git read-only, so no
   # Git metadata write may run inside sandbox_exec (issues #260/#261).
-  assert_file_not_contains "RS19k: no in-sandbox git invocation remains" "$script" 'sandbox_exec "$SHADOW" "$REAL_GIT"'
-  assert_file_contains "RS19l: staging uses trusted git outside the sandbox" "$script" \
-    '$REAL_GIT -C "$SHADOW" -c core.fsmonitor=false -c core.hooksPath=/dev/null add -A'
-  assert_file_contains "RS19m: commit is created by trusted git outside the sandbox" "$script" 'commit -q -F "$MSG_FILE"'
-  assert_file_contains "RS19n: frozen hooks still run inside the sandbox" "$script" 'sandbox_exec "$SHADOW" "$FROZEN_HOOKS/$hook"'
+  assert_file_not_contains "RS19s1: no in-sandbox git invocation remains" "$script" 'sandbox_exec "$SHADOW" "$REAL_GIT"'
+  assert_file_contains "RS19s2: staging uses scrubbed trusted git outside the sandbox" "$script" 'trusted_shadow_git add -A'
+  assert_file_contains "RS19s3: commit is created by scrubbed trusted git outside the sandbox" "$script" 'trusted_shadow_git commit -q -F "$MSG_FILE"'
+  assert_file_contains "RS19s4: frozen hooks still run inside the sandbox" "$script" 'sandbox_exec "$SHADOW" "$FROZEN_HOOKS/$hook"'
+  assert_file_contains "RS19s5: scrubbed trusted git helper is defined" "$script" 'trusted_shadow_git() {'
 
   workdir=$(make_workdir); make_supervisor_sandbox "$workdir"; (cd "$workdir" && git config user.email t@t.t && git config user.name t)
   mkdir -p "$workdir/.startup"

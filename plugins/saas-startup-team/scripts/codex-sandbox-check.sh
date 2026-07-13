@@ -66,7 +66,11 @@ if [ "$rc" -eq 0 ]; then
       --sandbox-state-disable-network -C "$ROOT" python3 -c \
       'import asyncio; asyncio.run(asyncio.to_thread(lambda: None))' >/dev/null 2>&1 || thread_rc=$?
     if [ "$thread_rc" -ne 0 ]; then
-      if [ "$thread_rc" -ge 124 ]; then reason="hang"; else reason="exit $thread_rc"; fi
+      case "$thread_rc" in
+        124|137) reason="timed out (likely hang)" ;;
+        127) reason="python3 not available inside the sandbox" ;;
+        *) reason="exit $thread_rc" ;;
+      esac
       echo "Python cross-thread wakeup failed inside the Codex sandbox ($reason): threaded checks (asyncio.to_thread, HTTP test clients) will deadlock; update the Codex CLI or the container sandbox policy so ordinary thread wakeups work"
       exit 4
     fi

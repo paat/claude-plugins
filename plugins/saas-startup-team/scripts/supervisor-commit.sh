@@ -551,6 +551,19 @@ sandbox_exec() {
     "$CODEX_BIN" sandbox --permission-profile :workspace --sandbox-state-disable-network -C "$cwd" "$@"
 }
 
+# Trusted git over the shadow clone with the same credentialless environment
+# hygiene as sandbox_exec, minus the sandbox itself: Codex's :workspace profile
+# denies .git writes, so Git metadata mutations cannot run inside it
+# (issues #260/#261). git add/commit perform no network I/O; the scrubbed
+# environment and /dev/null configs remove ambient credentials regardless.
+trusted_shadow_git() {
+  env -i PATH="$PATH" HOME="$SANDBOX_HOME" USER="${USER:-supervisor}" TERM="${TERM:-dumb}" CI=1 \
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    GIT_NO_REPLACE_OBJECTS=1 GIT_LITERAL_PATHSPECS=1 \
+    GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=/bin/false \
+    "$REAL_GIT" -C "$SHADOW" -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
+}
+
 for path in "${!CANDIDATE_PATHS[@]}"; do
   allowed_path "$path" || continue
   attr_path='' attr_name='' attr_value=''
@@ -566,11 +579,10 @@ for path in "${!CANDIDATE_PATHS[@]}"; do
   esac
 done
 
-# Codex's :workspace profile keeps the candidate clone's .git read-only, so
-# staging must run the trusted git binary directly (issues #260/#261). Nothing
-# untrusted executes here: hooks and fsmonitor are disabled and the
-# attributes/filter gates above already rejected any filtered path.
-$REAL_GIT -C "$SHADOW" -c core.fsmonitor=false -c core.hooksPath=/dev/null add -A || {
+# Nothing untrusted executes during staging: hooks and fsmonitor are disabled,
+# the attributes/filter gates above rejected any filtered path, and the
+# /dev/null configs leave no filter drivers defined.
+trusted_shadow_git add -A || {
   echo "supervisor-commit: isolated candidate staging failed" >&2; exit 1; }
 declare -A ALL_GITLINKS=()
 for path in "${!BASE_GITLINKS[@]}"; do ALL_GITLINKS["$path"]=1; done
@@ -691,7 +703,7 @@ set -e
 [ "$HOOK_RC" -eq 0 ] || { echo "supervisor-commit: isolated product hooks failed" >&2; exit 1; }
 [ "$($REAL_GIT -C "$SHADOW" write-tree)" = "$CHECKED_TREE" ] || {
   echo "supervisor-commit: product hooks changed the staged candidate tree" >&2; exit 1; }
-$REAL_GIT -C "$SHADOW" -c core.fsmonitor=false -c core.hooksPath=/dev/null commit -q -F "$MSG_FILE" || {
+trusted_shadow_git commit -q -F "$MSG_FILE" || {
   echo "supervisor-commit: isolated candidate commit failed" >&2; exit 1; }
 rm -f -- "$MSG_FILE"
 run_frozen_hook post-commit || true
