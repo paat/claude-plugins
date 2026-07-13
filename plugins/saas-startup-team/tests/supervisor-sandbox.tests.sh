@@ -145,6 +145,10 @@ SH
   assert_file_contains "SS17: candidate starts under a clean environment" "$log" '^-i$'
   assert_file_contains "SS17a: volume population uses an explicit root helper" "$log" '^0:0$'
   assert_file_contains "SS17b: populated volumes are assigned to the check user" "$log" 'chown -R'
+  assert_file_contains "SS17c: check fingerprint includes non-ignored generated files" "$script" \
+    '--untracked-files=all'
+  assert_file_not_contains "SS17d: check fingerprint never omits untracked state" "$script" \
+    '--untracked-files=no'
 
   digest=$(python3 "$digest_script" "$runtime" deps)
   : > "$log"

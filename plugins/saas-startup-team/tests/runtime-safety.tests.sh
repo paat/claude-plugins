@@ -548,6 +548,8 @@ SH
     "$workdir/backend/services/api/requirements"
   printf '%s\n' 'frontend/node_modules/' 'backend/venv/' > "$workdir/.gitignore"
   printf '{"workspaces":["frontend/packages/*"]}\n' > "$workdir/package.json"
+  printf 'packages:\n  - frontend/packages/*\n' > "$workdir/pnpm-workspace.yaml"
+  printf 'node-linker=hoisted\n' > "$workdir/.npmrc"
   printf '[project]\nname = "workspace"\n' > "$workdir/pyproject.toml"
   printf '{}\n' > "$workdir/frontend/package.json"
   printf '{"lockfileVersion":3}\n' > "$workdir/frontend/package-lock.json"
@@ -583,6 +585,8 @@ SH
   assert_exit_code "RS19zkr2a: receipt seals nested dependency manifests" \
     "$(jq -e '
       ([.check_runtimes[].manifests[].path] | index("package.json")) != null and
+      ([.check_runtimes[].manifests[].path] | index("pnpm-workspace.yaml")) != null and
+      ([.check_runtimes[].manifests[].path] | index(".npmrc")) != null and
       ([.check_runtimes[].manifests[].path] | index("pyproject.toml")) != null and
       ([.check_runtimes[].manifests[].path] | index("frontend/packages/widget/package.json")) != null and
       ([.check_runtimes[].manifests[].path] | index("backend/services/api/requirements/dev.txt")) != null
@@ -623,7 +627,7 @@ SH
   auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
   bash "$script" --repo-root "$linked" --snapshot-trust "$trust_receipt" \
     --auth-stdin --allow app.txt \
-    --allow package.json --allow pyproject.toml \
+    --allow package.json --allow pnpm-workspace.yaml --allow .npmrc --allow pyproject.toml \
     --allow frontend/packages/widget/package.json \
     --allow frontend/packages/widget/package-lock.json \
     --allow backend/services/api/requirements/new.txt <<<"$auth_token" >/dev/null
@@ -667,6 +671,22 @@ SH
   assert_exit_code "RS19zkr8g: root Python manifest change rejects stale runtime" "$ec" 1
   assert_output_contains "RS19zkr8h: root Python manifest failure is explicit" "$out" 'dependency manifests changed'
   git -C "$linked" restore app.txt pyproject.toml
+
+  printf 'packages: []\n' > "$linked/pnpm-workspace.yaml"
+  printf 'root-workspace-config\n' > "$linked/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$linked" --message root-workspace-config \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr8i: root workspace config change rejects stale runtime" "$ec" 1
+  assert_output_contains "RS19zkr8j: root workspace config failure is explicit" "$out" 'dependency manifests changed'
+  git -C "$linked" restore app.txt pnpm-workspace.yaml
+
+  printf 'node-linker=isolated\n' > "$linked/.npmrc"
+  printf 'root-package-manager-config\n' > "$linked/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$linked" --message root-package-manager-config \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr8k: root package-manager config change rejects stale runtime" "$ec" 1
+  assert_output_contains "RS19zkr8l: root package-manager config failure is explicit" "$out" 'dependency manifests changed'
+  git -C "$linked" restore app.txt .npmrc
 
   ln -s /workspace/secret "$workdir/frontend/node_modules/escape"
   trust_receipt=$(git -C "$linked" rev-parse --git-path saas-startup-team/runtime-escape.json)

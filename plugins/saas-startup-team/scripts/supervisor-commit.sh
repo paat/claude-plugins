@@ -242,6 +242,7 @@ manifest_json_for_tree() {
         case "$path" in
           package.json|*/package.json|package-lock.json|*/package-lock.json|\
           npm-shrinkwrap.json|*/npm-shrinkwrap.json|pnpm-lock.yaml|*/pnpm-lock.yaml|\
+          pnpm-workspace.yaml|*/pnpm-workspace.yaml|.npmrc|*/.npmrc|\
           yarn.lock|*/yarn.lock|bun.lock|*/bun.lock|bun.lockb|*/bun.lockb) : ;;
           *) continue ;;
         esac

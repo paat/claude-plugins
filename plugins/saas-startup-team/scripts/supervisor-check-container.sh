@@ -209,7 +209,7 @@ volume_fingerprint() {
       set -euo pipefail
       git -c core.fsmonitor=false diff --binary --no-ext-diff --no-textconv \
         | git hash-object --stdin
-      git -c core.fsmonitor=false status --porcelain=v1 --untracked-files=no \
+      git -c core.fsmonitor=false status --porcelain=v1 --untracked-files=all \
         | git hash-object --stdin
     '
 }
