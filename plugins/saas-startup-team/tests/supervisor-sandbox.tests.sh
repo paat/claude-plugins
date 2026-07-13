@@ -19,6 +19,8 @@ test_supervisor_sandbox() {
     'timeout -k 5 30 "$path" --metadata'
   assert_file_contains "SS2b: preflight bounds Docker metadata discovery" "$smoke_script" \
     'timeout "$TIMEOUT" "$SUPERVISOR_DRIVER" --metadata'
+  assert_equals "SS2c: every trusted Docker metadata read is bounded" \
+    "$(grep -Fc 'timeout -k 5 30 ' "$commit_script")" 2
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
   if [ -x "$script" ] && [ -x "$digest_script" ]; then
     echo -e "  ${GREEN}PASS${NC} SS3: supervisor container helpers are executable"
@@ -155,6 +157,10 @@ SH
     '--untracked-files=all'
   assert_file_not_contains "SS17d: check fingerprint never omits untracked state" "$script" \
     '--untracked-files=no'
+  assert_file_contains "SS17e: clean check PATH retains baked-in Go tools" "$log" \
+    '/usr/local/go/bin'
+  assert_file_contains "SS17f: clean check PATH retains baked-in Rust tools" "$log" \
+    '/usr/local/cargo/bin'
 
   digest=$(python3 "$digest_script" "$runtime" deps)
   : > "$log"

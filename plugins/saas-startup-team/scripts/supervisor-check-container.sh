@@ -158,7 +158,7 @@ create_volume() {
 container_base=(--rm --pull never --network none --read-only --cap-drop ALL --cap-add CHOWN --cap-add FOWNER
   --security-opt no-new-privileges --pids-limit 256 --tmpfs /tmp:rw,nosuid,nodev
   --no-healthcheck "${IMAGE_ENV_ARGS[@]}" --entrypoint /usr/bin/env)
-clean_env=(-i HOME=/tmp PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+clean_env=(-i HOME=/tmp PATH=/usr/local/sbin:/usr/local/bin:/usr/local/go/bin:/usr/local/cargo/bin:/usr/sbin:/usr/bin:/sbin:/bin
   LANG=C.UTF-8 LC_ALL=C.UTF-8 CI=1 GIT_CONFIG_GLOBAL=/dev/null
   GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_NO_REPLACE_OBJECTS=1)
 

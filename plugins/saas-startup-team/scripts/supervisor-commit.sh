@@ -572,7 +572,7 @@ verify_check_driver_receipt() {
   digest=$(sha256sum -- "$CHECK_DRIVER_PATH" | awk '{print $1}') || return 1
   [ "$identity" = "$CHECK_DRIVER_IDENTITY" ] && [ "$mode" = "$CHECK_DRIVER_MODE" ] \
     && [ "$digest" = "$CHECK_DRIVER_SHA256" ] || return 1
-  backend=$("$CHECK_DRIVER_PATH" --metadata) || return 1
+  backend=$(timeout -k 5 30 "$CHECK_DRIVER_PATH" --metadata) || return 1
   [ "$(jq -cS . <<<"$backend")" = "$CHECK_BACKEND" ]
 }
 

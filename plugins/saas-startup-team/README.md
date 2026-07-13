@@ -434,6 +434,8 @@ The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues h
 - **Codex sandbox support plus Docker CLI/socket access** from the dev container.
   Supervisor checks run from the sealed current dev-container image with private process
   and network namespaces; the commit path fails closed when these controls are unavailable.
+  Required system toolchains must be baked into that image: lifecycle installs made only
+  in the running container's writable layer are deliberately excluded from trusted checks.
 - **Optional `curl`** for `market-scout.sh --source-url`; without it, market scouting still
   runs source JSON ingestion or the internal discovery fallback.
 - **Dev container only** (inherits the plugin's dev-container-only design).
