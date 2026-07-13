@@ -191,7 +191,8 @@ tribunal_line_check() {
     fi
     printf '%s' "$json" | jq -j '[.findings[]?.file? | strings] | unique | map(. + "\u0000") | join("")' \
       | while IFS= read -r -d '' f; do
-          case "$f" in /*|*..*) continue ;; esac
+          case "$f" in /*) continue ;; esac
+          case "/$f/" in */../*) continue ;; esac
           if git -C "$root" cat-file -e "HEAD:$f" 2>/dev/null; then
             n="$(git -C "$root" cat-file -p "HEAD:$f" 2>/dev/null | grep -c '')" || n=0
           else
