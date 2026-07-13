@@ -689,20 +689,33 @@ HOOK_BOUNDARY_BEFORE="$({ $REAL_GIT -C "$SHADOW" for-each-ref --format='%(refnam
 run_frozen_hook() {
   local hook="$1"; shift
   [ -f "$FROZEN_HOOKS/$hook" ] && [ -x "$FROZEN_HOOKS/$hook" ] || return 0
-  sandbox_exec "$SHADOW" "$FROZEN_HOOKS/$hook" "$@"
+  sandbox_exec "$SHADOW" /usr/bin/env GIT_DIR=.git "$FROZEN_HOOKS/$hook" "$@"
 }
+HOOK_RC=0
+set +e
+run_frozen_hook pre-commit
+HOOK_RC=$?
+set -e
+[ "$HOOK_RC" -eq 0 ] || { echo "supervisor-commit: isolated product hooks failed" >&2; exit 1; }
+# The message slot is written after pre-commit so that hook never sees the
+# extra untracked file. A base tree could carry a symlink at this reserved
+# name; clear the slot without following it, like the check slot above.
 MSG_FILE="$SHADOW/.supervisor-check.commit-msg"
+rm -f -- "$MSG_FILE"
+[ ! -e "$MSG_FILE" ] && [ ! -L "$MSG_FILE" ] || {
+  echo "supervisor-commit: commit message slot is unsafe" >&2; exit 1; }
 printf '%s\n' "$MESSAGE" > "$MSG_FILE"
 HOOK_RC=0
 set +e
-run_frozen_hook pre-commit \
-  && run_frozen_hook prepare-commit-msg .supervisor-check.commit-msg message \
+run_frozen_hook prepare-commit-msg .supervisor-check.commit-msg message \
   && run_frozen_hook commit-msg .supervisor-check.commit-msg
 HOOK_RC=$?
 set -e
 [ "$HOOK_RC" -eq 0 ] || { echo "supervisor-commit: isolated product hooks failed" >&2; exit 1; }
 [ "$($REAL_GIT -C "$SHADOW" write-tree)" = "$CHECKED_TREE" ] || {
   echo "supervisor-commit: product hooks changed the staged candidate tree" >&2; exit 1; }
+[ -f "$MSG_FILE" ] && [ ! -L "$MSG_FILE" ] || {
+  echo "supervisor-commit: commit message slot became unsafe" >&2; exit 1; }
 trusted_shadow_git commit -q -F "$MSG_FILE" || {
   echo "supervisor-commit: isolated candidate commit failed" >&2; exit 1; }
 rm -f -- "$MSG_FILE"
