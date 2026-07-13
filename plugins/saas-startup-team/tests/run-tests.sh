@@ -4820,15 +4820,35 @@ test_autonomous_demand_infra() {
     "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" 'asyncio.to_thread'
   assert_file_contains "AD4h1: smoke probes supervisor process inspection" \
     "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" 'ps -o pid='
+  workdir=$(make_workdir)
+  mkdir -p "$workdir/bin"
+  cat > "$workdir/bin/codex" <<'SH'
+#!/bin/sh
+[ "$1" = sandbox ] || exit 2
+[ "${2:-}" != --help ] || exit 0
+printf '%s\n' /tmp/not-the-requested-root
+SH
+  chmod +x "$workdir/bin/codex"
+  ec=0; output=$(PATH="$workdir/bin:$PATH" \
+    bash "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" --root "$workdir" 2>&1) || ec=$?
+  assert_exit_code "AD4h2: successful smoke in the wrong cwd fails closed" "$ec" 4
+  assert_output_contains "AD4h3: cwd mismatch names the violated root contract" \
+    "$output" "requested root was not honored"
+  rm -rf "$workdir"
   if command -v python3 >/dev/null 2>&1; then
     workdir=$(make_workdir)
     mkdir -p "$workdir/bin"
     cat > "$workdir/bin/codex" <<'SH'
 #!/bin/sh
 [ "$1" = sandbox ] || exit 2
+root=; report_root=0
 for a in "$@"; do
+  if [ "$report_root" -eq 2 ]; then root=$a; report_root=0; continue; fi
+  [ "$a" != -C ] || report_root=2
+  [ "$a" != /bin/pwd ] || report_root=1
   [ "$a" = python3 ] && sleep 5
 done
+[ "$report_root" -ne 1 ] || printf '%s\n' "$root"
 exit 0
 SH
     chmod +x "$workdir/bin/codex"
@@ -4839,6 +4859,13 @@ SH
     cat > "$workdir/bin/codex" <<'SH'
 #!/bin/sh
 [ "$1" = sandbox ] || exit 2
+root=; report_root=0
+for a in "$@"; do
+  if [ "$report_root" -eq 2 ]; then root=$a; report_root=0; continue; fi
+  [ "$a" != -C ] || report_root=2
+  [ "$a" != /bin/pwd ] || report_root=1
+done
+[ "$report_root" -ne 1 ] || printf '%s\n' "$root"
 exit 0
 SH
     cat > "$workdir/bin/check-driver" <<'SH'

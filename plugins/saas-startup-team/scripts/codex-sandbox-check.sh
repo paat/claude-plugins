@@ -19,6 +19,10 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$ROOT" ] || ROOT="$(pwd)"
 case "$TIMEOUT" in ''|0|*[!0-9]*) TIMEOUT=15 ;; esac
+ROOT=$(cd -- "$ROOT" && pwd -P) || {
+  echo "requested root is not an accessible directory"
+  exit 4
+}
 
 is_forced_missing() {
   case " ${SAAS_PREFLIGHT_MISSING:-} " in *" $1 "*) return 0 ;; *) return 1 ;; esac
@@ -46,6 +50,10 @@ rc=0
 out="$(CODEX_BIN="$CODEX_BIN" timeout "$TIMEOUT" \
   "$SCRIPT_DIR/codex-network-off-sandbox.sh" -C "$ROOT" /bin/pwd 2>&1)" || rc=$?
 if [ "$rc" -eq 0 ]; then
+  if [ "$out" != "$ROOT" ]; then
+    echo "Codex sandbox working directory mismatch: requested root was not honored"
+    exit 4
+  fi
   # A bare start smoke is a false green for delivery (issues #260/#261):
   # the trusted commit path stages candidates with git outside the sandbox,
   # and validation checks need Python cross-thread wakeups inside it.

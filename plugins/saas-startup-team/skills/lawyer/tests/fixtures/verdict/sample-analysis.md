@@ -4,6 +4,8 @@ evidence_tier: A
 blocking_human_tasks: []
 claims:
   - id: dpa-transition-deadline
+    verdict: CONFIRMED
+    evidence_tier: A
     value: "2026-09-01"
     source_url: https://www.riigiteataja.ee/public-api/api/v1/akt/123456/blob-html
     quote: "Käesolev seadus jõustub 2026. aasta 1. septembril."

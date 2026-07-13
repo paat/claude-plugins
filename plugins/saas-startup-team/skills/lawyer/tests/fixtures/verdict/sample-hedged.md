@@ -5,6 +5,8 @@ blocking_human_tasks:
   - "Kinnita jõustumiskuupäev Riigi Teatajast enne rakendamist"
 claims:
   - id: dpa-amendment-effective-date
+    verdict: UNVERIFIABLE-IN-CORPUS
+    evidence_tier: B
     value: "2026-09-01"
     source_url: https://datalake.example/changes/feed?id=1045568
     quote: "Muudatus jõustub 2026-09-01."
