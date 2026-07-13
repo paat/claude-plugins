@@ -85,7 +85,13 @@ case "${1:-}" in
     [ "${2:-}" != create ] || printf '%s\n' "${*: -1}"
     ;;
   run)
-    case "$*" in *'dst=/dest'*) cat >/dev/null ;; esac
+    case "$*" in
+      *'dst=/dest'*)
+        case " $* " in *' --user 0:0 '*) : ;; *) exit 77 ;; esac
+        case "$*" in *'chown -R'*) : ;; *) exit 78 ;; esac
+        cat >/dev/null
+        ;;
+    esac
     case "$*" in
       *GIT_OPTIONAL_LOCKS=0*)
         fingerprint_state="${FAKE_DOCKER_LOG}.fingerprints"
@@ -137,6 +143,8 @@ SH
     'dst=/dev/shm/saas-check/.git,readonly'
   assert_file_contains "SS16: image credential variables are blanked" "$log" '^SECRET_KEY=$'
   assert_file_contains "SS17: candidate starts under a clean environment" "$log" '^-i$'
+  assert_file_contains "SS17a: volume population uses an explicit root helper" "$log" '^0:0$'
+  assert_file_contains "SS17b: populated volumes are assigned to the check user" "$log" 'chown -R'
 
   digest=$(python3 "$digest_script" "$runtime" deps)
   : > "$log"

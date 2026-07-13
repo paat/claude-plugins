@@ -165,15 +165,18 @@ clean_env=(-i HOME=/tmp PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/
 populate_volume() {
   local source=$1 volume=$2
   tar -C "$source" --format=posix -cpf - . | \
-    "$DOCKER_BIN" run "${container_base[@]}" -i \
+    "$DOCKER_BIN" run "${container_base[@]}" --user 0:0 -i \
       --mount "type=volume,src=$volume,dst=/dest" "$IMAGE_ID" \
-      "${clean_env[@]}" /bin/tar --no-same-owner -xpf - -C /dest
+      "${clean_env[@]}" /bin/bash -c '
+        /bin/tar --no-same-owner -xpf - -C /dest
+        /bin/chown -R "$1:$2" /dest
+      ' _ "$uid" "$gid"
 }
 
 create_volume "$source_volume"
 create_volume "$git_volume"
 tar -C "$ROOT" --format=posix --exclude='./.git' -cpf - . | \
-  "$DOCKER_BIN" run "${container_base[@]}" -i \
+  "$DOCKER_BIN" run "${container_base[@]}" --user 0:0 -i \
     --mount "type=volume,src=$source_volume,dst=/dest" "$IMAGE_ID" \
     "${clean_env[@]}" /bin/bash -c '
       /bin/tar --no-same-owner -xpf - -C /dest
@@ -181,9 +184,6 @@ tar -C "$ROOT" --format=posix --exclude='./.git' -cpf - . | \
       chown -R "$1:$2" /dest
     ' _ "$uid" "$gid"
 populate_volume "$ROOT/.git" "$git_volume"
-"$DOCKER_BIN" run "${container_base[@]}" \
-  --mount "type=volume,src=$git_volume,dst=/dest" "$IMAGE_ID" \
-  "${clean_env[@]}" /bin/chown -R "$uid:$gid" /dest
 
 digest_code=$(cat "$DIGEST_SCRIPT")
 for ((i=0; i<${#RUNTIME_SOURCES[@]}; i++)); do
