@@ -285,6 +285,52 @@ protected_ignored_paths() {
   done < <(ignored_paths)
 }
 
+new_ignored_paths() {
+  local path key
+  declare -A seen=()
+  while IFS= read -r -d '' path; do
+    key="$(ignored_path_key "$path")"
+    [[ -v seen["$key"] ]] && continue
+    seen["$key"]=1
+    [ -z "${IGNORED_BASELINE[$key]+present}" ] || continue
+    printf '%s\0' "$path"
+  done < <(ignored_paths)
+}
+
+safe_ignored_cleanup_slot() {
+  local relative="$1" current="$ROOT" component next canonical
+  valid_allowed_path "$relative" || return 1
+  while [[ "$relative" == */* ]]; do
+    component="${relative%%/*}"
+    relative="${relative#*/}"
+    next="$current/$component"
+    [ -d "$next" ] && [ ! -L "$next" ] || return 1
+    canonical="$(cd "$next" && pwd -P)" || return 1
+    case "$canonical/" in "$ROOT/"*) : ;; *) return 1 ;; esac
+    current="$canonical"
+  done
+  CLEANUP_PATH="$current/$relative"
+  [ -f "$CLEANUP_PATH" ] || [ -L "$CLEANUP_PATH" ]
+}
+
+cleanup_new_ignored_paths() {
+  local path
+  while IFS= read -r -d '' path; do
+    safe_ignored_cleanup_slot "$path" || {
+      printf 'delivery-mutation-guard: unsafe disposable ignored path: %q\n' "$path" >&2
+      return 1
+    }
+    rm -f -- "$CLEANUP_PATH" || {
+      printf 'delivery-mutation-guard: cannot remove disposable ignored path: %q\n' "$path" >&2
+      return 1
+    }
+  done < <(new_ignored_paths)
+  if IFS= read -r -d '' path < <(new_ignored_paths); then
+    printf 'delivery-mutation-guard: disposable ignored path survived cleanup: %q\n' "$path" >&2
+    return 1
+  fi
+}
+
 ignored_fingerprint() {
   local tmp path
   tmp="$(mktemp)"
@@ -548,6 +594,7 @@ if [ "$resume_import" -eq 0 ]; then
     exit 1
   fi
 fi
+cleanup_new_ignored_paths || exit 1
 shopt -s nullglob
 telemetry_receipts=("${SNAPSHOT}.telemetry-"*.json)
 shopt -u nullglob

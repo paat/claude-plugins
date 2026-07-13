@@ -915,9 +915,17 @@ SH
   printf '{}\n' > "$workdir/frontend/tsconfig.tsbuildinfo"
   printf 'test log\n' > "$workdir/backend/logs/test.log"
   printf 'sqlite test output\n' > "$workdir/backend/data/test-results.db"
+  printf 'SECRET=phase-only\n' > "$workdir/.env"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" \
     --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19znn5: allowed change, lease heartbeat, and generated check output verify" "$ec" 0
+  assert_file_not_exists "RS19znn5a: new ignored environment file is removed" "$workdir/.env"
+  assert_file_not_exists "RS19znn5b: new ignored build output is removed" \
+    "$workdir/frontend/.next/build-manifest.json"
+  assert_file_not_exists "RS19znn5c: new ignored test database is removed" \
+    "$workdir/backend/data/test-results.db"
+  assert_file_exists "RS19znn5d: active lease heartbeat is preserved" \
+    "$workdir/.startup/leases/guarded-test/heartbeat"
 
   git -C "$workdir" restore app.txt
   mkdir -p "$workdir/existing-cache"
