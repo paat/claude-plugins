@@ -212,8 +212,10 @@ cat <<'JSON'
 {"provider":"codex","model":"default","findings":[
   {"severity":"high","category":"logic","file":"file.txt","line":1,"title":"valid position","description":"d","suggestion":"s","confidence":0.9},
   {"severity":"high","category":"logic","file":"file.txt","line":9333,"title":"diff-global position","description":"d","suggestion":"s","confidence":0.9},
-  {"severity":"medium","category":"logic","file":"other.py","line":12,"title":"file outside diff","description":"d","suggestion":"s","confidence":0.8}
-],"summary":{"total_findings":3,"critical":0,"high":2,"medium":1,"low":0,"quality_score":5.0,"verdict":"NEEDS_WORK"}}
+  {"severity":"medium","category":"logic","file":"other.py","line":12,"title":"file outside diff","description":"d","suggestion":"s","confidence":0.8},
+  {"severity":"medium","category":"logic","file":"file.txt","line":"9333","title":"string-typed line","description":"d","suggestion":"s","confidence":0.8},
+  {"severity":"medium","category":"logic","line":7,"title":"missing file field","description":"d","suggestion":"s","confidence":0.8}
+],"summary":{"total_findings":5,"critical":0,"high":2,"medium":3,"low":0,"quality_score":5.0,"verdict":"NEEDS_WORK"}}
 JSON
 EOF
   chmod +x "$fake/codex"
@@ -235,6 +237,8 @@ EOF
       (.findings[0] | has("line_check") | not)
       and (.findings[1].line_check | test("out of bounds"))
       and (.findings[2].line_check == "file not in reviewed diff")
+      and (.findings[3].line_check == "invalid line number")
+      and (.findings[4].line_check == "malformed finding coordinates")
     ' "$work/out.json" >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else
@@ -311,7 +315,7 @@ test_codex_line_bounds_guard
 
 echo "Finding position validation:"
 assert_grep "lib defines line-bounds validator" "$LIB" "tribunal_line_check()"
-assert_grep "prepare_diff records changed paths" "$LIB" 'git diff --name-only "$base_ref"'
+assert_grep "prepare_diff records NUL-delimited changed paths" "$LIB" 'git diff --name-only -z "$base_ref"'
 for runner in run-codex-review.sh run-claude-review.sh run-gemini-review.sh run-qwen-review.sh run-opencode-review.sh; do
   assert_grep "$runner pipes through line check" "scripts/$runner" "tribunal_line_check"
 done
