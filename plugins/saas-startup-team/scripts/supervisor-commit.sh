@@ -551,6 +551,19 @@ sandbox_exec() {
     "$CODEX_BIN" sandbox --permission-profile :workspace --sandbox-state-disable-network -C "$cwd" "$@"
 }
 
+# Trusted git over the shadow clone with the same credentialless environment
+# hygiene as sandbox_exec, minus the sandbox itself: Codex's :workspace profile
+# denies .git writes, so Git metadata mutations cannot run inside it
+# (issues #260/#261). git add/commit perform no network I/O; the scrubbed
+# environment and /dev/null configs remove ambient credentials regardless.
+trusted_shadow_git() {
+  env -i PATH="$PATH" HOME="$SANDBOX_HOME" USER="${USER:-supervisor}" TERM="${TERM:-dumb}" CI=1 \
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    GIT_NO_REPLACE_OBJECTS=1 GIT_LITERAL_PATHSPECS=1 \
+    GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=/bin/false \
+    "$REAL_GIT" -C "$SHADOW" -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
+}
+
 for path in "${!CANDIDATE_PATHS[@]}"; do
   allowed_path "$path" || continue
   attr_path='' attr_name='' attr_value=''
@@ -566,7 +579,10 @@ for path in "${!CANDIDATE_PATHS[@]}"; do
   esac
 done
 
-sandbox_exec "$SHADOW" "$REAL_GIT" -c core.fsmonitor=false -c core.hooksPath=/dev/null add -A || {
+# Nothing untrusted executes during staging: hooks and fsmonitor are disabled,
+# the attributes/filter gates above rejected any filtered path, and the
+# /dev/null configs leave no filter drivers defined.
+trusted_shadow_git add -A || {
   echo "supervisor-commit: isolated candidate staging failed" >&2; exit 1; }
 declare -A ALL_GITLINKS=()
 for path in "${!BASE_GITLINKS[@]}"; do ALL_GITLINKS["$path"]=1; done
@@ -665,12 +681,48 @@ $REAL_GIT -C "$SHADOW" config user.email "$( $REAL_GIT config user.email || echo
 HOOK_BOUNDARY_BEFORE="$({ $REAL_GIT -C "$SHADOW" for-each-ref --format='%(refname) %(objectname)';
   $REAL_GIT -C "$SHADOW" config --local --list; } | $REAL_GIT hash-object --stdin)"
 
+# The sandbox denies .git writes, so the frozen product hooks run explicitly
+# inside it (credentialless, network-off, in git's commit order) while the
+# trusted git binary creates the commit outside (issues #260/#261). A hook
+# that needs to write Git metadata fails the delivery instead of escaping the
+# sandbox; the tree checks below reject any index drift regardless.
+run_frozen_hook() {
+  local hook="$1"; shift
+  [ -f "$FROZEN_HOOKS/$hook" ] && [ -x "$FROZEN_HOOKS/$hook" ] || return 0
+  sandbox_exec "$SHADOW" /usr/bin/env GIT_DIR=.git GIT_EDITOR=: "$FROZEN_HOOKS/$hook" "$@"
+}
 HOOK_RC=0
 set +e
-sandbox_exec "$SHADOW" "$REAL_GIT" -c core.hooksPath="$FROZEN_HOOKS" commit -m "$MESSAGE"
+run_frozen_hook pre-commit
 HOOK_RC=$?
 set -e
 [ "$HOOK_RC" -eq 0 ] || { echo "supervisor-commit: isolated product hooks failed" >&2; exit 1; }
+# The message lives in the shadow's Git metadata like git's own
+# COMMIT_EDITMSG, so hooks never see an extra worktree file and no repository
+# path can collide with it. The supervisor writes it outside the sandbox;
+# hooks read it inside (metadata is sandbox-readable). A hook that edits the
+# message needs a metadata write and fails by policy, like any other
+# in-sandbox Git metadata mutation.
+MSG_FILE="$SHADOW/.git/supervisor-commit-msg"
+rm -rf -- "$MSG_FILE"
+[ ! -e "$MSG_FILE" ] && [ ! -L "$MSG_FILE" ] || {
+  echo "supervisor-commit: commit message slot is unsafe" >&2; exit 1; }
+printf '%s\n' "$MESSAGE" > "$MSG_FILE"
+HOOK_RC=0
+set +e
+run_frozen_hook prepare-commit-msg .git/supervisor-commit-msg message \
+  && run_frozen_hook commit-msg .git/supervisor-commit-msg
+HOOK_RC=$?
+set -e
+[ "$HOOK_RC" -eq 0 ] || { echo "supervisor-commit: isolated product hooks failed" >&2; exit 1; }
+[ "$($REAL_GIT -C "$SHADOW" write-tree)" = "$CHECKED_TREE" ] || {
+  echo "supervisor-commit: product hooks changed the staged candidate tree" >&2; exit 1; }
+[ -f "$MSG_FILE" ] && [ ! -L "$MSG_FILE" ] || {
+  echo "supervisor-commit: commit message slot became unsafe" >&2; exit 1; }
+trusted_shadow_git commit -q -F "$MSG_FILE" || {
+  echo "supervisor-commit: isolated candidate commit failed" >&2; exit 1; }
+rm -f -- "$MSG_FILE"
+run_frozen_hook post-commit || true
 SHADOW_COMMIT=$($REAL_GIT -C "$SHADOW" rev-parse HEAD)
 [ "$($REAL_GIT -C "$SHADOW" rev-parse 'HEAD^{tree}')" = "$CHECKED_TREE" ] || {
   echo "supervisor-commit: product hooks changed the checked tree" >&2; exit 1; }
