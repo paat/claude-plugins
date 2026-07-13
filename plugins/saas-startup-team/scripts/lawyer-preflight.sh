@@ -14,9 +14,7 @@ die() {
 [ -s .startup/state.json ] && [ -s docs/business/brief.md ] \
   || die "startup project missing; run /startup first"
 jq -e 'type == "object"
-  and (.iteration | type == "number")
-  and (.iteration >= 0)
-  and (.status | type == "string" and length > 0)
+  and length > 0
   and (.active_role | type == "string" and length > 0)' \
   .startup/state.json >/dev/null 2>&1 \
   || die ".startup/state.json is invalid"

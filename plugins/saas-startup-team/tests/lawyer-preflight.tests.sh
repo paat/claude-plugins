@@ -7,7 +7,7 @@ lpf_project="$lpf_root/project"
 lpf_bin="$lpf_root/bin"
 lpf_log="$lpf_root/curl.log"
 mkdir -p "$lpf_project/.startup" "$lpf_project/docs/business" "$lpf_bin"
-printf '%s\n' '{"iteration":1,"status":"active","active_role":"lawyer"}' \
+printf '%s\n' '{"active_role":"lawyer","growth_status":"active"}' \
   > "$lpf_project/.startup/state.json"
 printf '%s\n' '# Business brief' > "$lpf_project/docs/business/brief.md"
 
@@ -27,7 +27,7 @@ lpf_ec=0
 lpf_out=$(cd "$lpf_project" && PATH="$lpf_bin:$PATH" \
   EST_DATALAKE_API_KEY=valid-test-key DATALAKE_URL=https://datalake.example \
   FAKE_AUTH_CODE=200 FAKE_CURL_LOG="$lpf_log" bash "$lpf_script" 2>&1) || lpf_ec=$?
-assert_exit_code "LPF1: ready authenticated project passes" "$lpf_ec" 0
+assert_exit_code "LPF1: compatible legacy state passes" "$lpf_ec" 0
 assert_output_contains "LPF2: successful preflight is explicit" "$lpf_out" 'lawyer preflight: ok'
 assert_equals "LPF3: readiness and authentication are both checked" \
   "$(wc -l < "$lpf_log" | tr -d ' ')" "2"

@@ -220,8 +220,8 @@ claims:
     value: "pending"
     source_url: https://example.com/source
     quote: "Evidence remains pending."
-    verified_at: 2026-13-40
-    review_by: tomorrow
+    verified_at: 2026-02-30
+    review_by: 2025-02-29
 ---
 
 # Analysis
@@ -241,6 +241,25 @@ claims:
     quote: "Evidence is complete.
     verified_at: "2026-07-13
     review_by: "2026-10-13
+---
+
+# Analysis
+EOF
+
+  cat > "$dir/escaped-terminal-quote.md" <<'EOF'
+---
+verdict: CONFIRMED
+evidence_tier: A
+blocking_human_tasks: []
+claims:
+  - id: "escaped\"
+    verdict: CONFIRMED
+    evidence_tier: A
+    value: "required"
+    source_url: https://example.com/source
+    quote: "Evidence is complete."
+    verified_at: 2026-07-13
+    review_by: 2026-10-13
 ---
 
 # Analysis
@@ -526,6 +545,11 @@ EOF
   assert_json_field "LVG15o: unbalanced quoted scalars are invalid" "$dir/out15o.json" '.schema_invalid' "true"
   ec=0; bash "$script" --enforce "$dir/unbalanced-claim-scalars.md" >/dev/null 2>&1 || ec=$?
   assert_exit_code "LVG15p: enforce rejects unbalanced quoted scalars" "$ec" 2
+
+  bash "$script" "$dir/escaped-terminal-quote.md" > "$dir/out15p1.json"
+  assert_json_field "LVG15p1: escaped terminal quote cannot close a scalar" "$dir/out15p1.json" '.schema_invalid' "true"
+  ec=0; bash "$script" --validate "$dir/escaped-terminal-quote.md" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "LVG15p2: validate rejects escaped terminal quote" "$ec" 2
 
   bash "$script" "$dir/hostless-claim-source.md" > "$dir/out15q.json"
   assert_json_field "LVG15q: hostless HTTPS authority is invalid" "$dir/out15q.json" '.schema_invalid' "true"
