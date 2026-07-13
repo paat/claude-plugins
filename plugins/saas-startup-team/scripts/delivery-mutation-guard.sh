@@ -215,7 +215,7 @@ diff_fingerprint() {
   local kind="$1" base="$2" prefix
   local pathspec=(.)
   for prefix in "${ALLOW[@]}"; do
-    pathspec+=(":(exclude)$prefix" ":(exclude)$prefix/**")
+    pathspec+=(":(exclude,literal)$prefix")
   done
   case "$kind" in
     index) git -c core.fsmonitor=false diff --binary --no-ext-diff --no-textconv --cached "$base" -- "${pathspec[@]}" | git hash-object --stdin ;;
@@ -451,7 +451,7 @@ if [ "$resume_import" -eq 0 ]; then
     || [ "$actual_ignored" != "$expected_ignored" ] \
     || [ "$actual_exclusion" != "$expected_exclusion" ] \
     || [ "$actual_state" != "$expected_state" ]; then
-    echo "delivery-mutation-guard: QA modified files outside its review artifact" >&2
+    echo "delivery-mutation-guard: guarded phase modified files outside its allowed paths" >&2
     git -c core.fsmonitor=false status --short >&2
     exit 1
   fi

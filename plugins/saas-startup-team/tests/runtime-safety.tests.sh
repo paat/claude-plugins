@@ -623,6 +623,33 @@ SH
   assert_file_not_exists "RS19znn: guard never executes persisted fsmonitor" "$remote"
   rm -rf "$workdir" "$remote"
 
+  # Allowed paths are literal even when framework directory names contain pathspec metacharacters.
+  script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"
+  workdir=$(make_workdir); (cd "$workdir" && git config user.email t@t.t && git config user.name t)
+  mkdir -p "$workdir/frontend/src/app/[locale]/report"
+  printf 'base\n' > "$workdir/frontend/src/app/[locale]/report/allowed.ts"
+  printf 'base\n' > "$workdir/frontend/src/app/[locale]/report/sibling.ts"
+  (cd "$workdir" && git add frontend && git commit -qm init)
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  snapshot="$workdir/.git/saas-startup-team/literal-exact.json"
+  (cd "$workdir" && bash "$script" --snapshot "$snapshot" --auth-stdin \
+    --allow 'frontend/src/app/[locale]/report/allowed.ts' <<<"$auth_token" >/dev/null)
+  printf 'allowed change\n' > "$workdir/frontend/src/app/[locale]/report/allowed.ts"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn1: bracketed exact allow path verifies" "$ec" 0
+  printf 'base\n' > "$workdir/frontend/src/app/[locale]/report/allowed.ts"
+  snapshot="$workdir/.git/saas-startup-team/literal-sibling.json"
+  (cd "$workdir" && bash "$script" --snapshot "$snapshot" --auth-stdin \
+    --allow 'frontend/src/app/[locale]/report/allowed.ts' <<<"$auth_token" >/dev/null)
+  printf 'forbidden sibling change\n' > "$workdir/frontend/src/app/[locale]/report/sibling.ts"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn2: bracketed exact allow path rejects sibling" "$ec" 1
+  assert_output_contains "RS19znn3: guard reports generic allowed-path boundary" \
+    "$out" 'guarded phase modified files outside its allowed paths'
+  rm -rf "$workdir"
+
   # Review artifact paths cannot traverse symlinked ancestors outside the repository.
   script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"
   workdir=$(make_workdir); (cd "$workdir" && git config user.email t@t.t && git config user.name t)
