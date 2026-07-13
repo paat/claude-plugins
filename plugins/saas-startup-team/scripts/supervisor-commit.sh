@@ -697,18 +697,21 @@ run_frozen_hook pre-commit
 HOOK_RC=$?
 set -e
 [ "$HOOK_RC" -eq 0 ] || { echo "supervisor-commit: isolated product hooks failed" >&2; exit 1; }
-# The message slot is written after pre-commit so that hook never sees the
-# extra untracked file. A base tree could carry a symlink at this reserved
-# name; clear the slot without following it, like the check slot above.
-MSG_FILE="$SHADOW/.supervisor-check.commit-msg"
+# The message lives in the shadow's Git metadata like git's own
+# COMMIT_EDITMSG, so hooks never see an extra worktree file and no repository
+# path can collide with it. The supervisor writes it outside the sandbox;
+# hooks read it inside (metadata is sandbox-readable). A hook that edits the
+# message needs a metadata write and fails by policy, like any other
+# in-sandbox Git metadata mutation.
+MSG_FILE="$SHADOW/.git/supervisor-commit-msg"
 rm -rf -- "$MSG_FILE"
 [ ! -e "$MSG_FILE" ] && [ ! -L "$MSG_FILE" ] || {
   echo "supervisor-commit: commit message slot is unsafe" >&2; exit 1; }
 printf '%s\n' "$MESSAGE" > "$MSG_FILE"
 HOOK_RC=0
 set +e
-run_frozen_hook prepare-commit-msg .supervisor-check.commit-msg message \
-  && run_frozen_hook commit-msg .supervisor-check.commit-msg
+run_frozen_hook prepare-commit-msg .git/supervisor-commit-msg message \
+  && run_frozen_hook commit-msg .git/supervisor-commit-msg
 HOOK_RC=$?
 set -e
 [ "$HOOK_RC" -eq 0 ] || { echo "supervisor-commit: isolated product hooks failed" >&2; exit 1; }
