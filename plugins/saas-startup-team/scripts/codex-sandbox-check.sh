@@ -87,7 +87,7 @@ if [ "$rc" -eq 0 ]; then
   git init -q "$supervisor_root"
   printf 'sandbox-secret-probe\n' > "$outside_probe"
   supervisor_rc=0
-  supervisor_meta=$("$SUPERVISOR_DRIVER" --metadata 2>/dev/null) || supervisor_rc=$?
+  supervisor_meta=$(timeout "$TIMEOUT" "$SUPERVISOR_DRIVER" --metadata 2>/dev/null) || supervisor_rc=$?
   sleep 30 & host_probe_pid=$!
   if [ "$supervisor_rc" -eq 0 ]; then
     timeout "$TIMEOUT" "$SUPERVISOR_DRIVER" -C "$supervisor_root" \

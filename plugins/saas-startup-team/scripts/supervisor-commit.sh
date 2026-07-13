@@ -354,7 +354,7 @@ check_driver_metadata() {
   mode=$(stat -Lc '%a' -- "$path") || return 1
   digest=$(sha256sum -- "$path" | awk '{print $1}') || return 1
   [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
-  backend=$("$path" --metadata) || return 1
+  backend=$(timeout -k 5 30 "$path" --metadata) || return 1
   jq -e 'type == "object" and
     (.docker|type == "object") and
     (.docker.path|type == "string" and length > 0) and
