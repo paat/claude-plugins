@@ -689,7 +689,7 @@ HOOK_BOUNDARY_BEFORE="$({ $REAL_GIT -C "$SHADOW" for-each-ref --format='%(refnam
 run_frozen_hook() {
   local hook="$1"; shift
   [ -f "$FROZEN_HOOKS/$hook" ] && [ -x "$FROZEN_HOOKS/$hook" ] || return 0
-  sandbox_exec "$SHADOW" /usr/bin/env GIT_DIR=.git "$FROZEN_HOOKS/$hook" "$@"
+  sandbox_exec "$SHADOW" /usr/bin/env GIT_DIR=.git GIT_EDITOR=: "$FROZEN_HOOKS/$hook" "$@"
 }
 HOOK_RC=0
 set +e
@@ -701,7 +701,7 @@ set -e
 # extra untracked file. A base tree could carry a symlink at this reserved
 # name; clear the slot without following it, like the check slot above.
 MSG_FILE="$SHADOW/.supervisor-check.commit-msg"
-rm -f -- "$MSG_FILE"
+rm -rf -- "$MSG_FILE"
 [ ! -e "$MSG_FILE" ] && [ ! -L "$MSG_FILE" ] || {
   echo "supervisor-commit: commit message slot is unsafe" >&2; exit 1; }
 printf '%s\n' "$MESSAGE" > "$MSG_FILE"

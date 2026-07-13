@@ -60,7 +60,9 @@ if [ "$rc" -eq 0 ]; then
     echo "candidate staging probe failed (exit $stage_rc): trusted git cannot stage a disposable clone outside the sandbox"
     exit 4
   fi
+  thread_note="thread-wakeup probe skipped: python3 not on PATH"
   if have_cmd python3; then
+    thread_note="thread-wakeup probes"
     thread_rc=0
     timeout "$TIMEOUT" codex sandbox --permission-profile :workspace \
       --sandbox-state-disable-network -C "$ROOT" python3 -c \
@@ -75,7 +77,7 @@ if [ "$rc" -eq 0 ]; then
       exit 4
     fi
   fi
-  echo "ok: Codex writer sandbox usable with network-off workspace-write (start, staging, and thread-wakeup probes)"
+  echo "ok: Codex writer sandbox usable with network-off workspace-write (start, staging, and $thread_note)"
   exit 0
 fi
 

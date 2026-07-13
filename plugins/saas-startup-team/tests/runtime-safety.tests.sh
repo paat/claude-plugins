@@ -243,7 +243,7 @@ SH
   assert_file_not_contains "RS19s1: no in-sandbox git invocation remains" "$script" 'sandbox_exec "$SHADOW" "$REAL_GIT"'
   assert_file_contains "RS19s2: staging uses scrubbed trusted git outside the sandbox" "$script" 'trusted_shadow_git add -A'
   assert_file_contains "RS19s3: commit is created by scrubbed trusted git outside the sandbox" "$script" 'trusted_shadow_git commit -q -F "$MSG_FILE"'
-  assert_file_contains "RS19s4: frozen hooks still run inside the sandbox" "$script" 'sandbox_exec "$SHADOW" /usr/bin/env GIT_DIR=.git "$FROZEN_HOOKS/$hook"'
+  assert_file_contains "RS19s4: frozen hooks still run inside the sandbox" "$script" 'sandbox_exec "$SHADOW" /usr/bin/env GIT_DIR=.git GIT_EDITOR=: "$FROZEN_HOOKS/$hook"'
   assert_file_contains "RS19s5: scrubbed trusted git helper is defined" "$script" 'trusted_shadow_git() {'
 
   # A base-committed symlink at the reserved commit-message slot must not
