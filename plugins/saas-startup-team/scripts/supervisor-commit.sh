@@ -2,6 +2,8 @@
 # Snapshot trusted commit hooks before a worker, then check and commit in isolation.
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 export GIT_CONFIG_NOSYSTEM=1
@@ -537,7 +539,7 @@ CODEX_BIN=$(command -v codex 2>/dev/null) || {
 SANDBOX_HELP=$($CODEX_BIN sandbox --help 2>/dev/null) || {
   echo "supervisor-commit: Codex sandbox is unavailable" >&2; exit 1; }
 grep -q -- '--permission-profile' <<< "$SANDBOX_HELP" \
-  && grep -q -- '--sandbox-state-disable-network' <<< "$SANDBOX_HELP" || {
+  && grep -q -- '--enable' <<< "$SANDBOX_HELP" || {
     echo "supervisor-commit: required Codex sandbox controls are unavailable" >&2; exit 1; }
 mkdir -p "$SANDBOX_HOME/codex" "$SANDBOX_HOME/config" "$SANDBOX_HOME/data"
 
@@ -548,7 +550,7 @@ sandbox_exec() {
     USER="${USER:-supervisor}" TERM="${TERM:-dumb}" CI=1 \
     GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 \
     GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=/bin/false \
-    "$CODEX_BIN" sandbox --permission-profile :workspace --sandbox-state-disable-network -C "$cwd" "$@"
+    CODEX_BIN="$CODEX_BIN" /bin/bash "$SCRIPT_DIR/codex-network-off-sandbox.sh" -C "$cwd" "$@"
 }
 
 # Trusted git over the shadow clone with the same credentialless environment
@@ -620,7 +622,6 @@ if [ "$(jq -r .require_approved_diff "$TRUST_RECEIPT")" = true ]; then
     *) echo "supervisor-commit: candidate diff firewall failed" >&2; exit 1 ;;
   esac
 fi
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 (cd "$SHADOW" && bash "$SCRIPT_DIR/check-staged-size.sh")
 HOOK_SOURCE_REL=$(jq -r '.hook_source_rel // empty' "$TRUST_RECEIPT")
 if [ -n "$HOOK_SOURCE_REL" ] && ! $REAL_GIT -C "$SHADOW" diff --cached --quiet "$BASE_HEAD" -- "$HOOK_SOURCE_REL"; then

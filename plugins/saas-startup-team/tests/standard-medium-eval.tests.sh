@@ -10,8 +10,9 @@ test_standard_medium_eval() {
   wd=$(mktemp -d)
   pairs="$wd/pairs.jsonl"
   : > "$pairs"
-  policy_hash=$(printf '%s\n' 'codex-sandbox-policy-v1' 'permission-profile=:workspace' \
-    'network=disabled' 'workspace-write=verified' 'outside-write=denied' 'local-tcp=denied' \
+  policy_hash=$(printf '%s\n' 'codex-sandbox-policy-v2' 'permission-profile=saas-network-off' \
+    'network=limited-proxy' 'outbound-domains=none' 'workspace-write=verified' \
+    'outside-write=denied' 'local-tcp=denied' \
     | sha256sum | awk '{print $1}')
   source_repo="$wd/source-repo"
   mkdir -p "$source_repo"
@@ -222,7 +223,7 @@ case "${1:-}" in
     ;;
   sandbox)
     if [ "${2:-}" = --help ]; then
-      printf '%s\n' '--permission-profile --sandbox-state-disable-network'
+      printf '%s\n' '--permission-profile --enable'
       exit 0
     fi
     shift
@@ -230,7 +231,8 @@ case "${1:-}" in
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --permission-profile|-C) shift 2 ;;
-        --sandbox-state-disable-network) shift ;;
+        --enable) [ "${2:-}" = network_proxy ] || exit 2; shift 2 ;;
+        -c) shift 2 ;;
         *) command=("$@"); break ;;
       esac
     done
@@ -277,9 +279,15 @@ SH
   assert_json_field "SM19: replay records verified network blocking" "$result" \
     '.safety_evidence.network_access' "blocked"
   assert_file_not_exists "SM20: primary checkout is not edited" "$repo/generated.txt"
-  assert_file_contains "SM21: replay uses explicit network-off config" "$calls" \
-    'sandbox_workspace_write.network_access=false'
+  assert_file_contains "SM20b: replay selects the network-off profile" "$calls" \
+    'default_permissions="saas-network-off"'
+  assert_file_contains "SM21: replay uses a limited network profile" "$calls" \
+    'permissions.saas-network-off.network.mode="limited"'
+  assert_file_contains "SM21b: replay enables the enforcing network proxy" "$calls" \
+    '--enable network_proxy'
   assert_file_contains "SM22: replay ignores user Codex config" "$calls" '--ignore-user-config'
+  assert_file_contains "SM22b: replay disables model-backed web search" "$calls" \
+    'web_search="disabled"'
   assert_file_contains "SM23: candidate diff captures output" \
     "$corpus/samples/sample-0000000000000101/medium.diff" 'generated.txt'
 

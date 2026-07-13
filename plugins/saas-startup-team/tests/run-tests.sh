@@ -4795,10 +4795,18 @@ test_autonomous_demand_infra() {
   assert_file_exists "AD4: demand-discovery exists" "$demand"
   assert_file_exists "AD4b: market-scout exists" "$market"
   assert_file_exists "AD4c: issue-closure-audit exists" "$closure"
-  assert_file_contains "AD4d: Codex smoke uses supported permission flag" "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" "--permission-profile"
+  assert_file_contains "AD4d: Codex smoke uses supported permission flag" \
+    "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" "--permission-profile"
   assert_file_not_contains "AD4e: Codex smoke drops obsolete plural flag" "$health" "--permissions-profile"
-  assert_file_contains "AD4f: shell smoke disables unneeded network" "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" "--sandbox-state-disable-network"
-  for s in "$health" "$lease" "$packs" "$demand" "$market" "$closure" "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh"; do
+  assert_file_contains "AD4f: shell smoke enables the limited network proxy" \
+    "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" "--enable network_proxy"
+  assert_file_contains "AD4f1: shell smoke declares no outbound destinations" \
+    "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" 'network.mode="limited"'
+  assert_file_not_contains "AD4f2: shell smoke preserves anonymous socketpairs" \
+    "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" "--sandbox-state-disable-network"
+  for s in "$health" "$lease" "$packs" "$demand" "$market" "$closure" \
+    "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" \
+    "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh"; do
     ec=0; bash -n "$s" || ec=$?
     assert_exit_code "AD syntax: $(basename "$s")" "$ec" 0
   done
@@ -4864,16 +4872,17 @@ if [ "$1" = "sandbox" ] && [ "${2:-}" = "--help" ]; then exit 0; fi
 if [ "$1" = "sandbox" ]; then
   profile=""
   root=""
-  network_disabled=0
+  proxy_enabled=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --permission-profile) profile="$2"; shift 2 ;;
-      --sandbox-state-disable-network) network_disabled=1; shift ;;
+      --enable) [ "${2:-}" = network_proxy ] && proxy_enabled=1; shift 2 ;;
+      -c) shift 2 ;;
       -C|--cd) root="$2"; shift 2 ;;
       *) shift ;;
     esac
   done
-  if [ "$profile" = ":danger-full-access" ] && [ "$network_disabled" -eq 1 ]; then
+  if [ "$profile" = ":danger-full-access" ] && [ "$proxy_enabled" -eq 1 ]; then
     printf '%s\n' "$root"
     exit 0
   fi

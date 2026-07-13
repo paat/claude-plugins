@@ -144,8 +144,9 @@ either. Profile overrides use `SAAS_CODEX_<PROFILE>_MODEL` and
 `SAAS_CODEX_<PROFILE>_EFFORT`; they remain explicit launch arguments. Terra falls back
 once to Sol/medium only when Codex reports that Terra itself is unavailable. Review,
 QA, triage, and unknown roles are forced into a read-only sandbox. Source writers use
-network-off `workspace-write` by default; a writable override is rejected for read-only
-roles.
+an isolated `workspace-write`-derived profile with no allowed outbound destinations and
+native web search disabled; the limited proxy keeps process-local Python socketpairs
+working. A writable override is rejected for read-only roles.
 
 On Claude hosts, non-trivial Codex-routed handoffs first run a plan-only **architect pass** through the registered Claude role (interface contracts, file map, invariants, test plan → `NNN-tech-plan.md`), then Codex implements from handoff + plan. Codex hosts run the equivalent model-neutral architect role phase without launching Claude — see `skills/startup-orchestration/SKILL.md` §1c.
 
@@ -452,10 +453,11 @@ artifact, cleans any PR/remote branch and its dedicated worktree, and retries on
 deep while preserving queue eligibility. Missing artifacts and repeated escalation fail
 closed.
 
-Worker launches always use isolated `workspace-write` with network disabled; writable
-or unrestricted overrides for read-only roles and unrestricted overrides for writers
-are rejected. Supervisor product checks run the immutable base harness in a
-credentialless, network-off Codex sandbox before the checked tree can be committed.
+Worker launches always use isolated `workspace-write` with no outbound destinations or
+native web search; writable or unrestricted overrides for read-only roles and
+unrestricted overrides for writers are rejected. Supervisor product checks run the
+immutable base harness in a credentialless, network-off Codex sandbox before the checked
+tree can be committed.
 One-use supervisor-held HMAC tokens authenticate role guards and commit receipts; the
 receipt binds the exact allowed paths, branch, refs, base, Git configuration, and hooks.
 Tokens are supplied over stdin and are never put in worker prompts, files, environments,

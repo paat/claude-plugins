@@ -91,9 +91,9 @@ codex_worker_shell_smoke() {
   diag="$(bash "$SELF_DIR/codex-sandbox-check.sh" --root "$REPO_ROOT")" || diag_rc=$?
   diag="$(compact_output "$diag")"
   case "$diag_rc" in
-    0) add "codex:worker-shell" ok "Codex worker shell smoke passed with -s $sandbox" ;;
+    0) add "codex:worker-shell" ok "Codex worker shell smoke passed with the isolated $sandbox network-off profile" ;;
     10) add "codex:worker-shell" blocker "Codex CLI not found" ;;
-    *) add "codex:worker-shell" blocker "Codex worker shell sandbox unusable with -s $sandbox: $diag" ;;
+    *) add "codex:worker-shell" blocker "Codex worker shell sandbox unusable with the isolated $sandbox network-off profile: $diag" ;;
   esac
 }
 

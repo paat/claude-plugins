@@ -67,6 +67,37 @@ test_runtime_safety() {
     "$PLUGIN_ROOT/references/workflows/maintain-loop.md" '--snapshot-trust "$COMMIT_TRUST"'
   assert_file_contains "RS14f: mutation receipts require supervisor authentication" \
     "$PLUGIN_ROOT/references/workflows/mutation-ownership.md" '--auth-stdin'
+  assert_file_exists "RS14f1: network-off sandbox wrapper exists" \
+    "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh"
+  assert_file_contains "RS14f2: network-off sandbox uses the Codex proxy" \
+    "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" '--enable network_proxy'
+  assert_file_contains "RS14f3: network-off sandbox has no outbound destinations" \
+    "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" 'network.mode="limited"'
+  assert_file_not_contains "RS14f4: network-off sandbox preserves local socketpairs" \
+    "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" '--sandbox-state-disable-network'
+  assert_file_contains "RS14f5: network-off sandbox ignores ambient Codex config" \
+    "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" 'CODEX_HOME="$ISOLATED_CODEX_HOME"'
+  workdir=$(mktemp -d)
+  mkdir -p "$workdir/ambient" "$workdir/bin" "$workdir/home"
+  printf 'sandbox_mode = "danger-full-access"\n' > "$workdir/ambient/config.toml"
+  cat > "$workdir/bin/codex" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[ -n "${CODEX_HOME:-}" ]
+[ "$CODEX_HOME" != "$AMBIENT_CODEX_HOME" ]
+[ ! -e "$CODEX_HOME/config.toml" ]
+[ "${1:-}" = sandbox ]
+exit 0
+SH
+  chmod +x "$workdir/bin/codex"
+  ec=0
+  AMBIENT_CODEX_HOME="$workdir/ambient" CODEX_HOME="$workdir/ambient" HOME="$workdir/home" \
+    CODEX_BIN="$workdir/bin/codex" \
+    bash "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" /bin/true || ec=$?
+  assert_exit_code "RS14f6: hostile ambient Codex config is isolated" "$ec" 0
+  assert_equals "RS14f7: temporary Codex config home is removed" \
+    "$(find "$workdir/home/.cache" -maxdepth 1 -name 'saas-codex-sandbox.*' -print)" ""
+  rm -rf "$workdir"
   assert_file_not_contains "RS14g: lessons never stages the primary checkout" \
     "$PLUGIN_ROOT/commands/lessons-deliver.md" 'git add -A'
   assert_file_contains "RS14h: lessons freezes its isolated firewall" \
@@ -85,15 +116,16 @@ set -euo pipefail
 [ "${1:-}" = sandbox ] || exit 2
 shift
 if [ "${1:-}" = --help ]; then
-  printf '%s\n' '--permission-profile --sandbox-state-disable-network'
+  printf '%s\n' '--permission-profile --enable'
   exit 0
 fi
 sandbox_cwd=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --permission-profile) shift 2 ;;
+    --enable) [ "${2:-}" = network_proxy ] || exit 2; shift 2 ;;
+    -c) shift 2 ;;
     -C) sandbox_cwd=$2; shift 2 ;;
-    --sandbox-state-disable-network) shift ;;
     *) break ;;
   esac
 done

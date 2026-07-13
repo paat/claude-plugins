@@ -76,8 +76,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/supervisor-commit.sh" \
 
 The supervisor reconstructs, stages, and commits the candidate in a disposable clone
 with the trusted Git binary; the mechanical firewall, deterministic checks, and frozen
-product hooks run inside a credentialless, network-off sandbox that cannot write Git
-metadata. A failed gate leaves the primary HEAD and index unchanged
+product hooks run inside a credentialless sandbox with no outbound destinations that
+cannot write Git metadata. Its limited Codex proxy preserves anonymous local socketpairs
+needed by Python event loops while still denying direct network and pathname Unix sockets.
+A failed gate leaves the primary HEAD and index unchanged
 and retains the receipt for a same-base retry. A successful or no-op commit consumes it.
 The authenticated receipt binds the exact allowlist, branch, refs, base, configuration,
 and hooks. Create a fresh token and receipt after every successful commit; never reuse
