@@ -429,9 +429,13 @@ The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues h
   commands. Long-running work is treated as alive when the heartbeat/logs advance.
 - **Authenticated `gh` (GitHub CLI)** and standard tooling: `bash` 4+, `git`, `jq`,
   `awk`, `sed`, OpenSSL, GNU coreutils `date`/`timeout`/`realpath`/`sha256sum`, and
-  util-linux `flock`.
-- **Codex sandbox support** for credentialless, network-off product checks before a
-  supervisor commit. The commit path fails closed when these controls are unavailable.
+  util-linux `flock`, Python 3, and `tar`. The fresh Codex delivery gate uses Python
+  to seal preinstalled dependency trees before copying them into read-only check volumes.
+- **Codex sandbox support plus Docker CLI/socket access** from the dev container.
+  Supervisor checks run from the sealed current dev-container image with private process
+  and network namespaces; the commit path fails closed when these controls are unavailable.
+  Required system toolchains must be baked into that image: lifecycle installs made only
+  in the running container's writable layer are deliberately excluded from trusted checks.
 - **Optional `curl`** for `market-scout.sh --source-url`; without it, market scouting still
   runs source JSON ingestion or the internal discovery fallback.
 - **Dev container only** (inherits the plugin's dev-container-only design).
@@ -456,8 +460,13 @@ closed.
 Worker launches always use isolated `workspace-write` with no outbound destinations or
 native web search; writable or unrestricted overrides for read-only roles and
 unrestricted overrides for writers are rejected. Supervisor product checks run the
-immutable base harness in a credentialless, network-off Codex sandbox before the checked
-tree can be committed.
+immutable base harness in a credentialless sibling container before the checked tree can
+be committed. Its coherent private process view supports ordinary `ps`/`pgrep` regression
+harnesses without exposing host processes, Git writes, host files, or outbound network access.
+For linked delivery worktrees, compatible ignored `node_modules`, `venv`, and `.venv`
+trees from the primary checkout are content-sealed before the writer starts, copied to
+private volumes, and mounted read-only at their normal paths in the disposable check
+container. Other ignored state is never imported.
 One-use supervisor-held HMAC tokens authenticate role guards and commit receipts; the
 receipt binds the exact allowed paths, branch, refs, base, Git configuration, and hooks.
 Tokens are supplied over stdin and are never put in worker prompts, files, environments,

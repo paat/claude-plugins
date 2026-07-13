@@ -207,6 +207,168 @@ valid_repo_path() {
   return 0
 }
 
+runtime_tree_digest() {
+  python3 "$SCRIPT_DIR/runtime-tree-digest.py" "$1" "$2"
+}
+
+manifest_json_for_tree() {
+  local repo="$1" tree="$2" target="$3" parent path manifest_dir scope_dir in_scope oid
+  local -a manifests=()
+  local -a ancestor_dirs=()
+  parent=${target%/*}
+  [ "$parent" != "$target" ] || parent=.
+  scope_dir=$parent
+  while [ "$scope_dir" != . ]; do
+    case "$scope_dir" in */*) scope_dir=${scope_dir%/*} ;; *) scope_dir=. ;; esac
+    ancestor_dirs+=("$scope_dir")
+  done
+  while IFS= read -r -d '' path; do
+    if [ "$parent" != . ]; then
+      case "$path" in
+        "$parent"/*) : ;;
+        *)
+          manifest_dir=${path%/*}
+          [ "$manifest_dir" != "$path" ] || manifest_dir=.
+          in_scope=false
+          for scope_dir in "${ancestor_dirs[@]}"; do
+            if [ "$manifest_dir" = "$scope_dir" ]; then in_scope=true; break; fi
+          done
+          $in_scope || continue
+          ;;
+      esac
+    fi
+    case "${target##*/}" in
+      node_modules)
+        case "$path" in
+          package.json|*/package.json|package-lock.json|*/package-lock.json|\
+          npm-shrinkwrap.json|*/npm-shrinkwrap.json|pnpm-lock.yaml|*/pnpm-lock.yaml|\
+          pnpm-workspace.yaml|*/pnpm-workspace.yaml|.npmrc|*/.npmrc|\
+          yarn.lock|*/yarn.lock|bun.lock|*/bun.lock|bun.lockb|*/bun.lockb) : ;;
+          *) continue ;;
+        esac
+        ;;
+      venv|.venv)
+        case "$path" in
+          pyproject.toml|*/pyproject.toml|uv.lock|*/uv.lock|poetry.lock|*/poetry.lock|\
+          Pipfile|*/Pipfile|Pipfile.lock|*/Pipfile.lock|setup.py|*/setup.py|\
+          setup.cfg|*/setup.cfg|requirements*.txt|*/requirements*.txt|\
+          requirements/*.txt|*/requirements/*.txt) : ;;
+          *) continue ;;
+        esac
+        ;;
+      *) continue ;;
+    esac
+    oid=$($REAL_GIT -C "$repo" rev-parse "$tree:$path") || return 1
+    manifests+=("$(jq -cn --arg path "$path" --arg oid "$oid" '{path:$path,oid:$oid}')")
+  done < <($REAL_GIT -C "$repo" ls-tree -r --name-only -z "$tree")
+  if [ "${#manifests[@]}" -eq 0 ]; then printf '[]\n'
+  else printf '%s\n' "${manifests[@]}" | jq -cs 'sort_by(.path)'
+  fi
+}
+
+discover_primary_checkout() {
+  local candidate candidate_git
+  [ "$GIT_DIR" != "$COMMON_DIR" ] || return 1
+  [ "$(basename -- "$COMMON_DIR")" = .git ] || return 1
+  candidate=$(dirname -- "$COMMON_DIR")
+  [ -d "$candidate" ] && [ ! -L "$candidate" ] || return 1
+  candidate=$(cd "$candidate" && pwd -P)
+  [ "$candidate" != "$ROOT" ] || return 1
+  [ "$($REAL_GIT -C "$candidate" rev-parse --show-toplevel 2>/dev/null)" = "$candidate" ] || return 1
+  candidate_git=$($REAL_GIT -C "$candidate" rev-parse --absolute-git-dir 2>/dev/null) || return 1
+  candidate_git=$(cd "$candidate_git" && pwd -P)
+  [ "$candidate_git" = "$COMMON_DIR" ] || return 1
+  PRIMARY_CHECKOUT=$candidate
+}
+
+safe_runtime_source() {
+  local root="$1" relative="$2" current part
+  current=$root
+  while [[ "$relative" == */* ]]; do
+    part=${relative%%/*}; relative=${relative#*/}; current="$current/$part"
+    [ -d "$current" ] && [ ! -L "$current" ] || return 1
+  done
+  current="$current/$relative"
+  [ -d "$current" ] && [ ! -L "$current" ] || return 1
+  RUNTIME_SOURCE=$(cd "$current" && pwd -P)
+  [ "$RUNTIME_SOURCE" = "$current" ]
+}
+
+runtime_target_is_ignored() {
+  env -u GIT_LITERAL_PATHSPECS "$REAL_GIT" -C "$ROOT" \
+    -c core.fsmonitor=false check-ignore --no-index -q -- "$1/"
+}
+
+discover_check_runtimes() {
+  local path rel source marker identity digest manifests
+  local -a runtimes=()
+  declare -A seen=()
+  if ! discover_primary_checkout; then printf '[]\n'; return; fi
+  while IFS= read -r -d '' path; do
+    rel=${path%/}
+    valid_repo_path "$rel" || continue
+    [[ -v seen["$rel"] ]] && continue
+    case "${rel##*/}" in
+      node_modules) marker=.bin ;;
+      venv|.venv) marker=bin/python ;;
+      *) continue ;;
+    esac
+    source="$PRIMARY_CHECKOUT/$rel"
+    safe_runtime_source "$PRIMARY_CHECKOUT" "$rel" || continue
+    [ "$RUNTIME_SOURCE" = "$source" ] || continue
+    if [ "$marker" = .bin ]; then
+      [ -d "$source/.bin" ] && [ ! -L "$source/.bin" ] || continue
+    else
+      [ -d "$source/bin" ] && [ ! -L "$source/bin" ] \
+        && [ -e "$source/bin/python" ] && [ -x "$source/bin/python" ] || continue
+    fi
+    runtime_target_is_ignored "$rel" || continue
+    [ -z "$($REAL_GIT -C "$ROOT" ls-files -- "$rel")" ] || continue
+    manifests=$(manifest_json_for_tree "$ROOT" HEAD "$rel") || return 1
+    [ "$(jq 'length' <<<"$manifests")" -gt 0 ] || continue
+    identity=$(stat -Lc '%d:%i' -- "$source") || return 1
+    digest=$(runtime_tree_digest "$source" "$rel") || return 1
+    [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+    runtimes+=("$(jq -cn --arg source "$source" --arg target "$rel" \
+      --arg identity "$identity" --arg digest "$digest" --argjson manifests "$manifests" \
+      '{source:$source,target:$target,identity:$identity,digest:$digest,manifests:$manifests}')")
+    seen["$rel"]=1
+  done < <($REAL_GIT -C "$PRIMARY_CHECKOUT" \
+    ls-files --others --ignored --exclude-standard --directory -z)
+  if [ "${#runtimes[@]}" -eq 0 ]; then printf '[]\n'
+  else printf '%s\n' "${runtimes[@]}" | jq -cs 'sort_by(.target)'
+  fi
+}
+
+check_driver_metadata() {
+  local path identity mode digest product_root= backend
+  path=${SAAS_SUPERVISOR_CHECK_DRIVER:-$SCRIPT_DIR/supervisor-check-container.sh}
+  path=$(readlink -f -- "$path")
+  [ -f "$path" ] && [ -x "$path" ] && [ ! -L "$path" ] || return 1
+  case "$path" in "$ROOT"|"$ROOT"/*) return 1 ;; esac
+  if [ "$(basename -- "$COMMON_DIR")" = .git ]; then
+    product_root=$(dirname -- "$COMMON_DIR")
+    case "$path" in "$product_root"|"$product_root"/*) return 1 ;; esac
+  fi
+  identity=$(stat -Lc '%d:%i' -- "$path") || return 1
+  mode=$(stat -Lc '%a' -- "$path") || return 1
+  digest=$(sha256sum -- "$path" | awk '{print $1}') || return 1
+  [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+  backend=$(timeout -k 5 30 "$path" --metadata) || return 1
+  jq -e 'type == "object" and
+    (.docker|type == "object") and
+    (.docker.path|type == "string" and length > 0) and
+    (.docker.identity|type == "string" and test("^[0-9]+:[0-9]+$")) and
+    (.docker.mode|type == "string" and test("^[0-7]+$")) and
+    (.docker.sha256|type == "string" and test("^[0-9a-f]{64}$")) and
+    (.daemon_id|type == "string" and length > 0) and
+    (.image_id|type == "string" and test("^sha256:[0-9a-f]{64}$")) and
+    (.container_id|type == "string" and length > 0)' <<<"$backend" >/dev/null || return 1
+  jq -cn --arg path "$path" --arg identity "$identity" --arg mode "$mode" \
+    --arg digest "$digest" --argjson backend "$backend" \
+    '{path:$path,identity:$identity,mode:$mode,sha256:$digest,backend:$backend}'
+}
+
 is_local_only() {
   case "$1" in
     .startup/state.json|.startup/leases|.startup/leases/*|.startup/runs|.startup/runs/*|\
@@ -222,6 +384,7 @@ is_local_only() {
 snapshot_trust() {
   local receipt hooks_copy firewall_copy source base hash source_hash firewall_hash=null config_hash metadata_hash
   local source_rel=null old_umask ref refs_hash allow_json path receipt_tmp firewall_parent firewall_source
+  local check_driver_json runtimes_json
   [ -n "$TRUST_RECEIPT" ] && [ -z "$MESSAGE" ] || usage
   valid_auth_token "$AUTH_TOKEN" || { echo "supervisor-commit: invalid authentication token" >&2; exit 2; }
   if [ "$REQUIRE_APPROVED_DIFF" -eq 1 ]; then
@@ -234,6 +397,10 @@ snapshot_trust() {
     valid_repo_path "$path" || { printf 'supervisor-commit: invalid allowed path: %q\n' "$path" >&2; exit 2; }
     is_local_only "$path" && { printf 'supervisor-commit: local runtime state cannot be allowed: %q\n' "$path" >&2; exit 2; }
   done
+  check_driver_json=$(check_driver_metadata) || {
+    echo "supervisor-commit: trusted private-container check runtime is unavailable" >&2; exit 1; }
+  runtimes_json=$(discover_check_runtimes) || {
+    echo "supervisor-commit: could not seal linked-worktree check runtimes" >&2; exit 1; }
   receipt=$(receipt_path "$TRUST_RECEIPT") || exit 2
   hooks_copy="${receipt}.hooks"
   firewall_copy="${receipt}.firewall"
@@ -285,12 +452,14 @@ snapshot_trust() {
     --arg metadata_hash "$metadata_hash" --argjson source_rel "$source_rel" \
     --arg head_ref "$ref" --arg refs "$refs_hash" --argjson allow "$allow_json" \
     --argjson require_approved "$REQUIRE_APPROVED_DIFF" --argjson firewall_hash "$firewall_hash" \
-    --arg source_hash "$source_hash" \
-    '{schema_version:2,base_head:$base,head_ref:$head_ref,refs_fingerprint:$refs,
+    --arg source_hash "$source_hash" --argjson check_driver "$check_driver_json" \
+    --argjson check_runtimes "$runtimes_json" \
+    '{schema_version:4,base_head:$base,head_ref:$head_ref,refs_fingerprint:$refs,
       hooks_fingerprint:$hash,hook_source_fingerprint:$source_hash,
       config_fingerprint:$config_hash,metadata_fingerprint:$metadata_hash,
       hook_source_rel:$source_rel,allow:$allow,
       require_approved_diff:($require_approved == 1),firewall_fingerprint:$firewall_hash,
+      check_driver:$check_driver,check_runtimes:$check_runtimes,
       auth_tag:null}' > "$receipt_tmp"
   mv -- "$receipt_tmp" "$receipt"
   sign_receipt "$receipt"
@@ -308,7 +477,7 @@ TRUST_HOOKS="${TRUST_RECEIPT}.hooks"
 TRUST_FIREWALL="${TRUST_RECEIPT}.firewall"
 [ -f "$TRUST_RECEIPT" ] && [ ! -L "$TRUST_RECEIPT" ] && [ -d "$TRUST_HOOKS" ] && [ ! -L "$TRUST_HOOKS" ] || {
   echo "supervisor-commit: trusted hook receipt is missing" >&2; exit 1; }
-jq -e '.schema_version == 2 and (.base_head|type == "string") and
+jq -e '.schema_version == 4 and (.base_head|type == "string") and
   (.head_ref|type == "string") and (.refs_fingerprint|type == "string") and
   (.hooks_fingerprint|type == "string") and (.hook_source_fingerprint|type == "string") and
   (.config_fingerprint|type == "string") and (.metadata_fingerprint|type == "string") and
@@ -318,6 +487,28 @@ jq -e '.schema_version == 2 and (.base_head|type == "string") and
   (.firewall_fingerprint == null or (.firewall_fingerprint|type == "string")) and
   ((.require_approved_diff == true and (.firewall_fingerprint|type == "string")) or
    (.require_approved_diff == false and .firewall_fingerprint == null)) and
+  (.check_driver|type == "object") and
+  (.check_driver.path|type == "string" and length > 0) and
+  (.check_driver.identity|type == "string" and test("^[0-9]+:[0-9]+$")) and
+  (.check_driver.mode|type == "string" and test("^[0-7]+$")) and
+  (.check_driver.sha256|type == "string" and test("^[0-9a-f]{64}$")) and
+  (.check_driver.backend|type == "object") and
+  (.check_driver.backend.docker|type == "object") and
+  (.check_driver.backend.docker.path|type == "string" and length > 0) and
+  (.check_driver.backend.docker.identity|type == "string" and test("^[0-9]+:[0-9]+$")) and
+  (.check_driver.backend.docker.mode|type == "string" and test("^[0-7]+$")) and
+  (.check_driver.backend.docker.sha256|type == "string" and test("^[0-9a-f]{64}$")) and
+  (.check_driver.backend.daemon_id|type == "string" and length > 0) and
+  (.check_driver.backend.image_id|type == "string" and test("^sha256:[0-9a-f]{64}$")) and
+  (.check_driver.backend.container_id|type == "string" and length > 0) and
+  (.check_runtimes|type == "array" and all(.[];
+    (type == "object") and (.source|type == "string" and length > 0) and
+    (.target|type == "string" and length > 0) and
+    (.identity|type == "string" and test("^[0-9]+:[0-9]+$")) and
+    (.digest|type == "string" and test("^[0-9a-f]{64}$")) and
+    (.manifests|type == "array" and length > 0 and all(.[];
+      (.path|type == "string" and length > 0) and
+      (.oid|type == "string" and test("^[0-9a-f]{40,64}$")))))) and
   (.auth_tag|type == "string")' "$TRUST_RECEIPT" >/dev/null || {
   echo "supervisor-commit: malformed trust receipt" >&2; exit 1; }
 verify_receipt_auth "$TRUST_RECEIPT" || {
@@ -362,6 +553,73 @@ allowed_path() {
   done
   return 1
 }
+
+CHECK_DRIVER_PATH=$(jq -r '.check_driver.path' "$TRUST_RECEIPT")
+CHECK_DRIVER_IDENTITY=$(jq -r '.check_driver.identity' "$TRUST_RECEIPT")
+CHECK_DRIVER_MODE=$(jq -r '.check_driver.mode' "$TRUST_RECEIPT")
+CHECK_DRIVER_SHA256=$(jq -r '.check_driver.sha256' "$TRUST_RECEIPT")
+CHECK_BACKEND=$(jq -cS '.check_driver.backend' "$TRUST_RECEIPT")
+
+verify_check_driver_receipt() {
+  local canonical identity mode digest backend
+  [ -f "$CHECK_DRIVER_PATH" ] && [ -x "$CHECK_DRIVER_PATH" ] \
+    && [ ! -L "$CHECK_DRIVER_PATH" ] || return 1
+  canonical=$(readlink -f -- "$CHECK_DRIVER_PATH") || return 1
+  [ "$canonical" = "$CHECK_DRIVER_PATH" ] || return 1
+  case "$canonical" in "$ROOT"|"$ROOT"/*) return 1 ;; esac
+  identity=$(stat -Lc '%d:%i' -- "$CHECK_DRIVER_PATH") || return 1
+  mode=$(stat -Lc '%a' -- "$CHECK_DRIVER_PATH") || return 1
+  digest=$(sha256sum -- "$CHECK_DRIVER_PATH" | awk '{print $1}') || return 1
+  [ "$identity" = "$CHECK_DRIVER_IDENTITY" ] && [ "$mode" = "$CHECK_DRIVER_MODE" ] \
+    && [ "$digest" = "$CHECK_DRIVER_SHA256" ] || return 1
+  backend=$(timeout -k 5 30 "$CHECK_DRIVER_PATH" --metadata) || return 1
+  [ "$(jq -cS . <<<"$backend")" = "$CHECK_BACKEND" ]
+}
+
+declare -a CHECK_RUNTIME_SOURCES=() CHECK_RUNTIME_TARGETS=() CHECK_RUNTIME_IDENTITIES=()
+declare -a CHECK_RUNTIME_DIGESTS=() CHECK_RUNTIME_MANIFESTS=()
+load_check_runtime_receipt() {
+  local count i item source target identity digest manifests expected previous=
+  count=$(jq '.check_runtimes|length' "$TRUST_RECEIPT")
+  [ "$count" -eq 0 ] || discover_primary_checkout || {
+    echo "supervisor-commit: linked-worktree runtime source is no longer available" >&2; return 1; }
+  for ((i=0; i<count; i++)); do
+    item=$(jq -c ".check_runtimes[$i]" "$TRUST_RECEIPT")
+    source=$(jq -r .source <<<"$item"); target=$(jq -r .target <<<"$item")
+    identity=$(jq -r .identity <<<"$item"); digest=$(jq -r .digest <<<"$item")
+    manifests=$(jq -cS .manifests <<<"$item")
+    valid_repo_path "$target" || {
+      echo "supervisor-commit: authenticated runtime target is invalid" >&2; return 1; }
+    case "${target##*/}" in node_modules|venv|.venv) : ;; *)
+      echo "supervisor-commit: authenticated runtime class is invalid" >&2; return 1 ;; esac
+    [ -z "$previous" ] || [[ "$previous" < "$target" ]] || {
+      echo "supervisor-commit: authenticated runtime targets are not unique" >&2; return 1; }
+    previous=$target
+    [ "$source" = "$PRIMARY_CHECKOUT/$target" ] || {
+      echo "supervisor-commit: authenticated runtime source left the primary checkout" >&2; return 1; }
+    safe_runtime_source "$PRIMARY_CHECKOUT" "$target" && [ "$RUNTIME_SOURCE" = "$source" ] || {
+      echo "supervisor-commit: authenticated runtime source became unsafe" >&2; return 1; }
+    if [ "${target##*/}" = node_modules ]; then
+      [ -d "$source/.bin" ] && [ ! -L "$source/.bin" ] || {
+        echo "supervisor-commit: authenticated Node runtime marker is missing" >&2; return 1; }
+    else
+      [ -d "$source/bin" ] && [ ! -L "$source/bin" ] \
+        && [ -e "$source/bin/python" ] && [ -x "$source/bin/python" ] || {
+          echo "supervisor-commit: authenticated Python runtime marker is missing" >&2; return 1; }
+    fi
+    runtime_target_is_ignored "$target" \
+      && [ -z "$($REAL_GIT -C "$ROOT" ls-tree -r --name-only "$BASE_HEAD" -- "$target")" ] || {
+        echo "supervisor-commit: authenticated runtime target is not ignored and untracked" >&2; return 1; }
+    expected=$(manifest_json_for_tree "$ROOT" "$BASE_HEAD" "$target") || return 1
+    [ "$(jq -cS . <<<"$expected")" = "$manifests" ] || {
+      echo "supervisor-commit: authenticated runtime manifests do not match the base" >&2; return 1; }
+    CHECK_RUNTIME_SOURCES+=("$source"); CHECK_RUNTIME_TARGETS+=("$target")
+    CHECK_RUNTIME_IDENTITIES+=("$identity"); CHECK_RUNTIME_DIGESTS+=("$digest")
+    CHECK_RUNTIME_MANIFESTS+=("$manifests")
+  done
+}
+
+load_check_runtime_receipt || exit 1
 
 workspace_fingerprint() {
   local tmp path mode oid result
@@ -629,6 +887,46 @@ if [ -n "$HOOK_SOURCE_REL" ] && ! $REAL_GIT -C "$SHADOW" diff --cached --quiet "
   exit 1
 fi
 
+prepare_check_runtimes() {
+  local i target source identity digest manifests candidate shadow_target
+  for ((i=0; i<${#CHECK_RUNTIME_SOURCES[@]}; i++)); do
+    source=${CHECK_RUNTIME_SOURCES[$i]}; target=${CHECK_RUNTIME_TARGETS[$i]}
+    identity=$(stat -Lc '%d:%i' -- "$source") || return 1
+    [ "$identity" = "${CHECK_RUNTIME_IDENTITIES[$i]}" ] || {
+      echo "supervisor-commit: linked check runtime changed identity" >&2; return 1; }
+    digest=$(runtime_tree_digest "$source" "$target") || return 1
+    [ "$digest" = "${CHECK_RUNTIME_DIGESTS[$i]}" ] || {
+      echo "supervisor-commit: linked check runtime changed after trust snapshot" >&2; return 1; }
+    manifests=$(jq -cS . <<<"${CHECK_RUNTIME_MANIFESTS[$i]}")
+    candidate=$(manifest_json_for_tree "$SHADOW" "$CHECKED_TREE" "$target") || return 1
+    [ "$(jq -cS . <<<"$candidate")" = "$manifests" ] || {
+      echo "supervisor-commit: candidate dependency manifests changed after runtime snapshot" >&2; return 1; }
+    [ -z "$($REAL_GIT -C "$SHADOW" ls-tree -r --name-only "$CHECKED_TREE" -- "$target")" ] || {
+      echo "supervisor-commit: candidate tree contains a dependency runtime path" >&2; return 1; }
+    prepare_shadow_parent "$target" || {
+      echo "supervisor-commit: unsafe linked runtime target parent" >&2; return 1; }
+    shadow_target="$SHADOW/$target"
+    [ ! -e "$shadow_target" ] && [ ! -L "$shadow_target" ] || {
+      echo "supervisor-commit: linked runtime target is not empty" >&2; return 1; }
+    mkdir "$shadow_target"
+  done
+}
+
+check_runtimes_unchanged() {
+  local i source target identity digest
+  for ((i=0; i<${#CHECK_RUNTIME_SOURCES[@]}; i++)); do
+    source=${CHECK_RUNTIME_SOURCES[$i]}; target=${CHECK_RUNTIME_TARGETS[$i]}
+    identity=$(stat -Lc '%d:%i' -- "$source") || return 1
+    [ "$identity" = "${CHECK_RUNTIME_IDENTITIES[$i]}" ] || return 1
+    digest=$(runtime_tree_digest "$source" "$target") || return 1
+    [ "$digest" = "${CHECK_RUNTIME_DIGESTS[$i]}" ] || return 1
+  done
+}
+
+prepare_check_runtimes || exit 1
+verify_check_driver_receipt || {
+  echo "supervisor-commit: trusted private-container check runtime changed after trust snapshot" >&2; exit 1; }
+
 CHECK_SHADOW="$SHADOW/$CHECK_REL"
 validate_check_slot() {
   local relative="$CHECK_REL" current="$SHADOW" part
@@ -649,11 +947,27 @@ PRE_CHECK_BOUNDARY="$({ $REAL_GIT -C "$SHADOW" rev-parse HEAD;
   $REAL_GIT -C "$SHADOW" config --local --list; } | $REAL_GIT hash-object --stdin)"
 
 CHECK_RC=0
+CHECKOUT_ALIAS=$ROOT
+[ "${#CHECK_RUNTIME_SOURCES[@]}" -eq 0 ] || CHECKOUT_ALIAS=$PRIMARY_CHECKOUT
+CHECK_SANDBOX=("$CHECK_DRIVER_PATH" -C "$SHADOW" \
+  --docker-bin "$(jq -r '.docker.path' <<<"$CHECK_BACKEND")" \
+  --image-id "$(jq -r '.image_id' <<<"$CHECK_BACKEND")" \
+  --daemon-id "$(jq -r '.daemon_id' <<<"$CHECK_BACKEND")" \
+  --checkout-alias "$CHECKOUT_ALIAS")
+for ((i=0; i<${#CHECK_RUNTIME_SOURCES[@]}; i++)); do
+  CHECK_SANDBOX+=(--runtime "${CHECK_RUNTIME_SOURCES[$i]}" \
+    "${CHECK_RUNTIME_TARGETS[$i]}" "${CHECK_RUNTIME_DIGESTS[$i]}")
+done
+CHECK_SANDBOX+=(-- /bin/bash "/dev/shm/saas-check/$CHECK_REL")
 set +e
-sandbox_exec "$SHADOW" /bin/bash "$CHECK_SHADOW"
+"${CHECK_SANDBOX[@]}"
 CHECK_RC=$?
 set -e
 [ "$CHECK_RC" -eq 0 ] || { echo "supervisor-commit: deterministic checks failed" >&2; exit 1; }
+check_runtimes_unchanged || {
+  echo "supervisor-commit: linked check runtime changed during deterministic checks" >&2; exit 1; }
+verify_check_driver_receipt || {
+  echo "supervisor-commit: trusted private-container check runtime changed during deterministic checks" >&2; exit 1; }
 [ "$($REAL_GIT -C "$SHADOW" diff --binary --no-ext-diff --no-textconv | $REAL_GIT hash-object --stdin)" = "$PRE_CHECK_DIFF" ] \
   && [ "$($REAL_GIT -C "$SHADOW" status --porcelain=v1 --untracked-files=no | $REAL_GIT hash-object --stdin)" = "$PRE_CHECK_STATUS" ] || {
     echo "supervisor-commit: checks changed the isolated candidate tree" >&2; exit 1; }
