@@ -7,8 +7,9 @@ declare -F make_workdir >/dev/null 2>&1 || {
 test_runtime_safety() {
   echo -e "\n${CYAN}Suite RS: runtime role and lifecycle safety${NC}"
   local workdir ec out count script owner_file state_dir snapshot patch_file remote base old_owner trust_receipt auth_token
-  local linked git_dir common_dir raw_commondir guard_snapshot guard_auth
+  local linked git_dir common_dir raw_commondir guard_snapshot guard_auth real_jq path
   local supervisor_bwrap_dir
+  local -a large_allow_args
   supervisor_bwrap_dir=$(mktemp -d)
 
   # Registered Claude dispatches and exact effort pins.
@@ -949,6 +950,40 @@ SH
     "$out" '.env'
   assert_output_contains "RS19znn9: pre-existing generated output stays protected" \
     "$out" 'existing-cache/output.bin'
+  rm -rf "$workdir"
+
+  # Large guard collections are streamed to jq instead of crossing the per-argument limit.
+  script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"
+  workdir=$(make_workdir); (cd "$workdir" && git config user.email t@t.t && git config user.name t)
+  mkdir -p "$workdir/cache" "$workdir/bin"
+  printf 'cache/\n' > "$workdir/.gitignore"
+  printf 'base\n' > "$workdir/app.txt"
+  (cd "$workdir" && git add app.txt .gitignore && git commit -qm init)
+  for ((i=0; i<160; i++)); do printf -v path 'entry-%04d' "$i"; : > "$workdir/cache/$path"; done
+  large_allow_args=()
+  for ((i=0; i<96; i++)); do
+    printf -v path 'review-artifact-%04d-abcdefghijklmnopqrstuvwxyz0123456789.txt' "$i"
+    large_allow_args+=(--allow "$path")
+  done
+  real_jq=$(command -v jq)
+  cat > "$workdir/bin/jq" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  [ "${#arg}" -le 4096 ] || { echo "simulated per-argument limit" >&2; exit 126; }
+done
+exec "$REAL_JQ" "$@"
+SH
+  chmod +x "$workdir/bin/jq"
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  snapshot="$workdir/.git/saas-startup-team/large-ignored-baseline.json"
+  ec=0; out=$(cd "$workdir" && REAL_JQ="$real_jq" PATH="$workdir/bin:$PATH" \
+    bash "$script" --snapshot "$snapshot" --auth-stdin --allow app.txt "${large_allow_args[@]}" \
+    <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn10: large ignored baseline avoids oversized jq arguments" "$ec" 0
+  assert_json_field "RS19znn11: streamed snapshot retains every ignored baseline entry" \
+    "$snapshot" '.ignored_baseline | length' 160
+  assert_json_field "RS19znn12: streamed snapshot retains every allowed path" \
+    "$snapshot" '.allow | length' 97
   rm -rf "$workdir"
 
   # Review artifact paths cannot traverse symlinked ancestors outside the repository.

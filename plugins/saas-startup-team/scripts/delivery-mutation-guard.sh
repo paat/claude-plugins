@@ -454,23 +454,25 @@ if [ "$ACTION" = "snapshot" ]; then
   index_metadata_fp="$(index_metadata_fingerprint)"
   [ ! -e "$SNAPSHOT" ] && [ ! -L "$SNAPSHOT" ] || {
     echo "delivery-mutation-guard: snapshot already exists" >&2; exit 1; }
-  allow_json="$(printf '%s\n' "${ALLOW[@]}" | jq -R . | jq -s .)"
-  ignored_baseline_json="$(printf '%s\n' "${ignored_baseline_keys[@]}" \
-    | jq -R 'select(length > 0)' | jq -s .)"
   snapshot_tmp="$(mktemp "${SNAPSHOT}.unsigned.XXXXXX")"
-  jq -n --arg head "$base" --arg index "$index_fp" --arg worktree "$worktree_fp" \
+  {
+    for value in "${ALLOW[@]}"; do printf '%s\n' "$value"; done
+    for value in "${ignored_baseline_keys[@]}"; do printf '%s\n' "$value"; done
+  } \
+  | jq -Rn --argjson allow_count "${#ALLOW[@]}" \
+    --arg head "$base" --arg index "$index_fp" --arg worktree "$worktree_fp" \
     --arg untracked "$untracked_fp" --arg ignored "$ignored_fp" --arg exclusion "$exclusion_fp" \
     --arg state "$state_fp" --arg active_ref "$active_ref" --arg refs "$refs_fp" \
     --arg hooks "$hooks_fp" --arg control "$control_fp" --arg index_metadata "$index_metadata_fp" \
-    --argjson allow "$allow_json" --argjson ignored_baseline "$ignored_baseline_json" \
-    '{schema_version:6,base_head:$head,head_ref:$active_ref,other_refs_fingerprint:$refs,
+    '[inputs] as $values
+    | {schema_version:6,base_head:$head,head_ref:$active_ref,other_refs_fingerprint:$refs,
       hooks_fingerprint:$hooks,git_control_fingerprint:$control,
       index_metadata_fingerprint:$index_metadata,
       index_fingerprint:$index,
       worktree_fingerprint:$worktree,untracked_fingerprint:$untracked,
       ignored_fingerprint:$ignored,git_exclusion_fingerprint:$exclusion,
-      state_fingerprint:$state,ignored_baseline:$ignored_baseline,
-      allow:$allow,auth_tag:null}' > "$snapshot_tmp"
+      state_fingerprint:$state,ignored_baseline:$values[$allow_count:],
+      allow:$values[:$allow_count],auth_tag:null}' > "$snapshot_tmp"
   sign_snapshot "$snapshot_tmp"
   mv -- "$snapshot_tmp" "$SNAPSHOT"
   [ ! -e "${SNAPSHOT}.active" ] && [ ! -L "${SNAPSHOT}.active" ] || {
