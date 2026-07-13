@@ -4806,7 +4806,8 @@ test_autonomous_demand_infra() {
     "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" "--sandbox-state-disable-network"
   for s in "$health" "$lease" "$packs" "$demand" "$market" "$closure" \
     "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" \
-    "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh"; do
+    "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" \
+    "$PLUGIN_ROOT/scripts/supervisor-check-container.sh"; do
     ec=0; bash -n "$s" || ec=$?
     assert_exit_code "AD syntax: $(basename "$s")" "$ec" 0
   done
@@ -4817,6 +4818,8 @@ test_autonomous_demand_infra() {
     "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" 'core.hooksPath=/dev/null add -A'
   assert_file_contains "AD4h: smoke probes in-sandbox thread wakeups" \
     "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" 'asyncio.to_thread'
+  assert_file_contains "AD4h1: smoke probes supervisor process inspection" \
+    "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" 'ps -o pid='
   if command -v python3 >/dev/null 2>&1; then
     workdir=$(make_workdir)
     mkdir -p "$workdir/bin"
@@ -4838,10 +4841,39 @@ SH
 [ "$1" = sandbox ] || exit 2
 exit 0
 SH
-    chmod +x "$workdir/bin/codex"
-    ec=0; output=$(PATH="$workdir/bin:$PATH" bash "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" --root "$workdir" 2>&1) || ec=$?
+    cat > "$workdir/bin/check-driver" <<'SH'
+#!/bin/sh
+if [ "${1:-}" = --metadata ]; then
+  printf '%s\n' '{"docker":{"path":"/usr/bin/false"},"daemon_id":"test","image_id":"sha256:1111111111111111111111111111111111111111111111111111111111111111"}'
+fi
+exit 0
+SH
+    chmod +x "$workdir/bin/codex" "$workdir/bin/check-driver"
+    ec=0; output=$(PATH="$workdir/bin:$PATH" SAAS_SUPERVISOR_CHECK_DRIVER="$workdir/bin/check-driver" \
+      bash "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" --root "$workdir" 2>&1) || ec=$?
     assert_exit_code "AD4k: healthy sandbox passes staging and wakeup probes" "$ec" 0
     assert_output_contains "AD4l: success names the added probes" "$output" "thread-wakeup probes"
+
+    cat > "$workdir/bin/check-driver" <<'SH'
+#!/bin/sh
+if [ "${1:-}" = --metadata ]; then
+  printf '%s\n' '{"docker":{"path":"/usr/bin/false"},"daemon_id":"test","image_id":"sha256:1111111111111111111111111111111111111111111111111111111111111111"}'
+  exit 0
+fi
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -C|--docker-bin|--image-id|--daemon-id|--checkout-alias) shift 2 ;;
+    --) shift; exec "$@" ;;
+    *) exit 2 ;;
+  esac
+done
+exit 2
+SH
+    chmod +x "$workdir/bin/check-driver"
+    ec=0; output=$(PATH="$workdir/bin:$PATH" SAAS_SUPERVISOR_CHECK_DRIVER="$workdir/bin/check-driver" \
+      bash "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" --root "$workdir" 2>&1) || ec=$?
+    assert_exit_code "AD4m: writable outside path blocks supervisor smoke" "$ec" 4
+    assert_output_contains "AD4n: supervisor isolation failure is explicit" "$output" "Supervisor process check failed"
     rm -rf "$workdir"
   fi
 

@@ -36,9 +36,10 @@ The mode is selected automatically when unambiguous, and chosen by the investor 
 
 2. Verify solution signoff exists:
    ```bash
-   ls .startup/go-live/solution-signoff.md 2>/dev/null
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/solution-signoff-gate.sh" \
+     --source-root "$(git rev-parse --show-toplevel)"
    ```
-   If not found:
+   If the executable gate fails:
    > The build loop hasn't completed yet. Use `/startup` to resume or `/nudge` to redirect. `/improve` is for post-completion tweaks.
 
 3. Verify architecture doc exists:

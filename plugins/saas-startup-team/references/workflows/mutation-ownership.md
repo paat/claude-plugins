@@ -50,6 +50,9 @@ best-effort cleanup.
 - QA allows only its exact review artifact. It reads product code but never edits it.
 - The supervisor alone writes state, checks, commits, refs, GitHub state, and deploy
   records.
+- Writer checks are focused feedback, not the authoritative gate. If a check needs a
+  host PID/proc view that the writer sandbox cannot provide, report it for the
+  supervisor gate; do not deselect or weaken the regression.
 
 ## Trusted commit boundary
 
@@ -75,10 +78,16 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/supervisor-commit.sh" \
 ```
 
 The supervisor reconstructs, stages, and commits the candidate in a disposable clone
-with the trusted Git binary; the mechanical firewall, deterministic checks, and frozen
-product hooks run inside a credentialless sandbox with no outbound destinations that
-cannot write Git metadata. Its limited Codex proxy preserves anonymous local socketpairs
-needed by Python event loops while still denying direct network and pathname Unix sockets.
+with the trusted Git binary. The mechanical firewall and frozen product hooks keep the
+Codex sandbox; the deterministic check uses a credentialless sibling of the sealed dev
+container image with private process and network namespaces. Candidate source is copied
+to private volumes, Git metadata is read-only, and no host checkout or Docker socket is
+exposed.
+In a linked worktree, the signed receipt may also bind pre-existing ignored dependency
+trees from the primary checkout. Only validated `node_modules`, `venv`, and `.venv`
+paths are copied and mounted read-only in the disposable container; a runtime or
+dependency-manifest change after the snapshot fails closed, and no other ignored project
+state is copied.
 A failed gate leaves the primary HEAD and index unchanged
 and retains the receipt for a same-base retry. A successful or no-op commit consumes it.
 The authenticated receipt binds the exact allowlist, branch, refs, base, configuration,

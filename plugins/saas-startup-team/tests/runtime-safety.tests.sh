@@ -8,6 +8,8 @@ test_runtime_safety() {
   echo -e "\n${CYAN}Suite RS: runtime role and lifecycle safety${NC}"
   local workdir ec out count script owner_file state_dir snapshot patch_file remote base old_owner trust_receipt auth_token
   local linked git_dir common_dir raw_commondir guard_snapshot guard_auth
+  local supervisor_bwrap_dir
+  supervisor_bwrap_dir=$(mktemp -d)
 
   # Registered Claude dispatches and exact effort pins.
   out="$(grep -R -n 'subagent_type: "general-purpose"' \
@@ -109,7 +111,7 @@ SH
 
   make_supervisor_sandbox() {
     local root="$1"
-    mkdir -p "$root/bin"
+    mkdir -p "$root/bin" "$supervisor_bwrap_dir"
     cat > "$root/bin/codex" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -141,7 +143,73 @@ if [ -d .git ] && [ ! -L .git ]; then
 fi
 "$@"
 SH
-    chmod +x "$root/bin/codex"
+    cat > "$supervisor_bwrap_dir/check-driver" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = --metadata ]; then
+  printf '%s\n' '{"docker":{"path":"/usr/bin/false","identity":"1:1","mode":"755","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},"daemon_id":"test-daemon","image_id":"sha256:1111111111111111111111111111111111111111111111111111111111111111","container_id":"test-container"}'
+  exit 0
+fi
+root=
+runtime_sources=(); runtime_targets=(); runtime_mode_paths=(); runtime_modes=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -C) root=$2; shift 2 ;;
+    --docker-bin|--image-id|--daemon-id|--checkout-alias) shift 2 ;;
+    --runtime)
+      runtime_sources+=("$2"); runtime_targets+=("$3")
+      shift 4 ;;
+    --) shift; break ;;
+    *) echo "fake check driver: unexpected argument: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$root" ] && [ "$#" -gt 0 ]
+mounted=()
+cleanup() {
+  local target source
+  chmod -R u+w "$root/.git" 2>/dev/null || true
+  for ((j=0; j<${#mounted[@]}; j++)); do
+    target=${mounted[$j]}; source=${runtime_sources[$j]}
+    rm -f "$target"; mkdir -p "$target"
+  done
+  for ((j=0; j<${#runtime_mode_paths[@]}; j++)); do
+    chmod "${runtime_modes[$j]}" "${runtime_mode_paths[$j]}"
+  done
+}
+trap cleanup EXIT
+for ((i=0; i<${#runtime_sources[@]}; i++)); do
+  target="$root/${runtime_targets[$i]}"
+  while IFS= read -r -d '' path; do
+    runtime_mode_paths+=("$path")
+    runtime_modes+=("$(stat -c %a -- "$path")")
+  done < <(find -P "${runtime_sources[$i]}" -print0)
+  chmod -R a-w "${runtime_sources[$i]}"
+  rmdir "$target"
+  ln -s "${runtime_sources[$i]}" "$target"
+  mounted+=("$target")
+done
+translate() {
+  case "$1" in
+    /dev/shm/saas-check) printf '%s\n' "$root" ;;
+    /dev/shm/saas-check/*) printf '%s/%s\n' "$root" "${1#/dev/shm/saas-check/}" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+command=()
+for arg in "$@"; do command+=("$(translate "$arg")"); done
+chmod -R a-w "$root/.git"
+cd "$root"
+set +e
+"${command[@]}"
+rc=$?
+set -e
+exit "$rc"
+SH
+    chmod +x "$root/bin/codex" "$supervisor_bwrap_dir/check-driver"
+    SAAS_SUPERVISOR_CHECK_DRIVER="$supervisor_bwrap_dir/check-driver"
+    export SAAS_SUPERVISOR_CHECK_DRIVER
+    PATH="$supervisor_bwrap_dir:$root/bin:$PATH"
+    export PATH
   }
 
   supervisor_snapshot() {
@@ -472,6 +540,125 @@ SH
   assert_exit_code "RS19zk: primary ignored dependencies are outside check lookup" "$ec" 0
   rm -rf "$workdir"
 
+  # A linked delivery seals compatible primary runtimes and mounts them read-only
+  # into the disposable authoritative-check clone.
+  script="$PLUGIN_ROOT/scripts/supervisor-commit.sh"
+  workdir=$(make_workdir); git -C "$workdir" config user.email t@t.t; git -C "$workdir" config user.name t
+  mkdir -p "$workdir/frontend/packages/widget" \
+    "$workdir/backend/services/api/requirements"
+  printf '%s\n' 'frontend/node_modules/' 'backend/venv/' > "$workdir/.gitignore"
+  printf '{}\n' > "$workdir/frontend/package.json"
+  printf '{"lockfileVersion":3}\n' > "$workdir/frontend/package-lock.json"
+  printf '{"name":"widget"}\n' > "$workdir/frontend/packages/widget/package.json"
+  printf '{"lockfileVersion":3}\n' > "$workdir/frontend/packages/widget/package-lock.json"
+  printf 'pytest==1\n' > "$workdir/backend/requirements.txt"
+  printf 'httpx==1\n' > "$workdir/backend/services/api/requirements/dev.txt"
+  printf 'base\n' > "$workdir/app.txt"
+  cat > "$workdir/check.sh" <<'SH'
+#!/usr/bin/env bash
+set -e
+test "$(cat frontend/node_modules/runtime.txt)" = sealed-node
+test "$(cat backend/venv/runtime.txt)" = sealed-python
+! touch frontend/node_modules/worker-write
+! touch backend/venv/worker-write
+SH
+  chmod +x "$workdir/check.sh"
+  git -C "$workdir" add .; git -C "$workdir" commit -qm base
+  mkdir -p "$workdir/frontend/node_modules/.bin" "$workdir/backend/venv/bin"
+  printf 'sealed-node\n' > "$workdir/frontend/node_modules/runtime.txt"
+  printf 'sealed-python\n' > "$workdir/backend/venv/runtime.txt"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$workdir/backend/venv/bin/python"
+  chmod +x "$workdir/backend/venv/bin/python"
+  linked=$(mktemp -d); rmdir "$linked"; git -C "$workdir" worktree add -q -b runtime-check "$linked"
+  make_supervisor_sandbox "$linked"
+  trust_receipt=$(git -C "$linked" rev-parse --git-path saas-startup-team/runtime-trust.json)
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  ec=0; out=$(bash "$script" --repo-root "$linked" --snapshot-trust "$trust_receipt" \
+    --auth-stdin --allow app.txt --allow check.sh <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr1: linked runtime trust snapshot succeeds" "$ec" 0
+  assert_equals "RS19zkr2: receipt seals both runtime classes" \
+    "$(jq '.check_runtimes|length' "$trust_receipt")" 2
+  assert_exit_code "RS19zkr2a: receipt seals nested dependency manifests" \
+    "$(jq -e '
+      ([.check_runtimes[].manifests[].path] | index("frontend/packages/widget/package.json")) != null and
+      ([.check_runtimes[].manifests[].path] | index("backend/services/api/requirements/dev.txt")) != null
+    ' "$trust_receipt" >/dev/null 2>&1; echo $?)" 0
+  printf 'changed\n' > "$linked/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$linked" --message runtime \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr3: sealed read-only runtimes satisfy the check" "$ec" 0
+  assert_file_not_exists "RS19zkr4: runtime is never linked into the worker tree" \
+    "$linked/frontend/node_modules"
+
+  trust_receipt=$(git -C "$linked" rev-parse --git-path saas-startup-team/runtime-drift.json)
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  bash "$script" --repo-root "$linked" --snapshot-trust "$trust_receipt" \
+    --auth-stdin --allow app.txt --allow check.sh <<<"$auth_token" >/dev/null
+  printf 'poisoned\n' > "$workdir/frontend/node_modules/runtime.txt"
+  printf 'changed-again\n' > "$linked/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$linked" --message drift \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr5: runtime drift after snapshot fails closed" "$ec" 1
+  assert_output_contains "RS19zkr6: runtime drift is explicit" "$out" 'runtime changed'
+  printf 'sealed-node\n' > "$workdir/frontend/node_modules/runtime.txt"
+  git -C "$linked" restore app.txt
+
+  trust_receipt=$(git -C "$linked" rev-parse --git-path saas-startup-team/runtime-touch.json)
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  bash "$script" --repo-root "$linked" --snapshot-trust "$trust_receipt" \
+    --auth-stdin --allow app.txt <<<"$auth_token" >/dev/null
+  touch -m -d '2001-01-01 UTC' "$workdir/frontend/node_modules/runtime.txt"
+  printf 'touch-drift\n' > "$linked/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$linked" --message touch-drift \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr6a: runtime mtime drift after snapshot fails closed" "$ec" 1
+  assert_output_contains "RS19zkr6b: runtime mtime drift is explicit" "$out" 'runtime changed'
+  git -C "$linked" restore app.txt
+
+  trust_receipt=$(git -C "$linked" rev-parse --git-path saas-startup-team/runtime-manifest.json)
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  bash "$script" --repo-root "$linked" --snapshot-trust "$trust_receipt" \
+    --auth-stdin --allow app.txt \
+    --allow frontend/packages/widget/package.json \
+    --allow frontend/packages/widget/package-lock.json \
+    --allow backend/services/api/requirements/new.txt <<<"$auth_token" >/dev/null
+  printf '{"name":"changed-widget"}\n' > "$linked/frontend/packages/widget/package.json"
+  printf 'manifest-change\n' > "$linked/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$linked" --message manifest \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr7: nested dependency change rejects stale runtime" "$ec" 1
+  assert_output_contains "RS19zkr8: nested change failure is explicit" "$out" 'dependency manifests changed'
+  git -C "$linked" restore app.txt frontend/packages/widget/package.json
+
+  printf 'ruff==1\n' > "$linked/backend/services/api/requirements/new.txt"
+  printf 'manifest-add\n' > "$linked/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$linked" --message manifest-add \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr8a: nested dependency addition rejects stale runtime" "$ec" 1
+  assert_output_contains "RS19zkr8b: nested addition failure is explicit" "$out" 'dependency manifests changed'
+  rm -f "$linked/backend/services/api/requirements/new.txt"
+  git -C "$linked" restore app.txt
+
+  rm "$linked/frontend/packages/widget/package-lock.json"
+  printf 'manifest-delete\n' > "$linked/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$linked" --message manifest-delete \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr8c: nested dependency deletion rejects stale runtime" "$ec" 1
+  assert_output_contains "RS19zkr8d: nested deletion failure is explicit" "$out" 'dependency manifests changed'
+  git -C "$linked" restore app.txt frontend/packages/widget/package-lock.json
+
+  ln -s /workspace/secret "$workdir/frontend/node_modules/escape"
+  trust_receipt=$(git -C "$linked" rev-parse --git-path saas-startup-team/runtime-escape.json)
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  ec=0; out=$(bash "$script" --repo-root "$linked" --snapshot-trust "$trust_receipt" \
+    --auth-stdin --allow app.txt <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr9: escaping runtime symlink blocks trust snapshot" "$ec" 1
+  assert_output_contains "RS19zkr10: escaping symlink failure is explicit" "$out" 'runtime link escapes'
+  rm -f "$workdir/frontend/node_modules/escape"
+  git -C "$workdir" worktree remove --force "$linked"
+  git -C "$workdir" branch -D runtime-check >/dev/null
+  rm -rf "$workdir"
+
   # Filtered paths fail closed instead of staging raw LFS/custom-filter content.
   workdir=$(make_workdir); make_supervisor_sandbox "$workdir"; (cd "$workdir" && git config user.email t@t.t && git config user.name t)
   printf '*.bin filter=lfs\n' > "$workdir/.gitattributes"
@@ -659,6 +846,56 @@ SH
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" \
     --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19znn4: path matching the bracket as a wildcard is rejected" "$ec" 1
+  rm -rf "$workdir"
+
+  # Guarded checks may create disposable ignored output and advance supervisor leases.
+  script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"
+  workdir=$(make_workdir); (cd "$workdir" && git config user.email t@t.t && git config user.name t)
+  mkdir -p "$workdir/.startup/leases"
+  printf '%s\n' '.startup/leases/' '.env' '.next/' '__pycache__/' '.pytest_cache/' \
+    '*.tsbuildinfo' '*.log' 'test-*.db' 'existing-cache/' > "$workdir/.gitignore"
+  printf 'base\n' > "$workdir/app.txt"
+  (cd "$workdir" && git add app.txt .gitignore && git commit -qm init)
+  bash "$PLUGIN_ROOT/scripts/single-flight.sh" --acquire guarded/test \
+    --state-dir "$workdir/.startup/leases" --owner supervisor >/dev/null
+  printf '1\n' > "$workdir/.startup/leases/guarded-test/heartbeat"
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  snapshot="$workdir/.git/saas-startup-team/generated-output.json"
+  (cd "$workdir" && bash "$script" --snapshot "$snapshot" --auth-stdin \
+    --allow app.txt <<<"$auth_token" >/dev/null)
+  printf 'allowed\n' > "$workdir/app.txt"
+  bash "$PLUGIN_ROOT/scripts/single-flight.sh" --heartbeat guarded/test \
+    --state-dir "$workdir/.startup/leases" --owner supervisor >/dev/null
+  mkdir -p "$workdir/frontend/.next/cache" "$workdir/backend/app/__pycache__" \
+    "$workdir/.pytest_cache/v/cache" "$workdir/backend/logs" "$workdir/backend/data"
+  printf '{}\n' > "$workdir/frontend/.next/build-manifest.json"
+  printf 'bytecode\n' > "$workdir/backend/app/__pycache__/module.pyc"
+  printf '[]\n' > "$workdir/.pytest_cache/v/cache/nodeids"
+  printf '{}\n' > "$workdir/frontend/tsconfig.tsbuildinfo"
+  printf 'test log\n' > "$workdir/backend/logs/test.log"
+  printf 'sqlite test output\n' > "$workdir/backend/data/test-results.db"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn5: allowed change, lease heartbeat, and generated check output verify" "$ec" 0
+
+  git -C "$workdir" restore app.txt
+  mkdir -p "$workdir/existing-cache"
+  printf 'SECRET=baseline\n' > "$workdir/.env"
+  printf 'baseline\n' > "$workdir/existing-cache/output.bin"
+  snapshot="$workdir/.git/saas-startup-team/sensitive-ignored.json"
+  (cd "$workdir" && bash "$script" --snapshot "$snapshot" --auth-stdin \
+    --allow app.txt <<<"$auth_token" >/dev/null)
+  printf 'SECRET=changed\n' > "$workdir/.env"
+  printf 'changed\n' > "$workdir/existing-cache/output.bin"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn6: pre-existing sensitive ignored mutation is rejected" "$ec" 1
+  assert_output_contains "RS19znn7: ignored-state component is explicit" \
+    "$out" 'protected ignored state'
+  assert_output_contains "RS19znn8: ignored-state diagnostic names the sensitive path" \
+    "$out" '.env'
+  assert_output_contains "RS19znn9: pre-existing generated output stays protected" \
+    "$out" 'existing-cache/output.bin'
   rm -rf "$workdir"
 
   # Review artifact paths cannot traverse symlinked ancestors outside the repository.
@@ -1087,7 +1324,20 @@ SH
 #!/bin/sh
 exit 0
 SH
-  chmod +x "$workdir/bin/codex"
+  cat > "$workdir/bin/bwrap" <<'SH'
+#!/bin/sh
+exit 0
+SH
+  cat > "$workdir/bin/check-driver" <<'SH'
+#!/bin/sh
+if [ "${1:-}" = --metadata ]; then
+  printf '%s\n' '{"docker":{"path":"/usr/bin/false"},"daemon_id":"test","image_id":"sha256:1111111111111111111111111111111111111111111111111111111111111111"}'
+fi
+exit 0
+SH
+  chmod +x "$workdir/bin/codex" "$workdir/bin/bwrap" "$workdir/bin/check-driver"
+  SAAS_SUPERVISOR_CHECK_DRIVER="$workdir/bin/check-driver"
+  export SAAS_SUPERVISOR_CHECK_DRIVER
   ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
   assert_exit_code "RS38: empty maintain queue is model-free no-op" "$ec" 3
   ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" maintain-loop 2>&1) || ec=$?
@@ -1159,6 +1409,7 @@ SH
   printf '{bad\n' > "$workdir/.startup/maintain/triage-cache.jsonl"
   ec=0; out=$(cd "$workdir" && GH_ISSUES_JSON='[{"number":42,"updatedAt":"2026-01-01T00:00:00Z","labels":[]}]' PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
   assert_exit_code "RS47: malformed triage cache fails closed" "$ec" 1
+  unset SAAS_SUPERVISOR_CHECK_DRIVER
   rm -rf "$workdir"
 
   # Codex writer-sandbox gate: an unchanged hard host block must not launch a
@@ -1315,6 +1566,7 @@ SH
   check_ceiling goal-deliver 539
   check_ceiling improve 494
   check_ceiling tweak 453
+  rm -rf "$supervisor_bwrap_dir"
 }
 
 test_runtime_safety

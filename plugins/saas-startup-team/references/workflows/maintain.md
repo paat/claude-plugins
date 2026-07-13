@@ -174,7 +174,14 @@ if ! git -C "$REPO_ROOT" worktree list --porcelain | grep -qx "worktree $WT"; th
 fi
 cd "$WT"
 git checkout --detach "origin/$default"   # start every pass from the latest default tip
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/solution-signoff-gate.sh" \
+  --source-root "$REPO_ROOT" --target-root "$WT"
 ```
+
+The signoff gate refreshes only `.startup/go-live/solution-signoff.md` from the
+invocation checkout. A missing, symlinked, unreadable, or concurrently changed source
+signoff fails the pass before any claim or delivery mutation; a stale target signoff is
+removed rather than trusted.
 
 All working-tree checks below (clean tree, at the default tip) apply to **`$WT`**,
 **never** the investor's primary checkout — do not require the primary folder to be

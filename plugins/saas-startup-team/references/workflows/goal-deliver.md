@@ -49,9 +49,13 @@ until the condition holds.
    > `/goal-deliver` requires the `tribunal-review` plugin (the tribunal gate is
    > non-negotiable). Install it, then re-run.
    Stop.
-2. **Solution signoff exists:** `ls .startup/go-live/solution-signoff.md` — if
-   not found, stop and direct the investor to `/startup` (this command delivers
-   new work onto a finished product, like `/improve`).
+2. **Solution signoff is valid:**
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/solution-signoff-gate.sh" \
+     --source-root "$(git rev-parse --show-toplevel)"
+   ```
+   If the executable gate fails, stop and direct the investor to `/startup` (this
+   command delivers new work onto a finished product, like `/improve`).
 3. **On the default branch and clean tree:**
    ```bash
    current=$(git rev-parse --abbrev-ref HEAD)

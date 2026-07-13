@@ -6,6 +6,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SUPERVISOR_DRIVER=${SAAS_SUPERVISOR_CHECK_DRIVER:-$SCRIPT_DIR/supervisor-check-container.sh}
 ROOT=""
 TIMEOUT="${SAAS_CODEX_PREFLIGHT_TIMEOUT:-15}"
 usage() { echo "usage: codex-sandbox-check.sh [--root DIR] [--timeout SECS]" >&2; }
@@ -79,7 +80,42 @@ if [ "$rc" -eq 0 ]; then
       exit 4
     fi
   fi
-  echo "ok: Codex writer sandbox usable with network-off workspace-write (start, staging, and $thread_note)"
+  supervisor_note="supervisor process probe"
+  supervisor_parent=$(mktemp -d)
+  supervisor_root="$supervisor_parent/root"
+  outside_probe="$supervisor_parent/outside-secret"
+  git init -q "$supervisor_root"
+  printf 'sandbox-secret-probe\n' > "$outside_probe"
+  supervisor_rc=0
+  supervisor_meta=$("$SUPERVISOR_DRIVER" --metadata 2>/dev/null) || supervisor_rc=$?
+  sleep 30 & host_probe_pid=$!
+  if [ "$supervisor_rc" -eq 0 ]; then
+    timeout "$TIMEOUT" "$SUPERVISOR_DRIVER" -C "$supervisor_root" \
+      --docker-bin "$(jq -r .docker.path <<<"$supervisor_meta")" \
+      --image-id "$(jq -r .image_id <<<"$supervisor_meta")" \
+      --daemon-id "$(jq -r .daemon_id <<<"$supervisor_meta")" \
+      --checkout-alias "$supervisor_root" -- /bin/bash -c \
+    'set -euo pipefail
+sleep 10 & child=$!
+trap '\''kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true'\'' EXIT
+ps -o pid= -p "$child" >/dev/null
+kill "$child"
+wait "$child" 2>/dev/null || true
+trap - EXIT
+! test -r "$1"
+if touch "$1"; then rm -f "$1"; exit 70; fi
+! kill -0 "$2" 2>/dev/null
+if command -v curl >/dev/null 2>&1 && curl --max-time 2 -fsS http://1.1.1.1/ >/dev/null 2>&1; then exit 71; fi' \
+      _ "$outside_probe" "$host_probe_pid" >/dev/null 2>&1 || supervisor_rc=$?
+  fi
+  kill "$host_probe_pid" 2>/dev/null || true
+  wait "$host_probe_pid" 2>/dev/null || true
+  rm -rf "$supervisor_parent"
+  if [ "$supervisor_rc" -ne 0 ]; then
+    echo "Supervisor process check failed inside the credentialless private container (exit $supervisor_rc): expose the current dev container to a working Docker CLI/socket so the sealed image can run with private process and network namespaces"
+    exit 4
+  fi
+  echo "ok: Codex writer and supervisor sandboxes usable (start, staging, $thread_note, and $supervisor_note)"
   exit 0
 fi
 

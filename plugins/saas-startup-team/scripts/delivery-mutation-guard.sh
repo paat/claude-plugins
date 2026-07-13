@@ -10,6 +10,7 @@ export GIT_CONFIG_KEY_1=core.hooksPath
 export GIT_CONFIG_VALUE_1=/dev/null
 
 ACTION=""; SNAPSHOT=""; ROOT=""; AUTH_TOKEN=""; AUTH_STDIN=0; ALLOW=()
+declare -A IGNORED_BASELINE=()
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   echo "usage: delivery-mutation-guard.sh (--snapshot FILE|--verify FILE) --auth-stdin [--allow PATH] [--repo-root DIR]" >&2
@@ -224,28 +225,72 @@ diff_fingerprint() {
   esac
 }
 
+status_outside_allow() {
+  local prefix pathspec=(.)
+  for prefix in "${ALLOW[@]}"; do
+    pathspec+=(":(exclude,literal)$prefix")
+  done
+  git -c core.fsmonitor=false status --short -- "${pathspec[@]}"
+}
+
 untracked_fingerprint() {
   fingerprint_other_files untracked --others --exclude-standard
 }
 
-ignored_fingerprint() {
-  local tmp path directory
-  tmp="$(mktemp)"
+always_exempt_ignored_path() {
+  local path="${1%/}"
+  [ ! -L "$path" ] || return 1
+  case "/$path/" in
+    */node_modules/*|*/.pnpm-store/*|*/.pnpm/*|*/bower_components/*|\
+    */.yarn/cache/*|*/.yarn/unplugged/*) return 0 ;;
+  esac
+  case "$path" in
+    .startup/leases/*/heartbeat|.startup/leases/*/audit.log) return 0 ;;
+  esac
+  return 1
+}
+
+ignored_paths() {
+  local path directory
   while IFS= read -r -d '' path; do
     if [[ "$path" == */ ]]; then
       directory=${path%/}
-      case "$directory" in
-        node_modules|*/node_modules|.pnpm-store|*/.pnpm-store|.pnpm|*/.pnpm|\
-        bower_components|*/bower_components|.yarn/cache|*/.yarn/cache|\
-        .yarn/unplugged|*/.yarn/unplugged) continue ;;
-      esac
+      always_exempt_ignored_path "$directory" && continue
       while IFS= read -r -d '' path; do
-        fingerprint_one ignored "$path" "$tmp"
+        allowed_path "$path" || always_exempt_ignored_path "$path" || printf '%s\0' "$path"
       done < <(git -c core.fsmonitor=false ls-files -z --others --ignored --exclude-standard -- "$directory")
     else
-      fingerprint_one ignored "$path" "$tmp"
+      allowed_path "$path" || always_exempt_ignored_path "$path" || printf '%s\0' "$path"
     fi
   done < <(git -c core.fsmonitor=false ls-files -z --others --ignored --exclude-standard --directory -- .)
+}
+
+ignored_path_key() {
+  printf '%s' "$1" | git hash-object --stdin
+}
+
+list_ignored_baseline_keys() {
+  local path
+  while IFS= read -r -d '' path; do
+    ignored_path_key "$path"
+  done < <(ignored_paths)
+}
+
+protected_ignored_paths() {
+  local path key
+  while IFS= read -r -d '' path; do
+    key="$(ignored_path_key "$path")"
+    [ -n "${IGNORED_BASELINE[$key]+present}" ] || continue
+    printf '%s\0' "$path"
+  done < <(ignored_paths)
+}
+
+ignored_fingerprint() {
+  local tmp path
+  tmp="$(mktemp)"
+  while IFS= read -r -d '' path; do
+    fingerprint_one ignored "$path" "$tmp"
+  done < <(protected_ignored_paths)
   git hash-object --no-filters "$tmp"
   rm -f "$tmp"
 }
@@ -253,12 +298,6 @@ ignored_fingerprint() {
 fingerprint_one() {
   local kind="$1" path="$2" tmp="$3"
   allowed_path "$path" && return 0
-  if [ "$kind" = ignored ]; then
-    case "/$path/" in
-      */node_modules/*|*/.pnpm-store/*|*/.pnpm/*|*/bower_components/*|\
-      */.yarn/cache/*|*/.yarn/unplugged/*) return 0 ;;
-    esac
-  fi
   fingerprint_entry "$path"
   printf '%s\0%s\0%s\0%s\0' "$kind" "$path" "$ENTRY_MODE" "$ENTRY_OID" >> "$tmp"
 }
@@ -339,6 +378,11 @@ if [ "$ACTION" = "snapshot" ]; then
   index_fp="$(diff_fingerprint index "$base")"
   worktree_fp="$(diff_fingerprint worktree "$base")"
   untracked_fp="$(untracked_fingerprint)"
+  ignored_baseline_keys=()
+  mapfile -t ignored_baseline_keys < <(list_ignored_baseline_keys)
+  for path_key in "${ignored_baseline_keys[@]}"; do
+    IGNORED_BASELINE["$path_key"]=1
+  done
   ignored_fp="$(ignored_fingerprint)"
   exclusion_fp="$(git_exclusion_fingerprint)"
   state_fp="$(state_fingerprint)"
@@ -354,19 +398,22 @@ if [ "$ACTION" = "snapshot" ]; then
   [ ! -e "$SNAPSHOT" ] && [ ! -L "$SNAPSHOT" ] || {
     echo "delivery-mutation-guard: snapshot already exists" >&2; exit 1; }
   allow_json="$(printf '%s\n' "${ALLOW[@]}" | jq -R . | jq -s .)"
+  ignored_baseline_json="$(printf '%s\n' "${ignored_baseline_keys[@]}" \
+    | jq -R 'select(length > 0)' | jq -s .)"
   snapshot_tmp="$(mktemp "${SNAPSHOT}.unsigned.XXXXXX")"
   jq -n --arg head "$base" --arg index "$index_fp" --arg worktree "$worktree_fp" \
     --arg untracked "$untracked_fp" --arg ignored "$ignored_fp" --arg exclusion "$exclusion_fp" \
     --arg state "$state_fp" --arg active_ref "$active_ref" --arg refs "$refs_fp" \
     --arg hooks "$hooks_fp" --arg control "$control_fp" --arg index_metadata "$index_metadata_fp" \
-    --argjson allow "$allow_json" \
-    '{schema_version:5,base_head:$head,head_ref:$active_ref,other_refs_fingerprint:$refs,
+    --argjson allow "$allow_json" --argjson ignored_baseline "$ignored_baseline_json" \
+    '{schema_version:6,base_head:$head,head_ref:$active_ref,other_refs_fingerprint:$refs,
       hooks_fingerprint:$hooks,git_control_fingerprint:$control,
       index_metadata_fingerprint:$index_metadata,
       index_fingerprint:$index,
       worktree_fingerprint:$worktree,untracked_fingerprint:$untracked,
       ignored_fingerprint:$ignored,git_exclusion_fingerprint:$exclusion,
-      state_fingerprint:$state,allow:$allow,auth_tag:null}' > "$snapshot_tmp"
+      state_fingerprint:$state,ignored_baseline:$ignored_baseline,
+      allow:$allow,auth_tag:null}' > "$snapshot_tmp"
   sign_snapshot "$snapshot_tmp"
   mv -- "$snapshot_tmp" "$SNAPSHOT"
   [ ! -e "${SNAPSHOT}.active" ] && [ ! -L "${SNAPSHOT}.active" ] || {
@@ -381,13 +428,14 @@ fi
   echo "delivery-mutation-guard: snapshot not found or unsafe: $SNAPSHOT" >&2; exit 2; }
 [ -f "${SNAPSHOT}.active" ] && [ ! -L "${SNAPSHOT}.active" ] || {
   echo "delivery-mutation-guard: active guard marker is missing or unsafe" >&2; exit 1; }
-jq -e '.schema_version == 5 and (.base_head|type=="string")
+jq -e '.schema_version == 6 and (.base_head|type=="string")
   and (.head_ref|type=="string") and (.other_refs_fingerprint|type=="string")
   and (.hooks_fingerprint|type=="string") and (.git_control_fingerprint|type=="string")
   and (.index_metadata_fingerprint|type=="string")
   and (.index_fingerprint|type=="string") and (.worktree_fingerprint|type=="string")
   and (.untracked_fingerprint|type=="string") and (.ignored_fingerprint|type=="string")
   and (.git_exclusion_fingerprint|type=="string") and (.state_fingerprint|type=="string")
+  and (.ignored_baseline|type=="array")
   and (.allow|type=="array") and (.auth_tag|type=="string")' "$SNAPSHOT" >/dev/null || {
   echo "delivery-mutation-guard: malformed snapshot" >&2; exit 2; }
 [ "$(auth_tag "$SNAPSHOT")" = "$(jq -r .auth_tag "$SNAPSHOT")" ] || {
@@ -401,6 +449,14 @@ for allowed in "${ALLOW[@]}"; do
     printf 'delivery-mutation-guard: authenticated artifact slot became unsafe: %q\n' "$allowed" >&2
     exit 1
   }
+done
+mapfile -t ignored_baseline_keys < <(jq -r '.ignored_baseline[]' "$SNAPSHOT")
+for path_key in "${ignored_baseline_keys[@]}"; do
+  [[ "$path_key" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || {
+    echo "delivery-mutation-guard: authenticated ignored-state baseline is invalid" >&2
+    exit 1
+  }
+  IGNORED_BASELINE["$path_key"]=1
 done
 VERIFIED="${SNAPSHOT}.verified"
 resume_import=0
@@ -452,7 +508,43 @@ if [ "$resume_import" -eq 0 ]; then
     || [ "$actual_exclusion" != "$expected_exclusion" ] \
     || [ "$actual_state" != "$expected_state" ]; then
     echo "delivery-mutation-guard: guarded phase modified files outside its allowed paths" >&2
-    git -c core.fsmonitor=false status --short >&2
+    echo "delivery-mutation-guard: changed fingerprint components:" >&2
+    tracked_state_changed=0
+    if [ "$actual_index" != "$expected_index" ]; then
+      echo "  - tracked index" >&2; tracked_state_changed=1
+    fi
+    if [ "$actual_worktree" != "$expected_worktree" ]; then
+      echo "  - tracked worktree" >&2; tracked_state_changed=1
+    fi
+    if [ "$actual_untracked" != "$expected_untracked" ]; then
+      echo "  - untracked files" >&2; tracked_state_changed=1
+    fi
+    if [ "$actual_ignored" != "$expected_ignored" ]; then
+      echo "  - protected ignored state" >&2
+      echo "delivery-mutation-guard: current protected ignored paths (a removed path is absent):" >&2
+      ignored_count=0; ignored_shown=0
+      while IFS= read -r -d '' ignored_path; do
+        ignored_count=$((ignored_count + 1))
+        if [ "$ignored_shown" -lt 20 ]; then
+          printf '    %q\n' "$ignored_path" >&2
+          ignored_shown=$((ignored_shown + 1))
+        fi
+      done < <(protected_ignored_paths)
+      if [ "$ignored_count" -eq 0 ]; then
+        echo "    (none)" >&2
+      elif [ "$ignored_count" -gt "$ignored_shown" ]; then
+        printf '    ... and %d more\n' "$((ignored_count - ignored_shown))" >&2
+      fi
+    fi
+    if [ "$actual_exclusion" != "$expected_exclusion" ]; then
+      echo "  - Git exclusion metadata" >&2
+    fi
+    if [ "$actual_state" != "$expected_state" ]; then
+      echo "  - .startup/state.json" >&2
+    fi
+    if [ "$tracked_state_changed" -eq 1 ]; then
+      status_outside_allow >&2
+    fi
     exit 1
   fi
 fi

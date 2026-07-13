@@ -200,7 +200,7 @@ Always verify `ROLE_GUARD`, including after worker failure, before inspecting or
 resetting the attempt. The authenticated guard mechanically rejects changes outside
 the exact task-required source/test paths and verifies HEAD, branch, index, refs,
 Git configuration, hooks, ignored files, and `.startup/state.json`. Also reject
-GitHub state, source-free success, generated runtime artifacts in the worktree,
+GitHub state, source-free success, protected pre-existing ignored state,
 unrelated docs/config, and all worker-authored commits. On failure, reset only this
 worktree and stop or launch a fresh writer with a focused fix task; never patch in
 the supervisor.
