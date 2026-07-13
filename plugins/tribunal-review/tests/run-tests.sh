@@ -214,8 +214,11 @@ cat <<'JSON'
   {"severity":"high","category":"logic","file":"file.txt","line":9333,"title":"diff-global position","description":"d","suggestion":"s","confidence":0.9},
   {"severity":"medium","category":"logic","file":"other.py","line":12,"title":"file outside diff","description":"d","suggestion":"s","confidence":0.8},
   {"severity":"medium","category":"logic","file":"file.txt","line":"9333","title":"string-typed line","description":"d","suggestion":"s","confidence":0.8},
-  {"severity":"medium","category":"logic","line":7,"title":"missing file field","description":"d","suggestion":"s","confidence":0.8}
-],"summary":{"total_findings":5,"critical":0,"high":2,"medium":3,"low":0,"quality_score":5.0,"verdict":"NEEDS_WORK"}}
+  {"severity":"medium","category":"logic","line":7,"title":"missing file field","description":"d","suggestion":"s","confidence":0.8},
+  {"severity":"medium","category":"logic","file":"gone.txt","line":4,"title":"positioned finding in deleted file","description":"d","suggestion":"s","confidence":0.8},
+  {"severity":"medium","category":"logic","file":"empty.txt","line":3,"title":"line in emptied file","description":"d","suggestion":"s","confidence":0.8},
+  {"severity":"medium","category":"logic","file":"nowhere.py","title":"line-less finding outside diff","description":"d","suggestion":"s","confidence":0.8}
+],"summary":{"total_findings":8,"critical":0,"high":2,"medium":6,"low":0,"quality_score":5.0,"verdict":"NEEDS_WORK"}}
 JSON
 EOF
   chmod +x "$fake/codex"
@@ -228,9 +231,14 @@ EOF
     git config user.name "Test User"
     printf 'one\n' > file.txt
     printf 'x = 1\n' > other.py
-    git add file.txt other.py
+    printf 'bye\n' > gone.txt
+    printf 'x\n' > empty.txt
+    git add file.txt other.py gone.txt empty.txt
     git commit -q -m base
     printf 'two\n' > file.txt
+    git rm -q gone.txt
+    : > empty.txt
+    git add empty.txt
     git commit -q -am change
     PATH="$fake:$PATH" TRIBUNAL_CODEX_SANDBOX_BYPASS=on TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
   ) && jq -e '
@@ -239,6 +247,9 @@ EOF
       and (.findings[2].line_check == "file not in reviewed diff")
       and (.findings[3].line_check == "invalid line number")
       and (.findings[4].line_check == "malformed finding coordinates")
+      and (.findings[5].line_check == "file missing at HEAD")
+      and (.findings[6].line_check == "line out of bounds: file has 0 lines")
+      and (.findings[7].line_check == "file not in reviewed diff")
     ' "$work/out.json" >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else

@@ -165,8 +165,9 @@ tribunal_emit_review() {
 }
 
 # Mark findings whose position cannot exist: a missing/mistyped file field, a
-# file outside the reviewed change set, a non-positive/non-integer line, or a
-# line beyond the target file's length at HEAD. Providers sometimes emit
+# file outside the reviewed change set, a non-positive/non-integer line, a
+# line beyond the target file's length at HEAD, or a positioned finding in a
+# file that no longer exists at HEAD. Providers sometimes emit
 # unified-diff/prompt-global positions instead of target-file line numbers
 # (issue #259); marked findings still flow to the arbiter, but the evidence
 # defect is explicit instead of silent. Paths travel NUL-delimited and the
@@ -191,7 +192,11 @@ tribunal_line_check() {
     printf '%s' "$json" | jq -j '[.findings[]?.file? | strings] | unique | map(. + "\u0000") | join("")' \
       | while IFS= read -r -d '' f; do
           case "$f" in /*|*..*) continue ;; esac
-          n="$(git -C "$root" cat-file -p "HEAD:$f" 2>/dev/null | grep -c '')" || continue
+          if git -C "$root" cat-file -e "HEAD:$f" 2>/dev/null; then
+            n="$(git -C "$root" cat-file -p "HEAD:$f" 2>/dev/null | grep -c '')" || n=0
+          else
+            n=-1
+          fi
           jq -cn --arg f "$f" --argjson n "$n" '{($f): $n}'
         done | jq -s 'add // {}'
   } | jq -cs '{changed: .[0], counts: (.[1] // {})}' > "$aux"
@@ -200,11 +205,13 @@ tribunal_line_check() {
     .findings = [ .findings[] | . as $f |
       if (($f.file? | type) != "string") then
         .line_check = "malformed finding coordinates"
+      elif (($changed | length) > 0) and (($changed | index($f.file)) == null) then
+        .line_check = "file not in reviewed diff"
       elif ($f.line? == null) then .
       elif (($f.line | type) != "number") or ($f.line < 1) or ($f.line != ($f.line | floor)) then
         .line_check = "invalid line number"
-      elif (($changed | length) > 0) and (($changed | index($f.file)) == null) then
-        .line_check = "file not in reviewed diff"
+      elif ($counts[$f.file] == -1) then
+        .line_check = "file missing at HEAD"
       elif ($counts[$f.file] != null) and ($f.line > $counts[$f.file]) then
         .line_check = ("line out of bounds: file has " + ($counts[$f.file] | tostring) + " lines")
       else . end ]'
