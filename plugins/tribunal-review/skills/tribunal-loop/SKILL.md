@@ -131,6 +131,14 @@ rules never override 3b-0. Required for critical/high findings:
 }
 ```
 
+### Marked Positions (`line_check`)
+
+The runner marks findings whose position cannot exist — a file outside the
+reviewed diff or a line beyond the target file's length (providers sometimes
+report diff-global positions). A `line_check`-marked finding has unreliable
+evidence linking: verify it against the real file before counting it toward
+severity or consensus, and cap it at `medium` unless independently confirmed.
+
 ### Conflicts
 
 For conflicts, prefer direct code evidence over reviewer confidence. If two

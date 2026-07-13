@@ -51,6 +51,7 @@ tribunal_prepare_diff() {
   full="$out.full"
   max="${TRIBUNAL_DIFF_LIMIT_BYTES:-524288}"
   git diff "$base_ref"...HEAD > "$full" || return 1
+  git diff --name-only "$base_ref"...HEAD > "$out.paths" || return 1
   size="$(wc -c < "$full" | tr -d ' ')"
   if [ -n "$size" ] && [ "$size" -gt "$max" ]; then
     head -c "$max" "$full" > "$out"
@@ -161,6 +162,39 @@ tribunal_emit_review() {
     return
   fi
   printf '%s\n' "$json"
+}
+
+# Mark findings whose position cannot exist: a file outside the reviewed
+# change set, a non-positive/non-integer line, or a line beyond the target
+# file's length. Providers sometimes emit unified-diff/prompt-global positions
+# instead of target-file line numbers (issue #259); marked findings still flow
+# to the arbiter, but the evidence defect is explicit instead of silent.
+# $1 repo root  $2 diff file ("$2.paths" holds the changed-path list)
+# stdin: one leg JSON object  stdout: same object with line_check marks
+tribunal_line_check() {
+  local root="$1" diff_file="$2" json changed counts
+  json="$(cat)"
+  if ! printf '%s' "$json" | jq -e '(.findings? | type) == "array"' >/dev/null 2>&1; then
+    printf '%s\n' "$json"
+    return
+  fi
+  changed="[]"
+  [ -f "$diff_file.paths" ] && changed="$(jq -Rn '[inputs | select(length > 0)]' < "$diff_file.paths")"
+  counts="$(printf '%s' "$json" | jq -r '[.findings[]?.file? | strings] | unique | .[]' | while IFS= read -r f; do
+    case "$f" in /*|*..*) continue ;; esac
+    [ -f "$root/$f" ] || continue
+    printf '%s\t%s\n' "$f" "$(grep -c '' -- "$root/$f")"
+  done | jq -Rn '[inputs | split("\t") | {(.[0]): (.[1] | tonumber)}] | add // {}')"
+  printf '%s' "$json" | jq -c --argjson changed "$changed" --argjson counts "$counts" '
+    .findings = [ .findings[] | . as $f |
+      if (($f.file? | type) != "string") or (($f.line? | type) != "number") then .
+      elif ($f.line < 1) or ($f.line != ($f.line | floor)) then
+        .line_check = "invalid line number"
+      elif (($changed | length) > 0) and (($changed | index($f.file)) == null) then
+        .line_check = "file not in reviewed diff"
+      elif ($counts[$f.file] != null) and ($f.line > $counts[$f.file]) then
+        .line_check = ("line out of bounds: file has " + ($counts[$f.file] | tostring) + " lines")
+      else . end ]'
 }
 
 tribunal_extract_json_object() {
