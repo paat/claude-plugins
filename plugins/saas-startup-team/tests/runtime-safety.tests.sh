@@ -648,6 +648,17 @@ SH
   assert_exit_code "RS19znn2: bracketed exact allow path rejects sibling" "$ec" 1
   assert_output_contains "RS19znn3: guard reports generic allowed-path boundary" \
     "$out" 'guarded phase modified files outside its allowed paths'
+  printf 'base\n' > "$workdir/frontend/src/app/[locale]/report/sibling.ts"
+  mkdir -p "$workdir/frontend/src/app/l/report"
+  printf 'base\n' > "$workdir/frontend/src/app/l/report/allowed.ts"
+  (cd "$workdir" && git add frontend && git commit -qm wildcard-sibling)
+  snapshot="$workdir/.git/saas-startup-team/literal-wildcard.json"
+  (cd "$workdir" && bash "$script" --snapshot "$snapshot" --auth-stdin \
+    --allow 'frontend/src/app/[locale]/report/allowed.ts' <<<"$auth_token" >/dev/null)
+  printf 'forbidden wildcard-match change\n' > "$workdir/frontend/src/app/l/report/allowed.ts"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn4: path matching the bracket as a wildcard is rejected" "$ec" 1
   rm -rf "$workdir"
 
   # Review artifact paths cannot traverse symlinked ancestors outside the repository.

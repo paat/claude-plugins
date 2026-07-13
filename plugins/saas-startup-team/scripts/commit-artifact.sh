@@ -83,7 +83,7 @@ reject_filtered_path() {
 
 outside_fingerprint() {
   local tmp path mode oid result metadata
-  local pathspec=(. ":(exclude)$rel")
+  local pathspec=(. ":(exclude,literal)$rel")
   tmp="$(mktemp "$tmpdir/outside.XXXXXX")"
   printf 'index\0%s\0' "$(safe_git write-tree)" > "$tmp"
   safe_git diff --binary --no-ext-diff --no-textconv -- "${pathspec[@]}" >> "$tmp"
