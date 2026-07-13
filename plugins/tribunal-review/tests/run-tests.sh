@@ -195,6 +195,72 @@ EOF
   rm -rf "$work"
 }
 
+# A provider can return structurally valid JSON whose line numbers are
+# diff-global/prompt positions that cannot exist in the named file (issue #259).
+# The runner must mark such findings (and findings on files outside the diff)
+# instead of silently accepting them, while leaving valid positions untouched.
+test_codex_line_bounds_guard() {
+  local label="codex out-of-bounds finding positions are marked, valid ones untouched"
+  local work fake
+  work="$(mktemp -d)"
+  fake="$work/bin"
+  mkdir -p "$fake"
+  cat > "$fake/codex" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+cat <<'JSON'
+{"provider":"codex","model":"default","findings":[
+  {"severity":"high","category":"logic","file":"file.txt","line":1,"title":"valid position","description":"d","suggestion":"s","confidence":0.9},
+  {"severity":"high","category":"logic","file":"file.txt","line":9333,"title":"diff-global position","description":"d","suggestion":"s","confidence":0.9},
+  {"severity":"medium","category":"logic","file":"other.py","line":12,"title":"file outside diff","description":"d","suggestion":"s","confidence":0.8},
+  {"severity":"medium","category":"logic","file":"file.txt","line":"9333","title":"string-typed line","description":"d","suggestion":"s","confidence":0.8},
+  {"severity":"medium","category":"logic","line":7,"title":"missing file field","description":"d","suggestion":"s","confidence":0.8},
+  {"severity":"medium","category":"logic","file":"gone.txt","line":4,"title":"positioned finding in deleted file","description":"d","suggestion":"s","confidence":0.8},
+  {"severity":"medium","category":"logic","file":"empty.txt","line":3,"title":"line in emptied file","description":"d","suggestion":"s","confidence":0.8},
+  {"severity":"medium","category":"logic","file":"nowhere.py","title":"line-less finding outside diff","description":"d","suggestion":"s","confidence":0.8},
+  {"severity":"medium","category":"logic","file":"dots..txt","line":9999,"title":"double-dot filename still bounded","description":"d","suggestion":"s","confidence":0.8}
+],"summary":{"total_findings":9,"critical":0,"high":2,"medium":7,"low":0,"quality_score":5.0,"verdict":"NEEDS_WORK"}}
+JSON
+EOF
+  chmod +x "$fake/codex"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    printf 'x = 1\n' > other.py
+    printf 'bye\n' > gone.txt
+    printf 'x\n' > empty.txt
+    git add file.txt other.py gone.txt empty.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git rm -q gone.txt
+    : > empty.txt
+    printf 'dotted\n' > dots..txt
+    git add empty.txt dots..txt
+    git commit -q -am change
+    PATH="$fake:$PATH" TRIBUNAL_CODEX_SANDBOX_BYPASS=on TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
+  ) && jq -e '
+      (.findings[0] | has("line_check") | not)
+      and (.findings[1].line_check | test("out of bounds"))
+      and (.findings[2].line_check == "file not in reviewed diff")
+      and (.findings[3].line_check == "invalid line number")
+      and (.findings[4].line_check == "malformed finding coordinates")
+      and (.findings[5].line_check == "file missing at HEAD")
+      and (.findings[6].line_check == "line out of bounds: file has 0 lines")
+      and (.findings[7].line_check == "file not in reviewed diff")
+      and (.findings[8].line_check == "line out of bounds: file has 1 lines")
+    ' "$work/out.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
 SK=skills/tribunal-loop/SKILL.md
 CL=skills/closing-tribunal-loop/SKILL.md
 LIB=scripts/lib.sh
@@ -259,6 +325,15 @@ test_codex_pins test-model high yes "codex model and effort environment override
 test_codex_vacuous_guard BLOCK 0.0 "codex vacuous empty-BLOCK downgraded to leg error"
 test_codex_vacuous_guard NEEDS_WORK 7.5 "codex vacuous empty-NEEDS_WORK (nonzero quality) downgraded to leg error"
 test_codex_vacuous_guard " BLOCK " 0.0 "codex vacuous verdict tolerates surrounding whitespace"
+test_codex_line_bounds_guard
+
+echo "Finding position validation:"
+assert_grep "lib defines line-bounds validator" "$LIB" "tribunal_line_check()"
+assert_grep "prepare_diff records NUL-delimited changed paths" "$LIB" 'git diff --name-only -z "$base_ref"'
+for runner in run-codex-review.sh run-claude-review.sh run-gemini-review.sh run-qwen-review.sh run-opencode-review.sh; do
+  assert_grep "$runner pipes through line check" "scripts/$runner" "tribunal_line_check"
+done
+assert_grep "arbiter told to distrust marked positions" "$SK" "line_check"
 
 echo "Arbitration contract:"
 assert_grep "3b-0 in SKILL" "$SK" "3b-0: Blocking-Finding Standard"

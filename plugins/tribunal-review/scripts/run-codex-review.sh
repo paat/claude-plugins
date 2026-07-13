@@ -37,7 +37,8 @@ if timeout -k 10 600 codex exec "${model_args[@]}" -m "$CODEX_MODEL" \
   -c "model_reasoning_effort=\"$CODEX_EFFORT\"" -C "$REPO_ROOT" - \
   < "$PROMPT_FILE" > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt"; then
   tribunal_extract_json_object < "$TMPDIR/out.txt" \
-    | tribunal_emit_review codex "codex sandbox likely cannot run commands; set TRIBUNAL_CODEX_SANDBOX_BYPASS=on"
+    | tribunal_emit_review codex "codex sandbox likely cannot run commands; set TRIBUNAL_CODEX_SANDBOX_BYPASS=on" \
+    | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
 else
   tribunal_error codex "Codex execution failed or timed out"
 fi

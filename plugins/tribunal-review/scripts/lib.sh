@@ -51,6 +51,7 @@ tribunal_prepare_diff() {
   full="$out.full"
   max="${TRIBUNAL_DIFF_LIMIT_BYTES:-524288}"
   git diff "$base_ref"...HEAD > "$full" || return 1
+  git diff --name-only -z "$base_ref"...HEAD > "$out.paths" || return 1
   size="$(wc -c < "$full" | tr -d ' ')"
   if [ -n "$size" ] && [ "$size" -gt "$max" ]; then
     head -c "$max" "$full" > "$out"
@@ -161,6 +162,61 @@ tribunal_emit_review() {
     return
   fi
   printf '%s\n' "$json"
+}
+
+# Mark findings whose position cannot exist: a missing/mistyped file field, a
+# file outside the reviewed change set, a non-positive/non-integer line, a
+# line beyond the target file's length at HEAD, or a positioned finding in a
+# file that no longer exists at HEAD. Providers sometimes emit
+# unified-diff/prompt-global positions instead of target-file line numbers
+# (issue #259); marked findings still flow to the arbiter, but the evidence
+# defect is explicit instead of silent. Paths travel NUL-delimited and the
+# lookup tables travel via a temp file, so C-quoted/unusual filenames and
+# argv size limits cannot corrupt or abort the check.
+# $1 repo root  $2 diff file ("$2.paths" holds the NUL-delimited changed list)
+# stdin: one leg JSON object  stdout: same object with line_check marks
+tribunal_line_check() {
+  local root="$1" diff_file="$2" json aux f n
+  json="$(cat)"
+  if ! printf '%s' "$json" | jq -e '(.findings? | type) == "array"' >/dev/null 2>&1; then
+    printf '%s\n' "$json"
+    return
+  fi
+  aux="$(mktemp)"
+  {
+    if [ -s "$diff_file.paths" ]; then
+      jq -Rs 'split("\u0000") | map(select(length > 0))' < "$diff_file.paths"
+    else
+      printf '[]\n'
+    fi
+    printf '%s' "$json" | jq -j '[.findings[]?.file? | strings] | unique | map(. + "\u0000") | join("")' \
+      | while IFS= read -r -d '' f; do
+          case "$f" in /*) continue ;; esac
+          case "/$f/" in */../*) continue ;; esac
+          if git -C "$root" cat-file -e "HEAD:$f" 2>/dev/null; then
+            n="$(git -C "$root" cat-file -p "HEAD:$f" 2>/dev/null | grep -c '')" || n=0
+          else
+            n=-1
+          fi
+          jq -cn --arg f "$f" --argjson n "$n" '{($f): $n}'
+        done | jq -s 'add // {}'
+  } | jq -cs '{changed: .[0], counts: (.[1] // {})}' > "$aux"
+  printf '%s' "$json" | jq -c --slurpfile aux "$aux" '
+    $aux[0].changed as $changed | $aux[0].counts as $counts |
+    .findings = [ .findings[] | . as $f |
+      if (($f.file? | type) != "string") then
+        .line_check = "malformed finding coordinates"
+      elif (($changed | length) > 0) and (($changed | index($f.file)) == null) then
+        .line_check = "file not in reviewed diff"
+      elif ($f.line? == null) then .
+      elif (($f.line | type) != "number") or ($f.line < 1) or ($f.line != ($f.line | floor)) then
+        .line_check = "invalid line number"
+      elif ($counts[$f.file] == -1) then
+        .line_check = "file missing at HEAD"
+      elif ($counts[$f.file] != null) and ($f.line > $counts[$f.file]) then
+        .line_check = ("line out of bounds: file has " + ($counts[$f.file] | tostring) + " lines")
+      else . end ]'
+  rm -f "$aux"
 }
 
 tribunal_extract_json_object() {
