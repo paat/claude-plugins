@@ -5,6 +5,7 @@
 # Exit 10: Codex CLI not found. Exit 2: usage.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT=""
 TIMEOUT="${SAAS_CODEX_PREFLIGHT_TIMEOUT:-15}"
 usage() { echo "usage: codex-sandbox-check.sh [--root DIR] [--timeout SECS]" >&2; }
@@ -34,14 +35,15 @@ if ! have_cmd timeout; then
   echo "timeout missing; cannot bound the Codex sandbox smoke"
   exit 4
 fi
-if ! codex sandbox --help >/dev/null 2>&1; then
+CODEX_BIN=$(command -v codex)
+if ! "$CODEX_BIN" sandbox --help >/dev/null 2>&1; then
   echo "Codex CLI lacks sandbox smoke support; update Codex before launching separate workers"
   exit 4
 fi
 
 rc=0
-out="$(timeout "$TIMEOUT" codex sandbox --permission-profile :workspace \
-  --sandbox-state-disable-network -C "$ROOT" /bin/pwd 2>&1)" || rc=$?
+out="$(CODEX_BIN="$CODEX_BIN" timeout "$TIMEOUT" \
+  "$SCRIPT_DIR/codex-network-off-sandbox.sh" -C "$ROOT" /bin/pwd 2>&1)" || rc=$?
 if [ "$rc" -eq 0 ]; then
   # A bare start smoke is a false green for delivery (issues #260/#261):
   # the trusted commit path stages candidates with git outside the sandbox,
@@ -64,8 +66,8 @@ if [ "$rc" -eq 0 ]; then
   if have_cmd python3; then
     thread_note="thread-wakeup probes"
     thread_rc=0
-    timeout "$TIMEOUT" codex sandbox --permission-profile :workspace \
-      --sandbox-state-disable-network -C "$ROOT" python3 -c \
+    CODEX_BIN="$CODEX_BIN" timeout "$TIMEOUT" \
+      "$SCRIPT_DIR/codex-network-off-sandbox.sh" -C "$ROOT" python3 -c \
       'import asyncio; asyncio.run(asyncio.to_thread(lambda: None))' >/dev/null 2>&1 || thread_rc=$?
     if [ "$thread_rc" -ne 0 ]; then
       case "$thread_rc" in

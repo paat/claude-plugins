@@ -56,7 +56,7 @@ replay_sample() {
     echo "standard-medium-eval: Codex workspace sandbox support is required" >&2; exit 2; }
   grep -q -- '--strict-config' <<< "$exec_help" && grep -q -- '--disable' <<< "$exec_help" \
     && grep -q -- '--permission-profile' <<< "$sandbox_help" \
-    && grep -q -- '--sandbox-state-disable-network' <<< "$sandbox_help" || {
+    && grep -q -- '--enable' <<< "$sandbox_help" || {
       echo "standard-medium-eval: required strict/sandbox Codex controls are unavailable" >&2; exit 2; }
   features=$("$codex_bin" features list 2>/dev/null) || {
     echo "standard-medium-eval: could not inspect Codex feature controls" >&2; exit 2; }
@@ -256,7 +256,7 @@ PY
   if [[ "$listener_port" =~ ^[0-9]+$ ]] && [ ! -e "$probe_outside" ]; then
     set +e
     env -i "${eval_env[@]}" SAAS_EVAL_POLICY_CHALLENGE="$probe_nonce" \
-      "$codex_bin" sandbox --permission-profile :workspace --sandbox-state-disable-network -C "$wt" \
+      CODEX_BIN="$codex_bin" "$SCRIPT_DIR/codex-network-off-sandbox.sh" -C "$wt" \
       /bin/bash -c 'set -euo pipefail
         inside=$1 outside=$2 port=$3 expected=$4
         : > "$inside"
@@ -273,8 +273,9 @@ PY
   if [ "$probe_rc" -eq 0 ] && [ "$(cat "$probe_out" 2>/dev/null || true)" = "$probe_nonce" ] \
     && [ -f "$probe_inside" ] && [ ! -e "$probe_outside" ] && [ ! -e "$listener_hit_file" ]; then
     policy_verified=true
-    policy_hash=$(printf '%s\n' 'codex-sandbox-policy-v1' 'permission-profile=:workspace' \
-      'network=disabled' 'workspace-write=verified' 'outside-write=denied' 'local-tcp=denied' \
+    policy_hash=$(printf '%s\n' 'codex-sandbox-policy-v2' 'permission-profile=saas-network-off' \
+      'network=limited-proxy' 'outbound-domains=none' 'workspace-write=verified' \
+      'outside-write=denied' 'local-tcp=denied' \
       | sha256sum | awk '{print $1}')
   else
     printf '%s\n' 'evaluation safety: sandbox policy probe was not verified' >> "$sample_dir/sandbox-probe.stderr"
@@ -317,7 +318,7 @@ PY
     set +e
     (cd "$wt" && env -i "${check_env[@]}" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
       GIT_CONFIG_NOSYSTEM=1 GIT_SSH_COMMAND=/bin/false \
-      "$codex_bin" sandbox --permission-profile :workspace --sandbox-state-disable-network -C "$wt" \
+      CODEX_BIN="$codex_bin" "$SCRIPT_DIR/codex-network-off-sandbox.sh" -C "$wt" \
         "$wt/check.sh") \
       > "$sample_dir/check.log" 2>&1
     check_rc=$?
@@ -484,8 +485,9 @@ assess_pairs() {
   : > "$normalized"; : > "$used_paths"; : > "$used_candidates"
   cleanup_assessment() { rm -rf -- "$temp_root"; }
   trap cleanup_assessment EXIT
-  expected_policy_hash=$(printf '%s\n' 'codex-sandbox-policy-v1' 'permission-profile=:workspace' \
-    'network=disabled' 'workspace-write=verified' 'outside-write=denied' 'local-tcp=denied' \
+  expected_policy_hash=$(printf '%s\n' 'codex-sandbox-policy-v2' 'permission-profile=saas-network-off' \
+    'network=limited-proxy' 'outbound-domains=none' 'workspace-write=verified' \
+    'outside-write=denied' 'local-tcp=denied' \
     | sha256sum | awk '{print $1}')
 
   validate_patch() {

@@ -342,10 +342,22 @@ SH
   assert_equals "DR21: standard launch calls Codex once" "$(wc -l < "$calls" | tr -d ' ')" "1"
   assert_file_contains "DR22: standard launch pins Sol" "$calls" '-m gpt-5.6-sol'
   assert_file_contains "DR23: standard launch pins high effort" "$calls" 'model_reasoning_effort="high"'
-  assert_file_contains "DR23a: source writer uses workspace sandbox" "$calls" '-s workspace-write'
-  assert_file_contains "DR23b: source writer disables command network" "$calls" 'sandbox_workspace_write.network_access=false'
+  assert_file_contains "DR23a0: source writer selects the network-off profile" "$calls" \
+    'default_permissions="saas-network-off"'
+  assert_file_contains "DR23a: source writer extends the workspace profile" "$calls" \
+    'permissions.saas-network-off.extends=":workspace"'
+  assert_file_contains "DR23b: source writer uses a limited network profile" "$calls" \
+    'permissions.saas-network-off.network.mode="limited"'
+  assert_file_contains "DR23b1: source writer enables the enforcing network proxy" "$calls" \
+    '--enable network_proxy'
+  assert_file_not_contains "DR23b2: source writer drops the socketpair-blocking network flag" "$calls" \
+    'sandbox_workspace_write.network_access=false'
+  assert_file_not_contains "DR23b3: source writer does not override its custom profile" "$calls" \
+    '-s workspace-write'
   assert_file_contains "DR23c: role launcher ignores user configuration" "$calls" '--ignore-user-config'
   assert_file_contains "DR23d: role launcher disables MCP configuration" "$calls" 'mcp_servers={}'
+  assert_file_contains "DR23e: role launcher disables native web search" "$calls" \
+    'web_search="disabled"'
   assert_equals "DR24: start event leaves effective model null" "$(head -n1 "$events" | jq -r '.effective_model == null')" "true"
   assert_equals "DR25: terminal event records token use" "$(tail -n1 "$events" | jq -r .input_tokens)" "100"
   assert_file_contains "DR25b: tech writer leaves commit to supervisor" "$repo/tech-prompt.txt" 'Leave working-tree changes for the supervisor'

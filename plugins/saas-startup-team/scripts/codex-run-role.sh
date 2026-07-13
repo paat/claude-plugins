@@ -88,12 +88,21 @@ else
   NETWORK_ACCESS=${SAAS_CODEX_NETWORK_ACCESS:-default}
 fi
 CODEX_CONFIG_ARGS=()
+CODEX_SANDBOX_ARGS=(-s "$SANDBOX")
+NETWORK_OFF_PROFILE=0
 case "$NETWORK_ACCESS" in
   default) : ;;
   off)
     [ "$SANDBOX" = workspace-write ] || {
       echo "codex-run-role: network-off mode requires workspace-write sandbox" >&2; exit 2; }
-    CODEX_CONFIG_ARGS=(-c sandbox_workspace_write.network_access=false)
+    NETWORK_OFF_PROFILE=1
+    CODEX_SANDBOX_ARGS=()
+    CODEX_CONFIG_ARGS=(
+      -c 'default_permissions="saas-network-off"'
+      -c 'permissions.saas-network-off.extends=":workspace"'
+      -c 'permissions.saas-network-off.network.enabled=true'
+      -c 'permissions.saas-network-off.network.mode="limited"'
+    )
     ;;
   *) echo "codex-run-role: invalid SAAS_CODEX_NETWORK_ACCESS" >&2; exit 2 ;;
 esac
@@ -108,7 +117,14 @@ case "$ISOLATED_CONFIG" in
       --disable computer_use --disable in_app_browser --disable standalone_web_search
       --disable enable_mcp_apps --disable image_generation
     )
-    CODEX_CONFIG_ARGS+=(-c 'mcp_servers={}' -c 'shell_environment_policy.inherit="core"')
+    if [ "$NETWORK_OFF_PROFILE" -eq 1 ]; then
+      CODEX_GLOBAL_ARGS+=(--enable network_proxy)
+      CODEX_CONFIG_ARGS+=(-c 'web_search="disabled"')
+    fi
+    CODEX_CONFIG_ARGS+=(
+      -c 'mcp_servers={}'
+      -c 'shell_environment_policy.inherit="core"'
+    )
     ;;
   0) echo "codex-run-role: isolated Codex configuration cannot be disabled" >&2; exit 2 ;;
   *) echo "codex-run-role: invalid SAAS_CODEX_ISOLATED_CONFIG" >&2; exit 2 ;;
@@ -288,7 +304,7 @@ run_codex() {
   set +e
   timeout "$TIMEOUT" env TRIBUNAL_CALLER_PROVIDER=openai \
     TRIBUNAL_CALLER_MODEL="$model" TRIBUNAL_CALLER_EFFORT="$effort" \
-    codex exec --json --ephemeral "${CODEX_GLOBAL_ARGS[@]}" -s "$SANDBOX" -m "$model" \
+    codex exec --json --ephemeral "${CODEX_GLOBAL_ARGS[@]}" "${CODEX_SANDBOX_ARGS[@]}" -m "$model" \
     "${CODEX_CONFIG_ARGS[@]}" \
     -c model_reasoning_effort="\"$effort\"" -C "$REPO_ROOT" - \
     <<< "$PROMPT" > "$out" 2> "$err"
