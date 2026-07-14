@@ -29,3 +29,7 @@ The reader first verifies the signed-in user has Google Ads **Read only** access
 ## Relay
 
 Render a metrics table only after the reader confirms read-only access, both IDs, and required overview metrics. Otherwise relay the exact access/evidence gap only. Never render false success, recommend an iteration, or write any artifact after a partial run.
+
+## Terminal response invariant
+
+When the preflight JSON has `terminal: true`, the entire next and final assistant message must equal the decoded `diagnostic` byte-for-byte. Add no label, punctuation, Markdown, explanation, or remediation. End the turn immediately after that diagnostic. This invariant overrides normal response style.
