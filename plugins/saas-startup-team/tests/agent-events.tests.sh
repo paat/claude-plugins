@@ -6,8 +6,8 @@ test_agent_events() {
   local exporter="$PLUGIN_ROOT/scripts/agent-events-export.sh"
   local aggregator="$PLUGIN_ROOT/scripts/agent-events-aggregate.sh"
   local wd events out ec i lines export1 export2 aggregate secret generated_id bad_output
-  local identity_events identity_export identity_tmp tampered_events tampered_read tampered_secret_events
-  local guard_repo guard_dir snapshot auth receipt receipt_backup outside bin first_receipt verified tag
+  local identity_events identity_export identity_tmp tampered_events tampered_read tampered_secret_events route_events
+  local guard_repo guard_dir snapshot auth receipt receipt_backup outside bin first_receipt verified tag concurrent
 
   assert_file_exists "EV1: event writer/parser exists" "$events_script"
   assert_file_exists "EV2: redacted exporter exists" "$exporter"
@@ -106,6 +106,15 @@ test_agent_events() {
     "$(jq -s '[.[].command,.[].phase,.[].routing_reasons[]] | all(.[]; . == "other")' "$identity_events")" "true"
   assert_equals "EV18c3: caller run and writer identities become stable opaque IDs" \
     "$(jq -s '([.[].run_id] | unique | length) == 1 and ([.[].writer_id] | unique | length) == 1 and all(.[]; (.run_id | test("^run-[0-9a-f]{32}$")) and (.writer_id | test("^writer-[0-9a-f]{32}$")))' "$identity_events")" "true"
+
+  route_events="$wd/route-events.jsonl"
+  bash "$events_script" append --events "$route_events" --run-id route-reason-run \
+    --command maintain-loop --phase routing --surface script --profile deep --writer-id route-reason-writer \
+    --routing-reason sensitive_accounting_reporting --routing-reason sensitive_surface_vocabulary \
+    --event-type completed --outcome escalated >/dev/null
+  assert_equals "EV18c4: sensitive delivery route reasons survive the append/read boundary" \
+    "$(bash "$events_script" read --events "$route_events" | jq -c '.routing_reasons')" \
+    '["sensitive_accounting_reporting","sensitive_surface_vocabulary"]'
 
   # Older or manually tampered records remain readable, but the reader and exporter
   # normalize their dimensions before returning any evaluation data.
@@ -325,6 +334,7 @@ test_agent_events() {
     '{schema_version:1,snapshot_auth_tag:$snapshot_tag,auth_tag:null}' > "$verified"
   tag=$(jq -cS 'del(.auth_tag)' "$verified" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$auth" | awk '{print $NF}')
   jq --arg tag "$tag" '.auth_tag=$tag' "$verified" > "$verified.tmp"; mv "$verified.tmp" "$verified"; chmod 400 "$verified"
+  rm -f "${snapshot}.active"
   first_receipt=$(find "$guard_dir" -maxdepth 1 -name 'qa.json.telemetry-*.json' | LC_ALL=C sort | head -n 1)
   (cd "$guard_repo" && bash "$events_script" import-guarded --receipt "$first_receipt" >/dev/null)
   ec=0; (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
@@ -344,7 +354,9 @@ test_agent_events() {
   git -C "$guard_repo" add app.txt task.md; git -C "$guard_repo" commit -qm base
   printf '%s\n' '#!/usr/bin/env bash' \
     'find "$EXPECT_GUARD_DIR" -maxdepth 1 -name "qa.json.telemetry-*.json" -print -quit | grep -q .' \
+    'last_message=""; while [ "$#" -gt 0 ]; do if [ "$1" = --output-last-message ]; then last_message=$2; shift 2; else shift; fi; done' \
     'cat >/dev/null' \
+    'printf "%s\n" "review complete" > "$last_message"' \
     "printf '%s\\n' '{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cached_input_tokens\":0}}'" \
     > "$bin/codex"
   chmod +x "$bin/codex"
@@ -352,6 +364,19 @@ test_agent_events() {
   guard_dir="$(git -C "$guard_repo" rev-parse --absolute-git-dir)/saas-startup-team"; snapshot="$guard_dir/qa.json"
   (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
     --snapshot "$snapshot" --auth-stdin --allow review.md <<<"$auth" >/dev/null)
+  concurrent="$guard_dir/concurrent.json"
+  (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
+    --snapshot "$concurrent" --auth-stdin --allow concurrent-review.md <<<"$auth" >/dev/null)
+  jq -n --arg snapshot_tag "$(jq -r .auth_tag "$snapshot")" \
+    '{schema_version:1,snapshot_auth_tag:$snapshot_tag,auth_tag:"forged"}' > "${snapshot}.verified"
+  chmod 400 "${snapshot}.verified"
+  ec=0; (cd "$guard_repo" && PATH="$bin:$PATH" SAAS_RUN_ID=run-concurrent \
+    SAAS_WRITER_ID=writer-concurrent bash "$PLUGIN_ROOT/scripts/codex-run-role.sh" \
+    --role qa --profile deep --task-file task.md >/dev/null 2>&1) || ec=$?
+  assert_exit_code "EV36a: forged terminal marker cannot hide two genuinely live guards" "$ec" 4
+  rm -f "${snapshot}.verified"
+  (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
+    --verify "$concurrent" --auth-stdin <<<"$auth" >/dev/null)
   (cd "$guard_repo" && bash "$events_script" append --run-id run-controller --command improve --phase qa \
     --surface claude --profile deep --writer-id writer-controller --event-type started --outcome incomplete >/dev/null)
   ec=0; (cd "$guard_repo" && PATH="$bin:$PATH" EXPECT_GUARD_DIR="$guard_dir" SAAS_RUN_ID=run-codex \

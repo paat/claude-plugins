@@ -18,9 +18,15 @@ unset GIT_EXTERNAL_DIFF
 SCHEMA_VERSION=1
 REASONS=()
 
+# Shared by pre-route task/label classification and post-diff inspection. Keep
+# path and content vocabulary in one place so a sensitive task cannot start at a
+# cheaper profile only to restart after implementation exposes the same surface.
+SENSITIVE_PATH_PATTERN='(^|/)(auth|login|session|oauth2?|oidc|openid|sso|saml|mfa|2fa|webauthn|passkeys?|security|secrets?|credentials?|encrypt(ion)?|crypto(graphy)?|tls|ssl|certs?|certificates?|rbac|acl|payments?|billing|checkout|invoices?|credit[-_]?cards?|debit[-_]?cards?|cardholders?|pci([-_]?dss)?|sepa|chargebacks?|bank[-_]?(accounts?|details)|accounting|financial([-_/]?(report(ing)?|reports?))?|xbrl|arelle|taxonom(y|ies)|andmesild|migrations?|database|legal|compliance|privacy|cookies?|dpa|dsar)(/|\.|$)|(^|/)\.env($|\.)|\.(pem|key|p12|pfx|sql)$'
+SENSITIVE_CONTENT_PATTERN='(authorization:|bearer[[:space:]]|password|passwd|secret|api[_-]?key|checkout|payment|billing|migration|personal data|gdpr|security|credit[[:space:]_-]*cards?|debit[[:space:]_-]*cards?|card[[:space:]_-]*holders?|chargebacks?|bank[[:space:]_-]*(accounts?|details)|accounting|financial[[:space:]_-]+report(ing|s?)|xbrl|arelle|taxonom(y|ies)|andmesild|(^|[^[:alnum:]_])(auth(entication|ori[sz]ation)?|oauth2?|oidc|openid|login|session|sso|saml|mfa|2fa|webauthn|passkeys?|encrypt(ion|ed|ing)?|decrypt(ion|ed|ing)?|cryptograph(y|ic|ical)?|crypto|tls|ssl|certs?|certificates?|rbac|acl|pci([[:space:]_-]*dss)?|sepa|dpa|dsar|cookies?)([^[:alnum:]_]|$)|(^|[^[:alnum:]_])\.env([^[:alnum:]_]|$)|[[:alnum:]_.-]+\.(pem|key|p12|pfx|sql)([^[:alnum:]_]|$))'
+
 usage() {
   echo "usage: delivery-route.sh classify --mode autonomous|interactive-tweak --task-file FILE [--labels-file FILE]" >&2
-  echo "       delivery-route.sh check-diff --base REF [--cached]" >&2
+  echo "       delivery-route.sh check-diff --base REF [--cached] [--guard-verified]" >&2
   echo "       delivery-route.sh schema-version" >&2
   exit 2
 }
@@ -111,6 +117,9 @@ classify() {
   if has "$text" '(payment|billing|checkout|invoice|stripe|payout|refund|subscription|pricing|price change|plan amount|credit[[:space:]_-]*cards?|debit[[:space:]_-]*cards?|card[[:space:]_-]*holders?|(^|[^[:alnum:]_])pci([[:space:]_-]*dss)?([^[:alnum:]_]|$)|(^|[^[:alnum:]_])sepa([^[:alnum:]_]|$)|chargebacks?|bank[[:space:]_-]*(accounts?|details))'; then
     sensitive=true; product=true; add_reason sensitive_payment_pricing
   fi
+  if has "$text" '(accounting|financial[[:space:]_-]+report(ing|s?)|(^|[^[:alnum:]_])(xbrl|arelle|andmesild)([^[:alnum:]_]|$)|taxonom(y|ies))'; then
+    sensitive=true; add_reason sensitive_accounting_reporting
+  fi
   if has "$text" '(database|schema change|data model|migration|personal data|customer data|pii([^[:alnum:]_]|$)|data loss|data integrity|retention|deletion request)'; then
     sensitive=true; add_reason sensitive_data_migration
   fi
@@ -122,6 +131,9 @@ classify() {
   fi
   if has "$text" '(choose|decide|what should|product strategy|prioriti[sz]|redesign|new user flow|conversion strategy|positioning)'; then
     product=true; add_reason product_judgment
+  fi
+  if has "$text" "$SENSITIVE_PATH_PATTERN" || has "$text" "$SENSITIVE_CONTENT_PATTERN"; then
+    sensitive=true; add_reason sensitive_surface_vocabulary
   fi
 
   # Sensitive and judgment-bearing signals are evaluated before every cheap-route rule.
@@ -355,15 +367,16 @@ ui_stylesheet_diff_is_nonbehavioral() {
 }
 
 check_diff() {
-  local base="" cached=0 repo_root tmp names patch numstat nfiles nlines untracked=0 ignored_sensitive=0 file lines
+  local base="" cached=0 guard_verified=0 repo_root tmp names patch numstat nfiles nlines untracked=0 file lines
   local ui_touch=false sensitive=false product=false legal=false profile decision rc=0
-  local ui_script sensitive_pattern ignored_sensitive_pattern file_patch ui_allowlisted
+  local ui_script file_patch ui_allowlisted
   local diff_args=()
 
   while [ $# -gt 0 ]; do
     case "$1" in
       --base) [ "$#" -ge 2 ] || usage; base="$2"; shift 2 ;;
       --cached) cached=1; shift ;;
+      --guard-verified) guard_verified=1; shift ;;
       *) usage ;;
     esac
   done
@@ -406,13 +419,6 @@ check_diff() {
         fi
       done < "$tmp/untracked"
     fi
-    if ! git -c core.fsmonitor=false -C "$repo_root" ls-files --others --ignored \
-      --exclude-standard --directory > "$tmp/ignored.all"; then
-      echo "delivery-route: could not inspect ignored paths" >&2
-      exit 2
-    fi
-    grep -vE '(^|/)(node_modules|\.pnpm-store|\.pnpm|bower_components)(/|$)|(^|/)\.yarn/(cache|unplugged)(/|$)' \
-      "$tmp/ignored.all" > "$tmp/ignored" || true
   fi
   names=$(cat "$tmp/names")
   patch=$(cat "$tmp/patch")
@@ -420,19 +426,19 @@ check_diff() {
   nfiles=$(printf '%s\n' "$names" | grep -c . || true)
   nlines=$(printf '%s\n' "$numstat" | awk '{ if ($1 ~ /^[0-9]+$/) a += $1; if ($2 ~ /^[0-9]+$/) a += $2 } END { print a+0 }')
 
-  sensitive_pattern='(^|/)(auth|login|session|oauth2?|oidc|openid|sso|saml|mfa|2fa|webauthn|passkeys?|security|secrets?|encrypt(ion)?|crypto(graphy)?|tls|ssl|certs?|certificates?|rbac|acl|payments?|billing|checkout|invoices?|credit[-_]?cards?|debit[-_]?cards?|cardholders?|pci([-_]?dss)?|sepa|chargebacks?|bank[-_]?(accounts?|details)|migrations?|database|legal|compliance|privacy|cookies?|dpa|dsar)(/|\.|$)|(^|/)\.env($|\.)|\.(pem|key|p12|pfx|sql)$'
-  ignored_sensitive_pattern='(^|/)(auth|login|session|oauth2?|oidc|openid|sso|saml|mfa|2fa|webauthn|passkeys?|security|secrets?|credentials?|encrypt(ion)?|crypto(graphy)?|tls|ssl|certs?|certificates?|rbac|acl|payments?|billing|checkout|invoices?|credit[-_]?cards?|debit[-_]?cards?|cardholders?|pci([-_]?dss)?|sepa|chargebacks?|bank[-_]?(accounts?|details)|migrations?|database|legal|compliance|privacy|cookies?|dpa|dsar)(/|\.|$)|(^|/)\.env($|\.)|\.(pem|key|p12|pfx|sql)$'
-  if [ "$cached" -eq 0 ] && grep -qiE "$ignored_sensitive_pattern" "$tmp/ignored"; then
-    ignored_sensitive=1
-    sensitive=true
-    add_reason diff_ignored_sensitive_path
+  if [ "$cached" -eq 0 ] && [ "$guard_verified" -eq 0 ]; then
+    if ! git -c core.fsmonitor=false -C "$repo_root" ls-files --others --ignored \
+      --exclude-standard --directory > "$tmp/ignored"; then
+      echo "delivery-route: could not inspect ignored paths" >&2
+      exit 2
+    fi
+    if grep -vE '(^|/)(node_modules|\.pnpm-store|\.pnpm|bower_components)(/|$)|(^|/)\.yarn/(cache|unplugged)(/|$)' \
+      "$tmp/ignored" | grep -qiE "$SENSITIVE_PATH_PATTERN"; then
+      add_reason diff_ignored_sensitive_path
+      emit_route deep false true false false restart_deep
+      return 20
+    fi
   fi
-
-  if [ "$ignored_sensitive" -eq 1 ]; then
-    emit_route deep false true false false restart_deep
-    return 20
-  fi
-
   if [ "$nfiles" -eq 0 ]; then
     add_reason empty_diff
     emit_route mechanical false false false false continue
@@ -444,8 +450,8 @@ check_diff() {
     ui_touch=true
   fi
 
-  if printf '%s\n' "$names" | grep -qiE "$sensitive_pattern" \
-     || printf '%s\n' "$patch" | grep -qiE '(authorization:|bearer[[:space:]]|password|passwd|secret|api[_-]?key|checkout|payment|billing|migration|personal data|gdpr|security|credit[[:space:]_-]*cards?|debit[[:space:]_-]*cards?|card[[:space:]_-]*holders?|chargebacks?|bank[[:space:]_-]*(accounts?|details)|(^|[^[:alnum:]_])(auth(entication|ori[sz]ation)?|oauth2?|oidc|openid|sso|saml|mfa|2fa|webauthn|passkeys?|encrypt(ion|ed|ing)?|decrypt(ion|ed|ing)?|cryptograph(y|ic|ical)?|crypto|tls|ssl|certificates?|rbac|acl|pci([[:space:]_-]*dss)?|sepa|dpa|dsar)([^[:alnum:]_]|$))'; then
+  if printf '%s\n%s\n' "$names" "$patch" | grep -qiE "$SENSITIVE_PATH_PATTERN" \
+     || printf '%s\n' "$patch" | grep -qiE "$SENSITIVE_CONTENT_PATTERN"; then
     sensitive=true; add_reason diff_sensitive_surface
   fi
   if printf '%s\n' "$names" | grep -qiE '(^|/)(legal|compliance|privacy)(/|\.|$)' \

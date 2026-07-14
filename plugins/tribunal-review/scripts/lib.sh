@@ -35,6 +35,12 @@ tribunal_error() {
   jq -nc --arg p "$provider" --arg e "$message" '{provider:$p,error:$e}'
 }
 
+tribunal_claude_authenticated() {
+  local status
+  status="$(timeout -k 1 10 claude auth status --json 2>/dev/null)" || return 1
+  printf '%s\n' "$status" | jq -e '.loggedIn == true' >/dev/null 2>&1
+}
+
 tribunal_empty() {
   local provider="$1" model="${2:-default}" base_ref="${3:-}"
   jq -nc --arg p "$provider" --arg m "$model" --arg b "$base_ref" \
@@ -50,8 +56,8 @@ tribunal_prepare_diff() {
   local full max size
   full="$out.full"
   max="${TRIBUNAL_DIFF_LIMIT_BYTES:-524288}"
-  git diff "$base_ref"...HEAD > "$full" || return 1
-  git diff --name-only -z "$base_ref"...HEAD > "$out.paths" || return 1
+  git diff "$base_ref"...HEAD --no-ext-diff --no-textconv > "$full" || return 1
+  git diff --name-only -z "$base_ref"...HEAD --no-ext-diff --no-textconv > "$out.paths" || return 1
   size="$(wc -c < "$full" | tr -d ' ')"
   if [ -n "$size" ] && [ "$size" -gt "$max" ]; then
     head -c "$max" "$full" > "$out"
@@ -161,7 +167,13 @@ tribunal_emit_review() {
     tribunal_error "$provider" "vacuous verdict ($verdict with 0 findings): a blocking verdict must carry a finding; provider likely blind to the repo (sandbox/degraded), excluded from quorum${hint:+ — $hint}"
     return
   fi
-  printf '%s\n' "$json"
+  if ! printf '%s' "$json" | jq -e '(.findings | type) == "array" and (.summary | type) == "object"' >/dev/null 2>&1; then
+    tribunal_error "$provider" "provider output omitted the review findings/summary envelope"
+    return
+  fi
+  # Provider identity belongs to the wrapper, not model-authored JSON. The
+  # aggregate evidence runner relies on this assignment when it seals each leg.
+  printf '%s\n' "$json" | jq -c --arg provider "$provider" '.provider = $provider | del(.status, .error)'
 }
 
 # Mark findings whose position cannot exist: a missing/mistyped file field, a

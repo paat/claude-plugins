@@ -7,7 +7,7 @@ usage() {
   cat >&2 <<'EOF'
 Usage: maintain-queue.sh [--repo OWNER/REPO] [--issue N] [--label LABEL]
                          [--default-branch NAME]
-                         [--blocked-file PATH]
+                         [--blocked-file PATH]...
                          [--dependency-status-file PATH]
                          [--issues-file PATH --open-prs-file PATH]
 
@@ -19,7 +19,7 @@ EOF
 repo=""
 issue=""
 label=""
-blocked_file=""
+blocked_files=()
 issues_file=""
 open_prs_file=""
 dependency_status_file=""
@@ -30,6 +30,25 @@ dep_clause_re='(?i)\b(?:depends on|blocked by)\b\s*\*{0,2}\s*:?\s*\*{0,2}\s*(?<r
 dep_ref_re='#(?<n>[0-9]+)'
 fixture_mode=0
 list_limit=1000
+
+valid_repo_slug() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]
+}
+
+resolve_repo_slug() {
+  local root origin slug
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  origin=$(git -C "$root" config --local --get remote.origin.url) || return 1
+  case "$origin" in
+    https://github.com/*) slug=${origin#https://github.com/} ;;
+    git@github.com:*) slug=${origin#git@github.com:} ;;
+    ssh://git@github.com/*) slug=${origin#ssh://git@github.com/} ;;
+    *) return 1 ;;
+  esac
+  slug=${slug%/}; slug=${slug%.git}
+  valid_repo_slug "$slug" || return 1
+  printf '%s\n' "$slug"
+}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -47,7 +66,7 @@ while [ "$#" -gt 0 ]; do
       default_branch="$2"; default_branch_explicit=1; shift 2 ;;
     --blocked-file)
       [ "$#" -ge 2 ] || { usage; exit 2; }
-      blocked_file="$2"; shift 2 ;;
+      blocked_files+=("$2"); shift 2 ;;
     --issues-file)
       [ "$#" -ge 2 ] || { usage; exit 2; }
       issues_file="$2"; shift 2 ;;
@@ -67,6 +86,10 @@ while [ "$#" -gt 0 ]; do
 done
 
 command -v jq >/dev/null 2>&1 || { echo "maintain-queue: jq is required" >&2; exit 2; }
+if [ -n "$repo" ] && ! valid_repo_slug "$repo"; then
+  echo "maintain-queue: --repo must be OWNER/REPO" >&2
+  exit 2
+fi
 case "$issue" in
   "") ;;
   *[!0-9]*|0*) echo "maintain-queue: --issue must be a positive integer without leading zeros" >&2; exit 2 ;;
@@ -87,11 +110,8 @@ dep_status_json="$tmpdir/dependency-status.json"
 output_json="$tmpdir/output.json"
 
 gh_with_repo() {
-  if [ -n "$repo" ]; then
-    gh "$@" --repo "$repo"
-  else
-    gh "$@"
-  fi
+  [ -n "$repo" ] || return 2
+  /usr/bin/env -u GH_REPO -u GH_HOST -u GH_CONFIG_DIR gh "$@" --repo "github.com/$repo"
 }
 
 if [ -n "$issues_file" ] || [ -n "$open_prs_file" ]; then
@@ -119,6 +139,12 @@ if [ -n "$issues_file" ] || [ -n "$open_prs_file" ]; then
   fi
 else
   command -v gh >/dev/null 2>&1 || { echo "maintain-queue: gh is required" >&2; exit 2; }
+  if [ -z "$repo" ]; then
+    repo=$(resolve_repo_slug) || {
+      echo "maintain-queue: could not bind GitHub queries to remote.origin; pass --repo OWNER/REPO" >&2
+      exit 3
+    }
+  fi
   if [ -n "$issue" ]; then
     gh_with_repo issue view "$issue" \
       --json number,title,body,labels,state,createdAt,updatedAt,closedByPullRequestsReferences |
@@ -135,12 +161,10 @@ else
   gh_with_repo pr list --state open --limit "$list_limit" \
     --json number,title,body,closingIssuesReferences > "$open_prs_json"
   if [ "$default_branch_explicit" -eq 0 ]; then
-    resolver_args=()
-    [ -z "$repo" ] || resolver_args+=(--repo "$repo")
-    if fetched_default_branch="$(bash "$SCRIPT_DIR/default-branch.sh" "${resolver_args[@]}" 2>/dev/null)" \
-      && [ -n "$fetched_default_branch" ]; then
-      default_branch="$fetched_default_branch"
-    else
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+    default_args=(--repo-root "$repo_root"); [ -z "$repo" ] || default_args+=(--repo "$repo")
+    if ! default_branch=$(/usr/bin/env -u GH_REPO -u GITHUB_REPOSITORY -u GH_HOST -u GH_CONFIG_DIR \
+      bash "$SCRIPT_DIR/default-branch.sh" "${default_args[@]}"); then
       echo "maintain-queue: could not resolve repository default branch; pass --default-branch or set MAINTAIN_QUEUE_DEFAULT_BRANCH" >&2
       exit 3
     fi
@@ -155,15 +179,21 @@ else
   fi
 fi
 
-if [ -n "$blocked_file" ] && [ -s "$blocked_file" ]; then
-  blocked_err="$tmpdir/blocked.err"
-  if ! jq -s '[.[] | select(type == "object")]' "$blocked_file" > "$blocked_json" 2>"$blocked_err"; then
-    echo "maintain-queue: invalid blocked file: $blocked_file" >&2
-    sed 's/^/maintain-queue: jq: /' "$blocked_err" >&2
-    exit 3
+blocked_args=()
+for blocked_file in "${blocked_files[@]}"; do
+  [ -e "$blocked_file" ] || [ -L "$blocked_file" ] || continue
+  blocked_args+=(--file "$blocked_file")
+done
+blocked_err="$tmpdir/blocked.err"
+if ! bash "$SCRIPT_DIR/maintain-blocked.sh" normalize "${blocked_args[@]}" \
+  > "$blocked_json" 2>"$blocked_err"; then
+  if [ "${#blocked_files[@]}" -gt 0 ]; then
+    echo "maintain-queue: invalid blocked file: ${blocked_files[*]}" >&2
+  else
+    echo "maintain-queue: blocked ledger normalization failed" >&2
   fi
-else
-  printf '[]\n' > "$blocked_json"
+  sed 's/^/maintain-queue: /' "$blocked_err" >&2
+  exit 3
 fi
 
 if [ -n "$dependency_status_file" ]; then
@@ -258,23 +288,18 @@ jq -n \
     or (($pr.body // "")
       | test("(?i)\\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s+#" + ($n | tostring) + "\\b"));
 
-  def pr_mentions($pr; $n):
-    ((($pr.title // "") + "\n" + ($pr.body // ""))
-      | test("(^|[^[:alnum:]_])#" + ($n | tostring) + "\\b"));
-
   def linked_prs($issue; $prs; $open_pr_numbers):
     ([
       ($issue.closedByPullRequestsReferences // [])[]?.number as $prn
       | select($open_pr_numbers | index($prn))
       | $prn
     ] + [
-      $prs[]? | select(pr_closes(.; $issue.number) or pr_mentions(.; $issue.number)) | .number
+      $prs[]? | select(pr_closes(.; $issue.number)) | .number
     ]) | unique;
 
   def label_excluded:
     (.label_match | not)
     or .needs_human
-    or .maintain_blocked
     or .epic
     or .cooldown
     or ((.linked_prs | length) > 0);
@@ -338,7 +363,7 @@ jq -n \
   | {
       label_filter: numbers($with_deps | map(select(.label_match | not))),
       needs_human: numbers($with_deps | map(select(.needs_human))),
-      maintain_blocked: numbers($with_deps | map(select(.maintain_blocked))),
+      maintain_blocked: numbers($with_deps | map(select(.maintain_blocked and .cooldown))),
       epic: numbers($with_deps | map(select(.epic))),
       cooldown: numbers($with_deps | map(select(.cooldown))),
       linked_pr: numbers($with_deps | map(select((.linked_prs | length) > 0))),
@@ -363,6 +388,10 @@ jq -n \
   | {
       raw_open_count: ($with_deps | length),
       eligible_count: ($queue | length),
+      cleanup: {
+        stale_maintain_blocked: numbers($with_deps
+          | map(select(.maintain_blocked and (.cooldown | not))))
+      },
       queue: [
         $queue[]
         | {

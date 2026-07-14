@@ -6,9 +6,17 @@ declare -F assert_file_contains >/dev/null 2>&1 || {
 
 test_workflow_lifecycle_safety() {
   echo -e "\n${CYAN}Suite WL: workflow lifecycle safety${NC}"
-  local goal maintain startup improve lessons design first second count guardian lease workdir owner pid_file failure ec before after
+  local goal maintain maintain_protocol maintain_loop maintain_loop_protocol maintain_proof_contract maintain_loop_entry maintain_delivery maintain_escalation mutation_ownership startup improve lessons design first second count guardian lease workdir owner owner2 ec before after holder child_ready child_stopped grandchild_file grandchild
   goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
   maintain="$PLUGIN_ROOT/references/workflows/maintain.md"
+  maintain_protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
+  maintain_loop="$PLUGIN_ROOT/references/workflows/maintain-loop.md"
+  maintain_loop_protocol="$PLUGIN_ROOT/references/workflows/maintain-loop-protocol.md"
+  maintain_proof_contract="$PLUGIN_ROOT/references/workflows/maintain-proof-contract.md"
+  maintain_loop_entry="$PLUGIN_ROOT/commands/maintain-loop.md"
+  maintain_delivery="$PLUGIN_ROOT/scripts/maintain-delivery.sh"
+  maintain_escalation="$PLUGIN_ROOT/scripts/maintain-escalation.sh"
+  mutation_ownership="$PLUGIN_ROOT/references/workflows/mutation-ownership.md"
   startup="$PLUGIN_ROOT/commands/startup.md"
   improve="$PLUGIN_ROOT/references/workflows/improve.md"
   lessons="$PLUGIN_ROOT/commands/lessons-deliver.md"
@@ -36,23 +44,169 @@ test_workflow_lifecycle_safety() {
   assert_file_contains "WL5: goal releases terminal lease" "$goal" \
     'release `$GOAL_LEASE_KEY` with `$GOAL_OWNER_FILE`'
 
-  assert_before "WL6: maintain pass lease precedes worktree mutation" "$maintain" \
+  assert_file_exists "WL5a: maintain detailed protocol exists" "$maintain_protocol"
+  assert_file_exists "WL5b: maintain-loop detailed protocol exists" "$maintain_loop_protocol"
+  assert_file_contains "WL5c: maintain router loads details on demand" "$maintain" \
+    'Never read that file'
+  assert_file_contains "WL5d: maintain-loop router loads details on demand" "$maintain_loop" \
+    'Never read that file wholesale'
+  assert_before "WL6: maintain protocol orders pass lease before worktree mutation" "$maintain_protocol" \
     '## Whole-Pass Lease' '## Workspace — Dedicated Worktree'
-  assert_file_contains "WL7: maintain lease is common-worktree scoped" "$maintain" \
-    'MAINTAIN_LEASE_DIR="$GIT_COMMON/saas-startup-team/leases"'
-  assert_file_contains "WL8: maintain runner has signal trap cleanup" "$maintain" \
+  assert_before "WL6a: maintain router requests pass lease before worktree setup" "$maintain" \
+    '1. `Whole-Pass Lease`' '2. `Workspace — Dedicated Worktree`'
+  assert_before "WL6b: maintain-loop router requests receipt before queue work" "$maintain_loop" \
+    '2. On a normal run, load `Delivery receipt`' \
+    '3. For new work, load `Queue and routing`'
+  count=$(wc -l < "$maintain_loop" | tr -d ' ')
+  if [ "$count" -le 150 ]; then
+    assert_equals "WL6c: maintain-loop router stays within the prompt budget" yes yes
+  else
+    assert_equals "WL6c: maintain-loop router stays within the prompt budget" no yes
+  fi
+  assert_file_contains "WL7: maintain lease state is common-worktree scoped" "$maintain_protocol" \
+    'MAINTAIN_LEASE_STATE="$GIT_COMMON/'
+  assert_file_contains "WL7a: maintain uses compatibility delivery leases" "$maintain_protocol" \
+    '--mode maintain'
+  assert_file_contains "WL7b: maintain-loop uses compatibility delivery leases" "$maintain_loop_protocol" \
+    '--mode maintain-loop'
+  assert_file_contains "WL7c: maintain-loop lease is common-worktree scoped" "$maintain_loop_protocol" \
+    'LEASE_STATE="$GIT_COMMON/'
+  assert_file_contains "WL7d: maintain bounds foreground lease lifetime" "$maintain_protocol" \
+    '--max-seconds 14400'
+  assert_file_contains "WL7e: maintain-loop bounds foreground lease lifetime" "$maintain_loop_protocol" \
+    '--max-seconds 14400'
+  assert_file_contains "WL7f: maintain long commands use foreground lease-set hold" "$maintain_protocol" \
+    'maintain-leases.sh" hold'
+  assert_before "WL7g: canonical base gate precedes writer dispatch" "$maintain_loop_protocol" \
+    'maintain-attempt.sh" base-check' \
+    'ATTEMPT_ARGS=(deliver'
+  assert_file_contains "WL7h: maintain keeps auth receipts in one shell" "$maintain_protocol" \
+    'one continuous host'
+  assert_file_contains "WL7i: maintain-loop keeps auth through full commit gate" "$maintain_loop_protocol" \
+    'full commit gate'
+  assert_file_contains "WL7j: maintain-loop rejects cross-shell receipt reuse" "$maintain_loop_protocol" \
+    'reset and retry from a new'
+  assert_file_exists "WL7j0: model-free escalation authority exists" "$maintain_escalation"
+  assert_file_contains "WL7j1: protocol delegates cleanup proof to helper" "$maintain_loop_protocol" \
+    'maintain-escalation.sh" cleanup'
+  assert_file_contains "WL7j2: protocol requires live restart authorization" "$maintain_loop_protocol" \
+    'authorize-restart'
+  assert_file_contains "WL7j3: restart authority enforces canonical false polarity" "$maintain_escalation" \
+    'open_pr:false,remote_branch:false,head_at_base:true,worktree_clean:true'
+  assert_file_contains "WL7j4: mutation ownership matches terminal marker retirement" \
+    "$mutation_ownership" 'retires the active marker on every terminal'
+  assert_file_not_contains "WL7j5: rejection never preserves a stale active marker" \
+    "$mutation_ownership" 'leave the active marker in place'
+  assert_file_contains "WL7k: maintain-loop mints one run per invocation" "$maintain_loop_protocol" \
+    'Mint one `RUN_ID` per command invocation'
+  assert_file_contains "WL7l: foreground holder failure terminates the pass" "$maintain_loop_protocol" \
+    'A nonzero foreground `hold` result is a terminal pass failure'
+  assert_file_contains "WL7m: maintain-loop emits one terminal pass outcome" "$maintain_loop_protocol" \
+    'append exactly one supervisor terminal `pass-outcome`'
+  assert_file_contains "WL7n: terminal pass cannot restart in the same invocation" "$maintain_loop_protocol" \
+    'never continue the queue'
+  assert_file_contains "WL7o: worker success is not supervisor delivery success" "$maintain_loop_protocol" \
+    'worker success cannot claim delivery success'
+  assert_file_contains "WL7p: supervisor and worker event phases stay distinct" "$maintain_loop_protocol" \
+    'never writes an `implementation` event'
+  assert_file_contains "WL7q: terminal status observes cleanup first" "$maintain_loop_protocol" \
+    'run the one cleanup before choosing'
+  assert_file_contains "WL7r: event failure cannot bypass cleanup" "$maintain_loop_protocol" \
+    'Cleanup is unconditional even when the later event'
+  assert_file_contains "WL7s: maintain-loop entry forwards read-only dry-run" "$maintain_loop_entry" \
+    '--dry-run'
+  assert_before "WL7t: maintain-loop dry-run terminates before worker preflight" "$maintain_loop_protocol" \
+    '`--dry-run` takes a terminal read-only branch here' \
+    'health-preflight.sh --require-gh --require-codex'
+  assert_file_contains "WL7u: maintain-loop dry-run cannot enter later sections" "$maintain_loop_protocol" \
+    'execute any later section'
+  assert_before "WL7v: maintain resolves queue roots before dry-run branch" "$maintain_protocol" \
+    'MAINTAIN_BLOCKED_FILE="$GIT_COMMON/' 'Under `--dry-run`, acquire no lease'
+  assert_file_contains "WL7w: pass event uses pass-outcome phase" "$maintain_loop_protocol" \
+    '--phase pass-outcome'
+  assert_file_contains "WL7x: tribunal rounds are persisted and bounded" "$maintain_loop_protocol" \
+    'Never invoke round 6'
+  assert_before "WL7y: forward merge budget is consumed before deploy" "$maintain_loop_protocol" \
+    'Call `record-merge --role normal`' 'Select a concrete deploy run'
+  assert_before "WL7z: issue close intent waits for release proof" "$maintain_loop_protocol" \
+    'Then call `record-release` with only' \
+    'then call `close-intent` with no snapshots'
+  assert_file_contains "WL7z0: success evidence requires closed issue" "$maintain_loop_protocol" \
+    '`issue:closed`'
+  assert_file_contains "WL7za: PR remains non-closing before deploy" "$maintain_loop_protocol" \
+    'normal PR contains `Refs #N`'
+  assert_file_not_contains "WL7zb: PR does not auto-close before deploy" "$maintain_loop_protocol" \
+    '`Closes #N`'
+  assert_file_contains "WL7zc: non-closing PR still receives closure audit" "$maintain_loop_protocol" \
+    'issue-closure-audit.sh --audit-issue'
+  assert_file_contains "WL7zd: pre-close gate resumes pending close receipts" "$maintain_loop_protocol" \
+    'including `close_intent` or `closed_observed`'
+  assert_before "WL7ze: exact merged PR is re-read before pre-close audit" "$maintain_loop_protocol" \
+    'freshly fetches the exact merged PR' \
+    'the prospective audit itself'
+  assert_before "WL7zf: prospective audit precedes close intent" "$maintain_loop_protocol" \
+    'the prospective audit itself' \
+    'binds the unchanged issue revision'
+  assert_before "WL7zg: verified claim removal precedes prospective audit" "$maintain_loop_protocol" \
+    'absence of `maintain:claimed`' \
+    'the prospective audit itself'
+  assert_file_contains "WL7zg1: merge helper pins authorized head" "$maintain_loop_protocol" \
+    'gh pr merge --match-head-commit <receipt-head>'
+  assert_file_contains "WL7zg2: workflow forbids direct PR merge" "$maintain_loop_protocol" \
+    'Never invoke `gh pr merge` directly'
+  assert_file_contains "WL7zg3: close intent binds canonical issue revision" "$maintain_loop_protocol" \
+    'binds the unchanged issue revision and digest'
+  assert_file_contains "WL7zg4: close helper owns issue close" "$maintain_loop_protocol" \
+    'That helper alone fetches and compares the'
+  assert_file_contains "WL7zg4a: close helper takes no caller snapshot" "$maintain_loop_protocol" \
+    'with no snapshot argument'
+  assert_file_contains "WL7zg4b: close helper owns post-close verification" "$maintain_loop_protocol" \
+    'fetches the full CLOSED'
+  assert_file_contains "WL7zg5: rollback proves the exact inverse tree" "$maintain_loop_protocol" \
+    'exact expected reverse of the recorded normal merge with no'
+  assert_file_contains "WL7zg6: premerge evidence has stable identifiers" "$maintain_proof_contract" \
+    'retains the proof digest'
+  assert_file_contains "WL7zg6a: proof contract rejects a narrow passed assertion" "$maintain_proof_contract" \
+    'A bare success exit or'
+  assert_file_contains "WL7zg7: merge receipt enforces count and budget" "$maintain_loop_protocol" \
+    'atomically advances the run-owned merge ledger'
+  assert_file_contains "WL7zg8: release receipt binds target and live assertions" "$maintain_loop_protocol" \
+    'stable target-source code'
+  assert_file_contains "WL7zg9: result is helper-rendered from receipt" "$maintain_loop_protocol" \
+    '`maintain-delivery.sh render-result` derives the result solely'
+  assert_file_contains "WL7zg10: finalize requires exact canonical bytes" "$maintain_loop_protocol" \
+    'requires an exact byte match'
+  assert_file_contains "WL7zg11: free-form result edits fail" "$maintain_loop_protocol" \
+    'omitted, duplicate, reordered, or'
+  assert_file_contains "WL7zg12: executable rejects contradictory result facts" "$maintain_delivery" \
+    'result source omits or contradicts canonical receipt facts'
+  assert_file_contains "WL7zh: close intent requires an exact open issue" "$maintain_delivery" \
+    'close intent requires a valid open issue'
+  assert_before "WL7zi: helper verifies claim removal before durable close intent" "$maintain_delivery" \
+    'claim label must be removed before close intent' \
+    '.state = "close_intent"'
+  assert_before "WL7zj: helper validates exact audit before durable close intent" "$maintain_delivery" \
+    'fresh close audit failed' \
+    '.state = "close_intent"'
+  assert_file_contains "WL7zk: helper persists ready-to-close receipt" "$maintain_delivery" \
+    'status:"ready_to_close"'
+  assert_file_contains "WL7zl: closed resume requires prior close intent" "$maintain_delivery" \
+    'cannot observe issue close from $TOP_STATE'
+  assert_file_contains "WL7zm: reconciliation appends issue outcome once" "$maintain_delivery" \
+    'agent-events.sh" append --once'
+  assert_file_contains "WL8: maintain runner has signal trap cleanup" "$maintain_protocol" \
     '`EXIT INT TERM HUP` trap'
-  assert_file_contains "WL9: maintain scheduler uses flock" "$maintain" \
-    'maintain-scheduler.lock'
-  assert_file_contains "WL10: split child is resolved by exact marker" "$maintain" \
+  assert_file_contains "WL9: maintain scheduler uses flock" "$maintain_protocol" \
+    'non-blocking `flock`'
+  assert_file_contains "WL10: split child is resolved by exact marker" "$maintain_protocol" \
     'resolve_split_child()'
-  assert_file_contains "WL11: split child id is verified numeric" "$maintain" \
+  assert_file_contains "WL11: split child id is verified numeric" "$maintain_protocol" \
     'split child id is not numeric'
-  assert_file_not_contains "WL12: issue create uses no unsupported JSON flag" "$maintain" \
+  assert_file_not_contains "WL12: issue create uses no unsupported JSON flag" "$maintain_protocol" \
     '--json number -q .number'
-  assert_file_contains "WL12a: split list failure is captured" "$maintain" \
+  assert_file_contains "WL12a: split list failure is captured" "$maintain_protocol" \
     'split_json=$(gh issue list'
-  assert_file_contains "WL12b: split view failure is captured" "$maintain" \
+  assert_file_contains "WL12b: split view failure is captured" "$maintain_protocol" \
     'child_body=$(gh issue view'
 
   assert_before "WL13: startup lease precedes idea capture" "$startup" \
@@ -90,28 +244,72 @@ test_workflow_lifecycle_safety() {
 
   guardian="$PLUGIN_ROOT/scripts/lease-guardian.sh"
   lease="$PLUGIN_ROOT/scripts/single-flight.sh"
-  assert_file_exists "WL28: persistent lease guardian exists" "$guardian"
+  assert_file_exists "WL28: foreground lease guardian exists" "$guardian"
   workdir=$(mktemp -d)
-  owner="$workdir/owners/test.owner"
-  pid_file="$workdir/owners/guardian.json"
-  failure="$workdir/heartbeat-failed"
+  owner="$workdir/owners/maintain.owner"
+  owner2="$workdir/owners/loop.owner"
   mkdir -p "$workdir/owners"
-  bash "$lease" --acquire guardian:test --state-dir "$workdir" --owner-file "$owner" \
+  bash "$lease" --acquire maintain-delivery:pass --state-dir "$workdir" --owner-file "$owner" \
+    --ttl-seconds 14400 >/dev/null
+  printf '%s\n' "$(( $(date +%s) - 1000 ))" > "$workdir/maintain-delivery-pass/heartbeat"
+  ec=0
+  bash "$lease" --acquire maintain-delivery:pass --state-dir "$workdir" \
+    --owner-file "$owner2" --ttl-seconds 14400 >/dev/null 2>&1 || ec=$?
+  assert_exit_code "WL29: shared TTL prevents cross-workflow lease theft" "$ec" 1
+  bash "$lease" --heartbeat maintain-delivery:pass --state-dir "$workdir" \
+    --owner-file "$owner" >/dev/null
+
+  bash "$lease" --acquire guardian:worktree --state-dir "$workdir" --owner-file "$owner2" \
     --ttl-seconds 10 >/dev/null
-  bash "$guardian" start --state-dir "$workdir" --pid-file "$pid_file" \
-    --failure-file "$failure" --interval-seconds 1 --max-seconds 10 \
-    --lease guardian:test "$owner" >/dev/null
-  ec=0; bash "$guardian" check --pid-file "$pid_file" --failure-file "$failure" || ec=$?
-  assert_exit_code "WL29: guardian survives its starting shell" "$ec" 0
-  before=$(stat -c %Y "$workdir/guardian-test/heartbeat")
-  sleep 2
-  after=$(stat -c %Y "$workdir/guardian-test/heartbeat")
-  if [ "$after" -gt "$before" ]; then assert_equals "WL30: guardian advances heartbeat" yes yes
-  else assert_equals "WL30: guardian advances heartbeat" no yes; fi
-  ec=0; bash "$guardian" stop --pid-file "$pid_file" --failure-file "$failure" || ec=$?
-  assert_exit_code "WL31: guardian stops explicitly" "$ec" 0
-  assert_file_not_exists "WL32: guardian PID receipt is removed" "$pid_file"
-  bash "$lease" --release guardian:test --state-dir "$workdir" --owner-file "$owner" >/dev/null
+  before=$(stat -c %Y "$workdir/guardian-worktree/heartbeat")
+  ec=0
+  bash "$guardian" hold --state-dir "$workdir" --interval-seconds 1 --max-seconds 10 \
+    --lease maintain-delivery:pass "$owner" --lease guardian:worktree "$owner2" -- \
+    bash -c 'sleep 2; exit 17' || ec=$?
+  assert_exit_code "WL30: foreground guardian propagates child status" "$ec" 17
+  after=$(stat -c %Y "$workdir/guardian-worktree/heartbeat")
+  if [ "$after" -gt "$before" ]; then assert_equals "WL31: foreground guardian advances heartbeat" yes yes
+  else assert_equals "WL31: foreground guardian advances heartbeat" no yes; fi
+
+  child_ready="$workdir/child-ready"
+  child_stopped="$workdir/child-stopped"
+  grandchild_file="$workdir/grandchild-pid"
+  bash "$guardian" hold --state-dir "$workdir" --interval-seconds 1 --max-seconds 10 \
+    --lease maintain-delivery:pass "$owner" --lease guardian:worktree "$owner2" -- \
+    bash -c 'trap "printf stopped > \"$1\"; exit 0" TERM; sleep 60 & printf "%s\n" "$!" > "$3"; : > "$2"; wait' \
+      _ "$child_stopped" "$child_ready" "$grandchild_file" >"$workdir/hold.log" 2>&1 &
+  holder=$!
+  for ((count = 0; count < 50; count++)); do
+    [ ! -e "$child_ready" ] || break
+    sleep 0.1
+  done
+  bash "$lease" --release maintain-delivery:pass --state-dir "$workdir" --owner-file "$owner" >/dev/null
+  ec=0; wait "$holder" || ec=$?
+  assert_exit_code "WL32: lease loss fails the foreground wrapper" "$ec" 1
+  assert_file_exists "WL33: lease loss terminates the child" "$child_stopped"
+  grandchild=$(cat "$grandchild_file")
+  if kill -0 "$grandchild" 2>/dev/null; then
+    assert_equals "WL33a: lease loss terminates descendants" alive stopped
+  else
+    assert_equals "WL33a: lease loss terminates descendants" stopped stopped
+  fi
+
+  rm -f "$child_ready" "$child_stopped"
+  bash "$guardian" hold --state-dir "$workdir" --interval-seconds 1 --max-seconds 10 \
+    --lease guardian:worktree "$owner2" -- \
+    bash -c 'trap "printf stopped > \"$1\"; exit 0" TERM; : > "$2"; while :; do sleep 1; done' \
+      _ "$child_stopped" "$child_ready" >"$workdir/signal.log" 2>&1 &
+  holder=$!
+  for ((count = 0; count < 50; count++)); do
+    [ ! -e "$child_ready" ] || break
+    sleep 0.1
+  done
+  kill -TERM "$holder"
+  ec=0; wait "$holder" || ec=$?
+  assert_exit_code "WL34: wrapper propagates TERM status" "$ec" 143
+  assert_file_exists "WL35: wrapper forwards TERM to child" "$child_stopped"
+
+  bash "$lease" --release guardian:worktree --state-dir "$workdir" --owner-file "$owner2" >/dev/null
   rm -rf "$workdir"
 }
 

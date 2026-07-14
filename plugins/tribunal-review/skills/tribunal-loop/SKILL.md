@@ -85,6 +85,25 @@ Collect Codex, Gemini, GLM, DeepSeek, Qwen, and Claude outputs. Treat disabled
 markers as intentional absence. Treat malformed JSON or `{"error":...}` as
 provider failure and continue with remaining non-disabled providers.
 
+### PR delivery evidence
+
+For a merge gate, the provider shell calls above are not authoritative evidence.
+The delivery controller must invoke the installed aggregate runner instead:
+
+```bash
+collection_json="$(bash "$TRIBUNAL_PLUGIN_ROOT/scripts/collect-review-evidence.sh" collect \
+  --repo-root "$REPO_ROOT" --pr "$PR_NUMBER" --output "$CONTROLLER_OWNED_COLLECTION")"
+manifest_sha="$(printf '%s' "$collection_json" | jq -r .manifest_sha256)"
+```
+
+The controller retains `manifest_sha`; do not take it back from model output.
+It should also pin and validate `integrity/runner-bundle.json` with
+`scripts/check-runner-bundle.sh --expected-manifest-sha256 SHA` before collection.
+The runner launches the wrappers, assigns provider identity/status, and seals the
+canonical repository, PR body/base/head/diff, runner/wrapper provenance, provider
+artifacts, and timestamps. Read the retained provider files for Step 3. Never
+accept caller-created provider JSON as merge evidence.
+
 ## Step 3: Inline Arbitration
 
 Arbitrate inline in the current calling context. Do not spawn another agent.
@@ -185,6 +204,22 @@ Return JSON only, matching the schema in `references/output-contract.md` (top-le
 `tribunal_verdict`, `findings`, `scope_findings`, `provider_assessment`, `conflicts_resolved`,
 `summary`; each finding carries a `consensus` of `CONSENSUS` or `SINGLE_PROVIDER`, and every
 critical/high finding must include the `blocking_proof` block from 3b-0).
+
+For a merge gate, save that JSON to `arbitration.json`, then have the delivery
+controller finalize the collection with its retained manifest digest:
+
+```bash
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/collect-review-evidence.sh" finalize \
+  --collection "$CONTROLLER_OWNED_COLLECTION" \
+  --expected-manifest-sha256 "$manifest_sha" \
+  --arbitration arbitration.json
+```
+
+Only the emitted `tribunal-proof/v1` digest is a delivery proof. Finalization
+rechecks live PR drift, all artifact/provenance digests, provider status, finding
+attribution, and the strict arbitration schema. A run with no successful provider
+cannot approve. Retrying with identical arbitration returns the retained proof;
+conflicting arbitration for that collection fails.
 
 ## Trust Hierarchy
 

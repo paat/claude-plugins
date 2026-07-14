@@ -76,7 +76,7 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:replay-abandoned` | Replay configured abandoned funnel sessions via browser tooling, emit structured findings, and file actionable findings by default. |
 | `/saas-startup-team:goal-deliver` | Deliver a set of tasks (issues, milestone, spec, or free text) end-to-end: plan into chunks, ship each via `/improve` + closing tribunal loop + merge to main, then monitor and fix the GitHub Actions deploy. Pairs with built-in `/goal` for autonomy. Requires the `tribunal-review` plugin. |
 | `/saas-startup-team:ads` | Design a Google Ads campaign — spawns the `google-ads-strategist` plugin's `ads-strategist` (hard dependency) to design, browser-verify, and create the campaign in PAUSED state for investor review. The `/growth` loop also delegates here automatically. |
-| `/saas-startup-team:maintain` | Continuous autonomous maintenance loop: triage open issues, fence human-gated ones into `human-tasks.md`, and deliver the rest to production via `/goal-deliver` one-at-a-time in dependency order. Stateless supervisor; watch remotely via `/rc`. Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`. Requires the `tribunal-review` plugin. |
+| `/saas-startup-team:maintain` | Scheduled autonomous maintenance pass: triage open issues, fence human-gated ones into `human-tasks.md`, and deliver the rest to production via inline `/goal-deliver`, one-at-a-time in dependency order. An external scheduler owns repetition and backoff. Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`. Requires the `tribunal-review` plugin. |
 | `/saas-startup-team:maintain-loop` | Codex-first issue delivery loop for already-deliverable GitHub issues: a supervisor owns Git/GitHub, checks, QA, tribunal, merge, deploy, and rollback while a fresh pinned tech role writes only the scoped source/tests. Flags: `--once`, `--dry-run`, `--issue`, `--label`, `--max-issues`, `--max-merges`, `--max-run-minutes`. Requires the `tribunal-review` plugin. |
 | `/saas-startup-team:lessons-review` | The single human gate of the self-improvement loop: list open `lesson-candidate` issues in the pinned plugin repo and `--approve N` (→ `lesson-approved`) or `--close N` (rejected). |
 | `/saas-startup-team:lessons-deliver` | Autonomously implements `lesson-approved` issues into this plugin repo end-to-end (claim → implement → diff firewall → tribunal → test suite → dual version bump → PR `Closes #N` → merge on green). No manual trigger after approval; plugin-native (not `/goal-deliver`). Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`, `--repo`. Requires the `tribunal-review` plugin. |
@@ -375,11 +375,16 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/acceptance-packs.sh" --verify-report path/to
 
 ## Maintenance loop (`/maintain`)
 
-`/maintain` is a **stateless supervisor** that runs an unattended continuous maintenance loop: it re-reads GitHub issues and triage state from disk each pass, classifies open issues into `agent-fixable`, `partially-fixable`, or `needs-human`, and delivers eligible issues to production via inline `/goal-deliver` calls, one issue at a time in dependency order. The supervisor holds no durable context — every pass reconstructs its working state from disk and GitHub, making context loss or compaction harmless.
+`/maintain` is a **stateless supervisor** that executes one unattended maintenance pass per scheduler tick: it re-reads GitHub issues and triage state from disk, classifies open issues into `agent-fixable`, `partially-fixable`, or `needs-human`, and delivers eligible issues to production via inline `/goal-deliver` calls, one issue at a time in dependency order. The supervisor holds no durable context — every pass reconstructs its working state from disk and GitHub, making context loss or compaction harmless.
 
 ### Operation model
 
-The supervisor is watched remotely via `/rc` (the human is a silent investor); it is **launched once** and runs indefinitely in multiple passes with backoff between passes, respecting circuit breakers (`--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`). Per-issue delivery is scoped to a single `goal-deliver` call (respecting the subagent nesting limit); the issue body, diff, tribunal work, and CI logs stay inside the `/goal-deliver` subagent's context and never flow back into the supervisor.
+The supervisor is watched remotely via `/rc` (the human is a silent investor). An
+external scheduler invokes one `--once` pass per tick and owns cadence/backoff; a
+foreground model turn is not a long-lived daemon. The supervisor runs one
+`/goal-deliver` inline per issue and retains mutation/merge ownership. Fresh bounded
+founder, implementation, QA, and tribunal roles return compact results without moving
+supervisor ownership into a nested `/goal-deliver` context.
 
 **Runs in a dedicated worktree.** The loop operates from `.worktrees/maintain` (a detached git worktree off the default-branch tip), never your primary checkout — so you can keep doing your own dev work in the main repo folder while it runs. The loop and your work meet only at GitHub (branches, PRs, `main`); its merge-safety re-validates if `main` moves under it. (`--dry-run` is read-only and creates no worktree.)
 
@@ -406,9 +411,9 @@ Start with `--dry-run` (read-only: classify issues, print the planned queue, the
 - `--max-issues N` — cap delivered issues per pass (default 10).
 - `--max-merges N` — cap merges per pass (default 5).
 - `--max-pass-minutes N` — wall-clock budget per pass (default 90 minutes).
-- `--max-run-minutes N` — total wall-clock budget across all passes (default 0 = unlimited).
+- `--max-run-minutes N` — optional wall-clock cap for this invocation (default 0 = no separate cap beyond the pass budget).
 
-The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues halt further merges that pass), or hard tribunal round ceiling (notify investor at round 3, hard-stop at round 5 per issue). Between passes, backoff ~5 minutes to avoid hot-spinning on an empty backlog.
+The supervisor also stops on deploy failure (unrecoverable infra/flaky issues halt further merges that pass) or the hard tribunal round ceiling (notify investor at round 3, hard-stop at round 5 per issue). The external scheduler owns cadence and backoff between `--once` invocations.
 
 ### Prerequisites and integration
 
@@ -429,7 +434,8 @@ The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues h
   commands. Long-running work is treated as alive when the heartbeat/logs advance.
 - **Authenticated `gh` (GitHub CLI)** and standard tooling: `bash` 4+, `git`, `jq`,
   `awk`, `sed`, OpenSSL, GNU coreutils `date`/`timeout`/`realpath`/`sha256sum`, and
-  util-linux `flock`, Python 3, and `tar`. The fresh Codex delivery gate uses Python
+  util-linux `flock`, `unshare`, and `setpriv`, GNU findutils, Python 3, and
+  `tar`. The fresh Codex delivery gate uses Python
   to seal preinstalled dependency trees before copying them into read-only check volumes.
 - **Codex sandbox support plus Docker CLI/socket access** from the dev container.
   Supervisor checks run from the sealed current dev-container image with private process
@@ -449,7 +455,14 @@ For each attempt it launches a fresh profile-pinned tech role in
 `.worktrees/maintain-loop`; that worker writes only the scoped source, tests, and any
 task-required canonical workflow-spec delta, then reports without staging, committing,
 or contacting GitHub. An issue counts as fixed only after supervisor-run QA and tribunal,
-a green deployment, and live Playwright verification.
+a green exact-SHA deployment, and helper-bound live verification. The live gate reuses the
+project's tracked `monitor.custom_checks` hook when it covers acceptance, otherwise a
+tracked structured smoke command.
+
+If a QA or live proof needs project runtime variables, set their names in the
+controller session before starting: `SAAS_MAINTAIN_QA_PROOF_ENV` or
+`SAAS_MAINTAIN_LIVE_PROOF_ENV`. Tracked project files cannot request ambient
+variables.
 
 Light attempts run semantic post-diff containment before any PR or remote mutation.
 When the diff requires deep work, the supervisor writes the versioned escalation
@@ -541,10 +554,11 @@ runs in each **product** repo.
 - Playwright MCP (`@playwright/mcp`) — automatically configured via plugin `.mcp.json`, runs headless
 - Web access enabled (for business founder's market research)
 - **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. Separate Codex writers are still confined to isolated, network-off `workspace-write`; the container is an additional boundary, not permission to use `danger-full-access`. Hooks also use `/proc/` for process-tree detection. Do not run it on a host machine.
-- **`jq`, `awk`, `sed`, `curl`, OpenSSL, GNU coreutils (`timeout`, `realpath`, `sha256sum`),
-  `flock` (util-linux), and `python3`** — required by hook scripts,
+- **`jq`, `awk`, `sed`, `curl`, OpenSSL, GNU coreutils (`timeout`, `realpath`, `readlink`, `stat`, `sha256sum`),
+  `flock`, `unshare`, and `setpriv` (util-linux), GNU findutils, and `python3`** — required by hook scripts,
   JSON validation, monitor/lawyer workflows, preflight checks, Codex marketplace sync, and
   datalake API checks.
+- **Linux Landlock ABI 5–10** — required for fail-closed filesystem containment of tracked QA and live-proof commands.
 - **est-saas-datalake API (required for `/lawyer`)** — the Lawyer's Estonian legal analysis and law-change monitoring query an external est-saas-datalake service. Two environment variables control access:
   - `DATALAKE_URL` — API base URL. Defaults to `https://datalake.r-53.com`; export it to point `/lawyer` (command, agent, and `scripts/lawyer-*.sh`) at your own datalake deployment.
   - `EST_DATALAKE_API_KEY` — API key sent as the `X-API-Key` header. **Required** — `/lawyer` pre-flight hard-fails if it is unset. Set it with `export EST_DATALAKE_API_KEY=your-key`.

@@ -32,8 +32,9 @@ The guard's authenticated active marker disables PostToolUse artifact auto-commi
 the worker runs, so HEAD cannot advance between snapshot and verification. Successful
 verification also imports the preflighted, privacy-safe event receipts before removing
 the marker; an authenticated import marker makes interrupted batches resumable without
-re-accepting product mutations. On rejection, leave the active marker in place until the
-supervisor cleans the isolated attempt. After verification and, for a tech phase, after the gated
+re-accepting product mutations. Verification retires the active marker on every terminal
+success or rejection; the authenticated snapshot remains as evidence, and a rejected
+isolated attempt is reset before any fresh guard. After verification and, for a tech phase, after the gated
 product commit, replay the deferred deterministic hooks: run `index-handoff.sh` for an
 exact new handoff, then `compact-state.sh`; run `auto-learn.sh` and route any returned
 learning write through a fresh exact-path artifact guard. In an artifact-only business

@@ -38,7 +38,7 @@ assert_exit_code() {
 assert_output_contains() {
   local label="$1" output="$2" expected="$3"
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if echo "$output" | grep -qF "$expected"; then
+  if grep -qF -- "$expected" <<< "$output"; then
     echo -e "  ${GREEN}PASS${NC} $label"
     PASS_COUNT=$((PASS_COUNT + 1))
   else
@@ -51,7 +51,7 @@ assert_output_contains() {
 assert_output_not_contains() {
   local label="$1" output="$2" unexpected="$3"
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if echo "$output" | grep -qF "$unexpected"; then
+  if grep -qF -- "$unexpected" <<< "$output"; then
     echo -e "  ${RED}FAIL${NC} $label (output unexpectedly contains: '$unexpected')"
     FAIL_COUNT=$((FAIL_COUNT + 1))
     FAILURES+=("$label: output unexpectedly contains '$unexpected'")
@@ -200,7 +200,7 @@ run_in_dir() {
 test_check_task_complete() {
   echo -e "\n${CYAN}Suite B: check-task-complete.sh${NC}"
   local script="$PLUGIN_ROOT/scripts/check-task-complete.sh"
-  local workdir ec output
+  local workdir ec output real_git fake_bin
 
   # B1: empty JSON → exit 0
   workdir=$(make_workdir)
@@ -1006,6 +1006,7 @@ test_plugin_issues() {
   echo -e "\n${CYAN}Suite J: plugin-issue reporting via GitHub${NC}"
 
   # J1: the template file is gone from plugin root
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
   if [[ ! -f "$PLUGIN_ROOT/PLUGIN_ISSUES.md" ]]; then
     echo -e "  ${GREEN}PASS${NC} J1: PLUGIN_ISSUES.md removed from plugin root"
     PASS_COUNT=$((PASS_COUNT + 1))
@@ -1025,6 +1026,7 @@ test_plugin_issues() {
   done
 
   # J-bootstrap: bootstrap no longer seeds .startup/PLUGIN_ISSUES.md
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
   if ! grep -q "PLUGIN_ISSUES" "$PLUGIN_ROOT/commands/bootstrap.md"; then
     echo -e "  ${GREEN}PASS${NC} J-bootstrap: bootstrap.md no longer seeds PLUGIN_ISSUES.md"
     PASS_COUNT=$((PASS_COUNT + 1))
@@ -1034,6 +1036,7 @@ test_plugin_issues() {
   fi
 
   # J-startup: startup no longer seeds .startup/PLUGIN_ISSUES.md either
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
   if ! grep -q "PLUGIN_ISSUES" "$PLUGIN_ROOT/commands/startup.md"; then
     echo -e "  ${GREEN}PASS${NC} J-startup: startup.md no longer seeds PLUGIN_ISSUES.md"
     PASS_COUNT=$((PASS_COUNT + 1))
@@ -1116,9 +1119,17 @@ test_maintain() {
   assert_file_contains "M45a: maintain uses queue builder" "$cmd" "maintain-queue.sh"
   assert_file_contains "M45a1: maintain checks queue builder exit" "$cmd" "if ! QUEUE_JSON="
   assert_file_contains "M45a2: maintain dry-run uses fixture queue state" "$cmd" "--issues-file <issues.json>"
+  assert_file_contains "M45a3: maintain acquires the compatibility lease bridge" "$cmd" "--mode maintain"
+  assert_file_contains "M45a4: maintain consumes stale blocked-label cleanup" "$cmd" ".cleanup.stale_maintain_blocked"
+  assert_file_contains "M45a5: maintain uses foreground lease-set hold" "$cmd" 'maintain-leases.sh" hold'
+  assert_file_contains "M45a6: maintain bounds foreground lease lifetime" "$cmd" '--max-seconds 14400'
+  assert_file_contains "M45a7: maintain keeps authenticated delivery in one host shell" "$cmd" \
+    "one continuous host"
+  assert_file_contains "M45a8: maintain invalidates receipts after shell loss" "$cmd" \
+    "A lost shell invalidates"
 
   # Queue builder regression: no-dependency issues must survive dependency parsing.
-  local queue_script issues_file prs_file blocked_file bad_blocked_file bad_blocked_err dep_issues_file dep_status_file serial_dep_issues_file serial_dep_status_file closed_issues_file fake_bin live_out repo_live_out closed_status closed_err missing_status missing_err fixture_closed_status fixture_closed_err zero_status zero_err bad_blocked_status out filtered single_issue cooled dep_out serial_dep_out queue_numbers
+  local queue_script issues_file prs_file blocked_file active_blocked_file expired_blocked_file legacy_blocked_file bad_blocked_file bad_blocked_err dep_issues_file dep_status_file serial_dep_issues_file serial_dep_status_file closed_issues_file fake_bin live_out repo_live_out closed_status closed_err missing_status missing_err fixture_closed_status fixture_closed_err zero_status zero_err bad_blocked_status out filtered single_issue cooled active_blocked expired_blocked dual_blocked dep_out serial_dep_out queue_numbers live_repo gh_calls unbound_dir unbound_status unbound_err
   queue_script="$PLUGIN_ROOT/scripts/maintain-queue.sh"
   assert_file_exists "M45b: queue builder script exists" "$queue_script"
   assert_file_contains "M45b1: queue builder fetches linked PR refs" "$queue_script" "closedByPullRequestsReferences"
@@ -1214,6 +1225,14 @@ test_maintain() {
     "labels": [{"name": "medium"}],
     "createdAt": "2026-01-10T00:00:00Z",
     "updatedAt": "2026-01-10T00:00:00Z"
+  },
+  {
+    "number": 112,
+    "title": "Linked by GitHub closing reference",
+    "body": "No dependency markers.",
+    "labels": [{"name": "high"}],
+    "createdAt": "2026-01-11T00:00:00Z",
+    "updatedAt": "2026-01-11T00:00:00Z"
   }
 ]
 JSON
@@ -1223,32 +1242,44 @@ JSON
     "number": 20,
     "title": "Fix linked issue",
     "body": "Closes #103",
-    "closingIssuesReferences": [{"number": 103}]
+    "closingIssuesReferences": []
   },
   {
     "number": 21,
     "title": "WIP for #109",
     "body": "Implementation notes only; no closing keyword.",
     "closingIssuesReferences": []
+  },
+  {
+    "number": 22,
+    "title": "Fix through GitHub reference",
+    "body": "No textual issue reference.",
+    "closingIssuesReferences": [{"number": 112}]
   }
 ]
 JSON
   out=$(bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file")
   queue_numbers=$(jq -r '.queue[].number' <<<"$out")
   assert_equals "M45c: queue preserves no-dependency issues and orders by severity" \
-    "$queue_numbers" $'102\n110\n111\n108\n101'
+    "$queue_numbers" $'102\n109\n110\n111\n108\n101\n106'
   assert_equals "M45d: no-dependency issue has empty deps" \
     "$(jq -r '.queue[] | select(.number == 101) | (.deps | length)' <<<"$out")" "0"
-  assert_equals "M45e: linked open PR is excluded" \
+  assert_equals "M45e: explicit closing keyword excludes open PR" \
     "$(jq -r '.excluded.linked_pr | index(103) != null' <<<"$out")" "true"
-  assert_equals "M45e2: ambiguous open PR mention is excluded" \
-    "$(jq -r '.excluded.linked_pr | index(109) != null' <<<"$out")" "true"
+  assert_equals "M45e1: GitHub closing reference excludes open PR" \
+    "$(jq -r '.excluded.linked_pr | index(112) != null' <<<"$out")" "true"
+  assert_equals "M45e2: bare open PR mention remains eligible" \
+    "$(jq -r '.queue | map(.number) | index(109) != null' <<<"$out")" "true"
+  assert_equals "M45e3: bare open PR mention is not a linked PR" \
+    "$(jq -r '.excluded.linked_pr | index(109) == null' <<<"$out")" "true"
   assert_equals "M45f: explicit dependencies defer dependent issue" \
     "$(jq -r '.excluded.dependency_wait[] | select(.number == 104) | (.deps | join(","))' <<<"$out")" "101,102"
   assert_equals "M45g: needs-human label is excluded" \
     "$(jq -r '.excluded.needs_human | index(105) != null' <<<"$out")" "true"
-  assert_equals "M45h: maintain:blocked label is excluded" \
-    "$(jq -r '.excluded.maintain_blocked | index(106) != null' <<<"$out")" "true"
+  assert_equals "M45h: blocked label without durable cooldown remains eligible" \
+    "$(jq -r '.queue | map(.number) | index(106) != null' <<<"$out")" "true"
+  assert_equals "M45h1: blocked label without durable cooldown requests cleanup" \
+    "$(jq -r '.cleanup.stale_maintain_blocked | index(106) != null' <<<"$out")" "true"
   assert_equals "M45i: epic label is excluded" \
     "$(jq -r '.excluded.epic | index(107) != null' <<<"$out")" "true"
   assert_equals "M45j: all open issues are accounted for" \
@@ -1301,6 +1332,29 @@ JSON
   cooled=$(bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" --blocked-file "$blocked_file")
   assert_equals "M45n: blocked-file cooldown excludes issue" \
     "$(jq -r '.excluded.cooldown | index(101) != null' <<<"$cooled")" "true"
+  active_blocked_file="$workdir/active-blocked.jsonl"
+  printf '%s\n' '{"number":106,"reason":"cooldown","cooldown_until":"2099-01-01T00:00:00Z"}' > "$active_blocked_file"
+  active_blocked=$(bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" --blocked-file "$active_blocked_file")
+  assert_equals "M45n1: active durable cooldown excludes blocked-labelled issue" \
+    "$(jq -r '.excluded.cooldown | index(106) != null' <<<"$active_blocked")" "true"
+  assert_equals "M45n2: active blocked label is not stale" \
+    "$(jq -r '.cleanup.stale_maintain_blocked | index(106) == null' <<<"$active_blocked")" "true"
+  expired_blocked_file="$workdir/expired-blocked.jsonl"
+  printf '%s\n' '{"number":106,"reason":"cooldown","cooldown_until":"2026-01-01T00:00:00Z"}' > "$expired_blocked_file"
+  expired_blocked=$(MAINTAIN_QUEUE_NOW=2026-01-02T00:00:00Z bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" --blocked-file "$expired_blocked_file")
+  assert_equals "M45n3: expired durable cooldown restores eligibility" \
+    "$(jq -r '.queue | map(.number) | index(106) != null' <<<"$expired_blocked")" "true"
+  assert_equals "M45n4: expired durable cooldown requests blocked-label cleanup" \
+    "$(jq -r '.cleanup.stale_maintain_blocked | index(106) != null' <<<"$expired_blocked")" "true"
+  legacy_blocked_file="$workdir/legacy-blocked.jsonl"
+  printf '%s\n' '{"number":106,"reason":"legacy cooldown","cooldown_until":"2099-01-01T00:00:00Z"}' > "$legacy_blocked_file"
+  dual_blocked=$(MAINTAIN_QUEUE_NOW=2026-01-02T00:00:00Z bash "$queue_script" \
+    --issues-file "$issues_file" --open-prs-file "$prs_file" \
+    --blocked-file "$expired_blocked_file" --blocked-file "$legacy_blocked_file")
+  assert_equals "M45n5: active legacy cooldown survives dual-read migration" \
+    "$(jq -r '.excluded.cooldown | index(106) != null' <<<"$dual_blocked")" "true"
+  assert_equals "M45n6: active legacy cooldown prevents stale-label cleanup" \
+    "$(jq -r '.cleanup.stale_maintain_blocked | index(106) == null' <<<"$dual_blocked")" "true"
   bad_blocked_file="$workdir/bad-blocked.jsonl"
   bad_blocked_err="$workdir/bad-blocked.err"
   printf '%s\n' '{"number":101,"reason":"cooldown","cooldown_until":"2099-01-01T00:00:00Z"}' 'not-json' > "$bad_blocked_file"
@@ -1308,8 +1362,16 @@ JSON
   bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" --blocked-file "$bad_blocked_file" > /dev/null 2> "$bad_blocked_err"
   bad_blocked_status=$?
   set -e
-  assert_exit_code "M45n1: malformed blocked-file fails loudly" "$bad_blocked_status" 3
-  assert_file_contains "M45n2: malformed blocked-file names file" "$bad_blocked_err" "invalid blocked file: $bad_blocked_file"
+  assert_exit_code "M45n7: malformed blocked-file fails loudly" "$bad_blocked_status" 3
+  assert_file_contains "M45n8: malformed blocked-file names file" "$bad_blocked_err" "invalid blocked file: $bad_blocked_file"
+  printf '%s\n' '{"number":101,"cooldown_until":"2099-01-01T00:00:00Z"}' > "$bad_blocked_file"
+  set +e
+  bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" \
+    --blocked-file "$bad_blocked_file" > /dev/null 2> "$bad_blocked_err"
+  bad_blocked_status=$?
+  set -e
+  assert_exit_code "M45n9: parseable but invalid cooldown schema fails before queue cleanup" \
+    "$bad_blocked_status" 3
   dep_issues_file="$workdir/dependency-issues.json"
   dep_status_file="$workdir/dependency-status.json"
   cat > "$dep_issues_file" <<'JSON'
@@ -1378,9 +1440,13 @@ JSON
     "$(jq -r '.excluded.dependency_wait[] | select(.number == 204) | (.deps | join(","))' <<<"$serial_dep_out")" "202,205"
   fake_bin="$workdir/bin"
   mkdir -p "$fake_bin"
-  cat > "$fake_bin/gh" <<'SH'
+cat > "$fake_bin/gh" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+for name in GH_REPO GH_HOST GH_CONFIG_DIR; do
+  [ "${!name+x}" != x ] || { printf 'poisoned queue gh environment: %s\n' "$name" >&2; exit 90; }
+done
+printf '%s\n' "$*" >> "$GH_QUEUE_CALLS"
 case "$1 $2" in
   "issue list")
     cat <<'JSON'
@@ -1401,9 +1467,6 @@ JSON
     printf '[]\n'
     ;;
   "repo view")
-    for arg in "$@"; do
-      [ "$arg" = "--repo" ] && exit 42
-    done
     printf 'main\n'
     ;;
   "issue view")
@@ -1431,16 +1494,42 @@ JSON
     ;;
 esac
 SH
-  chmod +x "$fake_bin/gh"
-  live_out=$(PATH="$fake_bin:$PATH" bash "$queue_script")
+  chmod 755 "$fake_bin/gh"
+  live_repo="$workdir/live-repo"; gh_calls="$workdir/queue-gh-calls"
+  unbound_dir="$workdir/unbound"; unbound_err="$workdir/unbound.err"; mkdir "$unbound_dir"
+  : > "$gh_calls"; unbound_status=0
+  (cd "$unbound_dir" && GH_QUEUE_CALLS="$gh_calls" PATH="$fake_bin:$PATH" \
+    bash "$queue_script" > /dev/null 2> "$unbound_err") || unbound_status=$?
+  assert_exit_code "M45o3: an implicit live query without canonical origin fails closed" \
+    "$unbound_status" 3
+  assert_file_contains "M45o4: unbound live query requests an explicit repository" \
+    "$unbound_err" 'pass --repo OWNER/REPO'
+  assert_equals "M45o5: repository resolution fails before any gh query" \
+    "$(wc -l < "$gh_calls" | tr -d ' ')" 0
+  git -C "$workdir" init -q -b main live-repo
+  git -C "$live_repo" remote add origin git@github.com:owner/implicit-repo.git
+  live_out=$(cd "$live_repo" && GH_QUEUE_CALLS="$gh_calls" GH_REPO=attacker/wrong \
+    GH_HOST=attacker.invalid GH_CONFIG_DIR="$workdir/attacker-config" \
+    PATH="$fake_bin:$PATH" bash "$queue_script")
   assert_equals "M45p: live gh dependency lookup marks closed PR-backed prerequisite satisfied" \
     "$(jq -r '.queue[].number' <<<"$live_out")" "201"
-  repo_live_out=$(PATH="$fake_bin:$PATH" bash "$queue_script" --repo owner/repo)
+  assert_equals "M45p1: implicit live queries bind every gh call to canonical remote.origin" \
+    "$(awk '$1=="repo" && $2=="view" {if ($3!="owner/implicit-repo") bad=1; next}
+      index($0,"--repo github.com/owner/implicit-repo")==0 {bad=1}
+      END {print (NR>0 && !bad ? "true" : "false")}' "$gh_calls")" true
+  : > "$gh_calls"
+  repo_live_out=$(GH_QUEUE_CALLS="$gh_calls" GH_REPO=attacker/wrong GH_HOST=attacker.invalid \
+    PATH="$fake_bin:$PATH" bash "$queue_script" --repo owner/repo)
   assert_equals "M45p2: live --repo default-branch lookup uses gh repo view owner/repo" \
     "$(jq -r '.queue[].number' <<<"$repo_live_out")" "201"
+  assert_equals "M45p3: explicit live queries bind every gh call to --repo" \
+    "$(awk '$1=="repo" && $2=="view" {if ($3!="owner/repo") bad=1; next}
+      index($0,"--repo github.com/owner/repo")==0 {bad=1}
+      END {print (NR>0 && !bad ? "true" : "false")}' "$gh_calls")" true
   closed_err="$workdir/closed.err"
   set +e
-  PATH="$fake_bin:$PATH" bash "$queue_script" --issue 202 > /dev/null 2> "$closed_err"
+  GH_QUEUE_CALLS="$gh_calls" PATH="$fake_bin:$PATH" bash "$queue_script" \
+    --repo owner/repo --issue 202 > /dev/null 2> "$closed_err"
   closed_status=$?
   set -e
   assert_exit_code "M45q: explicit closed issue fails loudly" "$closed_status" 3
@@ -1505,12 +1594,19 @@ SH
 
 test_maintain_loop() {
   echo -e "\n${CYAN}== /maintain-loop command ==${NC}"
-  local cmd="$PLUGIN_ROOT/references/workflows/maintain-loop.md"
+  local router="$PLUGIN_ROOT/references/workflows/maintain-loop.md"
+  local cmd="$PLUGIN_ROOT/references/workflows/maintain-loop-protocol.md"
   local codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-loop-workflow/SKILL.md"
+  local leases="$PLUGIN_ROOT/scripts/maintain-leases.sh"
+  local attempt="$PLUGIN_ROOT/scripts/maintain-attempt.sh"
+  local delivery="$PLUGIN_ROOT/scripts/maintain-delivery.sh"
+  local proof_contract="$PLUGIN_ROOT/references/workflows/maintain-proof-contract.md"
 
-  assert_file_exists "ML1: maintain-loop.md exists" "$cmd"
-  assert_file_contains "ML2: name frontmatter" "$cmd" "name: maintain-loop"
-  assert_file_contains "ML3: user_invocable" "$cmd" "user_invocable: true"
+  assert_file_exists "ML1: maintain-loop.md exists" "$router"
+  assert_file_exists "ML1a: maintain-loop protocol exists" "$cmd"
+  assert_file_contains "ML1b: router loads protocol on demand" "$router" "Never read that file wholesale"
+  assert_file_contains "ML2: name frontmatter" "$router" "name: maintain-loop"
+  assert_file_contains "ML3: user_invocable" "$router" "user_invocable: true"
   assert_file_contains "ML4: worker is fresh tech-founder" "$cmd" '--role tech-founder --profile "$PROFILE"'
   assert_file_not_contains "ML5: no composite maintain-loop supervisor launch" "$cmd" '--role maintain-loop-supervisor'
   assert_file_contains "ML6: supervisor is sole delivery mutation owner" "$cmd" "only delivery-state mutation owner"
@@ -1525,25 +1621,54 @@ test_maintain_loop() {
   assert_file_contains "ML15: default branch is resolved, not assumed" "$cmd" "default-branch.sh"
   assert_file_contains "ML16: dedicated worktree" "$cmd" ".worktrees/maintain-loop"
   assert_file_contains "ML17: run id initialized by event library" "$cmd" 'agent-events.sh" new-run-id'
-  assert_file_contains "ML18: pass lease acquired" "$cmd" "--acquire maintain-loop:pass"
-  assert_file_contains "ML19: worktree lease acquired" "$cmd" '--acquire "$WT_KEY"'
-  assert_file_contains "ML20: pass owner persists" "$cmd" 'PASS_OWNER="$LEASE_DIR/.owners/maintain-loop-pass-$RUN_ID.owner"'
-  assert_file_contains "ML21: worktree owner persists" "$cmd" 'WT_OWNER="$LEASE_DIR/.owners/maintain-loop-worktree-$RUN_ID.owner"'
-  assert_file_contains "ML22: lease guardian crosses shell PIDs" "$cmd" 'lease-guardian.sh" start'
-  assert_file_contains "ML23: heartbeat failure is fail-closed" "$cmd" "HEARTBEAT_FAILED"
-  assert_file_contains "ML24: guardian state persists beyond setup shell" "$cmd" 'GUARDIAN_PID_FILE='
-  assert_file_contains "ML25: one-shot shell traps are not trusted" "$cmd" 'Never rely on shell variables or traps surviving a Bash tool call'
-  assert_file_contains "ML26: worktree lease released" "$cmd" '--release "$WT_KEY"'
-  assert_file_contains "ML27: pass lease released" "$cmd" "--release maintain-loop:pass"
-  assert_file_contains "ML28: stale replacement requires reason" "$cmd" "--replace-stale --reason"
+  assert_file_contains "ML18: compatibility lease bridge is acquired" "$cmd" '--mode maintain-loop'
+  assert_file_contains "ML18a: shared pass key is explicit in the bridge" "$leases" 'maintain-delivery:pass'
+  assert_file_contains "ML18b: lease state uses git common directory" "$cmd" 'LEASE_STATE="$GIT_COMMON/'
+  assert_file_contains "ML18c: maintain-loop bounds foreground lease lifetime" "$cmd" '--max-seconds 14400'
+  assert_file_contains "ML18d: run state is activated by the lease helper" "$cmd" \
+    'maintain-leases.sh" activate'
+  assert_file_contains "ML19: bridge acquisition includes worktree identity" "$cmd" '--worktree "$WT"'
+  assert_file_contains "ML20: bridge persists every owner identity" "$leases" 'owner_file:$owner_file'
+  assert_file_contains "ML21: worktree owner uses a separate binding" "$leases" 'kinds+=(worktree)'
+  assert_file_contains "ML22: foreground lease-set holder wraps long work" "$cmd" 'maintain-leases.sh" hold'
+  assert_file_contains "ML23: heartbeat failure is fail-closed" "$cmd" "terminates the child"
+  assert_file_not_contains "ML24: workflow does not rely on daemon guardian" "$cmd" 'lease-guardian.sh" start'
+  assert_file_not_contains "ML24a: workflow does not check daemon state" "$cmd" 'lease-guardian.sh" check'
+  assert_file_not_contains "ML24b: workflow does not stop daemon state" "$cmd" 'lease-guardian.sh" stop'
+  assert_file_contains "ML25: foreground holder is never backgrounded" "$cmd" 'Never background it'
+  assert_file_contains "ML26: one cleanup releases the worktree lease" "$cmd" 'maintain-leases.sh" cleanup'
+  assert_file_contains "ML27: cleanup uses persisted lease state" "$cmd" '--state-file "$LEASE_STATE"'
+  assert_file_contains "ML28: malformed or future pass stops delivery" "$cmd" "future-dated lease stops"
   assert_file_contains "ML29: maintain-loop uses queue builder" "$cmd" "maintain-queue.sh"
   assert_file_contains "ML30: unexplained empty queue fails" "$cmd" "otherwise fail"
+  assert_file_contains "ML30a: stale blocked labels are cleaned" "$cmd" ".cleanup.stale_maintain_blocked"
+  assert_file_contains "ML30b: worktree reset is quiet" "$attempt" 'clean -ffdx -q'
+  assert_file_contains "ML30c: worktree reset verifies exact HEAD" "$cmd" 'rev-parse HEAD)" = "$BASE_SHA"'
+  assert_file_contains "ML30d: worktree reset diagnostics are bounded" "$attempt" "sed -n '1,20p'"
+  assert_file_contains "ML30e: named helpers are not eagerly read" "$cmd" "Do not read helper"
+  assert_file_contains "ML30f: reset proves the persisted lease identity" "$cmd" \
+    '--lease-state "$LEASE_STATE" --run-id "$RUN_ID"'
   assert_file_contains "ML31: autonomous semantic router" "$cmd" "delivery-route.sh classify --mode autonomous"
   assert_file_contains "ML32: autonomous light rejects UI" "$cmd" 'requires `ui_touch=false`'
   assert_file_contains "ML33: one task file per attempt" "$cmd" "issue-<N>-attempt-<A>.md"
   assert_file_contains "ML34: task text excluded from events" "$cmd" "Do not put issue text or the prompt in events"
-  assert_file_contains "ML35: supervisor launches from worktree" "$cmd" '(cd "$WT" && env SAAS_RUN_ID='
-  assert_file_contains "ML36: writer sandbox is fixed workspace-write" "$cmd" 'CODEX_SANDBOX=workspace-write'
+  assert_file_contains "ML34a: clean base uses tested canonical gate helper" "$cmd" \
+    'maintain-attempt.sh" base-check'
+  assert_file_contains "ML34b: clean-base pass is protected in common Git state" "$cmd" \
+    'protected common-Git runtime'
+  assert_file_contains "ML34c: red base stops before worker attribution" "$cmd" \
+    "is not attributed to"
+  assert_file_contains "ML34d: base failure evidence is bounded" "$cmd" \
+    "bounded summary"
+  assert_file_contains "ML35: source transaction targets assigned worktree" "$cmd" '--repo-root "$WT"'
+  assert_file_contains "ML35a: writer transaction receives persisted lease set" "$cmd" '--lease-state "$LEASE_STATE"'
+  assert_file_contains "ML35b: authenticated attempt stays in one host process" "$cmd" \
+    "source transaction interface"
+  assert_file_contains "ML35c: authenticated shell reaches full check and commit" "$cmd" \
+    'full commit gate'
+  assert_file_contains "ML35d: lost authenticated shell forces a fresh receipt" "$cmd" \
+    "retry from a new"
+  assert_file_contains "ML36: writer sandbox is fixed workspace-write" "$attempt" 'CODEX_SANDBOX=workspace-write'
   assert_file_not_contains "ML37: no direct unpinned Codex launch" "$cmd" 'codex exec'
   assert_file_contains "ML38: supervisor checks worker HEAD boundary" "$cmd" "HEAD, branch, index, refs"
   assert_file_contains "ML39: worker-authored commits rejected" "$cmd" "all worker-authored commits"
@@ -1551,45 +1676,46 @@ test_maintain_loop() {
   assert_file_contains "ML41: only isolated supervisor path stages" "$cmd" 'only `supervisor-commit.sh` stages the accepted candidate'
   assert_file_contains "ML42: working-tree post-diff containment" "$cmd" 'check-diff --base "$BASE_SHA"'
   assert_file_not_contains "ML42b: containment does not stage on the host" "$cmd" '--base "$BASE_SHA" --cached'
-  assert_file_contains "ML42c: source writer opens an exact mutation guard" "$cmd" '--snapshot "$ROLE_GUARD"'
-  assert_file_contains "ML42d: source writer guard is verified after exit" "$cmd" '--verify "$ROLE_GUARD"'
+  assert_file_contains "ML42c: source writer opens an exact mutation guard" "$attempt" '--snapshot "$role_guard"'
+  assert_file_contains "ML42d: source writer guard is verified after exit" "$attempt" '--verify "$role_guard"'
   assert_file_contains "ML43: light continuation needs non-UI light diff" "$cmd" 'and `ui_touch=false`'
   assert_file_contains "ML44: escalation artifact is primary and attempt-specific" "$cmd" 'escalations/<RUN_ID>/issue-<N>-attempt-<A>.json'
-  assert_file_contains "ML45: escalation artifact is outside disposable worktree" "$cmd" "never placed in or deleted with the disposable worktree"
-  assert_file_contains "ML46: supervisor writes escalation artifact" "$cmd" "supervisor atomically writes"
+  assert_file_contains "ML45: escalation cleanup is model-free" "$cmd" "The model never writes or interprets cleanup facts"
+  assert_file_contains "ML46: cleanup helper owns escalation artifact" "$cmd" 'maintain-escalation.sh" cleanup'
   assert_file_contains "ML47: escalation verifies PR cleanup" "$cmd" "open_pr=false"
   assert_file_contains "ML48: escalation verifies remote cleanup" "$cmd" "remote_branch=false"
   assert_file_contains "ML49: escalation verifies base reset" "$cmd" "head_at_base=true"
   assert_file_contains "ML50: escalation verifies clean worktree" "$cmd" "worktree_clean=true"
-  assert_file_contains "ML51: missing escalation evidence blocks restart" "$cmd" "artifact exists, validates, and all four facts are true"
+  assert_file_contains "ML51: helper is sole deep restart authority" "$cmd" "is the sole restart authority"
   assert_file_contains "ML52: queue eligibility survives escalation" "$cmd" "Keep queue eligibility unchanged"
   assert_file_contains "ML53: deep restart is once only" "$cmd" "never perform another lower-to-deep restart"
-  assert_file_contains "ML54: supervisor owns gated commit" "$cmd" "supervisor-commit.sh --repo-root"
+  assert_file_contains "ML54: transaction invokes supervisor-owned gated commit" "$attempt" '--message "$message"'
   assert_file_contains "ML55: product hooks stay enabled" "$cmd" '--no-verify'
-  assert_file_contains "ML56: QA mutation boundary enforced" "$cmd" "delivery-mutation-guard.sh"
-  assert_file_contains "ML57: QA not-applicable marker" "$cmd" "Business-founder Playwright QA: not applicable"
+  assert_file_contains "ML56: QA mutation boundary enforced" "$delivery" "proof command changed the tracked candidate"
+  assert_file_contains "ML57: QA not-applicable is helper-derived" "$cmd" '`--not-applicable`'
   assert_file_contains "ML58: supervisor owns PR closure audit" "$cmd" "issue-closure-audit.sh"
-  assert_file_contains "ML59: supervisor owns tribunal" "$cmd" 'closing-tribunal-loop` from the supervisor'
+  assert_file_contains "ML59: supervisor owns initial tribunal arbitration" "$cmd" \
+    'tribunal-review:tribunal-loop` without rerunning'
   assert_file_contains "ML60: tribunal is read-only" "$cmd" "read-only"
   assert_file_contains "ML61: tribunal fixes return to writer" "$cmd" "needs source changes returns to a fresh tech-founder"
   assert_file_contains "ML62: concrete PR number required" "$cmd" 'concrete numeric `PR_NUMBER`'
   assert_file_contains "ML63: PR head SHA is independently matched" "$cmd" 'matching remote `headRefOid`'
   assert_file_contains "ML64: default ancestry required before merge" "$cmd" 'merge-base --is-ancestor "origin/$default" "$PR_HEAD_SHA"'
-  assert_file_contains "ML65: merge is supervisor-owned" "$cmd" 'gh pr merge "$PR_NUMBER"'
-  assert_file_contains "ML66: merged SHA must land on default" "$cmd" 'merge-base --is-ancestor "$MERGE_SHA" "origin/$default"'
-  assert_file_contains "ML67: deploy run is tied to merge SHA" "$cmd" '`headSha` equals `MERGE_SHA`'
-  assert_file_contains "ML68: deploy poll uses concrete run" "$cmd" 'poll-gate.sh --run "$DEPLOY_RUN_ID"'
+  assert_file_contains "ML65: merge is lifecycle-helper-owned" "$cmd" 'maintain-delivery.sh merge-pr --repo-root'
+  assert_file_contains "ML66: merged SHA must land on default" "$delivery" 'merge-base --is-ancestor "$merge_sha" "$default_sha"'
+  assert_file_contains "ML67: deploy run is tied to merge SHA" "$cmd" 'exact run completed successfully at the merge SHA'
+  assert_file_contains "ML68: deploy proof uses concrete run" "$cmd" 'numeric run ID'
   assert_file_contains "ML69: latest deploy is not trusted" "$cmd" 'never trust "latest"'
-  assert_file_contains "ML70: live QA requires timestamped assertions" "$cmd" "timestamped assertion evidence"
-  assert_file_contains "ML71: unresolved deploy/live blocks success" "$cmd" "Missing URL, mismatched SHA"
-  assert_file_contains "ML72: rollback gets deploy and live verification" "$cmd" "waits for the rollback-SHA deploy"
-  assert_file_contains "ML73: rollback never counts fixed" "$cmd" "increment the delivered count for a rolled-back"
-  assert_file_contains "ML74: result artifact lives in primary state" "$cmd" ".startup/maintain-loop/runs/<RUN_ID>/issue-<N>.md"
+  assert_file_contains "ML70: live QA requires timestamped assertions" "$proof_contract" '"observed_at": "<UTC-second-after-deploy>"'
+  assert_file_contains "ML71: caller deploy assertions cannot claim success" "$cmd" 'caller-authored SHA, digest, or pass fields are not inputs'
+  assert_file_contains "ML72: rollback gets deploy and live verification" "$cmd" 'rollback-SHA `record-proof --kind live`'
+  assert_file_contains "ML73: rollback never counts fixed" "$cmd" "increment delivered count for a rolled-back"
+  assert_file_contains "ML74: result artifact lives in primary state" "$cmd" ".startup/maintain-loop/runs/<origin-RUN_ID>/issue-<N>.md"
   assert_file_contains "ML75: result binds PR head SHA" "$cmd" "pr_head_sha:<sha>"
   assert_file_contains "ML76: result binds merge SHA" "$cmd" "merge_sha:<sha>"
   assert_file_contains "ML77: result binds tribunal SHA" "$cmd" 'verdict SHA equal to `pr_head_sha`'
   assert_file_contains "ML78: result binds deploy SHA" "$cmd" 'head SHA equal to `merge_sha`'
-  assert_file_contains "ML79: evidence is re-queried before fixed/count/event" "$cmd" 'independently re-query those facts before writing `fixed:`'
+  assert_file_contains "ML79: evidence is re-queried before fixed/count/event" "$cmd" 'independently re-query those facts before putting `fixed:`'
   assert_file_contains "ML80: no-op emits no worker event" "$cmd" "emit no worker event"
   assert_file_contains "ML81: once sets one-issue cap" "$cmd" 'MAX_ISSUES=1'
   assert_file_contains "ML82: default max-issues is uncapped" "$cmd" "unset means no issue-count cap"
@@ -1867,6 +1993,35 @@ test_check_staged_size() {
   : > "$workdir/big.bin"   # working tree now 0 bytes; index still holds the 2 MB blob
   ec=0; output=$(cd "$workdir" && STARTUP_MAX_STAGED_MB=1 bash "$script" 2>&1) || ec=$?
   assert_exit_code "G10: sizes the staged blob, not the working tree" "$ec" 1
+  rm -rf "$workdir"
+
+  workdir=$(mktemp -d); git init -q "$workdir"
+  (cd "$workdir" && git config user.email t@t.t && git config user.name t)
+  printf 'candidate\n' > "$workdir/README.md"; git -C "$workdir" add README.md
+  fake_bin="$workdir/fake-bin"; mkdir "$fake_bin"; real_git=$(command -v git)
+  cat > "$fake_bin/git" <<'SH'
+#!/usr/bin/env bash
+is_diff=0; is_cached=0; is_names=0; is_z=0
+for arg in "$@"; do
+  [ "$arg" != diff ] || is_diff=1
+  [ "$arg" != --cached ] || is_cached=1
+  [ "$arg" != --name-only ] || is_names=1
+  [ "$arg" != -z ] || is_z=1
+done
+if [ "$is_diff$is_cached$is_names$is_z" = 1111 ]; then
+  printf 'README.md\0'
+  exit 73
+fi
+exec "$REAL_GIT" "$@"
+SH
+  chmod +x "$fake_bin/git"
+  ec=0; output=$(cd "$workdir" && REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
+    bash "$script" 2>&1) || ec=$?
+  assert_exit_code "G11: partial staged inventory fails closed" "$ec" 1
+  assert_output_contains "G11a: staged inventory failure is explicit" "$output" \
+    'Cannot inspect the staged path inventory'
+  assert_file_not_contains "G11b: staged inventory avoids process-substitution status loss" \
+    "$script" 'done < <(git diff'
   rm -rf "$workdir"
 }
 
@@ -4816,7 +4971,7 @@ test_autonomous_demand_infra() {
   local demand="$PLUGIN_ROOT/scripts/demand-discovery.sh"
   local market="$PLUGIN_ROOT/scripts/market-scout.sh"
   local closure="$PLUGIN_ROOT/scripts/issue-closure-audit.sh"
-  local workdir ec output count
+  local workdir ec output count fault_bin real_mktemp real_sort real_tr
 
   assert_file_exists "AD1: health-preflight exists" "$health"
   assert_file_exists "AD2: single-flight exists" "$lease"
@@ -5098,31 +5253,306 @@ JSON
 {"title":"fix: covered-stub selection","body":"Closes #55\n\n## Changes\nFrontend default selection only."}
 JSON
   cat > "$workdir/issue.json" <<'JSON'
-{"number":55,"title":"Use actual prior dates","body":"Acceptance requires `backend/app/services/xbrl_generator.py` and `frontend/step2.tsx`.","comments":[{"body":"Also check `backend/app/services/pdf_renderer.py` labels."}]}
+{"number":55,"state":"OPEN","title":"Use actual prior dates","body":"Acceptance requires `backend/app/services/xbrl_generator.py` and `frontend/step2.tsx`.\nClosure-Audit-Split: #55 backend/app/services/pdf_renderer.py -> #56\nClosure-Audit-Split: #55 backend/app/services/xbrl_generator.py -> #56","comments":[{"body":"Also check `backend/app/services/pdf_renderer.py` labels."}]}
+JSON
+  cat > "$workdir/issue-followup.json" <<'JSON'
+{"number":56,"state":"OPEN","title":"Complete deferred document rendering","body":"Track the explicitly split rendering acceptance.","comments":[]}
 JSON
   printf 'frontend/step2.tsx\n' > "$workdir/files.txt"
+  printf 'frontend/step2.tsx\nbackend/app/services/xbrl_generator.py\nbackend/app/services/pdf_renderer.py\n' > "$workdir/files-all.txt"
+  fault_bin="$workdir/fault-bin"; mkdir "$fault_bin"
+  real_mktemp=$(command -v mktemp); real_sort=$(command -v sort); real_tr=$(command -v tr)
+  cat > "$fault_bin/mktemp" <<'SH'
+#!/usr/bin/env bash
+[ "${CLOSURE_FAULT:-}" != mktemp ] || exit 73
+exec "$REAL_MKTEMP" "$@"
+SH
+  cat > "$fault_bin/sort" <<'SH'
+#!/usr/bin/env bash
+if [ "${CLOSURE_FAULT:-}" = audit-sort ] && [ "$*" = -nu ]; then exit 73; fi
+exec "$REAL_SORT" "$@"
+SH
+  cat > "$fault_bin/tr" <<'SH'
+#!/usr/bin/env bash
+[ "${CLOSURE_FAULT:-}" != path-tr ] || exit 73
+exec "$REAL_TR" "$@"
+SH
+  chmod +x "$fault_bin/mktemp" "$fault_bin/sort" "$fault_bin/tr"
+  ec=0; output=$(PATH="$fault_bin:$PATH" CLOSURE_FAULT=mktemp \
+    REAL_MKTEMP="$real_mktemp" REAL_SORT="$real_sort" REAL_TR="$real_tr" \
+    bash "$closure" --pr-json "$workdir/pr.json" --issue-json "$workdir/issue.json" \
+      --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD17d: audit workspace creation failure fails closed" "$ec" 1
+  assert_output_contains "AD17e: audit workspace failure is explicit" "$output" \
+    "cannot create private audit workspace"
+  ec=0; output=$(PATH="$fault_bin:$PATH" CLOSURE_FAULT=audit-sort \
+    REAL_MKTEMP="$real_mktemp" REAL_SORT="$real_sort" REAL_TR="$real_tr" \
+    bash "$closure" --pr-json "$workdir/pr.json" --audit-issue 55 \
+      --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD17f: issue normalization producer failure fails closed" "$ec" 1
+  assert_output_contains "AD17g: issue normalization failure is explicit" "$output" \
+    "cannot normalize audited issue numbers"
+  ec=0; output=$(PATH="$fault_bin:$PATH" CLOSURE_FAULT=path-tr \
+    REAL_MKTEMP="$real_mktemp" REAL_SORT="$real_sort" REAL_TR="$real_tr" \
+    bash "$closure" --pr-json "$workdir/pr.json" --issue-json "$workdir/issue.json" \
+      --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD17h: named-surface producer failure fails closure closed" "$ec" 1
+  assert_output_contains "AD17i: named-surface producer failure is explicit" "$output" \
+    "cannot extract named issue surfaces"
   ec=0; output=$(bash "$closure" --pr-json "$workdir/pr.json" --issue-json "$workdir/issue.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
   assert_exit_code "AD18: closure audit fails missing named surfaces" "$ec" 1
   assert_output_contains "AD18b: closure audit names missing backend path" "$output" "backend/app/services/xbrl_generator.py"
   cat > "$workdir/pr-ok.json" <<'JSON'
-{"title":"fix: covered-stub selection","body":"Closes #55\n\n## Closure audit\n#55 frontend scope shipped here; remaining scope has follow-up #56 for backend date emission."}
+{"title":"fix: covered-stub selection","body":"Closes #55\n\n## Closure audit\nClosure-Audit-Path: #55 backend/app/services/pdf_renderer.py | follow-up #56: PDF rendering acceptance remains separately tracked\nClosure-Audit-Path: #55 backend/app/services/xbrl_generator.py | follow-up #56: XBRL date emission remains separately tracked"}
 JSON
-  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-ok.json" --issue-json "$workdir/issue.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
-  assert_exit_code "AD19: closure audit accepts explicit follow-up" "$ec" 0
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-ok.json" \
+    --issue-json "$workdir/issue.json" --issue-json "$workdir/issue-followup.json" \
+    --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19: closure audit accepts an authorized OPEN follow-up" "$ec" 0
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-ok.json" \
+    --issue-json "$workdir/issue.json" --issue-json "$workdir/issue.json" \
+    --issue-json "$workdir/issue-followup.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19a0: duplicate issue fixtures fail closed" "$ec" 1
+  assert_output_contains "AD19a01: duplicate fixture refusal is explicit" "$output" \
+    "duplicate issue JSON for #55"
+  cat > "$workdir/issue-no-split-auth.json" <<'JSON'
+{"number":55,"state":"OPEN","title":"Use actual prior dates","body":"Acceptance requires `backend/app/services/xbrl_generator.py` and `frontend/step2.tsx`.","comments":[{"body":"Also check `backend/app/services/pdf_renderer.py` labels."}]}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-ok.json" \
+    --issue-json "$workdir/issue-no-split-auth.json" --issue-json "$workdir/issue-followup.json" \
+    --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19a02: PR mapping cannot invent split authorization" "$ec" 1
+  assert_output_contains "AD19a03: missing original authorization is explicit" "$output" \
+    "original issue #55 needs exactly one split authorization"
+  cat > "$workdir/pr-generic-override.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Closes #55\n\n## Closure audit\n#55 remaining scope has follow-up #56.\nRefs #55"}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-generic-override.json" --issue-json "$workdir/issue.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19aa: a generic closure heading cannot waive named surfaces" "$ec" 1
+  assert_output_contains "AD19ab: generic waiver failure names the exact missing path" "$output" \
+    "backend/app/services/xbrl_generator.py"
+  cat > "$workdir/pr-partial-override.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Closes #55\n\n## Closure audit\nClosure-Audit-Path: #55 backend/app/services/pdf_renderer.py | follow-up #56: PDF rendering acceptance remains separately tracked"}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-partial-override.json" \
+    --issue-json "$workdir/issue.json" --issue-json "$workdir/issue-followup.json" \
+    --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19ac: a per-path disposition cannot waive another path" "$ec" 1
+  assert_output_contains "AD19ad: partial disposition failure names the unbound path" "$output" \
+    "backend/app/services/xbrl_generator.py"
+  cat > "$workdir/pr-same-followup.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Closes #55\n\nClosure-Audit-Path: #55 backend/app/services/pdf_renderer.py | follow-up #55: PDF rendering acceptance remains separately tracked\nClosure-Audit-Path: #55 backend/app/services/xbrl_generator.py | follow-up #55: XBRL date emission remains separately tracked"}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-same-followup.json" \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19ae: original issue cannot be its own follow-up" "$ec" 1
+  assert_output_contains "AD19af: same-issue refusal is explicit" "$output" \
+    "must differ from original issue #55"
+  cat > "$workdir/issue-closed-followup-auth.json" <<'JSON'
+{"number":55,"state":"OPEN","title":"Use actual prior dates","body":"Acceptance requires `backend/app/services/xbrl_generator.py` and `frontend/step2.tsx`.\nClosure-Audit-Split: #55 backend/app/services/pdf_renderer.py -> #57\nClosure-Audit-Split: #55 backend/app/services/xbrl_generator.py -> #57","comments":[{"body":"Also check `backend/app/services/pdf_renderer.py` labels."}]}
+JSON
+  cat > "$workdir/issue-followup-closed.json" <<'JSON'
+{"number":57,"state":"CLOSED","title":"Deferred rendering","body":"No longer open.","comments":[]}
+JSON
+  cat > "$workdir/pr-closed-followup.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Closes #55\n\nClosure-Audit-Path: #55 backend/app/services/pdf_renderer.py | follow-up #57: PDF rendering acceptance remains separately tracked\nClosure-Audit-Path: #55 backend/app/services/xbrl_generator.py | follow-up #57: XBRL date emission remains separately tracked"}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-closed-followup.json" \
+    --issue-json "$workdir/issue-closed-followup-auth.json" \
+    --issue-json "$workdir/issue-followup-closed.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19ag: a closed follow-up cannot authorize closure" "$ec" 1
+  assert_output_contains "AD19ah: closed follow-up refusal requires OPEN state" "$output" \
+    "follow-up issue #57 is CLOSED, not OPEN"
+  cat > "$workdir/pr-duplicate-deferral.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Closes #55\n\nClosure-Audit-Path: #55 backend/app/services/pdf_renderer.py | follow-up #56: PDF rendering acceptance remains separately tracked\nClosure-Audit-Path: #55 backend/app/services/pdf_renderer.py | follow-up #56: PDF rendering acceptance remains separately tracked\nClosure-Audit-Path: #55 backend/app/services/xbrl_generator.py | follow-up #56: XBRL date emission remains separately tracked"}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-duplicate-deferral.json" \
+    --issue-json "$workdir/issue.json" --issue-json "$workdir/issue-followup.json" \
+    --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19ai: duplicate path deferrals fail closed" "$ec" 1
+  assert_output_contains "AD19aj: duplicate deferral refusal is explicit" "$output" \
+    "must appear exactly once"
+  cat > "$workdir/pr-malformed-deferral.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Closes #55\n\nClosure-Audit-Path: #55 backend/app/services/pdf_renderer.py | not applicable: PDF rendering is outside this change\nClosure-Audit-Path: #55 backend/app/services/xbrl_generator.py | covered by: existing date emission code"}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-malformed-deferral.json" \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19ak: non-follow-up dispositions cannot waive scope" "$ec" 1
+  assert_output_contains "AD19al: malformed deferral refusal is explicit" "$output" \
+    "must name one follow-up issue"
+  cat > "$workdir/issue-duplicate-auth.json" <<'JSON'
+{"number":55,"state":"OPEN","title":"Use actual prior dates","body":"Acceptance requires `backend/app/services/xbrl_generator.py` and `frontend/step2.tsx`.\nClosure-Audit-Split: #55 backend/app/services/pdf_renderer.py -> #56\nClosure-Audit-Split: #55 backend/app/services/pdf_renderer.py -> #56\nClosure-Audit-Split: #55 backend/app/services/xbrl_generator.py -> #56","comments":[{"body":"Also check `backend/app/services/pdf_renderer.py` labels."}]}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-ok.json" \
+    --issue-json "$workdir/issue-duplicate-auth.json" --issue-json "$workdir/issue-followup.json" \
+    --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19am: duplicate original split authorization fails closed" "$ec" 1
+  assert_output_contains "AD19an: original split authorization must be singular" "$output" \
+    "needs exactly one split authorization"
+  cat > "$workdir/pr-refs.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Refs #55\n\nMaintain-Loop-Issue: #55\n\n## Changes\nFrontend default selection only."}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-refs.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19a: prospective audit checks a non-closing maintain-loop PR" "$ec" 1
+  assert_output_contains "AD19b: prospective audit names missing scope" "$output" \
+    "backend/app/services/xbrl_generator.py"
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-refs.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19c: prospective audit accepts exact metadata and complete scope" "$ec" 0
+  cat > "$workdir/pr-prospective-override.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Refs #55\n\nMaintain-Loop-Issue: #55\n\n## Closure audit\nClosure-Audit-Path: #55 backend/app/services/xbrl_generator.py | not applicable: the requested backend surface is intentionally excluded"}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-prospective-override.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19ca: prospective audit cannot defer a named surface" "$ec" 1
+  assert_output_contains "AD19cb: prospective deferral refusal is explicit" "$output" \
+    "prospective audits cannot defer named surfaces"
+  cat > "$workdir/pr-closing.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Refs #55\n\nMaintain-Loop-Issue: #55\n\nCloses #55"}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-closing.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19d: prospective audit rejects a body closing reference" "$ec" 1
+  assert_output_contains "AD19e: closing-reference refusal is explicit" "$output" \
+    "closing issue reference"
+  cat > "$workdir/pr-qualified-closing.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Refs #55\n\nMaintain-Loop-Issue: #55\n\nCloses example/example#55"}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-qualified-closing.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19d0a: prospective audit rejects a qualified closing reference" "$ec" 1
+  assert_output_contains "AD19d0b: qualified closing-reference refusal is explicit" "$output" \
+    "closing issue reference"
+  cat > "$workdir/pr-url-closing.json" <<'JSON'
+{"title":"Resolves: https://github.com/example/example/issues/55","body":"Refs #55\n\nMaintain-Loop-Issue: #55\n\nComplete scope."}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-url-closing.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19d0c: prospective audit rejects a URL closing reference" "$ec" 1
+  assert_output_contains "AD19d0d: URL closing-reference refusal is explicit" "$output" \
+    "closing issue reference"
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-qualified-closing.json" \
+    --repo example/example --issue-json "$workdir/issue.json" \
+    --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19d0e: qualified closing references enter the normal closure audit" "$ec" 1
+  assert_output_contains "AD19d0f: qualified closure audit names missing scope" "$output" \
+    "backend/app/services/xbrl_generator.py"
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-qualified-closing.json" \
+    --repo current/repository --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19d0g: live audit rejects a cross-repository closing target" "$ec" 1
+  assert_output_contains "AD19d0h: cross-repository refusal is explicit" "$output" \
+    "cross-repository closing references are not auditable"
+  ec=0; output=$(bash "$closure" \
+    --pr https://github.com/example/example/pull/7 --repo different/repository 2>&1) || ec=$?
+  assert_exit_code "AD19d0i: pull request URL cannot conflict with --repo" "$ec" 2
+  assert_output_contains "AD19d0j: URL/repository mismatch is explicit" "$output" \
+    "--repo conflicts with the pull request URL"
+  cat > "$workdir/pr-title-closing.json" <<'JSON'
+{"title":"Fixes #55","body":"Refs #55\n\nMaintain-Loop-Issue: #55\n\nComplete scope."}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-title-closing.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19d1: prospective audit rejects a title closing reference" "$ec" 1
+  cat > "$workdir/pr-prose-fixed.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Refs #55\n\nMaintain-Loop-Issue: #55\n\nThe race is fixed and the scope is complete."}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-prose-fixed.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19d2: prospective audit permits non-closing fix prose" "$ec" 0
+  cat > "$workdir/pr-missing-ref.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Maintain-Loop-Issue: #55\n\n## Changes\nComplete scope."}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-missing-ref.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19f: prospective audit rejects missing exact ref" "$ec" 1
+  assert_output_contains "AD19g: missing ref names the exact required line" "$output" "exact line: Refs #55"
+  cat > "$workdir/pr-mismatched-ref.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Refs #54\n\nMaintain-Loop-Issue: #55\n\n## Changes\nComplete scope."}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-mismatched-ref.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19h: prospective audit rejects mismatched ref" "$ec" 1
+  assert_output_contains "AD19i: mismatched ref cannot satisfy exact audited ref" "$output" "exact line: Refs #55"
+  cat > "$workdir/pr-missing-marker.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Refs #55\n\n## Changes\nComplete scope."}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-missing-marker.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19j: prospective audit rejects missing exact marker" "$ec" 1
+  assert_output_contains "AD19k: missing marker names the exact required line" "$output" \
+    "exact line: Maintain-Loop-Issue: #55"
+  cat > "$workdir/pr-mismatched-marker.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Refs #55\n\nMaintain-Loop-Issue: #54\n\n## Changes\nComplete scope."}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-mismatched-marker.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19l: prospective audit rejects mismatched marker" "$ec" 1
+  assert_output_contains "AD19m: mismatched marker cannot satisfy audited marker" "$output" \
+    "exact line: Maintain-Loop-Issue: #55"
+  cat > "$workdir/pr-duplicate-bindings.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Refs #55\nRefs #55\n\nMaintain-Loop-Issue: #55\nMaintain-Loop-Issue: #55\n\n## Changes\nComplete scope."}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-duplicate-bindings.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19ma: prospective audit rejects duplicate metadata bindings" "$ec" 1
+  assert_output_contains "AD19mb: duplicate refs cannot expand the audit set" "$output" \
+    "Refs lines must bind exactly once"
+  cat > "$workdir/pr-extra-bindings.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Refs #55\nRefs #56\n\nMaintain-Loop-Issue: #55\nMaintain-Loop-Issue: #56\n\n## Changes\nComplete scope."}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-extra-bindings.json" --audit-issue 55 \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19mc: prospective audit rejects extra issue bindings" "$ec" 1
+  assert_output_contains "AD19md: extra markers cannot exceed the audit set" "$output" \
+    "Maintain-Loop-Issue lines must bind exactly once"
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-ok.json" --audit-issue nope \
+    --issue-json "$workdir/issue.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19n: prospective audit rejects invalid issue numbers" "$ec" 2
+  printf '{"title":' > "$workdir/pr-malformed.json"
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-malformed.json" \
+    --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19o: malformed PR JSON fails closed" "$ec" 1
+  assert_output_contains "AD19p: malformed PR JSON is explicit" "$output" "malformed PR JSON"
+  cat > "$workdir/pr-bad-body.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":["Refs #55"]}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-bad-body.json" \
+    --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD19q: invalid PR body shape fails closed" "$ec" 1
+  assert_output_contains "AD19r: invalid PR body shape is explicit" "$output" "invalid body shape"
+  cat > "$workdir/pr-bad-files.json" <<'JSON'
+{"title":"fix: covered-stub selection","body":"Refs #55","files":"frontend/step2.tsx"}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-bad-files.json" 2>&1) || ec=$?
+  assert_exit_code "AD19s: invalid fetched PR files shape fails closed" "$ec" 1
+  assert_output_contains "AD19t: invalid PR files shape is explicit" "$output" "invalid files shape"
   mkdir -p "$workdir/bin"
   printf '#!/bin/sh\nexit 1\n' > "$workdir/bin/gh"
   chmod +x "$workdir/bin/gh"
   cat > "$workdir/issue-mismatch.json" <<'JSON'
-{"number":54,"title":"Different issue","body":"Acceptance requires `frontend/step2.tsx`."}
+{"number":54,"state":"OPEN","title":"Different issue","body":"Acceptance requires `frontend/step2.tsx`.","comments":[]}
 JSON
   ec=0; output=$(PATH="$workdir/bin:$PATH" bash "$closure" --pr-json "$workdir/pr.json" --issue-json "$workdir/issue-mismatch.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
   assert_exit_code "AD20: closure audit rejects mismatched single fixture" "$ec" 1
-  assert_output_contains "AD20b: mismatched fixture does not stand in for closed issue" "$output" "cannot inspect closing issue #55"
+  assert_output_contains "AD20b: mismatched issue payload is explicit" "$output" "does not match audited issue #55"
+  cat > "$workdir/issue-closed.json" <<'JSON'
+{"number":55,"state":"CLOSED","title":"Closed issue","body":"Acceptance requires `frontend/step2.tsx`.","comments":[]}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-refs.json" --audit-issue 55 \
+    --issue-json "$workdir/issue-closed.json" --changed-files "$workdir/files-all.txt" 2>&1) || ec=$?
+  assert_exit_code "AD20c: closure audit rejects a closed audited issue" "$ec" 1
+  assert_output_contains "AD20d: closed issue refusal requires OPEN state" "$output" "CLOSED, not OPEN"
+  printf '{"number":55,"state":"OPEN"' > "$workdir/issue-malformed.json"
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr.json" \
+    --issue-json "$workdir/issue-malformed.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
+  assert_exit_code "AD20e: malformed issue JSON fails closed" "$ec" 1
+  assert_output_contains "AD20f: malformed issue JSON is explicit" "$output" "malformed issue JSON"
   cat > "$workdir/issue-anon.json" <<'JSON'
-{"title":"Anonymous fixture","body":"Acceptance requires `frontend/step2.tsx`."}
+{"state":"OPEN","title":"Anonymous fixture","body":"Acceptance requires `frontend/step2.tsx`.","comments":[]}
 JSON
   ec=0; output=$(PATH="$workdir/bin:$PATH" bash "$closure" --pr-json "$workdir/pr.json" --issue-json "$workdir/issue-anon.json" --changed-files "$workdir/files.txt" 2>&1) || ec=$?
-  assert_exit_code "AD21: closure audit accepts anonymous single fixture" "$ec" 0
+  assert_exit_code "AD21: closure audit rejects issue JSON without a number" "$ec" 1
   rm -rf "$workdir"
 
   workdir=$(mktemp -d)
@@ -5130,7 +5560,7 @@ JSON
 {"title":"fix: download flow","body":"Closes #200\n\n## Changes\nUpdated dynamic route page and step component."}
 JSON
   cat > "$workdir/issue-bracket.json" <<'JSON'
-{"number":200,"title":"Fix download","body":"Acceptance requires `frontend/src/app/[locale]/download/[token]/page.tsx` and `frontend/src/app/[locale]/report/components/Step6Download.tsx`."}
+{"number":200,"state":"OPEN","title":"Fix download","body":"Acceptance requires `frontend/src/app/[locale]/download/[token]/page.tsx` and `frontend/src/app/[locale]/report/components/Step6Download.tsx`.","comments":[]}
 JSON
   printf 'frontend/src/app/[locale]/download/[token]/page.tsx\nfrontend/src/app/[locale]/report/components/Step6Download.tsx\n' > "$workdir/files-bracket.txt"
   ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-bracket.json" --issue-json "$workdir/issue-bracket.json" --changed-files "$workdir/files-bracket.txt" 2>&1) || ec=$?

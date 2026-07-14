@@ -25,6 +25,12 @@ cd "$repo_root"
 bad_re='(^|/)(node_modules|\.pnpm-store|\.pnpm|\.yarn/cache|\.yarn/unplugged|bower_components)(/|$)'
 
 violations=""
+inventory=$(mktemp) || exit 1
+trap 'rm -f -- "$inventory"' EXIT
+if ! git diff --cached --name-only -z > "$inventory"; then
+  echo "[saas-startup-team] Cannot inspect the staged path inventory." >&2
+  exit 1
+fi
 
 while IFS= read -r -d '' f; do
   # Flag dependency/store paths by name regardless of size (catches staged deletions too).
@@ -32,15 +38,24 @@ while IFS= read -r -d '' f; do
     violations+="  [dependency/store] $f"$'\n'
     continue
   fi
-  # Measure the STAGED blob (exactly what will be committed), not the working-tree copy — the two
-  # can differ, and a staged deletion has no blob to size. `:$f` addresses the index entry; it
-  # fails (→ 0) for deletions, which we then skip.
-  size="$(git cat-file -s ":$f" 2>/dev/null || echo 0)"
+  # Measure the staged blob, not the working-tree copy. A staged deletion has
+  # no blob; any other lookup failure is unsafe to interpret as size zero.
+  if ! size=$(git cat-file -s ":$f" 2>/dev/null); then
+    deletion_rc=0
+    git diff --cached --quiet --diff-filter=D -- "$f" || deletion_rc=$?
+    if [ "$deletion_rc" -eq 1 ]; then continue; fi
+    echo "[saas-startup-team] Cannot inspect staged blob: $f" >&2
+    exit 1
+  fi
+  [[ "$size" =~ ^[0-9]+$ ]] || {
+    echo "[saas-startup-team] Invalid staged blob size: $f" >&2
+    exit 1
+  }
   if [ "$size" -gt "$max_bytes" ]; then
     mb=$((size / 1024 / 1024))
     violations+="  [${mb} MB > ${max_mb} MB limit] $f"$'\n'
   fi
-done < <(git diff --cached --name-only -z)
+done < "$inventory"
 
 if [ -n "$violations" ]; then
   {

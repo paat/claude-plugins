@@ -34,6 +34,34 @@ ROOT="$(cd "$ROOT" && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 noop() { echo "workflow-probe: $MODE no work to do"; exit 3; }
 ready() { echo "workflow-probe: $MODE work available"; exit 0; }
+BLOCKED_FILES=()
+git_common_dir() {
+  local common
+  common="$(git -C "$ROOT" rev-parse --git-common-dir)" || return 1
+  case "$common" in /*) ;; *) common="$ROOT/$common" ;; esac
+  (cd "$common" && pwd)
+}
+load_blocked_files() {
+  local common primary candidate
+  common="$(git_common_dir)" || return 1
+  primary="$(bash "$SCRIPT_DIR/maintain-leases.sh" primary-root --repo-root "$ROOT")" || return 1
+  BLOCKED_FILES=()
+  for candidate in \
+    "$common/saas-startup-team/maintain/blocked.jsonl" \
+    "$primary/.startup/maintain/blocked.jsonl" \
+    "$primary/.worktrees/maintain/.startup/maintain/blocked.jsonl"; do
+    [ -e "$candidate" ] || [ -L "$candidate" ] || continue
+    BLOCKED_FILES+=("$candidate")
+  done
+}
+
+delivery_lease_gate() {
+  [ "$DRY_RUN" -eq 0 ] || return 0
+  if ! diag="$(bash "$SCRIPT_DIR/maintain-leases.sh" available --repo-root "$ROOT" 2>&1)"; then
+    echo "workflow-probe: $MODE blocked: $diag" >&2
+    exit 4
+  fi
+}
 
 # Mutating scheduled modes require a usable Codex writer sandbox; an unchanged
 # hard host block must not spend one doomed model launch per tick. A --dry-run
@@ -59,6 +87,14 @@ codex_writer_gate() {
   esac
 }
 
+lease_guardian_gate() {
+  [ "$DRY_RUN" -eq 0 ] || return 0
+  if ! diag="$(bash "$SCRIPT_DIR/lease-guardian.sh" probe 2>&1)"; then
+    echo "workflow-probe: $MODE blocked: $diag" >&2
+    exit 4
+  fi
+}
+
 case "$MODE" in
   maintain)
     command -v gh >/dev/null 2>&1 || { echo "workflow-probe: gh is required" >&2; exit 1; }
@@ -69,8 +105,23 @@ case "$MODE" in
     [ -z "$REPO" ] || gh_args+=(--repo "$REPO")
     [ -z "$LABEL" ] || gh_args+=(--label "$LABEL")
     open_json="$(gh "${gh_args[@]}")" || { echo "workflow-probe: cannot list issues" >&2; exit 1; }
-    open_json="$(printf '%s' "$open_json" | jq '[.[] | select([.labels[].name] | (index("needs-human") or index("maintain:blocked") or index("epic")) | not)]')" || exit 1
-    if [ -n "$ISSUE" ]; then open_json="$(printf '%s' "$open_json" | jq --argjson n "$ISSUE" '[.[]|select(.number==$n)]')"; fi
+    # Scope every derived signal to an explicit issue before stale-label or cache
+    # evaluation. Unrelated repository state must not launch a filtered run.
+    if [ -n "$ISSUE" ]; then
+      open_json="$(printf '%s' "$open_json" | jq --argjson n "$ISSUE" '[.[]|select(.number==$n)]')" || exit 1
+    fi
+    load_blocked_files || { echo "workflow-probe: cannot resolve blocked ledgers" >&2; exit 1; }
+    blocked_args=(); for blocked_file in "${BLOCKED_FILES[@]}"; do blocked_args+=(--file "$blocked_file"); done
+    cooldowns="$(bash "$SCRIPT_DIR/maintain-blocked.sh" active --now "$(date -u +%FT%TZ)" \
+      "${blocked_args[@]}")" || { echo "workflow-probe: invalid blocked ledger" >&2; exit 1; }
+    stale_cleanup="$(printf '%s' "$open_json" | jq -r --argjson cooldowns "$cooldowns" '
+      [.[] | .number as $number | [.labels[].name] as $labels
+       | select(($labels | index("maintain:blocked")) != null)
+       | select(($cooldowns | index($number)) == null) | $number] | unique | sort | join(",")')" || exit 1
+    open_json="$(printf '%s' "$open_json" | jq --argjson cooldowns "$cooldowns" '
+      [.[] | .number as $number | [.labels[].name] as $labels
+       | select(($labels | (index("needs-human") or index("epic"))) | not)
+       | select(($cooldowns | index($number)) == null)]')" || exit 1
     open="$(printf '%s' "$open_json" | jq length)"
     [ "$open" -gt 0 ] || noop
     new="$open"; cached_resumable=0
@@ -86,17 +137,54 @@ case "$MODE" in
           |select(.verdict=="agent-fixable" or .verdict=="partially-fixable" or .verdict=="needs-human")
           |select(pending)]|length' "$cache")"
     fi
-    [ "$new" -gt 0 ] || [ "$cached_resumable" -gt 0 ] || noop
+    [ "$new" -gt 0 ] || [ "$cached_resumable" -gt 0 ] || [ -n "$stale_cleanup" ] || noop
+    [ -z "$stale_cleanup" ] || echo "workflow-probe: maintain stale maintain:blocked cleanup: $stale_cleanup"
+    delivery_lease_gate
     codex_writer_gate 0
+    lease_guardian_gate
     ready
     ;;
 
   maintain-loop)
+    pending_args=(pending --repo-root "$ROOT"); [ -z "$ISSUE" ] || pending_args+=(--issue "$ISSUE")
+    pending_json="$(bash "$SCRIPT_DIR/maintain-delivery.sh" "${pending_args[@]}")" || {
+      echo "workflow-probe: cannot inspect pending maintain-loop delivery" >&2; exit 1; }
+    pending_count=$(jq -r 'length' <<<"$pending_json") || exit 1
+    if [ "$pending_count" -gt 1 ]; then
+      echo "workflow-probe: multiple nonterminal maintain-loop receipts require reconciliation" >&2
+      exit 1
+    fi
+    if [ "$pending_count" -eq 1 ]; then
+      pending_state="$(jq -er '.[0].state | select(type == "string" and length > 0)' <<<"$pending_json")" || {
+        echo "workflow-probe: invalid pending maintain-loop delivery state" >&2; exit 1; }
+      echo "workflow-probe: maintain-loop pending receipt: $pending_state"
+      delivery_lease_gate
+      case "$pending_state" in
+        claimed) codex_writer_gate 1 ;;
+        normal_planned|normal_open|normal_merge_authorized|post_merge|release_verified|rollback_planned|rollback_open|rollback_merge_authorized|rollback_merged|rollback_release_verified|close_intent|closed_observed) : ;;
+        *) echo "workflow-probe: invalid pending maintain-loop delivery state: $pending_state" >&2; exit 1 ;;
+      esac
+      lease_guardian_gate
+      ready
+    fi
     args=(); [ -z "$REPO" ] || args+=(--repo "$REPO"); [ -z "$ISSUE" ] || args+=(--issue "$ISSUE"); [ -z "$LABEL" ] || args+=(--label "$LABEL")
-    [ -f "$ROOT/.startup/maintain/blocked.jsonl" ] && args+=(--blocked-file "$ROOT/.startup/maintain/blocked.jsonl")
-    queue="$(cd "$ROOT" && bash "$SCRIPT_DIR/maintain-queue.sh" "${args[@]}")" || exit 1
+    load_blocked_files || { echo "workflow-probe: cannot resolve blocked ledgers" >&2; exit 1; }
+    for blocked_file in "${BLOCKED_FILES[@]}"; do args+=(--blocked-file "$blocked_file"); done
+    queue_err=$(mktemp); queue_rc=0
+    queue="$(cd "$ROOT" && bash "$SCRIPT_DIR/maintain-queue.sh" "${args[@]}" 2>"$queue_err")" || queue_rc=$?
+    if [ "$queue_rc" -ne 0 ]; then
+      if [ "$queue_rc" -eq 3 ] && [ -n "$ISSUE" ] \
+        && grep -Fqx "maintain-queue: issue #$ISSUE is not open" "$queue_err"; then
+        rm -f "$queue_err"; noop
+      fi
+      sed 's/^/workflow-probe: /' "$queue_err" >&2
+      rm -f "$queue_err"; exit 1
+    fi
+    rm -f "$queue_err"
     [ "$(printf '%s' "$queue" | jq '.queue|length')" -gt 0 ] || noop
+    delivery_lease_gate
     codex_writer_gate 1
+    lease_guardian_gate
     ready
     ;;
 

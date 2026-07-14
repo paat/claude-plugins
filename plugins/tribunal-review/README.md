@@ -10,6 +10,7 @@ process before merge.
 
 ## Prerequisites
 
+- Bash 4+, Git, and standard `awk`/`sed`/coreutils commands
 - [OpenAI Codex CLI](https://github.com/openai/codex) (`npm install -g @openai/codex`)
 - [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) — **optional**, only for the Gemini leg (opt-in via `TRIBUNAL_GEMINI=on`; off by default)
 - [OpenCode CLI](https://opencode.ai) (≥ 1.15) — harness for **two** legs (required for DeepSeek, which is on by default):
@@ -17,8 +18,10 @@ process before merge.
   - **GLM** via the same [OpenCode Go](https://opencode.ai/go) subscription (model `opencode-go/glm-5.1`) — **opt-in** (`TRIBUNAL_GLM=on`), off by default.
 - [Qwen Code CLI](https://github.com/QwenLM/qwen-code) (`npm install -g @qwen-code/qwen-code`, Node 20+) — **optional**, only for the **Qwen leg, which is opt-in** (`TRIBUNAL_QWEN=on`; off by default pending the issue #46 false-positive fix). Auth via `DASHSCOPE_API_KEY` (pay-as-you-go DashScope; new accounts get a free 1M+1M-token tier), an OpenAI-compatible / OpenRouter key, or a credential stored in `~/.qwen/settings.json`.
 - [Claude Code CLI](https://docs.claude.com/claude-code) (`claude`) — needed for the **Claude diff-only leg, which runs by default** (disable with `TRIBUNAL_CLAUDE=off`). This is the same CLI you launch the tribunal from, so it is already present and authenticated; the leg just invokes `claude -p` with the configured `TRIBUNAL_CLAUDE_MODEL` (default `sonnet`).
-- [GitHub CLI](https://cli.github.com) (`gh`) — used to resolve the repository default branch; **optional** (falls back to `git remote show origin`, then `origin/HEAD`, when `gh` is absent)
+- [GitHub CLI](https://cli.github.com) (`gh`) — optional for standalone branch review (which can fall back to Git), but required for sealed PR delivery evidence
 - `jq` (used to parse and validate reviewer JSON output)
+- `sha256sum` (used to seal PR delivery manifests and retained artifacts)
+- `flock` (used to make proof finalization concurrency- and crash-safe)
 - `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or it will fall back to an error-JSON for that reviewer) — caps Codex, Gemini, Qwen, and Claude at 10 minutes and each OpenCode leg (GLM, DeepSeek) at 12 minutes (single attempt, no retry) — and since GLM and DeepSeek are serialized in one call, that OpenCode call can take up to ~24 minutes combined; a leg that exceeds its cap simply degrades to the available quorum. OpenCode runs the GLM/DeepSeek reasoning models via `opencode run --agent plan`; their latency is inherent generation time with a heavy tail (the `--variant` reasoning-effort flag does **not** meaningfully change it), so the genuine speed lever is swapping in faster non-reasoning models for those slots — a quality/reliability tradeoff left to you
 - Valid API keys / auth configured for each CLI
 
@@ -42,6 +45,28 @@ On a feature branch with changes vs the repository default branch:
 ```
 
 The skill will verify you're on a feature branch, run the reviews, and produce an arbitrated verdict.
+
+Automated PR delivery uses `scripts/collect-review-evidence.sh` instead of
+caller-assembled JSON. Its `collect` phase launches the provider wrappers and
+seals the canonical repository, PR body/base/head/diff, runner/wrapper versions,
+artifacts, statuses, and timestamps. The delivery controller retains the
+manifest digest. After inline arbitration, its `finalize` phase rechecks live PR
+drift and every retained digest, validates the exact finding/arbitration schema,
+and emits a `tribunal-proof/v1` digest. Provider artifacts supplied by a caller
+are never merge authority.
+
+Controllers can pin the installed runner bundle with one digest:
+
+```bash
+bundle_sha="$(sha256sum "$TRIBUNAL_PLUGIN_ROOT/integrity/runner-bundle.json" | awk '{print $1}')"
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/check-runner-bundle.sh" \
+  --expected-manifest-sha256 "$bundle_sha"
+```
+
+Regenerate it after an intentional runner change with
+`scripts/generate-runner-bundle.sh`; `--check` is the CI no-drift check.
+`finalize` is crash-idempotent: an identical retry returns the retained proof,
+while a different arbitration for that collection is rejected.
 
 When the verdict comes back `NEEDS_WORK` or `BLOCK`, the `closing-tribunal-loop` skill guides the iterative close-out: per-finding triage (fix-in-PR vs file-follow-up vs reject), committing fixes one finding at a time, and re-running the tribunal until the arbiter returns a verdict with **zero critical and high findings** on the latest diff (see Convergence governor below).
 
@@ -127,6 +152,10 @@ Verifies you're on a feature branch (not the resolved default branch) and that t
 ### Step 2: Parallel Review
 Runs Codex, Gemini, OpenCode, Qwen, and Claude as **five parallel Bash calls** through `scripts/run-codex-review.sh`, `scripts/run-gemini-review.sh`, `scripts/run-opencode-review.sh`, `scripts/run-qwen-review.sh`, and `scripts/run-claude-review.sh` — though by default only Codex, the OpenCode **DeepSeek** leg, and the **Claude** diff-only leg actually review (Gemini, the OpenCode **GLM** leg, and **Qwen** are opt-in via `TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on` / `TRIBUNAL_QWEN=on`; each disabled leg self-emits a `disabled` marker). Codex walks the repo with isolated user configuration and a read-only sandbox, like DeepSeek; the opt-in Qwen leg also walks, on its own CLI/transport decorrelated from the OpenCode legs. The **Claude** leg (host `claude -p`) is the one diff-only reviewer in the default panel: it runs from a scratch dir with all tools disabled, so it reviews the diff in isolation and restores the harness/context diversity the walking legs give up. Each analyzes `git diff "$BASE_REF"...HEAD`, where `BASE_REF` defaults to the resolved `origin/<default>` branch, and returns structured JSON findings covering logic errors, security vulnerabilities, edge cases, performance issues, and architectural concerns. The two OpenCode legs run read-only (`opencode run --agent plan`) and **sequentially within the single OpenCode call** — running them concurrently deadlocks on OpenCode's shared data dir (issue #31), so they are serialized back-to-back. They differ in cwd/context: **GLM** is diff-only, from a scratch dir; **DeepSeek** runs **from the repo root** and — of the two OpenCode-call legs — is the one that **walks the repo** (open related files, trace cross-file effects) rather than reviewing the diff in isolation (Codex and Qwen also walk, in their own calls). Both default to the **OpenCode Go backend** (`opencode-go/…`), so DeepSeek bills against the OpenCode Go subscription, then credits; set `TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro` to put DeepSeek on the independent direct API instead. The diff is passed to OpenCode as a **file attachment** (`-f`) rather than inline, which avoids the `MAX_ARG_STRLEN` (128 KiB single-argument) limit that previously made large diffs fail with "Argument list too long". If the repo has an `AGENTS.md`, it is injected into every reviewer's prompt (capped at 16KB) as a shared **Project Conventions** block, so all assess the diff against the same standards.
 
+For a PR merge gate, the aggregate evidence runner owns these launches and runs
+them from a clean detached worktree at the exact PR head. This keeps local dirty
+state and caller-authored evidence out of the delivery decision.
+
 ### Step 3: Inline Arbitration
 The calling context deduplicates findings, resolves severity conflicts, marks any issue flagged by ≥2 reviewers as CONSENSUS, evaluates each finding for validity, and issues a final verdict: **APPROVE**, **NEEDS_WORK**, or **BLOCK**.
 
@@ -164,13 +193,14 @@ The tribunal produces a JSON verdict:
   ],
   "scope_findings": [],
   "provider_assessment": {
-    "codex":    { "findings_accepted": 2, "findings_rejected": 1, "status": "ok" },
-    "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "status": "disabled" },
-    "glm":      { "findings_accepted": 0, "findings_rejected": 0, "status": "disabled" },
-    "deepseek": { "findings_accepted": 1, "findings_rejected": 1, "status": "ok" },
-    "qwen":     { "findings_accepted": 1, "findings_rejected": 0, "status": "ok" },
-    "claude":   { "findings_accepted": 0, "findings_rejected": 0, "status": "ok" }
+    "codex":    { "findings_accepted": 2, "findings_rejected": 1, "false_positives": [], "status": "ok" },
+    "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "disabled" },
+    "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "disabled" },
+    "deepseek": { "findings_accepted": 1, "findings_rejected": 1, "false_positives": [], "status": "ok" },
+    "qwen":     { "findings_accepted": 1, "findings_rejected": 0, "false_positives": [], "status": "ok" },
+    "claude":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok" }
   },
+  "conflicts_resolved": [],
   "summary": "Code quality is good with one medium-severity finding to address."
 }
 ```

@@ -107,15 +107,24 @@ image_volumes=$($DOCKER_BIN image inspect --format '{{json .Config.Volumes}}' "$
   echo "supervisor-check-container: sealed image declares implicit writable volumes" >&2; exit 1; }
 IMAGE_ENV_ARGS=()
 declare -A IMAGE_ENV_SEEN=()
+image_env_inventory=$(mktemp) || exit 1
+if ! "$DOCKER_BIN" image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' \
+  "$IMAGE_ID" > "$image_env_inventory"; then
+  rm -f -- "$image_env_inventory"
+  echo "supervisor-check-container: cannot inspect dev-container environment" >&2
+  exit 1
+fi
 while IFS= read -r key; do
   key=${key%%=*}
   [ -z "$key" ] && continue
   [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || {
+    rm -f -- "$image_env_inventory"
     echo "supervisor-check-container: dev-container image has an invalid environment key" >&2; exit 1; }
-  [[ -v IMAGE_ENV_SEEN["$key"] ]] && continue
+  [[ ${IMAGE_ENV_SEEN[$key]+present} ]] && continue
   IMAGE_ENV_SEEN["$key"]=1
   IMAGE_ENV_ARGS+=(--env "$key=")
-done < <("$DOCKER_BIN" image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$IMAGE_ID")
+done < "$image_env_inventory"
+rm -f -- "$image_env_inventory"
 
 valid_target() {
   case "$1" in ''|.|/*|*,*|*:*|*$'\n'*|*$'\r'*|*$'\t'*|../*|*/../*|*/..|./*|*/./*|*/.) return 1 ;; esac

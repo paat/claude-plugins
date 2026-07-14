@@ -6,9 +6,13 @@ declare -F make_workdir >/dev/null 2>&1 || {
 
 test_runtime_safety() {
   echo -e "\n${CYAN}Suite RS: runtime role and lifecycle safety${NC}"
-  local workdir ec out count script owner_file state_dir snapshot patch_file remote base old_owner trust_receipt auth_token
-  local linked git_dir common_dir raw_commondir guard_snapshot guard_auth real_jq path
-  local supervisor_bwrap_dir
+  local workdir ec out count script owner_file state_dir snapshot patch_file patch_dir remote base old_owner trust_receipt auth_token
+  local remote_clone branch progress_head custom_snapshot origin_sentinel injection_snapshot ssh_injector
+  local linked git_dir common_dir raw_commondir guard_snapshot guard_auth real_jq path check_log
+  local guard_head guard_ref guard_index concurrent_head tree main_next
+  local check_pid check_signal check_release check_output check_status
+  local supervisor_bwrap_dir limit_log_dir limit_log limit_bytes marker victim_dir started elapsed
+  local system_git failed_snapshot array_snapshot check_receipt commit_receipt
   local -a large_allow_args
   supervisor_bwrap_dir=$(mktemp -d)
 
@@ -101,8 +105,8 @@ test_runtime_safety() {
     "$PLUGIN_ROOT/references/workflows/improve.md" '--trust-receipt "$COMMIT_TRUST"'
   assert_file_contains "RS14d: lessons uses trusted commit receipt" \
     "$PLUGIN_ROOT/commands/lessons-deliver.md" '--trust-receipt "$COMMIT_TRUST"'
-  assert_file_contains "RS14e: maintain loop snapshots trusted hooks" \
-    "$PLUGIN_ROOT/references/workflows/maintain-loop.md" '--snapshot-trust "$COMMIT_TRUST"'
+  assert_file_contains "RS14e: maintain transaction snapshots trusted hooks" \
+    "$PLUGIN_ROOT/scripts/maintain-attempt.sh" '--snapshot-trust "$commit_trust"'
   assert_file_contains "RS14f: mutation receipts require supervisor authentication" \
     "$PLUGIN_ROOT/references/workflows/mutation-ownership.md" '--auth-stdin'
   assert_file_exists "RS14f1: network-off sandbox wrapper exists" \
@@ -256,6 +260,434 @@ SH
       --allow fail-check --allow trigger-hook --allow .githooks --allow .gitignore \
       <<<"$auth_token" >/dev/null)
   }
+
+  # A clean base can run the authenticated canonical check without manufacturing
+  # a candidate commit, while noisy output stays in a retained local artifact.
+  script="$PLUGIN_ROOT/scripts/supervisor-commit.sh"
+  workdir=$(make_workdir); make_supervisor_sandbox "$workdir"
+  git -C "$workdir" config user.email t@t.t; git -C "$workdir" config user.name t
+  printf 'base\n' > "$workdir/app.txt"
+  cat > "$workdir/check.sh" <<'SH'
+#!/usr/bin/env bash
+set -e
+i=0
+while [ "$i" -lt 4000 ]; do
+  printf 'noisy-base-check-%04d-abcdefghijklmnopqrstuvwxyz0123456789\n' "$i"
+  i=$((i + 1))
+done
+if [ -n "${SUPERVISOR_TEST_SIGNAL:-}" ]; then
+  : > "$SUPERVISOR_TEST_SIGNAL"
+  while [ ! -e "$SUPERVISOR_TEST_RELEASE" ]; do sleep 0.01; done
+fi
+SH
+  chmod +x "$workdir/check.sh"
+  git -C "$workdir" add .; git -C "$workdir" commit -qm base
+  trust_receipt="$workdir/.git/saas-startup-team/base-check.json"
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  ec=0; out=$(cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
+    --check-only --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i1: clean-base check trust snapshot succeeds without an allowlist" "$ec" 0
+  assert_equals "RS14i2: check-only receipt is purpose-bound with an empty allowlist" \
+    "$(jq -r '.schema_version == 5 and .purpose == "check-only" and (.allow|length == 0)' "$trust_receipt")" true
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --check-only \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i3: empty-diff base check succeeds" "$ec" 0
+  assert_equals "RS14i4: base check creates no commit" \
+    "$(git -C "$workdir" rev-list --count HEAD)" 1
+  assert_file_not_exists "RS14i5: successful base check consumes its trust receipt" "$trust_receipt"
+  assert_output_contains "RS14i6: terminal reports base-check success" "$out" 'base checks passed'
+  assert_equals "RS14i7: noisy check terminal output stays bounded" \
+    "$(awk 'END { print (NR <= 90 && bytes <= 9000) ? "true" : "false" } { bytes += length($0) + 1 }' <<<"$out")" true
+  assert_output_not_contains "RS14i8: early raw check output is absent from the terminal" \
+    "$out" 'noisy-base-check-0000'
+  assert_output_not_contains "RS14i9: successful checks keep final raw output out of the terminal" \
+    "$out" 'noisy-base-check-3999'
+  assert_equals "RS14i9a: successful checks print one concise status line" \
+    "$(awk 'END { print NR }' <<<"$out")" 1
+  check_log=$(find "$workdir/.git/saas-startup-team/check-logs" -maxdepth 1 -name '*.log' -print -quit)
+  assert_output_contains "RS14i9b: success status names the retained full log" "$out" "$check_log"
+  assert_file_contains "RS14i10: full local check log retains early output" \
+    "$check_log" 'noisy-base-check-0000'
+  assert_file_contains "RS14i11: full local check log retains final output" \
+    "$check_log" 'noisy-base-check-3999'
+  assert_equals "RS14i12: retained check log is private" "$(stat -c %a "$check_log")" 600
+  check_log_dir="$workdir/.git/saas-startup-team/check-logs"
+  for ((i=0; i<50; i++)); do
+    printf 'old\n' > "$check_log_dir/old-$i.check.fixture.log"
+  done
+  weird_check_log="$check_log_dir/old-"$'\n'"name.check.fixture.log"
+  printf 'weird\n' > "$weird_check_log"
+
+  remote=$(mktemp -d); rm -rf "$remote"; git init -q --bare "$remote"
+  branch=$(git -C "$workdir" symbolic-ref --short HEAD)
+  git -C "$workdir" remote add origin "$remote"
+  git -C "$workdir" push -qu origin "$branch"
+  trust_receipt="$workdir/.git/saas-startup-team/origin-base-check.json"
+  (cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
+    --check-only --auth-stdin <<<"$auth_token" >/dev/null)
+  remote_clone=$(mktemp -d); rm -rf "$remote_clone"
+  git clone -q -b "$branch" "$remote" "$remote_clone"
+  git -C "$remote_clone" config user.email t@t.t; git -C "$remote_clone" config user.name t
+  printf 'origin progress\n' > "$remote_clone/app.txt"
+  git -C "$remote_clone" add app.txt; git -C "$remote_clone" commit -qm origin-progress
+  git -C "$remote_clone" push -q origin "$branch"
+  git -C "$workdir" fetch -q origin "$branch"
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --check-only \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i12aa: a non-active remote ref does not invalidate check-only" "$ec" 0
+  assert_equals "RS14i12aaa: canonical check-log retention stays bounded" \
+    "$(find -P "$check_log_dir" -maxdepth 1 -type f -name '*.check.*.log' -printf . \
+      | wc -c | tr -d ' ')" 50
+  assert_output_contains "RS14i12aab: NUL-safe retention preserves a successful check" \
+    "$out" 'base checks passed'
+  assert_equals "RS14i12ab: check-only leaves the externally updated tracking ref intact" \
+    "$(git -C "$workdir" rev-parse "refs/remotes/origin/$branch")" \
+    "$(git --git-dir="$remote" rev-parse "refs/heads/$branch")"
+  git -C "$workdir" remote remove origin
+  rm -rf "$remote_clone" "$remote"
+
+  trust_receipt="$workdir/.git/saas-startup-team/concurrent-base-check.json"
+  linked=$(mktemp -d); rmdir "$linked"
+  git -C "$workdir" worktree add -q -b concurrent-check-ref "$linked" HEAD
+  git -C "$linked" config user.email t@t.t; git -C "$linked" config user.name t
+  (cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
+    --check-only --auth-stdin <<<"$auth_token" >/dev/null)
+  check_signal=$(mktemp); check_release=$(mktemp); check_output=$(mktemp); check_status=$(mktemp)
+  rm -f "$check_signal" "$check_release"
+  (
+    ec=0
+    cd "$workdir"
+    SUPERVISOR_TEST_SIGNAL="$check_signal" SUPERVISOR_TEST_RELEASE="$check_release" \
+      PATH="$workdir/bin:$PATH" bash "$script" --check-only \
+      --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" >"$check_output" 2>&1 || ec=$?
+    printf '%s\n' "$ec" > "$check_status"
+  ) &
+  check_pid=$!
+  for ((i=0; i<500; i++)); do
+    [ ! -e "$check_signal" ] || break
+    sleep 0.01
+  done
+  assert_file_exists "RS14i12a: concurrent-ref fixture reaches the sealed check" "$check_signal"
+  guard_head=$(git -C "$workdir" rev-parse HEAD)
+  guard_ref=$(git -C "$workdir" symbolic-ref HEAD)
+  guard_index=$(git -C "$workdir" write-tree)
+  printf 'sibling progress\n' > "$linked/app.txt"
+  git -C "$linked" add app.txt; git -C "$linked" commit -qm sibling-progress
+  : > "$check_release"
+  wait "$check_pid"
+  assert_exit_code "RS14i12b: a non-active sibling ref does not invalidate check-only" \
+    "$(cat "$check_status")" 0
+  assert_equals "RS14i12c: concurrent refs leave base-check HEAD unchanged" \
+    "$(git -C "$workdir" rev-parse HEAD)" "$guard_head"
+  assert_equals "RS14i12d: concurrent refs leave base-check branch unchanged" \
+    "$(git -C "$workdir" symbolic-ref HEAD)" "$guard_ref"
+  assert_equals "RS14i12e: concurrent refs leave base-check index unchanged" \
+    "$(git -C "$workdir" write-tree)" "$guard_index"
+  rm -f "$check_signal" "$check_release" "$check_output" "$check_status"
+  git -C "$workdir" worktree remove --force "$linked"
+
+  trust_receipt="$workdir/.git/saas-startup-team/concurrent-new-ref-check.json"
+  (cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
+    --check-only --auth-stdin <<<"$auth_token" >/dev/null)
+  check_signal=$(mktemp); check_release=$(mktemp); check_output=$(mktemp); check_status=$(mktemp)
+  rm -f "$check_signal" "$check_release"
+  (
+    ec=0
+    cd "$workdir"
+    SUPERVISOR_TEST_SIGNAL="$check_signal" SUPERVISOR_TEST_RELEASE="$check_release" \
+      PATH="$workdir/bin:$PATH" bash "$script" --check-only \
+      --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" >"$check_output" 2>&1 || ec=$?
+    printf '%s\n' "$ec" > "$check_status"
+  ) &
+  check_pid=$!
+  for ((i=0; i<500; i++)); do
+    [ ! -e "$check_signal" ] || break
+    sleep 0.01
+  done
+  assert_file_exists "RS14i12f: new-ref fixture reaches the sealed check" "$check_signal"
+  git -C "$workdir" update-ref refs/heads/worker-created "$guard_head"
+  : > "$check_release"
+  wait "$check_pid"
+  assert_exit_code "RS14i12g: a new external ref does not invalidate check-only" \
+    "$(cat "$check_status")" 0
+  assert_file_contains "RS14i12h: check-only with an external ref still completes" \
+    "$check_output" 'base checks passed'
+  git -C "$workdir" update-ref -d refs/heads/worker-created
+  rm -f "$check_signal" "$check_release" "$check_output" "$check_status"
+  printf 'dirty\n' > "$workdir/app.txt"
+  trust_receipt="$workdir/.git/saas-startup-team/dirty-base-check.json"
+  ec=0; out=$(cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
+    --check-only --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i13: check-only snapshot rejects a dirty base" "$ec" 1
+  assert_output_contains "RS14i14: dirty-base rejection is explicit" "$out" 'requires a clean base worktree'
+  assert_file_not_exists "RS14i15: dirty-base rejection creates no receipt" "$trust_receipt"
+  rm -rf "$workdir"
+
+  # Check evidence paths and resources fail closed before they can forge success.
+  workdir=$(make_workdir); make_supervisor_sandbox "$workdir"
+  git -C "$workdir" config user.email t@t.t; git -C "$workdir" config user.name t
+  marker=$(mktemp); rm -f "$marker"
+  printf 'base\n' > "$workdir/app.txt"
+  printf '#!/usr/bin/env bash\ntouch %q\n' "$marker" > "$workdir/check.sh"
+  chmod +x "$workdir/check.sh"
+  git -C "$workdir" add .; git -C "$workdir" commit -qm base
+  trust_receipt="$workdir/.git/saas-startup-team/unsafe-check-log.json"
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  (cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
+    --check-only --auth-stdin <<<"$auth_token" >/dev/null)
+  victim_dir=$(mktemp -d)
+  ln -s "$victim_dir" "$workdir/.git/saas-startup-team/check-logs"
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --check-only \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i15a: symlinked check-log parent is rejected" "$ec" 1
+  assert_file_not_exists "RS14i15b: rejected check-log parent never runs checks" "$marker"
+  assert_equals "RS14i15c: symlinked check-log target receives no evidence" \
+    "$(find "$victim_dir" -mindepth 1 -print -quit)" ""
+  rm -f "$workdir/.git/saas-startup-team/check-logs"
+  mkdir "$workdir/.git/saas-startup-team/check-logs"
+  mkfifo "$workdir/.git/saas-startup-team/check-logs/hostile.check.fixture.log"
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" timeout 3s bash "$script" --check-only \
+    --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i15d: special check-log entry fails without blocking" "$ec" 1
+  assert_file_not_exists "RS14i15e: special check-log entry never runs checks" "$marker"
+  rm -rf "$workdir" "$victim_dir" "$marker"
+
+  workdir=$(make_workdir); make_supervisor_sandbox "$workdir"
+  git -C "$workdir" config user.email t@t.t; git -C "$workdir" config user.name t
+  printf 'base\n' > "$workdir/app.txt"
+  cat > "$workdir/check.sh" <<'SH'
+#!/usr/bin/env bash
+i=0
+while [ "$i" -lt 100000 ]; do
+  printf 'bounded-check-output-%06d-abcdefghijklmnopqrstuvwxyz0123456789\n' "$i"
+  i=$((i + 1))
+done
+SH
+  chmod +x "$workdir/check.sh"
+  git -C "$workdir" add .; git -C "$workdir" commit -qm base
+  trust_receipt="$workdir/.git/saas-startup-team/bounded-check.json"
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  (cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
+    --check-only --auth-stdin <<<"$auth_token" >/dev/null)
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" \
+    SAAS_SUPERVISOR_CHECK_LOG_MAX_BYTES=4096 \
+    SAAS_SUPERVISOR_CHECK_LOG_RETENTION_BYTES=8192 \
+    bash "$script" --check-only --trust-receipt "$trust_receipt" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i15f: oversized check output cannot produce success" "$ec" 1
+  assert_output_contains "RS14i15g: oversized check failure names the byte budget" \
+    "$out" 'check output exceeded the 4096-byte budget'
+  assert_output_not_contains "RS14i15h: oversized check never reports base-check success" \
+    "$out" 'base checks passed'
+  limit_log=$(find "$workdir/.git/saas-startup-team/check-logs" \
+    -maxdepth 1 -type f -name '*.check.*.log' -print -quit)
+  assert_equals "RS14i15i: oversized raw check evidence is truncated to its budget" \
+    "$(stat -c %s "$limit_log")" 4096
+
+  rm -rf -- "$trust_receipt" "${trust_receipt}.hooks" "${trust_receipt}.firewall"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  git -C "$workdir" add check.sh; git -C "$workdir" commit -qm quiet-check
+  limit_log_dir="$workdir/.git/saas-startup-team/check-logs"
+  dd if=/dev/zero of="$limit_log_dir/old-a.check.fixture.log" bs=4096 count=1 status=none
+  dd if=/dev/zero of="$limit_log_dir/old-b.check.fixture.log" bs=4096 count=1 status=none
+  touch -d @1 "$limit_log_dir/old-a.check.fixture.log"
+  touch -d @2 "$limit_log_dir/old-b.check.fixture.log"
+  trust_receipt="$workdir/.git/saas-startup-team/bounded-retention.json"
+  (cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
+    --check-only --auth-stdin <<<"$auth_token" >/dev/null)
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" \
+    SAAS_SUPERVISOR_CHECK_LOG_MAX_BYTES=4096 \
+    SAAS_SUPERVISOR_CHECK_LOG_RETENTION_BYTES=8192 \
+    bash "$script" --check-only --trust-receipt "$trust_receipt" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i15j: byte-bounded check retention preserves current success" "$ec" 0
+  limit_bytes=$(find -P "$limit_log_dir" -maxdepth 1 -type f -name '*.check.*.log' \
+    -printf '%s\n' | awk '{sum += $1} END {print sum + 0}')
+  assert_equals "RS14i15k: retained check evidence has a total byte budget" \
+    "$([ "$limit_bytes" -le 8192 ] && echo yes || echo no)" yes
+
+  cat > "$workdir/check.sh" <<'SH'
+#!/usr/bin/env bash
+trap '' TERM
+while :; do sleep 1; done
+SH
+  chmod +x "$workdir/check.sh"
+  git -C "$workdir" add check.sh; git -C "$workdir" commit -qm hanging-check
+  trust_receipt="$workdir/.git/saas-startup-team/hanging-check.json"
+  (cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
+    --check-only --auth-stdin <<<"$auth_token" >/dev/null)
+  started=$(date +%s); ec=0
+  out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" \
+    SAAS_SUPERVISOR_CHECK_TIMEOUT_SECONDS=1 \
+    bash "$script" --check-only --trust-receipt "$trust_receipt" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  elapsed=$(($(date +%s) - started))
+  assert_exit_code "RS14i15l: hanging checks fail closed" "$ec" 1
+  assert_output_contains "RS14i15m: hanging check failure names the deadline" \
+    "$out" 'checks exceeded the 1-second deadline'
+  assert_equals "RS14i15n: hanging check is killed within a fixed grace period" \
+    "$([ "$elapsed" -le 5 ] && echo yes || echo no)" yes
+  rm -rf "$workdir"
+
+  # A failed Git inventory is never interpreted as an empty trusted workspace.
+  workdir=$(make_workdir); make_supervisor_sandbox "$workdir"
+  git -C "$workdir" config user.email t@t.t; git -C "$workdir" config user.name t
+  marker=$(mktemp); rm -f "$marker"
+  printf 'base\n' > "$workdir/app.txt"
+  printf '#!/usr/bin/env bash\ntouch %q\n' "$marker" > "$workdir/check.sh"
+  chmod +x "$workdir/check.sh"
+  git -C "$workdir" add .; git -C "$workdir" commit -qm base
+  system_git=$(command -v git)
+  cat > "$workdir/bin/git" <<'SH'
+#!/usr/bin/env bash
+is_ls_files=0; is_ls_tree=0; is_check_attr=0; has_others=0; has_unmerged=0; has_recursive=0; has_z=0; has_head=0
+last= args=" $* "
+for arg in "$@"; do
+  last=$arg
+  [ "$arg" != ls-files ] || is_ls_files=1
+  [ "$arg" != ls-tree ] || is_ls_tree=1
+  [ "$arg" != check-attr ] || is_check_attr=1
+  [ "$arg" != --others ] || has_others=1
+  [ "$arg" != --unmerged ] || has_unmerged=1
+  [ "$arg" != -r ] || has_recursive=1
+  [ "$arg" != -z ] || has_z=1
+  [ "$arg" != HEAD ] || has_head=1
+done
+case "${FAIL_SUPERVISOR_INVENTORY:-}" in
+  snapshot) [ "$is_ls_files" -eq 0 ] || [ "$has_others" -eq 0 ] || exit 73 ;;
+  check) [ "$is_ls_files" -eq 0 ] || [ "$has_unmerged" -eq 0 ] || exit 73 ;;
+  commit)
+    [ "$is_ls_tree" -eq 0 ] || [ "$has_recursive" -eq 0 ] \
+      || [ "$has_z" -eq 0 ] || [ "$has_head" -eq 0 ] || exit 73
+    ;;
+  attributes) [ "$is_check_attr" -eq 0 ] || exit 73 ;;
+esac
+case "${FAIL_SUPERVISOR_CONFIG:-}" in
+  hooks)
+    [[ "$args" != *" config --path core.hooksPath "* ]] \
+      || { "$SYSTEM_GIT" "$@" || true; exit 73; }
+    ;;
+  sparse)
+    [[ "$args" != *" config --bool core.sparseCheckout "* ]] \
+      || { "$SYSTEM_GIT" "$@" || true; exit 73; }
+    ;;
+  attributes)
+    [[ "$args" != *" config --path core.attributesFile "* ]] \
+      || { "$SYSTEM_GIT" "$@" || true; exit 73; }
+    ;;
+  staging)
+    [[ "$args" != *" config --get core.autocrlf "* ]] \
+      || { "$SYSTEM_GIT" "$@" || true; exit 73; }
+    ;;
+esac
+if [ "${FAIL_SUPERVISOR_FINAL_HASH:-}" = invalid ] \
+  && [[ "$args" == *" hash-object --no-filters "* ]] \
+  && [[ "$last" == /tmp/tmp.* ]]; then
+  printf 'not-a-git-oid\n'
+  exit 0
+fi
+exec "$SYSTEM_GIT" "$@"
+SH
+  chmod +x "$workdir/bin/git"
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  failed_snapshot="$workdir/.git/saas-startup-team/failed-inventory-snapshot.json"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" \
+    FAIL_SUPERVISOR_INVENTORY=snapshot PATH="$workdir/bin:$PATH" \
+    bash "$script" --snapshot-trust "$failed_snapshot" --check-only \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i15o: failed untracked inventory blocks trust snapshot" "$ec" 1
+  assert_output_contains "RS14i15p: failed snapshot inventory is explicit" \
+    "$out" 'could not inventory untracked base paths'
+  assert_file_not_exists "RS14i15q: failed inventory creates no trust receipt" "$failed_snapshot"
+
+  git -C "$workdir" add bin/git; git -C "$workdir" commit -qm inventory-fixture
+  check_receipt="$workdir/.git/saas-startup-team/failed-inventory-check.json"
+  commit_receipt="$workdir/.git/saas-startup-team/failed-inventory-commit.json"
+  (cd "$workdir" && SYSTEM_GIT="$system_git" PATH="$workdir/bin:$PATH" \
+    bash "$script" --snapshot-trust "$check_receipt" --check-only \
+    --auth-stdin <<<"$auth_token" >/dev/null)
+  (cd "$workdir" && SYSTEM_GIT="$system_git" PATH="$workdir/bin:$PATH" \
+    bash "$script" --snapshot-trust "$commit_receipt" --allow app.txt \
+    --auth-stdin <<<"$auth_token" >/dev/null)
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" \
+    FAIL_SUPERVISOR_INVENTORY=check PATH="$workdir/bin:$PATH" \
+    bash "$script" --check-only --trust-receipt "$check_receipt" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i15r: failed index inventory blocks authenticated checks" "$ec" 1
+  assert_output_contains "RS14i15s: failed check inventory is explicit" \
+    "$out" 'could not inspect unmerged index entries'
+  assert_file_not_exists "RS14i15t: inventory failure never launches the check" "$marker"
+
+  base=$(git -C "$workdir" rev-parse HEAD)
+  printf 'candidate\n' > "$workdir/app.txt"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" \
+    FAIL_SUPERVISOR_INVENTORY=commit PATH="$workdir/bin:$PATH" \
+    bash "$script" --message candidate --trust-receipt "$commit_receipt" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i15u: failed base-tree inventory blocks commit" "$ec" 1
+  assert_output_contains "RS14i15v: failed commit inventory is explicit" \
+    "$out" 'could not inventory the base tree'
+  assert_equals "RS14i15w: inventory failure creates no commit" \
+    "$(git -C "$workdir" rev-parse HEAD)" "$base"
+  assert_file_not_exists "RS14i15x: failed commit inventory never launches checks" "$marker"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" \
+    FAIL_SUPERVISOR_INVENTORY=attributes PATH="$workdir/bin:$PATH" \
+    bash "$script" --message candidate --trust-receipt "$commit_receipt" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i15x1: failed attribute inspection blocks commit" "$ec" 1
+  assert_output_contains "RS14i15x2: failed attribute inspection is explicit" \
+    "$out" 'could not inspect attributes for path'
+  assert_equals "RS14i15x3: attribute failure creates no commit" \
+    "$(git -C "$workdir" rev-parse HEAD)" "$base"
+  assert_file_not_exists "RS14i15x4: attribute failure never launches checks" "$marker"
+  failed_snapshot="$workdir/.git/saas-startup-team/failed-hooks-config.json"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" \
+    FAIL_SUPERVISOR_CONFIG=hooks PATH="$workdir/bin:$PATH" \
+    bash "$script" --snapshot-trust "$failed_snapshot" --allow app.txt \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i15x4a: hook-path config errors block trust snapshot" "$ec" 1
+  assert_file_not_exists "RS14i15x4b: hook-path config error creates no receipt" "$failed_snapshot"
+  failed_snapshot="$workdir/.git/saas-startup-team/failed-final-hash.json"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" \
+    FAIL_SUPERVISOR_FINAL_HASH=invalid PATH="$workdir/bin:$PATH" \
+    bash "$script" --snapshot-trust "$failed_snapshot" --allow app.txt \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i15x4c: invalid aggregate hook hash blocks trust snapshot" "$ec" 1
+  assert_file_not_exists "RS14i15x4d: invalid final hash creates no receipt" "$failed_snapshot"
+  for config_failure in sparse attributes staging; do
+    ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" \
+      FAIL_SUPERVISOR_CONFIG="$config_failure" PATH="$workdir/bin:$PATH" \
+      bash "$script" --message candidate --trust-receipt "$commit_receipt" \
+      --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+    assert_exit_code "RS14i15x4 config error blocks commit:$config_failure" "$ec" 1
+    assert_equals "RS14i15x4 config error creates no commit:$config_failure" \
+      "$(git -C "$workdir" rev-parse HEAD)" "$base"
+  done
+  assert_file_not_exists "RS14i15x4e: config-query failures never launch checks" "$marker"
+  real_jq=$(command -v jq)
+  cat > "$workdir/bin/jq" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  [ "$arg" != '.allow[]' ] || exit 73
+done
+exec "$REAL_JQ" "$@"
+SH
+  chmod +x "$workdir/bin/jq"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" REAL_JQ="$real_jq" \
+    PATH="$workdir/bin:$PATH" bash "$script" --message candidate \
+    --trust-receipt "$commit_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i15x5: failed allowlist materialization blocks commit" "$ec" 1
+  assert_output_contains "RS14i15x6: failed allowlist materialization is explicit" \
+    "$out" 'cannot materialize authenticated allowlist'
+  assert_file_exists "RS14i15x7: allowlist failure preserves the trust receipt" "$commit_receipt"
+  assert_equals "RS14i15x8: allowlist failure creates no commit" \
+    "$(git -C "$workdir" rev-parse HEAD)" "$base"
+  assert_file_not_exists "RS14i15x9: allowlist failure never launches checks" "$marker"
+  assert_file_not_contains "RS14i15y: Git inventory loops avoid unchecked process substitution" \
+    "$script" 'done < <($REAL_GIT'
+  assert_file_not_contains "RS14i15z: supervisor uses no Bash-4.1 dynamic descriptors" \
+    "$script" 'exec {'
+  rm -rf "$workdir" "$marker"
 
   # Supervisor commit: red checks do not commit; green checks run normal hooks.
   script="$PLUGIN_ROOT/scripts/supervisor-commit.sh"
@@ -480,6 +912,64 @@ SH
   assert_equals "RS19x: branch switch creates no commit" "$(git -C "$workdir" rev-list --count HEAD)" 1
   rm -rf "$workdir"
 
+  # Commit receipts strictly contain every ref, including sibling and remote refs.
+  workdir=$(make_workdir); make_supervisor_sandbox "$workdir"; (cd "$workdir" && git config user.email t@t.t && git config user.name t)
+  printf 'base\n' > "$workdir/app.txt"; printf '#!/usr/bin/env bash\nexit 0\n' > "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  (cd "$workdir" && git add . && git commit -qm init && git branch -m guarded-active && git branch main)
+  remote=$(mktemp -d); rm -rf "$remote"; git init -q --bare "$remote"
+  git -C "$workdir" remote add origin "$remote"
+  git -C "$workdir" push -qu origin guarded-active
+  linked=$(mktemp -d); rmdir "$linked"
+  git -C "$workdir" worktree add -q -b guarded-sibling "$linked" HEAD
+  git -C "$linked" config user.email t@t.t; git -C "$linked" config user.name t
+  trust_receipt="$workdir/.git/saas-startup-team/supervisor-trust.json"; supervisor_snapshot
+  assert_equals "RS19x0: commit receipt uses strict schema 4" \
+    "$(jq -r '.schema_version' "$trust_receipt")" 4
+  guard_head=$(git -C "$workdir" rev-parse HEAD)
+  tree=$(git -C "$workdir" rev-parse 'HEAD^{tree}')
+  main_next=$(printf 'worker ref rewrite\n' | git -C "$workdir" commit-tree "$tree" -p "$guard_head")
+  git -C "$workdir" update-ref refs/heads/main "$main_next" "$guard_head"
+  printf 'changed\n' > "$workdir/app.txt"
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" \
+    --message test --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19x1: direct update-ref of a non-active main branch is rejected" "$ec" 1
+  assert_output_contains "RS19x2: branch rewrite rejection names the strict ref boundary" \
+    "$out" 'Git refs changed after trust snapshot'
+  git -C "$workdir" update-ref refs/heads/main "$guard_head" "$main_next"
+  git -C "$workdir" update-ref refs/heads/worker-created "$guard_head"
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" \
+    --message test --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19x3: worker-created ref is rejected with the active branch intact" "$ec" 1
+  git -C "$workdir" update-ref -d refs/heads/worker-created
+  git -C "$workdir" update-ref refs/remotes/origin/forged "$guard_head"
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" \
+    --message test --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19x4: a new origin-tracking ref is rejected by schema 4" "$ec" 1
+  git -C "$workdir" update-ref -d refs/remotes/origin/forged
+  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$main_next" "$guard_head"
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" \
+    --message test --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19x5: an existing origin-tracking ref rewrite is rejected by schema 4" "$ec" 1
+  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$guard_head" "$main_next"
+  git --git-dir="$remote" update-ref refs/heads/live-new "$guard_head"
+  git -C "$workdir" update-ref refs/remotes/origin/live-new "$guard_head"
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" \
+    --message test --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19x6: a live-matching new tracking ref is still rejected by schema 4" "$ec" 1
+  git -C "$workdir" update-ref -d refs/remotes/origin/live-new
+  git -C "$workdir" tag worker-tag
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" \
+    --message test --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19x7: worker-created tag is rejected" "$ec" 1
+  git -C "$workdir" tag -d worker-tag >/dev/null
+  printf 'sibling progress\n' > "$linked/app.txt"
+  git -C "$linked" add app.txt; git -C "$linked" commit -qm sibling-progress
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" \
+    --message test --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19x8: a pre-existing sibling-worktree branch advance is rejected" "$ec" 1
+  git -C "$workdir" worktree remove --force "$linked"
+  rm -rf "$workdir" "$remote"
+
   # Exact authenticated allowlists exclude unrelated pre-existing untracked dirt.
   workdir=$(make_workdir); make_supervisor_sandbox "$workdir"; (cd "$workdir" && git config user.email t@t.t && git config user.name t)
   printf 'base\n' > "$workdir/app.txt"; printf '#!/usr/bin/env bash\nexit 0\n' > "$workdir/check.sh"; chmod +x "$workdir/check.sh"
@@ -536,16 +1026,26 @@ SH
   workdir=$(make_workdir); make_supervisor_sandbox "$workdir"; (cd "$workdir" && git config user.email t@t.t && git config user.name t)
   printf 'base\n' > "$workdir/app.txt"; printf '#!/usr/bin/env bash\nexit 0\n' > "$workdir/check.sh"; chmod +x "$workdir/check.sh"
   (cd "$workdir" && git add . && git commit -qm init)
-  patch_file=$(mktemp)
+  patch_dir=$(mktemp -d); patch_file="$patch_dir/run.sh"
   cat > "$patch_file" <<'SH'
 #!/usr/bin/env bash
 [ "$1" = --firewall ] && grep -q '^+approved$' "$2" || exit 3
 SH
   chmod +x "$patch_file"
   trust_receipt="$workdir/.git/saas-startup-team/supervisor-trust.json"; auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  (cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
+  ln -s /dev/null "$patch_dir/pii-gate.sh"
+  ec=0; out=$(cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
     --auth-stdin --allow app.txt --require-approved-diff \
-    --firewall-script "$patch_file" <<<"$auth_token" >/dev/null)
+    --firewall-script "$patch_file" <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zfa: unsafe firewall companion fails after claiming snapshot slots" "$ec" 1
+  assert_file_not_exists "RS19zfb: failed snapshot removes its partial receipt" "$trust_receipt"
+  assert_file_not_exists "RS19zfc: failed snapshot removes its partial hook copy" "${trust_receipt}.hooks"
+  assert_file_not_exists "RS19zfd: failed snapshot removes its partial firewall copy" "${trust_receipt}.firewall"
+  rm -f "$patch_dir/pii-gate.sh"
+  ec=0; out=$(cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
+    --auth-stdin --allow app.txt --require-approved-diff \
+    --firewall-script "$patch_file" <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zfe: the same snapshot path is retryable after cleanup" "$ec" 0
   printf '#!/usr/bin/env bash\nexit 0\n' > "$patch_file"
   printf 'worker-controlled\n' > "$workdir/app.txt"
   ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" \
@@ -556,7 +1056,7 @@ SH
   ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" \
     --message test --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zh: exact candidate passes frozen firewall atomically" "$ec" 0
-  rm -rf "$workdir" "$patch_file"
+  rm -rf "$workdir" "$patch_dir"
 
   # Checks run outside the product directory, so parent dependency lookup cannot see
   # a worker-mutated ignored package store in the primary checkout.
@@ -628,6 +1128,37 @@ SH
       ([.check_runtimes[].manifests[].path] | index("backend/services/api/requirements/dev.txt")) != null
     ' "$trust_receipt" >/dev/null 2>&1; echo $?)" 0
   printf 'changed\n' > "$linked/app.txt"
+  real_jq=$(command -v jq)
+  cat > "$linked/bin/jq" <<'SH'
+#!/usr/bin/env bash
+mode=${FAIL_RUNTIME_JQ:-}
+for arg in "$@"; do
+  case "$mode:$arg" in
+    count:.check_runtimes\|length|items:.check_runtimes\[\]|field:'.source | select(type == "string" and length > 0)')
+      "$REAL_JQ" "$@" || true
+      exit 73
+      ;;
+    truncate:.check_runtimes\[\])
+      "$REAL_JQ" "$@" | sed -n '1p'
+      exit 0
+      ;;
+  esac
+done
+exec "$REAL_JQ" "$@"
+SH
+  chmod +x "$linked/bin/jq"
+  for jq_failure in count items field truncate; do
+    ec=0; out=$(REAL_JQ="$real_jq" FAIL_RUNTIME_JQ="$jq_failure" \
+      bash "$script" --repo-root "$linked" --message runtime \
+      --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+    assert_exit_code "RS19zkr2 runtime receipt jq failure blocks before checks:$jq_failure" "$ec" 1
+  done
+  assert_file_exists "RS19zkr2b: runtime jq failures preserve the trust receipt" "$trust_receipt"
+  assert_file_not_exists "RS19zkr2c: runtime jq failures create no check evidence" \
+    "$(dirname -- "$trust_receipt")/check-logs"
+  assert_equals "RS19zkr2d: runtime jq failures create no commit" \
+    "$(git -C "$linked" rev-list --count HEAD)" 1
+  rm -f -- "$linked/bin/jq"
   ec=0; out=$(bash "$script" --repo-root "$linked" --message runtime \
     --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zkr3: sealed read-only runtimes satisfy the check" "$ec" 0
@@ -936,6 +1467,11 @@ SH
   bash "$PLUGIN_ROOT/scripts/single-flight.sh" --acquire guarded/test \
     --state-dir "$workdir/.startup/leases" --owner supervisor >/dev/null
   printf '1\n' > "$workdir/.startup/leases/guarded-test/heartbeat"
+  mkdir -p "$workdir/backend/app/__pycache__" "$workdir/.pytest_cache/v/cache"
+  printf 'old bytecode\n' > "$workdir/backend/app/__pycache__/module.pyc"
+  printf 'old optimized bytecode\n' > "$workdir/backend/app/__pycache__/legacy.pyo"
+  printf 'old unignored bytecode\n' > "$workdir/backend/baseline.pyc"
+  printf '["old"]\n' > "$workdir/.pytest_cache/v/cache/nodeids"
   auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
   snapshot="$workdir/.git/saas-startup-team/generated-output.json"
   (cd "$workdir" && bash "$script" --snapshot "$snapshot" --auth-stdin \
@@ -947,6 +1483,10 @@ SH
     "$workdir/.pytest_cache/v/cache" "$workdir/backend/logs" "$workdir/backend/data"
   printf '{}\n' > "$workdir/frontend/.next/build-manifest.json"
   printf 'bytecode\n' > "$workdir/backend/app/__pycache__/module.pyc"
+  printf 'optimized bytecode\n' > "$workdir/backend/app/__pycache__/legacy.pyo"
+  printf 'unignored bytecode\n' > "$workdir/backend/baseline.pyc"
+  printf 'executable bytecode\n' > "$workdir/backend/app/__pycache__/payload.pyc"
+  chmod +x "$workdir/backend/app/__pycache__/payload.pyc"
   printf '[]\n' > "$workdir/.pytest_cache/v/cache/nodeids"
   printf '{}\n' > "$workdir/frontend/tsconfig.tsbuildinfo"
   printf 'test log\n' > "$workdir/backend/logs/test.log"
@@ -966,16 +1506,58 @@ SH
     "$workdir/.startup/leases/guarded-test/heartbeat"
   assert_file_not_exists "RS19znn5e: worker-created lease heartbeat is removed" \
     "$workdir/.startup/leases/worker-created/heartbeat"
+  assert_file_not_exists "RS19znn5f: rewritten baseline bytecode is removed after checks" \
+    "$workdir/backend/app/__pycache__/module.pyc"
+  assert_file_not_exists "RS19znn5g: rewritten baseline pytest cache is removed after checks" \
+    "$workdir/.pytest_cache/v/cache/nodeids"
+  assert_file_not_exists "RS19znn5h: newly created executable bytecode is removed" \
+    "$workdir/backend/app/__pycache__/payload.pyc"
+  assert_file_not_exists "RS19znn5i: rewritten optimized bytecode is removed" \
+    "$workdir/backend/app/__pycache__/legacy.pyo"
+  assert_file_not_exists "RS19znn5ia: empty bytecode cache directory is removed safely" \
+    "$workdir/backend/app/__pycache__"
+  assert_file_not_exists "RS19znn5ib: empty pytest cache tree is removed safely" \
+    "$workdir/.pytest_cache"
+  assert_file_not_exists "RS19znn5ic: rewritten unignored baseline bytecode is removed" \
+    "$workdir/backend/baseline.pyc"
 
   git -C "$workdir" restore app.txt
-  mkdir -p "$workdir/existing-cache"
+  snapshot="$workdir/.git/saas-startup-team/empty-cache-only.json"
+  (cd "$workdir" && bash "$script" --snapshot "$snapshot" --auth-stdin \
+    --allow app.txt <<<"$auth_token" >/dev/null)
+  printf 'allowed empty-cache check\n' > "$workdir/app.txt"
+  mkdir -p "$workdir/backend/empty/__pycache__" "$workdir/.pytest_cache/empty/tree"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn5id: empty-only Python cache creation verifies" "$ec" 0
+  assert_file_not_exists "RS19znn5ie: empty-only bytecode cache tree is removed" \
+    "$workdir/backend/empty/__pycache__"
+  assert_file_not_exists "RS19znn5if: empty-only pytest cache tree is removed" \
+    "$workdir/.pytest_cache"
+
+  git -C "$workdir" restore app.txt
+  mkdir -p "$workdir/backend/app/__pycache__"
+  printf 'baseline mode\n' > "$workdir/backend/app/__pycache__/mode.pyc"
+  snapshot="$workdir/.git/saas-startup-team/cache-mode.json"
+  (cd "$workdir" && bash "$script" --snapshot "$snapshot" --auth-stdin \
+    --allow app.txt <<<"$auth_token" >/dev/null)
+  chmod +x "$workdir/backend/app/__pycache__/mode.pyc"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn5j: baseline Python cache mode changes are rejected" "$ec" 1
+  assert_file_not_exists "RS19znn5k: rejected mode-changed cache is removed on failure" \
+    "$workdir/backend/app/__pycache__/mode.pyc"
+
+  mkdir -p "$workdir/existing-cache" "$workdir/backend/app/__pycache__"
   printf 'SECRET=baseline\n' > "$workdir/.env"
   printf 'baseline\n' > "$workdir/existing-cache/output.bin"
+  printf 'failure cache\n' > "$workdir/backend/app/__pycache__/failure.pyc"
   snapshot="$workdir/.git/saas-startup-team/sensitive-ignored.json"
   (cd "$workdir" && bash "$script" --snapshot "$snapshot" --auth-stdin \
     --allow app.txt <<<"$auth_token" >/dev/null)
   printf 'SECRET=changed\n' > "$workdir/.env"
   printf 'changed\n' > "$workdir/existing-cache/output.bin"
+  printf 'new unignored bytecode\n' > "$workdir/backend/unignored.pyc"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" \
     --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19znn6: pre-existing sensitive ignored mutation is rejected" "$ec" 1
@@ -985,7 +1567,290 @@ SH
     "$out" '.env'
   assert_output_contains "RS19znn9: pre-existing generated output stays protected" \
     "$out" 'existing-cache/output.bin'
+  assert_file_not_exists "RS19znn9aa: unrelated guard failure still removes baseline bytecode" \
+    "$workdir/backend/app/__pycache__/failure.pyc"
+  assert_file_not_exists "RS19znn9ab: unrelated guard failure removes unignored bytecode" \
+    "$workdir/backend/unignored.pyc"
   rm -rf "$workdir"
+
+  # Git inventories are observed, not converted to an empty clean set.
+  script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"
+  workdir=$(make_workdir); git -C "$workdir" config user.email t@t.t; git -C "$workdir" config user.name t
+  mkdir -p "$workdir/bin"
+  printf '__pycache__/\nignored-special\n' > "$workdir/.gitignore"
+  printf 'base\n' > "$workdir/app.txt"
+  git -C "$workdir" add app.txt .gitignore; git -C "$workdir" commit -qm base
+  system_git=$(command -v git)
+  cat > "$workdir/bin/git" <<'SH'
+#!/usr/bin/env bash
+is_ls_files=0; is_ignored=0; is_directory=0; is_hash=0; is_config=0
+show_origin=0; show_scope=0; is_list=0; after_separator=0; target= last= args=" $* "
+for arg in "$@"; do
+  last=$arg
+  [ "$arg" != ls-files ] || is_ls_files=1
+  [ "$arg" != --ignored ] || is_ignored=1
+  [ "$arg" != --directory ] || is_directory=1
+  [ "$arg" != hash-object ] || is_hash=1
+  [ "$arg" != config ] || is_config=1
+  [ "$arg" != --show-origin ] || show_origin=1
+  [ "$arg" != --show-scope ] || show_scope=1
+  [ "$arg" != --list ] || is_list=1
+  if [ "$after_separator" -eq 1 ]; then target=$arg; fi
+  [ "$arg" != -- ] || after_separator=1
+done
+case "${FAIL_GIT_LS_FILES:-}" in
+  untracked) [ "$is_ls_files" -eq 0 ] || [ "$is_ignored" -eq 1 ] || exit 73 ;;
+  ignored) [ "$is_ls_files" -eq 0 ] || [ "$is_ignored" -eq 0 ] || exit 73 ;;
+  cache)
+    [ "$is_ls_files" -eq 0 ] || [ "$is_ignored" -eq 0 ] \
+      || [ "$is_directory" -eq 1 ] || [ "$target" != . ] || exit 73
+    ;;
+esac
+[ "${FAIL_GIT_HASH:-}" != outside ] || [ "$is_hash" -eq 0 ] || [ "$target" != outside.txt ] || exit 73
+if [ "${FAIL_GIT_CONFIG:-}" = list ] && [ "$is_config" -eq 1 ] \
+  && [ "$show_origin" -eq 1 ] && [ "$show_scope" -eq 1 ] && [ "$is_list" -eq 1 ]; then
+  exit 73
+fi
+if [ "${FAIL_GIT_CONFIG:-}" = hooks ] \
+  && [[ "$args" == *" config --path core.hooksPath "* ]]; then
+  "$SYSTEM_GIT" "$@" || true
+  exit 73
+fi
+if [ "${FAIL_GIT_FINAL_HASH:-}" = invalid ] \
+  && [[ "$args" == *" hash-object --no-filters "* ]] \
+  && [[ "$last" == /tmp/tmp.* ]]; then
+  printf 'not-a-git-oid\n'
+  exit 0
+fi
+exec "$SYSTEM_GIT" "$@"
+SH
+  chmod +x "$workdir/bin/git"
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  snapshot="$workdir/.git/saas-startup-team/cache-inventory-failure.json"
+  failed_snapshot="$workdir/.git/saas-startup-team/untracked-inventory-failure.json"
+  mkfifo "$workdir/ignored-special"
+  ec=0; out=$(cd "$workdir" && bash "$script" --snapshot "$failed_snapshot" \
+    --auth-stdin --allow app.txt <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9ab1: protected ignored special files fail snapshot closed" "$ec" 1
+  assert_file_not_exists "RS19znn9ab2: special file creates no constant fingerprint" \
+    "$failed_snapshot"
+  rm -f -- "$workdir/ignored-special"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" FAIL_GIT_LS_FILES=untracked \
+    PATH="$workdir/bin:$PATH" bash "$script" --snapshot "$failed_snapshot" \
+    --auth-stdin --allow app.txt <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9ac0: failed untracked inventory blocks snapshot" "$ec" 1
+  assert_output_contains "RS19znn9ac1: snapshot inventory failure is explicit" "$out" \
+    'cannot enumerate untracked files'
+  assert_file_not_exists "RS19znn9ac2: failed inventory creates no false-clean snapshot" \
+    "$failed_snapshot"
+  failed_snapshot="$workdir/.git/saas-startup-team/hash-failure.json"
+  printf 'outside\n' > "$workdir/outside.txt"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" FAIL_GIT_HASH=outside \
+    PATH="$workdir/bin:$PATH" bash "$script" --snapshot "$failed_snapshot" \
+    --auth-stdin --allow app.txt <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9ac2a: failed content hash blocks snapshot" "$ec" 1
+  assert_file_not_exists "RS19znn9ac2b: hash failure creates no constant fingerprint" \
+    "$failed_snapshot"
+  rm -f -- "$workdir/outside.txt"
+  failed_snapshot="$workdir/.git/saas-startup-team/config-failure.json"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" FAIL_GIT_CONFIG=list \
+    PATH="$workdir/bin:$PATH" bash "$script" --snapshot "$failed_snapshot" \
+    --auth-stdin --allow app.txt <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9ac2c: failed exclusion-config inventory blocks snapshot" "$ec" 1
+  assert_file_not_exists "RS19znn9ac2d: config failure creates no false fingerprint" \
+    "$failed_snapshot"
+  failed_snapshot="$workdir/.git/saas-startup-team/hooks-config-failure.json"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" FAIL_GIT_CONFIG=hooks \
+    PATH="$workdir/bin:$PATH" bash "$script" --snapshot "$failed_snapshot" \
+    --auth-stdin --allow app.txt <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9ac2e: hook-path config errors block guard snapshot" "$ec" 1
+  assert_file_not_exists "RS19znn9ac2f: hook config error creates no snapshot" "$failed_snapshot"
+  failed_snapshot="$workdir/.git/saas-startup-team/final-hash-failure.json"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" FAIL_GIT_FINAL_HASH=invalid \
+    PATH="$workdir/bin:$PATH" bash "$script" --snapshot "$failed_snapshot" \
+    --auth-stdin --allow app.txt <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9ac2g: invalid aggregate fingerprint blocks guard snapshot" "$ec" 1
+  assert_file_not_exists "RS19znn9ac2h: invalid final hash creates no snapshot" "$failed_snapshot"
+  printf 'ignored-baseline-a.txt\nignored-baseline-b.txt\n' >> "$workdir/.gitignore"
+  printf 'baseline a\n' > "$workdir/ignored-baseline-a.txt"
+  printf 'baseline b\n' > "$workdir/ignored-baseline-b.txt"
+  array_snapshot="$workdir/.git/saas-startup-team/authenticated-arrays.json"
+  (cd "$workdir" && SYSTEM_GIT="$system_git" PATH="$workdir/bin:$PATH" \
+    bash "$script" --snapshot "$array_snapshot" --auth-stdin \
+    --allow app.txt --allow second.txt <<<"$auth_token" >/dev/null)
+  real_jq=$(command -v jq)
+  cat > "$workdir/bin/jq" <<'SH'
+#!/usr/bin/env bash
+mode=${FAIL_GUARD_JQ:-}
+for arg in "$@"; do
+  if { [ "$mode" = allow-fail ] && [ "$arg" = '.allow[]' ]; } \
+    || { [ "$mode" = ignored-fail ] && [ "$arg" = '.ignored_baseline[]' ]; }; then
+    "$REAL_JQ" "$@" || true
+    exit 73
+  fi
+  if { [ "$mode" = allow-truncate ] && [ "$arg" = '.allow[]' ]; } \
+    || { [ "$mode" = ignored-truncate ] && [ "$arg" = '.ignored_baseline[]' ]; }; then
+    "$REAL_JQ" "$@" | sed -n '1p'
+    exit 0
+  fi
+done
+exec "$REAL_JQ" "$@"
+SH
+  chmod +x "$workdir/bin/jq"
+  for jq_failure in allow-fail allow-truncate ignored-fail ignored-truncate; do
+    rm -f -- "${array_snapshot}.active"
+    printf 'guard-active\n' > "${array_snapshot}.active"; chmod 400 "${array_snapshot}.active"
+    ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" REAL_JQ="$real_jq" \
+      FAIL_GUARD_JQ="$jq_failure" PATH="$workdir/bin:$PATH" \
+      bash "$script" --verify "$array_snapshot" --auth-stdin \
+      <<<"$auth_token" 2>&1) || ec=$?
+    assert_exit_code "RS19znn9ac2 authenticated array jq failure blocks:$jq_failure" "$ec" 1
+  done
+  rm -f -- "$workdir/bin/jq" "${array_snapshot}.active"
+  printf 'guard-active\n' > "${array_snapshot}.active"; chmod 400 "${array_snapshot}.active"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" PATH="$workdir/bin:$PATH" \
+    bash "$script" --verify "$array_snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9ac2i: complete authenticated arrays still verify" "$ec" 0
+  rm -f -- "$workdir/ignored-baseline-a.txt" "$workdir/ignored-baseline-b.txt"
+  git -C "$workdir" restore .gitignore
+  (cd "$workdir" && SYSTEM_GIT="$system_git" PATH="$workdir/bin:$PATH" \
+    bash "$script" --snapshot "$snapshot" --auth-stdin --allow app.txt \
+    <<<"$auth_token" >/dev/null)
+  printf 'allowed\n' > "$workdir/app.txt"
+  mkdir -p "$workdir/backend/__pycache__"
+  printf 'generated\n' > "$workdir/backend/__pycache__/module.pyc"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" FAIL_GIT_LS_FILES=ignored \
+    PATH="$workdir/bin:$PATH" bash "$script" --verify "$snapshot" --auth-stdin \
+    <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9ac3: failed ignored inventory blocks verification" "$ec" 1
+  assert_output_contains "RS19znn9ac4: verify inventory failure is explicit" "$out" \
+    'cannot enumerate protected ignored paths'
+  assert_file_exists "RS19znn9ac5: failed ignored inventory does not guess cache state" \
+    "$workdir/backend/__pycache__/module.pyc"
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
+  ec=0; out=$(cd "$workdir" && SYSTEM_GIT="$system_git" FAIL_GIT_LS_FILES=cache \
+    PATH="$workdir/bin:$PATH" bash "$script" --verify "$snapshot" --auth-stdin \
+    <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9ac: failed cache cleanup inventory fails the guard" "$ec" 1
+  assert_output_contains "RS19znn9ad: failed cache cleanup inventory is explicit" "$out" \
+    'cannot enumerate Python cache paths'
+  assert_file_exists "RS19znn9ae: failed inventory does not guess which cache file to remove" \
+    "$workdir/backend/__pycache__/module.pyc"
+  assert_file_not_contains "RS19znn9af: guard avoids Bash 4.2-only variable-presence syntax" \
+    "$script" '[[ -v'
+  assert_file_not_contains "RS19znn9af1: git inventories avoid unobservable process substitution" \
+    "$script" '< <(git -c core.fsmonitor=false ls-files'
+  assert_file_not_contains "RS19znn9ag: supervisor avoids Bash 4.2-only variable-presence syntax" \
+    "$PLUGIN_ROOT/scripts/supervisor-commit.sh" '[[ -v'
+  assert_file_not_contains "RS19znn9ah: container checker avoids Bash 4.2-only variable-presence syntax" \
+    "$PLUGIN_ROOT/scripts/supervisor-check-container.sh" '[[ -v'
+  rm -rf "$workdir"
+
+  # Origin tolerance is fail-closed for unsafe transports, ref-set drift, and custom mappings.
+  script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"
+  workdir=$(make_workdir); git -C "$workdir" config user.email t@t.t; git -C "$workdir" config user.name t
+  printf 'base\n' > "$workdir/app.txt"; git -C "$workdir" add app.txt; git -C "$workdir" commit -qm base
+  git -C "$workdir" branch -m guarded-active
+  remote=$(mktemp -d); rm -rf "$remote"; git init -q --bare "$remote"
+  git -C "$workdir" remote add origin "$remote"; git -C "$workdir" push -qu origin guarded-active
+  guard_head=$(git -C "$workdir" rev-parse refs/remotes/origin/guarded-active)
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  snapshot="$workdir/.git/saas-startup-team/origin-guard.json"
+  (cd "$workdir" && bash "$script" --snapshot "$snapshot" --auth-stdin \
+    --allow review.md <<<"$auth_token" >/dev/null)
+  remote_clone=$(mktemp -d); rm -rf "$remote_clone"
+  git clone -q -b guarded-active "$remote" "$remote_clone"
+  git -C "$remote_clone" config user.email t@t.t; git -C "$remote_clone" config user.name t
+  printf 'origin progress\n' > "$remote_clone/app.txt"
+  git -C "$remote_clone" add app.txt; git -C "$remote_clone" commit -qm origin-progress
+  git -C "$remote_clone" push -q origin guarded-active
+  git -C "$workdir" fetch -q origin guarded-active
+  progress_head=$(git -C "$workdir" rev-parse refs/remotes/origin/guarded-active)
+  printf 'review\n' > "$workdir/review.md"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9a: guard rejects origin progress over a local filesystem transport" "$ec" 1
+  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$guard_head" "$progress_head"
+  git -C "$remote_clone" switch -q -c new-live
+  git -C "$remote_clone" push -q origin new-live
+  git -C "$workdir" fetch -q origin new-live:refs/remotes/origin/new-live
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9b: guard rejects a newly fetched ref absent from its signed baseline" "$ec" 1
+  git -C "$workdir" update-ref -d refs/remotes/origin/new-live
+  git -C "$workdir" update-ref refs/remotes/origin/forged HEAD
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9c: guard rejects forged tracking ref absent from live origin" "$ec" 1
+  git -C "$workdir" update-ref -d refs/remotes/origin/forged
+  git -C "$workdir" update-ref -d refs/remotes/origin/guarded-active
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9ca: guard rejects deletion of a baseline tracking ref" "$ec" 1
+  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$guard_head"
+
+  git -C "$workdir" remote set-url origin https://example.invalid/repository.git
+  git -C "$workdir" config --unset-all remote.origin.fetch
+  git -C "$workdir" config --add remote.origin.fetch \
+    '+refs/heads/guarded-active:refs/remotes/origin/custom-active'
+  custom_snapshot="$workdir/.git/saas-startup-team/custom-origin-guard.json"
+  (cd "$workdir" && bash "$script" --snapshot "$custom_snapshot" --auth-stdin \
+    --allow review.md <<<"$auth_token" >/dev/null)
+  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$progress_head" "$guard_head"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$custom_snapshot" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9cb: custom fetch refspec disables origin progress tolerance" "$ec" 1
+
+  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$guard_head" "$progress_head"
+  git -C "$workdir" config --unset-all remote.origin.fetch
+  git -C "$workdir" config --add remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+  origin_sentinel=$(mktemp); rm -f "$origin_sentinel"
+  git -C "$workdir" remote set-url origin \
+    "ssh://-oProxyCommand=touch%20${origin_sentinel}/repository"
+  injection_snapshot="$workdir/.git/saas-startup-team/injected-origin-guard.json"
+  (cd "$workdir" && bash "$script" --snapshot "$injection_snapshot" --auth-stdin \
+    --allow review.md <<<"$auth_token" >/dev/null)
+  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$progress_head" "$guard_head"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$injection_snapshot" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9cc: option-like SSH origin is rejected before lookup" "$ec" 1
+  assert_file_not_exists "RS19znn9cd: rejected SSH origin executes no local command" "$origin_sentinel"
+
+  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$guard_head" "$progress_head"
+  git -C "$workdir" remote set-url origin ssh://127.0.0.1:1/repository
+  injection_snapshot="$workdir/.git/saas-startup-team/environment-origin-guard.json"
+  (cd "$workdir" && bash "$script" --snapshot "$injection_snapshot" --auth-stdin \
+    --allow review.md <<<"$auth_token" >/dev/null)
+  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$progress_head" "$guard_head"
+  ssh_injector=$(mktemp)
+  printf '#!/usr/bin/env bash\ntouch %q\nexit 1\n' "$origin_sentinel" > "$ssh_injector"
+  chmod +x "$ssh_injector"
+  ec=0; out=$(cd "$workdir" && GIT_SSH_COMMAND="$ssh_injector" GIT_ASKPASS="$ssh_injector" \
+    bash "$script" --verify "$injection_snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19znn9ce: unreachable hardened SSH origin fails closed" "$ec" 1
+  assert_file_not_exists "RS19znn9cf: live proof ignores injected SSH and askpass commands" "$origin_sentinel"
+  rm -f "$ssh_injector" "$origin_sentinel"
+  rm -rf "$workdir" "$remote_clone" "$remote"
+  script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"
+  assert_file_contains "RS19znn9d: live proof disables interactive authentication" \
+    "$script" 'GIT_TERMINAL_PROMPT=0'
+  assert_file_contains "RS19znn9e: live proof uses a fixed executable search path" \
+    "$script" 'PATH=/usr/bin:/bin'
+  assert_file_contains "RS19znn9f: live proof clears Git executable and proxy injection" \
+    "$script" 'GIT_EXEC_PATH GIT_PROXY_COMMAND'
+  assert_file_contains "RS19znn9g: live proof clears SSH and askpass injection" \
+    "$script" 'GIT_SSH_VARIANT GIT_ASKPASS SSH_ASKPASS SSH_ASKPASS_REQUIRE'
+  assert_file_contains "RS19znn9h: live proof disables ambient Git configuration" \
+    "$script" 'GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1'
+  assert_file_contains "RS19znn9i: live proof disables external protocol helpers" \
+    "$script" 'protocol.ext.allow=never'
+  assert_file_contains "RS19znn9j: origin tolerance requires the default fetch mapping" \
+    "$script" '+refs/heads/\*:refs/remotes/origin/\*'
+  assert_file_contains "RS19znn9k: origin tolerance recognizes hardened HTTPS transport" \
+    "$script" 'https://\*'
+  assert_file_contains "RS19znn9ka: origin tolerance recognizes hardened SSH URLs" \
+    "$script" 'ssh://\*'
+  assert_file_contains "RS19znn9l: origin tolerance recognizes scp-like SSH transport" \
+    "$script" 'A-Za-z0-9._-.*@.*A-Za-z0-9.-.*:'
 
   # Large guard collections are streamed to jq instead of crossing the per-argument limit.
   script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"
@@ -1088,6 +1953,11 @@ SH
   printf 'supervisor-owner\n' > "$workdir/.startup/leases/qa/owner"
   printf 'ignored baseline\n' > "$workdir/ignored-product.txt"
   (cd "$workdir" && git add app.txt .gitignore && git commit -qm init)
+  git -C "$workdir" branch -m guarded-active
+  git -C "$workdir" branch main HEAD
+  linked=$(mktemp -d); rmdir "$linked"
+  git -C "$workdir" worktree add -q -b guard-concurrent "$linked" HEAD
+  git -C "$linked" config user.email t@t.t; git -C "$linked" config user.name t
   printf 'tech-diff\n' > "$workdir/app.txt"
   snapshot="$workdir/.git/saas-startup-team/qa.json"
   auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
@@ -1099,19 +1969,70 @@ SH
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zi: forged role guard is rejected" "$ec" 1
   mv "$snapshot.trusted" "$snapshot"; chmod 400 "$snapshot"
-  git -C "$workdir" branch worker-ref
+  guard_head=$(git -C "$workdir" rev-parse HEAD)
+  guard_ref=$(git -C "$workdir" symbolic-ref HEAD)
+  guard_index=$(git -C "$workdir" write-tree)
+  printf 'concurrent\n' > "$linked/app.txt"
+  git -C "$linked" add app.txt; git -C "$linked" commit -qm concurrent
+  concurrent_head=$(git -C "$linked" rev-parse HEAD)
+  printf 'review\n' > "$workdir/.startup/reviews/result.md"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
-  assert_exit_code "RS19zj: worker-created ref violates role guard" "$ec" 1
-  git -C "$workdir" branch -D worker-ref >/dev/null
+  assert_exit_code "RS19zj: sibling-worktree branch progress violates the role guard" "$ec" 1
+  assert_equals "RS19zj1: unrelated ref advance leaves guarded HEAD unchanged" \
+    "$(git -C "$workdir" rev-parse HEAD)" "$guard_head"
+  assert_equals "RS19zj2: unrelated ref advance leaves guarded branch unchanged" \
+    "$(git -C "$workdir" symbolic-ref HEAD)" "$guard_ref"
+  assert_equals "RS19zj3: unrelated ref advance leaves guarded index unchanged" \
+    "$(git -C "$workdir" write-tree)" "$guard_index"
+  assert_equals "RS19zj4: sibling branch actually advanced" \
+    "$([ "$concurrent_head" != "$guard_head" ] && echo true || echo false)" true
+  git -C "$workdir" update-ref refs/heads/guard-concurrent "$guard_head" "$concurrent_head"
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
+  git -C "$workdir" update-ref refs/heads/guard-concurrent "$concurrent_head" "$guard_head"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zj4a: direct update-ref of a sibling branch is rejected" "$ec" 1
+  git -C "$workdir" update-ref refs/heads/guard-concurrent "$guard_head" "$concurrent_head"
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
+  git -C "$workdir" update-ref refs/heads/main "$concurrent_head" "$guard_head"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zj5: direct update-ref of protected main is rejected" "$ec" 1
+  git -C "$workdir" update-ref refs/heads/main "$guard_head" "$concurrent_head"
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
+  git -C "$workdir" update-ref refs/heads/worker-created "$guard_head"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zj6: worker-created branch ref violates role guard" "$ec" 1
+  git -C "$workdir" update-ref -d refs/heads/worker-created
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
+  git -C "$workdir" tag worker-tag
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zj6a: worker-created tag violates role guard" "$ec" 1
+  git -C "$workdir" tag -d worker-tag >/dev/null
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
+  git -C "$workdir" update-ref refs/remotes/origin/guard-concurrent "$concurrent_head"
+  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zj7: worker-created remote ref violates role guard" "$ec" 1
+  git -C "$workdir" update-ref -d refs/remotes/origin/guard-concurrent
+  git -C "$workdir" worktree remove --force "$linked"
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$workdir/.git/hooks/pre-push"
   chmod +x "$workdir/.git/hooks/pre-push"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zja: worker-created Git hook violates role guard" "$ec" 1
+  assert_file_not_exists "RS19zja1: terminal guard failure retires its active marker" "${snapshot}.active"
   rm -f "$workdir/.git/hooks/pre-push"
+  guard_snapshot="$workdir/.git/saas-startup-team/qa-retry.json"
+  (cd "$workdir" && bash "$script" --snapshot "$guard_snapshot" \
+    --auth-stdin --allow .startup/reviews/result.md <<<"$auth_token" >/dev/null)
+  assert_equals "RS19zja2: fresh retry sees exactly one live guard" \
+    "$(find "$workdir/.git/saas-startup-team" -maxdepth 1 -name '*.active' | wc -l | tr -d ' ')" 1
+  (cd "$workdir" && bash "$script" --verify "$guard_snapshot" \
+    --auth-stdin <<<"$auth_token" >/dev/null)
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
   printf 'worker-owner\n' > "$workdir/.startup/leases/qa/owner"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zjaa: worker lease mutation violates role guard" "$ec" 1
   printf 'supervisor-owner\n' > "$workdir/.startup/leases/qa/owner"
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
   printf 'review\n' > "$workdir/.startup/reviews/result.md"
   base=$(git -C "$workdir" rev-parse HEAD)
   ec=0; out=$(cd "$workdir" && printf '%s\n' \
@@ -1128,10 +2049,12 @@ SH
   assert_exit_code "RS20aa: worker-authored review commit is rejected" "$ec" 1
   git -C "$workdir" reset -q --soft HEAD^
   git -C "$workdir" reset -q HEAD -- .startup/reviews/result.md
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
   (cd "$workdir" && git add app.txt)
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS20a: staging the same product content is detected" "$ec" 1
   (cd "$workdir" && git reset -q HEAD -- app.txt)
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS20b: restoring the index restores the boundary" "$ec" 0
   printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
@@ -1139,26 +2062,31 @@ SH
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS20c: ignored supervisor state mutation is rejected" "$ec" 1
   printf '{"active_role":"team-lead"}\n' > "$workdir/.startup/state.json"
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
   mkdir -p "$workdir/.startup/signoffs"; printf 'not-review\n' > "$workdir/.startup/signoffs/result.md"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS20d: QA signoff mutation is rejected" "$ec" 1
   rm -rf "$workdir/.startup/signoffs"
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
   printf 'qa-mutation\n' >> "$workdir/app.txt"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS21: QA product mutation is rejected" "$ec" 1
   git -C "$workdir" restore app.txt
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
   printf 'ignored mutation\n' > "$workdir/ignored-product.txt"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS21a: QA mutation of an existing ignored file is rejected" "$ec" 1
   printf 'ignored baseline\n' > "$workdir/ignored-product.txt"
+  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
   exclude_path="$(git -C "$workdir" rev-parse --git-path info/exclude)"
+  case "$exclude_path" in /*) : ;; *) exclude_path="$workdir/$exclude_path" ;; esac
   mkdir -p "$(dirname "$exclude_path")"; touch "$exclude_path"
   cp "$exclude_path" "$workdir/.startup/reviews/exclude.before"
-  printf 'hidden-source.ts\n' >> "$(git -C "$workdir" rev-parse --git-path info/exclude)"
+  printf 'hidden-source.ts\n' >> "$exclude_path"
   printf 'hidden\n' > "$workdir/hidden-source.ts"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS21b: QA cannot hide a source file through Git exclude metadata" "$ec" 1
-  cp "$workdir/.startup/reviews/exclude.before" "$(git -C "$workdir" rev-parse --git-path info/exclude)"
+  cp "$workdir/.startup/reviews/exclude.before" "$exclude_path"
   rm -f "$workdir/.startup/reviews/exclude.before" "$workdir/hidden-source.ts"
   rm -rf "$workdir"
 
@@ -1421,7 +2349,9 @@ SH
     "$PLUGIN_ROOT/references/workflows/improve.md" \
     "$PLUGIN_ROOT/references/workflows/goal-deliver.md" \
     "$PLUGIN_ROOT/references/workflows/maintain.md" \
+    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
     "$PLUGIN_ROOT/references/workflows/maintain-loop.md" \
+    "$PLUGIN_ROOT/references/workflows/maintain-loop-protocol.md" \
     "$PLUGIN_ROOT/commands/startup.md" \
     "$PLUGIN_ROOT/commands/lessons-deliver.md" \
     "$PLUGIN_ROOT/docs/design/lessons-deliver.md" 2>/dev/null || true)"
@@ -1472,7 +2402,8 @@ SH
   export SAAS_SUPERVISOR_CHECK_DRIVER
   ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
   assert_exit_code "RS38: empty maintain queue is model-free no-op" "$ec" 3
-  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" maintain-loop 2>&1) || ec=$?
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" maintain-loop \
+    --repo owner/repo 2>&1) || ec=$?
   assert_exit_code "RS39: empty maintain-loop queue is no-op" "$ec" 3
   ec=0; out=$(cd "$workdir" && bash "$script" monitor-nightly 2>&1) || ec=$?
   assert_exit_code "RS40: unconfigured monitor is no-op" "$ec" 3
@@ -1593,11 +2524,12 @@ SH
   ec=0; out=$(cd "$workdir" && FAKE_USERNS_CLONE=0 GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
   assert_exit_code "RS51f: disabled sysctl still blocks the launch" "$ec" 4
   assert_output_contains "RS51g: disabled sysctl names the sysctl remedy" "$out" "kernel.unprivileged_userns_clone=1"
+  printf '%s\n' '#!/bin/sh' 'exit 0' > "$workdir/bin/unshare"
   ec=0; out=$(cd "$workdir" && SAAS_PREFLIGHT_MISSING=codex GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
   assert_exit_code "RS51h: maintain without a Codex CLI launches as before" "$ec" 0
-  ec=0; out=$(cd "$workdir" && SAAS_PREFLIGHT_MISSING=codex GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain-loop 2>&1) || ec=$?
+  ec=0; out=$(cd "$workdir" && SAAS_PREFLIGHT_MISSING=codex GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain-loop --repo owner/repo 2>&1) || ec=$?
   assert_exit_code "RS51i: maintain-loop without its required Codex CLI never launches" "$ec" 4
-  ec=0; out=$(cd "$workdir" && GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain-loop 2>&1) || ec=$?
+  ec=0; out=$(cd "$workdir" && GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain-loop --repo owner/repo 2>&1) || ec=$?
   assert_exit_code "RS51j: blocked sandbox blocks maintain-loop launch" "$ec" 4
   rm -rf "$workdir"
 
