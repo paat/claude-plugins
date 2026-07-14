@@ -2,7 +2,8 @@
 
 Research any topic using Reddit via Gemini CLI's web access capabilities.
 
-Claude's WebFetch cannot access Reddit content. This plugin delegates Reddit research to Gemini CLI, which has full web access and can search, read, and summarize Reddit discussions.
+Claude's WebFetch often cannot access Reddit content. This plugin uses Gemini CLI's Google web
+search for lead discovery, then requires independent verification before durable action.
 
 ## Mission Fit
 
@@ -19,25 +20,23 @@ writing requirements, positioning, or demand-backed issue candidates.
 
 ## Prerequisites
 
-1. **Gemini CLI** must be installed and authenticated:
+1. **Gemini CLI 0.43.0+** must be installed and authenticated:
    ```bash
    npm install -g @google/gemini-cli
-   gemini  # Run once interactively to complete OAuth
+   export GEMINI_API_KEY=...  # Recommended for non-interactive use
+   # Or create file-backed OAuth credentials:
+   GEMINI_FORCE_ENCRYPTED_FILE_STORAGE=true GEMINI_FORCE_FILE_STORAGE=true gemini
    ```
 
-2. **Enable preview features** in `~/.gemini/settings.json`:
-   ```json
-   {
-     "general": {
-       "previewFeatures": true
-     }
-   }
-   ```
-   This is required to use the `gemini-3-flash-preview` model.
+2. **GNU-compatible timeout** must be available as `timeout` (Linux) or `gtimeout` (`brew install coreutils` on macOS).
 
-3. **`gh` CLI**, authenticated (`gh auth status`), required by `--file-issue`.
+3. **Bash 4+ and standard POSIX tools**: `awk`, `grep`, `sed`, `sort`, `wc`, `env`,
+   `mkdir`, `rm`, `cp`, `chmod`, and `cat`.
 
-> **Note:** This plugin does not install Gemini CLI or `gh`. Both must already be available in your PATH.
+4. **`gh` CLI**, authenticated (`gh auth status`), required by `--file-issue`.
+
+> **Note:** This plugin installs none of these dependencies. Gemini CLI, GNU-compatible timeout,
+> and `gh` (when filing) must already be available in your PATH.
 
 ## Components
 
@@ -62,19 +61,21 @@ Triggers proactively when your question would benefit from Reddit community insi
 ## How It Works
 
 1. Constructs a Reddit-focused prompt for Gemini CLI
-2. Calls `gemini -m gemini-3-flash-preview -p "..." -o text 2>/dev/null`
-3. Parses and presents Reddit findings in a structured format
-4. Adds caveats about anecdotal nature of Reddit opinions
+2. Invokes one bundled runner with a fixed 90-second attempt and at most one 45-second fallback
+3. Disables hooks, skills, extensions, MCP, shell, and file tools; clears unrelated environment
+   variables and user Gemini context; and runs from a private home with only Google web search
+4. Requires a full Reddit comments URL before accepting Gemini output
+5. Preserves time for verification and a complete caveated report
 
 ## Fabrication Risk
 
 Gemini CLI has fabricated Reddit thread titles, subreddits, quotes, and consensus in
 production use. All three surfaces (command, skill, agent) treat Gemini's output as a
-directional lead, not verified fact, and require confirming threads exist via non-Gemini
-sources only (fetching the URL, e.g. via `old.reddit.com`, or an independent Reddit/web
-search). `--file-issue` is hard-blocked unless at least two independent supporting threads
-have each been verified. See `skills/reddit-research/references/protocol.md` for the full
-verification protocol.
+directional lead, not verified fact. A thread becomes verified only when a non-Gemini fetch
+confirms its visible content supports the claimed pain point; unverified leads may still be
+reported as such. `--file-issue` is hard-blocked unless at least two independent,
+non-crossposted supporting threads from different authors have each been verified. See
+`skills/reddit-research/references/protocol.md` for the full verification protocol.
 
 ## SaaS Demand Bridge
 
@@ -90,7 +91,7 @@ parts while parking judgment calls.
 | Issue | Solution |
 |-------|----------|
 | Empty response | Gemini may not find Reddit results — try more specific terms or subreddits |
-| Auth error | Run `gemini` interactively to re-authenticate OAuth |
-| Model not found | Enable `previewFeatures` in `~/.gemini/settings.json`, or fall back to `gemini-2.5-flash` |
+| Auth error | Replace `GEMINI_API_KEY` or recreate file-backed OAuth credentials as above |
+| Model unavailable | Update Gemini CLI; the runner enables preview features and tries the stable model once |
 | Command not found | Install Gemini CLI: `npm install -g @google/gemini-cli` |
-| Timeout | Increase timeout or narrow the search scope |
+| Timeout | Narrow the topic; the runner keeps its fixed budget and still returns a caveated report |

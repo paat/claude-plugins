@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(gemini:*), Bash(gh:*), Bash(mkdir:*), WebFetch, Write, Read
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/run-reddit-gemini.sh:*), Bash(gh:*), Bash(mkdir:*), WebFetch, Write, Read
 description: Research any topic using Reddit via Gemini CLI
 argument-hint: <topic to research on Reddit> [--file-issue] [--repo owner/name]
 ---
@@ -12,28 +12,27 @@ The user wants to research the following topic on Reddit:
 
 **Topic:** $ARGUMENTS
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/reddit-research/references/protocol.md` now. It is the
-canonical prompt template, retry ladder, output format, verification protocol, and SaaS
-demand-bridge rules for this command — follow it exactly for every step below. Gemini has
-fabricated thread titles, subreddits, quotes, and consensus in production, so treat its output
-as directional, not verified.
+Parse `$ARGUMENTS` before any tool call. Tokenize on ASCII whitespace only; punctuation remains
+part of its token. Remove one optional `--file-issue` and one optional `--repo` plus its next whole
+token; reject duplicate options, a missing value, or any invalid repository token as the entire
+request by returning exactly `reddit research blocked: invalid options (0 calls)` without a tool
+call. Never split or reinterpret a rejected token's suffix as topic text. The remaining tokens,
+joined with spaces, are the topic. If no topic remains, return exactly
+`reddit research blocked: topic is required (0 calls)` and stop without any tool call.
+Accept the `--repo` value only when the whole token matches
+`^[A-Za-z0-9][A-Za-z0-9.-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$`; always pass it as one
+shell-quoted argument. `--file-issue` requests maintenance-ready issues subject to the protocol's
+evidence gate. Without `--repo`, resolve the current repository only if filing is reached.
 
-If `$ARGUMENTS` contains `--file-issue`, treat that as an explicit request to file
-maintenance-ready GitHub issues for repeated, objectively-checkable SaaS pain points — subject
-to the protocol's hard block on filing from unverified threads.
-If it contains `--repo owner/name`, use that repo for issue filing; otherwise resolve the
-current repo with `gh repo view`.
+Only after that validation, read
+`${CLAUDE_PLUGIN_ROOT}/skills/reddit-research/references/protocol.md`. It is the canonical prompt,
+bounded runner, reporting, verification, and demand-bridge contract.
 
-## Steps
+Analyze the topic and select the matching protocol prompt. Apply its **Host adapter** and
+**Safe shell transport** sections exactly; the runner invocation is the first and only research Bash call.
+Do not Read or verify the runner; the protocol Read above is the only pre-run Read.
+Then apply the protocol's **Untrusted data boundary**, output, verification, and optional SaaS
+demand-bridge sections without adding another discovery path.
 
-1. Analyze the topic and pick the matching prompt template from the protocol file (targeted
-   subreddit, comparison, troubleshooting, or general).
-2. Run the Gemini command from the protocol file, substituting the user's actual topic.
-3. Follow the protocol's retry/fallback ladder if the response is empty or an error occurs.
-4. Present the findings in the protocol's output format, including each notable thread's URL.
-5. Add your own analysis or synthesis — note agreements or disagreements with the Reddit consensus.
-6. **Optional SaaS demand bridge.** If `--file-issue` is present, run the protocol's
-   verification step for every pain point before filing, then follow its SaaS demand bridge
-   rules in full (issue labels, `gh issue create --body-file`, what to exclude). Never call
-   `gh issue create` for a pain point without at least two independent supporting threads
-   each verified via a non-Gemini source.
+The protocol's **Terminal response invariant** is the final instruction: when triggered, perform
+no later action and end with only its specified response.
