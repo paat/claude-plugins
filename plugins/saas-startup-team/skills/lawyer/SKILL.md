@@ -78,6 +78,19 @@ clause with `200`. Use `--max-time 30`; never print or persist credentials.
 5. Write one decision-first Estonian `docs/legal/õiguslik-*.md` document by
    default. Include the AI-analysis/not-legal-advice disclaimer.
 
+### Bounded read-only probes
+
+When the request explicitly asks for a read-only or no-artifact probe, return
+the decision in chat instead of writing the default document. Inspect the named
+issue and implementation surface only. Never inventory OpenAPI. After locating
+the relevant code, do not resume repository-wide searches.
+Read at most three targeted project source ranges. Use the relevant guide and
+documented legal endpoint. Do extra Tier A research only when the request requires a
+`CONFIRMED` claim; otherwise downgrade the claim and answer. Once the requested
+fields are captured, stop using tools and deliver immediately. If evidence is
+still incomplete, return a partial `UNCONFIRMED` decision instead of expanding
+the audit.
+
 Every document starts with this YAML shape:
 
 ```yaml
