@@ -34,5 +34,7 @@ Do not Read or verify the runner; the protocol Read above is the only pre-run Re
 Then apply the protocol's **Untrusted data boundary**, output, verification, and optional SaaS
 demand-bridge sections without adding another discovery path.
 
-The protocol's **Terminal response invariant** is the final instruction: when triggered, perform
-no later action and end with only its specified response.
+The two argument-gate blockers above and the protocol's **Terminal response invariant** are
+terminal responses. When one triggers, make no later action or tool call and set the entire final
+assistant message byte-for-byte to the specified response. Add nothing before or after it—not an
+explanation, label, Markdown wrapper, punctuation, or remediation.
