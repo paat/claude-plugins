@@ -370,7 +370,24 @@ def render_command_skill(
     description = command_skill_description(plugin_name, aliases)
     plugin_notes = command_plugin_notes(plugin_name)
     command_notes = command_specific_notes(plugin_name, command_name)
-    if plugin_name == "saas-startup-team":
+    read_only = metadata.get("codex-sandbox") == "read-only"
+    if read_only:
+        execution_instruction = (
+            "Execute the workflow only in a Codex `read-only` sandbox. Do not use a "
+            "write-capable current session; if the required browser/integration is unavailable "
+            "inside the read-only boundary, stop and report that limitation."
+        )
+        dispatch_replacement = (
+            "Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent "
+            "tooling or `codex exec` only with a `read-only` sandbox. A current-session role is "
+            "allowed only when that session is already read-only."
+        )
+    elif plugin_name == "saas-startup-team":
+        execution_instruction = (
+            "Execute the workflow through Codex-native mechanisms: Codex skills, direct task "
+            "sequencing in the current session, the Codex CLI, or Codex-supported multi-agent "
+            "tooling when available."
+        )
         dispatch_replacement = (
             "Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent "
             "tooling when available, the bundled `scripts/codex-run-role.sh` with an explicit "
@@ -378,6 +395,11 @@ def render_command_skill(
             "current Codex session."
         )
     else:
+        execution_instruction = (
+            "Execute the workflow through Codex-native mechanisms: Codex skills, direct task "
+            "sequencing in the current session, the Codex CLI, or Codex-supported multi-agent "
+            "tooling when available."
+        )
         dispatch_replacement = (
             "Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent "
             "tooling if available, `codex exec` when a separate Codex process is useful, or a "
@@ -403,7 +425,7 @@ def render_command_skill(
 
             1. Treat the user text after the command name as `$ARGUMENTS`.
             2. Read the source command file before executing. It is the workflow checklist after applying the Codex replacements in this skill.
-            3. Execute the workflow through Codex-native mechanisms: Codex skills, direct task sequencing in the current session, the Codex CLI, or Codex-supported multi-agent tooling when available.
+            3. {execution_instruction}
             4. Do not create user-local `~/.codex/prompts` wrappers. This skill is the reusable plugin-bundled workflow surface.
             5. When the source command says `Skill('plugin:skill')`, load the named plugin skill normally.
             6. When the source command references `${{CLAUDE_PLUGIN_ROOT}}/path`, resolve it to this installed plugin root and use `path` under that root. Do not require the environment variable to exist.

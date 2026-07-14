@@ -10,9 +10,16 @@ NOT fields in this brief. Do not embed launched/applied state in markdown.
   docs/ads/<campaign>/iterations/vN/applied_at — touch to mark iteration applied (contents: ISO timestamp)
   docs/ads/<campaign>/wait_days                — optional, override default 7-day wait gate
 
-/ads-metrics writes these automatically on first successful post-launch metric read.
+/ads-metrics writes these automatically on the first successful persistent post-launch metric read.
 -->
 
+## Google Ads identity (required after creation)
+
+- **Google Ads account ID**: <customer ID shown in Google Ads>
+- **Google Ads campaign ID**: <numeric campaign ID>
+- **Google Ads metrics access**: <read-only user required for post-launch metrics>
+
+`/ads-create` replaces the ID placeholders. Both `/ads-metrics` and `/ads-monitor` fail closed until the IDs are present and the access field is the literal `read-only`; both also verify the server-enforced Google Ads role in the UI.
 
 ## Product
 
