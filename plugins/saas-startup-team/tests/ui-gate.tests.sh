@@ -5,7 +5,7 @@ test_ui_gate() {
   local script="$PLUGIN_ROOT/scripts/ui-touch.sh"
   local leg="$PLUGIN_ROOT/skills/ux-tester/references/design-review-leg.md"
   local policy="$PLUGIN_ROOT/templates/merge-policy.md"
-  local ec
+  local ec range_repo odd_path
 
   assert_file_exists "UG0: ui-touch.sh present" "$script"
 
@@ -23,12 +23,37 @@ test_ui_gate() {
   assert_equals "UG5e: bad git range → ui (fail-closed)" "$(cd "$(mktemp -d)" && git init -q . && bash "$script" --range 'nosuch...HEAD' 2>/dev/null)" "ui"
   assert_equals "UG6: mixed (md+css) → ui"   "$(printf 'README.md\nstyles/app.css\n' | bash "$script" --files)" "ui"
   assert_equals "UG7: docs-only → no-ui"     "$(printf 'README.md\nsrc/util.go\n' | bash "$script" --files)" "no-ui"
+  assert_equals "UG7a: locale path → ui"      "$(classify 'config/locales/et.yml')" "ui"
+  assert_equals "UG7b: binary web-font path → ui" "$(classify 'src/fonts/site.woff2')" "ui"
+  assert_equals "UG7c: Tailwind config → ui"  "$(classify 'TAILWIND.config.ts')" "ui"
+  assert_equals "UG7d: theme config → ui"     "$(classify 'config/dark-theme.json')" "ui"
+  assert_equals "UG7e: uppercase MDX → ui"    "$(classify 'docs/landing.MDX')" "ui"
+  assert_equals "UG7f: uppercase PO → ui"     "$(classify 'messages/ET.PO')" "ui"
+  assert_equals "UG7g: template extension → ui" "$(classify 'mail/receipt.hbs')" "ui"
+  assert_equals "UG7h: unusual non-UI path stays no-ui" \
+    "$(printf '%s\0' 'src/-odd source.go' | bash "$script" --files0)" "no-ui"
+
+  range_repo=$(mktemp -d)
+  git -C "$range_repo" init -q
+  git -C "$range_repo" config user.email test@example.invalid
+  git -C "$range_repo" config user.name Test
+  git -C "$range_repo" commit -qm base --allow-empty
+  odd_path=$'docs/ordinary\nsource.go'
+  mkdir -p "$range_repo/docs"
+  printf 'package docs\n' > "$range_repo/$odd_path"
+  git -C "$range_repo" add -- "$odd_path"
+  git -C "$range_repo" commit -qm 'odd filename'
+  assert_equals "UG7i: newline filename is ambiguous/UI (fail-closed)" \
+    "$(cd "$range_repo" && bash "$script" --range 'HEAD^..HEAD')" "ui"
+  rm -rf -- "$range_repo"
 
   # usage errors → exit 2
   ec=0; bash "$script" >/dev/null 2>&1 || ec=$?
   assert_exit_code "UG8: no args → exit 2" "$ec" 2
   ec=0; bash "$script" --range >/dev/null 2>&1 || ec=$?
   assert_exit_code "UG8b: --range without value → exit 2" "$ec" 2
+  ec=0; bash "$script" --files0 extra >/dev/null 2>&1 || ec=$?
+  assert_exit_code "UG8c: --files0 with extra arg → exit 2" "$ec" 2
 
   # design-review-leg.md: verdict block contract + both sections
   assert_file_exists "UG9: design-review-leg.md present" "$leg"

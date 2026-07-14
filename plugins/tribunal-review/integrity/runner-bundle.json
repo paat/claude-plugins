@@ -1,0 +1,43 @@
+{
+  "files": [
+    {
+      "path": "scripts/check-runner-bundle.sh",
+      "sha256": "efd2c98f08f2e273b05f6f3567cde40c6e4678a7755bba06163b5fe0cef45b88"
+    },
+    {
+      "path": "scripts/collect-review-evidence.sh",
+      "sha256": "52a2374c2a27c1ffb4839ad31d899c30962b03d9242fb7e55ac4c4bed418d3de"
+    },
+    {
+      "path": "scripts/generate-runner-bundle.sh",
+      "sha256": "ed00f0b67e6d692b0339dafc9a2e90324307707de6cb5c30ae6bf753f7a3c07b"
+    },
+    {
+      "path": "scripts/lib.sh",
+      "sha256": "1550760a4fb7649537b1c35145f13350bb8df49ad3ac9cbbabafbf892f70113e"
+    },
+    {
+      "path": "scripts/run-claude-review.sh",
+      "sha256": "e1849c64bae15a527074f573707d82f9a4dc7dcf68979f21d2f89dcb3ea8113e"
+    },
+    {
+      "path": "scripts/run-codex-review.sh",
+      "sha256": "e69303f8a61cf1fc3d514402445246a134dcfbe2952c9972779bc74c8e6579da"
+    },
+    {
+      "path": "scripts/run-gemini-review.sh",
+      "sha256": "447d4b250ea5fd92129922f692f6484fc7c2f23f92bb38df251106b6b88d755d"
+    },
+    {
+      "path": "scripts/run-opencode-review.sh",
+      "sha256": "109c4d00c960774b988e7329a0f45e760eb3cfc1eb0e981063e1e7d0e1bc9ce3"
+    },
+    {
+      "path": "scripts/run-qwen-review.sh",
+      "sha256": "526c36075a4bcfa9b17cea9b37a2c06b7299c324a9c01bbbfafbd5886e1a8443"
+    }
+  ],
+  "plugin": "tribunal-review",
+  "schema": "tribunal-runner-bundle/v1",
+  "version": "0.19.5"
+}

@@ -83,7 +83,10 @@ case "${1:-}" in
     ;;
   image)
     case "$*" in
-      *Config.Env*) printf '%s\n' 'SECRET_KEY=must-not-survive' 'PATH=/image/path' ;;
+      *Config.Env*)
+        printf '%s\n' 'SECRET_KEY=must-not-survive' 'PATH=/image/path'
+        [ "${FAKE_ENV_INSPECT_FAIL:-0}" -eq 0 ] || exit 73
+        ;;
       *Config.Volumes*) printf '%s\n' null ;;
       *) printf '%s\n' sha256:1111111111111111111111111111111111111111111111111111111111111111 ;;
     esac
@@ -161,6 +164,15 @@ SH
     '/usr/local/go/bin'
   assert_file_contains "SS17f: clean check PATH retains baked-in Rust tools" "$log" \
     '/usr/local/cargo/bin'
+
+  : > "$log"
+  ec=0; out=$(FAKE_DOCKER_LOG="$log" FAKE_RUNTIME_DIGEST=unused FAKE_ENV_INSPECT_FAIL=1 \
+    bash "$script" -C "$root" --docker-bin "$fake" --image-id "$image" \
+      --daemon-id test-daemon --checkout-alias /workspace/project -- /bin/true 2>&1) || ec=$?
+  assert_exit_code "SS17g: failed image-environment inspection fails closed" "$ec" 1
+  assert_output_contains "SS17h: image-environment failure is explicit" "$out" \
+    'cannot inspect dev-container environment'
+  assert_file_not_contains "SS17i: failed environment inspection creates no volume" "$log" '^create$'
 
   digest=$(python3 "$digest_script" "$runtime" deps)
   : > "$log"

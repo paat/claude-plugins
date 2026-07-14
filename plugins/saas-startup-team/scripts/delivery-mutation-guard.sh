@@ -9,8 +9,11 @@ export GIT_CONFIG_VALUE_0=false
 export GIT_CONFIG_KEY_1=core.hooksPath
 export GIT_CONFIG_VALUE_1=/dev/null
 
-ACTION=""; SNAPSHOT=""; ROOT=""; AUTH_TOKEN=""; AUTH_STDIN=0; ALLOW=()
+ACTION=""; SNAPSHOT=""; ROOT=""; AUTH_TOKEN=""; AUTH_STDIN=0
+ORIGIN_URL=""; ORIGIN_FETCH_REFSPEC=""; VERIFIED_ORIGIN_REFS_JSON=""
+VERIFIED_REFS_FINGERPRINT=""; ALLOW=()
 declare -A IGNORED_BASELINE=()
+declare -A ORIGIN_REF_OID=()
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   echo "usage: delivery-mutation-guard.sh (--snapshot FILE|--verify FILE) --auth-stdin [--allow PATH] [--repo-root DIR]" >&2
@@ -33,7 +36,10 @@ IFS= read -r AUTH_TOKEN || {
   echo "delivery-mutation-guard: authentication token missing on stdin" >&2; exit 2; }
 [ -n "$ROOT" ] || ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 2
 ROOT="$(cd "$ROOT" && pwd -P)"; cd "$ROOT"
-GIT_DIR="$(git rev-parse --absolute-git-dir)"
+REAL_GIT="$(command -v git)"
+case "$REAL_GIT" in /*) [ -x "$REAL_GIT" ] ;; *) false ;; esac || {
+  echo "delivery-mutation-guard: trusted Git executable is unavailable" >&2; exit 2; }
+GIT_DIR="$($REAL_GIT rev-parse --absolute-git-dir)"
 GIT_DIR="$(cd "$GIT_DIR" && pwd -P)"
 GUARD_DIR="$GIT_DIR/saas-startup-team"
 export GIT_CONFIG_GLOBAL=/dev/null
@@ -44,8 +50,10 @@ unset GIT_EXTERNAL_DIFF
 
 trusted_git() {
   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false \
-    git "$@"
+    "$REAL_GIT" "$@"
 }
+
+valid_git_oid() { [[ "$1" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; }
 
 resolve_snapshot_path() {
   local supplied="$1" resolved parent base
@@ -86,18 +94,159 @@ head_ref() {
   git symbolic-ref -q HEAD 2>/dev/null || true
 }
 
-other_refs_fingerprint() {
-  local active="$1"
+valid_live_origin_url() {
+  local url="$1" lower
+  [[ "$url" != *[[:space:]]* && "$url" != *[[:cntrl:]]* ]] || return 1
+  lower=${url,,}
+  [[ ! "$lower" =~ %([01][0-9a-f]|7f) ]] || return 1
+  case "$url" in -*|*::*) return 1 ;; esac
+  case "$url" in
+    https://*) [[ "$url" =~ ^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/.+ ]] ;;
+    ssh://*) [[ "$url" =~ ^ssh://([A-Za-z0-9][A-Za-z0-9._-]*@)?[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/.+ ]] ;;
+    *:* ) [[ "$url" =~ ^([A-Za-z0-9][A-Za-z0-9._-]*@)?[A-Za-z0-9][A-Za-z0-9.-]*:.+ ]] ;;
+    *) return 1 ;;
+  esac
+}
+
+origin_tracking_ref() {
+  local ref="$1" symref="$2"
+  case "$ref" in refs/remotes/origin/*) : ;; *) return 1 ;; esac
+  [ "$ref" != refs/remotes/origin/HEAD ] && [ -z "$symref" ]
+}
+
+origin_refs_json() {
+  local raw entries ref oid symref result
+  raw="$(mktemp)" || return 1
+  entries="$(mktemp)" || { rm -f -- "$raw"; return 1; }
   git for-each-ref --format='%(refname)%09%(objectname)%09%(symref)' \
+    refs/remotes/origin > "$raw" || { rm -f "$raw" "$entries"; return 1; }
+  while IFS=$'\t' read -r ref oid symref; do
+    origin_tracking_ref "$ref" "$symref" || continue
+    jq -cn --arg ref "$ref" --arg oid "$oid" '{ref:$ref,oid:$oid}' >> "$entries" \
+      || { rm -f -- "$raw" "$entries"; return 1; }
+  done < "$raw"
+  rm -f "$raw"
+  result="$(jq -cs '
+    sort_by(.ref)
+    | select((map(.ref)|unique|length) == length)
+    | select(all(.[];
+        (.ref|type == "string" and startswith("refs/remotes/origin/") and . != "refs/remotes/origin/HEAD") and
+        (.oid|type == "string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$"))))' "$entries")" || {
+    rm -f "$entries"; return 1; }
+  rm -f "$entries"
+  [ -n "$result" ] || return 1
+  printf '%s\n' "$result" || return 1
+}
+
+load_origin_refs() {
+  local json="$1" count i ref oid
+  ORIGIN_REF_OID=()
+  count="$(jq 'length' <<<"$json")" || return 1
+  [[ "$count" =~ ^[0-9]+$ ]] || return 1
+  for ((i=0; i<count; i++)); do
+    ref="$(jq -er ".[${i}].ref" <<<"$json")" || return 1
+    oid="$(jq -er ".[${i}].oid" <<<"$json")" || return 1
+    case "$ref" in refs/remotes/origin/*) : ;; *) return 1 ;; esac
+    [ "$ref" != refs/remotes/origin/HEAD ] || return 1
+    [[ "$oid" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
+    [ -z "${ORIGIN_REF_OID[$ref]+present}" ] || return 1
+    ORIGIN_REF_OID["$ref"]=$oid
+  done
+}
+
+origin_refs_intact() {
+  local current_json current_after count i ref oid live_file head line
+  local -A current=() changed=() live=()
+  current_json="$(origin_refs_json)" || return 1
+  count="$(jq 'length' <<<"$current_json")" || return 1
+  [[ "$count" =~ ^[0-9]+$ ]] || return 1
+  for ((i=0; i<count; i++)); do
+    ref="$(jq -er ".[${i}].ref" <<<"$current_json")" || return 1
+    oid="$(jq -er ".[${i}].oid" <<<"$current_json")" || return 1
+    current["$ref"]=$oid
+    [ -n "${ORIGIN_REF_OID[$ref]+present}" ] || return 1
+    if [ "${ORIGIN_REF_OID[$ref]}" != "$oid" ]; then
+      changed["$ref"]=$oid
+    fi
+  done
+  for ref in "${!ORIGIN_REF_OID[@]}"; do
+    [ -n "${current[$ref]+present}" ] || return 1
+  done
+  if [ "${#changed[@]}" -eq 0 ]; then
+    VERIFIED_ORIGIN_REFS_JSON="$current_json"
+    return 0
+  fi
+  [ "$ORIGIN_FETCH_REFSPEC" = '+refs/heads/*:refs/remotes/origin/*' ] || return 1
+  valid_live_origin_url "$ORIGIN_URL" || return 1
+  live_file="$(mktemp)" || return 1
+  (unset GIT_DIR GIT_WORK_TREE GIT_EXEC_PATH GIT_PROXY_COMMAND GIT_SSH GIT_SSH_COMMAND \
+      GIT_SSH_VARIANT GIT_ASKPASS SSH_ASKPASS SSH_ASKPASS_REQUIRE \
+      GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 \
+      GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1
+    cd /
+    env -i PATH=/usr/bin:/bin HOME=/nonexistent GIT_TERMINAL_PROMPT=0 \
+      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+      timeout -k 5 30 "$REAL_GIT" -c protocol.ext.allow=never ls-remote --refs -- \
+        "$ORIGIN_URL" 'refs/heads/*') > "$live_file" 2>/dev/null || {
+    rm -f "$live_file"; return 1; }
+  while IFS= read -r line; do
+    oid=${line%%$'\t'*}; head=${line#*$'\t'}
+    [[ "$oid" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] && [ "$head" != "$line" ] || {
+      rm -f "$live_file"; return 1; }
+    case "$head" in refs/heads/*) : ;; *) rm -f "$live_file"; return 1 ;; esac
+    [ -z "${live[$head]+present}" ] || { rm -f "$live_file"; return 1; }
+    live["$head"]=$oid
+  done < "$live_file"
+  for ref in "${!changed[@]}"; do
+    head="refs/heads/${ref#refs/remotes/origin/}"
+    [ -n "${live[$head]+present}" ] && [ "${live[$head]}" = "${changed[$ref]}" ] \
+      || { rm -f "$live_file"; return 1; }
+  done
+  rm -f "$live_file"
+  current_after="$(origin_refs_json)" || return 1
+  [ "$current_after" = "$current_json" ] || return 1
+  VERIFIED_ORIGIN_REFS_JSON="$current_after"
+}
+
+other_refs_fingerprint() {
+  local active="$1" ref oid symref result
+  result="$("$REAL_GIT" for-each-ref --format='%(refname)%09%(objectname)%09%(symref)' \
     | while IFS=$'\t' read -r ref oid symref; do
-        [ "$ref" = "$active" ] || printf '%s\0%s\0%s\0' "$ref" "$oid" "$symref"
+        [ "$ref" = "$active" ] && continue
+        origin_tracking_ref "$ref" "$symref" && continue
+        printf '%s\0%s\0%s\0' "$ref" "$oid" "$symref" || exit 1
       done \
-    | git hash-object --stdin
+    | "$REAL_GIT" hash-object --stdin)" || return 1
+  valid_git_oid "$result" || return 1
+  printf '%s\n' "$result" || return 1
+}
+
+strict_refs_fingerprint() {
+  local result
+  result="$("$REAL_GIT" for-each-ref --format='%(refname)%00%(objectname)%00%(symref)' \
+    | "$REAL_GIT" hash-object --stdin)" || return 1
+  valid_git_oid "$result" || return 1
+  printf '%s\n' "$result" || return 1
+}
+
+ref_boundary_intact() {
+  local active="$1" expected="$2" current strict origin_json
+  current="$(other_refs_fingerprint "$active")" || return 1
+  [ "$current" = "$expected" ] || return 1
+  origin_refs_intact || return 1
+  current="$(other_refs_fingerprint "$active")" || return 1
+  [ "$current" = "$expected" ] || return 1
+  strict="$(strict_refs_fingerprint)" || return 1
+  origin_json="$(origin_refs_json)" || return 1
+  [ "$origin_json" = "$VERIFIED_ORIGIN_REFS_JSON" ] || return 1
+  current="$(strict_refs_fingerprint)" || return 1
+  [ "$current" = "$strict" ] || return 1
+  VERIFIED_REFS_FINGERPRINT="$strict"
 }
 
 hooks_fingerprint() {
   local dir="$1" tmp path rel mode oid result failed=0 old_shopt
-  tmp="$(mktemp)"
+  tmp="$(mktemp)" || return 1
   if [ -d "$dir" ] && [ ! -L "$dir" ]; then
     old_shopt="$(shopt -p dotglob nullglob globstar || true)"
     shopt -s dotglob nullglob globstar
@@ -106,62 +255,79 @@ hooks_fingerprint() {
       if [ -d "$path" ] && [ ! -L "$path" ]; then continue
       elif [ -f "$path" ] && [ ! -L "$path" ]; then
         if [ -x "$path" ]; then mode=100755; else mode=100644; fi
-        oid="$(git hash-object --no-filters -- "$path" 2>/dev/null || echo unreadable)"
+        if ! oid=$(git hash-object --no-filters -- "$path" 2>/dev/null) \
+          || ! valid_git_oid "$oid"; then
+          failed=1; break
+        fi
       else
         failed=1; break
       fi
-      printf '%s\0%s\0%s\0' "$rel" "$mode" "$oid" >> "$tmp"
+      printf '%s\0%s\0%s\0' "$rel" "$mode" "$oid" >> "$tmp" || {
+        failed=1; break; }
     done
     eval "$old_shopt"
     [ "$failed" -eq 0 ] || { rm -f "$tmp"; return 1; }
   elif [ -e "$dir" ] || [ -L "$dir" ]; then
     rm -f "$tmp"; return 1
   fi
-  result="$(git hash-object --no-filters "$tmp")"
+  result="$(git hash-object --no-filters "$tmp")" \
+    && valid_git_oid "$result" || { rm -f -- "$tmp"; return 1; }
   rm -f "$tmp"
-  printf '%s\n' "$result"
+  printf '%s\n' "$result" || return 1
 }
 
 resolve_hook_source() {
-  local configured source parent base
-  configured="$(trusted_git config --path core.hooksPath 2>/dev/null || true)"
-  if [ -n "$configured" ]; then
-    case "$configured" in /*) source="$configured" ;; *) source="$ROOT/$configured" ;; esac
-  else
-    source="$(trusted_git rev-parse --git-path hooks)"
-    case "$source" in /*) : ;; *) source="$ROOT/$source" ;; esac
-  fi
+  local configured source parent base config_rc=0
+  configured="$(trusted_git config --path core.hooksPath 2>/dev/null)" || config_rc=$?
+  case "$config_rc" in
+    0)
+      [ -n "$configured" ] || return 1
+      case "$configured" in /*) source="$configured" ;; *) source="$ROOT/$configured" ;; esac
+      ;;
+    1)
+      source="$(trusted_git rev-parse --git-path hooks)" || return 1
+      case "$source" in /*) : ;; *) source="$ROOT/$source" ;; esac
+      ;;
+    *) return 1 ;;
+  esac
   parent="$(dirname -- "$source")"; base="$(basename -- "$source")"
   [ -d "$parent" ] && [ "$base" != . ] && [ "$base" != .. ] || return 1
   parent="$(cd "$parent" && pwd -P)"; source="$parent/$base"
   [ ! -L "$source" ] || return 1
   if [ -e "$source" ] && [ ! -d "$source" ]; then return 1; fi
-  printf '%s\n' "$source"
+  printf '%s\n' "$source" || return 1
 }
 
 git_control_fingerprint() {
   local tmp key path mode oid result
-  tmp="$(mktemp)"
+  tmp="$(mktemp)" || return 1
   for key in info/attributes objects/info/alternates shallow grafts commondir gitdir \
     HEAD config.worktree MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD REBASE_HEAD BISECT_LOG; do
-    path="$(git rev-parse --git-path "$key")"
+    path="$(git rev-parse --git-path "$key")" || { rm -f -- "$tmp"; return 1; }
     case "$path" in /*) : ;; *) path="$ROOT/$path" ;; esac
     if [ -L "$path" ]; then rm -f "$tmp"; return 1
     elif [ -f "$path" ]; then
       if [ -x "$path" ]; then mode=100755; else mode=100644; fi
-      oid="$(git hash-object --no-filters -- "$path")"
+      oid="$(git hash-object --no-filters -- "$path")" \
+        && valid_git_oid "$oid" || { rm -f -- "$tmp"; return 1; }
     elif [ -e "$path" ]; then rm -f "$tmp"; return 1
     else mode=missing; oid=missing
     fi
-    printf '%s\0%s\0%s\0' "$key" "$mode" "$oid" >> "$tmp"
+    printf '%s\0%s\0%s\0' "$key" "$mode" "$oid" >> "$tmp" \
+      || { rm -f -- "$tmp"; return 1; }
   done
-  result="$(git hash-object --no-filters "$tmp")"
+  result="$(git hash-object --no-filters "$tmp")" \
+    && valid_git_oid "$result" || { rm -f -- "$tmp"; return 1; }
   rm -f "$tmp"
-  printf '%s\n' "$result"
+  printf '%s\n' "$result" || return 1
 }
 
 index_metadata_fingerprint() {
-  git -c core.fsmonitor=false ls-files --stage -v -z | git hash-object --stdin
+  local result
+  result="$(git -c core.fsmonitor=false ls-files --stage -v -z \
+    | git hash-object --stdin)" || return 1
+  valid_git_oid "$result" || return 1
+  printf '%s\n' "$result" || return 1
 }
 
 allowed_path() {
@@ -199,30 +365,40 @@ fingerprint_entry() {
   local path="$1"
   if [ -L "$path" ]; then
     ENTRY_MODE=120000
-    ENTRY_OID="$(readlink "$path" | git hash-object --stdin)"
+    ENTRY_OID="$(readlink "$path" | git hash-object --stdin)" || return 1
+    valid_git_oid "$ENTRY_OID" || return 1
   elif [ -f "$path" ]; then
     if [ -x "$path" ]; then ENTRY_MODE=100755; else ENTRY_MODE=100644; fi
-    ENTRY_OID="$(git hash-object --no-filters -- "$path" 2>/dev/null || echo unreadable)"
+    ENTRY_OID="$(git hash-object --no-filters -- "$path" 2>/dev/null)" || return 1
+    valid_git_oid "$ENTRY_OID" || return 1
   elif [ -d "$path" ]; then
     ENTRY_MODE=040000; ENTRY_OID=directory
   elif [ -e "$path" ]; then
-    ENTRY_MODE=unsupported; ENTRY_OID=unreadable
+    return 1
   else
     ENTRY_MODE=missing; ENTRY_OID=missing
   fi
 }
 
 diff_fingerprint() {
-  local kind="$1" base="$2" prefix
+  local kind="$1" base="$2" prefix result
   local pathspec=(.)
   for prefix in "${ALLOW[@]}"; do
     pathspec+=(":(exclude,literal)$prefix")
   done
   case "$kind" in
-    index) git -c core.fsmonitor=false diff --binary --no-ext-diff --no-textconv --cached "$base" -- "${pathspec[@]}" | git hash-object --stdin ;;
-    worktree) git -c core.fsmonitor=false diff --binary --no-ext-diff --no-textconv -- "${pathspec[@]}" | git hash-object --stdin ;;
+    index)
+      result="$(git -c core.fsmonitor=false diff --binary --no-ext-diff --no-textconv \
+        --cached "$base" -- "${pathspec[@]}" | git hash-object --stdin)" || return 1
+      ;;
+    worktree)
+      result="$(git -c core.fsmonitor=false diff --binary --no-ext-diff --no-textconv \
+        -- "${pathspec[@]}" | git hash-object --stdin)" || return 1
+      ;;
     *) return 2 ;;
   esac
+  valid_git_oid "$result" || return 1
+  printf '%s\n' "$result" || return 1
 }
 
 status_outside_allow() {
@@ -247,6 +423,13 @@ always_exempt_ignored_path() {
   return 1
 }
 
+mutable_python_cache_path() {
+  local path="$1"
+  case "/$path/" in */__pycache__/*|*/.pytest_cache/*) return 0 ;; esac
+  case "${path##*/}" in *.pyc|*.pyo) return 0 ;; esac
+  return 1
+}
+
 mutable_control_ignored_path() {
   local path="$1" rest lease
   case "$path" in .startup/leases/*/heartbeat|.startup/leases/*/audit.log) : ;; *) return 1 ;; esac
@@ -255,51 +438,91 @@ mutable_control_ignored_path() {
   case "$lease" in ''|*/*) return 1 ;; *) return 0 ;; esac
 }
 
-ignored_paths() {
-  local path directory
+materialize_git_ls_files() {
+  local output="$1" path="$2"
+  shift 2
+  : > "$output" || return 1
+  git -c core.fsmonitor=false ls-files -z "$@" -- "$path" > "$output"
+}
+
+materialize_ignored_paths() {
+  local output="$1" top nested path directory
+  top="$(mktemp)" || return 1
+  nested="$(mktemp)" || { rm -f -- "$top"; return 1; }
+  : > "$output" || { rm -f -- "$top" "$nested"; return 1; }
+  materialize_git_ls_files "$top" . --others --ignored --exclude-standard --directory || {
+    rm -f -- "$top" "$nested"
+    return 1
+  }
   while IFS= read -r -d '' path; do
     if [[ "$path" == */ ]]; then
       directory=${path%/}
       always_exempt_ignored_path "$directory" && continue
+      materialize_git_ls_files "$nested" "$directory" --others --ignored --exclude-standard || {
+        rm -f -- "$top" "$nested"
+        return 1
+      }
       while IFS= read -r -d '' path; do
-        allowed_path "$path" || always_exempt_ignored_path "$path" || printf '%s\0' "$path"
-      done < <(git -c core.fsmonitor=false ls-files -z --others --ignored --exclude-standard -- "$directory")
+        allowed_path "$path" || always_exempt_ignored_path "$path" \
+          || printf '%s\0' "$path" >> "$output" \
+          || { rm -f -- "$top" "$nested"; return 1; }
+      done < "$nested"
     else
-      allowed_path "$path" || always_exempt_ignored_path "$path" || printf '%s\0' "$path"
+      allowed_path "$path" || always_exempt_ignored_path "$path" \
+        || printf '%s\0' "$path" >> "$output" \
+        || { rm -f -- "$top" "$nested"; return 1; }
     fi
-  done < <(git -c core.fsmonitor=false ls-files -z --others --ignored --exclude-standard --directory -- .)
+  done < "$top"
+  rm -f -- "$top" "$nested"
 }
 
 ignored_path_key() {
-  printf '%s' "$1" | git hash-object --stdin
+  local result
+  result="$(printf '%s' "$1" | git hash-object --stdin)" || return 1
+  valid_git_oid "$result" || return 1
+  printf '%s\n' "$result" || return 1
 }
 
-list_ignored_baseline_keys() {
-  local path
+materialize_ignored_baseline_keys() {
+  local output="$1" paths path key
+  paths="$(mktemp)" || return 1
+  : > "$output" || { rm -f -- "$paths"; return 1; }
+  materialize_ignored_paths "$paths" || { rm -f -- "$paths"; return 1; }
   while IFS= read -r -d '' path; do
-    ignored_path_key "$path"
-  done < <(ignored_paths)
+    key="$(ignored_path_key "$path")" || { rm -f -- "$paths"; return 1; }
+    printf '%s\n' "$key" >> "$output" || { rm -f -- "$paths"; return 1; }
+  done < "$paths"
+  rm -f -- "$paths"
 }
 
-protected_ignored_paths() {
-  local path key
+materialize_protected_ignored_paths() {
+  local output="$1" paths path key
+  paths="$(mktemp)" || return 1
+  : > "$output" || { rm -f -- "$paths"; return 1; }
+  materialize_ignored_paths "$paths" || { rm -f -- "$paths"; return 1; }
   while IFS= read -r -d '' path; do
-    key="$(ignored_path_key "$path")"
+    key="$(ignored_path_key "$path")" || { rm -f -- "$paths"; return 1; }
     [ -n "${IGNORED_BASELINE[$key]+present}" ] || continue
-    printf '%s\0' "$path"
-  done < <(ignored_paths)
+    printf '%s\0' "$path" >> "$output" || { rm -f -- "$paths"; return 1; }
+  done < "$paths"
+  rm -f -- "$paths"
 }
 
-new_ignored_paths() {
-  local path key
+materialize_new_ignored_paths() {
+  local output="$1" paths path key
   declare -A seen=()
+  paths="$(mktemp)" || return 1
+  : > "$output" || { rm -f -- "$paths"; return 1; }
+  materialize_ignored_paths "$paths" || { rm -f -- "$paths"; return 1; }
   while IFS= read -r -d '' path; do
-    key="$(ignored_path_key "$path")"
-    [[ -v seen["$key"] ]] && continue
+    mutable_python_cache_path "$path" && continue
+    key="$(ignored_path_key "$path")" || { rm -f -- "$paths"; return 1; }
+    [ -n "${seen[$key]+present}" ] && continue
     seen["$key"]=1
     [ -z "${IGNORED_BASELINE[$key]+present}" ] || continue
-    printf '%s\0' "$path"
-  done < <(ignored_paths)
+    printf '%s\0' "$path" >> "$output" || { rm -f -- "$paths"; return 1; }
+  done < "$paths"
+  rm -f -- "$paths"
 }
 
 safe_ignored_cleanup_slot() {
@@ -319,31 +542,209 @@ safe_ignored_cleanup_slot() {
 }
 
 cleanup_new_ignored_paths() {
-  local path
+  local path paths remaining
+  paths="$(mktemp)" || return 1
+  if ! materialize_new_ignored_paths "$paths"; then
+    rm -f -- "$paths"
+    echo "delivery-mutation-guard: cannot enumerate disposable ignored paths" >&2
+    return 1
+  fi
   while IFS= read -r -d '' path; do
     safe_ignored_cleanup_slot "$path" || {
       printf 'delivery-mutation-guard: unsafe disposable ignored path: %q\n' "$path" >&2
+      rm -f -- "$paths"
       return 1
     }
     rm -f -- "$CLEANUP_PATH" || {
       printf 'delivery-mutation-guard: cannot remove disposable ignored path: %q\n' "$path" >&2
+      rm -f -- "$paths"
       return 1
     }
-  done < <(new_ignored_paths)
-  if IFS= read -r -d '' path < <(new_ignored_paths); then
-    printf 'delivery-mutation-guard: disposable ignored path survived cleanup: %q\n' "$path" >&2
+  done < "$paths"
+  rm -f -- "$paths"
+  remaining="$(mktemp)" || return 1
+  if ! materialize_new_ignored_paths "$remaining"; then
+    rm -f -- "$remaining"
+    echo "delivery-mutation-guard: cannot re-enumerate disposable ignored paths" >&2
     return 1
   fi
+  if IFS= read -r -d '' path < "$remaining"; then
+    printf 'delivery-mutation-guard: disposable ignored path survived cleanup: %q\n' "$path" >&2
+    rm -f -- "$remaining"
+    return 1
+  fi
+  rm -f -- "$remaining"
+}
+
+materialize_python_cache_paths() {
+  local output="$1" raw extra path key
+  declare -A seen=()
+  raw="$(mktemp)" || return 1
+  extra="$(mktemp)" || { rm -f -- "$raw"; return 1; }
+  : > "$output" || { rm -f -- "$raw" "$extra"; return 1; }
+  if ! materialize_git_ls_files "$raw" . --others --ignored --exclude-standard \
+    || ! materialize_git_ls_files "$extra" . --others --exclude-standard \
+    || ! cat "$extra" >> "$raw"; then
+    rm -f -- "$raw" "$extra"
+    return 1
+  fi
+  rm -f -- "$extra"
+  while IFS= read -r -d '' path; do
+    mutable_python_cache_path "$path" || continue
+    key="$(ignored_path_key "$path")" || { rm -f -- "$raw"; return 1; }
+    [ -n "${seen[$key]+present}" ] && continue
+    seen["$key"]=1
+    printf '%s\0' "$path" >> "$output" || { rm -f -- "$raw"; return 1; }
+  done < "$raw"
+  rm -f -- "$raw"
+}
+
+mutable_python_cache_directory() {
+  local path="${1%/}"
+  case "/$path/" in */__pycache__/*|*/.pytest_cache/*) return 0 ;; esac
+  return 1
+}
+
+resolve_safe_cache_directory() {
+  local relative="$1" current="$ROOT" component canonical
+  valid_allowed_path "$relative" || return 1
+  while [ -n "$relative" ]; do
+    component=${relative%%/*}
+    if [ "$relative" = "$component" ]; then relative=""; else relative=${relative#*/}; fi
+    current="$current/$component"
+    [ -d "$current" ] && [ ! -L "$current" ] || return 1
+    canonical="$(cd "$current" && pwd -P)" || return 1
+    case "$canonical/" in "$ROOT/"*) current="$canonical" ;; *) return 1 ;; esac
+  done
+  SAFE_CACHE_DIRECTORY="$current"
+}
+
+safe_empty_cache_directory() {
+  resolve_safe_cache_directory "$1" || return 1
+  rmdir -- "$SAFE_CACHE_DIRECTORY" 2>/dev/null
+}
+
+cleanup_empty_cache_parents() {
+  local relative="${1%/*}"
+  [ "$relative" != "$1" ] || return 0
+  while mutable_python_cache_directory "$relative"; do
+    safe_empty_cache_directory "$relative" || break
+    case "$relative" in */*) relative=${relative%/*} ;; *) break ;; esac
+  done
+}
+
+materialize_python_cache_roots() {
+  local output="$1" raw extra path key
+  declare -A seen=()
+  raw="$(mktemp)" || return 1
+  extra="$(mktemp)" || { rm -f -- "$raw"; return 1; }
+  : > "$output" || { rm -f -- "$raw" "$extra"; return 1; }
+  if ! materialize_git_ls_files "$raw" . --others --ignored --exclude-standard --directory \
+    || ! materialize_git_ls_files "$extra" . --others --exclude-standard --directory \
+    || ! cat "$extra" >> "$raw"; then
+    rm -f -- "$raw" "$extra"
+    return 1
+  fi
+  rm -f -- "$extra"
+  while IFS= read -r -d '' path; do
+    path=${path%/}
+    case "${path##*/}" in __pycache__|.pytest_cache) : ;; *) continue ;; esac
+    key="$(ignored_path_key "$path")" || { rm -f -- "$raw"; return 1; }
+    [ -n "${seen[$key]+present}" ] && continue
+    seen["$key"]=1
+    printf '%s\0' "$path" >> "$output" || { rm -f -- "$raw"; return 1; }
+  done < "$raw"
+  rm -f -- "$raw"
+}
+
+cleanup_empty_python_cache_directories() {
+  local root directory relative listing roots
+  roots=$(mktemp) || return 1
+  if ! materialize_python_cache_roots "$roots"; then
+    rm -f -- "$roots"
+    echo "delivery-mutation-guard: cannot enumerate Python cache directories" >&2
+    return 1
+  fi
+  while IFS= read -r -d '' root; do
+    if [ ! -e "$ROOT/$root" ] && [ ! -L "$ROOT/$root" ]; then continue; fi
+    valid_allowed_path "$root" && [ -d "$ROOT/$root" ] && [ ! -L "$ROOT/$root" ] || {
+      printf 'delivery-mutation-guard: unsafe Python cache directory: %q\n' "$root" >&2
+      rm -f -- "$roots"
+      return 1
+    }
+    listing=$(mktemp) || { rm -f -- "$roots"; return 1; }
+    find "$ROOT/$root" -depth -type d -print0 > "$listing" || {
+      rm -f -- "$listing" "$roots"; return 1; }
+    while IFS= read -r -d '' directory; do
+      relative=${directory#"$ROOT"/}
+      resolve_safe_cache_directory "$relative" || {
+        printf 'delivery-mutation-guard: unsafe Python cache directory: %q\n' "$relative" >&2
+        rm -f -- "$listing" "$roots"
+        return 1
+      }
+      rmdir -- "$SAFE_CACHE_DIRECTORY" 2>/dev/null || true
+    done < "$listing"
+    rm -f -- "$listing"
+  done < "$roots"
+  rm -f -- "$roots"
+}
+
+cleanup_python_cache_paths() {
+  local path paths remaining
+  paths=$(mktemp) || return 1
+  if ! materialize_python_cache_paths "$paths"; then
+    rm -f -- "$paths"
+    echo "delivery-mutation-guard: cannot enumerate Python cache paths" >&2
+    return 1
+  fi
+  while IFS= read -r -d '' path; do
+    safe_ignored_cleanup_slot "$path" || {
+      printf 'delivery-mutation-guard: unsafe Python cache path: %q\n' "$path" >&2
+      rm -f -- "$paths"
+      return 1
+    }
+    rm -f -- "$CLEANUP_PATH" || {
+      printf 'delivery-mutation-guard: cannot remove Python cache path: %q\n' "$path" >&2
+      rm -f -- "$paths"
+      return 1
+    }
+    cleanup_empty_cache_parents "$path"
+  done < "$paths"
+  rm -f -- "$paths"
+  cleanup_empty_python_cache_directories || return 1
+  remaining=$(mktemp) || return 1
+  if ! materialize_python_cache_paths "$remaining"; then
+    rm -f -- "$remaining"
+    echo "delivery-mutation-guard: cannot re-enumerate Python cache paths" >&2
+    return 1
+  fi
+  if IFS= read -r -d '' path < "$remaining"; then
+    printf 'delivery-mutation-guard: Python cache path survived cleanup: %q\n' "$path" >&2
+    rm -f -- "$remaining"
+    return 1
+  fi
+  rm -f -- "$remaining"
 }
 
 ignored_fingerprint() {
-  local tmp path
-  tmp="$(mktemp)"
+  local tmp paths path result
+  tmp="$(mktemp)" || return 1
+  paths="$(mktemp)" || { rm -f -- "$tmp"; return 1; }
+  if ! materialize_protected_ignored_paths "$paths"; then
+    rm -f -- "$tmp" "$paths"
+    echo "delivery-mutation-guard: cannot enumerate protected ignored paths" >&2
+    return 1
+  fi
   while IFS= read -r -d '' path; do
-    fingerprint_one ignored "$path" "$tmp"
-  done < <(protected_ignored_paths)
-  git hash-object --no-filters "$tmp"
-  rm -f "$tmp"
+    fingerprint_one ignored "$path" "$tmp" || { rm -f -- "$tmp" "$paths"; return 1; }
+  done < "$paths"
+  result="$(git hash-object --no-filters "$tmp")" || {
+    rm -f -- "$tmp" "$paths"
+    return 1
+  }
+  valid_git_oid "$result" || { rm -f -- "$tmp" "$paths"; return 1; }
+  rm -f -- "$tmp" "$paths"
+  printf '%s\n' "$result" || return 1
 }
 
 fingerprint_one() {
@@ -353,35 +754,84 @@ fingerprint_one() {
     && [ -f "$path" ] && [ ! -L "$path" ]; then
     if [ -x "$path" ]; then ENTRY_MODE=100755; else ENTRY_MODE=100644; fi
     ENTRY_OID=mutable-control
+  elif { [ "$kind" = ignored ] || [ "$kind" = untracked ]; } \
+    && mutable_python_cache_path "$path" \
+    && [ -f "$path" ] && [ ! -L "$path" ]; then
+    if [ -x "$path" ]; then ENTRY_MODE=100755; else ENTRY_MODE=100644; fi
+    ENTRY_OID=mutable-python-cache
   else
-    fingerprint_entry "$path"
+    fingerprint_entry "$path" || return 1
   fi
-  printf '%s\0%s\0%s\0%s\0' "$kind" "$path" "$ENTRY_MODE" "$ENTRY_OID" >> "$tmp"
+  printf '%s\0%s\0%s\0%s\0' "$kind" "$path" "$ENTRY_MODE" "$ENTRY_OID" >> "$tmp" \
+    || return 1
+}
+
+special_worktree_entries_absent() {
+  local inventory unsafe
+  inventory="$(mktemp)" || return 1
+  find -P . -path './.git' -prune -o \
+    \( -type d \( -name node_modules -o -name .pnpm-store -o -name .pnpm \
+      -o -name bower_components -o -name cache -path '*/.yarn/cache' \
+      -o -name unplugged -path '*/.yarn/unplugged' \) \) -prune -o \
+    ! -type f ! -type d ! -type l -print0 > "$inventory" || {
+      rm -f -- "$inventory"; return 1; }
+  if IFS= read -r -d '' unsafe < "$inventory"; then
+    printf 'delivery-mutation-guard: unsupported worktree entry: %q\n' \
+      "${unsafe#./}" >&2
+    rm -f -- "$inventory"
+    return 1
+  fi
+  rm -f -- "$inventory"
 }
 
 fingerprint_other_files() {
-  local kind="$1" tmp path result
+  local kind="$1" tmp paths path result
   shift
-  tmp="$(mktemp)"
+  special_worktree_entries_absent || return 1
+  tmp="$(mktemp)" || return 1
+  paths="$(mktemp)" || { rm -f -- "$tmp"; return 1; }
+  if ! materialize_git_ls_files "$paths" . "$@"; then
+    rm -f -- "$tmp" "$paths"
+    printf 'delivery-mutation-guard: cannot enumerate %s files\n' "$kind" >&2
+    return 1
+  fi
   while IFS= read -r -d '' path; do
-    fingerprint_one "$kind" "$path" "$tmp"
-  done < <(git -c core.fsmonitor=false ls-files -z "$@" -- .)
-  result="$(git hash-object --no-filters "$tmp")"
-  rm -f "$tmp"
-  printf '%s\n' "$result"
+    fingerprint_one "$kind" "$path" "$tmp" || { rm -f -- "$tmp" "$paths"; return 1; }
+  done < "$paths"
+  result="$(git hash-object --no-filters "$tmp")" || {
+    rm -f -- "$tmp" "$paths"
+    return 1
+  }
+  valid_git_oid "$result" || { rm -f -- "$tmp" "$paths"; return 1; }
+  rm -f -- "$tmp" "$paths"
+  printf '%s\n' "$result" || return 1
 }
 
 git_exclusion_fingerprint() {
-  local tmp exclude_path external raw path oid result
-  tmp="$(mktemp)"
-  git config --show-origin --show-scope --list 2>/dev/null > "$tmp" || true
-  exclude_path="$(git rev-parse --git-path info/exclude)"
-  if [ -e "$exclude_path" ] || [ -L "$exclude_path" ]; then
-    fingerprint_entry "$exclude_path"
-    printf 'info-exclude\0%s\0%s\0' "$ENTRY_MODE" "$ENTRY_OID" >> "$tmp"
-  else
-    printf 'info-exclude\0missing\0' >> "$tmp"
+  local tmp config_rows exclude_path external raw path oid result config_rc=0
+  tmp="$(mktemp)" || return 1
+  config_rows="$(mktemp)" || { rm -f -- "$tmp"; return 1; }
+  if ! git config --show-origin --show-scope --list > "$tmp" 2>/dev/null; then
+    rm -f -- "$tmp" "$config_rows"
+    return 1
   fi
+  exclude_path="$(git rev-parse --git-path info/exclude)" || {
+    rm -f -- "$tmp" "$config_rows"; return 1; }
+  if [ -e "$exclude_path" ] || [ -L "$exclude_path" ]; then
+    fingerprint_entry "$exclude_path" || {
+      rm -f -- "$tmp" "$config_rows"; return 1; }
+    printf 'info-exclude\0%s\0%s\0' "$ENTRY_MODE" "$ENTRY_OID" >> "$tmp" || {
+      rm -f -- "$tmp" "$config_rows"; return 1; }
+  else
+    printf 'info-exclude\0missing\0' >> "$tmp" || {
+      rm -f -- "$tmp" "$config_rows"; return 1; }
+  fi
+  git config --show-origin --get-all core.excludesfile > "$config_rows" 2>/dev/null \
+    || config_rc=$?
+  case "$config_rc" in
+    0|1) ;;
+    *) rm -f -- "$tmp" "$config_rows"; return 1 ;;
+  esac
   while IFS= read -r raw; do
     [ -n "$raw" ] || continue
     external=${raw#*$'\t'}
@@ -391,29 +841,41 @@ git_exclusion_fingerprint() {
       *) path="$ROOT/$external" ;;
     esac
     if [ -f "$path" ] && [ ! -L "$path" ]; then
-      oid="$(git hash-object --no-filters -- "$path" 2>/dev/null || echo unreadable)"
-      printf 'global-exclude\0%s\0' "$oid" >> "$tmp"
+      oid="$(git hash-object --no-filters -- "$path" 2>/dev/null)" || {
+        rm -f -- "$tmp" "$config_rows"; return 1; }
+      valid_git_oid "$oid" || { rm -f -- "$tmp" "$config_rows"; return 1; }
+      printf 'global-exclude\0%s\0' "$oid" >> "$tmp" || {
+        rm -f -- "$tmp" "$config_rows"; return 1; }
     else
-      printf 'global-exclude\0missing\0' >> "$tmp"
+      printf 'global-exclude\0missing\0' >> "$tmp" || {
+        rm -f -- "$tmp" "$config_rows"; return 1; }
     fi
-  done < <(git config --show-origin --get-all core.excludesfile 2>/dev/null || true)
-  result="$(git hash-object --no-filters "$tmp")"
-  rm -f "$tmp"
-  printf '%s\n' "$result"
+  done < "$config_rows"
+  result="$(git hash-object --no-filters "$tmp")" || {
+    rm -f -- "$tmp" "$config_rows"; return 1; }
+  valid_git_oid "$result" || { rm -f -- "$tmp" "$config_rows"; return 1; }
+  rm -f -- "$tmp" "$config_rows"
+  printf '%s\n' "$result" || return 1
 }
 
 state_fingerprint() {
-  local path=".startup/state.json"
+  local path=".startup/state.json" result
   if [ -e "$path" ] || [ -L "$path" ]; then
-    fingerprint_entry "$path"
-    printf 'present\0%s\0%s\0' "$ENTRY_MODE" "$ENTRY_OID" | git hash-object --stdin
+    fingerprint_entry "$path" || return 1
+    result="$(printf 'present\0%s\0%s\0' "$ENTRY_MODE" "$ENTRY_OID" \
+      | git hash-object --stdin)" || return 1
   else
-    printf 'missing\0' | git hash-object --stdin
+    result="$(printf 'missing\0' | git hash-object --stdin)" || return 1
   fi
+  valid_git_oid "$result" || return 1
+  printf '%s\n' "$result" || return 1
 }
 
 head_boundary_intact() {
-  [ "$(git rev-parse HEAD)" = "$1" ]
+  local current
+  current="$(git rev-parse HEAD)" || return 1
+  valid_git_oid "$current" || return 1
+  [ "$current" = "$1" ]
 }
 
 if [ "$ACTION" = "snapshot" ]; then
@@ -436,7 +898,14 @@ if [ "$ACTION" = "snapshot" ]; then
   worktree_fp="$(diff_fingerprint worktree "$base")"
   untracked_fp="$(untracked_fingerprint)"
   ignored_baseline_keys=()
-  mapfile -t ignored_baseline_keys < <(list_ignored_baseline_keys)
+  ignored_baseline_file="$(mktemp)" || exit 1
+  if ! materialize_ignored_baseline_keys "$ignored_baseline_file"; then
+    rm -f -- "$ignored_baseline_file"
+    echo "delivery-mutation-guard: cannot enumerate ignored baseline" >&2
+    exit 1
+  fi
+  mapfile -t ignored_baseline_keys < "$ignored_baseline_file"
+  rm -f -- "$ignored_baseline_file"
   for path_key in "${ignored_baseline_keys[@]}"; do
     IGNORED_BASELINE["$path_key"]=1
   done
@@ -444,7 +913,14 @@ if [ "$ACTION" = "snapshot" ]; then
   exclusion_fp="$(git_exclusion_fingerprint)"
   state_fp="$(state_fingerprint)"
   active_ref="$(head_ref)"
+  ORIGIN_URL="$(trusted_git config --get remote.origin.url 2>/dev/null || true)"
+  ORIGIN_FETCH_REFSPEC="$(trusted_git config --get-all remote.origin.fetch 2>/dev/null || true)"
+  origin_refs="$(origin_refs_json)" || {
+    echo "delivery-mutation-guard: origin ref snapshot is unsafe" >&2; exit 1; }
+  load_origin_refs "$origin_refs" || {
+    echo "delivery-mutation-guard: origin ref snapshot is invalid" >&2; exit 1; }
   refs_fp="$(other_refs_fingerprint "$active_ref")"
+  strict_refs_fp="$(strict_refs_fingerprint)"
   hook_source="$(resolve_hook_source)" || {
     echo "delivery-mutation-guard: active hook source is unsafe" >&2; exit 1; }
   hooks_fp="$(hooks_fingerprint "$hook_source")" || {
@@ -463,9 +939,13 @@ if [ "$ACTION" = "snapshot" ]; then
     --arg head "$base" --arg index "$index_fp" --arg worktree "$worktree_fp" \
     --arg untracked "$untracked_fp" --arg ignored "$ignored_fp" --arg exclusion "$exclusion_fp" \
     --arg state "$state_fp" --arg active_ref "$active_ref" --arg refs "$refs_fp" \
+    --arg strict_refs "$strict_refs_fp" --arg origin_url "$ORIGIN_URL" \
+    --arg origin_fetch_refspec "$ORIGIN_FETCH_REFSPEC" --argjson origin_refs "$origin_refs" \
     --arg hooks "$hooks_fp" --arg control "$control_fp" --arg index_metadata "$index_metadata_fp" \
     '[inputs] as $values
-    | {schema_version:6,base_head:$head,head_ref:$active_ref,other_refs_fingerprint:$refs,
+    | {schema_version:6,base_head:$head,head_ref:$active_ref,
+      refs_fingerprint:$strict_refs,other_refs_fingerprint:$refs,
+      origin_url:$origin_url,origin_fetch_refspec:$origin_fetch_refspec,origin_refs:$origin_refs,
       hooks_fingerprint:$hooks,git_control_fingerprint:$control,
       index_metadata_fingerprint:$index_metadata,
       index_fingerprint:$index,
@@ -485,10 +965,22 @@ fi
 
 [ -f "$SNAPSHOT" ] && [ ! -L "$SNAPSHOT" ] || {
   echo "delivery-mutation-guard: snapshot not found or unsafe: $SNAPSHOT" >&2; exit 2; }
-[ -f "${SNAPSHOT}.active" ] && [ ! -L "${SNAPSHOT}.active" ] || {
-  echo "delivery-mutation-guard: active guard marker is missing or unsafe" >&2; exit 1; }
+VERIFIED="${SNAPSHOT}.verified"
+if [ -e "${SNAPSHOT}.active" ] || [ -L "${SNAPSHOT}.active" ]; then
+  [ -f "${SNAPSHOT}.active" ] && [ ! -L "${SNAPSHOT}.active" ] || {
+    echo "delivery-mutation-guard: active guard marker is unsafe" >&2; exit 1; }
+elif [ ! -e "$VERIFIED" ] && [ ! -L "$VERIFIED" ]; then
+  echo "delivery-mutation-guard: active guard marker is missing" >&2; exit 1
+fi
 jq -e '.schema_version == 6 and (.base_head|type=="string")
-  and (.head_ref|type=="string") and (.other_refs_fingerprint|type=="string")
+  and (.head_ref|type=="string") and (.refs_fingerprint|type=="string")
+  and (.other_refs_fingerprint|type=="string")
+  and (.origin_url|type=="string") and (.origin_fetch_refspec|type=="string")
+  and (.origin_refs|type=="array")
+  and (.origin_refs|all(.[];
+    (.ref|type=="string" and startswith("refs/remotes/origin/") and . != "refs/remotes/origin/HEAD")
+    and (.oid|type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$"))))
+  and (.origin_refs|((map(.ref)|unique|length)==length))
   and (.hooks_fingerprint|type=="string") and (.git_control_fingerprint|type=="string")
   and (.index_metadata_fingerprint|type=="string")
   and (.index_fingerprint|type=="string") and (.worktree_fingerprint|type=="string")
@@ -499,8 +991,44 @@ jq -e '.schema_version == 6 and (.base_head|type=="string")
   echo "delivery-mutation-guard: malformed snapshot" >&2; exit 2; }
 [ "$(auth_tag "$SNAPSHOT")" = "$(jq -r .auth_tag "$SNAPSHOT")" ] || {
   echo "delivery-mutation-guard: snapshot authentication failed" >&2; exit 1; }
+retire_active_guard() { rm -f -- "${SNAPSHOT}.active"; }
+CLEAN_PYTHON_CACHE=0
+terminal_guard_cleanup() {
+  [ "$CLEAN_PYTHON_CACHE" -eq 0 ] || cleanup_python_cache_paths >/dev/null 2>&1 || true
+  retire_active_guard
+}
+trap terminal_guard_cleanup EXIT
 base="$(jq -r '.base_head' "$SNAPSHOT")"
-mapfile -t ALLOW < <(jq -r '.allow[]' "$SNAPSHOT")
+ORIGIN_URL="$(jq -r '.origin_url' "$SNAPSHOT")"
+ORIGIN_FETCH_REFSPEC="$(jq -r '.origin_fetch_refspec' "$SNAPSHOT")"
+load_origin_refs "$(jq -c '.origin_refs' "$SNAPSHOT")" || {
+  echo "delivery-mutation-guard: authenticated origin refs are invalid" >&2; exit 1; }
+ALLOW_INVENTORY="$(mktemp)" || exit 1
+if ! jq -r '.allow[]' "$SNAPSHOT" > "$ALLOW_INVENTORY"; then
+  rm -f -- "$ALLOW_INVENTORY"
+  echo "delivery-mutation-guard: cannot materialize authenticated allowlist" >&2
+  exit 1
+fi
+ALLOW_COUNT="$(jq -er '.allow|length' "$SNAPSHOT")" || {
+  rm -f -- "$ALLOW_INVENTORY"
+  echo "delivery-mutation-guard: cannot count authenticated allowlist" >&2
+  exit 1
+}
+[[ "$ALLOW_COUNT" =~ ^[0-9]+$ ]] || {
+  rm -f -- "$ALLOW_INVENTORY"
+  echo "delivery-mutation-guard: authenticated allowlist count is invalid" >&2
+  exit 1
+}
+mapfile -t ALLOW < "$ALLOW_INVENTORY" || {
+  rm -f -- "$ALLOW_INVENTORY"
+  echo "delivery-mutation-guard: cannot read authenticated allowlist" >&2
+  exit 1
+}
+rm -f -- "$ALLOW_INVENTORY"
+[ "${#ALLOW[@]}" -eq "$ALLOW_COUNT" ] || {
+  echo "delivery-mutation-guard: authenticated allowlist is incomplete" >&2
+  exit 1
+}
 for allowed in "${ALLOW[@]}"; do
   valid_allowed_path "$allowed" || {
     echo "delivery-mutation-guard: authenticated allowlist is invalid" >&2; exit 1; }
@@ -509,7 +1037,32 @@ for allowed in "${ALLOW[@]}"; do
     exit 1
   }
 done
-mapfile -t ignored_baseline_keys < <(jq -r '.ignored_baseline[]' "$SNAPSHOT")
+IGNORED_BASELINE_INVENTORY="$(mktemp)" || exit 1
+if ! jq -r '.ignored_baseline[]' "$SNAPSHOT" > "$IGNORED_BASELINE_INVENTORY"; then
+  rm -f -- "$IGNORED_BASELINE_INVENTORY"
+  echo "delivery-mutation-guard: cannot materialize authenticated ignored-state baseline" >&2
+  exit 1
+fi
+IGNORED_BASELINE_COUNT="$(jq -er '.ignored_baseline|length' "$SNAPSHOT")" || {
+  rm -f -- "$IGNORED_BASELINE_INVENTORY"
+  echo "delivery-mutation-guard: cannot count authenticated ignored-state baseline" >&2
+  exit 1
+}
+[[ "$IGNORED_BASELINE_COUNT" =~ ^[0-9]+$ ]] || {
+  rm -f -- "$IGNORED_BASELINE_INVENTORY"
+  echo "delivery-mutation-guard: authenticated ignored-state baseline count is invalid" >&2
+  exit 1
+}
+mapfile -t ignored_baseline_keys < "$IGNORED_BASELINE_INVENTORY" || {
+  rm -f -- "$IGNORED_BASELINE_INVENTORY"
+  echo "delivery-mutation-guard: cannot read authenticated ignored-state baseline" >&2
+  exit 1
+}
+rm -f -- "$IGNORED_BASELINE_INVENTORY"
+[ "${#ignored_baseline_keys[@]}" -eq "$IGNORED_BASELINE_COUNT" ] || {
+  echo "delivery-mutation-guard: authenticated ignored-state baseline is incomplete" >&2
+  exit 1
+}
 for path_key in "${ignored_baseline_keys[@]}"; do
   [[ "$path_key" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || {
     echo "delivery-mutation-guard: authenticated ignored-state baseline is invalid" >&2
@@ -517,7 +1070,7 @@ for path_key in "${ignored_baseline_keys[@]}"; do
   }
   IGNORED_BASELINE["$path_key"]=1
 done
-VERIFIED="${SNAPSHOT}.verified"
+CLEAN_PYTHON_CACHE=1
 resume_import=0
 if [ -e "$VERIFIED" ] || [ -L "$VERIFIED" ]; then
   [ -f "$VERIFIED" ] && [ ! -L "$VERIFIED" ] \
@@ -528,6 +1081,7 @@ if [ -e "$VERIFIED" ] || [ -L "$VERIFIED" ]; then
       echo "delivery-mutation-guard: telemetry import marker authentication failed" >&2; exit 1; }
   resume_import=1
 fi
+[ "$resume_import" -eq 0 ] || retire_active_guard
 
 if [ "$resume_import" -eq 0 ]; then
   hook_source="$(resolve_hook_source)" || {
@@ -538,11 +1092,15 @@ if [ "$resume_import" -eq 0 ]; then
       echo "delivery-mutation-guard: worker changed Git hooks or control metadata" >&2
       exit 1
     }
-  [ "$(head_ref)" = "$(jq -r .head_ref "$SNAPSHOT")" ] \
-    && [ "$(other_refs_fingerprint "$(head_ref)")" = "$(jq -r .other_refs_fingerprint "$SNAPSHOT")" ] || {
-      echo "delivery-mutation-guard: Git refs changed outside the allowed phase" >&2
-      exit 1
-    }
+  active_ref="$(jq -r .head_ref "$SNAPSHOT")"
+  [ "$(head_ref)" = "$active_ref" ] || {
+    echo "delivery-mutation-guard: active Git ref changed outside the allowed phase" >&2
+    exit 1
+  }
+  ref_boundary_intact "$active_ref" "$(jq -r .other_refs_fingerprint "$SNAPSHOT")" || {
+    echo "delivery-mutation-guard: Git refs changed outside signed live origin progress" >&2
+    exit 1
+  }
   head_boundary_intact "$base" || {
     echo "delivery-mutation-guard: worker changed commit history; only the supervisor may commit" >&2
     exit 1
@@ -582,13 +1140,20 @@ if [ "$resume_import" -eq 0 ]; then
       echo "  - protected ignored state" >&2
       echo "delivery-mutation-guard: current protected ignored paths (a removed path is absent):" >&2
       ignored_count=0; ignored_shown=0
+      ignored_diagnostic="$(mktemp)" || exit 1
+      if ! materialize_protected_ignored_paths "$ignored_diagnostic"; then
+        rm -f -- "$ignored_diagnostic"
+        echo "    (inventory unavailable)" >&2
+        exit 1
+      fi
       while IFS= read -r -d '' ignored_path; do
         ignored_count=$((ignored_count + 1))
         if [ "$ignored_shown" -lt 20 ]; then
           printf '    %q\n' "$ignored_path" >&2
           ignored_shown=$((ignored_shown + 1))
         fi
-      done < <(protected_ignored_paths)
+      done < "$ignored_diagnostic"
+      rm -f -- "$ignored_diagnostic"
       if [ "$ignored_count" -eq 0 ]; then
         echo "    (none)" >&2
       elif [ "$ignored_count" -gt "$ignored_shown" ]; then
@@ -608,6 +1173,12 @@ if [ "$resume_import" -eq 0 ]; then
   fi
 fi
 cleanup_new_ignored_paths || exit 1
+cleanup_python_cache_paths || exit 1
+if [ "$resume_import" -eq 0 ] \
+  && [ "$(strict_refs_fingerprint)" != "$VERIFIED_REFS_FINGERPRINT" ]; then
+  echo "delivery-mutation-guard: Git refs changed after live origin verification" >&2
+  exit 1
+fi
 shopt -s nullglob
 telemetry_receipts=("${SNAPSHOT}.telemetry-"*.json)
 shopt -u nullglob
@@ -623,6 +1194,7 @@ if [ "$resume_import" -eq 0 ] && [ "${#telemetry_receipts[@]}" -gt 0 ]; then
     '{schema_version:1,snapshot_auth_tag:$snapshot_tag,auth_tag:null}' > "$verified_tmp"
   sign_snapshot "$verified_tmp"
   mv -- "$verified_tmp" "$VERIFIED"
+  retire_active_guard
 fi
 for telemetry_receipt in "${telemetry_receipts[@]}"; do
   bash "$SCRIPT_DIR/agent-events.sh" import-guarded --receipt "$telemetry_receipt" >/dev/null || {
@@ -630,5 +1202,13 @@ for telemetry_receipt in "${telemetry_receipts[@]}"; do
     exit 1
   }
 done
+cleanup_python_cache_paths || exit 1
+if [ "$resume_import" -eq 0 ] \
+  && [ "$(strict_refs_fingerprint)" != "$VERIFIED_REFS_FINGERPRINT" ]; then
+  echo "delivery-mutation-guard: Git refs changed before guard completion" >&2
+  exit 1
+fi
+CLEAN_PYTHON_CACHE=0
 rm -f -- "${SNAPSHOT}.telemetry-identity-key" "$VERIFIED" "${SNAPSHOT}.active"
+trap - EXIT
 echo "delivery-mutation-guard: review-only boundary intact"

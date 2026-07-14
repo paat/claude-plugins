@@ -2,7 +2,7 @@
 # Append and read privacy-safe delivery events.
 #
 # append --run-id ID --command CODE --phase CODE --surface claude|codex|script
-#        --profile mechanical|light|standard|deep --writer-id ID [fields...]
+#        --profile mechanical|light|standard|deep --writer-id ID [--once] [fields...]
 # read [--events FILE] [--legacy-root DIR]
 # import-guarded [--check] --receipt FILE
 # new-run-id
@@ -18,7 +18,7 @@ ROUTING_SCHEMA_VERSION=$(bash "$SCRIPT_DIR/delivery-route.sh" schema-version 2>/
 }
 
 usage() {
-  echo "usage: agent-events.sh append --run-id ID --command CODE --phase CODE --surface SURFACE --profile PROFILE --writer-id ID [options]" >&2
+  echo "usage: agent-events.sh append --run-id ID --command CODE --phase CODE --surface SURFACE --profile PROFILE --writer-id ID [--once] [options]" >&2
   echo "       agent-events.sh read [--events FILE] [--legacy-root DIR]" >&2
   echo "       agent-events.sh import-guarded [--check] --receipt FILE" >&2
   echo "       agent-events.sh new-run-id | schema-version" >&2
@@ -130,7 +130,7 @@ prepare_guarded_append() {
   receipt_tmp=$(mktemp "${receipt}.tmp.XXXXXX") || return 1
   jq -n --arg buffer_id "$buffer_id" --arg source "$source" --arg destination "$destination" \
     '{schema_version:2,buffer_id:$buffer_id,source:$source,destination:$destination,
-      log_source:null,log_destination:null}' > "$receipt_tmp"
+      log_source:null,log_destination:null,log_retention_files:null}' > "$receipt_tmp"
   chmod 600 "$receipt_tmp"; mv -- "$receipt_tmp" "$receipt"
   printf '%s\n' "$source"
 }
@@ -252,8 +252,9 @@ normalize_event_dimensions() {
       "diff_containment_exceeded","diff_ignored_sensitive_path","diff_legal_judgment","diff_product_judgment","diff_sensitive_surface",
       "diff_tests_dependencies_workflows","diff_untracked_file","empty_diff","interactive_behavior_excluded",
       "interactive_nonbehavioral_tweak","interactive_scope_uncertain","legacy_artifact","product_judgment",
-      "routine_scoped_work","script_only","sensitive_architecture_concurrency","sensitive_data_migration",
-      "sensitive_legal","sensitive_payment_pricing","sensitive_security_auth","terra_unavailable_fallback"
+      "routine_scoped_work","script_only","sensitive_accounting_reporting","sensitive_architecture_concurrency",
+      "sensitive_data_migration","sensitive_legal","sensitive_payment_pricing","sensitive_security_auth",
+      "sensitive_surface_vocabulary","terra_unavailable_fallback"
     ];
     def norm_provider:
       if . == null or . == "" then null
@@ -317,6 +318,7 @@ append_event() {
   local tokens_before="" tokens_after="" input_tokens="" output_tokens="" cached_input_tokens="" cost_microunits=""
   local checks="" qa="" tribunal="" pr="" merge="" deployment="" rollback=""
   local outcome="incomplete" events_file="" base_sha="" result_sha="" recorded_at payload lock_file identity_key
+  local append_once=0 existing existing_count payload_semantic existing_semantic
   local reasons=() reasons_json
 
   while [ $# -gt 0 ]; do
@@ -356,6 +358,7 @@ append_event() {
       --base-sha) [ "$#" -ge 2 ] || usage; base_sha="$2"; shift 2 ;;
       --result-sha) [ "$#" -ge 2 ] || usage; result_sha="$2"; shift 2 ;;
       --events) [ "$#" -ge 2 ] || usage; events_file="$2"; shift 2 ;;
+      --once) append_once=1; shift ;;
       *) usage ;;
     esac
   done
@@ -385,6 +388,10 @@ append_event() {
   fi
   if [ "$event_type" != completed ] && [ "$outcome" != incomplete ]; then
     echo "agent-events: nonterminal events require outcome=incomplete" >&2
+    exit 2
+  fi
+  if [ "$append_once" -eq 1 ] && [ "$event_type" != completed ]; then
+    echo "agent-events: --once requires a completed event" >&2
     exit 2
   fi
   valid_sha "$base_sha" && valid_sha "$result_sha" || { echo "agent-events: invalid commit SHA" >&2; exit 2; }
@@ -467,6 +474,39 @@ append_event() {
     echo "agent-events: identity normalization failed" >&2
     exit 3
   }
+  if [ "$append_once" -eq 1 ] && [ -s "$events_file" ]; then
+    existing=$(jq -c --arg run_id "$(jq -r .run_id <<<"$payload")" \
+      --arg writer_id "$(jq -r .writer_id <<<"$payload")" \
+      --arg command "$(jq -r .command <<<"$payload")" \
+      --arg phase "$(jq -r .phase <<<"$payload")" \
+      --argjson attempt "$(jq -r .attempt <<<"$payload")" '
+        select(.run_id == $run_id and .writer_id == $writer_id
+          and .command == $command and .phase == $phase
+          and .event_type == "completed" and .attempt == $attempt)
+      ' "$events_file") || {
+        flock -u 9
+        echo "agent-events: cannot inspect existing event identities" >&2
+        exit 3
+      }
+    existing_count=$(printf '%s\n' "$existing" | sed '/^$/d' | wc -l | tr -d ' ')
+    if [ "$existing_count" -gt 1 ]; then
+      flock -u 9
+      echo "agent-events: duplicate exactly-once event identity already exists" >&2
+      exit 3
+    fi
+    if [ "$existing_count" -eq 1 ]; then
+      payload_semantic=$(jq -Sc 'del(.recorded_at,.started_at,.finished_at,.duration_ms)' <<<"$payload")
+      existing_semantic=$(jq -Sc 'del(.recorded_at,.started_at,.finished_at,.duration_ms)' <<<"$existing")
+      if [ "$payload_semantic" != "$existing_semantic" ]; then
+        flock -u 9
+        echo "agent-events: conflicting exactly-once event identity" >&2
+        exit 3
+      fi
+      flock -u 9
+      printf '%s\n' "$existing"
+      return 0
+    fi
+  fi
   printf '%s\n' "$payload" >> "$events_file"
   flock -u 9
   printf '%s\n' "$payload"
@@ -589,10 +629,60 @@ read_events() {
   fi
 }
 
+prune_imported_logs() {
+  local destination="$1" current_dir="$2" limit="$3" timestamp file parent canonical excess i dir listing order sorted index
+  local -a candidates=() old_logs=()
+  listing=$(mktemp) || return 1
+  order=$(mktemp) || { rm -f -- "$listing"; return 1; }
+  sorted=$(mktemp) || { rm -f -- "$listing" "$order"; return 1; }
+  find "$destination" -mindepth 1 -maxdepth 2 -type f \
+    \( -name '*.jsonl' -o -name '*.jsonl.stderr' -o -name '*.jsonl.last-message' \) \
+    -printf '%T@\0%p\0' > "$listing" || {
+      rm -f -- "$listing" "$order" "$sorted"; return 1; }
+  while IFS= read -r -d '' timestamp && IFS= read -r -d '' file; do
+    case "$file" in "$current_dir"/*) continue ;; esac
+    safe_path_string "$file" || continue
+    timestamp=${timestamp%%.*}
+    [[ "$timestamp" =~ ^[0-9]+$ ]] || continue
+    index=${#candidates[@]}
+    candidates[$index]=$file
+    printf '%s\t%s\n' "$timestamp" "$index" >> "$order"
+  done < "$listing"
+  LC_ALL=C sort -n -k1,1 -k2,2 "$order" > "$sorted" || {
+    rm -f -- "$listing" "$order" "$sorted"; return 1; }
+  while IFS=$'\t' read -r timestamp index; do
+    [[ "$index" =~ ^[0-9]+$ ]] && [ "$index" -lt "${#candidates[@]}" ] || {
+      rm -f -- "$listing" "$order" "$sorted"; return 1; }
+    old_logs+=("${candidates[$index]}")
+  done < "$sorted"
+  rm -f -- "$order" "$sorted"
+  excess=$((${#old_logs[@]} - limit))
+  if [ "$excess" -gt 0 ]; then
+    for ((i=0; i<excess; i++)); do
+      file=${old_logs[$i]}
+      [ -f "$file" ] && [ ! -L "$file" ] || continue
+      parent=$(dirname -- "$file")
+      ensure_real_directory "$parent" 0 \
+        && canonical=$(cd -- "$parent" && pwd -P) \
+        && case "$canonical/" in "$destination/"*) true ;; *) false ;; esac \
+        && rm -f -- "$file" || {
+          rm -f -- "$listing"; return 1; }
+    done
+  fi
+  : > "$listing"
+  find "$destination" -mindepth 1 -maxdepth 1 -type d -empty -print0 > "$listing" || {
+    rm -f -- "$listing"; return 1; }
+  while IFS= read -r -d '' dir; do
+    ensure_real_directory "$dir" 0 || { rm -f -- "$listing"; return 1; }
+    rmdir -- "$dir" 2>/dev/null || true
+  done < "$listing"
+  rm -f -- "$listing"
+}
+
 import_guarded() {
   local receipt="" check_only=0 root git_dir guard_dir source destination source_key destination_key
   local log_source log_destination line n=0 lock_file tmp old_umask file buffer_id receipt_name prefix shared_key candidate
-  local event_total=0 event_matches=0 log_final_dir log_target log_tmp key
+  local event_total=0 event_matches=0 log_final_dir log_target log_tmp key log_retention_files
   while [ $# -gt 0 ]; do
     case "$1" in
       --check) check_only=1; shift ;;
@@ -618,13 +708,24 @@ import_guarded() {
   jq -e '.schema_version == 2 and (.buffer_id|type=="string") and (.source|type=="string") and
     (.destination|type=="string") and (.log_source == null or (.log_source|type=="string")) and
     (.log_destination == null or (.log_destination|type=="string")) and
-    (keys|sort == ["buffer_id","destination","log_destination","log_source","schema_version","source"])' \
+    (.log_retention_files == null or
+      ((.log_retention_files|type)=="number" and .log_retention_files >= 1 and
+        .log_retention_files <= 9999 and (.log_retention_files|floor)==.log_retention_files)) and
+    ((keys|sort == ["buffer_id","destination","log_destination","log_retention_files","log_source","schema_version","source"]) or
+      (keys|sort == ["buffer_id","destination","log_destination","log_source","schema_version","source"]))' \
     "$receipt" >/dev/null || { echo "agent-events: malformed guarded telemetry receipt" >&2; exit 3; }
   buffer_id=$(jq -r .buffer_id "$receipt")
   [[ "$buffer_id" =~ ^[0-9a-f]{32}$ ]] || { echo "agent-events: invalid guarded buffer id" >&2; exit 3; }
   source=$(jq -r .source "$receipt"); destination=$(jq -r .destination "$receipt")
   log_source=$(jq -r '.log_source // ""' "$receipt")
   log_destination=$(jq -r '.log_destination // ""' "$receipt")
+  if jq -e 'has("log_retention_files")' "$receipt" >/dev/null; then
+    log_retention_files=$(jq -r '.log_retention_files // ""' "$receipt")
+  elif [ -n "$log_source" ]; then
+    log_retention_files=300
+  else
+    log_retention_files=""
+  fi
   receipt_name=$(basename -- "$receipt")
   case "$receipt_name" in *.telemetry-"$buffer_id".json) : ;; *) echo "agent-events: receipt id mismatch" >&2; exit 3 ;; esac
   prefix=${receipt_name%".telemetry-$buffer_id.json"}
@@ -636,8 +737,11 @@ import_guarded() {
     echo "agent-events: unsafe guarded event destination" >&2; exit 3; }
   if [ -n "$log_source" ] || [ -n "$log_destination" ]; then
     [ "$log_source" = "$guard_dir/$prefix.logs-$buffer_id" ] \
-      && [ "$log_destination" = "$root/.startup/runs/codex" ] || {
+      && [ "$log_destination" = "$root/.startup/runs/codex" ] \
+      && [[ "$log_retention_files" =~ ^[1-9][0-9]{0,3}$ ]] || {
         echo "agent-events: unsafe guarded log destination" >&2; exit 3; }
+  elif [ -n "$log_retention_files" ]; then
+    echo "agent-events: log retention requires a guarded log source" >&2; exit 3
   fi
   safe_path_string "$source" && safe_path_string "$destination" || {
     echo "agent-events: unsafe guarded telemetry path" >&2; exit 3; }
@@ -752,6 +856,8 @@ import_guarded() {
         rm -f -- "$file"
       fi
     done < <(find "$log_source" -mindepth 1 -maxdepth 1 -print0)
+    prune_imported_logs "$log_destination" "$log_final_dir" "$log_retention_files" || {
+      echo "agent-events: guarded log retention failed" >&2; exit 3; }
   fi
   rm -f -- "$receipt"
   rm -f -- "$source" "${source}.lock" "$source_key"

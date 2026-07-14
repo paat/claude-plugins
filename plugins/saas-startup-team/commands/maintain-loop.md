@@ -6,7 +6,7 @@ user_invocable: true
 
 # /maintain-loop
 
-Pass `--issue`, `--label`, and repository context from `$ARGUMENTS` to
+Pass `--dry-run`, `--once`, issue/label/limit flags, and repository context from `$ARGUMENTS` to
 `${CLAUDE_PLUGIN_ROOT}/scripts/workflow-probe.sh maintain-loop`. Exit 3 is a clean
 no-op: stop without loading another file or launching Codex. Exit 4 is a blocked
 environment: report the probe's diagnosis and remedy, then stop the same way.

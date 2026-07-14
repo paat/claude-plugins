@@ -5,7 +5,7 @@ test_delivery_routing() {
   local route="$PLUGIN_ROOT/scripts/delivery-route.sh"
   local launcher="$PLUGIN_ROOT/scripts/codex-run-role.sh"
   local wrapper="$PLUGIN_ROOT/scripts/codex-implement.sh"
-  local wd task labels out ec repo bin calls events auth_signal sensitive_signal ui_file artifact_role login_home
+  local wd task labels out ec repo bin calls events auth_signal sensitive_signal parity_signal ui_file artifact_role login_home summary log_file
 
   assert_file_exists "DR1: delivery router exists" "$route"
   assert_file_exists "DR2: pinned role launcher exists" "$launcher"
@@ -70,6 +70,22 @@ test_delivery_routing() {
   printf '%s\n' 'security' > "$labels"
   ec=0; out=$(bash "$route" classify --mode autonomous --task-file "$task" --labels-file "$labels") || ec=$?
   assert_exit_code "DR15: sensitive label overrides routine task" "$ec" 20
+
+  printf '%s\n' 'Fix a bounded parser bug.' > "$task"
+  printf '%s\n' '[{"name":"accounting"},{"name":"andmesild"}]' > "$labels"
+  ec=0; out=$(bash "$route" classify --mode autonomous --task-file "$task" --labels-file "$labels") || ec=$?
+  assert_exit_code "DR15a1: accounting JSON labels escalate before implementation" "$ec" 20
+  assert_equals "DR15a2: accounting JSON labels select deep" "$(jq -r .profile <<< "$out")" "deep"
+  assert_equals "DR15a3: accounting JSON labels have a stable reason" \
+    "$(jq -r '.reasons | index("sensitive_accounting_reporting") != null' <<< "$out")" "true"
+
+  for sensitive_signal in XBRL Arelle taxonomy 'financial reporting'; do
+    printf 'Repair the %s validation adapter.\n' "$sensitive_signal" > "$task"
+    ec=0; out=$(bash "$route" classify --mode autonomous --task-file "$task") || ec=$?
+    assert_exit_code "DR15a4: $sensitive_signal task escalates before implementation" "$ec" 20
+    assert_equals "DR15a5: $sensitive_signal task is sensitive accounting/reporting" \
+      "$(jq -r '.reasons | index("sensitive_accounting_reporting") != null' <<< "$out")" "true"
+  done
 
   printf '%s\n' 'Fix a typo after the RCA: docs incident.' > "$task"
   : > "$labels"
@@ -184,6 +200,21 @@ test_delivery_routing() {
   out=$(cd "$repo" && bash "$route" check-diff --base HEAD)
   assert_equals "DR18a: syntax in a docs diff does not match tax" "$(jq -r .profile <<< "$out")" "light"
   git -C "$repo" restore README.md
+  task=$(mktemp)
+  for parity_signal in src/auth/session.ts src/billing/invoice.ts db/migrations/001.sql \
+      src/privacy/consent.ts src/accounting/xbrl.ts src/financial/reporting.ts \
+      src/taxonomy/loader.ts src/andmesild/client.ts config/.env; do
+    printf 'Repair bounded behavior in %s.\n' "$parity_signal" > "$task"
+    ec=0; out=$(bash "$route" classify --mode autonomous --task-file "$task") || ec=$?
+    assert_exit_code "DR18a1: pre-route recognizes $parity_signal as sensitive" "$ec" 20
+    printf '# Surface: %s\n' "$parity_signal" > "$repo/README.md"
+    ec=0; out=$(cd "$repo" && bash "$route" check-diff --base HEAD) || ec=$?
+    assert_exit_code "DR18a2: post-diff matches pre-route for $parity_signal" "$ec" 20
+    assert_equals "DR18a3: post-diff marks $parity_signal sensitive" \
+      "$(jq -r .sensitive <<< "$out")" "true"
+    git -C "$repo" restore README.md
+  done
+  rm -f "$task"
   for sensitive_signal in encryption crypto TLS SSL certificate RBAC ACL \
       'credit card' 'debit card' cardholder 'PCI DSS' SEPA chargeback \
       'bank account' 'bank details'; do
@@ -286,17 +317,56 @@ test_delivery_routing() {
   git -C "$repo" config user.email test@example.invalid
   git -C "$repo" config user.name Test
   printf '%s\n' '.env' 'cache/' > "$repo/.gitignore"
-  git -C "$repo" add .gitignore && git -C "$repo" commit -qm init
+  printf '%s\n' '# baseline copy' > "$repo/README.md"
+  git -C "$repo" add .gitignore README.md && git -C "$repo" commit -qm init
   mkdir -p "$repo/cache"
   printf '%s\n' 'harmless' > "$repo/cache/result.txt"
   out=$(cd "$repo" && bash "$route" check-diff --base HEAD)
   assert_equals "DR20f: ignored nonsensitive path keeps an empty diff mechanical" "$(jq -r .profile <<< "$out")" "mechanical"
   printf '%s\n' 'CUSTOMER_NAME=private-fixture' > "$repo/.env"
+  printf '%s\n' '# bounded copy change' > "$repo/README.md"
   ec=0; out=$(cd "$repo" && bash "$route" check-diff --base HEAD) || ec=$?
-  assert_exit_code "DR20g: ignored sensitive path escalates" "$ec" 20
-  assert_equals "DR20h: ignored sensitive path is reported generically" \
+  assert_exit_code "DR20g: unguarded ignored sensitive state escalates" "$ec" 20
+  assert_equals "DR20g1: unguarded escalation names ignored sensitive state" \
     "$(jq -r '.reasons | index("diff_ignored_sensitive_path") != null' <<< "$out")" "true"
+  assert_output_not_contains "DR20g2: ignored sensitive contents are never exposed" "$out" "private-fixture"
+  ec=0; out=$(cd "$repo" && bash "$route" check-diff --base HEAD --guard-verified) || ec=$?
+  assert_exit_code "DR20g3: verified mutation guard permits changed-path routing" "$ec" 0
+  assert_equals "DR20h: guarded routing is based on changed paths only" \
+    "$(jq -r '.reasons | index("diff_ignored_sensitive_path") == null' <<< "$out")" "true"
   assert_output_not_contains "DR20i: ignored sensitive file contents are never exposed" "$out" "private-fixture"
+  rm -rf "$repo"
+
+  repo=$(mktemp -d)
+  git init -q "$repo"
+  git -C "$repo" config user.email test@example.invalid
+  git -C "$repo" config user.name Test
+  mkdir -p "$repo/frontend/src/app/[locale]/report" "$repo/frontend/src/hooks"
+  printf '%s\n' '.env' 'cache/' > "$repo/.gitignore"
+  printf '%s\n' 'export default function Report() { return <p>Before</p>; }' \
+    > "$repo/frontend/src/app/[locale]/report/page.tsx"
+  printf '%s\n' 'export const wizardEvent = "before";' \
+    > "$repo/frontend/src/hooks/useWizardAnalytics.ts"
+  printf '%s\n' 'export const expectedEvent = "before";' \
+    > "$repo/frontend/src/hooks/useWizardAnalytics.test.ts"
+  git -C "$repo" add .gitignore frontend && git -C "$repo" commit -qm init
+  mkdir -p "$repo/cache/database"
+  printf '%s\n' 'TRANSIENT_PRIVATE_FIXTURE=hidden' > "$repo/.env"
+  printf '%s\n' 'transient' > "$repo/cache/database/result.txt"
+  printf '%s\n' 'export default function Report() { return <p>After</p>; }' \
+    > "$repo/frontend/src/app/[locale]/report/page.tsx"
+  printf '%s\n' 'export const wizardEvent = "after";' \
+    > "$repo/frontend/src/hooks/useWizardAnalytics.ts"
+  printf '%s\n' 'export const expectedEvent = "after";' \
+    > "$repo/frontend/src/hooks/useWizardAnalytics.test.ts"
+  ec=0; out=$(cd "$repo" && bash "$route" check-diff --base HEAD --guard-verified) || ec=$?
+  assert_exit_code "DR20i1: exact report and analytics paths retain their semantic route" "$ec" 20
+  assert_equals "DR20i2: exact normal paths are not classified from transient ignored state" \
+    "$(jq -r '.reasons | index("diff_ignored_sensitive_path") == null' <<< "$out")" "true"
+  assert_equals "DR20i3: exact source diff retains its real behavioral UI reason" \
+    "$(jq -r '.reasons | index("diff_behavioral_ui_code") != null' <<< "$out")" "true"
+  assert_output_not_contains "DR20i4: transient ignored contents remain private" \
+    "$out" 'TRANSIENT_PRIVATE_FIXTURE'
   rm -rf "$repo"
 
   repo=$(mktemp -d); bin="$repo/bin"; mkdir -p "$bin"
@@ -311,11 +381,38 @@ test_delivery_routing() {
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$*" >> "$FAKE_CODEX_CALLS"
+last_message=""
+args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do
+  if [ "${args[$i]}" = "--output-last-message" ]; then
+    last_message="${args[$((i + 1))]}"
+    break
+  fi
+done
 [ -z "${FAKE_CODEX_PROMPT:-}" ] || cat > "$FAKE_CODEX_PROMPT"
 [ -z "${FAKE_CODEX_ENV:-}" ] || printf '%s\t%s\t%s\n' \
   "${TRIBUNAL_CALLER_PROVIDER:-}" "${TRIBUNAL_CALLER_MODEL:-}" \
   "${TRIBUNAL_CALLER_EFFORT:-}" > "$FAKE_CODEX_ENV"
 case "${FAKE_CODEX_MODE:-success}" in
+  verbose_stream)
+    if [ -n "$last_message" ]; then
+      {
+        printf '%s\n' 'bounded final agent response'
+        i=0
+        while [ "$i" -lt 400 ]; do
+          printf 'final-detail-%03d-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ\n' "$i"
+          i=$((i + 1))
+        done
+      } > "$last_message"
+    fi
+    i=0
+    while [ "$i" -lt 4000 ]; do
+      printf '{"type":"item.completed","item":{"type":"command_execution","text":"raw-stream-marker-%04d-abcdefghijklmnopqrstuvwxyz0123456789"}}\n' "$i"
+      i=$((i + 1))
+    done
+    printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":700,"output_tokens":80,"cached_input_tokens":30}}'
+    exit 0
+    ;;
   terra_unavailable)
     if printf '%s\n' "$*" | grep -q 'gpt-5.6-terra'; then
       echo 'model gpt-5.6-terra is unavailable' >&2
@@ -350,6 +447,7 @@ case "${FAKE_CODEX_MODE:-success}" in
     exit 124
     ;;
 esac
+[ -z "$last_message" ] || printf '%s\n' 'final agent response' > "$last_message"
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20,"cached_input_tokens":10}}'
 SH
   chmod +x "$bin/codex"
@@ -534,6 +632,25 @@ SH
   assert_equals "DR35e: launcher propagates actual tribunal caller identity" \
     "$(cat "$repo/caller-env.txt")" $'openai\twrapper-model\tmedium'
 
+  : > "$calls"; : > "$events"
+  summary="$repo/codex-summary.txt"
+  (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=verbose_stream \
+    SAAS_AGENT_EVENTS_FILE="$events" SAAS_CODEX_LOG_DIR="$repo/codex-logs" \
+    bash "$launcher" --role analyst --profile standard --task-file task.md > "$summary" 2>&1)
+  log_file=$(find "$repo/codex-logs" -maxdepth 1 -name '*.jsonl' -print -quit)
+  assert_equals "DR35f: terminal worker output stays bounded" \
+    "$(awk 'END { print (NR <= 100 && bytes <= 9000) ? "true" : "false" } { bytes += length($0) + 1 }' "$summary")" "true"
+  assert_file_contains "DR35g: terminal output includes the trailing verdict detail" \
+    "$summary" 'codex-worker: final-detail-399'
+  assert_file_contains "DR35h: terminal output includes compact usage" \
+    "$summary" 'usage\[input=700 output=80 cached=30\]'
+  assert_file_not_contains "DR35i: raw JSON events never reach terminal output" \
+    "$summary" 'raw-stream-marker'
+  assert_file_contains "DR35j: raw JSON events remain in the configured log directory" \
+    "$log_file" 'raw-stream-marker-3999'
+  assert_file_contains "DR35k: untruncated last message remains beside the raw log" \
+    "$log_file.last-message" 'final-detail-399'
+
   : > "$calls"; ec=0
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" bash "$launcher" \
     --role tech-founder --profile mechanical --task-file task.md >/dev/null 2>&1) || ec=$?
@@ -644,7 +761,7 @@ PY
   assert_file_contains "DR45: improve uses pinned separate-role launcher" "$refs/improve.md" 'codex-run-role.sh --role tech-founder'
   assert_file_contains "DR46: maintain cheap triage is a registered role" "$refs/maintain.md" 'saas-startup-team:maintain-triage'
   assert_file_contains "DR47: maintain uncertainty escalates to Fable role" "$refs/maintain.md" 'saas-startup-team:business-founder-maintain'
-  assert_file_contains "DR48: maintain-loop preserves attempt escalation evidence" "$refs/maintain-loop.md" 'issue-$N-attempt-$ATTEMPT.json'
+  assert_file_contains "DR48: maintain-loop preserves attempt escalation evidence" "$refs/maintain-loop-protocol.md" 'issue-<N>-attempt-<A>.json'
   assert_file_contains "DR49: startup routes handoffs semantically" "$PLUGIN_ROOT/commands/startup.md" 'delivery-route.sh classify --mode autonomous'
   assert_file_contains "DR50: lessons uses supervisor-owned commit gate" "$PLUGIN_ROOT/commands/lessons-deliver.md" 'scripts/supervisor-commit.sh'
 }
