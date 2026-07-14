@@ -423,6 +423,41 @@ SH
   assert_file_not_exists "RS14i15: dirty-base rejection creates no receipt" "$trust_receipt"
   rm -rf "$workdir"
 
+  # An outer /proc mount exposes host PIDs, so the check log must be addressed
+  # through the inherited descriptor rather than the namespace-local shell PID.
+  workdir=$(make_workdir); make_supervisor_sandbox "$workdir"
+  git -C "$workdir" config user.email t@t.t; git -C "$workdir" config user.name t
+  printf 'base\n' > "$workdir/app.txt"
+  cat > "$workdir/check.sh" <<'SH'
+#!/usr/bin/env bash
+ulimit -f unlimited
+i=0
+while [ "$i" -lt 100000 ]; do
+  printf 'pid-namespace-check-output-%06d-abcdefghijklmnopqrstuvwxyz0123456789\n' "$i"
+  i=$((i + 1))
+done
+SH
+  chmod +x "$workdir/check.sh"
+  git -C "$workdir" add .; git -C "$workdir" commit -qm base
+  trust_receipt="$workdir/.git/saas-startup-team/pid-namespace-check.json"
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  (cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
+    --check-only --auth-stdin <<<"$auth_token" >/dev/null)
+  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" \
+    SAAS_SUPERVISOR_CHECK_LOG_MAX_BYTES=4096 \
+    SAAS_SUPERVISOR_CHECK_LOG_RETENTION_BYTES=8192 \
+    unshare --user --map-current-user --pid --fork --kill-child=KILL -- \
+      bash "$script" --check-only --trust-receipt "$trust_receipt" \
+      --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS14i15ns1: bounded check runs inside a PID namespace with the outer procfs" "$ec" 1
+  assert_output_contains "RS14i15ns2: namespace check reaches the output-size gate" \
+    "$out" 'check output exceeded the 4096-byte budget'
+  limit_log=$(find "$workdir/.git/saas-startup-team/check-logs" \
+    -maxdepth 1 -type f -name '*.check.*.log' -print -quit)
+  assert_equals "RS14i15ns3: namespace check truncates through its inherited descriptor" \
+    "$(stat -c %s "$limit_log")" 4096
+  rm -rf "$workdir"
+
   # Check evidence paths and resources fail closed before they can forge success.
   workdir=$(make_workdir); make_supervisor_sandbox "$workdir"
   git -C "$workdir" config user.email t@t.t; git -C "$workdir" config user.name t

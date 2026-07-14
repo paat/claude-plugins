@@ -10,7 +10,7 @@ For a non-browser diff, call:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-delivery.sh" record-proof \
-  --repo-root "$REPO_ROOT" --issue "$N" --role "$ROLE" \
+  --repo-root "$WT" --issue "$N" --role "$ROLE" \
   --kind qa --not-applicable
 ```
 
@@ -68,7 +68,7 @@ Before arbitration, let the delivery helper run and retain the provider panel:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-delivery.sh" collect-tribunal \
-  --repo-root "$REPO_ROOT" --issue "$N" --role "$ROLE" \
+  --repo-root "$WT" --issue "$N" --role "$ROLE" \
   --tribunal-plugin-root "$TRIBUNAL_PLUGIN_ROOT"
 ```
 
@@ -77,7 +77,7 @@ the `tribunal-review` output contract. Then record it:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-delivery.sh" record-proof \
-  --repo-root "$REPO_ROOT" --issue "$N" --role "$ROLE" --kind tribunal \
+  --repo-root "$WT" --issue "$N" --role "$ROLE" --kind tribunal \
   --artifact "$ARBITRATION_JSON" --tribunal-plugin-root "$TRIBUNAL_PLUGIN_ROOT"
 ```
 
@@ -94,7 +94,7 @@ known plugin contract avoids a project-only proof wrapper:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-delivery.sh" record-proof \
-  --repo-root "$REPO_ROOT" --issue "$N" --role "$ROLE" --kind live \
+  --repo-root "$WT" --issue "$N" --role "$ROLE" --kind live \
   --deploy-run-id "$DEPLOY_RUN_ID" --live-target-source "$TARGET_SOURCE" \
   --command-file "$CUSTOM_CHECKS" --live-command-contract monitor-hook
 ```

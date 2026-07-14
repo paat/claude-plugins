@@ -1231,7 +1231,7 @@ prepare_check_log() {
 check_log_intact() {
   [ -f "$CHECK_LOG" ] && [ ! -L "$CHECK_LOG" ] \
     && [ "$(stat -Lc '%d:%i' -- "$CHECK_LOG")" = "$CHECK_LOG_ID" ] \
-    && [ "$(stat -Lc '%d:%i' -- "/proc/$$/fd/$CHECK_LOG_FD")" = "$CHECK_LOG_ID" ]
+    && [ "$(stat -Lc '%d:%i' -- "/proc/self/fd/$CHECK_LOG_FD")" = "$CHECK_LOG_ID" ]
 }
 
 prune_check_logs() {
@@ -1331,7 +1331,7 @@ run_bounded_check() {
       CHECK_LIMIT_REASON="check evidence slot became unsafe"
       break
     fi
-    size=$(stat -Lc '%s' -- "/proc/$$/fd/$CHECK_LOG_FD") || {
+    size=$(stat -Lc '%s' -- "/proc/self/fd/$CHECK_LOG_FD") || {
       CHECK_LIMIT_REASON="check evidence slot became unreadable"; break; }
     if [ "$size" -gt "$CHECK_LOG_MAX_BYTES" ]; then
       CHECK_LIMIT_REASON="check output exceeded the $CHECK_LOG_MAX_BYTES-byte budget"
@@ -1354,13 +1354,13 @@ run_bounded_check() {
     echo "supervisor-commit: check evidence slot became unsafe" >&2
     return 1
   }
-  size=$(stat -Lc '%s' -- "/proc/$$/fd/$CHECK_LOG_FD") || return 1
+  size=$(stat -Lc '%s' -- "/proc/self/fd/$CHECK_LOG_FD") || return 1
   if [ "$CHECK_RC" -ne 0 ] && [ "$size" -ge "$file_limit_bytes" ]; then
     CHECK_LIMIT_REASON="check output exceeded the $CHECK_LOG_MAX_BYTES-byte budget"
   fi
   if [ "$size" -gt "$CHECK_LOG_MAX_BYTES" ]; then
     CHECK_LIMIT_REASON="check output exceeded the $CHECK_LOG_MAX_BYTES-byte budget"
-    truncate -s "$CHECK_LOG_MAX_BYTES" -- "/proc/$$/fd/$CHECK_LOG_FD" || return 1
+    truncate -s "$CHECK_LOG_MAX_BYTES" -- "/proc/self/fd/$CHECK_LOG_FD" || return 1
   fi
   if [ -n "$CHECK_LIMIT_REASON" ]; then
     CHECK_RC=1
