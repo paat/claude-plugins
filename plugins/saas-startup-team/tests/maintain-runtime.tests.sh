@@ -376,6 +376,15 @@ SH
   printf '%s\n' '[{"number":7,"reason":"legacy","cooldown_until":"2099-01-01T00:00:00Z"}]' > "$repo/array.jsonl"
   ec=0; bash "$blocked" normalize --file "$repo/array.jsonl" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR21: legacy ledger remains JSONL objects, not guessed arrays" "$ec" 1
+  printf '%s\n' '{"number":8,"reason":"legacy date","cooldown_until":"2099-01-01"}' > "$repo/legacy-date.jsonl"
+  assert_equals "MR21x: legacy date-only cooldown is canonicalized" \
+    "$(bash "$blocked" normalize --file "$repo/legacy-date.jsonl" | jq -r '.[0].cooldown_until')" \
+    "2099-01-01T00:00:00Z"
+  assert_equals "MR21y: active accepts a legacy date-only cooldown" \
+    "$(bash "$blocked" active --file "$repo/legacy-date.jsonl" --now 2026-01-01T00:00:00Z | jq -r '.[0]')" 8
+  printf '%s\n' '{"number":8,"reason":"invalid legacy date","cooldown_until":"2026-02-31"}' > "$repo/legacy-date.jsonl"
+  ec=0; bash "$blocked" normalize --file "$repo/legacy-date.jsonl" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MR21z: legacy date-only cooldown rejects an invalid calendar date" "$ec" 1
   ec=0
   bash "$blocked" upsert --file "$ledger" --number 8 --reason retry \
     --cooldown-until 2026-02-31T00:00:00Z >/dev/null 2>&1 || ec=$?

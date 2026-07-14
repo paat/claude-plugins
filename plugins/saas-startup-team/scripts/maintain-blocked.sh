@@ -33,6 +33,13 @@ def valid_row:
 if all(.[]; valid_row) then map({number,reason,cooldown_until})
 else error("invalid cooldown ledger row") end'
 
+legacy_normalize='def canonical_time:
+  if type == "string"
+    and test("^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])$")
+  then . + "T00:00:00Z"
+  else . end;
+map(if type == "object" then .cooldown_until |= canonical_time else . end)'
+
 normalize_files() {
   local file
   if [ "${#files[@]}" -eq 0 ]; then printf '[]\n'; return 0; fi
@@ -40,7 +47,7 @@ normalize_files() {
     [ -f "$file" ] && [ ! -L "$file" ] || {
       echo "maintain-blocked: unsafe ledger: $file" >&2; return 1; }
   done
-  jq -s "$schema" "${files[@]}" || {
+  jq -s "$legacy_normalize | $schema" "${files[@]}" || {
     echo "maintain-blocked: invalid cooldown ledger row" >&2
     return 1
   }
