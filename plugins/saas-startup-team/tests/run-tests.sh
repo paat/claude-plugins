@@ -416,6 +416,10 @@ test_plugin_config() {
   assert_json_valid "E5: settings.json is valid JSON" "$PLUGIN_ROOT/settings.json"
   assert_json_field "E6: Agent Teams enabled" "$PLUGIN_ROOT/settings.json" '.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS' "1"
 
+  # E6a-E6b: Claude print mode must load the browser MCP before the first turn.
+  assert_json_valid "E6a: .mcp.json is valid JSON" "$PLUGIN_ROOT/.mcp.json"
+  assert_json_field "E6b: Playwright tools are eager-loaded" "$PLUGIN_ROOT/.mcp.json" '.mcpServers.playwright.alwaysLoad' "true"
+
   # E7-E12: hooks.json
   assert_json_valid "E7: hooks.json is valid JSON" "$PLUGIN_ROOT/hooks/hooks.json"
   local hooks_keys
