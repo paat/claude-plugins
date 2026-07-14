@@ -40,14 +40,15 @@ writing requirements, positioning, or demand-backed issue candidates.
 
 ## Components
 
-### Command: `/reddit-fetch <topic>`
+### Command: `/reddit-fetch:reddit-fetch <topic>`
 
-Quick slash command to research any topic on Reddit.
+Quick Claude Code slash command to research any topic on Reddit. The generated Codex workflow also
+accepts `/reddit-fetch`.
 
 ```
-/reddit-fetch best static site generators 2025
-/reddit-fetch NixOS vs Arch Linux for development
-/reddit-fetch fix Docker compose networking issues
+/reddit-fetch:reddit-fetch best static site generators 2025
+/reddit-fetch:reddit-fetch NixOS vs Arch Linux for development
+/reddit-fetch:reddit-fetch fix Docker compose networking issues
 ```
 
 ### Skill: reddit-research
