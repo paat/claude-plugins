@@ -77,6 +77,10 @@ Any place where a technical / correctness / legal constraint forced a UX comprom
 
 What's not yet implemented and why.
 
+### Not Addressed
+
+Adjacent findings outside the accepted scope. List them without investigating or changing them; write `none` when empty.
+
 ## Next Expected Action
 
 Business founder reviews implementation via browser, validates against requirements, writes roundtrip signoff or feedback.

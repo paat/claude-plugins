@@ -343,6 +343,31 @@ test_templates() {
   assert_file_contains "D10: has type frontmatter" "$tmpl_dir/handoff-business-to-tech.md" "^type:"
   assert_file_contains "D10b: has ITERATION placeholder" "$tmpl_dir/handoff-business-to-tech.md" "{{ITERATION}}"
   assert_file_contains "D10c: has DATE placeholder" "$tmpl_dir/handoff-business-to-tech.md" "{{DATE}}"
+  assert_file_contains "D10c1: handoff names Done explicitly" \
+    "$tmpl_dir/handoff-business-to-tech.md" "### Done / Feature Requirements"
+  assert_file_contains "D10d: handoff declares preserved behavior" \
+    "$tmpl_dir/handoff-business-to-tech.md" "### Preserve"
+  assert_file_contains "D10e: handoff declares explicit exclusions" \
+    "$tmpl_dir/handoff-business-to-tech.md" "### Out of Scope"
+  assert_file_contains "D10f: return handoff quarantines adjacent findings" \
+    "$tmpl_dir/handoff-tech-to-business.md" "### Not Addressed"
+  assert_file_contains "D10g: Claude build role loads shared scope contract" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "templates/delivery-scope-contract.md"
+  assert_file_contains "D10h: Claude maintenance role loads shared scope contract" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md" "templates/delivery-scope-contract.md"
+  assert_file_contains "D10i: Codex-native tech skill loads shared scope contract" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "../../templates/delivery-scope-contract.md"
+  assert_file_exists "D10j: Codex-native scope contract path resolves" \
+    "$PLUGIN_ROOT/skills/tech-founder/../../templates/delivery-scope-contract.md"
+  assert_file_contains "D10k: scope stop preserves required handoff" \
+    "$tmpl_dir/delivery-scope-contract.md" "complete the required handoff or report, then exit"
+  assert_file_contains "D10l: maintenance founder writes explicit brief scope" \
+    "$PLUGIN_ROOT/agents/business-founder-maintain.md" '`Done`, `Preserve`, and `Out of Scope`'
+  assert_file_contains "D10m: Codex-native founder writes explicit brief scope" \
+    "$PLUGIN_ROOT/skills/business-founder/SKILL.md" '`Done`, `Preserve`, and `Out of Scope`'
+  assert_file_contains "D10n: quality gate distinguishes unrelated failures" \
+    "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" \
+    "Report unrelated or pre-existing failures as blockers"
 
   # D11-D15: handoff-tech-to-business.md
   assert_file_exists "D11: handoff-tech-to-business.md exists" "$tmpl_dir/handoff-tech-to-business.md"
@@ -4605,7 +4630,7 @@ test_convergence_governor() {
   echo -e "\n${CYAN}Convergence governor integration${NC}"
   assert_output_contains "reachability convention exists" "$(cat "$PLUGIN_ROOT/skills/tech-founder/references/reachability-convention.md" 2>/dev/null)" "last-verified"
   assert_output_contains "tech-founder DoD has step-back" "$(cat "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md")" "Tribunal step-back"
-  assert_output_contains "goal-deliver caps at 20" "$(cat "$PLUGIN_ROOT/references/workflows/goal-deliver.md")" "Round 20:"
+  assert_output_contains "goal-deliver caps at 5" "$(cat "$PLUGIN_ROOT/references/workflows/goal-deliver.md")" "Round 5:"
   assert_output_contains "goal-deliver stops on no crit/high" "$(cat "$PLUGIN_ROOT/references/workflows/goal-deliver.md")" "zero critical and zero high"
 }
 

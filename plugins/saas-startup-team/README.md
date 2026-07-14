@@ -152,7 +152,7 @@ On Claude hosts, non-trivial Codex-routed handoffs first run a plan-only **archi
 
 ### Convergence governor (`/goal-deliver`)
 
-`/goal-deliver` integrates with the `tribunal-review` plugin's convergence governor to prevent review spirals. The governor enforces a hard ceiling of 20 rounds, triggers an investor escalation step-back from round 10 onward, and closes the loop automatically once the arbiter returns zero critical and zero high findings. The reachability convention (`skills/tech-founder/references/reachability-convention.md`) defines what counts as a reachable path for tribunal reviewers and is updated alongside the governor; the `last-verified:` field — documented by the convention but written into each consumer repo's own `reachability.md` — tracks when that repo's assumptions were last confirmed against production traffic.
+`/goal-deliver` integrates with the `tribunal-review` plugin's convergence governor to prevent review spirals. The governor enforces a hard ceiling of 5 rounds, triggers an investor checkpoint at round 3, and closes the loop automatically once the arbiter returns zero critical and zero high findings. The reachability convention (`skills/tech-founder/references/reachability-convention.md`) defines what counts as a reachable path for tribunal reviewers and is updated alongside the governor; the `last-verified:` field — documented by the convention but written into each consumer repo's own `reachability.md` — tracks when that repo's assumptions were last confirmed against production traffic.
 
 ## The Loop
 
@@ -408,7 +408,7 @@ Start with `--dry-run` (read-only: classify issues, print the planned queue, the
 - `--max-pass-minutes N` — wall-clock budget per pass (default 90 minutes).
 - `--max-run-minutes N` — total wall-clock budget across all passes (default 0 = unlimited).
 
-The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues halt further merges that pass), or hard tribunal round ceiling (notify investor at round 10, hard-stop at round 20 per issue). Between passes, backoff ~5 minutes to avoid hot-spinning on an empty backlog.
+The supervisor also stops on: deploy failure (unrecoverable infra/flaky issues halt further merges that pass), or hard tribunal round ceiling (notify investor at round 3, hard-stop at round 5 per issue). Between passes, backoff ~5 minutes to avoid hot-spinning on an empty backlog.
 
 ### Prerequisites and integration
 

@@ -1,6 +1,6 @@
 # codex-subagent
 
-Drive the **OpenAI Codex CLI** (`codex exec`, GPT-5.6 Sol at `high` reasoning effort) as implementer, reviewer, and critic **subagents** from Claude Code, with Claude as the controller. You get an independent second model that reads the repo, edits files, runs tests, and commits — orchestrated task-by-task from a written plan — plus a high-value pre-flight review that catches integration defects a same-model pass rationalizes past.
+Drive the **OpenAI Codex CLI** (`codex exec`, GPT-5.6 Sol at `medium` effort for routine implementation/review and `high` for critique) as **subagents** from Claude Code, with Claude as the controller. You get an independent second model that reads the repo, edits files, runs tests, and commits — orchestrated task-by-task from a written plan — plus a high-value pre-flight review that catches integration defects a same-model pass rationalizes past.
 
 This plugin packages the non-obvious operational gotchas so you don't re-derive them.
 
@@ -41,7 +41,7 @@ codex exec -s danger-full-access --skip-git-repo-check -C <repo-abs-path> \
 - `-C` sets the working dir (avoids a leading `cd`, which complicates Bash permission matching).
 - `--skip-git-repo-check` avoids the repo-check prompt.
 - The prompt is fed on **stdin** (`codex exec -`), never as a giant argv string — this dodges the `MAX_ARG_STRLEN` "Argument list too long" trap on large prompts.
-- Model and effort are always explicit, so `~/.codex/config.toml` cannot silently change unattended cost or behavior. Defaults are `gpt-5.6-sol` + `high`; override with `--model` / `--effort` or `CODEX_SUBAGENT_MODEL` / `CODEX_SUBAGENT_EFFORT`.
+- Model and effort are explicit, so `~/.codex/config.toml` cannot silently change unattended behavior. The role-agnostic wrapper defaults to `gpt-5.6-sol` + `high`; `/codex-implement` and `/codex-review` select `medium` unless an argument or `CODEX_SUBAGENT_EFFORT` overrides it. Critique remains `high` by default.
 
 ## The wrapper: `scripts/codex-run.sh`
 
@@ -58,7 +58,7 @@ It encodes every gotcha — dual timeouts, output capture, bwrap detection, miss
 
 ## Skill
 
-`codex-subagent-driven-development` teaches Claude the full controller loop — write the plan → pre-flight `/codex-review` the plan against real source → reconcile drift → `/codex-implement` one task → review the diff → fix/re-dispatch → ledger → next task. It mirrors superpowers subagent-driven-development but with Codex as the implementer.
+`codex-subagent-driven-development` teaches Claude the full controller loop — write the plan → pre-flight `/codex-review` the plan against real source → reconcile task blockers → `/codex-implement` one task → review the diff → at most one targeted correction → ledger → next task. It mirrors superpowers subagent-driven-development but with Codex as the implementer.
 
 ## Agent
 
@@ -66,7 +66,7 @@ It encodes every gotcha — dual timeouts, output capture, bwrap detection, miss
 
 ## The implementer contract (what made it reliable)
 
-`/codex-implement` dispatches Codex with a strict contract: one named task only, exact plan code, a test gate, commit with the required trailer, and stop-and-report on any code-anchor mismatch. Full text: [`commands/codex-implement.md`](commands/codex-implement.md) steps 2-3.
+`/codex-implement` dispatches Codex with a strict contract: one named task only, exact plan code, an evidence gate for scope expansion, adjacent-issue quarantine, targeted tests, and a stop after the required commit/report when Done passes. Full text: [`commands/codex-implement.md`](commands/codex-implement.md) steps 2-3.
 
 ## Minimal-diff scope control
 

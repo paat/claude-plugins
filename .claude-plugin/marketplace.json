@@ -31,7 +31,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with calling-context arbitration",
-      "version": "0.19.3",
+      "version": "0.19.4",
       "author": {
         "name": "Andre Paat"
       },
@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "Autonomous SaaS delivery — routed founder and specialist roles turn market demand into gated implementation, QA, deployment, growth, and maintenance",
-      "version": "0.89.16",
+      "version": "0.89.17",
       "author": {
         "name": "Andre Paat"
       },
@@ -184,8 +184,8 @@
     },
     {
       "name": "codex-subagent",
-      "description": "Drive the OpenAI Codex CLI (codex exec, GPT-5.6 Sol at high effort) as implementer/reviewer/critic subagents from Claude Code — a controller loop with explicit model/effort pinning, dual timeouts, output capture, bwrap detection, and partial-run recovery",
-      "version": "0.4.1",
+      "description": "Drive the OpenAI Codex CLI (GPT-5.6 Sol, medium implementation/review and high critique) as scoped subagents from Claude Code",
+      "version": "0.4.2",
       "author": {
         "name": "Andre Paat"
       },

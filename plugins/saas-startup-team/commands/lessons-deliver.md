@@ -171,7 +171,7 @@ Each pass:
       safety-class medium: test deletion, auth/secrets, filesystem, autonomous-control).
       Otherwise `lessons-deliver.sh --block N --reason "tribunal: <summary>" --repo "$REPO"`,
       run **Failed-attempt cleanup**, and continue. Reuse the round caps: notify the
-      investor at round 10, hard-stop at 20.
+      investor at round 3, hard-stop at 5.
       Append the latest-head tribunal status as a supervisor progress event.
    6. **Bump the version BEFORE the final test run** so the bump itself is validated:
       ```bash

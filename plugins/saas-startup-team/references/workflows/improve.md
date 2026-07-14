@@ -291,7 +291,7 @@ Claude Code agent prompt:
 > Implement the changes and write your handoff back to the business founder following your standard handoff protocol.
 >
 > **Before writing your handoff, self-verify the change at the code level** — browser QA in the next step does not catch type errors, failing units, or parse/enum bugs:
-> - Run `./check.sh` — the canonical full-suite entrypoint (recorded in `docs/architecture/architecture.md`; it runs every suite: build, unit, lint, typecheck, golden/E2E). Fix every failure before handing off — do not hand off red.
+> - Run `./check.sh` — the canonical full-suite entrypoint (recorded in `docs/architecture/architecture.md`; it runs every suite: build, unit, lint, typecheck, golden/E2E). Fix candidate-caused failures. If unrelated or pre-existing failures keep the gate red, report the blocker without changing unrelated code; do not hand off red.
 > - Re-read your own diff for the bug classes that slip past visual QA: enum/string parsing, off-by-one and boundary cases, null/undefined handling, and untested error paths.
 > - For triggered SaaS gates, verify the smallest relevant evidence: workflow spec update, slow async paid state, missing display-label fallback, mobile checkout field/CTA flow, malformed LLM output, or inconclusive compliance claim fixture.
 > - In your handoff, state explicitly which checks you ran and that they passed. If a check could not be run, say so and why.

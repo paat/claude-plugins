@@ -20,7 +20,7 @@
 - [ ] All source files use UTF-8 encoding for proper diacritic support
 
 ### Before Handing Off
-- [ ] **Run `./check.sh`** — the canonical full-suite entrypoint (build, unit, lint, typecheck, golden/E2E). Fix ALL failures — do not hand off red. Never weaken `check.sh` to make it pass.
+- [ ] **Run `./check.sh`** — the canonical full-suite entrypoint (build, unit, lint, typecheck, golden/E2E). Fix candidate-caused failures. Report unrelated or pre-existing failures as blockers without changing unrelated code; do not hand off red or weaken `check.sh`.
 - [ ] **Validate all modified JSON files** — run `python3 -m json.tool <file>` on every `.json` file you touched (i18n locale files are the #1 source of trailing comma bugs)
 - [ ] Code runs without errors
 - [ ] Primary user flow works end-to-end

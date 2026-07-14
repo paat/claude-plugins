@@ -399,6 +399,7 @@ SH
   assert_file_not_contains "DR23b3: source writer does not override its custom profile" "$calls" \
     '-s workspace-write'
   assert_file_contains "DR23c: role launcher ignores user configuration" "$calls" '--ignore-user-config'
+  assert_file_contains "DR23c1: actual launch disables subagent fan-out" "$calls" '--disable multi_agent'
   assert_file_contains "DR23d: role launcher disables MCP configuration" "$calls" 'mcp_servers={}'
   assert_file_contains "DR23e: role launcher disables native web search" "$calls" \
     'web_search="disabled"'
@@ -406,6 +407,12 @@ SH
   assert_equals "DR25: terminal event records token use" "$(tail -n1 "$events" | jq -r .input_tokens)" "100"
   assert_file_contains "DR25b: tech writer leaves commit to supervisor" "$repo/tech-prompt.txt" 'Leave working-tree changes for the supervisor'
   assert_file_contains "DR25c: tech role receives scoped source writer contract" "$repo/tech-prompt.txt" 'source writer for this task'
+  assert_file_contains "DR25c1: tech role receives evidence-gated scope expansion" \
+    "$repo/tech-prompt.txt" 'causally blocks `Done`'
+  assert_file_contains "DR25c2: tech role quarantines adjacent findings" \
+    "$repo/tech-prompt.txt" 'under `Not Addressed`; do not investigate or fix it'
+  assert_file_contains "DR25c3: tech role stops instead of recursively auditing" \
+    "$repo/tech-prompt.txt" 'Do not begin a general or recursive audit'
 
   : > "$calls"; : > "$events"
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_PROMPT="$repo/supervisor-prompt.txt" SAAS_AGENT_EVENTS_FILE="$events" \
@@ -417,6 +424,10 @@ SH
     bash "$launcher" --role business-founder-maintain --profile standard --task-file task.md >/dev/null)
   assert_file_contains "DR25e: business role is brief and proposal only" "$repo/business-prompt.txt" 'write only business/product briefs and proposed workflow-spec deltas'
   assert_file_contains "DR25f: business role cannot mutate source tests or registry" "$repo/business-prompt.txt" 'Never modify product source, tests, or the canonical workflow-spec registry'
+  assert_file_contains "DR25f0: business role writes explicit scope fields" \
+    "$repo/business-prompt.txt" 'Done, Preserve, and Out of Scope'
+  assert_file_contains "DR25f0a: business role receives the resolved handoff template" \
+    "$repo/business-prompt.txt" "$PLUGIN_ROOT/templates/handoff-business-to-tech.md"
 
   for artifact_role in growth-hacker lawyer ux-tester incident-investigator session-replay support-triage; do
     : > "$calls"; : > "$events"

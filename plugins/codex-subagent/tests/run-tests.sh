@@ -4,6 +4,10 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../scripts/codex-run.sh"
+IMPLEMENT_COMMAND="$HERE/../commands/codex-implement.md"
+REVIEW_COMMAND="$HERE/../commands/codex-review.md"
+REVIEW_AGENT="$HERE/../agents/codex-reviewer.md"
+CONTROLLER_SKILL="$HERE/../skills/codex-subagent-driven-development/SKILL.md"
 fail=0
 
 check() { # check <name> <expected> <actual>
@@ -38,6 +42,22 @@ contains "default effort is pinned" 'model_reasoning_effort="high"' "$defaults"
 env_defaults="$(CODEX_SUBAGENT_MODEL=gpt-5.6-terra CODEX_SUBAGENT_EFFORT=low "$SCRIPT" --print-cmd -C /repo)"
 contains "environment overrides model" "gpt-5.6-terra" "$env_defaults"
 contains "environment overrides effort" 'model_reasoning_effort="low"' "$env_defaults"
+
+# --- Prompt scope and convergence contracts ---
+implement_contract="$(<"$IMPLEMENT_COMMAND")"
+review_contract="$(<"$REVIEW_COMMAND")"
+review_agent_contract="$(<"$REVIEW_AGENT")"
+controller_contract="$(<"$CONTROLLER_SKILL")"
+contains "implement defaults routine work to medium" 'else `medium`' "$implement_contract"
+contains "implement quarantines adjacent issues" 'do not investigate or fix them' "$implement_contract"
+contains "implement stops after commit and report" 'complete the required commit and report, then stop' "$implement_contract"
+contains "controller permits one correction" 'at most one targeted correction' "$controller_contract"
+contains "review defaults routine work to medium" 'else `medium`' "$review_contract"
+contains "controller applies review scope rules" 'same target, evidence, causation, and adjacency limits' "$review_contract"
+contains "review accepts build and contract evidence" 'failing build/test' "$review_contract"
+contains "review does not audit the tree" 'do not audit the tree' "$review_contract"
+contains "standalone reviewer pins medium" '--effort medium' "$review_agent_contract"
+contains "standalone reviewer uses the evidence gate" 'failing build/test' "$review_agent_contract"
 
 # --- Source for pure-function unit tests ---
 source "$SCRIPT"

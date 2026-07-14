@@ -1,14 +1,14 @@
 {
   "name": "codex-subagent",
-  "version": "0.4.1",
-  "description": "Drive the OpenAI Codex CLI (codex exec, GPT-5.6 Sol at high effort) as implementer/reviewer/critic subagents from Claude Code \u2014 a controller loop with explicit model/effort pinning, dual timeouts, output capture, bwrap detection, and partial-run recovery",
+  "version": "0.4.2",
+  "description": "Drive the OpenAI Codex CLI (GPT-5.6 Sol, medium implementation/review and high critique) as scoped subagents from Claude Code",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "Codex Subagent",
-    "shortDescription": "Drive the OpenAI Codex CLI (codex exec, GPT-5.6 Sol at high effort) as implementer/reviewer/critic subagents from Claude Code \u2014 a controller loop with explicit model/effort pinning, dual timeouts, output capture, bwrap detection, and partial-run recovery",
-    "longDescription": "Drive the OpenAI Codex CLI (codex exec, GPT-5.6 Sol at high effort) as implementer/reviewer/critic subagents from Claude Code \u2014 a controller loop with explicit model/effort pinning, dual timeouts, output capture, bwrap detection, and partial-run recovery",
+    "shortDescription": "Drive the OpenAI Codex CLI (GPT-5.6 Sol, medium implementation/review and high critique) as scoped subagents from Claude Code",
+    "longDescription": "Drive the OpenAI Codex CLI (GPT-5.6 Sol, medium implementation/review and high critique) as scoped subagents from Claude Code",
     "developerName": "Andre Paat",
     "category": "Development",
     "capabilities": [

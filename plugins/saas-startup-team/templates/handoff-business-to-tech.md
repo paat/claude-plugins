@@ -21,10 +21,20 @@ Why this matters to the customer and the business. Include:
 
 ## What's Needed
 
-### Feature Requirements (max 2 features per handoff)
+### Done / Feature Requirements (max 2 features per handoff)
 
 - [ ] Feature 1 — acceptance criteria
 - [ ] Feature 2 — acceptance criteria
+
+These accepted requirements and the mandatory triggered gates define `Done`.
+
+### Preserve
+
+Existing behavior and invariants that must remain unchanged.
+
+### Out of Scope
+
+Explicit exclusions. Unlisted existing behavior is preserved by default.
 
 ### Workflow Registry Impact
 

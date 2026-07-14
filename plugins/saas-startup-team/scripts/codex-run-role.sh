@@ -277,6 +277,7 @@ record_event --event-type started --started-at "$STARTED_AT" \
   }
 
 TASK_TEXT=$(cat "$SOURCE")
+SCOPE_RULES=""
 case "$ROLE" in
   delivery-supervisor)
     MUTATION_RULES='You are the sole supervisor mutation owner for this task. You may perform only the Git, GitHub, merge, deployment, and rollback operations explicitly authorized by the task, and only after its deterministic gates pass. Do not delegate mutations to review or QA roles.'
@@ -289,9 +290,17 @@ case "$ROLE" in
     ;;
   business-founder|business-founder-*)
     MUTATION_RULES='You may write only business/product briefs and proposed workflow-spec deltas in the task-designated artifact locations. Never modify product source, tests, or the canonical workflow-spec registry. Do not commit, push, create or edit pull requests, merge, deploy, or roll back.'
+    HANDOFF_TEMPLATE="$(cd "$SCRIPT_DIR/../templates" && pwd -P)/handoff-business-to-tech.md"
+    SCOPE_RULES="When writing a tech implementation brief, follow ${HANDOFF_TEMPLATE} and explicitly fill Done, Preserve, and Out of Scope without inventing missing requirements."
     ;;
   tech-founder|tech-founder-*)
     MUTATION_RULES='You are the source writer for this task and may modify only the required product source, tests, and canonical workflow-spec registry. Do not write business-founder verdicts. Do not commit, push, create or edit pull requests, merge, deploy, or roll back. Leave working-tree changes for the supervisor, which owns deterministic checks and the gated commit path.'
+    SCOPE_CONTRACT="$SCRIPT_DIR/../templates/delivery-scope-contract.md"
+    [ -r "$SCOPE_CONTRACT" ] || {
+      echo "codex-run-role: delivery scope contract is not readable" >&2
+      exit 4
+    }
+    SCOPE_RULES=$(cat "$SCOPE_CONTRACT")
     ;;
   *)
     MUTATION_RULES='This role has no mutation grant and must remain read-only. Do not edit product files or workflow artifacts, commit, push, create or edit pull requests, merge, deploy, or roll back. Return only the requested analysis or artifact content to the caller.'
@@ -304,6 +313,7 @@ Execution profile: ${PROFILE}.
 Read only what this task needs, use targeted ranges, and do not re-read material already in context.
 Keep the diff minimal and limited to the stated acceptance. Do not add speculative abstractions or unrelated cleanup.
 ${MUTATION_RULES}
+${SCOPE_RULES}
 If the task is ambiguous or needs product, legal, security, architecture, payment, auth, data, migration, or concurrency judgment beyond the supplied requirements, stop and report that it requires deep escalation.
 Run only local checks needed to validate your work. Never expose secrets or customer data.
 

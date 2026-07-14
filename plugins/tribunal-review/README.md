@@ -55,11 +55,13 @@ The closing loop is **capped and severity-honest** so it cannot spiral:
 - **Stop condition** — the loop closes on **zero critical/high** (not zero
   findings). Leftover medium/low go to YAGNI triage (filed only if real and
   worth acting on; else dropped with a PR-body note).
+- **Frozen scope** — the original outcome, acceptance checks, invariants, and
+  exclusions govern every round; reviewer findings do not redefine the task.
 - **Step-back at round 3** — stop adding guards; simplify, descope, or
   down-rate the finding *class*. A step-back round may not increase the net
   count of defensive mechanisms.
-- **Grind to a ceiling** — keep looping while any critical/high remains;
-  checkpoint at round 10; hard escalation at round 20.
+- **Bounded retry** — keep looping while any critical/high remains;
+  checkpoint at round 3; hard escalation at round 5.
 - **`reachability.md`** — an optional per-repo file (worker model, concurrency,
   single-user assumptions, money paths) injected into reviewers + arbiter as
   rebuttable context.

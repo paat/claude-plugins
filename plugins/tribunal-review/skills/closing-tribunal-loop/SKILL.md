@@ -11,6 +11,16 @@ description: "Use after tribunal-loop returns NEEDS_WORK or BLOCK to triage find
 
 **Core principle:** Tribunal is a quality gate, not a checklist. The gate stays closed until the diff itself stops generating critical/high findings — including findings caused by your own fixes.
 
+## Frozen Delivery Contract
+
+Before triage, freeze the original task outcome, acceptance checks, preserved invariants,
+and exclusions using only explicit user, issue, PR, or plan text. Never invent missing
+acceptance criteria, invariants, or exclusions. Findings may prove that the current diff violates that contract.
+They do not redefine the task. Expand the current PR only for a verified defect caused or exposed
+by the diff whose fix is required by the frozen acceptance checks or removes a material
+regression. Do not expand investigation for adjacent concerns beyond evidence already present.
+File a follow-up only when that evidence is sufficient; otherwise record or drop the concern.
+
 ## When to Use
 
 - Just ran `tribunal-loop` and the arbiter verdict is `NEEDS_WORK` or `BLOCK`
@@ -52,11 +62,15 @@ You triage the **arbiter's findings** (`T-001`, `T-002`, …), each already dedu
 
 | Outcome | When |
 |---|---|
-| **Fix in this PR** | Real bug + introduced or affected by this PR's diff |
-| **File follow-up issue** | Real bug + pre-existing or explicitly out of PR scope |
+| **Fix in this PR** | Verified bug caused/exposed by this diff and required by the frozen acceptance checks or to remove a material regression |
+| **File follow-up issue** | Verified, plausibly actionable bug that is pre-existing or explicitly out of PR scope |
 | **Reject** | False positive (verified against actual code) |
 
 Verify each finding by reading the cited line and reasoning about it (or running a 30-second repro). Don't trust the consensus label or confidence number on its own — a `CONSENSUS` finding can be a shared false positive, and a `SINGLE` finding (one reviewer) can be a real bug. Verification is cheap; trusting blindly is expensive.
+
+Use the smallest causal fix consistent with the existing architecture. Validate the
+reproduced finding and the original acceptance checks; do not start a broader audit or
+add generalized machinery for hypothetical variants.
 
 **One commit per finding (or per cluster of related findings)** with the finding ID in the commit message body — `tribunal T-001`, `tribunal T-004 / T-005`. This makes the loop trail readable in `git log`.
 
@@ -83,13 +97,13 @@ For each remaining medium/low finding:
   `Tribunal: N low findings dropped (YAGNI) — <one-line reason>`.
   Never silently truncate — every drop is traceable.
 
-### Grind, checkpoint, ceiling
+### Retry, checkpoint, ceiling
 
-- **Grind:** keep looping while ANY critical/high remains. Critical/high are
+- **Retry:** keep looping while ANY critical/high remains. Critical/high are
   never YAGNI-dropped.
-- **Round 10 — checkpoint:** surface a progress note to the caller
-  ("still grinding on #<issue>; standing finding: <title>") WITHOUT stopping.
-- **Round 20 — hard ceiling:** if critical/high are still unresolved, STOP and
+- **Round 3 — checkpoint:** surface a progress note to the caller
+  ("still blocked on #<issue>; standing finding: <title>") WITHOUT stopping.
+- **Round 5 — hard ceiling:** if critical/high are still unresolved, STOP and
   escalate to the caller with the standing finding.
 
 ## Step-back workflow (anti-spiral)
@@ -99,8 +113,9 @@ For each remaining medium/low finding:
   adding guards. Diagnose whether the recent findings are the same *class*
   (the signature that the DESIGN, not the bug, is the problem). Then choose
   exactly one:
-  - **Simplify / re-architect** so the whole class disappears (e.g. collapse a
-    multi-step commit into a single atomic rename).
+  - **Simplify within the original acceptance criteria and existing architecture** so
+    the whole class disappears (e.g. collapse a multi-step commit into a single atomic
+    rename). If that requires a broader redesign, descope or escalate instead.
   - **Descope** — remove the contested mechanism from the diff and file a
     follow-up issue capturing the risk.
   - **Confirm-unreachable** — take the class to the arbiter to down-rate under

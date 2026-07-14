@@ -278,8 +278,8 @@ on has merged):
    - **Rounds 1–2:** fix directly (tech founder), push, re-run.
    - **Round 3+:** step-back mode — simplify, descope (remove mechanism + file
      follow-up), or have the arbiter down-rate the class; never guard-pile.
-   - **Round 10:** notify the investor (still grinding) without stopping.
-   - **Round 20:** stop and escalate to the investor with the standing finding.
+   - **Round 3:** notify the investor without stopping.
+   - **Round 5:** stop and escalate to the investor with the standing finding.
    Then **skip the chunks that depend on it** and continue with independent ones.
    Record the latest-head tribunal status as a goal-level progress event; never infer it
    from the implementation worker's exit code.

@@ -674,7 +674,7 @@ into each founder brief: re-resolve paths after any checkout/worktree switch; re
   file a follow-up for the missing guard, change the closing keyword to `Refs`, or mark
   the issue human/blocked with the reason.
 - **Iteration cap:** reuse `/goal-deliver` tribunal round caps — notify the investor
-  at round 10, hard-stop at round 20.
+  at round 3, hard-stop at round 5.
 - **No-progress signal (heuristic):** if successive rounds show the same failure
   signature with no advancing green check → abandon → apply the `maintain:blocked`
   label, record final state `escalated:no-progress` in the digest, set a cooldown.
