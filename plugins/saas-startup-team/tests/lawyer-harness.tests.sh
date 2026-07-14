@@ -29,3 +29,11 @@ assert_file_contains "LH18: command enables validation mode" "$PLUGIN_ROOT/comma
 assert_file_exists "LH19: deterministic lawyer preflight exists" "$PLUGIN_ROOT/scripts/lawyer-preflight.sh"
 lh_ec=0; bash -n "$PLUGIN_ROOT/scripts/lawyer-preflight.sh" || lh_ec=$?
 assert_exit_code "LH20: lawyer preflight parses" "$lh_ec" 0
+assert_output_contains "LH21: read-only probes override document writes" "$lawyer_skill" "decision in chat instead of writing the default document"
+assert_output_contains "LH22: read-only project inspection is bounded" "$lawyer_skill" "at most three targeted project source"
+assert_output_contains "LH23: incomplete probes terminate with a decision" "$lawyer_skill" 'partial `UNCONFIRMED` decision'
+assert_file_contains "LH24: EUR-Lex article endpoint is documented" "$PLUGIN_ROOT/skills/lawyer/references/datalake-api.md" '/eurlex/{celex}/citation?article=N&language=EN'
+assert_output_contains "LH25: bounded probes skip API inventory" "$lawyer_skill" "Never inventory OpenAPI"
+assert_output_contains "LH26: bounded probes do not resume broad search" "$lawyer_skill" "do not resume repository-wide searches"
+assert_file_contains "LH27: EU citation requires lifecycle evidence" "$PLUGIN_ROOT/skills/lawyer/references/datalake-api.md" 'Require `in_force == true`; preserve the'
+assert_file_contains "LH28: EU citation preserves primary source" "$PLUGIN_ROOT/skills/lawyer/references/datalake-api.md" 'returned HTTPS `source_url`'

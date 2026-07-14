@@ -41,8 +41,11 @@ reattaches and URL-encodes the superscript.
 - Courts: `/court/search`, `/court/ecli/{ecli}`,
   `/court/decision/{decision_id}/citations`.
 - EU metadata: `/eurlex/search`, `/eurlex/{celex}`, and
-  `/eurlex/transpositions?celex=...`. Metadata does not substitute for article
-  text; verify substantive EU claims at EUR-Lex Tier A.
+  `/eurlex/transpositions?celex=...`.
+- EU article text: `GET /eurlex/{celex}/citation?article=N&language=EN`, with
+  optional `paragraph` and `point`. Require `in_force == true`; preserve the
+  returned HTTPS `source_url`, and filter output to the fields the decision
+  needs. Metadata alone does not substitute for article text.
 
 Use only endpoints activated by the topic. Never inventory every surface or
 dump full API responses when a filtered field set answers the decision.
