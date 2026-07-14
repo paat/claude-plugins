@@ -86,8 +86,8 @@ account_id="$(printf '%s' "$account_raw" | tr -cd '0-9')"
   exit 3
 }
 
-if ! printf '%s' "$campaign_raw" | grep -Eq '^[[:space:]`]*[1-9][0-9]*[[:space:]`]*$'; then
-  echo "ads-metrics preflight: brief.md needs a verified numeric Google Ads campaign ID" >&2
+if ! printf '%s' "$campaign_raw" | grep -Eq '^[[:space:]`]*[1-9][0-9]{0,18}[[:space:]`]*$'; then
+  echo "ads-metrics preflight: Google Ads campaign ID must contain 1-19 digits" >&2
   exit 3
 fi
 campaign_id="$(printf '%s' "$campaign_raw" | tr -cd '0-9')"

@@ -12,6 +12,7 @@ Collect live Google Ads metrics without mutating the repository or Ads account. 
 
 ## Contract
 
+- Before any tool call, require the dispatch to contain `preflight_status=ready`, a campaign slug, range `7d` or `30d`, a 10-digit customer ID, and a positive 1–19 digit campaign ID. If any field is missing or malformed, return only that dispatch gap without reading files or opening the browser.
 - Read only the named campaign brief, learnings, hypothesis log, current spec/result, and the browser pages needed for the requested range.
 - Before campaign navigation, verify the signed-in user's access level is visibly **Read only** for the expected customer ID. If it is not verifiable, or is Standard/Admin, stop.
 - Enter an Ads account only when its customer ID exactly matches the persisted `Google Ads account ID`.
