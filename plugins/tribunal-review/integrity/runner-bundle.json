@@ -14,11 +14,11 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "1550760a4fb7649537b1c35145f13350bb8df49ad3ac9cbbabafbf892f70113e"
+      "sha256": "40e7be89b385f2ce0dec78c7963b34c700a6e24bf1ab81ebd9b4a33e034fec0b"
     },
     {
       "path": "scripts/run-claude-review.sh",
-      "sha256": "e1849c64bae15a527074f573707d82f9a4dc7dcf68979f21d2f89dcb3ea8113e"
+      "sha256": "180fc8c7a00750b84ec20553c1aaf518ed6124dd48cc06189f641434260ff3c5"
     },
     {
       "path": "scripts/run-codex-review.sh",

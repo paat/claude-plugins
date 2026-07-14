@@ -384,8 +384,9 @@ def _close_extra_fds() -> None:
         if fd > 2:
             try:
                 os.close(fd)
-            except OSError:
-                pass
+            except OSError as exc:
+                if exc.errno != errno.EBADF:
+                    raise PolicyError(f"cannot close inherited descriptor {fd}: {exc.strerror}") from exc
 
 
 def _validate_standard_fds(read_roots: Sequence[str], write_roots: Sequence[str]) -> None:
@@ -534,18 +535,18 @@ def run(argv: Sequence[str]) -> None:
         for grant in grants:
             try:
                 os.close(grant.fd)
-            except OSError:
-                pass
+            except OSError as exc:
+                raise PolicyError("cannot close Landlock grant descriptor") from exc
         if ruleset_fd >= 0:
             try:
                 os.close(ruleset_fd)
-            except OSError:
-                pass
+            except OSError as exc:
+                raise PolicyError("cannot close Landlock ruleset descriptor") from exc
         if not ready and command_fd >= 0:
             try:
                 os.close(command_fd)
-            except OSError:
-                pass
+            except OSError as exc:
+                raise PolicyError("cannot close proof command descriptor") from exc
 
     os.umask(0o077)
     try:

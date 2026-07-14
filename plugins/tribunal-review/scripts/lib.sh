@@ -35,6 +35,12 @@ tribunal_error() {
   jq -nc --arg p "$provider" --arg e "$message" '{provider:$p,error:$e}'
 }
 
+tribunal_claude_authenticated() {
+  local status
+  status="$(timeout -k 1 10 claude auth status --json 2>/dev/null)" || return 1
+  printf '%s\n' "$status" | jq -e '.loggedIn == true' >/dev/null 2>&1
+}
+
 tribunal_empty() {
   local provider="$1" model="${2:-default}" base_ref="${3:-}"
   jq -nc --arg p "$provider" --arg m "$model" --arg b "$base_ref" \

@@ -98,6 +98,52 @@ EOF
   rm -rf "$work"
 }
 
+test_claude_auth_guard() {
+  local label="expired Claude auth is skipped before provider execution" work fake
+  work="$(mktemp -d)"
+  fake="$work/bin"
+  mkdir -p "$fake"
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ] && [ "${3:-}" = "--json" ]; then
+  printf '%s\n' '{"loggedIn":false,"authMethod":"none"}'
+  exit 1
+fi
+: > "${CLAUDE_RUN_MARKER:?}"
+exit 99
+EOF
+  cat > "$fake/codex" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod +x "$fake/claude" "$fake/codex"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    export PATH="$fake:$PATH" CLAUDE_RUN_MARKER="$work/provider-ran"
+    TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CODEX=on TRIBUNAL_CLAUDE=on \
+      TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off \
+      bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/preflight.json"
+    bash "$PLUGIN_ROOT/scripts/run-claude-review.sh" > "$work/review.json"
+  ) && jq -e 'any(.providers[]; .name=="claude" and .status=="skipped" and .note=="CLI not authenticated")' "$work/preflight.json" >/dev/null \
+    && jq -e '.provider=="claude" and .error=="Claude CLI is not authenticated"' "$work/review.json" >/dev/null \
+    && [ ! -e "$work/provider-ran" ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
 test_codex_pins() {
   local expected_model="$1" expected_effort="$2" overrides="$3" label="$4"
   local work fake
@@ -595,6 +641,8 @@ assert_grep "supports base-ref override" "$LIB" "TRIBUNAL_BASE_REF"
 assert_grep "checks diff vs BASE_REF" "$LIB" 'git diff "$base_ref"...HEAD'
 assert_grep "tracks active reviewer legs" "$PF" "zero active reviewer legs"
 assert_grep "warms OpenCode model registry" "$PF" "opencode models"
+assert_grep "Claude auth probe is bounded" "$LIB" "timeout -k 1 10 claude auth status --json"
+assert_grep "preflight checks Claude auth" "$PF" "tribunal_claude_authenticated"
 assert_no_grep "skill has no hardcoded origin/main" "$SK" "origin/main"
 assert_no_grep "lib has no hardcoded origin/main" "$LIB" "origin/main"
 
@@ -615,6 +663,7 @@ assert_json_field "qwen disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-qwen-revi
 assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT/scripts/run-claude-review.sh' | jq -e '.provider==\"claude\" and .status==\"disabled\"'"
 assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and all(.[]; .status==\"disabled\")'"
 test_qwen_envelope_parser
+test_claude_auth_guard
 test_codex_pins gpt-5.6-sol medium no "codex defaults pin Sol and medium in argv"
 test_codex_pins test-model high yes "codex model and effort environment overrides stay explicit"
 test_codex_vacuous_guard BLOCK 0.0 "codex vacuous empty-BLOCK downgraded to leg error"

@@ -717,7 +717,7 @@ absolute_path_has_no_symlink() {
   IFS=$old_ifs
 }
 
-TRIBUNAL_BUNDLE_SHA256=ac373473bda05ed70a41b4e186dac8f6cfe8505b6c00009c8e6675acea060ab7
+TRIBUNAL_BUNDLE_SHA256=89848a71f1d4a57ad071483becfc87b2752735552b930c527e32854e7f617338
 TRIBUNAL_ROOT=""; TRIBUNAL_COLLECTOR=""; TRIBUNAL_PATH=""
 
 tribunal_bash() (
@@ -860,7 +860,7 @@ tracked_command() {
 
 PROOF_PASS_ARGS=()
 build_proof_pass_args() {
-  local command=$1 line names="" count=0 name
+  local kind=$1 names="" name
   local -a proof_names=()
   PROOF_PASS_ARGS=(
     --pass-env MAINTAIN_PROOF_KIND
@@ -873,20 +873,18 @@ build_proof_pass_args() {
     --pass-env MONITOR_SINCE
     --pass-env MONITOR_SINCE_MINUTES
   )
-  while IFS= read -r line; do
-    case "$line" in
-      '# maintain-proof-env:'*)
-        count=$((count + 1)); names=${line#\# maintain-proof-env:}
-        ;;
-    esac
-  done < "$command"
-  [ "$count" -le 1 ] || die "proof command has multiple environment allowlists"
+  case "$kind" in
+    qa) names=${SAAS_MAINTAIN_QA_PROOF_ENV:-} ;;
+    live) names=${SAAS_MAINTAIN_LIVE_PROOF_ENV:-} ;;
+    *) die "proof environment kind is invalid" ;;
+  esac
+  case "$names" in *$'\n'*|*$'\r'*|*$'\t'*) die "proof environment configuration is invalid" ;; esac
   read -r -a proof_names <<<"$names" || true
   for name in "${proof_names[@]}"; do
     [[ "$name" =~ ^[A-Z][A-Z0-9_]{0,63}$ ]] || die "proof environment name is invalid"
     case "$name" in
       GH_*|GITHUB_*|GIT_*|SSH_*|DOCKER_*|CODEX_*|CLAUDE_*|OPENAI_*|ANTHROPIC_*|GEMINI_*|GOOGLE_*|OPENROUTER_*|QWEN_*|DASHSCOPE_*|DEEPSEEK_*|OPENCODE_*|AWS_*|AZURE_*|KUBE*|CI_*|NPM_*|PYPI_*)
-        die "proof command requested an infrastructure authority variable" ;;
+        die "proof environment configuration requested an infrastructure authority variable" ;;
     esac
     [ "${!name+x}" = x ] || die "proof command requires unset environment variable $name"
     PROOF_PASS_ARGS+=(--pass-env "$name")
@@ -1424,7 +1422,7 @@ if [ "$ACTION" = record-proof ]; then
     [ -f "$archive_command" ] && [ ! -L "$archive_command" ] \
       || { rm -f -- "$tmp_out"; die "proof command is absent from the disposable commit"; }
     chmod 700 "$archive_command" || { rm -f -- "$tmp_out"; die "cannot make proof command executable"; }
-    build_proof_pass_args "$command_abs"
+    build_proof_pass_args "$KIND"
     tmp_err="$proof_scratch/stderr"; sandbox_out="$proof_scratch/stdout"
     require_active_controller "$(jq -r .origin_run_id "$current")"
     if ! (ulimit -f 1024 && \

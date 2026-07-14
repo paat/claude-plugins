@@ -48,15 +48,19 @@ Every assertion must be concrete and the array nonempty. A bare success exit or
 The helper materializes the exact receipt commit into disposable `0700` roots,
 then runs the tracked command under the active lease and a fail-closed Landlock
 filesystem policy. Repository state, user configuration, agent credentials, and
-container sockets are outside that policy. If the command needs project runtime
-credentials, declare only their variable names once in the tracked command:
+container sockets are outside that policy. If a command needs project runtime
+credentials, set the applicable controller session variable before starting the
+workflow. Its value is a space-separated list of environment variable names:
 
 ```bash
-# maintain-proof-env: APP_MONITOR_KEY APP_API_URL
+export SAAS_MAINTAIN_QA_PROOF_ENV='APP_TEST_KEY APP_API_URL'
+export SAAS_MAINTAIN_LIVE_PROOF_ENV='APP_MONITOR_KEY APP_API_URL'
 ```
 
-GitHub, Git, SSH, container, agent, CI, cloud, and package-publisher authority
-variables are never eligible. Missing declared variables stop the proof.
+This configuration must come from the controller session, never repository content.
+Known infrastructure-authority families are rejected. Configure only
+least-privilege project runtime variables; missing configured variables stop the
+proof.
 
 ## Tribunal
 

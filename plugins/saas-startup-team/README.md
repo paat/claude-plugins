@@ -459,6 +459,11 @@ a green exact-SHA deployment, and helper-bound live verification. The live gate 
 project's tracked `monitor.custom_checks` hook when it covers acceptance, otherwise a
 tracked structured smoke command.
 
+If a QA or live proof needs project runtime variables, set their names in the
+controller session before starting: `SAAS_MAINTAIN_QA_PROOF_ENV` or
+`SAAS_MAINTAIN_LIVE_PROOF_ENV`. Tracked project files cannot request ambient
+variables.
+
 Light attempts run semantic post-diff containment before any PR or remote mutation.
 When the diff requires deep work, the supervisor writes the versioned escalation
 artifact, cleans any PR/remote branch and its dedicated worktree, and retries once at

@@ -43,7 +43,15 @@ add_warning() {
 if [ "${TRIBUNAL_CODEX:-on}" = "off" ]; then add_provider codex disabled "TRIBUNAL_CODEX=off"; elif command -v codex >/dev/null 2>&1; then add_provider codex usable ""; else add_provider codex skipped "CLI not on PATH"; fi
 if [ "${TRIBUNAL_GEMINI:-off}" = "on" ]; then if command -v gemini >/dev/null 2>&1; then add_provider gemini usable ""; else add_provider gemini skipped "CLI not on PATH"; fi; else add_provider gemini disabled "default off"; fi
 if [ "${TRIBUNAL_QWEN:-off}" = "on" ]; then if command -v qwen >/dev/null 2>&1; then add_provider qwen usable ""; else add_provider qwen skipped "CLI not on PATH"; fi; else add_provider qwen disabled "default off"; fi
-if [ "${TRIBUNAL_CLAUDE:-on}" = "off" ]; then add_provider claude disabled "TRIBUNAL_CLAUDE=off"; elif command -v claude >/dev/null 2>&1; then add_provider claude usable ""; else add_provider claude skipped "CLI not on PATH"; fi
+if [ "${TRIBUNAL_CLAUDE:-on}" = "off" ]; then
+  add_provider claude disabled "TRIBUNAL_CLAUDE=off"
+elif ! command -v claude >/dev/null 2>&1; then
+  add_provider claude skipped "CLI not on PATH"
+elif tribunal_claude_authenticated; then
+  add_provider claude usable ""
+else
+  add_provider claude skipped "CLI not authenticated"
+fi
 
 if [ "${TRIBUNAL_GLM:-off}" = "on" ] || [ "${TRIBUNAL_DEEPSEEK:-on}" = "on" ]; then
   if command -v opencode >/dev/null 2>&1; then

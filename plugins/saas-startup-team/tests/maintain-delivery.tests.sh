@@ -138,7 +138,7 @@ case "$command" in
       '{pull_request:{number:$pr,head_oid:$head,body:{sha256:$body}},diff:{sha256:$diff}}' > "$output/manifest.json"
     manifest_sha=$(sha "$output/manifest.json")
     jq -nc --arg collection "$output" --arg manifest_sha256 "$manifest_sha" \
-      --arg runner_bundle_sha256 ac373473bda05ed70a41b4e186dac8f6cfe8505b6c00009c8e6675acea060ab7 \
+      --arg runner_bundle_sha256 89848a71f1d4a57ad071483becfc87b2752735552b930c527e32854e7f617338 \
       --arg head_oid "$head" \
       '{collection:$collection,manifest_sha256:$manifest_sha256,runner_bundle_sha256:$runner_bundle_sha256,head_oid:$head_oid}'
     ;;
@@ -234,13 +234,13 @@ printf '%s\n' '{"status":"passed"}'
 BAD_PROOF_COMMAND
   cat > "$authority_command" <<'AUTHORITY_PROOF_COMMAND'
 #!/bin/sh
-# maintain-proof-env: OPENAI_API_KEY
 exit 1
 AUTHORITY_PROOF_COMMAND
   cat > "$monitor_command" <<'MONITOR_COMMAND'
 #!/bin/bash
 set -euo pipefail
-# maintain-proof-env: FIXTURE_MONITOR_MODE
+# maintain-proof-env: LEGACY_PROOF_SECRET
+[ -z "${LEGACY_PROOF_SECRET:-}" ] || exit 97
 printf '%s\n' 'monitor authenticated' >&2
 if [ "$FIXTURE_MONITOR_MODE" = finding ]; then
   jq -nc '{pattern_key:"test:failed",severity:"high",entity:null,title:"Failure",body:"Bound live check failed"}'
@@ -420,7 +420,8 @@ HOSTILE_BASH_ENV
     --command-file "$qa_command" --deploy-run-id 1111 --live-target-source production >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD5e1: successful run for another SHA cannot authorize live proof" "$ec" 1
   jq --arg head "$merge" '.headSha=$head' "$fake_run" > "$repo/right-run.json"; cp -- "$repo/right-run.json" "$fake_run"
-  ec=0; OPENAI_API_KEY=secret bash "$script" record-proof --repo-root "$repo" --issue 1 \
+  ec=0; OPENAI_API_KEY=secret SAAS_MAINTAIN_LIVE_PROOF_ENV=OPENAI_API_KEY \
+    bash "$script" record-proof --repo-root "$repo" --issue 1 \
     --role normal --kind live --command-file "$authority_command" --deploy-run-id 1111 \
     --live-target-source production >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD5e1a: proof allowlist rejects agent credentials" "$ec" 1
@@ -429,7 +430,8 @@ HOSTILE_BASH_ENV
     --deploy-run-id 1111 --live-target-source production \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD5e2: monitor capture accepts only configured custom_checks" "$ec" 1
-  ec=0; out=$(FIXTURE_MONITOR_MODE=finding bash "$script" record-proof --repo-root "$repo" \
+  ec=0; out=$(FIXTURE_MONITOR_MODE=finding SAAS_MAINTAIN_LIVE_PROOF_ENV=FIXTURE_MONITOR_MODE \
+    bash "$script" record-proof --repo-root "$repo" \
     --issue 1 --role normal --kind live --command-file "$monitor_command" \
     --live-command-contract monitor-hook --deploy-run-id 1111 \
     --live-target-source production 2>&1) || ec=$?
@@ -445,11 +447,16 @@ marker = os.environ.get("MAINTAIN_TEST_LOADER_MARKER")
 if marker:
     Path(marker).write_text("compromised", encoding="utf-8")
 HOSTILE_PYTHON
-  live_proof_path=$(FIXTURE_MONITOR_MODE=healthy PYTHONPATH="$repo/hostile-python" \
+  live_proof_path=$(FIXTURE_MONITOR_MODE=healthy LEGACY_PROOF_SECRET=secret \
+    SAAS_MAINTAIN_QA_PROOF_ENV=LEGACY_PROOF_SECRET \
+    SAAS_MAINTAIN_LIVE_PROOF_ENV=FIXTURE_MONITOR_MODE \
+    PYTHONPATH="$repo/hostile-python" \
     MAINTAIN_TEST_LOADER_MARKER="$repo/python-loader-ran" \
     bash "$script" record-proof --repo-root "$repo" --issue 1 --role normal --kind live \
       --command-file "$monitor_command" --live-command-contract monitor-hook \
       --deploy-run-id 1111 --live-target-source production)
+  assert_file_exists "MD5e2d: tracked legacy directive cannot select an ambient variable" \
+    "$live_proof_path"
   assert_file_not_exists "MD5e2a: proof sandbox starts before ambient Python loaders" \
     "$repo/python-loader-ran"
   live_output="$(dirname -- "$live_proof_path")/$(jq -r .output_path "$live_proof_path")"
