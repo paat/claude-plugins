@@ -1,9 +1,9 @@
 ---
 name: ads-verify
-description: Quick one-shot verification of a single keyword or the current iteration via the Anonymous Ad Preview Tool. Captures screenshot + structured result. Usage: /ads-verify [campaign] [keyword] [--location X] [--device mobile|desktop]
+description: "Quick one-shot verification of a single keyword or the current iteration via the Anonymous Ad Preview Tool. Captures screenshot + structured result. Usage: /ads-verify [campaign] [keyword] [--location X] [--device mobile|desktop]"
 user_invocable: true
 allowed-tools: Read, Write, Bash, Glob, mcp__claude-in-chrome__tabs_context_mcp, mcp__claude-in-chrome__tabs_create_mcp, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__read_page, mcp__claude-in-chrome__get_page_text, mcp__claude-in-chrome__form_input, mcp__claude-in-chrome__find, mcp__claude-in-chrome__javascript_tool, mcp__claude-in-chrome__computer
-argument-hint: [campaign] [keyword] [--location X] [--device mobile|desktop]
+argument-hint: "[campaign] [keyword] [--location X] [--device mobile|desktop]"
 ---
 
 # /ads-verify — Run Ad Preview Tool verification

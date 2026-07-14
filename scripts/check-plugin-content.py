@@ -10,6 +10,14 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+try:
+    import yaml
+except ModuleNotFoundError as exc:
+    raise SystemExit(
+        "PyYAML is required; install development dependencies with "
+        "python3 -m pip install -r requirements-dev.txt"
+    ) from exc
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLUGINS_DIR = REPO_ROOT / "plugins"
@@ -50,13 +58,13 @@ def lint_skills(plugin_dir: Path, errors: list[str]) -> None:
         metadata, body = parse_frontmatter(skill_path, errors)
         name = metadata.get("name")
         description = metadata.get("description")
-        if not name:
+        if not isinstance(name, str) or not name.strip():
             errors.append(f"{rel(skill_path)}: skill frontmatter missing non-empty name")
         elif name != skill_path.parent.name:
             errors.append(
                 f"{rel(skill_path)}: skill name {name!r} must match folder {skill_path.parent.name!r}"
             )
-        if not description:
+        if not isinstance(description, str) or not description.strip():
             errors.append(f"{rel(skill_path)}: skill frontmatter missing non-empty description")
         lint_reference_links(skill_path, body, errors)
 
@@ -88,7 +96,9 @@ def lint_commands(plugin_dir: Path, errors: list[str]) -> None:
         return
     for command_path in sorted(commands_dir.glob("*.md")):
         metadata, _body = parse_frontmatter(command_path, errors, require=False)
-        command_name = slugify(metadata.get("name") or command_path.stem) or command_path.stem
+        raw_name = metadata.get("name")
+        command_name = slugify(raw_name if isinstance(raw_name, str) else command_path.stem)
+        command_name = command_name or command_path.stem
         expected_skill = (
             plugin_dir
             / "skills"
@@ -109,13 +119,13 @@ def lint_agents(plugin_dir: Path, errors: list[str]) -> None:
         metadata, _body = parse_frontmatter(agent_path, errors)
         name = metadata.get("name")
         description = metadata.get("description")
-        if not name:
+        if not isinstance(name, str) or not name.strip():
             errors.append(f"{rel(agent_path)}: agent frontmatter missing non-empty name")
         elif name != agent_path.stem:
             errors.append(
                 f"{rel(agent_path)}: agent name {name!r} must match filename {agent_path.stem!r}"
             )
-        if not description:
+        if not isinstance(description, str) or not description.strip():
             errors.append(f"{rel(agent_path)}: agent frontmatter missing non-empty description")
 
 
@@ -211,7 +221,7 @@ def parse_frontmatter(
     errors: list[str],
     *,
     require: bool = True,
-) -> tuple[dict[str, str], str]:
+) -> tuple[dict[str, Any], str]:
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---\n"):
         if require:
@@ -222,16 +232,38 @@ def parse_frontmatter(
         errors.append(f"{rel(path)}: frontmatter is not closed")
         return {}, text
 
-    metadata: dict[str, str] = {}
-    for line in text[4:end].splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or ":" not in stripped:
+    frontmatter = text[4:end]
+    try:
+        loaded = yaml.load(frontmatter, Loader=yaml.BaseLoader)
+        metadata = {} if loaded is None else loaded
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        line_number = mark.line + 2 if mark is not None else 2
+        problem = getattr(exc, "problem", None) or str(exc).splitlines()[0]
+        errors.append(f"{rel(path)}:{line_number}: invalid YAML frontmatter: {problem}")
+        return {}, text[end + 4 :]
+    if not isinstance(metadata, dict):
+        errors.append(f"{rel(path)}: YAML frontmatter must be a mapping")
+        return {}, text[end + 4 :]
+
+    lines = frontmatter.splitlines()
+    for index, line in enumerate(lines):
+        if not line.startswith("description:"):
             continue
-        key, value = stripped.split(":", 1)
-        key = key.strip()
-        value = value.strip().strip("\"'")
-        if key:
-            metadata[key] = value
+        raw_value = line.split(":", 1)[1].strip()
+        if raw_value[:1] in "\"'|>[{":
+            continue
+        span = [raw_value]
+        cursor = index + 1
+        while cursor < len(lines) and (
+            not lines[cursor].strip() or lines[cursor][0].isspace()
+        ):
+            span.append(lines[cursor].strip())
+            cursor += 1
+        if re.search(r"(?:^|\s)#(?:N|[0-9]+)\b", " ".join(span)):
+            errors.append(
+                f"{rel(path)}:{index + 2}: description must quote an issue placeholder"
+            )
     return metadata, text[end + 4 :]
 
 

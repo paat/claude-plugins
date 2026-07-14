@@ -1,9 +1,9 @@
 ---
 name: ads-monitor
-description: Read live Google Ads metrics without repository or account writes. Requires a Google Ads user with server-enforced read-only access. Usage: /ads-monitor [campaign] [--range 7d|30d]
+description: "Read live Google Ads metrics without repository or account writes. Requires a Google Ads user with server-enforced read-only access. Usage: /ads-monitor [campaign] [--range 7d|30d]"
 user_invocable: true
 allowed-tools: Task, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/run-monitor-preflight.sh:*)
-argument-hint: [campaign] [--range 7d|30d]
+argument-hint: "[campaign] [--range 7d|30d]"
 codex-sandbox: read-only
 ---
 

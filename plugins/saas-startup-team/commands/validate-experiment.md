@@ -1,6 +1,6 @@
 ---
 name: validate-experiment
-description: Run a demand-validation experiment from a plan file — build + deploy a fake-door waitlist landing page, optionally run a capped ad smoke-test, and collect MEASURED signals into a results file for the idea pipeline's confidence scoring. Usage: /validate-experiment <plan-file> [--collect]
+description: "Run a demand-validation experiment from a plan file — build + deploy a fake-door waitlist landing page, optionally run a capped ad smoke-test, and collect MEASURED signals into a results file for the idea pipeline's confidence scoring. Usage: /validate-experiment <plan-file> [--collect]"
 user_invocable: true
 argument-hint: <plan-file> [--collect]
 ---

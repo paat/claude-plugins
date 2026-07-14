@@ -1,6 +1,6 @@
 ---
 name: ads-distill
-description: Roll the hypothesis log into the learnings file — distill patterns that hold across ≥ 3 iterations into principles, and propose graduation candidates for project-level auto-memory. Usage: /ads-distill [campaign]
+description: "Roll the hypothesis log into the learnings file — distill patterns that hold across ≥ 3 iterations into principles, and propose graduation candidates for project-level auto-memory. Usage: /ads-distill [campaign]"
 user_invocable: true
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 argument-hint: [campaign]

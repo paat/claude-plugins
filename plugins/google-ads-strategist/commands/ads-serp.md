@@ -1,6 +1,6 @@
 ---
 name: ads-serp
-description: Capture a real Google SERP (in incognito) for a keyword to classify its buyer intent and see competing ads. Writes screenshot + structured intent analysis. Usage: /ads-serp <keyword> [--country X] [--lang Y]
+description: "Capture a real Google SERP (in incognito) for a keyword to classify its buyer intent and see competing ads. Writes screenshot + structured intent analysis. Usage: /ads-serp <keyword> [--country X] [--lang Y]"
 user_invocable: true
 allowed-tools: Read, Write, Bash, mcp__claude-in-chrome__tabs_context_mcp, mcp__claude-in-chrome__tabs_create_mcp, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__read_page, mcp__claude-in-chrome__get_page_text, mcp__claude-in-chrome__computer, mcp__claude-in-chrome__javascript_tool
 argument-hint: <keyword> [--country X] [--lang Y]

@@ -1,6 +1,6 @@
 ---
 name: maintain-loop
-description: Fresh-context issue delivery. Probe model-free, then load the Codex worker playbook only when an eligible issue exists. Usage: /maintain-loop [flags]
+description: "Fresh-context issue delivery. Probe model-free, then load the Codex worker playbook only when an eligible issue exists. Usage: /maintain-loop [flags]"
 user_invocable: true
 ---
 

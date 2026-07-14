@@ -1,6 +1,6 @@
 ---
 name: pause
-description: Pause an active /startup loop so you can exit the session cleanly without completing the product. Resume with /startup. Usage: /pause [reason]
+description: "Pause an active /startup loop so you can exit the session cleanly without completing the product. Resume with /startup. Usage: /pause [reason]"
 user_invocable: true
 ---
 

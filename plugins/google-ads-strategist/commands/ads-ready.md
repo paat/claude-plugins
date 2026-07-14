@@ -1,6 +1,6 @@
 ---
 name: ads-ready
-description: Audit the current iteration against the launch-readiness checklist. Does NOT launch — only reports pass/fail per condition, with evidence links. Usage: /ads-ready [campaign]
+description: "Audit the current iteration against the launch-readiness checklist. Does NOT launch — only reports pass/fail per condition, with evidence links. Usage: /ads-ready [campaign]"
 user_invocable: true
 allowed-tools: Read, Glob, Grep, Bash
 argument-hint: [campaign]
