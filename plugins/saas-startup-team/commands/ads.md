@@ -1,6 +1,6 @@
 ---
 name: ads
-description: On-demand Google Ads campaign design — spawns the google-ads-strategist's ads-strategist agent to design, browser-verify, and create a campaign in PAUSED state for investor review. Usage: /ads <campaign brief or objective>
+description: "On-demand Google Ads campaign design — spawns the google-ads-strategist's ads-strategist agent to design, browser-verify, and create a campaign in PAUSED state for investor review. Usage: /ads <campaign brief or objective>"
 user_invocable: true
 argument-hint: <campaign brief or objective>
 ---

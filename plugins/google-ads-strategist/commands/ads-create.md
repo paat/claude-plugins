@@ -1,6 +1,6 @@
 ---
 name: ads-create
-description: Create the v1 campaign in Google Ads via Chrome automation. Reads spec.md, builds the campaign in the Ads UI step by step, and saves it in PAUSED state for investor review. The investor enables the campaign after reviewing it in the Ads UI. Usage: /ads-create [campaign]
+description: "Create the v1 campaign in Google Ads via Chrome automation. Reads spec.md, builds the campaign in the Ads UI step by step, and saves it in PAUSED state for investor review. The investor enables the campaign after reviewing it in the Ads UI. Usage: /ads-create [campaign]"
 user_invocable: true
 allowed-tools: Task, Read, Write, Bash, Glob
 argument-hint: [campaign]

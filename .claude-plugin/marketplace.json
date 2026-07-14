@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "Autonomous SaaS delivery — routed founder and specialist roles turn market demand into gated implementation, QA, deployment, growth, and maintenance",
-      "version": "0.89.11",
+      "version": "0.89.12",
       "author": {
         "name": "Andre Paat"
       },
@@ -97,7 +97,7 @@
     {
       "name": "google-ads-strategist",
       "description": "Senior Google Ads strategist — iterative campaign design + Chrome-based creation in PAUSED state for investor review. Browser verification via Ad Preview Tool, SERP capture, and Ads Transparency Center. Enforces hypothesis discipline, buyer-intent + product-value gates, and accumulates learnings.",
-      "version": "0.7.3",
+      "version": "0.7.4",
       "author": {
         "name": "Andre Paat"
       },
@@ -185,7 +185,7 @@
     {
       "name": "codex-subagent",
       "description": "Drive the OpenAI Codex CLI (codex exec, GPT-5.6 Sol at high effort) as implementer/reviewer/critic subagents from Claude Code — a controller loop with explicit model/effort pinning, dual timeouts, output capture, bwrap detection, and partial-run recovery",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -196,7 +196,7 @@
     {
       "name": "mission-control",
       "description": "Portfolio supervisor: two-slot scheduler + budget governor keeping at most two autonomous SaaS loops running 24/7 from one human-installed cron line, spending zero LLM tokens on scheduling",
-      "version": "0.5.2",
+      "version": "0.5.3",
       "author": {
         "name": "Andre Paat"
       },

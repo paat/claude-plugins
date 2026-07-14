@@ -1,9 +1,9 @@
 ---
 name: ads-diff
-description: Show what changed between two iterations of a campaign — the diff across keywords, copy, targeting, bids, and landing pages — plus the hypothesis that drove the change. Usage: /ads-diff [campaign] <v_a> <v_b>
+description: "Show what changed between two iterations of a campaign — the diff across keywords, copy, targeting, bids, and landing pages — plus the hypothesis that drove the change. Usage: /ads-diff [campaign] <v_a> <v_b>"
 user_invocable: true
 allowed-tools: Read, Bash, Glob, Grep
-argument-hint: [campaign] <v_a> <v_b>
+argument-hint: "[campaign] <v_a> <v_b>"
 ---
 
 # /ads-diff — Compare two iterations

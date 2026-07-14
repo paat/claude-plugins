@@ -1,6 +1,6 @@
 ---
 name: session-insights
-description: Local-only scan of this project's Claude Code session logs for investor interventions (interrupts, /nudge, corrections) and agent friction (tool failures). Emits typed records + a Markdown report under .startup/insights/. No network, no issue filing, no arguments. Usage: /session-insights
+description: "Local-only scan of this project's Claude Code session logs for investor interventions (interrupts, /nudge, corrections) and agent friction (tool failures). Emits typed records + a Markdown report under .startup/insights/. No network, no issue filing, no arguments. Usage: /session-insights"
 allowed-tools: Bash, Read
 user_invocable: true
 ---

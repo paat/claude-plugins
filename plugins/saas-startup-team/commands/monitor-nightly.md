@@ -1,6 +1,6 @@
 ---
 name: monitor-nightly
-description: Nightly automated monitor — sweeps failure markers + an optional project custom-checks script, files/dedups GitHub issues with reproduction context, persists state across runs. Usage: /monitor-nightly [--dry-run]
+description: "Nightly automated monitor — sweeps failure markers + an optional project custom-checks script, files/dedups GitHub issues with reproduction context, persists state across runs. Usage: /monitor-nightly [--dry-run]"
 argument-hint: "[--dry-run]"
 allowed-tools: Bash, Read, Write, Grep, Glob
 user_invocable: true

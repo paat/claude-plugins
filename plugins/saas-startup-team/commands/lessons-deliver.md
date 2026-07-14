@@ -1,6 +1,6 @@
 ---
 name: lessons-deliver
-description: Autonomous implementation of human-approved lessons. Picks up `lesson-approved` issues from the pinned plugin repo and delivers each into this plugin repo end-to-end — claim, implement, mechanical firewall, tribunal gate, test suite, dual version bump, PR with `Closes #N`, merge on green — with no manual trigger. The single human gate stays at approval (`/lessons-review`). Flags: --once, --dry-run (read-only), --max-issues N, --max-merges N, --max-pass-minutes N (default 90), --max-run-minutes N (default 120; 0=unlimited), --repo OWNER/REPO. Usage: /lessons-deliver [--once] [--dry-run]
+description: "Autonomous implementation of human-approved lessons. Picks up `lesson-approved` issues from the pinned plugin repo and delivers each into this plugin repo end-to-end — claim, implement, mechanical firewall, tribunal gate, test suite, dual version bump, PR with `Closes #N`, merge on green — with no manual trigger. The single human gate stays at approval (`/lessons-review`). Flags: --once, --dry-run (read-only), --max-issues N, --max-merges N, --max-pass-minutes N (default 90), --max-run-minutes N (default 120; 0=unlimited), --repo OWNER/REPO. Usage: /lessons-deliver [--once] [--dry-run]"
 user_invocable: true
 ---
 

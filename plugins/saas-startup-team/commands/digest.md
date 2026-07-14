@@ -1,6 +1,6 @@
 ---
 name: digest
-description: Assemble and send one daily needs-human digest per project — new run activity since the last send, human-tasks grouped approvals/credentials/FYI, shipped PRs, queued issues, and a spend/pass-summary section. Idempotent per day; unconfigured channel is a clean no-op. Usage: /digest [--date YYYY-MM-DD]
+description: "Assemble and send one daily needs-human digest per project — new run activity since the last send, human-tasks grouped approvals/credentials/FYI, shipped PRs, queued issues, and a spend/pass-summary section. Idempotent per day; unconfigured channel is a clean no-op. Usage: /digest [--date YYYY-MM-DD]"
 argument-hint: "[--date YYYY-MM-DD]"
 allowed-tools: Bash, Read
 user_invocable: true

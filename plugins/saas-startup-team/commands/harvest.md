@@ -1,6 +1,6 @@
 ---
 name: harvest
-description: Dry-run harvester for the self-improvement loop. Clusters local session-insights signals into candidate GENERIC plugin improvements, de-identifies them, runs a hard PII gate, dedups against a ledger, and presents drafts for review. No network, no issue filing — review precedes any filing. Usage: /harvest
+description: "Dry-run harvester for the self-improvement loop. Clusters local session-insights signals into candidate GENERIC plugin improvements, de-identifies them, runs a hard PII gate, dedups against a ledger, and presents drafts for review. No network, no issue filing — review precedes any filing. Usage: /harvest"
 allowed-tools: Bash, Read
 user_invocable: true
 ---

@@ -1,6 +1,6 @@
 ---
 name: improve
-description: One-shot founder/tech/QA improvement with a supervisor-gated commit. Usage: /improve [description]
+description: "One-shot founder/tech/QA improvement with a supervisor-gated commit. Usage: /improve [description]"
 user_invocable: true
 ---
 

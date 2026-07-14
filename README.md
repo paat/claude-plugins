@@ -62,6 +62,18 @@ Install a plugin:
 codex plugin add <plugin-name>@paat-plugins
 ```
 
+## Development Checks
+
+Install the Python check dependency, then run the repository checks:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+python3 scripts/check-plugin-catalog.py
+python3 scripts/check-plugin-content.py
+python3 scripts/test_check_plugin_content.py
+python3 scripts/sync-codex-marketplace.py --check
+```
+
 ## Updating Codex Metadata
 
 After changing `.claude-plugin/marketplace.json` or a plugin's `.claude-plugin/plugin.json`, regenerate the Codex marketplace:

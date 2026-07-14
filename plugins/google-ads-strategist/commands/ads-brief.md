@@ -1,6 +1,6 @@
 ---
 name: ads-brief
-description: Start a new Google Ads campaign by creating the brief.md + folder structure. Interactive intake that captures product, audience, commercial pages, budget, goals, and buyer-intent context. Usage: /ads-brief [campaign-name]
+description: "Start a new Google Ads campaign by creating the brief.md + folder structure. Interactive intake that captures product, audience, commercial pages, budget, goals, and buyer-intent context. Usage: /ads-brief [campaign-name]"
 user_invocable: true
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch
 argument-hint: [campaign-name]

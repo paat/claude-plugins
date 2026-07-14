@@ -1,6 +1,6 @@
 ---
 name: ads-hypothesize
-description: Given the current state of a campaign (pre-launch or post-launch), propose a ranked list of candidate hypotheses for the next iteration — expected impact × confidence. Does NOT write the hypothesis, only suggests. Usage: /ads-hypothesize [campaign]
+description: "Given the current state of a campaign (pre-launch or post-launch), propose a ranked list of candidate hypotheses for the next iteration — expected impact × confidence. Does NOT write the hypothesis, only suggests. Usage: /ads-hypothesize [campaign]"
 user_invocable: true
 allowed-tools: Read, Glob, Grep, Bash
 argument-hint: [campaign]

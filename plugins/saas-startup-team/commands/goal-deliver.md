@@ -1,6 +1,6 @@
 ---
 name: goal-deliver
-description: Deliver issues, milestones, specs, or free-text goals through production gates. Usage: /goal-deliver [--full] <work>
+description: "Deliver issues, milestones, specs, or free-text goals through production gates. Usage: /goal-deliver [--full] <work>"
 user_invocable: true
 ---
 

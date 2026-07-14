@@ -1,6 +1,6 @@
 ---
 name: mission-status
-description: Read-only view of mission-control state — slot occupancy, pool quotas and backoffs, cooldowns, pending admissions with veto deadlines, and recent dispatch outcomes. Usage: /mission-status [config-path]
+description: "Read-only view of mission-control state — slot occupancy, pool quotas and backoffs, cooldowns, pending admissions with veto deadlines, and recent dispatch outcomes. Usage: /mission-status [config-path]"
 user_invocable: true
 ---
 

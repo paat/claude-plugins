@@ -1,6 +1,6 @@
 ---
 name: ads-iterate
-description: Run the core iteration loop — read the current iteration state, verify it, diagnose gaps, and produce the next hypothesis + spec. Delegates to the ads-strategist agent. Works for both pre-launch and post-launch loops. Usage: /ads-iterate [campaign-name]
+description: "Run the core iteration loop — read the current iteration state, verify it, diagnose gaps, and produce the next hypothesis + spec. Delegates to the ads-strategist agent. Works for both pre-launch and post-launch loops. Usage: /ads-iterate [campaign-name]"
 user_invocable: true
 allowed-tools: Task, Read, Glob, Bash
 argument-hint: [campaign-name]

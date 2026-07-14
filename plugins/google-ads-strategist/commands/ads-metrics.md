@@ -1,9 +1,9 @@
 ---
 name: ads-metrics
-description: Pull and persist current metrics for a live campaign via the Google Ads UI (Chrome). Compares to baseline + previous iteration. Post-launch only. Usage: /ads-metrics [campaign] [--range 7d|30d]
+description: "Pull and persist current metrics for a live campaign via the Google Ads UI (Chrome). Compares to baseline + previous iteration. Post-launch only. Usage: /ads-metrics [campaign] [--range 7d|30d]"
 user_invocable: true
 allowed-tools: Task, Read, Bash, Glob
-argument-hint: [campaign] [--range 7d|30d]
+argument-hint: "[campaign] [--range 7d|30d]"
 ---
 
 # /ads-metrics — Pull live campaign metrics

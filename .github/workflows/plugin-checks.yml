@@ -12,11 +12,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install check dependencies
+        run: python3 -m pip install -r requirements-dev.txt
+
       - name: Check plugin catalog
         run: python3 scripts/check-plugin-catalog.py
 
       - name: Lint plugin content
         run: python3 scripts/check-plugin-content.py
+
+      - name: Test plugin content linter
+        run: python3 scripts/test_check_plugin_content.py
 
       - name: Check Codex marketplace metadata
         run: python3 scripts/sync-codex-marketplace.py --check

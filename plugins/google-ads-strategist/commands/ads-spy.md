@@ -1,6 +1,6 @@
 ---
 name: ads-spy
-description: Pull all currently-running ads for a competitor from the Google Ads Transparency Center. Produces a structured competitor matrix for copy differentiation. Delegates to ads-strategist. Usage: /ads-spy <competitor-domain-or-name> [--country X]
+description: "Pull all currently-running ads for a competitor from the Google Ads Transparency Center. Produces a structured competitor matrix for copy differentiation. Delegates to ads-strategist. Usage: /ads-spy <competitor-domain-or-name> [--country X]"
 user_invocable: true
 allowed-tools: Task, Read, Write, Bash
 argument-hint: <competitor-domain-or-name> [--country X]
