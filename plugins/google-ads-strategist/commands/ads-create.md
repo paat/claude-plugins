@@ -14,6 +14,8 @@ Delegates to the ads-strategist to create the campaign in the Google Ads UI usin
 
 If no campaign argument, detect from `docs/ads/*/brief.md`. If multiple, ask.
 
+Before reading or writing any campaign path, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-campaign-path.sh" "docs/ads/<campaign>"`. Stop on any diagnostic.
+
 Verify:
 1. `iterations/v1/spec.md` exists — if not, run `/ads-iterate` first
 2. `iterations/v1/result.md` exists and says "READY TO LAUNCH" — if not, run `/ads-ready`
@@ -62,9 +64,11 @@ Spawn the ads-strategist via Task tool:
 > 4. **Build in this order**: campaign settings → ad groups (one at a time: keywords + RSA + extensions) → campaign-level negatives → campaign-level extensions (sitelinks, callouts) → verify PAUSED status
 > 5. If any step fails (form not loading, selector not found, unexpected UI), STOP and report — do not guess or retry blindly.
 > 6. After all ad groups are created, take a final screenshot of the campaign overview showing PAUSED status.
+> 7. Read the Google Ads customer ID from the active account and the numeric campaign ID from the created campaign URL/UI. Replace an existing identity representation or add the current labels when absent; never append a second representation. Read `brief.md` back and require exactly one account field and one campaign field with the verified values. If verification or unique persistence fails, leave the campaign PAUSED and report creation as incomplete for automated metrics.
 >
 > Report back:
 > - Campaign URL in Google Ads (e.g., `ads.google.com/aw/campaigns/<id>`)
+> - Verified Google Ads customer ID and campaign ID persisted in `brief.md`
 > - Number of ad groups created
 > - Number of keywords entered
 > - Number of RSAs created
@@ -73,6 +77,8 @@ Spawn the ads-strategist via Task tool:
 > - List of screenshots taken
 
 ## Step 3: Report to user
+
+Only use the success message when PAUSED status and the unique persisted ID pair were both verified. Otherwise report **Campaign creation incomplete**, list the failed gate, and do not state that creation succeeded.
 
 > **Campaign `<campaign>` created in Google Ads — PAUSED.**
 >
@@ -83,7 +89,8 @@ Spawn the ads-strategist via Task tool:
 > 2. Review: ad copy, keywords, extensions, budget, targeting
 > 3. Fix any issues you spot (the agent may have minor formatting differences from spec)
 > 4. When satisfied, change campaign status from Paused → Enabled
-> 5. After enabling, run `/ads-metrics` in 7 days to pull the first post-launch data
+> 5. Configure a separate Google Ads **Read only** user for metrics and set `Google Ads metrics access: read-only` in `brief.md`
+> 6. After enabling, run `/ads-metrics` in 7 days to pull the first post-launch data
 
 ## Notes
 

@@ -28,4 +28,4 @@ Source command: `../../commands/ads-metrics.md`
 
 - Plugin: `google-ads-strategist`
 - Command aliases: `/google-ads-strategist:ads-metrics`, `/ads-metrics`
-- Source description: Pull current metrics for a live campaign via the Google Ads UI (Chrome). Compares to baseline + previous iteration. Post-launch only. Delegates to ads-strategist. Usage: /ads-metrics [campaign] [--range 7d|30d]
+- Source description: Pull and persist current metrics for a live campaign via the Google Ads UI (Chrome). Compares to baseline + previous iteration. Post-launch only. Usage: /ads-metrics [campaign] [--range 7d|30d]

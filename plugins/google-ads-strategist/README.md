@@ -40,10 +40,11 @@ and product feedback while keeping spend controlled and attributable.
 
 - Claude Code with the `claude-in-chrome` MCP server installed and logged into the user's Chrome browser
 - `jq` on PATH (hook scripts parse the tool input JSON via jq)
+- `git` on PATH and a Git worktree (campaign-path confinement resolves the repository root)
 - GNU `grep` with PCRE support (`grep -P`) — used by `check-single-variable.sh`, `check-estonian-diacritics.sh`, and `check-hypothesis-log.sh`; default on Linux, not on macOS unless replaced with `ggrep`
 - GNU `date` (`date -d`) — used by `check-wait-gate.sh` to parse ISO timestamps; default on Linux. On macOS install `coreutils` — the script prefers `gdate` when available.
 - Bash 4+ / standard POSIX tools
-- Optional: logged-in Google Ads account in Chrome, for authenticated Ad Preview & Diagnosis and for metrics pulls (post-launch loop only)
+- Optional: logged-in Google Ads account in Chrome. Campaign creation needs an account that can create PAUSED campaigns; all post-launch metrics pulls require a separate server-enforced **Read only** user.
 
 No Google Ads API access is required for pre-launch design + verification. The Anonymous Ad Preview Tool is public and works for any keyword / location / device.
 
@@ -51,6 +52,7 @@ No Google Ads API access is required for pre-launch design + verification. The A
 
 ### Agent
 - `ads-strategist` — senior PPC strategist, design-only, iteration-first discipline
+- `ads-metrics-reader` — constrained post-launch reader with no shell or file-write tools
 
 ### Commands
 - `/ads-brief [name]` — create a new campaign folder + brief.md (interactive intake)
@@ -63,7 +65,8 @@ No Google Ads API access is required for pre-launch design + verification. The A
 - `/ads-hypothesize` — propose 3-5 ranked candidate hypotheses for the next iteration
 - `/ads-ready` — audit the current iteration against the launch-readiness checklist
 - `/ads-audit [account|campaign]` — read-only audit of an existing account/campaign before takeover, scaling, or iteration; produces severity-rated findings with evidence and follow-up hypotheses
-- `/ads-metrics` — pull live campaign metrics via Chrome (post-launch only)
+- `/ads-metrics` — pull live campaign metrics via Chrome and persist evidence (post-launch only)
+- `/ads-monitor` — zero-repository-write metrics pass using a server-enforced Google Ads read-only user
 - `/ads-distill` — roll the hypothesis log into learnings and propose graduation candidates
 
 ### Skills
@@ -121,7 +124,7 @@ docs/ads/<campaign>/
 └── current -> iterations/v3         # symlink to active iteration
 ```
 
-State is tracked via plain marker files (`launched_at`, `applied_at`) — no embedded state in markdown. The hooks read these directly.
+State is tracked via plain marker files (`launched_at`, `applied_at`) — no embedded state in markdown. The hooks read these directly. `/ads-create` records the exact Google Ads customer and campaign IDs in `brief.md`; metrics runs fail closed if either identity is missing.
 
 ## Typical workflow (pre-launch)
 
@@ -139,7 +142,8 @@ State is tracked via plain marker files (`launched_at`, `applied_at`) — no emb
 ## Typical workflow (post-launch)
 
 ```
-/ads-metrics                           # pull current numbers
+/ads-monitor                           # inspect current numbers without writing artifacts
+/ads-metrics                           # persist the evidence-backed metrics report
 /ads-hypothesize                       # see candidate fixes, ranked
 /ads-iterate                           # agent writes next hypothesis
 # approve → agent writes spec → you apply it to the live account

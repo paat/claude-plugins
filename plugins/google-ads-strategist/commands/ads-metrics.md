@@ -1,6 +1,6 @@
 ---
 name: ads-metrics
-description: Pull current metrics for a live campaign via the Google Ads UI (Chrome). Compares to baseline + previous iteration. Post-launch only. Delegates to ads-strategist. Usage: /ads-metrics [campaign] [--range 7d|30d]
+description: Pull and persist current metrics for a live campaign via the Google Ads UI (Chrome). Compares to baseline + previous iteration. Post-launch only. Usage: /ads-metrics [campaign] [--range 7d|30d]
 user_invocable: true
 allowed-tools: Task, Read, Bash, Glob
 argument-hint: [campaign] [--range 7d|30d]
@@ -8,111 +8,57 @@ argument-hint: [campaign] [--range 7d|30d]
 
 # /ads-metrics — Pull live campaign metrics
 
-Delegates to ads-strategist to read metrics from the Google Ads UI via Chrome. Post-launch command — requires `launched_at` to be set in brief.md.
+Reads metrics from Google Ads and persists evidence under the active iteration. Use `/ads-monitor` for a zero-repository-write pass.
 
-## Step 0: Validate
+## Step 0: Parse and validate
 
-Check for the launch marker file:
+- Default range: `7d`; accept only `7d` or `30d`.
+- If no campaign is supplied, detect one from `docs/ads/*/brief.md`; if ambiguous, ask.
+- Reject unexpected arguments.
 
-```bash
-[ -f "docs/ads/<campaign>/launched_at" ]
-```
-
-If the marker file does not exist, ask the user:
-
-> Campaign `<campaign>` has no launch marker (`docs/ads/<campaign>/launched_at`). Did you just launch it? If yes, I'll create the marker file with the current timestamp. If not, use `/ads-verify` for pre-launch verification.
-
-On "yes": create the marker file with the current ISO timestamp:
+Before any campaign path access or marker write, run:
 
 ```bash
-date -Iseconds > "docs/ads/<campaign>/launched_at"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-campaign-path.sh" --require-current "docs/ads/<campaign>"
 ```
 
-Also create the applied_at marker for the iteration currently active at launch time:
+Check `docs/ads/<campaign>/launched_at`. If absent, ask whether the campaign was just launched. On yes, create only `launched_at` with `date -Iseconds`; otherwise direct the user to `/ads-verify`. `current/applied_at` is written only after a successful metrics read in Step 1.
+
+Then run the identity/timestamp preflight and capture its normalized IDs without `eval`:
 
 ```bash
-date -Iseconds > "docs/ads/<campaign>/current/applied_at"
+identity="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-metrics-preflight.sh" --require-read-only "docs/ads/<campaign>")" || exit $?
+ads_account_id="$(printf '%s\n' "$identity" | sed -n 's/^ads_account_id=//p')"
+campaign_id="$(printf '%s\n' "$identity" | sed -n 's/^campaign_id=//p')"
 ```
 
-## Step 1: Parse arguments
+On any diagnostic, STOP before opening Google Ads. The preflight accepts one unambiguous legacy or current identity field, rejects missing/duplicate/conflicting/malformed values, and requires `Google Ads metrics access: read-only`.
 
-- Default range: `7d`
-- If `--range 30d` is passed, use 30 days
+## Step 1: Dispatch
 
-## Step 2: Dispatch
-
-Spawn ads-strategist via Task tool:
+Spawn `google-ads-strategist:ads-strategist`:
 
 > Read `${CLAUDE_PLUGIN_ROOT}/agents/ads-strategist.md`.
 >
-> **Task: Pull metrics for campaign `<campaign>` via the Google Ads UI.**
+> **Task: Pull and persist metrics for `<campaign>`.**
+> Expected customer ID: `<ads_account_id>`. Expected campaign ID: `<campaign_id>`.
 >
-> Load skill: `google-ads-strategist:browser-verification` (Tool 5 section).
+> Load `google-ads-strategist:browser-verification` (Tool 5).
 >
-> Steps:
-> 1. `mcp__claude-in-chrome__tabs_context_mcp` to check state
-> 2. Navigate to `https://ads.google.com/aw`
-> 3. If not logged in, STOP and ask the user to log in manually — do not attempt auto-login
-> 4. Select the correct account (match `ads_account_id` from brief.md if present)
-> 5. Navigate to the campaign by name (match `campaign_id` from brief.md if present)
-> 6. Set date range to <range>
-> 7. Capture screenshot of the campaign overview → `iterations/<current>/verification/metrics-<date>-<range>.png`
-> 8. Extract structured metrics:
->    - Impressions
->    - Clicks
->    - CTR
->    - Avg CPC
->    - Cost
->    - Conversions
->    - CPA (= cost / conversions)
->    - Conversion rate
->    - Impression share (if visible in the default view — may require column customization)
->    - Search impression share lost (budget) + (rank) if visible
-> 9. For each major ad group, also capture drill-down metrics
-> 10. Pull the Search Terms report (Keywords → Search terms tab)
-> 11. Pull Auction Insights
-> 12. Write a structured `iterations/<current>/verification/metrics-<date>.md`:
->     - Date range
->     - All metrics
->     - Delta from baseline (brief.md targets)
->     - Delta from previous iteration result.md
->     - Top 10 search terms driving spend
->     - Top 5 competitors by impression share
-> 13. Identify the dominant symptom per `iterative-optimization` decision tree
+> 1. Check Chrome state, navigate to `https://ads.google.com/aw`, and stop if login is required. Before campaign navigation, verify the signed-in user is visibly **Read only** for the expected customer ID; stop if the role is unverifiable or Standard/Admin.
+> 2. Enter only the exact customer and campaign IDs above; use campaign name only as a secondary display check. Reverify both from the UI/URL and stop on mismatch.
+> 3. Set the requested date range.
+> 4. Capture `current/verification/metrics-<date>-<range>.png`.
+> 5. Extract impressions, clicks, CTR, avg CPC, cost, conversions, CPA, conversion rate, visible impression-share/lost-share fields, major ad-group metrics, top 10 spend-driving search terms, and top 5 visible Auction Insights competitors. Mark unavailable fields; never infer them.
+> 6. Write `current/verification/metrics-<date>.md` with the range, metrics, baseline/prior deltas, search terms, competitors, dominant symptom, and wait-gate status.
+> 7. If this iteration has a spec but no `current/applied_at`, write the current ISO timestamp there after the successful metrics read.
 >
-> 14. If this is the first post-launch metrics run for this iteration (i.e., the iteration has a spec but no `applied_at` marker), write the marker:
->     ```bash
->     date -Iseconds > "docs/ads/<campaign>/current/applied_at"
->     ```
->     This starts the wait-gate clock for the next iteration.
->
-> Report to team lead:
-> - Current metrics
-> - Deltas vs baseline + previous
-> - Dominant symptom
-> - Wait gate status (have we waited long enough for statistical significance since last apply?)
+> Do not change any live-account setting, status, budget, bid, ad, keyword, audience, conversion, or billing item.
 
-## Step 3: Relay the report
+## Step 2: Relay
 
-Show the user:
+Only render the metrics table and next step when the role confirms read-only access and both IDs, the required overview metrics were read, and the expected screenshot plus metrics Markdown exist under the active `current/verification/`. Read back the report and, when newly required, `current/applied_at`; a missing, empty, symlinked, or mismatched artifact is failure. If the role stopped or persistence verification fails, relay that gap only and do not render a success table or recommend iteration.
 
-```markdown
-## Metrics for <campaign> — last <range>
+On success show current/baseline/previous deltas, dominant symptom, wait-gate status, and the next eligible `/ads-hypothesize` or `/ads-iterate` action. If the wait gate is closed, report and exit without proposing a hypothesis.
 
-| Metric | Current | Baseline | Δ | Prev iter | Δ |
-|--------|---------|----------|---|-----------|---|
-| CTR | ... | ... | ... | ... | ... |
-| CPA | ... | ... | ... | ... | ... |
-| ... | ... | ... | ... | ... | ... |
-
-**Dominant symptom**: [one-line diagnosis]
-**Wait gate**: [OPEN after YYYY-MM-DD | CLOSED — wait N more days]
-
-**Next step**: run `/ads-hypothesize` to see candidate fixes, or `/ads-iterate` to propose the next hypothesis directly.
-```
-
-## Notes
-
-- NEVER fabricate metrics — if Chrome can't read the UI, say so and stop
-- NEVER write to a live account from this command — it's read-only
-- If the wait gate is CLOSED, don't even propose a hypothesis — just report and exit
+Never fabricate metrics. This workflow writes repository evidence; server-enforced Google Ads read-only access prevents live-account mutation.
