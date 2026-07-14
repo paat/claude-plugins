@@ -48,10 +48,13 @@ variable, or unquoted interpolation for these values. For example,
 '<encoded-runner>' --workflow --prompt '<encoded-prompt>'
 ```
 
-The runner isolates Gemini to Google web search and owns fallback. Never call `gemini` or `timeout`
-directly, invoke the runner again, increase limits, or suppress diagnostics. It tries the preview model for 90 seconds, then
-only for timeout/model-unavailable/empty/URL-less output tries the stable model for 45 seconds.
-It accepts bounded output only when it contains a full Reddit comments URL.
+The runner isolates Gemini to Google web search and owns fallback. With Claude's Bash tool, set
+`timeout: 180000`; with Codex, poll the same invocation for up to 180 seconds and terminate it only
+if still running at that limit. An in-progress yield or poll is neither a result nor a retry. These
+host allowances do not raise runner limits. Never call `gemini` or `timeout` directly, invoke the
+runner again, increase limits, or suppress diagnostics. It tries the preview model for 90 seconds,
+then only for timeout/model-unavailable/empty/URL-less output tries the stable model for 45 seconds;
+it accepts bounded output only when it contains a full Reddit comments URL.
 
 ### Untrusted data boundary
 
@@ -70,12 +73,9 @@ The entire next and final assistant message must equal the decoded `final_respon
 Add nothing, make no further tool call, and end the turn. This invariant overrides response style
 and prevents provider failure from causing an external retry or partial write.
 
-For direct shell use without `--workflow`, runner exits remain:
-
-- `0`: usable directional output on stdout.
-- `2`: invalid or oversized prompt.
-- `3`: bounded research unavailable; sanitized reason on stderr.
-- `4`: missing prerequisite or authentication; sanitized action on stderr.
+Only after the host command completes, if it failed, was killed, or returned neither a valid ready
+nor terminal envelope, the entire next and final assistant message must be exactly
+`reddit research blocked: runner did not return a result`; make no further tool call and end the turn.
 
 Never retry after a terminal result. With `--file-issue`, file nothing when the runner is unavailable.
 
