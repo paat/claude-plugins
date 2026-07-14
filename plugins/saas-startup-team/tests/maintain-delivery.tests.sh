@@ -12,6 +12,9 @@ test_maintain_delivery_lifecycle() {
   local fake_bin fake_head fake_issue fake_mutation fake_log changed_issue bad_rollback_head
   local fake_pr fake_checks fake_run remote qa_command bad_command monitor_command tribunal fake_tribunal
   local live_output live_proof_path test_plugin delivery_impl lease_state lease_run authority_command
+  local issue_scope fresh_repo fresh_common fresh_wt fresh_origin_state fresh_resume_state
+  local fresh_legacy_state fresh_base fresh_pr_head fresh_scope fresh_drift fresh_receipt_head fresh_ledger
+  local fresh_resume_ledger
   repo=$(make_workdir)
   test_plugin="$repo/.test-plugin"; mkdir "$test_plugin"; cp -a "$PLUGIN_ROOT/scripts/." "$test_plugin/"
   delivery_impl="$test_plugin/maintain-delivery.sh"
@@ -213,6 +216,9 @@ FAKE_TRIBUNAL
          glm:assessment("disabled"),deepseek:assessment("disabled"),qwen:assessment("disabled"),claude:assessment("disabled")},
        conflicts_resolved:[],summary:"Current-head review approved"}' > "$tribunal"
   }
+  write_issue_scope() {
+    jq '{number,state,title,body,updatedAt}' "$1" > "$2"
+  }
   qa_command="$repo/live-proof.sh"; bad_command="$repo/bad-proof.sh"
   authority_command="$repo/authority-proof.sh"
   monitor_command="$repo/.startup/monitor-checks.sh"
@@ -296,13 +302,128 @@ DEPLOY_WORKFLOW
   export FAKE_GH_PR_SOURCE="$fake_pr" FAKE_GH_CHECKS_SOURCE="$fake_checks" FAKE_GH_RUN_SOURCE="$fake_run"
   export FAKE_GH_ISSUE_SOURCE="$fake_issue" FAKE_GH_HEAD_FILE="$fake_head" FAKE_GH_MUTATION="$fake_mutation"
   export FAKE_GH_LOG="$fake_log" FAKE_GH_CLOSED_AT="2099-07-14T10:03:00Z"
+  issue_scope="$repo/issue-scope.json"
+  write_issue_scope "$fake_issue" "$issue_scope"
+
+  fresh_repo=$(make_workdir)
+  git -C "$fresh_repo" config user.email test@example.invalid
+  git -C "$fresh_repo" config user.name Test
+  git -C "$fresh_repo" branch -m main
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fresh_repo/check.sh"
+  printf 'base\n' > "$fresh_repo/app.txt"
+  chmod +x "$fresh_repo/check.sh"
+  git -C "$fresh_repo" add check.sh app.txt
+  git -C "$fresh_repo" commit -qm base
+  fresh_base=$(git -C "$fresh_repo" rev-parse HEAD)
+  fresh_common=$(git -C "$fresh_repo" rev-parse --absolute-git-dir)
+  fresh_wt="$fresh_repo/.worktrees/maintain-loop"
+  fresh_origin_state="$fresh_common/saas-startup-team/maintain-runtime/fresh-order-leases.json"
+  fresh_resume_state="$fresh_common/saas-startup-team/maintain-runtime/fresh-resume-leases.json"
+  fresh_legacy_state="$fresh_common/saas-startup-team/maintain-runtime/fresh-legacy-leases.json"
+  fresh_scope="$fresh_repo/issue-scope.json"
+  fresh_drift="$fresh_repo/issue-scope-drift.json"
+  fresh_ledger="$fresh_common/saas-startup-team/maintain-runtime/deliveries/run-fresh-order.json"
+  fresh_resume_ledger="$fresh_common/saas-startup-team/maintain-runtime/deliveries/run-fresh-resume.json"
+  write_issue_scope "$fake_issue" "$fresh_scope"
+  pending=$(bash "$delivery_impl" pending --repo-root "$fresh_repo")
+  assert_equals "MD0a: fresh pending is readable before the dedicated worktree exists" \
+    "$(jq length <<<"$pending")" 0
+  bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$fresh_repo" \
+    --mode maintain-loop --run-id fresh-order --state-file "$fresh_origin_state" \
+    --worktree "$fresh_wt" >/dev/null
+  assert_file_not_exists "MD0b: lease acquisition alone does not create the worktree" "$fresh_wt"
+  ec=0
+  bash "$delivery_impl" begin --repo-root "$fresh_repo" --issue 1 --run-id fresh-order \
+    --delivery-id fresh-order-delivery --merge-budget 1 --lease-state "$fresh_origin_state" \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD0c: begin requires the classified issue scope snapshot" "$ec" 2
+  ec=0
+  bash "$delivery_impl" begin --repo-root "$fresh_repo" --issue 1 --run-id fresh-order \
+    --delivery-id fresh-order-delivery --merge-budget 1 --scope-json "$fresh_scope" \
+    --lease-state "$fresh_origin_state" \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD0d: primary-root begin cannot bypass the dedicated worktree lease" "$ec" 3
+  assert_equals "MD0e: rejected primary begin creates no receipt" \
+    "$(bash "$delivery_impl" pending --repo-root "$fresh_repo" | jq length)" 0
+  bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$fresh_repo" \
+    --worktree "$fresh_wt" --base-sha "$fresh_base" --lease-state "$fresh_origin_state" \
+    --run-id fresh-order >/dev/null
+  assert_equals "MD0f: leased reset creates a clean exact-base worktree" \
+    "$(git -C "$fresh_wt" rev-parse HEAD):$(git -C "$fresh_wt" status --porcelain)" \
+    "$fresh_base:"
+  ec=0
+  bash "$delivery_impl" begin --repo-root "$fresh_wt" --issue 1 --run-id fresh-order \
+    --delivery-id fresh-order-delivery --merge-budget 1 --scope-json "$fake_issue" \
+    --lease-state "$fresh_origin_state" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD0g: begin rejects a scope snapshot with extra fields" "$ec" 2
+  jq '.title="Issue scope changed during the base gate"' "$fake_issue" > "$fresh_drift"
+  cp -- "$fresh_drift" "$fake_issue"
+  ec=0
+  bash "$delivery_impl" begin --repo-root "$fresh_wt" --issue 1 --run-id fresh-order \
+    --delivery-id fresh-order-delivery --merge-budget 1 --scope-json "$fresh_scope" \
+    --lease-state "$fresh_origin_state" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD0h: begin rejects issue scope drift after classification" "$ec" 1
+  assert_equals "MD0i: scope drift creates no receipt" \
+    "$(bash "$delivery_impl" pending --repo-root "$fresh_repo" | jq length)" 0
+  assert_file_not_exists "MD0j: scope drift creates no origin run ledger" "$fresh_ledger"
+  cp -- "$issue_open" "$fake_issue"
+  bash "$delivery_impl" begin --repo-root "$fresh_wt" --issue 1 --run-id fresh-order \
+    --delivery-id fresh-order-delivery --merge-budget 1 --scope-json "$fresh_scope" \
+    --lease-state "$fresh_origin_state" \
+    >/dev/null
+  assert_equals "MD0k: begin succeeds from the created lease-bound worktree" \
+    "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 | jq -r .state)" claimed
+
+  printf 'feature\n' > "$fresh_wt/app.txt"
+  git -C "$fresh_wt" add app.txt
+  git -C "$fresh_wt" commit -qm feature
+  fresh_pr_head=$(git -C "$fresh_wt" rev-parse HEAD)
+  bash "$delivery_impl" plan-pr --repo-root "$fresh_wt" --issue 1 --role normal \
+    --branch fresh-issue --base-sha "$fresh_base" --head-sha "$fresh_pr_head" \
+    --lease-state "$fresh_origin_state" >/dev/null
+  fresh_receipt_head=$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 | jq -r .normal.head_sha)
+  assert_equals "MD0l: planned receipt binds the exact PR head" "$fresh_receipt_head" "$fresh_pr_head"
+  bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$fresh_origin_state" \
+    --run-id fresh-order >/dev/null
+  rm -rf "$fresh_wt"
+  bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$fresh_repo" \
+    --mode maintain-loop --run-id fresh-resume --state-file "$fresh_resume_state" \
+    --worktree "$fresh_wt" >/dev/null
+  bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$fresh_repo" \
+    --worktree "$fresh_wt" --base-sha "$fresh_receipt_head" --lease-state "$fresh_resume_state" \
+    --run-id fresh-resume >/dev/null 2>&1
+  assert_equals "MD0m: a new run recreates the missing worktree at the receipt PR head" \
+    "$(git -C "$fresh_wt" rev-parse HEAD):$(git -C "$fresh_wt" status --porcelain)" \
+    "$fresh_receipt_head:"
+  bash "$delivery_impl" plan-pr --repo-root "$fresh_wt" --issue 1 --role normal \
+    --branch fresh-issue --base-sha "$fresh_base" --head-sha "$fresh_receipt_head" \
+    --lease-state "$fresh_resume_state" >/dev/null
+  assert_equals "MD0n: the new maintain-loop controller resumes an idempotent mutation" \
+    "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 | jq -r .origin_run_id)" fresh-order
+  assert_equals "MD0o: resumed delivery keeps the origin run merge budget" \
+    "$(jq -r .merge_budget "$fresh_ledger")" 1
+  assert_file_not_exists "MD0p: resume creates no replacement run ledger" "$fresh_resume_ledger"
+  bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$fresh_resume_state" \
+    --run-id fresh-resume >/dev/null
+  bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$fresh_repo" \
+    --mode maintain --run-id fresh-legacy --state-file "$fresh_legacy_state" >/dev/null
+  ec=0
+  bash "$delivery_impl" plan-pr --repo-root "$fresh_repo" --issue 1 --role normal \
+    --branch fresh-issue --base-sha "$fresh_base" --head-sha "$fresh_receipt_head" \
+    --lease-state "$fresh_legacy_state" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD0q: a different-run legacy maintain lease cannot resume the receipt" "$ec" 3
+  bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$fresh_legacy_state" \
+    --run-id fresh-legacy >/dev/null
+  git -C "$fresh_repo" worktree remove --force "$fresh_wt" >/dev/null
+  rm -rf "$fresh_repo"
+
   switch_test_lease "$run"
 
   ec=0; out=$(bash "$script" match-pr --repo-root "$repo" --issue 1 --role normal --pr-json "$pr_open" 2>&1) || ec=$?
   assert_exit_code "MD1: public marker without a receipt is not authority" "$ec" 1
 
   bash "$script" begin --repo-root "$repo" --issue 1 --run-id "$run" --delivery-id "$delivery" \
-    --merge-budget 1 >/dev/null
+    --merge-budget 1 --scope-json "$issue_scope" >/dev/null
   pending=$(bash "$script" pending --repo-root "$repo")
   assert_equals "MD2: claimed receipt is pending" "$(jq -r '.[0].state' <<<"$pending")" claimed
   ec=0; out=$(SAAS_PREFLIGHT_MISSING=codex \
@@ -506,8 +627,9 @@ HOSTILE_PYTHON
   jq '.number=2 | .title="Premature issue" | .body="Must wait" | .state="OPEN" | .closedAt=null' \
     "$issue_open" > "$repo/premature-issue.json"
   cp -- "$repo/premature-issue.json" "$fake_issue"
+  write_issue_scope "$fake_issue" "$issue_scope"
   ec=0; bash "$script" begin --repo-root "$repo" --issue 2 --run-id "$run" --delivery-id premature-delivery \
-    --merge-budget 1 >/dev/null 2>&1 || ec=$?
+    --merge-budget 1 --scope-json "$issue_scope" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD6c: another issue cannot bypass pending reconciliation" "$ec" 3
   cp -- "$issue_open" "$fake_issue"
   changed_issue="$repo/issue-changed.json"
@@ -602,9 +724,10 @@ FAKE_UNSHARE
   jq '.number=2 | .title="Issue two" | .body="Fix the second issue" | .state="OPEN" | .closedAt=null |
     .updatedAt="2026-07-14T12:00:30Z"' "$issue_open" > "$repo/issue-two.json"
   cp -- "$repo/issue-two.json" "$fake_issue"
+  write_issue_scope "$fake_issue" "$issue_scope"
   switch_test_lease run-md-rb
   bash "$script" begin --repo-root "$repo" --issue 2 --run-id run-md-rb --delivery-id delivery-md-rb \
-    --merge-budget 1 >/dev/null
+    --merge-budget 1 --scope-json "$issue_scope" >/dev/null
   bash "$script" plan-pr --repo-root "$repo" --issue 2 --role normal --branch issue-two \
     --base-sha "$feature2_base" --head-sha "$feature2_head" >/dev/null
   jq -n --arg head "$feature2_head" --arg body $'Refs #2\nMaintain-Loop-Issue: #2\nMaintain-Loop-Delivery: delivery-md-rb\nMaintain-Loop-Role: normal\nMaintain-Loop-Action: delivery-md-rb-normal' \
@@ -693,20 +816,23 @@ FAKE_UNSHARE
   jq '.number=3 | .title="Unsafe issue" | .body="Unsafe receipt target" | .state="OPEN" | .closedAt=null' \
     "$issue_open" > "$repo/issue-three.json"
   cp -- "$repo/issue-three.json" "$fake_issue"
+  write_issue_scope "$fake_issue" "$issue_scope"
   switch_test_lease unsafe
   ec=0; bash "$script" begin --repo-root "$repo" --issue 3 --run-id unsafe --delivery-id unsafe-delivery \
-    --merge-budget 1 >/dev/null 2>&1 || ec=$?
+    --merge-budget 1 --scope-json "$issue_scope" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD18: symlinked receipt directory fails closed" "$ec" 1
   assert_equals "MD19: unsafe receipt target remains untouched" "$(find "$victim" -mindepth 1 | wc -l | tr -d ' ')" 0
   rm "$state_root/issue-3"
 
   cp -- "$issue_open" "$fake_issue"
+  write_issue_scope "$fake_issue" "$issue_scope"
   switch_test_lease run-md-2
   ec=0; bash "$script" begin --repo-root "$repo" --issue 1 --run-id run-md-2 --delivery-id delivery-md-2 \
-    --merge-budget 1 >/dev/null 2>&1 || ec=$?
+    --merge-budget 1 --scope-json "$issue_scope" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD20: open state alone cannot reopen finalized history" "$ec" 1
   bash "$script" begin --repo-root "$repo" --issue 1 --run-id run-md-2 --delivery-id delivery-md-2 \
-    --merge-budget 1 --reopen-event-id 901 --reopen-event-at 2099-07-14T10:04:00Z >/dev/null
+    --merge-budget 1 --scope-json "$issue_scope" \
+    --reopen-event-id 901 --reopen-event-at 2099-07-14T10:04:00Z >/dev/null
   assert_equals "MD21: verified reopen starts a new generation" \
     "$(bash "$script" show --repo-root "$repo" --issue 1 | jq -r .generation)" 2
   ec=0; bash "$script" match-pr --repo-root "$repo" --issue 1 --role normal --pr-json "$pr_merged" >/dev/null 2>&1 || ec=$?

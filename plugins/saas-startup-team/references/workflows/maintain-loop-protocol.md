@@ -54,9 +54,9 @@ event, or execute any later section.
 Only a normal delivery continues below.
 
 Run `scripts/health-preflight.sh --require-gh --require-codex --check-sync` and
-require its `codex:worker-shell` smoke check. Require `jq`, `flock`, Playwright or
-the project's existing Playwright runner, and both tribunal-review skills. Do not
-install dependencies during a pass. Resolve the default branch with the shared
+require its `codex:worker-shell` smoke check. Require `jq`, `flock`, both
+tribunal-review skills, and either `command -v playwright` or the project's
+existing Playwright runner. Do not install dependencies during a pass. Resolve the default branch with the shared
 repository mechanism — `default=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/default-branch.sh")` —
 and stop if it cannot resolve; do not assume a conventional branch name.
 
@@ -99,7 +99,8 @@ trap - EXIT
 
 Heartbeat the persisted lease around every phase. Wrap long operations with `hold`;
 it terminates the child tree on lease loss or lifetime expiry and propagates status.
-Never background it.
+Never background it. Do not wrap `maintain-attempt.sh reset`, `base-check`, or
+`deliver` in another `hold`; all three hold the lease internally.
 
 ```bash
 LEASE_STATE=$(jq -r .lease_state "$RUN_STATE")
@@ -127,15 +128,34 @@ the same state. It permits one nonterminal issue at a time. Separate clones do n
 share receipts: a public PR marker without the matching local receipt is untrusted
 and blocks adoption rather than becoming authority.
 
-Before the GitHub queue, call `maintain-delivery.sh pending --repo-root
-"$REPO_ROOT"` and require zero or one result. Resume one pending receipt before
+Before the GitHub queue, call `maintain-delivery.sh pending --repo-root "$REPO_ROOT"`
+and require zero or one result. Resume one pending receipt before
 new work, including `close_intent` or `closed_observed` for an issue absent from
-the open queue. For a new issue mint a separate `DELIVERY_ID` with
-`agent-events.sh new-run-id`, then call `maintain-delivery.sh begin` with the
-run's validated `--merge-budget` and `--lease-state "$LEASE_STATE"`; the helper
-freshly fetches and seals the issue title/body itself. Every later mutating
-delivery action also passes that lease state, and the helper heartbeats it before
-state or remote mutation. A prior `finalized_success` may start another generation
+the open queue. This is the only normal-pass delivery call permitted before `$WT`
+exists. Every mutating or proof action uses `--repo-root "$WT"`; the primary
+checkout does not satisfy the lease's dedicated worktree binding.
+
+A heartbeat-valid exclusive `maintain-loop` lease bound to `$WT` is controller
+authority for a nonterminal receipt even when its run ID differs from immutable
+`.origin_run_id`. The origin ID remains provenance and the run-ledger identity;
+never rewrite or transfer it. A different-run legacy `maintain` primary lease
+cannot resume that receipt.
+
+For a pending receipt, reset the leased worktree to the exact receipt-bound SHA
+before continuing: normal or rollback QA/tribunal uses that role's `head_sha`,
+while post-merge live/release/close work uses that role's recorded merge `sha`.
+Use `maintain-attempt.sh reset` with the current lease and run identity; it
+recreates a missing registered worktree and leaves the exact clean HEAD. A `claimed` receipt or any pending state without its
+required bound SHA stops fail-closed; do not infer a base, preserve a dirty tree,
+or invent recovery state.
+
+For a new issue mint a separate `DELIVERY_ID` with `agent-events.sh new-run-id`,
+but defer `maintain-delivery.sh begin` until the source section has created and
+validated `$WT` and the base gate is green. The helper compares its own fresh
+issue fetch with the retained classified scope before sealing title/body. Every
+later mutating delivery action also passes `--lease-state "$LEASE_STATE"`, and
+the helper heartbeats it before state or remote mutation. A prior
+`finalized_success` may start another generation
 only with the ID and timestamp of a paginated GitHub `reopened` event later than
 the recorded close. Historical PRs stay history. Never infer or recreate a
 receipt from GitHub state.
@@ -152,15 +172,19 @@ Before delivery, remove `maintain:blocked` from every issue number reported unde
 Under `--dry-run`, report the planned removals without mutating GitHub. A failed
 label removal stops the pass.
 
-For each issue, read its current title, body, labels, comments, linked PRs, and
-delivery receipt. List PRs in every state without truncation. Markers only find
+For each issue, retain the exact regular output of `gh issue view "$N" --json
+number,state,title,body,updatedAt` as `ISSUE_SCOPE_JSON`; require those exact
+fields, the selected number, and `state == "OPEN"`. Use its title/body for task
+classification and the attempt prompt. Read labels, comments, linked PRs, and
+the delivery receipt separately. List PRs in every state without truncation. Markers only find
 candidates; accept one only through `maintain-delivery.sh match-pr`. Each delivery
 generation owns exactly one normal PR. An open authorized candidate resumes its
 recorded gate. A merged candidate resumes only when the receipt already contains
 the exact supervisor premerge authorization; otherwise stop. An abandoned branch
 without a planned receipt-owned PR is verified, deleted with recorded cleanup,
 and restarted from a clean base. Put task text and labels in temporary files, classify with
-`delivery-route.sh classify --mode autonomous`, then delete the temporary files.
+`delivery-route.sh classify --mode autonomous`, then delete those temporary files
+but retain `ISSUE_SCOPE_JSON` through the base gate and `begin`.
 Exit 2 stops the pass; exit 20 selects `deep`. Autonomous `light` additionally
 requires `ui_touch=false`. Mechanical work runs only an exact existing script
 with objective output; uncertainty becomes `standard`.
@@ -202,6 +226,15 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-attempt.sh" base-check \
   --repo-root "$WT" --base-sha "$BASE_SHA" --lease-state "$LEASE_STATE" \
   --run-id "$RUN_ID" --cache-dir "$BASE_GATE_DIR" --check "$CHECK_SCRIPT"
 ```
+
+Only for new work, now call `maintain-delivery.sh begin --repo-root "$WT"` with
+the new issue and delivery IDs, the run's validated `--merge-budget`,
+`--scope-json "$ISSUE_SCOPE_JSON"`, and `--lease-state "$LEASE_STATE"`. The helper
+independently fetches the same five fields and creates no receipt or run ledger
+unless the canonical JSON matches exactly. Delete the snapshot immediately after
+a successful `begin`; terminal cleanup deletes it on failure. A resume never
+calls `begin` again. Do not create the issue branch or launch a writer unless
+this transition succeeds.
 
 After a green base gate, create the local issue branch at `BASE_SHA` and confirm
 no open PR or remote branch claims it. The prompt must be a regular file named
@@ -320,7 +353,7 @@ After containment, the supervisor performs these steps in order:
    `authorize-merge --role normal` with no evidence input. It independently
    re-fetches the bound PR, checks, default ancestry, QA/tribunal receipts, and
    prospective closure audit through a trusted absolute `gh` executable.
-   Then call `maintain-delivery.sh merge-pr --repo-root "$REPO_ROOT" --issue "$N"
+   Then call `maintain-delivery.sh merge-pr --repo-root "$WT" --issue "$N"
    --role normal --merge-method squash`. It rechecks the unchanged default, PR,
    and checks, persists the method, and alone invokes
    `gh pr merge --match-head-commit <receipt-head> --squash`.
@@ -335,6 +368,11 @@ After containment, the supervisor performs these steps in order:
    `MERGES_USED` counter: caller-supplied accounting is not authority. Each normal merge
    counts across every issue in the run; only the one emergency rollback may
    exceed the cap.
+   Read `MERGE_SHA` only from the updated receipt's `.normal.merge.sha`, then call
+   `maintain-attempt.sh reset --repo-root "$REPO_ROOT" --worktree "$WT"
+   --base-sha "$MERGE_SHA" --lease-state "$LEASE_STATE" --run-id "$RUN_ID"`.
+   Require an exact clean `WT` HEAD at `MERGE_SHA`; a squash merge does not leave
+   the prior PR head eligible for live proof.
 7. Select a concrete deploy run for `MERGE_SHA`; never trust "latest". Call
    `record-proof --kind live` with its numeric run ID, stable target-source code,
    and the project's tracked `monitor.custom_checks` hook when it covers the
@@ -347,7 +385,7 @@ After containment, the supervisor performs these steps in order:
    audit result. It freshly fetches the exact merged PR and full OPEN issue, runs
    the prospective audit itself, re-fetches both around the audit, and durably
    binds the unchanged issue revision and digest.
-   Then call `maintain-delivery.sh close-issue --repo-root "$REPO_ROOT" --issue
+   Then call `maintain-delivery.sh close-issue --repo-root "$WT" --issue
    "$N"` with no snapshot argument. That helper alone fetches and compares the
    full current OPEN revision, invokes `gh issue close`, fetches the full CLOSED
    revision, and records it only when the digest is unchanged and
@@ -375,7 +413,9 @@ and `authorize-merge`. Call `merge-pr --role rollback
 --merge-method <squash|merge>`; that helper alone
    merges with `--match-head-commit` for the authorized rollback head. Continue
    through `record-merge` with no caller accounting (only this one rollback may
-   exceed the run ledger by one), rollback-SHA `record-proof --kind live`,
+   exceed the run ledger by one). Read `ROLLBACK_MERGE_SHA` only from
+   `.rollback.merge.sha`, then perform the same lease-validated
+   `maintain-attempt.sh reset` of `$WT` to that SHA before rollback-SHA `record-proof --kind live`,
    `record-release` with only run/target identity, `render-result`, and
    `finalize`. Reuse that exact action after
 interruption; never create a second rollback PR. Record

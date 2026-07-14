@@ -20,7 +20,7 @@ usage() {
 usage: maintain-delivery.sh pending --repo-root DIR [--issue N]
        maintain-delivery.sh show --repo-root DIR --issue N
        maintain-delivery.sh begin --repo-root DIR --issue N --run-id ID
-         --delivery-id ID --merge-budget N --lease-state FILE
+         --delivery-id ID --merge-budget N --scope-json FILE --lease-state FILE
          [--reopen-event-id N --reopen-event-at TIME] [--retry-after-rollback]
        maintain-delivery.sh plan-pr --repo-root DIR --issue N --role normal|rollback
          --branch NAME --base-sha SHA --head-sha SHA
@@ -118,7 +118,7 @@ ACTION=${1:-}; [ -n "$ACTION" ] || usage; shift
 REPO_ROOT=""; ISSUE=""; RUN_ID=""; DELIVERY_ID=""; LEASE_STATE=""
 REOPEN_EVENT_ID=""; REOPEN_EVENT_AT=""; RETRY_AFTER_ROLLBACK=0
 ROLE=""; BRANCH=""; BASE_SHA=""; HEAD_SHA=""
-PR_JSON=""; KIND=""; COMMAND_FILE=""; ARTIFACT=""; NOT_APPLICABLE=0
+PR_JSON=""; SCOPE_JSON=""; KIND=""; COMMAND_FILE=""; ARTIFACT=""; NOT_APPLICABLE=0
 TRIBUNAL_PLUGIN_ROOT=""
 DEPLOY_RUN_ID=""; RESULT_SOURCE=""; PROFILE=""
 MERGE_METHOD=""
@@ -140,6 +140,7 @@ while [ "$#" -gt 0 ]; do
     --head-sha) [ "$#" -ge 2 ] || usage; HEAD_SHA=$2; shift 2 ;;
     --merge-method) [ "$#" -ge 2 ] || usage; MERGE_METHOD=$2; shift 2 ;;
     --merge-budget) [ "$#" -ge 2 ] || usage; MERGE_BUDGET=$2; shift 2 ;;
+    --scope-json) [ "$#" -ge 2 ] || usage; SCOPE_JSON=$2; shift 2 ;;
     --pr-json) [ "$#" -ge 2 ] || usage; PR_JSON=$2; shift 2 ;;
     --kind) [ "$#" -ge 2 ] || usage; KIND=$2; shift 2 ;;
     --command-file) [ "$#" -ge 2 ] || usage; COMMAND_FILE=$2; shift 2 ;;
@@ -160,6 +161,11 @@ case "$ACTION" in
   *) usage ;;
 esac
 [ "$ACTION" = begin ] || [ -z "$MERGE_BUDGET" ] || usage
+if [ "$ACTION" = begin ]; then
+  [ -n "$SCOPE_JSON" ] || usage
+else
+  [ -z "$SCOPE_JSON" ] || usage
+fi
 [ -n "$REPO_ROOT" ] || usage
 case "$ISSUE" in "") [ "$ACTION" = pending ] || usage ;; *) valid_uint "$ISSUE" || die "--issue must be a positive integer" 2 ;; esac
 command -v flock >/dev/null 2>&1 || die "flock is required" 2
@@ -348,16 +354,20 @@ atomic_update() {
 terminal_state() { case "$1" in finalized_success|finalized_rolled_back) return 0 ;; *) return 1 ;; esac; }
 
 require_active_controller() {
-  local expected_run=$1
+  local expected_run=$1 allow_resume=$2
+  case "$allow_resume" in 0|1) : ;; *) die "invalid controller resume policy" ;; esac
   [ -n "$LEASE_STATE" ] || die "mutating delivery actions require --lease-state" 2
   if ! bash "$SCRIPT_DIR/maintain-leases.sh" heartbeat --state-file "$LEASE_STATE" >/dev/null; then
     die "delivery controller no longer owns the maintenance leases" 3
   fi
-  jq -e --arg run "$expected_run" --arg primary "$PRIMARY" --arg common "$COMMON" --arg root "$ROOT" '
-    .schema_version == 2 and .run_id == $run and .repo_root == $primary
+  jq -e --arg run "$expected_run" --argjson allow_resume "$allow_resume" \
+    --arg primary "$PRIMARY" --arg common "$COMMON" --arg root "$ROOT" '
+    .schema_version == 2 and .repo_root == $primary
     and .primary_root == $primary and .common_dir == $common
-    and ((.mode == "maintain-loop" and .worktree == $root)
-      or (.mode == "maintain" and .worktree == "" and $root == $primary))
+    and ((.mode == "maintain-loop" and .worktree == $root
+          and (.run_id == $run or $allow_resume == 1))
+      or (.run_id == $run and .mode == "maintain"
+          and .worktree == "" and $root == $primary))
   ' "$LEASE_STATE" >/dev/null 2>&1 \
     || die "lease state does not bind this controller, run, and worktree" 3
 }
@@ -409,6 +419,21 @@ fresh_issue_snapshot() {
     and (.updatedAt|type == "string"
       and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
   ' "$destination" >/dev/null || die "issue snapshot is not an exact open issue"
+}
+
+canonical_issue_scope() {
+  local source=$1
+  [ -n "$source" ] && [ -f "$source" ] && [ ! -L "$source" ] || return 1
+  jq -ceS -s --argjson issue "$ISSUE" '
+    if length == 1 and (.[0] |
+      type == "object" and keys == ["body","number","state","title","updatedAt"]
+      and .number == $issue and .state == "OPEN"
+      and (.title|type == "string") and (.body|type == "string")
+      and (.updatedAt|type == "string"
+        and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")))
+    then .[0] | {number,state,title,body,updatedAt}
+    else error("invalid issue scope") end
+  ' "$source"
 }
 
 RUN_LEDGER=""
@@ -499,14 +524,20 @@ if [ "$ACTION" = begin ]; then
   valid_id "$RUN_ID" || die "invalid --run-id" 2
   valid_id "$DELIVERY_ID" || die "invalid --delivery-id" 2
   valid_natural "$MERGE_BUDGET" || die "invalid --merge-budget" 2
-  require_active_controller "$RUN_ID"
+  require_active_controller "$RUN_ID" 0
   if [ -n "$REOPEN_EVENT_ID$REOPEN_EVENT_AT" ]; then
     valid_uint "$REOPEN_EVENT_ID" && valid_time "$REOPEN_EVENT_AT" \
       || die "reopen event needs a positive id and UTC timestamp" 2
   fi
+  expected_issue_scope=$(canonical_issue_scope "$SCOPE_JSON") \
+    || die "--scope-json must be an exact regular open-issue snapshot" 2
   issue_snapshot=$(mktemp "$STATE_ROOT/.begin-issue.XXXXXX") || die "cannot create issue snapshot"
   register_temp "$issue_snapshot"
   fresh_issue_snapshot "$issue_snapshot"
+  current_issue_scope=$(canonical_issue_scope "$issue_snapshot") \
+    || die "cannot canonicalize refreshed issue scope"
+  [ "$current_issue_scope" = "$expected_issue_scope" ] \
+    || die "issue scope changed after queue classification"
   ISSUE_UPDATED_AT=$(jq -r .updatedAt "$issue_snapshot")
   issue_scope=$(jq -cS '{number,title,body}' "$issue_snapshot") \
     || die "cannot canonicalize issue scope"
@@ -584,7 +615,7 @@ if [ "$ACTION" = show ]; then jq '.' "$current"; exit 0; fi
 
 case "$ACTION" in
   match-pr|render-result) : ;;
-  *) require_active_controller "$(jq -r .origin_run_id "$current")" ;;
+  *) require_active_controller "$(jq -r .origin_run_id "$current")" 1 ;;
 esac
 
 case "$ROLE" in normal|rollback) : ;; "") case "$ACTION" in close-intent|close-issue|observe-closed|render-result|finalize) : ;; *) usage ;; esac ;; *) usage ;; esac
@@ -1233,7 +1264,7 @@ if [ "$ACTION" = collect-tribunal ]; then
   validate_tribunal_plugin "$TRIBUNAL_PLUGIN_ROOT"
   collection=$(tribunal_collection_path "$ROLE")
   if [ ! -e "$collection" ] && [ ! -L "$collection" ]; then
-    require_active_controller "$(jq -r .origin_run_id "$current")"
+    require_active_controller "$(jq -r .origin_run_id "$current")" 1
     collection_result=$(tribunal_hold 60 1900 10s 1800s "$TRIBUNAL_COLLECTOR" \
       collect --repo-root "$ROOT" --pr "$pr" --output "$collection") \
       || die "tribunal evidence collection failed"
@@ -1372,7 +1403,7 @@ if [ "$ACTION" = record-proof ]; then
     validate_tribunal_plugin "$TRIBUNAL_PLUGIN_ROOT"
     collection=$(tribunal_collection_path "$ROLE")
     manifest_digest=$(verify_tribunal_collection "$ROLE" "$pr" "$target")
-    require_active_controller "$(jq -r .origin_run_id "$current")"
+    require_active_controller "$(jq -r .origin_run_id "$current")" 1
     finalize_result=$(tribunal_hold 60 300 10s 240s "$TRIBUNAL_COLLECTOR" \
       finalize --collection "$collection" \
         --expected-manifest-sha256 "$manifest_digest" --arbitration "$ARTIFACT") \
@@ -1424,7 +1455,7 @@ if [ "$ACTION" = record-proof ]; then
     chmod 700 "$archive_command" || { rm -f -- "$tmp_out"; die "cannot make proof command executable"; }
     build_proof_pass_args "$KIND"
     tmp_err="$proof_scratch/stderr"; sandbox_out="$proof_scratch/stdout"
-    require_active_controller "$(jq -r .origin_run_id "$current")"
+    require_active_controller "$(jq -r .origin_run_id "$current")" 1
     if ! (ulimit -f 1024 && \
         export MAINTAIN_PROOF_KIND="$KIND" MAINTAIN_ISSUE_NUMBER="$ISSUE" MAINTAIN_PR_NUMBER="$pr" \
           MAINTAIN_HEAD_SHA="$target" MAINTAIN_MERGE_SHA="$target" MAINTAIN_DEPLOY_RUN_ID="$DEPLOY_RUN_ID" \
@@ -1673,7 +1704,7 @@ if [ "$ACTION" = merge-pr ]; then
       any(.events[]; .delivery_id == $delivery and .role == "normal" and .sha == $sha)
     ' "$RUN_LEDGER" >/dev/null || die "rollback lacks its run-ledger normal merge"
   fi
-  require_active_controller "$(jq -r .origin_run_id "$current")"
+  require_active_controller "$(jq -r .origin_run_id "$current")" 1
   if ! (cd "$PRIMARY" && trusted_repo_gh pr merge "$pr_number" --match-head-commit "$head_sha" "--$MERGE_METHOD"); then
     die "head-pinned PR merge failed"
   fi

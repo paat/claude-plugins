@@ -77,6 +77,44 @@ test_workflow_lifecycle_safety() {
     '--max-seconds 14400'
   assert_file_contains "WL7f: maintain long commands use foreground lease-set hold" "$maintain_protocol" \
     'maintain-leases.sh" hold'
+  assert_file_contains "WL7f1: maintain-loop accepts a global Playwright CLI" "$maintain_loop_protocol" \
+    'command -v playwright'
+  assert_file_contains "WL7f2: internally leased attempts are not double-wrapped" "$maintain_loop_protocol" \
+    'Do not wrap `maintain-attempt.sh reset`, `base-check`, or'
+  assert_file_contains "WL7f3: pre-worktree pending stays read-only on the primary" \
+    "$maintain_loop_protocol" 'maintain-delivery.sh pending --repo-root "$REPO_ROOT"'
+  count=$(grep -cF -- '--repo-root "$WT"' "$maintain_proof_contract" || true)
+  assert_equals "WL7f4: delivery proof calls use the leased worktree" "$count" 4
+  assert_file_not_contains "WL7f5: delivery proof never targets the primary checkout" \
+    "$maintain_proof_contract" '--repo-root "$REPO_ROOT"'
+  assert_before "WL7f6: new receipt begins only after the green base gate" "$maintain_loop_protocol" \
+    'maintain-attempt.sh" base-check' \
+    'maintain-delivery.sh begin --repo-root "$WT"'
+  assert_before "WL7f7: new receipt begins before branch and writer work" "$maintain_loop_protocol" \
+    'maintain-delivery.sh begin --repo-root "$WT"' \
+    'ATTEMPT_ARGS=(deliver'
+  assert_file_contains "WL7f8: pending QA resumes at the receipt head" "$maintain_loop_protocol" \
+    'normal or rollback QA/tribunal uses that role'
+  assert_file_contains "WL7f9: pending live work resumes at the merge head" "$maintain_loop_protocol" \
+    'post-merge live/release/close work uses that role'
+  assert_file_contains "WL7f10: unbound claimed recovery fails closed" "$maintain_loop_protocol" \
+    'A `claimed` receipt or any pending state without its'
+  assert_before "WL7f11: normal merge reset precedes live proof" "$maintain_loop_protocol" \
+    'Read `MERGE_SHA` only from the updated receipt' \
+    'Select a concrete deploy run for `MERGE_SHA`'
+  assert_file_contains "WL7f12: rollback merge resets before live proof" "$maintain_loop_protocol" \
+    'Read `ROLLBACK_MERGE_SHA` only from'
+  assert_file_contains "WL7f13: begin requires the classified issue scope" "$maintain_delivery" \
+    '--delivery-id ID --merge-budget N --scope-json FILE'
+  assert_file_contains "WL7f14: workflow passes the retained scope to begin" "$maintain_loop_protocol" \
+    '--scope-json "$ISSUE_SCOPE_JSON"'
+  assert_before "WL7f15: issue scope capture precedes begin" "$maintain_loop_protocol" \
+    'gh issue view "$N" --json' \
+    'maintain-delivery.sh begin --repo-root "$WT"'
+  assert_file_contains "WL7f16: active loop lease controls receipt resume" "$maintain_loop_protocol" \
+    'exclusive `maintain-loop` lease bound to `$WT` is controller'
+  assert_file_contains "WL7f17: receipt origin remains run-ledger provenance" "$maintain_loop_protocol" \
+    'origin ID remains provenance and the run-ledger identity'
   assert_before "WL7g: canonical base gate precedes writer dispatch" "$maintain_loop_protocol" \
     'maintain-attempt.sh" base-check' \
     'ATTEMPT_ARGS=(deliver'
