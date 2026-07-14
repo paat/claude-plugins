@@ -66,8 +66,8 @@ Standard QA catches broken widgets, crashes, copy errors, and i18n leaks — all
 
 ### 9. Browser Evidence Contract
 
-- If a flow needs an upload, use `browser_file_upload` with a real file. If a required tool, element, file, or value is unavailable, stop that leg and record the gap as raw state; never fabricate uploads, form values, or responses through `browser_evaluate` to keep moving.
-- Treat `browser_snapshot` output as literal tree evidence: preserve roles, accessible names/text, state/value metadata, hierarchy, and order. If you must shorten it, drop whole subtrees and mark each omission; never invent section titles, borrow nearby headings, or regroup unlabeled nodes.
+- If a flow needs an upload, use `browser_file_upload` with a real file. A missing or pending required tool, including zero callable browser tools, is `tool-unavailable`: stop that leg, mark requested state without completed tool evidence as not observed/captured, and never echo an input as observed state. Never fabricate uploads, form values, or responses through `browser_evaluate` to keep moving.
+- Treat browser tool output as opaque evidence: copy requested literal output byte-for-byte without retyping, correction, normalization, translation, or reconstruction. For requested snapshot evidence, explicitly call `browser_snapshot` with a unique absolute `/tmp/saas-startup-team-snapshot-<run-id>-<checkpoint>.md` filename and retain only its exact tool-provided path/link; never retype the tree or substitute an inline snapshot returned by navigation or interaction. If the saved call fails, mark it not captured with `tool-unavailable` evidence.
 - For multi-step QA, record each checkpoint's requested raw state in order before final synthesis. Include missing requested fields explicitly (`not captured: <reason>`); long evidence is preferable to silently dropping earlier checkpoint state.
 
 ## Browser Testing Quick Reference
