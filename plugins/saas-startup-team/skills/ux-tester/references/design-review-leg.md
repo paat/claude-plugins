@@ -42,6 +42,8 @@ A closed, pending, missing, or otherwise unavailable browser transport is `tool-
 Preserve the current commit and PR. The
 caller may retry the leg exactly once in a fresh browser session using an already
 installed MCP, CLI, or project runner; never install dependencies during recovery.
+Wait until the failed agent/session is terminal before retrying, and never overlap
+repository mutation between attempts.
 
 Discard every partial capture from the failed session and repeat the complete page,
 viewport, locale, console, and interaction matrix from scratch. If the fresh session

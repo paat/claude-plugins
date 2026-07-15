@@ -6,7 +6,7 @@ declare -F assert_file_contains >/dev/null 2>&1 || {
 
 test_workflow_lifecycle_safety() {
   echo -e "\n${CYAN}Suite WL: workflow lifecycle safety${NC}"
-  local goal maintain maintain_protocol maintain_loop maintain_loop_protocol maintain_proof_contract maintain_loop_entry maintain_delivery maintain_escalation mutation_ownership startup improve lessons design first second count guardian lease workdir owner owner2 ec before after holder child_ready child_stopped grandchild_file grandchild
+  local goal maintain maintain_protocol maintain_loop maintain_loop_protocol maintain_proof_contract maintain_loop_entry maintain_delivery maintain_escalation mutation_ownership design_review startup improve lessons design first second count guardian lease workdir owner owner2 ec before after holder child_ready child_stopped grandchild_file grandchild
   goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
   maintain="$PLUGIN_ROOT/references/workflows/maintain.md"
   maintain_protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
@@ -17,6 +17,7 @@ test_workflow_lifecycle_safety() {
   maintain_delivery="$PLUGIN_ROOT/scripts/maintain-delivery.sh"
   maintain_escalation="$PLUGIN_ROOT/scripts/maintain-escalation.sh"
   mutation_ownership="$PLUGIN_ROOT/references/workflows/mutation-ownership.md"
+  design_review="$PLUGIN_ROOT/skills/ux-tester/references/design-review-leg.md"
   startup="$PLUGIN_ROOT/commands/startup.md"
   improve="$PLUGIN_ROOT/references/workflows/improve.md"
   lessons="$PLUGIN_ROOT/commands/lessons-deliver.md"
@@ -72,19 +73,19 @@ test_workflow_lifecycle_safety() {
   assert_file_contains "WL6g: issue-local block records terminal state" \
     "$maintain_protocol" 'record the terminal triage/digest state'
   assert_file_contains "WL6h: shared dev evidence proves its served commit" \
-    "$maintain_protocol" 'served commit is proven'
+    "$design_review" 'served commit is'
   assert_file_contains "WL6i: closed browser transport gets one fresh retry before cooldown" \
-    "$maintain_protocol" 'Only a failed fresh retry may trigger tool-unavailable classification and issue cooldown'
+    "$design_review" 'second failure as issue-local'
   assert_file_contains "WL6j: UX retry waits for the failed session before isolated dispatch" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'After that agent/session is terminal, retry the complete'
+    "$design_review" 'failed agent/session is terminal'
   assert_file_contains "WL6j1: UX retry does not combine partial browser evidence" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'do not combine partial sessions'
+    "$design_review" 'combine partial sessions'
   assert_file_contains "WL6j2: isolated worktrees reuse the documented start command" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'using the same documented start command'
+    "$design_review" 'project'"'"'s documented local command'
   assert_file_contains "WL6k: UX retry forbids overlapping repository mutation" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'Never overlap repository mutation between attempts'
+    "$design_review" 'never overlap'
   assert_file_contains "WL6l: UX baseline cannot reset the caller checkout" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'Never switch or reset the caller'
+    "$design_review" 'never switch or'
   assert_file_contains "WL7: maintain lease state is common-worktree scoped" "$maintain_protocol" \
     'MAINTAIN_LEASE_STATE="$GIT_COMMON/'
   assert_file_contains "WL7a: maintain uses compatibility delivery leases" "$maintain_protocol" \

@@ -876,13 +876,13 @@ test_cross_file_consistency() {
   assert_file_contains "H14a: /ux-test repairs in-scope runtime failures" \
     "$PLUGIN_ROOT/commands/ux-test.md" 'attempt only reversible runtime'
   assert_file_contains "H14b: /ux-test can audit exact revisions locally" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'Serve the fetched default-branch SHA and candidate HEAD'
+    "$PLUGIN_ROOT/commands/ux-test.md" 'skills/ux-tester/references/design-review-leg.md'
   assert_file_contains "H14c: local UX evidence does not claim live proof" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'It does not prove deployed'
+    "$PLUGIN_ROOT/commands/ux-test.md" 'Post-deploy visual smoke'
   assert_file_contains "H14d: direct UX repair cannot mutate tracked source" \
     "$PLUGIN_ROOT/commands/ux-test.md" 'does not modify tracked product source'
   assert_file_contains "H14e: direct UX baseline preserves the caller checkout" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'Never switch or reset the caller'
+    "$PLUGIN_ROOT/skills/ux-tester/references/design-review-leg.md" 'never switch or'
   assert_file_contains "H15: /growth state update sets active_role" \
     "$PLUGIN_ROOT/commands/growth.md" '"active_role": "business-founder"'
 
@@ -1875,20 +1875,20 @@ test_maintain_loop() {
   assert_file_contains "ML16f: dry-run mints and reaps no lease" "$command" \
     'Under `--dry-run`, never mint or reap a lease'
 
-  assert_file_contains "ML16a: issue blockers require durable cooldown" "$command" \
+  assert_file_contains "ML16g: issue blockers require durable cooldown" "$command" \
     'persisting an active cooldown'
-  assert_file_contains "ML16b: issue blockers return to the probe" "$command" \
+  assert_file_contains "ML16h: issue blockers return to the probe" "$command" \
     'Otherwise return to step 1'
-  assert_file_contains "ML16c: pass-wide or unknown blockers stop" "$command" \
+  assert_file_contains "ML16i: pass-wide or unknown blockers stop" "$command" \
     'or unknown scope'
-  assert_file_contains "ML16d1: per-pass limits continue the loop" "$command" \
+  assert_file_contains "ML16j: per-pass limits continue the loop" "$command" \
     'Return `pass-complete` after success or a'
-  assert_file_contains "ML16e: unavailable issue targets are diagnostics" \
+  assert_file_contains "ML16k: unavailable issue targets are diagnostics" \
     "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
     'unavailable issue-specific dev or test target first as a diagnostic'
-  assert_file_contains "ML16f: baseline evidence uses an isolated worktree" \
+  assert_file_contains "ML16l: browser evidence loads the canonical procedure" \
     "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    'clean temporary worktree and'
+    'skills/ux-tester/references/design-review-leg.md'
 
   assert_file_exists "ML17: concise Codex skill exists" "$codex_cmd"
   assert_file_contains "ML18: Codex skill aliases command" "$codex_cmd" "/maintain-loop"

@@ -32,15 +32,13 @@ local replacement below.
 2. If the repository or dev container owns the cause, attempt only reversible runtime
    recovery that does not modify tracked product source: use its documented setup and
    start/restart commands once, then inspect bounded startup logs and retry.
-3. Serve the fetched default-branch SHA and candidate HEAD from separate clean temporary
-   worktrees on separate ports using the same documented start command.
-   Never switch or reset the caller's checkout. Verify each checkout and served commit,
-   then clean up both servers and worktrees.
+3. Follow `skills/ux-tester/references/design-review-leg.md` §Pre-merge design-review
+   leg for exact-checkout baseline/candidate localhost serving and cleanup.
 4. If reaching the route requires a tracked-source change, record it as an audit finding.
    Only a parent delivery workflow may route that fix through implementation, regression
    tests, review, and delivery gates. Do not invent repair commands.
-5. Local evidence is valid for an audit and pre-merge QA. It does not prove deployed
-   or live behavior; run that verification against the public URL after deployment.
+5. For live evidence, follow the same reference's §Post-deploy visual smoke; local
+   audit evidence never substitutes for it.
 
 Stop only when neither target can be made reachable without external authority, and
 report the concrete dependency that must change.
@@ -103,13 +101,6 @@ Pass the following to the UX Tester agent:
 - Reminder: check accessibility — it is not optional
 - Reminder: derive QA cases from `.startup/workflows/` when specs exist and report missing workflow coverage in the audit; do not edit the registry
 - Reminder: apply triggered SaaS gates when relevant: async paid-flow states, checkout CTA proximity, customer copy/value units, structured-result raw-value scan, LLM quality evidence, and compliance/risk claim taxonomy
-
-If the Playwright MCP transport closes mid-audit, preserve cleanup obligations but do not combine partial sessions.
-After that agent/session is terminal, retry the complete
-audit once in a fresh isolated agent/session (fresh transport) and rebuild evidence
-from scratch. Never overlap repository mutation between attempts. Classify
-`tool-unavailable` only if the retry also lacks a working transport, and always finish
-documented cleanup.
 
 ### Step 4: Report to Investor
 

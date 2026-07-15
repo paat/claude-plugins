@@ -596,23 +596,12 @@ passes.
   immediately as a blocker.
   When its cause is repository- or container-owned, use only the project's documented
   setup and start/restart commands for one repair attempt, probe its documented health
-  endpoint or target route, inspect bounded startup logs, fix the cause, and retry. Use
-  the fetched default-branch SHA for a baseline audit and candidate HEAD after
-  implementation; do not invent commands.
-- For browser audits and pre-merge QA, use that exact checkout's localhost server. A
-  shared dev URL may substitute only when its served commit is proven. Local evidence
-  never substitutes for post-deploy live verification; an unresolved post-merge live
-  failure is pass-wide.
-- Keep baseline and candidate evidence isolated: use a clean temporary worktree and
-  separate port for the fetched default-branch baseline, keep candidate HEAD in the
-  pass-owned worktree, verify both served commits, and never switch or reset the primary
-  or caller checkout. Stop both servers and remove the temporary baseline worktree.
-- A Playwright MCP transport closure during an audit is not yet `tool-unavailable`.
-  Preserve completed evidence and cleanup obligations; after the failed agent/session
-  is terminal, retry unfinished browser legs once in a fresh isolated agent/session
-  (fresh transport), without overlapping repository mutation.
-  Only a failed fresh retry may trigger tool-unavailable classification and issue cooldown;
-  always finish documented cleanup.
+  endpoint or target route, inspect bounded startup logs, fix the cause, and retry; do
+  not invent commands.
+- For browser audits and pre-merge QA, follow
+  `skills/ux-tester/references/design-review-leg.md` §Pre-merge design-review leg and
+  §Browser transport recovery. Local evidence never substitutes for post-deploy live
+  verification; an unresolved post-merge live failure is pass-wide.
 - Only after evidence shows that a pre-merge remedy needs external authority may the
   supervisor remove `maintain:claimed`, record the terminal triage/digest state, write
   the active cooldown, and return `issue-blocked`. Continue the remaining eligible
