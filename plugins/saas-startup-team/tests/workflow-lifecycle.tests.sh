@@ -76,7 +76,11 @@ test_workflow_lifecycle_safety() {
   assert_file_contains "WL6i: closed browser transport gets one fresh retry before cooldown" \
     "$maintain_protocol" 'Only a failed fresh retry may trigger tool-unavailable classification and issue cooldown'
   assert_file_contains "WL6j: UX retry waits for the failed session before isolated dispatch" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'After that agent/session is terminal, retry only unfinished'
+    "$PLUGIN_ROOT/commands/ux-test.md" 'After that agent/session is terminal, retry the complete'
+  assert_file_contains "WL6j1: UX retry does not combine partial browser evidence" \
+    "$PLUGIN_ROOT/commands/ux-test.md" 'do not combine partial sessions'
+  assert_file_contains "WL6j2: isolated worktrees reuse the documented start command" \
+    "$PLUGIN_ROOT/commands/ux-test.md" 'using the same documented start command'
   assert_file_contains "WL6k: UX retry forbids overlapping repository mutation" \
     "$PLUGIN_ROOT/commands/ux-test.md" 'Never overlap repository mutation between attempts'
   assert_file_contains "WL6l: UX baseline cannot reset the caller checkout" \

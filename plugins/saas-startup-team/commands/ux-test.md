@@ -33,8 +33,9 @@ local replacement below.
    recovery that does not modify tracked product source: use its documented setup and
    start/restart commands once, then inspect bounded startup logs and retry.
 3. Serve the fetched default-branch SHA and candidate HEAD from separate clean temporary
-   worktrees on separate ports. Never switch or reset the caller's checkout. Verify each
-   checkout and served commit, then clean up both servers and worktrees.
+   worktrees on separate ports using the same documented start command.
+   Never switch or reset the caller's checkout. Verify each checkout and served commit,
+   then clean up both servers and worktrees.
 4. If reaching the route requires a tracked-source change, record it as an audit finding.
    Only a parent delivery workflow may route that fix through implementation, regression
    tests, review, and delivery gates. Do not invent repair commands.
@@ -103,11 +104,12 @@ Pass the following to the UX Tester agent:
 - Reminder: derive QA cases from `.startup/workflows/` when specs exist and report missing workflow coverage in the audit; do not edit the registry
 - Reminder: apply triggered SaaS gates when relevant: async paid-flow states, checkout CTA proximity, customer copy/value units, structured-result raw-value scan, LLM quality evidence, and compliance/risk claim taxonomy
 
-If the Playwright MCP transport closes mid-audit, preserve completed evidence and
-cleanup obligations. After that agent/session is terminal, retry only unfinished
-browser legs once in a fresh isolated agent/session (fresh transport).
-Never overlap repository mutation between attempts. Classify `tool-unavailable` only
-if the retry also lacks a working transport, and always finish documented cleanup.
+If the Playwright MCP transport closes mid-audit, preserve cleanup obligations but do not combine partial sessions.
+After that agent/session is terminal, retry the complete
+audit once in a fresh isolated agent/session (fresh transport) and rebuild evidence
+from scratch. Never overlap repository mutation between attempts. Classify
+`tool-unavailable` only if the retry also lacks a working transport, and always finish
+documented cleanup.
 
 ### Step 4: Report to Investor
 
