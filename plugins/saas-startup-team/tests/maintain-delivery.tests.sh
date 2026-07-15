@@ -10,11 +10,11 @@ test_maintain_delivery_lifecycle() {
   local result pending events ec out duplicate_pr feature2_base feature2_head feature2_merge
   local rollback_head rollback_merge rollback_pr_open rollback_pr_merged common state_root victim
   local fake_bin fake_head fake_issue fake_mutation fake_log changed_issue bad_rollback_head
-  local fake_pr fake_checks fake_run remote qa_command bad_command monitor_command tribunal fake_tribunal
+  local fake_pr fake_prs fake_checks fake_run remote qa_command bad_command monitor_command tribunal fake_tribunal
   local live_output live_proof_path test_plugin delivery_impl lease_state lease_run authority_command
   local issue_scope fresh_repo fresh_common fresh_wt fresh_origin_state fresh_resume_state
   local fresh_legacy_state fresh_base fresh_pr_head fresh_scope fresh_drift fresh_receipt_head fresh_ledger
-  local fresh_resume_ledger
+  local fresh_resume_ledger legacy_delivery legacy_state legacy_base legacy_cache legacy_wt legacy_check_oid
   repo=$(make_workdir)
   test_plugin="$repo/.test-plugin"; mkdir "$test_plugin"; cp -a "$PLUGIN_ROOT/scripts/." "$test_plugin/"
   delivery_impl="$test_plugin/maintain-delivery.sh"
@@ -68,6 +68,9 @@ case "${1:-} ${2:-}" in
     ;;
   "pr view")
     cat "$FAKE_GH_PR_SOURCE"
+    ;;
+  "pr list")
+    cat "$FAKE_GH_PRS_SOURCE"
     ;;
   "pr checks")
     cat "$FAKE_GH_CHECKS_SOURCE"
@@ -265,9 +268,10 @@ jobs:
     steps:
       - run: true
 DEPLOY_WORKFLOW
-  chmod +x "$qa_command" "$bad_command" "$authority_command" "$monitor_command"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/check.sh"
+  chmod +x "$qa_command" "$bad_command" "$authority_command" "$monitor_command" "$repo/check.sh"
   printf 'base\n' > "$repo/app.txt"
-  git -C "$repo" add app.txt live-proof.sh bad-proof.sh authority-proof.sh .startup/monitor-checks.sh \
+  git -C "$repo" add app.txt check.sh live-proof.sh bad-proof.sh authority-proof.sh .startup/monitor-checks.sh \
     .claude/saas-startup-team.local.md .github/workflows/deploy.yml
   git -C "$repo" commit -qm base
   base=$(git -C "$repo" rev-parse HEAD)
@@ -285,7 +289,8 @@ DEPLOY_WORKFLOW
   run=run-md-1; delivery=delivery-md-1
   pr_open="$repo/pr-open.json"; pr_merged="$repo/pr-merged.json"
   issue_open="$repo/issue-open.json"; issue_closed="$repo/issue-closed.json"
-  fake_pr="$repo/fake-gh-pr.json"; fake_checks="$repo/fake-gh-checks.json"; fake_run="$repo/fake-gh-run.json"
+  fake_pr="$repo/fake-gh-pr.json"; fake_prs="$repo/fake-gh-prs.json"
+  fake_checks="$repo/fake-gh-checks.json"; fake_run="$repo/fake-gh-run.json"
   jq -n --arg head "$head" --arg body $'Refs #1\nMaintain-Loop-Issue: #1\nMaintain-Loop-Delivery: delivery-md-1\nMaintain-Loop-Role: normal\nMaintain-Loop-Action: delivery-md-1-normal' \
     '{number:11,state:"OPEN",headRefName:"issue-one",headRefOid:$head,baseRefName:"main",title:"Fix issue one",
       body:$body,mergeCommit:null,files:[{path:"app.txt"}]}' > "$pr_open"
@@ -296,10 +301,12 @@ DEPLOY_WORKFLOW
   jq --arg at "2099-07-14T10:03:00Z" '.state="CLOSED" | .updatedAt=$at | .closedAt=$at' \
     "$issue_open" > "$issue_closed"
   jq -n '[{name:"unit",bucket:"pass",link:"https://example.invalid/check/11"}]' > "$fake_checks"
+  printf '[]\n' > "$fake_prs"
   cp -- "$pr_open" "$fake_pr"; cp -- "$issue_open" "$fake_issue"
   write_tribunal_evidence 1 11 "$head" issue-one
   export MAINTAIN_TEST_GH_BIN="$fake_bin/gh" MAINTAIN_TEST_REPO_SLUG=fixture-owner/fixture-repo
-  export FAKE_GH_PR_SOURCE="$fake_pr" FAKE_GH_CHECKS_SOURCE="$fake_checks" FAKE_GH_RUN_SOURCE="$fake_run"
+  export FAKE_GH_PR_SOURCE="$fake_pr" FAKE_GH_PRS_SOURCE="$fake_prs"
+  export FAKE_GH_CHECKS_SOURCE="$fake_checks" FAKE_GH_RUN_SOURCE="$fake_run"
   export FAKE_GH_ISSUE_SOURCE="$fake_issue" FAKE_GH_HEAD_FILE="$fake_head" FAKE_GH_MUTATION="$fake_mutation"
   export FAKE_GH_LOG="$fake_log" FAKE_GH_CLOSED_AT="2099-07-14T10:03:00Z"
   issue_scope="$repo/issue-scope.json"
@@ -421,6 +428,64 @@ DEPLOY_WORKFLOW
 
   ec=0; out=$(bash "$script" match-pr --repo-root "$repo" --issue 1 --role normal --pr-json "$pr_open" 2>&1) || ec=$?
   assert_exit_code "MD1: public marker without a receipt is not authority" "$ec" 1
+
+  bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
+    --run-id "$lease_run" >/dev/null
+  lease_state=""
+  legacy_delivery=legacy-md-1
+  legacy_base=$(git -C "$repo" rev-parse HEAD)
+  legacy_wt="$repo/.worktrees/maintain-loop"
+  legacy_state="$common/saas-startup-team/maintain-runtime/$run-legacy-leases.json"
+  legacy_cache="$common/saas-startup-team/maintain-runtime/base-checks/$run"
+  bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain-loop \
+    --run-id "$run" --state-file "$legacy_state" --worktree "$legacy_wt" >/dev/null
+  bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$repo" --worktree "$legacy_wt" \
+    --base-sha "$legacy_base" --lease-state "$legacy_state" --run-id "$run" >/dev/null
+  legacy_check_oid=$(git -C "$legacy_wt" rev-parse HEAD:check.sh)
+  mkdir -p "$legacy_cache"
+  jq -n --arg run_id "$run" --arg base_sha "$legacy_base" --arg check_oid "$legacy_check_oid" \
+    --arg checked_at "2026-07-14T10:00:00Z" \
+    '{schema_version:1,run_id:$run_id,base_sha:$base_sha,check_rel:"check.sh",check_oid:$check_oid,
+      status:"passed",checked_at:$checked_at}' > "$legacy_cache/$legacy_base.json"
+  bash "$delivery_impl" begin --repo-root "$legacy_wt" --issue 1 --run-id "$run" \
+    --delivery-id "$legacy_delivery" --merge-budget 1 --scope-json "$issue_scope" \
+    --lease-state "$legacy_state" >/dev/null
+  ec=0
+  bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD1a: active claimed receipt cleanup is refused" "$ec" 3
+  assert_equals "MD1b: refused active cleanup leaves the receipt claimed" \
+    "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" claimed
+  bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$legacy_state" \
+    --run-id "$run" >/dev/null
+  cp -- "$issue_closed" "$fake_issue"
+  git -C "$legacy_wt" checkout -qb legacy-claimed-source
+  ec=0
+  bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD1c: a branch-attached worktree makes claimed cleanup ambiguous" "$ec" 1
+  assert_equals "MD1d: branch-state refusal leaves the receipt claimed" \
+    "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" claimed
+  git -C "$legacy_wt" checkout -q --detach "$legacy_base"
+  ec=0
+  bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD1e: a detached worktree cannot hide its leftover claim branch" "$ec" 1
+  assert_equals "MD1f: leftover-branch refusal leaves the receipt claimed" \
+    "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" claimed
+  git -C "$repo" branch -D legacy-claimed-source >/dev/null
+  jq -n --arg body "Maintain-Loop-Delivery: $legacy_delivery" \
+    '[{number:91,state:"MERGED",body:$body}]' > "$fake_prs"
+  ec=0
+  bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD1g: a delivery-marked PR makes claimed cleanup ambiguous" "$ec" 1
+  assert_equals "MD1h: PR ambiguity leaves the receipt claimed" \
+    "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" claimed
+  printf '[]\n' > "$fake_prs"
+  bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 >/dev/null
+  assert_equals "MD1i: eligible legacy claim becomes terminal" \
+    "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" archived_claim
+  assert_equals "MD1j: archived legacy claim disappears from pending" \
+    "$(bash "$delivery_impl" pending --repo-root "$repo" | jq length)" 0
+  cp -- "$issue_open" "$fake_issue"
+  switch_test_lease "$run"
 
   bash "$script" begin --repo-root "$repo" --issue 1 --run-id "$run" --delivery-id "$delivery" \
     --merge-budget 1 --scope-json "$issue_scope" >/dev/null
@@ -834,7 +899,7 @@ FAKE_UNSHARE
     --merge-budget 1 --scope-json "$issue_scope" \
     --reopen-event-id 901 --reopen-event-at 2099-07-14T10:04:00Z >/dev/null
   assert_equals "MD21: verified reopen starts a new generation" \
-    "$(bash "$script" show --repo-root "$repo" --issue 1 | jq -r .generation)" 2
+    "$(bash "$script" show --repo-root "$repo" --issue 1 | jq -r .generation)" 3
   ec=0; bash "$script" match-pr --repo-root "$repo" --issue 1 --role normal --pr-json "$pr_merged" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD22: prior-generation marker cannot authorize the new delivery" "$ec" 1
 
