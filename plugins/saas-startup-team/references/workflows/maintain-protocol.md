@@ -538,6 +538,10 @@ into each founder brief: re-resolve paths after any checkout/worktree switch; re
   shared dev URL may substitute only when its served commit is proven. Local evidence
   never substitutes for post-deploy live verification; an unresolved post-merge live
   failure is pass-wide.
+- Keep baseline and candidate evidence isolated: use a clean temporary worktree and
+  separate port for the fetched default-branch baseline, keep candidate HEAD in the
+  pass-owned worktree, verify both served commits, and never switch or reset the primary
+  or caller checkout. Stop both servers and remove the temporary baseline worktree.
 - A Playwright MCP transport closure during an audit is not yet `tool-unavailable`.
   Preserve completed evidence and cleanup obligations; after the failed agent/session
   is terminal, retry unfinished browser legs once in a fresh isolated agent/session

@@ -66,6 +66,8 @@ test_ui_gate() {
     'shared dev URL is not pre-merge evidence'
   assert_file_contains "UG12c: post-deploy evidence uses public URL" "$leg" \
     'deployed public URL'
+  assert_file_contains "UG12d: baseline and candidate preserve caller workspace" "$leg" \
+    'never switch or'
 
   # merge-policy names the classifier
   assert_file_contains "UG13: merge-policy names ui-touch.sh" "$policy" "scripts/ui-touch.sh"

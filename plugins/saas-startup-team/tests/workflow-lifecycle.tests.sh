@@ -79,6 +79,8 @@ test_workflow_lifecycle_safety() {
     "$PLUGIN_ROOT/commands/ux-test.md" 'After that agent/session is terminal, retry only unfinished'
   assert_file_contains "WL6k: UX retry forbids overlapping repository mutation" \
     "$PLUGIN_ROOT/commands/ux-test.md" 'Never overlap repository mutation between attempts'
+  assert_file_contains "WL6l: UX baseline cannot reset the caller checkout" \
+    "$PLUGIN_ROOT/commands/ux-test.md" 'Never switch or reset the caller'
   assert_file_contains "WL7: maintain lease state is common-worktree scoped" "$maintain_protocol" \
     'MAINTAIN_LEASE_STATE="$GIT_COMMON/'
   assert_file_contains "WL7a: maintain uses compatibility delivery leases" "$maintain_protocol" \

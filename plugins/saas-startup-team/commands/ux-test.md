@@ -28,13 +28,17 @@ local replacement below.
 
 **If unreachable:**
 
-1. Diagnose the failed service or route. Repair it when the repository or dev
-   container owns the cause.
-2. If the remote URL represents code in this repository, use only its documented setup
-   and start/restart commands for one repair attempt, then inspect bounded startup logs
-   and audit localhost. Use the fetched default-branch SHA for a baseline audit and
-   candidate HEAD after a fix. Do not invent commands or stop after the first `curl`.
-3. Local evidence is valid for an audit and pre-merge QA. It does not prove deployed
+1. Diagnose the failed service or route.
+2. If the repository or dev container owns the cause, attempt only reversible runtime
+   recovery that does not modify tracked product source: use its documented setup and
+   start/restart commands once, then inspect bounded startup logs and retry.
+3. Serve the fetched default-branch SHA and candidate HEAD from separate clean temporary
+   worktrees on separate ports. Never switch or reset the caller's checkout. Verify each
+   checkout and served commit, then clean up both servers and worktrees.
+4. If reaching the route requires a tracked-source change, record it as an audit finding.
+   Only a parent delivery workflow may route that fix through implementation, regression
+   tests, review, and delivery gates. Do not invent repair commands.
+5. Local evidence is valid for an audit and pre-merge QA. It does not prove deployed
    or live behavior; run that verification against the public URL after deployment.
 
 Stop only when neither target can be made reachable without external authority, and

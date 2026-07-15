@@ -12,9 +12,11 @@ Trigger: `scripts/ui-touch.sh` classifies the branch diff as `ui`.
 
 1. Serve the exact checkout under test with the project's documented local command.
    For a baseline audit use the fetched default-branch SHA; after implementation use
-   candidate HEAD. A shared dev URL is not pre-merge evidence unless its served commit
-   is proven. From the tech-founder handoff, list the affected pages and open each at
-   the localhost URL.
+   candidate HEAD. Use separate clean temporary worktrees and ports, never switch or
+   reset the caller's checkout, verify each served commit, and clean up both servers
+   and worktrees. A shared dev URL is not pre-merge evidence unless its served commit is
+   proven. From the tech-founder handoff, list the affected pages and open each at the
+   localhost URL.
 2. Capture 375px + 1280px screenshots per affected page (× each locale).
 3. Score each against the severity matrix on:
    - alignment/spacing to rendered neighbors
