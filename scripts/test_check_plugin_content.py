@@ -81,5 +81,25 @@ class FrontmatterSyntaxTests(unittest.TestCase):
         self.assertEqual(metadata, {"name": "yes", "description": "2026-07-14"})
 
 
+class CommandSkillTests(unittest.TestCase):
+    def test_accepts_codex_skill_name_override(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = Path(directory) / "fixture"
+            command = plugin / "commands" / "maintain-loop.md"
+            skill = plugin / "skills" / "maintain-loop" / "SKILL.md"
+            command.parent.mkdir(parents=True)
+            skill.parent.mkdir(parents=True)
+            command.write_text(
+                "---\nname: maintain-loop\ncodex-skill-name: maintain-loop\n---\n",
+                encoding="utf-8",
+            )
+            skill.write_text("---\nname: maintain-loop\ndescription: Test\n---\n", encoding="utf-8")
+            errors: list[str] = []
+
+            CHECKER.lint_commands(plugin, errors)
+
+            self.assertEqual(errors, [])
+
+
 if __name__ == "__main__":
     unittest.main()
