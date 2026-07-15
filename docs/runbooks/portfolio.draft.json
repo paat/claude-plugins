@@ -1,5 +1,5 @@
 {
-  "_comment": "Rollout draft tracked by ai-dashboard #15/#16. Dashboard PR #25 is merged; keep all product projects held until cutover #24 is complete. Then unhold only aruannik for a fresh 72-hour Slot A soak; unhold Slot B only after that soak passes. Fill the three TODO repo_path values, save outside the repo, validate with mission-control.sh arm, then install the printed cron line as a human-only step.",
+  "_comment": "Rollout draft tracked by ai-dashboard #15/#16. Dashboard PR #25 is merged and cutover #24 is closed as not planned. Run product projects directly as dev with unrestricted Codex; SSH is the operator control plane. Fill the three TODO repo_path values, save outside the repo, validate with mission-control.sh arm, then install the printed cron line.",
   "timezone": "Europe/Tallinn",
   "docker_cmd": "sudo docker",
   "docker_exec_user": "dev",
@@ -33,8 +33,7 @@
       "stage": "live",
       "engine": "codex",
       "command": "$saas-startup-team:maintain-loop --once",
-      "hold": true,
-      "delivery_hold": true,
+      "hold": false,
       "incident_labels": ["incident", "production", "critical"]
     },
     {
@@ -44,8 +43,7 @@
       "stage": "live",
       "engine": "codex",
       "command": "$saas-startup-team:maintain-loop --once",
-      "hold": true,
-      "delivery_hold": true,
+      "hold": false,
       "incident_labels": ["incident", "production", "critical"]
     },
     {
@@ -55,8 +53,7 @@
       "stage": "pre-launch",
       "engine": "codex",
       "command": "$saas-startup-team:maintain-loop --once",
-      "hold": true,
-      "delivery_hold": true
+      "hold": false
     },
     {
       "name": "plugin-repo",
@@ -68,5 +65,5 @@
       "hold": false
     }
   ],
-  "admission": { "wip_cap": 1, "confidence_min": 0.7, "veto_hours": 72 }
+  "admission": { "wip_cap": 1, "confidence_min": 0.7, "veto_hours": 0 }
 }
