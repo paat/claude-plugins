@@ -8,6 +8,7 @@ usage() {
 Usage: maintain-queue.sh [--repo OWNER/REPO] [--issue N] [--label LABEL]
                          [--default-branch NAME]
                          [--blocked-file PATH]...
+                         [--resume-candidate-file PATH]
                          [--dependency-status-file PATH]
                          [--issues-file PATH --open-prs-file PATH]
 
@@ -23,6 +24,7 @@ blocked_files=()
 issues_file=""
 open_prs_file=""
 dependency_status_file=""
+resume_candidate_file=""
 default_branch="${MAINTAIN_QUEUE_DEFAULT_BRANCH:-}"
 default_branch_explicit=0
 [ -n "${MAINTAIN_QUEUE_DEFAULT_BRANCH:-}" ] && default_branch_explicit=1
@@ -76,6 +78,9 @@ while [ "$#" -gt 0 ]; do
     --dependency-status-file)
       [ "$#" -ge 2 ] || { usage; exit 2; }
       dependency_status_file="$2"; shift 2 ;;
+    --resume-candidate-file)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      resume_candidate_file="$2"; shift 2 ;;
     -h|--help)
       usage; exit 0 ;;
     *)
@@ -108,6 +113,32 @@ open_prs_json="$tmpdir/open-prs.json"
 blocked_json="$tmpdir/blocked.json"
 dep_status_json="$tmpdir/dependency-status.json"
 output_json="$tmpdir/output.json"
+resume_candidate_json="$tmpdir/resume-candidate.json"
+
+if [ -n "$resume_candidate_file" ]; then
+  [ -f "$resume_candidate_file" ] && [ ! -L "$resume_candidate_file" ] || {
+    echo "maintain-queue: resume candidate is missing or unsafe" >&2
+    exit 3
+  }
+  if ! jq -e 'select(
+    type == "object"
+    and ((.number | type) == "number")
+    and (.number > 0) and (.number == (.number | floor))
+    and ((.updatedAt | type) == "string") and (.updatedAt | length > 0)
+    and (.updatedAt | test("[[:cntrl:]]") | not)
+    and ((.pr_number | type) == "number")
+    and (.pr_number > 0) and (.pr_number == (.pr_number | floor))
+  )' "$resume_candidate_file" > "$resume_candidate_json"; then
+    echo "maintain-queue: resume candidate is malformed" >&2
+    exit 3
+  fi
+  candidate_issue=$(jq -r .number "$resume_candidate_json")
+  if [ -n "$issue" ] && [ "$issue" != "$candidate_issue" ]; then
+    echo "maintain-queue: --issue does not match resume candidate" >&2
+    exit 2
+  fi
+  issue="$candidate_issue"
+fi
 
 gh_with_repo() {
   [ -n "$repo" ] || return 2
@@ -147,7 +178,7 @@ else
   fi
   if [ -n "$issue" ]; then
     gh_with_repo issue view "$issue" \
-      --json number,title,body,labels,state,createdAt,updatedAt,closedByPullRequestsReferences |
+      --json number,title,body,labels,assignees,state,createdAt,updatedAt,closedByPullRequestsReferences |
       jq '[.]' > "$issues_json"
     if [ "$(jq -r '.[0].state // "OPEN"' "$issues_json")" != "OPEN" ]; then
       echo "maintain-queue: issue #$issue is not open" >&2
@@ -155,7 +186,7 @@ else
     fi
   else
     gh_with_repo issue list --state open --limit "$list_limit" \
-      --json number,title,body,labels,createdAt,updatedAt,closedByPullRequestsReferences \
+      --json number,title,body,labels,assignees,createdAt,updatedAt,closedByPullRequestsReferences \
       > "$issues_json"
   fi
   gh_with_repo pr list --state open --limit "$list_limit" \
@@ -175,6 +206,43 @@ else
   fi
   if [ "$(jq length "$open_prs_json")" -ge "$list_limit" ]; then
     echo "maintain-queue: fetched $list_limit open PRs; refusing possibly truncated linked-PR set" >&2
+    exit 3
+  fi
+fi
+
+if [ -n "$resume_candidate_file" ]; then
+  if ! jq -e --argjson number "$issue" '
+    type == "array" and length == 1
+    and (.[0].number == $number)
+    and (.[0].state == "OPEN")
+    and ((.[0].updatedAt | type) == "string") and (.[0].updatedAt | length > 0)
+    and ((.[0].labels | type) == "array")
+    and all(.[0].labels[];
+      (type == "string") or (type == "object" and ((.name | type) == "string")))
+    and ((.[0].assignees | type) == "array")
+    and all(.[0].assignees[];
+      type == "object" and ((.login | type) == "string") and (.login | length > 0))
+    and ((.[0].closedByPullRequestsReferences | type) == "array")
+    and all(.[0].closedByPullRequestsReferences[];
+      ((.number | type) == "number") and (.number > 0)
+      and (.number == (.number | floor)))
+  ' "$issues_json" >/dev/null; then
+    echo "maintain-queue: live resume issue data is malformed" >&2
+    exit 3
+  fi
+  if ! jq -e '
+    type == "array"
+    and ((map(.number) | unique | length) == length)
+    and all(.[];
+      ((.number | type) == "number") and (.number > 0)
+      and (.number == (.number | floor))
+      and (((.body // "") | type) == "string")
+      and ((.closingIssuesReferences | type) == "array")
+      and all(.closingIssuesReferences[];
+        ((.number | type) == "number") and (.number > 0)
+        and (.number == (.number | floor))))
+  ' "$open_prs_json" >/dev/null; then
+    echo "maintain-queue: live resume PR data is malformed" >&2
     exit 3
   fi
 fi
@@ -265,6 +333,9 @@ jq -n \
   def label_names:
     (.labels // [] | map(if type == "object" then (.name // "") else tostring end));
 
+  def assignee_names:
+    (.assignees // [] | map(if type == "object" then (.login // "") else tostring end));
+
   def depnums:
     [((.title // "") + "\n" + (.body // "")
       | match($dep_clause_re; "g")
@@ -297,12 +368,17 @@ jq -n \
       $prs[]? | select(pr_closes(.; $issue.number)) | .number
     ]) | unique;
 
-  def label_excluded:
+  def base_excluded:
     (.label_match | not)
     or .needs_human
+    or .assigned
     or .epic
-    or .cooldown
-    or ((.linked_prs | length) > 0);
+    or .cooldown;
+
+  def resumable_pr:
+    (base_excluded | not)
+    and .maintain_claimed
+    and ((.linked_prs | length) == 1);
 
   def dep_satisfied($dep; $statuses):
     ($statuses | map(select(.number == $dep)) | first) as $status
@@ -328,6 +404,7 @@ jq -n \
       | select(.number != null)
       | select((.state // "OPEN") == "OPEN")
       | label_names as $labels
+      | assignee_names as $assignees
       | severity_rank($labels) as $rank
       | {
           number,
@@ -335,11 +412,14 @@ jq -n \
           createdAt: (.createdAt // ""),
           updatedAt: (.updatedAt // ""),
           labels: $labels,
+          assignees: $assignees,
           deps: depnums,
           severity_rank: $rank,
           severity: severity_name($rank),
           label_match: ($issue != "" or $label == "" or (($labels | index($label)) != null)),
           needs_human: (($labels | index("needs-human")) != null),
+          assigned: (($assignees | length) > 0),
+          maintain_claimed: (($labels | index("maintain:claimed")) != null),
           maintain_blocked: (($labels | index("maintain:blocked")) != null),
           epic: (($labels | index("epic")) != null),
           cooldown: (.number as $n | (($cooldown_numbers | index($n)) != null)),
@@ -358,25 +438,36 @@ jq -n \
         }
     ] as $with_deps
   | ($with_deps
-      | map(select((label_excluded | not) and ((.blocked_deps | length) == 0)))
+      | map(select((base_excluded | not)
+          and ((.linked_prs | length) == 0)
+          and ((.blocked_deps | length) == 0)))
       | sort_by(.severity_rank, .createdAt, .number)) as $queue
+  | ($with_deps
+      | map(select(resumable_pr and ((.blocked_deps | length) == 0)))
+      | sort_by(.severity_rank, .createdAt, .number)) as $resumable
   | {
       label_filter: numbers($with_deps | map(select(.label_match | not))),
       needs_human: numbers($with_deps | map(select(.needs_human))),
+      assigned: numbers($with_deps | map(select(.assigned))),
       maintain_blocked: numbers($with_deps | map(select(.maintain_blocked and .cooldown))),
       epic: numbers($with_deps | map(select(.epic))),
       cooldown: numbers($with_deps | map(select(.cooldown))),
-      linked_pr: numbers($with_deps | map(select((.linked_prs | length) > 0))),
+      linked_pr: numbers($with_deps
+        | map(select(((.linked_prs | length) > 0) and (resumable_pr | not)))),
       dependency_wait: [
         $with_deps[]
-        | select((label_excluded | not) and ((.blocked_deps | length) > 0))
+        | select((base_excluded | not)
+            and (((.linked_prs | length) == 0) or resumable_pr)
+            and ((.blocked_deps | length) > 0))
         | {number, deps: .blocked_deps}
       ]
     } as $excluded
   | (
       numbers($queue)
+      + numbers($resumable)
       + $excluded.label_filter
       + $excluded.needs_human
+      + $excluded.assigned
       + $excluded.maintain_blocked
       + $excluded.epic
       + $excluded.cooldown
@@ -387,7 +478,7 @@ jq -n \
   | ($open_numbers - $accounted) as $unaccounted
   | {
       raw_open_count: ($with_deps | length),
-      eligible_count: ($queue | length),
+      eligible_count: (($queue | length) + ($resumable | length)),
       cleanup: {
         stale_maintain_blocked: numbers($with_deps
           | map(select(.maintain_blocked and (.cooldown | not))))
@@ -400,8 +491,22 @@ jq -n \
             severity,
             createdAt,
             updatedAt,
+            assignees,
             deps,
             linked_prs
+          }
+      ],
+      resumable: [
+        $resumable[]
+        | {
+            number,
+            title,
+            severity,
+            createdAt,
+            updatedAt,
+            assignees,
+            deps,
+            pr_number: .linked_prs[0]
           }
       ],
       excluded: $excluded,
@@ -415,6 +520,23 @@ if [ "$unaccounted_count" -gt 0 ]; then
   echo "maintain-queue: some open issues were not queued, excluded, or blocked" >&2
   jq -c '{raw_open_count, excluded, unaccounted}' "$output_json" >&2
   exit 3
+fi
+
+if [ -n "$resume_candidate_file" ]; then
+  if ! jq -e --slurpfile expected "$resume_candidate_json" '
+    ($expected[0]) as $candidate
+    | select((.resumable | length) == 1
+      and .resumable[0].number == $candidate.number
+      and .resumable[0].updatedAt == $candidate.updatedAt
+      and .resumable[0].pr_number == $candidate.pr_number)
+    | .resumable[0]
+  ' "$output_json" > "$tmpdir/matched-resume.json"; then
+    echo "maintain-queue: resume candidate drifted or is no longer eligible" >&2
+    jq -c '{resumable, excluded}' "$output_json" >&2
+    exit 3
+  fi
+  cat "$tmpdir/matched-resume.json"
+  exit 0
 fi
 
 jq '.' "$output_json"

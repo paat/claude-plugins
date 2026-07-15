@@ -125,6 +125,8 @@ case "$MODE" in
     open="$(printf '%s' "$open_json" | jq length)"
     [ "$open" -gt 0 ] || noop
     new="$open"; cached_resumable=0
+    claimed_resumable="$(printf '%s' "$open_json" | jq \
+      '[.[] | select([.labels[].name] | index("maintain:claimed"))] | length')" || exit 1
     if [ -s "$cache" ]; then
       jq -e . "$cache" >/dev/null 2>&1 || {
         echo "workflow-probe: malformed triage cache: $cache" >&2; exit 1; }
@@ -137,7 +139,8 @@ case "$MODE" in
           |select(.verdict=="agent-fixable" or .verdict=="partially-fixable" or .verdict=="needs-human")
           |select(pending)]|length' "$cache")"
     fi
-    [ "$new" -gt 0 ] || [ "$cached_resumable" -gt 0 ] || [ -n "$stale_cleanup" ] || noop
+    [ "$new" -gt 0 ] || [ "$cached_resumable" -gt 0 ] \
+      || [ "$claimed_resumable" -gt 0 ] || [ -n "$stale_cleanup" ] || noop
     [ -z "$stale_cleanup" ] || echo "workflow-probe: maintain stale maintain:blocked cleanup: $stale_cleanup"
     delivery_lease_gate
     codex_writer_gate 0

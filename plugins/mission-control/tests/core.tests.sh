@@ -29,6 +29,12 @@ t "arm mentions crontab file + lessons removal" bash -c 'out="$(bash "$0" arm --
 t "arm rejects unknown engine" bash -c '
   jq ".projects[0].engine=\"nope\"" "$1/portfolio.json" > "$1/bad.json"
   ! bash "$0" arm --config "$1/bad.json"' "$MC" "$TD"
+t "arm rejects non-boolean delivery_hold" bash -c '
+  jq ".projects[0].delivery_hold=\"yes\"" "$1/portfolio.json" > "$1/bad.json"
+  ! bash "$0" arm --config "$1/bad.json"' "$MC" "$TD"
+t "arm rejects delivery_hold for local delivery" bash -c '
+  jq ".projects[0].delivery_hold=true" "$1/portfolio.json" > "$1/bad.json"
+  ! bash "$0" arm --config "$1/bad.json"' "$MC" "$TD"
 
 # status runs read-only
 t "status prints slots" bash -c 'bash "$0" status --config "$1/portfolio.json" | grep -q "slot A"' "$MC" "$TD"

@@ -218,15 +218,10 @@ SH
       check_oid:$check_oid,status:"passed"}' > "$gate_dir/$base.json"
   cat > "$bin/codex" <<'SH'
 #!/usr/bin/env bash
-last_message=""
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = --output-last-message ]; then last_message=$2; shift 2
-  else shift
-  fi
-done
+while [ "$#" -gt 0 ]; do shift; done
 cat >/dev/null
 printf '%s\n' 'accounting candidate' > app.txt
-printf '%s\n' 'worker complete' > "$last_message"
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"worker complete"}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1,"cached_input_tokens":0}}'
 SH
   chmod 755 "$bin/codex"

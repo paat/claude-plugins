@@ -60,13 +60,21 @@ test_ui_gate() {
   assert_file_contains "UG10: verdict block contract" "$leg" "## Design-review: PASS|FAIL"
   assert_file_contains "UG11: pre-merge section" "$leg" "## Pre-merge design-review leg"
   assert_file_contains "UG12: post-deploy section" "$leg" "## Post-deploy visual smoke"
-  assert_file_contains "UG12a: baseline audit uses fetched default SHA" "$leg" \
+  assert_file_contains "UG12a: transport loss is not a product verdict" "$leg" \
+    'is `tool-unavailable`, not product PASS or FAIL'
+  assert_file_contains "UG12b: transport retry starts evidence from scratch" "$leg" \
+    'repeat the complete page,'
+  assert_file_contains "UG12c: partial browser sessions cannot prove PASS" "$leg" \
+    'combine partial sessions'
+  assert_file_contains "UG12d: maintenance browser failure stays issue-local" "$leg" \
+    'continue independent work'
+  assert_file_contains "UG12e: baseline audit uses fetched default SHA" "$leg" \
     'baseline audit use the fetched default-branch SHA'
-  assert_file_contains "UG12b: unproven shared dev is not pre-merge evidence" "$leg" \
+  assert_file_contains "UG12f: unproven shared dev is not pre-merge evidence" "$leg" \
     'shared dev URL is not pre-merge evidence'
-  assert_file_contains "UG12c: post-deploy evidence uses public URL" "$leg" \
+  assert_file_contains "UG12g: post-deploy evidence uses public URL" "$leg" \
     'deployed public URL'
-  assert_file_contains "UG12d: baseline and candidate preserve caller workspace" "$leg" \
+  assert_file_contains "UG12h: baseline and candidate preserve caller workspace" "$leg" \
     'never switch or'
 
   # merge-policy names the classifier

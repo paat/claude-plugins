@@ -8,8 +8,7 @@ codex-skill-name: maintain-loop
 # /maintain-loop
 
 Act only as a thin sequential coordinator. Never read issue bodies, source files,
-diffs, or the `/maintain` playbook, and never implement, review, merge, deploy, or
-mutate delivery state in this session.
+diffs, the `/maintain` playbook, or mutate delivery state.
 
 Accept the `/maintain` flags `--dry-run`, `--max-issues`, `--max-merges`,
 `--max-pass-minutes`, and `--max-run-minutes`. `--once` means launch at most one
@@ -17,13 +16,18 @@ fresh pass. Reject other flags. Always add `--once` to the child invocation.
 
 Repeat sequentially:
 
-1. Run `${CLAUDE_PLUGIN_ROOT}/scripts/workflow-probe.sh maintain` with the child
-   flags. Exit 3 is a clean no-op: stop without launching a subagent. Exit 4 is a
-   blocked environment: report its diagnosis and stop. Any other nonzero exit is
-   a failure.
-2. On exit 0, launch exactly one fresh isolated subagent. Its complete task is:
+1. Run `${CLAUDE_PLUGIN_ROOT}/scripts/workflow-probe.sh maintain` with child flags.
+   Exit 3 is a clean no-op; exit 4 reports blocked; other nonzero exits fail.
+2. On exit 0, under `--dry-run` do not mint. Otherwise mint once:
 
-   > Run `/saas-startup-team:maintain --once` to termination with forwarded flags. Let
+   ```bash
+   LEASE_RUN_ID=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/agent-events.sh" new-run-id)
+   ```
+
+   Then launch exactly one fresh isolated subagent:
+
+   > Run `/saas-startup-team:maintain --once` to termination with forwarded flags. On a
+   > normal pass add the exact `--lease-run-id <LEASE_RUN_ID>`. Let
    > `/maintain` own its normal triage, ordering, batching, limits, implementation,
    > QA, tribunal, merge, deployment, live verification, closure, and durable state.
    > Return issue states, PRs, merge/deploy/live status, one blocker, and pass status.
@@ -32,11 +36,14 @@ Repeat sequentially:
    > per-pass limit, including handled issue-local blocks; return `pass-blocked` for
    > preflight, lease/state/cleanup, or unresolved live work.
 
-3. Wait for that subagent to terminate. Never run two passes concurrently, reuse a
-   completed subagent, or send it follow-up work. If fresh isolated dispatch is not
-   available or its terminal state is unknown, fail closed; never run `/maintain`
-   inline as a fallback.
-4. Keep only its compact terminal result. Under outer `--once` or `--dry-run`, stop after this pass.
-   Otherwise return to step 1 after `pass-complete`; the probe excludes cooled or
-   parked issues. Stop on outer run limit, no-work, `pass-blocked`, failed
-   dispatch/pass, or unknown scope.
+3. Wait for termination. Never run two passes concurrently, reuse a completed subagent,
+   or send follow-up work. Unavailable dispatch or unknown terminal state fails closed;
+   never run `/maintain` inline as a fallback. An unknown-terminal child is never reaped.
+4. After a normal child is confirmed terminal, run exact-ID
+   `maintain-leases.sh reap-terminal`, then `maintain-leases.sh available`, with `--repo-root
+   "$(git rev-parse --show-toplevel)"` and the reap with `--run-id "$LEASE_RUN_ID"`.
+   Both must pass before another pass; otherwise stop. Under `--dry-run`, never mint or reap a lease.
+5. Keep only its compact terminal result. Under outer `--once` or `--dry-run`,
+   stop after this pass. Otherwise return to step 1 after `pass-complete`; the
+   probe excludes cooled or parked issues. Stop on outer run limit, no-work,
+   `pass-blocked`, failed dispatch/pass, or unknown scope.

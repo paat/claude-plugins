@@ -8,7 +8,9 @@ test_codex_run_role_terminal_safety() {
   echo -e "\n${CYAN}Suite CR: Codex role terminal safety${NC}"
   local repo bin script ec out logs events called guard_dir oldest auth snapshot receipt victim moved_logs
   local predicted special linked_parent real_parent started elapsed evidence_bytes
-  local eval_dir observed target_size namespace_prompt
+  local eval_dir observed target_size namespace_prompt args_capture ambient_home product_file
+  local signal child_pid signal_seen signal_out runner_pid holder_pid
+  local attempt stress_ok completed target expected i
   repo=$(mktemp -d); bin=$(mktemp -d)
   git -C "$repo" init -q
   git -C "$repo" config user.email test@example.invalid
@@ -20,84 +22,93 @@ test_codex_run_role_terminal_safety() {
   script="$PLUGIN_ROOT/scripts/codex-run-role.sh"
   logs="$repo/.startup/test-codex"; events="$repo/.startup/test-events.jsonl"
   called="$repo/fake-called"
-  cat > "$bin/codex" <<'SH'
+cat > "$bin/codex" <<'SH'
 #!/usr/bin/env bash
 [ -z "${FAKE_CALLED:-}" ] || : > "$FAKE_CALLED"
-last_message=""
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = --output-last-message ]; then last_message=$2; shift 2
-  else shift
-  fi
-done
+[ -z "${FAKE_ARGS_CAPTURE:-}" ] || printf '%s\n' "$*" > "$FAKE_ARGS_CAPTURE"
+exec 7>&-
+emit_message() {
+  jq -cn --arg text "$1" \
+    '{type:"item.completed",item:{type:"agent_message",text:$text}}'
+}
 if [ -n "${FAKE_PROMPT_CAPTURE:-}" ]; then
   cat > "$FAKE_PROMPT_CAPTURE"
 else
   cat >/dev/null
 fi
+[ -z "${FAKE_STATE_APPEND:-}" ] || printf x >> "$CODEX_HOME/state_5.sqlite"
+[ -z "${FAKE_PRODUCT_FILE:-}" ] \
+  || dd if=/dev/zero of="$FAKE_PRODUCT_FILE" bs=2048 count=1 status=none
 case "${FAKE_CODEX_MODE:-valid}" in
   valid)
-    printf 'verdict one\033[31m\001\nverdict two\n' > "$last_message"
+    emit_message $'verdict one\033[31m\001\nverdict two\n'
     printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":3,"cached_input_tokens":1}}'
     ;;
   no-terminal)
-    printf 'unproven result\n' > "$last_message"
-    printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message"}}'
+    emit_message 'unproven result'
     ;;
   no-message)
     printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":3,"cached_input_tokens":1}}'
     ;;
   fail)
-    printf 'partial verdict\n' > "$last_message"
+    emit_message 'partial verdict'
     printf 'failure stderr\033[2J\002\n' >&2
     printf '%s\n' '{"type":"turn.failed","error":{"message":"failed"}}'
     exit 7
     ;;
   malformed)
-    printf 'unproven malformed result\n' > "$last_message"
+    emit_message 'unproven malformed result'
     printf '%s\n' '{malformed'
     ;;
   oversized-json)
-    printf 'must not be reported as success\n' > "$last_message"
+    emit_message 'must not be reported as success'
     head -c 65536 /dev/zero | tr '\0' x
     printf '\n%s\n' '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":3,"cached_input_tokens":1}}'
     ;;
   oversized-stderr)
-    printf 'must not be reported as success\n' > "$last_message"
+    emit_message 'must not be reported as success'
     head -c 65536 /dev/zero | tr '\0' x >&2
     printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":3,"cached_input_tokens":1}}'
     ;;
   oversized-message)
-    head -c 65536 /dev/zero | tr '\0' x > "$last_message"
+    message=$(head -c 65536 /dev/zero | tr '\0' x)
+    emit_message "$message"
     printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":3,"cached_input_tokens":1}}'
     ;;
   replace-race)
     case "${FAKE_REPLACE_SLOT:-}" in
       jsonl)
-        target=$(readlink "/proc/$$/fd/1") || exit 9
+        target=$(find -P "${FAKE_EVIDENCE_DIR:?}" -maxdepth 1 \
+          -type f -name '.codex-jsonl.*' -print -quit) || exit 9
+        [ -n "$target" ] || exit 9
         rm -f -- "$target" || exit 9
         printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":99,"output_tokens":99,"cached_input_tokens":0}}' > "$target" || exit 9
-        printf '%s\n' '{malformed'
-        printf 'real message\n' > "$last_message"
+        emit_message 'real message'
+        printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":3,"cached_input_tokens":1}}'
         ;;
       stderr)
-        target=$(readlink "/proc/$$/fd/2") || exit 9
+        target=$(find -P "${FAKE_EVIDENCE_DIR:?}" -maxdepth 1 \
+          -type f -name '.codex-stderr.*' -print -quit) || exit 9
+        [ -n "$target" ] || exit 9
         rm -f -- "$target" || exit 9
         printf 'forged diagnostic\n' > "$target" || exit 9
-        printf 'real message\n' > "$last_message"
+        emit_message 'real message'
         printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":3,"cached_input_tokens":1}}'
         ;;
       last-message)
-        target=$(readlink "$last_message") || exit 9
+        target=$(find -P "${FAKE_EVIDENCE_DIR:?}" -maxdepth 1 \
+          -type f -name '.codex-last-message.*' -print -quit) || exit 9
+        [ -n "$target" ] || exit 9
         rm -f -- "$target" || exit 9
         printf 'forged message\n' > "$target" || exit 9
-        printf ' \n' > "$last_message"
+        emit_message 'real message'
         printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":3,"cached_input_tokens":1}}'
         ;;
       *) exit 9 ;;
     esac
     ;;
   rapid-output)
-    printf 'bounded failure\n' > "$last_message"
+    emit_message 'bounded failure'
     dd if=/dev/zero bs=1048576 count=32 status=none || true
     stat -Lc '%s' -- "/proc/$$/fd/1" > "${FAKE_OBSERVED_SIZE:?}" || exit 9
     printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":3,"cached_input_tokens":1}}'
@@ -105,6 +116,26 @@ case "${FAKE_CODEX_MODE:-valid}" in
   hang)
     trap '' TERM
     while :; do sleep 1; done
+    ;;
+  signal-hang)
+    printf '%s\n' "$$" > "${FAKE_CHILD_PID:?}"
+    trap 'printf HUP > "$FAKE_SIGNAL_SEEN"; exit 129' HUP
+    trap 'printf INT > "$FAKE_SIGNAL_SEEN"; exit 130' INT
+    trap 'printf TERM > "$FAKE_SIGNAL_SEEN"; exit 143' TERM
+    while :; do sleep 1; done
+    ;;
+  inherited-writer)
+    (trap '' HUP INT TERM; while :; do sleep 1; done) &
+    printf '%s\n' "$!" > "${FAKE_HOLDER_PID:?}"
+    emit_message 'worker exited but descendant retained evidence writers'
+    printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":3,"cached_input_tokens":1}}'
+    ;;
+  immediate-signal)
+    printf '%s\n' "$$" > "${FAKE_CHILD_PID:?}"
+    trap 'printf TERM > "$FAKE_SIGNAL_SEEN"; exit 143' TERM
+    while [ ! -s "${FAKE_SIGNAL_TARGET:?}" ]; do :; done
+    kill -TERM "$(cat "$FAKE_SIGNAL_TARGET")"
+    while :; do :; done
     ;;
 esac
 SH
@@ -175,11 +206,15 @@ SH
     'task input changed, is unsafe, or exceeds its byte budget'
   assert_file_not_exists "CR0h: oversized task input never launches Codex" "$called"
 
+  args_capture="$repo/npm-shim-args"
   ec=0
-  out=$(cd "$repo" && PATH="$bin:$PATH" SAAS_AGENT_EVENTS_FILE="$events" \
+  out=$(cd "$repo" && PATH="$bin:$PATH" FAKE_ARGS_CAPTURE="$args_capture" \
+    SAAS_AGENT_EVENTS_FILE="$events" \
     SAAS_CODEX_LOG_DIR="$logs" SAAS_RUN_ID=valid-run \
     bash "$script" --role qa --profile deep --task-file task.md 2>&1) || ec=$?
   assert_exit_code "CR1: valid terminal event plus role message succeeds" "$ec" 0
+  assert_file_not_contains "CR1a: npm-style descriptor closure needs no last-message FD" \
+    "$args_capture" '--output-last-message'
   assert_output_contains "CR2: terminal output names the retained full log" "$out" 'full-log='
   assert_output_contains "CR3: every surfaced verdict line has a worker prefix" "$out" 'codex-worker: verdict two'
   if [[ "$out" == *$'\033'* ]]; then
@@ -237,8 +272,8 @@ SH
     rm -f "$called"; ec=0
     out=$(cd "$repo" && PATH="$bin:$PATH" FAKE_CALLED="$called" \
       FAKE_CODEX_MODE=replace-race FAKE_REPLACE_SLOT="$special" \
-      SAAS_AGENT_EVENTS_FILE="$events" SAAS_CODEX_LOG_DIR="$logs" \
-      SAAS_RUN_ID="replaced-$special" \
+      FAKE_EVIDENCE_DIR="$logs" SAAS_AGENT_EVENTS_FILE="$events" \
+      SAAS_CODEX_LOG_DIR="$logs" SAAS_RUN_ID="replaced-$special" \
       bash "$script" --role qa --profile deep --task-file task.md 2>&1) || ec=$?
     assert_exit_code "CR10d/$special: replaced evidence inode is rejected" "$ec" 4
     assert_output_contains "CR10e/$special: evidence replacement failure is explicit" "$out" \
@@ -348,6 +383,112 @@ SH
   assert_output_contains "CR10q: hanging Codex deadline is explicit" "$out" 'exceeded the 1s deadline'
   assert_equals "CR10r: hanging Codex run is killed within a fixed grace period" \
     "$([ "$elapsed" -le 5 ] && echo yes || echo no)" yes
+
+  ambient_home="$repo/ambient-codex"; mkdir "$ambient_home"
+  truncate -s 9437184 "$ambient_home/state_5.sqlite"
+  ec=0
+  out=$(cd "$repo" && PATH="$bin:$PATH" CODEX_HOME="$ambient_home" \
+    FAKE_STATE_APPEND=1 SAAS_AGENT_EVENTS_FILE="$events" \
+    SAAS_CODEX_LOG_DIR="$logs" SAAS_RUN_ID=large-sqlite \
+    bash "$script" --role qa --profile deep --task-file task.md 2>&1) || ec=$?
+  assert_exit_code "CR10r1: evidence bounds do not cap a shared Codex SQLite file" "$ec" 0
+  assert_equals "CR10r2: a pre-existing SQLite file remains writable past 8 MiB" \
+    "$(stat -c %s "$ambient_home/state_5.sqlite")" 9437185
+
+  product_file="$repo/generated-large.bin"; ec=0
+  out=$(cd "$repo" && PATH="$bin:$PATH" FAKE_PRODUCT_FILE="$product_file" \
+    SAAS_CODEX_JSONL_MAX_BYTES=1024 SAAS_CODEX_STDERR_MAX_BYTES=1024 \
+    SAAS_CODEX_LAST_MESSAGE_MAX_BYTES=1024 SAAS_CODEX_LOG_RETENTION_BYTES=8192 \
+    SAAS_AGENT_EVENTS_FILE="$events" SAAS_CODEX_LOG_DIR="$logs" SAAS_RUN_ID=large-product \
+    bash "$script" --role tech-founder --profile deep --task-file task.md 2>&1) || ec=$?
+  assert_exit_code "CR10r3: evidence bounds do not cap product files" "$ec" 0
+  assert_equals "CR10r4: source writer can create a file larger than an evidence cap" \
+    "$(stat -c %s "$product_file")" 2048
+
+  for signal in HUP INT TERM; do
+    child_pid="$repo/signal-$signal.pid"; signal_seen="$repo/signal-$signal.seen"
+    signal_out="$repo/signal-$signal.out"
+    (cd "$repo" && exec env PATH="$bin:$PATH" FAKE_CODEX_MODE=signal-hang \
+      FAKE_CHILD_PID="$child_pid" FAKE_SIGNAL_SEEN="$signal_seen" \
+      SAAS_AGENT_EVENTS_FILE="$events" SAAS_CODEX_LOG_DIR="$logs" \
+      SAAS_RUN_ID="signal-${signal,,}" bash "$script" \
+      --role qa --profile deep --task-file task.md > "$signal_out" 2>&1) &
+    runner_pid=$!
+    for ((i=0; i<100; i++)); do
+      [ -s "$child_pid" ] && break
+      kill -0 "$runner_pid" 2>/dev/null || break
+      sleep 0.05
+    done
+    kill -s "$signal" "$runner_pid" 2>/dev/null || true
+    ec=0; wait "$runner_pid" || ec=$?
+    case "$signal" in HUP) expected=129 ;; INT) expected=130 ;; TERM) expected=143 ;; esac
+    assert_exit_code "CR10r5/$signal: runner preserves signal exit status" "$ec" "$expected"
+    assert_file_contains "CR10r6/$signal: runner forwards the signal to Codex" \
+      "$signal_seen" "$signal"
+    if [ -s "$child_pid" ] && kill -0 "$(cat "$child_pid")" 2>/dev/null; then
+      assert_equals "CR10r7/$signal: signaled Codex child is reaped" live reaped
+    else
+      assert_equals "CR10r7/$signal: signaled Codex child is reaped" reaped reaped
+    fi
+    assert_equals "CR10r8/$signal: signal cleanup leaves no relay or temporary evidence" \
+      "$(find "$logs" -maxdepth 1 \( -name '.codex-*' -o -name '*.codex-relay.*' \) -print -quit)" ""
+  done
+
+  holder_pid="$repo/inherited-writer.pid"; started=$(date +%s); ec=0
+  out=$(cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_MODE=inherited-writer \
+    FAKE_HOLDER_PID="$holder_pid" SAAS_AGENT_EVENTS_FILE="$events" \
+    SAAS_CODEX_LOG_DIR="$logs" SAAS_RUN_ID=inherited-writer \
+    bash "$script" --role qa --profile deep --task-file task.md 2>&1) || ec=$?
+  elapsed=$(($(date +%s) - started))
+  assert_exit_code "CR10r9: inherited evidence writer fails closed" "$ec" 4
+  assert_output_contains "CR10r10: stalled relay drain is explicit" "$out" \
+    'Codex evidence relays did not drain after worker exit'
+  assert_equals "CR10r11: inherited writer cannot block the runner indefinitely" \
+    "$([ "$elapsed" -le 6 ] && echo yes || echo no)" yes
+  for ((i=0; i<40; i++)); do
+    [ -s "$holder_pid" ] && ! kill -0 "$(cat "$holder_pid")" 2>/dev/null && break
+    sleep 0.05
+  done
+  if [ -s "$holder_pid" ] && kill -0 "$(cat "$holder_pid")" 2>/dev/null; then
+    assert_equals "CR10r12: inherited evidence writer is terminated" live terminated
+    kill -KILL "$(cat "$holder_pid")" 2>/dev/null || true
+  else
+    assert_equals "CR10r12: inherited evidence writer is terminated" terminated terminated
+  fi
+  assert_equals "CR10r13: stalled drain cleanup removes private evidence slots" \
+    "$(find "$logs" -maxdepth 1 -name '.codex-*' -print -quit)" ""
+
+  stress_ok=1; completed=0
+  for ((attempt=1; attempt<=20; attempt++)); do
+    target="$repo/immediate-$attempt.target"; child_pid="$repo/immediate-$attempt.pid"
+    signal_seen="$repo/immediate-$attempt.seen"; signal_out="$repo/immediate-$attempt.out"
+    (cd "$repo" && exec env PATH="$bin:$PATH" FAKE_CODEX_MODE=immediate-signal \
+      FAKE_CHILD_PID="$child_pid" FAKE_SIGNAL_SEEN="$signal_seen" \
+      FAKE_SIGNAL_TARGET="$target" SAAS_AGENT_EVENTS_FILE="$events" \
+      SAAS_CODEX_LOG_DIR="$logs" SAAS_RUN_ID="immediate-$attempt" \
+      bash "$script" --role qa --profile deep --task-file task.md > "$signal_out" 2>&1) &
+    runner_pid=$!
+    printf '%s\n' "$runner_pid" > "$target"
+    ec=0; wait "$runner_pid" || ec=$?
+    [ "$ec" -eq 143 ] || stress_ok=0
+    for ((i=0; i<40; i++)); do
+      [ -s "$child_pid" ] && ! kill -0 "$(cat "$child_pid")" 2>/dev/null && break
+      sleep 0.025
+    done
+    if [ ! -s "$signal_seen" ] || [ "$(cat "$signal_seen")" != TERM ]; then
+      stress_ok=0
+    fi
+    if [ -s "$child_pid" ] && kill -0 "$(cat "$child_pid")" 2>/dev/null; then
+      stress_ok=0
+      kill -KILL "$(cat "$child_pid")" 2>/dev/null || true
+    fi
+    [ -z "$(find "$logs" -maxdepth 1 -name '.codex-*' -print -quit)" ] || stress_ok=0
+    completed=$attempt
+  done
+  assert_equals "CR10r14: immediate-signal launch stress completes every iteration" \
+    "$completed" 20
+  assert_equals "CR10r15: launch-boundary signals preserve status and leave no child" \
+    "$stress_ok" 1
 
   dd if=/dev/zero of="$logs/old-large-a.jsonl" bs=4096 count=1 status=none
   dd if=/dev/zero of="$logs/old-large-b.jsonl" bs=4096 count=1 status=none
