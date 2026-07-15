@@ -30,7 +30,7 @@
       "repo_path": "/workspace/project-a",
       "stage": "live",
       "engine": "codex",
-      "command": "/maintain --once",
+      "command": "$saas-startup-team:maintain-loop --once",
       "hold": false,
       "delivery_hold": true,
       "incident_labels": ["incident", "production", "critical"]
@@ -41,7 +41,7 @@
       "repo_path": "/workspace/project-b",
       "stage": "pre-launch",
       "engine": "codex",
-      "command": "/maintain-loop --once",
+      "command": "$saas-startup-team:maintain-loop --once",
       "hold": false,
       "delivery_hold": true,
       "bus_path": "/workspace/bus"
