@@ -311,7 +311,7 @@ def build_command_skill_files(plugin_dir: Path, plugin_name: str) -> dict[Path, 
     for command_path in sorted(commands_dir.glob("*.md")):
         metadata = read_command_metadata(command_path)
         command_name = command_metadata_name(command_path, metadata)
-        skill_name = command_skill_name(plugin_name, command_name)
+        skill_name = command_skill_name(plugin_name, command_name, metadata)
         skill_path = plugin_dir / "skills" / skill_name / "SKILL.md"
         planned[skill_path] = render_command_skill(
             plugin_name=plugin_name,
@@ -349,7 +349,15 @@ def command_metadata_name(command_path: Path, metadata: dict[str, str]) -> str:
     return slugify(raw_name) or command_path.stem
 
 
-def command_skill_name(plugin_name: str, command_name: str) -> str:
+def command_skill_name(
+    plugin_name: str, command_name: str, metadata: dict[str, str]
+) -> str:
+    override = metadata.get("codex-skill-name")
+    if override:
+        normalized = slugify(override)
+        if not normalized:
+            raise SystemExit(f"{plugin_name}:{command_name}: invalid codex-skill-name")
+        return normalized
     return slugify(f"{plugin_name}-{command_name}-workflow")
 
 
@@ -368,7 +376,7 @@ def render_command_skill(
         plugin_name=plugin_name,
     )
     description = command_skill_description(plugin_name, aliases)
-    plugin_notes = command_plugin_notes(plugin_name)
+    plugin_notes = command_plugin_notes(plugin_name, command_name)
     command_notes = command_specific_notes(plugin_name, command_name)
     read_only = metadata.get("codex-sandbox") == "read-only"
     if read_only:
@@ -381,6 +389,16 @@ def render_command_skill(
             "Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent "
             "tooling or `codex exec` only with a `read-only` sandbox. A current-session role is "
             "allowed only when that session is already read-only."
+        )
+    elif plugin_name == "saas-startup-team" and command_name == "maintain-loop":
+        execution_instruction = (
+            "Execute only as a thin coordinator using fresh Codex subagents. Never run the "
+            "delegated maintain pass in the current session."
+        )
+        dispatch_replacement = (
+            "Claude `Task` / `Agent` / `TeamCreate` dispatch -> spawn exactly one fresh "
+            "Codex subagent, wait for it to terminate, and fail closed if isolated dispatch "
+            "is unavailable; never substitute current-session execution"
         )
     elif plugin_name == "saas-startup-team":
         execution_instruction = (
@@ -495,8 +513,8 @@ def format_alias_list(aliases: list[str]) -> str:
     return ", ".join(f"`{alias}`" for alias in aliases)
 
 
-def command_plugin_notes(plugin_name: str) -> str:
-    if plugin_name != "saas-startup-team":
+def command_plugin_notes(plugin_name: str, command_name: str) -> str:
+    if plugin_name != "saas-startup-team" or command_name == "maintain-loop":
         return ""
     return textwrap.dedent(
         """\
@@ -517,7 +535,7 @@ def command_plugin_notes(plugin_name: str) -> str:
 
 
 def command_specific_notes(plugin_name: str, command_name: str) -> str:
-    if plugin_name != "saas-startup-team" or command_name not in {"maintain", "maintain-loop"}:
+    if plugin_name != "saas-startup-team" or command_name != "maintain":
         return ""
     command_alias = f"/{command_name}"
     return textwrap.dedent(

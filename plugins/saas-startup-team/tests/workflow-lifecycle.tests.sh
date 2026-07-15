@@ -10,7 +10,7 @@ test_workflow_lifecycle_safety() {
   goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
   maintain="$PLUGIN_ROOT/references/workflows/maintain.md"
   maintain_protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
-  maintain_loop="$PLUGIN_ROOT/references/workflows/maintain-loop.md"
+  maintain_loop="$PLUGIN_ROOT/commands/maintain-loop.md"
   maintain_loop_protocol="$PLUGIN_ROOT/references/workflows/maintain-loop-protocol.md"
   maintain_proof_contract="$PLUGIN_ROOT/references/workflows/maintain-proof-contract.md"
   maintain_loop_entry="$PLUGIN_ROOT/commands/maintain-loop.md"
@@ -48,20 +48,20 @@ test_workflow_lifecycle_safety() {
   assert_file_exists "WL5b: maintain-loop detailed protocol exists" "$maintain_loop_protocol"
   assert_file_contains "WL5c: maintain router loads details on demand" "$maintain" \
     'Never read that file'
-  assert_file_contains "WL5d: maintain-loop router loads details on demand" "$maintain_loop" \
-    'Never read that file wholesale'
+  assert_file_not_contains "WL5d: thin coordinator never loads the retired loop protocol" \
+    "$maintain_loop" 'maintain-loop-protocol.md'
   assert_before "WL6: maintain protocol orders pass lease before worktree mutation" "$maintain_protocol" \
     '## Whole-Pass Lease' '## Workspace — Dedicated Worktree'
   assert_before "WL6a: maintain router requests pass lease before worktree setup" "$maintain" \
     '1. `Whole-Pass Lease`' '2. `Workspace — Dedicated Worktree`'
-  assert_before "WL6b: maintain-loop router requests receipt before queue work" "$maintain_loop" \
-    '2. On a normal run, load `Delivery receipt`' \
-    '3. For new work, load `Queue and routing`'
+  assert_before "WL6b: maintain-loop probes before fresh dispatch" "$maintain_loop" \
+    'workflow-probe.sh maintain' \
+    'launch exactly one fresh isolated subagent'
   count=$(wc -l < "$maintain_loop" | tr -d ' ')
   if [ "$count" -le 150 ]; then
-    assert_equals "WL6c: maintain-loop router stays within the prompt budget" yes yes
+    assert_equals "WL6c: maintain-loop coordinator stays within the prompt budget" yes yes
   else
-    assert_equals "WL6c: maintain-loop router stays within the prompt budget" no yes
+    assert_equals "WL6c: maintain-loop coordinator stays within the prompt budget" no yes
   fi
   assert_file_contains "WL7: maintain lease state is common-worktree scoped" "$maintain_protocol" \
     'MAINTAIN_LEASE_STATE="$GIT_COMMON/'

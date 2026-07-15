@@ -1594,136 +1594,47 @@ SH
 
 test_maintain_loop() {
   echo -e "\n${CYAN}== /maintain-loop command ==${NC}"
-  local router="$PLUGIN_ROOT/references/workflows/maintain-loop.md"
-  local cmd="$PLUGIN_ROOT/references/workflows/maintain-loop-protocol.md"
-  local codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-loop-workflow/SKILL.md"
-  local leases="$PLUGIN_ROOT/scripts/maintain-leases.sh"
-  local attempt="$PLUGIN_ROOT/scripts/maintain-attempt.sh"
-  local delivery="$PLUGIN_ROOT/scripts/maintain-delivery.sh"
-  local proof_contract="$PLUGIN_ROOT/references/workflows/maintain-proof-contract.md"
+  local command="$PLUGIN_ROOT/commands/maintain-loop.md"
+  local codex_cmd="$PLUGIN_ROOT/skills/maintain-loop/SKILL.md"
+  local old_codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-loop-workflow/SKILL.md"
 
-  assert_file_exists "ML1: maintain-loop.md exists" "$router"
-  assert_file_exists "ML1a: maintain-loop protocol exists" "$cmd"
-  assert_file_contains "ML1b: router loads protocol on demand" "$router" "Never read that file wholesale"
-  assert_file_contains "ML2: name frontmatter" "$router" "name: maintain-loop"
-  assert_file_contains "ML3: user_invocable" "$router" "user_invocable: true"
-  assert_file_contains "ML4: worker is fresh tech-founder" "$cmd" '--role tech-founder --profile "$PROFILE"'
-  assert_file_not_contains "ML5: no composite maintain-loop supervisor launch" "$cmd" '--role maintain-loop-supervisor'
-  assert_file_contains "ML6: supervisor is sole delivery mutation owner" "$cmd" "only delivery-state mutation owner"
-  assert_file_contains "ML7: worker edits source and tests only" "$cmd" "task-required product source and tests"
-  assert_file_contains "ML8: worker cannot stage or commit" "$cmd" "must not stage or commit"
-  assert_file_contains "ML9: worker cannot mutate GitHub or deployment" "$cmd" "push, open or edit a PR, merge, deploy, or"
-  assert_file_contains "ML10: supervisor never patches source" "$cmd" "supervisor never patches product source itself"
-  assert_file_contains "ML11: one writer at a time" "$cmd" "Only one source writer may run at a time"
-  assert_file_contains "ML12: browser stays flattened on Codex" "$cmd" "browser work stays flattened"
-  assert_file_contains "ML13: source fixes use fresh tech-founder" "$cmd" "tech-founder attempt, then repeats containment"
-  assert_file_contains "ML14: worker shell preflight" "$cmd" "codex:worker-shell"
-  assert_file_contains "ML15: default branch is resolved, not assumed" "$cmd" "default-branch.sh"
-  assert_file_contains "ML16: dedicated worktree" "$cmd" ".worktrees/maintain-loop"
-  assert_file_contains "ML17: run id initialized by event library" "$cmd" 'agent-events.sh" new-run-id'
-  assert_file_contains "ML18: compatibility lease bridge is acquired" "$cmd" '--mode maintain-loop'
-  assert_file_contains "ML18a: shared pass key is explicit in the bridge" "$leases" 'maintain-delivery:pass'
-  assert_file_contains "ML18b: lease state uses git common directory" "$cmd" 'LEASE_STATE="$GIT_COMMON/'
-  assert_file_contains "ML18c: maintain-loop bounds foreground lease lifetime" "$cmd" '--max-seconds 14400'
-  assert_file_contains "ML18d: run state is activated by the lease helper" "$cmd" \
-    'maintain-leases.sh" activate'
-  assert_file_contains "ML19: bridge acquisition includes worktree identity" "$cmd" '--worktree "$WT"'
-  assert_file_contains "ML20: bridge persists every owner identity" "$leases" 'owner_file:$owner_file'
-  assert_file_contains "ML21: worktree owner uses a separate binding" "$leases" 'kinds+=(worktree)'
-  assert_file_contains "ML22: foreground lease-set holder wraps long work" "$cmd" 'maintain-leases.sh" hold'
-  assert_file_contains "ML23: heartbeat failure is fail-closed" "$cmd" "terminates the child"
-  assert_file_not_contains "ML24: workflow does not rely on daemon guardian" "$cmd" 'lease-guardian.sh" start'
-  assert_file_not_contains "ML24a: workflow does not check daemon state" "$cmd" 'lease-guardian.sh" check'
-  assert_file_not_contains "ML24b: workflow does not stop daemon state" "$cmd" 'lease-guardian.sh" stop'
-  assert_file_contains "ML25: foreground holder is never backgrounded" "$cmd" 'Never background it'
-  assert_file_contains "ML26: one cleanup releases the worktree lease" "$cmd" 'maintain-leases.sh" cleanup'
-  assert_file_contains "ML27: cleanup uses persisted lease state" "$cmd" '--state-file "$LEASE_STATE"'
-  assert_file_contains "ML28: malformed or future pass stops delivery" "$cmd" "future-dated lease stops"
-  assert_file_contains "ML29: maintain-loop uses queue builder" "$cmd" "maintain-queue.sh"
-  assert_file_contains "ML30: unexplained empty queue fails" "$cmd" "otherwise fail"
-  assert_file_contains "ML30a: stale blocked labels are cleaned" "$cmd" ".cleanup.stale_maintain_blocked"
-  assert_file_contains "ML30b: worktree reset is quiet" "$attempt" 'clean -ffdx -q'
-  assert_file_contains "ML30c: worktree reset verifies exact HEAD" "$cmd" 'rev-parse HEAD)" = "$BASE_SHA"'
-  assert_file_contains "ML30d: worktree reset diagnostics are bounded" "$attempt" "sed -n '1,20p'"
-  assert_file_contains "ML30e: named helpers are not eagerly read" "$cmd" "Do not read helper"
-  assert_file_contains "ML30f: reset proves the persisted lease identity" "$cmd" \
-    '--lease-state "$LEASE_STATE" --run-id "$RUN_ID"'
-  assert_file_contains "ML31: autonomous semantic router" "$cmd" "delivery-route.sh classify --mode autonomous"
-  assert_file_contains "ML32: autonomous light rejects UI" "$cmd" 'requires `ui_touch=false`'
-  assert_file_contains "ML33: one task file per attempt" "$cmd" "issue-<N>-attempt-<A>.md"
-  assert_file_contains "ML34: task text excluded from events" "$cmd" "Do not put issue text or the prompt in events"
-  assert_file_contains "ML34a: clean base uses tested canonical gate helper" "$cmd" \
-    'maintain-attempt.sh" base-check'
-  assert_file_contains "ML34b: clean-base pass is protected in common Git state" "$cmd" \
-    'protected common-Git runtime'
-  assert_file_contains "ML34c: red base stops before worker attribution" "$cmd" \
-    "is not attributed to"
-  assert_file_contains "ML34d: base failure evidence is bounded" "$cmd" \
-    "bounded summary"
-  assert_file_contains "ML35: source transaction targets assigned worktree" "$cmd" '--repo-root "$WT"'
-  assert_file_contains "ML35a: writer transaction receives persisted lease set" "$cmd" '--lease-state "$LEASE_STATE"'
-  assert_file_contains "ML35b: authenticated attempt stays in one host process" "$cmd" \
-    "source transaction interface"
-  assert_file_contains "ML35c: authenticated shell reaches full check and commit" "$cmd" \
-    'full commit gate'
-  assert_file_contains "ML35d: lost authenticated shell forces a fresh receipt" "$cmd" \
-    "retry from a new"
-  assert_file_contains "ML36: writer sandbox is fixed workspace-write" "$attempt" 'CODEX_SANDBOX=workspace-write'
-  assert_file_not_contains "ML37: no direct unpinned Codex launch" "$cmd" 'codex exec'
-  assert_file_contains "ML38: supervisor checks worker HEAD boundary" "$cmd" "HEAD, branch, index, refs"
-  assert_file_contains "ML39: worker-authored commits rejected" "$cmd" "all worker-authored commits"
-  assert_file_contains "ML40: source-free success rejected" "$cmd" "source-free"
-  assert_file_contains "ML41: only isolated supervisor path stages" "$cmd" 'only `supervisor-commit.sh` stages the accepted candidate'
-  assert_file_contains "ML42: working-tree post-diff containment" "$cmd" 'check-diff --base "$BASE_SHA"'
-  assert_file_not_contains "ML42b: containment does not stage on the host" "$cmd" '--base "$BASE_SHA" --cached'
-  assert_file_contains "ML42c: source writer opens an exact mutation guard" "$attempt" '--snapshot "$role_guard"'
-  assert_file_contains "ML42d: source writer guard is verified after exit" "$attempt" '--verify "$role_guard"'
-  assert_file_contains "ML43: light continuation needs non-UI light diff" "$cmd" 'and `ui_touch=false`'
-  assert_file_contains "ML44: escalation artifact is primary and attempt-specific" "$cmd" 'escalations/<RUN_ID>/issue-<N>-attempt-<A>.json'
-  assert_file_contains "ML45: escalation cleanup is model-free" "$cmd" "The model never writes or interprets cleanup facts"
-  assert_file_contains "ML46: cleanup helper owns escalation artifact" "$cmd" 'maintain-escalation.sh" cleanup'
-  assert_file_contains "ML47: escalation verifies PR cleanup" "$cmd" "open_pr=false"
-  assert_file_contains "ML48: escalation verifies remote cleanup" "$cmd" "remote_branch=false"
-  assert_file_contains "ML49: escalation verifies base reset" "$cmd" "head_at_base=true"
-  assert_file_contains "ML50: escalation verifies clean worktree" "$cmd" "worktree_clean=true"
-  assert_file_contains "ML51: helper is sole deep restart authority" "$cmd" "is the sole restart authority"
-  assert_file_contains "ML52: queue eligibility survives escalation" "$cmd" "Keep queue eligibility unchanged"
-  assert_file_contains "ML53: deep restart is once only" "$cmd" "never perform another lower-to-deep restart"
-  assert_file_contains "ML54: transaction invokes supervisor-owned gated commit" "$attempt" '--message "$message"'
-  assert_file_contains "ML55: product hooks stay enabled" "$cmd" '--no-verify'
-  assert_file_contains "ML56: QA mutation boundary enforced" "$delivery" "proof command changed the tracked candidate"
-  assert_file_contains "ML57: QA not-applicable is helper-derived" "$cmd" '`--not-applicable`'
-  assert_file_contains "ML58: supervisor owns PR closure audit" "$cmd" "issue-closure-audit.sh"
-  assert_file_contains "ML59: supervisor owns initial tribunal arbitration" "$cmd" \
-    'tribunal-review:tribunal-loop` without rerunning'
-  assert_file_contains "ML60: tribunal is read-only" "$cmd" "read-only"
-  assert_file_contains "ML61: tribunal fixes return to writer" "$cmd" "needs source changes returns to a fresh tech-founder"
-  assert_file_contains "ML62: concrete PR number required" "$cmd" 'concrete numeric `PR_NUMBER`'
-  assert_file_contains "ML63: PR head SHA is independently matched" "$cmd" 'matching remote `headRefOid`'
-  assert_file_contains "ML64: default ancestry required before merge" "$cmd" 'merge-base --is-ancestor "origin/$default" "$PR_HEAD_SHA"'
-  assert_file_contains "ML65: merge is lifecycle-helper-owned" "$cmd" 'maintain-delivery.sh merge-pr --repo-root'
-  assert_file_contains "ML66: merged SHA must land on default" "$delivery" 'merge-base --is-ancestor "$merge_sha" "$default_sha"'
-  assert_file_contains "ML67: deploy run is tied to merge SHA" "$cmd" 'exact run completed successfully at the merge SHA'
-  assert_file_contains "ML68: deploy proof uses concrete run" "$cmd" 'numeric run ID'
-  assert_file_contains "ML69: latest deploy is not trusted" "$cmd" 'never trust "latest"'
-  assert_file_contains "ML70: live QA requires timestamped assertions" "$proof_contract" '"observed_at": "<UTC-second-after-deploy>"'
-  assert_file_contains "ML71: caller deploy assertions cannot claim success" "$cmd" 'caller-authored SHA, digest, or pass fields are not inputs'
-  assert_file_contains "ML72: rollback gets deploy and live verification" "$cmd" 'rollback-SHA `record-proof --kind live`'
-  assert_file_contains "ML73: rollback never counts fixed" "$cmd" "increment delivered count for a rolled-back"
-  assert_file_contains "ML74: result artifact lives in primary state" "$cmd" ".startup/maintain-loop/runs/<origin-RUN_ID>/issue-<N>.md"
-  assert_file_contains "ML75: result binds PR head SHA" "$cmd" "pr_head_sha:<sha>"
-  assert_file_contains "ML76: result binds merge SHA" "$cmd" "merge_sha:<sha>"
-  assert_file_contains "ML77: result binds tribunal SHA" "$cmd" 'verdict SHA equal to `pr_head_sha`'
-  assert_file_contains "ML78: result binds deploy SHA" "$cmd" 'head SHA equal to `merge_sha`'
-  assert_file_contains "ML79: evidence is re-queried before fixed/count/event" "$cmd" 'independently re-query those facts before putting `fixed:`'
-  assert_file_contains "ML80: no-op emits no worker event" "$cmd" "emit no worker event"
-  assert_file_contains "ML81: once sets one-issue cap" "$cmd" 'MAX_ISSUES=1'
-  assert_file_contains "ML82: default max-issues is uncapped" "$cmd" "unset means no issue-count cap"
-  assert_file_contains "ML83: max-merges default and rollback carveout" "$cmd" 'forward-merge cap, default `5`'
-  assert_file_contains "ML84: rollback overage is explicit" "$cmd" "merge_budget_overage:rollback"
-  assert_file_exists "ML85: Codex maintain-loop workflow exists" "$codex_cmd"
-  assert_file_contains "ML86: Codex workflow aliases command" "$codex_cmd" "/maintain-loop"
-  assert_file_contains "ML87: Codex workflow hard gates" "$codex_cmd" "Codex Maintain Hard Gates"
+  assert_file_exists "ML1: maintain-loop command exists" "$command"
+  assert_file_contains "ML2: command is user invocable" "$command" "user_invocable: true"
+  assert_file_contains "ML3: concise Codex skill name" "$command" "codex-skill-name: maintain-loop"
+  assert_file_contains "ML4: parent stays context-thin" "$command" \
+    "Never read issue bodies, source files"
+  assert_file_contains "ML5: parent probes maintain model-free" "$command" \
+    'workflow-probe.sh maintain'
+  assert_file_not_contains "ML6: old maintain-loop probe is unused" "$command" \
+    'workflow-probe.sh maintain-loop'
+  assert_file_contains "ML7: each child runs a bounded maintain pass" "$command" \
+    '/saas-startup-team:maintain --once'
+  assert_file_contains "ML8: maintain keeps its own policy" "$command" \
+    'normal triage, ordering, batching, limits, implementation'
+  assert_file_contains "ML9: dispatch is exactly one fresh subagent" "$command" \
+    'launch exactly one fresh isolated subagent'
+  assert_file_contains "ML10: passes are sequential" "$command" \
+    'Never run two passes concurrently'
+  assert_file_contains "ML11: completed subagents are not reused" "$command" \
+    'completed subagent'
+  assert_file_contains "ML12: inline fallback is forbidden" "$command" \
+    'inline as a fallback'
+  assert_file_contains "ML13: result is compact" "$command" \
+    'Keep only its compact terminal result'
+  assert_file_contains "ML14: no-work exits before dispatch" "$command" \
+    'Exit 3 is a clean no-op'
+  assert_file_contains "ML15: outer once bounds child count" "$command" \
+    '`--once` means launch at most one'
+  assert_file_contains "ML16: dry-run is bounded" "$command" \
+    'Under outer `--once` or `--dry-run`, stop after this pass'
+
+  assert_file_exists "ML17: concise Codex skill exists" "$codex_cmd"
+  assert_file_contains "ML18: Codex skill aliases command" "$codex_cmd" "/maintain-loop"
+  assert_file_contains "ML19: Codex requires fresh subagent" "$codex_cmd" \
+    'fresh Codex subagents'
+  assert_file_not_contains "ML20: Codex cannot execute pass in parent" "$codex_cmd" \
+    'direct task sequencing in the current session'
+  assert_file_not_exists "ML21: old verbose Codex skill is removed" "$old_codex_cmd"
 }
 
 # ---------------------------------------------------------------------------
