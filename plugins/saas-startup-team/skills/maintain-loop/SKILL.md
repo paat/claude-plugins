@@ -28,4 +28,4 @@ Source command: `../../commands/maintain-loop.md`
 
 - Plugin: `saas-startup-team`
 - Command aliases: `/saas-startup-team:maintain-loop`, `/maintain-loop`
-- Source description: Run sequential maintenance passes in fresh subagents so issue and delivery context never accumulates in the caller. Usage: /maintain-loop [maintain flags]
+- Source description: Sequential fresh-subagent maintenance. Usage: /maintain-loop [flags]
