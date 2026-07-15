@@ -1,19 +1,22 @@
 # Runbook #201 — vastav + varustame into Slot B rotation
 
-Executed after #200 has bedded in (>= 3 green days on Slot A). Refs
-paat/claude-plugins#201. Same skeleton as the #200 runbook — only the deltas
-and project specifics below. Tick boxes in a comment on #201.
+Activate independently of Slot A; no cutover or pre-launch soak is required.
+Canonical Slot B tracking is
+[ai-dashboard #16](https://github.com/paat/ai-dashboard/issues/16). This file
+retains only the project-specific runbook deltas.
 
 ## 1. Plugin upgrade (both containers)
 
-- [ ] varustame: upgrade saas-startup-team v0.51.1 → current. The jump is ~24
-      minor versions: after upgrade run the full preflight
-      (`health-preflight.sh --require-gh --require-codex --check-sync`) and one
-      supervised `/maintain --once` before trusting the schedule.
+- [ ] varustame: upgrade saas-startup-team to current, run the full preflight
+      (`health-preflight.sh --require-gh --check-sync`) and one
+      supervised `$saas-startup-team:maintain-loop --once` before trusting the
+      schedule. Do not add `--require-codex`; that option tests a restricted
+      worker profile, while the direct unrestricted smoke is required below.
 - [ ] vastav: same upgrade + preflight (smaller jump).
 - [ ] Both: verify `SAAS_LESSON_SYNC_ENABLED=true` (reach-back channel).
-- [ ] Both: memory pass — same checklist categories as #200 §2 (grant memories,
-      contradictions, stale deadlines, unsorted CLAUDE.md staging).
+- [ ] Both: memory pass — same checklist categories as the Slot A runbook §2
+      (grant memories, contradictions, stale deadlines, unsorted CLAUDE.md
+      staging).
 
 ## 2. Project-specific corrections
 
@@ -31,16 +34,25 @@ and project specifics below. Tick boxes in a comment on #201.
 - [ ] Add both projects WITHOUT a slot pin — Slot B rotates by the priority
       ladder (live incidents > admitted pre-launch > validation > meta):
       vastav `stage: "live"`, varustame `stage: "pre-launch"`, engine `codex`,
-      command `/maintain --once` (varustame: `/maintain-loop --once` if that is
-      its current driver).
+      command `$saas-startup-team:maintain-loop --once`.
+- [ ] Set both projects to `hold: false`, omit `delivery_hold`, use top-level
+      `docker_exec_user: "dev"`, and launch unrestricted ephemeral Codex with
+      `--dangerously-bypass-approvals-and-sandbox`.
+- [ ] Set `admission.veto_hours: 0` so the pre-launch project is schedulable
+      without a human veto-window kickoff.
+- [ ] From SSH, verify each direct command in a login shell and non-login
+      `docker exec -u dev`; no hold wrapper may appear in the process chain.
 - [ ] Disable each container's standalone cron lines (mission-control owns
-      dispatch; see #200 §3).
+      dispatch; see the Slot A runbook §3).
 - [ ] Re-run `arm --config <path>`; human updates the cron line if it changed.
 
 ## 4. Acceptance
 
 - [ ] Both projects receive scheduled Slot B passes with zero human kickoff
-      (verify in `state/mission-control.log` over 2+ days).
+      (verify in `state/mission-control.log` over 2+ post-launch days; this is
+      observation, not an activation prerequisite).
 - [ ] varustame launch-readiness doc correction merged.
-- [ ] vastav executes a growth pass within rotation (after #204 lands).
-- [ ] Checklist ticked on #201, then close #201.
+- [ ] vastav executes a growth pass within rotation.
+- [ ] SSH can monitor, interrupt, and recover both agent processes or
+      containers without changing the unrestricted runtime policy.
+- [ ] Checklist and evidence recorded on ai-dashboard #16.
