@@ -838,10 +838,10 @@ FAKE_UNSHARE
   ec=0; bash "$script" match-pr --repo-root "$repo" --issue 1 --role normal --pr-json "$pr_merged" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD22: prior-generation marker cannot authorize the new delivery" "$ec" 1
 
-  assert_file_contains "MD23: workflow reconciles receipts before queue work" \
-    "$PLUGIN_ROOT/references/workflows/maintain-loop.md" 'maintain-delivery.sh pending'
-  assert_file_contains "MD24: workflow persists premerge authority" \
-    "$PLUGIN_ROOT/references/workflows/maintain-loop.md" 'authorize-merge --role normal'
+  assert_file_contains "MD23: protocol reconciles receipts before queue work" \
+    "$protocol" 'maintain-delivery.sh pending'
+  assert_file_contains "MD24: protocol persists premerge authority" \
+    "$protocol" 'authorize-merge --role normal'
   assert_file_contains "MD24a: protocol delegates the irreversible merge to the pinned helper" \
     "$protocol" 'gh pr merge --match-head-commit <receipt-head>'
   assert_file_contains "MD24b: protocol gives close helper no stale caller snapshot" \
@@ -856,10 +856,10 @@ FAKE_UNSHARE
     "$protocol" 'pass no PR/default snapshot'
   assert_file_contains "MD24g: closed recovery accepts no caller snapshot" \
     "$protocol" '`observe-closed` with no snapshot'
-  assert_file_contains "MD25: workflow has rollback-or-stop recovery" \
-    "$PLUGIN_ROOT/references/workflows/maintain-loop.md" 'recovery is rollback-or-stop'
-  assert_file_not_contains "MD26: workflow does not prescribe post-merge corrective delivery" \
-    "$PLUGIN_ROOT/references/workflows/maintain-loop.md" 'use a fresh tech-founder for a minimal fix'
+  assert_file_contains "MD25: protocol has rollback-or-stop recovery" \
+    "$protocol" 'recovery is rollback-or-stop'
+  assert_file_not_contains "MD26: protocol does not prescribe post-merge corrective delivery" \
+    "$protocol" 'use a fresh tech-founder for a minimal fix'
 
   bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
     --run-id "$lease_run" >/dev/null

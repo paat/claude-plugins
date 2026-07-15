@@ -77,7 +77,7 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:goal-deliver` | Deliver a set of tasks (issues, milestone, spec, or free text) end-to-end: plan into chunks, ship each via `/improve` + closing tribunal loop + merge to main, then monitor and fix the GitHub Actions deploy. Pairs with built-in `/goal` for autonomy. Requires the `tribunal-review` plugin. |
 | `/saas-startup-team:ads` | Design a Google Ads campaign — spawns the `google-ads-strategist` plugin's `ads-strategist` (hard dependency) to design, browser-verify, and create the campaign in PAUSED state for investor review. The `/growth` loop also delegates here automatically. |
 | `/saas-startup-team:maintain` | Scheduled autonomous maintenance pass: triage open issues, fence human-gated ones into `human-tasks.md`, and deliver the rest to production via inline `/goal-deliver`, one-at-a-time in dependency order. An external scheduler owns repetition and backoff. Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`. Requires the `tribunal-review` plugin. |
-| `/saas-startup-team:maintain-loop` | Codex-first issue delivery loop for already-deliverable GitHub issues: a supervisor owns Git/GitHub, checks, QA, tribunal, merge, deploy, and rollback while a fresh pinned tech role writes only the scoped source/tests. Flags: `--once`, `--dry-run`, `--issue`, `--label`, `--max-issues`, `--max-merges`, `--max-run-minutes`. Requires the `tribunal-review` plugin. |
+| `/saas-startup-team:maintain-loop` | Thin sequential coordinator: model-free probe, then one fresh `/maintain --once` subagent per bounded pass. The caller retains only compact outcomes and never loads issue or delivery context. Codex invocation: `$saas-startup-team:maintain-loop`. Accepts `/maintain` limits plus outer `--once`. |
 | `/saas-startup-team:lessons-review` | The single human gate of the self-improvement loop: list open `lesson-candidate` issues in the pinned plugin repo and `--approve N` (→ `lesson-approved`) or `--close N` (rejected). |
 | `/saas-startup-team:lessons-deliver` | Autonomously implements `lesson-approved` issues into this plugin repo end-to-end (claim → implement → diff firewall → tribunal → test suite → dual version bump → PR `Closes #N` → merge on green). No manual trigger after approval; plugin-native (not `/goal-deliver`). Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`, `--repo`. Requires the `tribunal-review` plugin. |
 
@@ -446,49 +446,17 @@ The supervisor also stops on deploy failure (unrecoverable infra/flaky issues ha
   runs source JSON ingestion or the internal discovery fallback.
 - **Dev container only** (inherits the plugin's dev-container-only design).
 
-### Fresh Codex issue loop (`/maintain-loop`)
+### Fresh maintenance passes (`/maintain-loop`)
 
-`/maintain-loop` is the Codex-first path for an already-triaged issue backlog. The
-supervisor owns queue facts, branches/worktrees, staging and commits, GitHub/PR state,
-deterministic checks, QA mutation guards, tribunal, merge, deployment, and rollback.
-For each attempt it launches a fresh profile-pinned tech role in
-`.worktrees/maintain-loop`; that worker writes only the scoped source, tests, and any
-task-required canonical workflow-spec delta, then reports without staging, committing,
-or contacting GitHub. An issue counts as fixed only after supervisor-run QA and tribunal,
-a green exact-SHA deployment, and helper-bound live verification. The live gate reuses the
-project's tracked `monitor.custom_checks` hook when it covers acceptance, otherwise a
-tracked structured smoke command.
+`/maintain-loop` keeps its caller small: it runs the model-free `/maintain` probe,
+launches one fresh isolated `/maintain --once` subagent, waits for the bounded pass,
+retains only its compact result, and repeats sequentially. The child owns the complete
+maintenance policy and may batch related small issues normally. The parent never reads
+issues or source and never falls back to inline delivery when isolated dispatch fails.
 
-If a QA or live proof needs project runtime variables, set their names in the
-controller session before starting: `SAAS_MAINTAIN_QA_PROOF_ENV` or
-`SAAS_MAINTAIN_LIVE_PROOF_ENV`. Tracked project files cannot request ambient
-variables.
-
-Light attempts run semantic post-diff containment before any PR or remote mutation.
-When the diff requires deep work, the supervisor writes the versioned escalation
-artifact, cleans any PR/remote branch and its dedicated worktree, and retries once at
-deep while preserving queue eligibility. Missing artifacts and repeated escalation fail
-closed.
-
-Worker launches always use isolated `workspace-write` with no outbound destinations or
-native web search; writable or unrestricted overrides for read-only roles and
-unrestricted overrides for writers are rejected. Supervisor product checks run the
-immutable base harness in a credentialless sibling container before the checked tree can
-be committed. Its coherent private process view supports ordinary `ps`/`pgrep` regression
-harnesses without exposing host processes, Git writes, host files, or outbound network access.
-For linked delivery worktrees, compatible ignored `node_modules`, `venv`, and `.venv`
-trees from the primary checkout are content-sealed before the writer starts, copied to
-private volumes, and mounted read-only at their normal paths in the disposable check
-container. Other ignored state is never imported.
-One-use supervisor-held HMAC tokens authenticate role guards and commit receipts; the
-receipt binds the exact allowed paths, branch, refs, base, Git configuration, and hooks.
-Tokens are supplied over stdin and are never put in worker prompts, files, environments,
-or process arguments. Candidate staging occurs only in the disposable clone, outside
-the product checkout and its ignored dependency directories. An adversarial same-UID
-process still requires host-level process isolation; these gates enforce cooperative
-agent ownership and detect persisted repository tampering, not a hostile OS peer.
-Paths with Git clean filters (including LFS) fail closed in this generic commit path;
-projects that use them need a dedicated trusted staging path that reproduces the filter.
+Claude Code invokes `/maintain-loop`; Codex invokes
+`$saas-startup-team:maintain-loop` or selects it from `/skills`. Codex does not support
+plugin-defined slash commands.
 
 ### Delivery telemetry and local evaluation
 

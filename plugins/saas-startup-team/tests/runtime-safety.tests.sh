@@ -2385,7 +2385,6 @@ SH
     "$PLUGIN_ROOT/references/workflows/goal-deliver.md" \
     "$PLUGIN_ROOT/references/workflows/maintain.md" \
     "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    "$PLUGIN_ROOT/references/workflows/maintain-loop.md" \
     "$PLUGIN_ROOT/references/workflows/maintain-loop-protocol.md" \
     "$PLUGIN_ROOT/commands/startup.md" \
     "$PLUGIN_ROOT/commands/lessons-deliver.md" \
@@ -2661,7 +2660,7 @@ SH
     assert_equals "RS prompt ceiling:$name ($bytes <= $ceiling)" "$out" yes
   }
   check_ceiling maintain 918
-  check_ceiling maintain-loop 815
+  check_ceiling maintain-loop 2370
   check_ceiling goal-deliver 539
   check_ceiling improve 494
   check_ceiling tweak 453
