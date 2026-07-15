@@ -397,8 +397,11 @@ def render_command_skill(
         )
         dispatch_replacement = (
             "Claude `Task` / `Agent` / `TeamCreate` dispatch -> spawn exactly one fresh "
-            "Codex subagent, wait for it to terminate, and fail closed if isolated dispatch "
-            "is unavailable; never substitute current-session execution"
+            "Codex subagent and retain its returned identity; wait only after an identity is "
+            "returned. Any spawn error stops `pass-blocked` without waiting or retrying. If "
+            "the thread is missing before one terminal result, stop unknown-terminal without "
+            "reaping; one received terminal result is authoritative and is never polled again. "
+            "Never substitute current-session execution"
         )
     elif plugin_name == "saas-startup-team":
         execution_instruction = (

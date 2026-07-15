@@ -557,14 +557,39 @@ the exact queued `number`, `updatedAt`, and `pr_number`, one linked PR, no assig
 live eligibility. Any diagnostic or nonzero exit stops the phase.
 
 Recompute all live open linked PRs rather than trusting the row. Require exactly one,
-with its number equal to `.resumable.pr_number`, and require exactly one valid
-`<!-- maintain:claim:RUN_ID -->` marker shared by the issue and that PR. The marker's
-issue-comment author, PR author, and current authenticated GitHub actor must match.
-Re-fetch the PR and require it OPEN, non-draft, same-repository (never a fork), based on
-the resolved default branch, still linked to that exact issue, with a concrete
-`headRefOid`. Missing, duplicate, or mismatched claim/PR identity fails closed; never
-adopt or create another PR. A failed or truncated fetch, missing/malformed required
-field, or cooldown-ledger parse failure also fails closed before worktree mutation.
+with its number equal to `.resumable.pr_number`. Re-fetch the PR and require it OPEN,
+non-draft, same-repository (never a fork), based on the resolved default branch, still
+linked to that exact issue, with a concrete `headRefOid`. These are the non-marker live
+guards. A failed/truncated fetch, malformed required field, or cooldown parse failure
+fails closed before marker resolution, worktree mutation, or PR adoption.
+
+Resolve claim ownership by exactly one path. An ordinary claim has one valid
+`<!-- maintain:claim:RUN_ID -->` occurrence in issue comments and one byte-identical
+occurrence in the PR body, none in PR comments, and no other/duplicate shared marker.
+Its issue-comment author, PR author, and current authenticated GitHub actor match.
+Reject an invalid ordinary count, ID, location, or author before worktree mutation.
+Missing ordinary binding may enter only the verified legacy promotion below; otherwise stop.
+
+Legacy promotion applies only after every non-marker live guard passes and the sole PR
+head branch starts with `improve/`. Every `<!-- maintain:claimed:RUN_ID -->` occurrence
+must use a run ID matching `^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`, and every such issue
+comment author must equal the PR author and current actor. Select the latest marker by
+`createdAt`, then comment ID; require `0 <= PR.createdAt - marker.createdAt <= 21600`
+seconds. Derive `<!-- maintain:claim:RUN_ID -->` from that run ID.
+Never mint a replacement ID. Across issue comments plus the PR body/comments,
+every shared-marker occurrence must equal the derived marker. Allow zero or one occurrence on each side;
+reject any other ID or per-side count, and require every existing marker-comment author
+to match the PR author and current actor before mutation. One side alone grants no authority.
+
+In one lease-held authenticated shell, add a missing PR side first as a standalone PR
+comment, then add a missing issue side as a standalone issue comment. Re-fetch after
+each call instead of blindly retrying an ambiguous API result. An interrupted migration
+may complete one missing side only while every non-marker and legacy proof still passes;
+never duplicate a marker. Continue only after re-fetch proves one matching marker on each side.
+Require all four authors—issue comment, permitted PR comment when used, PR, and current
+actor—to match. Since the issue comment changes `updatedAt`, rebuild the queue and
+resume only from its fresh exact row before checkout or any product/branch mutation.
+Never emit another legacy marker.
 
 Bind that live issue snapshot, PR number, base, and head before checkout. An intentional
 update may replace the bound head only with the pushed local SHA and invalidates all

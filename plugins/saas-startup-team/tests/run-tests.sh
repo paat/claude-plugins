@@ -1172,7 +1172,7 @@ test_maintain() {
   assert_file_contains "M45a23: issue and PR share exact claim ownership" "$protocol" \
     'same byte-exact marker'
   assert_file_contains "M45a24: resume rejects malformed live evidence before mutation" "$protocol" \
-    'fails closed before worktree mutation'
+    'fails closed before marker resolution'
   assert_file_contains "M45a25: full live guard repeats immediately before merge" "$protocol" \
     'Repeat the full live guard before QA/tribunal and immediately before'
   assert_file_contains "M45a26: resume phases use the executable exact-row guard" "$protocol" \
@@ -1181,6 +1181,42 @@ test_maintain() {
     'gh pr merge "$PR_NUMBER" --match-head-commit "$BOUND_SHA"'
   assert_file_contains "M45a28: active merge compares the final live PR head" "$protocol" \
     '[ "$LIVE_SHA" = "$BOUND_SHA" ]'
+  assert_file_contains "M45a29: legacy migration binds actor and PR provenance" "$protocol" \
+    'comment author must equal the PR author and current actor'
+  assert_file_contains "M45a30: legacy migration preserves the proven run identity" "$protocol" \
+    'Never mint a replacement ID'
+  assert_file_contains "M45a31: partial legacy promotion is idempotent" "$protocol" \
+    'complete one missing side only'
+  assert_file_contains "M45a32: promotion rebuilds the exact queue row" "$protocol" \
+    'rebuild the queue and'
+  assert_file_contains "M45a33: legacy promotion is append-only on the PR" "$protocol" \
+    'add a missing PR side first as a standalone PR'
+  assert_file_contains "M45a34: a partial promotion grants no authority" "$protocol" \
+    'One side alone grants no'
+  assert_file_contains "M45a35: stale same-actor legacy claims cannot migrate" "$protocol" \
+    '0 <= PR.createdAt - marker.createdAt <= 21600'
+  assert_file_contains "M45a36: legacy recovery follows non-marker live guards" "$protocol" \
+    'every non-marker live guard passes'
+  assert_file_contains "M45a37: canonical marker counts are exact per side" "$protocol" \
+    'zero or one occurrence on each side'
+  assert_file_contains "M45a38: legacy run IDs use the canonical grammar" "$protocol" \
+    '`\^\[A-Za-z0-9\]\[A-Za-z0-9_.-\]{0,127}\$`'
+  assert_file_contains "M45a39: ambiguous mutation results are re-fetched" "$protocol" \
+    'instead of blindly retrying an ambiguous API result'
+  assert_file_contains "M45a40: partial marker authors bind before mutation" "$protocol" \
+    'every existing marker-comment author'
+  assert_file_contains "M45a41: ordinary binding rejects duplicate markers" "$protocol" \
+    'none in PR comments, and no other/duplicate shared marker'
+  assert_file_contains "M45a42: ordinary marker counts fail before mutation" "$protocol" \
+    'Reject an invalid ordinary count, ID, location, or author before worktree mutation'
+  assert_file_contains "M45a43: legacy selection is deterministic" "$protocol" \
+    '`createdAt`, then comment ID'
+  assert_file_contains "M45a44: conflicting shared markers block promotion" "$protocol" \
+    'every shared-marker occurrence must equal the derived marker'
+  assert_file_contains "M45a45: promotion requires terminal two-sided proof" "$protocol" \
+    're-fetch proves one matching marker on each side'
+  assert_file_contains "M45a46: promotion appends the missing issue side" "$protocol" \
+    'then add a missing issue side as a standalone issue comment'
 
   # Queue builder regression: no-dependency issues must survive dependency parsing.
   local queue_script issues_file prs_file resume_candidate_file race_issues_file race_prs_file blocked_file active_blocked_file expired_blocked_file legacy_blocked_file bad_blocked_file bad_blocked_err dep_issues_file dep_status_file serial_dep_issues_file serial_dep_status_file closed_issues_file fake_bin live_out repo_live_out closed_status closed_err missing_status missing_err fixture_closed_status fixture_closed_err zero_status zero_err bad_blocked_status resume_status out race_out filtered single_issue cooled active_blocked expired_blocked dual_blocked dep_out serial_dep_out queue_numbers live_repo gh_calls unbound_dir unbound_status unbound_err
@@ -1905,6 +1941,12 @@ test_maintain_loop() {
   assert_file_not_contains "ML20: Codex cannot execute pass in parent" "$codex_cmd" \
     'direct task sequencing in the current session'
   assert_file_not_exists "ML21: old verbose Codex skill is removed" "$old_codex_cmd"
+  assert_file_contains "ML22: Codex waits only after child identity" "$codex_cmd" \
+    'wait only after an identity is returned'
+  assert_file_contains "ML23: failed spawn never enters a wait loop" "$codex_cmd" \
+    'Any spawn error stops `pass-blocked` without waiting or retrying'
+  assert_file_contains "ML24: missing child cannot trigger unsafe reaping" "$codex_cmd" \
+    'missing before one terminal result, stop unknown-terminal without reaping'
 }
 
 # ---------------------------------------------------------------------------
