@@ -12,6 +12,7 @@ test_runtime_safety() {
   local guard_head guard_ref guard_index concurrent_head tree main_next
   local check_pid check_signal check_release check_output check_status
   local supervisor_bwrap_dir limit_log_dir limit_log limit_bytes marker victim_dir started elapsed
+  local hanging_pid_file hanging_pid leaked_check
   local system_git failed_snapshot array_snapshot check_receipt commit_receipt
   local -a large_allow_args
   supervisor_bwrap_dir=$(mktemp -d)
@@ -205,8 +206,13 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$root" ] && [ "$#" -gt 0 ]
 mounted=()
+command_pid=
 cleanup() {
   local target source
+  if [ -n "$command_pid" ]; then
+    kill -KILL "$command_pid" 2>/dev/null || true
+    wait "$command_pid" 2>/dev/null || true
+  fi
   chmod -R u+w "$root/.git" 2>/dev/null || true
   for ((j=0; j<${#mounted[@]}; j++)); do
     target=${mounted[$j]}; source=${runtime_sources[$j]}
@@ -217,6 +223,9 @@ cleanup() {
   done
 }
 trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 for ((i=0; i<${#runtime_sources[@]}; i++)); do
   target="$root/${runtime_targets[$i]}"
   while IFS= read -r -d '' path; do
@@ -240,8 +249,11 @@ for arg in "$@"; do command+=("$(translate "$arg")"); done
 chmod -R a-w "$root/.git"
 cd "$root"
 set +e
-"${command[@]}"
+"${command[@]}" &
+command_pid=$!
+wait "$command_pid"
 rc=$?
+command_pid=
 set -e
 exit "$rc"
 SH
@@ -541,8 +553,10 @@ SH
   assert_equals "RS14i15k: retained check evidence has a total byte budget" \
     "$([ "$limit_bytes" -le 8192 ] && echo yes || echo no)" yes
 
-  cat > "$workdir/check.sh" <<'SH'
+  hanging_pid_file=$(mktemp); rm -f "$hanging_pid_file"
+  cat > "$workdir/check.sh" <<SH
 #!/usr/bin/env bash
+printf '%s\n' "\$\$" > "$hanging_pid_file"
 trap '' TERM
 while :; do sleep 1; done
 SH
@@ -562,6 +576,20 @@ SH
     "$out" 'checks exceeded the 1-second deadline'
   assert_equals "RS14i15n: hanging check is killed within a fixed grace period" \
     "$([ "$elapsed" -le 5 ] && echo yes || echo no)" yes
+  leaked_check=missing
+  if [ -s "$hanging_pid_file" ]; then
+    hanging_pid=$(cat "$hanging_pid_file")
+    leaked_check=invalid
+    if [[ "$hanging_pid" =~ ^[1-9][0-9]*$ ]]; then
+      leaked_check=no
+      if kill -0 "$hanging_pid" 2>/dev/null; then
+        leaked_check=yes
+        kill -KILL "$hanging_pid" 2>/dev/null || true
+      fi
+    fi
+  fi
+  assert_equals "RS14i15n1: fake driver reaps the timed-out check process" "$leaked_check" no
+  rm -f "$hanging_pid_file"
   rm -rf "$workdir"
 
   # A failed Git inventory is never interpreted as an empty trusted workspace.
