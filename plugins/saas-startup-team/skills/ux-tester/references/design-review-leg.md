@@ -31,6 +31,21 @@ Trigger: `scripts/ui-touch.sh` classifies the branch diff as `ui`.
    evidence. The classifier is a mechanical floor — when in doubt, run the leg
    even on `no-ui`.
 
+## Browser transport recovery
+
+A closed, pending, missing, or otherwise unavailable browser transport is `tool-unavailable`, not product PASS or FAIL.
+Preserve the current commit and PR. The
+caller may retry the leg exactly once in a fresh browser session using an already
+installed MCP, CLI, or project runner; never install dependencies during recovery.
+
+Discard every partial capture from the failed session and repeat the complete page,
+viewport, locale, console, and interaction matrix from scratch. If the fresh session
+also loses its transport, return `tool-unavailable` with the missing checkpoints. Do
+not emit `## Design-review: PASS`, combine partial sessions, or weaken the QA gate.
+Maintenance callers treat the second failure as issue-local: leave the PR resumable,
+record `escalated:browser-tool-unavailable` with a bounded cooldown, release the
+issue-scoped owner, and continue independent work.
+
 ## Post-deploy visual smoke
 
 Trigger: deploy is green AND `scripts/ui-touch.sh --range <pre-pass

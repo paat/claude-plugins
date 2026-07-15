@@ -60,6 +60,14 @@ test_ui_gate() {
   assert_file_contains "UG10: verdict block contract" "$leg" "## Design-review: PASS|FAIL"
   assert_file_contains "UG11: pre-merge section" "$leg" "## Pre-merge design-review leg"
   assert_file_contains "UG12: post-deploy section" "$leg" "## Post-deploy visual smoke"
+  assert_file_contains "UG12a: transport loss is not a product verdict" "$leg" \
+    'is `tool-unavailable`, not product PASS or FAIL'
+  assert_file_contains "UG12b: transport retry starts evidence from scratch" "$leg" \
+    'repeat the complete page,'
+  assert_file_contains "UG12c: partial browser sessions cannot prove PASS" "$leg" \
+    'combine partial sessions'
+  assert_file_contains "UG12d: maintenance browser failure stays issue-local" "$leg" \
+    'continue independent work'
 
   # merge-policy names the classifier
   assert_file_contains "UG13: merge-policy names ui-touch.sh" "$policy" "scripts/ui-touch.sh"

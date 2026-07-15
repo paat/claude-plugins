@@ -104,6 +104,57 @@ test_maintain_runtime() {
   assert_exit_code "MR4b: acquisition reclaims a proven expired crash lease" "$ec" 0
   bash "$leases" cleanup --state-file "$state" --run-id recovered >/dev/null
 
+  state="$common/saas-startup-team/maintain-runtime/normal-activate-leases.json"
+  bash "$leases" acquire --repo-root "$repo" --mode maintain --run-id normal-activate \
+    --state-file "$state" >/dev/null
+  run_state="$repo/.startup/maintain/current-run.json"
+  printf '1\n' > "$lease_dir/maintain-delivery-pass/heartbeat"
+  ec=0; out=$(bash "$leases" activate --state-file "$state" --run-state "$run_state" 2>&1) || ec=$?
+  assert_exit_code "MR4ba: normal maintain state cannot use legacy activation" "$ec" 2
+  assert_output_contains "MR4bb: normal activation rejection names the owning lifecycle" "$out" \
+    'normal maintain owns .startup/maintain/current-run.json'
+  ec=0
+  out=$(bash "$leases" activate --state-file "$state" --run-state "$run_state" \
+    --blocked-file "$common/saas-startup-team/maintain/blocked.jsonl" 2>&1) || ec=$?
+  assert_exit_code "MR4bc: blocked ledger cannot turn normal state into loop activation" "$ec" 2
+  assert_output_contains "MR4bd: blocked activation keeps the precise mode diagnostic" "$out" \
+    'activate accepts only maintain-loop lease state'
+  assert_file_not_exists "MR4be: rejected normal activation creates no run state" "$run_state"
+  assert_equals "MR4bf: rejected normal activation performs no heartbeat" \
+    "$(cat "$lease_dir/maintain-delivery-pass/heartbeat")" 1
+  bash "$leases" cleanup --state-file "$state" --run-id normal-activate >/dev/null
+
+  state="$common/saas-startup-team/maintain-runtime/terminal-reap-leases.json"
+  bash "$leases" acquire --repo-root "$repo" --mode maintain --run-id terminal-reap \
+    --state-file "$state" >/dev/null
+  ec=0
+  out=$(bash "$leases" reap-terminal --repo-root "$repo" --run-id absent-terminal 2>&1) || ec=$?
+  assert_exit_code "MR4bg: absent exact terminal state is an idempotent no-op" "$ec" 0
+  assert_file_exists "MR4bh: wrong terminal ID preserves another run's state" "$state"
+  ec=0; bash "$leases" available --repo-root "$repo" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MR4bi: availability still catches an unreaped active run" "$ec" 1
+  bash "$leases" reap-terminal --repo-root "$repo" --run-id terminal-reap >/dev/null
+  assert_file_not_exists "MR4bj: exact terminal reap removes its lease state" "$state"
+  ec=0; bash "$leases" available --repo-root "$repo" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MR4bk: exact terminal reap restores delivery availability" "$ec" 0
+  ec=0
+  out=$(bash "$leases" reap-terminal --repo-root "$repo" --run-id terminal-reap 2>&1) || ec=$?
+  assert_exit_code "MR4bl: repeated terminal reap stays idempotent" "$ec" 0
+  assert_output_contains "MR4bm: repeated reap reports absent state" "$out" \
+    'terminal run has no lease state'
+
+  wt="$repo/.worktrees/maintain-loop"
+  state="$common/saas-startup-team/maintain-runtime/loop-terminal-leases.json"
+  bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id loop-terminal \
+    --state-file "$state" --worktree "$wt" >/dev/null
+  ec=0
+  out=$(bash "$leases" reap-terminal --repo-root "$repo" --run-id loop-terminal 2>&1) || ec=$?
+  assert_exit_code "MR4bn: thin coordinator cannot reap legacy loop state" "$ec" 2
+  assert_output_contains "MR4bo: cross-mode reap rejection is explicit" "$out" \
+    'reap-terminal accepts only maintain lease state'
+  assert_file_exists "MR4bp: rejected cross-mode reap preserves lease state" "$state"
+  bash "$leases" cleanup --state-file "$state" --run-id loop-terminal >/dev/null
+
   for heartbeat_case in future malformed; do
     owner="$lease_dir/.owners/$heartbeat_case.owner"
     bash "$single" --acquire maintain-pass --state-dir "$lease_dir" --owner-file "$owner" >/dev/null
@@ -301,6 +352,11 @@ SH
     "$routing_schema" > "$linked/.startup/maintain/triage-cache.jsonl"
   ec=0
   out=$(cd "$linked" && PATH="$repo/probe-bin:$PATH" SAAS_PREFLIGHT_MISSING=codex \
+    GH_ISSUES_JSON='[{"number":44,"updatedAt":"2026-01-01T00:00:00Z","labels":[{"name":"maintain:claimed"}]}]' \
+    bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" maintain --issue 44 2>&1) || ec=$?
+  assert_exit_code "MR15dac0: claimed work outranks a terminal cache entry" "$ec" 0
+  ec=0
+  out=$(cd "$linked" && PATH="$repo/probe-bin:$PATH" SAAS_PREFLIGHT_MISSING=codex \
     GH_ISSUES_JSON='[{"number":44,"updatedAt":"2026-01-01T00:00:00Z","labels":[{"name":"maintain:blocked"}]}]' \
     bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" maintain 2>&1) || ec=$?
   assert_exit_code "MR15daa: stale-label cleanup outranks a terminal cache entry" "$ec" 0
@@ -462,14 +518,9 @@ SH
   cat > "$worker_bin/codex" <<'SH'
 #!/usr/bin/env bash
 [ -z "${FAKE_CALLED:-}" ] || : > "$FAKE_CALLED"
-last_message=""
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = --output-last-message ]; then last_message=$2; shift 2
-  else shift
-  fi
-done
+while [ "$#" -gt 0 ]; do shift; done
 cat >/dev/null
-printf 'recovered worker\n' > "$last_message"
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"recovered worker"}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1,"cached_input_tokens":0}}'
 SH
   chmod +x "$worker_bin/codex"
@@ -668,14 +719,9 @@ SH
   cat > "$cwd_worker_bin/codex" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$PWD" > "$WORKER_CWD_SEEN"
-last_message=""
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = --output-last-message ]; then last_message=$2; shift 2
-  else shift
-  fi
-done
+while [ "$#" -gt 0 ]; do shift; done
 cat >/dev/null
-printf 'worker complete\n' > "$last_message"
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"worker complete"}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1,"cached_input_tokens":0}}'
 SH
   chmod +x "$cwd_worker_bin/codex"

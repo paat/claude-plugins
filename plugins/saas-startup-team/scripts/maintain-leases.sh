@@ -10,10 +10,11 @@ usage() {
   cat >&2 <<'EOF'
 usage: maintain-leases.sh primary-root --repo-root DIR
        maintain-leases.sh acquire --repo-root DIR --mode maintain|maintain-loop --run-id ID --state-file FILE [--worktree DIR]
-       maintain-leases.sh activate --state-file FILE --run-state FILE [--blocked-file FILE]
+       maintain-leases.sh activate --state-file FILE --run-state FILE --blocked-file FILE  # maintain-loop state only
        maintain-leases.sh available --repo-root DIR
        maintain-leases.sh heartbeat --state-file FILE
        maintain-leases.sh hold --state-file FILE [--interval-seconds N] [--max-seconds N] -- COMMAND...
+       maintain-leases.sh reap-terminal --repo-root DIR --run-id ID
        maintain-leases.sh cleanup --state-file FILE [--run-state FILE --run-id ID]
 EOF
   exit 2
@@ -384,6 +385,10 @@ case "$action" in
     [ -n "$state_file" ] && [ -n "$run_state" ] \
       && [ -z "$repo_root$mode$run_id$worktree" ] || usage
     load_state "$state_file" || exit 1
+    [ "$MODE" = maintain-loop ] || {
+      echo "maintain-leases: activate accepts only maintain-loop lease state; normal maintain owns .startup/maintain/current-run.json" >&2
+      exit 2
+    }
     heartbeat_specs || {
       echo "maintain-leases: activation lease ownership is no longer valid" >&2
       exit 1
@@ -399,12 +404,8 @@ case "$action" in
       fi
       rm -f -- "$RUN_STATE_PATH"
     fi
-    if [ "$MODE" = maintain-loop ]; then
-      [ "$blocked_file" = "$COMMON/saas-startup-team/maintain/blocked.jsonl" ] || {
-        echo "maintain-leases: blocked ledger binding is invalid" >&2; exit 1; }
-    else
-      [ -z "$blocked_file" ] || usage
-    fi
+    [ "$blocked_file" = "$COMMON/saas-startup-team/maintain/blocked.jsonl" ] || {
+      echo "maintain-leases: blocked ledger binding is invalid" >&2; exit 1; }
     run_tmp=$(mktemp "$RUN_STATE_PATH.tmp.XXXXXX")
     jq -n --arg run_id "$RUN_ID" --arg repo_root "$PRIMARY" \
       --arg worktree "$WORKTREE_BINDING" --arg lease_state "$STATE_FILE" \
@@ -442,6 +443,28 @@ case "$action" in
     guardian_args+=(-- "${command[@]}")
     rm -f -- "$LEASE_ROWS_FILE"; LEASE_ROWS_FILE=""
     exec bash "$GUARDIAN" "${guardian_args[@]}"
+    ;;
+
+  reap-terminal)
+    [ -n "$repo_root" ] && [ -n "$run_id" ] \
+      && [ -z "$state_file$mode$worktree$run_state$blocked_file" ] || usage
+    valid_id "$run_id" || { echo "maintain-leases: invalid run id" >&2; exit 2; }
+    resolve_repo "$repo_root" || { echo "maintain-leases: cannot resolve repository" >&2; exit 1; }
+    terminal_state="$COMMON/saas-startup-team/maintain-runtime/$run_id-leases.json"
+    if [ ! -e "$terminal_state" ] && [ ! -L "$terminal_state" ]; then
+      echo "maintain-leases: terminal run has no lease state"
+      exit 0
+    fi
+    load_state "$terminal_state" || exit 1
+    [ "$RUN_ID" = "$run_id" ] || {
+      echo "maintain-leases: terminal run id does not match lease state" >&2; exit 1; }
+    [ "$MODE" = maintain ] || {
+      echo "maintain-leases: reap-terminal accepts only maintain lease state" >&2; exit 2; }
+    rc=0
+    release_specs || rc=1
+    [ "$rc" -ne 0 ] || rm -f -- "$STATE_FILE"
+    [ "$rc" -eq 0 ] || exit 1
+    echo "maintain-leases: terminal run reaped"
     ;;
 
   cleanup)

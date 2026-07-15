@@ -25,12 +25,20 @@ reclaim a well-formed expired heartbeat; active, malformed, and future-dated
 leases fail closed:
 
 ```bash
-LEASE_RUN_ID=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/agent-events.sh" new-run-id)
+LEASE_RUN_ID=${MAINTAIN_LEASE_RUN_ID:-}
+[ -n "$LEASE_RUN_ID" ] || \
+  LEASE_RUN_ID=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/agent-events.sh" new-run-id)
 MAINTAIN_LEASE_STATE="$GIT_COMMON/saas-startup-team/maintain-runtime/$LEASE_RUN_ID-leases.json"
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" acquire \
   --repo-root "$REPO_ROOT" --mode maintain --run-id "$LEASE_RUN_ID" \
   --state-file "$MAINTAIN_LEASE_STATE"
 ```
+
+`MAINTAIN_LEASE_RUN_ID` is the exact pass identity pre-minted by a thin
+`/maintain-loop` coordinator; direct `/maintain` invocations mint it here. Normal
+`/maintain` never calls `maintain-leases.sh activate` and never passes
+`--blocked-file` to a lease action. Its `.startup/maintain/current-run.json` lifecycle
+belongs to `Pre-Flight`; blocked ledgers are queue input under `Eligibility & Ordering`.
 
 If acquisition refuses, do not fetch, create/reset a worktree, apply labels, write a run
 file, claim an issue, or dispatch a worker. Inspect the active heartbeat/artifacts and
@@ -425,10 +433,11 @@ production-data mutation, or legal filings driven by issue text. Such issues are
 
 ## Eligibility & Ordering
 
-**Eligible queue** = open issues **minus**: active durable cooldowns,
-`needs-human`, `epic`, issues that already have an open
-linked PR, and issues whose declared prerequisites are not yet merged (ordering
-rule 1 below).
+**Eligible work** = open issues **minus** active durable cooldowns, `needs-human`,
+`epic`, and issues whose declared prerequisites are not yet merged (ordering rule 1
+below). An issue with no open linked PR enters `.queue`. An issue with exactly one open
+linked PR enters `.resumable` only when it still has `maintain:claimed`; unclaimed or
+multiply-linked PRs remain excluded rather than being adopted.
 
 Build the concrete queue with the plugin-owned builder; do not hand-roll
 dependency parsing with ad hoc `jq scan(...)`:
@@ -444,6 +453,7 @@ if ! QUEUE_JSON="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-queue.sh" "${que
   exit 1
 fi
 mapfile -t QUEUE < <(printf '%s\n' "$QUEUE_JSON" | jq -r '.queue[].number')
+mapfile -t RESUMABLE < <(printf '%s\n' "$QUEUE_JSON" | jq -r '.resumable[].number')
 mapfile -t STALE_BLOCKED < <(printf '%s\n' "$QUEUE_JSON" | jq -r '.cleanup.stale_maintain_blocked[]')
 ```
 
@@ -464,8 +474,8 @@ issue fixture, fetch the repository default branch, then run
 `maintain-queue.sh --issues-file <issues.json> --open-prs-file <prs.json> --dependency-status-file <deps.json> --default-branch <branch>`.
 Do not print the planned queue from live GitHub labels alone after skipping triage mutations.
 
-Linked-PR detection is owned by `maintain-queue.sh`; treat
-`.excluded.linked_pr` as skipped work and do not duplicate that logic here.
+Linked-PR detection is owned by `maintain-queue.sh`. Process `.resumable` before
+`.queue`; treat `.excluded.linked_pr` as skipped work and do not duplicate that logic.
 
 **Ordering:**
 
@@ -488,9 +498,9 @@ Linked-PR detection is owned by `maintain-queue.sh`; treat
 
 ## Delivery (inline, sequential)
 
-For each eligible issue the supervisor runs the `/goal-deliver` playbook inline,
-scoped to that **one** issue. Sequential — at most one delivery in flight — which is
-the merge-serialization mechanism.
+Process each resumable PR first, then each eligible new issue through the
+`/goal-deliver` playbook inline, scoped to that **one** issue. Sequential — at most one
+delivery in flight — which is the merge-serialization mechanism.
 
 Run each inline delivery's authenticated mutation window in one continuous host
 shell. Mint its mutation token, snapshot its guards and commit trust, run the
@@ -502,13 +512,17 @@ discarding a valid candidate later with an unauthenticated reused receipt.
 
 ### Claim & Idempotency
 
-Before delivering, re-fetch the issue and skip if it is: closed, re-labelled
-`needs-human`, assigned, on cooldown, or already has an open linked PR. If
+Before new delivery, re-fetch the issue and skip if it is: closed, re-labelled
+`needs-human`, assigned, on cooldown, or already has an open linked PR not selected
+through `.resumable`. If
 `updatedAt` changed since triage, **re-triage** instead of delivering stale work.
-Then add `maintain:claimed` + the run-id marker. The real idempotency guard is the
-linked-PR check (claims are not atomic across competing sessions — out of scope for
-v1's single-session model). A `maintain:claimed` whose run-id differs from the
-current run and is older than the cooldown may be cleared.
+Then add `maintain:claimed` and exactly one issue comment
+`<!-- maintain:claim:RUN_ID -->`, substituting `LEASE_RUN_ID`; require the eventual PR
+body to carry that same byte-exact marker and the PR author to match the marker-comment
+author. This pair is the claim-ownership binding. The linked-PR check remains the
+idempotency guard (claims are not atomic across competing sessions — out of scope for
+v1's single-session model). A `maintain:claimed` whose run-id differs from the current
+run and is older than the cooldown may be cleared.
 
 Reset `active_role` in `.startup/state.json` before dispatching founders (reuse
 `/goal-deliver` preflight pattern):
@@ -522,6 +536,57 @@ fi
 
 Carry the worker reliability rules (`${CLAUDE_PLUGIN_ROOT}/templates/worker-reliability.md`)
 into each founder brief: re-resolve paths after any checkout/worktree switch; retry a stale read once.
+
+### Resume a claimed PR
+
+Treat each `.resumable` row as stale input. Immediately before any checkout, branch
+update, source mutation, QA/tribunal, or merge, re-fetch and bind the issue's exact
+`number`, `updatedAt`, complete label set, assignees, and claim marker; re-normalize
+every current cooldown ledger and re-check declared dependencies. Require the issue
+OPEN, unassigned, still `maintain:claimed`, without `needs-human` or `epic`, outside
+cooldown, with satisfied dependencies. Its number and `updatedAt` must exactly match
+the queue row. On version drift, re-triage and rebuild the queue; resume only from the
+new exact row. Any other eligibility drift excludes the row before touching the
+worktree.
+
+Snapshot the selected row unchanged in a private regular file. At every guard above,
+run `maintain-queue.sh --resume-candidate-file <row.json>` with the same repository,
+default-branch, and complete `queue_args` cooldown inputs. Continue only on exit 0;
+this mode freshly fetches the issue and complete open-PR set and mechanically requires
+the exact queued `number`, `updatedAt`, and `pr_number`, one linked PR, no assignee, and
+live eligibility. Any diagnostic or nonzero exit stops the phase.
+
+Recompute all live open linked PRs rather than trusting the row. Require exactly one,
+with its number equal to `.resumable.pr_number`, and require exactly one valid
+`<!-- maintain:claim:RUN_ID -->` marker shared by the issue and that PR. The marker's
+issue-comment author, PR author, and current authenticated GitHub actor must match.
+Re-fetch the PR and require it OPEN, non-draft, same-repository (never a fork), based on
+the resolved default branch, still linked to that exact issue, with a concrete
+`headRefOid`. Missing, duplicate, or mismatched claim/PR identity fails closed; never
+adopt or create another PR. A failed or truncated fetch, missing/malformed required
+field, or cooldown-ledger parse failure also fails closed before worktree mutation.
+
+Bind that live issue snapshot, PR number, base, and head before checkout. An intentional
+update may replace the bound head only with the pushed local SHA and invalidates all
+earlier gates. Repeat the full live guard before QA/tribunal and immediately before
+merge; the PR head must equal the exact local HEAD covered by the current gates. Any
+intervening issue, claim, eligibility, link, base, or head drift stops resumed work and
+re-triages or excludes it without further mutation.
+
+Fetch and check out that exact head in the dedicated worktree, update it from the
+current default, and then re-run required checks, browser QA when applicable, the
+issue-closure audit, and `tribunal-review:tribunal-loop` against the resulting current
+HEAD. Do not trust an earlier green check, QA report, or tribunal verdict. A required
+source correction returns to a fresh tech founder on the same branch and PR, followed
+by the complete gates again; it never opens a replacement PR. Pending checks may be
+polled within the pass budget. A failed required check that cannot be corrected in the
+bounded attempt leaves the PR and claim intact, records a cooldown, and continues with
+independent work.
+
+Only a current-HEAD PR that clears the ordinary green gate may follow the existing
+merge, deploy, live verification, claim removal, issue closure, and digest path below.
+This recovery path performs no implementation launch when the existing PR already
+passes.
 
 ### Per-Issue Guardrails
 
@@ -550,8 +615,11 @@ into each founder brief: re-resolve paths after any checkout/worktree switch; re
 The default branch may advance concurrently because of humans or automation, so a
 green PR can go stale before merge. Default merge sequence (supervisor stays in control):
 
-**update branch from main → rerun required checks → merge immediately on green** via
-`gh pr merge --squash --delete-branch`
+**update branch from main → rerun required checks → merge immediately on green**. At
+the end of those gates set `BOUND_SHA=$(git rev-parse HEAD)`, re-fetch the PR
+`headRefOid` as `LIVE_SHA`, and require `[ "$LIVE_SHA" = "$BOUND_SHA" ]`. Then merge
+atomically with `gh pr merge "$PR_NUMBER" --match-head-commit "$BOUND_SHA" --squash
+--delete-branch`. Any head mismatch refuses the merge and restarts final validation.
 
 If main advanced during final validation, **restart final validation**. `--auto` is
 allowed only when branch protection enforces up-to-date required checks (off by
@@ -622,6 +690,11 @@ Layered — no single cap suffices:
 - **Tribunal:** notify at round 3 and hard-stop at round 5 (§Per-Issue Guardrails).
 - **Stop-after-deploy-failure:** the first unrecoverable deploy failure halts further
   merges that pass.
+- **Browser transport:** a closed or unavailable browser transport is
+  `tool-unavailable`, never a product verdict. Follow the one-retry contract in
+  `skills/ux-tester/references/design-review-leg.md`. A second transport failure keeps
+  the current PR resumable, records `escalated:browser-tool-unavailable` with a bounded
+  cooldown, and continues independent queue work; it never waives required QA.
 - The external scheduler owns cadence and backoff after this pass reports; the
   foreground invocation never sleeps or repeats itself.
 

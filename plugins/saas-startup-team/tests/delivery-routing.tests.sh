@@ -381,21 +381,18 @@ test_delivery_routing() {
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$*" >> "$FAKE_CODEX_CALLS"
-last_message=""
 args=("$@")
-for ((i=0; i<${#args[@]}; i++)); do
-  if [ "${args[$i]}" = "--output-last-message" ]; then
-    last_message="${args[$((i + 1))]}"
-    break
-  fi
-done
+emit_message() {
+  jq -cn --arg text "$1" \
+    '{type:"item.completed",item:{type:"agent_message",text:$text}}'
+}
 [ -z "${FAKE_CODEX_PROMPT:-}" ] || cat > "$FAKE_CODEX_PROMPT"
 [ -z "${FAKE_CODEX_ENV:-}" ] || printf '%s\t%s\t%s\n' \
   "${TRIBUNAL_CALLER_PROVIDER:-}" "${TRIBUNAL_CALLER_MODEL:-}" \
   "${TRIBUNAL_CALLER_EFFORT:-}" > "$FAKE_CODEX_ENV"
 case "${FAKE_CODEX_MODE:-success}" in
   verbose_stream)
-    if [ -n "$last_message" ]; then
+    message=$(
       {
         printf '%s\n' 'bounded final agent response'
         i=0
@@ -403,13 +400,14 @@ case "${FAKE_CODEX_MODE:-success}" in
           printf 'final-detail-%03d-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ\n' "$i"
           i=$((i + 1))
         done
-      } > "$last_message"
-    fi
+      }
+    )
     i=0
     while [ "$i" -lt 4000 ]; do
       printf '{"type":"item.completed","item":{"type":"command_execution","text":"raw-stream-marker-%04d-abcdefghijklmnopqrstuvwxyz0123456789"}}\n' "$i"
       i=$((i + 1))
     done
+    emit_message "$message"
     printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":700,"output_tokens":80,"cached_input_tokens":30}}'
     exit 0
     ;;
@@ -447,7 +445,7 @@ case "${FAKE_CODEX_MODE:-success}" in
     exit 124
     ;;
 esac
-[ -z "$last_message" ] || printf '%s\n' 'final agent response' > "$last_message"
+emit_message 'final agent response'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20,"cached_input_tokens":10}}'
 SH
   chmod +x "$bin/codex"

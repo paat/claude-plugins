@@ -305,8 +305,6 @@ MAX_EVIDENCE_FILE_BYTES=$JSONL_MAX_BYTES
 [ "$STDERR_MAX_BYTES" -le "$MAX_EVIDENCE_FILE_BYTES" ] || MAX_EVIDENCE_FILE_BYTES=$STDERR_MAX_BYTES
 [ "$LAST_MESSAGE_MAX_BYTES" -le "$MAX_EVIDENCE_FILE_BYTES" ] \
   || MAX_EVIDENCE_FILE_BYTES=$LAST_MESSAGE_MAX_BYTES
-EVIDENCE_HARD_FILE_BLOCKS=$(((MAX_EVIDENCE_FILE_BYTES + 1023) / 1024))
-EVIDENCE_HARD_FILE_BYTES=$((EVIDENCE_HARD_FILE_BLOCKS * 1024))
 GUARDED_LOG_RETENTION_FILES=$(((LOG_RETENTION_BYTES - RUN_EVIDENCE_MAX_BYTES) / MAX_EVIDENCE_FILE_BYTES))
 [ "$GUARDED_LOG_RETENTION_FILES" -ge 1 ] || {
   echo "codex-run-role: retained-log budget leaves no bounded history" >&2; exit 2; }
@@ -616,10 +614,209 @@ codex_terminal_valid() {
         type == "number" and . >= 0 and floor == .)' "$1" >/dev/null 2>&1
 }
 
+extract_last_agent_message() {
+  local source="$1" maximum="$2"
+  evidence_fd_truncate 7 0 || return 1
+  timeout --signal=KILL 5s jq -nrj '
+    reduce inputs as $event (null;
+      if (($event | type) == "object")
+        and ($event.type? == "item.completed")
+        and ($event.item.type? == "agent_message")
+        and (($event.item.text? | type) == "string")
+      then $event.item.text else . end)
+    | if . == null then empty else . end' "$source" \
+    | LC_ALL=C head -c "$((maximum + 1))" >&7
+}
+
+ACTIVE_CODEX_PID=""
+ACTIVE_SIGNAL_FORWARDED=0
+ACTIVE_LAUNCHING=0
+ACTIVE_PENDING_SIGNAL=""
+ACTIVE_PENDING_STATUS=0
+ACTIVE_RELAY_DIR=""
+ACTIVE_RELAY_PIDS=()
+ACTIVE_EVIDENCE_FILES=()
+
+close_relay_fds() {
+  exec 9>&- 10>&- 11>&- 12>&- 13>&- 14>&- || true
+}
+
+job_pid_running() {
+  local target="$1" candidate
+  for candidate in $(jobs -pr); do
+    [ "$candidate" = "$target" ] && return 0
+  done
+  return 1
+}
+
+codex_group_alive() {
+  local group="$1"
+  [ -n "$group" ] || return 1
+  kill -0 -- "-$group" 2>/dev/null || kill -0 "$group" 2>/dev/null
+}
+
+signal_codex_group() {
+  local signal="$1" group="$2"
+  [ -n "$group" ] || return 1
+  kill -s "$signal" -- "-$group" 2>/dev/null \
+    || kill -s "$signal" "$group" 2>/dev/null
+}
+
+stop_relay_readers() {
+  local i relay_pid running
+  for relay_pid in "${ACTIVE_RELAY_PIDS[@]}"; do
+    kill -TERM "$relay_pid" 2>/dev/null || true
+  done
+  for ((i=0; i<20; i++)); do
+    running=0
+    for relay_pid in "${ACTIVE_RELAY_PIDS[@]}"; do
+      job_pid_running "$relay_pid" && running=1
+    done
+    [ "$running" -eq 1 ] || break
+    sleep 0.05
+  done
+  for relay_pid in "${ACTIVE_RELAY_PIDS[@]}"; do
+    job_pid_running "$relay_pid" && kill -KILL "$relay_pid" 2>/dev/null || true
+  done
+  for ((i=0; i<20; i++)); do
+    running=0
+    for relay_pid in "${ACTIVE_RELAY_PIDS[@]}"; do
+      job_pid_running "$relay_pid" && running=1
+    done
+    [ "$running" -eq 1 ] || break
+    sleep 0.05
+  done
+  for relay_pid in "${ACTIVE_RELAY_PIDS[@]}"; do
+    if job_pid_running "$relay_pid"; then
+      disown "$relay_pid" 2>/dev/null || true
+    else
+      wait "$relay_pid" 2>/dev/null || true
+    fi
+  done
+  ACTIVE_RELAY_PIDS=()
+}
+
+drain_evidence_relays() {
+  local group="$1" i relay_pid running rc=0
+  for ((i=0; i<20; i++)); do
+    running=0
+    for relay_pid in "${ACTIVE_RELAY_PIDS[@]}"; do
+      job_pid_running "$relay_pid" && running=1
+    done
+    [ "$running" -eq 1 ] || break
+    sleep 0.05
+  done
+  if [ "$running" -eq 1 ]; then
+    signal_codex_group TERM "$group" || true
+    for ((i=0; i<20; i++)); do
+      running=0
+      for relay_pid in "${ACTIVE_RELAY_PIDS[@]}"; do
+        job_pid_running "$relay_pid" && running=1
+      done
+      [ "$running" -eq 1 ] || break
+      sleep 0.05
+    done
+    signal_codex_group KILL "$group" || true
+    stop_relay_readers
+    return 1
+  fi
+  for relay_pid in "${ACTIVE_RELAY_PIDS[@]}"; do
+    wait "$relay_pid" || rc=1
+  done
+  ACTIVE_RELAY_PIDS=()
+  return "$rc"
+}
+
+cleanup_active_codex() {
+  local i
+  close_relay_fds
+  if codex_group_alive "$ACTIVE_CODEX_PID"; then
+    if [ "$ACTIVE_SIGNAL_FORWARDED" -eq 0 ]; then
+      signal_codex_group TERM "$ACTIVE_CODEX_PID" || true
+    fi
+    for ((i=0; i<20; i++)); do
+      codex_group_alive "$ACTIVE_CODEX_PID" || break
+      sleep 0.05
+    done
+    signal_codex_group KILL "$ACTIVE_CODEX_PID" || true
+  fi
+  [ -z "$ACTIVE_CODEX_PID" ] || wait "$ACTIVE_CODEX_PID" 2>/dev/null || true
+  ACTIVE_CODEX_PID=""
+  stop_relay_readers
+  if [ -n "$ACTIVE_RELAY_DIR" ]; then
+    rm -f -- "$ACTIVE_RELAY_DIR/stdout" "$ACTIVE_RELAY_DIR/stderr" || true
+    rmdir -- "$ACTIVE_RELAY_DIR" 2>/dev/null || true
+    ACTIVE_RELAY_DIR=""
+  fi
+  if [ "${#ACTIVE_EVIDENCE_FILES[@]}" -gt 0 ]; then
+    cleanup_evidence_files "${ACTIVE_EVIDENCE_FILES[@]}"
+    ACTIVE_EVIDENCE_FILES=()
+  fi
+  ACTIVE_SIGNAL_FORWARDED=0
+  ACTIVE_LAUNCHING=0
+  ACTIVE_PENDING_SIGNAL=""
+  ACTIVE_PENDING_STATUS=0
+}
+
+forward_active_signal() {
+  local signal="$1" status="$2"
+  trap - HUP INT TERM
+  if codex_group_alive "$ACTIVE_CODEX_PID"; then
+    signal_codex_group "$signal" "$ACTIVE_CODEX_PID" || true
+    ACTIVE_SIGNAL_FORWARDED=1
+  fi
+  exit "$status"
+}
+
+handle_active_signal() {
+  local signal="$1" status="$2"
+  if [ "$ACTIVE_LAUNCHING" -eq 1 ]; then
+    if [ -z "$ACTIVE_PENDING_SIGNAL" ]; then
+      ACTIVE_PENDING_SIGNAL=$signal
+      ACTIVE_PENDING_STATUS=$status
+    fi
+    return 0
+  fi
+  forward_active_signal "$signal" "$status"
+}
+
+cleanup_on_exit() {
+  local status=$?
+  trap - EXIT HUP INT TERM
+  cleanup_active_codex
+  exit "$status"
+}
+
+trap cleanup_on_exit EXIT
+trap 'handle_active_signal HUP 129' HUP
+trap 'handle_active_signal INT 130' INT
+trap 'handle_active_signal TERM 143' TERM
+
+start_evidence_relays() {
+  local parent="$1"
+  ACTIVE_RELAY_DIR=$(mktemp -d "$parent/.codex-relay.XXXXXX") || return 1
+  chmod 700 "$ACTIVE_RELAY_DIR" || return 1
+  mkfifo -m 600 "$ACTIVE_RELAY_DIR/stdout" "$ACTIVE_RELAY_DIR/stderr" || return 1
+  exec 11<> "$ACTIVE_RELAY_DIR/stdout" || return 1
+  exec 12<> "$ACTIVE_RELAY_DIR/stderr" || return 1
+  exec 13< "$ACTIVE_RELAY_DIR/stdout" || return 1
+  exec 14< "$ACTIVE_RELAY_DIR/stderr" || return 1
+  (exec 11>&- 12>&- 14>&-; LC_ALL=C head -c "$((JSONL_MAX_BYTES + 1))" <&13 >&5) &
+  ACTIVE_RELAY_PIDS+=("$!")
+  (exec 11>&- 12>&- 13>&-; LC_ALL=C head -c "$((STDERR_MAX_BYTES + 1))" <&14 >&6) &
+  ACTIVE_RELAY_PIDS+=("$!")
+  exec 9> "$ACTIVE_RELAY_DIR/stdout" || return 1
+  exec 10> "$ACTIVE_RELAY_DIR/stderr" || return 1
+  exec 11>&- 12>&- 13>&- 14>&-
+  rm -f -- "$ACTIVE_RELAY_DIR/stdout" "$ACTIVE_RELAY_DIR/stderr" || return 1
+  rmdir -- "$ACTIVE_RELAY_DIR" || return 1
+  ACTIVE_RELAY_DIR=""
+}
+
 run_codex() {
   local model="$1" effort="$2" out="$3" err="$4" last_message="$5"
   local out_parent err_parent last_parent out_tmp="" err_tmp="" last_tmp=""
-  local out_fd_path last_fd_path
+  local out_fd_path last_fd_path relay_rc=0 signal status
   local rc pid running size_out size_err size_last limit_reason="" unsafe=0 i
   EVIDENCE_PUBLISHED=0
   EVIDENCE_OUT_ID="" EVIDENCE_ERR_ID="" EVIDENCE_LAST_ID=""
@@ -648,22 +845,36 @@ run_codex() {
     echo "codex-run-role: could not pin Codex evidence files" >&2
     return 4
   }
+  ACTIVE_EVIDENCE_FILES=("$out_tmp" "$err_tmp" "$last_tmp")
   out_fd_path=$(evidence_fd_path 5) || return 4
   last_fd_path=$(evidence_fd_path 7) || return 4
+  start_evidence_relays "$out_parent" || {
+    cleanup_active_codex
+    echo "codex-run-role: could not initialize bounded evidence relays" >&2
+    return 4
+  }
 
+  ACTIVE_LAUNCHING=1
   (
     ulimit -S -c 0 || exit 125
-    ulimit -S -f "$EVIDENCE_HARD_FILE_BLOCKS" || exit 125
-    ulimit -H -f "$EVIDENCE_HARD_FILE_BLOCKS" || exit 125
     exec timeout --signal=TERM --kill-after=2s "$TIMEOUT" \
       env TRIBUNAL_CALLER_PROVIDER=openai \
       TRIBUNAL_CALLER_MODEL="$model" TRIBUNAL_CALLER_EFFORT="$effort" \
       codex exec --json --ephemeral "${CODEX_GLOBAL_ARGS[@]}" "${CODEX_SANDBOX_ARGS[@]}" -m "$model" \
       "${CODEX_CONFIG_ARGS[@]}" \
-      -c model_reasoning_effort="\"$effort\"" -C "$REPO_ROOT" \
-      --output-last-message "$last_fd_path" - <<< "$PROMPT"
-  ) >&5 2>&6 &
+      -c model_reasoning_effort="\"$effort\"" -C "$REPO_ROOT" - <<< "$PROMPT"
+  ) >&9 2>&10 &
   pid=$!
+  ACTIVE_CODEX_PID=$pid
+  ACTIVE_LAUNCHING=0
+  exec 9>&- 10>&-
+  if [ -n "$ACTIVE_PENDING_SIGNAL" ]; then
+    signal=$ACTIVE_PENDING_SIGNAL
+    status=$ACTIVE_PENDING_STATUS
+    ACTIVE_PENDING_SIGNAL=""
+    ACTIVE_PENDING_STATUS=0
+    forward_active_signal "$signal" "$status"
+  fi
   while :; do
     running=0
     for i in $(jobs -pr); do [ "$i" = "$pid" ] && running=1; done
@@ -694,6 +905,10 @@ run_codex() {
   fi
   rc=0
   wait "$pid" || rc=$?
+  drain_evidence_relays "$pid" || relay_rc=1
+  ACTIVE_CODEX_PID=""
+  [ "$relay_rc" -eq 0 ] || unsafe=1
+  extract_last_agent_message "$out_fd_path" "$LAST_MESSAGE_MAX_BYTES" || true
 
   evidence_slot_valid "$out_tmp" 5 "$EVIDENCE_OUT_ID" \
     && evidence_slot_valid "$err_tmp" 6 "$EVIDENCE_ERR_ID" \
@@ -701,6 +916,11 @@ run_codex() {
   size_out=$(evidence_fd_size 5) || unsafe=1
   size_err=$(evidence_fd_size 6) || unsafe=1
   size_last=$(evidence_fd_size 7) || unsafe=1
+  if [ "$relay_rc" -ne 0 ]; then
+    cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"
+    echo "codex-run-role: Codex evidence relays did not drain after worker exit" >&2
+    return 4
+  fi
   if [ "$unsafe" -eq 1 ]; then
     cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"
     echo "codex-run-role: Codex evidence slot became unsafe" >&2
@@ -709,10 +929,7 @@ run_codex() {
   if [ "$size_out" -gt "$JSONL_MAX_BYTES" ] \
     || [ "$size_err" -gt "$STDERR_MAX_BYTES" ] \
     || [ "$size_last" -gt "$LAST_MESSAGE_MAX_BYTES" ] \
-    || [ "$((size_out + size_err + size_last))" -gt "$ATTEMPT_EVIDENCE_MAX_BYTES" ] \
-    || [ "$size_out" -ge "$EVIDENCE_HARD_FILE_BYTES" ] \
-    || [ "$size_err" -ge "$EVIDENCE_HARD_FILE_BYTES" ] \
-    || [ "$size_last" -ge "$EVIDENCE_HARD_FILE_BYTES" ]; then
+    || [ "$((size_out + size_err + size_last))" -gt "$ATTEMPT_EVIDENCE_MAX_BYTES" ]; then
     limit_reason="Codex evidence exceeded its bounded byte budget"
   fi
   if [ -n "$limit_reason" ]; then
@@ -775,6 +992,7 @@ run_codex() {
     return 4
   }
   close_evidence_fds
+  ACTIVE_EVIDENCE_FILES=()
   EVIDENCE_PUBLISHED=1
   return "$rc"
 }

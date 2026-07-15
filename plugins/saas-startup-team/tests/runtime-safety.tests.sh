@@ -69,6 +69,15 @@ test_runtime_safety() {
     "$PLUGIN_ROOT/skills/business-founder/SKILL.md" 'never a retyped or inline tree'
   assert_file_contains "RS11o: Codex founder fails closed without browser tools" \
     "$PLUGIN_ROOT/skills/business-founder/SKILL.md" 'missing/pending/zero browser tools'
+  assert_file_contains "RS11p: maintenance founder returns unavailable transport explicitly" \
+    "$PLUGIN_ROOT/agents/business-founder-maintain.md" 'outcome: tool-unavailable'
+  assert_file_contains "RS11q: Codex UX retries browser transport only once" \
+    "$PLUGIN_ROOT/skills/ux-tester/SKILL.md" 'one fresh-session retry'
+  assert_file_contains "RS11r: Codex founder cannot turn transport loss into a verdict" \
+    "$PLUGIN_ROOT/skills/business-founder/SKILL.md" 'never a product verdict'
+  assert_file_contains "RS11s: Claude maintenance founder resolves browser guidance from the plugin root" \
+    "$PLUGIN_ROOT/agents/business-founder-maintain.md" \
+    '${CLAUDE_PLUGIN_ROOT}/skills/ux-tester/references/design-review-leg.md'
 
   check_frontmatter() {
     local agent="$1" model="$2" effort="$3" file="$PLUGIN_ROOT/agents/$1.md"

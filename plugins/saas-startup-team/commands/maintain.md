@@ -6,11 +6,11 @@ user_invocable: true
 
 # /maintain
 
-Parse only probe-relevant flags from `$ARGUMENTS`, then run
-`${CLAUDE_PLUGIN_ROOT}/scripts/workflow-probe.sh maintain` with them. Exit 3 is a
-clean no-op: stop without loading another file or launching a worker. Exit 4 is a
-blocked environment: report the probe's diagnosis and remedy, then stop the same
-way (a `--dry-run` planning pass is never blocked). Any other nonzero exit is a
-real failure. On exit 0, read
+Parse probe flags from `$ARGUMENTS`. Accept one internal `--lease-run-id ID`, validate
+it against `^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`, retain it as
+`MAINTAIN_LEASE_RUN_ID`, and never forward it to the probe. Run
+`${CLAUDE_PLUGIN_ROOT}/scripts/workflow-probe.sh maintain` with the probe flags. Exit 3
+is a clean no-op. Exit 4 is blocked: report the diagnosis and stop (`--dry-run` is
+never blocked). Other nonzero exits fail. On exit 0, read
 `${CLAUDE_PLUGIN_ROOT}/references/workflows/maintain.md` once and follow it. Do not
 duplicate its gates in this entrypoint.

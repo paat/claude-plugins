@@ -252,23 +252,20 @@ esac
 printf 'exec %s\n' "$*" >> "$FAKE_CODEX_CALLS"
 [ -z "${AWS_SECRET_ACCESS_KEY:-}" ] || exit 88
 root=""
-last_message=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -C) root="$2"; shift 2; continue ;;
-    --output-last-message) last_message="$2"; shift 2; continue ;;
   esac
   shift
 done
 [ -n "$root" ]
-[ -n "$last_message" ]
 printf 'generated\n' > "$root/generated.txt"
 case "${FAKE_CODEX_MODE:-}" in
   tamper_check) printf '#!/usr/bin/env bash\nexit 0\n' > "$root/check.sh" ;;
   tamper_ignore) printf 'extra-ignore\n' >> "$root/.gitignore" ;;
   hidden_output) printf 'hidden\n' > "$root/hidden.txt" ;;
 esac
-printf 'fake final role message\n' > "$last_message"
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"fake final role message"}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":80,"output_tokens":20,"cached_input_tokens":0}}'
 SH
   chmod +x "$bin/codex"

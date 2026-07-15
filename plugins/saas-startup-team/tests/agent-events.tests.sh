@@ -354,9 +354,9 @@ test_agent_events() {
   git -C "$guard_repo" add app.txt task.md; git -C "$guard_repo" commit -qm base
   printf '%s\n' '#!/usr/bin/env bash' \
     'find "$EXPECT_GUARD_DIR" -maxdepth 1 -name "qa.json.telemetry-*.json" -print -quit | grep -q .' \
-    'last_message=""; while [ "$#" -gt 0 ]; do if [ "$1" = --output-last-message ]; then last_message=$2; shift 2; else shift; fi; done' \
+    'while [ "$#" -gt 0 ]; do shift; done' \
     'cat >/dev/null' \
-    'printf "%s\n" "review complete" > "$last_message"' \
+    "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"review complete\"}}'" \
     "printf '%s\\n' '{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cached_input_tokens\":0}}'" \
     > "$bin/codex"
   chmod +x "$bin/codex"

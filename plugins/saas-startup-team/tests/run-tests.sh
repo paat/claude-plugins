@@ -1053,6 +1053,8 @@ test_plugin_issues() {
 test_maintain() {
   echo -e "\n${CYAN}== /maintain command ==${NC}"
   local cmd="$PLUGIN_ROOT/references/workflows/maintain.md"
+  local entry="$PLUGIN_ROOT/commands/maintain.md"
+  local protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
   local codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-workflow/SKILL.md"
   assert_file_exists "M1: maintain.md exists" "$cmd"
   # Frontmatter
@@ -1116,6 +1118,8 @@ test_maintain() {
   assert_file_contains "M43: Codex gates run in maintain cycle" "$codex_cmd" "issue-delivery cycle"
   assert_file_contains "M44: Codex QA before closing loop" "$codex_cmd" "business-founder QA phase with Playwright"
   assert_file_contains "M45: Codex QA not-applicable record" "$codex_cmd" "Business-founder Playwright QA: not applicable"
+  assert_file_contains "M45aa: Codex browser transport loss is issue-local" "$codex_cmd" \
+    'issue-local `browser-tool-unavailable`'
   assert_file_contains "M45a: maintain uses queue builder" "$cmd" "maintain-queue.sh"
   assert_file_contains "M45a1: maintain checks queue builder exit" "$cmd" "if ! QUEUE_JSON="
   assert_file_contains "M45a2: maintain dry-run uses fixture queue state" "$cmd" "--issues-file <issues.json>"
@@ -1127,9 +1131,49 @@ test_maintain() {
     "one continuous host"
   assert_file_contains "M45a8: maintain invalidates receipts after shell loss" "$cmd" \
     "A lost shell invalidates"
+  assert_file_contains "M45a9: maintain processes resumable PRs before new work" "$protocol" \
+    'Process `.resumable` before'
+  assert_file_contains "M45a10: resume re-proves current-head gates" "$protocol" \
+    'Do not trust an earlier green check'
+  assert_file_contains "M45a11: resume never creates a replacement PR" "$protocol" \
+    'never opens a replacement PR'
+  assert_file_contains "M45a12: second browser transport failure is issue-local" "$protocol" \
+    'continues independent queue work'
+  assert_file_contains "M45a13: maintain accepts coordinator lease identity" "$entry" \
+    '--lease-run-id ID'
+  assert_file_contains "M45a14: internal lease identity never reaches probe" "$entry" \
+    'never forward it to the probe'
+  assert_file_contains "M45a15: maintain protocol reuses coordinator lease identity" "$protocol" \
+    'LEASE_RUN_ID=${MAINTAIN_LEASE_RUN_ID:-}'
+  assert_file_contains "M45a16: normal maintain rejects legacy activation" "$protocol" \
+    'never calls `maintain-leases.sh activate`'
+  assert_file_contains "M45a17: resumable rows carry no durable permission" "$cmd" \
+    '`.resumable` row is only a candidate'
+  assert_file_contains "M45a18: resume guard runs before every sensitive phase" "$protocol" \
+    'Immediately before any checkout'
+  assert_file_contains "M45a19: resume binds complete live issue identity" "$protocol" \
+    'complete label set, assignees, and claim marker'
+  assert_file_contains "M45a20: resume reapplies human and assignment eligibility" "$protocol" \
+    'OPEN, unassigned, still `maintain:claimed`, without `needs-human` or `epic`'
+  assert_file_contains "M45a21: issue-version drift re-triages and rebuilds" "$protocol" \
+    'On version drift, re-triage and rebuild the queue'
+  assert_file_contains "M45a22: resume requires the exact queued PR" "$protocol" \
+    'number equal to `.resumable.pr_number`'
+  assert_file_contains "M45a23: issue and PR share exact claim ownership" "$protocol" \
+    'same byte-exact marker'
+  assert_file_contains "M45a24: resume rejects malformed live evidence before mutation" "$protocol" \
+    'fails closed before worktree mutation'
+  assert_file_contains "M45a25: full live guard repeats immediately before merge" "$protocol" \
+    'Repeat the full live guard before QA/tribunal and immediately before'
+  assert_file_contains "M45a26: resume phases use the executable exact-row guard" "$protocol" \
+    'maintain-queue.sh --resume-candidate-file'
+  assert_file_contains "M45a27: active merge atomically pins the reviewed PR head" "$protocol" \
+    'gh pr merge "$PR_NUMBER" --match-head-commit "$BOUND_SHA"'
+  assert_file_contains "M45a28: active merge compares the final live PR head" "$protocol" \
+    '[ "$LIVE_SHA" = "$BOUND_SHA" ]'
 
   # Queue builder regression: no-dependency issues must survive dependency parsing.
-  local queue_script issues_file prs_file blocked_file active_blocked_file expired_blocked_file legacy_blocked_file bad_blocked_file bad_blocked_err dep_issues_file dep_status_file serial_dep_issues_file serial_dep_status_file closed_issues_file fake_bin live_out repo_live_out closed_status closed_err missing_status missing_err fixture_closed_status fixture_closed_err zero_status zero_err bad_blocked_status out filtered single_issue cooled active_blocked expired_blocked dual_blocked dep_out serial_dep_out queue_numbers live_repo gh_calls unbound_dir unbound_status unbound_err
+  local queue_script issues_file prs_file resume_candidate_file race_issues_file race_prs_file blocked_file active_blocked_file expired_blocked_file legacy_blocked_file bad_blocked_file bad_blocked_err dep_issues_file dep_status_file serial_dep_issues_file serial_dep_status_file closed_issues_file fake_bin live_out repo_live_out closed_status closed_err missing_status missing_err fixture_closed_status fixture_closed_err zero_status zero_err bad_blocked_status resume_status out race_out filtered single_issue cooled active_blocked expired_blocked dual_blocked dep_out serial_dep_out queue_numbers live_repo gh_calls unbound_dir unbound_status unbound_err
   queue_script="$PLUGIN_ROOT/scripts/maintain-queue.sh"
   assert_file_exists "M45b: queue builder script exists" "$queue_script"
   assert_file_contains "M45b1: queue builder fetches linked PR refs" "$queue_script" "closedByPullRequestsReferences"
@@ -1233,6 +1277,41 @@ test_maintain() {
     "labels": [{"name": "high"}],
     "createdAt": "2026-01-11T00:00:00Z",
     "updatedAt": "2026-01-11T00:00:00Z"
+  },
+  {
+    "number": 113,
+    "state": "OPEN",
+    "title": "Claimed PR interrupted after push",
+    "body": "Resume the existing delivery.",
+    "labels": [{"name": "maintain:claimed"}, {"name": "high"}],
+    "assignees": [],
+    "closedByPullRequestsReferences": [],
+    "createdAt": "2026-01-12T00:00:00Z",
+    "updatedAt": "2026-01-12T00:00:00Z"
+  },
+  {
+    "number": 114,
+    "title": "Ambiguous claimed PRs",
+    "body": "Two PRs claim this issue.",
+    "labels": [{"name": "maintain:claimed"}],
+    "createdAt": "2026-01-13T00:00:00Z",
+    "updatedAt": "2026-01-13T00:00:00Z"
+  },
+  {
+    "number": 115,
+    "title": "Claimed PR needs a human",
+    "body": "Do not resume automatically.",
+    "labels": [{"name": "maintain:claimed"}, {"name": "needs-human"}],
+    "createdAt": "2026-01-14T00:00:00Z",
+    "updatedAt": "2026-01-14T00:00:00Z"
+  },
+  {
+    "number": 116,
+    "title": "Claimed PR waits for dependency",
+    "body": "Blocked by #101.",
+    "labels": [{"name": "maintain:claimed"}],
+    "createdAt": "2026-01-15T00:00:00Z",
+    "updatedAt": "2026-01-15T00:00:00Z"
   }
 ]
 JSON
@@ -1255,6 +1334,36 @@ JSON
     "title": "Fix through GitHub reference",
     "body": "No textual issue reference.",
     "closingIssuesReferences": [{"number": 112}]
+  },
+  {
+    "number": 23,
+    "title": "Resume claimed work",
+    "body": "Fixes #113",
+    "closingIssuesReferences": []
+  },
+  {
+    "number": 24,
+    "title": "First ambiguous claim",
+    "body": "Fixes #114",
+    "closingIssuesReferences": []
+  },
+  {
+    "number": 25,
+    "title": "Second ambiguous claim",
+    "body": "Resolves #114",
+    "closingIssuesReferences": []
+  },
+  {
+    "number": 26,
+    "title": "Human-gated claim",
+    "body": "Fixes #115",
+    "closingIssuesReferences": []
+  },
+  {
+    "number": 27,
+    "title": "Dependency-gated claim",
+    "body": "Fixes #116",
+    "closingIssuesReferences": []
   }
 ]
 JSON
@@ -1272,6 +1381,103 @@ JSON
     "$(jq -r '.queue | map(.number) | index(109) != null' <<<"$out")" "true"
   assert_equals "M45e3: bare open PR mention is not a linked PR" \
     "$(jq -r '.excluded.linked_pr | index(109) == null' <<<"$out")" "true"
+  assert_equals "M45e4: one claimed linked PR is resumable" \
+    "$(jq -r '.resumable[] | select(.number == 113) | .pr_number' <<<"$out")" "23"
+  assert_equals "M45e4a: resumable row retains the triaged issue version" \
+    "$(jq -r '.resumable[] | select(.number == 113) | .updatedAt' <<<"$out")" \
+    "2026-01-12T00:00:00Z"
+  assert_equals "M45e5: resumable work is not also excluded" \
+    "$(jq -r '.excluded.linked_pr | index(113) == null' <<<"$out")" "true"
+  resume_candidate_file="$workdir/resume-candidate.json"
+  jq '.resumable[] | select(.number == 113)' <<<"$out" > "$resume_candidate_file"
+  resume_status=0
+  race_out=$(bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" \
+    --resume-candidate-file "$resume_candidate_file") || resume_status=$?
+  assert_exit_code "M45e5a: exact unchanged resume candidate passes its live guard" \
+    "$resume_status" 0
+  assert_equals "M45e5b: successful guard returns the exact queued PR" \
+    "$(jq -r .pr_number <<<"$race_out")" "23"
+  assert_equals "M45e6: unclaimed linked PR remains excluded" \
+    "$(jq -r '.excluded.linked_pr | index(103) != null' <<<"$out")" "true"
+  assert_equals "M45e7: multiple claimed PRs fail closed as ambiguous" \
+    "$(jq -r '.excluded.linked_pr | index(114) != null' <<<"$out")" "true"
+  assert_equals "M45e8: needs-human still excludes a claimed PR" \
+    "$(jq -r '.excluded.needs_human | index(115) != null' <<<"$out")" "true"
+  assert_equals "M45e9: claimed PR waits for unmet dependencies" \
+    "$(jq -r '.excluded.dependency_wait[] | select(.number == 116) | (.deps | join(","))' <<<"$out")" "101"
+  race_issues_file="$workdir/race-issues.json"
+  jq 'map(if .number == 113 then
+      .updatedAt = "2026-01-16T00:00:00Z"
+    else . end)' "$issues_file" > "$race_issues_file"
+  resume_status=0
+  bash "$queue_script" --issues-file "$race_issues_file" --open-prs-file "$prs_file" \
+    --resume-candidate-file "$resume_candidate_file" >/dev/null 2>&1 || resume_status=$?
+  assert_exit_code "M45e10: changed issue version fails the exact resume guard" \
+    "$resume_status" 3
+  jq 'map(if .number == 113 then
+      .assignees = [{"login":"investor"}]
+    else . end)' "$issues_file" > "$race_issues_file"
+  race_out=$(bash "$queue_script" --issues-file "$race_issues_file" --open-prs-file "$prs_file")
+  assert_equals "M45e11a: rebuilt queue explicitly excludes assigned work" \
+    "$(jq -r '.excluded.assigned | index(113) != null' <<<"$race_out")" "true"
+  resume_status=0
+  bash "$queue_script" --issues-file "$race_issues_file" --open-prs-file "$prs_file" \
+    --resume-candidate-file "$resume_candidate_file" >/dev/null 2>&1 || resume_status=$?
+  assert_exit_code "M45e11: later assignment fails the exact resume guard" \
+    "$resume_status" 3
+  jq 'map(if .number == 113 then
+      .updatedAt = "2026-01-16T00:00:00Z"
+      | .labels += [{"name":"needs-human"}]
+    else . end)' "$issues_file" > "$race_issues_file"
+  race_out=$(bash "$queue_script" --issues-file "$race_issues_file" --open-prs-file "$prs_file")
+  assert_equals "M45e12: later needs-human drift removes a resumable candidate" \
+    "$(jq -r '.resumable | map(.number) | index(113) == null' <<<"$race_out")" "true"
+  assert_equals "M45e13: rebuilt queue parks the drifted candidate" \
+    "$(jq -r '.excluded.needs_human | index(113) != null' <<<"$race_out")" "true"
+  resume_status=0
+  bash "$queue_script" --issues-file "$race_issues_file" --open-prs-file "$prs_file" \
+    --resume-candidate-file "$resume_candidate_file" >/dev/null 2>&1 || resume_status=$?
+  assert_exit_code "M45e14: later needs-human drift fails the exact resume guard" \
+    "$resume_status" 3
+  race_prs_file="$workdir/race-prs.json"
+  jq '. + [{"number":28,"title":"Competing claim","body":"Fixes #113","closingIssuesReferences":[]}]' \
+    "$prs_file" > "$race_prs_file"
+  race_out=$(bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$race_prs_file")
+  assert_equals "M45e15: later second linked PR invalidates resumable identity" \
+    "$(jq -r '.resumable | map(.number) | index(113) == null' <<<"$race_out")" "true"
+  assert_equals "M45e16: ambiguous replacement stays excluded" \
+    "$(jq -r '.excluded.linked_pr | index(113) != null' <<<"$race_out")" "true"
+  resume_status=0
+  bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$race_prs_file" \
+    --resume-candidate-file "$resume_candidate_file" >/dev/null 2>&1 || resume_status=$?
+  assert_exit_code "M45e17: later second linked PR fails the exact resume guard" \
+    "$resume_status" 3
+  jq 'map(if .number == 113 then .assignees = "invalid" else . end)' \
+    "$issues_file" > "$race_issues_file"
+  resume_status=0
+  race_out=$(bash "$queue_script" --issues-file "$race_issues_file" --open-prs-file "$prs_file" \
+    --resume-candidate-file "$resume_candidate_file" 2>&1) || resume_status=$?
+  assert_exit_code "M45e18: malformed live assignees fail the resume guard" \
+    "$resume_status" 3
+  assert_output_contains "M45e19: malformed issue data has a precise guard diagnostic" \
+    "$race_out" 'live resume issue data is malformed'
+  jq 'map(if .number == 23 then .closingIssuesReferences = "invalid" else . end)' \
+    "$prs_file" > "$race_prs_file"
+  resume_status=0
+  race_out=$(bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$race_prs_file" \
+    --resume-candidate-file "$resume_candidate_file" 2>&1) || resume_status=$?
+  assert_exit_code "M45e20: malformed live PR schema fails the resume guard" \
+    "$resume_status" 3
+  assert_output_contains "M45e21: malformed PR data has a precise guard diagnostic" \
+    "$race_out" 'live resume PR data is malformed'
+  printf '%s\n' '{"number":113,"updatedAt":7,"pr_number":23}' \
+    > "$workdir/malformed-resume-candidate.json"
+  resume_status=0
+  race_out=$(bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" \
+    --resume-candidate-file "$workdir/malformed-resume-candidate.json" 2>&1) || resume_status=$?
+  assert_exit_code "M45e22: malformed candidate schema fails closed" "$resume_status" 3
+  assert_output_contains "M45e23: malformed candidate has a precise diagnostic" \
+    "$race_out" 'resume candidate is malformed'
   assert_equals "M45f: explicit dependencies defer dependent issue" \
     "$(jq -r '.excluded.dependency_wait[] | select(.number == 104) | (.deps | join(","))' <<<"$out")" "101,102"
   assert_equals "M45g: needs-human label is excluded" \
@@ -1328,10 +1534,23 @@ JSON
   assert_exit_code "M45m4: closed fixture issue fails loudly" "$fixture_closed_status" 3
   assert_file_contains "M45m5: closed fixture issue names state problem" "$fixture_closed_err" "issue #112 is not open"
   blocked_file="$workdir/blocked.jsonl"
-  printf '%s\n' '{"number":101,"reason":"cooldown","cooldown_until":"2099-01-01T00:00:00Z"}' > "$blocked_file"
+  printf '%s\n' \
+    '{"number":101,"reason":"cooldown","cooldown_until":"2099-01-01T00:00:00Z"}' \
+    '{"number":113,"reason":"resume race","cooldown_until":"2099-01-01T00:00:00Z"}' \
+    > "$blocked_file"
   cooled=$(bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" --blocked-file "$blocked_file")
   assert_equals "M45n: blocked-file cooldown excludes issue" \
     "$(jq -r '.excluded.cooldown | index(101) != null' <<<"$cooled")" "true"
+  assert_equals "M45n0a: later cooldown removes a resumable candidate" \
+    "$(jq -r '.resumable | map(.number) | index(113) == null' <<<"$cooled")" "true"
+  assert_equals "M45n0b: rebuilt queue records the resumable cooldown" \
+    "$(jq -r '.excluded.cooldown | index(113) != null' <<<"$cooled")" "true"
+  resume_status=0
+  bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" \
+    --blocked-file "$blocked_file" --resume-candidate-file "$resume_candidate_file" \
+    >/dev/null 2>&1 || resume_status=$?
+  assert_exit_code "M45n0c: later cooldown fails the exact resume guard" \
+    "$resume_status" 3
   active_blocked_file="$workdir/active-blocked.jsonl"
   printf '%s\n' '{"number":106,"reason":"cooldown","cooldown_until":"2099-01-01T00:00:00Z"}' > "$active_blocked_file"
   active_blocked=$(bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" --blocked-file "$active_blocked_file")
@@ -1372,6 +1591,12 @@ JSON
   set -e
   assert_exit_code "M45n9: parseable but invalid cooldown schema fails before queue cleanup" \
     "$bad_blocked_status" 3
+  resume_status=0
+  bash "$queue_script" --issues-file "$issues_file" --open-prs-file "$prs_file" \
+    --blocked-file "$bad_blocked_file" --resume-candidate-file "$resume_candidate_file" \
+    >/dev/null 2>&1 || resume_status=$?
+  assert_exit_code "M45n9a: malformed cooldown also fails the exact resume guard" \
+    "$resume_status" 3
   dep_issues_file="$workdir/dependency-issues.json"
   dep_status_file="$workdir/dependency-status.json"
   cat > "$dep_issues_file" <<'JSON'
@@ -1627,6 +1852,18 @@ test_maintain_loop() {
     '`--once` means launch at most one'
   assert_file_contains "ML16: dry-run is bounded" "$command" \
     'Under outer `--once` or `--dry-run`, stop after this pass'
+  assert_file_contains "ML16a: normal child gets a parent-minted lease identity" "$command" \
+    'agent-events.sh" new-run-id'
+  assert_file_contains "ML16b: exact lease identity is forwarded to child" "$command" \
+    '--lease-run-id <LEASE_RUN_ID>'
+  assert_file_contains "ML16c: known-terminal child is reaped by exact ID" "$command" \
+    'maintain-leases.sh reap-terminal'
+  assert_file_contains "ML16d: availability is rechecked after terminal reap" "$command" \
+    'maintain-leases.sh available'
+  assert_file_contains "ML16e: unknown-terminal child is never reaped" "$command" \
+    'unknown-terminal child is never reaped'
+  assert_file_contains "ML16f: dry-run mints and reaps no lease" "$command" \
+    'Under `--dry-run`, never mint or reap a lease'
 
   assert_file_exists "ML17: concise Codex skill exists" "$codex_cmd"
   assert_file_contains "ML18: Codex skill aliases command" "$codex_cmd" "/maintain-loop"
