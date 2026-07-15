@@ -771,7 +771,7 @@ do
   assert_bash_n "$script parses" "$script"
 done
 assert_file "static runner bundle manifest exists" "integrity/runner-bundle.json"
-assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.19.6\"'"
+assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.19.8\"'"
 assert_json_field "static runner bundle is current" "bash '$PLUGIN_ROOT/scripts/generate-runner-bundle.sh' --check"
 
 echo "Skill is orchestration-focused:"

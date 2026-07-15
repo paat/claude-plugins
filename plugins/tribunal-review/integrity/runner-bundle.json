@@ -39,5 +39,5 @@
   ],
   "plugin": "tribunal-review",
   "schema": "tribunal-runner-bundle/v1",
-  "version": "0.19.6"
+  "version": "0.19.8"
 }
