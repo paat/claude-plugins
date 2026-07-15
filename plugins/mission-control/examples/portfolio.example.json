@@ -12,7 +12,7 @@
     },
     "codex": {
       "pool": "codex",
-      "cmd": "codex exec --ephemeral -s workspace-write '{prompt}'"
+      "cmd": "codex exec --ephemeral --dangerously-bypass-approvals-and-sandbox '{prompt}'"
     }
   },
   "pools": {
@@ -32,6 +32,7 @@
       "engine": "codex",
       "command": "/maintain --once",
       "hold": false,
+      "delivery_hold": true,
       "incident_labels": ["incident", "production", "critical"]
     },
     {
@@ -42,6 +43,7 @@
       "engine": "codex",
       "command": "/maintain-loop --once",
       "hold": false,
+      "delivery_hold": true,
       "bus_path": "/workspace/bus"
     },
     {
