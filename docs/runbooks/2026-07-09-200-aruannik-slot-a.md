@@ -1,19 +1,23 @@
 # Runbook #200 — migrate aruannik to Mission Control Slot A
 
-Executed in the aruannik dev container + cron host. Refs paat/claude-plugins#200.
-Generic arming steps live in `plugins/mission-control/docs/runbook.md`; this file
-adds only the aruannik-specific work. Tick each box in a comment on #200.
+Historical repository runbook; canonical execution tracking is now
+[ai-dashboard #15](https://github.com/paat/ai-dashboard/issues/15).
+Generic arming steps live in `plugins/mission-control/docs/runbook.md`; record
+all rollout evidence on the dashboard issue.
 
 ## Preconditions
 
-- [ ] claude-plugins clone on the cron host is at mission-control >= 0.3.0
+- [ ] claude-plugins clone on the cron host is at mission-control >= 0.5.5
       (`jq -r .version plugins/mission-control/.claude-plugin/plugin.json`)
-- [ ] #193 merged (standing merge policy in saas-startup-team >= 0.75.2)
+- [x] [ai-dashboard PR #25](https://github.com/paat/ai-dashboard/pull/25)
+      merged
+- [ ] [ai-dashboard cutover #24](https://github.com/paat/ai-dashboard/issues/24)
+      completed; keep every product entry at `hold: true` until then
 
 ## 1. Plugin upgrade (in the aruannik container)
 
 - [ ] Update the marketplace clone and reinstall/refresh saas-startup-team to
-      current (>= 0.76.x if #197 has merged, else >= 0.75.2). The epic's ~24
+      current. The epic's ~24
       manual merge-trigger turns are retired by the no-hold-tier policy +
       `templates/merge-policy.md` already in the plugin — no per-project config.
 - [ ] `bash <plugin>/scripts/health-preflight.sh --require-gh --check-sync` green.
@@ -44,9 +48,14 @@ project CLAUDE.md:
 ## 3. Register in portfolio.json (cron host)
 
 - [ ] Add aruannik pinned to Slot A: `stage: "live"`, `engine: codex` (Codex is
-      the default implementer pool), `command: "/maintain --once"`, real
+      the default implementer pool),
+      `command: "$saas-startup-team:maintain-loop --once"`, real
       container name + in-container repo path, `incident_labels` matching the
       repo's incident labels.
+- [ ] Set top-level `docker_exec_user: "dev"`, use unrestricted ephemeral
+      Codex, and set both `hold: true` and `delivery_hold: true`.
+- [ ] After cutover #24 completes, change only aruannik to `hold: false`;
+      leave both Slot B projects held.
 - [ ] Disable the container's own standalone maintain/lessons cron lines —
       mission-control owns dispatch now (double-dispatch races the same locks).
 - [ ] If mission-control delivers the digest, disable aruannik's own
@@ -55,13 +64,13 @@ project CLAUDE.md:
 - [ ] `mission-control.sh arm --config <path>` validates; human installs/updates
       the single cron line (never an agent).
 
-## 4. Acceptance (3-day soak)
+## 4. Acceptance (fresh 72-hour soak)
 
 - [ ] `tick --dry-run` shows Slot A selecting aruannik; first real passes green
       in `state/mission-control.log`.
-- [ ] >= 3 consecutive days on the Slot A schedule with human turns limited to
+- [ ] >= 72 consecutive hours on the Slot A schedule with human turns limited to
       digest review + hard-human items (money, legal identity, credentials).
-- [ ] Reconciliation checklist above fully ticked on #200, then close #200.
+- [ ] Reconciliation checklist and evidence recorded on ai-dashboard #15.
 - [ ] Post-deploy auto-revert path (#203) exercised once end-to-end on live: a
       `ui`-classified merge triggered a visual-smoke regression and the
       `revert/<pr-slug>` rollback restored a green deploy.

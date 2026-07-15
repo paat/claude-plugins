@@ -1,7 +1,8 @@
 {
-  "_comment": "Runbook #200/#201 arming draft — fill the three TODO repo_path values, save outside the repo (e.g. ~/.config/mission-control/portfolio.json), then: bash plugins/mission-control/scripts/mission-control.sh arm --config <path> and paste the printed cron line (human-only step). Container names verified against docker ps 2026-07-10.",
+  "_comment": "Rollout draft tracked by ai-dashboard #15/#16. Dashboard PR #25 is merged; keep all product projects held until cutover #24 is complete. Then unhold only aruannik for a fresh 72-hour Slot A soak; unhold Slot B only after that soak passes. Fill the three TODO repo_path values, save outside the repo, validate with mission-control.sh arm, then install the printed cron line as a human-only step.",
   "timezone": "Europe/Tallinn",
   "docker_cmd": "sudo docker",
+  "docker_exec_user": "dev",
   "notify_env": "MC_NTFY_URL",
   "digest_hour": 7,
   "retention_days": 14,
@@ -13,7 +14,7 @@
     },
     "codex": {
       "pool": "codex",
-      "cmd": "codex exec --skip-git-repo-check -s workspace-write '{prompt}'"
+      "cmd": "codex exec --ephemeral --dangerously-bypass-approvals-and-sandbox '{prompt}'"
     }
   },
   "pools": {
@@ -31,8 +32,9 @@
       "repo_path": "TODO:/in-container/path/to/aruannik/repo",
       "stage": "live",
       "engine": "codex",
-      "command": "/maintain --once",
-      "hold": false,
+      "command": "$saas-startup-team:maintain-loop --once",
+      "hold": true,
+      "delivery_hold": true,
       "incident_labels": ["incident", "production", "critical"]
     },
     {
@@ -41,8 +43,9 @@
       "repo_path": "TODO:/in-container/path/to/vastav/repo",
       "stage": "live",
       "engine": "codex",
-      "command": "/maintain --once",
-      "hold": false,
+      "command": "$saas-startup-team:maintain-loop --once",
+      "hold": true,
+      "delivery_hold": true,
       "incident_labels": ["incident", "production", "critical"]
     },
     {
@@ -51,8 +54,9 @@
       "repo_path": "TODO:/in-container/path/to/varustame/repo",
       "stage": "pre-launch",
       "engine": "codex",
-      "command": "/maintain --once",
-      "hold": false
+      "command": "$saas-startup-team:maintain-loop --once",
+      "hold": true,
+      "delivery_hold": true
     },
     {
       "name": "plugin-repo",
