@@ -37,7 +37,8 @@ On SessionStart (always exit 0, ~1s, read-only):
    present-but-not-exported so the agent sources it instead of declaring it
    inaccessible.
 
-Output shape:
+The hook returns structured `SessionStart` JSON on both Claude Code and Codex.
+The `additionalContext` shown to the agent has this shape:
 
 ```
 [session-preflight] host=devbox user=abc repo=myapp branch=main (container)

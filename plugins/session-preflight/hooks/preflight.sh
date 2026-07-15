@@ -119,8 +119,14 @@ if [ "$HAVE_JQ" -eq 1 ] && [ -f "$MANIFEST" ]; then
   done < <(jq -r '(.tokens // [])[] | [(.env // ""), ((.files // []) | join("\u001f"))] | join("\u001f")' "$MANIFEST" 2>/dev/null)
 fi
 
-# ---------- report (control chars stripped: manifest text cannot forge lines) ----------
-emit() { printf '%s\n' "$1" | tr -d '\000-\010\013-\037'; }
+# ---------- report (structured JSON for Claude Code and Codex) ----------
+REPORT=""
+emit() {
+  local line
+  line="$(printf '%s' "$1" | tr -d '\000-\037')"
+  [ -z "$REPORT" ] || REPORT+=$'\n'
+  REPORT+="$line"
+}
 emit "[session-preflight] $identity"
 if [ "${#BAD[@]}" -gt 0 ]; then
   emit "[session-preflight] ATTENTION — ${#BAD[@]} check(s) failed; fix or work around these BEFORE relying on them:"
@@ -129,4 +135,11 @@ fi
 if [ "${#OK[@]}" -gt 0 ]; then
   emit "[session-preflight] ok: ${OK[*]}"
 fi
+
+# Codex requires SessionStart hook output to be a JSON object. Use Bash string
+# substitutions so the no-jq degradation path still emits valid JSON.
+context=${REPORT//\\/\\\\}
+context=${context//\"/\\\"}
+context=${context//$'\n'/\\n}
+printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$context"
 exit 0
