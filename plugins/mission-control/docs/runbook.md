@@ -8,9 +8,10 @@ the cron line — you do, once.
    projects: container names (`docker ps`), in-container repo paths, stages,
    engines. Set `docker_cmd` to `sudo docker` if your user lacks docker
    socket group membership. Keep `container: "local"` for loops that run in
-   the same container as cron (e.g. the plugin repo's lessons-deliver). For
-   reconciled dev containers, set `delivery_hold: true`; this is independent
-   of the scheduler veto in `hold`.
+   the same container as cron (e.g. the plugin repo's lessons-deliver). Set
+   `docker_exec_user` to the authenticated development user, leave
+   `delivery_hold` absent, and run Codex with
+   `--dangerously-bypass-approvals-and-sandbox` without `--ephemeral`.
 2. **Prerequisites.** `jq`, `flock`, GNU `date`, `curl` on the cron host;
    `gh` authenticated inside every project container; the assistant CLIs
    (`claude`, `codex`) installed wherever their engine's passes run. Engine

@@ -7,7 +7,7 @@ all rollout evidence on the dashboard issue.
 
 ## Preconditions
 
-- [ ] claude-plugins clone on the cron host is at mission-control >= 0.5.5
+- [ ] claude-plugins clone on the cron host is at mission-control >= 0.5.6
       (`jq -r .version plugins/mission-control/.claude-plugin/plugin.json`)
 - [x] [ai-dashboard PR #25](https://github.com/paat/ai-dashboard/pull/25)
       merged
@@ -21,9 +21,9 @@ all rollout evidence on the dashboard issue.
       current. The epic's ~24
       manual merge-trigger turns are retired by the no-hold-tier policy +
       `templates/merge-policy.md` already in the plugin — no per-project config.
-- [ ] `bash <plugin>/scripts/health-preflight.sh --require-gh --check-sync` green.
-      Do not add `--require-codex`; that option tests a restricted worker profile,
-      while this rollout verifies direct unrestricted Codex separately below.
+- [ ] `bash <plugin>/scripts/health-preflight.sh --require-gh --require-codex --check-sync`
+      green. The bounded, model-free Codex check verifies authentication and exact
+      unrestricted bypass support without launching a worker.
 - [ ] Verify `SAAS_LESSON_SYNC_ENABLED=true` in the container environment (the
       lesson reach-back channel — epic hard requirement). If unset, set it in the
       container's persistent env (e.g. `/config/.profile` or compose env), then
@@ -58,8 +58,8 @@ project CLAUDE.md:
       `command: "$saas-startup-team:maintain-loop --once"`, real
       container name + in-container repo path, `incident_labels` matching the
       repo's incident labels.
-- [ ] Set top-level `docker_exec_user: "dev"`, use unrestricted ephemeral
-      Codex with `--dangerously-bypass-approvals-and-sandbox`, set
+- [ ] Set top-level `docker_exec_user: "dev"`, use non-ephemeral Codex with
+      `--dangerously-bypass-approvals-and-sandbox`, set
       `hold: false`, and omit `delivery_hold`.
 - [ ] Activate Slot A without waiting for #24 or a soak. From SSH, verify the
       exact direct command in both a login shell and non-login

@@ -6,8 +6,8 @@
 #   health-preflight.sh [--json] [--markdown] [--require-gh] [--require-codex]
 #                       [--check-sync] [--self-repair] [--repo-root DIR] [--plugin-root DIR]
 #
-# With --require-codex, this also verifies that a fresh Codex worker shell can
-# execute under the required workspace-write, network-off sandbox.
+# With --require-codex, this also verifies support for the unrestricted worker
+# mode used inside the dev-container security boundary.
 
 set -uo pipefail
 
@@ -56,19 +56,6 @@ add() {
   printf '{"check": "%s", "status": "%s", "message": "%s"}\n' "$check" "$status_value" "$message" >> "$RESULTS"
 }
 
-codex_sandbox_mode() {
-  printf '%s\n' "${CODEX_SANDBOX:-workspace-write}"
-}
-
-codex_permissions_profile() {
-  case "$1" in
-    danger-full-access) printf '%s\n' ":danger-full-access" ;;
-    workspace-write) printf '%s\n' ":workspace" ;;
-    read-only) printf '%s\n' ":read-only" ;;
-    *) return 1 ;;
-  esac
-}
-
 compact_output() {
   printf '%s' "$1" \
     | tr '\n' ' ' \
@@ -77,23 +64,23 @@ compact_output() {
 }
 
 codex_worker_shell_smoke() {
-  sandbox="$(codex_sandbox_mode)"
-  if ! codex_permissions_profile "$sandbox" >/dev/null; then
-    add "codex:worker-shell" blocker "unsupported CODEX_SANDBOX=$sandbox"
-    return
-  fi
-  if [ "$sandbox" != "workspace-write" ]; then
-    add "codex:worker-shell" blocker "Codex implementation workers require isolated CODEX_SANDBOX=workspace-write; read-only and danger-full-access are not valid writer modes"
-    return
-  fi
-
   diag_rc=0
-  diag="$(bash "$SELF_DIR/codex-sandbox-check.sh" --root "$REPO_ROOT")" || diag_rc=$?
-  diag="$(compact_output "$diag")"
+  diag_raw="$(timeout 10 codex exec --help 2>&1)" || diag_rc=$?
+  if [ "$diag_rc" -eq 0 ] && ! printf '%s\n' "$diag_raw" \
+      | grep -Fq -- '--dangerously-bypass-approvals-and-sandbox'; then
+    diag_rc=4
+    diag_raw="Codex CLI lacks --dangerously-bypass-approvals-and-sandbox"
+  fi
+  if [ "$diag_rc" -eq 0 ]; then
+    auth_raw="$(timeout 10 codex login status 2>&1)" || diag_rc=$?
+    if [ "$diag_rc" -ne 0 ]; then
+      diag_raw="Codex authentication is unavailable: $auth_raw"
+    fi
+  fi
+  diag="$(compact_output "$diag_raw")"
   case "$diag_rc" in
-    0) add "codex:worker-shell" ok "Codex worker shell smoke passed with the isolated $sandbox network-off profile" ;;
-    10) add "codex:worker-shell" blocker "Codex CLI not found" ;;
-    *) add "codex:worker-shell" blocker "Codex worker shell sandbox unusable with the isolated $sandbox network-off profile: $diag" ;;
+    0) add "codex:worker-shell" ok "Codex authentication and unrestricted worker mode are available inside the dev-container boundary" ;;
+    *) add "codex:worker-shell" blocker "Codex unrestricted worker mode is unavailable: $diag" ;;
   esac
 }
 

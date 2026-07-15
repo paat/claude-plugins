@@ -4,15 +4,16 @@ test_standard_medium_eval() {
   echo -e "\n${CYAN}Suite: controlled standard-medium evaluation${NC}"
   local script="$PLUGIN_ROOT/scripts/standard-medium-eval.sh"
   local wd pairs pairs19 out ec policy_hash first_dir task_hash base first_row source_repo
-  local repo bin task calls corpus result
+  local repo bin task calls corpus result output secret_mode product_mode real_sha real_realpath
+  local SAAS_EVAL_REAL_SHA256SUM SAAS_EVAL_REAL_REALPATH
 
   assert_file_exists "SM1: evaluation helper exists" "$script"
   wd=$(mktemp -d)
   pairs="$wd/pairs.jsonl"
   : > "$pairs"
-  policy_hash=$(printf '%s\n' 'codex-sandbox-policy-v2' 'permission-profile=saas-network-off' \
-    'network=limited-proxy' 'outbound-domains=none' 'workspace-write=verified' \
-    'outside-write=denied' 'local-tcp=denied' \
+  policy_hash=$(printf '%s\n' 'codex-runtime-policy-v3' 'approvals=never' \
+    'sandbox=danger-full-access' 'security-boundary=dev-container' \
+    'worker-tree=detached' 'credentials=sanitized' \
     | sha256sum | awk '{print $1}')
   source_repo="$wd/source-repo"
   mkdir -p "$source_repo"
@@ -56,26 +57,26 @@ test_standard_medium_eval() {
     tribunal_result="$d/tribunal-result.json"
     jq -n --arg id "$id" --arg base "$base" --arg task "$task_hash" \
       --arg diff "$high_hash" --arg check "$check_hash" --arg policy "$policy_hash" \
-      '{schema_version:2,evidence_kind:"delivery-candidate-result",sample_id:$id,candidate:"high",
+      '{schema_version:3,evidence_kind:"delivery-candidate-result",sample_id:$id,candidate:"high",
         profile:"standard",model:"gpt-5.6-sol",effort:"high",base_sha:$base,task_sha256:$task,
         diff_sha256:$diff,check_harness_sha256:$check,worker_exit:0,check_exit:0,duration_ms:100,
-        usage:{tokens:100,cost_microunits:null},safety_evidence:{sandbox_policy:"verified",
-          sandbox_policy_sha256:$policy,network_access:"blocked",filesystem_scope:"verified",
+        usage:{tokens:100,cost_microunits:null},safety_evidence:{sandbox_policy:"unrestricted-container",
+          sandbox_policy_sha256:$policy,network_access:"unrestricted",filesystem_scope:"dev-container",
           sanitized_environment:true,isolated_config:true,primary_state_intact:true,
-          base_harness_intact:true,ignore_policy_intact:true},remote_mutation:false,
-        production_mutation:false}' > "$high_result"
+          base_harness_intact:true,ignore_policy_intact:true},remote_mutation:null,
+        production_mutation:null}' > "$high_result"
     jq -n --arg id "$id" --arg base "$base" --arg task "$task_hash" \
       --arg diff "$medium_hash" --arg check "$check_hash" --arg policy "$policy_hash" \
-      '{schema_version:2,evidence_kind:"delivery-candidate-result",sample_id:$id,candidate:"medium",
+      '{schema_version:3,evidence_kind:"delivery-candidate-result",sample_id:$id,candidate:"medium",
         profile:"standard",model:"gpt-5.6-sol",effort:"medium",base_sha:$base,task_sha256:$task,
         diff_sha256:$diff,check_harness_sha256:$check,worker_exit:0,check_exit:0,duration_ms:110,
-        usage:{tokens:70,cost_microunits:null},safety_evidence:{sandbox_policy:"verified",
-          sandbox_policy_sha256:$policy,network_access:"blocked",filesystem_scope:"verified",
+        usage:{tokens:70,cost_microunits:null},safety_evidence:{sandbox_policy:"unrestricted-container",
+          sandbox_policy_sha256:$policy,network_access:"unrestricted",filesystem_scope:"dev-container",
           sanitized_environment:true,isolated_config:true,primary_state_intact:true,
-          base_harness_intact:true,ignore_policy_intact:true},remote_mutation:false,
-        production_mutation:false}' > "$medium_result"
+          base_harness_intact:true,ignore_policy_intact:true},remote_mutation:null,
+        production_mutation:null}' > "$medium_result"
     jq -n --arg id "$id" --arg base "$base" --arg task "$task_hash" --arg input "$input_hash" \
-      '{schema_version:2,evidence_kind:"blinded-tribunal-result",sample_id:$id,base_sha:$base,
+      '{schema_version:3,evidence_kind:"blinded-tribunal-result",sample_id:$id,base_sha:$base,
         task_sha256:$task,tribunal_input_sha256:$input,status:"complete",decision:"accept",findings:[]}' \
       > "$tribunal_result"
     jq -cn --arg id "$id" --arg base "$base" --arg task "$task_hash" --arg repo_root "$source_repo" \
@@ -85,7 +86,7 @@ test_standard_medium_eval() {
       --arg candidate_a "$review/candidate-a.diff" --arg candidate_b "$review/candidate-b.diff" \
       --arg tribunal_input "$review/tribunal-input.json" --arg tribunal_mapping "$mapping" \
       --arg tribunal_result "$tribunal_result" \
-      '{schema_version:2,sample_id:$id,base_sha:$base,task_sha256:$task,repo_root:$repo_root,task_file:$task_file,
+      '{schema_version:3,sample_id:$id,base_sha:$base,task_sha256:$task,repo_root:$repo_root,task_file:$task_file,
         check_harness:$check_harness,high_result:$high_result,high_diff:$high_diff,
         medium_result:$medium_result,medium_diff:$medium_diff,candidate_a:$candidate_a,
         candidate_b:$candidate_b,tribunal_input:$tribunal_input,
@@ -112,6 +113,8 @@ test_standard_medium_eval() {
   assert_json_field "SM5: metrics cannot authorize a downgrade" "$out" '.decision' "no-go"
   assert_json_field "SM5a: trusted controller receipts are required" "$out" \
     '.criteria.trusted_controller_receipts' "false"
+  assert_json_field "SM5b: unknown external mutation status fails closed" "$out" \
+    '.criteria.no_remote_or_production_mutation' "false"
   assert_json_field "SM6: measured token improvement is retained" "$out" \
     '.metrics.median_economic_improvement' "0.3"
   assert_file_not_contains "SM7: sanitized assessment omits sample identity" "$out" 'sample-'
@@ -123,6 +126,14 @@ test_standard_medium_eval() {
   bash "$script" assess --pairs "$wd/duplicate.jsonl" --out "$wd/duplicate-out.json" \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "SM8: duplicate delivery evidence is rejected" "$ec" 2
+
+  jq -c '.schema_version=2' <<< "$first_row" > "$wd/legacy-schema.jsonl"
+  ec=0
+  output=$(bash "$script" assess --pairs "$wd/legacy-schema.jsonl" \
+    --out "$wd/legacy-schema-out.json" 2>&1) || ec=$?
+  assert_exit_code "SM8a: legacy schema corpus is rejected" "$ec" 2
+  assert_output_contains "SM8b: legacy schema requires a fresh corpus" "$output" \
+    'schema 3 evidence is required; start a fresh corpus'
 
   cp "$first_dir/medium.diff" "$wd/original-medium.diff"
   printf 'tampered patch\n' > "$first_dir/medium.diff"
@@ -148,6 +159,14 @@ test_standard_medium_eval() {
   assert_exit_code "SM10a: recorded remote mutation forces no-go" "$ec" 20
   assert_json_field "SM10b: remote mutation criterion fails" "$wd/remote-out.json" \
     '.criteria.no_remote_or_production_mutation' "false"
+
+  jq '.remote_mutation=false' "$first_dir/high-result.json" > "$first_dir/false-remote-result.json"
+  awk -v replacement="$(jq -c --arg p "$first_dir/false-remote-result.json" '.high_result=$p' <<< "$first_row")" \
+    'NR == 1 {print replacement; next} {print}' "$pairs" > "$wd/false-remote-pairs.jsonl"
+  ec=0
+  bash "$script" assess --pairs "$wd/false-remote-pairs.jsonl" \
+    --out "$wd/false-remote-out.json" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "SM10c: unproved no-remote-mutation claim is rejected" "$ec" 2
 
   cp "$first_dir/private/mapping.json" "$first_dir/review/exposed-mapping.json"
   chmod 400 "$first_dir/review/exposed-mapping.json"
@@ -187,7 +206,7 @@ test_standard_medium_eval() {
     --mapping-out "$wd/identity-private/mapping.json" >/dev/null 2>&1 || ec=$?
   assert_exit_code "SM15b: explicit model or effort identity is rejected" "$ec" 2
 
-  # A fake Codex exercises the replay safety seams without network or a model call.
+  # A fake Codex exercises unrestricted worker and deterministic-check seams without a model call.
   repo="$wd/repo"
   bin="$wd/bin"
   mkdir -p "$repo" "$bin"
@@ -195,7 +214,10 @@ test_standard_medium_eval() {
   git -C "$repo" config user.email test@example.invalid
   git -C "$repo" config user.name Test
   printf 'base bytes\n' > "$repo/product.txt"
-  printf '.startup/evaluation/\nhidden.txt\n' > "$repo/.gitignore"
+  product_mode=$(stat -c %a "$repo/product.txt")
+  printf '.startup/evaluation/\nhidden.txt\nprimary.secret\n' > "$repo/.gitignore"
+  printf 'original secret bytes\n' > "$repo/primary.secret"
+  secret_mode=$(stat -c %a "$repo/primary.secret")
   printf '#!/usr/bin/env bash\ntest -f generated.txt\n' > "$repo/check.sh"
   chmod +x "$repo/check.sh"
   git -C "$repo" add product.txt .gitignore check.sh
@@ -208,11 +230,17 @@ test_standard_medium_eval() {
   cat > "$bin/codex" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-: "${FAKE_CODEX_CALLS:=/dev/null}"
+if [ -z "${FAKE_CODEX_CALLS:-}" ]; then
+  FAKE_CODEX_CALLS="$(cd -- "$(dirname -- "$0")/.." && pwd)/replay-calls.log"
+fi
 case "${1:-}" in
   exec)
     if [ "${2:-}" = --help ]; then
-      printf '%s\n' '--strict-config --disable'
+      if [ "${FAKE_CODEX_MODE:-}" = missing_bypass ]; then
+        printf '%s\n' '--strict-config --disable'
+      else
+        printf '%s\n' '--strict-config --disable --dangerously-bypass-approvals-and-sandbox'
+      fi
       exit 0
     fi
     ;;
@@ -226,6 +254,7 @@ case "${1:-}" in
       printf '%s\n' '--permission-profile --enable'
       exit 0
     fi
+    printf 'sandbox-args %s\n' "$*" >> "$FAKE_CODEX_CALLS"
     shift
     command=()
     while [ "$#" -gt 0 ]; do
@@ -264,46 +293,102 @@ case "${FAKE_CODEX_MODE:-}" in
   tamper_check) printf '#!/usr/bin/env bash\nexit 0\n' > "$root/check.sh" ;;
   tamper_ignore) printf 'extra-ignore\n' >> "$root/.gitignore" ;;
   hidden_output) printf 'hidden\n' > "$root/hidden.txt" ;;
+  mutate_primary_ignored)
+    primary=$("$SAAS_EVAL_REAL_GIT" -C "$root" worktree list --porcelain \
+      | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
+    printf 'mutated secret bytes\n' > "$primary/primary.secret"
+    ;;
+  chmod_primary_ignored)
+    primary=$("$SAAS_EVAL_REAL_GIT" -C "$root" worktree list --porcelain \
+      | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
+    chmod +x "$primary/primary.secret"
+    ;;
+  chmod_primary_tracked)
+    primary=$("$SAAS_EVAL_REAL_GIT" -C "$root" worktree list --porcelain \
+      | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
+    chmod 600 "$primary/product.txt"
+    ;;
+  flag_primary_tracked)
+    primary=$("$SAAS_EVAL_REAL_GIT" -C "$root" worktree list --porcelain \
+      | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
+    "$SAAS_EVAL_REAL_GIT" -C "$primary" update-index --assume-unchanged product.txt
+    ;;
+  lock_eval_worktree)
+    "$SAAS_EVAL_REAL_GIT" -C "$root" worktree lock --reason evaluation-attack "$root"
+    ;;
+  move_eval_worktree)
+    "$SAAS_EVAL_REAL_GIT" -C "$root" worktree move "$root" "${root}.moved"
+    ;;
 esac
 printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"fake final role message"}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":80,"output_tokens":20,"cached_input_tokens":0}}'
 SH
   chmod +x "$bin/codex"
+  real_sha=$(command -v sha256sum)
+  SAAS_EVAL_REAL_SHA256SUM=$real_sha
+  export SAAS_EVAL_REAL_SHA256SUM
+  cat > "$bin/sha256sum" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${FAKE_SHA_MODE:-}" = fail_primary ]; then
+  for arg in "$@"; do
+    case "$arg" in */primary.secret) exit 99 ;; esac
+  done
+fi
+if [ "${FAKE_SHA_MODE:-}" = fail_tracked ]; then
+  for arg in "$@"; do
+    case "$arg" in */product.txt) exit 99 ;; esac
+  done
+fi
+real=${SAAS_EVAL_REAL_SHA256SUM:-$(PATH=/usr/bin:/bin command -v sha256sum)}
+exec "$real" "$@"
+SH
+  chmod +x "$bin/sha256sum"
   corpus="$repo/.startup/evaluation/standard-medium"
 
   ec=0
   PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" AWS_SECRET_ACCESS_KEY=must-not-leak \
     bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
       --sample-id sample-0000000000000101 --corpus-dir "$corpus" >/dev/null || ec=$?
-  assert_exit_code "SM16: behaviorally verified isolated replay passes" "$ec" 0
+  assert_exit_code "SM16: unrestricted dev-container replay passes" "$ec" 0
   result="$corpus/samples/sample-0000000000000101/result.json"
-  assert_json_field "SM17: replay emits evidence schema 2" "$result" '.schema_version' "2"
+  assert_json_field "SM17: replay emits evidence schema 3" "$result" '.schema_version' "3"
   assert_json_field "SM18: replay pins medium effort" "$result" '.effort' "medium"
-  assert_json_field "SM19: replay records verified network blocking" "$result" \
-    '.safety_evidence.network_access' "blocked"
+  assert_json_field "SM19: replay records unrestricted container policy" "$result" \
+    '.safety_evidence.sandbox_policy' "unrestricted-container"
+  assert_json_field "SM19a: replay records unrestricted network access" "$result" \
+    '.safety_evidence.network_access' "unrestricted"
+  assert_json_field "SM19b: replay records the dev-container boundary" "$result" \
+    '.safety_evidence.filesystem_scope' "dev-container"
+  assert_json_field "SM19c: replay does not guess remote mutation state" "$result" \
+    '.remote_mutation' "null"
+  assert_json_field "SM19d: replay does not guess production mutation state" "$result" \
+    '.production_mutation' "null"
   assert_file_not_exists "SM20: primary checkout is not edited" "$repo/generated.txt"
-  assert_file_contains "SM20b: replay selects the network-off profile" "$calls" \
-    'default_permissions="saas-network-off"'
-  assert_file_contains "SM21: replay uses a limited network profile" "$calls" \
-    'permissions.saas-network-off.network.mode="limited"'
-  assert_file_contains "SM21b: replay enables the enforcing network proxy" "$calls" \
-    '--enable network_proxy'
+  assert_file_contains "SM20b: replay worker bypasses approvals and sandbox" "$calls" \
+    '--dangerously-bypass-approvals-and-sandbox'
+  assert_file_contains "SM21: deterministic check enables the network proxy" "$calls" \
+    '^sandbox-args sandbox --enable network_proxy'
+  assert_file_contains "SM21a: deterministic check uses the network-off profile" "$calls" \
+    '--permission-profile saas-network-off'
+  assert_file_contains "SM21b: deterministic sandbox executes the check harness" "$calls" \
+    "^sandbox $corpus/worktrees/sample-0000000000000101/check.sh"
   assert_file_contains "SM22: replay ignores user Codex config" "$calls" '--ignore-user-config'
-  assert_file_contains "SM22b: replay disables model-backed web search" "$calls" \
-    'web_search="disabled"'
+  assert_file_contains "SM22b: replay disables standalone web search" "$calls" \
+    '--disable standalone_web_search'
   assert_file_contains "SM23: candidate diff captures output" \
     "$corpus/samples/sample-0000000000000101/medium.diff" 'generated.txt'
 
   : > "$calls"
   ec=0
-  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=sandbox_fail \
+  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=missing_bypass \
     bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
       --sample-id sample-0000000000000102 --corpus-dir "$corpus" >/dev/null || ec=$?
-  assert_exit_code "SM24: unverifiable sandbox fails closed" "$ec" 1
-  assert_equals "SM25: unverified sandbox launches no worker" \
+  assert_exit_code "SM24: missing unrestricted bypass support fails closed" "$ec" 2
+  assert_equals "SM25: unsupported Codex launches no worker" \
     "$(grep -c '^exec ' "$calls" 2>/dev/null || true)" "0"
-  assert_json_field "SM26: unknown network safety remains null" \
-    "$corpus/samples/sample-0000000000000102/result.json" '.safety_evidence.network_access' "null"
+  assert_file_not_exists "SM26: unsupported Codex emits no replay evidence" \
+    "$corpus/samples/sample-0000000000000102/result.json"
 
   ec=0
   PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=tamper_check \
@@ -340,6 +425,138 @@ SH
     "$corpus/samples/sample-0000000000000106/check.log" 'checks changed the candidate tree'
   assert_equals "SM34: mutating-check replay leaves primary clean" \
     "$(git -C "$repo" status --porcelain)" ""
+
+  printf '#!/usr/bin/env bash\ntest -f generated.txt\n' > "$repo/check.sh"
+  chmod +x "$repo/check.sh"
+  git -C "$repo" add check.sh
+  git -C "$repo" commit -qm restore-check
+  ec=0
+  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=mutate_primary_ignored \
+    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
+      --sample-id sample-0000000000000107 --corpus-dir "$corpus" >/dev/null || ec=$?
+  assert_exit_code "SM35: ignored primary-checkout mutation fails replay" "$ec" 1
+  assert_json_field "SM36: ignored primary mutation is recorded" \
+    "$corpus/samples/sample-0000000000000107/result.json" \
+    '.safety_evidence.primary_state_intact' "false"
+  printf 'original secret bytes\n' > "$repo/primary.secret"
+  assert_equals "SM37: ignored primary bytes are restored" \
+    "$(cat "$repo/primary.secret")" "original secret bytes"
+  assert_equals "SM38: restored primary checkout is clean" "$(git -C "$repo" status --porcelain)" ""
+
+  ec=0
+  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=chmod_primary_ignored \
+    SAAS_EVAL_REAL_SHA256SUM="$real_sha" \
+    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
+      --sample-id sample-0000000000000108 --corpus-dir "$corpus" >/dev/null || ec=$?
+  assert_exit_code "SM39: ignored primary-checkout mode mutation fails replay" "$ec" 1
+  assert_json_field "SM40: ignored primary mode mutation is recorded" \
+    "$corpus/samples/sample-0000000000000108/result.json" \
+    '.safety_evidence.primary_state_intact' "false"
+  chmod "$secret_mode" "$repo/primary.secret"
+
+  : > "$calls"
+  ec=0
+  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_SHA_MODE=fail_primary \
+    SAAS_EVAL_REAL_SHA256SUM="$real_sha" \
+    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
+      --sample-id sample-0000000000000109 --corpus-dir "$corpus" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "SM41: unreadable primary inventory fails closed" "$ec" 1
+  assert_equals "SM42: failed primary inventory launches no worker" \
+    "$(grep -c '^exec ' "$calls" 2>/dev/null || true)" "0"
+  assert_file_not_exists "SM42a: failed ignored inventory removes its worktree path" \
+    "$corpus/worktrees/sample-0000000000000109"
+  assert_equals "SM42b: failed ignored inventory removes its registration" \
+    "$(git -C "$repo" worktree list --porcelain \
+      | grep -Fxc "worktree $corpus/worktrees/sample-0000000000000109" || true)" "0"
+  assert_file_not_exists "SM42c: failed ignored inventory removes its admin dir" \
+    "$repo/.git/worktrees/sample-0000000000000109"
+
+  ec=0
+  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=chmod_primary_tracked \
+    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
+      --sample-id sample-000000000000010a --corpus-dir "$corpus" >/dev/null || ec=$?
+  assert_exit_code "SM43: tracked primary mode mutation fails replay" "$ec" 1
+  assert_json_field "SM44: tracked primary mode mutation is recorded" \
+    "$corpus/samples/sample-000000000000010a/result.json" \
+    '.safety_evidence.primary_state_intact' "false"
+  chmod "$product_mode" "$repo/product.txt"
+
+  ec=0
+  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=flag_primary_tracked \
+    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
+      --sample-id sample-000000000000010b --corpus-dir "$corpus" >/dev/null || ec=$?
+  assert_exit_code "SM45: tracked primary index-flag mutation fails replay" "$ec" 1
+  assert_json_field "SM46: tracked primary index mutation is recorded" \
+    "$corpus/samples/sample-000000000000010b/result.json" \
+    '.safety_evidence.primary_state_intact' "false"
+  git -C "$repo" update-index --no-assume-unchanged product.txt
+
+  : > "$calls"
+  ec=0
+  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_SHA_MODE=fail_tracked \
+    SAAS_EVAL_REAL_SHA256SUM="$real_sha" \
+    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
+      --sample-id sample-000000000000010c --corpus-dir "$corpus" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "SM47: unreadable tracked inventory fails closed" "$ec" 1
+  assert_equals "SM48: unreadable tracked inventory launches no worker" \
+    "$(grep -c '^exec ' "$calls" 2>/dev/null || true)" "0"
+  assert_file_not_exists "SM48a: failed tracked inventory removes its worktree path" \
+    "$corpus/worktrees/sample-000000000000010c"
+  assert_equals "SM48b: failed tracked inventory removes its registration" \
+    "$(git -C "$repo" worktree list --porcelain \
+      | grep -Fxc "worktree $corpus/worktrees/sample-000000000000010c" || true)" "0"
+  assert_file_not_exists "SM48c: failed tracked inventory removes its admin dir" \
+    "$repo/.git/worktrees/sample-000000000000010c"
+
+  ec=0
+  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=lock_eval_worktree \
+    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
+      --sample-id sample-000000000000010d --corpus-dir "$corpus" >/dev/null || ec=$?
+  assert_exit_code "SM49: worker-locked evaluation tree fails replay" "$ec" 1
+  assert_file_not_exists "SM50: worker-locked evaluation path is removed" \
+    "$corpus/worktrees/sample-000000000000010d"
+  assert_equals "SM51: worker-locked evaluation registration is removed" \
+    "$(git -C "$repo" worktree list --porcelain \
+      | grep -Fxc "worktree $corpus/worktrees/sample-000000000000010d" || true)" "0"
+
+  ec=0
+  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=move_eval_worktree \
+    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
+      --sample-id sample-000000000000010e --corpus-dir "$corpus" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "SM52: worker-moved evaluation tree fails replay" "$ec" 1
+  assert_file_not_exists "SM53: worker-moved evaluation path is removed" \
+    "$corpus/worktrees/sample-000000000000010e.moved"
+  assert_equals "SM54: worker-moved evaluation registration is removed" \
+    "$(git -C "$repo" worktree list --porcelain \
+      | grep -Fxc "worktree $corpus/worktrees/sample-000000000000010e.moved" || true)" "0"
+  assert_file_not_exists "SM54a: worker-moved evaluation admin dir is removed" \
+    "$repo/.git/worktrees/sample-000000000000010e"
+
+  real_realpath=$(command -v realpath)
+  SAAS_EVAL_REAL_REALPATH=$real_realpath
+  export SAAS_EVAL_REAL_REALPATH
+  cat > "$bin/realpath" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "${FAKE_REALPATH_MODE:-}" != fail ] || exit 99
+exec "$SAAS_EVAL_REAL_REALPATH" "$@"
+SH
+  chmod +x "$bin/realpath"
+  : > "$calls"
+  ec=0
+  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_REALPATH_MODE=fail \
+    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
+      --sample-id sample-000000000000010f --corpus-dir "$corpus" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "SM55: failed primary path resolution fails closed" "$ec" 1
+  assert_equals "SM56: failed primary path resolution launches no worker" \
+    "$(grep -c '^exec ' "$calls" 2>/dev/null || true)" "0"
+  assert_file_not_exists "SM56a: failed path resolution removes its worktree path" \
+    "$corpus/worktrees/sample-000000000000010f"
+  assert_equals "SM56b: failed path resolution removes its registration" \
+    "$(git -C "$repo" worktree list --porcelain \
+      | grep -Fxc "worktree $corpus/worktrees/sample-000000000000010f" || true)" "0"
+  assert_file_not_exists "SM56c: failed path resolution removes its admin dir" \
+    "$repo/.git/worktrees/sample-000000000000010f"
 
   rm -rf "$wd"
 }

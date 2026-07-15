@@ -142,11 +142,11 @@ Every separate worker goes through `scripts/codex-run-role.sh`, which passes an 
 model and reasoning effort so user-level Codex configuration cannot silently select
 either. Profile overrides use `SAAS_CODEX_<PROFILE>_MODEL` and
 `SAAS_CODEX_<PROFILE>_EFFORT`; they remain explicit launch arguments. Terra falls back
-once to Sol/medium only when Codex reports that Terra itself is unavailable. Review,
-QA, triage, and unknown roles are forced into a read-only sandbox. Source writers use
-an isolated `workspace-write`-derived profile with no allowed outbound destinations and
-native web search disabled; the limited proxy keeps process-local Python socketpairs
-working. A writable override is rejected for read-only roles.
+once to Sol/medium only when Codex reports that Terra itself is unavailable. Every
+Codex role launches with `--dangerously-bypass-approvals-and-sandbox` inside the
+dev-container security boundary. Read-only and writer distinctions remain prompt and
+mutation-guard contracts, not nested Codex sandboxes. Legacy `CODEX_SANDBOX` and
+`SAAS_CODEX_NETWORK_ACCESS` values cannot narrow or block that fixed launch policy.
 
 On Claude hosts, non-trivial Codex-routed handoffs first run a plan-only **architect pass** through the registered Claude role (interface contracts, file map, invariants, test plan → `NNN-tech-plan.md`), then Codex implements from handoff + plan. Codex hosts run the equivalent model-neutral architect role phase without launching Claude — see `skills/startup-orchestration/SKILL.md` §1c.
 
@@ -386,6 +386,9 @@ foreground model turn is not a long-lived daemon. The supervisor runs one
 founder, implementation, QA, and tribunal roles return compact results without moving
 supervisor ownership into a nested `/goal-deliver` context.
 
+Codex CLI automation must start `/maintain-loop` in a collaboration-capable,
+non-ephemeral coordinator session so the fresh pass returns a stable child identity.
+
 **Runs in a dedicated worktree.** The loop operates from `.worktrees/maintain` (a detached git worktree off the default-branch tip), never your primary checkout — so you can keep doing your own dev work in the main repo folder while it runs. The loop and your work meet only at GitHub (branches, PRs, `main`); its merge-safety re-validates if `main` moves under it. (`--dry-run` is read-only and creates no worktree.)
 
 ### Triage verdicts
@@ -422,7 +425,7 @@ The supervisor also stops on deploy failure (unrecoverable infra/flaky issues ha
   `scripts/health-preflight.sh` before autonomous work. It reports blocking, warning, and
   auto-fixed states as both human-readable Markdown and machine-readable JSON, checks
   `bash` 4+, `git`, `gh`, `jq`, `awk`, `sed`, `timeout`, Codex CLI when required,
-  a direct Codex worker shell smoke under the selected sandbox when Codex is required,
+  a model-free check for Codex unrestricted-worker support when Codex is required,
   GitHub auth, hook targets, dirty worktree classification, and Codex/Claude surface sync.
 - **Issue-closure audit:** `/improve` and `/goal-deliver` call
   `scripts/issue-closure-audit.sh` for PRs using `Closes`, `Fixes`, or `Resolves`. It
@@ -437,7 +440,7 @@ The supervisor also stops on deploy failure (unrecoverable infra/flaky issues ha
   util-linux `flock`, `unshare`, and `setpriv`, GNU findutils, Python 3, and
   `tar`. The fresh Codex delivery gate uses Python
   to seal preinstalled dependency trees before copying them into read-only check volumes.
-- **Codex sandbox support plus Docker CLI/socket access** from the dev container.
+- **Codex unrestricted-mode support plus Docker CLI/socket access** from the dev container.
   Supervisor checks run from the sealed current dev-container image with private process
   and network namespaces; the commit path fails closed when these controls are unavailable.
   Required system toolchains must be baked into that image: lifecycle installs made only
@@ -468,18 +471,22 @@ exports only anonymous counts, rates, durations, profile/model/effort, and outco
 `scripts/agent-events-aggregate.sh` combines sanitized exports without project identity.
 Provider/model labels such as Gemini are telemetry categories, not CLI dependencies.
 
-`scripts/standard-medium-eval.sh` supports isolated local high-versus-medium replay for
-20–50 standard deliveries. Replays use detached worktrees at recorded base SHAs, never
-push or deploy, behaviorally verify workspace and network isolation, ignore user Codex
-configuration, and keep raw material only under `.startup/evaluation/`. A schema-v2
-assessment verifies each base and check harness against its source repository, validates
-non-empty patches, and binds each unique opaque sample, task, result, diff, blinded input,
-mapping receipt, and tribunal result by hash. Mapping receipts contain no model/effort
-identity, and marked candidate content is rejected. Persisted same-user artifacts are not
-a sufficient authorization boundary: assessments remain metrics-only `no-go` until a
+`scripts/standard-medium-eval.sh` supports local high-versus-medium replay for 20–50
+standard deliveries. AI workers run unrestricted inside the development-container
+boundary, in detached worktrees at recorded base SHAs with isolated Codex configuration,
+sanitized credentials, and wrappers for common remote tools. Only the deterministic
+`check.sh` harness uses the credentialless network-off sandbox. Replays fingerprint the
+primary checkout, including ignored files, and record remote or production mutation as
+unknown because local repository state cannot prove either absence. Raw material stays
+under `.startup/evaluation/`. A schema-3 assessment verifies each base and check harness
+against its source repository, validates non-empty patches, and binds each unique opaque
+sample, task, result, diff, blinded input, mapping receipt, and tribunal result by hash;
+older corpora require a fresh replay. Mapping receipts contain no model/effort identity,
+and marked candidate content is rejected. Persisted same-user artifacts are not a
+sufficient authorization boundary: assessments remain metrics-only `no-go` until a
 supervisor-owned end-to-end controller can issue receipts unavailable to workers and
-reviewers. Standard therefore remains Sol/high; unverified provenance, isolation, or
-economics cannot authorize a downgrade.
+reviewers. Standard therefore remains Sol/high; unverified provenance or economics cannot
+authorize a downgrade.
 
 ## Self-improvement loop (`/lessons-deliver`)
 
@@ -521,7 +528,7 @@ runs in each **product** repo.
 - Codex or Claude Code. Codex runs the command-style workflows as plugin-bundled skills and does not require Claude Code.
 - Playwright MCP (`@playwright/mcp`) — automatically configured via plugin `.mcp.json`, runs headless
 - Web access enabled (for business founder's market research)
-- **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. Launch the primary Codex session in full unrestricted (`danger-full-access`) mode; the container is its security boundary. Delegated workers may use narrower sandboxes where the workflow requires them. Hooks also use `/proc/` for process-tree detection.
+- **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. Launch the primary Codex session and every delegated Codex worker with `--dangerously-bypass-approvals-and-sandbox`; the container is their security boundary. Hooks also use `/proc/` for process-tree detection.
 - **`jq`, `awk`, `sed`, `curl`, OpenSSL, GNU coreutils (`timeout`, `realpath`, `readlink`, `stat`, `sha256sum`),
   `flock`, `unshare`, and `setpriv` (util-linux), GNU findutils, `python3`, and Node.js** — required by hook scripts,
   JSON validation, monitor/lawyer workflows, preflight checks, Codex marketplace sync, and
@@ -533,7 +540,7 @@ runs in each **product** repo.
 
   `/lawyer` pre-flight also hard-fails if `DATALAKE_URL/api/v1/health/ready` does not return `200`; there is no offline fallback. The rest of the plugin works without the datalake.
 - **google-ads-strategist plugin** — required for any Google Ads work (hard dependency). Google Ads is delegated to its `ads-strategist` agent; `growth-hacker` no longer creates Google Ads campaigns itself. There is no manifest-level dependency field, so this is enforced behaviorally: `/ads` and the `/growth` loop fail with an install instruction if the plugin is absent.
-- **`codex` CLI (optional in interactive Codex, required for separate worker dispatch)** — only needed for `scripts/codex-run-role.sh` or its `codex-implement.sh` compatibility wrapper. When required, preflight verifies that the selected Codex sandbox can run a trivial shell command. Without it, Codex continues inline or asks for an environment fix; it never falls back to a Claude implementation engine.
+- **`codex` CLI (optional in interactive Codex, required for separate worker dispatch)** — only needed for `scripts/codex-run-role.sh` or its `codex-implement.sh` compatibility wrapper. When required, preflight checks Codex authentication and support for `--dangerously-bypass-approvals-and-sandbox` without starting a model turn. Without it, Codex continues inline or asks for an environment fix; it never falls back to a Claude implementation engine.
 
 ## Implementation Engine
 

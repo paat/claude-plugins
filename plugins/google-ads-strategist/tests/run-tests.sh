@@ -216,9 +216,10 @@ grep -q 'Make no subsequent tool call' "$monitor"
 grep -q 'infer another gap' "$monitor"
 grep -q 'entire next and final assistant message must equal.*byte-for-byte' "$monitor"
 grep -q 'Add no label, punctuation, Markdown, explanation, or remediation' "$monitor"
-grep -q '^codex-sandbox: read-only$' "$monitor"
+grep -q '^codex-role: read-only$' "$monitor"
 generated_monitor="$ROOT/skills/google-ads-strategist-ads-monitor-workflow/SKILL.md"
-grep -q 'only in a Codex `read-only` sandbox' "$generated_monitor"
+grep -q 'semantically read-only role while Codex runs unrestricted' "$generated_monitor"
+grep -q 'codex exec --dangerously-bypass-approvals-and-sandbox' "$generated_monitor"
 refute_match monitor-generated-write-capable 'fresh role phase in the current Codex session' "$generated_monitor"
 pass monitor-command-boundary
 

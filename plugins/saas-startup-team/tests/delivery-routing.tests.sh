@@ -381,6 +381,25 @@ test_delivery_routing() {
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$*" >> "$FAKE_CODEX_CALLS"
+bypass_count=0
+for arg in "$@"; do
+  [ "$arg" = "--dangerously-bypass-approvals-and-sandbox" ] \
+    && bypass_count=$((bypass_count + 1))
+  if [ "$arg" = "-s" ]; then
+    echo "role launch used a legacy -s sandbox selector" >&2
+    exit 97
+  fi
+  case "$arg" in
+    *saas-network-off*|*network_proxy*|*sandbox_workspace_write.network_access*)
+      echo "role launch used a legacy network-off profile or proxy: $arg" >&2
+      exit 97
+      ;;
+  esac
+done
+if [ "$bypass_count" -ne 1 ]; then
+  echo "role launch requires exactly one --dangerously-bypass-approvals-and-sandbox" >&2
+  exit 97
+fi
 args=("$@")
 emit_message() {
   jq -cn --arg text "$1" \
@@ -482,23 +501,23 @@ SH
   assert_equals "DR21: standard launch calls Codex once" "$(wc -l < "$calls" | tr -d ' ')" "1"
   assert_file_contains "DR22: standard launch pins Sol" "$calls" '-m gpt-5.6-sol'
   assert_file_contains "DR23: standard launch pins high effort" "$calls" 'model_reasoning_effort="high"'
-  assert_file_contains "DR23a0: source writer selects the network-off profile" "$calls" \
-    'default_permissions="saas-network-off"'
-  assert_file_contains "DR23a: source writer extends the workspace profile" "$calls" \
-    'permissions.saas-network-off.extends=":workspace"'
-  assert_file_contains "DR23b: source writer uses a limited network profile" "$calls" \
-    'permissions.saas-network-off.network.mode="limited"'
-  assert_file_contains "DR23b1: source writer enables the enforcing network proxy" "$calls" \
-    '--enable network_proxy'
-  assert_file_not_contains "DR23b2: source writer drops the socketpair-blocking network flag" "$calls" \
-    'sandbox_workspace_write.network_access=false'
-  assert_file_not_contains "DR23b3: source writer does not override its custom profile" "$calls" \
-    '-s workspace-write'
+  assert_file_contains "DR23a0: source writer uses unrestricted container execution" "$calls" \
+    '--dangerously-bypass-approvals-and-sandbox'
+  assert_equals "DR23a: source writer passes the unrestricted flag exactly once" \
+    "$(grep -o -- '--dangerously-bypass-approvals-and-sandbox' "$calls" | wc -l | tr -d ' ')" "1"
+  assert_equals "DR23b: source writer has no workspace sandbox selector" \
+    "$(awk 'index($0, "-s workspace-write") { n++ } END { print n + 0 }' "$calls")" "0"
+  assert_equals "DR23b1: source writer has no read-only sandbox selector" \
+    "$(awk 'index($0, "-s read-only") { n++ } END { print n + 0 }' "$calls")" "0"
+  assert_file_not_contains "DR23b2: source writer has no network-off profile" "$calls" \
+    'saas-network-off'
+  assert_file_not_contains "DR23b3: source writer has no network proxy" "$calls" \
+    'network_proxy'
   assert_file_contains "DR23c: role launcher ignores user configuration" "$calls" '--ignore-user-config'
   assert_file_contains "DR23c1: actual launch disables subagent fan-out" "$calls" '--disable multi_agent'
   assert_file_contains "DR23d: role launcher disables MCP configuration" "$calls" 'mcp_servers={}'
-  assert_file_contains "DR23e: role launcher disables native web search" "$calls" \
-    'web_search="disabled"'
+  assert_file_contains "DR23e: role launcher disables native web-search tooling" "$calls" \
+    '--disable standalone_web_search'
   assert_equals "DR24: start event leaves effective model null" "$(head -n1 "$events" | jq -r '.effective_model == null')" "true"
   assert_equals "DR25: terminal event records token use" "$(tail -n1 "$events" | jq -r .input_tokens)" "100"
   assert_file_contains "DR25b: tech writer leaves commit to supervisor" "$repo/tech-prompt.txt" 'Leave working-tree changes for the supervisor'
@@ -513,7 +532,7 @@ SH
   : > "$calls"; : > "$events"
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_PROMPT="$repo/supervisor-prompt.txt" SAAS_AGENT_EVENTS_FILE="$events" \
     bash "$launcher" --role maintain-loop-supervisor --profile deep --task-file task.md >/dev/null)
-  assert_file_contains "DR25d: removed composite supervisor fails closed to read-only" "$repo/supervisor-prompt.txt" 'no mutation grant and must remain read-only'
+  assert_file_contains "DR25d: removed composite supervisor retains its semantic mutation guard" "$repo/supervisor-prompt.txt" 'no mutation grant and must remain read-only'
 
   : > "$calls"; : > "$events"
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_PROMPT="$repo/business-prompt.txt" SAAS_AGENT_EVENTS_FILE="$events" \
@@ -530,7 +549,8 @@ SH
     (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" \
       FAKE_CODEX_PROMPT="$repo/$artifact_role-prompt.txt" SAAS_AGENT_EVENTS_FILE="$events" \
       bash "$launcher" --role "$artifact_role" --profile standard --task-file task.md >/dev/null)
-    assert_file_contains "DR25f1: $artifact_role uses workspace-write" "$calls" '-s workspace-write'
+    assert_file_contains "DR25f1: $artifact_role runs unrestricted in the container" \
+      "$calls" '--dangerously-bypass-approvals-and-sandbox'
     assert_file_contains "DR25f2: $artifact_role may write local artifacts" \
       "$repo/$artifact_role-prompt.txt" 'write only task-designated local artifacts'
   done
@@ -541,26 +561,34 @@ SH
     bash "$launcher" --role maintain-triage --profile standard --task-file task.md >/dev/null)
   assert_file_contains "DR25f3: maintain triage remains read-only" \
     "$repo/maintain-triage-prompt.txt" 'This is a read-only/review role'
-  assert_file_contains "DR25f4: maintain triage uses the read-only sandbox" "$calls" '-s read-only'
+  assert_file_contains "DR25f4: maintain triage runs unrestricted with a semantic read-only guard" \
+    "$calls" '--dangerously-bypass-approvals-and-sandbox'
 
   : > "$calls"; : > "$events"
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_PROMPT="$repo/qa-prompt.txt" SAAS_AGENT_EVENTS_FILE="$events" \
     bash "$launcher" --role qa --profile standard --task-file task.md >/dev/null)
   assert_file_contains "DR25g: QA role is read-only" "$repo/qa-prompt.txt" 'This is a read-only/review role'
-  assert_file_contains "DR25g1: QA is forced into the read-only sandbox" "$calls" '-s read-only'
+  assert_file_contains "DR25g1: QA runs unrestricted with a semantic read-only guard" \
+    "$calls" '--dangerously-bypass-approvals-and-sandbox'
 
   : > "$calls"; : > "$events"; ec=0
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" SAAS_AGENT_EVENTS_FILE="$events" \
     CODEX_SANDBOX=workspace-write bash "$launcher" --role qa --profile standard \
       --task-file task.md >/dev/null 2>&1) || ec=$?
-  assert_exit_code "DR25g2: QA rejects a writable sandbox override" "$ec" 2
-  assert_equals "DR25g3: rejected QA override launches no worker" "$(wc -l < "$calls" | tr -d ' ')" "0"
+  assert_exit_code "DR25g2: QA ignores the legacy writable sandbox value" "$ec" 0
+  assert_equals "DR25g3: ignored QA sandbox value still launches one worker" \
+    "$(wc -l < "$calls" | tr -d ' ')" "1"
+  assert_file_contains "DR25g4: ignored QA sandbox value cannot replace unrestricted mode" \
+    "$calls" '--dangerously-bypass-approvals-and-sandbox'
+  assert_equals "DR25g5: ignored QA sandbox value is not forwarded" \
+    "$(awk 'index($0, "-s workspace-write") { n++ } END { print n + 0 }' "$calls")" "0"
 
   : > "$calls"; : > "$events"
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_PROMPT="$repo/unknown-prompt.txt" SAAS_AGENT_EVENTS_FILE="$events" \
     bash "$launcher" --role analyst --profile standard --task-file task.md >/dev/null)
-  assert_file_contains "DR25h: unknown role fails closed to read-only" "$repo/unknown-prompt.txt" 'no mutation grant and must remain read-only'
-  assert_file_contains "DR25h1: unknown role uses the read-only sandbox" "$calls" '-s read-only'
+  assert_file_contains "DR25h: unknown role retains its semantic mutation guard" "$repo/unknown-prompt.txt" 'no mutation grant and must remain read-only'
+  assert_file_contains "DR25h1: unknown role still runs unrestricted in the container" \
+    "$calls" '--dangerously-bypass-approvals-and-sandbox'
 
   : > "$calls"; : > "$events"
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=terra_unavailable \
@@ -656,18 +684,28 @@ SH
   assert_equals "DR37: mechanical profile launches zero workers" "$(wc -l < "$calls" | tr -d ' ')" "0"
 
   : > "$calls"; ec=0
-  (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" SAAS_CODEX_NETWORK_ACCESS=default \
+  (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" SAAS_CODEX_NETWORK_ACCESS=legacy-invalid \
     bash "$launcher" --role tech-founder --profile standard --task-file task.md >/dev/null 2>&1) || ec=$?
-  assert_exit_code "DR37a: workspace source writer rejects network enablement" "$ec" 2
-  assert_equals "DR37b: rejected writer network override launches zero workers" \
-    "$(wc -l < "$calls" | tr -d ' ')" "0"
+  assert_exit_code "DR37a: source writer ignores legacy network-access values" "$ec" 0
+  assert_equals "DR37b: ignored network-access value launches one unrestricted worker" \
+    "$(wc -l < "$calls" | tr -d ' ')" "1"
+  assert_file_contains "DR37b1: ignored network-access value keeps unrestricted mode" \
+    "$calls" '--dangerously-bypass-approvals-and-sandbox'
+  assert_file_not_contains "DR37b2: ignored network-access value creates no network-off profile" \
+    "$calls" 'saas-network-off'
+  assert_file_not_contains "DR37b3: ignored network-access value enables no network proxy" \
+    "$calls" 'network_proxy'
 
   : > "$calls"; ec=0
-  (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" CODEX_SANDBOX=danger-full-access \
+  (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" CODEX_SANDBOX=legacy-invalid \
     bash "$launcher" --role tech-founder --profile standard --task-file task.md >/dev/null 2>&1) || ec=$?
-  assert_exit_code "DR37c: source writer rejects danger-full-access" "$ec" 2
-  assert_equals "DR37d: rejected unrestricted writer launches zero workers" \
-    "$(wc -l < "$calls" | tr -d ' ')" "0"
+  assert_exit_code "DR37c: source writer ignores legacy sandbox values" "$ec" 0
+  assert_equals "DR37d: ignored sandbox value launches one unrestricted worker" \
+    "$(wc -l < "$calls" | tr -d ' ')" "1"
+  assert_file_contains "DR37d1: ignored sandbox value keeps exact unrestricted mode" \
+    "$calls" '--dangerously-bypass-approvals-and-sandbox'
+  assert_equals "DR37d2: ignored sandbox value is not forwarded" \
+    "$(awk 'index($0, "-s ") { n++ } END { print n + 0 }' "$calls")" "0"
 
   : > "$calls"; ec=0
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" SAAS_CODEX_ISOLATED_CONFIG=0 \
@@ -701,6 +739,8 @@ for target in targets:
             if not executable:
                 continue
             if not (re.search(r"\bcodex\s+exec\b", line) or re.search(r"CODEX[^ ]*.*\bexec\b", line)):
+                continue
+            if re.search(r"\bcodex\s+exec\s+--help\b", line):
                 continue
             window = " ".join(lines[max(0, i-4):i+4])
             if not re.search(r"(^|[\s(])-m(\s|\")", window) or "model_reasoning_effort" not in window:

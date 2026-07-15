@@ -1,6 +1,6 @@
 {
   "name": "agent-sync",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Mirror AGENTS.md to CLAUDE.md for Codex-first projects. In Codex, AGENTS.md is the source of truth; Claude Code keeps its existing Claude-to-AGENTS generation behavior.",
   "author": {
     "name": "Andre Paat"

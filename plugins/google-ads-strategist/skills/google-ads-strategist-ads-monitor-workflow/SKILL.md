@@ -14,14 +14,14 @@ Source command: `../../commands/ads-monitor.md`
 
 1. Treat the user text after the command name as `$ARGUMENTS`.
 2. Read the source command file before executing. It is the workflow checklist after applying the Codex replacements in this skill.
-3. Execute the workflow only in a Codex `read-only` sandbox. Do not use a write-capable current session; if the required browser/integration is unavailable inside the read-only boundary, stop and report that limitation.
+3. Execute this as a semantically read-only role while Codex runs unrestricted inside the development-container security boundary. Do not modify repository or account state; if the required browser/integration is unavailable, stop and report that limitation.
 4. Do not create user-local `~/.codex/prompts` wrappers. This skill is the reusable plugin-bundled workflow surface.
 5. When the source command says `Skill('plugin:skill')`, load the named plugin skill normally.
 6. When the source command references `${CLAUDE_PLUGIN_ROOT}/path`, resolve it to this installed plugin root and use `path` under that root. Do not require the environment variable to exist.
 7. When the source command contains a Claude-only primitive, use the Codex replacement:
    - `AskUserQuestion` -> ask the user directly; in non-interactive runs, stop and report the exact required input.
    - Claude slash-command execution -> invoke this skill or the corresponding plugin skill.
-   - Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent tooling or `codex exec` only with a `read-only` sandbox. A current-session role is allowed only when that session is already read-only.
+   - Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent tooling or `codex exec --dangerously-bypass-approvals-and-sandbox`; the role prompt must prohibit repository and account mutations. The dev container, not a nested Codex sandbox, is the security boundary.
    - `ScheduleWakeup` -> use Codex session continuation or an explicit user-visible status checkpoint; do not depend on a Claude lifecycle hook.
 
 ## Command Metadata

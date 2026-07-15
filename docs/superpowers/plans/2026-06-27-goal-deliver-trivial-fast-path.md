@@ -14,7 +14,7 @@
 - Bump the plugin version in BOTH `plugins/saas-startup-team/.claude-plugin/plugin.json` AND root `.claude-plugin/marketplace.json`, kept in sync — the `.githooks/pre-push` hook enforces this. (CLAUDE.md)
 - Bash 4+ / POSIX tools only. (CLAUDE.md)
 - **State invariant:** the trivial path sets `.startup/state.json` `active_role` to `team-lead-tweak`; **every** exit from the trivial path (containment abort, CI-red fallback, or successful hand-off to the gated path) must first reset `active_role` back to `business-founder-maintain` (the Pre-Flight value) so a subsequent founder dispatch is not blocked by the `enforce-delegation` hook.
-- **Process:** each task is reviewed with Codex before commit, via `codex exec -` with a single combined stdin stream (prompt file + diff concatenated — NOT a heredoc, which swallows the piped stdin). `codex review` fails under bwrap in this container; do not use it.
+- **Process:** each task is reviewed with Codex before commit, via `codex exec --dangerously-bypass-approvals-and-sandbox -` with a single combined stdin stream (prompt file + diff concatenated — NOT a heredoc, which swallows the piped stdin). The dev container is the security boundary.
 - Current version: `0.63.0` → target `0.64.0` (additive feature = minor bump).
 
 ---
@@ -42,7 +42,7 @@ concrete, most-important-first. If sound, say so plainly.
 EOF
 ```
 
-Then per task: `git diff --staged > /tmp/gd-fastpath/stage.diff && cat /tmp/gd-fastpath/review-prompt.md /tmp/gd-fastpath/stage.diff | codex exec -`
+Then per task: `git diff --staged > /tmp/gd-fastpath/stage.diff && cat /tmp/gd-fastpath/review-prompt.md /tmp/gd-fastpath/stage.diff | codex exec --dangerously-bypass-approvals-and-sandbox -`
 Address any blocking finding before committing. Record the disposition in the commit body.
 
 ---
@@ -197,7 +197,7 @@ Expected: `check-staged-size.sh`, the Step 3 merge command, the Step 4 deploy he
 ```bash
 git add plugins/saas-startup-team/commands/goal-deliver.md
 git diff --staged > /tmp/gd-fastpath/stage.diff
-cat /tmp/gd-fastpath/review-prompt.md /tmp/gd-fastpath/stage.diff | codex exec -
+cat /tmp/gd-fastpath/review-prompt.md /tmp/gd-fastpath/stage.diff | codex exec --dangerously-bypass-approvals-and-sandbox -
 ```
 Address any blocking safety/state finding before committing. If accepted, fix and re-stage; if rejected, note why in the commit body.
 
@@ -251,7 +251,7 @@ Expected: the note is present immediately after the inline-delivery line and men
 ```bash
 git add plugins/saas-startup-team/commands/maintain.md
 git diff --staged > /tmp/gd-fastpath/stage.diff
-cat /tmp/gd-fastpath/review-prompt.md /tmp/gd-fastpath/stage.diff | codex exec -
+cat /tmp/gd-fastpath/review-prompt.md /tmp/gd-fastpath/stage.diff | codex exec --dangerously-bypass-approvals-and-sandbox -
 ```
 Confirm the note matches Task 1 behavior and does not contradict maintain.md's cooldown logic.
 

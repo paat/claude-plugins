@@ -222,7 +222,7 @@ EOF
     printf 'two\n' > file.txt
     git commit -q -am change
     export PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1
-    unset TRIBUNAL_CODEX_MODEL TRIBUNAL_CODEX_EFFORT TRIBUNAL_CODEX_SANDBOX_BYPASS
+    unset TRIBUNAL_CODEX_MODEL TRIBUNAL_CODEX_EFFORT
     if [ "$overrides" = "yes" ]; then
       export TRIBUNAL_CODEX_MODEL="$expected_model" TRIBUNAL_CODEX_EFFORT="$expected_effort"
     fi
@@ -231,11 +231,12 @@ EOF
     awk -v model="$expected_model" -v effort="model_reasoning_effort=\"$expected_effort\"" '
       previous == "-m" && $0 == model { model_seen = 1 }
       previous == "-c" && $0 == effort { effort_seen = 1 }
-      previous == "-s" && $0 == "read-only" { read_only_seen = 1 }
+      $0 == "--dangerously-bypass-approvals-and-sandbox" { bypass_count++ }
+      $0 == "-s" { sandbox_selector_seen = 1 }
       $0 == "--ignore-user-config" { isolated_seen = 1 }
       $0 == "mcp_servers={}" { mcp_disabled = 1 }
       { previous = $0 }
-      END { exit !(model_seen && effort_seen && read_only_seen && isolated_seen && mcp_disabled) }
+      END { exit !(model_seen && effort_seen && bypass_count == 1 && !sandbox_selector_seen && isolated_seen && mcp_disabled) }
     ' "$work/codex.args"
   then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
@@ -365,15 +366,19 @@ EOF
     git commit -q -m base
     printf 'two\n' > file.txt
     git commit -q -am change
-    PATH="$fake:$PATH" TRIBUNAL_CODEX_SANDBOX_BYPASS=on TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
+    PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
   ) && jq -e '.provider=="codex" and (.error | test("vacuous"))' "$work/out.json" >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
   fi
   if [ "$verdict" = "BLOCK" ] && [ "$quality" = "0.0" ]; then
-    local label2="codex bypass flag forwarded when TRIBUNAL_CODEX_SANDBOX_BYPASS=on"
-    if grep -q -- "--dangerously-bypass-approvals-and-sandbox" "$work/codex.args" 2>/dev/null; then
+    local label2="codex reviewer always uses the exact unrestricted launch flag"
+    if awk '
+      $0 == "--dangerously-bypass-approvals-and-sandbox" { bypass_count++ }
+      $0 == "-s" { sandbox_selector_seen = 1 }
+      END { exit !(bypass_count == 1 && !sandbox_selector_seen) }
+    ' "$work/codex.args" 2>/dev/null; then
       echo -e "  ${GREEN}PASS${NC} $label2"; PASS=$((PASS+1))
     else
       echo -e "  ${RED}FAIL${NC} $label2"; FAIL=$((FAIL+1)); FAILURES+=("$label2")
@@ -429,7 +434,7 @@ EOF
     printf 'dotted\n' > dots..txt
     git add empty.txt dots..txt
     git commit -q -am change
-    PATH="$fake:$PATH" TRIBUNAL_CODEX_SANDBOX_BYPASS=on TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
+    PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
   ) && jq -e '
       (.findings[0] | has("line_check") | not)
       and (.findings[1].line_check | test("out of bounds"))
@@ -771,7 +776,7 @@ do
   assert_bash_n "$script parses" "$script"
 done
 assert_file "static runner bundle manifest exists" "integrity/runner-bundle.json"
-assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.19.8\"'"
+assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.19.9\"'"
 assert_json_field "static runner bundle is current" "bash '$PLUGIN_ROOT/scripts/generate-runner-bundle.sh' --check"
 
 echo "Skill is orchestration-focused:"

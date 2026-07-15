@@ -10,9 +10,9 @@ This plugin packages the non-obvious operational gotchas so you don't re-derive 
 independent Codex worker for plan-driven implementation and review, reducing same-model
 blind spots in one-shot SaaS delivery.
 
-## The one unlock: `-s danger-full-access`, not `--dangerously-bypass-*`
+## Execution posture: unrestricted inside the development container
 
-Codex's own sandbox fails inside containers, and Codex's documented bypass flag is blocked by Claude Code's permission classifier. `-s danger-full-access` sidesteps both. The bundled wrapper defaults to this — you generally won't touch the flag. Full rationale: [`skills/codex-subagent-driven-development/SKILL.md`](skills/codex-subagent-driven-development/SKILL.md#the-one-unlock-you-must-know).
+Every Codex subprocess uses `--dangerously-bypass-approvals-and-sandbox`. The development container is the security boundary; the wrapper does not expose a weaker sandbox selector. Review and critique roles remain semantically read-only through their prompt contracts. Full rationale: [`skills/codex-subagent-driven-development/SKILL.md`](skills/codex-subagent-driven-development/SKILL.md#execution-posture).
 
 ## Prerequisites
 
@@ -34,7 +34,8 @@ Codex's own sandbox fails inside containers, and Codex's documented bypass flag 
 All three call `scripts/codex-run.sh`, which builds the canonical invocation:
 
 ```bash
-codex exec -s danger-full-access --skip-git-repo-check -C <repo-abs-path> \
+codex exec --dangerously-bypass-approvals-and-sandbox \
+  --skip-git-repo-check -C <repo-abs-path> \
   -m gpt-5.6-sol -c 'model_reasoning_effort="high"' -
 ```
 
@@ -48,11 +49,11 @@ codex exec -s danger-full-access --skip-git-repo-check -C <repo-abs-path> \
 A standalone, role-agnostic runner you can also call directly:
 
 ```bash
-scripts/codex-run.sh [--dir D] [--model M] [--effort E] [--sandbox MODE] [--timeout S] [--out F] [--prompt-file F] [PROMPT]
+scripts/codex-run.sh [--dir D] [--model M] [--effort E] [--timeout S] [--out F] [--prompt-file F] [PROMPT]
 echo "build a prompt" | scripts/codex-run.sh --dir /path/to/repo --timeout 600
 ```
 
-It encodes every gotcha — dual timeouts, output capture, bwrap detection, missing-codex handling. Full list: [`skills/codex-subagent-driven-development/SKILL.md`](skills/codex-subagent-driven-development/SKILL.md#operational-gotchas-all-handled-by-the-wrapper-but-know-them).
+It encodes every gotcha — the fixed unrestricted execution posture, dual timeouts, output capture, and missing-codex handling. Full list: [`skills/codex-subagent-driven-development/SKILL.md`](skills/codex-subagent-driven-development/SKILL.md#operational-gotchas-all-handled-by-the-wrapper-but-know-them).
 
 `--print-cmd` shows exactly what would run without executing it.
 
@@ -78,11 +79,11 @@ Pointed at a written plan + the real source files, GPT-5.6 Sol finds real integr
 
 ## Relationship to other plugins
 
-The `saas-startup-team` plugin also drives `codex exec` (its `tech-founder-codex` agent). Both plugins now share the **same sandbox posture** — `-s danger-full-access`, no bypass flag — because it sidesteps the broken bwrap *and* passes Claude Code's classifier (see "The one unlock" above). What differs is the **orchestration contract**, which is why the two keep separate scripts rather than sharing code:
+The `saas-startup-team` plugin also drives `codex exec` workers. Both plugins run Codex unrestricted with the exact bypass flag because the development container is the security boundary. What differs is the **orchestration contract**, which is why the two keep separate scripts rather than sharing code:
 
 | | `codex-subagent` (this plugin) | `saas-startup-team` |
 |---|---|---|
-| Sandbox | `-s danger-full-access` | `-s danger-full-access` (same) |
+| Execution | `--dangerously-bypass-approvals-and-sandbox` | `--dangerously-bypass-approvals-and-sandbox` |
 | Commits | Codex commits the named files per task | Codex must **not** commit (a handoff hook does) |
 | Driven by | a written plan + task id | business→tech handoff files |
 | Prompt | role-agnostic | opinionated production contract |
@@ -102,7 +103,7 @@ Use this plugin for generic, plan-driven Codex orchestration; use `saas-startup-
 bash plugins/codex-subagent/tests/run-tests.sh
 ```
 
-Unit + integration proofs for the wrapper (no real Codex calls — a stub `codex` on `PATH` simulates the happy path, fallback parsing, bwrap failure, timeout/partial-run, and missing-binary scenarios).
+Unit + integration proofs for the wrapper (no real Codex calls — a stub `codex` on `PATH` verifies the exact bypass invocation and simulates the happy path, fallback parsing, timeout/partial-run, and missing-binary scenarios).
 
 ## License
 

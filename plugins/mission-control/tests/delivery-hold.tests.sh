@@ -20,7 +20,7 @@ jq -n --arg td "$TD" '{
   projects:[{name:"p1",container:"dev-container",repo_path:($td+"/repo"),stage:"live",engine:"e",command:"unused",hold:false}],
   admission:{wip_cap:1,confidence_min:0.7,veto_hours:72}}' > "$TD/portfolio.json"
 
-CMD="codex exec --ephemeral --dangerously-bypass-approvals-and-sandbox 'fix issues && verify'"
+CMD="codex exec --dangerously-bypass-approvals-and-sandbox 'fix issues && verify'"
 wrapper() {
   local base="$TD/$1"; shift
   : > "$base.log"; : > "$DOCKER_CALLS"

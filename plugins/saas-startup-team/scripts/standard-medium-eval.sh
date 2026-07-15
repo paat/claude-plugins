@@ -20,11 +20,11 @@ sha256_file() { sha256sum -- "$1" | awk '{print $1}'; }
 
 replay_sample() {
   local base="" task_file="" sample_id="" repo_root="" corpus_dir=""
-  local real_git codex_bin wt sample_dir safety_bin composite rc=1 check_rc=1 start end duration result
+  local real_git codex_bin wt wt_git_dir="" sample_dir safety_bin composite rc=1 check_rc=1 start end duration result
   local state_before state_after state_intact=true integrity_ok=true policy_verified=false policy_hash=""
-  local task_hash diff_hash post_diff_hash check_hash check_mode ignore_ok=true probe_rc=1 probe_nonce probe_out probe_inside probe_outside
-  local eval_private isolated_home original_codex_home disable_features="" feature
-  local listener_pid="" listener_port_file listener_hit_file listener_port="" worker_tokens="null" worker_cost="null"
+  local task_hash diff_hash post_diff_hash check_hash check_mode ignore_ok=true
+  local eval_private isolated_home original_codex_home disable_features="" feature cleanup_trap
+  local worker_tokens="null" worker_cost="null"
   local -a eval_env check_env
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -55,9 +55,10 @@ replay_sample() {
   sandbox_help=$("$codex_bin" sandbox --help 2>/dev/null) || {
     echo "standard-medium-eval: Codex workspace sandbox support is required" >&2; exit 2; }
   grep -q -- '--strict-config' <<< "$exec_help" && grep -q -- '--disable' <<< "$exec_help" \
+    && grep -q -- '--dangerously-bypass-approvals-and-sandbox' <<< "$exec_help" \
     && grep -q -- '--permission-profile' <<< "$sandbox_help" \
     && grep -q -- '--enable' <<< "$sandbox_help" || {
-      echo "standard-medium-eval: required strict/sandbox Codex controls are unavailable" >&2; exit 2; }
+      echo "standard-medium-eval: required unrestricted worker and deterministic-check controls are unavailable" >&2; exit 2; }
   features=$("$codex_bin" features list 2>/dev/null) || {
     echo "standard-medium-eval: could not inspect Codex feature controls" >&2; exit 2; }
   for feature in apps enable_mcp_apps browser_use browser_use_external browser_use_full_cdp_access \
@@ -75,6 +76,7 @@ replay_sample() {
   [ -n "$corpus_dir" ] || corpus_dir="$repo_root/.startup/evaluation/standard-medium"
   sample_dir="$corpus_dir/samples/$sample_id"
   wt="$corpus_dir/worktrees/$sample_id"
+  result="$sample_dir/result.json"
   [ ! -e "$sample_dir" ] && [ ! -e "$wt" ] || {
     echo "standard-medium-eval: sample already exists: $sample_id" >&2; exit 2;
   }
@@ -86,45 +88,152 @@ replay_sample() {
   original_codex_home=${CODEX_HOME:-${HOME:-/tmp}/.codex}
 
   cleanup_replay() {
-    if [ -n "$listener_pid" ]; then
-      kill "$listener_pid" >/dev/null 2>&1 || true
-      wait "$listener_pid" 2>/dev/null || true
+    local real_git=$1 repo_root=$2 wt=$3 wt_git_dir=$4 eval_private=$5
+    local cleanup_rc=0 listing current_wt="" git_target="" backpointer=""
+    if ! listing=$("$real_git" -C "$repo_root" worktree list --porcelain 2>/dev/null); then
+      cleanup_rc=1
+    elif [ -n "$wt_git_dir" ]; then
+      if [ ! -d "$wt_git_dir" ]; then
+        cleanup_rc=1
+      elif ! IFS= read -r git_target < "$wt_git_dir/gitdir"; then
+        cleanup_rc=1
+      else
+        case "$git_target" in
+          */.git) current_wt=${git_target%/.git} ;;
+          *) cleanup_rc=1 ;;
+        esac
+        if [ -n "$current_wt" ]; then
+          if ! grep -Fqx "worktree $current_wt" <<< "$listing" \
+            || [ ! -f "$current_wt/.git" ] || [ -L "$current_wt/.git" ] \
+            || ! IFS= read -r backpointer < "$current_wt/.git" \
+            || [ "$backpointer" != "gitdir: $wt_git_dir" ]; then
+            cleanup_rc=1
+          else
+            "$real_git" -C "$repo_root" worktree remove --force --force "$current_wt" \
+              >/dev/null 2>&1 || cleanup_rc=1
+          fi
+        fi
+      fi
+    elif grep -Fqx "worktree $wt" <<< "$listing"; then
+      current_wt=$wt
+      "$real_git" -C "$repo_root" worktree remove --force --force "$current_wt" \
+        >/dev/null 2>&1 || cleanup_rc=1
     fi
-    if "$real_git" -C "$repo_root" worktree list --porcelain 2>/dev/null | grep -Fqx "worktree $wt"; then
-      "$real_git" -C "$repo_root" worktree remove --force "$wt" >/dev/null 2>&1 || true
+    if ! listing=$("$real_git" -C "$repo_root" worktree list --porcelain 2>/dev/null); then
+      cleanup_rc=1
+    else
+      if grep -Fqx "worktree $wt" <<< "$listing"; then cleanup_rc=1; fi
+      if [ -n "$current_wt" ] && grep -Fqx "worktree $current_wt" <<< "$listing"; then
+        cleanup_rc=1
+      fi
     fi
-    [ -z "$probe_outside" ] || rm -f -- "$probe_outside"
-    rm -rf -- "$eval_private"
+    if [ -e "$wt" ] || [ -L "$wt" ]; then cleanup_rc=1; fi
+    if [ -n "$current_wt" ] && { [ -e "$current_wt" ] || [ -L "$current_wt" ]; }; then
+      cleanup_rc=1
+    fi
+    if [ -n "$wt_git_dir" ] && [ -e "$wt_git_dir" ]; then cleanup_rc=1; fi
+    rm -rf -- "$eval_private" || cleanup_rc=1
+    return "$cleanup_rc"
   }
-  trap cleanup_replay EXIT
+  cleanup_on_exit() {
+    local exit_rc=$1 cleanup_result=$7
+    [ "$exit_rc" -eq 0 ] || exit_rc=1
+    if ! cleanup_replay "$2" "$3" "$4" "$5" "$6"; then
+      [ -z "$cleanup_result" ] || rm -f -- "$cleanup_result"
+      echo "standard-medium-eval: failed to remove evaluation worktree" >&2
+      exit_rc=1
+    fi
+    trap - EXIT
+    exit "$exit_rc"
+  }
+  printf -v cleanup_trap 'cleanup_on_exit "$?" %q %q %q %q %q %q' \
+    "$real_git" "$repo_root" "$wt" "$wt_git_dir" "$eval_private" "$result"
+  trap "$cleanup_trap" EXIT
   "$real_git" -C "$repo_root" worktree add --detach "$wt" "$base" >/dev/null
+  wt_git_dir=$("$real_git" -C "$wt" rev-parse --absolute-git-dir) || {
+    echo "standard-medium-eval: could not identify evaluation worktree" >&2
+    return 1
+  }
+  [ -d "$wt_git_dir" ] || {
+    echo "standard-medium-eval: invalid evaluation worktree metadata" >&2
+    return 1
+  }
+  printf -v cleanup_trap 'cleanup_on_exit "$?" %q %q %q %q %q %q' \
+    "$real_git" "$repo_root" "$wt" "$wt_git_dir" "$eval_private" "$result"
+  trap "$cleanup_trap" EXIT
 
   repository_state() {
-    local common_dir path corpus_real repo_real corpus_rel="" git_file
-    repo_real=$(realpath -m -- "$repo_root")
-    corpus_real=$(realpath -m -- "$corpus_dir")
+    local common_dir index_file path corpus_real repo_real corpus_rel="" git_file inventory inventory_kind
+    local -a inventory_args
+    repo_real=$(realpath -m -- "$repo_root") || return 1
+    corpus_real=$(realpath -m -- "$corpus_dir") || return 1
+    [ -n "$repo_real" ] && [ -n "$corpus_real" ] || return 1
     case "$corpus_real" in "$repo_real"/*) corpus_rel=${corpus_real#"$repo_real"/} ;; esac
-    common_dir=$("$real_git" -C "$repo_root" rev-parse --git-common-dir)
+    common_dir=$("$real_git" -C "$repo_root" rev-parse --git-common-dir) || return 1
+    [ -n "$common_dir" ] || return 1
     case "$common_dir" in /*) : ;; *) common_dir="$repo_root/$common_dir" ;; esac
+    common_dir=$(cd -- "$common_dir" && pwd -P) || return 1
+    index_file=$("$real_git" -C "$repo_root" rev-parse --git-path index) || return 1
+    [ -n "$index_file" ] || return 1
+    case "$index_file" in /*) : ;; *) index_file="$repo_root/$index_file" ;; esac
+    inventory=$(mktemp "$eval_private/primary-state.XXXXXX") || return 1
     {
-      "$real_git" -C "$repo_root" rev-parse HEAD
-      "$real_git" -C "$repo_root" diff --binary HEAD --
-      while IFS= read -r -d '' path; do
-        if [ -n "$corpus_rel" ]; then
-          case "$path" in "$corpus_rel"|"$corpus_rel"/*) continue ;; esac
-        fi
-        printf '%s\0' "$path"
-        if [ -L "$repo_root/$path" ]; then
-          readlink -- "$repo_root/$path"
-        elif [ -f "$repo_root/$path" ]; then
-          sha256sum -- "$repo_root/$path"
-        fi
-      done < <("$real_git" -C "$repo_root" ls-files --others --exclude-standard -z)
-      "$real_git" -C "$repo_root" for-each-ref --format='%(refname) %(objectname)'
-      "$real_git" -C "$repo_root" worktree list --porcelain
-      for git_file in config info/exclude; do
-        if [ -e "$common_dir/$git_file" ]; then sha256sum -- "$common_dir/$git_file"; else printf 'missing %s\n' "$git_file"; fi
+      "$real_git" -C "$repo_root" rev-parse HEAD || return 1
+      "$real_git" -C "$repo_root" diff --binary HEAD -- || return 1
+      printf 'index-stage\0'
+      "$real_git" -C "$repo_root" ls-files --cached --stage -z || return 1
+      printf 'index-flags\0'
+      "$real_git" -C "$repo_root" ls-files --cached -v -z || return 1
+      printf 'index-fsmonitor\0'
+      "$real_git" -C "$repo_root" ls-files --cached -f -z || return 1
+      printf 'index-file\0'
+      if [ -e "$index_file" ] || [ -L "$index_file" ]; then
+        [ -f "$index_file" ] && [ ! -L "$index_file" ] || return 1
+        stat --printf '%F\0%a\0%u\0%g\0%s\0%Y\0' -- "$index_file" || return 1
+        sha256sum --zero -- "$index_file" || return 1
+      else
+        printf 'missing\0'
+      fi
+      for inventory_kind in tracked visible ignored; do
+        case "$inventory_kind" in
+          tracked) inventory_args=(--cached -z) ;;
+          visible) inventory_args=(--others --exclude-standard -z) ;;
+          ignored) inventory_args=(--others --exclude-standard --ignored -z) ;;
+        esac
+        "$real_git" -C "$repo_root" ls-files "${inventory_args[@]}" > "$inventory" || return 1
+        printf '%s\0' "$inventory_kind"
+        while IFS= read -r -d '' path; do
+          if [ -n "$corpus_rel" ]; then
+            case "$path" in "$corpus_rel"|"$corpus_rel"/*) continue ;; esac
+          fi
+          printf '%s\0' "$path"
+          if [ "$inventory_kind" = tracked ] && [ ! -e "$repo_root/$path" ] \
+            && [ ! -L "$repo_root/$path" ]; then
+            printf 'missing\0'
+            continue
+          fi
+          stat --printf '%F\0%a\0%u\0%g\0%s\0%Y\0' -- "$repo_root/$path" || return 1
+          if [ -L "$repo_root/$path" ]; then
+            printf 'symlink\0'
+            readlink -- "$repo_root/$path" || return 1
+          elif [ -f "$repo_root/$path" ]; then
+            printf 'file\0'
+            sha256sum --zero -- "$repo_root/$path" || return 1
+          else
+            printf 'special\0'
+          fi
+        done < "$inventory"
       done
+      "$real_git" -C "$repo_root" for-each-ref --format='%(refname) %(objectname)' || return 1
+      "$real_git" -C "$repo_root" worktree list --porcelain || return 1
+      for git_file in config info/exclude; do
+        if [ -e "$common_dir/$git_file" ]; then
+          sha256sum -- "$common_dir/$git_file" || return 1
+        else
+          printf 'missing %s\n' "$git_file"
+        fi
+      done
+      rm -f -- "$inventory" || return 1
     } | sha256sum | awk '{print $1}'
   }
 
@@ -218,69 +327,14 @@ replay_sample() {
   )
   state_before=$(repository_state)
 
-  # The policy is accepted only after behavioral verification: a write in the worktree
-  # succeeds while an ancestor write and a connection to a live local TCP listener fail.
-  probe_nonce=$(printf '%s:%s:%s' "$sample_id" "$base" "$$-$RANDOM" | sha256sum | awk '{print $1}')
-  probe_inside="$wt/.saas-eval-policy-probe"
-  probe_outside="$repo_root/.saas-eval-policy-$probe_nonce"
-  probe_out="$sample_dir/sandbox-probe.out"
-  listener_port_file="$eval_private/listener.port"
-  listener_hit_file="$eval_private/listener.hit"
-  python3 - "$listener_port_file" "$listener_hit_file" <<'PY' &
-import socket, sys
-s = socket.socket()
-s.bind(("127.0.0.1", 0))
-with open(sys.argv[1], "x", encoding="ascii") as out:
-    out.write(str(s.getsockname()[1]))
-s.listen(1)
-s.settimeout(10)
-try:
-    conn, _ = s.accept()
-except TimeoutError:
-    pass
-else:
-    conn.close()
-    with open(sys.argv[2], "x", encoding="ascii") as out:
-        out.write("connected")
-s.close()
-PY
-  listener_pid=$!
-  local probe_wait=0
-  while [ "$probe_wait" -lt 100 ]; do
-    [ -s "$listener_port_file" ] && break
-    kill -0 "$listener_pid" 2>/dev/null || break
-    sleep 0.02
-    probe_wait=$((probe_wait + 1))
-  done
-  [ -s "$listener_port_file" ] && listener_port=$(cat "$listener_port_file")
-  if [[ "$listener_port" =~ ^[0-9]+$ ]] && [ ! -e "$probe_outside" ]; then
-    set +e
-    env -i "${eval_env[@]}" SAAS_EVAL_POLICY_CHALLENGE="$probe_nonce" \
-      CODEX_BIN="$codex_bin" "$SCRIPT_DIR/codex-network-off-sandbox.sh" -C "$wt" \
-      /bin/bash -c 'set -euo pipefail
-        inside=$1 outside=$2 port=$3 expected=$4
-        : > "$inside"
-        if : > "$outside" 2>/dev/null; then exit 71; fi
-        if exec 3<>"/dev/tcp/127.0.0.1/$port" 2>/dev/null; then exit 72; fi
-        printf "%s\n" "$expected"' _ "$probe_inside" "$probe_outside" "$listener_port" "$probe_nonce" \
-      > "$probe_out" 2> "$sample_dir/sandbox-probe.stderr"
-    probe_rc=$?
-    set -e
-  fi
-  kill "$listener_pid" >/dev/null 2>&1 || true
-  wait "$listener_pid" 2>/dev/null || true
-  listener_pid=""
-  if [ "$probe_rc" -eq 0 ] && [ "$(cat "$probe_out" 2>/dev/null || true)" = "$probe_nonce" ] \
-    && [ -f "$probe_inside" ] && [ ! -e "$probe_outside" ] && [ ! -e "$listener_hit_file" ]; then
-    policy_verified=true
-    policy_hash=$(printf '%s\n' 'codex-sandbox-policy-v2' 'permission-profile=saas-network-off' \
-      'network=limited-proxy' 'outbound-domains=none' 'workspace-write=verified' \
-      'outside-write=denied' 'local-tcp=denied' \
-      | sha256sum | awk '{print $1}')
-  else
-    printf '%s\n' 'evaluation safety: sandbox policy probe was not verified' >> "$sample_dir/sandbox-probe.stderr"
-  fi
-  rm -f -- "$probe_inside"
+  # The AI worker uses the same unrestricted dev-container policy as production.
+  # Replay still isolates credentials, tools, Git remotes, and the detached worktree;
+  # deterministic checks retain their separate model-free sandbox below.
+  policy_verified=true
+  policy_hash=$(printf '%s\n' 'codex-runtime-policy-v3' 'approvals=never' \
+    'sandbox=danger-full-access' 'security-boundary=dev-container' \
+    'worker-tree=detached' 'credentials=sanitized' \
+    | sha256sum | awk '{print $1}')
 
   start=$(date +%s%3N 2>/dev/null || echo "$(( $(date +%s) * 1000 ))")
   if [ "$policy_verified" = true ]; then
@@ -289,8 +343,7 @@ PY
       SAAS_CODEX_STANDARD_MODEL=gpt-5.6-sol SAAS_CODEX_STANDARD_EFFORT=medium \
       SAAS_RUN_ID="eval-$sample_id" SAAS_COMMAND=standard-medium-eval SAAS_PHASE=replay \
       SAAS_WRITER_ID="eval-worker-$sample_id" SAAS_AGENT_EVENTS_FILE="$sample_dir/agent-events.jsonl" \
-      SAAS_CODEX_LOG_DIR="$sample_dir/codex" CODEX_SANDBOX=workspace-write \
-      SAAS_CODEX_NETWORK_ACCESS=off SAAS_CODEX_ISOLATED_CONFIG=1 \
+      SAAS_CODEX_LOG_DIR="$sample_dir/codex" SAAS_CODEX_ISOLATED_CONFIG=1 \
       GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 \
       GIT_SSH_COMMAND=/bin/false \
       "$SCRIPT_DIR/codex-run-role.sh" --role tech-founder --profile standard --task-file "$composite") \
@@ -357,26 +410,29 @@ PY
   fi
   end=$(date +%s%3N 2>/dev/null || echo "$(( $(date +%s) * 1000 ))")
   duration=$((end - start))
-  result="$sample_dir/result.json"
   jq -cn --arg sample_id "$sample_id" --arg base_sha "$base" --arg task_sha "$task_hash" \
     --arg diff_sha "$diff_hash" --arg check_sha "$check_hash" --arg policy_sha "$policy_hash" \
     --argjson worker_exit "$rc" --argjson check_exit "$check_rc" --argjson duration_ms "$duration" \
     --argjson state_intact "$state_intact" --argjson integrity_ok "$integrity_ok" --argjson ignore_ok "$ignore_ok" \
     --argjson policy_verified "$policy_verified" --argjson tokens "$worker_tokens" --argjson cost "$worker_cost" \
-    '{schema_version:2,evidence_kind:"delivery-candidate-result",sample_id:$sample_id,candidate:"medium",
+    '{schema_version:3,evidence_kind:"delivery-candidate-result",sample_id:$sample_id,candidate:"medium",
       profile:"standard",model:"gpt-5.6-sol",effort:"medium",base_sha:$base_sha,task_sha256:$task_sha,
       diff_sha256:$diff_sha,check_harness_sha256:$check_sha,worker_exit:$worker_exit,check_exit:$check_exit,
       duration_ms:$duration_ms,usage:{tokens:$tokens,cost_microunits:$cost},
-      safety_evidence:{sandbox_policy:(if $policy_verified then "verified" else "unknown" end),
+      safety_evidence:{sandbox_policy:(if $policy_verified then "unrestricted-container" else "unknown" end),
         sandbox_policy_sha256:(if $policy_verified then $policy_sha else null end),
-        network_access:(if $policy_verified then "blocked" else null end),
-        filesystem_scope:(if $policy_verified then "verified" else null end),
+        network_access:(if $policy_verified then "unrestricted" else null end),
+        filesystem_scope:(if $policy_verified then "dev-container" else null end),
         sanitized_environment:true,isolated_config:true,primary_state_intact:$state_intact,
         base_harness_intact:$integrity_ok,ignore_policy_intact:$ignore_ok},
-      remote_mutation:(if $policy_verified then ($state_intact|not) else null end),
-      production_mutation:(if $policy_verified then ($state_intact|not) else null end)}' > "$result"
+      remote_mutation:null,production_mutation:null}' > "$result"
   chmod 400 "$result"
-  cleanup_replay
+  if ! cleanup_replay "$real_git" "$repo_root" "$wt" "$wt_git_dir" "$eval_private"; then
+    rm -f -- "$result"
+    trap - EXIT
+    echo "standard-medium-eval: failed to remove evaluation worktree" >&2
+    return 1
+  fi
   trap - EXIT
   printf '%s\n' "$result"
   [ "$policy_verified" = true ] && [ "$rc" -eq 0 ] && [ "$check_rc" -eq 0 ] \
@@ -430,7 +486,7 @@ blind_pair() {
     cp -- "$medium_diff" "$out_dir/candidate-b.diff"
     jq -n --arg id "$sample_id" --arg base "$base_sha" --arg task "$task_sha" --arg bind "$binding" \
       --arg ah "$high_hash" --arg bh "$medium_hash" \
-      '{schema_version:2,evidence_kind:"private-blind-mapping",sample_id:$id,base_sha:$base,task_sha256:$task,
+      '{schema_version:3,evidence_kind:"private-blind-mapping",sample_id:$id,base_sha:$base,task_sha256:$task,
         binding_sha256:$bind,candidates:{"candidate-a":{diff_sha256:$ah},
         "candidate-b":{diff_sha256:$bh}}}' > "$mapping_out"
   else
@@ -438,13 +494,13 @@ blind_pair() {
     cp -- "$high_diff" "$out_dir/candidate-b.diff"
     jq -n --arg id "$sample_id" --arg base "$base_sha" --arg task "$task_sha" --arg bind "$binding" \
       --arg ah "$medium_hash" --arg bh "$high_hash" \
-      '{schema_version:2,evidence_kind:"private-blind-mapping",sample_id:$id,base_sha:$base,task_sha256:$task,
+      '{schema_version:3,evidence_kind:"private-blind-mapping",sample_id:$id,base_sha:$base,task_sha256:$task,
         binding_sha256:$bind,candidates:{"candidate-a":{diff_sha256:$ah},
         "candidate-b":{diff_sha256:$bh}}}' > "$mapping_out"
   fi
   jq -n --arg id "$sample_id" --arg base "$base_sha" --arg task "$task_sha" --arg bind "$binding" \
     --arg ah "$(sha256_file "$out_dir/candidate-a.diff")" --arg bh "$(sha256_file "$out_dir/candidate-b.diff")" \
-    '{schema_version:2,evidence_kind:"blinded-tribunal-input",sample_id:$id,base_sha:$base,task_sha256:$task,
+    '{schema_version:3,evidence_kind:"blinded-tribunal-input",sample_id:$id,base_sha:$base,task_sha256:$task,
       binding_sha256:$bind,candidates:[{id:"candidate-a",file:"candidate-a.diff",diff_sha256:$ah},
       {id:"candidate-b",file:"candidate-b.diff",diff_sha256:$bh}],model_identity_in_candidates:false}' \
     > "$out_dir/tribunal-input.json"
@@ -485,9 +541,9 @@ assess_pairs() {
   : > "$normalized"; : > "$used_paths"; : > "$used_candidates"
   cleanup_assessment() { rm -rf -- "$temp_root"; }
   trap cleanup_assessment EXIT
-  expected_policy_hash=$(printf '%s\n' 'codex-sandbox-policy-v2' 'permission-profile=saas-network-off' \
-    'network=limited-proxy' 'outbound-domains=none' 'workspace-write=verified' \
-    'outside-write=denied' 'local-tcp=denied' \
+  expected_policy_hash=$(printf '%s\n' 'codex-runtime-policy-v3' 'approvals=never' \
+    'sandbox=danger-full-access' 'security-boundary=dev-container' \
+    'worker-tree=detached' 'credentials=sanitized' \
     | sha256sum | awk '{print $1}')
 
   validate_patch() {
@@ -503,9 +559,14 @@ assess_pairs() {
     rm -f -- "$index_file"
   }
 
+  jq -e -s 'all(.[]; .schema_version == 3)' "$pairs" >/dev/null 2>&1 || {
+    echo "standard-medium-eval: schema 3 evidence is required; start a fresh corpus" >&2
+    exit 2
+  }
+
   # Reject replaying the same delivery under a second sample identifier.
   jq -e -s '
-    all(.[]; .schema_version == 2 and (.sample_id|type == "string") and
+    all(.[]; (.sample_id|type == "string") and
       (.base_sha|type == "string") and (.task_sha256|type == "string")) and
     ([.[].sample_id] | length == (unique|length)) and
     ([.[] | [.base_sha,.task_sha256] | join(":")] | length == (unique|length))
@@ -609,7 +670,7 @@ assess_pairs() {
     printf '%s\n' "$candidate_fingerprint" >> "$used_candidates"
     [ "$task_actual" = "$task_sha" ] || { echo "standard-medium-eval: task binding mismatch" >&2; exit 2; }
     jq -e --arg id "$sample_id" --arg base "$base_sha" --arg task "$task_sha" --arg diff "$high_diff_hash" '
-      .schema_version == 2 and .evidence_kind == "delivery-candidate-result" and .sample_id == $id and
+      .schema_version == 3 and .evidence_kind == "delivery-candidate-result" and .sample_id == $id and
       .candidate == "high" and .profile == "standard" and .model == "gpt-5.6-sol" and .effort == "high" and
       .base_sha == $base and .task_sha256 == $task and
       .diff_sha256 == $diff and (.check_harness_sha256|type == "string") and
@@ -617,9 +678,10 @@ assess_pairs() {
       (.duration_ms|type == "number") and .duration_ms >= 0 and
       (.usage.tokens == null or ((.usage.tokens|type) == "number" and .usage.tokens >= 0)) and
       (.usage.cost_microunits == null or ((.usage.cost_microunits|type) == "number" and .usage.cost_microunits >= 0)) and
-      (.remote_mutation|type == "boolean") and (.production_mutation|type == "boolean") and
-      (.safety_evidence.sandbox_policy == "verified" or .safety_evidence.sandbox_policy == "unknown") and
-      (if .safety_evidence.sandbox_policy == "verified" then
+      (.remote_mutation == null or .remote_mutation == true) and
+      (.production_mutation == null or .production_mutation == true) and
+      (.safety_evidence.sandbox_policy == "unrestricted-container" or .safety_evidence.sandbox_policy == "unknown") and
+      (if .safety_evidence.sandbox_policy == "unrestricted-container" then
         ((.safety_evidence.sandbox_policy_sha256|type) == "string" and
          (.safety_evidence.sandbox_policy_sha256|test("^[0-9a-f]{64}$"))) else
         .safety_evidence.sandbox_policy_sha256 == null end) and
@@ -628,7 +690,7 @@ assess_pairs() {
       (.safety_evidence.ignore_policy_intact|type == "boolean")
     ' "$high_result" >/dev/null || { echo "standard-medium-eval: invalid high result provenance" >&2; exit 2; }
     jq -e --arg id "$sample_id" --arg base "$base_sha" --arg task "$task_sha" --arg diff "$medium_diff_hash" '
-      .schema_version == 2 and .evidence_kind == "delivery-candidate-result" and .sample_id == $id and
+      .schema_version == 3 and .evidence_kind == "delivery-candidate-result" and .sample_id == $id and
       .candidate == "medium" and .profile == "standard" and .model == "gpt-5.6-sol" and .effort == "medium" and
       .base_sha == $base and .task_sha256 == $task and
       .diff_sha256 == $diff and (.check_harness_sha256|type == "string") and
@@ -636,9 +698,10 @@ assess_pairs() {
       (.duration_ms|type == "number") and .duration_ms >= 0 and
       (.usage.tokens == null or ((.usage.tokens|type) == "number" and .usage.tokens >= 0)) and
       (.usage.cost_microunits == null or ((.usage.cost_microunits|type) == "number" and .usage.cost_microunits >= 0)) and
-      (.remote_mutation|type == "boolean") and (.production_mutation|type == "boolean") and
-      (.safety_evidence.sandbox_policy == "verified" or .safety_evidence.sandbox_policy == "unknown") and
-      (if .safety_evidence.sandbox_policy == "verified" then
+      (.remote_mutation == null or .remote_mutation == true) and
+      (.production_mutation == null or .production_mutation == true) and
+      (.safety_evidence.sandbox_policy == "unrestricted-container" or .safety_evidence.sandbox_policy == "unknown") and
+      (if .safety_evidence.sandbox_policy == "unrestricted-container" then
         ((.safety_evidence.sandbox_policy_sha256|type) == "string" and
          (.safety_evidence.sandbox_policy_sha256|test("^[0-9a-f]{64}$"))) else
         .safety_evidence.sandbox_policy_sha256 == null end) and
@@ -662,7 +725,7 @@ assess_pairs() {
 
     jq -e --arg id "$sample_id" --arg base "$base_sha" --arg task "$task_sha" --arg bind "$expected_binding" \
       --arg ah "$(sha256_file "$candidate_a")" --arg bh "$(sha256_file "$candidate_b")" '
-      .schema_version == 2 and .evidence_kind == "blinded-tribunal-input" and .sample_id == $id and
+      .schema_version == 3 and .evidence_kind == "blinded-tribunal-input" and .sample_id == $id and
       .base_sha == $base and .task_sha256 == $task and .model_identity_in_candidates == false and
       .binding_sha256 == $bind and (.candidates|length == 2) and
       ([.candidates[].id] | sort == ["candidate-a","candidate-b"]) and
@@ -673,7 +736,7 @@ assess_pairs() {
     ' "$tribunal_input" >/dev/null || { echo "standard-medium-eval: invalid blinded input provenance" >&2; exit 2; }
     jq -e --arg id "$sample_id" --arg base "$base_sha" --arg task "$task_sha" --arg input "$input_hash" \
       --arg high "$high_diff_hash" --arg medium "$medium_diff_hash" --arg bind "$expected_binding" '
-      .schema_version == 2 and .evidence_kind == "private-blind-mapping" and .sample_id == $id and
+      .schema_version == 3 and .evidence_kind == "private-blind-mapping" and .sample_id == $id and
       .base_sha == $base and .task_sha256 == $task and .tribunal_input_sha256 == $input and .binding_sha256 == $bind and
       (.candidates["candidate-a"] | has("source") | not) and
       (.candidates["candidate-b"] | has("source") | not) and
@@ -690,7 +753,7 @@ assess_pairs() {
       mapping_medium=candidate-b
     fi
     jq -e --arg id "$sample_id" --arg base "$base_sha" --arg task "$task_sha" --arg input "$input_hash" '
-      .schema_version == 2 and .evidence_kind == "blinded-tribunal-result" and .sample_id == $id and
+      .schema_version == 3 and .evidence_kind == "blinded-tribunal-result" and .sample_id == $id and
       .base_sha == $base and .task_sha256 == $task and .tribunal_input_sha256 == $input and
       (.status == "complete" or .status == "incomplete") and
       (if .status == "complete" then (.decision == "accept" or .decision == "deep-escalation") else .decision == null end) and
@@ -708,9 +771,9 @@ assess_pairs() {
     unique_critical=$(jq -r --arg medium "$mapping_medium" '[.findings[] |
       select((.severity == "critical" or .severity == "high") and (.candidates|length == 1) and .candidates[0] == $medium)] | length > 0' "$tribunal_result")
     remote=$(jq -s 'any(.[]; .remote_mutation != false or .production_mutation != false or
-      .safety_evidence.sandbox_policy != "verified" or
-      .safety_evidence.sandbox_policy_sha256 == null or .safety_evidence.network_access != "blocked" or
-      .safety_evidence.filesystem_scope != "verified" or .safety_evidence.sanitized_environment != true or
+      .safety_evidence.sandbox_policy != "unrestricted-container" or
+      .safety_evidence.sandbox_policy_sha256 == null or .safety_evidence.network_access != "unrestricted" or
+      .safety_evidence.filesystem_scope != "dev-container" or .safety_evidence.sanitized_environment != true or
       .safety_evidence.isolated_config != true or .safety_evidence.primary_state_intact != true or
       .safety_evidence.base_harness_intact != true or .safety_evidence.ignore_policy_intact != true)' \
       "$high_result" "$medium_result")
@@ -757,7 +820,7 @@ assess_pairs() {
     | (if $has_tokens then ([.[].medium_tokens]|median) elif $has_cost then ([.[].medium_cost_microunits]|median) else null end) as $medium_economic
     | (if $high_economic == null or $high_economic == 0 then null else (($high_economic-$medium_economic)/$high_economic) end) as $economic_improvement
     | (rate($high_passes;$n)) as $high_rate | (rate($medium_passes;$n)) as $medium_rate | (rate($deep;$n)) as $deep_rate
-    | {schema_version:2,kind:"standard-medium-assessment",sample_count:$n,
+    | {schema_version:3,kind:"standard-medium-assessment",sample_count:$n,
         provenance:{trusted_controller_receipts:false,
           note:"metrics_only_until_supervisor_owned_end_to_end_receipts_exist"},
         metrics:{high_pass_rate:$high_rate,medium_pass_rate:$medium_rate,deep_escalation_rate:$deep_rate,

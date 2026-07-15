@@ -2,19 +2,18 @@
 # codex-run.sh — drive the OpenAI Codex CLI (`codex exec`) as a subagent from
 # Claude Code. Encodes the hard-won operational gotchas:
 #
-#   1. Default sandbox is `danger-full-access`, NOT `--dangerously-bypass-*`.
-#      `-s danger-full-access` disables only codex's broken bwrap sandbox mode
-#      (which fails inside containers), gives real FS read/write/exec, AND passes
-#      Claude Code's auto-mode permission classifier without a bypass flag.
+#   1. Every Codex subprocess uses
+#      `--dangerously-bypass-approvals-and-sandbox`. The development container is
+#      the security boundary; review-only behavior is enforced by the prompt.
 #   2. Model and reasoning effort are pinned explicitly so unattended calls do
 #      not inherit surprising cost or behavior from ~/.codex/config.toml.
-#   3. Canonical invocation: codex exec -s <mode> --skip-git-repo-check -C <dir>.
+#   3. Canonical invocation: codex exec
+#      --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -C <dir>.
 #   4. Dual timeouts — the inner `timeout` here AND the Claude Code Bash-tool
 #      `timeout` parameter must both be generous, or the tool SIGTERMs codex
 #      mid-task (exit 143) leaving uncommitted partial edits.
 #   5. Output is huge and the final answer is duplicated; capture the clean final
 #      message via codex's `-o/--output-last-message`, fall back to tail-parsing.
-#   6. Detect the bwrap failure and surface the `-s danger-full-access` remedy.
 #
 # Usage:
 #   codex-run.sh [options] [PROMPT]
@@ -24,7 +23,6 @@
 #   -C, --dir DIR        Repo/working dir codex runs in (default: $PWD).
 #   -m, --model MODEL    Codex model (default: gpt-5.6-sol).
 #   -e, --effort LEVEL   Reasoning effort (default: high).
-#   -s, --sandbox MODE   codex sandbox mode (default: danger-full-access).
 #   -t, --timeout SECS   Inner timeout for the codex run (default: 600).
 #   -f, --prompt-file F  Read the prompt from file F instead of argv/stdin.
 #   -o, --out FILE       Where to keep the full captured stream (default: temp).
@@ -32,11 +30,10 @@
 #   -h, --help           Show this help and exit.
 #
 # Output: the script prints ONLY codex's final answer on stdout, then a short
-# footer (exit code + log path) on stderr. On bwrap failure or partial-run
-# (exit 143) it prints a remediation block instead.
+# footer (exit code + log path) on stderr. On a partial run (exit 143) it prints
+# a remediation block instead.
 set -euo pipefail
 
-CS_DEFAULT_SANDBOX="danger-full-access"
 CS_DEFAULT_TIMEOUT="600"
 CS_DEFAULT_MODEL="${CODEX_SUBAGENT_MODEL:-gpt-5.6-sol}"
 CS_DEFAULT_EFFORT="${CODEX_SUBAGENT_EFFORT:-high}"
@@ -61,26 +58,20 @@ cs_extract_final_answer() {
   '
 }
 
-# cs_detect_bwrap — return 0 if the captured output shows codex's bwrap sandbox
-# failing to initialize (the containerized-environment trap).
-cs_detect_bwrap() {
-  grep -qE 'bwrap:.*(Permission denied|Operation not permitted|Failed to make)' "$1"
-}
-
 # cs_build_cmd — print, one argument per line, the codex command for the given
-# dir/model/effort/sandbox. Kept separate so it is unit-testable and so
+# dir/model/effort. Kept separate so it is unit-testable and so
 # --print-cmd can show exactly what will run. The prompt itself is fed on stdin,
 # never as argv, to dodge the MAX_ARG_STRLEN "Argument list too long" trap.
 cs_build_cmd() {
-  local dir="$1" model="$2" effort="$3" sandbox="$4"
-  printf '%s\n' codex exec -s "$sandbox" --skip-git-repo-check -C "$dir"
+  local dir="$1" model="$2" effort="$3"
+  printf '%s\n' codex exec --dangerously-bypass-approvals-and-sandbox \
+    --skip-git-repo-check -C "$dir"
   printf '%s\n' -m "$model" -c "model_reasoning_effort=\"$effort\""
   printf '%s\n' -
 }
 
 cs_main() {
   local dir="$PWD" model="$CS_DEFAULT_MODEL" effort="$CS_DEFAULT_EFFORT"
-  local sandbox="$CS_DEFAULT_SANDBOX"
   local timeout_secs="$CS_DEFAULT_TIMEOUT" prompt_file="" out="" print_cmd=0
   local prompt=""
 
@@ -89,7 +80,6 @@ cs_main() {
       -C|--dir)        dir="$2"; shift 2 ;;
       -m|--model)      model="$2"; shift 2 ;;
       -e|--effort)     effort="$2"; shift 2 ;;
-      -s|--sandbox)    sandbox="$2"; shift 2 ;;
       -t|--timeout)    timeout_secs="$2"; shift 2 ;;
       -f|--prompt-file) prompt_file="$2"; shift 2 ;;
       -o|--out)        out="$2"; shift 2 ;;
@@ -102,7 +92,7 @@ cs_main() {
   done
 
   if [ "$print_cmd" -eq 1 ]; then
-    cs_build_cmd "$dir" "$model" "$effort" "$sandbox"
+    cs_build_cmd "$dir" "$model" "$effort"
     return 0
   fi
 
@@ -140,12 +130,10 @@ cs_main() {
   # Build argv from cs_build_cmd, then run under a hard timeout. -k 10 sends
   # SIGKILL 10s after SIGTERM if codex ignores the term.
   local -a cmd=()
-  while IFS= read -r arg; do cmd+=("$arg"); done < <(cs_build_cmd "$dir" "$model" "$effort" "$sandbox")
+  while IFS= read -r arg; do cmd+=("$arg"); done < <(cs_build_cmd "$dir" "$model" "$effort")
 
-  # Keep stdout (codex's streamed content — diffs, file dumps, the answer) and stderr
-  # (codex's OWN diagnostics) in SEPARATE files. bwrap detection must scan stderr only:
-  # stdout legitimately echoes file/diff content that can contain the bwrap error string
-  # verbatim (e.g. reviewing this very repo), which would false-positive a combined scan.
+  # Keep stdout (codex's streamed content — diffs, file dumps, the answer) and
+  # stderr (codex's own diagnostics) in separate files for inspection.
   set +e
   printf '%s' "$prompt" | timeout -k 10 "$timeout_secs" \
     "${cmd[@]}" -o "$final" >"$log" 2>"$errlog"
@@ -164,21 +152,6 @@ codex-run: TIMEOUT after ${timeout_secs}s (exit $rc). codex was killed mid-task.
   Full log: $log (stderr: $errlog)
 EOF
     return "$rc"
-  fi
-
-  # bwrap sandbox failure => codex couldn't touch the FS; reviews come back empty.
-  # Scan codex's OWN stderr only, and only treat it as fatal when the run actually
-  # failed or produced no answer — so a stray "bwrap:" mention in a successful run's
-  # output never aborts a good result.
-  if cs_detect_bwrap "$errlog" && { [ "$rc" -ne 0 ] || [ ! -s "$final" ]; }; then
-    cat >&2 <<EOF
-codex-run: codex's bwrap sandbox failed to initialize (containerized environment).
-  In this state codex cannot read or write repo files. Re-run with:
-    -s danger-full-access
-  (current sandbox: $sandbox). Do NOT use --dangerously-bypass-approvals-and-sandbox:
-  Claude Code's permission classifier blocks it. Full log: $log (stderr: $errlog)
-EOF
-    return 1
   fi
 
   # Prefer codex's clean final message; fall back to tail-parsing the stream.

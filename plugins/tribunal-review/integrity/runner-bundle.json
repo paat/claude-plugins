@@ -22,7 +22,7 @@
     },
     {
       "path": "scripts/run-codex-review.sh",
-      "sha256": "0cd54f79668b32908bd5d37d87d233280c18f6df45188150a7bc3f2cf81b300e"
+      "sha256": "c5772b3e290fe9f03d650d72c01155a4e0d175441264ddf229e0f195ae7832f8"
     },
     {
       "path": "scripts/run-gemini-review.sh",
@@ -39,5 +39,5 @@
   ],
   "plugin": "tribunal-review",
   "schema": "tribunal-runner-bundle/v1",
-  "version": "0.19.8"
+  "version": "0.19.9"
 }

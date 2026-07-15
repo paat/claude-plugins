@@ -1,6 +1,7 @@
 {
   "timezone": "Europe/Tallinn",
   "docker_cmd": "sudo docker",
+  "docker_exec_user": "dev",
   "notify_env": "MC_NTFY_URL",
   "digest_hour": 7,
   "retention_days": 14,
@@ -12,7 +13,7 @@
     },
     "codex": {
       "pool": "codex",
-      "cmd": "codex exec --ephemeral --dangerously-bypass-approvals-and-sandbox '{prompt}'"
+      "cmd": "codex exec --dangerously-bypass-approvals-and-sandbox '{prompt}'"
     }
   },
   "pools": {
@@ -32,7 +33,6 @@
       "engine": "codex",
       "command": "$saas-startup-team:maintain-loop --once",
       "hold": false,
-      "delivery_hold": true,
       "incident_labels": ["incident", "production", "critical"]
     },
     {
@@ -43,7 +43,6 @@
       "engine": "codex",
       "command": "$saas-startup-team:maintain-loop --once",
       "hold": false,
-      "delivery_hold": true,
       "bus_path": "/workspace/bus"
     },
     {

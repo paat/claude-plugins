@@ -910,7 +910,7 @@ Claude-Session: https://claude.ai/code/session_01HmGZ9uHqBKwbjo6BPYcJZw"
 - [ ] Run the full plugin suite from repo root: `bash plugins/saas-startup-team/tests/run-tests.sh` → `All tests passed!`
 - [ ] Manual smoke: in a throwaway temp git repo with `CLAUDE_PLUGIN_ROOT` pointed at the plugin, extract and run the Step 6.5 block; confirm `.github/workflows/ci.yml`, executable `check.sh`, and the `[HUMAN]` task appear; run `./check.sh` and confirm it fails vacuously with "no suites ran"; wire one suite and confirm it passes.
 - [ ] Confirm versions synced in both manifests (`0.42.0`).
-- [ ] Codex review of the final diff (`git diff main...HEAD` piped to `codex exec -`).
+- [ ] Codex review of the final diff (`git diff main...HEAD` piped to `codex exec --dangerously-bypass-approvals-and-sandbox -`).
 - [ ] Open the PR with `Closes #63` and a `## Regression test` section listing the new W/X/Y suites.
 
 ## Notes on residual limitations (carried from the spec)

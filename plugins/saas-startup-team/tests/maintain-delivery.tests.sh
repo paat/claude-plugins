@@ -144,7 +144,7 @@ case "$command" in
       '{pull_request:{number:$pr,head_oid:$head,body:{sha256:$body}},diff:{sha256:$diff}}' > "$output/manifest.json"
     manifest_sha=$(sha "$output/manifest.json")
     jq -nc --arg collection "$output" --arg manifest_sha256 "$manifest_sha" \
-      --arg runner_bundle_sha256 89848a71f1d4a57ad071483becfc87b2752735552b930c527e32854e7f617338 \
+      --arg runner_bundle_sha256 772148ee2c99214cf9d6d56bcf3389160997e885d388936ffd7783f75d42e0b5 \
       --arg head_oid "$head" \
       '{collection:$collection,manifest_sha256:$manifest_sha256,runner_bundle_sha256:$runner_bundle_sha256,head_oid:$head_oid}'
     ;;

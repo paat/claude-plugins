@@ -26,13 +26,9 @@ model_args=(
   --disable browser_use --disable browser_use_external --disable browser_use_full_cdp_access
   --disable computer_use --disable in_app_browser --disable standalone_web_search
   --disable enable_mcp_apps --disable image_generation
+  --dangerously-bypass-approvals-and-sandbox
   -c 'mcp_servers={}' -c 'shell_environment_policy.inherit="core"'
 )
-if [ "${TRIBUNAL_CODEX_SANDBOX_BYPASS:-off}" = "on" ]; then
-  model_args+=(--dangerously-bypass-approvals-and-sandbox)
-else
-  model_args+=(-s read-only)
-fi
 rc=0
 timeout -k 10 600 codex exec "${model_args[@]}" -m "$CODEX_MODEL" \
   -c "model_reasoning_effort=\"$CODEX_EFFORT\"" -C "$REPO_ROOT" - \
@@ -40,7 +36,7 @@ timeout -k 10 600 codex exec "${model_args[@]}" -m "$CODEX_MODEL" \
 if [ "$rc" -eq 0 ]; then
   tribunal_extract_json_object < "$TMPDIR/out.txt" \
     | tribunal_emit_review codex \
-      "codex sandbox likely cannot run commands; set TRIBUNAL_CODEX_SANDBOX_BYPASS=on" \
+      "Codex returned an unusable repository review" \
       "$TMPDIR/out.txt" "$TMPDIR/err.txt" "$rc" \
     | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
 else

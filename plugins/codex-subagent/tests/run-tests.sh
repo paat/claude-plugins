@@ -8,6 +8,7 @@ IMPLEMENT_COMMAND="$HERE/../commands/codex-implement.md"
 REVIEW_COMMAND="$HERE/../commands/codex-review.md"
 REVIEW_AGENT="$HERE/../agents/codex-reviewer.md"
 CONTROLLER_SKILL="$HERE/../skills/codex-subagent-driven-development/SKILL.md"
+README="$HERE/../README.md"
 fail=0
 
 check() { # check <name> <expected> <actual>
@@ -22,13 +23,16 @@ contains() { # contains <name> <needle> <haystack>
 # --- Dispatch / arg handling (executed, not sourced) ---
 help="$("$SCRIPT" --help)";                   check "help exits 0" 0 "$?"
 contains "help documents effort" "--effort LEVEL" "$help"
+check "help omits sandbox selector" 0 "$(printf '%s\n' "$help" | grep -c -- '--sandbox')"
 check "help hides implementation" 0 "$(printf '%s\n' "$help" | grep -c 'set -euo pipefail')"
 "$SCRIPT" --bogus </dev/null >/dev/null 2>&1; check "unknown option exits 2" 2 "$?"
+"$SCRIPT" --sandbox danger-full-access </dev/null >/dev/null 2>&1; check "sandbox override exits 2" 2 "$?"
 "$SCRIPT" "" </dev/null >/dev/null 2>&1;      check "empty prompt exits 2" 2 "$?"
 
 # --- cs_build_cmd via --print-cmd ---
-cmd="$("$SCRIPT" --print-cmd -C /repo -m gpt-5.6-terra -e medium -s danger-full-access)"
-contains "print-cmd has danger-full-access" "danger-full-access" "$cmd"
+cmd="$("$SCRIPT" --print-cmd -C /repo -m gpt-5.6-terra -e medium)"
+contains "print-cmd has exact bypass" "--dangerously-bypass-approvals-and-sandbox" "$cmd"
+check "print-cmd has no sandbox selector" 0 "$(printf '%s\n' "$cmd" | grep -cx -- '-s')"
 contains "print-cmd has skip-git-repo-check" "--skip-git-repo-check" "$cmd"
 contains "print-cmd has -C dir"              "/repo"               "$cmd"
 contains "print-cmd has model"               "gpt-5.6-terra"       "$cmd"
@@ -48,6 +52,7 @@ implement_contract="$(<"$IMPLEMENT_COMMAND")"
 review_contract="$(<"$REVIEW_COMMAND")"
 review_agent_contract="$(<"$REVIEW_AGENT")"
 controller_contract="$(<"$CONTROLLER_SKILL")"
+readme_contract="$(<"$README")"
 contains "implement defaults routine work to medium" 'else `medium`' "$implement_contract"
 contains "implement quarantines adjacent issues" 'do not investigate or fix them' "$implement_contract"
 contains "implement stops after commit and report" 'complete the required commit and report, then stop' "$implement_contract"
@@ -58,6 +63,10 @@ contains "review accepts build and contract evidence" 'failing build/test' "$rev
 contains "review does not audit the tree" 'do not audit the tree' "$review_contract"
 contains "standalone reviewer pins medium" '--effort medium' "$review_agent_contract"
 contains "standalone reviewer uses the evidence gate" 'failing build/test' "$review_agent_contract"
+contains "review keeps semantic read-only contract" 'do NOT modify, stage, or commit anything' "$review_contract"
+contains "reviewer keeps semantic read-only contract" 'do NOT modify, stage, or commit anything' "$review_agent_contract"
+contains "controller fixes unrestricted posture" 'execution posture is not configurable' "$controller_contract"
+contains "README names container boundary" 'development container is the security boundary' "$readme_contract"
 
 # --- Source for pure-function unit tests ---
 source "$SCRIPT"
@@ -69,14 +78,6 @@ check "extract after last marker" "$(printf 'FINAL LINE A\nFINAL LINE B')" "$out
 # No marker => passthrough unchanged.
 out="$(printf 'just an answer\nno marker here\n' | cs_extract_final_answer)"
 check "extract passthrough when no marker" "$(printf 'just an answer\nno marker here')" "$out"
-
-# cs_detect_bwrap
-tmp="$(mktemp)"
-printf 'bwrap: Failed to make / slave: Permission denied\n' > "$tmp"
-cs_detect_bwrap "$tmp"; check "detect bwrap perm-denied" 0 "$?"
-printf 'all good, no sandbox issue\n' > "$tmp"
-cs_detect_bwrap "$tmp"; check "no bwrap => nonzero" 1 "$?"
-rm -f "$tmp"
 
 # --- Integration: stub codex on PATH ---
 stubdir="$(mktemp -d)"
@@ -103,29 +104,15 @@ STUB
 got="$(run -C /tmp "x" 2>/dev/null)"
 check "fallback tail-parses stream" "TAIL PARSED ANSWER" "$got"
 
-# (c) bwrap failure: stub prints the bwrap error and exits nonzero.
+# (c) Subprocess failure propagates without a sandbox retry path.
 make_stub <<'STUB'
 #!/usr/bin/env bash
-echo "bwrap: Failed to make / slave: Permission denied" >&2
+echo "provider unavailable" >&2
 exit 1
 STUB
 err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
-check "bwrap path returns 1" 1 "$rc"
-contains "bwrap remedy mentions danger-full-access" "-s danger-full-access" "$err"
-
-# (c2) REGRESSION: bwrap string in stdout CONTENT of a SUCCESSFUL run must NOT abort.
-# (codex reviewing this very repo echoes docs containing the bwrap error string.)
-make_stub <<'STUB'
-#!/usr/bin/env bash
-ofile=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && ofile="$2"; shift; done
-echo "reviewing... the file says: bwrap: Failed to make / slave: Permission denied"
-echo "tokens used: 42"
-[ -n "$ofile" ] && printf 'REVIEW: APPROVE\n' > "$ofile"
-exit 0
-STUB
-got="$(run -C /tmp "x" 2>/dev/null)"; rc=$?
-check "bwrap-in-stdout-content not flagged (exit 0)" 0 "$rc"
-check "successful review survives stray bwrap string" "REVIEW: APPROVE" "$got"
+check "subprocess failure returns 1" 1 "$rc"
+contains "failure footer records exit" "codex-run: exit 1" "$err"
 
 # (d) Timeout: stub sleeps; tiny --timeout forces a kill (exit 124/143).
 make_stub <<'STUB'

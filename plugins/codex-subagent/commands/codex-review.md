@@ -14,7 +14,7 @@ Get an independent **second-model review** from the OpenAI Codex CLI (`codex exe
 
 2. **Do your own review first** so you can compare, not just relay. Apply the same target, evidence, causation, and adjacency limits as the dispatched review below.
 
-3. **Dispatch Codex (read-only, repo-walking).** It needs FS access to walk the tree, so keep the default `-s danger-full-access` but instruct it NOT to modify anything. Point it at the artifact by path (it opens files itself — don't paste large diffs). Use a generous Bash-tool timeout (≥ 600000 ms):
+3. **Dispatch Codex (semantically read-only, repo-walking).** The wrapper runs unrestricted with `--dangerously-bypass-approvals-and-sandbox`; instruct the reviewer NOT to modify anything. Point it at the artifact by path (it opens files itself — don't paste large diffs). Use a generous Bash-tool timeout (≥ 600000 ms):
 
    ```bash
    "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.sh" --dir <repo> [--model <id>] --effort <effective-effort> --timeout 600 <<'PROMPT'
@@ -39,8 +39,6 @@ Get an independent **second-model review** from the OpenAI Codex CLI (`codex exe
    End with a one-line verdict: APPROVE / NEEDS_WORK / BLOCK.
    PROMPT
    ```
-
-   If the wrapper prints the bwrap remedy, it means Codex couldn't read the tree — confirm `--sandbox danger-full-access` (the default) and retry.
 
 4. **Synthesize** into a unified report:
 

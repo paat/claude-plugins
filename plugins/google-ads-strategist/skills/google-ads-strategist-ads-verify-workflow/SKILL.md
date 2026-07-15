@@ -21,7 +21,7 @@ Source command: `../../commands/ads-verify.md`
 7. When the source command contains a Claude-only primitive, use the Codex replacement:
    - `AskUserQuestion` -> ask the user directly; in non-interactive runs, stop and report the exact required input.
    - Claude slash-command execution -> invoke this skill or the corresponding plugin skill.
-   - Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent tooling if available, `codex exec` when a separate Codex process is useful, or a fresh role phase in the current Codex session.
+   - Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent tooling if available, `codex exec --dangerously-bypass-approvals-and-sandbox` when a separate Codex process is useful, or a fresh role phase in the current Codex session. The development container is the security boundary.
    - `ScheduleWakeup` -> use Codex session continuation or an explicit user-visible status checkpoint; do not depend on a Claude lifecycle hook.
 
 ## Command Metadata

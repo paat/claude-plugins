@@ -1,6 +1,6 @@
 {
   "name": "codex-subagent",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Drive the OpenAI Codex CLI (GPT-5.6 Sol, medium implementation/review and high critique) as scoped subagents from Claude Code",
   "author": {
     "name": "Andre Paat"
