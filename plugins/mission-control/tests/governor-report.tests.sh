@@ -64,6 +64,30 @@ three_strikes() {
 }
 t "three strikes set 24h cooldown" three_strikes
 
+mkenv; : > "$TD/hold.log"
+deferred_no_strike() {
+  run "$NOW" state_set '.projects.p1.consecutive_errors = 2' >/dev/null
+  [ "$(run "$NOW" governor_report e p1 75 "$TD/hold.log" true)" = deferred ] &&
+  [ "$(run "$NOW" state_get ".projects.p1.consecutive_errors")" = 2 ] &&
+  [ "$(run "$NOW" state_get ".projects.p1.cooldown_until // 0")" = 0 ]
+}
+t "delivery hold contention is deferred without a failure strike" deferred_no_strike
+
+mkenv; : > "$TD/hold.log"
+config_error_is_actionable() {
+  [ "$(run "$NOW" governor_report e p1 78 "$TD/hold.log" true)" = config-error ] &&
+  [ "$(run "$NOW" state_get ".projects.p1.consecutive_errors")" = 1 ] &&
+  grep -q 'delivery hold launcher rejected the container configuration' "$TD/state/mission-control.log"
+}
+t "invalid delivery hold configuration is reported and alerted" config_error_is_actionable
+
+mkenv; : > "$TD/hold.log"
+hold_codes_without_opt_in_are_errors() {
+  [ "$(run "$NOW" governor_report e p1 75 "$TD/hold.log")" = error ] &&
+  [ "$(run "$NOW" state_get ".projects.p1.consecutive_errors")" = 1 ]
+}
+t "launcher exit codes retain normal meaning without the opt-in" hold_codes_without_opt_in_are_errors
+
 # --- MC-BLOCKED terminal state (#243) ---
 mkenv; echo "MC-BLOCKED recheck_after=90 reason=CI runner offline until soak ends" > "$TD/blk.log"
 blocked_outcome() {

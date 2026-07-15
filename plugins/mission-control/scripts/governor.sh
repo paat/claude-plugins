@@ -73,15 +73,18 @@ _gov_backoff() { # <pool> <log_path> — set backoff_until (parsed reset or expo
   alert "backoff-$pool" "pool $pool rate-limited; backing off until $(date -d "@$until_e" +%FT%T 2>/dev/null || echo "$until_e")"
 }
 
-governor_report() { # <engine> <project> <exit_code> <log_path>
-  local engine="$1" name="$2" rc="$3" logf="$4" pool patterns extra outcome errs blk
+governor_report() { # <engine> <project> <exit_code> <log_path> [delivery_hold]
+  local engine="$1" name="$2" rc="$3" logf="$4" delivery_hold="${5:-}" pool patterns extra outcome errs blk
+  [ -n "$delivery_hold" ] || delivery_hold="$(pj "$name" '.delivery_hold // false')"
   pool="$(cfg ".engines[\"$engine\"].pool // \"unknown\"")"
   patterns="$RL_BUILTIN"
   extra="$(cfg "(.engines[\"$engine\"].rate_limit_patterns // []) | join(\"|\")")"
   [ -z "$extra" ] || patterns="$patterns|$extra"
   # Line-anchored: prose merely mentioning the sentinel must not classify.
   blk="$(grep -oE '^MC-BLOCKED([[:space:]].*)?$' "$logf" 2>/dev/null | tail -1 || true)"
-  if grep -qiE "$patterns" "$logf" 2>/dev/null; then
+  if [ "$delivery_hold" = true ] && [ "$rc" -eq 75 ]; then outcome="deferred"
+  elif [ "$delivery_hold" = true ] && [ "$rc" -eq 78 ]; then outcome="config-error"
+  elif grep -qiE "$patterns" "$logf" 2>/dev/null; then
     outcome="rate-limit"                       # wins even over exit 0
     _gov_backoff "$pool" "$logf"
   elif [ -n "$blk" ]; then outcome="blocked"   # declared terminal state, any rc
@@ -110,7 +113,12 @@ governor_report() { # <engine> <project> <exit_code> <log_path>
                  | .projects[$n].blocked_reason = $r' \
         --arg n "$name" --arg u "$(( $(now) + mins * 60 ))" --arg r "$reason"
       log "blocked project=$name recheck_in=${mins}m reason=$reason" ;;
-    timeout|error)
+    deferred)
+      log "deferred project=$name delivery hold busy" ;;
+    config-error|timeout|error)
+      if [ "$outcome" = config-error ]; then
+        alert "delivery-config-$name" "$name: delivery hold launcher rejected the container configuration (exit 78)"
+      fi
       state_set '.projects[$n].consecutive_errors = ((.projects[$n].consecutive_errors // 0) + 1)' --arg n "$name"
       errs="$(state_get ".projects[\"$name\"].consecutive_errors // 0")"
       if [ "$errs" -ge 3 ]; then

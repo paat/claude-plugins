@@ -17,7 +17,7 @@ if [ "${MC_LIB_ONLY:-0}" != 1 ]; then
     case "$1" in
       --config)    MC_CONFIG="${2:?--config needs a value}"; shift 2 ;;
       --dry-run)   DRY_RUN=1; shift ;;
-      --slot|--project|--engine|--container|--repo-path|--envelope|--base|--cmd)
+      --slot|--project|--engine|--container|--repo-path|--envelope|--base|--cmd|--delivery-hold)
                    WRAP[${1#--}]="${2:?$1 needs a value}"; shift 2 ;;
       *) usage ;;
     esac
@@ -298,16 +298,17 @@ pick_slot_b() {
 # ---------- dispatch ----------
 dispatch() { # <slot> <name> — reserve, take slot lock on an FD, spawn wrapper
   local slot="$1" name="$2"
-  local engine container rp command tmpl rendered env_min base lfd
+  local engine container rp command tmpl rendered delivery_hold env_min base lfd
   engine="$(pj "$name" '.engine')"
   container="$(pj "$name" '.container')"
   rp="$(pj "$name" '.repo_path')"
   command="$(pj "$name" '.command')"
   tmpl="$(cfg ".engines[\"$engine\"].cmd")"
   rendered="${tmpl//\{prompt\}/$command}"
+  delivery_hold="$(pj "$name" '.delivery_hold // false')"
   env_min="$(governor_envelope "$engine" "$name")"
   if [ "$DRY_RUN" = 1 ]; then
-    log "DRY: would dispatch slot=$slot project=$name engine=$engine envelope=${env_min}m cmd: $rendered"
+    log "DRY: would dispatch slot=$slot project=$name engine=$engine delivery_hold=$delivery_hold envelope=${env_min}m cmd: $rendered"
     return 0
   fi
   exec {lfd}>>"$MC_STATE_DIR/slot-$slot.lock"
@@ -324,7 +325,7 @@ dispatch() { # <slot> <name> — reserve, take slot lock on an FD, spawn wrapper
   # fd 8 (tick.lock) must NOT leak into it, or a long pass blocks every tick.
   setsid bash "$0" wrapper --config "$MC_CONFIG" --slot "$slot" --project "$name" \
     --engine "$engine" --container "$container" --repo-path "$rp" \
-    --envelope "$env_min" --base "$base" --cmd "$rendered" \
+    --envelope "$env_min" --base "$base" --cmd "$rendered" --delivery-hold "$delivery_hold" \
     >>"$base.log" 2>&1 8>&- &
   exec {lfd}>&-   # parent's copy closed; child's inherited copy keeps the lock
   return 0
@@ -372,6 +373,10 @@ cmd_arm() {
   if [ -n "$bad" ]; then echo "mission-control: unknown engine on project(s): $bad" >&2; exit 2; fi
   bad="$(jq -r '.projects[].name | select(test("^[A-Za-z0-9_-]+$") | not)' "$MC_CONFIG")"
   if [ -n "$bad" ]; then echo "mission-control: project names must match ^[A-Za-z0-9_-]+$: $bad" >&2; exit 2; fi
+  bad="$(jq -r '.projects[] | select(has("delivery_hold") and (.delivery_hold | type) != "boolean") | .name' "$MC_CONFIG")"
+  if [ -n "$bad" ]; then echo "mission-control: delivery_hold must be boolean on project(s): $bad" >&2; exit 2; fi
+  bad="$(jq -r '.projects[] | select((.delivery_hold // false) and .container == "local") | .name' "$MC_CONFIG")"
+  if [ -n "$bad" ]; then echo "mission-control: delivery_hold requires a container on project(s): $bad" >&2; exit 2; fi
   bad="$(jq -r '[ (.admission.wip_cap // 1), (.admission.veto_hours // 72),
                   (.admission.confidence_min // 0.7), (.digest_hour // 7), (.retention_days // 14),
                   (.pools[]?.daily_pass_quota // 0),
@@ -426,17 +431,21 @@ cmd_wrapper() {
   local slot="${WRAP[slot]}" name="${WRAP[project]}" engine="${WRAP[engine]}"
   local container="${WRAP[container]}" rp="${WRAP[repo-path]}"
   local envelope="${WRAP[envelope]}" base="${WRAP[base]}" rendered="${WRAP[cmd]}"
-  local started rc outcome
+  local delivery_hold="${WRAP[delivery-hold]:-false}" started rc outcome
   started="$(now)"
   set +e
   if [ "$container" = "local" ]; then
     bash -c "cd $(printf %q "$rp") && timeout ${envelope}m $rendered"
+  elif [ "$delivery_hold" = true ]; then
+    $DOCKER_CMD exec $DOCKER_USER_OPT "$container" bash -c \
+      'cd "$1" && shift && exec "$@"' _ "$rp" \
+      /paat-reconcile/with-delivery-hold.sh timeout "${envelope}m" bash -c "$rendered"
   else
     $DOCKER_CMD exec $DOCKER_USER_OPT "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m $rendered"
   fi
   rc=$?
   set -e
-  outcome="$(governor_report "$engine" "$name" "$rc" "$base.log")"
+  outcome="$(governor_report "$engine" "$name" "$rc" "$base.log" "$delivery_hold")"
   jq -n --arg slot "$slot" --arg p "$name" --arg e "$engine" \
         --arg s "$started" --arg t "$(now)" --arg rc "$rc" --arg o "$outcome" \
         '{slot:$slot, project:$p, engine:$e, started_at:($s|tonumber),

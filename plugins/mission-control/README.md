@@ -39,6 +39,14 @@ Copy `examples/portfolio.example.json` to a host path of your choice (e.g.
 and never committed to this repo. Schema: see the design spec table. State
 lives in a sibling `state/` directory (override with `state_dir`).
 
+For a reconciled dev container, set `delivery_hold: true` on its project.
+Mission Control then runs the complete engine command through
+`/paat-reconcile/with-delivery-hold.sh`. Launcher exit 75 is `deferred` with
+no failure strike; exit 78 is an alerted `config-error`. This opt-in is
+separate from `hold`, which vetoes scheduling entirely. Container engine
+templates must use their unrestricted mode because the dev container is the
+security boundary, as shown in the example Codex and Claude commands.
+
 ## Engine routing
 
 Stated once, here: Codex is the default `engine` for every product entry;
