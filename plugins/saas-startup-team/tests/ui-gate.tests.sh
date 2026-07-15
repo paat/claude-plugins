@@ -68,6 +68,14 @@ test_ui_gate() {
     'combine partial sessions'
   assert_file_contains "UG12d: maintenance browser failure stays issue-local" "$leg" \
     'continue independent work'
+  assert_file_contains "UG12e: baseline audit uses fetched default SHA" "$leg" \
+    'baseline audit use the fetched default-branch SHA'
+  assert_file_contains "UG12f: unproven shared dev is not pre-merge evidence" "$leg" \
+    'shared dev URL is not pre-merge evidence'
+  assert_file_contains "UG12g: post-deploy evidence uses public URL" "$leg" \
+    'deployed public URL'
+  assert_file_contains "UG12h: baseline and candidate preserve caller workspace" "$leg" \
+    'never switch or'
 
   # merge-policy names the classifier
   assert_file_contains "UG13: merge-policy names ui-touch.sh" "$policy" "scripts/ui-touch.sh"

@@ -873,6 +873,16 @@ test_cross_file_consistency() {
     "$PLUGIN_ROOT/commands/lawyer.md" '.active_role = "lawyer"'
   assert_file_contains "H14: /ux-test resets active_role" \
     "$PLUGIN_ROOT/commands/ux-test.md" '.active_role = "ux-tester"'
+  assert_file_contains "H14a: /ux-test repairs in-scope runtime failures" \
+    "$PLUGIN_ROOT/commands/ux-test.md" 'attempt only reversible runtime'
+  assert_file_contains "H14b: /ux-test can audit exact revisions locally" \
+    "$PLUGIN_ROOT/commands/ux-test.md" 'skills/ux-tester/references/design-review-leg.md'
+  assert_file_contains "H14c: local UX evidence does not claim live proof" \
+    "$PLUGIN_ROOT/commands/ux-test.md" 'Post-deploy visual smoke'
+  assert_file_contains "H14d: direct UX repair cannot mutate tracked source" \
+    "$PLUGIN_ROOT/commands/ux-test.md" 'does not modify tracked product source'
+  assert_file_contains "H14e: direct UX baseline preserves the caller checkout" \
+    "$PLUGIN_ROOT/skills/ux-tester/references/design-review-leg.md" 'never switch or'
   assert_file_contains "H15: /growth state update sets active_role" \
     "$PLUGIN_ROOT/commands/growth.md" '"active_role": "business-founder"'
 
@@ -1864,6 +1874,29 @@ test_maintain_loop() {
     'unknown-terminal child is never reaped'
   assert_file_contains "ML16f: dry-run mints and reaps no lease" "$command" \
     'Under `--dry-run`, never mint or reap a lease'
+
+  assert_file_contains "ML16g: issue blockers require durable cooldown" "$command" \
+    'records terminal state and cooldown'
+  assert_file_contains "ML16h: issue blockers return to the probe" "$command" \
+    'Otherwise return to step 1'
+  assert_file_contains "ML16i: pass-wide or unknown blockers stop" "$command" \
+    'or unknown scope'
+  assert_file_contains "ML16j: per-pass limits continue the loop" "$command" \
+    'Return `pass-complete` after success or a'
+  assert_file_contains "ML16k: unavailable issue targets are diagnostics" \
+    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
+    'unavailable issue-specific dev or test target first as a diagnostic'
+  assert_file_contains "ML16l: browser evidence loads the canonical procedure" \
+    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
+    'skills/ux-tester/references/design-review-leg.md'
+  assert_file_contains "ML16m: resumable blocker preserves PR claim" "$command" \
+    'with one, retain it'
+  assert_file_contains "ML16n: protocol retains resumable PR ownership" \
+    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
+    'keep the PR and `maintain:claimed` intact'
+  assert_file_contains "ML16o: ambiguous linked PR blocks the pass" \
+    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
+    'identity is `pass-blocked`, not `issue-blocked`'
 
   assert_file_exists "ML17: concise Codex skill exists" "$codex_cmd"
   assert_file_contains "ML18: Codex skill aliases command" "$codex_cmd" "/maintain-loop"

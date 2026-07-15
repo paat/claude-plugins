@@ -10,7 +10,12 @@ HTTP timeouts.
 
 Trigger: `scripts/ui-touch.sh` classifies the branch diff as `ui`.
 
-1. From the tech-founder handoff, list the affected pages and open each at the
+1. Serve the exact checkout under test with the project's documented local command.
+   For a baseline audit use the fetched default-branch SHA; after implementation use
+   candidate HEAD. Use separate clean temporary worktrees and ports, never switch or
+   reset the caller's checkout, verify each served commit, and clean up both servers
+   and worktrees. A shared dev URL is not pre-merge evidence unless its served commit is
+   proven. From the tech-founder handoff, list the affected pages and open each at the
    localhost URL.
 2. Capture 375px + 1280px screenshots per affected page (× each locale).
 3. Score each against the severity matrix on:
@@ -37,6 +42,8 @@ A closed, pending, missing, or otherwise unavailable browser transport is `tool-
 Preserve the current commit and PR. The
 caller may retry the leg exactly once in a fresh browser session using an already
 installed MCP, CLI, or project runner; never install dependencies during recovery.
+Wait until the failed agent/session is terminal before retrying, and never overlap
+repository mutation between attempts.
 
 Discard every partial capture from the failed session and repeat the complete page,
 viewport, locale, console, and interaction matrix from scratch. If the fresh session
@@ -52,7 +59,7 @@ Trigger: deploy is green AND `scripts/ui-touch.sh --range <pre-pass
 SHA>..HEAD` over the pass's merged range prints `ui` (re-run it — do not rely
 on remembered per-PR classifications).
 
-1. Visit the live URL (`SAAS_LIVE_URL`, else the architecture-doc config) key
+1. Visit the deployed public URL (`SAAS_LIVE_URL`, else the architecture-doc config) key
    pages (project smoke list from config/docs; fallback: landing page + app
    entry).
 2. Capture 375px + 1280px screenshots (× each locale).

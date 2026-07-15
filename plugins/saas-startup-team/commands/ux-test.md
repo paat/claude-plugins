@@ -10,9 +10,10 @@ The human investor requests a UX audit of the product. You spawn the UX Tester a
 
 **The UX Tester is a one-shot consultant, NOT a loop participant.** It spawns, does its audit, writes to `docs/ux/ux-*.md`, and exits.
 
-## Pre-Flight Checks (HARD FAIL — No Fallbacks)
+## Pre-Flight Checks
 
-Before spawning the UX Tester agent, ALL of the following must pass. If any check fails, stop with an error message and do NOT proceed.
+Before spawning the UX Tester agent, all checks must pass. Diagnose and repair an
+in-scope failed check before stopping.
 
 ### Check 1: Dev server is reachable
 
@@ -22,10 +23,25 @@ The URL comes from command arguments. If no URL provided, try to find it from `d
 curl --max-time 10 -s -o /dev/null -w "%{http_code}" <URL>
 ```
 
-**Must return:** `200` (or `301`/`302` redirect)
+**Must return:** `200` (or `301`/`302` redirect) from the requested target or the
+local replacement below.
 
 **If unreachable:**
-> **Error:** Dev server is not reachable at `<URL>`. Start the dev server before running /ux-test. If the URL is wrong, pass the correct one: `/ux-test http://localhost:PORT`
+
+1. Diagnose the failed service or route.
+2. If the repository or dev container owns the cause, attempt only reversible runtime
+   recovery that does not modify tracked product source: use its documented setup and
+   start/restart commands once, then inspect bounded startup logs and retry.
+3. Follow `skills/ux-tester/references/design-review-leg.md` §Pre-merge design-review
+   leg for exact-checkout baseline/candidate localhost serving and cleanup.
+4. If reaching the route requires a tracked-source change, record it as an audit finding.
+   Only a parent delivery workflow may route that fix through implementation, regression
+   tests, review, and delivery gates. Do not invent repair commands.
+5. For live evidence, follow the same reference's §Post-deploy visual smoke; local
+   audit evidence never substitutes for it.
+
+Stop only when neither target can be made reachable without external authority, and
+report the concrete dependency that must change.
 
 ### Check 2: Startup project exists
 

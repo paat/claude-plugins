@@ -592,6 +592,23 @@ passes.
 
 - **Recurrence-class closure is mandatory.** Before implementation, identify the
   root cause / recurrence class and fix the class, not only the observed instance.
+- Treat an unavailable issue-specific dev or test target first as a diagnostic, not
+  immediately as a blocker.
+  When its cause is repository- or container-owned, use only the project's documented
+  setup and start/restart commands for one repair attempt, probe its documented health
+  endpoint or target route, inspect bounded startup logs, fix the cause, and retry; do
+  not invent commands.
+- For browser audits and pre-merge QA, follow
+  `skills/ux-tester/references/design-review-leg.md` §Pre-merge design-review leg and
+  §Browser transport recovery. Local evidence never substitutes for post-deploy live
+  verification; an unresolved post-merge live failure is pass-wide.
+- Only after evidence shows that a pre-merge remedy needs external authority may the
+  supervisor record the terminal triage/digest state, write the active cooldown, and
+  return `issue-blocked`. If no open linked PR exists, remove `maintain:claimed`. If
+  exactly one valid resumable PR exists, keep the PR and `maintain:claimed` intact so
+  it re-enters `.resumable` after cooldown. Ambiguous, multiple, or mismatched linked
+  PR identity is `pass-blocked`, not `issue-blocked`. Continue the remaining eligible
+  queue; an issue-local blocker must not become the pass status.
 - For bug, monitor, customer, accounting, replay, and incident-class issues, add a
   locking regression test, durable contract test, monitor assertion, invariant/golden
   fixture, or equivalent mechanical guard that would fail on the old behavior.
