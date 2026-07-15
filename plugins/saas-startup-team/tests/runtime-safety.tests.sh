@@ -11,7 +11,7 @@ test_runtime_safety() {
   local linked git_dir common_dir raw_commondir guard_snapshot guard_auth real_jq path check_log
   local guard_head guard_ref guard_index concurrent_head tree main_next
   local check_pid check_signal check_release check_output check_status
-  local supervisor_bwrap_dir limit_log_dir limit_log limit_bytes marker victim_dir started elapsed
+  local supervisor_bwrap_dir limit_log_dir limit_log limit_bytes marker victim_dir started elapsed codex_calls
   local hanging_pid_file hanging_pid leaked_check
   local system_git failed_snapshot array_snapshot check_receipt commit_receipt
   local -a large_allow_args
@@ -2433,6 +2433,8 @@ SH
   script="$PLUGIN_ROOT/scripts/workflow-probe.sh"
   assert_file_not_contains "RS36: probe never launches Claude" "$script" 'claude -p'
   assert_file_not_contains "RS37: probe never launches Codex" "$script" 'codex exec'
+  assert_file_not_contains "RS37a: probe never invokes the restricted writer smoke" \
+    "$script" 'codex-sandbox-check.sh'
   workdir=$(make_workdir); mkdir -p "$workdir/bin"
   cat > "$workdir/bin/gh" <<'SH'
 #!/usr/bin/env bash
@@ -2546,9 +2548,10 @@ SH
   unset SAAS_SUPERVISOR_CHECK_DRIVER
   rm -rf "$workdir"
 
-  # Codex writer-sandbox gate: an unchanged hard host block must not launch a
-  # doomed model tick (#249). Fixture: userns_clone=1 plus bwrap/unshare EPERM.
+  # Codex-native maintenance inherits the unrestricted parent policy. The probe
+  # checks CLI availability only and never invokes the optional writer smoke.
   workdir=$(make_workdir); mkdir -p "$workdir/bin"
+  codex_calls="$workdir/codex-calls"
   probe_issues='[{"number":42,"updatedAt":"2026-01-01T00:00:00Z","labels":[]}]'
   cat > "$workdir/bin/gh" <<'SH'
 #!/usr/bin/env bash
@@ -2561,6 +2564,7 @@ esac
 SH
   cat > "$workdir/bin/codex" <<'SH'
 #!/bin/sh
+printf '%s\n' "$*" >> "$FAKE_CODEX_CALLS"
 if [ "$1" = "sandbox" ] && [ "${2:-}" = "--help" ]; then exit 0; fi
 if [ "$1" = "sandbox" ]; then
   printf '%s\n' "bwrap: No permissions to create a new namespace" >&2
@@ -2584,24 +2588,22 @@ echo "unshare: unshare failed: Operation not permitted" >&2
 exit 1
 SH
   chmod +x "$workdir/bin/gh" "$workdir/bin/codex" "$workdir/bin/sysctl" "$workdir/bin/unshare"
-  ec=0; out=$(cd "$workdir" && GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
-  assert_exit_code "RS51: hard sandbox block is a stable non-launch outcome" "$ec" 4
-  assert_output_contains "RS51a: enabled sysctl points at outer runtime/LSM denial" "$out" "outer runtime/LSM"
-  assert_output_contains "RS51b: apparmor restriction is named" "$out" "apparmor_restrict_unprivileged_userns=1"
-  assert_output_not_contains "RS51c: remedy never repeats the enabled sysctl" "$out" "set kernel.unprivileged_userns_clone=1"
-  assert_output_not_contains "RS51d: remedy never suggests danger-full-access" "$out" "danger-full-access"
-  ec=0; out=$(cd "$workdir" && GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain --dry-run 2>&1) || ec=$?
+  ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
+  assert_exit_code "RS51: denied lifecycle containment still blocks maintain" "$ec" 4
+  assert_output_contains "RS51a: lifecycle containment failure is actionable" "$out" \
+    "user and PID namespaces are required"
+  assert_file_not_exists "RS51b: maintain probe never invokes Codex" "$codex_calls"
+  ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain --dry-run 2>&1) || ec=$?
   assert_exit_code "RS51e: read-only dry-run planning pass is not blocked" "$ec" 0
-  ec=0; out=$(cd "$workdir" && FAKE_USERNS_CLONE=0 GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
-  assert_exit_code "RS51f: disabled sysctl still blocks the launch" "$ec" 4
-  assert_output_contains "RS51g: disabled sysctl names the sysctl remedy" "$out" "kernel.unprivileged_userns_clone=1"
   printf '%s\n' '#!/bin/sh' 'exit 0' > "$workdir/bin/unshare"
-  ec=0; out=$(cd "$workdir" && SAAS_PREFLIGHT_MISSING=codex GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
+  ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" SAAS_PREFLIGHT_MISSING=codex GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
   assert_exit_code "RS51h: maintain without a Codex CLI launches as before" "$ec" 0
-  ec=0; out=$(cd "$workdir" && SAAS_PREFLIGHT_MISSING=codex GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain-loop --repo owner/repo 2>&1) || ec=$?
+  assert_file_not_exists "RS51h1: maintain still never invokes Codex" "$codex_calls"
+  ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" SAAS_PREFLIGHT_MISSING=codex GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain-loop --repo owner/repo 2>&1) || ec=$?
   assert_exit_code "RS51i: maintain-loop without its required Codex CLI never launches" "$ec" 4
-  ec=0; out=$(cd "$workdir" && GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain-loop --repo owner/repo 2>&1) || ec=$?
-  assert_exit_code "RS51j: blocked sandbox blocks maintain-loop launch" "$ec" 4
+  ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" CODEX_SANDBOX=danger-full-access GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain-loop --repo owner/repo 2>&1) || ec=$?
+  assert_exit_code "RS51j: unrestricted maintain-loop reaches runnable state" "$ec" 0
+  assert_file_not_exists "RS51k: unrestricted probe never runs Codex sandbox smoke" "$codex_calls"
   rm -rf "$workdir"
 
   # Artifact hooks reject traversal and isolate the commit from hook-added paths.

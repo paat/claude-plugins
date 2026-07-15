@@ -63,28 +63,17 @@ delivery_lease_gate() {
   fi
 }
 
-# Mutating scheduled modes require a usable Codex writer sandbox; an unchanged
-# hard host block must not spend one doomed model launch per tick. A --dry-run
-# planning pass is read-only and never blocked here. $1=1 additionally treats a
-# missing Codex CLI as a hard block (workflows that always need the worker).
-codex_writer_gate() {
+# Codex-native maintenance runs unrestricted inside the dev-container boundary.
+# The probe only verifies the CLI when maintain-loop will need it; the parent
+# launch owns approval/sandbox policy. A --dry-run never requires the CLI.
+codex_cli_gate() {
   [ "$DRY_RUN" -eq 0 ] || return 0
-  require_codex_cli="${1:-0}"
-  gate_rc=0
-  diag="$(bash "$SCRIPT_DIR/codex-sandbox-check.sh" --root "$ROOT")" || gate_rc=$?
-  case "$gate_rc" in
-    0) return 0 ;;
-    10)
-      [ "$require_codex_cli" -eq 1 ] || return 0
-      echo "workflow-probe: $MODE blocked: Codex CLI not found; install/authenticate Codex before scheduling this workflow" >&2
-      exit 4 ;;
-    4)
-      echo "workflow-probe: $MODE blocked: $diag" >&2
-      exit 4 ;;
-    *)
-      echo "workflow-probe: Codex sandbox check failed" >&2
-      exit 1 ;;
+  case " ${SAAS_PREFLIGHT_MISSING:-} " in
+    *" codex "*) ;;
+    *) command -v codex >/dev/null 2>&1 && return 0 ;;
   esac
+  echo "workflow-probe: $MODE blocked: Codex CLI not found; install/authenticate Codex before scheduling this workflow" >&2
+  exit 4
 }
 
 lease_guardian_gate() {
@@ -143,7 +132,6 @@ case "$MODE" in
       || [ "$claimed_resumable" -gt 0 ] || [ -n "$stale_cleanup" ] || noop
     [ -z "$stale_cleanup" ] || echo "workflow-probe: maintain stale maintain:blocked cleanup: $stale_cleanup"
     delivery_lease_gate
-    codex_writer_gate 0
     lease_guardian_gate
     ready
     ;;
@@ -163,7 +151,7 @@ case "$MODE" in
       echo "workflow-probe: maintain-loop pending receipt: $pending_state"
       delivery_lease_gate
       case "$pending_state" in
-        claimed) codex_writer_gate 1 ;;
+        claimed) codex_cli_gate ;;
         normal_planned|normal_open|normal_merge_authorized|post_merge|release_verified|rollback_planned|rollback_open|rollback_merge_authorized|rollback_merged|rollback_release_verified|close_intent|closed_observed) : ;;
         *) echo "workflow-probe: invalid pending maintain-loop delivery state: $pending_state" >&2; exit 1 ;;
       esac
@@ -186,7 +174,7 @@ case "$MODE" in
     rm -f "$queue_err"
     [ "$(printf '%s' "$queue" | jq '.queue|length')" -gt 0 ] || noop
     delivery_lease_gate
-    codex_writer_gate 1
+    codex_cli_gate
     lease_guardian_gate
     ready
     ;;
