@@ -73,6 +73,12 @@ test_workflow_lifecycle_safety() {
     "$maintain_protocol" 'record the terminal triage/digest state'
   assert_file_contains "WL6h: shared dev evidence proves its served commit" \
     "$maintain_protocol" 'served commit is proven'
+  assert_file_contains "WL6i: closed browser transport gets one fresh retry before cooldown" \
+    "$maintain_protocol" 'Only a failed fresh retry may trigger tool-unavailable classification and issue cooldown'
+  assert_file_contains "WL6j: UX retry waits for the failed session before isolated dispatch" \
+    "$PLUGIN_ROOT/commands/ux-test.md" 'After that agent/session is terminal, retry only unfinished'
+  assert_file_contains "WL6k: UX retry forbids overlapping repository mutation" \
+    "$PLUGIN_ROOT/commands/ux-test.md" 'Never overlap repository mutation between attempts'
   assert_file_contains "WL7: maintain lease state is common-worktree scoped" "$maintain_protocol" \
     'MAINTAIN_LEASE_STATE="$GIT_COMMON/'
   assert_file_contains "WL7a: maintain uses compatibility delivery leases" "$maintain_protocol" \

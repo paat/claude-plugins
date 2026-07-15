@@ -99,6 +99,12 @@ Pass the following to the UX Tester agent:
 - Reminder: derive QA cases from `.startup/workflows/` when specs exist and report missing workflow coverage in the audit; do not edit the registry
 - Reminder: apply triggered SaaS gates when relevant: async paid-flow states, checkout CTA proximity, customer copy/value units, structured-result raw-value scan, LLM quality evidence, and compliance/risk claim taxonomy
 
+If the Playwright MCP transport closes mid-audit, preserve completed evidence and
+cleanup obligations. After that agent/session is terminal, retry only unfinished
+browser legs once in a fresh isolated agent/session (fresh transport).
+Never overlap repository mutation between attempts. Classify `tool-unavailable` only
+if the retry also lacks a working transport, and always finish documented cleanup.
+
 ### Step 4: Report to Investor
 
 After the UX Tester completes, summarize the findings for the investor:

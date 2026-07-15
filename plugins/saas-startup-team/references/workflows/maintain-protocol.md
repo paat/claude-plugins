@@ -538,6 +538,12 @@ into each founder brief: re-resolve paths after any checkout/worktree switch; re
   shared dev URL may substitute only when its served commit is proven. Local evidence
   never substitutes for post-deploy live verification; an unresolved post-merge live
   failure is pass-wide.
+- A Playwright MCP transport closure during an audit is not yet `tool-unavailable`.
+  Preserve completed evidence and cleanup obligations; after the failed agent/session
+  is terminal, retry unfinished browser legs once in a fresh isolated agent/session
+  (fresh transport), without overlapping repository mutation.
+  Only a failed fresh retry may trigger tool-unavailable classification and issue cooldown;
+  always finish documented cleanup.
 - Only after evidence shows that a pre-merge remedy needs external authority may the
   supervisor remove `maintain:claimed`, record the terminal triage/digest state, write
   the active cooldown, and return `issue-blocked`. Continue the remaining eligible
