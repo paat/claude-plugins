@@ -33,12 +33,17 @@ if [ "${TRIBUNAL_CODEX_SANDBOX_BYPASS:-off}" = "on" ]; then
 else
   model_args+=(-s read-only)
 fi
-if timeout -k 10 600 codex exec "${model_args[@]}" -m "$CODEX_MODEL" \
+rc=0
+timeout -k 10 600 codex exec "${model_args[@]}" -m "$CODEX_MODEL" \
   -c "model_reasoning_effort=\"$CODEX_EFFORT\"" -C "$REPO_ROOT" - \
-  < "$PROMPT_FILE" > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt"; then
+  < "$PROMPT_FILE" > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
+if [ "$rc" -eq 0 ]; then
   tribunal_extract_json_object < "$TMPDIR/out.txt" \
-    | tribunal_emit_review codex "codex sandbox likely cannot run commands; set TRIBUNAL_CODEX_SANDBOX_BYPASS=on" \
+    | tribunal_emit_review codex \
+      "codex sandbox likely cannot run commands; set TRIBUNAL_CODEX_SANDBOX_BYPASS=on" \
+      "$TMPDIR/out.txt" "$TMPDIR/err.txt" "$rc" \
     | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
 else
-  tribunal_error codex "Codex execution failed or timed out"
+  tribunal_error_with_diagnostics codex "Codex execution failed or timed out" execution \
+    "$rc" "$TMPDIR/out.txt" "$TMPDIR/err.txt"
 fi

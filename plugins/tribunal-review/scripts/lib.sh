@@ -35,6 +35,56 @@ tribunal_error() {
   jq -nc --arg p "$provider" --arg e "$message" '{provider:$p,error:$e}'
 }
 
+tribunal_error_with_diagnostics() {
+  local provider="$1" message="$2" phase="$3" exit_code="$4"
+  local stdout_file="$5" stderr_file="$6" max_bytes=2048
+  local stdout_bytes=0 stderr_bytes=0
+  local stdout_tail="[omitted; set TRIBUNAL_DIAGNOSTIC_TAILS=on]"
+  local stderr_tail="[omitted; set TRIBUNAL_DIAGNOSTIC_TAILS=on]"
+  local stdout_truncated=false stderr_truncated=false
+  [[ "$exit_code" =~ ^[0-9]+$ ]] || exit_code=255
+  if [ -f "$stdout_file" ] && [ ! -L "$stdout_file" ]; then
+    stdout_bytes="$(wc -c < "$stdout_file" | tr -d ' ')"
+    if [ "${TRIBUNAL_DIAGNOSTIC_TAILS:-off}" = on ]; then
+      stdout_tail="$(tail -c "$max_bytes" -- "$stdout_file" 2>/dev/null \
+        | LC_ALL=C tr -cd '\11\12\15\40-\176')"
+    fi
+    [ "$stdout_bytes" -le "$max_bytes" ] || stdout_truncated=true
+  fi
+  if [ -f "$stderr_file" ] && [ ! -L "$stderr_file" ]; then
+    stderr_bytes="$(wc -c < "$stderr_file" | tr -d ' ')"
+    if [ "${TRIBUNAL_DIAGNOSTIC_TAILS:-off}" = on ]; then
+      stderr_tail="$(tail -c "$max_bytes" -- "$stderr_file" 2>/dev/null \
+        | LC_ALL=C tr -cd '\11\12\15\40-\176')"
+    fi
+    [ "$stderr_bytes" -le "$max_bytes" ] || stderr_truncated=true
+  fi
+  jq -nc --arg p "$provider" --arg message "$message" --arg phase "$phase" \
+    --argjson exit "$exit_code" --argjson stdout_bytes "$stdout_bytes" \
+    --argjson stderr_bytes "$stderr_bytes" --argjson stdout_truncated "$stdout_truncated" \
+    --argjson stderr_truncated "$stderr_truncated" --arg stdout_tail "$stdout_tail" \
+    --arg stderr_tail "$stderr_tail" '
+      {provider:$p,error:($message
+        + "; phase=" + $phase + "; exit=" + ($exit|tostring)
+        + "; stdout_bytes=" + ($stdout_bytes|tostring)
+        + "; stdout_truncated=" + ($stdout_truncated|tostring)
+        + "; stdout_tail=" + ($stdout_tail|@json)
+        + "; stderr_bytes=" + ($stderr_bytes|tostring)
+        + "; stderr_truncated=" + ($stderr_truncated|tostring)
+        + "; stderr_tail=" + ($stderr_tail|@json))}'
+}
+
+tribunal_review_error() {
+  local provider="$1" message="$2" phase="$3"
+  local stdout_file="${4:-}" stderr_file="${5:-}" exit_code="${6:-0}"
+  if [ -n "$stdout_file" ] && [ -n "$stderr_file" ]; then
+    tribunal_error_with_diagnostics "$provider" "$message" "$phase" "$exit_code" \
+      "$stdout_file" "$stderr_file"
+  else
+    tribunal_error "$provider" "$message"
+  fi
+}
+
 tribunal_claude_authenticated() {
   local status
   status="$(timeout -k 1 10 claude auth status --json 2>/dev/null)" || return 1
@@ -151,11 +201,19 @@ PROMPT
 # code (sandboxed/degraded), not that the change is truly blocked. Counting it as
 # a real review silently drops the provider from the panel (issue #171).
 # $1 provider  $2 optional hint appended to the vacuous-verdict error message.
+# $3/$4 optional captured stdout/stderr paths; $5 optional wrapper exit code.
 tribunal_emit_review() {
-  local provider="$1" hint="${2:-}" json verdict
+  local provider="$1" hint="${2:-}" stdout_file="${3:-}" stderr_file="${4:-}"
+  local exit_code="${5:-0}" json verdict parse_error
   json="$(cat)"
   if ! printf '%s' "$json" | jq -e . >/dev/null 2>&1; then
-    tribunal_error "$provider" "unparseable $provider output"
+    if [ -z "$json" ]; then
+      parse_error="unparseable $provider output: no review JSON object found"
+    else
+      parse_error="unparseable $provider output: extracted review JSON is malformed"
+    fi
+    tribunal_review_error "$provider" "$parse_error" parse \
+      "$stdout_file" "$stderr_file" "$exit_code"
     return
   fi
   if printf '%s' "$json" | jq -e '
@@ -164,11 +222,14 @@ tribunal_emit_review() {
            | ($v == "BLOCK" or $v == "NEEDS_WORK"))
     ' >/dev/null 2>&1; then
     verdict="$(printf '%s' "$json" | jq -r '.summary.verdict // "?"')"
-    tribunal_error "$provider" "vacuous verdict ($verdict with 0 findings): a blocking verdict must carry a finding; provider likely blind to the repo (sandbox/degraded), excluded from quorum${hint:+ — $hint}"
+    tribunal_review_error "$provider" \
+      "vacuous verdict ($verdict with 0 findings): a blocking verdict must carry a finding; provider likely blind to the repo (sandbox/degraded), excluded from quorum${hint:+ — $hint}" \
+      schema "$stdout_file" "$stderr_file" "$exit_code"
     return
   fi
   if ! printf '%s' "$json" | jq -e '(.findings | type) == "array" and (.summary | type) == "object"' >/dev/null 2>&1; then
-    tribunal_error "$provider" "provider output omitted the review findings/summary envelope"
+    tribunal_review_error "$provider" "provider output omitted the review findings/summary envelope" \
+      schema "$stdout_file" "$stderr_file" "$exit_code"
     return
   fi
   # Provider identity belongs to the wrapper, not model-authored JSON. The

@@ -18,8 +18,13 @@ tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
 PROMPT_FILE="$TMPDIR/prompt.md"
 tribunal_review_prompt gemini "$DIFF_FILE" "$CONTEXT_FILE" "diff-with-web-cve-search" > "$PROMPT_FILE"
 
-if printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 gemini --model "${TRIBUNAL_GEMINI_MODEL:-gemini-3-pro-preview}" -p "$(cat "$PROMPT_FILE")" > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt"; then
-  tribunal_extract_json_object < "$TMPDIR/out.txt" | tribunal_emit_review gemini | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
+rc=0
+printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 gemini --model "${TRIBUNAL_GEMINI_MODEL:-gemini-3-pro-preview}" -p "$(cat "$PROMPT_FILE")" > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
+if [ "$rc" -eq 0 ]; then
+  tribunal_extract_json_object < "$TMPDIR/out.txt" \
+    | tribunal_emit_review gemini "" "$TMPDIR/out.txt" "$TMPDIR/err.txt" "$rc" \
+    | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
 else
-  tribunal_error gemini "Gemini execution failed or timed out"
+  tribunal_error_with_diagnostics gemini "Gemini execution failed or timed out" execution \
+    "$rc" "$TMPDIR/out.txt" "$TMPDIR/err.txt"
 fi

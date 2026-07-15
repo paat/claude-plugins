@@ -45,12 +45,17 @@ run_oc_leg() {
   }
   # Prompt positional must precede -f: since opencode 1.15 -f is an array flag
   # that swallows a trailing positional as a file path (issue #170).
-  if (cd "$cwd" && timeout -k 10 720 opencode run --agent plan -m "$model" --variant high --format default "$(cat "$prompt")" -f "$diff_attach" > "$out" 2> "$err"); then
+  local rc=0
+  (cd "$cwd" && timeout -k 10 720 opencode run --agent plan -m "$model" --variant high --format default "$(cat "$prompt")" -f "$diff_attach" > "$out" 2> "$err") || rc=$?
+  if [ "$rc" -eq 0 ]; then
     rm -f "$diff_attach"
-    tribunal_extract_json_object < "$out" | tribunal_emit_review "$provider" | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
+    tribunal_extract_json_object < "$out" \
+      | tribunal_emit_review "$provider" "" "$out" "$err" "$rc" \
+      | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
   else
     rm -f "$diff_attach"
-    tribunal_error "$provider" "OpenCode execution failed or timed out"
+    tribunal_error_with_diagnostics "$provider" "OpenCode execution failed or timed out" \
+      execution "$rc" "$out" "$err"
   fi
 }
 

@@ -21,9 +21,14 @@ tribunal_review_prompt claude "$DIFF_FILE" "$CONTEXT_FILE" "diff-only" > "$PROMP
 
 # Run from scratch with all tools disabled: this is the physical guarantee behind diff-only.
 SCRATCH="$(mktemp -d "$TMPDIR/claude.XXXXXX")"
-if (cd "$SCRATCH" && printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 claude -p "$(cat "$PROMPT_FILE")" --model "${TRIBUNAL_CLAUDE_MODEL:-sonnet}" --output-format json --disallowedTools "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Task" > "$TMPDIR/out.json" 2> "$TMPDIR/err.txt"); then
+rc=0
+(cd "$SCRATCH" && printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 claude -p "$(cat "$PROMPT_FILE")" --model "${TRIBUNAL_CLAUDE_MODEL:-sonnet}" --output-format json --disallowedTools "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Task" > "$TMPDIR/out.json" 2> "$TMPDIR/err.txt") || rc=$?
+if [ "$rc" -eq 0 ]; then
   response="$(jq -r '.result // empty' "$TMPDIR/out.json" 2>/dev/null || true)"
-  printf '%s\n' "$response" | tribunal_extract_json_object | tribunal_emit_review claude | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
+  printf '%s\n' "$response" | tribunal_extract_json_object \
+    | tribunal_emit_review claude "" "$TMPDIR/out.json" "$TMPDIR/err.txt" "$rc" \
+    | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
 else
-  tribunal_error claude "Claude execution failed or timed out"
+  tribunal_error_with_diagnostics claude "Claude execution failed or timed out" execution \
+    "$rc" "$TMPDIR/out.json" "$TMPDIR/err.txt"
 fi

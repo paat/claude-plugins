@@ -14,30 +14,30 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "40e7be89b385f2ce0dec78c7963b34c700a6e24bf1ab81ebd9b4a33e034fec0b"
+      "sha256": "e55676fa876d96e32f76037638c0d7263fd41569c7351786b6cd20724ae1aef6"
     },
     {
       "path": "scripts/run-claude-review.sh",
-      "sha256": "180fc8c7a00750b84ec20553c1aaf518ed6124dd48cc06189f641434260ff3c5"
+      "sha256": "fa9c4ae073814578ed8ab5877800191cc1760b6634f67baf94766221068632a5"
     },
     {
       "path": "scripts/run-codex-review.sh",
-      "sha256": "e69303f8a61cf1fc3d514402445246a134dcfbe2952c9972779bc74c8e6579da"
+      "sha256": "0cd54f79668b32908bd5d37d87d233280c18f6df45188150a7bc3f2cf81b300e"
     },
     {
       "path": "scripts/run-gemini-review.sh",
-      "sha256": "447d4b250ea5fd92129922f692f6484fc7c2f23f92bb38df251106b6b88d755d"
+      "sha256": "1d399904ca6f582cef0a5c57e1eb721e3f782202d89053d1e50062247dc92d32"
     },
     {
       "path": "scripts/run-opencode-review.sh",
-      "sha256": "109c4d00c960774b988e7329a0f45e760eb3cfc1eb0e981063e1e7d0e1bc9ce3"
+      "sha256": "a00f2c7546ea2742181f6eb69ce186875f501f8ebf22708983896bedd0f27500"
     },
     {
       "path": "scripts/run-qwen-review.sh",
-      "sha256": "526c36075a4bcfa9b17cea9b37a2c06b7299c324a9c01bbbfafbd5886e1a8443"
+      "sha256": "bb8ead6675509bc422d32025a235467c422c6d369c8c87656b01c151d3d4c930"
     }
   ],
   "plugin": "tribunal-review",
   "schema": "tribunal-runner-bundle/v1",
-  "version": "0.19.5"
+  "version": "0.19.6"
 }
