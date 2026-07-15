@@ -19,6 +19,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: maintain-delivery.sh pending --repo-root DIR [--issue N]
        maintain-delivery.sh show --repo-root DIR --issue N
+       maintain-delivery.sh archive-claimed --repo-root DIR --issue N
        maintain-delivery.sh begin --repo-root DIR --issue N --run-id ID
          --delivery-id ID --merge-budget N --scope-json FILE --lease-state FILE
          [--reopen-event-id N --reopen-event-at TIME] [--retry-after-rollback]
@@ -157,7 +158,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$ACTION" in
-  pending|show|begin|plan-pr|bind-pr|match-pr|collect-tribunal|record-proof|authorize-merge|merge-pr|record-merge|record-release|close-intent|close-issue|observe-closed|render-result|finalize) : ;;
+  pending|show|archive-claimed|begin|plan-pr|bind-pr|match-pr|collect-tribunal|record-proof|authorize-merge|merge-pr|record-merge|record-release|close-intent|close-issue|observe-closed|render-result|finalize) : ;;
   *) usage ;;
 esac
 [ "$ACTION" = begin ] || [ -z "$MERGE_BUDGET" ] || usage
@@ -185,6 +186,7 @@ COMMON="$(cd -- "$COMMON" && pwd -P)" || die "cannot resolve common Git director
 STATE_ROOT="$COMMON/saas-startup-team/maintain-runtime/deliveries"
 
 TEMP_PATHS=()
+ARCHIVE_LEASE_STATE=""; ARCHIVE_LEASE_RUN=""
 register_temp() { TEMP_PATHS+=("$1"); }
 forget_temp() {
   local target=$1 index
@@ -203,6 +205,11 @@ cleanup_temps() {
     shopt -s nullglob
     for path in "$STATE_ROOT"/.*.*; do rm -rf -- "$path"; done
     shopt -u nullglob
+  fi
+  if [ -n "$ARCHIVE_LEASE_STATE" ] && [ -f "$ARCHIVE_LEASE_STATE" ] \
+    && [ ! -L "$ARCHIVE_LEASE_STATE" ]; then
+    bash "$SCRIPT_DIR/maintain-leases.sh" cleanup --state-file "$ARCHIVE_LEASE_STATE" \
+      --run-id "$ARCHIVE_LEASE_RUN" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup_temps EXIT
@@ -272,7 +279,7 @@ receipt_valid() {
       or .state == "release_verified" or .state == "rollback_planned"
       or .state == "rollback_open" or .state == "rollback_merge_authorized"
       or .state == "rollback_merged" or .state == "rollback_release_verified" or .state == "close_intent"
-      or .state == "closed_observed" or .state == "finalized_success"
+      or .state == "closed_observed" or .state == "archived_claim" or .state == "finalized_success"
       or .state == "finalized_rolled_back")
     and (.reopened_event == null or
       (.reopened_event|type == "object" and keys == ["at","id"]
@@ -310,11 +317,14 @@ receipt_valid() {
        and (.event_identity|id) and (.finalized_at|stamp)
        and (.outcome == "success" or .outcome == "rolled_back")
        and (.result_path|type == "string" and length > 0)))
+    and (if .state == "archived_claim" then
+      .normal == null and .rollback == null and .release == null and .close == null and .final == null
+      else true end)
   ' "$1" >/dev/null 2>&1
 }
 
 prepare_root=0
-case "$ACTION" in pending|show) : ;; *) prepare_root=1 ;; esac
+case "$ACTION" in pending|show|archive-claimed) : ;; *) prepare_root=1 ;; esac
 if [ ! -e "$STATE_ROOT" ] && [ ! -L "$STATE_ROOT" ]; then
   if [ "$prepare_root" -eq 0 ]; then
     [ "$ACTION" = pending ] && { printf '[]\n'; exit 0; }
@@ -351,7 +361,7 @@ atomic_update() {
   fi
   chmod 600 "$tmp" && mv -- "$tmp" "$current" || { rm -f -- "$tmp"; die "cannot persist delivery state"; }
 }
-terminal_state() { case "$1" in finalized_success|finalized_rolled_back) return 0 ;; *) return 1 ;; esac; }
+terminal_state() { case "$1" in archived_claim|finalized_success|finalized_rolled_back) return 0 ;; *) return 1 ;; esac; }
 
 require_active_controller() {
   local expected_run=$1 allow_resume=$2
@@ -419,6 +429,20 @@ fresh_issue_snapshot() {
     and (.updatedAt|type == "string"
       and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
   ' "$destination" >/dev/null || die "issue snapshot is not an exact open issue"
+}
+
+fresh_closed_issue_snapshot() {
+  local destination=$1
+  (cd "$PRIMARY" && trusted_repo_gh issue view "$ISSUE" \
+    --json number,state,title,body,updatedAt > "$destination") \
+    || die "cannot refresh claimed receipt issue"
+  jq -e --argjson issue "$ISSUE" '
+    type == "object" and keys == ["body","number","state","title","updatedAt"]
+    and .number == $issue and .state == "CLOSED"
+    and (.title|type == "string") and (.body|type == "string")
+    and (.updatedAt|type == "string"
+      and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+  ' "$destination" >/dev/null || die "claimed receipt issue is not exactly closed"
 }
 
 canonical_issue_scope() {
@@ -495,6 +519,143 @@ atomic_update_run_ledger() {
   fi
   chmod 600 "$tmp" && mv -T -- "$tmp" "$RUN_LEDGER" \
     || { rm -f -- "$tmp"; die "cannot persist run merge ledger"; }
+}
+
+claim_branch_refs_absent() {
+  local claim_time claim_epoch reflog selector event_epoch subject branch latest remote_rc
+  local -A candidates=()
+  claim_time=$(jq -r .updated_at "$current")
+  claim_epoch=$(date -u -d "$claim_time" +%s) || die "claimed receipt timestamp is invalid"
+  reflog=$(mktemp "$STATE_ROOT/.archive-reflog.XXXXXX") \
+    || die "cannot create claimed receipt reflog snapshot"
+  register_temp "$reflog"
+  git -C "$PRIMARY/.worktrees/maintain-loop" reflog show --date=unix \
+    --format='%gD%x09%gs' HEAD > "$reflog" \
+    || die "cannot inspect claimed receipt worktree reflog"
+  [ -s "$reflog" ] || die "claimed receipt worktree reflog is missing"
+  while IFS=$'\t' read -r selector subject; do
+    [[ "$selector" =~ @\{([0-9]+)\}$ ]] \
+      || die "claimed receipt worktree reflog is malformed"
+    event_epoch=${BASH_REMATCH[1]}
+    [ "$event_epoch" -ge "$claim_epoch" ] || continue
+    case "$subject" in
+      'checkout: moving from '*' to '*)
+        branch=${subject##* to }
+        valid_sha "$branch" && continue
+        git check-ref-format --branch "$branch" >/dev/null 2>&1 || continue
+        candidates["$branch"]=1
+        ;;
+    esac
+  done < "$reflog"
+  rm -f -- "$reflog"; forget_temp "$reflog"
+
+  for branch in "${!candidates[@]}"; do
+    if git -C "$PRIMARY" show-ref --verify --quiet "refs/heads/$branch"; then
+      latest=$(git -C "$PRIMARY" reflog show -1 --date=unix --format='%gD' "refs/heads/$branch") \
+        || die "cannot inspect claimed receipt branch reflog"
+      [[ "$latest" =~ @\{([0-9]+)\}$ ]] \
+        || die "claimed receipt branch lacks ownership history"
+      latest=${BASH_REMATCH[1]}
+      [ "$latest" -lt "$claim_epoch" ] \
+        || die "claimed receipt still has a local branch ref"
+      continue
+    fi
+    remote_rc=0
+    GIT_TERMINAL_PROMPT=0 /usr/bin/timeout -k 5s 120s \
+      git -C "$PRIMARY" ls-remote --exit-code --heads origin "refs/heads/$branch" \
+      >/dev/null 2>&1 || remote_rc=$?
+    case "$remote_rc" in
+      0) die "claimed receipt still has a remote branch ref" ;;
+      2) : ;;
+      *) die "cannot disprove a claimed receipt remote branch" ;;
+    esac
+  done
+}
+
+claim_source_state_absent() {
+  local run=$1 dir found worktree top worktree_common status head gate_dir gate
+  local guard_dir artifact
+  local -a guard_dirs=()
+  for dir in \
+    "$PRIMARY/.startup/maintain-loop/attempt-results/$run" \
+    "$PRIMARY/.startup/maintain-loop/escalations/$run"; do
+    [ -e "$dir" ] || [ -L "$dir" ] || continue
+    safe_existing_dir "$dir" || die "claimed receipt source-state directory is unsafe"
+    found=$(find -P "$dir" -maxdepth 1 -name "issue-$ISSUE-attempt-*" -print -quit) \
+      || die "cannot inspect claimed receipt source state"
+    [ -z "$found" ] || die "claimed receipt has protected source-attempt state"
+  done
+
+  worktree="$PRIMARY/.worktrees/maintain-loop"
+  [ -e "$worktree" ] || [ -L "$worktree" ] \
+    || die "claimed receipt worktree is missing; source state cannot be disproved"
+  safe_existing_dir "$worktree" || die "claimed receipt worktree is unsafe"
+  top=$(git -C "$worktree" rev-parse --show-toplevel 2>/dev/null) \
+    || die "claimed receipt worktree is not a Git worktree"
+  [ "$top" = "$worktree" ] || die "claimed receipt worktree identity is ambiguous"
+  worktree_common=$(git -C "$worktree" rev-parse --git-common-dir) \
+    || die "cannot inspect claimed receipt worktree"
+  case "$worktree_common" in /*) : ;; *) worktree_common="$worktree/$worktree_common" ;; esac
+  worktree_common=$(cd -- "$worktree_common" && pwd -P) \
+    || die "cannot resolve claimed receipt worktree metadata"
+  [ "$worktree_common" = "$COMMON" ] || die "claimed receipt worktree repository changed"
+  if git -C "$worktree" symbolic-ref -q HEAD >/dev/null 2>&1; then
+    die "claimed receipt worktree is still attached to a branch"
+  fi
+  status=$(git -C "$worktree" status --porcelain=v1 --untracked-files=all) \
+    || die "cannot inspect claimed receipt worktree status"
+  [ -z "$status" ] || die "claimed receipt worktree still has source state"
+  head=$(git -C "$worktree" rev-parse HEAD) || die "cannot inspect claimed receipt worktree HEAD"
+  valid_sha "$head" || die "claimed receipt worktree HEAD is invalid"
+  gate_dir="$COMMON/saas-startup-team/maintain-runtime/base-checks/$run"
+  safe_existing_dir "$gate_dir" || die "claimed receipt base-check directory is missing or unsafe"
+  gate="$gate_dir/$head.json"
+  [ -f "$gate" ] && [ ! -L "$gate" ] || die "claimed receipt worktree is not at a validated base"
+  jq -e --arg run "$run" --arg base "$head" '
+    type == "object"
+    and keys == ["base_sha","check_oid","check_rel","checked_at","run_id","schema_version","status"]
+    and .schema_version == 1 and .run_id == $run and .base_sha == $base and .status == "passed"
+    and (.check_oid|type == "string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$"))
+    and (.check_rel|type == "string" and length > 0)
+    and (.checked_at|type == "string"
+      and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+  ' "$gate" >/dev/null || die "claimed receipt base-check proof is malformed"
+  claim_branch_refs_absent
+
+  guard_dirs+=("$COMMON/saas-startup-team")
+  shopt -s nullglob
+  guard_dirs+=("$COMMON"/worktrees/*/saas-startup-team)
+  shopt -u nullglob
+  for guard_dir in "${guard_dirs[@]}"; do
+    [ -e "$guard_dir" ] || [ -L "$guard_dir" ] || continue
+    safe_existing_dir "$guard_dir" || die "claimed receipt guard directory is unsafe"
+    artifact=$(find -P "$guard_dir" -maxdepth 1 \
+      \( -name "role-$run-*" -o -name "commit-$run-*" \) -print -quit) \
+      || die "cannot inspect claimed receipt transaction guards"
+    [ -z "$artifact" ] || die "claimed receipt has an in-flight source transaction guard"
+  done
+}
+
+claim_delivery_pr_absent() {
+  local snapshot marker="Maintain-Loop-Delivery: $DELIVERY_ID"
+  snapshot=$(mktemp "$STATE_ROOT/.archive-prs.XXXXXX") \
+    || die "cannot create claimed receipt PR snapshot"
+  register_temp "$snapshot"
+  (cd "$PRIMARY" && trusted_repo_gh pr list --state all --limit 10000 \
+    --json number,state,body > "$snapshot") || die "cannot list claimed receipt pull requests"
+  jq -e '
+    type == "array" and length < 10000
+    and all(.[];
+      type == "object" and keys == ["body","number","state"]
+      and (.number|type == "number" and . >= 1 and floor == .)
+      and (.state == "OPEN" or .state == "CLOSED" or .state == "MERGED")
+      and (.body|type == "string"))
+  ' "$snapshot" >/dev/null || die "claimed receipt PR list is malformed or truncated"
+  if jq -e --arg marker "$marker" \
+    'any(.[]; (.body | split("\n") | any(. == $marker)))' "$snapshot" >/dev/null; then
+    die "a pull request still carries this claimed receipt delivery marker"
+  fi
+  rm -f -- "$snapshot"; forget_temp "$snapshot"
 }
 
 if [ "$ACTION" = pending ]; then
@@ -579,6 +740,7 @@ if [ "$ACTION" = begin ]; then
     [ ! -e "$archive" ] && [ ! -L "$archive" ] || die "delivery history target already exists"
   fi
   case "$latest_terminal" in
+    archived_claim) : ;;
     finalized_success)
       [ -n "$REOPEN_EVENT_ID" ] && [ -n "$latest_close" ] && [[ "$REOPEN_EVENT_AT" > "$latest_close" ]] \
         || die "finalized delivery requires a later verified reopen event" ;;
@@ -612,6 +774,45 @@ TOP_STATE=$(jq -r .state "$current")
 DELIVERY_ID=$(jq -r .delivery_id "$current")
 
 if [ "$ACTION" = show ]; then jq '.' "$current"; exit 0; fi
+
+if [ "$ACTION" = archive-claimed ]; then
+  [ "$TOP_STATE" = claimed ] || die "only a claimed receipt can be archived"
+  jq -e '
+    .normal == null and .rollback == null and .release == null and .close == null and .final == null
+  ' "$current" >/dev/null || die "claimed receipt already owns delivery state"
+
+  origin_run=$(jq -r .origin_run_id "$current")
+  ARCHIVE_LEASE_RUN="claim-archive-$ISSUE-$$-$RANDOM"
+  valid_id "$ARCHIVE_LEASE_RUN" || die "cannot create claimed receipt cleanup identity"
+  ARCHIVE_LEASE_STATE="$COMMON/saas-startup-team/maintain-runtime/$ARCHIVE_LEASE_RUN-leases.json"
+  if ! bash "$SCRIPT_DIR/maintain-leases.sh" acquire --repo-root "$PRIMARY" --mode maintain \
+    --run-id "$ARCHIVE_LEASE_RUN" --state-file "$ARCHIVE_LEASE_STATE" >/dev/null; then
+    die "claimed receipt cleanup requires all maintenance leases to be idle" 3
+  fi
+
+  issue_snapshot=$(mktemp "$STATE_ROOT/.archive-issue.XXXXXX") \
+    || die "cannot create claimed receipt issue snapshot"
+  register_temp "$issue_snapshot"
+  fresh_closed_issue_snapshot "$issue_snapshot"
+  rm -f -- "$issue_snapshot"; forget_temp "$issue_snapshot"
+
+  load_run_ledger "$origin_run"
+  jq -e --arg delivery "$DELIVERY_ID" \
+    'all(.events[]; .delivery_id != $delivery)' "$RUN_LEDGER" >/dev/null \
+    || die "claimed receipt already has a merge-ledger event"
+  claim_source_state_absent "$origin_run"
+  claim_delivery_pr_absent
+
+  updated=$(now_iso)
+  atomic_update '.state = "archived_claim" | .updated_at = $now' --arg now "$updated"
+  if ! bash "$SCRIPT_DIR/maintain-leases.sh" cleanup --state-file "$ARCHIVE_LEASE_STATE" \
+    --run-id "$ARCHIVE_LEASE_RUN" >/dev/null; then
+    die "claimed receipt was archived but its cleanup lease could not be released"
+  fi
+  ARCHIVE_LEASE_STATE=""; ARCHIVE_LEASE_RUN=""
+  printf '%s\n' "$current"
+  exit 0
+fi
 
 case "$ACTION" in
   match-pr|render-result) : ;;
