@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run a command in a workspace-write Codex sandbox with no outbound destinations.
+# Run a deterministic, non-agent command in a workspace-write Codex sandbox with
+# no outbound destinations. AI workers never use this helper.
 # The limited proxy policy keeps anonymous AF_UNIX socketpairs usable for asyncio
 # while denying pathname Unix sockets and direct outbound connections.
 set -euo pipefail

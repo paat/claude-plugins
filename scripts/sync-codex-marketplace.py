@@ -378,22 +378,25 @@ def render_command_skill(
     description = command_skill_description(plugin_name, aliases)
     plugin_notes = command_plugin_notes(plugin_name, command_name)
     command_notes = command_specific_notes(plugin_name, command_name)
-    read_only = metadata.get("codex-sandbox") == "read-only"
+    read_only = metadata.get("codex-role") == "read-only"
     if read_only:
         execution_instruction = (
-            "Execute the workflow only in a Codex `read-only` sandbox. Do not use a "
-            "write-capable current session; if the required browser/integration is unavailable "
-            "inside the read-only boundary, stop and report that limitation."
+            "Execute this as a semantically read-only role while Codex runs unrestricted inside "
+            "the development-container security boundary. Do not modify repository or account "
+            "state; if the required browser/integration is unavailable, stop and report that "
+            "limitation."
         )
         dispatch_replacement = (
             "Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent "
-            "tooling or `codex exec` only with a `read-only` sandbox. A current-session role is "
-            "allowed only when that session is already read-only."
+            "tooling or `codex exec --dangerously-bypass-approvals-and-sandbox`; the role prompt "
+            "must prohibit repository and account mutations. The dev container, not a nested "
+            "Codex sandbox, is the security boundary."
         )
     elif plugin_name == "saas-startup-team" and command_name == "maintain-loop":
         execution_instruction = (
             "Execute only as a thin coordinator using fresh Codex subagents. Never run the "
-            "delegated maintain pass in the current session."
+            "delegated maintain pass in the current session. Require a collaboration-capable, "
+            "non-ephemeral coordinator session so each spawned child returns a stable identity."
         )
         dispatch_replacement = (
             "Claude `Task` / `Agent` / `TeamCreate` dispatch -> spawn exactly one fresh "
@@ -423,8 +426,9 @@ def render_command_skill(
         )
         dispatch_replacement = (
             "Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent "
-            "tooling if available, `codex exec` when a separate Codex process is useful, or a "
-            "fresh role phase in the current Codex session."
+            "tooling if available, `codex exec --dangerously-bypass-approvals-and-sandbox` when "
+            "a separate Codex process is useful, or a fresh role phase in the current Codex "
+            "session. The development container is the security boundary."
         )
 
     sections = [
@@ -528,7 +532,7 @@ def command_plugin_notes(plugin_name: str, command_name: str) -> str:
         - Use Codex as the primary and only coding agent.
         - Do not invoke `claude`, `claude-code`, Claude Code, TeamCreate, or Claude subagent workflows.
         - Do not route implementation to `tech-founder-claude` or `tech-founder-claude-maintain`; use the `tech-founder` skill, direct Codex implementation, or the bundled `scripts/codex-run-role.sh` for a separate process.
-        - Every separate Codex role launch uses `scripts/codex-run-role.sh` with an explicit semantic profile. The adapter stays model-neutral; the launcher owns model and effort pinning.
+        - Every separate Codex role launch uses `scripts/codex-run-role.sh` with an explicit semantic profile and `--dangerously-bypass-approvals-and-sandbox`; the dev container is the security boundary. The adapter stays model-neutral; the launcher owns model and effort pinning.
         - Treat business-founder, tech-founder, growth-hacker, lawyer, UX tester, and review loops as Codex role phases backed by `.startup/` files.
         - Keep the file-based handoff protocol intact: every role phase reads the relevant handoff/state files and writes its expected deliverable before the next phase starts.
         - If a multi-agent dispatch fails or returns an unknown/missing thread, do not wait or poll that handle. Check its expected artifact once and verify it belongs to the current handoff/run and current HEAD when repository-bound; a stale or unproven artifact counts as absent. Continue without relaunching only when that artifact is complete; otherwise establish that the original dispatch is terminal, then run the role exactly once in the current session or through `scripts/codex-run-role.sh`. Never let an original and fallback worker write the same artifact concurrently.

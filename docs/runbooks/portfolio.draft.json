@@ -14,7 +14,7 @@
     },
     "codex": {
       "pool": "codex",
-      "cmd": "codex exec --ephemeral --dangerously-bypass-approvals-and-sandbox '{prompt}'"
+      "cmd": "codex exec --dangerously-bypass-approvals-and-sandbox '{prompt}'"
     }
   },
   "pools": {

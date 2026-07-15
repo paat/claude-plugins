@@ -8,10 +8,10 @@ retains only the project-specific runbook deltas.
 ## 1. Plugin upgrade (both containers)
 
 - [ ] varustame: upgrade saas-startup-team to current, run the full preflight
-      (`health-preflight.sh --require-gh --check-sync`) and one
+      (`health-preflight.sh --require-gh --require-codex --check-sync`) and one
       supervised `$saas-startup-team:maintain-loop --once` before trusting the
-      schedule. Do not add `--require-codex`; that option tests a restricted
-      worker profile, while the direct unrestricted smoke is required below.
+      schedule. The preflight is model-free and verifies authentication plus
+      exact unrestricted bypass support.
 - [ ] vastav: same upgrade + preflight (smaller jump).
 - [ ] Both: verify `SAAS_LESSON_SYNC_ENABLED=true` (reach-back channel).
 - [ ] Both: memory pass — same checklist categories as the Slot A runbook §2
@@ -36,7 +36,7 @@ retains only the project-specific runbook deltas.
       vastav `stage: "live"`, varustame `stage: "pre-launch"`, engine `codex`,
       command `$saas-startup-team:maintain-loop --once`.
 - [ ] Set both projects to `hold: false`, omit `delivery_hold`, use top-level
-      `docker_exec_user: "dev"`, and launch unrestricted ephemeral Codex with
+      `docker_exec_user: "dev"`, and launch non-ephemeral Codex with
       `--dangerously-bypass-approvals-and-sandbox`.
 - [ ] Set `admission.veto_hours: 0` so the pre-launch project is schedulable
       without a human veto-window kickoff.

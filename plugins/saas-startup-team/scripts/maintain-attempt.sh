@@ -544,7 +544,7 @@ case "$action" in
       env SAAS_RUN_ID="$run_id" SAAS_ATTEMPT="$attempt" SAAS_COMMAND=maintain-loop \
         SAAS_PHASE=implementation SAAS_ROUTING_REASONS="$routing_reasons" \
         SAAS_AGENT_EVENTS_FILE="$PRIMARY/.startup/runs/agent-events.jsonl" \
-        SAAS_CODEX_LOG_DIR="$PRIMARY/.startup/runs/codex" CODEX_SANDBOX=workspace-write \
+        SAAS_CODEX_LOG_DIR="$PRIMARY/.startup/runs/codex" \
         bash -c 'root=$1; shift; cd -- "$root" && exec "$@"' maintain-worker "$ROOT" \
           bash "$ROLE_RUNNER" --role tech-founder --profile "$profile" --task-file "$task_file" \
         || worker_rc=$?

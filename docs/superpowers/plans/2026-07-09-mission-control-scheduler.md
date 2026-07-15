@@ -134,7 +134,7 @@ Append to `.plugins` array in root `.claude-plugin/marketplace.json` (keep exist
     },
     "codex": {
       "pool": "codex",
-      "cmd": "codex exec --ephemeral -s workspace-write '{prompt}'"
+      "cmd": "codex exec --dangerously-bypass-approvals-and-sandbox '{prompt}'"
     }
   },
   "pools": {

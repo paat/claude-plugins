@@ -1947,6 +1947,8 @@ test_maintain_loop() {
     'Any spawn error stops `pass-blocked` without waiting or retrying'
   assert_file_contains "ML24: missing child cannot trigger unsafe reaping" "$codex_cmd" \
     'missing before one terminal result, stop unknown-terminal without reaping'
+  assert_file_contains "ML25: Codex requires a durable coordinator session" "$codex_cmd" \
+    'collaboration-capable, non-ephemeral'
 }
 
 # ---------------------------------------------------------------------------
@@ -5211,105 +5213,20 @@ test_autonomous_demand_infra() {
     "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" 'network.mode="limited"'
   assert_file_not_contains "AD4f2: shell smoke preserves anonymous socketpairs" \
     "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" "--sandbox-state-disable-network"
+  assert_file_contains "AD4g: Codex capability check is bounded" \
+    "$health" 'timeout 10 codex exec --help'
+  assert_file_contains "AD4h: Codex capability check requires unrestricted mode" \
+    "$health" '--dangerously-bypass-approvals-and-sandbox'
+  assert_file_contains "AD4i: Codex authentication check is bounded" \
+    "$health" 'timeout 10 codex login status'
+  assert_file_not_contains "AD4j: health preflight ignores stale sandbox configuration" \
+    "$health" 'CODEX_SANDBOX'
   for s in "$health" "$lease" "$packs" "$demand" "$market" "$closure" \
-    "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" \
     "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" \
     "$PLUGIN_ROOT/scripts/supervisor-check-container.sh"; do
     ec=0; bash -n "$s" || ec=$?
     assert_exit_code "AD syntax: $(basename "$s")" "$ec" 0
   done
-
-  # A start-only smoke was a false green (issues #260/#261): the smoke must also
-  # prove out-of-sandbox candidate staging and in-sandbox Python thread wakeups.
-  assert_file_contains "AD4g: smoke probes trusted staging outside the sandbox" \
-    "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" 'core.hooksPath=/dev/null add -A'
-  assert_file_contains "AD4h: smoke probes in-sandbox thread wakeups" \
-    "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" 'asyncio.to_thread'
-  assert_file_contains "AD4h1: smoke probes supervisor process inspection" \
-    "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" 'ps -o pid='
-  workdir=$(make_workdir)
-  mkdir -p "$workdir/bin"
-  cat > "$workdir/bin/codex" <<'SH'
-#!/bin/sh
-[ "$1" = sandbox ] || exit 2
-[ "${2:-}" != --help ] || exit 0
-printf '%s\n' /tmp/not-the-requested-root
-SH
-  chmod +x "$workdir/bin/codex"
-  ec=0; output=$(PATH="$workdir/bin:$PATH" \
-    bash "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" --root "$workdir" 2>&1) || ec=$?
-  assert_exit_code "AD4h2: successful smoke in the wrong cwd fails closed" "$ec" 4
-  assert_output_contains "AD4h3: cwd mismatch names the violated root contract" \
-    "$output" "requested root was not honored"
-  rm -rf "$workdir"
-  if command -v python3 >/dev/null 2>&1; then
-    workdir=$(make_workdir)
-    mkdir -p "$workdir/bin"
-    cat > "$workdir/bin/codex" <<'SH'
-#!/bin/sh
-[ "$1" = sandbox ] || exit 2
-root=; report_root=0
-for a in "$@"; do
-  if [ "$report_root" -eq 2 ]; then root=$a; report_root=0; continue; fi
-  [ "$a" != -C ] || report_root=2
-  [ "$a" != /bin/pwd ] || report_root=1
-  [ "$a" = python3 ] && sleep 5
-done
-[ "$report_root" -ne 1 ] || printf '%s\n' "$root"
-exit 0
-SH
-    chmod +x "$workdir/bin/codex"
-    ec=0; output=$(PATH="$workdir/bin:$PATH" SAAS_CODEX_PREFLIGHT_TIMEOUT=1 \
-      bash "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" --root "$workdir" 2>&1) || ec=$?
-    assert_exit_code "AD4i: hung in-sandbox thread wakeup blocks" "$ec" 4
-    assert_output_contains "AD4j: wakeup diagnosis names the deadlock" "$output" "cross-thread wakeup"
-    cat > "$workdir/bin/codex" <<'SH'
-#!/bin/sh
-[ "$1" = sandbox ] || exit 2
-root=; report_root=0
-for a in "$@"; do
-  if [ "$report_root" -eq 2 ]; then root=$a; report_root=0; continue; fi
-  [ "$a" != -C ] || report_root=2
-  [ "$a" != /bin/pwd ] || report_root=1
-done
-[ "$report_root" -ne 1 ] || printf '%s\n' "$root"
-exit 0
-SH
-    cat > "$workdir/bin/check-driver" <<'SH'
-#!/bin/sh
-if [ "${1:-}" = --metadata ]; then
-  printf '%s\n' '{"docker":{"path":"/usr/bin/false"},"daemon_id":"test","image_id":"sha256:1111111111111111111111111111111111111111111111111111111111111111"}'
-fi
-exit 0
-SH
-    chmod +x "$workdir/bin/codex" "$workdir/bin/check-driver"
-    ec=0; output=$(PATH="$workdir/bin:$PATH" SAAS_SUPERVISOR_CHECK_DRIVER="$workdir/bin/check-driver" \
-      bash "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" --root "$workdir" 2>&1) || ec=$?
-    assert_exit_code "AD4k: healthy sandbox passes staging and wakeup probes" "$ec" 0
-    assert_output_contains "AD4l: success names the added probes" "$output" "thread-wakeup probes"
-
-    cat > "$workdir/bin/check-driver" <<'SH'
-#!/bin/sh
-if [ "${1:-}" = --metadata ]; then
-  printf '%s\n' '{"docker":{"path":"/usr/bin/false"},"daemon_id":"test","image_id":"sha256:1111111111111111111111111111111111111111111111111111111111111111"}'
-  exit 0
-fi
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    -C|--docker-bin|--image-id|--daemon-id|--checkout-alias) shift 2 ;;
-    --) shift; exec "$@" ;;
-    *) exit 2 ;;
-  esac
-done
-exit 2
-SH
-    chmod +x "$workdir/bin/check-driver"
-    ec=0; output=$(PATH="$workdir/bin:$PATH" SAAS_SUPERVISOR_CHECK_DRIVER="$workdir/bin/check-driver" \
-      bash "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh" --root "$workdir" 2>&1) || ec=$?
-    assert_exit_code "AD4m: writable outside path blocks supervisor smoke" "$ec" 4
-    assert_output_contains "AD4n: supervisor isolation failure is explicit" "$output" "Supervisor process check failed"
-    rm -rf "$workdir"
-  fi
 
   workdir=$(make_workdir)
   mkdir -p "$workdir/plugin/hooks"
@@ -5334,63 +5251,54 @@ JSON
   printf '{"hooks":{}}\n' > "$workdir/plugin/hooks/hooks.json"
   cat > "$workdir/bin/codex" <<'SH'
 #!/bin/sh
-if [ "$1" = "sandbox" ] && [ "${2:-}" = "--help" ]; then exit 0; fi
-if [ "$1" = "sandbox" ]; then
-  profile=""
-  root=""
-  proxy_enabled=0
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --permission-profile) profile="$2"; shift 2 ;;
-      --enable) [ "${2:-}" = network_proxy ] && proxy_enabled=1; shift 2 ;;
-      -c) shift 2 ;;
-      -C|--cd) root="$2"; shift 2 ;;
-      *) shift ;;
-    esac
-  done
-  if [ "$profile" = ":danger-full-access" ] && [ "$proxy_enabled" -eq 1 ]; then
-    printf '%s\n' "$root"
+printf '%s\n' "$*" >> "$CODEX_CALL_LOG"
+if [ "${1:-}" = exec ] && [ "${2:-}" = --help ]; then
+  printf '%s\n' 'Usage: codex exec [OPTIONS]'
+  [ "${FAKE_CODEX_BYPASS:-1}" -eq 0 ] || \
+    printf '%s\n' '  --dangerously-bypass-approvals-and-sandbox'
+  exit 0
+fi
+if [ "${1:-}" = login ] && [ "${2:-}" = status ]; then
+  if [ "${FAKE_CODEX_AUTH_OK:-1}" -eq 1 ]; then
+    printf '%s\n' 'Logged in'
     exit 0
   fi
-  printf '%s\n' "bwrap: No permissions to create a new namespace" >&2
+  printf '%s\n' 'Not logged in' >&2
   exit 1
 fi
-exit 0
+exit 64
 SH
   chmod +x "$workdir/bin/codex"
-  cat > "$workdir/bin/sysctl" <<'SH'
-#!/bin/sh
-shift $(( $# - 1 ))
-case "$1" in
-  kernel.unprivileged_userns_clone) echo 1 ;;
-  user.max_user_namespaces) echo 2059994 ;;
-  kernel.apparmor_restrict_unprivileged_userns) echo 1 ;;
-  *) exit 1 ;;
-esac
-SH
-  cat > "$workdir/bin/unshare" <<'SH'
-#!/bin/sh
-echo "unshare: unshare failed: Operation not permitted" >&2
-exit 1
-SH
-  chmod +x "$workdir/bin/sysctl" "$workdir/bin/unshare"
-  ec=0; output=$(PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
-  assert_exit_code "AD6c: default workspace-write sandbox blocks when unusable" "$ec" 1
-  assert_output_contains "AD6d: reports worker shell smoke" "$output" '"check": "codex:worker-shell"'
-  assert_output_contains "AD6e: bwrap failure is surfaced" "$output" "bwrap:"
-  assert_output_contains "AD6f: enabled sysctl points at outer runtime/LSM denial" "$output" "outer runtime/LSM"
-  assert_output_contains "AD6f2: apparmor restriction is named" "$output" "apparmor_restrict_unprivileged_userns=1"
-  assert_output_not_contains "AD6f3: remedy never suggests the already-enabled sysctl" "$output" "set kernel.unprivileged_userns_clone=1"
-  assert_output_not_contains "AD6f4: remedy never suggests weakening the writer boundary" "$output" "danger-full-access"
-  ec=0; output=$(SAAS_PREFLIGHT_CONTAINER=1 CODEX_SANDBOX=danger-full-access PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
-  assert_exit_code "AD6g: danger sandbox is rejected inside containers" "$ec" 1
-  assert_output_contains "AD6h: danger rejection names isolated writer mode" "$output" "isolated CODEX_SANDBOX=workspace-write"
-  ec=0; output=$(SAAS_PREFLIGHT_CONTAINER=0 CODEX_SANDBOX=danger-full-access PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
-  assert_exit_code "AD6i: danger sandbox outside container also blocks" "$ec" 1
-  assert_output_contains "AD6j: danger rejection is invariant" "$output" "danger-full-access are not valid writer modes"
-  ec=0; output=$(CODEX_SANDBOX=read-only PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
-  assert_exit_code "AD6k: read-only worker sandbox blocks" "$ec" 1
-  assert_output_contains "AD6l: read-only rejection names writer isolation" "$output" "read-only and danger-full-access"
+  : > "$workdir/codex-calls.log"
+  ec=0; output=$(CODEX_CALL_LOG="$workdir/codex-calls.log" \
+    CODEX_SANDBOX=stale-restricted-setting PATH="$workdir/bin:$PATH" \
+    bash "$health" --json --require-codex --repo-root "$workdir" \
+      --plugin-root "$workdir/plugin" 2>&1) || ec=$?
+  assert_exit_code "AD6c: authenticated unrestricted Codex passes preflight" "$ec" 0
+  assert_output_contains "AD6d: reports unrestricted worker readiness" "$output" \
+    'Codex authentication and unrestricted worker mode are available'
+  assert_file_contains "AD6e: preflight inspects exec capability" \
+    "$workdir/codex-calls.log" '^exec --help$'
+  assert_file_contains "AD6f: preflight checks Codex authentication" \
+    "$workdir/codex-calls.log" '^login status$'
+
+  : > "$workdir/codex-calls.log"
+  ec=0; output=$(CODEX_CALL_LOG="$workdir/codex-calls.log" FAKE_CODEX_BYPASS=0 \
+    PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex \
+      --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
+  assert_exit_code "AD6g: missing unrestricted capability blocks preflight" "$ec" 1
+  assert_output_contains "AD6h: missing capability names the required flag" "$output" \
+    'lacks --dangerously-bypass-approvals-and-sandbox'
+  assert_file_not_contains "AD6i: capability failure skips auth" \
+    "$workdir/codex-calls.log" 'login status'
+
+  : > "$workdir/codex-calls.log"
+  ec=0; output=$(CODEX_CALL_LOG="$workdir/codex-calls.log" FAKE_CODEX_AUTH_OK=0 \
+    PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex \
+      --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
+  assert_exit_code "AD6j: unavailable Codex authentication blocks preflight" "$ec" 1
+  assert_output_contains "AD6k: authentication failure is explicit" "$output" \
+    'Codex authentication is unavailable: Not logged in'
   rm -rf "$workdir"
 
   workdir=$(mktemp -d)

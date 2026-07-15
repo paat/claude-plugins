@@ -204,60 +204,10 @@ EFFORT=${!effort_var:-$default_effort}
 [[ "$MODEL" =~ ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$ ]] || { echo "codex-run-role: invalid model override" >&2; exit 2; }
 case "$EFFORT" in low|medium|high|xhigh|max) : ;; *) echo "codex-run-role: invalid effort override" >&2; exit 2 ;; esac
 
-case "$ROLE" in
-  delivery-supervisor) ROLE_ACCESS=supervisor ;;
-  growth-hacker|lawyer|ux-tester|incident-investigator|session-replay|support-triage)
-    ROLE_ACCESS=artifact-writer ;;
-  *triage*|*review*|qa|qa-*|*-qa|*-qa-*) ROLE_ACCESS=read-only ;;
-  business-founder|business-founder-*) ROLE_ACCESS=artifact-writer ;;
-  tech-founder|tech-founder-*) ROLE_ACCESS=source-writer ;;
-  *) ROLE_ACCESS=read-only ;;
-esac
-
-requested_sandbox=${CODEX_SANDBOX:-}
-case "$ROLE_ACCESS" in
-  read-only)
-    [ -z "$requested_sandbox" ] || [ "$requested_sandbox" = read-only ] || {
-      echo "codex-run-role: role $ROLE requires the read-only sandbox" >&2; exit 2; }
-    SANDBOX=read-only
-    ;;
-  source-writer|artifact-writer)
-    [ -z "$requested_sandbox" ] || [ "$requested_sandbox" = workspace-write ] || {
-      echo "codex-run-role: writer role $ROLE requires the workspace-write sandbox" >&2; exit 2; }
-    SANDBOX=workspace-write
-    ;;
-  *) SANDBOX=${requested_sandbox:-workspace-write} ;;
-esac
-case "$SANDBOX" in read-only|workspace-write|danger-full-access) : ;; *) echo "codex-run-role: invalid CODEX_SANDBOX" >&2; exit 2 ;; esac
-
-if [ "$ROLE_ACCESS" = source-writer ] && [ "$SANDBOX" = workspace-write ]; then
-  [ "${SAAS_CODEX_NETWORK_ACCESS:-off}" = off ] || {
-    echo "codex-run-role: source writers require network-off workspace isolation" >&2
-    exit 2
-  }
-  NETWORK_ACCESS=off
-else
-  NETWORK_ACCESS=${SAAS_CODEX_NETWORK_ACCESS:-default}
-fi
+# Every AI worker is unrestricted; the dev container is the security boundary.
+# Legacy sandbox/network environment variables are intentionally ignored.
 CODEX_CONFIG_ARGS=()
-CODEX_SANDBOX_ARGS=(-s "$SANDBOX")
-NETWORK_OFF_PROFILE=0
-case "$NETWORK_ACCESS" in
-  default) : ;;
-  off)
-    [ "$SANDBOX" = workspace-write ] || {
-      echo "codex-run-role: network-off mode requires workspace-write sandbox" >&2; exit 2; }
-    NETWORK_OFF_PROFILE=1
-    CODEX_SANDBOX_ARGS=()
-    CODEX_CONFIG_ARGS=(
-      -c 'default_permissions="saas-network-off"'
-      -c 'permissions.saas-network-off.extends=":workspace"'
-      -c 'permissions.saas-network-off.network.enabled=true'
-      -c 'permissions.saas-network-off.network.mode="limited"'
-    )
-    ;;
-  *) echo "codex-run-role: invalid SAAS_CODEX_NETWORK_ACCESS" >&2; exit 2 ;;
-esac
+CODEX_SANDBOX_ARGS=(--dangerously-bypass-approvals-and-sandbox)
 ISOLATED_CONFIG=${SAAS_CODEX_ISOLATED_CONFIG:-1}
 CODEX_GLOBAL_ARGS=()
 case "$ISOLATED_CONFIG" in
@@ -269,10 +219,6 @@ case "$ISOLATED_CONFIG" in
       --disable computer_use --disable in_app_browser --disable standalone_web_search
       --disable enable_mcp_apps --disable image_generation
     )
-    if [ "$NETWORK_OFF_PROFILE" -eq 1 ]; then
-      CODEX_GLOBAL_ARGS+=(--enable network_proxy)
-      CODEX_CONFIG_ARGS+=(-c 'web_search="disabled"')
-    fi
     CODEX_CONFIG_ARGS+=(
       -c 'mcp_servers={}'
       -c 'shell_environment_policy.inherit="core"'

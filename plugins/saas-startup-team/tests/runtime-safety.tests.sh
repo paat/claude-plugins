@@ -2433,8 +2433,16 @@ SH
   script="$PLUGIN_ROOT/scripts/workflow-probe.sh"
   assert_file_not_contains "RS36: probe never launches Claude" "$script" 'claude -p'
   assert_file_not_contains "RS37: probe never launches Codex" "$script" 'codex exec'
-  assert_file_not_contains "RS37a: probe never invokes the restricted writer smoke" \
+  assert_file_not_contains "RS37a: probe never invokes the obsolete sandbox checker" \
     "$script" 'codex-sandbox-check.sh'
+  assert_file_not_exists "RS37b: obsolete Codex worker sandbox checker is removed" \
+    "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh"
+  assert_file_contains "RS37c: every separate Codex role uses unrestricted mode" \
+    "$PLUGIN_ROOT/scripts/codex-run-role.sh" 'CODEX_SANDBOX_ARGS=(--dangerously-bypass-approvals-and-sandbox)'
+  assert_file_not_contains "RS37d: legacy maintain adapter cannot narrow Codex workers" \
+    "$PLUGIN_ROOT/scripts/maintain-attempt.sh" 'CODEX_SANDBOX='
+  assert_file_not_contains "RS37e: standard evaluation cannot narrow its AI worker" \
+    "$PLUGIN_ROOT/scripts/standard-medium-eval.sh" 'SAAS_CODEX_NETWORK_ACCESS='
   workdir=$(make_workdir); mkdir -p "$workdir/bin"
   cat > "$workdir/bin/gh" <<'SH'
 #!/usr/bin/env bash

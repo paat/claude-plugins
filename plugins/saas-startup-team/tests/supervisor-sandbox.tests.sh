@@ -9,7 +9,6 @@ test_supervisor_sandbox() {
   local script="$PLUGIN_ROOT/scripts/supervisor-check-container.sh"
   local digest_script="$PLUGIN_ROOT/scripts/runtime-tree-digest.py"
   local commit_script="$PLUGIN_ROOT/scripts/supervisor-commit.sh"
-  local smoke_script="$PLUGIN_ROOT/scripts/codex-sandbox-check.sh"
   local workdir root runtime fake log ec out meta digest
   local image="sha256:1111111111111111111111111111111111111111111111111111111111111111"
 
@@ -17,9 +16,7 @@ test_supervisor_sandbox() {
   assert_file_exists "SS2: runtime digest helper exists" "$digest_script"
   assert_file_contains "SS2a: trust snapshot bounds Docker metadata discovery" "$commit_script" \
     'timeout -k 5 30 "$path" --metadata'
-  assert_file_contains "SS2b: preflight bounds Docker metadata discovery" "$smoke_script" \
-    'timeout "$TIMEOUT" "$SUPERVISOR_DRIVER" --metadata'
-  assert_equals "SS2c: every trusted Docker metadata read is bounded" \
+  assert_equals "SS2b: every trusted Docker metadata read is bounded" \
     "$(grep -Fc 'timeout -k 5 30 ' "$commit_script")" 2
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
   if [ -x "$script" ] && [ -x "$digest_script" ]; then

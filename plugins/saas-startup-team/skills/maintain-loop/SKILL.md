@@ -14,7 +14,7 @@ Source command: `../../commands/maintain-loop.md`
 
 1. Treat the user text after the command name as `$ARGUMENTS`.
 2. Read the source command file before executing. It is the workflow checklist after applying the Codex replacements in this skill.
-3. Execute only as a thin coordinator using fresh Codex subagents. Never run the delegated maintain pass in the current session.
+3. Execute only as a thin coordinator using fresh Codex subagents. Never run the delegated maintain pass in the current session. Require a collaboration-capable, non-ephemeral coordinator session so each spawned child returns a stable identity.
 4. Do not create user-local `~/.codex/prompts` wrappers. This skill is the reusable plugin-bundled workflow surface.
 5. When the source command says `Skill('plugin:skill')`, load the named plugin skill normally.
 6. When the source command references `${CLAUDE_PLUGIN_ROOT}/path`, resolve it to this installed plugin root and use `path` under that root. Do not require the environment variable to exist.

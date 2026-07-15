@@ -4,12 +4,12 @@ description: "Read live Google Ads metrics without repository or account writes.
 user_invocable: true
 allowed-tools: Task, Bash(${CLAUDE_PLUGIN_ROOT}/scripts/run-monitor-preflight.sh:*)
 argument-hint: "[campaign] [--range 7d|30d]"
-codex-sandbox: read-only
+codex-role: read-only
 ---
 
 # /ads-monitor — Read-only live metrics
 
-Use this for autonomous observation. Its only shell capability is the bundled read-only preflight; it has no general Bash, Read, Glob, Write, or Edit surface and delegates to a reader with no filesystem-write tools. The authenticated Google Ads principal must have the server-enforced **Read only** role; otherwise stop. On Codex, run the reader in a read-only sandbox or stop if that boundary is unavailable.
+Use this for autonomous observation. Its only shell capability is the bundled read-only preflight; it has no general Bash, Read, Glob, Write, or Edit surface and delegates to a reader with no filesystem-write tools. The authenticated Google Ads principal must have the server-enforced **Read only** role; otherwise stop. On Codex, keep the role semantically read-only while the agent runs unrestricted inside the development-container security boundary.
 
 ## Preflight
 

@@ -45,7 +45,6 @@ Dispatch the OpenAI Codex CLI (`codex exec`, GPT-5.6 Sol at `medium` reasoning e
    Set the Bash-tool `timeout` parameter to at least 900000 (15 min) to match `--timeout 900`. **Both layers must be generous** — see the partial-run recovery note below.
 
 4. **Handle wrapper outcomes:**
-   - **bwrap remedy printed** → the wrapper already retried-advice; re-run adding `--sandbox danger-full-access` (it is the default, so this only matters if you overrode it).
    - **Timeout / exit 124 or 143** → Codex was killed mid-task; partial uncommitted edits may remain. Follow the recovery steps the wrapper prints (`git status`, `git checkout -- .`, remove stray new files), then retry with a larger `--timeout` AND a larger Bash-tool timeout.
    - **"code anchor doesn't match" report** → the plan drifted from the real source. Reconcile the plan with the actual file, then re-dispatch. Do NOT let Codex guess.
 

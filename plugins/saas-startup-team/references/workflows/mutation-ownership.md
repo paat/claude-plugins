@@ -51,9 +51,9 @@ best-effort cleanup.
 - QA allows only its exact review artifact. It reads product code but never edits it.
 - The supervisor alone writes state, checks, commits, refs, GitHub state, and deploy
   records.
-- Writer checks are focused feedback, not the authoritative gate. If a check needs a
-  host PID/proc view that the writer sandbox cannot provide, report it for the
-  supervisor gate; do not deselect or weaken the regression.
+- Writer checks are focused feedback, not the authoritative gate. If a focused role
+  environment cannot provide a required host PID/proc view, report it for the supervisor
+  gate; do not deselect or weaken the regression.
 
 ## Trusted commit boundary
 

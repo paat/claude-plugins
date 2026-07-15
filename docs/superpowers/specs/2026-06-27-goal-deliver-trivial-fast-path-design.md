@@ -186,9 +186,9 @@ exists to serve.
 ## Implementation-plan process note
 
 Per the investor's instruction: **each stage of the implementation plan is reviewed
-with Codex before it is locked.** In this container `codex review` fails under
-bwrap, so the review is run as `codex exec -` with the stage (or its diff) piped on
-stdin (prompt + content as a single stream).
+with Codex before it is locked.** The review runs as
+`codex exec --dangerously-bypass-approvals-and-sandbox -` inside the development
+container, with the stage (or its diff) piped on stdin as one stream.
 
 ## Codex spec-review disposition
 
