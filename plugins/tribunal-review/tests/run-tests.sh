@@ -144,6 +144,56 @@ EOF
   rm -rf "$work"
 }
 
+test_claude_tmpdir_cleanup() {
+  local label="Claude auth and review residue stays in the cleaned runner tempdir"
+  local work fake parent_tmp used_tmpdir
+  work="$(mktemp -d)"
+  fake="$work/bin"
+  parent_tmp="$work/parent-tmp"
+  mkdir -p "$fake" "$parent_tmp"
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\t%s\n' "${1:-review}" "${TMPDIR:-}" >> "${CLAUDE_TMPDIR_MARKER:?}"
+: > "${TMPDIR:?}/claude-native-residue.so"
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"fixture"}'
+  exit 0
+fi
+cat >/dev/null
+cat <<'JSON'
+{"result":"{\"provider\":\"claude\",\"model\":\"fixture\",\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10.0,\"verdict\":\"APPROVE\"}}"}
+JSON
+EOF
+  chmod +x "$fake/claude"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    TMPDIR="$parent_tmp" PATH="$fake:$PATH" CLAUDE_TMPDIR_MARKER="$work/tmpdirs" \
+      TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-claude-review.sh" \
+      > "$work/out.json"
+  ) && jq -e '.provider=="claude" and .summary.verdict=="APPROVE"' "$work/out.json" >/dev/null \
+    && [ "$(wc -l < "$work/tmpdirs")" -eq 2 ] \
+    && [ "$(cut -f2 "$work/tmpdirs" | sort -u | wc -l)" -eq 1 ] \
+    && used_tmpdir="$(cut -f2 "$work/tmpdirs" | head -1)" \
+    && [ "$used_tmpdir" != "$parent_tmp" ] \
+    && [ ! -e "$used_tmpdir" ] \
+    && [ -z "$(find "$parent_tmp" -mindepth 1 -print -quit)" ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
 test_codex_pins() {
   local expected_model="$1" expected_effort="$2" overrides="$3" label="$4"
   local work fake
@@ -769,6 +819,7 @@ assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT
 assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and all(.[]; .status==\"disabled\")'"
 test_qwen_envelope_parser
 test_claude_auth_guard
+test_claude_tmpdir_cleanup
 test_codex_pins gpt-5.6-sol medium no "codex defaults pin Sol and medium in argv"
 test_codex_pins test-model high yes "codex model and effort environment overrides stay explicit"
 test_codex_parse_diagnostics

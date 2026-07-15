@@ -5,11 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ "${TRIBUNAL_CLAUDE:-on}" = "off" ]; then tribunal_disabled claude "Claude Code leg disabled via TRIBUNAL_CLAUDE=off"; exit 0; fi
 command -v claude >/dev/null 2>&1 || { tribunal_error claude "Claude CLI not on PATH"; exit 0; }
+TMPDIR="$(mktemp -d)" || exit 1
+export TMPDIR
+trap 'rm -rf "$TMPDIR"' EXIT
 tribunal_claude_authenticated || { tribunal_error claude "Claude CLI is not authenticated"; exit 0; }
 
 BASE_REF="$(tribunal_base_ref)"
-TMPDIR="$(mktemp -d)" || exit 1
-trap 'rm -rf "$TMPDIR"' EXIT
 DIFF_FILE="$TMPDIR/review.diff"
 CONTEXT_FILE="$TMPDIR/context.md"
 REPO_ROOT="$(tribunal_repo_root)"
