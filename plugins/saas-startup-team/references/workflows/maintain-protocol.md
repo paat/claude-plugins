@@ -603,8 +603,11 @@ passes.
   §Browser transport recovery. Local evidence never substitutes for post-deploy live
   verification; an unresolved post-merge live failure is pass-wide.
 - Only after evidence shows that a pre-merge remedy needs external authority may the
-  supervisor remove `maintain:claimed`, record the terminal triage/digest state, write
-  the active cooldown, and return `issue-blocked`. Continue the remaining eligible
+  supervisor record the terminal triage/digest state, write the active cooldown, and
+  return `issue-blocked`. If no open linked PR exists, remove `maintain:claimed`. If
+  exactly one valid resumable PR exists, keep the PR and `maintain:claimed` intact so
+  it re-enters `.resumable` after cooldown. Ambiguous, multiple, or mismatched linked
+  PR identity is `pass-blocked`, not `issue-blocked`. Continue the remaining eligible
   queue; an issue-local blocker must not become the pass status.
 - For bug, monitor, customer, accounting, replay, and incident-class issues, add a
   locking regression test, durable contract test, monitor assertion, invariant/golden

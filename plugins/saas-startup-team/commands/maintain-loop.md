@@ -28,9 +28,9 @@ Repeat sequentially:
    > add exact `--lease-run-id <LEASE_RUN_ID>`. Let
    > `/maintain` own its normal triage, ordering, batching, limits, implementation,
    > QA, tribunal, merge, deployment, live verification, closure, and durable state.
-   > Return issue/PR, merge/deploy/live, one blocker, and pass status.
-   > `issue-blocked` requires removing `maintain:claimed`, recording terminal state,
-   > and persisting an active cooldown. Return `pass-complete` after success or a
+   > Return issue/PR, delivery, blocker, and status.
+   > `issue-blocked` records terminal state and cooldown. Without a resumable PR,
+   > remove `maintain:claimed`; with one, retain it. Return `pass-complete` after success or a
    > per-pass limit, including issue-local blocks; return `pass-blocked` for
    > preflight, lease/state/cleanup, or unresolved live work.
 

@@ -1876,7 +1876,7 @@ test_maintain_loop() {
     'Under `--dry-run`, never mint or reap a lease'
 
   assert_file_contains "ML16g: issue blockers require durable cooldown" "$command" \
-    'persisting an active cooldown'
+    'records terminal state and cooldown'
   assert_file_contains "ML16h: issue blockers return to the probe" "$command" \
     'Otherwise return to step 1'
   assert_file_contains "ML16i: pass-wide or unknown blockers stop" "$command" \
@@ -1889,6 +1889,14 @@ test_maintain_loop() {
   assert_file_contains "ML16l: browser evidence loads the canonical procedure" \
     "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
     'skills/ux-tester/references/design-review-leg.md'
+  assert_file_contains "ML16m: resumable blocker preserves PR claim" "$command" \
+    'with one, retain it'
+  assert_file_contains "ML16n: protocol retains resumable PR ownership" \
+    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
+    'keep the PR and `maintain:claimed` intact'
+  assert_file_contains "ML16o: ambiguous linked PR blocks the pass" \
+    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
+    'identity is `pass-blocked`, not `issue-blocked`'
 
   assert_file_exists "ML17: concise Codex skill exists" "$codex_cmd"
   assert_file_contains "ML18: Codex skill aliases command" "$codex_cmd" "/maintain-loop"

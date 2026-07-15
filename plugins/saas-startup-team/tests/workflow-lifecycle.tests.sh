@@ -68,8 +68,10 @@ test_workflow_lifecycle_safety() {
     "$maintain_protocol" 'use only the project'"'"'s documented'
   assert_file_contains "WL6e: issue-local blockers keep the queue moving" \
     "$maintain_protocol" 'Continue the remaining eligible'
-  assert_file_contains "WL6f: issue-local block removes its active claim" \
-    "$maintain_protocol" 'remove `maintain:claimed`'
+  assert_file_contains "WL6f: pre-PR issue-local block removes its active claim" \
+    "$maintain_protocol" 'If no open linked PR exists, remove `maintain:claimed`'
+  assert_file_contains "WL6f1: resumable issue-local block preserves its claim" \
+    "$maintain_protocol" 'keep the PR and `maintain:claimed` intact'
   assert_file_contains "WL6g: issue-local block records terminal state" \
     "$maintain_protocol" 'record the terminal triage/digest state'
   assert_file_contains "WL6h: shared dev evidence proves its served commit" \
