@@ -10,9 +10,10 @@ The human investor requests a UX audit of the product. You spawn the UX Tester a
 
 **The UX Tester is a one-shot consultant, NOT a loop participant.** It spawns, does its audit, writes to `docs/ux/ux-*.md`, and exits.
 
-## Pre-Flight Checks (HARD FAIL — No Fallbacks)
+## Pre-Flight Checks
 
-Before spawning the UX Tester agent, ALL of the following must pass. If any check fails, stop with an error message and do NOT proceed.
+Before spawning the UX Tester agent, all checks must pass. Diagnose and repair an
+in-scope failed check before stopping.
 
 ### Check 1: Dev server is reachable
 
@@ -22,10 +23,22 @@ The URL comes from command arguments. If no URL provided, try to find it from `d
 curl --max-time 10 -s -o /dev/null -w "%{http_code}" <URL>
 ```
 
-**Must return:** `200` (or `301`/`302` redirect)
+**Must return:** `200` (or `301`/`302` redirect) from the requested target or the
+local replacement below.
 
 **If unreachable:**
-> **Error:** Dev server is not reachable at `<URL>`. Start the dev server before running /ux-test. If the URL is wrong, pass the correct one: `/ux-test http://localhost:PORT`
+
+1. Diagnose the failed service or route. Repair it when the repository or dev
+   container owns the cause.
+2. If the remote URL represents code in this repository, use only its documented setup
+   and start/restart commands for one repair attempt, then inspect bounded startup logs
+   and audit localhost. Use the fetched default-branch SHA for a baseline audit and
+   candidate HEAD after a fix. Do not invent commands or stop after the first `curl`.
+3. Local evidence is valid for an audit and pre-merge QA. It does not prove deployed
+   or live behavior; run that verification against the public URL after deployment.
+
+Stop only when neither target can be made reachable without external authority, and
+report the concrete dependency that must change.
 
 ### Check 2: Startup project exists
 

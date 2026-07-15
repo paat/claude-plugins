@@ -23,16 +23,20 @@ Repeat sequentially:
    a failure.
 2. On exit 0, launch exactly one fresh isolated subagent. Its complete task is:
 
-   > Invoke `/saas-startup-team:maintain --once` with the forwarded flags. Let
+   > Run `/saas-startup-team:maintain --once` to termination with forwarded flags. Let
    > `/maintain` own its normal triage, ordering, batching, limits, implementation,
    > QA, tribunal, merge, deployment, live verification, closure, and durable state.
-   > Do not return until that bounded pass terminates. Return only the issue states,
-   > PR numbers, merge/deploy/live status, and one actionable blocker if present.
+   > Return issue states, PRs, merge/deploy/live status, one blocker, and pass status.
+   > An `issue-blocked` state requires removing `maintain:claimed`, recording terminal
+   > state, and persisting an active cooldown. Return `pass-complete` after success or a
+   > per-pass limit, including handled issue-local blocks; return `pass-blocked` for
+   > preflight, lease/state/cleanup, or unresolved live work.
 
 3. Wait for that subagent to terminate. Never run two passes concurrently, reuse a
    completed subagent, or send it follow-up work. If fresh isolated dispatch is not
    available or its terminal state is unknown, fail closed; never run `/maintain`
    inline as a fallback.
-4. Keep only its compact terminal result. Stop on no-work, blocked, failed, or
-   human-action-required. Under outer `--once` or `--dry-run`, stop after this pass.
-   Otherwise return to step 1 with a new subagent.
+4. Keep only its compact terminal result. Under outer `--once` or `--dry-run`, stop after this pass.
+   Otherwise return to step 1 after `pass-complete`; the probe excludes cooled or
+   parked issues. Stop on outer run limit, no-work, `pass-blocked`, failed
+   dispatch/pass, or unknown scope.

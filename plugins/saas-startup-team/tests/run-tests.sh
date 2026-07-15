@@ -873,6 +873,12 @@ test_cross_file_consistency() {
     "$PLUGIN_ROOT/commands/lawyer.md" '.active_role = "lawyer"'
   assert_file_contains "H14: /ux-test resets active_role" \
     "$PLUGIN_ROOT/commands/ux-test.md" '.active_role = "ux-tester"'
+  assert_file_contains "H14a: /ux-test repairs in-scope target failures" \
+    "$PLUGIN_ROOT/commands/ux-test.md" 'Repair it when the repository or dev'
+  assert_file_contains "H14b: /ux-test can audit the exact revision locally" \
+    "$PLUGIN_ROOT/commands/ux-test.md" 'fetched default-branch SHA for a baseline audit'
+  assert_file_contains "H14c: local UX evidence does not claim live proof" \
+    "$PLUGIN_ROOT/commands/ux-test.md" 'It does not prove deployed'
   assert_file_contains "H15: /growth state update sets active_role" \
     "$PLUGIN_ROOT/commands/growth.md" '"active_role": "business-founder"'
 
@@ -1627,6 +1633,18 @@ test_maintain_loop() {
     '`--once` means launch at most one'
   assert_file_contains "ML16: dry-run is bounded" "$command" \
     'Under outer `--once` or `--dry-run`, stop after this pass'
+
+  assert_file_contains "ML16a: issue blockers require durable cooldown" "$command" \
+    'persisting an active cooldown'
+  assert_file_contains "ML16b: issue blockers return to the probe" "$command" \
+    'Otherwise return to step 1'
+  assert_file_contains "ML16c: pass-wide or unknown blockers stop" "$command" \
+    'or unknown scope'
+  assert_file_contains "ML16d1: per-pass limits continue the loop" "$command" \
+    'Return `pass-complete` after success or a'
+  assert_file_contains "ML16e: unavailable issue targets are diagnostics" \
+    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
+    'unavailable issue-specific dev or test target first as a diagnostic'
 
   assert_file_exists "ML17: concise Codex skill exists" "$codex_cmd"
   assert_file_contains "ML18: Codex skill aliases command" "$codex_cmd" "/maintain-loop"

@@ -60,6 +60,12 @@ test_ui_gate() {
   assert_file_contains "UG10: verdict block contract" "$leg" "## Design-review: PASS|FAIL"
   assert_file_contains "UG11: pre-merge section" "$leg" "## Pre-merge design-review leg"
   assert_file_contains "UG12: post-deploy section" "$leg" "## Post-deploy visual smoke"
+  assert_file_contains "UG12a: baseline audit uses fetched default SHA" "$leg" \
+    'baseline audit use the fetched default-branch SHA'
+  assert_file_contains "UG12b: unproven shared dev is not pre-merge evidence" "$leg" \
+    'shared dev URL is not pre-merge evidence'
+  assert_file_contains "UG12c: post-deploy evidence uses public URL" "$leg" \
+    'deployed public URL'
 
   # merge-policy names the classifier
   assert_file_contains "UG13: merge-policy names ui-touch.sh" "$policy" "scripts/ui-touch.sh"

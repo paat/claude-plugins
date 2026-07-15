@@ -63,6 +63,16 @@ test_workflow_lifecycle_safety() {
   else
     assert_equals "WL6c: maintain-loop coordinator stays within the prompt budget" no yes
   fi
+  assert_file_contains "WL6d: maintain repairs owned test targets before blocking" \
+    "$maintain_protocol" 'use only the project'"'"'s documented'
+  assert_file_contains "WL6e: issue-local blockers keep the queue moving" \
+    "$maintain_protocol" 'Continue the remaining eligible'
+  assert_file_contains "WL6f: issue-local block removes its active claim" \
+    "$maintain_protocol" 'remove `maintain:claimed`'
+  assert_file_contains "WL6g: issue-local block records terminal state" \
+    "$maintain_protocol" 'record the terminal triage/digest state'
+  assert_file_contains "WL6h: shared dev evidence proves its served commit" \
+    "$maintain_protocol" 'served commit is proven'
   assert_file_contains "WL7: maintain lease state is common-worktree scoped" "$maintain_protocol" \
     'MAINTAIN_LEASE_STATE="$GIT_COMMON/'
   assert_file_contains "WL7a: maintain uses compatibility delivery leases" "$maintain_protocol" \
