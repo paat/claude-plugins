@@ -11,8 +11,9 @@ all rollout evidence on the dashboard issue.
       (`jq -r .version plugins/mission-control/.claude-plugin/plugin.json`)
 - [x] [ai-dashboard PR #25](https://github.com/paat/ai-dashboard/pull/25)
       merged
-- [ ] [ai-dashboard cutover #24](https://github.com/paat/ai-dashboard/issues/24)
-      completed; keep every product entry at `hold: true` until then
+- [x] [ai-dashboard #24](https://github.com/paat/ai-dashboard/issues/24)
+      closed as not planned; no safety cutover, delivery hold, or pre-launch
+      soak gates this rollout
 
 ## 1. Plugin upgrade (in the aruannik container)
 
@@ -21,6 +22,8 @@ all rollout evidence on the dashboard issue.
       manual merge-trigger turns are retired by the no-hold-tier policy +
       `templates/merge-policy.md` already in the plugin — no per-project config.
 - [ ] `bash <plugin>/scripts/health-preflight.sh --require-gh --check-sync` green.
+      Do not add `--require-codex`; that option tests a restricted worker profile,
+      while this rollout verifies direct unrestricted Codex separately below.
 - [ ] Verify `SAAS_LESSON_SYNC_ENABLED=true` in the container environment (the
       lesson reach-back channel — epic hard requirement). If unset, set it in the
       container's persistent env (e.g. `/config/.profile` or compose env), then
@@ -44,6 +47,9 @@ project CLAUDE.md:
 - [ ] Drain the CLAUDE.md "Recent (unsorted)" staging block into proper sections
       (or delete items that no longer hold).
 - [ ] Remove any memory that duplicates what the repo/plugin already records.
+- [ ] Remove stale instructions that require a safety cutover, `delivery_hold`,
+      an inner Codex sandbox/approval gate, or a pre-launch soak. Retain one
+      pointer to this unrestricted dev-container/SSH runtime policy.
 
 ## 3. Register in portfolio.json (cron host)
 
@@ -53,9 +59,11 @@ project CLAUDE.md:
       container name + in-container repo path, `incident_labels` matching the
       repo's incident labels.
 - [ ] Set top-level `docker_exec_user: "dev"`, use unrestricted ephemeral
-      Codex, and set both `hold: true` and `delivery_hold: true`.
-- [ ] After cutover #24 completes, change only aruannik to `hold: false`;
-      leave both Slot B projects held.
+      Codex with `--dangerously-bypass-approvals-and-sandbox`, set
+      `hold: false`, and omit `delivery_hold`.
+- [ ] Activate Slot A without waiting for #24 or a soak. From SSH, verify the
+      exact direct command in both a login shell and non-login
+      `docker exec -u dev`; no hold wrapper may appear in the process chain.
 - [ ] Disable the container's own standalone maintain/lessons cron lines —
       mission-control owns dispatch now (double-dispatch races the same locks).
 - [ ] If mission-control delivers the digest, disable aruannik's own
@@ -64,13 +72,13 @@ project CLAUDE.md:
 - [ ] `mission-control.sh arm --config <path>` validates; human installs/updates
       the single cron line (never an agent).
 
-## 4. Acceptance (fresh 72-hour soak)
+## 4. Acceptance (post-launch observation)
 
 - [ ] `tick --dry-run` shows Slot A selecting aruannik; first real passes green
       in `state/mission-control.log`.
-- [ ] >= 72 consecutive hours on the Slot A schedule with human turns limited to
-      digest review + hard-human items (money, legal identity, credentials).
+- [ ] At least one scheduled Slot A pass and its digest complete without human
+      kickoff. Process evidence shows Codex running as `dev` with the bypass
+      flag and no delivery-hold wrapper.
+- [ ] SSH can inspect, interrupt, and recover the scheduler, Codex process, or
+      container without changing the agent runtime policy.
 - [ ] Reconciliation checklist and evidence recorded on ai-dashboard #15.
-- [ ] Post-deploy auto-revert path (#203) exercised once end-to-end on live: a
-      `ui`-classified merge triggered a visual-smoke regression and the
-      `revert/<pr-slug>` rollback restored a green deploy.
