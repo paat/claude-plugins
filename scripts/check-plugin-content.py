@@ -99,10 +99,13 @@ def lint_commands(plugin_dir: Path, errors: list[str]) -> None:
         raw_name = metadata.get("name")
         command_name = slugify(raw_name if isinstance(raw_name, str) else command_path.stem)
         command_name = command_name or command_path.stem
+        raw_skill_name = metadata.get("codex-skill-name")
+        skill_name = slugify(raw_skill_name) if isinstance(raw_skill_name, str) else ""
+        skill_name = skill_name or slugify(f"{plugin_dir.name}-{command_name}-workflow")
         expected_skill = (
             plugin_dir
             / "skills"
-            / slugify(f"{plugin_dir.name}-{command_name}-workflow")
+            / skill_name
             / "SKILL.md"
         )
         if not expected_skill.is_file():

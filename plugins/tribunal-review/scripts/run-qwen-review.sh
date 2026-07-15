@@ -18,7 +18,9 @@ tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
 PROMPT_FILE="$TMPDIR/prompt.md"
 tribunal_review_prompt qwen "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROMPT_FILE"
 
-if printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 qwen --model "${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}" -p "$(cat "$PROMPT_FILE")" --yolo -o json > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt"; then
+rc=0
+printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 qwen --model "${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}" -p "$(cat "$PROMPT_FILE")" --yolo -o json > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
+if [ "$rc" -eq 0 ]; then
   response="$(jq -r '
     if type == "array" then
       (([ .[] | select(.type == "result") | .result // empty ] | last) as $r
@@ -42,10 +44,14 @@ if printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 qwen --model "${TRIBU
       else empty end
     ' "$TMPDIR/out.txt" 2>/dev/null || true)"
     [ -n "$actual_model" ] && json="$(printf '%s' "$json" | jq --arg m "$actual_model" '.model = $m')"
-    printf '%s' "$json" | tribunal_emit_review qwen | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
+    printf '%s' "$json" \
+      | tribunal_emit_review qwen "" "$TMPDIR/out.txt" "$TMPDIR/err.txt" "$rc" \
+      | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
   else
-    tribunal_error qwen "unparseable Qwen output"
+    tribunal_error_with_diagnostics qwen "unparseable Qwen output" parse \
+      "$rc" "$TMPDIR/out.txt" "$TMPDIR/err.txt"
   fi
 else
-  tribunal_error qwen "Qwen execution failed or timed out"
+  tribunal_error_with_diagnostics qwen "Qwen execution failed or timed out" execution \
+    "$rc" "$TMPDIR/out.txt" "$TMPDIR/err.txt"
 fi

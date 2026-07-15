@@ -521,9 +521,9 @@ runs in each **product** repo.
 - Codex or Claude Code. Codex runs the command-style workflows as plugin-bundled skills and does not require Claude Code.
 - Playwright MCP (`@playwright/mcp`) — automatically configured via plugin `.mcp.json`, runs headless
 - Web access enabled (for business founder's market research)
-- **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. Separate Codex writers are still confined to isolated, network-off `workspace-write`; the container is an additional boundary, not permission to use `danger-full-access`. Hooks also use `/proc/` for process-tree detection. Do not run it on a host machine.
+- **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. Launch the primary Codex session in full unrestricted (`danger-full-access`) mode; the container is its security boundary. Delegated workers may use narrower sandboxes where the workflow requires them. Hooks also use `/proc/` for process-tree detection.
 - **`jq`, `awk`, `sed`, `curl`, OpenSSL, GNU coreutils (`timeout`, `realpath`, `readlink`, `stat`, `sha256sum`),
-  `flock`, `unshare`, and `setpriv` (util-linux), GNU findutils, and `python3`** — required by hook scripts,
+  `flock`, `unshare`, and `setpriv` (util-linux), GNU findutils, `python3`, and Node.js** — required by hook scripts,
   JSON validation, monitor/lawyer workflows, preflight checks, Codex marketplace sync, and
   datalake API checks.
 - **Linux Landlock ABI 5–10** — required for fail-closed filesystem containment of tracked QA and live-proof commands.

@@ -16,6 +16,8 @@ untrustworthy. Never skip needed work to save tokens — cut waste, not scope.
 
 ### Runtime — how plugins behave on target projects
 
+- Plugins are intended to run inside development containers with the AI coding
+  agent in full unrestricted ("YOLO") mode; the container is the security boundary
 - Every command, skill, and agent prompt must instruct its agents to be
   token-frugal: read only what the task needs, use targeted ranges instead of
   full-file dumps, never re-read content already in context

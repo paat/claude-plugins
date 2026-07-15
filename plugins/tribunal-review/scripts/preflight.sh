@@ -40,15 +40,15 @@ add_warning() {
   warnings_json="$(printf '%s' "$warnings_json" | jq --arg n "$1" --arg note "$2" '. + [{name:$n,note:$note}]')"
 }
 
-if [ "${TRIBUNAL_CODEX:-on}" = "off" ]; then add_provider codex disabled "TRIBUNAL_CODEX=off"; elif command -v codex >/dev/null 2>&1; then add_provider codex usable ""; else add_provider codex skipped "CLI not on PATH"; fi
-if [ "${TRIBUNAL_GEMINI:-off}" = "on" ]; then if command -v gemini >/dev/null 2>&1; then add_provider gemini usable ""; else add_provider gemini skipped "CLI not on PATH"; fi; else add_provider gemini disabled "default off"; fi
-if [ "${TRIBUNAL_QWEN:-off}" = "on" ]; then if command -v qwen >/dev/null 2>&1; then add_provider qwen usable ""; else add_provider qwen skipped "CLI not on PATH"; fi; else add_provider qwen disabled "default off"; fi
+if [ "${TRIBUNAL_CODEX:-on}" = "off" ]; then add_provider codex disabled "TRIBUNAL_CODEX=off"; elif command -v codex >/dev/null 2>&1; then add_provider codex usable "CLI present; non-interactive invocation not probed"; else add_provider codex skipped "CLI not on PATH"; fi
+if [ "${TRIBUNAL_GEMINI:-off}" = "on" ]; then if command -v gemini >/dev/null 2>&1; then add_provider gemini usable "CLI present; non-interactive invocation not probed"; else add_provider gemini skipped "CLI not on PATH"; fi; else add_provider gemini disabled "default off"; fi
+if [ "${TRIBUNAL_QWEN:-off}" = "on" ]; then if command -v qwen >/dev/null 2>&1; then add_provider qwen usable "CLI present; non-interactive invocation not probed"; else add_provider qwen skipped "CLI not on PATH"; fi; else add_provider qwen disabled "default off"; fi
 if [ "${TRIBUNAL_CLAUDE:-on}" = "off" ]; then
   add_provider claude disabled "TRIBUNAL_CLAUDE=off"
 elif ! command -v claude >/dev/null 2>&1; then
   add_provider claude skipped "CLI not on PATH"
 elif tribunal_claude_authenticated; then
-  add_provider claude usable ""
+  add_provider claude usable "CLI authenticated; non-interactive invocation not probed"
 else
   add_provider claude skipped "CLI not authenticated"
 fi
@@ -58,12 +58,12 @@ if [ "${TRIBUNAL_GLM:-off}" = "on" ] || [ "${TRIBUNAL_DEEPSEEK:-on}" = "on" ]; t
     opencode models >/dev/null 2>&1 || true
     models="$(opencode models 2>/dev/null || true)"
     if [ "${TRIBUNAL_GLM:-off}" = "on" ]; then
-      printf '%s\n' "$models" | grep -qxF "${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.1}" && add_provider glm usable "" || add_provider glm skipped "OpenCode model not in registry"
+      printf '%s\n' "$models" | grep -qxF "${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.1}" && add_provider glm usable "model registered; non-interactive invocation not probed" || add_provider glm skipped "OpenCode model not in registry"
     else
       add_provider glm disabled "default off"
     fi
     if [ "${TRIBUNAL_DEEPSEEK:-on}" = "on" ]; then
-      printf '%s\n' "$models" | grep -qxF "${TRIBUNAL_DEEPSEEK_MODEL:-opencode-go/deepseek-v4-pro}" && add_provider deepseek usable "" || add_provider deepseek skipped "OpenCode model not in registry"
+      printf '%s\n' "$models" | grep -qxF "${TRIBUNAL_DEEPSEEK_MODEL:-opencode-go/deepseek-v4-pro}" && add_provider deepseek usable "model registered; non-interactive invocation not probed" || add_provider deepseek skipped "OpenCode model not in registry"
     else
       add_provider deepseek disabled "TRIBUNAL_DEEPSEEK=off"
     fi

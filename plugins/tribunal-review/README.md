@@ -53,7 +53,12 @@ artifacts, statuses, and timestamps. The delivery controller retains the
 manifest digest. After inline arbitration, its `finalize` phase rechecks live PR
 drift and every retained digest, validates the exact finding/arbitration schema,
 and emits a `tribunal-proof/v1` digest. Provider artifacts supplied by a caller
-are never merge authority.
+are never merge authority. Failed provider artifacts retain the failure phase,
+exit code, byte counts, and truncation flags. Set `TRIBUNAL_DIAGNOSTIC_TAILS=on`
+only for local troubleshooting to add printable-ASCII 2 KiB stdout/stderr tails;
+tails are omitted by default because provider errors can contain credentials.
+Preflight `usable` status confirms discovery/authentication only; it does not
+claim that a non-interactive reviewer invocation has succeeded.
 
 Controllers can pin the installed runner bundle with one digest:
 
@@ -117,6 +122,7 @@ and Qwen stay **off** until you opt in (`TRIBUNAL_GEMINI=on` / `TRIBUNAL_GLM=on`
 | `DASHSCOPE_API_KEY` | _(unset)_ | Qwen DashScope credential (primary transport). The Qwen Code CLI also accepts `OPENAI_API_KEY`+`OPENAI_BASE_URL` (OpenAI-compatible) or `OPENROUTER_API_KEY` (`qwen/...` ids), or a credential stored via `~/.qwen/settings.json`. |
 | `TRIBUNAL_CLAUDE` | `on` | Set to `off` to skip the Claude diff-only leg. **On by default**; when off the arbiter reports Claude as `disabled`, not failed. Only the literal `off` disables. |
 | `TRIBUNAL_CLAUDE_MODEL` | `sonnet` | Model passed to `claude -p --model` for the diff-only leg. Accepts an alias (`sonnet`, `haiku`, `opus`) or a full id (e.g. `claude-sonnet-5`). |
+| `TRIBUNAL_DIAGNOSTIC_TAILS` | `off` | Set to `on` only for local troubleshooting to include printable-ASCII 2 KiB stdout/stderr tails in failed provider artifacts. Phase, exit code, byte counts, and truncation remain available when tails are omitted. Tails may contain sensitive provider output. |
 | `TRIBUNAL_SCOPE_LENS` | `off` | Set to `on` to add the minimal-diff scope-control lens. The arbiter reports unrelated file changes, opportunistic refactors, unnecessary abstractions, and unrelated churn in a separate `scope_findings` section. |
 | `TRIBUNAL_CALLER_PROVIDER` | _(unset)_ | Optional informational identity for the inline calling context. It does not select or spawn an arbiter. |
 | `TRIBUNAL_CALLER_MODEL` | _(unset)_ | Optional caller model metadata. Standalone runs may leave it unset. |

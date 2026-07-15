@@ -144,6 +144,56 @@ EOF
   rm -rf "$work"
 }
 
+test_claude_tmpdir_cleanup() {
+  local label="Claude auth and review residue stays in the cleaned runner tempdir"
+  local work fake parent_tmp used_tmpdir
+  work="$(mktemp -d)"
+  fake="$work/bin"
+  parent_tmp="$work/parent-tmp"
+  mkdir -p "$fake" "$parent_tmp"
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\t%s\n' "${1:-review}" "${TMPDIR:-}" >> "${CLAUDE_TMPDIR_MARKER:?}"
+: > "${TMPDIR:?}/claude-native-residue.so"
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"fixture"}'
+  exit 0
+fi
+cat >/dev/null
+cat <<'JSON'
+{"result":"{\"provider\":\"claude\",\"model\":\"fixture\",\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10.0,\"verdict\":\"APPROVE\"}}"}
+JSON
+EOF
+  chmod +x "$fake/claude"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    TMPDIR="$parent_tmp" PATH="$fake:$PATH" CLAUDE_TMPDIR_MARKER="$work/tmpdirs" \
+      TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-claude-review.sh" \
+      > "$work/out.json"
+  ) && jq -e '.provider=="claude" and .summary.verdict=="APPROVE"' "$work/out.json" >/dev/null \
+    && [ "$(wc -l < "$work/tmpdirs")" -eq 2 ] \
+    && [ "$(cut -f2 "$work/tmpdirs" | sort -u | wc -l)" -eq 1 ] \
+    && used_tmpdir="$(cut -f2 "$work/tmpdirs" | head -1)" \
+    && [ "$used_tmpdir" != "$parent_tmp" ] \
+    && [ ! -e "$used_tmpdir" ] \
+    && [ -z "$(find "$parent_tmp" -mindepth 1 -print -quit)" ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
 test_codex_pins() {
   local expected_model="$1" expected_effort="$2" overrides="$3" label="$4"
   local work fake
@@ -188,6 +238,96 @@ EOF
       END { exit !(model_seen && effort_seen && read_only_seen && isolated_seen && mcp_disabled) }
     ' "$work/codex.args"
   then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
+test_codex_parse_diagnostics() {
+  local label="exit-zero malformed Codex output retains bounded diagnostics" work fake
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  cat > "$fake/codex" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+printf 'codex-prefix-'
+head -c 4096 /dev/zero | tr '\0' x
+printf '%s\n' '-codex-tail-marker'
+printf '%s\n' 'codex-stderr-marker' >&2
+EOF
+  chmod +x "$fake/codex"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    PATH="$fake:$PATH" TRIBUNAL_DIAGNOSTIC_TAILS=on TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
+  ) && jq -e '
+      .provider == "codex"
+      and (.error | contains("unparseable codex output"))
+      and (.error | contains("phase=parse; exit=0"))
+      and (.error | contains("stdout_truncated=true"))
+      and (.error | contains("codex-tail-marker"))
+      and (.error | contains("codex-stderr-marker"))
+      and ((.error | length) < 5000)
+    ' "$work/out.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
+test_claude_execution_diagnostics() {
+  local label="immediate Claude failure retains safe diagnostics by default" work fake
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"fixture"}'
+  exit 0
+fi
+cat >/dev/null
+printf '%s\n' 'claude-partial-output API_KEY=fixture-secret-value'
+printf '%s\n' 'claude-immediate-failure bearer fixture-secret-token' >&2
+exit 7
+EOF
+  chmod +x "$fake/claude"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-claude-review.sh" > "$work/out.json"
+  ) && jq -e '
+      .provider == "claude"
+      and (.error | contains("Claude execution failed or timed out"))
+      and (.error | contains("phase=execution; exit=7"))
+      and (.error | contains("stdout_bytes="))
+      and (.error | contains("stderr_bytes="))
+      and (.error | contains("stdout_truncated=false"))
+      and (.error | contains("stderr_truncated=false"))
+      and (.error | contains("[omitted; set TRIBUNAL_DIAGNOSTIC_TAILS=on]"))
+      and (.error | contains("fixture-secret-value") | not)
+      and (.error | contains("fixture-secret-token") | not)
+    ' "$work/out.json" >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
@@ -333,6 +473,8 @@ test_trusted_evidence_collection() {
 #!/usr/bin/env bash
 if [ "${FIXTURE_CODEX_MODE:-ok}" = malformed ]; then
   printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},"caller_owned":true}'
+elif [ "${FIXTURE_CODEX_MODE:-ok}" = diagnostic ]; then
+  printf '%s\n' '{"provider":"claude","error":"unparseable codex output: no review JSON object found; phase=parse; exit=0; stdout_bytes=12; stdout_truncated=false; stdout_tail=omitted; stderr_bytes=0; stderr_truncated=false; stderr_tail=omitted"}'
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = finding ]; then
   printf '%s\n' '{"provider":"claude","model":"fixture","findings":[{"severity":"medium","category":"logic","file":"app.txt","line":1,"title":"Fixture finding","description":"A concrete fixture defect.","suggestion":"Apply the fixture fix.","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"}}'
 else
@@ -552,6 +694,18 @@ EOF
     echo -e "  ${GREEN}PASS${NC} no successful provider cannot approve"; PASS=$((PASS+1))
   fi
 
+  FIXTURE_CODEX_MODE=diagnostic PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 --output "$work/diagnostic" > "$work/diagnostic.json"
+  if jq -e '.provider=="codex" and (.error | contains("phase=parse; exit=0"))' \
+      "$work/diagnostic/providers/codex.json" >/dev/null \
+    && PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+      "$plugin/scripts/collect-review-evidence.sh" verify-collection --collection "$work/diagnostic" \
+        --expected-manifest-sha256 "$(jq -r .manifest_sha256 "$work/diagnostic.json")" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} aggregate evidence retains provider diagnostics"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} aggregate evidence retains provider diagnostics"; FAIL=$((FAIL+1)); FAILURES+=("aggregate diagnostics")
+  fi
+
   FIXTURE_CODEX_MODE=finding PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
     "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 --output "$work/finding" > "$work/finding.json"
   cat > "$work/finding-arbitration.json" <<'EOF'
@@ -617,7 +771,7 @@ do
   assert_bash_n "$script parses" "$script"
 done
 assert_file "static runner bundle manifest exists" "integrity/runner-bundle.json"
-assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.19.5\"'"
+assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.19.8\"'"
 assert_json_field "static runner bundle is current" "bash '$PLUGIN_ROOT/scripts/generate-runner-bundle.sh' --check"
 
 echo "Skill is orchestration-focused:"
@@ -643,6 +797,7 @@ assert_grep "tracks active reviewer legs" "$PF" "zero active reviewer legs"
 assert_grep "warms OpenCode model registry" "$PF" "opencode models"
 assert_grep "Claude auth probe is bounded" "$LIB" "timeout -k 1 10 claude auth status --json"
 assert_grep "preflight checks Claude auth" "$PF" "tribunal_claude_authenticated"
+assert_grep "preflight discloses invocation limitation" "$PF" "non-interactive invocation not probed"
 assert_no_grep "skill has no hardcoded origin/main" "$SK" "origin/main"
 assert_no_grep "lib has no hardcoded origin/main" "$LIB" "origin/main"
 
@@ -664,8 +819,11 @@ assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT
 assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and all(.[]; .status==\"disabled\")'"
 test_qwen_envelope_parser
 test_claude_auth_guard
+test_claude_tmpdir_cleanup
 test_codex_pins gpt-5.6-sol medium no "codex defaults pin Sol and medium in argv"
 test_codex_pins test-model high yes "codex model and effort environment overrides stay explicit"
+test_codex_parse_diagnostics
+test_claude_execution_diagnostics
 test_codex_vacuous_guard BLOCK 0.0 "codex vacuous empty-BLOCK downgraded to leg error"
 test_codex_vacuous_guard NEEDS_WORK 7.5 "codex vacuous empty-NEEDS_WORK (nonzero quality) downgraded to leg error"
 test_codex_vacuous_guard " BLOCK " 0.0 "codex vacuous verdict tolerates surrounding whitespace"
