@@ -41,7 +41,10 @@ t "malformed paused: no dispatch" bash -c "bash '$MC' tick --config '$TD/portfol
 
 # arm rejects a non-boolean paused.
 mkenv '.paused = "yes"'
-t "arm rejects string paused"  bash -c "! bash '$MC' arm --config '$TD/portfolio.json'"
+arm_rc=0
+bash "$MC" arm --config "$TD/portfolio.json" >"$TD/arm.out" 2>&1 || arm_rc=$?
+t "arm rejects string paused with exit 2" test "$arm_rc" -eq 2
+t "arm rejection names paused field" grep -Fq '.paused must be true or false' "$TD/arm.out"
 mkenv '.paused = false'
 t "arm accepts boolean paused" bash "$MC" arm --config "$TD/portfolio.json"
 

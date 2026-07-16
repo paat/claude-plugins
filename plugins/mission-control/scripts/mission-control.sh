@@ -382,7 +382,7 @@ cmd_arm() {
   if [ -n "$bad" ]; then echo "mission-control: delivery_hold must be boolean on project(s): $bad" >&2; exit 2; fi
   case "$(cfg '.paused // false')" in
     true|false) ;;
-    *) echo "config error: .paused must be true or false" >&2; exit 1 ;;
+    *) echo "config error: .paused must be true or false" >&2; exit 2 ;;
   esac
   bad="$(jq -r '.projects[] | select((.delivery_hold // false) and .container == "local") | .name' "$MC_CONFIG")"
   if [ -n "$bad" ]; then echo "mission-control: delivery_hold requires a container on project(s): $bad" >&2; exit 2; fi

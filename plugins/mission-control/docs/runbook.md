@@ -50,8 +50,9 @@ the cron line — you do, once.
 11. **Custom digest sections.** Set the optional top-level
     `"digest_sections_dir": "<abs dir>"` to a host directory of `*.md` files.
     Every file in it (lexicographic order) must start with a `## ` heading;
-    each is appended verbatim as its own section in the daily digest, and
-    the same sections lead the push notification. Useful for steering memos
+    each is appended verbatim as its own section in the daily digest. Push
+    notifications put **Needs-human** first when present, then these sections,
+    and truncate the combined body at 3500 bytes. Useful for steering memos
     or other host-authored content that isn't tied to any one project.
 
 # Cross-container handoff bus
