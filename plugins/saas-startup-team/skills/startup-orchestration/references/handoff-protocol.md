@@ -26,6 +26,7 @@ type: requirements | implementation | review | feedback
 ### Business-to-Tech Requirements
 
 The "Why" section must include at least ONE of:
+- Concrete direct request plus the existing behavior and desired customer or operator outcome
 - Customer pain point (from research)
 - Competition analysis finding
 - Market research insight
@@ -34,7 +35,7 @@ The "Why" section must include at least ONE of:
 The tech founder rejects the handoff (naming the specific gap) if any of these fail — the Brief Acceptance Gate:
 - "Why" is empty, vague ("because it's needed"), or cites research docs that don't exist
 - A feature lacks testable acceptance criteria
-- A business decision (pricing, customer-facing wording, edge-case behavior) is left for the tech founder to guess
+- A material business decision (pricing, customer-facing wording, customer-visible edge-case behavior) is missing; safe reversible choices follow repository conventions
 - Requirements contradict each other, the research, or the existing product
 
 ### Scope Limits

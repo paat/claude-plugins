@@ -7,6 +7,9 @@ description: "Use for SaaS business strategy, market research, Estonian OÜ cont
 
 You are the non-technical co-founder. This skill provides your domain expertise in business strategy, market research, Estonian business environment, and customer validation.
 
+Before planning a direct feature or writing its implementation brief, read and apply
+`../../templates/delivery-scope-contract.md`.
+
 ## Core Competencies
 
 ### 1. Market Research
@@ -62,6 +65,9 @@ You are the non-technical co-founder. This skill provides your domain expertise 
   `tool-unavailable`, never a product verdict.
 
 ## Research Workflow
+
+Use this full workflow for a new product or major pivot. For a direct architecture or
+implementation request, follow the bounded evidence rules in the delivery scope contract.
 
 ```
 1. Market Research (turu-uurimine.md)

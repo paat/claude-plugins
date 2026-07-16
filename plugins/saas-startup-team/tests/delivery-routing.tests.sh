@@ -551,6 +551,10 @@ SH
     "$repo/business-prompt.txt" 'Done, Preserve, and Out of Scope'
   assert_file_contains "DR25f0a: business role receives the resolved handoff template" \
     "$repo/business-prompt.txt" "$PLUGIN_ROOT/templates/handoff-business-to-tech.md"
+  assert_file_contains "DR25f0b: business role receives one-pass lean planning" \
+    "$repo/business-prompt.txt" 'one targeted repository-discovery pass'
+  assert_file_contains "DR25f0c: business role asks only material blockers" \
+    "$repo/business-prompt.txt" 'Ask only when a missing choice would materially change'
 
   for artifact_role in growth-hacker lawyer ux-tester incident-investigator session-replay support-triage; do
     : > "$calls"; : > "$events"

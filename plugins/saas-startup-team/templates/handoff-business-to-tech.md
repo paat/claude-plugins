@@ -12,12 +12,10 @@ One paragraph overview of what is needed. **Max 2 features per handoff** — if 
 
 ## Why (Business Justification)
 
-Why this matters to the customer and the business. Include:
-- Customer pain point this addresses
-- Competition analysis (what competitors do/don't do)
-- International benchmarks (what solutions in other countries do differently)
-- Market research findings
-- Revenue impact
+Why this matters to the customer, operator, or business. For a direct feature, ground the
+outcome in the concrete request and existing repository behavior. For work originating in
+product discovery, include the relevant customer pain, competition, market, international,
+or revenue evidence; do not require unrelated research sections.
 
 ## What's Needed
 
@@ -60,9 +58,9 @@ Triggered gates to apply if relevant:
 
 Any constraints discovered during research (API limitations, legal requirements, etc.)
 
-## Research References
+## Research References (if used)
 
-Links to working documents in `docs/`:
+Links to relevant working documents in `docs/`:
 - Market research: `docs/research/turu-uurimine.md`
 - Customer feedback: `docs/research/kliendi-tagasiside.md`
 - Competition analysis: `docs/research/konkurentsianaluus.md`

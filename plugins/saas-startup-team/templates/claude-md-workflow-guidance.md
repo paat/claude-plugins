@@ -22,6 +22,14 @@
 - Bug fixes, styling changes, copy updates on a shipped product
 - Changes that don't need market research or new feature design
 
+### Lean direct-feature planning
+
+For a concrete architecture or implementation request, read and apply the plugin's
+`${CLAUDE_PLUGIN_ROOT}/templates/delivery-scope-contract.md` before expanding into business, legal, growth, or
+market research. Use one targeted repository-discovery pass, infer safe choices from
+existing conventions, and add a specialist only for an evidence gap that can materially
+change `Done`.
+
 ### Either way:
 - Save research findings to `docs/` (not ad-hoc locations)
 - Check relevant `docs/` before making design decisions

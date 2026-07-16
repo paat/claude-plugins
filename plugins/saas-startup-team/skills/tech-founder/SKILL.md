@@ -127,10 +127,13 @@ If a durable guard is genuinely impossible, do not silently close the issue: spl
 ```
 1. READ handoff document completely
 2. BRIEF ACCEPTANCE GATE — verify all four, else STOP and message the business
-   founder naming the specific gaps (do NOT fill them with assumptions):
-   a. "Why" explains the customer need AND cites research docs that exist
+   founder naming the specific material gaps (do not invent material decisions):
+   a. "Why" explains the need; a concrete direct request plus repository behavior is
+      sufficient evidence and does not require a new research document, while
+      discovery-originated work cites the relevant existing research docs
    b. Each feature has testable acceptance criteria, not aspirations
-   c. No business decision is left to guess (pricing, wording, edge-case behavior)
+   c. Safe, reversible choices follow repository conventions; no material business
+      decision is invented (pricing, wording, customer-visible edge-case behavior)
    d. Requirements are consistent with each other and the existing product
 3. REVIEW existing code — what's already built?
 4. PLAN architecture — what approach serves the customer best?

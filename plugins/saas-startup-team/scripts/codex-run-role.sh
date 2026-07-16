@@ -415,7 +415,13 @@ case "$ROLE" in
   business-founder|business-founder-*)
     MUTATION_RULES='You may write only business/product briefs and proposed workflow-spec deltas in the task-designated artifact locations. Never modify product source, tests, or the canonical workflow-spec registry. Do not commit, push, create or edit pull requests, merge, deploy, or roll back.'
     HANDOFF_TEMPLATE="$(cd "$SCRIPT_DIR/../templates" && pwd -P)/handoff-business-to-tech.md"
-    SCOPE_RULES="When writing a tech implementation brief, follow ${HANDOFF_TEMPLATE} and explicitly fill Done, Preserve, and Out of Scope without inventing missing requirements."
+    SCOPE_CONTRACT="$SCRIPT_DIR/../templates/delivery-scope-contract.md"
+    [ -r "$SCOPE_CONTRACT" ] || {
+      echo "codex-run-role: delivery scope contract is not readable" >&2
+      exit 4
+    }
+    SCOPE_RULES="$(cat "$SCOPE_CONTRACT")
+When writing a tech implementation brief, follow ${HANDOFF_TEMPLATE} and explicitly fill Done, Preserve, and Out of Scope without inventing missing requirements."
     ;;
   tech-founder|tech-founder-*)
     MUTATION_RULES='You are the source writer for this task and may modify only the required product source, tests, and canonical workflow-spec registry. Do not write business-founder verdicts. Do not commit, push, create or edit pull requests, merge, deploy, or roll back. Leave working-tree changes for the supervisor, which owns deterministic checks and the gated commit path.'

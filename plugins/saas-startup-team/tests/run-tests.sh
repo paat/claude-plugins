@@ -387,6 +387,51 @@ test_templates() {
   assert_file_contains "D10n: quality gate distinguishes unrelated failures" \
     "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" \
     "Report unrelated or pre-existing failures as blockers"
+  assert_file_exists "D10o: lean planning golden eval exists" \
+    "$tmpl_dir/lean-planning-golden.md"
+  assert_file_contains "D10o1: lean eval is a scheduled-report feature" \
+    "$tmpl_dir/lean-planning-golden.md" "weekly internal operations report"
+  assert_file_contains "D10o2: lean eval requires reuse-first planning" \
+    "$tmpl_dir/lean-planning-golden.md" "Reuse the existing scheduled-job ritual"
+  assert_file_contains "D10o3: lean eval needs no mandatory questions" \
+    "$tmpl_dir/lean-planning-golden.md" "No mandatory user questions are needed"
+  assert_file_contains "D10p: shared scope defines direct feature planning" \
+    "$tmpl_dir/delivery-scope-contract.md" "## Direct Feature Planning"
+  assert_file_contains "D10p1: shared scope defaults to one discovery pass" \
+    "$tmpl_dir/delivery-scope-contract.md" "one targeted repository-discovery pass"
+  assert_file_contains "D10p2: shared scope asks only material blockers" \
+    "$tmpl_dir/delivery-scope-contract.md" "Ask only when a missing choice would materially change"
+  assert_file_contains "D10p3: shared scope requires reuse before new machinery" \
+    "$tmpl_dir/delivery-scope-contract.md" "scheduler, delivery framework, evidence store, or control plane"
+  assert_file_contains "D10p4: shared scope bounds topic evidence" \
+    "$tmpl_dir/delivery-scope-contract.md" "not a product-wide audit"
+  assert_file_contains "D10p5: direct Why does not force new research" \
+    "$tmpl_dir/delivery-scope-contract.md" "do not require a new research artifact"
+  assert_file_contains "D10q: Claude business founder loads shared scope" \
+    "$PLUGIN_ROOT/agents/business-founder.md" "templates/delivery-scope-contract.md"
+  assert_file_contains "D10q1: Claude maintenance founder loads shared scope" \
+    "$PLUGIN_ROOT/agents/business-founder-maintain.md" "templates/delivery-scope-contract.md"
+  assert_file_contains "D10q2: Codex-native business skill loads shared scope" \
+    "$PLUGIN_ROOT/skills/business-founder/SKILL.md" "../../templates/delivery-scope-contract.md"
+  assert_file_contains "D10q3: orchestration scopes direct planning before expansion" \
+    "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" "before role or research expansion"
+  assert_file_contains "D10q4: goal delivery defaults to its primary planner" \
+    "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "Do not dispatch a planning role by default"
+  assert_file_contains "D10q5: improve brief applies scope before research" \
+    "$PLUGIN_ROOT/references/workflows/improve.md" "Before reading product or research docs, read and apply"
+  assert_file_contains "D10q6: project guidance exposes lean direct planning" \
+    "$tmpl_dir/claude-md-workflow-guidance.md" "Lean direct-feature planning"
+  assert_file_contains "D10q7: Claude tech gate accepts direct request evidence" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "does not require a new research document"
+  assert_file_contains "D10q8: maintenance tech gate accepts direct request evidence" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md" "does not require a new research document"
+  assert_file_contains "D10q9: Codex-native tech gate accepts direct request evidence" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "does not require a new research document"
+  assert_file_contains "D10q10: handoff template accepts direct request evidence" \
+    "$tmpl_dir/handoff-business-to-tech.md" "For a direct feature"
+  assert_file_contains "D10q11: handoff protocol accepts direct request evidence" \
+    "$PLUGIN_ROOT/skills/startup-orchestration/references/handoff-protocol.md" \
+    "Concrete direct request plus the existing behavior"
 
   # D11-D15: handoff-tech-to-business.md
   assert_file_exists "D11: handoff-tech-to-business.md exists" "$tmpl_dir/handoff-tech-to-business.md"

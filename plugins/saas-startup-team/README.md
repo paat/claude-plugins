@@ -45,6 +45,14 @@ The human user is a **silent investor** — they describe a SaaS idea and watch 
 
 The founders iterate through structured file-based handoffs until the business founder declares the product ready for customers.
 
+### Lean direct-feature planning
+
+Concrete architecture and implementation requests apply the shared delivery scope before
+research expansion: one targeted repository pass, repository-conventional defaults, and
+specialist input only for an evidence gap that can materially change `Done`. New products
+and major pivots retain the full founder research loop. The lean path preserves all
+triggered production, privacy, correctness, regression, and deployment gates.
+
 ## Architecture
 
 ```

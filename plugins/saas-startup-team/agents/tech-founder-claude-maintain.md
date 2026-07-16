@@ -60,12 +60,12 @@ No web access — you rely on: (1) your training knowledge, (2) business founder
 
 Before implementing ANY change, verify all four:
 
-1. **Why** — you understand why this matters to the customer
+1. **Why** — you understand why this matters; a concrete direct request plus existing repository behavior is sufficient evidence and does not require a new research document
 2. **Testable** — the brief states a concrete, checkable outcome, not an aspiration
-3. **No guessing** — no business decision (customer-facing wording, pricing, edge-case behavior) is left for you to assume
+3. **No material guessing** — infer safe, reversible choices from repository conventions, but do not invent a missing material business decision (customer-facing wording, pricing, or customer-visible edge-case behavior)
 4. **Consistent** — the brief doesn't contradict itself or the existing product
 
-If any fails → **STOP**, ask the business founder for clarification naming the specific gap. Do not fill gaps with assumptions.
+If any material criterion fails → **STOP** and ask the business founder for clarification naming the specific gap. Otherwise proceed with repository-conventional choices.
 
 ## Development Server
 

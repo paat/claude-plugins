@@ -226,16 +226,20 @@ Break the work into **PR-sized chunks** — each a coherent unit that produces o
 PR (the `/improve` sweet spot, ~15–30 min of implementation). Order them so any
 chunk's dependencies merge first; note which chunks depend on which.
 
-Recommended (not mandatory): run a **business founder** role phase to draft the chunk
-plan against `docs/business/brief.md`, `docs/research/`, and `docs/legal/`, and
-to **push back** (citing docs) on anything that conflicts with legal/strategy.
-Then run a **tech founder** feasibility/dependency-order sanity check. On Claude Code,
-dispatch `subagent_type: "saas-startup-team:business-founder-maintain"` and exactly
-one of `subagent_type: "saas-startup-team:tech-founder-claude-maintain"` or
-`subagent_type: "saas-startup-team:tech-founder-codex-maintain"`. On Codex, do not route to `tech-founder-claude*`; use the
-`tech-founder` skill in the current session or the bundled
-`scripts/codex-run-role.sh` with the classified profile and a task file. You own the
-final chunk list and order — this is judgment, not a script.
+Before planning a direct architecture or implementation request, read and apply
+`${CLAUDE_PLUGIN_ROOT}/templates/delivery-scope-contract.md`. The supervisor is the
+primary planner and makes one targeted repository-discovery pass.
+Do not dispatch a planning role by default. Add exactly one appropriate specialist only when an
+independent business, legal, or technical evidence gap can materially change `Done`;
+do not ask the investor about choices safely inferred from repository conventions.
+
+For a new product or major pivot, a business-founder planning phase followed by a tech
+feasibility check remains available. On Claude Code, use the registered
+`saas-startup-team:business-founder-maintain` and one matching tech-founder maintenance
+agent. On Codex, use the `business-founder` or `tech-founder` skill in the current
+session, or `scripts/codex-run-role.sh` with the classified profile and a task file;
+never route to `tech-founder-claude*`. The supervisor owns the final chunk list and
+dependency order.
 
 Track the chunks with a **TodoWrite list** (in-context) so progress is visible.
 Do not write a state file or build an ordering engine.

@@ -239,6 +239,8 @@ fields null.
 > The investor wants these changes: [investor's instructions]
 > Selected acceptance packs, if any: [pack ids + rendered gates from `scripts/acceptance-packs.sh --render`].
 >
+> Before reading product or research docs, read and apply `${CLAUDE_PLUGIN_ROOT}/templates/delivery-scope-contract.md`. Treat a concrete improvement as direct feature planning: make one targeted repository-discovery pass, infer safe choices from existing conventions, and ask only about a missing choice that materially changes `Done`.
+>
 > Read `docs/architecture/architecture.md` for current stack and service URLs.
 > Read `docs/business/brief.md` for product context.
 > Read `.startup/workflows/registry.md` if it exists. If this improvement changes routes, jobs, states, webhooks, checkout/payment, LLM pipelines, support intake, operator flows, or handoff contracts, describe the proposed workflow-spec delta in the brief; do not edit the specs or registry.

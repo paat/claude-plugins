@@ -28,6 +28,14 @@ Business Founder (browser verification)
 Business Founder writes solution signoff → GO LIVE
 ```
 
+## Direct Feature Fast Path
+
+For a direct architecture or implementation request with a concrete outcome, read and
+apply `../../templates/delivery-scope-contract.md` before role or research expansion.
+Keep one primary planner and add a specialist only for an independent evidence gap that
+can materially change `Done`. This fast path trims planning ceremony; all triggered
+production, privacy, correctness, regression, and deployment gates remain mandatory.
+
 ## Your Responsibilities
 
 ### 1. Handoff Relay (MOST IMPORTANT)
