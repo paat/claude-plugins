@@ -30,7 +30,7 @@ For `saas-startup-team` workflows in Codex:
 
 - Use Codex as the primary and only coding agent.
 - Do not invoke `claude`, `claude-code`, Claude Code, TeamCreate, or Claude subagent workflows.
-- Do not route implementation to `tech-founder-claude` or `tech-founder-claude-maintain`; use the `tech-founder` skill, direct Codex implementation, or the bundled `scripts/codex-run-role.sh` for a separate process.
+- Do not route implementation to `tech-founder-claude` or `tech-founder-claude-maintain`; load the `tech-founder` skill for every current-session architecture or implementation phase, or use the bundled `scripts/codex-run-role.sh` for a separate process.
 - Every separate Codex role launch uses `scripts/codex-run-role.sh` with an explicit semantic profile and `--dangerously-bypass-approvals-and-sandbox`; the dev container is the security boundary. The adapter stays model-neutral; the launcher owns model and effort pinning.
 - Treat business-founder, tech-founder, growth-hacker, lawyer, UX tester, and review loops as Codex role phases backed by `.startup/` files.
 - Keep the file-based handoff protocol intact: every role phase reads the relevant handoff/state files and writes its expected deliverable before the next phase starts.

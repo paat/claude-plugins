@@ -396,15 +396,19 @@ def render_command_skill(
         execution_instruction = (
             "Execute only as a thin coordinator using fresh Codex subagents. Never run the "
             "delegated maintain pass in the current session. Require a collaboration-capable, "
-            "non-ephemeral coordinator session so each spawned child returns a stable identity."
+            "non-ephemeral coordinator session so each spawned child returns a stable identity. "
+            "Require the child to send its parent a compact collaboration message only when "
+            "issue/PR, delivery, blocker, or status changes."
         )
         dispatch_replacement = (
             "Claude `Task` / `Agent` / `TeamCreate` dispatch -> spawn exactly one fresh "
             "Codex subagent and retain its returned identity; wait only after an identity is "
-            "returned. Any spawn error stops `pass-blocked` without waiting or retrying. If "
-            "the thread is missing before one terminal result, stop unknown-terminal without "
-            "reaping; one received terminal result is authoritative and is never polled again. "
-            "Never substitute current-session execution"
+            "returned. Call `wait_agent` with `timeout_ms: 3600000`; never shorten waits to meet "
+            "commentary cadence. After an empty timeout, emit at most one compact hourly "
+            "heartbeat, then wait again. Any spawn error stops `pass-blocked` without waiting "
+            "or retrying. If the thread is missing before one terminal result, stop "
+            "unknown-terminal without reaping; one received terminal result is authoritative "
+            "and is never polled again. Never substitute current-session execution"
         )
     elif plugin_name == "saas-startup-team":
         execution_instruction = (
@@ -531,7 +535,7 @@ def command_plugin_notes(plugin_name: str, command_name: str) -> str:
 
         - Use Codex as the primary and only coding agent.
         - Do not invoke `claude`, `claude-code`, Claude Code, TeamCreate, or Claude subagent workflows.
-        - Do not route implementation to `tech-founder-claude` or `tech-founder-claude-maintain`; use the `tech-founder` skill, direct Codex implementation, or the bundled `scripts/codex-run-role.sh` for a separate process.
+        - Do not route implementation to `tech-founder-claude` or `tech-founder-claude-maintain`; load the `tech-founder` skill for every current-session architecture or implementation phase, or use the bundled `scripts/codex-run-role.sh` for a separate process.
         - Every separate Codex role launch uses `scripts/codex-run-role.sh` with an explicit semantic profile and `--dangerously-bypass-approvals-and-sandbox`; the dev container is the security boundary. The adapter stays model-neutral; the launcher owns model and effort pinning.
         - Treat business-founder, tech-founder, growth-hacker, lawyer, UX tester, and review loops as Codex role phases backed by `.startup/` files.
         - Keep the file-based handoff protocol intact: every role phase reads the relevant handoff/state files and writes its expected deliverable before the next phase starts.

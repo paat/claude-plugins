@@ -353,14 +353,33 @@ test_templates() {
     "$tmpl_dir/handoff-tech-to-business.md" "### Not Addressed"
   assert_file_contains "D10g: Claude build role loads shared scope contract" \
     "$PLUGIN_ROOT/agents/tech-founder-claude.md" "templates/delivery-scope-contract.md"
+  assert_file_contains "D10g1: Claude architecture planning applies shared scope" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "Before architecture planning or implementation"
   assert_file_contains "D10h: Claude maintenance role loads shared scope contract" \
     "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md" "templates/delivery-scope-contract.md"
+  assert_file_contains "D10h1: Claude maintenance planning applies shared scope" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md" "Before architecture planning or implementation"
   assert_file_contains "D10i: Codex-native tech skill loads shared scope contract" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "../../templates/delivery-scope-contract.md"
+  assert_file_contains "D10i1: Codex-native architecture planning applies shared scope" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "Before architecture planning or implementation"
   assert_file_exists "D10j: Codex-native scope contract path resolves" \
     "$PLUGIN_ROOT/skills/tech-founder/../../templates/delivery-scope-contract.md"
   assert_file_contains "D10k: scope stop preserves required handoff" \
     "$tmpl_dir/delivery-scope-contract.md" "complete the required handoff or report, then exit"
+  assert_file_contains "D10k1: shared scope requires a finished solo-founder product" \
+    "$tmpl_dir/delivery-scope-contract.md" "finished production product operated by one founder"
+  assert_file_contains "D10k2: KISS preserves product completeness" \
+    "$tmpl_dir/delivery-scope-contract.md" "KISS trims operational complexity, never product completeness"
+  assert_file_contains "D10k2a: shared scope rejects MVP delivery" \
+    "$tmpl_dir/delivery-scope-contract.md" "never an MVP"
+  assert_file_contains "D10k2b: enterprise exceptions allow preventive controls" \
+    "$tmpl_dir/delivery-scope-contract.md" "concrete documented security, legal, reliability, or operability need"
+  assert_file_contains "D10k3: Codex-native skill applies solo-founder KISS" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "Solo-Founder KISS Rule"
+  assert_file_contains "D10k4: architecture reference keeps solo-operator defaults" \
+    "$PLUGIN_ROOT/skills/tech-founder/references/architecture.md" \
+    "one deployable application, one primary datastore"
   assert_file_contains "D10l: maintenance founder writes explicit brief scope" \
     "$PLUGIN_ROOT/agents/business-founder-maintain.md" '`Done`, `Preserve`, and `Out of Scope`'
   assert_file_contains "D10m: Codex-native founder writes explicit brief scope" \
@@ -1886,6 +1905,10 @@ test_maintain_loop() {
     'launch exactly one fresh isolated subagent'
   assert_file_contains "ML10: passes are sequential" "$command" \
     'Never run two passes concurrently'
+  assert_file_contains "ML10a: coordinator forbids noisy wait polling" "$command" \
+    'empty timeouts are not progress'
+  assert_file_contains "ML10b: empty waits do not produce status noise" "$command" \
+    'never report or immediately retry them'
   assert_file_contains "ML11: completed subagents are not reused" "$command" \
     'completed subagent'
   assert_file_contains "ML12: inline fallback is forbidden" "$command" \
@@ -1949,6 +1972,10 @@ test_maintain_loop() {
     'missing before one terminal result, stop unknown-terminal without reaping'
   assert_file_contains "ML25: Codex requires a durable coordinator session" "$codex_cmd" \
     'collaboration-capable, non-ephemeral'
+  assert_file_contains "ML26: Codex uses one-hour blocking waits" "$codex_cmd" \
+    'wait_agent` with `timeout_ms: 3600000'
+  assert_file_contains "ML27: Codex relays changed-state milestones" "$codex_cmd" \
+    'compact collaboration message only when issue/PR, delivery, blocker, or status changes'
 }
 
 # ---------------------------------------------------------------------------

@@ -233,7 +233,7 @@ Then run a **tech founder** feasibility/dependency-order sanity check. On Claude
 dispatch `subagent_type: "saas-startup-team:business-founder-maintain"` and exactly
 one of `subagent_type: "saas-startup-team:tech-founder-claude-maintain"` or
 `subagent_type: "saas-startup-team:tech-founder-codex-maintain"`. On Codex, do not route to `tech-founder-claude*`; use the
-`tech-founder` skill, a role phase in the current session, or the bundled
+`tech-founder` skill in the current session or the bundled
 `scripts/codex-run-role.sh` with the classified profile and a task file. You own the
 final chunk list and order — this is judgment, not a script.
 

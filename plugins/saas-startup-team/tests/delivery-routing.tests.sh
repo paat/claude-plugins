@@ -30,6 +30,12 @@ test_delivery_routing() {
   assert_file_contains "DR2f: growth handoffs prohibit fixed checkout roots" \
     "$PLUGIN_ROOT/agents/growth-hacker.md" \
     'NEVER.*fixed checkout root such as `/workspace`'
+  assert_file_contains "DR2g: current-session implementation loads tech-founder skill" \
+    "$PLUGIN_ROOT/skills/saas-startup-team-growth-workflow/SKILL.md" \
+    'load the `tech-founder` skill for every current-session architecture or implementation phase'
+  assert_file_not_contains "DR2h: startup orchestration has no direct implementation bypass" \
+    "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" \
+    'skill or direct Codex implementation'
   assert_equals "DR3: routing schema probe" "$(bash "$route" schema-version | jq -r .schema_version)" "1"
 
   wd=$(mktemp -d)
@@ -528,6 +534,8 @@ SH
     "$repo/tech-prompt.txt" 'under `Not Addressed`; do not investigate or fix it'
   assert_file_contains "DR25c3: tech role stops instead of recursively auditing" \
     "$repo/tech-prompt.txt" 'Do not begin a general or recursive audit'
+  assert_file_contains "DR25c4: tech role receives solo-founder production scope" \
+    "$repo/tech-prompt.txt" 'finished production product operated by one founder, never an MVP'
 
   : > "$calls"; : > "$events"
   (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_PROMPT="$repo/supervisor-prompt.txt" SAAS_AGENT_EVENTS_FILE="$events" \
@@ -802,6 +810,8 @@ PY
   assert_file_contains "DR48: maintain-loop preserves attempt escalation evidence" "$refs/maintain-loop-protocol.md" 'issue-<N>-attempt-<A>.json'
   assert_file_contains "DR49: startup routes handoffs semantically" "$PLUGIN_ROOT/commands/startup.md" 'delivery-route.sh classify --mode autonomous'
   assert_file_contains "DR50: lessons uses supervisor-owned commit gate" "$PLUGIN_ROOT/commands/lessons-deliver.md" 'scripts/supervisor-commit.sh'
+  assert_file_contains "DR50a: lessons current-session implementation loads tech-founder skill" \
+    "$PLUGIN_ROOT/commands/lessons-deliver.md" 'load and use the `tech-founder` skill'
 }
 
 test_delivery_routing

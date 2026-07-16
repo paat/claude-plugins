@@ -28,6 +28,9 @@ untrustworthy. Never skip needed work to save tokens — cut waste, not scope.
 
 ### Output — the code, PRs, issues, and reports plugins produce
 
+- Follow KISS, YAGNI, and DRY: use the simplest sufficient design, add no
+  speculative capability, and remove meaningful duplication without forcing
+  premature abstractions
 - Diffs touch only what the task requires: no drive-by refactors, no
   speculative abstractions, no defensive boilerplate
 - No comments that restate the code, no prose that restates the diff, no

@@ -1,5 +1,13 @@
 # Architecture Decision Patterns
 
+## Solo-Founder KISS
+
+Ask: **Could one founder still deploy, understand, debug, and recover this alone in six months?** Default to one deployable application, one primary datastore, managed hosting/services, and direct flows.
+
+Unless acceptance criteria or a concrete documented security, legal, reliability, or operability need requires them, do not add microservices or service splits, self-operated brokers, container orchestration, HA/multi-region, SSO/SAML/SCIM, organization or role hierarchies, generic audit/feature-flag/plugin platforms, data warehouses/ETL, dedicated cache/search stores, or heavyweight observability stacks. Measured load and reproduced failures are evidence, not prerequisites for preventive controls.
+
+Production readiness remains non-negotiable: keep required authentication and access control, validation, secrets hygiene, payment and data correctness, backups and recovery, bounded external calls, actionable logs, error capture, critical-workflow alerts, honest loading/error/failure states, and regression gates. A managed background job or queue is appropriate when it is the simplest safe design. A finished product is complete and trustworthy; it does not need enterprise scale.
+
 ## Architecture Decision Record (ADR) Template
 
 When making significant technical decisions, document them in `docs/architecture/architecture.md` using this format:

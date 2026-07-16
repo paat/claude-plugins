@@ -132,7 +132,7 @@ Each pass:
         `subagent_type: "saas-startup-team:tech-founder-claude-maintain"`
         (Claude/Opus; the tribunal supplies the independent/Codex review).
       - **Codex surface:** do not invoke Claude Code or route to `tech-founder-claude*`.
-        Use the `tech-founder` skill or a current-session role phase. A separate worker
+        For a current-session role phase, load and use the `tech-founder` skill. A separate worker
         must use `scripts/codex-run-role.sh --role tech-founder --profile "$PROFILE"`
         with a task file.
 

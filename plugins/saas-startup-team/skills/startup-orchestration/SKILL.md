@@ -68,8 +68,8 @@ strengths (frontend/UX, architecture, or surgical multi-file edits).
   backend, test-heavy, or plumbing work; Claude for work that needs its frontend, architecture,
   or surgical-edit strengths. Spawn the tech founder via the Task/Agent tool, reading
   `agents/tech-founder-codex*.md` or `agents/tech-founder-claude*.md` accordingly.
-- **Codex surface:** run the tech-founder role as a Codex role phase using the `tech-founder`
-  skill or direct Codex implementation. Use `scripts/codex-run-role.sh` (or the
+- **Codex surface:** run the tech-founder role in the current session only after loading
+  the `tech-founder` skill. Use `scripts/codex-run-role.sh` (or the
   `scripts/codex-implement.sh` compatibility wrapper) with an explicit semantic profile
   for a separate worker. Do not invoke Claude Code primitives; the generated Codex workflow
   skill supplies the Codex replacements.
@@ -83,7 +83,7 @@ Codex tech founder then implements from handoff + plan (`codex-implement.sh --pl
 the pass for small fixes, copy changes, and single-file work — the extra hop is pure overhead
 there. This closes the cheap-executor failure mode (ambiguity leaking into implementation)
 without adding a new role: `active_role` semantics are unchanged. On the **Codex surface**,
-run the same plan-only phase as a Codex role phase (no Claude Code primitives) — the
+run the same plan-only phase with the `tech-founder` skill (no Claude Code primitives) — the
 `NNN-tech-plan.md` contract and the skip conditions are identical.
 
 When extra review is needed, use a review pass or the `tribunal-review` plugin rather than
