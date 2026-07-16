@@ -334,6 +334,11 @@ dispatch() { # <slot> <name> — reserve, take slot lock on an FD, spawn wrapper
 cmd_tick() {
   exec 8>>"$MC_STATE_DIR/tick.lock"
   flock -n 8 || exit 0                       # overlapping ticks impossible
+  case "$(cfg '.paused // false')" in
+    false) ;;
+    true)  log "paused: tick skipped"; exit 0 ;;
+    *)     log "config error: .paused must be boolean — refusing to dispatch"; exit 0 ;;
+  esac
   local d; d="$(today)"
   if [ "$DRY_RUN" != 1 ] && [ "$(state_get '.date // ""')" != "$d" ]; then
     state_set '.date = $d' --arg d "$d"      # scheduler-owned; pool counters roll in governor_reserve
@@ -375,6 +380,10 @@ cmd_arm() {
   if [ -n "$bad" ]; then echo "mission-control: project names must match ^[A-Za-z0-9_-]+$: $bad" >&2; exit 2; fi
   bad="$(jq -r '.projects[] | select(has("delivery_hold") and (.delivery_hold | type) != "boolean") | .name' "$MC_CONFIG")"
   if [ -n "$bad" ]; then echo "mission-control: delivery_hold must be boolean on project(s): $bad" >&2; exit 2; fi
+  case "$(cfg '.paused // false')" in
+    true|false) ;;
+    *) echo "config error: .paused must be true or false" >&2; exit 1 ;;
+  esac
   bad="$(jq -r '.projects[] | select((.delivery_hold // false) and .container == "local") | .name' "$MC_CONFIG")"
   if [ -n "$bad" ]; then echo "mission-control: delivery_hold requires a container on project(s): $bad" >&2; exit 2; fi
   bad="$(jq -r '[ (.admission.wip_cap // 1), (.admission.veto_hours // 72),

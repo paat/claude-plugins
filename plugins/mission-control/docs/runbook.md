@@ -41,6 +41,18 @@ the cron line — you do, once.
    summary. When mission-control owns a project's digest delivery, disable
    that project's own digest send wiring (monitor-nightly) — two senders
    race the mark-sent cursor and double-deliver.
+10. **Kill switch.** Set top-level `"paused": true` in the portfolio config to
+    stop all dispatching at the next tick — the tick exits immediately after
+    taking the lock, with no dispatch and no digest. Set it back to `false`
+    to resume. `arm` rejects any non-boolean value; at tick time a malformed
+    value also fails closed (skips dispatch and logs a config error) rather
+    than dispatching.
+11. **Custom digest sections.** Set the optional top-level
+    `"digest_sections_dir": "<abs dir>"` to a host directory of `*.md` files.
+    Every file in it (lexicographic order) must start with a `## ` heading;
+    each is appended verbatim as its own section in the daily digest, and
+    the same sections lead the push notification. Useful for steering memos
+    or other host-authored content that isn't tied to any one project.
 
 # Cross-container handoff bus
 

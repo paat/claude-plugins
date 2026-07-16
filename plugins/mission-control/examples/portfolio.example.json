@@ -1,5 +1,6 @@
 {
   "timezone": "Europe/Tallinn",
+  "paused": false,
   "docker_cmd": "sudo docker",
   "docker_exec_user": "dev",
   "notify_env": "MC_NTFY_URL",

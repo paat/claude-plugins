@@ -163,6 +163,19 @@ _orphans_mark() { # stale dispatch log, no outcome json, slot free, >120min old
   done
 }
 
+_digest_extra_sections() {
+  # Optional .digest_sections_dir: every *.md file (sorted) is appended
+  # verbatim as digest sections; files are expected to start with "## ".
+  local secdir sf
+  secdir="$(cfg '.digest_sections_dir // ""')"
+  [ -n "$secdir" ] && [ -d "$secdir" ] || return 0
+  for sf in "$secdir"/*.md; do
+    [ -f "$sf" ] || continue
+    cat "$sf"
+    echo
+  done
+}
+
 _warnings_section() { # prints warning lines (or nothing)
   jq -r --arg now "$(now)" '
     ((.projects // {}) | to_entries[] | select((.value.probe_failures // 0) >= 3)
@@ -230,6 +243,7 @@ governor_daily() {
         run_in "$c" "$rp" "$(_digest_snippet)" 120 || echo "_digest unavailable for ${n}_"
       fi
     done < <(jq -r '.projects[].name' "$MC_CONFIG")
+    _digest_extra_sections
     echo; echo "## Mission control warnings"
     local w; w="$(_warnings_section)"
     if [ -n "$w" ]; then printf '%s\n' "$w"; else echo "_None._"; fi
@@ -239,7 +253,8 @@ governor_daily() {
 
   local var; var="$(cfg '.notify_env // empty')"
   if [ -n "$var" ]; then
-    { awk '/^## Needs-human/{f=1;print;next} /^## /{f=0} f' "$out"
+    { _digest_extra_sections
+      awk '/^## Needs-human/{f=1;print;next} /^## /{f=0} f' "$out"
       awk '/^## Mission control warnings/,/^## Spend/' "$out" | grep -v '^## Spend'
       awk '/^## Spend & pass summary/,0' "$out"
     } | head -c 3500 | bash "$SCRIPT_DIR/notify.sh" "$var" "mission-control digest $d" || true
