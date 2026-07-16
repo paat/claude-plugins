@@ -2590,20 +2590,20 @@ case "$1" in
   *) exit 1 ;;
 esac
 SH
-  cat > "$workdir/bin/unshare" <<'SH'
+  cat > "$workdir/bin/python3" <<'SH'
 #!/bin/sh
-echo "unshare: unshare failed: Operation not permitted" >&2
+echo "ptrace: Operation not permitted" >&2
 exit 1
 SH
-  chmod +x "$workdir/bin/gh" "$workdir/bin/codex" "$workdir/bin/sysctl" "$workdir/bin/unshare"
+  chmod +x "$workdir/bin/gh" "$workdir/bin/codex" "$workdir/bin/sysctl" "$workdir/bin/python3"
   ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
   assert_exit_code "RS51: denied lifecycle containment still blocks maintain" "$ec" 4
   assert_output_contains "RS51a: lifecycle containment failure is actionable" "$out" \
-    "user and PID namespaces are required"
+    "Linux ptrace support is required"
   assert_file_not_exists "RS51b: maintain probe never invokes Codex" "$codex_calls"
   ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain --dry-run 2>&1) || ec=$?
   assert_exit_code "RS51e: read-only dry-run planning pass is not blocked" "$ec" 0
-  printf '%s\n' '#!/bin/sh' 'exit 0' > "$workdir/bin/unshare"
+  rm -f "$workdir/bin/python3"
   ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" SAAS_PREFLIGHT_MISSING=codex GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
   assert_exit_code "RS51h: maintain without a Codex CLI launches as before" "$ec" 0
   assert_file_not_exists "RS51h1: maintain still never invokes Codex" "$codex_calls"

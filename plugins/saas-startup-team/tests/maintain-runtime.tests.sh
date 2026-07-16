@@ -17,8 +17,8 @@ test_maintain_runtime() {
   local elapsed escaped_pid real_mv real_jq worktree_key lease_jq_bin
   local escape_ready escape_sentinel escape_helper detach_helper
   local kill_ready kill_sentinel outer_pid outer_start
-  local namespace_pid namespace_start member_start foreground_pid foreground_start
-  local outer_state namespace_state member_state foreground_state
+  local root_pid root_start member_start foreground_pid foreground_start
+  local outer_state root_state member_state foreground_state
   local race_bin race_count race_entered race_release race_ready race_sentinel
   local race_child race_start real_setpriv
   local legacy_lock_bin real_flock legacy_ready legacy_release legacy_takeover_ready
@@ -373,17 +373,17 @@ SH
   assert_exit_code "MR15dac: explicit issue ignores unrelated stale-label cleanup" "$ec" 3
   assert_output_not_contains "MR15dad: filtered probe never reports another issue" "$out" '99'
   rm -rf "$linked/.startup"
-  printf '%s\n' '#!/usr/bin/env bash' 'echo "unshare denied" >&2' 'exit 1' \
-    > "$repo/probe-bin/unshare"
-  chmod +x "$repo/probe-bin/unshare"
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "ptrace denied" >&2' 'exit 1' \
+    > "$repo/probe-bin/python3"
+  chmod +x "$repo/probe-bin/python3"
   ec=0
   out=$(cd "$linked" && PATH="$repo/probe-bin:$PATH" SAAS_PREFLIGHT_MISSING=codex \
     GH_ISSUES_JSON='[{"number":44,"updatedAt":"2026-01-01T00:00:00Z","labels":[]}]' \
     bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" maintain 2>&1) || ec=$?
   assert_exit_code "MR15da: model-free probe blocks denied worker containment" "$ec" 4
   assert_output_contains "MR15db: containment block is actionable" "$out" \
-    'user and PID namespaces are required'
-  rm -f "$repo/probe-bin/unshare"
+    'Linux ptrace support is required'
+  rm -f "$repo/probe-bin/python3"
   owner="$lease_dir/.owners/probe-active.owner"
   bash "$single" --acquire maintain-delivery:pass --state-dir "$lease_dir" --owner-file "$owner" >/dev/null
   ec=0
@@ -908,14 +908,14 @@ SH
   ec=0
   bash "$guardian" probe >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR27e: containment capability probe succeeds" "$ec" 0
-  printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$fake_bin/unshare"
-  chmod +x "$fake_bin/unshare"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$fake_bin/python3"
+  chmod +x "$fake_bin/python3"
   ec=0; out=""
   out=$(PATH="$fake_bin:$PATH" bash "$guardian" probe 2>&1) || ec=$?
-  assert_exit_code "MR27f: containment probe fails closed when namespaces are denied" "$ec" 1
+  assert_exit_code "MR27f: containment probe fails closed when ptrace is denied" "$ec" 1
   assert_output_contains "MR27g: failed probe explains the required capability" "$out" \
-    "user and PID namespaces are required"
-  rm -f "$fake_bin/unshare"
+    "Linux ptrace support is required"
+  rm -f "$fake_bin/python3"
   printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$fake_bin/setpriv"
   chmod +x "$fake_bin/setpriv"
   ec=0; out=""
@@ -924,6 +924,12 @@ SH
   assert_output_contains "MR27i: failed setpriv probe explains parent-death requirement" \
     "$out" "parent-death signaling"
   rm -f "$fake_bin/setpriv"
+  ec=0; out=""
+  out=$(bash "$guardian" hold --lease-at "$lease_dir" cancel:test "$owner" \
+    --interval-seconds 1 --max-seconds 10 -- \
+    bash -lc 'ps aux >/dev/null; printf procps-ok' 2>&1) || ec=$?
+  assert_exit_code "MR27j: procps runs inside the lease holder" "$ec" 0
+  assert_output_contains "MR27k: procps holder reaches the command" "$out" "procps-ok"
   ready="$repo/lock-ready"; release="$repo/lock-release"; marker="$repo/child-launched"
   mkfifo "$release"
   bash -c 'exec 9<"$1"; flock -x 9; : > "$2"; read -r _ < "$3"' _ \
@@ -957,14 +963,29 @@ SH
   holder=$!; ec=0; wait "$holder" || ec=$?
   assert_exit_code "MR32: guardian enforces maximum child lifetime" "$ec" 1
   assert_file_exists "MR33: lifetime expiry terminates the child" "$signal_marker"
-  signal_marker="$repo/fire-and-forget-stopped"; descendant="$repo/descendant-pid"
+  signal_marker="$repo/fire-and-forget-stopped"; ready="$repo/fire-and-forget-ready"
+  descendant="$repo/descendant-pid"
   ec=0
   bash "$guardian" hold --lease-at "$lease_dir" cancel:test "$owner" \
     --interval-seconds 1 --max-seconds 10 -- \
-    bash -c 'bash -c '\''trap ": > \"$1\"; exit 0" TERM; while :; do sleep 1; done'\'' \
-      _ "$1" & printf "%s\n" "$!" > "$2"' _ "$signal_marker" "$descendant" || ec=$?
+    bash -c 'bash -c '\''trap ": > \"$1\"; exit 0" TERM; : > "$2"; \
+      while :; do sleep 1; done'\'' _ "$1" "$2" & printf "%s\n" "$!" > "$3"; \
+      while [ ! -e "$2" ]; do sleep 0.01; done' \
+      _ "$signal_marker" "$ready" "$descendant" || ec=$?
   assert_exit_code "MR34: foreground child status survives descendant cleanup" "$ec" 0
   assert_file_exists "MR35: fire-and-forget descendant is terminated" "$signal_marker"
+
+  ready="$repo/fork-active-ready"; escape_sentinel="$repo/fork-active-survived"
+  ec=0
+  bash "$guardian" hold --lease-at "$lease_dir" cancel:test "$owner" \
+    --interval-seconds 1 --max-seconds 10 -- \
+    bash -c 'bash -c '\''trap "" TERM; : > "$1"; deadline=$((SECONDS + 3)); \
+      while [ "$SECONDS" -lt "$deadline" ]; do (:); done; : > "$2"'\'' \
+      _ "$1" "$2" & while [ ! -e "$1" ]; do sleep 0.01; done' \
+      _ "$ready" "$escape_sentinel" || ec=$?
+  assert_exit_code "MR35a: fork-active descendant cleanup preserves foreground status" "$ec" 0
+  assert_file_not_exists "MR35b: cleanup deadline escalates during continuous fork events" \
+    "$escape_sentinel"
 
   signal_marker="$repo/new-session-stopped"; descendant="$repo/new-session-pid"
   ec=0
@@ -1045,32 +1066,32 @@ SH
       "$kill_sentinel" "$marker" >/dev/null 2>&1 &
   holder=$!
   for _ in {1..200}; do [ ! -e "$kill_ready" ] || break; sleep 0.01; done
-  assert_file_exists "MR38d: SIGKILL fixture enters the private PID namespace" "$kill_ready"
+  assert_file_exists "MR38d: SIGKILL fixture enters the traced process tree" "$kill_ready"
   outer_pid=""; read -r outer_pid _ < "/proc/$holder/task/$holder/children" \
     || [ -n "$outer_pid" ]
-  namespace_pid=""; read -r namespace_pid _ < "/proc/$outer_pid/task/$outer_pid/children" \
-    || [ -n "$namespace_pid" ]
+  root_pid=""; read -r root_pid _ < "/proc/$outer_pid/task/$outer_pid/children" \
+    || [ -n "$root_pid" ]
   escaped_pid=$(cat "$descendant")
   foreground_pid=$(cat "$marker")
   outer_start=$(awk '{print $22}' "/proc/$outer_pid/stat")
-  namespace_start=$(awk '{print $22}' "/proc/$namespace_pid/stat")
+  root_start=$(awk '{print $22}' "/proc/$root_pid/stat")
   member_start=$(awk '{print $22}' "/proc/$escaped_pid/stat")
   foreground_start=$(awk '{print $22}' "/proc/$foreground_pid/stat")
   out=$(tr '\0' ' ' < "/proc/$outer_pid/cmdline")
-  assert_output_contains "MR38e: guardian child is the outer unshare boundary" "$out" \
-    "unshare"
+  assert_output_contains "MR38e: guardian child is the ptrace boundary" "$out" \
+    "trace-containment.py"
   kill -KILL "$holder"
   ec=0; wait "$holder" 2>/dev/null || ec=$?
   assert_exit_code "MR38f: SIGKILL terminates the guardian" "$ec" 137
   for _ in {1..200}; do
     outer_state=$(awk '{print $3 ":" $22}' "/proc/$outer_pid/stat" 2>/dev/null || true)
-    namespace_state=$(awk '{print $3 ":" $22}' "/proc/$namespace_pid/stat" 2>/dev/null || true)
+    root_state=$(awk '{print $3 ":" $22}' "/proc/$root_pid/stat" 2>/dev/null || true)
     member_state=$(awk '{print $3 ":" $22}' "/proc/$escaped_pid/stat" 2>/dev/null || true)
     foreground_state=$(awk '{print $3 ":" $22}' "/proc/$foreground_pid/stat" 2>/dev/null || true)
     { [ -z "$outer_state" ] || [ "$outer_state" = "Z:$outer_start" ] \
       || [ "${outer_state#*:}" != "$outer_start" ]; } \
-      && { [ -z "$namespace_state" ] || [ "$namespace_state" = "Z:$namespace_start" ] \
-      || [ "${namespace_state#*:}" != "$namespace_start" ]; } \
+      && { [ -z "$root_state" ] || [ "$root_state" = "Z:$root_start" ] \
+      || [ "${root_state#*:}" != "$root_start" ]; } \
       && { [ -z "$member_state" ] || [ "$member_state" = "Z:$member_start" ] \
       || [ "${member_state#*:}" != "$member_start" ]; } \
       && { [ -z "$foreground_state" ] || [ "$foreground_state" = "Z:$foreground_start" ] \
@@ -1079,19 +1100,19 @@ SH
   done
   if [ -n "$outer_state" ] && [ "$outer_state" != "Z:$outer_start" ] \
     && [ "${outer_state#*:}" = "$outer_start" ]; then
-    assert_equals "MR38g: guardian SIGKILL tears down outer unshare" alive stopped
+    assert_equals "MR38g: guardian SIGKILL tears down the ptrace supervisor" alive stopped
   else
-    assert_equals "MR38g: guardian SIGKILL tears down outer unshare" stopped stopped
+    assert_equals "MR38g: guardian SIGKILL tears down the ptrace supervisor" stopped stopped
   fi
-  if { [ -n "$namespace_state" ] && [ "$namespace_state" != "Z:$namespace_start" ] \
-      && [ "${namespace_state#*:}" = "$namespace_start" ]; } \
+  if { [ -n "$root_state" ] && [ "$root_state" != "Z:$root_start" ] \
+      && [ "${root_state#*:}" = "$root_start" ]; } \
     || { [ -n "$member_state" ] && [ "$member_state" != "Z:$member_start" ] \
       && [ "${member_state#*:}" = "$member_start" ]; } \
     || { [ -n "$foreground_state" ] && [ "$foreground_state" != "Z:$foreground_start" ] \
       && [ "${foreground_state#*:}" = "$foreground_start" ]; }; then
-    assert_equals "MR38h: guardian SIGKILL tears down every namespace member" alive stopped
+    assert_equals "MR38h: guardian SIGKILL tears down every traced member" alive stopped
   else
-    assert_equals "MR38h: guardian SIGKILL tears down every namespace member" stopped stopped
+    assert_equals "MR38h: guardian SIGKILL tears down every traced member" stopped stopped
   fi
   sleep 2
   assert_file_not_exists "MR38i: guardian SIGKILL cannot leave a delayed sentinel" \

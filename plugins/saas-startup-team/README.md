@@ -442,10 +442,16 @@ The supervisor also stops on deploy failure (unrecoverable infra/flaky issues ha
   surface that was not touched.
 - **Single-flight leases:** `scripts/single-flight.sh` owns issue/job/scan/report/deploy
   work units with owner, heartbeat, stale replacement audit notes, and release/status
-  commands. Long-running work is treated as alive when the heartbeat/logs advance.
+  commands. Long-running work is treated as alive when the heartbeat/logs advance. The
+  lease holder uses Linux ptrace to contain detached descendants without changing the
+  command's `/proc` view. This reserves the process's tracer slot, so held commands cannot
+  run ptrace-dependent tools such as `strace`, `gdb`, `rr`, or LeakSanitizer stop-the-world,
+  and stop-signal job control is not preserved. Containment assumes cooperative checks
+  inside the dev-container boundary: raw `CLONE_UNTRACED` can evade tracing, with the
+  retained process-token sweep serving only as a cleanup backstop.
 - **Authenticated `gh` (GitHub CLI)** and standard tooling: `bash` 4+, `git`, `jq`,
   `awk`, `sed`, OpenSSL, GNU coreutils `date`/`timeout`/`realpath`/`sha256sum`, and
-  util-linux `flock`, `unshare`, and `setpriv`, GNU findutils, Python 3, and
+  util-linux `flock` and `setpriv`, GNU findutils, Python 3, and
   `tar`. The fresh Codex delivery gate uses Python
   to seal preinstalled dependency trees before copying them into read-only check volumes.
 - **Codex unrestricted-mode support plus Docker CLI/socket access** from the dev container.
@@ -538,9 +544,11 @@ runs in each **product** repo.
 - Web access enabled (for business founder's market research)
 - **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. Launch the primary Codex session and every delegated Codex worker with `--dangerously-bypass-approvals-and-sandbox`; the container is their security boundary. Hooks also use `/proc/` for process-tree detection.
 - **`jq`, `awk`, `sed`, `curl`, OpenSSL, GNU coreutils (`timeout`, `realpath`, `readlink`, `stat`, `sha256sum`),
-  `flock`, `unshare`, and `setpriv` (util-linux), GNU findutils, `python3`, and Node.js** — required by hook scripts,
+  `flock` and `setpriv` (util-linux), GNU findutils, `python3`, and Node.js** — required by hook scripts,
   JSON validation, monitor/lawyer workflows, preflight checks, Codex marketplace sync, and
   datalake API checks.
+- **Linux ptrace support** — required by the lease holder, subject to the compatibility
+  limits under **Single-flight leases** above.
 - **Linux Landlock ABI 5–10** — required for fail-closed filesystem containment of tracked QA and live-proof commands.
 - **est-saas-datalake API (required for `/lawyer`)** — the Lawyer's Estonian legal analysis and law-change monitoring query an external est-saas-datalake service. Two environment variables control access:
   - `DATALAKE_URL` — API base URL. Defaults to `https://datalake.r-53.com`; export it to point `/lawyer` (command, agent, and `scripts/lawyer-*.sh`) at your own datalake deployment.

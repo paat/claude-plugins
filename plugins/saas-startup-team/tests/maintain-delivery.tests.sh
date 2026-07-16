@@ -730,15 +730,7 @@ HOSTILE_PYTHON
 shift 2
 exec "$@"
 FAKE_SETPRIV
-  cat > "$fake_bin/unshare" <<'FAKE_UNSHARE'
-#!/bin/sh
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = -- ]; then shift; exec "$@"; fi
-  shift
-done
-exit 2
-FAKE_UNSHARE
-  chmod +x "$fake_bin/setpriv" "$fake_bin/unshare"
+  chmod +x "$fake_bin/setpriv"
   ec=0; out=$(PATH="$fake_bin:$PATH" SAAS_PREFLIGHT_MISSING=codex \
     bash "$probe" maintain-loop --root "$repo" --issue 1 2>&1) || ec=$?
   assert_exit_code "MD6b1: post-source receipt launches without Codex" "$ec" 0

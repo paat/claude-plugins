@@ -13,17 +13,22 @@ usage() {
 
 valid_uint() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 
-CONTAINMENT_UNSHARE=""
 CONTAINMENT_SETPRIV=""
 CONTAINMENT_BASH=""
+CONTAINMENT_PYTHON=""
+CONTAINMENT_TRACER="$SCRIPT_DIR/trace-containment.py"
 probe_containment() {
-  CONTAINMENT_UNSHARE=$(command -v unshare 2>/dev/null || true)
   CONTAINMENT_SETPRIV=$(command -v setpriv 2>/dev/null || true)
   CONTAINMENT_BASH=$(command -v bash 2>/dev/null || true)
-  [ -n "$CONTAINMENT_UNSHARE" ] && [ -x "$CONTAINMENT_UNSHARE" ] \
-    && [ -n "$CONTAINMENT_SETPRIV" ] && [ -x "$CONTAINMENT_SETPRIV" ] \
+  CONTAINMENT_PYTHON=$(command -v python3 2>/dev/null || true)
+  [ -n "$CONTAINMENT_SETPRIV" ] && [ -x "$CONTAINMENT_SETPRIV" ] \
     && [ -n "$CONTAINMENT_BASH" ] && [ -x "$CONTAINMENT_BASH" ] || {
-    echo "lease-guardian: util-linux unshare and setpriv, and bash are required for child containment" >&2
+    echo "lease-guardian: util-linux setpriv and bash are required for child containment" >&2
+    return 1
+  }
+  [ -n "$CONTAINMENT_PYTHON" ] && [ -x "$CONTAINMENT_PYTHON" ] \
+    && [ -x "$CONTAINMENT_TRACER" ] || {
+    echo "lease-guardian: Python 3 and trace-containment.py are required for child containment" >&2
     return 1
   }
   if ! "$CONTAINMENT_SETPRIV" --pdeathsig KILL "$CONTAINMENT_BASH" -c '
@@ -31,9 +36,9 @@ probe_containment() {
     shift
     [ "$PPID" = "$expected_parent" ] || exit 125
     exec "$@"
-  ' lease-parent-check "$$" "$CONTAINMENT_UNSHARE" --user --map-current-user \
-    --pid --fork --kill-child=KILL -- "$CONTAINMENT_BASH" -c ':'; then
-    echo "lease-guardian: parent-death signaling and user and PID namespaces are required for child containment" >&2
+  ' lease-parent-check "$$" "$CONTAINMENT_PYTHON" "$CONTAINMENT_TRACER" \
+    "$CONTAINMENT_BASH" -c ':'; then
+    echo "lease-guardian: Linux ptrace support is required; parent-death signaling is also required for child containment" >&2
     return 1
   fi
 }
@@ -58,8 +63,8 @@ stop_child_group() {
 hold_command() {
   local state_dir="" interval=60 max_seconds=14400 started now last_heartbeat child="" child_group="" rc=0 monitor=0 i
   local pending_signal="" pending_status=0 heartbeat_rc=0 containment_token="" cleanup_rc=0
-  local group_verified=0 namespace_verified=0 namespace_init="" namespace_start=""
-  local unshare_bin="" setpriv_bin="" bash_bin="" PROC_STATE="" PROC_PPID="" PROC_PGRP="" PROC_START=""
+  local group_verified=0
+  local setpriv_bin="" bash_bin="" python_bin="" tracer_bin="" PROC_STATE="" PROC_PPID="" PROC_PGRP="" PROC_START=""
   local -a lease_pairs=() lease_triples=() command=()
   local -A tracked_start=()
   while [ "$#" -gt 0 ]; do
@@ -96,7 +101,7 @@ hold_command() {
   read_proc_identity() {
     local pid="$1" line rest
     [ -r "/proc/$pid/stat" ] || return 1
-    IFS= read -r line < "/proc/$pid/stat" || return 1
+    IFS= read -r line 2>/dev/null < "/proc/$pid/stat" || return 1
     rest=${line##*) }
     set -- $rest
     [ "$#" -ge 20 ] || return 1
@@ -112,30 +117,6 @@ hold_command() {
       [ "$entry" != "SAAS_LEASE_GUARDIAN_TOKEN=$containment_token" ] || return 0
     done < "/proc/$pid/environ" 2>/dev/null
     return 1
-  }
-
-  namespace_init_alive() {
-    [ "$namespace_verified" -eq 1 ] && [ -n "$namespace_init" ] \
-      && read_proc_identity "$namespace_init" \
-      && [ "$PROC_START" = "$namespace_start" ] \
-      && [ "$PROC_STATE" != Z ]
-  }
-
-  discover_namespace_init() {
-    local candidate="" extra="" line="" last=""
-    [ -r "/proc/$child/task/$child/children" ] || return 1
-    read -r candidate extra < "/proc/$child/task/$child/children" || [ -n "$candidate" ] \
-      || return 1
-    [[ "$candidate" =~ ^[1-9][0-9]*$ ]] && [ -z "$extra" ] || return 1
-    read_proc_identity "$candidate" && [ "$PROC_PPID" = "$child" ] \
-      && [ "$PROC_STATE" != Z ] || return 1
-    IFS= read -r line < <(grep '^NSpid:' "/proc/$candidate/status" 2>/dev/null) \
-      || return 1
-    last=${line##*[[:space:]]}
-    [ "$last" = 1 ] && [ "$line" != 'NSpid:' ] || return 1
-    namespace_init=$candidate
-    namespace_start=$PROC_START
-    namespace_verified=1
   }
 
   track_descendants() {
@@ -197,13 +178,6 @@ hold_command() {
 
   managed_alive() {
     local path pid
-    if [ "$namespace_verified" -eq 1 ]; then
-      namespace_init_alive && return 0
-      if [ -n "${tracked_start[$child]:-}" ] && read_proc_identity "$child" \
-        && [ "$PROC_START" = "${tracked_start[$child]}" ] \
-        && [ "$PROC_STATE" != Z ]; then return 0; fi
-      return 1
-    fi
     group_alive && return 0
     for pid in "${!tracked_start[@]}"; do
       if read_proc_identity "$pid" \
@@ -220,34 +194,26 @@ hold_command() {
 
   stop_managed() {
     local signal="${1:-TERM}" n
-    [ "$namespace_verified" -eq 1 ] || track_descendants
-    if namespace_init_alive; then
-      kill -s "$signal" "$namespace_init" 2>/dev/null || true
-    elif [ "$group_verified" -eq 1 ] && group_alive; then
+    track_descendants
+    if [ "$group_verified" -eq 1 ] && group_alive; then
       stop_child_group "$child" "$child_group" "$signal"
     else
       kill -s "$signal" "$child" 2>/dev/null || true
     fi
-    if [ "$namespace_verified" -ne 1 ]; then
-      signal_tracked "$signal"
-      signal_tagged "$signal"
-    fi
+    signal_tracked "$signal"
+    signal_tagged "$signal"
     for ((n=0; n<5; n++)); do
-      [ "$namespace_verified" -eq 1 ] || track_descendants
+      track_descendants
       managed_alive || return 0
       sleep 1
     done
-    if [ "$namespace_verified" -eq 1 ]; then
-      kill -KILL "$child" 2>/dev/null || true
-    elif [ "$group_verified" -eq 1 ] && group_alive; then
+    if [ "$group_verified" -eq 1 ] && group_alive; then
       stop_child_group "$child" "$child_group" KILL
     else
       kill -KILL "$child" 2>/dev/null || true
     fi
-    if [ "$namespace_verified" -ne 1 ]; then
-      signal_tracked KILL
-      signal_tagged KILL
-    fi
+    signal_tracked KILL
+    signal_tagged KILL
     for ((n=0; n<20; n++)); do
       managed_alive || return 0
       sleep 0.05
@@ -260,8 +226,7 @@ hold_command() {
     local n
     for ((n=0; n<50; n++)); do
       kill -0 "$child" 2>/dev/null || return 0
-      if process_has_token "$child" && [ "$PROC_PGRP" = "$child_group" ] \
-        && discover_namespace_init; then
+      if process_has_token "$child" && [ "$PROC_PGRP" = "$child_group" ]; then
         group_verified=1
         track_descendants
         return 0
@@ -279,9 +244,10 @@ hold_command() {
   [[ "$containment_token" =~ ^[0-9a-f]{32}$ ]] || {
     echo "lease-guardian: cannot create child containment identity" >&2; return 1; }
   probe_containment || return 1
-  unshare_bin=$CONTAINMENT_UNSHARE
   setpriv_bin=$CONTAINMENT_SETPRIV
   bash_bin=$CONTAINMENT_BASH
+  python_bin=$CONTAINMENT_PYTHON
+  tracer_bin=$CONTAINMENT_TRACER
 
   forward_signal() {
     local signal="$1" status="$2"
@@ -310,10 +276,10 @@ hold_command() {
   }
 
   case $- in *m*) monitor=1 ;; esac
-  # setpriv makes guardian death kill the outer unshare process. The immediate
+  # setpriv makes guardian death kill the ptrace supervisor. The immediate
   # PPID check closes the fork-before-prctl race: an already-orphaned child
-  # exits before it can create the namespace. Inside, PID 1 drains every
-  # namespace process before exit, then kernel namespace teardown finishes.
+  # exits before it can start the command. PTRACE_O_EXITKILL then makes tracer
+  # death kill every descendant, including processes that detached or reparented.
   set -m
   SAAS_LEASE_GUARDIAN_TOKEN="$containment_token" \
     "$setpriv_bin" --pdeathsig KILL "$bash_bin" -c '
@@ -322,36 +288,7 @@ hold_command() {
       [ "$PPID" = "$expected_parent" ] || exit 125
       exec "$@"
     ' lease-parent-check "$$" \
-    "$unshare_bin" --user --map-current-user --pid --fork --kill-child=KILL -- \
-    "$bash_bin" -c '
-      drain_namespace() {
-        local signal="$1" n
-        trap "" INT TERM HUP
-        kill -s "$signal" -- -1 2>/dev/null || true
-        for ((n=0; n<20; n++)); do
-          kill -0 -- -1 2>/dev/null || return 0
-          sleep 0.05
-        done
-        kill -KILL -- -1 2>/dev/null || true
-      }
-      terminate_namespace() {
-        local signal="$1" status="$2"
-        drain_namespace "$signal"
-        exit "$status"
-      }
-      trap "terminate_namespace INT 130" INT
-      trap "terminate_namespace TERM 143" TERM
-      trap "terminate_namespace HUP 129" HUP
-      set -m
-      "$@" &
-      command_pid=$!
-      set +m
-      command_rc=0
-      wait "$command_pid" 2>/dev/null || command_rc=$?
-      trap "" INT TERM HUP
-      drain_namespace TERM
-      exit "$command_rc"
-    ' lease-guardian-init "${command[@]}" &
+    "$python_bin" "$tracer_bin" "${command[@]}" &
   child=$!
   child_group=$child
   [ "$monitor" -eq 1 ] || set +m
@@ -367,7 +304,7 @@ hold_command() {
   started=$SECONDS
   last_heartbeat=$started
   while kill -0 "$child" 2>/dev/null; do
-    [ "$namespace_verified" -eq 1 ] || track_descendants
+    track_descendants
     now=$SECONDS
     if [ "$((now - started))" -ge "$max_seconds" ]; then
       echo "lease-guardian: command lifetime exceeded" >&2
