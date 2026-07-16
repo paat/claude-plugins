@@ -21,6 +21,24 @@ tribunal_base_ref() {
   printf '%s\n' "${TRIBUNAL_BASE_REF:-origin/$branch}"
 }
 
+tribunal_review_schema() {
+  printf '%s/../schemas/review-output.json\n' "$SCRIPT_DIR"
+}
+
+tribunal_smoke_prompt() {
+  local provider="$1"
+  printf '%s\n' "Return only this JSON object with no fence or commentary: {\"provider\":\"$provider\",\"model\":\"smoke\",\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"}}. Do not inspect files or use tools."
+}
+
+tribunal_extract_claude_result() {
+  jq -r '
+    if (.structured_output? | type) == "object" then (.structured_output | tojson)
+    elif (.result? | type) == "object" then (.result | tojson)
+    elif (.result? | type) == "string" then .result
+    else empty end
+  ' 2>/dev/null
+}
+
 tribunal_json_string() {
   jq -Rn --arg v "$1" '$v'
 }

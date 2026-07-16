@@ -70,7 +70,6 @@ __pycache__/*
 .vscode/*
 nohup.out
 core.[0-9]*
-.startup/*
 .claude/settings.local.json'
 
 glob_match() { # <path> <glob> — ** treated as *

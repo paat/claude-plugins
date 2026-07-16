@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 OUTPUT="$PLUGIN_ROOT/integrity/runner-bundle.json"
 FILES=(
+  schemas/review-output.json
   scripts/check-runner-bundle.sh
   scripts/collect-review-evidence.sh
   scripts/generate-runner-bundle.sh

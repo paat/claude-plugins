@@ -44,7 +44,12 @@ Add this marketplace, then install the plugin at the scope you want:
 `invariants` array (`{id, path_glob, pattern, must: present|absent, message}`)
 — see the skill for a worked example. Junk globs match the full path with `*`
 crossing `/`, plus a basename match; invariant `path_glob` uses git pathspec
-matching. Filenames containing newlines are unsupported.
+matching. A path listed by `--intended-file` is still checked independently for
+junk: intended globs constrain the changed-file set, but do not whitelist junk.
+Use `not_junk` to exempt a deliberate match, or a narrow `extra_junk` glob for
+project-specific runtime leakage such as `.startup/reviews/*`; `.startup/`
+itself can contain durable tracked artifacts and is not a built-in junk signal.
+Filenames containing newlines are unsupported.
 
 ## Testing
 

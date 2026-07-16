@@ -61,6 +61,10 @@ reports usable/skipped/disabled active reviewer legs.
 Stop if preflight exits non-zero. Otherwise report the base ref and active
 reviewer leg status before launching review.
 
+Set `TRIBUNAL_SMOKE_PROBE=on` when CLI presence/auth is insufficient evidence.
+It makes one minimal bounded request through each usable default transport and
+removes failed probes from quorum.
+
 ## Step 2: Parallel Review
 
 Run the provider scripts as parallel shell calls, not Task agents. The OpenCode
@@ -80,7 +84,9 @@ wait
 The scripts preserve the previous runner behavior: unique temp dirs, capped
 `AGENTS.md` and `reachability.md` injection, default branch/base-ref overrides,
 disabled-provider markers, large diff staging as files where needed, JSON output
-normalization, and timeout-bounded provider calls.
+normalization, and timeout-bounded provider calls. Codex and Claude use one strict
+review schema; Codex also persists its final response independently of stdout.
+OpenCode runs pure and non-interactive with permission prompts disabled.
 
 Collect Codex, Gemini, GLM, DeepSeek, Qwen, and Claude outputs. Treat disabled
 markers as intentional absence. Treat malformed JSON or `{"error":...}` as

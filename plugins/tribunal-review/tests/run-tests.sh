@@ -144,6 +144,73 @@ EOF
   rm -rf "$work"
 }
 
+test_preflight_smoke_probe() {
+  local label="opt-in preflight smoke verifies every default transport" work fake ec=0
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  cat > "$fake/codex" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+[ "${SMOKE_CODEX_EMPTY:-off}" = on ] && exit 0
+printf '%s\n' '{"provider":"codex","model":"smoke","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+EOF
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"fixture"}'
+  exit 0
+fi
+cat >/dev/null
+printf '%s\n' '{"structured_output":{"provider":"claude","model":"smoke","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}}'
+EOF
+  cat > "$fake/opencode" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = models ]; then
+  printf '%s\n' opencode-go/deepseek-v4-pro opencode-go/glm-5.1
+  exit 0
+fi
+printf '%s\n' '{"provider":"deepseek","model":"smoke","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+EOF
+  chmod +x "$fake/codex" "$fake/claude" "$fake/opencode"
+
+  (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    git checkout -qb feature
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 \
+      TRIBUNAL_SMOKE_PROBE=on bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/preflight.json"
+  )
+  if jq -e '
+      [.providers[] | select(.name=="codex" or .name=="claude" or .name=="deepseek")]
+      | length==3 and all(.[]; .status=="usable" and .note=="non-interactive smoke passed")
+    ' "$work/preflight.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+
+  (
+    cd "$work"
+    PATH="$fake:$PATH" SMOKE_CODEX_EMPTY=on TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 \
+      TRIBUNAL_SMOKE_PROBE=on TRIBUNAL_CLAUDE=off TRIBUNAL_DEEPSEEK=off \
+      bash "$PLUGIN_ROOT/scripts/preflight.sh" > /dev/null 2> "$work/preflight-failed.err"
+  ) || ec=$?
+  label="failed smoke removes the provider from usable quorum"
+  if [ "$ec" -eq 1 ] && grep -q 'zero active reviewer legs are usable' "$work/preflight-failed.err"; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
 test_claude_tmpdir_cleanup() {
   local label="Claude auth and review residue stays in the cleaned runner tempdir"
   local work fake parent_tmp used_tmpdir
@@ -235,8 +302,12 @@ EOF
       $0 == "-s" { sandbox_selector_seen = 1 }
       $0 == "--ignore-user-config" { isolated_seen = 1 }
       $0 == "mcp_servers={}" { mcp_disabled = 1 }
+      previous == "--output-schema" && $0 ~ /schemas\/review-output.json$/ { schema_seen = 1 }
+      $0 == "--output-last-message" { last_message_seen = 1 }
+      $0 == "--ephemeral" { ephemeral_seen = 1 }
       { previous = $0 }
-      END { exit !(model_seen && effort_seen && bypass_count == 1 && !sandbox_selector_seen && isolated_seen && mcp_disabled) }
+      END { exit !(model_seen && effort_seen && bypass_count == 1 && !sandbox_selector_seen &&
+        isolated_seen && mcp_disabled && schema_seen && last_message_seen && ephemeral_seen) }
     ' "$work/codex.args"
   then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
@@ -288,6 +359,42 @@ EOF
   rm -rf "$work"
 }
 
+test_codex_empty_output() {
+  local label="exit-zero empty Codex output is a diagnosed parse failure" work fake
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  cat > "$fake/codex" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+exit 0
+EOF
+  chmod +x "$fake/codex"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
+  ) && jq -e '
+      .provider=="codex"
+      and (.error | contains("no review JSON object found"))
+      and (.error | contains("phase=parse; exit=0; stdout_bytes=0"))
+      and (.error | contains("stderr_bytes=0"))
+    ' "$work/out.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
 test_claude_execution_diagnostics() {
   local label="immediate Claude failure retains safe diagnostics by default" work fake
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
@@ -328,6 +435,45 @@ EOF
       and (.error | contains("[omitted; set TRIBUNAL_DIAGNOSTIC_TAILS=on]"))
       and (.error | contains("fixture-secret-value") | not)
       and (.error | contains("fixture-secret-token") | not)
+    ' "$work/out.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
+test_claude_non_json_output() {
+  local label="exit-zero non-JSON Claude result is a diagnosed parse failure" work fake
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"fixture"}'
+  exit 0
+fi
+cat >/dev/null
+printf '%s\n' '{"result":"The change looks good, but this is prose rather than review JSON."}'
+EOF
+  chmod +x "$fake/claude"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-claude-review.sh" > "$work/out.json"
+  ) && jq -e '
+      .provider=="claude"
+      and (.error | contains("no review JSON object found"))
+      and (.error | contains("phase=parse; exit=0"))
     ' "$work/out.json" >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else
@@ -468,15 +614,18 @@ test_trusted_evidence_collection() {
   local label="trusted evidence collection binds PR, providers, arbitration, and proof"
   local work repo fake plugin collection manifest_sha proof_sha base head
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
-  mkdir -p "$repo" "$fake" "$work/tmp" "$plugin/scripts" "$plugin/.claude-plugin" "$plugin/integrity"
+  mkdir -p "$repo" "$fake" "$work/tmp" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/lib.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
   cp "$PLUGIN_ROOT/.claude-plugin/plugin.json" "$plugin/.claude-plugin/plugin.json"
 
   cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
 #!/usr/bin/env bash
-if [ "${FIXTURE_CODEX_MODE:-ok}" = malformed ]; then
+if [ "${FIXTURE_ZERO_SUCCESS:-off}" = on ]; then
+  printf '%s\n' '{"provider":"codex","error":"fixture Codex transport failure"}'
+elif [ "${FIXTURE_CODEX_MODE:-ok}" = malformed ]; then
   printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},"caller_owned":true}'
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = diagnostic ]; then
   printf '%s\n' '{"provider":"claude","error":"unparseable codex output: no review JSON object found; phase=parse; exit=0; stdout_bytes=12; stdout_truncated=false; stdout_tail=omitted; stderr_bytes=0; stderr_truncated=false; stderr_tail=omitted"}'
@@ -486,12 +635,20 @@ else
   printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
 fi
 EOF
-  for provider in gemini qwen claude; do
+  for provider in gemini qwen; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
 EOF
   done
+  cat > "$plugin/scripts/run-claude-review.sh" <<'EOF'
+#!/usr/bin/env bash
+if [ "${FIXTURE_ZERO_SUCCESS:-off}" = on ]; then
+  printf '%s\n' '{"provider":"claude","error":"fixture Claude transport failure"}'
+else
+  printf '%s\n' '{"provider":"claude","status":"disabled","note":"fixture disabled"}'
+fi
+EOF
   cat > "$plugin/scripts/run-qwen-review.sh" <<'EOF'
 #!/usr/bin/env bash
 if [ "${FIXTURE_MUTATE_WORKTREE:-off}" = on ]; then printf 'provider mutation\n' >> app.txt; fi
@@ -500,7 +657,11 @@ EOF
   cat > "$plugin/scripts/run-opencode-review.sh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' '{"provider":"glm","status":"disabled","note":"fixture disabled"}'
-printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabled"}'
+if [ "${FIXTURE_ZERO_SUCCESS:-off}" = on ]; then
+  printf '%s\n' '{"provider":"deepseek","error":"fixture DeepSeek transport failure"}'
+else
+  printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabled"}'
+fi
 EOF
   chmod +x "$plugin/scripts/"*.sh
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
@@ -699,6 +860,33 @@ EOF
     echo -e "  ${GREEN}PASS${NC} no successful provider cannot approve"; PASS=$((PASS+1))
   fi
 
+  FIXTURE_ZERO_SUCCESS=on PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/zero-success" > "$work/zero-success.json"
+  if jq -e '
+      [.providers[] | select(.provider=="codex" or .provider=="deepseek" or .provider=="claude")]
+      | length==3 and all(.[]; .status=="failed")
+    ' "$work/zero-success/manifest.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} aggregate collection retains zero-success default panel"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} aggregate collection retains zero-success default panel"; FAIL=$((FAIL+1)); FAILURES+=("zero-success default panel")
+  fi
+  jq '
+    .tribunal_verdict={"decision":"NEEDS_WORK","confidence":0,"rationale":"No default reviewer completed successfully."}
+    | .summary="No usable reviewer evidence; merge remains blocked."
+    | .provider_assessment.codex.status="failed"
+    | .provider_assessment.deepseek.status="failed"
+    | .provider_assessment.claude.status="failed"
+  ' "$work/arbitration.json" > "$work/zero-success-arbitration.json"
+  if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/zero-success" \
+      --expected-manifest-sha256 "$(jq -r .manifest_sha256 "$work/zero-success.json")" \
+      --arbitration "$work/zero-success-arbitration.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} zero-success default panel fails closed at confidence zero"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} zero-success default panel fails closed at confidence zero"; FAIL=$((FAIL+1)); FAILURES+=("zero-success fail closed")
+  fi
+
   FIXTURE_CODEX_MODE=diagnostic PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
     "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 --output "$work/diagnostic" > "$work/diagnostic.json"
   if jq -e '.provider=="codex" and (.error | contains("phase=parse; exit=0"))' \
@@ -775,8 +963,10 @@ do
   assert_executable "$script executable" "$script"
   assert_bash_n "$script parses" "$script"
 done
+assert_file "structured review schema exists" "schemas/review-output.json"
+assert_json_field "structured review schema is valid JSON" "jq -e '.type==\"object\" and .additionalProperties==false' '$PLUGIN_ROOT/schemas/review-output.json'"
 assert_file "static runner bundle manifest exists" "integrity/runner-bundle.json"
-assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.19.9\"'"
+assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.19.10\"'"
 assert_json_field "static runner bundle is current" "bash '$PLUGIN_ROOT/scripts/generate-runner-bundle.sh' --check"
 
 echo "Skill is orchestration-focused:"
@@ -803,6 +993,7 @@ assert_grep "warms OpenCode model registry" "$PF" "opencode models"
 assert_grep "Claude auth probe is bounded" "$LIB" "timeout -k 1 10 claude auth status --json"
 assert_grep "preflight checks Claude auth" "$PF" "tribunal_claude_authenticated"
 assert_grep "preflight discloses invocation limitation" "$PF" "non-interactive invocation not probed"
+assert_grep "preflight offers bounded non-interactive smoke" "$PF" "TRIBUNAL_SMOKE_PROBE"
 assert_no_grep "skill has no hardcoded origin/main" "$SK" "origin/main"
 assert_no_grep "lib has no hardcoded origin/main" "$LIB" "origin/main"
 
@@ -815,6 +1006,12 @@ assert_grep "OpenCode uses file attachment" "scripts/run-opencode-review.sh" '-f
 assert_grep "OpenCode prompt positional precedes -f (array flag swallows positionals, issue #170)" "scripts/run-opencode-review.sh" '"$(cat "$prompt")" -f "$diff_attach"'
 assert_no_grep "OpenCode -f does not precede prompt positional" "scripts/run-opencode-review.sh" '-f "$diff_attach" "$(cat'
 assert_grep "OpenCode stages diff in cwd" "scripts/run-opencode-review.sh" ".tribunal-review-"
+assert_grep "OpenCode isolates external plugins" "scripts/run-opencode-review.sh" "--pure"
+assert_grep "OpenCode non-interactive run bypasses permission prompts" "scripts/run-opencode-review.sh" "--dangerously-skip-permissions"
+assert_grep "Codex writes its final response independently of stdout" "scripts/run-codex-review.sh" "--output-last-message"
+assert_grep "Codex requests the shared output schema" "scripts/run-codex-review.sh" "--output-schema"
+assert_grep "Claude requests the shared output schema" "scripts/run-claude-review.sh" "--json-schema"
+assert_grep "Claude disables the complete tool surface" "scripts/run-claude-review.sh" '--tools ""'
 
 echo "Disabled-provider markers:"
 assert_json_field "codex disabled JSON" "TRIBUNAL_CODEX=off bash '$PLUGIN_ROOT/scripts/run-codex-review.sh' | jq -e '.provider==\"codex\" and .status==\"disabled\"'"
@@ -824,11 +1021,14 @@ assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT
 assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and all(.[]; .status==\"disabled\")'"
 test_qwen_envelope_parser
 test_claude_auth_guard
+test_preflight_smoke_probe
 test_claude_tmpdir_cleanup
 test_codex_pins gpt-5.6-sol medium no "codex defaults pin Sol and medium in argv"
 test_codex_pins test-model high yes "codex model and effort environment overrides stay explicit"
 test_codex_parse_diagnostics
+test_codex_empty_output
 test_claude_execution_diagnostics
+test_claude_non_json_output
 test_codex_vacuous_guard BLOCK 0.0 "codex vacuous empty-BLOCK downgraded to leg error"
 test_codex_vacuous_guard NEEDS_WORK 7.5 "codex vacuous empty-NEEDS_WORK (nonzero quality) downgraded to leg error"
 test_codex_vacuous_guard " BLOCK " 0.0 "codex vacuous verdict tolerates surrounding whitespace"

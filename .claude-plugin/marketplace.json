@@ -31,7 +31,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with calling-context arbitration",
-      "version": "0.19.9",
+      "version": "0.19.10",
       "author": {
         "name": "Andre Paat"
       },
@@ -229,7 +229,7 @@
     {
       "name": "merge-guard",
       "description": "Post-merge verification tail — flags junk files leaked by squash merges and unintended path changes, checks configurable grep-based business invariants, auto-opens a cleanup PR, and guides an adjacent-behavior regression spot-check",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "author": {
         "name": "Andre Paat"
       },

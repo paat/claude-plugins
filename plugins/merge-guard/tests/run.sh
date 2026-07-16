@@ -28,10 +28,9 @@ git -C "$R" commit -qam change
 clean_check() { run check --base "$BASE" | grep -q "clean"; }
 t "clean range reports clean, exit 0" clean_check
 
-# Junk leak: editor droppings + agent artifacts added in range.
+# Junk leak: universally safe built-ins added in range.
 mkrepo
 printf 'x\n' > "$R/.DS_Store"; printf 'y\n' > "$R/debug.log"
-mkdir -p "$R/.startup"; printf 's\n' > "$R/.startup/state.json"
 printf 'legit\n' > "$R/feature.txt"
 git -C "$R" add -A -f && git -C "$R" commit -qm leak
 junk_flagged() {
@@ -39,10 +38,22 @@ junk_flagged() {
   [ "$rc" -eq 3 ] &&
   printf '%s' "$out" | grep -q ".DS_Store" &&
   printf '%s' "$out" | grep -q "debug.log" &&
-  printf '%s' "$out" | grep -q ".startup/state.json" &&
   ! printf '%s' "$out" | grep -q "feature.txt"
 }
 t "junk additions flagged (exit 3), legit file not flagged" junk_flagged
+
+# .startup contains both durable project knowledge and runtime state. The
+# directory alone is never a junk signal; target repos can name narrow runtime
+# paths through extra_junk.
+mkrepo
+mkdir -p "$R/.startup/workflows" "$R/.startup/laws"
+printf 'workflow\n' > "$R/.startup/workflows/WORKFLOW-billing.md"
+printf 'law snapshot\n' > "$R/.startup/laws/vat.txt"
+git -C "$R" add -A && git -C "$R" commit -qm durable-startup
+startup_durable_ok() {
+  run check --base "$BASE" | grep -q "clean"
+}
+t "durable .startup workflow and law artifacts are clean" startup_durable_ok
 
 # Pre-existing junk-looking files are not the merge's leak.
 mkrepo
@@ -96,21 +107,23 @@ invariant_absent_violated() {
 }
 t "forbidden pattern violates absent-invariant" invariant_absent_violated
 
-# extra_junk and not_junk config.
+# extra_junk and not_junk config, including explicit runtime leakage.
 mkrepo
-mkdir -p "$R/.claude" "$R/docs/decisions"
-printf '{"extra_junk":["scratch-*"],"not_junk":["docs/decisions/*"]}\n' > "$R/.claude/merge-guard.json"
+mkdir -p "$R/.claude" "$R/docs/decisions" "$R/.startup/reviews"
+printf '{"extra_junk":["scratch-*",".startup/reviews/*"],"not_junk":["docs/decisions/*"]}\n' > "$R/.claude/merge-guard.json"
 git -C "$R" add -A && git -C "$R" commit -qm cfg
 BASE="$(git -C "$R" rev-parse HEAD)"
 printf 'x\n' > "$R/scratch-1.txt"
 printf 'kept\n' > "$R/docs/decisions/adr.log"
+printf 'runtime review\n' > "$R/.startup/reviews/handoff-1.md"
 git -C "$R" add -A && git -C "$R" commit -qm extras
 extra_junk_config() {
   out="$(run check --base "$BASE")"; rc=$?
   [ "$rc" -eq 3 ] && printf '%s' "$out" | grep -q "scratch-1.txt" &&
+  printf '%s' "$out" | grep -q ".startup/reviews/handoff-1.md" &&
   ! printf '%s' "$out" | grep -q "adr.log"
 }
-t "extra_junk flags, not_junk exempts" extra_junk_config
+t "extra_junk flags explicit runtime paths, not_junk exempts" extra_junk_config
 
 # Cleanup dry-run prints, does not mutate; nothing-to-clean exits 3.
 mkrepo
