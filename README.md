@@ -62,6 +62,31 @@ Install a plugin:
 codex plugin add <plugin-name>@paat-plugins
 ```
 
+When refreshing an already installed plugin, preserve paths held by active Codex
+sessions with the repository wrapper:
+
+```bash
+scripts/refresh-codex-plugin.sh <plugin-name>@paat-plugins
+```
+
+The wrapper retains retired cache versions for seven days so active sessions can
+continue reading their original skill locators. Retention is capped at eight old
+versions; rapid refreshes can evict a younger version, and the wrapper warns when
+that happens. Start a new Codex thread to use the newly installed version. Direct
+`codex plugin add` replaces the old cache immediately. A read attempted while the
+Codex install command itself is replacing the cache can still fail transiently;
+retry it after the wrapper returns.
+
+If an old locator is already missing, resolve only to the same plugin's current
+Codex version and surface the version change:
+
+```bash
+scripts/resolve-codex-plugin-resource.sh <stale-codex-cache-path>
+```
+
+Never substitute a Claude plugin-cache path. Both helpers require Bash 4+ and
+standard POSIX utilities; refresh also requires util-linux `flock`.
+
 ## Development Checks
 
 Install the Python check dependency, then run the repository checks:
@@ -71,6 +96,7 @@ python3 -m pip install -r requirements-dev.txt
 python3 scripts/check-plugin-catalog.py
 python3 scripts/check-plugin-content.py
 python3 scripts/test_check_plugin_content.py
+python3 scripts/test_refresh_codex_plugin.py
 python3 scripts/sync-codex-marketplace.py --check
 ```
 
