@@ -203,7 +203,11 @@ EOF
       bash "$PLUGIN_ROOT/scripts/preflight.sh" > /dev/null 2> "$work/preflight-failed.err"
   ) || ec=$?
   label="failed smoke removes the provider from usable quorum"
-  if [ "$ec" -eq 1 ] && grep -q 'zero active reviewer legs are usable' "$work/preflight-failed.err"; then
+  if [ "$ec" -eq 1 ] \
+    && grep -q 'zero active reviewer legs are usable' "$work/preflight-failed.err" \
+    && grep -q 'non-interactive smoke failed:' "$work/preflight-failed.err" \
+    && grep -q 'phase=parse; exit=0; stdout_bytes=0' "$work/preflight-failed.err" \
+    && grep -q 'stderr_bytes=0' "$work/preflight-failed.err"; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
@@ -966,7 +970,7 @@ done
 assert_file "structured review schema exists" "schemas/review-output.json"
 assert_json_field "structured review schema is valid JSON" "jq -e '.type==\"object\" and .additionalProperties==false' '$PLUGIN_ROOT/schemas/review-output.json'"
 assert_file "static runner bundle manifest exists" "integrity/runner-bundle.json"
-assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.19.10\"'"
+assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.19.11\"'"
 assert_json_field "static runner bundle is current" "bash '$PLUGIN_ROOT/scripts/generate-runner-bundle.sh' --check"
 
 echo "Skill is orchestration-focused:"
@@ -1019,6 +1023,7 @@ assert_json_field "gemini disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-gemini-
 assert_json_field "qwen disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-qwen-review.sh' | jq -e '.provider==\"qwen\" and .status==\"disabled\"'"
 assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT/scripts/run-claude-review.sh' | jq -e '.provider==\"claude\" and .status==\"disabled\"'"
 assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and all(.[]; .status==\"disabled\")'"
+assert_json_field "opencode usage error preserves disabled markers" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=on bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' --bad-flag | jq -s -e 'length==2 and .[0].provider==\"glm\" and .[0].status==\"disabled\" and (.[1] | .provider==\"deepseek\" and has(\"error\"))'"
 test_qwen_envelope_parser
 test_claude_auth_guard
 test_preflight_smoke_probe

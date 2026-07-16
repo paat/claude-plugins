@@ -34,7 +34,7 @@
     },
     {
       "path": "scripts/run-opencode-review.sh",
-      "sha256": "8e618476bc965c3b063ccfc5c4ea2fdf2a63a7fe128a2172deb962274963a0de"
+      "sha256": "76d381ceb829bf951b3c87caa0b5ba0e2c752d074f5d408a8841b586dfbac9d6"
     },
     {
       "path": "scripts/run-qwen-review.sh",
@@ -43,5 +43,5 @@
   ],
   "plugin": "tribunal-review",
   "schema": "tribunal-runner-bundle/v1",
-  "version": "0.19.10"
+  "version": "0.19.11"
 }

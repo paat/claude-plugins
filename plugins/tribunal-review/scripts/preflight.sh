@@ -53,6 +53,17 @@ smoke_review_ok() {
     | length==1
   ' >/dev/null 2>&1
 }
+smoke_failure_note() {
+  local provider="$1" output="$2" detail=""
+  detail="$(printf '%s\n' "$output" | jq -sr --arg p "$provider" \
+    '[.[] | select(.provider==$p and (.error|type)=="string") | .error][0] // empty' \
+    2>/dev/null || true)"
+  if [ -n "$detail" ]; then
+    printf 'non-interactive smoke failed: %s\n' "$detail"
+  else
+    printf '%s\n' "non-interactive smoke failed"
+  fi
+}
 
 if [ "${TRIBUNAL_CODEX:-on}" = "off" ]; then add_provider codex disabled "TRIBUNAL_CODEX=off"; elif command -v codex >/dev/null 2>&1; then add_provider codex usable "CLI present; non-interactive invocation not probed"; else add_provider codex skipped "CLI not on PATH"; fi
 if [ "${TRIBUNAL_GEMINI:-off}" = "on" ]; then if command -v gemini >/dev/null 2>&1; then add_provider gemini usable "CLI present; non-interactive invocation not probed"; else add_provider gemini skipped "CLI not on PATH"; fi; else add_provider gemini disabled "default off"; fi
@@ -98,29 +109,29 @@ if [ "${TRIBUNAL_SMOKE_PROBE:-off}" = on ]; then
   export TRIBUNAL_SMOKE_TIMEOUT_SECONDS="$smoke_timeout"
 
   if provider_usable codex; then
-    smoke_output="$(bash "$SCRIPT_DIR/run-codex-review.sh" --smoke 2>/dev/null || true)"
+    smoke_output="$(TRIBUNAL_DIAGNOSTIC_TAILS=off bash "$SCRIPT_DIR/run-codex-review.sh" --smoke 2>/dev/null || true)"
     if printf '%s\n' "$smoke_output" | smoke_review_ok codex; then
       set_provider_result codex usable "non-interactive smoke passed"
     else
-      set_provider_result codex failed "non-interactive smoke failed"
+      set_provider_result codex failed "$(smoke_failure_note codex "$smoke_output")"
     fi
   fi
   if provider_usable claude; then
-    smoke_output="$(bash "$SCRIPT_DIR/run-claude-review.sh" --smoke 2>/dev/null || true)"
+    smoke_output="$(TRIBUNAL_DIAGNOSTIC_TAILS=off bash "$SCRIPT_DIR/run-claude-review.sh" --smoke 2>/dev/null || true)"
     if printf '%s\n' "$smoke_output" | smoke_review_ok claude; then
       set_provider_result claude usable "non-interactive smoke passed"
     else
-      set_provider_result claude failed "non-interactive smoke failed"
+      set_provider_result claude failed "$(smoke_failure_note claude "$smoke_output")"
     fi
   fi
   if provider_usable glm || provider_usable deepseek; then
-    smoke_output="$(bash "$SCRIPT_DIR/run-opencode-review.sh" --smoke 2>/dev/null || true)"
+    smoke_output="$(TRIBUNAL_DIAGNOSTIC_TAILS=off bash "$SCRIPT_DIR/run-opencode-review.sh" --smoke 2>/dev/null || true)"
     for smoke_provider in glm deepseek; do
       if provider_usable "$smoke_provider"; then
         if printf '%s\n' "$smoke_output" | smoke_review_ok "$smoke_provider"; then
           set_provider_result "$smoke_provider" usable "non-interactive smoke passed"
         else
-          set_provider_result "$smoke_provider" failed "non-interactive smoke failed"
+          set_provider_result "$smoke_provider" failed "$(smoke_failure_note "$smoke_provider" "$smoke_output")"
         fi
       fi
     done

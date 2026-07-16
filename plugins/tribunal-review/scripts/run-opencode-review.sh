@@ -4,14 +4,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 MODE=review
+ARG_ERROR=0
 case "${1:-}" in
   '') ;;
   --smoke) MODE=smoke ;;
-  *)
-    tribunal_error glm "Usage: run-opencode-review.sh [--smoke]"
-    tribunal_error deepseek "Usage: run-opencode-review.sh [--smoke]"
-    exit 0
-    ;;
+  *) ARG_ERROR=1 ;;
 esac
 
 TMPDIR="$(mktemp -d)" || exit 1
@@ -23,6 +20,16 @@ glm_on=0
 deepseek_on=1
 [ "${TRIBUNAL_GLM:-off}" = "on" ] && glm_on=1
 [ "${TRIBUNAL_DEEPSEEK:-on}" = "off" ] && deepseek_on=0
+
+if [ "$ARG_ERROR" -eq 1 ]; then
+  [ "$glm_on" -eq 1 ] \
+    && tribunal_error glm "Usage: run-opencode-review.sh [--smoke]" \
+    || tribunal_disabled glm "GLM leg disabled (default off); set TRIBUNAL_GLM=on to enable"
+  [ "$deepseek_on" -eq 1 ] \
+    && tribunal_error deepseek "Usage: run-opencode-review.sh [--smoke]" \
+    || tribunal_disabled deepseek "DeepSeek leg disabled via TRIBUNAL_DEEPSEEK=off"
+  exit 0
+fi
 
 if [ "$glm_on" -eq 0 ] && [ "$deepseek_on" -eq 0 ]; then
   tribunal_disabled glm "GLM leg disabled (default off); set TRIBUNAL_GLM=on to enable"
