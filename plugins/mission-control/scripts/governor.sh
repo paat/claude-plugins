@@ -253,8 +253,8 @@ governor_daily() {
 
   local var; var="$(cfg '.notify_env // empty')"
   if [ -n "$var" ]; then
-    { _digest_extra_sections
-      awk '/^## Needs-human/{f=1;print;next} /^## /{f=0} f' "$out"
+    { awk '/^## Needs-human/{f=1;print;next} /^## /{f=0} f' "$out"
+      _digest_extra_sections
       awk '/^## Mission control warnings/,/^## Spend/' "$out" | grep -v '^## Spend'
       awk '/^## Spend & pass summary/,0' "$out"
     } | head -c 3500 | bash "$SCRIPT_DIR/notify.sh" "$var" "mission-control digest $d" || true
