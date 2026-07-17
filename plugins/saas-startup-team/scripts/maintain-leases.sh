@@ -13,8 +13,8 @@ usage: maintain-leases.sh primary-root --repo-root DIR
        maintain-leases.sh controller-binding --repo-root DIR --worktree DIR --run-id ID --state-file FILE
        maintain-leases.sh activate --state-file FILE --run-state FILE --blocked-file FILE  # maintain-loop state only
        maintain-leases.sh available --repo-root DIR
-       maintain-leases.sh heartbeat --state-file FILE
-       maintain-leases.sh hold --state-file FILE [--interval-seconds N] [--max-seconds N] -- COMMAND...
+       maintain-leases.sh heartbeat --state-file FILE [--repo-root DIR --worktree DIR --run-id ID]
+       maintain-leases.sh hold --state-file FILE [--repo-root DIR --worktree DIR --run-id ID] [--interval-seconds N] [--max-seconds N] -- COMMAND...
        maintain-leases.sh reap-terminal --repo-root DIR --run-id ID
        maintain-leases.sh cleanup --state-file FILE [--run-state FILE --run-id ID]
 EOF
@@ -194,6 +194,35 @@ load_state() {
       echo "maintain-leases: could not materialize validated lease bindings" >&2
       return 1
     }
+}
+
+load_controller_state() {
+  local supplied_repo=$1 supplied_worktree=$2 supplied_run=$3 supplied_state=$4
+  local controller_primary controller_common
+  valid_id "$supplied_run" || {
+    echo "maintain-leases: invalid controller run id" >&2; return 1; }
+  resolve_repo "$supplied_repo" || {
+    echo "maintain-leases: cannot resolve controller repository" >&2; return 1; }
+  controller_primary=$PRIMARY; controller_common=$COMMON
+  supplied_worktree=$(realpath -m -- "$supplied_worktree") || {
+    echo "maintain-leases: cannot resolve controller worktree" >&2; return 1; }
+  load_state "$supplied_state" || return 1
+  [ "$RUN_ID" = "$supplied_run" ] && [ -n "$WORKTREE_BINDING" ] \
+    && [ "$PRIMARY" = "$controller_primary" ] && [ "$COMMON" = "$controller_common" ] \
+    && [ "$WORKTREE_BINDING" = "$supplied_worktree" ] || {
+      echo "maintain-leases: controller identity mismatch" >&2
+      return 1
+    }
+}
+
+load_requested_state() {
+  local supplied_state=$1
+  if [ -n "$repo_root$worktree$expected_run_id" ]; then
+    [ -n "$repo_root" ] && [ -n "$worktree" ] && [ -n "$expected_run_id" ] || usage
+    load_controller_state "$repo_root" "$worktree" "$expected_run_id" "$supplied_state"
+  else
+    load_state "$supplied_state"
+  fi
 }
 
 lease_state() {
@@ -453,18 +482,7 @@ case "$action" in
     [ -n "$repo_root" ] && [ -n "$worktree" ] && [ -n "$run_id" ] && [ -n "$state_file" ] \
       && [ -z "$mode$run_state$blocked_file" ] || usage
     valid_id "$run_id" || { echo "maintain-leases: invalid controller run id" >&2; exit 2; }
-    resolve_repo "$repo_root" || {
-      echo "maintain-leases: cannot resolve controller repository" >&2; exit 1; }
-    controller_primary=$PRIMARY; controller_common=$COMMON
-    worktree=$(realpath -m -- "$worktree") || {
-      echo "maintain-leases: cannot resolve controller worktree" >&2; exit 1; }
-    load_state "$state_file" || exit 1
-    [ "$RUN_ID" = "$run_id" ] && [ -n "$WORKTREE_BINDING" ] \
-      && [ "$PRIMARY" = "$controller_primary" ] && [ "$COMMON" = "$controller_common" ] \
-      && [ "$WORKTREE_BINDING" = "$worktree" ] || {
-        echo "maintain-leases: controller identity mismatch" >&2
-        exit 1
-      }
+    load_controller_state "$repo_root" "$worktree" "$run_id" "$state_file" || exit 1
     echo "maintain-leases: controller binding valid"
     ;;
 
@@ -504,15 +522,15 @@ case "$action" in
     ;;
 
   heartbeat)
-    [ -n "$state_file" ] && [ -z "$repo_root$mode$run_id$worktree$run_state$blocked_file" ] || usage
-    load_state "$state_file" || exit 1
+    [ -n "$state_file" ] && [ -z "$mode$run_state$blocked_file" ] || usage
+    load_requested_state "$state_file" || exit 1
     heartbeat_specs || exit 1
     echo "maintain-leases: heartbeat complete"
     ;;
 
   hold)
     [ -n "$state_file" ] && [ "${#command[@]}" -gt 0 ] \
-      && [ -z "$repo_root$mode$run_id$worktree$run_state$blocked_file" ] \
+      && [ -z "$mode$run_state$blocked_file" ] \
       && valid_uint "$interval" && valid_uint "$max_seconds" || usage
     [ "$interval" -le 60 ] || {
       echo "maintain-leases: heartbeat interval must be at most 60 seconds" >&2
@@ -522,7 +540,7 @@ case "$action" in
       echo "maintain-leases: maximum hold lifetime is 14400 seconds" >&2
       exit 2
     }
-    load_state "$state_file" || exit 1
+    load_requested_state "$state_file" || exit 1
     guardian_args=(hold --interval-seconds "$interval" --max-seconds "$max_seconds")
     while IFS=$'\t' read -r kind key state_dir owner_file; do
       guardian_args+=(--lease-at "$state_dir" "$key" "$owner_file")

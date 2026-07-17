@@ -14,6 +14,7 @@ test_maintain_escalation() {
   local bin open calls victim out ec mode branch2 receipt2 result2 branch3 result3
   local prompt_dir prompt gate_dir check_oid canonical_remote poison_marker before_calls
   local origin_run controller_run_id child_run_id
+  local lease_before lease_after runtime_before runtime_after
 
   assert_file_exists "ME1: escalation helper exists" "$helper"
 
@@ -102,6 +103,12 @@ SH
     --lease-state "$state" --run-id "$origin_run" --issue 7 --attempt 1 \
     --base-sha "$base" --branch "$branch" >/dev/null 2>&1 || ec=$?
   assert_exit_code "ME1b: escalation requires an explicit current controller identity" "$ec" 2
+  lease_before=$(lease_state_fingerprint "$state")
+  runtime_before=$(
+    { tar -C "$common/saas-startup-team/maintain-runtime" --sort=name -cf - .
+      tar -C "$repo/.startup" --sort=name -cf - maintain-loop; } \
+      | sha256sum | awk '{print $1}'
+  )
   ec=0
   PATH="$bin:$PATH" bash "$helper" cleanup --repo-root "$repo" --worktree "$wt" \
     --lease-state "$state" --run-id "$origin_run" --controller-run-id wrong-controller \
@@ -109,6 +116,16 @@ SH
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "ME1c: escalation rejects a controller that does not own the lease" "$ec" 1
   assert_file_exists "ME1d: rejected controller cannot close the branch PR" "$open"
+  lease_after=$(lease_state_fingerprint "$state")
+  runtime_after=$(
+    { tar -C "$common/saas-startup-team/maintain-runtime" --sort=name -cf - .
+      tar -C "$repo/.startup" --sort=name -cf - maintain-loop; } \
+      | sha256sum | awk '{print $1}'
+  )
+  assert_equals "ME1e: rejected escalation cannot heartbeat another controller's lease" \
+    "$lease_after" "$lease_before"
+  assert_equals "ME1f: rejected escalation leaves maintenance runtime byte-identical" \
+    "$runtime_after" "$runtime_before"
 
   out=$(PATH="$bin:$PATH" GH_REPO=attacker/wrong GH_HOST=attacker.invalid \
     GH_CONFIG_DIR="$repo/attacker-config" LD_PRELOAD=/nonexistent/escalation-loader.so \

@@ -12,7 +12,8 @@
 #     (--repo or $SAAS_PLUGIN_REPO). Anything else stays dry-run.
 #   - Re-runs the HARD PII/secrets gate on every issue title+body at the filing
 #     boundary (defense-in-depth; the candidate was already gated upstream).
-#   - Idempotent: a fingerprint already in the ledger is never re-filed.
+#   - Idempotent: a fingerprint already in the ledger is never re-filed. A stable,
+#     privacy-safe marker reconciles create-before-ledger crashes across all issue states.
 #   - Advisory dedup: skips when an open issue with the same title already exists.
 #   - Per-run budget cap.
 #
@@ -66,7 +67,29 @@ MODE="dry-run"; [ "$ENABLED" -eq 1 ] && MODE="file"
 LEDGER_JSON="$(cat "$LEDGER" 2>/dev/null || true)"
 printf '%s' "$LEDGER_JSON" | jq -e 'type=="object"' >/dev/null 2>&1 || LEDGER_JSON='{}'
 
-FILED=0; WOULD=0; BLOCKED=0; DEDUP_LEDGER=0; DEDUP_SEARCH=0; BUDGET_SKIP=0; FAILED=0; MALFORMED=0
+command -v sha256sum >/dev/null 2>&1 || { echo "lesson-file: sha256sum is required" >&2; exit 2; }
+
+persist_ledger() {
+  local tmp
+  tmp="$(mktemp "$(dirname "$LEDGER")/.lesson-ledger.XXXXXX")" || return 1
+  if ! printf '%s\n' "$LEDGER_JSON" > "$tmp" \
+     || ! jq -e 'type == "object"' "$tmp" >/dev/null 2>&1 \
+     || ! mv -f -- "$tmp" "$LEDGER"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+}
+
+record_fingerprint() {
+  local fp="$1" url="$2" next
+  next="$(printf '%s' "$LEDGER_JSON" | jq -c \
+    --arg fp "$fp" --arg u "$url" '.[$fp] = {issue: $u}')" || return 1
+  LEDGER_JSON="$next"
+  persist_ledger
+}
+
+FILED=0; WOULD=0; BLOCKED=0; DEDUP_LEDGER=0; DEDUP_SEARCH=0
+BUDGET_SKIP=0; FAILED=0; MALFORMED=0; PERSIST_FATAL=0
 
 if [ -f "$CANDIDATES" ]; then
   while IFS= read -r line; do
@@ -88,7 +111,11 @@ if [ -f "$CANDIDATES" ]; then
     count="$(printf '%s' "$obj" | jq -r '.count // 1')"
     refs="$(printf '%s' "$obj" | jq -r '(.evidence_refs // []) | join(", ")')"
     labels="lesson-candidate"; [ -n "$domain" ] && [ "$domain" != "null" ] && labels="lesson-candidate,$domain"
-    body="$(printf '## Observation\n%s\n\n## Recommendation\n%s\n\n## Evidence\n- occurrences: %s\n- refs: %s\n\n---\nFiled by the saas-startup-team self-improvement harvester as a candidate (de-identified + PII-gated). Review before implementing; close if not generic.\n' "$obs" "$rec" "$count" "$refs")"
+    marker_digest="$(printf '%s' "$fp" | sha256sum | awk '{print $1}')" || {
+      FAILED=$((FAILED + 1)); continue
+    }
+    marker="<!-- saas-lesson-fingerprint:v1:$marker_digest -->"
+    body="$(printf '## Observation\n%s\n\n## Recommendation\n%s\n\n## Evidence\n- occurrences: %s\n- refs: %s\n\n---\nFiled by the saas-startup-team self-improvement harvester as a candidate (de-identified + PII-gated). Review before implementing; close if not generic.\n\n%s\n' "$obs" "$rec" "$count" "$refs" "$marker")"
 
     # PII re-gate at the filing boundary (defense-in-depth)
     if pii_hit "$title" || pii_hit "$body"; then BLOCKED=$((BLOCKED + 1)); continue; fi
@@ -97,6 +124,29 @@ if [ -f "$CANDIDATES" ]; then
 
     # FILE mode
     if [ "$FILED" -ge "$MAX_ISSUES" ]; then BUDGET_SKIP=$((BUDGET_SKIP + 1)); continue; fi
+
+    # Authoritative crash reconciliation: the marker survives even when creation
+    # completed but the local ledger write did not. Closed issues count too.
+    if ! marked="$(gh issue list --repo "$REPO" --search "$marker_digest in:body" \
+      --state all --limit 100 --json number,url,body,state 2>/dev/null)"; then
+      FAILED=$((FAILED + 1)); continue
+    fi
+    if ! marked_url="$(printf '%s' "$marked" | jq -er --arg marker "$marker" '
+      if type != "array" then error("marker result is not an array")
+      else map(select((.body | type == "string") and (.body | contains($marker))))
+        | sort_by(.number) | if length == 0 then "" else .[0].url end
+      end
+    ' 2>/dev/null)"; then
+      FAILED=$((FAILED + 1)); continue
+    fi
+    if [ -n "$marked_url" ]; then
+      if ! record_fingerprint "$fp" "$marked_url"; then
+        FAILED=$((FAILED + 1)); PERSIST_FATAL=1
+        break
+      fi
+      DEDUP_LEDGER=$((DEDUP_LEDGER + 1))
+      continue
+    fi
 
     # advisory dedup against existing open issues — FAIL CLOSED on search error
     # (a failed search must not let us open a duplicate public issue).
@@ -110,14 +160,18 @@ if [ -f "$CANDIDATES" ]; then
     if [ "$cnt" -gt 0 ]; then DEDUP_SEARCH=$((DEDUP_SEARCH + 1)); continue; fi
 
     url="$(gh issue create --repo "$REPO" --title "$title" --body "$body" --label "$labels" 2>/dev/null)" || { FAILED=$((FAILED + 1)); continue; }
-    LEDGER_JSON="$(printf '%s' "$LEDGER_JSON" | jq -c --arg fp "$fp" --arg u "$url" '.[$fp] = {issue: $u}')"
-    # Persist the ledger immediately so a crash after this create can't cause a re-file.
-    printf '%s\n' "$LEDGER_JSON" > "${LEDGER}.tmp" && mv -f "${LEDGER}.tmp" "$LEDGER"
     FILED=$((FILED + 1))
+    # Persist the ledger immediately so a crash after this create can't cause a re-file.
+    if ! record_fingerprint "$fp" "$url"; then
+      FAILED=$((FAILED + 1)); PERSIST_FATAL=1
+      break
+    fi
   done < "$CANDIDATES"
 fi
 
-printf '%s\n' "$LEDGER_JSON" > "${LEDGER}.tmp" && mv -f "${LEDGER}.tmp" "$LEDGER"
+if [ "$PERSIST_FATAL" -eq 0 ] && ! persist_ledger; then
+  FAILED=$((FAILED + 1))
+fi
 
 {
   echo "# Lesson filing — $MODE"

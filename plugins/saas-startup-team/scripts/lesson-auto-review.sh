@@ -8,11 +8,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SCHEMA_FILE="$PLUGIN_DIR/references/schemas/lesson-auto-review.schema.json"
 LESSON_REVIEW="${LESSON_AUTO_REVIEW_HELPER:-$SCRIPT_DIR/lesson-review.sh}"
+REVIEW_BINDING="$SCRIPT_DIR/lesson-review-binding.sh"
 REPO=""
 LIMIT=3
 DRY_RUN=0
 MODEL_TIMEOUT_SECONDS=180
-ENVELOPE_MAX_BYTES=12288
+ENVELOPE_MAX_BYTES=131072
 
 _need_val() { [ "$1" -ge 2 ] || { echo "lesson-auto-review: $2 needs a value" >&2; exit 2; }; }
 
@@ -47,6 +48,12 @@ jq -e 'type == "object"' "$SCHEMA_FILE" >/dev/null 2>&1 || {
 }
 command -v flock >/dev/null 2>&1 || { echo "lesson-auto-review: flock is required" >&2; exit 1; }
 command -v sha256sum >/dev/null 2>&1 || { echo "lesson-auto-review: sha256sum is required" >&2; exit 1; }
+# shellcheck source=lesson-review-binding.sh
+. "$REVIEW_BINDING" || { echo "lesson-auto-review: review binding helper is unavailable" >&2; exit 1; }
+command -v lesson_review_digest_json >/dev/null 2>&1 || {
+  echo "lesson-auto-review: review binding helper is invalid" >&2
+  exit 1
+}
 
 # Serialize one queue locally without making a concurrent cron invocation wait.
 # The helper intentionally does not share this lock, so guarded state transitions
@@ -140,21 +147,10 @@ verdict_class() {
 
 make_envelope() {
   local candidate="$1" target="$2"
-  printf '%s' "$candidate" | jq -ce --argjson max "$ENVELOPE_MAX_BYTES" '
-    def trim_to_bytes($n):
-      if utf8bytelength <= $n then .
-      else .[0:$n] | until(utf8bytelength <= $n; .[0:length-1])
-      end;
-    {
-      number: .number,
-      title: (.title | trim_to_bytes(1024)),
-      body: (.body | trim_to_bytes(10240))
-    }
-    | until((tojson | utf8bytelength) <= $max;
-        if (.body | length) > 0 then .body |= .[0:([length - 256, 0] | max)]
-        elif (.title | length) > 0 then .title |= .[0:([length - 64, 0] | max)]
-        else . end)
-  ' > "$target" || return 1
+  # Never truncate review material: either both fields fit in full or the candidate
+  # remains queued for retry. GitHub issue content fits comfortably under this cap.
+  printf '%s' "$candidate" | jq -ce '{number: .number, title: .title, body: .body}' \
+    > "$target" || return 1
   [ "$(wc -c < "$target" | tr -d ' ')" -le "$ENVELOPE_MAX_BYTES" ]
 }
 
@@ -211,7 +207,7 @@ run_sol() {
 }
 
 mutate_lesson() {
-  local action="$1" number="$2" provider="$3" note
+  local action="$1" number="$2" provider="$3" digest="$4" note
   case "$action" in
     approve) note="Auto-review approved by $provider at the flagship confidence gate." ;;
     reject) note="Auto-review rejected by $provider at the flagship confidence gate." ;;
@@ -219,9 +215,11 @@ mutate_lesson() {
     *) return 2 ;;
   esac
   if [ "$action" = reject ]; then
-    "$LESSON_REVIEW" --auto-reject "$number" --note "$note" --repo "$REPO"
+    "$LESSON_REVIEW" --auto-reject "$number" --note "$note" \
+      --review-digest "$digest" --repo "$REPO"
   else
-    "$LESSON_REVIEW" "--$action" "$number" --note "$note" --repo "$REPO"
+    "$LESSON_REVIEW" "--$action" "$number" --note "$note" \
+      --review-digest "$digest" --repo "$REPO"
   fi
 }
 
@@ -251,6 +249,11 @@ index=0
 for candidate in "${CANDIDATES[@]}"; do
   index=$((index + 1))
   number="$(printf '%s' "$candidate" | jq -r '.number')"
+  reviewed_digest="$(lesson_review_digest_json "$candidate")" || {
+    echo "lesson-auto-review: #$number retry (could not bind review content)" >&2
+    overall=1
+    continue
+  }
   prefix="$WORK_DIR/candidate-$index"
   envelope="$prefix-envelope.json"
   prompt="$prefix-prompt.txt"
@@ -312,7 +315,7 @@ for candidate in "${CANDIDATES[@]}"; do
     echo "lesson-auto-review: #$number dry-run would $final_action"
     continue
   fi
-  if ! mutate_lesson "$final_action" "$number" "$final_provider"; then
+  if ! mutate_lesson "$final_action" "$number" "$final_provider" "$reviewed_digest"; then
     echo "lesson-auto-review: #$number mutation failed" >&2
     overall=1
     continue

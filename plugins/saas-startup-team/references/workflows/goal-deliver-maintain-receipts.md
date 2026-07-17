@@ -84,6 +84,10 @@ Keep the four identities separate throughout the adapter:
 ```bash
 CONTROLLER_RUN_ID="$SAAS_INVOCATION_ID"
 INVOCATION_COMMAND="$SAAS_INVOCATION_COMMAND"
+DELIVERY_CONTROLLER_ARGS=(
+  --lease-state "$SAAS_EMBEDDED_LEASE_STATE"
+  --controller-run-id "$CONTROLLER_RUN_ID"
+)
 ```
 
 `ORIGIN_RUN_ID` is the immutable ID from the verified claim and delivery receipt. For
@@ -99,7 +103,11 @@ Heartbeat and revalidate the inherited lease before every helper transition and 
 external mutation. Never acquire or release a second goal lease. Run the source
 transaction and all receipt-authorized GitHub transitions in one continuous host shell;
 shell loss invalidates transient guard/trust evidence but not a validated durable
-delivery receipt.
+delivery receipt. Append the exact `"${DELIVERY_CONTROLLER_ARGS[@]}"` tuple to every
+mutating `maintain-delivery.sh` action; read-only actions need no controller tuple, and
+`archive-claimed` acquires its own idle cleanup lease. The helper binds that explicit
+controller to the repository and worktree before lock creation, heartbeat, receipt
+change, or GitHub mutation. The origin ID is never used as controller authority.
 
 ## Source transaction and escalation
 
@@ -123,8 +131,8 @@ Only after the base gate is green:
 Mint `DELIVERY_ID` with `agent-events.sh new-run-id`, then call
 `maintain-delivery.sh begin` with the issue, origin run, that fresh delivery ID,
 validated merge budget, exact `--scope-json`, and
-`--lease-state`. A resume never calls `begin` again. The receipt must exist before
-branch creation or writer dispatch.
+`"${DELIVERY_CONTROLLER_ARGS[@]}"`. A resume never calls `begin` again. The receipt
+must exist before branch creation or writer dispatch.
 
 Create the bounded prompt at the stable compatibility path above. Execute the source
 mutation only through `maintain-attempt.sh deliver`; it owns the mutation token,

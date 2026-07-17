@@ -93,6 +93,10 @@ malformed Sol output quarantines the issue. Only nonzero model transport failure
 timeouts leave the candidate queued for retry. `/lessons-review` remains available for
 explicit manual inspection or override, but normal delivery does not wait for it.
 
+The bounded model input contains the complete title/body or leaves the issue queued. Before
+mutation, the reviewer re-fetches and matches the exact content digest; a checked
+digest marker is then required again by delivery listing and claiming.
+
 **Non-negotiable automated gate (safety, not burden):** a hard **PII/secrets
 check** (reuse `check-handoff-secrets.sh` pattern) runs before any write to the
 public plugin repo. It is the one gate that never relaxes. Paraphrase-only:
@@ -342,7 +346,8 @@ Tracking issue: **#79** (keep open until the loop runs end-to-end live).
     repo, but ONLY when `SAAS_LESSON_SYNC_ENABLED=true` AND a repo is pinned —
     otherwise **dry-run** (files nothing). Re-runs the shared PII gate at the
     filing boundary; idempotent via the fingerprint ledger; advisory dedup vs
-    open issues; per-run budget. PII gate extracted to shared `pii-gate.sh`
+    open issues; per-run budget. An all-state fingerprint-marker lookup closes the
+    create-before-ledger crash window; ledger writes are checked and atomic. PII gate extracted to shared `pii-gate.sh`
     (single source of truth for `harvest.sh` + `lesson-file.sh`).
   - Tests: Suite F (F1–F9) with the mock-`gh` harness (684 total, all green).
   - End-to-end on aruannik stays dry-run by default: 2 candidates → "would file

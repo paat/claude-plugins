@@ -28,6 +28,7 @@ test_maintain_runtime() {
   local hold_key hold_dir hold_owner
   local reset_bin real_git reset_ready reset_status reset_pid reset_heartbeat
   local reset_heartbeat_before reset_heartbeat_after
+  local lease_before lease_after runtime_before runtime_after
   local role_guard telemetry_id routing_schema guard_dir active_guard verified_guard
   local unrelated guard_victim worker_bin worker_called shared_owner inactive_guard
   local metadata_peer peer_git_dir peer_backpointer peer_head
@@ -570,12 +571,22 @@ SH
     --lease-state "$state" --run-id "$origin_run" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR21bind-g: reset requires an explicit current controller identity" "$ec" 2
   assert_file_not_exists "MR21bind-h: missing controller cannot create the worktree" "$wt"
+  lease_before=$(lease_state_fingerprint "$state")
+  runtime_before=$(tar -C "$common/saas-startup-team/maintain-runtime" --sort=name -cf - . \
+    | sha256sum | awk '{print $1}')
   ec=0
   bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
     --lease-state "$state" --run-id "$origin_run" --controller-run-id wrong-controller \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR21bind-i: reset rejects a controller that does not own the lease" "$ec" 1
   assert_file_not_exists "MR21bind-j: mismatched controller cannot create the worktree" "$wt"
+  lease_after=$(lease_state_fingerprint "$state")
+  runtime_after=$(tar -C "$common/saas-startup-team/maintain-runtime" --sort=name -cf - . \
+    | sha256sum | awk '{print $1}')
+  assert_equals "MR21bind-ja: rejected reset cannot heartbeat another controller's lease" \
+    "$lease_after" "$lease_before"
+  assert_equals "MR21bind-jb: rejected reset leaves maintenance runtime byte-identical" \
+    "$runtime_after" "$runtime_before"
   ec=0
   bash "$attempt_helper" reset --repo-root "$repo" --worktree "$repo" --base-sha "$base" \
     --lease-state "$state" --run-id "$origin_run" --controller-run-id "$controller_run_id" \

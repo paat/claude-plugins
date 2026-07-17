@@ -6,12 +6,16 @@ TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$TEST_DIR/.." && pwd)"
 AUTO="$PLUGIN_ROOT/scripts/lesson-auto-review.sh"
 REVIEW="$PLUGIN_ROOT/scripts/lesson-review.sh"
+BINDING="$PLUGIN_ROOT/scripts/lesson-review-binding.sh"
 SCHEMA="$PLUGIN_ROOT/references/schemas/lesson-auto-review.schema.json"
 DESIGN="$PLUGIN_ROOT/docs/design/self-improvement-loop.md"
 REPO="owner/repo"
 PASS=0
 FAIL=0
 WORKS=()
+
+# shellcheck source=../scripts/lesson-review-binding.sh
+. "$BINDING"
 
 cleanup() {
   local dir
@@ -47,7 +51,8 @@ candidates() {
   printf '[' > "$file"
   for ((i=1; i<=count; i++)); do
     [ "$i" -eq 1 ] || printf ',' >> "$file"
-    jq -cn --argjson n "$i" '{number:$n,title:("candidate " + ($n|tostring)),body:"body"}' >> "$file"
+    jq -cn --argjson n "$i" \
+      '{number:$n,title:("candidate " + ($n|tostring)),body:"body",updatedAt:"2026-07-17T00:00:00Z"}' >> "$file"
   done
   printf ']\n' >> "$file"
 }
@@ -169,6 +174,9 @@ test_opus_decisive_and_limits() {
   assert_contains "list delegates default max" "$CASE/log/helper" '--limit 3'
   assert_contains "Claude JSON wrapper is extracted and approved" "$CASE/log/helper" '--approve 1'
   assert_contains "rejection invokes candidate-only helper" "$CASE/log/helper" '--auto-reject 2'
+  expected_digest="$(jq -c '.[0]' "$CASE/candidates.json")"
+  expected_digest="$(lesson_review_digest_json "$expected_digest")"
+  assert_contains "mutation binds exact reviewed digest" "$CASE/log/helper" "--review-digest $expected_digest"
   assert_contains "every Opus call pins model" "$CASE/log/claude-1.args" '--model opus'
   assert_contains "every Opus call pins effort" "$CASE/log/claude-1.args" '--effort xhigh'
   assert_contains "Opus uses safe mode" "$CASE/log/claude-1.args" '--safe-mode'
@@ -362,6 +370,7 @@ test_dry_run_hostile_bounds_and_cleanup() {
     number: 7,
     title: "--resume hostile",
     body: ("$(touch " + $marker + ") --model evil RAW_SECRET " + ("x" * 20000) + " TRUNCATED_TAIL"),
+    updatedAt: "2026-07-17T00:00:00Z",
     comments: [{body:"COMMENT_SECRET"}],
     url: "URL_SECRET"
   }]' > "$CASE/candidates.json"
@@ -377,12 +386,19 @@ test_dry_run_hostile_bounds_and_cleanup() {
   assert_not_contains "hostile issue is not a Sol CLI arg" "$CASE/log/codex-1.args" '--model evil'
   assert_not_contains "comments are excluded from prompt" "$CASE/log/claude-1.prompt" 'COMMENT_SECRET'
   assert_not_contains "URLs are excluded from prompt" "$CASE/log/claude-1.prompt" 'URL_SECRET'
-  assert_not_contains "body is truncated" "$CASE/log/claude-1.prompt" 'TRUNCATED_TAIL'
+  assert_contains "complete body tail reaches the model" "$CASE/log/claude-1.prompt" 'TRUNCATED_TAIL'
   envelope_bytes="$(sed -n '/BEGIN UNTRUSTED ISSUE JSON DATA/{n;p;q;}' "$CASE/log/claude-1.prompt" | wc -c | tr -d ' ')"
-  [ "$envelope_bytes" -le 12288 ] && pass "issue envelope is at most 12 KiB" || fail "issue envelope is at most 12 KiB ($envelope_bytes)"
+  [ "$envelope_bytes" -le 131072 ] && pass "complete issue envelope stays bounded" || fail "complete issue envelope stays bounded ($envelope_bytes)"
   assert_not_contains "raw issue text is absent from logs" "$RUN_OUT" 'RAW_SECRET'
   assert_not_contains "raw model rationale is absent from logs" "$RUN_OUT" 'bounded rationale'
   assert_count "private workspace is cleaned" "$CASE/tmp" 'lesson-auto-review.*' 0
+
+  setup_auto
+  jq -n '[{number:8,title:"oversized",body:("x" * 131072),updatedAt:"2026-07-17T00:00:00Z"}]' \
+    > "$CASE/candidates.json"
+  run_auto
+  [ "$RUN_RC" -ne 0 ] && pass "oversized complete content remains queued" || fail "oversized complete content remains queued"
+  assert_count "oversized content launches no partial review" "$CASE/log" 'claude-*.args' 0
 }
 
 test_mutation_failure_and_strict_schema() {
@@ -423,35 +439,50 @@ setup_gh() {
 #!/usr/bin/env bash
 printf '%s ' "$@" >> "$GH_LOG"
 printf '\n' >> "$GH_LOG"
-if [ "${1:-} ${2:-}" = 'issue view' ]; then printf '%s\n' "$GH_VIEW_JSON"; fi
+if [ "${1:-} ${2:-}" = 'issue view' ]; then
+  if [ -f "$GH_CLOSE_MARKER" ] && [ -n "${GH_VIEW_AFTER_JSON:-}" ]; then
+    printf '%s\n' "$GH_VIEW_AFTER_JSON"
+  else
+    printf '%s\n' "$GH_VIEW_JSON"
+  fi
+fi
+if [ "${1:-} ${2:-}" = 'issue close' ]; then : > "$GH_CLOSE_MARKER"; fi
 if [ "${GH_FAIL_ON:-}" = "${1:-} ${2:-}" ]; then exit 1; fi
 exit 0
 MOCK
   chmod 700 "$GH_CASE/bin/gh"
 }
 
+review_issue() {
+  local state="$1" labels="$2" comments="${3:-[]}"
+  jq -cn --arg state "$state" --argjson labels "$labels" --argjson comments "$comments" \
+    '{state:$state,labels:$labels,title:"candidate",body:"body",updatedAt:"2026-07-17T00:00:00Z",comments:$comments}'
+}
+
 run_review() {
   REVIEW_RC=0
-  PATH="$GH_CASE/bin:$PATH" GH_LOG="$GH_CASE/gh.log" GH_VIEW_JSON="$GH_VIEW_JSON" GH_FAIL_ON="${GH_FAIL_ON:-}" \
+  PATH="$GH_CASE/bin:$PATH" GH_LOG="$GH_CASE/gh.log" GH_CLOSE_MARKER="$GH_CASE/closed" \
+    GH_VIEW_JSON="$GH_VIEW_JSON" GH_VIEW_AFTER_JSON="${GH_VIEW_AFTER_JSON:-}" \
+    GH_FAIL_ON="${GH_FAIL_ON:-}" \
     bash "$REVIEW" "$@" --repo "$REPO" > "$GH_CASE/output" 2>&1 || REVIEW_RC=$?
 }
 
 test_review_quarantine_state_machine() {
   setup_gh
-  GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-candidate"},{"name":"lessons:blocked"}]}'
+  GH_VIEW_JSON="$(review_issue OPEN '[{"name":"lesson-candidate"},{"name":"lessons:blocked"}]')"
   run_review --approve 5
   [ "$REVIEW_RC" -ne 0 ] && pass "approve refuses blocked mixed labels" || fail "approve refuses blocked mixed labels"
   assert_not_contains "blocked approve performs no edit" "$GH_CASE/gh.log" 'issue edit'
 
   setup_gh
-  GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-candidate"},{"name":"lesson-approved"}]}'
+  GH_VIEW_JSON="$(review_issue OPEN '[{"name":"lesson-candidate"},{"name":"lesson-approved"}]')"
   run_review --quarantine 6 --note auto
   assert_eq "candidate quarantine succeeds" "$REVIEW_RC" 0
   assert_contains "quarantine adds blocked atomically" "$GH_CASE/gh.log" 'issue edit 6 --repo owner/repo --add-label lessons:blocked --remove-label lesson-candidate --remove-label lesson-approved'
   assert_eq "quarantine uses one edit" "$(grep -c 'issue edit' "$GH_CASE/gh.log")" 1
 
   setup_gh
-  GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lessons:blocked"}]}'
+  GH_VIEW_JSON="$(review_issue OPEN '[{"name":"lessons:blocked"}]')"
   run_review --quarantine 6
   assert_eq "open blocked without candidate is idempotent" "$REVIEW_RC" 0
   assert_not_contains "idempotent quarantine performs no edit" "$GH_CASE/gh.log" 'issue edit'
@@ -460,9 +491,9 @@ test_review_quarantine_state_machine() {
   for label in unrelated approved-only closed; do
     setup_gh
     case "$label" in
-      unrelated) json='{"state":"OPEN","labels":[{"name":"bug"}]}' ;;
-      approved-only) json='{"state":"OPEN","labels":[{"name":"lesson-approved"}]}' ;;
-      closed) json='{"state":"CLOSED","labels":[{"name":"lesson-candidate"}]}' ;;
+      unrelated) json="$(review_issue OPEN '[{"name":"bug"}]')" ;;
+      approved-only) json="$(review_issue OPEN '[{"name":"lesson-approved"}]')" ;;
+      closed) json="$(review_issue CLOSED '[{"name":"lesson-candidate"}]')" ;;
     esac
     GH_VIEW_JSON="$json"
     run_review --quarantine 8
@@ -473,27 +504,59 @@ test_review_quarantine_state_machine() {
 
 test_review_auto_reject_state_machine() {
   setup_gh
-  GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-candidate"}]}'
-  run_review --auto-reject 9 --note auto
+  GH_VIEW_JSON="$(review_issue OPEN '[{"name":"lesson-candidate"}]')"
+  digest="$(lesson_review_digest_json "$GH_VIEW_JSON")"
+  run_review --auto-reject 9 --note auto --review-digest "$digest"
   assert_eq "candidate-only automated rejection succeeds" "$REVIEW_RC" 0
   assert_contains "automated rejection closes one candidate" "$GH_CASE/gh.log" \
-    'issue close 9 --repo owner/repo --reason not planned --comment auto'
+    'issue close 9 --repo owner/repo --reason not planned'
+  assert_contains "automated rejection records exact binding" "$GH_CASE/gh.log" \
+    "saas-lesson-review:v1:reject:$digest"
 
   local json state
   for state in approved blocked unrelated closed; do
     setup_gh
     case "$state" in
-      approved) json='{"state":"OPEN","labels":[{"name":"lesson-candidate"},{"name":"lesson-approved"}]}' ;;
-      blocked) json='{"state":"OPEN","labels":[{"name":"lesson-candidate"},{"name":"lessons:blocked"}]}' ;;
-      unrelated) json='{"state":"OPEN","labels":[{"name":"bug"}]}' ;;
-      closed) json='{"state":"CLOSED","labels":[{"name":"lesson-candidate"}]}' ;;
+      approved) json="$(review_issue OPEN '[{"name":"lesson-candidate"},{"name":"lesson-approved"}]')" ;;
+      blocked) json="$(review_issue OPEN '[{"name":"lesson-candidate"},{"name":"lessons:blocked"}]')" ;;
+      unrelated) json="$(review_issue OPEN '[{"name":"bug"}]')" ;;
+      closed) json="$(review_issue CLOSED '[{"name":"lesson-candidate"}]')" ;;
     esac
     GH_VIEW_JSON="$json"
-    run_review --auto-reject 9
+    digest="$(lesson_review_digest_json "$GH_VIEW_JSON")"
+    run_review --auto-reject 9 --review-digest "$digest"
     [ "$REVIEW_RC" -ne 0 ] && pass "automated rejection refuses $state state" \
       || fail "automated rejection refuses $state state"
     assert_not_contains "automated rejection $state guard prevents close" "$GH_CASE/gh.log" 'issue close'
   done
+}
+
+test_review_content_binding() {
+  local digest
+  setup_gh
+  GH_VIEW_JSON="$(review_issue OPEN '[{"name":"lesson-candidate"}]')"
+  digest="$(lesson_review_digest_json "$GH_VIEW_JSON")"
+  run_review --approve 12 --review-digest "$(printf stale | sha256sum | awk '{print $1}')"
+  [ "$REVIEW_RC" -ne 0 ] && pass "changed content refuses stale automated approval" \
+    || fail "changed content refuses stale automated approval"
+  assert_not_contains "stale approval records no binding" "$GH_CASE/gh.log" 'issue comment'
+  assert_not_contains "stale approval performs no edit" "$GH_CASE/gh.log" 'issue edit'
+
+  setup_gh
+  GH_VIEW_JSON="$(review_issue OPEN '[{"name":"lesson-candidate"}]')"
+  digest="$(lesson_review_digest_json "$GH_VIEW_JSON")"
+  GH_VIEW_AFTER_JSON="$(jq '.body = "edited during rejection"' <<<"$GH_VIEW_JSON")"
+  run_review --auto-reject 12 --review-digest "$digest"
+  unset GH_VIEW_AFTER_JSON
+  [ "$REVIEW_RC" -ne 0 ] && pass "mid-rejection edit fails closed" \
+    || fail "mid-rejection edit fails closed"
+  assert_contains "mid-rejection edit reopens the issue" "$GH_CASE/gh.log" 'issue reopen 12'
+
+  setup_gh
+  GH_VIEW_JSON="$(review_issue OPEN '[{"name":"lesson-approved"}]')"
+  run_review --approve 12
+  [ "$REVIEW_RC" -ne 0 ] && pass "unbound approved state is not a valid no-op" \
+    || fail "unbound approved state is not a valid no-op"
 }
 
 test_opus_decisive_and_limits
@@ -505,6 +568,7 @@ test_dry_run_hostile_bounds_and_cleanup
 test_mutation_failure_and_strict_schema
 test_review_quarantine_state_machine
 test_review_auto_reject_state_machine
+test_review_content_binding
 
 printf '\nlesson-auto-review: %s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -153,8 +153,34 @@ assert_json_field() {
 }
 
 # ---------------------------------------------------------------------------
-# Helper: create temp working dir with optional .startup/ fixtures
+# Helpers: exact lease fingerprints and temporary .startup/ fixtures
 # ---------------------------------------------------------------------------
+
+lease_state_fingerprint() {
+  local state_file=$1 rows kind key state_dir owner_file slug artifact fingerprint rc=0
+  rows=$(mktemp) || return 1
+  if ! jq -er '.leases[] | [.kind,.key,.state_dir,.owner_file] | @tsv' \
+    "$state_file" > "$rows"; then
+    rm -f -- "$rows"
+    return 1
+  fi
+  fingerprint=$(
+    while IFS=$'\t' read -r kind key state_dir owner_file; do
+      slug=$(printf '%s' "$key" | tr '/: ' '---' | tr -cd 'A-Za-z0-9._-')
+      [ -n "$slug" ] || slug=lease
+      for artifact in "$state_dir/$slug/heartbeat" "$state_dir/$slug/key" \
+        "$state_dir/$slug/owner" "$state_dir/$slug/audit.log" \
+        "$owner_file" "${owner_file}.key"; do
+        [ -f "$artifact" ] && [ ! -L "$artifact" ] || return 1
+        stat -c '%n\t%i\t%s\t%y\t%z' -- "$artifact"
+        sha256sum -- "$artifact"
+      done
+    done < "$rows" | LC_ALL=C sort | sha256sum | awk '{print $1}'
+  ) || rc=$?
+  rm -f -- "$rows"
+  [ "$rc" -eq 0 ] || return "$rc"
+  printf '%s\n' "$fingerprint"
+}
 
 make_workdir() {
   local tmpdir
@@ -4791,6 +4817,8 @@ test_lesson_file() {
   assert_equals "F2: exactly one issue created" "$(_creates "$L")" "1"
   assert_file_contains "F2: filed to the pinned repo" "$L" "paat/claude-plugins"
   assert_file_contains "F2: labeled lesson-candidate" "$L" "lesson-candidate"
+  assert_file_contains "F2: issue carries stable fingerprint marker" "$L" \
+    "saas-lesson-fingerprint:v1:"
   ec=0; jq -e '.["fp1"]' "$led" >/dev/null 2>&1 || ec=$?
   assert_exit_code "F2: ledger records the fingerprint" "$ec" 0
   rm -rf "$workdir"
@@ -4926,6 +4954,33 @@ test_lesson_file() {
   assert_json_valid "F14: create failure still writes the ledger" "$led"
   assert_equals "F14: failed create records no fingerprint" "$(jq 'length' "$led")" "0"
   rm -rf "$workdir"
+
+  # --- F15: create-before-ledger failure reconciles a CLOSED issue, never refiles ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  _cand fp15 interrupt "obs" process > "$cand"
+  local marker_digest marker closed_issue broken_ledger
+  marker_digest="$(printf '%s' fp15 | sha256sum | awk '{print $1}')"
+  marker="<!-- saas-lesson-fingerprint:v1:$marker_digest -->"
+  broken_ledger="/proc/self/lesson-ledger-${RANDOM}.json"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=926 \
+    SAAS_LESSON_SYNC_ENABLED=true bash "$script" --candidates "$cand" --ledger "$broken_ledger" \
+      --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F15: checked ledger persistence failure exits nonzero" "$ec" 1
+  assert_equals "F15: remote create happened exactly once before persistence failed" "$(_creates "$L")" "1"
+
+  led="$workdir/recovered-ledger.json"; : > "$L"
+  closed_issue="$(jq -cn --arg marker "$marker" \
+    '[{number:926,url:"https://github.com/o/r/issues/926",body:("candidate\n" + $marker),state:"CLOSED"}]')"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=927 \
+    GH_ALL_ISSUES_JSON="$closed_issue" SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins \
+      --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F15: closed marker reconciliation succeeds" "$ec" 0
+  assert_equals "F15: recovered closed issue is never refiled" "$(_creates "$L")" "0"
+  assert_equals "F15: recovered fingerprint is durably ledgered" \
+    "$(jq -r '.["fp15"].issue' "$led")" "https://github.com/o/r/issues/926"
+  rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
@@ -4937,11 +4992,22 @@ test_lesson_review() {
   local script="$PLUGIN_ROOT/scripts/lesson-review.sh"
   local workdir L ec output cnt
   local REPO="paat/claude-plugins"
-  local CAND_OPEN='{"state":"OPEN","labels":[{"name":"lesson-candidate"},{"name":"tooling"}]}'
-  local APPROVED_OPEN='{"state":"OPEN","labels":[{"name":"lesson-approved"}]}'
-  local CLOSED_CAND='{"state":"CLOSED","labels":[{"name":"lesson-candidate"}]}'
-  local NONLESSON_OPEN='{"state":"OPEN","labels":[{"name":"bug"}]}'
-  local ONE='[{"number":5,"title":"lesson: recurring tool_failure","labels":[{"name":"lesson-candidate"},{"name":"tooling"}],"url":"https://github.com/paat/claude-plugins/issues/5","body":"## Observation\nstuff"}]'
+  local review_title="lesson: recurring tool_failure" review_body="## Observation
+stuff" review_canonical review_digest review_marker
+  review_canonical="$(jq -cn --arg title "$review_title" --arg body "$review_body" '{title:$title,body:$body}')"
+  review_digest="$(printf '%s' "$review_canonical" | sha256sum | awk '{print $1}')"
+  review_marker="<!-- saas-lesson-review:v1:approve:$review_digest -->"
+  local CAND_OPEN APPROVED_OPEN CLOSED_CAND NONLESSON_OPEN ONE
+  CAND_OPEN="$(jq -cn --arg title "$review_title" --arg body "$review_body" \
+    '{state:"OPEN",labels:[{name:"lesson-candidate"},{name:"tooling"}],title:$title,body:$body,updatedAt:"2026-07-17T00:00:00Z",comments:[]}')"
+  APPROVED_OPEN="$(jq -cn --arg title "$review_title" --arg body "$review_body" --arg marker "$review_marker" \
+    '{state:"OPEN",labels:[{name:"lesson-approved"}],title:$title,body:$body,updatedAt:"2026-07-17T00:00:00Z",comments:[{body:$marker}]}')"
+  CLOSED_CAND="$(jq -cn --arg title "$review_title" --arg body "$review_body" \
+    '{state:"CLOSED",labels:[{name:"lesson-candidate"}],title:$title,body:$body,updatedAt:"2026-07-17T00:00:00Z",comments:[]}')"
+  NONLESSON_OPEN="$(jq -cn --arg title "$review_title" --arg body "$review_body" \
+    '{state:"OPEN",labels:[{name:"bug"}],title:$title,body:$body,updatedAt:"2026-07-17T00:00:00Z",comments:[]}')"
+  ONE="$(jq -cn --arg title "$review_title" --arg body "$review_body" \
+    '[{number:5,title:$title,labels:[{name:"lesson-candidate"},{name:"tooling"}],url:"https://github.com/paat/claude-plugins/issues/5",body:$body,updatedAt:"2026-07-17T00:00:00Z"}]')"
   _edits() { grep -c 'issue edit' "$1" 2>/dev/null || true; }
   _closes() { grep -c 'issue close' "$1" 2>/dev/null || true; }
 
@@ -6231,7 +6297,12 @@ case "$1 $2" in
      if [[ "$*" == *"--json"* ]] && [ -n "${GH_VIEW_JSON:-}" ]; then echo "$GH_VIEW_JSON";
      elif [[ "$*" == *"body"* ]]; then echo "${GH_VIEW_BODY:-}";
      else echo "${GH_VIEW_STATE:-OPEN}"; fi ;;
-  "issue list")  echo "${GH_LIST_JSON:-${GH_SEARCH_JSON:-[]}}" ;;
+  "issue list")
+     if [[ "$*" == *"--state all"* ]] && [ -n "${GH_ALL_ISSUES_JSON:-}" ]; then
+       echo "$GH_ALL_ISSUES_JSON"
+     else
+       echo "${GH_LIST_JSON:-${GH_SEARCH_JSON:-[]}}"
+     fi ;;
   "issue edit")  : ;;
   "issue close") : ;;
   "label create") : ;;
@@ -6249,6 +6320,12 @@ test_lessons_deliver() {
   echo -e "\n${CYAN}Suite L: lessons-deliver.sh (autonomous lesson implementer)${NC}"
   local script="$PLUGIN_ROOT/scripts/lessons-deliver.sh"
   local workdir ec output
+  local lesson_title="good lesson" lesson_body="body10" lesson_canonical lesson_digest lesson_marker approved_bound
+  lesson_canonical="$(jq -cn --arg title "$lesson_title" --arg body "$lesson_body" '{title:$title,body:$body}')"
+  lesson_digest="$(printf '%s' "$lesson_canonical" | sha256sum | awk '{print $1}')"
+  lesson_marker="<!-- saas-lesson-review:v1:approve:$lesson_digest -->"
+  approved_bound="$(jq -cn --arg title "$lesson_title" --arg body "$lesson_body" --arg marker "$lesson_marker" \
+    '{state:"OPEN",labels:[{name:"lesson-approved"}],closedByPullRequestsReferences:[],title:$title,body:$body,comments:[{body:$marker}]}')"
 
   # L1: script exists
   assert_file_exists "L1: lessons-deliver.sh exists" "$script"
@@ -6265,18 +6342,29 @@ test_lessons_deliver() {
   # L4: lists only lesson-approved, excludes blocked/claimed/needs-human/linked-PR
   workdir=$(make_workdir); make_mock_gh "$workdir"
   export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
-  export GH_LIST_JSON='[
-    {"number":10,"title":"good lesson","labels":[{"name":"lesson-approved"}],"url":"u10","createdAt":"2026-01-01T00:00:00Z","closedByPullRequestsReferences":[]},
-    {"number":11,"title":"blocked","labels":[{"name":"lesson-approved"},{"name":"lessons:blocked"}],"url":"u11","createdAt":"2026-01-02T00:00:00Z","closedByPullRequestsReferences":[]},
-    {"number":12,"title":"claimed","labels":[{"name":"lesson-approved"},{"name":"lessons:claimed"}],"url":"u12","createdAt":"2026-01-03T00:00:00Z","closedByPullRequestsReferences":[]},
-    {"number":13,"title":"has PR","labels":[{"name":"lesson-approved"}],"url":"u13","createdAt":"2026-01-04T00:00:00Z","closedByPullRequestsReferences":[{"number":5}]}
-  ]'
+  export GH_LIST_JSON="$(jq -cn --arg marker "$lesson_marker" '[
+    {number:10,title:"good lesson",body:"body10",comments:[{body:$marker}],labels:[{name:"lesson-approved"}],url:"u10",createdAt:"2026-01-01T00:00:00Z",closedByPullRequestsReferences:[]},
+    {number:11,title:"blocked",body:"body11",comments:[],labels:[{name:"lesson-approved"},{name:"lessons:blocked"}],url:"u11",createdAt:"2026-01-02T00:00:00Z",closedByPullRequestsReferences:[]},
+    {number:12,title:"claimed",body:"body12",comments:[],labels:[{name:"lesson-approved"},{name:"lessons:claimed"}],url:"u12",createdAt:"2026-01-03T00:00:00Z",closedByPullRequestsReferences:[]},
+    {number:13,title:"has PR",body:"body13",comments:[],labels:[{name:"lesson-approved"}],url:"u13",createdAt:"2026-01-04T00:00:00Z",closedByPullRequestsReferences:[{number:5}]}
+  ]')"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --list --json --repo o/r 2>&1) || ec=$?
   assert_exit_code "L4: list exits 0" "$ec" 0
   assert_output_contains "L4: includes eligible #10" "$output" '"number": 10'
   assert_output_not_contains "L4: excludes blocked #11" "$output" '"number": 11'
   assert_output_not_contains "L4: excludes claimed #12" "$output" '"number": 12'
   assert_output_not_contains "L4: excludes linked-PR #13" "$output" '"number": 13'
+  unset GH_LIST_JSON; rm -rf "$workdir"
+
+  # L4b: an approval marker for old content cannot authorize edited content
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_LIST_JSON="$(jq -cn --arg marker "$lesson_marker" '[
+    {number:10,title:"good lesson",body:"edited body",comments:[{body:$marker}],labels:[{name:"lesson-approved"}],url:"u10",createdAt:"2026-01-01T00:00:00Z",closedByPullRequestsReferences:[]}
+  ]')"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --list --json --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L4b: stale approval binding is handled safely" "$ec" 0
+  assert_output_not_contains "L4b: edited content is excluded from delivery" "$output" '"number": 10'
   unset GH_LIST_JSON; rm -rf "$workdir"
 
   # L5: unparseable list -> fail closed (exit 1), not "empty queue"
@@ -6463,7 +6551,7 @@ DIFF
   # L20: claim an eligible issue edits labels
   workdir=$(make_workdir); make_mock_gh "$workdir"
   export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
-  export GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-approved"}],"closedByPullRequestsReferences":[]}'
+  export GH_VIEW_JSON="$approved_bound"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r --run-id RUN1 2>&1) || ec=$?
   assert_exit_code "L20: claim exits 0" "$ec" 0
   assert_file_contains "L20: adds claimed label" "$GH_CALLS_LOG" "lessons:claimed"
@@ -6472,7 +6560,7 @@ DIFF
   # L21: claim refuses when a linked PR exists (fail closed)
   workdir=$(make_workdir); make_mock_gh "$workdir"
   export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
-  export GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-approved"}],"closedByPullRequestsReferences":[{"number":7}]}'
+  export GH_VIEW_JSON="$(printf '%s' "$approved_bound" | jq -c '.closedByPullRequestsReferences=[{number:7}]')"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r 2>&1) || ec=$?
   assert_exit_code "L21: claim with linked PR refuses" "$ec" 1
   unset GH_VIEW_JSON; rm -rf "$workdir"
@@ -6487,7 +6575,7 @@ DIFF
   # L23b: claim refuses when already claimed (not a no-op)
   workdir=$(make_workdir); make_mock_gh "$workdir"
   export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
-  export GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-approved"},{"name":"lessons:claimed"}],"closedByPullRequestsReferences":[]}'
+  export GH_VIEW_JSON="$(printf '%s' "$approved_bound" | jq -c '.labels += [{name:"lessons:claimed"}]')"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r 2>&1) || ec=$?
   assert_exit_code "L23b: already-claimed refuses" "$ec" 1
   unset GH_VIEW_JSON; rm -rf "$workdir"
@@ -6495,9 +6583,18 @@ DIFF
   # L23c: claim refuses a closed issue
   workdir=$(make_workdir); make_mock_gh "$workdir"
   export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
-  export GH_VIEW_JSON='{"state":"CLOSED","labels":[{"name":"lesson-approved"}],"closedByPullRequestsReferences":[]}'
+  export GH_VIEW_JSON="$(printf '%s' "$approved_bound" | jq -c '.state="CLOSED"')"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r 2>&1) || ec=$?
   assert_exit_code "L23c: closed issue refused" "$ec" 1
+  unset GH_VIEW_JSON; rm -rf "$workdir"
+
+  # L23c2: a stale marker cannot claim content edited after approval
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_VIEW_JSON="$(printf '%s' "$approved_bound" | jq -c '.body="edited after approval"')"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L23c2: stale approval binding refuses claim" "$ec" 1
+  assert_file_not_contains "L23c2: stale binding performs no claim edit" "$GH_CALLS_LOG" "issue edit"
   unset GH_VIEW_JSON; rm -rf "$workdir"
 
   # --- block ---

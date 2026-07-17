@@ -7,7 +7,7 @@
 # review surface over that queue: list pending candidates, then APPROVE (mark ready
 # for `/lessons-deliver`), CLOSE (reject), or QUARANTINE (block unresolved) each.
 #
-# State machine (one gh call per action — no partial-mutation window):
+# State machine (one checked binding comment, then the existing state mutation):
 #   pending   = open issue labeled `lesson-candidate`
 #   approved  = gh issue edit --add-label lesson-approved --remove-label lesson-candidate
 #   blocked   = gh issue edit --add-label lessons:blocked --remove-label
@@ -22,7 +22,9 @@
 #   - LABEL GUARD: a mutation verifies the issue is actually a lesson issue before
 #     touching it (prevents acting on an unrelated issue number). Fail CLOSED if the
 #     issue cannot be inspected (not found / permission / network).
-#   - These are guarded, explicit, per-issue transitions, so there is NO
+#   - Automated transitions bind the exact reviewed title/body digest;
+#     delivery independently verifies the approval binding. These are guarded,
+#     explicit, per-issue transitions, so there is NO
 #     SAAS_LESSON_SYNC_ENABLED gate (that flag guards AUTOMATED bulk filing). The
 #     repo pin + label guard are the rails for human and automated reviewers.
 #
@@ -38,6 +40,7 @@
 set -uo pipefail
 
 ACTION=""; NUM=""; NOTE=""; REPO=""; JSON=0; LIMIT="${SAAS_LESSON_LIST_LIMIT:-50}"
+REVIEW_DIGEST=""
 
 # A value-taking flag with no value must error, not loop forever (shift 2 with one
 # arg left is a no-op when set -e is off, so the parser would re-read the same flag).
@@ -51,6 +54,7 @@ while [ $# -gt 0 ]; do
     --auto-reject) _need_val "$#" "$1"; ACTION="auto-reject"; NUM="$2"; shift 2 ;;
     --quarantine) _need_val "$#" "$1"; ACTION="quarantine"; NUM="$2"; shift 2 ;;
     --note)    _need_val "$#" "$1"; NOTE="$2"; shift 2 ;;
+    --review-digest) _need_val "$#" "$1"; REVIEW_DIGEST="$2"; shift 2 ;;
     --repo)    _need_val "$#" "$1"; REPO="$2"; shift 2 ;;
     --limit)   _need_val "$#" "$1"; LIMIT="$2"; shift 2 ;;
     --json)    JSON=1; shift ;;
@@ -64,6 +68,17 @@ done
 CANDIDATE_LABEL="lesson-candidate"
 APPROVED_LABEL="lesson-approved"
 BLOCKED_LABEL="lessons:blocked"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lesson-review-binding.sh
+. "$SCRIPT_DIR/lesson-review-binding.sh" || {
+  echo "lesson-review: review binding helper is unavailable" >&2
+  exit 1
+}
+command -v jq >/dev/null 2>&1 && command -v sha256sum >/dev/null 2>&1 \
+  && command -v lesson_review_digest_json >/dev/null 2>&1 || {
+    echo "lesson-review: review binding prerequisites are unavailable" >&2
+    exit 1
+  }
 
 # --- shared validation -------------------------------------------------------
 # A pinned, fully-qualified repo is required for every action — public mutations
@@ -84,15 +99,32 @@ fi
 case "$LIMIT" in ''|*[!0-9]*) echo "lesson-review: --limit must be a positive integer" >&2; exit 2 ;; esac
 [ "$LIMIT" -ge 1 ] || { echo "lesson-review: --limit must be >= 1" >&2; exit 2; }
 
-# Fetch an issue's state + labels as JSON, or fail closed. Echoes the JSON on
-# success; returns non-zero on any gh failure OR on output that is not a parseable
-# issue object (a truncated/garbled response must never read as "no labels"/"closed").
-_issue_view() {
+if [ -n "$REVIEW_DIGEST" ]; then
+  printf '%s' "$REVIEW_DIGEST" | grep -Eq '^[0-9a-f]{64}$' || {
+    echo "lesson-review: malformed review digest" >&2
+    exit 2
+  }
+  case "$ACTION" in approve|quarantine|auto-reject) : ;;
+    *) echo "lesson-review: review binding is only valid for automated transitions" >&2; exit 2 ;;
+  esac
+fi
+if [ "$ACTION" = auto-reject ] && [ -z "$REVIEW_DIGEST" ]; then
+  echo "lesson-review: automated rejection requires an exact review binding" >&2
+  exit 2
+fi
+
+# Fetch the exact mutable content used by a review transition.
+_review_view() {
   local out
-  out="$(gh issue view "$1" --repo "$REPO" --json state,labels 2>/dev/null)" || return 1
-  # Require a string `state` (not just present) so a parseable-but-malformed object
-  # like {"state":{}} can't slip past and make _is_open fail open on close.
-  printf '%s' "$out" | jq -e 'type=="object" and (.state | type=="string")' >/dev/null 2>&1 || return 1
+  out="$(gh issue view "$1" --repo "$REPO" \
+    --json state,labels,title,body,comments 2>/dev/null)" || return 1
+  printf '%s' "$out" | jq -e '
+    type == "object"
+    and (.state | type == "string") and (.labels | type == "array")
+    and (.title | type == "string") and (.body | type == "string")
+    and (.comments | type == "array")
+    and all(.comments[]; (.body | type == "string"))
+  ' >/dev/null 2>&1 || return 1
   printf '%s' "$out"
 }
 
@@ -102,6 +134,23 @@ _has_label() { # json label -> 0 if present
 
 _is_open() { # json -> 0 if state OPEN
   [ "$(printf '%s' "$1" | jq -r '.state // "" | ascii_downcase')" = "open" ]
+}
+
+_review_expectation_matches() {
+  local info="$1" actual
+  [ -n "$REVIEW_DIGEST" ] || return 0
+  actual="$(lesson_review_digest_json "$info")" || return 1
+  [ "$actual" = "$REVIEW_DIGEST" ]
+}
+
+_record_review_binding() {
+  local number="$1" action="$2" info="$3" digest marker comment
+  lesson_review_binding_present "$info" "$action" && return 0
+  digest="$(lesson_review_digest_json "$info")" || return 1
+  marker="$(lesson_review_marker "$action" "$digest")" || return 1
+  comment="$marker"
+  [ -z "$NOTE" ] || comment="$(printf '%s\n%s' "$marker" "$NOTE")"
+  gh issue comment "$number" --repo "$REPO" --body "$comment" >/dev/null 2>&1
 }
 
 case "$ACTION" in
@@ -140,7 +189,11 @@ case "$ACTION" in
   # --- approve: mark ready for /lessons-deliver -------------------------------
   approve)
     case "$NUM" in ''|*[!0-9]*) echo "lesson-review: --approve needs a positive integer issue number" >&2; exit 2 ;; esac
-    info="$(_issue_view "$NUM")" || { echo "lesson-review: cannot inspect #$NUM in $REPO (not found / no access / gh failed). Refusing." >&2; exit 1; }
+    info="$(_review_view "$NUM")" || { echo "lesson-review: cannot inspect exact content of #$NUM in $REPO. Refusing." >&2; exit 1; }
+    _review_expectation_matches "$info" || {
+      echo "lesson-review: #$NUM changed since review. Refusing." >&2
+      exit 1
+    }
 
     # Order matters: a closed issue is refused FIRST, so a closed+approved issue is
     # never silently resurrected as a no-op success (reopen it deliberately instead).
@@ -155,8 +208,12 @@ case "$ACTION" in
     fi
     # Idempotent: an OPEN issue already approved (and no longer a candidate) -> no-op.
     if _has_label "$info" "$APPROVED_LABEL" && ! _has_label "$info" "$CANDIDATE_LABEL"; then
-      echo "lesson-review: #$NUM already approved (no-op)."
-      exit 0
+      if lesson_review_binding_present "$info" approve; then
+        echo "lesson-review: #$NUM already approved (bound no-op)."
+        exit 0
+      fi
+      echo "lesson-review: #$NUM approval is not bound to its current content. Refusing." >&2
+      exit 1
     fi
     # Label guard: only act on an actual candidate.
     if ! _has_label "$info" "$CANDIDATE_LABEL"; then
@@ -164,17 +221,22 @@ case "$ACTION" in
       exit 1
     fi
 
+    if [ -n "$REVIEW_DIGEST" ] \
+       && { _has_label "$info" "$APPROVED_LABEL" || _has_label "$info" "$BLOCKED_LABEL"; }; then
+      echo "lesson-review: #$NUM is no longer candidate-only. Refusing automated approval." >&2
+      exit 1
+    fi
+    _record_review_binding "$NUM" approve "$info" || {
+      echo "lesson-review: could not record the content binding for #$NUM. Refusing." >&2
+      exit 1
+    }
+
     # Single atomic edit: swap candidate -> approved.
     gh issue edit "$NUM" --repo "$REPO" \
       --add-label "$APPROVED_LABEL" --remove-label "$CANDIDATE_LABEL" >/dev/null 2>&1 || {
       echo "lesson-review: failed to relabel #$NUM. Nothing changed." >&2
       exit 1
     }
-    # Annotation is best-effort — the relabel above is the authoritative state change.
-    if [ -n "$NOTE" ]; then
-      gh issue comment "$NUM" --repo "$REPO" --body "$NOTE" >/dev/null 2>&1 \
-        || echo "lesson-review: warning: relabel succeeded but note comment failed on #$NUM." >&2
-    fi
     echo "lesson-review: #$NUM approved (now $APPROVED_LABEL). Implement with: /lessons-deliver --once"
     exit 0
     ;;
@@ -182,7 +244,11 @@ case "$ACTION" in
   # --- quarantine: remove unresolved candidates from the active queue --------
   quarantine)
     case "$NUM" in ''|*[!0-9]*) echo "lesson-review: --quarantine needs a positive integer issue number" >&2; exit 2 ;; esac
-    info="$(_issue_view "$NUM")" || { echo "lesson-review: cannot inspect #$NUM in $REPO (not found / no access / gh failed). Refusing." >&2; exit 1; }
+    info="$(_review_view "$NUM")" || { echo "lesson-review: cannot inspect exact content of #$NUM in $REPO. Refusing." >&2; exit 1; }
+    _review_expectation_matches "$info" || {
+      echo "lesson-review: #$NUM changed since review. Refusing." >&2
+      exit 1
+    }
 
     if ! _is_open "$info"; then
       echo "lesson-review: #$NUM is closed; only open candidates can be quarantined. Refusing." >&2
@@ -198,6 +264,11 @@ case "$ACTION" in
       exit 1
     fi
 
+    if [ -n "$REVIEW_DIGEST" ] \
+       && { _has_label "$info" "$APPROVED_LABEL" || _has_label "$info" "$BLOCKED_LABEL"; }; then
+      echo "lesson-review: #$NUM is no longer candidate-only. Refusing automated quarantine." >&2
+      exit 1
+    fi
     # One edit is the authoritative state transition; no partial label window.
     gh issue edit "$NUM" --repo "$REPO" \
       --add-label "$BLOCKED_LABEL" \
@@ -217,7 +288,11 @@ case "$ACTION" in
   # --- close: reject a candidate ----------------------------------------------
   close|auto-reject)
     case "$NUM" in ''|*[!0-9]*) echo "lesson-review: --$ACTION needs a positive integer issue number" >&2; exit 2 ;; esac
-    info="$(_issue_view "$NUM")" || { echo "lesson-review: cannot inspect #$NUM in $REPO (not found / no access / gh failed). Refusing." >&2; exit 1; }
+    info="$(_review_view "$NUM")" || { echo "lesson-review: cannot inspect exact content of #$NUM in $REPO. Refusing." >&2; exit 1; }
+    _review_expectation_matches "$info" || {
+      echo "lesson-review: #$NUM changed since review. Refusing." >&2
+      exit 1
+    }
 
     # Human close remains idempotent. Automated rejection is deliberately a
     # candidate-only compare-and-transition and refuses any changed state.
@@ -242,11 +317,21 @@ case "$ACTION" in
       exit 1
     fi
 
-    if [ -n "$NOTE" ]; then
-      gh issue close "$NUM" --repo "$REPO" --reason "not planned" --comment "$NOTE" >/dev/null 2>&1
-    else
-      gh issue close "$NUM" --repo "$REPO" --reason "not planned" >/dev/null 2>&1
-    fi || { echo "lesson-review: failed to close #$NUM. Nothing changed." >&2; exit 1; }
+    _record_review_binding "$NUM" reject "$info" || {
+      echo "lesson-review: could not record the content binding for #$NUM. Refusing." >&2
+      exit 1
+    }
+
+    gh issue close "$NUM" --repo "$REPO" --reason "not planned" >/dev/null 2>&1 \
+      || { echo "lesson-review: failed to close #$NUM. Nothing changed." >&2; exit 1; }
+    if [ "$ACTION" = auto-reject ]; then
+      refreshed="$(_review_view "$NUM")"
+      if [ $? -ne 0 ] || ! _review_expectation_matches "$refreshed"; then
+        gh issue reopen "$NUM" --repo "$REPO" >/dev/null 2>&1 || true
+        echo "lesson-review: #$NUM changed during automated rejection; reopened." >&2
+        exit 1
+      fi
+    fi
     echo "lesson-review: #$NUM closed (rejected, not planned)."
     exit 0
     ;;

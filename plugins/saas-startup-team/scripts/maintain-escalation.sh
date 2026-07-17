@@ -135,7 +135,8 @@ if [ "$action" = cleanup ] || [ "$action" = authorize-restart ]; then
   token=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
   [[ "$token" =~ ^[0-9a-f]{32}$ ]] || die "cannot create held-operation identity"
   private=_cleanup-held; [ "$action" = cleanup ] || private=_authorize-held
-  exec bash "$LEASES" hold --state-file "$lease_state" --interval-seconds 1 \
+  exec bash "$LEASES" hold --state-file "$lease_state" --repo-root "$repo_root" \
+    --worktree "$worktree" --run-id "$controller_run_id" --interval-seconds 1 \
     --max-seconds 300 -- env SAAS_MAINTAIN_ESCALATION_HOLD_TOKEN="$token" \
     SAAS_MAINTAIN_ESCALATION_GH_BIN="$GH_CANDIDATE" \
     bash "$0" "$private" "${held_args[@]}"
@@ -161,10 +162,8 @@ COMMON="$(cd -- "$COMMON" && pwd -P)" || die "cannot resolve common Git director
 worktree=$(realpath -m -- "$worktree") || die "cannot resolve worktree"
 git check-ref-format --branch "$branch" >/dev/null 2>&1 || die "invalid branch" 2
 
-bash "$LEASES" controller-binding --repo-root "$PRIMARY" --worktree "$worktree" \
-  --state-file "$lease_state" --run-id "$controller_run_id" >/dev/null \
-  || die "lease identity mismatch"
-bash "$LEASES" heartbeat --state-file "$lease_state" >/dev/null \
+bash "$LEASES" heartbeat --state-file "$lease_state" --repo-root "$PRIMARY" \
+  --worktree "$worktree" --run-id "$controller_run_id" >/dev/null \
   || die "lease ownership is no longer valid"
 
 ensure_primary_dir() {

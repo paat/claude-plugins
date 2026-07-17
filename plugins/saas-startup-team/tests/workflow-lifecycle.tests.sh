@@ -123,8 +123,6 @@ test_workflow_lifecycle_safety() {
     "$maintain" 'this receipt is the entire pass'
   assert_file_contains "WL7ca: attempt helper delegates controller binding to one validator" \
     "$maintain_attempt" '"$LEASES" controller-binding'
-  assert_file_contains "WL7cb: escalation helper delegates controller binding to one validator" \
-    "$maintain_escalation" '"$LEASES" controller-binding'
   assert_file_contains "WL7d: maintain bounds foreground lease lifetime" "$maintain_protocol" \
     '--max-seconds 14400'
   assert_file_contains "WL7f: maintain long commands use foreground lease-set hold" "$maintain_protocol" \
@@ -167,6 +165,12 @@ test_workflow_lifecycle_safety() {
     '`origin_run_id` remains provenance and the run-ledger identity'
   assert_file_contains "WL7f18: adapter binds lease validation to the current controller" \
     "$maintain_receipts" 'CONTROLLER_RUN_ID="$SAAS_INVOCATION_ID"'
+  assert_file_contains "WL7f18a: goal heartbeat binds the inherited lease to its current root" \
+    "$goal" '--run-id "$SAAS_INVOCATION_ID"'
+  assert_file_contains "WL7f18b: delivery mutations require an explicit controller" \
+    "$maintain_delivery" '--lease-state FILE --controller-run-id CONTROLLER'
+  assert_file_contains "WL7f18c: adapter reuses one controller argument tuple" \
+    "$maintain_receipts" 'DELIVERY_CONTROLLER_ARGS=('
   assert_file_contains "WL7f19: adapter never overwrites a resumed receipt origin" \
     "$maintain_receipts" 'it never rewrites that origin'
   assert_file_contains "WL7f20: reset passes the current controller explicitly" \

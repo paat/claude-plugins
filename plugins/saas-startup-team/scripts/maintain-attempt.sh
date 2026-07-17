@@ -9,6 +9,7 @@ GUARD="$SCRIPT_DIR/delivery-mutation-guard.sh"
 ROUTE="$SCRIPT_DIR/delivery-route.sh"
 ROLE_RUNNER="$SCRIPT_DIR/codex-run-role.sh"
 AUTH_HELPER="$SCRIPT_DIR/mutation-auth-token.sh"
+LEASE_GUARD_ARGS=()
 
 usage() {
   cat >&2 <<'EOF'
@@ -99,7 +100,9 @@ load_lease_identity() {
   PRIMARY=$(bash "$LEASES" primary-root --repo-root "$ROOT") || return 1
   expected_worktree=$(realpath -m -- "$expected_worktree") || return 1
   bash "$LEASES" controller-binding --repo-root "$ROOT" --worktree "$expected_worktree" \
-    --state-file "$lease_state" --run-id "$controller_run_id" >/dev/null
+    --state-file "$lease_state" --run-id "$controller_run_id" >/dev/null || return 1
+  LEASE_GUARD_ARGS=(--state-file "$lease_state" --repo-root "$PRIMARY" \
+    --worktree "$expected_worktree" --run-id "$controller_run_id")
 }
 
 resolve_invocation_command() {
@@ -400,7 +403,8 @@ case "$action" in
     reset_hold_token=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
     [[ "$reset_hold_token" =~ ^[0-9a-f]{32}$ ]] || {
       echo "maintain-attempt: cannot create reset hold identity" >&2; exit 1; }
-    exec bash "$LEASES" hold --state-file "$lease_state" --interval-seconds 1 \
+    exec bash "$LEASES" hold --state-file "$lease_state" --repo-root "$repo_root" \
+      --worktree "$worktree" --run-id "$controller_run_id" --interval-seconds 1 \
       --max-seconds 300 -- env SAAS_MAINTAIN_RESET_HOLD_TOKEN="$reset_hold_token" \
       bash "$SCRIPT_DIR/maintain-attempt.sh" _reset-held \
         --repo-root "$repo_root" --worktree "$worktree" --base-sha "$base_sha" \
@@ -418,7 +422,7 @@ case "$action" in
     worktree="$(realpath -m -- "$worktree")"
     load_lease_identity "$worktree" || {
       echo "maintain-attempt: reset target does not match the acquired worktree" >&2; exit 1; }
-    bash "$LEASES" heartbeat --state-file "$lease_state" >/dev/null || {
+    bash "$LEASES" heartbeat "${LEASE_GUARD_ARGS[@]}" >/dev/null || {
       echo "maintain-attempt: reset lease ownership is no longer valid" >&2; exit 1; }
     if [ -e "$worktree" ] || [ -L "$worktree" ]; then
       resolve_worktree_metadata || repair_worktree_metadata || {
@@ -492,11 +496,11 @@ case "$action" in
     }
     trap cleanup_base_attempt EXIT
     assert_exact_clean_base || exit 1
-    bash "$LEASES" hold --state-file "$lease_state" -- \
+    bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- \
       bash "$SUPERVISOR" --repo-root "$ROOT" --snapshot-trust "$trust" \
         --check-only --check "$CHECK_SCRIPT" --auth-stdin <<<"$auth" >/dev/null
     check_rc=0
-    bash "$LEASES" hold --state-file "$lease_state" -- \
+    bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- \
       bash "$SUPERVISOR" --repo-root "$ROOT" --check-only --trust-receipt "$trust" \
         --check "$CHECK_SCRIPT" --auth-stdin <<<"$auth" >"$summary_tmp" 2>&1 || check_rc=$?
     unset auth
@@ -548,10 +552,10 @@ case "$action" in
     trap cleanup_delivery_attempt EXIT
     role_args=(bash "$GUARD" --repo-root "$ROOT" --snapshot "$role_guard" --auth-stdin)
     for path in "${allow[@]}"; do role_args+=(--allow "$path"); done
-    bash "$LEASES" hold --state-file "$lease_state" -- "${role_args[@]}" \
+    bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- "${role_args[@]}" \
       <<<"$auth" >/dev/null
     worker_rc=0
-    bash "$LEASES" hold --state-file "$lease_state" -- \
+    bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- \
       env SAAS_RUN_ID="$child_run_id" SAAS_PARENT_RUN_ID="$controller_run_id" \
         SAAS_ATTEMPT="$attempt" SAAS_COMMAND="$WORKER_COMMAND" \
         SAAS_PHASE=implementation SAAS_ROUTING_REASONS="$routing_reasons" \
@@ -561,12 +565,12 @@ case "$action" in
           bash "$ROLE_RUNNER" --role tech-founder --profile "$profile" --task-file "$task_file" \
         || worker_rc=$?
     verify_rc=0
-    bash "$LEASES" hold --state-file "$lease_state" -- \
+    bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- \
       bash "$GUARD" --repo-root "$ROOT" --verify "$role_guard" --auth-stdin \
       <<<"$auth" >/dev/null || verify_rc=$?
     [ "$verify_rc" -eq 0 ] || { unset auth; exit "$verify_rc"; }
     [ "$worker_rc" -eq 0 ] || { unset auth; exit "$worker_rc"; }
-    bash "$LEASES" heartbeat --state-file "$lease_state" >/dev/null
+    bash "$LEASES" heartbeat "${LEASE_GUARD_ARGS[@]}" >/dev/null
     route_rc=0
     route_json=$(cd "$ROOT" && bash "$ROUTE" check-diff --base "$base_sha" --guard-verified) || route_rc=$?
     jq -e '.schema_version == 1 and (.profile|type == "string")
@@ -595,10 +599,10 @@ case "$action" in
     fi
     trust_args=(bash "$SUPERVISOR" --repo-root "$ROOT" --snapshot-trust "$commit_trust" --auth-stdin)
     for path in "${allow[@]}"; do trust_args+=(--allow "$path"); done
-    bash "$LEASES" hold --state-file "$lease_state" -- "${trust_args[@]}" \
+    bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- "${trust_args[@]}" \
       <<<"$auth" >/dev/null
     commit_rc=0
-    bash "$LEASES" hold --state-file "$lease_state" -- \
+    bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- \
       bash "$SUPERVISOR" --repo-root "$ROOT" --message "$message" \
         --check "$CHECK_SCRIPT" --trust-receipt "$commit_trust" --auth-stdin \
       <<<"$auth" || commit_rc=$?

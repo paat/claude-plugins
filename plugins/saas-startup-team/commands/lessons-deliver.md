@@ -104,8 +104,9 @@ Each pass:
    ```bash
    "${CLAUDE_PLUGIN_ROOT}/scripts/lessons-deliver.sh" --list --json --repo "$REPO"
    ```
-   Eligible = open `lesson-approved`, minus `lessons:blocked` / `lessons:needs-human` /
-   `lessons:claimed` / linked-PR, oldest-first. Under `--dry-run`: print this queue and the
+   Eligible = open `lesson-approved` whose title/body matches its review marker, minus
+   `lessons:blocked` / `lessons:needs-human` / `lessons:claimed` / linked-PR, oldest-first.
+   Under `--dry-run`: print this queue and the
    per-lesson mutations that WOULD run, then **stop**.
 
 3. **Deliver each eligible lesson — sequential, one PR in flight** (the merge-serialization
@@ -116,8 +117,9 @@ Each pass:
       `PROFILE=deep`. Run `mechanical` only when the issue names an exact existing
       repository script; otherwise escalate uncertainty. Retain only profile and stable
       reason codes, never lesson text, in telemetry.
-   1. **Claim** — `lessons-deliver.sh --claim N --run-id <run_id> --repo "$REPO"`. On
-      refusal (already claimed / linked PR / not approved / closed) **skip** to the next
+   1. **Claim** — `lessons-deliver.sh --claim N --run-id <run_id> --repo "$REPO"`. It
+      rechecks the content binding. On refusal (edited/unbound, already claimed / linked PR /
+      not approved / closed) **skip** to the next
       lesson; never force.
    2. **Branch** — require an empty `git status --porcelain`, then record
       `ATTEMPT_BASE=$(git rev-parse "origin/$default")` and the exact

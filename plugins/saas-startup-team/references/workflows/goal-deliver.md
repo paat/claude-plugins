@@ -45,12 +45,13 @@ same uniquely authored marker on the issue and selected PR. Carry that exact mar
 into the eventual new PR body. This accepts a prior canonical run ID and the bounded
 legacy-promoted compatibility ID; it does not require the marker ID to equal the current
 invocation. Require the remaining seconds to be a positive integer, and
-`maintain-leases.sh heartbeat --state-file
-"$SAAS_EMBEDDED_LEASE_STATE"` to confirm the live inherited lease holder. A missing,
+`maintain-leases.sh heartbeat --state-file "$SAAS_EMBEDDED_LEASE_STATE"
+--repo-root "$SAAS_EMBEDDED_WORKTREE" --worktree "$SAAS_EMBEDDED_WORKTREE"
+--run-id "$SAAS_INVOCATION_ID"` to confirm the live inherited lease holder. A missing,
 invalid, expired, or mismatched binding is `blocked/context_binding_violation` and no
-delivery starts. Current ownership is proved separately by the canonical current
-`SAAS_INVOCATION_ID` and that live inherited lease. Reject every other nonempty
-embedded caller or invocation command.
+delivery starts. Current ownership is proved by binding the canonical current
+`SAAS_INVOCATION_ID` inside that heartbeat to the live inherited lease. Reject every
+other nonempty embedded caller or invocation command.
 
 Only after all embedded bindings pass, load
 `${CLAUDE_PLUGIN_ROOT}/references/workflows/goal-deliver-maintain-receipts.md` once and

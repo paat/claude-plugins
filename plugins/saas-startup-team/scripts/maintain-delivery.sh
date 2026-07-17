@@ -52,6 +52,8 @@ usage: maintain-delivery.sh pending --repo-root DIR [--issue N]
        maintain-delivery.sh render-result --repo-root DIR --issue N
        maintain-delivery.sh finalize --repo-root DIR --issue N
          --result-source FILE --profile mechanical|light|standard|deep
+       mutating actions except archive-claimed additionally require
+         --lease-state FILE --controller-run-id CONTROLLER
 EOF
   exit 2
 }
@@ -117,7 +119,7 @@ resolve_repo_slug() {
 }
 
 ACTION=${1:-}; [ -n "$ACTION" ] || usage; shift
-REPO_ROOT=""; ISSUE=""; RUN_ID=""; DELIVERY_ID=""; LEASE_STATE=""
+REPO_ROOT=""; ISSUE=""; RUN_ID=""; DELIVERY_ID=""; LEASE_STATE=""; CONTROLLER_RUN_ID=""
 REOPEN_EVENT_ID=""; REOPEN_EVENT_AT=""; RETRY_AFTER_ROLLBACK=0
 ROLE=""; BRANCH=""; BASE_SHA=""; HEAD_SHA=""
 PR_JSON=""; SCOPE_JSON=""; KIND=""; COMMAND_FILE=""; ARTIFACT=""; NOT_APPLICABLE=0
@@ -133,6 +135,7 @@ while [ "$#" -gt 0 ]; do
     --run-id) [ "$#" -ge 2 ] || usage; RUN_ID=$2; shift 2 ;;
     --delivery-id) [ "$#" -ge 2 ] || usage; DELIVERY_ID=$2; shift 2 ;;
     --lease-state) [ "$#" -ge 2 ] || usage; LEASE_STATE=$2; shift 2 ;;
+    --controller-run-id) [ "$#" -ge 2 ] || usage; CONTROLLER_RUN_ID=$2; shift 2 ;;
     --reopen-event-id) [ "$#" -ge 2 ] || usage; REOPEN_EVENT_ID=$2; shift 2 ;;
     --reopen-event-at) [ "$#" -ge 2 ] || usage; REOPEN_EVENT_AT=$2; shift 2 ;;
     --retry-after-rollback) RETRY_AFTER_ROLLBACK=1; shift ;;
@@ -183,6 +186,8 @@ case "$ACTION" in
 esac
 READ_ONLY_ACTION=0
 case "$ACTION" in pending|show|match-pr|render-result) READ_ONLY_ACTION=1 ;; esac
+ACTIVE_CONTROLLER_ACTION=1
+case "$ACTION" in pending|show|match-pr|render-result|archive-claimed) ACTIVE_CONTROLLER_ACTION=0 ;; esac
 [ "$ACTION" = begin ] || [ -z "$MERGE_BUDGET" ] || usage
 if [ "$ACTION" = begin ]; then
   [ -n "$SCOPE_JSON" ] || usage
@@ -194,6 +199,12 @@ case "$ISSUE" in "") [ "$ACTION" = pending ] || usage ;; *) valid_uint "$ISSUE" 
 if [ "$ACTION" = begin ] && [ -n "$RUN_ID" ] && [ "$DELIVERY_ID" = "$RUN_ID" ]; then
   die "--delivery-id must differ from --run-id" 2
 fi
+[ "$ACTION" != begin ] || validate_event_delivery_identity
+if [ "$ACTIVE_CONTROLLER_ACTION" -eq 1 ]; then
+  [ -n "$LEASE_STATE" ] && [ -n "$CONTROLLER_RUN_ID" ] \
+    || die "mutating delivery actions require --lease-state and --controller-run-id" 2
+  valid_id "$CONTROLLER_RUN_ID" || die "invalid --controller-run-id" 2
+fi
 command -v flock >/dev/null 2>&1 || die "flock is required" 2
 
 ROOT="$(cd -- "$REPO_ROOT" && pwd -P)" || die "cannot resolve repository"
@@ -204,6 +215,17 @@ validate_controller_tool "$JQ_CANDIDATE" jq
 validate_controller_tool /usr/bin/sha256sum sha256sum
 case "$JQ_CANDIDATE" in /usr/bin/*|/bin/*) : ;; *) PATH="$PATH:${JQ_CANDIDATE%/*}"; export PATH ;; esac
 command -v jq >/dev/null 2>&1 || die "jq is required" 2
+CONTROLLER_LEASE_ARGS=()
+if [ "$ACTIVE_CONTROLLER_ACTION" -eq 1 ]; then
+  bash "$SCRIPT_DIR/maintain-leases.sh" controller-binding --repo-root "$PRIMARY" \
+    --worktree "$ROOT" --run-id "$CONTROLLER_RUN_ID" --state-file "$LEASE_STATE" \
+    >/dev/null 2>&1 || die "lease state does not bind the explicit active controller" 3
+  CONTROLLER_LEASE_ARGS=(--state-file "$LEASE_STATE" --repo-root "$PRIMARY" \
+    --worktree "$ROOT" --run-id "$CONTROLLER_RUN_ID")
+  ACTIVE_CONTROLLER_MODE=$(jq -r .mode "$LEASE_STATE")
+  ACTIVE_CONTROLLER_WORKTREE=$(jq -r .worktree "$LEASE_STATE")
+  ACTIVE_CONTROLLER_RUN=$CONTROLLER_RUN_ID
+fi
 REPO_SLUG=""
 common_raw="$(git -C "$PRIMARY" rev-parse --git-common-dir)" || die "cannot resolve common Git directory"
 case "$common_raw" in /*) COMMON=$common_raw ;; *) COMMON="$PRIMARY/$common_raw" ;; esac
@@ -448,24 +470,7 @@ atomic_update() {
 terminal_state() { case "$1" in archived_claim|finalized_success|finalized_rolled_back) return 0 ;; *) return 1 ;; esac; }
 
 require_active_controller() {
-  local expected_run=$1 allow_resume=$2 binding bound_mode bound_worktree schema state controller_run
-  case "$allow_resume" in 0|1) : ;; *) die "invalid controller resume policy" ;; esac
-  [ -n "$LEASE_STATE" ] || die "mutating delivery actions require --lease-state" 2
-  if ! bash "$SCRIPT_DIR/maintain-leases.sh" heartbeat --state-file "$LEASE_STATE" >/dev/null; then
-    die "delivery controller no longer owns the maintenance leases" 3
-  fi
-  controller_run=$expected_run
-  if [ "$allow_resume" -eq 1 ]; then
-    controller_run=$(jq -er '.run_id | select(type == "string")' "$LEASE_STATE" 2>/dev/null) \
-      || die "lease state controller run is invalid" 3
-    valid_id "$controller_run" || die "lease state controller run is invalid" 3
-  fi
-  bash "$SCRIPT_DIR/maintain-leases.sh" controller-binding --repo-root "$PRIMARY" \
-    --worktree "$ROOT" --run-id "$controller_run" --state-file "$LEASE_STATE" >/dev/null 2>&1 \
-    || die "lease state does not bind this controller, run, and worktree" 3
-  ACTIVE_CONTROLLER_MODE=$(jq -r .mode "$LEASE_STATE")
-  ACTIVE_CONTROLLER_WORKTREE=$(jq -r .worktree "$LEASE_STATE")
-  ACTIVE_CONTROLLER_RUN=$controller_run
+  local binding bound_mode bound_worktree schema state
   if [ -n "$current" ] && [ -f "$current" ]; then
     schema=$(jq -r .schema_version "$current") || die "delivery receipt schema is invalid"
     state=$(jq -r .state "$current") || die "delivery receipt state is invalid"
@@ -475,6 +480,12 @@ require_active_controller() {
     [ "$bound_mode" = "$ACTIVE_CONTROLLER_MODE" ] \
       && [ "$bound_worktree" = "$ACTIVE_CONTROLLER_WORKTREE" ] \
       || die "active controller does not match the delivery receipt binding" 3
+  fi
+  if ! bash "$SCRIPT_DIR/maintain-leases.sh" heartbeat \
+    "${CONTROLLER_LEASE_ARGS[@]}" >/dev/null; then
+    die "delivery controller no longer owns the maintenance leases" 3
+  fi
+  if [ -n "$current" ] && [ -f "$current" ]; then
     if [ "$schema" = 1 ] && ! terminal_state "$state"; then
       atomic_update '
         .schema_version = 2
@@ -804,9 +815,8 @@ if [ "$ACTION" = begin ]; then
   valid_id "$RUN_ID" || die "invalid --run-id" 2
   valid_canonical_run_id "$DELIVERY_ID" \
     || die "--delivery-id must be a fresh canonical child run ID" 2
-  validate_event_delivery_identity
   valid_natural "$MERGE_BUDGET" || die "invalid --merge-budget" 2
-  require_active_controller "$RUN_ID" 0
+  require_active_controller
   [ "$ACTIVE_CONTROLLER_MODE" = maintain ] || \
     die "legacy maintain-loop controller is receipt-recovery-only" 3
   [ "$DELIVERY_ID" != "$ACTIVE_CONTROLLER_RUN" ] || \
@@ -947,7 +957,7 @@ fi
 
 case "$ACTION" in
   match-pr|render-result) : ;;
-  *) require_active_controller "$(jq -r .origin_run_id "$current")" 1 ;;
+  *) require_active_controller ;;
 esac
 
 case "$ROLE" in normal|rollback) : ;; "") case "$ACTION" in close-intent|close-issue|observe-closed|render-result|finalize) : ;; *) usage ;; esac ;; *) usage ;; esac
@@ -1100,7 +1110,7 @@ tribunal_hold() (
     LD_PRELOAD LD_AUDIT LD_LIBRARY_PATH
   export PATH="$TRIBUNAL_PATH"
   exec /usr/bin/env -u BASHOPTS -u SHELLOPTS \
-    /usr/bin/bash -p "$SCRIPT_DIR/maintain-leases.sh" hold --state-file "$LEASE_STATE" \
+    /usr/bin/bash -p "$SCRIPT_DIR/maintain-leases.sh" hold "${CONTROLLER_LEASE_ARGS[@]}" \
       --interval-seconds "$interval" --max-seconds "$max_seconds" -- \
       /usr/bin/timeout -k "$kill_after" "$command_seconds" /usr/bin/bash -p "$@"
 )
@@ -1109,7 +1119,7 @@ proof_hold() (
   unset BASH_ENV ENV CDPATH GLOBIGNORE PYTHONHOME PYTHONPATH \
     LD_PRELOAD LD_AUDIT LD_LIBRARY_PATH
   exec /usr/bin/env -u BASHOPTS -u SHELLOPTS \
-    /usr/bin/bash -p "$SCRIPT_DIR/maintain-leases.sh" hold --state-file "$LEASE_STATE" \
+    /usr/bin/bash -p "$SCRIPT_DIR/maintain-leases.sh" hold "${CONTROLLER_LEASE_ARGS[@]}" \
       --interval-seconds 60 --max-seconds 1900 -- \
       /usr/bin/timeout -k 10s 1800s /usr/bin/python3 -I -E \
       "$SCRIPT_DIR/proof-landlock.py" "$@"
@@ -1596,7 +1606,7 @@ if [ "$ACTION" = collect-tribunal ]; then
   validate_tribunal_plugin "$TRIBUNAL_PLUGIN_ROOT"
   collection=$(tribunal_collection_path "$ROLE")
   if [ ! -e "$collection" ] && [ ! -L "$collection" ]; then
-    require_active_controller "$(jq -r .origin_run_id "$current")" 1
+    require_active_controller
     collection_result=$(tribunal_hold 60 1900 10s 1800s "$TRIBUNAL_COLLECTOR" \
       collect --repo-root "$ROOT" --pr "$pr" --output "$collection") \
       || die "tribunal evidence collection failed"
@@ -1735,7 +1745,7 @@ if [ "$ACTION" = record-proof ]; then
     validate_tribunal_plugin "$TRIBUNAL_PLUGIN_ROOT"
     collection=$(tribunal_collection_path "$ROLE")
     manifest_digest=$(verify_tribunal_collection "$ROLE" "$pr" "$target")
-    require_active_controller "$(jq -r .origin_run_id "$current")" 1
+    require_active_controller
     finalize_result=$(tribunal_hold 60 300 10s 240s "$TRIBUNAL_COLLECTOR" \
       finalize --collection "$collection" \
         --expected-manifest-sha256 "$manifest_digest" --arbitration "$ARTIFACT") \
@@ -1787,7 +1797,7 @@ if [ "$ACTION" = record-proof ]; then
     chmod 700 "$archive_command" || { rm -f -- "$tmp_out"; die "cannot make proof command executable"; }
     build_proof_pass_args "$KIND"
     tmp_err="$proof_scratch/stderr"; sandbox_out="$proof_scratch/stdout"
-    require_active_controller "$(jq -r .origin_run_id "$current")" 1
+    require_active_controller
     if ! (ulimit -f 1024 && \
         export MAINTAIN_PROOF_KIND="$KIND" MAINTAIN_ISSUE_NUMBER="$ISSUE" MAINTAIN_PR_NUMBER="$pr" \
           MAINTAIN_HEAD_SHA="$target" MAINTAIN_MERGE_SHA="$target" MAINTAIN_DEPLOY_RUN_ID="$DEPLOY_RUN_ID" \
@@ -2036,7 +2046,7 @@ if [ "$ACTION" = merge-pr ]; then
       any(.events[]; .delivery_id == $delivery and .role == "normal" and .sha == $sha)
     ' "$RUN_LEDGER" >/dev/null || die "rollback lacks its run-ledger normal merge"
   fi
-  require_active_controller "$(jq -r .origin_run_id "$current")" 1
+  require_active_controller
   if ! (cd "$PRIMARY" && trusted_repo_gh pr merge "$pr_number" --match-head-commit "$head_sha" "--$MERGE_METHOD"); then
     die "head-pinned PR merge failed"
   fi
