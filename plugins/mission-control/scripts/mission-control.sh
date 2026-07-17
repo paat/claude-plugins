@@ -145,6 +145,27 @@ new_run_id() {
 
 valid_run_id() { [[ "$1" =~ ^run-[0-9a-f]{32}$ ]]; }
 
+# Transient workflow authority that must never cross a mission dispatch boundary.
+# A configured command may set its own values after launch; ambient scheduler or
+# container state is always cleared first.
+workflow_context_vars() {
+  printf '%s\n' \
+    SAAS_AGENT_EVENTS_FILE SAAS_RUN_ID SAAS_PARENT_RUN_ID SAAS_ATTEMPT \
+    SAAS_COMMAND SAAS_PHASE SAAS_WRITER_ID SAAS_ROUTING_REASONS \
+    SAAS_COST_MICROUNITS SAAS_TOKENS_AVAILABLE_BEFORE SAAS_TOKENS_AVAILABLE_AFTER \
+    SAAS_CURRENT_CONTAINER_ID SAAS_SINGLE_FLIGHT_OWNER SAAS_EMBEDDED_CALLER \
+    SAAS_EMBEDDED_WORKTREE SAAS_EMBEDDED_CLAIM SAAS_EMBEDDED_LEASE_STATE \
+    SAAS_EMBEDDED_REMAINING_SECONDS SAAS_LEASE_GUARDIAN_TOKEN \
+    SAAS_MAINTAIN_ESCALATION_GH_BIN SAAS_MAINTAIN_ESCALATION_HOLD_TOKEN \
+    SAAS_MAINTAIN_LIVE_PROOF_ENV SAAS_MAINTAIN_QA_PROOF_ENV \
+    SAAS_MAINTAIN_RESET_HOLD_TOKEN \
+    MAINTAIN_BLOCKED_FILE MAINTAIN_CONTROLLER_MODE MAINTAIN_CONTROLLER_ROUTE \
+    MAINTAIN_DEPLOY_RUN_ID MAINTAIN_HEAD_SHA MAINTAIN_ISSUE_NUMBER \
+    MAINTAIN_LEASE_RUN_ID MAINTAIN_LEASE_STATE MAINTAIN_LIVE_TARGET_SOURCE \
+    MAINTAIN_MERGE_SHA MAINTAIN_PENDING_FINGERPRINT MAINTAIN_PROOF_KIND \
+    MAINTAIN_PR_NUMBER MAINTAIN_QUEUE_DEFAULT_BRANCH MAINTAIN_QUEUE_NOW
+}
+
 # Print the canonical workflow command when the configured command owns a
 # schema-v2 pass terminal. This deliberately tokenizes whitespace only: it
 # does not interpret shell wrappers, quoting, or substrings.
@@ -688,9 +709,10 @@ cmd_wrapper() {
   local envelope="${WRAP[envelope]}" base="${WRAP[base]}" rendered="${WRAP[cmd]}"
   local delivery_hold="${WRAP[delivery-hold]:-false}" run_id="${WRAP[run-id]:-}"
   local started started_ms ended_ms ended duration_ms rc outcome command canonical=""
+  local context_var
   local terminal_status=not-applicable workflow_outcome="" workflow_reason="" total_tokens=""
   local account_json="" account_rc=0 helper_binding="" binding_rc=0 helper_surface="" tmpl blk
-  local -a invocation_env docker_env
+  local -a invocation_env=() docker_env=()
   if [ -n "$run_id" ]; then
     valid_run_id "$run_id" || { echo "mission-control: invalid --run-id" >&2; exit 2; }
   else
@@ -698,8 +720,13 @@ cmd_wrapper() {
   fi
   command="$(pj "$name" '.command')"
   canonical="$(workflow_command "$command" 2>/dev/null || true)"
-  invocation_env=("SAAS_INVOCATION_ID=$run_id" "SAAS_INVOCATION_COMMAND=$canonical")
-  docker_env=(-e "SAAS_INVOCATION_ID=$run_id" -e "SAAS_INVOCATION_COMMAND=$canonical")
+  while IFS= read -r context_var; do
+    [ -n "$context_var" ] || continue
+    invocation_env+=(-u "$context_var")
+    docker_env+=(-e "$context_var=")
+  done < <(workflow_context_vars)
+  invocation_env+=("SAAS_INVOCATION_ID=$run_id" "SAAS_INVOCATION_COMMAND=$canonical")
+  docker_env+=(-e "SAAS_INVOCATION_ID=$run_id" -e "SAAS_INVOCATION_COMMAND=$canonical")
   tmpl="$(cfg ".engines[\"$engine\"].cmd")"
   if [ -n "$canonical" ]; then
     if engine_template_is_codex_exec "$tmpl"; then helper_surface=codex

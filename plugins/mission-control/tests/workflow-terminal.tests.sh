@@ -22,12 +22,14 @@ setup_env() { # <project command> [engine template] [container]
   export CODEX_HOME="$TD/codex" CLAUDE_HOME="$TD/claude"
   export HELPER_CALLS="$TD/helper.calls" ENGINE_CAPTURE="$TD/engine.ids"
   export ENGINE_COMMAND_CAPTURE="$TD/engine.commands"
+  export ENGINE_CONTEXT_CAPTURE="$TD/engine.contexts"
   export FAKE_SCHEMA=2 FAKE_ACCOUNT_MODE=valid FAKE_OUTCOME=success
   export FAKE_REASON="" FAKE_COMMAND=maintain ENGINE_RC=0 ENGINE_OUTPUT="" FAKE_CACHE_TAMPER=""
   export FAKE_CODEX_PLUGIN_VERSION=2.10.0 FAKE_CODEX_PLUGIN_ENABLED=true
   export FAKE_CLAUDE_PLUGIN_VERSION=2.10.0 FAKE_CLAUDE_PLUGIN_ENABLED=true
   unset SAAS_INVOCATION_COMMAND FAKE_CONTAINER_INVOCATION_COMMAND
   : > "$HELPER_CALLS"; : > "$ENGINE_CAPTURE"; : > "$ENGINE_COMMAND_CAPTURE"
+  : > "$ENGINE_CONTEXT_CAPTURE"
 cat > "$TD/bin/codex" <<'SH'
 #!/bin/bash
 if [ "${1:-}" = plugin ] && [ "${2:-}" = list ] && [ "${3:-}" = --json ]; then
@@ -39,6 +41,11 @@ if [ "${1:-}" = plugin ] && [ "${2:-}" = list ] && [ "${3:-}" = --json ]; then
 fi
 printf '%s\n' "${SAAS_INVOCATION_ID:-missing}" >> "$ENGINE_CAPTURE"
 printf '%s\n' "${SAAS_INVOCATION_COMMAND:-missing}" >> "$ENGINE_COMMAND_CAPTURE"
+while IFS= read -r workflow_var; do
+  workflow_value=""
+  [[ -v "$workflow_var" ]] && workflow_value="${!workflow_var}"
+  printf '%s=%s\n' "$workflow_var" "$workflow_value" >> "$ENGINE_CONTEXT_CAPTURE"
+done <<< "${WORKFLOW_CONTEXT_VARS_TEST:-}"
 case "${FAKE_CACHE_TAMPER:-}" in
   higher)
     target="$CODEX_HOME/plugins/cache/paat-plugins/saas-startup-team/99.0.0/scripts"
@@ -77,6 +84,11 @@ if [ "${1:-}" = plugin ] && [ "${2:-}" = list ] && [ "${3:-}" = --json ]; then
 fi
 printf '%s\n' "${SAAS_INVOCATION_ID:-missing}" >> "$ENGINE_CAPTURE"
 printf '%s\n' "${SAAS_INVOCATION_COMMAND:-missing}" >> "$ENGINE_COMMAND_CAPTURE"
+while IFS= read -r workflow_var; do
+  workflow_value=""
+  [[ -v "$workflow_var" ]] && workflow_value="${!workflow_var}"
+  printf '%s=%s\n' "$workflow_var" "$workflow_value" >> "$ENGINE_CONTEXT_CAPTURE"
+done <<< "${WORKFLOW_CONTEXT_VARS_TEST:-}"
 printf '%b' "${ENGINE_OUTPUT:-}"
 exit "${ENGINE_RC:-0}"
 SH
@@ -159,6 +171,12 @@ SH
     projects:[{name:"p",container:$container,repo_path:($td+"/repo"),stage:"live",engine:"e",
       command:$command,hold:false,work_probe:"printf yes"}],
     admission:{wip_cap:1,confidence_min:0.7,veto_hours:72}}' > "$TD/config.json"
+  export WORKFLOW_CONTEXT_VARS_TEST
+  WORKFLOW_CONTEXT_VARS_TEST="$(MC_LIB_ONLY=1 MC_CONFIG="$TD/config.json" \
+    bash -c 'source "$1"; workflow_context_vars' _ "$MC")"
+  while IFS= read -r workflow_var; do
+    [ -n "$workflow_var" ] && unset "$workflow_var"
+  done <<< "$WORKFLOW_CONTEXT_VARS_TEST"
 }
 
 lib_call() {
@@ -184,6 +202,28 @@ wait_dispatch() {
   while ! compgen -G "$TD/state/dispatches/*.json" >/dev/null; do
     i=$((i + 1)); [ "$i" -lt 80 ] || return 1; sleep 0.05
   done
+}
+
+poison_workflow_context() {
+  local workflow_var
+  while IFS= read -r workflow_var; do
+    [ -n "$workflow_var" ] || continue
+    printf -v "$workflow_var" '%s' ambient-poison
+    export "$workflow_var"
+  done <<< "$WORKFLOW_CONTEXT_VARS_TEST"
+}
+
+workflow_context_is_clear() {
+  [ -s "$ENGINE_CONTEXT_CAPTURE" ] &&
+    ! grep -qEv '^[A-Z0-9_]+=$' "$ENGINE_CONTEXT_CAPTURE"
+}
+
+docker_clears_workflow_context() {
+  local workflow_var
+  while IFS= read -r workflow_var; do
+    [ -n "$workflow_var" ] || continue
+    grep -q -- "-e $workflow_var=" "$DOCKER_CALLS" || return 1
+  done <<< "$WORKFLOW_CONTEXT_VARS_TEST"
 }
 
 classifier_positive_contract() {
@@ -262,9 +302,11 @@ setup_env '/maintain'
 t "dispatch mints one ID, injects it, accounts once, and adds typed JSON fields" dispatch_identity
 
 generic_no_probe() {
+  poison_workflow_context
   SAAS_INVOCATION_COMMAND=ambient-poison; export SAAS_INVOCATION_COMMAND
   run_wrapper || return 1
   [ ! -s "$HELPER_CALLS" ] && [ "$(cat "$ENGINE_COMMAND_CAPTURE")" = missing ] &&
+    workflow_context_is_clear &&
     jq -e '.terminal_status=="not-applicable" and .workflow_outcome==null and
       .workflow_reason==null and .total_tokens==null and .outcome=="ok"' "$TD/direct.json" >/dev/null
 }
@@ -273,10 +315,12 @@ ENGINE_OUTPUT='tokens used\n999\n'; export ENGINE_OUTPUT
 t "generic local dispatch scrubs ambient command and skips workflow accounting" generic_no_probe
 
 generic_docker_scrubs_command() {
+  poison_workflow_context
   SAAS_INVOCATION_COMMAND=ambient-poison; export SAAS_INVOCATION_COMMAND
   FAKE_CONTAINER_INVOCATION_COMMAND=container-poison; export FAKE_CONTAINER_INVOCATION_COMMAND
   run_wrapper || return 1
   [ "$(cat "$ENGINE_COMMAND_CAPTURE")" = missing ] &&
+    workflow_context_is_clear && docker_clears_workflow_context &&
     grep -q -- '-e SAAS_INVOCATION_COMMAND=' "$DOCKER_CALLS" &&
     ! grep -q 'ambient-poison\|container-poison' "$ENGINE_COMMAND_CAPTURE"
 }
@@ -285,10 +329,12 @@ t "generic Docker dispatch scrubs ambient and container command context" \
   generic_docker_scrubs_command
 
 generic_delivery_hold_scrubs_command() {
+  poison_workflow_context
   SAAS_INVOCATION_COMMAND=ambient-poison; export SAAS_INVOCATION_COMMAND
   FAKE_CONTAINER_INVOCATION_COMMAND=container-poison; export FAKE_CONTAINER_INVOCATION_COMMAND
   run_wrapper || return 1
-  grep -q -- '-e SAAS_INVOCATION_COMMAND=' "$DOCKER_CALLS" &&
+  docker_clears_workflow_context &&
+    grep -q -- '-e SAAS_INVOCATION_COMMAND=' "$DOCKER_CALLS" &&
     grep -q -- '/paat-reconcile/with-delivery-hold.sh' "$DOCKER_CALLS"
 }
 setup_env '/lessons-deliver' 'claude -p {prompt}' dev-container
