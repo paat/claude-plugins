@@ -112,6 +112,23 @@ t "legacy two-slot config: decision log lines byte-identical" bash -c '
   cut -d" " -f2- "$SD/mission-control.log" | grep -E "^(dispatch slot=|slot [A-Za-z0-9_-]+ )" > "$TD/got"
   printf "dispatch slot=A project=alpha engine=e envelope=90m\nslot B idle\n" | diff - "$TD/got"'
 
+mkenv ".engines.e.cmd = \"MC_T_V=ran-{prompt} bash -c 'echo \$MC_T_V > MARKER'\" | .slots = {A:{pinned:\"alpha\"}, B:{}}"
+echo yes > "$TD/alpha/WORK"
+t "env-assignment-prefixed engine cmd executes (dedicated-subscription shape)" bash -c '
+  '"$(declare -f tick wait_outcomes)"'; TD="'"$TD"'"; SD="'"$SD"'"; MC="'"$MC"'"
+  tick && wait_outcomes 1 || exit 1
+  grep -qx ran-PA "$TD/alpha/MARKER" &&
+  jq -e ".outcome == \"ok\" and .exit_code == 0" "$SD"/dispatches/*.json'
+
+mkenv '.slots = {B:{}, D:{}}'
+echo yes > "$TD/beta/WORK"
+t "one candidate, two ladder slots: dispatched once (slot B), not twice" bash -c '
+  '"$(declare -f tick wait_outcomes)"'; TD="'"$TD"'"; SD="'"$SD"'"; MC="'"$MC"'"
+  tick && wait_outcomes 1 || exit 1
+  sleep 0.5
+  [ "$(ls "$SD/dispatches/"*.json | wc -l)" = 1 ] &&
+  jq -e '"'"'.slot == "B" and .project == "beta"'"'"' "$SD"/dispatches/*.json'
+
 mkenv
 t "arm accepts three-slot config" bash -c 'bash "$0" arm --config "$1/portfolio.json" | grep -q "mission-control.sh tick --config"' "$MC" "$TD"
 t "arm rejects unknown pinned on any slot" bash -c '

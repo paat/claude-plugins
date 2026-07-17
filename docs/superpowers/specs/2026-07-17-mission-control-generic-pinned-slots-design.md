@@ -23,8 +23,10 @@ Codex-native skill surfaces (`skills/maintain-loop/SKILL.md` etc.).
 ## What already generalizes (no code change)
 
 - **Engines/pools** are config-driven maps. A dedicated subscription is a new
-  engine entry whose `cmd` prefixes `CODEX_HOME=<dir>` (env propagates through
-  the wrapper's `bash -c`), plus a new pool with its own `daily_pass_quota`.
+  engine entry whose `cmd` prefixes `CODEX_HOME=<dir>` (errata 2026-07-17:
+  `timeout` cannot exec an assignment-prefixed command — the wrapper now runs
+  the rendered cmd through an inner `bash -c`; shipped with 0.6.0), plus a new
+  pool with its own `daily_pass_quota`.
 - **Governor** (reserve/report/strikes/backoff/daily roll) is keyed by
   engine/pool name — untouched.
 - **Wrapper, slot locks, dispatch records** already take the slot name as a

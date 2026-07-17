@@ -183,6 +183,15 @@ engine_denied() { # <name> — is this project's engine denied this tick?
   return 1
 }
 
+# Projects dispatched earlier THIS tick (pinned slots walk first). Later
+# ladder slots skip them: two slots must never run the same repo at once.
+declare -ga DISPATCHED_PROJECTS=()
+project_dispatched() { # <name>
+  local d
+  for d in "${DISPATCHED_PROJECTS[@]:-}"; do [ "$d" = "$1" ] && return 0; done
+  return 1
+}
+
 rotate() { # <rung> <names...> — start after this rung's cursor
   local rung="$1"; shift
   [ $# -gt 0 ] || return 0
@@ -254,7 +263,7 @@ admission_eligible() { # <name> — exit 0 iff admitted; advances the gate
   min="$(cfg '.admission.confidence_min // 0.7')"
   awk -v c="$conf" -v m="$min" 'BEGIN { exit !(c + 0 >= m + 0) }' || return 1
   state_set '.admissions[$n].requested_at = ($t|tonumber)' --arg n "$name" --arg t "$(now)"
-  alert "admission-$name" "$name enters Slot B delivery in ${veto}h — set hold:true in portfolio.json to veto"
+  alert "admission-$name" "$name enters ladder delivery in ${veto}h — set hold:true in portfolio.json to veto"
   return 1                                      # never dispatch on request tick
 }
 
@@ -278,6 +287,7 @@ pick_ladder() {
   while IFS= read -r n; do
     [ -n "$n" ] || continue
     pinned_anywhere "$n" && continue
+    project_dispatched "$n" && continue
     project_blocked "$n" && continue
     engine_denied "$n" && continue
     if probe_incident "$n"; then state_set '.cursor["1"]=$n' --arg n "$n"; echo "1 $n"; return 0; fi
@@ -285,6 +295,7 @@ pick_ladder() {
   # rung 2: admitted pre-launch with work
   while IFS= read -r n; do
     [ -n "$n" ] || continue
+    project_dispatched "$n" && continue
     project_blocked "$n" && continue
     engine_denied "$n" && continue
     admission_eligible "$n" || continue
@@ -293,6 +304,7 @@ pick_ladder() {
   # rung 3: validation
   while IFS= read -r n; do
     [ -n "$n" ] || continue
+    project_dispatched "$n" && continue
     project_blocked "$n" && continue
     engine_denied "$n" && continue
     if probe_work "$n"; then state_set '.cursor["3"]=$n' --arg n "$n"; echo "3 $n"; return 0; fi
@@ -300,6 +312,7 @@ pick_ladder() {
   # rung 4: meta
   while IFS= read -r n; do
     [ -n "$n" ] || continue
+    project_dispatched "$n" && continue
     project_blocked "$n" && continue
     engine_denied "$n" && continue
     if probe_work "$n"; then state_set '.cursor["4"]=$n' --arg n "$n"; echo "4 $n"; return 0; fi
@@ -360,7 +373,8 @@ cmd_tick() {
     if ! slot_free "$slot"; then log "slot $slot busy"; continue; fi
     cand="$(pick_pinned "$slot")"
     if [ -n "$cand" ]; then
-      dispatch "$slot" "$cand" || { DENIED_ENGINES+=("$(pj "$cand" '.engine')"); log "slot $slot reserve refused: $cand"; }
+      if dispatch "$slot" "$cand"; then DISPATCHED_PROJECTS+=("$cand")
+      else DENIED_ENGINES+=("$(pj "$cand" '.engine')"); log "slot $slot reserve refused: $cand"; fi
     else
       log "slot $slot idle"
     fi
@@ -371,7 +385,7 @@ cmd_tick() {
     while :; do
       cand="$(pick_ladder)"
       [ -n "$cand" ] || { log "slot $slot idle"; break; }
-      dispatch "$slot" "${cand#* }" && break
+      if dispatch "$slot" "${cand#* }"; then DISPATCHED_PROJECTS+=("${cand#* }"); break; fi
       DENIED_ENGINES+=("$(pj "${cand#* }" '.engine')")
       log "slot $slot reserve refused: $cand — re-walking ladder without that engine"
       tries=$((tries + 1))
@@ -429,7 +443,7 @@ mission-control is NOT armed by agents. A human installs ONE cron line, once.
 */30 * * * * bash "$script" tick --config "$MC_CONFIG" >> "$MC_STATE_DIR/cron.log" 2>&1
 
 2. In the same crontab file, DELETE any standalone lessons-deliver cron line —
-   mission-control now dispatches lessons-deliver as Slot B's idle rung.
+   mission-control now dispatches lessons-deliver as the ladder's idle rung.
    Two schedulers would double-dip the same budget pools.
 
 3. Export the push URL in the crontab environment block if you want
@@ -459,14 +473,16 @@ cmd_wrapper() {
   local delivery_hold="${WRAP[delivery-hold]:-false}" started rc outcome
   started="$(now)"
   set +e
+  # inner bash -c: engine cmds may start with VAR=... assignment prefixes
+  # (dedicated-subscription CODEX_HOME), which timeout(1) cannot exec directly
   if [ "$container" = "local" ]; then
-    bash -c "cd $(printf %q "$rp") && timeout ${envelope}m $rendered"
+    bash -c "cd $(printf %q "$rp") && timeout ${envelope}m bash -c $(printf %q "$rendered")"
   elif [ "$delivery_hold" = true ]; then
     $DOCKER_CMD exec $DOCKER_USER_OPT "$container" bash -c \
       'cd "$1" && shift && exec "$@"' _ "$rp" \
       /paat-reconcile/with-delivery-hold.sh timeout "${envelope}m" bash -c "$rendered"
   else
-    $DOCKER_CMD exec $DOCKER_USER_OPT "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m $rendered"
+    $DOCKER_CMD exec $DOCKER_USER_OPT "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m bash -c $(printf %q "$rendered")"
   fi
   rc=$?
   set -e

@@ -39,7 +39,7 @@ t "opt-in wraps the complete unrestricted command through the launcher" held_com
 absent_preserves_direct_delivery() {
   wrapper direct || return 1
   ! grep -qFx /paat-reconcile/with-delivery-hold.sh "$DOCKER_CALLS" &&
-  grep -qF "$CMD" "$DOCKER_CALLS"
+  grep -qF "timeout 7m bash -c $(printf '%q' "$CMD")" "$DOCKER_CALLS"
 }
 t "absent opt-in preserves direct container delivery" absent_preserves_direct_delivery
 
