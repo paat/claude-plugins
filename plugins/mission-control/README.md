@@ -1,14 +1,16 @@
 # mission-control
 
-Portfolio supervisor for autonomous SaaS loops: at most two 24/7 loop slots
+Portfolio supervisor for autonomous SaaS loops: N concurrent loop slots
 (lockfile-enforced), armed by one human-installed cron line, spending zero
-LLM tokens on scheduling. Slot A continuously maintains a pinned live
-product; Slot B rotates by priority ladder: live incidents > pre-launch
-delivery > demand validation > lessons-deliver. A budget governor (quotas,
-rate-limit backoff, pass envelopes) guards two subscription pools.
+LLM tokens on scheduling. A slot with a `pinned` project continuously
+maintains it, optionally on a dedicated engine subscription; slots without a
+pin rotate by priority ladder: live incidents > pre-launch delivery > demand
+validation > lessons-deliver. A budget governor (quotas, rate-limit backoff,
+pass envelopes) guards the per-pool subscription budgets.
 
 Design: `docs/superpowers/specs/2026-07-09-mission-control-scheduler-design.md`
-and `...-governor-design.md` in this repository.
+and `...-governor-design.md`,
+`...2026-07-17-mission-control-generic-pinned-slots-design.md` in this repository.
 
 ## Installation
 
