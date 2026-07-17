@@ -17,7 +17,7 @@ SH
   export DOCKER_CALLS="$TD/docker.calls"; : > "$DOCKER_CALLS"
   jq -n --arg td "$TD" '{
     engines:{e:{pool:"p", cmd:"echo ran-{prompt} > MARKER"}}, pools:{p:{}},
-    slots:{A:{pinned:"alpha"}},
+    slots:{A:{pinned:"alpha"}, B:{}},
     projects:[
       {name:"alpha", container:"local", repo_path:($td+"/alpha"), stage:"live", engine:"e", command:"A", hold:false, work_probe:"cat WORK 2>/dev/null"},
       {name:"beta",  container:"local", repo_path:($td+"/beta"),  stage:"live", engine:"e", command:"B", hold:false, work_probe:"cat WORK 2>/dev/null"}

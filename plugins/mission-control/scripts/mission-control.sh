@@ -108,7 +108,7 @@ run_in() { # <container> <repo_path> <snippet> <timeout_s> — non-login bash -c
   fi
 }
 
-slot_free() { # <A|B> — test-acquire without holding
+slot_free() { # <slot> — test-acquire without holding
   ( flock -n 9 ) 9>>"$MC_STATE_DIR/slot-$1.lock"
 }
 
@@ -197,6 +197,11 @@ rotate() { # <rung> <names...> — start after this rung's cursor
 }
 
 names_by_stage() { jq -r --arg s "$1" '.projects[] | select(.stage == $s) | .name' "$MC_CONFIG"; }
+
+slot_names() { # <pinned|ladder> — slot keys of that class, sorted
+  jq -r --arg w "$1" '.slots // {} | to_entries | sort_by(.key)[]
+    | select((.value | has("pinned")) == ($w == "pinned")) | .key' "$MC_CONFIG"
+}
 
 # ---------- admission gate (absorbed from #206) ----------
 admitted_unheld_count() {
@@ -351,27 +356,27 @@ cmd_tick() {
   fi
   [ "$DRY_RUN" = 1 ] || admission_housekeeping
   local slot cand tries
-  for slot in A B; do
+  for slot in $(slot_names pinned); do
     if ! slot_free "$slot"; then log "slot $slot busy"; continue; fi
-    if [ "$slot" = A ]; then
-      cand="$(pick_pinned A)"
-      if [ -n "$cand" ]; then
-        dispatch A "$cand" || { DENIED_ENGINES+=("$(pj "$cand" '.engine')"); log "slot A reserve refused: $cand"; }
-      else
-        log "slot A idle"
-      fi
+    cand="$(pick_pinned "$slot")"
+    if [ -n "$cand" ]; then
+      dispatch "$slot" "$cand" || { DENIED_ENGINES+=("$(pj "$cand" '.engine')"); log "slot $slot reserve refused: $cand"; }
     else
-      tries=0
-      while :; do
-        cand="$(pick_ladder)"
-        [ -n "$cand" ] || { log "slot B idle"; break; }
-        dispatch B "${cand#* }" && break
-        DENIED_ENGINES+=("$(pj "${cand#* }" '.engine')")
-        log "slot B reserve refused: $cand — re-walking ladder without that engine"
-        tries=$((tries + 1))
-        [ "$tries" -lt 4 ] || break
-      done
+      log "slot $slot idle"
     fi
+  done
+  for slot in $(slot_names ladder); do
+    if ! slot_free "$slot"; then log "slot $slot busy"; continue; fi
+    tries=0
+    while :; do
+      cand="$(pick_ladder)"
+      [ -n "$cand" ] || { log "slot $slot idle"; break; }
+      dispatch "$slot" "${cand#* }" && break
+      DENIED_ENGINES+=("$(pj "${cand#* }" '.engine')")
+      log "slot $slot reserve refused: $cand — re-walking ladder without that engine"
+      tries=$((tries + 1))
+      [ "$tries" -lt 4 ] || break
+    done
   done
   [ "$DRY_RUN" = 1 ] || governor_daily
 }
