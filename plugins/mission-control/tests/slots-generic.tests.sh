@@ -112,5 +112,20 @@ t "legacy two-slot config: decision log lines byte-identical" bash -c '
   cut -d" " -f2- "$SD/mission-control.log" | grep -E "^(dispatch slot=|slot [A-Za-z0-9_-]+ )" > "$TD/got"
   printf "dispatch slot=A project=alpha engine=e envelope=90m\nslot B idle\n" | diff - "$TD/got"'
 
+mkenv
+t "arm accepts three-slot config" bash -c 'bash "$0" arm --config "$1/portfolio.json" | grep -q "mission-control.sh tick --config"' "$MC" "$TD"
+t "arm rejects unknown pinned on any slot" bash -c '
+  jq ".slots.C.pinned=\"nope\"" "$1/portfolio.json" > "$1/bad.json"
+  ! bash "$0" arm --config "$1/bad.json"' "$MC" "$TD"
+t "arm rejects bad slot name" bash -c '
+  jq ".slots[\"C/x\"]={}" "$1/portfolio.json" > "$1/bad.json"
+  ! bash "$0" arm --config "$1/bad.json"' "$MC" "$TD"
+t "arm rejects one project pinned on two slots" bash -c '
+  jq ".slots.C.pinned=\"alpha\"" "$1/portfolio.json" > "$1/bad.json"
+  ! bash "$0" arm --config "$1/bad.json"' "$MC" "$TD"
+t "status lists every configured slot" bash -c '
+  out="$(bash "$0" status --config "$1/portfolio.json")"
+  grep -q "slot A" <<<"$out" && grep -q "slot B" <<<"$out" && grep -q "slot C" <<<"$out"' "$MC" "$TD"
+
 echo "pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]

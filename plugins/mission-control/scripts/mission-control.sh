@@ -409,11 +409,16 @@ cmd_arm() {
     rc=0; printf '' | grep -qiE "$pat" || rc=$?
     if [ "$rc" -gt 1 ]; then echo "mission-control: invalid rate_limit_patterns regex: $pat" >&2; exit 2; fi
   done < <(jq -r '.engines[]?.rate_limit_patterns[]? // empty' "$MC_CONFIG")
-  local pinned
-  pinned="$(cfg '.slots.A.pinned // empty')"
-  if [ -n "$pinned" ] && [ -z "$(pj "$pinned" '.name')" ]; then
-    echo "mission-control: slots.A.pinned '$pinned' is not a project" >&2; exit 2
-  fi
+  bad="$(jq -r '.slots // {} | keys[] | select(test("^[A-Za-z0-9_-]+$") | not)' "$MC_CONFIG")"
+  if [ -n "$bad" ]; then echo "mission-control: slot names must match ^[A-Za-z0-9_-]+$: $bad" >&2; exit 2; fi
+  bad="$(jq -r '. as $c | .slots // {} | to_entries[] | select(.value | has("pinned"))
+                | .value.pinned as $pin
+                | select(($pin | type) != "string"
+                         or ([$c.projects[].name] | index($pin)) == null)
+                | "slots.\(.key).pinned \($pin) is not a project"' "$MC_CONFIG")"
+  if [ -n "$bad" ]; then echo "mission-control: $bad" >&2; exit 2; fi
+  bad="$(jq -r '[.slots // {} | .[] | .pinned // empty] | group_by(.)[] | select(length > 1) | .[0]' "$MC_CONFIG")"
+  if [ -n "$bad" ]; then echo "mission-control: project pinned on more than one slot: $bad" >&2; exit 2; fi
   local script; script="$(cd "$SCRIPT_DIR" && pwd)/mission-control.sh"
   cat <<EOF
 mission-control is NOT armed by agents. A human installs ONE cron line, once.
@@ -436,7 +441,7 @@ EOF
 
 cmd_status() {
   local s
-  for s in A B; do
+  for s in $(jq -r '.slots // {} | keys[]' "$MC_CONFIG"); do
     if slot_free "$s"; then echo "slot $s: free"; else echo "slot $s: RUNNING"; fi
   done
   echo "state: $MC_STATE_DIR/state.json"
