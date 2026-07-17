@@ -30,7 +30,7 @@
     },
     {
       "name": "tribunal-review",
-      "description": "Multi-provider code review — Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM, Qwen and Grok opt-in, with calling-context arbitration",
+      "description": "Multi-provider code review \u2014 Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM, Qwen and Grok opt-in, with calling-context arbitration",
       "version": "0.20.1",
       "author": {
         "name": "Andre Paat"
@@ -52,7 +52,7 @@
     },
     {
       "name": "browser-test-router",
-      "description": "Multi-model delegation for browser testing — Kimi K2.5 (via opencode) for execution, Opus for analysis",
+      "description": "Multi-model delegation for browser testing \u2014 Kimi K2.5 (via opencode) for execution, Opus for analysis",
       "version": "0.4.1",
       "author": {
         "name": "Andre Paat"
@@ -63,8 +63,8 @@
     },
     {
       "name": "saas-startup-team",
-      "description": "Autonomous SaaS delivery — routed founder and specialist roles turn market demand into gated implementation, QA, deployment, growth, and maintenance",
-      "version": "0.89.44",
+      "description": "Autonomous SaaS delivery \u2014 routed founder and specialist roles turn market demand into gated implementation, QA, deployment, growth, and maintenance",
+      "version": "0.89.45",
       "author": {
         "name": "Andre Paat"
       },
@@ -74,7 +74,7 @@
     },
     {
       "name": "comfyui",
-      "description": "Manage ComfyUI workflows, models, and API — build workflows from natural language, queue executions, monitor progress, and download models",
+      "description": "Manage ComfyUI workflows, models, and API \u2014 build workflows from natural language, queue executions, monitor progress, and download models",
       "version": "0.2.2",
       "author": {
         "name": "Andre Paat"
@@ -96,7 +96,7 @@
     },
     {
       "name": "google-ads-strategist",
-      "description": "Senior Google Ads strategist — iterative campaign design + Chrome-based creation in PAUSED state for investor review. Browser verification via Ad Preview Tool, SERP capture, and Ads Transparency Center. Enforces hypothesis discipline, buyer-intent + product-value gates, and accumulates learnings.",
+      "description": "Senior Google Ads strategist \u2014 iterative campaign design + Chrome-based creation in PAUSED state for investor review. Browser verification via Ad Preview Tool, SERP capture, and Ads Transparency Center. Enforces hypothesis discipline, buyer-intent + product-value gates, and accumulates learnings.",
       "version": "0.7.5",
       "author": {
         "name": "Andre Paat"
@@ -107,7 +107,7 @@
     },
     {
       "name": "emails-to-github-issues",
-      "description": "Turn emails from named senders into GitHub issues — IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping that respects customer-side numbering, inline-screenshot handling, and scope confirmation before writes",
+      "description": "Turn emails from named senders into GitHub issues \u2014 IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping that respects customer-side numbering, inline-screenshot handling, and scope confirmation before writes",
       "version": "0.3.0",
       "author": {
         "name": "Andre Paat"
@@ -118,7 +118,7 @@
     },
     {
       "name": "analyst-companion",
-      "description": "Real-time in-person meeting analyst — live transcription with speaker diarization via WhisperLiveKit, clarifying questions, voice commands with Chrome screen context, and Plane work items at meeting end",
+      "description": "Real-time in-person meeting analyst \u2014 live transcription with speaker diarization via WhisperLiveKit, clarifying questions, voice commands with Chrome screen context, and Plane work items at meeting end",
       "version": "0.3.1",
       "author": {
         "name": "Andre Paat"
@@ -129,7 +129,7 @@
     },
     {
       "name": "silent-failure-scanner",
-      "description": "Deterministic diff-time detector for swallowed errors & ghost transactions — flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook that hands findings to Claude to arbitrate",
+      "description": "Deterministic diff-time detector for swallowed errors & ghost transactions \u2014 flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook that hands findings to Claude to arbitrate",
       "version": "0.2.9",
       "author": {
         "name": "Andre Paat"
@@ -140,7 +140,7 @@
     },
     {
       "name": "payment-contract-tester",
-      "description": "Research-grounded payment-integration hardening — a skill encoding Montonio/Stripe/Mollie silent-trap knowledge plus runnable contract-test reference fixtures that run green against a correct handler and red against each seeded trap",
+      "description": "Research-grounded payment-integration hardening \u2014 a skill encoding Montonio/Stripe/Mollie silent-trap knowledge plus runnable contract-test reference fixtures that run green against a correct handler and red against each seeded trap",
       "version": "0.2.6",
       "author": {
         "name": "Andre Paat"
@@ -151,7 +151,7 @@
     },
     {
       "name": "irreversible-guard",
-      "description": "PreToolUse gate that blocks Bash commands with no practical local undo — de-obfuscates ssh/docker-exec transports, heredocs, chains, and env prefixes before matching a tiered deny-set",
+      "description": "PreToolUse gate that blocks Bash commands with no practical local undo \u2014 de-obfuscates ssh/docker-exec transports, heredocs, chains, and env prefixes before matching a tiered deny-set",
       "version": "0.2.1",
       "author": {
         "name": "Andre Paat"
@@ -162,7 +162,7 @@
     },
     {
       "name": "i18n-parity",
-      "description": "Vendorable zero-dependency translation key-parity gate for multilingual next-intl apps — diffs locale catalogs (presence, empty values, ICU args, leaf shape, namespaces) with declarable waivers, wired as a hard CI/pre-push gate",
+      "description": "Vendorable zero-dependency translation key-parity gate for multilingual next-intl apps \u2014 diffs locale catalogs (presence, empty values, ICU args, leaf shape, namespaces) with declarable waivers, wired as a hard CI/pre-push gate",
       "version": "0.2.1",
       "author": {
         "name": "Andre Paat"
@@ -206,7 +206,7 @@
     },
     {
       "name": "session-preflight",
-      "description": "SessionStart hook running a fast read-only environment preflight — auth commands, expected tokens in shell env and known env files, required CLIs, and a host/user/repo/branch identity line — surfacing failures before the first tool call",
+      "description": "SessionStart hook running a fast read-only environment preflight \u2014 auth commands, expected tokens in shell env and known env files, required CLIs, and a host/user/repo/branch identity line \u2014 surfacing failures before the first tool call",
       "version": "0.1.2",
       "author": {
         "name": "Andre Paat"
@@ -217,7 +217,7 @@
     },
     {
       "name": "safe-text-post",
-      "description": "File-based non-ASCII text posting with unicode lint and read-back verification — payloads travel via files, zero-width chars are rejected, and every post is fetched back and byte-compared before reporting done",
+      "description": "File-based non-ASCII text posting with unicode lint and read-back verification \u2014 payloads travel via files, zero-width chars are rejected, and every post is fetched back and byte-compared before reporting done",
       "version": "0.1.1",
       "author": {
         "name": "Andre Paat"
@@ -228,7 +228,7 @@
     },
     {
       "name": "merge-guard",
-      "description": "Post-merge verification tail — flags junk files leaked by squash merges and unintended path changes, checks configurable grep-based business invariants, auto-opens a cleanup PR, and guides an adjacent-behavior regression spot-check",
+      "description": "Post-merge verification tail \u2014 flags junk files leaked by squash merges and unintended path changes, checks configurable grep-based business invariants, auto-opens a cleanup PR, and guides an adjacent-behavior regression spot-check",
       "version": "0.1.2",
       "author": {
         "name": "Andre Paat"
@@ -239,7 +239,7 @@
     },
     {
       "name": "fleet-propagate",
-      "description": "Idempotent fleet-wide config propagation — enumerates host, dev containers, init scripts, and creator skills from a per-host manifest, applies marker-delimited managed blocks (rerun-safe), verifies each target, and reports a per-target matrix",
+      "description": "Idempotent fleet-wide config propagation \u2014 enumerates host, dev containers, init scripts, and creator skills from a per-host manifest, applies marker-delimited managed blocks (rerun-safe), verifies each target, and reports a per-target matrix",
       "version": "0.1.1",
       "author": {
         "name": "Andre Paat"
