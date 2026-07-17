@@ -7,7 +7,7 @@ description: "Use for multi-provider code review with repo-walking reviewers, di
 
 Multi-provider code review with inline arbitration. By default the panel is Codex
 (repo-walking), DeepSeek through OpenCode Go (repo-walking), and Claude Code
-(diff-only). Gemini, GLM, and Qwen are opt-in. The calling context arbitrates
+(diff-only). Gemini, GLM, Qwen, and Grok are opt-in. The calling context arbitrates
 inline and makes the final decision.
 
 This skill is intentionally orchestration-only. Provider shell mechanics live in
@@ -18,6 +18,7 @@ the plugin `scripts/` directory:
 - `scripts/run-gemini-review.sh`
 - `scripts/run-opencode-review.sh`
 - `scripts/run-qwen-review.sh`
+- `scripts/run-grok-review.sh`
 - `scripts/run-claude-review.sh`
 - `scripts/lib.sh`
 
@@ -37,6 +38,10 @@ the plugin `scripts/` directory:
 - GLM: off by default; enable with `TRIBUNAL_GLM=on`; OpenCode diff-only leg.
 - Qwen: off by default; enable with `TRIBUNAL_QWEN=on`; repo-walking on its own
   transport.
+- Grok: off by default; enable with `TRIBUNAL_GROK=on`; model override
+  `TRIBUNAL_GROK_MODEL` (default `grok-4.5`); repo-walking on the xAI Grok CLI
+  with tools allowlist + kernel `read-only` sandbox, isolated host config, web
+  search off.
 
 Disabled providers emit `{"provider":"...","status":"disabled"}` and are
 excluded from quorum. Provider errors degrade the run, but if all non-disabled
@@ -77,6 +82,7 @@ bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-codex-review.sh" > "$RUN_DIR/codex.json"
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-gemini-review.sh" > "$RUN_DIR/gemini.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-opencode-review.sh" > "$RUN_DIR/opencode.jsonl" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-qwen-review.sh" > "$RUN_DIR/qwen.json" &
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-grok-review.sh" > "$RUN_DIR/grok.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-claude-review.sh" > "$RUN_DIR/claude.json" &
 wait
 ```
@@ -88,7 +94,7 @@ normalization, and timeout-bounded provider calls. Codex and Claude use one stri
 review schema; Codex also persists its final response independently of stdout.
 OpenCode runs pure and non-interactive with permission prompts disabled.
 
-Collect Codex, Gemini, GLM, DeepSeek, Qwen, and Claude outputs. Treat disabled
+Collect Codex, Gemini, GLM, DeepSeek, Qwen, Grok, and Claude outputs. Treat disabled
 markers as intentional absence. Treat malformed JSON or `{"error":...}` as
 provider failure and continue with remaining non-disabled providers.
 
@@ -231,5 +237,5 @@ conflicting arbitration for that collection fails.
 ## Trust Hierarchy
 
 The calling context makes the final decision. Codex, Gemini, GLM, DeepSeek,
-Qwen, and Claude are equal advisory peers. Verify reviewer claims against the
+Qwen, Grok, and Claude are equal advisory peers. Verify reviewer claims against the
 diff and reachable code before accepting them.

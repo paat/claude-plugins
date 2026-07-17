@@ -2,19 +2,19 @@
   "files": [
     {
       "path": "schemas/review-output.json",
-      "sha256": "0166c74d9567657c68f08f77427a568830e9c883094476849647ada3b2f4665c"
+      "sha256": "8628fe160a9449be83393226cdfb8f2d4a07da04a29848a92c5f16cea5bb102c"
     },
     {
       "path": "scripts/check-runner-bundle.sh",
-      "sha256": "e01aa1301c980c7ed8e2d4390364f369fb6b299752369a61cff60da4f704b3b8"
+      "sha256": "6c58a436b96965c30e794d2ab415483f993099425e343d417635bd9ef13115d2"
     },
     {
       "path": "scripts/collect-review-evidence.sh",
-      "sha256": "52a2374c2a27c1ffb4839ad31d899c30962b03d9242fb7e55ac4c4bed418d3de"
+      "sha256": "9b9be39c743e195a71fcac56c78f7e3589a20ff8b7ca1aa9d688b5bed96b3c90"
     },
     {
       "path": "scripts/generate-runner-bundle.sh",
-      "sha256": "99654b0f193f0d7c1d847cab6d9d37a9f3a1b33b6b81be893604575889512850"
+      "sha256": "beeab625c596ad28895d155091454aabe9d4354626a6c11091f0664c8f94d7a3"
     },
     {
       "path": "scripts/lib.sh",
@@ -33,6 +33,10 @@
       "sha256": "1d399904ca6f582cef0a5c57e1eb721e3f782202d89053d1e50062247dc92d32"
     },
     {
+      "path": "scripts/run-grok-review.sh",
+      "sha256": "b57fe6f27e7d05568ec40c0a10a63f91563c3a6c1b3b5cdb2ea618eba40f183e"
+    },
+    {
       "path": "scripts/run-opencode-review.sh",
       "sha256": "76d381ceb829bf951b3c87caa0b5ba0e2c752d074f5d408a8841b586dfbac9d6"
     },
@@ -43,5 +47,5 @@
   ],
   "plugin": "tribunal-review",
   "schema": "tribunal-runner-bundle/v1",
-  "version": "0.19.11"
+  "version": "0.20.1"
 }

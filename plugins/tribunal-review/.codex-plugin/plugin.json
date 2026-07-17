@@ -1,14 +1,14 @@
 {
   "name": "tribunal-review",
-  "version": "0.19.11",
-  "description": "Multi-provider code review \u2014 Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with calling-context arbitration",
+  "version": "0.20.1",
+  "description": "Multi-provider code review \u2014 Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM, Qwen and Grok opt-in, with calling-context arbitration",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "Tribunal Review",
-    "shortDescription": "Multi-provider code review \u2014 Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with calling-context arbitration",
-    "longDescription": "Multi-provider code review \u2014 Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM and Qwen opt-in, with calling-context arbitration",
+    "shortDescription": "Multi-provider code review \u2014 Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM, Qwen and Grok opt-in, with calling-context arbitration",
+    "longDescription": "Multi-provider code review \u2014 Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM, Qwen and Grok opt-in, with calling-context arbitration",
     "developerName": "Andre Paat",
     "category": "Development",
     "capabilities": [
@@ -30,6 +30,7 @@
     "glm",
     "deepseek",
     "qwen",
+    "grok",
     "tribunal"
   ],
   "skills": "./skills/"
