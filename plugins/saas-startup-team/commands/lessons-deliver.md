@@ -56,27 +56,26 @@ Parse flags first, before any action:
 2. **`gh` authenticated:** `gh auth status` succeeds, else stop and report.
 3. **tribunal installed.** Confirm `tribunal-review:tribunal-loop` is available (hard
    dependency — the quality gate is non-negotiable). If not, stop and say so.
-4. **Dedicated worktree** (skipped under `--dry-run`, which needs no working tree). Operate
-   from `.worktrees/lessons-deliver`, never the investor's primary checkout:
+4. **Primary checkout only** (skipped under `--dry-run`). Operate on the **repo
+   base path** — never create a linked worktree. Product repos may only have
+   `.worktrees/maintain` for `/maintain` / `/maintain-loop`; lessons delivery
+   does not use that tree (different repo) and must not invent another.
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 default=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/default-branch.sh" --repo "$REPO" --repo-root "$REPO_ROOT")
-WT="$REPO_ROOT/.worktrees/lessons-deliver"
-grep -qxF '.worktrees/' "$REPO_ROOT/.git/info/exclude" 2>/dev/null \
-  || echo '.worktrees/' >> "$REPO_ROOT/.git/info/exclude"
-git -C "$REPO_ROOT" fetch origin "$default" --quiet
-if ! git -C "$REPO_ROOT" worktree list --porcelain | grep -qx "worktree $WT"; then
-  git -C "$REPO_ROOT" worktree add --detach "$WT" "origin/$default"
-fi
-cd "$WT"
-git checkout --detach "origin/$default"   # start every pass from the latest default tip
+cd "$REPO_ROOT"
+git status --porcelain   # must be clean; stop if dirty
+git fetch origin "$default" --quiet
+git checkout "$default"
+git pull --ff-only origin "$default"
 ```
 
-   If the worktree is stale/dirty and cannot be reset, recreate it from `origin/$default`.
+   If the primary tree is dirty or cannot fast-forward, stop and report — do not
+   escape into a side worktree.
 
 **Under `--dry-run`**, run only the read-only checks (repo pin, `gh auth status`, tribunal
-present) and write nothing — no worktree, no reconcile.
+present) and write nothing — no checkout mutation, no reconcile.
 
 State layout (`.startup/lessons-deliver/`, gitignored via `.git/info/exclude`):
 - `current-run.json` — `{run_id, started_at}` minted at startup.
@@ -145,9 +144,9 @@ Each pass:
       lesson facts it acted on (surfaced in the digest).
       For a light attempt, run shared post-diff containment against `origin/$default`
       before any push or PR. If the diff is non-light or UI-touching, write a versioned
-      escalation artifact, reset the dedicated branch/worktree, and retry once at deep;
-      a missing artifact or second escalation fails closed while the lesson remains
-      eligible for reconciliation.
+      escalation artifact, reset the attempt branch on the primary checkout, and retry
+      once at deep; a missing artifact or second escalation fails closed while the
+      lesson remains eligible for reconciliation.
    4. **Mechanical firewall + supervisor commit.** The implementer leaves its diff
       uncommitted. The supervisor reconstructs and stages only the authenticated
       allowlist in its disposable clone, runs the frozen pre-worker firewall against
@@ -217,22 +216,22 @@ Each pass:
       cancelled paths also get terminal events; a worker's process success is not a
       shipped outcome.
 
-   **Failed-attempt cleanup (mandatory before the next issue).** This dedicated
-   worktree was required clean before `ATTEMPT_BRANCH`, so every staged, tracked, and
-   untracked non-ignored change now belongs to this exact attempt. Verify the current
-   branch is `$ATTEMPT_BRANCH`, reset tracked/index state to `$ATTEMPT_BASE`, remove only
-   the non-ignored untracked files from this clean-start attempt, detach at
-   `origin/$default`, and delete only `$ATTEMPT_BRANCH`. Require an empty
-   `git status --porcelain` afterward. If the attempt reached a push or PR, close/verify
-   only that PR and delete/verify only that remote branch first. If identity or any
-   cleanup postcondition is unknown, stop the pass; never carry a staged diff, commit,
-   branch, PR, or remote branch into the next lesson.
+   **Failed-attempt cleanup (mandatory before the next issue).** The primary checkout
+   was required clean before `ATTEMPT_BRANCH`, so every staged, tracked, and untracked
+   non-ignored change now belongs to this exact attempt. Verify the current branch is
+   `$ATTEMPT_BRANCH`, reset tracked/index state to `$ATTEMPT_BASE`, remove only the
+   non-ignored untracked files from this clean-start attempt, return to `$default`, and
+   delete only `$ATTEMPT_BRANCH`. Require an empty `git status --porcelain` afterward.
+   If the attempt reached a push or PR, close/verify only that PR and delete/verify only
+   that remote branch first. If identity or any cleanup postcondition is unknown, stop
+   the pass; never carry a staged diff, commit, branch, PR, or remote branch into the
+   next lesson. Never create a side worktree to recover.
 
    ```bash
    test "$(git branch --show-current)" = "$ATTEMPT_BRANCH"
    git reset --hard "$ATTEMPT_BASE"
    git clean -fd
-   git checkout --detach "origin/$default"
+   git checkout "$default"
    git branch -D "$ATTEMPT_BRANCH"
    test -z "$(git status --porcelain)"
    ```
@@ -241,8 +240,8 @@ Each pass:
    it does not remove ignored run state and therefore removes only non-ignored files the
    failed attempt created.
 
-   On a successful merge/ship, fetch and detach at the new `origin/$default`, delete the
-   exact merged local branch, and require the same clean-worktree postcondition before
+   On a successful merge/ship, fetch and fast-forward `$default`, delete the exact
+   merged local branch, and require the same clean primary-checkout postcondition before
    considering the next lesson. This cleanup never commits: all product, fix, version,
    and generated changes that survive remain supervisor-owned commits made through
    `supervisor-commit.sh`.

@@ -148,7 +148,7 @@ load_state() {
   case "$MODE" in
     maintain) [ -z "$expected_worktree" ] || return 1 ;;
     maintain-loop)
-      [ "$expected_worktree" = "$PRIMARY/.worktrees/maintain-loop" ] || {
+      [ "$expected_worktree" = "$PRIMARY/.worktrees/maintain" ] || {
         echo "maintain-leases: worktree binding is invalid" >&2; return 1; }
       worktree_key="maintain-loop:worktree:$(printf '%s' "$expected_worktree" | cksum | awk '{print $1}')"
       ;;
@@ -272,8 +272,8 @@ case "$action" in
     resolve_repo "$repo_root" || { echo "maintain-leases: cannot resolve repository" >&2; exit 1; }
     shared="$COMMON/saas-startup-team/leases"
     legacy="$PRIMARY/.startup/leases"
-    loop_worktree="$PRIMARY/.worktrees/maintain-loop"
-    worktree_key="maintain-loop:worktree:$(printf '%s' "$loop_worktree" | cksum | awk '{print $1}')"
+    maintain_worktree="$PRIMARY/.worktrees/maintain"
+    worktree_key="maintain-loop:worktree:$(printf '%s' "$maintain_worktree" | cksum | awk '{print $1}')"
     kinds=(legacy-maintain legacy-loop shared worktree)
     keys=(maintain-pass maintain-loop:pass maintain-delivery:pass "$worktree_key")
     dirs=("$shared" "$legacy" "$shared" "$shared")
@@ -306,8 +306,8 @@ case "$action" in
     resolve_repo "$repo_root" || { echo "maintain-leases: cannot resolve repository" >&2; exit 1; }
     if [ "$mode" = maintain-loop ]; then
       worktree="$(realpath -m -- "$worktree")"
-      [ "$worktree" = "$PRIMARY/.worktrees/maintain-loop" ] || {
-        echo "maintain-leases: worktree must be the dedicated maintain-loop worktree" >&2
+      [ "$worktree" = "$PRIMARY/.worktrees/maintain" ] || {
+        echo "maintain-leases: worktree must be the dedicated maintain worktree (.worktrees/maintain)" >&2
         exit 2
       }
     fi

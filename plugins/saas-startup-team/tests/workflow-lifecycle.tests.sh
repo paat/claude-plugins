@@ -94,6 +94,14 @@ test_workflow_lifecycle_safety() {
     '--mode maintain'
   assert_file_contains "WL7b: maintain-loop uses compatibility delivery leases" "$maintain_loop_protocol" \
     '--mode maintain-loop'
+  assert_file_contains "WL7b1: no worktrees except maintain hard rule" "$maintain_loop_protocol" \
+    'No linked worktrees by default'
+  assert_file_contains "WL7b2: maintain-loop binds .worktrees/maintain" "$maintain_loop_protocol" \
+    'WT="$REPO_ROOT/.worktrees/maintain"'
+  assert_file_not_contains "WL7b3: no maintain-loop worktree assignment" "$maintain_loop_protocol" \
+    'WT="$REPO_ROOT/.worktrees/maintain-loop"'
+  assert_file_contains "WL7b4: improve forbids worktrees" "$improve" \
+    'create a git worktree for `/improve`'
   assert_file_contains "WL7c: maintain-loop lease is common-worktree scoped" "$maintain_loop_protocol" \
     'LEASE_STATE="$GIT_COMMON/'
   assert_file_contains "WL7d: maintain bounds foreground lease lifetime" "$maintain_protocol" \

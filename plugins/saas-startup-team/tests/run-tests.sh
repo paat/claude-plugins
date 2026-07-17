@@ -1171,6 +1171,12 @@ test_maintain() {
   # Dedicated worktree isolation (primary checkout stays free)
   assert_file_contains "M26: dedicated worktree"        "$cmd" "worktree add --detach"
   assert_file_contains "M27: worktree path convention"  "$cmd" ".worktrees/maintain"
+  assert_file_contains "M27a: no worktrees except maintain hard rule" \
+    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
+    'No linked worktrees by default'
+  assert_file_contains "M27b: improve runs on primary only" \
+    "$PLUGIN_ROOT/references/workflows/improve.md" \
+    'create a git worktree for `/improve`'
   # Fast no-op must not strand cached deliverable issues.
   assert_file_contains "M28: cached resumable gate" "$cmd" "cached_resumable"
   assert_file_contains "M29: cached agent-fixable enters queue" "$cmd" "deliverable queue input"
@@ -6588,7 +6594,8 @@ DIFF
   assert_file_exists "L50: command exists" "$cmd"
   assert_file_contains "L50a: user_invocable" "$cmd" "user_invocable: true"
   assert_file_contains "L51: pins repo via SAAS_PLUGIN_REPO" "$cmd" "SAAS_PLUGIN_REPO"
-  assert_file_contains "L52: dedicated worktree" "$cmd" ".worktrees/lessons-deliver"
+  assert_file_contains "L52: primary checkout only (no extra worktree)" "$cmd" "Primary checkout only"
+  assert_file_not_contains "L52b: no lessons-deliver worktree path" "$cmd" ".worktrees/lessons-deliver"
   assert_file_contains "L53: reconcile on startup" "$cmd" "--reconcile"
   assert_file_contains "L54: calls firewall before merge" "$cmd" "--firewall"
   assert_file_contains "L55: tribunal gate" "$cmd" "tribunal"
