@@ -5269,6 +5269,10 @@ test_autonomous_demand_infra() {
   local market="$PLUGIN_ROOT/scripts/market-scout.sh"
   local closure="$PLUGIN_ROOT/scripts/issue-closure-audit.sh"
   local workdir ec output count fault_bin real_mktemp real_sort real_tr
+  local bad_public_route="$PLUGIN_ROOT/tests/fixtures/public-route-destination-only.md"
+  local empty_locale_public_route="$PLUGIN_ROOT/tests/fixtures/public-route-empty-locale.md"
+  local good_public_route="$PLUGIN_ROOT/tests/fixtures/public-route-entry-path.md"
+  local partial_public_route="$PLUGIN_ROOT/tests/fixtures/public-route-partial-locale.md"
 
   assert_file_exists "AD1: health-preflight exists" "$health"
   assert_file_exists "AD2: single-flight exists" "$lease"
@@ -5394,6 +5398,29 @@ SH
   assert_exit_code "AD12: pack select exits 0" "$ec" 0
   assert_output_contains "AD12b: selects report pack" "$output" "report_output_product"
   assert_output_not_contains "AD12c: does not match Estonian pack through generic words" "$output" "estonian_saas_context"
+  ec=0; output=$(bash "$packs" --select --text "Add a public SEO guide page" --json 2>&1) || ec=$?
+  assert_exit_code "AD12d: public-page pack selection exits 0" "$ec" 0
+  assert_output_contains "AD12e: public-page text selects discoverability" "$output" \
+    "public_route_discoverability"
+  output=$(bash "$packs" --render public_route_discoverability)
+  assert_output_contains "AD12f: rendered pack rejects direct-only QA" "$output" \
+    "direct navigation alone cannot pass"
+  ec=0; output=$(bash "$packs" --verify-public-route "$bad_public_route" 2>&1) || ec=$?
+  assert_exit_code "AD12g: destination-only QA fixture fails" "$ec" 1
+  assert_output_contains "AD12h: destination-only failure names missing click path" "$output" \
+    "no clicked customer entry path"
+  ec=0; output=$(bash "$packs" --verify-public-route "$good_public_route" 2>&1) || ec=$?
+  assert_exit_code "AD12i: clicked entry-path fixture passes" "$ec" 0
+  assert_output_contains "AD12j: public-route verifier reports success" "$output" \
+    "public-route discoverability gate passed"
+  ec=0; output=$(bash "$packs" --verify-public-route "$partial_public_route" 2>&1) || ec=$?
+  assert_exit_code "AD12k: missing locale entry path fails" "$ec" 1
+  assert_output_contains "AD12l: partial-locale failure is explicit" "$output" \
+    "for every locale"
+  ec=0; output=$(bash "$packs" --verify-public-route "$empty_locale_public_route" 2>&1) || ec=$?
+  assert_exit_code "AD12m: empty locale list fails" "$ec" 1
+  assert_output_contains "AD12n: empty-locale failure is explicit" "$output" \
+    "for every locale"
   workdir=$(mktemp -d)
   printf 'Finding: STATUS_PENDING\nNo citation.\n' > "$workdir/bad.md"
   ec=0; output=$(bash "$packs" --verify-report "$workdir/bad.md" 2>&1) || ec=$?
@@ -5796,6 +5823,14 @@ test_autonomous_workflow_alignment() {
   assert_file_contains "AE20: growth prelive forbids outreach" "$PLUGIN_ROOT/commands/growth.md" "do not contact prospects"
   assert_file_contains "AE21: growth uses autonomous operations gates" "$PLUGIN_ROOT/commands/growth.md" "owner authorization gates"
   assert_file_not_contains "AE22: growth no longer creates recurring human tasks" "$PLUGIN_ROOT/commands/growth.md" "### 2e: Create human tasks"
+  assert_file_contains "AE22a: improve selects the public-route pack" \
+    "$PLUGIN_ROOT/references/workflows/improve.md" 'public_route_discoverability'
+  assert_file_contains "AE22b: improve mechanically rejects destination-only QA" \
+    "$PLUGIN_ROOT/references/workflows/improve.md" '--verify-public-route "$QA_REVIEW"'
+  assert_file_contains "AE22c: business brief carries public-route contract" \
+    "$PLUGIN_ROOT/templates/handoff-business-to-tech.md" 'Public-route discoverability'
+  assert_file_contains "AE22d: tech handoff carries public-route evidence" \
+    "$PLUGIN_ROOT/templates/handoff-tech-to-business.md" 'Public-route discoverability'
   local ec
   ec=0; (cd "$repo_root" && python3 scripts/sync-codex-marketplace.py --check >/dev/null) || ec=$?
   assert_exit_code "AE23: Codex marketplace surfaces in sync" "$ec" 0

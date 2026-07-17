@@ -76,6 +76,12 @@ test_ui_gate() {
     'deployed public URL'
   assert_file_contains "UG12h: baseline and candidate preserve caller workspace" "$leg" \
     'never switch or'
+  assert_file_contains "UG12i: public-route QA begins at an existing entry surface" "$leg" \
+    'start at its named existing customer'
+  assert_file_contains "UG12j: direct destination navigation cannot prove discovery" "$leg" \
+    'never proof of discovery'
+  assert_file_contains "UG12k: public-route QA records clicked path evidence" "$leg" \
+    '--click "<control>"-->'
 
   # merge-policy names the classifier
   assert_file_contains "UG13: merge-policy names ui-touch.sh" "$policy" "scripts/ui-touch.sh"

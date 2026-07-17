@@ -51,7 +51,7 @@ Step-by-step description of the user journey:
 - [ ] Primary workflow completes end-to-end
 - [ ] Error states handled gracefully
 - [ ] Mobile responsive (if applicable)
-- [ ] Triggered SaaS gates covered where relevant: async paid-flow wait/terminal states, checkout required-field/CTA proximity, customer copy/value-unit scan, structured-result raw-value scan, LLM pipeline fallback/parse evidence, compliance claim taxonomy, and workflow registry QA cases.
+- [ ] Triggered SaaS gates covered where relevant: async paid-flow wait/terminal states, checkout required-field/CTA proximity, customer copy/value-unit scan, structured-result raw-value scan, LLM pipeline fallback/parse evidence, compliance claim taxonomy, public-route discoverability, and workflow registry QA cases.
 
 ### Triggered Gate Evidence
 
@@ -64,6 +64,7 @@ State "not applicable" for gates that do not apply.
 - LLM pipeline quality gate:
 - Compliance/risk claim taxonomy:
 - CI/CD readiness:
+- Public-route discoverability (entry surface, click path, locales, exception/noindex, reachability test):
 
 ## Questions for Business Founder
 

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "packs": [
     {
       "id": "paid_async_workflow",
@@ -74,6 +74,22 @@
       "verification": [
         "Check free and paid paths side by side.",
         "Confirm the paid promise is visible before payment and fulfilled after payment."
+      ]
+    },
+    {
+      "id": "public_route_discoverability",
+      "title": "Public route discoverability",
+      "triggers": ["public page", "public route", "indexable", "landing page", "seo page", "seo content", "article", "guide"],
+      "gates": [
+        "For every new public or indexable route, name an existing customer entry surface and the click path to the destination; sitemap registration and direct URLs are not discovery paths.",
+        "State the entry path for every supported locale.",
+        "An intentionally unlisted route requires an explicit exception and noindex behavior.",
+        "Where the repository has a route or catalog test pattern, add a locking test proving the entry surface reaches the destination."
+      ],
+      "verification": [
+        "For every locale, start browser QA at the named existing entry surface and click through to the destination; direct navigation alone cannot pass.",
+        "Verify the destination after the click and also by direct URL.",
+        "Record entry-path, exception, and reachability-test evidence in the QA review."
       ]
     }
   ]
