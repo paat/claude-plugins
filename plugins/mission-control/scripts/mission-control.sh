@@ -150,6 +150,7 @@ valid_run_id() { [[ "$1" =~ ^run-[0-9a-f]{32}$ ]]; }
 # container state is always cleared first.
 workflow_context_vars() {
   printf '%s\n' \
+    BASH_ENV ENV \
     SAAS_AGENT_EVENTS_FILE SAAS_RUN_ID SAAS_PARENT_RUN_ID SAAS_ATTEMPT \
     SAAS_COMMAND SAAS_PHASE SAAS_WRITER_ID SAAS_ROUTING_REASONS \
     SAAS_COST_MICROUNITS SAAS_TOKENS_AVAILABLE_BEFORE SAAS_TOKENS_AVAILABLE_AFTER \

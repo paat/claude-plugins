@@ -204,6 +204,9 @@ if [ "$ACTIVE_CONTROLLER_ACTION" -eq 1 ]; then
   [ -n "$LEASE_STATE" ] && [ -n "$CONTROLLER_RUN_ID" ] \
     || die "mutating delivery actions require --lease-state and --controller-run-id" 2
   valid_id "$CONTROLLER_RUN_ID" || die "invalid --controller-run-id" 2
+  if [ "$ACTION" = begin ] && [ "$DELIVERY_ID" = "$CONTROLLER_RUN_ID" ]; then
+    die "--delivery-id must differ from the active controller run" 2
+  fi
 fi
 command -v flock >/dev/null 2>&1 || die "flock is required" 2
 
@@ -256,6 +259,7 @@ cleanup_temps() {
   if [ -n "$ARCHIVE_LEASE_STATE" ] && [ -f "$ARCHIVE_LEASE_STATE" ] \
     && [ ! -L "$ARCHIVE_LEASE_STATE" ]; then
     bash "$SCRIPT_DIR/maintain-leases.sh" cleanup --state-file "$ARCHIVE_LEASE_STATE" \
+      --repo-root "$PRIMARY" --worktree "$PRIMARY/.worktrees/maintain" \
       --run-id "$ARCHIVE_LEASE_RUN" >/dev/null 2>&1 || true
   fi
 }
@@ -819,8 +823,6 @@ if [ "$ACTION" = begin ]; then
   require_active_controller
   [ "$ACTIVE_CONTROLLER_MODE" = maintain ] || \
     die "legacy maintain-loop controller is receipt-recovery-only" 3
-  [ "$DELIVERY_ID" != "$ACTIVE_CONTROLLER_RUN" ] || \
-    die "--delivery-id must differ from the active controller run" 2
   if [ -n "$REOPEN_EVENT_ID$REOPEN_EVENT_AT" ]; then
     valid_uint "$REOPEN_EVENT_ID" && valid_time "$REOPEN_EVENT_AT" \
       || die "reopen event needs a positive id and UTC timestamp" 2
@@ -947,6 +949,7 @@ if [ "$ACTION" = archive-claimed ]; then
   updated=$(now_iso)
   atomic_update '.state = "archived_claim" | .updated_at = $now' --arg now "$updated"
   if ! bash "$SCRIPT_DIR/maintain-leases.sh" cleanup --state-file "$ARCHIVE_LEASE_STATE" \
+    --repo-root "$PRIMARY" --worktree "$PRIMARY/.worktrees/maintain" \
     --run-id "$ARCHIVE_LEASE_RUN" >/dev/null; then
     die "claimed receipt was archived but its cleanup lease could not be released"
   fi

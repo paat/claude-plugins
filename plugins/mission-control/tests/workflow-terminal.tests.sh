@@ -27,6 +27,7 @@ setup_env() { # <project command> [engine template] [container]
   export FAKE_REASON="" FAKE_COMMAND=maintain ENGINE_RC=0 ENGINE_OUTPUT="" FAKE_CACHE_TAMPER=""
   export FAKE_CODEX_PLUGIN_VERSION=2.10.0 FAKE_CODEX_PLUGIN_ENABLED=true
   export FAKE_CLAUDE_PLUGIN_VERSION=2.10.0 FAKE_CLAUDE_PLUGIN_ENABLED=true
+  unset BASH_ENV ENV STARTUP_POISON_DEPTH STARTUP_POISON_MARKER
   unset SAAS_INVOCATION_COMMAND FAKE_CONTAINER_INVOCATION_COMMAND
   : > "$HELPER_CALLS"; : > "$ENGINE_CAPTURE"; : > "$ENGINE_COMMAND_CAPTURE"
   : > "$ENGINE_CONTEXT_CAPTURE"
@@ -208,9 +209,24 @@ poison_workflow_context() {
   local workflow_var
   while IFS= read -r workflow_var; do
     [ -n "$workflow_var" ] || continue
+    case "$workflow_var" in BASH_ENV|ENV) continue ;; esac
     printf -v "$workflow_var" '%s' ambient-poison
     export "$workflow_var"
   done <<< "$WORKFLOW_CONTEXT_VARS_TEST"
+}
+
+install_startup_poison() {
+  export STARTUP_POISON_MARKER="$TD/startup-poisoned"
+  cat > "$TD/startup-env.sh" <<'SH'
+if [ "${STARTUP_POISON_DEPTH:-0}" = 1 ]; then
+  : > "$STARTUP_POISON_MARKER"
+  export SAAS_EMBEDDED_CALLER=startup-file-poison
+else
+  export STARTUP_POISON_DEPTH=1
+fi
+SH
+  BASH_ENV="$TD/startup-env.sh"; ENV="$TD/startup-env.sh"
+  export BASH_ENV ENV
 }
 
 workflow_context_is_clear() {
@@ -314,7 +330,17 @@ setup_env '/lessons-deliver' 'claude -p {prompt}'
 ENGINE_OUTPUT='tokens used\n999\n'; export ENGINE_OUTPUT
 t "generic local dispatch scrubs ambient command and skips workflow accounting" generic_no_probe
 
+local_startup_file_cannot_repoison() {
+  install_startup_poison
+  run_wrapper || return 1
+  [ ! -e "$STARTUP_POISON_MARKER" ] && workflow_context_is_clear
+}
+setup_env '/lessons-deliver' 'claude -p {prompt}'
+t "local dispatch clears startup files before the engine bash starts" \
+  local_startup_file_cannot_repoison
+
 generic_docker_scrubs_command() {
+  install_startup_poison
   poison_workflow_context
   SAAS_INVOCATION_COMMAND=ambient-poison; export SAAS_INVOCATION_COMMAND
   FAKE_CONTAINER_INVOCATION_COMMAND=container-poison; export FAKE_CONTAINER_INVOCATION_COMMAND
@@ -325,10 +351,11 @@ generic_docker_scrubs_command() {
     ! grep -q 'ambient-poison\|container-poison' "$ENGINE_COMMAND_CAPTURE"
 }
 setup_env '/lessons-deliver' 'claude -p {prompt}' dev-container
-t "generic Docker dispatch scrubs ambient and container command context" \
+t "generic Docker dispatch scrubs ambient, startup-file, and container context" \
   generic_docker_scrubs_command
 
 generic_delivery_hold_scrubs_command() {
+  install_startup_poison
   poison_workflow_context
   SAAS_INVOCATION_COMMAND=ambient-poison; export SAAS_INVOCATION_COMMAND
   FAKE_CONTAINER_INVOCATION_COMMAND=container-poison; export FAKE_CONTAINER_INVOCATION_COMMAND
@@ -340,7 +367,7 @@ generic_delivery_hold_scrubs_command() {
 setup_env '/lessons-deliver' 'claude -p {prompt}' dev-container
 jq '.projects[0].delivery_hold=true' "$TD/config.json" > "$TD/config.next"
 mv "$TD/config.next" "$TD/config.json"
-t "generic delivery-hold dispatch scrubs command context at the container boundary" \
+t "delivery-hold dispatch scrubs startup-file and command context at the container boundary" \
   generic_delivery_hold_scrubs_command
 
 docker_boundary() {

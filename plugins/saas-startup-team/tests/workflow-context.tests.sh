@@ -174,6 +174,8 @@ SH
     '--lease-run-id "$SAAS_INVOCATION_ID" --invocation-command maintain-loop'
   assert_output_contains "WC27: conflicting environment and child binding fail closed" \
     "$identity_section" 'value must agree exactly'
+  assert_output_contains "WC27a: inherited loop context requires the exact internal binding" \
+    "$identity_section" '`maintain-loop` value requires both exact internal arguments'
   assert_file_contains "WC28: generated Codex dispatch retains the child binding" \
     "$PLUGIN_ROOT/skills/maintain-loop/SKILL.md" \
     '--lease-run-id "$SAAS_INVOCATION_ID" --invocation-command maintain-loop'

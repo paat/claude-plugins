@@ -44,7 +44,10 @@ done
 [ -n "$REPORT" ]     || REPORT=".startup/insights/filing-report.md"
 [ -n "$REPO" ]       || REPO="${SAAS_PLUGIN_REPO:-}"
 
-mkdir -p "$(dirname "$LEDGER")" "$(dirname "$REPORT")"
+if ! mkdir -p -- "$(dirname -- "$LEDGER")" "$(dirname -- "$REPORT")"; then
+  echo "lesson-file: cannot prepare ledger/report directories" >&2
+  exit 1
+fi
 
 # Validate the budget up front so a bad value can't silently disable it.
 case "$MAX_ISSUES" in ''|*[!0-9]*) echo "lesson-file: --max-issues must be a non-negative integer" >&2; exit 2 ;; esac
@@ -88,6 +91,49 @@ record_fingerprint() {
   persist_ledger
 }
 
+INVENTORY=''
+refresh_inventory() {
+  local pages
+  pages="$(gh api --paginate --slurp \
+    "repos/$REPO/issues?state=all&per_page=100" 2>/dev/null)" || return 1
+  INVENTORY="$(printf '%s' "$pages" | jq -ce '
+    if type == "array" and all(.[]; type == "array") then
+      [.[][] | select((.pull_request // null) == null) | {
+        number, url: .html_url, title, body: (.body // ""),
+        state: (.state | ascii_upcase)
+      }]
+      | if all(.[];
+          (.number | type) == "number" and (.url | type) == "string"
+          and (.title | type) == "string" and (.body | type) == "string"
+          and (.state | type) == "string")
+        then . else error("malformed issue") end
+    else error("issue pages are not arrays") end
+  ' 2>/dev/null)" || return 1
+}
+
+marker_matches() {
+  printf '%s' "$1" | jq -ce --arg marker "$2" \
+    '[.[] | select(.body | contains($marker))]'
+}
+
+reconcile_matches() {
+  local fp="$1" matches="$2" canonical_number canonical_url number state
+  canonical_number="$(printf '%s' "$matches" | jq -er 'min_by(.number).number')" || return 1
+  canonical_url="$(printf '%s' "$matches" | jq -er --argjson number "$canonical_number" \
+    '.[] | select(.number == $number) | .url')" || return 1
+
+  while IFS=$'\t' read -r number state; do
+    [ -n "$number" ] || continue
+    [ "$state" = "OPEN" ] || continue
+    gh issue close "$number" --repo "$REPO" --reason "not planned" \
+      --comment "Duplicate lesson fingerprint; canonical issue is #$canonical_number." \
+      >/dev/null 2>&1 || return 1
+  done < <(printf '%s' "$matches" | jq -r --argjson number "$canonical_number" \
+    '.[] | select(.number != $number) | [.number, .state] | @tsv')
+
+  record_fingerprint "$fp" "$canonical_url" || return 2
+}
+
 FILED=0; WOULD=0; BLOCKED=0; DEDUP_LEDGER=0; DEDUP_SEARCH=0
 BUDGET_SKIP=0; FAILED=0; MALFORMED=0; PERSIST_FATAL=0
 
@@ -99,9 +145,11 @@ if [ -f "$CANDIDATES" ]; then
     fp="$(printf '%s' "$obj" | jq -r '.fingerprint // ""')"
     [ -n "$fp" ] && [ "$fp" != "null" ] || continue
 
-    # already filed?
-    if printf '%s' "$LEDGER_JSON" | jq -e --arg fp "$fp" 'has($fp)' >/dev/null 2>&1; then
-      DEDUP_LEDGER=$((DEDUP_LEDGER + 1)); continue
+    ledger_url="$(printf '%s' "$LEDGER_JSON" | jq -r --arg fp "$fp" \
+      '.[$fp].issue // empty')"
+    if [ "$MODE" = "dry-run" ] && [ -n "$ledger_url" ]; then
+      DEDUP_LEDGER=$((DEDUP_LEDGER + 1))
+      continue
     fi
 
     title="$(printf '%s' "$obj" | jq -r '.title // ("lesson: " + (.signal_type // "?") + " — " + ((.observation // "")[0:70]))')"
@@ -122,48 +170,73 @@ if [ -f "$CANDIDATES" ]; then
 
     if [ "$MODE" = "dry-run" ]; then WOULD=$((WOULD + 1)); continue; fi
 
-    # FILE mode
-    if [ "$FILED" -ge "$MAX_ISSUES" ]; then BUDGET_SKIP=$((BUDGET_SKIP + 1)); continue; fi
-
-    # Authoritative crash reconciliation: the marker survives even when creation
-    # completed but the local ledger write did not. Closed issues count too.
-    if ! marked="$(gh issue list --repo "$REPO" --search "$marker_digest in:body" \
-      --state all --limit 100 --json number,url,body,state 2>/dev/null)"; then
+    # FILE mode. List every issue state without relying on GitHub's search index,
+    # then match the privacy-safe marker locally. Ledger hits are also checked so
+    # concurrent creators converge once GitHub's list API exposes both issues.
+    if [ -z "$INVENTORY" ] && ! refresh_inventory; then
       FAILED=$((FAILED + 1)); continue
     fi
-    if ! marked_url="$(printf '%s' "$marked" | jq -er --arg marker "$marker" '
-      if type != "array" then error("marker result is not an array")
-      else map(select((.body | type == "string") and (.body | contains($marker))))
-        | sort_by(.number) | if length == 0 then "" else .[0].url end
-      end
-    ' 2>/dev/null)"; then
+    if ! matches="$(marker_matches "$INVENTORY" "$marker" 2>/dev/null)"; then
       FAILED=$((FAILED + 1)); continue
     fi
-    if [ -n "$marked_url" ]; then
-      if ! record_fingerprint "$fp" "$marked_url"; then
-        FAILED=$((FAILED + 1)); PERSIST_FATAL=1
+    match_count="$(printf '%s' "$matches" | jq -r 'length')"
+    if [ "$match_count" -gt 0 ]; then
+      reconcile_matches "$fp" "$matches"
+      reconcile_status=$?
+      if [ "$reconcile_status" -ne 0 ]; then
+        FAILED=$((FAILED + 1))
+        [ "$reconcile_status" -eq 2 ] && PERSIST_FATAL=1
         break
       fi
       DEDUP_LEDGER=$((DEDUP_LEDGER + 1))
       continue
     fi
+    if [ -n "$ledger_url" ]; then
+      DEDUP_LEDGER=$((DEDUP_LEDGER + 1))
+      continue
+    fi
 
-    # advisory dedup against existing open issues — FAIL CLOSED on search error
-    # (a failed search must not let us open a duplicate public issue).
-    if ! existing="$(gh issue list --repo "$REPO" --search "$title in:title" --state open --json number,title 2>/dev/null)"; then
+    # Advisory exact-title dedup from the same inventory.
+    if ! has_title="$(printf '%s' "$INVENTORY" | jq -r --arg title "$title" \
+      'any(.[]; .state == "OPEN" and .title == $title)' 2>/dev/null)"; then
       FAILED=$((FAILED + 1)); continue
     fi
-    if ! cnt="$(printf '%s' "$existing" | jq -er \
-      'if type == "array" then length else error("dedup result is not an array") end' 2>/dev/null)"; then
-      FAILED=$((FAILED + 1)); continue
-    fi
-    if [ "$cnt" -gt 0 ]; then DEDUP_SEARCH=$((DEDUP_SEARCH + 1)); continue; fi
+    if [ "$has_title" = "true" ]; then DEDUP_SEARCH=$((DEDUP_SEARCH + 1)); continue; fi
+
+    if [ "$FILED" -ge "$MAX_ISSUES" ]; then BUDGET_SKIP=$((BUDGET_SKIP + 1)); continue; fi
 
     url="$(gh issue create --repo "$REPO" --title "$title" --body "$body" --label "$labels" 2>/dev/null)" || { FAILED=$((FAILED + 1)); continue; }
     FILED=$((FILED + 1))
-    # Persist the ledger immediately so a crash after this create can't cause a re-file.
-    if ! record_fingerprint "$fp" "$url"; then
-      FAILED=$((FAILED + 1)); PERSIST_FATAL=1
+    if [[ "$url" =~ /issues/([0-9]+)$ ]]; then
+      created_number="${BASH_REMATCH[1]}"
+    else
+      FAILED=$((FAILED + 1))
+      continue
+    fi
+
+    # Refresh once after creation. Include the just-created issue when GitHub's
+    # list endpoint still lags, then converge to the lowest-numbered exact match.
+    if ! refresh_inventory; then
+      FAILED=$((FAILED + 1)); continue
+    fi
+    if ! INVENTORY="$(printf '%s' "$INVENTORY" | jq -ce \
+      --argjson number "$created_number" --arg url "$url" --arg title "$title" \
+      --arg body "$body" '
+        if any(.[]; .number == $number) then .
+        else . + [{number:$number,url:$url,title:$title,body:$body,state:"OPEN"}]
+        end
+      ' 2>/dev/null)"; then
+      FAILED=$((FAILED + 1)); continue
+    fi
+    if ! matches="$(marker_matches "$INVENTORY" "$marker" 2>/dev/null)"; then
+      FAILED=$((FAILED + 1))
+      break
+    fi
+    reconcile_matches "$fp" "$matches"
+    reconcile_status=$?
+    if [ "$reconcile_status" -ne 0 ]; then
+      FAILED=$((FAILED + 1))
+      [ "$reconcile_status" -eq 2 ] && PERSIST_FATAL=1
       break
     fi
   done < "$CANDIDATES"
@@ -188,9 +261,14 @@ fi
   echo "- skipped (already in ledger): $DEDUP_LEDGER"
   echo "- skipped (existing open issue): $DEDUP_SEARCH"
   echo "- skipped (budget $MAX_ISSUES reached): $BUDGET_SKIP"
-  echo "- filing failures (search/parse/create): $FAILED"
+  echo "- filing failures: $FAILED"
   echo "- malformed candidates skipped: $MALFORMED"
 } > "$REPORT"
+report_status=$?
+if [ "$report_status" -ne 0 ]; then
+  echo "lesson-file: cannot write report: $REPORT" >&2
+  exit 1
+fi
 
 [ "$FAILED" -eq 0 ] || exit 1
 exit 0

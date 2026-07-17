@@ -302,15 +302,17 @@ line:
 # plugin repo: probe lessons-deliver, then /loop 5m /lessons-deliver --once only on exit 0
 ```
 
-The **production** runner (the loop's nightly deploy) is a cron line under `flock`, matching
-the existing `0 2 * * *` pattern, headless with permissions pre-granted:
+In standalone mode, the production runner is a cron line under `flock`, matching the
+existing `0 2 * * *` pattern, headless with permissions pre-granted:
 
 ```
 0 3 * * * /usr/bin/flock -n /tmp/lessons-deliver.lock -c \
   'cd <plugin-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" lessons-deliver; then <assistant-command> "/lessons-deliver --once" >> <log-path> 2>&1; else test $? -eq 3; fi'
 ```
 
-cron is the production runner; `/loop` is for a supervised session only.
+Standalone cron and a governed review/probe/delivery scheduler are mutually exclusive;
+installing the governed owner must retire the standalone `/tmp/lessons-deliver.lock` line.
+In standalone mode, cron is the production runner; `/loop` is supervised only.
 
 ---
 

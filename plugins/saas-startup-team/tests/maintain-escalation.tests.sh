@@ -288,7 +288,8 @@ SH
   assert_equals "ME24: rejected result directory remains a directory" \
     "$([ -d "$result3" ] && [ ! -L "$result3" ] && printf directory || printf unsafe)" directory
 
-  bash "$leases" cleanup --state-file "$state" --run-id "$controller_run_id" >/dev/null
+  bash "$leases" cleanup --state-file "$state" --repo-root "$repo" --worktree "$wt" \
+    --run-id "$controller_run_id" >/dev/null
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || true
 
   legacy_wt="$repo/.worktrees/maintain-loop"
@@ -325,7 +326,8 @@ SH
     --issue 10 --attempt 1 --base-sha "$base" --branch "$legacy_branch" \
     >/dev/null || ec=$?
   assert_exit_code "ME27: legacy cleanup receipt still authorizes its exact adapter run" "$ec" 0
-  bash "$leases" cleanup --state-file "$legacy_state" --run-id legacy-escalation >/dev/null
+  bash "$leases" cleanup --state-file "$legacy_state" --repo-root "$repo" \
+    --worktree "$legacy_wt" --run-id legacy-escalation >/dev/null
   git -C "$repo" worktree remove --force "$legacy_wt" >/dev/null 2>&1 || true
   rm -rf "$repo" "$remote" "$bin"
 }

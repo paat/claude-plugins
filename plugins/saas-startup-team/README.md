@@ -535,13 +535,15 @@ infrastructure (self-modification → `lessons:needs-human`), and any secret in 
 (`pii-gate.sh`). Deletion or renaming of any discovered test file is blocked, as are
 reductions in assertion/test counts; the firewall itself is self-protected.
 
-**Autonomy.** The production runner is a nightly `flock` cron (the loop's "deploy"):
+**Autonomy.** Standalone mode uses a nightly `flock` cron (the loop's "deploy"):
 
 ```
 0 3 * * * /usr/bin/flock -n /tmp/lessons-deliver.lock -c \
   'cd <plugin-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" lessons-deliver; then <assistant-command> "/lessons-deliver --once" >> <log-path> 2>&1; else test $? -eq 3; fi'
 ```
 
+Standalone cron and a governed review/probe/delivery scheduler are mutually exclusive;
+installing the governed owner must retire the standalone `/tmp/lessons-deliver.lock` line.
 For supervised/dev ticks, run `workflow-probe.sh lessons-deliver` first and invoke
 `/loop 5m /lessons-deliver --once` only on exit 0. Note this runs in the
 **plugin repo** (cwd = where the plugin source lives), independently of `/maintain` which

@@ -1254,8 +1254,8 @@ test_maintain() {
     'never forward it to the probe'
   assert_file_contains "M45a15: maintain exports exact coordinator lease identity" "$cmd" \
     'MAINTAIN_LEASE_RUN_ID="$SAAS_INVOCATION_ID"'
-  assert_file_contains "M45a16: normal maintain rejects legacy activation" "$protocol" \
-    'never calls `maintain-leases.sh activate`'
+  assert_file_contains "M45a16: lease mutations reuse the exact controller tuple" "$protocol" \
+    'MAINTAIN_CONTROLLER_ARGS=('
   assert_file_contains "M45a17: resumable rows carry no durable permission" "$cmd" \
     '`.resumable` row is only a candidate'
   assert_file_contains "M45a18: resume guard runs before every sensitive phase" "$protocol" \
@@ -4866,7 +4866,8 @@ test_lesson_file() {
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
   cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
   _cand fp7 interrupt "obs" process > "$cand"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=911 GH_SEARCH_JSON='[{"number":5,"title":"existing"}]' SAAS_LESSON_SYNC_ENABLED=true \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=911 \
+    GH_API_JSON='[[{"number":5,"html_url":"https://github.com/o/r/issues/5","title":"lesson: interrupt — obs","body":"","state":"open"}]]' SAAS_LESSON_SYNC_ENABLED=true \
     bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
   assert_equals "F7: existing issue suppresses create" "$(_creates "$L")" "0"
   rm -rf "$workdir"
@@ -4911,31 +4912,31 @@ test_lesson_file() {
   assert_equals "F11: no create on invalid budget" "$(_creates "$L")" "0"
   rm -rf "$workdir"
 
-  # --- F12: a dedup-search failure fails CLOSED (no create) ---
+  # --- F12: an inventory failure fails CLOSED (no create) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
   cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
   _cand fp interrupt "obs" process > "$cand"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=923 GH_FAIL_ON="issue list" SAAS_LESSON_SYNC_ENABLED=true \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=923 GH_FAIL_ON="api --paginate" SAAS_LESSON_SYNC_ENABLED=true \
     bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
-  assert_exit_code "F12: search failure exits nonzero" "$ec" 1
-  assert_equals "F12: search failure does not create (fail-closed)" "$(_creates "$L")" "0"
-  assert_file_contains "F12: search failure is reported as a filing failure" "$report" \
-    "filing failures (search/parse/create): 1"
-  assert_file_contains "F12: search failure is not successful dedup" "$report" \
+  assert_exit_code "F12: inventory failure exits nonzero" "$ec" 1
+  assert_equals "F12: inventory failure does not create (fail-closed)" "$(_creates "$L")" "0"
+  assert_file_contains "F12: inventory failure is reported as a filing failure" "$report" \
+    "filing failures: 1"
+  assert_file_contains "F12: inventory failure is not successful dedup" "$report" \
     "skipped (existing open issue): 0"
   assert_json_valid "F12: bounded ledger is still written" "$led"
   rm -rf "$workdir"
 
-  # --- F13: malformed dedup JSON is a filing failure, not successful dedup ---
+  # --- F13: malformed inventory JSON is a filing failure, not successful dedup ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
   cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
   _cand fp interrupt "obs" process > "$cand"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=924 GH_SEARCH_JSON='not-json' SAAS_LESSON_SYNC_ENABLED=true \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=924 GH_API_JSON='not-json' SAAS_LESSON_SYNC_ENABLED=true \
     bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
-  assert_exit_code "F13: malformed search response exits nonzero" "$ec" 1
-  assert_equals "F13: malformed search response creates nothing" "$(_creates "$L")" "0"
+  assert_exit_code "F13: malformed inventory response exits nonzero" "$ec" 1
+  assert_equals "F13: malformed inventory response creates nothing" "$(_creates "$L")" "0"
   assert_file_contains "F13: parse failure is reported" "$report" \
-    "filing failures (search/parse/create): 1"
+    "filing failures: 1"
   assert_file_contains "F13: parse failure is not successful dedup" "$report" \
     "skipped (existing open issue): 0"
   assert_json_valid "F13: parse failure still writes the ledger" "$led"
@@ -4950,7 +4951,7 @@ test_lesson_file() {
   assert_exit_code "F14: create failure exits nonzero" "$ec" 1
   assert_equals "F14: create was attempted once" "$(_creates "$L")" "1"
   assert_file_contains "F14: create failure is reported" "$report" \
-    "filing failures (search/parse/create): 1"
+    "filing failures: 1"
   assert_json_valid "F14: create failure still writes the ledger" "$led"
   assert_equals "F14: failed create records no fingerprint" "$(jq 'length' "$led")" "0"
   rm -rf "$workdir"
@@ -4971,15 +4972,81 @@ test_lesson_file() {
 
   led="$workdir/recovered-ledger.json"; : > "$L"
   closed_issue="$(jq -cn --arg marker "$marker" \
-    '[{number:926,url:"https://github.com/o/r/issues/926",body:("candidate\n" + $marker),state:"CLOSED"}]')"
+    '[[{number:926,html_url:"https://github.com/o/r/issues/926",title:"lesson",body:("candidate\n" + $marker),state:"closed"}]]')"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=927 \
-    GH_ALL_ISSUES_JSON="$closed_issue" SAAS_LESSON_SYNC_ENABLED=true \
+    GH_API_JSON="$closed_issue" SAAS_LESSON_SYNC_ENABLED=true \
     bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins \
       --report "$report" 2>&1) || ec=$?
   assert_exit_code "F15: closed marker reconciliation succeeds" "$ec" 0
   assert_equals "F15: recovered closed issue is never refiled" "$(_creates "$L")" "0"
   assert_equals "F15: recovered fingerprint is durably ledgered" \
     "$(jq -r '.["fp15"].issue' "$led")" "https://github.com/o/r/issues/926"
+  rm -rf "$workdir"
+
+  # --- F16: delayed list visibility converges concurrent creators on the next ledger hit ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp16 interrupt "obs" process > "$cand"
+  marker_digest="$(printf '%s' fp16 | sha256sum | awk '{print $1}')"
+  marker="<!-- saas-lesson-fingerprint:v1:$marker_digest -->"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=940 \
+    GH_API_JSON='[[]]' SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins \
+      --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F16a: delayed-list create succeeds" "$ec" 0
+  assert_equals "F16b: delayed-list run creates once" "$(_creates "$L")" "1"
+  assert_equals "F16c: created URL is ledgered while the list lags" \
+    "$(jq -r '.["fp16"].issue' "$led")" "https://github.com/o/r/issues/940"
+  assert_equals "F16c1: create is followed by one inventory refresh" \
+    "$(grep -c '^api --paginate' "$L")" "2"
+
+  local concurrent_issues
+  concurrent_issues="$(jq -cn --arg marker "$marker" '[[
+    {number:938,html_url:"https://github.com/o/r/issues/938",title:"unrelated",body:"unrelated",state:"open"},
+    {number:939,html_url:"https://github.com/o/r/issues/939",title:"lesson",body:$marker,state:"open"},
+    {number:940,html_url:"https://github.com/o/r/issues/940",title:"lesson",body:$marker,state:"open"}
+  ]]')"
+  : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    GH_API_JSON="$concurrent_issues" SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins \
+      --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F16d: ledger-hit convergence succeeds" "$ec" 0
+  assert_equals "F16e: ledger hit never refiles" "$(_creates "$L")" "0"
+  assert_file_contains "F16f: later exact-marker duplicate is closed" "$L" "issue close 940"
+  assert_file_not_contains "F16g: unrelated issue is untouched" "$L" "issue close 938"
+  assert_equals "F16h: lowest exact-marker issue becomes canonical" \
+    "$(jq -r '.["fp16"].issue' "$led")" "https://github.com/o/r/issues/939"
+  assert_file_contains "F16i: inventory is paginated and all-state" "$L" \
+    "api --paginate --slurp repos/paat/claude-plugins/issues?state=all&per_page=100"
+  assert_file_not_contains "F16j: reconciliation does not use indexed issue search" "$L" \
+    "issue list"
+  rm -rf "$workdir"
+
+  # --- F17: a custom report path that cannot be written fails explicitly ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"
+  _cand fp17 interrupt "obs" process > "$cand"
+  report="/proc/self/lesson-report-${RANDOM}.md"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    bash "$script" --candidates "$cand" --ledger "$led" --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F17a: unwritable report exits nonzero" "$ec" 1
+  assert_output_contains "F17b: unwritable report failure is explicit" "$output" \
+    "lesson-file: cannot write report:"
+  assert_equals "F17c: report failure makes no GitHub calls" "$(wc -l < "$L" | tr -d ' ')" "0"
+  rm -rf "$workdir"
+
+  # --- F18: an uncreatable report directory fails before work begins ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"
+  _cand fp18 interrupt "obs" process > "$cand"
+  report="/proc/self/lesson-report-dir-${RANDOM}/report.md"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    bash "$script" --candidates "$cand" --ledger "$led" --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F18a: uncreatable report directory exits nonzero" "$ec" 1
+  assert_output_contains "F18b: directory failure is explicit" "$output" \
+    "lesson-file: cannot prepare ledger/report directories"
+  assert_equals "F18c: directory failure makes no GitHub calls" "$(wc -l < "$L" | tr -d ' ')" "0"
   rm -rf "$workdir"
 }
 
@@ -6279,6 +6346,7 @@ MOCK
 #   GH_VIEW_STATE     value for `gh issue view --json state` (OPEN/CLOSED)
 #   GH_VIEW_BODY      value for `gh issue view --json body`   (recovery verification)
 #   GH_SEARCH_JSON    JSON for `gh issue list ... --json number` (default [])
+#   GH_API_JSON       paginated `gh api` JSON (default `[[]]`)
 #   GH_FAIL_ON        if argv contains this substring, exit 1 (simulate gh failure)
 make_mock_gh() {
   local bindir="$1/bin"
@@ -6290,6 +6358,7 @@ if [ -n "${GH_FAIL_ON:-}" ] && [[ "$*" == *"$GH_FAIL_ON"* ]]; then
   echo "mock gh: forced failure" >&2; exit 1
 fi
 case "$1 $2" in
+  "api --paginate") echo "${GH_API_JSON:-[[]]}" ;;
   "repo view")   echo "${GH_REPO:-o/r}" ;;
   "issue create") echo "https://github.com/o/r/issues/${GH_CREATE_NUMBER:?GH_CREATE_NUMBER unset}" ;;
   "issue comment") echo "https://github.com/o/r/issues/commented" ;;

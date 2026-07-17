@@ -346,10 +346,12 @@ Tracking issue: **#79** (keep open until the loop runs end-to-end live).
     repo, but ONLY when `SAAS_LESSON_SYNC_ENABLED=true` AND a repo is pinned —
     otherwise **dry-run** (files nothing). Re-runs the shared PII gate at the
     filing boundary; idempotent via the fingerprint ledger; advisory dedup vs
-    open issues; per-run budget. An all-state fingerprint-marker lookup closes the
-    create-before-ledger crash window; ledger writes are checked and atomic. PII gate extracted to shared `pii-gate.sh`
+    open issues; per-run budget. A paginated all-state inventory is matched locally
+    by fingerprint; concurrent duplicates converge to the lowest issue number and
+    later open duplicates are closed. Ledger and report writes are checked; ledger
+    replacement is atomic. PII gate extracted to shared `pii-gate.sh`
     (single source of truth for `harvest.sh` + `lesson-file.sh`).
-  - Tests: Suite F (F1–F9) with the mock-`gh` harness (684 total, all green).
+  - Tests: Suite F (F1–F18) with the mock-`gh` harness.
   - End-to-end on aruannik stays dry-run by default: 2 candidates → "would file
     2, filed 0", ledger empty, no `gh` contact.
 - [x] **v4 — `lesson-auto-review.sh` + optional `/lessons-review`**. Component #4.

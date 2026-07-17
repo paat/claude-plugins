@@ -11,12 +11,11 @@ usage() {
 usage: maintain-leases.sh primary-root --repo-root DIR
        maintain-leases.sh acquire --repo-root DIR --mode maintain|maintain-loop --run-id ID --state-file FILE [--worktree DIR]
        maintain-leases.sh controller-binding --repo-root DIR --worktree DIR --run-id ID --state-file FILE
-       maintain-leases.sh activate --state-file FILE --run-state FILE --blocked-file FILE  # maintain-loop state only
        maintain-leases.sh available --repo-root DIR
-       maintain-leases.sh heartbeat --state-file FILE [--repo-root DIR --worktree DIR --run-id ID]
-       maintain-leases.sh hold --state-file FILE [--repo-root DIR --worktree DIR --run-id ID] [--interval-seconds N] [--max-seconds N] -- COMMAND...
+       maintain-leases.sh heartbeat --state-file FILE --repo-root DIR --worktree DIR --run-id ID
+       maintain-leases.sh hold --state-file FILE --repo-root DIR --worktree DIR --run-id ID [--interval-seconds N] [--max-seconds N] -- COMMAND...
        maintain-leases.sh reap-terminal --repo-root DIR --run-id ID
-       maintain-leases.sh cleanup --state-file FILE [--run-state FILE --run-id ID]
+       maintain-leases.sh cleanup --state-file FILE --run-id ID [--run-state FILE] [--repo-root DIR --worktree DIR]
 EOF
   exit 2
 }
@@ -215,14 +214,27 @@ load_controller_state() {
     }
 }
 
-load_requested_state() {
-  local supplied_state=$1
-  if [ -n "$repo_root$worktree$expected_run_id" ]; then
+load_mutation_state() {
+  local supplied_state=$1 allow_unbound_run=${2:-0}
+  if [ -n "$repo_root$worktree" ]; then
     [ -n "$repo_root" ] && [ -n "$worktree" ] && [ -n "$expected_run_id" ] || usage
     load_controller_state "$repo_root" "$worktree" "$expected_run_id" "$supplied_state"
-  else
-    load_state "$supplied_state"
+    return
   fi
+  [ "$allow_unbound_run" -eq 1 ] || {
+    echo "maintain-leases: lease mutation requires --repo-root, --worktree, and --run-id" >&2
+    return 1
+  }
+  [ -n "$expected_run_id" ] || usage
+  load_state "$supplied_state" || return 1
+  [ -z "$WORKTREE_BINDING" ] || {
+    echo "maintain-leases: bound lease mutation requires --repo-root, --worktree, and --run-id" >&2
+    return 1
+  }
+  [ -z "$expected_run_id" ] || [ "$expected_run_id" = "$RUN_ID" ] || {
+    echo "maintain-leases: cleanup run id does not match lease state" >&2
+    return 1
+  }
 }
 
 lease_state() {
@@ -315,7 +327,7 @@ resolve_run_state_path() {
 
 action=${1:-}; [ -n "$action" ] || usage; shift
 repo_root=""; mode=""; run_id=""; state_file=""; worktree=""
-run_state=""; blocked_file=""; expected_run_id=""; interval=60; max_seconds=14400
+run_state=""; expected_run_id=""; interval=60; max_seconds=14400
 command=(); LEASE_ROWS_FILE=""; WORKTREE_BINDING=""; STATE_SCHEMA=""
 trap 'rm -f -- "${LEASE_ROWS_FILE:-}"' EXIT
 while [ "$#" -gt 0 ]; do
@@ -326,7 +338,6 @@ while [ "$#" -gt 0 ]; do
     --state-file) [ "$#" -ge 2 ] || usage; state_file=$2; shift 2 ;;
     --worktree) [ "$#" -ge 2 ] || usage; worktree=$2; shift 2 ;;
     --run-state) [ "$#" -ge 2 ] || usage; run_state=$2; shift 2 ;;
-    --blocked-file) [ "$#" -ge 2 ] || usage; blocked_file=$2; shift 2 ;;
     --interval-seconds) [ "$#" -ge 2 ] || usage; interval=$2; shift 2 ;;
     --max-seconds) [ "$#" -ge 2 ] || usage; max_seconds=$2; shift 2 ;;
     --) shift; command=("$@"); break ;;
@@ -336,13 +347,13 @@ done
 
 case "$action" in
   primary-root)
-    [ -n "$repo_root" ] && [ -z "$state_file$mode$run_id$worktree$run_state$blocked_file" ] || usage
+    [ -n "$repo_root" ] && [ -z "$state_file$mode$run_id$worktree$run_state" ] || usage
     resolve_repo "$repo_root" || { echo "maintain-leases: cannot resolve primary worktree" >&2; exit 1; }
     printf '%s\n' "$PRIMARY"
     ;;
 
   available)
-    [ -n "$repo_root" ] && [ -z "$state_file$mode$run_id$worktree$run_state$blocked_file" ] || usage
+    [ -n "$repo_root" ] && [ -z "$state_file$mode$run_id$worktree$run_state" ] || usage
     resolve_repo "$repo_root" || { echo "maintain-leases: cannot resolve repository" >&2; exit 1; }
     shared="$COMMON/saas-startup-team/leases"
     legacy="$PRIMARY/.startup/leases"
@@ -373,7 +384,7 @@ case "$action" in
 
   acquire)
     [ -n "$repo_root" ] && [ -n "$mode" ] && [ -n "$run_id" ] && [ -n "$state_file" ] \
-      && [ -z "$run_state$blocked_file" ] || usage
+      && [ -z "$run_state" ] || usage
     valid_id "$run_id" || { echo "maintain-leases: invalid run id" >&2; exit 2; }
     case "$mode" in
       maintain) : ;;
@@ -480,57 +491,22 @@ case "$action" in
 
   controller-binding)
     [ -n "$repo_root" ] && [ -n "$worktree" ] && [ -n "$run_id" ] && [ -n "$state_file" ] \
-      && [ -z "$mode$run_state$blocked_file" ] || usage
+      && [ -z "$mode$run_state" ] || usage
     valid_id "$run_id" || { echo "maintain-leases: invalid controller run id" >&2; exit 2; }
     load_controller_state "$repo_root" "$worktree" "$run_id" "$state_file" || exit 1
     echo "maintain-leases: controller binding valid"
     ;;
 
-  activate)
-    [ -n "$state_file" ] && [ -n "$run_state" ] \
-      && [ -z "$repo_root$mode$run_id$worktree" ] || usage
-    load_state "$state_file" || exit 1
-    [ "$MODE" = maintain-loop ] || {
-      echo "maintain-leases: activate accepts only maintain-loop lease state; normal maintain owns .startup/maintain/current-run.json" >&2
-      exit 2
-    }
-    heartbeat_specs || {
-      echo "maintain-leases: activation lease ownership is no longer valid" >&2
-      exit 1
-    }
-    resolve_run_state_path "$run_state" 1 || {
-      echo "maintain-leases: run state path is unsafe" >&2; exit 1; }
-    if [ -e "$RUN_STATE_PATH" ] || [ -L "$RUN_STATE_PATH" ]; then
-      [ -f "$RUN_STATE_PATH" ] && [ ! -L "$RUN_STATE_PATH" ] || {
-        echo "maintain-leases: active run state is unsafe" >&2; exit 1; }
-      if stale_run_id=$(jq -er '.run_id | select(type == "string" and length > 0)' "$RUN_STATE_PATH" 2>/dev/null); then
-        [ "$stale_run_id" != "$RUN_ID" ] || {
-          echo "maintain-leases: active run state matches this run" >&2; exit 1; }
-      fi
-      rm -f -- "$RUN_STATE_PATH"
-    fi
-    [ "$blocked_file" = "$COMMON/saas-startup-team/maintain/blocked.jsonl" ] || {
-      echo "maintain-leases: blocked ledger binding is invalid" >&2; exit 1; }
-    run_tmp=$(mktemp "$RUN_STATE_PATH.tmp.XXXXXX")
-    jq -n --arg run_id "$RUN_ID" --arg repo_root "$PRIMARY" \
-      --arg worktree "$WORKTREE_BINDING" --arg lease_state "$STATE_FILE" \
-      --arg blocked_file "$blocked_file" \
-      '{schema_version:1,run_id:$run_id,repo_root:$repo_root,worktree:$worktree,
-        lease_state:$lease_state,blocked_file:$blocked_file}' > "$run_tmp"
-    chmod 600 "$run_tmp"; mv -- "$run_tmp" "$RUN_STATE_PATH"
-    printf '%s\n' "$RUN_STATE_PATH"
-    ;;
-
   heartbeat)
-    [ -n "$state_file" ] && [ -z "$mode$run_state$blocked_file" ] || usage
-    load_requested_state "$state_file" || exit 1
+    [ -n "$state_file" ] && [ -z "$mode$run_state" ] || usage
+    load_mutation_state "$state_file" || exit 1
     heartbeat_specs || exit 1
     echo "maintain-leases: heartbeat complete"
     ;;
 
   hold)
     [ -n "$state_file" ] && [ "${#command[@]}" -gt 0 ] \
-      && [ -z "$mode$run_state$blocked_file" ] \
+      && [ -z "$mode$run_state" ] \
       && valid_uint "$interval" && valid_uint "$max_seconds" || usage
     [ "$interval" -le 60 ] || {
       echo "maintain-leases: heartbeat interval must be at most 60 seconds" >&2
@@ -540,7 +516,7 @@ case "$action" in
       echo "maintain-leases: maximum hold lifetime is 14400 seconds" >&2
       exit 2
     }
-    load_requested_state "$state_file" || exit 1
+    load_mutation_state "$state_file" || exit 1
     guardian_args=(hold --interval-seconds "$interval" --max-seconds "$max_seconds")
     while IFS=$'\t' read -r kind key state_dir owner_file; do
       guardian_args+=(--lease-at "$state_dir" "$key" "$owner_file")
@@ -552,7 +528,7 @@ case "$action" in
 
   reap-terminal)
     [ -n "$repo_root" ] && [ -n "$run_id" ] \
-      && [ -z "$state_file$mode$worktree$run_state$blocked_file" ] || usage
+      && [ -z "$state_file$mode$worktree$run_state" ] || usage
     valid_id "$run_id" || { echo "maintain-leases: invalid run id" >&2; exit 2; }
     resolve_repo "$repo_root" || { echo "maintain-leases: cannot resolve repository" >&2; exit 1; }
     terminal_state="$COMMON/saas-startup-team/maintain-runtime/$run_id-leases.json"
@@ -575,10 +551,8 @@ case "$action" in
     ;;
 
   cleanup)
-    [ -n "$state_file" ] && [ -z "$repo_root$mode$worktree$blocked_file" ] || usage
-    load_state "$state_file" || exit 1
-    [ -z "$expected_run_id" ] || [ "$expected_run_id" = "$RUN_ID" ] || {
-      echo "maintain-leases: cleanup run id does not match lease state" >&2; exit 1; }
+    [ -n "$state_file" ] && [ -z "$mode" ] || usage
+    load_mutation_state "$state_file" 1 || exit 1
     rc=0
     release_specs || rc=1
     if [ -n "$run_state" ]; then

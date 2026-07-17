@@ -42,11 +42,13 @@ MAINTAIN_LEASE_STATE="$GIT_COMMON/saas-startup-team/maintain-runtime/$LEASE_RUN_
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" acquire \
   --repo-root "$REPO_ROOT" --mode "$MAINTAIN_CONTROLLER_MODE" --run-id "$LEASE_RUN_ID" \
   --state-file "$MAINTAIN_LEASE_STATE" --worktree "$WT" || exit 2
+MAINTAIN_CONTROLLER_ARGS=(--state-file "$MAINTAIN_LEASE_STATE" \
+  --repo-root "$REPO_ROOT" --worktree "$WT" --run-id "$LEASE_RUN_ID")
 
 release_maintain_pass() {
   [ ! -s "$MAINTAIN_LEASE_STATE" ] || bash \
     "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" cleanup \
-    --state-file "$MAINTAIN_LEASE_STATE" --run-id "$LEASE_RUN_ID"
+    "${MAINTAIN_CONTROLLER_ARGS[@]}"
 }
 trap release_maintain_pass EXIT
 trap 'exit 130' INT
@@ -75,14 +77,13 @@ mix either mode with the other path or begin new work from the compatibility rou
 
 `MAINTAIN_LEASE_RUN_ID` is the exact root identity resolved by `/maintain`; a thin
 `/maintain-loop` coordinator passes the same value through both the environment and
-its compatibility argument. Normal
-`/maintain` never calls `maintain-leases.sh activate` and never passes
-`--blocked-file` to a lease action. Neither route calls the obsolete `activate` action.
+its compatibility argument.
 The canonical workflow marker remains `.startup/maintain/current-run.json` inside the
 selected worktree and belongs to `Pre-Flight`; the lease state—not the marker—carries
-the exact controller binding. Generic `cleanup` accepts either validated lease schema,
-and terminal coordinator reap accepts only those same exact canonical or compatibility
-bindings. Blocked ledgers are queue input under `Eligibility & Ordering`.
+the exact controller binding. Every heartbeat, hold, and cleanup validates the shared
+controller tuple against that binding. Terminal coordinator reap accepts only the same
+exact canonical or compatibility bindings. Blocked ledgers are queue input under
+`Eligibility & Ordering`.
 
 If acquisition refuses, do not fetch, create/reset a worktree, apply labels, write a run
 file, claim an issue, or dispatch a worker. Inspect the active heartbeat/artifacts and
@@ -100,7 +101,7 @@ live-verification command through the foreground holder:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" hold \
-  --state-file "$MAINTAIN_LEASE_STATE" --interval-seconds 60 \
+  "${MAINTAIN_CONTROLLER_ARGS[@]}" --interval-seconds 60 \
   --max-seconds 14400 -- COMMAND...
 ```
 

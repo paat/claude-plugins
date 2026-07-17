@@ -27,8 +27,8 @@ Codex; Codex resolves `${CLAUDE_PLUGIN_ROOT}` to the installed plugin root.
 
 Parse `$ARGUMENTS` before any probe or mutation. Accept `--dry-run`, `--once`,
 `--max-issues`, `--max-merges`, `--max-pass-minutes`, and `--max-run-minutes`.
-Accept one internal `--lease-run-id ID`, validated against the compatibility pattern
-`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`, and one internal
+Accept one internal `--lease-run-id ID`, validated against the canonical pattern
+`^run-[0-9a-f]{32}$`, and one internal
 `--invocation-command maintain-loop`. Accept the command binding only with
 `--lease-run-id`. The lease identity is internal: never forward it to the probe.
 More generally, never forward either internal argument to the probe. Reject a
@@ -45,7 +45,8 @@ was supplied, require it to equal the resolved canonical identity. Set and expor
 
 `SAAS_INVOCATION_COMMAND` has only `maintain-loop`, `maintain`, and `goal-deliver` as
 valid values. With no internal command binding, direct `/maintain` defaults an absent
-environment value to `maintain` and accepts inherited `maintain-loop`. With the
+environment value to `maintain` and accepts only that exact present value. An inherited
+`maintain-loop` value requires both exact internal arguments. With the
 internal binding, an absent environment value resolves to `maintain-loop`; a present
 value must agree exactly. Reject every conflict, `goal-deliver`, or unknown value as a
 context-binding failure before the probe or mutation, then export the resolved value.
@@ -207,8 +208,9 @@ cannot distinguish an active owner from a recoverable failure.
 - Lease acquisition uses `maintain-leases.sh acquire --mode
   "$MAINTAIN_CONTROLLER_MODE" --worktree "$WT"`; both values come from the same
   validated route object. Long commands run
-  as `bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" hold --max-seconds 14400 --
-  COMMAND...`; lease loss stops delivery.
+  as `bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" hold
+  "${MAINTAIN_CONTROLLER_ARGS[@]}" --max-seconds 14400 -- COMMAND...`; lease loss
+  stops delivery.
 - Queue construction must fail closed, equivalent to `if ! QUEUE_JSON=...; then stop`.
   Dry-run uses `--issues-file <issues.json>` fixtures and consumes
   `.cleanup.stale_maintain_blocked` without mutating GitHub.

@@ -114,26 +114,6 @@ test_maintain_runtime() {
   assert_exit_code "MR4b: acquisition reclaims a proven expired crash lease" "$ec" 0
   bash "$leases" cleanup --state-file "$state" --run-id recovered >/dev/null
 
-  state="$common/saas-startup-team/maintain-runtime/normal-activate-leases.json"
-  bash "$leases" acquire --repo-root "$repo" --mode maintain --run-id normal-activate \
-    --state-file "$state" >/dev/null
-  run_state="$repo/.startup/maintain/current-run.json"
-  printf '1\n' > "$lease_dir/maintain-delivery-pass/heartbeat"
-  ec=0; out=$(bash "$leases" activate --state-file "$state" --run-state "$run_state" 2>&1) || ec=$?
-  assert_exit_code "MR4ba: normal maintain state cannot use legacy activation" "$ec" 2
-  assert_output_contains "MR4bb: normal activation rejection names the owning lifecycle" "$out" \
-    'normal maintain owns .startup/maintain/current-run.json'
-  ec=0
-  out=$(bash "$leases" activate --state-file "$state" --run-state "$run_state" \
-    --blocked-file "$common/saas-startup-team/maintain/blocked.jsonl" 2>&1) || ec=$?
-  assert_exit_code "MR4bc: blocked ledger cannot turn normal state into loop activation" "$ec" 2
-  assert_output_contains "MR4bd: blocked activation keeps the precise mode diagnostic" "$out" \
-    'activate accepts only maintain-loop lease state'
-  assert_file_not_exists "MR4be: rejected normal activation creates no run state" "$run_state"
-  assert_equals "MR4bf: rejected normal activation performs no heartbeat" \
-    "$(cat "$lease_dir/maintain-delivery-pass/heartbeat")" 1
-  bash "$leases" cleanup --state-file "$state" --run-id normal-activate >/dev/null
-
   state="$common/saas-startup-team/maintain-runtime/terminal-reap-leases.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain --run-id terminal-reap \
     --state-file "$state" --worktree "$repo/.worktrees/maintain" >/dev/null
@@ -250,43 +230,30 @@ test_maintain_runtime() {
   bash "$single" --acquire maintain-loop:pass --state-dir "$legacy_dir" --owner another >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR8: a bridged run blocks an old loop client" "$ec" 1
 
+  runtime_before=$(/usr/bin/sha256sum -- "$state" | /usr/bin/awk '{print $1}')
+  lease_before=$(lease_state_fingerprint "$state")
+  marker="$repo/unbound-mutation-launched"
+  ec=0; out=$(bash "$leases" heartbeat --state-file "$state" 2>&1) || ec=$?
+  assert_exit_code "MR8a: bound heartbeat requires the exact controller tuple" "$ec" 1
+  assert_output_contains "MR8aa: missing bound tuple has an explicit diagnostic" "$out" \
+    'lease mutation requires --repo-root, --worktree, and --run-id'
+  ec=0
+  bash "$leases" hold --state-file "$state" --interval-seconds 1 --max-seconds 10 \
+    -- bash -c ': > "$1"' _ "$marker" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MR8b: bound hold requires the exact controller tuple" "$ec" 1
+  assert_file_not_exists "MR8ba: rejected unbound hold never launches its child" "$marker"
+  ec=0
+  bash "$leases" cleanup --state-file "$state" --run-id run-bridge >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MR8bb: bound cleanup requires the exact controller tuple" "$ec" 1
+  assert_equals "MR8bc: rejected bound mutations leave lease state byte-identical" \
+    "$(/usr/bin/sha256sum -- "$state" | /usr/bin/awk '{print $1}')" "$runtime_before"
+  lease_after=$(lease_state_fingerprint "$state")
+  assert_equals "MR8bd: rejected bound mutations leave owner and heartbeat state unchanged" \
+    "$lease_after" "$lease_before"
   run_state="$repo/.startup/maintain-loop/current-run.json"
   mkdir -p "$(dirname "$run_state")"
-  printf '{"run_id":' > "$run_state"
-  bash "$leases" activate --state-file "$state" --run-state "$run_state" \
-    --blocked-file "$common/saas-startup-team/maintain/blocked.jsonl" >/dev/null
-  assert_equals "MR8a: exclusive activation recovers a truncated legacy run state" \
-    "$(jq -r .run_id "$run_state")" run-bridge
-  printf '%s\n' '{"run_id":"expired-run"}' > "$run_state"
-  bash "$leases" activate --state-file "$state" --run-state "$run_state" \
-    --blocked-file "$common/saas-startup-team/maintain/blocked.jsonl" >/dev/null
-  assert_equals "MR8aa: helper activates the matching run identity" \
-    "$(jq -r .run_id "$run_state")" run-bridge
-  assert_output_not_contains "MR8b: stale run state is replaced after lease acquisition" \
-    "$(cat "$run_state")" expired-run
+  printf '%s\n' '{"run_id":"run-bridge"}' > "$run_state"
   real_jq=$(command -v jq)
-  mkdir "$repo/worktree-jq-bin"
-  cat > "$repo/worktree-jq-bin/jq" <<'SH'
-#!/usr/bin/env bash
-for arg in "$@"; do
-  if [ "$arg" = .worktree ]; then
-    count=0; [ ! -f "$JQ_COUNT_FILE" ] || count=$(cat "$JQ_COUNT_FILE")
-    count=$((count + 1)); printf '%s\n' "$count" > "$JQ_COUNT_FILE"
-    [ "$count" -le 1 ] || exit 91
-  fi
-done
-exec "$REAL_JQ" "$@"
-SH
-  chmod +x "$repo/worktree-jq-bin/jq"
-  printf '%s\n' '{"run_id":"expired-run"}' > "$run_state"
-  PATH="$repo/worktree-jq-bin:$PATH" REAL_JQ="$real_jq" \
-    JQ_COUNT_FILE="$repo/worktree-jq-count" bash "$leases" activate --state-file "$state" \
-      --run-state "$run_state" \
-      --blocked-file "$common/saas-startup-team/maintain/blocked.jsonl" >/dev/null
-  assert_equals "MR8ba: activation reuses its validated worktree binding" \
-    "$(jq -r .worktree "$run_state")" "$wt"
-  assert_equals "MR8bb: activation does not re-query the worktree binding" \
-    "$(cat "$repo/worktree-jq-count")" 1
   lease_jq_bin="$repo/lease-jq-bin"; mkdir "$lease_jq_bin"
   cat > "$lease_jq_bin/jq" <<'SH'
 #!/usr/bin/env bash
@@ -301,13 +268,15 @@ SH
   marker="$repo/failed-jq-launched"
   ec=0
   out=$(PATH="$lease_jq_bin:$PATH" REAL_JQ="$real_jq" \
-    bash "$leases" hold --state-file "$state" --interval-seconds 1 --max-seconds 10 \
+    bash "$leases" hold --state-file "$state" --repo-root "$repo" --worktree "$wt" \
+      --run-id run-bridge --interval-seconds 1 --max-seconds 10 \
       -- bash -c ': > "$1"' _ "$marker" 2>&1) || ec=$?
   assert_exit_code "MR8c: failed lease-row materialization fails hold closed" "$ec" 1
   assert_file_not_exists "MR8d: failed lease-row materialization never launches its child" "$marker"
   marker="$repo/unsafe-interval-launched"
   ec=0
-  out=$(bash "$leases" hold --state-file "$state" --interval-seconds 900 --max-seconds 10 \
+  out=$(bash "$leases" hold --state-file "$state" --repo-root "$repo" --worktree "$wt" \
+    --run-id run-bridge --interval-seconds 900 --max-seconds 10 \
     -- bash -c ': > "$1"' _ "$marker" 2>&1) || ec=$?
   assert_exit_code "MR8e: lease-set hold rejects an interval at the minimum TTL" "$ec" 2
   assert_output_contains "MR8f: interval rejection names the safe maximum" "$out" "at most 60 seconds"
@@ -322,7 +291,8 @@ SH
   assert_file_not_exists "MR8i: unsafe guardian interval never launches its child" "$marker"
   marker="$repo/overlong-hold-launched"
   ec=0
-  out=$(bash "$leases" hold --state-file "$state" --interval-seconds 1 --max-seconds 14401 \
+  out=$(bash "$leases" hold --state-file "$state" --repo-root "$repo" --worktree "$wt" \
+    --run-id run-bridge --interval-seconds 1 --max-seconds 14401 \
     -- bash -c ': > "$1"' _ "$marker" 2>&1) || ec=$?
   assert_exit_code "MR8j: lease-set hold caps the protocol lifetime" "$ec" 2
   assert_output_contains "MR8k: overlong hold names the protocol maximum" "$out" \
@@ -330,7 +300,9 @@ SH
   assert_file_not_exists "MR8l: overlong hold never launches its child" "$marker"
   forged_state="$common/saas-startup-team/maintain-runtime/borrowed-run.json"
   jq '.run_id="borrowed-run"' "$state" > "$forged_state"; chmod 600 "$forged_state"
-  ec=0; out=$(bash "$leases" heartbeat --state-file "$forged_state" 2>&1) || ec=$?
+  ec=0
+  out=$(bash "$leases" heartbeat --state-file "$forged_state" --repo-root "$repo" \
+    --worktree "$wt" --run-id borrowed-run 2>&1) || ec=$?
   assert_exit_code "MR8m: forged run identity cannot borrow another run's owner tokens" "$ec" 1
   assert_output_contains "MR8n: borrowed owner-token refusal is explicit" "$out" \
     "owner binding does not match this run"
@@ -338,7 +310,7 @@ SH
   printf 'forged-owner\n' > "$lease_dir/maintain-pass/owner"
   ec=0
   bash "$leases" cleanup --state-file "$state" --run-state "$run_state" \
-    --run-id run-bridge >/dev/null 2>&1 || ec=$?
+    --repo-root "$repo" --worktree "$wt" --run-id run-bridge >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR9: one failed release makes cleanup fail" "$ec" 1
   assert_file_not_exists "MR10: cleanup still releases the shared lease" "$lease_dir/maintain-delivery-pass"
   assert_file_not_exists "MR11: cleanup still releases the legacy loop lease" "$legacy_dir/maintain-loop-pass"
@@ -352,7 +324,7 @@ SH
   printf '%s\n' '{"run_id":"run-bridge"}' > "$external_state/current-run.json"
   ec=0
   bash "$leases" cleanup --state-file "$state" --run-state "$run_state" \
-    --run-id run-bridge >/dev/null 2>&1 || ec=$?
+    --repo-root "$repo" --worktree "$wt" --run-id run-bridge >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR14a: cleanup rejects a symlinked run-state parent" "$ec" 1
   assert_file_exists "MR14b: rejected cleanup preserves external run state" \
     "$external_state/current-run.json"
@@ -551,7 +523,8 @@ SH
   assert_equals "MR21bind-c: bounded schema-v2 adapter still resets the legacy worktree" \
     "$(git -C "$wt" rev-parse HEAD):$(jq -r '.schema_version|tostring + ":"' "$legacy_attempt_state")$(jq -r .mode "$legacy_attempt_state")" \
     "$base:2:maintain-loop"
-  bash "$leases" cleanup --state-file "$legacy_attempt_state" --run-id legacy-attempt >/dev/null
+  bash "$leases" cleanup --state-file "$legacy_attempt_state" --repo-root "$repo" \
+    --worktree "$wt" --run-id legacy-attempt >/dev/null
   git -C "$repo" worktree remove --force "$wt" >/dev/null
 
   canonical_wt="$repo/.worktrees/maintain"
@@ -711,7 +684,8 @@ SH
   assert_exit_code "MR22p: abandoned guard cleanup requires the active lease set" "$ec" 1
   assert_file_exists "MR22q: missing lease leaves abandoned guard metadata untouched" \
     "$inactive_guard.active"
-  bash "$leases" cleanup --state-file "$state" --run-id "$controller_run_id" >/dev/null
+  bash "$leases" cleanup --state-file "$state" --repo-root "$repo" --worktree "$wt" \
+    --run-id "$controller_run_id" >/dev/null
   bash "$leases" acquire --repo-root "$repo" --mode maintain --run-id "$controller_run_id" \
     --state-file "$state" --worktree "$wt" >/dev/null
   bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
@@ -1001,7 +975,8 @@ SH
     --check ./check.sh >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR26: base-check rejects a planted summary symlink" "$ec" 1
   assert_equals "MR27: summary symlink target remains unchanged" "$(cat "$victim")" unchanged
-  bash "$leases" cleanup --state-file "$state" --run-id "$controller_run_id" >/dev/null
+  bash "$leases" cleanup --state-file "$state" --repo-root "$repo" --worktree "$wt" \
+    --run-id "$controller_run_id" >/dev/null
   git -C "$repo" worktree remove --force "$wt" >/dev/null
 
   lease_dir="$repo/guardian-leases"; owner="$repo/guardian.owner"
