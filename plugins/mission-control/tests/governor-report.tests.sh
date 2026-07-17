@@ -2,7 +2,9 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN="$(cd "$HERE/.." && pwd)"
+REPO="$(cd "$PLUGIN/../.." && pwd)"
 MC="$PLUGIN/scripts/mission-control.sh"
+MAINTAIN_LOOP="$REPO/plugins/saas-startup-team/references/workflows/maintain.md"
 PASS=0; FAIL=0
 t() { local name="$1"; shift; if "$@" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "ok - $name"; else FAIL=$((FAIL+1)); echo "FAIL - $name"; fi; }
 
@@ -139,6 +141,9 @@ t "digest warnings surface blocked project with reason" blocked_in_warnings
 mkenv; echo "the pass should print MC-BLOCKED recheck_after=10 when stuck" > "$TD/prose.log"
 prose_not_blocked() { [ "$(run "$NOW" governor_report e p1 0 "$TD/prose.log")" = ok ]; }
 t "prose mentioning the sentinel mid-line does not classify blocked" prose_not_blocked
+mkenv; { cat "$MAINTAIN_LOOP"; echo "pass-complete"; } > "$TD/codex.log"
+codex_template_not_blocked() { [ "$(run "$NOW" governor_report e p1 0 "$TD/codex.log")" = ok ]; }
+t "Codex transcript containing producer template remains successful" codex_template_not_blocked
 
 echo "pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -150,6 +150,12 @@ the child under outer `--once` or `--dry-run`. Otherwise continue only after a
 `pass-complete` terminal; stop on a limit, no-work, `pass-blocked`, failure, unknown
 scope, or unknown child state.
 
+On outer `pass-blocked`, return exactly one standalone `MC-BLOCKED reason=<reason>` line.
+Derive `<reason>` from the child's `pass-blocked` blocker/result; replace CR/LF and
+all control characters with spaces; trim; use `unspecified` only if empty.
+Omit `recheck_after` (configured/default window). Never emit for `pass-complete` or an
+issue-local block completing the outer pass.
+
 ## Entry and setup
 
 The identity and model-free probe above already found new/changed triage input,
