@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "Autonomous SaaS delivery \u2014 routed founder and specialist roles turn market demand into gated implementation, QA, deployment, growth, and maintenance",
-      "version": "0.89.49",
+      "version": "0.89.50",
       "author": {
         "name": "Andre Paat"
       },
@@ -196,7 +196,7 @@
     {
       "name": "mission-control",
       "description": "Portfolio supervisor: N-slot scheduler (pinned maintenance slots + priority-ladder slots) + budget governor keeping autonomous SaaS loops running 24/7 from one human-installed cron line, spending zero LLM tokens on scheduling",
-      "version": "0.6.2",
+      "version": "0.6.3",
       "author": {
         "name": "Andre Paat"
       },

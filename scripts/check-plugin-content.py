@@ -43,11 +43,31 @@ def main() -> int:
 
 def lint_plugin(plugin_dir: Path, errors: list[str], warnings: list[str]) -> None:
     plugin_name = plugin_dir.name
+    lint_prompt_content(plugin_dir, errors)
     lint_skills(plugin_dir, errors)
     lint_commands(plugin_dir, errors)
     lint_agents(plugin_dir, errors)
     lint_hooks(plugin_dir, errors)
     warn_duplicate_skill_bodies(plugin_name, plugin_dir, warnings)
+
+
+
+def lint_prompt_content(plugin_dir: Path, errors: list[str]) -> None:
+    """Keep terminal sentinels out of prompt text that may be copied to logs."""
+    paths: set[Path] = set()
+    for directory in ("commands", "agents", "skills", "references"):
+        root = plugin_dir / directory
+        if root.is_dir():
+            paths.update(root.rglob("*.md"))
+
+    sentinel = re.compile(r"^MC-BLOCKED(?:[ \t].*)?$", re.MULTILINE)
+    for path in sorted(paths):
+        body = path.read_text(encoding="utf-8")
+        if sentinel.search(body):
+            errors.append(
+                f"{rel(path)}: standalone MC-BLOCKED line can be copied into dispatch logs; "
+                "keep the runtime emission instruction inline"
+            )
 
 
 def lint_skills(plugin_dir: Path, errors: list[str]) -> None:

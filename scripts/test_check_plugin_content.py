@@ -101,5 +101,35 @@ class CommandSkillTests(unittest.TestCase):
             self.assertEqual(errors, [])
 
 
+class TerminalSentinelTests(unittest.TestCase):
+    def lint(self, relative_path: str, content: str) -> list[str]:
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = Path(directory) / "fixture"
+            path = plugin / relative_path
+            path.parent.mkdir(parents=True)
+            path.write_text(content, encoding="utf-8")
+            errors: list[str] = []
+            CHECKER.lint_prompt_content(plugin, errors)
+            return errors
+
+    def test_rejects_standalone_sentinel_in_producer_content(self) -> None:
+        for path in (
+            "commands/maintain-loop.md",
+            "agents/operator.md",
+            "skills/operator/SKILL.md",
+            "references/protocol.md",
+        ):
+            with self.subTest(path=path):
+                errors = self.lint(path, "Before\nMC-BLOCKED reason=<reason>\nAfter\n")
+                self.assertEqual(len(errors), 1)
+
+    def test_accepts_inline_runtime_emission_instruction(self) -> None:
+        errors = self.lint(
+            "commands/maintain-loop.md",
+            "Return one standalone `MC-BLOCKED reason=<reason>` line.\n",
+        )
+        self.assertEqual(errors, [])
+
+
 if __name__ == "__main__":
     unittest.main()
