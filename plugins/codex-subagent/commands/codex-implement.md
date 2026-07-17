@@ -4,13 +4,13 @@ description: Dispatch OpenAI Codex CLI as the implementer for ONE named task fro
 argument-hint: <plan.md> <taskN> [--model <id>] [--effort <level>] [--dir <repo>]
 ---
 
-Dispatch the OpenAI Codex CLI (`codex exec`, GPT-5.6 Sol at `medium` reasoning effort by default for implementation) as an **implementer subagent** to implement exactly one task from a written plan, then review what it produced. You are the controller — Codex edits and commits, you verify.
+Dispatch the OpenAI Codex CLI (`codex exec`, GPT-5.6 Sol with task-sized reasoning effort) as an **implementer subagent** to implement exactly one task from a written plan, then review what it produced. You are the controller — Codex edits and commits, you verify.
 
 **Arguments:** $ARGUMENTS
 
 ## Steps
 
-1. **Parse arguments.** First token is the plan file path (`<plan.md>`), second is the task identifier (`<taskN>`, e.g. `Task 3`). Optional `--model <id>` and `--effort <level>` override the pinned defaults; `--dir <repo>` sets the repo (default: current repo root). The effective implementation effort is the explicit argument, else `CODEX_SUBAGENT_EFFORT` when set, else `medium`. Read the plan file yourself so you know which files and tests the task touches — but do NOT paste it; Codex reads the plan itself.
+1. **Parse arguments and route effort.** First token is the plan file path (`<plan.md>`), second is the task identifier (`<taskN>`, e.g. `Task 3`). Optional `--model <id>` and `--effort <level>` override routing; `--dir <repo>` sets the repo (default: current repo root). The effective implementation effort is the explicit argument, else `CODEX_SUBAGENT_EFFORT` when set, else choose the cheapest sufficient level: `low` for localized mechanical work, `medium` for ordinary well-specified multi-file work, `high` for cross-module reasoning or hard debugging, and `xhigh` for security, payments, destructive migrations, or subtle concurrency. Never infer `max` or `ultra`; use them only when explicitly requested. Read the plan file yourself so you know which files and tests the task touches — but do NOT paste it; Codex reads the plan itself.
 
 2. **Determine the commit trailer.** If this project requires a trailer on commits (check `CLAUDE.md` / project conventions), note its literal text — you'll substitute it for `<COMMIT_TRAILER>` in the prompt below. If none, omit the trailer instruction.
 
@@ -69,5 +69,6 @@ Dispatch the OpenAI Codex CLI (`codex exec`, GPT-5.6 Sol at `medium` reasoning e
 ## Notes
 
 - One task per invocation. This is the discipline that made the loop reliable — narrow scope, test gate, per-task review.
-- Use `medium` for routine implementation; escalate explicitly only when the bounded task needs deeper reasoning.
+- Prefer `low` for localized routine implementation and `medium` for ordinary multi-file work. Escalate only for concrete ambiguity or risk.
+- `ultra` enables automatic task delegation. When explicitly selected, keep the worker contract to one task, one fan-out depth, the named test, and a hard stop at Done.
 - For the full controller loop (dispatch → review → fix → ledger) see the `codex-subagent-driven-development` skill.

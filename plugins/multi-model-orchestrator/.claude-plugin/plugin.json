@@ -1,0 +1,19 @@
+{
+  "name": "multi-model-orchestrator",
+  "version": "0.1.0",
+  "description": "Route implementation across bounded Codex workers with task-sized reasoning, then run independent Opus and GPT-5.6 Sol reviews",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "orchestration",
+    "codex",
+    "claude",
+    "opus",
+    "gpt-5.6-sol",
+    "subagents",
+    "code-review"
+  ]
+}

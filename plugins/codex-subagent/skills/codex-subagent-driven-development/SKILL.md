@@ -5,7 +5,7 @@ description: "Use to drive Codex CLI as implementer or reviewer from a written p
 
 # Codex Subagent-Driven Development
 
-This mirrors superpowers subagent-driven-development, but the **implementer/reviewer is the OpenAI Codex CLI** (`codex exec`, GPT-5.6 Sol at `medium` reasoning effort for routine work) and **Claude is the controller**. Codex reads the repo, edits files, runs tests, and commits — one plan task at a time. Claude dispatches, reviews each diff, permits one task-blocking correction, and keeps the ledger. The payoff is an independent second model: Codex catches integration defects a same-model pass rationalizes past.
+This mirrors superpowers subagent-driven-development, but the **implementer/reviewer is the OpenAI Codex CLI** (`codex exec`, GPT-5.6 Sol with task-sized reasoning effort) and **Claude is the controller**. Codex reads the repo, edits files, runs tests, and commits — one plan task at a time. Claude dispatches, reviews each diff, permits one task-blocking correction, and keeps the ledger. The payoff is an independent second model: Codex catches integration defects a same-model pass rationalizes past.
 
 ## Execution posture
 
@@ -15,6 +15,23 @@ This mirrors superpowers subagent-driven-development, but the **implementer/revi
 - Read-only reviewer and context-only critic behavior is a semantic prompt contract, not a process sandbox. Their prompts still prohibit repository mutation.
 
 The `${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.sh` wrapper always applies the exact bypass flag, pins model and effort on every call, and encodes the rest of the gotchas (dual timeouts, output capture, partial-run recovery). Prefer the commands (`/codex-implement`, `/codex-review`, `/codex-critique`) — they call the wrapper for you. Override with `--model` / `--effort` or `CODEX_SUBAGENT_MODEL` / `CODEX_SUBAGENT_EFFORT`; the execution posture is not configurable.
+
+## Effort routing
+
+Choose the cheapest sufficient effort after reading the named plan task or review target:
+
+| Effort | Use |
+|---|---|
+| `low` | Localized mechanical edit, focused test, or one-file review |
+| `medium` | Ordinary well-specified multi-file implementation or bounded review |
+| `high` | Cross-module reasoning, hard debugging, or broad technical review |
+| `xhigh` | Security, payments, destructive migrations, subtle concurrency, conflicting evidence |
+| `max` | Explicit request or an exceptional unresolved task after lower effort produced new evidence |
+| `ultra` | Explicit request for automatic task delegation; one bounded task/pass with a hard stop |
+
+Do not raise effort to compensate for an unclear plan. `max` and `ultra` are never inferred.
+For Ultra review, cap findings, require realistic reachability, prohibit recursive review/fix
+loops, and stop after the verdict.
 
 ## The controller loop
 

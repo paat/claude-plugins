@@ -27,6 +27,7 @@ check "help omits sandbox selector" 0 "$(printf '%s\n' "$help" | grep -c -- '--s
 check "help hides implementation" 0 "$(printf '%s\n' "$help" | grep -c 'set -euo pipefail')"
 "$SCRIPT" --bogus </dev/null >/dev/null 2>&1; check "unknown option exits 2" 2 "$?"
 "$SCRIPT" --sandbox danger-full-access </dev/null >/dev/null 2>&1; check "sandbox override exits 2" 2 "$?"
+"$SCRIPT" --effort extreme --print-cmd >/dev/null 2>&1; check "unknown effort exits 2" 2 "$?"
 "$SCRIPT" "" </dev/null >/dev/null 2>&1;      check "empty prompt exits 2" 2 "$?"
 
 # --- cs_build_cmd via --print-cmd ---
@@ -47,17 +48,22 @@ env_defaults="$(CODEX_SUBAGENT_MODEL=gpt-5.6-terra CODEX_SUBAGENT_EFFORT=low "$S
 contains "environment overrides model" "gpt-5.6-terra" "$env_defaults"
 contains "environment overrides effort" 'model_reasoning_effort="low"' "$env_defaults"
 
+ultra_cmd="$("$SCRIPT" --print-cmd -C /repo -e ultra)"
+contains "Ultra effort is passed literally" 'model_reasoning_effort="ultra"' "$ultra_cmd"
+
 # --- Prompt scope and convergence contracts ---
 implement_contract="$(<"$IMPLEMENT_COMMAND")"
 review_contract="$(<"$REVIEW_COMMAND")"
 review_agent_contract="$(<"$REVIEW_AGENT")"
 controller_contract="$(<"$CONTROLLER_SKILL")"
 readme_contract="$(<"$README")"
-contains "implement defaults routine work to medium" 'else `medium`' "$implement_contract"
+contains "implement routes localized work to low" '`low` for localized mechanical work' "$implement_contract"
+contains "implement keeps Ultra explicit" 'Never infer `max` or `ultra`' "$implement_contract"
 contains "implement quarantines adjacent issues" 'do not investigate or fix them' "$implement_contract"
 contains "implement stops after commit and report" 'complete the required commit and report, then stop' "$implement_contract"
 contains "controller permits one correction" 'at most one targeted correction' "$controller_contract"
-contains "review defaults routine work to medium" 'else `medium`' "$review_contract"
+contains "review routes bounded diff to medium" '`medium` for an ordinary bounded diff' "$review_contract"
+contains "review bounds explicit Ultra" 'cap the pass at 10 findings' "$review_contract"
 contains "controller applies review scope rules" 'same target, evidence, causation, and adjacency limits' "$review_contract"
 contains "review accepts build and contract evidence" 'failing build/test' "$review_contract"
 contains "review does not audit the tree" 'do not audit the tree' "$review_contract"
@@ -67,6 +73,7 @@ contains "review keeps semantic read-only contract" 'do NOT modify, stage, or co
 contains "reviewer keeps semantic read-only contract" 'do NOT modify, stage, or commit anything' "$review_agent_contract"
 contains "controller fixes unrestricted posture" 'execution posture is not configurable' "$controller_contract"
 contains "README names container boundary" 'development container is the security boundary' "$readme_contract"
+contains "README documents all efforts" 'low|medium|high|xhigh' "$readme_contract"
 
 # --- Source for pure-function unit tests ---
 source "$SCRIPT"

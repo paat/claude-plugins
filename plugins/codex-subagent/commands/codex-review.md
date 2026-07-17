@@ -4,13 +4,13 @@ description: Independent second-model (Codex/GPT-5.6 Sol) review of a diff, plan
 argument-hint: "[<target>] [--model <id>] [--effort <level>] [--dir <repo>]"
 ---
 
-Get an independent **second-model review** from the OpenAI Codex CLI (`codex exec`, GPT-5.6 Sol at `medium` reasoning effort by default). Codex reads the real source tree itself to verify cross-file effects — this catches integration defects a same-model pass rationalizes past (line-anchor drift, dispatch-signature mismatches, wrong recomputed formulas, renderers hardcoding old field names). Then synthesize with your own review.
+Get an independent **second-model review** from the OpenAI Codex CLI (`codex exec`, GPT-5.6 Sol with target-sized reasoning effort). Codex reads the real source tree itself to verify cross-file effects — this catches integration defects a same-model pass rationalizes past (line-anchor drift, dispatch-signature mismatches, wrong recomputed formulas, renderers hardcoding old field names). Then synthesize with your own review.
 
 **Target:** $ARGUMENTS
 
 ## Steps
 
-1. **Decide the review target.** If `$ARGUMENTS` names a file or plan, review that. If it is empty or says "diff"/"changes", review the working diff (`git diff` / `git diff origin/main...HEAD`). Optional `--model <id>` and `--effort <level>` override the pinned defaults; `--dir <repo>` sets the repo (default: repo root). The effective review effort is the explicit argument, else `CODEX_SUBAGENT_EFFORT` when set, else `medium`.
+1. **Decide the review target and route effort.** If `$ARGUMENTS` names a file or plan, review that. If it is empty or says "diff"/"changes", review the working diff (`git diff` / `git diff origin/main...HEAD`). Optional `--model <id>` and `--effort <level>` override routing; `--dir <repo>` sets the repo (default: repo root). The effective review effort is the explicit argument, else `CODEX_SUBAGENT_EFFORT` when set, else `low` for one localized file, `medium` for an ordinary bounded diff or plan, `high` for cross-module or difficult debugging review, and `xhigh` for high-impact security/data/concurrency review. Never infer `max` or `ultra`; use them only when explicitly requested.
 
 2. **Do your own review first** so you can compare, not just relay. Apply the same target, evidence, causation, and adjacency limits as the dispatched review below.
 
@@ -39,6 +39,8 @@ Get an independent **second-model review** from the OpenAI Codex CLI (`codex exe
    End with a one-line verdict: APPROVE / NEEDS_WORK / BLOCK.
    PROMPT
    ```
+
+   If `ultra` was explicitly selected, cap the pass at 10 findings, require a realistic reachable failure and severity for each, prohibit recursive review/fix loops, and stop after the verdict. Ultra's automatic delegation does not broaden the review target.
 
 4. **Synthesize** into a unified report:
 

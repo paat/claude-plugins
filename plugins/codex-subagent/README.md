@@ -1,6 +1,6 @@
 # codex-subagent
 
-Drive the **OpenAI Codex CLI** (`codex exec`, GPT-5.6 Sol at `medium` effort for routine implementation/review and `high` for critique) as **subagents** from Claude Code, with Claude as the controller. You get an independent second model that reads the repo, edits files, runs tests, and commits — orchestrated task-by-task from a written plan — plus a high-value pre-flight review that catches integration defects a same-model pass rationalizes past.
+Drive the **OpenAI Codex CLI** (`codex exec`, GPT-5.6 Sol with task-routed `low` through `xhigh` effort and explicit `max`/`ultra`) as **subagents** from Claude Code, with Claude as the controller. You get an independent second model that reads the repo, edits files, runs tests, and commits — orchestrated task-by-task from a written plan — plus a high-value pre-flight review that catches integration defects a same-model pass rationalizes past.
 
 This plugin packages the non-obvious operational gotchas so you don't re-derive them.
 
@@ -42,7 +42,14 @@ codex exec --dangerously-bypass-approvals-and-sandbox \
 - `-C` sets the working dir (avoids a leading `cd`, which complicates Bash permission matching).
 - `--skip-git-repo-check` avoids the repo-check prompt.
 - The prompt is fed on **stdin** (`codex exec -`), never as a giant argv string — this dodges the `MAX_ARG_STRLEN` "Argument list too long" trap on large prompts.
-- Model and effort are explicit, so `~/.codex/config.toml` cannot silently change unattended behavior. The role-agnostic wrapper defaults to `gpt-5.6-sol` + `high`; `/codex-implement` and `/codex-review` select `medium` unless an argument or `CODEX_SUBAGENT_EFFORT` overrides it. Critique remains `high` by default.
+- Model and effort are explicit, so `~/.codex/config.toml` cannot silently change unattended behavior. The role-agnostic wrapper defaults to `gpt-5.6-sol` + `high`; `/codex-implement` and `/codex-review` choose the cheapest sufficient `low|medium|high|xhigh` level unless an argument or `CODEX_SUBAGENT_EFFORT` overrides it. `max` and `ultra` are explicit-only; critique remains `high` by default.
+
+### Effort routing
+
+Use `low` for localized mechanical work, `medium` for ordinary well-specified multi-file work,
+`high` for cross-module reasoning or hard debugging, and `xhigh` for high-impact security, data,
+payments, migrations, or concurrency. `max` is exceptional. `ultra` enables automatic task
+delegation and must stay bounded to one task or review pass with a finding cap and hard stop.
 
 ## The wrapper: `scripts/codex-run.sh`
 
@@ -88,7 +95,7 @@ The `saas-startup-team` plugin also drives `codex exec` workers. Both plugins ru
 | Driven by | a written plan + task id | business→tech handoff files |
 | Prompt | role-agnostic | opinionated production contract |
 
-Use this plugin for generic, plan-driven Codex orchestration; use `saas-startup-team` for its handoff-driven team loop. The shared, reusable asset is the **posture and operational knowledge** (this README + the `codex-subagent-driven-development` skill), not a shared runtime script — each plugin must install and work standalone.
+Use this plugin for one generic, plan-driven Codex worker or reviewer; use `multi-model-orchestrator` when the request needs task-by-task effort routing plus independent Opus and Sol final reviews; use `saas-startup-team` for its handoff-driven team loop. Each plugin installs and works standalone.
 
 ## Installation
 

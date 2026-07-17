@@ -22,7 +22,7 @@
 # Options:
 #   -C, --dir DIR        Repo/working dir codex runs in (default: $PWD).
 #   -m, --model MODEL    Codex model (default: gpt-5.6-sol).
-#   -e, --effort LEVEL   Reasoning effort (default: high).
+#   -e, --effort LEVEL   low|medium|high|xhigh|max|ultra (default: high).
 #   -t, --timeout SECS   Inner timeout for the codex run (default: 600).
 #   -f, --prompt-file F  Read the prompt from file F instead of argv/stdin.
 #   -o, --out FILE       Where to keep the full captured stream (default: temp).
@@ -41,6 +41,13 @@ CS_DEFAULT_EFFORT="${CODEX_SUBAGENT_EFFORT:-high}"
 cs_usage() {
   awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' \
     "${BASH_SOURCE[0]}"
+}
+
+cs_valid_effort() {
+  case "$1" in
+    low|medium|high|xhigh|max|ultra) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # cs_extract_final_answer — fallback extractor. codex streams reasoning + file
@@ -90,6 +97,11 @@ cs_main() {
       *)               break ;;
     esac
   done
+
+  cs_valid_effort "$effort" || {
+    printf 'codex-run: unsupported effort: %s (expected low|medium|high|xhigh|max|ultra)\n' "$effort" >&2
+    return 2
+  }
 
   if [ "$print_cmd" -eq 1 ]; then
     cs_build_cmd "$dir" "$model" "$effort"
