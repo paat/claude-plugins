@@ -70,6 +70,25 @@ run "malformed stdin -> silent" "not json at all" ""
 run "missing file_path -> silent" "{\"cwd\":\"$TMP/with\"}" ""
 run "empty stdin -> silent" "" ""
 
+# Missing-root fallback must drain a large payload before exiting. Otherwise the
+# host can hit EPIPE while it is still writing the PostToolUse event.
+mkdir -p "$TMP/missing-root"
+resolver_cmd="$(jq -r '.hooks.PostToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")"
+resolver_statuses="$(
+  cd "$TMP/missing-root" || exit 1
+  set +e
+  dd if=/dev/zero bs=65536 count=16 2>/dev/null \
+    | CLAUDE_PLUGIN_ROOT= CODEX_PLUGIN_ROOT= bash -c "$resolver_cmd" \
+      >/dev/null 2>&1
+  statuses=("${PIPESTATUS[@]}")
+  printf '%s %s' "${statuses[0]}" "${statuses[1]}"
+)"
+if [[ "$resolver_statuses" == "0 0" ]]; then
+  echo "PASS: missing-root resolver drains large stdin"; PASS=$((PASS+1))
+else
+  echo "FAIL: missing-root resolver pipeline statuses $resolver_statuses (expected 0 0)"; FAIL=$((FAIL+1))
+fi
+
 # --- Codex mode: AGENTS.md is source of truth and CLAUDE.md is only a mirror. ---------------
 CODEXREPO="$TMP/codex"
 mkdir -p "$CODEXREPO"

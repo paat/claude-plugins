@@ -25,6 +25,13 @@
 #   STARTUP_INLINE_HANDOFFS — default window size (must be positive integer; default 10).
 
 set -euo pipefail
+
+# PostToolUse sends the event payload on stdin. This hook does not inspect it, but
+# must consume it before any early exit so the host never writes into a closed pipe.
+if [ ! -t 0 ]; then
+  cat >/dev/null 2>&1 || true
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bash "$SCRIPT_DIR/guard-active.sh" && exit 0
 

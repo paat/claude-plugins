@@ -42,7 +42,7 @@
     {
       "name": "agent-sync",
       "description": "Generate AGENTS.md from Claude Code project configuration files",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "author": {
         "name": "Andre Paat"
       },
@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "Autonomous SaaS delivery — routed founder and specialist roles turn market demand into gated implementation, QA, deployment, growth, and maintenance",
-      "version": "0.89.39",
+      "version": "0.89.40",
       "author": {
         "name": "Andre Paat"
       },
