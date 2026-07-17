@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 #
-# lesson-review.sh — the single human gate of the self-improvement loop (component #4).
+# lesson-review.sh — deterministic lesson review state transitions (component #4).
 #
 # `lesson-file.sh` files harvested, de-identified, PII-gated improvements as
 # `lesson-candidate` issues in the PINNED plugin repo. This script is the investor's
-# review surface over that queue: list the pending candidates, then APPROVE (mark
-# ready for `/lessons-deliver` implementation) or CLOSE (not generic / not wanted) each.
+# review surface over that queue: list pending candidates, then APPROVE (mark ready
+# for `/lessons-deliver`), CLOSE (reject), or QUARANTINE (block unresolved) each.
 #
 # State machine (one gh call per action — no partial-mutation window):
 #   pending   = open issue labeled `lesson-candidate`
 #   approved  = gh issue edit --add-label lesson-approved --remove-label lesson-candidate
+#   blocked   = gh issue edit --add-label lessons:blocked --remove-label
+#               lesson-candidate --remove-label lesson-approved
 #   rejected  = gh issue close --reason "not planned"   (candidate label stays; an
 #               open-state listing hides it; reopening is a deliberate re-queue)
 #
@@ -20,10 +22,9 @@
 #   - LABEL GUARD: a mutation verifies the issue is actually a lesson issue before
 #     touching it (prevents acting on an unrelated issue number). Fail CLOSED if the
 #     issue cannot be inspected (not found / permission / network).
-#   - These are deliberate, explicit, per-issue human actions, so there is NO
+#   - These are guarded, explicit, per-issue transitions, so there is NO
 #     SAAS_LESSON_SYNC_ENABLED gate (that flag guards AUTOMATED bulk filing). The
-#     repo pin + label guard are the rails; the /lessons-review command shows the
-#     target repo + issue URL before asking for a decision.
+#     repo pin + label guard are the rails for human and automated reviewers.
 #
 # See docs/design/self-improvement-loop.md.
 #
@@ -31,6 +32,7 @@
 #   lesson-review.sh --list [--json] [--repo OWNER/REPO] [--limit N]
 #   lesson-review.sh --approve N [--note TEXT] [--repo OWNER/REPO]
 #   lesson-review.sh --close   N [--note TEXT] [--repo OWNER/REPO]
+#   lesson-review.sh --quarantine N [--note TEXT] [--repo OWNER/REPO]
 
 set -uo pipefail
 
@@ -45,6 +47,7 @@ while [ $# -gt 0 ]; do
     --list)    ACTION="list"; shift ;;
     --approve) _need_val "$#" "$1"; ACTION="approve"; NUM="$2"; shift 2 ;;
     --close)   _need_val "$#" "$1"; ACTION="close";   NUM="$2"; shift 2 ;;
+    --quarantine) _need_val "$#" "$1"; ACTION="quarantine"; NUM="$2"; shift 2 ;;
     --note)    _need_val "$#" "$1"; NOTE="$2"; shift 2 ;;
     --repo)    _need_val "$#" "$1"; REPO="$2"; shift 2 ;;
     --limit)   _need_val "$#" "$1"; LIMIT="$2"; shift 2 ;;
@@ -58,6 +61,7 @@ done
 
 CANDIDATE_LABEL="lesson-candidate"
 APPROVED_LABEL="lesson-approved"
+BLOCKED_LABEL="lessons:blocked"
 
 # --- shared validation -------------------------------------------------------
 # A pinned, fully-qualified repo is required for every action — public mutations
@@ -142,6 +146,11 @@ case "$ACTION" in
       echo "lesson-review: #$NUM is closed; reopen before approving. Refusing." >&2
       exit 1
     fi
+    # Blocked is terminal for approval even if labels were manually mixed.
+    if _has_label "$info" "$BLOCKED_LABEL"; then
+      echo "lesson-review: #$NUM is $BLOCKED_LABEL; resolve and re-queue before approving. Refusing." >&2
+      exit 1
+    fi
     # Idempotent: an OPEN issue already approved (and no longer a candidate) -> no-op.
     if _has_label "$info" "$APPROVED_LABEL" && ! _has_label "$info" "$CANDIDATE_LABEL"; then
       echo "lesson-review: #$NUM already approved (no-op)."
@@ -165,6 +174,41 @@ case "$ACTION" in
         || echo "lesson-review: warning: relabel succeeded but note comment failed on #$NUM." >&2
     fi
     echo "lesson-review: #$NUM approved (now $APPROVED_LABEL). Implement with: /lessons-deliver --once"
+    exit 0
+    ;;
+
+  # --- quarantine: remove unresolved candidates from the active queue --------
+  quarantine)
+    case "$NUM" in ''|*[!0-9]*) echo "lesson-review: --quarantine needs a positive integer issue number" >&2; exit 2 ;; esac
+    info="$(_issue_view "$NUM")" || { echo "lesson-review: cannot inspect #$NUM in $REPO (not found / no access / gh failed). Refusing." >&2; exit 1; }
+
+    if ! _is_open "$info"; then
+      echo "lesson-review: #$NUM is closed; only open candidates can be quarantined. Refusing." >&2
+      exit 1
+    fi
+    # Idempotent terminal state: an open blocked issue already outside the queue.
+    if _has_label "$info" "$BLOCKED_LABEL" && ! _has_label "$info" "$CANDIDATE_LABEL"; then
+      echo "lesson-review: #$NUM already quarantined (no-op)."
+      exit 0
+    fi
+    if ! _has_label "$info" "$CANDIDATE_LABEL"; then
+      echo "lesson-review: #$NUM is not a $CANDIDATE_LABEL (labels do not match). Refusing." >&2
+      exit 1
+    fi
+
+    # One edit is the authoritative state transition; no partial label window.
+    gh issue edit "$NUM" --repo "$REPO" \
+      --add-label "$BLOCKED_LABEL" \
+      --remove-label "$CANDIDATE_LABEL" \
+      --remove-label "$APPROVED_LABEL" >/dev/null 2>&1 || {
+      echo "lesson-review: failed to quarantine #$NUM. Nothing changed." >&2
+      exit 1
+    }
+    if [ -n "$NOTE" ]; then
+      gh issue comment "$NUM" --repo "$REPO" --body "$NOTE" >/dev/null 2>&1 \
+        || echo "lesson-review: warning: quarantine succeeded but note comment failed on #$NUM." >&2
+    fi
+    echo "lesson-review: #$NUM quarantined (now $BLOCKED_LABEL)."
     exit 0
     ;;
 

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["approve", "reject", "uncertain"]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "generic": {
+      "type": "boolean"
+    },
+    "actionable": {
+      "type": "boolean"
+    },
+    "safe": {
+      "type": "boolean"
+    },
+    "acceptance_testable": {
+      "type": "boolean"
+    },
+    "rationale": {
+      "type": "string",
+      "maxLength": 512
+    }
+  },
+  "required": [
+    "schema_version",
+    "decision",
+    "confidence",
+    "generic",
+    "actionable",
+    "safe",
+    "acceptance_testable",
+    "rationale"
+  ]
+}
