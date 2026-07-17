@@ -33,7 +33,7 @@ test_maintain_escalation() {
   git -C "$repo" remote set-head origin main
 
   common=$(git -C "$repo" rev-parse --absolute-git-dir)
-  wt="$repo/.worktrees/maintain-loop"
+  wt="$repo/.worktrees/maintain"
   state="$common/saas-startup-team/maintain-runtime/escalation-run.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop \
     --run-id escalation-run --state-file "$state" --worktree "$wt" >/dev/null

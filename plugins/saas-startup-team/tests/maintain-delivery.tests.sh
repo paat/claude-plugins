@@ -323,7 +323,7 @@ DEPLOY_WORKFLOW
   git -C "$fresh_repo" commit -qm base
   fresh_base=$(git -C "$fresh_repo" rev-parse HEAD)
   fresh_common=$(git -C "$fresh_repo" rev-parse --absolute-git-dir)
-  fresh_wt="$fresh_repo/.worktrees/maintain-loop"
+  fresh_wt="$fresh_repo/.worktrees/maintain"
   fresh_origin_state="$fresh_common/saas-startup-team/maintain-runtime/fresh-order-leases.json"
   fresh_resume_state="$fresh_common/saas-startup-team/maintain-runtime/fresh-resume-leases.json"
   fresh_legacy_state="$fresh_common/saas-startup-team/maintain-runtime/fresh-legacy-leases.json"
@@ -434,7 +434,7 @@ DEPLOY_WORKFLOW
   lease_state=""
   legacy_delivery=legacy-md-1
   legacy_base=$(git -C "$repo" rev-parse HEAD)
-  legacy_wt="$repo/.worktrees/maintain-loop"
+  legacy_wt="$repo/.worktrees/maintain"
   legacy_state="$common/saas-startup-team/maintain-runtime/$run-legacy-leases.json"
   legacy_cache="$common/saas-startup-team/maintain-runtime/base-checks/$run"
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain-loop \

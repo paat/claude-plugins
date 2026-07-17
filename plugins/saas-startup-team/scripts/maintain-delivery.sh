@@ -529,7 +529,7 @@ claim_branch_refs_absent() {
   reflog=$(mktemp "$STATE_ROOT/.archive-reflog.XXXXXX") \
     || die "cannot create claimed receipt reflog snapshot"
   register_temp "$reflog"
-  git -C "$PRIMARY/.worktrees/maintain-loop" reflog show --date=unix \
+  git -C "$PRIMARY/.worktrees/maintain" reflog show --date=unix \
     --format='%gD%x09%gs' HEAD > "$reflog" \
     || die "cannot inspect claimed receipt worktree reflog"
   [ -s "$reflog" ] || die "claimed receipt worktree reflog is missing"
@@ -586,7 +586,7 @@ claim_source_state_absent() {
     [ -z "$found" ] || die "claimed receipt has protected source-attempt state"
   done
 
-  worktree="$PRIMARY/.worktrees/maintain-loop"
+  worktree="$PRIMARY/.worktrees/maintain"
   [ -e "$worktree" ] || [ -L "$worktree" ] \
     || die "claimed receipt worktree is missing; source state cannot be disproved"
   safe_existing_dir "$worktree" || die "claimed receipt worktree is unsafe"

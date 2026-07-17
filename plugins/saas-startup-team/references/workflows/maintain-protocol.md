@@ -84,7 +84,16 @@ manual and cross-worktree overlap after launch.
 
 ## Workspace — Dedicated Worktree
 
-**You operate from a dedicated git worktree, never the investor's primary
+## Hard rule — no worktrees except maintain
+
+- **No linked worktrees by default.** The **only** exception is
+  `.worktrees/maintain` (shared by `/maintain` and `/maintain-loop`).
+- **NEVER** create `.worktrees/maintain-loop`, improve trees, per-issue trees, or
+  preserve copies. **NEVER** set `core.worktree` on the primary checkout.
+- Delivery is sequential in that one tree. `/improve` and other one-shots run on
+  the **primary checkout** (main repo dir), not a worktree.
+
+**You operate from that dedicated git worktree, never the investor's primary
 checkout.** This keeps the main repo folder free for the investor to do their own
 dev work in parallel while the loop runs. On a **normal run** (skipped under
 `--dry-run`, which is read-only and needs no working tree), set up and enter the

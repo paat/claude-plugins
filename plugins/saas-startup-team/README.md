@@ -397,7 +397,12 @@ supervisor ownership into a nested `/goal-deliver` context.
 Codex CLI automation must start `/maintain-loop` in a collaboration-capable,
 non-ephemeral coordinator session so the fresh pass returns a stable child identity.
 
-**Runs in a dedicated worktree.** The loop operates from `.worktrees/maintain` (a detached git worktree off the default-branch tip), never your primary checkout — so you can keep doing your own dev work in the main repo folder while it runs. The loop and your work meet only at GitHub (branches, PRs, `main`); its merge-safety re-validates if `main` moves under it. (`--dry-run` is read-only and creates no worktree.)
+**No worktrees except maintain.** Linked worktrees are disallowed except one:
+`.worktrees/maintain` for autonomous delivery (`/maintain` and `/maintain-loop`,
+detached off the default-branch tip, sequential). Never
+`.worktrees/maintain-loop`, improve trees, or per-issue trees. `/improve` and
+other one-shots run on the **primary checkout** (main repo dir). Never set
+`core.worktree` on the primary. (`--dry-run` is read-only and creates no worktree.)
 
 ### Triage verdicts
 
@@ -511,13 +516,13 @@ pinned plugin repo (`SAAS_PLUGIN_REPO`), and — after the **single human gate**
 
 `/lessons-deliver` is the implementer. Because lessons land in a *plugin monorepo* (no
 `.startup/`, no `solution-signoff.md`, no GitHub Actions deploy), it is **not**
-`/goal-deliver`: it borrows `/maintain`'s safety skeleton (stateless supervisor, dedicated
-`.worktrees/lessons-deliver`, circuit breakers, GitHub-native claim/idempotency,
-merge-on-green, run digest) but uses a plugin-native delivery body — claim → implement
-(fresh implementer subagent) → **mechanical diff firewall** → tribunal gate → `run-tests.sh`
-→ dual version bump (`plugin.json` **and** `marketplace.json`) → PR with `Closes #N` →
-merge on green → ship. The deterministic, fail-closed surface lives in
-`scripts/lessons-deliver.sh` (tested by Suite L with a mock-`gh` harness).
+`/goal-deliver`: it borrows `/maintain`'s safety skeleton (stateless supervisor,
+primary-checkout delivery with no extra worktree, circuit breakers, GitHub-native
+claim/idempotency, merge-on-green, run digest) but uses a plugin-native delivery body —
+claim → implement (fresh implementer subagent) → **mechanical diff firewall** → tribunal
+gate → `run-tests.sh` → dual version bump (`plugin.json` **and** `marketplace.json`) →
+PR with `Closes #N` → merge on green → ship. The deterministic, fail-closed surface lives
+in `scripts/lessons-deliver.sh` (tested by Suite L with a mock-`gh` harness).
 
 **The mechanical firewall** treats lesson bodies as untrusted: it blocks any change outside
 `plugins/` (+ the root marketplace manifest), any change to the loop's own safety

@@ -111,7 +111,7 @@ load_lease_identity() {
   [ "$lease_common" = "$COMMON" ] || return 1
   expected_worktree=$(realpath -m -- "$expected_worktree") || return 1
   [ "$state_worktree" = "$expected_worktree" ] \
-    && [ "$state_worktree" = "$PRIMARY/.worktrees/maintain-loop" ] || return 1
+    && [ "$state_worktree" = "$PRIMARY/.worktrees/maintain" ] || return 1
   state_parent=$(dirname -- "$lease_state")
   [ -d "$state_parent" ] && [ ! -L "$state_parent" ] || return 1
   [ "$(cd -- "$state_parent" && pwd -P)" = "$COMMON/saas-startup-team/maintain-runtime" ] || return 1

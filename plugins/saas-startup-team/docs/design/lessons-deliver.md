@@ -147,7 +147,7 @@ Ordering: dependency order first, then oldest-first. **Sequential — one PR in 
 ## 8. State & worktree
 
 Plugin repo carries **no** runtime state in git. State dir `.startup/lessons-deliver/`
-(current-run.json, runs/<run-id>.md digest) and worktree `.worktrees/lessons-deliver`
+(current-run.json, runs/<run-id>.md digest) on the primary checkout (no linked worktree)
 are gitignored via `.git/info/exclude` (mirrors `/maintain`). Worktree is `--detach` off
 `origin/${default}`, reused across passes; if stale/dirty and unrecoverable, recreate. Durable
 coordination state (claimed / blocked / shipped) lives in **GitHub labels**, not local

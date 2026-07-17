@@ -4,6 +4,20 @@ This is the detailed protocol behind `maintain-loop.md`. Read only the named sec
 the router requests, stopping at the next heading of the same or higher level. Never
 load this file wholesale or re-read a section already in context.
 
+## Hard rule — no worktrees except maintain
+
+- **No linked worktrees by default.** The **only** exception is
+  `.worktrees/maintain` (shared with `/maintain`).
+- **NEVER** create, lease, or deliver from `.worktrees/maintain-loop`,
+  `.worktrees/improve-*`, per-issue worktrees, `maintain-preserved-*`, or any other
+  path under `.worktrees/`.
+- **NEVER** set `core.worktree` on the primary checkout.
+- Delivery is **sequential**: one nonterminal receipt, one leased worktree, one
+  issue at a time. Reset/recreate `.worktrees/maintain` between attempts; do not
+  preserve parallel trees.
+- `/improve`, `/tweak`, and other human-invoked one-shots run on the **primary
+  checkout** (main repo dir), not in a worktree.
+
 ## Ownership invariant
 
 The calling session is the supervisor and the only delivery-state mutation owner.
@@ -61,7 +75,7 @@ repository mechanism — `default=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/default-
 and stop if it cannot resolve; do not assume a conventional branch name.
 
 Mint one `RUN_ID` per command invocation. Acquire the shared, legacy, and dedicated
-worktree leases as one persisted set before touching `.worktrees/maintain-loop`;
+worktree leases as one persisted set before touching `.worktrees/maintain`;
 never reconstruct owner identities. An active, malformed, or future-dated lease stops
 the pass; only a well-formed expired heartbeat is reclaimable. Never restart setup or
 mint another run after a terminal outcome in the same invocation.
@@ -74,7 +88,7 @@ case "$GIT_COMMON_RAW" in /*) GIT_COMMON=$GIT_COMMON_RAW ;; *) GIT_COMMON="$REPO
 GIT_COMMON=$(cd "$GIT_COMMON" && pwd -P)
 RUN_ID=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/agent-events.sh" new-run-id)
 BLOCKED_FILE="$GIT_COMMON/saas-startup-team/maintain/blocked.jsonl"
-WT="$REPO_ROOT/.worktrees/maintain-loop"
+WT="$REPO_ROOT/.worktrees/maintain"
 LEASE_STATE="$GIT_COMMON/saas-startup-team/maintain-runtime/$RUN_ID-leases.json"
 RUN_STATE="$REPO_ROOT/.startup/maintain-loop/current-run.json"
 SETUP_COMPLETE=0
