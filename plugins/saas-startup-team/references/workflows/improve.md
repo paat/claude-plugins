@@ -74,6 +74,9 @@ acceptance packs, non-goals, and rollout checks as the improvement description. 
 candidate is available, ask:
 > What would you like improved? Describe the changes.
 
+Whether the description is direct or scouted, a new public/indexable route triggers the
+rendered `public_route_discoverability` acceptance pack.
+
 ## Semantic Route
 
 Write the selected description and any source labels to temporary local files, then call
@@ -237,7 +240,7 @@ fields null.
 > **Improvement task: Write a brief for the tech founder.**
 >
 > The investor wants these changes: [investor's instructions]
-> Selected acceptance packs, if any: [pack ids + rendered gates from `scripts/acceptance-packs.sh --render`].
+> Selected acceptance packs, if any: [pack ids + rendered gates from `scripts/acceptance-packs.sh --render`]. A new public/indexable route MUST include `public_route_discoverability`, with its fields explicit in this brief rather than inferred from a sitemap or catalog registration.
 >
 > Before reading product or research docs, read and apply `${CLAUDE_PLUGIN_ROOT}/templates/delivery-scope-contract.md`. Treat a concrete improvement as direct feature planning: make one targeted repository-discovery pass, infer safe choices from existing conventions, and ask only about a missing choice that materially changes `Done`.
 >
@@ -296,6 +299,7 @@ Claude Code agent prompt:
 > - Run `./check.sh` — the canonical full-suite entrypoint (recorded in `docs/architecture/architecture.md`; it runs every suite: build, unit, lint, typecheck, golden/E2E). Fix candidate-caused failures. If unrelated or pre-existing failures keep the gate red, report the blocker without changing unrelated code; do not hand off red.
 > - Re-read your own diff for the bug classes that slip past visual QA: enum/string parsing, off-by-one and boundary cases, null/undefined handling, and untested error paths.
 > - For triggered SaaS gates, verify the smallest relevant evidence: workflow spec update, slow async paid state, missing display-label fallback, mobile checkout field/CTA flow, malformed LLM output, or inconclusive compliance claim fixture.
+> - For `public_route_discoverability`, add a reachability test when the repository has a route/catalog test pattern, and repeat the entry surfaces, click paths, locale behavior, and any unlisted/noindex exception in your handoff.
 > - In your handoff, state explicitly which checks you ran and that they passed. If a check could not be run, say so and why.
 >
 > Set 10s timeouts on all HTTP calls.
@@ -346,6 +350,7 @@ the `qa` status code. The mutation guard result is a separate supervisor progres
 > - Does the change meet the acceptance criteria?
 > - Any visual regressions on the affected pages?
 > - Does it work on mobile viewport (375px)?
+> - If `public_route_discoverability` is selected, start at each named existing entry surface and click through in every locale. Direct navigation to the destination cannot PASS; record the structured discoverability evidence from the design-review leg.
 > - If the change touched a workflow spec, do the QA cases in `.startup/workflows/WORKFLOW-*.md` pass or need registry follow-up?
 > - If relevant, are async paid-flow states, checkout CTA proximity, customer copy/value units, structured-result labels, LLM quality evidence, and compliance claim boundaries acceptable?
 > - Does the new element cohere with its *rendered* neighbors (alignment, width, spacing, hierarchy) in the state that will actually ship — judged independently of whether the brief said to reuse existing tokens/patterns?
@@ -364,8 +369,12 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/delivery-mutation-guard.sh" \
   --verify "$QA_GUARD" --auth-stdin <<<"$QA_AUTH"
 ```
 
-Any non-zero result is an unauthorized QA mutation: stop, report the changed paths,
-and do not commit or push them.
+Any non-zero guard result is an unauthorized QA mutation: stop, report the changed
+paths, and do not commit or push them.
+
+If the selected packs include `public_route_discoverability`, run
+`acceptance-packs.sh --verify-public-route "$QA_REVIEW"`. A nonzero result makes QA
+FAIL; destination-only evidence cannot be accepted.
 
 ## Step 4: Handle QA Result
 

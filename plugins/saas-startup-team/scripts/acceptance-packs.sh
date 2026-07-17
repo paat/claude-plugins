@@ -7,6 +7,7 @@
 #   acceptance-packs.sh --select --category NAME --text TEXT [--json]
 #   acceptance-packs.sh --render PACK_ID[,PACK_ID...]
 #   acceptance-packs.sh --verify-report FILE
+#   acceptance-packs.sh --verify-public-route FILE
 
 set -uo pipefail
 
@@ -20,6 +21,7 @@ while [ $# -gt 0 ]; do
     --select) ACTION="select"; shift ;;
     --render) _need_val "$#" "$1"; ACTION="render"; PACKS="$2"; shift 2 ;;
     --verify-report) _need_val "$#" "$1"; ACTION="verify-report"; FILE="$2"; shift 2 ;;
+    --verify-public-route) _need_val "$#" "$1"; ACTION="verify-public-route"; FILE="$2"; shift 2 ;;
     --category) _need_val "$#" "$1"; CATEGORY="$2"; shift 2 ;;
     --text) _need_val "$#" "$1"; TEXT="$2"; shift 2 ;;
     --json) JSON=1; shift ;;
@@ -93,6 +95,53 @@ case "$ACTION" in
     fi
     [ "$failures" -eq 0 ] || exit 1
     echo "acceptance-packs: report-quality gate passed."
+    exit 0
+    ;;
+
+  verify-public-route)
+    [ -f "$FILE" ] || { echo "acceptance-packs: QA review not found: $FILE" >&2; exit 2; }
+    failures=0
+    if ! awk '
+      /^[[:space:]]*- Locales:([[:space:]]|$)/ {
+        locale_lines++
+        values=$0
+        sub(/^[[:space:]]*- Locales:[[:space:]]*/, "", values)
+        if (values == "") {
+          invalid=1
+          next
+        }
+        count=split(values, locales, ",")
+        for (i=1; i<=count; i++) {
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", locales[i])
+          if (locales[i] == "" || expected[locales[i]]) invalid=1
+          expected[locales[i]]=1
+        }
+      }
+      /^[[:space:]]*- Entry path \[[^]]+\]: .+ --click "[^"]+"--> .+$/ {
+        locale=$0
+        sub(/^[[:space:]]*- Entry path \[/, "", locale)
+        sub(/\].*$/, "", locale)
+        seen[locale]=1
+      }
+      END {
+        if (locale_lines != 1 || invalid) exit 1
+        for (locale in expected) if (!seen[locale]) exit 1
+        for (locale in seen) if (!expected[locale]) exit 1
+      }
+    ' "$FILE"; then
+      echo "acceptance-packs: FAIL QA has no clicked customer entry path for every locale" >&2
+      failures=$((failures + 1))
+    fi
+    if ! grep -Eq '^[[:space:]]*- Exceptions: (none|.+noindex.*)$' "$FILE"; then
+      echo "acceptance-packs: FAIL QA has no unlisted/noindex disposition" >&2
+      failures=$((failures + 1))
+    fi
+    if ! grep -Eq '^[[:space:]]*- Reachability test: .+' "$FILE"; then
+      echo "acceptance-packs: FAIL QA has no reachability-test disposition" >&2
+      failures=$((failures + 1))
+    fi
+    [ "$failures" -eq 0 ] || exit 1
+    echo "acceptance-packs: public-route discoverability gate passed."
     exit 0
     ;;
 

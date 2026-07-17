@@ -17,14 +17,26 @@ Trigger: `scripts/ui-touch.sh` classifies the branch diff as `ui`.
    and worktrees. A shared dev URL is not pre-merge evidence unless its served commit is
    proven. From the tech-founder handoff, list the affected pages and open each at the
    localhost URL.
-2. Capture 375px + 1280px screenshots per affected page (× each locale).
-3. Score each against the severity matrix on:
+2. When the handoff adds a public/indexable route, start at its named existing customer
+   entry surface and click through to the destination in every locale. Direct destination
+   navigation is additional evidence, never proof of discovery. Add this block to the QA
+   review so `acceptance-packs.sh --verify-public-route` can enforce the gate:
+   ```
+   ## Public-route discoverability
+   - Locales: <comma-separated locale list>
+   - Entry path [<locale>]: <entry URL> --click "<control>"--> <destination URL>
+   - Entry path [<next locale>]: <entry URL> --click "<control>"--> <destination URL>
+   - Exceptions: none | <route>: intentional unlisted, noindex
+   - Reachability test: <test path> | not available — no route/catalog test pattern
+   ```
+3. Capture 375px + 1280px screenshots per affected page (× each locale).
+4. Score each against the severity matrix on:
    - alignment/spacing to rendered neighbors
    - text contrast ≥ 4.5:1
    - responsive integrity at both breakpoints (no overflow, overlap, clipping)
    - diacritics/Cyrillic render correctly (no mojibake/tofu)
    - loading and empty states on the affected pages
-4. Emit this verdict block into the **PR body** (a QA comment may repeat it,
+5. Emit this verdict block into the **PR body** (a QA comment may repeat it,
    but the PR body is what the merge gate checks):
    ```
    ## Design-review: PASS|FAIL

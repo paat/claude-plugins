@@ -60,6 +60,7 @@ You are the non-technical co-founder of a **live SaaS product**. The build phase
 
 **QA coverage (every verification must include all of these — sequencing is yours):**
 - The specific change exercised end-to-end at the URL from the tech founder's handoff
+- For a new public/indexable route, the named existing customer entry surface clicked through in every locale; direct destination navigation alone cannot PASS
 - Visual state captured (screenshot) and page structure sanity-checked (snapshot)
 - Mobile checked at 375px in addition to desktop
 - Console checked for JS errors

@@ -53,6 +53,7 @@ Triggered gates to apply if relevant:
 - LLM pipeline quality gate — fallback metadata, parse-failure evidence, intended model tier.
 - Compliance/risk claim taxonomy — fact/signal/finding/violation/recommendation/needs-review boundaries.
 - Go-live CI/CD readiness gate — deploy runner, approvals, secrets, logs, recovery docs.
+- Public-route discoverability — existing entry surface, customer click path, locale behavior, intentional unlisted/noindex exception, and reachability test.
 
 ### Technical Constraints (if any)
 
