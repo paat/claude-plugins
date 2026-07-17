@@ -6350,35 +6350,65 @@ MOCK
 #   GH_FAIL_ON        if argv contains this substring, exit 1 (simulate gh failure)
 make_mock_gh() {
   local bindir="$1/bin"
+  local view_store="$1/.gh-view.json"
   mkdir -p "$bindir"
-  cat > "$bindir/gh" <<'MOCK'
+  # Mutable issue-view store so claim/edit re-reads see label mutations.
+  if [ -n "${GH_VIEW_JSON:-}" ]; then
+    printf '%s
+' "$GH_VIEW_JSON" > "$view_store"
+  else
+    rm -f -- "$view_store"
+  fi
+  cat > "$bindir/gh" <<MOCK
 #!/usr/bin/env bash
-_args="$*"; printf '%s\n' "${_args//$'\n'/ }" >> "${GH_CALLS_LOG:?}"  # one line/call (flatten bodies)
-if [ -n "${GH_FAIL_ON:-}" ] && [[ "$*" == *"$GH_FAIL_ON"* ]]; then
+_args="\$*"; printf '%s\n' "\${_args//\$'\n'/ }" >> "\${GH_CALLS_LOG:?}"  # one line/call (flatten bodies)
+if [ -n "\${GH_FAIL_ON:-}" ] && [[ "\$*" == *"\$GH_FAIL_ON"* ]]; then
   echo "mock gh: forced failure" >&2; exit 1
 fi
-case "$1 $2" in
-  "api --paginate") echo "${GH_API_JSON:-[[]]}" ;;
-  "repo view")   echo "${GH_REPO:-o/r}" ;;
-  "issue create") echo "https://github.com/o/r/issues/${GH_CREATE_NUMBER:?GH_CREATE_NUMBER unset}" ;;
+_VIEW_STORE="$view_store"
+case "\$1 \$2" in
+  "api --paginate") echo "\${GH_API_JSON:-[[]]}" ;;
+  "repo view")   echo "\${GH_REPO:-o/r}" ;;
+  "issue create") echo "https://github.com/o/r/issues/\${GH_CREATE_NUMBER:?GH_CREATE_NUMBER unset}" ;;
   "issue comment") echo "https://github.com/o/r/issues/commented" ;;
   "issue view")
-     if [[ "$*" == *"--json"* ]] && [ -n "${GH_VIEW_JSON:-}" ]; then echo "$GH_VIEW_JSON";
-     elif [[ "$*" == *"body"* ]]; then echo "${GH_VIEW_BODY:-}";
-     else echo "${GH_VIEW_STATE:-OPEN}"; fi ;;
+     if [[ "\$*" == *"--json"* ]] && [ -f "\$_VIEW_STORE" ]; then cat "\$_VIEW_STORE";
+     elif [[ "\$*" == *"--json"* ]] && [ -n "\${GH_VIEW_JSON:-}" ]; then echo "\$GH_VIEW_JSON";
+     elif [[ "\$*" == *"body"* ]]; then echo "\${GH_VIEW_BODY:-}";
+     else echo "\${GH_VIEW_STATE:-OPEN}"; fi ;;
   "issue list")
-     if [[ "$*" == *"--state all"* ]] && [ -n "${GH_ALL_ISSUES_JSON:-}" ]; then
-       echo "$GH_ALL_ISSUES_JSON"
+     if [[ "\$*" == *"--state all"* ]] && [ -n "\${GH_ALL_ISSUES_JSON:-}" ]; then
+       echo "\$GH_ALL_ISSUES_JSON"
      else
-       echo "${GH_LIST_JSON:-${GH_SEARCH_JSON:-[]}}"
+       echo "\${GH_LIST_JSON:-\${GH_SEARCH_JSON:-[]}}"
      fi ;;
-  "issue edit")  : ;;
+  "issue edit")
+     if [ -f "\$_VIEW_STORE" ]; then
+       _cur="\$(cat "\$_VIEW_STORE")"
+       _i=1
+       while [ "\$_i" -le "\$#" ]; do
+         _a="\${!_i}"
+         if [ "\$_a" = "--add-label" ]; then
+           _i=\$((_i + 1)); _lab="\${!_i}"
+           _cur="\$(printf '%s' "\$_cur" | jq -c --arg l "\$_lab" '
+             .labels = ((.labels // []) + [{name:\$l}]
+               | group_by(.name) | map(.[0]))')"
+         elif [ "\$_a" = "--remove-label" ]; then
+           _i=\$((_i + 1)); _lab="\${!_i}"
+           _cur="\$(printf '%s' "\$_cur" | jq -c --arg l "\$_lab" '
+             .labels = [((.labels // [])[]) | select(.name != \$l)]')"
+         fi
+         _i=\$((_i + 1))
+       done
+       printf '%s\n' "\$_cur" > "\$_VIEW_STORE"
+     fi
+     ;;
   "issue close") : ;;
   "label create") : ;;
-  "pr create")   echo "https://github.com/o/r/pull/${GH_PR_NUMBER:-999}" ;;
+  "pr create")   echo "https://github.com/o/r/pull/\${GH_PR_NUMBER:-999}" ;;
   "pr merge")    : ;;
-  "pr list")     echo "${GH_PR_LIST_JSON:-[]}" ;;
-  "pr view")     echo "${GH_PR_VIEW_JSON:-{}}" ;;
+  "pr list")     echo "\${GH_PR_LIST_JSON:-[]}" ;;
+  "pr view")     echo "\${GH_PR_VIEW_JSON:-{}}" ;;
   *) : ;;
 esac
 MOCK
