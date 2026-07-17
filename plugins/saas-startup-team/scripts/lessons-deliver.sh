@@ -100,7 +100,11 @@ _approved_issue_view() {
     and ((.closedByPullRequestsReferences // []) | type == "array")
     and (.title | type == "string") and (.body | type == "string")
     and (.comments | type == "array")
-    and all(.comments[]; (.body | type == "string"))
+    and all(.comments[];
+      (.body | type == "string")
+      and ((.author // {}) | type == "object")
+      and ((.author.login // null) | type == "string")
+      and ((.authorAssociation // "") | type == "string"))
   ' >/dev/null 2>&1 || return 1
   printf '%s' "$out"
 }
@@ -172,8 +176,29 @@ case "$ACTION" in
       echo "lessons-deliver: #$NUM approval is not bound to its current title/body. Refusing." >&2
       exit 1
     }
+    claim_digest="$(lesson_review_digest_json "$info")" || {
+      echo "lessons-deliver: #$NUM cannot derive review digest. Refusing." >&2
+      exit 1
+    }
     gh issue edit "$NUM" --repo "$REPO" --add-label "$CLAIMED_LABEL" >/dev/null 2>&1 \
       || { echo "lessons-deliver: failed to claim #$NUM." >&2; exit 1; }
+    # Revalidate after the label transition so concurrent title/body edits cannot
+    # keep a claim that no longer matches the approved binding.
+    post_claim="$(_approved_issue_view "$NUM")" || {
+      echo "lessons-deliver: #$NUM disappeared after claim. Refusing." >&2
+      exit 1
+    }
+    post_digest="$(lesson_review_digest_json "$post_claim")" || {
+      echo "lessons-deliver: #$NUM content invalid after claim. Refusing." >&2
+      exit 1
+    }
+    if [ "$post_digest" != "$claim_digest" ] \
+       || ! lesson_review_binding_present "$post_claim" approve \
+       || ! _has_label "$post_claim" "$APPROVED_LABEL" \
+       || ! _has_label "$post_claim" "$CLAIMED_LABEL"; then
+      echo "lessons-deliver: #$NUM drifted after claim; binding no longer matches. Refusing." >&2
+      exit 1
+    fi
     gh issue comment "$NUM" --repo "$REPO" --body "<!-- lessons:claimed:${RUNID:-?} --> claimed by lessons-deliver run ${RUNID:-?}" >/dev/null 2>&1 || true
     echo "lessons-deliver: #$NUM claimed."
     exit 0

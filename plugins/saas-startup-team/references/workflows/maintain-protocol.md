@@ -149,14 +149,19 @@ Under `--dry-run`, do not append a root or child event.
 
 ## Workspace — Dedicated Worktree
 
-### Hard rule — no worktrees except maintain
+### Hard rule — maintain worktrees only when the controller route requires them
 
-- **No linked worktrees by default.** The **only** exception is
-  `.worktrees/maintain` (shared by `/maintain` and `/maintain-loop`).
-- **NEVER** create `.worktrees/maintain-loop`, improve trees, per-issue trees, or
-  preserve copies. **NEVER** set `core.worktree` on the primary checkout.
-- Delivery is sequential in that one tree. `/improve` and other one-shots run on
-  the **primary checkout** (main repo dir), not a worktree.
+- **No linked worktrees by default.** New autonomous delivery uses only
+  `.worktrees/maintain` (canonical `/maintain` and normal `/maintain-loop`
+  controller work).
+- **Fingerprinted legacy recovery exception:** when
+  `MAINTAIN_CONTROLLER_ROUTE=legacy-recovery` and
+  `MAINTAIN_PENDING_FINGERPRINT` is set, the controller may create/use exactly
+  `.worktrees/maintain-loop` for that receipt path. Do not invent other paths.
+- **NEVER** create improve trees, per-issue trees, or preserve copies for
+  maintain. **NEVER** set `core.worktree` on the primary checkout.
+- Delivery is sequential in the route-selected tree. `/improve` and other
+  one-shots run on the **primary checkout** (main repo dir), not a worktree.
 
 **You operate from that dedicated git worktree, never the investor's primary
 checkout.** This keeps the main repo folder free for the investor to do their own

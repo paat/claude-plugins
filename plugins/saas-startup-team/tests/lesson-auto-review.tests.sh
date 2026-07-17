@@ -532,7 +532,7 @@ test_review_auto_reject_state_machine() {
 }
 
 test_review_content_binding() {
-  local digest
+  local digest marker trusted_comments untrusted_comments
   setup_gh
   GH_VIEW_JSON="$(review_issue OPEN '[{"name":"lesson-candidate"}]')"
   digest="$(lesson_review_digest_json "$GH_VIEW_JSON")"
@@ -557,6 +557,24 @@ test_review_content_binding() {
   run_review --approve 12
   [ "$REVIEW_RC" -ne 0 ] && pass "unbound approved state is not a valid no-op" \
     || fail "unbound approved state is not a valid no-op"
+
+  # Trusted vs untrusted approval markers: only repository-privileged authors count.
+  setup_gh
+  GH_VIEW_JSON="$(review_issue OPEN '[{"name":"lesson-approved"}]')"
+  digest="$(lesson_review_digest_json "$GH_VIEW_JSON")"
+  marker="$(lesson_review_marker approve "$digest")"
+  trusted_comments="$(jq -cn --arg m "$marker" \
+    '[{body:$m,author:{login:"review-bot"},authorAssociation:"MEMBER"}]')"
+  untrusted_comments="$(jq -cn --arg m "$marker" \
+    '[{body:$m,author:{login:"random-user"},authorAssociation:"NONE"}]')"
+  GH_VIEW_JSON="$(review_issue OPEN '[{"name":"lesson-approved"}]' "$trusted_comments")"
+  lesson_review_binding_present "$GH_VIEW_JSON" approve \
+    && pass "trusted member marker binds approval" \
+    || fail "trusted member marker binds approval"
+  GH_VIEW_JSON="$(review_issue OPEN '[{"name":"lesson-approved"}]' "$untrusted_comments")"
+  ! lesson_review_binding_present "$GH_VIEW_JSON" approve \
+    && pass "untrusted author marker cannot bind approval" \
+    || fail "untrusted author marker cannot bind approval"
 }
 
 test_opus_decisive_and_limits

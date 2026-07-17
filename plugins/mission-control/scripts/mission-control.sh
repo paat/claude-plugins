@@ -115,12 +115,21 @@ docker_check() { # lazy: only called right before the tick's first docker use
 }
 
 run_in() { # <container> <repo_path> <snippet> <timeout_s> — non-login bash -c
-  local c="$1" rp="$2" snip="$3" t="${4:-30}"
+  local c="$1" rp="$2" snip="$3" t="${4:-30}" context_var
+  local -a scrub_env=() docker_scrub=()
+  # Clear ambient workflow + shell-startup context before helper Bash starts so a
+  # poisoned BASH_ENV/ENV or prior SAAS_* cannot rewrite preflight/accounting.
+  while IFS= read -r context_var; do
+    [ -n "$context_var" ] || continue
+    scrub_env+=(-u "$context_var")
+    docker_scrub+=(-e "$context_var=")
+  done < <(workflow_context_vars)
   if [ "$c" = "local" ]; then
-    timeout "$t" bash -c "cd $(printf %q "$rp") && $snip"
+    env "${scrub_env[@]}" timeout "$t" bash -c "cd $(printf %q "$rp") && $snip"
   else
     docker_check || return 1
-    timeout "$t" $DOCKER_CMD exec $DOCKER_USER_OPT "$c" bash -c "cd $(printf %q "$rp") && $snip"
+    timeout "$t" $DOCKER_CMD exec $DOCKER_USER_OPT "${docker_scrub[@]}" "$c" \
+      bash -c "cd $(printf %q "$rp") && $snip"
   fi
 }
 
@@ -576,7 +585,14 @@ dispatch() { # <slot> <name> — reserve, take slot lock on an FD, spawn wrapper
   log "dispatch slot=$slot project=$name engine=$engine envelope=${env_min}m"
   # Wrapper inherits the slot-lock FD: held continuously until the pass ends.
   # fd 8 (tick.lock) must NOT leak into it, or a long pass blocks every tick.
-  setsid bash "$0" wrapper --config "$MC_CONFIG" --slot "$slot" --project "$name" \
+  # Wrapper Bash must not inherit ambient BASH_ENV/ENV or prior workflow context.
+  local context_var
+  local -a wrapper_env=()
+  while IFS= read -r context_var; do
+    [ -n "$context_var" ] || continue
+    wrapper_env+=(-u "$context_var")
+  done < <(workflow_context_vars)
+  setsid env "${wrapper_env[@]}" bash "$0" wrapper --config "$MC_CONFIG" --slot "$slot" --project "$name" \
     --engine "$engine" --container "$container" --repo-path "$rp" \
     --envelope "$env_min" --base "$base" --cmd "$rendered" --delivery-hold "$delivery_hold" \
     --run-id "$run_id" \

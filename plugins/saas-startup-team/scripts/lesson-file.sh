@@ -100,20 +100,34 @@ refresh_inventory() {
     if type == "array" and all(.[]; type == "array") then
       [.[][] | select((.pull_request // null) == null) | {
         number, url: .html_url, title, body: (.body // ""),
-        state: (.state | ascii_upcase)
+        state: (.state | ascii_upcase),
+        labels: [(.labels // [])[] | .name]
       }]
       | if all(.[];
           (.number | type) == "number" and (.url | type) == "string"
           and (.title | type) == "string" and (.body | type) == "string"
-          and (.state | type) == "string")
+          and (.state | type) == "string" and (.labels | type) == "array"
+          and all(.labels[]; type == "string"))
         then . else error("malformed issue") end
     else error("issue pages are not arrays") end
   ' 2>/dev/null)" || return 1
 }
 
+# Exact privacy-safe footer only (not a substring paste into an unrelated issue),
+# and only on issues that already carry a lesson lifecycle label.
 marker_matches() {
-  printf '%s' "$1" | jq -ce --arg marker "$2" \
-    '[.[] | select(.body | contains($marker))]'
+  printf '%s' "$1" | jq -ce --arg marker "$2" '
+    [
+      .[]
+      | select(
+          ((.labels // []) | any(. == "lesson-candidate" or . == "lesson-approved"
+            or . == "lessons:claimed" or . == "lessons:blocked" or . == "lessons:needs-human"))
+          and (
+            (.body | rtrimstr("\r") | rtrimstr("\n") | endswith($marker))
+          )
+        )
+    ]
+  '
 }
 
 reconcile_matches() {
@@ -221,9 +235,12 @@ if [ -f "$CANDIDATES" ]; then
     fi
     if ! INVENTORY="$(printf '%s' "$INVENTORY" | jq -ce \
       --argjson number "$created_number" --arg url "$url" --arg title "$title" \
-      --arg body "$body" '
+      --arg body "$body" --arg labels "$labels" '
         if any(.[]; .number == $number) then .
-        else . + [{number:$number,url:$url,title:$title,body:$body,state:"OPEN"}]
+        else . + [{
+          number:$number,url:$url,title:$title,body:$body,state:"OPEN",
+          labels: ($labels | split(",") | map(select(length > 0)))
+        }]
         end
       ' 2>/dev/null)"; then
       FAILED=$((FAILED + 1)); continue

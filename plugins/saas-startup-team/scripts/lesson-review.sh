@@ -123,7 +123,11 @@ _review_view() {
     and (.state | type == "string") and (.labels | type == "array")
     and (.title | type == "string") and (.body | type == "string")
     and (.comments | type == "array")
-    and all(.comments[]; (.body | type == "string"))
+    and all(.comments[];
+      (.body | type == "string")
+      and ((.author // {}) | type == "object")
+      and ((.author.login // null) | type == "string")
+      and ((.authorAssociation // "") | type == "string"))
   ' >/dev/null 2>&1 || return 1
   printf '%s' "$out"
 }
@@ -327,8 +331,11 @@ case "$ACTION" in
     if [ "$ACTION" = auto-reject ]; then
       refreshed="$(_review_view "$NUM")"
       if [ $? -ne 0 ] || ! _review_expectation_matches "$refreshed"; then
-        gh issue reopen "$NUM" --repo "$REPO" >/dev/null 2>&1 || true
-        echo "lesson-review: #$NUM changed during automated rejection; reopened." >&2
+        if gh issue reopen "$NUM" --repo "$REPO" >/dev/null 2>&1; then
+          echo "lesson-review: #$NUM changed during automated rejection; reopened." >&2
+        else
+          echo "lesson-review: #$NUM changed during automated rejection and reopen failed; issue may remain closed." >&2
+        fi
         exit 1
       fi
     fi
