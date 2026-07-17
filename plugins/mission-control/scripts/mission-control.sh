@@ -32,8 +32,10 @@ cfg() { jq -r "$1" "$MC_CONFIG"; }
 MC_STATE_DIR="$(cfg '.state_dir // empty')"
 [ -n "$MC_STATE_DIR" ] || MC_STATE_DIR="$(cd "$(dirname "$MC_CONFIG")" && pwd)/state"
 export MC_CONFIG MC_STATE_DIR
-mkdir -p "$MC_STATE_DIR/dispatches" "$MC_STATE_DIR/digests"
-[ -f "$MC_STATE_DIR/state.json" ] || echo '{}' > "$MC_STATE_DIR/state.json"
+if [ "$DRY_RUN" != 1 ]; then
+  mkdir -p "$MC_STATE_DIR/dispatches" "$MC_STATE_DIR/digests"
+  [ -f "$MC_STATE_DIR/state.json" ] || echo '{}' > "$MC_STATE_DIR/state.json"
+fi
 
 DOCKER_CMD="$(cfg '.docker_cmd // "docker"')"
 # Optional: run `docker exec` as this user instead of the image default.
@@ -67,12 +69,20 @@ hour_now() {
 }
 
 log() {
-  printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$MC_STATE_DIR/mission-control.log"
   # stderr, not stdout: pick_pinned/pick_ladder are consumed via $() and must stay clean
-  if [ "$DRY_RUN" = 1 ]; then echo "$*" >&2; fi
+  if [ "$DRY_RUN" = 1 ]; then echo "$*" >&2; return 0; fi
+  printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$MC_STATE_DIR/mission-control.log"
 }
 
-state_get() { jq -r "$1" "$MC_STATE_DIR/state.json"; }
+state_get() {
+  if [ -f "$MC_STATE_DIR/state.json" ]; then
+    jq -r "$1" "$MC_STATE_DIR/state.json"
+  elif [ "$DRY_RUN" = 1 ]; then
+    jq -r "$1" <<< '{}'
+  else
+    return 1
+  fi
+}
 state_set() { # <jq-program> [jq options...]  — atomic under state.lock
   [ "${DRY_RUN:-0}" = 1 ] && return 0   # dry-run mutates nothing, anywhere
   local prog="$1"; shift
@@ -115,7 +125,15 @@ run_in() { # <container> <repo_path> <snippet> <timeout_s> — non-login bash -c
 }
 
 slot_free() { # <slot> — test-acquire without holding
-  ( flock -n 9 ) 9>>"$MC_STATE_DIR/slot-$1.lock"
+  local lock="$MC_STATE_DIR/slot-$1.lock"
+  if [ "$DRY_RUN" = 1 ]; then
+    [ ! -L "$lock" ] || return 1
+    [ -e "$lock" ] || return 0
+    [ -f "$lock" ] || return 1
+    ( flock -n 9 ) 9<"$lock"
+  else
+    ( flock -n 9 ) 9>>"$lock"
+  fi
 }
 
 new_run_id() {
@@ -546,8 +564,16 @@ dispatch() { # <slot> <name> — reserve, take slot lock on an FD, spawn wrapper
 }
 
 cmd_tick() {
-  exec 8>>"$MC_STATE_DIR/tick.lock"
-  flock -n 8 || exit 0                       # overlapping ticks impossible
+  local state_file="$MC_STATE_DIR/state.json"
+  if [ "$DRY_RUN" != 1 ]; then
+    exec 8>>"$MC_STATE_DIR/tick.lock"
+    flock -n 8 || exit 0                     # overlapping ticks impossible
+  elif [ -e "$state_file" ] || [ -L "$state_file" ]; then
+    if [ ! -f "$state_file" ] || ! jq -e 'type == "object"' "$state_file" >/dev/null 2>&1; then
+      log "state error: state.json must be a readable JSON object — refusing dry-run"
+      return 1
+    fi
+  fi
   case "$(cfg '.paused // false')" in
     false) ;;
     true)  log "paused: tick skipped"; exit 0 ;;
@@ -664,6 +690,7 @@ cmd_wrapper() {
   local started started_ms ended_ms ended duration_ms rc outcome command canonical=""
   local terminal_status=not-applicable workflow_outcome="" workflow_reason="" total_tokens=""
   local account_json="" account_rc=0 helper_binding="" binding_rc=0 helper_surface="" tmpl blk
+  local -a invocation_env docker_env
   if [ -n "$run_id" ]; then
     valid_run_id "$run_id" || { echo "mission-control: invalid --run-id" >&2; exit 2; }
   else
@@ -671,6 +698,8 @@ cmd_wrapper() {
   fi
   command="$(pj "$name" '.command')"
   canonical="$(workflow_command "$command" 2>/dev/null || true)"
+  invocation_env=("SAAS_INVOCATION_ID=$run_id" "SAAS_INVOCATION_COMMAND=$canonical")
+  docker_env=(-e "SAAS_INVOCATION_ID=$run_id" -e "SAAS_INVOCATION_COMMAND=$canonical")
   tmpl="$(cfg ".engines[\"$engine\"].cmd")"
   if [ -n "$canonical" ]; then
     if engine_template_is_codex_exec "$tmpl"; then helper_surface=codex
@@ -690,13 +719,13 @@ cmd_wrapper() {
     # inner bash -c: engine cmds may start with VAR=... assignment prefixes
     # (dedicated-subscription CODEX_HOME), which timeout(1) cannot exec directly
     if [ "$container" = "local" ]; then
-      bash -c "cd $(printf %q "$rp") && SAAS_INVOCATION_ID=$(printf %q "$run_id") timeout ${envelope}m bash -c $(printf %q "$rendered")"
+      (cd "$rp" && env "${invocation_env[@]}" timeout "${envelope}m" bash -c "$rendered")
     elif [ "$delivery_hold" = true ]; then
-      $DOCKER_CMD exec $DOCKER_USER_OPT -e "SAAS_INVOCATION_ID=$run_id" "$container" bash -c \
+      $DOCKER_CMD exec $DOCKER_USER_OPT "${docker_env[@]}" "$container" bash -c \
         'cd "$1" && shift && exec "$@"' _ "$rp" \
         /paat-reconcile/with-delivery-hold.sh timeout "${envelope}m" bash -c "$rendered"
     else
-      $DOCKER_CMD exec $DOCKER_USER_OPT -e "SAAS_INVOCATION_ID=$run_id" "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m bash -c $(printf %q "$rendered")"
+      $DOCKER_CMD exec $DOCKER_USER_OPT "${docker_env[@]}" "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m bash -c $(printf %q "$rendered")"
     fi
     rc=$?
     set -e

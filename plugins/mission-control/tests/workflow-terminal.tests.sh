@@ -21,11 +21,13 @@ setup_env() { # <project command> [engine template] [container]
     "$TD/codex/plugins/cache/paat-plugins/saas-startup-team/2.10.0/scripts"
   export CODEX_HOME="$TD/codex" CLAUDE_HOME="$TD/claude"
   export HELPER_CALLS="$TD/helper.calls" ENGINE_CAPTURE="$TD/engine.ids"
+  export ENGINE_COMMAND_CAPTURE="$TD/engine.commands"
   export FAKE_SCHEMA=2 FAKE_ACCOUNT_MODE=valid FAKE_OUTCOME=success
   export FAKE_REASON="" FAKE_COMMAND=maintain ENGINE_RC=0 ENGINE_OUTPUT="" FAKE_CACHE_TAMPER=""
   export FAKE_CODEX_PLUGIN_VERSION=2.10.0 FAKE_CODEX_PLUGIN_ENABLED=true
   export FAKE_CLAUDE_PLUGIN_VERSION=2.10.0 FAKE_CLAUDE_PLUGIN_ENABLED=true
-  : > "$HELPER_CALLS"; : > "$ENGINE_CAPTURE"
+  unset SAAS_INVOCATION_COMMAND FAKE_CONTAINER_INVOCATION_COMMAND
+  : > "$HELPER_CALLS"; : > "$ENGINE_CAPTURE"; : > "$ENGINE_COMMAND_CAPTURE"
 cat > "$TD/bin/codex" <<'SH'
 #!/bin/bash
 if [ "${1:-}" = plugin ] && [ "${2:-}" = list ] && [ "${3:-}" = --json ]; then
@@ -36,6 +38,7 @@ if [ "${1:-}" = plugin ] && [ "${2:-}" = list ] && [ "${3:-}" = --json ]; then
   exit 0
 fi
 printf '%s\n' "${SAAS_INVOCATION_ID:-missing}" >> "$ENGINE_CAPTURE"
+printf '%s\n' "${SAAS_INVOCATION_COMMAND:-missing}" >> "$ENGINE_COMMAND_CAPTURE"
 case "${FAKE_CACHE_TAMPER:-}" in
   higher)
     target="$CODEX_HOME/plugins/cache/paat-plugins/saas-startup-team/99.0.0/scripts"
@@ -73,6 +76,7 @@ if [ "${1:-}" = plugin ] && [ "${2:-}" = list ] && [ "${3:-}" = --json ]; then
   exit 0
 fi
 printf '%s\n' "${SAAS_INVOCATION_ID:-missing}" >> "$ENGINE_CAPTURE"
+printf '%s\n' "${SAAS_INVOCATION_COMMAND:-missing}" >> "$ENGINE_COMMAND_CAPTURE"
 printf '%b' "${ENGINE_OUTPUT:-}"
 exit "${ENGINE_RC:-0}"
 SH
@@ -85,6 +89,8 @@ printf '\n' >> "$DOCKER_CALLS"
 [ "${1:-}" = exec ] || exit 2
 shift
 env_args=(IN_FAKE_CONTAINER=1)
+[ -z "${FAKE_CONTAINER_INVOCATION_COMMAND+x}" ] \
+  || env_args+=("SAAS_INVOCATION_COMMAND=$FAKE_CONTAINER_INVOCATION_COMMAND")
 while [ $# -gt 0 ]; do
   case "$1" in
     -u) shift 2 ;;
@@ -161,10 +167,15 @@ lib_call() {
 
 run_wrapper() { # [run-id]
   local run_id="${1:-run-0123456789abcdef0123456789abcdef}" base="$TD/direct"
+  local command template rendered delivery_hold
   : > "$base.log"; rm -f "$base.json"
+  command="$(jq -r '.projects[0].command' "$TD/config.json")"
+  template="$(jq -r '.engines.e.cmd' "$TD/config.json")"
+  rendered="${template//\{prompt\}/$command}"
+  delivery_hold="$(jq -r '.projects[0].delivery_hold // false' "$TD/config.json")"
   bash "$MC" wrapper --config "$TD/config.json" --slot A --project p --engine e \
     --container "$(jq -r '.projects[0].container' "$TD/config.json")" --repo-path "$TD/repo" \
-    --envelope 1 --base "$base" --cmd "$(jq -r '.engines.e.cmd' "$TD/config.json" | sed 's/{prompt}/\/maintain/')" \
+    --envelope 1 --base "$base" --cmd "$rendered" --delivery-hold "$delivery_hold" \
     --run-id "$run_id" >> "$base.log" 2>&1
 }
 
@@ -236,6 +247,7 @@ dispatch_identity() {
   local run_id; run_id="$(jq -r .run_id "$json")"
   [[ "$run_id" =~ ^run-[0-9a-f]{32}$ ]] &&
     [ "$(cat "$ENGINE_CAPTURE")" = "$run_id" ] &&
+    [ "$(cat "$ENGINE_COMMAND_CAPTURE")" = maintain ] &&
     jq -e '.terminal_status=="accounted" and .workflow_outcome=="success" and
       .workflow_reason==null and .total_tokens==65980 and .outcome=="ok" and
       (.run_id|type)=="string" and (.terminal_status|type)=="string" and
@@ -250,25 +262,74 @@ setup_env '/maintain'
 t "dispatch mints one ID, injects it, accounts once, and adds typed JSON fields" dispatch_identity
 
 generic_no_probe() {
+  SAAS_INVOCATION_COMMAND=ambient-poison; export SAAS_INVOCATION_COMMAND
   run_wrapper || return 1
-  [ ! -s "$HELPER_CALLS" ] &&
+  [ ! -s "$HELPER_CALLS" ] && [ "$(cat "$ENGINE_COMMAND_CAPTURE")" = missing ] &&
     jq -e '.terminal_status=="not-applicable" and .workflow_outcome==null and
       .workflow_reason==null and .total_tokens==null and .outcome=="ok"' "$TD/direct.json" >/dev/null
 }
 setup_env '/lessons-deliver' 'claude -p {prompt}'
 ENGINE_OUTPUT='tokens used\n999\n'; export ENGINE_OUTPUT
-t "generic and lessons-deliver commands never probe or parse non-Codex footers" generic_no_probe
+t "generic local dispatch scrubs ambient command and skips workflow accounting" generic_no_probe
+
+generic_docker_scrubs_command() {
+  SAAS_INVOCATION_COMMAND=ambient-poison; export SAAS_INVOCATION_COMMAND
+  FAKE_CONTAINER_INVOCATION_COMMAND=container-poison; export FAKE_CONTAINER_INVOCATION_COMMAND
+  run_wrapper || return 1
+  [ "$(cat "$ENGINE_COMMAND_CAPTURE")" = missing ] &&
+    grep -q -- '-e SAAS_INVOCATION_COMMAND=' "$DOCKER_CALLS" &&
+    ! grep -q 'ambient-poison\|container-poison' "$ENGINE_COMMAND_CAPTURE"
+}
+setup_env '/lessons-deliver' 'claude -p {prompt}' dev-container
+t "generic Docker dispatch scrubs ambient and container command context" \
+  generic_docker_scrubs_command
+
+generic_delivery_hold_scrubs_command() {
+  SAAS_INVOCATION_COMMAND=ambient-poison; export SAAS_INVOCATION_COMMAND
+  FAKE_CONTAINER_INVOCATION_COMMAND=container-poison; export FAKE_CONTAINER_INVOCATION_COMMAND
+  run_wrapper || return 1
+  grep -q -- '-e SAAS_INVOCATION_COMMAND=' "$DOCKER_CALLS" &&
+    grep -q -- '/paat-reconcile/with-delivery-hold.sh' "$DOCKER_CALLS"
+}
+setup_env '/lessons-deliver' 'claude -p {prompt}' dev-container
+jq '.projects[0].delivery_hold=true' "$TD/config.json" > "$TD/config.next"
+mv "$TD/config.next" "$TD/config.json"
+t "generic delivery-hold dispatch scrubs command context at the container boundary" \
+  generic_delivery_hold_scrubs_command
 
 docker_boundary() {
   run_wrapper || return 1
   local run_id; run_id="$(jq -r .run_id "$TD/direct.json")"
   grep -q -- "-e SAAS_INVOCATION_ID=$run_id" "$DOCKER_CALLS" &&
+    grep -q -- "-e SAAS_INVOCATION_COMMAND=maintain" "$DOCKER_CALLS" &&
     grep -q '|container=1|schema-version' "$HELPER_CALLS" &&
     grep -q '|container=1|account ' "$HELPER_CALLS" &&
     [ "$(cat "$ENGINE_CAPTURE")" = "$run_id" ]
 }
 setup_env '/maintain' 'codex exec {prompt}' dev-container
-t "docker injects the ID and performs schema/account inside the container boundary" docker_boundary
+t "docker injects workflow identity and performs schema/account inside the container boundary" docker_boundary
+
+local_loop_command_binding() {
+  SAAS_INVOCATION_COMMAND=maintain; export SAAS_INVOCATION_COMMAND
+  run_wrapper || return 1
+  [ "$(cat "$ENGINE_COMMAND_CAPTURE")" = maintain-loop ] &&
+    jq -e '.terminal_status=="accounted" and .outcome=="ok"' "$TD/direct.json" >/dev/null
+}
+setup_env '/maintain-loop --once'
+FAKE_COMMAND=maintain-loop; export FAKE_COMMAND
+t "local maintain-loop overrides ambient context with its canonical command" local_loop_command_binding
+
+delivery_hold_command_binding() {
+  run_wrapper || return 1
+  grep -q -- "-e SAAS_INVOCATION_ID=run-0123456789abcdef0123456789abcdef" "$DOCKER_CALLS" &&
+    grep -q -- "-e SAAS_INVOCATION_COMMAND=maintain-loop" "$DOCKER_CALLS" &&
+    grep -q -- '/paat-reconcile/with-delivery-hold.sh' "$DOCKER_CALLS"
+}
+setup_env '/maintain-loop --once' 'codex exec {prompt}' dev-container
+FAKE_COMMAND=maintain-loop; export FAKE_COMMAND
+jq '.projects[0].delivery_hold=true' "$TD/config.json" > "$TD/config.next"
+mv "$TD/config.next" "$TD/config.json"
+t "delivery-hold injects the canonical command beside the root ID" delivery_hold_command_binding
 
 account_status() { # <mode> <expected status> <expected governor outcome> [engine rc]
   FAKE_ACCOUNT_MODE="$1" ENGINE_RC="${4:-0}"; export FAKE_ACCOUNT_MODE ENGINE_RC

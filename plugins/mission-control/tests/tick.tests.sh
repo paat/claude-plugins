@@ -89,8 +89,43 @@ t "dry-run: prints decisions, mutates nothing" bash -c '
   '"$(declare -f tick)"'; TD="'"$TD"'"; SD="'"$SD"'"; MC="'"$MC"'"
   out="$(tick --dry-run 2>&1)" || exit 1
   grep -qi "would dispatch" <<<"$out" || exit 1
-  [ -z "$(ls "$SD/dispatches" 2>/dev/null)" ] && [ ! -f "$TD/alpha/MARKER" ] &&
-  [ "$(cat "$SD/state.json")" = "{}" ]'
+  [ ! -e "$SD" ] && [ ! -f "$TD/alpha/MARKER" ]'
+
+mkenv; echo yes > "$TD/alpha/WORK"; mkdir -p "$SD/dispatches" "$SD/digests"
+printf '{"date":"2026-01-01","projects":{"alpha":{"last_outcome":"ok"}}}\n' > "$SD/state.json"
+printf 'existing log\n' > "$SD/mission-control.log"
+printf '{"outcome":"ok"}\n' > "$SD/dispatches/existing.json"
+printf '# Existing digest\n' > "$SD/digests/existing.md"
+: > "$SD/state.lock"; : > "$SD/tick.lock"; : > "$SD/slot-A.lock"
+t "dry-run: preserves an existing state tree byte-for-byte" bash -c '
+  '"$(declare -f tick)"'; TD="'"$TD"'"; SD="'"$SD"'"; MC="'"$MC"'"
+  fingerprint() {
+    { find "$SD" -mindepth 1 -printf "%P %y %m %s\\n" | sort
+      find "$SD" -type f -print0 | sort -z | xargs -0 sha256sum; }
+  }
+  before="$(fingerprint)" || exit 1
+  tick --dry-run >/dev/null 2>&1 || exit 1
+  after="$(fingerprint)" || exit 1
+  [ "$after" = "$before" ]'
+
+mkenv; echo yes > "$TD/alpha/WORK"; mkdir -p "$SD"
+printf '{broken\n' > "$SD/state.json"
+t "dry-run: malformed existing state fails closed without mutation" bash -c '
+  '"$(declare -f tick)"'; TD="'"$TD"'"; SD="'"$SD"'"; MC="'"$MC"'"
+  before="$(sha256sum "$SD/state.json")" || exit 1
+  out="$(tick --dry-run 2>&1)" && exit 1
+  after="$(sha256sum "$SD/state.json")" || exit 1
+  grep -q "state error" <<<"$out" && ! grep -qi "would dispatch" <<<"$out" &&
+    [ "$after" = "$before" ] && [ ! -e "$SD/tick.lock" ]'
+
+mkenv '.slots = {A:{pinned:"alpha"}}'; echo yes > "$TD/alpha/WORK"; mkdir -p "$SD"
+ln -s "$TD/missing-lock-target" "$SD/slot-A.lock"
+t "dry-run: dangling slot-lock symlink fails closed without following it" bash -c '
+  '"$(declare -f tick)"'; TD="'"$TD"'"; SD="'"$SD"'"; MC="'"$MC"'"
+  out="$(tick --dry-run 2>&1)" || exit 1
+  grep -q "slot A busy" <<<"$out" && ! grep -qi "would dispatch" <<<"$out" &&
+    [ -L "$SD/slot-A.lock" ] && [ ! -e "$TD/missing-lock-target" ] &&
+    [ ! -e "$SD/tick.lock" ]'
 
 mkenv; echo yes > "$TD/alpha/WORK"
 t "second tick runs while a pass is live (tick lock not leaked)" bash -c '
