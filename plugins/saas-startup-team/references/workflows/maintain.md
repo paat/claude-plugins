@@ -30,7 +30,8 @@ Parse `$ARGUMENTS` before any probe or mutation. Accept `--dry-run`, `--once`,
 Accept one internal `--lease-run-id ID`, validated against the compatibility pattern
 `^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`, and one internal
 `--invocation-command maintain-loop`. Accept the command binding only with
-`--lease-run-id`; never forward either internal argument to the probe. Reject a
+`--lease-run-id`. The lease identity is internal: never forward it to the probe.
+More generally, never forward either internal argument to the probe. Reject a
 repeated value, another command value, or any other flag.
 
 Resolve the root workflow identity before the probe. A canonical ID matches
