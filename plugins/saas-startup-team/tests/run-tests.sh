@@ -6380,11 +6380,14 @@ case "\$1 \$2" in
   "issue create") echo "https://github.com/o/r/issues/\${GH_CREATE_NUMBER:?GH_CREATE_NUMBER unset}" ;;
   "issue comment") echo "https://github.com/o/r/issues/commented" ;;
   "issue view")
-     if [[ "\$*" == *"--json"* ]]; then
-       _seed_view
-       if [ -f "\$_VIEW_STORE" ]; then cat "\$_VIEW_STORE"
-       elif [ -n "\${GH_VIEW_JSON:-}" ]; then echo "\$GH_VIEW_JSON"
-       else echo "{}"; fi
+     # Mutable store / GH_VIEW_JSON for claim re-reads; otherwise keep legacy
+     # plain GH_VIEW_STATE / GH_VIEW_BODY responses used by monitor-dedup.
+     if [ -f "\$_VIEW_STORE" ] || [ -n "\${GH_VIEW_JSON:-}" ]; then
+       if [[ "\$*" == *"--json"* ]]; then
+         _seed_view
+         if [ -f "\$_VIEW_STORE" ]; then cat "\$_VIEW_STORE"; else echo "\$GH_VIEW_JSON"; fi
+       elif [[ "\$*" == *"body"* ]]; then echo "\${GH_VIEW_BODY:-}"
+       else echo "\${GH_VIEW_STATE:-OPEN}"; fi
      elif [[ "\$*" == *"body"* ]]; then echo "\${GH_VIEW_BODY:-}"
      else echo "\${GH_VIEW_STATE:-OPEN}"; fi ;;
   "issue list")
