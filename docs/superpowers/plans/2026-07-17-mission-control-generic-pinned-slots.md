@@ -23,7 +23,7 @@
 
 ## Known behavior deltas (accepted, from spec)
 
-1. A config whose `.slots` lacks a `B` key no longer gets a phantom hardcoded B ladder walk (old `for slot in A B` ran B regardless of config). No shipped or test config relies on this: every test config that runs `cmd_tick` declares its slots (`paused.tests.sh`, `tick.tests.sh`, `core.tests.sh`); configs with `slots:{A:{}}` (`admission`, `exec-user`, `governor-*`, `delivery-hold`, `digest-sections`) never invoke `cmd_tick`.
+1. A config whose `.slots` lacks a `B` key no longer gets a phantom hardcoded B ladder walk (old `for slot in A B` ran B regardless of config). One test fixture relies on the phantom: `tick.tests.sh` `mkenv` declares only `slots:{A:{pinned:"alpha"}}` and three of its tests need the B ladder ("tick dispatches both slots", "second tick runs while a pass is live", "reserve refusal re-walks ladder") — Task 2 adds `B:{}` to that fixture (a no-op under the current hardcoded walk, so the suite stays green at every commit). `paused.tests.sh` already declares A+B; configs with `slots:{A:{}}` (`admission`, `exec-user`, `governor-*`, `delivery-hold`, `digest-sections`) never invoke `cmd_tick`.
 2. `slots:{A:{}}` now means "ladder slot named A" instead of "pinned slot with no pin (always idle)". Same test-config audit applies: nothing observable changes in the suite.
 
 ---
@@ -81,7 +81,7 @@ t "ladder rung 1 excludes ALL pinned projects" bash -c '
 mkenv; echo yes > "$TD/gamma/WORK"
 t "only pinned work: ladder returns nothing" bash -c '
   '"$(declare -f lib)"'; TD="'"$TD"'"; MC="'"$MC"'"; lib
-  [ -z "$(pick_ladder)" ]'
+  declare -F pick_ladder >/dev/null && [ -z "$(pick_ladder)" ]'
 
 echo "pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]
@@ -90,7 +90,7 @@ echo "pass=$PASS fail=$FAIL"
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `bash plugins/mission-control/tests/slots-generic.tests.sh`
-Expected: `FAIL` on all three (`pick_pinned: command not found` behind the scenes), exit 1.
+Expected: `FAIL` on all three, exit 1. (The third test needs the `declare -F` guard to fail honestly: `command not found` inside `$()` yields empty stdout, which `[ -z ... ]` would vacuously accept.)
 
 - [ ] **Step 3: Implement the generic pick functions**
 
@@ -211,21 +211,49 @@ t "multi-ladder smoke: two ladder slots pick different candidates" bash -c '
   [ -f "$TD/beta/MARKER" ] && [ -f "$TD/gamma/MARKER" ] &&
   [ "$(ls "$SD/dispatches/"*.json | wc -l)" = 2 ]'
 
+mkenv '.slots = {C:{pinned:"gamma"}, B:{}, A:{pinned:"alpha"}}'
+echo yes > "$TD/alpha/WORK"; echo yes > "$TD/gamma/WORK"
+t "within-class sort: slot A beats slot C under quota 1 despite C-first declaration" bash -c '
+  '"$(declare -f tick wait_outcomes)"'; TD="'"$TD"'"; SD="'"$SD"'"; MC="'"$MC"'"
+  cat > "$TD/gov.sh" <<'"'"'GOV'"'"'
+governor_reserve() {
+  ( flock -w 5 8 || exit 1
+    local n; n="$(cat "$MC_STATE_DIR/q" 2>/dev/null || echo 0)"
+    [ "$n" -lt 1 ] || exit 1
+    echo $((n + 1)) > "$MC_STATE_DIR/q"
+  ) 8>>"$MC_STATE_DIR/q.lock"
+}
+governor_envelope() { echo 1; }
+governor_report() { if [ "$3" -eq 0 ]; then echo ok; else echo error; fi; }
+governor_daily() { return 0; }
+GOV
+  MC_GOVERNOR="$TD/gov.sh" tick && wait_outcomes 1 || exit 1
+  sleep 0.5
+  [ "$(ls "$SD/dispatches/"*.json | wc -l)" = 1 ] &&
+  jq -e '"'"'.slot == "A" and .project == "alpha"'"'"' "$SD"/dispatches/*.json'
+
 mkenv '.slots = {A:{pinned:"alpha"}, B:{}}'
 echo yes > "$TD/alpha/WORK"
-t "legacy two-slot config: log lines unchanged" bash -c '
+t "legacy two-slot config: decision log lines byte-identical" bash -c '
   '"$(declare -f tick wait_outcomes)"'; TD="'"$TD"'"; SD="'"$SD"'"; MC="'"$MC"'"
   tick && wait_outcomes 1 || exit 1
-  grep -q "dispatch slot=A project=alpha" "$SD/mission-control.log" &&
-  grep -q "slot B idle" "$SD/mission-control.log"'
+  cut -d" " -f2- "$SD/mission-control.log" | grep -E "^(dispatch slot=|slot [A-Za-z0-9_-]+ )" > "$TD/got"
+  printf "dispatch slot=A project=alpha engine=e envelope=90m\nslot B idle\n" | diff - "$TD/got"'
 ```
 
-- [ ] **Step 2: Run to verify the new tests fail**
+- [ ] **Step 2: Update the tick.tests.sh fixture (loses its phantom slot B)**
+
+In `tests/tick.tests.sh` `mkenv()`, change `slots:{A:{pinned:"alpha"}},` to `slots:{A:{pinned:"alpha"}, B:{}},`. Three of its tests dispatch via the B ladder, which today exists only because `cmd_tick` hardcodes `for slot in A B`; after this task, undeclared slots don't run. Under the current code the added `B:{}` is ignored, so this edit is a no-op now — commit-by-commit the suite stays green.
+
+Run: `bash plugins/mission-control/tests/tick.tests.sh`
+Expected: `pass=N fail=0` (unchanged behavior).
+
+- [ ] **Step 3: Run to verify the new tests fail**
 
 Run: `bash plugins/mission-control/tests/slots-generic.tests.sh`
-Expected: Task-1 tests still `ok`; "three slots" FAILs (only A and B dispatch — C is never walked by the hardcoded loop); "pinned-first" FAILs (no slot C); "legacy" passes already (it must — if it fails, the harness snippet is wrong, fix the test).
+Expected: Task-1 tests still `ok`; "three slots" FAILs (only A and B dispatch — C is never walked by the hardcoded loop); "pinned-first" FAILs (no slot C); "multi-ladder smoke" FAILs (no slot D); "within-class sort" FAILs (no slot C); "legacy" passes already (it is a pure regression guard — if it fails, the harness snippet is wrong, fix the test).
 
-- [ ] **Step 3: Implement the generic walk**
+- [ ] **Step 4: Implement the generic walk**
 
 Add `slot_names` next to `names_by_stage` (line 199):
 
@@ -266,15 +294,15 @@ In `cmd_tick`, replace the `for slot in A B; do ... done` block (lines 347–369
 
 Notes locking this in: unquoted `$(slot_names ...)` word-splitting is the existing codebase idiom (`rotate 1 $(names_by_stage live)`), safe because arm (Task 3) rejects slot keys outside `[A-Za-z0-9_-]`. `DENIED_ENGINES` accumulates across ALL slots within the tick — same cross-slot semantics as today's A→B carry-over. Update the `slot_free` comment `# <A|B>` → `# <slot>`.
 
-- [ ] **Step 4: Run the suites**
+- [ ] **Step 5: Run the suites**
 
 Run: `bash plugins/mission-control/tests/slots-generic.tests.sh && bash plugins/mission-control/tests/tick.tests.sh && bash plugins/mission-control/tests/paused.tests.sh && bash plugins/mission-control/tests/ladder.tests.sh`
 Expected: all `pass=N fail=0`.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add plugins/mission-control/scripts/mission-control.sh plugins/mission-control/tests/slots-generic.tests.sh
+git add plugins/mission-control/scripts/mission-control.sh plugins/mission-control/tests/slots-generic.tests.sh plugins/mission-control/tests/tick.tests.sh
 git commit -m "feat(mission-control): cmd_tick walks .slots generically — pinned slots first, then ladder slots"
 ```
 
@@ -323,15 +351,16 @@ In `cmd_arm`, replace the A-only pinned block (lines 401–405):
   bad="$(jq -r '.slots // {} | keys[] | select(test("^[A-Za-z0-9_-]+$") | not)' "$MC_CONFIG")"
   if [ -n "$bad" ]; then echo "mission-control: slot names must match ^[A-Za-z0-9_-]+$: $bad" >&2; exit 2; fi
   bad="$(jq -r '. as $c | .slots // {} | to_entries[] | select(.value | has("pinned"))
-                | select((.value.pinned | type) != "string"
-                         or ([$c.projects[].name] | index(.value.pinned)) == null)
-                | "slots.\(.key).pinned \(.value.pinned) is not a project"' "$MC_CONFIG")"
+                | .value.pinned as $pin
+                | select(($pin | type) != "string"
+                         or ([$c.projects[].name] | index($pin)) == null)
+                | "slots.\(.key).pinned \($pin) is not a project"' "$MC_CONFIG")"
   if [ -n "$bad" ]; then echo "mission-control: $bad" >&2; exit 2; fi
   bad="$(jq -r '[.slots // {} | .[] | .pinned // empty] | group_by(.)[] | select(length > 1) | .[0]' "$MC_CONFIG")"
   if [ -n "$bad" ]; then echo "mission-control: project pinned on more than one slot: $bad" >&2; exit 2; fi
 ```
 
-(The duplicate-pin check is an addition beyond the spec's validation list: two slots pinning one project would run two concurrent maintenance passes against the same repo. One jq line; flagged here so the reviewer can veto.)
+(The duplicate-pin check is an addition beyond the spec's validation list — Codex review recommended dropping it for spec purity. Kept deliberately: two slots pinning one project would run two concurrent maintenance passes against the same repo (slot locks are per-slot, not per-project), and the spec's own pinned-slot definition — "continuous maintenance of that one project" — implies uniqueness. One jq line + one test; call it out in the PR body so the owner can veto at merge.)
 
 In `cmd_status`, replace `for s in A B; do`:
 
@@ -382,7 +411,7 @@ README.md intro paragraph (lines 3–8) becomes:
 Portfolio supervisor for autonomous SaaS loops: N concurrent loop slots
 (lockfile-enforced), armed by one human-installed cron line, spending zero
 LLM tokens on scheduling. A slot with a `pinned` project continuously
-maintains it (one slot per dedicated engine subscription); slots without a
+maintains it, optionally on a dedicated engine subscription; slots without a
 pin rotate by priority ladder: live incidents > pre-launch delivery > demand
 validation > lessons-deliver. A budget governor (quotas, rate-limit backoff,
 pass envelopes) guards the per-pool subscription budgets.
@@ -392,8 +421,8 @@ Add this spec to the README "Design:" line: `...2026-07-17-mission-control-gener
 
 - [ ] **Step 2: Verify nothing was missed**
 
-Run: `cd /mnt/data/ai/claude-plugins && grep -rn "0\.5\.9\|two-slot" plugins/mission-control/ .claude-plugin/marketplace.json .agents/plugins/marketplace.json`
-Expected: no hits (the `.agents` marketplace entry carries no version/description for mission-control; if grep finds one, update it the same way).
+Run: `cd /mnt/data/ai/claude-plugins && grep -rn "0\.5\.9\|two-slot" plugins/mission-control/ .claude-plugin/marketplace.json .agents/plugins/marketplace.json --include="*.json" --include="README.md"`
+Expected: no hits in manifests/marketplaces/README. Historical specs/plans under `docs/superpowers/` legitimately mention `0.5.9` and old wording — do NOT rewrite them; only manifest/marketplace version fields and current product wording (README, descriptions) change.
 
 Run: `bash plugins/mission-control/tests/skeleton.tests.sh`
 Expected: `pass=N fail=0` (example config untouched — legacy A/B example remains valid and demonstrates back-compat).
@@ -441,8 +470,8 @@ Implements docs/superpowers/specs/2026-07-17-mission-control-generic-pinned-slot
 
 - pick_slot_a/pick_slot_b -> pick_pinned <slot> / pick_ladder; ladder rung 1 now excludes every pinned project
 - cmd_tick walks .slots keys: pinned slots (sorted) first, then ladder slots (sorted) — legacy {A pinned, B ladder} configs behave identically, same log lines
-- cmd_arm validates all slots: pins must name projects, slot keys ^[A-Za-z0-9_-]+$, one project cannot be pinned twice; cmd_status iterates .slots
-- new tests/slots-generic.tests.sh (3-slot dispatch, all-pins rung-1 exclusion, pinned-first under quota 1, multi-ladder smoke, arm rejections, legacy log regression); full suite green
+- cmd_arm validates all slots: pins must name projects, slot keys ^[A-Za-z0-9_-]+$, one project cannot be pinned twice (dup-pin check is a deliberate one-line extension beyond the spec's validation list — two slots pinning one project would run concurrent passes on the same repo; veto here if unwanted); cmd_status iterates .slots
+- new tests/slots-generic.tests.sh (3-slot dispatch, all-pins rung-1 exclusion, pinned-first under quota 1, within-class sort order, multi-ladder smoke, arm rejections, byte-exact legacy decision-log regression); full suite green
 - 0.5.9 -> 0.6.0 in both plugin manifests + marketplace.json
 
 Verified: bash plugins/mission-control/tests/run-tests.sh (all pass), 3-slot dry-run smoke.
@@ -452,6 +481,8 @@ EOF
 
 Expected: PR URL printed. Merge follows the PR #307 flow (tests green → merge).
 
-## Post-merge rollout (owner steps — NOT part of this plan, listed for handoff)
+## Post-merge rollout (owner steps — NOT tasks in this plan, listed for handoff)
 
-Per spec: (1) fast-forward the webtop checkout that cron runs from; (2) owner edits steering-repo `portfolio.json` — add slot `C` pinned to est-biz-aruannik, `codex-aruannik` engine (`CODEX_HOME=/config/.codex-aruannik ...`) and pool (`daily_pass_quota: 12`), set aruannik's `engine`; (3) human runs the staged auth-copy one-liner to provision `/config/.codex-aruannik/` (0700/0600, owner abc) and sees its PASS line. Next :00/:30 tick starts Slot C; no re-arm needed.
+The spec's auth-provisioning script cannot live in this plugin repo (repo rule: no hardcoded project names/paths in plugin code — the script is aruannik-specific). It is a **steering-repo deliverable for the rollout session**, not left undefined: author `scripts/run-codex-aruannik-auth.sh` in `/mnt/data/ai/steering` per the staged-script convention (human types exactly one line; verification inside the script). It must: copy `$CODEX_HOME/auth.json` (+ `config.toml` if present) out of the `est-biz-aruannik-dev` container into `/config/.codex-aruannik/` (dir 0700, files 0600, owner abc), then run a `CODEX_HOME=/config/.codex-aruannik codex login status` check and print one PASS/FAIL line.
+
+Rollout order per spec: (1) merge PR, fast-forward the webtop checkout that cron runs from; (2) owner edits steering-repo `portfolio.json` — add slot `C` pinned to est-biz-aruannik, `codex-aruannik` engine (`CODEX_HOME=/config/.codex-aruannik ...`) and pool (`daily_pass_quota: 12`), set aruannik's `engine`; (3) human runs the staged auth one-liner and sees PASS. Next :00/:30 tick starts Slot C; no re-arm needed.
