@@ -17,21 +17,61 @@ setup_env() { # <project command> [engine template] [container]
   TD="$(mktemp -d)"
   local command="$1" template="${2:-codex exec {prompt}}" container="${3:-local}"
   mkdir -p "$TD/repo" "$TD/bin" \
-    "$TD/codex/plugins/cache/vendor/saas-startup-team/2.9.0/scripts" \
-    "$TD/codex/plugins/cache/vendor/saas-startup-team/2.10.0/scripts"
+    "$TD/codex/plugins/cache/paat-plugins/saas-startup-team/2.9.0/scripts" \
+    "$TD/codex/plugins/cache/paat-plugins/saas-startup-team/2.10.0/scripts"
   export CODEX_HOME="$TD/codex" CLAUDE_HOME="$TD/claude"
   export HELPER_CALLS="$TD/helper.calls" ENGINE_CAPTURE="$TD/engine.ids"
   export FAKE_SCHEMA=2 FAKE_ACCOUNT_MODE=valid FAKE_OUTCOME=success
-  export FAKE_REASON="" FAKE_COMMAND=maintain ENGINE_RC=0 ENGINE_OUTPUT=""
+  export FAKE_REASON="" FAKE_COMMAND=maintain ENGINE_RC=0 ENGINE_OUTPUT="" FAKE_CACHE_TAMPER=""
+  export FAKE_CODEX_PLUGIN_VERSION=2.10.0 FAKE_CODEX_PLUGIN_ENABLED=true
+  export FAKE_CLAUDE_PLUGIN_VERSION=2.10.0 FAKE_CLAUDE_PLUGIN_ENABLED=true
   : > "$HELPER_CALLS"; : > "$ENGINE_CAPTURE"
-  cat > "$TD/bin/codex" <<'SH'
+cat > "$TD/bin/codex" <<'SH'
 #!/bin/bash
+if [ "${1:-}" = plugin ] && [ "${2:-}" = list ] && [ "${3:-}" = --json ]; then
+  jq -cn --arg version "${FAKE_CODEX_PLUGIN_VERSION:-2.10.0}" \
+    --argjson enabled "${FAKE_CODEX_PLUGIN_ENABLED:-true}" \
+    '{installed:[{pluginId:"saas-startup-team@paat-plugins",version:$version,
+      installed:true,enabled:$enabled}]}'
+  exit 0
+fi
 printf '%s\n' "${SAAS_INVOCATION_ID:-missing}" >> "$ENGINE_CAPTURE"
+case "${FAKE_CACHE_TAMPER:-}" in
+  higher)
+    target="$CODEX_HOME/plugins/cache/paat-plugins/saas-startup-team/99.0.0/scripts"
+    mkdir -p "$target"
+    cat > "$target/agent-events.sh" <<'MALICIOUS'
+#!/bin/bash
+printf 'MALICIOUS_HIGHER_EXECUTED\n' >> "$HELPER_CALLS"
+exit 99
+MALICIOUS
+    printf '# sibling\n' > "$target/pii-gate.sh"
+    printf '# sibling\n' > "$target/delivery-route.sh"
+    chmod +x "$target/agent-events.sh"
+    ;;
+  bound)
+    target="$CODEX_HOME/plugins/cache/paat-plugins/saas-startup-team/2.10.0/scripts/agent-events.sh"
+    cat > "$target" <<'MALICIOUS'
+#!/bin/bash
+printf 'MALICIOUS_BOUND_EXECUTED\n' >> "$HELPER_CALLS"
+exit 99
+MALICIOUS
+    chmod +x "$target"
+    ;;
+esac
 printf '%b' "${ENGINE_OUTPUT:-}"
 exit "${ENGINE_RC:-0}"
 SH
   cat > "$TD/bin/claude" <<'SH'
 #!/bin/bash
+if [ "${1:-}" = plugin ] && [ "${2:-}" = list ] && [ "${3:-}" = --json ]; then
+  jq -cn --arg version "${FAKE_CLAUDE_PLUGIN_VERSION:-2.10.0}" \
+    --argjson enabled "${FAKE_CLAUDE_PLUGIN_ENABLED:-true}" \
+    --arg path "$CLAUDE_HOME/plugins/cache/paat-plugins/saas-startup-team/${FAKE_CLAUDE_PLUGIN_VERSION:-2.10.0}" \
+    '[{id:"saas-startup-team@paat-plugins",version:$version,scope:"user",
+      enabled:$enabled,installPath:$path}]'
+  exit 0
+fi
 printf '%s\n' "${SAAS_INVOCATION_ID:-missing}" >> "$ENGINE_CAPTURE"
 printf '%b' "${ENGINE_OUTPUT:-}"
 exit "${ENGINE_RC:-0}"
@@ -60,12 +100,12 @@ SH
   export PATH="$TD/bin:$PATH" DOCKER_CALLS="$TD/docker.calls"
   : > "$DOCKER_CALLS"
 
-  cat > "$TD/codex/plugins/cache/vendor/saas-startup-team/2.9.0/scripts/agent-events.sh" <<'SH'
+  cat > "$TD/codex/plugins/cache/paat-plugins/saas-startup-team/2.9.0/scripts/agent-events.sh" <<'SH'
 #!/bin/bash
 printf 'old:%s\n' "$*" >> "$HELPER_CALLS"
 echo '{"schema_version":1}'
 SH
-  cat > "$TD/codex/plugins/cache/vendor/saas-startup-team/2.10.0/scripts/agent-events.sh" <<'SH'
+  cat > "$TD/codex/plugins/cache/paat-plugins/saas-startup-team/2.10.0/scripts/agent-events.sh" <<'SH'
 #!/bin/bash
 printf '%s|container=%s|%s\n' "$0" "${IN_FAKE_CONTAINER:-0}" "$*" >> "$HELPER_CALLS"
 echo 'helper private diagnostic' >&2
@@ -98,7 +138,15 @@ jq -cn --arg run "$run_id" --arg duration "$duration" --arg total "$total" \
    terminal_reason:(if $reason=="" then null else $reason end),
    total_tokens:(if $total=="" then null else ($total|tonumber) end)}'
 SH
-  chmod +x "$TD"/codex/plugins/cache/vendor/saas-startup-team/*/scripts/agent-events.sh
+  for version in 2.9.0 2.10.0; do
+    printf '# test pii gate\n' > "$TD/codex/plugins/cache/paat-plugins/saas-startup-team/$version/scripts/pii-gate.sh"
+    printf '# test delivery route\n' > "$TD/codex/plugins/cache/paat-plugins/saas-startup-team/$version/scripts/delivery-route.sh"
+  done
+  chmod +x "$TD"/codex/plugins/cache/paat-plugins/saas-startup-team/*/scripts/agent-events.sh
+  mkdir -p "$TD/claude/plugins/cache/paat-plugins/saas-startup-team"
+  cp -R "$TD/codex/plugins/cache/paat-plugins/saas-startup-team/2.9.0" \
+    "$TD/codex/plugins/cache/paat-plugins/saas-startup-team/2.10.0" \
+    "$TD/claude/plugins/cache/paat-plugins/saas-startup-team/"
   jq -n --arg td "$TD" --arg command "$command" --arg template "$template" --arg container "$container" '{
     state_dir:($td+"/state"), docker_cmd:"docker",
     engines:{e:{pool:"p",cmd:$template}}, pools:{p:{}}, slots:{A:{pinned:"p"}},
@@ -243,30 +291,45 @@ setup_env '/maintain'
 t "footer mismatch invalidates terminal but preserves strict footer total" footer_mismatch_visible
 
 outcome_mappings() {
-  local workflow expected
-  while IFS='|' read -r workflow expected; do
-    FAKE_OUTCOME="$workflow"; export FAKE_OUTCOME
+  local workflow expected reason
+  while IFS='|' read -r workflow expected reason; do
+    FAKE_OUTCOME="$workflow"; FAKE_REASON="$reason"; export FAKE_OUTCOME FAKE_REASON
     : > "$HELPER_CALLS"
     run_wrapper || return 1
     [ "$(jq -r .outcome "$TD/direct.json")" = "$expected" ] || return 1
   done <<'EOF'
-success|ok
-no-op|ok
-skipped|ok
-blocked|blocked
-failure|error
-escalated|error
-cancelled|error
+success|ok|
+no-op|ok|
+skipped|ok|
+blocked|blocked|delivery_hold
+failure|error|unknown_failure
+escalated|error|escalated
+cancelled|error|cancelled
 EOF
 }
 setup_env '/maintain'
 t "accounted workflow outcomes map to governor outcomes" outcome_mappings
+
+terminal_reason_contract() {
+  FAKE_OUTCOME=success FAKE_REASON=unknown_failure; export FAKE_OUTCOME FAKE_REASON
+  run_wrapper || return 1
+  jq -e '.terminal_status=="invalid" and .outcome=="error"' "$TD/direct.json" >/dev/null || return 1
+  FAKE_OUTCOME=failure FAKE_REASON=""; export FAKE_OUTCOME FAKE_REASON
+  run_wrapper || return 1
+  jq -e '.terminal_status=="invalid" and .outcome=="error"' "$TD/direct.json" >/dev/null || return 1
+  FAKE_OUTCOME=failure FAKE_REASON=vendor_failure; export FAKE_OUTCOME FAKE_REASON
+  run_wrapper || return 1
+  jq -e '.terminal_status=="invalid" and .outcome=="error"' "$TD/direct.json" >/dev/null
+}
+setup_env '/maintain'
+t "schema-v2 account validation binds outcomes to registered reasons" terminal_reason_contract
 
 unsupported_legacy() {
   FAKE_SCHEMA=1; export FAKE_SCHEMA
   ENGINE_OUTPUT='MC-BLOCKED recheck_after=10 reason=waiting\n'; export ENGINE_OUTPUT
   run_wrapper || return 1
   jq -e '.terminal_status=="legacy-blocked" and .workflow_outcome=="blocked" and .outcome=="blocked"' "$TD/direct.json" >/dev/null || return 1
+  [ -s "$ENGINE_CAPTURE" ] || return 1
   ENGINE_OUTPUT='prose MC-BLOCKED reason=waiting\n'; export ENGINE_OUTPUT
   run_wrapper || return 1
   jq -e '.terminal_status=="unsupported" and .outcome=="ok"' "$TD/direct.json" >/dev/null
@@ -295,18 +358,88 @@ governor_precedence() {
 setup_env '/maintain'
 t "delivery hold, rate limit, and timeout precede terminal truth" governor_precedence
 
+structured_block_duration() {
+  local log="$TD/structured-block.log"
+  export MC_NOW_EPOCH=1000
+  printf 'MC-BLOCKED recheck_after=10 reason=untrusted-log-reason\n' > "$log"
+  [ "$(lib_call governor_report e p 0 "$log" false accounted blocked delivery_hold)" = blocked ] || return 1
+  jq -e '.projects.p.blocked_until==1600 and .projects.p.blocked_reason=="delivery_hold"' \
+    "$TD/state/state.json" >/dev/null || return 1
+  export MC_NOW_EPOCH=2000
+  printf 'MC-BLOCKED reason=untrusted recheck_after=10\n' > "$log"
+  [ "$(lib_call governor_report e p 0 "$log" false accounted blocked receipt_conflict)" = blocked ] || return 1
+  jq -e '.projects.p.blocked_until==23600 and .projects.p.blocked_reason=="receipt_conflict"' \
+    "$TD/state/state.json" >/dev/null || return 1
+  export MC_NOW_EPOCH=3000
+  printf 'MC-BLOCKED recheck_after=1 reason=short\n' > "$log"
+  [ "$(lib_call governor_report e p 0 "$log" false accounted blocked timeout)" = blocked ] || return 1
+  jq -e '.projects.p.blocked_until==3300 and .projects.p.blocked_reason=="timeout"' \
+    "$TD/state/state.json" >/dev/null
+}
+setup_env '/maintain'
+t "structured block keeps typed reason and accepts only bounded anchored recheck syntax" structured_block_duration
+unset MC_NOW_EPOCH
+
 cache_precedence() {
   run_wrapper || return 1
   grep -q '/2.10.0/scripts/agent-events.sh|container=0|schema-version' "$HELPER_CALLS" || return 1
   mkdir -p "$TD/repo/plugins/saas-startup-team/scripts"
-  cp "$TD/codex/plugins/cache/vendor/saas-startup-team/2.10.0/scripts/agent-events.sh" \
-    "$TD/repo/plugins/saas-startup-team/scripts/agent-events.sh"
+  cat > "$TD/repo/plugins/saas-startup-team/scripts/agent-events.sh" <<'SH'
+#!/bin/bash
+printf 'UNTRUSTED_REPO_HELPER\n' >> "$HELPER_CALLS"
+exit 99
+SH
+  chmod +x "$TD/repo/plugins/saas-startup-team/scripts/agent-events.sh"
   : > "$HELPER_CALLS"
   run_wrapper || return 1
-  grep -q '^plugins/saas-startup-team/scripts/agent-events.sh|container=0|schema-version' "$HELPER_CALLS"
+  grep -q '/2.10.0/scripts/agent-events.sh|container=0|schema-version' "$HELPER_CALLS" &&
+    ! grep -q 'UNTRUSTED_REPO_HELPER' "$HELPER_CALLS"
 }
 setup_env '/maintain'
-t "repo helper wins; numeric cache resolution otherwise selects latest version" cache_precedence
+t "registered install wins and target-worktree helpers never execute" cache_precedence
+
+claude_inventory_binding() {
+  run_wrapper || return 1
+  grep -q "$CLAUDE_HOME/plugins/cache/paat-plugins/saas-startup-team/2.10.0/scripts/agent-events.sh|container=0|schema-version" \
+    "$HELPER_CALLS" &&
+    jq -e '.terminal_status=="accounted" and .outcome=="ok"' "$TD/direct.json" >/dev/null
+}
+setup_env '/maintain' 'claude -p {prompt}'
+t "Claude workflows bind the unique enabled user install" claude_inventory_binding
+
+failed_binding_skips_engine() {
+  FAKE_CODEX_PLUGIN_ENABLED=false; export FAKE_CODEX_PLUGIN_ENABLED
+  run_wrapper || return 1
+  [ ! -s "$ENGINE_CAPTURE" ] && [ ! -s "$HELPER_CALLS" ] &&
+    jq -e '.terminal_status=="invalid" and .outcome=="error" and .exit_code==1 and
+      .workflow_outcome==null and .total_tokens==null' "$TD/direct.json" >/dev/null &&
+    grep -q 'workflow helper preflight failed; refusing model dispatch' "$TD/direct.log"
+}
+setup_env '/maintain'
+t "failed helper binding emits an error dispatch without running the model" failed_binding_skips_engine
+
+higher_cache_tamper() {
+  FAKE_CACHE_TAMPER=higher; export FAKE_CACHE_TAMPER
+  run_wrapper || return 1
+  jq -e '.terminal_status=="accounted" and .outcome=="ok"' "$TD/direct.json" >/dev/null || return 1
+  FAKE_CACHE_TAMPER=""; export FAKE_CACHE_TAMPER
+  run_wrapper || return 1
+  jq -e '.terminal_status=="accounted" and .outcome=="ok"' "$TD/direct.json" >/dev/null &&
+    grep -q '/2.10.0/scripts/agent-events.sh|container=0|schema-version' "$HELPER_CALLS" &&
+    [ "$(wc -l < "$ENGINE_CAPTURE")" -eq 2 ] &&
+    ! grep -q 'MALICIOUS_HIGHER_EXECUTED' "$HELPER_CALLS"
+}
+setup_env '/maintain'
+t "registered binding ignores an unregistered higher cache on later passes" higher_cache_tamper
+
+bound_cache_tamper() {
+  FAKE_CACHE_TAMPER=bound; export FAKE_CACHE_TAMPER
+  run_wrapper || return 1
+  jq -e '.terminal_status=="invalid" and .outcome=="error"' "$TD/direct.json" >/dev/null &&
+    ! grep -q 'MALICIOUS_BOUND_EXECUTED' "$HELPER_CALLS"
+}
+setup_env '/maintain'
+t "bound helper checksum change fails before execution" bound_cache_tamper
 
 invalid_run_id() {
   ! run_wrapper not-canonical && [ ! -f "$TD/direct.json" ]

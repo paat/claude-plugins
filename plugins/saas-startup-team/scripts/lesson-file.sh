@@ -99,12 +99,14 @@ if [ -f "$CANDIDATES" ]; then
 
     # advisory dedup against existing open issues — FAIL CLOSED on search error
     # (a failed search must not let us open a duplicate public issue).
-    if existing="$(gh issue list --repo "$REPO" --search "$title in:title" --state open --json number,title 2>/dev/null)"; then
-      cnt="$(printf '%s' "$existing" | jq 'length' 2>/dev/null || echo 0)"
-    else
-      cnt="fail"
+    if ! existing="$(gh issue list --repo "$REPO" --search "$title in:title" --state open --json number,title 2>/dev/null)"; then
+      FAILED=$((FAILED + 1)); continue
     fi
-    if [ "$cnt" = "fail" ] || [ "${cnt:-0}" -gt 0 ]; then DEDUP_SEARCH=$((DEDUP_SEARCH + 1)); continue; fi
+    if ! cnt="$(printf '%s' "$existing" | jq -er \
+      'if type == "array" then length else error("dedup result is not an array") end' 2>/dev/null)"; then
+      FAILED=$((FAILED + 1)); continue
+    fi
+    if [ "$cnt" -gt 0 ]; then DEDUP_SEARCH=$((DEDUP_SEARCH + 1)); continue; fi
 
     url="$(gh issue create --repo "$REPO" --title "$title" --body "$body" --label "$labels" 2>/dev/null)" || { FAILED=$((FAILED + 1)); continue; }
     LEDGER_JSON="$(printf '%s' "$LEDGER_JSON" | jq -c --arg fp "$fp" --arg u "$url" '.[$fp] = {issue: $u}')"
@@ -131,8 +133,9 @@ printf '%s\n' "$LEDGER_JSON" > "${LEDGER}.tmp" && mv -f "${LEDGER}.tmp" "$LEDGER
   echo "- skipped (already in ledger): $DEDUP_LEDGER"
   echo "- skipped (existing open issue): $DEDUP_SEARCH"
   echo "- skipped (budget $MAX_ISSUES reached): $BUDGET_SKIP"
-  echo "- create failures: $FAILED"
+  echo "- filing failures (search/parse/create): $FAILED"
   echo "- malformed candidates skipped: $MALFORMED"
 } > "$REPORT"
 
+[ "$FAILED" -eq 0 ] || exit 1
 exit 0

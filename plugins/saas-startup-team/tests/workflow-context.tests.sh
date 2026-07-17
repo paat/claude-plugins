@@ -32,28 +32,28 @@ SH
     rm -f "$calls"; ec=0
     out=$(cd "$root" && PATH="$fixture:$PATH" GH_CALLS="$calls" PENDING_FIXTURE=post_merge \
       bash "$fixture/workflow-probe.sh" "$mode" --root "$root" --dry-run 2>&1) || ec=$?
-    assert_exit_code "WC1/$mode: post-merge legacy receipt blocks before readiness" "$ec" 4
-    assert_output_contains "WC2/$mode: blocked diagnostic names exact legacy state" "$out" \
-      'nonterminal legacy maintain-delivery receipt (post_merge) requires reconciliation'
-    assert_file_not_exists "WC3/$mode: blocked receipt cannot reach new issue probing" "$calls"
+    assert_exit_code "WC1/$mode: post-merge receipt is launchable for recovery" "$ec" 0
+    assert_output_contains "WC2/$mode: recovery diagnostic names issue and state" "$out" \
+      'pending receipt: issue #7 (post_merge)'
+    assert_file_not_exists "WC3/$mode: pending receipt bypasses new issue probing" "$calls"
   done
 
   ec=0; out=$(cd "$root" && PATH="$fixture:$PATH" PENDING_FIXTURE=close_intent \
     bash "$fixture/workflow-probe.sh" maintain --root "$root" --dry-run 2>&1) || ec=$?
-  assert_exit_code "WC4: pending close receipt cannot be reported no-op" "$ec" 4
+  assert_exit_code "WC4: pending close receipt launches recovery" "$ec" 0
   assert_output_not_contains "WC5: pending close receipt emits no no-op" "$out" 'no work to do'
 
   ec=0; out=$(cd "$root" && PATH="$fixture:$PATH" PENDING_FIXTURE=multiple \
     bash "$fixture/workflow-probe.sh" maintain-loop --root "$root" --dry-run 2>&1) || ec=$?
-  assert_exit_code "WC6: multiple legacy receipts fail closed" "$ec" 4
+  assert_exit_code "WC6: multiple compatibility receipts fail closed" "$ec" 4
   assert_output_contains "WC7: multiple receipt diagnostic is precise" "$out" \
-    'multiple nonterminal legacy maintain-delivery receipts require reconciliation'
+    'multiple nonterminal maintain-delivery receipts require reconciliation'
 
   ec=0; out=$(cd "$root" && PATH="$fixture:$PATH" PENDING_FIXTURE=malformed \
     bash "$fixture/workflow-probe.sh" maintain --root "$root" --dry-run 2>&1) || ec=$?
-  assert_exit_code "WC8: malformed legacy receipt inventory fails closed" "$ec" 4
+  assert_exit_code "WC8: malformed receipt inventory fails closed" "$ec" 4
   assert_output_contains "WC9: malformed receipt diagnostic is precise" "$out" \
-    'legacy maintain-delivery receipt inventory is malformed'
+    'maintain-delivery receipt inventory is malformed'
 
   rm -rf "$fixture" "$root"
 }

@@ -6,11 +6,12 @@
 # them, runs a HARD PII/secrets gate, dedups against a fingerprint ledger, and
 # writes candidate plugin-improvement drafts + a report. It is the deterministic
 # SAFETY layer: it does NOT decide genericity/phrasing (that is the /harvest
-# agent + the human review gate), and it does NOT file anything or touch the
-# network. See docs/design/self-improvement-loop.md.
+# agent + automated flagship review by default; /lessons-review remains the
+# manual fallback), and it does NOT file anything or touch the network. See
+# docs/design/self-improvement-loop.md.
 #
-# Output candidates are *dry-run only* — review precedes any filing, which is a
-# separate, later, opt-in stage.
+# Output candidates are *dry-run only*. Filing is a separate gated stage; filed
+# candidates enter automated flagship review by default.
 #
 # Usage:
 #   harvest.sh [--in FILE] [--events FILE] [--ledger FILE] [--candidates FILE]
@@ -162,7 +163,8 @@ fi
 has_successful_artifact() {
   case "$1" in open|merged) return 0 ;; esac
   case "$2" in merged|success) return 0 ;; esac
-  [ "$3" = success ]
+  case "$3" in passed|success) return 0 ;; esac
+  return 1
 }
 
 if [ -n "$TERMINALS_TMP" ]; then
@@ -285,8 +287,8 @@ done < <(printf '%s\n' "${!CNT[@]}" | sort)
 {
   echo "# Harvest — candidate plugin improvements (DRY RUN)"
   echo
-  echo "_Local only. Nothing filed. These are candidates for human review; genericity"
-  echo "and phrasing are decided at review, not here._"
+  echo "_Local only. Nothing filed. After gated filing, automated flagship review is"
+  echo "the default; /lessons-review remains the manual fallback._"
   echo
   echo "- project: \`$PROJECT\`"
   echo "- input: \`$IN\`"
@@ -301,7 +303,7 @@ done < <(printf '%s\n' "${!CNT[@]}" | sort)
   echo "- deduped (already in ledger): $DEDUP"
   echo
   if [ -n "$EVENTS" ]; then echo "- terminal events: projected authoritative roots"; fi
-  echo "Candidates: \`$CANDIDATES\` — review before any filing (filing is a separate, opt-in stage)."
+  echo "Candidates: \`$CANDIDATES\` — gated filing is separate, then flagship review runs by default."
 } > "$REPORT_TMP" || { echo "harvest: could not stage report" >&2; exit 2; }
 
 # Each output is replaced by a same-directory rename only after every source has

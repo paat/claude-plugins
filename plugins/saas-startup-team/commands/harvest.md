@@ -1,6 +1,6 @@
 ---
 name: harvest
-description: "Dry-run harvester for the self-improvement loop. Clusters local session-insights signals into candidate GENERIC plugin improvements, de-identifies them, runs a hard PII gate, dedups against a ledger, and presents drafts for review. No network, no issue filing — review precedes any filing. Usage: /harvest"
+description: "Dry-run harvester for the self-improvement loop. Projects authoritative root workflow outcomes plus local session signals into generic, de-identified, PII-gated candidates. No network or issue filing; public filing is a separate repo-pinned gate. Usage: /harvest"
 allowed-tools: Bash, Read
 user_invocable: true
 ---
@@ -9,9 +9,9 @@ user_invocable: true
 
 Part of the self-improvement loop (see `docs/design/self-improvement-loop.md`).
 This turns *local* intervention/friction signals into **candidate generic
-plugin-improvement drafts** for the investor to review. It is **dry run only**:
-nothing is filed anywhere, and nothing touches a public repo. Public filing is a
-separate, later, opt-in stage gated behind the human review.
+plugin-improvement drafts**. It is **dry run only**: nothing is filed anywhere,
+and nothing touches a public repo. Public filing is a separate, later, opt-in stage
+guarded by the exact enable flag, pinned repository, and filing safety checks.
 
 ## Pipeline
 
@@ -24,8 +24,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/session-insights.sh"
 2. Cluster + de-identify + PII-gate + dedup into candidates:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/harvest.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/harvest.sh" \
+  --events .startup/runs/agent-events.jsonl
 ```
+
+With `--events`, `harvest.sh` first calls the event projector's `terminals` view. That
+normalized root-only projection is authoritative: child records, incomplete roots,
+conflicts, and raw event-file ordering never become candidates. The script never reads
+the event JSONL directly.
 
 `harvest.sh` is the deterministic **safety layer**: it de-identifies (project
 nouns → `{{PROJECT}}`), **hard-blocks any candidate containing a secret/PII
@@ -85,5 +91,18 @@ SAAS_LESSON_SYNC_ENABLED=true \
 
 `lesson-file.sh` re-runs the hard PII gate on every issue at the filing boundary,
 is idempotent (the ledger prevents re-filing), and dedups against existing open
-issues. The filed issues are `lesson-candidate`s — they still pass through the
-human review gate (`/lessons-review`) before any implementation.
+issues. Filing/search failures are reported and return nonzero after the bounded report
+and ledger are written.
+
+Filed `lesson-candidate`s are reviewed by default with:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/lesson-auto-review.sh" \
+  --repo "${SAAS_PLUGIN_REPO}" --limit 3
+```
+
+Each candidate gets a fresh isolated Opus/xhigh verdict. Only unresolved output invokes
+independent GPT-5.6 Sol/xhigh arbitration. A still-unresolved pair is quarantined.
+Model transport failures and timeouts stay queued for retry; a zero-exit malformed Opus
+verdict invokes Sol, and a zero-exit malformed final Sol verdict is quarantined as
+unresolved. `/lessons-review` is an optional manual inspection/override, not a required gate.

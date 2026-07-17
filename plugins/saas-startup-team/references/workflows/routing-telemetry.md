@@ -53,8 +53,9 @@ argument array. Leave it absent only for a root or standalone unparented helper.
 "$RUN_ID"`, then record final wall duration and optional root token usage exactly once
 with `account --run-id "$RUN_ID" --duration-ms "$DURATION_MS" [--total-tokens
 "$TOTAL_TOKENS"]`. Never sum child tokens. Read all authoritative root outcomes with
-`terminals`; it fails on malformed, conflicting, or incomplete root `pass-outcome`
-lifecycles.
+`terminals`; it skips and reports incomplete root `pass-outcome` lifecycles while
+still failing on malformed or conflicting records. A single-run `terminal` lookup
+remains strict and fails when that requested root is incomplete.
 
 `terminal_reason` uses this finite privacy-safe registry:
 `invalid_workflow_state`, `context_binding_violation`, `false_success`, `probe_failed`,

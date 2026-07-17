@@ -1,6 +1,6 @@
 ---
 name: lessons-deliver
-description: "Autonomous implementation of human-approved lessons. Picks up `lesson-approved` issues from the pinned plugin repo and delivers each into this plugin repo end-to-end — claim, implement, mechanical firewall, tribunal gate, test suite, dual version bump, PR with `Closes #N`, merge on green — with no manual trigger. The single human gate stays at approval (`/lessons-review`). Flags: --once, --dry-run (read-only), --max-issues N, --max-merges N, --max-pass-minutes N (default 90), --max-run-minutes N (default 120; 0=unlimited), --repo OWNER/REPO. Usage: /lessons-deliver [--once] [--dry-run]"
+description: "Autonomous implementation of automatically approved lessons. Picks up `lesson-approved` issues from the pinned plugin repo and delivers each end-to-end — claim, implement, mechanical firewall, tribunal, tests, version sync, PR, and merge. Automatic review uses fresh Opus/xhigh with conditional Sol/xhigh arbitration; /lessons-review is optional. Flags: --once, --dry-run, --max-issues N, --max-merges N, --max-pass-minutes N, --max-run-minutes N, --repo OWNER/REPO."
 user_invocable: true
 ---
 
@@ -8,11 +8,15 @@ user_invocable: true
 
 You are the **Team Lead** running the last leg of the self-improvement loop; the human is
 a **silent investor**. The loop files de-identified, PII-gated `lesson-candidate` issues to
-the **pinned plugin repo**; the investor approves them in that issue queue
-(`/lessons-review --approve N` → `lesson-approved`). This command **autonomously
-implements every approved lesson into this plugin repo** — the approval label transition is
-the *only* human action; everything below runs on its own (on demand, or via the nightly
-cron in §Autonomy).
+the **pinned plugin repo**. `lesson-auto-review.sh` reviews at most three per pass using a
+fresh isolated Opus/xhigh verdict and conditional independent GPT-5.6 Sol/xhigh
+arbitration. High-confidence approval adds `lesson-approved`; unresolved pairs are
+quarantined, while model transport failures and timeouts remain candidates for retry. A
+zero-exit malformed Opus verdict invokes Sol; a zero-exit malformed final Sol verdict is
+unresolved and quarantined.
+This command autonomously implements every approved lesson. `/lessons-review` remains an
+optional inspection/override surface, not a bottleneck; everything below runs on its own
+(on demand, or via the nightly cron in §Autonomy).
 
 This is a **stateless supervisor**, like `/maintain`: every pass re-reads all state from
 GitHub (the `lesson-approved` queue) and from disk (`.startup/lessons-deliver/`); context

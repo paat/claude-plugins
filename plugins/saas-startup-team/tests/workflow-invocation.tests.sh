@@ -6,13 +6,14 @@ declare -F assert_file_contains >/dev/null 2>&1 || {
 
 test_workflow_invocation_contract() {
   echo -e "\n${CYAN}Suite WI: workflow invocation identity${NC}"
-  local loop_entry maintain_entry goal_entry maintain maintain_protocol goal section count
+  local loop_entry maintain_entry goal_entry maintain maintain_protocol goal receipts section count
   loop_entry="$PLUGIN_ROOT/commands/maintain-loop.md"
   maintain_entry="$PLUGIN_ROOT/commands/maintain.md"
   goal_entry="$PLUGIN_ROOT/commands/goal-deliver.md"
   maintain="$PLUGIN_ROOT/references/workflows/maintain.md"
   maintain_protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
   goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
+  receipts="$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md"
 
   assert_file_contains "WI1: maintain defines the canonical root identity" "$maintain" \
     '\^run-\[0-9a-f\]{32}\$'
@@ -105,8 +106,8 @@ test_workflow_invocation_contract() {
     'marker ID to equal'
   assert_file_contains "WI31c: embedded PR references do not auto-close" "$goal" \
     'non-closing issue reference such as `Refs #N`'
-  assert_file_contains "WI31d: embedded close waits for green deployment" "$goal" \
-    'which alone re-fetches the binding, closes the issue'
+  assert_file_contains "WI31d: embedded close waits for release proof" "$receipts" \
+    'Release proof must exist before issue close intent'
   assert_file_contains "WI31e: embedded resume never opens replacement PR" "$goal" \
     'replacement PR'
   assert_file_contains "WI31f: maintain references canonical embedded invariants" "$maintain" \

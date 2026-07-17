@@ -41,4 +41,4 @@ For `saas-startup-team` workflows in Codex:
 
 - Plugin: `saas-startup-team`
 - Command aliases: `/saas-startup-team:lessons-review`, `/lessons-review`
-- Source description: The single human gate of the self-improvement loop. Lists open `lesson-candidate` issues in the pinned plugin repo and lets the investor approve (mark ready for /lessons-deliver) or close (not generic) each one, before any implementation. Usage: /lessons-review
+- Source description: Optional manual inspection and override for the automated lesson-review queue. Lists verified `lesson-candidate` issues and can approve, close, or quarantine one; normal candidates are reviewed by lesson-auto-review.sh. Usage: /lessons-review

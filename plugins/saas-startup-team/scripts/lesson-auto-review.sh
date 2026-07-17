@@ -45,6 +45,38 @@ jq -e 'type == "object"' "$SCHEMA_FILE" >/dev/null 2>&1 || {
   echo "lesson-auto-review: review schema is missing or invalid" >&2
   exit 1
 }
+command -v flock >/dev/null 2>&1 || { echo "lesson-auto-review: flock is required" >&2; exit 1; }
+command -v sha256sum >/dev/null 2>&1 || { echo "lesson-auto-review: sha256sum is required" >&2; exit 1; }
+
+# Serialize one queue locally without making a concurrent cron invocation wait.
+# The helper intentionally does not share this lock, so guarded state transitions
+# cannot deadlock when called below.
+LOCK_ROOT="${SAAS_LESSON_AUTO_REVIEW_LOCK_DIR:-${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/saas-lesson-auto-review-$(id -u)}"
+if [ ! -e "$LOCK_ROOT" ]; then
+  mkdir -m 700 -- "$LOCK_ROOT" 2>/dev/null || true
+fi
+[ -d "$LOCK_ROOT" ] && [ ! -L "$LOCK_ROOT" ] \
+  && [ "$(stat -c %u "$LOCK_ROOT" 2>/dev/null)" = "$(id -u)" ] || {
+    echo "lesson-auto-review: unsafe local lock directory" >&2
+    exit 1
+  }
+chmod 700 "$LOCK_ROOT" || { echo "lesson-auto-review: cannot secure local lock directory" >&2; exit 1; }
+repo_lock_key="$(printf '%s' "$REPO" | sha256sum | awk '{print $1}')" || {
+  echo "lesson-auto-review: cannot derive local lock key" >&2
+  exit 1
+}
+LOCK_FILE="$LOCK_ROOT/$repo_lock_key.lock"
+if [ -e "$LOCK_FILE" ] || [ -L "$LOCK_FILE" ]; then
+  [ -f "$LOCK_FILE" ] && [ ! -L "$LOCK_FILE" ] || {
+    echo "lesson-auto-review: unsafe local lock file" >&2
+    exit 1
+  }
+fi
+exec 8>>"$LOCK_FILE" || { echo "lesson-auto-review: cannot open local lock" >&2; exit 1; }
+if ! flock -n 8; then
+  echo "lesson-auto-review: another review for $REPO is active; skipped"
+  exit 0
+fi
 
 umask 077
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lesson-auto-review.XXXXXX")" || {
@@ -164,6 +196,7 @@ run_sol() {
     cd "$cwd" || exit 125
     timeout --signal=TERM --kill-after=5s "$MODEL_TIMEOUT_SECONDS" \
       codex exec --skip-git-repo-check --ignore-user-config --ignore-rules --strict-config \
+      -m gpt-5.6-sol -c 'model_reasoning_effort="xhigh"' \
       --disable apps --disable plugins --disable hooks --disable multi_agent \
       --disable shell_tool --disable unified_exec --disable code_mode --disable code_mode_host \
       --disable browser_use --disable browser_use_external --disable browser_use_full_cdp_access \
@@ -171,7 +204,6 @@ run_sol() {
       --disable enable_mcp_apps --disable image_generation \
       --ephemeral --sandbox read-only --color never -c 'mcp_servers={}' \
       -c 'shell_environment_policy.inherit="core"' \
-      -m gpt-5.6-sol -c 'model_reasoning_effort="xhigh"' \
       --output-schema "$SCHEMA_FILE" --output-last-message "$last" - \
       < "$prompt" > "$output" 2> "$errors"
   ) || rc=$?
@@ -182,11 +214,15 @@ mutate_lesson() {
   local action="$1" number="$2" provider="$3" note
   case "$action" in
     approve) note="Auto-review approved by $provider at the flagship confidence gate." ;;
-    close) note="Auto-review rejected by $provider at the flagship confidence gate." ;;
+    reject) note="Auto-review rejected by $provider at the flagship confidence gate." ;;
     quarantine) note="Auto-review remained unresolved after Opus and GPT-5.6 Sol review." ;;
     *) return 2 ;;
   esac
-  "$LESSON_REVIEW" "--$action" "$number" --note "$note" --repo "$REPO"
+  if [ "$action" = reject ]; then
+    "$LESSON_REVIEW" --auto-reject "$number" --note "$note" --repo "$REPO"
+  else
+    "$LESSON_REVIEW" "--$action" "$number" --note "$note" --repo "$REPO"
+  fi
 }
 
 candidates_file="$WORK_DIR/candidates.json"
@@ -245,7 +281,7 @@ for candidate in "${CANDIDATES[@]}"; do
   final_provider="Opus"
   case "$opus_class" in
     approve) final_action="approve" ;;
-    reject) final_action="close" ;;
+    reject) final_action="reject" ;;
     unresolved)
       sol_raw="$prefix-sol-raw.txt"
       sol_err="$prefix-sol.err"
@@ -260,16 +296,15 @@ for candidate in "${CANDIDATES[@]}"; do
       sol_source="$sol_raw"
       [ -s "$sol_last" ] && sol_source="$sol_last"
       if ! validate_verdict "$sol_source" "$sol_verdict"; then
-        echo "lesson-auto-review: #$number retry (malformed final structured verdict)" >&2
-        overall=1
-        continue
+        final_action="quarantine"
+      else
+        case "$(verdict_class "$sol_verdict")" in
+          approve) final_action="approve" ;;
+          reject) final_action="reject" ;;
+          unresolved) final_action="quarantine" ;;
+        esac
       fi
       final_provider="Opus and GPT-5.6 Sol"
-      case "$(verdict_class "$sol_verdict")" in
-        approve) final_action="approve" ;;
-        reject) final_action="close" ;;
-        unresolved) final_action="quarantine" ;;
-      esac
       ;;
   esac
 

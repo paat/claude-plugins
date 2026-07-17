@@ -182,6 +182,12 @@ valid_sha() { [ -z "$1" ] || [[ "$1" =~ ^[0-9a-fA-F]{7,64}$ ]]; }
 valid_time() { [ -z "$1" ] || [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; }
 valid_uint_or_empty() { [ -z "$1" ] || [[ "$1" =~ ^[0-9]+$ ]]; }
 valid_status() { [ -z "$1" ] || [[ "$1" =~ ^[a-z][a-z0-9_-]{0,31}$ ]]; }
+valid_terminal_reason_code() {
+  case "$1" in
+    invalid_workflow_state|context_binding_violation|false_success|probe_failed|triage_failed|delivery_failed|verification_failed|lease_conflict|receipt_conflict|budget_exhausted|timeout|rate_limited|delivery_hold|cancelled|escalated|unknown_failure) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 random_hex() {
   local bytes="$1" value
@@ -451,6 +457,23 @@ append_event() {
   fi
   valid_sha "$base_sha" && valid_sha "$result_sha" || { echo "agent-events: invalid commit SHA" >&2; exit 2; }
   [ -z "$terminal_reason" ] || valid_code "$terminal_reason" || { echo "agent-events: invalid --terminal-reason" >&2; exit 2; }
+  if [ -z "$parent_run_id" ] && [ "$phase" = pass-outcome ] \
+     && { [ "$event_type" = completed ] || [ "$event_type" = accounted ]; }; then
+    case "$outcome" in
+      success|no-op|skipped)
+        [ -z "$terminal_reason" ] || {
+          echo "agent-events: successful root pass outcomes require a null terminal reason" >&2
+          exit 2
+        }
+        ;;
+      blocked|failure|escalated|cancelled)
+        [ -n "$terminal_reason" ] && valid_terminal_reason_code "$terminal_reason" || {
+          echo "agent-events: unsuccessful root pass outcomes require a registered terminal reason" >&2
+          exit 2
+        }
+        ;;
+    esac
+  fi
   local reason
   for reason in "${reasons[@]}"; do
     valid_code "$reason" || { echo "agent-events: invalid routing reason" >&2; exit 2; }
@@ -574,6 +597,12 @@ validate_event_line() {
     def nullable_uint: . == null or uint;
     def nullable_time: . == null or (type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"));
     def nullable_sha: . == null or (type == "string" and test("^[0-9a-fA-F]{7,64}$"));
+    def registered_terminal_reason:
+      . != null and IN(
+        "invalid_workflow_state","context_binding_violation","false_success",
+        "probe_failed","triage_failed","delivery_failed","verification_failed",
+        "lease_conflict","receipt_conflict","budget_exhausted","timeout","rate_limited",
+        "delivery_hold","cancelled","escalated","unknown_failure");
     def v1_keys: [
       "schema_version","routing_schema_version","run_id","command","phase","surface","profile","routing_reasons",
       "writer_id","event_type","attempt","recorded_at","started_at","finished_at","duration_ms",
@@ -609,6 +638,14 @@ validate_event_line() {
     (.pr | nullable_string) and (.merge | nullable_string) and (.deployment | nullable_string) and (.rollback | nullable_string) and
     (.outcome | type == "string") and
     (if .event_type == "completed" or .event_type == "accounted" then .outcome != "incomplete" else .outcome == "incomplete" end) and
+    (if .schema_version == 2 and .parent_run_id == null and .phase == "pass-outcome" and
+        (.event_type == "completed" or .event_type == "accounted")
+     then if (.outcome | IN("success","no-op","skipped")) then .terminal_reason == null
+          elif (.outcome | IN("blocked","failure","escalated","cancelled"))
+          then (.terminal_reason | registered_terminal_reason)
+          else false
+          end
+     else true end) and
     (.base_sha | nullable_sha) and (.result_sha | nullable_sha) and
     (.source_schema_version | uint) and
     ((keys | sort) == (if .schema_version == 1 then v1_keys else v2_keys end | sort))
@@ -691,7 +728,7 @@ read_events() {
 }
 
 project_terminals() {
-  local events_file="$1" raw_run_id="${2:-}" identity_key query_id="" records result status
+  local events_file="$1" raw_run_id="${2:-}" identity_key query_id="" records result status incomplete_count
   records=$(mktemp) || return 3
   if ! read_events --events "$events_file" > "$records"; then
     rm -f -- "$records"
@@ -712,7 +749,10 @@ project_terminals() {
     | map(
         . as $lifecycle
         | [.[] | select(.value.event_type == "completed" or .value.event_type == "accounted")] as $candidates
-        | if ($candidates | length) == 0 then {status:"incomplete",run_id:$lifecycle[0].value.run_id}
+        | if ($lifecycle | map(.value.writer_id) | unique | length) != 1 or
+             ($lifecycle | map(.value.command) | unique | length) != 1
+          then {status:"conflict",run_id:$lifecycle[0].value.run_id}
+          elif ($candidates | length) == 0 then {status:"incomplete",run_id:$lifecycle[0].value.run_id}
           elif ($candidates | map(.value | logical_terminal | tojson) | unique | length) != 1 or
                ($candidates | map(.value.duration_ms) | map(select(. != null)) | unique | length) > 1 or
                ($candidates | map(.value.total_tokens) | map(select(. != null)) | unique | length) > 1
@@ -728,14 +768,24 @@ project_terminals() {
       ) as $runs
     | if ($runs | length) == 0 then {status:"missing",events:[]}
       elif any($runs[]; .status == "conflict") then {status:"conflict",events:[]}
-      elif any($runs[]; .status == "incomplete") then {status:"incomplete",events:[]}
-      else {status:"ok",events:($runs | map(.event) | sort_by(.run_id))}
+      elif $run_id != "" and any($runs[]; .status == "incomplete") then {status:"incomplete",events:[]}
+      else {
+        status:"ok",
+        incomplete_count:([$runs[] | select(.status == "incomplete")] | length),
+        events:($runs | map(select(.status == "ok") | .event) | sort_by(.run_id))
+      }
       end
   ' "$records") || { rm -f -- "$records"; return 3; }
   rm -f -- "$records"
   status=$(jq -r .status <<< "$result")
   case "$status" in
-    ok) jq -c '.events[]' <<< "$result" ;;
+    ok)
+      incomplete_count=$(jq -r '.incomplete_count // 0' <<< "$result")
+      if [ -z "$raw_run_id" ] && [ "$incomplete_count" -gt 0 ]; then
+        echo "agent-events: skipped $incomplete_count incomplete root pass-outcome lifecycle(s)" >&2
+      fi
+      jq -c '.events[]' <<< "$result"
+      ;;
     missing)
       [ -z "$raw_run_id" ] && return 0
       echo "agent-events: terminal event is missing" >&2; return 4
@@ -810,10 +860,17 @@ account_event() {
   recorded_at=$(now_iso)
   payload=$(jq -c --argjson schema_version "$SCHEMA_VERSION" --arg recorded_at "$recorded_at" \
     --arg duration_ms "$duration_ms" --arg total_tokens "$desired_total" '
-      .schema_version=$schema_version | .source_schema_version=$schema_version
+      . as $terminal
+      | .schema_version=$schema_version | .source_schema_version=$schema_version
       | .event_type="accounted" | .recorded_at=$recorded_at
       | .duration_ms=($duration_ms|tonumber)
       | .total_tokens=(if $total_tokens == "" then null else ($total_tokens|tonumber) end)
+      | .terminal_reason=(
+          if $terminal.schema_version == 1 and
+             ($terminal.outcome | IN("blocked","failure","escalated","cancelled"))
+          then "unknown_failure"
+          else ($terminal.terminal_reason // null)
+          end)
     ' <<< "$terminal") || { echo "agent-events: could not construct accounting event" >&2; exit 3; }
   printf '%s\n' "$payload" | validate_event_line || {
     echo "agent-events: invalid accounting event" >&2; exit 3; }

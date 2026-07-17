@@ -1089,11 +1089,13 @@ test_plugin_issues() {
     FAIL_COUNT=$((FAIL_COUNT + 1))
   fi
 
-  # J2-J5: the shared reference holds the gh filing command; the four primary
+  # J2-J5: the shared reference routes through the dry-funnel filing helper; the four primary
   # issue-filing agents point at that reference (stated once, referenced elsewhere).
   # tech-founder-codex* inherit plugin-issue reporting via tech-founder-claude.md (which they read).
-  assert_file_contains "J-gh-ref: reference files via the pinned repo variable" \
-    "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" 'gh issue create --repo "${SAAS_PLUGIN_REPO}"'
+  assert_file_contains "J-gh-ref: reference files through the issue funnel" \
+    "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" 'scripts/issue-file.sh'
+  assert_file_contains "J-gh-ref: issue funnel receives the pinned repo" \
+    "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" '--repo "${SAAS_PLUGIN_REPO}"'
   for agent in business-founder.md tech-founder-claude.md tech-founder-claude-maintain.md business-founder-maintain.md; do
     assert_file_contains "J-gh: $agent references the plugin-issue-reporting doc" \
       "$PLUGIN_ROOT/agents/$agent" "templates/plugin-issue-reporting.md"
@@ -1129,6 +1131,8 @@ test_maintain() {
   local cmd="$PLUGIN_ROOT/references/workflows/maintain.md"
   local entry="$PLUGIN_ROOT/commands/maintain.md"
   local protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
+  local goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
+  local receipts="$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md"
   local codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-workflow/SKILL.md"
   assert_file_exists "M1: maintain.md exists" "$cmd"
   # Frontmatter
@@ -1136,7 +1140,7 @@ test_maintain() {
   assert_file_contains "M3: user_invocable"            "$cmd" "user_invocable: true"
   # Reuse / dependencies
   assert_file_contains "M4: invokes goal-deliver"      "$cmd" "goal-deliver"
-  assert_file_contains "M5: tribunal hard dep"         "$cmd" "tribunal-review"
+  assert_file_contains "M5: tribunal hard dep"         "$goal" "tribunal-review"
   # Stateless supervisor + disk state
   assert_file_contains "M6: disk state dir"            "$cmd" ".startup/maintain"
   assert_file_contains "M7: current-run persisted"     "$cmd" "current-run.json"
@@ -1158,7 +1162,7 @@ test_maintain() {
   assert_file_contains "M17: injection firewall"       "$cmd" "inform requirements only"
   assert_file_contains "M18: side-effect ban"          "$cmd" "side-effect"
   # Merge safety (no --auto default; explicit rerun)
-  assert_file_contains "M19: squash merge"             "$cmd" "gh pr merge --squash"
+  assert_file_contains "M19: squash merge"             "$goal" "--squash --delete-branch"
   # Circuit breakers
   assert_file_contains "M20: max-issues breaker"       "$cmd" "max-issues"
   assert_file_contains "M21: max-merges breaker"       "$cmd" "max-merges"
@@ -1182,24 +1186,18 @@ test_maintain() {
   assert_file_contains "M29: cached agent-fixable enters queue" "$cmd" "deliverable queue input"
   assert_file_contains "M30: cache hit still feeds queue" "$cmd" "A cache hit supplies the cached verdict"
   # Claude /maintain recurrence + tribunal gates.
-  assert_file_contains "M31: command recurrence class gate" "$cmd" "root cause / recurrence class"
-  assert_file_contains "M32: command fixes recurrence class" "$cmd" "fix the class, not only the observed instance"
-  assert_file_contains "M33: command red-green proof" "$cmd" "red-before/green-after proof"
-  assert_file_contains "M34: command current HEAD tribunal predicate" "$cmd" "current PR HEAD and latest diff"
-  assert_file_contains "M35: command stale verdict invalidation" "$cmd" "reopens tribunal validation"
-  assert_file_contains "M36: command missing recurrence proof blocks merge" "$cmd" "missing recurrence proof"
-  # Codex workflow hard gates
+  assert_file_contains "M31: canonical recurrence class gate" "$goal" "root-cause/recurrence class"
+  assert_file_contains "M32: canonical recurrence fix requires proof" "$goal" "red-before/green-after proof"
+  assert_file_contains "M33: canonical incident work adds a guard" "$goal" "mechanical regression guard"
+  assert_file_contains "M34: canonical merge binds current HEAD" "$goal" "latest-HEAD gates"
+  assert_file_contains "M35: default or head drift restarts validation" "$goal" \
+    "default/head advance restarts final validation"
+  assert_file_contains "M36: missing durable guard cannot silently close" "$goal" \
+    "if no durable guard is possible"
+  # Generated Codex workflow stays thin and loads canonical source policy.
   assert_file_exists "M37: Codex maintain workflow exists" "$codex_cmd"
-  assert_file_contains "M38: Codex recurrence class gate" "$codex_cmd" "root cause / recurrence class"
-  assert_file_contains "M39: Codex recurrence proof gate" "$codex_cmd" "red-before/green-after proof"
-  assert_file_contains "M40: Codex closing loop prerequisite" "$codex_cmd" "main merge prerequisite"
-  assert_file_contains "M41: Codex stale verdict invalidation" "$codex_cmd" "reopens the closing loop"
-  assert_file_contains "M42: Codex current HEAD predicate" "$codex_cmd" "current PR HEAD and latest diff"
-  assert_file_contains "M43: Codex gates run in maintain cycle" "$codex_cmd" "issue-delivery cycle"
-  assert_file_contains "M44: Codex QA before closing loop" "$codex_cmd" "business-founder QA phase with Playwright"
-  assert_file_contains "M45: Codex QA not-applicable record" "$codex_cmd" "Business-founder Playwright QA: not applicable"
-  assert_file_contains "M45aa: Codex browser transport loss is issue-local" "$codex_cmd" \
-    'issue-local `browser-tool-unavailable`'
+  assert_file_not_contains "M38: Codex maintain has no duplicated hard-gate block" \
+    "$codex_cmd" 'Codex Maintain Hard Gates'
   assert_file_contains "M45a: maintain uses queue builder" "$cmd" "maintain-queue.sh"
   assert_file_contains "M45a1: maintain checks queue builder exit" "$cmd" "if ! QUEUE_JSON="
   assert_file_contains "M45a2: maintain dry-run uses fixture queue state" "$cmd" "--issues-file <issues.json>"
@@ -1213,18 +1211,18 @@ test_maintain() {
     "A lost shell invalidates"
   assert_file_contains "M45a9: maintain processes resumable PRs before new work" "$protocol" \
     'Process `.resumable` before'
-  assert_file_contains "M45a10: resume re-proves current-head gates" "$protocol" \
+  assert_file_contains "M45a10: resume re-proves current-head gates" "$receipts" \
     'Do not trust an earlier green check'
-  assert_file_contains "M45a11: resume never creates a replacement PR" "$protocol" \
-    'never opens a replacement PR'
+  assert_file_contains "M45a11: resume never creates a replacement PR" "$receipts" \
+    'Never open a replacement PR'
   assert_file_contains "M45a12: second browser transport failure is issue-local" "$protocol" \
     'continues independent queue work'
-  assert_file_contains "M45a13: maintain accepts coordinator lease identity" "$entry" \
+  assert_file_contains "M45a13: maintain accepts coordinator lease identity" "$cmd" \
     '--lease-run-id ID'
-  assert_file_contains "M45a14: internal lease identity never reaches probe" "$entry" \
+  assert_file_contains "M45a14: internal lease identity never reaches probe" "$cmd" \
     'never forward it to the probe'
-  assert_file_contains "M45a15: maintain protocol reuses coordinator lease identity" "$protocol" \
-    'LEASE_RUN_ID=${MAINTAIN_LEASE_RUN_ID:-}'
+  assert_file_contains "M45a15: maintain exports exact coordinator lease identity" "$cmd" \
+    'MAINTAIN_LEASE_RUN_ID="$SAAS_INVOCATION_ID"'
   assert_file_contains "M45a16: normal maintain rejects legacy activation" "$protocol" \
     'never calls `maintain-leases.sh activate`'
   assert_file_contains "M45a17: resumable rows carry no durable permission" "$cmd" \
@@ -1247,8 +1245,8 @@ test_maintain() {
     'Repeat the full live guard before QA/tribunal and immediately before'
   assert_file_contains "M45a26: resume phases use the executable exact-row guard" "$protocol" \
     'maintain-queue.sh --resume-candidate-file'
-  assert_file_contains "M45a27: active merge atomically pins the reviewed PR head" "$protocol" \
-    'gh pr merge "$PR_NUMBER" --match-head-commit "$BOUND_SHA"'
+  assert_file_contains "M45a27: active merge atomically pins the reviewed PR head" "$receipts" \
+    'gh pr merge --match-head-commit <receipt-head>'
   assert_file_contains "M45a28: active merge compares the final live PR head" "$protocol" \
     '[ "$LIVE_SHA" = "$BOUND_SHA" ]'
   assert_file_contains "M45a29: legacy migration binds actor and PR provenance" "$protocol" \
@@ -1936,6 +1934,9 @@ SH
 test_maintain_loop() {
   echo -e "\n${CYAN}== /maintain-loop command ==${NC}"
   local command="$PLUGIN_ROOT/commands/maintain-loop.md"
+  local coordinator="$PLUGIN_ROOT/references/workflows/maintain.md"
+  local protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
+  local goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
   local codex_cmd="$PLUGIN_ROOT/skills/maintain-loop/SKILL.md"
   local old_codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-loop-workflow/SKILL.md"
 
@@ -1943,7 +1944,7 @@ test_maintain_loop() {
   assert_file_contains "ML2: command is user invocable" "$command" "user_invocable: true"
   assert_file_contains "ML3: concise Codex skill name" "$command" "codex-skill-name: maintain-loop"
   assert_file_contains "ML4: parent stays context-thin" "$command" \
-    "Never read issue bodies, source files"
+    "never read issue bodies, source files"
   assert_file_contains "ML5: parent probes maintain model-free" "$command" \
     'workflow-probe.sh maintain'
   assert_file_not_contains "ML6: old maintain-loop probe is unused" "$command" \
@@ -1957,56 +1958,49 @@ test_maintain_loop() {
   assert_file_contains "ML10: passes are sequential" "$command" \
     'Never run two passes concurrently'
   assert_file_contains "ML10a: coordinator forbids noisy wait polling" "$command" \
-    'empty timeouts are not progress'
+    'Empty timeouts are not progress'
   assert_file_contains "ML10b: empty waits do not produce status noise" "$command" \
-    'never report or immediately retry them'
+    'or immediately retry them'
   assert_file_contains "ML11: completed subagents are not reused" "$command" \
     'completed subagent'
   assert_file_contains "ML12: inline fallback is forbidden" "$command" \
     'inline as a fallback'
   assert_file_contains "ML13: result is compact" "$command" \
-    'Keep only its compact terminal result'
-  assert_file_contains "ML14: no-work exits before dispatch" "$command" \
-    'Exit 3 is a clean no-op'
-  assert_file_contains "ML15: outer once bounds child count" "$command" \
-    '`--once` means launch at most one'
-  assert_file_contains "ML16: dry-run is bounded" "$command" \
-    'Under outer `--once` or `--dry-run`, stop after this pass'
-  assert_file_contains "ML16a: normal child gets a parent-minted lease identity" "$command" \
-    'agent-events.sh" new-run-id'
-  assert_file_contains "ML16b: exact lease identity is forwarded to child" "$command" \
-    '--lease-run-id <LEASE_RUN_ID>'
-  assert_file_contains "ML16c: known-terminal child is reaped by exact ID" "$command" \
+    'Keep only the child'"'"'s compact terminal result'
+  assert_file_contains "ML14: no-work exits before dispatch" "$coordinator" \
+    'exit 3 is `no-op`'
+  assert_file_contains "ML15: outer once bounds child count" "$coordinator" \
+    '`--once` launches at most one child'
+  assert_file_contains "ML16: dry-run is bounded" "$coordinator" \
+    'the child under outer `--once` or `--dry-run`'
+  assert_file_contains "ML16a: normal child gets a parent-minted lease identity" "$coordinator" \
+    'agent-events.sh new-run-id'
+  assert_file_contains "ML16b: exact lease identity is forwarded to child" "$coordinator" \
+    '--lease-run-id "$SAAS_INVOCATION_ID"'
+  assert_file_contains "ML16c: known-terminal child is reaped by exact ID" "$coordinator" \
     'maintain-leases.sh reap-terminal'
-  assert_file_contains "ML16d: availability is rechecked after terminal reap" "$command" \
+  assert_file_contains "ML16d: availability is rechecked after terminal reap" "$coordinator" \
     'maintain-leases.sh available'
-  assert_file_contains "ML16e: unknown-terminal child is never reaped" "$command" \
+  assert_file_contains "ML16e: unknown-terminal child is never reaped" "$coordinator" \
     'unknown-terminal child is never reaped'
-  assert_file_contains "ML16f: dry-run mints and reaps no lease" "$command" \
-    'Under `--dry-run`, never mint or reap a lease'
+  assert_file_contains "ML16f: dry-run mints and reaps no lease" "$coordinator" \
+    'Dry-run never verifies a terminal or reaps a lease'
 
-  assert_file_contains "ML16g: issue blockers require durable cooldown" "$command" \
-    'records terminal state and cooldown'
-  assert_file_contains "ML16h: issue blockers return to the probe" "$command" \
-    'Otherwise return to step 1'
-  assert_file_contains "ML16i: pass-wide or unknown blockers stop" "$command" \
-    'or unknown scope'
-  assert_file_contains "ML16j: per-pass limits continue the loop" "$command" \
-    'Return `pass-complete` after success or a'
+  assert_file_contains "ML16g: issue blockers require durable cooldown" "$protocol" \
+    'active cooldown'
+  assert_file_contains "ML16i: pass-wide or unknown blockers stop" "$coordinator" \
+    'scope, or unknown child state'
+  assert_file_contains "ML16j: only pass-complete continues the loop" "$coordinator" \
+    '`pass-complete` terminal; stop on'
   assert_file_contains "ML16k: unavailable issue targets are diagnostics" \
-    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    'unavailable issue-specific dev or test target first as a diagnostic'
+    "$goal" 'using only documented setup/start commands'
   assert_file_contains "ML16l: browser evidence loads the canonical procedure" \
-    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
+    "$protocol" \
     'skills/ux-tester/references/design-review-leg.md'
-  assert_file_contains "ML16m: resumable blocker preserves PR claim" "$command" \
-    'with one, retain it'
-  assert_file_contains "ML16n: protocol retains resumable PR ownership" \
-    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    'keep the PR and `maintain:claimed` intact'
+  assert_file_contains "ML16m: resumable blocker preserves PR claim" "$protocol" \
+    'exists, keep both intact'
   assert_file_contains "ML16o: ambiguous linked PR blocks the pass" \
-    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    'identity is `pass-blocked`, not `issue-blocked`'
+    "$protocol" 'Ambiguous, multiple, or mismatched linked PR identity is `pass-blocked`'
 
   assert_file_exists "ML17: concise Codex skill exists" "$codex_cmd"
   assert_file_contains "ML18: Codex skill aliases command" "$codex_cmd" "/maintain-loop"
@@ -4877,16 +4871,51 @@ test_lesson_file() {
   _cand fp interrupt "obs" process > "$cand"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=923 GH_FAIL_ON="issue list" SAAS_LESSON_SYNC_ENABLED=true \
     bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F12: search failure exits nonzero" "$ec" 1
   assert_equals "F12: search failure does not create (fail-closed)" "$(_creates "$L")" "0"
+  assert_file_contains "F12: search failure is reported as a filing failure" "$report" \
+    "filing failures (search/parse/create): 1"
+  assert_file_contains "F12: search failure is not successful dedup" "$report" \
+    "skipped (existing open issue): 0"
+  assert_json_valid "F12: bounded ledger is still written" "$led"
+  rm -rf "$workdir"
+
+  # --- F13: malformed dedup JSON is a filing failure, not successful dedup ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp interrupt "obs" process > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=924 GH_SEARCH_JSON='not-json' SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F13: malformed search response exits nonzero" "$ec" 1
+  assert_equals "F13: malformed search response creates nothing" "$(_creates "$L")" "0"
+  assert_file_contains "F13: parse failure is reported" "$report" \
+    "filing failures (search/parse/create): 1"
+  assert_file_contains "F13: parse failure is not successful dedup" "$report" \
+    "skipped (existing open issue): 0"
+  assert_json_valid "F13: parse failure still writes the ledger" "$led"
+  rm -rf "$workdir"
+
+  # --- F14: gh create failure is reported after ledger/report persistence ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp interrupt "obs" process > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=925 GH_FAIL_ON="issue create" SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F14: create failure exits nonzero" "$ec" 1
+  assert_equals "F14: create was attempted once" "$(_creates "$L")" "1"
+  assert_file_contains "F14: create failure is reported" "$report" \
+    "filing failures (search/parse/create): 1"
+  assert_json_valid "F14: create failure still writes the ledger" "$led"
+  assert_equals "F14: failed create records no fingerprint" "$(jq 'length' "$led")" "0"
   rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
-# Suite R: lesson-review.sh (the single human gate — list / approve / close)
+# Suite R: lesson-review.sh (manual/automated guarded transitions)
 # ---------------------------------------------------------------------------
 
 test_lesson_review() {
-  echo -e "\n${CYAN}Suite R: lesson-review.sh (human gate)${NC}"
+  echo -e "\n${CYAN}Suite R: lesson-review.sh (guarded review transitions)${NC}"
   local script="$PLUGIN_ROOT/scripts/lesson-review.sh"
   local workdir L ec output cnt
   local REPO="paat/claude-plugins"

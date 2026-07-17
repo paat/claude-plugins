@@ -84,34 +84,50 @@ lease_guardian_gate() {
   fi
 }
 
-legacy_delivery_receipt_gate() {
-  local pending_json pending_count pending_state
+PENDING_DELIVERY_STATE=""
+PENDING_DELIVERY_ISSUE=""
+embedded_delivery_receipt_probe() {
+  local pending_json pending_count
   pending_json="$(bash "$SCRIPT_DIR/maintain-delivery.sh" pending --repo-root "$ROOT")" || {
-    echo "workflow-probe: $MODE blocked: legacy maintain-delivery receipts are malformed or cannot be inspected" >&2
+    echo "workflow-probe: $MODE blocked: maintain-delivery receipts are malformed or cannot be inspected" >&2
     exit 4
   }
   pending_count=$(jq -er 'if type == "array" then length else error("not an array") end' \
     <<<"$pending_json") || {
-    echo "workflow-probe: $MODE blocked: legacy maintain-delivery receipt inventory is malformed" >&2
+    echo "workflow-probe: $MODE blocked: maintain-delivery receipt inventory is malformed" >&2
     exit 4
   }
   [ "$pending_count" -le 1 ] || {
-    echo "workflow-probe: $MODE blocked: multiple nonterminal legacy maintain-delivery receipts require reconciliation" >&2
+    echo "workflow-probe: $MODE blocked: multiple nonterminal maintain-delivery receipts require reconciliation" >&2
     exit 4
   }
   [ "$pending_count" -eq 0 ] && return 0
-  pending_state=$(jq -er '.[0].state | select(type == "string" and length > 0)' \
+  PENDING_DELIVERY_STATE=$(jq -er '.[0].state | select(type == "string" and length > 0)' \
     <<<"$pending_json") || {
-    echo "workflow-probe: $MODE blocked: legacy maintain-delivery receipt state is malformed" >&2
+    echo "workflow-probe: $MODE blocked: maintain-delivery receipt state is malformed" >&2
     exit 4
   }
-  echo "workflow-probe: $MODE blocked: nonterminal legacy maintain-delivery receipt ($pending_state) requires reconciliation" >&2
-  exit 4
+  PENDING_DELIVERY_ISSUE=$(jq -er '.[0].issue_number | select(type == "number" and . >= 1 and floor == .)' \
+    <<<"$pending_json") || {
+    echo "workflow-probe: $MODE blocked: maintain-delivery receipt issue is malformed" >&2
+    exit 4
+  }
+  case "$PENDING_DELIVERY_STATE" in
+    claimed|normal_planned|normal_open|normal_merge_authorized|post_merge|release_verified|rollback_planned|rollback_open|rollback_merge_authorized|rollback_merged|rollback_release_verified|close_intent|closed_observed) : ;;
+    *) echo "workflow-probe: $MODE blocked: invalid maintain-delivery receipt state: $PENDING_DELIVERY_STATE" >&2; exit 4 ;;
+  esac
+  echo "workflow-probe: $MODE pending receipt: issue #$PENDING_DELIVERY_ISSUE ($PENDING_DELIVERY_STATE)"
 }
 
 case "$MODE" in
   maintain)
-    legacy_delivery_receipt_gate
+    embedded_delivery_receipt_probe
+    if [ -n "$PENDING_DELIVERY_STATE" ]; then
+      delivery_lease_gate
+      [ "$PENDING_DELIVERY_STATE" != claimed ] || codex_cli_gate
+      lease_guardian_gate
+      ready
+    fi
     command -v gh >/dev/null 2>&1 || { echo "workflow-probe: gh is required" >&2; exit 1; }
     routing_schema_version="$(bash "$SCRIPT_DIR/delivery-route.sh" schema-version | jq -er '.schema_version | select(type == "number")')" || {
       echo "workflow-probe: cannot resolve routing schema" >&2; exit 1; }
@@ -163,7 +179,13 @@ case "$MODE" in
     ;;
 
   maintain-loop)
-    legacy_delivery_receipt_gate
+    embedded_delivery_receipt_probe
+    if [ -n "$PENDING_DELIVERY_STATE" ]; then
+      delivery_lease_gate
+      [ "$PENDING_DELIVERY_STATE" != claimed ] || codex_cli_gate
+      lease_guardian_gate
+      ready
+    fi
     args=(); [ -z "$REPO" ] || args+=(--repo "$REPO"); [ -z "$ISSUE" ] || args+=(--issue "$ISSUE"); [ -z "$LABEL" ] || args+=(--label "$LABEL")
     load_blocked_files || { echo "workflow-probe: cannot resolve blocked ledgers" >&2; exit 1; }
     for blocked_file in "${BLOCKED_FILES[@]}"; do args+=(--blocked-file "$blocked_file"); done

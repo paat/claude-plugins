@@ -2449,7 +2449,6 @@ SH
     "$PLUGIN_ROOT/references/workflows/goal-deliver.md" \
     "$PLUGIN_ROOT/references/workflows/maintain.md" \
     "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    "$PLUGIN_ROOT/references/workflows/maintain-loop-protocol.md" \
     "$PLUGIN_ROOT/commands/startup.md" \
     "$PLUGIN_ROOT/commands/lessons-deliver.md" \
     "$PLUGIN_ROOT/docs/design/lessons-deliver.md" 2>/dev/null || true)"

@@ -573,6 +573,13 @@ It does not acquire a second delivery-scope lease or write a root terminal. Do n
 its QA, tribunal, merge, deploy, or rollback gates here. Maintain retains queue,
 claim/cooldown, resumable-binding, pass-budget, and pass-classification ownership.
 
+When the model-free probe reports one nonterminal compatibility receipt, recover that
+single embedded goal delivery before normal triage or new queue work. Re-fetch its issue
+and claim binding, build the same narrow envelope, and enter `/goal-deliver`; the goal's
+embedded receipt adapter owns discovery and the next durable transition. Multiple,
+malformed, or unbound pending receipts fail the pass closed. Do not archive, replace, or
+hand-edit a receipt to make the normal queue appear empty.
+
 Run each inline delivery's authenticated mutation window in one continuous host
 shell. Mint its mutation token, snapshot its guards and commit trust, run the
 writer, verify containment, route the post-diff, and consume the trust receipt in
@@ -686,9 +693,10 @@ claim remains for explicit cooldown/reconciliation; if exactly one valid resumab
 exists, keep both intact. Ambiguous, multiple, or mismatched linked PR identity is `pass-blocked`.
 Continue the remaining eligible queue after an issue-local block.
 
-After embedded delivery proves a green deployment and live checks, maintain re-fetches
-the exact issue/PR binding, closes the issue with the delivered PR reference, and only
-then removes `maintain:claimed`. Embedded delivery never closes it. Map embedded
+After embedded delivery returns a canonical finalized success, maintain re-fetches the
+exact issue/PR binding and records the result in its queue and digest. The embedded
+receipt adapter already proved release, removed `maintain:claimed`, and closed and
+re-observed the issue; maintain never repeats those mutations. Map embedded
 no-progress to `maintain:blocked` plus its cooldown without closing the issue. Map an embedded
 external/infra/low-confidence deploy classification to `escalated:deploy-blocked` and
 stop further merges this pass while preserving the open issue and claim for

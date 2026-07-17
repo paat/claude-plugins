@@ -33,6 +33,7 @@
 #   lesson-review.sh --approve N [--note TEXT] [--repo OWNER/REPO]
 #   lesson-review.sh --close   N [--note TEXT] [--repo OWNER/REPO]
 #   lesson-review.sh --quarantine N [--note TEXT] [--repo OWNER/REPO]
+#   lesson-review.sh --auto-reject N [--note TEXT] [--repo OWNER/REPO]
 
 set -uo pipefail
 
@@ -47,6 +48,7 @@ while [ $# -gt 0 ]; do
     --list)    ACTION="list"; shift ;;
     --approve) _need_val "$#" "$1"; ACTION="approve"; NUM="$2"; shift 2 ;;
     --close)   _need_val "$#" "$1"; ACTION="close";   NUM="$2"; shift 2 ;;
+    --auto-reject) _need_val "$#" "$1"; ACTION="auto-reject"; NUM="$2"; shift 2 ;;
     --quarantine) _need_val "$#" "$1"; ACTION="quarantine"; NUM="$2"; shift 2 ;;
     --note)    _need_val "$#" "$1"; NOTE="$2"; shift 2 ;;
     --repo)    _need_val "$#" "$1"; REPO="$2"; shift 2 ;;
@@ -213,14 +215,26 @@ case "$ACTION" in
     ;;
 
   # --- close: reject a candidate ----------------------------------------------
-  close)
-    case "$NUM" in ''|*[!0-9]*) echo "lesson-review: --close needs a positive integer issue number" >&2; exit 2 ;; esac
+  close|auto-reject)
+    case "$NUM" in ''|*[!0-9]*) echo "lesson-review: --$ACTION needs a positive integer issue number" >&2; exit 2 ;; esac
     info="$(_issue_view "$NUM")" || { echo "lesson-review: cannot inspect #$NUM in $REPO (not found / no access / gh failed). Refusing." >&2; exit 1; }
 
-    # Idempotent: already closed -> success no-op.
+    # Human close remains idempotent. Automated rejection is deliberately a
+    # candidate-only compare-and-transition and refuses any changed state.
     if ! _is_open "$info"; then
+      if [ "$ACTION" = auto-reject ]; then
+        echo "lesson-review: #$NUM changed before automated rejection. Refusing." >&2
+        exit 1
+      fi
       echo "lesson-review: #$NUM already closed (no-op)."
       exit 0
+    fi
+    if [ "$ACTION" = auto-reject ]; then
+      if _has_label "$info" "$APPROVED_LABEL" || _has_label "$info" "$BLOCKED_LABEL" \
+         || ! _has_label "$info" "$CANDIDATE_LABEL"; then
+        echo "lesson-review: #$NUM is no longer candidate-only. Refusing automated rejection." >&2
+        exit 1
+      fi
     fi
     # Is-a-lesson guard: only close issues that are part of this loop.
     if ! _has_label "$info" "$CANDIDATE_LABEL" && ! _has_label "$info" "$APPROVED_LABEL"; then

@@ -18,9 +18,9 @@ test_agent_events() {
   local wd events out ec i lines export1 export2 aggregate secret generated_id bad_output
   local identity_events identity_export identity_tmp tampered_events tampered_read tampered_secret_events route_events
   local guard_repo guard_dir snapshot auth receipt receipt_backup outside bin first_receipt verified tag concurrent
-  local v1_events v1_export v2_fixture terminal_events token_events token_export parent_events parent_root parent_child reason_events reason
+  local v1_events v1_failure_events v1_export v2_fixture terminal_events token_events token_export parent_events parent_root parent_child reason_events reason
   local primary_repo linked_repo primary_events explicit_events terminal_output before_lines
-  local bulk_events bulk_output incomplete_events empty_events malformed_events
+  local bulk_events bulk_output incomplete_events empty_events malformed_events lifecycle_events incomplete_stderr invalid_reason_events
 
   assert_file_exists "EV1: event writer/parser exists" "$events_script"
   assert_file_exists "EV2: redacted exporter exists" "$exporter"
@@ -150,6 +150,17 @@ test_agent_events() {
   bash "$exporter" --events "$v1_events" --out "$v1_export" >/dev/null
   assert_equals "EV43a: exporter consumes schema-v1 events into export v2" \
     "$(jq -r '[.schema_version,.sample_count] | @csv' "$v1_export")" '2,1'
+  v1_failure_events="$wd/v1-failure-events.jsonl"
+  jq -c 'del(.parent_run_id,.terminal_reason,.total_tokens) | .schema_version=1
+    | .source_schema_version=1 | .outcome="failure"' "$v2_fixture" > "$v1_failure_events"
+  cp "$v2_fixture.identity-key" "$v1_failure_events.identity-key"
+  assert_equals "EV43b: schema-v1 failed terminals remain readable without a reason" \
+    "$(bash "$events_script" terminal --events "$v1_failure_events" \
+      --run-id run-0123456789abcdef0123456789abcdef | jq -r '.outcome')" "failure"
+  assert_equals "EV43c: accounting a v1 failed terminal upgrades with a registered fallback reason" \
+    "$(bash "$events_script" account --events "$v1_failure_events" \
+      --run-id run-0123456789abcdef0123456789abcdef --duration-ms 7 | jq -r '.terminal_reason')" \
+    "unknown_failure"
 
   parent_events="$wd/parent-events.jsonl"
   bash "$events_script" append --events "$parent_events" --run-id opaque-parent \
@@ -187,11 +198,33 @@ test_agent_events() {
   assert_equals "EV47b: allowlisted generic operational reasons remain stable" \
     "$(bash "$events_script" read --events "$reason_events" | jq -r 'select(.terminal_reason == "probe_failed") | .terminal_reason')" \
     "probe_failed"
-  bash "$events_script" append --events "$reason_events" --run-id reason-untrusted \
+  ec=0; bash "$events_script" append --events "$reason_events" --run-id reason-untrusted \
     --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id reason-writer \
-    --event-type completed --outcome failure --terminal-reason vendor_specific_failure >/dev/null
-  assert_equals "EV47c: unknown code-shaped terminal reasons normalize to other" \
+    --event-type completed --outcome failure --terminal-reason vendor_specific_failure \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV47c: root pass terminals reject unregistered reasons" "$ec" 2
+  bash "$events_script" append --events "$reason_events" --run-id reason-child \
+    --parent-run-id reason-parent --command improve --phase implementation --surface script --profile deep \
+    --writer-id reason-writer --event-type completed --outcome failure \
+    --terminal-reason vendor_specific_failure >/dev/null
+  assert_equals "EV47d: child reasons retain legacy normalization behavior" \
     "$(tail -n 1 "$reason_events" | jq -r .terminal_reason)" "other"
+  ec=0; bash "$events_script" append --events "$reason_events" --run-id reason-missing \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id reason-writer \
+    --event-type completed --outcome failure >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV47e: failed root pass terminals require a reason" "$ec" 2
+  ec=0; bash "$events_script" append --events "$reason_events" --run-id reason-on-success \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id reason-writer \
+    --event-type completed --outcome success --terminal-reason unknown_failure >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV47f: successful root pass terminals require a null reason" "$ec" 2
+  invalid_reason_events="$wd/invalid-reason-events.jsonl"
+  jq -c '.terminal_reason="unknown_failure"' "$v2_fixture" > "$invalid_reason_events"
+  cp "$v2_fixture.identity-key" "$invalid_reason_events.identity-key"
+  ec=0; bash "$events_script" read --events "$invalid_reason_events" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV47g: reader rejects v2 success terminals carrying a reason" "$ec" 3
+  jq -c '.outcome="failure" | .terminal_reason=null' "$v2_fixture" > "$invalid_reason_events"
+  ec=0; bash "$events_script" read --events "$invalid_reason_events" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV47h: reader rejects v2 failure terminals missing a reason" "$ec" 3
   ec=0; bash "$events_script" terminal --events "$terminal_events" --run-id absent-run >/dev/null 2>&1 || ec=$?
   assert_exit_code "EV48: missing logical terminal is nonzero" "$ec" 4
 
@@ -200,7 +233,7 @@ test_agent_events() {
     --event-type completed --outcome success >/dev/null
   bash "$events_script" append --events "$terminal_events" --run-id conflicting-run \
     --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id terminal-writer \
-    --event-type completed --outcome failure >/dev/null
+    --event-type completed --outcome failure --terminal-reason unknown_failure >/dev/null
   ec=0; bash "$events_script" terminal --events "$terminal_events" --run-id conflicting-run >/dev/null 2>&1 || ec=$?
   assert_exit_code "EV49: conflicting logical terminals are rejected" "$ec" 3
 
@@ -261,12 +294,42 @@ test_agent_events() {
 
   ec=0; bash "$events_script" terminals --events "$terminal_events" >/dev/null 2>&1 || ec=$?
   assert_exit_code "EV65: bulk and single terminal projections share conflict rejection" "$ec" 3
-  incomplete_events="$wd/incomplete-events.jsonl"
+  incomplete_events="$wd/incomplete-events.jsonl"; incomplete_stderr="$wd/incomplete.stderr"
   bash "$events_script" append --events "$incomplete_events" --run-id incomplete-root \
     --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id incomplete-writer \
     --event-type started --outcome incomplete >/dev/null
-  ec=0; bash "$events_script" terminals --events "$incomplete_events" >/dev/null 2>&1 || ec=$?
-  assert_exit_code "EV66: bulk terminals reject incomplete root lifecycles" "$ec" 3
+  assert_equals "EV66: bulk terminals skip incomplete root lifecycles" \
+    "$(bash "$events_script" terminals --events "$incomplete_events" 2>"$incomplete_stderr")" ""
+  assert_equals "EV66a: bulk terminals report skipped incomplete root count" \
+    "$(grep -c 'skipped 1 incomplete root pass-outcome lifecycle' "$incomplete_stderr")" "1"
+  ec=0; bash "$events_script" terminal --events "$incomplete_events" --run-id incomplete-root \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV66b: a single incomplete root projection remains strict" "$ec" 3
+  bash "$events_script" append --events "$incomplete_events" --run-id complete-root \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id complete-writer \
+    --event-type completed --outcome success >/dev/null
+  assert_equals "EV66c: bulk projection emits complete roots while skipping incomplete roots" \
+    "$(bash "$events_script" terminals --events "$incomplete_events" 2>/dev/null | jq -sc 'length')" "1"
+
+  lifecycle_events="$wd/lifecycle-events.jsonl"
+  bash "$events_script" append --events "$lifecycle_events" --run-id writer-conflict \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id writer-one \
+    --event-type started --outcome incomplete >/dev/null
+  bash "$events_script" append --events "$lifecycle_events" --run-id writer-conflict \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id writer-two \
+    --event-type completed --outcome success >/dev/null
+  ec=0; bash "$events_script" terminal --events "$lifecycle_events" --run-id writer-conflict \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV66d: root pass lifecycle requires one writer" "$ec" 3
+  bash "$events_script" append --events "$lifecycle_events" --run-id command-conflict \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id command-writer \
+    --event-type started --outcome incomplete >/dev/null
+  bash "$events_script" append --events "$lifecycle_events" --run-id command-conflict \
+    --command goal-deliver --phase pass-outcome --surface script --profile deep --writer-id command-writer \
+    --event-type completed --outcome success >/dev/null
+  ec=0; bash "$events_script" terminal --events "$lifecycle_events" --run-id command-conflict \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV66e: root pass lifecycle requires one command" "$ec" 3
   empty_events="$wd/empty-events.jsonl"; touch "$empty_events"
   assert_equals "EV67: an empty event file emits no bulk terminals" \
     "$(bash "$events_script" terminals --events "$empty_events")" ""

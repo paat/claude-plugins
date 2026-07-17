@@ -111,9 +111,10 @@ artifact_success_policy() {
   terminal 3 improve failure timeout 30000 '' merged >> "$PROJECTED"
   terminal 4 improve failure timeout 30000 '' success >> "$PROJECTED"
   terminal 5 improve failure timeout 30000 '' '' success >> "$PROJECTED"
+  terminal 6 improve failure timeout 30000 '' '' passed >> "$PROJECTED"
   run_events && [ "$(candidate_count)" -eq 0 ]
 }
-t "all successful artifact states centrally suppress costly friction" artifact_success_policy
+t "passed or successful artifact states centrally suppress costly friction" artifact_success_policy
 
 successful_outcomes_excluded() {
   new_case

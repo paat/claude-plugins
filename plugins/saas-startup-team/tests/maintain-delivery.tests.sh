@@ -7,7 +7,7 @@ declare -F assert_exit_code >/dev/null 2>&1 || {
 test_maintain_delivery_lifecycle() {
   echo -e "\n${CYAN}Suite MD: maintain-loop delivery receipts${NC}"
   local repo script probe protocol base head merge delivery run pr_open pr_merged issue_open issue_closed
-  local result pending events ec out duplicate_pr feature2_base feature2_head feature2_merge
+  local result pending events ec out duplicate_pr feature2_base feature2_head feature2_merge parent_run
   local rollback_head rollback_merge rollback_pr_open rollback_pr_merged common state_root victim
   local fake_bin fake_head fake_issue fake_mutation fake_log changed_issue bad_rollback_head
   local fake_pr fake_prs fake_checks fake_run remote qa_command bad_command monitor_command tribunal fake_tribunal
@@ -37,7 +37,7 @@ DELIVERY_WRAPPER
   chmod +x "$script"
   export MAINTAIN_TEST_DELIVERY_IMPL="$delivery_impl"
   probe="$PLUGIN_ROOT/scripts/workflow-probe.sh"
-  protocol="$PLUGIN_ROOT/references/workflows/maintain-loop-protocol.md"
+  protocol="$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md"
   git -C "$repo" branch -m main
   git -C "$repo" config user.email test@example.invalid
   git -C "$repo" config user.name Test
@@ -332,6 +332,13 @@ DEPLOY_WORKFLOW
   fresh_ledger="$fresh_common/saas-startup-team/maintain-runtime/deliveries/run-fresh-order.json"
   fresh_resume_ledger="$fresh_common/saas-startup-team/maintain-runtime/deliveries/run-fresh-resume.json"
   write_issue_scope "$fake_issue" "$fresh_scope"
+  parent_run=run-0123456789abcdef0123456789abcdef
+  ec=0
+  SAAS_PARENT_RUN_ID="$parent_run" bash "$delivery_impl" begin --repo-root "$fresh_repo" \
+    --issue 1 --run-id fresh-order --delivery-id "$parent_run" --merge-budget 1 \
+    --scope-json "$fresh_scope" --lease-state "$fresh_origin_state" \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD0: parent run identity cannot equal the delivery ID" "$ec" 2
   pending=$(bash "$delivery_impl" pending --repo-root "$fresh_repo")
   assert_equals "MD0a: fresh pending is readable before the dedicated worktree exists" \
     "$(jq length <<<"$pending")" 0
@@ -721,7 +728,8 @@ HOSTILE_PYTHON
   bash "$script" observe-closed --repo-root "$repo" --issue 1 >/dev/null
   ec=0; out=$(bash "$probe" maintain-loop --root "$repo" --issue 1 --dry-run 2>&1) || ec=$?
   assert_exit_code "MD6a: model-free probe sees closed-but-unfinalized receipt" "$ec" 0
-  assert_output_contains "MD6b: probe reports the pending lifecycle state" "$out" 'pending receipt: closed_observed'
+  assert_output_contains "MD6b: probe reports the pending lifecycle state" "$out" \
+    'pending receipt: issue #1 (closed_observed)'
   bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
     --run-id "$lease_run" >/dev/null
   cat > "$fake_bin/setpriv" <<'FAKE_SETPRIV'
@@ -734,7 +742,8 @@ FAKE_SETPRIV
   ec=0; out=$(PATH="$fake_bin:$PATH" SAAS_PREFLIGHT_MISSING=codex \
     bash "$probe" maintain-loop --root "$repo" --issue 1 2>&1) || ec=$?
   assert_exit_code "MD6b1: post-source receipt launches without Codex" "$ec" 0
-  assert_output_contains "MD6b2: launchable recovery names its state" "$out" 'pending receipt: closed_observed'
+  assert_output_contains "MD6b2: launchable recovery names its state" "$out" \
+    'pending receipt: issue #1 (closed_observed)'
   switch_test_lease "$run"
 
   result="$repo/result.md"
@@ -750,11 +759,27 @@ FAKE_SETPRIV
   assert_result_rejected "MD6p: success result requires timestamped live proof" 1 "$result" omit 'live_verified_at:'
   assert_result_rejected "MD6q: success result requires exact close receipt" 1 "$result" contradict 'close_issue_digest:'
   assert_result_rejected "MD6r: success result requires rollback state" 1 "$result" omit 'rollback:not_run'
-  bash "$script" finalize --repo-root "$repo" --issue 1 --result-source "$result" --profile standard >/dev/null
-  bash "$script" finalize --repo-root "$repo" --issue 1 --result-source "$result" --profile standard >/dev/null
+  ec=0; SAAS_PARENT_RUN_ID=not-canonical bash "$script" show --repo-root "$repo" --issue 1 \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD6s: invalid telemetry parent fails closed" "$ec" 2
+  ec=0; SAAS_INVOCATION_COMMAND=unknown bash "$script" show --repo-root "$repo" --issue 1 \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD6t: invalid invocation command fails closed" "$ec" 2
+  SAAS_PARENT_RUN_ID="$parent_run" SAAS_INVOCATION_COMMAND=maintain \
+    bash "$script" finalize --repo-root "$repo" --issue 1 --result-source "$result" \
+    --profile standard >/dev/null
+  SAAS_PARENT_RUN_ID="$parent_run" SAAS_INVOCATION_COMMAND=maintain \
+    bash "$script" finalize --repo-root "$repo" --issue 1 --result-source "$result" \
+    --profile standard >/dev/null
   events="$repo/.startup/runs/agent-events.jsonl"
   assert_equals "MD7: repeated finalization emits one issue outcome" \
     "$(jq -s '[.[]|select(.phase=="issue-outcome" and .outcome=="success")]|length' "$events")" 1
+  assert_equals "MD7a: finalization propagates the canonical parent" \
+    "$(jq -sr 'map(select(.phase=="issue-outcome" and .outcome=="success"))[0].parent_run_id' "$events")" \
+    "$parent_run"
+  assert_equals "MD7b: finalization uses the validated invocation command" \
+    "$(jq -sr 'map(select(.phase=="issue-outcome" and .outcome=="success"))[0].command' "$events")" \
+    maintain
   assert_equals "MD8: finalized receipt leaves no pending work" \
     "$(bash "$script" pending --repo-root "$repo" | jq length)" 0
   assert_file_exists "MD9: finalization writes the existing run artifact" \
@@ -866,6 +891,10 @@ FAKE_SETPRIV
     "$(bash "$script" show --repo-root "$repo" --issue 2 | jq '[.rollback]|length')" 1
   assert_equals "MD17: rollback finalization emits one terminal issue outcome" \
     "$(jq -s '[.[]|select(.phase=="issue-outcome" and .outcome=="failure" and .rollback=="rolled_back")]|length' "$events")" 1
+  assert_equals "MD17a: legacy finalization keeps absent parent null" \
+    "$(jq -sr 'map(select(.phase=="issue-outcome" and .outcome=="failure"))[0].parent_run_id == null' "$events")" true
+  assert_equals "MD17b: legacy finalization keeps the maintain-loop command default" \
+    "$(jq -sr 'map(select(.phase=="issue-outcome" and .outcome=="failure"))[0].command' "$events")" maintain-loop
 
   common=$(git -C "$repo" rev-parse --git-common-dir); case "$common" in /*) : ;; *) common="$repo/$common" ;; esac
   state_root="$common/saas-startup-team/maintain-runtime/deliveries"; victim="$repo/receipt-victim"
@@ -896,21 +925,21 @@ FAKE_SETPRIV
   assert_exit_code "MD22: prior-generation marker cannot authorize the new delivery" "$ec" 1
 
   assert_file_contains "MD23: protocol reconciles receipts before queue work" \
-    "$protocol" 'maintain-delivery.sh pending'
+    "$protocol" '## Recovery before new work'
   assert_file_contains "MD24: protocol persists premerge authority" \
     "$protocol" 'authorize-merge --role normal'
   assert_file_contains "MD24a: protocol delegates the irreversible merge to the pinned helper" \
     "$protocol" 'gh pr merge --match-head-commit <receipt-head>'
   assert_file_contains "MD24b: protocol gives close helper no stale caller snapshot" \
-    "$protocol" 'with no snapshot argument'
+    "$protocol" 'no snapshot argument'
   assert_file_contains "MD24c: protocol requires helper-owned post-close verification" \
-    "$protocol" 'fetches the full CLOSED'
+    "$protocol" 'verifies the complete closed revision'
   assert_file_contains "MD24d: protocol requires exact inverse rollback proof" \
-    "$protocol" 'exact expected reverse of the recorded normal merge'
+    "$protocol" 'exact expected inverse tree of the recorded normal merge'
   assert_file_contains "MD24e: protocol records helper-owned proof before merge" \
     "$protocol" 'record-proof --kind tribunal'
   assert_file_contains "MD24f: merge helper accepts no caller PR snapshot" \
-    "$protocol" 'pass no PR/default snapshot'
+    "$protocol" 'Pass no PR/default snapshot'
   assert_file_contains "MD24g: closed recovery accepts no caller snapshot" \
     "$protocol" '`observe-closed` with no snapshot'
   assert_file_contains "MD25: protocol has rollback-or-stop recovery" \

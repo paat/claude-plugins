@@ -157,6 +157,25 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+EVENT_COMMAND=maintain-loop
+EVENT_CONTEXT_ARGS=()
+if [ -n "${SAAS_INVOCATION_COMMAND:-}" ]; then
+  case "$SAAS_INVOCATION_COMMAND" in
+    maintain-loop|maintain|goal-deliver) EVENT_COMMAND=$SAAS_INVOCATION_COMMAND ;;
+    *) die "invalid SAAS_INVOCATION_COMMAND" 2 ;;
+  esac
+fi
+if [ -n "${SAAS_PARENT_RUN_ID:-}" ]; then
+  [[ "$SAAS_PARENT_RUN_ID" =~ ^run-[0-9a-f]{32}$ ]] \
+    || die "invalid SAAS_PARENT_RUN_ID" 2
+  EVENT_CONTEXT_ARGS+=(--parent-run-id "$SAAS_PARENT_RUN_ID")
+fi
+
+validate_event_delivery_identity() {
+  [ -z "${SAAS_PARENT_RUN_ID:-}" ] || [ "$SAAS_PARENT_RUN_ID" != "$DELIVERY_ID" ] \
+    || die "SAAS_PARENT_RUN_ID must differ from delivery ID" 2
+}
+
 case "$ACTION" in
   pending|show|archive-claimed|begin|plan-pr|bind-pr|match-pr|collect-tribunal|record-proof|authorize-merge|merge-pr|record-merge|record-release|close-intent|close-issue|observe-closed|render-result|finalize) : ;;
   *) usage ;;
@@ -684,6 +703,7 @@ fi
 if [ "$ACTION" = begin ]; then
   valid_id "$RUN_ID" || die "invalid --run-id" 2
   valid_id "$DELIVERY_ID" || die "invalid --delivery-id" 2
+  validate_event_delivery_identity
   valid_natural "$MERGE_BUDGET" || die "invalid --merge-budget" 2
   require_active_controller "$RUN_ID" 0
   if [ -n "$REOPEN_EVENT_ID$REOPEN_EVENT_AT" ]; then
@@ -772,6 +792,7 @@ fi
 load_current
 TOP_STATE=$(jq -r .state "$current")
 DELIVERY_ID=$(jq -r .delivery_id "$current")
+validate_event_delivery_identity
 
 if [ "$ACTION" = show ]; then jq '.' "$current"; exit 0; fi
 
@@ -2388,11 +2409,12 @@ if [ "$ACTION" = finalize ]; then
   events="$events_parent/agent-events.jsonl"
   qa=$(jq -r ".$proof_role.premerge.qa.status" "$current"); base=$(jq -r .normal.base_sha "$current")
   (cd "$PRIMARY" && bash "$SCRIPT_DIR/agent-events.sh" append --once \
-    --events "$events" --run-id "$DELIVERY_ID" --command maintain-loop --phase issue-outcome \
+    --events "$events" --run-id "$DELIVERY_ID" --command "$EVENT_COMMAND" --phase issue-outcome \
     --surface script --profile "$PROFILE" --writer-id "$DELIVERY_ID" --attempt 1 \
     --event-type completed --base-sha "$base" --result-sha "$merge_sha" \
     --checks passed --qa "$qa" --tribunal passed --pr merged --merge merged \
-    --deployment passed --rollback "$event_rollback" --outcome "$event_outcome") >/dev/null \
+    --deployment passed --rollback "$event_rollback" --outcome "$event_outcome" \
+    "${EVENT_CONTEXT_ARGS[@]}") >/dev/null \
     || die "cannot append the exactly-once issue outcome"
   finalized=$(now_iso); relative=${target#"$PRIMARY/"}
   if [ "$TOP_STATE" = closed_observed ] || [ "$TOP_STATE" = rollback_release_verified ]; then

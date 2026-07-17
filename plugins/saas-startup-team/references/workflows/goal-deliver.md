@@ -52,6 +52,11 @@ delivery starts. Current ownership is proved separately by the canonical current
 `SAAS_INVOCATION_ID` and that live inherited lease. Reject every other nonempty
 embedded caller or invocation command.
 
+Only after all embedded bindings pass, load
+`${CLAUDE_PLUGIN_ROOT}/references/workflows/goal-deliver-maintain-receipts.md` once and
+apply that maintain-specific receipt adapter to every new or resumed issue. A standalone
+invocation does not load the adapter and keeps the normal goal paths below unchanged.
+
 For each delivery attempt, including a retry, mint a fresh child ID and export it as
 `SAAS_RUN_ID`; never reuse the root or a completed child. Every goal work event appends
 with `--run-id "$SAAS_RUN_ID" --parent-run-id "$SAAS_INVOCATION_ID"`. Root totals are
@@ -78,12 +83,11 @@ For `SAAS_EMBEDDED_CALLER=maintain`, every new or resumed PR uses the caller-ver
 claim marker and a non-closing issue reference such as `Refs #N`; never use `Closes`,
 `Fixes`, or `Resolves`. Resume only the one freshly bound existing PR, never open a
 replacement PR, and revalidate issue eligibility, claim/PR identity, current default,
-and exact current-head binding before mutation and every latest-head gate. Embedded
-delivery merges and verifies deployment/live health but skips every
-standalone immediate-close path. It returns the verified green evidence to maintain,
-which alone re-fetches the binding, closes the issue, and removes the claim. A blocked,
-failed, rolled-back, or unverified deployment leaves the issue open; rollback/block
-handling returns evidence without silently removing the claim.
+and exact current-head binding before mutation and every latest-head gate. The embedded
+receipt adapter owns helper-authorized merge, release/live proof, delayed issue close,
+crash recovery, rollback-or-stop, and canonical finalization. Maintain consumes that
+result but never repeats an irreversible transition. A blocked, failed, rolled-back, or
+unverified deployment leaves the issue open.
 
 ## Autonomy (optional but recommended)
 
@@ -243,8 +247,15 @@ the script or expected output is not objective, set `PROFILE=standard` and conti
 Step 2; never improvise edits or launch a model under the mechanical profile.
 The supervisor applies the exact-path role guard and trusted-commit preflight from
 `mutation-ownership.md` around this script just as it would around a tech writer.
+Under the maintain embedded caller, execute that exact script through the receipt
+adapter's authenticated `maintain-attempt.sh` transaction rather than the standalone
+branch path.
 
-For an accepted light route:
+For an accepted light route, the maintain embedded caller uses the receipt adapter's
+`maintain-attempt.sh` transaction and durable transitions; it does not enter the
+standalone `tweak-run.sh`, direct merge, checkout, cleanup, or immediate-close path
+below. The selected light profile and all applicable common goal predicates remain
+unchanged. The following numbered path is standalone only:
 
 1. Set `LIGHT_BRANCH="tweak/<slug>"`, record `LIGHT_BASE_SHA` from
    `origin/$default`, and prepare one minimal unified diff in a temporary file outside
@@ -267,9 +278,7 @@ For an accepted light route:
    and rejects any UI or non-light diff. It also restores `active_role` on every exit.
 3. If the helper fails, run the verified cleanup below. Exit 20 is a deep escalation;
    do not attempt the light route again.
-4. Open a non-draft PR and record the number returned by GitHub. Standalone uses
-   `Fixes #<n>`; the maintain embedded caller uses `Refs #<n>` as required by
-   §Delivery safety invariants.
+4. Open a non-draft PR and record the number returned by GitHub. Use `Fixes #<n>`.
    Require at least one reported CI check and poll with
    `scripts/poll-gate.sh --pr "$pr_num"`. Never treat absent checks as green.
 5. If push, PR creation, or checks fail or remain absent, run the verified cleanup.
@@ -277,8 +286,7 @@ For an accepted light route:
    passes. Otherwise stop the goal and release its lease; never launch a deep worker from
    a contaminated branch, open PR, remote branch, or dirty worktree.
 6. If every check passes, the supervisor may squash-merge and delete the branch.
-   Standalone closes the issue, then continues to the existing deployment watch in
-   Step 4; embedded skips the close and continues to deployment verification. If the merge
+   Close the issue, then continue to the existing deployment watch in Step 4. If the merge
    command fails, query that exact PR before doing anything else. A confirmed merged PR
    continues by syncing `$default`; a confirmed unmerged PR follows cleanup; unknown PR
    state stops. A merge failure never directly starts a deep retry.
@@ -354,10 +362,13 @@ on has merged):
    after recording heartbeat/log evidence.
    Heartbeat after each delivery/tribunal phase and release the chunk lease after merge
    or any handled final blocked/skipped result, always using the same owner file.
-1. **Build via `/improve`.** Follow `${CLAUDE_PLUGIN_ROOT}/commands/improve.md`
-   in `new-branch` mode off the default branch, using the chunk's description as
-   the improvement instruction. This runs business → tech → business-QA and opens
-   a PR on `improve/<chunk-slug>`.
+1. **Build via `/improve`.** On the standalone path, follow
+   `${CLAUDE_PLUGIN_ROOT}/commands/improve.md` in `new-branch` mode off the default
+   branch, using the chunk's description as the improvement instruction. This runs
+   business → tech → business-QA and opens a PR on `improve/<chunk-slug>`. The maintain
+   embedded caller instead uses the loaded receipt adapter for its source transaction,
+   one bound PR, and persisted recovery while applying the same acceptance and quality
+   requirements.
    Before implementation, identify the root-cause/recurrence class and fix the class,
    with red-before/green-after proof. For bug, monitor, customer, accounting, replay,
    and incident work, add a mechanical regression guard that fails on the old behavior;
@@ -392,12 +403,16 @@ on has merged):
    Merge follows the standing policy + carve-outs (`${CLAUDE_PLUGIN_ROOT}/templates/merge-policy.md`),
    only after the audit passes. Update from the current default, rerun the complete
    latest-HEAD gates, bind `BOUND_SHA` to local HEAD, and require the freshly fetched PR
-   `headRefOid` to equal it. Merge atomically with `gh pr merge "<pr url>"
-   --match-head-commit "$BOUND_SHA" --squash --delete-branch`; any default/head advance
-   restarts final validation. On the standalone path, close the chunk's
-   issues (`gh issue close <n> --comment "Delivered in <pr url>"`); embedded skips this
-   close. Then
-   `git checkout "${default}" && git pull --ff-only`. Continue to the next chunk.
+   `headRefOid` to equal it. On the standalone path, merge atomically with `gh pr merge
+   "<pr url>" --match-head-commit "$BOUND_SHA" --squash --delete-branch`; any
+   default/head advance restarts final validation. Then close the chunk's issues
+   (`gh issue close <n> --comment "Delivered in <pr url>"`) and run
+   `git checkout "${default}" && git pull --ff-only`.
+
+   The maintain embedded caller performs none of those direct merge, close, checkout,
+   or pull commands. It records the same current-head gates and delegates the pinned
+   merge, post-deploy release, delayed close, and crash recovery to the loaded receipt
+   adapter. Continue only after the applicable path's verified transition completes.
    Note: if a chunk resolves an incident-labeled issue (`bug`/`monitor`/`customer-issue`)
    the merge is **blocked by the regression-test gate** unless the PR diff adds a test —
    ensure the tech founder's Bug Fix Protocol test landed in the PR (or record
@@ -436,13 +451,13 @@ it needs the investor.
 
 For `SAAS_EMBEDDED_CALLER=maintain`, classify deploy failure from the failed command,
 logs, concurrent default-branch movement, and health/migration signals. A code
-regression follows the deploy-fix path. Infra, flaky, external-dependency, credential,
+regression is eligible only for the receipt adapter's one causal safe rollback; do not
+start a post-merge corrective delivery. Infra, flaky, external-dependency, credential,
 migration-data, or low-confidence failure returns `deploy-blocked` and stops further
-pass merges. A clearly broken deploy rolls back only this invocation's own squash merge
-on `revert/<pr-slug>`, runs required checks, merges the revert without a redundant full
-tribunal round, and verifies recovery. Never revert another actor's commit. A rollback
-that cannot go green returns a hard escalation. These embedded classifications are
-returned to maintain for its cooldown/digest handling.
+pass merges. A clearly broken deploy may roll back only this receipt's own merge and
+must verify recovery; never revert another actor's commit. A rollback that cannot go
+green returns a hard escalation. The adapter records the resulting release or rollback
+and canonical outcome for maintain's cooldown/digest handling.
 
 After green, when `scripts/ui-touch.sh --range <pre-run SHA>..HEAD` over this run's merged range prints anything but `no-ui`,
 run the post-deploy visual smoke per the post-deploy section of
@@ -451,11 +466,12 @@ regression attributable to a merged chunk → roll it back via `/maintain`'s
 `revert/<pr-slug>` block; non-attributable or ambiguous → escalate to the investor.
 Append deployment and rollback progress events using only stable status codes.
 
-After the final verified green deployment, append the child terminal event with its
-root parent binding. On the standalone path, release `$GOAL_LEASE_KEY` with `$GOAL_OWNER_FILE`;
+After the final verified green deployment, the standalone path appends its terminal
+event with the root binding and releases `$GOAL_LEASE_KEY` with `$GOAL_OWNER_FILE`;
 a handled blocked/cancelled outcome releases it after recording the
-child terminal event as well. The embedded path heartbeats but never releases its
-caller's lease. Do not release while a PR, merge-state
+terminal event as well. The embedded receipt adapter instead records live/release
+evidence, performs its delayed close when eligible, and finalizes the sole issue outcome;
+it heartbeats but never releases its caller's lease. Do not release while a PR, merge-state
 query, rollback, or deployment action is still running. If cleanup cannot be verified,
 record that blocked outcome and preserve the evidence; standalone releases its goal
 lease, while embedded returns blocked without releasing the caller's lease.
@@ -470,11 +486,13 @@ fi
 
 ## Step 5: Final Report
 
-Before reporting, append one child terminal event per work unit with
-`--parent-run-id "$SAAS_INVOCATION_ID"` and its check, QA, tribunal, PR, merge,
-deployment, rollback, and outcome status. Every handled CI/deploy
-failure, blocked dependency, escalation, or cancellation gets an explicit terminal
-outcome; a light helper success never masks a later failure.
+Before reporting, the standalone path appends one child terminal event per work unit
+with `--parent-run-id "$SAAS_INVOCATION_ID"` and its check, QA, tribunal, PR, merge,
+deployment, rollback, and outcome status. Every handled CI/deploy failure, blocked
+dependency, escalation, or cancellation gets an explicit terminal outcome; a light
+helper success never masks a later failure. On the embedded path,
+`maintain-delivery.sh finalize` is the sole child `issue-outcome` writer; do not append a
+second terminal event from the goal playbook or maintain supervisor.
 
 After all work events and cleanup, the standalone caller appends its one root
 `pass-outcome`; the embedded caller returns verified status to `/maintain` without a

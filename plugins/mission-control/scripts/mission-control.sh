@@ -189,23 +189,71 @@ codex_total_tokens() { # <log path> — strict last complete footer pair
   ' "$1" 2>/dev/null
 }
 
+_workflow_helper_binding_snippet() {
+  cat <<'SNIP'
+surface="$1"
+case "$surface" in
+  codex)
+    command -v codex >/dev/null 2>&1 || exit 20
+    inventory="$(codex plugin list --json 2>/dev/null)" || exit 20
+    record="$(printf '%s\n' "$inventory" | jq -cer '
+      [.installed[]? | select(.pluginId == "saas-startup-team@paat-plugins"
+        and .installed == true and .enabled == true)]
+      | if length == 1 then .[0] else error("expected one enabled install") end
+    ')" || exit 20
+    version="$(printf '%s\n' "$record" | jq -er '.version | select(type == "string")')" || exit 20
+    root="${CODEX_HOME:-$HOME/.codex}/plugins/cache/paat-plugins/saas-startup-team/$version"
+    ;;
+  claude)
+    command -v claude >/dev/null 2>&1 || exit 20
+    inventory="$(claude plugin list --json 2>/dev/null)" || exit 20
+    record="$(printf '%s\n' "$inventory" | jq -cer '
+      [.[]? | select(.id == "saas-startup-team@paat-plugins"
+        and .scope == "user" and .enabled == true)]
+      | if length == 1 then .[0] else error("expected one enabled user install") end
+    ')" || exit 20
+    version="$(printf '%s\n' "$record" | jq -er '.version | select(type == "string")')" || exit 20
+    root="$(printf '%s\n' "$record" | jq -er '.installPath | select(type == "string")')" || exit 20
+    [ "$root" = "${CLAUDE_HOME:-$HOME/.claude}/plugins/cache/paat-plugins/saas-startup-team/$version" ] || exit 20
+    ;;
+  *) exit 20 ;;
+esac
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ "$root" == /* ]] || exit 20
+DIR="$root/scripts"; AE="$DIR/agent-events.sh"
+[ -d "$DIR" ] && [ ! -L "$DIR" ] && [ "$(cd "$DIR" && pwd -P)" = "$DIR" ] || exit 20
+[ -f "$AE" ] && [ ! -L "$AE" ] || exit 20
+DIR="${AE%/*}"; PII="$DIR/pii-gate.sh"; ROUTE="$DIR/delivery-route.sh"
+[ -f "$PII" ] && [ ! -L "$PII" ] && [ -f "$ROUTE" ] && [ ! -L "$ROUTE" ] || exit 20
+command -v sha256sum >/dev/null 2>&1 || exit 20
+ae_sha="$(sha256sum "$AE" | awk '{print $1}')" || exit 20
+pii_sha="$(sha256sum "$PII" | awk '{print $1}')" || exit 20
+route_sha="$(sha256sum "$ROUTE" | awk '{print $1}')" || exit 20
+schema="$(bash "$AE" schema-version)" || exit 20
+schema_version="$(printf '%s\n' "$schema" | jq -ser '
+  if length == 1 and (.[0].schema_version | type == "number" and floor == .)
+  then .[0].schema_version else empty end')" || exit 20
+[ "$schema_version" -ge 1 ] || exit 20
+printf '%s\t%s\t%s\t%s\t%s\n' "$AE" "$ae_sha" "$pii_sha" "$route_sha" "$schema_version"
+SNIP
+}
+
+workflow_helper_binding() { # <container> <repo> <surface> — bind installed helper before dispatch
+  local snip
+  snip="set -- $(printf %q "$3"); $(_workflow_helper_binding_snippet)"
+  run_in "$1" "$2" "$snip" 30
+}
+
 _workflow_account_snippet() {
   cat <<'SNIP'
-AE="plugins/saas-startup-team/scripts/agent-events.sh"
-if [ ! -f "$AE" ]; then
-  AE="$({
-    find "${CODEX_HOME:-$HOME/.codex}/plugins/cache" -path '*/saas-startup-team/*/scripts/agent-events.sh' -type f 2>/dev/null
-    find "${CLAUDE_HOME:-$HOME/.claude}/plugins/cache" -path '*/saas-startup-team/*/scripts/agent-events.sh' -type f 2>/dev/null
-  } | awk 'BEGIN{best=""}
-    function vk(p, r,a,s,i,o){split(p,r,"/saas-startup-team/");split(r[2],a,"/");split(a[1],s,".");o="v";for(i=1;i<=4;i++)o=o sprintf("%09d",s[i]+0);return o}
-    {k=vk($0); if(k>=best){best=k;sel=$0}} END{print sel}')"
-fi
-[ -n "$AE" ] && [ -f "$AE" ] || exit 20
-schema="$(bash "$AE" schema-version)" || exit 21
-version="$(printf '%s\n' "$schema" | jq -ser '
-  if length == 1 and (.[0].schema_version | type == "number" and floor == .)
-  then .[0].schema_version else empty end')" || exit 21
-[ "$version" -ge 2 ] || exit 20
+AE="$1"; expected_ae="$2"; expected_pii="$3"; expected_route="$4"; expected_schema="$5"; shift 5
+DIR="${AE%/*}"; PII="$DIR/pii-gate.sh"; ROUTE="$DIR/delivery-route.sh"
+[ -f "$AE" ] && [ ! -L "$AE" ] && [ -f "$PII" ] && [ ! -L "$PII" ] \
+  && [ -f "$ROUTE" ] && [ ! -L "$ROUTE" ] || exit 22
+command -v sha256sum >/dev/null 2>&1 || exit 22
+[ "$(sha256sum "$AE" | awk '{print $1}')" = "$expected_ae" ] \
+  && [ "$(sha256sum "$PII" | awk '{print $1}')" = "$expected_pii" ] \
+  && [ "$(sha256sum "$ROUTE" | awk '{print $1}')" = "$expected_route" ] || exit 22
+[ "$expected_schema" -ge 2 ] || exit 20
 run_id="$1"; duration_ms="$2"; total_tokens="${3:-}"
 args=(account --run-id "$run_id" --duration-ms "$duration_ms")
 [ -z "$total_tokens" ] || args+=(--total-tokens "$total_tokens")
@@ -213,9 +261,14 @@ bash "$AE" "${args[@]}"
 SNIP
 }
 
-workflow_account() { # <container> <repo> <run-id> <duration-ms> [total-tokens]
-  local c="$1" rp="$2" run_id="$3" duration_ms="$4" total_tokens="${5:-}" snip
-  snip="set -- $(printf %q "$run_id") $(printf %q "$duration_ms") $(printf %q "$total_tokens"); $(_workflow_account_snippet)"
+workflow_account() { # <container> <repo> <binding> <run-id> <duration-ms> [total-tokens]
+  local c="$1" rp="$2" binding="$3" run_id="$4" duration_ms="$5" total_tokens="${6:-}" snip
+  local ae ae_sha pii_sha route_sha schema_version extra=""
+  IFS=$'\t' read -r ae ae_sha pii_sha route_sha schema_version extra <<< "$binding"
+  [ -n "$ae" ] && [[ "$ae" == /* ]] && [ -z "$extra" ] \
+    && [[ "$ae_sha" =~ ^[0-9a-f]{64}$ ]] && [[ "$pii_sha" =~ ^[0-9a-f]{64}$ ]] \
+    && [[ "$route_sha" =~ ^[0-9a-f]{64}$ ]] && [[ "$schema_version" =~ ^[0-9]+$ ]] || return 20
+  snip="set -- $(printf %q "$ae") $(printf %q "$ae_sha") $(printf %q "$pii_sha") $(printf %q "$route_sha") $(printf %q "$schema_version") $(printf %q "$run_id") $(printf %q "$duration_ms") $(printf %q "$total_tokens"); $(_workflow_account_snippet)"
   run_in "$c" "$rp" "$snip" 30
 }
 
@@ -224,17 +277,20 @@ valid_account_json() { # <json> <run-id> <command> <duration-ms> [footer]
   jq -se --arg run_id "$run_id" --arg command "$command" \
     --arg duration_ms "$duration_ms" --arg footer "$footer" '
       def uint: type == "number" and . >= 0 and floor == .;
+      def registered_terminal_reason:
+        . != null and IN(
+          "invalid_workflow_state","context_binding_violation","false_success",
+          "probe_failed","triage_failed","delivery_failed","verification_failed",
+          "lease_conflict","receipt_conflict","budget_exhausted","timeout","rate_limited",
+          "delivery_hold","cancelled","escalated","unknown_failure");
       length == 1 and (.[0] |
         type == "object" and
         .schema_version == 2 and .run_id == $run_id and .command == $command and
         .phase == "pass-outcome" and .parent_run_id == null and
         .event_type == "accounted" and .duration_ms == ($duration_ms|tonumber) and
-        (.outcome | IN("success","no-op","skipped","blocked","failure","escalated","cancelled")) and
-        (.terminal_reason == null or (.terminal_reason | IN(
-          "invalid_workflow_state","context_binding_violation","false_success",
-          "probe_failed","triage_failed","delivery_failed","verification_failed",
-          "lease_conflict","receipt_conflict","budget_exhausted","timeout","rate_limited",
-          "delivery_hold","cancelled","escalated","unknown_failure"))) and
+        ((.outcome | IN("success","no-op","skipped")) and .terminal_reason == null or
+         (.outcome | IN("blocked","failure","escalated","cancelled")) and
+           (.terminal_reason | registered_terminal_reason)) and
         (.total_tokens == null or (.total_tokens | uint)) and
         ($footer == "" or .total_tokens == ($footer|tonumber)))
     ' <<< "$payload" >/dev/null 2>&1
@@ -607,7 +663,7 @@ cmd_wrapper() {
   local delivery_hold="${WRAP[delivery-hold]:-false}" run_id="${WRAP[run-id]:-}"
   local started started_ms ended_ms ended duration_ms rc outcome command canonical=""
   local terminal_status=not-applicable workflow_outcome="" workflow_reason="" total_tokens=""
-  local account_json="" account_rc=0 tmpl blk
+  local account_json="" account_rc=0 helper_binding="" binding_rc=0 helper_surface="" tmpl blk
   if [ -n "$run_id" ]; then
     valid_run_id "$run_id" || { echo "mission-control: invalid --run-id" >&2; exit 2; }
   else
@@ -615,50 +671,68 @@ cmd_wrapper() {
   fi
   command="$(pj "$name" '.command')"
   canonical="$(workflow_command "$command" 2>/dev/null || true)"
-  started="$(now)"; started_ms="$(now_ms)"
-  set +e
-  # inner bash -c: engine cmds may start with VAR=... assignment prefixes
-  # (dedicated-subscription CODEX_HOME), which timeout(1) cannot exec directly
-  if [ "$container" = "local" ]; then
-    bash -c "cd $(printf %q "$rp") && SAAS_INVOCATION_ID=$(printf %q "$run_id") timeout ${envelope}m bash -c $(printf %q "$rendered")"
-  elif [ "$delivery_hold" = true ]; then
-    $DOCKER_CMD exec $DOCKER_USER_OPT -e "SAAS_INVOCATION_ID=$run_id" "$container" bash -c \
-      'cd "$1" && shift && exec "$@"' _ "$rp" \
-      /paat-reconcile/with-delivery-hold.sh timeout "${envelope}m" bash -c "$rendered"
-  else
-    $DOCKER_CMD exec $DOCKER_USER_OPT -e "SAAS_INVOCATION_ID=$run_id" "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m bash -c $(printf %q "$rendered")"
+  tmpl="$(cfg ".engines[\"$engine\"].cmd")"
+  if [ -n "$canonical" ]; then
+    if engine_template_is_codex_exec "$tmpl"; then helper_surface=codex
+    else helper_surface=claude
+    fi
+    set +e
+    helper_binding="$(workflow_helper_binding "$container" "$rp" "$helper_surface" 2>/dev/null)"
+    binding_rc=$?
+    set -e
   fi
-  rc=$?
-  set -e
+  started="$(now)"; started_ms="$(now_ms)"
+  if [ -n "$canonical" ] && [ "$binding_rc" -ne 0 ]; then
+    echo "mission-control: workflow helper preflight failed; refusing model dispatch" >&2
+    rc=1
+  else
+    set +e
+    # inner bash -c: engine cmds may start with VAR=... assignment prefixes
+    # (dedicated-subscription CODEX_HOME), which timeout(1) cannot exec directly
+    if [ "$container" = "local" ]; then
+      bash -c "cd $(printf %q "$rp") && SAAS_INVOCATION_ID=$(printf %q "$run_id") timeout ${envelope}m bash -c $(printf %q "$rendered")"
+    elif [ "$delivery_hold" = true ]; then
+      $DOCKER_CMD exec $DOCKER_USER_OPT -e "SAAS_INVOCATION_ID=$run_id" "$container" bash -c \
+        'cd "$1" && shift && exec "$@"' _ "$rp" \
+        /paat-reconcile/with-delivery-hold.sh timeout "${envelope}m" bash -c "$rendered"
+    else
+      $DOCKER_CMD exec $DOCKER_USER_OPT -e "SAAS_INVOCATION_ID=$run_id" "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m bash -c $(printf %q "$rendered")"
+    fi
+    rc=$?
+    set -e
+  fi
   ended_ms="$(now_ms)"; ended="$((ended_ms / 1000))"; duration_ms="$((ended_ms - started_ms))"
   [ "$duration_ms" -ge 0 ] || duration_ms=0
 
-  tmpl="$(cfg ".engines[\"$engine\"].cmd")"
   if engine_template_is_codex_exec "$tmpl"; then
     total_tokens="$(codex_total_tokens "$base.log" || true)"
   fi
   if [ -n "$canonical" ]; then
-    set +e
-    account_json="$(workflow_account "$container" "$rp" "$run_id" "$duration_ms" "$total_tokens" 2>/dev/null)"
-    account_rc=$?
-    set -e
-    case "$account_rc" in
-      0)
-        if valid_account_json "$account_json" "$run_id" "$canonical" "$duration_ms" "$total_tokens"; then
-          terminal_status=accounted
-          workflow_outcome="$(jq -r '.outcome' <<< "$account_json")"
-          workflow_reason="$(jq -r '.terminal_reason // empty' <<< "$account_json")"
-          if [ "$rc" -ne 0 ] && [ "$rc" -ne 75 ] && [ "$rc" -ne 78 ] && [ "$rc" -ne 124 ]; then
-            case "$workflow_outcome" in success|no-op|skipped) terminal_status=exit-conflict ;; esac
+    if [ "$binding_rc" -ne 0 ]; then
+      terminal_status=invalid
+    else
+      set +e
+      account_json="$(workflow_account "$container" "$rp" "$helper_binding" "$run_id" "$duration_ms" "$total_tokens" 2>/dev/null)"
+      account_rc=$?
+      set -e
+      case "$account_rc" in
+        0)
+          if valid_account_json "$account_json" "$run_id" "$canonical" "$duration_ms" "$total_tokens"; then
+            terminal_status=accounted
+            workflow_outcome="$(jq -r '.outcome' <<< "$account_json")"
+            workflow_reason="$(jq -r '.terminal_reason // empty' <<< "$account_json")"
+            if [ "$rc" -ne 0 ] && [ "$rc" -ne 75 ] && [ "$rc" -ne 78 ] && [ "$rc" -ne 124 ]; then
+              case "$workflow_outcome" in success|no-op|skipped) terminal_status=exit-conflict ;; esac
+            fi
+          else
+            terminal_status=invalid
           fi
-        else
-          terminal_status=invalid
-        fi
-        ;;
-      4) terminal_status=missing ;;
-      20) terminal_status=unsupported ;;
-      *) terminal_status=invalid ;;
-    esac
+          ;;
+        4) terminal_status=missing ;;
+        20) terminal_status=unsupported ;;
+        *) terminal_status=invalid ;;
+      esac
+    fi
     if [ "$terminal_status" = unsupported ]; then
       blk="$(grep -oE '^MC-BLOCKED([[:space:]].*)?$' "$base.log" 2>/dev/null | tail -1 || true)"
       if [ -n "$blk" ]; then

@@ -171,19 +171,24 @@ cannot distinguish an active owner from a recoverable failure.
 
 ## Pass sequence
 
-1. Re-read open GitHub issues and live PR/dependency facts.
-2. Route each triage-cache miss. On the first miss, load `Triage (read-only subagent,
+1. If the probe found one pending embedded delivery, handle it before ordinary triage or
+   new queue work. Under `--dry-run`, report its identity, state, and planned next
+   transition, then stop without loading or advancing the delivery. On a normal run,
+   load `Delivery (inline, sequential)` and resume it through `/goal-deliver` to a
+   canonical terminal result before continuing.
+2. Re-read open GitHub issues and live PR/dependency facts.
+3. Route each triage-cache miss. On the first miss, load `Triage (read-only subagent,
    supervisor-only mutations)` once. Routine classification may use the registered
    `saas-startup-team:maintain-triage` light role. Only a deep route or `uncertain`
    result uses `saas-startup-team:business-founder-maintain`; never cache uncertainty.
    The supervisor alone applies labels, comments, files, and issue mutations.
-3. Apply final verdicts exactly as that section specifies. Under `--dry-run`, retain
+4. Apply final verdicts exactly as that section specifies. Under `--dry-run`, retain
    them in memory and print planned mutations only.
-4. Load `Eligibility & Ordering`, run `maintain-queue.sh`, reconcile stale
+5. Load `Eligibility & Ordering`, run `maintain-queue.sh`, reconcile stale
    `maintain:blocked` labels, and build the resumable and dependency-ordered new-work
    queues. An unexplained empty result is an error. Under `--dry-run`, print the fully
    simulated queues and stop.
-5. If either work list is nonempty, load `Circuit Breakers`, then `Delivery (inline,
+6. If either work list is nonempty, load `Circuit Breakers`, then `Delivery (inline,
    sequential)`. Resume claimed PRs before delivering new issues, one at a time; new
    work uses inline `/goal-deliver`. Never let a review or QA role mutate. The
    `/goal-deliver` reference is the sole delivery contract; the maintain section adds
@@ -192,12 +197,12 @@ cannot distinguish an active owner from a recoverable failure.
    `skills/ux-tester/references/design-review-leg.md` only where that section requires.
    A fast-path abort that falls back inside the same inline `/goal-deliver` call is not
    a maintain-level failure and creates no cooldown by itself.
-6. Run `${CLAUDE_PLUGIN_ROOT}/scripts/memory-gc.sh --weekly`; its cursor makes ordinary
+7. Run `${CLAUDE_PLUGIN_ROOT}/scripts/memory-gc.sh --weekly`; its cursor makes ordinary
    passes a model-free no-op. Add its report path to the digest only when it emits one.
-7. Load `Observability — Morning Review Artifact`, write terminal issue state and the
+8. Load `Observability — Morning Review Artifact`, write terminal issue state and the
    digest, clean up the persisted lease set after the final mutation, then use `Root
    Terminal Contract` to append the one authoritative pass outcome.
-8. Load `Communication`, report the compact result, and stop. The external scheduler
+9. Load `Communication`, report the compact result, and stop. The external scheduler
    decides whether and when to invoke the next `--once` pass; never sleep or retain a
    model turn between passes.
 

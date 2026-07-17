@@ -126,8 +126,9 @@ governor_report() { # <engine> <project> <exit_code> <log_path> [delivery_hold] 
       # Not a failure: no strike, no pool backoff. The pass declared the block
       # and its recheck window; the ladder pivots to other work until it expires.
       local mins reason
-      if [ "$terminal_blocked" -eq 1 ]; then mins=""
-      else mins="$(printf '%s' "$blk" | grep -oE 'recheck_after=[0-9]+' | head -1 | cut -d= -f2 || true)"; fi
+      mins="$(printf '%s\n' "$blk" \
+        | sed -nE 's/^MC-BLOCKED[[:space:]]+recheck_after=([0-9]+)([[:space:]].*)?$/\1/p' \
+        | tail -1)"
       [ -n "$mins" ] || mins="$(cfg '.blocked_default_recheck_minutes // 360')"
       case "$mins" in ''|*[!0-9]*) mins=360 ;; esac
       [ "$mins" -ge 5 ] || mins=5

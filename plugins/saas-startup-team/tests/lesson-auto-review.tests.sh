@@ -161,7 +161,7 @@ test_opus_decisive_and_limits() {
   assert_contains "list delegates with JSON" "$CASE/log/helper" '--list --json'
   assert_contains "list delegates default max" "$CASE/log/helper" '--limit 3'
   assert_contains "Claude JSON wrapper is extracted and approved" "$CASE/log/helper" '--approve 1'
-  assert_contains "rejection invokes close helper" "$CASE/log/helper" '--close 2'
+  assert_contains "rejection invokes candidate-only helper" "$CASE/log/helper" '--auto-reject 2'
   assert_contains "every Opus call pins model" "$CASE/log/claude-1.args" '--model opus'
   assert_contains "every Opus call pins effort" "$CASE/log/claude-1.args" '--effort xhigh'
   assert_contains "Opus uses safe mode" "$CASE/log/claude-1.args" '--safe-mode'
@@ -211,7 +211,7 @@ test_sol_routes_and_flags() {
   verdict "$CASE/sol/1.out" reject 0.90 false false false false
   run_auto
   assert_eq "low-confidence Opus falls back to Sol reject" "$RUN_RC" 0
-  assert_contains "valid Sol reject closes" "$CASE/log/helper" '--close 1'
+  assert_contains "valid Sol reject uses candidate-only transition" "$CASE/log/helper" '--auto-reject 1'
 
   setup_auto
   verdict "$CASE/opus/1.out" uncertain 1
@@ -280,9 +280,15 @@ test_transport_and_malformed_fail_closed() {
   verdict "$CASE/opus/1.out" uncertain 0.5
   printf 'bad-final\n' > "$CASE/sol/1.out"
   run_auto
-  [ "$RUN_RC" -ne 0 ] && pass "malformed Sol is nonzero" || fail "malformed Sol is nonzero"
-  assert_not_contains "malformed Sol leaves candidate unchanged" "$CASE/log/helper" '--quarantine'
-  assert_contains "malformed Sol reports retry" "$RUN_OUT" 'retry'
+  assert_eq "malformed successful Sol is resolved by quarantine" "$RUN_RC" 0
+  assert_contains "malformed successful Sol quarantines" "$CASE/log/helper" '--quarantine 1'
+  assert_not_contains "malformed successful Sol is not a transport retry" "$RUN_OUT" 'retry'
+
+  setup_auto
+  verdict "$CASE/opus/1.out" uncertain 0.5
+  run_auto
+  assert_eq "missing successful Sol result is resolved by quarantine" "$RUN_RC" 0
+  assert_contains "missing successful Sol result quarantines" "$CASE/log/helper" '--quarantine 1'
 
   setup_auto
   verdict "$CASE/opus/1.out" uncertain 0.5
@@ -295,20 +301,20 @@ test_transport_and_malformed_fail_closed() {
   jq -n '{schema_version:1,decision:"approve",confidence:1,generic:true,actionable:true,safe:true,acceptance_testable:true,rationale:"ok",extra:true}' > "$CASE/opus/1.out"
   verdict "$CASE/sol/1.out" reject 1
   run_auto
-  assert_contains "extra Opus field is malformed and falls back" "$CASE/log/helper" '--close 1'
+  assert_contains "extra Opus field is malformed and falls back" "$CASE/log/helper" '--auto-reject 1'
 
   setup_auto
   jq -n '{schema_version:1,decision:"approve",confidence:"1",generic:true,actionable:true,safe:true,acceptance_testable:true,rationale:"ok"}' > "$CASE/opus/1.out"
   printf 'also bad\n' > "$CASE/sol/1.out"
   run_auto
-  [ "$RUN_RC" -ne 0 ] && pass "wrong type plus malformed final fails" || fail "wrong type plus malformed final fails"
-  assert_not_contains "wrong types never mutate" "$CASE/log/helper" '--approve'
+  assert_eq "wrong Opus type plus malformed successful Sol quarantines" "$RUN_RC" 0
+  assert_contains "wrong types never approve and quarantine instead" "$CASE/log/helper" '--quarantine 1'
 
   setup_auto
   jq -n '{schema_version:1,decision:"approve",confidence:1,generic:true,actionable:true,safe:true,rationale:"missing acceptance_testable"}' > "$CASE/opus/1.out"
   verdict "$CASE/sol/1.out" reject 1
   run_auto
-  assert_contains "missing Opus field is malformed and falls back" "$CASE/log/helper" '--close 1'
+  assert_contains "missing Opus field is malformed and falls back" "$CASE/log/helper" '--auto-reject 1'
 
   setup_auto
   verdict "$CASE/opus/1.out" uncertain 0.5
@@ -316,8 +322,30 @@ test_transport_and_malformed_fail_closed() {
   jq '.rationale = ("x" * 513)' "$CASE/sol/1.out" > "$CASE/sol/1.tmp"
   mv "$CASE/sol/1.tmp" "$CASE/sol/1.out"
   run_auto
-  [ "$RUN_RC" -ne 0 ] && pass "overlong final rationale is capped fail-closed" || fail "overlong final rationale is capped fail-closed"
-  assert_not_contains "overlong final rationale never mutates" "$CASE/log/helper" '--approve'
+  assert_eq "overlong successful Sol result quarantines fail-closed" "$RUN_RC" 0
+  assert_contains "overlong final rationale never approves" "$CASE/log/helper" '--quarantine 1'
+}
+
+test_nonblocking_local_lock() {
+  setup_auto
+  verdict "$CASE/opus/1.out" approve 0.99
+  local lock_dir lock_key lock_file
+  lock_dir="$CASE/tmp/saas-lesson-auto-review-$(id -u)"
+  mkdir -m 700 -- "$lock_dir"
+  lock_key="$(printf '%s' "$REPO" | sha256sum | awk '{print $1}')"
+  lock_file="$lock_dir/$lock_key.lock"
+  exec 7>>"$lock_file"
+  flock -n 7 || { fail "test fixture acquires auto-review lock"; return; }
+  run_auto
+  assert_eq "concurrent local review exits successfully without waiting" "$RUN_RC" 0
+  assert_count "concurrent local review launches no model" "$CASE/log" 'claude-*.args' 0
+  assert_not_contains "concurrent local review does not list or mutate" "$CASE/log/helper" '--list'
+  assert_contains "concurrent local review reports skip" "$RUN_OUT" 'is active; skipped'
+  flock -u 7
+  exec 7>&-
+  run_auto
+  assert_count "released local lock permits review" "$CASE/log" 'claude-*.args' 1
+  assert_contains "released local lock permits mutation" "$CASE/log/helper" '--approve 1'
 }
 
 test_dry_run_hostile_bounds_and_cleanup() {
@@ -436,13 +464,40 @@ test_review_quarantine_state_machine() {
   done
 }
 
+test_review_auto_reject_state_machine() {
+  setup_gh
+  GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-candidate"}]}'
+  run_review --auto-reject 9 --note auto
+  assert_eq "candidate-only automated rejection succeeds" "$REVIEW_RC" 0
+  assert_contains "automated rejection closes one candidate" "$GH_CASE/gh.log" \
+    'issue close 9 --repo owner/repo --reason not planned --comment auto'
+
+  local json state
+  for state in approved blocked unrelated closed; do
+    setup_gh
+    case "$state" in
+      approved) json='{"state":"OPEN","labels":[{"name":"lesson-candidate"},{"name":"lesson-approved"}]}' ;;
+      blocked) json='{"state":"OPEN","labels":[{"name":"lesson-candidate"},{"name":"lessons:blocked"}]}' ;;
+      unrelated) json='{"state":"OPEN","labels":[{"name":"bug"}]}' ;;
+      closed) json='{"state":"CLOSED","labels":[{"name":"lesson-candidate"}]}' ;;
+    esac
+    GH_VIEW_JSON="$json"
+    run_review --auto-reject 9
+    [ "$REVIEW_RC" -ne 0 ] && pass "automated rejection refuses $state state" \
+      || fail "automated rejection refuses $state state"
+    assert_not_contains "automated rejection $state guard prevents close" "$GH_CASE/gh.log" 'issue close'
+  done
+}
+
 test_opus_decisive_and_limits
 test_sol_routes_and_flags
 test_boolean_and_confidence_gates
 test_transport_and_malformed_fail_closed
+test_nonblocking_local_lock
 test_dry_run_hostile_bounds_and_cleanup
 test_mutation_failure_and_strict_schema
 test_review_quarantine_state_machine
+test_review_auto_reject_state_machine
 
 printf '\nlesson-auto-review: %s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -1,8 +1,9 @@
 # Design — `/lessons-deliver`: autonomous implementation of approved lessons
 
-**Status:** approved design (2026-06-26). Implements the last open step of the
-self-improvement loop (issue #79): auto-implement approved lessons with **no manual
-trigger**. Codex-reviewed at the design stage; accepted findings folded in (§ Hardening).
+**Status:** implemented design, updated 2026-07-17 for automatic lesson review.
+Implements the delivery leg of the self-improvement loop: auto-implement approved lessons
+with **no manual trigger**. Codex-reviewed at the design stage; accepted findings folded
+in (§ Hardening).
 
 Reads alongside `self-improvement-loop.md` (the loop spec) and reuses the safety
 patterns of `commands/maintain.md`.
@@ -11,22 +12,24 @@ patterns of `commands/maintain.md`.
 
 ## 1. Problem & scope
 
-The loop already ships, on demand:
+The loop ships:
 
 ```
 /session-insights → /harvest → lesson-file.sh (gated filing of `lesson-candidate`
-issues to the PINNED plugin repo) → /lessons-review (human gate: --approve N
-relabels lesson-candidate → lesson-approved)
+issues to the PINNED plugin repo) → lesson-auto-review.sh (fresh Opus/xhigh verdict;
+conditional independent Sol/xhigh arbitration; approved candidates become
+`lesson-approved`)
 ```
 
-The single remaining step is **implementation**. Today the investor must manually run
-`/goal-deliver #N` per approved lesson. This design removes that manual trigger: a
-scheduled, in-container runner picks up `lesson-approved` issues and delivers each into
-the plugin repo end-to-end (implement → review → test → version-bump → PR → merge).
+`/lessons-deliver` removes the old manual `/goal-deliver #N` trigger: a scheduled,
+in-container runner picks up `lesson-approved` issues and delivers each into the plugin
+repo end-to-end (implement → review → test → version-bump → PR → merge).
 
-**The human gate is unchanged.** The investor's only action stays approval in the
-`paat/claude-plugins` issue queue (`/lessons-review --approve N`, or the GitHub label).
-Everything after approval is autonomous.
+Normal approval is automated. `lesson-auto-review.sh` reviews at most three candidates per
+pass. High-confidence decisions approve or reject; unresolved Opus output invokes Sol, and
+a still-unresolved or zero-exit malformed final Sol verdict is quarantined. Only model
+transport failures and timeouts remain queued for retry. `/lessons-review` is an optional
+manual inspection/override surface, not a delivery prerequisite.
 
 ## 2. Why not literally `/goal-deliver`
 
@@ -47,7 +50,7 @@ triage, needs-human classification, founders/Estonian, deploy-watch / classify /
 |-----------|------|----------------|
 | `commands/lessons-deliver.md` | Claude playbook | the supervisor: per-pass orchestration, dispatch implementer, drive tribunal, decide merge/block |
 | `scripts/lessons-deliver.sh` | bash | deterministic, script-tested surface: eligibility selection, repo-pin validation, claim/idempotency, blocked-state, the mechanical **diff firewall**, version-bump-both-files, startup reconciliation, gh-failure classification |
-| new test Suite in `tests/run-tests.sh` | bash (mock-`gh`) | covers the script surface (mirrors Suite R harness) |
+| test suites in `tests/run-tests.sh` and `tests/*.tests.sh` | bash (mock-`gh`) | cover the deterministic delivery and review surfaces |
 
 Reuse: `pii-gate.sh` (secret scan of the diff), `tribunal-review:tribunal-loop`,
 `/maintain`'s circuit-breaker + digest patterns.
@@ -192,7 +195,7 @@ cron is the production runner; `/loop` is for a supervised session only.
 
 ## 12. Tests
 
-New Suite (mock-`gh` harness, mirroring Suite R) over the **script** surface:
+Mock-`gh` suites cover the **script** surface:
 - eligibility filter (label / state / linked-PR / blocked / needs-human / dependency),
 - repo-pin validation + malformed-pin refusal,
 - `--dry-run` performs zero mutations,
@@ -217,9 +220,8 @@ emitted to the session (readable via `/rc`).
 
 ## 14. Deliverables checklist
 
-- [ ] `scripts/lessons-deliver.sh` + new test Suite (script surface, mock-gh)
-- [ ] `commands/lessons-deliver.md` (supervisor playbook)
-- [ ] README section + Installation note
-- [ ] update `self-improvement-loop.md` (components table + §12 checklist: check off
-      auto-implement; note cron wiring as the same runner)
-- [ ] version bump (`plugin.json` + `marketplace.json`)
+- [x] `scripts/lessons-deliver.sh` + mock-`gh` script-surface tests
+- [x] `commands/lessons-deliver.md` supervisor playbook
+- [x] README and installation documentation
+- [x] `self-improvement-loop.md` integration
+- [x] synchronized source and generated version surfaces

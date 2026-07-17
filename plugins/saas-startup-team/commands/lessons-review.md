@@ -1,23 +1,26 @@
 ---
 name: lessons-review
-description: "The single human gate of the self-improvement loop. Lists open `lesson-candidate` issues in the pinned plugin repo and lets the investor approve (mark ready for /lessons-deliver) or close (not generic) each one, before any implementation. Usage: /lessons-review"
+description: "Optional manual inspection and override for the automated lesson-review queue. Lists verified `lesson-candidate` issues and can approve, close, or quarantine one; normal candidates are reviewed by lesson-auto-review.sh. Usage: /lessons-review"
 allowed-tools: Bash, Read
 user_invocable: true
 ---
 
-# /lessons-review — the human gate
+# /lessons-review — Manual Lesson Inspection and Override
 
 Part of the self-improvement loop (see `docs/design/self-improvement-loop.md`).
 The harvester files **de-identified, PII-gated** generic improvements as
-`lesson-candidate` issues in the pinned plugin repo. This command is the **one
-human step** in the whole loop: the investor reviews that queue and decides, per
-issue, **approve** (it is a genuine generic lesson → implement) or **close** (not
-generic / not wanted). Nothing is implemented until it is approved here.
+`lesson-candidate` issues in the pinned plugin repo. The normal path runs
+`lesson-auto-review.sh`: one fresh isolated Opus/xhigh verdict, followed only when
+unresolved by independent GPT-5.6 Sol/xhigh arbitration. High-confidence decisions
+approve or reject automatically; an unresolved pair is quarantined. Transport or
+timeout failures stay queued for retry. A zero-exit malformed Opus verdict invokes Sol;
+a zero-exit malformed final Sol verdict is unresolved and quarantined. Each pass reviews
+at most three candidates.
 
-This is a deliberate, per-issue human action, so it is **not** gated behind
-`SAAS_LESSON_SYNC_ENABLED` (that flag guards *automated* filing). The safety rails
-are: a repo must be pinned, mutations act only on a verified `lesson-candidate`
-issue, and you must see the repo + issue before deciding.
+Use this command only when the investor wants to inspect or override that state. It is
+not a prerequisite for `/lessons-deliver` and is not gated behind
+`SAAS_LESSON_SYNC_ENABLED` (that exact flag guards public filing). The repo must be
+pinned and every mutation still acts only on a freshly verified lesson issue.
 
 ## 1. Confirm the target repo
 
@@ -37,7 +40,7 @@ human-readable summary instead.)
 
 If the queue is empty, say so and stop — there is nothing to review.
 
-## 3. Present each candidate to the investor
+## 3. Present candidates when manual inspection was requested
 
 For every candidate, show a compact card:
 
@@ -46,9 +49,9 @@ For every candidate, show a compact card:
 - **Evidence:** the occurrence count + refs from `## Evidence`.
 - **Domain:** the non-`lesson-candidate` label, if any.
 
-Then ask the investor, for each: **approve**, **close**, or **skip** (leave it
-pending for a later pass). Do not decide genericity yourself — that judgement is
-exactly what this gate exists to capture from the human.
+Then ask the investor, for each: **approve**, **close**, **quarantine**, or **skip**.
+This is an explicit override of the automatic queue, so do not infer a mutation from
+merely listing it.
 
 ## 4. Apply the decision
 
@@ -64,6 +67,13 @@ will no longer surface it):
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/lesson-review.sh" --close <number> --note "<why, optional>"
+```
+
+**Quarantine** — removes an unresolved candidate from the active queue without
+approving or closing it:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/lesson-review.sh" --quarantine <number> --note "<why, optional>"
 ```
 
 The script verifies the issue is genuinely a lesson issue before touching it,
