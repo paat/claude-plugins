@@ -265,6 +265,14 @@ PHASE=${SAAS_PHASE:-$ROLE}
 WRITER_ID=${SAAS_WRITER_ID:-worker-$RUN_ID-$ATTEMPT}
 [[ "$RUN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$ ]] || {
   echo "codex-run-role: invalid SAAS_RUN_ID" >&2; exit 2; }
+EVENT_CONTEXT_ARGS=()
+if [ -n "${SAAS_PARENT_RUN_ID:-}" ]; then
+  [[ "$SAAS_PARENT_RUN_ID" =~ ^run-[0-9a-f]{32}$ ]] || {
+    echo "codex-run-role: invalid SAAS_PARENT_RUN_ID" >&2; exit 2; }
+  [ "$SAAS_PARENT_RUN_ID" != "$RUN_ID" ] || {
+    echo "codex-run-role: SAAS_PARENT_RUN_ID must differ from SAAS_RUN_ID" >&2; exit 2; }
+  EVENT_CONTEXT_ARGS+=(--parent-run-id "$SAAS_PARENT_RUN_ID")
+fi
 [[ "$COMMAND" =~ ^[a-z][a-z0-9_.:-]{0,63}$ ]] || {
   echo "codex-run-role: invalid SAAS_COMMAND" >&2; exit 2; }
 [[ "$PHASE" =~ ^[a-z][a-z0-9_.:-]{0,63}$ ]] || {
@@ -392,7 +400,7 @@ record_event() {
     --events "$EVENTS_FILE" --run-id "$RUN_ID" --command "$COMMAND" --phase "$PHASE" \
     --surface codex --profile "$PROFILE" --writer-id "$WRITER_ID" --attempt "$ATTEMPT" \
     --requested-provider openai --requested-model "$MODEL" --requested-effort "$EFFORT" \
-    --base-sha "$BASE_SHA" "${ROUTE_ARGS[@]}" "$@" >/dev/null
+    --base-sha "$BASE_SHA" "${EVENT_CONTEXT_ARGS[@]}" "${ROUTE_ARGS[@]}" "$@" >/dev/null
 }
 
 record_event --event-type started --started-at "$STARTED_AT" \

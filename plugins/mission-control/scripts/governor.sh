@@ -73,8 +73,10 @@ _gov_backoff() { # <pool> <log_path> — set backoff_until (parsed reset or expo
   alert "backoff-$pool" "pool $pool rate-limited; backing off until $(date -d "@$until_e" +%FT%T 2>/dev/null || echo "$until_e")"
 }
 
-governor_report() { # <engine> <project> <exit_code> <log_path> [delivery_hold]
-  local engine="$1" name="$2" rc="$3" logf="$4" delivery_hold="${5:-}" pool patterns extra outcome errs blk
+governor_report() { # <engine> <project> <exit_code> <log_path> [delivery_hold] [terminal_status] [workflow_outcome] [workflow_reason]
+  local engine="$1" name="$2" rc="$3" logf="$4" delivery_hold="${5:-}"
+  local terminal_status="${6:-not-applicable}" workflow_outcome="${7:-}" workflow_reason="${8:-}"
+  local pool patterns extra outcome errs blk terminal_blocked=0
   [ -n "$delivery_hold" ] || delivery_hold="$(pj "$name" '.delivery_hold // false')"
   pool="$(cfg ".engines[\"$engine\"].pool // \"unknown\"")"
   patterns="$RL_BUILTIN"
@@ -87,10 +89,33 @@ governor_report() { # <engine> <project> <exit_code> <log_path> [delivery_hold]
   elif grep -qiE "$patterns" "$logf" 2>/dev/null; then
     outcome="rate-limit"                       # wins even over exit 0
     _gov_backoff "$pool" "$logf"
-  elif [ -n "$blk" ]; then outcome="blocked"   # declared terminal state, any rc
   elif [ "$rc" -eq 124 ]; then outcome="timeout"
-  elif [ "$rc" -eq 0 ]; then outcome="ok"
-  else outcome="error"
+  else
+    case "$terminal_status" in
+      accounted)
+        case "$workflow_outcome" in
+          success|no-op|skipped) [ "$rc" -eq 0 ] && outcome=ok || outcome=error ;;
+          blocked) outcome=blocked; terminal_blocked=1 ;;
+          failure|escalated|cancelled) outcome=error ;;
+          *) outcome=error ;;
+        esac
+        ;;
+      missing|invalid|exit-conflict) outcome=error ;;
+      legacy-blocked) outcome=blocked ;;
+      unsupported)
+        if [ -n "$blk" ]; then outcome=blocked
+        elif [ "$rc" -eq 0 ]; then outcome=ok
+        else outcome=error
+        fi
+        ;;
+      not-applicable|"")
+        if [ -n "$blk" ]; then outcome=blocked
+        elif [ "$rc" -eq 0 ]; then outcome=ok
+        else outcome=error
+        fi
+        ;;
+      *) outcome=error ;;
+    esac
   fi
   case "$outcome" in
     ok)
@@ -101,12 +126,14 @@ governor_report() { # <engine> <project> <exit_code> <log_path> [delivery_hold]
       # Not a failure: no strike, no pool backoff. The pass declared the block
       # and its recheck window; the ladder pivots to other work until it expires.
       local mins reason
-      mins="$(printf '%s' "$blk" | grep -oE 'recheck_after=[0-9]+' | head -1 | cut -d= -f2 || true)"
+      if [ "$terminal_blocked" -eq 1 ]; then mins=""
+      else mins="$(printf '%s' "$blk" | grep -oE 'recheck_after=[0-9]+' | head -1 | cut -d= -f2 || true)"; fi
       [ -n "$mins" ] || mins="$(cfg '.blocked_default_recheck_minutes // 360')"
       case "$mins" in ''|*[!0-9]*) mins=360 ;; esac
       [ "$mins" -ge 5 ] || mins=5
       [ "$mins" -le 10080 ] || mins=10080
-      reason="$(printf '%s' "$blk" | sed -E 's/^MC-BLOCKED *//; s/recheck_after=[0-9]+ *//; s/^reason= *//')"
+      if [ "$terminal_blocked" -eq 1 ]; then reason="$workflow_reason"
+      else reason="$(printf '%s' "$blk" | sed -E 's/^MC-BLOCKED *//; s/recheck_after=[0-9]+ *//; s/^reason= *//')"; fi
       [ -n "$reason" ] || reason="unspecified"
       state_set '.projects[$n].consecutive_errors = 0
                  | .projects[$n].blocked_until = ($u|tonumber)

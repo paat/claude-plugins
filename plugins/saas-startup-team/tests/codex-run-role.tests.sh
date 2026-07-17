@@ -10,7 +10,7 @@ test_codex_run_role_terminal_safety() {
   local predicted special linked_parent real_parent started elapsed evidence_bytes
   local eval_dir observed target_size namespace_prompt args_capture ambient_home product_file
   local signal child_pid signal_seen signal_out runner_pid holder_pid
-  local attempt stress_ok completed target expected i
+  local attempt stress_ok completed target expected i parent_run
   repo=$(mktemp -d); bin=$(mktemp -d)
   git -C "$repo" init -q
   git -C "$repo" config user.email test@example.invalid
@@ -222,6 +222,33 @@ SH
   else
     assert_equals "CR4: worker controls are removed from terminal output" absent absent
   fi
+
+  assert_equals "CR4a: absent parent preserves unparented events" \
+    "$(jq -s '.[-2:] | length == 2 and all(.[]; .parent_run_id == null)' "$events")" true
+  parent_run=run-11111111111111111111111111111111
+  ec=0
+  out=$(cd "$repo" && PATH="$bin:$PATH" SAAS_AGENT_EVENTS_FILE="$events" \
+    SAAS_CODEX_LOG_DIR="$logs" SAAS_RUN_ID=parented-child \
+    SAAS_PARENT_RUN_ID="$parent_run" \
+    bash "$script" --role qa --profile deep --task-file task.md 2>&1) || ec=$?
+  assert_exit_code "CR4b: canonical parent is accepted" "$ec" 0
+  assert_equals "CR4c: every parented helper event carries the root" \
+    "$(jq -s --arg parent "$parent_run" \
+      '.[-2:] | length == 2 and all(.[]; .parent_run_id == $parent)' "$events")" true
+  rm -f "$called"; ec=0
+  out=$(cd "$repo" && PATH="$bin:$PATH" FAKE_CALLED="$called" \
+    SAAS_AGENT_EVENTS_FILE="$events" SAAS_CODEX_LOG_DIR="$logs" \
+    SAAS_RUN_ID=invalid-parent SAAS_PARENT_RUN_ID=not-canonical \
+    bash "$script" --role qa --profile deep --task-file task.md 2>&1) || ec=$?
+  assert_exit_code "CR4d: invalid parent is rejected" "$ec" 2
+  assert_file_not_exists "CR4e: invalid parent never launches Codex" "$called"
+  rm -f "$called"; ec=0
+  out=$(cd "$repo" && PATH="$bin:$PATH" FAKE_CALLED="$called" \
+    SAAS_AGENT_EVENTS_FILE="$events" SAAS_CODEX_LOG_DIR="$logs" \
+    SAAS_RUN_ID="$parent_run" SAAS_PARENT_RUN_ID="$parent_run" \
+    bash "$script" --role qa --profile deep --task-file task.md 2>&1) || ec=$?
+  assert_exit_code "CR4f: parent equal to child is rejected" "$ec" 2
+  assert_file_not_exists "CR4g: equal parent never launches Codex" "$called"
 
   ec=0
   out=$(cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_MODE=no-terminal \

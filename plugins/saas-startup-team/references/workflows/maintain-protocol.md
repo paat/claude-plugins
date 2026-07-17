@@ -17,7 +17,9 @@ GIT_COMMON=$(cd "$GIT_COMMON" && pwd -P)
 MAINTAIN_BLOCKED_FILE="$GIT_COMMON/saas-startup-team/maintain/blocked.jsonl"
 ```
 
-On a normal run, acquire the repository-wide lease set shared with
+On a normal run, `SAAS_INVOCATION_ID` and `MAINTAIN_LEASE_RUN_ID` were already
+resolved by the router. Require both to match `^run-[0-9a-f]{32}$` and to be
+byte-identical; never mint or substitute an identity here. Acquire the repository-wide lease set shared with
 `/maintain-loop` **before** changing the persistent worktree, `.git/info/exclude`,
 labels, state, or `active_role`. `maintain-leases.sh` claims both legacy pass keys
 and the current shared key, so old and new plugin versions cannot overlap. It may
@@ -25,17 +27,17 @@ reclaim a well-formed expired heartbeat; active, malformed, and future-dated
 leases fail closed:
 
 ```bash
-LEASE_RUN_ID=${MAINTAIN_LEASE_RUN_ID:-}
-[ -n "$LEASE_RUN_ID" ] || \
-  LEASE_RUN_ID=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/agent-events.sh" new-run-id)
+LEASE_RUN_ID=$SAAS_INVOCATION_ID
+[ "$MAINTAIN_LEASE_RUN_ID" = "$SAAS_INVOCATION_ID" ] || exit 2
 MAINTAIN_LEASE_STATE="$GIT_COMMON/saas-startup-team/maintain-runtime/$LEASE_RUN_ID-leases.json"
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" acquire \
   --repo-root "$REPO_ROOT" --mode maintain --run-id "$LEASE_RUN_ID" \
   --state-file "$MAINTAIN_LEASE_STATE"
 ```
 
-`MAINTAIN_LEASE_RUN_ID` is the exact pass identity pre-minted by a thin
-`/maintain-loop` coordinator; direct `/maintain` invocations mint it here. Normal
+`MAINTAIN_LEASE_RUN_ID` is the exact root identity resolved by `/maintain`; a thin
+`/maintain-loop` coordinator passes the same value through both the environment and
+its compatibility argument. Normal
 `/maintain` never calls `maintain-leases.sh activate` and never passes
 `--blocked-file` to a lease action. Its `.startup/maintain/current-run.json` lifecycle
 belongs to `Pre-Flight`; blocked ledgers are queue input under `Eligibility & Ordering`.
@@ -79,6 +81,36 @@ Under `--dry-run`, acquire no lease and install no release trap because the run 
 strictly read-only. External schedulers must additionally use non-blocking `flock` as in
 their tick wrapper; `flock` suppresses duplicate launches, while this lease prevents
 manual and cross-worktree overlap after launch.
+
+---
+
+## Root Terminal Contract
+
+Once the probe has returned work, the detailed `/maintain` supervisor is the only
+writer allowed to append a root event for `SAAS_INVOCATION_ID`. Every handled terminal
+path—success, blocked, failure, cancelled, or escalated—runs lease/state cleanup first
+where cleanup is safe, then appends exactly one completed `--phase pass-outcome
+--once` event with no `--parent-run-id`. Never infer success from a worker exit code.
+
+Use only the v2 terminal-reason registry from `routing-telemetry.md`: choose the narrow
+verified reason (for example `lease_conflict`, `verification_failed`,
+`budget_exhausted`, `timeout`, `cancelled`, or `escalated`); use `unknown_failure`
+only when no narrower registered reason applies. Success has no terminal reason.
+Append refusal, malformed state, or a conflicting terminal fails closed and must not be
+followed by a competing event.
+
+The append shape is `agent-events.sh append --run-id "$SAAS_INVOCATION_ID"
+--command "$SAAS_INVOCATION_COMMAND" --phase pass-outcome --event-type completed --once`, plus the
+verified outcome, actual host surface, `profile=deep`, stable supervisor writer ID, and
+an optional registered terminal reason.
+
+Every implementation, delivery, QA, tribunal, or other work attempt mints a fresh
+`SAAS_RUN_ID` with `agent-events.sh new-run-id` and appends its work events with
+`--parent-run-id "$SAAS_INVOCATION_ID"`. Children never write `phase=pass-outcome`
+for the root and their token totals are never summed into it. Standalone
+`/goal-deliver` has its own root contract, but an embedded call does not.
+
+Under `--dry-run`, do not append a root or child event.
 
 ---
 
@@ -202,38 +234,47 @@ escalation; don't pile fixes onto it). A failing **non-required** check (e.g. a
 docs-sync or lint job) does **not** gate delivery — note it in the digest and proceed;
 the merge-time required-check gate is the real safety boundary.
 
-**Persist the run id at startup** so it survives context loss within a session
-(**skipped entirely under `--dry-run`**):
+**Persist an atomic audit/context-continuity marker** for same-ID recovery in the
+current process or retained context (**skipped entirely under `--dry-run`**). This is
+not a restart mechanism, never reacquires an existing lease after process restart, and
+never mints an ID:
 
 ```bash
 mkdir -p .startup/maintain/runs .startup/maintain/human-tasks
-# Resume or mint run-id:
-# If current-run.json exists and its started_at is within the last 6 hours,
-#   RESUME it (same run — this is how the run-id survives context compaction
-#   within a session; in-session recovery path: re-read current-run.json).
-# Otherwise archive any existing current-run.json and mint a fresh run-id.
+current_tmp=""
 if [ -f .startup/maintain/current-run.json ]; then
-  started=$(jq -r '.started_at // empty' .startup/maintain/current-run.json)
-  age=$(( $(date -u +%s) - $(date -u -d "$started" +%s 2>/dev/null || echo 0) ))
-  if [ "$age" -le 21600 ]; then
-    : # Resume — run-id stays as-is
+  jq -e 'type == "object" and keys == ["run_id","started_at"]
+    and (.run_id | type == "string")
+    and (.started_at | type == "string"
+      and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))' \
+    .startup/maintain/current-run.json >/dev/null || exit 2
+  old_run_id=$(jq -r '.run_id' .startup/maintain/current-run.json) || exit 2
+  [[ "$old_run_id" =~ ^run-[0-9a-f]{32}$ ]] || exit 2
+  if [ "$old_run_id" = "$SAAS_INVOCATION_ID" ]; then
+    : # Same-ID in-process/context recovery retains the audit marker.
   else
     mv .startup/maintain/current-run.json \
-       ".startup/maintain/runs/archived-$(date -u +%Y%m%dT%H%M%SZ).json"
-    printf '{"run_id":"%s","started_at":"%s"}\n' \
-      "$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/agent-events.sh" new-run-id)" "$(date -u +%FT%TZ)" \
-      > .startup/maintain/current-run.json
+       ".startup/maintain/runs/archived-$(date -u +%Y%m%dT%H%M%SZ)-${old_run_id}.json"
+    current_tmp=$(mktemp .startup/maintain/.current-run.XXXXXX) || exit 2
+    printf '{"run_id":"%s","started_at":"%s"}\n' "$SAAS_INVOCATION_ID" \
+      "$(date -u +%FT%TZ)" > "$current_tmp" || exit 2
+    mv "$current_tmp" .startup/maintain/current-run.json || exit 2
   fi
 else
-  printf '{"run_id":"%s","started_at":"%s"}\n' \
-    "$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/agent-events.sh" new-run-id)" "$(date -u +%FT%TZ)" \
-    > .startup/maintain/current-run.json
+  current_tmp=$(mktemp .startup/maintain/.current-run.XXXXXX) || exit 2
+  printf '{"run_id":"%s","started_at":"%s"}\n' "$SAAS_INVOCATION_ID" \
+    "$(date -u +%FT%TZ)" > "$current_tmp" || exit 2
+  mv "$current_tmp" .startup/maintain/current-run.json || exit 2
 fi
+[ "$(jq -r '.run_id' .startup/maintain/current-run.json)" = "$SAAS_INVOCATION_ID" ] || exit 2
 ```
 
 On-disk state layout (`.startup/maintain/`):
-- `current-run.json` — `{run_id, started_at}`, written at startup (resume or
-  fresh mint); survives context loss within a session. Skipped under `--dry-run`.
+- `current-run.json` — `{run_id, started_at}`, always containing the exact current
+  `SAAS_INVOCATION_ID`. Same-ID recovery may reuse it; a different well-formed old
+  file is archived. A malformed marker fails closed without overwrite. Writes use
+  temp+rename. No age window, restart lease-reacquisition, or secondary mint exists.
+  Skipped under `--dry-run`.
 - `triage-cache.jsonl` — body-classification keyed by `{number, updatedAt,
   routing_schema_version}`; legacy or mismatched routing versions are cache misses, so lets a
   pass skip re-classifying unchanged issues. A cache hit supplies the cached verdict
@@ -511,6 +552,27 @@ Process each resumable PR first, then each eligible new issue through the
 `/goal-deliver` playbook inline, scoped to that **one** issue. Sequential — at most one
 delivery in flight — which is the merge-serialization mechanism.
 
+`goal-deliver.md` is the sole delivery contract. Before each inline call, compute the
+positive remaining pass budget. Set `VERIFIED_CLAIM_MARKER` to the exact marker proven
+by fresh issue/PR facts: the newly created marker for new work, or the ordinary/prior
+canonical or legacy-promoted marker selected by the resume checks below. Export this
+narrow embedded-caller envelope:
+
+```bash
+export SAAS_EMBEDDED_CALLER=maintain
+export SAAS_EMBEDDED_WORKTREE="$WT"
+export SAAS_EMBEDDED_CLAIM="$VERIFIED_CLAIM_MARKER"
+export SAAS_EMBEDDED_LEASE_STATE="$MAINTAIN_LEASE_STATE"
+export SAAS_EMBEDDED_REMAINING_SECONDS="$remaining_seconds"
+```
+
+The embedded call inherits `SAAS_INVOCATION_ID` and `SAAS_INVOCATION_COMMAND`; it
+independently validates the exact worktree, marker shape and live fact binding, current
+lease holder, and remaining budget, then mints a fresh child `SAAS_RUN_ID`.
+It does not acquire a second delivery-scope lease or write a root terminal. Do not copy
+its QA, tribunal, merge, deploy, or rollback gates here. Maintain retains queue,
+claim/cooldown, resumable-binding, pass-budget, and pass-classification ownership.
+
 Run each inline delivery's authenticated mutation window in one continuous host
 shell. Mint its mutation token, snapshot its guards and commit trust, run the
 writer, verify containment, route the post-diff, and consume the trust receipt in
@@ -526,9 +588,10 @@ Before new delivery, re-fetch the issue and skip if it is: closed, re-labelled
 through `.resumable`. If
 `updatedAt` changed since triage, **re-triage** instead of delivering stale work.
 Then add `maintain:claimed` and exactly one issue comment
-`<!-- maintain:claim:RUN_ID -->`, substituting `LEASE_RUN_ID`; require the eventual PR
+`<!-- maintain:claim:RUN_ID -->`, substituting `SAAS_INVOCATION_ID`; require the eventual PR
 body to carry that same byte-exact marker and the PR author to match the marker-comment
-author. This pair is the claim-ownership binding. The linked-PR check remains the
+author. Set `VERIFIED_CLAIM_MARKER` to that byte-exact marker after re-fetch proves the
+binding. This pair is the claim-ownership binding. The linked-PR check remains the
 idempotency guard (claims are not atomic across competing sessions — out of scope for
 v1's single-session model). A `maintain:claimed` whose run-id differs from the current
 run and is older than the cooldown may be cleared.
@@ -598,7 +661,8 @@ never duplicate a marker. Continue only after re-fetch proves one matching marke
 Require all four authors—issue comment, permitted PR comment when used, PR, and current
 actor—to match. Since the issue comment changes `updatedAt`, rebuild the queue and
 resume only from its fresh exact row before checkout or any product/branch mutation.
-Never emit another legacy marker.
+Never emit another legacy marker. Set `VERIFIED_CLAIM_MARKER` to the exact promoted
+marker only after this re-fetch proves the complete binding.
 
 Bind that live issue snapshot, PR number, base, and head before checkout. An intentional
 update may replace the bound head only with the pushed local SHA and invalidates all
@@ -608,123 +672,29 @@ intervening issue, claim, eligibility, link, base, or head drift stops resumed w
 re-triages or excludes it without further mutation.
 
 Fetch and check out that exact head in the dedicated worktree, update it from the
-current default, and then re-run required checks, browser QA when applicable, the
-issue-closure audit, and `tribunal-review:tribunal-loop` against the resulting current
-HEAD. Do not trust an earlier green check, QA report, or tribunal verdict. A required
-source correction returns to a fresh tech founder on the same branch and PR, followed
-by the complete gates again; it never opens a replacement PR. Pending checks may be
-polled within the pass budget. A failed required check that cannot be corrected in the
-bounded attempt leaves the PR and claim intact, records a cooldown, and continues with
-independent work.
+current default, then enter the embedded `/goal-deliver` contract at its resume path.
+That contract revalidates all task-specific gates against current HEAD and performs no
+implementation launch when the existing PR already passes. Maintain never restates or
+bypasses those gates.
 
-Only a current-HEAD PR that clears the ordinary green gate may follow the existing
-merge, deploy, live verification, claim removal, issue closure, and digest path below.
-This recovery path performs no implementation launch when the existing PR already
-passes.
+### Maintain result handling
 
-### Per-Issue Guardrails
+Only after embedded delivery returns verified terminal evidence may maintain update its
+queue and durable issue state. For an issue-local block, record the terminal triage/digest state
+and active cooldown while keeping `maintain:claimed`. If no open linked PR exists, the
+claim remains for explicit cooldown/reconciliation; if exactly one valid resumable PR
+exists, keep both intact. Ambiguous, multiple, or mismatched linked PR identity is `pass-blocked`.
+Continue the remaining eligible queue after an issue-local block.
 
-- **Recurrence-class closure is mandatory.** Before implementation, identify the
-  root cause / recurrence class and fix the class, not only the observed instance.
-- Treat an unavailable issue-specific dev or test target first as a diagnostic, not
-  immediately as a blocker.
-  When its cause is repository- or container-owned, use only the project's documented
-  setup and start/restart commands for one repair attempt, probe its documented health
-  endpoint or target route, inspect bounded startup logs, fix the cause, and retry; do
-  not invent commands.
-- For browser audits and pre-merge QA, follow
-  `skills/ux-tester/references/design-review-leg.md` §Pre-merge design-review leg and
-  §Browser transport recovery. Local evidence never substitutes for post-deploy live
-  verification; an unresolved post-merge live failure is pass-wide.
-- Only after evidence shows that a pre-merge remedy needs external authority may the
-  supervisor record the terminal triage/digest state, write the active cooldown, and
-  return `issue-blocked`. If no open linked PR exists, remove `maintain:claimed`. If
-  exactly one valid resumable PR exists, keep the PR and `maintain:claimed` intact so
-  it re-enters `.resumable` after cooldown. Ambiguous, multiple, or mismatched linked
-  PR identity is `pass-blocked`, not `issue-blocked`. Continue the remaining eligible
-  queue; an issue-local blocker must not become the pass status.
-- For bug, monitor, customer, accounting, replay, and incident-class issues, add a
-  locking regression test, durable contract test, monitor assertion, invariant/golden
-  fixture, or equivalent mechanical guard that would fail on the old behavior.
-- The PR body must state the red-before/green-after proof, the guard path or monitor
-  assertion, and why the same issue should not recur.
-- If a durable guard is genuinely impossible, do not silently close the issue. Split or
-  file a follow-up for the missing guard, change the closing keyword to `Refs`, or mark
-  the issue human/blocked with the reason.
-- **Iteration cap:** reuse `/goal-deliver` tribunal round caps — notify the investor
-  at round 3, hard-stop at round 5.
-- **No-progress signal (heuristic):** if successive rounds show the same failure
-  signature with no advancing green check → abandon → apply the `maintain:blocked`
-  label, record final state `escalated:no-progress` in the digest, set a cooldown.
-  The real gates are the iteration cap + required checks + tribunal.
-- **Branch hygiene:** start from clean default branch, unique branch name, no
-  uncommitted changes. A failed branch is left (not force-deleted) after its state is
-  logged.
-
-### Merge Safety
-
-The default branch may advance concurrently because of humans or automation, so a
-green PR can go stale before merge. Default merge sequence (supervisor stays in control):
-
-**update branch from main → rerun required checks → merge immediately on green**. At
-the end of those gates set `BOUND_SHA=$(git rev-parse HEAD)`, re-fetch the PR
-`headRefOid` as `LIVE_SHA`, and require `[ "$LIVE_SHA" = "$BOUND_SHA" ]`. Then merge
-atomically with `gh pr merge "$PR_NUMBER" --match-head-commit "$BOUND_SHA" --squash
---delete-branch`. Any head mismatch refuses the merge and restarts final validation.
-
-If main advanced during final validation, **restart final validation**. `--auto` is
-allowed only when branch protection enforces up-to-date required checks (off by
-default).
-
-**The green gate is mandatory:** latest-HEAD tribunal clearance + required CI checks
-+ the recurrence/regression gate. For every code PR, run
-`tribunal-review:tribunal-loop` before merge. If the tribunal returns `NEEDS_WORK` or
-`BLOCK`, load and follow `tribunal-review:closing-tribunal-loop` and keep iterating.
-Any code diff, PR body edit that changes validation facts, rebase/update-from-main, or
-other PR `HEAD` change **reopens tribunal validation**. Merge is forbidden unless the
-latest arbiter verdict covers the current PR HEAD and latest diff and has zero
-critical/high findings. Medium/low findings may be triaged per the tribunal plugin,
-but critical/high must be zero.
-
-Per `/goal-deliver` §3, an incident-labelled issue (`bug`/`monitor`/`customer-issue`)
-cannot merge unless the PR diff adds a test, or the PR body records
-`Regression-Test: none — <reason>`. For bug, monitor, customer, accounting, replay,
-and incident-class issues, missing recurrence proof or missing durable guard is also a
-merge blocker. There is no human-hold tier — every PR that clears the green gate is
-merged. The standing policy and its carve-outs (what stays `needs-human`, plus the
-UI browser-QA gate) are canonical in `${CLAUDE_PLUGIN_ROOT}/templates/merge-policy.md`.
-
-### Deploy Watch, Classification & Escalation
-
-After a merge, watch the deploy (reuse `/goal-deliver` step 4) but **classify the
-failure from concrete signals** — the failing workflow step/command, deploy log,
-whether main moved during the run, and any health-check/migration output:
-
-- **Code regression** (the merged diff is implicated) → auto-fix on
-  `deploy-fix/<slug>` (existing `/goal-deliver` behaviour).
-- **Infra / flaky / external-dependency / credentials / migration-data**, or **low
-  confidence** → do not grind: apply the `maintain:blocked` label, record final state
-  `escalated:deploy-blocked` in the digest, **stop merging further issues this pass**,
-  surface to the investor.
-- **Clearly broken deploy** (default-branch deploy failing and not quickly fixable,
-  or a low-confidence classification): **roll production back to last-good.** Revert
-  the loop's OWN merge from this pass — open a `revert/<pr-slug>` branch via
-  `git revert <squash-sha>` (the squash-merge commit SHA from `gh pr merge --squash`;
-  squash merges are a single commit, so **no** `-m 1`), run the required CI checks (a
-  revert restores
-  already-reviewed code, so it does **not** need a full tribunal round), and merge it
-  so main returns to a deploying state; record `escalated:deploy-blocked` with the
-  revert-PR link. **Never** revert commits from other crons or humans — only the
-  merge this pass created. If the revert itself cannot go green, **stop the whole run
-  and escalate hard** to the investor — production is broken and needs a human now.
-  Either way, **stop merging further issues this pass.**
-
-**Post-deploy visual smoke.** When the deploy is green AND this pass merged at
-`scripts/ui-touch.sh --range <pre-pass SHA>..HEAD` (re-run over the pass's merged range) printing anything but `no-ui`, run one visual smoke per
-the post-deploy section of
-`${CLAUDE_PLUGIN_ROOT}/skills/ux-tester/references/design-review-leg.md`. A render
-regression attributable to this pass's merge → the `revert/<pr-slug>` rollback
-above; non-attributable or ambiguous → `maintain:blocked` escalation.
+After embedded delivery proves a green deployment and live checks, maintain re-fetches
+the exact issue/PR binding, closes the issue with the delivered PR reference, and only
+then removes `maintain:claimed`. Embedded delivery never closes it. Map embedded
+no-progress to `maintain:blocked` plus its cooldown without closing the issue. Map an embedded
+external/infra/low-confidence deploy classification to `escalated:deploy-blocked` and
+stop further merges this pass while preserving the open issue and claim for
+reconciliation. A failed or unverifiable rollback is pass-wide blocked or escalated;
+never close on rollback or unverified recovery. These are maintain queue/pass
+classifications, not replacement delivery gates.
 
 ---
 
@@ -738,7 +708,7 @@ Layered — no single cap suffices:
   report when exceeded.
 - **`--max-run-minutes N`** (default 0) — optional wall-clock cap for this invocation;
   with 0, `--max-pass-minutes` remains the active cap.
-- **Tribunal:** notify at round 3 and hard-stop at round 5 (§Per-Issue Guardrails).
+- **Tribunal:** use the notification and hard-stop rounds in `goal-deliver.md`.
 - **Stop-after-deploy-failure:** the first unrecoverable deploy failure halts further
   merges that pass.
 - **Browser transport:** a closed or unavailable browser transport is
@@ -766,11 +736,13 @@ run-id, issue number, decision + rationale, the **issue facts the subagent acted
 (injection transparency), commit SHA before/after, PR link, tribunal result,
 CI/deploy check URLs, tokens/elapsed vs. caps, and final state.
 
-On a normal run, the supervisor also appends one privacy-safe terminal event per work
-unit and one pass terminal event. Populate checks, QA, tribunal, PR, merge, deployment,
-rollback, and outcome from the verified final state; a worker exit code is not an
-outcome. Use only stable codes—never issue numbers/text, PR URLs, filenames, or check
-URLs. Under `--dry-run`, emit neither persistent events nor the digest.
+On a normal run, each work unit uses a freshly minted child run ID and
+`--parent-run-id "$SAAS_INVOCATION_ID"`. Populate its checks, QA, tribunal, PR, merge,
+deployment, rollback, and outcome from verified final state; a worker exit code is not
+an outcome. After the digest and cleanup, the supervisor follows `Root Terminal
+Contract` and appends the one root pass outcome. Use only stable codes—never issue
+numbers/text, PR URLs, filenames, or check URLs. Under `--dry-run`, emit neither
+persistent events nor the digest.
 
 The supervisor also emits a scannable per-pass summary to the session — merged /
 escalated / blocked / **split** — which is what the investor reads via `/rc`. Each

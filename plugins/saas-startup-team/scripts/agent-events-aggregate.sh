@@ -57,12 +57,12 @@ for input in "${INPUTS[@]}"; do
     def statuses: ["not_run","not_started","not_created","not_applicable","not_needed","pending","passed","failed","blocked","skipped","incomplete","draft","open","closed","merged","rolled_back","cancelled","success","other"];
     . as $export
     | exact_keys(["kind","metrics","rates","run_count","sample_count","schema_version"])
-    and .schema_version == 1 and .kind == "delivery-evaluation-export"
+    and (.schema_version == 1 or .schema_version == 2) and .kind == "delivery-evaluation-export"
     and (.sample_count | uint) and (.run_count | uint) and .run_count <= .sample_count
-    and (.metrics | exact_keys([
-      "cached_input_tokens","cost_microunits","duration_ms","efforts","fallback_count","input_tokens","models","outcomes",
-      "output_tokens","phase_statuses","profiles","providers","routing_schema_versions","tokens_available_after","tokens_available_before"
-    ]))
+    and (.metrics | exact_keys(
+      ["cached_input_tokens","cost_microunits","duration_ms","efforts","fallback_count","input_tokens","models","outcomes",
+       "output_tokens","phase_statuses","profiles","providers","routing_schema_versions","tokens_available_after","tokens_available_before"]
+      + (if $export.schema_version == 2 then ["total_tokens"] else [] end)))
     and (.metrics.phase_statuses | exact_keys(["checks","deployment","merge","pr","qa","rollback","tribunal"]))
     and (.metrics.providers | exact_keys(["effective","requested"]))
     and (.metrics.models | exact_keys(["effective","requested"]))
@@ -85,6 +85,9 @@ for input in "${INPUTS[@]}"; do
     and (.metrics.output_tokens | uint_values) and (.metrics.output_tokens | length) <= .sample_count
     and (.metrics.cached_input_tokens | uint_values) and (.metrics.cached_input_tokens | length) <= .sample_count
     and (.metrics.cost_microunits | uint_values) and (.metrics.cost_microunits | length) <= .sample_count
+    and (if .schema_version == 2 then
+      (.metrics.total_tokens | uint_values) and (.metrics.total_tokens | length) <= .sample_count
+      else true end)
     and (.metrics.outcomes | count_total) == .sample_count
     and (.metrics.routing_schema_versions | count_total) == .sample_count
     and (.metrics.profiles | count_total) <= .sample_count
@@ -127,11 +130,11 @@ jq -s '
   def rate($n;$d): if $d == 0 then null else (($n * 1000000 / $d | floor) / 1000000) end;
   reduce .[] as $e (
     {
-      schema_version:1,kind:"delivery-evaluation-aggregate",export_count:0,sample_count:0,run_count:0,
+      schema_version:2,kind:"delivery-evaluation-aggregate",export_count:0,sample_count:0,run_count:0,
       metrics:{
         profiles:{},routing_schema_versions:{},outcomes:{},providers:{requested:{},effective:{}},models:{requested:{},effective:{}},efforts:{requested:{},effective:{}},
         phase_statuses:{checks:{},qa:{},tribunal:{},pr:{},merge:{},deployment:{},rollback:{}},fallback_count:0,
-        duration_ms:[],tokens_available_before:[],tokens_available_after:[],input_tokens:[],output_tokens:[],cached_input_tokens:[],cost_microunits:[]
+        duration_ms:[],tokens_available_before:[],tokens_available_after:[],input_tokens:[],output_tokens:[],cached_input_tokens:[],cost_microunits:[],total_tokens:[]
       },rates:{}
     };
     .export_count += 1
@@ -160,6 +163,7 @@ jq -s '
     | .metrics.output_tokens += $e.metrics.output_tokens
     | .metrics.cached_input_tokens += $e.metrics.cached_input_tokens
     | .metrics.cost_microunits += $e.metrics.cost_microunits
+    | .metrics.total_tokens += ($e.metrics.total_tokens // [])
   )
   | .metrics.duration_ms |= sort
   | .metrics.tokens_available_before |= sort
@@ -168,6 +172,7 @@ jq -s '
   | .metrics.output_tokens |= sort
   | .metrics.cached_input_tokens |= sort
   | .metrics.cost_microunits |= sort
+  | .metrics.total_tokens |= sort
   | .rates = {
       success:{numerator:(.metrics.outcomes.success // 0),denominator:.sample_count,value:rate((.metrics.outcomes.success // 0);.sample_count)},
       checks_passed:{numerator:(.metrics.phase_statuses.checks.passed // 0),denominator:total(.metrics.phase_statuses.checks),value:rate((.metrics.phase_statuses.checks.passed // 0);total(.metrics.phase_statuses.checks))},

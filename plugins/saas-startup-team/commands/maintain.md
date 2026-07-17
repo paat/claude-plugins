@@ -6,11 +6,7 @@ user_invocable: true
 
 # /maintain
 
-Parse probe flags from `$ARGUMENTS`. Accept one internal `--lease-run-id ID`, validate
-it against `^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`, retain it as
-`MAINTAIN_LEASE_RUN_ID`, and never forward it to the probe. Run
-`${CLAUDE_PLUGIN_ROOT}/scripts/workflow-probe.sh maintain` with the probe flags. Exit 3
-is a clean no-op. Exit 4 is blocked: report the diagnosis and stop (`--dry-run` is
-never blocked). Other nonzero exits fail. On exit 0, read
-`${CLAUDE_PLUGIN_ROOT}/references/workflows/maintain.md` once and follow it. Do not
-duplicate its gates in this entrypoint.
+Be token-frugal. Read
+`${CLAUDE_PLUGIN_ROOT}/references/workflows/maintain.md` once, then follow it with
+`$ARGUMENTS`. The reference owns invocation identity, probe outcomes, leases, delivery,
+and the single root terminal contract; do not restate those gates here.

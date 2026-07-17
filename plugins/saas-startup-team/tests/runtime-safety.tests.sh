@@ -13,7 +13,7 @@ test_runtime_safety() {
   local check_pid check_signal check_release check_output check_status
   local supervisor_bwrap_dir limit_log_dir limit_log limit_bytes marker victim_dir started elapsed codex_calls
   local hanging_pid_file hanging_pid leaked_check
-  local system_git failed_snapshot array_snapshot check_receipt commit_receipt
+  local system_git failed_snapshot array_snapshot check_receipt commit_receipt parent_run
   local -a large_allow_args
   supervisor_bwrap_dir=$(mktemp -d)
 
@@ -2240,7 +2240,34 @@ PATCH
   ec=0; out=$(cd "$workdir" && bash "$script" --patch "$patch_file" --message tweak --mode current --push 2>&1) || ec=$?
   assert_exit_code "RS28: tweak success" "$ec" 0
   assert_equals "RS29: role restored after success" "$(jq -r .active_role "$workdir/.startup/state.json")" "team-lead"
+  assert_equals "RS29p0: absent tweak parent preserves unparented events" \
+    "$(jq -s '[.[].parent_run_id] | unique == [null]' "$workdir/.startup/runs/agent-events.jsonl")" true
   rm -rf "$workdir" "$remote" "$patch_file"
+
+  parent_run=run-22222222222222222222222222222222
+  make_tweak_repo; patch_file=$(mktemp); simple_patch "$patch_file"
+  ec=0; out=$(cd "$workdir" && SAAS_RUN_ID=tweak-parented SAAS_PARENT_RUN_ID="$parent_run" \
+    bash "$script" --patch "$patch_file" --message tweak --mode current 2>&1) || ec=$?
+  assert_exit_code "RS29p1: tweak accepts a canonical parent" "$ec" 0
+  assert_equals "RS29p2: every tweak event propagates the parent" \
+    "$(jq -s --arg parent "$parent_run" \
+      'length == 2 and all(.[]; .parent_run_id == $parent)' "$workdir/.startup/runs/agent-events.jsonl")" true
+  rm -rf "$workdir" "$patch_file"
+
+  make_tweak_repo; patch_file=$(mktemp); simple_patch "$patch_file"; base=$(git -C "$workdir" rev-parse HEAD)
+  ec=0; out=$(cd "$workdir" && SAAS_RUN_ID=tweak-invalid SAAS_PARENT_RUN_ID=invalid \
+    bash "$script" --patch "$patch_file" --message tweak --mode current 2>&1) || ec=$?
+  assert_exit_code "RS29p3: tweak rejects an invalid parent" "$ec" 2
+  assert_equals "RS29p4: invalid parent leaves tweak HEAD unchanged" "$(git -C "$workdir" rev-parse HEAD)" "$base"
+  rm -rf "$workdir" "$patch_file"
+
+  parent_run=run-33333333333333333333333333333333
+  make_tweak_repo; patch_file=$(mktemp); simple_patch "$patch_file"; base=$(git -C "$workdir" rev-parse HEAD)
+  ec=0; out=$(cd "$workdir" && SAAS_RUN_ID="$parent_run" SAAS_PARENT_RUN_ID="$parent_run" \
+    bash "$script" --patch "$patch_file" --message tweak --mode current 2>&1) || ec=$?
+  assert_exit_code "RS29p5: tweak rejects parent equal to child" "$ec" 2
+  assert_equals "RS29p6: equal parent leaves tweak HEAD unchanged" "$(git -C "$workdir" rev-parse HEAD)" "$base"
+  rm -rf "$workdir" "$patch_file"
 
   make_tweak_repo; mkdir -p "$workdir/.startup/runs"; : > "$workdir/.startup/runs/agent-events.jsonl"; : > "$workdir/.startup/runs/agent-events.jsonl.lock"
   patch_file=$(mktemp); simple_patch "$patch_file"

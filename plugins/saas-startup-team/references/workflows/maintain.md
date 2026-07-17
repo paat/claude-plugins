@@ -23,24 +23,99 @@ wholesale. Locate a requested `##` heading, read only through the next `##` head
 and load each section at most once per pass. This path works on both Claude Code and
 Codex; Codex resolves `${CLAUDE_PLUGIN_ROOT}` to the installed plugin root.
 
+## Invocation identity and probe
+
+Parse `$ARGUMENTS` before any probe or mutation. Accept `--dry-run`, `--once`,
+`--max-issues`, `--max-merges`, `--max-pass-minutes`, and `--max-run-minutes`.
+Accept one internal `--lease-run-id ID`, validate it against the compatibility pattern
+`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`, and never forward it to the probe. Reject a
+repeated value or any other flag.
+
+Resolve the root workflow identity before the probe. A canonical ID matches
+`^run-[0-9a-f]{32}$`. Reuse a canonical inherited `SAAS_INVOCATION_ID`; otherwise
+reuse a canonical `--lease-run-id` supplied by a scheduler; if neither exists, mint
+exactly once with `agent-events.sh new-run-id`. A present but noncanonical
+`SAAS_INVOCATION_ID` is a context-binding failure, never permission to replace a
+scheduler identity. Export the resolved `SAAS_INVOCATION_ID`. When `--lease-run-id`
+was supplied, require it to equal the resolved canonical identity. Set and export
+`MAINTAIN_LEASE_RUN_ID="$SAAS_INVOCATION_ID"` unconditionally after resolution.
+
+`SAAS_INVOCATION_COMMAND` has only `maintain-loop`, `maintain`, and `goal-deliver` as
+valid values. Direct `/maintain` defaults an absent value to `maintain` and accepts an
+inherited `maintain-loop`; reject `goal-deliver` or any unknown value as inconsistent,
+then export it. The root identity, whole-pass lease owner, and `current-run.json` ID
+are byte-identical; a verified resumed claim may retain its earlier owner ID.
+
+Run `${CLAUDE_PLUGIN_ROOT}/scripts/workflow-probe.sh maintain` with only probe flags.
+Under `--dry-run`, every probe result is read-only and emits no event. Otherwise, if
+the probe stops before work begins, `/maintain` is the sole root writer and appends one
+completed root `--phase pass-outcome --once` event for `$SAAS_INVOCATION_ID`: exit 3
+is `--outcome no-op` with no terminal reason; exit 4 is `--outcome blocked
+--terminal-reason probe_failed`; every other nonzero is `--outcome failure
+--terminal-reason probe_failed`. Use the actual host surface, `profile=deep`, and a
+stable supervisor writer ID. Append failure is itself a failed workflow; never add a
+different terminal to hide it. This root append uses `--command
+"$SAAS_INVOCATION_COMMAND"`. On exit 0 continue below and do not append here.
+
+## /maintain-loop coordinator
+
+Accept the same public flags as `/maintain`; `--once` launches at most one child and
+all child calls add `--once`. Reject internal lease arguments from the user. Before
+each probe, resolve and export one canonical `SAAS_INVOCATION_ID`: on the first pass
+reuse a canonical scheduler-provided value unchanged or mint once with
+`agent-events.sh new-run-id`. A noncanonical inherited value fails closed. After a
+completed pass in non-`--once` mode, mint and export a fresh canonical root before the
+next probe; never reuse a completed pass root and do not create an outer loop receipt.
+Require an absent or inherited `SAAS_INVOCATION_COMMAND` to resolve to
+`maintain-loop`, export it before the probe, and preserve it in the child environment.
+Reject `maintain`, `goal-deliver`, or any unknown inherited value as inconsistent.
+
+Run `workflow-probe.sh maintain` first with the public flags. `--dry-run` is wholly
+read-only: it writes no event, mints no lease, and dispatches at most one fresh child.
+For a normal probe that stops before child launch, the coordinator alone appends
+exactly one completed root `pass-outcome --once`: exit 3 is `no-op` with no terminal
+reason; exit 4 is `blocked/probe_failed`; any other nonzero is
+`failure/probe_failed`. These are the only coordinator-owned probe terminals.
+All coordinator-owned terminals use `agent-events.sh append --run-id
+"$SAAS_INVOCATION_ID" --command "$SAAS_INVOCATION_COMMAND" --phase pass-outcome --event-type
+completed --once` plus the stated outcome and optional registered terminal reason.
+
+On probe exit 0, launch exactly one fresh isolated `/saas-startup-team:maintain --once`
+child with the public flags, inherited `SAAS_INVOCATION_ID`, and the exact argument
+`--lease-run-id "$SAAS_INVOCATION_ID"`. The child `/maintain` is the sole root
+pass-outcome writer. Never send follow-ups, reuse a completed child, run two children
+concurrently, or execute `/maintain` inline.
+
+After a confirmed child exit on a normal run, execute
+`agent-events.sh terminal --run-id "$SAAS_INVOCATION_ID"`. Exit 0 confirms the
+authoritative child terminal and the coordinator appends nothing. After any dispatch
+attempt, every nonzero lookup—missing, guarded/pending, malformed, incomplete, or
+conflicting—fails closed without appending an event. The coordinator owns a root
+terminal only when the probe stopped before child launch; it never repairs child
+terminal state. An unknown-terminal child is never reaped.
+
+Only after terminal rc 0, reap with `maintain-leases.sh reap-terminal --run-id
+"$SAAS_INVOCATION_ID"`, then require `maintain-leases.sh available`; pass both the
+primary repository root. Dry-run never verifies a terminal or reaps a lease. Stop after
+the child under outer `--once` or `--dry-run`. Otherwise continue only after a
+`pass-complete` terminal; stop on a limit, no-work, `pass-blocked`, failure, unknown
+scope, or unknown child state.
+
 ## Entry and setup
 
-The model-free probe already found new/changed triage input, `cached_resumable` work,
-or stale blocked-label cleanup. Do not repeat it or treat cached work as a no-op. Load
+The identity and model-free probe above already found new/changed triage input,
+`cached_resumable` work, or stale blocked-label cleanup. Do not repeat it or treat
+cached work as a no-op. Load
 `${CLAUDE_PLUGIN_ROOT}/references/workflows/routing-telemetry.md` once.
-
-Parse `$ARGUMENTS` before any mutation: `--dry-run`, `--once`, `--max-issues`,
-`--max-merges`, `--max-pass-minutes`, and `--max-run-minutes`. The internal
-`--lease-run-id ID` is accepted once, retained as `MAINTAIN_LEASE_RUN_ID`, and never
-forwarded to `workflow-probe.sh`; reject an invalid or repeated value. Reject all other
-flags.
 Production cadence is one `--once` invocation per external scheduler tick; interactive
 use is one supervised `--once` pass.
 
 Load and execute these protocol sections in order:
 
-1. `Whole-Pass Lease` — resolve repository identity in every mode. Under `--dry-run`,
-   take only its read-only branch: acquire no lease and install no trap.
+1. `Whole-Pass Lease`, then `Root Terminal Contract` — resolve repository identity in
+   every mode and establish the normal supervisor's one writer before any later
+   handled stop. Under `--dry-run`, take only the read-only lease branch and load no
+   terminal writer.
 2. `Workspace — Dedicated Worktree` — normal runs only.
 3. `Pre-Flight` — use its explicit read-only path under `--dry-run`; otherwise finish
    setup, refresh solution signoff, and persist run state.
@@ -61,6 +136,10 @@ cannot distinguish an active owner from a recoverable failure.
 
 - Normal state stays under `.startup/maintain/`: persist `current-run.json`, write
   terminal digests under `runs/`, and put human decisions in `human-tasks.md`.
+- `/maintain` alone owns the root `pass-outcome` once work begins. Triage, goal,
+  implementation, QA, tribunal, and other child runs use fresh child IDs with
+  `parent_run_id=$SAAS_INVOCATION_ID`; no child outcome is promoted or totalled into
+  the root.
 - `cached_resumable` is deliverable queue input. A cache hit supplies the cached verdict;
   it never bypasses live eligibility or `.excluded.linked_pr` detection.
 - A `.resumable` row is only a candidate. Before resumed checkout/mutation,
@@ -84,11 +163,11 @@ cannot distinguish an active owner from a recoverable failure.
   `.cleanup.stale_maintain_blocked` without mutating GitHub.
 - Each authenticated mutation window stays in one continuous host shell. A lost shell invalidates
   its token and receipts; reset and start a fresh attempt.
-- Before implementation, identify the root cause / recurrence class; fix the class, not only the observed instance.
-  Record red-before/green-after proof.
-- `tribunal-review` is a hard dependency. Its verdict must cover the current PR HEAD and latest diff;
-  any material change reopens tribunal validation, and missing recurrence proof blocks merge.
-  Only then may the supervisor run `gh pr merge --squash` and deploy.
+- Delivery quality, tribunal, merge, deployment, rollback, and live-verification gates
+  are canonical only in `goal-deliver.md`; maintain must not restate them.
+- Apply `goal-deliver.md` §Delivery safety invariants for documented project
+  test-target diagnostics, resume revalidation/current-head binding, the prohibition on
+  replacement PRs, and delayed issue closure.
 
 ## Pass sequence
 
@@ -106,16 +185,18 @@ cannot distinguish an active owner from a recoverable failure.
    simulated queues and stop.
 5. If either work list is nonempty, load `Circuit Breakers`, then `Delivery (inline,
    sequential)`. Resume claimed PRs before delivering new issues, one at a time; new
-   work uses inline `/goal-deliver`. Never let a review or QA role mutate. The delivery
-   section owns claim, containment, tribunal, merge, deploy, and rollback rules.
+   work uses inline `/goal-deliver`. Never let a review or QA role mutate. The
+   `/goal-deliver` reference is the sole delivery contract; the maintain section adds
+   only claim, resume, queue, cooldown, and pass-level classification rules.
    Browser-visible changes use
    `skills/ux-tester/references/design-review-leg.md` only where that section requires.
    A fast-path abort that falls back inside the same inline `/goal-deliver` call is not
    a maintain-level failure and creates no cooldown by itself.
 6. Run `${CLAUDE_PLUGIN_ROOT}/scripts/memory-gc.sh --weekly`; its cursor makes ordinary
    passes a model-free no-op. Add its report path to the digest only when it emits one.
-7. Load `Observability — Morning Review Artifact`, write the terminal issue/pass states
-   and digest, then clean up the persisted lease set after the final mutation.
+7. Load `Observability — Morning Review Artifact`, write terminal issue state and the
+   digest, clean up the persisted lease set after the final mutation, then use `Root
+   Terminal Contract` to append the one authoritative pass outcome.
 8. Load `Communication`, report the compact result, and stop. The external scheduler
    decides whether and when to invoke the next `--once` pass; never sleep or retain a
    model turn between passes.

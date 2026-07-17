@@ -36,8 +36,8 @@ if ! "$SCRIPT_DIR/agent-events.sh" read "${read_args[@]}" > "$records"; then
 fi
 
 jq -s '
-  def rank: if .event_type == "completed" then 2 elif .event_type == "progress" then 1 else 0 end;
-  sort_by(.run_id, .command, .phase, .attempt, rank)
+  def rank: if .event_type == "accounted" then 3 elif .event_type == "completed" then 2 elif .event_type == "progress" then 1 else 0 end;
+  sort_by(.run_id, .command, .phase, .attempt, rank, (.recorded_at // ""))
   | group_by([.run_id,.command,.phase,.attempt])
   | map(last)
 ' "$records" > "$latest"
@@ -101,7 +101,7 @@ jq '
   | ($rows | count_by(.deployment | norm_status)) as $deployment
   | ($rows | count_by(.rollback | norm_status)) as $rollback
   | {
-      schema_version:1,
+      schema_version:2,
       kind:"delivery-evaluation-export",
       sample_count:$samples,
       run_count:$runs,
@@ -120,7 +120,9 @@ jq '
         input_tokens:($rows | values(.input_tokens)),
         output_tokens:($rows | values(.output_tokens)),
         cached_input_tokens:($rows | values(.cached_input_tokens)),
-        cost_microunits:($rows | values(.cost_microunits))
+        cost_microunits:($rows | values(.cost_microunits)),
+        total_tokens:([$rows[] | select(.parent_run_id == null and .phase == "pass-outcome")
+          | .total_tokens | select(type == "number")] | sort)
       },
       rates:{
         success:{numerator:($outcomes.success // 0),denominator:$samples,value:rate(($outcomes.success // 0);$samples)},
@@ -153,11 +155,11 @@ if ! jq -e '
          end);
   . as $export
   | exact_keys(["kind","metrics","rates","run_count","sample_count","schema_version"])
-  and .schema_version == 1 and .kind == "delivery-evaluation-export"
+  and .schema_version == 2 and .kind == "delivery-evaluation-export"
   and (.sample_count | uint) and (.run_count | uint) and .run_count <= .sample_count
   and (.metrics | exact_keys([
     "cached_input_tokens","cost_microunits","duration_ms","efforts","fallback_count","input_tokens","models","outcomes",
-    "output_tokens","phase_statuses","profiles","providers","routing_schema_versions","tokens_available_after","tokens_available_before"
+    "output_tokens","phase_statuses","profiles","providers","routing_schema_versions","tokens_available_after","tokens_available_before","total_tokens"
   ]))
   and (.metrics.providers | exact_keys(["effective","requested"]))
   and (.metrics.models | exact_keys(["effective","requested"]))
@@ -168,7 +170,7 @@ if ! jq -e '
   and ([.metrics.providers[],.metrics.models[],.metrics.efforts[],.metrics.phase_statuses[]] | all(countmap))
   and (.metrics.fallback_count | uint) and .metrics.fallback_count <= .sample_count
   and ([.metrics.duration_ms,.metrics.tokens_available_before,.metrics.tokens_available_after,.metrics.input_tokens,
-        .metrics.output_tokens,.metrics.cached_input_tokens,.metrics.cost_microunits] | all(uint_values))
+        .metrics.output_tokens,.metrics.cached_input_tokens,.metrics.cost_microunits,.metrics.total_tokens] | all(uint_values))
   and (.metrics.outcomes | count_total) == .sample_count
   and (.metrics.routing_schema_versions | count_total) == .sample_count
   and (.rates | exact_keys(["checks_passed","deployed","merged","qa_passed","success","tribunal_passed"]))

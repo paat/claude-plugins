@@ -84,8 +84,34 @@ lease_guardian_gate() {
   fi
 }
 
+legacy_delivery_receipt_gate() {
+  local pending_json pending_count pending_state
+  pending_json="$(bash "$SCRIPT_DIR/maintain-delivery.sh" pending --repo-root "$ROOT")" || {
+    echo "workflow-probe: $MODE blocked: legacy maintain-delivery receipts are malformed or cannot be inspected" >&2
+    exit 4
+  }
+  pending_count=$(jq -er 'if type == "array" then length else error("not an array") end' \
+    <<<"$pending_json") || {
+    echo "workflow-probe: $MODE blocked: legacy maintain-delivery receipt inventory is malformed" >&2
+    exit 4
+  }
+  [ "$pending_count" -le 1 ] || {
+    echo "workflow-probe: $MODE blocked: multiple nonterminal legacy maintain-delivery receipts require reconciliation" >&2
+    exit 4
+  }
+  [ "$pending_count" -eq 0 ] && return 0
+  pending_state=$(jq -er '.[0].state | select(type == "string" and length > 0)' \
+    <<<"$pending_json") || {
+    echo "workflow-probe: $MODE blocked: legacy maintain-delivery receipt state is malformed" >&2
+    exit 4
+  }
+  echo "workflow-probe: $MODE blocked: nonterminal legacy maintain-delivery receipt ($pending_state) requires reconciliation" >&2
+  exit 4
+}
+
 case "$MODE" in
   maintain)
+    legacy_delivery_receipt_gate
     command -v gh >/dev/null 2>&1 || { echo "workflow-probe: gh is required" >&2; exit 1; }
     routing_schema_version="$(bash "$SCRIPT_DIR/delivery-route.sh" schema-version | jq -er '.schema_version | select(type == "number")')" || {
       echo "workflow-probe: cannot resolve routing schema" >&2; exit 1; }
@@ -137,27 +163,7 @@ case "$MODE" in
     ;;
 
   maintain-loop)
-    pending_args=(pending --repo-root "$ROOT"); [ -z "$ISSUE" ] || pending_args+=(--issue "$ISSUE")
-    pending_json="$(bash "$SCRIPT_DIR/maintain-delivery.sh" "${pending_args[@]}")" || {
-      echo "workflow-probe: cannot inspect pending maintain-loop delivery" >&2; exit 1; }
-    pending_count=$(jq -r 'length' <<<"$pending_json") || exit 1
-    if [ "$pending_count" -gt 1 ]; then
-      echo "workflow-probe: multiple nonterminal maintain-loop receipts require reconciliation" >&2
-      exit 1
-    fi
-    if [ "$pending_count" -eq 1 ]; then
-      pending_state="$(jq -er '.[0].state | select(type == "string" and length > 0)' <<<"$pending_json")" || {
-        echo "workflow-probe: invalid pending maintain-loop delivery state" >&2; exit 1; }
-      echo "workflow-probe: maintain-loop pending receipt: $pending_state"
-      delivery_lease_gate
-      case "$pending_state" in
-        claimed) codex_cli_gate ;;
-        normal_planned|normal_open|normal_merge_authorized|post_merge|release_verified|rollback_planned|rollback_open|rollback_merge_authorized|rollback_merged|rollback_release_verified|close_intent|closed_observed) : ;;
-        *) echo "workflow-probe: invalid pending maintain-loop delivery state: $pending_state" >&2; exit 1 ;;
-      esac
-      lease_guardian_gate
-      ready
-    fi
+    legacy_delivery_receipt_gate
     args=(); [ -z "$REPO" ] || args+=(--repo "$REPO"); [ -z "$ISSUE" ] || args+=(--issue "$ISSUE"); [ -z "$LABEL" ] || args+=(--label "$LABEL")
     load_blocked_files || { echo "workflow-probe: cannot resolve blocked ledgers" >&2; exit 1; }
     for blocked_file in "${BLOCKED_FILES[@]}"; do args+=(--blocked-file "$blocked_file"); done

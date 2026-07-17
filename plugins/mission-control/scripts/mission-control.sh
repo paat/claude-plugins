@@ -17,7 +17,7 @@ if [ "${MC_LIB_ONLY:-0}" != 1 ]; then
     case "$1" in
       --config)    MC_CONFIG="${2:?--config needs a value}"; shift 2 ;;
       --dry-run)   DRY_RUN=1; shift ;;
-      --slot|--project|--engine|--container|--repo-path|--envelope|--base|--cmd|--delivery-hold)
+      --slot|--project|--engine|--container|--repo-path|--envelope|--base|--cmd|--delivery-hold|--run-id)
                    WRAP[${1#--}]="${2:?$1 needs a value}"; shift 2 ;;
       *) usage ;;
     esac
@@ -51,6 +51,12 @@ DOCKER_USER_OPT=""
 TZCFG="$(cfg '.timezone // empty')"
 
 now() { echo "${MC_NOW_EPOCH:-$(date +%s)}"; }
+now_ms() {
+  if [ -n "${MC_NOW_EPOCH_MS:-}" ]; then echo "$MC_NOW_EPOCH_MS"
+  elif [ -n "${MC_NOW_EPOCH:-}" ]; then echo "$((MC_NOW_EPOCH * 1000))"
+  else date +%s%3N
+  fi
+}
 today() {
   if [ -n "$TZCFG" ]; then TZ="$TZCFG" date -d "@$(now)" +%F; else date -d "@$(now)" +%F; fi
 }
@@ -110,6 +116,128 @@ run_in() { # <container> <repo_path> <snippet> <timeout_s> — non-login bash -c
 
 slot_free() { # <slot> — test-acquire without holding
   ( flock -n 9 ) 9>>"$MC_STATE_DIR/slot-$1.lock"
+}
+
+new_run_id() {
+  local hex
+  hex="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  [[ "$hex" =~ ^[0-9a-f]{32}$ ]] || return 1
+  printf 'run-%s\n' "$hex"
+}
+
+valid_run_id() { [[ "$1" =~ ^run-[0-9a-f]{32}$ ]]; }
+
+# Print the canonical workflow command when the configured command owns a
+# schema-v2 pass terminal. This deliberately tokenizes whitespace only: it
+# does not interpret shell wrappers, quoting, or substrings.
+workflow_command() { # <configured command>
+  local command="$1" first canonical="" word has_once=0
+  local -a words=()
+  read -r -a words <<< "$command"
+  [ "${#words[@]}" -gt 0 ] || return 1
+  first="${words[0]}"
+  case "$first" in
+    /maintain-loop) canonical=maintain-loop ;;
+    /maintain) canonical=maintain ;;
+    /goal-deliver) canonical=goal-deliver ;;
+    /saas-startup-team:*|'$saas-startup-team:'*)
+      canonical="${first#*:}"
+      ;;
+    *) return 1 ;;
+  esac
+  case "$canonical" in
+    maintain-loop|maintain|goal-deliver) : ;;
+    *) return 1 ;;
+  esac
+  for word in "${words[@]:1}"; do
+    [ "$word" = --dry-run ] && return 1
+    [ "$word" = --once ] && has_once=1
+  done
+  [ "$canonical" != maintain-loop ] || [ "$has_once" -eq 1 ] || return 1
+  printf '%s\n' "$canonical"
+}
+
+engine_template_is_codex_exec() { # <engine command template>
+  local template="$1" i=0 executable
+  local -a words=()
+  read -r -a words <<< "$template"
+  while [ "$i" -lt "${#words[@]}" ] &&
+        [[ "${words[$i]}" =~ ^[A-Za-z_][A-Za-z0-9_]*=.*$ ]]; do
+    i=$((i + 1))
+  done
+  [ "$i" -lt "${#words[@]}" ] || return 1
+  executable="${words[$i]##*/}"
+  [ "$executable" = codex ] && [ "${words[$((i + 1))]:-}" = exec ]
+}
+
+codex_total_tokens() { # <log path> — strict last complete footer pair
+  awk '
+    function grouped(value, parts,count,i) {
+      count=split(value, parts, ",")
+      if (count < 2 || parts[1] !~ /^[0-9]+$/ || length(parts[1]) > 3) return 0
+      for (i=2; i<=count; i++)
+        if (parts[i] !~ /^[0-9]+$/ || length(parts[i]) != 3) return 0
+      return 1
+    }
+    { sub(/\r$/, "", $0) }
+    previous == "tokens used" &&
+      ($0 ~ /^[0-9]+$/ || grouped($0)) {
+        total=$0; gsub(/,/, "", total); found=1
+      }
+    { previous=$0 }
+    END { if (found) print total }
+  ' "$1" 2>/dev/null
+}
+
+_workflow_account_snippet() {
+  cat <<'SNIP'
+AE="plugins/saas-startup-team/scripts/agent-events.sh"
+if [ ! -f "$AE" ]; then
+  AE="$({
+    find "${CODEX_HOME:-$HOME/.codex}/plugins/cache" -path '*/saas-startup-team/*/scripts/agent-events.sh' -type f 2>/dev/null
+    find "${CLAUDE_HOME:-$HOME/.claude}/plugins/cache" -path '*/saas-startup-team/*/scripts/agent-events.sh' -type f 2>/dev/null
+  } | awk 'BEGIN{best=""}
+    function vk(p, r,a,s,i,o){split(p,r,"/saas-startup-team/");split(r[2],a,"/");split(a[1],s,".");o="v";for(i=1;i<=4;i++)o=o sprintf("%09d",s[i]+0);return o}
+    {k=vk($0); if(k>=best){best=k;sel=$0}} END{print sel}')"
+fi
+[ -n "$AE" ] && [ -f "$AE" ] || exit 20
+schema="$(bash "$AE" schema-version)" || exit 21
+version="$(printf '%s\n' "$schema" | jq -ser '
+  if length == 1 and (.[0].schema_version | type == "number" and floor == .)
+  then .[0].schema_version else empty end')" || exit 21
+[ "$version" -ge 2 ] || exit 20
+run_id="$1"; duration_ms="$2"; total_tokens="${3:-}"
+args=(account --run-id "$run_id" --duration-ms "$duration_ms")
+[ -z "$total_tokens" ] || args+=(--total-tokens "$total_tokens")
+bash "$AE" "${args[@]}"
+SNIP
+}
+
+workflow_account() { # <container> <repo> <run-id> <duration-ms> [total-tokens]
+  local c="$1" rp="$2" run_id="$3" duration_ms="$4" total_tokens="${5:-}" snip
+  snip="set -- $(printf %q "$run_id") $(printf %q "$duration_ms") $(printf %q "$total_tokens"); $(_workflow_account_snippet)"
+  run_in "$c" "$rp" "$snip" 30
+}
+
+valid_account_json() { # <json> <run-id> <command> <duration-ms> [footer]
+  local payload="$1" run_id="$2" command="$3" duration_ms="$4" footer="${5:-}"
+  jq -se --arg run_id "$run_id" --arg command "$command" \
+    --arg duration_ms "$duration_ms" --arg footer "$footer" '
+      def uint: type == "number" and . >= 0 and floor == .;
+      length == 1 and (.[0] |
+        type == "object" and
+        .schema_version == 2 and .run_id == $run_id and .command == $command and
+        .phase == "pass-outcome" and .parent_run_id == null and
+        .event_type == "accounted" and .duration_ms == ($duration_ms|tonumber) and
+        (.outcome | IN("success","no-op","skipped","blocked","failure","escalated","cancelled")) and
+        (.terminal_reason == null or (.terminal_reason | IN(
+          "invalid_workflow_state","context_binding_violation","false_success",
+          "probe_failed","triage_failed","delivery_failed","verification_failed",
+          "lease_conflict","receipt_conflict","budget_exhausted","timeout","rate_limited",
+          "delivery_hold","cancelled","escalated","unknown_failure"))) and
+        (.total_tokens == null or (.total_tokens | uint)) and
+        ($footer == "" or .total_tokens == ($footer|tonumber)))
+    ' <<< "$payload" >/dev/null 2>&1
 }
 
 # project helpers: pj <name> <jq-filter over the project object>
@@ -322,7 +450,7 @@ pick_ladder() {
 # ---------- dispatch ----------
 dispatch() { # <slot> <name> — reserve, take slot lock on an FD, spawn wrapper
   local slot="$1" name="$2"
-  local engine container rp command tmpl rendered delivery_hold env_min base lfd
+  local engine container rp command tmpl rendered delivery_hold env_min base lfd run_id
   engine="$(pj "$name" '.engine')"
   container="$(pj "$name" '.container')"
   rp="$(pj "$name" '.repo_path')"
@@ -342,6 +470,11 @@ dispatch() { # <slot> <name> — reserve, take slot lock on an FD, spawn wrapper
     exec {lfd}>&-
     return 1
   fi
+  run_id="$(new_run_id)" || {
+    log "run-id mint failed slot=$slot project=$name"
+    exec {lfd}>&-
+    return 1
+  }
   base="$MC_STATE_DIR/dispatches/$(date -u +%Y%m%dT%H%M%SZ)-$slot-$name"
   : > "$base.log"
   log "dispatch slot=$slot project=$name engine=$engine envelope=${env_min}m"
@@ -350,6 +483,7 @@ dispatch() { # <slot> <name> — reserve, take slot lock on an FD, spawn wrapper
   setsid bash "$0" wrapper --config "$MC_CONFIG" --slot "$slot" --project "$name" \
     --engine "$engine" --container "$container" --repo-path "$rp" \
     --envelope "$env_min" --base "$base" --cmd "$rendered" --delivery-hold "$delivery_hold" \
+    --run-id "$run_id" \
     >>"$base.log" 2>&1 8>&- &
   exec {lfd}>&-   # parent's copy closed; child's inherited copy keeps the lock
   return 0
@@ -470,27 +604,86 @@ cmd_wrapper() {
   local slot="${WRAP[slot]}" name="${WRAP[project]}" engine="${WRAP[engine]}"
   local container="${WRAP[container]}" rp="${WRAP[repo-path]}"
   local envelope="${WRAP[envelope]}" base="${WRAP[base]}" rendered="${WRAP[cmd]}"
-  local delivery_hold="${WRAP[delivery-hold]:-false}" started rc outcome
-  started="$(now)"
+  local delivery_hold="${WRAP[delivery-hold]:-false}" run_id="${WRAP[run-id]:-}"
+  local started started_ms ended_ms ended duration_ms rc outcome command canonical=""
+  local terminal_status=not-applicable workflow_outcome="" workflow_reason="" total_tokens=""
+  local account_json="" account_rc=0 tmpl blk
+  if [ -n "$run_id" ]; then
+    valid_run_id "$run_id" || { echo "mission-control: invalid --run-id" >&2; exit 2; }
+  else
+    run_id="$(new_run_id)" || { echo "mission-control: could not mint run id" >&2; exit 1; }
+  fi
+  command="$(pj "$name" '.command')"
+  canonical="$(workflow_command "$command" 2>/dev/null || true)"
+  started="$(now)"; started_ms="$(now_ms)"
   set +e
   # inner bash -c: engine cmds may start with VAR=... assignment prefixes
   # (dedicated-subscription CODEX_HOME), which timeout(1) cannot exec directly
   if [ "$container" = "local" ]; then
-    bash -c "cd $(printf %q "$rp") && timeout ${envelope}m bash -c $(printf %q "$rendered")"
+    bash -c "cd $(printf %q "$rp") && SAAS_INVOCATION_ID=$(printf %q "$run_id") timeout ${envelope}m bash -c $(printf %q "$rendered")"
   elif [ "$delivery_hold" = true ]; then
-    $DOCKER_CMD exec $DOCKER_USER_OPT "$container" bash -c \
+    $DOCKER_CMD exec $DOCKER_USER_OPT -e "SAAS_INVOCATION_ID=$run_id" "$container" bash -c \
       'cd "$1" && shift && exec "$@"' _ "$rp" \
       /paat-reconcile/with-delivery-hold.sh timeout "${envelope}m" bash -c "$rendered"
   else
-    $DOCKER_CMD exec $DOCKER_USER_OPT "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m bash -c $(printf %q "$rendered")"
+    $DOCKER_CMD exec $DOCKER_USER_OPT -e "SAAS_INVOCATION_ID=$run_id" "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m bash -c $(printf %q "$rendered")"
   fi
   rc=$?
   set -e
-  outcome="$(governor_report "$engine" "$name" "$rc" "$base.log" "$delivery_hold")"
+  ended_ms="$(now_ms)"; ended="$((ended_ms / 1000))"; duration_ms="$((ended_ms - started_ms))"
+  [ "$duration_ms" -ge 0 ] || duration_ms=0
+
+  tmpl="$(cfg ".engines[\"$engine\"].cmd")"
+  if engine_template_is_codex_exec "$tmpl"; then
+    total_tokens="$(codex_total_tokens "$base.log" || true)"
+  fi
+  if [ -n "$canonical" ]; then
+    set +e
+    account_json="$(workflow_account "$container" "$rp" "$run_id" "$duration_ms" "$total_tokens" 2>/dev/null)"
+    account_rc=$?
+    set -e
+    case "$account_rc" in
+      0)
+        if valid_account_json "$account_json" "$run_id" "$canonical" "$duration_ms" "$total_tokens"; then
+          terminal_status=accounted
+          workflow_outcome="$(jq -r '.outcome' <<< "$account_json")"
+          workflow_reason="$(jq -r '.terminal_reason // empty' <<< "$account_json")"
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 75 ] && [ "$rc" -ne 78 ] && [ "$rc" -ne 124 ]; then
+            case "$workflow_outcome" in success|no-op|skipped) terminal_status=exit-conflict ;; esac
+          fi
+        else
+          terminal_status=invalid
+        fi
+        ;;
+      4) terminal_status=missing ;;
+      20) terminal_status=unsupported ;;
+      *) terminal_status=invalid ;;
+    esac
+    if [ "$terminal_status" = unsupported ]; then
+      blk="$(grep -oE '^MC-BLOCKED([[:space:]].*)?$' "$base.log" 2>/dev/null | tail -1 || true)"
+      if [ -n "$blk" ]; then
+        terminal_status=legacy-blocked
+        workflow_outcome=blocked
+        workflow_reason="$(printf '%s' "$blk" | sed -E 's/^MC-BLOCKED *//; s/recheck_after=[0-9]+ *//; s/^reason= *//')"
+        [ -n "$workflow_reason" ] || workflow_reason=unspecified
+      fi
+    fi
+    [ "$terminal_status" = accounted ] || log "workflow terminal project=$name status=$terminal_status"
+  fi
+  outcome="$(governor_report "$engine" "$name" "$rc" "$base.log" "$delivery_hold" \
+    "$terminal_status" "$workflow_outcome" "$workflow_reason")"
   jq -n --arg slot "$slot" --arg p "$name" --arg e "$engine" \
-        --arg s "$started" --arg t "$(now)" --arg rc "$rc" --arg o "$outcome" \
+        --arg s "$started" --arg t "$ended" --arg rc "$rc" --arg o "$outcome" \
+        --arg run_id "$run_id" --arg workflow_outcome "$workflow_outcome" \
+        --arg workflow_reason "$workflow_reason" --arg total_tokens "$total_tokens" \
+        --arg terminal_status "$terminal_status" \
         '{slot:$slot, project:$p, engine:$e, started_at:($s|tonumber),
-          ended_at:($t|tonumber), exit_code:($rc|tonumber), outcome:$o}' \
+          ended_at:($t|tonumber), exit_code:($rc|tonumber), outcome:$o,
+          run_id:$run_id,
+          workflow_outcome:(if $workflow_outcome == "" then null else $workflow_outcome end),
+          workflow_reason:(if $workflow_reason == "" then null else $workflow_reason end),
+          total_tokens:(if $total_tokens == "" then null else ($total_tokens|tonumber) end),
+          terminal_status:$terminal_status}' \
         > "$base.json.tmp"
   mv "$base.json.tmp" "$base.json"
   log "pass done slot=$slot project=$name outcome=$outcome rc=$rc"
