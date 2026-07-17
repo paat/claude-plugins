@@ -26,50 +26,50 @@ lib() { MC_LIB_ONLY=1 MC_CONFIG="$TD/portfolio.json" source "$MC"; }
 mkenv
 t "no work anywhere: no candidates" bash -c '
   '"$(declare -f lib)"'; TD="'"$TD"'"; MC="'"$MC"'"; lib
-  [ -z "$(pick_slot_a)" ] && [ -z "$(pick_slot_b)" ]'
+  [ -z "$(pick_pinned A)" ] && [ -z "$(pick_ladder)" ]'
 
 mkenv; echo yes > "$TD/alpha/WORK"
 t "slot A picks pinned when it has work" bash -c '
   '"$(declare -f lib)"'; TD="'"$TD"'"; MC="'"$MC"'"; lib
-  [ "$(pick_slot_a)" = alpha ]'
+  [ "$(pick_pinned A)" = alpha ]'
 
 mkenv; echo yes > "$TD/beta/WORK"; echo yes > "$TD/meta/WORK"
 t "rung 1 (live incident) beats rung 4 (meta)" bash -c '
   '"$(declare -f lib)"'; TD="'"$TD"'"; MC="'"$MC"'"; lib
-  [ "$(pick_slot_b)" = "1 beta" ]'
+  [ "$(pick_ladder)" = "1 beta" ]'
 
 mkenv; echo yes > "$TD/meta/WORK"
 t "meta reached when higher rungs empty" bash -c '
   '"$(declare -f lib)"'; TD="'"$TD"'"; MC="'"$MC"'"; lib
-  [ "$(pick_slot_b)" = "4 meta1" ]'
+  [ "$(pick_ladder)" = "4 meta1" ]'
 
 mkenv; echo yes > "$TD/alpha/WORK"; echo yes > "$TD/beta/WORK"
 t "pinned excluded from slot B rung 1" bash -c '
   '"$(declare -f lib)"'; TD="'"$TD"'"; MC="'"$MC"'"; lib
-  [ "$(pick_slot_b)" = "1 beta" ]'
+  [ "$(pick_ladder)" = "1 beta" ]'
 
 mkenv; echo yes > "$TD/beta/WORK"; echo yes > "$TD/gamma/WORK"
 t "round-robin cursor rotates within rung" bash -c '
   '"$(declare -f lib)"'; TD="'"$TD"'"; MC="'"$MC"'"; lib
   state_set ".cursor[\"1\"]=\"beta\""
-  [ "$(pick_slot_b)" = "1 gamma" ]'
+  [ "$(pick_ladder)" = "1 gamma" ]'
 
 mkenv '.projects[1].hold=true'; echo yes > "$TD/beta/WORK"; echo yes > "$TD/meta/WORK"
 t "held project skipped, ladder continues" bash -c '
   '"$(declare -f lib)"'; TD="'"$TD"'"; MC="'"$MC"'"; lib
-  [ "$(pick_slot_b)" = "4 meta1" ]'
+  [ "$(pick_ladder)" = "4 meta1" ]'
 
 mkenv '.projects[1].work_probe="exit 1"'; echo yes > "$TD/meta/WORK"
 t "probe failure = empty + streak recorded" bash -c '
   '"$(declare -f lib)"'; TD="'"$TD"'"; MC="'"$MC"'"; lib
-  [ "$(pick_slot_b)" = "4 meta1" ] && [ "$(state_get ".projects[\"beta\"].probe_failures")" = 1 ]'
+  [ "$(pick_ladder)" = "4 meta1" ] && [ "$(state_get ".projects[\"beta\"].probe_failures")" = 1 ]'
 
 mkenv
 t "cooldown blocks candidate" bash -c '
   '"$(declare -f lib)"'; TD="'"$TD"'"; MC="'"$MC"'"; lib
   echo yes > "'"$TD"'/alpha/WORK"
   state_set ".projects[\"alpha\"].cooldown_until = (\$n|tonumber)" --arg n "$(( $(now) + 3600 ))"
-  [ -z "$(pick_slot_a)" ]'
+  [ -z "$(pick_pinned A)" ]'
 
 echo "pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]

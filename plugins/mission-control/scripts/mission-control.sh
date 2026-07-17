@@ -62,7 +62,7 @@ hour_now() {
 
 log() {
   printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$MC_STATE_DIR/mission-control.log"
-  # stderr, not stdout: pick_slot_* are consumed via $() and must stay clean
+  # stderr, not stdout: pick_pinned/pick_ladder are consumed via $() and must stay clean
   if [ "$DRY_RUN" = 1 ]; then echo "$*" >&2; fi
 }
 
@@ -108,7 +108,7 @@ run_in() { # <container> <repo_path> <snippet> <timeout_s> — non-login bash -c
   fi
 }
 
-slot_free() { # <A|B> — test-acquire without holding
+slot_free() { # <slot> — test-acquire without holding
   ( flock -n 9 ) 9>>"$MC_STATE_DIR/slot-$1.lock"
 }
 
@@ -183,6 +183,15 @@ engine_denied() { # <name> — is this project's engine denied this tick?
   return 1
 }
 
+# Projects dispatched earlier THIS tick (pinned slots walk first). Later
+# ladder slots skip them: two slots must never run the same repo at once.
+declare -ga DISPATCHED_PROJECTS=()
+project_dispatched() { # <name>
+  local d
+  for d in "${DISPATCHED_PROJECTS[@]:-}"; do [ "$d" = "$1" ] && return 0; done
+  return 1
+}
+
 rotate() { # <rung> <names...> — start after this rung's cursor
   local rung="$1"; shift
   [ $# -gt 0 ] || return 0
@@ -197,6 +206,11 @@ rotate() { # <rung> <names...> — start after this rung's cursor
 }
 
 names_by_stage() { jq -r --arg s "$1" '.projects[] | select(.stage == $s) | .name' "$MC_CONFIG"; }
+
+slot_names() { # <pinned|ladder> — slot keys of that class, sorted
+  jq -r --arg w "$1" '.slots // {} | to_entries | sort_by(.key)[]
+    | select((.value | has("pinned")) == ($w == "pinned")) | .key' "$MC_CONFIG"
+}
 
 # ---------- admission gate (absorbed from #206) ----------
 admitted_unheld_count() {
@@ -249,24 +263,31 @@ admission_eligible() { # <name> — exit 0 iff admitted; advances the gate
   min="$(cfg '.admission.confidence_min // 0.7')"
   awk -v c="$conf" -v m="$min" 'BEGIN { exit !(c + 0 >= m + 0) }' || return 1
   state_set '.admissions[$n].requested_at = ($t|tonumber)' --arg n "$name" --arg t "$(now)"
-  alert "admission-$name" "$name enters Slot B delivery in ${veto}h — set hold:true in portfolio.json to veto"
+  alert "admission-$name" "$name enters ladder delivery in ${veto}h — set hold:true in portfolio.json to veto"
   return 1                                      # never dispatch on request tick
 }
 
-pick_slot_a() {
-  local p; p="$(cfg '.slots.A.pinned // empty')"
+pinned_anywhere() { # <name> — is this project pinned on any slot?
+  jq -e --arg n "$1" '[.slots // {} | .[] | .pinned // empty] | index($n) != null' \
+    "$MC_CONFIG" >/dev/null
+}
+
+pick_pinned() { # <slot>
+  local slot="$1" p
+  p="$(jq -r --arg s "$slot" '.slots[$s].pinned // empty' "$MC_CONFIG")"
   [ -n "$p" ] || return 0
-  project_blocked "$p" && { log "slot A pinned $p blocked"; return 0; }
+  project_blocked "$p" && { log "slot $slot pinned $p blocked"; return 0; }
   engine_denied "$p" && return 0
   probe_work "$p" && echo "$p" || true
 }
 
-pick_slot_b() {
-  local pinned n
-  pinned="$(cfg '.slots.A.pinned // empty')"
-  # rung 1: live incidents, excluding the pinned project
+pick_ladder() {
+  local n
+  # rung 1: live incidents, excluding every pinned project
   while IFS= read -r n; do
-    [ -n "$n" ] && [ "$n" != "$pinned" ] || continue
+    [ -n "$n" ] || continue
+    pinned_anywhere "$n" && continue
+    project_dispatched "$n" && continue
     project_blocked "$n" && continue
     engine_denied "$n" && continue
     if probe_incident "$n"; then state_set '.cursor["1"]=$n' --arg n "$n"; echo "1 $n"; return 0; fi
@@ -274,6 +295,7 @@ pick_slot_b() {
   # rung 2: admitted pre-launch with work
   while IFS= read -r n; do
     [ -n "$n" ] || continue
+    project_dispatched "$n" && continue
     project_blocked "$n" && continue
     engine_denied "$n" && continue
     admission_eligible "$n" || continue
@@ -282,6 +304,7 @@ pick_slot_b() {
   # rung 3: validation
   while IFS= read -r n; do
     [ -n "$n" ] || continue
+    project_dispatched "$n" && continue
     project_blocked "$n" && continue
     engine_denied "$n" && continue
     if probe_work "$n"; then state_set '.cursor["3"]=$n' --arg n "$n"; echo "3 $n"; return 0; fi
@@ -289,6 +312,7 @@ pick_slot_b() {
   # rung 4: meta
   while IFS= read -r n; do
     [ -n "$n" ] || continue
+    project_dispatched "$n" && continue
     project_blocked "$n" && continue
     engine_denied "$n" && continue
     if probe_work "$n"; then state_set '.cursor["4"]=$n' --arg n "$n"; echo "4 $n"; return 0; fi
@@ -345,27 +369,28 @@ cmd_tick() {
   fi
   [ "$DRY_RUN" = 1 ] || admission_housekeeping
   local slot cand tries
-  for slot in A B; do
+  for slot in $(slot_names pinned); do
     if ! slot_free "$slot"; then log "slot $slot busy"; continue; fi
-    if [ "$slot" = A ]; then
-      cand="$(pick_slot_a)"
-      if [ -n "$cand" ]; then
-        dispatch A "$cand" || { DENIED_ENGINES+=("$(pj "$cand" '.engine')"); log "slot A reserve refused: $cand"; }
-      else
-        log "slot A idle"
-      fi
+    cand="$(pick_pinned "$slot")"
+    if [ -n "$cand" ]; then
+      if dispatch "$slot" "$cand"; then DISPATCHED_PROJECTS+=("$cand")
+      else DENIED_ENGINES+=("$(pj "$cand" '.engine')"); log "slot $slot reserve refused: $cand"; fi
     else
-      tries=0
-      while :; do
-        cand="$(pick_slot_b)"
-        [ -n "$cand" ] || { log "slot B idle"; break; }
-        dispatch B "${cand#* }" && break
-        DENIED_ENGINES+=("$(pj "${cand#* }" '.engine')")
-        log "slot B reserve refused: $cand — re-walking ladder without that engine"
-        tries=$((tries + 1))
-        [ "$tries" -lt 4 ] || break
-      done
+      log "slot $slot idle"
     fi
+  done
+  for slot in $(slot_names ladder); do
+    if ! slot_free "$slot"; then log "slot $slot busy"; continue; fi
+    tries=0
+    while :; do
+      cand="$(pick_ladder)"
+      [ -n "$cand" ] || { log "slot $slot idle"; break; }
+      if dispatch "$slot" "${cand#* }"; then DISPATCHED_PROJECTS+=("${cand#* }"); break; fi
+      DENIED_ENGINES+=("$(pj "${cand#* }" '.engine')")
+      log "slot $slot reserve refused: $cand — re-walking ladder without that engine"
+      tries=$((tries + 1))
+      [ "$tries" -lt 4 ] || break
+    done
   done
   [ "$DRY_RUN" = 1 ] || governor_daily
 }
@@ -398,11 +423,16 @@ cmd_arm() {
     rc=0; printf '' | grep -qiE "$pat" || rc=$?
     if [ "$rc" -gt 1 ]; then echo "mission-control: invalid rate_limit_patterns regex: $pat" >&2; exit 2; fi
   done < <(jq -r '.engines[]?.rate_limit_patterns[]? // empty' "$MC_CONFIG")
-  local pinned
-  pinned="$(cfg '.slots.A.pinned // empty')"
-  if [ -n "$pinned" ] && [ -z "$(pj "$pinned" '.name')" ]; then
-    echo "mission-control: slots.A.pinned '$pinned' is not a project" >&2; exit 2
-  fi
+  bad="$(jq -r '.slots // {} | keys[] | select(test("^[A-Za-z0-9_-]+$") | not)' "$MC_CONFIG")"
+  if [ -n "$bad" ]; then echo "mission-control: slot names must match ^[A-Za-z0-9_-]+$: $bad" >&2; exit 2; fi
+  bad="$(jq -r '. as $c | .slots // {} | to_entries[] | select(.value | has("pinned"))
+                | .value.pinned as $pin
+                | select(($pin | type) != "string"
+                         or ([$c.projects[].name] | index($pin)) == null)
+                | "slots.\(.key).pinned \($pin) is not a project"' "$MC_CONFIG")"
+  if [ -n "$bad" ]; then echo "mission-control: $bad" >&2; exit 2; fi
+  bad="$(jq -r '[.slots // {} | .[] | .pinned // empty] | group_by(.)[] | select(length > 1) | .[0]' "$MC_CONFIG")"
+  if [ -n "$bad" ]; then echo "mission-control: project pinned on more than one slot: $bad" >&2; exit 2; fi
   local script; script="$(cd "$SCRIPT_DIR" && pwd)/mission-control.sh"
   cat <<EOF
 mission-control is NOT armed by agents. A human installs ONE cron line, once.
@@ -413,7 +443,7 @@ mission-control is NOT armed by agents. A human installs ONE cron line, once.
 */30 * * * * bash "$script" tick --config "$MC_CONFIG" >> "$MC_STATE_DIR/cron.log" 2>&1
 
 2. In the same crontab file, DELETE any standalone lessons-deliver cron line —
-   mission-control now dispatches lessons-deliver as Slot B's idle rung.
+   mission-control now dispatches lessons-deliver as the ladder's idle rung.
    Two schedulers would double-dip the same budget pools.
 
 3. Export the push URL in the crontab environment block if you want
@@ -425,7 +455,7 @@ EOF
 
 cmd_status() {
   local s
-  for s in A B; do
+  for s in $(jq -r '.slots // {} | keys[]' "$MC_CONFIG"); do
     if slot_free "$s"; then echo "slot $s: free"; else echo "slot $s: RUNNING"; fi
   done
   echo "state: $MC_STATE_DIR/state.json"
@@ -443,14 +473,16 @@ cmd_wrapper() {
   local delivery_hold="${WRAP[delivery-hold]:-false}" started rc outcome
   started="$(now)"
   set +e
+  # inner bash -c: engine cmds may start with VAR=... assignment prefixes
+  # (dedicated-subscription CODEX_HOME), which timeout(1) cannot exec directly
   if [ "$container" = "local" ]; then
-    bash -c "cd $(printf %q "$rp") && timeout ${envelope}m $rendered"
+    bash -c "cd $(printf %q "$rp") && timeout ${envelope}m bash -c $(printf %q "$rendered")"
   elif [ "$delivery_hold" = true ]; then
     $DOCKER_CMD exec $DOCKER_USER_OPT "$container" bash -c \
       'cd "$1" && shift && exec "$@"' _ "$rp" \
       /paat-reconcile/with-delivery-hold.sh timeout "${envelope}m" bash -c "$rendered"
   else
-    $DOCKER_CMD exec $DOCKER_USER_OPT "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m $rendered"
+    $DOCKER_CMD exec $DOCKER_USER_OPT "$container" bash -c "cd $(printf %q "$rp") && timeout ${envelope}m bash -c $(printf %q "$rendered")"
   fi
   rc=$?
   set -e
