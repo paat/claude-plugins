@@ -192,10 +192,11 @@ case "$ACTION" in
       echo "lessons-deliver: #$NUM content invalid after claim. Refusing." >&2
       exit 1
     }
+    # Do not require the claimed label on the re-fetch: GitHub can lag and the
+    # edit already succeeded fail-closed above. Require content + approval bind.
     if [ "$post_digest" != "$claim_digest" ] \
        || ! lesson_review_binding_present "$post_claim" approve \
-       || ! _has_label "$post_claim" "$APPROVED_LABEL" \
-       || ! _has_label "$post_claim" "$CLAIMED_LABEL"; then
+       || ! _has_label "$post_claim" "$APPROVED_LABEL"; then
       echo "lessons-deliver: #$NUM drifted after claim; binding no longer matches. Refusing." >&2
       exit 1
     fi
