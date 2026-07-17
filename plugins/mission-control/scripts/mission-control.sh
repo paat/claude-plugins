@@ -62,7 +62,7 @@ hour_now() {
 
 log() {
   printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$MC_STATE_DIR/mission-control.log"
-  # stderr, not stdout: pick_slot_* are consumed via $() and must stay clean
+  # stderr, not stdout: pick_pinned/pick_ladder are consumed via $() and must stay clean
   if [ "$DRY_RUN" = 1 ]; then echo "$*" >&2; fi
 }
 
@@ -253,20 +253,26 @@ admission_eligible() { # <name> — exit 0 iff admitted; advances the gate
   return 1                                      # never dispatch on request tick
 }
 
-pick_slot_a() {
-  local p; p="$(cfg '.slots.A.pinned // empty')"
+pinned_anywhere() { # <name> — is this project pinned on any slot?
+  jq -e --arg n "$1" '[.slots // {} | .[] | .pinned // empty] | index($n) != null' \
+    "$MC_CONFIG" >/dev/null
+}
+
+pick_pinned() { # <slot>
+  local slot="$1" p
+  p="$(jq -r --arg s "$slot" '.slots[$s].pinned // empty' "$MC_CONFIG")"
   [ -n "$p" ] || return 0
-  project_blocked "$p" && { log "slot A pinned $p blocked"; return 0; }
+  project_blocked "$p" && { log "slot $slot pinned $p blocked"; return 0; }
   engine_denied "$p" && return 0
   probe_work "$p" && echo "$p" || true
 }
 
-pick_slot_b() {
-  local pinned n
-  pinned="$(cfg '.slots.A.pinned // empty')"
-  # rung 1: live incidents, excluding the pinned project
+pick_ladder() {
+  local n
+  # rung 1: live incidents, excluding every pinned project
   while IFS= read -r n; do
-    [ -n "$n" ] && [ "$n" != "$pinned" ] || continue
+    [ -n "$n" ] || continue
+    pinned_anywhere "$n" && continue
     project_blocked "$n" && continue
     engine_denied "$n" && continue
     if probe_incident "$n"; then state_set '.cursor["1"]=$n' --arg n "$n"; echo "1 $n"; return 0; fi
@@ -348,7 +354,7 @@ cmd_tick() {
   for slot in A B; do
     if ! slot_free "$slot"; then log "slot $slot busy"; continue; fi
     if [ "$slot" = A ]; then
-      cand="$(pick_slot_a)"
+      cand="$(pick_pinned A)"
       if [ -n "$cand" ]; then
         dispatch A "$cand" || { DENIED_ENGINES+=("$(pj "$cand" '.engine')"); log "slot A reserve refused: $cand"; }
       else
@@ -357,7 +363,7 @@ cmd_tick() {
     else
       tries=0
       while :; do
-        cand="$(pick_slot_b)"
+        cand="$(pick_ladder)"
         [ -n "$cand" ] || { log "slot B idle"; break; }
         dispatch B "${cand#* }" && break
         DENIED_ENGINES+=("$(pj "${cand#* }" '.engine')")
