@@ -84,7 +84,7 @@ manual and cross-worktree overlap after launch.
 
 ## Workspace — Dedicated Worktree
 
-## Hard rule — no worktrees except maintain
+### Hard rule — no worktrees except maintain
 
 - **No linked worktrees by default.** The **only** exception is
   `.worktrees/maintain` (shared by `/maintain` and `/maintain-loop`).
