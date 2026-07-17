@@ -6352,22 +6352,26 @@ make_mock_gh() {
   local bindir="$1/bin"
   local view_store="$1/.gh-view.json"
   mkdir -p "$bindir"
-  # Mutable issue-view store so claim/edit re-reads see label mutations.
   if [ -n "${GH_VIEW_JSON:-}" ]; then
-    printf '%s\n' "$GH_VIEW_JSON" > "$view_store"
+    printf '%s
+' "$GH_VIEW_JSON" > "$view_store"
   else
     rm -f -- "$view_store"
   fi
-  cat > "$bindir/gh" <<EOF
+  # Quoted heredoc keeps the mock body literal; only view_store path is injected.
+  cat > "$bindir/gh" <<MOCK
 #!/usr/bin/env bash
-_args="\$*"; printf '%s\n' "\${_args//\$'\n'/ }" >> "\${GH_CALLS_LOG:?}"
+_args="\$*"; printf '%s
+' "\${_args//\$'
+'/ }" >> "\${GH_CALLS_LOG:?}"
 if [ -n "\${GH_FAIL_ON:-}" ] && [[ "\$*" == *"\$GH_FAIL_ON"* ]]; then
   echo "mock gh: forced failure" >&2; exit 1
 fi
 _VIEW_STORE="$view_store"
 _seed_view() {
   if [ ! -f "\$_VIEW_STORE" ] && [ -n "\${GH_VIEW_JSON:-}" ]; then
-    printf '%s\n' "\$GH_VIEW_JSON" > "\$_VIEW_STORE"
+    printf '%s
+' "\$GH_VIEW_JSON" > "\$_VIEW_STORE"
   fi
 }
 case "\$1 \$2" in
@@ -6398,17 +6402,15 @@ case "\$1 \$2" in
          _a="\${!_i}"
          if [ "\$_a" = "--add-label" ]; then
            _i=\$((_i + 1)); _lab="\${!_i}"
-           _cur="\$(printf '%s' "\$_cur" | jq -c --arg l "\$_lab" '
-             .labels = ((.labels // []) + [{name:\$l}]
-               | group_by(.name) | map(.[0]))')"
+           _cur="\$(printf '%s' "\$_cur" | jq -c --arg l "\$_lab" '.labels = ((.labels // []) + [{name:\$l}] | group_by(.name) | map(.[0]))')"
          elif [ "\$_a" = "--remove-label" ]; then
            _i=\$((_i + 1)); _lab="\${!_i}"
-           _cur="\$(printf '%s' "\$_cur" | jq -c --arg l "\$_lab" '
-             .labels = [((.labels // [])[]) | select(.name != \$l)]')"
+           _cur="\$(printf '%s' "\$_cur" | jq -c --arg l "\$_lab" '.labels = [((.labels // [])[]) | select(.name != \$l)]')"
          fi
          _i=\$((_i + 1))
        done
-       printf '%s\n' "\$_cur" > "\$_VIEW_STORE"
+       printf '%s
+' "\$_cur" > "\$_VIEW_STORE"
      fi
      ;;
   "issue close") : ;;
@@ -6419,7 +6421,7 @@ case "\$1 \$2" in
   "pr view")     echo "\${GH_PR_VIEW_JSON:-{}}" ;;
   *) : ;;
 esac
-EOF
+MOCK
   chmod +x "$bindir/gh"
 }
 
