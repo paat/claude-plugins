@@ -29,6 +29,7 @@ test_maintain_runtime() {
   local role_guard telemetry_id routing_schema guard_dir active_guard verified_guard
   local unrelated guard_victim worker_bin worker_called shared_owner inactive_guard
   local metadata_peer peer_git_dir peer_backpointer peer_head
+  local long_reason malformed_file valid_file overlong_file diag_file normalized
 
   repo=$(mktemp -d)
   git -C "$repo" init -q
@@ -322,13 +323,15 @@ case "$1 $2" in
 esac
 SH
   chmod +x "$repo/probe-bin/gh"
-  printf '%s\n' '{"number":42,"reason":"shared","cooldown_until":"2099-01-01T00:00:00Z"}' \
+  long_reason=$(printf 'r%.0s' {1..502})
+  jq -cn --arg reason "$long_reason" \
+    '{number:42,reason:$reason,cooldown_until:"2099-01-01T00:00:00Z"}' \
     > "$common/saas-startup-team/maintain/blocked.jsonl"
   ec=0
   out=$(cd "$linked" && PATH="$repo/probe-bin:$PATH" \
     GH_ISSUES_JSON='[{"number":42,"updatedAt":"2026-01-01T00:00:00Z","labels":[]}]' \
     bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" maintain 2>&1) || ec=$?
-  assert_exit_code "MR15a: probe filters active cooldown without blocked label" "$ec" 3
+  assert_exit_code "MR15a: overlong legacy reason cannot wedge the probe" "$ec" 3
   rm -f "$common/saas-startup-team/maintain/blocked.jsonl"
   mkdir -p "$repo/.startup/maintain"
   printf '%s\n' '{"number":43,"reason":"primary legacy","cooldown_until":"2099-01-01T00:00:00Z"}' \
@@ -426,6 +429,32 @@ SH
   assert_equals "MR18: obsolete lock-file symlink is never opened" "$(cat "$victim")" unchanged
   assert_equals "MR19: normalized upsert writes one canonical row" \
     "$(bash "$blocked" normalize --file "$ledger" | jq length)" 1
+  bash "$blocked" upsert --file "$ledger" --number 8 --reason "$long_reason" \
+    --cooldown-until 2099-01-01T00:00:00Z >/dev/null
+  assert_equals "MR19a: cooldown upsert truncates an overlong reason" \
+    "$(bash "$blocked" normalize --file "$ledger" | jq -r '.[] | select(.number == 8) | .reason | length')" 500
+  malformed_file="$repo/malformed-first.jsonl"
+  valid_file="$repo/valid-last.jsonl"
+  printf '%s\n' '{"number":905,"reason":"broken","cooldown_until":"not-a-time"}' > "$malformed_file"
+  printf '%s\n' '{"number":906,"reason":"valid","cooldown_until":"2099-01-01T00:00:00Z"}' > "$valid_file"
+  ec=0
+  out=$(bash "$blocked" normalize --file "$malformed_file" --file "$valid_file" 2>&1) || ec=$?
+  assert_exit_code "MR19b: malformed multi-file input fails closed" "$ec" 1
+  assert_output_contains "MR19c: diagnostic names the offending file" "$out" "$malformed_file"
+  assert_output_contains "MR19d: diagnostic names the offending issue" "$out" 'issue #905'
+  overlong_file="$repo/overlong.jsonl"
+  jq -cn --arg reason "$long_reason" \
+    '{number:42,reason:$reason,cooldown_until:"2099-01-01T00:00:00Z",ignored:"drop"}' \
+    > "$overlong_file"
+  diag_file="$repo/overlong.err"
+  normalized=$(bash "$blocked" normalize --file "$overlong_file" 2>"$diag_file")
+  assert_equals "MR19e: direct legacy write is canonicalized on read" \
+    "$(jq -r '.[0].reason | length' <<<"$normalized")" 500
+  assert_file_contains "MR19f: overlong-row diagnostic names its source file" "$diag_file" \
+    "$overlong_file"
+  assert_file_contains "MR19g: overlong-row diagnostic names its issue" "$diag_file" '#42'
+  assert_equals "MR19h: normalization retains the canonical ledger projection" \
+    "$(jq -r '.[0] | has("ignored")' <<<"$normalized")" false
   printf '%s\n' '{"number":7,"cooldown_until":"2099-01-01T00:00:00Z"}' > "$repo/malformed.jsonl"
   ec=0; bash "$blocked" normalize --file "$repo/malformed.jsonl" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR20: malformed cooldown row fails before cleanup routing" "$ec" 1
