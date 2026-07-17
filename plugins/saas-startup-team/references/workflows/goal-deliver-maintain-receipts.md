@@ -26,9 +26,17 @@ receipt fields merely because the public coordinator is now thin:
 - canonical results at `.startup/maintain-loop/runs/<origin-RUN_ID>/issue-<N>.md`.
 
 The receipt's `origin_run_id` remains provenance and the run-ledger identity. A later
-canonical maintain invocation may control a safe resume through its live whole-pass
-lease; it never rewrites that origin. `maintain-delivery.sh` is the only delivery
-lifecycle writer. Call its public actions rather than editing any receipt or ledger.
+canonical maintain invocation may control a safe resume of a canonical bound receipt
+through its live whole-pass lease; it never rewrites that origin. Historical schema-v1
+receipts are semantically bound to `.worktrees/maintain-loop`: canonical `.worktrees/maintain`
+must not adopt them. Only a matching live legacy controller may promote a nonterminal
+schema-v1 receipt, and that schema-only promotion preserves its original `updated_at`
+claim timestamp. Its `pending` projection exposes one `controller_route` object:
+`{kind,mode,worktree}`. That object synthesizes the historical binding for schema v1
+and retains the persisted binding after promotion, so a crash during the same recovery
+remains reachable. Do not infer a route from the schema number. `maintain-delivery.sh`
+is the only delivery lifecycle writer. Call its public actions rather than editing any
+receipt or ledger.
 
 ## Recovery before new work
 
@@ -40,8 +48,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-delivery.sh" pending \
   --repo-root "$REPO_ROOT"
 ```
 
-Require a valid array containing zero or one nonterminal receipt. More than one,
-malformed state, or an unbound receipt fails closed. Resume the single pending receipt
+Require a valid array containing zero or one nonterminal receipt and consume its exact
+`controller_route` before lease/worktree selection. More than one, malformed state,
+or an unbound receipt fails closed. Resume the single pending receipt
 before triage or new queue work; this is what lets an invocation recover a crash after claim, PR creation, merge, release, or close. `claimed` resumes at source preparation;
 later states resume at the next helper-owned transition and never repeat an already
 recorded irreversible action.
@@ -52,11 +61,12 @@ worktree or PR, emit an event, or perform recovery cleanup.
 
 For recovery, re-fetch the complete issue and PR facts and re-prove the exact authored
 `<!-- maintain:claim:ID -->` binding described by `maintain-protocol.md`. The active
-invocation must still hold the inherited maintain lease, but the receipt keeps its
-original run identity. A pending state without its issue, claim, bound worktree, or
+invocation must still hold the whole-pass lease selected by that route, but the receipt
+keeps its original run identity. A pending state without its issue, claim, bound worktree, or
 receipt-owned PR is unresolved and must not be silently archived or replaced. A
 terminal receipt is not pending; `finalize` is an idempotent verified no-op when its
-canonical result and event already exist.
+canonical result and event already exist. A legacy recovery ends the pass after that
+one receipt; `begin` rejects new work under its compatibility controller.
 
 ## Embedded binding and lease
 
@@ -68,6 +78,22 @@ Use only the validated values inherited from `goal-deliver.md`:
 - `SAAS_EMBEDDED_REMAINING_SECONDS` is the positive remaining pass budget;
 - `SAAS_INVOCATION_ID` is the current canonical root and
   `SAAS_INVOCATION_COMMAND` is `maintain` or `maintain-loop`.
+
+Keep the four identities separate throughout the adapter:
+
+```bash
+CONTROLLER_RUN_ID="$SAAS_INVOCATION_ID"
+INVOCATION_COMMAND="$SAAS_INVOCATION_COMMAND"
+```
+
+`ORIGIN_RUN_ID` is the immutable ID from the verified claim and delivery receipt. For
+new work it is the ID already embedded in the freshly verified claim; for recovery it
+comes from the existing receipt and may differ from `CONTROLLER_RUN_ID`. Never rewrite
+the origin to the current controller. `CHILD_RUN_ID` is a fresh canonical ID minted for
+each writer attempt, including the authorized deep retry; it must differ from both the
+origin and controller. `DELIVERY_ID` is a separate fresh canonical child ID minted once
+before `begin`; the receipt persists it as the stable `issue-outcome` event identity.
+It must differ from `CONTROLLER_RUN_ID` and is never replaced during recovery.
 
 Heartbeat and revalidate the inherited lease before every helper transition and every
 external mutation. Never acquire or release a second goal lease. Run the source
@@ -83,16 +109,19 @@ Fetch current default, record `BASE_SHA`, and prepare the dedicated worktree thr
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-attempt.sh" reset \
   --repo-root "$REPO_ROOT" --worktree "$WT" --base-sha "$BASE_SHA" \
-  --lease-state "$SAAS_EMBEDDED_LEASE_STATE" --run-id "$ORIGIN_RUN_ID"
+  --lease-state "$SAAS_EMBEDDED_LEASE_STATE" --run-id "$ORIGIN_RUN_ID" \
+  --controller-run-id "$CONTROLLER_RUN_ID"
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-attempt.sh" base-check \
   --repo-root "$WT" --base-sha "$BASE_SHA" \
   --lease-state "$SAAS_EMBEDDED_LEASE_STATE" --run-id "$ORIGIN_RUN_ID" \
+  --controller-run-id "$CONTROLLER_RUN_ID" \
   --cache-dir "$BASE_GATE_DIR" --check "$CHECK_SCRIPT"
 ```
 
 Only after the base gate is green:
 
-Call `maintain-delivery.sh begin` with the issue, origin run, fresh delivery ID,
+Mint `DELIVERY_ID` with `agent-events.sh new-run-id`, then call
+`maintain-delivery.sh begin` with the issue, origin run, that fresh delivery ID,
 validated merge budget, exact `--scope-json`, and
 `--lease-state`. A resume never calls `begin` again. The receipt must exist before
 branch creation or writer dispatch.
@@ -104,11 +133,30 @@ The profile selected by `goal-deliver.md` still controls the writer, but embedde
 mechanical/light work uses this transaction instead of the standalone `tweak-run.sh`
 branch path.
 
+```bash
+CHILD_RUN_ID="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/agent-events.sh" new-run-id)"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-attempt.sh" deliver \
+  --repo-root "$WT" --base-sha "$BASE_SHA" \
+  --lease-state "$SAAS_EMBEDDED_LEASE_STATE" --run-id "$ORIGIN_RUN_ID" \
+  --controller-run-id "$CONTROLLER_RUN_ID" --child-run-id "$CHILD_RUN_ID" \
+  --invocation-command "$INVOCATION_COMMAND" --attempt "$ATTEMPT" \
+  --profile "$PROFILE" --task-file "$PROMPT" --message "$COMMIT_MESSAGE" \
+  --check "$CHECK_SCRIPT" --routing-reasons "$ROUTING_REASONS" \
+  "${ALLOW_ARGS[@]}"
+```
+
 An allowed lower-profile escalation gets one cleanup and one authorization through:
 
 ```bash
+ESCALATION_ARGS=(
+  --repo-root "$REPO_ROOT" --worktree "$WT"
+  --lease-state "$SAAS_EMBEDDED_LEASE_STATE"
+  --run-id "$ORIGIN_RUN_ID" --controller-run-id "$CONTROLLER_RUN_ID"
+  --issue "$N" --attempt "$ATTEMPT" --base-sha "$BASE_SHA" --branch "$BRANCH"
+)
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-escalation.sh" cleanup "${ESCALATION_ARGS[@]}"
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-escalation.sh" authorize-restart "${ESCALATION_ARGS[@]}"
+CHILD_RUN_ID="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/agent-events.sh" new-run-id)"
 ```
 
 The helper's persisted polarity is `open_pr:false,remote_branch:false,head_at_base:true,worktree_clean:true`.
@@ -162,7 +210,8 @@ audit, and proof receipts, then alone invokes
 
 Call `record-merge --role normal` with no caller counter or snapshot.
 Read `MERGE_SHA` only from the updated receipt and use `maintain-attempt.sh reset` to put the dedicated
-worktree at that exact clean merge commit before live proof.
+worktree at that exact clean merge commit before live proof, passing the immutable
+`--run-id "$ORIGIN_RUN_ID"` and current `--controller-run-id "$CONTROLLER_RUN_ID"` again.
 
 Run the common deploy/live verification in `goal-deliver.md`. Once it is green at
 `MERGE_SHA`, record the bound evidence through `record-proof --kind live`, then call `record-release` with only the verified deploy run and stable target-source code.
@@ -194,7 +243,15 @@ Success requires the helper-observed close; rollback requires the helper-observe
 release and explicit no-close state.
 
 `finalize` is the sole `issue-outcome` writer. Invoke it with the fresh child delivery
-ID in `SAAS_RUN_ID`, the canonical root in `SAAS_PARENT_RUN_ID`, and the inherited
-`SAAS_INVOCATION_COMMAND`. It appends exactly once, preserving absent parent context as
-legacy `null`. Maintain consumes the canonical result for queue/digest classification;
-it does not close the issue, remove the claim, merge, or synthesize success itself.
+ID in `SAAS_RUN_ID`, `CONTROLLER_RUN_ID` in `SAAS_PARENT_RUN_ID`, and
+`INVOCATION_COMMAND` in `SAAS_INVOCATION_COMMAND`. On the first binding all three values
+are required: `SAAS_RUN_ID` must equal the receipt's immutable `delivery_id`, the parent
+must equal the active lease controller run, and the explicit command must be the
+inherited public root spelling (`maintain` or `maintain-loop`). The canonical lease mode
+is `maintain` for either spelling; only a route-bound historical recovery uses the
+`maintain-loop` compatibility lease. The public spelling never changes the selected
+mode. The helper persists that binding before append;
+a crash retry reuses the persisted command, parent, and profile rather than accepting
+replacement context. It appends exactly once. Maintain consumes the canonical result
+for queue/digest classification; it does not close the issue, remove the claim, merge,
+or synthesize success itself.

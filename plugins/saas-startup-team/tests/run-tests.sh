@@ -1201,7 +1201,12 @@ test_maintain() {
   assert_file_contains "M45a: maintain uses queue builder" "$cmd" "maintain-queue.sh"
   assert_file_contains "M45a1: maintain checks queue builder exit" "$cmd" "if ! QUEUE_JSON="
   assert_file_contains "M45a2: maintain dry-run uses fixture queue state" "$cmd" "--issues-file <issues.json>"
-  assert_file_contains "M45a3: maintain acquires the compatibility lease bridge" "$cmd" "--mode maintain"
+  assert_file_contains "M45a3: maintain uses the route-selected controller mode" "$cmd" \
+    '"$MAINTAIN_CONTROLLER_MODE"'
+  assert_file_contains "M45a3a: maintain lease binds the route-selected worktree" "$protocol" \
+    '--worktree "$WT"'
+  assert_file_not_contains "M45a3b: no unconditional canonical acquire contradicts legacy recovery" \
+    "$cmd" 'maintain-leases.sh acquire --mode maintain'
   assert_file_contains "M45a4: maintain consumes stale blocked-label cleanup" "$cmd" ".cleanup.stale_maintain_blocked"
   assert_file_contains "M45a5: maintain uses foreground lease-set hold" "$cmd" 'maintain-leases.sh" hold'
   assert_file_contains "M45a6: maintain bounds foreground lease lifetime" "$cmd" '--max-seconds 14400'
@@ -1977,6 +1982,8 @@ test_maintain_loop() {
     'agent-events.sh new-run-id'
   assert_file_contains "ML16b: exact lease identity is forwarded to child" "$coordinator" \
     '--lease-run-id "$SAAS_INVOCATION_ID"'
+  assert_file_contains "ML16ba: exact invocation command is forwarded with the lease identity" \
+    "$coordinator" '--lease-run-id "$SAAS_INVOCATION_ID" --invocation-command maintain-loop'
   assert_file_contains "ML16c: known-terminal child is reaped by exact ID" "$coordinator" \
     'maintain-leases.sh reap-terminal'
   assert_file_contains "ML16d: availability is rechecked after terminal reap" "$coordinator" \
@@ -2011,16 +2018,22 @@ test_maintain_loop() {
   assert_file_not_exists "ML21: old verbose Codex skill is removed" "$old_codex_cmd"
   assert_file_contains "ML22: Codex waits only after child identity" "$codex_cmd" \
     'wait only after an identity is returned'
-  assert_file_contains "ML23: failed spawn never enters a wait loop" "$codex_cmd" \
-    'Any spawn error stops `pass-blocked` without waiting or retrying'
-  assert_file_contains "ML24: missing child cannot trigger unsafe reaping" "$codex_cmd" \
-    'missing before one terminal result, stop unknown-terminal without reaping'
+  assert_file_contains "ML23: Codex anomalies defer to the canonical contract" \
+    "$codex_cmd" "source command's referenced coordinator contract"
+  assert_file_not_contains "ML23a: generated skill does not duplicate terminal outcomes" \
+    "$codex_cmd" 'blocked/invalid_workflow_state'
+  assert_file_not_contains "ML24: generated skill does not duplicate terminal ownership" \
+    "$codex_cmd" 'root-terminal ownership'
   assert_file_contains "ML25: Codex requires a durable coordinator session" "$codex_cmd" \
     'collaboration-capable, non-ephemeral'
   assert_file_contains "ML26: Codex uses one-hour blocking waits" "$codex_cmd" \
     'wait_agent` with `timeout_ms: 3600000'
   assert_file_contains "ML27: Codex relays changed-state milestones" "$codex_cmd" \
     'compact collaboration message only when issue/PR, delivery, blocker, or status changes'
+  assert_file_contains "ML28: Codex retains the exact fresh-child command binding" "$codex_cmd" \
+    '--lease-run-id "$SAAS_INVOCATION_ID" --invocation-command maintain-loop'
+  assert_file_contains "ML29: Codex does not assume fresh-child environment inheritance" \
+    "$codex_cmd" 'never assume a fresh child inherits coordinator environment'
 }
 
 # ---------------------------------------------------------------------------
@@ -4761,6 +4774,11 @@ test_lesson_file() {
     bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
   assert_exit_code "F1: dry-run exits 0" "$ec" 0
   assert_equals "F1: no gh issue create when not enabled" "$(_creates "$L")" "0"
+  assert_json_valid "F1a: dry-run refreshes the local ledger" "$led"
+  assert_file_contains "F1b: dry-run writes the local filing report" "$report" \
+    '# Lesson filing — dry-run'
+  assert_file_contains "F1c: source distinguishes local writes from GitHub mutation" \
+    "$script" 'no GitHub calls or mutations, but still refreshes the local'
   rm -rf "$workdir"
 
   # --- F2: enabled + pinned repo -> files one issue, records the fingerprint ---

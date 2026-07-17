@@ -404,10 +404,11 @@ def render_command_skill(
             "Codex subagent and retain its returned identity; wait only after an identity is "
             "returned. Call `wait_agent` with `timeout_ms: 3600000`; never shorten waits to meet "
             "commentary cadence. After an empty timeout, emit at most one compact hourly "
-            "heartbeat, then wait again. Any spawn error stops `pass-blocked` without waiting "
-            "or retrying. If the thread is missing before one terminal result, stop "
-            "unknown-terminal without reaping; one received terminal result is authoritative "
-            "and is never polled again. Never substitute current-session execution"
+            "heartbeat, then wait again. Follow the source command's referenced coordinator "
+            "contract for every dispatch or terminal anomaly. Preserve its exact child bindings "
+            "`--lease-run-id \"$SAAS_INVOCATION_ID\" --invocation-command maintain-loop`; never "
+            "assume a fresh child inherits coordinator environment. Never substitute "
+            "current-session execution"
         )
     elif plugin_name == "saas-startup-team":
         execution_instruction = (

@@ -7,6 +7,7 @@ PLUGIN_ROOT="$(cd "$TEST_DIR/.." && pwd)"
 AUTO="$PLUGIN_ROOT/scripts/lesson-auto-review.sh"
 REVIEW="$PLUGIN_ROOT/scripts/lesson-review.sh"
 SCHEMA="$PLUGIN_ROOT/references/schemas/lesson-auto-review.schema.json"
+DESIGN="$PLUGIN_ROOT/docs/design/self-improvement-loop.md"
 REPO="owner/repo"
 PASS=0
 FAIL=0
@@ -147,6 +148,12 @@ run_auto() {
 }
 
 test_opus_decisive_and_limits() {
+  assert_contains "design documents decisive Opus" "$DESIGN" \
+    'high-confidence Opus approval or rejection is decisive without a second model'
+  assert_contains "design documents conditional Sol arbitration" "$DESIGN" \
+    'Sol/xhigh runs independently only when the Opus verdict is unresolved or structurally'
+  assert_not_contains "design does not require redundant flagship agreement" "$DESIGN" \
+    'High-confidence agreement approves or rejects'
   setup_auto
   candidates "$CASE/candidates.json" 4
   verdict "$CASE/opus/1.out" approve 0.90

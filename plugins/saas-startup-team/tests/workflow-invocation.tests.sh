@@ -6,9 +6,10 @@ declare -F assert_file_contains >/dev/null 2>&1 || {
 
 test_workflow_invocation_contract() {
   echo -e "\n${CYAN}Suite WI: workflow invocation identity${NC}"
-  local loop_entry maintain_entry goal_entry maintain maintain_protocol goal receipts section count
+  local loop_entry maintain_entry loop_skill goal_entry maintain maintain_protocol goal receipts section count
   loop_entry="$PLUGIN_ROOT/commands/maintain-loop.md"
   maintain_entry="$PLUGIN_ROOT/commands/maintain.md"
+  loop_skill="$PLUGIN_ROOT/skills/maintain-loop/SKILL.md"
   goal_entry="$PLUGIN_ROOT/commands/goal-deliver.md"
   maintain="$PLUGIN_ROOT/references/workflows/maintain.md"
   maintain_protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
@@ -24,12 +25,28 @@ test_workflow_invocation_contract() {
   assert_equals "WI3: direct maintain has one root mint point" "$count" "1"
   assert_output_contains "WI4: exact root becomes lease identity" "$section" \
     'MAINTAIN_LEASE_RUN_ID="$SAAS_INVOCATION_ID"'
+  assert_output_contains "WI4a: canonical maintain parses the internal command binding" \
+    "$section" '--invocation-command maintain-loop'
+  assert_output_contains "WI4b: command binding requires the internal lease identity" \
+    "$section" 'only with'
+  assert_output_contains "WI4c: conflicting command context fails before work" \
+    "$section" 'context-binding failure before the probe or mutation'
+  assert_output_contains "WI4d: environment-free direct maintain retains its public command" \
+    "$section" 'environment-free direct call records `maintain`'
+  assert_output_contains "WI4e: environment-free loop child retains its public command" \
+    "$section" 'child records `maintain-loop`'
+  assert_output_contains "WI4f: internal bindings never contaminate the public probe" \
+    "$section" 'never forward either internal argument to the probe'
 
   section=$(awk '/^## \/maintain-loop coordinator/{on=1; next} /^## /{if(on) exit} on' "$maintain")
-  assert_output_contains "WI5: loop passes exact root through environment" "$section" \
-    'inherited `SAAS_INVOCATION_ID`'
+  assert_output_contains "WI5: loop preserves a scheduler root unchanged" "$section" \
+    'scheduler-provided value unchanged'
   assert_output_contains "WI6: loop passes exact root through lease argument" "$section" \
     '--lease-run-id "$SAAS_INVOCATION_ID"'
+  assert_output_contains "WI6a: loop binds its command across the fresh-child boundary" \
+    "$section" '--lease-run-id "$SAAS_INVOCATION_ID" --invocation-command maintain-loop'
+  assert_output_contains "WI6b: loop does not rely on fresh-child environment inheritance" \
+    "$section" 'coordinator environment inheritance across the fresh-child boundary'
   assert_output_contains "WI7: maintain child is sole dispatched root writer" "$section" \
     'child `/maintain` is the sole root'
   assert_output_contains "WI8: coordinator verifies terminal after child exit" "$section" \
@@ -40,6 +57,14 @@ test_workflow_invocation_contract() {
     'never repairs child'
   assert_output_not_contains "WI10a: coordinator has no delivery repair append" "$section" \
     'delivery_failed'
+  assert_output_contains "WI10b: failed pre-identity spawn gets a blocked root terminal" \
+    "$section" '`blocked/invalid_workflow_state`'
+  assert_output_contains "WI10c: returned child identity is the ownership boundary" \
+    "$section" 'irrevocable ownership boundary'
+  assert_output_contains "WI10d: missing identified child never gets a coordinator terminal" \
+    "$section" 'fails closed without appending an event'
+  count=$(grep -cF 'agent-events.sh append' <<< "$section" || true)
+  assert_equals "WI10e: coordinator defines one shared root append shape" "$count" "1"
   assert_output_contains "WI11: later loop passes get fresh roots" "$section" \
     'never reuse a completed pass root'
 
@@ -53,8 +78,8 @@ test_workflow_invocation_contract() {
     'unconditionally after resolution'
   assert_file_contains "WI13b: invocation command has a finite registry" "$maintain" \
     'only `maintain-loop`, `maintain`, and `goal-deliver`'
-  assert_output_contains "WI13c: loop preserves its outer command in child" "$section" \
-    'preserve it in the child environment'
+  assert_output_contains "WI13c: loop binds its outer command in child arguments" "$section" \
+    '--invocation-command maintain-loop'
   assert_file_contains "WI14: detailed supervisor owns every handled terminal" \
     "$maintain_protocol" 'path—success, blocked, failure, cancelled, or escalated'
   assert_file_contains "WI15: supervisor appends root only once" "$maintain_protocol" \
@@ -112,6 +137,14 @@ test_workflow_invocation_contract() {
     'replacement PR'
   assert_file_contains "WI31f: maintain references canonical embedded invariants" "$maintain" \
     'goal-deliver.md` §Delivery safety invariants'
+  assert_file_contains "WI31g: receipt origin may differ from the active controller" "$receipts" \
+    'may differ from `CONTROLLER_RUN_ID`'
+  assert_file_contains "WI31h: child identity differs from origin and controller" "$receipts" \
+    'origin and controller'
+  assert_file_contains "WI31i: embedded worker parents telemetry to the current controller" \
+    "$receipts" '`CONTROLLER_RUN_ID` in `SAAS_PARENT_RUN_ID`'
+  assert_file_contains "WI31j: embedded worker preserves the inherited command" "$receipts" \
+    '`INVOCATION_COMMAND` in `SAAS_INVOCATION_COMMAND`'
 
   assert_file_contains "WI32: loop entrypoint loads canonical reference" "$loop_entry" \
     'references/workflows/maintain.md'
@@ -119,7 +152,10 @@ test_workflow_invocation_contract() {
     'references/workflows/maintain.md'
   assert_file_contains "WI34: goal entrypoint keeps sole delivery reference" "$goal_entry" \
     'sole delivery contract'
-  for section in 'tribunal-review' 'gh pr merge' 'poll-gate.sh' 'single-flight.sh'; do
+  assert_file_contains "WI34a: generated Codex loop retains the mechanical child binding" \
+    "$loop_skill" '--lease-run-id "$SAAS_INVOCATION_ID" --invocation-command maintain-loop'
+  for section in 'tribunal-review' 'gh pr merge' 'poll-gate.sh' 'single-flight.sh' \
+    'invalid_workflow_state' 'root-terminal ownership'; do
     assert_file_not_contains "WI35: loop entrypoint does not duplicate $section" \
       "$loop_entry" "$section"
   done

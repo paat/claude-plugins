@@ -12,14 +12,15 @@ AUTH_HELPER="$SCRIPT_DIR/mutation-auth-token.sh"
 
 usage() {
   cat >&2 <<'EOF'
-usage: maintain-attempt.sh reset --repo-root DIR --worktree DIR --base-sha SHA --lease-state FILE --run-id ID
-       maintain-attempt.sh base-check --repo-root DIR --base-sha SHA --lease-state FILE --run-id ID --cache-dir DIR [--check PATH]
-       maintain-attempt.sh deliver --repo-root DIR --base-sha SHA --lease-state FILE --run-id ID --attempt N --profile light|standard|deep --task-file FILE --message TEXT [--check PATH] [--routing-reasons CODES] --allow PATH...
+usage: maintain-attempt.sh reset --repo-root DIR --worktree DIR --base-sha SHA --lease-state FILE --run-id ORIGIN --controller-run-id CONTROLLER
+       maintain-attempt.sh base-check --repo-root DIR --base-sha SHA --lease-state FILE --run-id ORIGIN --controller-run-id CONTROLLER --cache-dir DIR [--check PATH]
+       maintain-attempt.sh deliver --repo-root DIR --base-sha SHA --lease-state FILE --run-id ORIGIN --controller-run-id CONTROLLER --child-run-id CHILD --attempt N --profile light|standard|deep --task-file FILE --message TEXT [--invocation-command maintain|maintain-loop] [--check PATH] [--routing-reasons CODES] --allow PATH...
 EOF
   exit 2
 }
 
 valid_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]; }
+valid_canonical_id() { [[ "$1" =~ ^run-[0-9a-f]{32}$ ]]; }
 valid_uint() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 valid_sha() { [[ "$1" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; }
 
@@ -94,27 +95,25 @@ reset_once() {
 }
 
 load_lease_identity() {
-  local expected_worktree="${1:-$ROOT}" lease_common lease_repo lease_primary state_primary state_parent state_worktree
-  [ -f "$lease_state" ] && [ ! -L "$lease_state" ] || return 1
-  jq -e --arg run_id "$run_id" '
-    .schema_version == 2 and .mode == "maintain-loop" and .run_id == $run_id
-    and (.primary_root|type == "string") and (.common_dir|type == "string")
-    and (.worktree|type == "string" and startswith("/"))' \
-    "$lease_state" >/dev/null || return 1
-  state_primary=$(jq -r .primary_root "$lease_state")
-  lease_common=$(jq -r .common_dir "$lease_state")
-  lease_repo=$(jq -r .repo_root "$lease_state")
-  state_worktree=$(jq -r .worktree "$lease_state")
+  local expected_worktree="${1:-$ROOT}"
   PRIMARY=$(bash "$LEASES" primary-root --repo-root "$ROOT") || return 1
-  lease_primary=$(bash "$LEASES" primary-root --repo-root "$lease_repo") || return 1
-  [ "$PRIMARY" = "$state_primary" ] && [ "$lease_primary" = "$PRIMARY" ] || return 1
-  [ "$lease_common" = "$COMMON" ] || return 1
   expected_worktree=$(realpath -m -- "$expected_worktree") || return 1
-  [ "$state_worktree" = "$expected_worktree" ] \
-    && [ "$state_worktree" = "$PRIMARY/.worktrees/maintain" ] || return 1
-  state_parent=$(dirname -- "$lease_state")
-  [ -d "$state_parent" ] && [ ! -L "$state_parent" ] || return 1
-  [ "$(cd -- "$state_parent" && pwd -P)" = "$COMMON/saas-startup-team/maintain-runtime" ] || return 1
+  bash "$LEASES" controller-binding --repo-root "$ROOT" --worktree "$expected_worktree" \
+    --state-file "$lease_state" --run-id "$controller_run_id" >/dev/null
+}
+
+resolve_invocation_command() {
+  local inherited=${SAAS_INVOCATION_COMMAND:-}
+  if [ -n "$invocation_command" ] && [ -n "$inherited" ] \
+    && [ "$invocation_command" != "$inherited" ]; then
+    echo "maintain-attempt: invocation command conflicts with inherited context" >&2
+    return 1
+  fi
+  WORKER_COMMAND=${invocation_command:-$inherited}
+  case "$WORKER_COMMAND" in maintain|maintain-loop) : ;; *)
+    echo "maintain-attempt: invocation command must be maintain or maintain-loop" >&2
+    return 1
+  esac
 }
 
 require_base_gate() {
@@ -361,6 +360,7 @@ normalize_task_file() {
 
 action=${1:-}; [ -n "$action" ] || usage; shift
 repo_root=""; worktree=""; base_sha=""; lease_state=""; run_id=""
+controller_run_id=""; child_run_id=""; invocation_command=""; WORKER_COMMAND=""
 cache_dir=""; check_script="./check.sh"; attempt=""; profile=""; task_file=""
 message=""; routing_reasons=""; allow=()
 ISSUE_NUMBER=""
@@ -371,6 +371,9 @@ while [ "$#" -gt 0 ]; do
     --base-sha) [ "$#" -ge 2 ] || usage; base_sha=$2; shift 2 ;;
     --lease-state) [ "$#" -ge 2 ] || usage; lease_state=$2; shift 2 ;;
     --run-id) [ "$#" -ge 2 ] || usage; run_id=$2; shift 2 ;;
+    --controller-run-id) [ "$#" -ge 2 ] || usage; controller_run_id=$2; shift 2 ;;
+    --child-run-id) [ "$#" -ge 2 ] || usage; child_run_id=$2; shift 2 ;;
+    --invocation-command) [ "$#" -ge 2 ] || usage; invocation_command=$2; shift 2 ;;
     --cache-dir) [ "$#" -ge 2 ] || usage; cache_dir=$2; shift 2 ;;
     --check) [ "$#" -ge 2 ] || usage; check_script=$2; shift 2 ;;
     --attempt) [ "$#" -ge 2 ] || usage; attempt=$2; shift 2 ;;
@@ -386,7 +389,8 @@ done
 valid_reset_args() {
   [ -n "$repo_root" ] && [ -n "$worktree" ] && [ -n "$base_sha" ] \
     && [ -n "$lease_state" ] && [ -n "$run_id" ] && valid_id "$run_id" \
-    && [ -z "$cache_dir$attempt$profile$task_file$message$routing_reasons" ] \
+    && [ -n "$controller_run_id" ] && valid_id "$controller_run_id" \
+    && [ -z "$child_run_id$invocation_command$cache_dir$attempt$profile$task_file$message$routing_reasons" ] \
     && [ "${#allow[@]}" -eq 0 ]
 }
 
@@ -400,7 +404,8 @@ case "$action" in
       --max-seconds 300 -- env SAAS_MAINTAIN_RESET_HOLD_TOKEN="$reset_hold_token" \
       bash "$SCRIPT_DIR/maintain-attempt.sh" _reset-held \
         --repo-root "$repo_root" --worktree "$worktree" --base-sha "$base_sha" \
-        --lease-state "$lease_state" --run-id "$run_id"
+        --lease-state "$lease_state" --run-id "$run_id" \
+        --controller-run-id "$controller_run_id"
     ;;
 
   _reset-held)
@@ -446,7 +451,9 @@ case "$action" in
 
   base-check)
     [ -n "$repo_root" ] && [ -n "$base_sha" ] && [ -n "$lease_state" ] \
-      && [ -n "$run_id" ] && [ -n "$cache_dir" ] && valid_id "$run_id" || usage
+      && [ -n "$run_id" ] && [ -n "$controller_run_id" ] && [ -n "$cache_dir" ] \
+      && valid_id "$run_id" && valid_id "$controller_run_id" \
+      && [ -z "$child_run_id$invocation_command" ] || usage
     resolve_repo "$repo_root" || { echo "maintain-attempt: invalid worktree" >&2; exit 1; }
     normalize_base || exit 1
     load_lease_identity || { echo "maintain-attempt: lease identity mismatch" >&2; exit 1; }
@@ -512,10 +519,14 @@ case "$action" in
 
   deliver)
     [ -n "$repo_root" ] && [ -n "$base_sha" ] && [ -n "$lease_state" ] \
-      && [ -n "$run_id" ] && [ -n "$attempt" ] && [ -n "$profile" ] \
+      && [ -n "$run_id" ] && [ -n "$controller_run_id" ] && [ -n "$child_run_id" ] \
+      && [ -n "$attempt" ] && [ -n "$profile" ] \
       && [ -n "$task_file" ] && [ -n "$message" ] && [ "${#allow[@]}" -gt 0 ] \
-      && valid_id "$run_id" && valid_uint "$attempt" || usage
+      && valid_id "$run_id" && valid_canonical_id "$controller_run_id" \
+      && valid_canonical_id "$child_run_id" && [ "$child_run_id" != "$controller_run_id" ] \
+      && [ "$child_run_id" != "$run_id" ] && valid_uint "$attempt" || usage
     case "$profile" in light|standard|deep) : ;; *) usage ;; esac
+    resolve_invocation_command || exit 2
     resolve_repo "$repo_root" || { echo "maintain-attempt: invalid worktree" >&2; exit 1; }
     normalize_base || exit 1
     load_lease_identity || { echo "maintain-attempt: lease identity mismatch" >&2; exit 1; }
@@ -541,7 +552,8 @@ case "$action" in
       <<<"$auth" >/dev/null
     worker_rc=0
     bash "$LEASES" hold --state-file "$lease_state" -- \
-      env SAAS_RUN_ID="$run_id" SAAS_ATTEMPT="$attempt" SAAS_COMMAND=maintain-loop \
+      env SAAS_RUN_ID="$child_run_id" SAAS_PARENT_RUN_ID="$controller_run_id" \
+        SAAS_ATTEMPT="$attempt" SAAS_COMMAND="$WORKER_COMMAND" \
         SAAS_PHASE=implementation SAAS_ROUTING_REASONS="$routing_reasons" \
         SAAS_AGENT_EVENTS_FILE="$PRIMARY/.startup/runs/agent-events.jsonl" \
         SAAS_CODEX_LOG_DIR="$PRIMARY/.startup/runs/codex" \

@@ -4,8 +4,9 @@
 #
 # Reads harvester candidates and files each as a `lesson-candidate` GitHub issue in
 # the PINNED plugin repo — but ONLY when filing is explicitly enabled. By default it
-# is a dry run (prints what it would file, touches nothing). This is the first stage
-# that writes to a public repo, so it is heavily gated:
+# is a dry run: it makes no GitHub calls or mutations, but still refreshes the local
+# fingerprint ledger and filing report. This is the first stage that writes to a
+# public repo, so it is heavily gated:
 #
 #   - Files only when  SAAS_LESSON_SYNC_ENABLED=true  AND a repo is explicitly pinned
 #     (--repo or $SAAS_PLUGIN_REPO). Anything else stays dry-run.

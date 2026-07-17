@@ -58,6 +58,7 @@ EOF
 
 die() { printf 'maintain-delivery: %s\n' "$1" >&2; exit "${2:-1}"; }
 valid_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]; }
+valid_canonical_run_id() { [[ "$1" =~ ^run-[0-9a-f]{32}$ ]]; }
 valid_uint() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 valid_natural() { [[ "$1" =~ ^[0-9]+$ ]]; }
 valid_sha() { [[ "$1" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; }
@@ -180,6 +181,8 @@ case "$ACTION" in
   pending|show|archive-claimed|begin|plan-pr|bind-pr|match-pr|collect-tribunal|record-proof|authorize-merge|merge-pr|record-merge|record-release|close-intent|close-issue|observe-closed|render-result|finalize) : ;;
   *) usage ;;
 esac
+READ_ONLY_ACTION=0
+case "$ACTION" in pending|show|match-pr|render-result) READ_ONLY_ACTION=1 ;; esac
 [ "$ACTION" = begin ] || [ -z "$MERGE_BUDGET" ] || usage
 if [ "$ACTION" = begin ]; then
   [ -n "$SCOPE_JSON" ] || usage
@@ -188,6 +191,9 @@ else
 fi
 [ -n "$REPO_ROOT" ] || usage
 case "$ISSUE" in "") [ "$ACTION" = pending ] || usage ;; *) valid_uint "$ISSUE" || die "--issue must be a positive integer" 2 ;; esac
+if [ "$ACTION" = begin ] && [ -n "$RUN_ID" ] && [ "$DELIVERY_ID" = "$RUN_ID" ]; then
+  die "--delivery-id must differ from --run-id" 2
+fi
 command -v flock >/dev/null 2>&1 || die "flock is required" 2
 
 ROOT="$(cd -- "$REPO_ROOT" && pwd -P)" || die "cannot resolve repository"
@@ -231,7 +237,7 @@ cleanup_temps() {
       --run-id "$ARCHIVE_LEASE_RUN" >/dev/null 2>&1 || true
   fi
 }
-trap cleanup_temps EXIT
+if [ "$READ_ONLY_ACTION" -eq 0 ]; then trap cleanup_temps EXIT; fi
 
 safe_existing_dir() { [ -d "$1" ] && [ ! -L "$1" ] && [ "$(cd -- "$1" && pwd -P)" = "$1" ]; }
 ensure_child_dir() {
@@ -247,7 +253,7 @@ ensure_state_root() {
 }
 
 # All receipt fields are controller facts. Text, URLs, paths, and issue bodies stay elsewhere.
-receipt_valid() {
+receipt_schema_valid() {
   jq -e '
     def sha: type == "string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
     def digest: type == "string" and test("^[0-9a-f]{64}$");
@@ -288,8 +294,23 @@ receipt_valid() {
        and (.premerge|premerge) and (.merge|merge)
        and (if $rollback then (.target_merge_sha|sha) else true end));
     type == "object"
-    and (keys == ["close","delivery_id","final","generation","issue_number","issue_updated_at","normal","origin_issue_digest","origin_run_id","release","reopened_event","rollback","schema_version","state","updated_at"])
-    and .schema_version == 1 and (.delivery_id|id) and (.origin_run_id|id)
+    and ((.schema_version == 1
+        and keys == ["close","delivery_id","final","generation","issue_number","issue_updated_at","normal","origin_issue_digest","origin_run_id","release","reopened_event","rollback","schema_version","state","updated_at"])
+      or (.schema_version == 2
+        and keys == ["close","controller","delivery_id","event_binding","final","generation","issue_number","issue_updated_at","normal","origin_issue_digest","origin_run_id","release","reopened_event","rollback","schema_version","state","updated_at"]))
+    and (.delivery_id|id) and (.origin_run_id|id)
+    and (if .schema_version == 2 then
+      (.controller|type == "object" and keys == ["mode","worktree"]
+       and (.mode == "maintain" or .mode == "maintain-loop")
+       and (.worktree|type == "string" and startswith("/")))
+      and (.event_binding == null or
+        (.event_binding|type == "object" and keys == ["command","parent_run_id","profile"]
+         and (.command == "maintain" or .command == "maintain-loop" or .command == "goal-deliver")
+         and (.parent_run_id == null or
+           (.parent_run_id|type == "string" and test("^run-[0-9a-f]{32}$")))
+         and (.profile == "mechanical" or .profile == "light"
+           or .profile == "standard" or .profile == "deep")))
+      else true end)
     and (.generation|type == "number" and . >= 1 and floor == .)
     and (.issue_number|type == "number" and . >= 1 and floor == .)
     and (.issue_updated_at|stamp) and (.origin_issue_digest|digest) and (.updated_at|stamp)
@@ -339,11 +360,40 @@ receipt_valid() {
     and (if .state == "archived_claim" then
       .normal == null and .rollback == null and .release == null and .close == null and .final == null
       else true end)
+    and (if .schema_version == 2
+      and (.state == "finalized_success" or .state == "finalized_rolled_back")
+      then .event_binding != null else true end)
   ' "$1" >/dev/null 2>&1
 }
 
-prepare_root=0
-case "$ACTION" in pending|show|archive-claimed) : ;; *) prepare_root=1 ;; esac
+receipt_valid() {
+  local schema mode worktree expected
+  receipt_schema_valid "$1" || return 1
+  schema=$(jq -r .schema_version "$1") || return 1
+  [ "$schema" = 2 ] || return 0
+  mode=$(jq -r .controller.mode "$1") || return 1
+  worktree=$(jq -r .controller.worktree "$1") || return 1
+  case "$mode" in
+    maintain) expected="$PRIMARY/.worktrees/maintain" ;;
+    maintain-loop) expected="$PRIMARY/.worktrees/maintain-loop" ;;
+    *) return 1 ;;
+  esac
+  [ "$worktree" = "$expected" ]
+}
+
+receipt_controller_binding() {
+  local file=$1 schema
+  schema=$(jq -r .schema_version "$file") || return 1
+  if [ "$schema" = 1 ]; then
+    printf 'maintain-loop\t%s\n' "$PRIMARY/.worktrees/maintain-loop"
+  else
+    jq -r '[.controller.mode,.controller.worktree] | @tsv' "$file"
+  fi
+}
+
+prepare_root=1
+[ "$READ_ONLY_ACTION" -eq 1 ] && prepare_root=0
+[ "$ACTION" = archive-claimed ] && prepare_root=0
 if [ ! -e "$STATE_ROOT" ] && [ ! -L "$STATE_ROOT" ]; then
   if [ "$prepare_root" -eq 0 ]; then
     [ "$ACTION" = pending ] && { printf '[]\n'; exit 0; }
@@ -355,8 +405,23 @@ fi
 safe_existing_dir "$STATE_ROOT" || die "delivery state directory is unsafe"
 [ ! -L "$STATE_ROOT/.lock" ] && { [ ! -e "$STATE_ROOT/.lock" ] || [ -f "$STATE_ROOT/.lock" ]; } \
   || die "delivery state lock is unsafe"
-exec 9>>"$STATE_ROOT/.lock"
-flock 9
+if [ "$READ_ONLY_ACTION" -eq 1 ]; then
+  if [ -f "$STATE_ROOT/.lock" ]; then
+    exec 9<"$STATE_ROOT/.lock"
+    flock -s 9
+  else
+    first_state_entry=$(find -P "$STATE_ROOT" -mindepth 1 -maxdepth 1 -print -quit) \
+      || die "cannot inspect unlocked delivery state"
+    if [ "$ACTION" = pending ] && [ -z "$first_state_entry" ]; then
+      printf '[]\n'
+      exit 0
+    fi
+    die "delivery state lock is missing; read-only inspection cannot be serialized"
+  fi
+else
+  exec 9>>"$STATE_ROOT/.lock"
+  flock 9
+fi
 
 issue_dir=""; current=""
 set_issue_paths() {
@@ -383,22 +448,41 @@ atomic_update() {
 terminal_state() { case "$1" in archived_claim|finalized_success|finalized_rolled_back) return 0 ;; *) return 1 ;; esac; }
 
 require_active_controller() {
-  local expected_run=$1 allow_resume=$2
+  local expected_run=$1 allow_resume=$2 binding bound_mode bound_worktree schema state controller_run
   case "$allow_resume" in 0|1) : ;; *) die "invalid controller resume policy" ;; esac
   [ -n "$LEASE_STATE" ] || die "mutating delivery actions require --lease-state" 2
   if ! bash "$SCRIPT_DIR/maintain-leases.sh" heartbeat --state-file "$LEASE_STATE" >/dev/null; then
     die "delivery controller no longer owns the maintenance leases" 3
   fi
-  jq -e --arg run "$expected_run" --argjson allow_resume "$allow_resume" \
-    --arg primary "$PRIMARY" --arg common "$COMMON" --arg root "$ROOT" '
-    .schema_version == 2 and .repo_root == $primary
-    and .primary_root == $primary and .common_dir == $common
-    and ((.mode == "maintain-loop" and .worktree == $root
-          and (.run_id == $run or $allow_resume == 1))
-      or (.run_id == $run and .mode == "maintain"
-          and .worktree == "" and $root == $primary))
-  ' "$LEASE_STATE" >/dev/null 2>&1 \
+  controller_run=$expected_run
+  if [ "$allow_resume" -eq 1 ]; then
+    controller_run=$(jq -er '.run_id | select(type == "string")' "$LEASE_STATE" 2>/dev/null) \
+      || die "lease state controller run is invalid" 3
+    valid_id "$controller_run" || die "lease state controller run is invalid" 3
+  fi
+  bash "$SCRIPT_DIR/maintain-leases.sh" controller-binding --repo-root "$PRIMARY" \
+    --worktree "$ROOT" --run-id "$controller_run" --state-file "$LEASE_STATE" >/dev/null 2>&1 \
     || die "lease state does not bind this controller, run, and worktree" 3
+  ACTIVE_CONTROLLER_MODE=$(jq -r .mode "$LEASE_STATE")
+  ACTIVE_CONTROLLER_WORKTREE=$(jq -r .worktree "$LEASE_STATE")
+  ACTIVE_CONTROLLER_RUN=$controller_run
+  if [ -n "$current" ] && [ -f "$current" ]; then
+    schema=$(jq -r .schema_version "$current") || die "delivery receipt schema is invalid"
+    state=$(jq -r .state "$current") || die "delivery receipt state is invalid"
+    binding=$(receipt_controller_binding "$current") \
+      || die "delivery receipt controller binding is invalid"
+    IFS=$'\t' read -r bound_mode bound_worktree <<<"$binding"
+    [ "$bound_mode" = "$ACTIVE_CONTROLLER_MODE" ] \
+      && [ "$bound_worktree" = "$ACTIVE_CONTROLLER_WORKTREE" ] \
+      || die "active controller does not match the delivery receipt binding" 3
+    if [ "$schema" = 1 ] && ! terminal_state "$state"; then
+      atomic_update '
+        .schema_version = 2
+        | .controller = {mode:$mode,worktree:$worktree}
+        | .event_binding = null
+      ' --arg mode "$ACTIVE_CONTROLLER_MODE" --arg worktree "$ACTIVE_CONTROLLER_WORKTREE"
+    fi
+  fi
 }
 
 GH_BIN=""
@@ -541,6 +625,7 @@ atomic_update_run_ledger() {
 }
 
 claim_branch_refs_absent() {
+  local worktree=$1
   local claim_time claim_epoch reflog selector event_epoch subject branch latest remote_rc
   local -A candidates=()
   claim_time=$(jq -r .updated_at "$current")
@@ -548,7 +633,7 @@ claim_branch_refs_absent() {
   reflog=$(mktemp "$STATE_ROOT/.archive-reflog.XXXXXX") \
     || die "cannot create claimed receipt reflog snapshot"
   register_temp "$reflog"
-  git -C "$PRIMARY/.worktrees/maintain" reflog show --date=unix \
+  git -C "$worktree" reflog show --date=unix \
     --format='%gD%x09%gs' HEAD > "$reflog" \
     || die "cannot inspect claimed receipt worktree reflog"
   [ -s "$reflog" ] || die "claimed receipt worktree reflog is missing"
@@ -592,7 +677,7 @@ claim_branch_refs_absent() {
 }
 
 claim_source_state_absent() {
-  local run=$1 dir found worktree top worktree_common status head gate_dir gate
+  local run=$1 binding mode worktree dir found top worktree_common status head gate_dir gate
   local guard_dir artifact
   local -a guard_dirs=()
   for dir in \
@@ -605,7 +690,9 @@ claim_source_state_absent() {
     [ -z "$found" ] || die "claimed receipt has protected source-attempt state"
   done
 
-  worktree="$PRIMARY/.worktrees/maintain"
+  binding=$(receipt_controller_binding "$current") \
+    || die "claimed receipt controller binding is invalid"
+  IFS=$'\t' read -r mode worktree <<<"$binding"
   [ -e "$worktree" ] || [ -L "$worktree" ] \
     || die "claimed receipt worktree is missing; source state cannot be disproved"
   safe_existing_dir "$worktree" || die "claimed receipt worktree is unsafe"
@@ -639,7 +726,7 @@ claim_source_state_absent() {
     and (.checked_at|type == "string"
       and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
   ' "$gate" >/dev/null || die "claimed receipt base-check proof is malformed"
-  claim_branch_refs_absent
+  claim_branch_refs_absent "$worktree"
 
   guard_dirs+=("$COMMON/saas-startup-team")
   shopt -s nullglob
@@ -679,6 +766,7 @@ claim_delivery_pr_absent() {
 
 if [ "$ACTION" = pending ]; then
   rows=()
+  binding=""; bound_mode=""; bound_worktree=""; controller_route=""
   shopt -s nullglob
   for dir in "$STATE_ROOT"/issue-*; do
     [ -L "$dir" ] && die "delivery issue directory is unsafe"
@@ -694,7 +782,19 @@ if [ "$ACTION" = pending ]; then
       || die "delivery receipt is malformed or unsafe"
     state=$(jq -r .state "$dir/current.json")
     terminal_state "$state" && continue
-    rows+=("$(jq -c --arg receipt "$dir/current.json" '{issue_number,delivery_id,state,receipt:$receipt}' "$dir/current.json")")
+    binding=$(receipt_controller_binding "$dir/current.json") \
+      || die "delivery receipt controller binding is malformed"
+    IFS=$'\t' read -r bound_mode bound_worktree <<<"$binding"
+    case "$bound_mode:$bound_worktree" in
+      "maintain:$PRIMARY/.worktrees/maintain") controller_route=canonical ;;
+      "maintain-loop:$PRIMARY/.worktrees/maintain-loop") controller_route=legacy-recovery ;;
+      *) die "delivery receipt controller route is invalid" ;;
+    esac
+    rows+=("$(jq -c --arg receipt "$dir/current.json" --arg kind "$controller_route" \
+      --arg mode "$bound_mode" --arg worktree "$bound_worktree" \
+      '{issue_number,delivery_id,state,receipt:$receipt,
+        controller_route:{kind:$kind,mode:$mode,worktree:$worktree}}' \
+      "$dir/current.json")")
   done
   printf '%s\n' "${rows[@]:-}" | jq -s 'map(select(type == "object")) | sort_by(.issue_number)'
   exit 0
@@ -702,10 +802,15 @@ fi
 
 if [ "$ACTION" = begin ]; then
   valid_id "$RUN_ID" || die "invalid --run-id" 2
-  valid_id "$DELIVERY_ID" || die "invalid --delivery-id" 2
+  valid_canonical_run_id "$DELIVERY_ID" \
+    || die "--delivery-id must be a fresh canonical child run ID" 2
   validate_event_delivery_identity
   valid_natural "$MERGE_BUDGET" || die "invalid --merge-budget" 2
   require_active_controller "$RUN_ID" 0
+  [ "$ACTIVE_CONTROLLER_MODE" = maintain ] || \
+    die "legacy maintain-loop controller is receipt-recovery-only" 3
+  [ "$DELIVERY_ID" != "$ACTIVE_CONTROLLER_RUN" ] || \
+    die "--delivery-id must differ from the active controller run" 2
   if [ -n "$REOPEN_EVENT_ID$REOPEN_EVENT_AT" ]; then
     valid_uint "$REOPEN_EVENT_ID" && valid_time "$REOPEN_EVENT_AT" \
       || die "reopen event needs a positive id and UTC timestamp" 2
@@ -777,8 +882,12 @@ if [ "$ACTION" = begin ]; then
   fi
   jq -n --arg delivery "$DELIVERY_ID" --arg run "$RUN_ID" --argjson issue "$ISSUE" \
     --argjson generation "$generation" --arg updated "$ISSUE_UPDATED_AT" --arg now "$created" \
-    --arg origin_issue_digest "$ORIGIN_ISSUE_DIGEST" --argjson reopened "$reopen_json" '
-      {schema_version:1,delivery_id:$delivery,origin_run_id:$run,issue_number:$issue,
+    --arg origin_issue_digest "$ORIGIN_ISSUE_DIGEST" --argjson reopened "$reopen_json" \
+    --arg controller_mode "$ACTIVE_CONTROLLER_MODE" \
+    --arg controller_worktree "$ACTIVE_CONTROLLER_WORKTREE" '
+      {schema_version:2,
+       controller:{mode:$controller_mode,worktree:$controller_worktree},event_binding:null,
+       delivery_id:$delivery,origin_run_id:$run,issue_number:$issue,
        generation:$generation,issue_updated_at:$updated,origin_issue_digest:$origin_issue_digest,
        reopened_event:$reopened,
        state:"claimed",normal:null,rollback:null,release:null,close:null,final:null,updated_at:$now}' \
@@ -807,6 +916,7 @@ if [ "$ACTION" = archive-claimed ]; then
   valid_id "$ARCHIVE_LEASE_RUN" || die "cannot create claimed receipt cleanup identity"
   ARCHIVE_LEASE_STATE="$COMMON/saas-startup-team/maintain-runtime/$ARCHIVE_LEASE_RUN-leases.json"
   if ! bash "$SCRIPT_DIR/maintain-leases.sh" acquire --repo-root "$PRIMARY" --mode maintain \
+    --worktree "$PRIMARY/.worktrees/maintain" \
     --run-id "$ARCHIVE_LEASE_RUN" --state-file "$ARCHIVE_LEASE_STATE" >/dev/null; then
     die "claimed receipt cleanup requires all maintenance leases to be idle" 3
   fi
@@ -2373,6 +2483,24 @@ if [ "$ACTION" = finalize ]; then
     rollback_release_verified|finalized_rolled_back) final_outcome=rolled_back; event_outcome=failure; event_rollback=rolled_back; proof_role=rollback ;;
     *) die "cannot finalize delivery from $TOP_STATE" ;;
   esac
+  if ! jq -e '.schema_version == 2 and .event_binding != null' "$current" >/dev/null; then
+    [ -n "${SAAS_INVOCATION_COMMAND:-}" ] \
+      || die "first finalization requires SAAS_INVOCATION_COMMAND" 2
+    [ -n "${SAAS_PARENT_RUN_ID:-}" ] \
+      || die "first finalization requires SAAS_PARENT_RUN_ID" 2
+    [ -n "${SAAS_RUN_ID:-}" ] \
+      || die "first finalization requires SAAS_RUN_ID" 2
+    case "$EVENT_COMMAND" in
+      maintain|maintain-loop) : ;;
+      *) die "issue-event command is not an embedded maintenance root" 3 ;;
+    esac
+    [ "$SAAS_PARENT_RUN_ID" = "$ACTIVE_CONTROLLER_RUN" ] \
+      || die "event parent does not match the active delivery controller" 3
+    [ "$SAAS_RUN_ID" = "$DELIVERY_ID" ] \
+      || die "SAAS_RUN_ID does not match the receipt issue-event identity" 3
+    [ "$SAAS_RUN_ID" != "$SAAS_PARENT_RUN_ID" ] \
+      || die "issue-event identity must differ from its controller" 3
+  fi
   [ -n "$RESULT_SOURCE" ] && [ -f "$RESULT_SOURCE" ] && [ ! -L "$RESULT_SOURCE" ] \
     || die "result source is missing or unsafe"
   pr_number=$(jq -r .normal.pr_number "$current"); normal_merge=$(jq -r .normal.merge.sha "$current")
@@ -2387,6 +2515,23 @@ if [ "$ACTION" = finalize ]; then
   fi
   cmp -s -- "$RESULT_SOURCE" "$canonical" \
     || { rm -f -- "$canonical"; die "result source omits or contradicts canonical receipt facts"; }
+  binding_time=$(now_iso)
+  binding_parent=${SAAS_PARENT_RUN_ID:-}
+  atomic_update '
+    if .schema_version == 1 then
+      .schema_version = 2
+      | .controller = {mode:$controller_mode,worktree:$controller_worktree}
+      | .event_binding = null
+    else . end
+    | if .event_binding == null then
+        .event_binding = {command:$command,
+          parent_run_id:$parent,profile:$profile}
+        | .updated_at = $now
+      else . end
+  ' --arg controller_mode "$ACTIVE_CONTROLLER_MODE" \
+    --arg controller_worktree "$ACTIVE_CONTROLLER_WORKTREE" \
+    --arg command "$EVENT_COMMAND" --arg parent "$binding_parent" --arg profile "$PROFILE" \
+    --arg now "$binding_time"
   for part in .startup maintain-loop runs "$(jq -r .origin_run_id "$current")"; do
     parent=${target_parent:-$PRIMARY}; ensure_child_dir "$parent" "$part" \
       || { rm -f -- "$canonical"; die "result directory is unsafe"; }
@@ -2405,16 +2550,23 @@ if [ "$ACTION" = finalize ]; then
       || { rm -f -- "$tmp" "$canonical"; die "cannot persist result"; }
     rm -f -- "$canonical"
   fi
+  persisted_event_command=$(jq -r .event_binding.command "$current")
+  persisted_event_parent=$(jq -r '.event_binding.parent_run_id // ""' "$current")
+  persisted_event_profile=$(jq -r .event_binding.profile "$current")
+  PERSISTED_EVENT_CONTEXT_ARGS=()
+  if [ -n "$persisted_event_parent" ]; then
+    PERSISTED_EVENT_CONTEXT_ARGS+=(--parent-run-id "$persisted_event_parent")
+  fi
   events_parent="$PRIMARY/.startup/runs"; ensure_child_dir "$PRIMARY/.startup" runs || die "event directory is unsafe"
   events="$events_parent/agent-events.jsonl"
   qa=$(jq -r ".$proof_role.premerge.qa.status" "$current"); base=$(jq -r .normal.base_sha "$current")
   (cd "$PRIMARY" && bash "$SCRIPT_DIR/agent-events.sh" append --once \
-    --events "$events" --run-id "$DELIVERY_ID" --command "$EVENT_COMMAND" --phase issue-outcome \
-    --surface script --profile "$PROFILE" --writer-id "$DELIVERY_ID" --attempt 1 \
+    --events "$events" --run-id "$DELIVERY_ID" --command "$persisted_event_command" --phase issue-outcome \
+    --surface script --profile "$persisted_event_profile" --writer-id "$DELIVERY_ID" --attempt 1 \
     --event-type completed --base-sha "$base" --result-sha "$merge_sha" \
     --checks passed --qa "$qa" --tribunal passed --pr merged --merge merged \
     --deployment passed --rollback "$event_rollback" --outcome "$event_outcome" \
-    "${EVENT_CONTEXT_ARGS[@]}") >/dev/null \
+    "${PERSISTED_EVENT_CONTEXT_ARGS[@]}") >/dev/null \
     || die "cannot append the exactly-once issue outcome"
   finalized=$(now_iso); relative=${target#"$PRIMARY/"}
   if [ "$TOP_STATE" = closed_observed ] || [ "$TOP_STATE" = rollback_release_verified ]; then

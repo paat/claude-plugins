@@ -10,6 +10,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: maintain-leases.sh primary-root --repo-root DIR
        maintain-leases.sh acquire --repo-root DIR --mode maintain|maintain-loop --run-id ID --state-file FILE [--worktree DIR]
+       maintain-leases.sh controller-binding --repo-root DIR --worktree DIR --run-id ID --state-file FILE
        maintain-leases.sh activate --state-file FILE --run-state FILE --blocked-file FILE  # maintain-loop state only
        maintain-leases.sh available --repo-root DIR
        maintain-leases.sh heartbeat --state-file FILE
@@ -22,6 +23,9 @@ EOF
 
 valid_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]; }
 valid_uint() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
+worktree_lease_key() {
+  printf '%s:worktree:%s\n' "$1" "$(printf '%s' "$2" | cksum | awk '{print $1}')"
+}
 declare -Ar LEASE_TTL_SECONDS=(
   [legacy-maintain]=1800
   [legacy-loop]=900
@@ -76,8 +80,8 @@ validate_lease_rows() {
       "legacy-maintain:maintain-pass:$COMMON/saas-startup-team/leases") : ;;
       "legacy-loop:maintain-loop:pass:$PRIMARY/.startup/leases") : ;;
       "shared:maintain-delivery:pass:$COMMON/saas-startup-team/leases") : ;;
-      worktree:maintain-loop:worktree:*:"$COMMON/saas-startup-team/leases")
-        [ "$MODE" = maintain-loop ] && [ "$key" = "$worktree_key" ] || return 1 ;;
+      worktree:*:"$COMMON/saas-startup-team/leases")
+        [ -n "$worktree_key" ] && [ "$key" = "$worktree_key" ] || return 1 ;;
       *) echo "maintain-leases: unrecognized lease binding" >&2; return 1 ;;
     esac
     case "$owner_file" in "$owner_parent"/*) : ;; *) return 1 ;; esac
@@ -118,16 +122,19 @@ load_state() {
   [ -f "$STATE_FILE" ] && [ ! -L "$STATE_FILE" ] || {
     echo "maintain-leases: lease state is missing or unsafe" >&2; return 1; }
   jq -e '
-    .schema_version == 2
-    and (.run_id|type == "string")
+    (.run_id|type == "string")
     and (.mode == "maintain" or .mode == "maintain-loop")
     and (.repo_root|type == "string") and (.primary_root|type == "string")
     and (.common_dir|type == "string") and (.worktree|type == "string")
     and (.leases|type == "array")
     and all([.run_id,.repo_root,.primary_root,.common_dir,.worktree][];
       (test("[[:cntrl:]]")|not))
-    and ((.mode == "maintain" and .worktree == "" and (.leases|length) == 3)
-      or (.mode == "maintain-loop" and (.worktree|startswith("/")) and (.leases|length) == 4))
+    and ((.schema_version == 2 and .mode == "maintain"
+          and .worktree == "" and (.leases|length) == 3)
+      or (.schema_version == 2 and .mode == "maintain-loop"
+          and (.worktree|startswith("/")) and (.leases|length) == 4)
+      or (.schema_version == 3 and .mode == "maintain"
+          and (.worktree|startswith("/")) and (.leases|length) == 4))
     and all(.leases[];
       (.kind|type == "string") and (.key|type == "string")
       and (.state_dir|type == "string") and (.owner_file|type == "string")
@@ -137,6 +144,7 @@ load_state() {
     "$STATE_FILE" >/dev/null || {
       echo "maintain-leases: malformed lease state" >&2; return 1; }
   RUN_ID=$(jq -r .run_id "$STATE_FILE"); MODE=$(jq -r .mode "$STATE_FILE")
+  STATE_SCHEMA=$(jq -r .schema_version "$STATE_FILE")
   valid_id "$RUN_ID" || { echo "maintain-leases: invalid state run id" >&2; return 1; }
   expected_root=$(jq -r .repo_root "$STATE_FILE")
   resolve_repo "$expected_root" || { echo "maintain-leases: state repository is invalid" >&2; return 1; }
@@ -145,12 +153,27 @@ load_state() {
   expected_worktree=$(jq -r .worktree "$STATE_FILE")
   [ "$PRIMARY" = "$expected_primary" ] && [ "$COMMON" = "$expected_common" ] || {
     echo "maintain-leases: repository identity changed" >&2; return 1; }
+  if [ -n "$expected_worktree" ] && { [ "$expected_root" != "$PRIMARY" ] || [ "$ROOT" != "$PRIMARY" ]; }; then
+    echo "maintain-leases: bound controller root is not the primary worktree" >&2
+    return 1
+  fi
   case "$MODE" in
-    maintain) [ -z "$expected_worktree" ] || return 1 ;;
+    maintain)
+      case "$STATE_SCHEMA" in
+        2) [ -z "$expected_worktree" ] || return 1 ;;
+        3)
+          [ "$expected_worktree" = "$PRIMARY/.worktrees/maintain" ] || {
+            echo "maintain-leases: canonical worktree binding is invalid" >&2; return 1; }
+          worktree_key=$(worktree_lease_key maintain "$expected_worktree") || return 1
+          ;;
+        *) return 1 ;;
+      esac
+      ;;
     maintain-loop)
-      [ "$expected_worktree" = "$PRIMARY/.worktrees/maintain" ] || {
-        echo "maintain-leases: worktree binding is invalid" >&2; return 1; }
-      worktree_key="maintain-loop:worktree:$(printf '%s' "$expected_worktree" | cksum | awk '{print $1}')"
+      [ "$STATE_SCHEMA" = 2 ] || return 1
+      [ "$expected_worktree" = "$PRIMARY/.worktrees/maintain-loop" ] || {
+        echo "maintain-leases: legacy worktree binding is invalid" >&2; return 1; }
+      worktree_key=$(worktree_lease_key maintain-loop "$expected_worktree") || return 1
       ;;
   esac
   WORKTREE_BINDING="$expected_worktree"
@@ -194,6 +217,28 @@ lease_state() {
   [ "$heartbeat" -le "$now" ] || return 1
   [ "$((now - heartbeat))" -le "$ttl" ] && return 2
   return 3
+}
+
+foreign_worktree_leases_available() {
+  local held_mode="$1" held_worktree="$2" own_key="" key state rc=0
+  local canonical_key legacy_key
+  canonical_key=$(worktree_lease_key maintain "$PRIMARY/.worktrees/maintain") || return 1
+  legacy_key=$(worktree_lease_key maintain-loop "$PRIMARY/.worktrees/maintain-loop") || return 1
+  if [ -n "$held_worktree" ]; then
+    own_key=$(worktree_lease_key "$held_mode" "$held_worktree") || return 1
+  fi
+  for key in "$canonical_key" "$legacy_key"; do
+    [ "$key" != "$own_key" ] || continue
+    state=0
+    lease_state "$common_leases" "$key" "${LEASE_TTL_SECONDS[worktree]}" || state=$?
+    case "$state" in
+      0|3) : ;;
+      1) echo "maintain-leases: unsafe foreign worktree lease blocks $key" >&2; rc=1 ;;
+      2) echo "maintain-leases: active foreign worktree lease blocks $key" >&2; rc=1 ;;
+      *) return 1 ;;
+    esac
+  done
+  return "$rc"
 }
 
 release_specs() {
@@ -242,7 +287,7 @@ resolve_run_state_path() {
 action=${1:-}; [ -n "$action" ] || usage; shift
 repo_root=""; mode=""; run_id=""; state_file=""; worktree=""
 run_state=""; blocked_file=""; expected_run_id=""; interval=60; max_seconds=14400
-command=(); LEASE_ROWS_FILE=""; WORKTREE_BINDING=""
+command=(); LEASE_ROWS_FILE=""; WORKTREE_BINDING=""; STATE_SCHEMA=""
 trap 'rm -f -- "${LEASE_ROWS_FILE:-}"' EXIT
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -273,10 +318,13 @@ case "$action" in
     shared="$COMMON/saas-startup-team/leases"
     legacy="$PRIMARY/.startup/leases"
     maintain_worktree="$PRIMARY/.worktrees/maintain"
-    worktree_key="maintain-loop:worktree:$(printf '%s' "$maintain_worktree" | cksum | awk '{print $1}')"
-    kinds=(legacy-maintain legacy-loop shared worktree)
-    keys=(maintain-pass maintain-loop:pass maintain-delivery:pass "$worktree_key")
-    dirs=("$shared" "$legacy" "$shared" "$shared")
+    loop_worktree="$PRIMARY/.worktrees/maintain-loop"
+    maintain_worktree_key=$(worktree_lease_key maintain "$maintain_worktree")
+    loop_worktree_key=$(worktree_lease_key maintain-loop "$loop_worktree")
+    kinds=(legacy-maintain legacy-loop shared worktree worktree)
+    keys=(maintain-pass maintain-loop:pass maintain-delivery:pass
+      "$maintain_worktree_key" "$loop_worktree_key")
+    dirs=("$shared" "$legacy" "$shared" "$shared" "$shared")
     rc=0
     for ((i=0; i<${#keys[@]}; i++)); do
       kind=${kinds[$i]}; key=${keys[$i]}; dir=${dirs[$i]}
@@ -299,17 +347,33 @@ case "$action" in
       && [ -z "$run_state$blocked_file" ] || usage
     valid_id "$run_id" || { echo "maintain-leases: invalid run id" >&2; exit 2; }
     case "$mode" in
-      maintain) [ -z "$worktree" ] || usage ;;
+      maintain) : ;;
       maintain-loop) [ -n "$worktree" ] || usage ;;
       *) usage ;;
     esac
     resolve_repo "$repo_root" || { echo "maintain-leases: cannot resolve repository" >&2; exit 1; }
-    if [ "$mode" = maintain-loop ]; then
+    state_schema=2
+    if [ -n "$worktree" ]; then
       worktree="$(realpath -m -- "$worktree")"
-      [ "$worktree" = "$PRIMARY/.worktrees/maintain" ] || {
-        echo "maintain-leases: worktree must be the dedicated maintain worktree (.worktrees/maintain)" >&2
+      [ "$ROOT" = "$PRIMARY" ] || {
+        echo "maintain-leases: a bound controller must acquire from the primary worktree" >&2
         exit 2
       }
+      case "$mode" in
+        maintain)
+          [ "$worktree" = "$PRIMARY/.worktrees/maintain" ] || {
+            echo "maintain-leases: worktree must be the canonical maintain worktree" >&2
+            exit 2
+          }
+          state_schema=3
+          ;;
+        maintain-loop)
+          [ "$worktree" = "$PRIMARY/.worktrees/maintain-loop" ] || {
+            echo "maintain-leases: worktree must be the legacy maintain-loop worktree" >&2
+            exit 2
+          }
+          ;;
+      esac
     fi
     state_path_for_acquire "$state_file" || {
       echo "maintain-leases: state file must use the common maintenance runtime directory" >&2; exit 2; }
@@ -341,9 +405,9 @@ case "$action" in
     kinds=(legacy-maintain legacy-loop shared)
     keys=(maintain-pass maintain-loop:pass maintain-delivery:pass)
     dirs=("$common_leases" "$legacy_leases" "$common_leases")
-    if [ "$mode" = maintain-loop ]; then
+    if [ -n "$worktree" ]; then
       kinds+=(worktree)
-      keys+=("maintain-loop:worktree:$(printf '%s' "$worktree" | cksum | awk '{print $1}')")
+      keys+=("$(worktree_lease_key "$mode" "$worktree")")
       dirs+=("$common_leases")
     fi
     owners=(); acquired=0
@@ -364,6 +428,9 @@ case "$action" in
         --owner-file "${owners[$i]}" --ttl-seconds "${LEASE_TTL_SECONDS[$kind]}" --replace-stale \
         --reason "maintenance lease expired before run $run_id" >/dev/null
       acquired=$((acquired + 1))
+      if [ "$kind" = shared ] && ! foreign_worktree_leases_available "$mode" "$worktree"; then
+        exit 1
+      fi
     done
     leases_json=$(for ((i=0; i<${#keys[@]}; i++)); do
       jq -cn --arg kind "${kinds[$i]}" --arg key "${keys[$i]}" \
@@ -371,14 +438,34 @@ case "$action" in
         '{kind:$kind,key:$key,state_dir:$state_dir,owner_file:$owner_file}'
     done | jq -s '.')
     state_tmp=$(mktemp "$STATE_FILE.tmp.XXXXXX")
-    jq -n --arg run_id "$run_id" --arg mode "$mode" --arg repo_root "$ROOT" \
+    jq -n --argjson schema_version "$state_schema" \
+      --arg run_id "$run_id" --arg mode "$mode" --arg repo_root "$ROOT" \
       --arg primary_root "$PRIMARY" --arg common_dir "$COMMON" --arg worktree "$worktree" \
       --argjson leases "$leases_json" \
-      '{schema_version:2,run_id:$run_id,mode:$mode,repo_root:$repo_root,
+      '{schema_version:$schema_version,run_id:$run_id,mode:$mode,repo_root:$repo_root,
         primary_root:$primary_root,common_dir:$common_dir,worktree:$worktree,leases:$leases}' > "$state_tmp"
     chmod 600 "$state_tmp"; mv -- "$state_tmp" "$STATE_FILE"
     trap - EXIT
     printf '%s\n' "$STATE_FILE"
+    ;;
+
+  controller-binding)
+    [ -n "$repo_root" ] && [ -n "$worktree" ] && [ -n "$run_id" ] && [ -n "$state_file" ] \
+      && [ -z "$mode$run_state$blocked_file" ] || usage
+    valid_id "$run_id" || { echo "maintain-leases: invalid controller run id" >&2; exit 2; }
+    resolve_repo "$repo_root" || {
+      echo "maintain-leases: cannot resolve controller repository" >&2; exit 1; }
+    controller_primary=$PRIMARY; controller_common=$COMMON
+    worktree=$(realpath -m -- "$worktree") || {
+      echo "maintain-leases: cannot resolve controller worktree" >&2; exit 1; }
+    load_state "$state_file" || exit 1
+    [ "$RUN_ID" = "$run_id" ] && [ -n "$WORKTREE_BINDING" ] \
+      && [ "$PRIMARY" = "$controller_primary" ] && [ "$COMMON" = "$controller_common" ] \
+      && [ "$WORKTREE_BINDING" = "$worktree" ] || {
+        echo "maintain-leases: controller identity mismatch" >&2
+        exit 1
+      }
+    echo "maintain-leases: controller binding valid"
     ;;
 
   activate)
@@ -458,8 +545,10 @@ case "$action" in
     load_state "$terminal_state" || exit 1
     [ "$RUN_ID" = "$run_id" ] || {
       echo "maintain-leases: terminal run id does not match lease state" >&2; exit 1; }
-    [ "$MODE" = maintain ] || {
-      echo "maintain-leases: reap-terminal accepts only maintain lease state" >&2; exit 2; }
+    case "$MODE:$STATE_SCHEMA:$WORKTREE_BINDING" in
+      "maintain:3:$PRIMARY/.worktrees/maintain"|"maintain-loop:2:$PRIMARY/.worktrees/maintain-loop") : ;;
+      *) echo "maintain-leases: terminal lease state has no supported controller binding" >&2; exit 2 ;;
+    esac
     rc=0
     release_specs || rc=1
     [ "$rc" -ne 0 ] || rm -f -- "$STATE_FILE"

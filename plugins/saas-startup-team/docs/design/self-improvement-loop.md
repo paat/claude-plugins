@@ -85,10 +85,11 @@ bounded, fail-closed review stage before implementation.
 ## 4. Automatic review + automation boundary
 
 `lesson-auto-review.sh` reviews at most three open `lesson-candidate` issues per pass.
-Each candidate gets a fresh isolated Opus/xhigh verdict. Sol/xhigh runs independently
-only when the Opus verdict is unresolved or structurally malformed. High-confidence
-agreement approves or rejects; disagreement, unresolved output, or a zero-exit malformed
-final Sol verdict quarantines the issue. Only nonzero model transport failures and
+Each candidate gets a fresh isolated Opus/xhigh verdict. A structurally valid,
+high-confidence Opus approval or rejection is decisive without a second model.
+Sol/xhigh runs independently only when the Opus verdict is unresolved or structurally
+malformed; its decisive verdict approves or rejects, while unresolved or zero-exit
+malformed Sol output quarantines the issue. Only nonzero model transport failures and
 timeouts leave the candidate queued for retry. `/lessons-review` remains available for
 explicit manual inspection or override, but normal delivery does not wait for it.
 
@@ -255,8 +256,9 @@ plugin-native implementer — see `lessons-deliver.md` §2.
 
 - Filing improvement issues: **fully automated** (label `improvement` + domain
   `ux·logic·demand·process·tooling`).
-- Review: automatic, at most three candidates per pass; Opus/xhigh first, Sol/xhigh only
-  for unresolved/malformed Opus output. Only transport failures/timeouts retry.
+- Review: automatic, at most three candidates per pass; a high-confidence Opus/xhigh
+  approval or rejection is decisive, and Sol/xhigh arbitrates only unresolved/malformed
+  Opus output. Only transport failures/timeouts retry.
 - Implementation: automatically approved issues flow to plugin-native
   `/lessons-deliver`; `/lessons-review` is optional.
 - "Genuine" threshold: a pattern recurs (≥2 sessions, or structurally generic
@@ -347,11 +349,12 @@ Tracking issue: **#79** (keep open until the loop runs end-to-end live).
     2, filed 0", ledger empty, no `gh` contact.
 - [x] **v4 — `lesson-auto-review.sh` + optional `/lessons-review`**. Component #4.
   - Reviews at most three verified candidates per pass. A fresh isolated Opus/xhigh
-    verdict is primary; unresolved or zero-exit malformed Opus output invokes independent
-    Sol/xhigh arbitration. High-confidence results approve or reject. Disagreement,
-    unresolved output, or zero-exit malformed final Sol output quarantines. Only nonzero
-    transport failures/timeouts retry. Repo pinning, fresh issue verification, idempotent
-    labels/comments, and fail-closed GitHub mutations remain mandatory.
+    verdict is primary and decisive when it is a high-confidence approval or rejection;
+    unresolved or zero-exit malformed Opus output invokes independent Sol/xhigh
+    arbitration. A decisive Sol verdict approves or rejects; unresolved or zero-exit
+    malformed final Sol output quarantines. Only nonzero transport failures/timeouts
+    retry. Repo pinning, fresh issue verification, idempotent labels/comments, and
+    fail-closed GitHub mutations remain mandatory.
   - `/lessons-review` lists the queue and provides explicit approve, close, quarantine,
     or skip overrides without becoming a delivery prerequisite.
 - [ ] Validate cross-project recurrence against a larger record sample.

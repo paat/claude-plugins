@@ -6,7 +6,7 @@ declare -F assert_file_contains >/dev/null 2>&1 || {
 
 test_workflow_lifecycle_safety() {
   echo -e "\n${CYAN}Suite WL: workflow lifecycle safety${NC}"
-  local goal maintain maintain_protocol maintain_loop maintain_receipts maintain_proof_contract maintain_loop_entry maintain_delivery maintain_escalation mutation_ownership design_review startup improve lessons design first second count guardian lease workdir owner owner2 ec before after holder child_ready child_stopped grandchild_file grandchild
+  local goal maintain maintain_protocol maintain_loop maintain_receipts maintain_proof_contract maintain_loop_entry maintain_delivery maintain_attempt maintain_escalation mutation_ownership design_review startup improve lessons design first second count guardian lease workdir owner owner2 ec before after holder child_ready child_stopped grandchild_file grandchild
   goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
   maintain="$PLUGIN_ROOT/references/workflows/maintain.md"
   maintain_protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
@@ -15,6 +15,7 @@ test_workflow_lifecycle_safety() {
   maintain_proof_contract="$PLUGIN_ROOT/references/workflows/maintain-proof-contract.md"
   maintain_loop_entry="$PLUGIN_ROOT/commands/maintain-loop.md"
   maintain_delivery="$PLUGIN_ROOT/scripts/maintain-delivery.sh"
+  maintain_attempt="$PLUGIN_ROOT/scripts/maintain-attempt.sh"
   maintain_escalation="$PLUGIN_ROOT/scripts/maintain-escalation.sh"
   mutation_ownership="$PLUGIN_ROOT/references/workflows/mutation-ownership.md"
   design_review="$PLUGIN_ROOT/skills/ux-tester/references/design-review-leg.md"
@@ -63,6 +64,11 @@ test_workflow_lifecycle_safety() {
   assert_before "WL6b: maintain-loop probes before fresh dispatch" "$maintain_loop" \
     'workflow-probe.sh maintain' \
     'launch exactly one fresh isolated subagent'
+  assert_file_contains "WL6b1: fresh loop child carries root ID and command mechanically" \
+    "$maintain" '--lease-run-id "$SAAS_INVOCATION_ID" --invocation-command maintain-loop'
+  assert_before "WL6b2: internal command conflicts stop before the probe" "$maintain" \
+    'context-binding failure before the probe or mutation' \
+    'Run `${CLAUDE_PLUGIN_ROOT}/scripts/workflow-probe.sh maintain`'
   count=$(wc -l < "$maintain_loop" | tr -d ' ')
   if [ "$count" -le 150 ]; then
     assert_equals "WL6c: maintain-loop coordinator stays within the prompt budget" yes yes
@@ -95,8 +101,30 @@ test_workflow_lifecycle_safety() {
     "$design_review" 'never switch or'
   assert_file_contains "WL7: maintain lease state is common-worktree scoped" "$maintain_protocol" \
     'MAINTAIN_LEASE_STATE="$GIT_COMMON/'
-  assert_file_contains "WL7a: maintain uses compatibility delivery leases" "$maintain_protocol" \
-    '--mode maintain'
+  assert_file_contains "WL7a: maintain acquire uses only the route-selected mode" "$maintain_protocol" \
+    '--mode "$MAINTAIN_CONTROLLER_MODE"'
+  assert_file_contains "WL7b: canonical route binds the exact maintain worktree" \
+    "$maintain_protocol" 'WT="$REPO_ROOT/.worktrees/maintain"'
+  assert_file_contains "WL7c: maintain documents the canonical schema-v3 contract" \
+    "$maintain_protocol" 'canonical lease state is schema v3'
+  assert_file_contains "WL7c1: public router consumes the helper route object" \
+    "$maintain" '\.\[0\]\.controller_route\.kind'
+  assert_file_contains "WL7c2: public router fingerprints the exact pending receipt before leasing" \
+    "$maintain" 'MAINTAIN_PENDING_FINGERPRINT=$(jq -cS'
+  assert_file_contains "WL7c3: legacy recovery selects the exact compatibility worktree" \
+    "$maintain_protocol" 'WT="$REPO_ROOT/.worktrees/maintain-loop"'
+  assert_file_contains "WL7c4: locked inventory must match the pre-lease fingerprint" \
+    "$maintain_protocol" '"$MAINTAIN_PENDING_FINGERPRINT"'
+  assert_before "WL7c4a: cleanup trap precedes every post-acquire inventory failure" \
+    "$maintain_protocol" 'trap release_maintain_pass EXIT' 'LOCKED_PENDING='
+  assert_file_contains "WL7c5: legacy controller cannot begin new receipt work" \
+    "$maintain_delivery" 'legacy maintain-loop controller is receipt-recovery-only'
+  assert_file_contains "WL7c6: public legacy recovery ends after its one receipt" \
+    "$maintain" 'this receipt is the entire pass'
+  assert_file_contains "WL7ca: attempt helper delegates controller binding to one validator" \
+    "$maintain_attempt" '"$LEASES" controller-binding'
+  assert_file_contains "WL7cb: escalation helper delegates controller binding to one validator" \
+    "$maintain_escalation" '"$LEASES" controller-binding'
   assert_file_contains "WL7d: maintain bounds foreground lease lifetime" "$maintain_protocol" \
     '--max-seconds 14400'
   assert_file_contains "WL7f: maintain long commands use foreground lease-set hold" "$maintain_protocol" \
@@ -133,10 +161,22 @@ test_workflow_lifecycle_safety() {
   assert_before "WL7f15: issue scope capture precedes begin" "$maintain_receipts" \
     'capture the complete classified issue scope' \
     'maintain-delivery.sh begin'
-  assert_file_contains "WL7f16: inherited maintain lease controls receipt resume" "$maintain_receipts" \
-    'active whole-pass lease'
+  assert_file_contains "WL7f16: route-selected whole-pass lease controls receipt resume" "$maintain_receipts" \
+    'whole-pass lease selected by that route'
   assert_file_contains "WL7f17: receipt origin remains run-ledger provenance" "$maintain_receipts" \
     '`origin_run_id` remains provenance and the run-ledger identity'
+  assert_file_contains "WL7f18: adapter binds lease validation to the current controller" \
+    "$maintain_receipts" 'CONTROLLER_RUN_ID="$SAAS_INVOCATION_ID"'
+  assert_file_contains "WL7f19: adapter never overwrites a resumed receipt origin" \
+    "$maintain_receipts" 'it never rewrites that origin'
+  assert_file_contains "WL7f20: reset passes the current controller explicitly" \
+    "$maintain_receipts" '--controller-run-id "$CONTROLLER_RUN_ID"'
+  assert_file_contains "WL7f21: writer dispatch passes a fresh child explicitly" \
+    "$maintain_receipts" '--child-run-id "$CHILD_RUN_ID"'
+  assert_file_contains "WL7f22: writer dispatch preserves the finite invocation command" \
+    "$maintain_receipts" '--invocation-command "$INVOCATION_COMMAND"'
+  assert_file_contains "WL7f23: escalation constructs one origin/controller argument bundle" \
+    "$maintain_receipts" 'ESCALATION_ARGS=('
   assert_before "WL7g: canonical base gate precedes writer dispatch" "$maintain_receipts" \
     'maintain-attempt.sh" base-check' \
     'maintain-attempt.sh deliver'

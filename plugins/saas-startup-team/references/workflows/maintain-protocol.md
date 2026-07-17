@@ -17,30 +17,72 @@ GIT_COMMON=$(cd "$GIT_COMMON" && pwd -P)
 MAINTAIN_BLOCKED_FILE="$GIT_COMMON/saas-startup-team/maintain/blocked.jsonl"
 ```
 
-On a normal run, `SAAS_INVOCATION_ID` and `MAINTAIN_LEASE_RUN_ID` were already
-resolved by the router. Require both to match `^run-[0-9a-f]{32}$` and to be
-byte-identical; never mint or substitute an identity here. Acquire the repository-wide lease set shared with
-`/maintain-loop` **before** changing the persistent worktree, `.git/info/exclude`,
-labels, state, or `active_role`. `maintain-leases.sh` claims both legacy pass keys
-and the current shared key, so old and new plugin versions cannot overlap. It may
-reclaim a well-formed expired heartbeat; active, malformed, and future-dated
-leases fail closed:
+On a normal run, `SAAS_INVOCATION_ID`, `MAINTAIN_LEASE_RUN_ID`,
+`MAINTAIN_CONTROLLER_ROUTE`, and `MAINTAIN_PENDING_FINGERPRINT` were already resolved
+by the router. Require both IDs to match `^run-[0-9a-f]{32}$` and to be byte-identical;
+never mint or substitute an identity here. Select the controller only from the helper
+route, before touching either worktree:
 
 ```bash
 LEASE_RUN_ID=$SAAS_INVOCATION_ID
 [ "$MAINTAIN_LEASE_RUN_ID" = "$SAAS_INVOCATION_ID" ] || exit 2
+case "$MAINTAIN_CONTROLLER_ROUTE" in
+  canonical)
+    MAINTAIN_CONTROLLER_MODE=maintain
+    WT="$REPO_ROOT/.worktrees/maintain"
+    ;;
+  legacy-recovery)
+    [ -n "$MAINTAIN_PENDING_FINGERPRINT" ] || exit 2
+    MAINTAIN_CONTROLLER_MODE=maintain-loop
+    WT="$REPO_ROOT/.worktrees/maintain-loop"
+    ;;
+  *) exit 2 ;;
+esac
 MAINTAIN_LEASE_STATE="$GIT_COMMON/saas-startup-team/maintain-runtime/$LEASE_RUN_ID-leases.json"
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" acquire \
-  --repo-root "$REPO_ROOT" --mode maintain --run-id "$LEASE_RUN_ID" \
-  --state-file "$MAINTAIN_LEASE_STATE"
+  --repo-root "$REPO_ROOT" --mode "$MAINTAIN_CONTROLLER_MODE" --run-id "$LEASE_RUN_ID" \
+  --state-file "$MAINTAIN_LEASE_STATE" --worktree "$WT" || exit 2
+
+release_maintain_pass() {
+  [ ! -s "$MAINTAIN_LEASE_STATE" ] || bash \
+    "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" cleanup \
+    --state-file "$MAINTAIN_LEASE_STATE" --run-id "$LEASE_RUN_ID"
+}
+trap release_maintain_pass EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+LOCKED_PENDING=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-delivery.sh" pending \
+  --repo-root "$REPO_ROOT") || exit 2
+case "$MAINTAIN_PENDING_FINGERPRINT" in
+  "") [ "$(jq -er 'length' <<<"$LOCKED_PENDING")" -eq 0 ] || exit 2 ;;
+  *) [ "$(jq -er 'length' <<<"$LOCKED_PENDING")" -eq 1 ] || exit 2
+     [ "$(jq -cS '.[0]' <<<"$LOCKED_PENDING")" = \
+       "$MAINTAIN_PENDING_FINGERPRINT" ] || exit 2 ;;
+esac
 ```
+
+Acquire this repository-wide lease set shared with `/maintain-loop` **before**
+changing the persistent worktree, `.git/info/exclude`, labels, state, or `active_role`.
+`maintain-leases.sh` claims both legacy pass keys and the current shared key, so old
+and new plugin versions cannot overlap. It may reclaim a well-formed expired heartbeat;
+active, malformed, future-dated, changed-inventory, and cross-worktree states fail
+closed. The canonical lease state is schema v3. The schema-v2 `maintain-loop` /
+`.worktrees/maintain-loop` pair is selected only by the exact pending receipt route,
+may resume only that fingerprinted receipt, and ends the pass after recovery. Never
+mix either mode with the other path or begin new work from the compatibility route.
 
 `MAINTAIN_LEASE_RUN_ID` is the exact root identity resolved by `/maintain`; a thin
 `/maintain-loop` coordinator passes the same value through both the environment and
 its compatibility argument. Normal
 `/maintain` never calls `maintain-leases.sh activate` and never passes
-`--blocked-file` to a lease action. Its `.startup/maintain/current-run.json` lifecycle
-belongs to `Pre-Flight`; blocked ledgers are queue input under `Eligibility & Ordering`.
+`--blocked-file` to a lease action. Neither route calls the obsolete `activate` action.
+The canonical workflow marker remains `.startup/maintain/current-run.json` inside the
+selected worktree and belongs to `Pre-Flight`; the lease state—not the marker—carries
+the exact controller binding. Generic `cleanup` accepts either validated lease schema,
+and terminal coordinator reap accepts only those same exact canonical or compatibility
+bindings. Blocked ledgers are queue input under `Eligibility & Ordering`.
 
 If acquisition refuses, do not fetch, create/reset a worktree, apply labels, write a run
 file, claim an issue, or dispatch a worker. Inspect the active heartbeat/artifacts and
@@ -63,19 +105,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" hold \
 ```
 
 Bracket a bounded nested tool call that cannot be a child command with synchronous
-heartbeats; it must finish within the shared TTL. Lease loss stops delivery.
-
-```bash
-release_maintain_pass() {
-  [ ! -s "$MAINTAIN_LEASE_STATE" ] || bash \
-    "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" cleanup \
-    --state-file "$MAINTAIN_LEASE_STATE" --run-id "$LEASE_RUN_ID"
-}
-trap release_maintain_pass EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-trap 'exit 129' HUP
-```
+heartbeats; it must finish within the shared TTL. Lease loss stops delivery. The
+release trap above is installed immediately after successful acquisition, before the
+locked inventory recheck, so every mismatch or malformed recheck releases the lease.
 
 Under `--dry-run`, acquire no lease and install no release trap because the run is
 strictly read-only. External schedulers must additionally use non-blocking `flock` as in
@@ -133,9 +165,14 @@ worktree first, then run **every** working-tree operation — delivery branches,
 commits, `.startup/maintain/` state, `human-tasks.md` updates — inside it:
 
 ```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
+REPO_ROOT=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" primary-root \
+  --repo-root "$(git rev-parse --show-toplevel)")
 default=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/default-branch.sh" --repo-root "$REPO_ROOT")
-WT="$REPO_ROOT/.worktrees/maintain"
+# WT was selected from the mechanically validated controller route before lease acquire.
+case "$MAINTAIN_CONTROLLER_MODE:$WT" in
+  "maintain:$REPO_ROOT/.worktrees/maintain"|"maintain-loop:$REPO_ROOT/.worktrees/maintain-loop") : ;;
+  *) exit 2 ;;
+esac
 # Keep the worktree dir out of the investor's `git status` — local, uncommitted:
 grep -qxF '.worktrees/' "$REPO_ROOT/.git/info/exclude" 2>/dev/null \
   || echo '.worktrees/' >> "$REPO_ROOT/.git/info/exclude"
