@@ -48,6 +48,7 @@ field is `CONSENSUS` (reported by ≥2 providers) or `SINGLE_PROVIDER` (one prov
     "glm": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
     "deepseek": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
     "qwen": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
+    "grok": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
     "claude": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"}
   },
   "conflicts_resolved": [],

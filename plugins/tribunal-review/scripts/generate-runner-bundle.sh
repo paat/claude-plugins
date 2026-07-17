@@ -15,6 +15,7 @@ FILES=(
   scripts/run-claude-review.sh
   scripts/run-codex-review.sh
   scripts/run-gemini-review.sh
+  scripts/run-grok-review.sh
   scripts/run-opencode-review.sh
   scripts/run-qwen-review.sh
 )

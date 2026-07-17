@@ -639,7 +639,7 @@ else
   printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
 fi
 EOF
-  for provider in gemini qwen; do
+  for provider in gemini qwen grok; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -657,6 +657,10 @@ EOF
 #!/usr/bin/env bash
 if [ "${FIXTURE_MUTATE_WORKTREE:-off}" = on ]; then printf 'provider mutation\n' >> app.txt; fi
 printf '%s\n' '{"provider":"qwen","status":"disabled","note":"fixture disabled"}'
+EOF
+  cat > "$plugin/scripts/run-grok-review.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' '{"provider":"grok","status":"disabled","note":"fixture disabled"}'
 EOF
   cat > "$plugin/scripts/run-opencode-review.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -789,6 +793,7 @@ EOF
     "glm":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
   },
   "conflicts_resolved":[],"summary":"No blocking findings."
@@ -918,6 +923,7 @@ EOF
     "glm":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
   },
   "conflicts_resolved":[],"summary":"One medium finding remains non-blocking."
@@ -958,6 +964,7 @@ for script in \
   scripts/run-gemini-review.sh \
   scripts/run-opencode-review.sh \
   scripts/run-qwen-review.sh \
+  scripts/run-grok-review.sh \
   scripts/run-claude-review.sh \
   scripts/collect-review-evidence.sh \
   scripts/check-runner-bundle.sh \
@@ -970,7 +977,7 @@ done
 assert_file "structured review schema exists" "schemas/review-output.json"
 assert_json_field "structured review schema is valid JSON" "jq -e '.type==\"object\" and .additionalProperties==false' '$PLUGIN_ROOT/schemas/review-output.json'"
 assert_file "static runner bundle manifest exists" "integrity/runner-bundle.json"
-assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.19.11\"'"
+assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.20.0\"'"
 assert_json_field "static runner bundle is current" "bash '$PLUGIN_ROOT/scripts/generate-runner-bundle.sh' --check"
 
 echo "Skill is orchestration-focused:"
@@ -983,6 +990,7 @@ fi
 assert_grep "skill references preflight script" "$SK" "scripts/preflight.sh"
 assert_grep "skill references codex runner" "$SK" "scripts/run-codex-review.sh"
 assert_grep "skill references opencode runner" "$SK" "scripts/run-opencode-review.sh"
+assert_grep "skill references grok runner" "$SK" "scripts/run-grok-review.sh"
 assert_grep "skill references claude runner" "$SK" "scripts/run-claude-review.sh"
 assert_grep "merge gate uses trusted aggregate runner" "$SK" "scripts/collect-review-evidence.sh"
 assert_grep "caller provider JSON is not merge evidence" "$SK" "caller-created provider JSON as merge evidence"
@@ -1016,11 +1024,15 @@ assert_grep "Codex writes its final response independently of stdout" "scripts/r
 assert_grep "Codex requests the shared output schema" "scripts/run-codex-review.sh" "--output-schema"
 assert_grep "Claude requests the shared output schema" "scripts/run-claude-review.sh" "--json-schema"
 assert_grep "Claude disables the complete tool surface" "scripts/run-claude-review.sh" '--tools ""'
+assert_grep "Grok requests the shared output schema" "scripts/run-grok-review.sh" "--json-schema"
+assert_grep "Grok disables write/edit tools" "scripts/run-grok-review.sh" "--disallowed-tools write,edit"
+assert_grep "Grok disables web search" "scripts/run-grok-review.sh" "--disable-web-search"
 
 echo "Disabled-provider markers:"
 assert_json_field "codex disabled JSON" "TRIBUNAL_CODEX=off bash '$PLUGIN_ROOT/scripts/run-codex-review.sh' | jq -e '.provider==\"codex\" and .status==\"disabled\"'"
 assert_json_field "gemini disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-gemini-review.sh' | jq -e '.provider==\"gemini\" and .status==\"disabled\"'"
 assert_json_field "qwen disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-qwen-review.sh' | jq -e '.provider==\"qwen\" and .status==\"disabled\"'"
+assert_json_field "grok disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-grok-review.sh' | jq -e '.provider==\"grok\" and .status==\"disabled\"'"
 assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT/scripts/run-claude-review.sh' | jq -e '.provider==\"claude\" and .status==\"disabled\"'"
 assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and all(.[]; .status==\"disabled\")'"
 assert_json_field "opencode usage error preserves disabled markers" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=on bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' --bad-flag | jq -s -e 'length==2 and .[0].provider==\"glm\" and .[0].status==\"disabled\" and (.[1] | .provider==\"deepseek\" and has(\"error\"))'"
@@ -1044,7 +1056,7 @@ test_trusted_evidence_collection
 echo "Finding position validation:"
 assert_grep "lib defines line-bounds validator" "$LIB" "tribunal_line_check()"
 assert_grep "prepare_diff records NUL-delimited changed paths" "$LIB" 'git diff --name-only -z "$base_ref"'
-for runner in run-codex-review.sh run-claude-review.sh run-gemini-review.sh run-qwen-review.sh run-opencode-review.sh; do
+for runner in run-codex-review.sh run-claude-review.sh run-gemini-review.sh run-qwen-review.sh run-grok-review.sh run-opencode-review.sh; do
   assert_grep "$runner pipes through line check" "scripts/$runner" "tribunal_line_check"
 done
 assert_grep "arbiter told to distrust marked positions" "$SK" "line_check"

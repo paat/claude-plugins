@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 MANIFEST="$PLUGIN_ROOT/integrity/runner-bundle.json"
 EXPECTED=""
-REQUIRED='["schemas/review-output.json","scripts/check-runner-bundle.sh","scripts/collect-review-evidence.sh","scripts/generate-runner-bundle.sh","scripts/lib.sh","scripts/run-claude-review.sh","scripts/run-codex-review.sh","scripts/run-gemini-review.sh","scripts/run-opencode-review.sh","scripts/run-qwen-review.sh"]'
+REQUIRED='["schemas/review-output.json","scripts/check-runner-bundle.sh","scripts/collect-review-evidence.sh","scripts/generate-runner-bundle.sh","scripts/lib.sh","scripts/run-claude-review.sh","scripts/run-codex-review.sh","scripts/run-gemini-review.sh","scripts/run-grok-review.sh","scripts/run-opencode-review.sh","scripts/run-qwen-review.sh"]'
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
