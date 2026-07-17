@@ -6354,27 +6354,34 @@ make_mock_gh() {
   mkdir -p "$bindir"
   # Mutable issue-view store so claim/edit re-reads see label mutations.
   if [ -n "${GH_VIEW_JSON:-}" ]; then
-    printf '%s
-' "$GH_VIEW_JSON" > "$view_store"
+    printf '%s\n' "$GH_VIEW_JSON" > "$view_store"
   else
     rm -f -- "$view_store"
   fi
-  cat > "$bindir/gh" <<MOCK
+  cat > "$bindir/gh" <<EOF
 #!/usr/bin/env bash
-_args="\$*"; printf '%s\n' "\${_args//\$'\n'/ }" >> "\${GH_CALLS_LOG:?}"  # one line/call (flatten bodies)
+_args="\$*"; printf '%s\n' "\${_args//\$'\n'/ }" >> "\${GH_CALLS_LOG:?}"
 if [ -n "\${GH_FAIL_ON:-}" ] && [[ "\$*" == *"\$GH_FAIL_ON"* ]]; then
   echo "mock gh: forced failure" >&2; exit 1
 fi
 _VIEW_STORE="$view_store"
+_seed_view() {
+  if [ ! -f "\$_VIEW_STORE" ] && [ -n "\${GH_VIEW_JSON:-}" ]; then
+    printf '%s\n' "\$GH_VIEW_JSON" > "\$_VIEW_STORE"
+  fi
+}
 case "\$1 \$2" in
   "api --paginate") echo "\${GH_API_JSON:-[[]]}" ;;
   "repo view")   echo "\${GH_REPO:-o/r}" ;;
   "issue create") echo "https://github.com/o/r/issues/\${GH_CREATE_NUMBER:?GH_CREATE_NUMBER unset}" ;;
   "issue comment") echo "https://github.com/o/r/issues/commented" ;;
   "issue view")
-     if [[ "\$*" == *"--json"* ]] && [ -f "\$_VIEW_STORE" ]; then cat "\$_VIEW_STORE";
-     elif [[ "\$*" == *"--json"* ]] && [ -n "\${GH_VIEW_JSON:-}" ]; then echo "\$GH_VIEW_JSON";
-     elif [[ "\$*" == *"body"* ]]; then echo "\${GH_VIEW_BODY:-}";
+     if [[ "\$*" == *"--json"* ]]; then
+       _seed_view
+       if [ -f "\$_VIEW_STORE" ]; then cat "\$_VIEW_STORE"
+       elif [ -n "\${GH_VIEW_JSON:-}" ]; then echo "\$GH_VIEW_JSON"
+       else echo "{}"; fi
+     elif [[ "\$*" == *"body"* ]]; then echo "\${GH_VIEW_BODY:-}"
      else echo "\${GH_VIEW_STATE:-OPEN}"; fi ;;
   "issue list")
      if [[ "\$*" == *"--state all"* ]] && [ -n "\${GH_ALL_ISSUES_JSON:-}" ]; then
@@ -6383,6 +6390,7 @@ case "\$1 \$2" in
        echo "\${GH_LIST_JSON:-\${GH_SEARCH_JSON:-[]}}"
      fi ;;
   "issue edit")
+     _seed_view
      if [ -f "\$_VIEW_STORE" ]; then
        _cur="\$(cat "\$_VIEW_STORE")"
        _i=1
@@ -6411,7 +6419,7 @@ case "\$1 \$2" in
   "pr view")     echo "\${GH_PR_VIEW_JSON:-{}}" ;;
   *) : ;;
 esac
-MOCK
+EOF
   chmod +x "$bindir/gh"
 }
 
@@ -6648,9 +6656,10 @@ DIFF
 
   # --- claim ---
   # L20: claim an eligible issue edits labels
-  workdir=$(make_workdir); make_mock_gh "$workdir"
+  workdir=$(make_workdir)
   export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
   export GH_VIEW_JSON="$approved_bound"
+  make_mock_gh "$workdir"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r --run-id RUN1 2>&1) || ec=$?
   assert_exit_code "L20: claim exits 0" "$ec" 0
   assert_file_contains "L20: adds claimed label" "$GH_CALLS_LOG" "lessons:claimed"
