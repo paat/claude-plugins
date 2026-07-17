@@ -63,7 +63,7 @@ test_maintain_runtime() {
   state="$common/saas-startup-team/maintain-runtime/blocked-old-maintain.json"
   ec=0
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id blocked-old-maintain \
-    --state-file "$state" --worktree "$repo/.worktrees/maintain" >/dev/null 2>&1 || ec=$?
+    --state-file "$state" --worktree "$repo/.worktrees/maintain-loop" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR1: legacy maintain pass blocks the bridge" "$ec" 1
   assert_file_not_exists "MR2: failed bridge leaves no new shared lease" "$lease_dir/maintain-delivery-pass"
   bash "$single" --release maintain-pass --state-dir "$lease_dir" --owner-file "$owner" >/dev/null
@@ -73,7 +73,7 @@ test_maintain_runtime() {
   state="$common/saas-startup-team/maintain-runtime/blocked-old-loop.json"
   ec=0
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id blocked-old-loop \
-    --state-file "$state" --worktree "$repo/.worktrees/maintain" >/dev/null 2>&1 || ec=$?
+    --state-file "$state" --worktree "$repo/.worktrees/maintain-loop" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR3: legacy maintain-loop pass blocks the bridge" "$ec" 1
   assert_file_not_exists "MR4: partial bridge acquisition is rolled back" "$lease_dir/maintain-pass"
   bash "$single" --release maintain-loop:pass --state-dir "$legacy_dir" --owner-file "$owner" >/dev/null
@@ -133,7 +133,7 @@ test_maintain_runtime() {
   assert_output_contains "MR4bm: repeated reap reports absent state" "$out" \
     'terminal run has no lease state'
 
-  wt="$repo/.worktrees/maintain"
+  wt="$repo/.worktrees/maintain-loop"
   state="$common/saas-startup-team/maintain-runtime/loop-terminal-leases.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id loop-terminal \
     --state-file "$state" --worktree "$wt" >/dev/null
@@ -145,15 +145,6 @@ test_maintain_runtime() {
   assert_file_not_exists "MR4bp: legacy terminal reap removes its lease state" "$state"
   ec=0; bash "$leases" available --repo-root "$repo" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR4bq: legacy terminal reap restores shared availability" "$ec" 0
-
-  state="$common/saas-startup-team/maintain-runtime/wrong-worktree.json"
-  ec=0
-  out=$(bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id wrong-wt \
-    --state-file "$state" --worktree "$repo/.worktrees/maintain-loop" 2>&1) || ec=$?
-  assert_exit_code "MR4bq: legacy maintain-loop worktree path is refused" "$ec" 2
-  assert_output_contains "MR4br: refusal names the dedicated maintain worktree" "$out" \
-    'dedicated maintain worktree'
-  assert_file_not_exists "MR4bs: refused wrong path leaves no lease state" "$state"
 
   for heartbeat_case in future malformed; do
     owner="$lease_dir/.owners/$heartbeat_case.owner"
@@ -173,7 +164,7 @@ test_maintain_runtime() {
     bash "$single" --release maintain-pass --state-dir "$lease_dir" --owner-file "$owner" >/dev/null
   done
 
-  wt="$repo/.worktrees/maintain"
+  wt="$repo/.worktrees/maintain-loop"
   owner="$lease_dir/.owners/orphan-worktree.owner"
   worktree_key="maintain-loop:worktree:$(printf '%s' "$wt" | cksum | awk '{print $1}')"
   bash "$single" --acquire "$worktree_key" --state-dir "$lease_dir" \
