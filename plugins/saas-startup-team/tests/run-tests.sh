@@ -4972,7 +4972,7 @@ test_lesson_file() {
 
   led="$workdir/recovered-ledger.json"; : > "$L"
   closed_issue="$(jq -cn --arg marker "$marker" \
-    '[[{number:926,html_url:"https://github.com/o/r/issues/926",title:"lesson",body:("candidate\n" + $marker),state:"closed"}]]')"
+    '[[{number:926,html_url:"https://github.com/o/r/issues/926",title:"lesson",body:("candidate\n" + $marker),state:"closed",labels:[{name:"lesson-candidate"}]}]]')"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=927 \
     GH_API_JSON="$closed_issue" SAAS_LESSON_SYNC_ENABLED=true \
     bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins \
@@ -5002,9 +5002,9 @@ test_lesson_file() {
 
   local concurrent_issues
   concurrent_issues="$(jq -cn --arg marker "$marker" '[[
-    {number:938,html_url:"https://github.com/o/r/issues/938",title:"unrelated",body:"unrelated",state:"open"},
-    {number:939,html_url:"https://github.com/o/r/issues/939",title:"lesson",body:$marker,state:"open"},
-    {number:940,html_url:"https://github.com/o/r/issues/940",title:"lesson",body:$marker,state:"open"}
+    {number:938,html_url:"https://github.com/o/r/issues/938",title:"unrelated",body:"unrelated",state:"open",labels:[]},
+    {number:939,html_url:"https://github.com/o/r/issues/939",title:"lesson",body:$marker,state:"open",labels:[{name:"lesson-candidate"}]},
+    {number:940,html_url:"https://github.com/o/r/issues/940",title:"lesson",body:$marker,state:"open",labels:[{name:"lesson-candidate"}]}
   ]]')"
   : > "$L"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
@@ -5068,7 +5068,7 @@ stuff" review_canonical review_digest review_marker
   CAND_OPEN="$(jq -cn --arg title "$review_title" --arg body "$review_body" \
     '{state:"OPEN",labels:[{name:"lesson-candidate"},{name:"tooling"}],title:$title,body:$body,updatedAt:"2026-07-17T00:00:00Z",comments:[]}')"
   APPROVED_OPEN="$(jq -cn --arg title "$review_title" --arg body "$review_body" --arg marker "$review_marker" \
-    '{state:"OPEN",labels:[{name:"lesson-approved"}],title:$title,body:$body,updatedAt:"2026-07-17T00:00:00Z",comments:[{body:$marker}]}')"
+    '{state:"OPEN",labels:[{name:"lesson-approved"}],title:$title,body:$body,updatedAt:"2026-07-17T00:00:00Z",comments:[{body:$marker,author:{login:"review-bot"},authorAssociation:"MEMBER"}]}')"
   CLOSED_CAND="$(jq -cn --arg title "$review_title" --arg body "$review_body" \
     '{state:"CLOSED",labels:[{name:"lesson-candidate"}],title:$title,body:$body,updatedAt:"2026-07-17T00:00:00Z",comments:[]}')"
   NONLESSON_OPEN="$(jq -cn --arg title "$review_title" --arg body "$review_body" \
@@ -6394,7 +6394,7 @@ test_lessons_deliver() {
   lesson_digest="$(printf '%s' "$lesson_canonical" | sha256sum | awk '{print $1}')"
   lesson_marker="<!-- saas-lesson-review:v1:approve:$lesson_digest -->"
   approved_bound="$(jq -cn --arg title "$lesson_title" --arg body "$lesson_body" --arg marker "$lesson_marker" \
-    '{state:"OPEN",labels:[{name:"lesson-approved"}],closedByPullRequestsReferences:[],title:$title,body:$body,comments:[{body:$marker}]}')"
+    '{state:"OPEN",labels:[{name:"lesson-approved"}],closedByPullRequestsReferences:[],title:$title,body:$body,comments:[{body:$marker,author:{login:"review-bot"},authorAssociation:"MEMBER"}]}')"
 
   # L1: script exists
   assert_file_exists "L1: lessons-deliver.sh exists" "$script"
@@ -6412,7 +6412,7 @@ test_lessons_deliver() {
   workdir=$(make_workdir); make_mock_gh "$workdir"
   export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
   export GH_LIST_JSON="$(jq -cn --arg marker "$lesson_marker" '[
-    {number:10,title:"good lesson",body:"body10",comments:[{body:$marker}],labels:[{name:"lesson-approved"}],url:"u10",createdAt:"2026-01-01T00:00:00Z",closedByPullRequestsReferences:[]},
+    {number:10,title:"good lesson",body:"body10",comments:[{body:$marker,author:{login:"review-bot"},authorAssociation:"MEMBER"}],labels:[{name:"lesson-approved"}],url:"u10",createdAt:"2026-01-01T00:00:00Z",closedByPullRequestsReferences:[]},
     {number:11,title:"blocked",body:"body11",comments:[],labels:[{name:"lesson-approved"},{name:"lessons:blocked"}],url:"u11",createdAt:"2026-01-02T00:00:00Z",closedByPullRequestsReferences:[]},
     {number:12,title:"claimed",body:"body12",comments:[],labels:[{name:"lesson-approved"},{name:"lessons:claimed"}],url:"u12",createdAt:"2026-01-03T00:00:00Z",closedByPullRequestsReferences:[]},
     {number:13,title:"has PR",body:"body13",comments:[],labels:[{name:"lesson-approved"}],url:"u13",createdAt:"2026-01-04T00:00:00Z",closedByPullRequestsReferences:[{number:5}]}
@@ -6429,7 +6429,7 @@ test_lessons_deliver() {
   workdir=$(make_workdir); make_mock_gh "$workdir"
   export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
   export GH_LIST_JSON="$(jq -cn --arg marker "$lesson_marker" '[
-    {number:10,title:"good lesson",body:"edited body",comments:[{body:$marker}],labels:[{name:"lesson-approved"}],url:"u10",createdAt:"2026-01-01T00:00:00Z",closedByPullRequestsReferences:[]}
+    {number:10,title:"good lesson",body:"edited body",comments:[{body:$marker,author:{login:"review-bot"},authorAssociation:"MEMBER"}],labels:[{name:"lesson-approved"}],url:"u10",createdAt:"2026-01-01T00:00:00Z",closedByPullRequestsReferences:[]}
   ]')"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --list --json --repo o/r 2>&1) || ec=$?
   assert_exit_code "L4b: stale approval binding is handled safely" "$ec" 0
