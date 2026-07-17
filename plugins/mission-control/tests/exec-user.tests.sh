@@ -28,8 +28,14 @@ exec_line() { # <exec_user>
   grep 'exec' "$DOCKER_CALLS"
 }
 
-with_user()    { exec_line dev | grep -q '^docker exec -u dev c1 '; }
-without_user() { local l; l="$(exec_line '')"; echo "$l" | grep -q '^docker exec c1 ' && ! echo "$l" | grep -q ' -u '; }
+# Scrubbed context may inject many -e NAME= flags between -u and the container.
+with_user()    { exec_line dev | grep -qE '^docker exec -u dev( -e [A-Za-z0-9_]+=)* c1 '; }
+without_user() {
+  local l
+  l="$(exec_line '')"
+  echo "$l" | grep -qE '^docker exec( -e [A-Za-z0-9_]+=)* c1 ' \
+    && ! echo "$l" | grep -q ' -u '
+}
 
 bad_user() { mkenv 'dev ops'; ! (PATH="$TD/bin:$PATH" MC_LIB_ONLY=1 MC_CONFIG="$TD/portfolio.json" bash -c 'source "$1"' _ "$MC"); }
 t "docker_exec_user set: exec runs -u dev" with_user
