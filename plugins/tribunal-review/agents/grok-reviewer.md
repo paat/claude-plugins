@@ -28,6 +28,7 @@ field to the model that actually ran, read from `.modelUsage`):
 - Exactly **1 Bash call** — the script above. Do NOT read files, run other commands, or add commentary.
 - Return **ONLY** the script's stdout (a single JSON object).
 - Grok is **off by default**: the script emits a `disabled` marker unless `TRIBUNAL_GROK=on`. Honors
-  `TRIBUNAL_GROK_MODEL` (default `grok-4.5`). Runs read-only (`--disallowed-tools write,edit`) with web
-  search off. Auth is the Grok CLI's own login (`grok login`). If the CLI is missing the script
-  self-emits an error JSON — return it verbatim.
+  `TRIBUNAL_GROK_MODEL` (default `grok-4.5`). Runs with a tools allowlist (`read_file,list_dir,grep`),
+  kernel `--sandbox read-only`, isolated scratch `HOME`/`GROK_HOME` (auth linked, host Claude config
+  off), and web search off. Auth is the Grok CLI's own login (`grok login`). If the CLI is missing the
+  script self-emits an error JSON — return it verbatim.

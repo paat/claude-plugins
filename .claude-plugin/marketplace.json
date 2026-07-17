@@ -31,7 +31,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — Codex + OpenCode Go DeepSeek + Claude (diff-only) by default, Gemini, OpenCode GLM, Qwen and Grok opt-in, with calling-context arbitration",
-      "version": "0.20.0",
+      "version": "0.20.1",
       "author": {
         "name": "Andre Paat"
       },

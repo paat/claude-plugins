@@ -39,8 +39,9 @@ the plugin `scripts/` directory:
 - Qwen: off by default; enable with `TRIBUNAL_QWEN=on`; repo-walking on its own
   transport.
 - Grok: off by default; enable with `TRIBUNAL_GROK=on`; model override
-  `TRIBUNAL_GROK_MODEL` (default `grok-4.5`); repo-walking read-only on the xAI
-  Grok CLI, web search off.
+  `TRIBUNAL_GROK_MODEL` (default `grok-4.5`); repo-walking on the xAI Grok CLI
+  with tools allowlist + kernel `read-only` sandbox, isolated host config, web
+  search off.
 
 Disabled providers emit `{"provider":"...","status":"disabled"}` and are
 excluded from quorum. Provider errors degrade the run, but if all non-disabled

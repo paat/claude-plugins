@@ -26,12 +26,63 @@ tribunal_review_prompt grok "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROM
   printf '\n===== END UNIFIED DIFF =====\n'
 } >> "$PROMPT_FILE"
 
+# Isolate host user config (Claude skills/hooks/CLAUDE.md, GROK_SANDBOX inheritance) while
+# preserving auth. Auth is linked from the pre-isolation GROK_HOME/HOME; the child runs with a
+# scratch HOME + GROK_HOME so host ~/.claude is not scanned.
+AUTH_SRC="${GROK_HOME:-${HOME}/.grok}/auth.json"
+ISOLATED_HOME="$TMPDIR/grok-home"
+mkdir -p "$ISOLATED_HOME/.grok" "$ISOLATED_HOME/.claude"
+# Preserve login credentials without importing the rest of the host Grok/Claude config.
+if [ -e "$AUTH_SRC" ]; then
+  ln -s "$AUTH_SRC" "$ISOLATED_HOME/.grok/auth.json"
+fi
+cat > "$ISOLATED_HOME/.grok/config.toml" <<'EOF'
+# Tribunal Grok leg: no foreign-vendor project instructions, skills, hooks, or MCP.
+[compat.claude]
+skills = false
+rules = false
+agents = false
+mcps = false
+hooks = false
+sessions = false
+
+[compat.cursor]
+skills = false
+rules = false
+agents = false
+mcps = false
+hooks = false
+sessions = false
+
+[compat.codex]
+skills = false
+rules = false
+agents = false
+mcps = false
+hooks = false
+sessions = false
+
+[features]
+telemetry = false
+feedback = false
+codebase_indexing = false
+EOF
+
 SCHEMA_JSON="$(jq -c . "$(tribunal_review_schema)")"
 rc=0
-timeout -k 10 600 grok --model "$GROK_MODEL" --output-format json \
+# Read-only is tool-enforced (--tools allowlist: no bash/write/edit) and kernel-enforced
+# (--sandbox read-only: project tree is not writable). Unset GROK_SANDBOX so a host export
+# cannot override the explicit profile. Drop bypassPermissions — remaining tools are read-only.
+env -u GROK_SANDBOX \
+  HOME="$ISOLATED_HOME" \
+  GROK_HOME="$ISOLATED_HOME/.grok" \
+  timeout -k 10 600 grok --model "$GROK_MODEL" --output-format json \
   --json-schema "$SCHEMA_JSON" \
-  --permission-mode bypassPermissions --disallowed-tools write,edit --disable-web-search \
-  --no-subagents --no-plan --no-memory --cwd "$REPO_ROOT" --prompt-file "$PROMPT_FILE" \
+  --tools "read_file,list_dir,grep" \
+  --sandbox read-only \
+  --disable-web-search \
+  --no-subagents --no-plan --no-memory \
+  --cwd "$REPO_ROOT" --prompt-file "$PROMPT_FILE" \
   > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
 if [ "$rc" -eq 0 ]; then
   response="$(jq -r '

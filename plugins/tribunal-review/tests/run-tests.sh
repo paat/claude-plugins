@@ -977,7 +977,7 @@ done
 assert_file "structured review schema exists" "schemas/review-output.json"
 assert_json_field "structured review schema is valid JSON" "jq -e '.type==\"object\" and .additionalProperties==false' '$PLUGIN_ROOT/schemas/review-output.json'"
 assert_file "static runner bundle manifest exists" "integrity/runner-bundle.json"
-assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.20.0\"'"
+assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.20.1\"'"
 assert_json_field "static runner bundle is current" "bash '$PLUGIN_ROOT/scripts/generate-runner-bundle.sh' --check"
 
 echo "Skill is orchestration-focused:"
@@ -1025,7 +1025,12 @@ assert_grep "Codex requests the shared output schema" "scripts/run-codex-review.
 assert_grep "Claude requests the shared output schema" "scripts/run-claude-review.sh" "--json-schema"
 assert_grep "Claude disables the complete tool surface" "scripts/run-claude-review.sh" '--tools ""'
 assert_grep "Grok requests the shared output schema" "scripts/run-grok-review.sh" "--json-schema"
-assert_grep "Grok disables write/edit tools" "scripts/run-grok-review.sh" "--disallowed-tools write,edit"
+assert_grep "Grok tools allowlist is read-only" "scripts/run-grok-review.sh" '--tools "read_file,list_dir,grep"'
+assert_grep "Grok uses kernel read-only sandbox" "scripts/run-grok-review.sh" "--sandbox read-only"
+assert_grep "Grok unsets host GROK_SANDBOX" "scripts/run-grok-review.sh" "env -u GROK_SANDBOX"
+assert_grep "Grok isolates host HOME" "scripts/run-grok-review.sh" 'HOME="$ISOLATED_HOME"'
+assert_grep "Grok isolates host GROK_HOME" "scripts/run-grok-review.sh" 'GROK_HOME="$ISOLATED_HOME/.grok"'
+assert_grep "Grok links auth into isolation" "scripts/run-grok-review.sh" 'ln -s "$AUTH_SRC"'
 assert_grep "Grok disables web search" "scripts/run-grok-review.sh" "--disable-web-search"
 
 echo "Disabled-provider markers:"
