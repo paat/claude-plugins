@@ -7,7 +7,7 @@ declare -F assert_exit_code >/dev/null 2>&1 || {
 test_maintain_delivery_lifecycle() {
   echo -e "\n${CYAN}Suite MD: maintain-loop delivery receipts${NC}"
   local repo script probe protocol base head merge delivery run pr_open pr_merged issue_open issue_closed
-  local result pending events ec out duplicate_pr feature2_base feature2_head feature2_merge
+  local result pending events ec out duplicate_pr feature2_base feature2_head feature2_merge parent_run
   local rollback_head rollback_merge rollback_pr_open rollback_pr_merged common state_root victim
   local fake_bin fake_head fake_issue fake_mutation fake_log changed_issue bad_rollback_head
   local fake_pr fake_prs fake_checks fake_run remote qa_command bad_command monitor_command tribunal fake_tribunal
@@ -15,6 +15,13 @@ test_maintain_delivery_lifecycle() {
   local issue_scope fresh_repo fresh_common fresh_wt fresh_origin_state fresh_resume_state
   local fresh_legacy_state fresh_base fresh_pr_head fresh_scope fresh_drift fresh_receipt_head fresh_ledger
   local fresh_resume_ledger legacy_delivery legacy_state legacy_base legacy_cache legacy_wt legacy_check_oid
+  local legacy_mode legacy_recovery_delivery
+  local legacy_receipt
+  local controller_root state_before state_after alternate_parent fresh_state_root fresh_delivery
+  local fresh_controller fresh_origin external_before external_after
+  local fresh_runtime runtime_before runtime_after lease_before lease_after
+  local heartbeat_before heartbeat_after
+  local legacy_claimed_at rollback_parent rollback_delivery
   repo=$(make_workdir)
   test_plugin="$repo/.test-plugin"; mkdir "$test_plugin"; cp -a "$PLUGIN_ROOT/scripts/." "$test_plugin/"
   delivery_impl="$test_plugin/maintain-delivery.sh"
@@ -31,29 +38,52 @@ test_maintain_delivery_lifecycle() {
 #!/bin/bash
 set -euo pipefail
 action=${1:?}; shift
+args=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --repo-root) [ "$#" -ge 2 ]; args+=(--repo-root "${MAINTAIN_TEST_CONTROLLER_ROOT:?}"); shift 2 ;;
+    --command-file)
+      [ "$#" -ge 2 ]; command_file=$2
+      case "$command_file" in
+        "${MAINTAIN_TEST_PRIMARY_ROOT:?}"/*) command_file=${command_file#"$MAINTAIN_TEST_PRIMARY_ROOT"/} ;;
+      esac
+      args+=(--command-file "$command_file"); shift 2
+      ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
 exec bash "${MAINTAIN_TEST_DELIVERY_IMPL:?}" "$action" \
-  --lease-state "${MAINTAIN_TEST_LEASE_STATE:?}" "$@"
+  --lease-state "${MAINTAIN_TEST_LEASE_STATE:?}" \
+  --controller-run-id "${MAINTAIN_TEST_CONTROLLER_RUN:?}" "${args[@]}"
 DELIVERY_WRAPPER
   chmod +x "$script"
   export MAINTAIN_TEST_DELIVERY_IMPL="$delivery_impl"
   probe="$PLUGIN_ROOT/scripts/workflow-probe.sh"
-  protocol="$PLUGIN_ROOT/references/workflows/maintain-loop-protocol.md"
+  protocol="$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md"
   git -C "$repo" branch -m main
   git -C "$repo" config user.email test@example.invalid
   git -C "$repo" config user.name Test
+  controller_root="$repo/.worktrees/maintain"
+  export MAINTAIN_TEST_CONTROLLER_ROOT="$controller_root" MAINTAIN_TEST_PRIMARY_ROOT="$repo"
   switch_test_lease() {
     local next_run=$1
     if [ -n "${lease_state:-}" ] && [ -e "$lease_state" ]; then
       bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
-        --run-id "$lease_run" >/dev/null
+        --repo-root "$repo" --worktree "$controller_root" --run-id "$lease_run" >/dev/null
     fi
     common=$(git -C "$repo" rev-parse --git-common-dir)
     case "$common" in /*) : ;; *) common="$repo/$common" ;; esac
     lease_run=$next_run
     lease_state="$common/saas-startup-team/maintain-runtime/$lease_run-leases.json"
+    if [ ! -e "$controller_root" ]; then
+      git -C "$repo" worktree add --detach "$controller_root" HEAD >/dev/null
+    else
+      git -C "$controller_root" checkout -q --detach "$(git -C "$repo" rev-parse HEAD)"
+    fi
     bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain \
+      --worktree "$controller_root" \
       --run-id "$lease_run" --state-file "$lease_state" >/dev/null
-    export MAINTAIN_TEST_LEASE_STATE="$lease_state"
+    export MAINTAIN_TEST_LEASE_STATE="$lease_state" MAINTAIN_TEST_CONTROLLER_RUN="$lease_run"
   }
   fake_bin="$repo/fake-bin"; fake_head="$repo/fake-gh-head"; fake_issue="$repo/fake-gh-issue.json"
   fake_mutation="$repo/fake-gh-mutation"; fake_log="$repo/fake-gh.log"
@@ -197,6 +227,7 @@ FAKE_TRIBUNAL
 
   assert_result_rejected() {
     local label=$1 issue=$2 canonical=$3 mode=$4 prefix=$5 bad="$repo/bad-result-$2-$RANDOM.md" ec=0
+    local event_run controller_run invocation_command
     grep -qF -- "$prefix" "$canonical"
     if [ "$mode" = omit ]; then
       awk -v p="$prefix" 'index($0,p) != 1' "$canonical" > "$bad"
@@ -204,8 +235,13 @@ FAKE_TRIBUNAL
       awk -v p="$prefix" '{if (index($0,p) == 1) print p "contradiction"; else print}' \
         "$canonical" > "$bad"
     fi
-    bash "$script" finalize --repo-root "$repo" --issue "$issue" \
-      --result-source "$bad" --profile standard >/dev/null 2>&1 || ec=$?
+    event_run=$(bash "$script" show --repo-root "$repo" --issue "$issue" | jq -r .delivery_id)
+    controller_run=$(jq -r .run_id "$MAINTAIN_TEST_LEASE_STATE")
+    invocation_command=$(jq -r .mode "$MAINTAIN_TEST_LEASE_STATE")
+    SAAS_RUN_ID="$event_run" SAAS_PARENT_RUN_ID="$controller_run" \
+      SAAS_INVOCATION_COMMAND="$invocation_command" \
+      bash "$script" finalize --repo-root "$repo" --issue "$issue" \
+        --result-source "$bad" --profile standard >/dev/null 2>&1 || ec=$?
     assert_exit_code "$label" "$ec" 1
     rm -f -- "$bad"
   }
@@ -286,12 +322,14 @@ DEPLOY_WORKFLOW
   git -C "$repo" commit -qm 'merge issue one'
   merge=$(git -C "$repo" rev-parse HEAD)
 
-  run=run-md-1; delivery=delivery-md-1
+  run=run-0123456789abcdef0123456789abcdef
+  delivery=run-11111111111111111111111111111111
   pr_open="$repo/pr-open.json"; pr_merged="$repo/pr-merged.json"
   issue_open="$repo/issue-open.json"; issue_closed="$repo/issue-closed.json"
   fake_pr="$repo/fake-gh-pr.json"; fake_prs="$repo/fake-gh-prs.json"
   fake_checks="$repo/fake-gh-checks.json"; fake_run="$repo/fake-gh-run.json"
-  jq -n --arg head "$head" --arg body $'Refs #1\nMaintain-Loop-Issue: #1\nMaintain-Loop-Delivery: delivery-md-1\nMaintain-Loop-Role: normal\nMaintain-Loop-Action: delivery-md-1-normal' \
+  jq -n --arg head "$head" \
+    --arg body $'Refs #1\nMaintain-Loop-Issue: #1\nMaintain-Loop-Delivery: run-11111111111111111111111111111111\nMaintain-Loop-Role: normal\nMaintain-Loop-Action: run-11111111111111111111111111111111-normal' \
     '{number:11,state:"OPEN",headRefName:"issue-one",headRefOid:$head,baseRefName:"main",title:"Fix issue one",
       body:$body,mergeCommit:null,files:[{path:"app.txt"}]}' > "$pr_open"
   jq --arg merge "$merge" '.state="MERGED" | .mergeCommit={oid:$merge}' "$pr_open" > "$pr_merged"
@@ -329,98 +367,260 @@ DEPLOY_WORKFLOW
   fresh_legacy_state="$fresh_common/saas-startup-team/maintain-runtime/fresh-legacy-leases.json"
   fresh_scope="$fresh_repo/issue-scope.json"
   fresh_drift="$fresh_repo/issue-scope-drift.json"
-  fresh_ledger="$fresh_common/saas-startup-team/maintain-runtime/deliveries/run-fresh-order.json"
+  fresh_controller=run-cccccccccccccccccccccccccccccccc
+  fresh_origin=fresh-origin
+  fresh_runtime="$fresh_common/saas-startup-team/maintain-runtime"
+  fresh_state_root="$fresh_runtime/deliveries"
+  fresh_ledger="$fresh_common/saas-startup-team/maintain-runtime/deliveries/run-$fresh_origin.json"
   fresh_resume_ledger="$fresh_common/saas-startup-team/maintain-runtime/deliveries/run-fresh-resume.json"
   write_issue_scope "$fake_issue" "$fresh_scope"
+  parent_run=$run
+  fresh_delivery=run-22222222222222222222222222222222
+  bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$fresh_repo" \
+    --mode maintain --run-id "$fresh_controller" --state-file "$fresh_origin_state" \
+    --worktree "$fresh_wt" >/dev/null
+  assert_file_not_exists "MD0b: lease acquisition alone does not create the worktree" "$fresh_wt"
+  assert_file_not_exists "MD0f0: fresh lease has no delivery runtime directory" "$fresh_state_root"
+  : > "$fake_log"
+  rm -f -- "$fake_mutation"
+  external_before=$(wc -l < "$fake_log")
+  runtime_before=$(/usr/bin/tar -C "$fresh_runtime" --sort=name -cf - . \
+    | /usr/bin/sha256sum | /usr/bin/awk '{print $1}')
+  lease_before=$(/usr/bin/sha256sum -- "$fresh_origin_state" | /usr/bin/awk '{print $1}')
+  heartbeat_before=$(lease_state_fingerprint "$fresh_origin_state")
+  ec=0
+  env -u SAAS_PARENT_RUN_ID -u SAAS_RUN_ID -u SAAS_INVOCATION_COMMAND \
+    bash "$delivery_impl" begin --repo-root "$fresh_repo" --issue 1 \
+      --run-id "$fresh_origin" --delivery-id "$fresh_controller" --merge-budget 1 \
+      --scope-json "$fresh_scope" --lease-state "$fresh_origin_state" \
+      --controller-run-id "$fresh_controller" \
+      >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD0f1: delivery child cannot equal its active controller" "$ec" 2
+  runtime_after=$(/usr/bin/tar -C "$fresh_runtime" --sort=name -cf - . \
+    | /usr/bin/sha256sum | /usr/bin/awk '{print $1}')
+  lease_after=$(/usr/bin/sha256sum -- "$fresh_origin_state" | /usr/bin/awk '{print $1}')
+  heartbeat_after=$(lease_state_fingerprint "$fresh_origin_state")
+  assert_equals "MD0f2: collision leaves the complete maintenance runtime tree unchanged" \
+    "$runtime_after" "$runtime_before"
+  assert_equals "MD0f3: collision leaves the lease state byte-identical" \
+    "$lease_after" "$lease_before"
+  assert_equals "MD0f4: collision does not heartbeat the active lease" \
+    "$heartbeat_after" "$heartbeat_before"
+  assert_file_not_exists "MD0f5: collision does not create the deliveries directory" "$fresh_state_root"
+  assert_file_not_exists "MD0f6: collision does not create a delivery lock" "$fresh_state_root/.lock"
+  assert_file_not_exists "MD0f7: collision creates no receipt" \
+    "$fresh_state_root/issue-1/current.json"
+  assert_file_not_exists "MD0f8: collision creates no run ledger" "$fresh_ledger"
+  external_after=$(wc -l < "$fake_log")
+  assert_equals "MD0f9: collision performs no GitHub call" "$external_after" "$external_before"
+  assert_file_not_exists "MD0f10: collision performs no external mutation" "$fake_mutation"
+  ec=0
+  SAAS_PARENT_RUN_ID="$parent_run" bash "$delivery_impl" begin --repo-root "$fresh_repo" \
+    --issue 1 --run-id "$fresh_controller" --delivery-id "$parent_run" --merge-budget 1 \
+    --scope-json "$fresh_scope" --lease-state "$fresh_origin_state" \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD0: parent run identity cannot equal the delivery ID" "$ec" 2
+  rm -f -- "$fresh_state_root/.lock"
+  state_before=absent
+  if [ -d "$fresh_state_root" ]; then
+    state_before=$(find -P "$fresh_state_root" -printf '%P\t%y\t%s\t%m\n' | sort)
+  fi
   pending=$(bash "$delivery_impl" pending --repo-root "$fresh_repo")
   assert_equals "MD0a: fresh pending is readable before the dedicated worktree exists" \
     "$(jq length <<<"$pending")" 0
-  bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$fresh_repo" \
-    --mode maintain-loop --run-id fresh-order --state-file "$fresh_origin_state" \
-    --worktree "$fresh_wt" >/dev/null
-  assert_file_not_exists "MD0b: lease acquisition alone does not create the worktree" "$fresh_wt"
+  state_after=absent
+  if [ -d "$fresh_state_root" ]; then
+    state_after=$(find -P "$fresh_state_root" -printf '%P\t%y\t%s\t%m\n' | sort)
+  fi
+  assert_equals "MD0a1: unlocked empty pending is state-preserving" "$state_after" "$state_before"
+  assert_file_not_exists "MD0a2: unlocked empty pending does not create a lock" "$fresh_state_root/.lock"
   ec=0
-  bash "$delivery_impl" begin --repo-root "$fresh_repo" --issue 1 --run-id fresh-order \
-    --delivery-id fresh-order-delivery --merge-budget 1 --lease-state "$fresh_origin_state" \
+  bash "$delivery_impl" begin --repo-root "$fresh_repo" --issue 1 --run-id "$fresh_controller" \
+    --delivery-id "$fresh_delivery" --merge-budget 1 --lease-state "$fresh_origin_state" \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD0c: begin requires the classified issue scope snapshot" "$ec" 2
   ec=0
-  bash "$delivery_impl" begin --repo-root "$fresh_repo" --issue 1 --run-id fresh-order \
-    --delivery-id fresh-order-delivery --merge-budget 1 --scope-json "$fresh_scope" \
-    --lease-state "$fresh_origin_state" \
+  bash "$delivery_impl" begin --repo-root "$fresh_repo" --issue 1 --run-id "$fresh_controller" \
+    --delivery-id "$fresh_delivery" --merge-budget 1 --scope-json "$fresh_scope" \
+    --lease-state "$fresh_origin_state" --controller-run-id "$fresh_controller" \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD0d: primary-root begin cannot bypass the dedicated worktree lease" "$ec" 3
   assert_equals "MD0e: rejected primary begin creates no receipt" \
     "$(bash "$delivery_impl" pending --repo-root "$fresh_repo" | jq length)" 0
   bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$fresh_repo" \
     --worktree "$fresh_wt" --base-sha "$fresh_base" --lease-state "$fresh_origin_state" \
-    --run-id fresh-order >/dev/null
+    --run-id "$fresh_controller" --controller-run-id "$fresh_controller" >/dev/null
   assert_equals "MD0f: leased reset creates a clean exact-base worktree" \
     "$(git -C "$fresh_wt" rev-parse HEAD):$(git -C "$fresh_wt" status --porcelain)" \
     "$fresh_base:"
   ec=0
-  bash "$delivery_impl" begin --repo-root "$fresh_wt" --issue 1 --run-id fresh-order \
-    --delivery-id fresh-order-delivery --merge-budget 1 --scope-json "$fake_issue" \
-    --lease-state "$fresh_origin_state" >/dev/null 2>&1 || ec=$?
+  bash "$delivery_impl" begin --repo-root "$fresh_wt" --issue 1 --run-id "$fresh_controller" \
+    --delivery-id "$fresh_delivery" --merge-budget 1 --scope-json "$fake_issue" \
+    --lease-state "$fresh_origin_state" --controller-run-id "$fresh_controller" \
+    >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD0g: begin rejects a scope snapshot with extra fields" "$ec" 2
   jq '.title="Issue scope changed during the base gate"' "$fake_issue" > "$fresh_drift"
   cp -- "$fresh_drift" "$fake_issue"
   ec=0
-  bash "$delivery_impl" begin --repo-root "$fresh_wt" --issue 1 --run-id fresh-order \
-    --delivery-id fresh-order-delivery --merge-budget 1 --scope-json "$fresh_scope" \
-    --lease-state "$fresh_origin_state" >/dev/null 2>&1 || ec=$?
+  bash "$delivery_impl" begin --repo-root "$fresh_wt" --issue 1 --run-id "$fresh_controller" \
+    --delivery-id "$fresh_delivery" --merge-budget 1 --scope-json "$fresh_scope" \
+    --lease-state "$fresh_origin_state" --controller-run-id "$fresh_controller" \
+    >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD0h: begin rejects issue scope drift after classification" "$ec" 1
   assert_equals "MD0i: scope drift creates no receipt" \
     "$(bash "$delivery_impl" pending --repo-root "$fresh_repo" | jq length)" 0
   assert_file_not_exists "MD0j: scope drift creates no origin run ledger" "$fresh_ledger"
   cp -- "$issue_open" "$fake_issue"
-  bash "$delivery_impl" begin --repo-root "$fresh_wt" --issue 1 --run-id fresh-order \
-    --delivery-id fresh-order-delivery --merge-budget 1 --scope-json "$fresh_scope" \
-    --lease-state "$fresh_origin_state" \
+  bash "$delivery_impl" begin --repo-root "$fresh_wt" --issue 1 --run-id "$fresh_origin" \
+    --delivery-id "$fresh_delivery" --merge-budget 1 --scope-json "$fresh_scope" \
+    --lease-state "$fresh_origin_state" --controller-run-id "$fresh_controller" \
     >/dev/null
   assert_equals "MD0k: begin succeeds from the created lease-bound worktree" \
     "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 | jq -r .state)" claimed
+  assert_equals "MD0k1: new receipt binds the canonical maintain controller" \
+    "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 \
+      | jq -r '[.schema_version,.controller.mode,.controller.worktree] | @tsv')" \
+    $'2\tmaintain\t'"$fresh_wt"
+  assert_equals "MD0k1aa: immutable receipt origin may differ from its active controller" \
+    "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 | jq -r .origin_run_id)" \
+    "$fresh_origin"
+  pending=$(bash "$delivery_impl" pending --repo-root "$fresh_repo")
+  assert_equals "MD0k1a: pending inventory exposes one canonical route object" \
+    "$(jq -cS '.[0].controller_route' <<<"$pending")" \
+    "$(jq -cnS --arg worktree "$fresh_wt" \
+      '{kind:"canonical",mode:"maintain",worktree:$worktree}')"
+  ec=0; out=$(bash "$probe" maintain --root "$fresh_repo" --dry-run 2>&1) || ec=$?
+  assert_exit_code "MD0k1b: public maintain probe reaches canonical receipt work" "$ec" 0
+  assert_output_contains "MD0k1c: public maintain selects the canonical controller" "$out" \
+    'workflow-probe: maintain controller-route=canonical'
+  ec=0; out=$(bash "$probe" maintain-loop --root "$fresh_repo" --dry-run 2>&1) || ec=$?
+  assert_exit_code "MD0k1d: public maintain-loop probe reaches the same canonical work" "$ec" 0
+  assert_output_contains "MD0k1e: public maintain-loop selects the canonical controller" "$out" \
+    'workflow-probe: maintain-loop controller-route=canonical'
+
+  rm -f -- "$fresh_state_root/.lock"
+  printf 'preserve\n' > "$fresh_state_root/.orphan.tmp"
+  state_before=$(find -P "$fresh_state_root" -printf '%P\t%y\t%s\t%m\n' | sort)
+  ec=0; bash "$delivery_impl" pending --repo-root "$fresh_repo" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD0k2: unlocked pending with receipts fails closed" "$ec" 1
+  ec=0; bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD0k3: unlocked show with receipts fails closed" "$ec" 1
+  state_after=$(find -P "$fresh_state_root" -printf '%P\t%y\t%s\t%m\n' | sort)
+  assert_equals "MD0k4: rejected read-only inspection does not mutate receipt state" \
+    "$state_after" "$state_before"
+  assert_file_not_exists "MD0k5: read-only inspection never creates the lock" "$fresh_state_root/.lock"
+  assert_file_contains "MD0k6: read-only inspection never deletes unrelated temp state" \
+    "$fresh_state_root/.orphan.tmp" preserve
+  : > "$fresh_state_root/.lock"
 
   printf 'feature\n' > "$fresh_wt/app.txt"
   git -C "$fresh_wt" add app.txt
   git -C "$fresh_wt" commit -qm feature
   fresh_pr_head=$(git -C "$fresh_wt" rev-parse HEAD)
+  runtime_before=$(/usr/bin/tar -C "$fresh_runtime" --sort=name -cf - . \
+    | /usr/bin/sha256sum | /usr/bin/awk '{print $1}')
+  heartbeat_before=$(lease_state_fingerprint "$fresh_origin_state")
+  external_before=$(wc -l < "$fake_log")
+  ec=0
   bash "$delivery_impl" plan-pr --repo-root "$fresh_wt" --issue 1 --role normal \
     --branch fresh-issue --base-sha "$fresh_base" --head-sha "$fresh_pr_head" \
-    --lease-state "$fresh_origin_state" >/dev/null
+    --lease-state "$fresh_origin_state" \
+    --controller-run-id run-dddddddddddddddddddddddddddddddd \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD0k7: root A cannot resume through controller B's lease" "$ec" 3
+  runtime_after=$(/usr/bin/tar -C "$fresh_runtime" --sort=name -cf - . \
+    | /usr/bin/sha256sum | /usr/bin/awk '{print $1}')
+  heartbeat_after=$(lease_state_fingerprint "$fresh_origin_state")
+  assert_equals "MD0k8: rejected controller leaves delivery runtime byte-identical" \
+    "$runtime_after" "$runtime_before"
+  assert_equals "MD0k9: rejected controller cannot heartbeat another root's lease" \
+    "$heartbeat_after" "$heartbeat_before"
+  external_after=$(wc -l < "$fake_log")
+  assert_equals "MD0k10: rejected controller performs no GitHub call" \
+    "$external_after" "$external_before"
+  bash "$delivery_impl" plan-pr --repo-root "$fresh_wt" --issue 1 --role normal \
+    --branch fresh-issue --base-sha "$fresh_base" --head-sha "$fresh_pr_head" \
+    --lease-state "$fresh_origin_state" --controller-run-id "$fresh_controller" >/dev/null
   fresh_receipt_head=$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 | jq -r .normal.head_sha)
   assert_equals "MD0l: planned receipt binds the exact PR head" "$fresh_receipt_head" "$fresh_pr_head"
   bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$fresh_origin_state" \
-    --run-id fresh-order >/dev/null
+    --repo-root "$fresh_repo" --worktree "$fresh_wt" --run-id "$fresh_controller" >/dev/null
+  jq 'del(.controller,.event_binding) | .schema_version = 1' \
+    "$fresh_state_root/issue-1/current.json" > "$fresh_state_root/issue-1/current.json.tmp"
+  mv -- "$fresh_state_root/issue-1/current.json.tmp" "$fresh_state_root/issue-1/current.json"
+  legacy_claimed_at=$(jq -r .updated_at "$fresh_state_root/issue-1/current.json")
+  pending=$(bash "$delivery_impl" pending --repo-root "$fresh_repo")
+  assert_equals "MD0l1: historical v1 inventory selects the bounded legacy route" \
+    "$(jq -cS '.[0].controller_route' <<<"$pending")" \
+    "$(jq -cnS --arg worktree "$fresh_repo/.worktrees/maintain-loop" \
+      '{kind:"legacy-recovery",mode:"maintain-loop",worktree:$worktree}')"
+  ec=0; out=$(bash "$probe" maintain --root "$fresh_repo" --dry-run 2>&1) || ec=$?
+  assert_exit_code "MD0l2: public maintain probe reaches historical v1 recovery" "$ec" 0
+  assert_output_contains "MD0l3: public maintain exposes the legacy recovery route" "$out" \
+    'workflow-probe: maintain controller-route=legacy-recovery'
+  ec=0; out=$(bash "$probe" maintain-loop --root "$fresh_repo" --dry-run 2>&1) || ec=$?
+  assert_exit_code "MD0l4: public maintain-loop probe reaches historical v1 recovery" "$ec" 0
+  assert_output_contains "MD0l5: public maintain-loop exposes the same legacy route" "$out" \
+    'workflow-probe: maintain-loop controller-route=legacy-recovery'
   rm -rf "$fresh_wt"
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$fresh_repo" \
-    --mode maintain-loop --run-id fresh-resume --state-file "$fresh_resume_state" \
+    --mode maintain --run-id fresh-resume --state-file "$fresh_resume_state" \
     --worktree "$fresh_wt" >/dev/null
   bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$fresh_repo" \
     --worktree "$fresh_wt" --base-sha "$fresh_receipt_head" --lease-state "$fresh_resume_state" \
-    --run-id fresh-resume >/dev/null 2>&1
+    --run-id "$fresh_controller" --controller-run-id fresh-resume >/dev/null 2>&1
   assert_equals "MD0m: a new run recreates the missing worktree at the receipt PR head" \
     "$(git -C "$fresh_wt" rev-parse HEAD):$(git -C "$fresh_wt" status --porcelain)" \
     "$fresh_receipt_head:"
+  ec=0
   bash "$delivery_impl" plan-pr --repo-root "$fresh_wt" --issue 1 --role normal \
     --branch fresh-issue --base-sha "$fresh_base" --head-sha "$fresh_receipt_head" \
-    --lease-state "$fresh_resume_state" >/dev/null
-  assert_equals "MD0n: the new maintain-loop controller resumes an idempotent mutation" \
-    "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 | jq -r .origin_run_id)" fresh-order
-  assert_equals "MD0o: resumed delivery keeps the origin run merge budget" \
-    "$(jq -r .merge_budget "$fresh_ledger")" 1
-  assert_file_not_exists "MD0p: resume creates no replacement run ledger" "$fresh_resume_ledger"
+    --lease-state "$fresh_resume_state" --controller-run-id fresh-resume \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD0n: canonical maintain cannot adopt an unbound legacy v1 receipt" "$ec" 3
+  assert_equals "MD0n1: rejected cross-worktree adoption leaves the legacy receipt unchanged" \
+    "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 \
+      | jq -r '[.schema_version,.updated_at] | @tsv')" \
+    $'1\t'"$legacy_claimed_at"
   bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$fresh_resume_state" \
-    --run-id fresh-resume >/dev/null
+    --repo-root "$fresh_repo" --worktree "$fresh_wt" --run-id fresh-resume >/dev/null
+  pending=$(bash "$delivery_impl" pending --repo-root "$fresh_repo")
+  legacy_mode=$(jq -er '.[0].controller_route.mode' <<<"$pending")
+  legacy_wt=$(jq -er '.[0].controller_route.worktree' <<<"$pending")
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$fresh_repo" \
-    --mode maintain --run-id fresh-legacy --state-file "$fresh_legacy_state" >/dev/null
+    --mode "$legacy_mode" --run-id fresh-legacy --state-file "$fresh_legacy_state" \
+    --worktree "$legacy_wt" >/dev/null
+  bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$fresh_repo" \
+    --worktree "$legacy_wt" --base-sha "$fresh_receipt_head" --lease-state "$fresh_legacy_state" \
+    --run-id "$fresh_controller" --controller-run-id fresh-legacy >/dev/null 2>&1
+  legacy_recovery_delivery=run-66666666666666666666666666666666
   ec=0
-  bash "$delivery_impl" plan-pr --repo-root "$fresh_repo" --issue 1 --role normal \
+  bash "$delivery_impl" begin --repo-root "$legacy_wt" --issue 2 --run-id fresh-legacy \
+    --delivery-id "$legacy_recovery_delivery" --merge-budget 1 --scope-json "$fresh_scope" \
+    --lease-state "$fresh_legacy_state" --controller-run-id fresh-legacy \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD0n2: legacy recovery controller cannot begin new delivery work" "$ec" 3
+  assert_file_not_exists "MD0n3: rejected legacy begin creates no second receipt" \
+    "$fresh_state_root/issue-2/current.json"
+  bash "$delivery_impl" plan-pr --repo-root "$legacy_wt" --issue 1 --role normal \
     --branch fresh-issue --base-sha "$fresh_base" --head-sha "$fresh_receipt_head" \
-    --lease-state "$fresh_legacy_state" >/dev/null 2>&1 || ec=$?
-  assert_exit_code "MD0q: a different-run legacy maintain lease cannot resume the receipt" "$ec" 3
+    --lease-state "$fresh_legacy_state" --controller-run-id fresh-legacy >/dev/null
+  assert_equals "MD0o: only the historical legacy controller can promote a v1 receipt" \
+    "$(bash "$delivery_impl" show --repo-root "$legacy_wt" --issue 1 \
+      | jq -r '[.schema_version,.controller.mode,.controller.worktree] | @tsv')" \
+    $'2\tmaintain-loop\t'"$legacy_wt"
+  assert_equals "MD0p: schema-only legacy promotion preserves the original claim timestamp" \
+    "$(bash "$delivery_impl" show --repo-root "$legacy_wt" --issue 1 | jq -r .updated_at)" \
+    "$legacy_claimed_at"
+  assert_equals "MD0p1: promoted legacy receipt retains its recovery-only route" \
+    "$(bash "$delivery_impl" pending --repo-root "$fresh_repo" \
+      | jq -r '.[0].controller_route.kind')" legacy-recovery
+  assert_equals "MD0q: resumed delivery keeps the origin run merge budget" \
+    "$(jq -r .merge_budget "$fresh_ledger")" 1
+  assert_file_not_exists "MD0r: resume creates no replacement run ledger" "$fresh_resume_ledger"
   bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$fresh_legacy_state" \
-    --run-id fresh-legacy >/dev/null
+    --repo-root "$fresh_repo" --worktree "$legacy_wt" --run-id fresh-legacy >/dev/null
+  git -C "$fresh_repo" worktree remove --force "$legacy_wt" >/dev/null
   git -C "$fresh_repo" worktree remove --force "$fresh_wt" >/dev/null
   rm -rf "$fresh_repo"
 
@@ -429,35 +629,50 @@ DEPLOY_WORKFLOW
   ec=0; out=$(bash "$script" match-pr --repo-root "$repo" --issue 1 --role normal --pr-json "$pr_open" 2>&1) || ec=$?
   assert_exit_code "MD1: public marker without a receipt is not authority" "$ec" 1
 
-  bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
-    --run-id "$lease_run" >/dev/null
-  lease_state=""
-  legacy_delivery=legacy-md-1
+  legacy_delivery=run-33333333333333333333333333333333
   legacy_base=$(git -C "$repo" rev-parse HEAD)
-  legacy_wt="$repo/.worktrees/maintain"
+  bash "$delivery_impl" begin --repo-root "$controller_root" --issue 1 --run-id "$run" \
+    --delivery-id "$legacy_delivery" --merge-budget 1 --scope-json "$issue_scope" \
+    --lease-state "$lease_state" --controller-run-id "$run" >/dev/null
+  legacy_receipt="$common/saas-startup-team/maintain-runtime/deliveries/issue-1/current.json"
+  jq 'del(.controller,.event_binding) | .schema_version = 1' "$legacy_receipt" \
+    > "$legacy_receipt.tmp"
+  mv -- "$legacy_receipt.tmp" "$legacy_receipt"
+  bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
+    --repo-root "$repo" --worktree "$controller_root" --run-id "$lease_run" >/dev/null
+  lease_state=""
+  legacy_wt="$repo/.worktrees/maintain-loop"
   legacy_state="$common/saas-startup-team/maintain-runtime/$run-legacy-leases.json"
   legacy_cache="$common/saas-startup-team/maintain-runtime/base-checks/$run"
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain-loop \
     --run-id "$run" --state-file "$legacy_state" --worktree "$legacy_wt" >/dev/null
   bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$repo" --worktree "$legacy_wt" \
-    --base-sha "$legacy_base" --lease-state "$legacy_state" --run-id "$run" >/dev/null
+    --base-sha "$legacy_base" --lease-state "$legacy_state" --run-id "$run" \
+    --controller-run-id "$run" >/dev/null
   legacy_check_oid=$(git -C "$legacy_wt" rev-parse HEAD:check.sh)
   mkdir -p "$legacy_cache"
   jq -n --arg run_id "$run" --arg base_sha "$legacy_base" --arg check_oid "$legacy_check_oid" \
     --arg checked_at "2026-07-14T10:00:00Z" \
     '{schema_version:1,run_id:$run_id,base_sha:$base_sha,check_rel:"check.sh",check_oid:$check_oid,
       status:"passed",checked_at:$checked_at}' > "$legacy_cache/$legacy_base.json"
-  bash "$delivery_impl" begin --repo-root "$legacy_wt" --issue 1 --run-id "$run" \
-    --delivery-id "$legacy_delivery" --merge-budget 1 --scope-json "$issue_scope" \
-    --lease-state "$legacy_state" >/dev/null
+  assert_equals "MD1a0: historical v1 receipt remains readable" \
+    "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .schema_version)" 1
   ec=0
   bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD1a: active claimed receipt cleanup is refused" "$ec" 3
   assert_equals "MD1b: refused active cleanup leaves the receipt claimed" \
     "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" claimed
   bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$legacy_state" \
-    --run-id "$run" >/dev/null
+    --repo-root "$repo" --worktree "$legacy_wt" --run-id "$run" >/dev/null
   cp -- "$issue_closed" "$fake_issue"
+  printf 'uncommitted source state\n' >> "$legacy_wt/app.txt"
+  ec=0
+  bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD1b1: a dirty legacy worktree blocks claimed-receipt archival" "$ec" 1
+  assert_equals "MD1b2: dirty-state refusal leaves the v1 receipt claimed" \
+    "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 \
+      | jq -r '[.schema_version,.state] | @tsv')" $'1\tclaimed'
+  git -C "$legacy_wt" restore --worktree -- app.txt
   git -C "$legacy_wt" checkout -qb legacy-claimed-source
   ec=0
   bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 >/dev/null 2>&1 || ec=$?
@@ -574,7 +789,7 @@ HOSTILE_BASH_ENV
   assert_file_not_exists "MD5b: a head race performs no merge mutation" "$fake_mutation"
   printf '%s\n' "$head" > "$fake_head"
   bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
-    --run-id "$lease_run" >/dev/null
+    --repo-root "$repo" --worktree "$controller_root" --run-id "$lease_run" >/dev/null
   ec=0; PATH="$fake_bin:$PATH" FAKE_GH_HEAD_FILE="$fake_head" FAKE_GH_MUTATION="$fake_mutation" \
     FAKE_GH_LOG="$fake_log" bash "$script" merge-pr --repo-root "$repo" --issue 1 --role normal \
     --merge-method squash >/dev/null 2>&1 || ec=$?
@@ -693,7 +908,8 @@ HOSTILE_PYTHON
     "$issue_open" > "$repo/premature-issue.json"
   cp -- "$repo/premature-issue.json" "$fake_issue"
   write_issue_scope "$fake_issue" "$issue_scope"
-  ec=0; bash "$script" begin --repo-root "$repo" --issue 2 --run-id "$run" --delivery-id premature-delivery \
+  ec=0; bash "$script" begin --repo-root "$repo" --issue 2 --run-id "$run" \
+    --delivery-id run-99999999999999999999999999999999 \
     --merge-budget 1 --scope-json "$issue_scope" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD6c: another issue cannot bypass pending reconciliation" "$ec" 3
   cp -- "$issue_open" "$fake_issue"
@@ -721,9 +937,10 @@ HOSTILE_PYTHON
   bash "$script" observe-closed --repo-root "$repo" --issue 1 >/dev/null
   ec=0; out=$(bash "$probe" maintain-loop --root "$repo" --issue 1 --dry-run 2>&1) || ec=$?
   assert_exit_code "MD6a: model-free probe sees closed-but-unfinalized receipt" "$ec" 0
-  assert_output_contains "MD6b: probe reports the pending lifecycle state" "$out" 'pending receipt: closed_observed'
+  assert_output_contains "MD6b: probe reports the pending lifecycle state" "$out" \
+    'pending receipt: issue #1 (closed_observed)'
   bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
-    --run-id "$lease_run" >/dev/null
+    --repo-root "$repo" --worktree "$controller_root" --run-id "$lease_run" >/dev/null
   cat > "$fake_bin/setpriv" <<'FAKE_SETPRIV'
 #!/bin/sh
 [ "${1:-}" = --pdeathsig ] && [ "$#" -ge 3 ] || exit 2
@@ -734,7 +951,8 @@ FAKE_SETPRIV
   ec=0; out=$(PATH="$fake_bin:$PATH" SAAS_PREFLIGHT_MISSING=codex \
     bash "$probe" maintain-loop --root "$repo" --issue 1 2>&1) || ec=$?
   assert_exit_code "MD6b1: post-source receipt launches without Codex" "$ec" 0
-  assert_output_contains "MD6b2: launchable recovery names its state" "$out" 'pending receipt: closed_observed'
+  assert_output_contains "MD6b2: launchable recovery names its state" "$out" \
+    'pending receipt: issue #1 (closed_observed)'
   switch_test_lease "$run"
 
   result="$repo/result.md"
@@ -750,10 +968,74 @@ FAKE_SETPRIV
   assert_result_rejected "MD6p: success result requires timestamped live proof" 1 "$result" omit 'live_verified_at:'
   assert_result_rejected "MD6q: success result requires exact close receipt" 1 "$result" contradict 'close_issue_digest:'
   assert_result_rejected "MD6r: success result requires rollback state" 1 "$result" omit 'rollback:not_run'
-  bash "$script" finalize --repo-root "$repo" --issue 1 --result-source "$result" --profile standard >/dev/null
-  bash "$script" finalize --repo-root "$repo" --issue 1 --result-source "$result" --profile standard >/dev/null
+  ec=0; SAAS_PARENT_RUN_ID=not-canonical bash "$script" show --repo-root "$repo" --issue 1 \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD6s: invalid telemetry parent fails closed" "$ec" 2
+  ec=0; SAAS_INVOCATION_COMMAND=unknown bash "$script" show --repo-root "$repo" --issue 1 \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD6t: invalid invocation command fails closed" "$ec" 2
+  ec=0
+  bash "$script" finalize --repo-root "$repo" --issue 1 --result-source "$result" \
+    --profile standard >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD6u: a fresh event binding requires explicit invocation context" "$ec" 2
+  ec=0
+  SAAS_RUN_ID="$delivery" SAAS_PARENT_RUN_ID="$parent_run" SAAS_INVOCATION_COMMAND=goal-deliver \
+    bash "$script" finalize --repo-root "$repo" --issue 1 --result-source "$result" \
+      --profile standard >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD6v: fresh event command must name an embedded maintenance root" "$ec" 3
+  alternate_parent=run-fedcba9876543210fedcba9876543210
+  ec=0
+  SAAS_RUN_ID="$delivery" SAAS_PARENT_RUN_ID="$alternate_parent" SAAS_INVOCATION_COMMAND=maintain \
+    bash "$script" finalize --repo-root "$repo" --issue 1 --result-source "$result" \
+      --profile standard >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD6w: fresh event parent must be the active lease controller" "$ec" 3
+  ec=0
+  SAAS_RUN_ID=run-44444444444444444444444444444444 \
+    SAAS_PARENT_RUN_ID="$parent_run" SAAS_INVOCATION_COMMAND=maintain \
+    bash "$script" finalize --repo-root "$repo" --issue 1 --result-source "$result" \
+      --profile standard >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD6x: fresh child run must equal the receipt issue-event identity" "$ec" 3
+  assert_equals "MD6y: rejected context cannot bind the receipt" \
+    "$(bash "$script" show --repo-root "$repo" --issue 1 | jq -r .event_binding)" null
+  mv -- "$test_plugin/agent-events.sh" "$test_plugin/agent-events-real.sh"
+  cat > "$test_plugin/agent-events.sh" <<'CRASH_AFTER_EVENT'
+#!/bin/bash
+set -euo pipefail
+bash "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/agent-events-real.sh" "$@"
+exit 73
+CRASH_AFTER_EVENT
+  chmod +x "$test_plugin/agent-events.sh"
+  ec=0
+  SAAS_RUN_ID="$delivery" SAAS_PARENT_RUN_ID="$parent_run" SAAS_INVOCATION_COMMAND=maintain-loop \
+    bash "$script" finalize --repo-root "$repo" --issue 1 --result-source "$result" \
+    --profile standard >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MD7: post-append crash leaves finalization retryable" "$ec" 1
+  assert_equals "MD7a: crash window persists immutable event identity before append" \
+    "$(bash "$script" show --repo-root "$repo" --issue 1 \
+      | jq -r '[.state,.event_binding.command,.event_binding.parent_run_id,.event_binding.profile] | @tsv')" \
+    $'closed_observed\tmaintain-loop\t'"$parent_run"$'\tstandard'
+  mv -- "$test_plugin/agent-events-real.sh" "$test_plugin/agent-events.sh"
+  SAAS_RUN_ID=run-55555555555555555555555555555555 \
+    SAAS_PARENT_RUN_ID="$alternate_parent" SAAS_INVOCATION_COMMAND=maintain \
+    bash "$script" finalize --repo-root "$repo" --issue 1 --result-source "$result" \
+    --profile mechanical >/dev/null
   events="$repo/.startup/runs/agent-events.jsonl"
-  assert_equals "MD7: repeated finalization emits one issue outcome" \
+  assert_equals "MD7b: crash retry emits one issue outcome" \
+    "$(jq -s '[.[]|select(.phase=="issue-outcome" and .outcome=="success")]|length' "$events")" 1
+  assert_equals "MD7c: crash retry reuses the persisted parent" \
+    "$(jq -sr 'map(select(.phase=="issue-outcome" and .outcome=="success"))[0].parent_run_id' "$events")" \
+    "$parent_run"
+  assert_equals "MD7d: crash retry reuses the persisted invocation command" \
+    "$(jq -sr 'map(select(.phase=="issue-outcome" and .outcome=="success"))[0].command' "$events")" \
+    maintain-loop
+  assert_equals "MD7d1: crash retry reuses the persisted profile" \
+    "$(jq -sr 'map(select(.phase=="issue-outcome" and .outcome=="success"))[0].profile' "$events")" \
+    standard
+  SAAS_RUN_ID=run-55555555555555555555555555555555 \
+    SAAS_PARENT_RUN_ID="$alternate_parent" SAAS_INVOCATION_COMMAND=maintain \
+    bash "$script" finalize --repo-root "$repo" --issue 1 --result-source "$result" \
+    --profile light >/dev/null
+  assert_equals "MD7e: repeated terminal finalization remains exactly once" \
     "$(jq -s '[.[]|select(.phase=="issue-outcome" and .outcome=="success")]|length' "$events")" 1
   assert_equals "MD8: finalized receipt leaves no pending work" \
     "$(bash "$script" pending --repo-root "$repo" | jq length)" 0
@@ -782,12 +1064,16 @@ FAKE_SETPRIV
     .updatedAt="2026-07-14T12:00:30Z"' "$issue_open" > "$repo/issue-two.json"
   cp -- "$repo/issue-two.json" "$fake_issue"
   write_issue_scope "$fake_issue" "$issue_scope"
-  switch_test_lease run-md-rb
-  bash "$script" begin --repo-root "$repo" --issue 2 --run-id run-md-rb --delivery-id delivery-md-rb \
+  rollback_parent=run-66666666666666666666666666666666
+  rollback_delivery=run-77777777777777777777777777777777
+  switch_test_lease "$rollback_parent"
+  bash "$script" begin --repo-root "$repo" --issue 2 --run-id "$rollback_parent" \
+    --delivery-id "$rollback_delivery" \
     --merge-budget 1 --scope-json "$issue_scope" >/dev/null
   bash "$script" plan-pr --repo-root "$repo" --issue 2 --role normal --branch issue-two \
     --base-sha "$feature2_base" --head-sha "$feature2_head" >/dev/null
-  jq -n --arg head "$feature2_head" --arg body $'Refs #2\nMaintain-Loop-Issue: #2\nMaintain-Loop-Delivery: delivery-md-rb\nMaintain-Loop-Role: normal\nMaintain-Loop-Action: delivery-md-rb-normal' \
+  jq -n --arg head "$feature2_head" \
+    --arg body $'Refs #2\nMaintain-Loop-Issue: #2\nMaintain-Loop-Delivery: run-77777777777777777777777777777777\nMaintain-Loop-Role: normal\nMaintain-Loop-Action: run-77777777777777777777777777777777-normal' \
     '{number:12,state:"OPEN",headRefName:"issue-two",headRefOid:$head,baseRefName:"main",title:"Fix issue two",
       body:$body,mergeCommit:null,files:[{path:"app.txt"}]}' > "$pr_open"
   jq --arg merge "$feature2_merge" '.state="MERGED" | .mergeCommit={oid:$merge}' "$pr_open" > "$pr_merged"
@@ -814,7 +1100,8 @@ FAKE_SETPRIV
   bash "$script" plan-pr --repo-root "$repo" --issue 2 --role rollback --branch rollback-two \
     --base-sha "$feature2_merge" --head-sha "$rollback_head" >/dev/null
   rollback_pr_open="$repo/rollback-open.json"; rollback_pr_merged="$repo/rollback-merged.json"
-  jq -n --arg head "$rollback_head" --arg body $'Refs #2\nMaintain-Loop-Issue: #2\nMaintain-Loop-Delivery: delivery-md-rb\nMaintain-Loop-Role: rollback:1\nMaintain-Loop-Action: delivery-md-rb-rollback-1' \
+  jq -n --arg head "$rollback_head" \
+    --arg body $'Refs #2\nMaintain-Loop-Issue: #2\nMaintain-Loop-Delivery: run-77777777777777777777777777777777\nMaintain-Loop-Role: rollback:1\nMaintain-Loop-Action: run-77777777777777777777777777777777-rollback-1' \
     '{number:13,state:"OPEN",headRefName:"rollback-two",headRefOid:$head,baseRefName:"main",title:"Rollback issue two",
       body:$body,mergeCommit:null,files:[{path:"app.txt"}]}' > "$rollback_pr_open"
   jq --arg merge "$rollback_merge" '.state="MERGED" | .mergeCommit={oid:$merge}' "$rollback_pr_open" > "$rollback_pr_merged"
@@ -855,8 +1142,14 @@ FAKE_SETPRIV
   assert_result_rejected "MD13k: rollback result requires timestamped live proof" 2 "$result" contradict 'live_verified_at:'
   assert_result_rejected "MD13l: rollback result requires explicit no-close state" 2 "$result" omit 'ready_to_close:not_run'
   assert_result_rejected "MD13m: rollback result requires rolled-back outcome" 2 "$result" contradict 'rollback:rolled_back'
-  bash "$script" finalize --repo-root "$repo" --issue 2 --result-source "$result" --profile standard >/dev/null
-  bash "$script" finalize --repo-root "$repo" --issue 2 --result-source "$result" --profile standard >/dev/null
+  SAAS_RUN_ID="$rollback_delivery" SAAS_PARENT_RUN_ID="$rollback_parent" \
+    SAAS_INVOCATION_COMMAND=maintain \
+    bash "$script" finalize --repo-root "$repo" --issue 2 --result-source "$result" \
+      --profile standard >/dev/null
+  SAAS_RUN_ID=run-88888888888888888888888888888888 \
+    SAAS_PARENT_RUN_ID="$alternate_parent" SAAS_INVOCATION_COMMAND=goal-deliver \
+    bash "$script" finalize --repo-root "$repo" --issue 2 --result-source "$result" \
+      --profile standard >/dev/null
   assert_equals "MD14: rollback release is terminal" \
     "$(bash "$script" show --repo-root "$repo" --issue 2 | jq -r .state)" finalized_rolled_back
   ec=0; bash "$script" plan-pr --repo-root "$repo" --issue 2 --role rollback --branch rollback-two \
@@ -866,6 +1159,11 @@ FAKE_SETPRIV
     "$(bash "$script" show --repo-root "$repo" --issue 2 | jq '[.rollback]|length')" 1
   assert_equals "MD17: rollback finalization emits one terminal issue outcome" \
     "$(jq -s '[.[]|select(.phase=="issue-outcome" and .outcome=="failure" and .rollback=="rolled_back")]|length' "$events")" 1
+  assert_equals "MD17a: rollback finalization binds the active controller parent" \
+    "$(jq -sr 'map(select(.phase=="issue-outcome" and .outcome=="failure"))[0].parent_run_id' "$events")" \
+    "$rollback_parent"
+  assert_equals "MD17b: rollback finalization binds the active controller command" \
+    "$(jq -sr 'map(select(.phase=="issue-outcome" and .outcome=="failure"))[0].command' "$events")" maintain
 
   common=$(git -C "$repo" rev-parse --git-common-dir); case "$common" in /*) : ;; *) common="$repo/$common" ;; esac
   state_root="$common/saas-startup-team/maintain-runtime/deliveries"; victim="$repo/receipt-victim"
@@ -875,7 +1173,8 @@ FAKE_SETPRIV
   cp -- "$repo/issue-three.json" "$fake_issue"
   write_issue_scope "$fake_issue" "$issue_scope"
   switch_test_lease unsafe
-  ec=0; bash "$script" begin --repo-root "$repo" --issue 3 --run-id unsafe --delivery-id unsafe-delivery \
+  ec=0; bash "$script" begin --repo-root "$repo" --issue 3 --run-id unsafe \
+    --delivery-id run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
     --merge-budget 1 --scope-json "$issue_scope" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD18: symlinked receipt directory fails closed" "$ec" 1
   assert_equals "MD19: unsafe receipt target remains untouched" "$(find "$victim" -mindepth 1 | wc -l | tr -d ' ')" 0
@@ -884,10 +1183,12 @@ FAKE_SETPRIV
   cp -- "$issue_open" "$fake_issue"
   write_issue_scope "$fake_issue" "$issue_scope"
   switch_test_lease run-md-2
-  ec=0; bash "$script" begin --repo-root "$repo" --issue 1 --run-id run-md-2 --delivery-id delivery-md-2 \
+  ec=0; bash "$script" begin --repo-root "$repo" --issue 1 --run-id run-md-2 \
+    --delivery-id run-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
     --merge-budget 1 --scope-json "$issue_scope" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD20: open state alone cannot reopen finalized history" "$ec" 1
-  bash "$script" begin --repo-root "$repo" --issue 1 --run-id run-md-2 --delivery-id delivery-md-2 \
+  bash "$script" begin --repo-root "$repo" --issue 1 --run-id run-md-2 \
+    --delivery-id run-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
     --merge-budget 1 --scope-json "$issue_scope" \
     --reopen-event-id 901 --reopen-event-at 2099-07-14T10:04:00Z >/dev/null
   assert_equals "MD21: verified reopen starts a new generation" \
@@ -896,21 +1197,21 @@ FAKE_SETPRIV
   assert_exit_code "MD22: prior-generation marker cannot authorize the new delivery" "$ec" 1
 
   assert_file_contains "MD23: protocol reconciles receipts before queue work" \
-    "$protocol" 'maintain-delivery.sh pending'
+    "$protocol" '## Recovery before new work'
   assert_file_contains "MD24: protocol persists premerge authority" \
     "$protocol" 'authorize-merge --role normal'
   assert_file_contains "MD24a: protocol delegates the irreversible merge to the pinned helper" \
     "$protocol" 'gh pr merge --match-head-commit <receipt-head>'
   assert_file_contains "MD24b: protocol gives close helper no stale caller snapshot" \
-    "$protocol" 'with no snapshot argument'
+    "$protocol" 'no snapshot argument'
   assert_file_contains "MD24c: protocol requires helper-owned post-close verification" \
-    "$protocol" 'fetches the full CLOSED'
+    "$protocol" 'verifies the complete closed revision'
   assert_file_contains "MD24d: protocol requires exact inverse rollback proof" \
-    "$protocol" 'exact expected reverse of the recorded normal merge'
+    "$protocol" 'exact expected inverse tree of the recorded normal merge'
   assert_file_contains "MD24e: protocol records helper-owned proof before merge" \
     "$protocol" 'record-proof --kind tribunal'
   assert_file_contains "MD24f: merge helper accepts no caller PR snapshot" \
-    "$protocol" 'pass no PR/default snapshot'
+    "$protocol" 'Pass no PR/default snapshot'
   assert_file_contains "MD24g: closed recovery accepts no caller snapshot" \
     "$protocol" '`observe-closed` with no snapshot'
   assert_file_contains "MD25: protocol has rollback-or-stop recovery" \
@@ -919,8 +1220,9 @@ FAKE_SETPRIV
     "$protocol" 'use a fresh tech-founder for a minimal fix'
 
   bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
-    --run-id "$lease_run" >/dev/null
+    --repo-root "$repo" --worktree "$controller_root" --run-id "$lease_run" >/dev/null
   unset MAINTAIN_TEST_DELIVERY_IMPL MAINTAIN_TEST_LEASE_STATE
+  unset MAINTAIN_TEST_CONTROLLER_ROOT MAINTAIN_TEST_PRIMARY_ROOT
   unset MAINTAIN_TEST_GH_BIN MAINTAIN_TEST_REPO_SLUG
   unset FAKE_GH_PR_SOURCE FAKE_GH_CHECKS_SOURCE FAKE_GH_RUN_SOURCE FAKE_GH_ISSUE_SOURCE
   unset FAKE_GH_HEAD_FILE FAKE_GH_MUTATION FAKE_GH_LOG FAKE_GH_CLOSED_AT FAKE_GH_DRIFT_SOURCE

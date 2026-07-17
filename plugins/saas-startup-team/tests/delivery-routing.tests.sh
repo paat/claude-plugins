@@ -811,7 +811,8 @@ PY
   assert_file_contains "DR45: improve uses pinned separate-role launcher" "$refs/improve.md" 'codex-run-role.sh --role tech-founder'
   assert_file_contains "DR46: maintain cheap triage is a registered role" "$refs/maintain.md" 'saas-startup-team:maintain-triage'
   assert_file_contains "DR47: maintain uncertainty escalates to Fable role" "$refs/maintain.md" 'saas-startup-team:business-founder-maintain'
-  assert_file_contains "DR48: maintain-loop preserves attempt escalation evidence" "$refs/maintain-loop-protocol.md" 'issue-<N>-attempt-<A>.json'
+  assert_file_contains "DR48: embedded goal preserves attempt escalation evidence" \
+    "$refs/goal-deliver-maintain-receipts.md" 'issue-<N>-attempt-<A>.json'
   assert_file_contains "DR49: startup routes handoffs semantically" "$PLUGIN_ROOT/commands/startup.md" 'delivery-route.sh classify --mode autonomous'
   assert_file_contains "DR50: lessons uses supervisor-owned commit gate" "$PLUGIN_ROOT/commands/lessons-deliver.md" 'scripts/supervisor-commit.sh'
   assert_file_contains "DR50a: lessons current-session implementation loads tech-founder skill" \

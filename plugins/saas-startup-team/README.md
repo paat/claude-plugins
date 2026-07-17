@@ -78,7 +78,7 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:improve` | One-shot improvements on a completed product |
 | `/saas-startup-team:operate` | Post-launch operations entry point. Routes live monitoring, incident investigation, abandoned-session replay, and support triage from the shared `operate:` config block. |
 | `/saas-startup-team:monitor` | On-demand operations report using the existing `monitor:` engine plus configured `operate:` sources. Read-only unless `--file-issues` is passed. |
-| `/saas-startup-team:harvest` | Internal evidence harvester for self-improvement and market-need candidates. Runs local session insight clustering plus broader internal demand discovery; no external research and no filing unless the separate gated filing step is enabled. |
+| `/saas-startup-team:harvest` | Internal evidence harvester for self-improvement and market-need candidates. `--events` uses the authoritative root-terminal projection; harvesting stays local, while public filing remains separately repo-pinned and gated. |
 | `/saas-startup-team:market-scout` | External market-demand scout. Converts configured public evidence, source links, and dates into ranked SaaS improvement candidates; falls back to internal demand discovery when browsing/source data is unavailable. |
 | `/saas-startup-team:investigate` | Investigate a correlation ID or recent sessions, write redacted RCA artifacts, and file/update a deduplicated GitHub issue by default. |
 | `/saas-startup-team:replay-abandoned` | Replay configured abandoned funnel sessions via browser tooling, emit structured findings, and file actionable findings by default. |
@@ -86,8 +86,8 @@ Team Lead (Orchestrator)
 | `/saas-startup-team:ads` | Design a Google Ads campaign — spawns the `google-ads-strategist` plugin's `ads-strategist` (hard dependency) to design, browser-verify, and create the campaign in PAUSED state for investor review. The `/growth` loop also delegates here automatically. |
 | `/saas-startup-team:maintain` | Scheduled autonomous maintenance pass: triage open issues, fence human-gated ones into `human-tasks.md`, and deliver the rest to production via inline `/goal-deliver`, one-at-a-time in dependency order. An external scheduler owns repetition and backoff. Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`. Requires the `tribunal-review` plugin. |
 | `/saas-startup-team:maintain-loop` | Thin sequential coordinator: model-free probe, then one fresh `/maintain --once` subagent per bounded pass. The caller retains only compact outcomes and never loads issue or delivery context. Codex invocation: `$saas-startup-team:maintain-loop`. Accepts `/maintain` limits plus outer `--once`. |
-| `/saas-startup-team:lessons-review` | The single human gate of the self-improvement loop: list open `lesson-candidate` issues in the pinned plugin repo and `--approve N` (→ `lesson-approved`) or `--close N` (rejected). |
-| `/saas-startup-team:lessons-deliver` | Autonomously implements `lesson-approved` issues into this plugin repo end-to-end (claim → implement → diff firewall → tribunal → test suite → dual version bump → PR `Closes #N` → merge on green). No manual trigger after approval; plugin-native (not `/goal-deliver`). Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`, `--repo`. Requires the `tribunal-review` plugin. |
+| `/saas-startup-team:lessons-review` | Optional manual inspection/override for the lesson queue: list candidates, approve, close, or quarantine a verified issue. Normal review is automatic through `lesson-auto-review.sh`. |
+| `/saas-startup-team:lessons-deliver` | Autonomously implements automatically approved `lesson-approved` issues end-to-end (claim → implement → diff firewall → tribunal → test suite → dual version bump → PR `Closes #N` → merge on green). Plugin-native (not `/goal-deliver`). Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`, `--repo`. Requires the `tribunal-review` plugin. |
 
 ## Agents
 
@@ -509,10 +509,15 @@ authorize a downgrade.
 
 ## Self-improvement loop (`/lessons-deliver`)
 
-The plugin improves itself: it harvests genuine, generic lessons from production monitors
-and session history, files them as de-identified, PII-gated `lesson-candidate` issues in a
-pinned plugin repo (`SAAS_PLUGIN_REPO`), and — after the **single human gate**
-(`/lessons-review --approve N` → `lesson-approved`) — implements them autonomously.
+The plugin improves itself: it harvests genuine, generic lessons from authoritative root
+workflow outcomes and session history, files them as de-identified, PII-gated
+`lesson-candidate` issues in a pinned plugin repo (`SAAS_PLUGIN_REPO`), and reviews them
+automatically with a fresh isolated Opus/xhigh verdict. Only an unresolved verdict invokes
+independent GPT-5.6 Sol/xhigh arbitration. High-confidence decisions approve or reject;
+unresolved pairs quarantine the candidate. Model transport failures and timeouts leave it
+for retry. A zero-exit malformed Opus verdict invokes Sol; a zero-exit malformed final Sol
+verdict is unresolved and quarantined. Each pass reviews at most three candidates. `/lessons-review` remains an optional
+manual inspection/override surface, not an implementation prerequisite.
 
 `/lessons-deliver` is the implementer. Because lessons land in a *plugin monorepo* (no
 `.startup/`, no `solution-signoff.md`, no GitHub Actions deploy), it is **not**
@@ -530,13 +535,15 @@ infrastructure (self-modification → `lessons:needs-human`), and any secret in 
 (`pii-gate.sh`). Deletion or renaming of any discovered test file is blocked, as are
 reductions in assertion/test counts; the firewall itself is self-protected.
 
-**Autonomy.** The production runner is a nightly `flock` cron (the loop's "deploy"):
+**Autonomy.** Standalone mode uses a nightly `flock` cron (the loop's "deploy"):
 
 ```
 0 3 * * * /usr/bin/flock -n /tmp/lessons-deliver.lock -c \
   'cd <plugin-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" lessons-deliver; then <assistant-command> "/lessons-deliver --once" >> <log-path> 2>&1; else test $? -eq 3; fi'
 ```
 
+Standalone cron and a governed review/probe/delivery scheduler are mutually exclusive;
+installing the governed owner must retire the standalone `/tmp/lessons-deliver.lock` line.
 For supervised/dev ticks, run `workflow-probe.sh lessons-deliver` first and invoke
 `/loop 5m /lessons-deliver --once` only on exit 0. Note this runs in the
 **plugin repo** (cwd = where the plugin source lives), independently of `/maintain` which

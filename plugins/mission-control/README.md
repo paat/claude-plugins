@@ -33,6 +33,10 @@ The scheduler itself runs from cron, not from a Claude session: see
   reachable **as the exec user**. If the container's agent toolchain lives under
   a non-root user reached via SSH login (so `docker exec` defaults to root and
   sees no auth), set `docker_exec_user` (e.g. `"dev"`) to run `docker exec -u`.
+- For maintain/goal-deliver dispatches, the selected engine CLI must report one
+  enabled `saas-startup-team@paat-plugins` install via `plugin list --json`
+  (Claude uses the user-scope install). A failed helper preflight is recorded as
+  an error without launching the model.
 
 ## Configuration
 
@@ -89,6 +93,11 @@ both slots until the recheck window expires (default
 pivots to the next project with runnable work instead of burning passes. The
 next successful pass clears the block. Blocked projects appear in the daily
 digest and `/mission-status` with their reason and recheck time.
+
+For schema-v2 workflow terminals, the structured `blocked` outcome and registered
+terminal reason remain authoritative. An exactly anchored sentinel with
+`recheck_after=N` may supply only the bounded recheck duration; prose or a malformed
+sentinel cannot override either structured field.
 
 The same vocabulary applies inside loop-style commands (maintain,
 lessons-deliver): a completion gate or Stop hook must accept

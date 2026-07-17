@@ -153,8 +153,34 @@ assert_json_field() {
 }
 
 # ---------------------------------------------------------------------------
-# Helper: create temp working dir with optional .startup/ fixtures
+# Helpers: exact lease fingerprints and temporary .startup/ fixtures
 # ---------------------------------------------------------------------------
+
+lease_state_fingerprint() {
+  local state_file=$1 rows kind key state_dir owner_file slug artifact fingerprint rc=0
+  rows=$(mktemp) || return 1
+  if ! jq -er '.leases[] | [.kind,.key,.state_dir,.owner_file] | @tsv' \
+    "$state_file" > "$rows"; then
+    rm -f -- "$rows"
+    return 1
+  fi
+  fingerprint=$(
+    while IFS=$'\t' read -r kind key state_dir owner_file; do
+      slug=$(printf '%s' "$key" | tr '/: ' '---' | tr -cd 'A-Za-z0-9._-')
+      [ -n "$slug" ] || slug=lease
+      for artifact in "$state_dir/$slug/heartbeat" "$state_dir/$slug/key" \
+        "$state_dir/$slug/owner" "$state_dir/$slug/audit.log" \
+        "$owner_file" "${owner_file}.key"; do
+        [ -f "$artifact" ] && [ ! -L "$artifact" ] || return 1
+        stat -c '%n\t%i\t%s\t%y\t%z' -- "$artifact"
+        sha256sum -- "$artifact"
+      done
+    done < "$rows" | LC_ALL=C sort | sha256sum | awk '{print $1}'
+  ) || rc=$?
+  rm -f -- "$rows"
+  [ "$rc" -eq 0 ] || return "$rc"
+  printf '%s\n' "$fingerprint"
+}
 
 make_workdir() {
   local tmpdir
@@ -1089,11 +1115,13 @@ test_plugin_issues() {
     FAIL_COUNT=$((FAIL_COUNT + 1))
   fi
 
-  # J2-J5: the shared reference holds the gh filing command; the four primary
+  # J2-J5: the shared reference routes through the dry-funnel filing helper; the four primary
   # issue-filing agents point at that reference (stated once, referenced elsewhere).
   # tech-founder-codex* inherit plugin-issue reporting via tech-founder-claude.md (which they read).
-  assert_file_contains "J-gh-ref: reference files via the pinned repo variable" \
-    "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" 'gh issue create --repo "${SAAS_PLUGIN_REPO}"'
+  assert_file_contains "J-gh-ref: reference files through the issue funnel" \
+    "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" 'scripts/issue-file.sh'
+  assert_file_contains "J-gh-ref: issue funnel receives the pinned repo" \
+    "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" '--repo "${SAAS_PLUGIN_REPO}"'
   for agent in business-founder.md tech-founder-claude.md tech-founder-claude-maintain.md business-founder-maintain.md; do
     assert_file_contains "J-gh: $agent references the plugin-issue-reporting doc" \
       "$PLUGIN_ROOT/agents/$agent" "templates/plugin-issue-reporting.md"
@@ -1129,6 +1157,8 @@ test_maintain() {
   local cmd="$PLUGIN_ROOT/references/workflows/maintain.md"
   local entry="$PLUGIN_ROOT/commands/maintain.md"
   local protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
+  local goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
+  local receipts="$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md"
   local codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-workflow/SKILL.md"
   assert_file_exists "M1: maintain.md exists" "$cmd"
   # Frontmatter
@@ -1136,7 +1166,7 @@ test_maintain() {
   assert_file_contains "M3: user_invocable"            "$cmd" "user_invocable: true"
   # Reuse / dependencies
   assert_file_contains "M4: invokes goal-deliver"      "$cmd" "goal-deliver"
-  assert_file_contains "M5: tribunal hard dep"         "$cmd" "tribunal-review"
+  assert_file_contains "M5: tribunal hard dep"         "$goal" "tribunal-review"
   # Stateless supervisor + disk state
   assert_file_contains "M6: disk state dir"            "$cmd" ".startup/maintain"
   assert_file_contains "M7: current-run persisted"     "$cmd" "current-run.json"
@@ -1158,7 +1188,7 @@ test_maintain() {
   assert_file_contains "M17: injection firewall"       "$cmd" "inform requirements only"
   assert_file_contains "M18: side-effect ban"          "$cmd" "side-effect"
   # Merge safety (no --auto default; explicit rerun)
-  assert_file_contains "M19: squash merge"             "$cmd" "gh pr merge --squash"
+  assert_file_contains "M19: squash merge"             "$goal" "--squash --delete-branch"
   # Circuit breakers
   assert_file_contains "M20: max-issues breaker"       "$cmd" "max-issues"
   assert_file_contains "M21: max-merges breaker"       "$cmd" "max-merges"
@@ -1182,28 +1212,27 @@ test_maintain() {
   assert_file_contains "M29: cached agent-fixable enters queue" "$cmd" "deliverable queue input"
   assert_file_contains "M30: cache hit still feeds queue" "$cmd" "A cache hit supplies the cached verdict"
   # Claude /maintain recurrence + tribunal gates.
-  assert_file_contains "M31: command recurrence class gate" "$cmd" "root cause / recurrence class"
-  assert_file_contains "M32: command fixes recurrence class" "$cmd" "fix the class, not only the observed instance"
-  assert_file_contains "M33: command red-green proof" "$cmd" "red-before/green-after proof"
-  assert_file_contains "M34: command current HEAD tribunal predicate" "$cmd" "current PR HEAD and latest diff"
-  assert_file_contains "M35: command stale verdict invalidation" "$cmd" "reopens tribunal validation"
-  assert_file_contains "M36: command missing recurrence proof blocks merge" "$cmd" "missing recurrence proof"
-  # Codex workflow hard gates
+  assert_file_contains "M31: canonical recurrence class gate" "$goal" "root-cause/recurrence class"
+  assert_file_contains "M32: canonical recurrence fix requires proof" "$goal" "red-before/green-after proof"
+  assert_file_contains "M33: canonical incident work adds a guard" "$goal" "mechanical regression guard"
+  assert_file_contains "M34: canonical merge binds current HEAD" "$goal" "latest-HEAD gates"
+  assert_file_contains "M35: default or head drift restarts validation" "$goal" \
+    "default/head advance restarts final validation"
+  assert_file_contains "M36: missing durable guard cannot silently close" "$goal" \
+    "if no durable guard is possible"
+  # Generated Codex workflow stays thin and loads canonical source policy.
   assert_file_exists "M37: Codex maintain workflow exists" "$codex_cmd"
-  assert_file_contains "M38: Codex recurrence class gate" "$codex_cmd" "root cause / recurrence class"
-  assert_file_contains "M39: Codex recurrence proof gate" "$codex_cmd" "red-before/green-after proof"
-  assert_file_contains "M40: Codex closing loop prerequisite" "$codex_cmd" "main merge prerequisite"
-  assert_file_contains "M41: Codex stale verdict invalidation" "$codex_cmd" "reopens the closing loop"
-  assert_file_contains "M42: Codex current HEAD predicate" "$codex_cmd" "current PR HEAD and latest diff"
-  assert_file_contains "M43: Codex gates run in maintain cycle" "$codex_cmd" "issue-delivery cycle"
-  assert_file_contains "M44: Codex QA before closing loop" "$codex_cmd" "business-founder QA phase with Playwright"
-  assert_file_contains "M45: Codex QA not-applicable record" "$codex_cmd" "Business-founder Playwright QA: not applicable"
-  assert_file_contains "M45aa: Codex browser transport loss is issue-local" "$codex_cmd" \
-    'issue-local `browser-tool-unavailable`'
+  assert_file_not_contains "M38: Codex maintain has no duplicated hard-gate block" \
+    "$codex_cmd" 'Codex Maintain Hard Gates'
   assert_file_contains "M45a: maintain uses queue builder" "$cmd" "maintain-queue.sh"
   assert_file_contains "M45a1: maintain checks queue builder exit" "$cmd" "if ! QUEUE_JSON="
   assert_file_contains "M45a2: maintain dry-run uses fixture queue state" "$cmd" "--issues-file <issues.json>"
-  assert_file_contains "M45a3: maintain acquires the compatibility lease bridge" "$cmd" "--mode maintain"
+  assert_file_contains "M45a3: maintain uses the route-selected controller mode" "$cmd" \
+    '"$MAINTAIN_CONTROLLER_MODE"'
+  assert_file_contains "M45a3a: maintain lease binds the route-selected worktree" "$protocol" \
+    '--worktree "$WT"'
+  assert_file_not_contains "M45a3b: no unconditional canonical acquire contradicts legacy recovery" \
+    "$cmd" 'maintain-leases.sh acquire --mode maintain'
   assert_file_contains "M45a4: maintain consumes stale blocked-label cleanup" "$cmd" ".cleanup.stale_maintain_blocked"
   assert_file_contains "M45a5: maintain uses foreground lease-set hold" "$cmd" 'maintain-leases.sh" hold'
   assert_file_contains "M45a6: maintain bounds foreground lease lifetime" "$cmd" '--max-seconds 14400'
@@ -1213,20 +1242,20 @@ test_maintain() {
     "A lost shell invalidates"
   assert_file_contains "M45a9: maintain processes resumable PRs before new work" "$protocol" \
     'Process `.resumable` before'
-  assert_file_contains "M45a10: resume re-proves current-head gates" "$protocol" \
+  assert_file_contains "M45a10: resume re-proves current-head gates" "$receipts" \
     'Do not trust an earlier green check'
-  assert_file_contains "M45a11: resume never creates a replacement PR" "$protocol" \
-    'never opens a replacement PR'
+  assert_file_contains "M45a11: resume never creates a replacement PR" "$receipts" \
+    'Never open a replacement PR'
   assert_file_contains "M45a12: second browser transport failure is issue-local" "$protocol" \
     'continues independent queue work'
-  assert_file_contains "M45a13: maintain accepts coordinator lease identity" "$entry" \
+  assert_file_contains "M45a13: maintain accepts coordinator lease identity" "$cmd" \
     '--lease-run-id ID'
-  assert_file_contains "M45a14: internal lease identity never reaches probe" "$entry" \
+  assert_file_contains "M45a14: internal lease identity never reaches probe" "$cmd" \
     'never forward it to the probe'
-  assert_file_contains "M45a15: maintain protocol reuses coordinator lease identity" "$protocol" \
-    'LEASE_RUN_ID=${MAINTAIN_LEASE_RUN_ID:-}'
-  assert_file_contains "M45a16: normal maintain rejects legacy activation" "$protocol" \
-    'never calls `maintain-leases.sh activate`'
+  assert_file_contains "M45a15: maintain exports exact coordinator lease identity" "$cmd" \
+    'MAINTAIN_LEASE_RUN_ID="$SAAS_INVOCATION_ID"'
+  assert_file_contains "M45a16: lease mutations reuse the exact controller tuple" "$protocol" \
+    'MAINTAIN_CONTROLLER_ARGS=('
   assert_file_contains "M45a17: resumable rows carry no durable permission" "$cmd" \
     '`.resumable` row is only a candidate'
   assert_file_contains "M45a18: resume guard runs before every sensitive phase" "$protocol" \
@@ -1247,8 +1276,8 @@ test_maintain() {
     'Repeat the full live guard before QA/tribunal and immediately before'
   assert_file_contains "M45a26: resume phases use the executable exact-row guard" "$protocol" \
     'maintain-queue.sh --resume-candidate-file'
-  assert_file_contains "M45a27: active merge atomically pins the reviewed PR head" "$protocol" \
-    'gh pr merge "$PR_NUMBER" --match-head-commit "$BOUND_SHA"'
+  assert_file_contains "M45a27: active merge atomically pins the reviewed PR head" "$receipts" \
+    'gh pr merge --match-head-commit <receipt-head>'
   assert_file_contains "M45a28: active merge compares the final live PR head" "$protocol" \
     '[ "$LIVE_SHA" = "$BOUND_SHA" ]'
   assert_file_contains "M45a29: legacy migration binds actor and PR provenance" "$protocol" \
@@ -1936,6 +1965,9 @@ SH
 test_maintain_loop() {
   echo -e "\n${CYAN}== /maintain-loop command ==${NC}"
   local command="$PLUGIN_ROOT/commands/maintain-loop.md"
+  local coordinator="$PLUGIN_ROOT/references/workflows/maintain.md"
+  local protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
+  local goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
   local codex_cmd="$PLUGIN_ROOT/skills/maintain-loop/SKILL.md"
   local old_codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-loop-workflow/SKILL.md"
 
@@ -1943,7 +1975,7 @@ test_maintain_loop() {
   assert_file_contains "ML2: command is user invocable" "$command" "user_invocable: true"
   assert_file_contains "ML3: concise Codex skill name" "$command" "codex-skill-name: maintain-loop"
   assert_file_contains "ML4: parent stays context-thin" "$command" \
-    "Never read issue bodies, source files"
+    "never read issue bodies, source files"
   assert_file_contains "ML5: parent probes maintain model-free" "$command" \
     'workflow-probe.sh maintain'
   assert_file_not_contains "ML6: old maintain-loop probe is unused" "$command" \
@@ -1957,56 +1989,51 @@ test_maintain_loop() {
   assert_file_contains "ML10: passes are sequential" "$command" \
     'Never run two passes concurrently'
   assert_file_contains "ML10a: coordinator forbids noisy wait polling" "$command" \
-    'empty timeouts are not progress'
+    'Empty timeouts are not progress'
   assert_file_contains "ML10b: empty waits do not produce status noise" "$command" \
-    'never report or immediately retry them'
+    'or immediately retry them'
   assert_file_contains "ML11: completed subagents are not reused" "$command" \
     'completed subagent'
   assert_file_contains "ML12: inline fallback is forbidden" "$command" \
     'inline as a fallback'
   assert_file_contains "ML13: result is compact" "$command" \
-    'Keep only its compact terminal result'
-  assert_file_contains "ML14: no-work exits before dispatch" "$command" \
-    'Exit 3 is a clean no-op'
-  assert_file_contains "ML15: outer once bounds child count" "$command" \
-    '`--once` means launch at most one'
-  assert_file_contains "ML16: dry-run is bounded" "$command" \
-    'Under outer `--once` or `--dry-run`, stop after this pass'
-  assert_file_contains "ML16a: normal child gets a parent-minted lease identity" "$command" \
-    'agent-events.sh" new-run-id'
-  assert_file_contains "ML16b: exact lease identity is forwarded to child" "$command" \
-    '--lease-run-id <LEASE_RUN_ID>'
-  assert_file_contains "ML16c: known-terminal child is reaped by exact ID" "$command" \
+    'Keep only the child'"'"'s compact terminal result'
+  assert_file_contains "ML14: no-work exits before dispatch" "$coordinator" \
+    'exit 3 is `no-op`'
+  assert_file_contains "ML15: outer once bounds child count" "$coordinator" \
+    '`--once` launches at most one child'
+  assert_file_contains "ML16: dry-run is bounded" "$coordinator" \
+    'the child under outer `--once` or `--dry-run`'
+  assert_file_contains "ML16a: normal child gets a parent-minted lease identity" "$coordinator" \
+    'agent-events.sh new-run-id'
+  assert_file_contains "ML16b: exact lease identity is forwarded to child" "$coordinator" \
+    '--lease-run-id "$SAAS_INVOCATION_ID"'
+  assert_file_contains "ML16ba: exact invocation command is forwarded with the lease identity" \
+    "$coordinator" '--lease-run-id "$SAAS_INVOCATION_ID" --invocation-command maintain-loop'
+  assert_file_contains "ML16c: known-terminal child is reaped by exact ID" "$coordinator" \
     'maintain-leases.sh reap-terminal'
-  assert_file_contains "ML16d: availability is rechecked after terminal reap" "$command" \
+  assert_file_contains "ML16d: availability is rechecked after terminal reap" "$coordinator" \
     'maintain-leases.sh available'
-  assert_file_contains "ML16e: unknown-terminal child is never reaped" "$command" \
+  assert_file_contains "ML16e: unknown-terminal child is never reaped" "$coordinator" \
     'unknown-terminal child is never reaped'
-  assert_file_contains "ML16f: dry-run mints and reaps no lease" "$command" \
-    'Under `--dry-run`, never mint or reap a lease'
+  assert_file_contains "ML16f: dry-run mints and reaps no lease" "$coordinator" \
+    'Dry-run never verifies a terminal or reaps a lease'
 
-  assert_file_contains "ML16g: issue blockers require durable cooldown" "$command" \
-    'records terminal state and cooldown'
-  assert_file_contains "ML16h: issue blockers return to the probe" "$command" \
-    'Otherwise return to step 1'
-  assert_file_contains "ML16i: pass-wide or unknown blockers stop" "$command" \
-    'or unknown scope'
-  assert_file_contains "ML16j: per-pass limits continue the loop" "$command" \
-    'Return `pass-complete` after success or a'
+  assert_file_contains "ML16g: issue blockers require durable cooldown" "$protocol" \
+    'active cooldown'
+  assert_file_contains "ML16i: pass-wide or unknown blockers stop" "$coordinator" \
+    'scope, or unknown child state'
+  assert_file_contains "ML16j: only pass-complete continues the loop" "$coordinator" \
+    '`pass-complete` terminal; stop on'
   assert_file_contains "ML16k: unavailable issue targets are diagnostics" \
-    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    'unavailable issue-specific dev or test target first as a diagnostic'
+    "$goal" 'using only documented setup/start commands'
   assert_file_contains "ML16l: browser evidence loads the canonical procedure" \
-    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
+    "$protocol" \
     'skills/ux-tester/references/design-review-leg.md'
-  assert_file_contains "ML16m: resumable blocker preserves PR claim" "$command" \
-    'with one, retain it'
-  assert_file_contains "ML16n: protocol retains resumable PR ownership" \
-    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    'keep the PR and `maintain:claimed` intact'
+  assert_file_contains "ML16m: resumable blocker preserves PR claim" "$protocol" \
+    'exists, keep both intact'
   assert_file_contains "ML16o: ambiguous linked PR blocks the pass" \
-    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    'identity is `pass-blocked`, not `issue-blocked`'
+    "$protocol" 'Ambiguous, multiple, or mismatched linked PR identity is `pass-blocked`'
 
   assert_file_exists "ML17: concise Codex skill exists" "$codex_cmd"
   assert_file_contains "ML18: Codex skill aliases command" "$codex_cmd" "/maintain-loop"
@@ -2017,16 +2044,22 @@ test_maintain_loop() {
   assert_file_not_exists "ML21: old verbose Codex skill is removed" "$old_codex_cmd"
   assert_file_contains "ML22: Codex waits only after child identity" "$codex_cmd" \
     'wait only after an identity is returned'
-  assert_file_contains "ML23: failed spawn never enters a wait loop" "$codex_cmd" \
-    'Any spawn error stops `pass-blocked` without waiting or retrying'
-  assert_file_contains "ML24: missing child cannot trigger unsafe reaping" "$codex_cmd" \
-    'missing before one terminal result, stop unknown-terminal without reaping'
+  assert_file_contains "ML23: Codex anomalies defer to the canonical contract" \
+    "$codex_cmd" "source command's referenced coordinator contract"
+  assert_file_not_contains "ML23a: generated skill does not duplicate terminal outcomes" \
+    "$codex_cmd" 'blocked/invalid_workflow_state'
+  assert_file_not_contains "ML24: generated skill does not duplicate terminal ownership" \
+    "$codex_cmd" 'root-terminal ownership'
   assert_file_contains "ML25: Codex requires a durable coordinator session" "$codex_cmd" \
     'collaboration-capable, non-ephemeral'
   assert_file_contains "ML26: Codex uses one-hour blocking waits" "$codex_cmd" \
     'wait_agent` with `timeout_ms: 3600000'
   assert_file_contains "ML27: Codex relays changed-state milestones" "$codex_cmd" \
     'compact collaboration message only when issue/PR, delivery, blocker, or status changes'
+  assert_file_contains "ML28: Codex retains the exact fresh-child command binding" "$codex_cmd" \
+    '--lease-run-id "$SAAS_INVOCATION_ID" --invocation-command maintain-loop'
+  assert_file_contains "ML29: Codex does not assume fresh-child environment inheritance" \
+    "$codex_cmd" 'never assume a fresh child inherits coordinator environment'
 }
 
 # ---------------------------------------------------------------------------
@@ -4767,6 +4800,11 @@ test_lesson_file() {
     bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
   assert_exit_code "F1: dry-run exits 0" "$ec" 0
   assert_equals "F1: no gh issue create when not enabled" "$(_creates "$L")" "0"
+  assert_json_valid "F1a: dry-run refreshes the local ledger" "$led"
+  assert_file_contains "F1b: dry-run writes the local filing report" "$report" \
+    '# Lesson filing — dry-run'
+  assert_file_contains "F1c: source distinguishes local writes from GitHub mutation" \
+    "$script" 'no GitHub calls or mutations, but still refreshes the local'
   rm -rf "$workdir"
 
   # --- F2: enabled + pinned repo -> files one issue, records the fingerprint ---
@@ -4779,6 +4817,8 @@ test_lesson_file() {
   assert_equals "F2: exactly one issue created" "$(_creates "$L")" "1"
   assert_file_contains "F2: filed to the pinned repo" "$L" "paat/claude-plugins"
   assert_file_contains "F2: labeled lesson-candidate" "$L" "lesson-candidate"
+  assert_file_contains "F2: issue carries stable fingerprint marker" "$L" \
+    "saas-lesson-fingerprint:v1:"
   ec=0; jq -e '.["fp1"]' "$led" >/dev/null 2>&1 || ec=$?
   assert_exit_code "F2: ledger records the fingerprint" "$ec" 0
   rm -rf "$workdir"
@@ -4826,7 +4866,8 @@ test_lesson_file() {
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
   cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
   _cand fp7 interrupt "obs" process > "$cand"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=911 GH_SEARCH_JSON='[{"number":5,"title":"existing"}]' SAAS_LESSON_SYNC_ENABLED=true \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=911 \
+    GH_API_JSON='[[{"number":5,"html_url":"https://github.com/o/r/issues/5","title":"lesson: interrupt — obs","body":"","state":"open"}]]' SAAS_LESSON_SYNC_ENABLED=true \
     bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
   assert_equals "F7: existing issue suppresses create" "$(_creates "$L")" "0"
   rm -rf "$workdir"
@@ -4871,30 +4912,169 @@ test_lesson_file() {
   assert_equals "F11: no create on invalid budget" "$(_creates "$L")" "0"
   rm -rf "$workdir"
 
-  # --- F12: a dedup-search failure fails CLOSED (no create) ---
+  # --- F12: an inventory failure fails CLOSED (no create) ---
   workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
   cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
   _cand fp interrupt "obs" process > "$cand"
-  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=923 GH_FAIL_ON="issue list" SAAS_LESSON_SYNC_ENABLED=true \
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=923 GH_FAIL_ON="api --paginate" SAAS_LESSON_SYNC_ENABLED=true \
     bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
-  assert_equals "F12: search failure does not create (fail-closed)" "$(_creates "$L")" "0"
+  assert_exit_code "F12: inventory failure exits nonzero" "$ec" 1
+  assert_equals "F12: inventory failure does not create (fail-closed)" "$(_creates "$L")" "0"
+  assert_file_contains "F12: inventory failure is reported as a filing failure" "$report" \
+    "filing failures: 1"
+  assert_file_contains "F12: inventory failure is not successful dedup" "$report" \
+    "skipped (existing open issue): 0"
+  assert_json_valid "F12: bounded ledger is still written" "$led"
+  rm -rf "$workdir"
+
+  # --- F13: malformed inventory JSON is a filing failure, not successful dedup ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp interrupt "obs" process > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=924 GH_API_JSON='not-json' SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F13: malformed inventory response exits nonzero" "$ec" 1
+  assert_equals "F13: malformed inventory response creates nothing" "$(_creates "$L")" "0"
+  assert_file_contains "F13: parse failure is reported" "$report" \
+    "filing failures: 1"
+  assert_file_contains "F13: parse failure is not successful dedup" "$report" \
+    "skipped (existing open issue): 0"
+  assert_json_valid "F13: parse failure still writes the ledger" "$led"
+  rm -rf "$workdir"
+
+  # --- F14: gh create failure is reported after ledger/report persistence ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp interrupt "obs" process > "$cand"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=925 GH_FAIL_ON="issue create" SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F14: create failure exits nonzero" "$ec" 1
+  assert_equals "F14: create was attempted once" "$(_creates "$L")" "1"
+  assert_file_contains "F14: create failure is reported" "$report" \
+    "filing failures: 1"
+  assert_json_valid "F14: create failure still writes the ledger" "$led"
+  assert_equals "F14: failed create records no fingerprint" "$(jq 'length' "$led")" "0"
+  rm -rf "$workdir"
+
+  # --- F15: create-before-ledger failure reconciles a CLOSED issue, never refiles ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; report="$workdir/rep.md"
+  _cand fp15 interrupt "obs" process > "$cand"
+  local marker_digest marker closed_issue broken_ledger
+  marker_digest="$(printf '%s' fp15 | sha256sum | awk '{print $1}')"
+  marker="<!-- saas-lesson-fingerprint:v1:$marker_digest -->"
+  broken_ledger="/proc/self/lesson-ledger-${RANDOM}.json"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=926 \
+    SAAS_LESSON_SYNC_ENABLED=true bash "$script" --candidates "$cand" --ledger "$broken_ledger" \
+      --repo paat/claude-plugins --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F15: checked ledger persistence failure exits nonzero" "$ec" 1
+  assert_equals "F15: remote create happened exactly once before persistence failed" "$(_creates "$L")" "1"
+
+  led="$workdir/recovered-ledger.json"; : > "$L"
+  closed_issue="$(jq -cn --arg marker "$marker" \
+    '[[{number:926,html_url:"https://github.com/o/r/issues/926",title:"lesson",body:("candidate\n" + $marker),state:"closed",labels:[{name:"lesson-candidate"}]}]]')"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=927 \
+    GH_API_JSON="$closed_issue" SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins \
+      --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F15: closed marker reconciliation succeeds" "$ec" 0
+  assert_equals "F15: recovered closed issue is never refiled" "$(_creates "$L")" "0"
+  assert_equals "F15: recovered fingerprint is durably ledgered" \
+    "$(jq -r '.["fp15"].issue' "$led")" "https://github.com/o/r/issues/926"
+  rm -rf "$workdir"
+
+  # --- F16: delayed list visibility converges concurrent creators on the next ledger hit ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"; report="$workdir/rep.md"
+  _cand fp16 interrupt "obs" process > "$cand"
+  marker_digest="$(printf '%s' fp16 | sha256sum | awk '{print $1}')"
+  marker="<!-- saas-lesson-fingerprint:v1:$marker_digest -->"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" GH_CREATE_NUMBER=940 \
+    GH_API_JSON='[[]]' SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins \
+      --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F16a: delayed-list create succeeds" "$ec" 0
+  assert_equals "F16b: delayed-list run creates once" "$(_creates "$L")" "1"
+  assert_equals "F16c: created URL is ledgered while the list lags" \
+    "$(jq -r '.["fp16"].issue' "$led")" "https://github.com/o/r/issues/940"
+  assert_equals "F16c1: create is followed by one inventory refresh" \
+    "$(grep -c '^api --paginate' "$L")" "2"
+
+  local concurrent_issues
+  concurrent_issues="$(jq -cn --arg marker "$marker" '[[
+    {number:938,html_url:"https://github.com/o/r/issues/938",title:"unrelated",body:"unrelated",state:"open",labels:[]},
+    {number:939,html_url:"https://github.com/o/r/issues/939",title:"lesson",body:$marker,state:"open",labels:[{name:"lesson-candidate"}]},
+    {number:940,html_url:"https://github.com/o/r/issues/940",title:"lesson",body:$marker,state:"open",labels:[{name:"lesson-candidate"}]}
+  ]]')"
+  : > "$L"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    GH_API_JSON="$concurrent_issues" SAAS_LESSON_SYNC_ENABLED=true \
+    bash "$script" --candidates "$cand" --ledger "$led" --repo paat/claude-plugins \
+      --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F16d: ledger-hit convergence succeeds" "$ec" 0
+  assert_equals "F16e: ledger hit never refiles" "$(_creates "$L")" "0"
+  assert_file_contains "F16f: later exact-marker duplicate is closed" "$L" "issue close 940"
+  assert_file_not_contains "F16g: unrelated issue is untouched" "$L" "issue close 938"
+  assert_equals "F16h: lowest exact-marker issue becomes canonical" \
+    "$(jq -r '.["fp16"].issue' "$led")" "https://github.com/o/r/issues/939"
+  assert_file_contains "F16i: inventory is paginated and all-state" "$L" \
+    "api --paginate --slurp repos/paat/claude-plugins/issues?state=all&per_page=100"
+  assert_file_not_contains "F16j: reconciliation does not use indexed issue search" "$L" \
+    "issue list"
+  rm -rf "$workdir"
+
+  # --- F17: a custom report path that cannot be written fails explicitly ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"
+  _cand fp17 interrupt "obs" process > "$cand"
+  report="/proc/self/lesson-report-${RANDOM}.md"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    bash "$script" --candidates "$cand" --ledger "$led" --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F17a: unwritable report exits nonzero" "$ec" 1
+  assert_output_contains "F17b: unwritable report failure is explicit" "$output" \
+    "lesson-file: cannot write report:"
+  assert_equals "F17c: report failure makes no GitHub calls" "$(wc -l < "$L" | tr -d ' ')" "0"
+  rm -rf "$workdir"
+
+  # --- F18: an uncreatable report directory fails before work begins ---
+  workdir=$(make_workdir); make_mock_gh "$workdir"; L="$workdir/gh.log"; : > "$L"
+  cand="$workdir/cand.jsonl"; led="$workdir/led.json"
+  _cand fp18 interrupt "obs" process > "$cand"
+  report="/proc/self/lesson-report-dir-${RANDOM}/report.md"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" GH_CALLS_LOG="$L" \
+    bash "$script" --candidates "$cand" --ledger "$led" --report "$report" 2>&1) || ec=$?
+  assert_exit_code "F18a: uncreatable report directory exits nonzero" "$ec" 1
+  assert_output_contains "F18b: directory failure is explicit" "$output" \
+    "lesson-file: cannot prepare ledger/report directories"
+  assert_equals "F18c: directory failure makes no GitHub calls" "$(wc -l < "$L" | tr -d ' ')" "0"
   rm -rf "$workdir"
 }
 
 # ---------------------------------------------------------------------------
-# Suite R: lesson-review.sh (the single human gate — list / approve / close)
+# Suite R: lesson-review.sh (manual/automated guarded transitions)
 # ---------------------------------------------------------------------------
 
 test_lesson_review() {
-  echo -e "\n${CYAN}Suite R: lesson-review.sh (human gate)${NC}"
+  echo -e "\n${CYAN}Suite R: lesson-review.sh (guarded review transitions)${NC}"
   local script="$PLUGIN_ROOT/scripts/lesson-review.sh"
   local workdir L ec output cnt
   local REPO="paat/claude-plugins"
-  local CAND_OPEN='{"state":"OPEN","labels":[{"name":"lesson-candidate"},{"name":"tooling"}]}'
-  local APPROVED_OPEN='{"state":"OPEN","labels":[{"name":"lesson-approved"}]}'
-  local CLOSED_CAND='{"state":"CLOSED","labels":[{"name":"lesson-candidate"}]}'
-  local NONLESSON_OPEN='{"state":"OPEN","labels":[{"name":"bug"}]}'
-  local ONE='[{"number":5,"title":"lesson: recurring tool_failure","labels":[{"name":"lesson-candidate"},{"name":"tooling"}],"url":"https://github.com/paat/claude-plugins/issues/5","body":"## Observation\nstuff"}]'
+  local review_title="lesson: recurring tool_failure" review_body="## Observation
+stuff" review_canonical review_digest review_marker
+  review_canonical="$(jq -cn --arg title "$review_title" --arg body "$review_body" '{title:$title,body:$body}')"
+  review_digest="$(printf '%s' "$review_canonical" | sha256sum | awk '{print $1}')"
+  review_marker="<!-- saas-lesson-review:v1:approve:$review_digest -->"
+  local CAND_OPEN APPROVED_OPEN CLOSED_CAND NONLESSON_OPEN ONE
+  CAND_OPEN="$(jq -cn --arg title "$review_title" --arg body "$review_body" \
+    '{state:"OPEN",labels:[{name:"lesson-candidate"},{name:"tooling"}],title:$title,body:$body,updatedAt:"2026-07-17T00:00:00Z",comments:[]}')"
+  APPROVED_OPEN="$(jq -cn --arg title "$review_title" --arg body "$review_body" --arg marker "$review_marker" \
+    '{state:"OPEN",labels:[{name:"lesson-approved"}],title:$title,body:$body,updatedAt:"2026-07-17T00:00:00Z",comments:[{body:$marker,author:{login:"review-bot"},authorAssociation:"MEMBER"}]}')"
+  CLOSED_CAND="$(jq -cn --arg title "$review_title" --arg body "$review_body" \
+    '{state:"CLOSED",labels:[{name:"lesson-candidate"}],title:$title,body:$body,updatedAt:"2026-07-17T00:00:00Z",comments:[]}')"
+  NONLESSON_OPEN="$(jq -cn --arg title "$review_title" --arg body "$review_body" \
+    '{state:"OPEN",labels:[{name:"bug"}],title:$title,body:$body,updatedAt:"2026-07-17T00:00:00Z",comments:[]}')"
+  ONE="$(jq -cn --arg title "$review_title" --arg body "$review_body" \
+    '[{number:5,title:$title,labels:[{name:"lesson-candidate"},{name:"tooling"}],url:"https://github.com/paat/claude-plugins/issues/5",body:$body,updatedAt:"2026-07-17T00:00:00Z"}]')"
   _edits() { grep -c 'issue edit' "$1" 2>/dev/null || true; }
   _closes() { grep -c 'issue close' "$1" 2>/dev/null || true; }
 
@@ -6166,32 +6346,82 @@ MOCK
 #   GH_VIEW_STATE     value for `gh issue view --json state` (OPEN/CLOSED)
 #   GH_VIEW_BODY      value for `gh issue view --json body`   (recovery verification)
 #   GH_SEARCH_JSON    JSON for `gh issue list ... --json number` (default [])
+#   GH_API_JSON       paginated `gh api` JSON (default `[[]]`)
 #   GH_FAIL_ON        if argv contains this substring, exit 1 (simulate gh failure)
 make_mock_gh() {
   local bindir="$1/bin"
+  local view_store="$1/.gh-view.json"
   mkdir -p "$bindir"
-  cat > "$bindir/gh" <<'MOCK'
+  if [ -n "${GH_VIEW_JSON:-}" ]; then
+    printf '%s
+' "$GH_VIEW_JSON" > "$view_store"
+  else
+    rm -f -- "$view_store"
+  fi
+  # Quoted heredoc keeps the mock body literal; only view_store path is injected.
+  cat > "$bindir/gh" <<MOCK
 #!/usr/bin/env bash
-_args="$*"; printf '%s\n' "${_args//$'\n'/ }" >> "${GH_CALLS_LOG:?}"  # one line/call (flatten bodies)
-if [ -n "${GH_FAIL_ON:-}" ] && [[ "$*" == *"$GH_FAIL_ON"* ]]; then
+_args="\$*"; printf '%s
+' "\${_args//\$'
+'/ }" >> "\${GH_CALLS_LOG:?}"
+if [ -n "\${GH_FAIL_ON:-}" ] && [[ "\$*" == *"\$GH_FAIL_ON"* ]]; then
   echo "mock gh: forced failure" >&2; exit 1
 fi
-case "$1 $2" in
-  "repo view")   echo "${GH_REPO:-o/r}" ;;
-  "issue create") echo "https://github.com/o/r/issues/${GH_CREATE_NUMBER:?GH_CREATE_NUMBER unset}" ;;
+_VIEW_STORE="$view_store"
+_seed_view() {
+  if [ ! -f "\$_VIEW_STORE" ] && [ -n "\${GH_VIEW_JSON:-}" ]; then
+    printf '%s
+' "\$GH_VIEW_JSON" > "\$_VIEW_STORE"
+  fi
+}
+case "\$1 \$2" in
+  "api --paginate") echo "\${GH_API_JSON:-[[]]}" ;;
+  "repo view")   echo "\${GH_REPO:-o/r}" ;;
+  "issue create") echo "https://github.com/o/r/issues/\${GH_CREATE_NUMBER:?GH_CREATE_NUMBER unset}" ;;
   "issue comment") echo "https://github.com/o/r/issues/commented" ;;
   "issue view")
-     if [[ "$*" == *"--json"* ]] && [ -n "${GH_VIEW_JSON:-}" ]; then echo "$GH_VIEW_JSON";
-     elif [[ "$*" == *"body"* ]]; then echo "${GH_VIEW_BODY:-}";
-     else echo "${GH_VIEW_STATE:-OPEN}"; fi ;;
-  "issue list")  echo "${GH_LIST_JSON:-${GH_SEARCH_JSON:-[]}}" ;;
-  "issue edit")  : ;;
+     # Mutable store / GH_VIEW_JSON for claim re-reads; otherwise keep legacy
+     # plain GH_VIEW_STATE / GH_VIEW_BODY responses used by monitor-dedup.
+     if [ -f "\$_VIEW_STORE" ] || [ -n "\${GH_VIEW_JSON:-}" ]; then
+       if [[ "\$*" == *"--json"* ]]; then
+         _seed_view
+         if [ -f "\$_VIEW_STORE" ]; then cat "\$_VIEW_STORE"; else echo "\$GH_VIEW_JSON"; fi
+       elif [[ "\$*" == *"body"* ]]; then echo "\${GH_VIEW_BODY:-}"
+       else echo "\${GH_VIEW_STATE:-OPEN}"; fi
+     elif [[ "\$*" == *"body"* ]]; then echo "\${GH_VIEW_BODY:-}"
+     else echo "\${GH_VIEW_STATE:-OPEN}"; fi ;;
+  "issue list")
+     if [[ "\$*" == *"--state all"* ]] && [ -n "\${GH_ALL_ISSUES_JSON:-}" ]; then
+       echo "\$GH_ALL_ISSUES_JSON"
+     else
+       echo "\${GH_LIST_JSON:-\${GH_SEARCH_JSON:-[]}}"
+     fi ;;
+  "issue edit")
+     _seed_view
+     if [ -f "\$_VIEW_STORE" ]; then
+       _cur="\$(cat "\$_VIEW_STORE")"
+       _i=1
+       while [ "\$_i" -le "\$#" ]; do
+         _a="\${!_i}"
+         if [ "\$_a" = "--add-label" ]; then
+           _i=\$((_i + 1)); _lab="\${!_i}"
+           _cur="\$(printf '%s' "\$_cur" | jq -c --arg l "\$_lab" '.labels = ((.labels // []) + [{name:\$l}] | group_by(.name) | map(.[0]))')"
+         elif [ "\$_a" = "--remove-label" ]; then
+           _i=\$((_i + 1)); _lab="\${!_i}"
+           _cur="\$(printf '%s' "\$_cur" | jq -c --arg l "\$_lab" '.labels = [((.labels // [])[]) | select(.name != \$l)]')"
+         fi
+         _i=\$((_i + 1))
+       done
+       printf '%s
+' "\$_cur" > "\$_VIEW_STORE"
+     fi
+     ;;
   "issue close") : ;;
   "label create") : ;;
-  "pr create")   echo "https://github.com/o/r/pull/${GH_PR_NUMBER:-999}" ;;
+  "pr create")   echo "https://github.com/o/r/pull/\${GH_PR_NUMBER:-999}" ;;
   "pr merge")    : ;;
-  "pr list")     echo "${GH_PR_LIST_JSON:-[]}" ;;
-  "pr view")     echo "${GH_PR_VIEW_JSON:-{}}" ;;
+  "pr list")     echo "\${GH_PR_LIST_JSON:-[]}" ;;
+  "pr view")     echo "\${GH_PR_VIEW_JSON:-{}}" ;;
   *) : ;;
 esac
 MOCK
@@ -6202,6 +6432,12 @@ test_lessons_deliver() {
   echo -e "\n${CYAN}Suite L: lessons-deliver.sh (autonomous lesson implementer)${NC}"
   local script="$PLUGIN_ROOT/scripts/lessons-deliver.sh"
   local workdir ec output
+  local lesson_title="good lesson" lesson_body="body10" lesson_canonical lesson_digest lesson_marker approved_bound
+  lesson_canonical="$(jq -cn --arg title "$lesson_title" --arg body "$lesson_body" '{title:$title,body:$body}')"
+  lesson_digest="$(printf '%s' "$lesson_canonical" | sha256sum | awk '{print $1}')"
+  lesson_marker="<!-- saas-lesson-review:v1:approve:$lesson_digest -->"
+  approved_bound="$(jq -cn --arg title "$lesson_title" --arg body "$lesson_body" --arg marker "$lesson_marker" \
+    '{state:"OPEN",labels:[{name:"lesson-approved"}],closedByPullRequestsReferences:[],title:$title,body:$body,comments:[{body:$marker,author:{login:"review-bot"},authorAssociation:"MEMBER"}]}')"
 
   # L1: script exists
   assert_file_exists "L1: lessons-deliver.sh exists" "$script"
@@ -6218,18 +6454,29 @@ test_lessons_deliver() {
   # L4: lists only lesson-approved, excludes blocked/claimed/needs-human/linked-PR
   workdir=$(make_workdir); make_mock_gh "$workdir"
   export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
-  export GH_LIST_JSON='[
-    {"number":10,"title":"good lesson","labels":[{"name":"lesson-approved"}],"url":"u10","createdAt":"2026-01-01T00:00:00Z","closedByPullRequestsReferences":[]},
-    {"number":11,"title":"blocked","labels":[{"name":"lesson-approved"},{"name":"lessons:blocked"}],"url":"u11","createdAt":"2026-01-02T00:00:00Z","closedByPullRequestsReferences":[]},
-    {"number":12,"title":"claimed","labels":[{"name":"lesson-approved"},{"name":"lessons:claimed"}],"url":"u12","createdAt":"2026-01-03T00:00:00Z","closedByPullRequestsReferences":[]},
-    {"number":13,"title":"has PR","labels":[{"name":"lesson-approved"}],"url":"u13","createdAt":"2026-01-04T00:00:00Z","closedByPullRequestsReferences":[{"number":5}]}
-  ]'
+  export GH_LIST_JSON="$(jq -cn --arg marker "$lesson_marker" '[
+    {number:10,title:"good lesson",body:"body10",comments:[{body:$marker,author:{login:"review-bot"},authorAssociation:"MEMBER"}],labels:[{name:"lesson-approved"}],url:"u10",createdAt:"2026-01-01T00:00:00Z",closedByPullRequestsReferences:[]},
+    {number:11,title:"blocked",body:"body11",comments:[],labels:[{name:"lesson-approved"},{name:"lessons:blocked"}],url:"u11",createdAt:"2026-01-02T00:00:00Z",closedByPullRequestsReferences:[]},
+    {number:12,title:"claimed",body:"body12",comments:[],labels:[{name:"lesson-approved"},{name:"lessons:claimed"}],url:"u12",createdAt:"2026-01-03T00:00:00Z",closedByPullRequestsReferences:[]},
+    {number:13,title:"has PR",body:"body13",comments:[],labels:[{name:"lesson-approved"}],url:"u13",createdAt:"2026-01-04T00:00:00Z",closedByPullRequestsReferences:[{number:5}]}
+  ]')"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --list --json --repo o/r 2>&1) || ec=$?
   assert_exit_code "L4: list exits 0" "$ec" 0
   assert_output_contains "L4: includes eligible #10" "$output" '"number": 10'
   assert_output_not_contains "L4: excludes blocked #11" "$output" '"number": 11'
   assert_output_not_contains "L4: excludes claimed #12" "$output" '"number": 12'
   assert_output_not_contains "L4: excludes linked-PR #13" "$output" '"number": 13'
+  unset GH_LIST_JSON; rm -rf "$workdir"
+
+  # L4b: an approval marker for old content cannot authorize edited content
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_LIST_JSON="$(jq -cn --arg marker "$lesson_marker" '[
+    {number:10,title:"good lesson",body:"edited body",comments:[{body:$marker,author:{login:"review-bot"},authorAssociation:"MEMBER"}],labels:[{name:"lesson-approved"}],url:"u10",createdAt:"2026-01-01T00:00:00Z",closedByPullRequestsReferences:[]}
+  ]')"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --list --json --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L4b: stale approval binding is handled safely" "$ec" 0
+  assert_output_not_contains "L4b: edited content is excluded from delivery" "$output" '"number": 10'
   unset GH_LIST_JSON; rm -rf "$workdir"
 
   # L5: unparseable list -> fail closed (exit 1), not "empty queue"
@@ -6414,9 +6661,10 @@ DIFF
 
   # --- claim ---
   # L20: claim an eligible issue edits labels
-  workdir=$(make_workdir); make_mock_gh "$workdir"
+  workdir=$(make_workdir)
   export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
-  export GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-approved"}],"closedByPullRequestsReferences":[]}'
+  export GH_VIEW_JSON="$approved_bound"
+  make_mock_gh "$workdir"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r --run-id RUN1 2>&1) || ec=$?
   assert_exit_code "L20: claim exits 0" "$ec" 0
   assert_file_contains "L20: adds claimed label" "$GH_CALLS_LOG" "lessons:claimed"
@@ -6425,7 +6673,7 @@ DIFF
   # L21: claim refuses when a linked PR exists (fail closed)
   workdir=$(make_workdir); make_mock_gh "$workdir"
   export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
-  export GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-approved"}],"closedByPullRequestsReferences":[{"number":7}]}'
+  export GH_VIEW_JSON="$(printf '%s' "$approved_bound" | jq -c '.closedByPullRequestsReferences=[{number:7}]')"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r 2>&1) || ec=$?
   assert_exit_code "L21: claim with linked PR refuses" "$ec" 1
   unset GH_VIEW_JSON; rm -rf "$workdir"
@@ -6440,7 +6688,7 @@ DIFF
   # L23b: claim refuses when already claimed (not a no-op)
   workdir=$(make_workdir); make_mock_gh "$workdir"
   export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
-  export GH_VIEW_JSON='{"state":"OPEN","labels":[{"name":"lesson-approved"},{"name":"lessons:claimed"}],"closedByPullRequestsReferences":[]}'
+  export GH_VIEW_JSON="$(printf '%s' "$approved_bound" | jq -c '.labels += [{name:"lessons:claimed"}]')"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r 2>&1) || ec=$?
   assert_exit_code "L23b: already-claimed refuses" "$ec" 1
   unset GH_VIEW_JSON; rm -rf "$workdir"
@@ -6448,9 +6696,18 @@ DIFF
   # L23c: claim refuses a closed issue
   workdir=$(make_workdir); make_mock_gh "$workdir"
   export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
-  export GH_VIEW_JSON='{"state":"CLOSED","labels":[{"name":"lesson-approved"}],"closedByPullRequestsReferences":[]}'
+  export GH_VIEW_JSON="$(printf '%s' "$approved_bound" | jq -c '.state="CLOSED"')"
   ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r 2>&1) || ec=$?
   assert_exit_code "L23c: closed issue refused" "$ec" 1
+  unset GH_VIEW_JSON; rm -rf "$workdir"
+
+  # L23c2: a stale marker cannot claim content edited after approval
+  workdir=$(make_workdir); make_mock_gh "$workdir"
+  export GH_CALLS_LOG="$workdir/gh.log"; : > "$GH_CALLS_LOG"
+  export GH_VIEW_JSON="$(printf '%s' "$approved_bound" | jq -c '.body="edited after approval"')"
+  ec=0; output=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" --claim 10 --repo o/r 2>&1) || ec=$?
+  assert_exit_code "L23c2: stale approval binding refuses claim" "$ec" 1
+  assert_file_not_contains "L23c2: stale binding performs no claim edit" "$GH_CALLS_LOG" "issue edit"
   unset GH_VIEW_JSON; rm -rf "$workdir"
 
   # --- block ---

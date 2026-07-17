@@ -6,23 +6,25 @@
 # them, runs a HARD PII/secrets gate, dedups against a fingerprint ledger, and
 # writes candidate plugin-improvement drafts + a report. It is the deterministic
 # SAFETY layer: it does NOT decide genericity/phrasing (that is the /harvest
-# agent + the human review gate), and it does NOT file anything or touch the
-# network. See docs/design/self-improvement-loop.md.
+# agent + automated flagship review by default; /lessons-review remains the
+# manual fallback), and it does NOT file anything or touch the network. See
+# docs/design/self-improvement-loop.md.
 #
-# Output candidates are *dry-run only* — review precedes any filing, which is a
-# separate, later, opt-in stage.
+# Output candidates are *dry-run only*. Filing is a separate gated stage; filed
+# candidates enter automated flagship review by default.
 #
 # Usage:
-#   harvest.sh [--in FILE] [--ledger FILE] [--candidates FILE] [--report FILE]
-#              [--project NAME]
+#   harvest.sh [--in FILE] [--events FILE] [--ledger FILE] [--candidates FILE]
+#              [--report FILE] [--project NAME]
 
 set -uo pipefail
 
-IN=""; LEDGER=""; CANDIDATES=""; REPORT=""; PROJECT=""
+IN=""; EVENTS=""; LEDGER=""; CANDIDATES=""; REPORT=""; PROJECT=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --in)         IN="$2";         shift 2 ;;
+    --events)     EVENTS="$2";     shift 2 ;;
     --ledger)     LEDGER="$2";     shift 2 ;;
     --candidates) CANDIDATES="$2"; shift 2 ;;
     --report)     REPORT="$2";     shift 2 ;;
@@ -37,12 +39,14 @@ done
 [ -n "$CANDIDATES" ] || CANDIDATES=".startup/insights/candidates.jsonl"
 [ -n "$REPORT" ]     || REPORT=".startup/insights/harvest-report.md"
 
-mkdir -p "$(dirname "$CANDIDATES")" "$(dirname "$REPORT")" "$(dirname "$LEDGER")"
-: > "$CANDIDATES"   # regenerated each run
-
 # Cap evidence refs per candidate so a high-count cluster doesn't dump hundreds of
 # refs into the issue body (the occurrence count is reported separately).
 MAX_REFS="${SAAS_HARVEST_MAX_REFS:-10}"
+MIN_FRICTION_TOKENS="${SAAS_HARVEST_MIN_FRICTION_TOKENS:-20000}"
+MIN_FRICTION_RECURRENCE="${SAAS_HARVEST_MIN_FRICTION_RECURRENCE:-3}"
+for value in "$MAX_REFS" "$MIN_FRICTION_TOKENS" "$MIN_FRICTION_RECURRENCE"; do
+  case "$value" in ''|*[!0-9]*) echo "harvest: thresholds must be non-negative integers" >&2; exit 2 ;; esac
+done
 
 # Recurrence thresholds per signal (env-overridable). High-confidence signals
 # surface from a single occurrence; noisier ones must recur.
@@ -63,6 +67,23 @@ _sd="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 2
 # shellcheck source=pii-gate.sh
 . "$_sd/pii-gate.sh" || exit 2
 command -v pii_hit >/dev/null 2>&1 || { echo "harvest: PII gate unavailable; refusing to run" >&2; exit 2; }
+
+mkdir -p "$(dirname "$CANDIDATES")" "$(dirname "$REPORT")" "$(dirname "$LEDGER")"
+CANDIDATES_TMP="$(mktemp "${CANDIDATES}.tmp.XXXXXX")" || exit 2
+REPORT_TMP="$(mktemp "${REPORT}.tmp.XXXXXX")" || { rm -f -- "$CANDIDATES_TMP"; exit 2; }
+TERMINALS_TMP=""
+cleanup() { rm -f -- "$CANDIDATES_TMP" "$REPORT_TMP" ${TERMINALS_TMP:+"$TERMINALS_TMP"}; }
+trap cleanup EXIT
+
+# The event API owns lifecycle validation, root selection, precedence, identity
+# normalization, and ordering. Harvest never reads the event file itself.
+if [ -n "$EVENTS" ]; then
+  TERMINALS_TMP="$(mktemp)" || exit 2
+  if ! bash "$_sd/agent-events.sh" terminals --events "$EVENTS" > "$TERMINALS_TMP"; then
+    echo "harvest: terminal event projection failed; outputs unchanged" >&2
+    exit 3
+  fi
+fi
 
 # De-identify: replace literal project-name occurrences with a template var.
 pj_esc="$(printf '%s' "$PROJECT" | sed 's/[][\.*^$/]/\\&/g')"
@@ -109,6 +130,7 @@ LEDGER_JSON="$(cat "$LEDGER" 2>/dev/null || true)"
 printf '%s' "$LEDGER_JSON" | jq -e 'type=="object"' >/dev/null 2>&1 || LEDGER_JSON='{}'
 
 declare -A CNT SUM SIG CONF REFS PII
+declare -A FR_COMMAND FR_OUTCOME FR_REASON FR_HIGH FR_COSTLY FR_NULL_TOKENS FR_TOKEN_SUM FR_TOKEN_COUNT
 MALFORMED=0
 
 if [ -f "$IN" ]; then
@@ -138,36 +160,135 @@ if [ -f "$IN" ]; then
   done < "$IN"
 fi
 
+has_successful_artifact() {
+  case "$1" in open|merged) return 0 ;; esac
+  case "$2" in merged|success) return 0 ;; esac
+  case "$3" in passed|success) return 0 ;; esac
+  return 1
+}
+
+if [ -n "$TERMINALS_TMP" ]; then
+  while IFS= read -r event || [ -n "$event" ]; do
+    [ -n "$event" ] || continue
+    if ! printf '%s\n' "$event" | jq -e '
+      type == "object" and
+      (.run_id | type == "string" and test("^run-[0-9a-f]{32}$")) and
+      .parent_run_id == null and .phase == "pass-outcome" and
+      (.command | type == "string" and test("^[a-z0-9][a-z0-9-]*$")) and
+      (.outcome | type == "string" and test("^[a-z0-9][a-z0-9-]*$")) and
+      (.terminal_reason == null or
+        (.terminal_reason | type == "string" and
+          (. == "" or test("^[a-z0-9][a-z0-9_]*$")))) and
+      (.total_tokens == null or
+        (.total_tokens | type == "number" and . >= 0 and floor == .)) and
+      (.pr == null or (.pr | type == "string")) and
+      (.merge == null or (.merge | type == "string")) and
+      (.deployment == null or (.deployment | type == "string"))
+    ' >/dev/null; then
+      echo "harvest: terminal event projection returned invalid data; outputs unchanged" >&2
+      exit 3
+    fi
+
+    run_ref="$(printf '%s\n' "$event" | jq -r '.run_id')"
+    command="$(printf '%s\n' "$event" | jq -r '.command')"
+    outcome="$(printf '%s\n' "$event" | jq -r '.outcome')"
+    reason="$(printf '%s\n' "$event" | jq -r '.terminal_reason // empty')"
+    tokens="$(printf '%s\n' "$event" | jq -r '.total_tokens // empty')"
+    pr="$(printf '%s\n' "$event" | jq -r '.pr // empty')"
+    merge="$(printf '%s\n' "$event" | jq -r '.merge // empty')"
+    deployment="$(printf '%s\n' "$event" | jq -r '.deployment // empty')"
+    reason_key="${reason:-none}"
+    fp="workflow_friction:$(printf '%s\t%s\t%s' "$command" "$outcome" "$reason_key" | sha1sum | cut -c1-12)"
+    safe_ref="workflow-event:$run_ref"
+
+    CNT[$fp]=$(( ${CNT[$fp]:-0} + 1 ))
+    SIG[$fp]="workflow_friction"
+    FR_COMMAND[$fp]="$command"; FR_OUTCOME[$fp]="$outcome"; FR_REASON[$fp]="$reason_key"
+    REFS[$fp]="${REFS[$fp]:-}${safe_ref}"$'\n'
+    if [ -n "$tokens" ]; then
+      FR_TOKEN_SUM[$fp]=$(( ${FR_TOKEN_SUM[$fp]:-0} + tokens ))
+      FR_TOKEN_COUNT[$fp]=$(( ${FR_TOKEN_COUNT[$fp]:-0} + 1 ))
+    elif [ -n "$reason" ] && [ "$reason" != other ]; then
+      FR_NULL_TOKENS[$fp]=$(( ${FR_NULL_TOKENS[$fp]:-0} + 1 ))
+    fi
+    case "$reason" in
+      false_success|context_binding_violation|invalid_workflow_state|lease_conflict|receipt_conflict)
+        FR_HIGH[$fp]=1
+        ;;
+    esac
+    case "$outcome" in
+      success|no-op|skipped) ;;
+      *)
+        if [ -n "$tokens" ] && [ "$tokens" -ge "$MIN_FRICTION_TOKENS" ] \
+          && ! has_successful_artifact "$pr" "$merge" "$deployment"; then
+          FR_COSTLY[$fp]=1
+        fi
+        ;;
+    esac
+    if pii_hit "$command" || pii_hit "$outcome" || pii_hit "$reason" || pii_hit "$safe_ref"; then
+      PII[$fp]=1
+    fi
+  done < "$TERMINALS_TMP"
+fi
+
 SURFACED=0; BELOW=0; BLOCKED=0; DEDUP=0; LOWSIG=0; NONINTERVENTION=0
 # Iterate fingerprints in sorted order so candidate output is deterministic.
 while IFS= read -r fp; do
   [ -n "$fp" ] || continue
-  sig="${SIG[$fp]}"; count="${CNT[$fp]}"; thr="$(thr_for "$sig")"
-  if ! is_filed_signal "$sig"; then NONINTERVENTION=$((NONINTERVENTION + 1)); continue; fi
+  sig="${SIG[$fp]}"; count="${CNT[$fp]}"
+  if [ "$sig" = workflow_friction ]; then
+    if [ -z "${FR_HIGH[$fp]:-}" ] && [ -z "${FR_COSTLY[$fp]:-}" ] \
+      && { [ "${FR_NULL_TOKENS[$fp]:-0}" -eq 0 ] \
+        || [ "${FR_NULL_TOKENS[$fp]:-0}" -lt "$MIN_FRICTION_RECURRENCE" ]; }; then
+      if [ "${FR_NULL_TOKENS[$fp]:-0}" -gt 0 ]; then BELOW=$((BELOW + 1))
+      else NONINTERVENTION=$((NONINTERVENTION + 1)); fi
+      continue
+    fi
+  else
+    thr="$(thr_for "$sig")"
+    if ! is_filed_signal "$sig"; then NONINTERVENTION=$((NONINTERVENTION + 1)); continue; fi
+  fi
   if printf '%s' "$LEDGER_JSON" | jq -e --arg fp "$fp" 'has($fp)' >/dev/null 2>&1; then
     DEDUP=$((DEDUP + 1)); continue
   fi
   if [ -n "${PII[$fp]:-}" ]; then BLOCKED=$((BLOCKED + 1)); continue; fi
-  if [ "$count" -lt "$thr" ]; then BELOW=$((BELOW + 1)); continue; fi
-  if is_low_signal "${SUM[$fp]}"; then LOWSIG=$((LOWSIG + 1)); continue; fi
+  if [ "$sig" != workflow_friction ]; then
+    if [ "$count" -lt "$thr" ]; then BELOW=$((BELOW + 1)); continue; fi
+    if is_low_signal "${SUM[$fp]}"; then LOWSIG=$((LOWSIG + 1)); continue; fi
+  else
+    known_count="${FR_TOKEN_COUNT[$fp]:-0}"
+    if [ "$known_count" -gt 0 ]; then
+      token_summary="known total tokens ${FR_TOKEN_SUM[$fp]} across $known_count occurrences"
+    else
+      token_summary="total tokens unavailable"
+    fi
+    SUM[$fp]="Workflow friction for command ${FR_COMMAND[$fp]}: outcome ${FR_OUTCOME[$fp]}, terminal reason ${FR_REASON[$fp]}; occurrences $count; $token_summary."
+    CONF[$fp]="medium"
+    if [ -n "${FR_HIGH[$fp]:-}" ] || [ -n "${FR_COSTLY[$fp]:-}" ]; then CONF[$fp]="high"; fi
+  fi
 
   # build evidence_refs as a JSON array — quoted to avoid word-split/glob; deduped+sorted+capped.
   refs_json="$(printf '%s' "${REFS[$fp]}" | jq -R . | jq -cs --argjson n "$MAX_REFS" 'map(select(length>0)) | unique | .[0:$n]')"
+  recommendation=""
+  if [ "$sig" = workflow_friction ]; then
+    recommendation="Review the normalized ${FR_COMMAND[$fp]} workflow path for outcome ${FR_OUTCOME[$fp]} and terminal reason ${FR_REASON[$fp]}; strengthen deterministic state validation and completion evidence."
+  fi
   jq -cn \
     --arg fp "$fp" --arg sig "$sig" --argjson count "$count" \
-    --arg conf "${CONF[$fp]}" --arg sum "${SUM[$fp]}" --argjson refs "$refs_json" \
+    --arg conf "${CONF[$fp]}" --arg sum "${SUM[$fp]}" --arg rec "$recommendation" --argjson refs "$refs_json" \
     '{fingerprint:$fp, signal_type:$sig, count:$count, confidence:$conf,
       deidentified_summary:$sum, evidence_refs:$refs,
-      observation:$sum, hypothesis:null, recommendation:null}' \
-    >> "$CANDIDATES"
+      observation:$sum, hypothesis:null,
+      recommendation:(if $rec == "" then null else $rec end)}' \
+    >> "$CANDIDATES_TMP" || { echo "harvest: could not stage candidates" >&2; exit 2; }
   SURFACED=$((SURFACED + 1))
 done < <(printf '%s\n' "${!CNT[@]}" | sort)
 
 {
   echo "# Harvest — candidate plugin improvements (DRY RUN)"
   echo
-  echo "_Local only. Nothing filed. These are candidates for human review; genericity"
-  echo "and phrasing are decided at review, not here._"
+  echo "_Local only. Nothing filed. After gated filing, automated flagship review is"
+  echo "the default; /lessons-review remains the manual fallback._"
   echo
   echo "- project: \`$PROJECT\`"
   echo "- input: \`$IN\`"
@@ -181,7 +302,15 @@ done < <(printf '%s\n' "${!CNT[@]}" | sort)
   echo "- blocked (PII/secret detected): $BLOCKED"
   echo "- deduped (already in ledger): $DEDUP"
   echo
-  echo "Candidates: \`$CANDIDATES\` — review before any filing (filing is a separate, opt-in stage)."
-} > "$REPORT"
+  if [ -n "$EVENTS" ]; then echo "- terminal events: projected authoritative roots"; fi
+  echo "Candidates: \`$CANDIDATES\` — gated filing is separate, then flagship review runs by default."
+} > "$REPORT_TMP" || { echo "harvest: could not stage report" >&2; exit 2; }
+
+# Each output is replaced by a same-directory rename only after every source has
+# validated and both complete replacements have been staged.
+mv -f -- "$CANDIDATES_TMP" "$CANDIDATES" || exit 2
+CANDIDATES_TMP=""
+mv -f -- "$REPORT_TMP" "$REPORT" || exit 2
+REPORT_TMP=""
 
 exit 0

@@ -1,8 +1,8 @@
 # Design Spec — Self-Improvement Loop (Live Issues + Session History)
 
-Status: DRAFT for review (rev 3 — adds session-history scraper, investor-steering
-objective, single review gate; grounded in aruannik/varustame container findings)
-Plugin: saas-startup-team (target after: v0.46.0)
+Status: IMPLEMENTED (rev 4 — automatic two-model lesson review, optional manual override,
+authoritative root-terminal event harvesting)
+Plugin: saas-startup-team
 Author: design session 2026-06-22
 
 ---
@@ -17,7 +17,8 @@ Two end goals, each served by one loop:
 
 Hard constraints: (a) never flood agent context with tokens; (b) only **generic,
 de-identified, paraphrased** improvements reach the plugin repo — never project
-specifics or customer data; (c) **exactly one human gate** (see §6).
+specifics or customer data; (c) automatic review must fail closed, with manual review
+available as an explicit override rather than a required gate (see §4).
 
 ---
 
@@ -65,28 +66,36 @@ for every project regardless of launch status.
    • AUTONOMOUS via /goal-deliver    • selection criterion: "would this have
    • meets customer demand             removed a future investor intervention?"
                                               │
-                                     ┌────────┴─────────┐
-                                     │ ★ HUMAN GATE ★    │  ← the ONLY human step
-                                     │ review issue      │
-                                     │ before implementing│
-                                     └────────┬─────────┘
+                                     ┌────────┴──────────────┐
+                                     │ AUTOMATIC REVIEW       │
+                                     │ Opus/xhigh; conditional│
+                                     │ Sol/xhigh arbitration  │
+                                     └────────┬──────────────┘
                                               ▼
                                      AUTOMATED implement (/lessons-deliver on plugin)
                                      → lesson becomes plugin code/prompt/hook
 ```
 
-Everything is automated except the one starred gate. Loop A stays local (low
-privacy risk). Loop B writes to the public plugin repo — hence the non-negotiable
-PII gate (§4) before any write.
+The normal path is automated. Loop A stays local (low privacy risk). Loop B writes to
+the public plugin repo — hence the non-negotiable PII gate (§4) before any write and the
+bounded, fail-closed review stage before implementation.
 
 ---
 
-## 4. The single human gate + automation boundary
+## 4. Automatic review + automation boundary
 
-**The only human step:** the investor reviews the GH improvement issues in
-`paat/claude-plugins` **before they are implemented**. Approve → automated
-implementation via `/lessons-deliver`. Everything else — detection, distillation,
-de-identification, dedup, issue filing — is automated.
+`lesson-auto-review.sh` reviews at most three open `lesson-candidate` issues per pass.
+Each candidate gets a fresh isolated Opus/xhigh verdict. A structurally valid,
+high-confidence Opus approval or rejection is decisive without a second model.
+Sol/xhigh runs independently only when the Opus verdict is unresolved or structurally
+malformed; its decisive verdict approves or rejects, while unresolved or zero-exit
+malformed Sol output quarantines the issue. Only nonzero model transport failures and
+timeouts leave the candidate queued for retry. `/lessons-review` remains available for
+explicit manual inspection or override, but normal delivery does not wait for it.
+
+The bounded model input contains the complete title/body or leaves the issue queued. Before
+mutation, the reviewer re-fetches and matches the exact content digest; a checked
+digest marker is then required again by delivery listing and claiming.
 
 **Non-negotiable automated gate (safety, not burden):** a hard **PII/secrets
 check** (reuse `check-handoff-secrets.sh` pattern) runs before any write to the
@@ -94,9 +103,9 @@ public plugin repo. It is the one gate that never relaxes. Paraphrase-only:
 verbatim customer quotes, screenshots, URLs, emails, tenant/invoice IDs, raw
 error strings, and event names **never leave the project repo**.
 
-This is the minimal-involvement design: reviewing a deduped issue list is one
-cheap, batched, skippable touchpoint — far less costly than mid-build
-interruptions, which are the very thing the loop exists to reduce.
+This is the minimal-involvement design: routine review is bounded and automated, while a
+human can still inspect or override exceptional queue state without becoming a scheduled
+dependency.
 
 ---
 
@@ -136,6 +145,14 @@ Mines Claude Code transcripts at `~/.claude/projects/<escaped-cwd>/*.jsonl` for
 
 ### 5.3 Customer feedback (live)
 Investor relay or GH issue, as today → Loop A; cross-project patterns → Loop B.
+
+### 5.4 Workflow terminal events (every project)
+
+When `.startup/runs/agent-events.jsonl` is supplied, `harvest.sh` never consumes raw rows
+directly. It asks `agent-events.sh terminals` for the normalized root `pass-outcome`
+projection. Child activity, incomplete roots, conflicting lifecycle records, and raw file
+ordering therefore cannot become lesson evidence. Projection or validation failure stops
+the event-backed harvest instead of silently treating broken telemetry as an empty signal.
 
 ---
 
@@ -199,14 +216,15 @@ Loop control (so the nightly job can't amplify cost):
 
 ---
 
-## 8. Components to build
+## 8. Components
 
 | # | Component | Type | Responsibility |
 |---|-----------|------|----------------|
 | 1 | `session-insights.sh` + scraper agent | script+agent | watermark + grep-first over `~/.claude/projects/<cwd>/*.jsonl`; distill intervention/friction spans → typed records |
-| 2 | `harvester` agent + `/harvest` cmd | agent+cmd | merge session + production + feedback records → genericity/scope gate → de-identify → **PII gate** → dedup → file improvement issues to pinned plugin repo |
+| 2 | `harvest.sh` + `/harvest` cmd | script+cmd | merge normalized root-terminal, session, production, and feedback records → genericity/scope gate → de-identify → **PII gate** → dedup → local candidate artifacts |
+| 2a | `lesson-file.sh` | script | exact-enable-flag and repo-pinned public filing boundary; repeat PII gate, advisory issue dedup, bounded writes, and nonzero failure reporting |
 | 3 | replay producer for `monitor-nightly` | agent | (live projects) simulate non-payers/error-hitters → findings JSONL via `monitor-checks.sh` contract — **aruannik already has this; generalize it** |
-| 4 | `/lessons-review` | cmd | the human gate: list open plugin improvement issues for approve/close before implementation |
+| 4 | `lesson-auto-review.sh` + optional `/lessons-review` | script+cmd | bounded automatic Opus/xhigh review with conditional independent Sol/xhigh arbitration; approve, reject, quarantine, or retry transport failures; manual inspection/override remains available |
 | 5 | config keys | `.claude/saas-startup-team.local.md` | `SAAS_PLUGIN_REPO` pin, enable flags, budgets, watermark file, telemetry sources |
 | 6 | `lessons-deliver.sh` + `/lessons-deliver` cmd | script+cmd | autonomous implementation of `lesson-approved` issues into the plugin repo: claim → implement (impl subagent) → mechanical diff firewall → tribunal → `run-tests.sh` → dual version bump → PR `Closes #N` → merge on green → ship. Plugin-native (no SaaS gates / deploy-watch); cron-driven. See `lessons-deliver.md`. |
 | 7 | per-project cron line | crontab | nightly harvester **and** nightly `/lessons-deliver` under `flock` (matches existing `0 2 * * *` pattern) |
@@ -242,8 +260,11 @@ plugin-native implementer — see `lessons-deliver.md` §2.
 
 - Filing improvement issues: **fully automated** (label `improvement` + domain
   `ux·logic·demand·process·tooling`).
-- Implementation: **after human review** of the issue (`/lessons-review` →
-  `/goal-deliver`).
+- Review: automatic, at most three candidates per pass; a high-confidence Opus/xhigh
+  approval or rejection is decisive, and Sol/xhigh arbitrates only unresolved/malformed
+  Opus output. Only transport failures/timeouts retry.
+- Implementation: automatically approved issues flow to plugin-native
+  `/lessons-deliver`; `/lessons-review` is optional.
 - "Genuine" threshold: a pattern recurs (≥2 sessions, or structurally generic
   from a single clear instance like #746).
 - Harvester cadence: nightly via cron under `flock`.
@@ -257,24 +278,22 @@ plugin-native implementer — see `lessons-deliver.md` §2.
 | Risk | Mitigation |
 |------|------------|
 | Privacy leak to public plugin repo | Paraphrase-only; PII/secrets hard gate; pinned repo + enable flag; verbatim stays local |
-| Bad/over-general lesson | Observation/Hypothesis/Recommendation split; conditional phrasing + counterexamples; **human reviews before implementing** |
+| Bad/over-general lesson | Observation/Hypothesis/Recommendation split; conditional phrasing + counterexamples; bounded independent model review; unresolved cases quarantined; manual override remains available |
 | Token flood from logs | Watermark + grep-first + distill-matched-spans-only; read distilled monitor notes not handoffs |
 | Cost/API amplification | Per-run budgets, lockfile, backoff, gh-auth skip |
 | Replay mutates prod / spends money | Staging + synthetic accounts; non-prod URL enforced; test-mode payments; read-only telemetry |
-| Noise issues in plugin repo | Recurrence threshold; dedup before filing; single review gate closes the rest |
+| Noise issues in plugin repo | Recurrence threshold; dedup before filing; automatic approve/reject/quarantine review; bounded retries only for transport failures |
 
 ---
 
-## 12. Open questions for sign-off
+## 12. Follow-up decisions
 
-1. **v1 scope** — build the **session-history scraper + harvester + `/lessons-review`**
-   first (works for both projects, directly serves investor-minimization), and
-   generalize aruannik's existing replay producer in v2? Or do both at once?
-2. **varustame monitor** — wire stock `monitor-nightly` now, or leave it
-   session-logs-only until it launches?
-3. **Recurrence threshold** — allow a single clearly-generic instance (#746-style)
-   through to a filed issue, or require ≥2 occurrences? (Default: single allowed,
-   human gate catches false positives.)
+1. **Pre-launch monitoring** — wire stock `monitor-nightly` before launch only when it has
+   meaningful synthetic or operational evidence; session history remains the baseline.
+2. **Recurrence threshold** — the current default permits a single structurally generic
+   instance (#746-style); automatic review rejects or quarantines weak candidates.
+3. **Replay generalization** — aruannik's replay producer remains the reference for a
+   future generic `monitor-nightly` producer.
 
 ---
 
@@ -285,6 +304,11 @@ plugin-native implementer — see `lessons-deliver.md` §2.
 > so runtime constitution de-emphasized; concrete wiring from container inspection
 > (repos, `paat` gh auth, cron flock pattern, log paths/sizes); aruannik replay
 > reused not rebuilt.
+
+> Changelog rev4: replaced required human approval with bounded automatic Opus/xhigh
+> review and conditional independent Sol/xhigh arbitration; made `/lessons-review` an
+> optional inspection/override; added quarantine and transport-only retry semantics; made
+> normalized root-terminal event projection authoritative for event-backed harvesting.
 
 ---
 
@@ -313,7 +337,7 @@ Tracking issue: **#79** (keep open until the loop runs end-to-end live).
     thresholds per signal, dedup vs `harvest-ledger.json`. Emits
     `candidates.jsonl` (Observation/Hypothesis/Recommendation skeleton) + report.
     **No `gh`, no network, no filing.** Genericity/phrasing is the `/harvest`
-    agent + human review, not the script.
+    agent plus the downstream automatic review, not the deterministic script.
   - Tests: Suite H (HV1–HV9) in `tests/run-tests.sh` (660 total, all green).
   - End-to-end on aruannik: 26 records → 2 candidates (5 interrupts, 21
     tool-failures), 0 PII-blocked, 0 deduped.
@@ -322,23 +346,25 @@ Tracking issue: **#79** (keep open until the loop runs end-to-end live).
     repo, but ONLY when `SAAS_LESSON_SYNC_ENABLED=true` AND a repo is pinned —
     otherwise **dry-run** (files nothing). Re-runs the shared PII gate at the
     filing boundary; idempotent via the fingerprint ledger; advisory dedup vs
-    open issues; per-run budget. PII gate extracted to shared `pii-gate.sh`
+    open issues; per-run budget. A paginated all-state inventory is matched locally
+    by fingerprint; concurrent duplicates converge to the lowest issue number and
+    later open duplicates are closed. Ledger and report writes are checked; ledger
+    replacement is atomic. PII gate extracted to shared `pii-gate.sh`
     (single source of truth for `harvest.sh` + `lesson-file.sh`).
-  - Tests: Suite F (F1–F9) with the mock-`gh` harness (684 total, all green).
+  - Tests: Suite F (F1–F18) with the mock-`gh` harness.
   - End-to-end on aruannik stays dry-run by default: 2 candidates → "would file
     2, filed 0", ledger empty, no `gh` contact.
-- [x] **v4 — `lesson-review.sh` + `/lessons-review`** (the single human gate). Component #4.
-  - Lists open `lesson-candidate` issues from the PINNED repo (`--list [--json]`),
-    and lets the investor `--approve N` (single atomic relabel
-    `lesson-candidate` → `lesson-approved`, marking it ready for `/lessons-deliver`)
-    or `--close N` (reject, closed as *not planned*). Repo pin required + validated
-    as `OWNER/REPO` for every action; mutations act only on a verified lesson issue
-    (label guard); idempotent approve/close; **fails closed** on any `gh` error.
-    Deliberate per-issue human action ⇒ no `SAAS_LESSON_SYNC_ENABLED` gate (that
-    flag guards automated filing only).
-  - Tests: Suite R (R1–R17) with the mock-`gh` harness (extended for
-    `issue view --json` / `issue edit` / `issue close`). All green.
-- [ ] Manual review of a larger record sample; cross-project recurrence.
+- [x] **v4 — `lesson-auto-review.sh` + optional `/lessons-review`**. Component #4.
+  - Reviews at most three verified candidates per pass. A fresh isolated Opus/xhigh
+    verdict is primary and decisive when it is a high-confidence approval or rejection;
+    unresolved or zero-exit malformed Opus output invokes independent Sol/xhigh
+    arbitration. A decisive Sol verdict approves or rejects; unresolved or zero-exit
+    malformed final Sol output quarantines. Only nonzero transport failures/timeouts
+    retry. Repo pinning, fresh issue verification, idempotent labels/comments, and
+    fail-closed GitHub mutations remain mandatory.
+  - `/lessons-review` lists the queue and provides explicit approve, close, quarantine,
+    or skip overrides without becoming a delivery prerequisite.
+- [ ] Validate cross-project recurrence against a larger record sample.
 - [x] Auto-implement approved issues via **`/lessons-deliver`** (autonomous,
   cron-driven). The original "`/goal-deliver #N` by hand" path does not fit the plugin
   monorepo — `/goal-deliver` is the SaaS-product implementer; `/lessons-deliver` is the
@@ -349,5 +375,6 @@ Tracking issue: **#79** (keep open until the loop runs end-to-end live).
   so candidates accumulate and approved lessons ship where the sessions live.
 - [ ] (replay) generalize aruannik's replay producer for `monitor-nightly`.
 
-Everything past v1 stays **local-only / not built** until the data model and privacy
-boundary are proven — no public-repo writes yet.
+The public-repo path remains disabled unless the exact filing enable flag and pinned repo
+are present. Local harvesting stays read-only; automated review and delivery operate only
+on issues that crossed that filing boundary.

@@ -32,14 +32,16 @@ wrapper() {
 held_command_is_complete() {
   wrapper held --delivery-hold true || return 1
   expected="$(printf '%s\n' /paat-reconcile/with-delivery-hold.sh timeout 7m bash -c "$CMD")"
-  [ "$(tail -n 6 "$DOCKER_CALLS")" = "$expected" ]
+  [ "$(tail -n 6 "$DOCKER_CALLS")" = "$expected" ] &&
+    grep -qFx 'BASH_ENV=' "$DOCKER_CALLS" && grep -qFx 'ENV=' "$DOCKER_CALLS"
 }
 t "opt-in wraps the complete unrestricted command through the launcher" held_command_is_complete
 
 absent_preserves_direct_delivery() {
   wrapper direct || return 1
   ! grep -qFx /paat-reconcile/with-delivery-hold.sh "$DOCKER_CALLS" &&
-  grep -qF "timeout 7m bash -c $(printf '%q' "$CMD")" "$DOCKER_CALLS"
+  grep -qF "timeout 7m bash -c $(printf '%q' "$CMD")" "$DOCKER_CALLS" &&
+  grep -qFx 'BASH_ENV=' "$DOCKER_CALLS" && grep -qFx 'ENV=' "$DOCKER_CALLS"
 }
 t "absent opt-in preserves direct container delivery" absent_preserves_direct_delivery
 

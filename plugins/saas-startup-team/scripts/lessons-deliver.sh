@@ -58,6 +58,17 @@ CLAIMED_LABEL="lessons:claimed"
 BLOCKED_LABEL="lessons:blocked"
 HUMAN_LABEL="lessons:needs-human"
 SHIPPED_LABEL="lesson-shipped"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lesson-review-binding.sh
+. "$SCRIPT_DIR/lesson-review-binding.sh" || {
+  echo "lessons-deliver: review binding helper is unavailable" >&2
+  exit 1
+}
+command -v jq >/dev/null 2>&1 && command -v sha256sum >/dev/null 2>&1 \
+  && command -v lesson_review_binding_present >/dev/null 2>&1 || {
+    echo "lessons-deliver: review binding prerequisites are unavailable" >&2
+    exit 1
+  }
 
 # --- repo pin validation (required for all gh-touching actions) --------------
 _require_repo() {
@@ -80,6 +91,23 @@ _issue_view() {
   printf '%s' "$out" | jq -e 'type=="object" and (.state|type=="string") and ((.closedByPullRequestsReferences//[])|type=="array")' >/dev/null 2>&1 || return 1
   printf '%s' "$out"
 }
+_approved_issue_view() {
+  local out
+  out="$(gh issue view "$1" --repo "$REPO" \
+    --json state,labels,closedByPullRequestsReferences,title,body,comments 2>/dev/null)" || return 1
+  printf '%s' "$out" | jq -e '
+    type == "object" and (.state | type == "string") and (.labels | type == "array")
+    and ((.closedByPullRequestsReferences // []) | type == "array")
+    and (.title | type == "string") and (.body | type == "string")
+    and (.comments | type == "array")
+    and all(.comments[];
+      (.body | type == "string")
+      and ((.author // {}) | type == "object")
+      and ((.author.login // null) | type == "string")
+      and ((.authorAssociation // "") | type == "string"))
+  ' >/dev/null 2>&1 || return 1
+  printf '%s' "$out"
+}
 _has_label()     { printf '%s' "$1" | jq -e --arg l "$2" '(.labels // []) | any(.name == $l)' >/dev/null 2>&1; }
 _is_open()       { [ "$(printf '%s' "$1" | jq -r '.state // "" | ascii_downcase')" = "open" ]; }
 _has_linked_pr() { [ "$(printf '%s' "$1" | jq '(.closedByPullRequestsReferences // []) | length')" -gt 0 ]; }
@@ -92,7 +120,7 @@ case "$ACTION" in
     case "$LIMIT" in ''|*[!0-9]*) echo "lessons-deliver: --limit must be a positive integer" >&2; exit 2 ;; esac
     [ "$LIMIT" -ge 1 ] || { echo "lessons-deliver: --limit must be >= 1" >&2; exit 2; }
     out="$(gh issue list --repo "$REPO" --label "$APPROVED_LABEL" --state open --limit "$LIMIT" \
-            --json number,title,labels,url,createdAt,closedByPullRequestsReferences 2>/dev/null)" || {
+            --json number,title,body,labels,url,createdAt,comments,closedByPullRequestsReferences 2>/dev/null)" || {
       echo "lessons-deliver: cannot list lessons from $REPO (gh failed / not authed)." >&2; exit 1; }
     if ! printf '%s' "$out" | jq -e 'type=="array"' >/dev/null 2>&1; then
       echo "lessons-deliver: $REPO returned an unparseable issue list. Refusing." >&2; exit 1
@@ -108,6 +136,19 @@ case "$ACTION" in
         and (((.closedByPullRequestsReferences // []) | length) == 0)
       )) | sort_by(.createdAt)')" || {
       echo "lessons-deliver: failed to filter the issue list. Refusing." >&2; exit 1; }
+    bound='[]'
+    while IFS= read -r item; do
+      if lesson_review_binding_present "$item" approve; then
+        bound="$(printf '%s' "$bound" | jq -c --argjson item "$item" '. + [$item]')" || {
+          echo "lessons-deliver: failed to build bound queue. Refusing." >&2
+          exit 1
+        }
+      else
+        item_number="$(printf '%s' "$item" | jq -r '.number // "?"')"
+        echo "lessons-deliver: ignoring #$item_number: approval is not bound to current title/body." >&2
+      fi
+    done < <(printf '%s' "$filtered" | jq -c '.[]')
+    filtered="$bound"
     if [ "$JSON" -eq 1 ]; then printf '%s' "$filtered" | jq '.' || { echo "lessons-deliver: bad filtered JSON." >&2; exit 1; }; exit 0; fi
     count="$(printf '%s' "$filtered" | jq 'length')" \
       || { echo "lessons-deliver: cannot count filtered lessons. Refusing." >&2; exit 1; }
@@ -122,7 +163,7 @@ case "$ACTION" in
   claim)
     _require_repo
     case "$NUM" in ''|*[!0-9]*) echo "lessons-deliver: --claim needs a positive integer" >&2; exit 2 ;; esac
-    info="$(_issue_view "$NUM")" || { echo "lessons-deliver: cannot inspect #$NUM in $REPO. Refusing." >&2; exit 1; }
+    info="$(_approved_issue_view "$NUM")" || { echo "lessons-deliver: cannot inspect exact approved content of #$NUM in $REPO. Refusing." >&2; exit 1; }
     _is_open "$info" || { echo "lessons-deliver: #$NUM is not open. Refusing." >&2; exit 1; }
     _has_linked_pr "$info" && { echo "lessons-deliver: #$NUM already has a linked PR. Refusing." >&2; exit 1; }
     if _has_label "$info" "$BLOCKED_LABEL" || _has_label "$info" "$HUMAN_LABEL"; then
@@ -131,8 +172,34 @@ case "$ACTION" in
     # cleared by --reconcile or a human). Never silently no-op over another run's claim.
     if _has_label "$info" "$CLAIMED_LABEL"; then echo "lessons-deliver: #$NUM already claimed. Refusing." >&2; exit 1; fi
     _has_label "$info" "$APPROVED_LABEL" || { echo "lessons-deliver: #$NUM is not $APPROVED_LABEL. Refusing." >&2; exit 1; }
+    lesson_review_binding_present "$info" approve || {
+      echo "lessons-deliver: #$NUM approval is not bound to its current title/body. Refusing." >&2
+      exit 1
+    }
+    claim_digest="$(lesson_review_digest_json "$info")" || {
+      echo "lessons-deliver: #$NUM cannot derive review digest. Refusing." >&2
+      exit 1
+    }
     gh issue edit "$NUM" --repo "$REPO" --add-label "$CLAIMED_LABEL" >/dev/null 2>&1 \
       || { echo "lessons-deliver: failed to claim #$NUM." >&2; exit 1; }
+    # Revalidate after the label transition so concurrent title/body edits cannot
+    # keep a claim that no longer matches the approved binding.
+    post_claim="$(_approved_issue_view "$NUM")" || {
+      echo "lessons-deliver: #$NUM disappeared after claim. Refusing." >&2
+      exit 1
+    }
+    post_digest="$(lesson_review_digest_json "$post_claim")" || {
+      echo "lessons-deliver: #$NUM content invalid after claim. Refusing." >&2
+      exit 1
+    }
+    # Do not require the claimed label on the re-fetch: GitHub can lag and the
+    # edit already succeeded fail-closed above. Require content + approval bind.
+    if [ "$post_digest" != "$claim_digest" ] \
+       || ! lesson_review_binding_present "$post_claim" approve \
+       || ! _has_label "$post_claim" "$APPROVED_LABEL"; then
+      echo "lessons-deliver: #$NUM drifted after claim; binding no longer matches. Refusing." >&2
+      exit 1
+    fi
     gh issue comment "$NUM" --repo "$REPO" --body "<!-- lessons:claimed:${RUNID:-?} --> claimed by lessons-deliver run ${RUNID:-?}" >/dev/null 2>&1 || true
     echo "lessons-deliver: #$NUM claimed."
     exit 0

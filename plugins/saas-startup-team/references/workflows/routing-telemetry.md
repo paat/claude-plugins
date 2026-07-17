@@ -45,11 +45,34 @@ and terminal outcome. Unknown effective or token values remain null. Never pass 
 text, issue content, filenames, paths, URLs, prompts, diffs, customer data, or project
 identity.
 
+Helpers accept optional `SAAS_PARENT_RUN_ID`. When present it must be a canonical
+`^run-[0-9a-f]{32}$` root different from the child `SAAS_RUN_ID`, and every helper
+event append includes `--parent-run-id "$SAAS_PARENT_RUN_ID"` through one shared local
+argument array. Leave it absent only for a root or standalone unparented helper. A root
+`pass-outcome` is authoritative: retrieve it with `terminal --run-id
+"$RUN_ID"`, then record final wall duration and optional root token usage exactly once
+with `account --run-id "$RUN_ID" --duration-ms "$DURATION_MS" [--total-tokens
+"$TOTAL_TOKENS"]`. Never sum child tokens. Read all authoritative root outcomes with
+`terminals`; it skips and reports incomplete root `pass-outcome` lifecycles while
+still failing on malformed or conflicting records. A single-run `terminal` lookup
+remains strict and fails when that requested root is incomplete.
+
+`terminal_reason` uses this finite privacy-safe registry:
+`invalid_workflow_state`, `context_binding_violation`, `false_success`, `probe_failed`,
+`triage_failed`, `delivery_failed`, `verification_failed`, `lease_conflict`,
+`receipt_conflict`, `budget_exhausted`, `timeout`, `rate_limited`, `delivery_hold`,
+`cancelled`, `escalated`, and `unknown_failure`. Any other supplied value normalizes to
+`other`; arbitrary code-shaped strings are never exposed. Downstream recurrence logic
+must ignore null and `other` terminal reasons. Harvesting recurrence is outside the
+event library.
+
 When a role guard is active, the event library and Codex launcher automatically buffer
 events and raw Codex logs in the dedicated Git guard directory. Verification preflights
 the complete receipt batch, imports it into the canonical ignored runtime paths, and
 resumes idempotently after interruption. Do not write `.startup/runs/` directly or
-invent a second buffering path.
+invent a second buffering path. The default event path is always in the primary
+worktree, including when the writer runs from a detached linked worktree; an explicit
+`--events` path remains an override.
 
 When invoking tribunal inline, set optional `TRIBUNAL_CALLER_PROVIDER`,
 `TRIBUNAL_CALLER_MODEL`, and `TRIBUNAL_CALLER_EFFORT` from the actual calling context.

@@ -41,4 +41,4 @@ For `saas-startup-team` workflows in Codex:
 
 - Plugin: `saas-startup-team`
 - Command aliases: `/saas-startup-team:harvest`, `/harvest`
-- Source description: Dry-run harvester for the self-improvement loop. Clusters local session-insights signals into candidate GENERIC plugin improvements, de-identifies them, runs a hard PII gate, dedups against a ledger, and presents drafts for review. No network, no issue filing - review precedes any filing. Usage: /harvest
+- Source description: Dry-run harvester for the self-improvement loop. Projects authoritative root workflow outcomes plus local session signals into generic, de-identified, PII-gated candidates. No network or issue filing; public filing is a separate repo-pinned gate. Usage: /harvest

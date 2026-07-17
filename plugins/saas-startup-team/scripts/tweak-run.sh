@@ -54,6 +54,18 @@ initial_dirty="$(git status --porcelain --untracked-files=all | grep -vE '^.. \.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_ID="${SAAS_RUN_ID:-$(bash "$SCRIPT_DIR/agent-events.sh" new-run-id)}"
 ATTEMPT="${SAAS_ATTEMPT:-1}"
+EVENT_CONTEXT_ARGS=()
+if [ -n "${SAAS_PARENT_RUN_ID:-}" ]; then
+  [[ "$SAAS_PARENT_RUN_ID" =~ ^run-[0-9a-f]{32}$ ]] || {
+    echo "tweak-run: invalid SAAS_PARENT_RUN_ID" >&2
+    exit 2
+  }
+  [ "$SAAS_PARENT_RUN_ID" != "$RUN_ID" ] || {
+    echo "tweak-run: SAAS_PARENT_RUN_ID must differ from SAAS_RUN_ID" >&2
+    exit 2
+  }
+  EVENT_CONTEXT_ARGS+=(--parent-run-id "$SAAS_PARENT_RUN_ID")
+fi
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 START_SECONDS="$(date +%s)"
 ROUTE_FILE="$(mktemp)"
@@ -68,7 +80,7 @@ fi
 bash "$SCRIPT_DIR/agent-events.sh" append --run-id "$RUN_ID" --command "${SAAS_COMMAND:-tweak}" \
   --phase mutation --surface script --profile light --writer-id "supervisor-$RUN_ID" \
   --attempt "$ATTEMPT" --event-type started --started-at "$STARTED_AT" \
-  --outcome incomplete "${ROUTE_ARGS[@]}" >/dev/null || {
+  --outcome incomplete "${EVENT_CONTEXT_ARGS[@]}" "${ROUTE_ARGS[@]}" >/dev/null || {
     rm -f "$ROUTE_FILE"
     echo "tweak-run: could not record start event" >&2
     exit 4
@@ -101,7 +113,7 @@ finish() {
     --phase mutation --surface script --profile light --writer-id "supervisor-$RUN_ID" \
     --attempt "$ATTEMPT" --event-type completed --started-at "$STARTED_AT" \
     --finished-at "$finished" --duration-ms "$duration" --checks "$checks" \
-    --outcome "$outcome" "${ROUTE_ARGS[@]}" >/dev/null; then
+    --outcome "$outcome" "${EVENT_CONTEXT_ARGS[@]}" "${ROUTE_ARGS[@]}" >/dev/null; then
     echo "tweak-run: could not record completion event" >&2
     [ "$final_rc" -ne 0 ] || final_rc=4
   fi

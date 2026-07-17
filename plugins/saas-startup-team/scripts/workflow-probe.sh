@@ -5,6 +5,7 @@
 set -euo pipefail
 
 MODE="${1:-}"; [ "$#" -gt 0 ] && shift || true
+OUTPUT_MODE="$MODE"
 ROOT=""; REPO=""; ISSUE=""; LABEL=""; DATE=""; DRY_RUN=0
 usage() {
   echo "usage: workflow-probe.sh {maintain|maintain-loop|monitor-nightly|digest|lessons-deliver} [--root DIR] [--repo OWNER/REPO] [--issue N] [--label LABEL] [--date YYYY-MM-DD]" >&2
@@ -24,7 +25,11 @@ while [ "$#" -gt 0 ]; do
     *) echo "workflow-probe: unsupported argument: $1" >&2; usage; exit 2 ;;
   esac
 done
-case "$MODE" in maintain|maintain-loop|monitor-nightly|digest|lessons-deliver) : ;; *) usage; exit 2 ;; esac
+case "$MODE" in
+  maintain-loop) MODE=maintain ;;
+  maintain|monitor-nightly|digest|lessons-deliver) : ;;
+  *) usage; exit 2 ;;
+esac
 case "$ISSUE" in
   "") ;;
   *[!0-9]*|0*) echo "workflow-probe: --issue must be a positive integer without leading zeros" >&2; exit 2 ;;
@@ -32,8 +37,14 @@ esac
 [ -n "$ROOT" ] || ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ROOT="$(cd "$ROOT" && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-noop() { echo "workflow-probe: $MODE no work to do"; exit 3; }
-ready() { echo "workflow-probe: $MODE work available"; exit 0; }
+noop() { echo "workflow-probe: $OUTPUT_MODE no work to do"; exit 3; }
+CONTROLLER_ROUTE=""
+ready() {
+  [ -z "$CONTROLLER_ROUTE" ] \
+    || echo "workflow-probe: $OUTPUT_MODE controller-route=$CONTROLLER_ROUTE"
+  echo "workflow-probe: $OUTPUT_MODE work available"
+  exit 0
+}
 BLOCKED_FILES=()
 git_common_dir() {
   local common
@@ -58,34 +69,117 @@ load_blocked_files() {
 delivery_lease_gate() {
   [ "$DRY_RUN" -eq 0 ] || return 0
   if ! diag="$(bash "$SCRIPT_DIR/maintain-leases.sh" available --repo-root "$ROOT" 2>&1)"; then
-    echo "workflow-probe: $MODE blocked: $diag" >&2
+    echo "workflow-probe: $OUTPUT_MODE blocked: $diag" >&2
     exit 4
   fi
 }
 
-# Codex-native maintenance runs unrestricted inside the dev-container boundary.
-# The probe only verifies the CLI when maintain-loop will need it; the parent
-# launch owns approval/sandbox policy. A --dry-run never requires the CLI.
+# Source delivery requires an authenticated Codex CLI. The parent launch owns
+# approval/sandbox policy, and a --dry-run never checks execution prerequisites.
 codex_cli_gate() {
   [ "$DRY_RUN" -eq 0 ] || return 0
   case " ${SAAS_PREFLIGHT_MISSING:-} " in
     *" codex "*) ;;
-    *) command -v codex >/dev/null 2>&1 && return 0 ;;
+    *)
+      if command -v codex >/dev/null 2>&1; then
+        command -v timeout >/dev/null 2>&1 || {
+          echo "workflow-probe: $OUTPUT_MODE blocked: timeout is required to verify Codex authentication" >&2
+          exit 4
+        }
+        if timeout 10 codex login status >/dev/null 2>&1; then return 0; fi
+        echo "workflow-probe: $OUTPUT_MODE blocked: Codex authentication is unavailable; run codex login before scheduling this workflow" >&2
+        exit 4
+      fi
+      ;;
   esac
-  echo "workflow-probe: $MODE blocked: Codex CLI not found; install/authenticate Codex before scheduling this workflow" >&2
+  echo "workflow-probe: $OUTPUT_MODE blocked: Codex CLI not found; install/authenticate Codex before scheduling this workflow" >&2
   exit 4
 }
 
 lease_guardian_gate() {
   [ "$DRY_RUN" -eq 0 ] || return 0
   if ! diag="$(bash "$SCRIPT_DIR/lease-guardian.sh" probe 2>&1)"; then
-    echo "workflow-probe: $MODE blocked: $diag" >&2
+    echo "workflow-probe: $OUTPUT_MODE blocked: $diag" >&2
     exit 4
   fi
 }
 
+PENDING_DELIVERY_STATE=""
+PENDING_DELIVERY_ISSUE=""
+embedded_delivery_receipt_probe() {
+  local pending_json pending_count pending_mode pending_worktree
+  local pending_route primary expected_worktree
+  pending_json="$(bash "$SCRIPT_DIR/maintain-delivery.sh" pending --repo-root "$ROOT")" || {
+    echo "workflow-probe: $OUTPUT_MODE blocked: maintain-delivery receipts are malformed or cannot be inspected" >&2
+    exit 4
+  }
+  pending_count=$(jq -er 'if type == "array" then length else error("not an array") end' \
+    <<<"$pending_json") || {
+    echo "workflow-probe: $OUTPUT_MODE blocked: maintain-delivery receipt inventory is malformed" >&2
+    exit 4
+  }
+  [ "$pending_count" -le 1 ] || {
+    echo "workflow-probe: $OUTPUT_MODE blocked: multiple nonterminal maintain-delivery receipts require reconciliation" >&2
+    exit 4
+  }
+  [ "$pending_count" -eq 0 ] && return 0
+  jq -e '
+    .[0] | type == "object"
+    and keys == ["controller_route","delivery_id","issue_number","receipt","state"]
+    and (.controller_route|type == "object" and keys == ["kind","mode","worktree"])
+    and (.controller_route.kind == "canonical" or .controller_route.kind == "legacy-recovery")
+    and (.controller_route.mode == "maintain" or .controller_route.mode == "maintain-loop")
+    and (.controller_route.worktree|type == "string" and startswith("/"))
+  ' <<<"$pending_json" >/dev/null || {
+    echo "workflow-probe: $OUTPUT_MODE blocked: maintain-delivery controller route is malformed" >&2
+    exit 4
+  }
+  PENDING_DELIVERY_STATE=$(jq -er '.[0].state | select(type == "string" and length > 0)' \
+    <<<"$pending_json") || {
+    echo "workflow-probe: $OUTPUT_MODE blocked: maintain-delivery receipt state is malformed" >&2
+    exit 4
+  }
+  PENDING_DELIVERY_ISSUE=$(jq -er '.[0].issue_number | select(type == "number" and . >= 1 and floor == .)' \
+    <<<"$pending_json") || {
+    echo "workflow-probe: $OUTPUT_MODE blocked: maintain-delivery receipt issue is malformed" >&2
+    exit 4
+  }
+  case "$PENDING_DELIVERY_STATE" in
+    claimed|normal_planned|normal_open|normal_merge_authorized|post_merge|release_verified|rollback_planned|rollback_open|rollback_merge_authorized|rollback_merged|rollback_release_verified|close_intent|closed_observed) : ;;
+    *) echo "workflow-probe: $OUTPUT_MODE blocked: invalid maintain-delivery receipt state: $PENDING_DELIVERY_STATE" >&2; exit 4 ;;
+  esac
+  pending_mode=$(jq -r '.[0].controller_route.mode' <<<"$pending_json")
+  pending_worktree=$(jq -r '.[0].controller_route.worktree' <<<"$pending_json")
+  pending_route=$(jq -r '.[0].controller_route.kind' <<<"$pending_json")
+  primary=$(bash "$SCRIPT_DIR/maintain-leases.sh" primary-root --repo-root "$ROOT") || {
+    echo "workflow-probe: $OUTPUT_MODE blocked: cannot resolve receipt controller root" >&2
+    exit 4
+  }
+  case "$pending_route" in
+    canonical)
+      [ "$pending_mode" = maintain ] && expected_worktree="$primary/.worktrees/maintain" ;;
+    legacy-recovery)
+      [ "$pending_mode" = maintain-loop ] \
+        && expected_worktree="$primary/.worktrees/maintain-loop" ;;
+  esac
+  [ -n "${expected_worktree:-}" ] && [ "$pending_worktree" = "$expected_worktree" ] || {
+    echo "workflow-probe: $OUTPUT_MODE blocked: receipt controller route does not match its exact worktree" >&2
+    exit 4
+  }
+  CONTROLLER_ROUTE=$pending_route
+  echo "workflow-probe: $OUTPUT_MODE pending receipt: issue #$PENDING_DELIVERY_ISSUE ($PENDING_DELIVERY_STATE)"
+}
+
 case "$MODE" in
   maintain)
+    CONTROLLER_ROUTE=canonical
+    embedded_delivery_receipt_probe
+    if [ -n "$PENDING_DELIVERY_STATE" ]; then
+      delivery_lease_gate
+      lease_guardian_gate
+      [ "$PENDING_DELIVERY_STATE" != claimed ] || codex_cli_gate
+      ready
+    fi
     command -v gh >/dev/null 2>&1 || { echo "workflow-probe: gh is required" >&2; exit 1; }
     routing_schema_version="$(bash "$SCRIPT_DIR/delivery-route.sh" schema-version | jq -er '.schema_version | select(type == "number")')" || {
       echo "workflow-probe: cannot resolve routing schema" >&2; exit 1; }
@@ -133,49 +227,7 @@ case "$MODE" in
     [ -z "$stale_cleanup" ] || echo "workflow-probe: maintain stale maintain:blocked cleanup: $stale_cleanup"
     delivery_lease_gate
     lease_guardian_gate
-    ready
-    ;;
-
-  maintain-loop)
-    pending_args=(pending --repo-root "$ROOT"); [ -z "$ISSUE" ] || pending_args+=(--issue "$ISSUE")
-    pending_json="$(bash "$SCRIPT_DIR/maintain-delivery.sh" "${pending_args[@]}")" || {
-      echo "workflow-probe: cannot inspect pending maintain-loop delivery" >&2; exit 1; }
-    pending_count=$(jq -r 'length' <<<"$pending_json") || exit 1
-    if [ "$pending_count" -gt 1 ]; then
-      echo "workflow-probe: multiple nonterminal maintain-loop receipts require reconciliation" >&2
-      exit 1
-    fi
-    if [ "$pending_count" -eq 1 ]; then
-      pending_state="$(jq -er '.[0].state | select(type == "string" and length > 0)' <<<"$pending_json")" || {
-        echo "workflow-probe: invalid pending maintain-loop delivery state" >&2; exit 1; }
-      echo "workflow-probe: maintain-loop pending receipt: $pending_state"
-      delivery_lease_gate
-      case "$pending_state" in
-        claimed) codex_cli_gate ;;
-        normal_planned|normal_open|normal_merge_authorized|post_merge|release_verified|rollback_planned|rollback_open|rollback_merge_authorized|rollback_merged|rollback_release_verified|close_intent|closed_observed) : ;;
-        *) echo "workflow-probe: invalid pending maintain-loop delivery state: $pending_state" >&2; exit 1 ;;
-      esac
-      lease_guardian_gate
-      ready
-    fi
-    args=(); [ -z "$REPO" ] || args+=(--repo "$REPO"); [ -z "$ISSUE" ] || args+=(--issue "$ISSUE"); [ -z "$LABEL" ] || args+=(--label "$LABEL")
-    load_blocked_files || { echo "workflow-probe: cannot resolve blocked ledgers" >&2; exit 1; }
-    for blocked_file in "${BLOCKED_FILES[@]}"; do args+=(--blocked-file "$blocked_file"); done
-    queue_err=$(mktemp); queue_rc=0
-    queue="$(cd "$ROOT" && bash "$SCRIPT_DIR/maintain-queue.sh" "${args[@]}" 2>"$queue_err")" || queue_rc=$?
-    if [ "$queue_rc" -ne 0 ]; then
-      if [ "$queue_rc" -eq 3 ] && [ -n "$ISSUE" ] \
-        && grep -Fqx "maintain-queue: issue #$ISSUE is not open" "$queue_err"; then
-        rm -f "$queue_err"; noop
-      fi
-      sed 's/^/workflow-probe: /' "$queue_err" >&2
-      rm -f "$queue_err"; exit 1
-    fi
-    rm -f "$queue_err"
-    [ "$(printf '%s' "$queue" | jq '.queue|length')" -gt 0 ] || noop
-    delivery_lease_gate
     codex_cli_gate
-    lease_guardian_gate
     ready
     ;;
 

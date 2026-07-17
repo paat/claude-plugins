@@ -13,7 +13,7 @@ test_runtime_safety() {
   local check_pid check_signal check_release check_output check_status
   local supervisor_bwrap_dir limit_log_dir limit_log limit_bytes marker victim_dir started elapsed codex_calls
   local hanging_pid_file hanging_pid leaked_check
-  local system_git failed_snapshot array_snapshot check_receipt commit_receipt
+  local system_git failed_snapshot array_snapshot check_receipt commit_receipt parent_run
   local -a large_allow_args
   supervisor_bwrap_dir=$(mktemp -d)
 
@@ -2240,7 +2240,34 @@ PATCH
   ec=0; out=$(cd "$workdir" && bash "$script" --patch "$patch_file" --message tweak --mode current --push 2>&1) || ec=$?
   assert_exit_code "RS28: tweak success" "$ec" 0
   assert_equals "RS29: role restored after success" "$(jq -r .active_role "$workdir/.startup/state.json")" "team-lead"
+  assert_equals "RS29p0: absent tweak parent preserves unparented events" \
+    "$(jq -s '[.[].parent_run_id] | unique == [null]' "$workdir/.startup/runs/agent-events.jsonl")" true
   rm -rf "$workdir" "$remote" "$patch_file"
+
+  parent_run=run-22222222222222222222222222222222
+  make_tweak_repo; patch_file=$(mktemp); simple_patch "$patch_file"
+  ec=0; out=$(cd "$workdir" && SAAS_RUN_ID=tweak-parented SAAS_PARENT_RUN_ID="$parent_run" \
+    bash "$script" --patch "$patch_file" --message tweak --mode current 2>&1) || ec=$?
+  assert_exit_code "RS29p1: tweak accepts a canonical parent" "$ec" 0
+  assert_equals "RS29p2: every tweak event propagates the parent" \
+    "$(jq -s --arg parent "$parent_run" \
+      'length == 2 and all(.[]; .parent_run_id == $parent)' "$workdir/.startup/runs/agent-events.jsonl")" true
+  rm -rf "$workdir" "$patch_file"
+
+  make_tweak_repo; patch_file=$(mktemp); simple_patch "$patch_file"; base=$(git -C "$workdir" rev-parse HEAD)
+  ec=0; out=$(cd "$workdir" && SAAS_RUN_ID=tweak-invalid SAAS_PARENT_RUN_ID=invalid \
+    bash "$script" --patch "$patch_file" --message tweak --mode current 2>&1) || ec=$?
+  assert_exit_code "RS29p3: tweak rejects an invalid parent" "$ec" 2
+  assert_equals "RS29p4: invalid parent leaves tweak HEAD unchanged" "$(git -C "$workdir" rev-parse HEAD)" "$base"
+  rm -rf "$workdir" "$patch_file"
+
+  parent_run=run-33333333333333333333333333333333
+  make_tweak_repo; patch_file=$(mktemp); simple_patch "$patch_file"; base=$(git -C "$workdir" rev-parse HEAD)
+  ec=0; out=$(cd "$workdir" && SAAS_RUN_ID="$parent_run" SAAS_PARENT_RUN_ID="$parent_run" \
+    bash "$script" --patch "$patch_file" --message tweak --mode current 2>&1) || ec=$?
+  assert_exit_code "RS29p5: tweak rejects parent equal to child" "$ec" 2
+  assert_equals "RS29p6: equal parent leaves tweak HEAD unchanged" "$(git -C "$workdir" rev-parse HEAD)" "$base"
+  rm -rf "$workdir" "$patch_file"
 
   make_tweak_repo; mkdir -p "$workdir/.startup/runs"; : > "$workdir/.startup/runs/agent-events.jsonl"; : > "$workdir/.startup/runs/agent-events.jsonl.lock"
   patch_file=$(mktemp); simple_patch "$patch_file"
@@ -2422,7 +2449,6 @@ SH
     "$PLUGIN_ROOT/references/workflows/goal-deliver.md" \
     "$PLUGIN_ROOT/references/workflows/maintain.md" \
     "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    "$PLUGIN_ROOT/references/workflows/maintain-loop-protocol.md" \
     "$PLUGIN_ROOT/commands/startup.md" \
     "$PLUGIN_ROOT/commands/lessons-deliver.md" \
     "$PLUGIN_ROOT/docs/design/lessons-deliver.md" 2>/dev/null || true)"
@@ -2437,6 +2463,8 @@ SH
     "$script" 'codex-sandbox-check.sh'
   assert_file_not_exists "RS37b: obsolete Codex worker sandbox checker is removed" \
     "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh"
+  assert_file_contains "RS37b1: maintenance readiness checks bounded Codex auth" \
+    "$script" 'timeout 10 codex login status'
   assert_file_contains "RS37c: every separate Codex role uses unrestricted mode" \
     "$PLUGIN_ROOT/scripts/codex-run-role.sh" 'CODEX_SANDBOX_ARGS=(--dangerously-bypass-approvals-and-sandbox)'
   assert_file_not_contains "RS37d: legacy maintain adapter cannot narrow Codex workers" \
@@ -2483,9 +2511,6 @@ SH
   export SAAS_SUPERVISOR_CHECK_DRIVER
   ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
   assert_exit_code "RS38: empty maintain queue is model-free no-op" "$ec" 3
-  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" maintain-loop \
-    --repo owner/repo 2>&1) || ec=$?
-  assert_exit_code "RS39: empty maintain-loop queue is no-op" "$ec" 3
   ec=0; out=$(cd "$workdir" && bash "$script" monitor-nightly 2>&1) || ec=$?
   assert_exit_code "RS40: unconfigured monitor is no-op" "$ec" 3
   mkdir -p "$workdir/.claude" "$workdir/.startup" "$workdir/docs"
@@ -2556,8 +2581,7 @@ SH
   unset SAAS_SUPERVISOR_CHECK_DRIVER
   rm -rf "$workdir"
 
-  # Codex-native maintenance inherits the unrestricted parent policy. The probe
-  # checks CLI availability only and never invokes the optional writer smoke.
+  # Maintenance probes verify Codex authentication without launching a model.
   workdir=$(make_workdir); mkdir -p "$workdir/bin"
   codex_calls="$workdir/codex-calls"
   probe_issues='[{"number":42,"updatedAt":"2026-01-01T00:00:00Z","labels":[]}]'
@@ -2577,6 +2601,10 @@ if [ "$1" = "sandbox" ] && [ "${2:-}" = "--help" ]; then exit 0; fi
 if [ "$1" = "sandbox" ]; then
   printf '%s\n' "bwrap: No permissions to create a new namespace" >&2
   exit 1
+fi
+if [ "$1" = "login" ] && [ "${2:-}" = "status" ]; then
+  [ "${FAKE_CODEX_AUTH_OK:-1}" -eq 1 ]
+  exit $?
 fi
 exit 0
 SH
@@ -2600,18 +2628,30 @@ SH
   assert_exit_code "RS51: denied lifecycle containment still blocks maintain" "$ec" 4
   assert_output_contains "RS51a: lifecycle containment failure is actionable" "$out" \
     "Linux ptrace support is required"
-  assert_file_not_exists "RS51b: maintain probe never invokes Codex" "$codex_calls"
+  assert_file_not_exists "RS51b: failed containment stops before Codex auth" "$codex_calls"
   ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain --dry-run 2>&1) || ec=$?
   assert_exit_code "RS51e: read-only dry-run planning pass is not blocked" "$ec" 0
   rm -f "$workdir/bin/python3"
   ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" SAAS_PREFLIGHT_MISSING=codex GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain 2>&1) || ec=$?
-  assert_exit_code "RS51h: maintain without a Codex CLI launches as before" "$ec" 0
-  assert_file_not_exists "RS51h1: maintain still never invokes Codex" "$codex_calls"
-  ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" SAAS_PREFLIGHT_MISSING=codex GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain-loop --repo owner/repo 2>&1) || ec=$?
-  assert_exit_code "RS51i: maintain-loop without its required Codex CLI never launches" "$ec" 4
-  ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" CODEX_SANDBOX=danger-full-access GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" bash "$script" maintain-loop --repo owner/repo 2>&1) || ec=$?
-  assert_exit_code "RS51j: unrestricted maintain-loop reaches runnable state" "$ec" 0
-  assert_file_not_exists "RS51k: unrestricted probe never runs Codex sandbox smoke" "$codex_calls"
+  assert_exit_code "RS51h: runnable queue without Codex fails before dispatch" "$ec" 4
+  assert_output_contains "RS51h1: missing Codex diagnostic is actionable" "$out" \
+    'Codex CLI not found'
+  assert_file_not_exists "RS51h2: forced-missing Codex runs no auth command" "$codex_calls"
+  ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" FAKE_CODEX_AUTH_OK=0 \
+    GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" \
+    bash "$script" maintain 2>&1) || ec=$?
+  assert_exit_code "RS51i: unauthenticated Codex blocks a runnable queue" "$ec" 4
+  assert_output_contains "RS51i1: unavailable auth diagnostic is actionable" "$out" \
+    'Codex authentication is unavailable'
+  assert_file_contains "RS51i2: probe checks Codex login status" "$codex_calls" \
+    '^login status$'
+  : > "$codex_calls"
+  ec=0; out=$(cd "$workdir" && FAKE_CODEX_CALLS="$codex_calls" FAKE_CODEX_AUTH_OK=1 \
+    GH_ISSUES_JSON="$probe_issues" PATH="$workdir/bin:$PATH" \
+    bash "$script" maintain 2>&1) || ec=$?
+  assert_exit_code "RS51j: authenticated Codex makes the runnable queue ready" "$ec" 0
+  assert_equals "RS51j1: readiness performs only the bounded auth check" \
+    "$(cat "$codex_calls")" 'login status'
   rm -rf "$workdir"
 
   # Artifact hooks reject traversal and isolate the commit from hook-added paths.

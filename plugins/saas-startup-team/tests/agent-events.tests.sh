@@ -1,5 +1,15 @@
 # Sourced by run-tests.sh: append-only telemetry, legacy parsing, and sanitized export.
 
+AGENT_EVENTS_STANDALONE=0
+if ! declare -F assert_file_exists >/dev/null; then
+  AGENT_EVENTS_STANDALONE=1
+  agent_events_test_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  # Reuse the shared harness prefix without invoking its full test runner.
+  # shellcheck source=/dev/null
+  . <(awk '/# Helper: create temp working dir/{exit} {print}' "$agent_events_test_dir/run-tests.sh")
+  PLUGIN_ROOT="$(cd -- "$agent_events_test_dir/.." && pwd)"
+fi
+
 test_agent_events() {
   echo -e "\n${CYAN}Suite: delivery agent events and redacted evaluation export${NC}"
   local events_script="$PLUGIN_ROOT/scripts/agent-events.sh"
@@ -8,6 +18,9 @@ test_agent_events() {
   local wd events out ec i lines export1 export2 aggregate secret generated_id bad_output
   local identity_events identity_export identity_tmp tampered_events tampered_read tampered_secret_events route_events
   local guard_repo guard_dir snapshot auth receipt receipt_backup outside bin first_receipt verified tag concurrent
+  local v1_events v1_failure_events v1_export v2_fixture terminal_events token_events token_export parent_events parent_root parent_child reason_events reason
+  local primary_repo linked_repo primary_events explicit_events terminal_output before_lines
+  local bulk_events bulk_output incomplete_events empty_events malformed_events lifecycle_events incomplete_stderr invalid_reason_events
 
   assert_file_exists "EV1: event writer/parser exists" "$events_script"
   assert_file_exists "EV2: redacted exporter exists" "$exporter"
@@ -116,6 +129,217 @@ test_agent_events() {
     "$(bash "$events_script" read --events "$route_events" | jq -c '.routing_reasons')" \
     '["sensitive_accounting_reporting","sensitive_surface_vocabulary"]'
 
+  # Schema-v2 accounting remains compatible with physical v1 records, and every
+  # run identity crossing append, parent, or query boundaries is opaque.
+  v2_fixture="$wd/v2-fixture.jsonl"
+  bash "$events_script" append --events "$v2_fixture" \
+    --run-id run-0123456789abcdef0123456789abcdef --command maintain-loop --phase pass-outcome \
+    --surface script --profile deep --writer-id schema-writer --event-type completed --outcome success >/dev/null
+  assert_equals "EV41: append emits schema v2 with nullable accounting keys" \
+    "$(jq -r '.schema_version == 2 and .parent_run_id == null and .terminal_reason == null and .total_tokens == null' "$v2_fixture")" "true"
+  v1_events="$wd/v1-events.jsonl"
+  jq -c 'del(.parent_run_id,.terminal_reason,.total_tokens) | .schema_version=1 | .source_schema_version=1' \
+    "$v2_fixture" > "$v1_events"
+  cp "$v2_fixture.identity-key" "$v1_events.identity-key"
+  assert_equals "EV42: physical schema-v1 lines remain readable" \
+    "$(bash "$events_script" read --events "$v1_events" | jq -r '.schema_version == 1 and .parent_run_id == null and .total_tokens == null')" "true"
+  assert_equals "EV43: canonical query identity remains unchanged" \
+    "$(bash "$events_script" terminal --events "$v1_events" --run-id run-0123456789abcdef0123456789abcdef | jq -r .run_id)" \
+    "run-0123456789abcdef0123456789abcdef"
+  v1_export="$wd/v1-export.json"
+  bash "$exporter" --events "$v1_events" --out "$v1_export" >/dev/null
+  assert_equals "EV43a: exporter consumes schema-v1 events into export v2" \
+    "$(jq -r '[.schema_version,.sample_count] | @csv' "$v1_export")" '2,1'
+  v1_failure_events="$wd/v1-failure-events.jsonl"
+  jq -c 'del(.parent_run_id,.terminal_reason,.total_tokens) | .schema_version=1
+    | .source_schema_version=1 | .outcome="failure"' "$v2_fixture" > "$v1_failure_events"
+  cp "$v2_fixture.identity-key" "$v1_failure_events.identity-key"
+  assert_equals "EV43b: schema-v1 failed terminals remain readable without a reason" \
+    "$(bash "$events_script" terminal --events "$v1_failure_events" \
+      --run-id run-0123456789abcdef0123456789abcdef | jq -r '.outcome')" "failure"
+  assert_equals "EV43c: accounting a v1 failed terminal upgrades with a registered fallback reason" \
+    "$(bash "$events_script" account --events "$v1_failure_events" \
+      --run-id run-0123456789abcdef0123456789abcdef --duration-ms 7 | jq -r '.terminal_reason')" \
+    "unknown_failure"
+
+  parent_events="$wd/parent-events.jsonl"
+  bash "$events_script" append --events "$parent_events" --run-id opaque-parent \
+    --command improve --phase implementation --surface codex --profile standard --writer-id parent-writer \
+    --event-type started --outcome incomplete >/dev/null
+  bash "$events_script" append --events "$parent_events" --run-id opaque-child --parent-run-id opaque-parent \
+    --command improve --phase implementation --surface codex --profile standard --writer-id child-writer \
+    --event-type completed --outcome success >/dev/null
+  parent_root=$(jq -r 'select(.event_type=="started") | .run_id' "$parent_events")
+  parent_child=$(jq -r 'select(.event_type=="completed") | .parent_run_id' "$parent_events")
+  assert_equals "EV44: parent run identity uses the same opaque normalization" "$parent_child" "$parent_root"
+  assert_equals "EV45: raw parent and child identities are never stored" \
+    "$(grep -Ec 'opaque-(parent|child)' "$parent_events" || true)" "0"
+
+  terminal_events="$wd/terminal-events.jsonl"
+  bash "$events_script" append --events "$terminal_events" --run-id opaque-query-run \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id terminal-writer \
+    --event-type completed --outcome failure --terminal-reason invalid_workflow_state >/dev/null
+  terminal_output=$(bash "$events_script" terminal --events "$terminal_events" --run-id opaque-query-run)
+  assert_equals "EV46: opaque query identity resolves without disclosure" \
+    "$(jq -r '.run_id | test("^run-[0-9a-f]{32}$")' <<< "$terminal_output")" "true"
+  assert_equals "EV47: stable terminal reason survives normalization" \
+    "$(jq -r .terminal_reason <<< "$terminal_output")" "invalid_workflow_state"
+  reason_events="$wd/reason-events.jsonl"
+  for reason in invalid_workflow_state context_binding_violation false_success \
+      probe_failed triage_failed delivery_failed verification_failed lease_conflict \
+      receipt_conflict budget_exhausted timeout rate_limited delivery_hold cancelled \
+      escalated unknown_failure; do
+    bash "$events_script" append --events "$reason_events" --run-id "reason-$reason" \
+      --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id reason-writer \
+      --event-type completed --outcome failure --terminal-reason "$reason" >/dev/null
+  done
+  assert_equals "EV47a: every registered terminal reason is preserved" \
+    "$(bash "$events_script" read --events "$reason_events" | jq -sc 'length == 16 and all(.[]; .terminal_reason != "other")')" "true"
+  assert_equals "EV47b: allowlisted generic operational reasons remain stable" \
+    "$(bash "$events_script" read --events "$reason_events" | jq -r 'select(.terminal_reason == "probe_failed") | .terminal_reason')" \
+    "probe_failed"
+  ec=0; bash "$events_script" append --events "$reason_events" --run-id reason-untrusted \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id reason-writer \
+    --event-type completed --outcome failure --terminal-reason vendor_specific_failure \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV47c: root pass terminals reject unregistered reasons" "$ec" 2
+  bash "$events_script" append --events "$reason_events" --run-id reason-child \
+    --parent-run-id reason-parent --command improve --phase implementation --surface script --profile deep \
+    --writer-id reason-writer --event-type completed --outcome failure \
+    --terminal-reason vendor_specific_failure >/dev/null
+  assert_equals "EV47d: child reasons retain legacy normalization behavior" \
+    "$(tail -n 1 "$reason_events" | jq -r .terminal_reason)" "other"
+  ec=0; bash "$events_script" append --events "$reason_events" --run-id reason-missing \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id reason-writer \
+    --event-type completed --outcome failure >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV47e: failed root pass terminals require a reason" "$ec" 2
+  ec=0; bash "$events_script" append --events "$reason_events" --run-id reason-on-success \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id reason-writer \
+    --event-type completed --outcome success --terminal-reason unknown_failure >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV47f: successful root pass terminals require a null reason" "$ec" 2
+  invalid_reason_events="$wd/invalid-reason-events.jsonl"
+  jq -c '.terminal_reason="unknown_failure"' "$v2_fixture" > "$invalid_reason_events"
+  cp "$v2_fixture.identity-key" "$invalid_reason_events.identity-key"
+  ec=0; bash "$events_script" read --events "$invalid_reason_events" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV47g: reader rejects v2 success terminals carrying a reason" "$ec" 3
+  jq -c '.outcome="failure" | .terminal_reason=null' "$v2_fixture" > "$invalid_reason_events"
+  ec=0; bash "$events_script" read --events "$invalid_reason_events" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV47h: reader rejects v2 failure terminals missing a reason" "$ec" 3
+  ec=0; bash "$events_script" terminal --events "$terminal_events" --run-id absent-run >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV48: missing logical terminal is nonzero" "$ec" 4
+
+  bash "$events_script" append --events "$terminal_events" --run-id conflicting-run \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id terminal-writer \
+    --event-type completed --outcome success >/dev/null
+  bash "$events_script" append --events "$terminal_events" --run-id conflicting-run \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id terminal-writer \
+    --event-type completed --outcome failure --terminal-reason unknown_failure >/dev/null
+  ec=0; bash "$events_script" terminal --events "$terminal_events" --run-id conflicting-run >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV49: conflicting logical terminals are rejected" "$ec" 3
+
+  bash "$events_script" account --events "$terminal_events" --run-id opaque-query-run \
+    --duration-ms 91 --total-tokens 123 >/dev/null
+  before_lines=$(wc -l < "$terminal_events" | tr -d ' ')
+  bash "$events_script" account --events "$terminal_events" --run-id opaque-query-run \
+    --duration-ms 91 --total-tokens 123 >/dev/null
+  assert_equals "EV50: identical accounting is idempotent" \
+    "$(wc -l < "$terminal_events" | tr -d ' ')" "$before_lines"
+  cp "$terminal_events" "$terminal_events.duplicate"
+  jq -c 'select(.event_type=="accounted")
+    | .recorded_at="2099-01-01T00:00:00Z" | .started_at="2098-01-01T00:00:00Z"' \
+    "$terminal_events" >> "$terminal_events.duplicate"
+  cp "$terminal_events.identity-key" "$terminal_events.duplicate.identity-key"
+  terminal_output=$(bash "$events_script" terminal --events "$terminal_events.duplicate" --run-id opaque-query-run)
+  assert_equals "EV51: duplicate physical enrichment projects one accounted terminal" \
+    "$(jq -r '[.event_type,.duration_ms,.total_tokens,.recorded_at] | @csv' <<< "$terminal_output")" \
+    '"accounted",91,123,"2099-01-01T00:00:00Z"'
+  ec=0; bash "$events_script" account --events "$terminal_events" --run-id opaque-query-run --duration-ms -1 >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV52: negative accounting duration is rejected" "$ec" 2
+  ec=0; bash "$events_script" account --events "$terminal_events" --run-id opaque-query-run --duration-ms 1 --total-tokens nope >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV53: noninteger token accounting is rejected" "$ec" 2
+
+  token_events="$wd/token-events.jsonl"
+  bash "$events_script" append --events "$token_events" --run-id token-root \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id token-writer \
+    --event-type completed --outcome success --total-tokens 50 >/dev/null
+  bash "$events_script" append --events "$token_events" --run-id token-child --parent-run-id token-root \
+    --command improve --phase implementation --surface codex --profile standard --writer-id token-child-writer \
+    --event-type completed --outcome success --total-tokens 999 >/dev/null
+  token_export="$wd/token-export.json"
+  bash "$exporter" --events "$token_events" --out "$token_export" >/dev/null
+  assert_equals "EV54: export uses authoritative root tokens and excludes child tokens" \
+    "$(jq -c .metrics.total_tokens "$token_export")" '[50]'
+
+  bulk_events="$wd/bulk-events.jsonl"
+  bash "$events_script" append --events "$bulk_events" --run-id bulk-z \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id bulk-writer \
+    --event-type completed --outcome success >/dev/null
+  bash "$events_script" append --events "$bulk_events" --run-id bulk-a \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id bulk-writer \
+    --event-type completed --outcome failure --terminal-reason delivery_failed >/dev/null
+  bash "$events_script" account --events "$bulk_events" --run-id bulk-a \
+    --duration-ms 44 --total-tokens 55 >/dev/null
+  bash "$events_script" append --events "$bulk_events" --run-id bulk-child --parent-run-id bulk-a \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id bulk-child-writer \
+    --event-type completed --outcome failure --terminal-reason false_success --total-tokens 999 >/dev/null
+  bulk_output=$(bash "$events_script" terminals --events "$bulk_events")
+  assert_equals "EV61: bulk terminals use deterministic run-id ordering" \
+    "$(jq -sc 'map(.run_id) == (map(.run_id) | sort)' <<< "$bulk_output")" "true"
+  assert_equals "EV62: bulk terminal ordering is stable across reads" \
+    "$(bash "$events_script" terminals --events "$bulk_events")" "$bulk_output"
+  assert_equals "EV63: accounted terminals take precedence over completed records" \
+    "$(jq -sc '[.[] | select(.event_type == "accounted" and .duration_ms == 44 and .total_tokens == 55)] | length' <<< "$bulk_output")" "1"
+  assert_equals "EV64: bulk terminals exclude child outcomes" \
+    "$(jq -sc 'length == 2 and all(.[]; .parent_run_id == null and .total_tokens != 999)' <<< "$bulk_output")" "true"
+
+  ec=0; bash "$events_script" terminals --events "$terminal_events" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV65: bulk and single terminal projections share conflict rejection" "$ec" 3
+  incomplete_events="$wd/incomplete-events.jsonl"; incomplete_stderr="$wd/incomplete.stderr"
+  bash "$events_script" append --events "$incomplete_events" --run-id incomplete-root \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id incomplete-writer \
+    --event-type started --outcome incomplete >/dev/null
+  assert_equals "EV66: bulk terminals skip incomplete root lifecycles" \
+    "$(bash "$events_script" terminals --events "$incomplete_events" 2>"$incomplete_stderr")" ""
+  assert_equals "EV66a: bulk terminals report skipped incomplete root count" \
+    "$(grep -c 'skipped 1 incomplete root pass-outcome lifecycle' "$incomplete_stderr")" "1"
+  ec=0; bash "$events_script" terminal --events "$incomplete_events" --run-id incomplete-root \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV66b: a single incomplete root projection remains strict" "$ec" 3
+  bash "$events_script" append --events "$incomplete_events" --run-id complete-root \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id complete-writer \
+    --event-type completed --outcome success >/dev/null
+  assert_equals "EV66c: bulk projection emits complete roots while skipping incomplete roots" \
+    "$(bash "$events_script" terminals --events "$incomplete_events" 2>/dev/null | jq -sc 'length')" "1"
+
+  lifecycle_events="$wd/lifecycle-events.jsonl"
+  bash "$events_script" append --events "$lifecycle_events" --run-id writer-conflict \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id writer-one \
+    --event-type started --outcome incomplete >/dev/null
+  bash "$events_script" append --events "$lifecycle_events" --run-id writer-conflict \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id writer-two \
+    --event-type completed --outcome success >/dev/null
+  ec=0; bash "$events_script" terminal --events "$lifecycle_events" --run-id writer-conflict \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV66d: root pass lifecycle requires one writer" "$ec" 3
+  bash "$events_script" append --events "$lifecycle_events" --run-id command-conflict \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id command-writer \
+    --event-type started --outcome incomplete >/dev/null
+  bash "$events_script" append --events "$lifecycle_events" --run-id command-conflict \
+    --command goal-deliver --phase pass-outcome --surface script --profile deep --writer-id command-writer \
+    --event-type completed --outcome success >/dev/null
+  ec=0; bash "$events_script" terminal --events "$lifecycle_events" --run-id command-conflict \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV66e: root pass lifecycle requires one command" "$ec" 3
+  empty_events="$wd/empty-events.jsonl"; touch "$empty_events"
+  assert_equals "EV67: an empty event file emits no bulk terminals" \
+    "$(bash "$events_script" terminals --events "$empty_events")" ""
+  assert_equals "EV68: a missing event file emits no bulk terminals" \
+    "$(bash "$events_script" terminals --events "$wd/missing-events.jsonl")" ""
+  malformed_events="$wd/malformed-events.jsonl"
+  printf '%s\n' '{bad-json' > "$malformed_events"
+  ec=0; bash "$events_script" terminals --events "$malformed_events" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EV69: malformed input makes bulk terminal projection fail" "$ec" 3
+
   # Older or manually tampered records remain readable, but the reader and exporter
   # normalize their dimensions before returning any evaluation data.
   identity_tmp="$wd/identity-events.tmp"
@@ -179,6 +403,11 @@ test_agent_events() {
     "$(jq -r '.metrics.routing_schema_versions["1"]' "$aggregate")" "25"
   assert_equals "EV22: aggregate contains no project field" "$(jq 'paths | map(tostring) | join(".") | select(test("project|repository|run_id"))' "$aggregate" | wc -l | tr -d ' ')" "0"
 
+  jq 'del(.metrics.total_tokens) | .schema_version=1' "$export2" > "$wd/legacy-export.json"
+  bash "$aggregator" --out "$wd/mixed-version-aggregate.json" "$wd/legacy-export.json" "$export2" >/dev/null
+  assert_equals "EV22a: aggregator accepts mixed v1 and v2 exports" \
+    "$(jq -r '[.schema_version,.export_count] | @csv' "$wd/mixed-version-aggregate.json")" '2,2'
+
   jq '.project="forbidden"' "$export1" > "$wd/bad-export.json"
   ec=0; bash "$aggregator" --out "$wd/bad-aggregate.json" "$wd/bad-export.json" >/dev/null 2>&1 || ec=$?
   assert_exit_code "EV23: aggregator rejects identity-bearing schema additions" "$ec" 3
@@ -234,6 +463,44 @@ test_agent_events() {
 
   assert_file_contains "EV24: raw events are gitignored" "$PLUGIN_ROOT/templates/gitignore-block.txt" '.startup/runs/'
   assert_file_contains "EV25: local evaluation corpus is gitignored" "$PLUGIN_ROOT/templates/gitignore-block.txt" '.startup/evaluation/'
+
+  # Default storage follows the common repository to its primary worktree, even
+  # when a detached linked-worktree writer is guarded. Explicit paths stay exact.
+  primary_repo="$wd/primary-repo"; linked_repo="$wd/detached-worktree"
+  mkdir -p "$primary_repo"
+  git -C "$primary_repo" init -q
+  git -C "$primary_repo" config user.email test@example.invalid
+  git -C "$primary_repo" config user.name Test
+  printf 'base\n' > "$primary_repo/app.txt"
+  git -C "$primary_repo" add app.txt; git -C "$primary_repo" commit -qm base
+  git -C "$primary_repo" worktree add --detach -q "$linked_repo" HEAD
+  auth=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  guard_dir="$(git -C "$linked_repo" rev-parse --absolute-git-dir)/saas-startup-team"
+  snapshot="$guard_dir/detached.json"
+  (cd "$linked_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
+    --snapshot "$snapshot" --auth-stdin --allow review.md <<<"$auth" >/dev/null)
+  (cd "$linked_repo" && bash "$events_script" append --run-id detached-default \
+    --command improve --phase qa --surface codex --profile deep --writer-id detached-writer \
+    --event-type started --outcome incomplete >/dev/null)
+  assert_file_not_exists "EV55: guarded detached writer does not publish early" \
+    "$primary_repo/.startup/runs/agent-events.jsonl"
+  receipt=$(find "$guard_dir" -maxdepth 1 -name 'detached.json.telemetry-*.json' -print -quit)
+  assert_equals "EV56: detached receipt targets primary event storage" \
+    "$(jq -r .destination "$receipt")" "$primary_repo/.startup/runs/agent-events.jsonl"
+  printf 'review\n' > "$linked_repo/review.md"
+  (cd "$linked_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
+    --verify "$snapshot" --auth-stdin <<<"$auth" >/dev/null)
+  primary_events="$primary_repo/.startup/runs/agent-events.jsonl"
+  assert_file_exists "EV57: guarded import publishes into the primary worktree" "$primary_events"
+  assert_equals "EV58: primary reader sees detached writer through the default path" \
+    "$(cd "$primary_repo" && bash "$events_script" read | wc -l | tr -d ' ')" "1"
+  assert_file_not_exists "EV59: linked worktree has no shadow default event store" \
+    "$linked_repo/.startup/runs/agent-events.jsonl"
+  explicit_events="$linked_repo/explicit-events.jsonl"
+  (cd "$linked_repo" && bash "$events_script" append --events "$explicit_events" --run-id detached-explicit \
+    --command improve --phase qa --surface codex --profile deep --writer-id detached-writer \
+    --event-type started --outcome incomplete >/dev/null)
+  assert_file_exists "EV60: explicit event path remains an override" "$explicit_events"
 
   # Direct Claude/controller events use the Git-dir buffer while a role guard is
   # active, then become visible only after the authenticated verification.
@@ -397,3 +664,8 @@ test_agent_events() {
 }
 
 test_agent_events
+
+if [ "$AGENT_EVENTS_STANDALONE" -eq 1 ]; then
+  printf 'AGENT_EVENTS_TOTAL=%s PASS=%s FAIL=%s\n' "$TOTAL_COUNT" "$PASS_COUNT" "$FAIL_COUNT"
+  [ "$FAIL_COUNT" -eq 0 ]
+fi
