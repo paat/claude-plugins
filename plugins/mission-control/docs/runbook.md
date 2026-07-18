@@ -23,8 +23,14 @@ the cron line — you do, once.
    `bash plugins/mission-control/scripts/mission-control.sh arm --config <path>`
 4. **Install.** Paste the printed line into your persistent crontab file
    (LinuxServer-style containers: `/config/crontabs/<user>`, then restart the
-   container or run `crontab /config/crontabs/<user>`). Delete any standalone
-   lessons-deliver cron line — mission-control now owns that dispatch.
+   container or run `crontab /config/crontabs/<user>`). Lesson **delivery**
+   has at most one owner: either (a) a standalone
+   `/tmp/lessons-deliver.lock` cron, (b) a mission-control ladder dispatch to
+   a `meta` lessons project, or (c) a governed central consumer such as
+   steering's `lessons-nightly.sh` (flagship auto-review + probe + deliver).
+   Never schedule two of those together. Project-local **harvest/file** crons
+   (e.g. Aruannik's 02:45 `nightly-lessons-harvest-wrapper.sh` from #1614)
+   stay separate — they only feed the shared `lesson-candidate` queue.
 5. **Set the push URL** (optional but recommended: veto announcements arrive
    here): add `MC_NTFY_URL=https://ntfy.sh/<topic>` (or your `notify_env`
    name) to the crontab environment block.
@@ -46,7 +52,11 @@ the cron line — you do, once.
     taking the lock, with no dispatch and no digest. Set it back to `false`
     to resume. `arm` rejects any non-boolean value; at tick time a malformed
     value also fails closed (skips dispatch and logs a config error) rather
-    than dispatching.
+    than dispatching. When a governed central consumer (steering
+    `lessons-nightly.sh`) shares this portfolio config, it also honours
+    `paused` and skips review/delivery while the switch is on; project-local
+    harvest crons are independent and keep their own kill switches
+    (`LESSONS_HARVEST_FILING_DISABLED`).
 11. **Custom digest sections.** Set the optional top-level
     `"digest_sections_dir": "<abs dir>"` to a host directory of `*.md` files.
     Every file in it (lexicographic order) must start with a `## ` heading;
