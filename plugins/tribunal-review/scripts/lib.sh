@@ -143,7 +143,7 @@ tribunal_context_block() {
   if [ -f "$repo_root/AGENTS.md" ]; then
     {
       printf '## Project Conventions (from AGENTS.md)\n'
-      head -c 16384 "$repo_root/AGENTS.md"
+      head -c 4096 "$repo_root/AGENTS.md"
       printf '\n'
     } >> "$out"
   fi

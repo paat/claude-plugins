@@ -253,7 +253,7 @@ fields null.
 > The investor wants these changes: [investor's instructions]
 > Selected acceptance packs, if any: [pack ids + rendered gates from `scripts/acceptance-packs.sh --render`]. A new public/indexable route MUST include `public_route_discoverability`, with its fields explicit in this brief rather than inferred from a sitemap or catalog registration.
 >
-> Before reading product or research docs, read and apply `${CLAUDE_PLUGIN_ROOT}/templates/delivery-scope-contract.md`. Treat a concrete improvement as direct feature planning: make one targeted repository-discovery pass, infer safe choices from existing conventions, and ask only about a missing choice that materially changes `Done`.
+> Before reading product or research docs, read and apply `${CLAUDE_PLUGIN_ROOT}/templates/delivery-scope-planning.md` and `${CLAUDE_PLUGIN_ROOT}/templates/delivery-scope-contract.md`. Treat a concrete improvement as direct feature planning: make one targeted repository-discovery pass, infer safe choices from existing conventions, and ask only about a missing choice that materially changes `Done`.
 >
 > Read `docs/architecture/architecture.md` for current stack and service URLs.
 > Read `docs/business/brief.md` for product context.

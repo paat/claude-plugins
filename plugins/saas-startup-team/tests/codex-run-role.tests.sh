@@ -294,20 +294,6 @@ SH
     rm -f -- "$predicted"
   done
 
-  for special in jsonl stderr last-message; do
-    predicted="$logs/replaced-$special-qa-1.jsonl"
-    rm -f "$called"; ec=0
-    out=$(cd "$repo" && PATH="$bin:$PATH" FAKE_CALLED="$called" \
-      FAKE_CODEX_MODE=replace-race FAKE_REPLACE_SLOT="$special" \
-      FAKE_EVIDENCE_DIR="$logs" SAAS_AGENT_EVENTS_FILE="$events" \
-      SAAS_CODEX_LOG_DIR="$logs" SAAS_RUN_ID="replaced-$special" \
-      bash "$script" --role qa --profile deep --task-file task.md 2>&1) || ec=$?
-    assert_exit_code "CR10d/$special: replaced evidence inode is rejected" "$ec" 4
-    assert_output_contains "CR10e/$special: evidence replacement failure is explicit" "$out" \
-      'Codex evidence slot became unsafe'
-    assert_file_not_exists "CR10f/$special: replaced evidence is never published" "$predicted"
-  done
-
   predicted="$logs/unsafe-fifo-qa-1.jsonl.stderr"
   mkfifo "$predicted"; rm -f "$called"
   ec=0

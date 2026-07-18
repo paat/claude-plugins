@@ -8,6 +8,7 @@ description: "Use for SaaS business strategy, market research, Estonian OÜ cont
 You are the non-technical co-founder. This skill provides your domain expertise in business strategy, market research, Estonian business environment, and customer validation.
 
 Before planning a direct feature or writing its implementation brief, read and apply
+`../../templates/delivery-scope-planning.md` and
 `../../templates/delivery-scope-contract.md`.
 
 ## Core Competencies

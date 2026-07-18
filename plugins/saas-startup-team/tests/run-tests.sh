@@ -421,18 +421,24 @@ test_templates() {
     "$tmpl_dir/lean-planning-golden.md" "Reuse the existing scheduled-job ritual"
   assert_file_contains "D10o3: lean eval needs no mandatory questions" \
     "$tmpl_dir/lean-planning-golden.md" "No mandatory user questions are needed"
+  assert_file_exists "D10p0: planner-only scope file exists" \
+    "$tmpl_dir/delivery-scope-planning.md"
   assert_file_contains "D10p: shared scope defines direct feature planning" \
-    "$tmpl_dir/delivery-scope-contract.md" "## Direct Feature Planning"
+    "$tmpl_dir/delivery-scope-planning.md" "# Direct Feature Planning"
   assert_file_contains "D10p1: shared scope defaults to one discovery pass" \
-    "$tmpl_dir/delivery-scope-contract.md" "one targeted repository-discovery pass"
+    "$tmpl_dir/delivery-scope-planning.md" "one targeted repository-discovery pass"
   assert_file_contains "D10p2: shared scope asks only material blockers" \
-    "$tmpl_dir/delivery-scope-contract.md" "Ask only when a missing choice would materially change"
+    "$tmpl_dir/delivery-scope-planning.md" "Ask only when a missing choice would materially change"
   assert_file_contains "D10p3: shared scope requires reuse before new machinery" \
-    "$tmpl_dir/delivery-scope-contract.md" "scheduler, delivery framework, evidence store, or control plane"
+    "$tmpl_dir/delivery-scope-planning.md" "scheduler, delivery framework, evidence store, or control plane"
   assert_file_contains "D10p4: shared scope bounds topic evidence" \
-    "$tmpl_dir/delivery-scope-contract.md" "not a product-wide audit"
+    "$tmpl_dir/delivery-scope-planning.md" "not a product-wide audit"
   assert_file_contains "D10p5: direct Why does not force new research" \
-    "$tmpl_dir/delivery-scope-contract.md" "do not require a new research artifact"
+    "$tmpl_dir/delivery-scope-planning.md" "do not require a new research artifact"
+  assert_file_contains "D10p6: implement contract omits planner-only Direct Feature Planning" \
+    "$tmpl_dir/delivery-scope-contract.md" "Delivery Scope Contract"
+  assert_file_not_contains "D10p7: implement contract has no Direct Feature Planning section" \
+    "$tmpl_dir/delivery-scope-contract.md" "Direct Feature Planning"
   assert_file_contains "D10q: Claude business founder loads shared scope" \
     "$PLUGIN_ROOT/agents/business-founder.md" "templates/delivery-scope-contract.md"
   assert_file_contains "D10q1: Claude maintenance founder loads shared scope" \
@@ -447,12 +453,14 @@ test_templates() {
     "$PLUGIN_ROOT/references/workflows/improve.md" "Before reading product or research docs, read and apply"
   assert_file_contains "D10q6: project guidance exposes lean direct planning" \
     "$tmpl_dir/claude-md-workflow-guidance.md" "Lean direct-feature planning"
-  assert_file_contains "D10q7: Claude tech gate accepts direct request evidence" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "does not require a new research document"
-  assert_file_contains "D10q8: maintenance tech gate accepts direct request evidence" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md" "does not require a new research document"
-  assert_file_contains "D10q9: Codex-native tech gate accepts direct request evidence" \
-    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "does not require a new research document"
+  assert_file_contains "D10q7: Claude tech gate points at brief acceptance" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "brief-acceptance-gate.md"
+  assert_file_contains "D10q8: maintenance tech gate points at brief acceptance" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md" "brief-acceptance-gate.md"
+  assert_file_contains "D10q9: Codex-native tech skill points at brief acceptance" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "brief-acceptance-gate.md"
+  assert_file_contains "D10q9b: brief acceptance accepts direct request evidence" \
+    "$PLUGIN_ROOT/references/brief-acceptance-gate.md" "does not require a new research document"
   assert_file_contains "D10q10: handoff template accepts direct request evidence" \
     "$tmpl_dir/handoff-business-to-tech.md" "For a direct feature"
   assert_file_contains "D10q11: handoff protocol accepts direct request evidence" \
@@ -4315,12 +4323,15 @@ test_operate_workflow_registry_and_gates() {
   assert_file_contains "Y21: README documents operate phase" "$PLUGIN_ROOT/README.md" "Operate phase"
   assert_file_contains "Y22: README documents workflow registry" "$PLUGIN_ROOT/README.md" "Workflow registry"
 
-  # Triggered SaaS gates across roles/templates.
-  assert_file_contains "Y23: business founder async paid-flow gate" "$PLUGIN_ROOT/agents/business-founder.md" "Async paid-flow UX gate"
+  # Triggered SaaS gates across roles/templates (canonical body + pointers).
+  assert_file_contains "Y23: canonical async paid-flow gate" "$PLUGIN_ROOT/references/triggered-saas-gates.md" "Async paid-flow UX gate"
+  assert_file_contains "Y23p: business founder points at triggered gates" "$PLUGIN_ROOT/agents/business-founder.md" "triggered-saas-gates.md"
   assert_file_contains "Y24: business founder customer value unit" "$PLUGIN_ROOT/agents/business-founder.md" "customer value unit"
-  assert_file_contains "Y25: tech founder display-label registry" "$PLUGIN_ROOT/agents/tech-founder-claude.md" "Display-label registry"
-  assert_file_contains "Y26: tech founder LLM gate" "$PLUGIN_ROOT/agents/tech-founder-claude.md" "LLM pipeline quality gate"
-  assert_file_contains "Y27: UX tester raw-value scan" "$PLUGIN_ROOT/agents/ux-tester.md" "Structured-result raw-value scan"
+  assert_file_contains "Y25: canonical display-label registry" "$PLUGIN_ROOT/references/triggered-saas-gates.md" "Display-label registry"
+  assert_file_contains "Y25p: tech founder points at triggered gates" "$PLUGIN_ROOT/agents/tech-founder-claude.md" "triggered-saas-gates.md"
+  assert_file_contains "Y26: canonical LLM gate" "$PLUGIN_ROOT/references/triggered-saas-gates.md" "LLM pipeline quality gate"
+  assert_file_contains "Y27: canonical structured-result scan" "$PLUGIN_ROOT/references/triggered-saas-gates.md" "structured-result raw-value scan"
+  assert_file_contains "Y27p: UX tester points at triggered gates" "$PLUGIN_ROOT/agents/ux-tester.md" "triggered-saas-gates.md"
   assert_file_contains "Y28: lawyer claim taxonomy" "$PLUGIN_ROOT/agents/lawyer.md" "Compliance/Risk Product Claim Taxonomy"
   assert_file_contains "Y29: handoff template triggered gates" "$PLUGIN_ROOT/templates/handoff-business-to-tech.md" "Triggered gates"
   assert_file_contains "Y30: tech handoff template gate evidence" "$PLUGIN_ROOT/templates/handoff-tech-to-business.md" "Triggered Gate Evidence"
@@ -5287,7 +5298,10 @@ stuff" review_canonical review_digest review_marker
 test_convergence_governor() {
   echo -e "\n${CYAN}Convergence governor integration${NC}"
   assert_output_contains "reachability convention exists" "$(cat "$PLUGIN_ROOT/skills/tech-founder/references/reachability-convention.md" 2>/dev/null)" "last-verified"
-  assert_output_contains "tech-founder DoD has step-back" "$(cat "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md")" "Tribunal step-back"
+  assert_file_contains "tech-founder DoD points at maintain checklist" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md" "maintain-dod-checklist.md"
+  assert_file_contains "tech-founder DoD has step-back" \
+    "$PLUGIN_ROOT/references/maintain-dod-checklist.md" "Tribunal step-back"
   assert_output_contains "goal-deliver caps at 5" "$(cat "$PLUGIN_ROOT/references/workflows/goal-deliver.md")" "Round 5:"
   assert_output_contains "goal-deliver stops on no crit/high" "$(cat "$PLUGIN_ROOT/references/workflows/goal-deliver.md")" "zero critical and zero high"
 }

@@ -90,10 +90,6 @@ safe_input_path() {
   fi
 }
 
-file_identity() {
-  stat -Lc '%d:%i' -- "$1"
-}
-
 bounded_positive_bytes() {
   local value="$1" maximum="$2"
   [[ "$value" =~ ^[1-9][0-9]{0,8}$ ]] \
@@ -152,45 +148,26 @@ SOURCE=$(safe_input_path "$SOURCE") || {
 TASK_INPUT_MAX_BYTES=${SAAS_CODEX_TASK_INPUT_MAX_BYTES:-1048576}
 bounded_positive_bytes "$TASK_INPUT_MAX_BYTES" 1048576 || {
   echo "codex-run-role: invalid SAAS_CODEX_TASK_INPUT_MAX_BYTES" >&2; exit 2; }
+input_size=$(stat -Lc '%s' -- "$SOURCE") || {
+  echo "codex-run-role: task input is unreadable" >&2; exit 4; }
+[[ "$input_size" =~ ^[0-9]+$ ]] && [ "$input_size" -le "$TASK_INPUT_MAX_BYTES" ] || {
+  echo "codex-run-role: task input changed, is unsafe, or exceeds its byte budget" >&2; exit 4; }
+# Single-layer read bound. /proc/self is used when lease-guardian creates a PID
+# namespace so the open path follows this process, not an unrelated host PID.
 exec 8< "$SOURCE" || {
   echo "codex-run-role: could not open task input safely" >&2; exit 4; }
-# /proc is inherited from the parent mount namespace when lease-guardian
-# creates its PID namespace. /proc/$$ would then address an unrelated host
-# PID; /proc/self follows the process opening the pinned descriptor instead.
-input_fd_path="/proc/self/fd/8"
-input_identity=$(file_identity "$input_fd_path") \
-  && input_path_identity=$(file_identity "$SOURCE") \
-  && [ "$input_identity" = "$input_path_identity" ] \
-  && input_size=$(stat -Lc '%s' -- "$input_fd_path") \
-  && [[ "$input_size" =~ ^[0-9]+$ ]] \
-  && [ "$input_size" -le "$TASK_INPUT_MAX_BYTES" ] || {
-  exec 8<&-
-  echo "codex-run-role: task input changed, is unsafe, or exceeds its byte budget" >&2
-  exit 4
-}
 TASK_TEXT=$(LC_ALL=C head -c "$((TASK_INPUT_MAX_BYTES + 1))" <&8) || {
   exec 8<&-
   echo "codex-run-role: could not read task input" >&2
   exit 4
 }
+exec 8<&-
 task_text_bytes=$(printf '%s' "$TASK_TEXT" | wc -c | tr -d ' ') \
   && [[ "$task_text_bytes" =~ ^[0-9]+$ ]] \
   && [ "$task_text_bytes" -le "$TASK_INPUT_MAX_BYTES" ] || {
-  exec 8<&-
   echo "codex-run-role: task input exceeded its byte budget while being read" >&2
   exit 4
 }
-verified_source=$(safe_input_path "$SOURCE") \
-  && [ "$verified_source" = "$SOURCE" ] \
-  && [ "$(file_identity "$input_fd_path")" = "$input_identity" ] \
-  && [ "$(file_identity "$SOURCE")" = "$input_identity" ] \
-  && final_input_size=$(stat -Lc '%s' -- "$input_fd_path") \
-  && [ "$final_input_size" = "$input_size" ] || {
-  exec 8<&-
-  echo "codex-run-role: task input changed while it was being read" >&2
-  exit 4
-}
-exec 8<&-
 
 upper=${PROFILE^^}
 model_var="SAAS_CODEX_${upper}_MODEL"
@@ -241,21 +218,11 @@ bounded_positive_bytes "$JSONL_MAX_BYTES" 8388608 \
   && bounded_positive_bytes "$STDERR_MAX_BYTES" 1048576 \
   && bounded_positive_bytes "$LAST_MESSAGE_MAX_BYTES" 1048576 || {
   echo "codex-run-role: invalid Codex evidence byte budget" >&2; exit 2; }
-ATTEMPT_EVIDENCE_MAX_BYTES=$((JSONL_MAX_BYTES + STDERR_MAX_BYTES + LAST_MESSAGE_MAX_BYTES))
-RUN_EVIDENCE_MAX_BYTES=$((ATTEMPT_EVIDENCE_MAX_BYTES * 2))
 LOG_RETENTION_BYTES=${SAAS_CODEX_LOG_RETENTION_BYTES:-67108864}
-bounded_positive_bytes "$LOG_RETENTION_BYTES" 67108864 \
-  && [ "$LOG_RETENTION_BYTES" -gt "$RUN_EVIDENCE_MAX_BYTES" ] || {
+bounded_positive_bytes "$LOG_RETENTION_BYTES" 67108864 || {
   echo "codex-run-role: invalid SAAS_CODEX_LOG_RETENTION_BYTES" >&2; exit 2; }
-MAX_EVIDENCE_FILE_BYTES=$JSONL_MAX_BYTES
-[ "$STDERR_MAX_BYTES" -le "$MAX_EVIDENCE_FILE_BYTES" ] || MAX_EVIDENCE_FILE_BYTES=$STDERR_MAX_BYTES
-[ "$LAST_MESSAGE_MAX_BYTES" -le "$MAX_EVIDENCE_FILE_BYTES" ] \
-  || MAX_EVIDENCE_FILE_BYTES=$LAST_MESSAGE_MAX_BYTES
-GUARDED_LOG_RETENTION_FILES=$(((LOG_RETENTION_BYTES - RUN_EVIDENCE_MAX_BYTES) / MAX_EVIDENCE_FILE_BYTES))
-[ "$GUARDED_LOG_RETENTION_FILES" -ge 1 ] || {
-  echo "codex-run-role: retained-log budget leaves no bounded history" >&2; exit 2; }
-[ "$GUARDED_LOG_RETENTION_FILES" -le "$LOG_RETENTION_FILES" ] \
-  || GUARDED_LOG_RETENTION_FILES=$LOG_RETENTION_FILES
+# Guarded telemetry receipt retains the same file cap as ordinary log pruning.
+GUARDED_LOG_RETENTION_FILES=$LOG_RETENTION_FILES
 
 RUN_ID=${SAAS_RUN_ID:-$("$SCRIPT_DIR/agent-events.sh" new-run-id)}
 ATTEMPT=${SAAS_ATTEMPT:-1}
@@ -424,11 +391,18 @@ case "$ROLE" in
     MUTATION_RULES='You may write only business/product briefs and proposed workflow-spec deltas in the task-designated artifact locations. Never modify product source, tests, or the canonical workflow-spec registry. Do not commit, push, create or edit pull requests, merge, deploy, or roll back.'
     HANDOFF_TEMPLATE="$(cd "$SCRIPT_DIR/../templates" && pwd -P)/handoff-business-to-tech.md"
     SCOPE_CONTRACT="$SCRIPT_DIR/../templates/delivery-scope-contract.md"
+    SCOPE_PLANNING="$SCRIPT_DIR/../templates/delivery-scope-planning.md"
     [ -r "$SCOPE_CONTRACT" ] || {
       echo "codex-run-role: delivery scope contract is not readable" >&2
       exit 4
     }
-    SCOPE_RULES="$(cat "$SCOPE_CONTRACT")
+    [ -r "$SCOPE_PLANNING" ] || {
+      echo "codex-run-role: delivery scope planning is not readable" >&2
+      exit 4
+    }
+    SCOPE_RULES="$(cat "$SCOPE_PLANNING")
+
+$(cat "$SCOPE_CONTRACT")
 When writing a tech implementation brief, follow ${HANDOFF_TEMPLATE} and explicitly fill Done, Preserve, and Out of Scope without inventing missing requirements."
     ;;
   tech-founder|tech-founder-*)
@@ -448,116 +422,40 @@ PROMPT=$(cat <<EOF
 You are executing the ${ROLE} role for a production SaaS delivery.
 Execution profile: ${PROFILE}.
 
-Read only what this task needs, use targeted ranges, and do not re-read material already in context.
-Keep the diff minimal and limited to the stated acceptance. Do not add speculative abstractions or unrelated cleanup.
 ${MUTATION_RULES}
 ${SCOPE_RULES}
 If the task is ambiguous or needs product, legal, security, architecture, payment, auth, data, migration, or concurrency judgment beyond the supplied requirements, stop and report that it requires deep escalation.
-Run only local checks needed to validate your work. Never expose secrets or customer data.
 
 ================ TASK ================
 ${TASK_TEXT}
 EOF
 )
 
-evidence_fd_path() {
-  case "$1" in
-    5|6|7) printf '/proc/self/fd/%s\n' "$1" ;;
-    *) return 1 ;;
-  esac
-}
+# Evidence helpers — single-layer byte bounds via head -c relays.
+# Container is the security boundary; no fd-identity revalidation.
 
-evidence_fd_size() {
-  local fd_path size
-  fd_path=$(evidence_fd_path "$1") || return 1
-  [ -f "$fd_path" ] || return 1
-  size=$(stat -Lc '%s' -- "$fd_path") || return 1
+file_size() {
+  local size
+  size=$(stat -Lc '%s' -- "$1") || return 1
   [[ "$size" =~ ^[0-9]+$ ]] || return 1
   printf '%s\n' "$size"
 }
 
-evidence_slot_valid() {
-  local path="$1" fd="$2" expected="$3" fd_path path_identity fd_identity
-  [ -f "$path" ] && [ ! -L "$path" ] || return 1
-  fd_path=$(evidence_fd_path "$fd") || return 1
-  [ -f "$fd_path" ] || return 1
-  path_identity=$(file_identity "$path") || return 1
-  fd_identity=$(file_identity "$fd_path") || return 1
-  [ "$path_identity" = "$expected" ] && [ "$fd_identity" = "$expected" ]
-}
-
-pin_evidence_file() {
-  local path="$1" fd="$2" fd_path identity path_identity
-  case "$fd" in
-    5) exec 5<> "$path" || return 1 ;;
-    6) exec 6<> "$path" || return 1 ;;
-    7) exec 7<> "$path" || return 1 ;;
-    *) return 1 ;;
-  esac
-  fd_path=$(evidence_fd_path "$fd") || return 1
-  [ -f "$path" ] && [ ! -L "$path" ] && [ -f "$fd_path" ] || return 1
-  identity=$(file_identity "$fd_path") || return 1
-  path_identity=$(file_identity "$path") || return 1
-  [ "$identity" = "$path_identity" ] || return 1
-  evidence_fd_truncate "$fd" 0 || return 1
-  [ "$(evidence_fd_size "$fd")" -eq 0 ] || return 1
-  case "$fd" in
-    5) EVIDENCE_OUT_ID=$identity ;;
-    6) EVIDENCE_ERR_ID=$identity ;;
-    7) EVIDENCE_LAST_ID=$identity ;;
-  esac
-}
-
-close_evidence_fds() {
-  exec 5>&- || true
-  exec 6>&- || true
-  exec 7>&- || true
-}
-
 cleanup_evidence_files() {
-  close_evidence_fds
   rm -f -- "$@" || true
 }
 
-evidence_fd_truncate() {
-  local fd="$1" size="$2" fd_path
-  [[ "$size" =~ ^[0-9]+$ ]] || return 1
-  fd_path=$(evidence_fd_path "$fd") || return 1
-  [ -f "$fd_path" ] || return 1
-  truncate -s "$size" -- "$fd_path"
-}
-
 append_bounded_diagnostic() {
-  local fd="$1" maximum="$2" message="$3" fd_path size message_bytes keep
-  fd_path=$(evidence_fd_path "$fd") || return 1
-  size=$(evidence_fd_size "$fd") || return 1
+  local path="$1" maximum="$2" message="$3" size message_bytes keep
+  size=$(file_size "$path") || return 1
   message_bytes=$(printf '%s\n' "$message" | wc -c | tr -d ' ') || return 1
   [[ "$message_bytes" =~ ^[0-9]+$ ]] || return 1
   [ "$message_bytes" -le "$maximum" ] || return 1
   keep=$((maximum - message_bytes))
-  [ "$size" -le "$keep" ] || evidence_fd_truncate "$fd" "$keep" || return 1
-  printf '%s\n' "$message" >> "$fd_path" || return 1
-  size=$(evidence_fd_size "$fd") || return 1
+  [ "$size" -le "$keep" ] || truncate -s "$keep" -- "$path" || return 1
+  printf '%s\n' "$message" >> "$path" || return 1
+  size=$(file_size "$path") || return 1
   [ "$size" -le "$maximum" ]
-}
-
-publish_evidence_file() {
-  local source="$1" destination="$2" fd="$3" expected="$4" maximum="$5"
-  local resolved fd_path size destination_identity
-  evidence_slot_valid "$source" "$fd" "$expected" || return 1
-  size=$(evidence_fd_size "$fd") || return 1
-  [ "$size" -le "$maximum" ] || return 1
-  resolved=$(safe_output_path "$destination") || return 1
-  [ "$resolved" = "$destination" ] || return 1
-  fd_path=$(evidence_fd_path "$fd") || return 1
-  chmod 600 "$fd_path" || return 1
-  evidence_slot_valid "$source" "$fd" "$expected" || return 1
-  mv -fT -- "$source" "$destination" || return 1
-  [ -f "$destination" ] && [ ! -L "$destination" ] || return 1
-  destination_identity=$(file_identity "$destination") || return 1
-  [ "$destination_identity" = "$expected" ] \
-    && [ "$(file_identity "$fd_path")" = "$expected" ] \
-    && [ "$(evidence_fd_size "$fd")" -le "$maximum" ]
 }
 
 codex_terminal_valid() {
@@ -575,8 +473,8 @@ codex_terminal_valid() {
 }
 
 extract_last_agent_message() {
-  local source="$1" maximum="$2"
-  evidence_fd_truncate 7 0 || return 1
+  local source="$1" destination="$2" maximum="$3"
+  : > "$destination" || return 1
   timeout --signal=KILL 5s jq -nrj '
     reduce inputs as $event (null;
       if (($event | type) == "object")
@@ -585,7 +483,7 @@ extract_last_agent_message() {
         and (($event.item.text? | type) == "string")
       then $event.item.text else . end)
     | if . == null then empty else . end' "$source" \
-    | LC_ALL=C head -c "$((maximum + 1))" >&7
+    | LC_ALL=C head -c "$((maximum + 1))" > "$destination"
 }
 
 ACTIVE_CODEX_PID=""
@@ -753,7 +651,7 @@ trap 'handle_active_signal INT 130' INT
 trap 'handle_active_signal TERM 143' TERM
 
 start_evidence_relays() {
-  local parent="$1"
+  local parent="$1" out_path="$2" err_path="$3"
   ACTIVE_RELAY_DIR=$(mktemp -d "$parent/.codex-relay.XXXXXX") || return 1
   chmod 700 "$ACTIVE_RELAY_DIR" || return 1
   mkfifo -m 600 "$ACTIVE_RELAY_DIR/stdout" "$ACTIVE_RELAY_DIR/stderr" || return 1
@@ -761,9 +659,9 @@ start_evidence_relays() {
   exec 12<> "$ACTIVE_RELAY_DIR/stderr" || return 1
   exec 13< "$ACTIVE_RELAY_DIR/stdout" || return 1
   exec 14< "$ACTIVE_RELAY_DIR/stderr" || return 1
-  (exec 11>&- 12>&- 14>&-; LC_ALL=C head -c "$((JSONL_MAX_BYTES + 1))" <&13 >&5) &
+  (exec 11>&- 12>&- 14>&-; LC_ALL=C head -c "$((JSONL_MAX_BYTES + 1))" <&13 > "$out_path") &
   ACTIVE_RELAY_PIDS+=("$!")
-  (exec 11>&- 12>&- 13>&-; LC_ALL=C head -c "$((STDERR_MAX_BYTES + 1))" <&14 >&6) &
+  (exec 11>&- 12>&- 13>&-; LC_ALL=C head -c "$((STDERR_MAX_BYTES + 1))" <&14 > "$err_path") &
   ACTIVE_RELAY_PIDS+=("$!")
   exec 9> "$ACTIVE_RELAY_DIR/stdout" || return 1
   exec 10> "$ACTIVE_RELAY_DIR/stderr" || return 1
@@ -776,10 +674,8 @@ start_evidence_relays() {
 run_codex() {
   local model="$1" effort="$2" out="$3" err="$4" last_message="$5"
   local out_parent err_parent last_parent out_tmp="" err_tmp="" last_tmp=""
-  local out_fd_path last_fd_path relay_rc=0 signal status
-  local rc pid running size_out size_err size_last limit_reason="" unsafe=0 i
+  local rc pid relay_rc=0 signal status size_out size_err size_last limit_reason="" i
   EVIDENCE_PUBLISHED=0
-  EVIDENCE_OUT_ID="" EVIDENCE_ERR_ID="" EVIDENCE_LAST_ID=""
   out=$(safe_output_path "$out") || {
     echo "codex-run-role: unsafe JSONL evidence path" >&2; return 4; }
   err=$(safe_output_path "$err") || {
@@ -798,17 +694,8 @@ run_codex() {
     echo "codex-run-role: could not secure Codex evidence files" >&2
     return 4
   }
-  pin_evidence_file "$out_tmp" 5 \
-    && pin_evidence_file "$err_tmp" 6 \
-    && pin_evidence_file "$last_tmp" 7 || {
-    cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"
-    echo "codex-run-role: could not pin Codex evidence files" >&2
-    return 4
-  }
   ACTIVE_EVIDENCE_FILES=("$out_tmp" "$err_tmp" "$last_tmp")
-  out_fd_path=$(evidence_fd_path 5) || return 4
-  last_fd_path=$(evidence_fd_path 7) || return 4
-  start_evidence_relays "$out_parent" || {
+  start_evidence_relays "$out_parent" "$out_tmp" "$err_tmp" || {
     cleanup_active_codex
     echo "codex-run-role: could not initialize bounded evidence relays" >&2
     return 4
@@ -835,105 +722,77 @@ run_codex() {
     ACTIVE_PENDING_STATUS=0
     forward_active_signal "$signal" "$status"
   fi
-  while :; do
-    running=0
-    for i in $(jobs -pr); do [ "$i" = "$pid" ] && running=1; done
-    [ "$running" -eq 1 ] || break
-    evidence_slot_valid "$out_tmp" 5 "$EVIDENCE_OUT_ID" \
-      && evidence_slot_valid "$err_tmp" 6 "$EVIDENCE_ERR_ID" \
-      && evidence_slot_valid "$last_tmp" 7 "$EVIDENCE_LAST_ID" \
-      || { unsafe=1; break; }
-    size_out=$(evidence_fd_size 5) || { unsafe=1; break; }
-    size_err=$(evidence_fd_size 6) || { unsafe=1; break; }
-    size_last=$(evidence_fd_size 7) || { unsafe=1; break; }
-    if [ "$size_out" -gt "$JSONL_MAX_BYTES" ] \
-      || [ "$size_err" -gt "$STDERR_MAX_BYTES" ] \
-      || [ "$size_last" -gt "$LAST_MESSAGE_MAX_BYTES" ] \
-      || [ "$((size_out + size_err + size_last))" -gt "$ATTEMPT_EVIDENCE_MAX_BYTES" ]; then
-      limit_reason="Codex evidence exceeded its bounded byte budget"
-      break
-    fi
-    sleep 0.05
-  done
-  if [ "$unsafe" -eq 1 ] || [ -n "$limit_reason" ]; then
-    kill -TERM "$pid" 2>/dev/null || true
-    for ((i=0; i<20; i++)); do
-      kill -0 "$pid" 2>/dev/null || break
-      sleep 0.05
-    done
-    kill -KILL "$pid" 2>/dev/null || true
-  fi
   rc=0
   wait "$pid" || rc=$?
   drain_evidence_relays "$pid" || relay_rc=1
   ACTIVE_CODEX_PID=""
-  [ "$relay_rc" -eq 0 ] || unsafe=1
-  extract_last_agent_message "$out_fd_path" "$LAST_MESSAGE_MAX_BYTES" || true
-
-  evidence_slot_valid "$out_tmp" 5 "$EVIDENCE_OUT_ID" \
-    && evidence_slot_valid "$err_tmp" 6 "$EVIDENCE_ERR_ID" \
-    && evidence_slot_valid "$last_tmp" 7 "$EVIDENCE_LAST_ID" || unsafe=1
-  size_out=$(evidence_fd_size 5) || unsafe=1
-  size_err=$(evidence_fd_size 6) || unsafe=1
-  size_last=$(evidence_fd_size 7) || unsafe=1
-  if [ "$relay_rc" -ne 0 ]; then
+  [ "$relay_rc" -eq 0 ] || {
     cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"
     echo "codex-run-role: Codex evidence relays did not drain after worker exit" >&2
     return 4
-  fi
-  if [ "$unsafe" -eq 1 ]; then
+  }
+
+  extract_last_agent_message "$out_tmp" "$last_tmp" "$LAST_MESSAGE_MAX_BYTES" || true
+
+  size_out=$(file_size "$out_tmp") || {
     cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"
-    echo "codex-run-role: Codex evidence slot became unsafe" >&2
+    echo "codex-run-role: could not stat Codex evidence" >&2
     return 4
-  fi
+  }
+  size_err=$(file_size "$err_tmp") || {
+    cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"
+    echo "codex-run-role: could not stat Codex evidence" >&2
+    return 4
+  }
+  size_last=$(file_size "$last_tmp") || {
+    cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"
+    echo "codex-run-role: could not stat Codex evidence" >&2
+    return 4
+  }
   if [ "$size_out" -gt "$JSONL_MAX_BYTES" ] \
     || [ "$size_err" -gt "$STDERR_MAX_BYTES" ] \
-    || [ "$size_last" -gt "$LAST_MESSAGE_MAX_BYTES" ] \
-    || [ "$((size_out + size_err + size_last))" -gt "$ATTEMPT_EVIDENCE_MAX_BYTES" ]; then
+    || [ "$size_last" -gt "$LAST_MESSAGE_MAX_BYTES" ]; then
     limit_reason="Codex evidence exceeded its bounded byte budget"
   fi
   if [ -n "$limit_reason" ]; then
     { [ "$size_out" -le "$JSONL_MAX_BYTES" ] \
-        || evidence_fd_truncate 5 "$JSONL_MAX_BYTES"; } \
+        || truncate -s "$JSONL_MAX_BYTES" -- "$out_tmp"; } \
       && { [ "$size_err" -le "$STDERR_MAX_BYTES" ] \
-        || evidence_fd_truncate 6 "$STDERR_MAX_BYTES"; } \
+        || truncate -s "$STDERR_MAX_BYTES" -- "$err_tmp"; } \
       && { [ "$size_last" -le "$LAST_MESSAGE_MAX_BYTES" ] \
-        || evidence_fd_truncate 7 "$LAST_MESSAGE_MAX_BYTES"; } || {
+        || truncate -s "$LAST_MESSAGE_MAX_BYTES" -- "$last_tmp"; } || {
       cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"
       echo "codex-run-role: could not truncate Codex evidence safely" >&2
       return 4
     }
-    append_bounded_diagnostic 6 "$STDERR_MAX_BYTES" \
+    append_bounded_diagnostic "$err_tmp" "$STDERR_MAX_BYTES" \
       "codex-run-role: $limit_reason; raw evidence was truncated" || {
       cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"; return 4; }
     rc=1
   elif [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
-    append_bounded_diagnostic 6 "$STDERR_MAX_BYTES" \
+    append_bounded_diagnostic "$err_tmp" "$STDERR_MAX_BYTES" \
       "codex-run-role: role execution exceeded the $TIMEOUT deadline" || {
       cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"; return 4; }
   fi
   if [ "$rc" -eq 0 ]; then
-    if ! codex_terminal_valid "$out_fd_path"; then
-      append_bounded_diagnostic 6 "$STDERR_MAX_BYTES" \
+    if ! codex_terminal_valid "$out_tmp"; then
+      append_bounded_diagnostic "$err_tmp" "$STDERR_MAX_BYTES" \
         'codex-run-role: successful CLI exit lacked a valid terminal turn.completed event' || {
         cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"; return 4; }
       rc=1
-    elif [ ! -s "$last_fd_path" ] \
-      || ! timeout --signal=KILL 5s env LC_ALL=C grep -q '[^[:space:]]' "$last_fd_path"; then
-      append_bounded_diagnostic 6 "$STDERR_MAX_BYTES" \
+    elif [ ! -s "$last_tmp" ] \
+      || ! timeout --signal=KILL 5s env LC_ALL=C grep -q '[^[:space:]]' "$last_tmp"; then
+      append_bounded_diagnostic "$err_tmp" "$STDERR_MAX_BYTES" \
         'codex-run-role: successful CLI exit produced no final role message' || {
         cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"; return 4; }
       rc=1
     fi
   fi
 
-  evidence_slot_valid "$out_tmp" 5 "$EVIDENCE_OUT_ID" \
-    && evidence_slot_valid "$err_tmp" 6 "$EVIDENCE_ERR_ID" \
-    && evidence_slot_valid "$last_tmp" 7 "$EVIDENCE_LAST_ID" \
-    && size_out=$(evidence_fd_size 5) \
-    && size_err=$(evidence_fd_size 6) \
-    && size_last=$(evidence_fd_size 7) \
-    && [ "$size_out" -le "$JSONL_MAX_BYTES" ] \
+  size_out=$(file_size "$out_tmp") || return 4
+  size_err=$(file_size "$err_tmp") || return 4
+  size_last=$(file_size "$last_tmp") || return 4
+  [ "$size_out" -le "$JSONL_MAX_BYTES" ] \
     && [ "$size_err" -le "$STDERR_MAX_BYTES" ] \
     && [ "$size_last" -le "$LAST_MESSAGE_MAX_BYTES" ] || {
     cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"
@@ -941,17 +800,13 @@ run_codex() {
     return 4
   }
 
-  publish_evidence_file "$out_tmp" "$out" 5 "$EVIDENCE_OUT_ID" "$JSONL_MAX_BYTES" \
-    && publish_evidence_file "$err_tmp" "$err" 6 "$EVIDENCE_ERR_ID" "$STDERR_MAX_BYTES" \
-    && publish_evidence_file "$last_tmp" "$last_message" 7 "$EVIDENCE_LAST_ID" "$LAST_MESSAGE_MAX_BYTES" \
-    && evidence_slot_valid "$out" 5 "$EVIDENCE_OUT_ID" \
-    && evidence_slot_valid "$err" 6 "$EVIDENCE_ERR_ID" \
-    && evidence_slot_valid "$last_message" 7 "$EVIDENCE_LAST_ID" || {
+  mv -fT -- "$out_tmp" "$out" \
+    && mv -fT -- "$err_tmp" "$err" \
+    && mv -fT -- "$last_tmp" "$last_message" || {
     cleanup_evidence_files "$out_tmp" "$err_tmp" "$last_tmp"
     echo "codex-run-role: could not publish bounded Codex evidence safely" >&2
     return 4
   }
-  close_evidence_fds
   ACTIVE_EVIDENCE_FILES=()
   EVIDENCE_PUBLISHED=1
   return "$rc"
@@ -980,79 +835,41 @@ bounded_terminal_stream() {
   '
 }
 
+# Simple log pruning: drop oldest non-current evidence until under byte/file caps.
 prune_log_dir() {
-  local excess i log timestamp index parent canonical listing unsafe_listing order sorted
-  local total_bytes=0 log_bytes
-  local -a candidates=() retained_logs=() old_logs=()
+  local total_bytes=0 log_bytes log excess i
+  local -a old_logs=()
   [ -z "$LOG_FILE" ] && [ "$GUARDED_TELEMETRY" -eq 0 ] || return 0
-  listing=$(mktemp) || return 1
-  unsafe_listing=$(mktemp) || { rm -f -- "$listing"; return 1; }
-  order=$(mktemp) || { rm -f -- "$listing" "$unsafe_listing"; return 1; }
-  sorted=$(mktemp) || {
-    rm -f -- "$listing" "$unsafe_listing" "$order"; return 1; }
-  if ! find "$LOG_DIR" -mindepth 1 -maxdepth 1 \
+  # Fail closed if any retention-name match is not a regular file (e.g. symlink).
+  if find "$LOG_DIR" -mindepth 1 -maxdepth 1 \
     \( -name '*.jsonl' -o -name '*.jsonl.stderr' -o -name '*.jsonl.last-message' \) \
-    ! -type f -print0 > "$unsafe_listing"; then
-    rm -f -- "$listing" "$unsafe_listing" "$order" "$sorted"
-    return 1
-  fi
-  if [ -s "$unsafe_listing" ]; then
-    rm -f -- "$listing" "$unsafe_listing" "$order" "$sorted"
+    ! -type f -print -quit | grep -q .; then
     echo "codex-run-role: unsafe log retention entry" >&2
     return 1
   fi
-  if ! find "$LOG_DIR" -mindepth 1 -maxdepth 1 -type f \
-    \( -name '*.jsonl' -o -name '*.jsonl.stderr' -o -name '*.jsonl.last-message' \) \
-    -printf '%T@\0%p\0' > "$listing"; then
-    rm -f -- "$listing" "$unsafe_listing" "$order" "$sorted"
-    return 1
-  fi
-  while IFS= read -r -d '' timestamp && IFS= read -r -d '' log; do
-    timestamp=${timestamp%%.*}
-    [[ "$timestamp" =~ ^[0-9]+$ ]] || {
-      rm -f -- "$listing" "$unsafe_listing" "$order" "$sorted"; return 1; }
-    [ -f "$log" ] && [ ! -L "$log" ] || {
-      rm -f -- "$listing" "$unsafe_listing" "$order" "$sorted"; return 1; }
-    parent=$(dirname -- "$log")
-    canonical=$(cd -- "$parent" && pwd -P) || {
-      rm -f -- "$listing" "$unsafe_listing" "$order" "$sorted"; return 1; }
-    [ "$canonical" = "$LOG_DIR" ] || {
-      rm -f -- "$listing" "$unsafe_listing" "$order" "$sorted"; return 1; }
-    index=${#candidates[@]}
-    candidates[$index]=$log
-    printf '%s\t%s\n' "$timestamp" "$index" >> "$order"
-  done < "$listing"
-  if ! LC_ALL=C sort -n -k1,1 -k2,2 "$order" > "$sorted"; then
-    rm -f -- "$listing" "$unsafe_listing" "$order" "$sorted"
-    return 1
-  fi
-  while IFS=$'\t' read -r timestamp index; do
-    [[ "$index" =~ ^[0-9]+$ ]] && [ "$index" -lt "${#candidates[@]}" ] || {
-      rm -f -- "$listing" "$unsafe_listing" "$order" "$sorted"; return 1; }
-    retained_logs+=("${candidates[$index]}")
-  done < "$sorted"
-  rm -f -- "$listing" "$unsafe_listing" "$order" "$sorted"
-  for log in "${retained_logs[@]}"; do
-    log_bytes=$(stat -Lc '%s' -- "$log") || return 1
-    total_bytes=$((total_bytes + log_bytes))
-  done
-  for log in "${retained_logs[@]}"; do
+  while IFS= read -r -d '' log; do
     case "$log" in
       "$OUT1"|"$ERR1"|"$LAST1"|"$FINAL_OUT"|"$FINAL_ERR"|"$FINAL_LAST"|\
-      "${OUT2:-}"|"${ERR2:-}"|"${LAST2:-}") : ;;
-      *) old_logs+=("$log") ;;
+      "${OUT2:-}"|"${ERR2:-}"|"${LAST2:-}") continue ;;
     esac
+    [ -f "$log" ] && [ ! -L "$log" ] || continue
+    old_logs+=("$log")
+  done < <(find "$LOG_DIR" -mindepth 1 -maxdepth 1 -type f \
+    \( -name '*.jsonl' -o -name '*.jsonl.stderr' -o -name '*.jsonl.last-message' \) \
+    -printf '%T@\t%p\0' 2>/dev/null | LC_ALL=C sort -z -n | cut -z -f2-)
+  for log in "${old_logs[@]}" \
+    "$OUT1" "$ERR1" "$LAST1" "$FINAL_OUT" "$FINAL_ERR" "$FINAL_LAST" \
+    ${OUT2:+"$OUT2"} ${ERR2:+"$ERR2"} ${LAST2:+"$LAST2"}; do
+    [ -n "$log" ] && [ -f "$log" ] || continue
+    log_bytes=$(file_size "$log") || continue
+    total_bytes=$((total_bytes + log_bytes))
   done
   excess=$((${#old_logs[@]} - LOG_RETENTION_FILES))
   [ "$excess" -gt 0 ] || excess=0
   for ((i=0; i<${#old_logs[@]}; i++)); do
     [ "$i" -lt "$excess" ] || [ "$total_bytes" -gt "$LOG_RETENTION_BYTES" ] || break
     log=${old_logs[$i]}
-    [ -f "$log" ] && [ ! -L "$log" ] || return 1
-    parent=$(dirname -- "$log")
-    canonical=$(cd -- "$parent" && pwd -P) || return 1
-    [ "$canonical" = "$LOG_DIR" ] || return 1
-    log_bytes=$(stat -Lc '%s' -- "$log") || return 1
+    log_bytes=$(file_size "$log") || continue
     rm -f -- "$log" || return 1
     total_bytes=$((total_bytes - log_bytes))
   done
@@ -1063,27 +880,21 @@ prune_log_dir() {
 }
 
 explicit_requested_model_unavailable() {
-  local rc="$1" model="$2" out="$3" err="$4" model_re unavailable_re
+  local rc="$1" model="$2" out="$3" err="$4"
   [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && [ "$rc" -ne 137 ] && [ "$rc" -ne 143 ] || return 1
-  if timeout --signal=KILL 5s jq -ne --arg model "$model" '
-    reduce inputs as $event (false;
-      . or (($event | type) == "object" and
-        (($event.type? == "error") or ($event.type? == "turn.failed")) and
-        (((($event.error.code? // $event.code? // "") | tostring | ascii_downcase)
-          | test("^(model_(not_found|unavailable|unsupported|not_enabled)|unsupported_model)$")) and
-        (((($event.error.model? // $event.model? // "") | tostring | ascii_downcase)
-          == ($model | ascii_downcase)) or
-         ((($event.error.message? // $event.message? // "") | tostring | ascii_downcase)
-          | contains($model | ascii_downcase))))))
-    )' "$out" >/dev/null 2>&1; then
-    return 0
-  fi
-  model_re=${model//./\\.}
-  unavailable_re='unavailable|not[[:space:]]+available|not[[:space:]]+found|does[[:space:]]+not[[:space:]]+exist|unsupported|not[[:space:]]+enabled|no[[:space:]]+access'
-  timeout --signal=KILL 5s grep -qiE \
-    "^(error:[[:space:]]*)?(the[[:space:]]+)?model[[:space:]\"']*${model_re}[\"']*[[:space:]]+(is[[:space:]]+)?(currently[[:space:]]+)?(${unavailable_re})[[:space:].]*$|^(error:[[:space:]]*)?model[[:space:]]+(${unavailable_re})[[:space:]]*:[[:space:]]*${model_re}[[:space:].]*$" \
-    "$err"
+  # Single detector: structured JSONL error/turn.failed with model-unavailable codes.
+  timeout --signal=KILL 5s jq -ne --arg model "$model" '
+    def code: ((.error.code? // .code? // "") | tostring | ascii_downcase);
+    def mdl: ((.error.model? // .model? // "") | tostring | ascii_downcase);
+    def msg: ((.error.message? // .message? // "") | tostring | ascii_downcase);
+    def is_unavailable:
+      (.type? == "error" or .type? == "turn.failed")
+      and (code | test("^(model_(not_found|unavailable|unsupported|not_enabled)|unsupported_model)$"))
+      and ((mdl == ($model | ascii_downcase)) or (msg | contains($model | ascii_downcase)));
+    reduce inputs as $event (false; . or (($event | type) == "object" and ($event | is_unavailable)))
+  ' "$out" >/dev/null 2>&1
 }
+
 
 OUT1=${LOG_FILE:-$LOG_DIR/$RUN_ID-$ROLE-$ATTEMPT.jsonl}
 ERR1="$OUT1.stderr"

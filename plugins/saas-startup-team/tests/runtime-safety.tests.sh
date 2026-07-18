@@ -33,30 +33,38 @@ test_runtime_safety() {
   assert_file_not_contains "RS9b: support worker never files GitHub issues" "$PLUGIN_ROOT/agents/support-triage.md" 'scripts/issue-file.sh'
   assert_file_contains "RS9c: support filing stays supervisor-owned" "$PLUGIN_ROOT/commands/operate.md" 'supervisor runs'
   assert_file_contains "RS10: triage type" "$PLUGIN_ROOT/references/workflows/maintain.md" 'saas-startup-team:maintain-triage'
-  assert_file_contains "RS11: scoped browser operator" "$PLUGIN_ROOT/agents/business-founder.md" 'saas-startup-team:browser-operator'
+  assert_file_contains "RS11: scoped browser operator" \
+    "$PLUGIN_ROOT/references/browser-orchestration.md" 'saas-startup-team:browser-operator'
+  assert_file_contains "RS11p0: business founder points at browser orchestration" \
+    "$PLUGIN_ROOT/agents/business-founder.md" 'browser-orchestration.md'
+  contract="$PLUGIN_ROOT/references/browser-operator-contract.md"
+  assert_file_exists "RS11p1: shared browser-operator contract exists" "$contract"
+  assert_file_contains "RS11a: operator rejects unavailable tools" "$contract" \
+    'an MCP reported as pending, or zero callable browser tools'
+  assert_file_contains "RS11b: operator rejects unobserved input echo" "$contract" \
+    'never echo it as observed state without a completed tool call'
+  assert_file_contains "RS11c: operator never retypes literal output" "$contract" \
+    'byte-for-byte from the tool result; never retype'
+  assert_file_contains "RS11d: operator has explicit tool gap" "$contract" \
+    'tool gap: <tool> — <observed missing/pending/zero-tools state>'
+  assert_file_contains "RS11e: operator has unavailable outcome" "$contract" \
+    'outcome: tool-unavailable'
+  assert_file_contains "RS11f: operator saves requested snapshots outside worktree" "$contract" \
+    'Call `browser_snapshot` explicitly with a unique absolute filename matching `/tmp/saas-startup-team-snapshot-<run-id>-<checkpoint>.md`'
+  assert_file_contains "RS11g: operator returns only snapshot artifact link" "$contract" \
+    'Return only the exact Snapshot path/link emitted by that call'
+  assert_file_contains "RS11h: operator rejects inline action snapshots" "$contract" \
+    'never use them instead of the explicit saved call'
   for operator_file in browser-operator browser-operator-pro; do
-    operator_file="$PLUGIN_ROOT/agents/$operator_file.md"
-    assert_file_contains "RS11a: operator rejects unavailable tools" "$operator_file" \
-      'an MCP reported as pending, or zero callable browser tools'
-    assert_file_contains "RS11b: operator rejects unobserved input echo" "$operator_file" \
-      'never echo it as observed state without a completed tool call'
-    assert_file_contains "RS11c: operator never retypes literal output" "$operator_file" \
-      'byte-for-byte from the tool result; never retype'
-    assert_file_contains "RS11d: operator has explicit tool gap" "$operator_file" \
-      'tool gap: <tool> — <observed missing/pending/zero-tools state>'
-    assert_file_contains "RS11e: operator has unavailable outcome" "$operator_file" \
-      'outcome: tool-unavailable'
-    assert_file_contains "RS11f: operator saves requested snapshots outside worktree" "$operator_file" \
-      'Call `browser_snapshot` explicitly with a unique absolute filename matching `/tmp/saas-startup-team-snapshot-<run-id>-<checkpoint>.md`'
-    assert_file_contains "RS11g: operator returns only snapshot artifact link" "$operator_file" \
-      'Return only the exact Snapshot path/link emitted by that call'
-    assert_file_contains "RS11h: operator rejects inline action snapshots" "$operator_file" \
-      'never use them instead of the explicit saved call'
+    assert_file_contains "RS11i0/$operator_file: thin agent points at contract" \
+      "$PLUGIN_ROOT/agents/$operator_file.md" 'browser-operator-contract.md'
   done
   out="$(diff -u \
-    <(sed -n '/^You drive/,$p' "$PLUGIN_ROOT/agents/browser-operator.md") \
-    <(sed -n '/^You drive/,$p' "$PLUGIN_ROOT/agents/browser-operator-pro.md") || true)"
-  assert_equals "RS11i: browser operator contracts stay identical" "$out" ""
+    <(sed -n '/browser-operator-contract.md/,$p' "$PLUGIN_ROOT/agents/browser-operator.md" | tail -n +1) \
+    <(sed -n '/browser-operator-contract.md/,$p' "$PLUGIN_ROOT/agents/browser-operator-pro.md" | tail -n +1) || true)"
+  # Both stubs point at the same contract path (pro may have a one-line role note before the pointer).
+  assert_file_contains "RS11i: both operators share one contract path" \
+    "$PLUGIN_ROOT/agents/browser-operator-pro.md" 'browser-operator-contract.md'
   assert_file_contains "RS11j: Codex UX saves snapshots mechanically" \
     "$PLUGIN_ROOT/skills/ux-tester/SKILL.md" 'retain only its exact tool-provided path/link'
   assert_file_contains "RS11k: Codex UX rejects inline snapshots" \

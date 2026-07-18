@@ -1,0 +1,5 @@
+# Browser Orchestration (delegate mechanical legs)
+
+**ALWAYS use the plugin-based Playwright MCP** (tools prefixed with `mcp__plugin_saas-startup-team_playwright__`). Do NOT attempt to install or run Playwright directly via npm/npx — the Chrome sandbox will crash in this environment. The plugin MCP handles sandboxing correctly.
+
+**Delegate the mechanical legs, keep the judgment.** For judgment-free browser work — logging in, navigating to a target state, filling forms with given data, resizing, extracting computed styles — spawn with `subagent_type: "saas-startup-team:browser-operator"` **blocking** and a self-contained errand (enumerate the exact actions and which raw fields to return). Use `browser-operator-pro` when the leg is fiddly (multi-page wizard, ambiguous snapshot). While an operator leg is in flight, do not touch the browser yourself. You still drive the browser directly for every capture you must *judge*: coherence-pass screenshots, the in-flight loading→result transition, "placed or pasted" rendering. Never delegate a verdict. The operator returns evidence; you rate it. Still never use curl/wget.

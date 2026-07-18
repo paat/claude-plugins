@@ -977,7 +977,7 @@ done
 assert_file "structured review schema exists" "schemas/review-output.json"
 assert_json_field "structured review schema is valid JSON" "jq -e '.type==\"object\" and .additionalProperties==false' '$PLUGIN_ROOT/schemas/review-output.json'"
 assert_file "static runner bundle manifest exists" "integrity/runner-bundle.json"
-assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.20.1\"'"
+assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.20.2\"'"
 assert_json_field "static runner bundle is current" "bash '$PLUGIN_ROOT/scripts/generate-runner-bundle.sh' --check"
 
 echo "Skill is orchestration-focused:"
@@ -1010,7 +1010,7 @@ assert_no_grep "skill has no hardcoded origin/main" "$SK" "origin/main"
 assert_no_grep "lib has no hardcoded origin/main" "$LIB" "origin/main"
 
 echo "Context and large-diff guards:"
-assert_grep "AGENTS.md capped" "$LIB" "head -c 16384"
+assert_grep "AGENTS.md capped" "$LIB" "head -c 4096"
 assert_grep "reachability.md capped" "$LIB" "head -c 8192"
 assert_grep "diff limit env" "$LIB" "TRIBUNAL_DIFF_LIMIT_BYTES"
 assert_grep "large diff uses head -c" "$LIB" 'head -c "$max"'

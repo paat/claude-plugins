@@ -131,5 +131,87 @@ class TerminalSentinelTests(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
+class DuplicationAndBudgetTests(unittest.TestCase):
+    def _write_plugin(self, root: Path, files: dict[str, str]) -> Path:
+        plugin = root / "fixture"
+        for relative, content in files.items():
+            path = plugin / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        return plugin
+
+    def test_flags_re_pasted_multiline_block_across_two_files(self) -> None:
+        shared = "\n".join(f"shared guidance line {i} with enough text" for i in range(12))
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = self._write_plugin(
+                Path(directory),
+                {
+                    "agents/alpha.md": f"---\nname: alpha\ndescription: A\n---\n{shared}\n",
+                    "agents/beta.md": f"---\nname: beta\ndescription: B\n---\n{shared}\n",
+                },
+            )
+            errors: list[str] = []
+            CHECKER.lint_markdown_duplication(plugin, errors)
+            self.assertTrue(errors, "expected duplication error")
+            self.assertTrue(any("duplicated" in err for err in errors))
+
+    def test_accepts_unique_bodies(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = self._write_plugin(
+                Path(directory),
+                {
+                    "agents/alpha.md": "---\nname: alpha\ndescription: A\n---\n"
+                    + "\n".join(f"alpha only line {i}" for i in range(12))
+                    + "\n",
+                    "agents/beta.md": "---\nname: beta\ndescription: B\n---\n"
+                    + "\n".join(f"beta only line {i}" for i in range(12))
+                    + "\n",
+                },
+            )
+            errors: list[str] = []
+            CHECKER.lint_markdown_duplication(plugin, errors)
+            self.assertEqual(errors, [])
+
+    def test_budget_fails_when_file_grows_past_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = self._write_plugin(
+                Path(directory),
+                {
+                    "agents/alpha.md": "---\nname: alpha\ndescription: A\n---\nshort\n",
+                    "integrity/prompt-budgets.json": (
+                        '{\n  "version": 1,\n  "files": {\n'
+                        '    "agents/alpha.md": 20\n  }\n}\n'
+                    ),
+                },
+            )
+            # Grow past budget
+            (plugin / "agents" / "alpha.md").write_text(
+                "---\nname: alpha\ndescription: A\n---\n" + ("x" * 200) + "\n",
+                encoding="utf-8",
+            )
+            errors: list[str] = []
+            CHECKER.lint_prompt_budgets(plugin, errors)
+            self.assertTrue(errors)
+            self.assertTrue(any("exceeds prompt budget" in err for err in errors))
+
+    def test_budget_passes_at_or_under_baseline(self) -> None:
+        content = "---\nname: alpha\ndescription: A\n---\nbody\n"
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = self._write_plugin(
+                Path(directory),
+                {"agents/alpha.md": content},
+            )
+            size = (plugin / "agents" / "alpha.md").stat().st_size
+            (plugin / "integrity").mkdir(parents=True, exist_ok=True)
+            (plugin / "integrity" / "prompt-budgets.json").write_text(
+                '{\n  "version": 1,\n  "files": {\n'
+                f'    "agents/alpha.md": {size}\n  }}\n}}\n',
+                encoding="utf-8",
+            )
+            errors: list[str] = []
+            CHECKER.lint_prompt_budgets(plugin, errors)
+            self.assertEqual(errors, [])
+
+
 if __name__ == "__main__":
     unittest.main()

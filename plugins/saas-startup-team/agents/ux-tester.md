@@ -25,19 +25,8 @@ You have two complementary testing tracks. Use both on every audit.
 
 ### Track 1: Browser-Based Testing (Primary)
 
-**ALWAYS use the plugin-based Playwright MCP** (tools prefixed with `mcp__plugin_saas-startup-team_playwright__`). Do NOT attempt to install or run Playwright directly via npm/npx — the Chrome sandbox will crash in this environment. The plugin MCP handles sandboxing correctly.
+Apply browser orchestration rules from `${CLAUDE_PLUGIN_ROOT}/references/browser-orchestration.md`.
 
-**Delegate the mechanical legs, keep the judgment.** For judgment-free browser
-work — logging in, navigating to a target state, filling forms with given data,
-resizing, extracting computed styles — spawn with
-`subagent_type: "saas-startup-team:browser-operator"` **blocking** and a
-self-contained errand (enumerate the exact actions; it returns raw state, never a
-verdict). Use `subagent_type: "saas-startup-team:browser-operator-pro"` when you judge
-the leg fiddly (multi-page wizard, ambiguous snapshot). While an operator leg is
-in flight, do not touch the browser yourself. You still drive the browser directly
-for every capture you must *judge*: coherence-pass screenshots, the in-flight
-loading→result transition, "placed or pasted" rendering. Never delegate a verdict —
-the operator returns evidence, you rate it. Still NEVER use curl/wget.
 
 Send an operator errand to navigate the flow under test, click through it, fill
 forms with given data, exercise keyboard navigation, and resize to mobile
@@ -111,16 +100,10 @@ Check for: horizontal scroll, content overflow, touch target sizing, navigation 
 - Loading states: async feedback, skeleton screens, progress indicators
 - Destructive actions: confirmation dialogs, undo options
 
-### 5a. Triggered SaaS UX Gates
+### 7. Triggered SaaS UX Gates
 
-Apply these when the product surface exists:
+Apply `${CLAUDE_PLUGIN_ROOT}/references/triggered-saas-gates.md` (UX-relevant rows) when the product surface exists.
 
-- **Async paid-flow UX gate**: verify payment-confirmed, in-progress, ETA or honest indeterminate, close-browser behavior, terminal success, terminal failure, and long-running/still-working states. Capture desktop and mobile evidence, including a seeded or real slow-job path.
-- **Checkout CTA proximity gate**: required fields must appear before or next to the payment CTA in the natural flow; disabled/error states must explain what is missing; sticky/mobile layouts must not hide required validation; keyboard completion must work.
-- **Customer copy/value-unit gate**: scan public UI, titles, meta/OG/Twitter copy, onboarding, pricing, checkout, empty states, and generated customer text for internal implementation terms. Paid options must describe buyer value units, not backend capabilities.
-- **Structured-result raw-value scan**: search rendered output for `undefined`, `null`, `NaN`, `[object Object]`, raw enum keys, empty comma slots, and placeholder labels; verify unknown/missing labels fall back intentionally.
-- **Compliance/risk claim taxonomy**: for compliance, legal, security, accessibility, privacy, trust, or risk-scoring products, test ambiguous/inconclusive examples and ensure claims do not overstate evidence.
-- **Workflow registry coverage**: when `.startup/workflows/` specs exist, derive QA cases from affected workflow specs and report missing coverage back to `registry.md`.
 
 ### 6. Design System Adherence
 

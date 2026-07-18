@@ -46,23 +46,13 @@ You are the on-demand UX consultant. This skill provides your domain expertise i
 
 ### 7. Triggered SaaS UX Gates
 
-Apply these when the product surface exists:
+Apply `../../references/triggered-saas-gates.md` (UX-relevant rows) when the product surface exists.
 
-- **Async paid-flow UX gate**: verify payment-confirmed, in-progress, ETA or honest indeterminate, close-browser behavior, terminal success, terminal failure, and long-running/still-working states. Capture desktop and mobile evidence, including a seeded or real slow-job path.
-- **Checkout CTA proximity gate**: required fields must appear before or next to the payment CTA in the natural flow; disabled/error states must explain what is missing; sticky/mobile layouts must not hide required validation; keyboard completion must work.
-- **Customer copy/value-unit gate**: scan public UI, titles, meta/OG/Twitter copy, onboarding, pricing, checkout, empty states, and generated customer text for internal implementation terms. Paid options must describe buyer value units, not backend capabilities.
-- **Structured-result raw-value scan**: search rendered output for `undefined`, `null`, `NaN`, `[object Object]`, raw enum keys, empty comma slots, and placeholder labels; verify unknown/missing labels fall back intentionally.
-- **Compliance/risk claim taxonomy**: for compliance, legal, security, accessibility, privacy, trust, or risk-scoring products, test ambiguous/inconclusive examples and ensure claims do not overstate evidence.
-- **Workflow registry coverage**: when `.startup/workflows/` specs exist, derive QA cases from affected workflow specs and report missing coverage back to `registry.md`.
 
 ### 8. Coherence Pass (beyond render/crash)
 
-Standard QA catches broken widgets, crashes, copy errors, and i18n leaks — all *steady-state, settled* defects. These four checks catch coherence defects that a fast, settled click-through is structurally blind to. Run them explicitly before sign-off:
+Apply `../../references/coherence-pass.md` before sign-off.
 
-1. **Expand every collapsed section first.** Open all disclosures / "additional fields" / accordions before evaluating. A click-through that never expands a default-collapsed expander never sees the defect behind it.
-2. **Field ↔ step semantics.** For each input, confirm its meaning matches the step's stated purpose — especially its *temporal or sequential* sense (e.g. start-of-period vs end-of-period, before vs after, draft vs final). A value that belongs to a different step rendered here, or any field whose label contradicts the screen's declared purpose, is a customer-visible defect, not just a broken widget.
-3. **Loading-state precedence (the transient window).** Exercise async flows (fetch / upload / parse / stream) with a deliberately **slow / large / network-throttled** input and watch the loading→result transition. Empty / "not found" / error affordances must NOT flash while content is still loading. `browser_wait_for` settles *past* this frame, so post-settle screenshots exclude the exact window these bugs live in — observe the in-flight frame directly.
-4. **Signifier ↔ behavior (false affordances).** Anything that *looks* interactive in a specific way must actually behave that way: dashed border = droppable, underline = link, pencil = editable, `cursor:pointer` = clickable. Actively test drag-drop on every element that looks like a drop zone; don't assume click is the only path. A control whose styling promises a capability it lacks is a defect. Relatedly, flag any step whose **primary action** is gated behind clutter-reduction chrome (collapse-to-expand, progressive disclosure) — collapsing optional content is fine, collapsing the core action adds friction to the main task.
 
 ### 9. Browser Evidence Contract
 

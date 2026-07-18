@@ -1,0 +1,15 @@
+# Triggered SaaS Product Gates
+
+Apply these when a feature or change touches the relevant product class. Document evidence in the handoff or review; run the smallest regression fixture that proves each applicable gate.
+
+- **Workflow registry**: update `.startup/workflows/registry.md` and affected `WORKFLOW-<slug>.md` specs for routes, jobs, states, webhooks, checkout/payment, LLM pipelines, support intake, operator flows, or handoff contracts. Mark discovered missing workflows as `Missing`.
+- **Async paid-flow UX gate**: long-running paid/background work must expose payment-confirmed, in-progress, ETA or honest indeterminate, close-browser, `DONE`, `FAILED`, and still-working states with accessible status semantics. Capture desktop and mobile evidence, including a seeded or real slow-job path.
+- **Display-label registry / structured-result raw-value scan**: every user-visible enum/status/category/domain/result key needs a stable label and intentional unknown fallback; summary builders filter blanks before joins. Search rendered output for `undefined`, `null`, `NaN`, `[object Object]`, raw enum keys, empty comma slots, and placeholder labels.
+- **Checkout CTA proximity gate**: required pre-payment fields, validation, and payment CTA stay in the user's natural flow on desktop and mobile; disabled/error states explain what is missing; keyboard and screen-reader-visible validation must work.
+- **Customer copy/value-unit gate**: scan public UI, titles, meta/OG/Twitter copy, onboarding, pricing, checkout, empty states, and generated customer text for internal implementation terms. Paid options must describe buyer value units, not backend capabilities.
+- **LLM pipeline quality gate**: no silent downgrade across paid model/provider tiers; persist fallback metadata; save raw or redacted raw responses for every parse/repair/schema failure class; exercise actual completion endpoints and malformed structured outputs; set explicit generation timeouts.
+- **Compliance/risk claim taxonomy**: classify findings as fact, signal, automated finding, violation, draft, recommendation, or needs-review, with evidence requirements and false-positive-prone fixtures. Ambiguous findings must not overstate evidence.
+- **Generated-content factual gate** (when LLM-generated customer deliverables are in scope): generate one with a fact-conflicting fixture and read the output against session facts — temporal scope, claims vs computed values, all locales. Any contradiction is FAIL.
+- **Multi-surface scenario matrix** (when validating across multiple input slots/files/fields): acceptance and QA include mixed states (one correct + one wrong per slot), not only uniform ones.
+- **Public-route discoverability** (when a new public/indexable route is added): acceptance pack fields explicit in the brief rather than inferred from a sitemap or catalog registration.
+- **Go-live CI/CD**: deploy from CI, environment approval/protection, separated permissions, managed secrets, visible build/deploy logs, migration/restart docs, and runner recovery instructions.

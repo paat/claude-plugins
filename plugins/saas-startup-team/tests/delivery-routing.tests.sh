@@ -438,27 +438,33 @@ case "${FAKE_CODEX_MODE:-success}" in
     ;;
   terra_unavailable)
     if printf '%s\n' "$*" | grep -q 'gpt-5.6-terra'; then
+      # Structured JSONL error (single detector path in codex-run-role).
+      printf '%s\n' '{"type":"error","error":{"code":"model_unavailable","model":"gpt-5.6-terra","message":"model gpt-5.6-terra is unavailable"}}'
       echo 'model gpt-5.6-terra is unavailable' >&2
       exit 1
     fi
     ;;
   terra_unavailable_reverse)
     if printf '%s\n' "$*" | grep -q 'gpt-5.6-terra'; then
+      printf '%s\n' '{"type":"error","error":{"code":"model_not_found","model":"gpt-5.6-terra","message":"model unavailable: gpt-5.6-terra"}}'
       echo 'model unavailable: gpt-5.6-terra' >&2
       exit 1
     fi
     ;;
   sol_unavailable)
     if printf '%s\n' "$*" | grep -q 'gpt-5.6-sol'; then
+      printf '%s\n' '{"type":"error","error":{"code":"model_unavailable","model":"gpt-5.6-sol","message":"model gpt-5.6-sol is unavailable"}}'
       echo 'model gpt-5.6-sol is unavailable' >&2
       exit 1
     fi
     ;;
   unrelated_unavailable)
+    printf '%s\n' '{"type":"error","error":{"code":"tool_failed","message":"tool failed after observing that gpt-4-legacy is unavailable"}}'
     echo 'tool failed after observing that gpt-4-legacy is unavailable' >&2
     exit 1
     ;;
   same_model_task_failure)
+    printf '%s\n' '{"type":"error","error":{"code":"task_failed","message":"task failed while checking whether model gpt-5.6-terra is unavailable in documentation"}}'
     echo 'task failed while checking whether model gpt-5.6-terra is unavailable in documentation' >&2
     exit 1
     ;;

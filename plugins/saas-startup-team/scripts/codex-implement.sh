@@ -49,10 +49,8 @@ trap 'rm -rf "$tmpdir"' EXIT
 combined="$tmpdir/task.md"
 {
   printf '%s\n' 'TECH-FOUNDER IMPLEMENTATION CONTRACT'
-  printf '%s\n' '- Write only the scoped source, tests, and workflow-spec changes required by the task.'
   printf '%s\n' '- Preserve authentication, validation, Unicode text, and bounded network timeouts.'
   printf '%s\n' '- Add a regression guard for bug or incident fixes and run the canonical local check.'
-  printf '%s\n' '- Leave the verified diff uncommitted for the supervisor-owned commit gate.'
   printf '\n================ HANDOFF / TASK ================\n'
   if [ -n "$HANDOFF" ]; then
     handoff_path="$(resolve_file "$HANDOFF")"

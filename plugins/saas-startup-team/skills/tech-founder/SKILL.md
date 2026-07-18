@@ -108,14 +108,8 @@ computed outputs, a green app is insufficient evidence; require golden-fixture
 coverage and an independent spot-check (the business founder does the latter in QA).
 
 #### Triggered SaaS product gates
-Apply these when a feature touches the relevant product class:
+Apply the canonical list in `../../references/triggered-saas-gates.md` when a feature touches the relevant product class.
 
-- **Workflow registry**: update `.startup/workflows/registry.md` and affected `WORKFLOW-<slug>.md` specs for routes, jobs, states, webhooks, checkout/payment, LLM pipelines, support intake, operator flows, or handoff contracts. Mark discovered missing workflows as `Missing`.
-- **Async paid-flow UX gate**: long-running paid/background work must expose payment-confirmed, in-progress, ETA or honest indeterminate, close-browser, `DONE`, `FAILED`, and still-working states with accessible status semantics.
-- **Display-label registry**: every user-visible enum/status/category/domain/result key needs a stable label and intentional unknown fallback; summary builders filter blanks before joins.
-- **Checkout CTA proximity gate**: required pre-payment fields, validation, and payment CTA are in the user's natural flow on desktop and mobile.
-- **LLM pipeline quality gate**: no silent downgrade across paid model/provider tiers; persist fallback metadata; save raw or redacted raw responses for every parse/repair/schema failure class; test actual completion endpoints and malformed structured outputs.
-- **Compliance/risk claim taxonomy**: classify findings as fact, signal, automated finding, violation, draft, recommendation, or needs-review, with evidence and false-positive fixtures.
 
 ### Bug Fix Protocol (issue-linked fixes)
 When fixing a reported incident/issue (GitHub issue or Plane work item), first identify the root cause / recurrence class, then fix the class, not only the observed instance. Add a durable mechanical guard that would fail on the old behavior: usually a failing regression test, but a contract test, monitor assertion, invariant/golden fixture, or equivalent guard is valid when it better locks the recurrence class. Confirm red-before/green-after proof, and record the guard path plus `Closes #<n>` / `Plane-Item: <id|url>` in the handoff and PR body.
@@ -126,15 +120,8 @@ If a durable guard is genuinely impossible, do not silently close the issue: spl
 
 ```
 1. READ handoff document completely
-2. BRIEF ACCEPTANCE GATE — verify all four, else STOP and message the business
-   founder naming the specific material gaps (do not invent material decisions):
-   a. "Why" explains the need; a concrete direct request plus repository behavior is
-      sufficient evidence and does not require a new research document, while
-      discovery-originated work cites the relevant existing research docs
-   b. Each feature has testable acceptance criteria, not aspirations
-   c. Safe, reversible choices follow repository conventions; no material business
-      decision is invented (pricing, wording, customer-visible edge-case behavior)
-   d. Requirements are consistent with each other and the existing product
+2. BRIEF ACCEPTANCE GATE — apply `../../references/brief-acceptance-gate.md`;
+   else STOP and message the business founder naming the material gaps
 3. REVIEW existing code — what's already built?
 4. PLAN architecture — what approach serves the customer best?
 5. IMPLEMENT feature — clean, aesthetic, empathetic code
@@ -155,3 +142,5 @@ If a durable guard is genuinely impossible, do not silently close the issue: spl
 - `references/architecture.md` — Architecture decision patterns and templates
 - `references/quality-standards.md` — Detailed code and UI quality guidelines
 - `references/empathetic-dev.md` — "Always know the why" development principles
+- `../../references/brief-acceptance-gate.md` — Brief Acceptance Gate + scope check
+- `../../references/triggered-saas-gates.md` — Triggered SaaS product gates

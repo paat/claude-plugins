@@ -41,6 +41,10 @@ def main() -> int:
     return 0
 
 
+# Multi-line normalized block must appear in only one markdown file per plugin.
+DUPLICATE_BLOCK_MIN_LINES = 10
+
+
 def lint_plugin(plugin_dir: Path, errors: list[str], warnings: list[str]) -> None:
     plugin_name = plugin_dir.name
     lint_prompt_content(plugin_dir, errors)
@@ -48,6 +52,8 @@ def lint_plugin(plugin_dir: Path, errors: list[str], warnings: list[str]) -> Non
     lint_commands(plugin_dir, errors)
     lint_agents(plugin_dir, errors)
     lint_hooks(plugin_dir, errors)
+    lint_markdown_duplication(plugin_dir, errors)
+    lint_prompt_budgets(plugin_dir, errors)
     warn_duplicate_skill_bodies(plugin_name, plugin_dir, warnings)
 
 
@@ -209,6 +215,121 @@ def hook_commands(payload: dict[str, Any]) -> list[str]:
                 if isinstance(command, str) and command.strip():
                     output.append(command)
     return output
+
+
+def plugin_markdown_paths(plugin_dir: Path) -> list[Path]:
+    """Prompt-loaded markdown that must not re-paste multi-line guidance clusters.
+
+    Scans agents/, commands/, plugin-level references/, templates/, and each
+    skill's SKILL.md only. Nested skill reference docs (often code samples) and
+    generated *-workflow skills are excluded so JSON/code examples do not false-positive.
+    """
+    paths: list[Path] = []
+    for directory in ("agents", "commands", "templates", "references"):
+        root = plugin_dir / directory
+        if root.is_dir():
+            paths.extend(root.rglob("*.md"))
+    skills_dir = plugin_dir / "skills"
+    if skills_dir.is_dir():
+        for skill_md in skills_dir.glob("*/SKILL.md"):
+            if skill_md.parent.name.endswith("-workflow"):
+                continue
+            paths.append(skill_md)
+    return sorted(paths)
+
+
+def normalize_markdown_lines(text: str) -> list[str]:
+    """Strip frontmatter; collapse whitespace; drop empty lines; lowercase."""
+    if text.startswith("---\n"):
+        end = text.find("\n---", 4)
+        if end != -1:
+            text = text[end + 4 :]
+    lines: list[str] = []
+    for raw in text.splitlines():
+        collapsed = re.sub(r"\s+", " ", raw.strip())
+        if collapsed:
+            lines.append(collapsed.lower())
+    return lines
+
+
+def find_duplicate_blocks(
+    plugin_dir: Path,
+    *,
+    min_lines: int = DUPLICATE_BLOCK_MIN_LINES,
+) -> list[tuple[tuple[str, ...], list[Path]]]:
+    """Return normalized blocks of min_lines that appear in 2+ files."""
+    index: dict[tuple[str, ...], set[Path]] = {}
+    for path in plugin_markdown_paths(plugin_dir):
+        lines = normalize_markdown_lines(path.read_text(encoding="utf-8", errors="replace"))
+        if len(lines) < min_lines:
+            continue
+        seen_in_file: set[tuple[str, ...]] = set()
+        for i in range(len(lines) - min_lines + 1):
+            block = tuple(lines[i : i + min_lines])
+            if block in seen_in_file:
+                continue
+            seen_in_file.add(block)
+            index.setdefault(block, set()).add(path)
+
+    duplicates: list[tuple[tuple[str, ...], list[Path]]] = []
+    for block, paths in index.items():
+        if len(paths) >= 2:
+            duplicates.append((block, sorted(paths)))
+    duplicates.sort(key=lambda item: (-len(item[1]), item[0][0]))
+    return duplicates
+
+
+def lint_markdown_duplication(plugin_dir: Path, errors: list[str]) -> None:
+    duplicates = find_duplicate_blocks(plugin_dir)
+    # Collapse overlapping windows: report at most one error per file-pair + first line.
+    reported: set[tuple[tuple[str, ...], str]] = set()
+    for block, paths in duplicates:
+        file_key = tuple(rel(path) for path in paths)
+        pair_key = (file_key, block[0])
+        if pair_key in reported:
+            continue
+        reported.add(pair_key)
+        preview = block[0][:80]
+        joined = ", ".join(file_key)
+        errors.append(
+            f"{plugin_dir.name}: duplicated >= {DUPLICATE_BLOCK_MIN_LINES}-line normalized "
+            f"block across {joined} (starts: {preview!r}); keep one canonical body "
+            f"and short pointers elsewhere"
+        )
+
+
+def lint_prompt_budgets(plugin_dir: Path, errors: list[str]) -> None:
+    budget_path = plugin_dir / "integrity" / "prompt-budgets.json"
+    if not budget_path.is_file():
+        # Only enforce when a baseline is committed (saas-startup-team and peers opt in).
+        return
+    try:
+        payload = json.loads(budget_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        errors.append(f"{rel(budget_path)}: invalid JSON: {exc}")
+        return
+    files = payload.get("files") if isinstance(payload, dict) else None
+    if not isinstance(files, dict):
+        errors.append(f"{rel(budget_path)}: expected object with files mapping")
+        return
+
+    for relative, max_bytes in sorted(files.items()):
+        if not isinstance(relative, str) or not isinstance(max_bytes, int):
+            errors.append(f"{rel(budget_path)}: invalid budget entry {relative!r}")
+            continue
+        path = plugin_dir / relative
+        if not path.is_file():
+            errors.append(
+                f"{rel(budget_path)}: budgeted file missing: {relative}"
+            )
+            continue
+        size = path.stat().st_size
+        if size > max_bytes:
+            errors.append(
+                f"{rel(path)}: {size} bytes exceeds prompt budget {max_bytes} "
+                f"(committed in integrity/prompt-budgets.json); extract guidance "
+                f"or raise the baseline deliberately"
+            )
 
 
 def warn_duplicate_skill_bodies(

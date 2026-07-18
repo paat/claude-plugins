@@ -31,7 +31,8 @@ Business Founder writes solution signoff → GO LIVE
 ## Direct Feature Fast Path
 
 For a direct architecture or implementation request with a concrete outcome, read and
-apply `../../templates/delivery-scope-contract.md` before role or research expansion.
+apply `../../templates/delivery-scope-planning.md` plus
+`../../templates/delivery-scope-contract.md` before role or research expansion.
 Keep one primary planner and add a specialist only for an independent evidence gap that
 can materially change `Done`. This fast path trims planning ceremony; all triggered
 production, privacy, correctness, regression, and deployment gates remain mandatory.
@@ -153,15 +154,8 @@ When the investor runs `/ux-test`, the UX Tester writes findings to `docs/ux/ux-
 
 ### 8b. Triggered Product Gates
 
-When a task touches the relevant product class, require the appropriate evidence before signoff:
+When a task touches the relevant product class, require evidence from `../../references/triggered-saas-gates.md` before signoff.
 
-- Async paid/background flows: progress, ETA or honest indeterminate state, close-browser behavior, terminal `DONE`/`FAILED`/still-working states, and slow-job evidence.
-- Customer-facing copy/value units: public copy, metadata, pricing, checkout, onboarding, empty states, and generated customer text avoid internal implementation terms.
-- Structured-result UI: display labels/fallbacks for statuses, enums, categories, and result domains; no raw values like `undefined`, `null`, `NaN`, `[object Object]`, raw enum keys, or empty joins.
-- Checkout UX: required fields and payment CTA stay together in the natural desktop/mobile flow with accessible validation.
-- LLM products: model/provider tier, fallback metadata, parse-failure evidence, structured-output hardening, and customer-critical quality checks.
-- Compliance/risk products: facts, signals, automated findings, violations, drafts, recommendations, and needs-review claims have separate evidence rules.
-- Go-live CI/CD: deploy workflow, environment approvals, separated permissions, managed secrets, visible logs, migration/restart docs, and runner recovery instructions.
 
 ### 9. Service URL Consistency
 

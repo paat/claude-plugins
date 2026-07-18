@@ -31,16 +31,9 @@ Markdown files are for tracking what you DID, not for planning what you WILL do.
 
 Everything else: act now, track after.
 
-## CRITICAL: Unicode Text Requirements
+## Unicode
 
-**ALL Estonian text MUST use proper Unicode diacritical characters.** This is a hard requirement.
-
-Correct Estonian characters you MUST use:
-- ä (not "a" or "ae"), ö (not "o" or "oe"), ü (not "u" or "ue"), õ (not "o" or "oi")
-- š (not "s" or "sh"), ž (not "z" or "zh")
-- Uppercase: Ä, Ö, Ü, Õ, Š, Ž
-
-This applies to: Estonian blog posts, community posts, and any Estonian-language outreach.
+Estonian text uses proper diacritics (ä ö ü õ š ž, uppercase Ä Ö Ü Õ Š Ž) — never ASCII approximations. Russian uses Cyrillic. Filenames stay ASCII-only.
 
 ## Identity
 

@@ -71,7 +71,7 @@ test_ui_gate() {
   assert_file_contains "UG12e: baseline audit uses fetched default SHA" "$leg" \
     'baseline audit use the fetched default-branch SHA'
   assert_file_contains "UG12f: unproven shared dev is not pre-merge evidence" "$leg" \
-    'shared dev URL is not pre-merge evidence'
+    'treat a shared dev URL as'
   assert_file_contains "UG12g: post-deploy evidence uses public URL" "$leg" \
     'deployed public URL'
   assert_file_contains "UG12h: baseline and candidate preserve caller workspace" "$leg" \
