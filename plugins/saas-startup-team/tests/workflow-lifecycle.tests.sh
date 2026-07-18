@@ -79,9 +79,9 @@ test_workflow_lifecycle_safety() {
     "$goal" 'using only documented setup/start commands'
   assert_file_contains "WL6e: issue-local blockers keep the queue moving" \
     "$maintain_protocol" 'Continue the remaining eligible'
-  assert_file_contains "WL6f: pre-PR issue-local block retains recoverable claim state" \
-    "$maintain_protocol" 'claim remains for explicit cooldown/reconciliation'
-  assert_file_contains "WL6f1: resumable issue-local block preserves its claim" \
+  assert_file_contains "WL6f: pre-PR issue-local block records cooldown without claim" \
+    "$maintain_protocol" 'no claim required'
+  assert_file_contains "WL6f1: resumable issue-local block preserves open PR" \
     "$maintain_protocol" 'keep both intact'
   assert_file_contains "WL6g: issue-local block records terminal state" \
     "$maintain_protocol" 'record the terminal triage/digest state'

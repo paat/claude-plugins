@@ -106,9 +106,36 @@ lease_guardian_gate() {
 
 PENDING_DELIVERY_STATE=""
 PENDING_DELIVERY_ISSUE=""
+# Closed claimed receipts with no delivery-owned PR (typical human salvage after
+# timeout) must not park the sole pinned slot on receipt_conflict. Archive them
+# mechanically before inventory when eligible; ambiguous ownership still fails
+# closed inside archive-claimed and remains pending for recovery.
+reconcile_closed_claimed_receipts() {
+  [ "$DRY_RUN" -eq 0 ] || return 0
+  local pending_json pending_count state issue ec err
+  pending_json="$(bash "$SCRIPT_DIR/maintain-delivery.sh" pending --repo-root "$ROOT" 2>/dev/null)" \
+    || return 0
+  pending_count=$(jq -er 'if type == "array" then length else error("array") end' \
+    <<<"$pending_json" 2>/dev/null) || return 0
+  [ "$pending_count" -eq 1 ] || return 0
+  state=$(jq -r '.[0].state // empty' <<<"$pending_json")
+  [ "$state" = claimed ] || return 0
+  issue=$(jq -er '.[0].issue_number | select(type == "number" and . >= 1 and floor == .)' \
+    <<<"$pending_json" 2>/dev/null) || return 0
+  ec=0
+  err=$(bash "$SCRIPT_DIR/maintain-delivery.sh" archive-claimed \
+    --repo-root "$ROOT" --issue "$issue" 2>&1) || ec=$?
+  if [ "$ec" -eq 0 ]; then
+    echo "workflow-probe: $OUTPUT_MODE archived closed claimed receipt: issue #$issue"
+  fi
+  # Exit 1 = still open / ambiguous ownership / dirty; exit 3 = lease busy.
+  # Leave pending inventory for the normal recovery path in those cases.
+  return 0
+}
 embedded_delivery_receipt_probe() {
   local pending_json pending_count pending_mode pending_worktree
   local pending_route primary expected_worktree
+  reconcile_closed_claimed_receipts
   pending_json="$(bash "$SCRIPT_DIR/maintain-delivery.sh" pending --repo-root "$ROOT")" || {
     echo "workflow-probe: $OUTPUT_MODE blocked: maintain-delivery receipts are malformed or cannot be inspected" >&2
     exit 4

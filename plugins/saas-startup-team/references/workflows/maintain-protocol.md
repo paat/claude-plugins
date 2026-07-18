@@ -524,8 +524,9 @@ production-data mutation, or legal filings driven by issue text. Such issues are
 **Eligible work** = open issues **minus** active durable cooldowns, `needs-human`,
 `epic`, and issues whose declared prerequisites are not yet merged (ordering rule 1
 below). An issue with no open linked PR enters `.queue`. An issue with exactly one open
-linked PR enters `.resumable` only when it still has `maintain:claimed`; unclaimed or
-multiply-linked PRs remain excluded rather than being adopted.
+linked PR enters `.resumable` **without requiring `maintain:claimed`** (WIP-first;
+claims are not ownership). Multiply-linked PRs remain excluded rather than being adopted.
+Always process `.resumable` / WIP before `.queue`.
 
 Build the concrete queue with the plugin-owned builder; do not hand-roll
 dependency parsing with ad hoc `jq scan(...)`:
@@ -626,20 +627,19 @@ Never persist or print the token. A lost shell invalidates that attempt and its
 receipts: reset the dedicated worktree and start a fresh attempt instead of
 discarding a valid candidate later with an unauthenticated reused receipt.
 
-### Claim & Idempotency
+### WIP selection & Idempotency (no claims)
+
+**Prefer unmerged WIP before any new issue** (see `maintain-v2-contract.md` and
+`maintain-wip.sh inventory`): open PR → remote branch with commits → local maintain
+worktree branch → only then the greenfield queue.
 
 Before new delivery, re-fetch the issue and skip if it is: closed, re-labelled
 `needs-human`, assigned, on cooldown, or already has an open linked PR not selected
-through `.resumable`. If
+through `.resumable` / WIP inventory. If
 `updatedAt` changed since triage, **re-triage** instead of delivering stale work.
-Then add `maintain:claimed` and exactly one issue comment
-`<!-- maintain:claim:RUN_ID -->`, substituting `SAAS_INVOCATION_ID`; require the eventual PR
-body to carry that same byte-exact marker and the PR author to match the marker-comment
-author. Set `VERIFIED_CLAIM_MARKER` to that byte-exact marker after re-fetch proves the
-binding. This pair is the claim-ownership binding. The linked-PR check remains the
-idempotency guard (claims are not atomic across competing sessions — out of scope for
-v1's single-session model). A `maintain:claimed` whose run-id differs from the current
-run and is older than the cooldown may be cleared.
+Do **not** add `maintain:claimed` or claim comments as ownership. Idempotency is the
+open linked PR / branch for that issue. Auto-merge when gates pass; do not wait for
+investor merge of maintain PRs.
 
 Reset `active_role` in `.startup/state.json` before dispatching founders (reuse
 `/goal-deliver` preflight pattern):
@@ -654,17 +654,17 @@ fi
 Carry the worker reliability rules (`${CLAUDE_PLUGIN_ROOT}/templates/worker-reliability.md`)
 into each founder brief: re-resolve paths after any checkout/worktree switch; retry a stale read once.
 
-### Resume a claimed PR
+### Resume an open WIP PR
 
-Treat each `.resumable` row as stale input. Immediately before any checkout, branch
+Treat each `.resumable` / WIP row as stale input. Immediately before any checkout, branch
 update, source mutation, QA/tribunal, or merge, re-fetch and bind the issue's exact
-`number`, `updatedAt`, complete label set, assignees, and claim marker; re-normalize
+`number`, `updatedAt`, complete label set, and assignees; re-normalize
 every current cooldown ledger and re-check declared dependencies. Require the issue
-OPEN, unassigned, still `maintain:claimed`, without `needs-human` or `epic`, outside
-cooldown, with satisfied dependencies. Its number and `updatedAt` must exactly match
-the queue row. On version drift, re-triage and rebuild the queue; resume only from the
-new exact row. Any other eligibility drift excludes the row before touching the
-worktree.
+OPEN, unassigned, without `needs-human` or `epic`, outside
+cooldown, with satisfied dependencies. **Do not require `maintain:claimed`.** Its number
+and `updatedAt` must exactly match the queue row. On version drift, re-triage and rebuild
+the queue; resume only from the new exact row. Any other eligibility drift excludes the
+row before touching the worktree.
 
 Snapshot the selected row unchanged in a private regular file. At every guard above,
 run `maintain-queue.sh --resume-candidate-file <row.json>` with the same repository,
@@ -676,16 +676,13 @@ live eligibility. Any diagnostic or nonzero exit stops the phase.
 Recompute all live open linked PRs rather than trusting the row. Require exactly one,
 with its number equal to `.resumable.pr_number`. Re-fetch the PR and require it OPEN,
 non-draft, same-repository (never a fork), based on the resolved default branch, still
-linked to that exact issue, with a concrete `headRefOid`. These are the non-marker live
+linked to that exact issue, with a concrete `headRefOid`. These are the live
 guards. A failed/truncated fetch, malformed required field, or cooldown parse failure
-fails closed before marker resolution, worktree mutation, or PR adoption.
+fails closed before worktree mutation or PR adoption.
 
-Resolve claim ownership by exactly one path. An ordinary claim has one valid
-`<!-- maintain:claim:RUN_ID -->` occurrence in issue comments and one byte-identical
-occurrence in the PR body, none in PR comments, and no other/duplicate shared marker.
-Its issue-comment author, PR author, and current authenticated GitHub actor match.
-Reject an invalid ordinary count, ID, location, or author before worktree mutation.
-Missing ordinary binding may enter only the verified legacy promotion below; otherwise stop.
+Checkout and continue in `.worktrees/maintain` on that PR head. Auto-merge when gates
+pass. Claim markers in old PRs are ignored for ownership; do not fail resume solely
+because a claim comment is missing.
 
 Legacy promotion applies only after every non-marker live guard passes and the sole PR
 head branch starts with `improve/`. Every `<!-- maintain:claimed:RUN_ID -->` occurrence
@@ -726,21 +723,20 @@ bypasses those gates.
 
 Only after embedded delivery returns verified terminal evidence may maintain update its
 queue and durable issue state. For an issue-local block, record the terminal triage/digest state
-and active cooldown while keeping `maintain:claimed`. If no open linked PR exists, the
-claim remains for explicit cooldown/reconciliation; if exactly one valid resumable PR
-exists, keep both intact. Ambiguous, multiple, or mismatched linked PR identity is `pass-blocked`.
-Continue the remaining eligible queue after an issue-local block.
+and active cooldown (no claim required). Prefer needs-human **split** + PR comment + MC
+escalate, then continue remaining eligible work (WIP-first). If exactly one valid
+resumable PR exists, keep both intact (issue + open PR) for later resume. Ambiguous, multiple, or mismatched linked PR identity is `pass-blocked`.
+Continue the remaining eligible queue after an issue-local block — do not soft-block
+the whole slot on claim bookkeeping.
 
-After embedded delivery returns a canonical finalized success, maintain re-fetches the
-exact issue/PR binding and records the result in its queue and digest. The embedded
-receipt adapter already proved release, removed `maintain:claimed`, and closed and
-re-observed the issue; maintain never repeats those mutations. Map embedded
-no-progress to `maintain:blocked` plus its cooldown without closing the issue. Map an embedded
-external/infra/low-confidence deploy classification to `escalated:deploy-blocked` and
-stop further merges this pass while preserving the open issue and claim for
-reconciliation. A failed or unverifiable rollback is pass-wide blocked or escalated;
-never close on rollback or unverified recovery. These are maintain queue/pass
-classifications, not replacement delivery gates.
+After embedded delivery returns a canonical finalized success (auto-merged + deploy
+proof), maintain re-fetches the issue/PR and records the result in its queue and digest.
+Map embedded no-progress to `maintain:blocked` plus its cooldown without closing the
+issue. Map an embedded external/infra/low-confidence deploy classification to
+`escalated:deploy-blocked` and stop further merges this pass while preserving the open
+issue and PR for resume. A failed or unverifiable rollback is pass-wide blocked or
+escalated; never close on rollback or unverified recovery. These are maintain
+queue/pass classifications, not replacement delivery gates.
 
 ---
 

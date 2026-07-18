@@ -502,7 +502,9 @@ structured_block_duration() {
   export MC_NOW_EPOCH=2000
   printf 'MC-BLOCKED reason=untrusted recheck_after=10\n' > "$log"
   [ "$(lib_call governor_report e p 0 "$log" false accounted blocked receipt_conflict)" = blocked ] || return 1
-  jq -e '.projects.p.blocked_until==23600 and .projects.p.blocked_reason=="receipt_conflict"' \
+  # receipt_conflict is self-inflicted bookkeeping: do not park the project.
+  jq -e '(.projects.p.blocked_until // 0) == 0
+    and ((.projects.p | has("blocked_reason")) | not)' \
     "$TD/state/state.json" >/dev/null || return 1
   export MC_NOW_EPOCH=3000
   printf 'MC-BLOCKED recheck_after=1 reason=short\n' > "$log"

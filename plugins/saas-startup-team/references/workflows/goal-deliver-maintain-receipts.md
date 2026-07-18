@@ -63,7 +63,13 @@ For recovery, re-fetch the complete issue and PR facts and re-prove the exact au
 `<!-- maintain:claim:ID -->` binding described by `maintain-protocol.md`. The active
 invocation must still hold the whole-pass lease selected by that route, but the receipt
 keeps its original run identity. A pending state without its issue, claim, bound worktree, or
-receipt-owned PR is unresolved and must not be silently archived or replaced. A
+receipt-owned PR is unresolved and must not be silently archived or replaced — **except**
+the exact salvage case handled by `archive-claimed` / the maintain probe reconciler:
+`state=claimed`, issue exactly `CLOSED`, no delivery-owned PR marker, no merge-ledger
+event, clean detached worktree at a validated base **or** the primary tip, and no
+published remote claim branch. That path archives the receipt (and drops a stale
+`maintain:claimed` label) so a human-salvaged close cannot soft-block the pinned slot
+on `receipt_conflict` for hours. Ambiguous ownership still fails closed. A
 terminal receipt is not pending; `finalize` is an idempotent verified no-op when its
 canonical result and event already exist. A legacy recovery ends the pass after that
 one receipt; `begin` rejects new work under its compatibility controller.

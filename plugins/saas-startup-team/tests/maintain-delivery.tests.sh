@@ -679,12 +679,45 @@ DEPLOY_WORKFLOW
   assert_equals "MD1d: branch-state refusal leaves the receipt claimed" \
     "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" claimed
   git -C "$legacy_wt" checkout -q --detach "$legacy_base"
-  ec=0
-  bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 >/dev/null 2>&1 || ec=$?
-  assert_exit_code "MD1e: a detached worktree cannot hide its leftover claim branch" "$ec" 1
-  assert_equals "MD1f: leftover-branch refusal leaves the receipt claimed" \
-    "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" claimed
-  git -C "$repo" branch -D legacy-claimed-source >/dev/null
+  # Local-only leftover after claim epoch: archive deletes it (human-salvage path).
+  bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 >/dev/null
+  assert_equals "MD1e: local-only leftover claim branch is deleted and archived" \
+    "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" archived_claim
+  assert_equals "MD1f: local-only leftover claim branch is gone after archive" \
+    "$(git -C "$repo" show-ref --verify --quiet refs/heads/legacy-claimed-source; echo $?)" 1
+
+  # --- Second generation: remote branch / delivery PR / eligible archive ---
+  cp -- "$issue_open" "$fake_issue"
+  write_issue_scope "$fake_issue" "$issue_scope"
+  switch_test_lease "$run"
+  legacy_delivery=run-44444444444444444444444444444444
+  bash "$delivery_impl" begin --repo-root "$controller_root" --issue 1 --run-id "$run" \
+    --delivery-id "$legacy_delivery" --merge-budget 1 \
+    --scope-json "$issue_scope" --lease-state "$lease_state" \
+    --controller-run-id "$run" >/dev/null
+  legacy_receipt="$common/saas-startup-team/maintain-runtime/deliveries/issue-1/current.json"
+  jq 'del(.controller,.event_binding) | .schema_version = 1' "$legacy_receipt" \
+    > "$legacy_receipt.tmp"
+  mv -- "$legacy_receipt.tmp" "$legacy_receipt"
+  bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
+    --repo-root "$repo" --worktree "$controller_root" --run-id "$lease_run" >/dev/null
+  lease_state=""
+  bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain-loop \
+    --run-id "$run" --state-file "$legacy_state" --worktree "$legacy_wt" >/dev/null
+  bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$repo" --worktree "$legacy_wt" \
+    --base-sha "$legacy_base" --lease-state "$legacy_state" --run-id "$run" \
+    --controller-run-id "$run" >/dev/null
+  legacy_check_oid=$(git -C "$legacy_wt" rev-parse HEAD:check.sh)
+  mkdir -p "$legacy_cache"
+  jq -n --arg run_id "$run" --arg base_sha "$legacy_base" --arg check_oid "$legacy_check_oid" \
+    --arg checked_at "2026-07-14T10:00:00Z" \
+    '{schema_version:1,run_id:$run_id,base_sha:$base_sha,check_rel:"check.sh",check_oid:$check_oid,
+      status:"passed",checked_at:$checked_at}' > "$legacy_cache/$legacy_base.json"
+  bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$legacy_state" \
+    --repo-root "$repo" --worktree "$legacy_wt" --run-id "$run" >/dev/null
+  cp -- "$issue_closed" "$fake_issue"
+  # Ensure worktree is clean detached at validated base before remaining checks.
+  git -C "$legacy_wt" checkout -q --detach "$legacy_base"
   jq -n --arg body "Maintain-Loop-Delivery: $legacy_delivery" \
     '[{number:91,state:"MERGED",body:$body}]' > "$fake_prs"
   ec=0
@@ -1191,7 +1224,7 @@ CRASH_AFTER_EVENT
     --merge-budget 1 --scope-json "$issue_scope" \
     --reopen-event-id 901 --reopen-event-at 2099-07-14T10:04:00Z >/dev/null
   assert_equals "MD21: verified reopen starts a new generation" \
-    "$(bash "$script" show --repo-root "$repo" --issue 1 | jq -r .generation)" 3
+    "$(bash "$script" show --repo-root "$repo" --issue 1 | jq -r .generation)" 4
   ec=0; bash "$script" match-pr --repo-root "$repo" --issue 1 --role normal --pr-json "$pr_merged" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD22: prior-generation marker cannot authorize the new delivery" "$ec" 1
 

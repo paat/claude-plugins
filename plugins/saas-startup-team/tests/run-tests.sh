@@ -1185,7 +1185,7 @@ test_maintain() {
   assert_file_contains "M10: agent-fixable verdict"    "$cmd" "agent-fixable"
   assert_file_contains "M11: needs-human verdict"      "$cmd" "needs-human"
   assert_file_contains "M12: blocked verdict"          "$cmd" "maintain:blocked"
-  assert_file_contains "M13: claimed label"            "$cmd" "maintain:claimed"
+  assert_file_contains "M13: maintain worktree"        "$cmd" ".worktrees/maintain"
   # Triage fences humans into human-tasks.md
   assert_file_contains "M14: human-tasks.md"           "$cmd" "human-tasks.md"
   # Dependency ordering in v1
@@ -1246,8 +1246,8 @@ test_maintain() {
   assert_file_contains "M45a6: maintain bounds foreground lease lifetime" "$cmd" '--max-seconds 14400'
   assert_file_contains "M45a7: maintain keeps authenticated delivery in one host shell" "$cmd" \
     "one continuous host"
-  assert_file_contains "M45a8: maintain invalidates receipts after shell loss" "$cmd" \
-    "A lost shell invalidates"
+  assert_file_contains "M45a8: maintain resumes from git after shell loss" "$cmd" \
+    "resume from pushed branch/PR, not from zero"
   assert_file_contains "M45a9: maintain processes resumable PRs before new work" "$protocol" \
     'Process `.resumable` before'
   assert_file_contains "M45a10: resume re-proves current-head gates" "$receipts" \
@@ -1265,21 +1265,21 @@ test_maintain() {
   assert_file_contains "M45a16: lease mutations reuse the exact controller tuple" "$protocol" \
     'MAINTAIN_CONTROLLER_ARGS=('
   assert_file_contains "M45a17: resumable rows carry no durable permission" "$cmd" \
-    '`.resumable` row is only a candidate'
+    '`.resumable` / WIP row is only a candidate'
   assert_file_contains "M45a18: resume guard runs before every sensitive phase" "$protocol" \
     'Immediately before any checkout'
   assert_file_contains "M45a19: resume binds complete live issue identity" "$protocol" \
-    'complete label set, assignees, and claim marker'
+    'complete label set, and assignees'
   assert_file_contains "M45a20: resume reapplies human and assignment eligibility" "$protocol" \
-    'OPEN, unassigned, still `maintain:claimed`, without `needs-human` or `epic`'
+    'OPEN, unassigned, without `needs-human` or `epic`'
   assert_file_contains "M45a21: issue-version drift re-triages and rebuilds" "$protocol" \
-    'On version drift, re-triage and rebuild the queue'
+    'On version drift, re-triage and rebuild'
   assert_file_contains "M45a22: resume requires the exact queued PR" "$protocol" \
     'number equal to `.resumable.pr_number`'
-  assert_file_contains "M45a23: issue and PR share exact claim ownership" "$protocol" \
-    'same byte-exact marker'
+  assert_file_contains "M45a23: resume uses PR head not claim markers" "$protocol" \
+    'Claim markers in old PRs are ignored for ownership'
   assert_file_contains "M45a24: resume rejects malformed live evidence before mutation" "$protocol" \
-    'fails closed before marker resolution'
+    'fails closed before worktree mutation'
   assert_file_contains "M45a25: full live guard repeats immediately before merge" "$protocol" \
     'Repeat the full live guard before QA/tribunal and immediately before'
   assert_file_contains "M45a26: resume phases use the executable exact-row guard" "$protocol" \
@@ -1312,10 +1312,10 @@ test_maintain() {
     'instead of blindly retrying an ambiguous API result'
   assert_file_contains "M45a40: partial marker authors bind before mutation" "$protocol" \
     'every existing marker-comment author'
-  assert_file_contains "M45a41: ordinary binding rejects duplicate markers" "$protocol" \
-    'none in PR comments, and no other/duplicate shared marker'
-  assert_file_contains "M45a42: ordinary marker counts fail before mutation" "$protocol" \
-    'Reject an invalid ordinary count, ID, location, or author before worktree mutation'
+  assert_file_contains "M45a41: WIP-first contract rejects claim ownership" "$protocol" \
+    'claim comments as ownership'
+  assert_file_contains "M45a42: auto-merge when gates pass" "$protocol" \
+    'Auto-merge when gates pass'
   assert_file_contains "M45a43: legacy selection is deterministic" "$protocol" \
     '`createdAt`, then comment ID'
   assert_file_contains "M45a44: conflicting shared markers block promotion" "$protocol" \
@@ -1526,15 +1526,15 @@ JSON
     "$queue_numbers" $'102\n109\n110\n111\n108\n101\n106'
   assert_equals "M45d: no-dependency issue has empty deps" \
     "$(jq -r '.queue[] | select(.number == 101) | (.deps | length)' <<<"$out")" "0"
-  assert_equals "M45e: explicit closing keyword excludes open PR" \
-    "$(jq -r '.excluded.linked_pr | index(103) != null' <<<"$out")" "true"
-  assert_equals "M45e1: GitHub closing reference excludes open PR" \
-    "$(jq -r '.excluded.linked_pr | index(112) != null' <<<"$out")" "true"
+  assert_equals "M45e: explicit closing keyword makes open PR resumable (no claim needed)" \
+    "$(jq -r '.resumable[] | select(.number == 103) | .pr_number' <<<"$out")" "20"
+  assert_equals "M45e1: GitHub closing reference makes open PR resumable" \
+    "$(jq -r '.resumable[] | select(.number == 112) | .pr_number' <<<"$out")" "22"
   assert_equals "M45e2: bare open PR mention remains eligible" \
     "$(jq -r '.queue | map(.number) | index(109) != null' <<<"$out")" "true"
   assert_equals "M45e3: bare open PR mention is not a linked PR" \
     "$(jq -r '.excluded.linked_pr | index(109) == null' <<<"$out")" "true"
-  assert_equals "M45e4: one claimed linked PR is resumable" \
+  assert_equals "M45e4: one linked PR is resumable without requiring claim label" \
     "$(jq -r '.resumable[] | select(.number == 113) | .pr_number' <<<"$out")" "23"
   assert_equals "M45e4a: resumable row retains the triaged issue version" \
     "$(jq -r '.resumable[] | select(.number == 113) | .updatedAt' <<<"$out")" \
@@ -1550,8 +1550,8 @@ JSON
     "$resume_status" 0
   assert_equals "M45e5b: successful guard returns the exact queued PR" \
     "$(jq -r .pr_number <<<"$race_out")" "23"
-  assert_equals "M45e6: unclaimed linked PR remains excluded" \
-    "$(jq -r '.excluded.linked_pr | index(103) != null' <<<"$out")" "true"
+  assert_equals "M45e6: unclaimed linked PR is resumable (WIP-first, no claims)" \
+    "$(jq -r '.resumable | map(.number) | index(103) != null' <<<"$out")" "true"
   assert_equals "M45e7: multiple claimed PRs fail closed as ambiguous" \
     "$(jq -r '.excluded.linked_pr | index(114) != null' <<<"$out")" "true"
   assert_equals "M45e8: needs-human still excludes a claimed PR" \
@@ -2038,8 +2038,8 @@ test_maintain_loop() {
   assert_file_contains "ML16l: browser evidence loads the canonical procedure" \
     "$protocol" \
     'skills/ux-tester/references/design-review-leg.md'
-  assert_file_contains "ML16m: resumable blocker preserves PR claim" "$protocol" \
-    'exists, keep both intact'
+  assert_file_contains "ML16m: resumable blocker preserves open PR" "$protocol" \
+    'keep both intact'
   assert_file_contains "ML16o: ambiguous linked PR blocks the pass" \
     "$protocol" 'Ambiguous, multiple, or mismatched linked PR identity is `pass-blocked`'
   assert_equals "ML16p: blocked sentinel has one canonical template" \

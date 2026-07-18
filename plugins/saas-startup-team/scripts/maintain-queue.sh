@@ -375,9 +375,10 @@ jq -n \
     or .epic
     or .cooldown;
 
+  # WIP-first: a single open PR that closes the issue is resumable without
+  # maintain:claimed. Claims are not ownership; git/PR is.
   def resumable_pr:
     (base_excluded | not)
-    and .maintain_claimed
     and ((.linked_prs | length) == 1);
 
   def dep_satisfied($dep; $statuses):
@@ -444,7 +445,9 @@ jq -n \
       | sort_by(.severity_rank, .createdAt, .number)) as $queue
   | ($with_deps
       | map(select(resumable_pr and ((.blocked_deps | length) == 0)))
-      | sort_by(.severity_rank, .createdAt, .number)) as $resumable
+      # Prefer most recently touched WIP before severity among resumable rows.
+      | sort_by(.updatedAt) | reverse
+      | sort_by(.severity_rank)) as $resumable
   | {
       label_filter: numbers($with_deps | map(select(.label_match | not))),
       needs_human: numbers($with_deps | map(select(.needs_human))),

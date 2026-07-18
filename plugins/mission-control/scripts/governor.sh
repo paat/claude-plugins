@@ -136,11 +136,23 @@ governor_report() { # <engine> <project> <exit_code> <log_path> [delivery_hold] 
       if [ "$terminal_blocked" -eq 1 ]; then reason="$workflow_reason"
       else reason="$(printf '%s' "$blk" | sed -E 's/^MC-BLOCKED *//; s/recheck_after=[0-9]+ *//; s/^reason= *//')"; fi
       [ -n "$reason" ] || reason="unspecified"
-      state_set '.projects[$n].consecutive_errors = 0
-                 | .projects[$n].blocked_until = ($u|tonumber)
-                 | .projects[$n].blocked_reason = $r' \
-        --arg n "$name" --arg u "$(( $(now) + mins * 60 ))" --arg r "$reason"
-      log "blocked project=$name recheck_in=${mins}m reason=$reason" ;;
+      # Self-inflicted claim/ledger soft-blocks must not park the sole pinned
+      # slot for hours. Clear any window and let the next tick resume WIP.
+      case "$reason" in
+        receipt_conflict|lease_conflict)
+          state_set '.projects[$n].consecutive_errors = 0
+                     | del(.projects[$n].blocked_until) | del(.projects[$n].blocked_reason)' \
+            --arg n "$name"
+          log "blocked project=$name reason=$reason (no soft-block window; resume next tick)"
+          ;;
+        *)
+          state_set '.projects[$n].consecutive_errors = 0
+                     | .projects[$n].blocked_until = ($u|tonumber)
+                     | .projects[$n].blocked_reason = $r' \
+            --arg n "$name" --arg u "$(( $(now) + mins * 60 ))" --arg r "$reason"
+          log "blocked project=$name recheck_in=${mins}m reason=$reason"
+          ;;
+      esac ;;
     deferred)
       log "deferred project=$name delivery hold busy" ;;
     config-error|timeout|error)

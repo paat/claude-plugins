@@ -640,6 +640,9 @@ atomic_update_run_ledger() {
 }
 
 claim_branch_refs_absent() {
+  # Archive-only: leftover local claim branches after an external close (human
+  # salvage) are deleted when the remote ref is already gone. A still-published
+  # remote branch remains fail-closed — that ownership is ambiguous.
   local worktree=$1
   local claim_time claim_epoch reflog selector event_epoch subject branch latest remote_rc
   local -A candidates=()
@@ -669,16 +672,6 @@ claim_branch_refs_absent() {
   rm -f -- "$reflog"; forget_temp "$reflog"
 
   for branch in "${!candidates[@]}"; do
-    if git -C "$PRIMARY" show-ref --verify --quiet "refs/heads/$branch"; then
-      latest=$(git -C "$PRIMARY" reflog show -1 --date=unix --format='%gD' "refs/heads/$branch") \
-        || die "cannot inspect claimed receipt branch reflog"
-      [[ "$latest" =~ @\{([0-9]+)\}$ ]] \
-        || die "claimed receipt branch lacks ownership history"
-      latest=${BASH_REMATCH[1]}
-      [ "$latest" -lt "$claim_epoch" ] \
-        || die "claimed receipt still has a local branch ref"
-      continue
-    fi
     remote_rc=0
     GIT_TERMINAL_PROMPT=0 /usr/bin/timeout -k 5s 120s \
       git -C "$PRIMARY" ls-remote --exit-code --heads origin "refs/heads/$branch" \
@@ -688,12 +681,25 @@ claim_branch_refs_absent() {
       2) : ;;
       *) die "cannot disprove a claimed receipt remote branch" ;;
     esac
+    if git -C "$PRIMARY" show-ref --verify --quiet "refs/heads/$branch"; then
+      latest=$(git -C "$PRIMARY" reflog show -1 --date=unix --format='%gD' "refs/heads/$branch") \
+        || die "cannot inspect claimed receipt branch reflog"
+      [[ "$latest" =~ @\{([0-9]+)\}$ ]] \
+        || die "claimed receipt branch lacks ownership history"
+      latest=${BASH_REMATCH[1]}
+      if [ "$latest" -ge "$claim_epoch" ]; then
+        # Local-only leftover after claim epoch: drop it so a closed, PR-less
+        # salvage claim can archive instead of soft-blocking the factory.
+        git -C "$PRIMARY" branch -D -- "$branch" >/dev/null \
+          || die "cannot delete leftover claimed receipt branch"
+      fi
+    fi
   done
 }
 
 claim_source_state_absent() {
   local run=$1 binding mode worktree dir found top worktree_common status head gate_dir gate
-  local guard_dir artifact
+  local guard_dir artifact primary_head
   local -a guard_dirs=()
   for dir in \
     "$PRIMARY/.startup/maintain-loop/attempt-results/$run" \
@@ -731,16 +737,26 @@ claim_source_state_absent() {
   gate_dir="$COMMON/saas-startup-team/maintain-runtime/base-checks/$run"
   safe_existing_dir "$gate_dir" || die "claimed receipt base-check directory is missing or unsafe"
   gate="$gate_dir/$head.json"
-  [ -f "$gate" ] && [ ! -L "$gate" ] || die "claimed receipt worktree is not at a validated base"
-  jq -e --arg run "$run" --arg base "$head" '
-    type == "object"
-    and keys == ["base_sha","check_oid","check_rel","checked_at","run_id","schema_version","status"]
-    and .schema_version == 1 and .run_id == $run and .base_sha == $base and .status == "passed"
-    and (.check_oid|type == "string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$"))
-    and (.check_rel|type == "string" and length > 0)
-    and (.checked_at|type == "string"
-      and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
-  ' "$gate" >/dev/null || die "claimed receipt base-check proof is malformed"
+  if [ -f "$gate" ] && [ ! -L "$gate" ]; then
+    jq -e --arg run "$run" --arg base "$head" '
+      type == "object"
+      and keys == ["base_sha","check_oid","check_rel","checked_at","run_id","schema_version","status"]
+      and .schema_version == 1 and .run_id == $run and .base_sha == $base and .status == "passed"
+      and (.check_oid|type == "string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$"))
+      and (.check_rel|type == "string" and length > 0)
+      and (.checked_at|type == "string"
+        and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+    ' "$gate" >/dev/null || die "claimed receipt base-check proof is malformed"
+  else
+    # External salvage advances main after the claim base-check. A clean
+    # detached worktree at the primary tip cannot hide claim-owned source
+    # state; require that exact tip so archive does not soft-block the slot.
+    primary_head=$(git -C "$PRIMARY" rev-parse HEAD) \
+      || die "cannot inspect primary HEAD for claimed receipt archive"
+    valid_sha "$primary_head" || die "primary HEAD is invalid"
+    [ "$head" = "$primary_head" ] \
+      || die "claimed receipt worktree is not at a validated base"
+  fi
   claim_branch_refs_absent "$worktree"
 
   guard_dirs+=("$COMMON/saas-startup-team")
@@ -948,6 +964,10 @@ if [ "$ACTION" = archive-claimed ]; then
 
   updated=$(now_iso)
   atomic_update '.state = "archived_claim" | .updated_at = $now' --arg now "$updated"
+  # Closed salvage claims often leave maintain:claimed on GitHub; strip it so
+  # the next queue pass does not treat a dead claim as resumable ownership.
+  (cd "$PRIMARY" && trusted_repo_gh issue edit "$ISSUE" --remove-label maintain:claimed) \
+    >/dev/null 2>&1 || true
   if ! bash "$SCRIPT_DIR/maintain-leases.sh" cleanup --state-file "$ARCHIVE_LEASE_STATE" \
     --repo-root "$PRIMARY" --worktree "$PRIMARY/.worktrees/maintain" \
     --run-id "$ARCHIVE_LEASE_RUN" >/dev/null; then
