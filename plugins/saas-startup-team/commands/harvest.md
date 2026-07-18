@@ -31,7 +31,11 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/harvest.sh" \
 With `--events`, `harvest.sh` first calls the event projector's `terminals` view. That
 normalized root-only projection is authoritative: child records, incomplete roots,
 conflicts, and raw event-file ordering never become candidates. The script never reads
-the event JSONL directly.
+the event JSONL directly. Nightly product crons should pass both canonical paths
+explicitly (`--in .startup/insights/records.jsonl --events .startup/runs/agent-events.jsonl`)
+so Slot/mission-control root friction is harvested together with session signals
+(Aruannik #1614). Review and `/lessons-deliver` stay with the central consumer — not
+this product-local stage.
 
 `harvest.sh` is the deterministic **safety layer**: it de-identifies (project
 nouns → `{{PROJECT}}`), **hard-blocks any candidate containing a secret/PII

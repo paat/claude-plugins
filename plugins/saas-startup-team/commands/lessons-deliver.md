@@ -314,6 +314,16 @@ Standalone cron and a governed review/probe/delivery scheduler are mutually excl
 installing the governed owner must retire the standalone `/tmp/lessons-deliver.lock` line.
 In standalone mode, cron is the production runner; `/loop` is supervised only.
 
+**Ownership split (project harvest vs central consume):** product projects own
+harvest + gated filing only (Aruannik reference: `scripts/nightly-lessons-harvest-wrapper.sh`
+— checksum-pinned snapshot of `session-insights`/`harvest`/`agent-events`/
+`delivery-route`/`pii-gate`/`lesson-file`, canonical `--in` + `--events` inputs,
+no auto-review and no `/lessons-deliver` in the wrapper). The central consumer
+(e.g. portfolio steering `scripts/lessons-nightly.sh`) owns flagship
+`lesson-auto-review.sh`, the model-free `workflow-probe.sh lessons-deliver`
+gate, and one fresh `/lessons-deliver --once`. Do not re-run review or delivery
+from product containers.
+
 ---
 
 ## Communication

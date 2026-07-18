@@ -371,8 +371,14 @@ Tracking issue: **#79** (keep open until the loop runs end-to-end live).
   plugin-native one (no `.startup/`/signoff/Actions deploy). Script surface fully tested
   (Suite L, mock-`gh`); the nightly cron line is the same runner (folds the cron item
   below). See `lessons-deliver.md`.
-- [ ] Deploy the nightly `flock` cron in-container (harvester **and** `/lessons-deliver`)
-  so candidates accumulate and approved lessons ship where the sessions live.
+- [x] Deploy project-local harvest cron (Aruannik #1614: 02:45 UTC wrapper with
+  checksum-pinned snapshot of six helpers + canonical `--events` root-terminal
+  feed; harvest+file only). Central review/delivery is **not** in the product
+  container — see steering `lessons-nightly.sh` / §Autonomy in
+  `lessons-deliver.md`.
+- [ ] Deploy the central consumer cron (flagship auto-review + probe +
+  `/lessons-deliver`) on the orchestration host; retire any duplicate
+  standalone `/tmp/lessons-deliver.lock` owner.
 - [ ] (replay) generalize aruannik's replay producer for `monitor-nightly`.
 
 The public-repo path remains disabled unless the exact filing enable flag and pinned repo
