@@ -221,8 +221,16 @@ bounded_positive_bytes "$JSONL_MAX_BYTES" 8388608 \
 LOG_RETENTION_BYTES=${SAAS_CODEX_LOG_RETENTION_BYTES:-67108864}
 bounded_positive_bytes "$LOG_RETENTION_BYTES" 67108864 || {
   echo "codex-run-role: invalid SAAS_CODEX_LOG_RETENTION_BYTES" >&2; exit 2; }
-# Guarded telemetry receipt retains the same file cap as ordinary log pruning.
-GUARDED_LOG_RETENTION_FILES=$LOG_RETENTION_FILES
+# Guarded importer prunes by file count only — derive that count from the byte
+# budget so retained evidence cannot grow unbounded under the default file caps.
+MAX_EVIDENCE_FILE_BYTES=$JSONL_MAX_BYTES
+[ "$STDERR_MAX_BYTES" -le "$MAX_EVIDENCE_FILE_BYTES" ] || MAX_EVIDENCE_FILE_BYTES=$STDERR_MAX_BYTES
+[ "$LAST_MESSAGE_MAX_BYTES" -le "$MAX_EVIDENCE_FILE_BYTES" ] \
+  || MAX_EVIDENCE_FILE_BYTES=$LAST_MESSAGE_MAX_BYTES
+GUARDED_LOG_RETENTION_FILES=$((LOG_RETENTION_BYTES / MAX_EVIDENCE_FILE_BYTES))
+[ "$GUARDED_LOG_RETENTION_FILES" -ge 1 ] || GUARDED_LOG_RETENTION_FILES=1
+[ "$GUARDED_LOG_RETENTION_FILES" -le "$LOG_RETENTION_FILES" ] \
+  || GUARDED_LOG_RETENTION_FILES=$LOG_RETENTION_FILES
 
 RUN_ID=${SAAS_RUN_ID:-$("$SCRIPT_DIR/agent-events.sh" new-run-id)}
 ATTEMPT=${SAAS_ATTEMPT:-1}
