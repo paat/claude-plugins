@@ -177,6 +177,21 @@ For conflicts, prefer direct code evidence over reviewer confidence. If two
 reviewers disagree on severity for the same valid finding, use the highest
 severity that satisfies 3b-0 and explain the disagreement in `arbiter_notes`.
 
+### 3c: KISS / YAGNI Filter (Arbiter)
+
+After 3b-0, filter every retained finding and its suggested fix:
+
+- **KISS** — simplest fix that closes a proven defect; reject remedies that add
+  layers or generalized machinery when a local change or deletion would suffice.
+- **YAGNI** — reject speculative capability, premature abstractions, unused
+  config, or defensive branches for unreachable states.
+- Real defect + over-engineered suggestion: keep only if 3b-0 holds; rewrite
+  `suggestion` to the smallest sufficient fix (`arbiter_notes`).
+- Over-scoping finding (style purity, optional polish): reject or cap at
+  `medium`/`low`; record under provider rejected / `false_positives`.
+- Never promote to critical/high for a KISS/YAGNI violation alone; blocking
+  still requires 3b-0. Scope-lens findings stay separate.
+
 ## Optional Scope Lens
 
 If `TRIBUNAL_SCOPE_LENS=on`, perform a minimal-diff scope-control pass before the
