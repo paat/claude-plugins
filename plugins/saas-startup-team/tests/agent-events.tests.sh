@@ -244,6 +244,21 @@ test_agent_events() {
     --duration-ms 91 --total-tokens 123 >/dev/null
   assert_equals "EV50: identical accounting is idempotent" \
     "$(wc -l < "$terminal_events" | tr -d ' ')" "$before_lines"
+
+  # Child maintain stamps an internal duration; mission-control wall clock may
+  # differ by coordinator overhead. Wall-clock account must overwrite, not
+  # exit 3 (which used to mis-classify blocked passes as portfolio "error").
+  wall_events="$wd/wall-duration-events.jsonl"
+  bash "$events_script" append --events "$wall_events" --run-id wall-duration-run \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep \
+    --writer-id wall-writer --event-type completed --outcome blocked \
+    --terminal-reason verification_failed --duration-ms 1000 >/dev/null
+  wall_out=$(bash "$events_script" account --events "$wall_events" \
+    --run-id wall-duration-run --duration-ms 5000 --total-tokens 42)
+  assert_equals "EV50b: wall-clock account overwrites child duration" \
+    "$(jq -r '[.event_type,.duration_ms,.total_tokens,.outcome,.terminal_reason] | @csv' <<< "$wall_out")" \
+    '"accounted",5000,42,"blocked","verification_failed"'
+
   cp "$terminal_events" "$terminal_events.duplicate"
   jq -c 'select(.event_type=="accounted")
     | .recorded_at="2099-01-01T00:00:00Z" | .started_at="2098-01-01T00:00:00Z"' \

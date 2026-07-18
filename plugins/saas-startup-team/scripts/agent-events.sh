@@ -847,8 +847,10 @@ account_event() {
   terminal=$(project_terminal "$events_file" "$run_id") || exit $?
   existing_duration=$(jq -r '.duration_ms // empty' <<< "$terminal")
   existing_total=$(jq -r '.total_tokens // empty' <<< "$terminal")
-  [ -z "$existing_duration" ] || [ "$existing_duration" = "$duration_ms" ] || {
-    echo "agent-events: conflicting terminal duration accounting" >&2; exit 3; }
+  # Caller-supplied duration_ms is the wall-clock authority (mission-control
+  # envelope). Child maintain passes may pre-stamp an internal duration that
+  # differs by coordinator overhead — overwriting that is correct, not a
+  # conflict. Token totals still conflict if both sides set different values.
   [ -z "$total_tokens" ] || [ -z "$existing_total" ] || [ "$existing_total" = "$total_tokens" ] || {
     echo "agent-events: conflicting terminal token accounting" >&2; exit 3; }
   desired_total=${total_tokens:-$existing_total}
@@ -899,8 +901,7 @@ account_event() {
       printf '%s\n' "$current"
       return 0
     fi
-    [ -z "$existing_duration" ] || [ "$existing_duration" = "$duration_ms" ] || {
-      flock -u 7; echo "agent-events: conflicting terminal duration accounting" >&2; exit 3; }
+    # Duration is wall-clock authority (see above); only token totals conflict.
     [ -z "$desired_total" ] || [ -z "$existing_total" ] || [ "$existing_total" = "$desired_total" ] || {
       flock -u 7; echo "agent-events: conflicting terminal token accounting" >&2; exit 3; }
   fi
