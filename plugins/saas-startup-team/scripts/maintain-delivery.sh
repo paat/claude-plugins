@@ -401,7 +401,7 @@ receipt_valid() {
   worktree=$(jq -r .controller.worktree "$1") || return 1
   case "$mode" in
     maintain) expected="$PRIMARY/.worktrees/maintain" ;;
-    maintain-loop) expected="$PRIMARY/.worktrees/maintain-loop" ;;
+    maintain-loop) expected="$PRIMARY/.worktrees/maintain" ;;
     *) return 1 ;;
   esac
   [ "$worktree" = "$expected" ]
@@ -411,7 +411,7 @@ receipt_controller_binding() {
   local file=$1 schema
   schema=$(jq -r .schema_version "$file") || return 1
   if [ "$schema" = 1 ]; then
-    printf 'maintain-loop\t%s\n' "$PRIMARY/.worktrees/maintain-loop"
+    printf 'maintain-loop\t%s\n' "$PRIMARY/.worktrees/maintain"
   else
     jq -r '[.controller.mode,.controller.worktree] | @tsv' "$file"
   fi
@@ -802,7 +802,7 @@ if [ "$ACTION" = pending ]; then
     IFS=$'\t' read -r bound_mode bound_worktree <<<"$binding"
     case "$bound_mode:$bound_worktree" in
       "maintain:$PRIMARY/.worktrees/maintain") controller_route=canonical ;;
-      "maintain-loop:$PRIMARY/.worktrees/maintain-loop") controller_route=legacy-recovery ;;
+      "maintain-loop:$PRIMARY/.worktrees/maintain") controller_route=legacy-recovery ;;
       *) die "delivery receipt controller route is invalid" ;;
     esac
     rows+=("$(jq -c --arg receipt "$dir/current.json" --arg kind "$controller_route" \

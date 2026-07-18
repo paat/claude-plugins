@@ -292,7 +292,7 @@ SH
     --run-id "$controller_run_id" >/dev/null
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || true
 
-  legacy_wt="$repo/.worktrees/maintain-loop"
+  legacy_wt="$repo/.worktrees/maintain"
   legacy_state="$common/saas-startup-team/maintain-runtime/legacy-escalation.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop \
     --run-id legacy-escalation --state-file "$legacy_state" --worktree "$legacy_wt" >/dev/null

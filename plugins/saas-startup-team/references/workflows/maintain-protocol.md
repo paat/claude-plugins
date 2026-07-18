@@ -34,7 +34,7 @@ case "$MAINTAIN_CONTROLLER_ROUTE" in
   legacy-recovery)
     [ -n "$MAINTAIN_PENDING_FINGERPRINT" ] || exit 2
     MAINTAIN_CONTROLLER_MODE=maintain-loop
-    WT="$REPO_ROOT/.worktrees/maintain-loop"
+    WT="$REPO_ROOT/.worktrees/maintain"
     ;;
   *) exit 2 ;;
 esac
@@ -70,10 +70,10 @@ changing the persistent worktree, `.git/info/exclude`, labels, state, or `active
 `maintain-leases.sh` claims both legacy pass keys and the current shared key, so old
 and new plugin versions cannot overlap. It may reclaim a well-formed expired heartbeat;
 active, malformed, future-dated, changed-inventory, and cross-worktree states fail
-closed. The canonical lease state is schema v3. The schema-v2 `maintain-loop` /
-`.worktrees/maintain-loop` pair is selected only by the exact pending receipt route,
-may resume only that fingerprinted receipt, and ends the pass after recovery. Never
-mix either mode with the other path or begin new work from the compatibility route.
+closed. The canonical lease state is schema v3. A schema-v2 `maintain-loop` receipt
+is selected only by its exact pending route, uses the same `.worktrees/maintain`
+checkout, may resume only that fingerprinted receipt, and ends the pass after
+recovery. Never begin new work from the compatibility route.
 
 `MAINTAIN_LEASE_RUN_ID` is the exact root identity resolved by `/maintain`; a thin
 `/maintain-loop` coordinator passes the same value through both the environment and
@@ -152,12 +152,7 @@ Under `--dry-run`, do not append a root or child event.
 ### Hard rule — maintain worktrees only when the controller route requires them
 
 - **No linked worktrees by default.** New autonomous delivery uses only
-  `.worktrees/maintain` (canonical `/maintain` and normal `/maintain-loop`
-  controller work).
-- **Fingerprinted legacy recovery exception:** when
-  `MAINTAIN_CONTROLLER_ROUTE=legacy-recovery` and
-  `MAINTAIN_PENDING_FINGERPRINT` is set, the controller may create/use exactly
-  `.worktrees/maintain-loop` for that receipt path. Do not invent other paths.
+  `.worktrees/maintain` (`/maintain` and `/maintain-loop` controller work).
 - **NEVER** create improve trees, per-issue trees, or preserve copies for
   maintain. **NEVER** set `core.worktree` on the primary checkout.
 - Delivery is sequential in the route-selected tree. `/improve` and other
@@ -176,7 +171,7 @@ REPO_ROOT=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" primary-root
 default=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/default-branch.sh" --repo-root "$REPO_ROOT")
 # WT was selected from the mechanically validated controller route before lease acquire.
 case "$MAINTAIN_CONTROLLER_MODE:$WT" in
-  "maintain:$REPO_ROOT/.worktrees/maintain"|"maintain-loop:$REPO_ROOT/.worktrees/maintain-loop") : ;;
+  "maintain:$REPO_ROOT/.worktrees/maintain"|"maintain-loop:$REPO_ROOT/.worktrees/maintain") : ;;
   *) exit 2 ;;
 esac
 # Keep the worktree dir out of the investor's `git status` — local, uncommitted:

@@ -552,7 +552,7 @@ DEPLOY_WORKFLOW
   pending=$(bash "$delivery_impl" pending --repo-root "$fresh_repo")
   assert_equals "MD0l1: historical v1 inventory selects the bounded legacy route" \
     "$(jq -cS '.[0].controller_route' <<<"$pending")" \
-    "$(jq -cnS --arg worktree "$fresh_repo/.worktrees/maintain-loop" \
+    "$(jq -cnS --arg worktree "$fresh_repo/.worktrees/maintain" \
       '{kind:"legacy-recovery",mode:"maintain-loop",worktree:$worktree}')"
   ec=0; out=$(bash "$probe" maintain --root "$fresh_repo" --dry-run 2>&1) || ec=$?
   assert_exit_code "MD0l2: public maintain probe reaches historical v1 recovery" "$ec" 0
@@ -578,7 +578,7 @@ DEPLOY_WORKFLOW
     --lease-state "$fresh_resume_state" --controller-run-id fresh-resume \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD0n: canonical maintain cannot adopt an unbound legacy v1 receipt" "$ec" 3
-  assert_equals "MD0n1: rejected cross-worktree adoption leaves the legacy receipt unchanged" \
+  assert_equals "MD0n1: rejected cross-route adoption leaves the legacy receipt unchanged" \
     "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 \
       | jq -r '[.schema_version,.updated_at] | @tsv')" \
     $'1\t'"$legacy_claimed_at"
@@ -621,7 +621,6 @@ DEPLOY_WORKFLOW
   bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$fresh_legacy_state" \
     --repo-root "$fresh_repo" --worktree "$legacy_wt" --run-id fresh-legacy >/dev/null
   git -C "$fresh_repo" worktree remove --force "$legacy_wt" >/dev/null
-  git -C "$fresh_repo" worktree remove --force "$fresh_wt" >/dev/null
   rm -rf "$fresh_repo"
 
   switch_test_lease "$run"
@@ -641,7 +640,7 @@ DEPLOY_WORKFLOW
   bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
     --repo-root "$repo" --worktree "$controller_root" --run-id "$lease_run" >/dev/null
   lease_state=""
-  legacy_wt="$repo/.worktrees/maintain-loop"
+  legacy_wt="$repo/.worktrees/maintain"
   legacy_state="$common/saas-startup-team/maintain-runtime/$run-legacy-leases.json"
   legacy_cache="$common/saas-startup-team/maintain-runtime/base-checks/$run"
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain-loop \

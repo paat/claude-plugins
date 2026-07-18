@@ -28,10 +28,10 @@ receipt fields merely because the public coordinator is now thin:
 The receipt's `origin_run_id` remains provenance and the run-ledger identity. A later
 canonical maintain invocation may control a safe resume of a canonical bound receipt
 through its live whole-pass lease; it never rewrites that origin. Historical schema-v1
-receipts are semantically bound to `.worktrees/maintain-loop`: canonical `.worktrees/maintain`
-must not adopt them. Only a matching live legacy controller may promote a nonterminal
-schema-v1 receipt, and that schema-only promotion preserves its original `updated_at`
-claim timestamp. Its `pending` projection exposes one `controller_route` object:
+receipts recover in the canonical `.worktrees/maintain` checkout. Only a matching
+live legacy controller may promote a nonterminal schema-v1 receipt, and that
+schema-only promotion preserves its original `updated_at` claim timestamp. Its
+`pending` projection exposes one `controller_route` object:
 `{kind,mode,worktree}`. That object synthesizes the historical binding for schema v1
 and retains the persisted binding after promotion, so a crash during the same recovery
 remains reachable. Do not infer a route from the schema number. `maintain-delivery.sh`

@@ -12,10 +12,10 @@ Trigger: `scripts/ui-touch.sh` classifies the branch diff as `ui`.
 
 1. Serve the exact checkout under test with the project's documented local command.
    For a baseline audit use the fetched default-branch SHA; after implementation use
-   candidate HEAD. Use separate clean temporary worktrees and ports, never switch or
-   reset the caller's checkout, verify each served commit, and clean up both servers
-   and worktrees. A shared dev URL is not pre-merge evidence unless its served commit is
-   proven. From the tech-founder handoff, list the affected pages and open each at the
+   candidate HEAD. Use the current sequential checkout; never switch or reset it, and do not
+   create a worktree. Verify the served commit, clean up the server, and treat a shared dev URL as
+   pre-merge evidence only when its served commit is proven. From the tech-founder handoff,
+   list the affected pages and open each at the
    localhost URL.
 2. When the handoff adds a public/indexable route, start at its named existing customer
    entry surface and click through to the destination in every locale. Direct destination

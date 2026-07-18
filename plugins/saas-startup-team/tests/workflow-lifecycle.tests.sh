@@ -111,8 +111,8 @@ test_workflow_lifecycle_safety() {
     "$maintain" '\.\[0\]\.controller_route\.kind'
   assert_file_contains "WL7c2: public router fingerprints the exact pending receipt before leasing" \
     "$maintain" 'MAINTAIN_PENDING_FINGERPRINT=$(jq -cS'
-  assert_file_contains "WL7c3: legacy recovery selects the exact compatibility worktree" \
-    "$maintain_protocol" 'WT="$REPO_ROOT/.worktrees/maintain-loop"'
+  assert_file_contains "WL7c3: legacy recovery selects the canonical worktree" \
+    "$maintain_protocol" 'WT="$REPO_ROOT/.worktrees/maintain"'
   assert_file_contains "WL7c4: locked inventory must match the pre-lease fingerprint" \
     "$maintain_protocol" '"$MAINTAIN_PENDING_FINGERPRINT"'
   assert_before "WL7c4a: cleanup trap precedes every post-acquire inventory failure" \

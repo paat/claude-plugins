@@ -170,7 +170,7 @@ load_state() {
       ;;
     maintain-loop)
       [ "$STATE_SCHEMA" = 2 ] || return 1
-      [ "$expected_worktree" = "$PRIMARY/.worktrees/maintain-loop" ] || {
+      [ "$expected_worktree" = "$PRIMARY/.worktrees/maintain" ] || {
         echo "maintain-leases: legacy worktree binding is invalid" >&2; return 1; }
       worktree_key=$(worktree_lease_key maintain-loop "$expected_worktree") || return 1
       ;;
@@ -264,7 +264,7 @@ foreign_worktree_leases_available() {
   local held_mode="$1" held_worktree="$2" own_key="" key state rc=0
   local canonical_key legacy_key
   canonical_key=$(worktree_lease_key maintain "$PRIMARY/.worktrees/maintain") || return 1
-  legacy_key=$(worktree_lease_key maintain-loop "$PRIMARY/.worktrees/maintain-loop") || return 1
+  legacy_key=$(worktree_lease_key maintain-loop "$PRIMARY/.worktrees/maintain") || return 1
   if [ -n "$held_worktree" ]; then
     own_key=$(worktree_lease_key "$held_mode" "$held_worktree") || return 1
   fi
@@ -358,7 +358,7 @@ case "$action" in
     shared="$COMMON/saas-startup-team/leases"
     legacy="$PRIMARY/.startup/leases"
     maintain_worktree="$PRIMARY/.worktrees/maintain"
-    loop_worktree="$PRIMARY/.worktrees/maintain-loop"
+    loop_worktree="$PRIMARY/.worktrees/maintain"
     maintain_worktree_key=$(worktree_lease_key maintain "$maintain_worktree")
     loop_worktree_key=$(worktree_lease_key maintain-loop "$loop_worktree")
     kinds=(legacy-maintain legacy-loop shared worktree worktree)
@@ -408,8 +408,8 @@ case "$action" in
           state_schema=3
           ;;
         maintain-loop)
-          [ "$worktree" = "$PRIMARY/.worktrees/maintain-loop" ] || {
-            echo "maintain-leases: worktree must be the legacy maintain-loop worktree" >&2
+          [ "$worktree" = "$PRIMARY/.worktrees/maintain" ] || {
+            echo "maintain-leases: legacy controller must use the canonical maintain worktree" >&2
             exit 2
           }
           ;;
@@ -540,7 +540,7 @@ case "$action" in
     [ "$RUN_ID" = "$run_id" ] || {
       echo "maintain-leases: terminal run id does not match lease state" >&2; exit 1; }
     case "$MODE:$STATE_SCHEMA:$WORKTREE_BINDING" in
-      "maintain:3:$PRIMARY/.worktrees/maintain"|"maintain-loop:2:$PRIMARY/.worktrees/maintain-loop") : ;;
+      "maintain:3:$PRIMARY/.worktrees/maintain"|"maintain-loop:2:$PRIMARY/.worktrees/maintain") : ;;
       *) echo "maintain-leases: terminal lease state has no supported controller binding" >&2; exit 2 ;;
     esac
     rc=0

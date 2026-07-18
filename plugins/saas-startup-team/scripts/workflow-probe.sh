@@ -160,7 +160,7 @@ embedded_delivery_receipt_probe() {
       [ "$pending_mode" = maintain ] && expected_worktree="$primary/.worktrees/maintain" ;;
     legacy-recovery)
       [ "$pending_mode" = maintain-loop ] \
-        && expected_worktree="$primary/.worktrees/maintain-loop" ;;
+        && expected_worktree="$primary/.worktrees/maintain" ;;
   esac
   [ -n "${expected_worktree:-}" ] && [ "$pending_worktree" = "$expected_worktree" ] || {
     echo "workflow-probe: $OUTPUT_MODE blocked: receipt controller route does not match its exact worktree" >&2

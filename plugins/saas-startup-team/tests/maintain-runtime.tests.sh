@@ -63,7 +63,7 @@ test_maintain_runtime() {
   state="$common/saas-startup-team/maintain-runtime/blocked-old-maintain.json"
   ec=0
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id blocked-old-maintain \
-    --state-file "$state" --worktree "$repo/.worktrees/maintain-loop" >/dev/null 2>&1 || ec=$?
+    --state-file "$state" --worktree "$repo/.worktrees/maintain" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR1: legacy maintain pass blocks the bridge" "$ec" 1
   assert_file_not_exists "MR2: failed bridge leaves no new shared lease" "$lease_dir/maintain-delivery-pass"
   bash "$single" --release maintain-pass --state-dir "$lease_dir" --owner-file "$owner" >/dev/null
@@ -73,7 +73,7 @@ test_maintain_runtime() {
   state="$common/saas-startup-team/maintain-runtime/blocked-old-loop.json"
   ec=0
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id blocked-old-loop \
-    --state-file "$state" --worktree "$repo/.worktrees/maintain-loop" >/dev/null 2>&1 || ec=$?
+    --state-file "$state" --worktree "$repo/.worktrees/maintain" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR3: legacy maintain-loop pass blocks the bridge" "$ec" 1
   assert_file_not_exists "MR4: partial bridge acquisition is rolled back" "$lease_dir/maintain-pass"
   bash "$single" --release maintain-loop:pass --state-dir "$legacy_dir" --owner-file "$owner" >/dev/null
@@ -133,7 +133,7 @@ test_maintain_runtime() {
   assert_output_contains "MR4bm: repeated reap reports absent state" "$out" \
     'terminal run has no lease state'
 
-  wt="$repo/.worktrees/maintain-loop"
+  wt="$repo/.worktrees/maintain"
   state="$common/saas-startup-team/maintain-runtime/loop-terminal-leases.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id loop-terminal \
     --state-file "$state" --worktree "$wt" >/dev/null
@@ -164,7 +164,7 @@ test_maintain_runtime() {
     bash "$single" --release maintain-pass --state-dir "$lease_dir" --owner-file "$owner" >/dev/null
   done
 
-  wt="$repo/.worktrees/maintain-loop"
+  wt="$repo/.worktrees/maintain"
   owner="$lease_dir/.owners/orphan-worktree.owner"
   worktree_key="maintain-loop:worktree:$(printf '%s' "$wt" | cksum | awk '{print $1}')"
   bash "$single" --acquire "$worktree_key" --state-dir "$lease_dir" \
@@ -199,7 +199,7 @@ test_maintain_runtime() {
   state="$common/saas-startup-team/maintain-runtime/orphan-canonical-blocks-legacy.json"
   ec=0
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id blocked-by-canonical \
-    --state-file "$state" --worktree "$repo/.worktrees/maintain-loop" \
+    --state-file "$state" --worktree "$repo/.worktrees/maintain" \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR4fa: legacy acquire cannot bypass an active orphan canonical worktree lease" "$ec" 1
   assert_file_not_exists "MR4fb: rejected legacy acquire publishes no lease state" "$state"
@@ -505,7 +505,7 @@ SH
   bash "$leases" cleanup --state-file "$state" --run-id unbound-v2-attempt >/dev/null
 
   legacy_attempt_state="$common/saas-startup-team/maintain-runtime/legacy-attempt-leases.json"
-  wt="$repo/.worktrees/maintain-loop"
+  wt="$repo/.worktrees/maintain"
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id legacy-attempt \
     --state-file "$legacy_attempt_state" --worktree "$wt" >/dev/null
   bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
