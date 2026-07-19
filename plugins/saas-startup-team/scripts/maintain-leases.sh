@@ -28,7 +28,10 @@ worktree_lease_key() {
 }
 # Hard gate: only the primary working directory. No linked git worktrees.
 allowed_controller_tree() {
-  [ -n "${PRIMARY:-}" ] && [ "$1" = "$PRIMARY" ]
+  # New acquires: primary only. Historical lease files may still name the
+  # retired .worktrees/maintain path — accept for load/cleanup/reap only.
+  [ -n "${PRIMARY:-}" ] || return 1
+  [ "$1" = "$PRIMARY" ] || [ "$1" = "$PRIMARY/.worktrees/maintain" ]
 }
 
 assert_primary_only() {
@@ -457,16 +460,15 @@ case "$action" in
     esac
     resolve_repo "$repo_root" || { echo "maintain-leases: cannot resolve repository" >&2; exit 1; }
     assert_primary_only || exit 1
-    # Default omitted --worktree to the primary checkout (only allowed tree).
-    if [ -z "$worktree" ]; then
-      worktree=$PRIMARY
-    else
+    # New acquires always bind the primary checkout (never create/use linked trees).
+    if [ -n "$worktree" ]; then
       worktree="$(realpath -m -- "$worktree")"
+      [ "$worktree" = "$PRIMARY" ] || {
+        echo "maintain-leases: new acquires must use the primary working directory" >&2
+        exit 2
+      }
     fi
-    allowed_controller_tree "$worktree" || {
-      echo "maintain-leases: controller tree must be the primary working directory (no linked worktrees)" >&2
-      exit 2
-    }
+    worktree=$PRIMARY
     case "$mode" in
       maintain) state_schema=3 ;;
       maintain-loop) state_schema=2 ;;

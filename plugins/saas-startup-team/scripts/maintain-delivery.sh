@@ -392,27 +392,38 @@ receipt_schema_valid() {
   ' "$1" >/dev/null 2>&1
 }
 
+# Historical receipts may still name .worktrees/maintain; treat as primary.
+normalize_controller_worktree() {
+  local wt=$1
+  case "$wt" in
+    "$PRIMARY"|"$PRIMARY/.worktrees/maintain") printf '%s\n' "$PRIMARY" ;;
+    *) return 1 ;;
+  esac
+}
+
 receipt_valid() {
-  local schema mode worktree expected
+  local schema mode worktree
   receipt_schema_valid "$1" || return 1
   schema=$(jq -r .schema_version "$1") || return 1
   [ "$schema" = 2 ] || return 0
   mode=$(jq -r .controller.mode "$1") || return 1
   worktree=$(jq -r .controller.worktree "$1") || return 1
   case "$mode" in
-    maintain|maintain-loop) expected="$PRIMARY" ;;
+    maintain|maintain-loop) normalize_controller_worktree "$worktree" >/dev/null ;;
     *) return 1 ;;
   esac
-  [ "$worktree" = "$expected" ]
 }
 
 receipt_controller_binding() {
-  local file=$1 schema
+  local file=$1 schema mode worktree normalized
   schema=$(jq -r .schema_version "$file") || return 1
   if [ "$schema" = 1 ]; then
     printf 'maintain-loop\t%s\n' "$PRIMARY"
   else
-    jq -r '[.controller.mode,.controller.worktree] | @tsv' "$file"
+    mode=$(jq -r .controller.mode "$file") || return 1
+    worktree=$(jq -r .controller.worktree "$file") || return 1
+    normalized=$(normalize_controller_worktree "$worktree") || return 1
+    printf '%s\t%s\n' "$mode" "$normalized"
   fi
 }
 
@@ -821,8 +832,9 @@ if [ "$ACTION" = pending ]; then
       "maintain-loop:$PRIMARY") controller_route=legacy-recovery ;;
       *) die "delivery receipt controller route is invalid" ;;
     esac
+    # Always project the normalized primary path (legacy bindings remapped).
     rows+=("$(jq -c --arg receipt "$dir/current.json" --arg kind "$controller_route" \
-      --arg mode "$bound_mode" --arg worktree "$bound_worktree" \
+      --arg mode "$bound_mode" --arg worktree "$PRIMARY" \
       '{issue_number,delivery_id,state,receipt:$receipt,
         controller_route:{kind:$kind,mode:$mode,worktree:$worktree}}' \
       "$dir/current.json")")

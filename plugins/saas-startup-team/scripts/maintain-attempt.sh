@@ -57,12 +57,18 @@ normalize_check() {
   CHECK_REL="$rel"; CHECK_SCRIPT="./$rel"
 }
 
-# Product cleanliness ignores .startup control-plane (leases, prompts, receipts).
+# Product dirt excluding .startup control-plane (leases, prompts, receipts).
+product_status() {
+  git -C "$1" status --porcelain=v1 --untracked-files=all -- \
+    . ':(exclude).startup' ':(exclude).startup/**' 2>/dev/null
+}
+
+product_has_untracked() {
+  product_status "$1" | grep -qE '^\?\?'
+}
+
 product_tree_dirty() {
-  local root=$1
-  git -C "$root" status --porcelain=v1 --untracked-files=all -- \
-    . ':(exclude).startup' ':(exclude).startup/**' 2>/dev/null \
-    | grep -q .
+  product_status "$1" | grep -q .
 }
 
 assert_exact_clean_base() {
@@ -77,11 +83,12 @@ assert_exact_clean_base() {
 
 reset_once() {
   # Primary checkout only — never create/remove linked worktrees.
-  # Preserve .startup/ control-plane state (leases, prompts, receipts); wiping it
-  # would drop live lease directories that still live under primary .startup/.
+  # - No `clean -x`: never delete ignored local files (.env, secrets).
+  # - Preserve .startup/ control-plane (leases, prompts, receipts).
   git -C "$worktree" checkout --detach --quiet "$base_sha" || return 1
   git -C "$worktree" reset --hard "$base_sha" >/dev/null || return 1
-  git -C "$worktree" clean -ffdx -q -e .startup -e .startup/** || return 1
+  # Remove untracked non-ignored product files only (not ignored secrets).
+  git -C "$worktree" clean -ffd -q -e .startup -e .startup/** || return 1
   [ "$(git -C "$worktree" rev-parse HEAD)" = "$base_sha" ] || return 1
   git -C "$worktree" diff --quiet -- . || return 1
   git -C "$worktree" diff --cached --quiet -- . || return 1

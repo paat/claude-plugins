@@ -205,6 +205,7 @@ embedded_delivery_receipt_probe() {
 
 case "$MODE" in
   maintain)
+    # MODE already normalized from maintain-loop → maintain above.
     CONTROLLER_ROUTE=canonical
     primary_only_gate
     embedded_delivery_receipt_probe
