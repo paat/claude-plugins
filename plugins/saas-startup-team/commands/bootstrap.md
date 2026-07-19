@@ -79,6 +79,43 @@ non-empty subdirectory, and add file-level pointers for key individual files (e.
 If CLAUDE.md does not already contain a `## Workflow Guidance` section, append the template
 at `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-workflow-guidance.md`.
 
+## Step 5b: Engineering principles (CLAUDE.md + AGENTS.md)
+
+Ensure KISS / YAGNI / DRY are project guidance for every host that loads root
+instruction files. Idempotent: skip a file that already has `## Engineering principles`.
+
+```bash
+PRINCIPLES="${CLAUDE_PLUGIN_ROOT}/templates/claude-md-engineering-principles.md"
+ensure_principles() {
+  local f="$1"
+  [ -f "$f" ] || return 0
+  if grep -qE '^## Engineering principles[[:space:]]*$' "$f" 2>/dev/null; then
+    return 0
+  fi
+  printf '\n' >> "$f"
+  cat "$PRINCIPLES" >> "$f"
+}
+
+# CLAUDE.md — create minimal file if missing so principles have a home
+if [ ! -f CLAUDE.md ]; then
+  printf '# Project guidance\n' > CLAUDE.md
+fi
+ensure_principles CLAUDE.md
+
+# AGENTS.md — Codex / multi-agent hosts
+if [ -L AGENTS.md ]; then
+  : # symlink (usually → CLAUDE.md); principles already on target via ensure_principles
+elif [ -f AGENTS.md ]; then
+  ensure_principles AGENTS.md
+else
+  # Prefer one source of truth: symlink to CLAUDE.md when possible
+  ln -s CLAUDE.md AGENTS.md 2>/dev/null || {
+    printf '# Project guidance\n' > AGENTS.md
+    ensure_principles AGENTS.md
+  }
+fi
+```
+
 ## Step 6: Project Brief
 
 If `docs/business/brief.md` already exists, skip this step.
