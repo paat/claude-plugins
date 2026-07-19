@@ -61,12 +61,13 @@ Each `finding.json` must include:
 
 ## Issue Filing
 
-Actionable findings (`ux_bug`, `functional_bug`, `instrumentation_gap`, `infra_error`) are filed by default — do not ask first. For each, run the shared helper (dedup + sensitive-content carve-out) with the finding's `pattern_key` in the title:
+Actionable findings (`ux_bug`, `functional_bug`, `instrumentation_gap`, `infra_error`) are filed by default — do not ask first. For each, run the shared helper with the finding's authoritative `pattern_key` (lowercase; pass as `--pattern-key`, not only in the title):
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/issue-file.sh" --repo <configured repo> \
   --title "<pattern_key>: <finding summary>" --body-file <finding.md> \
+  --pattern-key "<pattern_key>" \
   --labels "<configured incident labels>" --digest-file <current run digest, if any>
 ```
 
-It comments on an existing open match instead of duplicating, and parks the finding in `docs/human-tasks.md` when it carries customer data or a secret. Skip with `--no-file-issues`; pass `--dry-run` to preview without mutating GitHub.
+It comments on an existing open match instead of duplicating, and parks the finding in `docs/human-tasks.md` when it carries customer data or a secret. Skip with `--no-file-issues`; pass `--dry-run` to preview without mutating GitHub. See skill `issue-file`.

@@ -14,6 +14,17 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/issue-file.sh" \
   --labels "bug,plugin-defect"
 ```
 
+With a stable lowercase key (never invent one):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/issue-file.sh" \
+  --repo "${SAAS_PLUGIN_REPO}" \
+  --title "saas-startup-team: <short title>" \
+  --body "<what went wrong, reproduction steps, expected vs actual>" \
+  --labels "bug,plugin-defect" \
+  --pattern-key "plugin:saas-startup-team:<stable-slug>"
+```
+
 **Plugin issues**: hook failures, template problems, agent instruction gaps, MCP issues,
 state.json schema bugs, command flow bugs.
 **NOT plugin issues**: product bugs, UX feedback, feature requests, human tasks — those go

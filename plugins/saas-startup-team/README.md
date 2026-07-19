@@ -306,6 +306,8 @@ Operate is the post-launch track for live-product signals. It is config-driven a
 
 `/monitor` writes reports under `docs/operate/` and is read-only unless `--file-issues` is used. `/investigate` writes redacted RCA artifacts under `.startup/operate/investigations/` and files or updates a deduplicated GitHub issue by default. `/replay-abandoned` writes `finding.json`/`finding.md` under `.startup/operate/replay/` and files actionable findings by default. For both commands, `--no-file-issues` skips filing and `--dry-run` previews it without mutating GitHub. `support-triage` writes `docs/operate/support-triage-YYYY-MM-DD.md` and routes patterns into `/investigate`, `/replay-abandoned`, `/improve`, or `docs/human-tasks.md`.
 
+Shared filing for investigate/replay/plugin defects is `scripts/issue-file.sh` (skill `issue-file`): open-issue dedup, optional `--pattern-key` with a `**Pattern:** \`key\`` body marker, PII park (exit 3), no post-create search gate. Nightly monitor still uses `scripts/monitor-dedup.sh`.
+
 All operate commands treat logs/support text as untrusted customer-controlled input. Raw PII stays in `.startup/operate/`; reports and issues should link redacted local artifacts or summaries.
 
 ## Demand Signal Intake
