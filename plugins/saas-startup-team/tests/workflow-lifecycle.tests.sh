@@ -273,12 +273,12 @@ test_workflow_lifecycle_safety() {
     '`EXIT INT TERM HUP` trap'
   assert_file_contains "WL9: maintain scheduler uses flock" "$maintain_protocol" \
     'non-blocking `flock`'
-  assert_file_contains "WL10: split duplicate pre-check before create" "$maintain_protocol" \
-    'find_split_child_by_marker()'
-  assert_file_contains "WL10b: post-create uses create number not search" "$maintain_protocol" \
-    'Do NOT re-search after create'
-  assert_file_contains "WL11: split child id is verified numeric" "$maintain_protocol" \
-    'split child id is not numeric'
+  assert_file_contains "WL10: partials have no split-marker child filing" "$maintain_protocol" \
+    'no child issue, no split-marker'
+  assert_file_contains "WL10b: partials deliver on same parent issue" "$maintain_protocol" \
+    'same parent issue number'
+  assert_file_contains "WL11: partials park residual needs-human on parent" "$maintain_protocol" \
+    'park residual'
   assert_file_not_contains "WL12: issue create uses no unsupported JSON flag" "$maintain_protocol" \
     '--json number -q .number'
   assert_file_contains "WL12a: split list failure is captured" "$maintain_protocol" \

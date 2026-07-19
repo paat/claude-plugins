@@ -369,11 +369,11 @@ only that full pass may decide `agent-fixable` versus `needs-human`.
 - **`partially-fixable`** → the issue **bundles a clearly agent-fixable sub-part with a
   genuine judgment sub-part**. Do not park the whole issue: the subagent returns both a
   scoped `fixable_part` (a self-contained, objectively-checkable code fix) and the
-  `judgment_part` reason. The supervisor **splits**: it files a scoped child issue for
-  the fixable part (which then flows through the normal `agent-fixable` queue) and keeps
-  the parent `needs-human` for the residual judgment. See §Splitting partially-fixable
-  issues. Only emit this when the fixable sub-part is
-  genuinely self-contained and deliverable on its own; if the fixable part can't be
+  `judgment_part` reason. The supervisor **delivers the fixable part on the same issue**
+  (branch/PR/auto-merge), then parks residual judgment on the parent as `needs-human`
+  (label + bot comment + human-tasks). **Do not file a split child issue or use
+  `maintain:split-from` markers.** See §Partially-fixable delivery (no child issue).
+  Only emit this when the fixable sub-part is genuinely self-contained; if it can't be
   cleanly separated from the judgment, it's `needs-human`.
 - **`needs-human`** → genuine human decision required — the whole issue hinges on a
   human judgment with no objectively-checkable default. Canonical human-visible bucket:
@@ -437,87 +437,33 @@ The supervisor posts or updates a single bot comment per issue carrying a
 deterministic marker `<!-- maintain:bot:<issue> -->`; it **edits** that comment on
 later passes rather than posting a new one each time.
 
-### Splitting partially-fixable issues
+### Partially-fixable delivery (no child issue, no split-marker)
 
-When triage returns `partially-fixable`, the supervisor splits the issue so the fixable
-work ships while the judgment work waits — never parking the whole thing. This is a
-**supervisor mutation**, skipped under `--dry-run` (print the would-be child instead).
+When triage returns `partially-fixable`, **do not create a child issue** and **do not
+use `maintain:split-from` (or any split-marker)**. Markers are not part of the
+maintain delivery loop.
 
-**Duplicate pre-check always runs before filing any issue** (splits, re-occurrence
-children, monitor filings). Search/list for an existing match first; only create when
-zero matches. That pre-check is also **re-occurrence detection**: an existing open
-issue with the same marker/pattern is the work item — do not file a second one.
+**Loop:**
 
-**File the child idempotently.** The child body carries `maintain:split-from #<parent>`
-for linkage and pre-check identity (not as a post-create search gate).
+1. Scope delivery to `fixable_part` only on **the same parent issue number**.  
+2. Branch / implement / PR / **auto-merge** that machine work (`Refs #PARENT` or
+   non-closing reference as required by delivery gates).  
+3. After the machine part is on main (or this pass cannot complete it): park residual
+   `judgment_part` on the **parent** — `needs-human` label, human-tasks entry, and one
+   idempotent bot comment (`<!-- maintain:bot:<issue> -->`) stating what shipped and
+   what still needs a human.  
+4. **Proceed to next issue** (WIP-first). Do not wait on the human residual.
 
-```bash
-marker="maintain:split-from #$PARENT"
-split_body=$(printf '%s\n\n---\n%s\nThe judgment-bound remainder stays in the parent.\n' \
-  "$FIXABLE_BODY" "$marker")
+Under `--dry-run`, print the would-be fixable scope and residual park; no mutations.
 
-# PRE-CHECK (always, before create): find existing child by exact body marker.
-# Zero → create. One → reuse. More than one → fail closed (true ambiguity).
-# Search is for dedup/re-occurrence only — never required after a successful create.
-find_split_child_by_marker() {
-  local split_json
-  split_json=$(gh issue list --state all --limit 1000 --search "$marker in:body" \
-    --json number,body) || return 1
-  printf '%s\n' "$split_json" | jq -r --arg marker "$marker" '
-        [.[] | select(((.body // "") | split("\n") | index($marker)) != null) | .number]
-        | unique
-        | if length == 0 then ""
-          elif length == 1 then (.[0] | tostring)
-          else error("multiple split children carry the exact marker") end'
-}
+If the fixable part cannot be cleanly separated, reclassify the whole issue
+`needs-human` — never invent a child issue to paper over ambiguity.
 
-child=$(find_split_child_by_marker) || {
-  echo "maintain: cannot run duplicate pre-check for parent #$PARENT" >&2
-  exit 1
-}
-if [ -z "$child" ]; then
-  # Capture the number from create (URL or API). Do NOT re-search after create:
-  # GitHub search lag must not fail-close a successful create.
-  create_url=$(gh issue create --title "$FIXABLE_TITLE" --body "$split_body") || {
-    echo "maintain: cannot create split child for parent #$PARENT" >&2
-    exit 1
-  }
-  child=$(printf '%s\n' "$create_url" | sed -nE 's#.*/issues/([0-9]+).*#\1#p')
-  case "$child" in
-    ''|*[!0-9]*|0*)
-      # Fallback: API create with number in JSON if URL parse failed
-      child=$(gh api "repos/{owner}/{repo}/issues" -f title="$FIXABLE_TITLE" \
-        -f body="$split_body" --jq .number 2>/dev/null || true)
-      ;;
-  esac
-fi
-case "$child" in
-  ''|*[!0-9]*|0*) echo "maintain: split child id is not numeric" >&2; exit 1 ;;
-esac
-# Verify by direct issue view (not search): body contains the marker we authored.
-child_body=$(gh issue view "$child" --json body -q .body) || {
-  echo "maintain: cannot verify split child #$child" >&2
-  exit 1
-}
-printf '%s\n' "$child_body" | grep -Fqx "$marker" || {
-  echo "maintain: split child #$child lacks the exact marker" >&2
-  exit 1
-}
-```
-
-Do not label or comment on the parent until this numeric child ID and exact marker are
-verified via **direct view**. A pre-check failure (search error / multi-match) or create
-failure stops the pass. A **successful create must not be failed** solely because a
-follow-up search has not indexed yet.
-
-The child inherits the parent's severity label if recognizable. It is an ordinary
-`agent-fixable` issue from then on: re-read at the next Loop-Body step 1, queued and
-delivered like any other (or this same pass, since the eligible queue is rebuilt after
-verdicts are applied). The parent is labeled `needs-human` for the `judgment_part`
-  only, and its idempotent bot comment links the child: *"Split out the fixable
-  sub-part as #<child>; the residual judgment stays here for a human."* Record the
-  parent→child split in the digest so the investor sees
-the fixable part entered the queue rather than being buried under the park.
+**Filing new GitHub issues** (monitor, re-occurrence, plugin escalation) is out of
+band for this section. When create is required, use the reusable issue-filing skill
+(see paat/claude-plugins#326): **duplicate pre-check before create**, pattern key for
+re-occurrence, no post-create search fail-closed. Maintain delivery itself does not
+file issues for partials.
 
 ### Prompt-injection firewall (enforced by the supervisor)
 

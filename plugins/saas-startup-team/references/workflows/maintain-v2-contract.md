@@ -52,17 +52,15 @@ locks. Open PR / branch **is** the in-flight lock.
 Maintain-loop PRs merge via helper-authorized auto-merge when quality gates pass.
 Do not wait for investor merge of maintain PRs.
 
-## Needs-human (does not stall the slot)
+## Needs-human / partially-fixable (does not stall the slot)
 
-1. Prefer **split** when machine work can ship alone (child issue **or** residual on parent).  
-2. **Duplicate pre-check always before filing any issue** (splits, re-occurrence, monitor).
-   Search/list first; create only if zero matches — that pre-check **is** re-occurrence
-   detection.  
-3. After successful create, take the number from create output / direct `gh issue view`.
-   **Never** fail-closed solely because a post-create search is empty (index lag).  
-4. Machine part merged to main → next issue (WIP-first).  
-5. Push PR / comment if it helps the human residual; escalate to MC digest.  
-6. **Take next eligible** work (still WIP-first among remaining items).
+1. **No split-marker, no child issue for partials.** Deliver the machine-fixable part on
+   the **same** issue; park residual judgment on that issue as `needs-human`.  
+2. Machine part merged to main → **next issue** (WIP-first).  
+3. Push PR / bot comment if it helps the human residual; escalate to MC digest.  
+4. **Filing new issues** (re-occurrence, monitor, source-repo escalate) is a separate
+   reusable skill (#326): always **duplicate pre-check before create**; no post-create
+   search fail-closed. Maintain delivery does not invent issue-create ceremony.
 
 ## Soft-blocks
 
