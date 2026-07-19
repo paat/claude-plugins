@@ -79,6 +79,16 @@ non-empty subdirectory, and add file-level pointers for key individual files (e.
 If CLAUDE.md does not already contain a `## Workflow Guidance` section, append the template
 at `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-workflow-guidance.md`.
 
+## Step 5b: Engineering principles (CLAUDE.md + AGENTS.md)
+
+Ensure KISS / YAGNI / DRY are project guidance for every host that loads root
+instruction files. Shared helper (idempotent; requires all three principle labels
+or refreshes a managed block; resolves AGENTS.md symlinks safely):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ensure-engineering-principles.sh" --root .
+```
+
 ## Step 6: Project Brief
 
 If `docs/business/brief.md` already exists, skip this step.

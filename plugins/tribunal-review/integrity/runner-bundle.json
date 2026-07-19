@@ -18,7 +18,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "2dd83ff90731b050c022007e7a796b067f9765de9a712eec357a0f56f97796b7"
+      "sha256": "9b353ae8775187cf1f2bd8c6ff4630dd65126859207d57ee3763474e2085da1e"
     },
     {
       "path": "scripts/run-claude-review.sh",
@@ -47,5 +47,5 @@
   ],
   "plugin": "tribunal-review",
   "schema": "tribunal-runner-bundle/v1",
-  "version": "0.20.3"
+  "version": "0.20.4"
 }

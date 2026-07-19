@@ -453,6 +453,24 @@ test_templates() {
     "$PLUGIN_ROOT/references/workflows/improve.md" "Before reading product or research docs, read and apply"
   assert_file_contains "D10q6: project guidance exposes lean direct planning" \
     "$tmpl_dir/claude-md-workflow-guidance.md" "Lean direct-feature planning"
+  assert_file_exists "D10q6b: engineering principles template exists" \
+    "$tmpl_dir/claude-md-engineering-principles.md"
+  assert_file_contains "D10q6c: principles name KISS" \
+    "$tmpl_dir/claude-md-engineering-principles.md" "**KISS**"
+  assert_file_contains "D10q6d: principles name YAGNI" \
+    "$tmpl_dir/claude-md-engineering-principles.md" "**YAGNI**"
+  assert_file_contains "D10q6e: principles name DRY" \
+    "$tmpl_dir/claude-md-engineering-principles.md" "**DRY**"
+  assert_file_contains "D10q6f: bootstrap installs engineering principles" \
+    "$PLUGIN_ROOT/commands/bootstrap.md" "Engineering principles"
+  assert_file_contains "D10q6g: bootstrap calls shared helper" \
+    "$PLUGIN_ROOT/commands/bootstrap.md" "scripts/ensure-engineering-principles.sh"
+  assert_file_contains "D10q6h: startup ensures engineering principles" \
+    "$PLUGIN_ROOT/commands/startup.md" "scripts/ensure-engineering-principles.sh"
+  assert_file_exists "D10q6i: ensure-engineering-principles script exists" \
+    "$PLUGIN_ROOT/scripts/ensure-engineering-principles.sh"
+  assert_file_contains "D10q6j: SessionStart hook ensures principles" \
+    "$PLUGIN_ROOT/hooks/hooks.json" "ensure-engineering-principles.sh"
   assert_file_contains "D10q7: Claude tech gate points at brief acceptance" \
     "$PLUGIN_ROOT/agents/tech-founder-claude.md" "brief-acceptance-gate.md"
   assert_file_contains "D10q8: maintenance tech gate points at brief acceptance" \

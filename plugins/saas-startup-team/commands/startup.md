@@ -175,6 +175,13 @@ The PostToolUse hook will auto-populate a `## Learnings` section in the project'
    ```
 3. If `CLAUDE.md` already has a `## Learnings` section, do nothing.
 
+4. Ensure **KISS / YAGNI / DRY** project principles (idempotent). Same helper as
+   `/bootstrap` Step 5b:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ensure-engineering-principles.sh" --root .
+```
+
 ## Step 2c: Ensure Git Repository
 
 The auto-commit hook requires a git repo. Ensure one exists:

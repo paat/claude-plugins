@@ -204,7 +204,6 @@ Rules:
 - Only report actionable findings with confidence >= 0.7.
 - Critical/high findings must prove production reachability, material impact, and that the change caused or exposed the issue.
 - Watch for logic, security, performance, architecture, edge cases, testing gaps, silent failures, unawaited async, webhook/payment traps, and money-as-float.
-- DRY: flag meaningful duplication this change introduces or expands (copy-pasted logic, restated guidance/rules, parallel branches that should share one path). Require a real maintenance cost — not two similar lines or intentional decorrelated variants. Prefer category quality or architecture; suggest one canonical location plus call sites, not a speculative framework.
 - Use exact file paths from diff headers and line numbers from the changed hunk.
 - In repo-walking mode, open only the files needed to verify a finding — do not scan the tree.
 - If context is insufficient, lower confidence or omit the finding.

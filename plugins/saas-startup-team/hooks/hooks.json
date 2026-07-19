@@ -154,6 +154,17 @@
         ]
       }
     ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'p=scripts/ensure-engineering-principles.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\" --root \"${CLAUDE_PROJECT_DIR:-$PWD}\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
+            "description": "Ensure KISS/YAGNI/DRY engineering principles in CLAUDE.md and AGENTS.md"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
