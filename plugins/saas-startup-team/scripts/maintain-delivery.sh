@@ -728,7 +728,9 @@ claim_source_state_absent() {
   if git -C "$worktree" symbolic-ref -q HEAD >/dev/null 2>&1; then
     die "claimed receipt worktree is still attached to a branch"
   fi
-  status=$(git -C "$worktree" status --porcelain=v1 --untracked-files=all) \
+  # Ignore .startup control-plane; only product source state blocks archive.
+  status=$(git -C "$worktree" status --porcelain=v1 --untracked-files=all -- \
+    . ':(exclude).startup' ':(exclude).startup/**') \
     || die "cannot inspect claimed receipt worktree status"
   [ -z "$status" ] || die "claimed receipt worktree still has source state"
   head=$(git -C "$worktree" rev-parse HEAD) || die "cannot inspect claimed receipt worktree HEAD"

@@ -23,7 +23,10 @@ test_maintain_delivery_lifecycle() {
   local heartbeat_before heartbeat_after
   local legacy_claimed_at rollback_parent rollback_delivery
   repo=$(make_workdir)
-  test_plugin="$repo/.test-plugin"; mkdir "$test_plugin"; cp -a "$PLUGIN_ROOT/scripts/." "$test_plugin/"
+  # Fixtures + plugin copy live outside the product tree — primary reset cleans untracked files.
+  fixtures=$(mktemp -d)
+  test_plugin="$fixtures/plugin"; mkdir "$test_plugin"
+  cp -a "$PLUGIN_ROOT/scripts/." "$test_plugin/"
   delivery_impl="$test_plugin/maintain-delivery.sh"
   sed -i '/^resolve_repo_slug() {$/a\
   if [ -n "${MAINTAIN_TEST_REPO_SLUG:-}" ]; then printf "%s\\n" "$MAINTAIN_TEST_REPO_SLUG"; return 0; fi' "$delivery_impl"
@@ -33,7 +36,7 @@ test_maintain_delivery_lifecycle() {
   if [ -n "${MAINTAIN_TEST_GH_BIN:-}" ]; then "$MAINTAIN_TEST_GH_BIN" "$@"; exit $?; fi' "$delivery_impl"
   sed -i '/^validate_tribunal_plugin() {$/a\
   if [ -n "${MAINTAIN_TEST_TRIBUNAL_ROOT:-}" ]; then TRIBUNAL_ROOT=$MAINTAIN_TEST_TRIBUNAL_ROOT; TRIBUNAL_COLLECTOR="$TRIBUNAL_ROOT/scripts/collect-review-evidence.sh"; TRIBUNAL_PATH=$ORIGINAL_PATH; return 0; fi' "$delivery_impl"
-  script="$repo/maintain-delivery-test-wrapper.sh"
+  script="$fixtures/maintain-delivery-test-wrapper.sh"
   cat > "$script" <<'DELIVERY_WRAPPER'
 #!/bin/bash
 set -euo pipefail
@@ -82,8 +85,8 @@ DELIVERY_WRAPPER
       --run-id "$lease_run" --state-file "$lease_state" >/dev/null
     export MAINTAIN_TEST_LEASE_STATE="$lease_state" MAINTAIN_TEST_CONTROLLER_RUN="$lease_run"
   }
-  fake_bin="$repo/fake-bin"; fake_head="$repo/fake-gh-head"; fake_issue="$repo/fake-gh-issue.json"
-  fake_mutation="$repo/fake-gh-mutation"; fake_log="$repo/fake-gh.log"
+  fake_bin="$fixtures/fake-bin"; fake_head="$fixtures/fake-gh-head"; fake_issue="$fixtures/fake-gh-issue.json"
+  fake_mutation="$fixtures/fake-gh-mutation"; fake_log="$fixtures/fake-gh.log"
   mkdir "$fake_bin"
   cat > "$fake_bin/gh" <<'FAKE_GH'
 #!/bin/bash
@@ -142,7 +145,7 @@ esac
 FAKE_GH
   chmod +x "$fake_bin/gh"
 
-  fake_tribunal="$repo/fake-tribunal"; mkdir -p "$fake_tribunal/scripts"
+  fake_tribunal="$fixtures/fake-tribunal"; mkdir -p "$fake_tribunal/scripts"
   cat > "$fake_tribunal/scripts/collect-review-evidence.sh" <<'FAKE_TRIBUNAL'
 #!/bin/bash
 set -euo pipefail
@@ -255,6 +258,7 @@ FAKE_TRIBUNAL
   write_issue_scope() {
     jq '{number,state,title,body,updatedAt}' "$1" > "$2"
   }
+  # Product-tracked proof scripts stay in the repo (committed); harness fixtures use $fixtures.
   qa_command="$repo/live-proof.sh"; bad_command="$repo/bad-proof.sh"
   authority_command="$repo/authority-proof.sh"
   monitor_command="$repo/.startup/monitor-checks.sh"
@@ -308,7 +312,7 @@ DEPLOY_WORKFLOW
     .claude/saas-startup-team.local.md .github/workflows/deploy.yml
   git -C "$repo" commit -qm base
   base=$(git -C "$repo" rev-parse HEAD)
-  remote="$repo/remote.git"; git init -q --bare "$remote"; git -C "$repo" remote add origin "$remote"
+  remote="$fixtures/remote.git"; git init -q --bare "$remote"; git -C "$repo" remote add origin "$remote"
   git -C "$repo" push -q origin main
   git -C "$repo" checkout -qb issue-one
   printf 'fixed\n' >> "$repo/app.txt"
@@ -321,10 +325,10 @@ DEPLOY_WORKFLOW
 
   run=run-0123456789abcdef0123456789abcdef
   delivery=run-11111111111111111111111111111111
-  pr_open="$repo/pr-open.json"; pr_merged="$repo/pr-merged.json"
-  issue_open="$repo/issue-open.json"; issue_closed="$repo/issue-closed.json"
-  fake_pr="$repo/fake-gh-pr.json"; fake_prs="$repo/fake-gh-prs.json"
-  fake_checks="$repo/fake-gh-checks.json"; fake_run="$repo/fake-gh-run.json"
+  pr_open="$fixtures/pr-open.json"; pr_merged="$fixtures/pr-merged.json"
+  issue_open="$fixtures/issue-open.json"; issue_closed="$fixtures/issue-closed.json"
+  fake_pr="$fixtures/fake-gh-pr.json"; fake_prs="$fixtures/fake-gh-prs.json"
+  fake_checks="$fixtures/fake-gh-checks.json"; fake_run="$fixtures/fake-gh-run.json"
   jq -n --arg head "$head" \
     --arg body $'Refs #1\nMaintain-Loop-Issue: #1\nMaintain-Loop-Delivery: run-11111111111111111111111111111111\nMaintain-Loop-Role: normal\nMaintain-Loop-Action: run-11111111111111111111111111111111-normal' \
     '{number:11,state:"OPEN",headRefName:"issue-one",headRefOid:$head,baseRefName:"main",title:"Fix issue one",
@@ -344,7 +348,7 @@ DEPLOY_WORKFLOW
   export FAKE_GH_CHECKS_SOURCE="$fake_checks" FAKE_GH_RUN_SOURCE="$fake_run"
   export FAKE_GH_ISSUE_SOURCE="$fake_issue" FAKE_GH_HEAD_FILE="$fake_head" FAKE_GH_MUTATION="$fake_mutation"
   export FAKE_GH_LOG="$fake_log" FAKE_GH_CLOSED_AT="2099-07-14T10:03:00Z"
-  issue_scope="$repo/issue-scope.json"
+  issue_scope="$fixtures/issue-scope.json"
   write_issue_scope "$fake_issue" "$issue_scope"
 
   fresh_repo=$(make_workdir)
@@ -362,8 +366,9 @@ DEPLOY_WORKFLOW
   fresh_origin_state="$fresh_common/saas-startup-team/maintain-runtime/fresh-order-leases.json"
   fresh_resume_state="$fresh_common/saas-startup-team/maintain-runtime/fresh-resume-leases.json"
   fresh_legacy_state="$fresh_common/saas-startup-team/maintain-runtime/fresh-legacy-leases.json"
-  fresh_scope="$fresh_repo/issue-scope.json"
-  fresh_drift="$fresh_repo/issue-scope-drift.json"
+  # Keep scope fixtures outside the product tree — primary reset cleans untracked files.
+  fresh_scope="$(mktemp "$fresh_repo/../fresh-scope.XXXXXX")"
+  fresh_drift="$(mktemp "$fresh_repo/../fresh-drift.XXXXXX")"
   fresh_controller=run-cccccccccccccccccccccccccccccccc
   fresh_origin=fresh-origin
   fresh_runtime="$fresh_common/saas-startup-team/maintain-runtime"
@@ -442,7 +447,7 @@ DEPLOY_WORKFLOW
     --worktree "$fresh_wt" --base-sha "$fresh_base" --lease-state "$fresh_origin_state" \
     --run-id "$fresh_controller" --controller-run-id "$fresh_controller" >/dev/null
   assert_equals "MD0f: leased reset pins the primary checkout to exact BASE_SHA" \
-    "$(git -C "$fresh_wt" rev-parse HEAD):$(git -C "$fresh_wt" status --porcelain)" \
+    "$(git -C "$fresh_wt" rev-parse HEAD):$(git -C "$fresh_wt" status --porcelain -- . ':(exclude).startup' ':(exclude).startup/**')" \
     "$fresh_base:"
   ec=0
   bash "$delivery_impl" begin --repo-root "$fresh_wt" --issue 1 --run-id "$fresh_controller" \
@@ -553,15 +558,15 @@ DEPLOY_WORKFLOW
   assert_exit_code "MD0l4: public maintain-loop probe reaches historical v1 recovery" "$ec" 0
   assert_output_contains "MD0l5: public maintain-loop exposes the same legacy route" "$out" \
     'workflow-probe: maintain-loop controller-route=legacy-recovery'
-  rm -rf "$fresh_wt"
+  # Primary-only: never rm the primary tree. Reset on primary and continue recovery.
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$fresh_repo" \
     --mode maintain --run-id fresh-resume --state-file "$fresh_resume_state" \
     --worktree "$fresh_wt" >/dev/null
   bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$fresh_repo" \
     --worktree "$fresh_wt" --base-sha "$fresh_receipt_head" --lease-state "$fresh_resume_state" \
     --run-id "$fresh_controller" --controller-run-id fresh-resume >/dev/null 2>&1
-  assert_equals "MD0m: a new run recreates the missing worktree at the receipt PR head" \
-    "$(git -C "$fresh_wt" rev-parse HEAD):$(git -C "$fresh_wt" status --porcelain)" \
+  assert_equals "MD0m: a new run resets the primary checkout at the receipt PR head" \
+    "$(git -C "$fresh_wt" rev-parse HEAD):$(git -C "$fresh_wt" status --porcelain -- . ':(exclude).startup' ':(exclude).startup/**')" \
     "$fresh_receipt_head:"
   ec=0
   bash "$delivery_impl" plan-pr --repo-root "$fresh_wt" --issue 1 --role normal \
@@ -611,8 +616,7 @@ DEPLOY_WORKFLOW
   assert_file_not_exists "MD0r: resume creates no replacement run ledger" "$fresh_resume_ledger"
   bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$fresh_legacy_state" \
     --repo-root "$fresh_repo" --worktree "$legacy_wt" --run-id fresh-legacy >/dev/null
-  git -C "$fresh_repo" worktree remove --force "$legacy_wt" >/dev/null
-  rm -rf "$fresh_repo"
+  rm -rf "$fresh_repo" "$fresh_scope" "$fresh_drift"
 
   switch_test_lease "$run"
 
@@ -621,10 +625,12 @@ DEPLOY_WORKFLOW
 
   legacy_delivery=run-33333333333333333333333333333333
   legacy_base=$(git -C "$repo" rev-parse HEAD)
-  bash "$delivery_impl" begin --repo-root "$controller_root" --issue 1 --run-id "$run" \
+  ec=0
+  out=$(bash "$delivery_impl" begin --repo-root "$controller_root" --issue 1 --run-id "$run" \
     --delivery-id "$legacy_delivery" --merge-budget 1 --scope-json "$issue_scope" \
-    --lease-state "$lease_state" --controller-run-id "$run" >/dev/null
+    --lease-state "$lease_state" --controller-run-id "$run" 2>&1) || ec=$?
   legacy_receipt="$common/saas-startup-team/maintain-runtime/deliveries/issue-1/current.json"
+  if [ -f "$legacy_receipt" ]; then jq -c '{schema_version,state,controller}' "$legacy_receipt" >&2; fi
   jq 'del(.controller,.event_binding) | .schema_version = 1' "$legacy_receipt" \
     > "$legacy_receipt.tmp"
   mv -- "$legacy_receipt.tmp" "$legacy_receipt"
@@ -632,6 +638,7 @@ DEPLOY_WORKFLOW
     --repo-root "$repo" --worktree "$controller_root" --run-id "$lease_run" >/dev/null
   lease_state=""
   legacy_wt="$repo"
+  show_out=$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 2>&1) || show_ec=$?
   legacy_state="$common/saas-startup-team/maintain-runtime/$run-legacy-leases.json"
   legacy_cache="$common/saas-startup-team/maintain-runtime/base-checks/$run"
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain-loop \
@@ -737,22 +744,22 @@ DEPLOY_WORKFLOW
   assert_exit_code "MD2c: mutating delivery action requires controller lease state" "$ec" 2
   bash "$script" plan-pr --repo-root "$repo" --issue 1 --role normal --branch issue-one \
     --base-sha "$base" --head-sha "$head" >/dev/null
-  duplicate_pr="$repo/pr-duplicate-marker.json"
+  duplicate_pr="$fixtures/pr-duplicate-marker.json"
   jq '.body += "\nMaintain-Loop-Issue: #1"' "$pr_open" > "$duplicate_pr"
   ec=0; bash "$script" match-pr --repo-root "$repo" --issue 1 --role normal --pr-json "$duplicate_pr" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD2a: repeated public marker line is ambiguous" "$ec" 1
   ec=0; bash "$script" match-pr --repo-root "$repo" --issue 1 --role normal --pr-json "$pr_merged" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD3: merged discovery lacks premerge authority" "$ec" 1
   bash "$script" bind-pr --repo-root "$repo" --issue 1 --role normal --pr-json "$pr_open" >/dev/null
-  jq '.body += "\nUnreviewed validation claim"' "$pr_open" > "$repo/pr-body-drift.json"
+  jq '.body += "\nUnreviewed validation claim"' "$pr_open" > "$fixtures/pr-body-drift.json"
   ec=0; bash "$script" match-pr --repo-root "$repo" --issue 1 --role normal \
-    --pr-json "$repo/pr-body-drift.json" >/dev/null 2>&1 || ec=$?
+    --pr-json "$fixtures/pr-body-drift.json" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD3a: PR body drift invalidates the delivery binding" "$ec" 1
   ec=0; bash "$script" match-pr --repo-root "$repo" --issue 1 --role normal --pr-json "$pr_merged" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD4: an open binding still cannot authorize merged resume" "$ec" 1
-  printf '%s\n' '{"status":"passed"}' > "$repo/forged-evidence.json"
+  printf '%s\n' '{"status":"passed"}' > "$fixtures/forged-evidence.json"
   ec=0; bash "$script" authorize-merge --repo-root "$repo" --issue 1 --role normal \
-    --evidence-json "$repo/forged-evidence.json" >/dev/null 2>&1 || ec=$?
+    --evidence-json "$fixtures/forged-evidence.json" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD4a: caller-authored passed JSON is not an authorization input" "$ec" 2
   ec=0; bash "$script" authorize-merge --repo-root "$repo" --issue 1 --role normal >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD4b: merge authorization requires helper-owned QA and tribunal proofs" "$ec" 1
@@ -769,26 +776,26 @@ DEPLOY_WORKFLOW
   out=$(bash "$script" record-proof --repo-root "$repo" --issue 1 --role normal --kind qa --not-applicable)
   assert_equals "MD4b3: ordinary non-UI diff keeps helper-owned QA N/A" \
     "$(jq -r .status "$out")" not_applicable
-  cat > "$repo/hostile-bash-env.sh" <<'HOSTILE_BASH_ENV'
+  cat > "$fixtures/hostile-bash-env.sh" <<'HOSTILE_BASH_ENV'
 if [ "${0:-}" = "${MAINTAIN_TEST_TRIBUNAL_COLLECTOR:-}" ]; then
   printf compromised > "${MAINTAIN_TEST_LOADER_MARKER:?}"
   exit 77
 fi
 HOSTILE_BASH_ENV
-  BASH_ENV="$repo/hostile-bash-env.sh" \
+  BASH_ENV="$fixtures/hostile-bash-env.sh" \
     MAINTAIN_TEST_TRIBUNAL_COLLECTOR="$fake_tribunal/scripts/collect-review-evidence.sh" \
-    MAINTAIN_TEST_LOADER_MARKER="$repo/tribunal-loader-ran" \
+    MAINTAIN_TEST_LOADER_MARKER="$fixtures/tribunal-loader-ran" \
     bash -p "$script" collect-tribunal --repo-root "$repo" --issue 1 --role normal \
       --tribunal-plugin-root "$fake_tribunal" >/dev/null
   assert_file_not_exists "MD4b4: tribunal runner ignores ambient Bash loaders" \
-    "$repo/tribunal-loader-ran"
-  printf '%s\n' '{"status":"passed"}' > "$repo/narrow-tribunal.json"
+    "$fixtures/tribunal-loader-ran"
+  printf '%s\n' '{"status":"passed"}' > "$fixtures/narrow-tribunal.json"
   ec=0; bash "$script" record-proof --repo-root "$repo" --issue 1 --role normal --kind tribunal \
-    --artifact "$repo/narrow-tribunal.json" --tribunal-plugin-root "$fake_tribunal" \
+    --artifact "$fixtures/narrow-tribunal.json" --tribunal-plugin-root "$fake_tribunal" \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD4c: narrow tribunal pass assertion cannot become authority" "$ec" 1
   ec=0; bash "$script" record-proof --repo-root "$repo" --issue 1 --role normal --kind tribunal \
-    --artifact "$repo/narrow-tribunal.json" --provider-evidence "$repo/narrow-tribunal.json" \
+    --artifact "$fixtures/narrow-tribunal.json" --provider-evidence "$fixtures/narrow-tribunal.json" \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD4c0: caller-supplied provider evidence is rejected" "$ec" 2
   write_tribunal_evidence 1 11 "$head" issue-one
@@ -839,11 +846,11 @@ HOSTILE_BASH_ENV
   ec=0; bash "$script" record-proof --repo-root "$repo" --issue 1 --role normal --kind live \
     --command-file "$bad_command" --deploy-run-id 1111 --live-target-source production >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD5e: a command that only prints passed cannot become live authority" "$ec" 1
-  jq --arg head "$base" '.headSha=$head' "$fake_run" > "$repo/wrong-run.json"; cp -- "$repo/wrong-run.json" "$fake_run"
+  jq --arg head "$base" '.headSha=$head' "$fake_run" > "$fixtures/wrong-run.json"; cp -- "$fixtures/wrong-run.json" "$fake_run"
   ec=0; bash "$script" record-proof --repo-root "$repo" --issue 1 --role normal --kind live \
     --command-file "$qa_command" --deploy-run-id 1111 --live-target-source production >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD5e1: successful run for another SHA cannot authorize live proof" "$ec" 1
-  jq --arg head "$merge" '.headSha=$head' "$fake_run" > "$repo/right-run.json"; cp -- "$repo/right-run.json" "$fake_run"
+  jq --arg head "$merge" '.headSha=$head' "$fake_run" > "$fixtures/right-run.json"; cp -- "$fixtures/right-run.json" "$fake_run"
   ec=0; OPENAI_API_KEY=secret SAAS_MAINTAIN_LIVE_PROOF_ENV=OPENAI_API_KEY \
     bash "$script" record-proof --repo-root "$repo" --issue 1 \
     --role normal --kind live --command-file "$authority_command" --deploy-run-id 1111 \
@@ -911,10 +918,10 @@ HOSTILE_PYTHON
     --deploy-run-id 1111 --live-target-source production >/dev/null
   cp -- "$pr_merged" "$fake_pr"; cp -- "$issue_open" "$fake_issue"
   ec=0; bash "$script" close-intent --repo-root "$repo" --issue 1 --pr-json "$pr_merged" \
-    --issue-json "$issue_open" --audit-json "$repo/forged-evidence.json" >/dev/null 2>&1 || ec=$?
+    --issue-json "$issue_open" --audit-json "$fixtures/forged-evidence.json" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD5h: caller snapshots and audit assertions are not close authority" "$ec" 2
-  jq '.title="Changed scope"' "$issue_open" > "$repo/issue-scope-drift.json"
-  cp -- "$repo/issue-scope-drift.json" "$fake_issue"
+  jq '.title="Changed scope"' "$issue_open" > "$fixtures/issue-scope-drift.json"
+  cp -- "$fixtures/issue-scope-drift.json" "$fake_issue"
   ec=0; bash "$script" close-intent --repo-root "$repo" --issue 1 >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD5i: issue scope drift invalidates close authority" "$ec" 1
   cp -- "$issue_open" "$fake_issue"
@@ -928,15 +935,15 @@ HOSTILE_PYTHON
   pending=$(bash "$script" pending --repo-root "$repo")
   assert_equals "MD6: close intent survives the close crash window" "$(jq -r '.[0].state' <<<"$pending")" close_intent
   jq '.number=2 | .title="Premature issue" | .body="Must wait" | .state="OPEN" | .closedAt=null' \
-    "$issue_open" > "$repo/premature-issue.json"
-  cp -- "$repo/premature-issue.json" "$fake_issue"
+    "$issue_open" > "$fixtures/premature-issue.json"
+  cp -- "$fixtures/premature-issue.json" "$fake_issue"
   write_issue_scope "$fake_issue" "$issue_scope"
   ec=0; bash "$script" begin --repo-root "$repo" --issue 2 --run-id "$run" \
     --delivery-id run-99999999999999999999999999999999 \
     --merge-budget 1 --scope-json "$issue_scope" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD6c: another issue cannot bypass pending reconciliation" "$ec" 3
   cp -- "$issue_open" "$fake_issue"
-  changed_issue="$repo/issue-changed.json"
+  changed_issue="$fixtures/issue-changed.json"
   jq '.updatedAt="2026-07-14T10:02:00Z" | .comments += [{id:"IC_2",body:"New scope",
     createdAt:"2026-07-14T10:02:00Z",updatedAt:null}]' "$issue_open" > "$changed_issue"
   cp -- "$changed_issue" "$fake_issue"; rm -f "$fake_mutation"
@@ -978,7 +985,7 @@ FAKE_SETPRIV
     'pending receipt: issue #1 (closed_observed)'
   switch_test_lease "$run"
 
-  result="$repo/result.md"
+  result="$fixtures/result.md"
   bash "$script" render-result --repo-root "$repo" --issue 1 > "$result"
   assert_result_rejected "MD6h: success result requires exact PR head" 1 "$result" omit 'pr_head_sha:'
   assert_result_rejected "MD6i: success result requires default ancestry" 1 "$result" contradict 'default_ancestry:'
@@ -1084,8 +1091,8 @@ CRASH_AFTER_EVENT
   git -C "$repo" checkout -q main; git -C "$repo" merge -q --squash rollback-two; git -C "$repo" commit -qm 'rollback issue two'
   rollback_merge=$(git -C "$repo" rev-parse HEAD)
   jq '.number=2 | .title="Issue two" | .body="Fix the second issue" | .state="OPEN" | .closedAt=null |
-    .updatedAt="2026-07-14T12:00:30Z"' "$issue_open" > "$repo/issue-two.json"
-  cp -- "$repo/issue-two.json" "$fake_issue"
+    .updatedAt="2026-07-14T12:00:30Z"' "$issue_open" > "$fixtures/issue-two.json"
+  cp -- "$fixtures/issue-two.json" "$fake_issue"
   write_issue_scope "$fake_issue" "$issue_scope"
   rollback_parent=run-66666666666666666666666666666666
   rollback_delivery=run-77777777777777777777777777777777
@@ -1101,7 +1108,7 @@ CRASH_AFTER_EVENT
       body:$body,mergeCommit:null,files:[{path:"app.txt"}]}' > "$pr_open"
   jq --arg merge "$feature2_merge" '.state="MERGED" | .mergeCommit={oid:$merge}' "$pr_open" > "$pr_merged"
   bash "$script" bind-pr --repo-root "$repo" --issue 2 --role normal --pr-json "$pr_open" >/dev/null
-  cp -- "$pr_open" "$fake_pr"; cp -- "$repo/issue-two.json" "$fake_issue"
+  cp -- "$pr_open" "$fake_pr"; cp -- "$fixtures/issue-two.json" "$fake_issue"
   write_tribunal_evidence 2 12 "$feature2_head" issue-two
   bash "$script" record-proof --repo-root "$repo" --issue 2 --role normal --kind qa --not-applicable >/dev/null
   bash "$script" collect-tribunal --repo-root "$repo" --issue 2 --role normal \
@@ -1122,7 +1129,7 @@ CRASH_AFTER_EVENT
     --base-sha "$feature2_merge" --head-sha "$rollback_head" >/dev/null
   bash "$script" plan-pr --repo-root "$repo" --issue 2 --role rollback --branch rollback-two \
     --base-sha "$feature2_merge" --head-sha "$rollback_head" >/dev/null
-  rollback_pr_open="$repo/rollback-open.json"; rollback_pr_merged="$repo/rollback-merged.json"
+  rollback_pr_open="$fixtures/rollback-open.json"; rollback_pr_merged="$fixtures/rollback-merged.json"
   jq -n --arg head "$rollback_head" \
     --arg body $'Refs #2\nMaintain-Loop-Issue: #2\nMaintain-Loop-Delivery: run-77777777777777777777777777777777\nMaintain-Loop-Role: rollback:1\nMaintain-Loop-Action: run-77777777777777777777777777777777-rollback-1' \
     '{number:13,state:"OPEN",headRefName:"rollback-two",headRefOid:$head,baseRefName:"main",title:"Rollback issue two",
@@ -1149,7 +1156,7 @@ CRASH_AFTER_EVENT
     --command-file "$qa_command" --deploy-run-id 1313 --live-target-source production >/dev/null
   bash "$script" record-release --repo-root "$repo" --issue 2 --role rollback \
     --deploy-run-id 1313 --live-target-source production >/dev/null
-  result="$repo/rollback-result.md"
+  result="$fixtures/rollback-result.md"
   bash "$script" render-result --repo-root "$repo" --issue 2 > "$result"
   assert_file_not_contains "MD13b0: rollback canonical result never claims fixed" "$result" 'fixed:'
   assert_file_contains "MD13b1: rollback budget overage is explicit" "$result" 'merge_budget_overage:rollback'
@@ -1192,8 +1199,8 @@ CRASH_AFTER_EVENT
   state_root="$common/saas-startup-team/maintain-runtime/deliveries"; victim="$repo/receipt-victim"
   mkdir "$victim"; ln -s "$victim" "$state_root/issue-3"
   jq '.number=3 | .title="Unsafe issue" | .body="Unsafe receipt target" | .state="OPEN" | .closedAt=null' \
-    "$issue_open" > "$repo/issue-three.json"
-  cp -- "$repo/issue-three.json" "$fake_issue"
+    "$issue_open" > "$fixtures/issue-three.json"
+  cp -- "$fixtures/issue-three.json" "$fake_issue"
   write_issue_scope "$fake_issue" "$issue_scope"
   switch_test_lease unsafe
   ec=0; bash "$script" begin --repo-root "$repo" --issue 3 --run-id unsafe \

@@ -57,24 +57,36 @@ normalize_check() {
   CHECK_REL="$rel"; CHECK_SCRIPT="./$rel"
 }
 
+# Product cleanliness ignores .startup control-plane (leases, prompts, receipts).
+product_tree_dirty() {
+  local root=$1
+  git -C "$root" status --porcelain=v1 --untracked-files=all -- \
+    . ':(exclude).startup' ':(exclude).startup/**' 2>/dev/null \
+    | grep -q .
+}
+
 assert_exact_clean_base() {
   [ "$(git -C "$ROOT" rev-parse HEAD)" = "$base_sha" ] || {
     echo "maintain-attempt: worktree HEAD does not equal BASE_SHA" >&2; return 1; }
   git -C "$ROOT" diff --quiet -- . && git -C "$ROOT" diff --cached --quiet -- . || {
     echo "maintain-attempt: base worktree is dirty" >&2; return 1; }
-  [ -z "$(git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" ] || {
-    echo "maintain-attempt: base worktree has untracked state" >&2; return 1; }
+  if product_tree_dirty "$ROOT"; then
+    echo "maintain-attempt: base worktree has untracked state" >&2; return 1
+  fi
 }
 
 reset_once() {
   # Primary checkout only — never create/remove linked worktrees.
+  # Preserve .startup/ control-plane state (leases, prompts, receipts); wiping it
+  # would drop live lease directories that still live under primary .startup/.
   git -C "$worktree" checkout --detach --quiet "$base_sha" || return 1
   git -C "$worktree" reset --hard "$base_sha" >/dev/null || return 1
-  git -C "$worktree" clean -ffdx -q || return 1
+  git -C "$worktree" clean -ffdx -q -e .startup -e .startup/** || return 1
   [ "$(git -C "$worktree" rev-parse HEAD)" = "$base_sha" ] || return 1
   git -C "$worktree" diff --quiet -- . || return 1
   git -C "$worktree" diff --cached --quiet -- . || return 1
-  [ -z "$(git -C "$worktree" status --porcelain=v1 --untracked-files=all)" ] || return 1
+  product_tree_dirty "$worktree" && return 1
+  return 0
 }
 
 load_lease_identity() {
@@ -357,9 +369,10 @@ case "$action" in
         git -C "$worktree" clean -ndffx; } | sed -n '1,20p' >&2
       exit 1
     fi
-    [ "$(git -C "$worktree" rev-parse HEAD)" = "$base_sha" ] \
-      && [ -z "$(git -C "$worktree" status --porcelain=v1 --untracked-files=all)" ] || {
-        echo "maintain-attempt: exact post-reset BASE_SHA assertion failed" >&2; exit 1; }
+    if [ "$(git -C "$worktree" rev-parse HEAD)" != "$base_sha" ] \
+      || product_tree_dirty "$worktree"; then
+      echo "maintain-attempt: exact post-reset BASE_SHA assertion failed" >&2; exit 1
+    fi
     printf 'maintain-attempt: reset %s\n' "$base_sha"
     ;;
 
