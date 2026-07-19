@@ -416,6 +416,10 @@ untracked_fingerprint() {
 always_exempt_ignored_path() {
   local path="${1%/}"
   [ ! -L "$path" ] || return 1
+  # Maintain runtime temps under .startup must not fail investor seals.
+  case "$path" in
+    .startup/maintain-loop|.startup/maintain-loop/*) return 0 ;;
+  esac
   case "/$path/" in
     */node_modules/*|*/.pnpm-store/*|*/.pnpm/*|*/bower_components/*|\
     */.yarn/cache/*|*/.yarn/unplugged/*) return 0 ;;
@@ -432,7 +436,11 @@ mutable_python_cache_path() {
 
 mutable_control_ignored_path() {
   local path="$1" rest lease
-  case "$path" in .startup/leases/*/heartbeat|.startup/leases/*/audit.log) : ;; *) return 1 ;; esac
+  case "$path" in
+    .startup/maintain-loop|.startup/maintain-loop/*) return 0 ;;
+    .startup/leases/*/heartbeat|.startup/leases/*/audit.log) : ;;
+    *) return 1 ;;
+  esac
   rest=${path#.startup/leases/}
   lease=${rest%/*}
   case "$lease" in ''|*/*) return 1 ;; *) return 0 ;; esac

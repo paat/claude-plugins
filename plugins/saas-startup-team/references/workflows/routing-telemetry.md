@@ -71,8 +71,7 @@ events and raw Codex logs in the dedicated Git guard directory. Verification pre
 the complete receipt batch, imports it into the canonical ignored runtime paths, and
 resumes idempotently after interruption. Do not write `.startup/runs/` directly or
 invent a second buffering path. The default event path is always in the primary
-worktree, including when the writer runs from a detached linked worktree; an explicit
-`--events` path remains an override.
+checkout; an explicit `--events` path remains an override.
 
 When invoking tribunal inline, set optional `TRIBUNAL_CALLER_PROVIDER`,
 `TRIBUNAL_CALLER_MODEL`, and `TRIBUNAL_CALLER_EFFORT` from the actual calling context.

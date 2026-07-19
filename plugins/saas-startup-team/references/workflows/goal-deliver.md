@@ -135,8 +135,8 @@ until the condition holds.
    If `current != default` or the tree is dirty, stop and ask the investor to
    switch/commit.
    Under `SAAS_EMBEDDED_CALLER=maintain`, skip this standalone primary-checkout gate;
-   the caller-bound dedicated worktree and claim above are authoritative. Do not reset,
-   clean, or switch that worktree here.
+   the caller-bound primary tree and claim above are authoritative. Do not reset,
+   clean, or switch the tree here.
 4. **`gh` authenticated with a remote:** `gh auth status` and
    `git remote get-url origin` both succeed; else stop and report.
 5. **Defer `active_role` mutation.** Do not reset it until the delivery-scope lease in

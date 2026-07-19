@@ -17,7 +17,7 @@ test_workflow_context_contract() {
 case "${PENDING_FIXTURE:-empty}" in
   empty) printf '[]\n' ;;
   claimed|post_merge|close_intent)
-    jq -cn --arg state "$PENDING_FIXTURE" --arg worktree "${3:-}/.worktrees/maintain" \
+    jq -cn --arg state "$PENDING_FIXTURE" --arg worktree "${3:-}" \
       '[{issue_number:7,delivery_id:"old",state:$state,receipt:"x",
          controller_route:{kind:"canonical",mode:"maintain",worktree:$worktree}}]'
     ;;

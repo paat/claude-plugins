@@ -21,23 +21,22 @@ On a normal run, `SAAS_INVOCATION_ID`, `MAINTAIN_LEASE_RUN_ID`,
 `MAINTAIN_CONTROLLER_ROUTE`, and `MAINTAIN_PENDING_FINGERPRINT` were already resolved
 by the router. Require both IDs to match `^run-[0-9a-f]{32}$` and to be byte-identical;
 never mint or substitute an identity here. Select the controller only from the helper
-route, before touching either worktree:
+route. **Hard gate: primary working dir only — no linked git worktrees.**
 
 ```bash
 LEASE_RUN_ID=$SAAS_INVOCATION_ID
 [ "$MAINTAIN_LEASE_RUN_ID" = "$SAAS_INVOCATION_ID" ] || exit 2
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" assert-primary-only \
+  --repo-root "$REPO_ROOT" || exit 2
 case "$MAINTAIN_CONTROLLER_ROUTE" in
-  canonical)
-    MAINTAIN_CONTROLLER_MODE=maintain
-    WT="$REPO_ROOT/.worktrees/maintain"
-    ;;
+  canonical) MAINTAIN_CONTROLLER_MODE=maintain ;;
   legacy-recovery)
     [ -n "$MAINTAIN_PENDING_FINGERPRINT" ] || exit 2
     MAINTAIN_CONTROLLER_MODE=maintain-loop
-    WT="$REPO_ROOT/.worktrees/maintain"
     ;;
   *) exit 2 ;;
 esac
+WT="$REPO_ROOT"
 MAINTAIN_LEASE_STATE="$GIT_COMMON/saas-startup-team/maintain-runtime/$LEASE_RUN_ID-leases.json"
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" acquire \
   --repo-root "$REPO_ROOT" --mode "$MAINTAIN_CONTROLLER_MODE" --run-id "$LEASE_RUN_ID" \
@@ -70,10 +69,10 @@ changing the persistent worktree, `.git/info/exclude`, labels, state, or `active
 `maintain-leases.sh` claims both legacy pass keys and the current shared key, so old
 and new plugin versions cannot overlap. It may reclaim a well-formed expired heartbeat;
 active, malformed, future-dated, changed-inventory, and cross-worktree states fail
-closed. The canonical lease state is schema v3. A schema-v2 `maintain-loop` receipt
-is selected only by its exact pending route, uses the same `.worktrees/maintain`
-checkout, may resume only that fingerprinted receipt, and ends the pass after
-recovery. Never begin new work from the compatibility route.
+closed. The canonical lease state is schema v3. A schema-v2 compatibility receipt
+is selected only by its exact pending route, binds the primary working directory,
+may resume only that fingerprinted receipt, and ends the pass after recovery.
+Never begin new work from the compatibility route.
 
 `MAINTAIN_LEASE_RUN_ID` is the exact root identity resolved by `/maintain`; a thin
 `/maintain-loop` coordinator passes the same value through both the environment and
@@ -147,61 +146,29 @@ Under `--dry-run`, do not append a root or child event.
 
 ---
 
-## Workspace — Dedicated Worktree
+## Workspace — primary only
 
-### Hard rule — maintain worktrees only when the controller route requires them
+**Hard gate: one working directory — the primary repo checkout. No linked git worktrees.**
 
-- **No linked worktrees by default.** New autonomous delivery uses only
-  `.worktrees/maintain` (`/maintain` and `/maintain-loop` controller work).
-- **NEVER** create improve trees, per-issue trees, or preserve copies for
-  maintain. **NEVER** set `core.worktree` on the primary checkout.
-- Delivery is sequential in the route-selected tree. `/improve` and other
-  one-shots run on the **primary checkout** (main repo dir), not a worktree.
-
-**You operate from that dedicated git worktree, never the investor's primary
-checkout.** This keeps the main repo folder free for the investor to do their own
-dev work in parallel while the loop runs. On a **normal run** (skipped under
-`--dry-run`, which is read-only and needs no working tree), set up and enter the
-worktree first, then run **every** working-tree operation — delivery branches,
-commits, `.startup/maintain/` state, `human-tasks.md` updates — inside it:
+`assert-primary-only` fails closed if any extra worktree exists or `core.worktree` is set.
+Remove extras with `git worktree remove` / `prune`. Never run `git worktree add`.
+Pause the portfolio before human work on the tree.
 
 ```bash
 REPO_ROOT=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" primary-root \
   --repo-root "$(git rev-parse --show-toplevel)")
 default=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/default-branch.sh" --repo-root "$REPO_ROOT")
-# WT was selected from the mechanically validated controller route before lease acquire.
-case "$MAINTAIN_CONTROLLER_MODE:$WT" in
-  "maintain:$REPO_ROOT/.worktrees/maintain"|"maintain-loop:$REPO_ROOT/.worktrees/maintain") : ;;
-  *) exit 2 ;;
-esac
-# Keep the worktree dir out of the investor's `git status` — local, uncommitted:
-grep -qxF '.worktrees/' "$REPO_ROOT/.git/info/exclude" 2>/dev/null \
-  || echo '.worktrees/' >> "$REPO_ROOT/.git/info/exclude"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" assert-primary-only \
+  --repo-root "$REPO_ROOT" || exit 2
+[ "$WT" = "$REPO_ROOT" ] || exit 2
 git -C "$REPO_ROOT" fetch origin "$default" --quiet
-if ! git -C "$REPO_ROOT" worktree list --porcelain | grep -qx "worktree $WT"; then
-  # --detach off the default tip: the worktree never holds the default branch itself,
-  # so it cannot collide with that branch in the investor's primary
-  # folder (a branch can be checked out in only one worktree at a time).
-  git -C "$REPO_ROOT" worktree add --detach "$WT" "origin/$default"
-fi
 cd "$WT"
-git checkout --detach "origin/$default"   # start every pass from the latest default tip
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/solution-signoff-gate.sh" \
   --source-root "$REPO_ROOT" --target-root "$WT"
 ```
 
-The signoff gate refreshes only `.startup/go-live/solution-signoff.md` from the
-invocation checkout. A missing, symlinked, unreadable, or concurrently changed source
-signoff fails the pass before any claim or delivery mutation; a stale target signoff is
-removed rather than trusted.
-
-All working-tree checks below (clean tree, at the default tip) apply to **`$WT`**,
-**never** the investor's primary checkout — do not require the primary folder to be
-clean. Per-issue delivery creates its branch from `origin/$default` **inside `$WT`**
-(`git checkout -b improve/<slug> origin/$default`); merges happen server-side via
-`gh pr merge`. The worktree persists across passes (reused, not removed). If a pass
-finds the worktree stale or dirty and cannot reset it, recreate it from
-`origin/$default`.
+Operate on `$WT` (= primary). Dirty tree → stop (do not invent a second tree). Branches
+from `origin/$default`; merges via `gh pr merge`.
 
 ---
 
@@ -223,12 +190,12 @@ finds the worktree stale or dirty and cannot reset it, recreate it from
 - `--max-pass-minutes N` → wall-clock budget per pass (default 90 minutes).
 - `--max-run-minutes N` → optional wall-clock cap for this invocation (default 0 = no separate cap beyond `--max-pass-minutes`).
 
-All gates must pass before the loop starts. On a **normal run**, after entering the
-dedicated worktree (see Workspace above), reuse the `/goal-deliver` preflight
+All gates must pass before the loop starts. On a **normal run**, after the primary-only
+gate (see Workspace above), reuse the `/goal-deliver` preflight
 (`${CLAUDE_PLUGIN_ROOT}/commands/goal-deliver.md`) for: clean tree, `gh auth status`,
 remote present, and `tribunal-review:tribunal-loop` skill available (hard dependency
 — if `tribunal-review` is not installed, stop and say so). The clean-tree check
-targets **`$WT`**, not the investor's primary checkout.
+targets **`$WT`** (primary).
 
 **Under `--dry-run`, do NOT invoke the `/goal-deliver` preflight** — it writes
 `.startup/state.json` (resets `active_role`), which is a mutation. Instead run only
@@ -497,8 +464,6 @@ queue_args=()
 [ -f "$MAINTAIN_BLOCKED_FILE" ] && queue_args+=(--blocked-file "$MAINTAIN_BLOCKED_FILE")
 [ -f "$REPO_ROOT/.startup/maintain/blocked.jsonl" ] && \
   queue_args+=(--blocked-file "$REPO_ROOT/.startup/maintain/blocked.jsonl")
-[ -f "$REPO_ROOT/.worktrees/maintain/.startup/maintain/blocked.jsonl" ] && \
-  queue_args+=(--blocked-file "$REPO_ROOT/.worktrees/maintain/.startup/maintain/blocked.jsonl")
 if ! QUEUE_JSON="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-queue.sh" "${queue_args[@]}")"; then
   exit 1
 fi
@@ -585,14 +550,14 @@ shell. Mint its mutation token, snapshot its guards and commit trust, run the
 writer, verify containment, route the post-diff, and consume the trust receipt in
 the full-check/commit gate without returning across a model tool-call boundary.
 Never persist or print the token. A lost shell invalidates that attempt and its
-receipts: reset the dedicated worktree and start a fresh attempt instead of
+receipts: reset the primary tree and start a fresh attempt instead of
 discarding a valid candidate later with an unauthenticated reused receipt.
 
 ### WIP selection & Idempotency (no claims)
 
 **Prefer unmerged WIP before any new issue** (see `maintain-v2-contract.md` and
-`maintain-wip.sh inventory`): open PR → remote branch with commits → local maintain
-worktree branch → only then the greenfield queue.
+`maintain-wip.sh inventory`): open PR → remote branch with commits → local branch
+→ only then the greenfield queue.
 
 Before new delivery, re-fetch the issue and skip if it is: closed, re-labelled
 `needs-human`, assigned, on cooldown, or already has an open linked PR not selected
@@ -641,7 +606,7 @@ linked to that exact issue, with a concrete `headRefOid`. These are the live
 guards. A failed/truncated fetch, malformed required field, or cooldown parse failure
 fails closed before worktree mutation or PR adoption.
 
-Checkout and continue in `.worktrees/maintain` on that PR head. Auto-merge when gates
+Checkout and continue on the primary tree on that PR head. Auto-merge when gates
 pass. Claim markers in old PRs are ignored for ownership; do not fail resume solely
 because a claim comment is missing.
 
@@ -674,7 +639,7 @@ merge; the PR head must equal the exact local HEAD covered by the current gates.
 intervening issue, claim, eligibility, link, base, or head drift stops resumed work and
 re-triages or excludes it without further mutation.
 
-Fetch and check out that exact head in the dedicated worktree, update it from the
+Fetch and check out that exact head on the primary tree, update it from the
 current default, then enter the embedded `/goal-deliver` contract at its resume path.
 That contract revalidates all task-specific gates against current HEAD and performs no
 implementation launch when the existing PR already passes. Maintain never restates or

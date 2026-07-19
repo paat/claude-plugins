@@ -28,13 +28,13 @@ receipt fields merely because the public coordinator is now thin:
 The receipt's `origin_run_id` remains provenance and the run-ledger identity. A later
 canonical maintain invocation may control a safe resume of a canonical bound receipt
 through its live whole-pass lease; it never rewrites that origin. Historical schema-v1
-receipts recover in the canonical `.worktrees/maintain` checkout. Only a matching
-live legacy controller may promote a nonterminal schema-v1 receipt, and that
+receipts recover on the **primary working directory only** (no linked worktrees).
+Only a matching live legacy controller may promote a nonterminal schema-v1 receipt, and that
 schema-only promotion preserves its original `updated_at` claim timestamp. Its
 `pending` projection exposes one `controller_route` object:
-`{kind,mode,worktree}`. That object synthesizes the historical binding for schema v1
-and retains the persisted binding after promotion, so a crash during the same recovery
-remains reachable. Do not infer a route from the schema number. `maintain-delivery.sh`
+`{kind,mode,worktree}` with `worktree` always the primary path. That object synthesizes
+the historical binding for schema v1 and retains the persisted binding after promotion.
+Do not infer a route from the schema number. `maintain-delivery.sh`
 is the only delivery lifecycle writer. Call its public actions rather than editing any
 receipt or ledger.
 
@@ -118,7 +118,7 @@ change, or GitHub mutation. The origin ID is never used as controller authority.
 ## Source transaction and escalation
 
 For a new issue, capture the complete classified issue scope in a private regular file.
-Fetch current default, record `BASE_SHA`, and prepare the dedicated worktree through:
+Fetch current default, record `BASE_SHA`, and prepare the primary checkout through:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-attempt.sh" reset \

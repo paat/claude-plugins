@@ -23,14 +23,11 @@ The mode is selected automatically when unambiguous, and chosen by the investor 
 
 ## Hard rule — primary checkout only (no improve worktree)
 
-- **NEVER** create a git worktree for `/improve`. Run on the **primary checkout**
-  (main repo dir from `git rev-parse --show-toplevel`).
-- Linked worktrees are disallowed except `.worktrees/maintain` (owned by
-  `/maintain` / `/maintain-loop`). Do not touch that tree, reset it, or implement
-  improvements inside it.
+- **Primary working directory only.** No linked git worktrees.
+  `assert-primary-only` fails closed if any extra worktree exists.
 - **NEVER** set `core.worktree` on the primary checkout.
 - If the primary tree is dirty or not on a branch you may use, stop and report —
-  do not escape into a side worktree.
+  do not escape into a side tree.
 
 ## Pre-Flight
 

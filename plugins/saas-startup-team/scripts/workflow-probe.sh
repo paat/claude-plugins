@@ -59,11 +59,18 @@ load_blocked_files() {
   BLOCKED_FILES=()
   for candidate in \
     "$common/saas-startup-team/maintain/blocked.jsonl" \
-    "$primary/.startup/maintain/blocked.jsonl" \
-    "$primary/.worktrees/maintain/.startup/maintain/blocked.jsonl"; do
+    "$primary/.startup/maintain/blocked.jsonl"; do
     [ -e "$candidate" ] || [ -L "$candidate" ] || continue
     BLOCKED_FILES+=("$candidate")
   done
+}
+
+primary_only_gate() {
+  local diag
+  if ! diag="$(bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$ROOT" 2>&1)"; then
+    echo "workflow-probe: $OUTPUT_MODE blocked: $diag" >&2
+    exit 4
+  fi
 }
 
 delivery_lease_gate() {
@@ -184,10 +191,9 @@ embedded_delivery_receipt_probe() {
   }
   case "$pending_route" in
     canonical)
-      [ "$pending_mode" = maintain ] && expected_worktree="$primary/.worktrees/maintain" ;;
+      [ "$pending_mode" = maintain ] && expected_worktree="$primary" ;;
     legacy-recovery)
-      [ "$pending_mode" = maintain-loop ] \
-        && expected_worktree="$primary/.worktrees/maintain" ;;
+      [ "$pending_mode" = maintain-loop ] && expected_worktree="$primary" ;;
   esac
   [ -n "${expected_worktree:-}" ] && [ "$pending_worktree" = "$expected_worktree" ] || {
     echo "workflow-probe: $OUTPUT_MODE blocked: receipt controller route does not match its exact worktree" >&2
@@ -199,7 +205,9 @@ embedded_delivery_receipt_probe() {
 
 case "$MODE" in
   maintain)
+    # MODE already normalized from maintain-loop → maintain above.
     CONTROLLER_ROUTE=canonical
+    primary_only_gate
     embedded_delivery_receipt_probe
     if [ -n "$PENDING_DELIVERY_STATE" ]; then
       delivery_lease_gate

@@ -103,16 +103,16 @@ test_workflow_lifecycle_safety() {
     'MAINTAIN_LEASE_STATE="$GIT_COMMON/'
   assert_file_contains "WL7a: maintain acquire uses only the route-selected mode" "$maintain_protocol" \
     '--mode "$MAINTAIN_CONTROLLER_MODE"'
-  assert_file_contains "WL7b: canonical route binds the exact maintain worktree" \
-    "$maintain_protocol" 'WT="$REPO_ROOT/.worktrees/maintain"'
+  assert_file_contains "WL7b: controller tree is the primary working directory" \
+    "$maintain_protocol" 'WT="$REPO_ROOT"'
+  assert_file_contains "WL7b1: primary-only hard gate" \
+    "$maintain_protocol" 'assert-primary-only'
   assert_file_contains "WL7c: maintain documents the canonical schema-v3 contract" \
     "$maintain_protocol" 'canonical lease state is schema v3'
   assert_file_contains "WL7c1: public router consumes the helper route object" \
     "$maintain" '\.\[0\]\.controller_route\.kind'
   assert_file_contains "WL7c2: public router fingerprints the exact pending receipt before leasing" \
     "$maintain" 'MAINTAIN_PENDING_FINGERPRINT=$(jq -cS'
-  assert_file_contains "WL7c3: legacy recovery selects the canonical worktree" \
-    "$maintain_protocol" 'WT="$REPO_ROOT/.worktrees/maintain"'
   assert_file_contains "WL7c4: locked inventory must match the pre-lease fingerprint" \
     "$maintain_protocol" '"$MAINTAIN_PENDING_FINGERPRINT"'
   assert_before "WL7c4a: cleanup trap precedes every post-acquire inventory failure" \

@@ -259,7 +259,7 @@ cleanup_temps() {
   if [ -n "$ARCHIVE_LEASE_STATE" ] && [ -f "$ARCHIVE_LEASE_STATE" ] \
     && [ ! -L "$ARCHIVE_LEASE_STATE" ]; then
     bash "$SCRIPT_DIR/maintain-leases.sh" cleanup --state-file "$ARCHIVE_LEASE_STATE" \
-      --repo-root "$PRIMARY" --worktree "$PRIMARY/.worktrees/maintain" \
+      --repo-root "$PRIMARY" --worktree "$PRIMARY" \
       --run-id "$ARCHIVE_LEASE_RUN" >/dev/null 2>&1 || true
   fi
 }
@@ -392,28 +392,38 @@ receipt_schema_valid() {
   ' "$1" >/dev/null 2>&1
 }
 
+# Historical receipts may still name .worktrees/maintain; treat as primary.
+normalize_controller_worktree() {
+  local wt=$1
+  case "$wt" in
+    "$PRIMARY"|"$PRIMARY/.worktrees/maintain") printf '%s\n' "$PRIMARY" ;;
+    *) return 1 ;;
+  esac
+}
+
 receipt_valid() {
-  local schema mode worktree expected
+  local schema mode worktree
   receipt_schema_valid "$1" || return 1
   schema=$(jq -r .schema_version "$1") || return 1
   [ "$schema" = 2 ] || return 0
   mode=$(jq -r .controller.mode "$1") || return 1
   worktree=$(jq -r .controller.worktree "$1") || return 1
   case "$mode" in
-    maintain) expected="$PRIMARY/.worktrees/maintain" ;;
-    maintain-loop) expected="$PRIMARY/.worktrees/maintain" ;;
+    maintain|maintain-loop) normalize_controller_worktree "$worktree" >/dev/null ;;
     *) return 1 ;;
   esac
-  [ "$worktree" = "$expected" ]
 }
 
 receipt_controller_binding() {
-  local file=$1 schema
+  local file=$1 schema mode worktree normalized
   schema=$(jq -r .schema_version "$file") || return 1
   if [ "$schema" = 1 ]; then
-    printf 'maintain-loop\t%s\n' "$PRIMARY/.worktrees/maintain"
+    printf 'maintain-loop\t%s\n' "$PRIMARY"
   else
-    jq -r '[.controller.mode,.controller.worktree] | @tsv' "$file"
+    mode=$(jq -r .controller.mode "$file") || return 1
+    worktree=$(jq -r .controller.worktree "$file") || return 1
+    normalized=$(normalize_controller_worktree "$worktree") || return 1
+    printf '%s\t%s\n' "$mode" "$normalized"
   fi
 }
 
@@ -729,7 +739,9 @@ claim_source_state_absent() {
   if git -C "$worktree" symbolic-ref -q HEAD >/dev/null 2>&1; then
     die "claimed receipt worktree is still attached to a branch"
   fi
-  status=$(git -C "$worktree" status --porcelain=v1 --untracked-files=all) \
+  # Ignore .startup control-plane; only product source state blocks archive.
+  status=$(git -C "$worktree" status --porcelain=v1 --untracked-files=all -- \
+    . ':(exclude).startup' ':(exclude).startup/**') \
     || die "cannot inspect claimed receipt worktree status"
   [ -z "$status" ] || die "claimed receipt worktree still has source state"
   head=$(git -C "$worktree" rev-parse HEAD) || die "cannot inspect claimed receipt worktree HEAD"
@@ -759,10 +771,9 @@ claim_source_state_absent() {
   fi
   claim_branch_refs_absent "$worktree"
 
+  # Primary-only: guards under common plugin state + primary .git (no linked trees).
   guard_dirs+=("$COMMON/saas-startup-team")
-  shopt -s nullglob
-  guard_dirs+=("$COMMON"/worktrees/*/saas-startup-team)
-  shopt -u nullglob
+  guard_dirs+=("$(git -C "$PRIMARY" rev-parse --absolute-git-dir)/saas-startup-team")
   for guard_dir in "${guard_dirs[@]}"; do
     [ -e "$guard_dir" ] || [ -L "$guard_dir" ] || continue
     safe_existing_dir "$guard_dir" || die "claimed receipt guard directory is unsafe"
@@ -817,12 +828,13 @@ if [ "$ACTION" = pending ]; then
       || die "delivery receipt controller binding is malformed"
     IFS=$'\t' read -r bound_mode bound_worktree <<<"$binding"
     case "$bound_mode:$bound_worktree" in
-      "maintain:$PRIMARY/.worktrees/maintain") controller_route=canonical ;;
-      "maintain-loop:$PRIMARY/.worktrees/maintain") controller_route=legacy-recovery ;;
+      "maintain:$PRIMARY") controller_route=canonical ;;
+      "maintain-loop:$PRIMARY") controller_route=legacy-recovery ;;
       *) die "delivery receipt controller route is invalid" ;;
     esac
+    # Always project the normalized primary path (legacy bindings remapped).
     rows+=("$(jq -c --arg receipt "$dir/current.json" --arg kind "$controller_route" \
-      --arg mode "$bound_mode" --arg worktree "$bound_worktree" \
+      --arg mode "$bound_mode" --arg worktree "$PRIMARY" \
       '{issue_number,delivery_id,state,receipt:$receipt,
         controller_route:{kind:$kind,mode:$mode,worktree:$worktree}}' \
       "$dir/current.json")")
@@ -944,7 +956,7 @@ if [ "$ACTION" = archive-claimed ]; then
   valid_id "$ARCHIVE_LEASE_RUN" || die "cannot create claimed receipt cleanup identity"
   ARCHIVE_LEASE_STATE="$COMMON/saas-startup-team/maintain-runtime/$ARCHIVE_LEASE_RUN-leases.json"
   if ! bash "$SCRIPT_DIR/maintain-leases.sh" acquire --repo-root "$PRIMARY" --mode maintain \
-    --worktree "$PRIMARY/.worktrees/maintain" \
+    --worktree "$PRIMARY" \
     --run-id "$ARCHIVE_LEASE_RUN" --state-file "$ARCHIVE_LEASE_STATE" >/dev/null; then
     die "claimed receipt cleanup requires all maintenance leases to be idle" 3
   fi
@@ -969,7 +981,7 @@ if [ "$ACTION" = archive-claimed ]; then
   (cd "$PRIMARY" && trusted_repo_gh issue edit "$ISSUE" --remove-label maintain:claimed) \
     >/dev/null 2>&1 || true
   if ! bash "$SCRIPT_DIR/maintain-leases.sh" cleanup --state-file "$ARCHIVE_LEASE_STATE" \
-    --repo-root "$PRIMARY" --worktree "$PRIMARY/.worktrees/maintain" \
+    --repo-root "$PRIMARY" --worktree "$PRIMARY" \
     --run-id "$ARCHIVE_LEASE_RUN" >/dev/null; then
     die "claimed receipt was archived but its cleanup lease could not be released"
   fi

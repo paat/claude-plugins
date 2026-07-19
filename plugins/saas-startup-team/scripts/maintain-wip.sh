@@ -4,14 +4,14 @@
 # WIP is not only open PRs. It includes:
 #   - open PRs
 #   - remote/local branches with commits not on the default branch
-#   - uncommitted (dirty) work in the maintain worktree
+#   - uncommitted (dirty) work on the primary checkout
 #
 # Policy (action field):
 #   resume  — open issue / dirty work / open PR → continue fixing toward auto-merge
 #   delete  — issue closed (or clearly post-merge leftover) → delete branch, no new work
 #   inspect — no issue number / ambiguous → human or short audit then delete or resume
 #
-# Selection order for the loop: dirty_worktree > pr > remote_branch > local_branch
+# Selection order: dirty primary > pr > remote_branch > local_branch
 # Never start a new greenfield issue while any resume/delete WIP remains unhandled.
 set -euo pipefail
 
@@ -19,11 +19,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat >&2 <<'EOF'
-Usage: maintain-wip.sh inventory --repo-root DIR [--worktree PATH] [--default-branch NAME]
+Usage: maintain-wip.sh inventory --repo-root DIR [--default-branch NAME]
 
 Print JSON:
   {
-    "worktree": "...",
+    "worktree": "<primary>",
     "default_branch": "main",
     "dirty": { "clean": bool, "porcelain": "...", "action": "resume"|"none" },
     "items": [ {
@@ -46,7 +46,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     inventory) ACTION=inventory; shift ;;
     --repo-root) ROOT="$2"; shift 2 ;;
-    --worktree) WORKTREE="$2"; shift 2 ;;
+    --worktree) WORKTREE="$2"; shift 2 ;; # accepted for compat; must be primary
     --default-branch) DEFAULT_BRANCH="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
@@ -56,8 +56,14 @@ done
 [ "$ACTION" = inventory ] || { usage; exit 2; }
 [ -n "$ROOT" ] && [ -d "$ROOT" ] || die "--repo-root must be a directory" 2
 ROOT="$(cd "$ROOT" && pwd)"
-if [ -z "$WORKTREE" ]; then
-  WORKTREE="$ROOT/.worktrees/maintain"
+if [ -n "$WORKTREE" ]; then
+  WORKTREE="$(cd "$WORKTREE" && pwd)" || die "--worktree is not a directory" 2
+  [ "$WORKTREE" = "$ROOT" ] || die "--worktree must be the primary working directory" 2
+fi
+WORKTREE="$ROOT"
+if [ -x "$SCRIPT_DIR/maintain-leases.sh" ]; then
+  bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$ROOT" >/dev/null \
+    || die "primary-only gate failed (no linked worktrees)" 2
 fi
 if [ -z "$DEFAULT_BRANCH" ]; then
   if [ -x "$SCRIPT_DIR/default-branch.sh" ]; then
@@ -75,10 +81,10 @@ if ! git -C "$ROOT" rev-parse --verify "$DEFAULT_REF" >/dev/null 2>&1; then
   DEFAULT_REF="$DEFAULT_BRANCH"
 fi
 
-# --- dirty maintain worktree (highest priority WIP) ---
+# --- dirty primary checkout (highest priority WIP) ---
 dirty_clean=true
 dirty_porcelain=""
-if [ -d "$WORKTREE" ] && { [ -d "$WORKTREE/.git" ] || [ -f "$WORKTREE/.git" ]; }; then
+if [ -d "$WORKTREE" ] && [ -d "$WORKTREE/.git" ]; then
   dirty_porcelain="$(git -C "$WORKTREE" status --porcelain=v1 --untracked-files=all 2>/dev/null || true)"
   [ -z "$dirty_porcelain" ] || dirty_clean=false
 fi

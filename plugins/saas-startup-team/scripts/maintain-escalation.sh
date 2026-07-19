@@ -153,6 +153,8 @@ git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
 PRIMARY=$(bash "$LEASES" primary-root --repo-root "$ROOT") \
   || die "cannot resolve primary worktree"
 [ "$ROOT" = "$PRIMARY" ] || die "--repo-root must be the primary worktree"
+bash "$LEASES" assert-primary-only --repo-root "$PRIMARY" >/dev/null \
+  || die "primary-only gate failed (no linked worktrees)"
 REPO_SLUG=$(resolve_repo_slug)
 REPO_SPEC="github.com/$REPO_SLUG"
 ensure_gh_bin
@@ -160,6 +162,7 @@ COMMON=$(git -C "$PRIMARY" rev-parse --git-common-dir) || die "cannot resolve co
 case "$COMMON" in /*) : ;; *) COMMON="$PRIMARY/$COMMON" ;; esac
 COMMON="$(cd -- "$COMMON" && pwd -P)" || die "cannot resolve common Git directory"
 worktree=$(realpath -m -- "$worktree") || die "cannot resolve worktree"
+[ "$worktree" = "$PRIMARY" ] || die "controller tree must be the primary working directory"
 git check-ref-format --branch "$branch" >/dev/null 2>&1 || die "invalid branch" 2
 
 bash "$LEASES" heartbeat --state-file "$lease_state" --repo-root "$PRIMARY" \
@@ -281,7 +284,8 @@ prove_local_clean() {
     || die "dedicated worktree is unsafe"
   head=$(git -C "$worktree" rev-parse HEAD) || die "cannot inspect worktree HEAD"
   [ "$head" = "$base_sha" ] || die "worktree HEAD is not the exact base"
-  status=$(git -C "$worktree" status --porcelain=v1 --untracked-files=all) \
+  status=$(git -C "$worktree" status --porcelain=v1 --untracked-files=all -- \
+    . ':(exclude).startup' ':(exclude).startup/**') \
     || die "cannot inspect worktree status"
   [ -z "$status" ] || die "worktree is not clean"
   query_local_sha
@@ -319,7 +323,8 @@ current_head=$(git -C "$worktree" rev-parse HEAD 2>/dev/null) \
 branch_rc=0
 current_branch=$(git -C "$worktree" symbolic-ref --quiet --short HEAD 2>/dev/null) || branch_rc=$?
 case "$branch_rc" in 0) : ;; 1) current_branch="" ;; *) die "cannot inspect worktree branch" ;; esac
-worktree_status=$(git -C "$worktree" status --porcelain=v1 --untracked-files=all) \
+worktree_status=$(git -C "$worktree" status --porcelain=v1 --untracked-files=all -- \
+  . ':(exclude).startup' ':(exclude).startup/**') \
   || die "cannot inspect worktree status"
 if [ "$current_head" != "$base_sha" ] \
   || [ -n "$worktree_status" ]; then

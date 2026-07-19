@@ -84,8 +84,8 @@ Codex sandbox; the deterministic check uses a credentialless sibling of the seal
 container image with private process and network namespaces. Candidate source is copied
 to private volumes, Git metadata is read-only, and no host checkout or Docker socket is
 exposed.
-In a linked worktree, the signed receipt may also bind pre-existing ignored dependency
-trees from the primary checkout. Only validated `node_modules`, `venv`, and `.venv`
+The signed receipt may bind pre-existing ignored dependency
+trees on the primary checkout. Only validated `node_modules`, `venv`, and `.venv`
 paths are copied and mounted read-only in the disposable container; a runtime or
 dependency-manifest change after the snapshot fails closed, and no other ignored project
 state is copied.

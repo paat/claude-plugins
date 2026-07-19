@@ -399,12 +399,9 @@ supervisor ownership into a nested `/goal-deliver` context.
 Codex CLI automation must start `/maintain-loop` in a collaboration-capable,
 non-ephemeral coordinator session so the fresh pass returns a stable child identity.
 
-**No worktrees except maintain.** Linked worktrees are disallowed except one:
-`.worktrees/maintain` for autonomous delivery (`/maintain` and `/maintain-loop`,
-detached off the default-branch tip, sequential). Never
-`.worktrees/maintain-loop`, improve trees, or per-issue trees. `/improve` and
-other one-shots run on the **primary checkout** (main repo dir). Never set
-`core.worktree` on the primary. (`--dry-run` is read-only and creates no worktree.)
+**No linked git worktrees (hard).** Primary working directory only.
+`assert-primary-only` fails closed if any extra worktree exists. Pause the
+portfolio for human work. (`--dry-run` is read-only.)
 
 ### Triage verdicts
 

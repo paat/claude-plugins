@@ -1,9 +1,8 @@
 # Worker reliability rules
 
-- **No worktrees except maintain (hard).** Linked worktrees are disallowed
-  except `.worktrees/maintain` (autonomous `/maintain` / `/maintain-loop` only).
-  Never create `.worktrees/maintain-loop`, `.worktrees/improve-*`, per-issue
-  trees, or preserve copies. Never set `core.worktree` on the primary checkout.
+- **No linked git worktrees (hard).** Primary working directory only.
+  `assert-primary-only` fails closed if any extra worktree exists. Never set
+  `core.worktree`. Pause the portfolio before human work on the tree.
   `/improve`, `/tweak`, and other one-shots run on the primary checkout (main
   repo dir) only.
 - **Re-resolve paths after any checkout/branch/worktree switch.** Before further

@@ -39,7 +39,7 @@ test_maintain_escalation() {
   git -C "$repo" remote set-head origin main
 
   common=$(git -C "$repo" rev-parse --absolute-git-dir)
-  wt="$repo/.worktrees/maintain"
+  wt="$repo"
   state="$common/saas-startup-team/maintain-runtime/escalation-run.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain \
     --run-id "$controller_run_id" --state-file "$state" --worktree "$wt" >/dev/null
@@ -147,7 +147,7 @@ SH
   assert_equals "ME5: cleanup removes the remote branch" \
     "$(git -C "$repo" ls-remote --heads origin "refs/heads/$branch")" ""
   assert_equals "ME6: cleanup resets exact base and dirt" \
-    "$(git -C "$wt" rev-parse HEAD):$(git -C "$wt" status --porcelain=v1 --untracked-files=all)" \
+    "$(git -C "$wt" rev-parse HEAD):$(git -C "$wt" status --porcelain=v1 --untracked-files=all -- . ":(exclude).startup" ":(exclude).startup/**")" \
     "$base:"
   ec=0; git -C "$repo" show-ref --verify --quiet "refs/heads/$branch" || ec=$?
   assert_exit_code "ME7: cleanup deletes the local attempt branch" "$ec" 1
@@ -292,7 +292,7 @@ SH
     --run-id "$controller_run_id" >/dev/null
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || true
 
-  legacy_wt="$repo/.worktrees/maintain"
+  legacy_wt="$repo"
   legacy_state="$common/saas-startup-team/maintain-runtime/legacy-escalation.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop \
     --run-id legacy-escalation --state-file "$legacy_state" --worktree "$legacy_wt" >/dev/null
