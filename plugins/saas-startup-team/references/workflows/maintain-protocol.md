@@ -460,10 +460,11 @@ If the fixable part cannot be cleanly separated, reclassify the whole issue
 `needs-human` — never invent a child issue to paper over ambiguity.
 
 **Filing new GitHub issues** (monitor, re-occurrence, plugin escalation) is out of
-band for this section. When create is required, use the reusable issue-filing skill
-(see paat/claude-plugins#326): **duplicate pre-check before create**, pattern key for
-re-occurrence, no post-create search fail-closed. Maintain delivery itself does not
-file issues for partials.
+band for this section. When create is required, use `scripts/issue-file.sh` and the
+`issue-file` skill (paat/claude-plugins#326): pre-check open issues before create,
+optional `--pattern-key` for marker-based re-occurrence, never fail-closed on
+post-create search. Guarantee is open-issue duplicate resistance only. Maintain
+delivery itself does not file issues for partials.
 
 ### Prompt-injection firewall (enforced by the supervisor)
 

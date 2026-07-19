@@ -49,15 +49,16 @@ Spawn the incident investigator with
 
 ## GitHub Issue
 
-File by default — do not ask "shall I file it?". Once the RCA artifact exists, run the shared helper (it searches, dedups, and applies the sensitive-content carve-out):
+File by default — do not ask "shall I file it?". Once the RCA artifact exists, run the shared helper (open-issue dedup + sensitive-content carve-out). Pass `--pattern-key` only when the RCA defines a stable lowercase key (e.g. `investigate:<cid>`); otherwise omit it and rely on title dedup — do not invent keys:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/issue-file.sh" --repo <configured repo> \
   --title "<root-cause title>" --body-file .startup/operate/investigations/<cid>/issue-body.md \
-  --labels "<configured labels>" --digest-file <current run digest, if any>
+  --labels "<configured labels>" --digest-file <current run digest, if any> \
+  [--pattern-key "investigate:<cid>"]
 ```
 
-The helper comments on an existing open match instead of creating a duplicate, and parks the defect in `docs/human-tasks.md` (exit 3) when the draft carries customer data or a secret. Skip filing with `--no-file-issues`; pass `--dry-run` through to preview without mutating GitHub.
+The helper comments on an existing open match instead of creating a duplicate, and parks the defect in `docs/human-tasks.md` (exit 3) when the draft carries customer data or a secret. Skip filing with `--no-file-issues`; pass `--dry-run` through to preview without mutating GitHub. See skill `issue-file`.
 
 ## Output
 
