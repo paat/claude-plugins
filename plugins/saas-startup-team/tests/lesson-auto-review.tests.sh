@@ -211,7 +211,10 @@ test_sol_routes_and_flags() {
   assert_contains "Sol ignores user config" "$CASE/log/codex-1.args" '--ignore-user-config'
   assert_contains "Sol ignores rules" "$CASE/log/codex-1.args" '--ignore-rules'
   assert_contains "Sol is ephemeral" "$CASE/log/codex-1.args" '--ephemeral'
-  assert_contains "Sol is read-only" "$CASE/log/codex-1.args" '--sandbox read-only'
+  assert_contains "Sol bypasses approvals and sandbox" "$CASE/log/codex-1.args" \
+    '--dangerously-bypass-approvals-and-sandbox'
+  assert_not_contains "Sol does not use nested Codex sandbox" "$CASE/log/codex-1.args" \
+    '--sandbox'
   assert_contains "Sol model is exact" "$CASE/log/codex-1.args" '-m gpt-5.6-sol'
   assert_contains "Sol effort is exact" "$CASE/log/codex-1.args" 'model_reasoning_effort=\"xhigh\"'
   assert_contains "Sol shell tool is disabled" "$CASE/log/codex-1.args" '--disable shell_tool'

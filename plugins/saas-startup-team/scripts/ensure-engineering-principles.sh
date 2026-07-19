@@ -152,28 +152,40 @@ _realpath() {
 
 _ensure_claude() {
   local claude="$ROOT/CLAUDE.md"
+  # Symlink first: [ ! -e ] is true for dangling links, and printf > follows them
+  # outside the project. Never create through a link; resolve or replace it.
+  # Dangling = -L && ! -e (portable; does not require readlink -f).
+  if [ -L "$claude" ]; then
+    if [ ! -e "$claude" ]; then
+      echo "ensure-engineering-principles: warning: dangling CLAUDE.md symlink; replacing with a real file" >&2
+      if [ "$DRY_RUN" = 1 ]; then
+        echo "ensure-engineering-principles: [dry-run] would replace dangling CLAUDE.md" >&2
+        return 0
+      fi
+      rm -f "$claude"
+    else
+      local target
+      target="$(readlink -f "$claude" 2>/dev/null || true)"
+      [ -n "$target" ] || target="$(_realpath "$claude")"
+      if [ -z "$target" ] || [ ! -e "$target" ]; then
+        echo "ensure-engineering-principles: warning: could not resolve CLAUDE.md symlink; skipping" >&2
+        return 0
+      fi
+      case "$target" in
+        "$ROOT"/*|"$ROOT") _replace_or_install "$target" ;;
+        *)
+          echo "ensure-engineering-principles: warning: CLAUDE.md symlink leaves project root ($target); skipping" >&2
+          ;;
+      esac
+      return 0
+    fi
+  fi
   if [ ! -e "$claude" ]; then
     if [ "$DRY_RUN" = 1 ]; then
       echo "ensure-engineering-principles: [dry-run] would create $claude" >&2
       return 0
     fi
     printf '# Project guidance\n' > "$claude"
-  fi
-  # If CLAUDE.md is a symlink, operate on its target when resolvable and under ROOT
-  if [ -L "$claude" ]; then
-    local target
-    target="$(readlink -f "$claude" 2>/dev/null || readlink "$claude" 2>/dev/null || true)"
-    if [ -z "$target" ]; then
-      echo "ensure-engineering-principles: warning: dangling CLAUDE.md symlink" >&2
-      return 0
-    fi
-    case "$target" in
-      "$ROOT"/*|"$ROOT") _replace_or_install "$target" ;;
-      *)
-        echo "ensure-engineering-principles: warning: CLAUDE.md symlink leaves project root ($target); skipping" >&2
-        ;;
-    esac
-    return 0
   fi
   _replace_or_install "$claude"
 }

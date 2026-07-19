@@ -83,5 +83,21 @@ test_ensure_engineering_principles() {
     "$PLUGIN_ROOT/commands/startup.md" 'scripts/ensure-engineering-principles.sh'
   assert_file_contains "EP8c: SessionStart hook wires helper" \
     "$PLUGIN_ROOT/hooks/hooks.json" 'ensure-engineering-principles.sh'
+
+  # EP9: dangling CLAUDE.md must not write through the link outside ROOT
+  wd="$(make_workdir)"
+  outside="$(mktemp -d)"
+  ln -s "$outside/leaked.md" "$wd/CLAUDE.md"
+  ec=0
+  bash "$script" --root "$wd" --plugin-root "$PLUGIN_ROOT" >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EP9: dangling CLAUDE repair exit 0" "$ec" 0
+  assert_file_not_exists "EP9b: no write through dangling CLAUDE.md" "$outside/leaked.md"
+  assert_file_exists "EP9c: CLAUDE.md exists after repair" "$wd/CLAUDE.md"
+  if [ -L "$wd/CLAUDE.md" ]; then
+    assert_equals "EP9d: CLAUDE.md is not still a symlink after repair" "0" "1"
+  else
+    assert_file_contains "EP9d: repaired CLAUDE has principles" "$wd/CLAUDE.md" '**KISS**'
+  fi
+  rm -rf "$outside"
 }
 test_ensure_engineering_principles

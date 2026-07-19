@@ -198,7 +198,7 @@ run_sol() {
       --disable browser_use --disable browser_use_external --disable browser_use_full_cdp_access \
       --disable computer_use --disable in_app_browser --disable standalone_web_search \
       --disable enable_mcp_apps --disable image_generation \
-      --ephemeral --sandbox read-only --color never -c 'mcp_servers={}' \
+      --ephemeral --dangerously-bypass-approvals-and-sandbox --color never -c 'mcp_servers={}' \
       -c 'shell_environment_policy.inherit="core"' \
       --output-schema "$SCHEMA_FILE" --output-last-message "$last" - \
       < "$prompt" > "$output" 2> "$errors"

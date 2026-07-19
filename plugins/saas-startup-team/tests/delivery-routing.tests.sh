@@ -738,9 +738,17 @@ SH
   python3 - "$root" <<'PY' || static_ec=$?
 import pathlib, re, sys
 root = pathlib.Path(sys.argv[1])
-targets = [root / "plugins/saas-startup-team", root / "plugins/tribunal-review"]
+targets = [
+    root / "plugins/saas-startup-team",
+    root / "plugins/tribunal-review",
+    root / "plugins/multi-model-orchestrator",
+    root / "plugins/codex-subagent",
+]
 bad = []
+unrestricted = []
 for target in targets:
+    if not target.is_dir():
+        continue
     paths = [p for p in target.rglob("*") if p.suffix in {".sh", ".md", ".py"}
              and "tests" not in p.parts
              and not ("docs" in p.parts and "superpowers" in p.parts)]
@@ -760,14 +768,25 @@ for target in targets:
                 continue
             if re.search(r"\bcodex\s+exec\s+--help\b", line):
                 continue
-            window = " ".join(lines[max(0, i-4):i+4])
+            window = " ".join(lines[max(0, i-4):i+8])
+            # Cover argv arrays defined above the launch (e.g. model_args=(...bypass...)).
+            bypass_window = " ".join(lines[max(0, i-30):i+8])
             if not re.search(r"(^|[\s(])-m(\s|\")", window) or "model_reasoning_effort" not in window:
                 bad.append(f"{path.relative_to(root)}:{i+1}")
+            # Dev-container policy: every real Codex launch is unrestricted.
+            # CODEX_SANDBOX_ARGS is the pinned launcher expansion of the same flag.
+            if ("--dangerously-bypass-approvals-and-sandbox" not in bypass_window
+                    and "CODEX_SANDBOX_ARGS" not in bypass_window):
+                unrestricted.append(f"{path.relative_to(root)}:{i+1}")
 if bad:
     print("unpinned codex exec: " + ", ".join(bad), file=sys.stderr)
+if unrestricted:
+    print("codex exec missing unrestricted bypass: " + ", ".join(unrestricted),
+          file=sys.stderr)
+if bad or unrestricted:
     raise SystemExit(1)
 PY
-  assert_exit_code "DR38: affected plugins contain no unpinned executable codex exec" "$static_ec" 0
+  assert_exit_code "DR38: affected plugins contain no unpinned or sandboxed executable codex exec" "$static_ec" 0
 
   static_ec=0
   python3 - "$root" <<'PY' || static_ec=$?
