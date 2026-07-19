@@ -150,16 +150,24 @@ if have_cmd gh; then
 fi
 
 if [ -d "$REPO_ROOT/.git" ] || git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  # Hard gate: primary working directory only — no linked git worktrees.
+  if [ -x "$SELF_DIR/maintain-leases.sh" ]; then
+    if gate_out="$(bash "$SELF_DIR/maintain-leases.sh" assert-primary-only --repo-root "$REPO_ROOT" 2>&1)"; then
+      add "git:primary-only" ok "primary working directory only (no linked worktrees)"
+    else
+      add "git:primary-only" blocker "$(compact_output "$gate_out")"
+    fi
+  fi
   dirty="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null || true)"
   if [ -z "$dirty" ]; then
-    add "git:worktree" ok "worktree clean"
+    add "git:worktree" ok "working tree clean"
   else
     plugin_changes="$(printf '%s\n' "$dirty" | awk '$2 ~ /^plugins\/saas-startup-team\// {n++} END{print n+0}')"
     other_changes="$(printf '%s\n' "$dirty" | awk '$2 !~ /^plugins\/saas-startup-team\// {n++} END{print n+0}')"
-    add "git:worktree" warning "dirty worktree: plugin_changes=$plugin_changes other_changes=$other_changes"
+    add "git:worktree" warning "dirty tree: plugin_changes=$plugin_changes other_changes=$other_changes"
   fi
 else
-  add "git:repo" warning "not running inside a git worktree"
+  add "git:repo" warning "not running inside a git repository"
 fi
 
 if [ -f "$REPO_ROOT/.githooks/pre-push" ]; then

@@ -153,6 +153,8 @@ git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
 PRIMARY=$(bash "$LEASES" primary-root --repo-root "$ROOT") \
   || die "cannot resolve primary worktree"
 [ "$ROOT" = "$PRIMARY" ] || die "--repo-root must be the primary worktree"
+bash "$LEASES" assert-primary-only --repo-root "$PRIMARY" >/dev/null \
+  || die "primary-only gate failed (no linked worktrees)"
 REPO_SLUG=$(resolve_repo_slug)
 REPO_SPEC="github.com/$REPO_SLUG"
 ensure_gh_bin
@@ -160,6 +162,7 @@ COMMON=$(git -C "$PRIMARY" rev-parse --git-common-dir) || die "cannot resolve co
 case "$COMMON" in /*) : ;; *) COMMON="$PRIMARY/$COMMON" ;; esac
 COMMON="$(cd -- "$COMMON" && pwd -P)" || die "cannot resolve common Git directory"
 worktree=$(realpath -m -- "$worktree") || die "cannot resolve worktree"
+[ "$worktree" = "$PRIMARY" ] || die "controller tree must be the primary working directory"
 git check-ref-format --branch "$branch" >/dev/null 2>&1 || die "invalid branch" 2
 
 bash "$LEASES" heartbeat --state-file "$lease_state" --repo-root "$PRIMARY" \

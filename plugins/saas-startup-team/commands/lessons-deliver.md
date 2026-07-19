@@ -61,8 +61,8 @@ Parse flags first, before any action:
 3. **tribunal installed.** Confirm `tribunal-review:tribunal-loop` is available (hard
    dependency — the quality gate is non-negotiable). If not, stop and say so.
 4. **Primary checkout only** (skipped under `--dry-run`). Operate on the **repo
-   base path** — never create a linked worktree. Product repos may only have
-   `.worktrees/maintain` for `/maintain` / `/maintain-loop`; lessons delivery
+   base path** — never create a linked worktree. Product repos are primary-only
+   (no linked worktrees at all); lessons delivery
    does not use that tree (different repo) and must not invent another.
 
 ```bash

@@ -73,65 +73,47 @@ replay_sample() {
     echo "standard-medium-eval: invalid base SHA" >&2; exit 2;
   }
   base=$("$real_git" -C "$repo_root" rev-parse "${base}^{commit}")
+  # Product repo must stay primary-only; isolation uses a separate local clone.
+  if ! bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$repo_root" >/dev/null; then
+    echo "standard-medium-eval: product repo must be primary-only (no linked git worktrees)" >&2
+    exit 2
+  fi
   [ -n "$corpus_dir" ] || corpus_dir="$repo_root/.startup/evaluation/standard-medium"
   sample_dir="$corpus_dir/samples/$sample_id"
-  wt="$corpus_dir/worktrees/$sample_id"
   result="$sample_dir/result.json"
-  [ ! -e "$sample_dir" ] && [ ! -e "$wt" ] || {
+  [ ! -e "$sample_dir" ] || {
     echo "standard-medium-eval: sample already exists: $sample_id" >&2; exit 2;
   }
   umask 077
-  mkdir -p "$sample_dir" "$(dirname -- "$wt")"
+  mkdir -p "$sample_dir"
   eval_private=$(mktemp -d "${TMPDIR:-/tmp}/saas-medium-eval.XXXXXX")
   isolated_home="$eval_private/home"
+  wt="$eval_private/tree"
+  wt_git_dir=""
   mkdir -p "$isolated_home"
   original_codex_home=${CODEX_HOME:-${HOME:-/tmp}/.codex}
 
   cleanup_replay() {
-    local real_git=$1 repo_root=$2 wt=$3 wt_git_dir=$4 eval_private=$5
-    local cleanup_rc=0 listing current_wt="" git_target="" backpointer=""
-    if ! listing=$("$real_git" -C "$repo_root" worktree list --porcelain 2>/dev/null); then
-      cleanup_rc=1
-    elif [ -n "$wt_git_dir" ]; then
-      if [ ! -d "$wt_git_dir" ]; then
-        cleanup_rc=1
-      elif ! IFS= read -r git_target < "$wt_git_dir/gitdir"; then
-        cleanup_rc=1
-      else
-        case "$git_target" in
-          */.git) current_wt=${git_target%/.git} ;;
-          *) cleanup_rc=1 ;;
-        esac
-        if [ -n "$current_wt" ]; then
-          if ! grep -Fqx "worktree $current_wt" <<< "$listing" \
-            || [ ! -f "$current_wt/.git" ] || [ -L "$current_wt/.git" ] \
-            || ! IFS= read -r backpointer < "$current_wt/.git" \
-            || [ "$backpointer" != "gitdir: $wt_git_dir" ]; then
-            cleanup_rc=1
-          else
-            "$real_git" -C "$repo_root" worktree remove --force --force "$current_wt" \
-              >/dev/null 2>&1 || cleanup_rc=1
-          fi
-        fi
-      fi
-    elif grep -Fqx "worktree $wt" <<< "$listing"; then
-      current_wt=$wt
-      "$real_git" -C "$repo_root" worktree remove --force --force "$current_wt" \
-        >/dev/null 2>&1 || cleanup_rc=1
-    fi
+    local real_git=$1 repo_root=$2 wt=$3 _unused_git_dir=$4 eval_private=$5
+    local cleanup_rc=0 listing
+    # Isolated tree is a separate clone under eval_private — never a product worktree.
+    rm -rf -- "$wt" || cleanup_rc=1
     if ! listing=$("$real_git" -C "$repo_root" worktree list --porcelain 2>/dev/null); then
       cleanup_rc=1
     else
-      if grep -Fqx "worktree $wt" <<< "$listing"; then cleanup_rc=1; fi
-      if [ -n "$current_wt" ] && grep -Fqx "worktree $current_wt" <<< "$listing"; then
-        cleanup_rc=1
-      fi
+      # Product must remain primary-only after cleanup.
+      local record candidate primary extras=0
+      primary=$("$real_git" -C "$repo_root" worktree list --porcelain | awk '/^worktree /{print $2; exit}')
+      while IFS= read -r record; do
+        case "$record" in
+          worktree\ *)
+            candidate=${record#worktree }
+            [ "$candidate" = "$primary" ] || extras=1
+            ;;
+        esac
+      done <<< "$listing"
+      [ "$extras" -eq 0 ] || cleanup_rc=1
     fi
-    if [ -e "$wt" ] || [ -L "$wt" ]; then cleanup_rc=1; fi
-    if [ -n "$current_wt" ] && { [ -e "$current_wt" ] || [ -L "$current_wt" ]; }; then
-      cleanup_rc=1
-    fi
-    if [ -n "$wt_git_dir" ] && [ -e "$wt_git_dir" ]; then cleanup_rc=1; fi
     rm -rf -- "$eval_private" || cleanup_rc=1
     return "$cleanup_rc"
   }
@@ -140,7 +122,7 @@ replay_sample() {
     [ "$exit_rc" -eq 0 ] || exit_rc=1
     if ! cleanup_replay "$2" "$3" "$4" "$5" "$6"; then
       [ -z "$cleanup_result" ] || rm -f -- "$cleanup_result"
-      echo "standard-medium-eval: failed to remove evaluation worktree" >&2
+      echo "standard-medium-eval: failed to clean evaluation clone" >&2
       exit_rc=1
     fi
     trap - EXIT
@@ -149,13 +131,26 @@ replay_sample() {
   printf -v cleanup_trap 'cleanup_on_exit "$?" %q %q %q %q %q %q' \
     "$real_git" "$repo_root" "$wt" "$wt_git_dir" "$eval_private" "$result"
   trap "$cleanup_trap" EXIT
-  "$real_git" -C "$repo_root" worktree add --detach "$wt" "$base" >/dev/null
+  # Separate local clone (not `git worktree add`) so product worktree list stays single.
+  if ! "$real_git" clone --local --shared --quiet "$repo_root" "$wt" >/dev/null 2>&1; then
+    echo "standard-medium-eval: cannot create isolated evaluation clone" >&2
+    return 1
+  fi
+  "$real_git" -C "$wt" checkout --detach --quiet "$base" || {
+    echo "standard-medium-eval: cannot detach evaluation clone at base" >&2
+    return 1
+  }
   wt_git_dir=$("$real_git" -C "$wt" rev-parse --absolute-git-dir) || {
-    echo "standard-medium-eval: could not identify evaluation worktree" >&2
+    echo "standard-medium-eval: could not identify evaluation clone" >&2
     return 1
   }
   [ -d "$wt_git_dir" ] || {
-    echo "standard-medium-eval: invalid evaluation worktree metadata" >&2
+    echo "standard-medium-eval: invalid evaluation clone metadata" >&2
+    return 1
+  }
+  # Product still primary-only after clone.
+  bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$repo_root" >/dev/null || {
+    echo "standard-medium-eval: evaluation setup must not create product linked worktrees" >&2
     return 1
   }
   printf -v cleanup_trap 'cleanup_on_exit "$?" %q %q %q %q %q %q' \

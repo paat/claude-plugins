@@ -7,10 +7,10 @@ ceremony is not the unit of work. Issues on `main` via **auto-merge** are.
 
 | Actor | Directory | Merge |
 |---|---|---|
-| Maintain agent | `.worktrees/maintain` | **Auto-merge** when gates green |
-| Investor (outside loop) | main repo (`/workspace`) | Human merge only for investor main-dir work |
+| Maintain agent | Primary checkout only | **Auto-merge** when gates green |
+| Investor | Same tree after portfolio pause | Human merge |
 
-Keep the maintain worktree. Do not require the investor to use it.
+**Hard gate: primary working dir only. No linked git worktrees.**
 
 ## Unit of work
 

@@ -39,7 +39,7 @@ test_maintain_escalation() {
   git -C "$repo" remote set-head origin main
 
   common=$(git -C "$repo" rev-parse --absolute-git-dir)
-  wt="$repo/.worktrees/maintain"
+  wt="$repo"
   state="$common/saas-startup-team/maintain-runtime/escalation-run.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain \
     --run-id "$controller_run_id" --state-file "$state" --worktree "$wt" >/dev/null
@@ -292,7 +292,7 @@ SH
     --run-id "$controller_run_id" >/dev/null
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || true
 
-  legacy_wt="$repo/.worktrees/maintain"
+  legacy_wt="$repo"
   legacy_state="$common/saas-startup-team/maintain-runtime/legacy-escalation.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop \
     --run-id legacy-escalation --state-file "$legacy_state" --worktree "$legacy_wt" >/dev/null

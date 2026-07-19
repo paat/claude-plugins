@@ -31,7 +31,6 @@ test_maintain_runtime() {
   local lease_before lease_after runtime_before runtime_after
   local role_guard telemetry_id routing_schema guard_dir active_guard verified_guard
   local unrelated guard_victim worker_bin worker_called shared_owner inactive_guard
-  local metadata_peer peer_git_dir peer_backpointer peer_head
   local long_reason malformed_file valid_file overlong_file diag_file normalized
 
   repo=$(mktemp -d)
@@ -63,7 +62,7 @@ test_maintain_runtime() {
   state="$common/saas-startup-team/maintain-runtime/blocked-old-maintain.json"
   ec=0
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id blocked-old-maintain \
-    --state-file "$state" --worktree "$repo/.worktrees/maintain" >/dev/null 2>&1 || ec=$?
+    --state-file "$state" --worktree "$repo" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR1: legacy maintain pass blocks the bridge" "$ec" 1
   assert_file_not_exists "MR2: failed bridge leaves no new shared lease" "$lease_dir/maintain-delivery-pass"
   bash "$single" --release maintain-pass --state-dir "$lease_dir" --owner-file "$owner" >/dev/null
@@ -73,7 +72,7 @@ test_maintain_runtime() {
   state="$common/saas-startup-team/maintain-runtime/blocked-old-loop.json"
   ec=0
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id blocked-old-loop \
-    --state-file "$state" --worktree "$repo/.worktrees/maintain" >/dev/null 2>&1 || ec=$?
+    --state-file "$state" --worktree "$repo" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR3: legacy maintain-loop pass blocks the bridge" "$ec" 1
   assert_file_not_exists "MR4: partial bridge acquisition is rolled back" "$lease_dir/maintain-pass"
   bash "$single" --release maintain-loop:pass --state-dir "$legacy_dir" --owner-file "$owner" >/dev/null
@@ -116,7 +115,7 @@ test_maintain_runtime() {
 
   state="$common/saas-startup-team/maintain-runtime/terminal-reap-leases.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain --run-id terminal-reap \
-    --state-file "$state" --worktree "$repo/.worktrees/maintain" >/dev/null
+    --state-file "$state" --worktree "$repo" >/dev/null
   ec=0
   out=$(bash "$leases" reap-terminal --repo-root "$repo" --run-id absent-terminal 2>&1) || ec=$?
   assert_exit_code "MR4bg: absent exact terminal state is an idempotent no-op" "$ec" 0
@@ -133,7 +132,7 @@ test_maintain_runtime() {
   assert_output_contains "MR4bm: repeated reap reports absent state" "$out" \
     'terminal run has no lease state'
 
-  wt="$repo/.worktrees/maintain"
+  wt="$repo"
   state="$common/saas-startup-team/maintain-runtime/loop-terminal-leases.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id loop-terminal \
     --state-file "$state" --worktree "$wt" >/dev/null
@@ -164,7 +163,7 @@ test_maintain_runtime() {
     bash "$single" --release maintain-pass --state-dir "$lease_dir" --owner-file "$owner" >/dev/null
   done
 
-  wt="$repo/.worktrees/maintain"
+  wt="$repo"
   owner="$lease_dir/.owners/orphan-worktree.owner"
   worktree_key="maintain-loop:worktree:$(printf '%s' "$wt" | cksum | awk '{print $1}')"
   bash "$single" --acquire "$worktree_key" --state-dir "$lease_dir" \
@@ -174,7 +173,7 @@ test_maintain_runtime() {
   state="$common/saas-startup-team/maintain-runtime/orphan-legacy-blocks-canonical.json"
   ec=0
   bash "$leases" acquire --repo-root "$repo" --mode maintain --run-id blocked-by-legacy \
-    --state-file "$state" --worktree "$repo/.worktrees/maintain" \
+    --state-file "$state" --worktree "$repo" \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR4ea: canonical acquire cannot bypass an active orphan legacy worktree lease" "$ec" 1
   assert_file_not_exists "MR4eb: rejected canonical acquire publishes no lease state" "$state"
@@ -189,7 +188,7 @@ test_maintain_runtime() {
   bash "$single" --release "$worktree_key" --state-dir "$lease_dir" \
     --owner-file "$owner" >/dev/null
 
-  canonical_wt="$repo/.worktrees/maintain"
+  canonical_wt="$repo"
   owner="$lease_dir/.owners/orphan-canonical-worktree.owner"
   worktree_key="maintain:worktree:$(printf '%s' "$canonical_wt" | cksum | awk '{print $1}')"
   bash "$single" --acquire "$worktree_key" --state-dir "$lease_dir" \
@@ -199,7 +198,7 @@ test_maintain_runtime() {
   state="$common/saas-startup-team/maintain-runtime/orphan-canonical-blocks-legacy.json"
   ec=0
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id blocked-by-canonical \
-    --state-file "$state" --worktree "$repo/.worktrees/maintain" \
+    --state-file "$state" --worktree "$repo" \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR4fa: legacy acquire cannot bypass an active orphan canonical worktree lease" "$ec" 1
   assert_file_not_exists "MR4fb: rejected legacy acquire publishes no lease state" "$state"
@@ -330,10 +329,18 @@ SH
   state="$common/saas-startup-team/maintain-runtime/linked-bound-controller.json"
   ec=0
   bash "$leases" acquire --repo-root "$linked" --mode maintain --run-id linked-bound \
-    --state-file "$state" --worktree "$repo/.worktrees/maintain" \
+    --state-file "$state" --worktree "$repo" \
     >/dev/null 2>&1 || ec=$?
-  assert_exit_code "MR15aa: bound canonical controller rejects a linked acquisition root" "$ec" 2
+  assert_exit_code "MR15aa: bound canonical controller rejects a linked acquisition root" "$ec" 1
   assert_file_not_exists "MR15ab: rejected linked controller publishes no lease state" "$state"
+  ec=0
+  out=$(bash "$leases" assert-primary-only --repo-root "$repo" 2>&1) || ec=$?
+  assert_exit_code "MR15aa1: primary-only gate fails while a linked worktree exists" "$ec" 1
+  assert_output_contains "MR15aa2: primary-only gate names the linked worktree" "$out" "$linked"
+  # Probe and later suite steps require a single primary tree — remove the linked one.
+  git -C "$repo" worktree remove --force "$linked" >/dev/null
+  linked=""
+  bash "$leases" assert-primary-only --repo-root "$repo" >/dev/null
   mkdir -p "$repo/probe-bin" "$common/saas-startup-team/maintain"
   cat > "$repo/probe-bin/gh" <<'SH'
 #!/usr/bin/env bash
@@ -355,7 +362,7 @@ SH
     '{number:42,reason:$reason,cooldown_until:"2099-01-01T00:00:00Z"}' \
     > "$common/saas-startup-team/maintain/blocked.jsonl"
   ec=0
-  out=$(cd "$linked" && PATH="$repo/probe-bin:$PATH" \
+  out=$(cd "$repo" && PATH="$repo/probe-bin:$PATH" \
     GH_ISSUES_JSON='[{"number":42,"updatedAt":"2026-01-01T00:00:00Z","labels":[]}]' \
     bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" maintain 2>&1) || ec=$?
   assert_exit_code "MR15a: overlong legacy reason cannot wedge the probe" "$ec" 3
@@ -364,40 +371,38 @@ SH
   printf '%s\n' '{"number":43,"reason":"primary legacy","cooldown_until":"2099-01-01T00:00:00Z"}' \
     > "$repo/.startup/maintain/blocked.jsonl"
   ec=0
-  out=$(cd "$linked" && PATH="$repo/probe-bin:$PATH" \
+  out=$(cd "$repo" && PATH="$repo/probe-bin:$PATH" \
     GH_ISSUES_JSON='[{"number":43,"updatedAt":"2026-01-01T00:00:00Z","labels":[]}]' \
     bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" maintain 2>&1) || ec=$?
-  assert_exit_code "MR15b: linked probe reads primary legacy ledger" "$ec" 3
+  assert_exit_code "MR15b: primary probe reads primary legacy ledger" "$ec" 3
   rm -f "$repo/.startup/maintain/blocked.jsonl"
   ec=0
-  out=$(cd "$linked" && PATH="$repo/probe-bin:$PATH" \
+  out=$(cd "$repo" && PATH="$repo/probe-bin:$PATH" \
     GH_ISSUES_JSON='[{"number":44,"updatedAt":"2026-01-01T00:00:00Z","labels":[{"name":"maintain:blocked"}]}]' \
     bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" maintain 2>&1) || ec=$?
   assert_exit_code "MR15c: stale blocked label remains launchable" "$ec" 0
   assert_output_contains "MR15d: probe exposes stale-label cleanup" "$out" \
     'stale maintain:blocked cleanup: 44'
   routing_schema=$(bash "$PLUGIN_ROOT/scripts/delivery-route.sh" schema-version | jq -r .schema_version)
-  mkdir -p "$linked/.startup/maintain"
+  mkdir -p "$repo/.startup/maintain"
   printf '{"schema_version":1,"routing_schema_version":%s,"number":44,"updatedAt":"2026-01-01T00:00:00Z","verdict":"agent-fixable","final_state":"escalated:no-progress"}\n' \
-    "$routing_schema" > "$linked/.startup/maintain/triage-cache.jsonl"
+    "$routing_schema" > "$repo/.startup/maintain/triage-cache.jsonl"
   ec=0
-  out=$(cd "$linked" && PATH="$repo/probe-bin:$PATH" \
+  out=$(cd "$repo" && PATH="$repo/probe-bin:$PATH" \
     GH_ISSUES_JSON='[{"number":44,"updatedAt":"2026-01-01T00:00:00Z","labels":[{"name":"maintain:claimed"}]}]' \
     bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" maintain --issue 44 2>&1) || ec=$?
   assert_exit_code "MR15dac0: claimed work outranks a terminal cache entry" "$ec" 0
   ec=0
-  out=$(cd "$linked" && PATH="$repo/probe-bin:$PATH" \
+  out=$(cd "$repo" && PATH="$repo/probe-bin:$PATH" \
     GH_ISSUES_JSON='[{"number":44,"updatedAt":"2026-01-01T00:00:00Z","labels":[{"name":"maintain:blocked"}]}]' \
     bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" maintain 2>&1) || ec=$?
   assert_exit_code "MR15daa: stale-label cleanup outranks a terminal cache entry" "$ec" 0
   assert_output_contains "MR15dab: terminal cache still exposes stale-label cleanup" "$out" \
     'stale maintain:blocked cleanup: 44'
-  rm -rf "$linked/.startup"
-  mkdir -p "$linked/.startup/maintain"
   printf '{"schema_version":1,"routing_schema_version":%s,"number":44,"updatedAt":"2026-01-01T00:00:00Z","verdict":"agent-fixable","final_state":"escalated:no-progress"}\n' \
-    "$routing_schema" > "$linked/.startup/maintain/triage-cache.jsonl"
+    "$routing_schema" > "$repo/.startup/maintain/triage-cache.jsonl"
   ec=0
-  out=$(cd "$linked" && PATH="$repo/probe-bin:$PATH" SAAS_PREFLIGHT_MISSING=codex \
+  out=$(cd "$repo" && PATH="$repo/probe-bin:$PATH" SAAS_PREFLIGHT_MISSING=codex \
     GH_ISSUES_JSON='[{"number":44,"updatedAt":"2026-01-01T00:00:00Z","labels":[]},{"number":99,"updatedAt":"2026-01-01T00:00:00Z","labels":[{"name":"maintain:blocked"}]}]' \
     bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" maintain --issue 44 2>&1) || ec=$?
   assert_exit_code "MR15dac: explicit issue ignores unrelated stale-label cleanup" "$ec" 3
@@ -505,36 +510,37 @@ SH
   bash "$leases" cleanup --state-file "$state" --run-id unbound-v2-attempt >/dev/null
 
   legacy_attempt_state="$common/saas-startup-team/maintain-runtime/legacy-attempt-leases.json"
-  wt="$repo/.worktrees/maintain"
+  wt="$repo"
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id legacy-attempt \
     --state-file "$legacy_attempt_state" --worktree "$wt" >/dev/null
   bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
     --lease-state "$legacy_attempt_state" --run-id legacy-attempt \
     --controller-run-id legacy-attempt >/dev/null
-  assert_equals "MR21bind-c: bounded schema-v2 adapter still resets the legacy worktree" \
+  assert_equals "MR21bind-c: bounded schema-v2 adapter still resets on primary" \
     "$(git -C "$wt" rev-parse HEAD):$(jq -r '.schema_version|tostring + ":"' "$legacy_attempt_state")$(jq -r .mode "$legacy_attempt_state")" \
     "$base:2:maintain-loop"
   bash "$leases" cleanup --state-file "$legacy_attempt_state" --repo-root "$repo" \
     --worktree "$wt" --run-id legacy-attempt >/dev/null
-  git -C "$repo" worktree remove --force "$wt" >/dev/null
 
-  canonical_wt="$repo/.worktrees/maintain"
+  canonical_wt="$repo"
   canonical_state="$common/saas-startup-team/maintain-runtime/attempt-leases.json"
   state=$canonical_state; wt=$canonical_wt
   bash "$leases" acquire --repo-root "$repo" --mode maintain --run-id "$controller_run_id" \
     --state-file "$state" --worktree "$wt" >/dev/null
-  assert_equals "MR21bind-d: canonical lease state binds the exact maintain worktree" \
+  assert_equals "MR21bind-d: canonical lease state binds the primary checkout" \
     "$(jq -r .worktree "$state")" "$wt"
-  assert_equals "MR21bind-e: canonical worktree binding uses the explicit v3 contract" \
+  assert_equals "MR21bind-e: canonical binding uses the explicit v3 contract" \
     "$(jq -r '(.schema_version|tostring) + ":" + .mode + ":" + ((.leases|length)|tostring)' "$state")" \
     "3:maintain:4"
-  assert_equals "MR21bind-f: canonical worktree lease uses its own key namespace" \
+  assert_equals "MR21bind-f: controller lease uses its own key namespace" \
     "$(jq -r '.leases[]|select(.kind=="worktree")|.key|startswith("maintain:worktree:")' "$state")" true
+  head_before=$(git -C "$repo" rev-parse HEAD)
   ec=0
   bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
     --lease-state "$state" --run-id "$origin_run" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR21bind-g: reset requires an explicit current controller identity" "$ec" 2
-  assert_file_not_exists "MR21bind-h: missing controller cannot create the worktree" "$wt"
+  assert_equals "MR21bind-h: missing controller does not move HEAD" \
+    "$(git -C "$repo" rev-parse HEAD)" "$head_before"
   lease_before=$(lease_state_fingerprint "$state")
   runtime_before=$(tar -C "$common/saas-startup-team/maintain-runtime" --sort=name -cf - . \
     | sha256sum | awk '{print $1}')
@@ -543,7 +549,8 @@ SH
     --lease-state "$state" --run-id "$origin_run" --controller-run-id wrong-controller \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "MR21bind-i: reset rejects a controller that does not own the lease" "$ec" 1
-  assert_file_not_exists "MR21bind-j: mismatched controller cannot create the worktree" "$wt"
+  assert_equals "MR21bind-j: mismatched controller does not move HEAD" \
+    "$(git -C "$repo" rev-parse HEAD)" "$head_before"
   lease_after=$(lease_state_fingerprint "$state")
   runtime_after=$(tar -C "$common/saas-startup-team/maintain-runtime" --sort=name -cf - . \
     | sha256sum | awk '{print $1}')
@@ -551,28 +558,24 @@ SH
     "$lease_after" "$lease_before"
   assert_equals "MR21bind-jb: rejected reset leaves maintenance runtime byte-identical" \
     "$runtime_after" "$runtime_before"
-  ec=0
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$repo" --base-sha "$base" \
-    --lease-state "$state" --run-id "$origin_run" --controller-run-id "$controller_run_id" \
-    >/dev/null 2>&1 || ec=$?
-  assert_exit_code "MR21b: reset rejects the primary worktree" "$ec" 1
-  assert_equals "MR21c: rejected primary reset leaves HEAD intact" \
-    "$(git -C "$repo" rev-parse HEAD)" "$second"
-  forged_state="$common/saas-startup-team/maintain-runtime/forged-worktree.json"
-  jq --arg worktree "$repo" '.worktree=$worktree' "$state" > "$forged_state"
-  ec=0
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$repo" --base-sha "$base" \
-    --lease-state "$forged_state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null 2>&1 || ec=$?
-  assert_exit_code "MR21d: forged lease state cannot authorize a primary reset" "$ec" 1
-  rm -f "$forged_state"
+  # Primary-only reset (no linked worktree create/repair/recreate).
   bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
     --lease-state "$state" --run-id "$origin_run" \
     --controller-run-id "$controller_run_id" >/dev/null
-  assert_equals "MR22: reset pins the dedicated worktree to exact BASE_SHA" \
+  assert_equals "MR21b: reset pins the primary checkout to exact BASE_SHA" \
     "$(git -C "$wt" rev-parse HEAD)" "$base"
+  assert_equals "MR21c: primary reset leaves a clean tree" \
+    "$(git -C "$wt" status --porcelain=v1 --untracked-files=all)" ""
+  # Non-primary path rejected
+  other="$repo/not-primary"
+  mkdir -p "$other"
+  ec=0
+  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$other" --base-sha "$base" \
+    --lease-state "$state" --run-id "$origin_run" --controller-run-id "$controller_run_id" \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MR21d: reset rejects a non-primary path" "$ec" 1
+  rmdir "$other"
   canonical_gate="$common/saas-startup-team/maintain-runtime/base-checks/attempt-run/$base.json"
-  canonical_summary="$repo/.startup/maintain-loop/base-checks/attempt-run/$base.summary"
   mkdir -p "$(dirname -- "$canonical_gate")"
   check_oid=$(git -C "$wt" rev-parse "$base:check.sh")
   jq -n --arg run_id attempt-run --arg base_sha "$base" --arg check_oid "$check_oid" \
@@ -582,9 +585,9 @@ SH
     --lease-state "$state" --run-id "$origin_run" --controller-run-id "$controller_run_id" \
     --cache-dir "$common/saas-startup-team/maintain-runtime/base-checks/attempt-run" \
     --check ./check.sh >/dev/null
-  assert_equals "MR22aa: canonical binding reaches and passes the protected base check" \
+  assert_equals "MR22: primary binding reaches and passes the protected base check" \
     "$(jq -r '.status + ":" + .run_id' "$canonical_gate")" "passed:attempt-run"
-  rm -f -- "$canonical_gate" "$canonical_summary"
+  rm -f -- "$canonical_gate"
 
   guard_dir="$(git -C "$wt" rev-parse --absolute-git-dir)/saas-startup-team"
   active_guard="$guard_dir/role-old-active-1.json"
@@ -624,197 +627,8 @@ SH
     "$verified_guard.telemetry-$telemetry_id.json"
   assert_file_not_exists "MR22h: reset removes the verified guard log family" \
     "$verified_guard.logs-$telemetry_id"
-  assert_file_contains "MR22i: reset preserves unrelated worktree Git metadata" \
+  assert_file_contains "MR22i: reset preserves unrelated primary Git metadata" \
     "$unrelated" preserve
-
-  worker_bin="$repo/reset-worker-bin"; worker_called="$repo/reset-worker-called"
-  mkdir -p "$worker_bin"
-  cat > "$worker_bin/codex" <<'SH'
-#!/usr/bin/env bash
-[ -z "${FAKE_CALLED:-}" ] || : > "$FAKE_CALLED"
-while [ "$#" -gt 0 ]; do shift; done
-cat >/dev/null
-printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"recovered worker"}}'
-printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1,"cached_input_tokens":0}}'
-SH
-  chmod +x "$worker_bin/codex"
-  ec=0
-  out=$(cd "$wt" && PATH="$worker_bin:$PATH" FAKE_CALLED="$worker_called" \
-    SAAS_AGENT_EVENTS_FILE="$repo/reset-worker-events.jsonl" \
-    SAAS_CODEX_LOG_DIR="$repo/reset-worker-logs" SAAS_RUN_ID=reset-recovery-worker \
-    bash "$PLUGIN_ROOT/scripts/codex-run-role.sh" \
-      --role qa --profile light --task-file check.sh 2>&1) || ec=$?
-  assert_exit_code "MR22j: recovered guard discovery permits a later worker" "$ec" 0
-  assert_file_exists "MR22k: recovered guard discovery launches Codex" "$worker_called"
-
-  guard_victim="$repo/guard-cleanup-victim"
-  printf 'unchanged\n' > "$guard_victim"
-  ln -s "$guard_victim" "$guard_dir/role-unsafe.json.active"
-  ec=0
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
-    --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null 2>&1 || ec=$?
-  assert_exit_code "MR22l: reset fails closed on an unsafe guard marker" "$ec" 1
-  assert_equals "MR22m: unsafe marker cleanup never touches its symlink target" \
-    "$(cat "$guard_victim")" unchanged
-  assert_equals "MR22n: failed guard cleanup leaves the unsafe marker for inspection" \
-    "$([ -L "$guard_dir/role-unsafe.json.active" ] && printf present || printf missing)" present
-  assert_file_contains "MR22o: unsafe marker failure preserves unrelated metadata" \
-    "$unrelated" preserve
-  rm -f "$guard_dir/role-unsafe.json.active"
-
-  inactive_guard="$guard_dir/role-no-lease.json"
-  printf '{}\n' > "$inactive_guard"; printf 'active\n' > "$inactive_guard.active"
-  shared_owner=$(jq -r '.leases[] | select(.kind == "shared") | .owner_file' "$state")
-  bash "$single" --release maintain-delivery:pass --state-dir "$lease_dir" \
-    --owner-file "$shared_owner" >/dev/null
-  ec=0
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
-    --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null 2>&1 || ec=$?
-  assert_exit_code "MR22p: abandoned guard cleanup requires the active lease set" "$ec" 1
-  assert_file_exists "MR22q: missing lease leaves abandoned guard metadata untouched" \
-    "$inactive_guard.active"
-  bash "$leases" cleanup --state-file "$state" --repo-root "$repo" --worktree "$wt" \
-    --run-id "$controller_run_id" >/dev/null
-  bash "$leases" acquire --repo-root "$repo" --mode maintain --run-id "$controller_run_id" \
-    --state-file "$state" --worktree "$wt" >/dev/null
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
-    --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null
-  assert_file_not_exists "MR22r: reacquired exclusive lease permits abandoned guard cleanup" \
-    "$inactive_guard.active"
-  assert_file_contains "MR22s: bounded recovery still preserves unrelated metadata" \
-    "$unrelated" preserve
-
-  rm -rf "$wt"
-  assert_file_not_exists "MR22t: registered worktree target is absent for recreation" "$wt"
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
-    --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null
-  assert_equals "MR22u: reset recreates an absent registered worktree at BASE_SHA" \
-    "$(git -C "$wt" rev-parse HEAD)" "$base"
-  assert_equals "MR22v: recreated registered worktree is clean" \
-    "$(git -C "$wt" status --porcelain=v1 --untracked-files=all)" ""
-
-  metadata_git_dir=$(git -C "$wt" rev-parse --absolute-git-dir)
-  recovery_guard="$metadata_git_dir/saas-startup-team/role-corrupt-metadata.json"
-  mkdir -p "$(dirname -- "$recovery_guard")"
-  printf '{}\n' > "$recovery_guard"; printf 'active\n' > "$recovery_guard.active"
-  printf 'broken gitfile\n' > "$wt/.git"
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
-    --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null
-  assert_equals "MR22va: reset repairs a corrupt registered worktree gitfile" \
-    "$(git -C "$wt" rev-parse --absolute-git-dir)" "$metadata_git_dir"
-  assert_file_not_exists "MR22vb: repaired metadata still cleans safe abandoned guards" \
-    "$recovery_guard.active"
-
-  printf '/missing/corrupt-worktree/.git\n' > "$metadata_git_dir/gitdir"
-  ec=0
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
-    --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null 2>&1 || ec=$?
-  assert_exit_code "MR22vc: reset rejects metadata with no binding backpointer" "$ec" 1
-  assert_equals "MR22vd: rejected backpointer repair preserves the metadata entry" \
-    "$(cat "$metadata_git_dir/gitdir")" /missing/corrupt-worktree/.git
-  printf '%s\n' "$wt/.git" > "$metadata_git_dir/gitdir"
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
-    --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null
-  assert_equals "MR22vda: restored binding preserves exact clean BASE_SHA" \
-    "$(git -C "$wt" rev-parse HEAD):$(git -C "$wt" status --porcelain=v1 --untracked-files=all)" \
-    "$base:"
-
-  metadata_peer="$repo/.worktrees/metadata-peer"
-  git -C "$repo" worktree add -q --detach "$metadata_peer" "$second"
-  peer_git_dir=$(git -C "$metadata_peer" rev-parse --absolute-git-dir)
-  peer_backpointer=$(cat "$peer_git_dir/gitdir")
-  peer_head=$(git -C "$metadata_peer" rev-parse HEAD)
-  printf 'gitdir: %s\n' "$peer_git_dir" > "$wt/.git"
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
-    --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null
-  assert_equals "MR22vdb: repair follows the target backpointer, not a forged gitfile" \
-    "$(git -C "$wt" rev-parse --absolute-git-dir)" "$metadata_git_dir"
-  assert_equals "MR22vdc: forged gitfile repair preserves the peer backpointer" \
-    "$(cat "$peer_git_dir/gitdir")" "$peer_backpointer"
-  assert_equals "MR22vdd: forged gitfile repair preserves the peer HEAD" \
-    "$(git -C "$metadata_peer" rev-parse HEAD)" "$peer_head"
-
-  printf '/missing/unbound-worktree/.git\n' > "$metadata_git_dir/gitdir"
-  printf 'gitdir: %s\n' "$peer_git_dir" > "$wt/.git"
-  ec=0
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
-    --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null 2>&1 || ec=$?
-  assert_exit_code "MR22vde: forged gitfile cannot replace a missing target binding" "$ec" 1
-  assert_equals "MR22vdf: rejected forged gitfile preserves the peer backpointer" \
-    "$(cat "$peer_git_dir/gitdir")" "$peer_backpointer"
-  assert_equals "MR22vdg: rejected forged gitfile preserves the peer HEAD" \
-    "$(git -C "$metadata_peer" rev-parse HEAD)" "$peer_head"
-  printf '%s\n' "$wt/.git" > "$metadata_git_dir/gitdir"
-  printf 'gitdir: %s\n' "$metadata_git_dir" > "$wt/.git"
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
-    --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null
-  git -C "$repo" worktree remove --force "$metadata_peer" >/dev/null
-
-  corrupt_guard_victim="$repo/corrupt-guard-victim"
-  printf 'unchanged\n' > "$corrupt_guard_victim"
-  ln -s "$corrupt_guard_victim" "$metadata_git_dir/saas-startup-team/role-corrupt-unsafe.json.active"
-  printf 'broken again\n' > "$wt/.git"
-  ec=0
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
-    --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null 2>&1 || ec=$?
-  assert_exit_code "MR22ve: corrupt metadata cannot bypass unsafe guard rejection" "$ec" 1
-  assert_equals "MR22vf: corrupt-metadata recovery never follows an unsafe guard" \
-    "$(cat "$corrupt_guard_victim")" unchanged
-  assert_equals "MR22vg: rejected corrupt-metadata guard remains inspectable" \
-    "$([ -L "$metadata_git_dir/saas-startup-team/role-corrupt-unsafe.json.active" ] \
-      && printf present || printf missing)" present
-  rm -f "$metadata_git_dir/saas-startup-team/role-corrupt-unsafe.json.active"
-
-  assert_file_contains "MR22w: reset has a bounded internal lease holder" \
-    "$attempt_helper" '--max-seconds 300'
-  assert_file_not_contains "MR22wa: reset observes worktree inventory producer failures" \
-    "$attempt_helper" '< <(git -C "$ROOT" worktree list'
-  reset_bin="$repo/reset-slow-bin"; mkdir -p "$reset_bin"
-  reset_ready="$repo/reset-slow-ready"; reset_status="$repo/reset-slow-status"
-  real_git=$(command -v git)
-  cat > "$reset_bin/git" <<'SH'
-#!/usr/bin/env bash
-for arg in "$@"; do
-  [ "$arg" != clean ] || { : > "$RESET_SLOW_READY"; sleep 2; break; }
-done
-exec "$REAL_GIT" "$@"
-SH
-  chmod +x "$reset_bin/git"
-  reset_heartbeat=$(jq -r '.leases[] | select(.kind == "shared") | .state_dir' "$state")/maintain-delivery-pass/heartbeat
-  (
-    reset_ec=0
-    PATH="$reset_bin:$PATH" REAL_GIT="$real_git" RESET_SLOW_READY="$reset_ready" \
-      bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
-        --lease-state "$state" --run-id "$origin_run" \
-        --controller-run-id "$controller_run_id" >/dev/null 2>&1 || reset_ec=$?
-    printf '%s\n' "$reset_ec" > "$reset_status"
-  ) &
-  reset_pid=$!
-  while [ ! -e "$reset_ready" ]; do kill -0 "$reset_pid" 2>/dev/null || break; sleep 0.01; done
-  assert_file_exists "MR22x: slow reset reaches the held mutation phase" "$reset_ready"
-  reset_heartbeat_before=$(cat "$reset_heartbeat")
-  reset_heartbeat_after=$reset_heartbeat_before
-  for ((i=0; i<400; i++)); do
-    reset_heartbeat_after=$(cat "$reset_heartbeat")
-    [ "$reset_heartbeat_after" = "$reset_heartbeat_before" ] || break
-    kill -0 "$reset_pid" 2>/dev/null || break
-    sleep 0.01
-  done
-  assert_equals "MR22y: slow reset advances its lease heartbeat continuously" \
-    "$([[ "$reset_heartbeat_after" -gt "$reset_heartbeat_before" ]] && printf yes || printf no)" yes
-  wait "$reset_pid"
-  assert_equals "MR22z: held slow reset completes successfully" "$(cat "$reset_status")" 0
 
   printf 'dirty\n' > "$wt/app.txt"; printf 'new\n' > "$wt/untracked"
   bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" --base-sha "$base" \
@@ -968,7 +782,6 @@ SH
   assert_equals "MR27: summary symlink target remains unchanged" "$(cat "$victim")" unchanged
   bash "$leases" cleanup --state-file "$state" --repo-root "$repo" --worktree "$wt" \
     --run-id "$controller_run_id" >/dev/null
-  git -C "$repo" worktree remove --force "$wt" >/dev/null
 
   lease_dir="$repo/guardian-leases"; owner="$repo/guardian.owner"
   mkdir -p "$lease_dir"

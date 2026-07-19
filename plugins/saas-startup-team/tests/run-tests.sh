@@ -1185,7 +1185,8 @@ test_maintain() {
   assert_file_contains "M10: agent-fixable verdict"    "$cmd" "agent-fixable"
   assert_file_contains "M11: needs-human verdict"      "$cmd" "needs-human"
   assert_file_contains "M12: blocked verdict"          "$cmd" "maintain:blocked"
-  assert_file_contains "M13: maintain worktree"        "$cmd" ".worktrees/maintain"
+  assert_file_contains "M13: primary-only gate" \
+    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" "assert-primary-only"
   # Triage fences humans into human-tasks.md
   assert_file_contains "M14: human-tasks.md"           "$cmd" "human-tasks.md"
   # Dependency ordering in v1
@@ -1206,15 +1207,15 @@ test_maintain() {
   # Explicit final state / digest
   assert_file_contains "M24: run digest"               "$cmd" "runs/"
   assert_file_contains "M25: deploy classification"    "$cmd" "deploy-blocked"
-  # Dedicated worktree isolation (primary checkout stays free)
-  assert_file_contains "M26: dedicated worktree"        "$cmd" "worktree add --detach"
-  assert_file_contains "M27: worktree path convention"  "$cmd" ".worktrees/maintain"
-  assert_file_contains "M27a: no worktrees except maintain hard rule" \
+  # Primary-only hard gate (no linked git worktrees)
+  assert_file_not_contains "M26: no worktree add"           "$cmd" "worktree add --detach"
+  assert_file_not_contains "M27: no .worktrees/maintain"    "$cmd" ".worktrees/maintain"
+  assert_file_contains "M27a: primary-only hard gate in protocol" \
     "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    'No linked worktrees by default'
-  assert_file_contains "M27b: improve runs on primary only" \
+    'assert-primary-only'
+  assert_file_contains "M27b: improve primary-only" \
     "$PLUGIN_ROOT/references/workflows/improve.md" \
-    'create a git worktree for `/improve`'
+    'Primary working directory only'
   # Fast no-op must not strand cached deliverable issues.
   assert_file_contains "M28: cached resumable gate" "$cmd" "cached_resumable"
   assert_file_contains "M29: cached agent-fixable enters queue" "$cmd" "deliverable queue input"

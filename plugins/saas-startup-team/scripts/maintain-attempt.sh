@@ -66,26 +66,8 @@ assert_exact_clean_base() {
     echo "maintain-attempt: base worktree has untracked state" >&2; return 1; }
 }
 
-registered_worktree() {
-  local record candidate rows found=1
-  rows=$(mktemp) || return 1
-  if ! git -C "$ROOT" worktree list --porcelain -z > "$rows"; then
-    rm -f -- "$rows"
-    return 1
-  fi
-  while IFS= read -r -d '' record; do
-    case "$record" in
-      'worktree '*)
-        candidate=${record#worktree }
-        if [ "$candidate" = "$worktree" ]; then found=0; break; fi
-        ;;
-    esac
-  done < "$rows"
-  rm -f -- "$rows"
-  return "$found"
-}
-
 reset_once() {
+  # Primary checkout only — never create/remove linked worktrees.
   git -C "$worktree" checkout --detach --quiet "$base_sha" || return 1
   git -C "$worktree" reset --hard "$base_sha" >/dev/null || return 1
   git -C "$worktree" clean -ffdx -q || return 1
@@ -99,10 +81,11 @@ load_lease_identity() {
   local expected_worktree="${1:-$ROOT}"
   PRIMARY=$(bash "$LEASES" primary-root --repo-root "$ROOT") || return 1
   expected_worktree=$(realpath -m -- "$expected_worktree") || return 1
-  bash "$LEASES" controller-binding --repo-root "$ROOT" --worktree "$expected_worktree" \
+  [ "$ROOT" = "$PRIMARY" ] && [ "$expected_worktree" = "$PRIMARY" ] || return 1
+  bash "$LEASES" controller-binding --repo-root "$PRIMARY" --worktree "$PRIMARY" \
     --state-file "$lease_state" --run-id "$controller_run_id" >/dev/null || return 1
   LEASE_GUARD_ARGS=(--state-file "$lease_state" --repo-root "$PRIMARY" \
-    --worktree "$expected_worktree" --run-id "$controller_run_id")
+    --worktree "$PRIMARY" --run-id "$controller_run_id")
 }
 
 resolve_invocation_command() {
@@ -186,84 +169,15 @@ cleanup_role_guard() {
   return "$rc"
 }
 
-resolve_worktree_metadata() {
-  local target_git_dir metadata_root backpointer
-  [ -d "$worktree" ] && [ ! -L "$worktree" ] \
-    && [ "$(cd -- "$worktree" && pwd -P)" = "$worktree" ] || return 1
-  [ -f "$worktree/.git" ] && [ ! -L "$worktree/.git" ] || return 1
-  target_git_dir=$(git -C "$worktree" rev-parse --absolute-git-dir 2>/dev/null) || return 1
-  case "$target_git_dir" in /*) : ;; *) return 1 ;; esac
-  [ -d "$target_git_dir" ] && [ ! -L "$target_git_dir" ] \
-    && [ "$(cd -- "$target_git_dir" && pwd -P)" = "$target_git_dir" ] || return 1
-  metadata_root="$COMMON/worktrees"
-  [ -d "$metadata_root" ] && [ ! -L "$metadata_root" ] \
-    && [ "$(cd -- "$metadata_root" && pwd -P)" = "$metadata_root" ] \
-    && [ "$(dirname -- "$target_git_dir")" = "$metadata_root" ] || return 1
-  [ -f "$target_git_dir/gitdir" ] && [ ! -L "$target_git_dir/gitdir" ] || return 1
-  backpointer=$(cat "$target_git_dir/gitdir") || return 1
-  [ "$(realpath -m -- "$backpointer")" = "$worktree/.git" ] || return 1
-  WORKTREE_GIT_DIR="$target_git_dir"
-}
-
-atomic_pointer_write() {
-  local target="$1" value="$2" parent base tmp
-  parent=$(dirname -- "$target"); base=$(basename -- "$target")
-  if [ -e "$target" ] || [ -L "$target" ]; then
-    { [ -f "$target" ] && [ ! -L "$target" ]; } || return 1
-  fi
-  tmp=$(mktemp "$parent/.$base.repair.XXXXXX") || return 1
-  if ! printf '%s\n' "$value" > "$tmp" || ! chmod 600 "$tmp" \
-    || ! mv -f -- "$tmp" "$target"; then
-    rm -f -- "$tmp"
-    return 1
-  fi
-}
-
-repair_worktree_metadata() {
-  local metadata_root candidate="" entry backpointer resolved commondir
-  [ -d "$worktree" ] && [ ! -L "$worktree" ] \
-    && [ "$(cd -- "$worktree" && pwd -P)" = "$worktree" ] || return 1
-  [ -f "$worktree/.git" ] && [ ! -L "$worktree/.git" ] || return 1
-  metadata_root="$COMMON/worktrees"
-  [ -d "$metadata_root" ] && [ ! -L "$metadata_root" ] \
-    && [ "$(cd -- "$metadata_root" && pwd -P)" = "$metadata_root" ] || return 1
-
-  shopt -s nullglob
-  for entry in "$metadata_root"/*; do
-    [ -d "$entry" ] && [ ! -L "$entry" ] \
-      && [ "$(cd -- "$entry" && pwd -P)" = "$entry" ] || continue
-    [ -f "$entry/gitdir" ] && [ ! -L "$entry/gitdir" ] || continue
-    backpointer=$(cat "$entry/gitdir") || { shopt -u nullglob; return 1; }
-    case "$backpointer" in /*) : ;; *) backpointer="$entry/$backpointer" ;; esac
-    resolved=$(realpath -m -- "$backpointer") || { shopt -u nullglob; return 1; }
-    if [ "$resolved" = "$worktree/.git" ]; then
-      [ -z "$candidate" ] || {
-        shopt -u nullglob
-        return 1
-      }
-      candidate=$entry
-    fi
-  done
-  shopt -u nullglob
-
-  [ -n "$candidate" ] || return 1
-  [ -f "$candidate/gitdir" ] && [ ! -L "$candidate/gitdir" ] \
-    && [ -f "$candidate/commondir" ] && [ ! -L "$candidate/commondir" ] || return 1
-  commondir=$(cat "$candidate/commondir") || return 1
-  case "$commondir" in /*) : ;; *) commondir="$candidate/$commondir" ;; esac
-  [ "$(realpath -m -- "$commondir")" = "$COMMON" ] || return 1
-
-  atomic_pointer_write "$worktree/.git" "gitdir: $candidate" \
-    && resolve_worktree_metadata
-}
-
 cleanup_abandoned_role_guards() {
   local target_git_dir guard_dir marker base prefix_base prefix artifact unsafe
   local -a markers=() prefixes=() family=()
   local -A seen=()
-  if [ ! -e "$worktree" ] && [ ! -L "$worktree" ]; then return 0; fi
-  resolve_worktree_metadata || return 1
-  target_git_dir=$WORKTREE_GIT_DIR
+  # Guards live under the primary checkout's git dir (no linked-worktree metadata).
+  [ -n "${PRIMARY:-}" ] || PRIMARY=$(bash "$LEASES" primary-root --repo-root "$ROOT") || return 1
+  [ "$worktree" = "$PRIMARY" ] || return 1
+  target_git_dir=$(git -C "$PRIMARY" rev-parse --absolute-git-dir) || return 1
+  target_git_dir=$(cd -- "$target_git_dir" && pwd -P) || return 1
   guard_dir="$target_git_dir/saas-startup-team"
   if [ ! -e "$guard_dir" ] && [ ! -L "$guard_dir" ]; then return 0; fi
   [ -d "$guard_dir" ] && [ ! -L "$guard_dir" ] \
@@ -422,30 +336,26 @@ case "$action" in
     worktree="$(realpath -m -- "$worktree")"
     load_lease_identity "$worktree" || {
       echo "maintain-attempt: reset target does not match the acquired worktree" >&2; exit 1; }
+    bash "$LEASES" assert-primary-only --repo-root "$ROOT" >/dev/null || {
+      echo "maintain-attempt: primary-only gate failed (no linked worktrees)" >&2
+      exit 1
+    }
+    PRIMARY=$(bash "$LEASES" primary-root --repo-root "$ROOT") || exit 1
+    [ "$worktree" = "$PRIMARY" ] && [ "$ROOT" = "$PRIMARY" ] || {
+      echo "maintain-attempt: reset target must be the primary working directory" >&2
+      exit 1
+    }
     bash "$LEASES" heartbeat "${LEASE_GUARD_ARGS[@]}" >/dev/null || {
       echo "maintain-attempt: reset lease ownership is no longer valid" >&2; exit 1; }
-    if [ -e "$worktree" ] || [ -L "$worktree" ]; then
-      resolve_worktree_metadata || repair_worktree_metadata || {
-        echo "maintain-attempt: existing worktree metadata is unsafe" >&2; exit 1; }
-      registered_worktree || {
-        echo "maintain-attempt: unregistered worktree path exists" >&2; exit 1; }
-    elif ! registered_worktree; then
-      git -C "$ROOT" worktree add --detach --quiet "$worktree" "$base_sha" || exit 1
-    fi
     cleanup_abandoned_role_guards || {
       echo "maintain-attempt: abandoned mutation guard metadata is unsafe" >&2
       exit 1
     }
     if ! reset_once; then
-      git -C "$ROOT" worktree remove --force "$worktree" >/dev/null 2>&1 || {
-        echo "maintain-attempt: cannot recreate dedicated worktree" >&2; exit 1; }
-      git -C "$ROOT" worktree add --detach --quiet "$worktree" "$base_sha" || exit 1
-      reset_once || {
-        echo "maintain-attempt: exact worktree reset failed" >&2
-        { git -C "$worktree" status --porcelain=v1 --untracked-files=all
-          git -C "$worktree" clean -ndffx; } | sed -n '1,20p' >&2
-        exit 1
-      }
+      echo "maintain-attempt: primary reset failed (tree dirty or not at BASE_SHA)" >&2
+      { git -C "$worktree" status --porcelain=v1 --untracked-files=all
+        git -C "$worktree" clean -ndffx; } | sed -n '1,20p' >&2
+      exit 1
     fi
     [ "$(git -C "$worktree" rev-parse HEAD)" = "$base_sha" ] \
       && [ -z "$(git -C "$worktree" status --porcelain=v1 --untracked-files=all)" ] || {

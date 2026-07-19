@@ -63,7 +63,7 @@ DELIVERY_WRAPPER
   git -C "$repo" branch -m main
   git -C "$repo" config user.email test@example.invalid
   git -C "$repo" config user.name Test
-  controller_root="$repo/.worktrees/maintain"
+  controller_root="$repo"
   export MAINTAIN_TEST_CONTROLLER_ROOT="$controller_root" MAINTAIN_TEST_PRIMARY_ROOT="$repo"
   switch_test_lease() {
     local next_run=$1
@@ -75,11 +75,8 @@ DELIVERY_WRAPPER
     case "$common" in /*) : ;; *) common="$repo/$common" ;; esac
     lease_run=$next_run
     lease_state="$common/saas-startup-team/maintain-runtime/$lease_run-leases.json"
-    if [ ! -e "$controller_root" ]; then
-      git -C "$repo" worktree add --detach "$controller_root" HEAD >/dev/null
-    else
-      git -C "$controller_root" checkout -q --detach "$(git -C "$repo" rev-parse HEAD)"
-    fi
+    # Primary-only: controller is the main checkout (no linked worktree).
+    git -C "$controller_root" checkout -q --detach "$(git -C "$repo" rev-parse HEAD)" || true
     bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain \
       --worktree "$controller_root" \
       --run-id "$lease_run" --state-file "$lease_state" >/dev/null
@@ -361,7 +358,7 @@ DEPLOY_WORKFLOW
   git -C "$fresh_repo" commit -qm base
   fresh_base=$(git -C "$fresh_repo" rev-parse HEAD)
   fresh_common=$(git -C "$fresh_repo" rev-parse --absolute-git-dir)
-  fresh_wt="$fresh_repo/.worktrees/maintain"
+  fresh_wt="$fresh_repo"
   fresh_origin_state="$fresh_common/saas-startup-team/maintain-runtime/fresh-order-leases.json"
   fresh_resume_state="$fresh_common/saas-startup-team/maintain-runtime/fresh-resume-leases.json"
   fresh_legacy_state="$fresh_common/saas-startup-team/maintain-runtime/fresh-legacy-leases.json"
@@ -379,7 +376,8 @@ DEPLOY_WORKFLOW
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$fresh_repo" \
     --mode maintain --run-id "$fresh_controller" --state-file "$fresh_origin_state" \
     --worktree "$fresh_wt" >/dev/null
-  assert_file_not_exists "MD0b: lease acquisition alone does not create the worktree" "$fresh_wt"
+  assert_equals "MD0b: lease acquisition binds the primary checkout" \
+    "$(jq -r .worktree "$fresh_origin_state")" "$fresh_wt"
   assert_file_not_exists "MD0f0: fresh lease has no delivery runtime directory" "$fresh_state_root"
   : > "$fake_log"
   rm -f -- "$fake_mutation"
@@ -426,7 +424,7 @@ DEPLOY_WORKFLOW
     state_before=$(find -P "$fresh_state_root" -printf '%P\t%y\t%s\t%m\n' | sort)
   fi
   pending=$(bash "$delivery_impl" pending --repo-root "$fresh_repo")
-  assert_equals "MD0a: fresh pending is readable before the dedicated worktree exists" \
+  assert_equals "MD0a: fresh pending is readable on the primary checkout" \
     "$(jq length <<<"$pending")" 0
   state_after=absent
   if [ -d "$fresh_state_root" ]; then
@@ -439,18 +437,11 @@ DEPLOY_WORKFLOW
     --delivery-id "$fresh_delivery" --merge-budget 1 --lease-state "$fresh_origin_state" \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD0c: begin requires the classified issue scope snapshot" "$ec" 2
-  ec=0
-  bash "$delivery_impl" begin --repo-root "$fresh_repo" --issue 1 --run-id "$fresh_controller" \
-    --delivery-id "$fresh_delivery" --merge-budget 1 --scope-json "$fresh_scope" \
-    --lease-state "$fresh_origin_state" --controller-run-id "$fresh_controller" \
-    >/dev/null 2>&1 || ec=$?
-  assert_exit_code "MD0d: primary-root begin cannot bypass the dedicated worktree lease" "$ec" 3
-  assert_equals "MD0e: rejected primary begin creates no receipt" \
-    "$(bash "$delivery_impl" pending --repo-root "$fresh_repo" | jq length)" 0
+  # Primary-only: controller tree is the primary checkout. Reset, then validate begin gates.
   bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$fresh_repo" \
     --worktree "$fresh_wt" --base-sha "$fresh_base" --lease-state "$fresh_origin_state" \
     --run-id "$fresh_controller" --controller-run-id "$fresh_controller" >/dev/null
-  assert_equals "MD0f: leased reset creates a clean exact-base worktree" \
+  assert_equals "MD0f: leased reset pins the primary checkout to exact BASE_SHA" \
     "$(git -C "$fresh_wt" rev-parse HEAD):$(git -C "$fresh_wt" status --porcelain)" \
     "$fresh_base:"
   ec=0
@@ -475,7 +466,7 @@ DEPLOY_WORKFLOW
     --delivery-id "$fresh_delivery" --merge-budget 1 --scope-json "$fresh_scope" \
     --lease-state "$fresh_origin_state" --controller-run-id "$fresh_controller" \
     >/dev/null
-  assert_equals "MD0k: begin succeeds from the created lease-bound worktree" \
+  assert_equals "MD0k: begin succeeds on the lease-bound primary checkout" \
     "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 | jq -r .state)" claimed
   assert_equals "MD0k1: new receipt binds the canonical maintain controller" \
     "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 \
@@ -552,7 +543,7 @@ DEPLOY_WORKFLOW
   pending=$(bash "$delivery_impl" pending --repo-root "$fresh_repo")
   assert_equals "MD0l1: historical v1 inventory selects the bounded legacy route" \
     "$(jq -cS '.[0].controller_route' <<<"$pending")" \
-    "$(jq -cnS --arg worktree "$fresh_repo/.worktrees/maintain" \
+    "$(jq -cnS --arg worktree "$fresh_repo" \
       '{kind:"legacy-recovery",mode:"maintain-loop",worktree:$worktree}')"
   ec=0; out=$(bash "$probe" maintain --root "$fresh_repo" --dry-run 2>&1) || ec=$?
   assert_exit_code "MD0l2: public maintain probe reaches historical v1 recovery" "$ec" 0
@@ -640,7 +631,7 @@ DEPLOY_WORKFLOW
   bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
     --repo-root "$repo" --worktree "$controller_root" --run-id "$lease_run" >/dev/null
   lease_state=""
-  legacy_wt="$repo/.worktrees/maintain"
+  legacy_wt="$repo"
   legacy_state="$common/saas-startup-team/maintain-runtime/$run-legacy-leases.json"
   legacy_cache="$common/saas-startup-team/maintain-runtime/base-checks/$run"
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain-loop \

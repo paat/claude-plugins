@@ -9,6 +9,7 @@ GUARDIAN="$SCRIPT_DIR/lease-guardian.sh"
 usage() {
   cat >&2 <<'EOF'
 usage: maintain-leases.sh primary-root --repo-root DIR
+       maintain-leases.sh assert-primary-only --repo-root DIR
        maintain-leases.sh acquire --repo-root DIR --mode maintain|maintain-loop --run-id ID --state-file FILE [--worktree DIR]
        maintain-leases.sh controller-binding --repo-root DIR --worktree DIR --run-id ID --state-file FILE
        maintain-leases.sh available --repo-root DIR
@@ -24,6 +25,56 @@ valid_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]; }
 valid_uint() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 worktree_lease_key() {
   printf '%s:worktree:%s\n' "$1" "$(printf '%s' "$2" | cksum | awk '{print $1}')"
+}
+# Hard gate: only the primary working directory. No linked git worktrees.
+allowed_controller_tree() {
+  [ -n "${PRIMARY:-}" ] && [ "$1" = "$PRIMARY" ]
+}
+
+assert_primary_only() {
+  local rows record candidate
+  local -a extras=()
+  [ -n "${PRIMARY:-}" ] && [ -n "${ROOT:-}" ] || {
+    echo "maintain-leases: repository identity unresolved" >&2
+    return 1
+  }
+  [ "$ROOT" = "$PRIMARY" ] || {
+    echo "maintain-leases: must run from the primary working directory ($PRIMARY), not $ROOT" >&2
+    return 1
+  }
+  if git -C "$PRIMARY" config --local --get core.worktree >/dev/null 2>&1; then
+    echo "maintain-leases: core.worktree is forbidden" >&2
+    return 1
+  fi
+  rows=$(mktemp) || return 1
+  if ! git -C "$PRIMARY" worktree list --porcelain -z > "$rows"; then
+    rm -f -- "$rows"
+    echo "maintain-leases: cannot list git worktrees" >&2
+    return 1
+  fi
+  while IFS= read -r -d '' record; do
+    case "$record" in
+      'worktree '*)
+        candidate=${record#worktree }
+        if ! candidate="$(cd -- "$candidate" && pwd -P)"; then
+          rm -f -- "$rows"
+          echo "maintain-leases: cannot resolve worktree path" >&2
+          return 1
+        fi
+        [ "$candidate" = "$PRIMARY" ] || extras+=("$candidate")
+        ;;
+    esac
+  done < "$rows"
+  rm -f -- "$rows"
+  if [ "${#extras[@]}" -gt 0 ]; then
+    echo "maintain-leases: linked git worktrees are forbidden (primary only)" >&2
+    for candidate in "${extras[@]}"; do
+      printf 'maintain-leases: remove: %s\n' "$candidate" >&2
+    done
+    echo "maintain-leases: fix: git worktree remove <path> && git worktree prune" >&2
+    return 1
+  fi
+  return 0
 }
 declare -Ar LEASE_TTL_SECONDS=(
   [legacy-maintain]=1800
@@ -161,8 +212,8 @@ load_state() {
       case "$STATE_SCHEMA" in
         2) [ -z "$expected_worktree" ] || return 1 ;;
         3)
-          [ "$expected_worktree" = "$PRIMARY/.worktrees/maintain" ] || {
-            echo "maintain-leases: canonical worktree binding is invalid" >&2; return 1; }
+          allowed_controller_tree "$expected_worktree" || {
+            echo "maintain-leases: controller tree must be the primary working directory" >&2; return 1; }
           worktree_key=$(worktree_lease_key maintain "$expected_worktree") || return 1
           ;;
         *) return 1 ;;
@@ -170,8 +221,8 @@ load_state() {
       ;;
     maintain-loop)
       [ "$STATE_SCHEMA" = 2 ] || return 1
-      [ "$expected_worktree" = "$PRIMARY/.worktrees/maintain" ] || {
-        echo "maintain-leases: legacy worktree binding is invalid" >&2; return 1; }
+      allowed_controller_tree "$expected_worktree" || {
+        echo "maintain-leases: controller tree must be the primary working directory" >&2; return 1; }
       worktree_key=$(worktree_lease_key maintain-loop "$expected_worktree") || return 1
       ;;
   esac
@@ -262,20 +313,24 @@ lease_state() {
 
 foreign_worktree_leases_available() {
   local held_mode="$1" held_worktree="$2" own_key="" key state rc=0
-  local canonical_key legacy_key
-  canonical_key=$(worktree_lease_key maintain "$PRIMARY/.worktrees/maintain") || return 1
-  legacy_key=$(worktree_lease_key maintain-loop "$PRIMARY/.worktrees/maintain") || return 1
+  local -a foreign_keys=()
+  local mode
+  # Primary controller keys + reclaim stale historical dedicated-tree keys.
+  for mode in maintain maintain-loop; do
+    foreign_keys+=("$(worktree_lease_key "$mode" "$PRIMARY")") || return 1
+    foreign_keys+=("$(worktree_lease_key "$mode" "$PRIMARY/.worktrees/maintain")") || return 1
+  done
   if [ -n "$held_worktree" ]; then
     own_key=$(worktree_lease_key "$held_mode" "$held_worktree") || return 1
   fi
-  for key in "$canonical_key" "$legacy_key"; do
+  for key in "${foreign_keys[@]}"; do
     [ "$key" != "$own_key" ] || continue
     state=0
     lease_state "$common_leases" "$key" "${LEASE_TTL_SECONDS[worktree]}" || state=$?
     case "$state" in
       0|3) : ;;
-      1) echo "maintain-leases: unsafe foreign worktree lease blocks $key" >&2; rc=1 ;;
-      2) echo "maintain-leases: active foreign worktree lease blocks $key" >&2; rc=1 ;;
+      1) echo "maintain-leases: unsafe foreign controller lease blocks $key" >&2; rc=1 ;;
+      2) echo "maintain-leases: active foreign controller lease blocks $key" >&2; rc=1 ;;
       *) return 1 ;;
     esac
   done
@@ -352,19 +407,29 @@ case "$action" in
     printf '%s\n' "$PRIMARY"
     ;;
 
+  assert-primary-only)
+    [ -n "$repo_root" ] && [ -z "$state_file$mode$run_id$worktree$run_state" ] || usage
+    resolve_repo "$repo_root" || { echo "maintain-leases: cannot resolve repository" >&2; exit 1; }
+    assert_primary_only || exit 1
+    echo "maintain-leases: primary-only gate passed"
+    ;;
+
   available)
     [ -n "$repo_root" ] && [ -z "$state_file$mode$run_id$worktree$run_state" ] || usage
     resolve_repo "$repo_root" || { echo "maintain-leases: cannot resolve repository" >&2; exit 1; }
+    assert_primary_only || exit 1
     shared="$COMMON/saas-startup-team/leases"
     legacy="$PRIMARY/.startup/leases"
-    maintain_worktree="$PRIMARY/.worktrees/maintain"
-    loop_worktree="$PRIMARY/.worktrees/maintain"
-    maintain_worktree_key=$(worktree_lease_key maintain "$maintain_worktree")
-    loop_worktree_key=$(worktree_lease_key maintain-loop "$loop_worktree")
-    kinds=(legacy-maintain legacy-loop shared worktree worktree)
-    keys=(maintain-pass maintain-loop:pass maintain-delivery:pass
-      "$maintain_worktree_key" "$loop_worktree_key")
-    dirs=("$shared" "$legacy" "$shared" "$shared" "$shared")
+    kinds=(legacy-maintain legacy-loop shared)
+    keys=(maintain-pass maintain-loop:pass maintain-delivery:pass)
+    dirs=("$shared" "$legacy" "$shared")
+    for mode in maintain maintain-loop; do
+      for tree in "$PRIMARY" "$PRIMARY/.worktrees/maintain"; do
+        kinds+=(worktree)
+        keys+=("$(worktree_lease_key "$mode" "$tree")")
+        dirs+=("$shared")
+      done
+    done
     rc=0
     for ((i=0; i<${#keys[@]}; i++)); do
       kind=${kinds[$i]}; key=${keys[$i]}; dir=${dirs[$i]}
@@ -387,34 +452,25 @@ case "$action" in
       && [ -z "$run_state" ] || usage
     valid_id "$run_id" || { echo "maintain-leases: invalid run id" >&2; exit 2; }
     case "$mode" in
-      maintain) : ;;
-      maintain-loop) [ -n "$worktree" ] || usage ;;
+      maintain|maintain-loop) : ;;
       *) usage ;;
     esac
     resolve_repo "$repo_root" || { echo "maintain-leases: cannot resolve repository" >&2; exit 1; }
-    state_schema=2
-    if [ -n "$worktree" ]; then
+    assert_primary_only || exit 1
+    # Default omitted --worktree to the primary checkout (only allowed tree).
+    if [ -z "$worktree" ]; then
+      worktree=$PRIMARY
+    else
       worktree="$(realpath -m -- "$worktree")"
-      [ "$ROOT" = "$PRIMARY" ] || {
-        echo "maintain-leases: a bound controller must acquire from the primary worktree" >&2
-        exit 2
-      }
-      case "$mode" in
-        maintain)
-          [ "$worktree" = "$PRIMARY/.worktrees/maintain" ] || {
-            echo "maintain-leases: worktree must be the canonical maintain worktree" >&2
-            exit 2
-          }
-          state_schema=3
-          ;;
-        maintain-loop)
-          [ "$worktree" = "$PRIMARY/.worktrees/maintain" ] || {
-            echo "maintain-leases: legacy controller must use the canonical maintain worktree" >&2
-            exit 2
-          }
-          ;;
-      esac
     fi
+    allowed_controller_tree "$worktree" || {
+      echo "maintain-leases: controller tree must be the primary working directory (no linked worktrees)" >&2
+      exit 2
+    }
+    case "$mode" in
+      maintain) state_schema=3 ;;
+      maintain-loop) state_schema=2 ;;
+    esac
     state_path_for_acquire "$state_file" || {
       echo "maintain-leases: state file must use the common maintenance runtime directory" >&2; exit 2; }
     [ ! -e "$STATE_FILE" ] && [ ! -L "$STATE_FILE" ] || {
@@ -539,8 +595,13 @@ case "$action" in
     load_state "$terminal_state" || exit 1
     [ "$RUN_ID" = "$run_id" ] || {
       echo "maintain-leases: terminal run id does not match lease state" >&2; exit 1; }
-    case "$MODE:$STATE_SCHEMA:$WORKTREE_BINDING" in
-      "maintain:3:$PRIMARY/.worktrees/maintain"|"maintain-loop:2:$PRIMARY/.worktrees/maintain") : ;;
+    case "$MODE:$STATE_SCHEMA" in
+      maintain:3|maintain-loop:2)
+        allowed_controller_tree "$WORKTREE_BINDING" || {
+          echo "maintain-leases: terminal lease state is not bound to the primary working directory" >&2
+          exit 2
+        }
+        ;;
       *) echo "maintain-leases: terminal lease state has no supported controller binding" >&2; exit 2 ;;
     esac
     rc=0
