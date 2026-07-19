@@ -22,15 +22,25 @@ commits, leave PR open; next tick resumes.
 
 ## Selection order (always prefer unmerged WIP)
 
-Run `maintain-wip.sh inventory` and/or treat `maintain-queue.sh` `.resumable` as
-WIP. **Never start a new issue while unmerged WIP exists** that can still advance.
+Run `bash maintain-wip.sh inventory --repo-root …` **before greenfield**.  
+**Never start a new issue while any WIP item remains unhandled.**
 
-1. Open PR for an open issue  
-2. Remote branch with commits for an open issue (no PR yet)  
-3. Local branch with commits in maintain worktree  
-4. Else: next eligible open issue from the queue (severity, not claims)
+WIP is broader than open PRs. Inventory includes:
 
-Closed / already on `main` → drop that WIP; do not soft-block.
+1. **Dirty maintain worktree** (uncommitted/untracked) — `action=resume`  
+   Commit, finish, or discard intentionally; never ignore dirty state.  
+2. **Open PRs** — `action=resume` → continue toward auto-merge  
+3. **Remote/local branches with commits not on default** (including post-squash
+   leftovers that are not ancestors of `main`):  
+   - open issue → `action=resume` (checkout in maintain worktree, fix, PR, merge)  
+   - **closed issue** → `action=delete` (stale branch; delete local + remote if safe)  
+   - no issue / needs-human / epic → `action=inspect` then delete or escalate  
+
+Handle **delete** items mechanically before or alongside resume (do not leave a
+graveyard of AHEAD branches). Prefer one resume delivery per pass after cleaning
+obvious `delete` leftovers.
+
+Only when inventory `summary.resume == 0` and dirty is clean: pick next queue issue.
 
 ## No claims
 

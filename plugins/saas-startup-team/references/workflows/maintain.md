@@ -242,11 +242,13 @@ elsewhere in the protocol when they conflict.
 
 ## Pass sequence
 
-1. **WIP inventory first.** In the maintain worktree context, run
-   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-wip.sh" inventory --repo-root "$REPO_ROOT"`
-   and/or consume `.resumable` from `maintain-queue.sh`. If any unmerged WIP exists
-   (open PR, remote branch, local branch for an open issue), resume that item before
-   any greenfield issue. Never start from zero while WIP remains.
+1. **WIP inventory first.** Run
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-wip.sh" inventory --repo-root "$REPO_ROOT"`.
+   Treat **branches with commits not on default** and **uncommitted maintain-worktree
+   dirt** as WIP — not only open PRs. For each item: `resume` (fix toward auto-merge),
+   `delete` (stale closed-issue branch), or `inspect` then delete/escalate. Drain
+   `delete` leftovers and handle dirty trees before greenfield. Never start a new issue
+   while `summary.resume > 0`, dirty is unclean, or unhandled `delete`/`inspect` remains.
 2. If the probe found one pending embedded delivery that is still the active path for
    that WIP, handle it before ordinary triage. Under `--dry-run`, report identity and
    stop. Prefer git/PR resume over claim-receipt recovery when they disagree; if the
