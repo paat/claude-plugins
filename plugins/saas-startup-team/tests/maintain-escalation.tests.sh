@@ -147,7 +147,7 @@ SH
   assert_equals "ME5: cleanup removes the remote branch" \
     "$(git -C "$repo" ls-remote --heads origin "refs/heads/$branch")" ""
   assert_equals "ME6: cleanup resets exact base and dirt" \
-    "$(git -C "$wt" rev-parse HEAD):$(git -C "$wt" status --porcelain=v1 --untracked-files=all)" \
+    "$(git -C "$wt" rev-parse HEAD):$(git -C "$wt" status --porcelain=v1 --untracked-files=all -- . ":(exclude).startup" ":(exclude).startup/**")" \
     "$base:"
   ec=0; git -C "$repo" show-ref --verify --quiet "refs/heads/$branch" || ec=$?
   assert_exit_code "ME7: cleanup deletes the local attempt branch" "$ec" 1

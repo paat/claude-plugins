@@ -182,8 +182,8 @@ cleanup_role_guard() {
 }
 
 cleanup_abandoned_role_guards() {
-  local target_git_dir guard_dir marker base prefix_base prefix artifact unsafe
-  local -a markers=() prefixes=() family=()
+  local target_git_dir guard_dir marker base prefix_base prefix
+  local -a prefixes=()
   local -A seen=()
   # Guards live under the primary checkout's git dir (no linked-worktree metadata).
   [ -n "${PRIMARY:-}" ] || PRIMARY=$(bash "$LEASES" primary-root --repo-root "$ROOT") || return 1
@@ -192,51 +192,22 @@ cleanup_abandoned_role_guards() {
   target_git_dir=$(cd -- "$target_git_dir" && pwd -P) || return 1
   guard_dir="$target_git_dir/saas-startup-team"
   if [ ! -e "$guard_dir" ] && [ ! -L "$guard_dir" ]; then return 0; fi
-  [ -d "$guard_dir" ] && [ ! -L "$guard_dir" ] \
-    && [ "$(cd -- "$guard_dir" && pwd -P)" = "$guard_dir" ] || return 1
+  [ -d "$guard_dir" ] && [ ! -L "$guard_dir" ] || return 1
 
   shopt -s nullglob
-  markers=("$guard_dir"/*.active "$guard_dir"/*.verified)
-  shopt -u nullglob
-  for marker in "${markers[@]}"; do
-    [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
+  for marker in "$guard_dir"/*.active "$guard_dir"/*.verified; do
+    [ -e "$marker" ] || continue
     base=$(basename -- "$marker")
     case "$base" in
       *.active) prefix_base=${base%.active} ;;
       *.verified) prefix_base=${base%.verified} ;;
-      *) return 1 ;;
+      *) continue ;;
     esac
-    [[ "$prefix_base" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$ ]] || return 1
-    if [ -z "${seen[$prefix_base]+x}" ]; then
-      seen[$prefix_base]=1
-      prefixes+=("$guard_dir/$prefix_base")
-    fi
+    [ -z "${seen[$prefix_base]+x}" ] || continue
+    seen[$prefix_base]=1
+    prefixes+=("$guard_dir/$prefix_base")
   done
-
-  for prefix in "${prefixes[@]}"; do
-    family=()
-    for artifact in "$prefix" "$prefix.active" "$prefix.verified" \
-      "$prefix.telemetry-identity-key"; do
-      if [ -e "$artifact" ] || [ -L "$artifact" ]; then family+=("$artifact"); fi
-    done
-    shopt -s nullglob
-    family+=("$prefix.telemetry-"*.json \
-      "$prefix.events-"*.jsonl "$prefix.events-"*.jsonl.identity-key \
-      "$prefix.events-"*.jsonl.lock "$prefix.logs-"*)
-    shopt -u nullglob
-    for artifact in "${family[@]}"; do
-      case "$artifact" in
-        "$prefix.logs-"*)
-          [ -d "$artifact" ] && [ ! -L "$artifact" ] || return 1
-          unsafe=$(find -P "$artifact" -mindepth 1 \
-            \( -type l -o \( ! -type f -a ! -type d \) \) -print -quit 2>/dev/null) \
-            || return 1
-          [ -z "$unsafe" ] || return 1
-          ;;
-        *) [ -f "$artifact" ] && [ ! -L "$artifact" ] || return 1 ;;
-      esac
-    done
-  done
+  shopt -u nullglob
   for prefix in "${prefixes[@]}"; do cleanup_role_guard "$prefix" || return 1; done
 }
 

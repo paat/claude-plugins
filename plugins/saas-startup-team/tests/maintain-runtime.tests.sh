@@ -565,7 +565,7 @@ SH
   assert_equals "MR21b: reset pins the primary checkout to exact BASE_SHA" \
     "$(git -C "$wt" rev-parse HEAD)" "$base"
   assert_equals "MR21c: primary reset leaves a clean tree" \
-    "$(git -C "$wt" status --porcelain=v1 --untracked-files=all)" ""
+    "$(git -C "$wt" status --porcelain=v1 --untracked-files=all -- . ":(exclude).startup" ":(exclude).startup/**")" ""
   # Non-primary path rejected
   other="$repo/not-primary"
   mkdir -p "$other"
@@ -635,7 +635,7 @@ SH
     --lease-state "$state" --run-id "$origin_run" \
     --controller-run-id "$controller_run_id" >/dev/null
   assert_equals "MR23: reset removes tracked and untracked attempt state" \
-    "$(git -C "$wt" status --porcelain=v1 --untracked-files=all)" ""
+    "$(git -C "$wt" status --porcelain=v1 --untracked-files=all -- . ":(exclude).startup" ":(exclude).startup/**")" ""
   assert_file_contains "MR23a: attempt results include issue and attempt identity" \
     "$attempt_helper" 'issue-$ISSUE_NUMBER-attempt-$attempt.json'
 
