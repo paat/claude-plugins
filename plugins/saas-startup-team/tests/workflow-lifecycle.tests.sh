@@ -273,8 +273,10 @@ test_workflow_lifecycle_safety() {
     '`EXIT INT TERM HUP` trap'
   assert_file_contains "WL9: maintain scheduler uses flock" "$maintain_protocol" \
     'non-blocking `flock`'
-  assert_file_contains "WL10: split child is resolved by exact marker" "$maintain_protocol" \
-    'resolve_split_child()'
+  assert_file_contains "WL10: split duplicate pre-check before create" "$maintain_protocol" \
+    'find_split_child_by_marker()'
+  assert_file_contains "WL10b: post-create uses create number not search" "$maintain_protocol" \
+    'Do NOT re-search after create'
   assert_file_contains "WL11: split child id is verified numeric" "$maintain_protocol" \
     'split child id is not numeric'
   assert_file_not_contains "WL12: issue create uses no unsupported JSON flag" "$maintain_protocol" \

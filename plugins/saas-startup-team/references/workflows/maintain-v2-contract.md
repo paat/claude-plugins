@@ -54,10 +54,15 @@ Do not wait for investor merge of maintain PRs.
 
 ## Needs-human (does not stall the slot)
 
-1. Prefer **split**: new GH issue for the human-decision slice.  
-2. Push PR if code context helps; **PR comment** with the exact decision ask.  
-3. Escalate to mission-control / steering digest.  
-4. **Take next eligible** work (still WIP-first among remaining items).
+1. Prefer **split** when machine work can ship alone (child issue **or** residual on parent).  
+2. **Duplicate pre-check always before filing any issue** (splits, re-occurrence, monitor).
+   Search/list first; create only if zero matches — that pre-check **is** re-occurrence
+   detection.  
+3. After successful create, take the number from create output / direct `gh issue view`.
+   **Never** fail-closed solely because a post-create search is empty (index lag).  
+4. Machine part merged to main → next issue (WIP-first).  
+5. Push PR / comment if it helps the human residual; escalate to MC digest.  
+6. **Take next eligible** work (still WIP-first among remaining items).
 
 ## Soft-blocks
 

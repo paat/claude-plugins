@@ -443,17 +443,23 @@ When triage returns `partially-fixable`, the supervisor splits the issue so the 
 work ships while the judgment work waits — never parking the whole thing. This is a
 **supervisor mutation**, skipped under `--dry-run` (print the would-be child instead).
 
-**File the child idempotently.** The child issue body carries a deterministic marker
-`maintain:split-from #<parent>` so re-running a pass never files a duplicate:
+**Duplicate pre-check always runs before filing any issue** (splits, re-occurrence
+children, monitor filings). Search/list for an existing match first; only create when
+zero matches. That pre-check is also **re-occurrence detection**: an existing open
+issue with the same marker/pattern is the work item — do not file a second one.
+
+**File the child idempotently.** The child body carries `maintain:split-from #<parent>`
+for linkage and pre-check identity (not as a post-create search gate).
 
 ```bash
 marker="maintain:split-from #$PARENT"
 split_body=$(printf '%s\n\n---\n%s\nThe judgment-bound remainder stays in the parent.\n' \
   "$FIXABLE_BODY" "$marker")
 
-# Resolve by exact body marker. Zero matches means create; more than one is ambiguous
-# and fails closed. `gh issue create` prints a URL and has no `--json` output flag.
-resolve_split_child() {
+# PRE-CHECK (always, before create): find existing child by exact body marker.
+# Zero → create. One → reuse. More than one → fail closed (true ambiguity).
+# Search is for dedup/re-occurrence only — never required after a successful create.
+find_split_child_by_marker() {
   local split_json
   split_json=$(gh issue list --state all --limit 1000 --search "$marker in:body" \
     --json number,body) || return 1
@@ -465,23 +471,30 @@ resolve_split_child() {
           else error("multiple split children carry the exact marker") end'
 }
 
-child=$(resolve_split_child) || {
-  echo "maintain: cannot resolve split child for parent #$PARENT" >&2
+child=$(find_split_child_by_marker) || {
+  echo "maintain: cannot run duplicate pre-check for parent #$PARENT" >&2
   exit 1
 }
 if [ -z "$child" ]; then
-  gh issue create --title "$FIXABLE_TITLE" --body "$split_body" >/dev/null || {
+  # Capture the number from create (URL or API). Do NOT re-search after create:
+  # GitHub search lag must not fail-close a successful create.
+  create_url=$(gh issue create --title "$FIXABLE_TITLE" --body "$split_body") || {
     echo "maintain: cannot create split child for parent #$PARENT" >&2
     exit 1
   }
-  child=$(resolve_split_child) || {
-    echo "maintain: created split child but cannot resolve it uniquely" >&2
-    exit 1
-  }
+  child=$(printf '%s\n' "$create_url" | sed -nE 's#.*/issues/([0-9]+).*#\1#p')
+  case "$child" in
+    ''|*[!0-9]*|0*)
+      # Fallback: API create with number in JSON if URL parse failed
+      child=$(gh api "repos/{owner}/{repo}/issues" -f title="$FIXABLE_TITLE" \
+        -f body="$split_body" --jq .number 2>/dev/null || true)
+      ;;
+  esac
 fi
 case "$child" in
   ''|*[!0-9]*|0*) echo "maintain: split child id is not numeric" >&2; exit 1 ;;
 esac
+# Verify by direct issue view (not search): body contains the marker we authored.
 child_body=$(gh issue view "$child" --json body -q .body) || {
   echo "maintain: cannot verify split child #$child" >&2
   exit 1
@@ -493,8 +506,9 @@ printf '%s\n' "$child_body" | grep -Fqx "$marker" || {
 ```
 
 Do not label or comment on the parent until this numeric child ID and exact marker are
-verified. A create/resolve/verify failure stops the pass; it never records `split:` with
-an empty URL or accidentally parks the fixable work.
+verified via **direct view**. A pre-check failure (search error / multi-match) or create
+failure stops the pass. A **successful create must not be failed** solely because a
+follow-up search has not indexed yet.
 
 The child inherits the parent's severity label if recognizable. It is an ordinary
 `agent-fixable` issue from then on: re-read at the next Loop-Body step 1, queued and
