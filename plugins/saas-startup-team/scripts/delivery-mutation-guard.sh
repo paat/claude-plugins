@@ -420,9 +420,21 @@ always_exempt_ignored_path() {
   case "$path" in
     .startup/maintain-loop|.startup/maintain-loop/*) return 0 ;;
   esac
+  # Large dependency / build / test / runtime-data trees. These are either
+  # sealed via check_runtimes (node_modules, venv) or are regenerated product
+  # caches/PII dumps that must not force O(n) fingerprinting on every
+  # mutation-guard snapshot (seen hanging at 50k+ paths on aruannik).
   case "/$path/" in
     */node_modules/*|*/.pnpm-store/*|*/.pnpm/*|*/bower_components/*|\
-    */.yarn/cache/*|*/.yarn/unplugged/*) return 0 ;;
+    */.yarn/cache/*|*/.yarn/unplugged/*|\
+    */venv/*|*/.venv/*|*/site-packages/*|\
+    */.next/*|*/dist/*|*/build/*|*/coverage/*|*/htmlcov/*|*/.turbo/*|*/.cache/*|\
+    */__pycache__/*|*/.pytest_cache/*|*/.mypy_cache/*|*/.ruff_cache/*|*/.tox/*|*/.eggs/*|\
+    */.playwright-mcp/*|*/playwright-report/*|*/test-results/*|\
+    */data/reports/*|*/data/orders/*|*/data/payments/*|*/data/analytics/*|\
+    */data/ecb-rates-cache/*|*/data/listmonk-backups/*|*/data/listmonk-backups-*/*|\
+    */logs/*|*/.startup/runs/*|*/.startup/handoffs/*|*/.startup/digests/*|\
+    */.startup/maintain/*|*/.monitor/*|*/.replay-shots/*|*/.replay-tmp/*) return 0 ;;
   esac
   return 1
 }
@@ -454,52 +466,112 @@ materialize_git_ls_files() {
 }
 
 materialize_ignored_paths() {
-  local output="$1" top nested path directory
-  top="$(mktemp)" || return 1
-  nested="$(mktemp)" || { rm -f -- "$top"; return 1; }
-  : > "$output" || { rm -f -- "$top" "$nested"; return 1; }
-  materialize_git_ls_files "$top" . --others --ignored --exclude-standard --directory || {
-    rm -f -- "$top" "$nested"
+  # Single bulk `git ls-files` of all ignored paths, then filter in one process.
+  # The previous top-level `--directory` + per-dir expand was O(ignored-dirs)
+  # git spawns and hung for minutes on product checkouts with ~1k+ ignored
+  # directory entries and 50k+ files under data dumps / venv / .next.
+  local output="$1" all
+  all="$(mktemp)" || return 1
+  : > "$output" || { rm -f -- "$all"; return 1; }
+  materialize_git_ls_files "$all" . --others --ignored --exclude-standard || {
+    rm -f -- "$all"
     return 1
   }
-  while IFS= read -r -d '' path; do
-    if [[ "$path" == */ ]]; then
-      directory=${path%/}
-      always_exempt_ignored_path "$directory" && continue
-      materialize_git_ls_files "$nested" "$directory" --others --ignored --exclude-standard || {
-        rm -f -- "$top" "$nested"
-        return 1
-      }
-      while IFS= read -r -d '' path; do
-        allowed_path "$path" || always_exempt_ignored_path "$path" \
-          || printf '%s\0' "$path" >> "$output" \
-          || { rm -f -- "$top" "$nested"; return 1; }
-      done < "$nested"
-    else
-      allowed_path "$path" || always_exempt_ignored_path "$path" \
-        || printf '%s\0' "$path" >> "$output" \
-        || { rm -f -- "$top" "$nested"; return 1; }
-    fi
-  done < "$top"
-  rm -f -- "$top" "$nested"
+  if command -v python3 >/dev/null 2>&1; then
+    # Keep filter rules in sync with always_exempt_ignored_path / allowed_path
+    # prefix exemptions. allowed_path is path-shape only for absolute/escape;
+    # here we only drop always-exempt heavy trees and directory placeholders.
+    python3 - "$all" "$output" <<'PY' || { rm -f -- "$all"; return 1; }
+import re, sys
+src, dst = sys.argv[1], sys.argv[2]
+exempt = re.compile(
+    r"(?:^|/)"
+    r"(?:"
+    r"node_modules|\.pnpm-store|\.pnpm|bower_components|"
+    r"\.yarn/cache|\.yarn/unplugged|"
+    r"venv|\.venv|site-packages|"
+    r"\.next|dist|build|coverage|htmlcov|\.turbo|\.cache|"
+    r"__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.tox|\.eggs|"
+    r"\.playwright-mcp|playwright-report|test-results|"
+    r"data/reports|data/orders|data/payments|data/analytics|"
+    r"data/ecb-rates-cache|data/listmonk-backups(?:-[^/]*)?|"
+    r"logs|"
+    r"\.startup/runs|\.startup/handoffs|\.startup/digests|"
+    r"\.startup/maintain|\.startup/maintain-loop|"
+    r"\.monitor|\.replay-shots|\.replay-tmp"
+    r")"
+    r"(?:/|$)"
+)
+maintain_loop = re.compile(r"^\.startup/maintain-loop(?:/|$)")  # kept for clarity; covered above
+with open(src, "rb") as fh, open(dst, "wb") as out:
+    for raw in fh.read().split(b"\0"):
+        if not raw or raw.endswith(b"/"):
+            continue
+        try:
+            path = raw.decode()
+        except UnicodeDecodeError:
+            continue
+        if maintain_loop.match(path):
+            continue
+        if exempt.search(path):
+            continue
+        out.write(raw + b"\0")
+PY
+  else
+    local path
+    while IFS= read -r -d '' path; do
+      [[ "$path" == */ ]] && continue
+      allowed_path "$path" && continue
+      always_exempt_ignored_path "$path" && continue
+      printf '%s\0' "$path" >> "$output" || { rm -f -- "$all"; return 1; }
+    done < "$all"
+  fi
+  rm -f -- "$all"
 }
 
 ignored_path_key() {
   local result
-  result="$(printf '%s' "$1" | git hash-object --stdin)" || return 1
+  # Prefer python (no per-path process spawn). Fallback matches git blob OID.
+  # Use printf (not <<<) so no trailing newline is hashed.
+  if command -v python3 >/dev/null 2>&1; then
+    result="$(printf '%s' "$1" | python3 -c 'import hashlib,sys
+p=sys.stdin.buffer.read()
+h=hashlib.sha1(); h.update(b"blob %d\0"%len(p)); h.update(p); print(h.hexdigest())')" || return 1
+  else
+    result="$(printf '%s' "$1" | git hash-object --stdin)" || return 1
+  fi
   valid_git_oid "$result" || return 1
   printf '%s\n' "$result" || return 1
 }
 
 materialize_ignored_baseline_keys() {
-  local output="$1" paths path key
+  local output="$1" paths
   paths="$(mktemp)" || return 1
   : > "$output" || { rm -f -- "$paths"; return 1; }
   materialize_ignored_paths "$paths" || { rm -f -- "$paths"; return 1; }
-  while IFS= read -r -d '' path; do
-    key="$(ignored_path_key "$path")" || { rm -f -- "$paths"; return 1; }
-    printf '%s\n' "$key" >> "$output" || { rm -f -- "$paths"; return 1; }
-  done < "$paths"
+  # Batch-hash path strings once. Per-path `git hash-object` was O(n) process
+  # spawns and hung multi-GB product checkouts for minutes under lease ptrace.
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$paths" "$output" <<'PY' || { rm -f -- "$paths"; return 1; }
+import hashlib, sys
+src, dst = sys.argv[1], sys.argv[2]
+with open(src, "rb") as fh, open(dst, "w", encoding="ascii") as out:
+    data = fh.read().split(b"\0")
+    for path in data:
+        if not path:
+            continue
+        h = hashlib.sha1()
+        h.update(b"blob %d\0" % len(path))
+        h.update(path)
+        out.write(h.hexdigest() + "\n")
+PY
+  else
+    local path key
+    while IFS= read -r -d '' path; do
+      key="$(ignored_path_key "$path")" || { rm -f -- "$paths"; return 1; }
+      printf '%s\n' "$key" >> "$output" || { rm -f -- "$paths"; return 1; }
+    done < "$paths"
+  fi
   rm -f -- "$paths"
 }
 
