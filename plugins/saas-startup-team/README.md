@@ -442,8 +442,10 @@ The supervisor also stops on deploy failure (unrecoverable infra/flaky issues ha
 - **Issue-closure audit:** `/improve` and `/goal-deliver` call
   `scripts/issue-closure-audit.sh` for PRs using `Closes`, `Fixes`, or `Resolves`. It
   compares closing issue body/comments against PR files and requires a closure-audit
-  explanation, follow-up issue, `Refs #N`, or implementation of any explicitly named
-  surface that was not touched.
+  explanation, follow-up issue, `Refs #N`, `Closure-Audit-Unchanged` for a named
+  negative/unchanged requirement, or implementation of any explicitly named surface
+  that was not touched. Bare basenames are dropped when a full repository path with
+  the same basename is already present.
 - **Single-flight leases:** `scripts/single-flight.sh` owns issue/job/scan/report/deploy
   work units with owner, heartbeat, stale replacement audit notes, and release/status
   commands. Long-running work is treated as alive when the heartbeat/logs advance. The

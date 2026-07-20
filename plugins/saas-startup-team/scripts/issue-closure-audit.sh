@@ -359,6 +359,61 @@ extract_paths() {
   rm -rf -- "$dir"
 }
 
+# Drop bare basenames when a full repository path with the same basename is
+# already present. Issue text often cites both `path/to/file.py` and `file.py`;
+# requiring the bare basename in the PR file list is a false fail (#1604).
+dedupe_issue_paths() {
+  local paths="$1" p base
+  declare -A full_basenames=()
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    case "$p" in
+      */*)
+        base="${p##*/}"
+        full_basenames["$base"]=1
+        ;;
+    esac
+  done <<< "$paths"
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    case "$p" in
+      */*) printf '%s\n' "$p" ;;
+      *)
+        if [ -n "${full_basenames[$p]+present}" ]; then
+          continue
+        fi
+        printf '%s\n' "$p"
+        ;;
+    esac
+  done <<< "$paths"
+}
+
+# Explicit negative/unchanged surface disposition. A named path that must remain
+# behaviorally unchanged is not an unimplemented surface when the PR body binds
+# one exact reason (backed by test/evidence prose). Format:
+#   Closure-Audit-Unchanged: #N path/to/file | concrete reason (min 20 chars)
+has_unchanged_disposition() {
+  local n="$1" path="$2"
+  local prefix reasons count reason
+  prefix="Closure-Audit-Unchanged: #$n $path | "
+  reasons="$(printf '%s\n' "$body" | awk -v prefix="$prefix" '
+    index($0, prefix) == 1 { print substr($0, length(prefix) + 1) }
+  ')"
+  [ -n "$reasons" ] || return 1
+  count=$(printf '%s\n' "$reasons" | wc -l | tr -d ' ')
+  if [ "$count" -ne 1 ]; then
+    echo "issue-closure-audit: unchanged disposition for #$n $path must appear exactly once. Refusing." >&2
+    return 1
+  fi
+  reason="$reasons"
+  # Require a concrete reason (min 20 non-space-trimmed characters).
+  if ! printf '%s\n' "$reason" | grep -Eq '^[^[:space:]].{19,}$'; then
+    echo "issue-closure-audit: unchanged disposition for #$n $path needs a concrete reason (min 20 chars). Refusing." >&2
+    return 1
+  fi
+  return 0
+}
+
 has_authorized_deferral() {
   local n="$1" path="$2" issue_file="$3"
   local prefix reasons count reason followup followup_file followup_number followup_state
@@ -477,10 +532,19 @@ for n in $closure_nums; do
     continue
   }
   [ -n "$paths" ] || continue
+  paths="$(dedupe_issue_paths "$paths")" || {
+    echo "issue-closure-audit: cannot canonicalize named issue surfaces for #$n. Refusing." >&2
+    failures=$((failures + 1))
+    continue
+  }
+  [ -n "$paths" ] || continue
 
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     if grep -qxF "$path" "$FILES"; then
+      continue
+    fi
+    if has_unchanged_disposition "$n" "$path"; then
       continue
     fi
     if has_authorized_deferral "$n" "$path" "$issue_file"; then
@@ -490,7 +554,7 @@ for n in $closure_nums; do
     if [ -n "$audit_nums" ]; then
       echo "issue-closure-audit: prospective audits cannot defer named surfaces; include the missing surface." >&2
     else
-      echo "issue-closure-audit: include the surface, change Closes to Refs, or add an authorized exact Closure-Audit-Path mapping to an OPEN follow-up." >&2
+      echo "issue-closure-audit: include the surface, change Closes to Refs, add Closure-Audit-Unchanged for a negative requirement, or add an authorized exact Closure-Audit-Path mapping to an OPEN follow-up." >&2
     fi
     failures=$((failures + 1))
   done <<< "$paths"
