@@ -191,12 +191,16 @@ embedded_delivery_receipt_probe() {
   }
   case "$pending_route" in
     canonical)
-      [ "$pending_mode" = maintain ] && expected_worktree="$primary" ;;
+      [ "$pending_mode" = maintain ] || {
+        echo "workflow-probe: $OUTPUT_MODE blocked: canonical route requires maintain mode" >&2; exit 4; } ;;
     legacy-recovery)
-      [ "$pending_mode" = maintain-loop ] && expected_worktree="$primary" ;;
+      [ "$pending_mode" = maintain-loop ] || {
+        echo "workflow-probe: $OUTPUT_MODE blocked: legacy-recovery route requires maintain-loop mode" >&2; exit 4; } ;;
+    *) echo "workflow-probe: $OUTPUT_MODE blocked: unknown controller route kind" >&2; exit 4 ;;
   esac
-  [ -n "${expected_worktree:-}" ] && [ "$pending_worktree" = "$expected_worktree" ] || {
-    echo "workflow-probe: $OUTPUT_MODE blocked: receipt controller route does not match its exact worktree" >&2
+  # Receipt field stays; value must always be the primary checkout.
+  [ "$pending_worktree" = "$primary" ] || {
+    echo "workflow-probe: $OUTPUT_MODE blocked: receipt controller worktree is not the primary checkout" >&2
     exit 4
   }
   CONTROLLER_ROUTE=$pending_route

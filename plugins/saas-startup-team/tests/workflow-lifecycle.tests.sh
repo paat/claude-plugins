@@ -58,9 +58,9 @@ test_workflow_lifecycle_safety() {
   assert_file_contains "WL5f: pending-receipt dry-run advances no delivery state" \
     "$maintain_receipts" 'Do not acquire a lease, enter `/goal-deliver`, advance the receipt'
   assert_before "WL6: maintain protocol orders pass lease before worktree mutation" "$maintain_protocol" \
-    '## Whole-Pass Lease' '## Workspace — Dedicated Worktree'
+    '## Whole-Pass Lease' '## Workspace — primary only'
   assert_before "WL6a: maintain router requests pass lease before worktree setup" "$maintain" \
-    '1. `Whole-Pass Lease`' '2. `Workspace — Dedicated Worktree`'
+    '1. `Whole-Pass Lease`' '2. `Workspace — primary only`'
   assert_before "WL6b: maintain-loop probes before fresh dispatch" "$maintain_loop" \
     'workflow-probe.sh maintain' \
     'launch exactly one fresh isolated subagent'
@@ -132,9 +132,10 @@ test_workflow_lifecycle_safety() {
   assert_file_contains "WL7f3: pre-worktree pending stays read-only on the primary" \
     "$maintain_receipts" 'maintain-delivery.sh` `pending`'
   count=$(grep -cF -- '--repo-root "$WT"' "$maintain_proof_contract" || true)
-  assert_equals "WL7f4: delivery proof calls use the leased worktree" "$count" 4
-  assert_file_not_contains "WL7f5: delivery proof never targets the primary checkout" \
-    "$maintain_proof_contract" '--repo-root "$REPO_ROOT"'
+  assert_equals "WL7f4: delivery proof calls use the primary alias \$WT" "$count" 4
+  # $WT is defined as $REPO_ROOT (primary alias); proofs target that alias.
+  assert_file_contains "WL7f5: protocol pins WT to the primary checkout" \
+    "$maintain_protocol" 'WT="$REPO_ROOT"'
   assert_before "WL7f6: new receipt begins only after the green base gate" "$maintain_receipts" \
     'Only after the base gate is green' \
     'maintain-delivery.sh begin'
@@ -146,7 +147,7 @@ test_workflow_lifecycle_safety() {
   assert_file_contains "WL7f9: post-merge recovery retains durable release state" \
     "$maintain_receipts" 'crash after claim, PR creation, merge, release, or close'
   assert_file_contains "WL7f10: unbound claimed recovery fails closed" "$maintain_receipts" \
-    'pending state without its issue, claim, bound worktree'
+    'pending state without its issue, claim, bound primary tree'
   assert_before "WL7f11: normal merge reset precedes live proof" "$maintain_receipts" \
     'Read `MERGE_SHA` only from the updated receipt' \
     'Run the common deploy/live verification'
@@ -281,10 +282,11 @@ test_workflow_lifecycle_safety() {
     'park residual'
   assert_file_not_contains "WL12: issue create uses no unsupported JSON flag" "$maintain_protocol" \
     '--json number -q .number'
-  assert_file_contains "WL12a: split list failure is captured" "$maintain_protocol" \
-    'split_json=$(gh issue list'
-  assert_file_contains "WL12b: split view failure is captured" "$maintain_protocol" \
-    'child_body=$(gh issue view'
+  # Partially-fixable no longer files split child issues (obsolete gh list/view capture).
+  assert_file_contains "WL12a: partially-fixable forbids split child issues" "$maintain_protocol" \
+    'Do not file a split child issue'
+  assert_file_contains "WL12b: partially-fixable forbids split-from markers" "$maintain_protocol" \
+    'maintain:split-from'
 
   assert_before "WL13: startup lease precedes idea capture" "$startup" \
     'Before any command that may write project state' '## Step 1: Capture the SaaS Idea'

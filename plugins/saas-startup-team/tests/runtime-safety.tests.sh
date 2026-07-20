@@ -375,45 +375,7 @@ SH
   git -C "$workdir" remote remove origin
   rm -rf "$remote_clone" "$remote"
 
-  trust_receipt="$workdir/.git/saas-startup-team/concurrent-base-check.json"
-  linked=$(mktemp -d); rmdir "$linked"
-  git -C "$workdir" worktree add -q -b concurrent-check-ref "$linked" HEAD
-  git -C "$linked" config user.email t@t.t; git -C "$linked" config user.name t
-  (cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
-    --check-only --auth-stdin <<<"$auth_token" >/dev/null)
-  check_signal=$(mktemp); check_release=$(mktemp); check_output=$(mktemp); check_status=$(mktemp)
-  rm -f "$check_signal" "$check_release"
-  (
-    ec=0
-    cd "$workdir"
-    SUPERVISOR_TEST_SIGNAL="$check_signal" SUPERVISOR_TEST_RELEASE="$check_release" \
-      PATH="$workdir/bin:$PATH" bash "$script" --check-only \
-      --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" >"$check_output" 2>&1 || ec=$?
-    printf '%s\n' "$ec" > "$check_status"
-  ) &
-  check_pid=$!
-  for ((i=0; i<500; i++)); do
-    [ ! -e "$check_signal" ] || break
-    sleep 0.01
-  done
-  assert_file_exists "RS14i12a: concurrent-ref fixture reaches the sealed check" "$check_signal"
-  guard_head=$(git -C "$workdir" rev-parse HEAD)
-  guard_ref=$(git -C "$workdir" symbolic-ref HEAD)
-  guard_index=$(git -C "$workdir" write-tree)
-  printf 'sibling progress\n' > "$linked/app.txt"
-  git -C "$linked" add app.txt; git -C "$linked" commit -qm sibling-progress
-  : > "$check_release"
-  wait "$check_pid"
-  assert_exit_code "RS14i12b: a non-active sibling ref does not invalidate check-only" \
-    "$(cat "$check_status")" 0
-  assert_equals "RS14i12c: concurrent refs leave base-check HEAD unchanged" \
-    "$(git -C "$workdir" rev-parse HEAD)" "$guard_head"
-  assert_equals "RS14i12d: concurrent refs leave base-check branch unchanged" \
-    "$(git -C "$workdir" symbolic-ref HEAD)" "$guard_ref"
-  assert_equals "RS14i12e: concurrent refs leave base-check index unchanged" \
-    "$(git -C "$workdir" write-tree)" "$guard_index"
-  rm -f "$check_signal" "$check_release" "$check_output" "$check_status"
-  git -C "$workdir" worktree remove --force "$linked"
+  # RS14i12 sibling-linked-worktree concurrency suite deleted (primary-only contract).
 
   trust_receipt="$workdir/.git/saas-startup-team/concurrent-new-ref-check.json"
   (cd "$workdir" && bash "$script" --snapshot-trust "$trust_receipt" \
@@ -434,6 +396,7 @@ SH
     sleep 0.01
   done
   assert_file_exists "RS14i12f: new-ref fixture reaches the sealed check" "$check_signal"
+  guard_head=$(git -C "$workdir" rev-parse HEAD)
   git -C "$workdir" update-ref refs/heads/worker-created "$guard_head"
   : > "$check_release"
   wait "$check_pid"
@@ -999,9 +962,6 @@ SH
   remote=$(mktemp -d); rm -rf "$remote"; git init -q --bare "$remote"
   git -C "$workdir" remote add origin "$remote"
   git -C "$workdir" push -qu origin guarded-active
-  linked=$(mktemp -d); rmdir "$linked"
-  git -C "$workdir" worktree add -q -b guarded-sibling "$linked" HEAD
-  git -C "$linked" config user.email t@t.t; git -C "$linked" config user.name t
   trust_receipt="$workdir/.git/saas-startup-team/supervisor-trust.json"; supervisor_snapshot
   assert_equals "RS19x0: commit receipt uses strict schema 4" \
     "$(jq -r '.schema_version' "$trust_receipt")" 4
@@ -1042,12 +1002,7 @@ SH
     --message test --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19x7: worker-created tag is rejected" "$ec" 1
   git -C "$workdir" tag -d worker-tag >/dev/null
-  printf 'sibling progress\n' > "$linked/app.txt"
-  git -C "$linked" add app.txt; git -C "$linked" commit -qm sibling-progress
-  ec=0; out=$(cd "$workdir" && PATH="$workdir/bin:$PATH" bash "$script" \
-    --message test --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
-  assert_exit_code "RS19x8: a pre-existing sibling-worktree branch advance is rejected" "$ec" 1
-  git -C "$workdir" worktree remove --force "$linked"
+  # RS19x8 sibling-linked-worktree advance deleted (primary-only contract).
   rm -rf "$workdir" "$remote"
 
   # Exact authenticated allowlists exclude unrelated pre-existing untracked dirt.
@@ -1156,8 +1111,9 @@ SH
   assert_exit_code "RS19zk: primary ignored dependencies are outside check lookup" "$ec" 0
   rm -rf "$workdir"
 
-  # A linked delivery seals compatible primary runtimes and mounts them read-only
-  # into the disposable authoritative-check clone.
+  # Primary-only delivery seals its own ignored runtimes and mounts them
+  # read-only into the disposable authoritative-check clone (same deps path as
+  # the investor on the product primary).
   script="$PLUGIN_ROOT/scripts/supervisor-commit.sh"
   workdir=$(make_workdir); git -C "$workdir" config user.email t@t.t; git -C "$workdir" config user.name t
   mkdir -p "$workdir/frontend/packages/widget" \
@@ -1189,13 +1145,12 @@ SH
   printf 'sealed-python\n' > "$workdir/backend/venv/runtime.txt"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$workdir/backend/venv/bin/python"
   chmod +x "$workdir/backend/venv/bin/python"
-  linked=$(mktemp -d); rmdir "$linked"; git -C "$workdir" worktree add -q -b runtime-check "$linked"
-  make_supervisor_sandbox "$linked"
-  trust_receipt=$(git -C "$linked" rev-parse --git-path saas-startup-team/runtime-trust.json)
+  make_supervisor_sandbox "$workdir"
+  trust_receipt="$(git -C "$workdir" rev-parse --absolute-git-dir)/saas-startup-team/runtime-trust.json"
   auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  ec=0; out=$(bash "$script" --repo-root "$linked" --snapshot-trust "$trust_receipt" \
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --snapshot-trust "$trust_receipt" \
     --auth-stdin --allow app.txt --allow check.sh <<<"$auth_token" 2>&1) || ec=$?
-  assert_exit_code "RS19zkr1: linked runtime trust snapshot succeeds" "$ec" 0
+  assert_exit_code "RS19zkr1: primary runtime trust snapshot succeeds" "$ec" 0
   assert_equals "RS19zkr2: receipt seals both runtime classes" \
     "$(jq '.check_runtimes|length' "$trust_receipt")" 2
   assert_exit_code "RS19zkr2a: receipt seals nested dependency manifests" \
@@ -1207,9 +1162,9 @@ SH
       ([.check_runtimes[].manifests[].path] | index("frontend/packages/widget/package.json")) != null and
       ([.check_runtimes[].manifests[].path] | index("backend/services/api/requirements/dev.txt")) != null
     ' "$trust_receipt" >/dev/null 2>&1; echo $?)" 0
-  printf 'changed\n' > "$linked/app.txt"
+  printf 'changed\n' > "$workdir/app.txt"
   real_jq=$(command -v jq)
-  cat > "$linked/bin/jq" <<'SH'
+  cat > "$workdir/bin/jq" <<'SH'
 #!/usr/bin/env bash
 mode=${FAIL_RUNTIME_JQ:-}
 for arg in "$@"; do
@@ -1226,10 +1181,10 @@ for arg in "$@"; do
 done
 exec "$REAL_JQ" "$@"
 SH
-  chmod +x "$linked/bin/jq"
+  chmod +x "$workdir/bin/jq"
   for jq_failure in count items field truncate; do
     ec=0; out=$(REAL_JQ="$real_jq" FAIL_RUNTIME_JQ="$jq_failure" \
-      bash "$script" --repo-root "$linked" --message runtime \
+      bash "$script" --repo-root "$workdir" --message runtime \
       --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
     assert_exit_code "RS19zkr2 runtime receipt jq failure blocks before checks:$jq_failure" "$ec" 1
   done
@@ -1237,114 +1192,112 @@ SH
   assert_file_not_exists "RS19zkr2c: runtime jq failures create no check evidence" \
     "$(dirname -- "$trust_receipt")/check-logs"
   assert_equals "RS19zkr2d: runtime jq failures create no commit" \
-    "$(git -C "$linked" rev-list --count HEAD)" 1
-  rm -f -- "$linked/bin/jq"
-  ec=0; out=$(bash "$script" --repo-root "$linked" --message runtime \
+    "$(git -C "$workdir" rev-list --count HEAD)" 1
+  rm -f -- "$workdir/bin/jq"
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --message runtime \
     --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zkr3: sealed read-only runtimes satisfy the check" "$ec" 0
-  assert_file_not_exists "RS19zkr4: runtime is never linked into the worker tree" \
-    "$linked/frontend/node_modules"
+  assert_file_exists "RS19zkr4: primary keeps ignored node_modules for investor path" \
+    "$workdir/frontend/node_modules/runtime.txt"
 
-  trust_receipt=$(git -C "$linked" rev-parse --git-path saas-startup-team/runtime-drift.json)
+  trust_receipt="$(git -C "$workdir" rev-parse --absolute-git-dir)/saas-startup-team/runtime-drift.json"
   auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  bash "$script" --repo-root "$linked" --snapshot-trust "$trust_receipt" \
+  bash "$script" --repo-root "$workdir" --snapshot-trust "$trust_receipt" \
     --auth-stdin --allow app.txt --allow check.sh <<<"$auth_token" >/dev/null
   printf 'poisoned\n' > "$workdir/frontend/node_modules/runtime.txt"
-  printf 'changed-again\n' > "$linked/app.txt"
-  ec=0; out=$(bash "$script" --repo-root "$linked" --message drift \
+  printf 'changed-again\n' > "$workdir/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --message drift \
     --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zkr5: runtime drift after snapshot fails closed" "$ec" 1
   assert_output_contains "RS19zkr6: runtime drift is explicit" "$out" 'runtime changed'
   printf 'sealed-node\n' > "$workdir/frontend/node_modules/runtime.txt"
-  git -C "$linked" restore app.txt
+  git -C "$workdir" restore app.txt
 
-  trust_receipt=$(git -C "$linked" rev-parse --git-path saas-startup-team/runtime-touch.json)
+  trust_receipt="$(git -C "$workdir" rev-parse --absolute-git-dir)/saas-startup-team/runtime-touch.json"
   auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  bash "$script" --repo-root "$linked" --snapshot-trust "$trust_receipt" \
+  bash "$script" --repo-root "$workdir" --snapshot-trust "$trust_receipt" \
     --auth-stdin --allow app.txt <<<"$auth_token" >/dev/null
   touch -m -d '2001-01-01 UTC' "$workdir/frontend/node_modules/runtime.txt"
-  printf 'touch-drift\n' > "$linked/app.txt"
-  ec=0; out=$(bash "$script" --repo-root "$linked" --message touch-drift \
+  printf 'touch-drift\n' > "$workdir/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --message touch-drift \
     --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zkr6a: runtime mtime drift after snapshot fails closed" "$ec" 1
   assert_output_contains "RS19zkr6b: runtime mtime drift is explicit" "$out" 'runtime changed'
-  git -C "$linked" restore app.txt
+  git -C "$workdir" restore app.txt
 
-  trust_receipt=$(git -C "$linked" rev-parse --git-path saas-startup-team/runtime-manifest.json)
+  trust_receipt="$(git -C "$workdir" rev-parse --absolute-git-dir)/saas-startup-team/runtime-manifest.json"
   auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  bash "$script" --repo-root "$linked" --snapshot-trust "$trust_receipt" \
+  bash "$script" --repo-root "$workdir" --snapshot-trust "$trust_receipt" \
     --auth-stdin --allow app.txt \
     --allow package.json --allow pnpm-workspace.yaml --allow .npmrc --allow pyproject.toml \
     --allow frontend/packages/widget/package.json \
     --allow frontend/packages/widget/package-lock.json \
     --allow backend/services/api/requirements/new.txt <<<"$auth_token" >/dev/null
-  printf '{"name":"changed-widget"}\n' > "$linked/frontend/packages/widget/package.json"
-  printf 'manifest-change\n' > "$linked/app.txt"
-  ec=0; out=$(bash "$script" --repo-root "$linked" --message manifest \
+  printf '{"name":"changed-widget"}\n' > "$workdir/frontend/packages/widget/package.json"
+  printf 'manifest-change\n' > "$workdir/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --message manifest \
     --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zkr7: nested dependency change rejects stale runtime" "$ec" 1
   assert_output_contains "RS19zkr8: nested change failure is explicit" "$out" 'dependency manifests changed'
-  git -C "$linked" restore app.txt frontend/packages/widget/package.json
+  git -C "$workdir" restore app.txt frontend/packages/widget/package.json
 
-  printf 'ruff==1\n' > "$linked/backend/services/api/requirements/new.txt"
-  printf 'manifest-add\n' > "$linked/app.txt"
-  ec=0; out=$(bash "$script" --repo-root "$linked" --message manifest-add \
+  printf 'ruff==1\n' > "$workdir/backend/services/api/requirements/new.txt"
+  printf 'manifest-add\n' > "$workdir/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --message manifest-add \
     --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zkr8a: nested dependency addition rejects stale runtime" "$ec" 1
   assert_output_contains "RS19zkr8b: nested addition failure is explicit" "$out" 'dependency manifests changed'
-  rm -f "$linked/backend/services/api/requirements/new.txt"
-  git -C "$linked" restore app.txt
+  rm -f "$workdir/backend/services/api/requirements/new.txt"
+  git -C "$workdir" restore app.txt
 
-  rm "$linked/frontend/packages/widget/package-lock.json"
-  printf 'manifest-delete\n' > "$linked/app.txt"
-  ec=0; out=$(bash "$script" --repo-root "$linked" --message manifest-delete \
+  rm "$workdir/frontend/packages/widget/package-lock.json"
+  printf 'manifest-delete\n' > "$workdir/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --message manifest-delete \
     --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zkr8c: nested dependency deletion rejects stale runtime" "$ec" 1
   assert_output_contains "RS19zkr8d: nested deletion failure is explicit" "$out" 'dependency manifests changed'
-  git -C "$linked" restore app.txt frontend/packages/widget/package-lock.json
+  git -C "$workdir" restore app.txt frontend/packages/widget/package-lock.json
 
-  printf '{"workspaces":[]}\n' > "$linked/package.json"
-  printf 'root-node-manifest\n' > "$linked/app.txt"
-  ec=0; out=$(bash "$script" --repo-root "$linked" --message root-node-manifest \
+  printf '{"workspaces":[]}\n' > "$workdir/package.json"
+  printf 'root-node-manifest\n' > "$workdir/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --message root-node-manifest \
     --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zkr8e: root Node manifest change rejects stale runtime" "$ec" 1
   assert_output_contains "RS19zkr8f: root Node manifest failure is explicit" "$out" 'dependency manifests changed'
-  git -C "$linked" restore app.txt package.json
+  git -C "$workdir" restore app.txt package.json
 
-  printf '[project]\nname = "changed-workspace"\n' > "$linked/pyproject.toml"
-  printf 'root-python-manifest\n' > "$linked/app.txt"
-  ec=0; out=$(bash "$script" --repo-root "$linked" --message root-python-manifest \
+  printf '[project]\nname = "changed-workspace"\n' > "$workdir/pyproject.toml"
+  printf 'root-python-manifest\n' > "$workdir/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --message root-python-manifest \
     --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zkr8g: root Python manifest change rejects stale runtime" "$ec" 1
   assert_output_contains "RS19zkr8h: root Python manifest failure is explicit" "$out" 'dependency manifests changed'
-  git -C "$linked" restore app.txt pyproject.toml
+  git -C "$workdir" restore app.txt pyproject.toml
 
-  printf 'packages: []\n' > "$linked/pnpm-workspace.yaml"
-  printf 'root-workspace-config\n' > "$linked/app.txt"
-  ec=0; out=$(bash "$script" --repo-root "$linked" --message root-workspace-config \
+  printf 'packages: []\n' > "$workdir/pnpm-workspace.yaml"
+  printf 'root-workspace-config\n' > "$workdir/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --message root-workspace-config \
     --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zkr8i: root workspace config change rejects stale runtime" "$ec" 1
   assert_output_contains "RS19zkr8j: root workspace config failure is explicit" "$out" 'dependency manifests changed'
-  git -C "$linked" restore app.txt pnpm-workspace.yaml
+  git -C "$workdir" restore app.txt pnpm-workspace.yaml
 
-  printf 'node-linker=isolated\n' > "$linked/.npmrc"
-  printf 'root-package-manager-config\n' > "$linked/app.txt"
-  ec=0; out=$(bash "$script" --repo-root "$linked" --message root-package-manager-config \
+  printf 'node-linker=isolated\n' > "$workdir/.npmrc"
+  printf 'root-package-manager-config\n' > "$workdir/app.txt"
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --message root-package-manager-config \
     --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zkr8k: root package-manager config change rejects stale runtime" "$ec" 1
   assert_output_contains "RS19zkr8l: root package-manager config failure is explicit" "$out" 'dependency manifests changed'
-  git -C "$linked" restore app.txt .npmrc
+  git -C "$workdir" restore app.txt .npmrc
 
   ln -s /workspace/secret "$workdir/frontend/node_modules/escape"
-  trust_receipt=$(git -C "$linked" rev-parse --git-path saas-startup-team/runtime-escape.json)
+  trust_receipt="$(git -C "$workdir" rev-parse --absolute-git-dir)/saas-startup-team/runtime-escape.json"
   auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  ec=0; out=$(bash "$script" --repo-root "$linked" --snapshot-trust "$trust_receipt" \
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --snapshot-trust "$trust_receipt" \
     --auth-stdin --allow app.txt <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zkr9: escaping runtime symlink blocks trust snapshot" "$ec" 1
   assert_output_contains "RS19zkr10: escaping symlink failure is explicit" "$out" 'runtime link escapes'
   rm -f "$workdir/frontend/node_modules/escape"
-  git -C "$workdir" worktree remove --force "$linked"
-  git -C "$workdir" branch -D runtime-check >/dev/null
   rm -rf "$workdir"
 
   # Filtered paths fail closed instead of staging raw LFS/custom-filter content.
@@ -1990,39 +1943,7 @@ SH
   assert_output_contains "RS19zns: unsafe verified slot is explicit" "$out" 'artifact slot became unsafe'
   rm -rf "$workdir" "$state_dir"
 
-  # Raw linked-worktree control files are identity-bound, not just semantically resolved.
-  workdir=$(make_workdir); (cd "$workdir" && git config user.email t@t.t && git config user.name t)
-  printf 'base\n' > "$workdir/app.txt"; printf '#!/usr/bin/env bash\nexit 0\n' > "$workdir/check.sh"
-  chmod +x "$workdir/check.sh"; (cd "$workdir" && git add . && git commit -qm init)
-  linked=$(mktemp -d); rmdir "$linked"; git -C "$workdir" worktree add -q -b guard-control "$linked"
-  make_supervisor_sandbox "$linked"
-  git_dir=$(git -C "$linked" rev-parse --absolute-git-dir)
-  raw_commondir=$(cat "$git_dir/commondir")
-  common_dir=$(cd "$git_dir/$raw_commondir" && pwd -P)
-  guard_snapshot="$git_dir/saas-startup-team/qa.json"
-  guard_auth=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"
-  (cd "$linked" && bash "$script" --snapshot "$guard_snapshot" \
-    --auth-stdin --allow .startup/reviews/result.md <<<"$guard_auth" >/dev/null)
-  script="$PLUGIN_ROOT/scripts/supervisor-commit.sh"; trust_receipt="$git_dir/saas-startup-team/supervisor-trust.json"
-  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  (cd "$linked" && bash "$script" --snapshot-trust "$trust_receipt" --auth-stdin \
-    --allow app.txt --allow check.sh <<<"$auth_token" >/dev/null)
-  printf 'changed\n' > "$linked/app.txt"
-  printf '%s\n' "$common_dir" > "$git_dir/commondir"
-  script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"
-  ec=0; out=$(cd "$linked" && bash "$script" --verify "$guard_snapshot" \
-    --auth-stdin <<<"$guard_auth" 2>&1) || ec=$?
-  assert_exit_code "RS19znt: guard rejects equivalent raw commondir rewrite" "$ec" 1
-  assert_output_contains "RS19znu: guard reports linked-worktree control drift" "$out" 'Git hooks or control metadata'
-  script="$PLUGIN_ROOT/scripts/supervisor-commit.sh"
-  ec=0; out=$(cd "$linked" && PATH="$linked/bin:$PATH" bash "$script" \
-    --message test --trust-receipt "$trust_receipt" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
-  assert_exit_code "RS19znv: supervisor rejects equivalent raw commondir rewrite" "$ec" 1
-  assert_output_contains "RS19znw: supervisor reports linked-worktree metadata drift" "$out" 'Git metadata changed'
-  printf '%s\n' "$raw_commondir" > "$git_dir/commondir"
-  git -C "$workdir" worktree remove --force "$linked"
-  rm -rf "$workdir"
+  # RS19znt–znw linked-worktree control identity suite deleted (primary-only).
 
   # QA guard fingerprints pre-existing product state, not just HEAD.
   script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"
@@ -2035,9 +1956,6 @@ SH
   (cd "$workdir" && git add app.txt .gitignore && git commit -qm init)
   git -C "$workdir" branch -m guarded-active
   git -C "$workdir" branch main HEAD
-  linked=$(mktemp -d); rmdir "$linked"
-  git -C "$workdir" worktree add -q -b guard-concurrent "$linked" HEAD
-  git -C "$linked" config user.email t@t.t; git -C "$linked" config user.name t
   printf 'tech-diff\n' > "$workdir/app.txt"
   snapshot="$workdir/.git/saas-startup-team/qa.json"
   auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
@@ -2052,20 +1970,18 @@ SH
   guard_head=$(git -C "$workdir" rev-parse HEAD)
   guard_ref=$(git -C "$workdir" symbolic-ref HEAD)
   guard_index=$(git -C "$workdir" write-tree)
-  printf 'concurrent\n' > "$linked/app.txt"
-  git -C "$linked" add app.txt; git -C "$linked" commit -qm concurrent
-  concurrent_head=$(git -C "$linked" rev-parse HEAD)
+  # Sibling-linked-worktree advance tests removed; primary-only branch rewrites below.
+  concurrent_head=$(printf 'concurrent\n' | git -C "$workdir" commit-tree "$(git -C "$workdir" rev-parse 'HEAD^{tree}')" -p "$guard_head")
+  git -C "$workdir" update-ref refs/heads/guard-concurrent "$concurrent_head"
   printf 'review\n' > "$workdir/.startup/reviews/result.md"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
-  assert_exit_code "RS19zj: sibling-worktree branch progress violates the role guard" "$ec" 1
+  assert_exit_code "RS19zj: concurrent branch progress violates the role guard" "$ec" 1
   assert_equals "RS19zj1: unrelated ref advance leaves guarded HEAD unchanged" \
     "$(git -C "$workdir" rev-parse HEAD)" "$guard_head"
   assert_equals "RS19zj2: unrelated ref advance leaves guarded branch unchanged" \
     "$(git -C "$workdir" symbolic-ref HEAD)" "$guard_ref"
   assert_equals "RS19zj3: unrelated ref advance leaves guarded index unchanged" \
     "$(git -C "$workdir" write-tree)" "$guard_index"
-  assert_equals "RS19zj4: sibling branch actually advanced" \
-    "$([ "$concurrent_head" != "$guard_head" ] && echo true || echo false)" true
   git -C "$workdir" update-ref refs/heads/guard-concurrent "$guard_head" "$concurrent_head"
   printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
   git -C "$workdir" update-ref refs/heads/guard-concurrent "$concurrent_head" "$guard_head"
@@ -2092,7 +2008,6 @@ SH
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
   assert_exit_code "RS19zj7: worker-created remote ref violates role guard" "$ec" 1
   git -C "$workdir" update-ref -d refs/remotes/origin/guard-concurrent
-  git -C "$workdir" worktree remove --force "$linked"
   printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$workdir/.git/hooks/pre-push"
   chmod +x "$workdir/.git/hooks/pre-push"

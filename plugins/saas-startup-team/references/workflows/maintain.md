@@ -83,7 +83,7 @@ case "$MAINTAIN_CONTROLLER_ROUTE" in canonical|legacy-recovery) : ;; *) exit 2 ;
 
 `PROBE_CONTROLLER_ROUTE` is the value mechanically parsed from that exact probe line;
 never infer a route from prose or a schema number. This inventory and route selection
-complete before loading `Whole-Pass Lease` or choosing a worktree. A
+complete before loading `Whole-Pass Lease` or binding the primary tree. A
 `legacy-recovery` row is the one bounded compatibility case; a zero-row inventory and
 all canonical receipts select the normal controller.
 
@@ -171,11 +171,11 @@ Load and execute these protocol sections in order:
    every mode and establish the normal supervisor's one writer before any later
    handled stop. Under `--dry-run`, take only the read-only lease branch and load no
    terminal writer.
-2. `Workspace — Dedicated Worktree` — normal runs only.
+2. `Workspace — primary only` — normal runs only.
 3. `Pre-Flight` — use its explicit read-only path under `--dry-run`; otherwise finish
    setup, refresh solution signoff, and persist run state.
 
-The normal worktree reset and signoff boundary stays adjacent:
+The normal primary-tree reset and signoff boundary stays adjacent:
 
 ```bash
 git checkout --detach "origin/$default"
@@ -189,9 +189,9 @@ cannot distinguish an active owner from a recoverable failure.
 
 ## Non-negotiable contracts
 
-Load `maintain-v2-contract.md` once: **WIP-first, no claims, auto-merge, maintain
-worktree, investor on main repo only.** That contract outranks older claim language
-elsewhere in the protocol when they conflict.
+Load `maintain-v2-contract.md` once: **WIP-first, no claims, auto-merge, primary
+checkout only, pause portfolio before investor work.** That contract outranks older
+claim language elsewhere in the protocol when they conflict.
 
 - Normal state stays under `.startup/maintain/`: persist `current-run.json`, write
   terminal digests under `runs/`, and put human decisions in `human-tasks.md`.
@@ -200,7 +200,7 @@ elsewhere in the protocol when they conflict.
   `parent_run_id=$SAAS_INVOCATION_ID`; no child outcome is promoted or totalled into
   the root.
 - **Always prefer unmerged WIP** before any new issue: open PR, then remote branch
-  with commits, then local maintain-worktree branch, then queue. Use
+  with commits, then local branch, then queue. Use
   `maintain-wip.sh inventory` and/or `.resumable` from `maintain-queue.sh` (open PR
   without `maintain:claimed` is enough). Never start greenfield while WIP remains.
 - `cached_resumable` is deliverable queue input. A cache hit supplies the cached verdict;
@@ -220,7 +220,7 @@ elsewhere in the protocol when they conflict.
   checkout is the primary working dir only (`$WT="$REPO_ROOT"`). No linked
   worktrees (`assert-primary-only`). Pause the portfolio before human work.
 - Lease acquisition uses `maintain-leases.sh acquire --mode
-  "$MAINTAIN_CONTROLLER_MODE" --worktree "$WT"`. Long commands run as
+  "$MAINTAIN_CONTROLLER_MODE"`. Long commands run as
   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" hold
   "${MAINTAIN_CONTROLLER_ARGS[@]}" --max-seconds 14400 -- COMMAND...`; lease loss
   stops delivery.
@@ -242,7 +242,7 @@ elsewhere in the protocol when they conflict.
 
 1. **WIP inventory first.** Run
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-wip.sh" inventory --repo-root "$REPO_ROOT"`.
-   Treat **branches with commits not on default** and **uncommitted maintain-worktree
+   Treat **branches with commits not on default** and **uncommitted primary-tree
    dirt** as WIP — not only open PRs. For each item: `resume` (fix toward auto-merge),
    `delete` (stale closed-issue branch), or `inspect` then delete/escalate. Drain
    `delete` leftovers and handle dirty trees before greenfield. Never start a new issue

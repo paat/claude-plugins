@@ -346,20 +346,22 @@ manifest_json_for_tree() {
 }
 
 discover_primary_checkout() {
-  local candidate candidate_git common_base candidate_top
-  [ "$GIT_DIR" != "$COMMON_DIR" ] || return 1
-  common_base=$(basename -- "$COMMON_DIR") || return 1
-  [ "$common_base" = .git ] || return 1
-  candidate=$(dirname -- "$COMMON_DIR") || return 1
-  [ -d "$candidate" ] && [ ! -L "$candidate" ] || return 1
-  candidate=$(cd "$candidate" && pwd -P) || return 1
-  [ "$candidate" != "$ROOT" ] || return 1
-  candidate_top=$($REAL_GIT -C "$candidate" rev-parse --show-toplevel 2>/dev/null) || return 1
-  [ "$candidate_top" = "$candidate" ] || return 1
-  candidate_git=$($REAL_GIT -C "$candidate" rev-parse --absolute-git-dir 2>/dev/null) || return 1
-  candidate_git=$(cd "$candidate_git" && pwd -P) || return 1
-  [ "$candidate_git" = "$COMMON_DIR" ] || return 1
-  PRIMARY_CHECKOUT=$candidate
+  # Single-worktree contract: this ROOT is the primary checkout. Runtime deps
+  # (node_modules/venv) are discovered here or not at all. Prove identity
+  # without assuming the common dir lives at $ROOT/.git (separate-git-dir ok);
+  # reject linked worktrees (GIT_DIR != COMMON_DIR, or any sibling in the list).
+  local top abs_git
+  top=$($REAL_GIT -C "$ROOT" rev-parse --show-toplevel 2>/dev/null) || return 1
+  top=$(cd -- "$top" && pwd -P) || return 1
+  [ "$top" = "$ROOT" ] || return 1
+  abs_git=$($REAL_GIT -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null) || return 1
+  abs_git=$(cd -- "$abs_git" && pwd -P) || return 1
+  [ "$abs_git" = "$GIT_DIR" ] || return 1
+  [ "$GIT_DIR" = "$COMMON_DIR" ] || return 1
+  # Fail closed if any linked worktree exists (sibling or this root is linked).
+  bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$ROOT" >/dev/null 2>&1 \
+    || return 1
+  PRIMARY_CHECKOUT=$ROOT
 }
 
 safe_runtime_source() {
@@ -384,7 +386,9 @@ discover_check_runtimes() {
   local path rel source marker identity digest manifests manifest_count inventory tracked item result count
   local -a runtimes=()
   declare -A seen=()
-  if ! discover_primary_checkout; then printf '[]\n' || return 1; return; fi
+  # Identity failure must fail closed — never translate to an empty runtime list
+  # (empty list is only valid when primary is proven and has no sealable deps).
+  discover_primary_checkout || return 1
   inventory=$(mktemp) || return 1
   checked_inventory "$inventory" "$REAL_GIT" -C "$PRIMARY_CHECKOUT" \
     ls-files --others --ignored --exclude-standard --directory -z || {
@@ -520,7 +524,7 @@ snapshot_trust() {
   check_driver_json=$(check_driver_metadata) || {
     echo "supervisor-commit: trusted private-container check runtime is unavailable" >&2; exit 1; }
   runtimes_json=$(discover_check_runtimes) || {
-    echo "supervisor-commit: could not seal linked-worktree check runtimes" >&2; exit 1; }
+    echo "supervisor-commit: could not seal primary-checkout check runtimes" >&2; exit 1; }
   receipt=$(receipt_path "$TRUST_RECEIPT") || exit 2
   hooks_copy="${receipt}.hooks"
   firewall_copy="${receipt}.firewall"
@@ -772,8 +776,10 @@ load_check_runtime_receipt() {
     return 1
   }
   rm -f -- "$runtime_inventory"
-  [ "$count" -eq 0 ] || discover_primary_checkout || {
-    echo "supervisor-commit: linked-worktree runtime source is no longer available" >&2; return 1; }
+  # Always re-prove primary identity on reload — including empty runtime receipts
+  # so a deps-blind linked-root snapshot cannot commit later from the primary.
+  discover_primary_checkout || {
+    echo "supervisor-commit: primary-checkout runtime source is no longer available" >&2; return 1; }
   for ((i=0; i<count; i++)); do
     item=${runtime_items[$i]}
     source=$(jq -er '.source | select(type == "string" and length > 0)' <<<"$item") || {
@@ -1173,10 +1179,10 @@ prepare_check_runtimes() {
     source=${CHECK_RUNTIME_SOURCES[$i]}; target=${CHECK_RUNTIME_TARGETS[$i]}
     identity=$(stat -Lc '%d:%i' -- "$source") || return 1
     [ "$identity" = "${CHECK_RUNTIME_IDENTITIES[$i]}" ] || {
-      echo "supervisor-commit: linked check runtime changed identity" >&2; return 1; }
+      echo "supervisor-commit: sealed check runtime changed identity" >&2; return 1; }
     digest=$(runtime_tree_digest "$source" "$target") || return 1
     [ "$digest" = "${CHECK_RUNTIME_DIGESTS[$i]}" ] || {
-      echo "supervisor-commit: linked check runtime changed after trust snapshot" >&2; return 1; }
+      echo "supervisor-commit: sealed check runtime changed after trust snapshot" >&2; return 1; }
     manifests=$(jq -ceS . <<<"${CHECK_RUNTIME_MANIFESTS[$i]}") || return 1
     candidate=$(manifest_json_for_tree "$SHADOW" "$CHECKED_TREE" "$target") || return 1
     candidate_canonical=$(jq -ceS . <<<"$candidate") || return 1
@@ -1428,7 +1434,7 @@ run_bounded_check || exit 1
 prune_check_logs || {
   echo "supervisor-commit: check log retention failed" >&2; exit 1; }
 check_runtimes_unchanged || {
-  echo "supervisor-commit: linked check runtime changed during deterministic checks" >&2; exit 1; }
+  echo "supervisor-commit: sealed check runtime changed during deterministic checks" >&2; exit 1; }
 verify_check_driver_receipt || {
   echo "supervisor-commit: trusted private-container check runtime changed during deterministic checks" >&2; exit 1; }
 [ "$($REAL_GIT -C "$SHADOW" diff --binary --no-ext-diff --no-textconv | $REAL_GIT hash-object --stdin)" = "$PRE_CHECK_DIFF" ] \

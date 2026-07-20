@@ -12,6 +12,11 @@ ceremony is not the unit of work. Issues on `main` via **auto-merge** are.
 
 **Hard gate: primary working dir only. No linked git worktrees.**
 
+**Pause / resume (temporal ownership, not spatial):**
+- Loop owns the tree while maintain is active (`guard-active.sh` `*.active` markers stand down background hooks).
+- Human work requires pausing the portfolio; the primary tree may then be dirty.
+- Loop resumes only on a clean primary (dirty product tree stops maintain).
+
 ## Unit of work
 
 One open GitHub issue until it is on default branch and deploy is green, **or**
@@ -27,12 +32,12 @@ Run `bash maintain-wip.sh inventory --repo-root …` **before greenfield**.
 
 WIP is broader than open PRs. Inventory includes:
 
-1. **Dirty maintain worktree** (uncommitted/untracked) — `action=resume`  
+1. **Dirty primary tree** (uncommitted/untracked) — `action=resume`  
    Commit, finish, or discard intentionally; never ignore dirty state.  
 2. **Open PRs** — `action=resume` → continue toward auto-merge  
 3. **Remote/local branches with commits not on default** (including post-squash
    leftovers that are not ancestors of `main`):  
-   - open issue → `action=resume` (checkout in maintain worktree, fix, PR, merge)  
+   - open issue → `action=resume` (checkout on the primary tree, fix, PR, merge)  
    - **closed issue** → `action=delete` (stale branch; delete local + remote if safe)  
    - no issue / needs-human / epic → `action=inspect` then delete or escalate  
 

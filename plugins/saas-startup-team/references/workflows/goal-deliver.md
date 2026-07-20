@@ -46,7 +46,7 @@ into the eventual new PR body. This accepts a prior canonical run ID and the bou
 legacy-promoted compatibility ID; it does not require the marker ID to equal the current
 invocation. Require the remaining seconds to be a positive integer, and
 `maintain-leases.sh heartbeat --state-file "$SAAS_EMBEDDED_LEASE_STATE"
---repo-root "$SAAS_EMBEDDED_WORKTREE" --worktree "$SAAS_EMBEDDED_WORKTREE"
+--repo-root "$SAAS_EMBEDDED_WORKTREE"
 --run-id "$SAAS_INVOCATION_ID"` to confirm the live inherited lease holder. A missing,
 invalid, expired, or mismatched binding is `blocked/context_binding_violation` and no
 delivery starts. Current ownership is proved by binding the canonical current

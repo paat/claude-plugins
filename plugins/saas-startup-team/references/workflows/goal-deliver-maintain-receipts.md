@@ -49,7 +49,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-delivery.sh" pending \
 ```
 
 Require a valid array containing zero or one nonterminal receipt and consume its exact
-`controller_route` before lease/worktree selection. More than one, malformed state,
+`controller_route` before lease/primary binding. More than one, malformed state,
 or an unbound receipt fails closed. Resume the single pending receipt
 before triage or new queue work; this is what lets an invocation recover a crash after claim, PR creation, merge, release, or close. `claimed` resumes at source preparation;
 later states resume at the next helper-owned transition and never repeat an already
@@ -62,7 +62,7 @@ worktree or PR, emit an event, or perform recovery cleanup.
 For recovery, re-fetch the complete issue and PR facts and re-prove the exact authored
 `<!-- maintain:claim:ID -->` binding described by `maintain-protocol.md`. The active
 invocation must still hold the whole-pass lease selected by that route, but the receipt
-keeps its original run identity. A pending state without its issue, claim, bound worktree, or
+keeps its original run identity. A pending state without its issue, claim, bound primary tree, or
 receipt-owned PR is unresolved and must not be silently archived or replaced — **except**
 the exact salvage case handled by `archive-claimed` / the maintain probe reconciler:
 `state=claimed`, issue exactly `CLOSED`, no delivery-owned PR marker, no merge-ledger
@@ -122,7 +122,7 @@ Fetch current default, record `BASE_SHA`, and prepare the primary checkout throu
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-attempt.sh" reset \
-  --repo-root "$REPO_ROOT" --worktree "$WT" --base-sha "$BASE_SHA" \
+  --repo-root "$REPO_ROOT" --base-sha "$BASE_SHA" \
   --lease-state "$SAAS_EMBEDDED_LEASE_STATE" --run-id "$ORIGIN_RUN_ID" \
   --controller-run-id "$CONTROLLER_RUN_ID"
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-attempt.sh" base-check \
@@ -163,7 +163,7 @@ An allowed lower-profile escalation gets one cleanup and one authorization throu
 
 ```bash
 ESCALATION_ARGS=(
-  --repo-root "$REPO_ROOT" --worktree "$WT"
+  --repo-root "$REPO_ROOT"
   --lease-state "$SAAS_EMBEDDED_LEASE_STATE"
   --run-id "$ORIGIN_RUN_ID" --controller-run-id "$CONTROLLER_RUN_ID"
   --issue "$N" --attempt "$ATTEMPT" --base-sha "$BASE_SHA" --branch "$BRANCH"

@@ -1256,8 +1256,10 @@ test_maintain() {
   assert_file_contains "M45a2: maintain dry-run uses fixture queue state" "$cmd" "--issues-file <issues.json>"
   assert_file_contains "M45a3: maintain uses the route-selected controller mode" "$cmd" \
     '"$MAINTAIN_CONTROLLER_MODE"'
-  assert_file_contains "M45a3a: maintain lease binds the route-selected worktree" "$protocol" \
-    '--worktree "$WT"'
+  assert_file_contains "M45a3a: maintain lease acquire binds the primary checkout" "$protocol" \
+    'maintain-leases.sh" acquire'
+  assert_file_contains "M45a3a2: acquire uses repo-root as the primary" "$protocol" \
+    '--repo-root "$REPO_ROOT" --mode "$MAINTAIN_CONTROLLER_MODE"'
   assert_file_not_contains "M45a3b: no unconditional canonical acquire contradicts legacy recovery" \
     "$cmd" 'maintain-leases.sh acquire --mode maintain'
   assert_file_contains "M45a4: maintain consumes stale blocked-label cleanup" "$cmd" ".cleanup.stale_maintain_blocked"

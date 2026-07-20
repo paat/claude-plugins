@@ -40,7 +40,7 @@ watch. The plugin's "deploy" *is* merge-to-main + version bump. Tribunal **is** 
 The test gate is `bash plugins/saas-startup-team/tests/run-tests.sh`.
 
 So `/lessons-deliver` borrows `/maintain`'s **safety skeleton** (stateless-from-disk
-supervisor, dedicated worktree, circuit breakers, claim/idempotency, merge-on-green, run
+supervisor, primary-checkout delivery, circuit breakers, claim/idempotency, merge-on-green, run
 digest, prompt-injection firewall) and replaces the SaaS body. Dropped from `/maintain`:
 triage, needs-human classification, founders/Estonian, deploy-watch / classify / rollback.
 
