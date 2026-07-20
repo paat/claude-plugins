@@ -57,12 +57,20 @@ document is an algtekst or terviktekst.
 
 Use one topic-specific datalake RAG query before web research for Estonian-law
 claims. If it is empty, irrelevant, or marks coverage partial, record that
-boundary and move to targeted primary sources; do not retry broadly. A 200 does not mean the law is in force: require `status == "valid"` and
-`in_force == true` before relying on a provision.
+boundary and move to targeted primary sources; do not retry broadly. A 200 does
+not mean the law is in force: require `status == "valid"` and
+`in_force == true` before relying on a provision. Municipal/KOV research must
+pass an explicit municipality filter; ordinary law search defaults to state law.
 
-Read `references/datalake-api.md` only when making API calls. Preserve
-superscript citation qualifiers because a bare digit can return a different
-clause with `200`. Use `--max-time 30`; never print or persist credentials.
+Read `references/datalake-routing.md` when KOV, courts/case law, enforcement,
+named-company diligence, change monitoring, grants, political finance, or
+economic context may change the decision. Pure **state-law** statute work skips
+it; municipal/KOV work does not. Read `references/datalake-api.md` only when
+making API calls. Preserve superscript citation qualifiers because a bare digit
+can return a different clause with `200`. Use `--max-time 30`; never print or
+persist credentials. Risk signals (distress, enforcement practice, grants,
+ERJK) never alone make a claim `CONFIRMED`; attribute company facts only with
+confirmed registry-code links.
 
 ## Analysis Workflow
 
@@ -70,13 +78,17 @@ clause with `200`. Use `--max-time 30`; never print or persist credentials.
    sections, named files, and targeted matches.
 2. Query the datalake once for Estonian law, then verify decisive claims at
    Tier A. Use primary EU sources for rules outside the national corpus.
-3. Activate extra research only when the topic needs it: checklist for a broad
-   audit; change feed for currentness; courts for precedent/enforcement;
-   company data for a named-company comparison; dependencies/code for
-   licensing/IP.
+3. Activate extra research only when the topic needs it. For municipal, courts,
+   enforcement, diligence, change-monitor, grants, political finance, or
+   economic evidence, follow `references/datalake-routing.md`. Also: checklist
+   for a broad audit; dependencies/code only for licensing/IP implementation.
 4. Stop when the requested decision has enough evidence.
 5. Write one decision-first Estonian `docs/legal/õiguslik-*.md` document by
-   default. Include the AI-analysis/not-legal-advice disclaimer.
+   default. Include the AI-analysis/not-legal-advice disclaimer. When
+   intelligence sources were used, prefer the body sections in
+   `datalake-routing.md` (`Kinnitatud õigus` / `Tõendav materjal` / `Lüngad` /
+   required `Inimülesanded`); optional non-blocking `Järgmised sammud` never
+   replaces `Inimülesanded`. Sections count against the 150-line cap.
 
 ### Bounded read-only probes
 
@@ -135,6 +147,8 @@ For schema, lifecycle, marker, and subcommand details, read
 
 Load only the relevant guide:
 
+- `references/datalake-routing.md` (non-statute intelligence routing)
+- `references/datalake-api.md` (call-time endpoints only)
 - `references/gdpr-compliance.md`
 - `references/estonian-legal.md`
 - `references/saas-contracts.md`
@@ -147,3 +161,5 @@ Load only the relevant guide:
   handoffs, policies, or registry state.
 - Use real evidence and proper Estonian Unicode; never use placeholders.
 - Do not expose credentials, customer identifiers, or raw personal data.
+- Do not promote datalake risk scores or practice signals to legal liability,
+  PEP status, insolvency, or violations without Tier A authority and facts.
