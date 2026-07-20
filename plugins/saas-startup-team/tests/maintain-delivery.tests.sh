@@ -491,6 +491,27 @@ DEPLOY_WORKFLOW
   assert_output_contains "MD0k1e: public maintain-loop selects the canonical controller" "$out" \
     'workflow-probe: maintain-loop controller-route=canonical'
 
+  # Pre-0.89.68 schema-v2 receipts named the retired maintain worktree. Migration
+  # rewrites them to PRIMARY so no .worktrees/maintain residue remains on disk.
+  jq --arg wt "$fresh_wt/.worktrees/maintain" '.controller.worktree = $wt' \
+    "$fresh_state_root/issue-1/current.json" > "$fresh_state_root/issue-1/current.json.tmp"
+  mv -- "$fresh_state_root/issue-1/current.json.tmp" "$fresh_state_root/issue-1/current.json"
+  assert_equals "MD0k1f: show migrates retired maintain worktree path to primary" \
+    "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 \
+      | jq -r .controller.worktree)" "$fresh_wt"
+  assert_equals "MD0k1g: on-disk receipt no longer names retired worktree" \
+    "$(jq -r .controller.worktree "$fresh_state_root/issue-1/current.json")" "$fresh_wt"
+  assert_equals "MD0k1h: on-disk receipt has no .worktrees/maintain residue" \
+    "$(jq -r .controller.worktree "$fresh_state_root/issue-1/current.json" \
+      | grep -c '\.worktrees/maintain' || true)" 0
+  pending=$(bash "$delivery_impl" pending --repo-root "$fresh_repo")
+  assert_equals "MD0k1i: pending reaches canonical route after worktree migration" \
+    "$(jq -cS '.[0].controller_route' <<<"$pending")" \
+    "$(jq -cnS --arg worktree "$fresh_wt" \
+      '{kind:"canonical",mode:"maintain",worktree:$worktree}')"
+  ec=0; out=$(bash "$probe" maintain --root "$fresh_repo" --dry-run 2>&1) || ec=$?
+  assert_exit_code "MD0k1j: probe reaches work after worktree residue migration" "$ec" 0
+
   rm -f -- "$fresh_state_root/.lock"
   printf 'preserve\n' > "$fresh_state_root/.orphan.tmp"
   state_before=$(find -P "$fresh_state_root" -printf '%P\t%y\t%s\t%m\n' | sort)

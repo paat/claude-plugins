@@ -403,6 +403,32 @@ normalize_controller_worktree() {
   esac
 }
 
+# Eradicate pre-0.89.68 residue: schema-v2 receipts that still name the retired
+# maintain worktree are rewritten to PRIMARY before validation. No path alias
+# remains — after migration the on-disk value is primary-only.
+migrate_legacy_receipt_worktree() {
+  local file=$1 schema wt tmp now
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  schema=$(jq -r '.schema_version // empty' "$file") || return 1
+  [ "$schema" = "2" ] || return 0
+  wt=$(jq -r '.controller.worktree // empty' "$file") || return 1
+  case "$wt" in
+    "$PRIMARY/.worktrees/maintain") ;;
+    *) return 0 ;;
+  esac
+  now=$(now_iso) || return 1
+  tmp=$(mktemp "${file}.mig.XXXXXX") || return 1
+  if ! jq --arg wt "$PRIMARY" --arg now "$now" \
+      '.controller.worktree = $wt | .updated_at = $now' "$file" > "$tmp"; then
+    rm -f -- "$tmp"; return 1
+  fi
+  if ! receipt_schema_valid "$tmp"; then
+    rm -f -- "$tmp"; return 1
+  fi
+  chmod 600 "$tmp" && mv -- "$tmp" "$file" || { rm -f -- "$tmp"; return 1; }
+  return 0
+}
+
 receipt_valid() {
   local schema mode worktree
   receipt_schema_valid "$1" || return 1
@@ -471,6 +497,8 @@ load_current() {
   set_issue_paths
   safe_existing_dir "$issue_dir" || die "delivery receipt directory is missing or unsafe"
   safe_receipt_file "$current" || die "delivery receipt is missing or unsafe"
+  migrate_legacy_receipt_worktree "$current" \
+    || die "delivery receipt legacy worktree migration failed"
   receipt_valid "$current" || die "delivery receipt is malformed"
   [ "$(jq -r .issue_number "$current")" = "$ISSUE" ] || die "delivery receipt issue mismatch"
 }
@@ -816,11 +844,15 @@ if [ "$ACTION" = pending ]; then
     n=${dir##*/issue-}; valid_uint "$n" || die "invalid delivery issue directory"
     [ -z "$ISSUE" ] || [ "$n" = "$ISSUE" ] || continue
     for history in "$dir"/history-*.json; do
-      [ -f "$history" ] && [ ! -L "$history" ] && receipt_valid "$history" \
+      [ -f "$history" ] && [ ! -L "$history" ] \
+        && migrate_legacy_receipt_worktree "$history" \
+        && receipt_valid "$history" \
         || die "delivery history is malformed or unsafe"
     done
     [ -e "$dir/current.json" ] || [ -L "$dir/current.json" ] || continue
-    [ -f "$dir/current.json" ] && [ ! -L "$dir/current.json" ] && receipt_valid "$dir/current.json" \
+    [ -f "$dir/current.json" ] && [ ! -L "$dir/current.json" ] \
+      && migrate_legacy_receipt_worktree "$dir/current.json" \
+      && receipt_valid "$dir/current.json" \
       || die "delivery receipt is malformed or unsafe"
     state=$(jq -r .state "$dir/current.json")
     terminal_state "$state" && continue
@@ -874,7 +906,9 @@ if [ "$ACTION" = begin ]; then
   rm -f -- "$issue_snapshot"; forget_temp "$issue_snapshot"
   shopt -s nullglob
   for other in "$STATE_ROOT"/issue-*/current.json; do
-    [ -f "$other" ] && [ ! -L "$other" ] && receipt_valid "$other" \
+    [ -f "$other" ] && [ ! -L "$other" ] \
+      && migrate_legacy_receipt_worktree "$other" \
+      && receipt_valid "$other" \
       || die "existing delivery receipt is malformed or unsafe"
     other_issue=$(jq -r .issue_number "$other"); other_state=$(jq -r .state "$other")
     if [ "$other_issue" != "$ISSUE" ] && ! terminal_state "$other_state"; then
@@ -888,7 +922,9 @@ if [ "$ACTION" = begin ]; then
   latest_generation=0; latest_terminal=""; latest_close=""; latest_file=""
   for receipt in "$issue_dir"/history-*.json "$current"; do
     [ -e "$receipt" ] || [ -L "$receipt" ] || continue
-    [ -f "$receipt" ] && [ ! -L "$receipt" ] && receipt_valid "$receipt" \
+    [ -f "$receipt" ] && [ ! -L "$receipt" ] \
+      && migrate_legacy_receipt_worktree "$receipt" \
+      && receipt_valid "$receipt" \
       || die "existing delivery receipt is malformed or unsafe"
     [ "$(jq -r .issue_number "$receipt")" = "$ISSUE" ] || die "existing receipt issue mismatch"
     [ "$(jq -r .delivery_id "$receipt")" != "$DELIVERY_ID" ] || die "delivery id was already used"

@@ -123,6 +123,18 @@ t "recheck window clamps at 7 days" blocked_clamped
 mkenv; echo "Error: 429 Too Many Requests" > "$TD/rlblk.log"; echo "MC-BLOCKED reason=x" >> "$TD/rlblk.log"
 rl_beats_blocked() { [ "$(run "$NOW" governor_report e p1 0 "$TD/rlblk.log")" = rate-limit ]; }
 t "rate-limit precedence over declared block" rl_beats_blocked
+mkenv; printf '%s\n' '{"rate_limits":{"limit_id":"codex","used_percent":21.0}}' 'MC-BLOCKED reason=probe_failed' > "$TD/telemetry.log"
+api_telemetry_not_rate_limit() {
+  [ "$(run "$NOW" governor_report e p1 0 "$TD/telemetry.log")" = blocked ] &&
+  [ "$(run "$NOW" state_get ".pools.claude.backoff_until // 0")" = 0 ]
+}
+t "API rate_limits JSON telemetry does not classify rate-limit" api_telemetry_not_rate_limit
+mkenv; printf '%s\n' '{"rate_limits":{"limit_id":"codex"}}' > "$TD/accounted_blocked.log"
+accounted_blocked_beats_telemetry() {
+  [ "$(run "$NOW" governor_report e p1 0 "$TD/accounted_blocked.log" false accounted blocked probe_failed)" = blocked ] &&
+  [ "$(run "$NOW" state_get ".pools.claude.backoff_until // 0")" = 0 ]
+}
+t "accounted blocked terminal beats rate_limits telemetry" accounted_blocked_beats_telemetry
 mkenv; echo "MC-BLOCKED recheck_after=90 reason=soak" > "$TD/blk.log"; : > "$TD/ok.log"
 blocked_ladder_and_clear() {
   run "$NOW" governor_report e p1 0 "$TD/blk.log" >/dev/null
