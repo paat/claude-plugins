@@ -2,12 +2,16 @@
 # Semantic delivery routing and post-diff containment.
 #
 # classify --mode autonomous|interactive-tweak --task-file FILE [--labels-file FILE]
+# classify-issue --mode autonomous|interactive-tweak --issue N [--repo OWNER/NAME]
 # check-diff --base REF [--cached]
 # schema-version
 #
 # Exit 0: classification/continuation accepted.
 # Exit 20: restart or escalate at the deep profile.
 # Exit 2: invalid input or routing failure.
+#
+# classify-issue is the agent-safe entrypoint under Codex sandboxes that reject
+# outer `rm -f` (agents must not compose temp-file + rm -f pipelines).
 
 set -euo pipefail
 export GIT_CONFIG_GLOBAL=/dev/null
@@ -26,9 +30,51 @@ SENSITIVE_CONTENT_PATTERN='(authorization:|bearer[[:space:]]|password|passwd|sec
 
 usage() {
   echo "usage: delivery-route.sh classify --mode autonomous|interactive-tweak --task-file FILE [--labels-file FILE]" >&2
+  echo "       delivery-route.sh classify-issue --mode autonomous|interactive-tweak --issue N [--repo OWNER/NAME]" >&2
   echo "       delivery-route.sh check-diff --base REF [--cached] [--guard-verified]" >&2
   echo "       delivery-route.sh schema-version" >&2
   exit 2
+}
+
+# Fetch a GitHub issue and classify without requiring the agent to manage temps
+# or emit `rm -f` (rejected by Codex CreateProcess policy).
+classify_issue() {
+  local mode="" issue="" repo="" issue_json task_file labels_file rc=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --mode) [ "$#" -ge 2 ] || usage; mode="$2"; shift 2 ;;
+      --issue) [ "$#" -ge 2 ] || usage; issue="$2"; shift 2 ;;
+      --repo) [ "$#" -ge 2 ] || usage; repo="$2"; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  case "$mode" in autonomous|interactive-tweak) : ;; *) usage ;; esac
+  [[ "$issue" =~ ^[1-9][0-9]*$ ]] || {
+    echo "delivery-route: --issue must be a positive integer" >&2
+    exit 2
+  }
+  command -v gh >/dev/null 2>&1 || {
+    echo "delivery-route: gh is required for classify-issue" >&2
+    exit 2
+  }
+  issue_json=$(mktemp) || exit 2
+  task_file=$(mktemp) || { rm -f -- "$issue_json"; exit 2; }
+  labels_file=$(mktemp) || { rm -f -- "$issue_json" "$task_file"; exit 2; }
+  # shellcheck disable=SC2064
+  trap 'rm -f -- "$issue_json" "$task_file" "$labels_file"' RETURN
+  if [ -n "$repo" ]; then
+    gh issue view "$issue" -R "$repo" --json number,title,body,labels,comments >"$issue_json"
+  else
+    gh issue view "$issue" --json number,title,body,labels,comments >"$issue_json"
+  fi
+  jq -r '[.title, .body, (.comments[]?.body // empty)] | map(select(. != null and . != "")) | join("\n\n")' \
+    "$issue_json" >"$task_file"
+  jq '[.labels[]?.name]' "$issue_json" >"$labels_file"
+  set +e
+  classify --mode "$mode" --task-file "$task_file" --labels-file "$labels_file"
+  rc=$?
+  set -e
+  return "$rc"
 }
 
 add_reason() {
@@ -511,6 +557,7 @@ check_diff() {
 
 case "${1:-}" in
   classify) shift; classify "$@" ;;
+  classify-issue) shift; classify_issue "$@" ;;
   check-diff) shift; check_diff "$@" ;;
   schema-version) [ "$#" -eq 1 ] || usage; jq -cn --argjson schema_version "$SCHEMA_VERSION" '{schema_version:$schema_version}' ;;
   *) usage ;;
