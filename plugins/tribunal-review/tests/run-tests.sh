@@ -447,6 +447,217 @@ EOF
   rm -rf "$work"
 }
 
+# Grok leg (#331): progress-only / timeout must not report success; tools-off
+# resume of the same session must produce a schema verdict or a blocked error.
+test_grok_deterministic_completion() {
+  local work fake state
+  work="$(mktemp -d)"
+  fake="$work/bin"
+  state="$work/state"
+  mkdir -p "$fake" "$state"
+
+  # Scenario A: inspect progress-only → finalize resume yields structured review
+  cat > "$fake/grok" <<EOF
+#!/usr/bin/env bash
+# Record phase + tools value for later assertions (NUL-separated fields).
+phase=inspect
+tools_val=""
+prev=""
+for a in "\$@"; do
+  if [ "\$prev" = "--tools" ]; then tools_val="\$a"; fi
+  if [ "\$a" = "--resume" ]; then phase=finalize; fi
+  prev="\$a"
+done
+printf '%s\t%s\n' "\$phase" "\$tools_val" >> "$state/phases.log"
+printf '%s\n' "\$@" >> "$state/args.log"
+if [ "\$phase" = finalize ]; then
+  cat <<'JSON'
+{"text":"done","stopReason":"EndTurn","sessionId":"11111111-1111-1111-1111-111111111111","structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"modelUsage":{"fixture-model":{"inputTokens":1,"outputTokens":1}}}
+JSON
+  exit 0
+fi
+# Inspect phase: progress-only (no structured review)
+cat <<'JSON'
+{"text":"I'll review this PR as a read-only senior reviewer...","stopReason":"EndTurn","sessionId":"11111111-1111-1111-1111-111111111111","num_turns":1}
+JSON
+exit 0
+EOF
+  chmod +x "$fake/grok"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    PATH="$fake:$PATH" TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-a.json"
+  ) && jq -e '
+      .provider=="grok"
+      and .summary.verdict=="APPROVE"
+      and .model=="fixture-model"
+      and ((.findings|length)==0)
+      and (has("error")|not)
+    ' "$work/out-a.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} grok progress-only inspect resumes tools-off for verdict"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok progress-only inspect resumes tools-off for verdict"; FAIL=$((FAIL+1))
+    FAILURES+=("grok progress-only inspect resumes tools-off for verdict")
+    echo "    out: $(cat "$work/out-a.json" 2>/dev/null || true)" >&2
+  fi
+
+  # Resume must use --resume; inspect allowlist vs finalize tools-off; pin session/max-turns
+  if [ -f "$state/args.log" ] \
+    && grep -q -- '--session-id' "$state/args.log" \
+    && grep -q -- '--max-turns' "$state/args.log" \
+    && grep -q -- '--resume' "$state/args.log" \
+    && grep -q -- '--permission-mode' "$state/args.log" \
+    && grep -qx $'inspect\tread_file,list_dir,grep' "$state/phases.log" \
+    && grep -qx $'finalize\t' "$state/phases.log"; then
+    echo -e "  ${GREEN}PASS${NC} grok inspect/finalize use session, max-turns, tools split"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok inspect/finalize use session, max-turns, tools split"; FAIL=$((FAIL+1))
+    FAILURES+=("grok inspect/finalize use session, max-turns, tools split")
+    echo "    phases: $(cat "$state/phases.log" 2>/dev/null | tr '\n' '|')" >&2
+  fi
+
+  # Scenario B: both phases incomplete → progress_only / incomplete error with session_id
+  rm -f "$state/args.log" "$state/phases.log"
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+if printf '%s\n' "$@" | grep -q -- '--resume'; then
+  cat <<'JSON'
+{"text":"Still gathering context...","stopReason":"EndTurn","sessionId":"22222222-2222-2222-2222-222222222222"}
+JSON
+  exit 0
+fi
+cat <<'JSON'
+{"text":"I'll start by reading the diff...","stopReason":"EndTurn","sessionId":"22222222-2222-2222-2222-222222222222"}
+JSON
+exit 0
+EOF
+  chmod +x "$fake/grok"
+
+  if (
+    set -e
+    cd "$work"
+    PATH="$fake:$PATH" TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-b.json"
+  ) && jq -e '
+      .provider=="grok"
+      and (.error | test("incomplete|progress_only"))
+      and (.error | test("session_id="))
+      and (.error | test("phase=incomplete"))
+    ' "$work/out-b.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} grok double progress-only reports incomplete not success"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok double progress-only reports incomplete not success"; FAIL=$((FAIL+1))
+    FAILURES+=("grok double progress-only reports incomplete not success")
+    echo "    out: $(cat "$work/out-b.json" 2>/dev/null || true)" >&2
+  fi
+
+  # Scenario C: first-pass structuredOutput (camelCase) completes without resume
+  rm -f "$state/args.log" "$state/calls"
+  cat > "$fake/grok" <<EOF
+#!/usr/bin/env bash
+count_file="$state/calls"
+n=0
+[ -f "\$count_file" ] && n="\$(cat "\$count_file")"
+n=\$((n+1))
+printf '%s\\n' "\$n" > "\$count_file"
+cat <<'JSON'
+{"structuredOutput":{"provider":"grok","model":"fixture","findings":[{"severity":"medium","category":"logic","file":"file.txt","line":1,"title":"t","description":"d","suggestion":"s","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"}},"sessionId":"33333333-3333-3333-3333-333333333333","modelUsage":{"fixture-model":{"inputTokens":1}}}
+JSON
+exit 0
+EOF
+  chmod +x "$fake/grok"
+  : > "$state/calls"
+
+  if (
+    set -e
+    cd "$work"
+    PATH="$fake:$PATH" TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-c.json"
+  ) && jq -e '
+      .provider=="grok"
+      and .summary.verdict=="NEEDS_WORK"
+      and (.findings|length)==1
+      and .model=="fixture-model"
+    ' "$work/out-c.json" >/dev/null \
+    && [ "$(cat "$state/calls")" = "1" ]; then
+    echo -e "  ${GREEN}PASS${NC} grok camelCase structuredOutput completes in one pass"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok camelCase structuredOutput completes in one pass"; FAIL=$((FAIL+1))
+    FAILURES+=("grok camelCase structuredOutput completes in one pass")
+    echo "    out: $(cat "$work/out-c.json" 2>/dev/null || true) calls=$(cat "$state/calls" 2>/dev/null)" >&2
+  fi
+
+  # Scenario D: inspect times out (124) → finalize recovers verdict
+  rm -f "$state/args.log" "$state/calls"
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+if printf '%s\n' "$@" | grep -q -- '--resume'; then
+  cat <<'JSON'
+{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"44444444-4444-4444-4444-444444444444","modelUsage":{"fixture-model":{}}}
+JSON
+  exit 0
+fi
+# Partial envelope before timeout so session_id is known
+cat <<'JSON'
+{"text":"still reading files...","sessionId":"44444444-4444-4444-4444-444444444444"}
+JSON
+exit 124
+EOF
+  chmod +x "$fake/grok"
+
+  if (
+    set -e
+    cd "$work"
+    PATH="$fake:$PATH" TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-d.json"
+  ) && jq -e '
+      .provider=="grok"
+      and .summary.verdict=="APPROVE"
+      and (has("error")|not)
+    ' "$work/out-d.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} grok inspect timeout recovers via tools-off resume"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok inspect timeout recovers via tools-off resume"; FAIL=$((FAIL+1))
+    FAILURES+=("grok inspect timeout recovers via tools-off resume")
+    echo "    out: $(cat "$work/out-d.json" 2>/dev/null || true)" >&2
+  fi
+
+  # Lib helper: camelCase + snake_case extract, payload complete check
+  complete_ok='{"provider":"grok","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+  if printf '%s' "{\"structuredOutput\":$complete_ok}" \
+      | bash -c ". '$PLUGIN_ROOT/scripts/lib.sh'; tribunal_extract_grok_result" \
+      | jq -e '.summary.verdict=="APPROVE"' >/dev/null \
+    && printf '%s' '{"structured_output":{"findings":[],"summary":{"verdict":"BLOCK"}}}' \
+      | bash -c ". '$PLUGIN_ROOT/scripts/lib.sh'; tribunal_extract_grok_result" \
+      | jq -e '.summary.verdict=="BLOCK"' >/dev/null \
+    && printf '%s' "$complete_ok" \
+      | bash -c ". '$PLUGIN_ROOT/scripts/lib.sh'; tribunal_review_payload_complete" \
+    && ! printf '%s' 'I will review this next.' \
+      | bash -c ". '$PLUGIN_ROOT/scripts/lib.sh'; tribunal_review_payload_complete" \
+    && ! printf '%s' '{"findings":[],"summary":{"verdict":"pending"}}' \
+      | bash -c ". '$PLUGIN_ROOT/scripts/lib.sh'; tribunal_review_payload_complete" \
+    && ! printf '%s' '{"findings":[],"summary":{"verdict":"APPROVE"}}' \
+      | bash -c ". '$PLUGIN_ROOT/scripts/lib.sh'; tribunal_review_payload_complete"; then
+    echo -e "  ${GREEN}PASS${NC} grok envelope helpers accept camel/snake and reject weak payloads"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok envelope helpers accept camel/snake and reject weak payloads"; FAIL=$((FAIL+1))
+    FAILURES+=("grok envelope helpers accept camel/snake and reject weak payloads")
+  fi
+
+  chmod -R u+w "$work" 2>/dev/null || true
+  rm -rf "$work"
+}
+
 test_claude_non_json_output() {
   local label="exit-zero non-JSON Claude result is a diagnosed parse failure" work fake
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
@@ -977,7 +1188,7 @@ done
 assert_file "structured review schema exists" "schemas/review-output.json"
 assert_json_field "structured review schema is valid JSON" "jq -e '.type==\"object\" and .additionalProperties==false' '$PLUGIN_ROOT/schemas/review-output.json'"
 assert_file "static runner bundle manifest exists" "integrity/runner-bundle.json"
-assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.20.4\"'"
+assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.20.5\"'"
 assert_json_field "static runner bundle is current" "bash '$PLUGIN_ROOT/scripts/generate-runner-bundle.sh' --check"
 
 echo "Skill is orchestration-focused:"
@@ -1026,13 +1237,23 @@ assert_grep "Codex requests the shared output schema" "scripts/run-codex-review.
 assert_grep "Claude requests the shared output schema" "scripts/run-claude-review.sh" "--json-schema"
 assert_grep "Claude disables the complete tool surface" "scripts/run-claude-review.sh" '--tools ""'
 assert_grep "Grok requests the shared output schema" "scripts/run-grok-review.sh" "--json-schema"
-assert_grep "Grok tools allowlist is read-only" "scripts/run-grok-review.sh" '--tools "read_file,list_dir,grep"'
+assert_grep "Grok tools allowlist is read-only" "scripts/run-grok-review.sh" "read_file,list_dir,grep"
 assert_grep "Grok uses kernel read-only sandbox" "scripts/run-grok-review.sh" "--sandbox read-only"
 assert_grep "Grok unsets host GROK_SANDBOX" "scripts/run-grok-review.sh" "env -u GROK_SANDBOX"
 assert_grep "Grok isolates host HOME" "scripts/run-grok-review.sh" 'HOME="$ISOLATED_HOME"'
 assert_grep "Grok isolates host GROK_HOME" "scripts/run-grok-review.sh" 'GROK_HOME="$ISOLATED_HOME/.grok"'
 assert_grep "Grok links auth into isolation" "scripts/run-grok-review.sh" 'ln -s "$AUTH_SRC"'
 assert_grep "Grok disables web search" "scripts/run-grok-review.sh" "--disable-web-search"
+assert_grep "Grok pins a session id for resume" "scripts/run-grok-review.sh" "--session-id"
+assert_grep "Grok finalize resumes the same session" "scripts/run-grok-review.sh" "--resume"
+assert_grep "Grok bounds inspect turns" "scripts/run-grok-review.sh" "--max-turns"
+assert_grep "Grok uses dontAsk for headless read-only" "scripts/run-grok-review.sh" "--permission-mode dontAsk"
+assert_grep "Grok rejects progress-only as incomplete" "scripts/run-grok-review.sh" "completion_state=progress_only"
+assert_grep "Grok finalize re-inlines the authoritative diff" "scripts/run-grok-review.sh" "Base the verdict on the unified diff"
+assert_grep "Grok clamps inspect timeout upper bound" "scripts/run-grok-review.sh" "INSPECT_TIMEOUT=1800"
+assert_grep "Grok extracts camelCase structuredOutput" "scripts/lib.sh" "structuredOutput"
+assert_grep "Grok payload completeness helper" "scripts/lib.sh" "tribunal_review_payload_complete"
+assert_grep "Grok payload requires enum verdict" "scripts/lib.sh" 'APPROVE" or $v == "NEEDS_WORK" or $v == "BLOCK"'
 
 echo "Disabled-provider markers:"
 assert_json_field "codex disabled JSON" "TRIBUNAL_CODEX=off bash '$PLUGIN_ROOT/scripts/run-codex-review.sh' | jq -e '.provider==\"codex\" and .status==\"disabled\"'"
@@ -1052,6 +1273,7 @@ test_codex_parse_diagnostics
 test_codex_empty_output
 test_claude_execution_diagnostics
 test_claude_non_json_output
+test_grok_deterministic_completion
 test_codex_vacuous_guard BLOCK 0.0 "codex vacuous empty-BLOCK downgraded to leg error"
 test_codex_vacuous_guard NEEDS_WORK 7.5 "codex vacuous empty-NEEDS_WORK (nonzero quality) downgraded to leg error"
 test_codex_vacuous_guard " BLOCK " 0.0 "codex vacuous verdict tolerates surrounding whitespace"

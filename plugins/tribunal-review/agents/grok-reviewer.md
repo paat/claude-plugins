@@ -30,5 +30,8 @@ field to the model that actually ran, read from `.modelUsage`):
 - Grok is **off by default**: the script emits a `disabled` marker unless `TRIBUNAL_GROK=on`. Honors
   `TRIBUNAL_GROK_MODEL` (default `grok-4.5`). Runs with a tools allowlist (`read_file,list_dir,grep`),
   kernel `--sandbox read-only`, isolated scratch `HOME`/`GROK_HOME` (auth linked, host Claude config
-  off), and web search off. Auth is the Grok CLI's own login (`grok login`). If the CLI is missing the
-  script self-emits an error JSON — return it verbatim.
+  off), web search off, pinned session id, and a bounded inspect turn budget. If the inspect phase
+  exits with only a progress announcement or times out, the script **resumes the same session with
+  tools disabled** and forces a schema verdict — progress-only is never reported as success
+  (`completion_state=progress_only` on failure). Auth is the Grok CLI's own login (`grok login`). If
+  the CLI is missing the script self-emits an error JSON — return it verbatim.

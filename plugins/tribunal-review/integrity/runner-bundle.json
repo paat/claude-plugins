@@ -18,7 +18,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "9b353ae8775187cf1f2bd8c6ff4630dd65126859207d57ee3763474e2085da1e"
+      "sha256": "c69eef670ce3b73a85f9087fbf775231a0d924ce6a83c0b20b2a2ae6c831c867"
     },
     {
       "path": "scripts/run-claude-review.sh",
@@ -34,7 +34,7 @@
     },
     {
       "path": "scripts/run-grok-review.sh",
-      "sha256": "b57fe6f27e7d05568ec40c0a10a63f91563c3a6c1b3b5cdb2ea618eba40f183e"
+      "sha256": "7ed4795791cd9ae6c8c04934ff6a28504faf870d1d70b905bf554518f6da1366"
     },
     {
       "path": "scripts/run-opencode-review.sh",
@@ -47,5 +47,5 @@
   ],
   "plugin": "tribunal-review",
   "schema": "tribunal-runner-bundle/v1",
-  "version": "0.20.4"
+  "version": "0.20.5"
 }

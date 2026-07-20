@@ -39,6 +39,57 @@ tribunal_extract_claude_result() {
   ' 2>/dev/null
 }
 
+# Grok headless --output-format json uses camelCase (structuredOutput, sessionId).
+# Accept snake_case too for forward compatibility.
+tribunal_extract_grok_result() {
+  jq -r '
+    if (.structuredOutput? | type) == "object" then (.structuredOutput | tojson)
+    elif (.structured_output? | type) == "object" then (.structured_output | tojson)
+    elif (.text? | type) == "string" and (.text | length) > 0 then .text
+    else empty end
+  ' 2>/dev/null
+}
+
+tribunal_grok_session_id() {
+  jq -r '
+    (.sessionId // .session_id // empty)
+    | select(type == "string" and length > 0)
+  ' 2>/dev/null
+}
+
+tribunal_grok_new_session_id() {
+  if command -v uuidgen >/dev/null 2>&1; then
+    uuidgen
+  elif [ -r /proc/sys/kernel/random/uuid ]; then
+    tr -d '\n' < /proc/sys/kernel/random/uuid
+  else
+    python3 -c 'import uuid; print(uuid.uuid4())'
+  fi
+}
+
+# True when extracted text contains a review envelope that satisfies the
+# tribunal review contract (not merely any JSON object with a verdict string).
+# Progress-only announcements, partial objects, and invalid verdicts fail.
+tribunal_review_payload_complete() {
+  local raw json
+  raw="$(cat)"
+  [ -n "$raw" ] || return 1
+  json="$(printf '%s' "$raw" | tribunal_extract_json_object)"
+  [ -n "$json" ] || return 1
+  printf '%s' "$json" | jq -e '
+    (.findings | type) == "array"
+    and (.summary | type) == "object"
+    and ((.summary.verdict // "") | tostring | gsub("^\\s+|\\s+$"; "") | ascii_upcase)
+        as $v | ($v == "APPROVE" or $v == "NEEDS_WORK" or $v == "BLOCK")
+    and ((.summary.total_findings // null) | type) == "number"
+    and ((.summary.critical // null) | type) == "number"
+    and ((.summary.high // null) | type) == "number"
+    and ((.summary.medium // null) | type) == "number"
+    and ((.summary.low // null) | type) == "number"
+    and ((.summary.quality_score // null) | type) == "number"
+  ' >/dev/null 2>&1
+}
+
 tribunal_json_string() {
   jq -Rn --arg v "$1" '$v'
 }
