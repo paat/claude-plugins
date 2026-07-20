@@ -57,8 +57,7 @@ document is an algtekst or terviktekst.
 
 Use one topic-specific datalake RAG query before web research for Estonian-law
 claims. If it is empty, irrelevant, or marks coverage partial, record that
-boundary and move to targeted primary sources; do not retry broadly. A 200 does
-not mean the law is in force: require `status == "valid"` and
+boundary and move to targeted primary sources; do not retry broadly. A 200 does not mean the law is in force: require `status == "valid"` and
 `in_force == true` before relying on a provision. Municipal/KOV research must
 pass an explicit municipality filter; ordinary law search defaults to state law.
 

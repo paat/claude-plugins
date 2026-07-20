@@ -259,8 +259,12 @@ claim language elsewhere in the protocol when they conflict.
    `saas-startup-team:maintain-triage` light role. Only a deep route or `uncertain`
    result uses `saas-startup-team:business-founder-maintain`; never cache uncertainty.
    The supervisor alone applies labels, comments, files, and issue mutations.
-5. Apply final verdicts exactly as that section specifies. Under `--dry-run`, retain
-   them in memory and print planned mutations only.
+5. Apply final verdicts exactly as that section specifies. Before any `needs-human`
+   park (including residual parks), run
+   `maintain-human-gate.sh evaluate` — never park epics; honour
+   `maintain:human-cleared` label or ACL-checked comment marker for non-credential
+   reasons (see protocol §Human override). Under `--dry-run`, retain planned
+   mutations in memory and print them only.
 6. Load `Eligibility & Ordering`, run `maintain-queue.sh`, reconcile stale
    `maintain:blocked` labels, and build the resumable and dependency-ordered new-work
    queues. An unexplained empty result is an error. Under `--dry-run`, print the fully

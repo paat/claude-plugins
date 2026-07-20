@@ -49,9 +49,9 @@ URL-encodes the superscript.
 - `GET /eurlex/search` — required `q`; optional `doc_type`, `in_force`, `limit`,
   `offset`
 - `GET /eurlex/{celex}` — metadata
-- `GET /eurlex/{celex}/citation` — required `article`; optional `paragraph`,
-  `point`, `language` (default often EN). Require `in_force == true`; keep
-  HTTPS `source_url`. Metadata is not article text.
+- `GET /eurlex/{celex}/citation?article=N&language=EN` — optional `paragraph`,
+  `point`. Require `in_force == true`; preserve the returned HTTPS `source_url`.
+  Metadata is not article text.
 - `GET /eurlex/transpositions` — query `celex`
 - `GET /eurlex/changes`, `GET /eurlex/upcoming`
 
