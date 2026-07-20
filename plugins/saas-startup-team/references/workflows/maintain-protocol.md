@@ -397,8 +397,9 @@ as `partially-fixable`):
 
 ```bash
 # Write untrusted triage prose via mktemp — never interpolate into shell quotes.
+# Codex CreateProcess rejects agent-composed `rm -f` (including trap EXIT cleanup).
+# Leave the temp; do not trap-rm. Prefer plugin helpers that own their own temps.
 reason_file=$(mktemp)
-trap 'rm -f -- "$reason_file"' EXIT
 printf '%s\n' "$TRIAGE_REASON" > "$reason_file"
 GATE=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-human-gate.sh" evaluate \
   --verdict needs-human \
@@ -409,6 +410,23 @@ GATE=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-human-gate.sh" evaluate \
 # Offline: --labels-file / --comments-file. Codex: resolve plugin root as for other
 # ${CLAUDE_PLUGIN_ROOT} paths (installed plugin root), then call scripts/… under it.
 ```
+
+### Codex shell constraints (CreateProcess)
+
+Codex rejects the **outer** agent command string when it contains `rm -f` (including
+`trap 'rm -f …' EXIT`). Plugin scripts may still use `rm -f` **internally**.
+
+- **Issue route classification:** call the agent-safe one-shot helper — never compose
+  `gh issue view` + temp files + `delivery-route.sh classify` + `rm -f` yourself:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/delivery-route.sh" classify-issue \
+  --mode autonomous --issue "$N"
+# Exit 0 continue; exit 20 deep/restart; exit 2 invalid.
+```
+
+- **Temps in agent shell:** write with `mktemp` if needed; do **not** clean with
+  `rm -f` / `trap … rm -f`. Prefer helpers that encapsulate fetch+classify+cleanup.
 
 `--reason-kind` is one of `epic`, `credentials`, `judgment`, `other` when the
 supervisor already knows the class; omit only if unknown. Epic exclusion uses the
