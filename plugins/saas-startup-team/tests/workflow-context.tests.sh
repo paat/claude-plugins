@@ -39,6 +39,7 @@ SH
 #!/usr/bin/env bash
 case "${1:-}" in
   primary-root) printf '%s\n' "$3" ;;
+  assert-primary-only) exit 0 ;;
   available) exit 0 ;;
   *) exit 1 ;;
 esac

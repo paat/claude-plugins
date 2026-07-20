@@ -214,17 +214,19 @@ ROOT="$(cd -- "$REPO_ROOT" && pwd -P)" || die "cannot resolve repository"
 git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not a Git worktree"
 PRIMARY="$(bash "$SCRIPT_DIR/maintain-leases.sh" primary-root --repo-root "$ROOT")" \
   || die "cannot resolve primary worktree"
+# Exact primary only — a subdirectory or linked root must not mask as the primary.
+[ "$ROOT" = "$PRIMARY" ] || die "delivery must run from the primary working directory ($PRIMARY), not $ROOT"
+bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$ROOT" >/dev/null \
+  || die "primary-only gate failed (no linked worktrees)"
 validate_controller_tool "$JQ_CANDIDATE" jq
 validate_controller_tool /usr/bin/sha256sum sha256sum
 case "$JQ_CANDIDATE" in /usr/bin/*|/bin/*) : ;; *) PATH="$PATH:${JQ_CANDIDATE%/*}"; export PATH ;; esac
 command -v jq >/dev/null 2>&1 || die "jq is required" 2
 CONTROLLER_LEASE_ARGS=()
 if [ "$ACTIVE_CONTROLLER_ACTION" -eq 1 ]; then
-  bash "$SCRIPT_DIR/maintain-leases.sh" controller-binding --repo-root "$PRIMARY" \
-    --worktree "$ROOT" --run-id "$CONTROLLER_RUN_ID" --state-file "$LEASE_STATE" \
+  bash "$SCRIPT_DIR/maintain-leases.sh" controller-binding --repo-root "$ROOT" --run-id "$CONTROLLER_RUN_ID" --state-file "$LEASE_STATE" \
     >/dev/null 2>&1 || die "lease state does not bind the explicit active controller" 3
-  CONTROLLER_LEASE_ARGS=(--state-file "$LEASE_STATE" --repo-root "$PRIMARY" \
-    --worktree "$ROOT" --run-id "$CONTROLLER_RUN_ID")
+  CONTROLLER_LEASE_ARGS=(--state-file "$LEASE_STATE" --repo-root "$ROOT" --run-id "$CONTROLLER_RUN_ID")
   ACTIVE_CONTROLLER_MODE=$(jq -r .mode "$LEASE_STATE")
   ACTIVE_CONTROLLER_WORKTREE=$(jq -r .worktree "$LEASE_STATE")
   ACTIVE_CONTROLLER_RUN=$CONTROLLER_RUN_ID
@@ -259,7 +261,7 @@ cleanup_temps() {
   if [ -n "$ARCHIVE_LEASE_STATE" ] && [ -f "$ARCHIVE_LEASE_STATE" ] \
     && [ ! -L "$ARCHIVE_LEASE_STATE" ]; then
     bash "$SCRIPT_DIR/maintain-leases.sh" cleanup --state-file "$ARCHIVE_LEASE_STATE" \
-      --repo-root "$PRIMARY" --worktree "$PRIMARY" \
+      --repo-root "$PRIMARY" \
       --run-id "$ARCHIVE_LEASE_RUN" >/dev/null 2>&1 || true
   fi
 }
@@ -392,11 +394,11 @@ receipt_schema_valid() {
   ' "$1" >/dev/null 2>&1
 }
 
-# Historical receipts may still name .worktrees/maintain; treat as primary.
+# Single-worktree: controller tree must be the primary checkout only.
 normalize_controller_worktree() {
   local wt=$1
   case "$wt" in
-    "$PRIMARY"|"$PRIMARY/.worktrees/maintain") printf '%s\n' "$PRIMARY" ;;
+    "$PRIMARY") printf '%s\n' "$PRIMARY" ;;
     *) return 1 ;;
   esac
 }
@@ -724,51 +726,49 @@ claim_source_state_absent() {
   binding=$(receipt_controller_binding "$current") \
     || die "claimed receipt controller binding is invalid"
   IFS=$'\t' read -r mode worktree <<<"$binding"
+  # Single-worktree: receipt controller tree is always the primary checkout.
+  [ "$worktree" = "$PRIMARY" ] || die "claimed receipt controller is not the primary checkout"
+  worktree=$PRIMARY
+  # Re-prove identity: path still names this repo's primary (not a substituted tree).
   [ -e "$worktree" ] || [ -L "$worktree" ] \
-    || die "claimed receipt worktree is missing; source state cannot be disproved"
-  safe_existing_dir "$worktree" || die "claimed receipt worktree is unsafe"
+    || die "claimed receipt primary tree is missing; source state cannot be disproved"
+  safe_existing_dir "$worktree" || die "claimed receipt primary tree is unsafe"
   top=$(git -C "$worktree" rev-parse --show-toplevel 2>/dev/null) \
-    || die "claimed receipt worktree is not a Git worktree"
-  [ "$top" = "$worktree" ] || die "claimed receipt worktree identity is ambiguous"
+    || die "claimed receipt primary tree is not a Git worktree"
+  [ "$top" = "$worktree" ] || die "claimed receipt primary tree identity is ambiguous"
   worktree_common=$(git -C "$worktree" rev-parse --git-common-dir) \
-    || die "cannot inspect claimed receipt worktree"
+    || die "cannot inspect claimed receipt primary tree"
   case "$worktree_common" in /*) : ;; *) worktree_common="$worktree/$worktree_common" ;; esac
   worktree_common=$(cd -- "$worktree_common" && pwd -P) \
-    || die "cannot resolve claimed receipt worktree metadata"
-  [ "$worktree_common" = "$COMMON" ] || die "claimed receipt worktree repository changed"
+    || die "cannot resolve claimed receipt primary tree metadata"
+  [ "$worktree_common" = "$COMMON" ] || die "claimed receipt primary tree repository changed"
   if git -C "$worktree" symbolic-ref -q HEAD >/dev/null 2>&1; then
-    die "claimed receipt worktree is still attached to a branch"
+    die "claimed receipt primary tree is still attached to a branch"
   fi
   # Ignore .startup control-plane; only product source state blocks archive.
   status=$(git -C "$worktree" status --porcelain=v1 --untracked-files=all -- \
     . ':(exclude).startup' ':(exclude).startup/**') \
-    || die "cannot inspect claimed receipt worktree status"
-  [ -z "$status" ] || die "claimed receipt worktree still has source state"
-  head=$(git -C "$worktree" rev-parse HEAD) || die "cannot inspect claimed receipt worktree HEAD"
-  valid_sha "$head" || die "claimed receipt worktree HEAD is invalid"
+    || die "cannot inspect claimed receipt primary tree status"
+  [ -z "$status" ] || die "claimed receipt primary tree still has source state"
+  head=$(git -C "$worktree" rev-parse HEAD) || die "cannot inspect claimed receipt primary tree HEAD"
+  valid_sha "$head" || die "claimed receipt primary tree HEAD is invalid"
   gate_dir="$COMMON/saas-startup-team/maintain-runtime/base-checks/$run"
   safe_existing_dir "$gate_dir" || die "claimed receipt base-check directory is missing or unsafe"
   gate="$gate_dir/$head.json"
-  if [ -f "$gate" ] && [ ! -L "$gate" ]; then
-    jq -e --arg run "$run" --arg base "$head" '
-      type == "object"
-      and keys == ["base_sha","check_oid","check_rel","checked_at","run_id","schema_version","status"]
-      and .schema_version == 1 and .run_id == $run and .base_sha == $base and .status == "passed"
-      and (.check_oid|type == "string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$"))
-      and (.check_rel|type == "string" and length > 0)
-      and (.checked_at|type == "string"
-        and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
-    ' "$gate" >/dev/null || die "claimed receipt base-check proof is malformed"
-  else
-    # External salvage advances main after the claim base-check. A clean
-    # detached worktree at the primary tip cannot hide claim-owned source
-    # state; require that exact tip so archive does not soft-block the slot.
-    primary_head=$(git -C "$PRIMARY" rev-parse HEAD) \
-      || die "cannot inspect primary HEAD for claimed receipt archive"
-    valid_sha "$primary_head" || die "primary HEAD is invalid"
-    [ "$head" = "$primary_head" ] \
-      || die "claimed receipt worktree is not at a validated base"
-  fi
+  # Fail closed: archive requires a head-specific base-check gate. Do not treat
+  # "clean detached at whatever HEAD is" as proof (that comparison is tautological
+  # on the same primary checkout).
+  [ -f "$gate" ] && [ ! -L "$gate" ] \
+    || die "claimed receipt base-check proof is missing for HEAD $head"
+  jq -e --arg run "$run" --arg base "$head" '
+    type == "object"
+    and keys == ["base_sha","check_oid","check_rel","checked_at","run_id","schema_version","status"]
+    and .schema_version == 1 and .run_id == $run and .base_sha == $base and .status == "passed"
+    and (.check_oid|type == "string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$"))
+    and (.check_rel|type == "string" and length > 0)
+    and (.checked_at|type == "string"
+      and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+  ' "$gate" >/dev/null || die "claimed receipt base-check proof is malformed"
   claim_branch_refs_absent "$worktree"
 
   # Primary-only: guards under common plugin state + primary .git (no linked trees).
@@ -956,7 +956,6 @@ if [ "$ACTION" = archive-claimed ]; then
   valid_id "$ARCHIVE_LEASE_RUN" || die "cannot create claimed receipt cleanup identity"
   ARCHIVE_LEASE_STATE="$COMMON/saas-startup-team/maintain-runtime/$ARCHIVE_LEASE_RUN-leases.json"
   if ! bash "$SCRIPT_DIR/maintain-leases.sh" acquire --repo-root "$PRIMARY" --mode maintain \
-    --worktree "$PRIMARY" \
     --run-id "$ARCHIVE_LEASE_RUN" --state-file "$ARCHIVE_LEASE_STATE" >/dev/null; then
     die "claimed receipt cleanup requires all maintenance leases to be idle" 3
   fi
@@ -981,7 +980,7 @@ if [ "$ACTION" = archive-claimed ]; then
   (cd "$PRIMARY" && trusted_repo_gh issue edit "$ISSUE" --remove-label maintain:claimed) \
     >/dev/null 2>&1 || true
   if ! bash "$SCRIPT_DIR/maintain-leases.sh" cleanup --state-file "$ARCHIVE_LEASE_STATE" \
-    --repo-root "$PRIMARY" --worktree "$PRIMARY" \
+    --repo-root "$PRIMARY" \
     --run-id "$ARCHIVE_LEASE_RUN" >/dev/null; then
     die "claimed receipt was archived but its cleanup lease could not be released"
   fi

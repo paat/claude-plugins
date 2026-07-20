@@ -479,41 +479,38 @@ test_agent_events() {
   assert_file_contains "EV24: raw events are gitignored" "$PLUGIN_ROOT/templates/gitignore-block.txt" '.startup/runs/'
   assert_file_contains "EV25: local evaluation corpus is gitignored" "$PLUGIN_ROOT/templates/gitignore-block.txt" '.startup/evaluation/'
 
-  # Default storage follows the common repository to its primary worktree, even
-  # when a detached linked-worktree writer is guarded. Explicit paths stay exact.
-  primary_repo="$wd/primary-repo"; linked_repo="$wd/detached-worktree"
+  # Default storage is on the primary checkout under a role guard; explicit
+  # --events paths remain exact overrides (single-worktree contract).
+  primary_repo="$wd/primary-repo"
   mkdir -p "$primary_repo"
   git -C "$primary_repo" init -q
   git -C "$primary_repo" config user.email test@example.invalid
   git -C "$primary_repo" config user.name Test
   printf 'base\n' > "$primary_repo/app.txt"
   git -C "$primary_repo" add app.txt; git -C "$primary_repo" commit -qm base
-  git -C "$primary_repo" worktree add --detach -q "$linked_repo" HEAD
   auth=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  guard_dir="$(git -C "$linked_repo" rev-parse --absolute-git-dir)/saas-startup-team"
-  snapshot="$guard_dir/detached.json"
-  (cd "$linked_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
+  guard_dir="$(git -C "$primary_repo" rev-parse --absolute-git-dir)/saas-startup-team"
+  snapshot="$guard_dir/primary-guard.json"
+  (cd "$primary_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
     --snapshot "$snapshot" --auth-stdin --allow review.md <<<"$auth" >/dev/null)
-  (cd "$linked_repo" && bash "$events_script" append --run-id detached-default \
-    --command improve --phase qa --surface codex --profile deep --writer-id detached-writer \
+  (cd "$primary_repo" && bash "$events_script" append --run-id primary-default \
+    --command improve --phase qa --surface codex --profile deep --writer-id primary-writer \
     --event-type started --outcome incomplete >/dev/null)
-  assert_file_not_exists "EV55: guarded detached writer does not publish early" \
+  assert_file_not_exists "EV55: guarded primary writer does not publish early" \
     "$primary_repo/.startup/runs/agent-events.jsonl"
-  receipt=$(find "$guard_dir" -maxdepth 1 -name 'detached.json.telemetry-*.json' -print -quit)
-  assert_equals "EV56: detached receipt targets primary event storage" \
+  receipt=$(find "$guard_dir" -maxdepth 1 -name 'primary-guard.json.telemetry-*.json' -print -quit)
+  assert_equals "EV56: guarded receipt targets primary event storage" \
     "$(jq -r .destination "$receipt")" "$primary_repo/.startup/runs/agent-events.jsonl"
-  printf 'review\n' > "$linked_repo/review.md"
-  (cd "$linked_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
+  printf 'review\n' > "$primary_repo/review.md"
+  (cd "$primary_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
     --verify "$snapshot" --auth-stdin <<<"$auth" >/dev/null)
   primary_events="$primary_repo/.startup/runs/agent-events.jsonl"
-  assert_file_exists "EV57: guarded import publishes into the primary worktree" "$primary_events"
-  assert_equals "EV58: primary reader sees detached writer through the default path" \
+  assert_file_exists "EV57: guarded import publishes into the primary checkout" "$primary_events"
+  assert_equals "EV58: primary reader sees the published event" \
     "$(cd "$primary_repo" && bash "$events_script" read | wc -l | tr -d ' ')" "1"
-  assert_file_not_exists "EV59: linked worktree has no shadow default event store" \
-    "$linked_repo/.startup/runs/agent-events.jsonl"
-  explicit_events="$linked_repo/explicit-events.jsonl"
-  (cd "$linked_repo" && bash "$events_script" append --events "$explicit_events" --run-id detached-explicit \
-    --command improve --phase qa --surface codex --profile deep --writer-id detached-writer \
+  explicit_events="$primary_repo/explicit-events.jsonl"
+  (cd "$primary_repo" && bash "$events_script" append --events "$explicit_events" --run-id primary-explicit \
+    --command improve --phase qa --surface codex --profile deep --writer-id primary-writer \
     --event-type started --outcome incomplete >/dev/null)
   assert_file_exists "EV60: explicit event path remains an override" "$explicit_events"
 

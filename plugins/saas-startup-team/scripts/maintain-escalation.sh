@@ -26,7 +26,7 @@ ATTEMPT_HELPER="$SCRIPT_DIR/maintain-attempt.sh"
 usage() {
   cat >&2 <<'EOF'
 usage: maintain-escalation.sh cleanup|authorize-restart
-  --repo-root DIR --worktree DIR --lease-state FILE --run-id ORIGIN
+  --repo-root DIR --lease-state FILE --run-id ORIGIN
   --controller-run-id CONTROLLER
   --issue N --attempt N --base-sha SHA --branch NAME
 EOF
@@ -110,7 +110,6 @@ base_sha=""; branch=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --repo-root) [ "$#" -ge 2 ] || usage; repo_root=$2; shift 2 ;;
-    --worktree) [ "$#" -ge 2 ] || usage; worktree=$2; shift 2 ;;
     --lease-state) [ "$#" -ge 2 ] || usage; lease_state=$2; shift 2 ;;
     --run-id) [ "$#" -ge 2 ] || usage; run_id=$2; shift 2 ;;
     --controller-run-id) [ "$#" -ge 2 ] || usage; controller_run_id=$2; shift 2 ;;
@@ -123,12 +122,12 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$action" in cleanup|authorize-restart|_cleanup-held|_authorize-held) : ;; *) usage ;; esac
-[ -n "$repo_root" ] && [ -n "$worktree" ] && [ -n "$lease_state" ] \
+[ -n "$repo_root" ] && [ -n "$lease_state" ] \
   && valid_id "$run_id" && valid_id "$controller_run_id" \
   && valid_uint "$issue" && valid_uint "$attempt" \
   && valid_sha "$base_sha" && [ -n "$branch" ] || usage
 
-held_args=(--repo-root "$repo_root" --worktree "$worktree" --lease-state "$lease_state"
+held_args=(--repo-root "$repo_root" --lease-state "$lease_state"
   --run-id "$run_id" --controller-run-id "$controller_run_id" --issue "$issue"
   --attempt "$attempt" --base-sha "$base_sha" --branch "$branch")
 if [ "$action" = cleanup ] || [ "$action" = authorize-restart ]; then
@@ -136,7 +135,7 @@ if [ "$action" = cleanup ] || [ "$action" = authorize-restart ]; then
   [[ "$token" =~ ^[0-9a-f]{32}$ ]] || die "cannot create held-operation identity"
   private=_cleanup-held; [ "$action" = cleanup ] || private=_authorize-held
   exec bash "$LEASES" hold --state-file "$lease_state" --repo-root "$repo_root" \
-    --worktree "$worktree" --run-id "$controller_run_id" --interval-seconds 1 \
+    --run-id "$controller_run_id" --interval-seconds 1 \
     --max-seconds 300 -- env SAAS_MAINTAIN_ESCALATION_HOLD_TOKEN="$token" \
     SAAS_MAINTAIN_ESCALATION_GH_BIN="$GH_CANDIDATE" \
     bash "$0" "$private" "${held_args[@]}"
@@ -161,12 +160,11 @@ ensure_gh_bin
 COMMON=$(git -C "$PRIMARY" rev-parse --git-common-dir) || die "cannot resolve common Git directory"
 case "$COMMON" in /*) : ;; *) COMMON="$PRIMARY/$COMMON" ;; esac
 COMMON="$(cd -- "$COMMON" && pwd -P)" || die "cannot resolve common Git directory"
-worktree=$(realpath -m -- "$worktree") || die "cannot resolve worktree"
-[ "$worktree" = "$PRIMARY" ] || die "controller tree must be the primary working directory"
+worktree=$PRIMARY
 git check-ref-format --branch "$branch" >/dev/null 2>&1 || die "invalid branch" 2
 
 bash "$LEASES" heartbeat --state-file "$lease_state" --repo-root "$PRIMARY" \
-  --worktree "$worktree" --run-id "$controller_run_id" >/dev/null \
+  --run-id "$controller_run_id" >/dev/null \
   || die "lease ownership is no longer valid"
 
 ensure_primary_dir() {
@@ -281,7 +279,7 @@ prove_local_clean() {
   local head status
   [ -d "$worktree" ] && [ ! -L "$worktree" ] \
     && [ "$(cd -- "$worktree" && pwd -P)" = "$worktree" ] \
-    || die "dedicated worktree is unsafe"
+    || die "primary tree is unsafe"
   head=$(git -C "$worktree" rev-parse HEAD) || die "cannot inspect worktree HEAD"
   [ "$head" = "$base_sha" ] || die "worktree HEAD is not the exact base"
   status=$(git -C "$worktree" status --porcelain=v1 --untracked-files=all -- \
@@ -319,7 +317,7 @@ if [ -n "$LOCAL_SHA" ]; then
   [ "$LOCAL_SHA" = "$attempt_head" ] || die "local branch no longer matches the escalated attempt"
 fi
 current_head=$(git -C "$worktree" rev-parse HEAD 2>/dev/null) \
-  || die "cannot inspect dedicated worktree"
+  || die "cannot inspect primary tree"
 branch_rc=0
 current_branch=$(git -C "$worktree" symbolic-ref --quiet --short HEAD 2>/dev/null) || branch_rc=$?
 case "$branch_rc" in 0) : ;; 1) current_branch="" ;; *) die "cannot inspect worktree branch" ;; esac
@@ -351,7 +349,7 @@ fi
 reset_token=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
 [[ "$reset_token" =~ ^[0-9a-f]{32}$ ]] || die "cannot create reset identity"
 SAAS_MAINTAIN_RESET_HOLD_TOKEN="$reset_token" bash "$ATTEMPT_HELPER" _reset-held \
-  --repo-root "$PRIMARY" --worktree "$worktree" --base-sha "$base_sha" \
+  --repo-root "$PRIMARY" --base-sha "$base_sha" \
   --lease-state "$lease_state" --run-id "$run_id" \
   --controller-run-id "$controller_run_id" >/dev/null \
   || die "cannot reset escalation worktree"

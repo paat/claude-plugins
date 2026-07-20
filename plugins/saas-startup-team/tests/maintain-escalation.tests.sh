@@ -42,10 +42,10 @@ test_maintain_escalation() {
   wt="$repo"
   state="$common/saas-startup-team/maintain-runtime/escalation-run.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain \
-    --run-id "$controller_run_id" --state-file "$state" --worktree "$wt" >/dev/null
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" \
+    --run-id "$controller_run_id" --state-file "$state" >/dev/null
+  bash "$attempt_helper" reset --repo-root "$repo" \
     --base-sha "$base" --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null
+      --controller-run-id "$controller_run_id" >/dev/null
   assert_equals "ME1a: escalation fixture uses the exact canonical controller binding" \
     "$(jq -r '(.schema_version|tostring) + ":" + .mode + ":" + .worktree' "$state")" \
     "3:maintain:$wt"
@@ -65,43 +65,49 @@ test_maintain_escalation() {
       requires_product_judgment:false,requires_legal_judgment:false,
       decision:"restart_deep"}}' > "$result_dir/issue-7-attempt-1.json"
 
-  bin=$(mktemp -d); open="$repo/open-pr.json"; calls="$repo/gh-calls"
+  # Control files live outside the product tree — under primary-only, cleanup
+  # proves product-tree cleanliness on the same checkout the fake gh would dirt.
+  bin=$(mktemp -d); open="$bin/open-pr.json"; calls="$bin/gh-calls"; fail_close="$bin/fail-close"
   shipped_helper=$helper; harness="$bin/maintain-escalation.test.sh"
   script_dir_q=$(printf '%q' "$PLUGIN_ROOT/scripts")
   sed -e "s|^SCRIPT_DIR=.*|SCRIPT_DIR=$script_dir_q|" \
-    -e '/^absolute_path_has_no_symlink() {/a\  return 0' \
+    -e '/^absolute_path_has_no_symlink() {/a return 0' \
     -e 's/\[ "$owner" = 0 \]/[ "$owner" = "$(\/usr\/bin\/id -u)" ]/' \
     "$shipped_helper" > "$harness"
   chmod +x "$harness"; helper=$harness
   jq -n --arg branch "$branch" --arg head "$base" \
     '[{number:71,headRefName:$branch,headRefOid:$head,isCrossRepository:false}]' > "$open"
-  cat > "$bin/gh" <<'SH'
+  # Embed absolute fixture paths (trusted_gh strips ambient env).
+  cat > "$bin/gh" <<SH
 #!/usr/bin/env bash
 set -euo pipefail
+OPEN_PR=$(printf '%q' "$open")
+CALLS=$(printf '%q' "$calls")
+FAIL_CLOSE=$(printf '%q' "$fail_close")
 for name in GH_REPO GH_HOST GH_CONFIG_DIR LD_PRELOAD LD_LIBRARY_PATH BASH_ENV ENV; do
-  [ "${!name+x}" != x ] || { printf 'poisoned gh environment: %s\n' "$name" >&2; exit 90; }
+  [ "\${!name+x}" != x ] || { printf 'poisoned gh environment: %s\\n' "\$name" >&2; exit 90; }
 done
-case " $* " in
+case " \$* " in
   *" --repo github.com/example/maintain-escalation-fixture "*) : ;;
-  *) printf 'missing canonical repository binding: %s\n' "$*" >&2; exit 91 ;;
+  *) printf 'missing canonical repository binding: %s\\n' "\$*" >&2; exit 91 ;;
 esac
-printf '%s\n' "$*" >> "$PWD/gh-calls"
-case "${1:-} ${2:-}" in
-  "repo view") printf '%s\n' main ;;
-  "pr list") if [ -e "$PWD/open-pr.json" ]; then cat "$PWD/open-pr.json"; else printf '[]\n'; fi ;;
+printf '%s\\n' "\$*" >> "\$CALLS"
+case "\${1:-} \${2:-}" in
+  "repo view") printf '%s\\n' main ;;
+  "pr list") if [ -e "\$OPEN_PR" ]; then cat "\$OPEN_PR"; else printf '[]\\n'; fi ;;
   "pr close")
-    rm -f "$PWD/open-pr.json"
-    [ ! -e "$PWD/fail-close" ] || exit 99
+    rm -f "\$OPEN_PR"
+    [ ! -e "\$FAIL_CLOSE" ] || exit 99
     ;;
-  *) printf 'unexpected gh invocation: %s\n' "$*" >&2; exit 2 ;;
+  *) printf 'unexpected gh invocation: %s\\n' "\$*" >&2; exit 2 ;;
 esac
 SH
   chmod 755 "$bin/gh"
 
   ec=0
-  PATH="$bin:$PATH" bash "$helper" cleanup --repo-root "$repo" --worktree "$wt" \
+  PATH="$bin:$PATH" bash "$helper" cleanup --repo-root "$repo" \
     --lease-state "$state" --run-id "$origin_run" --issue 7 --attempt 1 \
-    --base-sha "$base" --branch "$branch" >/dev/null 2>&1 || ec=$?
+      --base-sha "$base" --branch "$branch" >/dev/null 2>&1 || ec=$?
   assert_exit_code "ME1b: escalation requires an explicit current controller identity" "$ec" 2
   lease_before=$(lease_state_fingerprint "$state")
   runtime_before=$(
@@ -110,9 +116,9 @@ SH
       | sha256sum | awk '{print $1}'
   )
   ec=0
-  PATH="$bin:$PATH" bash "$helper" cleanup --repo-root "$repo" --worktree "$wt" \
+  PATH="$bin:$PATH" bash "$helper" cleanup --repo-root "$repo" \
     --lease-state "$state" --run-id "$origin_run" --controller-run-id wrong-controller \
-    --issue 7 --attempt 1 --base-sha "$base" --branch "$branch" \
+      --issue 7 --attempt 1 --base-sha "$base" --branch "$branch" \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "ME1c: escalation rejects a controller that does not own the lease" "$ec" 1
   assert_file_exists "ME1d: rejected controller cannot close the branch PR" "$open"
@@ -129,10 +135,10 @@ SH
 
   out=$(PATH="$bin:$PATH" GH_REPO=attacker/wrong GH_HOST=attacker.invalid \
     GH_CONFIG_DIR="$repo/attacker-config" LD_PRELOAD=/nonexistent/escalation-loader.so \
-    bash "$helper" cleanup --repo-root "$repo" --worktree "$wt" \
-      --lease-state "$state" --run-id "$origin_run" \
-      --controller-run-id "$controller_run_id" --issue 7 --attempt 1 \
-      --base-sha "$base" --branch "$branch" 2>"$repo/cleanup.err")
+      bash "$helper" cleanup --repo-root "$repo" \
+        --lease-state "$state" --run-id "$origin_run" \
+          --controller-run-id "$controller_run_id" --issue 7 --attempt 1 \
+            --base-sha "$base" --branch "$branch" 2>"$repo/cleanup.err")
   receipt="$receipt_dir/issue-7-attempt-1.json"
   assert_equals "ME2: cleanup writes canonical polarity" \
     "$(jq -c .cleanup "$receipt")" \
@@ -158,10 +164,10 @@ SH
 
   ec=0
   out=$(PATH="$bin:$PATH" \
-    bash "$helper" authorize-restart --repo-root "$repo" --worktree "$wt" \
+    bash "$helper" authorize-restart --repo-root "$repo" \
       --lease-state "$state" --run-id "$origin_run" \
-      --controller-run-id "$controller_run_id" --issue 7 --attempt 1 \
-      --base-sha "$base" --branch "$branch") || ec=$?
+        --controller-run-id "$controller_run_id" --issue 7 --attempt 1 \
+          --base-sha "$base" --branch "$branch") || ec=$?
   assert_exit_code "ME9: exact canonical proof authorizes one deep restart" "$ec" 0
   assert_equals "ME10: restart authority returns canonical false/false/true/true" \
     "$(jq -c .cleanup <<<"$out")" \
@@ -176,9 +182,9 @@ SH
   chmod +x "$repo/gh"; before_calls=$(wc -l < "$calls" | tr -d ' ')
   ec=0
   out=$(PATH="$repo:$PATH" bash "$shipped_helper" authorize-restart \
-    --repo-root "$repo" --worktree "$wt" --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" \
-    --issue 7 --attempt 1 --base-sha "$base" --branch "$branch" 2>&1) || ec=$?
+    --repo-root "$repo" --lease-state "$state" --run-id "$origin_run" \
+      --controller-run-id "$controller_run_id" \
+        --issue 7 --attempt 1 --base-sha "$base" --branch "$branch" 2>&1) || ec=$?
   assert_exit_code "ME10a: a repository-controlled PATH gh is rejected" "$ec" 1
   assert_output_contains "ME10b: PATH rejection names the trust boundary" "$out" \
     'repository-controlled gh is not trusted'
@@ -191,17 +197,17 @@ SH
   jq '.cleanup.open_pr=true | .cleanup.remote_branch=true' "$receipt.valid" > "$receipt"
   ec=0
   PATH="$bin:$PATH" \
-    bash "$helper" authorize-restart --repo-root "$repo" --worktree "$wt" \
+    bash "$helper" authorize-restart --repo-root "$repo" \
       --lease-state "$state" --run-id "$origin_run" \
-      --controller-run-id "$controller_run_id" --issue 7 --attempt 1 \
-      --base-sha "$base" --branch "$branch" >/dev/null 2>&1 || ec=$?
+        --controller-run-id "$controller_run_id" --issue 7 --attempt 1 \
+          --base-sha "$base" --branch "$branch" >/dev/null 2>&1 || ec=$?
   assert_exit_code "ME11: inverted cleanup polarity cannot authorize restart" "$ec" 1
   mv -f "$receipt.valid" "$receipt"
 
   branch2=issue/8-escalation-run
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$wt" \
+  bash "$attempt_helper" reset --repo-root "$repo" \
     --base-sha "$base" --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" >/dev/null
+      --controller-run-id "$controller_run_id" >/dev/null
   git -C "$wt" switch -q -c "$branch2"
   printf '%s\n' candidate-2 > "$wt/app.txt"
   git -C "$repo" push -q origin "$branch2"
@@ -219,10 +225,10 @@ SH
   ln -s "$victim" "$receipt2"
   ec=0
   PATH="$bin:$PATH" \
-    bash "$helper" cleanup --repo-root "$repo" --worktree "$wt" \
+    bash "$helper" cleanup --repo-root "$repo" \
       --lease-state "$state" --run-id "$origin_run" \
-      --controller-run-id "$controller_run_id" --issue 8 --attempt 1 \
-      --base-sha "$base" --branch "$branch2" >/dev/null 2>&1 || ec=$?
+        --controller-run-id "$controller_run_id" --issue 8 --attempt 1 \
+          --base-sha "$base" --branch "$branch2" >/dev/null 2>&1 || ec=$?
   assert_exit_code "ME12: planted escalation receipt symlink fails closed" "$ec" 1
   assert_equals "ME13: symlink target is never overwritten" "$(cat "$victim")" unchanged
   assert_file_exists "ME14: unsafe receipt blocks PR cleanup" "$open"
@@ -231,11 +237,11 @@ SH
   rm -f "$receipt2"
 
   ec=0
-  touch "$repo/fail-close"
-  PATH="$bin:$PATH" bash "$helper" cleanup --repo-root "$repo" --worktree "$wt" \
-      --lease-state "$state" --run-id "$origin_run" \
+  touch "$fail_close"
+  PATH="$bin:$PATH" bash "$helper" cleanup --repo-root "$repo" \
+    --lease-state "$state" --run-id "$origin_run" \
       --controller-run-id "$controller_run_id" --issue 8 --attempt 1 \
-      --base-sha "$base" --branch "$branch2" >/dev/null 2>&1 || ec=$?
+        --base-sha "$base" --branch "$branch2" >/dev/null 2>&1 || ec=$?
   assert_exit_code "ME16: interrupted PR cleanup fails without a receipt" "$ec" 1
   assert_file_not_exists "ME17: interrupted cleanup cannot publish restart authority" "$receipt2"
   assert_file_not_exists "ME18: simulated close completed before interruption" "$open"
@@ -244,10 +250,10 @@ SH
 
   ec=0
   PATH="$bin:$PATH" \
-    bash "$helper" cleanup --repo-root "$repo" --worktree "$wt" \
+    bash "$helper" cleanup --repo-root "$repo" \
       --lease-state "$state" --run-id "$origin_run" \
-      --controller-run-id "$controller_run_id" --issue 8 --attempt 1 \
-      --base-sha "$base" --branch "$branch2" >/dev/null || ec=$?
+        --controller-run-id "$controller_run_id" --issue 8 --attempt 1 \
+          --base-sha "$base" --branch "$branch2" >/dev/null || ec=$?
   assert_exit_code "ME20: retry reconciles a partially completed cleanup" "$ec" 0
   assert_equals "ME21: recovered cleanup publishes canonical authority" \
     "$(jq -c .cleanup "$receipt2")" \
@@ -281,24 +287,24 @@ SH
   ec=0
   out=$(PATH="$bin:$PATH" SAAS_INVOCATION_COMMAND=maintain bash "$attempt_helper" deliver \
     --repo-root "$wt" --base-sha "$base" --lease-state "$state" --run-id "$origin_run" \
-    --controller-run-id "$controller_run_id" --child-run-id "$child_run_id" \
-    --attempt 1 --profile standard --task-file "$prompt" --message test \
-    --check ./check.sh --routing-reasons routine --allow app.txt 2>&1) || ec=$?
+      --controller-run-id "$controller_run_id" --child-run-id "$child_run_id" \
+        --attempt 1 --profile standard --task-file "$prompt" --message test \
+          --check ./check.sh --routing-reasons routine --allow app.txt 2>&1) || ec=$?
   assert_exit_code "ME23: directory at attempt-result leaf cannot false-report escalation" "$ec" 1
   assert_equals "ME24: rejected result directory remains a directory" \
     "$([ -d "$result3" ] && [ ! -L "$result3" ] && printf directory || printf unsafe)" directory
 
-  bash "$leases" cleanup --state-file "$state" --repo-root "$repo" --worktree "$wt" \
+  bash "$leases" cleanup --state-file "$state" --repo-root "$repo" \
     --run-id "$controller_run_id" >/dev/null
   git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || true
 
   legacy_wt="$repo"
   legacy_state="$common/saas-startup-team/maintain-runtime/legacy-escalation.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop \
-    --run-id legacy-escalation --state-file "$legacy_state" --worktree "$legacy_wt" >/dev/null
-  bash "$attempt_helper" reset --repo-root "$repo" --worktree "$legacy_wt" \
+    --run-id legacy-escalation --state-file "$legacy_state" >/dev/null
+  bash "$attempt_helper" reset --repo-root "$repo" \
     --base-sha "$base" --lease-state "$legacy_state" --run-id legacy-escalation \
-    --controller-run-id legacy-escalation >/dev/null
+      --controller-run-id legacy-escalation >/dev/null
   legacy_result_dir="$repo/.startup/maintain-loop/attempt-results/legacy-escalation"
   mkdir -p "$legacy_result_dir"
   legacy_branch=issue/10-legacy-escalation
@@ -310,24 +316,21 @@ SH
       decision:"restart_deep"}}' > "$legacy_result_dir/issue-10-attempt-1.json"
   rm -f -- "$open"
   ec=0
-  out=$(PATH="$bin:$PATH" bash "$helper" cleanup --repo-root "$repo" \
-    --worktree "$legacy_wt" --lease-state "$legacy_state" --run-id legacy-escalation \
-    --controller-run-id legacy-escalation \
-    --issue 10 --attempt 1 --base-sha "$base" --branch "$legacy_branch") || ec=$?
+  out=$(PATH="$bin:$PATH" bash "$helper" cleanup --repo-root "$repo" --lease-state "$legacy_state" --run-id legacy-escalation \
+   --controller-run-id legacy-escalation \
+     --issue 10 --attempt 1 --base-sha "$base" --branch "$legacy_branch") || ec=$?
   assert_exit_code "ME25: bounded schema-v2 legacy controller remains accepted" "$ec" 0
   legacy_receipt="$repo/.startup/maintain-loop/escalations/legacy-escalation/issue-10-attempt-1.json"
   assert_equals "ME26: legacy cleanup still proves the canonical cleanup polarity" \
     "$(jq -c .cleanup "$legacy_receipt")" \
     '{"open_pr":false,"remote_branch":false,"head_at_base":true,"worktree_clean":true}'
   ec=0
-  PATH="$bin:$PATH" bash "$helper" authorize-restart --repo-root "$repo" \
-    --worktree "$legacy_wt" --lease-state "$legacy_state" --run-id legacy-escalation \
-    --controller-run-id legacy-escalation \
-    --issue 10 --attempt 1 --base-sha "$base" --branch "$legacy_branch" \
+  PATH="$bin:$PATH" bash "$helper" authorize-restart --repo-root "$repo" --lease-state "$legacy_state" --run-id legacy-escalation \
+   --controller-run-id legacy-escalation \
+     --issue 10 --attempt 1 --base-sha "$base" --branch "$legacy_branch" \
     >/dev/null || ec=$?
   assert_exit_code "ME27: legacy cleanup receipt still authorizes its exact adapter run" "$ec" 0
-  bash "$leases" cleanup --state-file "$legacy_state" --repo-root "$repo" \
-    --worktree "$legacy_wt" --run-id legacy-escalation >/dev/null
+  bash "$leases" cleanup --state-file "$legacy_state" --repo-root "$repo" --run-id legacy-escalation >/dev/null
   git -C "$repo" worktree remove --force "$legacy_wt" >/dev/null 2>&1 || true
   rm -rf "$repo" "$remote" "$bin"
 }

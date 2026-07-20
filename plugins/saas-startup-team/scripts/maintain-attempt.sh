@@ -13,7 +13,7 @@ LEASE_GUARD_ARGS=()
 
 usage() {
   cat >&2 <<'EOF'
-usage: maintain-attempt.sh reset --repo-root DIR --worktree DIR --base-sha SHA --lease-state FILE --run-id ORIGIN --controller-run-id CONTROLLER
+usage: maintain-attempt.sh reset --repo-root DIR --base-sha SHA --lease-state FILE --run-id ORIGIN --controller-run-id CONTROLLER
        maintain-attempt.sh base-check --repo-root DIR --base-sha SHA --lease-state FILE --run-id ORIGIN --controller-run-id CONTROLLER --cache-dir DIR [--check PATH]
        maintain-attempt.sh deliver --repo-root DIR --base-sha SHA --lease-state FILE --run-id ORIGIN --controller-run-id CONTROLLER --child-run-id CHILD --attempt N --profile light|standard|deep --task-file FILE --message TEXT [--invocation-command maintain|maintain-loop] [--check PATH] [--routing-reasons CODES] --allow PATH...
 EOF
@@ -97,14 +97,12 @@ reset_once() {
 }
 
 load_lease_identity() {
-  local expected_worktree="${1:-$ROOT}"
   PRIMARY=$(bash "$LEASES" primary-root --repo-root "$ROOT") || return 1
-  expected_worktree=$(realpath -m -- "$expected_worktree") || return 1
-  [ "$ROOT" = "$PRIMARY" ] && [ "$expected_worktree" = "$PRIMARY" ] || return 1
-  bash "$LEASES" controller-binding --repo-root "$PRIMARY" --worktree "$PRIMARY" \
+  [ "$ROOT" = "$PRIMARY" ] || return 1
+  bash "$LEASES" controller-binding --repo-root "$PRIMARY" \
     --state-file "$lease_state" --run-id "$controller_run_id" >/dev/null || return 1
   LEASE_GUARD_ARGS=(--state-file "$lease_state" --repo-root "$PRIMARY" \
-    --worktree "$PRIMARY" --run-id "$controller_run_id")
+    --run-id "$controller_run_id")
 }
 
 resolve_invocation_command() {
@@ -274,7 +272,6 @@ ISSUE_NUMBER=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --repo-root) [ "$#" -ge 2 ] || usage; repo_root=$2; shift 2 ;;
-    --worktree) [ "$#" -ge 2 ] || usage; worktree=$2; shift 2 ;;
     --base-sha) [ "$#" -ge 2 ] || usage; base_sha=$2; shift 2 ;;
     --lease-state) [ "$#" -ge 2 ] || usage; lease_state=$2; shift 2 ;;
     --run-id) [ "$#" -ge 2 ] || usage; run_id=$2; shift 2 ;;
@@ -294,7 +291,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 valid_reset_args() {
-  [ -n "$repo_root" ] && [ -n "$worktree" ] && [ -n "$base_sha" ] \
+  [ -n "$repo_root" ] && [ -n "$base_sha" ] \
     && [ -n "$lease_state" ] && [ -n "$run_id" ] && valid_id "$run_id" \
     && [ -n "$controller_run_id" ] && valid_id "$controller_run_id" \
     && [ -z "$child_run_id$invocation_command$cache_dir$attempt$profile$task_file$message$routing_reasons" ] \
@@ -308,10 +305,10 @@ case "$action" in
     [[ "$reset_hold_token" =~ ^[0-9a-f]{32}$ ]] || {
       echo "maintain-attempt: cannot create reset hold identity" >&2; exit 1; }
     exec bash "$LEASES" hold --state-file "$lease_state" --repo-root "$repo_root" \
-      --worktree "$worktree" --run-id "$controller_run_id" --interval-seconds 1 \
+      --run-id "$controller_run_id" --interval-seconds 1 \
       --max-seconds 300 -- env SAAS_MAINTAIN_RESET_HOLD_TOKEN="$reset_hold_token" \
       bash "$SCRIPT_DIR/maintain-attempt.sh" _reset-held \
-        --repo-root "$repo_root" --worktree "$worktree" --base-sha "$base_sha" \
+        --repo-root "$repo_root" --base-sha "$base_sha" \
         --lease-state "$lease_state" --run-id "$run_id" \
         --controller-run-id "$controller_run_id"
     ;;
@@ -323,18 +320,18 @@ case "$action" in
     unset SAAS_MAINTAIN_RESET_HOLD_TOKEN
     resolve_repo "$repo_root" || { echo "maintain-attempt: invalid repository" >&2; exit 1; }
     normalize_base || exit 1
-    worktree="$(realpath -m -- "$worktree")"
-    load_lease_identity "$worktree" || {
-      echo "maintain-attempt: reset target does not match the acquired worktree" >&2; exit 1; }
     bash "$LEASES" assert-primary-only --repo-root "$ROOT" >/dev/null || {
       echo "maintain-attempt: primary-only gate failed (no linked worktrees)" >&2
       exit 1
     }
     PRIMARY=$(bash "$LEASES" primary-root --repo-root "$ROOT") || exit 1
-    [ "$worktree" = "$PRIMARY" ] && [ "$ROOT" = "$PRIMARY" ] || {
+    [ "$ROOT" = "$PRIMARY" ] || {
       echo "maintain-attempt: reset target must be the primary working directory" >&2
       exit 1
     }
+    worktree=$PRIMARY
+    load_lease_identity || {
+      echo "maintain-attempt: reset target does not match the acquired controller" >&2; exit 1; }
     bash "$LEASES" heartbeat "${LEASE_GUARD_ARGS[@]}" >/dev/null || {
       echo "maintain-attempt: reset lease ownership is no longer valid" >&2; exit 1; }
     cleanup_abandoned_role_guards || {

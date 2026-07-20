@@ -40,9 +40,9 @@ WT="$REPO_ROOT"
 MAINTAIN_LEASE_STATE="$GIT_COMMON/saas-startup-team/maintain-runtime/$LEASE_RUN_ID-leases.json"
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" acquire \
   --repo-root "$REPO_ROOT" --mode "$MAINTAIN_CONTROLLER_MODE" --run-id "$LEASE_RUN_ID" \
-  --state-file "$MAINTAIN_LEASE_STATE" --worktree "$WT" || exit 2
+  --state-file "$MAINTAIN_LEASE_STATE" || exit 2
 MAINTAIN_CONTROLLER_ARGS=(--state-file "$MAINTAIN_LEASE_STATE" \
-  --repo-root "$REPO_ROOT" --worktree "$WT" --run-id "$LEASE_RUN_ID")
+  --repo-root "$REPO_ROOT" --run-id "$LEASE_RUN_ID")
 
 release_maintain_pass() {
   [ ! -s "$MAINTAIN_LEASE_STATE" ] || bash \
@@ -65,10 +65,10 @@ esac
 ```
 
 Acquire this repository-wide lease set shared with `/maintain-loop` **before**
-changing the persistent worktree, `.git/info/exclude`, labels, state, or `active_role`.
+changing the primary working tree, `.git/info/exclude`, labels, state, or `active_role`.
 `maintain-leases.sh` claims both legacy pass keys and the current shared key, so old
 and new plugin versions cannot overlap. It may reclaim a well-formed expired heartbeat;
-active, malformed, future-dated, changed-inventory, and cross-worktree states fail
+active, malformed, future-dated, changed-inventory, and concurrent-run overlap states fail
 closed. The canonical lease state is schema v3. A schema-v2 compatibility receipt
 is selected only by its exact pending route, binds the primary working directory,
 may resume only that fingerprinted receipt, and ends the pass after recovery.
@@ -78,15 +78,15 @@ Never begin new work from the compatibility route.
 `/maintain-loop` coordinator passes the same value through both the environment and
 its compatibility argument.
 The canonical workflow marker remains `.startup/maintain/current-run.json` inside the
-selected worktree and belongs to `Pre-Flight`; the lease state—not the marker—carries
+primary worktree and belongs to `Pre-Flight`; the lease state—not the marker—carries
 the exact controller binding. Every heartbeat, hold, and cleanup validates the shared
 controller tuple against that binding. Terminal coordinator reap accepts only the same
 exact canonical or compatibility bindings. Blocked ledgers are queue input under
 `Eligibility & Ordering`.
 
-If acquisition refuses, do not fetch, create/reset a worktree, apply labels, write a run
+If acquisition refuses, do not fetch, reset the primary tree, apply labels, write a run
 file, claim an issue, or dispatch a worker. Inspect the active heartbeat/artifacts and
-resume or stop. Heartbeat the same owner after worktree setup, at each pass boundary,
+resume or stop. Heartbeat the same owner after workspace setup, at each pass boundary,
 before and after every issue delivery, and after the digest. Release it on `--once`, every
 stop condition, and every handled failure.
 
@@ -112,7 +112,7 @@ locked inventory recheck, so every mismatch or malformed recheck releases the le
 Under `--dry-run`, acquire no lease and install no release trap because the run is
 strictly read-only. External schedulers must additionally use non-blocking `flock` as in
 their tick wrapper; `flock` suppresses duplicate launches, while this lease prevents
-manual and cross-worktree overlap after launch.
+manual and concurrent-run overlap after launch.
 
 ---
 
