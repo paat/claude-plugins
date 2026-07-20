@@ -6037,6 +6037,53 @@ JSON
   ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-bracket.json" --issue-json "$workdir/issue-bracket.json" --changed-files "$workdir/files-bracket.txt" 2>&1) || ec=$?
   assert_exit_code "AD22: bracketed Next.js dynamic-route path does not false-fail" "$ec" 0
   rm -rf "$workdir"
+
+  # #1604 — bare basename dedupe when a full path with the same basename is present
+  workdir=$(mktemp -d)
+  cat > "$workdir/pr-basename.json" <<'JSON'
+{"title":"fix: verifier tweak","body":"Closes #201\n\n## Changes\nTouched the full path only."}
+JSON
+  cat > "$workdir/issue-basename.json" <<'JSON'
+{"number":201,"state":"OPEN","title":"Update verifier","body":"Change `scripts/verify_finding.py` (also referred to as bare `verify_finding.py`).","comments":[]}
+JSON
+  printf 'scripts/verify_finding.py\n' > "$workdir/files-basename.txt"
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-basename.json" --issue-json "$workdir/issue-basename.json" --changed-files "$workdir/files-basename.txt" 2>&1) || ec=$?
+  assert_exit_code "AD23: bare basename covered by full path does not false-fail" "$ec" 0
+  # Without the full path, the bare basename alone is still a real surface
+  cat > "$workdir/issue-bare-only.json" <<'JSON'
+{"number":201,"state":"OPEN","title":"Bare only","body":"Must update `verify_finding.py` narrative checks.","comments":[]}
+JSON
+  printf 'frontend/src/app/report/storage.ts\n' > "$workdir/files-other.txt"
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-basename.json" --issue-json "$workdir/issue-bare-only.json" --changed-files "$workdir/files-other.txt" 2>&1) || ec=$?
+  assert_exit_code "AD23b: bare basename alone still requires a PR surface" "$ec" 1
+  assert_output_contains "AD23c: bare basename is named as missing" "$output" "verify_finding.py"
+  rm -rf "$workdir"
+
+  # #1604 — Closure-Audit-Unchanged disposition
+  workdir=$(mktemp -d)
+  cat > "$workdir/pr-unchanged.json" <<'JSON'
+{"title":"fix: storage isolation","body":"Closes #202\n\n## Closure audit\nClosure-Audit-Unchanged: #202 scripts/verify_finding.py | narrative verifier must stay byte-identical; covered by existing regression tests"}
+JSON
+  cat > "$workdir/issue-unchanged.json" <<'JSON'
+{"number":202,"state":"OPEN","title":"Keep verifier","body":"Touch storage and leave `scripts/verify_finding.py` behaviorally unchanged.","comments":[]}
+JSON
+  printf 'frontend/src/app/report/storage.ts\n' > "$workdir/files-unchanged.txt"
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-unchanged.json" --issue-json "$workdir/issue-unchanged.json" --changed-files "$workdir/files-unchanged.txt" 2>&1) || ec=$?
+  assert_exit_code "AD24: Closure-Audit-Unchanged accepts negative-requirement surface" "$ec" 0
+  cat > "$workdir/pr-unchanged-short.json" <<'JSON'
+{"title":"fix: storage isolation","body":"Closes #202\n\nClosure-Audit-Unchanged: #202 scripts/verify_finding.py | too short"}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-unchanged-short.json" --issue-json "$workdir/issue-unchanged.json" --changed-files "$workdir/files-unchanged.txt" 2>&1) || ec=$?
+  assert_exit_code "AD24b: short unchanged reason fails closed" "$ec" 1
+  assert_output_contains "AD24c: short reason refusal is explicit" "$output" "concrete reason"
+  # Without disposition, the unchanged surface still fails
+  cat > "$workdir/pr-no-disp.json" <<'JSON'
+{"title":"fix: storage isolation","body":"Closes #202"}
+JSON
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-no-disp.json" --issue-json "$workdir/issue-unchanged.json" --changed-files "$workdir/files-unchanged.txt" 2>&1) || ec=$?
+  assert_exit_code "AD24d: missing unchanged disposition still fails" "$ec" 1
+  assert_output_contains "AD24e: missing surface named" "$output" "scripts/verify_finding.py"
+  rm -rf "$workdir"
 }
 
 test_autonomous_workflow_alignment() {
