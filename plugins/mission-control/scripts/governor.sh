@@ -49,7 +49,9 @@ governor_envelope() { # <engine> <project>
 
 # Built-in rate-limit signatures (case-insensitive grep -E). Config may add
 # per-engine extras via engines.<name>.rate_limit_patterns.
-RL_BUILTIN='429|rate.?limit|usage limit|quota exceeded|limit (will )?reset|overloaded'
+# Do not use rate.?limit: it matches API telemetry keys like "rate_limits" in
+# Codex session JSON and false-triggers pool backoff on probe_failed passes.
+RL_BUILTIN='429|rate[- ]?limited?|usage limit|quota exceeded|limit (will )?reset|overloaded'
 
 _gov_backoff() { # <pool> <log_path> — set backoff_until (parsed reset or exponential)
   local pool="$1" logf="$2" ts="" until_e="" lvl mins
@@ -76,7 +78,7 @@ _gov_backoff() { # <pool> <log_path> — set backoff_until (parsed reset or expo
 governor_report() { # <engine> <project> <exit_code> <log_path> [delivery_hold] [terminal_status] [workflow_outcome] [workflow_reason]
   local engine="$1" name="$2" rc="$3" logf="$4" delivery_hold="${5:-}"
   local terminal_status="${6:-not-applicable}" workflow_outcome="${7:-}" workflow_reason="${8:-}"
-  local pool patterns extra outcome errs blk terminal_blocked=0
+  local pool patterns extra outcome errs blk terminal_blocked=0 skip_log_rate_limit=0
   [ -n "$delivery_hold" ] || delivery_hold="$(pj "$name" '.delivery_hold // false')"
   pool="$(cfg ".engines[\"$engine\"].pool // \"unknown\"")"
   patterns="$RL_BUILTIN"
@@ -84,9 +86,18 @@ governor_report() { # <engine> <project> <exit_code> <log_path> [delivery_hold] 
   [ -z "$extra" ] || patterns="$patterns|$extra"
   # Line-anchored: prose merely mentioning the sentinel must not classify.
   blk="$(grep -oE '^MC-BLOCKED([[:space:]].*)?$' "$logf" 2>/dev/null | tail -1 || true)"
+  # Prefer an accounted non-failure terminal over log substring matches. A
+  # probe_failed/blocked pass must not become pool rate-limit just because the
+  # transcript embeds API "rate_limits" telemetry. Real 429s usually lack a
+  # clean accounted terminal and still hit the log path below.
+  case "$terminal_status:$workflow_outcome" in
+    accounted:success|accounted:no-op|accounted:skipped|accounted:blocked)
+      skip_log_rate_limit=1 ;;
+    *) skip_log_rate_limit=0 ;;
+  esac
   if [ "$delivery_hold" = true ] && [ "$rc" -eq 75 ]; then outcome="deferred"
   elif [ "$delivery_hold" = true ] && [ "$rc" -eq 78 ]; then outcome="config-error"
-  elif grep -qiE "$patterns" "$logf" 2>/dev/null; then
+  elif [ "$skip_log_rate_limit" -eq 0 ] && grep -qiE "$patterns" "$logf" 2>/dev/null; then
     outcome="rate-limit"                       # wins even over exit 0
     _gov_backoff "$pool" "$logf"
   elif [ "$rc" -eq 124 ]; then outcome="timeout"
