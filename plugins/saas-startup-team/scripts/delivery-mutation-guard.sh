@@ -10,10 +10,8 @@ export GIT_CONFIG_KEY_1=core.hooksPath
 export GIT_CONFIG_VALUE_1=/dev/null
 
 ACTION=""; SNAPSHOT=""; ROOT=""; AUTH_TOKEN=""; AUTH_STDIN=0
-ORIGIN_URL=""; ORIGIN_FETCH_REFSPEC=""; VERIFIED_ORIGIN_REFS_JSON=""
 VERIFIED_REFS_FINGERPRINT=""; ALLOW=()
 declare -A IGNORED_BASELINE=()
-declare -A ORIGIN_REF_OID=()
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   echo "usage: delivery-mutation-guard.sh (--snapshot FILE|--verify FILE) --auth-stdin [--allow PATH] [--repo-root DIR]" >&2
@@ -94,126 +92,13 @@ head_ref() {
   git symbolic-ref -q HEAD 2>/dev/null || true
 }
 
-valid_live_origin_url() {
-  local url="$1" lower
-  [[ "$url" != *[[:space:]]* && "$url" != *[[:cntrl:]]* ]] || return 1
-  lower=${url,,}
-  [[ ! "$lower" =~ %([01][0-9a-f]|7f) ]] || return 1
-  case "$url" in -*|*::*) return 1 ;; esac
-  case "$url" in
-    https://*) [[ "$url" =~ ^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/.+ ]] ;;
-    ssh://*) [[ "$url" =~ ^ssh://([A-Za-z0-9][A-Za-z0-9._-]*@)?[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/.+ ]] ;;
-    *:* ) [[ "$url" =~ ^([A-Za-z0-9][A-Za-z0-9._-]*@)?[A-Za-z0-9][A-Za-z0-9.-]*:.+ ]] ;;
-    *) return 1 ;;
-  esac
-}
-
-origin_tracking_ref() {
-  local ref="$1" symref="$2"
-  case "$ref" in refs/remotes/origin/*) : ;; *) return 1 ;; esac
-  [ "$ref" != refs/remotes/origin/HEAD ] && [ -z "$symref" ]
-}
-
-origin_refs_json() {
-  local raw entries ref oid symref result
-  raw="$(mktemp)" || return 1
-  entries="$(mktemp)" || { rm -f -- "$raw"; return 1; }
-  git for-each-ref --format='%(refname)%09%(objectname)%09%(symref)' \
-    refs/remotes/origin > "$raw" || { rm -f "$raw" "$entries"; return 1; }
-  while IFS=$'\t' read -r ref oid symref; do
-    origin_tracking_ref "$ref" "$symref" || continue
-    jq -cn --arg ref "$ref" --arg oid "$oid" '{ref:$ref,oid:$oid}' >> "$entries" \
-      || { rm -f -- "$raw" "$entries"; return 1; }
-  done < "$raw"
-  rm -f "$raw"
-  result="$(jq -cs '
-    sort_by(.ref)
-    | select((map(.ref)|unique|length) == length)
-    | select(all(.[];
-        (.ref|type == "string" and startswith("refs/remotes/origin/") and . != "refs/remotes/origin/HEAD") and
-        (.oid|type == "string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$"))))' "$entries")" || {
-    rm -f "$entries"; return 1; }
-  rm -f "$entries"
-  [ -n "$result" ] || return 1
-  printf '%s\n' "$result" || return 1
-}
-
-load_origin_refs() {
-  local json="$1" count i ref oid
-  ORIGIN_REF_OID=()
-  count="$(jq 'length' <<<"$json")" || return 1
-  [[ "$count" =~ ^[0-9]+$ ]] || return 1
-  for ((i=0; i<count; i++)); do
-    ref="$(jq -er ".[${i}].ref" <<<"$json")" || return 1
-    oid="$(jq -er ".[${i}].oid" <<<"$json")" || return 1
-    case "$ref" in refs/remotes/origin/*) : ;; *) return 1 ;; esac
-    [ "$ref" != refs/remotes/origin/HEAD ] || return 1
-    [[ "$oid" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
-    [ -z "${ORIGIN_REF_OID[$ref]+present}" ] || return 1
-    ORIGIN_REF_OID["$ref"]=$oid
-  done
-}
-
-origin_refs_intact() {
-  local current_json current_after count i ref oid live_file head line
-  local -A current=() changed=() live=()
-  current_json="$(origin_refs_json)" || return 1
-  count="$(jq 'length' <<<"$current_json")" || return 1
-  [[ "$count" =~ ^[0-9]+$ ]] || return 1
-  for ((i=0; i<count; i++)); do
-    ref="$(jq -er ".[${i}].ref" <<<"$current_json")" || return 1
-    oid="$(jq -er ".[${i}].oid" <<<"$current_json")" || return 1
-    current["$ref"]=$oid
-    [ -n "${ORIGIN_REF_OID[$ref]+present}" ] || return 1
-    if [ "${ORIGIN_REF_OID[$ref]}" != "$oid" ]; then
-      changed["$ref"]=$oid
-    fi
-  done
-  for ref in "${!ORIGIN_REF_OID[@]}"; do
-    [ -n "${current[$ref]+present}" ] || return 1
-  done
-  if [ "${#changed[@]}" -eq 0 ]; then
-    VERIFIED_ORIGIN_REFS_JSON="$current_json"
-    return 0
-  fi
-  [ "$ORIGIN_FETCH_REFSPEC" = '+refs/heads/*:refs/remotes/origin/*' ] || return 1
-  valid_live_origin_url "$ORIGIN_URL" || return 1
-  live_file="$(mktemp)" || return 1
-  (unset GIT_DIR GIT_WORK_TREE GIT_EXEC_PATH GIT_PROXY_COMMAND GIT_SSH GIT_SSH_COMMAND \
-      GIT_SSH_VARIANT GIT_ASKPASS SSH_ASKPASS SSH_ASKPASS_REQUIRE \
-      GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 \
-      GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1
-    cd /
-    env -i PATH=/usr/bin:/bin HOME=/nonexistent GIT_TERMINAL_PROMPT=0 \
-      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 \
-      timeout -k 5 30 "$REAL_GIT" -c protocol.ext.allow=never ls-remote --refs -- \
-        "$ORIGIN_URL" 'refs/heads/*') > "$live_file" 2>/dev/null || {
-    rm -f "$live_file"; return 1; }
-  while IFS= read -r line; do
-    oid=${line%%$'\t'*}; head=${line#*$'\t'}
-    [[ "$oid" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] && [ "$head" != "$line" ] || {
-      rm -f "$live_file"; return 1; }
-    case "$head" in refs/heads/*) : ;; *) rm -f "$live_file"; return 1 ;; esac
-    [ -z "${live[$head]+present}" ] || { rm -f "$live_file"; return 1; }
-    live["$head"]=$oid
-  done < "$live_file"
-  for ref in "${!changed[@]}"; do
-    head="refs/heads/${ref#refs/remotes/origin/}"
-    [ -n "${live[$head]+present}" ] && [ "${live[$head]}" = "${changed[$ref]}" ] \
-      || { rm -f "$live_file"; return 1; }
-  done
-  rm -f "$live_file"
-  current_after="$(origin_refs_json)" || return 1
-  [ "$current_after" = "$current_json" ] || return 1
-  VERIFIED_ORIGIN_REFS_JSON="$current_after"
-}
-
+# Local non-origin refs only. Origin remote-tracking drift is not product mutation (#347).
 other_refs_fingerprint() {
   local active="$1" ref oid symref result
   result="$("$REAL_GIT" for-each-ref --format='%(refname)%09%(objectname)%09%(symref)' \
     | while IFS=$'\t' read -r ref oid symref; do
         [ "$ref" = "$active" ] && continue
-        origin_tracking_ref "$ref" "$symref" && continue
+        case "$ref" in refs/remotes/origin/*) continue ;; esac
         printf '%s\0%s\0%s\0' "$ref" "$oid" "$symref" || exit 1
       done \
     | "$REAL_GIT" hash-object --stdin)" || return 1
@@ -221,27 +106,11 @@ other_refs_fingerprint() {
   printf '%s\n' "$result" || return 1
 }
 
-strict_refs_fingerprint() {
-  local result
-  result="$("$REAL_GIT" for-each-ref --format='%(refname)%00%(objectname)%00%(symref)' \
-    | "$REAL_GIT" hash-object --stdin)" || return 1
-  valid_git_oid "$result" || return 1
-  printf '%s\n' "$result" || return 1
-}
-
 ref_boundary_intact() {
-  local active="$1" expected="$2" current strict origin_json
+  local active="$1" expected="$2" current
   current="$(other_refs_fingerprint "$active")" || return 1
   [ "$current" = "$expected" ] || return 1
-  origin_refs_intact || return 1
-  current="$(other_refs_fingerprint "$active")" || return 1
-  [ "$current" = "$expected" ] || return 1
-  strict="$(strict_refs_fingerprint)" || return 1
-  origin_json="$(origin_refs_json)" || return 1
-  [ "$origin_json" = "$VERIFIED_ORIGIN_REFS_JSON" ] || return 1
-  current="$(strict_refs_fingerprint)" || return 1
-  [ "$current" = "$strict" ] || return 1
-  VERIFIED_REFS_FINGERPRINT="$strict"
+  VERIFIED_REFS_FINGERPRINT="$current"
 }
 
 hooks_fingerprint() {
@@ -413,13 +282,20 @@ untracked_fingerprint() {
   fingerprint_other_files untracked --others --exclude-standard
 }
 
+# Supervisor control-plane paths are never product seal state (#345/#349).
+control_plane_path() {
+  case "${1%/}" in
+    .startup/leases|.startup/leases/*) return 0 ;;
+    .startup/maintain-loop|.startup/maintain-loop/*) return 0 ;;
+    .startup/maintain|.startup/maintain/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 always_exempt_ignored_path() {
   local path="${1%/}"
   [ ! -L "$path" ] || return 1
-  # Maintain runtime temps under .startup must not fail investor seals.
-  case "$path" in
-    .startup/maintain-loop|.startup/maintain-loop/*) return 0 ;;
-  esac
+  control_plane_path "$path" && return 0
   # Large dependency / build / test / runtime-data trees. These are either
   # sealed via check_runtimes (node_modules, venv) or are regenerated product
   # caches/PII dumps that must not force O(n) fingerprinting on every
@@ -434,7 +310,7 @@ always_exempt_ignored_path() {
     */data/reports/*|*/data/orders/*|*/data/payments/*|*/data/analytics/*|\
     */data/ecb-rates-cache/*|*/data/listmonk-backups/*|*/data/listmonk-backups-*/*|\
     */logs/*|*/.startup/runs/*|*/.startup/handoffs/*|*/.startup/digests/*|\
-    */.startup/maintain/*|*/.monitor/*|*/.replay-shots/*|*/.replay-tmp/*) return 0 ;;
+    */.monitor/*|*/.replay-shots/*|*/.replay-tmp/*) return 0 ;;
   esac
   return 1
 }
@@ -444,18 +320,6 @@ mutable_python_cache_path() {
   case "/$path/" in */__pycache__/*|*/.pytest_cache/*) return 0 ;; esac
   case "${path##*/}" in *.pyc|*.pyo) return 0 ;; esac
   return 1
-}
-
-mutable_control_ignored_path() {
-  local path="$1" rest lease
-  case "$path" in
-    .startup/maintain-loop|.startup/maintain-loop/*) return 0 ;;
-    .startup/leases/*/heartbeat|.startup/leases/*/audit.log) : ;;
-    *) return 1 ;;
-  esac
-  rest=${path#.startup/leases/}
-  lease=${rest%/*}
-  case "$lease" in ''|*/*) return 1 ;; *) return 0 ;; esac
 }
 
 materialize_git_ls_files() {
@@ -497,12 +361,11 @@ exempt = re.compile(
     r"data/ecb-rates-cache|data/listmonk-backups(?:-[^/]*)?|"
     r"logs|"
     r"\.startup/runs|\.startup/handoffs|\.startup/digests|"
-    r"\.startup/maintain|\.startup/maintain-loop|"
+    r"\.startup/leases|\.startup/maintain|\.startup/maintain-loop|"
     r"\.monitor|\.replay-shots|\.replay-tmp"
     r")"
     r"(?:/|$)"
 )
-maintain_loop = re.compile(r"^\.startup/maintain-loop(?:/|$)")  # kept for clarity; covered above
 with open(src, "rb") as fh, open(dst, "wb") as out:
     for raw in fh.read().split(b"\0"):
         if not raw or raw.endswith(b"/"):
@@ -510,8 +373,6 @@ with open(src, "rb") as fh, open(dst, "wb") as out:
         try:
             path = raw.decode()
         except UnicodeDecodeError:
-            continue
-        if maintain_loop.match(path):
             continue
         if exempt.search(path):
             continue
@@ -830,11 +691,9 @@ ignored_fingerprint() {
 fingerprint_one() {
   local kind="$1" path="$2" tmp="$3"
   allowed_path "$path" && return 0
-  if [ "$kind" = ignored ] && mutable_control_ignored_path "$path" \
-    && [ -f "$path" ] && [ ! -L "$path" ]; then
-    if [ -x "$path" ]; then ENTRY_MODE=100755; else ENTRY_MODE=100644; fi
-    ENTRY_OID=mutable-control
-  elif { [ "$kind" = ignored ] || [ "$kind" = untracked ]; } \
+  # Control-plane and supervisor lease paths are never product seal (#345).
+  control_plane_path "$path" && return 0
+  if { [ "$kind" = ignored ] || [ "$kind" = untracked ]; } \
     && mutable_python_cache_path "$path" \
     && [ -f "$path" ] && [ ! -L "$path" ]; then
     if [ -x "$path" ]; then ENTRY_MODE=100755; else ENTRY_MODE=100644; fi
@@ -993,14 +852,7 @@ if [ "$ACTION" = "snapshot" ]; then
   exclusion_fp="$(git_exclusion_fingerprint)"
   state_fp="$(state_fingerprint)"
   active_ref="$(head_ref)"
-  ORIGIN_URL="$(trusted_git config --get remote.origin.url 2>/dev/null || true)"
-  ORIGIN_FETCH_REFSPEC="$(trusted_git config --get-all remote.origin.fetch 2>/dev/null || true)"
-  origin_refs="$(origin_refs_json)" || {
-    echo "delivery-mutation-guard: origin ref snapshot is unsafe" >&2; exit 1; }
-  load_origin_refs "$origin_refs" || {
-    echo "delivery-mutation-guard: origin ref snapshot is invalid" >&2; exit 1; }
   refs_fp="$(other_refs_fingerprint "$active_ref")"
-  strict_refs_fp="$(strict_refs_fingerprint)"
   hook_source="$(resolve_hook_source)" || {
     echo "delivery-mutation-guard: active hook source is unsafe" >&2; exit 1; }
   hooks_fp="$(hooks_fingerprint "$hook_source")" || {
@@ -1019,13 +871,11 @@ if [ "$ACTION" = "snapshot" ]; then
     --arg head "$base" --arg index "$index_fp" --arg worktree "$worktree_fp" \
     --arg untracked "$untracked_fp" --arg ignored "$ignored_fp" --arg exclusion "$exclusion_fp" \
     --arg state "$state_fp" --arg active_ref "$active_ref" --arg refs "$refs_fp" \
-    --arg strict_refs "$strict_refs_fp" --arg origin_url "$ORIGIN_URL" \
-    --arg origin_fetch_refspec "$ORIGIN_FETCH_REFSPEC" --argjson origin_refs "$origin_refs" \
     --arg hooks "$hooks_fp" --arg control "$control_fp" --arg index_metadata "$index_metadata_fp" \
     '[inputs] as $values
     | {schema_version:6,base_head:$head,head_ref:$active_ref,
-      refs_fingerprint:$strict_refs,other_refs_fingerprint:$refs,
-      origin_url:$origin_url,origin_fetch_refspec:$origin_fetch_refspec,origin_refs:$origin_refs,
+      refs_fingerprint:$refs,other_refs_fingerprint:$refs,
+      origin_url:"",origin_fetch_refspec:"",origin_refs:[],
       hooks_fingerprint:$hooks,git_control_fingerprint:$control,
       index_metadata_fingerprint:$index_metadata,
       index_fingerprint:$index,
@@ -1079,10 +929,6 @@ terminal_guard_cleanup() {
 }
 trap terminal_guard_cleanup EXIT
 base="$(jq -r '.base_head' "$SNAPSHOT")"
-ORIGIN_URL="$(jq -r '.origin_url' "$SNAPSHOT")"
-ORIGIN_FETCH_REFSPEC="$(jq -r '.origin_fetch_refspec' "$SNAPSHOT")"
-load_origin_refs "$(jq -c '.origin_refs' "$SNAPSHOT")" || {
-  echo "delivery-mutation-guard: authenticated origin refs are invalid" >&2; exit 1; }
 ALLOW_INVENTORY="$(mktemp)" || exit 1
 if ! jq -r '.allow[]' "$SNAPSHOT" > "$ALLOW_INVENTORY"; then
   rm -f -- "$ALLOW_INVENTORY"
@@ -1178,7 +1024,7 @@ if [ "$resume_import" -eq 0 ]; then
     exit 1
   }
   ref_boundary_intact "$active_ref" "$(jq -r .other_refs_fingerprint "$SNAPSHOT")" || {
-    echo "delivery-mutation-guard: Git refs changed outside signed live origin progress" >&2
+    echo "delivery-mutation-guard: local Git refs changed outside the allowed phase" >&2
     exit 1
   }
   head_boundary_intact "$base" || {
@@ -1255,8 +1101,8 @@ fi
 cleanup_new_ignored_paths || exit 1
 cleanup_python_cache_paths || exit 1
 if [ "$resume_import" -eq 0 ] \
-  && [ "$(strict_refs_fingerprint)" != "$VERIFIED_REFS_FINGERPRINT" ]; then
-  echo "delivery-mutation-guard: Git refs changed after live origin verification" >&2
+  && [ "$(other_refs_fingerprint "$(jq -r .head_ref "$SNAPSHOT")")" != "$VERIFIED_REFS_FINGERPRINT" ]; then
+  echo "delivery-mutation-guard: local Git refs changed outside the allowed phase" >&2
   exit 1
 fi
 shopt -s nullglob
@@ -1284,8 +1130,8 @@ for telemetry_receipt in "${telemetry_receipts[@]}"; do
 done
 cleanup_python_cache_paths || exit 1
 if [ "$resume_import" -eq 0 ] \
-  && [ "$(strict_refs_fingerprint)" != "$VERIFIED_REFS_FINGERPRINT" ]; then
-  echo "delivery-mutation-guard: Git refs changed before guard completion" >&2
+  && [ "$(other_refs_fingerprint "$(jq -r .head_ref "$SNAPSHOT")")" != "$VERIFIED_REFS_FINGERPRINT" ]; then
+  echo "delivery-mutation-guard: local Git refs changed before guard completion" >&2
   exit 1
 fi
 CLEAN_PYTHON_CACHE=0

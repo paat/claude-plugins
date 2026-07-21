@@ -477,23 +477,16 @@ case "$action" in
     route_profile=$(jq -r .profile <<<"$route_json")
     [ "$route_profile" != mechanical ] || {
       echo "maintain-attempt: source worker produced no delivery diff" >&2; unset auth; exit 1; }
+    # Exit 20 / light mismatch: escalate review depth, keep green candidate (#348).
     case "$route_rc" in
       0) : ;;
-      20)
-        if [ "$profile" != deep ]; then
-          write_attempt_result escalated "$route_json"
-          unset auth
-          printf '%s\n' "$route_json"
-          exit 20
-        fi ;;
+      20) route_profile=deep ;;
       *) unset auth; exit "$route_rc" ;;
     esac
-    if [ "$profile" = light ] \
-      && { [ "$route_profile" != light ] || [ "$(jq -r .ui_touch <<<"$route_json")" != false ]; }; then
-      write_attempt_result escalated "$route_json"
-      unset auth
-      printf '%s\n' "$route_json"
-      exit 20
+    if [ "$route_rc" -eq 20 ] || { [ "$profile" = light ] \
+      && { [ "$route_profile" != light ] || [ "$(jq -r .ui_touch <<<"$route_json")" != false ]; }; }; then
+      route_json=$(jq -c '.profile="deep"|.decision="promote_deep"' <<<"$route_json") \
+        || { unset auth; exit 1; }
     fi
     trust_args=(bash "$SUPERVISOR" --repo-root "$ROOT" --snapshot-trust "$commit_trust" --auth-stdin)
     for path in "${allow[@]}"; do trust_args+=(--allow "$path"); done

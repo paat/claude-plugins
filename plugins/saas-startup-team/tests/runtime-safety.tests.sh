@@ -1651,7 +1651,9 @@ SH
     "$workdir/backend/data/test-results.db"
   assert_file_exists "RS19znn5d: active lease heartbeat is preserved" \
     "$workdir/.startup/leases/guarded-test/heartbeat"
-  assert_file_not_exists "RS19znn5e: worker-created lease heartbeat is removed" \
+  # Control-plane paths are outside the product seal (#345); worker-created lease
+  # noise is not auto-deleted by the guard (agents may clean; not rewrite tax).
+  assert_file_exists "RS19znn5e: control-plane lease path remains outside product seal" \
     "$workdir/.startup/leases/worker-created/heartbeat"
   assert_file_not_exists "RS19znn5f: rewritten baseline bytecode is removed after checks" \
     "$workdir/backend/app/__pycache__/module.pyc"
@@ -1893,111 +1895,23 @@ SH
     "$PLUGIN_ROOT/scripts/supervisor-check-container.sh" '[[ -v'
   rm -rf "$workdir"
 
-  # Origin tolerance is fail-closed for unsafe transports, ref-set drift, and custom mappings.
+  # Origin remote-tracking drift is not product seal (#347): allowlisted write still verifies.
   script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"
   workdir=$(make_workdir); git -C "$workdir" config user.email t@t.t; git -C "$workdir" config user.name t
   printf 'base\n' > "$workdir/app.txt"; git -C "$workdir" add app.txt; git -C "$workdir" commit -qm base
-  git -C "$workdir" branch -m guarded-active
   remote=$(mktemp -d); rm -rf "$remote"; git init -q --bare "$remote"
-  git -C "$workdir" remote add origin "$remote"; git -C "$workdir" push -qu origin guarded-active
-  guard_head=$(git -C "$workdir" rev-parse refs/remotes/origin/guarded-active)
+  git -C "$workdir" remote add origin "$remote"; git -C "$workdir" push -qu origin HEAD:main
   auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  snapshot="$workdir/.git/saas-startup-team/origin-guard.json"
+  snapshot="$workdir/.git/saas-startup-team/origin-noise.json"
   (cd "$workdir" && bash "$script" --snapshot "$snapshot" --auth-stdin \
     --allow review.md <<<"$auth_token" >/dev/null)
-  remote_clone=$(mktemp -d); rm -rf "$remote_clone"
-  git clone -q -b guarded-active "$remote" "$remote_clone"
-  git -C "$remote_clone" config user.email t@t.t; git -C "$remote_clone" config user.name t
-  printf 'origin progress\n' > "$remote_clone/app.txt"
-  git -C "$remote_clone" add app.txt; git -C "$remote_clone" commit -qm origin-progress
-  git -C "$remote_clone" push -q origin guarded-active
-  git -C "$workdir" fetch -q origin guarded-active
-  progress_head=$(git -C "$workdir" rev-parse refs/remotes/origin/guarded-active)
+  git -C "$workdir" update-ref refs/remotes/origin/other "$(git -C "$workdir" rev-parse HEAD)"
   printf 'review\n' > "$workdir/review.md"
   ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
-  assert_exit_code "RS19znn9a: guard rejects origin progress over a local filesystem transport" "$ec" 1
-  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$guard_head" "$progress_head"
-  git -C "$remote_clone" switch -q -c new-live
-  git -C "$remote_clone" push -q origin new-live
-  git -C "$workdir" fetch -q origin new-live:refs/remotes/origin/new-live
-  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
-  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
-  assert_exit_code "RS19znn9b: guard rejects a newly fetched ref absent from its signed baseline" "$ec" 1
-  git -C "$workdir" update-ref -d refs/remotes/origin/new-live
-  git -C "$workdir" update-ref refs/remotes/origin/forged HEAD
-  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
-  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
-  assert_exit_code "RS19znn9c: guard rejects forged tracking ref absent from live origin" "$ec" 1
-  git -C "$workdir" update-ref -d refs/remotes/origin/forged
-  git -C "$workdir" update-ref -d refs/remotes/origin/guarded-active
-  printf 'guard-active\n' > "${snapshot}.active"; chmod 400 "${snapshot}.active"
-  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
-  assert_exit_code "RS19znn9ca: guard rejects deletion of a baseline tracking ref" "$ec" 1
-  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$guard_head"
-
-  git -C "$workdir" remote set-url origin https://example.invalid/repository.git
-  git -C "$workdir" config --unset-all remote.origin.fetch
-  git -C "$workdir" config --add remote.origin.fetch \
-    '+refs/heads/guarded-active:refs/remotes/origin/custom-active'
-  custom_snapshot="$workdir/.git/saas-startup-team/custom-origin-guard.json"
-  (cd "$workdir" && bash "$script" --snapshot "$custom_snapshot" --auth-stdin \
-    --allow review.md <<<"$auth_token" >/dev/null)
-  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$progress_head" "$guard_head"
-  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$custom_snapshot" \
-    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
-  assert_exit_code "RS19znn9cb: custom fetch refspec disables origin progress tolerance" "$ec" 1
-
-  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$guard_head" "$progress_head"
-  git -C "$workdir" config --unset-all remote.origin.fetch
-  git -C "$workdir" config --add remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
-  origin_sentinel=$(mktemp); rm -f "$origin_sentinel"
-  git -C "$workdir" remote set-url origin \
-    "ssh://-oProxyCommand=touch%20${origin_sentinel}/repository"
-  injection_snapshot="$workdir/.git/saas-startup-team/injected-origin-guard.json"
-  (cd "$workdir" && bash "$script" --snapshot "$injection_snapshot" --auth-stdin \
-    --allow review.md <<<"$auth_token" >/dev/null)
-  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$progress_head" "$guard_head"
-  ec=0; out=$(cd "$workdir" && bash "$script" --verify "$injection_snapshot" \
-    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
-  assert_exit_code "RS19znn9cc: option-like SSH origin is rejected before lookup" "$ec" 1
-  assert_file_not_exists "RS19znn9cd: rejected SSH origin executes no local command" "$origin_sentinel"
-
-  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$guard_head" "$progress_head"
-  git -C "$workdir" remote set-url origin ssh://127.0.0.1:1/repository
-  injection_snapshot="$workdir/.git/saas-startup-team/environment-origin-guard.json"
-  (cd "$workdir" && bash "$script" --snapshot "$injection_snapshot" --auth-stdin \
-    --allow review.md <<<"$auth_token" >/dev/null)
-  git -C "$workdir" update-ref refs/remotes/origin/guarded-active "$progress_head" "$guard_head"
-  ssh_injector=$(mktemp)
-  printf '#!/usr/bin/env bash\ntouch %q\nexit 1\n' "$origin_sentinel" > "$ssh_injector"
-  chmod +x "$ssh_injector"
-  ec=0; out=$(cd "$workdir" && GIT_SSH_COMMAND="$ssh_injector" GIT_ASKPASS="$ssh_injector" \
-    bash "$script" --verify "$injection_snapshot" --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
-  assert_exit_code "RS19znn9ce: unreachable hardened SSH origin fails closed" "$ec" 1
-  assert_file_not_exists "RS19znn9cf: live proof ignores injected SSH and askpass commands" "$origin_sentinel"
-  rm -f "$ssh_injector" "$origin_sentinel"
-  rm -rf "$workdir" "$remote_clone" "$remote"
-  script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"
-  assert_file_contains "RS19znn9d: live proof disables interactive authentication" \
-    "$script" 'GIT_TERMINAL_PROMPT=0'
-  assert_file_contains "RS19znn9e: live proof uses a fixed executable search path" \
-    "$script" 'PATH=/usr/bin:/bin'
-  assert_file_contains "RS19znn9f: live proof clears Git executable and proxy injection" \
-    "$script" 'GIT_EXEC_PATH GIT_PROXY_COMMAND'
-  assert_file_contains "RS19znn9g: live proof clears SSH and askpass injection" \
-    "$script" 'GIT_SSH_VARIANT GIT_ASKPASS SSH_ASKPASS SSH_ASKPASS_REQUIRE'
-  assert_file_contains "RS19znn9h: live proof disables ambient Git configuration" \
-    "$script" 'GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1'
-  assert_file_contains "RS19znn9i: live proof disables external protocol helpers" \
-    "$script" 'protocol.ext.allow=never'
-  assert_file_contains "RS19znn9j: origin tolerance requires the default fetch mapping" \
-    "$script" '+refs/heads/\*:refs/remotes/origin/\*'
-  assert_file_contains "RS19znn9k: origin tolerance recognizes hardened HTTPS transport" \
-    "$script" 'https://\*'
-  assert_file_contains "RS19znn9ka: origin tolerance recognizes hardened SSH URLs" \
-    "$script" 'ssh://\*'
-  assert_file_contains "RS19znn9l: origin tolerance recognizes scp-like SSH transport" \
-    "$script" 'A-Za-z0-9._-.*@.*A-Za-z0-9.-.*:'
+  assert_exit_code "RS19znn9a: unrelated origin remote-tracking drift still verifies" "$ec" 0
+  rm -rf "$workdir" "$remote"
+  assert_file_not_contains "RS19znn9b: guard no longer ls-remotes origin for seal" \
+    "$script" 'ls-remote'
 
   # Large guard collections are streamed to jq instead of crossing the per-argument limit.
   script="$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh"

@@ -159,7 +159,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-attempt.sh" deliver \
   "${ALLOW_ARGS[@]}"
 ```
 
-An allowed lower-profile escalation gets one cleanup and one authorization through:
+Post-diff route exit 20 keeps the green candidate and continues commit (`promote_deep`);
+do not discard/rewrite for routing alone. Reserve cleanup + `authorize-restart` for true
+discards (allowlist violation, failed checks, untrusted tree):
 
 ```bash
 ESCALATION_ARGS=(
@@ -174,8 +176,7 @@ CHILD_RUN_ID="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/agent-events.sh" new-run-id)
 ```
 
 The helper's persisted polarity is `open_pr:false,remote_branch:false,head_at_base:true,worktree_clean:true`.
-Only that exact evidence permits one fresh deep attempt. No caller interpretation,
-partial cleanup, or second escalation grants restart authority.
+Only that exact evidence permits one fresh deep attempt after a real discard.
 
 ## One receipt-owned PR
 

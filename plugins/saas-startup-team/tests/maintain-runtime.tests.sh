@@ -342,11 +342,15 @@ SH
     "do not auto-delete"
   assert_output_contains "MR15aa2c: primary-only requires plain clone for isolation" "$out" \
     "plain git clone"
-  # Gate must not delete the foreign tree (operator/protocol stop, no sweep).
   assert_file_exists "MR15aa2d: linked worktree still present after fail-closed gate" "$linked"
-  # Suite fixture cleanup only — not the gate. Later steps need a single primary.
   git -C "$repo" worktree remove --force "$linked" >/dev/null
   linked=""
+  # Leftover tribunal review trees do not pause the portfolio (#346).
+  tribunal_wt=$(mktemp -d "${TMPDIR:-/tmp}/tribunal-codex.XXXXXX"); rmdir "$tribunal_wt"
+  git -C "$repo" worktree add --detach -q "$tribunal_wt" HEAD
+  bash "$leases" assert-primary-only --repo-root "$repo" >/dev/null
+  assert_file_exists "MR15aa2e: ignored tribunal worktree left in place" "$tribunal_wt"
+  git -C "$repo" worktree remove --force "$tribunal_wt" >/dev/null
   bash "$leases" assert-primary-only --repo-root "$repo" >/dev/null
   mkdir -p "$repo/probe-bin" "$common/saas-startup-team/maintain"
   cat > "$repo/probe-bin/gh" <<'SH'

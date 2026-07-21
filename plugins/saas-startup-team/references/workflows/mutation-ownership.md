@@ -3,6 +3,10 @@
 Use these gates around every model-backed phase. The supervisor creates and verifies
 them; workers never run, edit, or remove guard files.
 
+Prefer agent recovery over discard for control-plane noise (lease heartbeats, leftover
+`/tmp/tribunal-*`, unrelated origin ref drift, post-diff profile upgrade). Fail closed
+only for allowlist/product integrity, failed checks, base identity drift, and secrets.
+
 ## Role boundary
 
 Before dispatch, derive the smallest exact allowlist from the accepted brief and create

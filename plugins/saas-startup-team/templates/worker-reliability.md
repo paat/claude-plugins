@@ -1,12 +1,10 @@
 # Worker reliability rules
 
-- **No linked git worktrees (hard).** Primary working directory only.
-  `assert-primary-only` fails closed if any extra worktree exists; it never
-  auto-deletes them. Never set `core.worktree` or run `git worktree add`.
-  Pause the portfolio and stop — do not sweep foreign trees. Isolated stacks
-  (replay, disposable verification) use a plain `git clone` outside the linked
-  worktree list. `/improve`, `/tweak`, and other one-shots run on the primary
-  checkout (main repo dir) only.
+- **No linked product worktrees (hard).** Primary working directory only.
+  `assert-primary-only` ignores leftover `/tmp/tribunal-*` review trees; any
+  other extra worktree fails closed (never auto-deleted). Never set
+  `core.worktree` or `git worktree add` for product isolation — use a plain
+  `git clone`. `/improve`, `/tweak`, and one-shots run on the primary only.
 - **Never writable-link primary dependency runtimes.** Do not `ln -s` primary
   `node_modules` / `venv` / `.venv` into a disposable clone. Use
   `scripts/bind-dependency-runtime-view.sh` (private copy) or let the sealed
