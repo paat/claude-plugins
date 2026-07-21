@@ -109,9 +109,15 @@ test_maintain_human_gate() {
     --labels-file "$dir/labels.json")
   assert_equals "MHG18: non-nh verdict is no-op" "$(jq -r .action <<<"$out")" "no-op"
 
-  out=$(bash "$helper" evaluate --verdict needs-human --reason 'legal judgment required' \
+  out=$(bash "$helper" evaluate --verdict needs-human \
+    --reason 'payment disposition: refund vs honour promo' \
     --labels-file "$dir/labels.json")
-  assert_equals "MHG20: ordinary nh parks" "$(jq -r .park <<<"$out")" "true"
+  assert_equals "MHG20: spend disposition parks" "$(jq -r .park <<<"$out")" "true"
+
+  out=$(bash "$helper" evaluate --verdict needs-human \
+    --reason 'need production DB credentials' --reason-kind credentials \
+    --labels-file "$dir/labels.json")
+  assert_equals "MHG20cred: credentials kind parks" "$(jq -r .park <<<"$out")" "true"
 
   # #1668: failing internal jobs are engineering, not needs-human.
   out=$(bash "$helper" evaluate --verdict needs-human \
@@ -126,14 +132,39 @@ test_maintain_human_gate() {
 
   out=$(bash "$helper" evaluate --verdict needs-human \
     --reason 'nightly-replay failed exit=80' --reason-kind judgment \
-    --labels-file "$dir/labels.json")
-  assert_equals "MHG20h: explicit judgment kind still parks" \
-    "$(jq -r .park <<<"$out")" "true"
+    --labels-file "$dir/labels.json" --has-needs-human true)
+  assert_equals "MHG20h: judgment kind goes to Fable" \
+    "$(jq -r .action <<<"$out")" "delegate-fable"
+  assert_equals "MHG20h2: judgment does not park" "$(jq -r .park <<<"$out")" "false"
+  assert_equals "MHG20h3: judgment strips premature nh" \
+    "$(jq -r .remove_needs_human <<<"$out")" "true"
+  assert_equals "MHG20h4: judgment digest" \
+    "$(jq -r .digest <<<"$out")" "delegate-fable:judgment"
 
   out=$(bash "$helper" evaluate --verdict needs-human \
     --reason 'pipeline_error at bank_parse — fix the parser' \
     --labels-file "$dir/labels.json")
   assert_equals "MHG20i: pipeline_error not nh" "$(jq -r .action <<<"$out")" "reject-not-human"
+
+  out=$(bash "$helper" evaluate --verdict needs-human \
+    --reason 'legal/compliance judgment on customer-facing tax copy' \
+    --labels-file "$dir/labels.json")
+  assert_equals "MHG20j: legal free-text to Fable" \
+    "$(jq -r .action <<<"$out")" "delegate-fable"
+
+  out=$(bash "$helper" evaluate --verdict needs-human \
+    --reason 'production sign-off required before enable' \
+    --reason-kind production-signoff --labels-file "$dir/labels.json")
+  assert_equals "MHG20k: production-signoff kind to Fable" \
+    "$(jq -r .action <<<"$out")" "delegate-fable"
+  assert_equals "MHG20l: production-signoff digest" \
+    "$(jq -r .digest <<<"$out")" "delegate-fable:production-signoff"
+
+  out=$(bash "$helper" evaluate --verdict needs-human \
+    --reason 'refund vs honour promo payment disposition' \
+    --labels-file "$dir/labels.json")
+  assert_equals "MHG20m: spend disposition still parks" \
+    "$(jq -r .park <<<"$out")" "true"
 
   printf '%s\n' 'product prioritization' > "$dir/reason.txt"
   out=$(bash "$helper" evaluate --verdict needs-human --reason-file "$dir/reason.txt" \
@@ -173,6 +204,13 @@ test_maintain_human_gate() {
     "$protocol" 'Closed definition'
   assert_file_contains "MHG30: reject-not-human action table" \
     "$protocol" 'reject-not-human'
+  assert_file_contains "MHG31: delegate-fable action table" \
+    "$protocol" 'delegate-fable'
+  assert_file_contains "MHG32: Fable decision comment marker" \
+    "$protocol" '<!-- fable:decision:'
+  local fable_agent="$PLUGIN_ROOT/agents/business-founder-maintain.md"
+  assert_file_contains "MHG33: Fable agent requires GH comment" \
+    "$fable_agent" 'fable:decision:'
 
   rm -rf "$dir"
 }

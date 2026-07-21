@@ -18,7 +18,7 @@ usage() {
 usage: maintain-human-gate.sh evaluate
   --verdict agent-fixable|partially-fixable|needs-human
   --reason TEXT | --reason-file PATH
-  [--reason-kind epic|credentials|judgment|other]
+  [--reason-kind epic|credentials|judgment|legal|production-signoff|other]
   [--labels-file PATH]          # JSON array of label name strings
   [--comments-file PATH]        # JSON array of comment objects (offline)
   [--repo OWNER/REPO --issue N] # live fetch when fixtures omitted
@@ -66,7 +66,7 @@ fi
 reason=${reason:0:500}
 
 case "$reason_kind" in
-  ''|epic|credentials|judgment|other) : ;;
+  ''|epic|credentials|judgment|legal|production-signoff|other) : ;;
   *) die "invalid --reason-kind" 2 ;;
 esac
 case "$has_needs_human" in true|false) : ;; *) die "--has-needs-human must be true|false" 2 ;; esac
@@ -232,17 +232,33 @@ if [ -n "$override_via" ] && [ "$is_credential" = true ]; then
   exit 0
 fi
 
-# Closed definition (#1647 / #1668): needs-human is only spend/payment disposition,
-# credentials/access, legal or customer-communication judgment, or production
-# sign-off. Ordinary engineering — including a failing internal job — must not park.
+# Closed definition (#1647 / #1668): direct needs-human park is only
+# spend/payment disposition or credentials/access the agent must not invent.
+# Legal / customer-communication judgment and production sign-off go to Fable
+# (business-founder-maintain) first — Fable documents the decision in a GH
+# comment, then may park or de-gate. Ordinary engineering never parks.
 # Prefer --reason-kind; free-text is a fail-closed backstop when kind is other/empty.
-# Credentials/judgment kinds still park (gate does not re-litigate those kinds).
+
+# Fable-first kinds (never park from the mechanical gate alone).
+case "$reason_kind" in
+  judgment|legal|production-signoff)
+    remove=false
+    [ "$has_needs_human" = true ] && remove=true
+    emit false delegate-fable "$remove" "delegate-fable:${reason_kind}"
+    exit 0
+    ;;
+esac
+
 is_engineering_only=false
+is_fable_judgment=false
 if [ "$reason_kind" = '' ] || [ "$reason_kind" = other ]; then
   # shellcheck disable=SC2016
   if printf '%s' "$reason" | grep -qiE \
     'nightly[-_ ]?(replay|lessons|harvest|monitor)|monitor (job |check )?failed|job failed|exit[[:space:]]*=[[:space:]]*[0-9]+|cron (job |exit|failed)|lessons[-_ ]?harvest|internal (job|check|cron)|pipeline_error|workflow failed|ci failed|repro(duction)? (is )?(hard|difficult)|uncertain(ty)? about (the )?fix|too big to|ordinary engineering'; then
     is_engineering_only=true
+  elif printf '%s' "$reason" | grep -qiE \
+    'legal|compliance|tax judgment|customer[- ]communication|customer (email|message|outreach)|production sign[- ]?off|investor (must |to )?sign|sign[- ]?off required|regulatory'; then
+    is_fable_judgment=true
   fi
 fi
 if [ "$is_engineering_only" = true ]; then
@@ -251,7 +267,15 @@ if [ "$is_engineering_only" = true ]; then
   emit false reject-not-human "$remove" "rejected:not-human-decision"
   exit 0
 fi
+if [ "$is_fable_judgment" = true ]; then
+  remove=false
+  [ "$has_needs_human" = true ] && remove=true
+  emit false delegate-fable "$remove" "delegate-fable:judgment"
+  exit 0
+fi
 
+# Credentials kind already handled above for override; free-text alone never
+# forces credential park. Spend/payment and remaining judgment parks here.
 # Digest uses a stable prefix; free-text reason is not shell-evaluated.
 digest_reason=$(printf '%s' "$reason" | tr '\n\r\t' '   ' | cut -c1-200)
 emit true park false "needs-human:${digest_reason}"

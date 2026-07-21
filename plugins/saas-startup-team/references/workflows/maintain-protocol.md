@@ -322,8 +322,11 @@ during delivery (no-progress / deploy-blocked) and recorded with a cooldown.
 
 **Do not guess through uncertainty.** Clear, objectively checkable work should still
 default toward delivery, including reversible fixes on visible surfaces. Ambiguity,
-product/legal judgment, or insufficient evidence goes through the Fable/deep verdict;
-only that full pass may decide `agent-fixable` versus `needs-human`.
+legal or customer-communication judgment, production sign-off, product prioritization
+with no defensible default, or insufficient evidence goes through the Fable/deep
+verdict (`business-founder-maintain`); only that full pass may decide
+`agent-fixable` versus `needs-human`, and it **must** post a GitHub decision comment
+before any park or de-gate (see §Fable decision comments).
 
 - **`agent-fixable`** → enters the delivery queue. Per the standing merge policy
   (`${CLAUDE_PLUGIN_ROOT}/templates/merge-policy.md`), a well-specified,
@@ -356,13 +359,27 @@ supervisor removal before retry.
 
 ### `needs-human` reasons
 
-**Closed definition** (steering #1647 / #1668). Apply `needs-human` **only** when the
-whole issue hinges on one of:
+**Closed definition** (steering #1647 / #1668). The mechanical gate / cheap triage may
+apply `needs-human` **only** when the whole issue hinges on:
 
 - spend / payment disposition (refund, honour promo, charge, no-action on money)
 - credentials / access the agent must not invent
+- manual external verification that only a human can perform (portal upload, real card,
+  ID-card auth) — not "hard repro"
+
+**Delegate to Fable first** (`saas-startup-team:business-founder-maintain`) — do **not**
+park from the light triage / mechanical gate alone — when the issue hinges on:
+
 - legal or customer-communication judgment
 - production change the investor must explicitly sign off
+- product/design/UX/**prioritization** with no defensible default (narrow — see
+  calibration below)
+- too ambiguous (**no** repro/spec at all — not "hard repro")
+
+Fable's deep pass is the only role that may then either (a) de-gate to
+`agent-fixable` / `partially-fixable`, or (b) **approve** a `needs-human` park. Every
+Fable decision **must** be written as a GitHub issue comment before any label mutation
+(see §Fable decision comments).
 
 **Never** `needs-human` for: a failing internal job/cron/monitor/nightly check,
 reproduction difficulty, uncertainty about the right engineering fix, "this is big",
@@ -370,15 +387,17 @@ or ordinary product bugs with a defensible default. Those stay `agent-fixable`
 (or `partially-fixable` when a separable judgment sub-part remains — split, don't park
 the engineering half).
 
-Still valid judgment buckets when they truly apply: product/design/UX/**prioritization**
-call (narrow — see calibration below) · credentials/secrets · manual external
-verification (portal upload, real card, ID-card auth) · legal/compliance/tax judgment
-· too ambiguous (**no** repro/spec at all — not "hard repro").
+The supervisor gate (`maintain-human-gate.sh`):
 
-The supervisor gate (`maintain-human-gate.sh`) **rejects** free-text/`other` parks whose
-reason matches ordinary engineering / job-failure patterns (`action=reject-not-human`,
-may remove a stale `needs-human` label). Do not re-apply the label after a reject;
-deliver or leave unlabeled.
+- **rejects** free-text/`other` parks that match ordinary engineering / job-failure
+  patterns (`action=reject-not-human`, may strip a stale `needs-human` label)
+- **delegates** legal / customer-communication / production-signoff / `--reason-kind
+  judgment|legal|production-signoff` to Fable (`action=delegate-fable`, may strip a
+  premature `needs-human` label)
+
+Do not re-apply `needs-human` after `reject-not-human` without a new gate-approved
+path. After `delegate-fable`, run the Fable deep verdict (never cache uncertainty), then
+re-enter the gate only if Fable's documented decision is park.
 
 **Epics are not `needs-human`.** An `epic`-labelled issue is **excluded from delivery**
 by the queue builder (`.excluded.epic`) and must **never** receive the
@@ -448,9 +467,11 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/delivery-route.sh" classify-issue \
 - **Temps in agent shell:** write with `mktemp` if needed; do **not** clean with
   `rm -f` / `trap … rm -f`. Prefer helpers that encapsulate fetch+classify+cleanup.
 
-`--reason-kind` is one of `epic`, `credentials`, `judgment`, `other` when the
-supervisor already knows the class; omit only if unknown. Epic exclusion uses the
-`epic` **label** (or kind `epic`), not free-text mentions.
+`--reason-kind` is one of `epic`, `credentials`, `judgment`, `legal`,
+`production-signoff`, `other` when the supervisor already knows the class; omit only
+if unknown. Epic exclusion uses the `epic` **label** (or kind `epic`), not free-text
+mentions. Kinds `judgment`, `legal`, and `production-signoff` always
+`delegate-fable` (never park from the gate alone).
 
 Interpret `.action` — only `park` applies the human label:
 
@@ -459,8 +480,40 @@ Interpret `.action` — only `park` applies the human label:
 | `exclude-epic` | Do **not** add `needs-human`. If `.remove_needs_human`, remove the label. Cache final state `skipped:epic`. Record digest `.digest`. |
 | `override-cleared` | Do **not** add `needs-human`. If `.remove_needs_human`, remove the label. Do not re-write human-tasks as a fresh park. Cache final state `skipped:human-cleared`. Record `.digest` (`verdict-overridden-by:<login>`). |
 | `reject-not-human` | Do **not** add `needs-human`. If `.remove_needs_human`, remove the label. Treat as mis-triage: keep/re-queue as `agent-fixable` (or re-triage). Cache final state `skipped:not-human-decision`. Record `.digest` (`rejected:not-human-decision`). |
+| `delegate-fable` | Do **not** add `needs-human`. If `.remove_needs_human`, remove a premature label. Route to `saas-startup-team:business-founder-maintain` deep verdict. Cache interim state `deferred:fable`. Record `.digest` (`delegate-fable:<kind>`). Fable **must** post a GH decision comment before any later park or de-gate. |
 | `park` | Apply `needs-human` + bot comment + human-tasks as today. |
 | `no-op` | Caller used a non-`needs-human` verdict; re-invoke with `--verdict needs-human` for residual parks. |
+
+### Fable decision comments
+
+Every Fable deep-verdict outcome on an issue **must** be recorded as a GitHub issue
+comment **before** the supervisor applies or removes `needs-human` (or otherwise acts
+on the verdict). Disk handoffs alone are not enough — the issue thread is the
+authoritative audit trail.
+
+Required shape (exact marker line first so automation can find it):
+
+```text
+<!-- fable:decision:<ISSUE_NUMBER> -->
+**Fable decision (YYYY-MM-DD):** <one-line verdict>
+
+- **Verdict:** `agent-fixable` | `partially-fixable` | `needs-human` | `de-gated`
+- **Kind:** legal | customer-communication | production-signoff | prioritization | other
+- **Rationale:** <2–5 sentences; cite docs or facts used>
+- **Investor action (if any):** <none | concrete ask>
+```
+
+Rules:
+
+- Post with `gh issue comment <N> --body-file …` (or equivalent). One decision comment
+  per deep pass; edit-in-place only if replacing the same pass's draft, never delete
+  history by silent overwrite of an older decision without a new dated comment.
+- Estonian is fine for investor-facing sentences; keep the marker, verdict codes, and
+  field labels in English so the gate/supervisor can parse them.
+- A park without a matching `<!-- fable:decision:N -->` comment for that issue in the
+  same pass is invalid workflow state — do not apply `needs-human`.
+- A de-gate (remove `needs-human` / treat as agent-fixable) likewise requires the
+  comment first.
 
 **Credential exception:** with `--reason-kind credentials` (or credential phrasing
 when kind is omitted), an override does **not** suppress parking. Epic exclusion
