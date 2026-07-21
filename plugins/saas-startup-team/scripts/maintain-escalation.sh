@@ -306,7 +306,8 @@ if [ "$action" = _authorize-held ]; then
   exit 0
 fi
 
-default_branch=$(cd "$PRIMARY" && trusted_gh repo view --repo "$REPO_SPEC" \
+# gh ≥2.96: `repo view` takes the repository as a positional arg (no --repo flag).
+default_branch=$(cd "$PRIMARY" && trusted_gh repo view "$REPO_SPEC" \
   --json defaultBranchRef --jq '.defaultBranchRef.name') || die "cannot resolve default branch"
 [ -n "$default_branch" ] && git check-ref-format --branch "$default_branch" >/dev/null 2>&1 \
   || die "default branch evidence is malformed"

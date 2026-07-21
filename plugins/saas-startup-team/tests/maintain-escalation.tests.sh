@@ -87,10 +87,15 @@ FAIL_CLOSE=$(printf '%q' "$fail_close")
 for name in GH_REPO GH_HOST GH_CONFIG_DIR LD_PRELOAD LD_LIBRARY_PATH BASH_ENV ENV; do
   [ "\${!name+x}" != x ] || { printf 'poisoned gh environment: %s\\n' "\$name" >&2; exit 90; }
 done
+# pr/list/close bind via --repo; repo view (gh≥2.96) binds via positional owner/name.
+bound=0
 case " \$* " in
-  *" --repo github.com/example/maintain-escalation-fixture "*) : ;;
-  *) printf 'missing canonical repository binding: %s\\n' "\$*" >&2; exit 91 ;;
+  *" --repo github.com/example/maintain-escalation-fixture "*) bound=1 ;;
 esac
+case "\${1:-} \${2:-} \${3:-}" in
+  "repo view github.com/example/maintain-escalation-fixture") bound=1 ;;
+esac
+[ "\$bound" -eq 1 ] || { printf 'missing canonical repository binding: %s\\n' "\$*" >&2; exit 91; }
 printf '%s\\n' "\$*" >> "\$CALLS"
 case "\${1:-} \${2:-}" in
   "repo view") printf '%s\\n' main ;;
@@ -160,7 +165,14 @@ SH
   mode=$(stat -c '%a' "$receipt")
   assert_equals "ME8: cleanup receipt is private" "$mode" 600
   assert_equals "ME8a: every GitHub call is bound to the canonical origin repository" \
-    "$(awk 'index($0,"--repo github.com/example/maintain-escalation-fixture") == 0 { bad=1 } END { print (NR > 0 && !bad ? "true" : "false") }' "$calls")" true
+    "$(awk '
+      {
+        ok = (index($0, "--repo github.com/example/maintain-escalation-fixture") > 0)
+        if ($1 == "repo" && $2 == "view" && $3 == "github.com/example/maintain-escalation-fixture") ok = 1
+        if (!ok) bad = 1
+      }
+      END { print (NR > 0 && !bad ? "true" : "false") }
+    ' "$calls")" true
 
   ec=0
   out=$(PATH="$bin:$PATH" \
