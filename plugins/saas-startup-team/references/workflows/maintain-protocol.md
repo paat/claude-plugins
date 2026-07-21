@@ -356,9 +356,29 @@ supervisor removal before retry.
 
 ### `needs-human` reasons
 
-product/design/UX/prioritization call · credentials/secrets needed · manual external
+**Closed definition** (steering #1647 / #1668). Apply `needs-human` **only** when the
+whole issue hinges on one of:
+
+- spend / payment disposition (refund, honour promo, charge, no-action on money)
+- credentials / access the agent must not invent
+- legal or customer-communication judgment
+- production change the investor must explicitly sign off
+
+**Never** `needs-human` for: a failing internal job/cron/monitor/nightly check,
+reproduction difficulty, uncertainty about the right engineering fix, "this is big",
+or ordinary product bugs with a defensible default. Those stay `agent-fixable`
+(or `partially-fixable` when a separable judgment sub-part remains — split, don't park
+the engineering half).
+
+Still valid judgment buckets when they truly apply: product/design/UX/**prioritization**
+call (narrow — see calibration below) · credentials/secrets · manual external
 verification (portal upload, real card, ID-card auth) · legal/compliance/tax judgment
-· too ambiguous (no repro/spec).
+· too ambiguous (**no** repro/spec at all — not "hard repro").
+
+The supervisor gate (`maintain-human-gate.sh`) **rejects** free-text/`other` parks whose
+reason matches ordinary engineering / job-failure patterns (`action=reject-not-human`,
+may remove a stale `needs-human` label). Do not re-apply the label after a reject;
+deliver or leave unlabeled.
 
 **Epics are not `needs-human`.** An `epic`-labelled issue is **excluded from delivery**
 by the queue builder (`.excluded.epic`) and must **never** receive the
@@ -438,6 +458,7 @@ Interpret `.action` — only `park` applies the human label:
 |---|---|
 | `exclude-epic` | Do **not** add `needs-human`. If `.remove_needs_human`, remove the label. Cache final state `skipped:epic`. Record digest `.digest`. |
 | `override-cleared` | Do **not** add `needs-human`. If `.remove_needs_human`, remove the label. Do not re-write human-tasks as a fresh park. Cache final state `skipped:human-cleared`. Record `.digest` (`verdict-overridden-by:<login>`). |
+| `reject-not-human` | Do **not** add `needs-human`. If `.remove_needs_human`, remove the label. Treat as mis-triage: keep/re-queue as `agent-fixable` (or re-triage). Cache final state `skipped:not-human-decision`. Record `.digest` (`rejected:not-human-decision`). |
 | `park` | Apply `needs-human` + bot comment + human-tasks as today. |
 | `no-op` | Caller used a non-`needs-human` verdict; re-invoke with `--verdict needs-human` for residual parks. |
 

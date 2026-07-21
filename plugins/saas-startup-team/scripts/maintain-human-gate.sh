@@ -232,6 +232,26 @@ if [ -n "$override_via" ] && [ "$is_credential" = true ]; then
   exit 0
 fi
 
+# Closed definition (#1647 / #1668): needs-human is only spend/payment disposition,
+# credentials/access, legal or customer-communication judgment, or production
+# sign-off. Ordinary engineering — including a failing internal job — must not park.
+# Prefer --reason-kind; free-text is a fail-closed backstop when kind is other/empty.
+# Credentials/judgment kinds still park (gate does not re-litigate those kinds).
+is_engineering_only=false
+if [ "$reason_kind" = '' ] || [ "$reason_kind" = other ]; then
+  # shellcheck disable=SC2016
+  if printf '%s' "$reason" | grep -qiE \
+    'nightly[-_ ]?(replay|lessons|harvest|monitor)|monitor (job |check )?failed|job failed|exit[[:space:]]*=[[:space:]]*[0-9]+|cron (job |exit|failed)|lessons[-_ ]?harvest|internal (job|check|cron)|pipeline_error|workflow failed|ci failed|repro(duction)? (is )?(hard|difficult)|uncertain(ty)? about (the )?fix|too big to|ordinary engineering'; then
+    is_engineering_only=true
+  fi
+fi
+if [ "$is_engineering_only" = true ]; then
+  remove=false
+  [ "$has_needs_human" = true ] && remove=true
+  emit false reject-not-human "$remove" "rejected:not-human-decision"
+  exit 0
+fi
+
 # Digest uses a stable prefix; free-text reason is not shell-evaluated.
 digest_reason=$(printf '%s' "$reason" | tr '\n\r\t' '   ' | cut -c1-200)
 emit true park false "needs-human:${digest_reason}"

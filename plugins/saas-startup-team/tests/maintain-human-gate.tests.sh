@@ -113,6 +113,28 @@ test_maintain_human_gate() {
     --labels-file "$dir/labels.json")
   assert_equals "MHG20: ordinary nh parks" "$(jq -r .park <<<"$out")" "true"
 
+  # #1668: failing internal jobs are engineering, not needs-human.
+  out=$(bash "$helper" evaluate --verdict needs-human \
+    --reason 'nightly-lessons-harvest failed exit=1 — human must authorize re-run' \
+    --labels-file "$dir/labels.json" --has-needs-human true)
+  assert_equals "MHG20d: nightly job does not park" "$(jq -r .park <<<"$out")" "false"
+  assert_equals "MHG20e: reject-not-human action" "$(jq -r .action <<<"$out")" "reject-not-human"
+  assert_equals "MHG20f: remove stale nh on reject" \
+    "$(jq -r .remove_needs_human <<<"$out")" "true"
+  assert_equals "MHG20g: reject digest" \
+    "$(jq -r .digest <<<"$out")" "rejected:not-human-decision"
+
+  out=$(bash "$helper" evaluate --verdict needs-human \
+    --reason 'nightly-replay failed exit=80' --reason-kind judgment \
+    --labels-file "$dir/labels.json")
+  assert_equals "MHG20h: explicit judgment kind still parks" \
+    "$(jq -r .park <<<"$out")" "true"
+
+  out=$(bash "$helper" evaluate --verdict needs-human \
+    --reason 'pipeline_error at bank_parse — fix the parser' \
+    --labels-file "$dir/labels.json")
+  assert_equals "MHG20i: pipeline_error not nh" "$(jq -r .action <<<"$out")" "reject-not-human"
+
   printf '%s\n' 'product prioritization' > "$dir/reason.txt"
   out=$(bash "$helper" evaluate --verdict needs-human --reason-file "$dir/reason.txt" \
     --labels-file "$dir/labels.json")
@@ -147,6 +169,10 @@ test_maintain_human_gate() {
   fi
   assert_file_contains "MHG28: standalone marker line" \
     "$protocol" 'standalone, unindented line'
+  assert_file_contains "MHG29: closed nh definition" \
+    "$protocol" 'Closed definition'
+  assert_file_contains "MHG30: reject-not-human action table" \
+    "$protocol" 'reject-not-human'
 
   rm -rf "$dir"
 }
