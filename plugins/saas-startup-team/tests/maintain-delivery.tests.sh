@@ -803,6 +803,30 @@ HOSTILE_BASH_ENV
         --tribunal-plugin-root "$fake_tribunal" >/dev/null
   assert_file_not_exists "MD4b4: tribunal runner ignores ambient Bash loaders" \
     "$fixtures/tribunal-loader-ran"
+  # Non-APPROVE sealed collection must be retired and recollected (#339).
+  common=$(git -C "$repo" rev-parse --git-common-dir)
+  case "$common" in /*) : ;; *) common="$repo/$common" ;; esac
+  delivery_id=$(bash "$script" show --repo-root "$repo" --issue 1 | jq -r .delivery_id)
+  active_collection="$common/saas-startup-team/maintain-runtime/deliveries/issue-1/tribunal-${delivery_id}-normal"
+  assert_file_exists "MD4b5: active tribunal collection exists" "$active_collection/manifest.json"
+  jq -n --arg head "$head" --arg finalized "$(date -u +%FT%TZ)" --argjson pr 11 '
+    {schema:"tribunal-proof/v1",finalized_at:$finalized,manifest_sha256:"deadbeef",
+     pull_request:{number:$pr,head_oid:$head,body_sha256:"b",diff_sha256:"d"},
+     arbitration:{path:"arbitration.json",sha256:"a",decision:"NEEDS_WORK",
+       confidence:0,critical_count:0,high_count:0}}' > "$active_collection/proof.json"
+  bash "$script" collect-tribunal --repo-root "$repo" --issue 1 --role normal \
+    --tribunal-plugin-root "$fake_tribunal" >/dev/null
+  assert_file_exists "MD4b6: active collection recreated after NEEDS_WORK" \
+    "$active_collection/manifest.json"
+  assert_file_not_exists "MD4b7: NEEDS_WORK proof not carried into fresh collection" \
+    "$active_collection/proof.json"
+  retired_n=0
+  for retired in "$common"/saas-startup-team/maintain-runtime/deliveries/issue-1/tribunal-"$delivery_id"-normal.retired-*; do
+    [ -e "$retired" ] || continue
+    retired_n=$((retired_n + 1))
+    assert_file_exists "MD4b8: retired collection keeps sealed proof" "$retired/proof.json"
+  done
+  assert_equals "MD4b9: exactly one retired tribunal round" "$retired_n" "1"
   printf '%s\n' '{"status":"passed"}' > "$fixtures/narrow-tribunal.json"
   ec=0; bash "$script" record-proof --repo-root "$repo" --issue 1 --role normal --kind tribunal \
     --artifact "$fixtures/narrow-tribunal.json" --tribunal-plugin-root "$fake_tribunal" \

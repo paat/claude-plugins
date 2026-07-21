@@ -225,7 +225,12 @@ adapter does not redefine their content. It only binds their verified outputs:
 
 - `record-proof --kind qa` records the exact receipt head and the canonical QA command,
   or the helper-verified not-applicable classification;
-- `collect-tribunal` retains the provider bundle, and `record-proof --kind tribunal`
+- `collect-tribunal` retains the provider bundle. If the active collection is sealed
+  with a non-`APPROVE` proof (or bound to a different head), the helper **retires**
+  that directory in place (`*.retired-<stamp>-<head>`) and collects a fresh round —
+  up to 5 retires per delivery/role (plugin issue #339). Callers still must not
+  delete or rewrite protected evidence themselves.
+- `record-proof --kind tribunal`
   accepts only the canonical current-head arbitration artifact using
   `maintain-proof-contract.md`;
 - any source, PR-body validation fact, rebase, default advance, or head change

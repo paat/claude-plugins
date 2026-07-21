@@ -1727,8 +1727,50 @@ if [ "$ACTION" = collect-tribunal ]; then
   valid_uint "$pr" && valid_sha "$target" || die "bound PR review identity is incomplete"
   validate_tribunal_plugin "$TRIBUNAL_PLUGIN_ROOT"
   collection=$(tribunal_collection_path "$ROLE")
+  # Fresh collection when missing; or retire+recollect when the active collection is
+  # bound to a different head, or sealed with a non-APPROVE proof (all-provider
+  # transport failure / NEEDS_WORK). Retired dirs stay under issue_dir as evidence.
+  # Cap retires so flaky transports cannot loop unboundedly (plugin issue #339).
+  need_collect=false
   if [ ! -e "$collection" ] && [ ! -L "$collection" ]; then
+    need_collect=true
+  else
+    [ -d "$collection" ] && [ ! -L "$collection" ] \
+      && [ "$(dirname -- "$collection")" = "$issue_dir" ] \
+      && [ -f "$collection/manifest.json" ] && [ ! -L "$collection/manifest.json" ] \
+      || die "active tribunal collection is missing or unsafe"
+    if ! jq -e --argjson pr "$pr" --arg head "$target" \
+      '.pull_request.number == $pr and .pull_request.head_oid == $head' \
+      "$collection/manifest.json" >/dev/null 2>&1; then
+      need_collect=true
+    elif [ -f "$collection/proof.json" ] && [ ! -L "$collection/proof.json" ]; then
+      decision=$(jq -r '.arbitration.decision // empty' "$collection/proof.json")
+      case "$decision" in
+        APPROVE) : ;;
+        '') die "sealed tribunal proof is missing a decision" ;;
+        *) need_collect=true ;;
+      esac
+    fi
+  fi
+  if [ "$need_collect" = true ]; then
     require_active_controller
+    if [ -e "$collection" ] || [ -L "$collection" ]; then
+      retired_n=0
+      for retired in "$issue_dir"/tribunal-"$DELIVERY_ID"-"$ROLE".retired-*; do
+        [ -e "$retired" ] || [ -L "$retired" ] || continue
+        retired_n=$((retired_n + 1))
+      done
+      [ "$retired_n" -lt 5 ] || die "tribunal retry budget exhausted (5 retired rounds)"
+      stamp=$(now_iso | tr -d ':-' | tr 'T' '-' | cut -c1-15)
+      old_head=$(jq -r '.pull_request.head_oid // "unknown"' "$collection/manifest.json" 2>/dev/null || true)
+      case "$old_head" in
+        *[!0-9a-f]*|'' ) old_head=unknown ;;
+      esac
+      retired_path="${collection}.retired-${stamp}-${old_head}"
+      [ ! -e "$retired_path" ] && [ ! -L "$retired_path" ] \
+        || die "retired tribunal path already exists"
+      mv -- "$collection" "$retired_path" || die "cannot retire failed tribunal collection"
+    fi
     collection_result=$(tribunal_hold 60 1900 10s 1800s "$TRIBUNAL_COLLECTOR" \
       collect --repo-root "$ROOT" --pr "$pr" --output "$collection") \
       || die "tribunal evidence collection failed"
