@@ -481,7 +481,8 @@ Interpret `.action` — only `park` applies the human label:
 | `override-cleared` | Do **not** add `needs-human`. If `.remove_needs_human`, remove the label. Do not re-write human-tasks as a fresh park. Cache final state `skipped:human-cleared`. Record `.digest` (`verdict-overridden-by:<login>`). |
 | `reject-not-human` | Do **not** add `needs-human`. If `.remove_needs_human`, remove the label. Treat as mis-triage: keep/re-queue as `agent-fixable` (or re-triage). Cache final state `skipped:not-human-decision`. Record `.digest` (`rejected:not-human-decision`). |
 | `delegate-fable` | Do **not** add `needs-human`. If `.remove_needs_human`, remove a premature label. Route to `saas-startup-team:business-founder-maintain` deep verdict. Cache interim state `deferred:fable`. Record `.digest` (`delegate-fable:<kind>`). Fable **must** post a GH decision comment before any later park or de-gate. |
-| `park` | Apply `needs-human` + bot comment + human-tasks as today. |
+| `fable-de-gated` | Fable documented `agent-fixable` / `partially-fixable` / `de-gated` via `<!-- fable:decision:N -->`. Do **not** add `needs-human`. If `.remove_needs_human`, remove a premature label. Re-queue / continue delivery as appropriate. Digest `fable-decision:<verdict>:<kind>`. |
+| `park` | Apply `needs-human` + bot comment + human-tasks as today. (Also returned when a matching Fable decision comment records `Verdict: needs-human` — digest `fable-decision:needs-human:<kind>`.) |
 | `no-op` | Caller used a non-`needs-human` verdict; re-invoke with `--verdict needs-human` for residual parks. |
 
 ### Fable decision comments
@@ -490,6 +491,13 @@ Every Fable deep-verdict outcome on an issue **must** be recorded as a GitHub is
 comment **before** the supervisor applies or removes `needs-human` (or otherwise acts
 on the verdict). Disk handoffs alone are not enough — the issue thread is the
 authoritative audit trail.
+
+The mechanical gate enforces this: for `--reason-kind judgment|legal|production-signoff`
+(and free-text legal/customer-communication/production-signoff), it **parses issue
+comments** for the marker below. Missing or unparseable marker → `delegate-fable`
+(never park). Marker + `Verdict: needs-human` → `park`. Marker +
+`agent-fixable|partially-fixable|de-gated` → `fable-de-gated`. Informal prose that only
+says "Fable decision" **without** the HTML marker does **not** count.
 
 Required shape (exact marker line first so automation can find it):
 
@@ -510,10 +518,11 @@ Rules:
   history by silent overwrite of an older decision without a new dated comment.
 - Estonian is fine for investor-facing sentences; keep the marker, verdict codes, and
   field labels in English so the gate/supervisor can parse them.
-- A park without a matching `<!-- fable:decision:N -->` comment for that issue in the
-  same pass is invalid workflow state — do not apply `needs-human`.
+- A park without a matching `<!-- fable:decision:N -->` comment for that issue is
+  invalid workflow state — the gate returns `delegate-fable`, not `park`.
 - A de-gate (remove `needs-human` / treat as agent-fixable) likewise requires the
-  comment first.
+  comment first; the gate returns `fable-de-gated` only when the marker + verdict
+  are present.
 
 **Credential exception:** with `--reason-kind credentials` (or credential phrasing
 when kind is omitted), an override does **not** suppress parking. Epic exclusion

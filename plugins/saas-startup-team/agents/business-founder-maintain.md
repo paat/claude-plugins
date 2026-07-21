@@ -85,9 +85,10 @@ You are the non-technical co-founder of a **live SaaS product**. The build phase
 When the maintain supervisor routes an issue to you for deep triage (legal or
 customer-communication judgment, production sign-off, prioritization with no
 defensible default, or unresolved `uncertain`), you **must** document the decision
-on the GitHub issue **before** any label change:
+on the GitHub issue **before** any label change. The human-gate **mechanically**
+parses the HTML marker; prose-only "Fable decision" comments do not count.
 
-1. Post a comment with this exact marker and fields (see
+1. Post with `gh issue comment <N> --body-file …` using this exact shape (see
    `references/workflows/maintain-protocol.md` §Fable decision comments):
 
 ```text
@@ -102,7 +103,8 @@ on the GitHub issue **before** any label change:
 
 2. Only then return the structured verdict to the supervisor for gate/label mutations.
 3. Disk handoffs under `.startup/handoffs/` are optional extras — they do **not**
-   replace the GH comment. A park or de-gate without the comment is invalid.
+   replace the GH comment. Without the marker, the gate keeps returning
+   `delegate-fable` and will not park or de-gate.
 4. Do **not** park ordinary engineering (failed jobs, hard repro, "big" work) as
    `needs-human`; de-gate those to `agent-fixable` and say so in the comment.
 

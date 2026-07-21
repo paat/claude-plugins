@@ -71,11 +71,16 @@ case "$reason_kind" in
 esac
 case "$has_needs_human" in true|false) : ;; *) die "--has-needs-human must be true|false" 2 ;; esac
 
-if [ -n "$repo" ] || [ -n "$issue" ]; then
+if [ -n "$issue" ]; then
   case "$issue" in *[!0-9]*|0*|'') die "invalid --issue" 2 ;; esac
+fi
+if [ -n "$repo" ]; then
   [[ "$repo" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] \
     || die "invalid --repo" 2
+  [ -n "$issue" ] || die "--repo requires --issue" 2
 fi
+# Live GitHub fetch needs both; offline fixtures may pass --issue alone so the
+# Fable decision marker can be matched to the issue number.
 
 labels_json='[]'
 if [ -n "$labels_file" ]; then
@@ -236,16 +241,60 @@ fi
 # spend/payment disposition or credentials/access the agent must not invent.
 # Legal / customer-communication judgment and production sign-off go to Fable
 # (business-founder-maintain) first — Fable documents the decision in a GH
-# comment, then may park or de-gate. Ordinary engineering never parks.
-# Prefer --reason-kind; free-text is a fail-closed backstop when kind is other/empty.
+# comment with marker <!-- fable:decision:N -->, then may park or de-gate.
+# Ordinary engineering never parks. Prefer --reason-kind; free-text is a
+# fail-closed backstop when kind is other/empty.
 
-# Fable-first kinds (never park from the mechanical gate alone).
+# Parse latest Fable decision comment (HTML marker required). Empty → no decision.
+# When --issue is set, marker number must match. Verdict codes are machine-read.
+fable_decision_verdict=""
+if [ -n "$comments_json" ] && [ "$comments_json" != '[]' ]; then
+  fable_decision_verdict=$(jq -r --arg issue "$issue" '
+    def marker_ok($body):
+      if ($issue|length) > 0 then
+        ($body | test("<!--[[:space:]]*fable:decision:" + $issue + "[[:space:]]*-->"))
+      else
+        ($body | test("<!--[[:space:]]*fable:decision:[0-9]+[[:space:]]*-->"))
+      end;
+    def verdict_of($body):
+      ($body
+        | capture("(?i)\\*\\*Verdict:\\*\\*[[:space:]]*`?(?<v>agent-fixable|partially-fixable|needs-human|de-gated)`?")
+        | .v // empty);
+    [.[]
+      | select((.body // "") | type == "string")
+      | select(marker_ok(.body // ""))
+      | {v: verdict_of(.body // "")}
+      | select(.v != "")
+    ] | last.v // empty
+  ' <<<"$comments_json" 2>/dev/null || true)
+fi
+
+# Apply a documented Fable decision when present; otherwise keep routing to Fable.
+emit_fable_route() {
+  local kind=$1
+  local remove=false
+  if [ -n "$fable_decision_verdict" ]; then
+    case "$fable_decision_verdict" in
+      needs-human)
+        emit true park false "fable-decision:needs-human:${kind}"
+        exit 0
+        ;;
+      agent-fixable|partially-fixable|de-gated)
+        [ "$has_needs_human" = true ] && remove=true
+        emit false fable-de-gated "$remove" "fable-decision:${fable_decision_verdict}:${kind}"
+        exit 0
+        ;;
+    esac
+  fi
+  [ "$has_needs_human" = true ] && remove=true
+  emit false delegate-fable "$remove" "delegate-fable:${kind}"
+  exit 0
+}
+
+# Fable-first kinds: park/de-gate only after a matching GH decision comment.
 case "$reason_kind" in
   judgment|legal|production-signoff)
-    remove=false
-    [ "$has_needs_human" = true ] && remove=true
-    emit false delegate-fable "$remove" "delegate-fable:${reason_kind}"
-    exit 0
+    emit_fable_route "$reason_kind"
     ;;
 esac
 
@@ -268,10 +317,7 @@ if [ "$is_engineering_only" = true ]; then
   exit 0
 fi
 if [ "$is_fable_judgment" = true ]; then
-  remove=false
-  [ "$has_needs_human" = true ] && remove=true
-  emit false delegate-fable "$remove" "delegate-fable:judgment"
-  exit 0
+  emit_fable_route judgment
 fi
 
 # Credentials kind already handled above for override; free-text alone never

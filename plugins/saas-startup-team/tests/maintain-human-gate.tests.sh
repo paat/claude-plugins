@@ -211,6 +211,71 @@ test_maintain_human_gate() {
   local fable_agent="$PLUGIN_ROOT/agents/business-founder-maintain.md"
   assert_file_contains "MHG33: Fable agent requires GH comment" \
     "$fable_agent" 'fable:decision:'
+  assert_file_contains "MHG34: gate enforces fable-de-gated action" \
+    "$protocol" 'fable-de-gated'
+
+  # Mechanical enforcement: marker + Verdict required for park/de-gate after Fable.
+  printf '%s\n' '["bug"]' > "$dir/labels.json"
+  printf '%s\n' '[]' > "$dir/comments.json"
+  out=$(bash "$helper" evaluate --verdict needs-human --reason 'legal judgment on copy' \
+    --reason-kind legal --labels-file "$dir/labels.json" --issue 42 \
+    --comments-file "$dir/comments.json")
+  assert_equals "MHG35: legal without decision comment delegates" \
+    "$(jq -r .action <<<"$out")" "delegate-fable"
+  assert_equals "MHG36: legal without decision does not park" \
+    "$(jq -r .park <<<"$out")" "false"
+
+  body=$'<!-- fable:decision:42 -->\n**Fable decision (2026-07-21):** park for investor\n\n- **Verdict:** `needs-human`\n- **Kind:** legal\n- **Rationale:** Scope needs human counsel.\n- **Investor action (if any):** review counsel memo\n'
+  jq -n --arg body "$body" \
+    '[{body:$body, author_association:"OWNER", user:{login:"fable-bot"}}]' \
+    > "$dir/comments.json"
+  out=$(bash "$helper" evaluate --verdict needs-human --reason 'legal judgment on copy' \
+    --reason-kind legal --labels-file "$dir/labels.json" --issue 42 \
+    --comments-file "$dir/comments.json")
+  assert_equals "MHG37: Fable needs-human decision parks" \
+    "$(jq -r .action <<<"$out")" "park"
+  assert_equals "MHG38: Fable needs-human decision park flag" \
+    "$(jq -r .park <<<"$out")" "true"
+  assert_equals "MHG39: Fable needs-human digest" \
+    "$(jq -r .digest <<<"$out")" "fable-decision:needs-human:legal"
+
+  body=$'<!-- fable:decision:42 -->\n**Fable decision (2026-07-21):** de-gate — agent can ship\n\n- **Verdict:** `agent-fixable`\n- **Kind:** legal\n- **Rationale:** Standard OÜ copy; no novel counsel needed.\n- **Investor action (if any):** none\n'
+  jq -n --arg body "$body" \
+    '[{body:$body, author_association:"OWNER", user:{login:"fable-bot"}}]' \
+    > "$dir/comments.json"
+  printf '%s\n' '["bug","needs-human"]' > "$dir/labels.json"
+  out=$(bash "$helper" evaluate --verdict needs-human --reason 'legal judgment on copy' \
+    --reason-kind legal --labels-file "$dir/labels.json" --issue 42 \
+    --comments-file "$dir/comments.json" --has-needs-human true)
+  assert_equals "MHG40: Fable agent-fixable de-gates" \
+    "$(jq -r .action <<<"$out")" "fable-de-gated"
+  assert_equals "MHG41: Fable de-gate removes needs-human" \
+    "$(jq -r .remove_needs_human <<<"$out")" "true"
+  assert_equals "MHG42: Fable de-gate does not park" \
+    "$(jq -r .park <<<"$out")" "false"
+
+  # Prose-only "Fable decision" without HTML marker must not park.
+  body=$'**Fable decision (2026-07-21):** needs-human removed. Ship it.\n\n- **Verdict:** `agent-fixable`\n'
+  jq -n --arg body "$body" \
+    '[{body:$body, author_association:"OWNER", user:{login:"paat"}}]' \
+    > "$dir/comments.json"
+  printf '%s\n' '["bug"]' > "$dir/labels.json"
+  out=$(bash "$helper" evaluate --verdict needs-human --reason 'legal judgment on copy' \
+    --reason-kind legal --labels-file "$dir/labels.json" --issue 42 \
+    --comments-file "$dir/comments.json")
+  assert_equals "MHG43: prose-only Fable decision still delegates" \
+    "$(jq -r .action <<<"$out")" "delegate-fable"
+
+  # Wrong issue number in marker does not authorize park.
+  body=$'<!-- fable:decision:99 -->\n**Fable decision (2026-07-21):** park\n\n- **Verdict:** `needs-human`\n- **Kind:** legal\n- **Rationale:** x\n- **Investor action (if any):** none\n'
+  jq -n --arg body "$body" \
+    '[{body:$body, author_association:"OWNER", user:{login:"fable-bot"}}]' \
+    > "$dir/comments.json"
+  out=$(bash "$helper" evaluate --verdict needs-human --reason 'legal judgment on copy' \
+    --reason-kind legal --labels-file "$dir/labels.json" --issue 42 \
+    --comments-file "$dir/comments.json")
+  assert_equals "MHG44: wrong-issue marker does not authorize" \
+    "$(jq -r .action <<<"$out")" "delegate-fable"
 
   rm -rf "$dir"
 }
