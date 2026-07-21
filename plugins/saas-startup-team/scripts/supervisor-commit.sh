@@ -36,6 +36,7 @@ ALLOW=()
 usage() {
   echo "usage: supervisor-commit.sh --snapshot-trust FILE --auth-stdin --allow PATH... [--require-approved-diff --firewall-script FILE] [--repo-root DIR]" >&2
   echo "       supervisor-commit.sh --snapshot-trust FILE --check-only --auth-stdin [--check PATH] [--repo-root DIR]" >&2
+  echo "       supervisor-commit.sh --rebind-check-environment FILE --auth-stdin [--repo-root DIR]" >&2
   echo "       supervisor-commit.sh --message TEXT --trust-receipt FILE --auth-stdin [--check PATH] [--repo-root DIR]" >&2
   echo "       supervisor-commit.sh --check-only --trust-receipt FILE --auth-stdin [--check PATH] [--repo-root DIR]" >&2
   exit 2
@@ -46,6 +47,7 @@ valid_git_oid() { [[ "$1" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --snapshot-trust) need_value "$@"; ACTION=snapshot; TRUST_RECEIPT=$2; shift 2 ;;
+    --rebind-check-environment) need_value "$@"; ACTION=rebind-env; TRUST_RECEIPT=$2; shift 2 ;;
     --check-only) CHECK_ONLY=1; shift ;;
     --trust-receipt) need_value "$@"; TRUST_RECEIPT=$2; shift 2 ;;
     --auth-stdin) AUTH_STDIN=1; shift ;;
@@ -439,8 +441,8 @@ discover_check_runtimes() {
   printf '%s\n' "$result" || return 1
 }
 
-check_driver_metadata() {
-  local path identity mode digest product_root= backend
+check_driver_path() {
+  local path product_root=
   path=${SAAS_SUPERVISOR_CHECK_DRIVER:-$SCRIPT_DIR/supervisor-check-container.sh}
   path=$(readlink -f -- "$path") || return 1
   [ -f "$path" ] && [ -x "$path" ] && [ ! -L "$path" ] || return 1
@@ -449,6 +451,35 @@ check_driver_metadata() {
     product_root=$(dirname -- "$COMMON_DIR") || return 1
     case "$path" in "$product_root"|"$product_root"/*) return 1 ;; esac
   fi
+  printf '%s\n' "$path"
+}
+
+# Fail closed before the expensive writer/commit path when the sealed image
+# lacks tools the product check needs (e.g. pdftotext). Empty list = no probe.
+probe_required_check_tools() {
+  local path tools image_id list
+  tools=${SAAS_SUPERVISOR_CHECK_REQUIRED_TOOLS:-}
+  [ -n "$tools" ] || return 0
+  path=$(check_driver_path) || return 1
+  list=${tools// /,}
+  image_id=${1:-}
+  if [ -n "$image_id" ]; then
+    timeout -k 5 60 "$path" --probe-tools "$list" --image-id "$image_id" >/dev/null || {
+      echo "supervisor-commit: sealed-check image fails required tool parity" >&2
+      return 1
+    }
+  else
+    timeout -k 5 60 "$path" --probe-tools "$list" >/dev/null || {
+      echo "supervisor-commit: sealed-check image fails required tool parity" >&2
+      return 1
+    }
+  fi
+  return 0
+}
+
+check_driver_metadata() {
+  local path identity mode digest backend image_id
+  path=$(check_driver_path) || return 1
   identity=$(stat -Lc '%d:%i' -- "$path") || return 1
   mode=$(stat -Lc '%a' -- "$path") || return 1
   digest=$(sha256sum -- "$path" | awk '{print $1}') || return 1
@@ -463,6 +494,9 @@ check_driver_metadata() {
     (.daemon_id|type == "string" and length > 0) and
     (.image_id|type == "string" and test("^sha256:[0-9a-f]{64}$")) and
     (.container_id|type == "string" and length > 0)' <<<"$backend" >/dev/null || return 1
+  image_id=$(jq -er .image_id <<<"$backend") || return 1
+  # Cheap fail-fast: missing tools never start a writer/containment cycle.
+  probe_required_check_tools "$image_id" || return 1
   jq -cn --arg path "$path" --arg identity "$identity" --arg mode "$mode" \
     --arg digest "$digest" --argjson backend "$backend" \
     '{path:$path,identity:$identity,mode:$mode,sha256:$digest,backend:$backend}'
@@ -607,7 +641,85 @@ snapshot_trust() {
   printf '%s\n' "$receipt"
 }
 
+# Environment-only rebind: refresh sealed check_driver backend on an existing
+# receipt when candidate identity (base, refs, hooks, allow, runtime digests)
+# is unchanged. Does not rehash the candidate boundary or require a new writer.
+rebind_check_environment() {
+  local receipt hooks_copy check_driver_json tmp
+  local runtimes_json current_runtimes
+  [ -n "$TRUST_RECEIPT" ] && [ -z "$MESSAGE" ] && [ "$CHECK_ONLY" -eq 0 ] \
+    && [ "${#ALLOW[@]}" -eq 0 ] && [ "$REQUIRE_APPROVED_DIFF" -eq 0 ] \
+    && [ -z "$FIREWALL_SCRIPT" ] || usage
+  valid_auth_token "$AUTH_TOKEN" || {
+    echo "supervisor-commit: invalid authentication token" >&2; exit 2; }
+  receipt=$(receipt_path "$TRUST_RECEIPT") || exit 2
+  hooks_copy="${receipt}.hooks"
+  [ -f "$receipt" ] && [ ! -L "$receipt" ] && [ -d "$hooks_copy" ] && [ ! -L "$hooks_copy" ] || {
+    echo "supervisor-commit: trusted hook receipt is missing" >&2; exit 1; }
+  jq -e '((.schema_version == 4 and (has("purpose")|not) and (.allow|length > 0)) or
+    (.schema_version == 5 and .purpose == "check-only" and (.allow|length == 0))) and
+    (.auth_tag|type == "string")' "$receipt" >/dev/null || {
+    echo "supervisor-commit: malformed trust receipt" >&2; exit 1; }
+  verify_receipt_auth "$receipt" || {
+    echo "supervisor-commit: trust receipt authentication failed" >&2; exit 1; }
+  [ "$($REAL_GIT rev-parse HEAD)" = "$(jq -r .base_head "$receipt")" ] || {
+    echo "supervisor-commit: trust receipt base no longer matches HEAD" >&2; exit 1; }
+  [ "$(head_ref)" = "$(jq -r .head_ref "$receipt")" ] || {
+    echo "supervisor-commit: active branch changed after trust snapshot" >&2; exit 1; }
+  TRUST_RECEIPT=$receipt
+  RECEIPT_CHECK_ONLY=$(jq -r '(.schema_version == 5 and .purpose == "check-only")' "$receipt")
+  receipt_refs_intact || {
+    echo "supervisor-commit: Git refs changed after trust snapshot" >&2; exit 1; }
+  [ "$(hooks_fingerprint "$hooks_copy")" = "$(jq -r .hooks_fingerprint "$receipt")" ] || {
+    echo "supervisor-commit: trusted hook receipt changed" >&2; exit 1; }
+  [ "$(hooks_fingerprint "$(resolve_hook_source)")" = "$(jq -r .hook_source_fingerprint "$receipt")" ] || {
+    echo "supervisor-commit: configured hook source changed after trust snapshot" >&2; exit 1; }
+  [ "$(config_fingerprint)" = "$(jq -r .config_fingerprint "$receipt")" ] || {
+    echo "supervisor-commit: Git configuration changed after trust snapshot" >&2; exit 1; }
+  [ "$(metadata_fingerprint)" = "$(jq -r .metadata_fingerprint "$receipt")" ] || {
+    echo "supervisor-commit: Git metadata changed after trust snapshot" >&2; exit 1; }
+  # Candidate dependency runtimes must still match the sealed digests — only the
+  # check-image / docker binding may change on this path.
+  runtimes_json=$(jq -cS '.check_runtimes' "$receipt") || exit 1
+  current_runtimes=$(discover_check_runtimes) || {
+    echo "supervisor-commit: could not re-seal primary-checkout check runtimes" >&2; exit 1; }
+  [ "$(jq -cS . <<<"$current_runtimes")" = "$runtimes_json" ] || {
+    # Identity+digest may stay equal while order is fixed by discover; compare
+    # digests/targets explicitly if full JSON differs only by path presentation.
+    if ! jq -en --argjson a "$runtimes_json" --argjson b "$current_runtimes" '
+      ($a|length) == ($b|length) and
+      ([ $a[] | {target,identity,digest,manifests} ] | sort_by(.target)) ==
+      ([ $b[] | {target,identity,digest,manifests} ] | sort_by(.target))
+    '; then
+      echo "supervisor-commit: candidate check runtimes changed; rebind refused" >&2
+      exit 1
+    fi
+  }
+  check_driver_json=$(check_driver_metadata) || {
+    echo "supervisor-commit: trusted private-container check runtime is unavailable" >&2; exit 1; }
+  # Build and sign a temp receipt first so a failed re-sign cannot destroy the
+  # previously authenticated binding.
+  tmp=$(mktemp "${receipt}.rebind.XXXXXX") || exit 1
+  if ! jq --argjson driver "$check_driver_json" \
+    'del(.auth_tag) | .check_driver=$driver | .auth_tag=null' \
+    "$receipt" > "$tmp"; then
+    rm -f -- "$tmp"
+    echo "supervisor-commit: could not rewrite check environment binding" >&2
+    exit 1
+  fi
+  sign_receipt "$tmp" || {
+    rm -f -- "$tmp"
+    echo "supervisor-commit: could not re-sign rebound receipt" >&2; exit 1; }
+  mv -f -- "$tmp" "$receipt" || {
+    rm -f -- "$tmp"
+    echo "supervisor-commit: could not publish rebound receipt" >&2
+    exit 1
+  }
+  printf '%s\n' "$receipt"
+}
+
 if [ "$ACTION" = snapshot ]; then snapshot_trust; exit; fi
+if [ "$ACTION" = rebind-env ]; then rebind_check_environment; exit; fi
 [ "$ACTION" = commit ] && [ -n "$TRUST_RECEIPT" ] \
   && [ "${#ALLOW[@]}" -eq 0 ] && [ "$REQUIRE_APPROVED_DIFF" -eq 0 ] \
   && [ -z "$FIREWALL_SCRIPT" ] || usage

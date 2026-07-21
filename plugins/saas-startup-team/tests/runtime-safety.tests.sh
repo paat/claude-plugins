@@ -204,12 +204,36 @@ SH
     cat > "$supervisor_bwrap_dir/check-driver" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+image_id=${SAAS_FAKE_CHECK_IMAGE_ID:-sha256:1111111111111111111111111111111111111111111111111111111111111111}
 if [ "${1:-}" = --metadata ]; then
-  printf '%s\n' '{"docker":{"path":"/usr/bin/false","identity":"1:1","mode":"755","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},"daemon_id":"test-daemon","image_id":"sha256:1111111111111111111111111111111111111111111111111111111111111111","container_id":"test-container"}'
+  printf '%s\n' "{\"docker\":{\"path\":\"/usr/bin/false\",\"identity\":\"1:1\",\"mode\":\"755\",\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"},\"daemon_id\":\"test-daemon\",\"image_id\":\"$image_id\",\"container_id\":\"test-container\"}"
+  exit 0
+fi
+if [ "${1:-}" = --probe-tools ]; then
+  tools=${2:-}
+  missing=${SAAS_FAKE_CHECK_MISSING_TOOLS:-}
+  if [ -n "$missing" ]; then
+    IFS=',' read -r -a miss_list <<<"$missing"
+    for m in "${miss_list[@]}"; do
+      m=${m//[[:space:]]/}
+      case ",$tools," in *",$m,"*|*" $m,"*|*",$m "*|*" $m "*) 
+        echo "supervisor-check-container: sealed image missing required tools: $m" >&2
+        exit 1
+        ;;
+      esac
+      # also match when tools list uses commas without spaces
+      case "$tools" in *"$m"*) 
+        echo "supervisor-check-container: sealed image missing required tools: $m" >&2
+        exit 1
+        ;;
+      esac
+    done
+  fi
+  echo ok
   exit 0
 fi
 root=
-runtime_sources=(); runtime_targets=(); runtime_mode_paths=(); runtime_modes=()
+runtime_sources=(); runtime_targets=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -C) root=$2; shift 2 ;;
@@ -225,18 +249,17 @@ done
 mounted=()
 command_pid=
 cleanup() {
-  local target source
+  local target
   if [ -n "$command_pid" ]; then
     kill -KILL "$command_pid" 2>/dev/null || true
     wait "$command_pid" 2>/dev/null || true
   fi
   chmod -R u+w "$root/.git" 2>/dev/null || true
   for ((j=0; j<${#mounted[@]}; j++)); do
-    target=${mounted[$j]}; source=${runtime_sources[$j]}
-    rm -f "$target"; mkdir -p "$target"
-  done
-  for ((j=0; j<${#runtime_mode_paths[@]}; j++)); do
-    chmod "${runtime_modes[$j]}" "${runtime_mode_paths[$j]}"
+    target=${mounted[$j]}
+    chmod -R u+w "$target" 2>/dev/null || true
+    rm -rf -- "$target"
+    mkdir -p "$target"
   done
 }
 trap cleanup EXIT
@@ -245,13 +268,11 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 for ((i=0; i<${#runtime_sources[@]}; i++)); do
   target="$root/${runtime_targets[$i]}"
-  while IFS= read -r -d '' path; do
-    runtime_mode_paths+=("$path")
-    runtime_modes+=("$(stat -c %a -- "$path")")
-  done < <(find -P "${runtime_sources[$i]}" -print0)
-  chmod -R a-w "${runtime_sources[$i]}"
+  # Private copy only — never symlink/chmod the primary dependency runtime
+  # (writable links let verification mutate sealed primary digests).
   rmdir "$target"
-  ln -s "${runtime_sources[$i]}" "$target"
+  cp -a -- "${runtime_sources[$i]}" "$target"
+  chmod -R a-w "$target"
   mounted+=("$target")
 done
 translate() {
@@ -1298,6 +1319,99 @@ SH
   assert_exit_code "RS19zkr9: escaping runtime symlink blocks trust snapshot" "$ec" 1
   assert_output_contains "RS19zkr10: escaping symlink failure is explicit" "$out" 'runtime link escapes'
   rm -f "$workdir/frontend/node_modules/escape"
+  rm -rf "$workdir"
+
+  # #342: private dependency view — writes cannot mutate primary runtime digest.
+  script="$PLUGIN_ROOT/scripts/bind-dependency-runtime-view.sh"
+  workdir=$(make_workdir)
+  mkdir -p "$workdir/primary/frontend/node_modules/.bin" "$workdir/disposable"
+  printf 'sealed\n' > "$workdir/primary/frontend/node_modules/runtime.txt"
+  before=$(bash "$script" --primary-root "$workdir/primary" --digest frontend/node_modules)
+  view=$(bash "$script" --primary-root "$workdir/primary" \
+    --target-root "$workdir/disposable" --runtime frontend/node_modules)
+  assert_file_exists "RS19zkr11: private runtime view materializes" "$view/runtime.txt"
+  # Writable verification through the view (simulates Prisma/Jiti writes).
+  printf 'mutated-by-verification\n' > "$view/cache-write.bin"
+  after=$(bash "$script" --primary-root "$workdir/primary" --digest frontend/node_modules)
+  assert_equals "RS19zkr12: primary dependency digest unchanged after view writes" \
+    "$after" "$before"
+  assert_file_not_exists "RS19zkr13: primary has no verification write-through" \
+    "$workdir/primary/frontend/node_modules/cache-write.bin"
+  # Writable symlink path is the forbidden anti-pattern (must not be helper output).
+  [ ! -L "$view" ]
+  assert_equals "RS19zkr14: view is a real directory not a symlink" "ok" "ok"
+  # Nested target under primary is rejected (must not write into sealed primary).
+  ec=0; out=$(bash "$script" --primary-root "$workdir/primary" \
+    --target-root "$workdir/primary/nested-disposable" \
+    --runtime frontend/node_modules 2>&1) || ec=$?
+  assert_exit_code "RS19zkr14a: nested target under primary fails closed" "$ec" 1
+  assert_output_contains "RS19zkr14b: nested target failure is explicit" "$out" 'must not nest'
+  assert_file_not_exists "RS19zkr14c: nested target created no view under primary" \
+    "$workdir/primary/nested-disposable/frontend/node_modules"
+  rm -rf "$workdir"
+
+  # #342: required tool parity fails before writer/commit (snapshot stage).
+  script="$PLUGIN_ROOT/scripts/supervisor-commit.sh"
+  workdir=$(make_workdir); make_supervisor_sandbox "$workdir"
+  git -C "$workdir" config user.email t@t.t; git -C "$workdir" config user.name t
+  printf 'base\n' > "$workdir/app.txt"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$workdir/check.sh"; chmod +x "$workdir/check.sh"
+  (cd "$workdir" && git add . && git commit -qm init)
+  trust_receipt="$(git -C "$workdir" rev-parse --absolute-git-dir)/saas-startup-team/tool-parity.json"
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  ec=0; out=$(SAAS_SUPERVISOR_CHECK_REQUIRED_TOOLS='pdftotext pdfinfo' \
+    SAAS_FAKE_CHECK_MISSING_TOOLS='pdftotext' \
+    bash "$script" --repo-root "$workdir" --snapshot-trust "$trust_receipt" \
+    --auth-stdin --allow app.txt --allow check.sh <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr15: missing sealed tools block trust snapshot" "$ec" 1
+  assert_output_contains "RS19zkr16: tool parity failure is explicit" "$out" 'required tool'
+  assert_file_not_exists "RS19zkr17: failed tool parity leaves no receipt" "$trust_receipt"
+
+  # #342: environment-only rebind updates image without rewriting candidate identity.
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  trust_receipt="$(git -C "$workdir" rev-parse --absolute-git-dir)/saas-startup-team/env-rebind.json"
+  bash "$script" --repo-root "$workdir" --snapshot-trust "$trust_receipt" \
+    --auth-stdin --allow app.txt --allow check.sh <<<"$auth_token" >/dev/null
+  before_base=$(jq -r .base_head "$trust_receipt")
+  before_refs=$(jq -r .refs_fingerprint "$trust_receipt")
+  before_image=$(jq -r .check_driver.backend.image_id "$trust_receipt")
+  before_tag=$(jq -r .auth_tag "$trust_receipt")
+  new_image=sha256:2222222222222222222222222222222222222222222222222222222222222222
+  ec=0; out=$(SAAS_FAKE_CHECK_IMAGE_ID="$new_image" \
+    bash "$script" --repo-root "$workdir" --rebind-check-environment "$trust_receipt" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr18: environment rebind succeeds on unchanged candidate" "$ec" 0
+  assert_equals "RS19zkr19: rebind preserves base_head (no candidate rehash)" \
+    "$(jq -r .base_head "$trust_receipt")" "$before_base"
+  assert_equals "RS19zkr20: rebind preserves refs fingerprint" \
+    "$(jq -r .refs_fingerprint "$trust_receipt")" "$before_refs"
+  assert_equals "RS19zkr21: rebind advances sealed image binding" \
+    "$(jq -r .check_driver.backend.image_id "$trust_receipt")" "$new_image"
+  assert_equals "RS19zkr21b: prior image was the default fake" \
+    "$before_image" "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  [ "$(jq -r .auth_tag "$trust_receipt")" != "$before_tag" ]
+  assert_equals "RS19zkr22: rebind re-signs the receipt" "ok" "ok"
+  # Rebind refuses when HEAD moves (candidate identity changed).
+  mkdir -p "$workdir/frontend/node_modules/.bin"
+  printf 'runtime\n' > "$workdir/frontend/node_modules/runtime.txt"
+  printf 'frontend/node_modules/\n' >> "$workdir/.gitignore"
+  printf '{"name":"x"}\n' > "$workdir/package.json"
+  (cd "$workdir" && git add .gitignore package.json && git commit -qm 'add manifests for runtime seal')
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --rebind-check-environment "$trust_receipt" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr23: rebind refuses when base_head moved" "$ec" 1
+  assert_output_contains "RS19zkr24: base mismatch is explicit" "$out" 'base no longer matches'
+
+  # Fresh receipt at new HEAD; runtime digest drift with HEAD fixed refuses rebind.
+  trust_receipt="$(git -C "$workdir" rev-parse --absolute-git-dir)/saas-startup-team/env-rebind-rt.json"
+  auth_token=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
+  bash "$script" --repo-root "$workdir" --snapshot-trust "$trust_receipt" \
+    --auth-stdin --allow app.txt --allow check.sh <<<"$auth_token" >/dev/null
+  printf 'runtime-drift\n' > "$workdir/frontend/node_modules/runtime.txt"
+  ec=0; out=$(bash "$script" --repo-root "$workdir" --rebind-check-environment "$trust_receipt" \
+    --auth-stdin <<<"$auth_token" 2>&1) || ec=$?
+  assert_exit_code "RS19zkr25: rebind refuses when runtime digest drifts" "$ec" 1
+  assert_output_contains "RS19zkr26: runtime drift refusal is explicit" "$out" 'runtimes changed'
   rm -rf "$workdir"
 
   # Filtered paths fail closed instead of staging raw LFS/custom-filter content.

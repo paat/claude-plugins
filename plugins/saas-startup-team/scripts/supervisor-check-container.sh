@@ -16,15 +16,18 @@ RUNTIME_DIGESTS=()
 
 usage() {
   echo "usage: supervisor-check-container.sh --metadata [--docker-bin FILE]" >&2
+  echo "       supervisor-check-container.sh --probe-tools TOOL[,TOOL...] [--docker-bin FILE] [--image-id ID]" >&2
   echo "       supervisor-check-container.sh -C ROOT --docker-bin FILE --image-id ID --daemon-id ID --checkout-alias PATH [--runtime SOURCE TARGET DIGEST]... -- COMMAND..." >&2
   exit 2
 }
 
 need_value() { [ "$#" -ge 2 ] || usage; }
 
+PROBE_TOOLS=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --metadata) ACTION=metadata; shift ;;
+    --probe-tools) need_value "$@"; ACTION=probe-tools; PROBE_TOOLS=$2; shift 2 ;;
     --docker-bin) need_value "$@"; DOCKER_BIN=$2; shift 2 ;;
     -C) need_value "$@"; ROOT=$2; shift 2 ;;
     --image-id) need_value "$@"; IMAGE_ID=$2; shift 2 ;;
@@ -54,6 +57,7 @@ resolve_docker() {
 
 metadata() {
   local docker container record container_id image_id daemon_id identity mode digest
+  local pinned=${SAAS_SUPERVISOR_CHECK_IMAGE_ID:-}
   docker=$(resolve_docker) || {
     echo "supervisor-check-container: Docker CLI is unavailable" >&2; return 1; }
   container=${SAAS_CURRENT_CONTAINER_ID:-${HOSTNAME:-}}
@@ -63,7 +67,16 @@ metadata() {
     echo "supervisor-check-container: current dev container is not visible to Docker" >&2; return 1; }
   read -r container_id image_id extra <<<"$record"
   [ -n "$container_id" ] && [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] && [ -z "${extra:-}" ] || return 1
-  [ "$($docker image inspect --format '{{.Id}}' "$image_id" 2>/dev/null)" = "$image_id" ] || return 1
+  if [ -n "$pinned" ]; then
+    [[ "$pinned" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+      echo "supervisor-check-container: SAAS_SUPERVISOR_CHECK_IMAGE_ID must be sha256:<64 hex>" >&2
+      return 1; }
+    [ "$($docker image inspect --format '{{.Id}}' "$pinned" 2>/dev/null)" = "$pinned" ] || {
+      echo "supervisor-check-container: pinned sealed-check image is unavailable" >&2; return 1; }
+    image_id=$pinned
+  else
+    [ "$($docker image inspect --format '{{.Id}}' "$image_id" 2>/dev/null)" = "$image_id" ] || return 1
+  fi
   daemon_id=$($docker info --format '{{.ID}}' 2>/dev/null) || return 1
   [ -n "$daemon_id" ] || return 1
   identity=$(stat -Lc '%d:%i' -- "$docker") || return 1
@@ -76,10 +89,54 @@ metadata() {
     '{docker:{path:$path,identity:$identity,mode:$mode,sha256:$sha256},daemon_id:$daemon_id,image_id:$image_id,container_id:$container_id}'
 }
 
+probe_tools() {
+  local docker image_id tool missing=()
+  local -a tools=()
+  docker=$(resolve_docker) || {
+    echo "supervisor-check-container: Docker CLI is unavailable" >&2; return 1; }
+  if [ -n "$IMAGE_ID" ]; then
+    image_id=$IMAGE_ID
+  else
+    image_id=$(metadata | jq -er .image_id) || return 1
+  fi
+  [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+    echo "supervisor-check-container: invalid image identity for tool probe" >&2; return 1; }
+  [ "$($docker image inspect --format '{{.Id}}' "$image_id" 2>/dev/null)" = "$image_id" ] || {
+    echo "supervisor-check-container: probe image is unavailable" >&2; return 1; }
+  IFS=',' read -r -a tools <<<"$PROBE_TOOLS"
+  [ "${#tools[@]}" -gt 0 ] || {
+    echo "supervisor-check-container: --probe-tools requires at least one tool" >&2; return 1; }
+  for tool in "${tools[@]}"; do
+    tool=${tool//[[:space:]]/}
+    [ -n "$tool" ] || continue
+    [[ "$tool" =~ ^[A-Za-z0-9_./+-]+$ ]] || {
+      echo "supervisor-check-container: invalid tool name: $tool" >&2; return 1; }
+    if ! $docker run --rm --pull never --network none --read-only --cap-drop ALL \
+      --security-opt no-new-privileges --pids-limit 64 --entrypoint /usr/bin/env \
+      "$image_id" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+      /bin/bash -c "command -v $(printf '%q' "$tool") >/dev/null"; then
+      missing+=("$tool")
+    fi
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    printf 'supervisor-check-container: sealed image missing required tools: %s\n' \
+      "${missing[*]}" >&2
+    return 1
+  fi
+  printf 'ok\n'
+}
+
 if [ "$ACTION" = metadata ]; then
-  [ "${#COMMAND[@]}" -eq 0 ] && [ -z "$ROOT$IMAGE_ID$DAEMON_ID$CHECKOUT_ALIAS" ] \
+  [ "${#COMMAND[@]}" -eq 0 ] && [ -z "$ROOT$IMAGE_ID$DAEMON_ID$CHECKOUT_ALIAS$PROBE_TOOLS" ] \
     && [ "${#RUNTIME_SOURCES[@]}" -eq 0 ] || usage
   metadata
+  exit
+fi
+
+if [ "$ACTION" = probe-tools ]; then
+  [ "${#COMMAND[@]}" -eq 0 ] && [ -z "$ROOT$DAEMON_ID$CHECKOUT_ALIAS" ] \
+    && [ "${#RUNTIME_SOURCES[@]}" -eq 0 ] && [ -n "$PROBE_TOOLS" ] || usage
+  probe_tools
   exit
 fi
 

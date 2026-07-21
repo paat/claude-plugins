@@ -22,6 +22,11 @@ The `operate:` block should provide:
 
 If any required value is absent, stop with a clear `not configured` message.
 
+Isolated main-pinned app stacks for replay (when needed) must use a **plain
+`git clone`**, never `git worktree add`. Product repos are primary-only: any
+linked worktree fails `assert-primary-only` closed, and maintain does not
+auto-delete foreign trees.
+
 ## Flow
 
 1. Resolve the candidate list from configured abandoned-session source.
