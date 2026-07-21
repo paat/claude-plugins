@@ -1397,6 +1397,51 @@ monitor_jsonl_release_blocker_count() {
 proof_path() { printf '%s/proof-%s-%s-%s.json\n' "$issue_dir" "$DELIVERY_ID" "$1" "$2"; }
 proof_output_path() { printf '%s/proof-%s-%s-%s-output.json\n' "$issue_dir" "$DELIVERY_ID" "$1" "$2"; }
 
+# Retire fixed-path QA/tribunal proofs when head advances (plugin issue #341).
+# Keeps immutable history under issue_dir; frees canonical names for the new head.
+# Live proofs are merge-bound and not managed here.
+retire_premerge_proof_pair() {
+  local role=$1 kind=$2 proof output stamp old_head out_name retired_proof retired_output
+  case "$kind" in qa|tribunal) : ;; *) die "internal: invalid premerge proof kind" ;; esac
+  proof=$(proof_path "$role" "$kind")
+  output=$(proof_output_path "$role" "$kind")
+  if [ ! -e "$proof" ] && [ ! -L "$proof" ]; then
+    return 0
+  fi
+  [ -f "$proof" ] && [ ! -L "$proof" ] && [ "$(dirname -- "$proof")" = "$issue_dir" ] \
+    || die "active $kind proof is missing or unsafe"
+  old_head=$(jq -r '.head_sha // empty' "$proof" 2>/dev/null || true)
+  case "$old_head" in
+    *[!0-9a-f]*|'') old_head=unknown ;;
+  esac
+  stamp=$(now_iso | tr -d ':-' | tr 'T' '-' | cut -c1-15)
+  retired_proof="${proof}.retired-${stamp}-${old_head}"
+  [ ! -e "$retired_proof" ] && [ ! -L "$retired_proof" ] \
+    || die "retired $kind proof path already exists"
+  out_name=$(jq -r '.output_path // empty' "$proof" 2>/dev/null || true)
+  if [ -n "$out_name" ]; then
+    output="$issue_dir/$out_name"
+  fi
+  if [ -e "$output" ] || [ -L "$output" ]; then
+    [ -f "$output" ] && [ ! -L "$output" ] && [ "$(dirname -- "$output")" = "$issue_dir" ] \
+      || die "active $kind proof output is missing or unsafe"
+    retired_output="${output}.retired-${stamp}-${old_head}"
+    [ ! -e "$retired_output" ] && [ ! -L "$retired_output" ] \
+      || die "retired $kind proof output path already exists"
+    # Protected proofs may be mode-immutable after seal; clear write bit for rename.
+    chmod u+w -- "$output" 2>/dev/null || true
+    mv -- "$output" "$retired_output" || die "cannot retire $kind proof output"
+  fi
+  chmod u+w -- "$proof" 2>/dev/null || true
+  mv -- "$proof" "$retired_proof" || die "cannot retire $kind proof"
+}
+
+retire_premerge_proofs_for_role() {
+  local role=$1
+  retire_premerge_proof_pair "$role" qa
+  retire_premerge_proof_pair "$role" tribunal
+}
+
 proof_valid() {
   local file=$1
   jq -e '
@@ -1732,6 +1777,10 @@ if [ "$ACTION" = rebind-head ]; then
     [ "$live_head" = "$HEAD_SHA" ] || die "live PR head does not match --head-sha"
   fi
   require_active_controller
+  # Retire fixed-path QA/tribunal proofs for the prior head before clearing
+  # premerge — otherwise record-proof dies with "conflicting repeated premerge
+  # proof" on the next head (plugin issue #341).
+  retire_premerge_proofs_for_role "$ROLE"
   updated=$(now_iso); key=$(role_key "$ROLE")
   # Head advance invalidates premerge proofs (checks/qa/tribunal) — re-run gates.
   atomic_update "$key.head_sha = \$head | $key.premerge = null | .updated_at = \$now" \
@@ -1919,22 +1968,31 @@ if [ "$ACTION" = record-proof ]; then
       fi
       old_output=$existing_output
     else
-      jq -e --arg head "$target" --argjson pr "$pr" '.head_sha == $head and .pr_number == $pr' "$existing" >/dev/null \
-        || die "conflicting repeated premerge proof"
-      if [ "$KIND" = tribunal ]; then
-        validate_tribunal_plugin "$TRIBUNAL_PLUGIN_ROOT"
-        [ "$(jq -r .command_path "$existing")" = "$TRIBUNAL_COLLECTOR" ] \
-          || die "conflicting repeated tribunal-review release"
-        ARTIFACT=$(safe_json_artifact "$ARTIFACT")
-        canonical_arbitration=$(mktemp "$STATE_ROOT/.tribunal-arbitration.XXXXXX") \
-          || die "cannot canonicalize repeated tribunal arbitration"
-        jq -S . "$ARTIFACT" > "$canonical_arbitration" \
-          && cmp -s -- "$canonical_arbitration" "$(tribunal_collection_path "$ROLE")/arbitration.json" \
-          || { rm -f -- "$canonical_arbitration"; die "conflicting repeated tribunal arbitration"; }
-        rm -f -- "$canonical_arbitration"
-        verify_proof_producer "$existing" "$target"
+      # Same head+PR: idempotent return. Different head: retire fixed-path
+      # artifacts and fall through so a fresh proof can be recorded (#341).
+      if jq -e --arg head "$target" --argjson pr "$pr" \
+        '.head_sha == $head and .pr_number == $pr' "$existing" >/dev/null; then
+        if [ "$KIND" = tribunal ]; then
+          validate_tribunal_plugin "$TRIBUNAL_PLUGIN_ROOT"
+          [ "$(jq -r .command_path "$existing")" = "$TRIBUNAL_COLLECTOR" ] \
+            || die "conflicting repeated tribunal-review release"
+          ARTIFACT=$(safe_json_artifact "$ARTIFACT")
+          canonical_arbitration=$(mktemp "$STATE_ROOT/.tribunal-arbitration.XXXXXX") \
+            || die "cannot canonicalize repeated tribunal arbitration"
+          jq -S . "$ARTIFACT" > "$canonical_arbitration" \
+            && cmp -s -- "$canonical_arbitration" "$(tribunal_collection_path "$ROLE")/arbitration.json" \
+            || { rm -f -- "$canonical_arbitration"; die "conflicting repeated tribunal arbitration"; }
+          rm -f -- "$canonical_arbitration"
+          verify_proof_producer "$existing" "$target"
+        fi
+        printf '%s\n' "$existing"; exit 0
       fi
-      printf '%s\n' "$existing"; exit 0
+      case "$KIND" in
+        qa|tribunal) : ;;
+        *) die "conflicting repeated premerge proof" ;;
+      esac
+      require_active_controller
+      retire_premerge_proof_pair "$ROLE" "$KIND"
     fi
   fi
   if [ "$KIND" != live ] && { [ -e "$output" ] || [ -L "$output" ]; }; then

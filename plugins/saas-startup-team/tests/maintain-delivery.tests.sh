@@ -794,6 +794,42 @@ DEPLOY_WORKFLOW
   out=$(bash "$script" record-proof --repo-root "$repo" --issue 1 --role normal --kind qa --not-applicable)
   assert_equals "MD4b3: ordinary non-UI diff keeps helper-owned QA N/A" \
     "$(jq -r .status "$out")" not_applicable
+  # #341: rebind-head must retire fixed-path QA so a descendant head can re-record.
+  common=$(git -C "$repo" rev-parse --git-common-dir)
+  case "$common" in /*) : ;; *) common="$repo/$common" ;; esac
+  delivery_id=$(bash "$script" show --repo-root "$repo" --issue 1 | jq -r .delivery_id)
+  qa_proof="$common/saas-startup-team/maintain-runtime/deliveries/issue-1/proof-${delivery_id}-normal-qa.json"
+  assert_file_exists "MD4b3a: QA proof exists at head A" "$qa_proof"
+  git -C "$repo" checkout -q issue-one
+  printf 'head2\n' >> "$repo/app.txt"
+  git -C "$repo" commit -qam head2
+  head2=$(git -C "$repo" rev-parse HEAD)
+  git -C "$repo" checkout -q main
+  jq --arg head "$head2" '.headRefOid=$head' "$pr_open" > "$fixtures/pr-head2.json"
+  bash "$script" rebind-head --repo-root "$repo" --issue 1 --role normal \
+    --head-sha "$head2" --pr-json "$fixtures/pr-head2.json" >/dev/null
+  assert_file_not_exists "MD4b3b: rebind-head retires active QA proof path" "$qa_proof"
+  retired_qa=0
+  for retired in "$common"/saas-startup-team/maintain-runtime/deliveries/issue-1/proof-"$delivery_id"-normal-qa.json.retired-*; do
+    [ -e "$retired" ] || continue
+    retired_qa=$((retired_qa + 1))
+  done
+  assert_equals "MD4b3c: prior-head QA proof retained as retired" "$retired_qa" "1"
+  out=$(bash "$script" record-proof --repo-root "$repo" --issue 1 --role normal --kind qa --not-applicable)
+  assert_equals "MD4b3d: descendant head can record fresh QA after rebind" \
+    "$(jq -r .status "$out")" not_applicable
+  assert_equals "MD4b3e: fresh QA proof bound to new head" \
+    "$(jq -r .head_sha "$out")" "$head2"
+  # Restore fixture head/PR snapshot for later steps that still expect $head.
+  git -C "$repo" checkout -q issue-one
+  git -C "$repo" reset -q --hard "$head"
+  git -C "$repo" checkout -q main
+  # Receipt still at head2 — rebind back is not required for remaining tests if they
+  # use $head only for tribunal evidence writers. Align receipt head with $head2 for
+  # collect-tribunal/authorize below by rewriting local head variable.
+  head=$head2
+  jq --arg head "$head" '.headRefOid=$head' "$pr_open" > "$pr_open.tmp" && mv "$pr_open.tmp" "$pr_open"
+  cp -- "$pr_open" "$fake_pr"
   cat > "$fixtures/hostile-bash-env.sh" <<'HOSTILE_BASH_ENV'
 if [ "${0:-}" = "${MAINTAIN_TEST_TRIBUNAL_COLLECTOR:-}" ]; then
   printf compromised > "${MAINTAIN_TEST_LOADER_MARKER:?}"
