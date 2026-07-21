@@ -1164,7 +1164,8 @@ absolute_path_has_no_symlink() {
   IFS=$old_ifs
 }
 
-TRIBUNAL_BUNDLE_SHA256=772148ee2c99214cf9d6d56bcf3389160997e885d388936ffd7783f75d42e0b5
+# tribunal-review 0.20.5 — includes Grok leg (run-grok-review.sh); 0.19.9 did not.
+TRIBUNAL_BUNDLE_SHA256=8fb6b9f3cabd561d232924797f4606ad624aa9401306e8bac913cb9054f1b70d
 TRIBUNAL_ROOT=""; TRIBUNAL_COLLECTOR=""; TRIBUNAL_PATH=""
 
 tribunal_bash() (
@@ -1839,6 +1840,10 @@ if [ "$ACTION" = collect-tribunal ]; then
   [ "$TOP_STATE" = "$expected" ] || die "cannot collect $ROLE tribunal evidence from $TOP_STATE"
   obj=$(role_object "$ROLE"); pr=$(jq -r .pr_number <<<"$obj"); target=$(jq -r .head_sha <<<"$obj")
   valid_uint "$pr" && valid_sha "$target" || die "bound PR review identity is incomplete"
+  # Merge-gate panel: Claude is a default quorum leg. Agents sometimes export
+  # TRIBUNAL_CLAUDE=off on retry and collapse usable providers; force it back on
+  # for collect. Grok stays opt-in via host env (TRIBUNAL_GROK=on in aruannik).
+  export TRIBUNAL_CLAUDE=on
   validate_tribunal_plugin "$TRIBUNAL_PLUGIN_ROOT"
   collection=$(tribunal_collection_path "$ROLE")
   # Fresh collection when missing; or retire+recollect when the active collection is

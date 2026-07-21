@@ -173,7 +173,7 @@ case "$command" in
       '{pull_request:{number:$pr,head_oid:$head,body:{sha256:$body}},diff:{sha256:$diff}}' > "$output/manifest.json"
     manifest_sha=$(sha "$output/manifest.json")
     jq -nc --arg collection "$output" --arg manifest_sha256 "$manifest_sha" \
-      --arg runner_bundle_sha256 772148ee2c99214cf9d6d56bcf3389160997e885d388936ffd7783f75d42e0b5 \
+      --arg runner_bundle_sha256 8fb6b9f3cabd561d232924797f4606ad624aa9401306e8bac913cb9054f1b70d \
         --arg head_oid "$head" \
       '{collection:$collection,manifest_sha256:$manifest_sha256,runner_bundle_sha256:$runner_bundle_sha256,head_oid:$head_oid}'
     ;;
@@ -829,6 +829,9 @@ DEPLOY_WORKFLOW
   # collect-tribunal/authorize below by rewriting local head variable.
   head=$head2
   jq --arg head "$head" '.headRefOid=$head' "$pr_open" > "$pr_open.tmp" && mv "$pr_open.tmp" "$pr_open"
+  # Keep merged-fixture head in lockstep so match-pr after merge-pr still matches.
+  jq --arg head "$head" --arg merge "$merge" \
+    '.headRefOid=$head | .state="MERGED" | .mergeCommit={oid:$merge}' "$pr_open" > "$pr_merged"
   cp -- "$pr_open" "$fake_pr"
   cat > "$fixtures/hostile-bash-env.sh" <<'HOSTILE_BASH_ENV'
 if [ "${0:-}" = "${MAINTAIN_TEST_TRIBUNAL_COLLECTOR:-}" ]; then
