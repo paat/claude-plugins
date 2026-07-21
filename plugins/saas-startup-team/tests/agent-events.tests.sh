@@ -258,6 +258,16 @@ test_agent_events() {
   assert_equals "EV50b: wall-clock account overwrites child duration" \
     "$(jq -r '[.event_type,.duration_ms,.total_tokens,.outcome,.terminal_reason] | @csv' <<< "$wall_out")" \
     '"accounted",5000,42,"blocked","verification_failed"'
+  # Same run now has completed@1000 and accounted@5000 — projection must not
+  # treat multi-duration as a logical conflict (harvest bulk terminals depend on this).
+  wall_term=$(bash "$events_script" terminal --events "$wall_events" --run-id wall-duration-run)
+  assert_equals "EV50c: multi-duration same logical terminal projects wall-clock" \
+    "$(jq -r '[.event_type,.duration_ms,.total_tokens] | @csv' <<< "$wall_term")" \
+    '"accounted",5000,42'
+  wall_bulk=$(bash "$events_script" terminals --events "$wall_events")
+  assert_equals "EV50d: bulk terminals tolerate multi-duration same logical" \
+    "$(jq -r '[.event_type,.duration_ms] | @csv' <<< "$wall_bulk")" \
+    '"accounted",5000'
 
   cp "$terminal_events" "$terminal_events.duplicate"
   jq -c 'select(.event_type=="accounted")

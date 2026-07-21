@@ -753,8 +753,11 @@ project_terminals() {
              ($lifecycle | map(.value.command) | unique | length) != 1
           then {status:"conflict",run_id:$lifecycle[0].value.run_id}
           elif ($candidates | length) == 0 then {status:"incomplete",run_id:$lifecycle[0].value.run_id}
+          # Duration is wall-clock authority (see account_event): multiple
+          # duration stamps on the same logical terminal are not a conflict —
+          # the sort below keeps the richest/latest. Divergent token totals still
+          # conflict. Distinct logical outcomes always conflict.
           elif ($candidates | map(.value | logical_terminal | tojson) | unique | length) != 1 or
-               ($candidates | map(.value.duration_ms) | map(select(. != null)) | unique | length) > 1 or
                ($candidates | map(.value.total_tokens) | map(select(. != null)) | unique | length) > 1
           then {status:"conflict",run_id:$lifecycle[0].value.run_id}
           else {
