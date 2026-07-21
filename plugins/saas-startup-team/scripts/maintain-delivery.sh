@@ -27,6 +27,8 @@ usage: maintain-delivery.sh pending --repo-root DIR [--issue N]
          --branch NAME --base-sha SHA --head-sha SHA
        maintain-delivery.sh bind-pr|match-pr --repo-root DIR --issue N
          --role normal|rollback --pr-json FILE
+       maintain-delivery.sh rebind-head --repo-root DIR --issue N
+         --role normal|rollback --head-sha SHA [--pr-json FILE]
        maintain-delivery.sh collect-tribunal --repo-root DIR --issue N
          --role normal|rollback --tribunal-plugin-root DIR
        maintain-delivery.sh record-proof --repo-root DIR --issue N
@@ -181,7 +183,7 @@ validate_event_delivery_identity() {
 }
 
 case "$ACTION" in
-  pending|show|archive-claimed|begin|plan-pr|bind-pr|match-pr|collect-tribunal|record-proof|authorize-merge|merge-pr|record-merge|record-release|close-intent|close-issue|observe-closed|render-result|finalize) : ;;
+  pending|show|archive-claimed|begin|plan-pr|bind-pr|match-pr|rebind-head|collect-tribunal|record-proof|authorize-merge|merge-pr|record-merge|record-release|close-intent|close-issue|observe-closed|render-result|finalize) : ;;
   *) usage ;;
 esac
 READ_ONLY_ACTION=0
@@ -1663,6 +1665,56 @@ if [ "$ACTION" = bind-pr ]; then
     | .state = \$state | .updated_at = \$now" \
     --argjson pr "$number" --arg base "$base_branch" --arg body_digest "$body_digest" \
     --arg state "$next" --arg now "$updated"
+  printf '%s\n' "$current"; exit 0
+fi
+
+# Advance receipt head_sha when the bound open PR gains a later commit (e.g. QA
+# smoke after tribunal). Same PR only; descendant of prior head; clears premerge.
+if [ "$ACTION" = rebind-head ]; then
+  case "$ROLE" in normal|rollback) : ;; *) usage ;; esac
+  valid_sha "$HEAD_SHA" || usage
+  if [ "$ROLE" = normal ]; then expected=normal_open
+  else expected=rollback_open; fi
+  [ "$TOP_STATE" = "$expected" ] || die "cannot rebind $ROLE head from $TOP_STATE"
+  obj=$(role_object "$ROLE")
+  old_head=$(jq -r .head_sha <<<"$obj")
+  branch=$(jq -r .branch <<<"$obj")
+  base_sha=$(jq -r .base_sha <<<"$obj")
+  pr_number=$(jq -r .pr_number <<<"$obj")
+  valid_sha "$old_head" && valid_sha "$base_sha" && valid_uint "$pr_number" \
+    || die "open PR identity is incomplete for head rebind"
+  if [ "$HEAD_SHA" = "$old_head" ]; then
+    printf '%s\n' "$current"; exit 0
+  fi
+  git -C "$PRIMARY" cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null \
+    && git -C "$PRIMARY" merge-base --is-ancestor "$base_sha" "$HEAD_SHA" \
+    && git -C "$PRIMARY" merge-base --is-ancestor "$old_head" "$HEAD_SHA" \
+    || die "rebind head must be a descendant of the receipt base and prior head"
+  if [ -n "$PR_JSON" ]; then
+    require_json_file "$PR_JSON"
+    jq -e --argjson pr "$pr_number" --arg branch "$branch" --arg head "$HEAD_SHA" '
+      type == "object"
+      and (.number|type == "number" and . == $pr)
+      and .state == "OPEN"
+      and .headRefName == $branch
+      and .headRefOid == $head
+    ' "$PR_JSON" >/dev/null || die "PR snapshot does not match rebind identity"
+  else
+    live_json=$(cd "$PRIMARY" && trusted_repo_gh pr view "$pr_number" \
+      --json number,state,headRefName,headRefOid) \
+      || die "cannot fetch open PR head for rebind"
+    live_head=$(jq -r --argjson pr "$pr_number" --arg branch "$branch" '
+      select(.state == "OPEN" and .number == $pr and .headRefName == $branch)
+      | .headRefOid // empty
+    ' <<<"$live_json")
+    [ -n "$live_head" ] || die "open PR identity does not match receipt for rebind"
+    [ "$live_head" = "$HEAD_SHA" ] || die "live PR head does not match --head-sha"
+  fi
+  require_active_controller
+  updated=$(now_iso); key=$(role_key "$ROLE")
+  # Head advance invalidates premerge proofs (checks/qa/tribunal) — re-run gates.
+  atomic_update "$key.head_sha = \$head | $key.premerge = null | .updated_at = \$now" \
+    --arg head "$HEAD_SHA" --arg now "$updated"
   printf '%s\n' "$current"; exit 0
 fi
 

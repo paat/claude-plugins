@@ -198,6 +198,26 @@ claim, selected PR, current default, and PR head before checkout, before QA/trib
 and immediately before merge. Do not trust an earlier green check or receipt proof
 after any HEAD, default, issue, or validation-fact drift.
 
+### Rebinding the receipt head after a same-PR advance
+
+When a later commit lands on the **same** open bound PR (e.g. a head-bound QA smoke
+script after tribunal), the receipt `head_sha` must advance before any further
+proof or merge step. Call:
+
+```bash
+maintain-delivery.sh rebind-head --repo-root "$ROOT" --issue "$N" \
+  --role normal --head-sha "$NEW_HEAD" [--pr-json FILE]
+```
+
+Rules:
+
+- Only from `normal_open` / `rollback_open`.
+- `$NEW_HEAD` must be a descendant of both the receipt `base_sha` and the prior
+  `head_sha` (advance-only; never rewind).
+- The live (or snapshot) open PR head must equal `$NEW_HEAD` on the same branch.
+- Clears `premerge` so checks/QA/tribunal must re-run at the new head.
+- There is no other legal head-refresh path; do not hand-edit the receipt.
+
 ## Recording the canonical goal gates
 
 Run the common delivery gates exactly where `goal-deliver.md` requires them. This
