@@ -151,8 +151,11 @@ Under `--dry-run`, do not append a root or child event.
 **Hard gate: one working directory — the primary repo checkout. No linked git worktrees.**
 
 `assert-primary-only` fails closed if any extra worktree exists or `core.worktree` is set.
-Remove extras with `git worktree remove` / `prune`. Never run `git worktree add`.
-Pause the portfolio before human work on the tree.
+It never deletes worktrees. On failure: pause the portfolio, investigate the foreign
+path, and stop — do not auto-`git worktree remove` while other workflows may hold it.
+Never run `git worktree add`. Isolated stacks (abandoned-session replay, disposable
+verification, nightlies) must use a **plain `git clone`** outside this repository's
+linked-worktree list.
 
 ```bash
 REPO_ROOT=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" primary-root \

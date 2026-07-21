@@ -1234,6 +1234,15 @@ test_maintain() {
   assert_file_contains "M27b: improve primary-only" \
     "$PLUGIN_ROOT/references/workflows/improve.md" \
     'Primary working directory only'
+  assert_file_contains "M27c: primary-only never auto-deletes worktrees" \
+    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
+    'never deletes worktrees'
+  assert_file_contains "M27d: isolated stacks use plain clone" \
+    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
+    'plain `git clone`'
+  assert_file_not_contains "M27e: protocol does not instruct auto worktree remove sweep" \
+    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
+    'Remove extras with `git worktree remove`'
   # Fast no-op must not strand cached deliverable issues.
   assert_file_contains "M28: cached resumable gate" "$cmd" "cached_resumable"
   assert_file_contains "M29: cached agent-fixable enters queue" "$cmd" "deliverable queue input"
@@ -5540,7 +5549,10 @@ test_autonomous_demand_infra() {
     "$health" 'CODEX_SANDBOX'
   for s in "$health" "$lease" "$packs" "$demand" "$market" "$closure" \
     "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" \
-    "$PLUGIN_ROOT/scripts/supervisor-check-container.sh"; do
+    "$PLUGIN_ROOT/scripts/supervisor-check-container.sh" \
+    "$PLUGIN_ROOT/scripts/bind-dependency-runtime-view.sh" \
+    "$PLUGIN_ROOT/scripts/supervisor-commit.sh" \
+    "$PLUGIN_ROOT/scripts/maintain-leases.sh"; do
     ec=0; bash -n "$s" || ec=$?
     assert_exit_code "AD syntax: $(basename "$s")" "$ec" 0
   done

@@ -400,8 +400,10 @@ Codex CLI automation must start `/maintain-loop` in a collaboration-capable,
 non-ephemeral coordinator session so the fresh pass returns a stable child identity.
 
 **No linked git worktrees (hard).** Primary working directory only.
-`assert-primary-only` fails closed if any extra worktree exists. Pause the
-portfolio for human work. (`--dry-run` is read-only.)
+`assert-primary-only` fails closed if any extra worktree exists; it does not
+auto-delete them. Pause the portfolio, investigate, and stop. Isolated stacks
+(replay, disposable checks) use a plain `git clone`, never `git worktree add`.
+(`--dry-run` is read-only.)
 
 ### Triage verdicts
 

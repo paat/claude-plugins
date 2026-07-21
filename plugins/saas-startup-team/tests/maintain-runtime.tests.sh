@@ -338,7 +338,13 @@ SH
   out=$(bash "$leases" assert-primary-only --repo-root "$repo" 2>&1) || ec=$?
   assert_exit_code "MR15aa1: primary-only gate fails while a linked worktree exists" "$ec" 1
   assert_output_contains "MR15aa2: primary-only gate names the linked worktree" "$out" "$linked"
-  # Probe and later suite steps require a single primary tree — remove the linked one.
+  assert_output_contains "MR15aa2b: primary-only does not auto-delete" "$out" \
+    "do not auto-delete"
+  assert_output_contains "MR15aa2c: primary-only requires plain clone for isolation" "$out" \
+    "plain git clone"
+  # Gate must not delete the foreign tree (operator/protocol stop, no sweep).
+  assert_file_exists "MR15aa2d: linked worktree still present after fail-closed gate" "$linked"
+  # Suite fixture cleanup only — not the gate. Later steps need a single primary.
   git -C "$repo" worktree remove --force "$linked" >/dev/null
   linked=""
   bash "$leases" assert-primary-only --repo-root "$repo" >/dev/null
