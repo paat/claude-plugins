@@ -240,14 +240,6 @@ hold_command() {
     echo "lease-guardian: inspectable Linux /proc is required for child containment" >&2
     return 1
   }
-  containment_token=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
-  [[ "$containment_token" =~ ^[0-9a-f]{32}$ ]] || {
-    echo "lease-guardian: cannot create child containment identity" >&2; return 1; }
-  probe_containment || return 1
-  setpriv_bin=$CONTAINMENT_SETPRIV
-  bash_bin=$CONTAINMENT_BASH
-  python_bin=$CONTAINMENT_PYTHON
-  tracer_bin=$CONTAINMENT_TRACER
 
   forward_signal() {
     local signal="$1" status="$2"
@@ -276,6 +268,31 @@ hold_command() {
   }
 
   case $- in *m*) monitor=1 ;; esac
+
+  # Nested hold under an outer guardian cannot re-ptrace (PTRACE_TRACEME → EPERM
+  # while already traced). Outer containment already covers descendants; only
+  # heartbeat leases while running the command. Live-proof under maintain hold
+  # hits this path (aruannik #1273 post-merge).
+  if [ -n "${SAAS_LEASE_GUARDIAN_TOKEN:-}" ]; then
+    echo "lease-guardian: nested hold under existing containment; ptrace skipped" >&2
+    set -m
+    "${command[@]}" &
+    child=$!
+    child_group=$child
+    group_verified=1
+    [ "$monitor" -eq 1 ] || set +m
+    [ -z "$pending_signal" ] || forward_signal "$pending_signal" "$pending_status"
+    track_descendants
+  else
+  containment_token=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+  [[ "$containment_token" =~ ^[0-9a-f]{32}$ ]] || {
+    echo "lease-guardian: cannot create child containment identity" >&2; return 1; }
+  probe_containment || return 1
+  setpriv_bin=$CONTAINMENT_SETPRIV
+  bash_bin=$CONTAINMENT_BASH
+  python_bin=$CONTAINMENT_PYTHON
+  tracer_bin=$CONTAINMENT_TRACER
+
   # setpriv makes guardian death kill the ptrace supervisor. The immediate
   # PPID check closes the fork-before-prctl race: an already-orphaned child
   # exits before it can start the command. PTRACE_O_EXITKILL then makes tracer
@@ -299,6 +316,7 @@ hold_command() {
     wait "$child" 2>/dev/null || true
     trap - INT TERM HUP
     return 1
+  fi
   fi
 
   started=$SECONDS
