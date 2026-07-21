@@ -70,9 +70,10 @@ assert_primary_only() {
   if [ "${#extras[@]}" -gt 0 ]; then
     echo "maintain-leases: linked git worktrees are forbidden (primary only)" >&2
     for candidate in "${extras[@]}"; do
-      printf 'maintain-leases: remove: %s\n' "$candidate" >&2
+      printf 'maintain-leases: foreign-worktree: %s\n' "$candidate" >&2
     done
-    echo "maintain-leases: fix: git worktree remove <path> && git worktree prune" >&2
+    echo "maintain-leases: fail closed — pause the portfolio; do not auto-delete worktrees" >&2
+    echo "maintain-leases: isolated stacks (replay, disposable checks) must use a plain git clone, never git worktree add" >&2
     return 1
   fi
   return 0

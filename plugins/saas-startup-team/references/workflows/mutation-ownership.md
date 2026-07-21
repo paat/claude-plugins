@@ -89,6 +89,21 @@ trees on the primary checkout. Only validated `node_modules`, `venv`, and `.venv
 paths are copied and mounted read-only in the disposable container; a runtime or
 dependency-manifest change after the snapshot fails closed, and no other ignored project
 state is copied.
+Never symlink primary dependency runtimes into a disposable clone (writable links let
+Prisma/Jiti mutate the sealed primary tree). Use
+`scripts/bind-dependency-runtime-view.sh` for a private copy when a role must run
+checks outside the sealed driver.
+Set `SAAS_SUPERVISOR_CHECK_REQUIRED_TOOLS` (space-separated, e.g. `pdftotext pdfinfo`)
+so trust snapshot / rebind fail closed before the expensive writer when the sealed
+image lacks those tools. Pin the sealed image with `SAAS_SUPERVISOR_CHECK_IMAGE_ID`
+(`sha256:…`) instead of silently inheriting a stale running-container image.
+When only the sealed backend/image binding must change and the candidate plus runtime
+digests are unchanged, rebind without a no-op writer:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/supervisor-commit.sh" \
+  --rebind-check-environment "$COMMIT_TRUST" --auth-stdin <<<"$MUTATION_AUTH"
+```
 A failed gate leaves the primary HEAD and index unchanged
 and retains the receipt for a same-base retry. A successful or no-op commit consumes it.
 The authenticated receipt binds the exact allowlist, branch, refs, base, configuration,
