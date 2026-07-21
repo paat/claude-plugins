@@ -218,6 +218,24 @@ Rules:
 - Clears `premerge` so checks/QA/tribunal must re-run at the new head.
 - There is no other legal head-refresh path; do not hand-edit the receipt.
 
+### Rebinding the receipt body after required evidence appends
+
+When the **same** open bound PR keeps markers/branch/head fixed but the body gains
+required evidence (e.g. a mandatory `## Design-review: PASS` block), call:
+
+```bash
+maintain-delivery.sh rebind-body --repo-root "$ROOT" --issue "$N" \
+  --role normal --pr-json FILE
+```
+
+Rules:
+
+- Only from `normal_open` / `rollback_open`.
+- PR number, branch, and head must still match the receipt.
+- Delivery markers must still match the receipt.
+- Updates `body_digest` only; does **not** clear `premerge` (head-bound proofs remain).
+- There is no other legal body-refresh path; do not hand-edit the receipt.
+
 ## Recording the canonical goal gates
 
 Run the common delivery gates exactly where `goal-deliver.md` requires them. This

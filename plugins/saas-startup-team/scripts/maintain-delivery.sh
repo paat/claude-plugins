@@ -29,6 +29,8 @@ usage: maintain-delivery.sh pending --repo-root DIR [--issue N]
          --role normal|rollback --pr-json FILE
        maintain-delivery.sh rebind-head --repo-root DIR --issue N
          --role normal|rollback --head-sha SHA [--pr-json FILE]
+       maintain-delivery.sh rebind-body --repo-root DIR --issue N
+         --role normal|rollback --pr-json FILE
        maintain-delivery.sh collect-tribunal --repo-root DIR --issue N
          --role normal|rollback --tribunal-plugin-root DIR
        maintain-delivery.sh record-proof --repo-root DIR --issue N
@@ -183,7 +185,7 @@ validate_event_delivery_identity() {
 }
 
 case "$ACTION" in
-  pending|show|archive-claimed|begin|plan-pr|bind-pr|match-pr|rebind-head|collect-tribunal|record-proof|authorize-merge|merge-pr|record-merge|record-release|close-intent|close-issue|observe-closed|render-result|finalize) : ;;
+  pending|show|archive-claimed|begin|plan-pr|bind-pr|match-pr|rebind-head|rebind-body|collect-tribunal|record-proof|authorize-merge|merge-pr|record-merge|record-release|close-intent|close-issue|observe-closed|render-result|finalize) : ;;
   *) usage ;;
 esac
 READ_ONLY_ACTION=0
@@ -1715,6 +1717,50 @@ if [ "$ACTION" = rebind-head ]; then
   # Head advance invalidates premerge proofs (checks/qa/tribunal) — re-run gates.
   atomic_update "$key.head_sha = \$head | $key.premerge = null | .updated_at = \$now" \
     --arg head "$HEAD_SHA" --arg now "$updated"
+  printf '%s\n' "$current"; exit 0
+fi
+
+# Advance body_digest when the bound open PR body gains required evidence blocks
+# (e.g. ## Design-review: PASS) while markers/branch/head stay fixed. Does not
+# clear premerge — head-bound proofs remain valid.
+if [ "$ACTION" = rebind-body ]; then
+  case "$ROLE" in normal|rollback) : ;; *) usage ;; esac
+  [ -n "$PR_JSON" ] || usage
+  if [ "$ROLE" = normal ]; then expected=normal_open
+  else expected=rollback_open; fi
+  [ "$TOP_STATE" = "$expected" ] || die "cannot rebind $ROLE body from $TOP_STATE"
+  obj=$(role_object "$ROLE")
+  pr_number=$(jq -r .pr_number <<<"$obj")
+  branch=$(jq -r .branch <<<"$obj")
+  head_sha=$(jq -r .head_sha <<<"$obj")
+  old_body=$(jq -r '.body_digest // ""' <<<"$obj")
+  valid_uint "$pr_number" && valid_sha "$head_sha" && valid_digest "$old_body" \
+    || die "open PR identity is incomplete for body rebind"
+  require_json_file "$PR_JSON"
+  jq -e --argjson pr "$pr_number" --arg branch "$branch" --arg head "$head_sha" '
+    type == "object"
+    and (.number|type == "number" and . == $pr)
+    and .state == "OPEN"
+    and .headRefName == $branch
+    and .headRefOid == $head
+    and (.body|type == "string")
+  ' "$PR_JSON" >/dev/null || die "PR snapshot does not match rebind identity"
+  # Markers must still match the receipt (verify_pr body_digest check skipped).
+  body=$(jq -r .body "$PR_JSON")
+  expected_role=$(role_line "$ROLE"); action=$(jq -r .action_id <<<"$obj")
+  exact_body_line "Maintain-Loop-Issue: #$ISSUE" "$body" \
+    && exact_body_line "Maintain-Loop-Delivery: $DELIVERY_ID" "$body" \
+    && exact_body_line "Maintain-Loop-Role: $expected_role" "$body" \
+    && exact_body_line "Maintain-Loop-Action: $action" "$body" \
+    || die "PR markers do not match the supervisor receipt"
+  new_body=$(content_digest "$body")
+  if [ "$new_body" = "$old_body" ]; then
+    printf '%s\n' "$current"; exit 0
+  fi
+  require_active_controller
+  updated=$(now_iso); key=$(role_key "$ROLE")
+  atomic_update "$key.body_digest = \$body | .updated_at = \$now" \
+    --arg body "$new_body" --arg now "$updated"
   printf '%s\n' "$current"; exit 0
 fi
 
