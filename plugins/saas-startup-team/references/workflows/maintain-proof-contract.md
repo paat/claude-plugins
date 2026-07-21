@@ -101,8 +101,11 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-delivery.sh" record-proof \
 
 The helper requires the command to equal the single tracked `custom_checks`
 binding, validates its findings JSONL, and records only stdout/stderr byte counts
-and digests. Exit zero with no findings proves the configured monitor completed
-cleanly. Any finding stops release and reports its count plus stdout digest.
+and digests. Exit zero with no **release-blocking** findings proves the configured
+monitor completed cleanly for deploy proof. Ambient product/ops metrics that are
+not SHA-correlated (`funnel:drop:*`, fleet-wide `ops:llm-gap:failure`) are ignored
+for the release gate (they remain `/monitor-nightly` signals). Any other finding
+stops release and reports its blocking count plus stdout digest.
 
 When the monitor hook cannot exercise the required acceptance, pass an existing
 tracked live smoke script with the default `structured` contract. The script receives

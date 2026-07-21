@@ -906,7 +906,38 @@ HOSTILE_BASH_ENV
           --live-target-source production 2>&1) || ec=$?
   assert_exit_code "MD5e2b: monitor findings block live proof" "$ec" 1
   assert_output_contains "MD5e2c: rejected findings retain diagnostic count" "$out" \
-    "monitor hook reported 1 finding(s)"
+    "monitor hook reported 1 release-blocking finding(s)"
+  # Ambient funnel/LLM-gap metrics must not block release live-proof alone.
+  cat > "$monitor_command" <<'AMBIENT_MONITOR'
+#!/bin/bash
+set -euo pipefail
+# maintain-proof-env: LEGACY_PROOF_SECRET
+[ -z "${LEGACY_PROOF_SECRET:-}" ] || exit 97
+printf '%s\n' 'monitor authenticated' >&2
+jq -nc '{pattern_key:"funnel:drop:company",severity:"medium",entity:null,title:"Funnel",body:"ambient day-level rate"}'
+jq -nc '{pattern_key:"ops:llm-gap:failure",severity:"high",entity:null,title:"LLM gap",body:"fleet gap"}'
+AMBIENT_MONITOR
+  chmod +x "$monitor_command"
+  live_proof_path=$(SAAS_MAINTAIN_LIVE_PROOF_ENV=FIXTURE_MONITOR_MODE \
+      bash "$script" record-proof --repo-root "$repo" --issue 1 --role normal --kind live \
+        --command-file "$monitor_command" --live-command-contract monitor-hook \
+          --deploy-run-id 1111 --live-target-source production)
+  assert_file_exists "MD5e2c1: ambient-only monitor findings seal live proof" "$live_proof_path"
+  live_output="$(dirname -- "$live_proof_path")/$(jq -r .output_path "$live_proof_path")"
+  assert_equals "MD5e2c2: ambient findings count as zero release blockers" \
+    "$(jq -r .capture.finding_count "$live_output")" 0
+  # Restore default fixture monitor for subsequent cases.
+  cat > "$monitor_command" <<'MONITOR_COMMAND'
+#!/bin/bash
+set -euo pipefail
+# maintain-proof-env: LEGACY_PROOF_SECRET
+[ -z "${LEGACY_PROOF_SECRET:-}" ] || exit 97
+printf '%s\n' 'monitor authenticated' >&2
+if [ "$FIXTURE_MONITOR_MODE" = finding ]; then
+  jq -nc '{pattern_key:"test:failed",severity:"high",entity:null,title:"Failure",body:"Bound live check failed"}'
+fi
+MONITOR_COMMAND
+  chmod +x "$monitor_command"
   mkdir "$repo/hostile-python"
   cat > "$repo/hostile-python/sitecustomize.py" <<'HOSTILE_PYTHON'
 import os
