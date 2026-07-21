@@ -26,7 +26,7 @@ valid_uint() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 worktree_lease_key() {
   printf '%s:worktree:%s\n' "$1" "$(printf '%s' "$2" | cksum | awk '{print $1}')"
 }
-# Hard gate: only the primary working directory. No linked worktrees, ever.
+# Hard gate: only the primary working directory. No linked product worktrees.
 allowed_controller_tree() {
   [ -n "${PRIMARY:-}" ] || return 1
   [ "$1" = "$PRIMARY" ]
@@ -62,7 +62,12 @@ assert_primary_only() {
           echo "maintain-leases: cannot resolve worktree path" >&2
           return 1
         fi
-        [ "$candidate" = "$PRIMARY" ] || extras+=("$candidate")
+        [ "$candidate" = "$PRIMARY" ] && continue
+        # Leftover tribunal review trees are noise, not product worktrees (#346).
+        case "$candidate" in
+          /tmp/tribunal-*|"${TMPDIR:-/tmp}"/tribunal-*) continue ;;
+        esac
+        extras+=("$candidate")
         ;;
     esac
   done < "$rows"

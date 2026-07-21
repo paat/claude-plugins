@@ -399,11 +399,10 @@ supervisor ownership into a nested `/goal-deliver` context.
 Codex CLI automation must start `/maintain-loop` in a collaboration-capable,
 non-ephemeral coordinator session so the fresh pass returns a stable child identity.
 
-**No linked git worktrees (hard).** Primary working directory only.
-`assert-primary-only` fails closed if any extra worktree exists; it does not
-auto-delete them. Pause the portfolio, investigate, and stop. Isolated stacks
-(replay, disposable checks) use a plain `git clone`, never `git worktree add`.
-(`--dry-run` is read-only.)
+**No linked product worktrees (hard).** Primary working directory only.
+`assert-primary-only` ignores leftover `/tmp/tribunal-*` review trees and fails
+closed on any other extra worktree (does not auto-delete). Isolated stacks use a
+plain `git clone`, never `git worktree add`. (`--dry-run` is read-only.)
 
 ### Triage verdicts
 
