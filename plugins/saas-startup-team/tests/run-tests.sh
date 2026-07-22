@@ -453,6 +453,8 @@ test_templates() {
     "$PLUGIN_ROOT/references/workflows/improve.md" "Before reading product or research docs, read and apply"
   assert_file_contains "D10q6: project guidance exposes lean direct planning" \
     "$tmpl_dir/claude-md-workflow-guidance.md" "Lean direct-feature planning"
+  assert_file_contains "D10q6a: project guidance stops after file-only issue asks" \
+    "$tmpl_dir/claude-md-workflow-guidance.md" "Do not auto-start delivery when filing issues"
   assert_file_exists "D10q6b: engineering principles template exists" \
     "$tmpl_dir/claude-md-engineering-principles.md"
   assert_file_contains "D10q6c: principles name KISS" \

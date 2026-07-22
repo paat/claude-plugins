@@ -22,6 +22,12 @@
 - Bug fixes, styling changes, copy updates on a shipped product
 - Changes that don't need market research or new feature design
 
+### Do not auto-start delivery when filing issues
+
+If the investor asks only to file or comment GitHub issue details (e.g. "file on #N"),
+complete that request and **stop**. Do not start `/improve`, `/goal-deliver`, `/tweak`,
+or other delivery work unless they explicitly ask to implement, fix, build, or ship.
+
 ### Lean direct-feature planning
 
 For a concrete architecture or implementation request, read and apply the plugin's
