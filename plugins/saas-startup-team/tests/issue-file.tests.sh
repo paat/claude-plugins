@@ -8,6 +8,9 @@ test_issue_file() {
   # Mock gh: logs every argv to $GH_LOG; `issue list` returns $GH_LIST_JSON,
   # `issue create` echoes $GH_CREATE_URL (or $GH_CREATE_RAW), captures body-file
   # path contents to $GH_BODY_CAPTURE when set, `repo view` echoes a repo.
+  # Per-repo overrides (for #328 source escalate): when --repo is set,
+  # GH_LIST_JSON__owner_name and GH_CREATE_URL__owner_name (slash → underscore)
+  # take precedence if defined.
   install_mock_gh() {
     bindir="$1/bin"; mkdir -p "$bindir"
     cat > "$bindir/gh" <<'EOF'
@@ -26,15 +29,43 @@ if [ -n "${GH_BODY_CAPTURE:-}" ]; then
     i=$((i+1))
   done
 fi
+repo_arg=""
+i=1
+while [ $i -le $# ]; do
+  eval "a=\${$i}"
+  if [ "$a" = "--repo" ]; then
+    eval "repo_arg=\${$((i+1))}"
+    break
+  fi
+  i=$((i+1))
+done
+repo_key=""
+if [ -n "$repo_arg" ]; then
+  repo_key=$(printf '%s' "$repo_arg" | tr '/' '_')
+fi
 case "$1 ${2:-}" in
   "issue list")
     if [ -n "${GH_LIST_FAIL:-}" ]; then exit 1; fi
     if [ -n "${GH_LIST_RAW:-}" ]; then printf '%s' "$GH_LIST_RAW"; exit 0; fi
+    if [ -n "$repo_key" ]; then
+      eval "isset=\${GH_LIST_JSON__${repo_key}+x}"
+      if [ -n "$isset" ]; then
+        eval "printf '%s' \"\$GH_LIST_JSON__${repo_key}\""
+        exit 0
+      fi
+    fi
     printf '%s' "${GH_LIST_JSON:-[]}"
     ;;
   "issue create")
     if [ -n "${GH_CREATE_FAIL:-}" ]; then exit 1; fi
     if [ -n "${GH_CREATE_RAW+x}" ]; then printf '%s' "$GH_CREATE_RAW"; exit 0; fi
+    if [ -n "$repo_key" ]; then
+      eval "isset=\${GH_CREATE_URL__${repo_key}+x}"
+      if [ -n "$isset" ]; then
+        eval "echo \"\$GH_CREATE_URL__${repo_key}\""
+        exit 0
+      fi
+    fi
     echo "${GH_CREATE_URL:-https://github.com/o/r/issues/123}"
     ;;
   "issue comment")
@@ -323,5 +354,160 @@ EOF
   assert_exit_code "IF23: missing url exit 1" "$ec" 1
   assert_output_contains "IF23b: precheck_failed" "$stderr" "status=precheck_failed"
   assert_file_not_contains "IF23c: no create" "$wd/gh.log" "issue create"
+
+  # --- #328 source-repo escalate ---
+
+  # IF24: source miss → local create + source create once (no second source create)
+  wd="$(make_workdir)"; install_mock_gh "$wd"
+  run_if \
+    GH_LIST_JSON__o_r='[]' \
+    GH_LIST_JSON__plugin_src='[]' \
+    GH_CREATE_URL__o_r='https://github.com/o/r/issues/200' \
+    GH_CREATE_URL__plugin_src='https://github.com/plugin/src/issues/50' \
+    --repo o/r --title "Plugin-caused crash" --body "evidence" --root "$wd" \
+    --pattern-key "plugin:saas:crash" \
+    --source-repo plugin/src --source-escalate comment
+  assert_exit_code "IF24: source miss exits 0" "$ec" 0
+  assert_output_contains "IF24b: local URL on stdout" "$stdout" "https://github.com/o/r/issues/200"
+  assert_output_contains "IF24c: local status=created" "$stderr" "status=created"
+  assert_output_contains "IF24d: source_escalate=created" "$stderr" "source_escalate=created"
+  assert_file_contains "IF24e: local create" "$wd/gh.log" "issue create --repo o/r"
+  assert_file_contains "IF24f: source create" "$wd/gh.log" "issue create --repo plugin/src"
+  create_n="$(grep -c 'issue create --repo plugin/src' "$wd/gh.log" || true)"
+  assert_equals "IF24g: exactly one source create" "$create_n" "1"
+  assert_file_not_contains "IF24h: no source comment on miss" "$wd/gh.log" "issue comment"
+
+  # IF25: source hit → local create + source comment only (no source create)
+  wd="$(make_workdir)"; install_mock_gh "$wd"
+  run_if \
+    GH_LIST_JSON__o_r='[]' \
+    GH_LIST_JSON__plugin_src='[{"number":77,"title":"Existing","url":"https://github.com/plugin/src/issues/77","body":"x\n\n**Pattern:** `plugin:saas:crash`\n"}]' \
+    GH_CREATE_URL__o_r='https://github.com/o/r/issues/201' \
+    --repo o/r --title "Plugin-caused crash" --body "more" --root "$wd" \
+    --pattern-key "plugin:saas:crash" \
+    --source-repo plugin/src --source-escalate comment
+  assert_exit_code "IF25: source hit exits 0" "$ec" 0
+  assert_output_contains "IF25b: local URL" "$stdout" "https://github.com/o/r/issues/201"
+  assert_output_contains "IF25c: status=created local" "$stderr" "status=created"
+  assert_output_contains "IF25d: source_escalate=reused" "$stderr" "source_escalate=reused"
+  assert_file_contains "IF25e: source comment" "$wd/gh.log" "issue comment 77 --repo plugin/src"
+  assert_file_not_contains "IF25f: no source create" "$wd/gh.log" "issue create --repo plugin/src"
+  assert_file_contains "IF25g: local create still happens" "$wd/gh.log" "issue create --repo o/r"
+
+  # IF26: no-duplicate source — local reuse + source reuse; neither creates
+  wd="$(make_workdir)"; install_mock_gh "$wd"
+  run_if \
+    GH_LIST_JSON__o_r='[{"number":9,"title":"X","url":"https://github.com/o/r/issues/9","body":"**Pattern:** `plugin:saas:crash`"}]' \
+    GH_LIST_JSON__plugin_src='[{"number":77,"title":"Y","url":"https://github.com/plugin/src/issues/77","body":"**Pattern:** `plugin:saas:crash`"}]' \
+    --repo o/r --title "Plugin-caused crash" --body "again" --root "$wd" \
+    --pattern-key "plugin:saas:crash" \
+    --source-repo plugin/src --source-escalate comment
+  assert_exit_code "IF26: dual reuse exits 0" "$ec" 0
+  assert_output_contains "IF26b: local reused URL" "$stdout" "https://github.com/o/r/issues/9"
+  assert_output_contains "IF26c: status=reused" "$stderr" "status=reused"
+  assert_output_contains "IF26d: source_escalate=reused" "$stderr" "source_escalate=reused"
+  assert_file_not_contains "IF26e: no create anywhere" "$wd/gh.log" "issue create"
+  assert_file_contains "IF26f: local comment" "$wd/gh.log" "issue comment 9 --repo o/r"
+  assert_file_contains "IF26g: source comment" "$wd/gh.log" "issue comment 77 --repo plugin/src"
+
+  # IF27: dry-run + source escalate → zero gh
+  wd="$(make_workdir)"; install_mock_gh "$wd"
+  run_if --repo o/r --title "T" --body "b" --root "$wd" \
+    --pattern-key "ops:y" --source-repo plugin/src --source-escalate comment --dry-run
+  assert_exit_code "IF27: dry-run source escalate exit 0" "$ec" 0
+  assert_file_not_exists "IF27b: no gh" "$wd/gh.log"
+  assert_output_contains "IF27c: dry-run status" "$stderr" "status=dry-run"
+  assert_output_contains "IF27d: dry-run mentions source" "$stdout" "source-escalate"
+  assert_output_contains "IF27e: dry-run source_repo in status" "$stderr" "source_repo=plugin/src"
+
+  # IF28: --source-escalate without --source-repo → usage
+  wd="$(make_workdir)"; install_mock_gh "$wd"
+  run_if --repo o/r --title "T" --body "b" --root "$wd" \
+    --pattern-key "ops:y" --source-escalate comment
+  assert_exit_code "IF28: escalate without source-repo exit 2" "$ec" 2
+  assert_file_not_exists "IF28b: no gh" "$wd/gh.log"
+
+  # IF29: --source-repo without escalate mode → usage
+  wd="$(make_workdir)"; install_mock_gh "$wd"
+  run_if --repo o/r --title "T" --body "b" --root "$wd" \
+    --pattern-key "ops:y" --source-repo plugin/src
+  assert_exit_code "IF29: source-repo without escalate exit 2" "$ec" 2
+  assert_file_not_exists "IF29b: no gh" "$wd/gh.log"
+
+  # IF30: source escalate without pattern-key → usage
+  wd="$(make_workdir)"; install_mock_gh "$wd"
+  run_if --repo o/r --title "T" --body "b" --root "$wd" \
+    --source-repo plugin/src --source-escalate comment
+  assert_exit_code "IF30: escalate without key exit 2" "$ec" 2
+  assert_file_not_exists "IF30b: no gh" "$wd/gh.log"
+
+  # IF31: default escalate none → no source repo calls even if not requested
+  wd="$(make_workdir)"; install_mock_gh "$wd"
+  run_if GH_LIST_JSON='[]' GH_CREATE_URL='https://github.com/o/r/issues/123' \
+    --repo o/r --title "Plain" --body "x" --root "$wd" --pattern-key "ops:z"
+  assert_exit_code "IF31: default no escalate exit 0" "$ec" 0
+  assert_output_not_contains "IF31b: no source_escalate status" "$stderr" "source_escalate="
+  list_repos="$(grep 'issue list' "$wd/gh.log" | grep -c 'plugin/src' || true)"
+  assert_equals "IF31c: no plugin/src list" "$list_repos" "0"
+
+  # IF32: source malformed list → source_escalate=precheck_failed (not local status)
+  wd="$(make_workdir)"; install_mock_gh "$wd"
+  # Local succeeds (empty list + create); source list returns non-JSON via per-repo override
+  # Use GH_LIST_JSON__plugin_src with invalid JSON by routing list raw only for source:
+  # install a custom gh after default mock that returns raw for plugin/src.
+  cat > "$wd/bin/gh" <<'EOF'
+#!/bin/bash
+echo "gh $*" >> "$GH_LOG"
+repo_arg=""
+i=1
+while [ $i -le $# ]; do
+  eval "a=\${$i}"
+  if [ "$a" = "--repo" ]; then eval "repo_arg=\${$((i+1))}"; break; fi
+  i=$((i+1))
+done
+case "$1 ${2:-}" in
+  "issue list")
+    if [ "$repo_arg" = "plugin/src" ]; then printf '%s' 'not-json'; exit 0; fi
+    printf '%s' '[]'
+    ;;
+  "issue create")
+    echo "https://github.com/o/r/issues/300"
+    ;;
+  "issue comment") : ;;
+  "issue view") printf '%s' '{"body":""}' ;;
+  "issue edit") : ;;
+  "repo view") echo "o/r" ;;
+esac
+exit 0
+EOF
+  chmod +x "$wd/bin/gh"
+  run_if --repo o/r --title "T" --body "e" --root "$wd" \
+    --pattern-key "plugin:saas:crash" \
+    --source-repo plugin/src --source-escalate comment
+  assert_exit_code "IF32: source malformed list exit 1" "$ec" 1
+  assert_output_contains "IF32b: local status=created still emitted" "$stderr" "status=created"
+  assert_output_contains "IF32c: source_escalate=precheck_failed" "$stderr" "source_escalate=precheck_failed"
+  assert_file_contains "IF32d: local create happened" "$wd/gh.log" "issue create --repo o/r"
+  assert_file_not_contains "IF32e: no source create" "$wd/gh.log" "issue create --repo plugin/src"
+
+  # IF33: labels not sent to source create
+  wd="$(make_workdir)"; install_mock_gh "$wd"
+  run_if \
+    GH_LIST_JSON__o_r='[]' \
+    GH_LIST_JSON__plugin_src='[]' \
+    GH_CREATE_URL__o_r='https://github.com/o/r/issues/301' \
+    GH_CREATE_URL__plugin_src='https://github.com/plugin/src/issues/51' \
+    --repo o/r --title "T" --body "e" --root "$wd" \
+    --pattern-key "plugin:saas:crash" --labels bug \
+    --source-repo plugin/src --source-escalate comment
+  assert_exit_code "IF33: labels+source exit 0" "$ec" 0
+  assert_file_contains "IF33b: local create with label" "$wd/gh.log" "issue create --repo o/r"
+  # local create line should include --label
+  grep 'issue create --repo o/r' "$wd/gh.log" | grep -q -- '--label' \
+    && assert_exit_code "IF33c: local got label" 0 0 \
+    || assert_exit_code "IF33c: local got label" 1 0
+  grep 'issue create --repo plugin/src' "$wd/gh.log" | grep -q -- '--label' \
+    && assert_exit_code "IF33d: source has no label" 1 0 \
+    || assert_exit_code "IF33d: source has no label" 0 0
 }
 test_issue_file

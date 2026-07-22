@@ -683,15 +683,62 @@ atomic_update_run_ledger() {
     || { rm -f -- "$tmp"; die "cannot persist run merge ledger"; }
 }
 
+# Normalize a post-claim HEAD checkout destination to a local branch name.
+# origin/foo and remotes/origin/foo become foo so a still-published delivery
+# branch remains fail-closed even when checked out via its remote-tracking name.
+# Other ref forms and the default branch are non-candidates (#361).
+# Prints the candidate name on stdout; returns 1 when the destination is ignored.
+archive_claim_branch_candidate() {
+  local dest=$1 default_branch=$2
+  local branch=$dest
+  case "$dest" in
+    refs/remotes/origin/*) branch=${dest#refs/remotes/origin/} ;;
+    remotes/origin/*) branch=${dest#remotes/origin/} ;;
+    origin/*) branch=${dest#origin/} ;;
+    refs/*) return 1 ;;
+  esac
+  git check-ref-format --branch "$branch" >/dev/null 2>&1 || return 1
+  [ -n "$default_branch" ] && [ "$branch" = "$default_branch" ] && return 1
+  printf '%s\n' "$branch"
+  return 0
+}
+
+# Resolve the protected default branch for archive claim-branch filtering.
+# Prefer verified origin/HEAD (offline); fall back to shared default-branch.sh.
+archive_default_branch() {
+  local origin_head candidate
+  origin_head=$(git -C "$PRIMARY" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
+  case "$origin_head" in
+    origin/*)
+      candidate=${origin_head#origin/}
+      if git check-ref-format --branch "$candidate" >/dev/null 2>&1 \
+        && git -C "$PRIMARY" rev-parse --verify --quiet "refs/remotes/origin/${candidate}^{commit}" >/dev/null; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+      ;;
+  esac
+  if candidate=$(bash "$SCRIPT_DIR/default-branch.sh" --repo-root "$PRIMARY" 2>/dev/null) \
+    && git check-ref-format --branch "$candidate" >/dev/null 2>&1; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  return 1
+}
+
 claim_branch_refs_absent() {
   # Archive-only: leftover local claim branches after an external close (human
   # salvage) are deleted when the remote ref is already gone. A still-published
-  # remote branch remains fail-closed — that ownership is ambiguous.
+  # remote delivery branch remains fail-closed — that ownership is ambiguous.
+  # Ordinary post-claim checkouts of the default branch (including via
+  # origin/<default>) are not claim-branch candidates (#361).
   local worktree=$1
   local claim_time claim_epoch reflog selector event_epoch subject branch latest remote_rc
+  local default_branch="" candidate
   local -A candidates=()
   claim_time=$(jq -r .updated_at "$current")
   claim_epoch=$(date -u -d "$claim_time" +%s) || die "claimed receipt timestamp is invalid"
+  default_branch=$(archive_default_branch) || default_branch=""
   reflog=$(mktemp "$STATE_ROOT/.archive-reflog.XXXXXX") \
     || die "cannot create claimed receipt reflog snapshot"
   register_temp "$reflog"
@@ -708,8 +755,8 @@ claim_branch_refs_absent() {
       'checkout: moving from '*' to '*)
         branch=${subject##* to }
         valid_sha "$branch" && continue
-        git check-ref-format --branch "$branch" >/dev/null 2>&1 || continue
-        candidates["$branch"]=1
+        candidate=$(archive_claim_branch_candidate "$branch" "$default_branch") || continue
+        candidates["$candidate"]=1
         ;;
     esac
   done < "$reflog"
