@@ -683,15 +683,54 @@ atomic_update_run_ledger() {
     || { rm -f -- "$tmp"; die "cannot persist run merge ledger"; }
 }
 
+# True when a post-claim HEAD checkout destination is not a delivery claim branch
+# (default branch, remote-tracking path, or non-branch name). Such destinations
+# routinely appear in supervisor reflogs and must not trip archive-claimed.
+archive_checkout_is_non_claim_dest() {
+  local branch=$1 default_branch=$2
+  case "$branch" in
+    origin/*|remotes/*|refs/*) return 0 ;;
+  esac
+  [ -n "$default_branch" ] && [ "$branch" = "$default_branch" ] && return 0
+  return 1
+}
+
+# Resolve the protected default branch for archive claim-branch filtering.
+# Prefer verified origin/HEAD (offline); fall back to shared default-branch.sh.
+archive_default_branch() {
+  local origin_head candidate
+  origin_head=$(git -C "$PRIMARY" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
+  case "$origin_head" in
+    origin/*)
+      candidate=${origin_head#origin/}
+      if git check-ref-format --branch "$candidate" >/dev/null 2>&1 \
+        && git -C "$PRIMARY" rev-parse --verify --quiet "refs/remotes/origin/${candidate}^{commit}" >/dev/null; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+      ;;
+  esac
+  if candidate=$(bash "$SCRIPT_DIR/default-branch.sh" --repo-root "$PRIMARY" 2>/dev/null) \
+    && git check-ref-format --branch "$candidate" >/dev/null 2>&1; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  return 1
+}
+
 claim_branch_refs_absent() {
   # Archive-only: leftover local claim branches after an external close (human
   # salvage) are deleted when the remote ref is already gone. A still-published
-  # remote branch remains fail-closed — that ownership is ambiguous.
+  # remote delivery branch remains fail-closed — that ownership is ambiguous.
+  # Ordinary post-claim checkouts of the default branch (or remote-tracking
+  # names) are not claim-branch candidates (#361).
   local worktree=$1
   local claim_time claim_epoch reflog selector event_epoch subject branch latest remote_rc
+  local default_branch=""
   local -A candidates=()
   claim_time=$(jq -r .updated_at "$current")
   claim_epoch=$(date -u -d "$claim_time" +%s) || die "claimed receipt timestamp is invalid"
+  default_branch=$(archive_default_branch) || default_branch=""
   reflog=$(mktemp "$STATE_ROOT/.archive-reflog.XXXXXX") \
     || die "cannot create claimed receipt reflog snapshot"
   register_temp "$reflog"
@@ -709,6 +748,7 @@ claim_branch_refs_absent() {
         branch=${subject##* to }
         valid_sha "$branch" && continue
         git check-ref-format --branch "$branch" >/dev/null 2>&1 || continue
+        archive_checkout_is_non_claim_dest "$branch" "$default_branch" && continue
         candidates["$branch"]=1
         ;;
     esac

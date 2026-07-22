@@ -317,6 +317,8 @@ DEPLOY_WORKFLOW
   base=$(git -C "$repo" rev-parse HEAD)
   remote="$fixtures/remote.git"; git init -q --bare "$remote"; git -C "$repo" remote add origin "$remote"
   git -C "$repo" push -q origin main
+  # Verified default for archive-claimed claim-branch filtering (#361).
+  git -C "$repo" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
   git -C "$repo" checkout -qb issue-one
   printf 'fixed\n' >> "$repo/app.txt"
   git -C "$repo" commit -qam fix
@@ -701,6 +703,93 @@ DEPLOY_WORKFLOW
     "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" archived_claim
   assert_equals "MD1f: local-only leftover claim branch is gone after archive" \
     "$(git -C "$repo" show-ref --verify --quiet refs/heads/legacy-claimed-source; echo $?)" 1
+
+  # --- #361: post-claim checkout to default branch must not block salvage ---
+  cp -- "$issue_open" "$fake_issue"
+  write_issue_scope "$fake_issue" "$issue_scope"
+  switch_test_lease "$run"
+  legacy_delivery=run-361a0000000000000000000000000001
+  bash "$delivery_impl" begin --repo-root "$controller_root" --issue 1 --run-id "$run" \
+    --delivery-id "$legacy_delivery" --merge-budget 1 --scope-json "$issue_scope" \
+      --lease-state "$lease_state" --controller-run-id "$run" >/dev/null
+  legacy_receipt="$common/saas-startup-team/maintain-runtime/deliveries/issue-1/current.json"
+  jq 'del(.controller,.event_binding) | .schema_version = 1' "$legacy_receipt" \
+    > "$legacy_receipt.tmp"
+  mv -- "$legacy_receipt.tmp" "$legacy_receipt"
+  bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
+    --repo-root "$repo" --run-id "$lease_run" >/dev/null
+  lease_state=""
+  bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain-loop \
+    --run-id "$run" --state-file "$legacy_state" >/dev/null
+  bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$repo" \
+    --base-sha "$legacy_base" --lease-state "$legacy_state" --run-id "$run" \
+      --controller-run-id "$run" >/dev/null
+  legacy_check_oid=$(git -C "$legacy_wt" rev-parse HEAD:check.sh)
+  mkdir -p "$legacy_cache"
+  jq -n --arg run_id "$run" --arg base_sha "$legacy_base" --arg check_oid "$legacy_check_oid" \
+    --arg checked_at "2026-07-14T10:00:00Z" \
+    '{schema_version:1,run_id:$run_id,base_sha:$base_sha,check_rel:"check.sh",check_oid:$check_oid,
+      status:"passed",checked_at:$checked_at}' > "$legacy_cache/$legacy_base.json"
+  bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$legacy_state" \
+    --repo-root "$repo" --run-id "$run" >/dev/null
+  cp -- "$issue_closed" "$fake_issue"
+  printf '[]\n' > "$fake_prs"
+  # Ordinary supervisor checkouts after claim (the #361 failure mode).
+  git -C "$legacy_wt" checkout -q main
+  git -C "$legacy_wt" checkout -q --detach "$legacy_base"
+  # Actual delivery branch gone remotely and locally.
+  git -C "$repo" branch -D -- legacy-claimed-source >/dev/null 2>&1 || true
+  bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 >/dev/null
+  assert_equals "MD1e361: post-claim default-branch checkout still archives salvage" \
+    "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" archived_claim
+
+  # Fail-closed: still-published remote delivery branch refuses archive.
+  cp -- "$issue_open" "$fake_issue"
+  write_issue_scope "$fake_issue" "$issue_scope"
+  switch_test_lease "$run"
+  legacy_delivery=run-361b0000000000000000000000000002
+  bash "$delivery_impl" begin --repo-root "$controller_root" --issue 1 --run-id "$run" \
+    --delivery-id "$legacy_delivery" --merge-budget 1 --scope-json "$issue_scope" \
+      --lease-state "$lease_state" --controller-run-id "$run" >/dev/null
+  legacy_receipt="$common/saas-startup-team/maintain-runtime/deliveries/issue-1/current.json"
+  jq 'del(.controller,.event_binding) | .schema_version = 1' "$legacy_receipt" \
+    > "$legacy_receipt.tmp"
+  mv -- "$legacy_receipt.tmp" "$legacy_receipt"
+  bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$lease_state" \
+    --repo-root "$repo" --run-id "$lease_run" >/dev/null
+  lease_state=""
+  bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain-loop \
+    --run-id "$run" --state-file "$legacy_state" >/dev/null
+  bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$repo" \
+    --base-sha "$legacy_base" --lease-state "$legacy_state" --run-id "$run" \
+      --controller-run-id "$run" >/dev/null
+  legacy_check_oid=$(git -C "$legacy_wt" rev-parse HEAD:check.sh)
+  mkdir -p "$legacy_cache"
+  jq -n --arg run_id "$run" --arg base_sha "$legacy_base" --arg check_oid "$legacy_check_oid" \
+    --arg checked_at "2026-07-14T10:00:00Z" \
+    '{schema_version:1,run_id:$run_id,base_sha:$base_sha,check_rel:"check.sh",check_oid:$check_oid,
+      status:"passed",checked_at:$checked_at}' > "$legacy_cache/$legacy_base.json"
+  bash "$test_plugin/maintain-leases.sh" cleanup --state-file "$legacy_state" \
+    --repo-root "$repo" --run-id "$run" >/dev/null
+  cp -- "$issue_closed" "$fake_issue"
+  printf '[]\n' > "$fake_prs"
+  git -C "$repo" branch -f published-claim-branch "$legacy_base"
+  git -C "$repo" push -q origin "refs/heads/published-claim-branch"
+  git -C "$legacy_wt" checkout -q published-claim-branch
+  git -C "$legacy_wt" checkout -q --detach "$legacy_base"
+  ec=0
+  out=$(bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 2>&1) || ec=$?
+  assert_exit_code "MD1e361b: published remote claim branch remains fail-closed" "$ec" 1
+  assert_output_contains "MD1e361c: remote-branch-ref refusal message" "$out" \
+    "claimed receipt still has a remote branch ref"
+  assert_equals "MD1e361d: remote-ref refusal leaves receipt claimed" \
+    "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" claimed
+  # After remote delivery branch is deleted, salvage succeeds (same receipt).
+  git -C "$repo" push -q origin --delete published-claim-branch
+  git -C "$repo" branch -D -- published-claim-branch >/dev/null 2>&1 || true
+  bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 >/dev/null
+  assert_equals "MD1e361e: archive succeeds once remote claim branch is gone" \
+    "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" archived_claim
 
   # --- Second generation: remote branch / delivery PR / eligible archive ---
   cp -- "$issue_open" "$fake_issue"
@@ -1313,7 +1402,7 @@ CRASH_AFTER_EVENT
       --merge-budget 1 --scope-json "$issue_scope" \
         --reopen-event-id 901 --reopen-event-at 2099-07-14T10:04:00Z >/dev/null
   assert_equals "MD21: verified reopen starts a new generation" \
-    "$(bash "$script" show --repo-root "$repo" --issue 1 | jq -r .generation)" 4
+    "$(bash "$script" show --repo-root "$repo" --issue 1 | jq -r .generation)" 6
   ec=0; bash "$script" match-pr --repo-root "$repo" --issue 1 --role normal --pr-json "$pr_merged" >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD22: prior-generation marker cannot authorize the new delivery" "$ec" 1
 
