@@ -254,11 +254,23 @@ match_num=""
 adopt_backfill=0
 
 # Parse issue list JSON: require array; optional body field.
-_list_len() {  # $1=json → echo length or fail
-  local j="$1" n
-  n="$(printf '%s' "$j" | jq 'if type=="array" then length else empty end' 2>/dev/null)" \
-    || _fail_precheck "dedup parse failed — refusing to file" "parse"
-  [ -n "$n" ] || _fail_precheck "dedup parse failed — refusing to file" "schema"
+# $1=json  $2=fail_kind local|source
+_list_len() {
+  local j="$1" fail_kind="${2:-local}" n
+  n="$(printf '%s' "$j" | jq 'if type=="array" then length else empty end' 2>/dev/null)" || {
+    if [ "$fail_kind" = source ]; then
+      _fail_source_precheck "dedup parse failed — refusing to escalate" "parse"
+    else
+      _fail_precheck "dedup parse failed — refusing to file" "parse"
+    fi
+  }
+  if [ -z "$n" ]; then
+    if [ "$fail_kind" = source ]; then
+      _fail_source_precheck "dedup parse failed — refusing to escalate" "schema"
+    else
+      _fail_precheck "dedup parse failed — refusing to file" "schema"
+    fi
+  fi
   printf '%s' "$n"
 }
 
@@ -270,7 +282,7 @@ _title_match_from_list() {
   local hits="$1" context="$2" fail_kind="${3:-local}"
   local n i ht hn hu thc
   local -a title_hits_url=() title_hits_num=()
-  n="$(_list_len "$hits")"
+  n="$(_list_len "$hits" "$fail_kind")"
   [ "$n" -lt 100 ] || {
     if [ "$fail_kind" = source ]; then
       _fail_source_precheck "$context result cap hit (100) — refusing to escalate" "cap"
@@ -328,7 +340,7 @@ _pattern_key_precheck() {
     fi
   }
 
-  n="$(_list_len "$hits")"
+  n="$(_list_len "$hits" "$fail_kind")"
   [ "$n" -lt 100 ] || {
     if [ "$fail_kind" = source ]; then
       _fail_source_precheck "dedup result cap hit (100) — refusing to escalate" "cap"
@@ -473,8 +485,11 @@ _mutate_match_or_create() {
   fi
 
   lbl=()
-  # shellcheck disable=SC2206
-  [ -n "$LABELS" ] && lbl=(--label "$LABELS")
+  # Local labels may not exist on the source tracker; never attach them when escalating.
+  if [ "$fail_kind" != source ] && [ -n "$LABELS" ]; then
+    # shellcheck disable=SC2206
+    lbl=(--label "$LABELS")
+  fi
   create_out=""
   if create_out="$(gh issue create --repo "$target_repo" --title "$TITLE" --body-file "$bodyf" "${lbl[@]}" 2>/dev/null)"; then
     url="$(printf '%s' "$create_out" | grep -oE 'https://[^[:space:]]+' | tail -1 || true)"

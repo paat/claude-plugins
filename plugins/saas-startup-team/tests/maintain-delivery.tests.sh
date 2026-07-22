@@ -784,11 +784,21 @@ DEPLOY_WORKFLOW
     "claimed receipt still has a remote branch ref"
   assert_equals "MD1e361d: remote-ref refusal leaves receipt claimed" \
     "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" claimed
+  # Checkout via remote-tracking name must still fail-closed (not skipped as origin/*).
+  git -C "$repo" fetch -q origin "+refs/heads/published-claim-branch:refs/remotes/origin/published-claim-branch"
+  git -C "$legacy_wt" checkout -q --detach "origin/published-claim-branch"
+  git -C "$legacy_wt" checkout -q --detach "$legacy_base"
+  ec=0
+  out=$(bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 2>&1) || ec=$?
+  assert_exit_code "MD1e361e: origin/<delivery> checkout still fail-closed" "$ec" 1
+  assert_output_contains "MD1e361f: origin/<delivery> remote-branch-ref message" "$out" \
+    "claimed receipt still has a remote branch ref"
   # After remote delivery branch is deleted, salvage succeeds (same receipt).
   git -C "$repo" push -q origin --delete published-claim-branch
   git -C "$repo" branch -D -- published-claim-branch >/dev/null 2>&1 || true
+  git -C "$repo" update-ref -d refs/remotes/origin/published-claim-branch 2>/dev/null || true
   bash "$delivery_impl" archive-claimed --repo-root "$repo" --issue 1 >/dev/null
-  assert_equals "MD1e361e: archive succeeds once remote claim branch is gone" \
+  assert_equals "MD1e361g: archive succeeds once remote claim branch is gone" \
     "$(bash "$delivery_impl" show --repo-root "$repo" --issue 1 | jq -r .state)" archived_claim
 
   # --- Second generation: remote branch / delivery PR / eligible archive ---

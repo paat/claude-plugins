@@ -72,6 +72,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/issue-file.sh" \
   ladder on the source repo, then comment on an open marker match or create
   **once**. Does not open a second source issue for the same key when an open
   match already exists.
+- Local `--labels` are applied only to the local repo create; source create
+  omits them (product labels often do not exist on the plugin tracker).
 - Local stdout URL is unchanged; source outcome is only on the
   `source_escalate=` stderr line.
 - Guarantee remains **open-issue** duplicate resistance only (not closed-issue

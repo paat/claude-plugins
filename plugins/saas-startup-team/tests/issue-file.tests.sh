@@ -449,5 +449,65 @@ EOF
   assert_output_not_contains "IF31b: no source_escalate status" "$stderr" "source_escalate="
   list_repos="$(grep 'issue list' "$wd/gh.log" | grep -c 'plugin/src' || true)"
   assert_equals "IF31c: no plugin/src list" "$list_repos" "0"
+
+  # IF32: source malformed list → source_escalate=precheck_failed (not local status)
+  wd="$(make_workdir)"; install_mock_gh "$wd"
+  # Local succeeds (empty list + create); source list returns non-JSON via per-repo override
+  # Use GH_LIST_JSON__plugin_src with invalid JSON by routing list raw only for source:
+  # install a custom gh after default mock that returns raw for plugin/src.
+  cat > "$wd/bin/gh" <<'EOF'
+#!/bin/bash
+echo "gh $*" >> "$GH_LOG"
+repo_arg=""
+i=1
+while [ $i -le $# ]; do
+  eval "a=\${$i}"
+  if [ "$a" = "--repo" ]; then eval "repo_arg=\${$((i+1))}"; break; fi
+  i=$((i+1))
+done
+case "$1 ${2:-}" in
+  "issue list")
+    if [ "$repo_arg" = "plugin/src" ]; then printf '%s' 'not-json'; exit 0; fi
+    printf '%s' '[]'
+    ;;
+  "issue create")
+    echo "https://github.com/o/r/issues/300"
+    ;;
+  "issue comment") : ;;
+  "issue view") printf '%s' '{"body":""}' ;;
+  "issue edit") : ;;
+  "repo view") echo "o/r" ;;
+esac
+exit 0
+EOF
+  chmod +x "$wd/bin/gh"
+  run_if --repo o/r --title "T" --body "e" --root "$wd" \
+    --pattern-key "plugin:saas:crash" \
+    --source-repo plugin/src --source-escalate comment
+  assert_exit_code "IF32: source malformed list exit 1" "$ec" 1
+  assert_output_contains "IF32b: local status=created still emitted" "$stderr" "status=created"
+  assert_output_contains "IF32c: source_escalate=precheck_failed" "$stderr" "source_escalate=precheck_failed"
+  assert_file_contains "IF32d: local create happened" "$wd/gh.log" "issue create --repo o/r"
+  assert_file_not_contains "IF32e: no source create" "$wd/gh.log" "issue create --repo plugin/src"
+
+  # IF33: labels not sent to source create
+  wd="$(make_workdir)"; install_mock_gh "$wd"
+  run_if \
+    GH_LIST_JSON__o_r='[]' \
+    GH_LIST_JSON__plugin_src='[]' \
+    GH_CREATE_URL__o_r='https://github.com/o/r/issues/301' \
+    GH_CREATE_URL__plugin_src='https://github.com/plugin/src/issues/51' \
+    --repo o/r --title "T" --body "e" --root "$wd" \
+    --pattern-key "plugin:saas:crash" --labels bug \
+    --source-repo plugin/src --source-escalate comment
+  assert_exit_code "IF33: labels+source exit 0" "$ec" 0
+  assert_file_contains "IF33b: local create with label" "$wd/gh.log" "issue create --repo o/r"
+  # local create line should include --label
+  grep 'issue create --repo o/r' "$wd/gh.log" | grep -q -- '--label' \
+    && assert_exit_code "IF33c: local got label" 0 0 \
+    || assert_exit_code "IF33c: local got label" 1 0
+  grep 'issue create --repo plugin/src' "$wd/gh.log" | grep -q -- '--label' \
+    && assert_exit_code "IF33d: source has no label" 1 0 \
+    || assert_exit_code "IF33d: source has no label" 0 0
 }
 test_issue_file
