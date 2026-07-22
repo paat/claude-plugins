@@ -51,7 +51,24 @@ governor_envelope() { # <engine> <project>
 # per-engine extras via engines.<name>.rate_limit_patterns.
 # Do not use rate.?limit: it matches API telemetry keys like "rate_limits" in
 # Codex session JSON and false-triggers pool backoff on probe_failed passes.
-RL_BUILTIN='429|rate[- ]?limited?|usage limit|quota exceeded|limit (will )?reset|overloaded'
+# Bare unanchored "429" matches worktree ids like maintain:worktree:306203429
+# (seen in lease reclaim lines) — require a word boundary so only standalone
+# HTTP 429 / status 429 tokens classify as rate-limit.
+RL_BUILTIN='\b429\b|rate[- ]?limited?|usage limit|quota exceeded|limit (will )?reset|overloaded'
+
+# Dedicated subscription: project or its pool has dedicated_subscription=true.
+# These run until daily quota (or true provider rate-limit backoff) is exhausted.
+# Soft-block windows and 24h error cooldowns are not acceptable — the ladder
+# would park a paid seat for hours while capacity remains.
+_gov_dedicated() { # <project>
+  local name="$1" eng pool
+  [ "$(pj "$name" '.dedicated_subscription // false')" = "true" ] && return 0
+  eng="$(pj "$name" '.engine // empty')"
+  [ -n "$eng" ] || return 1
+  pool="$(cfg ".engines[\"$eng\"].pool // empty")"
+  [ -n "$pool" ] || return 1
+  [ "$(cfg ".pools[\"$pool\"].dedicated_subscription // false")" = "true" ]
+}
 
 _gov_backoff() { # <pool> <log_path> — set backoff_until (parsed reset or exponential)
   local pool="$1" logf="$2" ts="" until_e="" lvl mins
@@ -135,7 +152,8 @@ governor_report() { # <engine> <project> <exit_code> <log_path> [delivery_hold] 
         --arg p "$pool" --arg n "$name" ;;
     blocked)
       # Not a failure: no strike, no pool backoff. The pass declared the block
-      # and its recheck window; the ladder pivots to other work until it expires.
+      # and its recheck window; shared-pool ladders pivot to other work until
+      # it expires. Dedicated-subscription projects never get a wait window.
       local mins reason
       mins="$(printf '%s\n' "$blk" \
         | sed -nE 's/^MC-BLOCKED[[:space:]]+recheck_after=([0-9]+)([[:space:]].*)?$/\1/p' \
@@ -147,23 +165,31 @@ governor_report() { # <engine> <project> <exit_code> <log_path> [delivery_hold] 
       if [ "$terminal_blocked" -eq 1 ]; then reason="$workflow_reason"
       else reason="$(printf '%s' "$blk" | sed -E 's/^MC-BLOCKED *//; s/recheck_after=[0-9]+ *//; s/^reason= *//')"; fi
       [ -n "$reason" ] || reason="unspecified"
-      # Self-inflicted claim/ledger soft-blocks must not park the sole pinned
-      # slot for hours. Clear any window and let the next tick resume WIP.
-      case "$reason" in
-        receipt_conflict|lease_conflict)
-          state_set '.projects[$n].consecutive_errors = 0
-                     | del(.projects[$n].blocked_until) | del(.projects[$n].blocked_reason)' \
-            --arg n "$name"
-          log "blocked project=$name reason=$reason (no soft-block window; resume next tick)"
-          ;;
-        *)
-          state_set '.projects[$n].consecutive_errors = 0
-                     | .projects[$n].blocked_until = ($u|tonumber)
-                     | .projects[$n].blocked_reason = $r' \
-            --arg n "$name" --arg u "$(( $(now) + mins * 60 ))" --arg r "$reason"
-          log "blocked project=$name recheck_in=${mins}m reason=$reason"
-          ;;
-      esac ;;
+      # No soft-block window when:
+      # - dedicated_subscription (project or pool) — paid seat must run until quota
+      # - self-inflicted claim/ledger thrash (receipt/lease conflict)
+      if _gov_dedicated "$name"; then
+        state_set '.projects[$n].consecutive_errors = 0
+                   | del(.projects[$n].blocked_until) | del(.projects[$n].blocked_reason)' \
+          --arg n "$name"
+        log "blocked project=$name reason=$reason (dedicated_subscription; no soft-block window; resume next tick)"
+      else
+        case "$reason" in
+          receipt_conflict|lease_conflict)
+            state_set '.projects[$n].consecutive_errors = 0
+                       | del(.projects[$n].blocked_until) | del(.projects[$n].blocked_reason)' \
+              --arg n "$name"
+            log "blocked project=$name reason=$reason (no soft-block window; resume next tick)"
+            ;;
+          *)
+            state_set '.projects[$n].consecutive_errors = 0
+                       | .projects[$n].blocked_until = ($u|tonumber)
+                       | .projects[$n].blocked_reason = $r' \
+              --arg n "$name" --arg u "$(( $(now) + mins * 60 ))" --arg r "$reason"
+            log "blocked project=$name recheck_in=${mins}m reason=$reason"
+            ;;
+        esac
+      fi ;;
     deferred)
       log "deferred project=$name delivery hold busy" ;;
     config-error|timeout|error)
@@ -172,10 +198,15 @@ governor_report() { # <engine> <project> <exit_code> <log_path> [delivery_hold] 
       fi
       state_set '.projects[$n].consecutive_errors = ((.projects[$n].consecutive_errors // 0) + 1)' --arg n "$name"
       errs="$(state_get ".projects[\"$name\"].consecutive_errors // 0")"
-      if [ "$errs" -ge 3 ]; then
+      # Shared pools: 3 strikes → 24h cooldown so one broken project does not
+      # burn a shared seat. Dedicated subscriptions: no cooldown — only daily
+      # quota and true rate-limit backoff may stop dispatch.
+      if [ "$errs" -ge 3 ] && ! _gov_dedicated "$name"; then
         state_set '.projects[$n].cooldown_until = ($u|tonumber)' \
           --arg n "$name" --arg u "$(( $(now) + 86400 ))"
         alert "cooldown-$name" "$name: 3 consecutive failed passes — 24h cooldown"
+      elif [ "$errs" -ge 3 ] && _gov_dedicated "$name"; then
+        log "error project=$name consecutive_errors=$errs (dedicated_subscription; no 24h cooldown)"
       fi ;;
   esac
   echo "$outcome"
