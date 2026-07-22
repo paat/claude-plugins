@@ -40,6 +40,16 @@ ok_clears() {
 }
 t "ok clears backoff_level and error streak" ok_clears
 
+# Worktree ids embed digit runs that can contain "429" (e.g. 306203429). Those
+# must not false-trigger pool backoff when terminal_status is missing.
+mkenv
+echo "maintain-leases: expired lease is reclaimable for maintain:worktree:306203429" > "$TD/wt.log"
+worktree_id_not_rate_limit() {
+  [ "$(run "$NOW" governor_report e p1 0 "$TD/wt.log" false missing)" = error ] &&
+  [ "$(run "$NOW" state_get ".pools.claude.backoff_until // 0")" = 0 ]
+}
+t "worktree id containing 429 is not rate-limit" worktree_id_not_rate_limit
+
 mkenv
 FUTURE_ISO="$(date -u -d "@$((NOW + 7200))" +%Y-%m-%dT%H:%M:%SZ)"
 echo "usage limit reached, resets at $FUTURE_ISO" > "$TD/iso.log"
@@ -156,6 +166,39 @@ t "prose mentioning the sentinel mid-line does not classify blocked" prose_not_b
 mkenv; { cat "$MAINTAIN_LOOP"; echo "pass-complete"; } > "$TD/codex.log"
 codex_template_not_blocked() { [ "$(run "$NOW" governor_report e p1 0 "$TD/codex.log")" = ok ]; }
 t "Codex transcript containing producer template remains successful" codex_template_not_blocked
+
+# --- dedicated_subscription: no soft-block window, no 24h cooldown ---
+mkenv
+jq '.pools.claude.dedicated_subscription = true' "$TD/portfolio.json" > "$TD/p.json" && mv "$TD/p.json" "$TD/portfolio.json"
+echo "MC-BLOCKED reason=verification_failed" > "$TD/ded.log"
+dedicated_pool_no_soft_block() {
+  [ "$(run "$NOW" governor_report e p1 0 "$TD/ded.log")" = blocked ] &&
+  [ "$(run "$NOW" state_get ".projects.p1.blocked_until // 0")" = 0 ] &&
+  [ "$(run "$NOW" state_get ".projects.p1.blocked_reason // \"\"")" = "" ]
+}
+t "dedicated pool: MC-BLOCKED verification_failed sets no soft-block window" dedicated_pool_no_soft_block
+
+mkenv
+jq '(.projects[] | select(.name=="p1") | .dedicated_subscription) = true' \
+  "$TD/portfolio.json" > "$TD/p.json" && mv "$TD/p.json" "$TD/portfolio.json"
+echo "MC-BLOCKED recheck_after=90 reason=soak" > "$TD/ded2.log"
+dedicated_project_ignores_recheck() {
+  [ "$(run "$NOW" governor_report e p1 0 "$TD/ded2.log")" = blocked ] &&
+  [ "$(run "$NOW" state_get ".projects.p1.blocked_until // 0")" = 0 ]
+}
+t "dedicated project: recheck_after is ignored (no park)" dedicated_project_ignores_recheck
+
+mkenv
+jq '.pools.claude.dedicated_subscription = true' "$TD/portfolio.json" > "$TD/p.json" && mv "$TD/p.json" "$TD/portfolio.json"
+: > "$TD/err.log"
+dedicated_no_cooldown() {
+  run "$NOW" governor_report e p1 1 "$TD/err.log" >/dev/null
+  run "$NOW" governor_report e p1 1 "$TD/err.log" >/dev/null
+  run "$NOW" governor_report e p1 1 "$TD/err.log" >/dev/null
+  [ "$(run "$NOW" state_get ".projects.p1.consecutive_errors")" = 3 ] &&
+  [ "$(run "$NOW" state_get ".projects.p1.cooldown_until // 0")" = 0 ]
+}
+t "dedicated pool: 3 consecutive errors do not start 24h cooldown" dedicated_no_cooldown
 
 echo "pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]
