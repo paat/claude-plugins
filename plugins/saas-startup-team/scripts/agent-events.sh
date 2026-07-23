@@ -5,6 +5,8 @@
 #        --profile mechanical|light|standard|deep --writer-id ID [--once] [fields...]
 # read [--events FILE] [--legacy-root DIR]
 # terminal --run-id ID [--events FILE]
+#   Projects pass_disposition on root pass-outcome (pass-complete|no-work|limit|
+#   pass-blocked|failure|unknown) for outer coordinators; field is not stored.
 # terminals [--events FILE]
 # account --run-id ID --duration-ms N [--total-tokens N] [--events FILE]
 # new-run-id
@@ -667,9 +669,21 @@ project_terminals() {
     identity_key=$(identity_key_for_read "$events_file") || { rm -f -- "$records"; return 3; }
     query_id=$(opaque_id run "$raw_run_id" "$identity_key") || { rm -f -- "$records"; return 3; }
   fi
+  # pass_disposition is a projection-only field for outer coordinators (issue #373).
+  # Stored events keep outcome + terminal_reason; terminal/terminals add the map.
   result=$(jq -cs --arg run_id "$query_id" '
     def logical_terminal:
-      del(.schema_version,.source_schema_version,.event_type,.recorded_at,.started_at,.finished_at,.duration_ms,.total_tokens);
+      del(.schema_version,.source_schema_version,.event_type,.recorded_at,.started_at,.finished_at,.duration_ms,.total_tokens,.pass_disposition);
+    # Root pass-outcome → outer-loop continue/stop token. Never invent from prose.
+    def pass_disposition:
+      if .outcome == "success" then "pass-complete"
+      elif .outcome == "no-op" then "no-work"
+      elif .outcome == "skipped" then "limit"
+      elif .outcome == "blocked" then "pass-blocked"
+      elif .outcome == "failure" and .terminal_reason == "budget_exhausted" then "limit"
+      elif .outcome == "failure" or .outcome == "escalated" or .outcome == "cancelled" then "failure"
+      else "unknown"
+      end;
     [to_entries[]
       | select(.value.phase == "pass-outcome" and .value.parent_run_id == null and
           ($run_id == "" or .value.run_id == $run_id))]
@@ -694,7 +708,8 @@ project_terminals() {
             event:($candidates
               | sort_by([(.value.event_type == "accounted"),(.value.duration_ms != null),
                   (.value.total_tokens != null),(.value.recorded_at // ""),.key])
-              | last.value)
+              | last.value
+              | . + {pass_disposition: pass_disposition})
           }
           end
       ) as $runs
@@ -792,9 +807,11 @@ account_event() {
     return 0
   fi
   recorded_at=$(now_iso)
+  # Strip projection-only keys (pass_disposition) before writing a durable event.
   payload=$(jq -c --argjson schema_version "$SCHEMA_VERSION" --arg recorded_at "$recorded_at" \
     --arg duration_ms "$duration_ms" --arg total_tokens "$desired_total" '
-      . as $terminal
+      del(.pass_disposition)
+      | . as $terminal
       | .schema_version=$schema_version | .source_schema_version=$schema_version
       | .event_type="accounted" | .recorded_at=$recorded_at
       | .duration_ms=($duration_ms|tonumber)

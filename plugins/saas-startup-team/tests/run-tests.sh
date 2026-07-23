@@ -2064,7 +2064,18 @@ test_maintain_loop() {
   assert_file_contains "ML16i: pass-wide or unknown blockers stop" "$coordinator" \
     'scope, or unknown child state'
   assert_file_contains "ML16j: only pass-complete continues the loop" "$coordinator" \
-    '`pass-complete` terminal; stop on'
+    'when `pass_disposition` is `pass-complete`'
+  assert_file_contains "ML16j1: disposition is read from terminal projection" "$coordinator" \
+    'read `pass_disposition` from the projected JSON'
+  assert_file_contains "ML16j2: success maps to pass-complete" "$coordinator" \
+    '| `pass-complete` | `success` / null |'
+  assert_file_contains "ML16j3: no-op maps to no-work" "$coordinator" \
+    '| `no-work` | `no-op` / null |'
+  assert_file_contains "ML16j4: bare outcome is not enough" "$coordinator" \
+    'inferred from prose or a bare `outcome` alone'
+  assert_file_contains "ML16j5: routing telemetry documents pass_disposition" \
+    "$PLUGIN_ROOT/references/workflows/routing-telemetry.md" \
+    'project a read-only `pass_disposition`'
   assert_file_contains "ML16k: unavailable issue targets are diagnostics" \
     "$goal" 'using only documented setup/start commands'
   assert_file_contains "ML16l: browser evidence loads the canonical procedure" \
