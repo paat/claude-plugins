@@ -2583,8 +2583,6 @@ verify_closed_snapshot() {
   closed=$(jq -r '.closedAt // ""' "$file")
   valid_time "$closed" \
     || { printf 'maintain-delivery: closed issue has no concrete closedAt\n' >&2; return 1; }
-  [ "$(jq -r .updatedAt "$file")" = "$closed" ] \
-    || { printf 'maintain-delivery: closed issue changed after its close event\n' >&2; return 1; }
   expected_digest=$(jq -r .close.issue_digest "$current")
   actual_digest=$(issue_content_digest "$file")
   [ "$actual_digest" = "$expected_digest" ] \

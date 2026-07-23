@@ -134,7 +134,15 @@ case "${1:-} ${2:-}" in
     ;;
   "issue close")
     tmp="${FAKE_GH_ISSUE_SOURCE}.tmp"
-    jq --arg at "${FAKE_GH_CLOSED_AT:?}" '.state="CLOSED" | .closedAt=$at | .updatedAt=$at' \
+    # Default: GitHub-like 1s post-close updatedAt skew (aruannik #1694 class).
+    closed_at="${FAKE_GH_CLOSED_AT:?}"
+    if [ -n "${FAKE_GH_CLOSED_UPDATED_AT:-}" ]; then
+      updated_at=$FAKE_GH_CLOSED_UPDATED_AT
+    else
+      updated_at=$(python3 -c 'import sys; from datetime import datetime,timedelta; d=datetime.strptime(sys.argv[1],"%Y-%m-%dT%H:%M:%SZ"); print((d+timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ"))' "$closed_at")
+    fi
+    jq --arg at "$closed_at" --arg uat "$updated_at" \
+      '.state="CLOSED" | .closedAt=$at | .updatedAt=$uat' \
       "$FAKE_GH_ISSUE_SOURCE" > "$tmp"
     mv -- "$tmp" "$FAKE_GH_ISSUE_SOURCE"
     printf 'issue-closed\n' > "$FAKE_GH_MUTATION"
@@ -1153,8 +1161,13 @@ HOSTILE_PYTHON
   PATH="$fake_bin:$PATH" FAKE_GH_ISSUE_SOURCE="$fake_issue" FAKE_GH_MUTATION="$fake_mutation" \
     FAKE_GH_LOG="$fake_log" FAKE_GH_CLOSED_AT="2099-07-14T10:03:00Z" \
       bash "$script" close-issue --repo-root "$repo" --issue 1 >/dev/null
+  assert_equals "MD6g1: close-issue tolerates GitHub closedAt/updatedAt 1s skew" \
+    "$(jq -r '[.closedAt,.updatedAt]|@tsv' "$fake_issue")" \
+    $'2099-07-14T10:03:00Z\t2099-07-14T10:03:01Z'
   cp -- "$fake_issue" "$issue_closed"
   bash "$script" observe-closed --repo-root "$repo" --issue 1 >/dev/null
+  assert_equals "MD6g2: observe-closed advances with post-close updatedAt skew" \
+    "$(bash "$script" show --repo-root "$repo" --issue 1 | jq -r .state)" closed_observed
   ec=0; out=$(bash "$probe" maintain-loop --root "$repo" --issue 1 --dry-run 2>&1) || ec=$?
   assert_exit_code "MD6a: model-free probe sees closed-but-unfinalized receipt" "$ec" 0
   assert_output_contains "MD6b: probe reports the pending lifecycle state" "$out" \
