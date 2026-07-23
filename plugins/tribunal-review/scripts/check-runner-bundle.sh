@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Validate the installed merge-gate runner bundle against one pinned manifest.
+# Integrity is file digests only — packaging version lives solely in plugin.json.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -24,10 +25,9 @@ if [ -n "$EXPECTED" ]; then
   [ "${#EXPECTED}" -eq 64 ] || { printf 'invalid expected manifest digest\n' >&2; exit 2; }
   [ "$digest" = "$EXPECTED" ] || { printf 'runner bundle manifest digest mismatch\n' >&2; exit 1; }
 fi
-version="$(jq -er '.version | select(type=="string" and length>0)' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
-jq -e --arg version "$version" --argjson required "$REQUIRED" '
-  (type=="object") and ((keys-["schema","plugin","version","files"]|length)==0)
-  and .schema=="tribunal-runner-bundle/v1" and .plugin=="tribunal-review" and .version==$version
+jq -e --argjson required "$REQUIRED" '
+  (type=="object") and ((keys-["schema","plugin","files"]|length)==0)
+  and .schema=="tribunal-runner-bundle/v1" and .plugin=="tribunal-review"
   and (.files|type=="array" and length==($required|length)
        and all(.[]; type=="object" and ((keys-["path","sha256"]|length)==0)
          and (.path|type=="string") and (.sha256|type=="string" and test("^[0-9a-f]{64}$")))
@@ -41,5 +41,5 @@ while IFS=$'\t' read -r path sha; do
     || { printf 'bundle file digest mismatch: %s\n' "$path" >&2; exit 1; }
 done < <(jq -r '.files[] | [.path,.sha256] | @tsv' "$MANIFEST")
 
-jq -nc --arg manifest "$MANIFEST" --arg sha256 "$digest" --arg version "$version" \
-  '{manifest:$manifest,sha256:$sha256,version:$version,status:"valid"}'
+jq -nc --arg manifest "$MANIFEST" --arg sha256 "$digest" \
+  '{manifest:$manifest,sha256:$sha256,status:"valid"}'

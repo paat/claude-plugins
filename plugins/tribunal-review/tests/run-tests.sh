@@ -1188,7 +1188,7 @@ done
 assert_file "structured review schema exists" "schemas/review-output.json"
 assert_json_field "structured review schema is valid JSON" "jq -e '.type==\"object\" and .additionalProperties==false' '$PLUGIN_ROOT/schemas/review-output.json'"
 assert_file "static runner bundle manifest exists" "integrity/runner-bundle.json"
-assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and .version==\"0.20.5\"'"
+assert_json_field "static runner bundle validates" "bash '$PLUGIN_ROOT/scripts/check-runner-bundle.sh' | jq -e '.status==\"valid\" and (.version|not)'"
 assert_json_field "static runner bundle is current" "bash '$PLUGIN_ROOT/scripts/generate-runner-bundle.sh' --check"
 
 echo "Skill is orchestration-focused:"

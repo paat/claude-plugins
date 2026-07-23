@@ -6,7 +6,7 @@
     },
     {
       "path": "scripts/check-runner-bundle.sh",
-      "sha256": "6c58a436b96965c30e794d2ab415483f993099425e343d417635bd9ef13115d2"
+      "sha256": "2675b04231e76ec48ba7dbc534a8a993290d91a212e5b6c349ce1f713f465d97"
     },
     {
       "path": "scripts/collect-review-evidence.sh",
@@ -14,7 +14,7 @@
     },
     {
       "path": "scripts/generate-runner-bundle.sh",
-      "sha256": "beeab625c596ad28895d155091454aabe9d4354626a6c11091f0664c8f94d7a3"
+      "sha256": "f97ecbb1ff75435f7167ffe51d0a62f85d35a3e4be14ed18f52ae9c49b385ef4"
     },
     {
       "path": "scripts/lib.sh",
@@ -46,6 +46,5 @@
     }
   ],
   "plugin": "tribunal-review",
-  "schema": "tribunal-runner-bundle/v1",
-  "version": "0.20.5"
+  "schema": "tribunal-runner-bundle/v1"
 }

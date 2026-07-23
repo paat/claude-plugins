@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Regenerate the static integrity manifest for the merge-gate runner bundle.
+# File digests only — packaging version is not duplicated here.
 set -euo pipefail
 umask 077
 
@@ -26,7 +27,6 @@ for tool in jq sha256sum mktemp cmp; do
   command -v "$tool" >/dev/null 2>&1 || { printf '%s is required\n' "$tool" >&2; exit 1; }
 done
 
-version="$(jq -er '.version | select(type=="string" and length>0)' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
 tmp="$(mktemp)"; entries="$(mktemp)"
 trap 'rm -f "$tmp" "$entries"' EXIT HUP INT TERM
 : > "$entries"
@@ -37,8 +37,8 @@ for path in "${FILES[@]}"; do
     '{path:$path,sha256:$sha256}' >> "$entries"
 done
 jq -S -n --arg schema tribunal-runner-bundle/v1 --arg plugin tribunal-review \
-  --arg version "$version" --slurpfile files "$entries" \
-  '{schema:$schema,plugin:$plugin,version:$version,files:$files}' > "$tmp"
+  --slurpfile files "$entries" \
+  '{schema:$schema,plugin:$plugin,files:$files}' > "$tmp"
 
 if [ "$mode" = --check ]; then
   [ -f "$OUTPUT" ] && cmp -s "$tmp" "$OUTPUT" \

@@ -1211,8 +1211,8 @@ absolute_path_has_no_symlink() {
   IFS=$old_ifs
 }
 
-# tribunal-review 0.20.5 — includes Grok leg (run-grok-review.sh); 0.19.9 did not.
-TRIBUNAL_BUNDLE_SHA256=8fb6b9f3cabd561d232924797f4606ad624aa9401306e8bac913cb9054f1b70d
+# Pinned content digest of tribunal-review integrity/runner-bundle.json (file digests only).
+TRIBUNAL_BUNDLE_SHA256=04544b5d49f3f39ef708ec4d1d1de5dd7056b29074bad85f422f3110536ada45
 TRIBUNAL_ROOT=""; TRIBUNAL_COLLECTOR=""; TRIBUNAL_PATH=""
 
 tribunal_bash() (
