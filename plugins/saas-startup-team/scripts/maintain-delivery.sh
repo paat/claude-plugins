@@ -1385,38 +1385,93 @@ tracked_command() {
   printf '%s\t%s\t%s\n' "$absolute" "$rel" "$blob"
 }
 
-# Load one named variable from a local gitignored dotenv without printing values.
-# Supports `NAME=value` and `export NAME=value`. Returns 0 only when non-empty.
+# Strict dotenv line parse: only `NAME=value` / `export NAME=value` with optional
+# single/double quotes. No shell source — rejects command substitution and
+# metacharacters that would execute code. Prints value to stdout; exit 1 if absent.
+strict_dotenv_get() {
+  local file=$1 want=$2 line key val stripped
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  [[ "$want" =~ ^[A-Z][A-Z0-9_]{0,63}$ ]] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    stripped=${line#"${line%%[![:space:]]*}"}
+    [ -n "$stripped" ] || continue
+    case "$stripped" in \#*) continue ;; esac
+    case "$stripped" in
+      export[[:space:]]*) stripped=${stripped#export}; stripped=${stripped#"${stripped%%[![:space:]]*}"} ;;
+    esac
+    case "$stripped" in
+      [A-Za-z_]*=*) ;;
+      *) continue ;;
+    esac
+    key=${stripped%%=*}
+    val=${stripped#*=}
+    [ "$key" = "$want" ] || continue
+    # Strip one layer of matching quotes only (parameter expansion — no case quote hell).
+    if [ "${#val}" -ge 2 ]; then
+      if [ "${val:0:1}" = '"' ] && [ "${val: -1}" = '"' ]; then
+        val=${val:1:${#val}-2}
+      elif [ "${val:0:1}" = "'" ] && [ "${val: -1}" = "'" ]; then
+        val=${val:1:${#val}-2}
+      fi
+    fi
+    # Reject execution-capable forms (no $, backticks, pipes, redirects, etc.).
+    if [[ "$val" == *'$'* || "$val" == *'`'* || "$val" == *$'\n'* \
+      || "$val" == *';'* || "$val" == *'|'* || "$val" == *'&'* \
+      || "$val" == *'<'* || "$val" == *'>'* || "$val" == *'('* || "$val" == *')'* ]]; then
+      return 1
+    fi
+    printf '%s' "$val"
+    return 0
+  done < "$file"
+  return 1
+}
+
+# Load one named variable from primary gitignored .env without printing values.
+# Returns 0 only when non-empty and strictly parseable.
 load_named_env_from_dotenv() {
   local file=$1 name=$2 value
-  [ -f "$file" ] && [ ! -L "$file" ] || return 1
-  [[ "$name" =~ ^[A-Z][A-Z0-9_]{0,63}$ ]] || return 1
-  value=$(/usr/bin/bash -c '
-    set +u
-    set -a
-    # shellcheck disable=SC1090
-    source "$1" >/dev/null 2>&1 || exit 1
-    set +a
-    eval "printf %s \"\${$2-}\""
-  ' bash "$file" "$name") || return 1
+  value=$(strict_dotenv_get "$file" "$name") || return 1
   [ -n "$value" ] || return 1
   printf -v "$name" '%s' "$value"
   export "$name"
 }
 
-# Source the primary checkout's local .env into this process when present.
-# Proof trees are git archives and lack gitignored secrets; local .env is the
-# intended credential source. Never source live production secret paths.
+# Export every strict simple assignment from primary .env into this process.
+# Proof trees are git archives and lack gitignored secrets. Never shell-source
+# the file (no code execution). Never read live production secret paths.
 source_primary_dotenv_for_proof() {
-  local env_file="$PRIMARY/.env"
+  local env_file="$PRIMARY/.env" line stripped key val
   [ -f "$env_file" ] && [ ! -L "$env_file" ] || return 0
-  set -a
-  # shellcheck disable=SC1090
-  source "$env_file" >/dev/null 2>&1 || {
-    set +a
-    die "primary .env exists but could not be sourced for proof credentials"
-  }
-  set +a
+  while IFS= read -r line || [ -n "$line" ]; do
+    stripped=${line#"${line%%[![:space:]]*}"}
+    [ -n "$stripped" ] || continue
+    case "$stripped" in \#*) continue ;; esac
+    case "$stripped" in
+      export[[:space:]]*) stripped=${stripped#export}; stripped=${stripped#"${stripped%%[![:space:]]*}"} ;;
+    esac
+    case "$stripped" in
+      [A-Za-z_]*=*) ;;
+      *) continue ;;
+    esac
+    key=${stripped%%=*}
+    val=${stripped#*=}
+    [[ "$key" =~ ^[A-Z][A-Z0-9_]{0,63}$ ]] || continue
+    if [ "${#val}" -ge 2 ]; then
+      if [ "${val:0:1}" = '"' ] && [ "${val: -1}" = '"' ]; then
+        val=${val:1:${#val}-2}
+      elif [ "${val:0:1}" = "'" ] && [ "${val: -1}" = "'" ]; then
+        val=${val:1:${#val}-2}
+      fi
+    fi
+    if [[ "$val" == *'$'* || "$val" == *'`'* || "$val" == *$'\n'* \
+      || "$val" == *';'* || "$val" == *'|'* || "$val" == *'&'* \
+      || "$val" == *'<'* || "$val" == *'>'* || "$val" == *'('* || "$val" == *')'* ]]; then
+      continue
+    fi
+    [ -n "$val" ] || continue
+    printf -v "$key" '%s' "$val"
+    export "$key"
+  done < "$env_file"
 }
 
 PROOF_PASS_ARGS=()
