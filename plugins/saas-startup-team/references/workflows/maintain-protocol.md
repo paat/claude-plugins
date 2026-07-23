@@ -190,7 +190,7 @@ from `origin/$default`; merges via `gh pr merge`.
 - `--once` → run exactly one pass, then stop and report.
 - `--max-issues N` → cap delivered issues per pass (default 10).
 - `--max-merges N` → cap merges per pass (default 5).
-- `--max-pass-minutes N` → wall-clock budget per pass (default 90 minutes).
+- `--max-pass-minutes N` → wall-clock budget per pass (default 720 minutes / 12 hours).
 - `--max-run-minutes N` → optional wall-clock cap for this invocation (default 0 = no separate cap beyond `--max-pass-minutes`).
 
 All gates must pass before the loop starts. On a **normal run**, after the primary-only
@@ -833,7 +833,7 @@ Layered — no single cap suffices:
 
 - `--max-issues N` delivered per pass (default 10).
 - `--max-merges N` per pass (default 5).
-- **`--max-pass-minutes N`** (default 90) — wall-clock budget per pass; stop and
+- **`--max-pass-minutes N`** (default 720 / 12 hours) — wall-clock budget per pass; stop and
   report when exceeded.
 - **`--max-run-minutes N`** (default 0) — optional wall-clock cap for this invocation;
   with 0, `--max-pass-minutes` remains the active cap.

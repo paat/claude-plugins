@@ -426,7 +426,7 @@ Start with `--dry-run` (read-only: classify issues, print the planned queue, the
 
 - `--max-issues N` — cap delivered issues per pass (default 10).
 - `--max-merges N` — cap merges per pass (default 5).
-- `--max-pass-minutes N` — wall-clock budget per pass (default 90 minutes).
+- `--max-pass-minutes N` — wall-clock budget per pass (default 720 minutes / 12 hours).
 - `--max-run-minutes N` — optional wall-clock cap for this invocation (default 0 = no separate cap beyond the pass budget).
 
 The supervisor also stops on deploy failure (unrecoverable infra/flaky issues halt further merges that pass) or the hard tribunal round ceiling (notify investor at round 3, hard-stop at round 5 per issue). The external scheduler owns cadence and backoff between `--once` invocations.

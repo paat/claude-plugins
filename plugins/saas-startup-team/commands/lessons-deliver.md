@@ -45,8 +45,8 @@ Parse flags first, before any action:
   made, then stop.
 - `--max-issues N` → cap delivered issues per pass (default 5).
 - `--max-merges N` → cap merges per pass (default 5).
-- `--max-pass-minutes N` → wall-clock budget per pass (default 90).
-- `--max-run-minutes N` → total wall-clock budget across passes (default **120**; `0` =
+- `--max-pass-minutes N` → wall-clock budget per pass (default 720 / 12 hours).
+- `--max-run-minutes N` → total wall-clock budget across passes (default **720** / 12 hours; `0` =
   unlimited, an explicit opt-in for unattended runs you trust).
 - `--repo OWNER/REPO` → the pinned lesson repo; otherwise `$SAAS_PLUGIN_REPO`. Required.
 
@@ -277,8 +277,8 @@ safety infrastructure (self-mod → `lessons:needs-human`), and any secret in th
 Layered — no single cap suffices:
 - `--max-issues N` delivered per pass (default 5).
 - `--max-merges N` per pass (default 5).
-- `--max-pass-minutes N` (default 90) — per-pass wall clock.
-- `--max-run-minutes N` (default **120**; `0` = unlimited opt-in) — total wall clock.
+- `--max-pass-minutes N` (default 720 / 12 hours) — per-pass wall clock.
+- `--max-run-minutes N` (default **720** / 12 hours; `0` = unlimited opt-in) — total wall clock.
 - **Per-issue tribunal-round cap** — notify at 10, hard-stop at 20.
 - **Per-issue retry cap** (default 3) for `retriable` gh errors before giving up that lesson.
 - **Backoff between passes** (~5 min) so an empty/blocked queue doesn't hot-spin.

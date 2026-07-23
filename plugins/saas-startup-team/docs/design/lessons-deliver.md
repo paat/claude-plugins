@@ -62,8 +62,8 @@ Reuse: `pii-gate.sh` (secret scan of the diff), `tribunal-review:tribunal-loop`,
                  [--max-pass-minutes N] [--max-run-minutes N] [--repo OWNER/REPO]
 ```
 
-Defaults: `--max-issues 5`, `--max-merges 5`, `--max-pass-minutes 90`,
-`--max-run-minutes 120` (finite — unlimited is opt-in via `0`). `--dry-run` =
+Defaults: `--max-issues 5`, `--max-merges 5`, `--max-pass-minutes 720` (12 hours),
+`--max-run-minutes 720` (12 hours; unlimited is opt-in via `0`). `--dry-run` =
 fully read-only: print the eligible queue + planned mutations, write nothing, no
 branch/PR/merge.
 
@@ -138,7 +138,7 @@ Ordering: dependency order first, then oldest-first. **Sequential — one PR in 
 - **gh failure classification:** retriable (rate-limit / network / transient) → bounded
   backoff; terminal (auth expiry / merge conflict / protected-branch denial) → block +
   annotate the issue.
-- **Finite runtime:** `--max-run-minutes` default 120; `0` (unlimited) is explicit opt-in.
+- **Finite runtime:** `--max-run-minutes` default 720 (12 hours); `0` (unlimited) is explicit opt-in.
 - **Single production runner:** cron+flock is production; `/loop` is dev/supervised only.
 
 **Deferred (not in v1, with reason):**
