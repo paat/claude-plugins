@@ -7,6 +7,16 @@ PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0; FAILURES=()
 GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 
+# Host shells (Grok Build, developer profiles) may export opt-in legs as on.
+# Reset to product defaults so disabled-marker and quorum tests are deterministic.
+# Per-test `TRIBUNAL_*=on` prefixes still override these for opt-in cases.
+export TRIBUNAL_GROK=off
+export TRIBUNAL_GEMINI=off
+export TRIBUNAL_QWEN=off
+export TRIBUNAL_GLM=off
+# Smoke is opt-in; never inherit a host-on probe into default preflight checks.
+export TRIBUNAL_SMOKE_PROBE=off
+
 assert_grep() {
   local label="$1" file="$2" pat="$3"
   if grep -q -- "$pat" "$PLUGIN_ROOT/$file"; then
@@ -198,8 +208,10 @@ EOF
 
   (
     cd "$work"
+    # Only codex remains eligible; empty smoke must zero the usable quorum.
     PATH="$fake:$PATH" SMOKE_CODEX_EMPTY=on TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 \
       TRIBUNAL_SMOKE_PROBE=on TRIBUNAL_CLAUDE=off TRIBUNAL_DEEPSEEK=off \
+      TRIBUNAL_GROK=off TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off TRIBUNAL_GLM=off \
       bash "$PLUGIN_ROOT/scripts/preflight.sh" > /dev/null 2> "$work/preflight-failed.err"
   ) || ec=$?
   label="failed smoke removes the provider from usable quorum"
@@ -1259,7 +1271,7 @@ echo "Disabled-provider markers:"
 assert_json_field "codex disabled JSON" "TRIBUNAL_CODEX=off bash '$PLUGIN_ROOT/scripts/run-codex-review.sh' | jq -e '.provider==\"codex\" and .status==\"disabled\"'"
 assert_json_field "gemini disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-gemini-review.sh' | jq -e '.provider==\"gemini\" and .status==\"disabled\"'"
 assert_json_field "qwen disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-qwen-review.sh' | jq -e '.provider==\"qwen\" and .status==\"disabled\"'"
-assert_json_field "grok disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-grok-review.sh' | jq -e '.provider==\"grok\" and .status==\"disabled\"'"
+assert_json_field "grok disabled JSON" "TRIBUNAL_GROK=off bash '$PLUGIN_ROOT/scripts/run-grok-review.sh' | jq -e '.provider==\"grok\" and .status==\"disabled\"'"
 assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT/scripts/run-claude-review.sh' | jq -e '.provider==\"claude\" and .status==\"disabled\"'"
 assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and all(.[]; .status==\"disabled\")'"
 assert_json_field "opencode usage error preserves disabled markers" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=on bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' --bad-flag | jq -s -e 'length==2 and .[0].provider==\"glm\" and .[0].status==\"disabled\" and (.[1] | .provider==\"deepseek\" and has(\"error\"))'"
