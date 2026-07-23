@@ -2,9 +2,12 @@
 # Bridge current and legacy maintenance leases through one persisted lease set.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 SINGLE_FLIGHT="$SCRIPT_DIR/single-flight.sh"
 GUARDIAN="$SCRIPT_DIR/lease-guardian.sh"
+# SSOT absolute primary path — do not reimplement path identity elsewhere.
+# shellcheck source=maintain-paths.sh
+. "$SCRIPT_DIR/maintain-paths.sh"
 
 usage() {
   cat >&2 <<'EOF'
@@ -26,10 +29,14 @@ valid_uint() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 worktree_lease_key() {
   printf '%s:worktree:%s\n' "$1" "$(printf '%s' "$2" | cksum | awk '{print $1}')"
 }
-# Hard gate: only the primary working directory. No linked product worktrees.
+# Hard gate: only the SSOT primary working directory (physical path).
+# Accept path aliases that realpath to PRIMARY (e.g. /workspace → physical primary).
 allowed_controller_tree() {
+  local wt=$1
   [ -n "${PRIMARY:-}" ] || return 1
-  [ "$1" = "$PRIMARY" ]
+  [ -n "$wt" ] || return 1
+  [ "$wt" = "$PRIMARY" ] && return 0
+  maintain_paths_same "$wt" "$PRIMARY"
 }
 
 assert_primary_only() {
@@ -77,7 +84,7 @@ assert_primary_only() {
     for candidate in "${extras[@]}"; do
       printf 'maintain-leases: foreign-worktree: %s\n' "$candidate" >&2
     done
-    echo "maintain-leases: fail closed — pause the portfolio; do not auto-delete worktrees" >&2
+    echo "maintain-leases: run maintain-self-heal.sh worktrees to preserve unique commits on primary branches and remove leftovers" >&2
     echo "maintain-leases: isolated stacks (replay, disposable checks) must use a plain git clone, never git worktree add" >&2
     return 1
   fi
@@ -91,29 +98,11 @@ declare -Ar LEASE_TTL_SECONDS=(
 )
 
 resolve_repo() {
-  local supplied="$1" raw record candidate candidate_common worktree_rows
-  ROOT="$(cd -- "$supplied" && pwd -P)" || return 1
-  git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
-  raw="$(git -C "$ROOT" rev-parse --git-common-dir)" || return 1
-  case "$raw" in /*) COMMON="$raw" ;; *) COMMON="$ROOT/$raw" ;; esac
-  COMMON="$(cd -- "$COMMON" && pwd -P)" || return 1
-  worktree_rows=$(mktemp) || return 1
-  if ! git -C "$ROOT" worktree list --porcelain -z > "$worktree_rows"; then
-    rm -f -- "$worktree_rows"
-    return 1
-  fi
-  PRIMARY=""
-  while IFS= read -r -d '' record; do
-    case "$record" in
-      'worktree '*) candidate=${record#worktree }; PRIMARY="$(cd -- "$candidate" && pwd -P)"; break ;;
-    esac
-  done < "$worktree_rows"
-  rm -f -- "$worktree_rows"
-  [ -n "$PRIMARY" ] || return 1
-  raw="$(git -C "$PRIMARY" rev-parse --git-common-dir)" || return 1
-  case "$raw" in /*) candidate_common="$raw" ;; *) candidate_common="$PRIMARY/$raw" ;; esac
-  candidate_common="$(cd -- "$candidate_common" && pwd -P)" || return 1
-  [ "$candidate_common" = "$COMMON" ] || return 1
+  # Thin adapter: SSOT lives in maintain-paths.sh (MAINTAIN_PRIMARY).
+  maintain_paths_resolve "$1" || return 1
+  ROOT=$MAINTAIN_ROOT
+  PRIMARY=$MAINTAIN_PRIMARY
+  COMMON=$MAINTAIN_COMMON
 }
 
 materialize_lease_rows() {

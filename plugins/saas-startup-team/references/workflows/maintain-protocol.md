@@ -21,11 +21,15 @@ On a normal run, `SAAS_INVOCATION_ID`, `MAINTAIN_LEASE_RUN_ID`,
 `MAINTAIN_CONTROLLER_ROUTE`, and `MAINTAIN_PENDING_FINGERPRINT` were already resolved
 by the router. Require both IDs to match `^run-[0-9a-f]{32}$` and to be byte-identical;
 never mint or substitute an identity here. Select the controller only from the helper
-route. **Hard gate: primary working dir only — no linked git worktrees.**
+route. **Hard gate: primary working dir only — no linked product worktrees.** Heal
+agent-recoverable leftovers first (path aliases, disposable/merged worktrees, receipt
+migration) — never escalate those as outer `pass-blocked` without attempting heal.
 
 ```bash
 LEASE_RUN_ID=$SAAS_INVOCATION_ID
 [ "$MAINTAIN_LEASE_RUN_ID" = "$SAAS_INVOCATION_ID" ] || exit 2
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-self-heal.sh" all \
+  --repo-root "$REPO_ROOT" || true
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" assert-primary-only \
   --repo-root "$REPO_ROOT" || exit 2
 case "$MAINTAIN_CONTROLLER_ROUTE" in

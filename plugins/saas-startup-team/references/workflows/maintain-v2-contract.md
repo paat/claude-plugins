@@ -72,6 +72,15 @@ Do not wait for investor merge of maintain PRs.
 Only true external holds. Never multi-hour soft-block for claim/receipt
 bookkeeping (`receipt_conflict`, stale claims after issue closed on main).
 
+**Self-heal before block** (`maintain-self-heal.sh` + `maintain-paths.sh` SSOT):
+the absolute primary path is always the physical main worktree (`MAINTAIN_PRIMARY`).
+Path aliases (`/workspace`), disposable/merged foreign worktrees, and receipt
+`controller.worktree` rewrites are model-free **in place** — never quarantine
+delivery dirs for alias drift. Unique commits on foreign worktrees are pinned to a
+primary-reachable branch then the linked tree is removed. The probe and
+`/maintain-loop` coordinator run heal automatically. Agents must not escalate those
+classes as `MC-BLOCKED` / `PASS-BLOCKED`.
+
 ## Resume after kill
 
 Next dispatch **must** prefer the same unmerged PR/branch/commits before any

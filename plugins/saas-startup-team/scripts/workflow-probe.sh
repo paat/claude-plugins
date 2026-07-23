@@ -34,9 +34,17 @@ case "$ISSUE" in
   "") ;;
   *[!0-9]*|0*) echo "workflow-probe: --issue must be a positive integer without leading zeros" >&2; exit 2 ;;
 esac
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# SSOT absolute primary path — single resolver for all maintain scripts.
+# shellcheck source=maintain-paths.sh
+. "$SCRIPT_DIR/maintain-paths.sh"
 [ -n "$ROOT" ] || ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-ROOT="$(cd "$ROOT" && pwd)"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+maintain_paths_resolve "$ROOT" || {
+  echo "workflow-probe: cannot resolve primary repository path" >&2
+  exit 1
+}
+# Always use the physical primary SSOT (never a symlink alias like /workspace).
+ROOT=$MAINTAIN_PRIMARY
 noop() { echo "workflow-probe: $OUTPUT_MODE no work to do"; exit 3; }
 CONTROLLER_ROUTE=""
 ready() {
@@ -50,7 +58,19 @@ git_common_dir() {
   local common
   common="$(git -C "$ROOT" rev-parse --git-common-dir)" || return 1
   case "$common" in /*) ;; *) common="$ROOT/$common" ;; esac
-  (cd "$common" && pwd)
+  (cd "$common" && pwd -P)
+}
+
+# Heal agent-recoverable environment issues before fail-closed MC-BLOCKED.
+# Never pause the portfolio on path aliases, disposable worktrees, or receipt
+# migration that a model-free helper can clear.
+maintain_self_heal() {
+  local ec=0 out
+  [ -x "$SCRIPT_DIR/maintain-self-heal.sh" ] || return 0
+  out=$(bash "$SCRIPT_DIR/maintain-self-heal.sh" all --repo-root "$ROOT" 2>&1) || ec=$?
+  [ -n "$out" ] && printf '%s\n' "$out" >&2
+  # exit 0 ready; exit 1 residual still try gates (may pass); other = leave to gates
+  return 0
 }
 load_blocked_files() {
   local common primary candidate
@@ -67,9 +87,16 @@ load_blocked_files() {
 
 primary_only_gate() {
   local diag
+  # One heal pass before the hard gate — clears disposable/merged leftovers.
+  maintain_self_heal
   if ! diag="$(bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$ROOT" 2>&1)"; then
-    echo "workflow-probe: $OUTPUT_MODE blocked: $diag" >&2
-    exit 4
+    # Second heal after listing failures, then re-check once.
+    maintain_self_heal
+    if ! diag="$(bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$ROOT" 2>&1)"; then
+      echo "workflow-probe: $OUTPUT_MODE blocked: $diag" >&2
+      echo "workflow-probe: $OUTPUT_MODE hint: residual foreign worktrees with unique commits must be resumed or removed on the primary; do not soft-block for hours — fix in this pass or next tick" >&2
+      exit 4
+    fi
   fi
 }
 

@@ -56,10 +56,22 @@ export SAAS_MAINTAIN_QA_PROOF_ENV='APP_TEST_KEY APP_API_URL'
 export SAAS_MAINTAIN_LIVE_PROOF_ENV='APP_MONITOR_KEY APP_API_URL'
 ```
 
-This configuration must come from the controller session, never repository content.
-Known infrastructure-authority families are rejected. Configure only
-least-privilege project runtime variables; missing configured variables stop the
-proof.
+The allowlist names must come from the controller session, never committed repo
+content. Known infrastructure-authority families are rejected. Configure only
+least-privilege project runtime variables.
+
+Values may come from the process environment or the primary checkout's local
+gitignored `.env` (supports both `NAME=` and `export NAME=`). The helper loads
+that file before QA/live proof and fills allowlisted names that are unset or
+empty — without printing values. Disposable proof trees are git archives and do
+not contain `.env`.
+
+A variable missing only from a fresh child process is **not** a credential
+blocker when primary `.env` has a non-empty value. Source or let the helper load
+local `.env` and continue. The ban on reading **live production** secret files
+(for example `/opt/<app>/.env` over SSH) does not apply to the local primary
+`.env`. Escalate only when a required name is absent or empty in both the
+process environment and primary `.env`.
 
 ## Tribunal
 

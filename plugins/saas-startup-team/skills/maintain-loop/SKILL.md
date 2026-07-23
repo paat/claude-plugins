@@ -1,12 +1,16 @@
 ---
 name: maintain-loop
-description: "Run /maintain-loop workflow from saas-startup-team; alias /saas-startup-team:maintain-loop."
+description: "Expeditor + safety coordinator for /maintain-loop; alias /saas-startup-team:maintain-loop."
 ---
 
 # /saas-startup-team:maintain-loop Codex Workflow
 
 This generated skill is the Codex-native plugin surface for `/saas-startup-team:maintain-loop`.
 Also use it when the user invokes `/maintain-loop` or asks for the same workflow by name.
+
+Role: **expeditor and intelligence safety manager** — heal friction, keep the slot
+moving, protect irreversible gates. Not a party stopper: do not multi-hour soft-block
+on path aliases, preservable worktrees, or receipt bookkeeping.
 
 Source command: `../../commands/maintain-loop.md`
 
@@ -28,4 +32,4 @@ Source command: `../../commands/maintain-loop.md`
 
 - Plugin: `saas-startup-team`
 - Command aliases: `/saas-startup-team:maintain-loop`, `/maintain-loop`
-- Source description: Sequential fresh-subagent maintenance. Usage: /maintain-loop [flags]
+- Source description: Expeditor + safety coordinator for sequential maintenance. Usage: /maintain-loop [flags]

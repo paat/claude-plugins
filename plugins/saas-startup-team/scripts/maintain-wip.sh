@@ -54,13 +54,14 @@ done
 
 [ "$ACTION" = inventory ] || { usage; exit 2; }
 [ -n "$ROOT" ] && [ -d "$ROOT" ] || die "--repo-root must be a directory" 2
-ROOT="$(cd "$ROOT" && pwd)"
+# SSOT: physical primary absolute path only (never symlink alias like /workspace).
 if [ -x "$SCRIPT_DIR/maintain-leases.sh" ]; then
-  bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$ROOT" >/dev/null \
-    || die "primary-only gate failed (no linked worktrees)" 2
-  # Canonical primary path (not caller spelling / subdirectory).
   ROOT="$(bash "$SCRIPT_DIR/maintain-leases.sh" primary-root --repo-root "$ROOT")" \
     || die "cannot resolve primary checkout" 2
+  bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$ROOT" >/dev/null \
+    || die "primary-only gate failed (no linked worktrees)" 2
+else
+  ROOT="$(cd "$ROOT" && pwd -P)"
 fi
 WORKTREE="$ROOT"
 if [ -z "$DEFAULT_BRANCH" ]; then
