@@ -135,19 +135,35 @@ worktree_is_clean() {
     && [ -z "$(git -C "$path" ls-files --others --exclude-standard)" ]
 }
 
+# Remove a linked worktree. Never force-remove a dirty non-disposable tree
+# (uncommitted/untracked would be silently lost). Disposable paths may force.
 remove_worktree() {
-  local path=$1 reason=$2
+  local path=$1 reason=$2 force=0
+  if worktree_is_disposable_path "$path"; then
+    force=1
+  elif ! worktree_is_clean "$path"; then
+    log "refuse remove dirty worktree $path ($reason) — residual"
+    RESIDUALS+=("foreign-worktree-dirty:$path")
+    return 1
+  fi
   if [ "$DRY_RUN" -eq 1 ]; then
     log "dry-run: would remove worktree $path ($reason)"
     HEALED=$((HEALED + 1))
     return 0
   fi
-  if git -C "$PRIMARY" worktree remove --force -- "$path" 2>/dev/null; then
-    log "removed worktree $path ($reason)"
-    HEALED=$((HEALED + 1))
-    return 0
+  if [ "$force" -eq 1 ]; then
+    if git -C "$PRIMARY" worktree remove --force -- "$path" 2>/dev/null; then
+      log "removed disposable worktree $path ($reason)"
+      HEALED=$((HEALED + 1))
+      return 0
+    fi
+  else
+    if git -C "$PRIMARY" worktree remove -- "$path" 2>/dev/null; then
+      log "removed worktree $path ($reason)"
+      HEALED=$((HEALED + 1))
+      return 0
+    fi
   fi
-  # Path may already be gone; prune handles the registration.
   log "worktree remove failed for $path — will prune"
   return 1
 }
@@ -173,14 +189,21 @@ heal_worktrees() {
           continue
         fi
         if ! worktree_has_unique_commits "$candidate"; then
-          # Fully merged / no unique commits: safe to drop even if dirty tree noise.
-          remove_worktree "$candidate" "no-unique-commits" || true
+          # Fully merged: remove only when clean (no silent dirty loss).
+          if remove_worktree "$candidate" "no-unique-commits"; then
+            continue
+          fi
+          extras=$((extras + 1))
           continue
         fi
-        # Expeditor path: pin unique commits on a primary-reachable branch, then
-        # remove the linked worktree so primary-only maintain can resume the WIP.
+        # Expeditor: pin unique commits on a primary-reachable branch, then
+        # remove only if the worktree is clean after pin.
         if preserve_unique_commits_on_primary "$candidate"; then
-          remove_worktree "$candidate" "preserved-on-primary-branch" || true
+          if remove_worktree "$candidate" "preserved-on-primary-branch"; then
+            continue
+          fi
+          extras=$((extras + 1))
+          log "pinned commits but left dirty worktree residual: $candidate"
           continue
         fi
         extras=$((extras + 1))

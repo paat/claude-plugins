@@ -80,12 +80,65 @@ test_maintain_self_heal() {
   assert_output_contains "MSH5b: dry-run would pin" "$out" "dry-run: would pin"
   assert_file_exists "MSH5c: dry-run left worktree in place" "$foreign"
 
+  # Dirty foreign worktree with no unique commits must not be force-removed.
+  git -C "$repo" worktree add --detach "$(dirname "$repo")/msh-foreign-dirty" HEAD >/dev/null 2>&1
+  foreign="$(cd -- "$(dirname "$repo")/msh-foreign-dirty" && pwd -P)"
+  printf 'dirty-uncommitted\n' > "$foreign/dirty.txt"
+  ec=0
+  out=$(bash "$script" worktrees --repo-root "$repo" 2>&1) || ec=$?
+  assert_exit_code "MSH6: dirty merged worktree remains residual" "$ec" 1
+  assert_file_exists "MSH6b: dirty worktree not force-deleted" "$foreign"
+  assert_output_contains "MSH6c: refuse dirty remove" "$out" "refuse remove dirty"
+  git -C "$repo" worktree remove --force -- "$foreign" >/dev/null 2>&1 || true
+
   # Cleanup leftover worktrees so make_workdir tmpdir can die cleanly.
   git -C "$repo" worktree remove --force -- "$foreign" >/dev/null 2>&1 || true
   git -C "$repo" worktree prune >/dev/null 2>&1 || true
   rm -rf -- "$(dirname "$repo")/msh-foreign-ahead" "$(dirname "$repo")/msh-foreign-merged" \
-    "$(dirname "$repo")/msh-foreign-dry" 2>/dev/null || true
+    "$(dirname "$repo")/msh-foreign-dry" "$(dirname "$repo")/msh-foreign-dirty" 2>/dev/null || true
   rm -rf -- "$repo"
 }
 
 test_maintain_self_heal
+
+test_strict_dotenv_parser() {
+  echo -e "\n${CYAN}Suite MSH-DOTENV: strict dotenv parser${NC}"
+  local dir script
+  dir=$(mktemp -d)
+  script="$dir/parser.sh"
+  python3 - "$PLUGIN_ROOT/scripts/maintain-delivery.sh" "$script" <<'PY'
+import sys
+from pathlib import Path
+src = Path(sys.argv[1]).read_text()
+out = Path(sys.argv[2])
+chunks = ["#!/usr/bin/env bash\nset -euo pipefail\n"]
+for name in ("strict_dotenv_get", "load_named_env_from_dotenv"):
+    start = src.find(f"{name}() {{")
+    assert start >= 0, name
+    i = src.find("{", start)
+    depth = 0
+    for j in range(i, len(src)):
+        if src[j] == "{":
+            depth += 1
+        elif src[j] == "}":
+            depth -= 1
+            if depth == 0:
+                chunks.append(src[start : j + 1] + "\n")
+                break
+out.write_text("".join(chunks))
+PY
+  printf 'FOO=bar\nexport BAZ=qux\nEVIL=$(whoami)\nGOOD="ok"\n' > "$dir/.env"
+  # shellcheck disable=SC1090
+  . "$script"
+  assert_equals "DOT1: plain assignment" "$(strict_dotenv_get "$dir/.env" FOO)" "bar"
+  assert_equals "DOT2: export assignment" "$(strict_dotenv_get "$dir/.env" BAZ)" "qux"
+  assert_equals "DOT3: quoted assignment" "$(strict_dotenv_get "$dir/.env" GOOD)" "ok"
+  ec=0; strict_dotenv_get "$dir/.env" EVIL >/dev/null 2>&1 || ec=$?
+  assert_exit_code "DOT4: command substitution rejected" "$ec" 1
+  ec=0; FOO=; load_named_env_from_dotenv "$dir/.env" FOO || ec=$?
+  assert_exit_code "DOT5: load_named exports" "$ec" 0
+  assert_equals "DOT6: FOO exported" "${FOO:-}" "bar"
+  rm -rf -- "$dir"
+}
+
+test_strict_dotenv_parser
