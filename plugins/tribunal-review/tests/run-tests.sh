@@ -7,10 +7,9 @@ PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0; FAILURES=()
 GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 
-# Host shells (Grok Build, developer profiles) may export opt-in legs as on.
-# Reset to product defaults so disabled-marker and quorum tests are deterministic.
-# Per-test `TRIBUNAL_*=on` prefixes still override these for opt-in cases.
-export TRIBUNAL_GROK=off
+# Pin product defaults so host shell exports cannot flip panel membership mid-suite.
+# Per-test prefixes still override (e.g. TRIBUNAL_GROK=off for disabled-marker cases).
+export TRIBUNAL_GROK=on
 export TRIBUNAL_GEMINI=off
 export TRIBUNAL_QWEN=off
 export TRIBUNAL_GLM=off

@@ -54,7 +54,7 @@ digraph close_tribunal {
 }
 ```
 
-The loop only exits when the calling context's verdict has **zero critical and zero high findings** on the current diff (medium/low go to YAGNI triage). The panel runs in parallel (by default Codex, DeepSeek, and Claude; Gemini, GLM, Qwen, and Grok opt-in) precisely because any single reviewer can miss things — so a verdict built on the latest diff is the only verdict that counts.
+The loop only exits when the calling context's verdict has **zero critical and zero high findings** on the current diff (medium/low go to YAGNI triage). The panel runs in parallel (by default Codex, DeepSeek, Grok, and Claude; Gemini, GLM, and Qwen opt-in) precisely because any single reviewer can miss things — so a verdict built on the latest diff is the only verdict that counts.
 
 ## Per-Finding Triage
 

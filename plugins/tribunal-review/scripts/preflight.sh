@@ -68,7 +68,7 @@ smoke_failure_note() {
 if [ "${TRIBUNAL_CODEX:-on}" = "off" ]; then add_provider codex disabled "TRIBUNAL_CODEX=off"; elif command -v codex >/dev/null 2>&1; then add_provider codex usable "CLI present; non-interactive invocation not probed"; else add_provider codex skipped "CLI not on PATH"; fi
 if [ "${TRIBUNAL_GEMINI:-off}" = "on" ]; then if command -v gemini >/dev/null 2>&1; then add_provider gemini usable "CLI present; non-interactive invocation not probed"; else add_provider gemini skipped "CLI not on PATH"; fi; else add_provider gemini disabled "default off"; fi
 if [ "${TRIBUNAL_QWEN:-off}" = "on" ]; then if command -v qwen >/dev/null 2>&1; then add_provider qwen usable "CLI present; non-interactive invocation not probed"; else add_provider qwen skipped "CLI not on PATH"; fi; else add_provider qwen disabled "default off"; fi
-if [ "${TRIBUNAL_GROK:-off}" = "on" ]; then if command -v grok >/dev/null 2>&1; then add_provider grok usable "CLI present; non-interactive invocation not probed"; else add_provider grok skipped "CLI not on PATH"; fi; else add_provider grok disabled "default off"; fi
+if [ "${TRIBUNAL_GROK:-on}" = "off" ]; then add_provider grok disabled "TRIBUNAL_GROK=off"; elif command -v grok >/dev/null 2>&1; then add_provider grok usable "CLI present; non-interactive invocation not probed"; else add_provider grok skipped "CLI not on PATH"; fi
 if [ "${TRIBUNAL_CLAUDE:-on}" = "off" ]; then
   add_provider claude disabled "TRIBUNAL_CLAUDE=off"
 elif ! command -v claude >/dev/null 2>&1; then

@@ -6,8 +6,8 @@ description: "Use for multi-provider code review with repo-walking reviewers, di
 # Tribunal Loop
 
 Multi-provider code review with inline arbitration. By default the panel is Codex
-(repo-walking), DeepSeek through OpenCode Go (repo-walking), and Claude Code
-(diff-only). Gemini, GLM, Qwen, and Grok are opt-in. The calling context arbitrates
+(repo-walking), DeepSeek through OpenCode Go (repo-walking), Grok (repo-walking),
+and Claude Code (diff-only). Gemini, GLM, and Qwen are opt-in. The calling context arbitrates
 inline and makes the final decision.
 
 This skill is intentionally orchestration-only. Provider shell mechanics live in
@@ -38,7 +38,7 @@ the plugin `scripts/` directory:
 - GLM: off by default; enable with `TRIBUNAL_GLM=on`; OpenCode diff-only leg.
 - Qwen: off by default; enable with `TRIBUNAL_QWEN=on`; repo-walking on its own
   transport.
-- Grok: off by default; enable with `TRIBUNAL_GROK=on`; model override
+- Grok: on by default; disable with `TRIBUNAL_GROK=off`; model override
   `TRIBUNAL_GROK_MODEL` (default `grok-4.5`); repo-walking on the xAI Grok CLI
   with tools allowlist + kernel `read-only` sandbox, isolated host config, web
   search off.

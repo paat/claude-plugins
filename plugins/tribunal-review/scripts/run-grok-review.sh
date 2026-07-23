@@ -6,7 +6,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
-if [ "${TRIBUNAL_GROK:-off}" != "on" ]; then tribunal_disabled grok "Grok leg disabled (default off); set TRIBUNAL_GROK=on to enable"; exit 0; fi
+if [ "${TRIBUNAL_GROK:-on}" = "off" ]; then tribunal_disabled grok "Grok leg disabled via TRIBUNAL_GROK=off"; exit 0; fi
 command -v grok >/dev/null 2>&1 || { tribunal_error grok "Grok CLI not on PATH"; exit 0; }
 
 GROK_MODEL="${TRIBUNAL_GROK_MODEL:-grok-4.5}"
