@@ -163,20 +163,35 @@ never fabricates a child terminal. An unknown-terminal child is never reaped.
 Only after terminal rc 0, reap with `maintain-leases.sh reap-terminal --run-id
 "$SAAS_INVOCATION_ID"`, then require `maintain-leases.sh available`; pass both the
 primary repository root. Dry-run never verifies a terminal or reaps a lease. Stop after
-the child under outer `--once` or `--dry-run`. Otherwise continue only after a
-`pass-complete` terminal; stop on a limit, no-work, `pass-blocked` **after heal**, true
-external failure, unknown scope, or unknown child state. When the child reports
-`pass-blocked` for an agent-recoverable environment class, run self-heal, re-probe, and
-if work remains and the lease is free, treat the outer result as expedited recovery
-rather than a multi-hour soft-block: under non-`--once` mint a fresh root and continue;
-under `--once` still emit the blocked sentinel only when the residual is a true external
+the child under outer `--once` or `--dry-run`.
+
+On a verified terminal, read `pass_disposition` from the projected JSON
+(`agent-events.sh terminal` adds it; it is not stored on the event and must not be
+inferred from prose or a bare `outcome` alone). Deterministic map (issue #373):
+
+| `pass_disposition` | Source `outcome` / `terminal_reason` | Outer loop |
+|---|---|---|
+| `pass-complete` | `success` / null | **continue** — mint a fresh canonical root and probe/dispatch the next pass |
+| `no-work` | `no-op` / null | stop |
+| `limit` | `skipped` / null, or `failure` / `budget_exhausted` | stop |
+| `pass-blocked` | `blocked` / any registered reason | stop **after heal** rules below |
+| `failure` | `failure` (other reasons), `escalated`, `cancelled` | stop |
+| `unknown` | anything else | stop (fail closed) |
+
+Otherwise continue only when `pass_disposition` is `pass-complete`; stop on
+`limit`, `no-work`, `pass-blocked` **after heal**, `failure`, `unknown`, unknown
+scope, or unknown child state. When the child reports `pass-blocked` for an
+agent-recoverable environment class, run self-heal, re-probe, and if work remains and
+the lease is free, treat the outer result as expedited recovery rather than a
+multi-hour soft-block: under non-`--once` mint a fresh root and continue; under
+`--once` still emit the blocked sentinel only when the residual is a true external
 hold, otherwise prefer `pass-complete` with residual noted in the run report.
 
 On outer `pass-blocked`, return exactly one standalone `PASS-BLOCKED reason=<reason>` line
 (legacy alias `MC-BLOCKED` is accepted by the governor). Derive `<reason>` from the
-child's `pass-blocked` blocker/result; replace CR/LF and all control characters with
-spaces; trim; use `unspecified` only if empty. Omit `recheck_after` (configured/default
-window). Never emit for `pass-complete` or an issue-local block completing the outer pass.
+child's `pass-blocked` blocker/result; replace CR/LF and all control characters with spaces;
+trim; use `unspecified` only if empty. Omit `recheck_after` (configured/default window).
+Never emit for `pass-complete` or an issue-local block completing the outer pass.
 Never emit for healed-or-healable environment shape (receipts, path aliases, disposable
 or branch-preserved foreign worktrees, local proof env present in primary `.env`).
 

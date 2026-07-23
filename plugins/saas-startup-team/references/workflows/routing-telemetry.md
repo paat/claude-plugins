@@ -57,6 +57,19 @@ with `account --run-id "$RUN_ID" --duration-ms "$DURATION_MS" [--total-tokens
 still failing on malformed or conflicting records. A single-run `terminal` lookup
 remains strict and fails when that requested root is incomplete.
 
+`terminal` / `terminals` project a read-only `pass_disposition` on every root
+`pass-outcome` (not stored; never append it). Outer coordinators such as
+`/maintain-loop` continue only on `pass-complete` (issue #373):
+
+| `pass_disposition` | From `outcome` / `terminal_reason` |
+|---|---|
+| `pass-complete` | `success` / null |
+| `no-work` | `no-op` / null |
+| `limit` | `skipped` / null, or `failure` / `budget_exhausted` |
+| `pass-blocked` | `blocked` / any registered reason |
+| `failure` | `failure` (other reasons), `escalated`, `cancelled` |
+| `unknown` | anything else (fail closed) |
+
 `terminal_reason` uses this finite privacy-safe registry:
 `invalid_workflow_state`, `context_binding_violation`, `false_success`, `probe_failed`,
 `triage_failed`, `delivery_failed`, `verification_failed`, `lease_conflict`,

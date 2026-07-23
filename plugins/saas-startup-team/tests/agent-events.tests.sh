@@ -184,6 +184,68 @@ test_agent_events() {
     "$(jq -r '.run_id | test("^run-[0-9a-f]{32}$")' <<< "$terminal_output")" "true"
   assert_equals "EV47: stable terminal reason survives normalization" \
     "$(jq -r .terminal_reason <<< "$terminal_output")" "invalid_workflow_state"
+  assert_equals "EV47z: failure projects pass_disposition=failure" \
+    "$(jq -r .pass_disposition <<< "$terminal_output")" "failure"
+
+  # Issue #373: outer maintain-loop continues only on projected pass-complete.
+  disposition_events="$wd/disposition-events.jsonl"
+  bash "$events_script" append --events "$disposition_events" --run-id disp-success \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id disp-writer \
+    --event-type completed --outcome success >/dev/null
+  assert_equals "EV47z1: success projects pass-complete" \
+    "$(bash "$events_script" terminal --events "$disposition_events" --run-id disp-success \
+      | jq -r .pass_disposition)" "pass-complete"
+  bash "$events_script" append --events "$disposition_events" --run-id disp-noop \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id disp-writer \
+    --event-type completed --outcome no-op >/dev/null
+  assert_equals "EV47z2: no-op projects no-work" \
+    "$(bash "$events_script" terminal --events "$disposition_events" --run-id disp-noop \
+      | jq -r .pass_disposition)" "no-work"
+  bash "$events_script" append --events "$disposition_events" --run-id disp-skipped \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id disp-writer \
+    --event-type completed --outcome skipped >/dev/null
+  assert_equals "EV47z3: skipped projects limit" \
+    "$(bash "$events_script" terminal --events "$disposition_events" --run-id disp-skipped \
+      | jq -r .pass_disposition)" "limit"
+  bash "$events_script" append --events "$disposition_events" --run-id disp-blocked \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id disp-writer \
+    --event-type completed --outcome blocked --terminal-reason delivery_hold >/dev/null
+  assert_equals "EV47z4: blocked projects pass-blocked" \
+    "$(bash "$events_script" terminal --events "$disposition_events" --run-id disp-blocked \
+      | jq -r .pass_disposition)" "pass-blocked"
+  bash "$events_script" append --events "$disposition_events" --run-id disp-budget \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id disp-writer \
+    --event-type completed --outcome failure --terminal-reason budget_exhausted >/dev/null
+  assert_equals "EV47z5: budget_exhausted projects limit" \
+    "$(bash "$events_script" terminal --events "$disposition_events" --run-id disp-budget \
+      | jq -r .pass_disposition)" "limit"
+  bash "$events_script" append --events "$disposition_events" --run-id disp-fail \
+    --command maintain-loop --phase pass-outcome --surface script --profile deep --writer-id disp-writer \
+    --event-type completed --outcome failure --terminal-reason triage_failed >/dev/null
+  assert_equals "EV47z6: other failure projects failure" \
+    "$(bash "$events_script" terminal --events "$disposition_events" --run-id disp-fail \
+      | jq -r .pass_disposition)" "failure"
+  # Projection-only: never stored on the append path.
+  assert_equals "EV47z7: pass_disposition is not stored on events" \
+    "$(jq -r 'has("pass_disposition")' <<<"$(tail -n 1 "$disposition_events")")" "false"
+  # Multi-duration account must keep the same disposition (logical terminal unchanged).
+  bash "$events_script" account --events "$disposition_events" --run-id disp-success \
+    --duration-ms 42 >/dev/null
+  assert_equals "EV47z8: accounted success still projects pass-complete" \
+    "$(bash "$events_script" terminal --events "$disposition_events" --run-id disp-success \
+      | jq -r .pass_disposition)" "pass-complete"
+  # Regression: account must strip projection-only keys before durable write.
+  assert_equals "EV47z8a: accounted event on disk has no pass_disposition" \
+    "$(jq -sr 'map(select(.event_type=="accounted")) | last | has("pass_disposition")' \
+      "$disposition_events")" "false"
+  assert_equals "EV47z8b: accounted event remains outcome=success" \
+    "$(jq -sr 'map(select(.event_type=="accounted")) | last | .outcome' \
+      "$disposition_events")" "success"
+  bulk_disp=$(bash "$events_script" terminals --events "$disposition_events" \
+    | jq -r 'select(.pass_disposition != null) | .pass_disposition' | sort | tr '\n' ',')
+  assert_equals "EV47z9: bulk terminals project dispositions" \
+    "$bulk_disp" "failure,limit,limit,no-work,pass-blocked,pass-complete,"
+
   reason_events="$wd/reason-events.jsonl"
   for reason in invalid_workflow_state context_binding_violation false_success \
       probe_failed triage_failed delivery_failed verification_failed lease_conflict \
