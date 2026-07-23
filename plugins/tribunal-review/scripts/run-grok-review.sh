@@ -8,6 +8,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ "${TRIBUNAL_GROK:-on}" = "off" ]; then tribunal_disabled grok "Grok leg disabled via TRIBUNAL_GROK=off"; exit 0; fi
 command -v grok >/dev/null 2>&1 || { tribunal_error grok "Grok CLI not on PATH"; exit 0; }
+# Dead OIDC sessions fail at execution with "Not signed in"; catch early like Claude (issue #374).
+tribunal_grok_authenticated || {
+  tribunal_error grok "Grok CLI is not signed in (no usable auth.json / XAI_API_KEY). For Max/OAuth: grok login --device-code"
+  exit 0
+}
 
 GROK_MODEL="${TRIBUNAL_GROK_MODEL:-grok-4.5}"
 INSPECT_TIMEOUT="${TRIBUNAL_GROK_TIMEOUT_SECONDS:-600}"
@@ -29,8 +34,18 @@ case "$FINALIZE_MAX_TURNS" in ''|*[!0-9]*) FINALIZE_MAX_TURNS=6 ;; esac
 [ "$FINALIZE_MAX_TURNS" -le 20 ] || FINALIZE_MAX_TURNS=20
 
 BASE_REF="$(tribunal_base_ref)"
+# Capture host auth path before HOME isolation. Copy (never symlink) so OIDC refresh
+# token rotation under the scratch home can be written back to the host (issue #374).
+AUTH_SRC="$(tribunal_grok_auth_file)"
 TMPDIR="$(mktemp -d)" || exit 1
-trap 'rm -rf "$TMPDIR"' EXIT
+ISOLATED_HOME="$TMPDIR/grok-home"
+AUTH_ISOLATED="$ISOLATED_HOME/.grok/auth.json"
+tribunal_grok_cleanup() {
+  # Write refreshed tokens home before deleting the scratch tree.
+  tribunal_grok_auth_writeback "$AUTH_ISOLATED" "$AUTH_SRC" 2>/dev/null || true
+  rm -rf "$TMPDIR"
+}
+trap 'tribunal_grok_cleanup' EXIT
 DIFF_FILE="$TMPDIR/review.diff"
 CONTEXT_FILE="$TMPDIR/context.md"
 PROMPT_FILE="$TMPDIR/prompt.md"
@@ -69,14 +84,13 @@ EOF
 } > "$FINALIZE_PROMPT"
 
 # Isolate host user config (Claude skills/hooks/CLAUDE.md, GROK_SANDBOX inheritance) while
-# preserving auth. Auth is linked from the pre-isolation GROK_HOME/HOME; the child runs with a
-# scratch HOME + GROK_HOME so host ~/.claude is not scanned. Sessions live under this scratch
-# home for the duration of the script so inspect → finalize resume stays deterministic.
-AUTH_SRC="${GROK_HOME:-${HOME}/.grok}/auth.json"
-ISOLATED_HOME="$TMPDIR/grok-home"
+# preserving auth via a durable copy. The child runs with a scratch HOME + GROK_HOME so host
+# ~/.claude is not scanned. Sessions live under this scratch home for the duration of the
+# script so inspect → finalize resume stays deterministic. EXIT trap write-backs auth.json.
 mkdir -p "$ISOLATED_HOME/.grok" "$ISOLATED_HOME/.claude"
-if [ -e "$AUTH_SRC" ]; then
-  ln -s "$AUTH_SRC" "$ISOLATED_HOME/.grok/auth.json"
+if [ -f "$AUTH_SRC" ]; then
+  # Regular file copy only — symlink + atomic replace severs host OIDC refresh (issue #374).
+  cp -a "$AUTH_SRC" "$AUTH_ISOLATED"
 fi
 cat > "$ISOLATED_HOME/.grok/config.toml" <<'EOF'
 # Tribunal Grok leg: no foreign-vendor project instructions, skills, hooks, or MCP.

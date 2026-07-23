@@ -160,6 +160,91 @@ tribunal_claude_authenticated() {
   printf '%s\n' "$status" | jq -e '.loggedIn == true' >/dev/null 2>&1
 }
 
+# Host path to Grok CLI credentials (pre-isolation GROK_HOME/HOME).
+tribunal_grok_auth_file() {
+  printf '%s\n' "${GROK_HOME:-${HOME}/.grok}/auth.json"
+}
+
+# True when auth.json is parseable JSON with at least one non-empty access token
+# (OIDC/API session field "key", or access_token). Used for preflight + write-back.
+tribunal_grok_auth_json_usable() {
+  local f="${1:-}"
+  [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
+  jq -e '
+    type == "object" and (
+      (
+        to_entries
+        | map(.value)
+        | map(select(type == "object"))
+        | map(.key // .access_token // empty)
+        | map(select(type == "string" and length > 0))
+        | length > 0
+      )
+      or ((.key // .access_token // "") | type == "string" and length > 0)
+    )
+  ' "$f" >/dev/null 2>&1
+}
+
+# Usable for autonomous Grok legs: XAI_API_KEY in env, or a live session in auth.json.
+# Max/OAuth users need a durable refresh_token in auth.json (issue #374).
+tribunal_grok_authenticated() {
+  if [ -n "${XAI_API_KEY:-}" ]; then
+    return 0
+  fi
+  tribunal_grok_auth_json_usable "$(tribunal_grok_auth_file)"
+}
+
+# Latest expires_at string across credential objects (empty if none). Lexicographic
+# ISO-8601 compares work for the Grok CLI's Zulu timestamps.
+tribunal_grok_auth_max_expires() {
+  local f="$1"
+  jq -r '
+    [
+      (to_entries // [])[]
+      | .value
+      | select(type == "object")
+      | .expires_at // empty
+      | select(type == "string" and length > 0)
+    ]
+    | if length == 0 then empty else max end
+  ' "$f" 2>/dev/null || true
+}
+
+# Copy isolated auth.json back to the host under flock, after OAuth refresh.
+# Never clobber a host file that has a strictly newer expires_at (concurrent legs).
+# Do not symlink auth into isolation — atomic replace under the scratch home would
+# detach the host file and leave a revoked refresh_token there (issue #374).
+tribunal_grok_auth_writeback() {
+  local isolated="${1:-}" host="${2:-}"
+  local host_dir lock tmp host_exp iso_exp
+  [ -n "$isolated" ] && [ -n "$host" ] || return 0
+  [ -f "$isolated" ] || return 0
+  tribunal_grok_auth_json_usable "$isolated" || return 1
+
+  host_dir="$(dirname "$host")"
+  mkdir -p "$host_dir" || return 1
+  lock="${host}.lock"
+  # shellcheck disable=SC2094
+  (
+    flock 9 || exit 1
+    if [ -f "$host" ] && tribunal_grok_auth_json_usable "$host"; then
+      if cmp -s "$isolated" "$host"; then
+        exit 0
+      fi
+      host_exp="$(tribunal_grok_auth_max_expires "$host")"
+      iso_exp="$(tribunal_grok_auth_max_expires "$isolated")"
+      # Host fresher → another process already wrote a newer session; do not regress.
+      if [ -n "$host_exp" ] && [ -n "$iso_exp" ] && [[ "$iso_exp" < "$host_exp" ]]; then
+        exit 0
+      fi
+    fi
+    tmp="$(mktemp "$host_dir/.auth.json.XXXXXX")" || exit 1
+    cp -a "$isolated" "$tmp" || { rm -f "$tmp"; exit 1; }
+    chmod 600 "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$host"
+  ) 9>>"$lock"
+}
+
 tribunal_empty() {
   local provider="$1" model="${2:-default}" base_ref="${3:-}"
   jq -nc --arg p "$provider" --arg m "$model" --arg b "$base_ref" \

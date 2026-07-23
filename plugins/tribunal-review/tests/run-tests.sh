@@ -458,14 +458,26 @@ EOF
   rm -rf "$work"
 }
 
+# Fixture OIDC session for Grok runner/preflight tests (issue #374).
+install_grok_auth_fixture() {
+  local dest="$1" refresh="${2:-refresh-fixture}" expires="${3:-2099-01-01T00:00:00Z}"
+  mkdir -p "$dest"
+  jq -nc --arg r "$refresh" --arg e "$expires" \
+    '{"https://auth.x.ai::fixture":{key:"access-fixture",refresh_token:$r,expires_at:$e,auth_mode:"oidc"}}' \
+    > "$dest/auth.json"
+  chmod 600 "$dest/auth.json"
+}
+
 # Grok leg (#331): progress-only / timeout must not report success; tools-off
 # resume of the same session must produce a schema verdict or a blocked error.
 test_grok_deterministic_completion() {
-  local work fake state
+  local work fake state host_grok
   work="$(mktemp -d)"
   fake="$work/bin"
   state="$work/state"
+  host_grok="$work/host-grok"
   mkdir -p "$fake" "$state"
+  install_grok_auth_fixture "$host_grok"
 
   # Scenario A: inspect progress-only → finalize resume yields structured review
   cat > "$fake/grok" <<EOF
@@ -506,7 +518,8 @@ EOF
     git commit -q -m base
     printf 'two\n' > file.txt
     git commit -q -am change
-    PATH="$fake:$PATH" TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+    PATH="$fake:$PATH" GROK_HOME="$host_grok" env -u XAI_API_KEY \
+      TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
       bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-a.json"
   ) && jq -e '
       .provider=="grok"
@@ -557,7 +570,8 @@ EOF
   if (
     set -e
     cd "$work"
-    PATH="$fake:$PATH" TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+    PATH="$fake:$PATH" GROK_HOME="$host_grok" env -u XAI_API_KEY \
+      TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
       bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-b.json"
   ) && jq -e '
       .provider=="grok"
@@ -592,7 +606,8 @@ EOF
   if (
     set -e
     cd "$work"
-    PATH="$fake:$PATH" TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+    PATH="$fake:$PATH" GROK_HOME="$host_grok" env -u XAI_API_KEY \
+      TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
       bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-c.json"
   ) && jq -e '
       .provider=="grok"
@@ -629,7 +644,8 @@ EOF
   if (
     set -e
     cd "$work"
-    PATH="$fake:$PATH" TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+    PATH="$fake:$PATH" GROK_HOME="$host_grok" env -u XAI_API_KEY \
+      TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
       bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-d.json"
   ) && jq -e '
       .provider=="grok"
@@ -666,6 +682,173 @@ EOF
   fi
 
   chmod -R u+w "$work" 2>/dev/null || true
+  rm -rf "$work"
+}
+
+# Issue #374: copy auth into isolation (not symlink); write back rotated tokens under flock.
+test_grok_auth_copy_writeback() {
+  local label="grok copies auth and write-backs rotated OIDC tokens" work fake host_grok
+  work="$(mktemp -d)"
+  fake="$work/bin"
+  host_grok="$work/host-grok"
+  mkdir -p "$fake"
+  install_grok_auth_fixture "$host_grok" "refresh-old" "2026-01-01T00:00:00Z"
+
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+auth="${GROK_HOME:?}/auth.json"
+# Isolation must present a regular file, not a host symlink (atomic replace severs host).
+if [ -L "$auth" ]; then
+  printf '%s\n' "auth is symlink" >&2
+  exit 97
+fi
+if [ ! -f "$auth" ]; then
+  printf '%s\n' "auth missing under isolation" >&2
+  exit 98
+fi
+# Simulate OIDC refresh_token rotation under the scratch home.
+jq '
+  walk(
+    if type == "object" and has("refresh_token") then
+      .refresh_token = "refresh-rotated"
+      | .key = "access-rotated"
+      | .expires_at = "2099-06-01T00:00:00Z"
+    else . end
+  )
+' "$auth" > "$auth.tmp" && mv "$auth.tmp" "$auth"
+cat <<'JSON'
+{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"sessionId":"55555555-5555-5555-5555-555555555555","modelUsage":{"fixture-model":{}}}
+JSON
+exit 0
+EOF
+  chmod +x "$fake/grok"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    PATH="$fake:$PATH" GROK_HOME="$host_grok" env -u XAI_API_KEY \
+      TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out.json"
+  ) && jq -e '.provider=="grok" and .summary.verdict=="APPROVE" and (has("error")|not)' "$work/out.json" >/dev/null \
+    && jq -e '
+        .["https://auth.x.ai::fixture"].refresh_token == "refresh-rotated"
+        and .["https://auth.x.ai::fixture"].key == "access-rotated"
+      ' "$host_grok/auth.json" >/dev/null \
+    && [ ! -L "$host_grok/auth.json" ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+    echo "    out: $(cat "$work/out.json" 2>/dev/null || true)" >&2
+    echo "    host auth: $(cat "$host_grok/auth.json" 2>/dev/null || true)" >&2
+  fi
+
+  # Stale isolated write-back must not clobber a host session with newer expires_at.
+  install_grok_auth_fixture "$host_grok" "refresh-host-fresh" "2099-12-01T00:00:00Z"
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+auth="${GROK_HOME:?}/auth.json"
+jq '
+  walk(
+    if type == "object" and has("refresh_token") then
+      .refresh_token = "refresh-stale"
+      | .key = "access-stale"
+      | .expires_at = "2020-01-01T00:00:00Z"
+    else . end
+  )
+' "$auth" > "$auth.tmp" && mv "$auth.tmp" "$auth"
+# Concurrent host refresh lands a fresher session while this leg still holds stale tokens.
+printf '%s\n' '{"https://auth.x.ai::fixture":{"key":"access-host-fresh","refresh_token":"refresh-host-fresh","expires_at":"2099-12-01T00:00:00Z","auth_mode":"oidc"}}' \
+  > "${AUTH_HOST_PATH:?}"
+cat <<'JSON'
+{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"66666666-6666-6666-6666-666666666666","modelUsage":{"fixture-model":{}}}
+JSON
+exit 0
+EOF
+  chmod +x "$fake/grok"
+
+  if (
+    set -e
+    cd "$work"
+    PATH="$fake:$PATH" GROK_HOME="$host_grok" AUTH_HOST_PATH="$host_grok/auth.json" \
+      env -u XAI_API_KEY TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-stale.json"
+  ) && jq -e '.["https://auth.x.ai::fixture"].refresh_token == "refresh-host-fresh"' \
+      "$host_grok/auth.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} grok write-back refuses to clobber fresher host auth"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok write-back refuses to clobber fresher host auth"; FAIL=$((FAIL+1))
+    FAILURES+=("grok write-back refuses to clobber fresher host auth")
+    echo "    host auth: $(cat "$host_grok/auth.json" 2>/dev/null || true)" >&2
+  fi
+
+  chmod -R u+w "$work" 2>/dev/null || true
+  rm -rf "$work"
+}
+
+test_grok_auth_guard() {
+  local label="unsigned Grok session is skipped before provider execution" work fake host_grok
+  work="$(mktemp -d)"
+  fake="$work/bin"
+  host_grok="$work/host-grok"
+  mkdir -p "$fake" "$host_grok"
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+: > "${GROK_RUN_MARKER:?}"
+exit 99
+EOF
+  cat > "$fake/codex" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"fixture"}'
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$fake/grok" "$fake/codex" "$fake/claude"
+  # Empty/missing auth.json — not signed in.
+  : > "$host_grok/auth.json"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    export PATH="$fake:$PATH" GROK_HOME="$host_grok" GROK_RUN_MARKER="$work/provider-ran"
+    env -u XAI_API_KEY \
+      TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CODEX=on TRIBUNAL_CLAUDE=off \
+      TRIBUNAL_GROK=on TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off \
+      bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/preflight.json"
+    env -u XAI_API_KEY GROK_HOME="$host_grok" PATH="$fake:$PATH" \
+      TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_GROK=on \
+      bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/review.json"
+  ) && jq -e 'any(.providers[]; .name=="grok" and .status=="skipped" and (.note|test("not signed in")))' \
+      "$work/preflight.json" >/dev/null \
+    && jq -e '.provider=="grok" and (.error|test("not signed in"))' "$work/review.json" >/dev/null \
+    && [ ! -e "$work/provider-ran" ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+    echo "    preflight: $(cat "$work/preflight.json" 2>/dev/null || true)" >&2
+    echo "    review: $(cat "$work/review.json" 2>/dev/null || true)" >&2
+  fi
   rm -rf "$work"
 }
 
@@ -1226,6 +1409,8 @@ assert_grep "tracks active reviewer legs" "$PF" "zero active reviewer legs"
 assert_grep "warms OpenCode model registry" "$PF" "opencode models"
 assert_grep "Claude auth probe is bounded" "$LIB" "timeout -k 1 10 claude auth status --json"
 assert_grep "preflight checks Claude auth" "$PF" "tribunal_claude_authenticated"
+assert_grep "preflight checks Grok auth" "$PF" "tribunal_grok_authenticated"
+assert_grep "lib defines Grok auth write-back" "$LIB" "tribunal_grok_auth_writeback"
 assert_grep "preflight discloses invocation limitation" "$PF" "non-interactive invocation not probed"
 assert_grep "preflight offers bounded non-interactive smoke" "$PF" "TRIBUNAL_SMOKE_PROBE"
 assert_no_grep "skill has no hardcoded origin/main" "$SK" "origin/main"
@@ -1253,7 +1438,10 @@ assert_grep "Grok uses kernel read-only sandbox" "scripts/run-grok-review.sh" "-
 assert_grep "Grok unsets host GROK_SANDBOX" "scripts/run-grok-review.sh" "env -u GROK_SANDBOX"
 assert_grep "Grok isolates host HOME" "scripts/run-grok-review.sh" 'HOME="$ISOLATED_HOME"'
 assert_grep "Grok isolates host GROK_HOME" "scripts/run-grok-review.sh" 'GROK_HOME="$ISOLATED_HOME/.grok"'
-assert_grep "Grok links auth into isolation" "scripts/run-grok-review.sh" 'ln -s "$AUTH_SRC"'
+assert_grep "Grok copies auth into isolation" "scripts/run-grok-review.sh" 'cp -a "$AUTH_SRC" "$AUTH_ISOLATED"'
+assert_no_grep "Grok does not symlink auth into isolation" "scripts/run-grok-review.sh" 'ln -s "$AUTH_SRC"'
+assert_grep "Grok write-backs auth on cleanup" "scripts/run-grok-review.sh" "tribunal_grok_auth_writeback"
+assert_grep "Grok requires signed-in session" "scripts/run-grok-review.sh" "tribunal_grok_authenticated"
 assert_grep "Grok disables web search" "scripts/run-grok-review.sh" "--disable-web-search"
 assert_grep "Grok pins a session id for resume" "scripts/run-grok-review.sh" "--session-id"
 assert_grep "Grok finalize resumes the same session" "scripts/run-grok-review.sh" "--resume"
@@ -1276,6 +1464,7 @@ assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=
 assert_json_field "opencode usage error preserves disabled markers" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=on bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' --bad-flag | jq -s -e 'length==2 and .[0].provider==\"glm\" and .[0].status==\"disabled\" and (.[1] | .provider==\"deepseek\" and has(\"error\"))'"
 test_qwen_envelope_parser
 test_claude_auth_guard
+test_grok_auth_guard
 test_preflight_smoke_probe
 test_claude_tmpdir_cleanup
 test_codex_pins gpt-5.6-sol medium no "codex defaults pin Sol and medium in argv"
@@ -1285,6 +1474,7 @@ test_codex_empty_output
 test_claude_execution_diagnostics
 test_claude_non_json_output
 test_grok_deterministic_completion
+test_grok_auth_copy_writeback
 test_codex_vacuous_guard BLOCK 0.0 "codex vacuous empty-BLOCK downgraded to leg error"
 test_codex_vacuous_guard NEEDS_WORK 7.5 "codex vacuous empty-NEEDS_WORK (nonzero quality) downgraded to leg error"
 test_codex_vacuous_guard " BLOCK " 0.0 "codex vacuous verdict tolerates surrounding whitespace"
