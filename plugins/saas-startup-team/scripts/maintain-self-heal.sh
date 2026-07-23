@@ -142,16 +142,15 @@ heal_worktrees() {
           remove_worktree "$candidate" "no-unique-commits" || true
           continue
         fi
-        if worktree_is_clean "$candidate"; then
-          # Clean tree with unique commits is still product WIP — do not delete.
-          extras=$((extras + 1))
-          RESIDUALS+=("foreign-worktree:$candidate")
-          log "residual foreign worktree (unique commits, clean): $candidate"
+        # Expeditor path: pin unique commits on a primary-reachable branch, then
+        # remove the linked worktree so primary-only maintain can resume the WIP.
+        if preserve_unique_commits_on_primary "$candidate"; then
+          remove_worktree "$candidate" "preserved-on-primary-branch" || true
           continue
         fi
         extras=$((extras + 1))
         RESIDUALS+=("foreign-worktree:$candidate")
-        log "residual foreign worktree (unique commits, dirty): $candidate"
+        log "residual foreign worktree (could not preserve unique commits): $candidate"
         ;;
     esac
   done < "$rows"
@@ -162,6 +161,48 @@ heal_worktrees() {
     log "dry-run: would git worktree prune"
   fi
   [ "$extras" -eq 0 ]
+}
+
+# Keep unique worktree commits reachable from a primary branch, then the worktree
+# can be removed safely. Prefer existing branch name; otherwise mint maintain/heal-*.
+preserve_unique_commits_on_primary() {
+  local path=$1 head short branch existing
+  head=$(git -C "$path" rev-parse HEAD 2>/dev/null) || return 1
+  short=$(git -C "$PRIMARY" rev-parse --short "$head" 2>/dev/null || printf '%.7s' "$head")
+  branch=$(git -C "$path" symbolic-ref -q --short HEAD 2>/dev/null || true)
+  case "$branch" in
+    ''|HEAD|main|master) branch="maintain/heal-$short" ;;
+  esac
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "dry-run: would pin $head as branch $branch then remove $path"
+    HEALED=$((HEALED + 1))
+    return 0
+  fi
+  if git -C "$PRIMARY" show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+    existing=$(git -C "$PRIMARY" rev-parse "refs/heads/$branch")
+    if [ "$existing" = "$head" ]; then
+      log "branch $branch already pins $short"
+      return 0
+    fi
+    if git -C "$PRIMARY" merge-base --is-ancestor "$existing" "$head" 2>/dev/null; then
+      git -C "$PRIMARY" branch -f "$branch" "$head" \
+        || { log "cannot fast-forward $branch to $short"; return 1; }
+      log "fast-forwarded $branch to $short"
+      HEALED=$((HEALED + 1))
+      return 0
+    fi
+    # Diverged: mint a heal branch so nothing is lost.
+    branch="maintain/heal-$short"
+  fi
+  if git -C "$PRIMARY" show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+    log "heal branch $branch already exists"
+    return 0
+  fi
+  git -C "$PRIMARY" branch "$branch" "$head" \
+    || { log "cannot create branch $branch at $short"; return 1; }
+  log "pinned unique commits as $branch ($short) for primary resume"
+  HEALED=$((HEALED + 1))
+  return 0
 }
 
 run_all() {

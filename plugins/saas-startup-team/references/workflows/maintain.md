@@ -101,6 +101,21 @@ different terminal to hide it. This root append uses `--command
 
 ## /maintain-loop coordinator
 
+Role: **expeditor and intelligence safety manager** — not a party stopper.
+
+- **Expeditor:** keep the portfolio moving. Heal environment shape, pin unique WIP onto
+  primary-reachable branches, dispatch the next `/maintain --once`, prefer resume over
+  greenfield, and treat recoverable friction as work to clear this tick — not a pause.
+- **Intelligence safety manager:** protect irreversible outcomes (merge, deploy, close)
+  via helper-owned proofs and leases. Never invent credentials, never skip tribunal/QA
+  gates, never dual-write terminals. Safety is precision of gates, not soft-blocking the
+  slot for hours on bookkeeping.
+- **Not a party stopper:** do not emit outer `pass-blocked` / `MC-BLOCKED` for path
+  aliases, disposable or preservable foreign worktrees, stale closed claims, process-env
+  vs primary `.env` false negatives, or other agent-recoverable classes after heal.
+  Soft-block only true external holds (legal/spend/non-revertable deploy, secrets absent
+  from both process and primary `.env`, live sibling still holding the lease).
+
 Accept the same public flags as `/maintain`; `--once` launches at most one child and
 all child calls add `--once`. Reject both internal arguments from the user. Before
 each probe, resolve and export one canonical `SAAS_INVOCATION_ID`: on the first pass
@@ -112,16 +127,18 @@ Require an absent or inherited `SAAS_INVOCATION_COMMAND` to resolve to
 `maintain-loop` and export it before the probe. Reject `maintain`, `goal-deliver`, or
 any unknown inherited value as inconsistent.
 
-Run `workflow-probe.sh maintain` first with the public flags. `--dry-run` is wholly
-read-only: it writes no event, mints no lease, and dispatches at most one fresh child.
-For a normal run that stops before a child identity exists, the coordinator alone
-appends exactly one completed root `pass-outcome --once`. Probe exit 3 is `no-op` with
-no terminal reason; probe exit 4 is `blocked/probe_failed`; any other nonzero probe is
-`failure/probe_failed`. If probe exit 0 is followed by unavailable dispatch tooling or
-a spawn call that fails before returning a valid child identity, append
-`blocked/invalid_workflow_state` and stop without waiting or retrying. These are the
-only coordinator-owned terminals. All coordinator-owned terminals use
-`agent-events.sh append --run-id
+Run `maintain-self-heal.sh all` on the primary root, then `workflow-probe.sh maintain`
+with the public flags. On probe exit 4, run self-heal once more and re-probe once before
+any coordinator-owned blocked terminal. `--dry-run` is wholly read-only: it writes no
+event, mints no lease, and dispatches at most one fresh child. For a normal run that
+stops before a child identity exists, the coordinator alone appends exactly one
+completed root `pass-outcome --once`. Probe exit 3 is `no-op` with no terminal reason;
+probe exit 4 after the heal+reprobe pair is `blocked/probe_failed` only for remaining
+true external holds; any other nonzero probe is `failure/probe_failed`. If probe exit 0
+is followed by unavailable dispatch tooling or a spawn call that fails before returning
+a valid child identity, append `blocked/invalid_workflow_state` and stop without waiting
+or retrying. These are the only coordinator-owned terminals. All coordinator-owned
+terminals use `agent-events.sh append --run-id
 "$SAAS_INVOCATION_ID" --command "$SAAS_INVOCATION_COMMAND" --phase pass-outcome --event-type
 completed --once` plus the stated outcome and optional registered terminal reason.
 Append refusal is itself terminal uncertainty; never try a competing append.
@@ -141,29 +158,27 @@ After a confirmed child exit on a normal run, execute
 authoritative child terminal and the coordinator appends nothing. After any dispatch
 that returned an identity, every nonzero lookup—missing, guarded/pending, malformed,
 incomplete, or conflicting—fails closed without appending an event. The coordinator
-never repairs child terminal state. An unknown-terminal child is never reaped.
+never fabricates a child terminal. An unknown-terminal child is never reaped.
 
 Only after terminal rc 0, reap with `maintain-leases.sh reap-terminal --run-id
 "$SAAS_INVOCATION_ID"`, then require `maintain-leases.sh available`; pass both the
 primary repository root. Dry-run never verifies a terminal or reaps a lease. Stop after
 the child under outer `--once` or `--dry-run`. Otherwise continue only after a
-`pass-complete` terminal; stop on a limit, no-work, `pass-blocked`, failure, unknown
-scope, or unknown child state.
+`pass-complete` terminal; stop on a limit, no-work, `pass-blocked` **after heal**, true
+external failure, unknown scope, or unknown child state. When the child reports
+`pass-blocked` for an agent-recoverable environment class, run self-heal, re-probe, and
+if work remains and the lease is free, treat the outer result as expedited recovery
+rather than a multi-hour soft-block: under non-`--once` mint a fresh root and continue;
+under `--once` still emit the blocked sentinel only when the residual is a true external
+hold, otherwise prefer `pass-complete` with residual noted in the run report.
 
 On outer `pass-blocked`, return exactly one standalone `PASS-BLOCKED reason=<reason>` line
 (legacy alias `MC-BLOCKED` is accepted by the governor). Derive `<reason>` from the
 child's `pass-blocked` blocker/result; replace CR/LF and all control characters with
 spaces; trim; use `unspecified` only if empty. Omit `recheck_after` (configured/default
 window). Never emit for `pass-complete` or an issue-local block completing the outer pass.
-
-**Autonomy rule — heal before block.** Before any outer `pass-blocked` / probe exit 4 for
-environment shape (receipts, worktrees, path aliases, local proof env), run
-`maintain-self-heal.sh all --repo-root "$(git rev-parse --show-toplevel)"` (the probe
-already does this). Prefer mechanical heal + continue over babysitting. Soft-block only
-true external holds (legal/spend/non-revertable deploy, missing host secrets not present
-in primary `.env`, active lease owned by a live sibling). Never multi-hour soft-block for
-path aliases (`/workspace` vs physical primary), disposable/merged foreign worktrees,
-stale closed claims, or "keys missing from process but present in primary `.env`".
+Never emit for healed-or-healable environment shape (receipts, path aliases, disposable
+or branch-preserved foreign worktrees, local proof env present in primary `.env`).
 
 ## Entry and setup
 
