@@ -399,26 +399,33 @@ receipt_schema_valid() {
 }
 
 # Single-worktree: controller tree must be the primary checkout only.
+# Accept path aliases that resolve to PRIMARY (e.g. /workspace -> real primary).
 normalize_controller_worktree() {
-  local wt=$1
+  local wt=$1 resolved
   case "$wt" in
-    "$PRIMARY") printf '%s\n' "$PRIMARY" ;;
-    *) return 1 ;;
+    "$PRIMARY") printf '%s\n' "$PRIMARY"; return 0 ;;
   esac
+  resolved=$(/usr/bin/readlink -f -- "$wt" 2>/dev/null || true)
+  [ -n "$resolved" ] && [ "$resolved" = "$PRIMARY" ] || return 1
+  printf '%s\n' "$PRIMARY"
 }
 
-# Eradicate pre-0.89.68 residue: schema-v2 receipts that still name the retired
-# maintain worktree are rewritten to PRIMARY before validation. No path alias
-# remains — after migration the on-disk value is primary-only.
+# Rewrite receipt worktree to the physical PRIMARY when it still names a retired
+# maintain worktree or a path alias (e.g. /workspace) that resolves to PRIMARY.
 migrate_legacy_receipt_worktree() {
-  local file=$1 schema wt tmp now
+  local file=$1 schema wt tmp now resolved
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
   schema=$(jq -r '.schema_version // empty' "$file") || return 1
   [ "$schema" = "2" ] || return 0
   wt=$(jq -r '.controller.worktree // empty' "$file") || return 1
+  [ -n "$wt" ] || return 1
   case "$wt" in
+    "$PRIMARY") return 0 ;;
     "$PRIMARY/.worktrees/maintain") ;;
-    *) return 0 ;;
+    *)
+      resolved=$(/usr/bin/readlink -f -- "$wt" 2>/dev/null || true)
+      [ -n "$resolved" ] && [ "$resolved" = "$PRIMARY" ] || return 0
+      ;;
   esac
   now=$(now_iso) || return 1
   tmp=$(mktemp "${file}.mig.XXXXXX") || return 1
@@ -1359,9 +1366,43 @@ tracked_command() {
   printf '%s\t%s\t%s\n' "$absolute" "$rel" "$blob"
 }
 
+# Load one named variable from a local gitignored dotenv without printing values.
+# Supports `NAME=value` and `export NAME=value`. Returns 0 only when non-empty.
+load_named_env_from_dotenv() {
+  local file=$1 name=$2 value
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  [[ "$name" =~ ^[A-Z][A-Z0-9_]{0,63}$ ]] || return 1
+  value=$(/usr/bin/bash -c '
+    set +u
+    set -a
+    # shellcheck disable=SC1090
+    source "$1" >/dev/null 2>&1 || exit 1
+    set +a
+    eval "printf %s \"\${$2-}\""
+  ' bash "$file" "$name") || return 1
+  [ -n "$value" ] || return 1
+  printf -v "$name" '%s' "$value"
+  export "$name"
+}
+
+# Source the primary checkout's local .env into this process when present.
+# Proof trees are git archives and lack gitignored secrets; local .env is the
+# intended credential source. Never source live production secret paths.
+source_primary_dotenv_for_proof() {
+  local env_file="$PRIMARY/.env"
+  [ -f "$env_file" ] && [ ! -L "$env_file" ] || return 0
+  set -a
+  # shellcheck disable=SC1090
+  source "$env_file" >/dev/null 2>&1 || {
+    set +a
+    die "primary .env exists but could not be sourced for proof credentials"
+  }
+  set +a
+}
+
 PROOF_PASS_ARGS=()
 build_proof_pass_args() {
-  local kind=$1 names="" name
+  local kind=$1 names="" name env_file
   local -a proof_names=()
   PROOF_PASS_ARGS=(
     --pass-env MAINTAIN_PROOF_KIND
@@ -1381,13 +1422,19 @@ build_proof_pass_args() {
   esac
   case "$names" in *$'\n'*|*$'\r'*|*$'\t'*) die "proof environment configuration is invalid" ;; esac
   read -r -a proof_names <<<"$names" || true
+  env_file="$PRIMARY/.env"
   for name in "${proof_names[@]}"; do
     [[ "$name" =~ ^[A-Z][A-Z0-9_]{0,63}$ ]] || die "proof environment name is invalid"
     case "$name" in
       GH_*|GITHUB_*|GIT_*|SSH_*|DOCKER_*|CODEX_*|CLAUDE_*|OPENAI_*|ANTHROPIC_*|GEMINI_*|GOOGLE_*|OPENROUTER_*|QWEN_*|DASHSCOPE_*|DEEPSEEK_*|OPENCODE_*|AWS_*|AZURE_*|KUBE*|CI_*|NPM_*|PYPI_*)
         die "proof environment configuration requested an infrastructure authority variable" ;;
     esac
-    [ "${!name+x}" = x ] || die "proof command requires unset environment variable $name"
+    if [ "${!name+x}" != x ] || [ -z "${!name}" ]; then
+      load_named_env_from_dotenv "$env_file" "$name" || true
+    fi
+    if [ "${!name+x}" != x ] || [ -z "${!name}" ]; then
+      die "proof command requires environment variable $name (unset in process and absent/empty in primary .env; do not read live production secret files)"
+    fi
     PROOF_PASS_ARGS+=(--pass-env "$name")
     [ "${#PROOF_PASS_ARGS[@]}" -le 41 ] || die "proof environment allowlist is too large"
   done
@@ -2140,6 +2187,9 @@ if [ "$ACTION" = record-proof ]; then
     [ -f "$archive_command" ] && [ ! -L "$archive_command" ] \
       || { rm -f -- "$tmp_out"; die "proof command is absent from the disposable commit"; }
     chmod 700 "$archive_command" || { rm -f -- "$tmp_out"; die "cannot make proof command executable"; }
+    # Disposable proof trees omit gitignored .env; load primary local credentials
+    # into this process so the proof child inherits them. Never read live /opt secrets.
+    source_primary_dotenv_for_proof
     build_proof_pass_args "$KIND"
     tmp_err="$proof_scratch/stderr"; sandbox_out="$proof_scratch/stdout"
     require_active_controller

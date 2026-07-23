@@ -518,6 +518,17 @@ DEPLOY_WORKFLOW
   assert_equals "MD0k1h: on-disk receipt has no .worktrees/maintain residue" \
     "$(jq -r .controller.worktree "$fresh_state_root/issue-1/current.json" \
       | grep -c '\.worktrees/maintain' || true)" 0
+  # Path alias that resolves to PRIMARY (e.g. /workspace) must migrate, not fail.
+  ln -sfn -- "$fresh_wt" "$fresh_repo/primary-alias"
+  jq --arg wt "$fresh_repo/primary-alias" '.controller.worktree = $wt' \
+    "$fresh_state_root/issue-1/current.json" > "$fresh_state_root/issue-1/current.json.tmp"
+  mv -- "$fresh_state_root/issue-1/current.json.tmp" "$fresh_state_root/issue-1/current.json"
+  assert_equals "MD0k1h2: show migrates primary path alias to physical primary" \
+    "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 \
+      | jq -r .controller.worktree)" "$fresh_wt"
+  assert_equals "MD0k1h3: on-disk receipt stores physical primary after alias migrate" \
+    "$(jq -r .controller.worktree "$fresh_state_root/issue-1/current.json")" "$fresh_wt"
+  rm -f -- "$fresh_repo/primary-alias"
   pending=$(bash "$delivery_impl" pending --repo-root "$fresh_repo")
   assert_equals "MD0k1i: pending reaches canonical route after worktree migration" \
     "$(jq -cS '.[0].controller_route' <<<"$pending")" \
@@ -1057,6 +1068,27 @@ HOSTILE_BASH_ENV
   assert_exit_code "MD5e2b: monitor findings block live proof" "$ec" 1
   assert_output_contains "MD5e2c: rejected findings retain diagnostic count" "$out" \
     "monitor hook reported 1 release-blocking finding(s)"
+  # Allowlisted proof env must exist in process or primary .env (never invent).
+  ec=0; out=$(env -u FIXTURE_MONITOR_MODE SAAS_MAINTAIN_LIVE_PROOF_ENV=MISSING_PROOF_SECRET \
+    bash "$script" record-proof --repo-root "$repo" --issue 1 --role normal --kind live \
+      --command-file "$monitor_command" --live-command-contract monitor-hook \
+        --deploy-run-id 1111 --live-target-source production 2>&1) || ec=$?
+  assert_exit_code "MD5e2c0: missing allowlisted proof env fails closed" "$ec" 1
+  assert_output_contains "MD5e2c0b: missing-env error names process and primary .env" "$out" \
+    "absent/empty in primary .env"
+  # Local primary .env fills allowlisted proof env when process lacks the var.
+  # Disposable proof trees are git archives and omit gitignored secrets.
+  printf 'export FIXTURE_MONITOR_MODE=ambient\n' > "$repo/.env"
+  chmod 600 "$repo/.env"
+  live_proof_path=$(env -u FIXTURE_MONITOR_MODE SAAS_MAINTAIN_LIVE_PROOF_ENV=FIXTURE_MONITOR_MODE \
+      bash "$script" record-proof --repo-root "$repo" --issue 1 --role normal --kind live \
+        --command-file "$monitor_command" --live-command-contract monitor-hook \
+          --deploy-run-id 1111 --live-target-source production)
+  assert_file_exists "MD5e2c0c: primary .env supplies missing live proof env" "$live_proof_path"
+  live_output="$(dirname -- "$live_proof_path")/$(jq -r .output_path "$live_proof_path")"
+  assert_equals "MD5e2c0d: dotenv-backed ambient monitor seals cleanly" \
+    "$(jq -r .capture.finding_count "$live_output")" 0
+  rm -f -- "$repo/.env"
   # Ambient funnel/LLM-gap metrics must not block release live-proof alone.
   # Use FIXTURE_MONITOR_MODE=ambient so the committed command blob still matches.
   live_proof_path=$(FIXTURE_MONITOR_MODE=ambient SAAS_MAINTAIN_LIVE_PROOF_ENV=FIXTURE_MONITOR_MODE \
