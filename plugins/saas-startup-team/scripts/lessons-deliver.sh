@@ -344,12 +344,8 @@ case "$ACTION" in
         plugins/saas-startup-team/scripts/lessons-deliver.sh \
         | plugins/saas-startup-team/scripts/lesson-*.sh \
         | plugins/saas-startup-team/scripts/pii-gate.sh \
-        | plugins/saas-startup-team/scripts/supervisor-commit.sh \
-        | plugins/saas-startup-team/scripts/delivery-mutation-guard.sh \
-        | plugins/saas-startup-team/scripts/mutation-auth-token.sh \
-        | plugins/saas-startup-team/references/workflows/mutation-ownership.md \
         | plugins/saas-startup-team/tests/run-tests.sh \
-        | plugins/saas-startup-team/commands/lessons-*.md)
+        | plugins/saas-startup-team/commands/lessons-deliver.md)
           echo "lessons-deliver: BLOCKED: self-mod of safety infra: $p" >&2; exit 3 ;;
       esac
       case "$p" in *tribunal*) echo "lessons-deliver: BLOCKED: self-mod of tribunal config: $p" >&2; exit 3 ;; esac

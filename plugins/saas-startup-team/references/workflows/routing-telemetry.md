@@ -66,10 +66,8 @@ remains strict and fails when that requested root is incomplete.
 must ignore null and `other` terminal reasons. Harvesting recurrence is outside the
 event library.
 
-When a role guard is active, the event library and Codex launcher automatically buffer
-events and raw Codex logs in the dedicated Git guard directory. Verification preflights
-the complete receipt batch, imports it into the canonical ignored runtime paths, and
-resumes idempotently after interruption. Do not write `.startup/runs/` directly or
+The event library and Codex launcher append directly to the canonical ignored runtime
+paths. Do not write `.startup/runs/` directly or
 invent a second buffering path. The default event path is always in the primary
 checkout; an explicit `--events` path remains an override.
 

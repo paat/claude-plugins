@@ -107,9 +107,9 @@ It must differ from `CONTROLLER_RUN_ID` and is never replaced during recovery.
 
 Heartbeat and revalidate the inherited lease before every helper transition and every
 external mutation. Never acquire or release a second goal lease. Run the source
-transaction and all receipt-authorized GitHub transitions in one continuous host shell;
-shell loss invalidates transient guard/trust evidence but not a validated durable
-delivery receipt. Append the exact `"${DELIVERY_CONTROLLER_ARGS[@]}"` tuple to every
+transaction and all receipt-authorized GitHub transitions under the active controller lease;
+shell loss does not invalidate a validated durable delivery receipt. Append the
+exact `"${DELIVERY_CONTROLLER_ARGS[@]}"` tuple to every
 mutating `maintain-delivery.sh` action; read-only actions need no controller tuple, and
 `archive-claimed` acquires its own idle cleanup lease. The helper binds that explicit
 controller to the repository and worktree before lock creation, heartbeat, receipt
@@ -141,8 +141,8 @@ validated merge budget, exact `--scope-json`, and
 must exist before branch creation or writer dispatch.
 
 Create the bounded prompt at the stable compatibility path above. Execute the source
-mutation only through `maintain-attempt.sh deliver`; it owns the mutation token,
-containment checks, route verification, trusted commit, and protected attempt result.
+mutation only through `maintain-attempt.sh deliver`; it owns the paused worker phase,
+route verification, checked thin commit, and protected attempt result.
 The profile selected by `goal-deliver.md` still controls the writer, but embedded
 mechanical/light work uses this transaction instead of the standalone `tweak-run.sh`
 branch path.
@@ -155,13 +155,12 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-attempt.sh" deliver \
   --controller-run-id "$CONTROLLER_RUN_ID" --child-run-id "$CHILD_RUN_ID" \
   --invocation-command "$INVOCATION_COMMAND" --attempt "$ATTEMPT" \
   --profile "$PROFILE" --task-file "$PROMPT" --message "$COMMIT_MESSAGE" \
-  --check "$CHECK_SCRIPT" --routing-reasons "$ROUTING_REASONS" \
-  "${ALLOW_ARGS[@]}"
+  --check "$CHECK_SCRIPT" --routing-reasons "$ROUTING_REASONS"
 ```
 
 Post-diff route exit 20 keeps the green candidate and continues commit (`promote_deep`);
 do not discard/rewrite for routing alone. Reserve cleanup + `authorize-restart` for true
-discards (allowlist violation, failed checks, untrusted tree):
+discards (failed checks or an untrusted tree):
 
 ```bash
 ESCALATION_ARGS=(
@@ -267,8 +266,8 @@ audit, and proof receipts, then alone invokes
 `gh pr merge --match-head-commit <receipt-head> --squash`. Embedded delivery never invokes `gh pr merge` directly.
 
 Call `record-merge --role normal` with no caller counter or snapshot.
-Read `MERGE_SHA` only from the updated receipt and use `maintain-attempt.sh reset` to put the dedicated
-worktree at that exact clean merge commit before live proof, passing the immutable
+Read `MERGE_SHA` only from the updated receipt and use `maintain-attempt.sh reset` to put the primary
+working tree at that exact clean merge commit before live proof, passing the immutable
 `--run-id "$ORIGIN_RUN_ID"` and current `--controller-run-id "$CONTROLLER_RUN_ID"` again.
 
 Run the common deploy/live verification in `goal-deliver.md`. Once it is green at

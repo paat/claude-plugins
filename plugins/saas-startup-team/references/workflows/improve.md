@@ -230,10 +230,9 @@ rm -rf "$IMPROVE_META"
 
 ## Step 1: Business Founder — Brief
 
-Before dispatch, read `mutation-ownership.md` and open a business role guard whose
-allowlist contains only the exact expected brief/handoff artifact. Verify it immediately
-after return. Product, workflow-spec, Git, and state mutations reject the phase. On a
-successful verification, the supervisor must replay `index-handoff.sh` for that exact
+Before dispatch, read `mutation-ownership.md` and set `SAAS_PHASE=business` so automatic
+hooks stay paused. Product, workflow-spec, Git, and state mutations remain outside this
+phase. After return, the supervisor must replay `index-handoff.sh` for the exact
 handoff, run `compact-state.sh`, and persist any verified durable `docs/` artifact with
 `commit-artifact.sh` before dispatching the tech phase.
 
@@ -266,9 +265,8 @@ If the business founder pushes back, relay their concerns to the investor. Proce
 
 ## Step 2: Tech Founder — Implementation
 
-Before dispatch, execute both preflights in `mutation-ownership.md`: create a tech role
-guard from the brief's exact source/test/workflow-spec/handoff scope, and snapshot
-`COMMIT_TRUST` for this HEAD. Verify the role guard before containment or commit.
+Before dispatch, follow the paused-worker flow in `mutation-ownership.md`. After return,
+run diff containment before the canonical check and thin commit.
 
 Use the host-native implementation path:
 
@@ -319,7 +317,7 @@ one Sol/medium fallback.
 The supervisor now owns the product commit. After the tech phase returns, stage the
 delivery, run the canonical gate, and commit the exact checked tree with hooks enabled:
 
-For a `light` attempt, inspect the guarded working tree with shared `check-diff --base
+For a `light` attempt, inspect the working tree with shared `check-diff --base
 "$ATTEMPT_BASE"` before committing. Continue
 only when it remains `profile=light` and, because this route is autonomous,
 `ui_touch=false`. Otherwise write a versioned escalation artifact, discard only this
@@ -328,25 +326,20 @@ light-to-deep transition is a hard failure.
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/supervisor-commit.sh" \
-  --message "improve: ${slug}" --check ./check.sh \
-  --trust-receipt "$COMMIT_TRUST" --auth-stdin <<<"$MUTATION_AUTH"
-QA_AUTH=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/mutation-auth-token.sh")
-QA_GUARD="$(git rev-parse --git-path "saas-startup-team/qa-${slug}.json")"
+  --message "improve: ${slug}" --check ./check.sh
 QA_REVIEW=".startup/reviews/improve-${slug}-${run_id}.md"
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/delivery-mutation-guard.sh" \
-  --snapshot "$QA_GUARD" --auth-stdin --allow "$QA_REVIEW" <<<"$QA_AUTH"
 ```
 
 If the check or commit fails, do not dispatch QA and do not push.
 After the commit succeeds, the supervisor must replay `index-handoff.sh` for the exact
-tech handoff and run `compact-state.sh` before opening the QA guard.
+tech handoff and run `compact-state.sh` before QA.
 
 ## Step 3: Business Founder — QA
 
 Spawn business founder via Agent tool with `subagent_type: "saas-startup-team:business-founder-maintain"`:
 
 Record this review-only Fable/high phase as `business-qa`; its terminal event includes
-the `qa` status code. The mutation guard result is a separate supervisor progress event.
+the `qa` status code.
 
 > Be token-frugal: read only what the task needs, in targeted ranges (not whole-file dumps), and never re-read content already in your context.
 >
@@ -370,15 +363,7 @@ the `qa` status code. The mutation guard result is a separate supervisor progres
 > standard review process. Do not create, replace, or delete any other review.
 > This is a review-only phase: read product code as needed, but write only the review artifact. Never modify source, tests, workflow specs, or state.
 
-Immediately after QA returns, enforce the boundary before reading its verdict:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/delivery-mutation-guard.sh" \
-  --verify "$QA_GUARD" --auth-stdin <<<"$QA_AUTH"
-```
-
-Any non-zero guard result is an unauthorized QA mutation: stop, report the changed
-paths, and do not commit or push them.
+Immediately after QA returns, read its verdict. QA remains review-only by contract.
 
 If the selected packs include `public_route_discoverability`, run
 `acceptance-packs.sh --verify-public-route "$QA_REVIEW"`. A nonzero result makes QA
@@ -407,22 +392,15 @@ In Codex, load the `tech-founder` skill in the current session or use
 `codex-run-role.sh --role tech-founder --profile "$PROFILE"` with a focused fix task;
 never read a `tech-founder-claude*` agent file or launch an unpinned worker.
 
-Before the fix writer, the supervisor creates a fresh tech role guard and a fresh
-`COMMIT_TRUST` from the current committed HEAD. It verifies the role guard, repeats
-`supervisor-commit.sh --trust-receipt "$COMMIT_TRUST" --auth-stdin <<<"$MUTATION_AUTH"`,
-refreshes `$QA_GUARD` with a fresh `$QA_AUTH`, then
-dispatches business founder for re-QA following Step 3 and verifies the guard again.
+Before the fix writer, the supervisor sets the worker phase, then repeats the
+diff-containment, thin-commit, and re-QA flow.
 
 **If FAIL (second attempt):** Proceed to **Finish** anyway — mark as draft so the investor can review and decide.
 
 ## Finish
 
-1. **Require the supervisor-gated product commit.** Product changes were committed
-   before each QA attempt. Do not catch stragglers or bypass hooks here:
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/delivery-mutation-guard.sh" \
-     --verify "$QA_GUARD" --auth-stdin <<<"$QA_AUTH"
-   ```
+1. **Require the checked product commit.** Product changes were committed with normal
+   hooks before each QA attempt. Do not catch stragglers or bypass hooks here.
 
 2. **Draft failed stay-mode PR, then push.** If the second QA attempt failed in
    `stay` mode and `$pr_url` exists, convert that PR to draft before pushing/reporting:

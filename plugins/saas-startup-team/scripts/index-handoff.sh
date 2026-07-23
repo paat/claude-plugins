@@ -11,7 +11,7 @@
 
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-bash "$SCRIPT_DIR/guard-active.sh" && exit 0
+bash "$SCRIPT_DIR/hooks-paused.sh" && exit 0
 
 input=$(cat || true)
 file_path=$(echo "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null) || exit 0

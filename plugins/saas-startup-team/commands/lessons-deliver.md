@@ -126,13 +126,9 @@ Each pass:
       `ATTEMPT_BRANCH="lesson/<N>-<slug>"` before running
       `git checkout -b "$ATTEMPT_BRANCH" "$ATTEMPT_BASE"` inside `$WT`.
    3. **Implement** — dispatch ONE fresh implementer for the current host:
-      Before dispatch, execute the tech role-guard and trusted-commit preflights in
-      `${CLAUDE_PLUGIN_ROOT}/references/workflows/mutation-ownership.md`. The role
-      allowlist is the exact lesson-approved plugin source/tests/manifests; verify it
-      immediately after return and before the firewall. Add
-      `--require-approved-diff --firewall-script
-      "${CLAUDE_PLUGIN_ROOT}/scripts/lessons-deliver.sh"` to this workflow's
-      trust-snapshot invocation.
+      Before dispatch, follow the paused-worker flow in
+      `${CLAUDE_PLUGIN_ROOT}/references/workflows/mutation-ownership.md`. After return,
+      run the lessons firewall before the canonical check and thin commit.
       - **Claude Code surface:** dispatch
         `subagent_type: "saas-startup-team:tech-founder-claude-maintain"`
         (Claude/Opus; the tribunal supplies the independent/Codex review).
@@ -161,14 +157,13 @@ Each pass:
       bash "${CLAUDE_PLUGIN_ROOT}/scripts/supervisor-commit.sh" \
         --message "lesson: #$N implementation" \
         --check plugins/saas-startup-team/tests/run-tests.sh \
-        --trust-receipt "$COMMIT_TRUST" --auth-stdin <<<"$MUTATION_AUTH"
+        --firewall-script "${CLAUDE_PLUGIN_ROOT}/scripts/lessons-deliver.sh"
       ```
       A firewall block (exit 3) is a **self-mod / out-of-tree / secret** violation →
       `lessons-deliver.sh --needs-human N --reason "<firewall reason>" --repo "$REPO"` and
       run **Failed-attempt cleanup** below before continuing to the next lesson (NOT
       `--block`).
-      Any tribunal fix gets a fresh role guard and `COMMIT_TRUST`, then returns through
-      this staged firewall/check/commit gate before the next review round; the controller
+      Any tribunal fix returns through this firewall/check/thin-commit gate before the next review round; the controller
       or reviewer never patches or commits product code.
       Record firewall/check/commit status as a supervisor progress event.
    5. **Tribunal gate** — load and follow `tribunal-review:closing-tribunal-loop`; run

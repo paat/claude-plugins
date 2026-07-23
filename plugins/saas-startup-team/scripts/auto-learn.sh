@@ -9,7 +9,7 @@
 # keeping CLAUDE.md lean. Requires: jq, awk.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-bash "$SCRIPT_DIR/guard-active.sh" && exit 0
+bash "$SCRIPT_DIR/hooks-paused.sh" && exit 0
 
 # Max staged learnings allowed in '### Recent (unsorted)' before auto-migration kicks in.
 # Guard a malformed override (empty/non-numeric/float) — a bad value would otherwise

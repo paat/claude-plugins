@@ -709,13 +709,10 @@ embedded receipt adapter owns discovery and the next durable transition. Multipl
 malformed, or unbound pending receipts fail the pass closed. Do not archive, replace, or
 hand-edit a receipt to make the normal queue appear empty.
 
-Run each inline delivery's authenticated mutation window in one continuous host
-shell. Mint its mutation token, snapshot its guards and commit trust, run the
-writer, verify containment, route the post-diff, and consume the trust receipt in
-the full-check/commit gate without returning across a model tool-call boundary.
-Never persist or print the token. A lost shell invalidates that attempt and its
-receipts: reset the primary tree and start a fresh attempt instead of
-discarding a valid candidate later with an unauthenticated reused receipt.
+Run each inline delivery under the active controller lease. Set
+`SAAS_PHASE=implementation`, run the writer, route the post-diff, then use the thin
+full-check/commit gate with normal Git hooks. A lost shell leaves no transient
+authorization receipt to recover; resume from durable Git and delivery-receipt state.
 
 ### WIP selection & Idempotency (no claims)
 

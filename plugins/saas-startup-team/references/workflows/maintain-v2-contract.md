@@ -13,7 +13,7 @@ ceremony is not the unit of work. Issues on `main` via **auto-merge** are.
 **Hard gate: primary working dir only. No linked git worktrees.**
 
 **Pause / resume (temporal ownership, not spatial):**
-- Loop owns the tree while maintain is active (`guard-active.sh` `*.active` markers stand down background hooks).
+- Loop owns the tree while maintain is active; worker phases export `SAAS_PHASE`, and `hooks-paused.sh` stands down background hooks.
 - Human work requires pausing the portfolio; the primary tree may then be dirty.
 - Loop resumes only on a clean primary (dirty product tree stops maintain).
 

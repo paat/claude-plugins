@@ -152,8 +152,8 @@ either. Profile overrides use `SAAS_CODEX_<PROFILE>_MODEL` and
 `SAAS_CODEX_<PROFILE>_EFFORT`; they remain explicit launch arguments. Terra falls back
 once to Sol/medium only when Codex reports that Terra itself is unavailable. Every
 Codex role launches with `--dangerously-bypass-approvals-and-sandbox` inside the
-dev-container security boundary. Read-only and writer distinctions remain prompt and
-mutation-guard contracts, not nested Codex sandboxes. Legacy `CODEX_SANDBOX` and
+dev-container security boundary. Read-only and writer distinctions remain role
+contracts, not nested Codex sandboxes. Legacy `CODEX_SANDBOX` and
 `SAAS_CODEX_NETWORK_ACCESS` values cannot narrow or block that fixed launch policy.
 
 On Claude hosts, non-trivial Codex-routed handoffs first run a plan-only **architect pass** through the registered Claude role (interface contracts, file map, invariants, test plan → `NNN-tech-plan.md`), then Codex implements from handoff + plan. Codex hosts run the equivalent model-neutral architect role phase without launching Claude — see `skills/startup-orchestration/SKILL.md` §1c.
@@ -458,14 +458,8 @@ The supervisor also stops on deploy failure (unrecoverable infra/flaky issues ha
   retained process-token sweep serving only as a cleanup backstop.
 - **Authenticated `gh` (GitHub CLI)** and standard tooling: `bash` 4+, `git`, `jq`,
   `awk`, `sed`, OpenSSL, GNU coreutils `date`/`timeout`/`realpath`/`sha256sum`, and
-  util-linux `flock` and `setpriv`, GNU findutils, Python 3, and
-  `tar`. The fresh Codex delivery gate uses Python
-  to seal preinstalled dependency trees before copying them into read-only check volumes.
-- **Codex unrestricted-mode support plus Docker CLI/socket access** from the dev container.
-  Supervisor checks run from the sealed current dev-container image with private process
-  and network namespaces; the commit path fails closed when these controls are unavailable.
-  Required system toolchains must be baked into that image: lifecycle installs made only
-  in the running container's writable layer are deliberately excluded from trusted checks.
+  util-linux `flock` and `setpriv`, GNU findutils, Python 3, and `tar`.
+- **Codex unrestricted-mode support** from the dev container.
 - **Optional `curl`** for `market-scout.sh --source-url`; without it, market scouting still
   runs source JSON ingestion or the internal discovery fallback.
 - **Dev container only** (inherits the plugin's dev-container-only design).
@@ -531,6 +525,8 @@ gate → `run-tests.sh` → dual version bump (`plugin.json` **and** `marketplac
 PR with `Closes #N` → merge on green → ship. The deterministic, fail-closed surface lives
 in `scripts/lessons-deliver.sh` (tested by Suite L with a mock-`gh` harness).
 
+The delivery quality chain is locked: agent → tests → commit/PR → tribunal → merge.
+
 **The mechanical firewall** treats lesson bodies as untrusted: it blocks any change outside
 `plugins/` (+ the root marketplace manifest), any change to the loop's own safety
 infrastructure (self-modification → `lessons:needs-human`), and any secret in the diff
@@ -563,7 +559,6 @@ runs in each **product** repo.
   datalake API checks.
 - **Linux ptrace support** — required by the lease holder, subject to the compatibility
   limits under **Single-flight leases** above.
-- **Linux Landlock ABI 5–10** — required for fail-closed filesystem containment of tracked QA and live-proof commands.
 - **est-saas-datalake API (required for `/lawyer`)** — the Lawyer's Estonian legal analysis and law-change monitoring query an external est-saas-datalake service. Two environment variables control access:
   - `DATALAKE_URL` — API base URL. Defaults to `https://datalake.r-53.com`; export it to point `/lawyer` (command, agent, and `scripts/lawyer-*.sh`) at your own datalake deployment.
   - `EST_DATALAKE_API_KEY` — API key sent as the `X-API-Key` header. **Required** — `/lawyer` pre-flight hard-fails if it is unset. Set it with `export EST_DATALAKE_API_KEY=your-key`.

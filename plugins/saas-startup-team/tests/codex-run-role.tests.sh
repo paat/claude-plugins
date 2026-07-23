@@ -562,44 +562,6 @@ SH
   assert_exit_code "CR18: launcher rejects a symlink log directory" "$ec" 4
   rm -f -- "$logs"; mv -- "$moved_logs" "$logs"
 
-  guard_dir="$(git -C "$repo" rev-parse --absolute-git-dir)/saas-startup-team"
-  mkdir -p "$guard_dir"; printf 'forged\n' > "$guard_dir/forged.verified"; rm -f "$called"
-  ec=0
-  out=$(cd "$repo" && PATH="$bin:$PATH" FAKE_CALLED="$called" \
-    SAAS_AGENT_EVENTS_FILE="$events" SAAS_CODEX_LOG_DIR="$logs" SAAS_RUN_ID=forged-marker \
-    bash "$script" --role qa --profile deep --task-file task.md 2>&1) || ec=$?
-  assert_exit_code "CR19: terminal marker without active guard fails closed" "$ec" 4
-  assert_file_not_exists "CR20: forged terminal marker cannot launch Codex" "$called"
-
-  rm -f "$guard_dir/forged.verified"
-  logs="$repo/.startup/runs/codex"; mkdir -p "$logs"
-  for oldest in 1 2 3; do
-    printf 'old\n' > "$logs/old-$oldest.jsonl"
-    touch -d "@$oldest" "$logs/old-$oldest.jsonl"
-  done
-  auth=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  snapshot="$guard_dir/guarded-retention.json"
-  (cd "$repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --snapshot "$snapshot" --auth-stdin --allow review.md <<<"$auth" >/dev/null)
-  ec=0
-  out=$(cd "$repo" && PATH="$bin:$PATH" SAAS_CODEX_LOG_RETENTION_FILES=1 \
-    SAAS_RUN_ID=guarded-retention bash "$script" \
-    --role qa --profile deep --task-file task.md 2>&1) || ec=$?
-  assert_exit_code "CR21: guarded role buffers a valid result" "$ec" 0
-  receipt=$(find "$guard_dir" -maxdepth 1 -name 'guarded-retention.json.telemetry-*.json' -print -quit)
-  assert_equals "CR22: guarded receipt preserves the requested retention" \
-    "$(jq -r .log_retention_files "$receipt")" 1
-  (cd "$repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --verify "$snapshot" --auth-stdin <<<"$auth" >/dev/null)
-  assert_file_not_exists "CR23: guarded import prunes the oldest historical log" \
-    "$logs/old-1.jsonl"
-  assert_file_not_exists "CR24: guarded import enforces the historical file bound" \
-    "$logs/old-2.jsonl"
-  assert_file_exists "CR25: guarded import retains the newest historical log" \
-    "$logs/old-3.jsonl"
-  assert_equals "CR26: guarded import retains the current full event log" \
-    "$(find "$logs" -mindepth 2 -maxdepth 2 -name 'guarded-retention-qa-1.jsonl' | wc -l | tr -d ' ')" 1
-
   rm -rf "$repo" "$bin"
 }
 

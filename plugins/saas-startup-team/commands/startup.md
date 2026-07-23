@@ -225,10 +225,8 @@ Persistent Agent Teams cannot be dismissed and accumulate as zombie processes. A
 dispatches use the same one-shot pattern described in Step 5.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/workflows/mutation-ownership.md` first. Run the
-initial business and architecture phases sequentially under separate role guards: the
-business allowlist is its exact research/brief/handoff outputs, and the architecture
-allowlist is only `docs/architecture/architecture.md`. Verify each guard before starting
-the next phase. After each successful verification, the supervisor must persist every
+initial business and architecture phases sequentially with `SAAS_PHASE` set so automatic
+hooks stay paused. After each successful phase, the supervisor must persist every
 verified durable `docs/` file with `commit-artifact.sh`, replay `index-handoff.sh` for
 the exact handoff, and run `compact-state.sh` before the next dispatch.
 
@@ -349,10 +347,9 @@ handoff file with `delivery-route.sh classify --mode autonomous`. Exit 2 stops; 
 sets `PROFILE=deep`. A mechanical result may run only an exact named script. Pass the
 accepted profile and stable routing reasons to the selected tech role, then send:
 
-Before this tech dispatch, execute the tech role-guard and trusted-commit preflights in
-`${CLAUDE_PLUGIN_ROOT}/references/workflows/mutation-ownership.md`. Allow only the exact
-source/test/workflow-spec paths approved by the handoff plus the expected tech handoff.
-After return, verify the role guard before diff containment.
+Before this tech dispatch, follow the worker pause and thin-commit flow in
+`${CLAUDE_PLUGIN_ROOT}/references/workflows/mutation-ownership.md`. After return, run
+diff containment before the canonical check and commit.
 
 > **New task: Implement handoff NNN.**
 > Execution profile: `{PROFILE}`. A Codex controller must pass this exact profile to
@@ -379,13 +376,8 @@ dispatch QA or repeat the light-to-deep transition.
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/supervisor-commit.sh" \
-  --message "tech-founder: handoff ${handoff_number}" --check ./check.sh \
-  --trust-receipt "$COMMIT_TRUST" --auth-stdin <<<"$MUTATION_AUTH"
-QA_AUTH=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/mutation-auth-token.sh")
-QA_GUARD="$(git rev-parse --git-path "saas-startup-team/qa-handoff-${handoff_number}.json")"
+  --message "tech-founder: handoff ${handoff_number}" --check ./check.sh
 QA_REVIEW=".startup/reviews/handoff-${handoff_number}-${run_id}.md"
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/delivery-mutation-guard.sh" \
-  --snapshot "$QA_GUARD" --auth-stdin --allow "$QA_REVIEW" <<<"$QA_AUTH"
 ```
 
 If the gate fails, do not dispatch QA. Otherwise update state as supervisor, read the
@@ -408,11 +400,9 @@ both operations.
 > This is review-only: do not write a handoff or signoff and do not modify source,
 > tests, workflow specs, or state.
 
-Immediately after the reviewer returns, run
-`delivery-mutation-guard.sh --verify "$QA_GUARD" --auth-stdin <<<"$QA_AUTH"`. Reject any unauthorized mutation;
-only then read the verdict. On `FAIL`, dispatch a fresh business-founder brief phase to
-turn the verified review into the next business-to-tech feedback handoff; that separate
-phase uses a business role guard and may write only the exact brief/handoff with proposed
+Immediately after the reviewer returns, read the verdict. On `FAIL`, dispatch a fresh
+business-founder brief phase to turn the review into the next business-to-tech feedback
+handoff; that separate phase may write only the exact brief/handoff with proposed
 workflow-spec deltas. On `PASS`, the
 supervisor mechanically materializes the roundtrip signoff from the verified PASS review,
 updates supervisor-owned state, and releases the relay lease.
@@ -430,8 +420,7 @@ roundtrip signoff:
 3. The business founder should read their research docs and the brief to decide the next priority feature
 4. Only pause the loop if iteration limit is approaching or the business founder signals solution signoff
 
-Every next-feature dispatch uses and verifies a business role guard from
-`mutation-ownership.md`; only its exact new handoff/brief artifacts are allowed.
+Every next-feature dispatch follows the paused-worker flow in `mutation-ownership.md`.
 
 ### Why explicit relay matters
 

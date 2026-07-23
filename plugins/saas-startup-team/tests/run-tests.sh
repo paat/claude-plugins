@@ -1276,8 +1276,8 @@ test_maintain() {
   assert_file_contains "M45a4: maintain consumes stale blocked-label cleanup" "$cmd" ".cleanup.stale_maintain_blocked"
   assert_file_contains "M45a5: maintain uses foreground lease-set hold" "$cmd" 'maintain-leases.sh" hold'
   assert_file_contains "M45a6: maintain bounds foreground lease lifetime" "$cmd" '--max-seconds 14400'
-  assert_file_contains "M45a7: maintain keeps authenticated delivery in one host shell" "$cmd" \
-    "one continuous host"
+  assert_file_contains "M45a7: maintain keeps delivery under the controller lease" "$protocol" \
+    "active controller lease"
   assert_file_contains "M45a8: maintain resumes from git after shell loss" "$cmd" \
     "resume from pushed branch/PR, not from zero"
   assert_file_contains "M45a9: maintain processes resumable PRs before new work" "$protocol" \
@@ -5551,9 +5551,8 @@ test_autonomous_demand_infra() {
     "$health" 'CODEX_SANDBOX'
   for s in "$health" "$lease" "$packs" "$demand" "$market" "$closure" \
     "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" \
-    "$PLUGIN_ROOT/scripts/supervisor-check-container.sh" \
-    "$PLUGIN_ROOT/scripts/bind-dependency-runtime-view.sh" \
     "$PLUGIN_ROOT/scripts/supervisor-commit.sh" \
+    "$PLUGIN_ROOT/scripts/hooks-paused.sh" \
     "$PLUGIN_ROOT/scripts/maintain-leases.sh"; do
     ec=0; bash -n "$s" || ec=$?
     assert_exit_code "AD syntax: $(basename "$s")" "$ec" 0
@@ -6636,7 +6635,7 @@ diff --git a/plugins/saas-startup-team/scripts/supervisor-commit.sh b/plugins/sa
 +worker-controlled
 EOF
   ec=0; output=$(bash "$script" --firewall "$workdir/d.diff" 2>&1) || ec=$?
-  assert_exit_code "L11a: supervisor trust code self-mod blocked" "$ec" 3
+  assert_exit_code "L11a: thin commit helper is outside the firewall self-blocklist" "$ec" 0
 
   cat > "$workdir/d.diff" <<'EOF'
 diff --git a/plugins/x b/plugins/decoy b/plugins/saas-startup-team/scripts/lessons-deliver.sh

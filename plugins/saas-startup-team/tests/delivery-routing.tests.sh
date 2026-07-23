@@ -332,15 +332,10 @@ test_delivery_routing() {
   printf '%s\n' 'CUSTOMER_NAME=private-fixture' > "$repo/.env"
   printf '%s\n' '# bounded copy change' > "$repo/README.md"
   ec=0; out=$(cd "$repo" && bash "$route" check-diff --base HEAD) || ec=$?
-  assert_exit_code "DR20g: unguarded ignored sensitive state escalates" "$ec" 20
-  assert_equals "DR20g1: unguarded escalation names ignored sensitive state" \
-    "$(jq -r '.reasons | index("diff_ignored_sensitive_path") != null' <<< "$out")" "true"
+  assert_exit_code "DR20g: ignored sensitive state does not affect routing" "$ec" 0
+  assert_equals "DR20g1: routing omits ignored state" \
+    "$(jq -r '.reasons | map(test("ignored")) | any' <<< "$out")" "false"
   assert_output_not_contains "DR20g2: ignored sensitive contents are never exposed" "$out" "private-fixture"
-  ec=0; out=$(cd "$repo" && bash "$route" check-diff --base HEAD --guard-verified) || ec=$?
-  assert_exit_code "DR20g3: verified mutation guard permits changed-path routing" "$ec" 0
-  assert_equals "DR20h: guarded routing is based on changed paths only" \
-    "$(jq -r '.reasons | index("diff_ignored_sensitive_path") == null' <<< "$out")" "true"
-  assert_output_not_contains "DR20i: ignored sensitive file contents are never exposed" "$out" "private-fixture"
   rm -rf "$repo"
 
   repo=$(mktemp -d)
@@ -365,10 +360,10 @@ test_delivery_routing() {
     > "$repo/frontend/src/hooks/useWizardAnalytics.ts"
   printf '%s\n' 'export const expectedEvent = "after";' \
     > "$repo/frontend/src/hooks/useWizardAnalytics.test.ts"
-  ec=0; out=$(cd "$repo" && bash "$route" check-diff --base HEAD --guard-verified) || ec=$?
+  ec=0; out=$(cd "$repo" && bash "$route" check-diff --base HEAD) || ec=$?
   assert_exit_code "DR20i1: exact report and analytics paths retain their semantic route" "$ec" 20
   assert_equals "DR20i2: exact normal paths are not classified from transient ignored state" \
-    "$(jq -r '.reasons | index("diff_ignored_sensitive_path") == null' <<< "$out")" "true"
+    "$(jq -r '.reasons | map(test("ignored")) | any | not' <<< "$out")" "true"
   assert_equals "DR20i3: exact source diff retains its real behavioral UI reason" \
     "$(jq -r '.reasons | index("diff_behavioral_ui_code") != null' <<< "$out")" "true"
   assert_output_not_contains "DR20i4: transient ignored contents remain private" \

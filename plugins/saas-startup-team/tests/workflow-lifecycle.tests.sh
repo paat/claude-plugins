@@ -185,12 +185,12 @@ test_workflow_lifecycle_safety() {
   assert_before "WL7g: canonical base gate precedes writer dispatch" "$maintain_receipts" \
     'maintain-attempt.sh" base-check' \
     'maintain-attempt.sh deliver'
-  assert_file_contains "WL7h: maintain keeps auth receipts in one shell" "$maintain_protocol" \
-    'one continuous host'
-  assert_file_contains "WL7i: embedded adapter keeps auth in one host shell" "$maintain_receipts" \
-    'one continuous host shell'
-  assert_file_contains "WL7j: embedded adapter rejects cross-shell transient reuse" "$maintain_receipts" \
-    'shell loss invalidates transient guard/trust evidence'
+  assert_file_contains "WL7h: maintain pauses worker hooks" "$maintain_protocol" \
+    'SAAS_PHASE=implementation'
+  assert_file_contains "WL7i: embedded adapter retains controller lease ownership" "$maintain_receipts" \
+    'active controller lease'
+  assert_file_contains "WL7j: embedded adapter keeps durable recovery authority" "$maintain_receipts" \
+    'validated durable delivery receipt'
   assert_file_exists "WL7j0: model-free escalation authority exists" "$maintain_escalation"
   assert_file_contains "WL7j1: adapter delegates cleanup proof to helper" "$maintain_receipts" \
     'maintain-escalation.sh" cleanup'
@@ -198,10 +198,10 @@ test_workflow_lifecycle_safety() {
     'authorize-restart'
   assert_file_contains "WL7j3: restart authority enforces canonical false polarity" "$maintain_escalation" \
     'open_pr:false,remote_branch:false,head_at_base:true,worktree_clean:true'
-  assert_file_contains "WL7j4: mutation ownership matches terminal marker retirement" \
-    "$mutation_ownership" 'retires the active marker on every terminal'
-  assert_file_not_contains "WL7j5: rejection never preserves a stale active marker" \
-    "$mutation_ownership" 'leave the active marker in place'
+  assert_file_contains "WL7j4: mutation ownership requires expected commit parent" \
+    "$mutation_ownership" 'expected base'
+  assert_file_contains "WL7j5: mutation ownership keeps tribunal after commit" \
+    "$mutation_ownership" 'tribunal'
   assert_file_contains "WL7s: maintain-loop entry forwards read-only dry-run" "$maintain_loop_entry" \
     '--dry-run'
   assert_before "WL7v: maintain resolves queue roots before dry-run branch" "$maintain_protocol" \

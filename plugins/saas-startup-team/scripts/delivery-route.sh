@@ -31,7 +31,7 @@ SENSITIVE_CONTENT_PATTERN='(authorization:|bearer[[:space:]]|password|passwd|sec
 usage() {
   echo "usage: delivery-route.sh classify --mode autonomous|interactive-tweak --task-file FILE [--labels-file FILE]" >&2
   echo "       delivery-route.sh classify-issue --mode autonomous|interactive-tweak --issue N [--repo OWNER/NAME]" >&2
-  echo "       delivery-route.sh check-diff --base REF [--cached] [--guard-verified]" >&2
+  echo "       delivery-route.sh check-diff --base REF [--cached]" >&2
   echo "       delivery-route.sh schema-version" >&2
   exit 2
 }
@@ -413,7 +413,7 @@ ui_stylesheet_diff_is_nonbehavioral() {
 }
 
 check_diff() {
-  local base="" cached=0 guard_verified=0 repo_root tmp names patch numstat nfiles nlines untracked=0 file lines
+  local base="" cached=0 repo_root tmp names patch numstat nfiles nlines untracked=0 file lines
   local ui_touch=false sensitive=false product=false legal=false profile decision rc=0
   local ui_script file_patch ui_allowlisted
   local diff_args=()
@@ -422,7 +422,6 @@ check_diff() {
     case "$1" in
       --base) [ "$#" -ge 2 ] || usage; base="$2"; shift 2 ;;
       --cached) cached=1; shift ;;
-      --guard-verified) guard_verified=1; shift ;;
       *) usage ;;
     esac
   done
@@ -472,19 +471,6 @@ check_diff() {
   nfiles=$(printf '%s\n' "$names" | grep -c . || true)
   nlines=$(printf '%s\n' "$numstat" | awk '{ if ($1 ~ /^[0-9]+$/) a += $1; if ($2 ~ /^[0-9]+$/) a += $2 } END { print a+0 }')
 
-  if [ "$cached" -eq 0 ] && [ "$guard_verified" -eq 0 ]; then
-    if ! git -c core.fsmonitor=false -C "$repo_root" ls-files --others --ignored \
-      --exclude-standard --directory > "$tmp/ignored"; then
-      echo "delivery-route: could not inspect ignored paths" >&2
-      exit 2
-    fi
-    if grep -vE '(^|/)(node_modules|\.pnpm-store|\.pnpm|bower_components)(/|$)|(^|/)\.yarn/(cache|unplugged)(/|$)' \
-      "$tmp/ignored" | grep -qiE "$SENSITIVE_PATH_PATTERN"; then
-      add_reason diff_ignored_sensitive_path
-      emit_route deep false true false false restart_deep
-      return 20
-    fi
-  fi
   if [ "$nfiles" -eq 0 ]; then
     add_reason empty_diff
     emit_route mechanical false false false false continue

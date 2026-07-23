@@ -261,93 +261,6 @@ case "$LOG_DESTINATION" in /*) : ;; *) LOG_DESTINATION="$REPO_ROOT/$LOG_DESTINAT
 EVENTS_FILE=$EVENTS_DESTINATION
 LOG_DIR=$LOG_DESTINATION
 LOG_FILE=${SAAS_CODEX_LOG_FILE:-}
-GUARDED_TELEMETRY=0
-GUARDED_RECEIPT=""
-GIT_DIR=$(git -C "$REPO_ROOT" rev-parse --absolute-git-dir)
-GIT_DIR=$(cd "$GIT_DIR" && pwd -P)
-GUARD_DIR="$GIT_DIR/saas-startup-team"
-ACTIVE_GUARD=""
-if [ -d "$GUARD_DIR" ]; then
-  [ ! -L "$GUARD_DIR" ] && [ "$(cd "$GUARD_DIR" && pwd -P)" = "$GUARD_DIR" ] || {
-    echo "codex-run-role: unsafe mutation guard directory" >&2; exit 4; }
-  shopt -s nullglob
-  terminal_markers=("$GUARD_DIR"/*.verified)
-  active_guards=("$GUARD_DIR"/*.active)
-  shopt -u nullglob
-  [ "${#terminal_markers[@]}" -eq 0 ] || {
-    echo "codex-run-role: incomplete mutation guard import blocks a new worker" >&2; exit 4; }
-  [ "${#active_guards[@]}" -le 1 ] || {
-    echo "codex-run-role: multiple active mutation guards" >&2; exit 4; }
-  if [ "${#active_guards[@]}" -eq 1 ]; then
-    ACTIVE_GUARD=${active_guards[0]}
-    [ -f "$ACTIVE_GUARD" ] && [ ! -L "$ACTIVE_GUARD" ] || {
-      echo "codex-run-role: unsafe active mutation guard" >&2; exit 4; }
-  fi
-fi
-BUFFER_REQUIRED=0
-case "$EVENTS_DESTINATION" in "$REPO_ROOT"/*) BUFFER_REQUIRED=1 ;; esac
-case "$LOG_DESTINATION" in "$REPO_ROOT"/*) BUFFER_REQUIRED=1 ;; esac
-if [ -n "$ACTIVE_GUARD" ] && [ "$BUFFER_REQUIRED" -eq 1 ]; then
-  case "$EVENTS_DESTINATION:$LOG_DESTINATION" in
-    "$REPO_ROOT"/*:"$REPO_ROOT"/*) : ;;
-    *) echo "codex-run-role: guarded telemetry destinations must both be inside or outside the guarded worktree" >&2; exit 4 ;;
-  esac
-  [ "$EVENTS_DESTINATION" = "$REPO_ROOT/.startup/runs/agent-events.jsonl" ] \
-    && [ "$LOG_DESTINATION" = "$REPO_ROOT/.startup/runs/codex" ] || {
-      echo "codex-run-role: guarded telemetry must use the canonical local destinations" >&2
-      exit 4
-    }
-  GUARDED_TELEMETRY=1
-  buffer_prefix=${ACTIVE_GUARD%.active}
-  buffer_id=$("$SCRIPT_DIR/mutation-auth-token.sh")
-  buffer_id=${buffer_id:0:32}
-  EVENTS_FILE="$buffer_prefix.events-$buffer_id.jsonl"
-  LOG_DIR="$buffer_prefix.logs-$buffer_id"
-  LOG_FILE=""
-  GUARDED_RECEIPT="$buffer_prefix.telemetry-$buffer_id.json"
-  [ ! -e "$EVENTS_FILE" ] && [ ! -L "$EVENTS_FILE" ] \
-    && [ ! -e "$LOG_DIR" ] && [ ! -L "$LOG_DIR" ] \
-    && [ ! -e "$GUARDED_RECEIPT" ] && [ ! -L "$GUARDED_RECEIPT" ] || {
-      echo "codex-run-role: guarded telemetry buffer collision" >&2; exit 4; }
-  safe_directory "$LOG_DIR" || {
-    echo "codex-run-role: unsafe guarded log buffer directory" >&2; exit 4; }
-  guard_identity="${buffer_prefix}.telemetry-identity-key"
-  if [ -e "$guard_identity" ] || [ -L "$guard_identity" ]; then
-    [ -f "$guard_identity" ] && [ ! -L "$guard_identity" ] || {
-      echo "codex-run-role: unsafe guarded telemetry identity" >&2; exit 4; }
-  else
-    identity_tmp=$(mktemp "${guard_identity}.tmp.XXXXXX")
-    if [ -s "${EVENTS_DESTINATION}.identity-key" ]; then
-      [ -f "${EVENTS_DESTINATION}.identity-key" ] && [ ! -L "${EVENTS_DESTINATION}.identity-key" ] || {
-        rm -f "$identity_tmp"
-        echo "codex-run-role: unsafe telemetry identity key" >&2; exit 4; }
-      cp -- "${EVENTS_DESTINATION}.identity-key" "$identity_tmp"
-    else
-      "$SCRIPT_DIR/mutation-auth-token.sh" > "$identity_tmp"
-    fi
-    chmod 600 "$identity_tmp"
-    if ! ln -- "$identity_tmp" "$guard_identity" 2>/dev/null; then
-      [ -f "$guard_identity" ] && [ ! -L "$guard_identity" ] || {
-        rm -f "$identity_tmp"
-        echo "codex-run-role: could not initialize guarded telemetry identity" >&2; exit 4; }
-    fi
-    rm -f "$identity_tmp"
-  fi
-  cp -- "$guard_identity" "${EVENTS_FILE}.identity-key"
-  chmod 600 "${EVENTS_FILE}.identity-key"
-  : > "$EVENTS_FILE"
-  chmod 600 "$EVENTS_FILE"
-  receipt_tmp=$(mktemp "${GUARDED_RECEIPT}.tmp.XXXXXX")
-  jq -n --arg buffer_id "$buffer_id" --arg source "$EVENTS_FILE" \
-    --arg destination "$EVENTS_DESTINATION" --arg log_source "$LOG_DIR" \
-    --arg log_destination "$LOG_DESTINATION" \
-    --argjson log_retention_files "$GUARDED_LOG_RETENTION_FILES" \
-    '{schema_version:2,buffer_id:$buffer_id,source:$source,destination:$destination,
-      log_source:$log_source,log_destination:$log_destination,
-      log_retention_files:$log_retention_files}' > "$receipt_tmp"
-  chmod 600 "$receipt_tmp"
-  mv -- "$receipt_tmp" "$GUARDED_RECEIPT"
-fi
 if [ -n "$LOG_FILE" ]; then
   case "$LOG_FILE" in /*) : ;; *) LOG_FILE="$REPO_ROOT/$LOG_FILE" ;; esac
   LOG_FILE=$(safe_output_path "$LOG_FILE") || {
@@ -847,7 +760,7 @@ bounded_terminal_stream() {
 prune_log_dir() {
   local total_bytes=0 log_bytes log excess i
   local -a old_logs=()
-  [ -z "$LOG_FILE" ] && [ "$GUARDED_TELEMETRY" -eq 0 ] || return 0
+  [ -z "$LOG_FILE" ] || return 0
   # Fail closed if any retention-name match is not a regular file (e.g. symlink).
   if find "$LOG_DIR" -mindepth 1 -maxdepth 1 \
     \( -name '*.jsonl' -o -name '*.jsonl.stderr' -o -name '*.jsonl.last-message' \) \
@@ -977,10 +890,6 @@ record_event --event-type completed --started-at "$STARTED_AT" --finished-at "$F
     echo "codex-run-role: could not record completion event" >&2
     exit 4
   }
-
-if [ "$GUARDED_TELEMETRY" -eq 1 ]; then
-  echo "codex-run-role: guarded telemetry buffered for supervisor import" >&2
-fi
 
 if [ "$EVIDENCE_PUBLISHED" -eq 1 ]; then
   prune_log_dir

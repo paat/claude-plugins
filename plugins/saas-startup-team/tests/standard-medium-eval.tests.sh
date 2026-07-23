@@ -4,7 +4,7 @@ test_standard_medium_eval() {
   echo -e "\n${CYAN}Suite: controlled standard-medium evaluation${NC}"
   local script="$PLUGIN_ROOT/scripts/standard-medium-eval.sh"
   local wd pairs pairs19 out ec policy_hash first_dir task_hash base first_row source_repo
-  local repo bin task calls corpus result output secret_mode product_mode real_sha real_realpath
+  local repo bin task calls corpus result output real_realpath
   local SAAS_EVAL_REAL_SHA256SUM SAAS_EVAL_REAL_REALPATH
 
   assert_file_exists "SM1: evaluation helper exists" "$script"
@@ -214,10 +214,7 @@ test_standard_medium_eval() {
   git -C "$repo" config user.email test@example.invalid
   git -C "$repo" config user.name Test
   printf 'base bytes\n' > "$repo/product.txt"
-  product_mode=$(stat -c %a "$repo/product.txt")
-  printf '.startup/evaluation/\nhidden.txt\nprimary.secret\n' > "$repo/.gitignore"
-  printf 'original secret bytes\n' > "$repo/primary.secret"
-  secret_mode=$(stat -c %a "$repo/primary.secret")
+  printf '.startup/evaluation/\nhidden.txt\n' > "$repo/.gitignore"
   printf '#!/usr/bin/env bash\ntest -f generated.txt\n' > "$repo/check.sh"
   chmod +x "$repo/check.sh"
   git -C "$repo" add product.txt .gitignore check.sh
@@ -293,26 +290,6 @@ case "${FAKE_CODEX_MODE:-}" in
   tamper_check) printf '#!/usr/bin/env bash\nexit 0\n' > "$root/check.sh" ;;
   tamper_ignore) printf 'extra-ignore\n' >> "$root/.gitignore" ;;
   hidden_output) printf 'hidden\n' > "$root/hidden.txt" ;;
-  mutate_primary_ignored)
-    primary=$("$SAAS_EVAL_REAL_GIT" -C "$root" worktree list --porcelain \
-      | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
-    printf 'mutated secret bytes\n' > "$primary/primary.secret"
-    ;;
-  chmod_primary_ignored)
-    primary=$("$SAAS_EVAL_REAL_GIT" -C "$root" worktree list --porcelain \
-      | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
-    chmod +x "$primary/primary.secret"
-    ;;
-  chmod_primary_tracked)
-    primary=$("$SAAS_EVAL_REAL_GIT" -C "$root" worktree list --porcelain \
-      | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
-    chmod 600 "$primary/product.txt"
-    ;;
-  flag_primary_tracked)
-    primary=$("$SAAS_EVAL_REAL_GIT" -C "$root" worktree list --porcelain \
-      | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
-    "$SAAS_EVAL_REAL_GIT" -C "$primary" update-index --assume-unchanged product.txt
-    ;;
   lock_eval_worktree)
     "$SAAS_EVAL_REAL_GIT" -C "$root" worktree lock --reason evaluation-attack "$root"
     ;;
@@ -324,26 +301,6 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"f
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":80,"output_tokens":20,"cached_input_tokens":0}}'
 SH
   chmod +x "$bin/codex"
-  real_sha=$(command -v sha256sum)
-  SAAS_EVAL_REAL_SHA256SUM=$real_sha
-  export SAAS_EVAL_REAL_SHA256SUM
-  cat > "$bin/sha256sum" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-if [ "${FAKE_SHA_MODE:-}" = fail_primary ]; then
-  for arg in "$@"; do
-    case "$arg" in */primary.secret) exit 99 ;; esac
-  done
-fi
-if [ "${FAKE_SHA_MODE:-}" = fail_tracked ]; then
-  for arg in "$@"; do
-    case "$arg" in */product.txt) exit 99 ;; esac
-  done
-fi
-real=${SAAS_EVAL_REAL_SHA256SUM:-$(PATH=/usr/bin:/bin command -v sha256sum)}
-exec "$real" "$@"
-SH
-  chmod +x "$bin/sha256sum"
   corpus="$repo/.startup/evaluation/standard-medium"
 
   ec=0
@@ -372,7 +329,7 @@ SH
   assert_file_contains "SM21a: deterministic check uses the network-off profile" "$calls" \
     '--permission-profile saas-network-off'
   assert_file_contains "SM21b: deterministic sandbox executes the check harness" "$calls" \
-    "^sandbox $corpus/worktrees/sample-0000000000000101/check.sh"
+    '^sandbox /tmp/saas-medium-eval\..*/tree/check.sh'
   assert_file_contains "SM22: replay ignores user Codex config" "$calls" '--ignore-user-config'
   assert_file_contains "SM22b: replay disables standalone web search" "$calls" \
     '--disable standalone_web_search'
@@ -430,83 +387,6 @@ SH
   chmod +x "$repo/check.sh"
   git -C "$repo" add check.sh
   git -C "$repo" commit -qm restore-check
-  ec=0
-  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=mutate_primary_ignored \
-    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
-      --sample-id sample-0000000000000107 --corpus-dir "$corpus" >/dev/null || ec=$?
-  assert_exit_code "SM35: ignored primary-checkout mutation fails replay" "$ec" 1
-  assert_json_field "SM36: ignored primary mutation is recorded" \
-    "$corpus/samples/sample-0000000000000107/result.json" \
-    '.safety_evidence.primary_state_intact' "false"
-  printf 'original secret bytes\n' > "$repo/primary.secret"
-  assert_equals "SM37: ignored primary bytes are restored" \
-    "$(cat "$repo/primary.secret")" "original secret bytes"
-  assert_equals "SM38: restored primary checkout is clean" "$(git -C "$repo" status --porcelain)" ""
-
-  ec=0
-  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=chmod_primary_ignored \
-    SAAS_EVAL_REAL_SHA256SUM="$real_sha" \
-    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
-      --sample-id sample-0000000000000108 --corpus-dir "$corpus" >/dev/null || ec=$?
-  assert_exit_code "SM39: ignored primary-checkout mode mutation fails replay" "$ec" 1
-  assert_json_field "SM40: ignored primary mode mutation is recorded" \
-    "$corpus/samples/sample-0000000000000108/result.json" \
-    '.safety_evidence.primary_state_intact' "false"
-  chmod "$secret_mode" "$repo/primary.secret"
-
-  : > "$calls"
-  ec=0
-  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_SHA_MODE=fail_primary \
-    SAAS_EVAL_REAL_SHA256SUM="$real_sha" \
-    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
-      --sample-id sample-0000000000000109 --corpus-dir "$corpus" >/dev/null 2>&1 || ec=$?
-  assert_exit_code "SM41: unreadable primary inventory fails closed" "$ec" 1
-  assert_equals "SM42: failed primary inventory launches no worker" \
-    "$(grep -c '^exec ' "$calls" 2>/dev/null || true)" "0"
-  assert_file_not_exists "SM42a: failed ignored inventory removes its worktree path" \
-    "$corpus/worktrees/sample-0000000000000109"
-  assert_equals "SM42b: failed ignored inventory removes its registration" \
-    "$(git -C "$repo" worktree list --porcelain \
-      | grep -Fxc "worktree $corpus/worktrees/sample-0000000000000109" || true)" "0"
-  assert_file_not_exists "SM42c: failed ignored inventory removes its admin dir" \
-    "$repo/.git/worktrees/sample-0000000000000109"
-
-  ec=0
-  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=chmod_primary_tracked \
-    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
-      --sample-id sample-000000000000010a --corpus-dir "$corpus" >/dev/null || ec=$?
-  assert_exit_code "SM43: tracked primary mode mutation fails replay" "$ec" 1
-  assert_json_field "SM44: tracked primary mode mutation is recorded" \
-    "$corpus/samples/sample-000000000000010a/result.json" \
-    '.safety_evidence.primary_state_intact' "false"
-  chmod "$product_mode" "$repo/product.txt"
-
-  ec=0
-  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=flag_primary_tracked \
-    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
-      --sample-id sample-000000000000010b --corpus-dir "$corpus" >/dev/null || ec=$?
-  assert_exit_code "SM45: tracked primary index-flag mutation fails replay" "$ec" 1
-  assert_json_field "SM46: tracked primary index mutation is recorded" \
-    "$corpus/samples/sample-000000000000010b/result.json" \
-    '.safety_evidence.primary_state_intact' "false"
-  git -C "$repo" update-index --no-assume-unchanged product.txt
-
-  : > "$calls"
-  ec=0
-  PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_SHA_MODE=fail_tracked \
-    SAAS_EVAL_REAL_SHA256SUM="$real_sha" \
-    bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
-      --sample-id sample-000000000000010c --corpus-dir "$corpus" >/dev/null 2>&1 || ec=$?
-  assert_exit_code "SM47: unreadable tracked inventory fails closed" "$ec" 1
-  assert_equals "SM48: unreadable tracked inventory launches no worker" \
-    "$(grep -c '^exec ' "$calls" 2>/dev/null || true)" "0"
-  assert_file_not_exists "SM48a: failed tracked inventory removes its worktree path" \
-    "$corpus/worktrees/sample-000000000000010c"
-  assert_equals "SM48b: failed tracked inventory removes its registration" \
-    "$(git -C "$repo" worktree list --porcelain \
-      | grep -Fxc "worktree $corpus/worktrees/sample-000000000000010c" || true)" "0"
-  assert_file_not_exists "SM48c: failed tracked inventory removes its admin dir" \
-    "$repo/.git/worktrees/sample-000000000000010c"
 
   ec=0
   PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=lock_eval_worktree \

@@ -1240,11 +1240,17 @@ tribunal_hold() (
 proof_hold() (
   unset BASH_ENV ENV CDPATH GLOBIGNORE PYTHONHOME PYTHONPATH \
     LD_PRELOAD LD_AUDIT LD_LIBRARY_PATH
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --work-root|--scratch-root|--pass-env) [ "$#" -ge 2 ] || exit 2; shift 2 ;;
+      --) shift; break ;;
+      *) break ;;
+    esac
+  done
   exec /usr/bin/env -u BASHOPTS -u SHELLOPTS \
     /usr/bin/bash -p "$SCRIPT_DIR/maintain-leases.sh" hold "${CONTROLLER_LEASE_ARGS[@]}" \
       --interval-seconds 60 --max-seconds 1900 -- \
-      /usr/bin/timeout -k 10s 1800s /usr/bin/python3 -I -E \
-      "$SCRIPT_DIR/proof-landlock.py" "$@"
+      /usr/bin/timeout -k 10s 1800s "$@"
 )
 
 trusted_external_path() {

@@ -5,17 +5,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 LEASES="$SCRIPT_DIR/maintain-leases.sh"
 SUPERVISOR="$SCRIPT_DIR/supervisor-commit.sh"
-GUARD="$SCRIPT_DIR/delivery-mutation-guard.sh"
 ROUTE="$SCRIPT_DIR/delivery-route.sh"
 ROLE_RUNNER="$SCRIPT_DIR/codex-run-role.sh"
-AUTH_HELPER="$SCRIPT_DIR/mutation-auth-token.sh"
 LEASE_GUARD_ARGS=()
 
 usage() {
   cat >&2 <<'EOF'
 usage: maintain-attempt.sh reset --repo-root DIR --base-sha SHA --lease-state FILE --run-id ORIGIN --controller-run-id CONTROLLER
        maintain-attempt.sh base-check --repo-root DIR --base-sha SHA --lease-state FILE --run-id ORIGIN --controller-run-id CONTROLLER --cache-dir DIR [--check PATH]
-       maintain-attempt.sh deliver --repo-root DIR --base-sha SHA --lease-state FILE --run-id ORIGIN --controller-run-id CONTROLLER --child-run-id CHILD --attempt N --profile light|standard|deep --task-file FILE --message TEXT [--invocation-command maintain|maintain-loop] [--check PATH] [--routing-reasons CODES] --allow PATH...
+       maintain-attempt.sh deliver --repo-root DIR --base-sha SHA --lease-state FILE --run-id ORIGIN --controller-run-id CONTROLLER --child-run-id CHILD --attempt N --profile light|standard|deep --task-file FILE --message TEXT [--invocation-command maintain|maintain-loop] [--check PATH] [--routing-reasons CODES]
 EOF
   exit 2
 }
@@ -63,10 +61,6 @@ product_status() {
     . ':(exclude).startup' ':(exclude).startup/**' 2>/dev/null
 }
 
-product_has_untracked() {
-  product_status "$1" | grep -qE '^\?\?'
-}
-
 product_tree_dirty() {
   product_status "$1" | grep -q .
 }
@@ -88,7 +82,7 @@ reset_once() {
   git -C "$worktree" checkout --detach --quiet "$base_sha" || return 1
   git -C "$worktree" reset --hard "$base_sha" >/dev/null || return 1
   # Remove untracked non-ignored product files only (not ignored secrets).
-  git -C "$worktree" clean -ffd -q -e .startup -e .startup/** || return 1
+  git -C "$worktree" clean -ffd -q -e '.startup' -e '.startup/**' || return 1
   [ "$(git -C "$worktree" rev-parse HEAD)" = "$base_sha" ] || return 1
   git -C "$worktree" diff --quiet -- . || return 1
   git -C "$worktree" diff --cached --quiet -- . || return 1
@@ -163,57 +157,6 @@ ensure_common_dir() {
       && [ "$(cd -- "$current" && pwd -P)" = "$current" ] || return 1
   done
   SAFE_DIR="$current"
-}
-
-cleanup_trust() {
-  local receipt="$1"
-  [ -n "$receipt" ] || return 0
-  chmod -R u+w -- "${receipt}.hooks" "${receipt}.firewall" 2>/dev/null || true
-  rm -rf -- "$receipt" "${receipt}.hooks" "${receipt}.firewall"
-}
-
-cleanup_role_guard() {
-  local guard="$1" artifact rc=0
-  [ -n "$guard" ] || return 0
-  shopt -s nullglob
-  for artifact in "$guard" "$guard.active" "$guard.verified" \
-    "$guard.telemetry-identity-key" "$guard.telemetry-"*.json \
-    "$guard.events-"*.jsonl "$guard.events-"*.jsonl.identity-key \
-    "$guard.events-"*.jsonl.lock "$guard.logs-"*; do
-    rm -rf -- "$artifact" || rc=1
-  done
-  shopt -u nullglob
-  return "$rc"
-}
-
-cleanup_abandoned_role_guards() {
-  local target_git_dir guard_dir marker base prefix_base prefix
-  local -a prefixes=()
-  local -A seen=()
-  # Guards live under the primary checkout's git dir (no linked-worktree metadata).
-  [ -n "${PRIMARY:-}" ] || PRIMARY=$(bash "$LEASES" primary-root --repo-root "$ROOT") || return 1
-  [ "$worktree" = "$PRIMARY" ] || return 1
-  target_git_dir=$(git -C "$PRIMARY" rev-parse --absolute-git-dir) || return 1
-  target_git_dir=$(cd -- "$target_git_dir" && pwd -P) || return 1
-  guard_dir="$target_git_dir/saas-startup-team"
-  if [ ! -e "$guard_dir" ] && [ ! -L "$guard_dir" ]; then return 0; fi
-  [ -d "$guard_dir" ] && [ ! -L "$guard_dir" ] || return 1
-
-  shopt -s nullglob
-  for marker in "$guard_dir"/*.active "$guard_dir"/*.verified; do
-    [ -e "$marker" ] || continue
-    base=$(basename -- "$marker")
-    case "$base" in
-      *.active) prefix_base=${base%.active} ;;
-      *.verified) prefix_base=${base%.verified} ;;
-      *) continue ;;
-    esac
-    [ -z "${seen[$prefix_base]+x}" ] || continue
-    seen[$prefix_base]=1
-    prefixes+=("$guard_dir/$prefix_base")
-  done
-  shopt -u nullglob
-  for prefix in "${prefixes[@]}"; do cleanup_role_guard "$prefix" || return 1; done
 }
 
 write_attempt_result() {
@@ -334,10 +277,6 @@ case "$action" in
       echo "maintain-attempt: reset target does not match the acquired controller" >&2; exit 1; }
     bash "$LEASES" heartbeat "${LEASE_GUARD_ARGS[@]}" >/dev/null || {
       echo "maintain-attempt: reset lease ownership is no longer valid" >&2; exit 1; }
-    cleanup_abandoned_role_guards || {
-      echo "maintain-attempt: abandoned mutation guard metadata is unsafe" >&2
-      exit 1
-    }
     if ! reset_once; then
       echo "maintain-attempt: primary reset failed (tree dirty or not at BASE_SHA)" >&2
       { git -C "$worktree" status --porcelain=v1 --untracked-files=all
@@ -385,23 +324,16 @@ case "$action" in
       echo "maintain-attempt: cached base checks passed"
       exit 0
     fi
-    auth=$(bash "$AUTH_HELPER")
-    trust=$(git -C "$ROOT" rev-parse --git-path "saas-startup-team/base-check-$run_id-$base_sha.json")
     summary_tmp=$(mktemp "$summary.tmp.XXXXXX")
     cleanup_base_attempt() {
-      cleanup_trust "$trust"
       [ -z "${summary_tmp:-}" ] || rm -f -- "$summary_tmp"
     }
     trap cleanup_base_attempt EXIT
     assert_exact_clean_base || exit 1
-    bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- \
-      bash "$SUPERVISOR" --repo-root "$ROOT" --snapshot-trust "$trust" \
-        --check-only --check "$CHECK_SCRIPT" --auth-stdin <<<"$auth" >/dev/null
     check_rc=0
     bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- \
-      bash "$SUPERVISOR" --repo-root "$ROOT" --check-only --trust-receipt "$trust" \
-        --check "$CHECK_SCRIPT" --auth-stdin <<<"$auth" >"$summary_tmp" 2>&1 || check_rc=$?
-    unset auth
+      bash "$SUPERVISOR" --repo-root "$ROOT" --check-only \
+        --check "$CHECK_SCRIPT" >"$summary_tmp" 2>&1 || check_rc=$?
     chmod 600 "$summary_tmp"; mv -- "$summary_tmp" "$summary"; summary_tmp=""
     if [ "$check_rc" -ne 0 ]; then
       [ ! -s "$summary" ] || sed -n '1,20p' "$summary" >&2
@@ -423,7 +355,7 @@ case "$action" in
     [ -n "$repo_root" ] && [ -n "$base_sha" ] && [ -n "$lease_state" ] \
       && [ -n "$run_id" ] && [ -n "$controller_run_id" ] && [ -n "$child_run_id" ] \
       && [ -n "$attempt" ] && [ -n "$profile" ] \
-      && [ -n "$task_file" ] && [ -n "$message" ] && [ "${#allow[@]}" -gt 0 ] \
+      && [ -n "$task_file" ] && [ -n "$message" ] \
       && valid_id "$run_id" && valid_canonical_id "$controller_run_id" \
       && valid_canonical_id "$child_run_id" && [ "$child_run_id" != "$controller_run_id" ] \
       && [ "$child_run_id" != "$run_id" ] && valid_uint "$attempt" || usage
@@ -440,18 +372,6 @@ case "$action" in
     require_base_gate || exit 1
     normalize_task_file || {
       echo "maintain-attempt: task file is unsafe" >&2; exit 1; }
-    auth=$(bash "$AUTH_HELPER")
-    role_guard=$(git -C "$ROOT" rev-parse --git-path "saas-startup-team/role-$run_id-$attempt.json")
-    commit_trust=$(git -C "$ROOT" rev-parse --git-path "saas-startup-team/commit-$run_id-$attempt.json")
-    cleanup_delivery_attempt() {
-      cleanup_role_guard "$role_guard"
-      cleanup_trust "$commit_trust"
-    }
-    trap cleanup_delivery_attempt EXIT
-    role_args=(bash "$GUARD" --repo-root "$ROOT" --snapshot "$role_guard" --auth-stdin)
-    for path in "${allow[@]}"; do role_args+=(--allow "$path"); done
-    bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- "${role_args[@]}" \
-      <<<"$auth" >/dev/null
     worker_rc=0
     bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- \
       env SAAS_RUN_ID="$child_run_id" SAAS_PARENT_RUN_ID="$controller_run_id" \
@@ -462,48 +382,35 @@ case "$action" in
         bash -c 'root=$1; shift; cd -- "$root" && exec "$@"' maintain-worker "$ROOT" \
           bash "$ROLE_RUNNER" --role tech-founder --profile "$profile" --task-file "$task_file" \
         || worker_rc=$?
-    verify_rc=0
-    bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- \
-      bash "$GUARD" --repo-root "$ROOT" --verify "$role_guard" --auth-stdin \
-      <<<"$auth" >/dev/null || verify_rc=$?
-    [ "$verify_rc" -eq 0 ] || { unset auth; exit "$verify_rc"; }
-    [ "$worker_rc" -eq 0 ] || { unset auth; exit "$worker_rc"; }
+    [ "$worker_rc" -eq 0 ] || exit "$worker_rc"
     bash "$LEASES" heartbeat "${LEASE_GUARD_ARGS[@]}" >/dev/null
     route_rc=0
-    route_json=$(cd "$ROOT" && bash "$ROUTE" check-diff --base "$base_sha" --guard-verified) || route_rc=$?
+    route_json=$(cd "$ROOT" && bash "$ROUTE" check-diff --base "$base_sha") || route_rc=$?
     jq -e '.schema_version == 1 and (.profile|type == "string")
       and (.ui_touch|type == "boolean") and (.decision|type == "string")' \
-      <<<"$route_json" >/dev/null || { unset auth; exit 1; }
+      <<<"$route_json" >/dev/null || exit 1
     route_profile=$(jq -r .profile <<<"$route_json")
     [ "$route_profile" != mechanical ] || {
-      echo "maintain-attempt: source worker produced no delivery diff" >&2; unset auth; exit 1; }
+      echo "maintain-attempt: source worker produced no delivery diff" >&2; exit 1; }
     # Exit 20 / light mismatch: escalate review depth, keep green candidate (#348).
     case "$route_rc" in
       0) : ;;
       20) route_profile=deep ;;
-      *) unset auth; exit "$route_rc" ;;
+      *) exit "$route_rc" ;;
     esac
     if [ "$route_rc" -eq 20 ] || { [ "$profile" = light ] \
       && { [ "$route_profile" != light ] || [ "$(jq -r .ui_touch <<<"$route_json")" != false ]; }; }; then
       route_json=$(jq -c '.profile="deep"|.decision="promote_deep"' <<<"$route_json") \
-        || { unset auth; exit 1; }
+        || exit 1
     fi
-    trust_args=(bash "$SUPERVISOR" --repo-root "$ROOT" --snapshot-trust "$commit_trust" --auth-stdin)
-    for path in "${allow[@]}"; do trust_args+=(--allow "$path"); done
-    bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- "${trust_args[@]}" \
-      <<<"$auth" >/dev/null
     commit_rc=0
     bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- \
       bash "$SUPERVISOR" --repo-root "$ROOT" --message "$message" \
-        --check "$CHECK_SCRIPT" --trust-receipt "$commit_trust" --auth-stdin \
-      <<<"$auth" || commit_rc=$?
-    unset auth
+        --check "$CHECK_SCRIPT" || commit_rc=$?
     [ "$commit_rc" -eq 0 ] || exit "$commit_rc"
     [ "$(git -C "$ROOT" rev-parse 'HEAD^')" = "$base_sha" ] || {
       echo "maintain-attempt: supervisor commit parent mismatch" >&2; exit 1; }
     write_attempt_result committed "$route_json"
-    cleanup_delivery_attempt
-    trap - EXIT
     printf '%s\n' "$route_json"
     ;;
 

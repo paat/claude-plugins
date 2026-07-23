@@ -7,7 +7,6 @@
 # terminal --run-id ID [--events FILE]
 # terminals [--events FILE]
 # account --run-id ID --duration-ms N [--total-tokens N] [--events FILE]
-# import-guarded [--check] --receipt FILE
 # new-run-id
 # schema-version
 
@@ -26,7 +25,6 @@ usage() {
   echo "       agent-events.sh terminal --run-id ID [--events FILE]" >&2
   echo "       agent-events.sh terminals [--events FILE]" >&2
   echo "       agent-events.sh account --run-id ID --duration-ms N [--total-tokens N] [--events FILE]" >&2
-  echo "       agent-events.sh import-guarded [--check] --receipt FILE" >&2
   echo "       agent-events.sh new-run-id | schema-version" >&2
   exit 2
 }
@@ -112,67 +110,6 @@ safe_append_target() {
       [ -f "$candidate" ] && [ ! -L "$candidate" ] || return 1
     fi
   done
-}
-
-guard_identity_key() {
-  local prefix="$1" destination="$2" shared
-  local destination_key="${destination}.identity-key" tmp key
-  shared="${prefix}.telemetry-identity-key"
-  if [ -e "$shared" ] || [ -L "$shared" ]; then
-    [ -f "$shared" ] && [ ! -L "$shared" ] || return 1
-  else
-    tmp=$(mktemp "${shared}.tmp.XXXXXX") || return 1
-    if [ -s "$destination_key" ]; then
-      [ -f "$destination_key" ] && [ ! -L "$destination_key" ] || { rm -f "$tmp"; return 1; }
-      cp -- "$destination_key" "$tmp"
-    else
-      key=$(random_hex 32) || { rm -f "$tmp"; return 1; }
-      printf '%s\n' "$key" > "$tmp"
-    fi
-    chmod 600 "$tmp"
-    if ! ln -- "$tmp" "$shared" 2>/dev/null; then
-      [ -f "$shared" ] && [ ! -L "$shared" ] || { rm -f "$tmp"; return 1; }
-    fi
-    rm -f "$tmp"
-  fi
-  IFS= read -r key < "$shared" || return 1
-  [[ "$key" =~ ^[0-9a-f]{64}$ ]] || return 1
-  printf '%s\n' "$shared"
-}
-
-prepare_guarded_append() {
-  local destination="$1" root primary git_dir guard_dir active prefix buffer_id source receipt key receipt_tmp
-  local active_guards=()
-  root=$(git rev-parse --show-toplevel 2>/dev/null) || { printf '%s\n' "$destination"; return 0; }
-  root=$(cd "$root" && pwd -P)
-  primary=$(primary_worktree_root) || return 1
-  [ "$destination" = "$primary/.startup/runs/agent-events.jsonl" ] || { printf '%s\n' "$destination"; return 0; }
-  git_dir=$(git rev-parse --absolute-git-dir)
-  git_dir=$(cd "$git_dir" && pwd -P); guard_dir="$git_dir/saas-startup-team"
-  [ -e "$guard_dir" ] || { printf '%s\n' "$destination"; return 0; }
-  [ -d "$guard_dir" ] && [ ! -L "$guard_dir" ] \
-    && [ "$(cd "$guard_dir" && pwd -P)" = "$guard_dir" ] || return 1
-  shopt -s nullglob
-  active_guards=("$guard_dir"/*.active)
-  shopt -u nullglob
-  [ "${#active_guards[@]}" -le 1 ] || return 1
-  [ "${#active_guards[@]}" -eq 1 ] || { printf '%s\n' "$destination"; return 0; }
-  active=${active_guards[0]}
-  [ -f "$active" ] && [ ! -L "$active" ] || return 1
-  prefix=${active%.active}; buffer_id=$(random_hex 16) || return 1
-  source="$prefix.events-$buffer_id.jsonl"
-  receipt="$prefix.telemetry-$buffer_id.json"
-  [ ! -e "$source" ] && [ ! -L "$source" ] \
-    && [ ! -e "$receipt" ] && [ ! -L "$receipt" ] || return 1
-  key=$(guard_identity_key "$prefix" "$destination") || return 1
-  cp -- "$key" "${source}.identity-key"; chmod 600 "${source}.identity-key"
-  : > "$source"; chmod 600 "$source"
-  receipt_tmp=$(mktemp "${receipt}.tmp.XXXXXX") || return 1
-  jq -n --arg buffer_id "$buffer_id" --arg source "$source" --arg destination "$destination" \
-    '{schema_version:2,buffer_id:$buffer_id,source:$source,destination:$destination,
-      log_source:null,log_destination:null,log_retention_files:null}' > "$receipt_tmp"
-  chmod 600 "$receipt_tmp"; mv -- "$receipt_tmp" "$receipt"
-  printf '%s\n' "$source"
 }
 
 valid_code() { [[ "$1" =~ ^[a-z][a-z0-9_.:-]{0,63}$ ]]; }
@@ -530,14 +467,6 @@ append_event() {
     echo "agent-events: unsafe event destination" >&2
     exit 3
   }
-  events_file=$(prepare_guarded_append "$events_file") || {
-    echo "agent-events: could not initialize guarded telemetry" >&2
-    exit 3
-  }
-  safe_append_target "$events_file" || {
-    echo "agent-events: unsafe guarded event buffer" >&2
-    exit 3
-  }
   lock_file="${events_file}.lock"
   command -v flock >/dev/null 2>&1 || { echo "agent-events: flock is required" >&2; exit 2; }
   exec 9>>"$lock_file"
@@ -883,9 +812,7 @@ account_event() {
   . "$SCRIPT_DIR/pii-gate.sh" || { echo "agent-events: PII gate unavailable" >&2; exit 2; }
   ! pii_hit "$payload" || { echo "agent-events: accounting event rejected by secret/PII gate" >&2; exit 3; }
   safe_append_target "$events_file" || { echo "agent-events: unsafe event destination" >&2; exit 3; }
-  target=$(prepare_guarded_append "$events_file") || {
-    echo "agent-events: could not initialize guarded telemetry" >&2; exit 3; }
-  safe_append_target "$target" || { echo "agent-events: unsafe guarded event buffer" >&2; exit 3; }
+  target=$events_file
   lock_file="${target}.lock"
   command -v flock >/dev/null 2>&1 || { echo "agent-events: flock is required" >&2; exit 2; }
   exec 7>>"$lock_file"
@@ -913,251 +840,12 @@ account_event() {
   printf '%s\n' "$payload"
 }
 
-prune_imported_logs() {
-  local destination="$1" current_dir="$2" limit="$3" timestamp file parent canonical excess i dir listing order sorted index
-  local -a candidates=() old_logs=()
-  listing=$(mktemp) || return 1
-  order=$(mktemp) || { rm -f -- "$listing"; return 1; }
-  sorted=$(mktemp) || { rm -f -- "$listing" "$order"; return 1; }
-  find "$destination" -mindepth 1 -maxdepth 2 -type f \
-    \( -name '*.jsonl' -o -name '*.jsonl.stderr' -o -name '*.jsonl.last-message' \) \
-    -printf '%T@\0%p\0' > "$listing" || {
-      rm -f -- "$listing" "$order" "$sorted"; return 1; }
-  while IFS= read -r -d '' timestamp && IFS= read -r -d '' file; do
-    case "$file" in "$current_dir"/*) continue ;; esac
-    safe_path_string "$file" || continue
-    timestamp=${timestamp%%.*}
-    [[ "$timestamp" =~ ^[0-9]+$ ]] || continue
-    index=${#candidates[@]}
-    candidates[$index]=$file
-    printf '%s\t%s\n' "$timestamp" "$index" >> "$order"
-  done < "$listing"
-  LC_ALL=C sort -n -k1,1 -k2,2 "$order" > "$sorted" || {
-    rm -f -- "$listing" "$order" "$sorted"; return 1; }
-  while IFS=$'\t' read -r timestamp index; do
-    [[ "$index" =~ ^[0-9]+$ ]] && [ "$index" -lt "${#candidates[@]}" ] || {
-      rm -f -- "$listing" "$order" "$sorted"; return 1; }
-    old_logs+=("${candidates[$index]}")
-  done < "$sorted"
-  rm -f -- "$order" "$sorted"
-  excess=$((${#old_logs[@]} - limit))
-  if [ "$excess" -gt 0 ]; then
-    for ((i=0; i<excess; i++)); do
-      file=${old_logs[$i]}
-      [ -f "$file" ] && [ ! -L "$file" ] || continue
-      parent=$(dirname -- "$file")
-      ensure_real_directory "$parent" 0 \
-        && canonical=$(cd -- "$parent" && pwd -P) \
-        && case "$canonical/" in "$destination/"*) true ;; *) false ;; esac \
-        && rm -f -- "$file" || {
-          rm -f -- "$listing"; return 1; }
-    done
-  fi
-  : > "$listing"
-  find "$destination" -mindepth 1 -maxdepth 1 -type d -empty -print0 > "$listing" || {
-    rm -f -- "$listing"; return 1; }
-  while IFS= read -r -d '' dir; do
-    ensure_real_directory "$dir" 0 || { rm -f -- "$listing"; return 1; }
-    rmdir -- "$dir" 2>/dev/null || true
-  done < "$listing"
-  rm -f -- "$listing"
-}
-
-import_guarded() {
-  local receipt="" check_only=0 root primary git_dir guard_dir source destination source_key destination_key
-  local log_source log_destination line n=0 lock_file tmp old_umask file buffer_id receipt_name prefix shared_key candidate
-  local event_total=0 event_matches=0 log_final_dir log_target log_tmp key log_retention_files
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --check) check_only=1; shift ;;
-      --receipt) [ "$#" -ge 2 ] || usage; receipt="$2"; shift 2 ;;
-      *) usage ;;
-    esac
-  done
-  [ -n "$receipt" ] || usage
-  root=$(git rev-parse --show-toplevel 2>/dev/null) || {
-    echo "agent-events: guarded import requires a Git worktree" >&2; exit 2; }
-  root=$(cd "$root" && pwd -P)
-  primary=$(primary_worktree_root) || {
-    echo "agent-events: could not resolve primary worktree" >&2; exit 2; }
-  git_dir=$(git rev-parse --absolute-git-dir)
-  git_dir=$(cd "$git_dir" && pwd -P); guard_dir="$git_dir/saas-startup-team"
-  case "$receipt" in /*) : ;; *) receipt="$root/$receipt" ;; esac
-  safe_path_string "$receipt" || { echo "agent-events: unsafe guarded telemetry receipt" >&2; exit 2; }
-  [ -d "$guard_dir" ] && [ ! -L "$guard_dir" ] \
-    && [ "$(cd "$guard_dir" && pwd -P)" = "$guard_dir" ] || {
-      echo "agent-events: unsafe mutation guard directory" >&2; exit 2; }
-  [ -f "$receipt" ] && [ ! -L "$receipt" ] \
-    && [ "$(dirname -- "$receipt")" = "$guard_dir" ] \
-    && [ "$(cd "$(dirname -- "$receipt")" && pwd -P)" = "$guard_dir" ] || {
-      echo "agent-events: unsafe guarded telemetry receipt" >&2; exit 2; }
-  jq -e '.schema_version == 2 and (.buffer_id|type=="string") and (.source|type=="string") and
-    (.destination|type=="string") and (.log_source == null or (.log_source|type=="string")) and
-    (.log_destination == null or (.log_destination|type=="string")) and
-    (.log_retention_files == null or
-      ((.log_retention_files|type)=="number" and .log_retention_files >= 1 and
-        .log_retention_files <= 9999 and (.log_retention_files|floor)==.log_retention_files)) and
-    ((keys|sort == ["buffer_id","destination","log_destination","log_retention_files","log_source","schema_version","source"]) or
-      (keys|sort == ["buffer_id","destination","log_destination","log_source","schema_version","source"]))' \
-    "$receipt" >/dev/null || { echo "agent-events: malformed guarded telemetry receipt" >&2; exit 3; }
-  buffer_id=$(jq -r .buffer_id "$receipt")
-  [[ "$buffer_id" =~ ^[0-9a-f]{32}$ ]] || { echo "agent-events: invalid guarded buffer id" >&2; exit 3; }
-  source=$(jq -r .source "$receipt"); destination=$(jq -r .destination "$receipt")
-  log_source=$(jq -r '.log_source // ""' "$receipt")
-  log_destination=$(jq -r '.log_destination // ""' "$receipt")
-  if jq -e 'has("log_retention_files")' "$receipt" >/dev/null; then
-    log_retention_files=$(jq -r '.log_retention_files // ""' "$receipt")
-  elif [ -n "$log_source" ]; then
-    log_retention_files=300
-  else
-    log_retention_files=""
-  fi
-  receipt_name=$(basename -- "$receipt")
-  case "$receipt_name" in *.telemetry-"$buffer_id".json) : ;; *) echo "agent-events: receipt id mismatch" >&2; exit 3 ;; esac
-  prefix=${receipt_name%".telemetry-$buffer_id.json"}
-  [ -n "$prefix" ] && [ "$receipt" = "$guard_dir/$prefix.telemetry-$buffer_id.json" ] || {
-    echo "agent-events: unsafe guarded receipt structure" >&2; exit 3; }
-  [ "$source" = "$guard_dir/$prefix.events-$buffer_id.jsonl" ] || {
-    echo "agent-events: unsafe guarded event source" >&2; exit 3; }
-  [ "$destination" = "$primary/.startup/runs/agent-events.jsonl" ] || {
-    echo "agent-events: unsafe guarded event destination" >&2; exit 3; }
-  if [ -n "$log_source" ] || [ -n "$log_destination" ]; then
-    [ "$log_source" = "$guard_dir/$prefix.logs-$buffer_id" ] \
-      && [ "$log_destination" = "$root/.startup/runs/codex" ] \
-      && [[ "$log_retention_files" =~ ^[1-9][0-9]{0,3}$ ]] || {
-        echo "agent-events: unsafe guarded log destination" >&2; exit 3; }
-  elif [ -n "$log_retention_files" ]; then
-    echo "agent-events: log retention requires a guarded log source" >&2; exit 3
-  fi
-  safe_path_string "$source" && safe_path_string "$destination" || {
-    echo "agent-events: unsafe guarded telemetry path" >&2; exit 3; }
-  [ -f "$source" ] && [ ! -L "$source" ] || {
-    echo "agent-events: guarded event source is missing" >&2; exit 3; }
-  # shellcheck source=pii-gate.sh
-  . "$SCRIPT_DIR/pii-gate.sh" || { echo "agent-events: PII gate unavailable" >&2; exit 2; }
-  while IFS= read -r line || [ -n "$line" ]; do
-    n=$((n + 1)); [ -n "$line" ] || continue
-    ! pii_hit "$line" && printf '%s\n' "$line" | validate_event_line || {
-      echo "agent-events: invalid guarded event at line $n" >&2; exit 3; }
-  done < "$source"
-  source_key="${source}.identity-key"; destination_key="${destination}.identity-key"
-  [ -s "$source_key" ] && [ ! -L "$source_key" ] || {
-    echo "agent-events: guarded identity key is missing" >&2; exit 3; }
-  shared_key="$guard_dir/$prefix.telemetry-identity-key"
-  [ -s "$shared_key" ] && [ -f "$shared_key" ] && [ ! -L "$shared_key" ] \
-    && cmp -s "$source_key" "$shared_key" || {
-      echo "agent-events: guarded identity key is not bound to its guard" >&2; exit 3; }
-  IFS= read -r key < "$source_key" || key=""
-  [[ "$key" =~ ^[0-9a-f]{64}$ ]] || { echo "agent-events: guarded identity key is invalid" >&2; exit 3; }
-  ensure_real_directory "$(dirname -- "$destination")" 0 || {
-    echo "agent-events: unsafe guarded destination ancestry" >&2; exit 3; }
-  for candidate in "$destination" "$destination_key" "${destination}.lock"; do
-    if [ -e "$candidate" ] || [ -L "$candidate" ]; then
-      [ -f "$candidate" ] && [ ! -L "$candidate" ] || {
-        echo "agent-events: unsafe guarded destination file" >&2; exit 3; }
-    fi
-  done
-  if [ -s "$destination_key" ]; then
-    cmp -s "$source_key" "$destination_key" || {
-      echo "agent-events: guarded identity key mismatch" >&2; exit 3; }
-  elif [ -s "$destination" ]; then
-    echo "agent-events: event destination has no identity key" >&2; exit 3
-  fi
-  if [ -n "$log_source" ]; then
-    [ -d "$log_source" ] && [ ! -L "$log_source" ] \
-      && [ "$(cd "$log_source" && pwd -P)" = "$log_source" ] || {
-        echo "agent-events: unsafe guarded log source" >&2; exit 3; }
-    ensure_real_directory "$log_destination" 0 || {
-      echo "agent-events: unsafe guarded log destination ancestry" >&2; exit 3; }
-    log_final_dir="$log_destination/$buffer_id"
-    ensure_real_directory "$log_final_dir" 0 || {
-      echo "agent-events: unsafe guarded log buffer destination" >&2; exit 3; }
-    while IFS= read -r -d '' file; do
-      [ -f "$file" ] && [ ! -L "$file" ] && safe_path_string "$file" || {
-        echo "agent-events: unsafe guarded log file" >&2; exit 3; }
-      log_target="$log_final_dir/$(basename -- "$file")"
-      if [ -e "$log_target" ] || [ -L "$log_target" ]; then
-        [ -f "$log_target" ] && [ ! -L "$log_target" ] && cmp -s "$file" "$log_target" || {
-          echo "agent-events: guarded log collision" >&2; exit 3; }
-      fi
-    done < <(find "$log_source" -mindepth 1 -maxdepth 1 -print0)
-  fi
-  if [ "$check_only" -eq 1 ]; then
-    echo "agent-events: guarded telemetry preflight passed"
-    return 0
-  fi
-  ensure_real_directory "$(dirname -- "$destination")" 1 || {
-    echo "agent-events: could not create guarded event destination" >&2; exit 3; }
-  if [ -n "$log_source" ]; then
-    ensure_real_directory "$log_destination" 1 || {
-      echo "agent-events: could not create guarded log destination" >&2; exit 3; }
-    log_final_dir="$log_destination/$buffer_id"
-    ensure_real_directory "$log_final_dir" 1 || {
-      echo "agent-events: could not create guarded log buffer destination" >&2; exit 3; }
-  fi
-  for candidate in "$destination" "$destination_key" "${destination}.lock"; do
-    if [ -e "$candidate" ] || [ -L "$candidate" ]; then
-      [ -f "$candidate" ] && [ ! -L "$candidate" ] || {
-        echo "agent-events: guarded destination changed after preflight" >&2; exit 3; }
-    fi
-  done
-  lock_file="${destination}.lock"; exec 8>>"$lock_file"; flock 8
-  if [ -s "$destination_key" ]; then
-    cmp -s "$source_key" "$destination_key" || {
-      flock -u 8; echo "agent-events: guarded identity key mismatch" >&2; exit 3; }
-  else
-    if [ -s "$destination" ]; then
-      flock -u 8; echo "agent-events: event destination has no identity key" >&2; exit 3
-    fi
-    old_umask=$(umask); umask 077; cp -- "$source_key" "$destination_key"; umask "$old_umask"
-  fi
-  while IFS= read -r line || [ -n "$line" ]; do
-    [ -n "$line" ] || continue
-    event_total=$((event_total + 1))
-    if [ -f "$destination" ] && grep -Fqx -- "$line" "$destination"; then
-      event_matches=$((event_matches + 1))
-    fi
-  done < "$source"
-  if [ "$event_matches" -ne 0 ] && [ "$event_matches" -ne "$event_total" ]; then
-    flock -u 8; echo "agent-events: partial guarded event import detected" >&2; exit 3
-  fi
-  if [ "$event_matches" -ne "$event_total" ]; then
-    tmp=$(mktemp "${destination}.import.XXXXXX")
-    { [ ! -f "$destination" ] || cat "$destination"; cat "$source"; } > "$tmp"
-    chmod 600 "$tmp"; mv -f -- "$tmp" "$destination"
-  fi
-  flock -u 8
-  if [ -n "$log_source" ]; then
-    while IFS= read -r -d '' file; do
-      [ -f "$file" ] && [ ! -L "$file" ] || {
-        echo "agent-events: unsafe guarded log file" >&2; exit 3; }
-      log_target="$log_final_dir/$(basename -- "$file")"
-      if [ -e "$log_target" ] || [ -L "$log_target" ]; then
-        [ -f "$log_target" ] && [ ! -L "$log_target" ] && cmp -s "$file" "$log_target" || {
-          echo "agent-events: guarded log collision" >&2; exit 3; }
-        rm -f -- "$file"
-      else
-        log_tmp=$(mktemp "$log_final_dir/.import.XXXXXX")
-        cp -- "$file" "$log_tmp"; chmod 600 "$log_tmp"; mv -- "$log_tmp" "$log_target"
-        rm -f -- "$file"
-      fi
-    done < <(find "$log_source" -mindepth 1 -maxdepth 1 -print0)
-    prune_imported_logs "$log_destination" "$log_final_dir" "$log_retention_files" || {
-      echo "agent-events: guarded log retention failed" >&2; exit 3; }
-  fi
-  rm -f -- "$receipt"
-  rm -f -- "$source" "${source}.lock" "$source_key"
-  [ -z "$log_source" ] || rmdir -- "$log_source"
-  echo "agent-events: imported guarded telemetry"
-}
-
 case "${1:-}" in
   append) shift; append_event "$@" ;;
   read) shift; read_events "$@" ;;
   terminal) shift; terminal_event "$@" ;;
   terminals) shift; terminal_events "$@" ;;
   account) shift; account_event "$@" ;;
-  import-guarded) shift; import_guarded "$@" ;;
   new-run-id)
     [ "$#" -eq 1 ] || usage
     token=$(random_hex 16) || { echo "agent-events: could not generate run id" >&2; exit 3; }

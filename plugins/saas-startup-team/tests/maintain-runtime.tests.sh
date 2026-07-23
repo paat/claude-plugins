@@ -29,8 +29,7 @@ test_maintain_runtime() {
   local reset_bin real_git reset_ready reset_status reset_pid reset_heartbeat
   local reset_heartbeat_before reset_heartbeat_after
   local lease_before lease_after runtime_before runtime_after
-  local role_guard telemetry_id routing_schema guard_dir active_guard verified_guard
-  local unrelated guard_victim worker_bin worker_called shared_owner inactive_guard
+  local telemetry_id routing_schema worker_bin worker_called
   local long_reason malformed_file valid_file overlong_file diag_file normalized
 
   repo=$(mktemp -d)
@@ -616,47 +615,6 @@ SH
     "$(jq -r '.status + ":" + .run_id' "$canonical_gate")" "passed:attempt-run"
   rm -f -- "$canonical_gate"
 
-  guard_dir="$(git -C "$wt" rev-parse --absolute-git-dir)/saas-startup-team"
-  active_guard="$guard_dir/role-old-active-1.json"
-  verified_guard="$guard_dir/role-old-verified-2.json"
-  unrelated="$guard_dir/unrelated.keep"
-  telemetry_id=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-  mkdir -p "$active_guard.logs-$telemetry_id" "$verified_guard.logs-$telemetry_id"
-  printf '{}\n' > "$active_guard"; printf 'active\n' > "$active_guard.active"
-  printf 'events\n' > "$active_guard.events-$telemetry_id.jsonl"
-  printf 'key\n' > "$active_guard.events-$telemetry_id.jsonl.identity-key"
-  printf 'lock\n' > "$active_guard.events-$telemetry_id.jsonl.lock"
-  printf '{}\n' > "$active_guard.telemetry-$telemetry_id.json"
-  printf 'identity\n' > "$active_guard.telemetry-identity-key"
-  printf 'log\n' > "$active_guard.logs-$telemetry_id/full.jsonl"
-  printf '{}\n' > "$verified_guard"; printf 'verified\n' > "$verified_guard.verified"
-  printf 'events\n' > "$verified_guard.events-$telemetry_id.jsonl"
-  printf 'key\n' > "$verified_guard.events-$telemetry_id.jsonl.identity-key"
-  printf 'lock\n' > "$verified_guard.events-$telemetry_id.jsonl.lock"
-  printf '{}\n' > "$verified_guard.telemetry-$telemetry_id.json"
-  printf 'identity\n' > "$verified_guard.telemetry-identity-key"
-  printf 'log\n' > "$verified_guard.logs-$telemetry_id/full.jsonl"
-  printf 'preserve\n' > "$unrelated"
-  bash "$attempt_helper" reset --repo-root "$repo" --base-sha "$base" \
-    --lease-state "$state" --run-id "$origin_run" \
-      --controller-run-id "$controller_run_id" >/dev/null
-  assert_file_not_exists "MR22a: reset removes an abandoned active marker" \
-    "$active_guard.active"
-  assert_file_not_exists "MR22b: reset removes the active guard snapshot" "$active_guard"
-  assert_file_not_exists "MR22c: reset removes the active guard event family" \
-    "$active_guard.events-$telemetry_id.jsonl"
-  assert_file_not_exists "MR22d: reset removes the active guard log family" \
-    "$active_guard.logs-$telemetry_id"
-  assert_file_not_exists "MR22e: reset removes an abandoned verified marker" \
-    "$verified_guard.verified"
-  assert_file_not_exists "MR22f: reset removes the verified guard snapshot" "$verified_guard"
-  assert_file_not_exists "MR22g: reset removes the verified telemetry family" \
-    "$verified_guard.telemetry-$telemetry_id.json"
-  assert_file_not_exists "MR22h: reset removes the verified guard log family" \
-    "$verified_guard.logs-$telemetry_id"
-  assert_file_contains "MR22i: reset preserves unrelated primary Git metadata" \
-    "$unrelated" preserve
-
   printf 'dirty\n' > "$wt/app.txt"; printf 'new\n' > "$wt/untracked"
   bash "$attempt_helper" reset --repo-root "$repo" --base-sha "$base" \
     --lease-state "$state" --run-id "$origin_run" \
@@ -769,39 +727,6 @@ SH
   assert_exit_code "MR25: source transaction rejects supplied prompt symlink" "$ec" 1
 
   rm -f "$prompt"; printf 'task\n' > "$prompt"
-  # Absolute path: primary .git/path is relative and would plant into the test cwd.
-  role_guard="$(git -C "$wt" rev-parse --absolute-git-dir)/saas-startup-team/role-attempt-run-1.json"
-  telemetry_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-  mkdir -p "$(dirname -- "$role_guard")" "$role_guard.logs-$telemetry_id"
-  printf 'active\n' > "$role_guard.active"
-  printf 'buffer\n' > "$role_guard.events-$telemetry_id.jsonl"
-  printf 'key\n' > "$role_guard.events-$telemetry_id.jsonl.identity-key"
-  printf 'lock\n' > "$role_guard.events-$telemetry_id.jsonl.lock"
-  printf 'shared\n' > "$role_guard.telemetry-identity-key"
-  printf '{}\n' > "$role_guard.telemetry-$telemetry_id.json"
-  printf 'full log\n' > "$role_guard.logs-$telemetry_id/full.jsonl"
-  ec=0
-  out=$(cd "$wt" && SAAS_INVOCATION_COMMAND=maintain bash "$attempt_helper" deliver \
-    --repo-root "$wt" --base-sha "$base" --lease-state "$state" \
-      --run-id "$origin_run" --controller-run-id "$controller_run_id" \
-        --child-run-id "$child_run_id_4" --attempt 1 --profile standard --task-file "$prompt" \
-          --message test --check ./check.sh --allow app.txt 2>&1) || ec=$?
-  assert_equals "MR25a: guard setup failure propagates from an attempt" \
-    "$([ "$ec" -ne 0 ] && printf true || printf false)" true
-  assert_file_not_exists "MR25aa: failed attempt removes its active marker" "$role_guard.active"
-  assert_file_not_exists "MR25b: failed attempt removes its guarded event buffer" \
-    "$role_guard.events-$telemetry_id.jsonl"
-  assert_file_not_exists "MR25c: failed attempt removes its guarded event identity" \
-    "$role_guard.events-$telemetry_id.jsonl.identity-key"
-  assert_file_not_exists "MR25d: failed attempt removes its guarded event lock" \
-    "$role_guard.events-$telemetry_id.jsonl.lock"
-  assert_file_not_exists "MR25e: failed attempt removes its shared telemetry identity" \
-    "$role_guard.telemetry-identity-key"
-  assert_file_not_exists "MR25f: failed attempt removes its telemetry receipt" \
-    "$role_guard.telemetry-$telemetry_id.json"
-  assert_file_not_exists "MR25g: failed attempt removes its full-log buffer" \
-    "$role_guard.logs-$telemetry_id"
-
   rm -f "$common/saas-startup-team/maintain-runtime/base-checks/attempt-run/$base.json"
   rm -f "$prompt"; printf 'task\n' > "$prompt"
   # Symlink target lives outside the product tree so base-check cleanliness is not muddied.

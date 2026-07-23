@@ -33,7 +33,7 @@ if [ ! -t 0 ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-bash "$SCRIPT_DIR/guard-active.sh" && exit 0
+bash "$SCRIPT_DIR/hooks-paused.sh" && exit 0
 
 DRY_RUN=0
 WINDOW="${STARTUP_INLINE_HANDOFFS:-10}"

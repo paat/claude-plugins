@@ -246,10 +246,10 @@ post-diff containment, deterministic checks, `supervisor-commit.sh`, PR/CI, and 
 gates, and record `surface=script`, `profile=mechanical` progress/terminal events. If
 the script or expected output is not objective, set `PROFILE=standard` and continue at
 Step 2; never improvise edits or launch a model under the mechanical profile.
-The supervisor applies the exact-path role guard and trusted-commit preflight from
+The supervisor applies the paused-worker and thin-commit flow from
 `mutation-ownership.md` around this script just as it would around a tech writer.
-Under the maintain embedded caller, execute that exact script through the receipt
-adapter's authenticated `maintain-attempt.sh` transaction rather than the standalone
+Under the maintain embedded caller, execute that exact script through the
+`maintain-attempt.sh` transaction rather than the standalone
 branch path.
 
 For an accepted light route, the maintain embedded caller uses the receipt adapter's

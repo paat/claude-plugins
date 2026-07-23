@@ -46,9 +46,8 @@ Every assertion must be concrete and the array nonempty. A bare success exit or
 `{"status":"passed"}` is invalid.
 
 The helper materializes the exact receipt commit into disposable `0700` roots,
-then runs the tracked command under the active lease and a fail-closed Landlock
-filesystem policy. Repository state, user configuration, agent credentials, and
-container sockets are outside that policy. If a command needs project runtime
+then runs the tracked command under the active lease and a bounded timeout.
+If a command needs project runtime
 credentials, set the applicable controller session variable before starting the
 workflow. Its value is a space-separated list of environment variable names:
 

@@ -16,7 +16,7 @@ file_path=$(echo "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 repo_root=$(realpath -e -- "$repo_root" 2>/dev/null) || exit 0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-bash "$SCRIPT_DIR/guard-active.sh" && exit 0
+bash "$SCRIPT_DIR/hooks-paused.sh" && exit 0
 case "$file_path" in /*) candidate="$file_path" ;; *) candidate="$repo_root/$file_path" ;; esac
 canonical_path=$(realpath -m -- "$candidate" 2>/dev/null) || exit 0
 case "$canonical_path" in

@@ -489,199 +489,28 @@ test_agent_events() {
   assert_file_contains "EV24: raw events are gitignored" "$PLUGIN_ROOT/templates/gitignore-block.txt" '.startup/runs/'
   assert_file_contains "EV25: local evaluation corpus is gitignored" "$PLUGIN_ROOT/templates/gitignore-block.txt" '.startup/evaluation/'
 
-  # Default storage is on the primary checkout under a role guard; explicit
-  # --events paths remain exact overrides (single-worktree contract).
+  # Default and explicit storage append directly to their destination.
   primary_repo="$wd/primary-repo"
   mkdir -p "$primary_repo"
   git -C "$primary_repo" init -q
   git -C "$primary_repo" config user.email test@example.invalid
   git -C "$primary_repo" config user.name Test
   printf 'base\n' > "$primary_repo/app.txt"
-  git -C "$primary_repo" add app.txt; git -C "$primary_repo" commit -qm base
-  auth=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  guard_dir="$(git -C "$primary_repo" rev-parse --absolute-git-dir)/saas-startup-team"
-  snapshot="$guard_dir/primary-guard.json"
-  (cd "$primary_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --snapshot "$snapshot" --auth-stdin --allow review.md <<<"$auth" >/dev/null)
+  git -C "$primary_repo" add app.txt
+  git -C "$primary_repo" commit -qm base
   (cd "$primary_repo" && bash "$events_script" append --run-id primary-default \
     --command improve --phase qa --surface codex --profile deep --writer-id primary-writer \
     --event-type started --outcome incomplete >/dev/null)
-  assert_file_not_exists "EV55: guarded primary writer does not publish early" \
-    "$primary_repo/.startup/runs/agent-events.jsonl"
-  receipt=$(find "$guard_dir" -maxdepth 1 -name 'primary-guard.json.telemetry-*.json' -print -quit)
-  assert_equals "EV56: guarded receipt targets primary event storage" \
-    "$(jq -r .destination "$receipt")" "$primary_repo/.startup/runs/agent-events.jsonl"
-  printf 'review\n' > "$primary_repo/review.md"
-  (cd "$primary_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --verify "$snapshot" --auth-stdin <<<"$auth" >/dev/null)
   primary_events="$primary_repo/.startup/runs/agent-events.jsonl"
-  assert_file_exists "EV57: guarded import publishes into the primary checkout" "$primary_events"
-  assert_equals "EV58: primary reader sees the published event" \
+  assert_file_exists "EV55: default writer appends immediately" "$primary_events"
+  assert_equals "EV56: primary reader sees the appended event" \
     "$(cd "$primary_repo" && bash "$events_script" read | wc -l | tr -d ' ')" "1"
   explicit_events="$primary_repo/explicit-events.jsonl"
   (cd "$primary_repo" && bash "$events_script" append --events "$explicit_events" --run-id primary-explicit \
     --command improve --phase qa --surface codex --profile deep --writer-id primary-writer \
     --event-type started --outcome incomplete >/dev/null)
-  assert_file_exists "EV60: explicit event path remains an override" "$explicit_events"
-
-  # Direct Claude/controller events use the Git-dir buffer while a role guard is
-  # active, then become visible only after the authenticated verification.
-  guard_repo=$(mktemp -d)
-  git -C "$guard_repo" init -q
-  git -C "$guard_repo" config user.email test@example.invalid
-  git -C "$guard_repo" config user.name Test
-  printf 'base\n' > "$guard_repo/app.txt"
-  git -C "$guard_repo" add app.txt
-  git -C "$guard_repo" commit -qm base
-  auth=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  guard_dir="$(git -C "$guard_repo" rev-parse --absolute-git-dir)/saas-startup-team"
-  snapshot="$guard_dir/qa.json"
-  (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --snapshot "$snapshot" --auth-stdin --allow review.md <<<"$auth" >/dev/null)
-  (cd "$guard_repo" && bash "$events_script" append --run-id run-guarded-claude \
-    --command improve --phase qa --surface claude --profile deep --writer-id writer-guarded-claude \
-    --event-type started --outcome incomplete >/dev/null)
-  assert_file_not_exists "EV26: guarded Claude event is not written before verification" \
-    "$guard_repo/.startup/runs/agent-events.jsonl"
-  assert_equals "EV27: guarded Claude event publishes one import receipt" \
-    "$(find "$guard_dir" -maxdepth 1 -name 'qa.json.telemetry-*.json' | wc -l | tr -d ' ')" "1"
-  printf 'review\n' > "$guard_repo/review.md"
-  ec=0; (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --verify "$snapshot" --auth-stdin <<<"$auth" >/dev/null) || ec=$?
-  assert_exit_code "EV28: guard imports the buffered Claude event" "$ec" 0
-  assert_equals "EV29: interrupted Claude phase remains explicitly incomplete" \
-    "$(jq -r '.outcome' "$guard_repo/.startup/runs/agent-events.jsonl")" "incomplete"
-  rm -rf "$guard_repo"
-
-  # Forged traversal and symlink destinations fail before any outside write.
-  guard_repo=$(mktemp -d); outside=$(mktemp -d)
-  git -C "$guard_repo" init -q
-  git -C "$guard_repo" config user.email test@example.invalid
-  git -C "$guard_repo" config user.name Test
-  printf 'base\n' > "$guard_repo/app.txt"; git -C "$guard_repo" add app.txt; git -C "$guard_repo" commit -qm base
-  auth=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  guard_dir="$(git -C "$guard_repo" rev-parse --absolute-git-dir)/saas-startup-team"; snapshot="$guard_dir/qa.json"
-  (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --snapshot "$snapshot" --auth-stdin --allow review.md <<<"$auth" >/dev/null)
-  (cd "$guard_repo" && bash "$events_script" append --run-id run-traversal --command improve --phase qa \
-    --surface claude --profile deep --writer-id writer-traversal --event-type started --outcome incomplete >/dev/null)
-  receipt=$(find "$guard_dir" -maxdepth 1 -name 'qa.json.telemetry-*.json' -print -quit)
-  receipt_backup="$receipt.backup"; cp "$receipt" "$receipt_backup"
-  jq --arg destination "$guard_repo/.startup/runs/../../victim.jsonl" \
-    '.destination=$destination' "$receipt_backup" > "$receipt"
-  ec=0; (cd "$guard_repo" && bash "$events_script" import-guarded --check --receipt "$receipt" >/dev/null 2>&1) || ec=$?
-  assert_exit_code "EV30: traversal receipt is rejected" "$ec" 3
-  assert_file_not_exists "EV31: traversal import cannot write outside runtime state" "$guard_repo/victim.jsonl"
-  mv "$receipt_backup" "$receipt"
-  rm -rf "$guard_repo/.startup"; mkdir -p "$guard_repo/.startup"; ln -s "$outside" "$guard_repo/.startup/runs"
-  ec=0; (cd "$guard_repo" && bash "$events_script" append --run-id run-symlink --command improve --phase qa \
-    --surface claude --profile deep --writer-id writer-symlink --event-type started --outcome incomplete >/dev/null 2>&1) || ec=$?
-  assert_exit_code "EV32: symlinked runtime destination is rejected" "$ec" 3
-  assert_file_not_exists "EV33: symlinked runtime destination receives no event" "$outside/agent-events.jsonl"
-  rm -rf "$guard_repo" "$outside"
-
-  # An import retry after the atomic destination replacement does not duplicate
-  # events, and a verified two-receipt batch resumes after the first import.
-  guard_repo=$(mktemp -d)
-  git -C "$guard_repo" init -q
-  git -C "$guard_repo" config user.email test@example.invalid
-  git -C "$guard_repo" config user.name Test
-  printf 'base\n' > "$guard_repo/app.txt"; git -C "$guard_repo" add app.txt; git -C "$guard_repo" commit -qm base
-  auth=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  guard_dir="$(git -C "$guard_repo" rev-parse --absolute-git-dir)/saas-startup-team"; snapshot="$guard_dir/qa.json"
-  (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --snapshot "$snapshot" --auth-stdin --allow review.md <<<"$auth" >/dev/null)
-  (cd "$guard_repo" && bash "$events_script" append --run-id run-retry --command improve --phase qa \
-    --surface claude --profile deep --writer-id writer-retry --event-type started --outcome incomplete >/dev/null)
-  receipt=$(find "$guard_dir" -maxdepth 1 -name 'qa.json.telemetry-*.json' -print -quit)
-  mkdir -p "$guard_repo/.startup/runs"
-  cp "$(jq -r .source "$receipt")" "$guard_repo/.startup/runs/agent-events.jsonl"
-  cp "$(jq -r .source "$receipt").identity-key" "$guard_repo/.startup/runs/agent-events.jsonl.identity-key"
-  (cd "$guard_repo" && bash "$events_script" import-guarded --receipt "$receipt" >/dev/null)
-  assert_equals "EV34: guarded import retry deduplicates an already-persisted event" \
-    "$(wc -l < "$guard_repo/.startup/runs/agent-events.jsonl" | tr -d ' ')" "1"
-  rm -rf "$guard_repo"
-
-  guard_repo=$(mktemp -d)
-  git -C "$guard_repo" init -q
-  git -C "$guard_repo" config user.email test@example.invalid
-  git -C "$guard_repo" config user.name Test
-  printf 'base\n' > "$guard_repo/app.txt"; git -C "$guard_repo" add app.txt; git -C "$guard_repo" commit -qm base
-  auth=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  guard_dir="$(git -C "$guard_repo" rev-parse --absolute-git-dir)/saas-startup-team"; snapshot="$guard_dir/qa.json"
-  (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --snapshot "$snapshot" --auth-stdin --allow review.md <<<"$auth" >/dev/null)
-  for i in 1 2; do
-    (cd "$guard_repo" && bash "$events_script" append --run-id "run-resume-$i" --command improve --phase qa \
-      --surface claude --profile deep --writer-id "writer-resume-$i" --event-type started --outcome incomplete >/dev/null)
-  done
-  for receipt in "$snapshot.telemetry-"*.json; do
-    (cd "$guard_repo" && bash "$events_script" import-guarded --check --receipt "$receipt" >/dev/null)
-  done
-  verified="$snapshot.verified"
-  jq -n --arg snapshot_tag "$(jq -r .auth_tag "$snapshot")" \
-    '{schema_version:1,snapshot_auth_tag:$snapshot_tag,auth_tag:null}' > "$verified"
-  tag=$(jq -cS 'del(.auth_tag)' "$verified" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$auth" | awk '{print $NF}')
-  jq --arg tag "$tag" '.auth_tag=$tag' "$verified" > "$verified.tmp"; mv "$verified.tmp" "$verified"; chmod 400 "$verified"
-  rm -f "${snapshot}.active"
-  first_receipt=$(find "$guard_dir" -maxdepth 1 -name 'qa.json.telemetry-*.json' | LC_ALL=C sort | head -n 1)
-  (cd "$guard_repo" && bash "$events_script" import-guarded --receipt "$first_receipt" >/dev/null)
-  ec=0; (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --verify "$snapshot" --auth-stdin <<<"$auth" >/dev/null) || ec=$?
-  assert_exit_code "EV35: authenticated guard resumes a partially imported batch" "$ec" 0
-  assert_equals "EV36: resumed batch preserves each event exactly once" \
-    "$(wc -l < "$guard_repo/.startup/runs/agent-events.jsonl" | tr -d ' ')" "2"
-  rm -rf "$guard_repo"
-
-  # A controller event and nested Codex events share one guard-scoped identity;
-  # the receipt is visible to the fake worker before it runs.
-  guard_repo=$(mktemp -d); bin=$(mktemp -d)
-  git -C "$guard_repo" init -q
-  git -C "$guard_repo" config user.email test@example.invalid
-  git -C "$guard_repo" config user.name Test
-  printf 'base\n' > "$guard_repo/app.txt"; printf 'review task\n' > "$guard_repo/task.md"
-  git -C "$guard_repo" add app.txt task.md; git -C "$guard_repo" commit -qm base
-  printf '%s\n' '#!/usr/bin/env bash' \
-    'find "$EXPECT_GUARD_DIR" -maxdepth 1 -name "qa.json.telemetry-*.json" -print -quit | grep -q .' \
-    'while [ "$#" -gt 0 ]; do shift; done' \
-    'cat >/dev/null' \
-    "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"review complete\"}}'" \
-    "printf '%s\\n' '{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cached_input_tokens\":0}}'" \
-    > "$bin/codex"
-  chmod +x "$bin/codex"
-  auth=$(bash "$PLUGIN_ROOT/scripts/mutation-auth-token.sh")
-  guard_dir="$(git -C "$guard_repo" rev-parse --absolute-git-dir)/saas-startup-team"; snapshot="$guard_dir/qa.json"
-  (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --snapshot "$snapshot" --auth-stdin --allow review.md <<<"$auth" >/dev/null)
-  concurrent="$guard_dir/concurrent.json"
-  (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --snapshot "$concurrent" --auth-stdin --allow concurrent-review.md <<<"$auth" >/dev/null)
-  jq -n --arg snapshot_tag "$(jq -r .auth_tag "$snapshot")" \
-    '{schema_version:1,snapshot_auth_tag:$snapshot_tag,auth_tag:"forged"}' > "${snapshot}.verified"
-  chmod 400 "${snapshot}.verified"
-  ec=0; (cd "$guard_repo" && PATH="$bin:$PATH" SAAS_RUN_ID=run-concurrent \
-    SAAS_WRITER_ID=writer-concurrent bash "$PLUGIN_ROOT/scripts/codex-run-role.sh" \
-    --role qa --profile deep --task-file task.md >/dev/null 2>&1) || ec=$?
-  assert_exit_code "EV36a: forged terminal marker cannot hide two genuinely live guards" "$ec" 4
-  rm -f "${snapshot}.verified"
-  (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --verify "$concurrent" --auth-stdin <<<"$auth" >/dev/null)
-  (cd "$guard_repo" && bash "$events_script" append --run-id run-controller --command improve --phase qa \
-    --surface claude --profile deep --writer-id writer-controller --event-type started --outcome incomplete >/dev/null)
-  ec=0; (cd "$guard_repo" && PATH="$bin:$PATH" EXPECT_GUARD_DIR="$guard_dir" SAAS_RUN_ID=run-codex \
-    SAAS_WRITER_ID=writer-codex SAAS_CODEX_ROLE_TIMEOUT=10s bash "$PLUGIN_ROOT/scripts/codex-run-role.sh" \
-    --role qa --profile deep --task-file task.md >/dev/null 2>&1) || ec=$?
-  assert_exit_code "EV37: guarded Codex worker sees its receipt before launch" "$ec" 0
-  ec=0; (cd "$guard_repo" && PATH="$bin:$PATH" SAAS_RUN_ID='../escape' SAAS_WRITER_ID=writer-invalid \
-    bash "$PLUGIN_ROOT/scripts/codex-run-role.sh" --role qa --profile deep --task-file task.md >/dev/null 2>&1) || ec=$?
-  assert_exit_code "EV38: unsafe run id fails before creating a buffer path" "$ec" 2
-  (cd "$guard_repo" && bash "$PLUGIN_ROOT/scripts/delivery-mutation-guard.sh" \
-    --verify "$snapshot" --auth-stdin <<<"$auth" >/dev/null)
-  assert_equals "EV39: mixed controller and Codex events import together" \
-    "$(wc -l < "$guard_repo/.startup/runs/agent-events.jsonl" | tr -d ' ')" "3"
-  assert_equals "EV40: mixed guarded imports leave no receipt" \
-    "$(find "$guard_dir" -maxdepth 1 -name 'qa.json.telemetry-*.json' | wc -l | tr -d ' ')" "0"
-  rm -rf "$guard_repo" "$bin"
+  assert_file_exists "EV57: explicit event path remains an override" "$explicit_events"
+  rm -rf "$primary_repo"
   rm -rf "$wd"
 }
 
