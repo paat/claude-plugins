@@ -34,11 +34,17 @@ case "$ISSUE" in
   "") ;;
   *[!0-9]*|0*) echo "workflow-probe: --issue must be a positive integer without leading zeros" >&2; exit 2 ;;
 esac
-[ -n "$ROOT" ] || ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-# Always physical primary path — /workspace is a symlink on webtop hosts and
-# must not disagree with maintain-leases PRIMARY (pwd -P).
-ROOT="$(cd "$ROOT" && pwd -P)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# SSOT absolute primary path — single resolver for all maintain scripts.
+# shellcheck source=maintain-paths.sh
+. "$SCRIPT_DIR/maintain-paths.sh"
+[ -n "$ROOT" ] || ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+maintain_paths_resolve "$ROOT" || {
+  echo "workflow-probe: cannot resolve primary repository path" >&2
+  exit 1
+}
+# Always use the physical primary SSOT (never a symlink alias like /workspace).
+ROOT=$MAINTAIN_PRIMARY
 noop() { echo "workflow-probe: $OUTPUT_MODE no work to do"; exit 3; }
 CONTROLLER_ROUTE=""
 ready() {

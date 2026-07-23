@@ -36,28 +36,63 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$ACTION" ] && [ -n "$REPO_ROOT" ] || usage
 
-ROOT="$(cd -- "$REPO_ROOT" && pwd -P)" || die "cannot resolve repository" 2
-git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not a git worktree" 2
-PRIMARY="$(bash "$SCRIPT_DIR/maintain-leases.sh" primary-root --repo-root "$ROOT")" \
-  || die "cannot resolve primary root" 2
+# shellcheck source=maintain-paths.sh
+. "$SCRIPT_DIR/maintain-paths.sh"
+maintain_paths_resolve "$REPO_ROOT" || die "cannot resolve primary repository path" 2
+ROOT=$MAINTAIN_ROOT
+PRIMARY=$MAINTAIN_PRIMARY
 [ "$ROOT" = "$PRIMARY" ] || die "must run from the primary working directory ($PRIMARY), not $ROOT" 1
 
 HEALED=0
 RESIDUALS=()
 
 # ---------------------------------------------------------------------------
-# Receipts: migrate path aliases (/workspace → physical primary) via pending.
-# Terminal receipts are validated then skipped; aliases must not fail the inventory.
+# Receipts: rewrite controller.worktree aliases onto SSOT PRIMARY in place.
+# No quarantine — inventory self-heals paths and skips only unreadable residue.
 # ---------------------------------------------------------------------------
 heal_receipts() {
-  local out ec
+  local out ec rewritten=0 f wt now tmp state_root common
+  common=$(git -C "$PRIMARY" rev-parse --git-common-dir) || return 1
+  case "$common" in /*) ;; *) common="$PRIMARY/$common" ;; esac
+  common=$(cd -- "$common" && pwd -P) || return 1
+  state_root="$common/saas-startup-team/maintain-runtime/deliveries"
+  if [ -d "$state_root" ]; then
+    shopt -s nullglob
+    for f in "$state_root"/issue-*/current.json "$state_root"/issue-*/history-*.json; do
+      [ -f "$f" ] && [ ! -L "$f" ] || continue
+      if ! jq -e '.schema_version == 2 and (.controller.worktree|type=="string")' "$f" >/dev/null 2>&1; then
+        continue
+      fi
+      wt=$(jq -r .controller.worktree "$f")
+      [ -n "$wt" ] && [ "$wt" != "$PRIMARY" ] || continue
+      if maintain_paths_same "$wt" "$PRIMARY" 2>/dev/null \
+        || case "$wt" in "$PRIMARY/.worktrees/maintain"|"$PRIMARY/.worktrees/maintain"/*) true ;; *) false ;; esac; then
+        if [ "$DRY_RUN" -eq 1 ]; then
+          log "dry-run: would rewrite worktree in $(basename "$(dirname "$f")")/$(basename "$f") to SSOT primary"
+          rewritten=$((rewritten + 1))
+          continue
+        fi
+        now=$(date -u +%FT%TZ)
+        tmp=$(mktemp "${f}.heal.XXXXXX") || continue
+        if jq --arg wt "$PRIMARY" --arg now "$now" \
+            '.controller.worktree = $wt | .updated_at = $now' "$f" > "$tmp" \
+          && mv -- "$tmp" "$f"; then
+          rewritten=$((rewritten + 1))
+        else
+          rm -f -- "$tmp"
+        fi
+      fi
+    done
+    shopt -u nullglob
+    [ "$rewritten" -eq 0 ] || log "rewrote controller.worktree to SSOT primary on $rewritten receipt file(s)"
+    HEALED=$((HEALED + rewritten))
+  fi
   ec=0
   out=$(bash "$SCRIPT_DIR/maintain-delivery.sh" pending --repo-root "$PRIMARY" 2>&1) || ec=$?
   if [ "$ec" -eq 0 ]; then
     log "receipts inventory ok ($(jq -er 'length' <<<"$out" 2>/dev/null || echo 0) pending)"
     return 0
   fi
-  # One more pass after worktree heal may clear malformed-route residues.
   log "receipts inventory failed (ec=$ec): ${out//$'\n'/; }"
   RESIDUALS+=("receipts:$out")
   return 1

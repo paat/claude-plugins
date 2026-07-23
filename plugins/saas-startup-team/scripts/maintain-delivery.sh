@@ -214,13 +214,16 @@ if [ "$ACTIVE_CONTROLLER_ACTION" -eq 1 ]; then
 fi
 command -v flock >/dev/null 2>&1 || die "flock is required" 2
 
-ROOT="$(cd -- "$REPO_ROOT" && pwd -P)" || die "cannot resolve repository"
-git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not a Git worktree"
-PRIMARY="$(bash "$SCRIPT_DIR/maintain-leases.sh" primary-root --repo-root "$ROOT")" \
-  || die "cannot resolve primary worktree"
+# SSOT absolute primary path (physical). /workspace and other aliases normalize here.
+# shellcheck source=maintain-paths.sh
+. "$SCRIPT_DIR/maintain-paths.sh"
+maintain_paths_resolve "$REPO_ROOT" || die "cannot resolve repository primary path"
+ROOT=$MAINTAIN_ROOT
+PRIMARY=$MAINTAIN_PRIMARY
+COMMON=$MAINTAIN_COMMON
 # Exact primary only — a subdirectory or linked root must not mask as the primary.
 [ "$ROOT" = "$PRIMARY" ] || die "delivery must run from the primary working directory ($PRIMARY), not $ROOT"
-bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$ROOT" >/dev/null \
+bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$PRIMARY" >/dev/null \
   || die "primary-only gate failed (no linked worktrees)"
 validate_controller_tool "$JQ_CANDIDATE" jq
 validate_controller_tool /usr/bin/sha256sum sha256sum
@@ -228,17 +231,15 @@ case "$JQ_CANDIDATE" in /usr/bin/*|/bin/*) : ;; *) PATH="$PATH:${JQ_CANDIDATE%/*
 command -v jq >/dev/null 2>&1 || die "jq is required" 2
 CONTROLLER_LEASE_ARGS=()
 if [ "$ACTIVE_CONTROLLER_ACTION" -eq 1 ]; then
-  bash "$SCRIPT_DIR/maintain-leases.sh" controller-binding --repo-root "$ROOT" --run-id "$CONTROLLER_RUN_ID" --state-file "$LEASE_STATE" \
+  bash "$SCRIPT_DIR/maintain-leases.sh" controller-binding --repo-root "$PRIMARY" --run-id "$CONTROLLER_RUN_ID" --state-file "$LEASE_STATE" \
     >/dev/null 2>&1 || die "lease state does not bind the explicit active controller" 3
-  CONTROLLER_LEASE_ARGS=(--state-file "$LEASE_STATE" --repo-root "$ROOT" --run-id "$CONTROLLER_RUN_ID")
+  CONTROLLER_LEASE_ARGS=(--state-file "$LEASE_STATE" --repo-root "$PRIMARY" --run-id "$CONTROLLER_RUN_ID")
   ACTIVE_CONTROLLER_MODE=$(jq -r .mode "$LEASE_STATE")
-  ACTIVE_CONTROLLER_WORKTREE=$(jq -r .worktree "$LEASE_STATE")
+  # Lease may still store a path alias; SSOT is always PRIMARY.
+  ACTIVE_CONTROLLER_WORKTREE=$PRIMARY
   ACTIVE_CONTROLLER_RUN=$CONTROLLER_RUN_ID
 fi
 REPO_SLUG=""
-common_raw="$(git -C "$PRIMARY" rev-parse --git-common-dir)" || die "cannot resolve common Git directory"
-case "$common_raw" in /*) COMMON=$common_raw ;; *) COMMON="$PRIMARY/$common_raw" ;; esac
-COMMON="$(cd -- "$COMMON" && pwd -P)" || die "cannot resolve common Git directory"
 STATE_ROOT="$COMMON/saas-startup-team/maintain-runtime/deliveries"
 
 TEMP_PATHS=()
@@ -398,35 +399,34 @@ receipt_schema_valid() {
   ' "$1" >/dev/null 2>&1
 }
 
-# Single-worktree: controller tree must be the primary checkout only.
-# Accept path aliases that resolve to PRIMARY (e.g. /workspace -> real primary).
+# SSOT: every controller.worktree compares as PRIMARY (physical absolute path).
 normalize_controller_worktree() {
-  local wt=$1 resolved
+  local wt=$1
+  [ -n "${PRIMARY:-}" ] || return 1
+  [ -n "$wt" ] || return 1
   case "$wt" in
     "$PRIMARY") printf '%s\n' "$PRIMARY"; return 0 ;;
+    "$PRIMARY/.worktrees/maintain"|"$PRIMARY/.worktrees/maintain"/*)
+      printf '%s\n' "$PRIMARY"; return 0 ;;
   esac
-  resolved=$(/usr/bin/readlink -f -- "$wt" 2>/dev/null || true)
-  [ -n "$resolved" ] && [ "$resolved" = "$PRIMARY" ] || return 1
+  maintain_paths_same "$wt" "$PRIMARY" || return 1
   printf '%s\n' "$PRIMARY"
 }
 
-# Rewrite receipt worktree to the physical PRIMARY when it still names a retired
-# maintain worktree or a path alias (e.g. /workspace) that resolves to PRIMARY.
+# Rewrite receipt controller.worktree to SSOT PRIMARY whenever it differs by
+# alias or retired maintain path. Call on every inventory/load.
 migrate_legacy_receipt_worktree() {
-  local file=$1 schema wt tmp now resolved
+  local file=$1 schema wt tmp now
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
   schema=$(jq -r '.schema_version // empty' "$file") || return 1
   [ "$schema" = "2" ] || return 0
   wt=$(jq -r '.controller.worktree // empty' "$file") || return 1
   [ -n "$wt" ] || return 1
-  case "$wt" in
-    "$PRIMARY") return 0 ;;
-    "$PRIMARY/.worktrees/maintain") ;;
-    *)
-      resolved=$(/usr/bin/readlink -f -- "$wt" 2>/dev/null || true)
-      [ -n "$resolved" ] && [ "$resolved" = "$PRIMARY" ] || return 0
-      ;;
-  esac
+  [ "$wt" = "$PRIMARY" ] && return 0
+  # Only rewrite when the stored path is the same tree (alias) or retired path.
+  if ! normalize_controller_worktree "$wt" >/dev/null 2>&1; then
+    return 0
+  fi
   now=$(now_iso) || return 1
   tmp=$(mktemp "${file}.mig.XXXXXX") || return 1
   if ! jq --arg wt "$PRIMARY" --arg now "$now" \
@@ -896,8 +896,11 @@ claim_delivery_pr_absent() {
 }
 
 if [ "$ACTION" = pending ]; then
+  # Inventory never fail-closes the portfolio on one residual receipt. Self-heal
+  # path aliases onto SSOT PRIMARY in place; skip unreadable residue left on disk.
+  # Active non-terminal work still appears when valid after heal.
   rows=()
-  binding=""; bound_mode=""; bound_worktree=""; controller_route=""
+  binding=""; bound_mode=""; bound_worktree=""; controller_route="" state=""
   shopt -s nullglob
   for dir in "$STATE_ROOT"/issue-*; do
     [ -L "$dir" ] && die "delivery issue directory is unsafe"
@@ -905,27 +908,40 @@ if [ "$ACTION" = pending ]; then
     n=${dir##*/issue-}; valid_uint "$n" || die "invalid delivery issue directory"
     [ -z "$ISSUE" ] || [ "$n" = "$ISSUE" ] || continue
     for history in "$dir"/history-*.json; do
-      [ -f "$history" ] && [ ! -L "$history" ] \
-        && migrate_legacy_receipt_worktree "$history" \
-        && receipt_valid "$history" \
-        || die "delivery history is malformed or unsafe"
+      [ -f "$history" ] && [ ! -L "$history" ] || continue
+      migrate_legacy_receipt_worktree "$history" || true
+      if ! receipt_valid "$history"; then
+        printf 'maintain-delivery: self-heal left history unreadable (skipped): %s\n' \
+          "$history" >&2
+      fi
     done
     [ -e "$dir/current.json" ] || [ -L "$dir/current.json" ] || continue
-    [ -f "$dir/current.json" ] && [ ! -L "$dir/current.json" ] \
-      && migrate_legacy_receipt_worktree "$dir/current.json" \
-      && receipt_valid "$dir/current.json" \
-      || die "delivery receipt is malformed or unsafe"
+    if ! { [ -f "$dir/current.json" ] && [ ! -L "$dir/current.json" ]; }; then
+      printf 'maintain-delivery: self-heal left receipt path unsafe (skipped): issue-%s\n' "$n" >&2
+      continue
+    fi
+    migrate_legacy_receipt_worktree "$dir/current.json" || true
+    if ! receipt_valid "$dir/current.json"; then
+      printf 'maintain-delivery: self-heal left receipt unreadable (skipped): issue-%s\n' "$n" >&2
+      continue
+    fi
     state=$(jq -r .state "$dir/current.json")
     terminal_state "$state" && continue
-    binding=$(receipt_controller_binding "$dir/current.json") \
-      || die "delivery receipt controller binding is malformed"
+    if ! binding=$(receipt_controller_binding "$dir/current.json"); then
+      printf 'maintain-delivery: self-heal left controller binding unreadable (skipped): issue-%s\n' "$n" >&2
+      continue
+    fi
     IFS=$'\t' read -r bound_mode bound_worktree <<<"$binding"
+    # binding already normalizes worktree to SSOT PRIMARY
     case "$bound_mode:$bound_worktree" in
       "maintain:$PRIMARY") controller_route=canonical ;;
       "maintain-loop:$PRIMARY") controller_route=legacy-recovery ;;
-      *) die "delivery receipt controller route is invalid" ;;
+      *)
+        printf 'maintain-delivery: self-heal left controller route invalid (skipped): issue-%s mode=%s\n' \
+          "$n" "$bound_mode" >&2
+        continue
+        ;;
     esac
-    # Always project the normalized primary path (legacy bindings remapped).
     rows+=("$(jq -c --arg receipt "$dir/current.json" --arg kind "$controller_route" \
       --arg mode "$bound_mode" --arg worktree "$PRIMARY" \
       '{issue_number,delivery_id,state,receipt:$receipt,
