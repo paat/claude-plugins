@@ -27,9 +27,14 @@ worktree_lease_key() {
   printf '%s:worktree:%s\n' "$1" "$(printf '%s' "$2" | cksum | awk '{print $1}')"
 }
 # Hard gate: only the primary working directory. No linked product worktrees.
+# Accept path aliases that realpath to PRIMARY (e.g. /workspace → physical primary).
 allowed_controller_tree() {
+  local wt=$1 resolved
   [ -n "${PRIMARY:-}" ] || return 1
-  [ "$1" = "$PRIMARY" ]
+  [ -n "$wt" ] || return 1
+  [ "$wt" = "$PRIMARY" ] && return 0
+  resolved=$(cd -- "$wt" 2>/dev/null && pwd -P) || return 1
+  [ "$resolved" = "$PRIMARY" ]
 }
 
 assert_primary_only() {

@@ -525,15 +525,18 @@ atomic_update() {
 terminal_state() { case "$1" in archived_claim|finalized_success|finalized_rolled_back) return 0 ;; *) return 1 ;; esac; }
 
 require_active_controller() {
-  local binding bound_mode bound_worktree schema state
+  local binding bound_mode bound_worktree schema state active_wt
   if [ -n "$current" ] && [ -f "$current" ]; then
     schema=$(jq -r .schema_version "$current") || die "delivery receipt schema is invalid"
     state=$(jq -r .state "$current") || die "delivery receipt state is invalid"
     binding=$(receipt_controller_binding "$current") \
       || die "delivery receipt controller binding is invalid"
     IFS=$'\t' read -r bound_mode bound_worktree <<<"$binding"
+    # Compare canonical primary paths (aliases like /workspace already normalized).
+    active_wt=$(normalize_controller_worktree "$ACTIVE_CONTROLLER_WORKTREE" 2>/dev/null || true)
+    [ -n "$active_wt" ] || active_wt=$ACTIVE_CONTROLLER_WORKTREE
     [ "$bound_mode" = "$ACTIVE_CONTROLLER_MODE" ] \
-      && [ "$bound_worktree" = "$ACTIVE_CONTROLLER_WORKTREE" ] \
+      && [ "$bound_worktree" = "$active_wt" ] \
       || die "active controller does not match the delivery receipt binding" 3
   fi
   if ! bash "$SCRIPT_DIR/maintain-leases.sh" heartbeat \

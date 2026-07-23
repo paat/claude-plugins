@@ -150,11 +150,20 @@ the child under outer `--once` or `--dry-run`. Otherwise continue only after a
 `pass-complete` terminal; stop on a limit, no-work, `pass-blocked`, failure, unknown
 scope, or unknown child state.
 
-On outer `pass-blocked`, return exactly one standalone `PASS-BLOCKED reason=<reason>` line.
-Derive `<reason>` from the child's `pass-blocked` blocker/result; replace CR/LF and
-all control characters with spaces; trim; use `unspecified` only if empty.
-Omit `recheck_after` (configured/default window). Never emit for `pass-complete` or an
-issue-local block completing the outer pass.
+On outer `pass-blocked`, return exactly one standalone `PASS-BLOCKED reason=<reason>` line
+(legacy alias `MC-BLOCKED` is accepted by the governor). Derive `<reason>` from the
+child's `pass-blocked` blocker/result; replace CR/LF and all control characters with
+spaces; trim; use `unspecified` only if empty. Omit `recheck_after` (configured/default
+window). Never emit for `pass-complete` or an issue-local block completing the outer pass.
+
+**Autonomy rule — heal before block.** Before any outer `pass-blocked` / probe exit 4 for
+environment shape (receipts, worktrees, path aliases, local proof env), run
+`maintain-self-heal.sh all --repo-root "$(git rev-parse --show-toplevel)"` (the probe
+already does this). Prefer mechanical heal + continue over babysitting. Soft-block only
+true external holds (legal/spend/non-revertable deploy, missing host secrets not present
+in primary `.env`, active lease owned by a live sibling). Never multi-hour soft-block for
+path aliases (`/workspace` vs physical primary), disposable/merged foreign worktrees,
+stale closed claims, or "keys missing from process but present in primary `.env`".
 
 ## Entry and setup
 

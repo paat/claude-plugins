@@ -72,6 +72,13 @@ Do not wait for investor merge of maintain PRs.
 Only true external holds. Never multi-hour soft-block for claim/receipt
 bookkeeping (`receipt_conflict`, stale claims after issue closed on main).
 
+**Self-heal before block** (`maintain-self-heal.sh`): path aliases, disposable or
+fully-merged foreign worktrees, and receipt migration are model-free. The probe runs
+heal automatically. Agents must not escalate those classes as `MC-BLOCKED` /
+`PASS-BLOCKED` without attempting heal first. Residual foreign worktrees that still
+carry unique commits are **resume-or-delete in this pass** (or the next tick) — not a
+portfolio pause.
+
 ## Resume after kill
 
 Next dispatch **must** prefer the same unmerged PR/branch/commits before any
