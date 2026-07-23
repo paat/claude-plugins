@@ -66,12 +66,12 @@ def lint_prompt_content(plugin_dir: Path, errors: list[str]) -> None:
         if root.is_dir():
             paths.update(root.rglob("*.md"))
 
-    sentinel = re.compile(r"^MC-BLOCKED(?:[ \t].*)?$", re.MULTILINE)
+    sentinel = re.compile(r"^PASS-BLOCKED(?:[ \t].*)?$", re.MULTILINE)
     for path in sorted(paths):
         body = path.read_text(encoding="utf-8")
         if sentinel.search(body):
             errors.append(
-                f"{rel(path)}: standalone MC-BLOCKED line can be copied into dispatch logs; "
+                f"{rel(path)}: standalone PASS-BLOCKED line can be copied into dispatch logs; "
                 "keep the runtime emission instruction inline"
             )
 

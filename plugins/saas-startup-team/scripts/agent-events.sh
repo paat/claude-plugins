@@ -779,7 +779,7 @@ account_event() {
   terminal=$(project_terminal "$events_file" "$run_id") || exit $?
   existing_duration=$(jq -r '.duration_ms // empty' <<< "$terminal")
   existing_total=$(jq -r '.total_tokens // empty' <<< "$terminal")
-  # Caller-supplied duration_ms is the wall-clock authority (mission-control
+  # Caller-supplied duration_ms is the wall-clock authority (outer scheduler
   # envelope). Child maintain passes may pre-stamp an internal duration that
   # differs by coordinator overhead — overwriting that is correct, not a
   # conflict. Token totals still conflict if both sides set different values.

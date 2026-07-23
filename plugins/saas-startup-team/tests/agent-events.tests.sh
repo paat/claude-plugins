@@ -245,9 +245,9 @@ test_agent_events() {
   assert_equals "EV50: identical accounting is idempotent" \
     "$(wc -l < "$terminal_events" | tr -d ' ')" "$before_lines"
 
-  # Child maintain stamps an internal duration; mission-control wall clock may
-  # differ by coordinator overhead. Wall-clock account must overwrite, not
-  # exit 3 (which used to mis-classify blocked passes as portfolio "error").
+  # Child maintain stamps an internal duration; outer wall clock may differ by
+  # coordinator overhead. Wall-clock account must overwrite, not exit 3
+  # (which used to mis-classify blocked passes as scheduler "error").
   wall_events="$wd/wall-duration-events.jsonl"
   bash "$events_script" append --events "$wall_events" --run-id wall-duration-run \
     --command maintain-loop --phase pass-outcome --surface script --profile deep \

@@ -2,7 +2,7 @@
 # bootstrap-plan.sh — non-interactive brief + provenance for /bootstrap Step 6 (#206).
 #
 # Renders docs/business/brief.md from a plan file (JSON or frontmattered markdown) and
-# records .startup/provenance.json — the record mission-control's admission gate reads.
+# records .startup/provenance.json — audit/plan-integrity record for the bootstrap.
 # Fail-closed: a missing plan file or empty IDEA_DESCRIPTION exits non-zero and writes
 # nothing. Never reads stdin, so it is safe under an unattended scheduler.
 #

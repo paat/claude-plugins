@@ -120,13 +120,13 @@ class TerminalSentinelTests(unittest.TestCase):
             "references/protocol.md",
         ):
             with self.subTest(path=path):
-                errors = self.lint(path, "Before\nMC-BLOCKED reason=<reason>\nAfter\n")
+                errors = self.lint(path, "Before\nPASS-BLOCKED reason=<reason>\nAfter\n")
                 self.assertEqual(len(errors), 1)
 
     def test_accepts_inline_runtime_emission_instruction(self) -> None:
         errors = self.lint(
             "commands/maintain-loop.md",
-            "Return one standalone `MC-BLOCKED reason=<reason>` line.\n",
+            "Return one standalone `PASS-BLOCKED reason=<reason>` line.\n",
         )
         self.assertEqual(errors, [])
 

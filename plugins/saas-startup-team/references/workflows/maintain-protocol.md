@@ -362,7 +362,7 @@ supervisor removal before retry.
 
 ### `needs-human` reasons
 
-**Closed definition** (steering #1647 / #1668). The mechanical gate / cheap triage may
+**Closed definition.** The mechanical gate / cheap triage may
 apply `needs-human` **only** when the whole issue hinges on:
 
 - spend / payment disposition (refund, honour promo, charge, no-action on money)

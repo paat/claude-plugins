@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "Autonomous SaaS delivery — routed founder and specialist roles turn market demand into gated implementation, QA, deployment, growth, and maintenance",
-      "version": "0.90.2",
+      "version": "0.90.3",
       "author": {
         "name": "Andre Paat"
       },
@@ -190,17 +190,6 @@
         "name": "Andre Paat"
       },
       "source": "./plugins/codex-subagent",
-      "category": "development",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
-      "name": "mission-control",
-      "description": "Portfolio supervisor: N-slot scheduler (pinned maintenance slots + priority-ladder slots) + budget governor keeping autonomous SaaS loops running 24/7 from one human-installed cron line, spending zero LLM tokens on scheduling",
-      "version": "0.6.7",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/mission-control",
       "category": "development",
       "homepage": "https://github.com/paat/claude-plugins"
     },

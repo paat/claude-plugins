@@ -302,22 +302,21 @@ existing `0 2 * * *` pattern, headless with permissions pre-granted:
 
 ```
 0 3 * * * /usr/bin/flock -n /tmp/lessons-deliver.lock -c \
-  'cd <plugin-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" lessons-deliver; then <assistant-command> "/lessons-deliver --once" >> <log-path> 2>&1; else test $? -eq 3; fi'
+  'cd <plugin-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; bash "$PLUGIN_ROOT/scripts/lesson-auto-review.sh"; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" lessons-deliver; then <assistant-command> "/lessons-deliver --once" >> <log-path> 2>&1; else test $? -eq 3; fi'
 ```
 
-Standalone cron and a governed review/probe/delivery scheduler are mutually exclusive;
-installing the governed owner must retire the standalone `/tmp/lessons-deliver.lock` line.
-In standalone mode, cron is the production runner; `/loop` is supervised only.
+Cron is the production runner; `/loop` is supervised only. Install only one flock
+owner for `/tmp/lessons-deliver.lock`.
 
-**Ownership split (project harvest vs central consume):** product projects own
+**Ownership split (project harvest vs plugin-repo deliver):** product projects own
 harvest + gated filing only (Aruannik reference: `scripts/nightly-lessons-harvest-wrapper.sh`
 — checksum-pinned snapshot of `session-insights`/`harvest`/`agent-events`/
 `delivery-route`/`pii-gate`/`lesson-file`, canonical `--in` + `--events` inputs,
-no auto-review and no `/lessons-deliver` in the wrapper). The central consumer
-(e.g. portfolio steering `scripts/lessons-nightly.sh`) owns flagship
-`lesson-auto-review.sh`, the model-free `workflow-probe.sh lessons-deliver`
-gate, and one fresh `/lessons-deliver --once`. Do not re-run review or delivery
-from product containers.
+no auto-review and no `/lessons-deliver` in the wrapper). The **plugin monorepo**
+cron owns flagship `lesson-auto-review.sh`, the model-free
+`workflow-probe.sh lessons-deliver` gate, and one fresh `/lessons-deliver --once`
+(same flock script, before the assistant invocation). Do not re-run review or
+delivery from product containers.
 
 ---
 

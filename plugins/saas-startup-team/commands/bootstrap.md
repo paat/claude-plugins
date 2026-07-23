@@ -113,11 +113,9 @@ created_at}`) from the plan's optional provenance fields.
 
 Save the response to `docs/business/brief.md` using the template from `${CLAUDE_PLUGIN_ROOT}/templates/startup-brief.md`.
 
-**Admission seam.** `bootstrap-plan.sh` only *records* provenance; it does not gate. When
-mission-control drives an autonomous bootstrap it enforces admission first — Slot B
-capacity, the pre-launch WIP cap, the validated-confidence bar, and the 72h human veto
-window — reading `.startup/provenance.json`, then invokes this step. Company registration,
-banking, and signing stay human.
+**Provenance only.** `bootstrap-plan.sh` records `.startup/provenance.json` for plan
+integrity and audit; it does not gate admission. Company registration, banking, and
+signing stay human.
 
 ## Step 6.25: Scaffold the workflow registry
 

@@ -2075,9 +2075,9 @@ test_maintain_loop() {
   assert_file_contains "ML16o: ambiguous linked PR blocks the pass" \
     "$protocol" 'Ambiguous, multiple, or mismatched linked PR identity is `pass-blocked`'
   assert_equals "ML16p: blocked sentinel has one canonical template" \
-    "$(grep -cF 'MC-BLOCKED reason=<reason>' "$coordinator")" "1"
+    "$(grep -cF 'PASS-BLOCKED reason=<reason>' "$coordinator")" "1"
   assert_equals "ML16p1: producer text cannot impersonate a blocked result" \
-    "$(grep -cE '^MC-BLOCKED([[:space:]].*)?$' "$coordinator" || true)" "0"
+    "$(grep -cE '^PASS-BLOCKED([[:space:]].*)?$' "$coordinator" || true)" "0"
   assert_file_contains "ML16q: blocked reason replaces line breaks" "$coordinator" \
     'replace CR/LF'
   assert_file_contains "ML16q1: blocked reason replaces control characters" "$coordinator" \
@@ -2091,12 +2091,12 @@ test_maintain_loop() {
   assert_file_contains "ML16t: successful and issue-local outcomes omit the sentinel" "$coordinator" \
     'for `pass-complete` or an'
   assert_file_not_contains "ML16u: command file does not duplicate bare sentinel line" \
-    "$command" 'MC-BLOCKED reason='
+    "$command" 'PASS-BLOCKED reason='
 
   assert_file_exists "ML17: concise Codex skill exists" "$codex_cmd"
   assert_file_contains "ML18: Codex skill aliases command" "$codex_cmd" "/maintain-loop"
   assert_file_not_contains "ML18a: Codex skill does not duplicate the sentinel body" \
-    "$codex_cmd" 'MC-BLOCKED reason='
+    "$codex_cmd" 'PASS-BLOCKED reason='
   assert_file_contains "ML19: Codex requires fresh subagent" "$codex_cmd" \
     'fresh Codex subagents'
   assert_file_not_contains "ML20: Codex cannot execute pass in parent" "$codex_cmd" \

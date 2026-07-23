@@ -188,7 +188,7 @@ Two **independent** scheduled runners (different repos/cwds — cannot be one `/
 | Stage | Owner | Where |
 |-------|--------|--------|
 | session-insights + harvest (`--events`) + lesson-file | **product project** | project container cron (e.g. 02:45 UTC) |
-| lesson-auto-review + probe + `/lessons-deliver --once` | **central consumer** | webtop/steering (or standalone plugin cron) |
+| lesson-auto-review + probe + `/lessons-deliver --once` | **plugin monorepo** | standalone flock cron on the plugin checkout |
 
 Product wrappers must not call `lesson-auto-review.sh` or `/lessons-deliver`.
 They pin and snapshot the full harvest dependency set before filing (TOCTOU-safe
@@ -196,17 +196,16 @@ copy + sha256 manifest), pass canonical insight/event paths, and stop after
 gated filing. Reference implementation:
 `r-53-ou/aruannik` `scripts/nightly-lessons-harvest-wrapper.sh` (#1614).
 
-**Production consumption** — either standalone cron:
+**Production consumption** — one plugin-repo flock cron (auto-review, then probe,
+then deliver). Example:
 
 ```
 0 3 * * * /usr/bin/flock -n /tmp/lessons-deliver.lock -c \
-  'cd <plugin-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" lessons-deliver; then <assistant-command> "/lessons-deliver --once" >> <log-path> 2>&1; else test $? -eq 3; fi'
+  'cd <plugin-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; bash "$PLUGIN_ROOT/scripts/lesson-auto-review.sh"; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" lessons-deliver; then <assistant-command> "/lessons-deliver --once" >> <log-path> 2>&1; else test $? -eq 3; fi'
 ```
 
-or a **governed** scheduler that also runs `lesson-auto-review.sh` first (R-53:
-portfolio steering `scripts/lessons-nightly.sh` at 04:30). Standalone and
-governed owners are mutually exclusive. cron is the production runner; `/loop`
-is for a supervised session only.
+Install only one owner for `/tmp/lessons-deliver.lock`. cron is the production
+runner; `/loop` is for a supervised session only.
 
 ## 12. Tests
 
