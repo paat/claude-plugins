@@ -166,14 +166,23 @@ Each pass:
       Any tribunal fix returns through this firewall/check/thin-commit gate before the next review round; the controller
       or reviewer never patches or commits product code.
       Record firewall/check/commit status as a supervisor progress event.
-   5. **Tribunal gate** — load and follow `tribunal-review:closing-tribunal-loop`; run
-      `tribunal-review:tribunal-loop`. Require **zero critical and zero high** (and no
-      safety-class medium: test deletion, auth/secrets, filesystem, autonomous-control).
-      Otherwise `lessons-deliver.sh --block N --reason "tribunal: <summary>" --repo "$REPO"`,
+   5. **Open the PR before tribunal** — `closing-tribunal-loop` is PR-only and documents
+      every round as a PR comment. Push the branch, then open (or reuse) the PR with
+      **`Closes #N`** in the body. Record `PR_URL` / `PR_NUMBER`. Do not merge yet.
+      ```bash
+      git push -u origin "$ATTEMPT_BRANCH"
+      # if no open PR for this branch:
+      gh pr create --title "lesson: #$N …" --body-file <body with Closes #N>
+      ```
+   6. **Tribunal gate** — load and follow `tribunal-review:closing-tribunal-loop` on that
+      open PR; run `tribunal-review:tribunal-loop`. Post each round as a PR comment (skill
+      contract). Require **zero critical and zero high** (and no safety-class medium: test
+      deletion, auth/secrets, filesystem, autonomous-control). Otherwise
+      `lessons-deliver.sh --block N --reason "tribunal: <summary>" --repo "$REPO"`,
       run **Failed-attempt cleanup**, and continue. Reuse the round caps: notify the
-      investor at round 3, hard-stop at 5.
+      investor at round 3, hard-stop at 5 (both also on the PR).
       Append the latest-head tribunal status as a supervisor progress event.
-   6. **Bump the version BEFORE the final test run** so the bump itself is validated:
+   7. **Bump the version BEFORE the final test run** so the bump itself is validated:
       ```bash
       "${CLAUDE_PLUGIN_ROOT}/scripts/lessons-deliver.sh" --bump-version minor
       ```
@@ -182,35 +191,37 @@ Each pass:
       `python3 scripts/sync-codex-marketplace.py` from `$WT` root — and stage any
       regenerated files under `plugins/` (the generated `.codex-plugin/plugin.json`
       and workflow skills; never out-of-tree files, which the firewall rejects).
-   7. **Final test + version commit gate** — run the supervisor commit helper again with
+   8. **Final test + version commit gate** — run the supervisor commit helper again with
       `--message "lesson: #$N version and Codex surface"` and
       `--check plugins/saas-startup-team/tests/run-tests.sh`. It stages only the
       version/generated delivery and keeps hooks enabled; this run covers the bump.
       Otherwise `lessons-deliver.sh --block N --reason "tests red" --repo "$REPO"`, run
       **Failed-attempt cleanup**, and continue.
-   8. **Final-head tribunal gate.** The version bump and generated Codex surface changed
-      `HEAD`, so the earlier verdict is stale. Run `tribunal-review:tribunal-loop` again
-      against the final version/generated `HEAD` and latest diff, then record
-      `TRIBUNAL_HEAD=$(git rev-parse HEAD)`. Require the same zero-critical/high and
-      safety-medium policy. Any fix returns through the firewall, regeneration when
-      applicable, full test, and `supervisor-commit.sh` gates; then rerun this final
-      tribunal. The controller/reviewer never patches or commits. A blocking verdict
+   9. **Final-head tribunal gate.** The version bump and generated Codex surface changed
+      `HEAD`, so the earlier verdict is stale. Push the new commits to the open PR branch,
+      run `tribunal-review:tribunal-loop` again against the final version/generated `HEAD`
+      and latest diff (continue `closing-tribunal-loop` round comments on the same PR),
+      then record `TRIBUNAL_HEAD=$(git rev-parse HEAD)`. Require the same zero-critical/high
+      and safety-medium policy. Any fix returns through the firewall, regeneration when
+      applicable, full test, and `supervisor-commit.sh` gates; then push and rerun this
+      final tribunal. The controller/reviewer never patches or commits. A blocking verdict
       runs `lessons-deliver.sh --block`, then **Failed-attempt cleanup**, before the next
       lesson.
-   9. **PR + merge on green** — immediately before push and merge, require
+   10. **Merge on green** — immediately before merge, require
       `git rev-parse HEAD == $TRIBUNAL_HEAD`; any changed `HEAD` invalidates the verdict
-      and returns to step 8. Push the branch; open the PR with **`Closes #N`** in the
-      body (merge auto-closes the lesson issue — no post-merge relabel race). Merge on green:
+      and returns to step 9. Ensure the open PR still has **`Closes #N`** (merge
+      auto-closes the lesson issue — no post-merge relabel race). Push if needed, then
+      merge on green:
       ```bash
-      gh pr merge "<pr url>" --squash --delete-branch
+      gh pr merge "$PR_URL" --squash --delete-branch
       ```
       If `origin/$default` advanced during final validation, reset onto it and **restart
-      from step 6** (re-bump from fresh main, re-test, and rerun the final tribunal).
+      from step 7** (re-bump from fresh main, re-test, and rerun the final tribunal).
       Classify any `gh` error with
       `lessons-deliver.sh --classify-gh-error "<msg>"`: `retriable` → bounded backoff +
       retry; `terminal` → `--block`, reconcile any exact PR/remote branch, run
       **Failed-attempt cleanup**, then continue only when all cleanup checks pass.
-   10. **Ship** — on a successful merge:
+   11. **Ship** — on a successful merge:
       `lessons-deliver.sh --ship N --pr "<pr url>" --repo "$REPO"` (idempotent).
       Append one authoritative per-lesson terminal event with checks, tribunal, PR,
       merge, and outcome codes. Blocked, needs-human, skipped, firewall-failed, and

@@ -375,19 +375,23 @@ on has merged):
    and incident work, add a mechanical regression guard that fails on the old behavior;
    if no durable guard is possible, split/file the gap or use `Refs` instead of silently
    closing it. Apply §Delivery safety invariants for project test-target diagnostics.
-2. **Close the tribunal loop** on the PR branch. Load and follow
-   `tribunal-review:closing-tribunal-loop`. Run `tribunal-review:tribunal-loop`;
-   include this explicit issue-closure question in the review request whenever the PR
-   body/title uses `Closes`, `Fixes`, or `Resolves`: **Does this PR satisfy every
-   material promise in the full issue body and comments it closes, or only a subset?**
-   If the arbiter returns **zero critical and zero high**, the gate is closed
-   (leftover medium/low → YAGNI triage: file a follow-up only if real and worth
-   acting on, else drop with a PR-body note). While any critical/high remains:
-   - **Rounds 1–2:** fix directly (tech founder), push, re-run.
+2. **Close the tribunal loop** on the open PR. Load and follow
+   `tribunal-review:closing-tribunal-loop` (PR-only; each round is a PR comment). Run
+   `tribunal-review:tribunal-loop`; include this explicit issue-closure question in the
+   review request whenever the PR body/title uses `Closes`, `Fixes`, or `Resolves`:
+   **Does this PR satisfy every material promise in the full issue body and comments it
+   closes, or only a subset?** If the arbiter returns **zero critical and zero high**,
+   the gate is closed (leftover medium/low → YAGNI triage: file a follow-up only if real
+   and worth acting on, else drop in the closing round PR comment). While any
+   critical/high remains (lifecycle from `closing-tribunal-loop`: triage → **post and
+   verify the round PR comment** → then fix/push/re-run; never fix-before-comment):
+   - **Rounds 1–2:** post round comment, then fix directly (tech founder), push, re-run.
    - **Round 3+:** step-back mode — simplify, descope (remove mechanism + file
      follow-up), or have the arbiter down-rate the class; never guard-pile.
-   - **Round 3:** notify the investor without stopping.
-   - **Round 5:** stop and escalate to the investor with the standing finding.
+   - **Round 3:** PR checkpoint comment + notify the investor without stopping.
+   - **Round 5:** PR ceiling comment, stop, and escalate to the investor with the
+     standing finding. Round numbers are cumulative from existing
+     `<!-- tribunal-round:N -->` markers on the PR (resume-safe).
    Then **skip the chunks that depend on it** and continue with independent ones.
    Record the latest-head tribunal status as a goal-level progress event; never infer it
    from the implementation worker's exit code.

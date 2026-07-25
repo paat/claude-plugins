@@ -77,25 +77,28 @@ Regenerate it after an intentional runner change with
 `finalize` is crash-idempotent: an identical retry returns the retained proof,
 while a different arbitration for that collection is rejected.
 
-When the verdict comes back `NEEDS_WORK` or `BLOCK`, the `closing-tribunal-loop` skill guides the iterative close-out: per-finding triage (fix-in-PR vs file-follow-up vs reject), committing fixes one finding at a time, and re-running the tribunal until the arbiter returns a verdict with **zero critical and high findings** on the latest diff (see Convergence governor below).
+When the verdict comes back `NEEDS_WORK` or `BLOCK`, the `closing-tribunal-loop` skill guides the iterative close-out: per-finding triage (fix-in-PR vs file-follow-up vs reject), committing fixes one finding at a time, and re-running the tribunal until the arbiter returns a verdict with **zero critical and high findings** on the latest diff (see Convergence governor below). **Close-out is PR-only** — an open GitHub PR is required, and **each round is documented as a PR comment** (`<!-- tribunal-round:N -->` marker, verdict, dispositions, HEAD sha).
 
 ## Convergence governor
 
 The closing loop is **capped and severity-honest** so it cannot spiral:
 
+- **PR-only trail** — every round (including the final close) is posted as a
+  PR comment with dispositions, commits, and follow-ups; session chat is not
+  the audit trail.
 - **Blocking-finding standard** — a finding is critical/high only if it proves
   a production-reachable path, material impact, and that it is caused/exposed
   by the change under review. Otherwise it is capped at medium.
 - **Stop condition** — the loop closes on **zero critical/high** (not zero
   findings). Leftover medium/low go to YAGNI triage (filed only if real and
-  worth acting on; else dropped with a PR-body note).
+  worth acting on; else dropped in the closing round PR comment).
 - **Frozen scope** — the original outcome, acceptance checks, invariants, and
   exclusions govern every round; reviewer findings do not redefine the task.
 - **Step-back at round 3** — stop adding guards; simplify, descope, or
   down-rate the finding *class*. A step-back round may not increase the net
   count of defensive mechanisms.
 - **Bounded retry** — keep looping while any critical/high remains;
-  checkpoint at round 3; hard escalation at round 5.
+  checkpoint at round 3; hard escalation at round 5 (both as PR comments).
 - **`reachability.md`** — an optional per-repo file (worker model, concurrency,
   single-user assumptions, money paths) injected into reviewers + arbiter as
   rebuttable context.

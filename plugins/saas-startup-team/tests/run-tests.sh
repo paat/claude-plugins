@@ -6982,6 +6982,8 @@ DIFF
   assert_file_contains "L53: reconcile on startup" "$cmd" "--reconcile"
   assert_file_contains "L54: calls firewall before merge" "$cmd" "--firewall"
   assert_file_contains "L55: tribunal gate" "$cmd" "tribunal"
+  assert_file_contains "L55b: opens PR before tribunal (closing loop is PR-only)" "$cmd" "Open the PR before tribunal"
+  assert_file_contains "L55c: posts tribunal rounds as PR comments" "$cmd" "round as a PR comment"
   assert_file_contains "L56: runs the test suite" "$cmd" "run-tests.sh"
   assert_file_contains "L57: bumps version" "$cmd" "--bump-version"
   assert_file_contains "L58: PR carries Closes #N" "$cmd" "Closes #"
