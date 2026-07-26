@@ -18,7 +18,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "2dd8c88b537bc0f12c490b28d0155a8b6c8f41ba1be81307bd9a7ccf701ec58e"
+      "sha256": "8f64ee8d5ffa23f45850bc5a76b2c89f9afbafaef14635da3e2cb1311a14c524"
     },
     {
       "path": "scripts/run-claude-review.sh",
@@ -34,7 +34,7 @@
     },
     {
       "path": "scripts/run-grok-review.sh",
-      "sha256": "d2183b01559abeeefe9d8d9a535d8572d0adcc4ed0a9a63ca328166124d359f6"
+      "sha256": "0b060a70cca9f3cdec86b5f837afc04acde5f9996161273592f0c0c0739cd15d"
     },
     {
       "path": "scripts/run-opencode-review.sh",

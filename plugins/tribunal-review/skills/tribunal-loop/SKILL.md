@@ -40,8 +40,8 @@ the plugin `scripts/` directory:
   transport.
 - Grok: on by default; disable with `TRIBUNAL_GROK=off`; model override
   `TRIBUNAL_GROK_MODEL` (default `grok-4.5`); repo-walking on the xAI Grok CLI
-  with tools allowlist + kernel `read-only` sandbox, isolated host config, web
-  search off.
+  with tools allowlist, sandbox default `none` (`TRIBUNAL_GROK_SANDBOX`),
+  `bypassPermissions`, isolated host config, web search off (issue #378).
 
 Disabled providers emit `{"provider":"...","status":"disabled"}` and are
 excluded from quorum. Provider errors degrade the run, but if all non-disabled

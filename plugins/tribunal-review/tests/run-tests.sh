@@ -536,11 +536,15 @@ EOF
   fi
 
   # Resume must use --resume; inspect allowlist vs finalize tools-off; pin session/max-turns
+  # Default sandbox none + bypassPermissions (issue #378).
   if [ -f "$state/args.log" ] \
     && grep -q -- '--session-id' "$state/args.log" \
     && grep -q -- '--max-turns' "$state/args.log" \
     && grep -q -- '--resume' "$state/args.log" \
     && grep -q -- '--permission-mode' "$state/args.log" \
+    && grep -q -- 'bypassPermissions' "$state/args.log" \
+    && grep -q -- '--sandbox' "$state/args.log" \
+    && grep -qE '(^|[[:space:]])none([[:space:]]|$)' "$state/args.log" \
     && grep -qx $'inspect\tread_file,list_dir,grep' "$state/phases.log" \
     && grep -qx $'finalize\t' "$state/phases.log"; then
     echo -e "  ${GREEN}PASS${NC} grok inspect/finalize use session, max-turns, tools split"; PASS=$((PASS+1))
@@ -548,6 +552,7 @@ EOF
     echo -e "  ${RED}FAIL${NC} grok inspect/finalize use session, max-turns, tools split"; FAIL=$((FAIL+1))
     FAILURES+=("grok inspect/finalize use session, max-turns, tools split")
     echo "    phases: $(cat "$state/phases.log" 2>/dev/null | tr '\n' '|')" >&2
+    echo "    args: $(tr '\n' ' ' < "$state/args.log" 2>/dev/null | head -c 400)" >&2
   fi
 
   # Scenario B: both phases incomplete → progress_only / incomplete error with session_id
@@ -679,6 +684,201 @@ EOF
   else
     echo -e "  ${RED}FAIL${NC} grok envelope helpers accept camel/snake and reject weak payloads"; FAIL=$((FAIL+1))
     FAILURES+=("grok envelope helpers accept camel/snake and reject weak payloads")
+  fi
+
+  # Scenario E (issue #378): TRIBUNAL_GROK_SANDBOX override reaches the CLI.
+  rm -f "$state/args.log" "$state/phases.log"
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "${ARGS_LOG:?}"
+cat <<'JSON'
+{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"sessionId":"77777777-7777-7777-7777-777777777777","modelUsage":{"fixture-model":{}}}
+JSON
+exit 0
+EOF
+  chmod +x "$fake/grok"
+
+  if (
+    set -e
+    cd "$work"
+    PATH="$fake:$PATH" GROK_HOME="$host_grok" ARGS_LOG="$state/args.log" env -u XAI_API_KEY \
+      TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_GROK_SANDBOX=read-only \
+      bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-e.json"
+  ) && jq -e '.provider=="grok" and .summary.verdict=="APPROVE"' "$work/out-e.json" >/dev/null \
+    && grep -q -- '--sandbox' "$state/args.log" \
+    && grep -qE '(^|[[:space:]])read-only([[:space:]]|$)' "$state/args.log"; then
+    echo -e "  ${GREEN}PASS${NC} grok TRIBUNAL_GROK_SANDBOX override reaches CLI"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok TRIBUNAL_GROK_SANDBOX override reaches CLI"; FAIL=$((FAIL+1))
+    FAILURES+=("grok TRIBUNAL_GROK_SANDBOX override reaches CLI")
+    echo "    out: $(cat "$work/out-e.json" 2>/dev/null || true)" >&2
+    echo "    args: $(tr '\n' ' ' < "$state/args.log" 2>/dev/null)" >&2
+  fi
+
+  # Scenario F (issue #378): Cancelled stopReason + no verdict is dead_leg, not quiet success.
+  rm -f "$state/args.log"
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+if printf '%s\n' "$@" | grep -q -- '--resume'; then
+  cat <<'JSON'
+{"text":"","stopReason":"Cancelled","sessionId":"88888888-8888-8888-8888-888888888888"}
+JSON
+  exit 0
+fi
+cat <<'JSON'
+{"text":"","stopReason":"Cancelled","sessionId":"88888888-8888-8888-8888-888888888888"}
+JSON
+exit 0
+EOF
+  chmod +x "$fake/grok"
+
+  if (
+    set -e
+    cd "$work"
+    PATH="$fake:$PATH" GROK_HOME="$host_grok" env -u XAI_API_KEY \
+      TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-f.json"
+  ) && jq -e '
+      .provider=="grok"
+      and (.error | test("stopReason=Cancelled"))
+      and (.error | test("dead_leg|progress_only"))
+      and (has("summary")|not)
+    ' "$work/out-f.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} grok Cancelled stopReason reports dead leg not success"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok Cancelled stopReason reports dead leg not success"; FAIL=$((FAIL+1))
+    FAILURES+=("grok Cancelled stopReason reports dead leg not success")
+    echo "    out: $(cat "$work/out-f.json" 2>/dev/null || true)" >&2
+  fi
+
+  # Scenario G (issue #378): orphaned script copy (no sibling schemas/) still
+  # resolves schema when CLAUDE_PLUGIN_ROOT points at the real plugin.
+  local orphan="$work/orphan-plugin/scripts"
+  mkdir -p "$orphan"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$orphan/lib.sh"
+  cp "$PLUGIN_ROOT/scripts/run-grok-review.sh" "$orphan/run-grok-review.sh"
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+cat <<'JSON'
+{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"99999999-9999-9999-9999-999999999999","modelUsage":{"fixture-model":{}}}
+JSON
+exit 0
+EOF
+  chmod +x "$fake/grok"
+
+  if (
+    set -e
+    cd "$work"
+    PATH="$fake:$PATH" GROK_HOME="$host_grok" env -u XAI_API_KEY -u TRIBUNAL_PLUGIN_ROOT \
+      CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
+      TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$orphan/run-grok-review.sh" > "$work/out-g.json"
+  ) && jq -e '.provider=="grok" and .summary.verdict=="APPROVE" and (has("error")|not)' \
+      "$work/out-g.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} grok schema resolves via CLAUDE_PLUGIN_ROOT"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok schema resolves via CLAUDE_PLUGIN_ROOT"; FAIL=$((FAIL+1))
+    FAILURES+=("grok schema resolves via CLAUDE_PLUGIN_ROOT")
+    echo "    out: $(cat "$work/out-g.json" 2>/dev/null || true)" >&2
+  fi
+
+  # Scenario H: missing schema file fails before provider run (no silent empty schema).
+  local bare="$work/bare-plugin"
+  mkdir -p "$bare/scripts" "$bare/schemas"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$bare/scripts/lib.sh"
+  cp "$PLUGIN_ROOT/scripts/run-grok-review.sh" "$bare/scripts/run-grok-review.sh"
+  # Intentionally omit schemas/review-output.json
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+: > "${GROK_RAN:?}"
+exit 99
+EOF
+  chmod +x "$fake/grok"
+
+  if (
+    set -e
+    cd "$work"
+    PATH="$fake:$PATH" GROK_HOME="$host_grok" GROK_RAN="$work/provider-ran-h" env -u XAI_API_KEY \
+      env -u CLAUDE_PLUGIN_ROOT -u TRIBUNAL_PLUGIN_ROOT \
+      TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$bare/scripts/run-grok-review.sh" > "$work/out-h.json"
+  ) && jq -e '.provider=="grok" and (.error|test("schema missing|cannot load review schema"))' \
+      "$work/out-h.json" >/dev/null \
+    && [ ! -e "$work/provider-ran-h" ]; then
+    echo -e "  ${GREEN}PASS${NC} grok missing schema fails before provider run"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok missing schema fails before provider run"; FAIL=$((FAIL+1))
+    FAILURES+=("grok missing schema fails before provider run")
+    echo "    out: $(cat "$work/out-h.json" 2>/dev/null || true)" >&2
+  fi
+
+  # Scenario I: explicit TRIBUNAL_PLUGIN_ROOT without schema is authoritative —
+  # must not fall back to the real install's schema (Codex review / #378).
+  local empty_root="$work/empty-root"
+  mkdir -p "$empty_root"
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+: > "${GROK_RAN:?}"
+exit 99
+EOF
+  chmod +x "$fake/grok"
+
+  if (
+    set -e
+    cd "$work"
+    PATH="$fake:$PATH" GROK_HOME="$host_grok" GROK_RAN="$work/provider-ran-i" env -u XAI_API_KEY \
+      env -u CLAUDE_PLUGIN_ROOT \
+      TRIBUNAL_PLUGIN_ROOT="$empty_root" \
+      TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-i.json"
+  ) && jq -e '.provider=="grok" and (.error|test("schema missing|cannot load review schema"))' \
+      "$work/out-i.json" >/dev/null \
+    && [ ! -e "$work/provider-ran-i" ]; then
+    echo -e "  ${GREEN}PASS${NC} grok explicit empty plugin root does not fall back"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok explicit empty plugin root does not fall back"; FAIL=$((FAIL+1))
+    FAILURES+=("grok explicit empty plugin root does not fall back")
+    echo "    out: $(cat "$work/out-i.json" 2>/dev/null || true)" >&2
+  fi
+
+  # Scenario J: invalid sandbox / permission overrides fail loud (no silent remap).
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+: > "${GROK_RAN:?}"
+exit 99
+EOF
+  chmod +x "$fake/grok"
+
+  if (
+    set -e
+    cd "$work"
+    PATH="$fake:$PATH" GROK_HOME="$host_grok" GROK_RAN="$work/provider-ran-j1" env -u XAI_API_KEY \
+      TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_GROK_SANDBOX=read_only \
+      bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-j1.json"
+  ) && jq -e '.provider=="grok" and (.error|test("invalid Grok sandbox profile"))' \
+      "$work/out-j1.json" >/dev/null \
+    && [ ! -e "$work/provider-ran-j1" ]; then
+    echo -e "  ${GREEN}PASS${NC} grok invalid sandbox fails loud"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok invalid sandbox fails loud"; FAIL=$((FAIL+1))
+    FAILURES+=("grok invalid sandbox fails loud")
+    echo "    out: $(cat "$work/out-j1.json" 2>/dev/null || true)" >&2
+  fi
+
+  if (
+    set -e
+    cd "$work"
+    PATH="$fake:$PATH" GROK_HOME="$host_grok" GROK_RAN="$work/provider-ran-j2" env -u XAI_API_KEY \
+      TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_GROK_PERMISSION_MODE=yolo \
+      bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out-j2.json"
+  ) && jq -e '.provider=="grok" and (.error|test("invalid Grok permission mode"))' \
+      "$work/out-j2.json" >/dev/null \
+    && [ ! -e "$work/provider-ran-j2" ]; then
+    echo -e "  ${GREEN}PASS${NC} grok invalid permission mode fails loud"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok invalid permission mode fails loud"; FAIL=$((FAIL+1))
+    FAILURES+=("grok invalid permission mode fails loud")
+    echo "    out: $(cat "$work/out-j2.json" 2>/dev/null || true)" >&2
   fi
 
   chmod -R u+w "$work" 2>/dev/null || true
@@ -1434,8 +1634,13 @@ assert_grep "Claude requests the shared output schema" "scripts/run-claude-revie
 assert_grep "Claude disables the complete tool surface" "scripts/run-claude-review.sh" '--tools ""'
 assert_grep "Grok requests the shared output schema" "scripts/run-grok-review.sh" "--json-schema"
 assert_grep "Grok tools allowlist is read-only" "scripts/run-grok-review.sh" "read_file,list_dir,grep"
-assert_grep "Grok uses kernel read-only sandbox" "scripts/run-grok-review.sh" "--sandbox read-only"
-assert_grep "Grok unsets host GROK_SANDBOX" "scripts/run-grok-review.sh" "env -u GROK_SANDBOX"
+assert_grep "Grok sandbox profile is configurable" "scripts/run-grok-review.sh" 'GROK_SANDBOX_PROFILE='
+assert_grep "Grok defaults sandbox to none (container boundary)" "scripts/run-grok-review.sh" 'GROK_SANDBOX_PROFILE=none'
+assert_grep "Grok honors TRIBUNAL_GROK_SANDBOX" "scripts/run-grok-review.sh" 'TRIBUNAL_GROK_SANDBOX'
+assert_grep "Grok rejects invalid sandbox profile" "scripts/run-grok-review.sh" "invalid Grok sandbox profile"
+assert_grep "Grok rejects invalid permission mode" "scripts/run-grok-review.sh" "invalid Grok permission mode"
+assert_no_grep "Grok does not unset host GROK_SANDBOX" "scripts/run-grok-review.sh" "env -u GROK_SANDBOX"
+assert_grep "Grok propagates GROK_SANDBOX into child" "scripts/run-grok-review.sh" 'GROK_SANDBOX="$GROK_SANDBOX_PROFILE"'
 assert_grep "Grok isolates host HOME" "scripts/run-grok-review.sh" 'HOME="$ISOLATED_HOME"'
 assert_grep "Grok isolates host GROK_HOME" "scripts/run-grok-review.sh" 'GROK_HOME="$ISOLATED_HOME/.grok"'
 assert_grep "Grok copies auth into isolation" "scripts/run-grok-review.sh" 'cp -a "$AUTH_SRC" "$AUTH_ISOLATED"'
@@ -1446,8 +1651,12 @@ assert_grep "Grok disables web search" "scripts/run-grok-review.sh" "--disable-w
 assert_grep "Grok pins a session id for resume" "scripts/run-grok-review.sh" "--session-id"
 assert_grep "Grok finalize resumes the same session" "scripts/run-grok-review.sh" "--resume"
 assert_grep "Grok bounds inspect turns" "scripts/run-grok-review.sh" "--max-turns"
-assert_grep "Grok uses dontAsk for headless read-only" "scripts/run-grok-review.sh" "--permission-mode dontAsk"
+assert_grep "Grok uses bypassPermissions for headless multi-turn" "scripts/run-grok-review.sh" "bypassPermissions"
+assert_no_grep "Grok does not hardcode dontAsk" "scripts/run-grok-review.sh" "--permission-mode dontAsk"
 assert_grep "Grok rejects progress-only as incomplete" "scripts/run-grok-review.sh" "completion_state=progress_only"
+assert_grep "Grok marks non-EndTurn stop as dead_leg" "scripts/run-grok-review.sh" "completion_state=dead_leg"
+assert_grep "Grok fails loud on missing schema" "scripts/run-grok-review.sh" "review schema missing"
+assert_grep "Grok resolves schema via plugin root helper" "scripts/lib.sh" "tribunal_plugin_root"
 assert_grep "Grok finalize re-inlines the authoritative diff" "scripts/run-grok-review.sh" "Base the verdict on the unified diff"
 assert_grep "Grok clamps inspect timeout upper bound" "scripts/run-grok-review.sh" "INSPECT_TIMEOUT=1800"
 assert_grep "Grok extracts camelCase structuredOutput" "scripts/lib.sh" "structuredOutput"

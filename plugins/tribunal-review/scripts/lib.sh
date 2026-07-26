@@ -21,8 +21,37 @@ tribunal_base_ref() {
   printf '%s\n' "${TRIBUNAL_BASE_REF:-origin/$branch}"
 }
 
+# Plugin root for schema/assets. Explicit TRIBUNAL_PLUGIN_ROOT / CLAUDE_PLUGIN_ROOT
+# are authoritative even when the schema is missing (so the runner can fail loud
+# instead of silently loading another install — issue #378 / Codex review).
+# Fall back to SCRIPT_DIR/.. only when neither env root is set.
+tribunal_plugin_root() {
+  local candidate
+  for candidate in "${TRIBUNAL_PLUGIN_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}"; do
+    if [ -n "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  if [ -n "${SCRIPT_DIR:-}" ] && [ -d "$SCRIPT_DIR/.." ]; then
+    (cd "$SCRIPT_DIR/.." && pwd)
+    return 0
+  fi
+  return 1
+}
+
 tribunal_review_schema() {
-  printf '%s/../schemas/review-output.json\n' "$SCRIPT_DIR"
+  local root
+  if root="$(tribunal_plugin_root)"; then
+    printf '%s/schemas/review-output.json\n' "$root"
+    return 0
+  fi
+  printf '%s/../schemas/review-output.json\n' "${SCRIPT_DIR:-.}"
+}
+
+# Grok CLI envelope stop reason (camelCase preferred; snake_case accepted).
+tribunal_grok_stop_reason() {
+  jq -r '(.stopReason // .stop_reason // empty) | select(type == "string")' 2>/dev/null
 }
 
 tribunal_smoke_prompt() {

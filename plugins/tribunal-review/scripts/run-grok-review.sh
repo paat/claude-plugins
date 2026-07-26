@@ -124,7 +124,54 @@ feedback = false
 codebase_indexing = false
 EOF
 
-SCHEMA_JSON="$(jq -c . "$(tribunal_review_schema)")"
+# Schema path via plugin root (TRIBUNAL_PLUGIN_ROOT / CLAUDE_PLUGIN_ROOT /
+# SCRIPT_DIR/..) so wrappers still resolve it; fail loud if missing/empty so
+# --json-schema never gets EOF garbage (issue #378).
+SCHEMA_FILE="$(tribunal_review_schema)"
+if [ ! -f "$SCHEMA_FILE" ]; then
+  tribunal_error grok "review schema missing at $SCHEMA_FILE (set TRIBUNAL_PLUGIN_ROOT or CLAUDE_PLUGIN_ROOT)"
+  exit 0
+fi
+SCHEMA_JSON="$(jq -c . "$SCHEMA_FILE" 2>/dev/null || true)"
+if [ -z "$SCHEMA_JSON" ] || ! printf '%s' "$SCHEMA_JSON" | jq -e . >/dev/null 2>&1; then
+  tribunal_error grok "cannot load review schema JSON from $SCHEMA_FILE"
+  exit 0
+fi
+
+# Sandbox: caller override > default none.
+# Tools allowlist is the mutation control; the development container is the
+# security boundary (same rationale as Codex). Kernel read-only needs
+# unprivileged user namespaces and dies inside many containers (issue #378).
+# Opt into kernel isolation with TRIBUNAL_GROK_SANDBOX=read-only where bwrap works.
+# Invalid explicit values fail loud (typo must not silently drop isolation).
+if [ -n "${TRIBUNAL_GROK_SANDBOX:-}" ]; then
+  GROK_SANDBOX_PROFILE="$TRIBUNAL_GROK_SANDBOX"
+elif [ -n "${GROK_SANDBOX:-}" ]; then
+  GROK_SANDBOX_PROFILE="$GROK_SANDBOX"
+else
+  GROK_SANDBOX_PROFILE=none
+fi
+case "$GROK_SANDBOX_PROFILE" in
+  none|read-only|off) ;;
+  *)
+    tribunal_error grok "invalid Grok sandbox profile '$GROK_SANDBOX_PROFILE' (allowed: none, read-only, off)"
+    exit 0
+    ;;
+esac
+# Permission mode: dontAsk cancels multi-turn inspect in practice (issue #378).
+if [ -n "${TRIBUNAL_GROK_PERMISSION_MODE:-}" ]; then
+  GROK_PERMISSION_MODE="$TRIBUNAL_GROK_PERMISSION_MODE"
+else
+  GROK_PERMISSION_MODE=bypassPermissions
+fi
+case "$GROK_PERMISSION_MODE" in
+  default|acceptEdits|auto|dontAsk|bypassPermissions|plan) ;;
+  *)
+    tribunal_error grok "invalid Grok permission mode '$GROK_PERMISSION_MODE' (allowed: default, acceptEdits, auto, dontAsk, bypassPermissions, plan)"
+    exit 0
+    ;;
+esac
+
 SESSION_ID="$(tribunal_grok_new_session_id)"
 INSPECT_OUT="$TMPDIR/inspect.out"
 INSPECT_ERR="$TMPDIR/inspect.err"
@@ -134,9 +181,8 @@ LAST_OUT="$INSPECT_OUT"
 LAST_ERR="$INSPECT_ERR"
 LAST_RC=0
 
-# Shared env: kernel read-only sandbox + tools allowlist (inspect) or tools off (finalize).
-# Unset GROK_SANDBOX so a host export cannot override the explicit profile.
-# Permission mode dontAsk is safe: only read-only tools are allowed on inspect, none on finalize.
+# Shared env: sandbox profile + tools allowlist (inspect) or tools off (finalize).
+# Propagate GROK_SANDBOX so the CLI flag and env agree; never env -u it away.
 run_grok() {
   local phase="$1" tools="$2" max_turns="$3" timeout_s="$4" out="$5" err="$6" prompt="$7"
   local -a session_args=()
@@ -145,14 +191,14 @@ run_grok() {
   else
     session_args=(--resume "$SESSION_ID")
   fi
-  env -u GROK_SANDBOX \
-    HOME="$ISOLATED_HOME" \
+  HOME="$ISOLATED_HOME" \
     GROK_HOME="$ISOLATED_HOME/.grok" \
+    GROK_SANDBOX="$GROK_SANDBOX_PROFILE" \
     timeout -k 10 "$timeout_s" grok --model "$GROK_MODEL" --output-format json \
     --json-schema "$SCHEMA_JSON" \
     --tools "$tools" \
-    --sandbox read-only \
-    --permission-mode dontAsk \
+    --sandbox "$GROK_SANDBOX_PROFILE" \
+    --permission-mode "$GROK_PERMISSION_MODE" \
     --disable-web-search \
     --no-subagents --no-plan --no-memory \
     --max-turns "$max_turns" \
@@ -186,8 +232,17 @@ capture_session_id() {
 
 incomplete_error() {
   local phase="$1" rc="$2" out="$3" err="$4" detail="$5"
+  local stop_reason dead=""
+  stop_reason="$(tribunal_grok_stop_reason < "$out" 2>/dev/null || true)"
+  if [ -n "$stop_reason" ]; then
+    detail="${detail}; stopReason=${stop_reason}"
+    # Non-EndTurn with no schema verdict is a dead leg, not a quiet model (issue #378).
+    if [ "$stop_reason" != "EndTurn" ]; then
+      dead="; completion_state=dead_leg"
+    fi
+  fi
   tribunal_error_with_diagnostics grok \
-    "incomplete Grok review ($detail); session_id=$SESSION_ID; completion_state=progress_only" \
+    "incomplete Grok review ($detail); session_id=$SESSION_ID; completion_state=progress_only${dead}" \
     "$phase" "$rc" "$out" "$err"
 }
 
