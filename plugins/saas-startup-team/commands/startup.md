@@ -342,15 +342,14 @@ The Stop hook recognizes the yield two ways: a `ScheduleWakeup` PostToolUse hook
 
 ### When Business Founder signals "Handoff NNN ready for tech founder":
 
-The supervisor updates `.startup/state.json` for the completed brief (iteration/phase/
-active role only), heartbeats and releases the business relay lease, then classifies the
-handoff file with `delivery-route.sh classify --mode autonomous`. Exit 2 stops; exit 20
-sets `PROFILE=deep`. A mechanical result may run only an exact named script. Pass the
-accepted profile and stable routing reasons to the selected tech role, then send:
+Implementation resolves to deliver (`skills/deliver/SKILL.md`,
+`SAAS_DELIVER_ENTRYPOINT=startup-impl`). The supervisor updates `.startup/state.json`
+for the completed brief (iteration/phase/active role only), heartbeats and releases the
+business relay lease, then classifies the handoff with `delivery-route.sh classify --mode autonomous`. Exit 2 stops; exit 20 sets `PROFILE=deep`. Mechanical may run only
+an exact named script. Pass profile and routing reasons to the tech role, then send:
 
-Before this tech dispatch, follow the worker pause and thin-commit flow in
-`${CLAUDE_PLUGIN_ROOT}/references/workflows/mutation-ownership.md`. After return, run
-diff containment before the canonical check and commit.
+Before this tech dispatch, follow mutation-ownership.md (deliver Build). After return,
+run diff containment before the canonical check and commit.
 
 > **New task: Implement handoff NNN.**
 > Execution profile: `{PROFILE}`. A Codex controller must pass this exact profile to

@@ -7,7 +7,7 @@ transitional: true
 
 # /improve
 
-Be token-frugal. Read
-`${CLAUDE_PLUGIN_ROOT}/references/workflows/improve.md` once, then follow it with
-`$ARGUMENTS`. The referenced playbook is the sole improvement contract; do not
-duplicate its role, mutation, commit, QA, or PR gates here.
+Be token-frugal. Load the canonical deliver skill
+`${CLAUDE_PLUGIN_ROOT}/skills/deliver/SKILL.md` once with
+`SAAS_DELIVER_ENTRYPOINT=improve`, then follow it with `$ARGUMENTS`. The skill is
+the sole delivery contract; do not restate its Plan → Build → Review gates here.

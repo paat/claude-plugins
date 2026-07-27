@@ -20,10 +20,10 @@
     "commands/ads.md": 5340,
     "commands/bootstrap.md": 10344,
     "commands/digest.md": 2952,
-    "commands/goal-deliver.md": 470,
+    "commands/goal-deliver.md": 471,
     "commands/growth.md": 19242,
     "commands/harvest.md": 5196,
-    "commands/improve.md": 432,
+    "commands/improve.md": 464,
     "commands/investigate.md": 3225,
     "commands/lawyer.md": 3772,
     "commands/learnings-compress.md": 5031,
@@ -42,7 +42,7 @@
     "commands/session-insights.md": 2102,
     "commands/startup.md": 27343,
     "commands/status.md": 2427,
-    "commands/tweak.md": 398,
+    "commands/tweak.md": 471,
     "commands/ux-test.md": 5905,
     "commands/validate-experiment.md": 3732
   }

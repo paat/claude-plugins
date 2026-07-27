@@ -6,14 +6,15 @@ declare -F assert_file_contains >/dev/null 2>&1 || {
 
 test_workflow_invocation_contract() {
   echo -e "\n${CYAN}Suite WI: workflow invocation identity${NC}"
-  local loop_entry maintain_entry loop_skill goal_entry maintain maintain_protocol goal receipts section count
+  local loop_entry maintain_entry loop_skill goal_entry maintain maintain_protocol goal deliver receipts section count
   loop_entry="$PLUGIN_ROOT/commands/maintain-loop.md"
   maintain_entry="$PLUGIN_ROOT/commands/maintain.md"
   loop_skill="$PLUGIN_ROOT/skills/maintain-loop/SKILL.md"
   goal_entry="$PLUGIN_ROOT/commands/goal-deliver.md"
   maintain="$PLUGIN_ROOT/references/workflows/maintain.md"
   maintain_protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
-  goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
+  goal="$PLUGIN_ROOT/references/deliver/entrypoints.md"
+  deliver="$PLUGIN_ROOT/skills/deliver/SKILL.md"
   receipts="$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md"
 
   assert_file_contains "WI1: maintain defines the canonical root identity" "$maintain" \
@@ -136,7 +137,7 @@ test_workflow_invocation_contract() {
   assert_file_contains "WI31e: embedded resume never opens replacement PR" "$goal" \
     'replacement PR'
   assert_file_contains "WI31f: maintain references canonical embedded invariants" "$maintain" \
-    'goal-deliver.md` §Delivery safety invariants'
+    'skills/deliver/SKILL.md'
   assert_file_contains "WI31g: receipt origin may differ from the active controller" "$receipts" \
     'may differ from `CONTROLLER_RUN_ID`'
   assert_file_contains "WI31h: child identity differs from origin and controller" "$receipts" \

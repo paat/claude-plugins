@@ -7,7 +7,10 @@ declare -F assert_file_contains >/dev/null 2>&1 || {
 test_workflow_lifecycle_safety() {
   echo -e "\n${CYAN}Suite WL: workflow lifecycle safety${NC}"
   local goal maintain maintain_protocol maintain_loop maintain_receipts maintain_proof_contract maintain_loop_entry maintain_delivery maintain_attempt maintain_escalation mutation_ownership design_review startup improve lessons design first second count guardian lease workdir owner owner2 ec before after holder child_ready child_stopped grandchild_file grandchild
-  goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
+  goal="$PLUGIN_ROOT/references/deliver/graph.md"
+  goal_entrypoints="$PLUGIN_ROOT/references/deliver/entrypoints.md"
+  goal_light="$PLUGIN_ROOT/references/deliver/light-path.md"
+  goal_multi="$PLUGIN_ROOT/references/deliver/multi-unit.md"
   maintain="$PLUGIN_ROOT/references/workflows/maintain.md"
   maintain_protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
   maintain_loop="$PLUGIN_ROOT/commands/maintain-loop.md"
@@ -20,7 +23,7 @@ test_workflow_lifecycle_safety() {
   mutation_ownership="$PLUGIN_ROOT/references/workflows/mutation-ownership.md"
   design_review="$PLUGIN_ROOT/skills/ux-tester/references/design-review-leg.md"
   startup="$PLUGIN_ROOT/commands/startup.md"
-  improve="$PLUGIN_ROOT/references/workflows/improve.md"
+  improve="$PLUGIN_ROOT/references/deliver/graph.md"
   lessons="$PLUGIN_ROOT/commands/lessons-deliver.md"
   design="$PLUGIN_ROOT/docs/design/lessons-deliver.md"
 
@@ -35,15 +38,15 @@ test_workflow_lifecycle_safety() {
     fi
   }
 
-  assert_before "WL1: goal lease precedes every route path" "$goal" \
-    '## Step 1.25: Claim the Delivery Scope' \
-    '## Step 1.5: Autonomous Light Fast Path'
-  assert_file_contains "WL2: goal uses durable lease owner" "$goal" 'GOAL_OWNER_FILE='
-  assert_file_contains "WL3: goal blocks contaminated deep retry" "$goal" \
+  assert_before "WL1: goal lease precedes every route path" "$goal_entrypoints" \
+    'Claim the Delivery Scope' \
+    'Autonomous Light Fast Path'
+  assert_file_contains "WL2: goal uses durable lease owner" "$goal_entrypoints" 'GOAL_OWNER_FILE='
+  assert_file_contains "WL3: goal blocks contaminated deep retry" "$goal_entrypoints" \
     'never launch a deep worker from'
-  assert_file_contains "WL4: goal verifies merge state" "$goal" \
+  assert_file_contains "WL4: goal verifies merge state" "$goal_light" \
     'query that exact PR before doing anything else'
-  assert_file_contains "WL5: goal releases terminal lease" "$goal" \
+  assert_file_contains "WL5: goal releases terminal lease" "$goal_light" \
     'releases `$GOAL_LEASE_KEY` with `$GOAL_OWNER_FILE`'
 
   assert_file_exists "WL5a: maintain detailed protocol exists" "$maintain_protocol"
@@ -167,7 +170,7 @@ test_workflow_lifecycle_safety() {
   assert_file_contains "WL7f18: adapter binds lease validation to the current controller" \
     "$maintain_receipts" 'CONTROLLER_RUN_ID="$SAAS_INVOCATION_ID"'
   assert_file_contains "WL7f18a: goal heartbeat binds the inherited lease to its current root" \
-    "$goal" '--run-id "$SAAS_INVOCATION_ID"'
+    "$goal_entrypoints" '--run-id "$SAAS_INVOCATION_ID"'
   assert_file_contains "WL7f18b: delivery mutations require an explicit controller" \
     "$maintain_delivery" '--lease-state FILE --controller-run-id CONTROLLER'
   assert_file_contains "WL7f18c: adapter reuses one controller argument tuple" \
@@ -206,7 +209,7 @@ test_workflow_lifecycle_safety() {
     '--dry-run'
   assert_before "WL7v: maintain resolves queue roots before dry-run branch" "$maintain_protocol" \
     'MAINTAIN_BLOCKED_FILE="$GIT_COMMON/' 'Under `--dry-run`, acquire no lease'
-  assert_file_contains "WL7x: tribunal rounds are persisted and bounded" "$goal" \
+  assert_file_contains "WL7x: tribunal rounds are persisted and bounded" "$goal_multi" \
     'Round 5'
   assert_before "WL7y: forward merge is recorded before deploy" "$maintain_receipts" \
     'Call `record-merge --role normal`' 'Run the common deploy/live verification'
@@ -295,15 +298,16 @@ test_workflow_lifecycle_safety() {
   assert_file_contains "WL15: startup heartbeats stable owner file" "$startup" \
     '--owner-file .startup/leases/.owners/startup.owner'
 
-  assert_before "WL16: improve lease precedes branch mutation" "$improve" \
-    '## Claim Work Unit' '## Establish Branch'
-  assert_before "WL17: improve lease precedes role mutation" "$improve" \
-    '## Claim Work Unit' '## Reset active_role'
-  assert_file_contains "WL18: improve snapshots exact state" "$improve" \
-    'state.before'
-  assert_file_contains "WL19: improve refusal restores original branch" "$improve" \
+  improve_entry="$PLUGIN_ROOT/references/deliver/entrypoints.md"
+  assert_before "WL16: improve lease precedes branch mutation" "$improve_entry" \
+    '### Claim Work Unit' '### Establish Branch'
+  assert_file_contains "WL17: improve claim does not require active_role reset" \
+    "$PLUGIN_ROOT/skills/deliver/SKILL.md" 'require founder personas'
+  assert_file_contains "WL18: improve may snapshot state only for refusal restore" \
+    "$improve_entry" 'state.before'
+  assert_file_contains "WL19: improve refusal restores original branch" "$improve_entry" \
     'git checkout "$ORIGINAL_BRANCH"'
-  assert_file_contains "WL20: improve refusal verifies clean state" "$improve" \
+  assert_file_contains "WL20: improve refusal verifies clean state" "$improve_entry" \
     'test -z "$(git status --porcelain)"'
 
   assert_file_contains "WL21: lessons records exact attempt base" "$lessons" \

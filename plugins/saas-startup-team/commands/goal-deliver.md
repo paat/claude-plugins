@@ -7,7 +7,7 @@ transitional: true
 
 # /goal-deliver
 
-Be token-frugal. Read
-`${CLAUDE_PLUGIN_ROOT}/references/workflows/goal-deliver.md` once, then follow it
-with `$ARGUMENTS`. The referenced playbook is the sole delivery contract; do not
-restate its routing, commit, tribunal, merge, or deploy gates here.
+Be token-frugal. Load the canonical deliver skill
+`${CLAUDE_PLUGIN_ROOT}/skills/deliver/SKILL.md` once with
+`SAAS_DELIVER_ENTRYPOINT=goal-deliver`, then follow it with `$ARGUMENTS`. The skill is
+the sole delivery contract; do not restate its gates here.

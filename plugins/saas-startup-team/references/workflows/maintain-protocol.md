@@ -199,7 +199,7 @@ from `origin/$default`; merges via `gh pr merge`.
 
 All gates must pass before the loop starts. On a **normal run**, after the primary-only
 gate (see Workspace above), reuse the `/goal-deliver` preflight
-(`${CLAUDE_PLUGIN_ROOT}/commands/goal-deliver.md`) for: clean tree, `gh auth status`,
+(`${CLAUDE_PLUGIN_ROOT}/skills/deliver/SKILL.md` with `SAAS_DELIVER_ENTRYPOINT=goal-deliver`) for: clean tree, `gh auth status`,
 remote present, and `tribunal-review:tribunal-loop` skill available (hard dependency
 — if `tribunal-review` is not installed, stop and say so). The clean-tree check
 targets **`$WT`** (primary).
