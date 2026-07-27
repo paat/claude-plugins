@@ -7,7 +7,7 @@ transitional: true
 
 # /tweak
 
-Be token-frugal. Read
-`${CLAUDE_PLUGIN_ROOT}/references/workflows/tweak.md` once, then follow it with
-`$ARGUMENTS`. The referenced playbook is the sole tweak contract; do not recreate its
-gates from memory.
+Be token-frugal. Load the canonical deliver skill
+`${CLAUDE_PLUGIN_ROOT}/skills/deliver/SKILL.md` once with
+`SAAS_DELIVER_ENTRYPOINT=tweak`, then follow it with `$ARGUMENTS`. Tweak is only a
+bounded light fast-path configuration of deliver; do not recreate its gates from memory.

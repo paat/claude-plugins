@@ -269,9 +269,9 @@ claim language elsewhere in the protocol when they conflict.
 - Each authenticated mutation window stays in one continuous host shell. A lost shell
   invalidates transient tokens; resume from pushed branch/PR, not from zero.
 - Delivery quality, tribunal, **auto-merge**, deployment, rollback, and live-verification
-  gates are canonical only in `goal-deliver.md`; maintain must not restate them.
+  gates are canonical only in `skills/deliver/SKILL.md`; maintain must not restate them.
   Maintain-loop PRs auto-merge when gates pass; do not wait for investor merge.
-- Apply `goal-deliver.md` §Delivery safety invariants for documented project
+- Apply deliver skill (`skills/deliver/SKILL.md`) §Delivery safety / Release invariants for documented project
   test-target diagnostics, resume revalidation/current-head binding, the prohibition on
   replacement PRs, and delayed issue closure.
 - Never emit multi-hour soft-blocks for claim/receipt bookkeeping; if the issue is
@@ -311,7 +311,7 @@ claim language elsewhere in the protocol when they conflict.
 7. If either work list is nonempty, load `Circuit Breakers`, then `Delivery (inline,
    sequential)`. **Resume WIP/PRs before greenfield**, one at a time; new work uses
    inline `/goal-deliver`. Auto-merge when gates pass. Never let a review or QA role
-   mutate. The `/goal-deliver` reference is the sole delivery contract; maintain adds
+   mutate. The deliver skill (`skills/deliver/SKILL.md`, entrypoint `goal-deliver`) is the sole delivery contract; maintain adds
    WIP selection, queue, cooldown, and pass-level classification — not claim ownership.
    Browser-visible changes use
    `skills/ux-tester/references/design-review-leg.md` only where that section requires.

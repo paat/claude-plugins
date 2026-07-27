@@ -831,12 +831,12 @@ PY
   assert_exit_code "DR39: thin aliases skip fat sync and stay model-free" "$static_ec" 0
 
   local refs="$PLUGIN_ROOT/references/workflows"
-  assert_file_contains "DR40: tweak selects interactive versus autonomous mode" "$refs/tweak.md" '--mode "$route_mode"'
-  assert_file_contains "DR41: tweak passes mode to post-diff helper" "$refs/tweak.md" '--routing-mode "$route_mode"'
-  assert_file_contains "DR42: goal fast path classifies autonomous intent" "$refs/goal-deliver.md" '--mode autonomous'
-  assert_file_contains "DR43: goal fast path excludes UI touch" "$refs/goal-deliver.md" 'ui_touch=false'
-  assert_file_contains "DR44: improve loads shared routing/event contract" "$refs/improve.md" 'routing-telemetry.md'
-  assert_file_contains "DR45: improve uses pinned separate-role launcher" "$refs/improve.md" 'codex-run-role.sh --role tech-founder'
+  assert_file_contains "DR40: tweak selects interactive versus autonomous mode" "$PLUGIN_ROOT/references/deliver/entrypoints.md" '--mode "$route_mode"'
+  assert_file_contains "DR41: tweak passes mode to post-diff helper" "$PLUGIN_ROOT/references/deliver/light-path.md" '--routing-mode "$route_mode"'
+  assert_file_contains "DR42: goal fast path classifies autonomous intent" "$PLUGIN_ROOT/references/deliver/entrypoints.md" '--mode autonomous'
+  assert_file_contains "DR43: goal fast path excludes UI touch" "$PLUGIN_ROOT/references/deliver/entrypoints.md" 'ui_touch=false'
+  assert_file_contains "DR44: improve loads shared routing/event contract" "$PLUGIN_ROOT/references/deliver/graph.md" 'routing-telemetry.md'
+  assert_file_contains "DR45: improve uses pinned separate-role launcher" "$PLUGIN_ROOT/references/deliver/graph.md" 'codex-run-role.sh --role tech-founder'
   assert_file_contains "DR46: maintain cheap triage is a registered role" "$refs/maintain.md" 'saas-startup-team:maintain-triage'
   assert_file_contains "DR47: maintain uncertainty escalates to Fable role" "$refs/maintain.md" 'saas-startup-team:business-founder-maintain'
   assert_file_contains "DR48: embedded goal preserves attempt escalation evidence" \

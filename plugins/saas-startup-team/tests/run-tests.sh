@@ -448,9 +448,9 @@ test_templates() {
   assert_file_contains "D10q3: orchestration scopes direct planning before expansion" \
     "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" "before role or research expansion"
   assert_file_contains "D10q4: goal delivery defaults to its primary planner" \
-    "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "Do not dispatch a planning role by default"
+    "$PLUGIN_ROOT/references/deliver/graph.md" "Do not dispatch a planning role by default"
   assert_file_contains "D10q5: improve brief applies scope before research" \
-    "$PLUGIN_ROOT/references/workflows/improve.md" "Before reading product or research docs, read and apply"
+    "$PLUGIN_ROOT/references/deliver/graph.md" "Before reading product or research docs, read and apply"
   assert_file_contains "D10q6: project guidance exposes lean direct planning" \
     "$tmpl_dir/claude-md-workflow-guidance.md" "Lean direct-feature planning"
   assert_file_contains "D10q6a: project guidance stops after file-only issue asks" \
@@ -996,8 +996,8 @@ test_cross_file_consistency() {
   # H12-H15: Non-/startup commands reset active_role before dispatching
   # subagents. Regression guard for v0.26.0 — stops enforce-delegation from
   # firing on stale team-lead state left by a prior /startup session.
-  assert_file_contains "H12: /improve resets active_role" \
-    "$PLUGIN_ROOT/references/workflows/improve.md" '.active_role = "business-founder-maintain"'
+  assert_file_contains "H12: deliver skill does not require personas or state.json" \
+    "$PLUGIN_ROOT/skills/deliver/SKILL.md" 'require founder personas'
   assert_file_contains "H13: /lawyer resets active_role" \
     "$PLUGIN_ROOT/commands/lawyer.md" '.active_role = "lawyer"'
   assert_file_contains "H14: /ux-test resets active_role" \
@@ -1196,7 +1196,7 @@ test_maintain() {
   local cmd="$PLUGIN_ROOT/references/workflows/maintain.md"
   local entry="$PLUGIN_ROOT/commands/maintain.md"
   local protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
-  local goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
+  local goal="$PLUGIN_ROOT/references/deliver/graph.md"
   local receipts="$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md"
   local codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-workflow/SKILL.md"
   assert_file_exists "M1: maintain.md exists" "$cmd"
@@ -1245,7 +1245,7 @@ test_maintain() {
     "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
     'assert-primary-only'
   assert_file_contains "M27b: improve primary-only" \
-    "$PLUGIN_ROOT/references/workflows/improve.md" \
+    "$PLUGIN_ROOT/references/deliver/graph.md" \
     'Primary working directory only'
   assert_file_contains "M27c: primary-only never auto-deletes worktrees" \
     "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
@@ -2018,7 +2018,7 @@ test_maintain_loop() {
   local command="$PLUGIN_ROOT/commands/maintain-loop.md"
   local coordinator="$PLUGIN_ROOT/references/workflows/maintain.md"
   local protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
-  local goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
+  local goal="$PLUGIN_ROOT/references/deliver/graph.md"
   local codex_cmd="$PLUGIN_ROOT/skills/maintain-loop/SKILL.md"
   local old_codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-loop-workflow/SKILL.md"
 
@@ -2398,8 +2398,8 @@ test_check_staged_size() {
 
   # G9: the guard is wired into the bootstrap commit and the /improve catch-all commit
   assert_file_contains "G9a: bootstrap runs the guard before commit" "$bootstrap" "check-staged-size.sh"
-  assert_file_contains "G9b: improve uses supervisor commit guard" "$PLUGIN_ROOT/references/workflows/improve.md" "supervisor-commit.sh"
-  assert_file_contains "G9c: tweak uses trapped commit guard" "$PLUGIN_ROOT/references/workflows/tweak.md" "tweak-run.sh"
+  assert_file_contains "G9b: improve uses supervisor commit guard" "$PLUGIN_ROOT/references/deliver/graph.md" "supervisor-commit.sh"
+  assert_file_contains "G9c: tweak uses trapped commit guard" "$PLUGIN_ROOT/references/deliver/light-path.md" "tweak-run.sh"
   assert_file_contains "G9d: startup guards the initial git add -A" "$PLUGIN_ROOT/commands/startup.md" "check-staged-size.sh"
 
   # G10: measures the STAGED blob, not the working tree — stage a big blob, then truncate the
@@ -3804,7 +3804,7 @@ test_bootstrap_safety_net() {
 test_canonical_entrypoint_wiring() {
   echo -e "\n${CYAN}Suite Y: canonical entrypoint wiring${NC}"
   assert_file_contains "Y1: improve.md names check.sh" \
-    "$PLUGIN_ROOT/references/workflows/improve.md" "check.sh"
+    "$PLUGIN_ROOT/references/deliver/graph.md" "check.sh"
   assert_file_contains "Y2: tech-founder SKILL names check.sh" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "check.sh"
   assert_file_contains "Y3: ci-workflow names check.sh" \
@@ -4374,7 +4374,7 @@ test_operate_workflow_registry_and_gates() {
   assert_file_exists "Y15: workflow spec template exists" "$PLUGIN_ROOT/templates/workflow-spec.md"
   assert_file_contains "Y16: bootstrap creates workflow registry" "$PLUGIN_ROOT/commands/bootstrap.md" ".startup/workflows/registry.md"
   assert_file_contains "Y17: startup references the workflow registry (bootstrap scaffolds it)" "$PLUGIN_ROOT/commands/startup.md" ".startup/workflows/"
-  assert_file_contains "Y18: improve reads workflow registry" "$PLUGIN_ROOT/references/workflows/improve.md" ".startup/workflows/registry.md"
+  assert_file_contains "Y18: improve reads workflow registry" "$PLUGIN_ROOT/references/deliver/graph.md" ".startup/workflows/registry.md"
   assert_file_contains "Y19: orchestration validates workflow specs" "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" "WORKFLOW-<slug>.md"
 
   # Config and README.
@@ -5361,8 +5361,8 @@ test_convergence_governor() {
     "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md" "maintain-dod-checklist.md"
   assert_file_contains "tech-founder DoD has step-back" \
     "$PLUGIN_ROOT/references/maintain-dod-checklist.md" "Tribunal step-back"
-  assert_output_contains "goal-deliver caps at 5" "$(cat "$PLUGIN_ROOT/references/workflows/goal-deliver.md")" "Round 5:"
-  assert_output_contains "goal-deliver stops on no crit/high" "$(cat "$PLUGIN_ROOT/references/workflows/goal-deliver.md")" "zero critical and zero high"
+  assert_output_contains "goal-deliver caps at 5" "$(cat "$PLUGIN_ROOT/references/deliver/multi-unit.md")" "Round 5:"
+  assert_output_contains "goal-deliver stops on no crit/high" "$(cat "$PLUGIN_ROOT/references/deliver/graph.md")" "zero critical and zero high"
 }
 
 test_learnings_style_block() {
@@ -6136,10 +6136,10 @@ test_autonomous_workflow_alignment() {
   assert_file_not_contains "AE4b: loop-control no broad pkill" \
     "$PLUGIN_ROOT/skills/startup-orchestration/references/loop-control.md" \
     "pkill -f 'agent-type saas-startup-team"
-  assert_file_contains "AE5: improve calls health preflight" "$PLUGIN_ROOT/references/workflows/improve.md" "health-preflight.sh"
-  assert_file_contains "AE6: goal-deliver calls market scout" "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "market-scout.sh"
-  assert_file_contains "AE7: goal-deliver requires acceptance packs" "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "acceptance-packs.sh"
-  assert_file_contains "AE8: goal-deliver completion artifact" "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "completion artifact"
+  assert_file_contains "AE5: improve calls health preflight" "$PLUGIN_ROOT/references/deliver/graph.md" "health-preflight.sh"
+  assert_file_contains "AE6: goal-deliver calls market scout" "$PLUGIN_ROOT/references/deliver/graph.md" "market-scout.sh"
+  assert_file_contains "AE7: goal-deliver requires acceptance packs" "$PLUGIN_ROOT/references/deliver/graph.md" "acceptance-packs.sh"
+  assert_file_contains "AE8: goal-deliver completion artifact" "$PLUGIN_ROOT/references/deliver/graph.md" "completion artifact"
   assert_file_contains "AE9: lessons-review points to lessons-deliver" "$PLUGIN_ROOT/commands/lessons-review.md" "/lessons-deliver"
   assert_file_not_contains "AE10: lessons-review no longer routes to goal-deliver command" "$PLUGIN_ROOT/commands/lessons-review.md" "/goal-deliver #<number>"
   assert_file_contains "AE11: lessons-deliver documents Codex host behavior" "$PLUGIN_ROOT/commands/lessons-deliver.md" "Codex surface"
@@ -6147,17 +6147,17 @@ test_autonomous_workflow_alignment() {
   assert_file_contains "AE13: README documents market scout" "$PLUGIN_ROOT/README.md" "market-scout.sh"
   assert_file_contains "AE14: README documents acceptance packs" "$PLUGIN_ROOT/README.md" "acceptance-packs.sh"
   assert_file_contains "AE15: README documents single-flight" "$PLUGIN_ROOT/README.md" "single-flight.sh"
-  assert_file_contains "AE16: improve runs closure audit" "$PLUGIN_ROOT/references/workflows/improve.md" "issue-closure-audit.sh"
-  assert_file_contains "AE17: goal-deliver runs closure audit" "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "issue-closure-audit.sh"
-  assert_file_contains "AE18: goal-deliver asks material promise question" "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "material promise"
+  assert_file_contains "AE16: improve runs closure audit" "$PLUGIN_ROOT/references/deliver/graph.md" "issue-closure-audit.sh"
+  assert_file_contains "AE17: goal-deliver runs closure audit" "$PLUGIN_ROOT/references/deliver/graph.md" "issue-closure-audit.sh"
+  assert_file_contains "AE18: goal-deliver asks material promise question" "$PLUGIN_ROOT/references/deliver/graph.md" "material promise"
   assert_file_contains "AE19: growth detects lifecycle" "$PLUGIN_ROOT/commands/growth.md" "growth_lifecycle"
   assert_file_contains "AE20: growth prelive forbids outreach" "$PLUGIN_ROOT/commands/growth.md" "do not contact prospects"
   assert_file_contains "AE21: growth uses autonomous operations gates" "$PLUGIN_ROOT/commands/growth.md" "owner authorization gates"
   assert_file_not_contains "AE22: growth no longer creates recurring human tasks" "$PLUGIN_ROOT/commands/growth.md" "### 2e: Create human tasks"
   assert_file_contains "AE22a: improve selects the public-route pack" \
-    "$PLUGIN_ROOT/references/workflows/improve.md" 'public_route_discoverability'
+    "$PLUGIN_ROOT/references/deliver/graph.md" 'public_route_discoverability'
   assert_file_contains "AE22b: improve mechanically rejects destination-only QA" \
-    "$PLUGIN_ROOT/references/workflows/improve.md" '--verify-public-route "$QA_REVIEW"'
+    "$PLUGIN_ROOT/references/deliver/graph.md" '--verify-public-route "$QA_REVIEW"'
   assert_file_contains "AE22c: business brief carries public-route contract" \
     "$PLUGIN_ROOT/templates/handoff-business-to-tech.md" 'Public-route discoverability'
   assert_file_contains "AE22d: tech handoff carries public-route evidence" \
@@ -6394,19 +6394,23 @@ EOF
 # ---------------------------------------------------------------------------
 
 test_goal_deliver() {
-  echo -e "\n${CYAN}Suite T: /goal-deliver command${NC}"
-  local cmd="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
+  echo -e "\n${CYAN}Suite T: /goal-deliver via deliver skill${NC}"
+  local cmd="$PLUGIN_ROOT/commands/goal-deliver.md"
+  local skill="$PLUGIN_ROOT/skills/deliver/SKILL.md"
+  local graph="$PLUGIN_ROOT/references/deliver/graph.md"
+  local entry="$PLUGIN_ROOT/references/deliver/entrypoints.md"
+  local multi="$PLUGIN_ROOT/references/deliver/multi-unit.md"
 
-  assert_file_exists "T1: goal-deliver.md exists" "$cmd"
-  assert_file_contains "T2: name frontmatter" "$cmd" "^name: goal-deliver"
+  assert_file_exists "T1: goal-deliver command exists" "$cmd"
+  assert_file_contains "T2: command name frontmatter" "$cmd" "^name: goal-deliver"
   assert_file_contains "T3: user_invocable" "$cmd" "user_invocable: true"
-  assert_file_contains "T4: references /improve flow" "$cmd" "/improve"
-  assert_file_contains "T5: references tribunal-loop" "$cmd" "tribunal-loop"
-  assert_file_contains "T6: references closing-tribunal-loop" "$cmd" "closing-tribunal-loop"
-  assert_file_contains "T7: resets active_role" "$cmd" '.active_role ='
-  assert_file_contains "T8: warns against team-lead" "$cmd" "team-lead"
-  assert_file_contains "T9: documents /goal autonomy pairing" "$cmd" "/goal "
-  assert_file_contains "T10: monitors GitHub Actions deploy" "$cmd" "gh run"
+  assert_file_contains "T4: command loads deliver skill" "$cmd" "skills/deliver/SKILL.md"
+  assert_file_contains "T5: graph references tribunal-loop" "$graph" "tribunal-loop"
+  assert_file_contains "T6: graph references closing-tribunal-loop" "$graph" "closing-tribunal-loop"
+  assert_file_contains "T7: deliver does not require active_role" "$skill" "does **not** require founder personas"
+  assert_file_contains "T8: warns against team-lead" "$skill" "team-lead"
+  assert_file_contains "T9: documents /goal autonomy pairing" "$entry" "/goal "
+  assert_file_contains "T10: monitors GitHub Actions deploy" "$multi" "gh run"
 }
 
 # ---------------------------------------------------------------------------

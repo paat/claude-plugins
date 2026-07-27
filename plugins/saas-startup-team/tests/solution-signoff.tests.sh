@@ -8,8 +8,8 @@ test_solution_signoff_gate() {
   echo -e "\n${CYAN}Suite SG: solution signoff gate${NC}"
   local script="$PLUGIN_ROOT/scripts/solution-signoff-gate.sh"
   local maintain="$PLUGIN_ROOT/references/workflows/maintain.md"
-  local goal="$PLUGIN_ROOT/references/workflows/goal-deliver.md"
-  local improve="$PLUGIN_ROOT/references/workflows/improve.md"
+  local goal="$PLUGIN_ROOT/references/deliver/graph.md"
+  local improve="$PLUGIN_ROOT/references/deliver/graph.md"
   local sandbox source linked source_file ec out other
 
   assert_file_exists "SG1: signoff gate exists" "$script"

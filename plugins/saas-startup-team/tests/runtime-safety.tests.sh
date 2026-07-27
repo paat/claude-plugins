@@ -23,7 +23,7 @@ test_runtime_safety() {
     "$PLUGIN_ROOT/skills/startup-orchestration" 2>/dev/null || true)"
   assert_equals "RS1: no generic Claude role dispatch" "$out" ""
   assert_file_contains "RS2: startup business type" "$PLUGIN_ROOT/commands/startup.md" 'saas-startup-team:business-founder'
-  assert_file_contains "RS3: improve maintenance type" "$PLUGIN_ROOT/references/workflows/improve.md" 'saas-startup-team:business-founder-maintain'
+  assert_file_contains "RS3: improve maintenance type" "$PLUGIN_ROOT/references/deliver/entrypoints.md" 'saas-startup-team:business-founder-maintain'
   assert_file_contains "RS4: growth hacker type" "$PLUGIN_ROOT/commands/growth.md" 'saas-startup-team:growth-hacker'
   assert_file_contains "RS5: lawyer type" "$PLUGIN_ROOT/commands/lawyer.md" 'saas-startup-team:lawyer'
   assert_file_contains "RS6: UX type" "$PLUGIN_ROOT/commands/ux-test.md" 'saas-startup-team:ux-tester'
@@ -120,7 +120,7 @@ test_runtime_safety() {
   assert_file_contains "RS14b: startup uses mutation ownership flow" \
     "$PLUGIN_ROOT/commands/startup.md" 'references/workflows/mutation-ownership.md'
   assert_file_contains "RS14c: improve uses thin supervisor commit" \
-    "$PLUGIN_ROOT/references/workflows/improve.md" 'supervisor-commit.sh'
+    "$PLUGIN_ROOT/references/deliver/graph.md" 'supervisor-commit.sh'
   assert_file_contains "RS14d: lessons uses the mechanical firewall" \
     "$PLUGIN_ROOT/commands/lessons-deliver.md" '--firewall-script'
   assert_file_contains "RS14e: maintain routes the raw worker diff" \
@@ -414,8 +414,8 @@ PATCH
   assert_equals "RS35za: push cleanup restores product tree" "$(git -C "$workdir" diff -- README.md)" ""
   rm -rf "$workdir" "$patch_file" "$remote"
 
-  assert_file_contains "RS35zb: tweak workflow preserves helper status" "$PLUGIN_ROOT/references/workflows/tweak.md" '|| helper_rc=$?'
-  assert_file_contains "RS35zc: tweak workflow branches on helper status" "$PLUGIN_ROOT/references/workflows/tweak.md" 'case "$helper_rc" in'
+  assert_file_contains "RS35zb: tweak workflow preserves helper status" "$PLUGIN_ROOT/references/deliver/light-path.md" '|| helper_rc=$?'
+  assert_file_contains "RS35zc: tweak workflow branches on helper status" "$PLUGIN_ROOT/references/deliver/light-path.md" 'case "$helper_rc" in'
 
   # Default-branch resolution prefers GitHub, then a verified origin/HEAD, and never guesses.
   script="$PLUGIN_ROOT/scripts/default-branch.sh"; workdir=$(make_workdir); mkdir -p "$workdir/bin"
@@ -445,9 +445,9 @@ SH
   assert_output_not_contains "RS35zh: resolver never guesses main" "$out" "main"
   rm -rf "$workdir"
   out="$(grep -EnH 'gh repo view.*defaultBranchRef|echo[[:space:]]+main|origin/main' \
-    "$PLUGIN_ROOT/references/workflows/tweak.md" \
-    "$PLUGIN_ROOT/references/workflows/improve.md" \
-    "$PLUGIN_ROOT/references/workflows/goal-deliver.md" \
+    "$PLUGIN_ROOT/references/deliver/light-path.md" \
+    "$PLUGIN_ROOT/references/deliver/graph.md" \
+    "$PLUGIN_ROOT/references/deliver/graph.md" \
     "$PLUGIN_ROOT/references/workflows/maintain.md" \
     "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
     "$PLUGIN_ROOT/commands/startup.md" \

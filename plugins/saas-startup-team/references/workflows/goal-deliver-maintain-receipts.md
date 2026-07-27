@@ -1,15 +1,16 @@
 # Embedded `/maintain` Receipt Adapter
 
 This file is a compatibility adapter for the one supported embedded caller of
-`goal-deliver.md`: `SAAS_EMBEDDED_CALLER=maintain`. Load it only after the caller
-envelope in `goal-deliver.md` has been validated. A standalone `/goal-deliver` must
-never load or execute it.
+the deliver skill (`SAAS_DELIVER_ENTRYPOINT=goal-deliver`):
+`SAAS_EMBEDDED_CALLER=maintain`. Load it only after the caller envelope in
+`skills/deliver/SKILL.md` + `references/deliver/entrypoints.md` has been
+validated. A standalone `/goal-deliver` must never load or execute it.
 
-`goal-deliver.md` remains the sole delivery contract. Its routing, implementation
-quality, QA, tribunal, current-HEAD, merge-policy, deployment, and rollback decisions
-remain authoritative. This adapter adds only the maintain-owned claim, lease, durable
-receipt, crash-recovery, and helper sequencing needed to bind those decisions to one
-issue and one PR. Do not copy the common gates into this file.
+`skills/deliver/SKILL.md` remains the sole delivery contract. Its routing,
+implementation quality, QA, tribunal, current-HEAD, merge-policy, deployment, and
+rollback decisions remain authoritative. This adapter adds only the maintain-owned
+claim, lease, durable receipt, crash-recovery, and helper sequencing needed to bind
+those decisions to one issue and one PR. Do not copy the common gates into this file.
 
 ## Stable compatibility state
 
@@ -76,7 +77,7 @@ one receipt; `begin` rejects new work under its compatibility controller.
 
 ## Embedded binding and lease
 
-Use only the validated values inherited from `goal-deliver.md`:
+Use only the validated values inherited from the deliver skill entrypoint config:
 
 - `SAAS_EMBEDDED_WORKTREE` is the exact real current worktree;
 - `SAAS_EMBEDDED_CLAIM` is the freshly verified issue/PR marker;
@@ -143,7 +144,7 @@ must exist before branch creation or writer dispatch.
 Create the bounded prompt at the stable compatibility path above. Execute the source
 mutation only through `maintain-attempt.sh deliver`; it owns the paused worker phase,
 route verification, checked thin commit, and protected attempt result.
-The profile selected by `goal-deliver.md` still controls the writer, but embedded
+The profile selected by the deliver skill still controls the writer, but embedded
 mechanical/light work uses this transaction instead of the standalone `tweak-run.sh`
 branch path.
 
@@ -238,7 +239,7 @@ Rules:
 
 ## Recording the canonical goal gates
 
-Run the common delivery gates exactly where `goal-deliver.md` requires them. This
+Run the common delivery gates exactly where the deliver skill requires them. This
 adapter does not redefine their content. It only binds their verified outputs:
 
 - `record-proof --kind qa` records the exact receipt head and the canonical QA command,
@@ -270,7 +271,7 @@ Read `MERGE_SHA` only from the updated receipt and use `maintain-attempt.sh rese
 working tree at that exact clean merge commit before live proof, passing the immutable
 `--run-id "$ORIGIN_RUN_ID"` and current `--controller-run-id "$CONTROLLER_RUN_ID"` again.
 
-Run the common deploy/live verification in `goal-deliver.md`. Once it is green at
+Run the common deploy/live verification in the deliver skill. Once it is green at
 `MERGE_SHA`, record the bound evidence through `record-proof --kind live`, then call `record-release` with only the verified deploy run and stable target-source code.
 Release proof must exist before issue close intent. Remove `maintain:claimed`, verify
 its absence, and call `close-intent` with no snapshots. It freshly re-fetches the exact merged PR and open issue and runs the prospective closure audit.
@@ -282,7 +283,7 @@ unbound issue state remains unresolved; never re-close it under stale intent.
 ## Rollback-or-stop recovery
 
 A failed or unverified live release stops new issue work. Apply the common causal/safe
-rollback decision from `goal-deliver.md`; receipt recovery is rollback-or-stop, never a
+rollback decision from the deliver skill; receipt recovery is rollback-or-stop, never a
 fresh corrective delivery. If rollback is authorized, derive the exact expected inverse tree of the recorded normal merge, create one receipt-owned rollback PR, and use the
 same `plan-pr`, `bind-pr`, proof-recording, `authorize-merge`, `merge-pr`, and
 `record-merge` transitions with `--role rollback`. The helper accepts one rollback and
