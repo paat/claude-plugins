@@ -124,7 +124,7 @@ non-empty `SAAS_PHASE` so hooks pause (`mutation-ownership.md`). After return:
 |---------|----------------|
 | `mechanical` | Exact named repository script only; no model worker. Objective output required or escalate to standard. |
 | `light` | Load `${CLAUDE_PLUGIN_ROOT}/references/deliver/light-path.md`. `tweak-run.sh` containment (≤3 files, ≤15 lines, no sensitive paths). Exit 20 escalates once to deep. |
-| `standard` / `deep` | Host-native implementation worker. Claude: Task/Agent. Codex: `tech-founder` skill or `codex-run-role.sh --role tech-founder --profile "$PROFILE"`. Never route Codex to `tech-founder-claude*`. |
+| `standard` / `deep` | Host-native implementation worker. Claude: Task/Agent. Codex: `tech-founder` skill or `codex-run-role.sh --role tech-founder --profile "$PROFILE"`. Never invent founder persona agents; Claude personas were removed (#385). |
 
 Before implementation: identify the **root-cause/recurrence class** and fix the class,
 with **red-before/green-after proof**. For bug/monitor/customer/accounting/replay/
@@ -149,13 +149,13 @@ blocked.
 
 ### 3. Independent Review
 
-Independent of the implementer. Review-only: write only the review artifact; never modify
+Independent of the implementer (product-acceptance and/or ux-review capabilities). Review-only: write only the review artifact; never modify
 source, tests, workflow specs, or state.
 
 - Verify acceptance criteria, mobile viewport (375px), and triggered product gates.
 - Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/ui-touch.sh" --range "${default}...HEAD"`.
   Unless it prints exactly `no-ui`, run the pre-merge leg in
-  `skills/ux-tester/references/design-review-leg.md`; its
+  `skills/ux-review/references/design-review-leg.md`; its
   `## Design-review: PASS|FAIL` verdict block (with Pages/Shots) must land in the PR body.
 - If `public_route_discoverability` is selected, run
   `acceptance-packs.sh --verify-public-route "$QA_REVIEW"`; destination-only evidence

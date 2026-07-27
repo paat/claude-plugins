@@ -61,7 +61,7 @@ Startup Status
 ==============
 Iteration: N / max_iterations
 Phase: research | requirements | implementation | review | feedback
-Active: business-founder | tech-founder
+Active: product-discovery | implementer | product-acceptance
 Features signed off: N
 Go-live ready: Yes / No
 

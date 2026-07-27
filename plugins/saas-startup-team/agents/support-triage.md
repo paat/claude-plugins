@@ -3,7 +3,6 @@ name: support-triage
 description: Post-launch support feedback triage agent. Fetches configured support items, groups patterns, and routes actionable work into operate/build flows.
 model: haiku
 effort: low
-color: yellow
 tools: Bash, Read, Write, Grep, Glob
 ---
 

@@ -1,17 +1,19 @@
 ---
 name: tech-founder
-description: "Use for SaaS architecture and implementation in .startup/ handoff projects, quality standards, and technical cofounder decisions."
+description: "Implementation standards for deliver Build — architecture, quality, bug-fix protocol. Not a persona; technical delivery is skills/deliver."
 ---
 
-# Tech Founder Domain Knowledge
+# Implementation Standards
 
-You are the empathetic technical co-founder. This skill provides your domain expertise in architecture decisions, quality standards, and the "always know the why" development philosophy.
+Domain standards for architecture and quality. Technical delivery graph is
+`../deliver/SKILL.md`. Not a founder persona — no colors, dialogue scripts, model pins,
+or role-owned state.
 
 Before architecture planning or implementation, read and apply `../../templates/delivery-scope-contract.md`.
 
 ## Core Philosophy: Empathetic Development
 
-You are a rare breed of developer — one who genuinely cares about the customer experience. This means:
+Build for real customers:
 
 1. **Always know the why**: Before writing a single line of code, understand why this feature matters to the customer. If the handoff document doesn't explain this clearly, STOP and ask.
 
@@ -69,7 +71,7 @@ When building any async data UI (fetch / upload / parse / stream), **loading sta
 If you reuse a visual pattern, honor the behavior it implies — or restyle so the control doesn't masquerade as something it isn't. A dashed drop-zone border on an expand-button that has no `onDrop`/`onDragOver` is a false affordance: the user drags a file onto it and nothing happens. Same for clickable-card looks, inline-edit pencils, `cursor:pointer`. And never gate a step's **primary action** behind clutter-reduction chrome (collapse-to-expand) — collapsing optional/advanced content is fine; collapsing the core action adds a click to the main task.
 
 #### Surface constraint-driven UX costs
-When a correctness / technical / legal constraint forces you to scope a decision that degrades UX — deliberately excluding a behavior, leaving a separate step the user won't expect, an input that can't be safely auto-filled — **surface the UX cost in the handoff** ("UX Costs of Technical Decisions" section), not in a code comment. A correct-but-degrading scoping decision is a flag-to-product event, not a silent implementation choice: name the constraint and the experience cost so the business founder can design around it or escalate. "There's a valid technical reason" justifies the constraint — not the silent shipping of the UX it produces.
+When a correctness / technical / legal constraint forces you to scope a decision that degrades UX — deliberately excluding a behavior, leaving a separate step the user won't expect, an input that can't be safely auto-filled — **surface the UX cost in the handoff** ("UX Costs of Technical Decisions" section), not in a code comment. A correct-but-degrading scoping decision is a flag-to-product event, not a silent implementation choice: name the constraint and the experience cost so product-discovery can design around it or escalate. "There's a valid technical reason" justifies the constraint — not the silent shipping of the UX it produces.
 
 ### Testing Approach
 - Write testable code (dependency injection, pure functions)
@@ -97,7 +99,7 @@ reconcile) and fail the suite when they break.
 **"green-but-wrong" risk class.** The app's own in-app validation passing does NOT
 mean the output is correct — validation can be green on a wrong result. For
 computed outputs, a green app is insufficient evidence; require golden-fixture
-coverage and an independent spot-check (the business founder does the latter in QA).
+coverage and an independent spot-check (product-acceptance does the latter in independent QA).
 
 #### Triggered SaaS product gates
 Apply the canonical list in `../../references/triggered-saas-gates.md` when a feature touches the relevant product class.

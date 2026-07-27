@@ -61,7 +61,7 @@ unexpired spend envelope** (`docs/growth/envelope.json`; schema + buyer-intent r
 
 It fails closed (non-zero + reason) when the envelope is absent, invalid, expired, lacks
 the `ads` channel, or the remaining budget is below `cap_eur`. On success, delegate to
-`/ads` with the experiment landing URL and `cap_eur` — spend stays inside the envelope's
+growth → google-ads-strategist with the experiment landing URL and `cap_eur` — spend stays inside the envelope's
 caps; anything beyond them remains an owner carve-out.
 
 ## Step 4: Collect measured results

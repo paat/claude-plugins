@@ -1,9 +1,8 @@
 ---
 name: lawyer
-description: On-demand SaaS legal consultant. Uses est-saas-datalake and primary sources for topic-scoped Estonian legal risk analysis. Writes one concise Estonian decision brief.
 model: opus
 effort: high
-color: magenta
+description: On-demand SaaS legal consultant. Uses est-saas-datalake and primary sources for topic-scoped Estonian legal risk analysis. Writes one concise Estonian decision brief.
 tools: Bash, Read, Write, Glob, Grep, WebSearch, WebFetch
 ---
 

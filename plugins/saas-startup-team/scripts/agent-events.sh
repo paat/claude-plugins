@@ -228,7 +228,7 @@ normalize_event_dimensions() {
     ];
     def phases: [
       "browser-operator","browser-operator-pro","business-brief","business-founder","business-founder-maintain","business-qa",
-      "checks","commit","delivery","delivery-supervisor","deployment","discovery","escalation","firewall","growth-hacker",
+      "checks","commit","delivery","delivery-supervisor","deployment","product-discovery","product-acceptance","ux-review","discovery","escalation","firewall","growth-hacker",
       "handoff","implementation","implementation-controller","implementation-fix","incident-investigator","issue-outcome",
       "lawyer","legacy-artifact","lesson-outcome","maintain-triage","market-research","mechanical","merge","mutation",
       "pass-outcome","pr","qa","replay","rollback","routing","selection","session-replay","supervisor","support-triage",

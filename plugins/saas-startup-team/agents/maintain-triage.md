@@ -3,7 +3,6 @@ name: maintain-triage
 description: Read-only maintenance issue classifier. Returns a bounded structured verdict from supplied issue metadata and never mutates the repository or GitHub.
 model: haiku
 effort: low
-color: yellow
 tools: Read, Grep, Glob
 ---
 

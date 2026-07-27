@@ -402,6 +402,25 @@ def _metrics_for_plugin_rel(
     return metrics
 
 
+def _content_resembles(a: bytes, b: bytes) -> bool:
+    """True when b looks like an edited move of a (not a coincidental basename)."""
+    if not a or not b:
+        return False
+    # Size gate: lightly edited moves stay in the same order of magnitude.
+    ra = len(a) / max(len(b), 1)
+    if ra < 0.4 or ra > 2.5:
+        return False
+    lines_a = {ln.strip() for ln in a.splitlines() if ln.strip()}
+    lines_b = {ln.strip() for ln in b.splitlines() if ln.strip()}
+    if not lines_a or not lines_b:
+        return False
+    inter = len(lines_a & lines_b)
+    # Need meaningful overlap: >=3 shared non-empty lines or >=30% Jaccard.
+    union = len(lines_a | lines_b)
+    jaccard = inter / union if union else 0.0
+    return inter >= 3 or jaccard >= 0.3
+
+
 def detect_undeclared_extractions(
     repo_root: Path,
     plugin_root: Path,
@@ -515,8 +534,17 @@ def detect_undeclared_extractions(
             continue  # still inside plugin under another name
         outside = outside_by_hash.get(digest) or []
         if not outside:
-            # Lightly edited move: same basename outside plugin.
-            outside = outside_by_basename.get(Path(path).name) or []
+            # Lightly edited move: same basename outside plugin AND content
+            # still resembles the removed file. Bare basename matches (e.g.
+            # every SKILL.md in the monorepo) are not extractions.
+            candidates = outside_by_basename.get(Path(path).name) or []
+            outside = [
+                cand
+                for cand in candidates
+                if _content_resembles(
+                    data, _git_show_bytes(repo_root, "HEAD", cand) or b""
+                )
+            ]
         if not outside:
             continue
         charge(path, outside[0], data)

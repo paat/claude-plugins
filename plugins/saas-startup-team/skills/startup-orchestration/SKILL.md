@@ -76,7 +76,7 @@ strengths (frontend/UX, architecture, or surgical multi-file edits).
 - **Claude Code surface:** pick the engine per handoff content — Codex for spec-complete,
   backend, test-heavy, or plumbing work; Claude for work that needs its frontend, architecture,
   or surgical-edit strengths. Spawn the tech founder via the Task/Agent tool, reading
-  `agents/tech-founder-codex*.md` or `agents/tech-founder-claude*.md` accordingly.
+  `agents/tech-founder-codex*.md` (until #387) or host-native Task + `skills/tech-founder` / deliver.
 - **Codex surface:** run the tech-founder role in the current session only after loading
   the `tech-founder` skill. Use `scripts/codex-run-role.sh` (or the
   `scripts/codex-implement.sh` compatibility wrapper) with an explicit semantic profile
@@ -86,7 +86,7 @@ strengths (frontend/UX, architecture, or surgical multi-file edits).
 **Architect pass (Codex-routed, non-trivial work).** Before spawning the Codex engine for a
 handoff that introduces a new feature, a schema/data-model change, a new workflow, or a
 cross-cutting refactor, run a short **plan-only** role phase reading
-`agents/tech-founder-claude*.md`: it writes `.startup/handoffs/NNN-tech-plan.md` — interface
+deliver/tech-founder architecture pass: it writes `.startup/handoffs/NNN-tech-plan.md` — interface
 contracts, files to touch, invariants, and a test plan; NO code, NO working-tree edits. The
 Codex tech founder then implements from handoff + plan (`codex-implement.sh --plan`). Skip
 the pass for small fixes, copy changes, and single-file work — the extra hop is pure overhead
@@ -102,7 +102,7 @@ switching engines mid-task.
 - Monitor `.startup/state.json` for iteration count and phase
 - Enforce `max_iterations` limit (default: 20)
 - Track which founder should act next (`active_role`)
-- **Never write `active_role: "team-lead"`.** The orchestrator is implicit, not a tracked role. Valid values are `business-founder`, `tech-founder`, `lawyer`, `ux-tester`, `growth-hacker`, and their `-maintain` variants. Writing `team-lead` triggers the `enforce-delegation` hook on later edits in `/improve`, `/lawyer`, `/ux-test`, and `/growth`, blocking those flows.
+- **Never write `active_role: "team-lead"`.** Prefer capability skills; if optional state is mutated, use capability labels (`product-discovery`, `product-acceptance`, `tech-founder`, `lawyer`, `ux-review`, `growth`).
 
 ### 3. Handoff Validation
 - Every handoff MUST follow the structured template format

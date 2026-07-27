@@ -3,7 +3,6 @@ name: incident-investigator
 description: Post-launch incident RCA agent. Reads configured operate sources and writes redacted root-cause artifacts and GitHub issue drafts.
 model: sonnet
 effort: high
-color: red
 tools: Bash, Read, Write, Grep, Glob
 ---
 

@@ -1,7 +1,7 @@
 # Design-review leg + post-deploy visual smoke
 
-Shared browser-operator procedure for UI-touching changes. The JUDGE is the
-business founder, scoring against `severity-matrix.md`. Capture screenshots at
+Shared browser procedure for UI-touching changes. The JUDGE is an independent
+product-acceptance or ux-review worker (never the implementer), scoring against `severity-matrix.md`. Capture screenshots at
 **375px** and **1280px**. If the project serves multiple locales, repeat per
 locale (locale list from project config/docs; else the single default). Set 10s
 HTTP timeouts.
@@ -14,7 +14,7 @@ Trigger: `scripts/ui-touch.sh` classifies the branch diff as `ui`.
    For a baseline audit use the fetched default-branch SHA; after implementation use
    candidate HEAD. Use the current sequential checkout; never switch or reset it, and do not
    create a worktree. Verify the served commit, clean up the server, and treat a shared dev URL as
-   pre-merge evidence only when its served commit is proven. From the tech-founder handoff,
+   pre-merge evidence only when its served commit is proven. From the implementation handoff or PR,
    list the affected pages and open each at the
    localhost URL.
 2. When the handoff adds a public/indexable route, start at its named existing customer

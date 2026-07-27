@@ -25,7 +25,7 @@ In Codex, implementation is Codex-only:
 
 - Do not install or switch to Claude Code for the startup workflow.
 - Do not invoke `claude`, `claude-code`, TeamCreate, or Claude subagent workflows.
-- Run business-founder, tech-founder, growth-hacker, lawyer, UX tester, and review work as Codex role phases backed by `.startup/` files.
+- Run product-discovery, product-acceptance, growth, lawyer, ux-review, and deliver as capability skills (Codex role phases optional).
 - Use Codex skills or direct Codex sequencing in the current session. Separate workers
   go through `scripts/codex-run-role.sh` with an explicit role and semantic profile.
 
@@ -95,11 +95,11 @@ Team Lead (Orchestrator)
 |-------|---------|
 | `browser-operator` | Haiku-powered mechanical browser driver; executes judgment-free legs (navigate, auth, fill, resize, extract) for the QA orchestrators and returns raw state only — never a verdict. |
 | `browser-operator-pro` | Sonnet variant of `browser-operator` for mechanically fiddly legs (multi-page wizards, ambiguous page snapshots); same raw-state-only contract — the orchestrator, not the operator, makes every QA judgment. |
-| `business-founder` | Business context research and browser-based requirement validation. |
-| `tech-founder` | Implementation from handoff documents. |
-| `growth-hacker` | Growth and sales strategy. |
+| `product-discovery` | Bounded product discovery and requirements when evidence changes Done. |
+| `deliver` / `tech-founder` standards | Canonical Plan→Build→Review→Release; implementation standards skill. |
+| `growth` | Lifecycle-gated acquisition within spend envelope; optional Google Ads via google-ads-strategist. |
 | `lawyer` | Legal compliance review. |
-| `ux-tester` | Accessibility and usability audit. |
+| `ux-review` | Independent usability/a11y audit and design-review leg. |
 | `maintain-triage` | Low-cost, read-only GitHub issue classification for `/maintain`. |
 
 ### Legal verdict rigor
@@ -564,12 +564,12 @@ runs in each **product** repo.
   - `EST_DATALAKE_API_KEY` — API key sent as the `X-API-Key` header. **Required** — `/lawyer` pre-flight hard-fails if it is unset. Set it with `export EST_DATALAKE_API_KEY=your-key`.
 
   `/lawyer` pre-flight also hard-fails if `DATALAKE_URL/api/v1/health/ready` does not return `200`; there is no offline fallback. When the topic needs it, `/lawyer` can also use KOV municipality filters, regulator enforcement search, and company diligence endpoints from the same API. The rest of the plugin works without the datalake.
-- **google-ads-strategist plugin** — required for any Google Ads work (hard dependency). Google Ads is delegated to its `ads-strategist` agent; `growth-hacker` no longer creates Google Ads campaigns itself. There is no manifest-level dependency field, so this is enforced behaviorally: `/ads` and the `/growth` loop fail with an install instruction if the plugin is absent.
+- **google-ads-strategist plugin** — required for any Google Ads work (hard dependency). Google Ads is delegated to its `ads-strategist` agent; `growth-hacker` no longer creates Google Ads campaigns itself. There is no manifest-level dependency field, so this is enforced behaviorally: `/growth` links the optional ads capability and fails with an install instruction if the plugin is absent (no `/ads` command).
 - **`codex` CLI (optional in interactive Codex, required for separate worker dispatch)** — only needed for `scripts/codex-run-role.sh` or its `codex-implement.sh` compatibility wrapper. When required, preflight checks Codex authentication and support for `--dangerously-bypass-approvals-and-sandbox` without starting a model turn. Without it, Codex continues inline or asks for an environment fix; it never falls back to a Claude implementation engine.
 
 ## Implementation Engine
 
-For Codex installs, the tech-founder implementation role uses Codex only (`active_role` stays `tech-founder`):
+For Codex installs, implementation uses Codex only via deliver / `tech-founder` skill:
 
 - Use the `tech-founder` skill for implementation standards and handoff requirements.
 - Implement inline in the current Codex session when that is simplest.

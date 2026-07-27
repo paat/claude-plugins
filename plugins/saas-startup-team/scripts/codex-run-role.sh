@@ -302,13 +302,13 @@ case "$ROLE" in
   delivery-supervisor)
     MUTATION_RULES='You are the sole supervisor mutation owner for this task. You may perform only the Git, GitHub, merge, deployment, and rollback operations explicitly authorized by the task, and only after its deterministic gates pass. Do not delegate mutations to review or QA roles.'
     ;;
-  growth-hacker|lawyer|ux-tester|incident-investigator|session-replay|support-triage)
+  growth-hacker|growth|lawyer|ux-tester|ux-review|product-acceptance|incident-investigator|session-replay|support-triage)
     MUTATION_RULES='You may write only task-designated local artifacts. Never modify product source, tests, or the canonical workflow-spec registry. Do not commit, push, create or edit pull requests, merge, deploy, or roll back.'
     ;;
   *triage*|*review*|qa|qa-*|*-qa|*-qa-*)
     MUTATION_RULES='This is a read-only/review role. Do not edit product files, commit, push, create or edit pull requests, merge, deploy, or roll back. Return only the requested structured verdict or review artifact.'
     ;;
-  business-founder|business-founder-*)
+  business-founder|business-founder-*|product-discovery|product-discovery-*)
     MUTATION_RULES='You may write only business/product briefs and proposed workflow-spec deltas in the task-designated artifact locations. Never modify product source, tests, or the canonical workflow-spec registry. Do not commit, push, create or edit pull requests, merge, deploy, or roll back.'
     HANDOFF_TEMPLATE="$(cd "$SCRIPT_DIR/../templates" && pwd -P)/handoff-business-to-tech.md"
     SCOPE_CONTRACT="$SCRIPT_DIR/../templates/delivery-scope-contract.md"
@@ -327,7 +327,7 @@ $(cat "$SCOPE_CONTRACT")
 When writing a tech implementation brief, follow ${HANDOFF_TEMPLATE} and explicitly fill Done, Preserve, and Out of Scope without inventing missing requirements."
     ;;
   tech-founder|tech-founder-*)
-    MUTATION_RULES='You are the source writer for this task and may modify only the required product source, tests, and canonical workflow-spec registry. Do not write business-founder verdicts. Do not commit, push, create or edit pull requests, merge, deploy, or roll back. Leave working-tree changes for the supervisor, which owns deterministic checks and the gated commit path.'
+    MUTATION_RULES='You are the source writer for this task and may modify only the required product source, tests, and canonical workflow-spec registry. Do not write product-acceptance verdicts. Do not commit, push, create or edit pull requests, merge, deploy, or roll back. Leave working-tree changes for the supervisor, which owns deterministic checks and the gated commit path.'
     SCOPE_CONTRACT="$SCRIPT_DIR/../templates/delivery-scope-contract.md"
     [ -r "$SCOPE_CONTRACT" ] || {
       echo "codex-run-role: delivery scope contract is not readable" >&2

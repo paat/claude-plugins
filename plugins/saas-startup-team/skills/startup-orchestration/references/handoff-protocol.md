@@ -8,8 +8,8 @@ Every handoff between founders MUST follow this structure. Free-form handoffs ar
 
 ```markdown
 ---
-from: business-founder | tech-founder
-to: tech-founder | business-founder
+from: product-discovery | implementer
+to: implementer | product-discovery
 iteration: N
 date: YYYY-MM-DD
 type: requirements | implementation | review | feedback

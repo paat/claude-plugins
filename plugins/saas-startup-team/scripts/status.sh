@@ -143,7 +143,7 @@ fi
 # Idle loop tracking
 echo ""
 echo "--- Agent Health ---"
-for TEAMMATE in business-founder tech-founder; do
+for TEAMMATE in product-discovery product-acceptance tech-founder; do
   IDLE_FILE="$STARTUP_DIR/.idle-count-$TEAMMATE"
   if [ -f "$IDLE_FILE" ]; then
     IDLE_COUNT=$(cat "$IDLE_FILE" 2>/dev/null || echo "0")
