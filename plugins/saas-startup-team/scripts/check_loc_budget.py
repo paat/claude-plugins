@@ -171,21 +171,31 @@ def is_regular_file(path: Path) -> bool:
 
 
 def is_hand_maintained_wrapper(wrapper_dir: Path) -> bool:
-    """True when skills/saas-startup-team-*-workflow lacks the generated-alias marker.
+    """True when a saas-startup-team-*-workflow dir is not a pure generated alias.
 
-    Baseline 0.90.11 wrappers had no marker, so they still measure as hand-maintained.
-    Thin generated aliases (#383) include GENERATED_ALIAS_MARKER and count as 0.
+    A pure generated alias is exactly one regular file, SKILL.md, containing
+    GENERATED_ALIAS_MARKER. Baseline 0.90.11 wrappers had no marker. Extra
+    files beside a marked SKILL.md re-enter the hand-maintained count so the
+    metric cannot be gamed by smuggling content under a generated dir.
     """
     skill = wrapper_dir / "SKILL.md"
     if not is_regular_file(skill):
-        # Empty/malformed wrapper dir still counts as hand-maintained surface.
         return True
     try:
-        # Read a small prefix first; marker is on line 5 of generated aliases.
         text = skill.read_text(encoding="utf-8")
     except OSError:
         return True
-    return GENERATED_ALIAS_MARKER not in text
+    if GENERATED_ALIAS_MARKER not in text:
+        return True
+    try:
+        for path in wrapper_dir.rglob("*"):
+            if not is_regular_file(path):
+                continue
+            if path != skill:
+                return True
+    except OSError:
+        return True
+    return False
 
 
 def line_count(path: Path) -> int:
@@ -597,18 +607,29 @@ def anti_weaken(base: dict[str, Any], head: dict[str, Any]) -> list[str]:
 
     base_rules = base.get("counting_rules") or {}
     head_rules = head.get("counting_rules") or {}
-    allow_raw = head.get("counting_rules_allow_change") or {}
-    allowed_keys: set[str] = set()
-    if isinstance(allow_raw, dict):
-        keys = allow_raw.get("keys") or []
+    # One-shot allow: a key listed only on head (not already on base) may change
+    # once for an intentional migration (issue #383). After merge, base carries
+    # the same allow block, so further rule edits for that key fail again.
+    head_allow = head.get("counting_rules_allow_change") or {}
+    base_allow = base.get("counting_rules_allow_change") or {}
+    head_allowed: set[str] = set()
+    base_allowed: set[str] = set()
+    if isinstance(head_allow, dict):
+        keys = head_allow.get("keys") or []
         if isinstance(keys, list):
-            allowed_keys = {k for k in keys if isinstance(k, str)}
+            head_allowed = {k for k in keys if isinstance(k, str)}
+    if isinstance(base_allow, dict):
+        keys = base_allow.get("keys") or []
+        if isinstance(keys, list):
+            base_allowed = {k for k in keys if isinstance(k, str)}
     if isinstance(base_rules, dict) and isinstance(head_rules, dict):
         for key, base_val in base_rules.items():
             if key not in head_rules:
                 errors.append(f"anti-weaken: counting_rules.{key} removed")
-            elif head_rules[key] != base_val and key not in allowed_keys:
-                errors.append(f"anti-weaken: counting_rules.{key} changed")
+            elif head_rules[key] != base_val:
+                oneshot = key in head_allowed and key not in base_allowed
+                if not oneshot:
+                    errors.append(f"anti-weaken: counting_rules.{key} changed")
 
     base_gen = (base.get("generated_files") or {}).get("policy")
     head_gen = (head.get("generated_files") or {}).get("policy")

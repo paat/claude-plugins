@@ -278,6 +278,12 @@ class FixtureExceedEachMetric(unittest.TestCase):
             self.assertEqual(measured["wrapper_skills_hand_maintained_loc"], 0)
             self.assertGreater(measured["runtime_prompt_surface_loc"], 0)
 
+            # Extra file beside a marked SKILL.md re-enters hand-maintained.
+            write_lines(d / "notes.md", 3)
+            measured = loc.measure(root, budget)
+            self.assertEqual(measured["wrapper_skills_hand_maintained"], 1)
+            self.assertGreater(measured["wrapper_skills_hand_maintained_loc"], 0)
+
     def test_exceed_agents_md_loc(self) -> None:
         def setup(root: Path) -> None:
             write_lines(root / "agents" / "a.md", 4)
@@ -520,6 +526,30 @@ class AntiWeaken(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
             self.assertNotIn("counting_rules.wrapper_skills_hand_maintained", proc.stderr)
+
+            # One-shot only: once base already carries the allow key, further
+            # rule edits for that key fail anti-weaken again.
+            base2 = json.loads(json.dumps(head))
+            head2 = json.loads(json.dumps(head))
+            head2["counting_rules"]["wrapper_skills_hand_maintained"] = "second edit"
+            base2_path = tmp_path / "base2.json"
+            head2_path = tmp_path / "head2.json"
+            write_budget(base2_path, base2)
+            write_budget(head2_path, head2)
+            write_budget(root / "integrity" / "loc-budget.json", head2)
+            proc = run_checker(
+                [
+                    "--plugin-root",
+                    str(root),
+                    "--budget",
+                    str(head2_path),
+                    "--compare-base",
+                    str(base2_path),
+                    "--measure-only",
+                ]
+            )
+            self.assertEqual(proc.returncode, 1, proc.stderr + proc.stdout)
+            self.assertIn("counting_rules.wrapper_skills_hand_maintained", proc.stderr)
 
     def test_allows_ratchet_decrease(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
