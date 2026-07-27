@@ -570,9 +570,34 @@ class UndeclaredExtraction(unittest.TestCase):
             self.assertTrue(errors)
             self.assertIn("undeclared extraction", errors[0])
 
-            # Declaring sibling LOC clears the failure.
+            # Wrong metric declaration must not pool-cover the extraction.
             budget["extracted_packages"]["declared_siblings"] = [
-                {"metric_id": "scripts_sh_loc", "loc": 4, "path": "plugins/extracted-bits"}
+                {
+                    "metric_id": "agents_md_loc",
+                    "loc": 4,
+                    "path": "plugins/extracted-bits",
+                }
+            ]
+            errors = loc.detect_undeclared_extractions(
+                repo_root=repo,
+                plugin_root=plugin,
+                git_base=base,
+                budget=budget,
+            )
+            self.assertTrue(any("scripts_sh_loc" in e for e in errors), errors)
+
+            # Correct metric declarations clear the failure.
+            budget["extracted_packages"]["declared_siblings"] = [
+                {
+                    "metric_id": "scripts_sh_loc",
+                    "loc": 4,
+                    "path": "plugins/extracted-bits",
+                },
+                {
+                    "metric_id": "total_md_sh_excl_tests_docs",
+                    "loc": 4,
+                    "path": "plugins/extracted-bits",
+                },
             ]
             errors = loc.detect_undeclared_extractions(
                 repo_root=repo,
@@ -581,6 +606,66 @@ class UndeclaredExtraction(unittest.TestCase):
                 budget=budget,
             )
             self.assertEqual(errors, [])
+
+    def test_detects_edited_move_by_basename(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            plugin = repo / "plugins" / "saas-startup-team"
+            sibling = repo / "plugins" / "extracted-bits"
+            make_plugin(plugin)
+            write_lines(plugin / "scripts" / "moved.sh", 4)
+            sibling.mkdir(parents=True)
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "config", "user.email", "t@t.t"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "t"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "-m", "base"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            (plugin / "scripts" / "moved.sh").unlink()
+            write_lines(sibling / "moved.sh", 5)  # edited in same move
+            subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "-m", "extract-edit"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            budget = base_budget()
+            errors = loc.detect_undeclared_extractions(
+                repo_root=repo,
+                plugin_root=plugin,
+                git_base=base,
+                budget=budget,
+            )
+            self.assertTrue(any("undeclared extraction" in e for e in errors), errors)
+
+    def test_anti_weaken_rejects_removed_counting_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            base = base_budget()
+            head = json.loads(json.dumps(base))
+            del head["counting_rules"]["scripts_sh_loc"]
+            write_budget(tmp_path / "base.json", base)
+            write_budget(tmp_path / "head.json", head)
+            errors = loc.anti_weaken(base, head)
+            self.assertTrue(any("counting_rules.scripts_sh_loc removed" in e for e in errors))
 
 
 class SymlinkSafety(unittest.TestCase):

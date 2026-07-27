@@ -338,6 +338,33 @@ def _git_show_bytes(repo_root: Path, rev: str, path: str) -> bytes | None:
     return proc.stdout
 
 
+def _metrics_for_plugin_rel(rel_plugin: str, path: str) -> list[str]:
+    """Map a former plugin path to the metrics it contributed to."""
+    # path is repo-relative like plugins/saas-startup-team/scripts/x.sh
+    prefix = rel_plugin.rstrip("/") + "/"
+    if not path.startswith(prefix):
+        return []
+    inner = path[len(prefix) :]
+    metrics: list[str] = ["total_md_sh_excl_tests_docs"]
+    if inner.startswith("scripts/") and inner.endswith(".sh"):
+        metrics.append("scripts_sh_loc")
+    if inner.startswith("agents/") and inner.endswith(".md"):
+        metrics.append("agents_md_loc")
+    if (
+        inner.startswith("agents/")
+        or inner.startswith("commands/")
+        or inner.startswith("skills/")
+    ) and inner.endswith(".md"):
+        metrics.append("runtime_prompt_surface_loc")
+    if (
+        "/saas-startup-team-" in inner
+        and inner.endswith("-workflow/SKILL.md")
+        and inner.startswith("skills/")
+    ):
+        metrics.append("wrapper_skills_hand_maintained_loc")
+    return metrics
+
+
 def detect_undeclared_extractions(
     repo_root: Path,
     plugin_root: Path,
@@ -346,16 +373,37 @@ def detect_undeclared_extractions(
 ) -> list[str]:
     """Fail when runtime .md/.sh leave the plugin tree without declared_siblings.
 
-    Compares the merge-base tree to HEAD: any regular *.md/*.sh that existed under
-    the plugin at git_base, is missing under the plugin at HEAD, and whose content
-    hash appears elsewhere in the HEAD worktree must be covered by
-    extracted_packages.declared_siblings LOC for an appropriate metric.
+    Uses git rename detection (-M) plus content-hash matching so lightly edited
+    moves still count. Declared sibling LOC must cover each affected metric_id
+    separately (no cross-metric pooling).
     """
     errors: list[str] = []
     try:
         rel_plugin = plugin_root.resolve().relative_to(repo_root.resolve()).as_posix()
     except ValueError as exc:
         raise ValueError("plugin-root must be inside repo-root") from exc
+
+    prefix = rel_plugin.rstrip("/") + "/"
+
+    # git rename detection: R100 old new, also catch pure deletes that reappear outside.
+    status = _git_stdout(
+        repo_root,
+        "diff",
+        "-M",
+        "--name-status",
+        "--diff-filter=R",
+        git_base,
+        "HEAD",
+    ).splitlines()
+    renamed_out: list[tuple[str, str]] = []
+    for line in status:
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        _code, old, new = parts
+        if old.startswith(prefix) and not new.startswith(prefix):
+            if old.endswith((".md", ".sh")):
+                renamed_out.append((old, new))
 
     base_list = _git_stdout(
         repo_root, "ls-tree", "-r", "--name-only", git_base, rel_plugin
@@ -366,65 +414,92 @@ def detect_undeclared_extractions(
     base_set = {p for p in base_list if p.endswith((".md", ".sh"))}
     head_set = {p for p in head_list if p.endswith((".md", ".sh"))}
     removed = sorted(base_set - head_set)
-    if not removed:
-        return errors
 
-    # Content hashes present under the plugin at HEAD (still local).
     head_plugin_hashes: set[str] = set()
     for path in head_set:
         data = _git_show_bytes(repo_root, "HEAD", path)
         if data is not None:
             head_plugin_hashes.add(hashlib.sha256(data).hexdigest())
 
-    # Map content hash -> paths elsewhere in HEAD (outside plugin).
     all_head = _git_stdout(repo_root, "ls-tree", "-r", "--name-only", "HEAD").splitlines()
     outside_by_hash: dict[str, list[str]] = {}
+    outside_by_basename: dict[str, list[str]] = {}
     for path in all_head:
         if not path.endswith((".md", ".sh")):
             continue
-        if path == rel_plugin or path.startswith(rel_plugin + "/"):
+        if path == rel_plugin or path.startswith(prefix):
             continue
         data = _git_show_bytes(repo_root, "HEAD", path)
         if data is None:
             continue
         digest = hashlib.sha256(data).hexdigest()
         outside_by_hash.setdefault(digest, []).append(path)
+        outside_by_basename.setdefault(Path(path).name, []).append(path)
 
     siblings = budget.get("extracted_packages", {}).get("declared_siblings") or []
     if not isinstance(siblings, list):
         siblings = []
-    declared_loc = 0
+    declared_by_metric: dict[str, int] = {mid: 0 for mid in METRIC_IDS}
     for item in siblings:
-        if isinstance(item, dict) and isinstance(item.get("loc"), int):
-            declared_loc += item["loc"]
+        if not isinstance(item, dict):
+            continue
+        mid = item.get("metric_id")
+        loc = item.get("loc")
+        if mid in declared_by_metric and isinstance(loc, int) and loc >= 0:
+            declared_by_metric[mid] += loc
 
-    extracted_loc = 0
+    needed_by_metric: dict[str, int] = {mid: 0 for mid in METRIC_IDS}
     extracted_paths: list[str] = []
+    seen_old: set[str] = set()
+
+    def charge(old: str, new: str, data: bytes) -> None:
+        if old in seen_old:
+            return
+        seen_old.add(old)
+        loc = data.count(b"\n") if data else 0
+        for mid in _metrics_for_plugin_rel(rel_plugin, old):
+            needed_by_metric[mid] += loc
+        extracted_paths.append(f"{old} -> {new} ({loc} loc)")
+
+    for old, new in renamed_out:
+        data = _git_show_bytes(repo_root, git_base, old)
+        if data is None:
+            continue
+        charge(old, new, data)
+
     for path in removed:
+        if path in seen_old:
+            continue
         data = _git_show_bytes(repo_root, git_base, path)
         if data is None:
             continue
         digest = hashlib.sha256(data).hexdigest()
-        # Renames within the plugin do not count as extractions.
         if digest in head_plugin_hashes:
-            continue
+            continue  # still inside plugin under another name
         outside = outside_by_hash.get(digest) or []
         if not outside:
+            # Lightly edited move: same basename outside plugin.
+            outside = outside_by_basename.get(Path(path).name) or []
+        if not outside:
             continue
-        # wc -l semantics
-        loc = data.count(b"\n") if data else 0
-        extracted_loc += loc
-        extracted_paths.append(f"{path} -> {outside[0]} ({loc} loc)")
+        charge(path, outside[0], data)
 
-    if extracted_loc > declared_loc:
-        detail = "; ".join(extracted_paths[:8])
-        more = "" if len(extracted_paths) <= 8 else f" (+{len(extracted_paths) - 8} more)"
-        errors.append(
-            "undeclared extraction: "
-            f"{extracted_loc} LOC of plugin .md/.sh moved outside the plugin "
-            f"but declared_siblings only covers {declared_loc} LOC "
-            f"[{detail}{more}]; add extracted_packages.declared_siblings entries"
-        )
+    for mid, needed in needed_by_metric.items():
+        if needed <= 0:
+            continue
+        declared = declared_by_metric.get(mid, 0)
+        if needed > declared:
+            detail = "; ".join(extracted_paths[:8])
+            more = (
+                ""
+                if len(extracted_paths) <= 8
+                else f" (+{len(extracted_paths) - 8} more)"
+            )
+            errors.append(
+                f"undeclared extraction for {mid}: need {needed} LOC in "
+                f"declared_siblings but only {declared} declared "
+                f"[{detail}{more}]"
+            )
     return errors
 
 
@@ -497,7 +572,9 @@ def anti_weaken(base: dict[str, Any], head: dict[str, Any]) -> list[str]:
     head_rules = head.get("counting_rules") or {}
     if isinstance(base_rules, dict) and isinstance(head_rules, dict):
         for key, base_val in base_rules.items():
-            if key in head_rules and head_rules[key] != base_val:
+            if key not in head_rules:
+                errors.append(f"anti-weaken: counting_rules.{key} removed")
+            elif head_rules[key] != base_val:
                 errors.append(f"anti-weaken: counting_rules.{key} changed")
 
     base_gen = (base.get("generated_files") or {}).get("policy")
