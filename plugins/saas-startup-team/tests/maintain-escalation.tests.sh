@@ -8,6 +8,12 @@ test_maintain_escalation() {
   echo -e "\n${CYAN}Suite ME: escalation cleanup authority${NC}"
   local helper="$PLUGIN_ROOT/scripts/maintain-escalation.sh" shipped_helper harness script_dir_q
   local attempt_helper="$PLUGIN_ROOT/scripts/maintain-attempt.sh"
+  prepare_exact_base() {
+    local root=$1 sha=$2
+    # Test-only: force exact clean base. Production reset remains verify-only (#381).
+    git -C "$root" checkout -f --quiet --detach "$sha"
+    git -C "$root" clean -ffd -q -e '.startup' -e '.startup/**' || true
+  }
   local leases="$PLUGIN_ROOT/scripts/maintain-leases.sh"
   local repo remote common wt state base branch result_dir receipt_dir receipt
   local legacy_wt legacy_state legacy_result_dir legacy_receipt legacy_branch
@@ -43,6 +49,7 @@ test_maintain_escalation() {
   state="$common/saas-startup-team/maintain-runtime/escalation-run.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain \
     --run-id "$controller_run_id" --state-file "$state" >/dev/null
+  prepare_exact_base "$repo" "$base"
   bash "$attempt_helper" reset --repo-root "$repo" \
     --base-sha "$base" --lease-state "$state" --run-id "$origin_run" \
       --controller-run-id "$controller_run_id" >/dev/null
@@ -217,6 +224,7 @@ SH
   mv -f "$receipt.valid" "$receipt"
 
   branch2=issue/8-escalation-run
+  prepare_exact_base "$repo" "$base"
   bash "$attempt_helper" reset --repo-root "$repo" \
     --base-sha "$base" --lease-state "$state" --run-id "$origin_run" \
       --controller-run-id "$controller_run_id" >/dev/null
@@ -314,6 +322,7 @@ SH
   legacy_state="$common/saas-startup-team/maintain-runtime/legacy-escalation.json"
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop \
     --run-id legacy-escalation --state-file "$legacy_state" >/dev/null
+  prepare_exact_base "$repo" "$base"
   bash "$attempt_helper" reset --repo-root "$repo" \
     --base-sha "$base" --lease-state "$legacy_state" --run-id legacy-escalation \
       --controller-run-id legacy-escalation >/dev/null

@@ -10,8 +10,20 @@ test_workflow_context_contract() {
   local maintain_calls loop_calls auth_calls branch_count identity_section coordinator_section
   fixture=$(mktemp -d); root=$(mktemp -d); calls="$fixture/gh-calls"
   git init -q "$root"
+  git -C "$root" config user.email t@t.t
+  git -C "$root" config user.name t
+  printf 'base\n' > "$root/app.txt"
+  git -C "$root" add app.txt
+  git -C "$root" commit -q -m base
   cp "$PLUGIN_ROOT/scripts/workflow-probe.sh" "$fixture/workflow-probe.sh"
-  chmod +x "$fixture/workflow-probe.sh"
+  cp "$PLUGIN_ROOT/scripts/maintain-paths.sh" "$fixture/maintain-paths.sh"
+  # Model-free heal is optional in the probe; keep it inert for fixture isolation.
+  cat > "$fixture/maintain-self-heal.sh" <<'SH'
+#!/usr/bin/env bash
+echo "maintain-self-heal: ready (fixture)"
+exit 0
+SH
+  chmod +x "$fixture/workflow-probe.sh" "$fixture/maintain-self-heal.sh"
   cat > "$fixture/maintain-delivery.sh" <<'SH'
 #!/usr/bin/env bash
 case "${PENDING_FIXTURE:-empty}" in

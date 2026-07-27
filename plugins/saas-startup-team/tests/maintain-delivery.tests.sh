@@ -61,6 +61,13 @@ exec bash "${MAINTAIN_TEST_DELIVERY_IMPL:?}" "$action" \
 DELIVERY_WRAPPER
   chmod +x "$script"
   export MAINTAIN_TEST_DELIVERY_IMPL="$delivery_impl"
+
+  prepare_exact_base() {
+    local root=$1 sha=$2
+    # Test-only: force exact clean base. Production reset remains verify-only (#381).
+    git -C "$root" checkout -f --quiet --detach "$sha"
+    git -C "$root" clean -ffd -q -e '.startup' -e '.startup/**' || true
+  }
   probe="$PLUGIN_ROOT/scripts/workflow-probe.sh"
   protocol="$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md"
   git -C "$repo" branch -m main
@@ -454,10 +461,12 @@ DEPLOY_WORKFLOW
     --delivery-id "$fresh_delivery" --merge-budget 1 --lease-state "$fresh_origin_state" \
     >/dev/null 2>&1 || ec=$?
   assert_exit_code "MD0c: begin requires the classified issue scope snapshot" "$ec" 2
-  # Primary-only: controller tree is the primary checkout. Reset, then validate begin gates.
- bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$fresh_repo" --base-sha "$fresh_base" --lease-state "$fresh_origin_state" \
-   --run-id "$fresh_controller" --controller-run-id "$fresh_controller" >/dev/null
-  assert_equals "MD0f: leased reset pins the primary checkout to exact BASE_SHA" \
+  # Primary controller tree: hard-reset disabled — verify exact clean base only (#381).
+  git -C "$fresh_repo" checkout --quiet "$fresh_base"
+  git -C "$fresh_repo" clean -ffd -q -e '.startup' -e '.startup/**'
+  bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$fresh_repo" --base-sha "$fresh_base" --lease-state "$fresh_origin_state" \
+    --run-id "$fresh_controller" --controller-run-id "$fresh_controller" >/dev/null
+  assert_equals "MD0f: leased reset verifies the primary checkout is exact BASE_SHA" \
     "$(git -C "$fresh_wt" rev-parse HEAD):$(git -C "$fresh_wt" status --porcelain -- . ':(exclude).startup' ':(exclude).startup/**')" \
     "$fresh_base:"
   ec=0
@@ -505,37 +514,54 @@ DEPLOY_WORKFLOW
   assert_output_contains "MD0k1e: public maintain-loop selects the canonical controller" "$out" \
     'workflow-probe: maintain-loop controller-route=canonical'
 
-  # Pre-0.89.68 schema-v2 receipts named the retired maintain worktree. Migration
-  # rewrites them to PRIMARY so no .worktrees/maintain residue remains on disk.
+  # Pre-0.89.68 schema-v2 receipts named the retired maintain worktree. Reads must
+  # leave receipt bytes unchanged (#381); exclusive migrate rewrites on request.
   jq --arg wt "$fresh_wt/.worktrees/maintain" '.controller.worktree = $wt' \
     "$fresh_state_root/issue-1/current.json" > "$fresh_state_root/issue-1/current.json.tmp"
   mv -- "$fresh_state_root/issue-1/current.json.tmp" "$fresh_state_root/issue-1/current.json"
-  assert_equals "MD0k1f: show migrates retired maintain worktree path to primary" \
+  dig_before=$(sha256sum -- "$fresh_state_root/issue-1/current.json" | awk '{print $1}')
+  assert_equals "MD0k1f: show leaves retired worktree path on disk (read-only)" \
     "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 \
-      | jq -r .controller.worktree)" "$fresh_wt"
-  assert_equals "MD0k1g: on-disk receipt no longer names retired worktree" \
+      | jq -r .controller.worktree)" "$fresh_wt/.worktrees/maintain"
+  dig_after=$(sha256sum -- "$fresh_state_root/issue-1/current.json" | awk '{print $1}')
+  assert_equals "MD0k1g: show is byte-identical on receipt" "$dig_after" "$dig_before"
+  # In-memory normalize still routes pending without rewriting.
+  pending=$(bash "$delivery_impl" pending --repo-root "$fresh_repo")
+  assert_equals "MD0k1h: pending routes retired path without rewriting" \
+    "$(jq -cS '.[0].controller_route' <<<"$pending")" \
+    "$(jq -cnS --arg worktree "$fresh_wt" \
+      '{kind:"canonical",mode:"maintain",worktree:$worktree}')"
+  dig_after=$(sha256sum -- "$fresh_state_root/issue-1/current.json" | awk '{print $1}')
+  assert_equals "MD0k1h2: pending is byte-identical on receipt" "$dig_after" "$dig_before"
+  # Exclusive migration rewrites to physical PRIMARY.
+  bash "$delivery_impl" migrate-receipt-worktrees --repo-root "$fresh_wt" >/dev/null
+  assert_equals "MD0k1h3: exclusive migrate stores physical primary" \
     "$(jq -r .controller.worktree "$fresh_state_root/issue-1/current.json")" "$fresh_wt"
-  assert_equals "MD0k1h: on-disk receipt has no .worktrees/maintain residue" \
+  assert_equals "MD0k1h4: exclusive migrate clears .worktrees/maintain residue" \
     "$(jq -r .controller.worktree "$fresh_state_root/issue-1/current.json" \
       | grep -c '\.worktrees/maintain' || true)" 0
-  # Path alias that resolves to PRIMARY (e.g. /workspace) must migrate, not fail.
+  # Path alias that resolves to PRIMARY migrates only via exclusive action.
   ln -sfn -- "$fresh_wt" "$fresh_repo/primary-alias"
   jq --arg wt "$fresh_repo/primary-alias" '.controller.worktree = $wt' \
     "$fresh_state_root/issue-1/current.json" > "$fresh_state_root/issue-1/current.json.tmp"
   mv -- "$fresh_state_root/issue-1/current.json.tmp" "$fresh_state_root/issue-1/current.json"
-  assert_equals "MD0k1h2: show migrates primary path alias to physical primary" \
+  dig_before=$(sha256sum -- "$fresh_state_root/issue-1/current.json" | awk '{print $1}')
+  assert_equals "MD0k1h5: show leaves alias path on disk" \
     "$(bash "$delivery_impl" show --repo-root "$fresh_wt" --issue 1 \
-      | jq -r .controller.worktree)" "$fresh_wt"
-  assert_equals "MD0k1h3: on-disk receipt stores physical primary after alias migrate" \
+      | jq -r .controller.worktree)" "$fresh_repo/primary-alias"
+  dig_after=$(sha256sum -- "$fresh_state_root/issue-1/current.json" | awk '{print $1}')
+  assert_equals "MD0k1h6: show is byte-identical for alias receipt" "$dig_after" "$dig_before"
+  bash "$delivery_impl" migrate-receipt-worktrees --repo-root "$fresh_wt" >/dev/null
+  assert_equals "MD0k1h7: exclusive migrate rewrites alias to physical primary" \
     "$(jq -r .controller.worktree "$fresh_state_root/issue-1/current.json")" "$fresh_wt"
   rm -f -- "$fresh_repo/primary-alias"
   pending=$(bash "$delivery_impl" pending --repo-root "$fresh_repo")
-  assert_equals "MD0k1i: pending reaches canonical route after worktree migration" \
+  assert_equals "MD0k1i: pending reaches canonical route after exclusive migration" \
     "$(jq -cS '.[0].controller_route' <<<"$pending")" \
     "$(jq -cnS --arg worktree "$fresh_wt" \
       '{kind:"canonical",mode:"maintain",worktree:$worktree}')"
   ec=0; out=$(bash "$probe" maintain --root "$fresh_repo" --dry-run 2>&1) || ec=$?
-  assert_exit_code "MD0k1j: probe reaches work after worktree residue migration" "$ec" 0
+  assert_exit_code "MD0k1j: probe reaches work after exclusive worktree migration" "$ec" 0
 
   rm -f -- "$fresh_state_root/.lock"
   printf 'preserve\n' > "$fresh_state_root/.orphan.tmp"
@@ -601,12 +627,14 @@ DEPLOY_WORKFLOW
   assert_exit_code "MD0l4: public maintain-loop probe reaches historical v1 recovery" "$ec" 0
   assert_output_contains "MD0l5: public maintain-loop exposes the same legacy route" "$out" \
     'workflow-probe: maintain-loop controller-route=legacy-recovery'
-  # Primary-only: never rm the primary tree. Reset on primary and continue recovery.
+  # Primary-only: never rm the primary tree. Hard-reset disabled — verify exact base.
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$fresh_repo" \
     --mode maintain --run-id fresh-resume --state-file "$fresh_resume_state" >/dev/null
- bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$fresh_repo" --base-sha "$fresh_receipt_head" --lease-state "$fresh_resume_state" \
-   --run-id "$fresh_controller" --controller-run-id fresh-resume >/dev/null 2>&1
-  assert_equals "MD0m: a new run resets the primary checkout at the receipt PR head" \
+  git -C "$fresh_repo" checkout --quiet "$fresh_receipt_head"
+  git -C "$fresh_repo" clean -ffd -q -e '.startup' -e '.startup/**'
+  bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$fresh_repo" --base-sha "$fresh_receipt_head" --lease-state "$fresh_resume_state" \
+    --run-id "$fresh_controller" --controller-run-id fresh-resume >/dev/null 2>&1
+  assert_equals "MD0m: a new run verifies the primary checkout at the receipt PR head" \
     "$(git -C "$fresh_wt" rev-parse HEAD):$(git -C "$fresh_wt" status --porcelain -- . ':(exclude).startup' ':(exclude).startup/**')" \
     "$fresh_receipt_head:"
   ec=0
@@ -626,8 +654,10 @@ DEPLOY_WORKFLOW
   legacy_wt=$(jq -er '.[0].controller_route.worktree' <<<"$pending")
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$fresh_repo" \
     --mode "$legacy_mode" --run-id fresh-legacy --state-file "$fresh_legacy_state" >/dev/null
- bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$fresh_repo" --base-sha "$fresh_receipt_head" --lease-state "$fresh_legacy_state" \
-   --run-id "$fresh_controller" --controller-run-id fresh-legacy >/dev/null 2>&1
+  git -C "$fresh_repo" checkout --quiet "$fresh_receipt_head"
+  git -C "$fresh_repo" clean -ffd -q -e '.startup' -e '.startup/**'
+  bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$fresh_repo" --base-sha "$fresh_receipt_head" --lease-state "$fresh_legacy_state" \
+    --run-id "$fresh_controller" --controller-run-id fresh-legacy >/dev/null 2>&1
   legacy_recovery_delivery=run-66666666666666666666666666666666
   ec=0
   bash "$delivery_impl" begin --repo-root "$legacy_wt" --issue 2 --run-id fresh-legacy \
@@ -637,19 +667,22 @@ DEPLOY_WORKFLOW
   assert_exit_code "MD0n2: legacy recovery controller cannot begin new delivery work" "$ec" 3
   assert_file_not_exists "MD0n3: rejected legacy begin creates no second receipt" \
     "$fresh_state_root/issue-2/current.json"
+  dig_before=$(sha256sum -- "$fresh_state_root/issue-1/current.json" | awk '{print $1}')
   bash "$delivery_impl" plan-pr --repo-root "$legacy_wt" --issue 1 --role normal \
     --branch fresh-issue --base-sha "$fresh_base" --head-sha "$fresh_receipt_head" \
       --lease-state "$fresh_legacy_state" --controller-run-id fresh-legacy >/dev/null
-  assert_equals "MD0o: only the historical legacy controller can promote a v1 receipt" \
+  # Compatibility schema v1 receipts are frozen (#381): normal execution must not
+  # rewrite them into schema-v2 variants.
+  assert_equals "MD0o: frozen v1 receipt keeps schema_version=1" \
     "$(bash "$delivery_impl" show --repo-root "$legacy_wt" --issue 1 \
-      | jq -r '[.schema_version,.controller.mode,.controller.worktree] | @tsv')" \
-    $'2\tmaintain-loop\t'"$legacy_wt"
-  assert_equals "MD0p: schema-only legacy promotion preserves the original claim timestamp" \
+      | jq -r .schema_version)" "1"
+  assert_equals "MD0p: frozen v1 receipt keeps original claim timestamp" \
     "$(bash "$delivery_impl" show --repo-root "$legacy_wt" --issue 1 | jq -r .updated_at)" \
     "$legacy_claimed_at"
-  assert_equals "MD0p1: promoted legacy receipt retains its recovery-only route" \
+  assert_equals "MD0p1: frozen v1 receipt retains its recovery-only route" \
     "$(bash "$delivery_impl" pending --repo-root "$fresh_repo" \
       | jq -r '.[0].controller_route.kind')" legacy-recovery
+  # plan-pr may still write role fields; schema_version must not flip to a new variant.
   assert_equals "MD0q: resumed delivery keeps the origin run merge budget" \
     "$(jq -r .merge_budget "$fresh_ledger")" 1
   assert_file_not_exists "MD0r: resume creates no replacement run ledger" "$fresh_resume_ledger"
@@ -682,6 +715,7 @@ DEPLOY_WORKFLOW
   legacy_cache="$common/saas-startup-team/maintain-runtime/base-checks/$run"
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain-loop \
     --run-id "$run" --state-file "$legacy_state" >/dev/null
+  prepare_exact_base "$repo" "$legacy_base"
   bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$repo" \
     --base-sha "$legacy_base" --lease-state "$legacy_state" --run-id "$run" \
       --controller-run-id "$run" >/dev/null
@@ -740,6 +774,7 @@ DEPLOY_WORKFLOW
   lease_state=""
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain-loop \
     --run-id "$run" --state-file "$legacy_state" >/dev/null
+  prepare_exact_base "$repo" "$legacy_base"
   bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$repo" \
     --base-sha "$legacy_base" --lease-state "$legacy_state" --run-id "$run" \
       --controller-run-id "$run" >/dev/null
@@ -779,6 +814,7 @@ DEPLOY_WORKFLOW
   lease_state=""
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain-loop \
     --run-id "$run" --state-file "$legacy_state" >/dev/null
+  prepare_exact_base "$repo" "$legacy_base"
   bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$repo" \
     --base-sha "$legacy_base" --lease-state "$legacy_state" --run-id "$run" \
       --controller-run-id "$run" >/dev/null
@@ -838,6 +874,7 @@ DEPLOY_WORKFLOW
   lease_state=""
   bash "$test_plugin/maintain-leases.sh" acquire --repo-root "$repo" --mode maintain-loop \
     --run-id "$run" --state-file "$legacy_state" >/dev/null
+  prepare_exact_base "$repo" "$legacy_base"
   bash "$test_plugin/maintain-attempt.sh" reset --repo-root "$repo" \
     --base-sha "$legacy_base" --lease-state "$legacy_state" --run-id "$run" \
       --controller-run-id "$run" >/dev/null

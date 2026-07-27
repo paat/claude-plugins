@@ -349,7 +349,11 @@ fi
 
 reset_token=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
 [[ "$reset_token" =~ ^[0-9a-f]{32}$ ]] || die "cannot create reset identity"
-SAAS_MAINTAIN_RESET_HOLD_TOKEN="$reset_token" bash "$ATTEMPT_HELPER" _reset-held \
+# Exclusive recovery only (#381): escalation cleanup is the one path allowed to
+# hard-reset/clean the primary after a failed attempt.
+SAAS_MAINTAIN_RESET_HOLD_TOKEN="$reset_token" \
+SAAS_MAINTAIN_ALLOW_PRIMARY_RESET=1 \
+  bash "$ATTEMPT_HELPER" _reset-held \
   --repo-root "$PRIMARY" --base-sha "$base_sha" \
   --lease-state "$lease_state" --run-id "$run_id" \
   --controller-run-id "$controller_run_id" >/dev/null \

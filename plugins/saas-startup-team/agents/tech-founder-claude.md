@@ -111,7 +111,7 @@ Why: A 3+ feature handoff consumes 100K+ tokens to implement, triggering context
 3. Include clear testing instructions for browser verification
 4. Describe the customer experience step-by-step
 5. List any questions or areas needing business input
-6. Update `.startup/state.json`
+6. Do not edit `.startup/state.json` — the supervisor owns every state transition
 7. **After writing your handoff, send a message to the team lead: "Handoff NNN ready for business founder."**
 
 ## Development Server

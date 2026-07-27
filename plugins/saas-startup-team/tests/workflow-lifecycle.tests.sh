@@ -58,7 +58,7 @@ test_workflow_lifecycle_safety() {
   assert_file_contains "WL5f: pending-receipt dry-run advances no delivery state" \
     "$maintain_receipts" 'Do not acquire a lease, enter `/goal-deliver`, advance the receipt'
   assert_before "WL6: maintain protocol orders pass lease before worktree mutation" "$maintain_protocol" \
-    '## Whole-Pass Lease' '## Workspace — primary only'
+    '## Whole-Pass Lease' '## Workspace — primary controller'
   assert_before "WL6a: maintain router requests pass lease before worktree setup" "$maintain" \
     '1. `Whole-Pass Lease`' '2. `Workspace — primary only`'
   assert_before "WL6b: maintain-loop probes before fresh dispatch" "$maintain_loop" \

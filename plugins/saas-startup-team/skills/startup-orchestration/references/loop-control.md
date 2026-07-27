@@ -47,7 +47,7 @@ Each iteration involves:
 
 Each handoff implementation should fit within ~50K tokens of agent context. At 3+ features, implementation typically exceeds 100K tokens, triggering auto-compaction that loses critical details mid-build. This is why handoffs are limited to 2 features maximum — it's not just about scope discipline, it's a hard technical constraint of the agent's context window.
 
-**Agent freshness mechanism**: Always spawn a fresh agent for every relay. Never reuse agents — context bloat from prior handoffs degrades quality. Before spawning a new agent, kill any stale agents from the same role: `pkill -f 'agent-type saas-startup-team:{role}'`. Each dispatch should be a cohesive unit of work producing exactly one deliverable file. See `team-patterns.md` → "Agent Lifecycle Management" for details.
+**Agent freshness mechanism**: Always spawn a fresh agent for every relay. Never reuse agents — context bloat from prior handoffs degrades quality. Before spawning a new agent, verify the previous role phase exited; never use broad `pkill -f` as routine cleanup (rely on lease heartbeats and the single-flight `--replace-stale` path for a proven-stale owner). Each dispatch should be a cohesive unit of work producing exactly one deliverable file. See `team-patterns.md` → "Agent Lifecycle Management" for details.
 
 ## Recovery from Bad States
 

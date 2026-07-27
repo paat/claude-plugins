@@ -150,16 +150,16 @@ Under `--dry-run`, do not append a root or child event.
 
 ---
 
-## Workspace — primary only
+## Workspace — primary controller, linked worktrees coexist
 
-**Hard gate: one working directory — the primary repo checkout. No linked git worktrees.**
-
-`assert-primary-only` fails closed if any extra worktree exists or `core.worktree` is set.
-It never deletes worktrees. On failure: pause the portfolio, investigate the foreign
-path, and stop — do not auto-`git worktree remove` while other workflows may hold it.
-Never run `git worktree add`. Isolated stacks (abandoned-session replay, disposable
-verification, nightlies) must use a **plain `git clone`** outside this repository's
-linked-worktree list.
+**Hard gate: the maintain controller runs from the primary repo checkout.**
+Linked git worktrees may coexist (native harness isolation); automatic
+foreign-worktree removal is disabled. `assert-primary-only` fails closed only when
+the controller is not on the primary working directory or `core.worktree` is set.
+It never deletes worktrees. Primary hard-reset/clean is also disabled — require an
+already-exact clean base. Isolated disposable stacks (abandoned-session replay,
+verification, nightlies) may still use a plain `git clone` when a separate object
+store is safer than a linked worktree.
 
 ```bash
 REPO_ROOT=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-leases.sh" primary-root \
@@ -686,25 +686,23 @@ Process each resumable PR first, then each eligible new issue through the
 delivery in flight — which is the merge-serialization mechanism.
 
 `goal-deliver.md` is the sole delivery contract. Before each inline call, compute the
-positive remaining pass budget. Set `VERIFIED_CLAIM_MARKER` to the exact marker proven
-by fresh issue/PR facts: the newly created marker for new work, or the ordinary/prior
-canonical or legacy-promoted marker selected by the resume checks below. Export this
-narrow embedded-caller envelope:
+positive remaining pass budget. Do **not** invent claim locks or claim markers — open
+PR / branch is the in-flight lock (see maintain-v2-contract). Export this narrow
+embedded-caller envelope:
 
 ```bash
 export SAAS_EMBEDDED_CALLER=maintain
 export SAAS_EMBEDDED_WORKTREE="$WT"
-export SAAS_EMBEDDED_CLAIM="$VERIFIED_CLAIM_MARKER"
 export SAAS_EMBEDDED_LEASE_STATE="$MAINTAIN_LEASE_STATE"
 export SAAS_EMBEDDED_REMAINING_SECONDS="$remaining_seconds"
 ```
 
 The embedded call inherits `SAAS_INVOCATION_ID` and `SAAS_INVOCATION_COMMAND`; it
-independently validates the exact worktree, marker shape and live fact binding, current
-lease holder, and remaining budget, then mints a fresh child `SAAS_RUN_ID`.
+independently validates the exact worktree, current lease holder, and remaining budget,
+then mints a fresh child `SAAS_RUN_ID`.
 It does not acquire a second delivery-scope lease or write a root terminal. Do not copy
 its QA, tribunal, merge, deploy, or rollback gates here. Maintain retains queue,
-claim/cooldown, resumable-binding, pass-budget, and pass-classification ownership.
+resumable-binding, pass-budget, and pass-classification ownership.
 
 When the model-free probe reports one nonterminal compatibility receipt, recover that
 single embedded goal delivery before normal triage or new queue work. Re-fetch its issue
@@ -860,9 +858,9 @@ All defaults are overridable via command args; all generic (no project assumptio
 
 Every issue ends each pass in an **explicit, logged final state**, never undefined:
 
-`fixed:PR#` / `escalated:<reason>` / `skipped:<reason>` / `needs-human:<reason>` /
-`split:#child` (partially-fixable parent — fixable sub-part filed as `#child`, residual
-judgment parked)
+`fixed:PR#` / `escalated:<reason>` / `skipped:<reason>` / `needs-human:<reason>`
+(partially-fixable work ships the machine part on the **same** issue and parks residual
+judgment as `needs-human` — never emit `split:#child` or create child issues)
 
 The per-run digest at `.startup/maintain/runs/<run-id>.md` records, per issue:
 run-id, issue number, decision + rationale, the **issue facts the subagent acted on**

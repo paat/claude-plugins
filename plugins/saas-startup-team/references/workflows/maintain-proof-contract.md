@@ -46,10 +46,16 @@ Every assertion must be concrete and the array nonempty. A bare success exit or
 `{"status":"passed"}` is invalid.
 
 The helper materializes the exact receipt commit into disposable `0700` roots,
-then runs the tracked command under the active lease and a bounded timeout.
-If a command needs project runtime
-credentials, set the applicable controller session variable before starting the
-workflow. Its value is a space-separated list of environment variable names:
+then runs the tracked command under the active lease, a bounded timeout, `env -i`
+with only explicit `--pass-env` names, Landlock write isolation (work + scratch
+roots only), and `unshare --net`. Missing isolation tools, unresolved commit
+identity, or an unauthenticated proof command fail closed. Proof must not alter
+the primary checkout, untracked files, or control-plane paths, and must not reach
+the network.
+
+If a command needs project runtime credentials, set the applicable controller
+session variable before starting the workflow. Its value is a space-separated
+list of environment variable names:
 
 ```bash
 export SAAS_MAINTAIN_QA_PROOF_ENV='APP_TEST_KEY APP_API_URL'
@@ -62,16 +68,16 @@ least-privilege project runtime variables.
 
 Values may come from the process environment or the primary checkout's local
 gitignored `.env` (supports both `NAME=` and `export NAME=`). The helper loads
-that file before QA/live proof and fills allowlisted names that are unset or
-empty — without printing values. Disposable proof trees are git archives and do
-not contain `.env`.
+**only allowlisted names** from that file when they are unset or empty in the
+controller process — never bulk-exports `.env` into the ambient environment —
+and passes them through `--pass-env`. Disposable proof trees are git archives and
+do not contain `.env`.
 
 A variable missing only from a fresh child process is **not** a credential
-blocker when primary `.env` has a non-empty value. Source or let the helper load
-local `.env` and continue. The ban on reading **live production** secret files
-(for example `/opt/<app>/.env` over SSH) does not apply to the local primary
-`.env`. Escalate only when a required name is absent or empty in both the
-process environment and primary `.env`.
+blocker when primary `.env` has a non-empty value for an allowlisted name.
+Escalate only when a required name is absent or empty in both the process
+environment and primary `.env`. Never read live production secret files (for
+example `/opt/<app>/.env` over SSH).
 
 ## Tribunal
 

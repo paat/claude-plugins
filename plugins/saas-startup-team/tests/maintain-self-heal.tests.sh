@@ -6,7 +6,7 @@ declare -F assert_exit_code >/dev/null 2>&1 || {
 
 test_maintain_self_heal() {
   echo -e "\n${CYAN}Suite MSH: maintain-self-heal${NC}"
-  local repo script ec out foreign branch_sha primary_sha
+  local repo script ec out foreign primary_sha
   script="$PLUGIN_ROOT/scripts/maintain-self-heal.sh"
   assert_file_exists "MSH0: self-heal script exists" "$script"
 
@@ -25,77 +25,46 @@ test_maintain_self_heal() {
   assert_exit_code "MSH1: clean primary heals ready" "$ec" 0
   assert_output_contains "MSH1b: ready message" "$out" "ready"
 
-  # Disposable retired maintain worktree is removed.
+  # Linked worktrees coexist — never auto-removed (#381).
   mkdir -p "$repo/.worktrees"
   git -C "$repo" worktree add --detach "$repo/.worktrees/maintain" HEAD >/dev/null 2>&1
   ec=0
   out=$(bash "$script" all --repo-root "$repo" 2>&1) || ec=$?
-  assert_exit_code "MSH2: disposable maintain worktree removed" "$ec" 0
-  assert_file_not_exists "MSH2b: .worktrees/maintain gone" "$repo/.worktrees/maintain"
+  assert_exit_code "MSH2: linked maintain worktree coexists" "$ec" 0
+  assert_file_exists "MSH2b: .worktrees/maintain still present" "$repo/.worktrees/maintain"
+  assert_output_contains "MSH2c: reports coexistence" "$out" "coexist"
 
-  # Foreign worktree with no unique commits (same HEAD as main) is removed.
-  git -C "$repo" worktree add --detach "$repo/../msh-foreign-merged" HEAD >/dev/null 2>&1 \
-    || git -C "$repo" worktree add --detach "$(dirname "$repo")/msh-foreign-merged" HEAD >/dev/null 2>&1
+  git -C "$repo" worktree add --detach "$(dirname "$repo")/msh-foreign-merged" HEAD >/dev/null 2>&1
   foreign="$(cd -- "$(dirname "$repo")/msh-foreign-merged" 2>/dev/null && pwd -P || true)"
   if [ -n "$foreign" ] && [ -d "$foreign" ]; then
     ec=0
-    out=$(bash "$script" all --repo-root "$repo" 2>&1) || ec=$?
-    assert_exit_code "MSH3: merged foreign worktree removed" "$ec" 0
-    assert_file_not_exists "MSH3b: merged foreign path gone" "$foreign"
+    out=$(bash "$script" worktrees --repo-root "$repo" 2>&1) || ec=$?
+    assert_exit_code "MSH3: foreign worktree not removed" "$ec" 0
+    assert_file_exists "MSH3b: foreign path still present" "$foreign"
+    assert_output_contains "MSH3c: automatic removal disabled" "$out" "removal is disabled"
   else
     echo -e "  ${YELLOW}SKIP${NC} MSH3: could not create foreign worktree"
   fi
 
-  # Foreign worktree with unique commits: pin branch on primary, remove worktree.
+  # Unique-commit foreign worktree is also left alone.
   git -C "$repo" worktree add -b msh-ahead "$(dirname "$repo")/msh-foreign-ahead" HEAD >/dev/null 2>&1
   foreign="$(cd -- "$(dirname "$repo")/msh-foreign-ahead" && pwd -P)"
   printf 'ahead\n' > "$foreign/app.txt"
   git -C "$foreign" add app.txt
   git -C "$foreign" commit -q -m ahead
-  ahead_sha=$(git -C "$foreign" rev-parse HEAD)
-  ec=0
-  out=$(bash "$script" all --repo-root "$repo" 2>&1) || ec=$?
-  assert_exit_code "MSH4: unique-commit foreign worktree expedited" "$ec" 0
-  assert_file_not_exists "MSH4b: ahead worktree removed after pin" "$foreign"
-  assert_equals "MSH4c: primary branch pins unique commits" \
-    "$(git -C "$repo" rev-parse msh-ahead 2>/dev/null || true)" "$ahead_sha"
-  if grep -qE 'pinned|fast-forwarded|preserved-on-primary' <<<"$out"; then
-    echo -e "  ${GREEN}PASS${NC} MSH4d: heal mentions pin/fast-forward/preserve"
-    PASS_COUNT=$((PASS_COUNT + 1)); TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} MSH4d: heal log missing pin/fast-forward"
-    FAIL_COUNT=$((FAIL_COUNT + 1)); TOTAL_COUNT=$((TOTAL_COUNT + 1))
-    FAILURES+=("MSH4d: heal log missing pin/fast-forward")
-  fi
-
-  # Dry-run on a fresh unique worktree does not destroy commits without pinning plan.
-  git -C "$repo" worktree add -b msh-dry "$(dirname "$repo")/msh-foreign-dry" HEAD >/dev/null 2>&1
-  foreign="$(cd -- "$(dirname "$repo")/msh-foreign-dry" && pwd -P)"
-  printf 'dry\n' >> "$foreign/app.txt"
-  git -C "$foreign" add app.txt
-  git -C "$foreign" commit -q -m dry
-  ec=0
-  out=$(bash "$script" worktrees --repo-root "$repo" --dry-run 2>&1) || ec=$?
-  assert_exit_code "MSH5: dry-run unique WIP exits 0 (would preserve)" "$ec" 0
-  assert_output_contains "MSH5b: dry-run would pin" "$out" "dry-run: would pin"
-  assert_file_exists "MSH5c: dry-run left worktree in place" "$foreign"
-
-  # Dirty foreign worktree with no unique commits must not be force-removed.
-  git -C "$repo" worktree add --detach "$(dirname "$repo")/msh-foreign-dirty" HEAD >/dev/null 2>&1
-  foreign="$(cd -- "$(dirname "$repo")/msh-foreign-dirty" && pwd -P)"
-  printf 'dirty-uncommitted\n' > "$foreign/dirty.txt"
   ec=0
   out=$(bash "$script" worktrees --repo-root "$repo" 2>&1) || ec=$?
-  assert_exit_code "MSH6: dirty merged worktree remains residual" "$ec" 1
-  assert_file_exists "MSH6b: dirty worktree not force-deleted" "$foreign"
-  assert_output_contains "MSH6c: refuse dirty remove" "$out" "refuse remove dirty"
-  git -C "$repo" worktree remove --force -- "$foreign" >/dev/null 2>&1 || true
+  assert_exit_code "MSH4: unique-commit worktree coexists" "$ec" 0
+  assert_file_exists "MSH4b: ahead worktree still present" "$foreign"
+  assert_equals "MSH4c: primary HEAD unchanged" \
+    "$(git -C "$repo" rev-parse HEAD)" "$primary_sha"
 
   # Cleanup leftover worktrees so make_workdir tmpdir can die cleanly.
-  git -C "$repo" worktree remove --force -- "$foreign" >/dev/null 2>&1 || true
+  git -C "$repo" worktree remove --force -- "$repo/.worktrees/maintain" >/dev/null 2>&1 || true
+  git -C "$repo" worktree remove --force -- "$(dirname "$repo")/msh-foreign-ahead" >/dev/null 2>&1 || true
+  git -C "$repo" worktree remove --force -- "$(dirname "$repo")/msh-foreign-merged" >/dev/null 2>&1 || true
   git -C "$repo" worktree prune >/dev/null 2>&1 || true
-  rm -rf -- "$(dirname "$repo")/msh-foreign-ahead" "$(dirname "$repo")/msh-foreign-merged" \
-    "$(dirname "$repo")/msh-foreign-dry" "$(dirname "$repo")/msh-foreign-dirty" 2>/dev/null || true
+  rm -rf -- "$(dirname "$repo")/msh-foreign-ahead" "$(dirname "$repo")/msh-foreign-merged" 2>/dev/null || true
   rm -rf -- "$repo"
 }
 

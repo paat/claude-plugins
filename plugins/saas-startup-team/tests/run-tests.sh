@@ -557,7 +557,18 @@ test_plugin_config() {
 
   # E5-E6: settings.json
   assert_json_valid "E5: settings.json is valid JSON" "$PLUGIN_ROOT/settings.json"
-  assert_json_field "E6: Agent Teams enabled" "$PLUGIN_ROOT/settings.json" '.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS' "1"
+  # Experimental Agent Teams disabled (#381): startup forbids TeamCreate; do not
+  # enable a conflicting experimental team surface by default.
+  assert_json_valid "E6: settings.json remains valid after team-flag removal" "$PLUGIN_ROOT/settings.json"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  if jq -e '.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1"' "$PLUGIN_ROOT/settings.json" >/dev/null 2>&1; then
+    echo -e "  ${RED}FAIL${NC} E6b: experimental agent teams must stay disabled"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("E6b: experimental agent teams must stay disabled")
+  else
+    echo -e "  ${GREEN}PASS${NC} E6b: experimental agent teams disabled"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  fi
 
   # E6a-E6b: Claude print mode must load the browser MCP before the first turn.
   assert_json_valid "E6a: .mcp.json is valid JSON" "$PLUGIN_ROOT/.mcp.json"
@@ -2681,14 +2692,14 @@ test_delegation_enforcement_hook() {
   assert_exit_code "N9: exits 0 when no .startup dir" "$ec" 0
   rm -rf "$workdir"
 
-  # N10: Exits 2 when active_role is explicitly team-lead and editing source code
+  # N10: Exits 2 when active loop + non-implementer role edits source code
   workdir=$(mktemp -d)
   git init -q "$workdir"
   mkdir -p "$workdir/.startup"
-  echo '{"active_role":"team-lead"}' > "$workdir/.startup/state.json"
+  echo '{"active_role":"business-founder","iteration":2,"status":"running"}' > "$workdir/.startup/state.json"
   ec=0; output=""
   output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "N10: exits 2 when active_role=team-lead edits source" "$ec" 2
+  assert_exit_code "N10: exits 2 when active orchestrator edits source" "$ec" 2
   assert_output_contains "N10b: systemMessage present" "$output" "systemMessage"
   rm -rf "$workdir"
 
@@ -3307,6 +3318,11 @@ test_enforce_handoff_naming_hook() {
   ec=0
   output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/042-tech-to-business.md"}}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "R5: canonical tech-to-business exits 0" "$ec" 0
+
+  # R5b: architect plan NNN-tech-plan.md passes (#381)
+  ec=0
+  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/003-tech-plan.md"}}' | bash "$script" 2>&1) || ec=$?
+  assert_exit_code "R5b: NNN-tech-plan exits 0" "$ec" 0
 
   # R6: canonical business-to-growth passes
   ec=0
@@ -6117,6 +6133,9 @@ test_autonomous_workflow_alignment() {
   assert_file_contains "AE2: startup uses market scout" "$PLUGIN_ROOT/commands/startup.md" "market-scout.sh"
   assert_file_contains "AE3: startup uses single-flight" "$PLUGIN_ROOT/commands/startup.md" "single-flight.sh"
   assert_file_not_contains "AE4: startup no broad stale pkill command" "$PLUGIN_ROOT/commands/startup.md" "pkill -f 'agent-type saas-startup-team'"
+  assert_file_not_contains "AE4b: loop-control no broad pkill" \
+    "$PLUGIN_ROOT/skills/startup-orchestration/references/loop-control.md" \
+    "pkill -f 'agent-type saas-startup-team"
   assert_file_contains "AE5: improve calls health preflight" "$PLUGIN_ROOT/references/workflows/improve.md" "health-preflight.sh"
   assert_file_contains "AE6: goal-deliver calls market scout" "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "market-scout.sh"
   assert_file_contains "AE7: goal-deliver requires acceptance packs" "$PLUGIN_ROOT/references/workflows/goal-deliver.md" "acceptance-packs.sh"

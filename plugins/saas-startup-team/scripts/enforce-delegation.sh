@@ -1,13 +1,10 @@
 #!/bin/bash
 # enforce-delegation.sh — PostToolUse hook for Edit|Write events
-# Prevents the team lead (main orchestrator) from directly editing implementation
-# code during the /startup orchestration loop. The team lead should delegate via
-# handoffs, not code directly.
-#
-# The hook only enforces when there is an explicit team-lead orchestrator:
-# state.json active_role == "team-lead" AND no --agent-id in the process tree.
-# Outside the /startup loop (e.g. /improve, /lawyer, /ux-test, direct agent
-# invocation) there is no team-lead to enforce against, so the hook is inert.
+# Prevents the main orchestrator session from directly editing implementation
+# code during an active .startup loop. Founder workers are launched with
+# --agent-id and always pass. The team-lead active_role value is never written
+# (see startup-orchestration), so enforcement keys off the main session +
+# active loop rather than an unreachable role name (#381).
 #
 # Input: JSON on stdin with tool_input.file_path
 # Exit 0: allowed
@@ -38,22 +35,32 @@ for _ in 1 2 3 4 5; do
   ppid_check=$(grep -m1 '^PPid:' /proc/"$ppid_check"/status 2>/dev/null | awk '{print $2}')
 done
 
-# Top-level Claude session: only block when state.json explicitly marks us as
-# team-lead. Missing state.json, unset active_role, or any non-team-lead value
-# (business-founder, tech-founder, tech-founder-maintain, lawyer, ux-tester,
-# growth-hacker, etc.) means no orchestrator is active and we bypass. NOTE: the
-# implementation role's active_role stays "tech-founder"/"tech-founder-maintain"
-# regardless of engine — tech-founder-claude / tech-founder-codex are agent files
-# the orchestrator dispatches, not active_role values.
-active_role=$(jq -r '.active_role // empty' "$GIT_ROOT/.startup/state.json" 2>/dev/null || true)
-if [ "$active_role" != "team-lead" ]; then
+STATE_FILE="$GIT_ROOT/.startup/state.json"
+if [ ! -f "$STATE_FILE" ]; then
   exit 0
 fi
+
+active_role=$(jq -r '.active_role // empty' "$STATE_FILE" 2>/dev/null || true)
+status=$(jq -r '.status // empty' "$STATE_FILE" 2>/dev/null || true)
+iteration=$(jq -r '.iteration // 0' "$STATE_FILE" 2>/dev/null || echo 0)
+case "$iteration" in ''|*[!0-9]*) iteration=0 ;; esac
+
+# Outside an active loop, stay inert.
+if [ "$status" = "paused" ] || [ "$iteration" -lt 1 ]; then
+  exit 0
+fi
+
+# Implementer roles edit product code; main orchestrator must not.
+case "$active_role" in
+  tech-founder|tech-founder-maintain|tech-founder-claude|tech-founder-codex)
+    exit 0
+    ;;
+esac
 
 # Normalize to repo-relative path for anchored checks
 rel_path="${file_path#"$GIT_ROOT"/}"
 
-# Team lead may write to .startup/, docs/, and CLAUDE.md
+# Orchestrator may write to .startup/, docs/, and CLAUDE.md / AGENTS.md
 if [[ "$rel_path" =~ ^\.startup/ ]]; then
   exit 0
 fi
@@ -62,12 +69,12 @@ if [[ "$rel_path" =~ ^docs/ ]]; then
   exit 0
 fi
 
-if [[ "$rel_path" =~ CLAUDE\.md$ ]]; then
+if [[ "$rel_path" =~ (CLAUDE|AGENTS)\.md$ ]]; then
   exit 0
 fi
 
-# Block: orchestrator is trying to edit implementation code
+# Block: main orchestrator is trying to edit implementation code
 cat >&2 <<'EOF'
-{"systemMessage":"You are the team lead/orchestrator. Do NOT edit implementation code directly — delegate to the tech founder via a handoff document instead. Write your requirements to .startup/handoffs/NNN-business-to-tech.md and let the tech founder implement. Only .startup/, docs/, and CLAUDE.md files may be edited by the orchestrator."}
+{"systemMessage":"You are the team lead/orchestrator. Do NOT edit implementation code directly — delegate to the tech founder via a handoff document instead. Write your requirements to .startup/handoffs/NNN-business-to-tech.md and let the tech founder implement. Only .startup/, docs/, and CLAUDE.md/AGENTS.md files may be edited by the orchestrator."}
 EOF
 exit 2

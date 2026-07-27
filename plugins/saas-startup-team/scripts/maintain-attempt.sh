@@ -76,17 +76,33 @@ assert_exact_clean_base() {
 }
 
 reset_once() {
-  # Primary checkout only — never create/remove linked worktrees.
-  # - No `clean -x`: never delete ignored local files (.env, secrets).
-  # - Preserve .startup/ control-plane (leases, prompts, receipts).
-  git -C "$worktree" checkout --detach --quiet "$base_sha" || return 1
-  git -C "$worktree" reset --hard "$base_sha" >/dev/null || return 1
-  # Remove untracked non-ignored product files only (not ignored secrets).
-  git -C "$worktree" clean -ffd -q -e '.startup' -e '.startup/**' || return 1
-  [ "$(git -C "$worktree" rev-parse HEAD)" = "$base_sha" ] || return 1
-  git -C "$worktree" diff --quiet -- . || return 1
-  git -C "$worktree" diff --cached --quiet -- . || return 1
-  product_tree_dirty "$worktree" && return 1
+  # Containment (#381): routine primary hard-reset/clean is disabled. Normal
+  # callers must already be on an exact clean base. The only opt-in path is the
+  # exclusive escalation-cleanup recovery flag (SAAS_MAINTAIN_ALLOW_PRIMARY_RESET=1),
+  # which still never uses clean -x (ignored secrets stay) and never touches
+  # linked worktrees.
+  if [ "${SAAS_MAINTAIN_ALLOW_PRIMARY_RESET:-}" = 1 ]; then
+    git -C "$worktree" checkout --detach --quiet "$base_sha" || return 1
+    git -C "$worktree" reset --hard "$base_sha" >/dev/null || return 1
+    git -C "$worktree" clean -ffd -q -e '.startup' -e '.startup/**' || return 1
+    [ "$(git -C "$worktree" rev-parse HEAD)" = "$base_sha" ] || return 1
+    git -C "$worktree" diff --quiet -- . || return 1
+    git -C "$worktree" diff --cached --quiet -- . || return 1
+    product_tree_dirty "$worktree" && return 1
+    return 0
+  fi
+  [ "$(git -C "$worktree" rev-parse HEAD)" = "$base_sha" ] || {
+    echo "maintain-attempt: primary HEAD is not the exact base; hard-reset is disabled" >&2
+    return 1
+  }
+  git -C "$worktree" diff --quiet -- . && git -C "$worktree" diff --cached --quiet -- . || {
+    echo "maintain-attempt: primary is dirty; hard-reset/clean is disabled" >&2
+    return 1
+  }
+  if product_tree_dirty "$worktree"; then
+    echo "maintain-attempt: primary has untracked product files; clean is disabled" >&2
+    return 1
+  fi
   return 0
 }
 
@@ -247,9 +263,12 @@ case "$action" in
     reset_hold_token=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
     [[ "$reset_hold_token" =~ ^[0-9a-f]{32}$ ]] || {
       echo "maintain-attempt: cannot create reset hold identity" >&2; exit 1; }
+    # Public reset never opts into primary hard-reset (#381).
     exec bash "$LEASES" hold --state-file "$lease_state" --repo-root "$repo_root" \
       --run-id "$controller_run_id" --interval-seconds 1 \
-      --max-seconds 300 -- env SAAS_MAINTAIN_RESET_HOLD_TOKEN="$reset_hold_token" \
+      --max-seconds 300 -- env \
+      SAAS_MAINTAIN_RESET_HOLD_TOKEN="$reset_hold_token" \
+      SAAS_MAINTAIN_ALLOW_PRIMARY_RESET=0 \
       bash "$SCRIPT_DIR/maintain-attempt.sh" _reset-held \
         --repo-root "$repo_root" --base-sha "$base_sha" \
         --lease-state "$lease_state" --run-id "$run_id" \

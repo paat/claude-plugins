@@ -74,8 +74,9 @@ bookkeeping (`receipt_conflict`, stale claims after issue closed on main).
 
 **Self-heal before block** (`maintain-self-heal.sh` + `maintain-paths.sh` SSOT):
 the absolute primary path is always the physical main worktree (`MAINTAIN_PRIMARY`).
-Path aliases (`/workspace`), disposable/merged foreign worktrees, and receipt
-`controller.worktree` rewrites are model-free **in place** — never quarantine
+Linked worktrees coexist — automatic foreign-worktree removal is disabled. Receipt
+`controller.worktree` rewrites require the exclusive `migrate-receipt-worktrees`
+action (reads never rewrite receipt bytes). Never quarantine
 delivery dirs for alias drift. Unique commits on foreign worktrees are pinned to a
 primary-reachable branch then the linked tree is removed. The probe and
 `/maintain-loop` coordinator run heal automatically. Agents must not escalate those

@@ -19,6 +19,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: maintain-delivery.sh pending --repo-root DIR [--issue N]
        maintain-delivery.sh show --repo-root DIR --issue N
+       maintain-delivery.sh migrate-receipt-worktrees --repo-root DIR
        maintain-delivery.sh archive-claimed --repo-root DIR --issue N
        maintain-delivery.sh begin --repo-root DIR --issue N --run-id ID
          --delivery-id ID --merge-budget N --scope-json FILE --lease-state FILE
@@ -185,13 +186,13 @@ validate_event_delivery_identity() {
 }
 
 case "$ACTION" in
-  pending|show|archive-claimed|begin|plan-pr|bind-pr|match-pr|rebind-head|rebind-body|collect-tribunal|record-proof|authorize-merge|merge-pr|record-merge|record-release|close-intent|close-issue|observe-closed|render-result|finalize) : ;;
+  pending|show|migrate-receipt-worktrees|archive-claimed|begin|plan-pr|bind-pr|match-pr|rebind-head|rebind-body|collect-tribunal|record-proof|authorize-merge|merge-pr|record-merge|record-release|close-intent|close-issue|observe-closed|render-result|finalize) : ;;
   *) usage ;;
 esac
 READ_ONLY_ACTION=0
 case "$ACTION" in pending|show|match-pr|render-result) READ_ONLY_ACTION=1 ;; esac
 ACTIVE_CONTROLLER_ACTION=1
-case "$ACTION" in pending|show|match-pr|render-result|archive-claimed) ACTIVE_CONTROLLER_ACTION=0 ;; esac
+case "$ACTION" in pending|show|match-pr|render-result|archive-claimed|migrate-receipt-worktrees) ACTIVE_CONTROLLER_ACTION=0 ;; esac
 [ "$ACTION" = begin ] || [ -z "$MERGE_BUDGET" ] || usage
 if [ "$ACTION" = begin ]; then
   [ -n "$SCOPE_JSON" ] || usage
@@ -199,7 +200,14 @@ else
   [ -z "$SCOPE_JSON" ] || usage
 fi
 [ -n "$REPO_ROOT" ] || usage
-case "$ISSUE" in "") [ "$ACTION" = pending ] || usage ;; *) valid_uint "$ISSUE" || die "--issue must be a positive integer" 2 ;; esac
+case "$ISSUE" in
+  "")
+    case "$ACTION" in pending|migrate-receipt-worktrees) : ;; *) usage ;; esac
+    ;;
+  *)
+    valid_uint "$ISSUE" || die "--issue must be a positive integer" 2
+    ;;
+esac
 if [ "$ACTION" = begin ] && [ -n "$RUN_ID" ] && [ "$DELIVERY_ID" = "$RUN_ID" ]; then
   die "--delivery-id must differ from --run-id" 2
 fi
@@ -413,8 +421,8 @@ normalize_controller_worktree() {
   printf '%s\n' "$PRIMARY"
 }
 
-# Rewrite receipt controller.worktree to SSOT PRIMARY whenever it differs by
-# alias or retired maintain path. Call on every inventory/load.
+# Rewrite receipt controller.worktree to SSOT PRIMARY when it differs by alias or
+# retired maintain path. Exclusive only — never call from read-only inventory/load.
 migrate_legacy_receipt_worktree() {
   local file=$1 schema wt tmp now
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
@@ -508,8 +516,7 @@ load_current() {
   set_issue_paths
   safe_existing_dir "$issue_dir" || die "delivery receipt directory is missing or unsafe"
   safe_receipt_file "$current" || die "delivery receipt is missing or unsafe"
-  migrate_legacy_receipt_worktree "$current" \
-    || die "delivery receipt legacy worktree migration failed"
+  # Reads never rewrite receipts (#381). Normalize controller paths in memory only.
   receipt_valid "$current" || die "delivery receipt is malformed"
   [ "$(jq -r .issue_number "$current")" = "$ISSUE" ] || die "delivery receipt issue mismatch"
 }
@@ -538,19 +545,15 @@ require_active_controller() {
     [ "$bound_mode" = "$ACTIVE_CONTROLLER_MODE" ] \
       && [ "$bound_worktree" = "$active_wt" ] \
       || die "active controller does not match the delivery receipt binding" 3
+    # Compatibility schema v1 receipts are frozen (#381): never rewrite them into
+    # new schema-v2 variants during normal execution.
+    if [ "$schema" = 1 ] && ! terminal_state "$state"; then
+      :
+    fi
   fi
   if ! bash "$SCRIPT_DIR/maintain-leases.sh" heartbeat \
     "${CONTROLLER_LEASE_ARGS[@]}" >/dev/null; then
     die "delivery controller no longer owns the maintenance leases" 3
-  fi
-  if [ -n "$current" ] && [ -f "$current" ]; then
-    if [ "$schema" = 1 ] && ! terminal_state "$state"; then
-      atomic_update '
-        .schema_version = 2
-        | .controller = {mode:$mode,worktree:$worktree}
-        | .event_binding = null
-      ' --arg mode "$ACTIVE_CONTROLLER_MODE" --arg worktree "$ACTIVE_CONTROLLER_WORKTREE"
-    fi
   fi
 }
 
@@ -895,10 +898,28 @@ claim_delivery_pr_absent() {
   rm -f -- "$snapshot"; forget_temp "$snapshot"
 }
 
+if [ "$ACTION" = migrate-receipt-worktrees ]; then
+  # Exclusive migration only (#381): this action holds the delivery flock (non
+  # READ_ONLY path above). Read paths never rewrite receipt bytes.
+  migrated=0
+  shopt -s nullglob
+  for file in "$STATE_ROOT"/issue-*/current.json "$STATE_ROOT"/issue-*/history-*.json; do
+    [ -f "$file" ] && [ ! -L "$file" ] || continue
+    before=$(/usr/bin/sha256sum -- "$file" | awk '{print $1}') || die "cannot digest receipt before migrate"
+    migrate_legacy_receipt_worktree "$file" || die "receipt migration failed: $file"
+    after=$(/usr/bin/sha256sum -- "$file" | awk '{print $1}') || die "cannot digest receipt after migrate"
+    if [ "$before" != "$after" ]; then
+      migrated=$((migrated + 1))
+    fi
+  done
+  shopt -u nullglob
+  jq -n --argjson migrated "$migrated" '{status:"ok",migrated:$migrated}'
+  exit 0
+fi
+
 if [ "$ACTION" = pending ]; then
-  # Inventory never fail-closes the portfolio on one residual receipt. Self-heal
-  # path aliases onto SSOT PRIMARY in place; skip unreadable residue left on disk.
-  # Active non-terminal work still appears when valid after heal.
+  # Read-only inventory: never rewrite receipts. Skip unreadable residue.
+  # Active non-terminal work still appears when valid under in-memory normalization.
   rows=()
   binding=""; bound_mode=""; bound_worktree=""; controller_route="" state=""
   shopt -s nullglob
@@ -909,20 +930,18 @@ if [ "$ACTION" = pending ]; then
     [ -z "$ISSUE" ] || [ "$n" = "$ISSUE" ] || continue
     for history in "$dir"/history-*.json; do
       [ -f "$history" ] && [ ! -L "$history" ] || continue
-      migrate_legacy_receipt_worktree "$history" || true
       if ! receipt_valid "$history"; then
-        printf 'maintain-delivery: self-heal left history unreadable (skipped): %s\n' \
+        printf 'maintain-delivery: history unreadable (skipped): %s\n' \
           "$history" >&2
       fi
     done
     [ -e "$dir/current.json" ] || [ -L "$dir/current.json" ] || continue
     if ! { [ -f "$dir/current.json" ] && [ ! -L "$dir/current.json" ]; }; then
-      printf 'maintain-delivery: self-heal left receipt path unsafe (skipped): issue-%s\n' "$n" >&2
+      printf 'maintain-delivery: receipt path unsafe (skipped): issue-%s\n' "$n" >&2
       continue
     fi
-    migrate_legacy_receipt_worktree "$dir/current.json" || true
     if ! receipt_valid "$dir/current.json"; then
-      printf 'maintain-delivery: self-heal left receipt unreadable (skipped): issue-%s\n' "$n" >&2
+      printf 'maintain-delivery: receipt unreadable (skipped): issue-%s\n' "$n" >&2
       continue
     fi
     state=$(jq -r .state "$dir/current.json")
@@ -984,7 +1003,6 @@ if [ "$ACTION" = begin ]; then
   shopt -s nullglob
   for other in "$STATE_ROOT"/issue-*/current.json; do
     [ -f "$other" ] && [ ! -L "$other" ] \
-      && migrate_legacy_receipt_worktree "$other" \
       && receipt_valid "$other" \
       || die "existing delivery receipt is malformed or unsafe"
     other_issue=$(jq -r .issue_number "$other"); other_state=$(jq -r .state "$other")
@@ -1000,7 +1018,6 @@ if [ "$ACTION" = begin ]; then
   for receipt in "$issue_dir"/history-*.json "$current"; do
     [ -e "$receipt" ] || [ -L "$receipt" ] || continue
     [ -f "$receipt" ] && [ ! -L "$receipt" ] \
-      && migrate_legacy_receipt_worktree "$receipt" \
       && receipt_valid "$receipt" \
       || die "existing delivery receipt is malformed or unsafe"
     [ "$(jq -r .issue_number "$receipt")" = "$ISSUE" ] || die "existing receipt issue mismatch"
@@ -1264,19 +1281,126 @@ tribunal_hold() (
 )
 
 proof_hold() (
+  # Isolated proof runner (#381): honor --work-root/--scratch-root/--pass-env,
+  # run under env -i from the archived tree, Landlock write isolation, and
+  # unshare --net. Missing isolation tools fail closed.
   unset BASH_ENV ENV CDPATH GLOBIGNORE PYTHONHOME PYTHONPATH \
     LD_PRELOAD LD_AUDIT LD_LIBRARY_PATH
+  local work_root="" scratch_root="" name value
+  local -a pass_names=() clean_env=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --work-root|--scratch-root|--pass-env) [ "$#" -ge 2 ] || exit 2; shift 2 ;;
-      --) shift; break ;;
-      *) break ;;
+      --work-root)
+        [ "$#" -ge 2 ] || exit 2
+        work_root=$2
+        shift 2
+        ;;
+      --scratch-root)
+        [ "$#" -ge 2 ] || exit 2
+        scratch_root=$2
+        shift 2
+        ;;
+      --pass-env)
+        [ "$#" -ge 2 ] || exit 2
+        pass_names+=("$2")
+        shift 2
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *)
+        break
+        ;;
     esac
+  done
+  [ -n "$work_root" ] || {
+    echo "maintain-delivery: proof_hold requires --work-root" >&2
+    exit 1
+  }
+  [ -n "$scratch_root" ] || {
+    echo "maintain-delivery: proof_hold requires --scratch-root" >&2
+    exit 1
+  }
+  [ "$#" -ge 1 ] || {
+    echo "maintain-delivery: proof_hold requires a command" >&2
+    exit 1
+  }
+  [ -d "$work_root" ] && [ ! -L "$work_root" ] \
+    && [ -d "$scratch_root" ] && [ ! -L "$scratch_root" ] \
+    || {
+      echo "maintain-delivery: proof roots are missing or unsafe" >&2
+      exit 1
+    }
+  work_root=$(cd -- "$work_root" && pwd -P) || exit 1
+  scratch_root=$(cd -- "$scratch_root" && pwd -P) || exit 1
+  # Disposable proof roots only: exact child of STATE_ROOT with the fixed prefixes
+  # created by record-proof. Never grant write to STATE_ROOT, COMMON, or PRIMARY.
+  case "$work_root" in
+    "$STATE_ROOT"/.proof-work.*) : ;;
+    *)
+      echo "maintain-delivery: proof work-root must be a disposable .proof-work.* directory" >&2
+      exit 1
+      ;;
+  esac
+  case "$scratch_root" in
+    "$STATE_ROOT"/.proof-scratch.*) : ;;
+    *)
+      echo "maintain-delivery: proof scratch-root must be a disposable .proof-scratch.* directory" >&2
+      exit 1
+      ;;
+  esac
+  [ "$work_root" != "$scratch_root" ] || {
+    echo "maintain-delivery: proof work-root and scratch-root must differ" >&2
+    exit 1
+  }
+  [ -x "$SCRIPT_DIR/proof-isolate.py" ] || [ -f "$SCRIPT_DIR/proof-isolate.py" ] \
+    || {
+      echo "maintain-delivery: proof-isolate.py is missing" >&2
+      exit 1
+    }
+  command -v /usr/bin/python3 >/dev/null 2>&1 \
+    || {
+      echo "maintain-delivery: python3 is required for proof filesystem isolation" >&2
+      exit 1
+    }
+  command -v /usr/bin/unshare >/dev/null 2>&1 \
+    || {
+      echo "maintain-delivery: unshare is required for proof network isolation" >&2
+      exit 1
+    }
+  clean_env=(
+    "PATH=/usr/bin:/bin"
+    "HOME=$scratch_root"
+    "TMPDIR=$scratch_root"
+    "TEMP=$scratch_root"
+    "TMP=$scratch_root"
+    "LC_ALL=C"
+    "LANG=C"
+    "NO_COLOR=1"
+  )
+  for name in "${pass_names[@]}"; do
+    [[ "$name" =~ ^[A-Z][A-Z0-9_]{0,63}$ ]] || {
+      echo "maintain-delivery: proof pass-env name is invalid" >&2
+      exit 1
+    }
+    if [ "${!name+x}" != x ]; then
+      echo "maintain-delivery: proof pass-env $name is unset" >&2
+      exit 1
+    fi
+    value=${!name}
+    clean_env+=("$name=$value")
   done
   exec /usr/bin/env -u BASHOPTS -u SHELLOPTS \
     /usr/bin/bash -p "$SCRIPT_DIR/maintain-leases.sh" hold "${CONTROLLER_LEASE_ARGS[@]}" \
       --interval-seconds 60 --max-seconds 1900 -- \
-      /usr/bin/timeout -k 10s 1800s "$@"
+      /usr/bin/timeout -k 10s 1800s \
+      /usr/bin/unshare --user --map-current-user --net -- \
+      /usr/bin/python3 "$SCRIPT_DIR/proof-isolate.py" \
+        --allow-write "$work_root" --allow-write "$scratch_root" -- \
+        /usr/bin/env -i "${clean_env[@]}" \
+        /usr/bin/bash -p -c 'cd -- "$1" && shift && exec "$@"' \
+        bash "$work_root" "$@"
 )
 
 trusted_external_path() {
@@ -2261,12 +2385,17 @@ if [ "$ACTION" = record-proof ]; then
     [ -f "$archive_command" ] && [ ! -L "$archive_command" ] \
       || { rm -f -- "$tmp_out"; die "proof command is absent from the disposable commit"; }
     chmod 700 "$archive_command" || { rm -f -- "$tmp_out"; die "cannot make proof command executable"; }
-    # Disposable proof trees omit gitignored .env; load primary local credentials
-    # into this process so the proof child inherits them. Never read live /opt secrets.
-    source_primary_dotenv_for_proof
+    # Only allowlisted proof env names enter the child (via --pass-env). Never bulk-export
+    # primary .env into the process ambient environment.
     build_proof_pass_args "$KIND"
     tmp_err="$proof_scratch/stderr"; sandbox_out="$proof_scratch/stdout"
     require_active_controller
+    # Snapshot primary product + control-plane identity so a sandbox escape cannot
+    # silently leave the live checkout dirty.
+    primary_pre=$(git -C "$PRIMARY" status --porcelain=v1 --untracked-files=all) \
+      || { rm -f -- "$tmp_out"; die "cannot snapshot primary before proof"; }
+    primary_head_pre=$(git -C "$PRIMARY" rev-parse HEAD) \
+      || { rm -f -- "$tmp_out"; die "cannot read primary HEAD before proof"; }
     if ! (ulimit -f 1024 && \
         export MAINTAIN_PROOF_KIND="$KIND" MAINTAIN_ISSUE_NUMBER="$ISSUE" MAINTAIN_PR_NUMBER="$pr" \
           MAINTAIN_HEAD_SHA="$target" MAINTAIN_MERGE_SHA="$target" MAINTAIN_DEPLOY_RUN_ID="$DEPLOY_RUN_ID" \
@@ -2280,6 +2409,12 @@ if [ "$ACTION" = record-proof ]; then
     if [ "$(wc -c < "$sandbox_out")" -gt 1048576 ] || [ "$(wc -c < "$tmp_err")" -gt 1048576 ]; then
       rm -f -- "$tmp_out"; die "$KIND proof output exceeded its byte budget"
     fi
+    primary_post=$(git -C "$PRIMARY" status --porcelain=v1 --untracked-files=all) \
+      || { rm -f -- "$tmp_out"; die "cannot snapshot primary after proof"; }
+    primary_head_post=$(git -C "$PRIMARY" rev-parse HEAD) \
+      || { rm -f -- "$tmp_out"; die "cannot read primary HEAD after proof"; }
+    [ "$primary_head_pre" = "$primary_head_post" ] && [ "$primary_pre" = "$primary_post" ] \
+      || { rm -f -- "$tmp_out"; die "$KIND proof altered the primary checkout or untracked/control-plane files"; }
     mv -T -- "$sandbox_out" "$tmp_out" || { rm -f -- "$tmp_out"; die "cannot retain proof output"; }
     if [ "$KIND" = live ] && [ "$LIVE_COMMAND_CONTRACT" = monitor-hook ]; then
       finding_count=$(monitor_jsonl_count "$tmp_out") \
@@ -3002,20 +3137,15 @@ if [ "$ACTION" = finalize ]; then
     || { rm -f -- "$canonical"; die "result source omits or contradicts canonical receipt facts"; }
   binding_time=$(now_iso)
   binding_parent=${SAAS_PARENT_RUN_ID:-}
+  # Compatibility schema v1 receipts stay frozen (#381): never rewrite them into
+  # schema-v2 variants. event_binding may still be filled in place when absent.
   atomic_update '
-    if .schema_version == 1 then
-      .schema_version = 2
-      | .controller = {mode:$controller_mode,worktree:$controller_worktree}
-      | .event_binding = null
+    if .event_binding == null then
+      .event_binding = {command:$command,
+        parent_run_id:$parent,profile:$profile}
+      | .updated_at = $now
     else . end
-    | if .event_binding == null then
-        .event_binding = {command:$command,
-          parent_run_id:$parent,profile:$profile}
-        | .updated_at = $now
-      else . end
-  ' --arg controller_mode "$ACTIVE_CONTROLLER_MODE" \
-    --arg controller_worktree "$ACTIVE_CONTROLLER_WORKTREE" \
-    --arg command "$EVENT_COMMAND" --arg parent "$binding_parent" --arg profile "$PROFILE" \
+  ' --arg command "$EVENT_COMMAND" --arg parent "$binding_parent" --arg profile "$PROFILE" \
     --arg now "$binding_time"
   for part in .startup maintain-loop runs "$(jq -r .origin_run_id "$current")"; do
     parent=${target_parent:-$PRIMARY}; ensure_child_dir "$parent" "$part" \
