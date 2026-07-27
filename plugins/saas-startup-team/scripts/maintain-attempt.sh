@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 LEASES="$SCRIPT_DIR/maintain-leases.sh"
 SUPERVISOR="$SCRIPT_DIR/supervisor-commit.sh"
 ROUTE="$SCRIPT_DIR/delivery-route.sh"
-ROLE_RUNNER="$SCRIPT_DIR/codex-run-role.sh"
+CAST="$SCRIPT_DIR/codex-cast.sh"
 LEASE_GUARD_ARGS=()
 
 usage() {
@@ -391,15 +391,18 @@ case "$action" in
     require_base_gate || exit 1
     normalize_task_file || {
       echo "maintain-attempt: task file is unsafe" >&2; exit 1; }
+    # Profile → model/effort is caller policy; the cast adapter takes explicit pins.
+    case "$profile" in
+      light) cast_model=gpt-5.6-terra; cast_effort=medium ;;
+      standard|deep) cast_model=gpt-5.6-sol; cast_effort=high ;;
+    esac
     worker_rc=0
     bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- \
-      env SAAS_RUN_ID="$child_run_id" SAAS_PARENT_RUN_ID="$controller_run_id" \
-        SAAS_ATTEMPT="$attempt" SAAS_COMMAND="$WORKER_COMMAND" \
-        SAAS_PHASE=implementation SAAS_ROUTING_REASONS="$routing_reasons" \
-        SAAS_AGENT_EVENTS_FILE="$PRIMARY/.startup/runs/agent-events.jsonl" \
-        SAAS_CODEX_LOG_DIR="$PRIMARY/.startup/runs/codex" \
-        bash -c 'root=$1; shift; cd -- "$root" && exec "$@"' maintain-worker "$ROOT" \
-          bash "$ROLE_RUNNER" --role tech-founder --profile "$profile" --task-file "$task_file" \
+      bash -c 'root=$1; shift; cd -- "$root" && exec "$@"' maintain-worker "$ROOT" \
+        bash "$CAST" \
+          --worktree "$ROOT" --mode implement --provider openai \
+          --model "$cast_model" --effort "$cast_effort" --timeout 30m \
+          --prompt-file "$task_file" \
         || worker_rc=$?
     [ "$worker_rc" -eq 0 ] || exit "$worker_rc"
     bash "$LEASES" heartbeat "${LEASE_GUARD_ARGS[@]}" >/dev/null

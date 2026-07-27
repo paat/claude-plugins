@@ -14,7 +14,7 @@ For every chunk, attach acceptance packs from
 
 Optional specialist planning (business/tech feasibility) only when an evidence gap can
 change `Done`. On Claude, optional registered maintain agents; on Codex,
-`product-discovery` / `tech-founder` skill or `codex-run-role.sh`. Supervisor owns the
+`product-discovery` / `tech-founder` skill or `codex-cast.sh`. Supervisor owns the
 final chunk list.
 
 ## Per-chunk delivery

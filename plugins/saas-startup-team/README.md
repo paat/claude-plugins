@@ -27,7 +27,7 @@ In Codex, implementation is Codex-only:
 - Do not invoke `claude`, `claude-code`, TeamCreate, or Claude subagent workflows.
 - Run product-discovery, product-acceptance, growth, lawyer, ux-review, and deliver as capability skills (Codex role phases optional).
 - Use Codex skills or direct Codex sequencing in the current session. Separate workers
-  go through `scripts/codex-run-role.sh` with an explicit role and semantic profile.
+  go through `scripts/codex-cast.sh` with an explicit worktree, mode, model, and effort.
 
 The shared hook bundle intentionally contains only Codex-supported lifecycle keys:
 `PreToolUse`, `PostToolUse`, and `Stop`. Handoff and task-completion checks that used to
@@ -130,31 +130,27 @@ Judgment seats run on the frontier tier, execution volume on cheaper tiers — s
 | Session replay, browser-operator-pro | Sonnet, `effort: low` |
 | Browser operator, support triage, maintain triage | Haiku, `effort: low` |
 | Growth hacker, lawyer | Opus, `effort: high` |
-| Codex-controller agents | Sonnet, `effort: medium` |
+| Cross-provider cast (explicit model pin) | caller-selected |
 
-`scripts/delivery-route.sh` assigns execution profiles before dispatch:
+`scripts/delivery-route.sh` is a **sensitive-surface risk floor** only (no regex
+model/profile routing). Exit 20 elevates to deep; exit 0 leaves model selection to the
+caller/harness.
 
-| Profile | Work | Codex default |
-|---------|------|---------------|
-| `mechanical` | Exact existing scripts only; no model worker | none |
-| `light` | Bounded read-only work or autonomous docs/comments/typos/literal links | GPT-5.6 Terra, `medium` |
-| `standard` | Routine scoped delivery | GPT-5.6 Sol, `high` |
-| `deep` | Product/legal/architecture/security/auth/payment/data/migration/concurrency judgment or arbitration | GPT-5.6 Sol, `high` |
+| Signal | Result |
+|--------|--------|
+| Sensitive path/content (auth, payment, legal, PII, migrations, …) | `profile=deep`, exit 20 |
+| Empty post-diff | `profile=mechanical`, exit 0 |
+| Otherwise | `profile=standard`, exit 0 |
 
-Interactive `/tweak` additionally permits explicitly requested non-behavioral copy and
-small CSS edits, always behind post-diff containment and a reviewable PR. Autonomous
-light routing excludes CSS, UI/product copy, localization, tests, dependencies,
-workflows, and behavioral changes.
+Callers still choose `light` / `standard` / `deep` effort pins for tweak containment and
+delivery policy; the router no longer invents light/mechanical routes from task prose.
 
-Every separate worker goes through `scripts/codex-run-role.sh`, which passes an explicit
-model and reasoning effort so user-level Codex configuration cannot silently select
-either. Profile overrides use `SAAS_CODEX_<PROFILE>_MODEL` and
-`SAAS_CODEX_<PROFILE>_EFFORT`; they remain explicit launch arguments. Terra falls back
-once to Sol/medium only when Codex reports that Terra itself is unavailable. Every
-Codex role launches with `--dangerously-bypass-approvals-and-sandbox` inside the
-dev-container security boundary. Read-only and writer distinctions remain role
-contracts, not nested Codex sandboxes. Legacy `CODEX_SANDBOX` and
-`SAAS_CODEX_NETWORK_ACCESS` values cannot narrow or block that fixed launch policy.
+Every separate Codex worker goes through `scripts/codex-cast.sh` with an explicit
+worktree, mode (`implement`|`review`), provider, model, effort, timeout, and optional
+environment allowlist. Sandboxing defaults to `workspace-write` (implement) or
+`read-only` (review). Unrestricted execution requires an explicit `--unrestricted` flag
+and is never implicit. Review mode fails if the worktree becomes dirty. Terminal JSON
+binds mode, commit SHA, worktree, provider, and timeout outcome.
 
 On Claude hosts, non-trivial Codex-routed handoffs first run a plan-only **architect pass** through the registered Claude role (interface contracts, file map, invariants, test plan → `NNN-tech-plan.md`), then Codex implements from handoff + plan. Codex hosts run the equivalent model-neutral architect role phase without launching Claude — see `skills/startup-orchestration/SKILL.md` §1c.
 
@@ -552,7 +548,7 @@ runs in each **product** repo.
 - Codex or Claude Code. Codex runs the command-style workflows as plugin-bundled skills and does not require Claude Code.
 - Playwright MCP (`@playwright/mcp`) — automatically configured via plugin `.mcp.json`, runs headless
 - Web access enabled (for business founder's market research)
-- **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. Launch the primary Codex session and every delegated Codex worker with `--dangerously-bypass-approvals-and-sandbox`; the container is their security boundary. Hooks also use `/proc/` for process-tree detection.
+- **Dev container only (by design)** — this plugin is meant to run **only inside a disposable dev container**, never on a host. Delegated workers use `scripts/codex-cast.sh` with sandbox modes (`read-only` / `workspace-write`); unrestricted is opt-in only. Hooks also use `/proc/` for process-tree detection.
 - **`jq`, `awk`, `sed`, `curl`, OpenSSL, GNU coreutils (`timeout`, `realpath`, `readlink`, `stat`, `sha256sum`),
   `flock` and `setpriv` (util-linux), GNU findutils, `python3`, and Node.js** — required by hook scripts,
   JSON validation, monitor/lawyer workflows, preflight checks, Codex marketplace sync, and
@@ -565,7 +561,7 @@ runs in each **product** repo.
 
   `/lawyer` pre-flight also hard-fails if `DATALAKE_URL/api/v1/health/ready` does not return `200`; there is no offline fallback. When the topic needs it, `/lawyer` can also use KOV municipality filters, regulator enforcement search, and company diligence endpoints from the same API. The rest of the plugin works without the datalake.
 - **google-ads-strategist plugin** — required for any Google Ads work (hard dependency). Google Ads is delegated to its `ads-strategist` agent; `growth-hacker` no longer creates Google Ads campaigns itself. There is no manifest-level dependency field, so this is enforced behaviorally: `/growth` links the optional ads capability and fails with an install instruction if the plugin is absent (no `/ads` command).
-- **`codex` CLI (optional in interactive Codex, required for separate worker dispatch)** — only needed for `scripts/codex-run-role.sh` or its `codex-implement.sh` compatibility wrapper. When required, preflight checks Codex authentication and support for `--dangerously-bypass-approvals-and-sandbox` without starting a model turn. Without it, Codex continues inline or asks for an environment fix; it never falls back to a Claude implementation engine.
+- **`codex` CLI (optional in interactive Codex, required for separate worker dispatch)** — only needed for `scripts/codex-cast.sh`. When required, preflight checks Codex authentication and `--sandbox` read-only/workspace-write support without starting a model turn. Without it, Codex continues inline or asks for an environment fix; it never falls back to a Claude implementation engine.
 
 ## Implementation Engine
 
@@ -573,8 +569,8 @@ For Codex installs, implementation uses Codex only via deliver / `tech-founder` 
 
 - Use the `tech-founder` skill for implementation standards and handoff requirements.
 - Implement inline in the current Codex session when that is simplest.
-- Use `scripts/codex-run-role.sh` with an explicit role/profile/task file, or the
-  `scripts/codex-implement.sh` compatibility wrapper, for a separate worker.
+- Use `scripts/codex-cast.sh` with explicit worktree/mode/model/effort/timeout for a
+  separate worker; use `--mode review` for mechanically read-only cross-lab review.
 - For extra review, use Codex-native review passes or the `tribunal-review` plugin.
 
 Claude Code installs may still use their Claude-specific command and agent files, but the Codex marketplace surface does not depend on them.

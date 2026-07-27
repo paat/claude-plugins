@@ -236,14 +236,13 @@ architecture/implementer phase. A separate Codex architecture launch records its
 record controller phases separately and never credit them with code edits.
 
 1. **Product discovery** — load `skills/product-discovery/SKILL.md`. Independent worker
-   (Claude: generic Task/Agent with skill; Codex: Skill or `codex-run-role.sh --role product-discovery`).
+   (Claude: generic Task/Agent with skill; Codex: Skill or `codex-cast.sh` with explicit model pins).
    Task: Read `brief.md`, gather only market evidence that changes Done, break into features,
    write first implementation brief. Not a persona agent.
 
 2. **Architecture / implementer** — load `skills/tech-founder` + deliver
    (`SAAS_DELIVER_ENTRYPOINT=startup-impl`). Claude: generic Task/Agent. Codex:
-   `codex-run-role.sh --role tech-founder --profile deep` (or nested
-   `tech-founder-codex` until #387). Plan architecture in `docs/architecture/architecture.md`
+   `codex-cast.sh --mode implement` with deep model/effort pins. Plan architecture in `docs/architecture/architecture.md`
    before implementing from a brief. No removed Claude founder personas.
 
 The initial architecture phase is `PROFILE=deep`. Do not downgrade this phase.
@@ -306,7 +305,7 @@ persisted in the owner file.
 
 **Fresh worker** — load the capability skill for the phase (`product-discovery`,
 deliver/`tech-founder`, `product-acceptance`). Claude: generic Task/Agent + skill path.
-Codex: Skill or `codex-run-role.sh`. Nested `tech-founder-codex*` only until #387.
+Codex: Skill or `codex-cast.sh` with explicit worktree/mode/model/effort.
 Pass: full self-contained task, skill name, token-frugality, and required output path.
 No founder persona identity, colors, or prescribed dialogue.
 
@@ -353,7 +352,7 @@ run diff containment before the canonical check and commit.
 
 > **New task: Implement handoff NNN.**
 > Execution profile: `{PROFILE}`. A Codex controller must pass this exact profile to
-> `scripts/codex-implement.sh`; a separate Codex role uses `codex-run-role.sh`.
+> `scripts/codex-cast.sh` with explicit worktree/mode/model/effort/timeout.
 > Read `.startup/handoffs/NNN-business-to-tech.md` for full requirements.
 > Read affected `.startup/workflows/WORKFLOW-*.md` files. Implement any proposed workflow-spec delta from the handoff; the implementer is the spec writer.
 > Read `.startup/state.json` for current iteration and phase.

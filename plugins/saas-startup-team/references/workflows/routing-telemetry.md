@@ -37,8 +37,9 @@ RUN_ID="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/agent-events.sh" new-run-id)"
 export SAAS_RUN_ID="$RUN_ID" SAAS_ROUTING_REASONS="$ROUTING_REASONS"
 ```
 
-Do not emit a worker event on a no-op path. `codex-run-role.sh` records its own
-started/incomplete and terminal event. Around Claude roles, call `agent-events.sh
+Do not emit a worker event on a no-op path. `codex-cast.sh` emits terminal JSON (mode,
+commit SHA, worktree, provider, timeout outcome); callers that still write agent-events
+must bind those fields themselves. Around Claude roles, call `agent-events.sh
 append` with only stable command/phase codes, profile, writer ID, attempt, requested
 and effective provider/model/effort, status codes, timestamps/token counts when known,
 and terminal outcome. Unknown effective or token values remain null. Never pass task

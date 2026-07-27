@@ -6,8 +6,8 @@
 #   health-preflight.sh [--json] [--markdown] [--require-gh] [--require-codex]
 #                       [--check-sync] [--self-repair] [--repo-root DIR] [--plugin-root DIR]
 #
-# With --require-codex, this also verifies support for the unrestricted worker
-# mode used inside the dev-container security boundary.
+# With --require-codex, this verifies the Codex CLI supports sandbox modes used
+# by scripts/codex-cast.sh (read-only / workspace-write; unrestricted is opt-in).
 
 set -uo pipefail
 
@@ -66,10 +66,13 @@ compact_output() {
 codex_worker_shell_smoke() {
   diag_rc=0
   diag_raw="$(timeout 10 codex exec --help 2>&1)" || diag_rc=$?
-  if [ "$diag_rc" -eq 0 ] && ! printf '%s\n' "$diag_raw" \
-      | grep -Fq -- '--dangerously-bypass-approvals-and-sandbox'; then
-    diag_rc=4
-    diag_raw="Codex CLI lacks --dangerously-bypass-approvals-and-sandbox"
+  if [ "$diag_rc" -eq 0 ]; then
+    printf '%s\n' "$diag_raw" | grep -Fq -- '--sandbox' \
+      && printf '%s\n' "$diag_raw" | grep -Fq -- 'read-only' \
+      && printf '%s\n' "$diag_raw" | grep -Fq -- 'workspace-write' || {
+      diag_rc=4
+      diag_raw="Codex CLI lacks --sandbox read-only/workspace-write required by codex-cast"
+    }
   fi
   if [ "$diag_rc" -eq 0 ]; then
     auth_raw="$(timeout 10 codex login status 2>&1)" || diag_rc=$?
@@ -79,8 +82,8 @@ codex_worker_shell_smoke() {
   fi
   diag="$(compact_output "$diag_raw")"
   case "$diag_rc" in
-    0) add "codex:worker-shell" ok "Codex authentication and unrestricted worker mode are available inside the dev-container boundary" ;;
-    *) add "codex:worker-shell" blocker "Codex unrestricted worker mode is unavailable: $diag" ;;
+    0) add "codex:worker-shell" ok "Codex authentication and sandbox modes required by codex-cast are available" ;;
+    *) add "codex:worker-shell" blocker "Codex cast prerequisites unavailable: $diag" ;;
   esac
 }
 
