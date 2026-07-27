@@ -3,8 +3,9 @@
 # Prevents the main orchestrator session from directly editing implementation
 # code during an active .startup loop. Founder workers are launched with
 # --agent-id and always pass. The team-lead active_role value is never written
-# (see startup-orchestration), so enforcement keys off the main session +
-# active loop rather than an unreachable role name (#381).
+# (legacy .startup/state.json only), so enforcement keys off the main session +
+# active loop rather than an unreachable role name (#381). New lifecycle runs
+# do not write active_role; without iteration>=1 this hook stays inert (#386).
 #
 # Input: JSON on stdin with tool_input.file_path
 # Exit 0: allowed

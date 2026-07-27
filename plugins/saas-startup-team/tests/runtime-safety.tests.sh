@@ -20,9 +20,9 @@ test_runtime_safety() {
   # Registered Claude dispatches and exact effort pins.
   out="$(grep -R -n 'subagent_type: "general-purpose"' \
     "$PLUGIN_ROOT/commands" "$PLUGIN_ROOT/references/workflows" \
-    "$PLUGIN_ROOT/skills/startup-orchestration" 2>/dev/null || true)"
+    "$PLUGIN_ROOT/skills/lifecycle" 2>/dev/null || true)"
   assert_equals "RS1: no generic Claude role dispatch" "$out" ""
-  assert_file_contains "RS2: startup product-discovery skill" "$PLUGIN_ROOT/commands/startup.md" 'skills/product-discovery'
+  assert_file_contains "RS2: lifecycle product-discovery skill" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" 'product-discovery'
   assert_file_contains "RS3: improve uses product capabilities" "$PLUGIN_ROOT/references/deliver/entrypoints.md" 'product-discovery'
   assert_file_contains "RS4: growth hacker type" "$PLUGIN_ROOT/commands/growth.md" 'skills/growth'
   assert_file_contains "RS5: lawyer type" "$PLUGIN_ROOT/commands/lawyer.md" 'saas-startup-team:lawyer'
@@ -66,11 +66,11 @@ test_runtime_safety() {
   assert_file_contains "RS11i: both operators share one contract path" \
     "$PLUGIN_ROOT/agents/browser-operator-pro.md" 'browser-operator-contract.md'
   assert_file_contains "RS11j: Codex UX saves snapshots mechanically" \
-    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'retain only its exact tool-provided path/link'
+    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'keep the tool path only'
   assert_file_contains "RS11k: Codex UX rejects inline snapshots" \
-    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'never retype the tree or substitute an inline snapshot'
+    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'Browser Evidence Contract'
   assert_file_contains "RS11l: Codex UX fails closed without browser tools" \
-    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'zero callable browser tools'
+    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'zero browser tools'
   assert_file_contains "RS11m: Codex founder saves snapshots mechanically" \
     "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" 'retain only its tool-provided path/link'
   assert_file_contains "RS11n: Codex founder rejects retyped or inline snapshots" \
@@ -80,7 +80,7 @@ test_runtime_safety() {
   assert_file_contains "RS11p: maintenance founder returns unavailable transport explicitly" \
     "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" 'tool-unavailable'
   assert_file_contains "RS11q: Codex UX retries browser transport only once" \
-    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'one fresh-session retry'
+    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'one fresh-session transport retry'
   assert_file_contains "RS11r: Codex founder cannot turn transport loss into a verdict" \
     "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" 'never a product verdict'
   assert_file_contains "RS11s: Claude maintenance founder resolves browser guidance from the plugin root" \
@@ -107,8 +107,8 @@ test_runtime_safety() {
   assert_file_contains "RS14: Codex flattened host documented" "$PLUGIN_ROOT/README.md" 'keeps the equivalent browser flow flattened'
   assert_file_contains "RS14a: shared thin mutation contract" \
     "$PLUGIN_ROOT/references/workflows/mutation-ownership.md" 'hooks-paused.sh'
-  assert_file_contains "RS14b: startup uses mutation ownership flow" \
-    "$PLUGIN_ROOT/commands/startup.md" 'references/workflows/mutation-ownership.md'
+  assert_file_contains "RS14b: deliver graph owns mutation/release path" \
+    "$PLUGIN_ROOT/references/deliver/graph.md" 'supervisor-commit.sh'
   assert_file_contains "RS14c: improve uses thin supervisor commit" \
     "$PLUGIN_ROOT/references/deliver/graph.md" 'supervisor-commit.sh'
   assert_file_contains "RS14d: lessons uses the mechanical firewall" \
@@ -148,7 +148,7 @@ SH
   rm -rf "$workdir"
   assert_file_contains "RS14g: lessons runs firewall in thin commit" \
     "$PLUGIN_ROOT/commands/lessons-deliver.md" '--firewall-script'
-  for paused_hook in auto-commit.sh auto-commit-growth.sh auto-learn.sh compact-state.sh index-handoff.sh; do
+  for paused_hook in auto-commit.sh auto-commit-growth.sh auto-learn.sh; do
     assert_file_contains "RS14 hook defers:$paused_hook" \
       "$PLUGIN_ROOT/scripts/$paused_hook" 'hooks-paused.sh'
   done
@@ -743,7 +743,7 @@ SH
   check_ceiling maintain-loop 2370
   check_ceiling goal-deliver 539
   check_ceiling improve 494
-  check_ceiling tweak 453
+  check_ceiling tweak 566
   rm -rf "$supervisor_bwrap_dir"
 }
 

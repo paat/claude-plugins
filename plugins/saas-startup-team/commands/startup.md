@@ -1,440 +1,48 @@
 ---
 name: startup
-description: Initialize a new SaaS startup project — creates .startup/ state, launches scoped founder role phases, and starts the iterative build loop
+description: "Thin conditional lifecycle — intake, discovery only on evidence gaps, specialists on triggers, then deliver. Usage: /startup [goal]"
 user_invocable: true
 transitional: true
 ---
 
-# /startup — Launch SaaS Startup Team
+# /startup
 
-You are the **Team Lead** (orchestrator) for a two-person SaaS startup. The human user is a **silent investor** — they described a SaaS idea, and now two co-founders will iterate until the product is ready for customers.
+Be token-frugal. Load the lifecycle skill once and follow it with `$ARGUMENTS`:
 
-## Step 0: Load Orchestration Skill
-
-Before anything else, load the startup orchestration skill for loop management guidance:
 ```
-Skill('saas-startup-team:startup-orchestration')
+Skill('saas-startup-team:lifecycle')
 ```
 
-Run the reusable health preflight before any discovery or implementation dispatch:
+or read `${CLAUDE_PLUGIN_ROOT}/skills/lifecycle/SKILL.md`.
+
+The skill owns Intake → Conditional discovery → Triggered specialists → Deliver →
+Report. Do not restate its phases here.
+
+## Minimal host glue
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/health-preflight.sh" --require-gh --check-sync
 ```
 
-In Codex, add `--require-codex`. Treat blocker findings as environment blockers with the
-reported remediation; warnings can be logged and the workflow may continue when the
-affected capability is not needed.
-
-Before any command that may write project state (including market scouting, `/bootstrap`,
-state initialization, or Git initialization), claim the startup-session lease:
+Codex: add `--require-codex`. Claim/release the startup lease only while mutating
+project state (see lifecycle skill). For legacy brief/workflow/signoff context:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --acquire "startup:${PWD}" --state-dir .startup/leases \
-  --owner-file .startup/leases/.owners/startup.owner --ttl-seconds 1800
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/legacy-import.sh" --json
 ```
 
-The owner file is the session identity. Every later heartbeat and release uses this exact
-key, state directory, and owner file, even when those operations run in different shell
-processes. If acquisition refuses because another owner is live, do not run market
-scouting, bootstrap, change state, initialize Git, or dispatch a worker. Resume from its
-artifacts or stop. Replace a stale owner only with `--replace-stale --reason
-"<heartbeat/log evidence>"` after inspecting its heartbeat and output files.
-
-Heartbeat after idea capture, mutable initialization/commit, every founder phase, and
-every verified handoff transition:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --heartbeat "startup:${PWD}" --state-dir .startup/leases \
-  --owner-file .startup/leases/.owners/startup.owner
-```
-
-On solution signoff and every handled terminal failure or cancellation, release with the
-same arguments and `--release`. Do not leave an acquired startup lease to expire merely
-because initialization or a worker failed.
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --release "startup:${PWD}" --state-dir .startup/leases \
-  --owner-file .startup/leases/.owners/startup.owner
-```
-
-After a concrete idea or handoff exists, load
-`${CLAUDE_PLUGIN_ROOT}/references/workflows/routing-telemetry.md`. Reuse one run ID per
-delivery attempt; Codex launch events are automatic, while Claude role phases use the
-privacy-safe event contract from that reference.
-
-## Step 1: Capture the SaaS Idea
-
-If the user hasn't already described their SaaS idea, first try market scouting instead of
-blocking on new feedback. The scout uses configured external market evidence when available
-and falls back to internal demand discovery when browsing/source data is unavailable:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/market-scout.sh"
-```
-
-If `.startup/demand/market-scout.jsonl` contains candidates, use the top-ranked candidate
-as the initial SaaS/customer need and write `docs/business/brief.md` from its
-`target_customer_segment`, `discovered_need`, evidence, desired outcome, selected
-acceptance packs, and non-goals. Only ask the investor when no demand evidence exists:
-
-Before yielding for that answer, release the startup-session lease. After the investor
-responds, reacquire it with the same command from Step 0 before writing the brief or
-initializing state. Do not hold a live lease across an unbounded human wait.
-
-> What SaaS product should we build? Describe the core idea, target customers, and the problem it solves.
-
-Once a concrete need is selected, mint/export `SAAS_RUN_ID` with `agent-events.sh
-new-run-id`. The initial product/architecture work is deep; later implementation
-handoffs are classified separately and reuse the same ID only within that attempt.
-
-## Step 2: Initialize Project Directory
-
-**Re-initialization guard (MED-4):** If `.startup/state.json` already exists, show the current state (iteration, phase, handoff count, and `status`) and ask the investor:
-> An existing startup session was found at iteration N (phase: X, status: Y). Would you like to:
-> 1. **Resume** the existing session
-> 2. **Reset** and start fresh (this will delete all previous progress)
-
-If resuming, run `/bootstrap` first (idempotent — ensures docs/ structure exists for migrated projects). If `status == "paused"`, clear the paused flag before continuing:
-
-```bash
-if [ "$(jq -r '.status // empty' .startup/state.json)" = "paused" ]; then
-  jq 'del(.paused_at, .paused_reason) | .status = "active" | .resumed = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
-    .startup/state.json > .startup/state.json.tmp \
-    && mv .startup/state.json.tmp .startup/state.json
-fi
-```
-
-Then skip to Step 3 with the existing state.
-
-Run `/bootstrap` first (idempotent — safe to re-run). This creates:
-- `docs/` subdirectories: `research/`, `legal/`, `architecture/`, `ux/`, `seo/`, `business/`
-- `.startup/` subdirectories: `handoffs/`, `reviews/`, `signoffs/`, `go-live/`
-- `.startup/workflows/` registry/spec files (git-trackable workflow contracts)
-- `.gitignore` entries for ephemeral `.startup/` state
-- `## Project Knowledge` and `## Workflow Guidance` sections in CLAUDE.md
-
-Then create the loop-specific files in `.startup/` and the durable human task file in `docs/`:
-
-```
-.startup/
-├── state.json            ← Initialize loop state
-├── workflows/            ← Git-trackable workflow registry/specs
-├── handoffs/             ← Ephemeral, not git-tracked
-├── signoffs/             ← Ephemeral, not git-tracked
-├── reviews/              ← Ephemeral, not git-tracked
-└── go-live/              ← Ephemeral, not git-tracked
-
-docs/
-└── human-tasks.md        ← Git-tracked investor action list
-```
-
-Initialize `state.json`:
-```json
-{
-  "schema_version": 2,
-  "iteration": 0,
-  "max_iterations": 20,
-  "phase": "research",
-  "active_role": "product-discovery",
-  "status": "active",
-  "started": "<current ISO timestamp>",
-  "archived_through": 0,
-  "latest_handoff": 0
-}
-```
-
-`schema_version: 2` opts in to the compaction system: old `handoff_NNN_*` keys get archived to `.startup/state-archive.json` automatically once the inline window (last 10 handoffs by default) is exceeded. See the State Management section of each founder agent for the full list of keys allowed inline — anything outside the allowlist is eligible for archival.
-
-**Never write `active_role: "team-lead"`.** Prefer capability skills over role state. If a host still mutates optional state, valid labels are capability names (`product-discovery`, `product-acceptance`, `tech-founder`, `lawyer`, `ux-review`, `growth`) — never `team-lead` (breaks `enforce-delegation`).
-
-Write `docs/business/brief.md` using the user's SaaS idea description (skip if `/bootstrap` already created it).
-
-`/bootstrap` (run first in this step) already created `docs/human-tasks.md` and scaffolded the `.startup/workflows/` registry and spec templates — both idempotent, so there is nothing more to scaffold here. Handoff and brief templates live at `${CLAUDE_PLUGIN_ROOT}/templates/`.
-
-## Step 2b: Initialize CLAUDE.md for Auto-Learning
-
-The PostToolUse hook will auto-populate a `## Learnings` section in the project's CLAUDE.md as agents write handoffs, reviews, and signoffs. Ensure the section exists:
-
-1. If no `CLAUDE.md` exists at git root, create it with:
-   ```markdown
-   # Project Learnings
-
-   ## Learnings
-
-   <!-- Auto-populated by the saas-startup-team plugin PostToolUse hook -->
-   ```
-2. If `CLAUDE.md` exists but has no `## Learnings` section, append:
-   ```markdown
-
-   ## Learnings
-
-   <!-- Auto-populated by the saas-startup-team plugin PostToolUse hook -->
-   ```
-3. If `CLAUDE.md` already has a `## Learnings` section, do nothing.
-
-4. Ensure **KISS / YAGNI / DRY** project principles (idempotent). Same helper as
-   `/bootstrap` Step 5b:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ensure-engineering-principles.sh" --root .
-```
-
-## Step 2c: Ensure Git Repository
-
-The auto-commit hook requires a git repo. Ensure one exists:
-
-1. Check if in a git repo: `git rev-parse --show-toplevel`
-2. If **not** in a git repo, guard the broad initial `git add -A` so a stray >50 MB file (or a
-   package store the `.gitignore` from `/bootstrap` didn't already cover) can't land in the very
-   first commit and make the repo unpushable:
-   ```bash
-   git init && git add -A
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-staged-size.sh" || {
-     echo "Aborting: staged tree has oversized/ignored files (see above). Fix .gitignore + git rm -r --cached, then retry." >&2
-     exit 1
-   }
-   git commit -m "Initial commit before startup loop"
-   ```
-3. If **already** in a git repo, stage only the startup artifacts, run the staged-size guard, and commit with normal hooks:
-   ```bash
-   git add -A -- .startup/workflows/ docs/human-tasks.md docs/business/brief.md
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-staged-size.sh"
-   git commit -m "Initialize startup loop"
-   ```
-
-## Step 2d: Reset Session State
-
-Clean up state from previous sessions to prevent stale data:
-
-1. Remove idle counter files:
-   ```bash
-   rm -f .startup/.idle-count-* .startup/.idle-handoff-snapshot-*
-   ```
-2. If resuming an existing session, skip this step (idle counters reflect real state).
-
-## Step 3: Launch Initial Role Phases
-
-The startup-session lease was acquired before Step 1. Heartbeat it now, before the first
-dispatch. Do not mint or acquire a second session identity here.
-
-Launch the initial role pair using the **Task tool** (one-shot agents, NOT TeamCreate).
-Persistent Agent Teams cannot be dismissed and accumulate as zombie processes. All
-dispatches use the same one-shot pattern described in Step 5.
-
-Read `${CLAUDE_PLUGIN_ROOT}/references/workflows/mutation-ownership.md` first. Run the
-initial business and architecture phases sequentially with `SAAS_PHASE` set so automatic
-hooks stay paused. After each successful phase, the supervisor must persist every
-verified durable `docs/` file with `commit-artifact.sh`, replay `index-handoff.sh` for
-the exact handoff, and run `compact-state.sh` before the next dispatch.
-
-Append started/terminal events around the initial product-discovery phase and the
-architecture/implementer phase. A separate Codex architecture launch records itself;
-record controller phases separately and never credit them with code edits.
-
-1. **Product discovery** — load `skills/product-discovery/SKILL.md`. Independent worker
-   (Claude: generic Task/Agent with skill; Codex: Skill or `codex-cast.sh` with explicit model pins).
-   Task: Read `brief.md`, gather only market evidence that changes Done, break into features,
-   write first implementation brief. Not a persona agent.
-
-2. **Architecture / implementer** — load `skills/tech-founder` + deliver
-   (`SAAS_DELIVER_ENTRYPOINT=startup-impl`). Claude: generic Task/Agent. Codex:
-   `codex-cast.sh --mode implement` with deep model/effort pins. Plan architecture in `docs/architecture/architecture.md`
-   before implementing from a brief. No removed Claude founder personas.
-
-The initial architecture phase is `PROFILE=deep`. Do not downgrade this phase.
-
-**IMPORTANT: Do NOT use TeamCreate.** Agent Teams persistent teammates cannot be terminated once spawned. Use the Task tool for ALL agent dispatches — initial and subsequent. Each Task agent exits cleanly when done.
-
-## Step 4: Start the Loop
-
-Send the initial product-discovery task:
-
-> Read `docs/business/brief.md`. This is our investor's SaaS idea. Your job:
-> 1. Research the market, competition, and customer pain points (save to `docs/research/` in Estonian)
-> 2. Research similar solutions in other countries — extract features, UX patterns, and pricing from international competitors (save to `docs/research/rahvusvaheline-analuus.md`)
-> 3. Check Estonian legal requirements for this type of business
-> 4. Break the idea into prioritized features
-> 5. Describe proposed workflow-spec deltas for non-trivial routes, jobs, state machines, payments, onboarding, support intake, or operator workflows in the handoff. The implementer writes the specs.
-> 6. Write the first handoff to implementer: `.startup/handoffs/001-business-to-tech.md`.
-> 7. Add any human-only tasks to `docs/human-tasks.md`
-> 8. After writing the handoff, send a message to the team lead: "Handoff 001 ready for implementer." The supervisor updates state.
->
-> Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
-
-## Step 5: Relay Handoffs Between Founders
-
-**Core loop.** When a capability worker signals a handoff ready for the next phase,
-relay with an explicit self-contained task message. Every relay must be complete without
-prior conversation history.
-
-**NEVER write handoffs yourself.** Route product briefs through product-discovery and
-implementation through deliver; product-acceptance is independent of the implementer.
-
-### Agent Lifecycle — Always Fresh, Right-Sized
-
-**Always spawn a fresh agent for every relay.** Never reuse agents — context bloat from prior handoffs degrades agent quality. Each dispatch starts with a clean context window.
-
-Before spawning a new agent, claim a lease for the exact relay/work unit:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --acquire "handoff:${handoff_number}:${target_role}" \
-  --state-dir .startup/leases \
-  --owner-file ".startup/leases/.owners/handoff-${handoff_number}-${target_role}.owner" \
-  --ttl-seconds 1800
-```
-
-If the lease is active, do not re-dispatch. Check its heartbeat, logs, and expected output
-artifact; long-running LLM, report, browser, test, or deploy work is expected when the
-heartbeat advances or logs show progress. Replace a stale owner only with
-`--replace-stale --reason "<heartbeat/log evidence>"`, which writes an audit note. Never
-terminate broad process patterns as a routine recovery step; exact process termination is
-allowed only after the lease and heartbeat prove staleness.
-
-After each worker returns, heartbeat with the same key and `--owner-file`. Once its
-expected artifact is verified, release that relay lease. Release the startup-session
-lease when solution signoff is reached or on any handled terminal failure; acquisition,
-heartbeat, and release may run in separate shell processes because the owner token is
-persisted in the owner file.
-
-**Do NOT use TeamCreate for relays.** TeamCreate spawns persistent teammates that cannot be dismissed — they accumulate as zombie processes eating ~500MB each. Use the **Task tool** which spawns one-shot agents that exit cleanly when done.
-
-**Fresh worker** — load the capability skill for the phase (`product-discovery`,
-deliver/`tech-founder`, `product-acceptance`). Claude: generic Task/Agent + skill path.
-Codex: Skill or `codex-cast.sh` with explicit worktree/mode/model/effort.
-Pass: full self-contained task, skill name, token-frugality, and required output path.
-No founder persona identity, colors, or prescribed dialogue.
-
-Every Claude dispatch gets a privacy-safe started and terminal event using the actual
-registered model/effort and the current semantic profile. After each supervisor check,
-commit, QA guard, and state transition, append a progress status event. Do not include a
-handoff path, prompt, project name, issue text, or diff.
-
-### Sync vs. async dispatch
-
-Agent/Task tool calls default to **synchronous** — the call returns when the subagent finishes, and you act on the result immediately. This is the correct default for the relay loop. **Do not pass `run_in_background: true` unless you genuinely need to fire-and-forget.**
-
-If you *do* run a subagent in the background (long-running browser test, heavy research), you must yield control correctly while waiting:
-
-1. Launch with `run_in_background: true` — note the returned `agentId`.
-2. Use `ScheduleWakeup` with `delaySeconds: 270` (stays inside the 5-min prompt-cache window) to poll for completion.
-3. On wakeup, check the agent's output file or re-read `state.json`. If still running, schedule the next poll.
-
-The Stop hook recognizes the yield two ways: a `ScheduleWakeup` PostToolUse hook drops a short-lived `.startup/.yielding` marker the moment you schedule the wakeup, and the hook also inspects the transcript. The marker is authoritative — it survives the transcript flush race that used to make the hook block every yield anyway — and self-expires when the wake fires, so it can't disable the block. You don't manage the marker; just call `ScheduleWakeup`. Skip the ScheduleWakeup step and the hook will block you on every end-of-turn until a solution signoff exists.
-
-**Never dispatch async subagents in a tight loop without `ScheduleWakeup`.** Without it, the orchestrator has no way to wait and will thrash against `check-stop.sh`, burning tokens on keepalive chatter.
-
-**Right-size the task.** Each agent dispatch must be a cohesive unit of work that produces exactly ONE deliverable file (handoff, review, or signoff). The sweet spot is 15-30 minutes of agent time.
-
-| Scenario | Dispatches |
-|----------|-----------|
-| 1-2 feature handoff | 1 agent |
-| Feedback with 3-4 independent fixes | 1 agent (fixes are small, bundle them) |
-| 2 large independent features | 2 agents, one per feature, each writes its own handoff |
-| Browser review of implementation | 1 agent |
-
-**NEVER micro-delegate.** Do NOT spawn separate agents for each individual fix. Bundle all fixes from a review into a single agent dispatch. If a task doesn't produce a file (handoff, review, signoff, or doc), it shouldn't be a separate agent — fold it into the next real task.
-
-### When product-discovery signals "Handoff NNN ready for implementer":
-
-Implementation resolves to deliver (`skills/deliver/SKILL.md`,
-`SAAS_DELIVER_ENTRYPOINT=startup-impl`). The supervisor updates `.startup/state.json`
-for the completed brief (iteration/phase/active role only), heartbeats and releases the
-business relay lease, then classifies the handoff with `delivery-route.sh classify --mode autonomous`. Exit 2 stops; exit 20 sets `PROFILE=deep`. Mechanical may run only
-an exact named script. Pass profile and routing reasons to the tech role, then send:
-
-Before this tech dispatch, follow mutation-ownership.md (deliver Build). After return,
-run diff containment before the canonical check and commit.
-
-> **New task: Implement handoff NNN.**
-> Execution profile: `{PROFILE}`. A Codex controller must pass this exact profile to
-> `scripts/codex-cast.sh` with explicit worktree/mode/model/effort/timeout.
-> Read `.startup/handoffs/NNN-business-to-tech.md` for full requirements.
-> Read affected `.startup/workflows/WORKFLOW-*.md` files. Implement any proposed workflow-spec delta from the handoff; the implementer is the spec writer.
-> Read `.startup/state.json` for current iteration and phase.
-> Check `docs/architecture/architecture.md` for your previous architecture decisions.
-> Implement the features, then write your handoff to `.startup/handoffs/{NNN+1}-tech-to-business.md`.
-> In your handoff, list affected workflow spec files and any route/job/state/handoff-contract changes you made.
-> Set 10s timeouts on all HTTP calls. If a service is unreachable after 3 retries, document the failure and move on.
-> After writing the handoff, message the team lead: "Handoff {NNN+1} ready for product-acceptance."
-
-### When implementer signals "Handoff NNN ready for product-acceptance":
-
-Before QA, the supervisor commits the exact implementation diff after deterministic
-checks, then opens a review-only mutation window:
-
-For a light autonomous attempt, inspect the guarded working tree with shared
-`check-diff --base "$ATTEMPT_BASE"` before committing. Continue only when it remains light and
-`ui_touch=false`. Otherwise write a versioned escalation artifact, discard only this
-clean-start delivery diff, and rerun the tech phase once with `PROFILE=deep`; do not
-dispatch QA or repeat the light-to-deep transition.
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/supervisor-commit.sh" \
-  --message "tech-founder: handoff ${handoff_number}" --check ./check.sh
-QA_REVIEW=".startup/reviews/handoff-${handoff_number}-${run_id}.md"
-```
-
-If the gate fails, do not dispatch QA. Otherwise update state as supervisor, read the
-handoff to extract the localhost URL and port, then run **product-acceptance**
-(`skills/product-acceptance/SKILL.md`) as an **independent** worker — never the implementer:
-
-Before that QA dispatch, the supervisor must replay `index-handoff.sh` for the verified
-tech handoff and run `compact-state.sh`; guarded PostToolUse hooks deliberately deferred
-both operations.
-> **New task: Review handoff NNN.**
-> Read `.startup/handoffs/NNN-tech-to-business.md` for implementation details.
-> Read any workflow specs referenced by the handoff and use their QA cases as a test oracle. If code reveals an undocumented workflow, record the missing-spec finding in the review; do not edit the registry.
-> If the handoff is built on a `docs/legal/` analysis, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/legal-verdict-gate.sh" <doc>...` on it and apply the same hedged-verdict rules as `/improve`'s QA step (conditional wording only — never state a hedged claim as fact).
-> Read `.startup/state.json` for current iteration and phase.
-> Open browser to `{localhost URL from handoff}` and verify the implementation visually using Playwright.
-> Write exactly one review artifact at the supervisor-provided `$QA_REVIEW` path. Do
-> not replace or delete any other review. Include an explicit
-> `PASS` or `FAIL` verdict and, for `FAIL`, all feedback needed for the next brief.
-> After writing, message the team lead: "Review complete."
-> This is review-only: do not write a handoff or signoff and do not modify source,
-> tests, workflow specs, or state.
-
-Immediately after the reviewer returns, read the verdict. On `FAIL`, dispatch a fresh
-product-discovery brief phase for the next implementation brief only. On `PASS`, the
-supervisor materializes the roundtrip signoff from the verified PASS review,
-updates supervisor-owned state, and releases the relay lease.
-
-Append one authoritative terminal handoff event only after the implementation commit,
-QA guard, and PASS/FAIL outcome agree. Every handled failure, blocked relay, or cancelled
-session receives an explicit terminal outcome; a worker process exit is not completion.
-
-### After Roundtrip Signoff
-
-When the verified product-acceptance review is PASS and the supervisor has materialized the
-roundtrip signoff:
-1. Announce the signoff result to the investor (brief one-liner)
-2. **Immediately dispatch product-discovery** for the next feature brief — do NOT wait for investor input
-3. Use existing research and the brief to pick the next priority feature (no unconditional full re-research)
-4. Only pause if iteration limit approaches or product-acceptance writes solution signoff
-
-Every next-feature dispatch follows the paused-worker flow in `mutation-ownership.md`.
-
-### Why explicit relay matters
-
-Every relay uses a **fresh worker** with empty context — include all paths and reminders
-in the message. State lives in handoff files and optional `.startup/state.json`, never
-conversational memory.
-
-## Loop Control
-
-Continue until product-acceptance writes `.startup/go-live/solution-signoff.md`. The Stop
-hook enforces this after iteration 2+.
-
-**Iteration limit**: If `state.json` iteration reaches `max_iterations` (default: 20),
-alert the investor.
-
-**Deadlock handling**: escalate stuck capability workers to the investor with context.
-
-## Communication to Investor
-
-Investor-communication language: see `${CLAUDE_PLUGIN_ROOT}/templates/communication.md`.
+Implementation resolves to `skills/deliver/SKILL.md` with
+`SAAS_DELIVER_ENTRYPOINT=startup-impl`. Product discovery, legal, growth, UX, and
+product-acceptance load only when their objective triggers fire.
+
+## Hard bans for this entrypoint
+
+- Do **not** initialize or update `.startup/state.json` `active_role`, iteration,
+  phase, or numbered conversational handoffs for new runs
+- Do **not** use Stop-hook / yield / ScheduleWakeup loop control
+- Do **not** force broad market research for small scoped work
+- Existing `.startup/*` files are never deleted or silently reinterpreted;
+  `legacy-import.sh` is read-only
+
+Optional presentation: address nontechnical users as a silent observer if helpful.
+That language is not a control plane.

@@ -1,9 +1,10 @@
 #!/bin/bash
-# Status script: Report current state of the startup loop.
-# Reads .startup/state.json and summarizes handoffs, signoffs, and human tasks.
-# Includes state/handoff consistency validation (MED-8).
+# Status script: Report lifecycle/project status.
+# Prefers durable docs and signoffs; treats .startup/state.json as historical only.
 
 set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # Resolve git root for absolute paths (MED-7)
 GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
@@ -16,18 +17,25 @@ STARTUP_DIR="$GIT_ROOT/.startup"
 HUMAN_TASKS_FILE="$GIT_ROOT/docs/human-tasks.md"
 LEGACY_HUMAN_TASKS_FILE="$STARTUP_DIR/human-tasks.md"
 
-if [ ! -d "$STARTUP_DIR" ]; then
-  echo "No active startup session found. Run /saas-startup-team:startup to begin."
-  exit 0
-fi
-
 echo "=== SaaS Startup Team Status ==="
 echo ""
 
-# State
+# Read-only legacy import (brief, workflows, signoffs)
+if [ -x "$SCRIPT_DIR/legacy-import.sh" ]; then
+  echo "--- Legacy import (read-only) ---"
+  bash "$SCRIPT_DIR/legacy-import.sh" --root "$GIT_ROOT" || true
+  echo ""
+fi
+
+if [ ! -d "$STARTUP_DIR" ] && [ ! -f "$GIT_ROOT/docs/business/brief.md" ]; then
+  echo "No project artifacts found. Run /saas-startup-team:startup to begin."
+  exit 0
+fi
+
+# Historical state only (lifecycle does not write this for new runs)
 ITERATION=0
 if [ -f "$STARTUP_DIR/state.json" ]; then
-  echo "--- Loop State ---"
+  echo "--- Legacy loop state (historical; not authoritative) ---"
   jq '.' "$STARTUP_DIR/state.json"
   ITERATION=$(jq -r '.iteration // 0' "$STARTUP_DIR/state.json" 2>/dev/null || echo "0")
   if [ -f "$STARTUP_DIR/state-archive.json" ]; then

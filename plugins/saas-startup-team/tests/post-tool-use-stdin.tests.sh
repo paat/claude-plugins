@@ -29,10 +29,10 @@ test_post_tool_use_stdin_drain() {
 
   workdir=$(mktemp -d)
   command=$(jq -r '.hooks.PostToolUse[]
-    | select(any(.hooks[]; .command | contains("compact-state.sh")))
+    | select(any(.hooks[]; .command | contains("auto-learn.sh")))
     | .hooks[0].command' "$hooks_file")
   statuses=$(post_tool_pipeline_statuses "$workdir" "$command" "$PLUGIN_ROOT")
-  assert_equals "PTU1: compact-state drains a large payload" "$statuses" "0 0"
+  assert_equals "PTU1: auto-learn drains a large payload" "$statuses" "0 0"
 
   while IFS= read -r command; do
     count=$((count + 1))
@@ -40,7 +40,8 @@ test_post_tool_use_stdin_drain() {
     statuses=$(post_tool_pipeline_statuses "$workdir" "$command")
     assert_equals "PTU2.$count: missing-root resolver drains stdin ($handler)" "$statuses" "0 0"
   done < <(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file")
-  assert_equals "PTU3: every PostToolUse resolver was exercised" "$count" "13"
+  # 11 remaining PostToolUse hooks after #386 removed compact-state + index-handoff
+  assert_equals "PTU3: every PostToolUse resolver was exercised" "$count" "11"
   rm -rf "$workdir"
 }
 
