@@ -296,7 +296,7 @@ claim language elsewhere in the protocol when they conflict.
 4. Route each triage-cache miss. On the first miss, load `Triage (read-only subagent,
    supervisor-only mutations)` once. Routine classification may use the registered
    `saas-startup-team:maintain-triage` light role. Only a deep route or `uncertain`
-   result uses `skills/product-acceptance`; never cache uncertainty.
+   result uses `skills/product-acceptance` (product/judgment) or `skills/lawyer` (legal); never cache uncertainty.
    The supervisor alone applies labels, comments, files, and issue mutations.
 5. Apply final verdicts exactly as that section specifies. Before any `needs-human`
    park (including residual parks), run

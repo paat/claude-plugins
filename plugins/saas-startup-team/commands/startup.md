@@ -231,9 +231,9 @@ hooks stay paused. After each successful phase, the supervisor must persist ever
 verified durable `docs/` file with `commit-artifact.sh`, replay `index-handoff.sh` for
 the exact handoff, and run `compact-state.sh` before the next dispatch.
 
-Append started/terminal events around the initial Fable/high business phase and the
-Opus/xhigh architecture phase. A separate Codex architecture launch records itself;
-record any Sonnet/medium controller phase separately and never credit it with code edits.
+Append started/terminal events around the initial product-discovery phase and the
+architecture/implementer phase. A separate Codex architecture launch records itself;
+record controller phases separately and never credit them with code edits.
 
 1. **Product discovery** — load `skills/product-discovery/SKILL.md`. Independent worker
    (Claude: generic Task/Agent with skill; Codex: Skill or `codex-run-role.sh --role product-discovery`).

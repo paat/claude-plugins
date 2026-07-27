@@ -13,10 +13,11 @@ Not a founder persona. No colors, dialogue scripts, model pins, or role-owned st
 1. Post-implementation **QA / roundtrip review** for a delivered unit.
 2. **Go-live / solution signoff** when the product is claimed customer-ready.
 3. **Pre-merge design-review** when `ui-touch.sh` reports UI (shared leg with `ux-review`).
-4. Maintain deep product verdict when a human gate needs a product decision (not code).
+4. Maintain deep **product** verdict when the human gate emits `delegate-fable` for
+   judgment / production-signoff / customer-communication kinds (not pure legal).
 
-Non-triggers: writing implementation, running `./check.sh` as the builder, legal-only or
-pure a11y-consultant audits (use `lawyer` / `ux-review`).
+Non-triggers: implementation; pure legal/compliance Tier-A claims (`lawyer` skill —
+maintain routes `delegate-fable:legal` there); pure a11y audits (`ux-review`).
 
 ## Inputs
 
@@ -73,7 +74,6 @@ mechanical legs only; judgment stays here. Codex: drive browser in-process.
 ## Independence
 
 Never accept a review written by the same worker that implemented the change. Supervisor
-dispatches this capability as a separate phase or process from Build.
+dispatches this capability as a separate phase or process from Build. Maintain deep
+verdicts post GH `fable:decision:` before park/de-gate.
 
-
-Maintain deep verdicts: post GH comment `fable:decision:` before park/de-gate.
