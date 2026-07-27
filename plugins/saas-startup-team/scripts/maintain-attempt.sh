@@ -396,14 +396,31 @@ case "$action" in
       light) cast_model=gpt-5.6-terra; cast_effort=medium ;;
       standard|deep) cast_model=gpt-5.6-sol; cast_effort=high ;;
     esac
+    # Cast is a transport only — prepend implementer mutation/scope contract.
+    cast_prompt=$(mktemp)
+    {
+      cat <<'HDR'
+You are the source implementer for a production SaaS delivery.
+You may modify only the required product source, tests, and canonical workflow-spec registry.
+Do not write product-acceptance verdicts. Do not commit, push, create or edit pull requests,
+merge, deploy, or roll back. Leave working-tree changes for the supervisor.
+If the task needs product, legal, security, architecture, payment, auth, data, migration,
+or concurrency judgment beyond the supplied requirements, stop and report deep escalation.
+HDR
+      scope="$SCRIPT_DIR/../templates/delivery-scope-contract.md"
+      [ -r "$scope" ] && { printf '\n'; cat "$scope"; }
+      printf '\n================ TASK ================\n'
+      cat -- "$task_file"
+    } > "$cast_prompt"
     worker_rc=0
     bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- \
       bash -c 'root=$1; shift; cd -- "$root" && exec "$@"' maintain-worker "$ROOT" \
         bash "$CAST" \
           --worktree "$ROOT" --mode implement --provider openai \
           --model "$cast_model" --effort "$cast_effort" --timeout 30m \
-          --prompt-file "$task_file" \
+          --prompt-file "$cast_prompt" \
         || worker_rc=$?
+    rm -f -- "$cast_prompt"
     [ "$worker_rc" -eq 0 ] || exit "$worker_rc"
     bash "$LEASES" heartbeat "${LEASE_GUARD_ARGS[@]}" >/dev/null
     route_rc=0

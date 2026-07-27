@@ -67,12 +67,15 @@ codex_worker_shell_smoke() {
   diag_rc=0
   diag_raw="$(timeout 10 codex exec --help 2>&1)" || diag_rc=$?
   if [ "$diag_rc" -eq 0 ]; then
-    printf '%s\n' "$diag_raw" | grep -Fq -- '--sandbox' \
-      && printf '%s\n' "$diag_raw" | grep -Fq -- 'read-only' \
-      && printf '%s\n' "$diag_raw" | grep -Fq -- 'workspace-write' || {
+    if ! printf '%s\n' "$diag_raw" | grep -Fq -- '--sandbox' \
+      || ! printf '%s\n' "$diag_raw" | grep -Fq -- 'read-only' \
+      || ! printf '%s\n' "$diag_raw" | grep -Fq -- 'workspace-write'; then
       diag_rc=4
       diag_raw="Codex CLI lacks --sandbox read-only/workspace-write required by codex-cast"
-    }
+    elif ! printf '%s\n' "$diag_raw" | grep -Fq -- '--output-last-message'; then
+      diag_rc=4
+      diag_raw="Codex CLI lacks --output-last-message required by codex-cast"
+    fi
   fi
   if [ "$diag_rc" -eq 0 ]; then
     auth_raw="$(timeout 10 codex login status 2>&1)" || diag_rc=$?

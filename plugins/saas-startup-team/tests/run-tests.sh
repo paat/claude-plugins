@@ -5606,6 +5606,7 @@ if [ "${1:-}" = exec ] && [ "${2:-}" = --help ]; then
   if [ "${FAKE_CODEX_SANDBOX_HELP:-1}" -eq 1 ]; then
     printf '%s\n' '  -s, --sandbox <SANDBOX_MODE>'
     printf '%s\n' '          [possible values: read-only, workspace-write, danger-full-access]'
+    printf '%s\n' '  -o, --output-last-message <FILE>'
   fi
   exit 0
 fi

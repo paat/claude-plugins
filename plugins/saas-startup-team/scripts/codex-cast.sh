@@ -77,6 +77,15 @@ WT_TOP=$(cd -- "$(git -C "$WORKTREE" rev-parse --show-toplevel)" && pwd -P) || {
   echo "codex-cast: worktree mismatch: expected root $WORKTREE got $WT_TOP" >&2
   exit 4
 }
+# Fail closed if a login shell changes cwd away from the explicit worktree.
+LOGIN_CWD=$(cd -- "$WORKTREE" && timeout --signal=TERM --kill-after=1s 5s /bin/bash -lc 'pwd -P') || {
+  echo "codex-cast: could not verify login-shell working directory" >&2
+  exit 4
+}
+[ "$LOGIN_CWD" = "$WORKTREE" ] || {
+  echo "codex-cast: login startup changes cwd; remove that cd or preserve the worktree directory" >&2
+  exit 4
+}
 
 case "$PROMPT_FILE" in /*) : ;; *) PROMPT_FILE=$WORKTREE/$PROMPT_FILE ;; esac
 [ -f "$PROMPT_FILE" ] && [ -r "$PROMPT_FILE" ] && [ ! -L "$PROMPT_FILE" ] || {
