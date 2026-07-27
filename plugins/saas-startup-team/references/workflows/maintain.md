@@ -296,7 +296,7 @@ claim language elsewhere in the protocol when they conflict.
 4. Route each triage-cache miss. On the first miss, load `Triage (read-only subagent,
    supervisor-only mutations)` once. Routine classification may use the registered
    `saas-startup-team:maintain-triage` light role. Only a deep route or `uncertain`
-   result uses `saas-startup-team:business-founder-maintain`; never cache uncertainty.
+   result uses `skills/product-acceptance`; never cache uncertainty.
    The supervisor alone applies labels, comments, files, and issue mutations.
 5. Apply final verdicts exactly as that section specifies. Before any `needs-human`
    park (including residual parks), run
@@ -314,7 +314,7 @@ claim language elsewhere in the protocol when they conflict.
    mutate. The deliver skill (`skills/deliver/SKILL.md`, entrypoint `goal-deliver`) is the sole delivery contract; maintain adds
    WIP selection, queue, cooldown, and pass-level classification — not claim ownership.
    Browser-visible changes use
-   `skills/ux-tester/references/design-review-leg.md` only where that section requires.
+   `skills/ux-review/references/design-review-leg.md` only where that section requires.
    A fast-path abort that falls back inside the same inline `/goal-deliver` call is not
    a maintain-level failure and creates no cooldown by itself.
 8. Run `${CLAUDE_PLUGIN_ROOT}/scripts/memory-gc.sh --weekly`; its cursor makes ordinary

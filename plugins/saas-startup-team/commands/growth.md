@@ -13,10 +13,11 @@ start with inbound/controlled validation; post-live projects execute acquisition
 
 ## Step 0: Load Skills
 
-Load the startup orchestration skill and growth hacker skill:
+Load capability skills:
 ```
 Skill('saas-startup-team:startup-orchestration')
-Skill('saas-startup-team:growth-hacker')
+Skill('saas-startup-team:growth')
+Skill('saas-startup-team:product-discovery')  # only when strategy/init needs it
 ```
 
 ## Step 1: Pre-Flight Checks
@@ -146,7 +147,7 @@ mkdir -p docs/growth/{channels,leads,metrics/weekly,brand,content/blog,content/o
 
 Run `/bootstrap` to ensure all docs/ subdirectories exist.
 
-### 2c: Spawn business founder for strategy
+### 2c: Spawn product-discovery for strategy
 
 Before dispatching, claim the growth initialization lease:
 
@@ -165,7 +166,7 @@ discovery when browsing/source data is unavailable. Use the top candidate as one
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/market-scout.sh"
 ```
 
-Spawn business founder via Task tool with `subagent_type: "saas-startup-team:business-founder"`:
+Run **product-discovery** (independent worker; load `skills/product-discovery/SKILL.md`):
 
 > **New task: Write growth initialization documents.**
 >
@@ -188,8 +189,8 @@ Spawn business founder via Task tool with `subagent_type: "saas-startup-team:bus
 
 ### 2d: Growth agent drafts outreach templates
 
-After business founder completes, spawn growth agent via Task tool with
-`subagent_type: "saas-startup-team:growth-hacker"`:
+After product-discovery completes, run **growth** (load `skills/growth/SKILL.md`;
+Claude: generic Task/Agent with skill; Codex: Skill in session):
 
 > **New task: Draft lifecycle-gated growth assets.**
 >
@@ -225,15 +226,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
 
 Update `.startup/state.json` — READ it first, then add growth fields AND overwrite `active_role`. Resetting `active_role` is mandatory: the `enforce-delegation` hook fires only when `active_role=="team-lead"`, and a stale value from a prior `/startup` session would block the growth-track subagents' writes.
 
-```json
-{
-  "active_role": "business-founder",
-  "growth_lifecycle": "prelive" or "live" or "postlive" or "paused",
-  "growth_status": "active",
-  "growth_iteration": 0,
-  "growth_started": "<current ISO timestamp>"
-}
-```
+If `.startup/state.json` exists, update growth fields only (`growth_lifecycle`, status, iteration).
+Do **not** treat `active_role` as delivery authority. Capability skills do not own state.
 
 ## Step 4: Run Growth Loop
 
@@ -258,7 +252,7 @@ handled failure.
 
 **Option A — Direct execution (default for known channels):**
 
-When the investor gives a clear directive ("do Reddit marketing", "set up Google Ads"), skip the brief pipeline and dispatch the growth agent directly with `subagent_type: "saas-startup-team:growth-hacker"` and inline context:
+When the investor gives a clear directive ("do Reddit marketing", "set up Google Ads"), skip the brief pipeline and run the growth capability directly with inline context:
 
 > **New task: [what the investor asked for]**
 >
@@ -282,11 +276,11 @@ When the investor gives a clear directive ("do Reddit marketing", "set up Google
 > After executing, update the relevant `docs/growth/channels/*.md` with what you actually did (URLs, timestamps, metrics).
 > Write a short growth report to `.startup/handoffs/NNN-growth-to-business.md` summarizing actions taken and results.
 
-**Option B — Business founder writes growth brief first:**
+**Option B — Product-discovery writes growth brief first:**
 
 Use this ONLY when strategy input is genuinely needed — entering a new phase, pivoting channels based on metrics, or the investor asks for a strategic assessment before execution:
 
-> Dispatch with `subagent_type: "saas-startup-team:business-founder"`.
+> Dispatch product-discovery (`skills/product-discovery`).
 >
 > **New task: Write growth brief for the growth hacker.**
 >
@@ -307,12 +301,12 @@ Then dispatch the growth agent per Option A, referencing the brief as additional
 When a growth report flags an urgent issue or a product change needed:
 
 1. Read the growth report
-2. Dispatch business founder to write a feature handoff to tech founder
+2. Dispatch product-discovery to write a feature handoff to implementer
 3. This enters the normal build track loop
 
-### Growth-to-Ads delegation (automatic)
+### Growth-to-Ads delegation (automatic; no `/ads` command)
 
-When a growth report contains a `## Google Ads request` block, the growth hacker has flagged Google Ads work it must NOT do itself (the `google-ads-strategist` plugin is a hard dependency for Google Ads). Delegate it at the team-lead level — do not have the growth hacker spawn anything (no nested subagents).
+When a growth report contains a `## Google Ads request` block, growth has flagged Google Ads work it must NOT do itself (the `google-ads-strategist` plugin is a hard dependency for Google Ads). Delegate it at the team-lead level — do not have the growth hacker spawn anything (no nested subagents).
 
 1. Read the `## Google Ads request` block (it carries product, ICP, goals (target CPA/ROAS, primary conversion), approved budget cap, brand, final-URL template, and a campaign slug).
 2. Reset `active_role` (defensive, matches `/lawyer`):
@@ -330,19 +324,19 @@ When a growth report contains a `## Google Ads request` block, the growth hacker
 
 ### Relay pattern
 
-Same as the build track: relay growth briefs and reports between business founder and growth agent with self-contained messages. Never assume either agent remembers prior context.
+Same as the build track: relay growth briefs and reports between product-discovery and growth agent with self-contained messages. Never assume either agent remembers prior context.
 
 ## Step 5: Parallel Operation
 
-The growth track and build track run as independent loops. They interact only through the business founder:
+The growth track and build track run as independent loops. They interact only through the product-discovery:
 
-- **Growth → Build**: Growth report recommends a product change → business founder writes build handoff
-- **Build → Growth**: Tech founder ships a feature → business founder writes growth brief to promote it
+- **Growth → Build**: Growth report recommends a product change → product-discovery writes build handoff
+- **Build → Growth**: Tech founder ships a feature → product-discovery writes growth brief to promote it
 
 Both tracks can have agents running simultaneously (separate Task tool spawns).
 
 ## Communication to Investor
 
 - Growth progress updates: **English**
-- Business founder strategy: **Estonian** (to investor)
+- Product-discovery strategy: **Estonian** (to investor)
 - Growth agent reporting: **English**

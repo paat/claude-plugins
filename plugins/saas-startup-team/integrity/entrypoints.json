@@ -6,17 +6,6 @@
   "generated_marker": "GENERATED-ALIAS: do not edit",
   "entrypoints": [
     {
-      "name": "ads",
-      "command_file": "commands/ads.md",
-      "aliases": [
-        "/saas-startup-team:ads",
-        "/ads"
-      ],
-      "codex_skill": "saas-startup-team-ads-workflow",
-      "generate_alias": true,
-      "transitional": true
-    },
-    {
       "name": "bootstrap",
       "command_file": "commands/bootstrap.md",
       "aliases": [

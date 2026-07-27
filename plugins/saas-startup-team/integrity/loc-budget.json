@@ -32,21 +32,21 @@
       "baseline": 1532,
       "release_target": 300,
       "hard_ceiling": 400,
-      "current_ratchet": 1532,
+      "current_ratchet": 317,
       "unit": "loc"
     },
     "runtime_prompt_surface_loc": {
       "baseline": 10137,
       "release_target": 4500,
       "hard_ceiling": 5000,
-      "current_ratchet": 9237,
+      "current_ratchet": 7862,
       "unit": "loc"
     },
     "total_md_sh_excl_tests_docs": {
       "baseline": 36612,
       "release_target": 18000,
       "hard_ceiling": 20000,
-      "current_ratchet": 35062,
+      "current_ratchet": 33694,
       "unit": "loc",
       "baseline_clean_tree": 36599,
       "baseline_note": "Epic #380 listed 36612; clean git tree at baseline_commit measures 36599 (epic figure included untracked root CLAUDE.md, 13 LOC). CI golden for 0.90.11 reproduction is baseline_clean_tree."

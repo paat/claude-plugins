@@ -23,7 +23,7 @@ test_delivery_routing() {
   assert_file_contains "DR2c: wrapper delegates to the shared launcher" "$wrapper" 'codex-run-role.sh'
   assert_file_not_contains "DR2d: wrapper never launches Codex directly" "$wrapper" 'codex exec'
   assert_file_contains "DR2f: growth handoffs prohibit fixed checkout roots" \
-    "$PLUGIN_ROOT/agents/growth-hacker.md" \
+    "$PLUGIN_ROOT/skills/growth/SKILL.md" \
     'NEVER.*fixed checkout root such as `/workspace`'
   assert_file_not_contains "DR2h: startup orchestration has no direct implementation bypass" \
     "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" \
@@ -549,7 +549,7 @@ SH
   assert_file_contains "DR25f0c: business role asks only material blockers" \
     "$repo/business-prompt.txt" 'Ask only when a missing choice would materially change'
 
-  for artifact_role in growth-hacker lawyer ux-tester incident-investigator session-replay support-triage; do
+  for artifact_role in growth lawyer ux-review incident-investigator session-replay support-triage; do
     : > "$calls"; : > "$events"
     (cd "$repo" && PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" \
       FAKE_CODEX_PROMPT="$repo/$artifact_role-prompt.txt" SAAS_AGENT_EVENTS_FILE="$events" \
@@ -838,7 +838,7 @@ PY
   assert_file_contains "DR44: improve loads shared routing/event contract" "$PLUGIN_ROOT/references/deliver/graph.md" 'routing-telemetry.md'
   assert_file_contains "DR45: improve uses pinned separate-role launcher" "$PLUGIN_ROOT/references/deliver/graph.md" 'codex-run-role.sh --role tech-founder'
   assert_file_contains "DR46: maintain cheap triage is a registered role" "$refs/maintain.md" 'saas-startup-team:maintain-triage'
-  assert_file_contains "DR47: maintain uncertainty escalates to Fable role" "$refs/maintain.md" 'saas-startup-team:business-founder-maintain'
+  assert_file_contains "DR47: maintain uncertainty escalates to product-acceptance" "$refs/maintain.md" 'skills/product-acceptance'
   assert_file_contains "DR48: embedded goal preserves attempt escalation evidence" \
     "$refs/goal-deliver-maintain-receipts.md" 'issue-<N>-attempt-<A>.json'
   assert_file_contains "DR49: startup routes handoffs semantically" "$PLUGIN_ROOT/commands/startup.md" 'delivery-route.sh classify --mode autonomous'

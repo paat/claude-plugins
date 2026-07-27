@@ -7,13 +7,13 @@ transitional: true
 
 # /ux-test — On-Demand UX Audit
 
-The human investor requests a UX audit of the product. You spawn the UX Tester agent to evaluate usability, accessibility, visual consistency, and responsive design.
+The investor requests a UX audit. Load the **ux-review** capability and run it as an independent worker (not the implementer).
 
-**The UX Tester is a one-shot consultant, NOT a loop participant.** It spawns, does its audit, writes to `docs/ux/ux-*.md`, and exits.
+**ux-review is a one-shot capability, not a loop participant.** It audits, writes `docs/ux/ux-*.md`, and exits.
 
 ## Pre-Flight Checks
 
-Before spawning the UX Tester agent, all checks must pass. Diagnose and repair an
+Before spawning the ux-review agent, all checks must pass. Diagnose and repair an
 in-scope failed check before stopping.
 
 ### Check 1: Dev server is reachable
@@ -33,7 +33,7 @@ local replacement below.
 2. If the repository or dev container owns the cause, attempt only reversible runtime
    recovery that does not modify tracked product source: use its documented setup and
    start/restart commands once, then inspect bounded startup logs and retry.
-3. Follow `skills/ux-tester/references/design-review-leg.md` §Pre-merge design-review
+3. Follow `skills/ux-review/references/design-review-leg.md` §Pre-merge design-review
    leg for exact-checkout baseline/candidate localhost serving and cleanup.
 4. If reaching the route requires a tracked-source change, record it as an audit finding.
    Only a parent delivery workflow may route that fix through implementation, regression
@@ -64,7 +64,7 @@ Test that browser tools are accessible by checking for the `mcp__plugin_saas-sta
 
 ### Step 0: Reset active_role
 
-Overwrite `active_role` in `.startup/state.json` before spawning the UX Tester. The `enforce-delegation` hook fires only when `active_role=="team-lead"`; a stale value from a prior `/startup` session would otherwise block the UX Tester's writes. `/ux-test` is never a team-lead context.
+Overwrite `active_role` in `.startup/state.json` before spawning the ux-review. The `enforce-delegation` hook fires only when `active_role=="team-lead"`; a stale value from a prior `/startup` session would otherwise block the ux-review's writes. `/ux-test` is never a team-lead context.
 
 ```bash
 if [ -f .startup/state.json ]; then
@@ -73,26 +73,27 @@ if [ -f .startup/state.json ]; then
 fi
 ```
 
-### Step 1: Load UX Tester Skill
+### Step 1: Load ux-review Skill
 
 ```
-Skill('saas-startup-team:ux-tester')
+Skill('saas-startup-team:ux-review')
 ```
 
 ### Step 2: Gather Project Context
 
-Read the following files to build context for the UX Tester:
+Read the following files to build context for the ux-review:
 1. `docs/business/brief.md` — what SaaS is being built, target users
 2. `.startup/state.json` — current project phase and iteration
 3. `docs/architecture/architecture.md` — tech stack, service URLs
 4. Latest handoff in `.startup/handoffs/` — current state of implementation
 5. Any affected `.startup/workflows/WORKFLOW-*.md` specs — QA cases and expected state transitions
 
-### Step 3: Spawn UX Tester Agent
+### Step 3: Run Independent UX Review
 
-Use `Task` with `subagent_type: "saas-startup-team:ux-tester"` to spawn the UX Tester as a one-shot agent:
+Claude: generic Task/Agent with `skills/ux-review` loaded. Codex: Skill in session.
+Never the same worker that implemented the code under test.
 
-Pass the following to the UX Tester agent:
+Pass:
 - The target URL to audit (from command arguments or architecture.md)
 - Project context summary (from Step 2)
 - Tech stack information (from architecture.md)
@@ -105,25 +106,13 @@ Pass the following to the UX Tester agent:
 
 ### Step 4: Report to Investor
 
-After the UX Tester completes, summarize the findings for the investor:
+After the ux-review completes, summarize the findings for the investor:
 
 1. **Severity overview** — how many Critical, Major, Minor, Enhancement findings
 2. **Top issues** — list the Critical and Major findings with one-line descriptions
 3. **Where to find the full audit** — file paths for `docs/ux/ux-*.md`
 
-### Step 5: Create Actionable Items for Founders
+### Step 5: Route Findings
 
-As team lead, translate UX findings into work items for the founders. Group findings into max-2-feature handoff items:
-
-**For Tech Founder (code fixes):**
-- Accessibility violations (missing ARIA, contrast fixes, keyboard navigation)
-- Responsive design bugs (overflow, layout breaks, touch targets)
-- Missing interaction states (loading, error, empty, hover, focus)
-- Visual consistency fixes (normalize colors, typography, spacing)
-
-**For Business Founder (UX research follow-ups):**
-- Unclear user flows that need competitive research
-- Content and copy issues that need user perspective
-- Feature gaps identified during the audit that need requirements definition
-
-Write these as structured messages ready to relay to founders via the normal handoff protocol. Do NOT create handoff files directly — the team lead creates handoffs, not the command.
+Map Critical/Major findings to deliver units (code/a11y/responsive) or product-discovery
+briefs (flows/copy/feature gaps). Do not invent handoffs from this command alone.

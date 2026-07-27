@@ -131,9 +131,9 @@ Each pass:
       `${CLAUDE_PLUGIN_ROOT}/references/workflows/mutation-ownership.md`. After return,
       run the lessons firewall before the canonical check and thin commit.
       - **Claude Code surface:** dispatch
-        `subagent_type: "saas-startup-team:tech-founder-claude-maintain"`
+        deliver Build (`skills/deliver` + `skills/tech-founder`); Claude: Task/Agent; Codex: codex-run-role tech-founder
         (Claude/Opus; the tribunal supplies the independent/Codex review).
-      - **Codex surface:** do not invoke Claude Code or route to `tech-founder-claude*`.
+      - **Codex surface:** do not invent removed Claude persona agents.
         For a current-session role phase, load and use the `tech-founder` skill. A separate worker
         must use `scripts/codex-run-role.sh --role tech-founder --profile "$PROFILE"`
         with a task file.

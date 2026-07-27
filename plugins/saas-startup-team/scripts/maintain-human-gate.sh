@@ -240,7 +240,7 @@ fi
 # Closed definition (#1647 / #1668): direct needs-human park is only
 # spend/payment disposition or credentials/access the agent must not invent.
 # Legal / customer-communication judgment and production sign-off go to Fable
-# (business-founder-maintain) first — Fable documents the decision in a GH
+# (product-acceptance) first — Fable documents the decision in a GH
 # comment with marker <!-- fable:decision:N -->, then may park or de-gate.
 # Ordinary engineering never parks. Prefer --reason-kind; free-text is a
 # fail-closed backstop when kind is other/empty.

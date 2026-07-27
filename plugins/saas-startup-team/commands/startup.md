@@ -139,7 +139,7 @@ Initialize `state.json`:
   "iteration": 0,
   "max_iterations": 20,
   "phase": "research",
-  "active_role": "business-founder",
+  "active_role": "product-discovery",
   "status": "active",
   "started": "<current ISO timestamp>",
   "archived_through": 0,
@@ -149,7 +149,7 @@ Initialize `state.json`:
 
 `schema_version: 2` opts in to the compaction system: old `handoff_NNN_*` keys get archived to `.startup/state-archive.json` automatically once the inline window (last 10 handoffs by default) is exceeded. See the State Management section of each founder agent for the full list of keys allowed inline — anything outside the allowlist is eligible for archival.
 
-**Never write `active_role: "team-lead"`.** The orchestrator (you) is implicit, not a tracked role. `active_role` must always name the next acting founder/agent — `business-founder`, `tech-founder`, `lawyer`, `ux-tester`, `growth-hacker`, or the `-maintain` variants. Writing `team-lead` triggers `enforce-delegation` on subsequent edits during `/improve`, `/lawyer`, `/ux-test`, and `/growth`, derailing those flows.
+**Never write `active_role: "team-lead"`.** Prefer capability skills over role state. If a host still mutates optional state, valid labels are capability names (`product-discovery`, `product-acceptance`, `tech-founder`, `lawyer`, `ux-review`, `growth`) — never `team-lead` (breaks `enforce-delegation`).
 
 Write `docs/business/brief.md` using the user's SaaS idea description (skip if `/bootstrap` already created it).
 
@@ -235,43 +235,45 @@ Append started/terminal events around the initial Fable/high business phase and 
 Opus/xhigh architecture phase. A separate Codex architecture launch records itself;
 record any Sonnet/medium controller phase separately and never credit it with code edits.
 
-1. **Business Founder** — spawn via Task tool with `subagent_type: "saas-startup-team:business-founder"`:
-   - Task: Read `brief.md`, research the market (web + Reddit + browser), break the idea into features, write the first handoff to tech founder
-   - Has web access, browser access, research tools
+1. **Product discovery** — load `skills/product-discovery/SKILL.md`. Independent worker
+   (Claude: generic Task/Agent with skill; Codex: Skill or `codex-run-role.sh --role product-discovery`).
+   Task: Read `brief.md`, gather only market evidence that changes Done, break into features,
+   write first implementation brief. Not a persona agent.
 
-2. **Tech Founder** — on Claude Code, spawn via Task tool with `subagent_type: "saas-startup-team:tech-founder-claude"` for this architecture-planning phase. For later implementation handoffs, choose exactly one registered type: `saas-startup-team:tech-founder-claude` or `saas-startup-team:tech-founder-codex`.
-   - **Claude Code surface:** pick the engine per **"1c. Choosing the implementation engine"** in the startup-orchestration skill. This initial spawn is architecture planning → default to the Claude engine.
-   - **Codex surface:** do not route to `tech-founder-claude*` or invoke Claude Code primitives. Run the tech-founder role in the current session using the `tech-founder` skill, or use `scripts/codex-run-role.sh` with the classified profile and a task file for a separate worker.
-   - Task: Read `docs/business/brief.md` to understand the product vision. Plan preliminary architecture ideas and write initial thoughts to `docs/architecture/architecture.md`. Do NOT start implementing until you receive a handoff from the business founder. Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
-   - Has code tools only, no web access
+2. **Architecture / implementer** — load `skills/tech-founder` + deliver
+   (`SAAS_DELIVER_ENTRYPOINT=startup-impl`). Claude: generic Task/Agent. Codex:
+   `codex-run-role.sh --role tech-founder --profile deep` (or nested
+   `tech-founder-codex` until #387). Plan architecture in `docs/architecture/architecture.md`
+   before implementing from a brief. No removed Claude founder personas.
 
-The initial architecture phase is `PROFILE=deep`; it contains product and architecture
-judgment. On Codex, a separate process uses `codex-run-role.sh --role tech-founder
---profile deep` with a task file. Do not downgrade this phase.
+The initial architecture phase is `PROFILE=deep`. Do not downgrade this phase.
 
 **IMPORTANT: Do NOT use TeamCreate.** Agent Teams persistent teammates cannot be terminated once spawned. Use the Task tool for ALL agent dispatches — initial and subsequent. Each Task agent exits cleanly when done.
 
 ## Step 4: Start the Loop
 
-Send the initial message to the business founder:
+Send the initial product-discovery task:
 
 > Read `docs/business/brief.md`. This is our investor's SaaS idea. Your job:
 > 1. Research the market, competition, and customer pain points (save to `docs/research/` in Estonian)
 > 2. Research similar solutions in other countries — extract features, UX patterns, and pricing from international competitors (save to `docs/research/rahvusvaheline-analuus.md`)
 > 3. Check Estonian legal requirements for this type of business
 > 4. Break the idea into prioritized features
-> 5. Describe proposed workflow-spec deltas for non-trivial routes, jobs, state machines, payments, onboarding, support intake, or operator workflows in the handoff. The tech founder writes the specs.
-> 6. Write the first handoff to tech founder: `.startup/handoffs/001-business-to-tech.md`.
+> 5. Describe proposed workflow-spec deltas for non-trivial routes, jobs, state machines, payments, onboarding, support intake, or operator workflows in the handoff. The implementer writes the specs.
+> 6. Write the first handoff to implementer: `.startup/handoffs/001-business-to-tech.md`.
 > 7. Add any human-only tasks to `docs/human-tasks.md`
-> 8. After writing the handoff, send a message to the team lead: "Handoff 001 ready for tech founder." The supervisor updates state.
+> 8. After writing the handoff, send a message to the team lead: "Handoff 001 ready for implementer." The supervisor updates state.
 >
 > Handoff and brief templates are at `${CLAUDE_PLUGIN_ROOT}/templates/`.
 
 ## Step 5: Relay Handoffs Between Founders
 
-**This is your core loop responsibility.** When a founder signals "Handoff NNN ready for [other founder]", you MUST relay it with an explicit, self-contained task message. The receiving founder's context accumulates across iterations — they may have auto-compacted and lost earlier details. Every relay message must be complete enough to act on WITHOUT relying on prior conversation history.
+**Core loop.** When a capability worker signals a handoff ready for the next phase,
+relay with an explicit self-contained task message. Every relay must be complete without
+prior conversation history.
 
-**NEVER write handoffs yourself.** The team lead is an orchestrator, not a founder. Even when the investor gives specific technical instructions, ALWAYS route them through the appropriate founder. The business founder has accumulated product context (UX patterns, competitor analysis, Estonian nuances, edge cases from browser testing) that the team lead does not have. Pass investor instructions to the business founder and let them write the handoff — they will enrich it with context you lack.
+**NEVER write handoffs yourself.** Route product briefs through product-discovery and
+implementation through deliver; product-acceptance is independent of the implementer.
 
 ### Agent Lifecycle — Always Fresh, Right-Sized
 
@@ -302,13 +304,11 @@ persisted in the owner file.
 
 **Do NOT use TeamCreate for relays.** TeamCreate spawns persistent teammates that cannot be dismissed — they accumulate as zombie processes eating ~500MB each. Use the **Task tool** which spawns one-shot agents that exit cleanly when done.
 
-**Fresh spawn via Task tool** — select the exact registered type for the role:
-`saas-startup-team:business-founder`, `saas-startup-team:tech-founder-claude`, or
-`saas-startup-team:tech-founder-codex`. Pass all of the following in the Task prompt:
-- The agent's role identity: "You are the {role} of an Estonian SaaS startup. You speak {language}."
-- The full relay message (same self-contained message you'd send to a persistent teammate)
-- The token-frugality instruction: read only what the task needs, in targeted ranges (not whole-file dumps), and never re-read content already in context
-- Instruction: "After completing your work and writing the handoff/review/signoff file, report back with a summary of what you did and the filename."
+**Fresh worker** — load the capability skill for the phase (`product-discovery`,
+deliver/`tech-founder`, `product-acceptance`). Claude: generic Task/Agent + skill path.
+Codex: Skill or `codex-run-role.sh`. Nested `tech-founder-codex*` only until #387.
+Pass: full self-contained task, skill name, token-frugality, and required output path.
+No founder persona identity, colors, or prescribed dialogue.
 
 Every Claude dispatch gets a privacy-safe started and terminal event using the actual
 registered model/effort and the current semantic profile. After each supervisor check,
@@ -340,7 +340,7 @@ The Stop hook recognizes the yield two ways: a `ScheduleWakeup` PostToolUse hook
 
 **NEVER micro-delegate.** Do NOT spawn separate agents for each individual fix. Bundle all fixes from a review into a single agent dispatch. If a task doesn't produce a file (handoff, review, signoff, or doc), it shouldn't be a separate agent — fold it into the next real task.
 
-### When Business Founder signals "Handoff NNN ready for tech founder":
+### When product-discovery signals "Handoff NNN ready for implementer":
 
 Implementation resolves to deliver (`skills/deliver/SKILL.md`,
 `SAAS_DELIVER_ENTRYPOINT=startup-impl`). The supervisor updates `.startup/state.json`
@@ -355,15 +355,15 @@ run diff containment before the canonical check and commit.
 > Execution profile: `{PROFILE}`. A Codex controller must pass this exact profile to
 > `scripts/codex-implement.sh`; a separate Codex role uses `codex-run-role.sh`.
 > Read `.startup/handoffs/NNN-business-to-tech.md` for full requirements.
-> Read affected `.startup/workflows/WORKFLOW-*.md` files. Implement any proposed workflow-spec delta from the handoff; the tech founder is the spec writer.
+> Read affected `.startup/workflows/WORKFLOW-*.md` files. Implement any proposed workflow-spec delta from the handoff; the implementer is the spec writer.
 > Read `.startup/state.json` for current iteration and phase.
 > Check `docs/architecture/architecture.md` for your previous architecture decisions.
 > Implement the features, then write your handoff to `.startup/handoffs/{NNN+1}-tech-to-business.md`.
 > In your handoff, list affected workflow spec files and any route/job/state/handoff-contract changes you made.
 > Set 10s timeouts on all HTTP calls. If a service is unreachable after 3 retries, document the failure and move on.
-> After writing the handoff, message the team lead: "Handoff {NNN+1} ready for business founder."
+> After writing the handoff, message the team lead: "Handoff {NNN+1} ready for product-acceptance."
 
-### When Tech Founder signals "Handoff NNN ready for business founder":
+### When implementer signals "Handoff NNN ready for product-acceptance":
 
 Before QA, the supervisor commits the exact implementation diff after deterministic
 checks, then opens a review-only mutation window:
@@ -381,8 +381,8 @@ QA_REVIEW=".startup/reviews/handoff-${handoff_number}-${run_id}.md"
 ```
 
 If the gate fails, do not dispatch QA. Otherwise update state as supervisor, read the
-handoff to extract the localhost URL and port, then send to business founder with
-`subagent_type: "saas-startup-team:business-founder"`:
+handoff to extract the localhost URL and port, then run **product-acceptance**
+(`skills/product-acceptance/SKILL.md`) as an **independent** worker — never the implementer:
 
 Before that QA dispatch, the supervisor must replay `index-handoff.sh` for the verified
 tech handoff and run `compact-state.sh`; guarded PostToolUse hooks deliberately deferred
@@ -401,10 +401,8 @@ both operations.
 > tests, workflow specs, or state.
 
 Immediately after the reviewer returns, read the verdict. On `FAIL`, dispatch a fresh
-business-founder brief phase to turn the review into the next business-to-tech feedback
-handoff; that separate phase may write only the exact brief/handoff with proposed
-workflow-spec deltas. On `PASS`, the
-supervisor mechanically materializes the roundtrip signoff from the verified PASS review,
+product-discovery brief phase for the next implementation brief only. On `PASS`, the
+supervisor materializes the roundtrip signoff from the verified PASS review,
 updates supervisor-owned state, and releases the relay lease.
 
 Append one authoritative terminal handoff event only after the implementation commit,
@@ -413,26 +411,30 @@ session receives an explicit terminal outcome; a worker process exit is not comp
 
 ### After Roundtrip Signoff
 
-When the verified business-founder review is PASS and the supervisor has materialized the
+When the verified product-acceptance review is PASS and the supervisor has materialized the
 roundtrip signoff:
 1. Announce the signoff result to the investor (brief one-liner)
-2. **Immediately dispatch the business founder** to write the next feature handoff — do NOT wait for investor input
-3. The business founder should read their research docs and the brief to decide the next priority feature
-4. Only pause the loop if iteration limit is approaching or the business founder signals solution signoff
+2. **Immediately dispatch product-discovery** for the next feature brief — do NOT wait for investor input
+3. Use existing research and the brief to pick the next priority feature (no unconditional full re-research)
+4. Only pause if iteration limit approaches or product-acceptance writes solution signoff
 
 Every next-feature dispatch follows the paused-worker flow in `mutation-ownership.md`.
 
 ### Why explicit relay matters
 
-Every relay spawns a **fresh agent** with an empty context window — the founder has no memory of prior handoffs or messages. The relay message must therefore contain ALL information the founder needs to act: file paths, state references, and behavioral reminders. State lives in the handoff files and `.startup/state.json`, never in conversational memory.
+Every relay uses a **fresh worker** with empty context — include all paths and reminders
+in the message. State lives in handoff files and optional `.startup/state.json`, never
+conversational memory.
 
 ## Loop Control
 
-The loop continues until the business founder writes `.startup/go-live/solution-signoff.md`. The Stop hook enforces this after iteration 2+ — earlier iterations allow free exit for testing.
+Continue until product-acceptance writes `.startup/go-live/solution-signoff.md`. The Stop
+hook enforces this after iteration 2+.
 
-**Iteration limit**: If `state.json` iteration reaches `max_iterations` (default: 20), alert the human investor and ask whether to continue or wrap up.
+**Iteration limit**: If `state.json` iteration reaches `max_iterations` (default: 20),
+alert the investor.
 
-**Deadlock handling**: If either founder sends you a message saying they're stuck, escalate to the human investor with context about the deadlock.
+**Deadlock handling**: escalate stuck capability workers to the investor with context.
 
 ## Communication to Investor
 

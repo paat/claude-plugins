@@ -58,12 +58,11 @@ unmutated `improve/${slug}` branch; release the lease.
 **Preflight extras:** architecture doc `docs/architecture/architecture.md` should exist
 for stack/URLs; warn if missing.
 
-**Build:** standard founder-optional path. Prefer host-native workers over personas.
-If the host still registers maintain agents, optional types are
-`saas-startup-team:business-founder-maintain` (brief/QA) and
-`saas-startup-team:tech-founder-claude-maintain` /
-`saas-startup-team:tech-founder-codex-maintain` (implement). Codex uses
-`codex-run-role.sh --role tech-founder --profile "$PROFILE"`.
+**Build:** host-native implementation worker + capability skills. Load
+`skills/tech-founder` standards under deliver Build. Optional discovery/acceptance:
+`skills/product-discovery`, `skills/product-acceptance` (independent of implementer).
+Claude: Task/Agent. Codex: `codex-run-role.sh --role tech-founder --profile "$PROFILE"`.
+Nested `tech-founder-codex*` controllers may remain until #387.
 
 **Commit:**
 

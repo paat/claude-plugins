@@ -13,3 +13,5 @@ irreversible-release invariants). Set `SAAS_DELIVER_ENTRYPOINT` and load
 `../../references/deliver/entrypoints.md`. Light/tweak: `../../references/deliver/light-path.md`.
 Multi-unit: `../../references/deliver/multi-unit.md`. Maintain embed:
 `../../references/workflows/goal-deliver-maintain-receipts.md`.
+
+Canonical path: `skills/deliver/SKILL.md`.

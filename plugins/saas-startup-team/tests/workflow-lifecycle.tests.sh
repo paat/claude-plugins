@@ -21,7 +21,7 @@ test_workflow_lifecycle_safety() {
   maintain_attempt="$PLUGIN_ROOT/scripts/maintain-attempt.sh"
   maintain_escalation="$PLUGIN_ROOT/scripts/maintain-escalation.sh"
   mutation_ownership="$PLUGIN_ROOT/references/workflows/mutation-ownership.md"
-  design_review="$PLUGIN_ROOT/skills/ux-tester/references/design-review-leg.md"
+  design_review="$PLUGIN_ROOT/skills/ux-review/references/design-review-leg.md"
   startup="$PLUGIN_ROOT/commands/startup.md"
   improve="$PLUGIN_ROOT/references/deliver/graph.md"
   lessons="$PLUGIN_ROOT/commands/lessons-deliver.md"

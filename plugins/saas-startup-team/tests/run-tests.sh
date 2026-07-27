@@ -378,13 +378,13 @@ test_templates() {
   assert_file_contains "D10f: return handoff quarantines adjacent findings" \
     "$tmpl_dir/handoff-tech-to-business.md" "### Not Addressed"
   assert_file_contains "D10g: Claude build role loads shared scope contract" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "templates/delivery-scope-contract.md"
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "templates/delivery-scope-contract.md"
   assert_file_contains "D10g1: Claude architecture planning applies shared scope" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "Before architecture planning or implementation"
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "Before architecture planning or implementation"
   assert_file_contains "D10h: Claude maintenance role loads shared scope contract" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md" "templates/delivery-scope-contract.md"
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "templates/delivery-scope-contract.md"
   assert_file_contains "D10h1: Claude maintenance planning applies shared scope" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md" "Before architecture planning or implementation"
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "Before architecture planning or implementation"
   assert_file_contains "D10i: Codex-native tech skill loads shared scope contract" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "../../templates/delivery-scope-contract.md"
   assert_file_contains "D10i1: Codex-native architecture planning applies shared scope" \
@@ -407,9 +407,9 @@ test_templates() {
     "$PLUGIN_ROOT/skills/tech-founder/references/architecture.md" \
     "one deployable application, one primary datastore"
   assert_file_contains "D10l: maintenance founder writes explicit brief scope" \
-    "$PLUGIN_ROOT/agents/business-founder-maintain.md" '`Done`, `Preserve`, and `Out of Scope`'
+    "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" '`Done`, `Preserve`, and `Out of Scope`'
   assert_file_contains "D10m: Codex-native founder writes explicit brief scope" \
-    "$PLUGIN_ROOT/skills/business-founder/SKILL.md" '`Done`, `Preserve`, and `Out of Scope`'
+    "$PLUGIN_ROOT/skills/product-discovery/SKILL.md" '`Done`, `Preserve`, and `Out of Scope`'
   assert_file_contains "D10n: quality gate distinguishes unrelated failures" \
     "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" \
     "Report unrelated or pre-existing failures as blockers"
@@ -440,11 +440,11 @@ test_templates() {
   assert_file_not_contains "D10p7: implement contract has no Direct Feature Planning section" \
     "$tmpl_dir/delivery-scope-contract.md" "Direct Feature Planning"
   assert_file_contains "D10q: Claude business founder loads shared scope" \
-    "$PLUGIN_ROOT/agents/business-founder.md" "templates/delivery-scope-contract.md"
+    "$PLUGIN_ROOT/skills/product-discovery/SKILL.md" "templates/delivery-scope-contract.md"
   assert_file_contains "D10q1: Claude maintenance founder loads shared scope" \
-    "$PLUGIN_ROOT/agents/business-founder-maintain.md" "templates/delivery-scope-contract.md"
+    "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" "templates/delivery-scope-contract.md"
   assert_file_contains "D10q2: Codex-native business skill loads shared scope" \
-    "$PLUGIN_ROOT/skills/business-founder/SKILL.md" "../../templates/delivery-scope-contract.md"
+    "$PLUGIN_ROOT/skills/product-discovery/SKILL.md" "../../templates/delivery-scope-contract.md"
   assert_file_contains "D10q3: orchestration scopes direct planning before expansion" \
     "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" "before role or research expansion"
   assert_file_contains "D10q4: goal delivery defaults to its primary planner" \
@@ -474,9 +474,9 @@ test_templates() {
   assert_file_contains "D10q6j: SessionStart hook ensures principles" \
     "$PLUGIN_ROOT/hooks/hooks.json" "ensure-engineering-principles.sh"
   assert_file_contains "D10q7: Claude tech gate points at brief acceptance" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "brief-acceptance-gate.md"
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "brief-acceptance-gate.md"
   assert_file_contains "D10q8: maintenance tech gate points at brief acceptance" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md" "brief-acceptance-gate.md"
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "brief-acceptance-gate.md"
   assert_file_contains "D10q9: Codex-native tech skill points at brief acceptance" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "brief-acceptance-gate.md"
   assert_file_contains "D10q9b: brief acceptance accepts direct request evidence" \
@@ -869,7 +869,7 @@ test_startup_init() {
   "iteration": 0,
   "max_iterations": 20,
   "phase": "research",
-  "active_role": "business-founder",
+  "active_role": "product-discovery",
   "status": "active",
   "started": "2026-02-23T10:00:00Z"
 }
@@ -897,7 +897,7 @@ EOF
   assert_json_field "G7: iteration is 0" "$workdir/.startup/state.json" ".iteration" "0"
   assert_json_field "G8: max_iterations is 20" "$workdir/.startup/state.json" ".max_iterations" "20"
   assert_json_field "G9: phase is research" "$workdir/.startup/state.json" ".phase" "research"
-  assert_json_field "G10: active_role is business-founder" "$workdir/.startup/state.json" ".active_role" "business-founder"
+  assert_json_field "G10: active_role capability label" "$workdir/.startup/state.json" ".active_role" "product-discovery"
   assert_json_field "G11: status is active" "$workdir/.startup/state.json" ".status" "active"
 
   # G12: started field exists
@@ -952,19 +952,13 @@ test_cross_file_consistency() {
   assert_file_exists "H1: Stop hook script exists" "$PLUGIN_ROOT/$stop_script"
   assert_file_exists "H2: PreToolUse handoff hook script exists" "$PLUGIN_ROOT/$handoff_script"
 
-  # H3-H4: Agent names in agents/*.md match the role tokens the handoff/dispatch
-  # conventions key on (business-founder, tech-founder* for both engines).
-  local biz_name tech_claude_name tech_codex_name
-  biz_name=$(grep '^name:' "$PLUGIN_ROOT/agents/business-founder.md" | head -1 | sed 's/^name: *//')
-  tech_claude_name=$(grep '^name:' "$PLUGIN_ROOT/agents/tech-founder-claude.md" | head -1 | sed 's/^name: *//')
+  # H3-H4: Capability skills replace founder personas (#385); codex controllers remain until #387.
+  assert_file_exists "H3: product-discovery skill" "$PLUGIN_ROOT/skills/product-discovery/SKILL.md"
+  assert_file_exists "H4a: tech-founder standards skill" "$PLUGIN_ROOT/skills/tech-founder/SKILL.md"
+  assert_file_not_exists "H4b: business-founder persona deleted" "$PLUGIN_ROOT/agents/business-founder.md"
+  assert_file_not_exists "H4c: tech-founder-claude persona deleted" "$PLUGIN_ROOT/agents/tech-founder-claude.md"
   tech_codex_name=$(grep '^name:' "$PLUGIN_ROOT/agents/tech-founder-codex.md" | head -1 | sed 's/^name: *//')
-
-  assert_equals "H3: business-founder agent name matches role token" "$biz_name" "business-founder"
-  assert_equals "H4a: tech-founder-claude agent name correct" "$tech_claude_name" "tech-founder-claude"
-  assert_equals "H4b: tech-founder-codex agent name correct" "$tech_codex_name" "tech-founder-codex"
-  # both engine names must prefix-match the tech-founder role token
-  case "$tech_claude_name" in tech-founder*) assert_equals "H4c: claude engine matches tech-founder role" "ok" "ok";; *) assert_equals "H4c: claude engine matches tech-founder role" "no" "ok";; esac
-  case "$tech_codex_name" in tech-founder*) assert_equals "H4d: codex engine matches tech-founder role" "ok" "ok";; *) assert_equals "H4d: codex engine matches tech-founder role" "no" "ok";; esac
+  assert_equals "H4d: tech-founder-codex agent name correct" "$tech_codex_name" "tech-founder-codex"
 
   # H7: Template filenames match the patterns that scripts expect
   assert_file_exists "H7: handoff-business-to-tech template exists" \
@@ -1001,19 +995,19 @@ test_cross_file_consistency() {
   assert_file_contains "H13: /lawyer resets active_role" \
     "$PLUGIN_ROOT/commands/lawyer.md" '.active_role = "lawyer"'
   assert_file_contains "H14: /ux-test resets active_role" \
-    "$PLUGIN_ROOT/commands/ux-test.md" '.active_role = "ux-tester"'
+    "$PLUGIN_ROOT/commands/ux-test.md" 'skills/ux-review'
   assert_file_contains "H14a: /ux-test repairs in-scope runtime failures" \
     "$PLUGIN_ROOT/commands/ux-test.md" 'attempt only reversible runtime'
   assert_file_contains "H14b: /ux-test can audit exact revisions locally" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'skills/ux-tester/references/design-review-leg.md'
+    "$PLUGIN_ROOT/commands/ux-test.md" 'skills/ux-review/references/design-review-leg.md'
   assert_file_contains "H14c: local UX evidence does not claim live proof" \
     "$PLUGIN_ROOT/commands/ux-test.md" 'Post-deploy visual smoke'
   assert_file_contains "H14d: direct UX repair cannot mutate tracked source" \
     "$PLUGIN_ROOT/commands/ux-test.md" 'does not modify tracked product source'
   assert_file_contains "H14e: direct UX baseline preserves the caller checkout" \
-    "$PLUGIN_ROOT/skills/ux-tester/references/design-review-leg.md" 'never switch or'
+    "$PLUGIN_ROOT/skills/ux-review/references/design-review-leg.md" 'never switch or'
   assert_file_contains "H15: /growth state update sets active_role" \
-    "$PLUGIN_ROOT/commands/growth.md" '"active_role": "business-founder"'
+    "$PLUGIN_ROOT/commands/growth.md" 'skills/growth'
 
   # H16-H17: Orchestrator is warned never to write active_role=team-lead.
   assert_file_contains "H16: startup.md warns against team-lead active_role" \
@@ -1161,7 +1155,7 @@ test_plugin_issues() {
     "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" 'scripts/issue-file.sh'
   assert_file_contains "J-gh-ref: issue funnel receives the pinned repo" \
     "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" '--repo "${SAAS_PLUGIN_REPO}"'
-  for agent in business-founder.md tech-founder-claude.md tech-founder-claude-maintain.md business-founder-maintain.md; do
+  for agent in tech-founder-codex.md tech-founder-codex-maintain.md lawyer.md; do
     assert_file_contains "J-gh: $agent references the plugin-issue-reporting doc" \
       "$PLUGIN_ROOT/agents/$agent" "templates/plugin-issue-reporting.md"
   done
@@ -2091,7 +2085,7 @@ test_maintain_loop() {
     "$goal" 'using only documented setup/start commands'
   assert_file_contains "ML16l: browser evidence loads the canonical procedure" \
     "$protocol" \
-    'skills/ux-tester/references/design-review-leg.md'
+    'skills/ux-review/references/design-review-leg.md'
   assert_file_contains "ML16m: resumable blocker preserves open PR" "$protocol" \
     'keep both intact'
   assert_file_contains "ML16o: ambiguous linked PR blocks the pass" \
@@ -2696,7 +2690,7 @@ test_delegation_enforcement_hook() {
   workdir=$(mktemp -d)
   git init -q "$workdir"
   mkdir -p "$workdir/.startup"
-  echo '{"active_role":"business-founder","iteration":2,"status":"running"}' > "$workdir/.startup/state.json"
+  echo '{"active_role":"product-discovery","iteration":2,"status":"running"}' > "$workdir/.startup/state.json"
   ec=0; output=""
   output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
   assert_exit_code "N10: exits 2 when active orchestrator edits source" "$ec" 2
@@ -3830,13 +3824,13 @@ test_canonical_entrypoint_wiring() {
   assert_file_contains "Y9: quality-standards warns about re-derived rules" \
     "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "re-derive"
   assert_file_contains "Y10: maintain agent has independent spot-check" \
-    "$PLUGIN_ROOT/agents/business-founder-maintain.md" "independent source"
+    "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" "independent source"
   assert_file_contains "Y11: build agent has independent spot-check" \
-    "$PLUGIN_ROOT/agents/business-founder.md" "independent source"
+    "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" "independent source"
   assert_file_contains "Y12: maintain agent has duplicated-rule awareness" \
-    "$PLUGIN_ROOT/agents/business-founder-maintain.md" "another layer"
+    "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" "another layer"
   assert_file_contains "Y13: build agent has duplicated-rule awareness" \
-    "$PLUGIN_ROOT/agents/business-founder.md" "another layer"
+    "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" "another layer"
   assert_file_contains "Y14: quality-standards handoff checklist names check.sh" \
     "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "check.sh"
 }
@@ -4384,13 +4378,13 @@ test_operate_workflow_registry_and_gates() {
 
   # Triggered SaaS gates across roles/templates (canonical body + pointers).
   assert_file_contains "Y23: canonical async paid-flow gate" "$PLUGIN_ROOT/references/triggered-saas-gates.md" "Async paid-flow UX gate"
-  assert_file_contains "Y23p: business founder points at triggered gates" "$PLUGIN_ROOT/agents/business-founder.md" "triggered-saas-gates.md"
-  assert_file_contains "Y24: business founder customer value unit" "$PLUGIN_ROOT/agents/business-founder.md" "customer value unit"
+  assert_file_contains "Y23p: business founder points at triggered gates" "$PLUGIN_ROOT/skills/product-discovery/SKILL.md" "triggered-saas-gates.md"
+  assert_file_contains "Y24: business founder customer value unit" "$PLUGIN_ROOT/skills/product-discovery/SKILL.md" "customer value unit"
   assert_file_contains "Y25: canonical display-label registry" "$PLUGIN_ROOT/references/triggered-saas-gates.md" "Display-label registry"
-  assert_file_contains "Y25p: tech founder points at triggered gates" "$PLUGIN_ROOT/agents/tech-founder-claude.md" "triggered-saas-gates.md"
+  assert_file_contains "Y25p: tech founder points at triggered gates" "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "triggered-saas-gates.md"
   assert_file_contains "Y26: canonical LLM gate" "$PLUGIN_ROOT/references/triggered-saas-gates.md" "LLM pipeline quality gate"
   assert_file_contains "Y27: canonical structured-result scan" "$PLUGIN_ROOT/references/triggered-saas-gates.md" "structured-result raw-value scan"
-  assert_file_contains "Y27p: UX tester points at triggered gates" "$PLUGIN_ROOT/agents/ux-tester.md" "triggered-saas-gates.md"
+  assert_file_contains "Y27p: UX tester points at triggered gates" "$PLUGIN_ROOT/skills/ux-review/SKILL.md" "triggered-saas-gates.md"
   assert_file_contains "Y28: lawyer claim taxonomy" "$PLUGIN_ROOT/agents/lawyer.md" "Compliance/Risk Product Claim Taxonomy"
   assert_file_contains "Y29: handoff template triggered gates" "$PLUGIN_ROOT/templates/handoff-business-to-tech.md" "Triggered gates"
   assert_file_contains "Y30: tech handoff template gate evidence" "$PLUGIN_ROOT/templates/handoff-tech-to-business.md" "Triggered Gate Evidence"
@@ -5358,7 +5352,7 @@ test_convergence_governor() {
   echo -e "\n${CYAN}Convergence governor integration${NC}"
   assert_output_contains "reachability convention exists" "$(cat "$PLUGIN_ROOT/skills/tech-founder/references/reachability-convention.md" 2>/dev/null)" "last-verified"
   assert_file_contains "tech-founder DoD points at maintain checklist" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md" "maintain-dod-checklist.md"
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "check.sh"
   assert_file_contains "tech-founder DoD has step-back" \
     "$PLUGIN_ROOT/references/maintain-dod-checklist.md" "Tribunal step-back"
   assert_output_contains "goal-deliver caps at 5" "$(cat "$PLUGIN_ROOT/references/deliver/multi-unit.md")" "Round 5:"
@@ -5383,21 +5377,17 @@ test_learnings_style_block() {
 }
 
 test_founder_standards_routing() {
-  echo -e "\n${CYAN}== founder prompts are tier-2 standards home ==${NC}"
-  for a in tech-founder-claude business-founder; do
-    assert_file_contains "S1:$a declares standards-vs-learnings routing" \
-      "$PLUGIN_ROOT/agents/$a.md" "Standards live here"
-    assert_file_contains "S2:$a warns off version-specific promotion" \
-      "$PLUGIN_ROOT/agents/$a.md" "docs/learnings/"
-  done
-  # ration: model-default lines removed
-  assert_file_not_contains "S3: drops model-default polished-UI guideline" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "build aesthetic, polished UI"
-  # capability constraints MUST survive (regression guard)
-  assert_file_contains "S4: tech no-web constraint survives" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "tools (you have no web access)"
-  assert_file_contains "S5: handoff-split constraint survives" \
-    "$PLUGIN_ROOT/agents/tech-founder-claude.md" "handoff with 3+ features — reject it and ask the business founder to split"
+  echo -e "\n${CYAN}== capability skills hold implementation standards (#385) ==${NC}"
+  assert_file_contains "S1: tech-founder skill is standards not persona" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "Not a founder persona"
+  assert_file_contains "S2: deliver owns technical delivery graph" \
+    "$PLUGIN_ROOT/skills/deliver/SKILL.md" "Canonical delivery"
+  assert_file_contains "S3: tech-founder points at deliver Build" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "skills/deliver"
+  assert_file_contains "S4: Brief Acceptance Gate survives" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "brief-acceptance-gate.md"
+  assert_file_contains "S5: product-discovery bounds unconditional research" \
+    "$PLUGIN_ROOT/skills/product-discovery/SKILL.md" "unconditional market research"
 }
 
 test_learnings_migrate_house_style() {
@@ -5410,11 +5400,13 @@ test_learnings_migrate_house_style() {
 }
 
 test_maintain_agents_reference_style() {
-  echo -e "\n${CYAN}== maintain agents reference house style ==${NC}"
-  for a in business-founder-maintain tech-founder-claude-maintain tech-founder-codex-maintain; do
-    assert_file_contains "N:$a references house style" \
-      "$PLUGIN_ROOT/agents/$a.md" "learnings-style.md"
-  done
+  echo -e "\n${CYAN}== maintain controllers remain thin until #387 ==${NC}"
+  assert_file_exists "N: codex maintain controller" \
+    "$PLUGIN_ROOT/agents/tech-founder-codex-maintain.md"
+  assert_file_not_exists "N: claude maintain persona deleted" \
+    "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md"
+  assert_file_contains "N: product-acceptance for maintain product verdicts" \
+    "$PLUGIN_ROOT/references/workflows/maintain.md" "skills/product-acceptance"
 }
 
 test_compress_golden_sample() {
@@ -6407,7 +6399,7 @@ test_goal_deliver() {
   assert_file_contains "T4: command loads deliver skill" "$cmd" "skills/deliver/SKILL.md"
   assert_file_contains "T5: graph references tribunal-loop" "$graph" "tribunal-loop"
   assert_file_contains "T6: graph references closing-tribunal-loop" "$graph" "closing-tribunal-loop"
-  assert_file_contains "T7: deliver does not require active_role" "$skill" "does **not** require founder personas"
+  assert_file_contains "T7: deliver does not require active_role" "$skill" "require founder personas"
   assert_file_contains "T8: warns against team-lead" "$skill" "team-lead"
   assert_file_contains "T9: documents /goal autonomy pairing" "$entry" "/goal "
   assert_file_contains "T10: monitors GitHub Actions deploy" "$multi" "gh run"
@@ -6418,32 +6410,22 @@ test_goal_deliver() {
 # ---------------------------------------------------------------------------
 
 test_ads_delegation() {
-  echo -e "\n${CYAN}Suite U: /ads command + growth→ads delegation${NC}"
-  local cmd="$PLUGIN_ROOT/commands/ads.md"
-
-  # U1–U8: the new /ads command
-  assert_file_exists "U1: ads.md exists" "$cmd"
-  assert_file_contains "U2: name frontmatter" "$cmd" "^name: ads"
-  assert_file_contains "U3: user_invocable" "$cmd" "user_invocable: true"
-  assert_file_contains "U4: spawns ads-strategist by scoped registered type" "$cmd" 'subagent_type: "google-ads-strategist:ads-strategist"'
-  assert_file_contains "U5: resets active_role" "$cmd" '.active_role ='
-  assert_file_contains "U6: creates PAUSED / investor enables" "$cmd" "PAUSED"
-  assert_file_contains "U7: hard-dependency install message" "$cmd" "google-ads-strategist"
-  # U8: must NOT use the saas read-md idiom (would resolve to the wrong plugin root)
-  assert_file_not_contains "U8: no read-md idiom for the strategist" "$cmd" 'agents/ads-strategist.md'
-
-  # U9–U11: the /growth loop auto-delegation branch
+  echo -e "\n${CYAN}Suite U: growth→ads capability (no /ads command)${NC}"
   local growth="$PLUGIN_ROOT/commands/growth.md"
-  assert_file_contains "U9: growth.md has Google Ads request branch" "$growth" "Google Ads request"
-  assert_file_contains "U10: growth loop spawns ads-strategist by scoped type" "$growth" 'subagent_type: "google-ads-strategist:ads-strategist"'
-  assert_file_not_contains "U11: growth loop uses no read-md idiom for strategist" "$growth" 'agents/ads-strategist.md'
-
-  # U12–U15: growth-hacker flags Google Ads instead of doing it
-  local gh="$PLUGIN_ROOT/agents/growth-hacker.md"
-  assert_file_contains "U12: boundary forbids designing/creating/spawning Google Ads" "$gh" "NEVER design, create, or spawn Google Ads"
-  assert_file_contains "U13: growth-hacker writes a Google Ads request flag" "$gh" "Google Ads request"
-  assert_file_contains "U14: ads.md index retains budget summary lines" "$gh" "Approved budget:"
-  assert_file_not_contains "U15: no inline 'create the Google Ads campaign in the dashboard'" "$gh" "the Google Ads campaign in the dashboard"
+  local gh="$PLUGIN_ROOT/skills/growth/SKILL.md"
+  assert_file_not_exists "U0: /ads command removed" "$PLUGIN_ROOT/commands/ads.md"
+  assert_file_not_exists "U1: ads workflow alias removed" "$PLUGIN_ROOT/skills/saas-startup-team-ads-workflow/SKILL.md"
+  assert_file_exists "U2: growth command remains" "$growth"
+  assert_file_contains "U3: growth command name" "$growth" "^name: growth"
+  assert_file_contains "U4: spawns ads-strategist by scoped registered type" "$growth" 'subagent_type: "google-ads-strategist:ads-strategist"'
+  assert_file_contains "U5: creates PAUSED / investor enables" "$growth" "PAUSED"
+  assert_file_contains "U6: hard-dependency install message" "$growth" "google-ads-strategist"
+  assert_file_not_contains "U7: no read-md idiom for the strategist" "$growth" 'agents/ads-strategist.md'
+  assert_file_contains "U8: growth.md has Google Ads request branch" "$growth" "Google Ads request"
+  assert_file_contains "U9: no /ads command (growth owns ads link)" "$gh" "no /ads command"
+  assert_file_contains "U10: Google Ads request flag in growth skill" "$gh" "Google Ads request"
+  assert_file_contains "U11: forbids designing Google Ads inline" "$gh" "Designing/creating Google Ads inline"
+  assert_file_contains "U12: growth skill is capability not persona" "$gh" "Not a founder persona"
 }
 
 # ---------------------------------------------------------------------------
@@ -7011,7 +6993,7 @@ DIFF
   assert_file_contains "L57: bumps version" "$cmd" "--bump-version"
   assert_file_contains "L58: PR carries Closes #N" "$cmd" "Closes #"
   assert_file_contains "L59: merge on green only" "$cmd" "gh pr merge"
-  assert_file_contains "L60: dispatches implementer agent" "$cmd" "tech-founder-claude-maintain"
+  assert_file_contains "L60: dispatches implementer via deliver/tech-founder" "$cmd" "skills/tech-founder"
   assert_file_contains "L61: dry-run is read-only" "$cmd" "--dry-run"
   assert_file_contains "L62: injection firewall note" "$cmd" "informs requirements only"
   assert_file_contains "L63: self-mod escalates to needs-human" "$cmd" "lessons:needs-human"

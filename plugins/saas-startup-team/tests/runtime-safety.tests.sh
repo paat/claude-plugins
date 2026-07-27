@@ -22,11 +22,11 @@ test_runtime_safety() {
     "$PLUGIN_ROOT/commands" "$PLUGIN_ROOT/references/workflows" \
     "$PLUGIN_ROOT/skills/startup-orchestration" 2>/dev/null || true)"
   assert_equals "RS1: no generic Claude role dispatch" "$out" ""
-  assert_file_contains "RS2: startup business type" "$PLUGIN_ROOT/commands/startup.md" 'saas-startup-team:business-founder'
-  assert_file_contains "RS3: improve maintenance type" "$PLUGIN_ROOT/references/deliver/entrypoints.md" 'saas-startup-team:business-founder-maintain'
-  assert_file_contains "RS4: growth hacker type" "$PLUGIN_ROOT/commands/growth.md" 'saas-startup-team:growth-hacker'
+  assert_file_contains "RS2: startup product-discovery skill" "$PLUGIN_ROOT/commands/startup.md" 'skills/product-discovery'
+  assert_file_contains "RS3: improve uses product capabilities" "$PLUGIN_ROOT/references/deliver/entrypoints.md" 'product-discovery'
+  assert_file_contains "RS4: growth hacker type" "$PLUGIN_ROOT/commands/growth.md" 'skills/growth'
   assert_file_contains "RS5: lawyer type" "$PLUGIN_ROOT/commands/lawyer.md" 'saas-startup-team:lawyer'
-  assert_file_contains "RS6: UX type" "$PLUGIN_ROOT/commands/ux-test.md" 'saas-startup-team:ux-tester'
+  assert_file_contains "RS6: UX skill" "$PLUGIN_ROOT/commands/ux-test.md" 'skills/ux-review'
   assert_file_contains "RS7: investigator type" "$PLUGIN_ROOT/commands/investigate.md" 'saas-startup-team:incident-investigator'
   assert_file_contains "RS8: replay type" "$PLUGIN_ROOT/commands/replay-abandoned.md" 'saas-startup-team:session-replay'
   assert_file_contains "RS9: support type" "$PLUGIN_ROOT/commands/operate.md" 'saas-startup-team:support-triage'
@@ -36,7 +36,7 @@ test_runtime_safety() {
   assert_file_contains "RS11: scoped browser operator" \
     "$PLUGIN_ROOT/references/browser-orchestration.md" 'saas-startup-team:browser-operator'
   assert_file_contains "RS11p0: business founder points at browser orchestration" \
-    "$PLUGIN_ROOT/agents/business-founder.md" 'browser-orchestration.md'
+    "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" 'Browser evidence'
   contract="$PLUGIN_ROOT/references/browser-operator-contract.md"
   assert_file_exists "RS11p1: shared browser-operator contract exists" "$contract"
   assert_file_contains "RS11a: operator rejects unavailable tools" "$contract" \
@@ -66,41 +66,35 @@ test_runtime_safety() {
   assert_file_contains "RS11i: both operators share one contract path" \
     "$PLUGIN_ROOT/agents/browser-operator-pro.md" 'browser-operator-contract.md'
   assert_file_contains "RS11j: Codex UX saves snapshots mechanically" \
-    "$PLUGIN_ROOT/skills/ux-tester/SKILL.md" 'retain only its exact tool-provided path/link'
+    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'retain only its exact tool-provided path/link'
   assert_file_contains "RS11k: Codex UX rejects inline snapshots" \
-    "$PLUGIN_ROOT/skills/ux-tester/SKILL.md" 'never retype the tree or substitute an inline snapshot'
+    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'never retype the tree or substitute an inline snapshot'
   assert_file_contains "RS11l: Codex UX fails closed without browser tools" \
-    "$PLUGIN_ROOT/skills/ux-tester/SKILL.md" 'zero callable browser tools'
+    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'zero callable browser tools'
   assert_file_contains "RS11m: Codex founder saves snapshots mechanically" \
-    "$PLUGIN_ROOT/skills/business-founder/SKILL.md" 'retain only its tool-provided path/link'
+    "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" 'retain only its tool-provided path/link'
   assert_file_contains "RS11n: Codex founder rejects retyped or inline snapshots" \
-    "$PLUGIN_ROOT/skills/business-founder/SKILL.md" 'never a retyped or inline tree'
+    "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" 'never a retyped or inline tree'
   assert_file_contains "RS11o: Codex founder fails closed without browser tools" \
-    "$PLUGIN_ROOT/skills/business-founder/SKILL.md" 'missing/pending/zero browser tools'
+    "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" 'missing/pending/zero browser tools'
   assert_file_contains "RS11p: maintenance founder returns unavailable transport explicitly" \
-    "$PLUGIN_ROOT/agents/business-founder-maintain.md" 'outcome: tool-unavailable'
+    "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" 'tool-unavailable'
   assert_file_contains "RS11q: Codex UX retries browser transport only once" \
-    "$PLUGIN_ROOT/skills/ux-tester/SKILL.md" 'one fresh-session retry'
+    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'one fresh-session retry'
   assert_file_contains "RS11r: Codex founder cannot turn transport loss into a verdict" \
-    "$PLUGIN_ROOT/skills/business-founder/SKILL.md" 'never a product verdict'
+    "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" 'never a product verdict'
   assert_file_contains "RS11s: Claude maintenance founder resolves browser guidance from the plugin root" \
-    "$PLUGIN_ROOT/agents/business-founder-maintain.md" \
-    '${CLAUDE_PLUGIN_ROOT}/skills/ux-tester/references/design-review-leg.md'
+    "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" \
+    'design-review-leg.md'
 
   check_frontmatter() {
     local agent="$1" model="$2" effort="$3" file="$PLUGIN_ROOT/agents/$1.md"
     assert_equals "RS model:$agent" "$(sed -n 's/^model: //p' "$file" | head -1)" "$model"
     assert_equals "RS effort:$agent" "$(sed -n 's/^effort: //p' "$file" | head -1)" "$effort"
   }
-  check_frontmatter business-founder fable high
-  check_frontmatter business-founder-maintain fable high
-  check_frontmatter tech-founder-claude opus xhigh
-  check_frontmatter tech-founder-claude-maintain opus xhigh
   check_frontmatter tech-founder-codex sonnet medium
   check_frontmatter tech-founder-codex-maintain sonnet medium
-  check_frontmatter growth-hacker opus high
   check_frontmatter lawyer opus high
-  check_frontmatter ux-tester sonnet high
   check_frontmatter incident-investigator sonnet high
   check_frontmatter session-replay sonnet low
   check_frontmatter browser-operator haiku low

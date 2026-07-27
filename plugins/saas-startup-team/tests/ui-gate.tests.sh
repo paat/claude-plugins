@@ -3,7 +3,7 @@
 test_ui_gate() {
   echo -e "\n${CYAN}Suite: UX/design live-quality gate (#203)${NC}"
   local script="$PLUGIN_ROOT/scripts/ui-touch.sh"
-  local leg="$PLUGIN_ROOT/skills/ux-tester/references/design-review-leg.md"
+  local leg="$PLUGIN_ROOT/skills/ux-review/references/design-review-leg.md"
   local policy="$PLUGIN_ROOT/templates/merge-policy.md"
   local ec range_repo odd_path
 

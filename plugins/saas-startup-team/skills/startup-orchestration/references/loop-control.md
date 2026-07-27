@@ -71,14 +71,14 @@ Each handoff implementation should fit within ~50K tokens of agent context. At 3
 
 ### Tech-founder stuck on unreachable service
 1. Instruct: "Set a 10s timeout on the HTTP call. Log the connection error. Document the failing service URL/port in your handoff under 'Known Limitations'. Add a human task for the investor to verify the service. Move to the next feature that doesn't depend on this service."
-2. If the tech-founder has already retried 3+ times: "Stop retrying. The service is unreachable. Document it and continue."
+2. If the implementer has already retried 3+ times: "Stop retrying. The service is unreachable. Document it and continue."
 
 ### Business-founder stuck on browser
-1. Check the tech-founder's latest handoff for the correct URL and port.
-2. If the URL/port is wrong or the dev server isn't running: message the tech-founder to fix and update the handoff.
-3. If the page loads but is broken: this is a normal review finding — the business-founder should document it in the feedback handoff.
+1. Check the implementer's latest handoff for the correct URL and port.
+2. If the URL/port is wrong or the dev server isn't running: message the implementer to fix and update the handoff.
+3. If the page loads but is broken: this is a normal review finding — the product-discovery should document it in the feedback handoff.
 
 ### Prevention
-- When dispatching tasks to the tech-founder, always include: "Set 10s timeouts on all HTTP calls. If a service is unreachable after 3 retries, document the failure and move on."
-- When dispatching review tasks to the business-founder, always include the correct localhost URL and port from the tech-founder's handoff.
+- When dispatching tasks to the implementer, always include: "Set 10s timeouts on all HTTP calls. If a service is unreachable after 3 retries, document the failure and move on."
+- When dispatching review tasks to the product-discovery, always include the correct localhost URL and port from the implementer's handoff.
 - Ensure `docs/architecture/architecture.md` has up-to-date service URLs and ports.

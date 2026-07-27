@@ -208,7 +208,7 @@ test_maintain_human_gate() {
     "$protocol" 'delegate-fable'
   assert_file_contains "MHG32: Fable decision comment marker" \
     "$protocol" '<!-- fable:decision:'
-  local fable_agent="$PLUGIN_ROOT/agents/business-founder-maintain.md"
+  local fable_agent="$PLUGIN_ROOT/skills/product-acceptance/SKILL.md"
   assert_file_contains "MHG33: Fable agent requires GH comment" \
     "$fable_agent" 'fable:decision:'
   assert_file_contains "MHG34: gate enforces fable-de-gated action" \
