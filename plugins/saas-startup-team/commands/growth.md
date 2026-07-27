@@ -227,7 +227,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
 Update `.startup/state.json` — READ it first, then add growth fields AND overwrite `active_role`. Resetting `active_role` is mandatory: the `enforce-delegation` hook fires only when `active_role=="team-lead"`, and a stale value from a prior `/startup` session would block the growth-track subagents' writes.
 
 If `.startup/state.json` exists, update growth fields only (`growth_lifecycle`, status, iteration).
-Do **not** treat `active_role` as delivery authority. Capability skills do not own state.
+Do not treat active_role as delivery authority; capabilities own no state.
 
 ## Step 4: Run Growth Loop
 

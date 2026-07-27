@@ -1,6 +1,6 @@
 ---
 name: tech-founder-codex
-description: Profile-pinned Codex implementation controller (nested controller retained for #387). Delegates coding via codex-implement.sh, then verifies. No web access.
+description: Profile-pinned Codex implementation controller retained until issue 387. Delegates coding via codex-implement.sh, then verifies. No web access.
 model: sonnet
 effort: medium
 tools: Bash, Read, Write, Glob, Grep

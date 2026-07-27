@@ -1,6 +1,6 @@
 ---
 name: tech-founder-codex-maintain
-description: Profile-pinned Codex maintain controller (nested controller retained for #387). Delegates coding via codex-implement.sh, then verifies.
+description: Profile-pinned Codex maintain controller retained until issue 387. Delegates coding via codex-implement.sh, then verifies.
 model: sonnet
 effort: medium
 tools: Bash, Read, Write, Glob, Grep
