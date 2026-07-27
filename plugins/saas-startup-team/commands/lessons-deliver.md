@@ -2,6 +2,7 @@
 name: lessons-deliver
 description: "Autonomous implementation of automatically approved lessons. Picks up `lesson-approved` issues from the pinned plugin repo and delivers each end-to-end — claim, implement, mechanical firewall, tribunal, tests, version sync, PR, and merge. Automatic review uses fresh Opus/xhigh with conditional Sol/xhigh arbitration; /lessons-review is optional. Flags: --once, --dry-run, --max-issues N, --max-merges N, --max-pass-minutes N, --max-run-minutes N, --repo OWNER/REPO."
 user_invocable: true
+transitional: true
 ---
 
 # /lessons-deliver — Autonomous Lesson Implementer

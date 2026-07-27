@@ -9,30 +9,22 @@ test_delivery_routing() {
 
   assert_file_exists "DR1: delivery router exists" "$route"
   assert_file_exists "DR2: pinned role launcher exists" "$launcher"
-  assert_file_contains "DR2a: generated workflows abandon failed thread handles" \
-    "$PLUGIN_ROOT/skills/saas-startup-team-growth-workflow/SKILL.md" \
-    "do not wait or poll that handle"
-  assert_file_contains "DR2a1: generated workflows inspect the artifact before fallback" \
-    "$PLUGIN_ROOT/skills/saas-startup-team-growth-workflow/SKILL.md" \
-    "Check its expected artifact once"
-  assert_file_contains "DR2a2: generated workflows prohibit concurrent fallback writers" \
-    "$PLUGIN_ROOT/skills/saas-startup-team-growth-workflow/SKILL.md" \
-    "Never let an original and fallback worker write the same artifact concurrently"
-  assert_file_contains "DR2a3: generated workflows reject stale fallback artifacts" \
-    "$PLUGIN_ROOT/skills/saas-startup-team-growth-workflow/SKILL.md" \
-    "a stale or unproven artifact counts as absent"
+  local growth_alias="$PLUGIN_ROOT/skills/saas-startup-team-growth-workflow/SKILL.md"
+  assert_file_exists "DR2a: growth discovery alias exists" "$growth_alias"
+  assert_file_contains "DR2a1: growth alias is generated" "$growth_alias" "GENERATED-ALIAS: do not edit"
+  assert_file_contains "DR2a2: growth alias points at source command" "$growth_alias" \
+    "../../commands/growth.md"
+  assert_file_not_contains "DR2a3: growth alias has no host-translation Run Protocol" \
+    "$growth_alias" "## Run Protocol"
+  assert_file_not_contains "DR2a4: growth alias has no SaaS Codex Rules block" \
+    "$growth_alias" "## SaaS Startup Codex Rules"
+  assert_file_not_contains "DR2a5: growth alias does not pin models" "$growth_alias" "gpt-5"
   assert_file_exists "DR2b: compatibility wrapper exists" "$wrapper"
   assert_file_contains "DR2c: wrapper delegates to the shared launcher" "$wrapper" 'codex-run-role.sh'
   assert_file_not_contains "DR2d: wrapper never launches Codex directly" "$wrapper" 'codex exec'
-  assert_file_contains "DR2e: generated workflows prohibit fixed checkout roots" \
-    "$PLUGIN_ROOT/skills/saas-startup-team-growth-workflow/SKILL.md" \
-    'Never emit a hardcoded checkout root such as `/workspace`'
   assert_file_contains "DR2f: growth handoffs prohibit fixed checkout roots" \
     "$PLUGIN_ROOT/agents/growth-hacker.md" \
     'NEVER.*fixed checkout root such as `/workspace`'
-  assert_file_contains "DR2g: current-session implementation loads tech-founder skill" \
-    "$PLUGIN_ROOT/skills/saas-startup-team-growth-workflow/SKILL.md" \
-    'load the `tech-founder` skill for every current-session architecture or implementation phase'
   assert_file_not_contains "DR2h: startup orchestration has no direct implementation bypass" \
     "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" \
     'skill or direct Codex implementation'
@@ -806,21 +798,37 @@ PY
   python3 - "$root" <<'PY' || static_ec=$?
 import importlib.util, pathlib, sys
 root = pathlib.Path(sys.argv[1])
-path = root / "scripts/sync-codex-marketplace.py"
-spec = importlib.util.spec_from_file_location("sync_codex_marketplace", path)
+# Thin aliases (#383) are owned by entrypoints.json; fat host adapters are not
+# re-emitted for saas-startup-team generate_alias entrypoints.
+sync_path = root / "scripts/sync-codex-marketplace.py"
+spec = importlib.util.spec_from_file_location("sync_codex_marketplace", sync_path)
 module = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(module)
-command = root / "plugins/saas-startup-team/commands/improve.md"
-metadata = module.read_command_metadata(command)
-rendered = module.render_command_skill(
-    plugin_name="saas-startup-team", command_name="improve", command_path=command,
-    metadata=metadata, skill_name="saas-startup-team-improve-workflow"
-)
-assert "scripts/codex-run-role.sh" in rendered
-assert "gpt-5" not in rendered
+plugin = root / "plugins/saas-startup-team"
+thin = module.thin_alias_skill_names(plugin)
+assert "saas-startup-team-improve-workflow" in thin
+assert "maintain-loop" not in thin
+planned = module.build_command_skill_files(plugin, "saas-startup-team")
+assert not any(p.name == "SKILL.md" and p.parent.name == "saas-startup-team-improve-workflow"
+               for p in planned)
+# maintain-loop stays a specialized host adapter via sync-codex-marketplace.
+assert any(p.parent.name == "maintain-loop" for p in planned)
+alias = (plugin / "skills/saas-startup-team-improve-workflow/SKILL.md").read_text(encoding="utf-8")
+assert "GENERATED-ALIAS: do not edit" in alias
+assert "gpt-5" not in alias
+assert "../../commands/improve.md" in alias
+assert "## Run Protocol" not in alias
+assert "## SaaS Startup Codex Rules" not in alias
+# Generator --check is clean for the committed tree.
+gen_path = plugin / "scripts/generate_workflow_aliases.py"
+gspec = importlib.util.spec_from_file_location("generate_workflow_aliases", gen_path)
+gmod = importlib.util.module_from_spec(gspec)
+assert gspec.loader is not None
+gspec.loader.exec_module(gmod)
+assert gmod.main(["--plugin-root", str(plugin), "--check"]) == 0
 PY
-  assert_exit_code "DR39: generated SaaS adapter points to model-neutral pinned launcher" "$static_ec" 0
+  assert_exit_code "DR39: thin aliases skip fat sync and stay model-free" "$static_ec" 0
 
   local refs="$PLUGIN_ROOT/references/workflows"
   assert_file_contains "DR40: tweak selects interactive versus autonomous mode" "$refs/tweak.md" '--mode "$route_mode"'

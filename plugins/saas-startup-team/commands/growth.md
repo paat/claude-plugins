@@ -2,6 +2,7 @@
 name: growth
 description: "Launch the lifecycle-aware growth track — initializes docs/growth/ structure, detects prelive/live/postlive/paused state, stages go-live readiness before outreach, and runs customer acquisition only when lifecycle gates allow it. Usage: /growth [--prelive|--pre-launch|--live|--postlive|--paused]"
 user_invocable: true
+transitional: true
 ---
 
 # /growth — Launch Growth Track

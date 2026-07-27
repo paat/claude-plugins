@@ -4,6 +4,7 @@ description: Post-launch operations entry point. Routes live-product monitoring,
 argument-hint: "[monitor|investigate|replay|support|status] [args]"
 allowed-tools: Bash, Read, Write, Grep, Glob, Task
 user_invocable: true
+transitional: true
 ---
 
 # /operate - Post-Launch Operations

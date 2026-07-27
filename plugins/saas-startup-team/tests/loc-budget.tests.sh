@@ -23,11 +23,21 @@ test_loc_budget() {
   assert_equals "LB5: --release 1.0.0 fails until targets met" "$ec" "1"
   assert_output_contains "LB6: release failure names a metric" "$out" "release_target"
 
-  # Nested Python fixture suite (exceed-each-metric, anti-weaken, baseline).
+  # Nested Python fixture suite (exceed-each-metric, anti-weaken, baseline, aliases).
   ec=0
   out=$(python3 -m unittest discover -s "$PLUGIN_ROOT/tests/loc-budget" -p 'test_*.py' -v 2>&1) || ec=$?
   assert_equals "LB7: python loc-budget unit/fixture suite" "$ec" "0"
   if [ "$ec" -ne 0 ]; then
     echo "$out" >&2
   fi
+
+  local gen="$PLUGIN_ROOT/scripts/generate_workflow_aliases.py"
+  local entrypoints="$PLUGIN_ROOT/integrity/entrypoints.json"
+  assert_file_exists "LB8: workflow alias generator exists" "$gen"
+  assert_file_exists "LB9: entrypoints.json manifest exists" "$entrypoints"
+  ec=0
+  out=$(python3 "$gen" --plugin-root "$PLUGIN_ROOT" --check 2>&1) || ec=$?
+  assert_equals "LB10: generated workflow aliases are clean" "$ec" "0"
 }
+
+test_loc_budget

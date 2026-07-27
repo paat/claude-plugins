@@ -4,6 +4,7 @@ description: On-demand post-launch monitor using the shared monitor and operate 
 argument-hint: "[sessions|payments|health|costs|traffic|funnel|support|all] [--minutes=N] [--days=N] [--dry-run] [--no-file-issues]"
 allowed-tools: Bash, Read, Write, Grep, Glob
 user_invocable: true
+transitional: true
 ---
 
 # /monitor - On-Demand Operations Report

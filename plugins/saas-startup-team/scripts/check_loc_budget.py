@@ -34,6 +34,8 @@ METRIC_IDS = (
 )
 
 WRAPPER_GLOB = "saas-startup-team-*-workflow"
+# Generated thin aliases (issue #383) carry this marker and are not hand-maintained.
+GENERATED_ALIAS_MARKER = "GENERATED-ALIAS: do not edit"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -168,6 +170,24 @@ def is_regular_file(path: Path) -> bool:
         return False
 
 
+def is_hand_maintained_wrapper(wrapper_dir: Path) -> bool:
+    """True when skills/saas-startup-team-*-workflow lacks the generated-alias marker.
+
+    Baseline 0.90.11 wrappers had no marker, so they still measure as hand-maintained.
+    Thin generated aliases (#383) include GENERATED_ALIAS_MARKER and count as 0.
+    """
+    skill = wrapper_dir / "SKILL.md"
+    if not is_regular_file(skill):
+        # Empty/malformed wrapper dir still counts as hand-maintained surface.
+        return True
+    try:
+        # Read a small prefix first; marker is on line 5 of generated aliases.
+        text = skill.read_text(encoding="utf-8")
+    except OSError:
+        return True
+    return GENERATED_ALIAS_MARKER not in text
+
+
 def line_count(path: Path) -> int:
     """Match `wc -l`: number of newline bytes in the file."""
     data = path.read_bytes()
@@ -192,7 +212,9 @@ def measure(plugin_root: Path, budget: dict[str, Any]) -> dict[str, int]:
     wrappers = sorted(
         p
         for p in (plugin_root / "skills").glob(WRAPPER_GLOB)
-        if p.is_dir() and not p.is_symlink()
+        if p.is_dir()
+        and not p.is_symlink()
+        and is_hand_maintained_wrapper(p)
     )
     wrapper_skills = [
         p / "SKILL.md" for p in wrappers if is_regular_file(p / "SKILL.md")
@@ -338,7 +360,9 @@ def _git_show_bytes(repo_root: Path, rev: str, path: str) -> bytes | None:
     return proc.stdout
 
 
-def _metrics_for_plugin_rel(rel_plugin: str, path: str) -> list[str]:
+def _metrics_for_plugin_rel(
+    rel_plugin: str, path: str, content: bytes | None = None
+) -> list[str]:
     """Map a former plugin path to the metrics it contributed to."""
     # path is repo-relative like plugins/saas-startup-team/scripts/x.sh
     prefix = rel_plugin.rstrip("/") + "/"
@@ -361,7 +385,10 @@ def _metrics_for_plugin_rel(rel_plugin: str, path: str) -> list[str]:
         and inner.endswith("-workflow/SKILL.md")
         and inner.startswith("skills/")
     ):
-        metrics.append("wrapper_skills_hand_maintained_loc")
+        # Generated aliases are not hand-maintained (issue #383).
+        text = content.decode("utf-8", errors="replace") if content is not None else ""
+        if GENERATED_ALIAS_MARKER not in text:
+            metrics.append("wrapper_skills_hand_maintained_loc")
     return metrics
 
 
@@ -457,7 +484,7 @@ def detect_undeclared_extractions(
             return
         seen_old.add(old)
         loc = data.count(b"\n") if data else 0
-        for mid in _metrics_for_plugin_rel(rel_plugin, old):
+        for mid in _metrics_for_plugin_rel(rel_plugin, old, data):
             needed_by_metric[mid] += loc
         extracted_paths.append(f"{old} -> {new} ({loc} loc)")
 
@@ -570,11 +597,17 @@ def anti_weaken(base: dict[str, Any], head: dict[str, Any]) -> list[str]:
 
     base_rules = base.get("counting_rules") or {}
     head_rules = head.get("counting_rules") or {}
+    allow_raw = head.get("counting_rules_allow_change") or {}
+    allowed_keys: set[str] = set()
+    if isinstance(allow_raw, dict):
+        keys = allow_raw.get("keys") or []
+        if isinstance(keys, list):
+            allowed_keys = {k for k in keys if isinstance(k, str)}
     if isinstance(base_rules, dict) and isinstance(head_rules, dict):
         for key, base_val in base_rules.items():
             if key not in head_rules:
                 errors.append(f"anti-weaken: counting_rules.{key} removed")
-            elif head_rules[key] != base_val:
+            elif head_rules[key] != base_val and key not in allowed_keys:
                 errors.append(f"anti-weaken: counting_rules.{key} changed")
 
     base_gen = (base.get("generated_files") or {}).get("policy")

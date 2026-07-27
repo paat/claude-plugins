@@ -2,6 +2,7 @@
 name: tweak
 description: "Trapped shortcut for trivial copy, docs, literal-link, or small CSS changes. Usage: /tweak [description]"
 user_invocable: true
+transitional: true
 ---
 
 # /tweak

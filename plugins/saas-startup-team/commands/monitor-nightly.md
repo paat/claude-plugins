@@ -4,6 +4,7 @@ description: "Nightly automated monitor — sweeps failure markers + an optional
 argument-hint: "[--dry-run]"
 allowed-tools: Bash, Read, Write, Grep, Glob
 user_invocable: true
+transitional: true
 ---
 
 # /monitor-nightly — Generic Nightly Monitor

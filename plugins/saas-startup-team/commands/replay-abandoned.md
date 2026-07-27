@@ -4,6 +4,7 @@ description: Replay abandoned funnel sessions against the configured funnel defi
 argument-hint: "[--band NAME] [--max N] [--dry-run] [--no-file-issues]"
 allowed-tools: Bash, Read, Write, Grep, Glob, Task
 user_invocable: true
+transitional: true
 ---
 
 # /replay-abandoned - Funnel Session Replay

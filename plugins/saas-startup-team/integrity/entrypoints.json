@@ -1,0 +1,317 @@
+{
+  "version": 1,
+  "plugin": "saas-startup-team",
+  "description": "Sole alias/name manifest for saas-startup-team host entrypoints (issue #383). Generated thin Codex aliases are produced only for generate_alias=true rows.",
+  "generator": "scripts/generate_workflow_aliases.py",
+  "generated_marker": "GENERATED-ALIAS: do not edit",
+  "entrypoints": [
+    {
+      "name": "ads",
+      "command_file": "commands/ads.md",
+      "aliases": [
+        "/saas-startup-team:ads",
+        "/ads"
+      ],
+      "codex_skill": "saas-startup-team-ads-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "bootstrap",
+      "command_file": "commands/bootstrap.md",
+      "aliases": [
+        "/saas-startup-team:bootstrap",
+        "/bootstrap"
+      ],
+      "codex_skill": "saas-startup-team-bootstrap-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "digest",
+      "command_file": "commands/digest.md",
+      "aliases": [
+        "/saas-startup-team:digest",
+        "/digest"
+      ],
+      "codex_skill": "saas-startup-team-digest-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "goal-deliver",
+      "command_file": "commands/goal-deliver.md",
+      "aliases": [
+        "/saas-startup-team:goal-deliver",
+        "/goal-deliver"
+      ],
+      "codex_skill": "saas-startup-team-goal-deliver-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "growth",
+      "command_file": "commands/growth.md",
+      "aliases": [
+        "/saas-startup-team:growth",
+        "/growth"
+      ],
+      "codex_skill": "saas-startup-team-growth-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "harvest",
+      "command_file": "commands/harvest.md",
+      "aliases": [
+        "/saas-startup-team:harvest",
+        "/harvest"
+      ],
+      "codex_skill": "saas-startup-team-harvest-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "improve",
+      "command_file": "commands/improve.md",
+      "aliases": [
+        "/saas-startup-team:improve",
+        "/improve"
+      ],
+      "codex_skill": "saas-startup-team-improve-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "investigate",
+      "command_file": "commands/investigate.md",
+      "aliases": [
+        "/saas-startup-team:investigate",
+        "/investigate"
+      ],
+      "codex_skill": "saas-startup-team-investigate-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "lawyer",
+      "command_file": "commands/lawyer.md",
+      "aliases": [
+        "/saas-startup-team:lawyer",
+        "/lawyer"
+      ],
+      "codex_skill": "saas-startup-team-lawyer-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "learnings-compress",
+      "command_file": "commands/learnings-compress.md",
+      "aliases": [
+        "/saas-startup-team:learnings-compress",
+        "/learnings-compress"
+      ],
+      "codex_skill": "saas-startup-team-learnings-compress-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "learnings-migrate",
+      "command_file": "commands/learnings-migrate.md",
+      "aliases": [
+        "/saas-startup-team:learnings-migrate",
+        "/learnings-migrate"
+      ],
+      "codex_skill": "saas-startup-team-learnings-migrate-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "lessons-deliver",
+      "command_file": "commands/lessons-deliver.md",
+      "aliases": [
+        "/saas-startup-team:lessons-deliver",
+        "/lessons-deliver"
+      ],
+      "codex_skill": "saas-startup-team-lessons-deliver-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "lessons-review",
+      "command_file": "commands/lessons-review.md",
+      "aliases": [
+        "/saas-startup-team:lessons-review",
+        "/lessons-review"
+      ],
+      "codex_skill": "saas-startup-team-lessons-review-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "maintain-loop",
+      "command_file": "commands/maintain-loop.md",
+      "aliases": [
+        "/saas-startup-team:maintain-loop",
+        "/maintain-loop"
+      ],
+      "codex_skill": "maintain-loop",
+      "generate_alias": false,
+      "transitional": true
+    },
+    {
+      "name": "maintain",
+      "command_file": "commands/maintain.md",
+      "aliases": [
+        "/saas-startup-team:maintain",
+        "/maintain"
+      ],
+      "codex_skill": "saas-startup-team-maintain-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "market-scout",
+      "command_file": "commands/market-scout.md",
+      "aliases": [
+        "/saas-startup-team:market-scout",
+        "/market-scout"
+      ],
+      "codex_skill": "saas-startup-team-market-scout-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "monitor-nightly",
+      "command_file": "commands/monitor-nightly.md",
+      "aliases": [
+        "/saas-startup-team:monitor-nightly",
+        "/monitor-nightly"
+      ],
+      "codex_skill": "saas-startup-team-monitor-nightly-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "monitor",
+      "command_file": "commands/monitor.md",
+      "aliases": [
+        "/saas-startup-team:monitor",
+        "/monitor"
+      ],
+      "codex_skill": "saas-startup-team-monitor-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "nudge",
+      "command_file": "commands/nudge.md",
+      "aliases": [
+        "/saas-startup-team:nudge",
+        "/nudge"
+      ],
+      "codex_skill": "saas-startup-team-nudge-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "operate",
+      "command_file": "commands/operate.md",
+      "aliases": [
+        "/saas-startup-team:operate",
+        "/operate"
+      ],
+      "codex_skill": "saas-startup-team-operate-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "pause",
+      "command_file": "commands/pause.md",
+      "aliases": [
+        "/saas-startup-team:pause",
+        "/pause"
+      ],
+      "codex_skill": "saas-startup-team-pause-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "replay-abandoned",
+      "command_file": "commands/replay-abandoned.md",
+      "aliases": [
+        "/saas-startup-team:replay-abandoned",
+        "/replay-abandoned"
+      ],
+      "codex_skill": "saas-startup-team-replay-abandoned-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "session-insights",
+      "command_file": "commands/session-insights.md",
+      "aliases": [
+        "/saas-startup-team:session-insights",
+        "/session-insights"
+      ],
+      "codex_skill": "saas-startup-team-session-insights-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "startup",
+      "command_file": "commands/startup.md",
+      "aliases": [
+        "/saas-startup-team:startup",
+        "/startup"
+      ],
+      "codex_skill": "saas-startup-team-startup-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "status",
+      "command_file": "commands/status.md",
+      "aliases": [
+        "/saas-startup-team:status",
+        "/status"
+      ],
+      "codex_skill": "saas-startup-team-status-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "tweak",
+      "command_file": "commands/tweak.md",
+      "aliases": [
+        "/saas-startup-team:tweak",
+        "/tweak"
+      ],
+      "codex_skill": "saas-startup-team-tweak-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "ux-test",
+      "command_file": "commands/ux-test.md",
+      "aliases": [
+        "/saas-startup-team:ux-test",
+        "/ux-test"
+      ],
+      "codex_skill": "saas-startup-team-ux-test-workflow",
+      "generate_alias": true,
+      "transitional": true
+    },
+    {
+      "name": "validate-experiment",
+      "command_file": "commands/validate-experiment.md",
+      "aliases": [
+        "/saas-startup-team:validate-experiment",
+        "/validate-experiment"
+      ],
+      "codex_skill": "saas-startup-team-validate-experiment-workflow",
+      "generate_alias": true,
+      "transitional": true
+    }
+  ]
+}

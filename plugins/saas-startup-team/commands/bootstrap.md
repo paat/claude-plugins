@@ -2,6 +2,7 @@
 name: bootstrap
 description: Initialize project structure for the saas-startup-team plugin — creates docs/ and .startup/ directories, updates .gitignore and CLAUDE.md. Idempotent (safe to re-run).
 user_invocable: true
+transitional: true
 ---
 
 # /bootstrap — Initialize Project Structure

@@ -3,6 +3,7 @@ name: harvest
 description: "Dry-run harvester for the self-improvement loop. Projects authoritative root workflow outcomes plus local session signals into generic, de-identified, PII-gated candidates. No network or issue filing; public filing is a separate repo-pinned gate. Usage: /harvest"
 allowed-tools: Bash, Read
 user_invocable: true
+transitional: true
 ---
 
 # /harvest — candidate plugin improvements (dry run)

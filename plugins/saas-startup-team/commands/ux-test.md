@@ -2,6 +2,7 @@
 name: ux-test
 description: "On-demand UX audit — evaluates usability, accessibility (WCAG 2.2 AA), visual consistency, and responsive design via Playwright browser testing. Usage: /ux-test <url>"
 user_invocable: true
+transitional: true
 ---
 
 # /ux-test — On-Demand UX Audit

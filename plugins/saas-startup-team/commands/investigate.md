@@ -4,6 +4,7 @@ description: Investigate a live incident by correlation ID or recent sessions, c
 argument-hint: "{CID | --recent N} [--dry-run] [--no-file-issues]"
 allowed-tools: Bash, Read, Write, Grep, Glob, Task
 user_invocable: true
+transitional: true
 ---
 
 # /investigate - Incident RCA

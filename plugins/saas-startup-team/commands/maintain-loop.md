@@ -4,6 +4,7 @@ description: "Expeditor + safety coordinator for sequential maintenance. Usage: 
 argument-hint: "[--once] [--dry-run] [limits]"
 user_invocable: true
 codex-skill-name: maintain-loop
+transitional: true
 ---
 
 # /maintain-loop
