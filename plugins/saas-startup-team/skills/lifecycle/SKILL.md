@@ -42,6 +42,13 @@ Apply `../../templates/delivery-scope-planning.md` and
 `../../templates/delivery-scope-contract.md`. Fill `Done`, `Preserve`,
 `Out of Scope` before research or specialists.
 
+Classify with the deterministic helper (do not invent a state machine):
+
+```bash
+bash scripts/lifecycle-path.sh [--concrete] [--evidence-gap] [--has-goal] [--has-brief] [--scout-empty]
+# prints: fast | discovery | blocked
+```
+
 | Path | When | Action |
 |------|------|--------|
 | **Fast** | Concrete feature/fix with clear outcome; existing repo behavior establishes Why | Skip broad market research; go to Plan under deliver |
