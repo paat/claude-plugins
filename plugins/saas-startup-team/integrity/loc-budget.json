@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "description": "Ratcheting aggregate LOC budgets for the saas-startup-team 1.0.0 thinning train (epic #380, issue #382).",
+  "plugin": "saas-startup-team",
+  "baseline_ref": "0.90.11",
+  "baseline_commit": "7e02df66642fe7621ffa44ed4deca82fd42538c9",
+  "release_target_version": "1.0.0",
+  "phase": "pre-1.0",
+  "metrics": {
+    "scripts_sh_loc": {
+      "baseline": 20461,
+      "release_target": 8000,
+      "hard_ceiling": 8500,
+      "current_ratchet": 20423,
+      "unit": "loc"
+    },
+    "wrapper_skills_hand_maintained": {
+      "baseline": 27,
+      "release_target": 0,
+      "hard_ceiling": 0,
+      "current_ratchet": 27,
+      "unit": "count"
+    },
+    "wrapper_skills_hand_maintained_loc": {
+      "baseline": 1188,
+      "release_target": 0,
+      "hard_ceiling": 0,
+      "current_ratchet": 1188,
+      "unit": "loc"
+    },
+    "agents_md_loc": {
+      "baseline": 1532,
+      "release_target": 300,
+      "hard_ceiling": 400,
+      "current_ratchet": 1532,
+      "unit": "loc"
+    },
+    "runtime_prompt_surface_loc": {
+      "baseline": 10137,
+      "release_target": 4500,
+      "hard_ceiling": 5000,
+      "current_ratchet": 10133,
+      "unit": "loc"
+    },
+    "total_md_sh_excl_tests_docs": {
+      "baseline": 36612,
+      "release_target": 18000,
+      "hard_ceiling": 20000,
+      "current_ratchet": 36562,
+      "unit": "loc",
+      "baseline_clean_tree": 36599,
+      "baseline_note": "Epic #380 listed 36612; clean git tree at baseline_commit measures 36599 (epic figure included untracked root CLAUDE.md, 13 LOC). CI golden for 0.90.11 reproduction is baseline_clean_tree."
+    }
+  },
+  "exclusions": {
+    "total_md_sh_excl_tests_docs": {
+      "exclude_top_level_dirs": [
+        "tests",
+        "docs"
+      ],
+      "exclude_root_files": [
+        "CLAUDE.md",
+        "AGENTS.md"
+      ],
+      "extensions": [
+        ".md",
+        ".sh"
+      ],
+      "follow_symlinks": false,
+      "notes": "Only plugin-root tests/ and docs/ are excluded as directories. Nested trees (e.g. skills/*/tests) remain in the total so tests cannot hide runtime surface by relocation. Root CLAUDE.md/AGENTS.md are harness local files and are not plugin runtime surface."
+    }
+  },
+  "counting_rules": {
+    "line_count": "wc -l semantics: count newline bytes per regular file (no symlink follow)",
+    "scripts_sh_loc": "Sum LOC of all regular files matching scripts/**/*.sh",
+    "wrapper_skills_hand_maintained": "Count of directories skills/saas-startup-team-*-workflow",
+    "wrapper_skills_hand_maintained_loc": "Sum LOC of SKILL.md inside each wrapper directory",
+    "agents_md_loc": "Sum LOC of all regular files matching agents/**/*.md",
+    "runtime_prompt_surface_loc": "Sum LOC of all regular *.md under agents/, commands/, and skills/ (includes skill references and wrapper SKILL.md)",
+    "total_md_sh_excl_tests_docs": "Sum LOC of all regular *.md and *.sh under the plugin root, excluding only top-level tests/ and docs/, and root CLAUDE.md/AGENTS.md (harness local files)"
+  },
+  "generated_files": {
+    "patterns": [
+      "**/generated/**",
+      "**/*.generated.md",
+      "**/*.generated.sh",
+      "**/gen/**"
+    ],
+    "policy": "counted",
+    "notes": "Generated prompt/script output under the plugin root is counted. Generation is not an escape hatch from budgets."
+  },
+  "extracted_packages": {
+    "policy": "declare_or_count",
+    "declared_siblings": [],
+    "notes": "Runtime code moved to sibling packages or out of the plugin path must be listed in declared_siblings with metric_id and loc; undeclared extractions fail the gate. Declared sibling LOC is added to the named metric before ratchet checks."
+  },
+  "enforcement": {
+    "pre_1_0": "Reject any metric above current_ratchet. Decreases are allowed. release_target is not yet required.",
+    "release_1_0_0": "With --release 1.0.0, every metric must be <= release_target.",
+    "post_1_0": "Reject any metric above current_ratchet even when hard_ceiling has headroom. hard_ceiling is an absolute cap; current_ratchet must never exceed hard_ceiling.",
+    "anti_weaken": "Relative to merge-base loc-budget.json: release_target, hard_ceiling, and current_ratchet must not increase; exclude_top_level_dirs must not grow; generated_files.policy must remain counted; extracted_packages.policy must not soften; counting_rules text for each metric_id must not change without an explicit allow."
+  }
+}

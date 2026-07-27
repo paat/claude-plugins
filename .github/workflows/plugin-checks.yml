@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Need full history for merge-base anti-weaken + extraction checks on PRs.
+          fetch-depth: 0
 
       - name: Install check dependencies
         run: python3 -m pip install -r requirements-dev.txt
@@ -26,3 +29,30 @@ jobs:
 
       - name: Check Codex marketplace metadata
         run: python3 scripts/sync-codex-marketplace.py --check
+
+      - name: saas-startup-team LOC budget
+        run: |
+          set -euo pipefail
+          PLUGIN=plugins/saas-startup-team
+          CHECKER=$PLUGIN/scripts/check_loc_budget.py
+          BUDGET=$PLUGIN/integrity/loc-budget.json
+          EXTRA=()
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "${{ github.base_ref }}"
+            MERGE_BASE=$(git merge-base HEAD "origin/${{ github.base_ref }}")
+            EXTRA+=(--git-base "$MERGE_BASE" --repo-root .)
+            if git cat-file -e "$MERGE_BASE:$BUDGET" 2>/dev/null; then
+              tmp=$(mktemp)
+              git show "$MERGE_BASE:$BUDGET" > "$tmp"
+              EXTRA+=(--compare-base "$tmp")
+              python3 "$CHECKER" --plugin-root "$PLUGIN" --budget "$BUDGET" "${EXTRA[@]}"
+              rm -f "$tmp"
+            else
+              python3 "$CHECKER" --plugin-root "$PLUGIN" --budget "$BUDGET" "${EXTRA[@]}"
+            fi
+          else
+            python3 "$CHECKER" --plugin-root "$PLUGIN" --budget "$BUDGET"
+          fi
+
+      - name: saas-startup-team LOC budget tests
+        run: python3 -m unittest discover -s plugins/saas-startup-team/tests/loc-budget -p 'test_*.py' -v
