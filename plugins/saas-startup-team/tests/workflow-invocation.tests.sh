@@ -53,8 +53,8 @@ test_workflow_invocation_contract() {
     'agent-events.sh terminal --run-id "$SAAS_INVOCATION_ID"'
   assert_output_contains "WI9: post-dispatch missing terminal fails closed" "$section" \
     'every nonzero lookup'
-  assert_output_contains "WI10: coordinator never repairs child terminal state" "$section" \
-    'never repairs child'
+  assert_output_contains "WI10: coordinator never fabricates a child terminal" "$section" \
+    'never fabricates a child terminal'
   assert_output_not_contains "WI10a: coordinator has no delivery repair append" "$section" \
     'delivery_failed'
   assert_output_contains "WI10b: failed pre-identity spawn gets a blocked root terminal" \

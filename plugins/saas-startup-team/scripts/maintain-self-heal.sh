@@ -2,7 +2,7 @@
 # Model-free environment heal for maintain autonomy.
 # Run before treating the host as blocked. Prefer heal → continue over MC-BLOCKED.
 #
-# Exit 0: primary-only environment is ready (possibly after heals).
+# Exit 0: primary environment is ready (possibly after heals).
 # Exit 1: residual condition remains that an agent can still clear (reason on stderr).
 # Exit 4: true external block (Codex missing, etc. — not used by this script today).
 # Exit 2: usage / unsafe arguments.
@@ -47,45 +47,14 @@ HEALED=0
 RESIDUALS=()
 
 # ---------------------------------------------------------------------------
-# Receipts: rewrite controller.worktree aliases onto SSOT PRIMARY in place.
-# No quarantine — inventory self-heals paths and skips only unreadable residue.
+# Receipts: read-only inventory only. Migration is never automatic (#381) —
+# operators must run maintain-delivery.sh migrate-receipt-worktrees explicitly.
 # ---------------------------------------------------------------------------
 heal_receipts() {
-  local out ec rewritten=0 f wt now tmp state_root common
-  common=$(git -C "$PRIMARY" rev-parse --git-common-dir) || return 1
-  case "$common" in /*) ;; *) common="$PRIMARY/$common" ;; esac
-  common=$(cd -- "$common" && pwd -P) || return 1
-  state_root="$common/saas-startup-team/maintain-runtime/deliveries"
-  if [ -d "$state_root" ]; then
-    shopt -s nullglob
-    for f in "$state_root"/issue-*/current.json "$state_root"/issue-*/history-*.json; do
-      [ -f "$f" ] && [ ! -L "$f" ] || continue
-      if ! jq -e '.schema_version == 2 and (.controller.worktree|type=="string")' "$f" >/dev/null 2>&1; then
-        continue
-      fi
-      wt=$(jq -r .controller.worktree "$f")
-      [ -n "$wt" ] && [ "$wt" != "$PRIMARY" ] || continue
-      if maintain_paths_same "$wt" "$PRIMARY" 2>/dev/null \
-        || case "$wt" in "$PRIMARY/.worktrees/maintain"|"$PRIMARY/.worktrees/maintain"/*) true ;; *) false ;; esac; then
-        if [ "$DRY_RUN" -eq 1 ]; then
-          log "dry-run: would rewrite worktree in $(basename "$(dirname "$f")")/$(basename "$f") to SSOT primary"
-          rewritten=$((rewritten + 1))
-          continue
-        fi
-        now=$(date -u +%FT%TZ)
-        tmp=$(mktemp "${f}.heal.XXXXXX") || continue
-        if jq --arg wt "$PRIMARY" --arg now "$now" \
-            '.controller.worktree = $wt | .updated_at = $now' "$f" > "$tmp" \
-          && mv -- "$tmp" "$f"; then
-          rewritten=$((rewritten + 1))
-        else
-          rm -f -- "$tmp"
-        fi
-      fi
-    done
-    shopt -u nullglob
-    [ "$rewritten" -eq 0 ] || log "rewrote controller.worktree to SSOT primary on $rewritten receipt file(s)"
-    HEALED=$((HEALED + rewritten))
+  local out ec
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "dry-run: would inventory pending receipts (no migration)"
+    return 0
   fi
   ec=0
   out=$(bash "$SCRIPT_DIR/maintain-delivery.sh" pending --repo-root "$PRIMARY" 2>&1) || ec=$?
@@ -94,80 +63,15 @@ heal_receipts() {
     return 0
   fi
   log "receipts inventory failed (ec=$ec): ${out//$'\n'/; }"
+  log "hint: exclusive migrate-receipt-worktrees if controller.worktree aliases remain"
   RESIDUALS+=("receipts:$out")
   return 1
 }
 
 # ---------------------------------------------------------------------------
-# Foreign git worktrees: remove leftovers that carry no unique unpushed commits.
-# Never invent product work; never leave the portfolio paused on disposable trees.
+# Linked worktrees: coexist (#381). Never auto-remove foreign worktrees.
+# Report residual linked trees for human/harness cleanup only.
 # ---------------------------------------------------------------------------
-worktree_is_disposable_path() {
-  local path=$1
-  case "$path" in
-    "$PRIMARY/.worktrees/maintain"|"$PRIMARY/.worktrees/maintain"/*) return 0 ;;
-    /tmp/tribunal-*|"${TMPDIR:-/tmp}"/tribunal-*) return 0 ;;
-    */saas-tribunal-*|*tribunal-pr*) return 0 ;;
-  esac
-  return 1
-}
-
-worktree_has_unique_commits() {
-  local path=$1 head default_ref ahead
-  head=$(git -C "$path" rev-parse HEAD 2>/dev/null) || return 0
-  default_ref=$(git -C "$PRIMARY" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null || true)
-  if [ -n "$default_ref" ]; then
-    default_ref=${default_ref#refs/remotes/}
-  else
-    default_ref=origin/main
-  fi
-  if git -C "$PRIMARY" rev-parse -q --verify "$default_ref" >/dev/null 2>&1; then
-    ahead=$(git -C "$PRIMARY" rev-list --count "$default_ref..$head" 2>/dev/null || echo 1)
-  else
-    ahead=$(git -C "$PRIMARY" rev-list --count "HEAD..$head" 2>/dev/null || echo 1)
-  fi
-  [ "${ahead:-1}" -gt 0 ]
-}
-
-worktree_is_clean() {
-  local path=$1
-  git -C "$path" diff --quiet -- && git -C "$path" diff --cached --quiet -- \
-    && [ -z "$(git -C "$path" ls-files --others --exclude-standard)" ]
-}
-
-# Remove a linked worktree. Never force-remove a dirty non-disposable tree
-# (uncommitted/untracked would be silently lost). Disposable paths may force.
-remove_worktree() {
-  local path=$1 reason=$2 force=0
-  if worktree_is_disposable_path "$path"; then
-    force=1
-  elif ! worktree_is_clean "$path"; then
-    log "refuse remove dirty worktree $path ($reason) — residual"
-    RESIDUALS+=("foreign-worktree-dirty:$path")
-    return 1
-  fi
-  if [ "$DRY_RUN" -eq 1 ]; then
-    log "dry-run: would remove worktree $path ($reason)"
-    HEALED=$((HEALED + 1))
-    return 0
-  fi
-  if [ "$force" -eq 1 ]; then
-    if git -C "$PRIMARY" worktree remove --force -- "$path" 2>/dev/null; then
-      log "removed disposable worktree $path ($reason)"
-      HEALED=$((HEALED + 1))
-      return 0
-    fi
-  else
-    if git -C "$PRIMARY" worktree remove -- "$path" 2>/dev/null; then
-      log "removed worktree $path ($reason)"
-      HEALED=$((HEALED + 1))
-      return 0
-    fi
-  fi
-  log "worktree remove failed for $path — will prune"
-  return 1
-}
-
 heal_worktrees() {
   local rows record candidate extras=0
   rows=$(mktemp) || die "cannot create worktree list"
@@ -180,97 +84,28 @@ heal_worktrees() {
       'worktree '*)
         candidate=${record#worktree }
         if ! candidate="$(cd -- "$candidate" 2>/dev/null && pwd -P)"; then
-          # Registration points at a missing dir — prune later.
           continue
         fi
         [ "$candidate" = "$PRIMARY" ] && continue
-        if worktree_is_disposable_path "$candidate"; then
-          remove_worktree "$candidate" "disposable-path" || true
-          continue
-        fi
-        if ! worktree_has_unique_commits "$candidate"; then
-          # Fully merged: remove only when clean (no silent dirty loss).
-          if remove_worktree "$candidate" "no-unique-commits"; then
-            continue
-          fi
-          extras=$((extras + 1))
-          continue
-        fi
-        # Expeditor: pin unique commits on a primary-reachable branch, then
-        # remove only if the worktree is clean after pin.
-        if preserve_unique_commits_on_primary "$candidate"; then
-          if remove_worktree "$candidate" "preserved-on-primary-branch"; then
-            continue
-          fi
-          extras=$((extras + 1))
-          log "pinned commits but left dirty worktree residual: $candidate"
-          continue
-        fi
         extras=$((extras + 1))
-        RESIDUALS+=("foreign-worktree:$candidate")
-        log "residual foreign worktree (could not preserve unique commits): $candidate"
+        log "linked worktree present (coexist; not removed): $candidate"
         ;;
     esac
   done < "$rows"
   rm -f -- "$rows"
-  if [ "$DRY_RUN" -eq 0 ]; then
-    git -C "$PRIMARY" worktree prune >/dev/null 2>&1 || true
-  else
-    log "dry-run: would git worktree prune"
+  if [ "$extras" -gt 0 ]; then
+    log "linked worktrees coexist ($extras); automatic foreign-worktree removal is disabled"
   fi
-  [ "$extras" -eq 0 ]
-}
-
-# Keep unique worktree commits reachable from a primary branch, then the worktree
-# can be removed safely. Prefer existing branch name; otherwise mint maintain/heal-*.
-preserve_unique_commits_on_primary() {
-  local path=$1 head short branch existing
-  head=$(git -C "$path" rev-parse HEAD 2>/dev/null) || return 1
-  short=$(git -C "$PRIMARY" rev-parse --short "$head" 2>/dev/null || printf '%.7s' "$head")
-  branch=$(git -C "$path" symbolic-ref -q --short HEAD 2>/dev/null || true)
-  case "$branch" in
-    ''|HEAD|main|master) branch="maintain/heal-$short" ;;
-  esac
-  if [ "$DRY_RUN" -eq 1 ]; then
-    log "dry-run: would pin $head as branch $branch then remove $path"
-    HEALED=$((HEALED + 1))
-    return 0
-  fi
-  if git -C "$PRIMARY" show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
-    existing=$(git -C "$PRIMARY" rev-parse "refs/heads/$branch")
-    if [ "$existing" = "$head" ]; then
-      log "branch $branch already pins $short"
-      return 0
-    fi
-    if git -C "$PRIMARY" merge-base --is-ancestor "$existing" "$head" 2>/dev/null; then
-      git -C "$PRIMARY" branch -f "$branch" "$head" \
-        || { log "cannot fast-forward $branch to $short"; return 1; }
-      log "fast-forwarded $branch to $short"
-      HEALED=$((HEALED + 1))
-      return 0
-    fi
-    # Diverged: mint a heal branch so nothing is lost.
-    branch="maintain/heal-$short"
-  fi
-  if git -C "$PRIMARY" show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
-    log "heal branch $branch already exists"
-    return 0
-  fi
-  git -C "$PRIMARY" branch "$branch" "$head" \
-    || { log "cannot create branch $branch at $short"; return 1; }
-  log "pinned unique commits as $branch ($short) for primary resume"
-  HEALED=$((HEALED + 1))
   return 0
 }
 
 run_all() {
   local ok=0
   heal_worktrees || ok=1
-  # Receipts after worktrees: primary-only gate must pass for delivery inventory.
   if bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$PRIMARY" >/dev/null 2>&1; then
     heal_receipts || ok=1
   else
-    log "primary-only still blocked after worktree heal"
+    log "primary gate still blocked after worktree observe"
     ok=1
     RESIDUALS+=("primary-only:still-blocked")
   fi

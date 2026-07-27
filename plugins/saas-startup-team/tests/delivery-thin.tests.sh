@@ -55,9 +55,13 @@ test_delivery_thin() {
   out=$(cd "$repo" && bash "$route" check-diff --base "$base" 2>&1) || ec=$?
   assert_exit_code "DT9: ignored-file change preserves the product diff route" "$ec" 20
   assert_output_not_contains "DT10: ignored path is absent from route reasons" "$out" "ignored"
-  out=$(sed -n '/git -C "\$worktree" clean/p' "$attempt")
-  assert_output_contains "DT11: reset quotes startup exclusions against caller glob expansion" \
-    "$out" "-e '.startup' -e '.startup/**'"
+  # Routine hard-reset/clean disabled (#381); exclusive escalation opt-in only.
+  assert_file_contains "DT11: primary hard-reset is disabled by default" \
+    "$attempt" 'hard-reset is disabled'
+  assert_file_contains "DT11b: public reset forces ALLOW_PRIMARY_RESET=0" \
+    "$attempt" 'SAAS_MAINTAIN_ALLOW_PRIMARY_RESET=0'
+  assert_file_contains "DT11c: exclusive recovery flag is named" \
+    "$attempt" 'SAAS_MAINTAIN_ALLOW_PRIMARY_RESET'
 
   # Firewall must receive a real staged-diff path (lessons-deliver --firewall DIFF_FILE).
   repo=$(make_workdir)

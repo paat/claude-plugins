@@ -9,6 +9,12 @@ test_maintain_runtime() {
   local leases="$PLUGIN_ROOT/scripts/maintain-leases.sh"
   local blocked="$PLUGIN_ROOT/scripts/maintain-blocked.sh"
   local attempt_helper="$PLUGIN_ROOT/scripts/maintain-attempt.sh"
+  prepare_exact_base() {
+    local root=$1 sha=$2
+    # Test-only: force exact clean base. Production reset remains verify-only (#381).
+    git -C "$root" checkout -f --quiet --detach "$sha"
+    git -C "$root" clean -ffd -q -e '.startup' -e '.startup/**' || true
+  }
   local guardian="$PLUGIN_ROOT/scripts/lease-guardian.sh"
   local single="$PLUGIN_ROOT/scripts/single-flight.sh"
   local repo common state owner ec out run_state linked base second wt lease_dir legacy_dir forged_state
@@ -335,20 +341,15 @@ SH
   assert_file_not_exists "MR15ab: rejected linked controller publishes no lease state" "$state"
   ec=0
   out=$(bash "$leases" assert-primary-only --repo-root "$repo" 2>&1) || ec=$?
-  assert_exit_code "MR15aa1: primary-only gate fails while a linked worktree exists" "$ec" 1
-  assert_output_contains "MR15aa2: primary-only gate names the linked worktree" "$out" "$linked"
-  assert_output_contains "MR15aa2b: primary-only does not auto-delete" "$out" \
-    "do not auto-delete"
-  assert_output_contains "MR15aa2c: primary-only requires plain clone for isolation" "$out" \
-    "plain git clone"
-  assert_file_exists "MR15aa2d: linked worktree still present after fail-closed gate" "$linked"
+  assert_exit_code "MR15aa1: primary gate allows linked worktrees to coexist" "$ec" 0
+  assert_file_exists "MR15aa2d: linked worktree still present after primary gate" "$linked"
   git -C "$repo" worktree remove --force "$linked" >/dev/null
   linked=""
-  # Leftover tribunal review trees do not pause the portfolio (#346).
+  # Tribunal review trees also coexist (#346/#381).
   tribunal_wt=$(mktemp -d "${TMPDIR:-/tmp}/tribunal-codex.XXXXXX"); rmdir "$tribunal_wt"
   git -C "$repo" worktree add --detach -q "$tribunal_wt" HEAD
   bash "$leases" assert-primary-only --repo-root "$repo" >/dev/null
-  assert_file_exists "MR15aa2e: ignored tribunal worktree left in place" "$tribunal_wt"
+  assert_file_exists "MR15aa2e: tribunal worktree left in place" "$tribunal_wt"
   git -C "$repo" worktree remove --force "$tribunal_wt" >/dev/null
   bash "$leases" assert-primary-only --repo-root "$repo" >/dev/null
   mkdir -p "$repo/probe-bin" "$common/saas-startup-team/maintain"
@@ -540,10 +541,12 @@ SH
   wt="$repo"
   bash "$leases" acquire --repo-root "$repo" --mode maintain-loop --run-id legacy-attempt \
     --state-file "$legacy_attempt_state" >/dev/null
+  git -C "$repo" checkout --quiet "$base"
+  git -C "$repo" clean -ffd -q -e '.startup' -e '.startup/**'
   bash "$attempt_helper" reset --repo-root "$repo" --base-sha "$base" \
     --lease-state "$legacy_attempt_state" --run-id legacy-attempt \
       --controller-run-id legacy-attempt >/dev/null
-  assert_equals "MR21bind-c: bounded schema-v2 adapter still resets on primary" \
+  assert_equals "MR21bind-c: bounded schema-v2 adapter still verifies clean primary" \
     "$(git -C "$wt" rev-parse HEAD):$(jq -r '.schema_version|tostring + ":"' "$legacy_attempt_state")$(jq -r .mode "$legacy_attempt_state")" \
     "$base:2:maintain-loop"
  bash "$leases" cleanup --state-file "$legacy_attempt_state" --repo-root "$repo" --run-id legacy-attempt >/dev/null
@@ -584,14 +587,23 @@ SH
     "$lease_after" "$lease_before"
   assert_equals "MR21bind-jb: rejected reset leaves maintenance runtime byte-identical" \
     "$runtime_after" "$runtime_before"
-  # Primary-only reset (no linked worktree create/repair/recreate).
+  # Hard-reset disabled (#381): place tree at exact clean base, then verify only.
+  git -C "$repo" checkout --quiet "$base"
+  git -C "$repo" clean -ffd -q -e '.startup' -e '.startup/**'
   bash "$attempt_helper" reset --repo-root "$repo" --base-sha "$base" \
     --lease-state "$state" --run-id "$origin_run" \
       --controller-run-id "$controller_run_id" >/dev/null
-  assert_equals "MR21b: reset pins the primary checkout to exact BASE_SHA" \
+  assert_equals "MR21b: reset verifies the primary checkout is exact BASE_SHA" \
     "$(git -C "$wt" rev-parse HEAD)" "$base"
-  assert_equals "MR21c: primary reset leaves a clean tree" \
+  assert_equals "MR21c: primary remains a clean tree" \
     "$(git -C "$wt" status --porcelain=v1 --untracked-files=all -- . ":(exclude).startup" ":(exclude).startup/**")" ""
+  printf 'dirty\n' > "$repo/app.txt"
+  ec=0
+  bash "$attempt_helper" reset --repo-root "$repo" --base-sha "$base" \
+    --lease-state "$state" --run-id "$origin_run" --controller-run-id "$controller_run_id" \
+    >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MR21c2: dirty primary refuses reset (hard-reset disabled)" "$ec" 1
+  git -C "$repo" checkout --quiet -- app.txt
   # Non-primary --repo-root rejected (linked worktree is a negative fixture only).
   other=$(mktemp -d); rmdir "$other"
   git -C "$repo" worktree add -q -b not-primary-reset "$other" HEAD
@@ -616,6 +628,7 @@ SH
   rm -f -- "$canonical_gate"
 
   printf 'dirty\n' > "$wt/app.txt"; printf 'new\n' > "$wt/untracked"
+  prepare_exact_base "$repo" "$base"
   bash "$attempt_helper" reset --repo-root "$repo" --base-sha "$base" \
     --lease-state "$state" --run-id "$origin_run" \
       --controller-run-id "$controller_run_id" >/dev/null

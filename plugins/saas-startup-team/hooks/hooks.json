@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'p=scripts/enforce-handoff-naming.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
+            "command": "bash -c 'p=scripts/enforce-handoff-naming.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] critical hook target not found: $p\" >&2; exit 2'",
             "description": "Block non-conforming handoff filenames (NNN-<direction>.md only)"
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'p=scripts/check-regression-test.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
+            "command": "bash -c 'p=scripts/check-regression-test.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] critical hook target not found: $p\" >&2; exit 2'",
             "description": "Block `gh pr merge` for an incident-linked PR unless the diff adds a regression test (or an explicit override is recorded)"
           }
         ]
@@ -69,7 +69,7 @@
           {
             "type": "command",
             "command": "bash -c 'p=scripts/check-handoff-secrets.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; cat >/dev/null 2>&1 || true; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
-            "description": "Auto-redact hardcoded secrets, API keys, and passwords from handoff files (never blocks the write — handoffs are gitignored, so blocking lost them silently)"
+            "description": "Auto-redact hardcoded secrets, API keys, and passwords from handoff files (never blocks the write \u2014 handoffs are gitignored, so blocking lost them silently)"
           }
         ]
       },
@@ -170,7 +170,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'p=scripts/check-stop.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
+            "command": "bash -c 'p=scripts/check-stop.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] critical hook target not found: $p\" >&2; exit 2'",
             "description": "Prevent premature session exit without solution signoff (enforced after iteration 2+)"
           }
         ]

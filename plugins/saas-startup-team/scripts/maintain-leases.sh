@@ -40,8 +40,9 @@ allowed_controller_tree() {
 }
 
 assert_primary_only() {
-  local rows record candidate
-  local -a extras=()
+  # Controllers must run from the primary working directory. Linked worktrees may
+  # coexist (#381); never fail or auto-remove them here. Still forbid core.worktree
+  # which rewrites the primary tree identity.
   [ -n "${PRIMARY:-}" ] && [ -n "${ROOT:-}" ] || {
     echo "maintain-leases: repository identity unresolved" >&2
     return 1
@@ -52,40 +53,6 @@ assert_primary_only() {
   }
   if git -C "$PRIMARY" config --local --get core.worktree >/dev/null 2>&1; then
     echo "maintain-leases: core.worktree is forbidden" >&2
-    return 1
-  fi
-  rows=$(mktemp) || return 1
-  if ! git -C "$PRIMARY" worktree list --porcelain -z > "$rows"; then
-    rm -f -- "$rows"
-    echo "maintain-leases: cannot list git worktrees" >&2
-    return 1
-  fi
-  while IFS= read -r -d '' record; do
-    case "$record" in
-      'worktree '*)
-        candidate=${record#worktree }
-        if ! candidate="$(cd -- "$candidate" && pwd -P)"; then
-          rm -f -- "$rows"
-          echo "maintain-leases: cannot resolve worktree path" >&2
-          return 1
-        fi
-        [ "$candidate" = "$PRIMARY" ] && continue
-        # Leftover tribunal review trees are noise, not product worktrees (#346).
-        case "$candidate" in
-          /tmp/tribunal-*|"${TMPDIR:-/tmp}"/tribunal-*) continue ;;
-        esac
-        extras+=("$candidate")
-        ;;
-    esac
-  done < "$rows"
-  rm -f -- "$rows"
-  if [ "${#extras[@]}" -gt 0 ]; then
-    echo "maintain-leases: linked git worktrees are forbidden (primary only)" >&2
-    for candidate in "${extras[@]}"; do
-      printf 'maintain-leases: foreign-worktree: %s\n' "$candidate" >&2
-    done
-    echo "maintain-leases: run maintain-self-heal.sh worktrees to preserve unique commits on primary branches and remove leftovers" >&2
-    echo "maintain-leases: isolated stacks (replay, disposable checks) must use a plain git clone, never git worktree add" >&2
     return 1
   fi
   return 0

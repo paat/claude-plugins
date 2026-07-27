@@ -290,7 +290,7 @@ Layered — no single cap suffices:
 - `--max-merges N` per pass (default 5).
 - `--max-pass-minutes N` (default 720 / 12 hours) — per-pass wall clock.
 - `--max-run-minutes N` (default **720** / 12 hours; `0` = unlimited opt-in) — total wall clock.
-- **Per-issue tribunal-round cap** — notify at 10, hard-stop at 20.
+- **Per-issue tribunal-round cap** — notify at 3, hard-stop at 5 (same as delivery / goal-deliver).
 - **Per-issue retry cap** (default 3) for `retriable` gh errors before giving up that lesson.
 - **Backoff between passes** (~5 min) so an empty/blocked queue doesn't hot-spin.
 
