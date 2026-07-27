@@ -6,7 +6,7 @@ policy lives in `commands/`.
 
 Host-neutral: Claude Code and Codex share this skill. Host differences are limited to
 how an implementation or review worker is launched (Task/Agent vs skill /
-`codex-run-role.sh`). The graph, gates, and outcomes are identical.
+`codex-cast.sh`). The graph, gates, and outcomes are identical.
 
 **Authority.** Git issues, branches, PRs, CI, deployments, and immutable terminal release
 facts are authoritative. Delivery does **not** require founder personas, `.startup/state.json`, `active_role`, or numbered conversational handoffs.
@@ -98,9 +98,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/delivery-route.sh" classify \
 ```
 
 - Exit 2 → routing failure; stop.
-- Exit 20 → accepted deep classification; set `PROFILE=deep`.
-- Exit 0 → read `.profile` (`mechanical` | `light` | `standard` | `deep`).
-- Autonomous `ui_touch:true` is never light; interactive `/tweak` may accept bounded UI.
+- Exit 20 → sensitive-surface risk floor; set `PROFILE=deep` and pin a high-effort model.
+- Exit 0 → not elevated (`.profile` is `standard`, or `mechanical` only for empty post-diff).
+- Model/effort selection is caller/harness policy — not regex routing.
 
 Attach acceptance packs via `scripts/acceptance-packs.sh --render` / `--select`. A new
 public/indexable route must include `public_route_discoverability`.
@@ -124,7 +124,7 @@ non-empty `SAAS_PHASE` so hooks pause (`mutation-ownership.md`). After return:
 |---------|----------------|
 | `mechanical` | Exact named repository script only; no model worker. Objective output required or escalate to standard. |
 | `light` | Load `${CLAUDE_PLUGIN_ROOT}/references/deliver/light-path.md`. `tweak-run.sh` containment (≤3 files, ≤15 lines, no sensitive paths). Exit 20 escalates once to deep. |
-| `standard` / `deep` | Host-native implementation worker. Claude: Task/Agent. Codex: `tech-founder` skill or `codex-run-role.sh --role tech-founder --profile "$PROFILE"`. Never invent founder persona agents; Claude personas were removed (#385). |
+| `standard` / `deep` | Host-native implementation worker. Claude: Task/Agent. Codex: `tech-founder` skill or `scripts/codex-cast.sh` with explicit `--worktree`, `--mode implement`, `--model`, `--effort`, `--timeout`. Never invent founder persona agents (#385); nested Codex controllers removed (#387). |
 
 Before implementation: identify the **root-cause/recurrence class** and fix the class,
 with **red-before/green-after proof**. For bug/monitor/customer/accounting/replay/

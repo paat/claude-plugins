@@ -52,7 +52,7 @@ fi
 
 # Implementer roles edit product code; main orchestrator must not.
 case "$active_role" in
-  tech-founder|tech-founder-maintain|tech-founder-claude|tech-founder-codex)
+  tech-founder|tech-founder-maintain|tech-founder-claude)
     exit 0
     ;;
 esac

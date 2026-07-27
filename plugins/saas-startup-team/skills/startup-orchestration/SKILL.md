@@ -50,7 +50,7 @@ production, privacy, correctness, regression, and deployment gates remain mandat
 Run each founder assignment as a fresh role phase.
 - **Claude Code:** dispatch a one-shot worker with the Task/Agent tool using the exact registered `saas-startup-team:<agent-name>` type. Never use `general-purpose` or `TeamCreate`.
 - **Codex:** run a fresh role phase in the current session, Codex-supported multi-agent
-  tooling, or `scripts/codex-run-role.sh` with an explicit profile and task file.
+  tooling, or `scripts/codex-cast.sh` with explicit worktree/mode/model/effort/timeout.
 
 Every role phase starts from the relevant skill, `.startup/state.json`, the current handoff, and any named project docs. Do not rely on conversational memory from prior phases. The handoff files carry state.
 
@@ -76,19 +76,19 @@ strengths (frontend/UX, architecture, or surgical multi-file edits).
 - **Claude Code surface:** pick the engine per handoff content — Codex for spec-complete,
   backend, test-heavy, or plumbing work; Claude for work that needs its frontend, architecture,
   or surgical-edit strengths. Spawn the tech founder via the Task/Agent tool, reading
-  `agents/tech-founder-codex*.md` (until #387) or host-native Task + `skills/tech-founder` / deliver.
+  host-native Task + `skills/tech-founder` / deliver, or `scripts/codex-cast.sh`.
 - **Codex surface:** run the tech-founder role in the current session only after loading
-  the `tech-founder` skill. Use `scripts/codex-run-role.sh` (or the
-  `scripts/codex-implement.sh` compatibility wrapper) with an explicit semantic profile
-  for a separate worker. Do not invoke Claude Code primitives; the generated Codex workflow
-  skill supplies the Codex replacements.
+  the `tech-founder` skill. Use `scripts/codex-cast.sh` with explicit worktree, mode,
+  model, effort, and timeout for a separate worker. Do not invoke Claude Code primitives;
+  the generated Codex workflow skill supplies the Codex replacements.
 
 **Architect pass (Codex-routed, non-trivial work).** Before spawning the Codex engine for a
 handoff that introduces a new feature, a schema/data-model change, a new workflow, or a
 cross-cutting refactor, run a short **plan-only** role phase reading
 deliver/tech-founder architecture pass: it writes `.startup/handoffs/NNN-tech-plan.md` — interface
 contracts, files to touch, invariants, and a test plan; NO code, NO working-tree edits. The
-Codex tech founder then implements from handoff + plan (`codex-implement.sh --plan`). Skip
+Codex tech founder then implements from handoff + plan via `codex-cast.sh --mode implement`
+with the plan included in the prompt file. Skip
 the pass for small fixes, copy changes, and single-file work — the extra hop is pure overhead
 there. This closes the cheap-executor failure mode (ambiguity leaking into implementation)
 without adding a new role: `active_role` semantics are unchanged. On the **Codex surface**,

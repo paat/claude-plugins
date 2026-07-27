@@ -92,8 +92,6 @@ test_runtime_safety() {
     assert_equals "RS model:$agent" "$(sed -n 's/^model: //p' "$file" | head -1)" "$model"
     assert_equals "RS effort:$agent" "$(sed -n 's/^effort: //p' "$file" | head -1)" "$effort"
   }
-  check_frontmatter tech-founder-codex sonnet medium
-  check_frontmatter tech-founder-codex-maintain sonnet medium
   check_frontmatter lawyer opus high
   check_frontmatter incident-investigator sonnet high
   check_frontmatter session-replay sonnet low
@@ -101,12 +99,10 @@ test_runtime_safety() {
   check_frontmatter browser-operator-pro sonnet low
   check_frontmatter support-triage haiku low
   check_frontmatter maintain-triage haiku low
-  out="$(for controller in tech-founder-codex tech-founder-codex-maintain; do
-    sed -n 's/^tools: //p' "$PLUGIN_ROOT/agents/$controller.md" | tr ',' '\n' \
-      | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -x Edit \
-      && printf '%s\n' "$controller" || true
-  done)"
-  assert_equals "RS12: Codex controllers have no Edit tool" "$out" ""
+  assert_file_not_exists "RS12: tech-founder-codex controller removed" \
+    "$PLUGIN_ROOT/agents/tech-founder-codex.md"
+  assert_file_not_exists "RS12b: tech-founder-codex-maintain removed" \
+    "$PLUGIN_ROOT/agents/tech-founder-codex-maintain.md"
   assert_file_contains "RS13: Claude nested host documented" "$PLUGIN_ROOT/README.md" 'supports bounded nested browser operators'
   assert_file_contains "RS14: Codex flattened host documented" "$PLUGIN_ROOT/README.md" 'keeps the equivalent browser flow flattened'
   assert_file_contains "RS14a: shared thin mutation contract" \
@@ -460,8 +456,10 @@ SH
     "$PLUGIN_ROOT/scripts/codex-sandbox-check.sh"
   assert_file_contains "RS37b1: maintenance readiness checks bounded Codex auth" \
     "$script" 'timeout 10 codex login status'
-  assert_file_contains "RS37c: every separate Codex role uses unrestricted mode" \
-    "$PLUGIN_ROOT/scripts/codex-run-role.sh" 'CODEX_SANDBOX_ARGS=(--dangerously-bypass-approvals-and-sandbox)'
+  assert_file_contains "RS37c: codex-cast requires explicit unrestricted" \
+    "$PLUGIN_ROOT/scripts/codex-cast.sh" '--unrestricted'
+  assert_file_contains "RS37c2: codex-cast defaults to sandbox modes" \
+    "$PLUGIN_ROOT/scripts/codex-cast.sh" 'workspace-write'
   assert_file_not_contains "RS37d: legacy maintain adapter cannot narrow Codex workers" \
     "$PLUGIN_ROOT/scripts/maintain-attempt.sh" 'CODEX_SANDBOX='
   assert_file_not_contains "RS37e: standard evaluation cannot narrow its AI worker" \

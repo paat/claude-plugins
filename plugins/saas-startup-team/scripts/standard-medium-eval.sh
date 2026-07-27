@@ -55,10 +55,10 @@ replay_sample() {
   sandbox_help=$("$codex_bin" sandbox --help 2>/dev/null) || {
     echo "standard-medium-eval: Codex workspace sandbox support is required" >&2; exit 2; }
   grep -q -- '--strict-config' <<< "$exec_help" && grep -q -- '--disable' <<< "$exec_help" \
-    && grep -q -- '--dangerously-bypass-approvals-and-sandbox' <<< "$exec_help" \
+    && grep -q -- '--sandbox' <<< "$exec_help" \
     && grep -q -- '--permission-profile' <<< "$sandbox_help" \
     && grep -q -- '--enable' <<< "$sandbox_help" || {
-      echo "standard-medium-eval: required unrestricted worker and deterministic-check controls are unavailable" >&2; exit 2; }
+      echo "standard-medium-eval: required sandbox worker and deterministic-check controls are unavailable" >&2; exit 2; }
   features=$("$codex_bin" features list 2>/dev/null) || {
     echo "standard-medium-eval: could not inspect Codex feature controls" >&2; exit 2; }
   for feature in apps enable_mcp_apps browser_use browser_use_external browser_use_full_cdp_access \
@@ -322,26 +322,34 @@ replay_sample() {
   )
   state_before=$(repository_state)
 
-  # The AI worker uses the same unrestricted dev-container policy as production.
-  # Replay still isolates credentials, tools, Git remotes, and the detached worktree;
-  # deterministic checks retain their separate model-free sandbox below.
+  # Cast uses workspace-write by default; unrestricted requires an explicit flag.
+  # Replay still isolates credentials, tools, Git remotes, and the detached worktree.
   policy_verified=true
-  policy_hash=$(printf '%s\n' 'codex-runtime-policy-v3' 'approvals=never' \
-    'sandbox=danger-full-access' 'security-boundary=dev-container' \
+  policy_hash=$(printf '%s\n' 'codex-runtime-policy-v4' 'sandbox=workspace-write' \
+    'unrestricted=explicit-only' 'security-boundary=dev-container' \
     'worker-tree=detached' 'credentials=sanitized' \
     | sha256sum | awk '{print $1}')
 
   start=$(date +%s%3N 2>/dev/null || echo "$(( $(date +%s) * 1000 ))")
   if [ "$policy_verified" = true ]; then
+    # Evaluation helpers live only inside env -i; always allowlist them for cast.
+    # Optional FAKE_* keys are added only when present in eval_env.
+    cast_env_args=(
+      --env SAAS_EVAL_REAL_GIT
+      --env SAAS_EVAL_REAL_CODEX
+      --env SAAS_EVAL_DISABLE_FEATURES
+    )
+    [ -z "${FAKE_CODEX_CALLS:-}" ] || cast_env_args+=(--env FAKE_CODEX_CALLS)
+    [ -z "${FAKE_CODEX_MODE:-}" ] || cast_env_args+=(--env FAKE_CODEX_MODE)
     set +e
     (cd "$wt" && env -i "${eval_env[@]}" \
-      SAAS_CODEX_STANDARD_MODEL=gpt-5.6-sol SAAS_CODEX_STANDARD_EFFORT=medium \
-      SAAS_RUN_ID="eval-$sample_id" SAAS_COMMAND=standard-medium-eval SAAS_PHASE=replay \
-      SAAS_WRITER_ID="eval-worker-$sample_id" SAAS_AGENT_EVENTS_FILE="$sample_dir/agent-events.jsonl" \
-      SAAS_CODEX_LOG_DIR="$sample_dir/codex" SAAS_CODEX_ISOLATED_CONFIG=1 \
       GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 \
       GIT_SSH_COMMAND=/bin/false \
-      "$SCRIPT_DIR/codex-run-role.sh" --role tech-founder --profile standard --task-file "$composite") \
+      "$SCRIPT_DIR/codex-cast.sh" \
+        --worktree "$wt" --mode implement --provider openai \
+        --model gpt-5.6-sol --effort medium --timeout 30m \
+        --prompt-file "$composite" \
+        "${cast_env_args[@]}") \
       > "$sample_dir/worker.log" 2> "$sample_dir/worker.stderr"
     rc=$?
     set -e
@@ -414,9 +422,9 @@ replay_sample() {
       profile:"standard",model:"gpt-5.6-sol",effort:"medium",base_sha:$base_sha,task_sha256:$task_sha,
       diff_sha256:$diff_sha,check_harness_sha256:$check_sha,worker_exit:$worker_exit,check_exit:$check_exit,
       duration_ms:$duration_ms,usage:{tokens:$tokens,cost_microunits:$cost},
-      safety_evidence:{sandbox_policy:(if $policy_verified then "unrestricted-container" else "unknown" end),
+      safety_evidence:{sandbox_policy:(if $policy_verified then "workspace-write-container" else "unknown" end),
         sandbox_policy_sha256:(if $policy_verified then $policy_sha else null end),
-        network_access:(if $policy_verified then "unrestricted" else null end),
+        network_access:(if $policy_verified then "sandbox-default" else null end),
         filesystem_scope:(if $policy_verified then "dev-container" else null end),
         sanitized_environment:true,isolated_config:true,primary_state_intact:$state_intact,
         base_harness_intact:$integrity_ok,ignore_policy_intact:$ignore_ok},
@@ -536,8 +544,8 @@ assess_pairs() {
   : > "$normalized"; : > "$used_paths"; : > "$used_candidates"
   cleanup_assessment() { rm -rf -- "$temp_root"; }
   trap cleanup_assessment EXIT
-  expected_policy_hash=$(printf '%s\n' 'codex-runtime-policy-v3' 'approvals=never' \
-    'sandbox=danger-full-access' 'security-boundary=dev-container' \
+  expected_policy_hash=$(printf '%s\n' 'codex-runtime-policy-v4' 'sandbox=workspace-write' \
+    'unrestricted=explicit-only' 'security-boundary=dev-container' \
     'worker-tree=detached' 'credentials=sanitized' \
     | sha256sum | awk '{print $1}')
 
@@ -675,8 +683,8 @@ assess_pairs() {
       (.usage.cost_microunits == null or ((.usage.cost_microunits|type) == "number" and .usage.cost_microunits >= 0)) and
       (.remote_mutation == null or .remote_mutation == true) and
       (.production_mutation == null or .production_mutation == true) and
-      (.safety_evidence.sandbox_policy == "unrestricted-container" or .safety_evidence.sandbox_policy == "unknown") and
-      (if .safety_evidence.sandbox_policy == "unrestricted-container" then
+      (.safety_evidence.sandbox_policy == "workspace-write-container" or .safety_evidence.sandbox_policy == "unknown") and
+      (if .safety_evidence.sandbox_policy == "workspace-write-container" then
         ((.safety_evidence.sandbox_policy_sha256|type) == "string" and
          (.safety_evidence.sandbox_policy_sha256|test("^[0-9a-f]{64}$"))) else
         .safety_evidence.sandbox_policy_sha256 == null end) and
@@ -695,8 +703,8 @@ assess_pairs() {
       (.usage.cost_microunits == null or ((.usage.cost_microunits|type) == "number" and .usage.cost_microunits >= 0)) and
       (.remote_mutation == null or .remote_mutation == true) and
       (.production_mutation == null or .production_mutation == true) and
-      (.safety_evidence.sandbox_policy == "unrestricted-container" or .safety_evidence.sandbox_policy == "unknown") and
-      (if .safety_evidence.sandbox_policy == "unrestricted-container" then
+      (.safety_evidence.sandbox_policy == "workspace-write-container" or .safety_evidence.sandbox_policy == "unknown") and
+      (if .safety_evidence.sandbox_policy == "workspace-write-container" then
         ((.safety_evidence.sandbox_policy_sha256|type) == "string" and
          (.safety_evidence.sandbox_policy_sha256|test("^[0-9a-f]{64}$"))) else
         .safety_evidence.sandbox_policy_sha256 == null end) and
@@ -766,8 +774,8 @@ assess_pairs() {
     unique_critical=$(jq -r --arg medium "$mapping_medium" '[.findings[] |
       select((.severity == "critical" or .severity == "high") and (.candidates|length == 1) and .candidates[0] == $medium)] | length > 0' "$tribunal_result")
     remote=$(jq -s 'any(.[]; .remote_mutation != false or .production_mutation != false or
-      .safety_evidence.sandbox_policy != "unrestricted-container" or
-      .safety_evidence.sandbox_policy_sha256 == null or .safety_evidence.network_access != "unrestricted" or
+      .safety_evidence.sandbox_policy != "workspace-write-container" or
+      .safety_evidence.sandbox_policy_sha256 == null or .safety_evidence.network_access != "sandbox-default" or
       .safety_evidence.filesystem_scope != "dev-container" or .safety_evidence.sanitized_environment != true or
       .safety_evidence.isolated_config != true or .safety_evidence.primary_state_intact != true or
       .safety_evidence.base_harness_intact != true or .safety_evidence.ignore_policy_intact != true)' \

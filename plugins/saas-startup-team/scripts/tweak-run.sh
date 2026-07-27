@@ -161,11 +161,35 @@ if git diff --cached --name-status | awk '$1 != "M" { bad=1 } END { exit bad ? 0
   echo "tweak-run: additions, deletions, renames, mode-only, and binary edits require escalation" >&2
   reject_scope
 fi
+# Light-path containment (≤3 files, ≤15 lines) lives here — not in delivery-route.
+nfiles=$(git diff --cached --name-only | grep -c . || true)
+nlines=$(git diff --cached --numstat | awk '{ if ($1 ~ /^[0-9]+$/) a += $1; if ($2 ~ /^[0-9]+$/) a += $2 } END { print a+0 }')
+if [ "$nfiles" -gt 3 ] || [ "$nlines" -gt 15 ]; then
+  echo "tweak-run: exceeds light containment (≤3 files, ≤15 lines)" >&2
+  reject_scope
+fi
+# Path allowlist: interactive may touch presentational CSS/copy; autonomous docs only.
+allow_ok=1
+while IFS= read -r file; do
+  [ -n "$file" ] || continue
+  case "$file" in
+    *.md|*.mdx|*.txt|*.rst|*.adoc|README*|CHANGELOG*|docs/*|*/docs/*) : ;;
+    *.css|*.scss|*.sass|*.less|*.po|*.pot)
+      if [ "$ROUTING_MODE" = autonomous ]; then allow_ok=0; fi
+      ;;
+    *) allow_ok=0 ;;
+  esac
+done < <(git diff --cached --name-only)
+if [ "$allow_ok" -ne 1 ]; then
+  echo "tweak-run: path class requires escalation beyond light tweak" >&2
+  reject_scope
+fi
 route_rc=0
 bash "$SCRIPT_DIR/delivery-route.sh" check-diff --base "$BASE_SHA" --cached \
   > "$ROUTE_FILE" || route_rc=$?
-if [ "$route_rc" -ne 0 ] || [ "$(jq -r .profile "$ROUTE_FILE")" != light ] \
-  || { [ "$ROUTING_MODE" = autonomous ] && [ "$(jq -r .ui_touch "$ROUTE_FILE")" = true ]; }; then
+# Risk floor (#387): escalate on sensitive surfaces (exit 20 / profile deep).
+if [ "$route_rc" -ne 0 ] || [ "$(jq -r .profile "$ROUTE_FILE")" = deep ] \
+  || [ "$(jq -r .sensitive "$ROUTE_FILE")" = true ]; then
   if [ "$route_rc" -eq 2 ]; then cleanup_rejected_patch; exit 2; fi
   reject_scope
 fi

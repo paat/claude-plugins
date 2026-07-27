@@ -61,8 +61,8 @@ for stack/URLs; warn if missing.
 **Build:** host-native implementation worker + capability skills. Load
 `skills/tech-founder` standards under deliver Build. Optional discovery/acceptance:
 `skills/product-discovery`, `skills/product-acceptance` (independent of implementer).
-Claude: Task/Agent. Codex: `codex-run-role.sh --role tech-founder --profile "$PROFILE"`.
-Nested `tech-founder-codex*` controllers may remain until #387.
+Claude: Task/Agent. Codex: `scripts/codex-cast.sh --worktree … --mode implement` with
+explicit model/effort/timeout (no nested `tech-founder-codex*` controllers).
 
 **Commit:**
 

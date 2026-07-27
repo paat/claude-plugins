@@ -221,7 +221,7 @@ normalize_event_dimensions() {
       else . as $v | if ($allowed | index($v)) != null then $v else "other" end
       end;
     def commands: [
-      "ads","bootstrap","codex-run-role","digest","goal-deliver","growth","harvest","improve","investigate",
+      "ads","bootstrap","codex-cast","codex-run-role","digest","goal-deliver","growth","harvest","improve","investigate",
       "lawyer","learnings-compress","learnings-migrate","lessons-deliver","lessons-review","maintain","maintain-loop",
       "market-scout","monitor","monitor-nightly","nudge","operate","pause","replay-abandoned","session-insights",
       "standard-medium-eval","startup","status","tweak","ux-test","validate-experiment","legacy"
@@ -232,7 +232,7 @@ normalize_event_dimensions() {
       "handoff","implementation","implementation-controller","implementation-fix","incident-investigator","issue-outcome",
       "lawyer","legacy-artifact","lesson-outcome","maintain-triage","market-research","mechanical","merge","mutation",
       "pass-outcome","pr","qa","replay","rollback","routing","selection","session-replay","supervisor","support-triage",
-      "tech-founder","tech-founder-claude","tech-founder-claude-maintain","tech-founder-codex","tech-founder-codex-maintain",
+      "tech-founder","tech-founder-claude","tech-founder-claude-maintain",
       "triage","tribunal","ux-tester","verdict","work-unit"
     ];
     def reasons: [

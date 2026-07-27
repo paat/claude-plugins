@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 LEASES="$SCRIPT_DIR/maintain-leases.sh"
 SUPERVISOR="$SCRIPT_DIR/supervisor-commit.sh"
 ROUTE="$SCRIPT_DIR/delivery-route.sh"
-ROLE_RUNNER="$SCRIPT_DIR/codex-run-role.sh"
+CAST="$SCRIPT_DIR/codex-cast.sh"
 LEASE_GUARD_ARGS=()
 
 usage() {
@@ -391,16 +391,36 @@ case "$action" in
     require_base_gate || exit 1
     normalize_task_file || {
       echo "maintain-attempt: task file is unsafe" >&2; exit 1; }
+    # Profile → model/effort is caller policy; the cast adapter takes explicit pins.
+    case "$profile" in
+      light) cast_model=gpt-5.6-terra; cast_effort=medium ;;
+      standard|deep) cast_model=gpt-5.6-sol; cast_effort=high ;;
+    esac
+    # Cast is a transport only — prepend implementer mutation/scope contract.
+    cast_prompt=$(mktemp)
+    {
+      cat <<'HDR'
+You are the source implementer for a production SaaS delivery.
+You may modify only the required product source, tests, and canonical workflow-spec registry.
+Do not write product-acceptance verdicts. Do not commit, push, create or edit pull requests,
+merge, deploy, or roll back. Leave working-tree changes for the supervisor.
+If the task needs product, legal, security, architecture, payment, auth, data, migration,
+or concurrency judgment beyond the supplied requirements, stop and report deep escalation.
+HDR
+      scope="$SCRIPT_DIR/../templates/delivery-scope-contract.md"
+      [ -r "$scope" ] && { printf '\n'; cat "$scope"; }
+      printf '\n================ TASK ================\n'
+      cat -- "$task_file"
+    } > "$cast_prompt"
     worker_rc=0
     bash "$LEASES" hold "${LEASE_GUARD_ARGS[@]}" -- \
-      env SAAS_RUN_ID="$child_run_id" SAAS_PARENT_RUN_ID="$controller_run_id" \
-        SAAS_ATTEMPT="$attempt" SAAS_COMMAND="$WORKER_COMMAND" \
-        SAAS_PHASE=implementation SAAS_ROUTING_REASONS="$routing_reasons" \
-        SAAS_AGENT_EVENTS_FILE="$PRIMARY/.startup/runs/agent-events.jsonl" \
-        SAAS_CODEX_LOG_DIR="$PRIMARY/.startup/runs/codex" \
-        bash -c 'root=$1; shift; cd -- "$root" && exec "$@"' maintain-worker "$ROOT" \
-          bash "$ROLE_RUNNER" --role tech-founder --profile "$profile" --task-file "$task_file" \
+      bash -c 'root=$1; shift; cd -- "$root" && exec "$@"' maintain-worker "$ROOT" \
+        bash "$CAST" \
+          --worktree "$ROOT" --mode implement --provider openai \
+          --model "$cast_model" --effort "$cast_effort" --timeout 30m \
+          --prompt-file "$cast_prompt" \
         || worker_rc=$?
+    rm -f -- "$cast_prompt"
     [ "$worker_rc" -eq 0 ] || exit "$worker_rc"
     bash "$LEASES" heartbeat "${LEASE_GUARD_ARGS[@]}" >/dev/null
     route_rc=0

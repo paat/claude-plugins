@@ -53,7 +53,11 @@ test_delivery_thin() {
   printf 'again\n' > "$repo/app.txt"
   ec=0
   out=$(cd "$repo" && bash "$route" check-diff --base "$base" 2>&1) || ec=$?
-  assert_exit_code "DT9: ignored-file change preserves the product diff route" "$ec" 20
+  # Risk floor (#387): non-sensitive product diffs stay standard (exit 0); ignored
+  # paths are still omitted from the route payload.
+  assert_exit_code "DT9: ignored-file change preserves the product diff route" "$ec" 0
+  assert_equals "DT9b: non-sensitive product diff is standard" \
+    "$(jq -r .profile <<<"$out")" "standard"
   assert_output_not_contains "DT10: ignored path is absent from route reasons" "$out" "ignored"
   # Routine hard-reset/clean disabled (#381); exclusive escalation opt-in only.
   assert_file_contains "DT11: primary hard-reset is disabled by default" \

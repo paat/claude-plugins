@@ -11,8 +11,8 @@ test_standard_medium_eval() {
   wd=$(mktemp -d)
   pairs="$wd/pairs.jsonl"
   : > "$pairs"
-  policy_hash=$(printf '%s\n' 'codex-runtime-policy-v3' 'approvals=never' \
-    'sandbox=danger-full-access' 'security-boundary=dev-container' \
+  policy_hash=$(printf '%s\n' 'codex-runtime-policy-v4' 'sandbox=workspace-write' \
+    'unrestricted=explicit-only' 'security-boundary=dev-container' \
     'worker-tree=detached' 'credentials=sanitized' \
     | sha256sum | awk '{print $1}')
   source_repo="$wd/source-repo"
@@ -60,8 +60,8 @@ test_standard_medium_eval() {
       '{schema_version:3,evidence_kind:"delivery-candidate-result",sample_id:$id,candidate:"high",
         profile:"standard",model:"gpt-5.6-sol",effort:"high",base_sha:$base,task_sha256:$task,
         diff_sha256:$diff,check_harness_sha256:$check,worker_exit:0,check_exit:0,duration_ms:100,
-        usage:{tokens:100,cost_microunits:null},safety_evidence:{sandbox_policy:"unrestricted-container",
-          sandbox_policy_sha256:$policy,network_access:"unrestricted",filesystem_scope:"dev-container",
+        usage:{tokens:100,cost_microunits:null},safety_evidence:{sandbox_policy:"workspace-write-container",
+          sandbox_policy_sha256:$policy,network_access:"sandbox-default",filesystem_scope:"dev-container",
           sanitized_environment:true,isolated_config:true,primary_state_intact:true,
           base_harness_intact:true,ignore_policy_intact:true},remote_mutation:null,
         production_mutation:null}' > "$high_result"
@@ -70,8 +70,8 @@ test_standard_medium_eval() {
       '{schema_version:3,evidence_kind:"delivery-candidate-result",sample_id:$id,candidate:"medium",
         profile:"standard",model:"gpt-5.6-sol",effort:"medium",base_sha:$base,task_sha256:$task,
         diff_sha256:$diff,check_harness_sha256:$check,worker_exit:0,check_exit:0,duration_ms:110,
-        usage:{tokens:70,cost_microunits:null},safety_evidence:{sandbox_policy:"unrestricted-container",
-          sandbox_policy_sha256:$policy,network_access:"unrestricted",filesystem_scope:"dev-container",
+        usage:{tokens:70,cost_microunits:null},safety_evidence:{sandbox_policy:"workspace-write-container",
+          sandbox_policy_sha256:$policy,network_access:"sandbox-default",filesystem_scope:"dev-container",
           sanitized_environment:true,isolated_config:true,primary_state_intact:true,
           base_harness_intact:true,ignore_policy_intact:true},remote_mutation:null,
         production_mutation:null}' > "$medium_result"
@@ -206,7 +206,7 @@ test_standard_medium_eval() {
     --mapping-out "$wd/identity-private/mapping.json" >/dev/null 2>&1 || ec=$?
   assert_exit_code "SM15b: explicit model or effort identity is rejected" "$ec" 2
 
-  # A fake Codex exercises unrestricted worker and deterministic-check seams without a model call.
+  # A fake Codex exercises sandbox worker and deterministic-check seams without a model call.
   repo="$wd/repo"
   bin="$wd/bin"
   mkdir -p "$repo" "$bin"
@@ -236,7 +236,7 @@ case "${1:-}" in
       if [ "${FAKE_CODEX_MODE:-}" = missing_bypass ]; then
         printf '%s\n' '--strict-config --disable'
       else
-        printf '%s\n' '--strict-config --disable --dangerously-bypass-approvals-and-sandbox'
+        printf '%s\n' '--strict-config --disable --sandbox read-only workspace-write danger-full-access --permission-profile'
       fi
       exit 0
     fi
@@ -278,9 +278,12 @@ esac
 printf 'exec %s\n' "$*" >> "$FAKE_CODEX_CALLS"
 [ -z "${AWS_SECRET_ACCESS_KEY:-}" ] || exit 88
 root=""
+last_out=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    -C) root="$2"; shift 2; continue ;;
+    -C|--cd) root="$2"; shift 2; continue ;;
+    -o|--output-last-message) last_out="$2"; shift 2; continue ;;
+    -) cat >/dev/null; shift; continue ;;
   esac
   shift
 done
@@ -297,6 +300,8 @@ case "${FAKE_CODEX_MODE:-}" in
     "$SAAS_EVAL_REAL_GIT" -C "$root" worktree move "$root" "${root}.moved"
     ;;
 esac
+msg='fake final role message'
+[ -n "$last_out" ] && printf '%s\n' "$msg" > "$last_out"
 printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"fake final role message"}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":80,"output_tokens":20,"cached_input_tokens":0}}'
 SH
@@ -307,14 +312,14 @@ SH
   PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" AWS_SECRET_ACCESS_KEY=must-not-leak \
     bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
       --sample-id sample-0000000000000101 --corpus-dir "$corpus" >/dev/null || ec=$?
-  assert_exit_code "SM16: unrestricted dev-container replay passes" "$ec" 0
+  assert_exit_code "SM16: workspace-write cast replay passes" "$ec" 0
   result="$corpus/samples/sample-0000000000000101/result.json"
   assert_json_field "SM17: replay emits evidence schema 3" "$result" '.schema_version' "3"
   assert_json_field "SM18: replay pins medium effort" "$result" '.effort' "medium"
-  assert_json_field "SM19: replay records unrestricted container policy" "$result" \
-    '.safety_evidence.sandbox_policy' "unrestricted-container"
-  assert_json_field "SM19a: replay records unrestricted network access" "$result" \
-    '.safety_evidence.network_access' "unrestricted"
+  assert_json_field "SM19: replay records workspace-write container policy" "$result" \
+    '.safety_evidence.sandbox_policy' "workspace-write-container"
+  assert_json_field "SM19a: replay records sandbox-default network access" "$result" \
+    '.safety_evidence.network_access' "sandbox-default"
   assert_json_field "SM19b: replay records the dev-container boundary" "$result" \
     '.safety_evidence.filesystem_scope' "dev-container"
   assert_json_field "SM19c: replay does not guess remote mutation state" "$result" \
@@ -322,17 +327,14 @@ SH
   assert_json_field "SM19d: replay does not guess production mutation state" "$result" \
     '.production_mutation' "null"
   assert_file_not_exists "SM20: primary checkout is not edited" "$repo/generated.txt"
-  assert_file_contains "SM20b: replay worker bypasses approvals and sandbox" "$calls" \
-    '--dangerously-bypass-approvals-and-sandbox'
+  assert_file_contains "SM20b: replay worker uses workspace-write sandbox" "$calls" \
+    'workspace-write'
   assert_file_contains "SM21: deterministic check enables the network proxy" "$calls" \
     '^sandbox-args sandbox --enable network_proxy'
   assert_file_contains "SM21a: deterministic check uses the network-off profile" "$calls" \
     '--permission-profile saas-network-off'
   assert_file_contains "SM21b: deterministic sandbox executes the check harness" "$calls" \
     '^sandbox /tmp/saas-medium-eval\..*/tree/check.sh'
-  assert_file_contains "SM22: replay ignores user Codex config" "$calls" '--ignore-user-config'
-  assert_file_contains "SM22b: replay disables standalone web search" "$calls" \
-    '--disable standalone_web_search'
   assert_file_contains "SM23: candidate diff captures output" \
     "$corpus/samples/sample-0000000000000101/medium.diff" 'generated.txt'
 
@@ -341,7 +343,7 @@ SH
   PATH="$bin:$PATH" FAKE_CODEX_CALLS="$calls" FAKE_CODEX_MODE=missing_bypass \
     bash "$script" replay --repo-root "$repo" --base HEAD --task-file "$task" \
       --sample-id sample-0000000000000102 --corpus-dir "$corpus" >/dev/null || ec=$?
-  assert_exit_code "SM24: missing unrestricted bypass support fails closed" "$ec" 2
+  assert_exit_code "SM24: missing sandbox support fails closed" "$ec" 2
   assert_equals "SM25: unsupported Codex launches no worker" \
     "$(grep -c '^exec ' "$calls" 2>/dev/null || true)" "0"
   assert_file_not_exists "SM26: unsupported Codex emits no replay evidence" \

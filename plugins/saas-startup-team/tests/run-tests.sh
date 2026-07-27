@@ -952,13 +952,13 @@ test_cross_file_consistency() {
   assert_file_exists "H1: Stop hook script exists" "$PLUGIN_ROOT/$stop_script"
   assert_file_exists "H2: PreToolUse handoff hook script exists" "$PLUGIN_ROOT/$handoff_script"
 
-  # H3-H4: Capability skills replace founder personas (#385); codex controllers remain until #387.
+  # H3-H4: Capability skills replace founder personas (#385); nested Codex controllers removed (#387).
   assert_file_exists "H3: product-discovery skill" "$PLUGIN_ROOT/skills/product-discovery/SKILL.md"
   assert_file_exists "H4a: tech-founder standards skill" "$PLUGIN_ROOT/skills/tech-founder/SKILL.md"
   assert_file_not_exists "H4b: business-founder persona deleted" "$PLUGIN_ROOT/agents/business-founder.md"
   assert_file_not_exists "H4c: tech-founder-claude persona deleted" "$PLUGIN_ROOT/agents/tech-founder-claude.md"
-  tech_codex_name=$(grep '^name:' "$PLUGIN_ROOT/agents/tech-founder-codex.md" | head -1 | sed 's/^name: *//')
-  assert_equals "H4d: tech-founder-codex agent name correct" "$tech_codex_name" "tech-founder-codex"
+  assert_file_not_exists "H4d: tech-founder-codex controller deleted" "$PLUGIN_ROOT/agents/tech-founder-codex.md"
+  assert_file_exists "H4e: codex-cast adapter" "$PLUGIN_ROOT/scripts/codex-cast.sh"
 
   # H7: Template filenames match the patterns that scripts expect
   assert_file_exists "H7: handoff-business-to-tech template exists" \
@@ -1148,14 +1148,13 @@ test_plugin_issues() {
     FAIL_COUNT=$((FAIL_COUNT + 1))
   fi
 
-  # J2-J5: the shared reference routes through the dry-funnel filing helper; the four primary
-  # issue-filing agents point at that reference (stated once, referenced elsewhere).
-  # tech-founder-codex* inherit plugin-issue reporting via tech-founder-claude.md (which they read).
+  # J2-J5: the shared reference routes through the dry-funnel filing helper; remaining
+  # agents point at that reference (stated once, referenced elsewhere).
   assert_file_contains "J-gh-ref: reference files through the issue funnel" \
     "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" 'scripts/issue-file.sh'
   assert_file_contains "J-gh-ref: issue funnel receives the pinned repo" \
     "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" '--repo "${SAAS_PLUGIN_REPO}"'
-  for agent in tech-founder-codex.md tech-founder-codex-maintain.md lawyer.md; do
+  for agent in lawyer.md; do
     assert_file_contains "J-gh: $agent references the plugin-issue-reporting doc" \
       "$PLUGIN_ROOT/agents/$agent" "templates/plugin-issue-reporting.md"
   done
@@ -5400,11 +5399,12 @@ test_learnings_migrate_house_style() {
 }
 
 test_maintain_agents_reference_style() {
-  echo -e "\n${CYAN}== maintain controllers remain thin until #387 ==${NC}"
-  assert_file_exists "N: codex maintain controller" \
+  echo -e "\n${CYAN}== maintain controllers removed; cast adapter owns Codex workers (#387) ==${NC}"
+  assert_file_not_exists "N: codex maintain controller deleted" \
     "$PLUGIN_ROOT/agents/tech-founder-codex-maintain.md"
   assert_file_not_exists "N: claude maintain persona deleted" \
     "$PLUGIN_ROOT/agents/tech-founder-claude-maintain.md"
+  assert_file_exists "N: codex-cast adapter" "$PLUGIN_ROOT/scripts/codex-cast.sh"
   assert_file_contains "N: product-acceptance for maintain product verdicts" \
     "$PLUGIN_ROOT/references/workflows/maintain.md" "skills/product-acceptance"
 }
@@ -5562,8 +5562,8 @@ test_autonomous_demand_infra() {
     "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" "--sandbox-state-disable-network"
   assert_file_contains "AD4g: Codex capability check is bounded" \
     "$health" 'timeout 10 codex exec --help'
-  assert_file_contains "AD4h: Codex capability check requires unrestricted mode" \
-    "$health" '--dangerously-bypass-approvals-and-sandbox'
+  assert_file_contains "AD4h: Codex capability check requires sandbox modes" \
+    "$health" 'workspace-write'
   assert_file_contains "AD4i: Codex authentication check is bounded" \
     "$health" 'timeout 10 codex login status'
   assert_file_not_contains "AD4j: health preflight ignores stale sandbox configuration" \
@@ -5603,8 +5603,11 @@ JSON
 printf '%s\n' "$*" >> "$CODEX_CALL_LOG"
 if [ "${1:-}" = exec ] && [ "${2:-}" = --help ]; then
   printf '%s\n' 'Usage: codex exec [OPTIONS]'
-  [ "${FAKE_CODEX_BYPASS:-1}" -eq 0 ] || \
-    printf '%s\n' '  --dangerously-bypass-approvals-and-sandbox'
+  if [ "${FAKE_CODEX_SANDBOX_HELP:-1}" -eq 1 ]; then
+    printf '%s\n' '  -s, --sandbox <SANDBOX_MODE>'
+    printf '%s\n' '          [possible values: read-only, workspace-write, danger-full-access]'
+    printf '%s\n' '  -o, --output-last-message <FILE>'
+  fi
   exit 0
 fi
 if [ "${1:-}" = login ] && [ "${2:-}" = status ]; then
@@ -5623,21 +5626,21 @@ SH
     CODEX_SANDBOX=stale-restricted-setting PATH="$workdir/bin:$PATH" \
     bash "$health" --json --require-codex --repo-root "$workdir" \
       --plugin-root "$workdir/plugin" 2>&1) || ec=$?
-  assert_exit_code "AD6c: authenticated unrestricted Codex passes preflight" "$ec" 0
-  assert_output_contains "AD6d: reports unrestricted worker readiness" "$output" \
-    'Codex authentication and unrestricted worker mode are available'
+  assert_exit_code "AD6c: authenticated sandboxed Codex passes preflight" "$ec" 0
+  assert_output_contains "AD6d: reports cast sandbox readiness" "$output" \
+    'Codex authentication and sandbox modes required by codex-cast are available'
   assert_file_contains "AD6e: preflight inspects exec capability" \
     "$workdir/codex-calls.log" '^exec --help$'
   assert_file_contains "AD6f: preflight checks Codex authentication" \
     "$workdir/codex-calls.log" '^login status$'
 
   : > "$workdir/codex-calls.log"
-  ec=0; output=$(CODEX_CALL_LOG="$workdir/codex-calls.log" FAKE_CODEX_BYPASS=0 \
+  ec=0; output=$(CODEX_CALL_LOG="$workdir/codex-calls.log" FAKE_CODEX_SANDBOX_HELP=0 \
     PATH="$workdir/bin:$PATH" bash "$health" --json --require-codex \
       --repo-root "$workdir" --plugin-root "$workdir/plugin" 2>&1) || ec=$?
-  assert_exit_code "AD6g: missing unrestricted capability blocks preflight" "$ec" 1
-  assert_output_contains "AD6h: missing capability names the required flag" "$output" \
-    'lacks --dangerously-bypass-approvals-and-sandbox'
+  assert_exit_code "AD6g: missing sandbox capability blocks preflight" "$ec" 1
+  assert_output_contains "AD6h: missing capability names sandbox modes" "$output" \
+    'lacks --sandbox read-only/workspace-write'
   assert_file_not_contains "AD6i: capability failure skips auth" \
     "$workdir/codex-calls.log" 'login status'
 
