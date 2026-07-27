@@ -2,6 +2,7 @@
 name: nudge
 description: Unstick a deadlocked startup loop — manually send direction to a stuck founder or resolve a conflict between founders
 user_invocable: true
+transitional: true
 ---
 
 # /nudge — Unstick the Startup Loop

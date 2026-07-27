@@ -2,6 +2,7 @@
 name: status
 description: Show current state of the SaaS startup loop — iteration count, active roles, handoff history, human tasks, and blockers. Use `--compact` to force state.json compaction.
 user_invocable: true
+transitional: true
 ---
 
 # /status — Startup Loop Status

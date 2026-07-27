@@ -18,14 +18,14 @@
       "baseline": 27,
       "release_target": 0,
       "hard_ceiling": 0,
-      "current_ratchet": 27,
+      "current_ratchet": 0,
       "unit": "count"
     },
     "wrapper_skills_hand_maintained_loc": {
       "baseline": 1188,
       "release_target": 0,
       "hard_ceiling": 0,
-      "current_ratchet": 1188,
+      "current_ratchet": 0,
       "unit": "loc"
     },
     "agents_md_loc": {
@@ -39,14 +39,14 @@
       "baseline": 10137,
       "release_target": 4500,
       "hard_ceiling": 5000,
-      "current_ratchet": 10133,
+      "current_ratchet": 9243,
       "unit": "loc"
     },
     "total_md_sh_excl_tests_docs": {
       "baseline": 36612,
       "release_target": 18000,
       "hard_ceiling": 20000,
-      "current_ratchet": 36562,
+      "current_ratchet": 35672,
       "unit": "loc",
       "baseline_clean_tree": 36599,
       "baseline_note": "Epic #380 listed 36612; clean git tree at baseline_commit measures 36599 (epic figure included untracked root CLAUDE.md, 13 LOC). CI golden for 0.90.11 reproduction is baseline_clean_tree."
@@ -73,11 +73,19 @@
   "counting_rules": {
     "line_count": "wc -l semantics: count newline bytes per regular file (no symlink follow)",
     "scripts_sh_loc": "Sum LOC of all regular files matching scripts/**/*.sh",
-    "wrapper_skills_hand_maintained": "Count of directories skills/saas-startup-team-*-workflow",
-    "wrapper_skills_hand_maintained_loc": "Sum LOC of SKILL.md inside each wrapper directory",
+    "wrapper_skills_hand_maintained": "Count of directories skills/saas-startup-team-*-workflow whose SKILL.md lacks the GENERATED-ALIAS marker",
+    "wrapper_skills_hand_maintained_loc": "Sum LOC of SKILL.md in hand-maintained wrapper directories (no GENERATED-ALIAS marker)",
     "agents_md_loc": "Sum LOC of all regular files matching agents/**/*.md",
     "runtime_prompt_surface_loc": "Sum LOC of all regular *.md under agents/, commands/, and skills/ (includes skill references and wrapper SKILL.md)",
     "total_md_sh_excl_tests_docs": "Sum LOC of all regular *.md and *.sh under the plugin root, excluding only top-level tests/ and docs/, and root CLAUDE.md/AGENTS.md (harness local files)"
+  },
+  "counting_rules_allow_change": {
+    "issue": 383,
+    "keys": [
+      "wrapper_skills_hand_maintained",
+      "wrapper_skills_hand_maintained_loc"
+    ],
+    "notes": "Issue #383 replaces fat wrappers with generated thin aliases; hand-maintained metrics exclude GENERATED-ALIAS files while baseline 0.90.11 unmarked wrappers remain countable."
   },
   "generated_files": {
     "patterns": [

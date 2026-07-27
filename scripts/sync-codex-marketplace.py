@@ -307,11 +307,18 @@ def build_command_skill_files(plugin_dir: Path, plugin_name: str) -> dict[Path, 
     if not commands_dir.is_dir():
         return {}
 
+    # saas-startup-team thin aliases are owned by entrypoints.json +
+    # scripts/generate_workflow_aliases.py (issue #383). Do not re-emit fat
+    # host-translation wrappers for those entrypoints.
+    thin_alias_skills = thin_alias_skill_names(plugin_dir)
+
     planned: dict[Path, str] = {}
     for command_path in sorted(commands_dir.glob("*.md")):
         metadata = read_command_metadata(command_path)
         command_name = command_metadata_name(command_path, metadata)
         skill_name = command_skill_name(plugin_name, command_name, metadata)
+        if skill_name in thin_alias_skills:
+            continue
         skill_path = plugin_dir / "skills" / skill_name / "SKILL.md"
         planned[skill_path] = render_command_skill(
             plugin_name=plugin_name,
@@ -321,6 +328,29 @@ def build_command_skill_files(plugin_dir: Path, plugin_name: str) -> dict[Path, 
             skill_name=skill_name,
         )
     return planned
+
+
+def thin_alias_skill_names(plugin_dir: Path) -> set[str]:
+    """Return codex_skill names owned by the thin alias generator, if any."""
+    manifest_path = plugin_dir / "integrity" / "entrypoints.json"
+    if not manifest_path.is_file():
+        return set()
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    names: set[str] = set()
+    for raw in payload.get("entrypoints") or []:
+        if not isinstance(raw, dict):
+            continue
+        if raw.get("generate_alias") is not True:
+            continue
+        skill = raw.get("codex_skill")
+        if isinstance(skill, str) and skill.strip():
+            names.add(skill.strip())
+    return names
 
 
 def read_command_metadata(command_path: Path) -> dict[str, str]:

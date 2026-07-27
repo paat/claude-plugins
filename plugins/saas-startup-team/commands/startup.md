@@ -2,6 +2,7 @@
 name: startup
 description: Initialize a new SaaS startup project — creates .startup/ state, launches scoped founder role phases, and starts the iterative build loop
 user_invocable: true
+transitional: true
 ---
 
 # /startup — Launch SaaS Startup Team

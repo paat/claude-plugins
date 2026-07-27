@@ -3,6 +3,7 @@ name: lessons-review
 description: "Optional manual inspection and override for the automated lesson-review queue. Lists verified `lesson-candidate` issues and can approve, close, or quarantine one; normal candidates are reviewed by lesson-auto-review.sh. Usage: /lessons-review"
 allowed-tools: Bash, Read
 user_invocable: true
+transitional: true
 ---
 
 # /lessons-review — Manual Lesson Inspection and Override

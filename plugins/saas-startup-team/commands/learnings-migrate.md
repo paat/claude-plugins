@@ -2,6 +2,7 @@
 name: learnings-migrate
 description: Organise learnings staged in '### Recent (unsorted)' of CLAUDE.md into topic files under docs/learnings/. Bootstraps the topic catalog on first use. Non-destructive — flat pre-existing '## Learnings' bullets outside Recent are left alone.
 user_invocable: true
+transitional: true
 ---
 
 # /learnings-migrate — Sweep staged learnings into topic files

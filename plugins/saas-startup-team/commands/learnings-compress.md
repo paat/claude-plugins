@@ -2,6 +2,7 @@
 name: learnings-compress
 description: Compress one docs/learnings/<topic>.md into the house style behind a semantic-preservation gate — strips over-emphasis, adds canonical labels, routes landmines, promotes general standards, splits docs over 30KB. Non-destructive preview + changelog before any write.
 user_invocable: true
+transitional: true
 ---
 
 # /learnings-compress — gated backlog compression

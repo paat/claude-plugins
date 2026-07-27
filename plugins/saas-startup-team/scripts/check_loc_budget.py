@@ -34,6 +34,8 @@ METRIC_IDS = (
 )
 
 WRAPPER_GLOB = "saas-startup-team-*-workflow"
+# Generated thin aliases (issue #383) carry this marker and are not hand-maintained.
+GENERATED_ALIAS_MARKER = "GENERATED-ALIAS: do not edit"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -168,6 +170,34 @@ def is_regular_file(path: Path) -> bool:
         return False
 
 
+def is_hand_maintained_wrapper(wrapper_dir: Path) -> bool:
+    """True when a saas-startup-team-*-workflow dir is not a pure generated alias.
+
+    A pure generated alias is exactly one regular file, SKILL.md, containing
+    GENERATED_ALIAS_MARKER. Baseline 0.90.11 wrappers had no marker. Extra
+    files beside a marked SKILL.md re-enter the hand-maintained count so the
+    metric cannot be gamed by smuggling content under a generated dir.
+    """
+    skill = wrapper_dir / "SKILL.md"
+    if not is_regular_file(skill):
+        return True
+    try:
+        text = skill.read_text(encoding="utf-8")
+    except OSError:
+        return True
+    if GENERATED_ALIAS_MARKER not in text:
+        return True
+    try:
+        for path in wrapper_dir.rglob("*"):
+            if not is_regular_file(path):
+                continue
+            if path != skill:
+                return True
+    except OSError:
+        return True
+    return False
+
+
 def line_count(path: Path) -> int:
     """Match `wc -l`: number of newline bytes in the file."""
     data = path.read_bytes()
@@ -192,7 +222,9 @@ def measure(plugin_root: Path, budget: dict[str, Any]) -> dict[str, int]:
     wrappers = sorted(
         p
         for p in (plugin_root / "skills").glob(WRAPPER_GLOB)
-        if p.is_dir() and not p.is_symlink()
+        if p.is_dir()
+        and not p.is_symlink()
+        and is_hand_maintained_wrapper(p)
     )
     wrapper_skills = [
         p / "SKILL.md" for p in wrappers if is_regular_file(p / "SKILL.md")
@@ -338,7 +370,9 @@ def _git_show_bytes(repo_root: Path, rev: str, path: str) -> bytes | None:
     return proc.stdout
 
 
-def _metrics_for_plugin_rel(rel_plugin: str, path: str) -> list[str]:
+def _metrics_for_plugin_rel(
+    rel_plugin: str, path: str, content: bytes | None = None
+) -> list[str]:
     """Map a former plugin path to the metrics it contributed to."""
     # path is repo-relative like plugins/saas-startup-team/scripts/x.sh
     prefix = rel_plugin.rstrip("/") + "/"
@@ -361,7 +395,10 @@ def _metrics_for_plugin_rel(rel_plugin: str, path: str) -> list[str]:
         and inner.endswith("-workflow/SKILL.md")
         and inner.startswith("skills/")
     ):
-        metrics.append("wrapper_skills_hand_maintained_loc")
+        # Generated aliases are not hand-maintained (issue #383).
+        text = content.decode("utf-8", errors="replace") if content is not None else ""
+        if GENERATED_ALIAS_MARKER not in text:
+            metrics.append("wrapper_skills_hand_maintained_loc")
     return metrics
 
 
@@ -457,7 +494,7 @@ def detect_undeclared_extractions(
             return
         seen_old.add(old)
         loc = data.count(b"\n") if data else 0
-        for mid in _metrics_for_plugin_rel(rel_plugin, old):
+        for mid in _metrics_for_plugin_rel(rel_plugin, old, data):
             needed_by_metric[mid] += loc
         extracted_paths.append(f"{old} -> {new} ({loc} loc)")
 
@@ -570,12 +607,29 @@ def anti_weaken(base: dict[str, Any], head: dict[str, Any]) -> list[str]:
 
     base_rules = base.get("counting_rules") or {}
     head_rules = head.get("counting_rules") or {}
+    # One-shot allow: a key listed only on head (not already on base) may change
+    # once for an intentional migration (issue #383). After merge, base carries
+    # the same allow block, so further rule edits for that key fail again.
+    head_allow = head.get("counting_rules_allow_change") or {}
+    base_allow = base.get("counting_rules_allow_change") or {}
+    head_allowed: set[str] = set()
+    base_allowed: set[str] = set()
+    if isinstance(head_allow, dict):
+        keys = head_allow.get("keys") or []
+        if isinstance(keys, list):
+            head_allowed = {k for k in keys if isinstance(k, str)}
+    if isinstance(base_allow, dict):
+        keys = base_allow.get("keys") or []
+        if isinstance(keys, list):
+            base_allowed = {k for k in keys if isinstance(k, str)}
     if isinstance(base_rules, dict) and isinstance(head_rules, dict):
         for key, base_val in base_rules.items():
             if key not in head_rules:
                 errors.append(f"anti-weaken: counting_rules.{key} removed")
             elif head_rules[key] != base_val:
-                errors.append(f"anti-weaken: counting_rules.{key} changed")
+                oneshot = key in head_allowed and key not in base_allowed
+                if not oneshot:
+                    errors.append(f"anti-weaken: counting_rules.{key} changed")
 
     base_gen = (base.get("generated_files") or {}).get("policy")
     head_gen = (head.get("generated_files") or {}).get("policy")

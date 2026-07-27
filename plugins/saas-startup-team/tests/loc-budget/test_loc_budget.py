@@ -65,8 +65,14 @@ def base_budget(**metric_overrides: dict) -> dict:
         },
         "counting_rules": {
             "scripts_sh_loc": "Sum LOC of all regular files matching scripts/**/*.sh",
-            "wrapper_skills_hand_maintained": "Count of directories skills/saas-startup-team-*-workflow",
-            "wrapper_skills_hand_maintained_loc": "Sum LOC of SKILL.md inside each wrapper directory",
+            "wrapper_skills_hand_maintained": (
+                "Count of directories skills/saas-startup-team-*-workflow "
+                "whose SKILL.md lacks the GENERATED-ALIAS marker"
+            ),
+            "wrapper_skills_hand_maintained_loc": (
+                "Sum LOC of SKILL.md in hand-maintained wrapper directories "
+                "(no GENERATED-ALIAS marker)"
+            ),
             "agents_md_loc": "Sum LOC of all regular files matching agents/**/*.md",
             "runtime_prompt_surface_loc": "Sum LOC of all regular *.md under agents/, commands/, and skills/",
             "total_md_sh_excl_tests_docs": "Sum LOC of all regular *.md and *.sh excluding top-level tests/ and docs/",
@@ -105,13 +111,19 @@ class MeasureRealPlugin(unittest.TestCase):
         proc = run_checker(["--plugin-root", str(PLUGIN_ROOT), "--release", "1.0.0"])
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertIn("release_target", proc.stderr)
-        # Every metric still above its 1.0 target should be reported.
+        # Wrapper hand-maintained metrics are already at the 1.0.0 target (0)
+        # after issue #383; remaining above-target metrics must still fail.
         for mid in METRIC_IDS:
             if mid.startswith("wrapper") and "hand_maintained" in mid:
-                # wrappers still non-zero
-                self.assertIn(mid, proc.stderr)
+                self.assertNotIn(mid + ":", proc.stderr)
             elif mid == "scripts_sh_loc":
                 self.assertIn(mid, proc.stderr)
+
+    def test_hand_maintained_wrappers_are_zero_on_current_tree(self) -> None:
+        budget = loc.load_budget(BUDGET)
+        measured = loc.measure(PLUGIN_ROOT, budget)
+        self.assertEqual(measured["wrapper_skills_hand_maintained"], 0)
+        self.assertEqual(measured["wrapper_skills_hand_maintained_loc"], 0)
 
 
 class BaselineReproduction(unittest.TestCase):
@@ -214,6 +226,7 @@ class FixtureExceedEachMetric(unittest.TestCase):
         def setup(root: Path) -> None:
             d = root / "skills" / "saas-startup-team-demo-workflow"
             d.mkdir(parents=True)
+            # No GENERATED-ALIAS marker => hand-maintained.
             write_lines(d / "SKILL.md", 1)
 
         proc = self._run_with_metric("wrapper_skills_hand_maintained", setup)
@@ -229,6 +242,47 @@ class FixtureExceedEachMetric(unittest.TestCase):
         proc = self._run_with_metric("wrapper_skills_hand_maintained_loc", setup)
         self.assertEqual(proc.returncode, 1)
         self.assertIn("wrapper_skills_hand_maintained_loc", proc.stderr)
+
+    def test_generated_alias_marker_excluded_from_hand_maintained(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "plugin"
+            make_plugin(root)
+            d = root / "skills" / "saas-startup-team-demo-workflow"
+            d.mkdir(parents=True)
+            (d / "SKILL.md").write_text(
+                "---\nname: saas-startup-team-demo-workflow\n"
+                'description: "demo"\n---\n'
+                f"<!-- {loc.GENERATED_ALIAS_MARKER}; test -->\n"
+                "Alias body\n",
+                encoding="utf-8",
+            )
+            budget = base_budget(
+                **{
+                    m: {
+                        "current_ratchet": 0,
+                        "hard_ceiling": 0,
+                        "release_target": 0,
+                        "baseline": 0,
+                    }
+                    for m in METRIC_IDS
+                }
+            )
+            # Generated aliases still count toward runtime/total surfaces.
+            budget["metrics"]["runtime_prompt_surface_loc"]["current_ratchet"] = 100
+            budget["metrics"]["runtime_prompt_surface_loc"]["hard_ceiling"] = 100
+            budget["metrics"]["total_md_sh_excl_tests_docs"]["current_ratchet"] = 100
+            budget["metrics"]["total_md_sh_excl_tests_docs"]["hard_ceiling"] = 100
+            write_budget(root / "integrity" / "loc-budget.json", budget)
+            measured = loc.measure(root, budget)
+            self.assertEqual(measured["wrapper_skills_hand_maintained"], 0)
+            self.assertEqual(measured["wrapper_skills_hand_maintained_loc"], 0)
+            self.assertGreater(measured["runtime_prompt_surface_loc"], 0)
+
+            # Extra file beside a marked SKILL.md re-enters hand-maintained.
+            write_lines(d / "notes.md", 3)
+            measured = loc.measure(root, budget)
+            self.assertEqual(measured["wrapper_skills_hand_maintained"], 1)
+            self.assertGreater(measured["wrapper_skills_hand_maintained_loc"], 0)
 
     def test_exceed_agents_md_loc(self) -> None:
         def setup(root: Path) -> None:
@@ -441,6 +495,61 @@ class AntiWeaken(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 1)
             self.assertIn("generated_files.policy", proc.stderr)
+
+    def test_counting_rules_allow_change_keys_skip_anti_weaken(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            base = base_budget()
+            head = json.loads(json.dumps(base))
+            head["counting_rules"]["wrapper_skills_hand_maintained"] = "clarified rule"
+            head["counting_rules_allow_change"] = {
+                "issue": 383,
+                "keys": ["wrapper_skills_hand_maintained"],
+            }
+            base_path = tmp_path / "base.json"
+            head_path = tmp_path / "head.json"
+            write_budget(base_path, base)
+            write_budget(head_path, head)
+            root = tmp_path / "plugin"
+            make_plugin(root)
+            write_budget(root / "integrity" / "loc-budget.json", head)
+            proc = run_checker(
+                [
+                    "--plugin-root",
+                    str(root),
+                    "--budget",
+                    str(head_path),
+                    "--compare-base",
+                    str(base_path),
+                    "--measure-only",
+                ]
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            self.assertNotIn("counting_rules.wrapper_skills_hand_maintained", proc.stderr)
+
+            # One-shot only: once base already carries the allow key, further
+            # rule edits for that key fail anti-weaken again.
+            base2 = json.loads(json.dumps(head))
+            head2 = json.loads(json.dumps(head))
+            head2["counting_rules"]["wrapper_skills_hand_maintained"] = "second edit"
+            base2_path = tmp_path / "base2.json"
+            head2_path = tmp_path / "head2.json"
+            write_budget(base2_path, base2)
+            write_budget(head2_path, head2)
+            write_budget(root / "integrity" / "loc-budget.json", head2)
+            proc = run_checker(
+                [
+                    "--plugin-root",
+                    str(root),
+                    "--budget",
+                    str(head2_path),
+                    "--compare-base",
+                    str(base2_path),
+                    "--measure-only",
+                ]
+            )
+            self.assertEqual(proc.returncode, 1, proc.stderr + proc.stdout)
+            self.assertIn("counting_rules.wrapper_skills_hand_maintained", proc.stderr)
 
     def test_allows_ratchet_decrease(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

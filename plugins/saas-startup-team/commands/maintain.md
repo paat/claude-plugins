@@ -2,6 +2,7 @@
 name: maintain
 description: "Autonomous maintenance supervisor. Probe model-free, then load the delivery playbook only when work exists. Usage: /maintain [--once] [--dry-run] [limits]"
 user_invocable: true
+transitional: true
 ---
 
 # /maintain

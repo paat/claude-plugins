@@ -3,6 +3,7 @@ name: market-scout
 description: "Generate ranked SaaS improvement candidates from external market evidence when configured, with an internal demand-discovery fallback when browsing/source data is unavailable. Usage: /market-scout [category or source guidance]"
 allowed-tools: Bash, Read, WebSearch, WebFetch
 user_invocable: true
+transitional: true
 ---
 
 # /market-scout — External Demand Discovery

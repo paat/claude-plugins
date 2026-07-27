@@ -4,6 +4,7 @@ description: "Assemble and send one daily needs-human digest per project — new
 argument-hint: "[--date YYYY-MM-DD]"
 allowed-tools: Bash, Read
 user_invocable: true
+transitional: true
 ---
 
 # /digest — Daily needs-human digest
