@@ -15,7 +15,6 @@ start with inbound/controlled validation; post-live projects execute acquisition
 
 Load capability skills:
 ```
-Skill('saas-startup-team:startup-orchestration')
 Skill('saas-startup-team:growth')
 Skill('saas-startup-team:product-discovery')  # only when strategy/init needs it
 ```

@@ -56,22 +56,21 @@ triggered production, privacy, correctness, regression, and deployment gates.
 ## Architecture
 
 ```
-Human (Silent Investor)
-  ↓ describes SaaS idea
-  ↓ /saas-startup-team:startup
-Team Lead (Orchestrator)
-  ├── Business Founder (role phase, web + browser research)
-  ├── Tech Founder (role phase, code tools)
-  ├── Shared state.json
-  └── File-based handoffs in .startup/
+Human (optional silent-observer framing)
+  ↓ goal / SaaS idea
+  ↓ /saas-startup-team:startup → skills/lifecycle
+Intake → Conditional discovery → Triggered specialists → deliver → Report
+  ├── product-discovery / lawyer / growth / ux-review only when triggered
+  ├── deliver: Plan → isolated Build → Independent Review → Release
+  └── legacy-import.sh: read-only brief/workflow/signoff context
 ```
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `/saas-startup-team:startup` | Initialize project, start founder role phases, start the loop |
-| `/saas-startup-team:status` | Show iteration count, handoff history, human tasks |
+| `/saas-startup-team:startup` | Thin conditional lifecycle: intake, discovery on evidence gaps, deliver |
+| `/saas-startup-team:status` | Project status via status helper + legacy import |
 | `/saas-startup-team:nudge` | Unstick a deadlock or redirect a founder |
 | `/saas-startup-team:lawyer` | Spawn lawyer agent for legal/compliance review |
 | `/saas-startup-team:ux-test` | Spawn UX tester for accessibility and usability audit |
@@ -152,53 +151,45 @@ environment allowlist. Sandboxing defaults to `workspace-write` (implement) or
 and is never implicit. Review mode fails if the worktree becomes dirty. Terminal JSON
 binds mode, commit SHA, worktree, provider, and timeout outcome.
 
-On Claude hosts, non-trivial Codex-routed handoffs first run a plan-only **architect pass** through the registered Claude role (interface contracts, file map, invariants, test plan → `NNN-tech-plan.md`), then Codex implements from handoff + plan. Codex hosts run the equivalent model-neutral architect role phase without launching Claude — see `skills/startup-orchestration/SKILL.md` §1c.
+On Claude hosts, non-trivial Codex-routed delivery can run a plan-only architect pass then implement via `scripts/codex-cast.sh`. Codex hosts keep the equivalent flow model-neutral. Startup uses the thin conditional `skills/lifecycle/SKILL.md` conductor (discovery only on evidence gaps; deliver for implementation).
 
 ### Convergence governor (`/goal-deliver`)
 
 `/goal-deliver` integrates with the `tribunal-review` plugin's convergence governor to prevent review spirals. The governor enforces a hard ceiling of 5 rounds, triggers an investor checkpoint at round 3, and closes the loop automatically once the arbiter returns zero critical and zero high findings. The reachability convention (`skills/tech-founder/references/reachability-convention.md`) defines what counts as a reachable path for tribunal reviewers and is updated alongside the governor; the `last-verified:` field — documented by the convention but written into each consumer repo's own `reachability.md` — tracks when that repo's assumptions were last confirmed against production traffic.
 
-## The Loop
+## Lifecycle (`/startup`)
 
 ```
-Business Founder: research → requirements → handoff
-  ↓
-Tech Founder: read handoff → implement → handoff back
-  ↓
-Business Founder: browser verification → signoff or feedback
-  ↓
-[repeat for each feature]
-  ↓
-Business Founder: solution signoff → GO LIVE
+Intake → Conditional discovery → Triggered specialists → Deliver → Report
 ```
+
+Small scoped work takes the **fast path** (no broad market research). Product discovery,
+legal, growth, and UX load only when objective triggers fire. Implementation resolves to
+`skills/deliver`. New runs do not write `active_role`, iteration counters, numbered
+conversational handoffs, or Stop/yield control. Use `scripts/legacy-import.sh` for
+read-only access to legacy brief/workflow/signoff artifacts.
 
 ## Signoff System
 
-Two levels:
-1. **Roundtrip Signoff**: Per-feature validation (requirement → implementation → browser QA → signoff)
-2. **Solution Signoff**: The business founder declares the entire product customer-ready
-
-Only the business founder can end the loop — they are the customer's voice.
+Independent product-acceptance (never the implementer) owns go-live judgment when triggered.
+Solution signoff under `.startup/go-live/` remains the terminal product-ready artifact when used.
 
 ## File Structure
 
-The startup loop creates git-tracked durable docs plus ephemeral `.startup/` state:
+Durable docs plus optional `.startup/` artifacts (legacy state is historical only):
 
 ```
 docs/
+├── business/brief.md     # Product brief
 ├── human-tasks.md        # Tasks only the human can do (non-blocking, git-tracked)
 └── ...
 
 .startup/
-├── brief.md              # Investor's SaaS idea
-├── state.json            # Loop state (iteration, phase, active role) — auto-compacted
-├── state-archive.json    # Historical keys moved out of state.json (append-only)
 ├── workflows/            # Git-trackable workflow registry/specs
-├── handoffs/             # Structured handoff documents
-├── docs/                 # Research documents (Estonian)
-├── signoffs/             # Per-feature roundtrip signoffs
-├── reviews/              # Browser verification notes
-└── go-live/              # Solution signoff (ends the loop)
+├── reviews/              # Review evidence
+├── go-live/              # Solution signoff when used
+├── leases/               # Single-flight lease owners
+└── (legacy) state.json / handoffs/ — import only; not written by new lifecycle runs
 ```
 
 ### Workflow registry
@@ -208,13 +199,7 @@ docs/
 - `.startup/workflows/registry.md`
 - `.startup/workflows/WORKFLOW-template.md`
 
-Create `WORKFLOW-<slug>.md` when a handoff introduces or changes routes, jobs, workers, webhooks, checkout/payment, LLM pipelines, support intake, operator workflows, entity states, or handoff contracts. Specs cover trigger, actors, happy path, validation failures, transient/permanent failures, cleanup/compensation, concurrent conflicts, customer/operator/system states, logs/artifacts, and QA cases. Missing workflows discovered in code should be marked `Missing` in `registry.md` instead of silently ignored.
-
-Tech-founder handoffs reference affected workflow spec files. UX tester derives test cases from those specs and reports missing coverage back to the registry.
-
-### state.json compaction
-
-`state.json` uses schema v2. A PostToolUse hook runs `compact-state.sh` after every Write and archives old handoff keys (`handoff_NNN_*`) plus other non-allowlisted entries into `state-archive.json` once the inline window (last 10 handoffs) is exceeded. The inline state stays under ~30 lines regardless of project age. Run `/status --compact --yes` on existing projects to migrate one-shot (a timestamped `.bak` is written first). Tune the window with `STARTUP_INLINE_HANDOFFS=N` if needed.
+Create `WORKFLOW-<slug>.md` when delivery introduces or changes routes, jobs, workers, webhooks, checkout/payment, LLM pipelines, support intake, operator workflows, entity states, or contracts. Specs cover trigger, actors, happy path, validation failures, transient/permanent failures, cleanup/compensation, concurrent conflicts, customer/operator/system states, logs/artifacts, and QA cases. Missing workflows discovered in code should be marked `Missing` in `registry.md` instead of silently ignored.
 
 ### Learnings capture
 

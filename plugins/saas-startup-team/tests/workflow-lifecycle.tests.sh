@@ -22,7 +22,7 @@ test_workflow_lifecycle_safety() {
   maintain_escalation="$PLUGIN_ROOT/scripts/maintain-escalation.sh"
   mutation_ownership="$PLUGIN_ROOT/references/workflows/mutation-ownership.md"
   design_review="$PLUGIN_ROOT/skills/ux-review/references/design-review-leg.md"
-  startup="$PLUGIN_ROOT/commands/startup.md"
+  startup="$PLUGIN_ROOT/skills/lifecycle/SKILL.md"
   improve="$PLUGIN_ROOT/references/deliver/graph.md"
   lessons="$PLUGIN_ROOT/commands/lessons-deliver.md"
   design="$PLUGIN_ROOT/docs/design/lessons-deliver.md"
@@ -291,11 +291,11 @@ test_workflow_lifecycle_safety() {
   assert_file_contains "WL12b: partially-fixable forbids split-from markers" "$maintain_protocol" \
     'maintain:split-from'
 
-  assert_before "WL13: startup lease precedes idea capture" "$startup" \
-    'Before any command that may write project state' '## Step 1: Capture the SaaS Idea'
+  assert_before "WL13: lifecycle lease precedes deliver" "$startup" \
+    'Claim session lease only while mutating project state' '### 4. Deliver'
   count=$(grep -cF -- '--acquire "startup:${PWD}"' "$startup" || true)
-  assert_equals "WL14: startup acquires one session identity" "$count" 1
-  assert_file_contains "WL15: startup heartbeats stable owner file" "$startup" \
+  assert_equals "WL14: lifecycle acquires one session identity" "$count" 1
+  assert_file_contains "WL15: lifecycle heartbeats stable owner file" "$startup" \
     '--owner-file .startup/leases/.owners/startup.owner'
 
   improve_entry="$PLUGIN_ROOT/references/deliver/entrypoints.md"

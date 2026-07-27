@@ -294,7 +294,7 @@ test_status_script() {
   workdir=$(make_workdir)
   ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
   assert_exit_code "C1: no .startup exits 0" "$ec" 0
-  assert_output_contains "C1: shows no-session message" "$output" "No active startup session"
+  assert_output_contains "C1: shows no-session message" "$output" "No project artifacts found"
   rm -rf "$workdir"
 
   # C2: empty minimal .startup
@@ -445,8 +445,8 @@ test_templates() {
     "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" "templates/delivery-scope-contract.md"
   assert_file_contains "D10q2: Codex-native business skill loads shared scope" \
     "$PLUGIN_ROOT/skills/product-discovery/SKILL.md" "../../templates/delivery-scope-contract.md"
-  assert_file_contains "D10q3: orchestration scopes direct planning before expansion" \
-    "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" "before role or research expansion"
+  assert_file_contains "D10q3: lifecycle scopes planning before discovery expansion" \
+    "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "Skip broad market research"
   assert_file_contains "D10q4: goal delivery defaults to its primary planner" \
     "$PLUGIN_ROOT/references/deliver/graph.md" "Do not dispatch a planning role by default"
   assert_file_contains "D10q5: improve brief applies scope before research" \
@@ -467,8 +467,8 @@ test_templates() {
     "$PLUGIN_ROOT/commands/bootstrap.md" "Engineering principles"
   assert_file_contains "D10q6g: bootstrap calls shared helper" \
     "$PLUGIN_ROOT/commands/bootstrap.md" "scripts/ensure-engineering-principles.sh"
-  assert_file_contains "D10q6h: startup ensures engineering principles" \
-    "$PLUGIN_ROOT/commands/startup.md" "scripts/ensure-engineering-principles.sh"
+  assert_file_contains "D10q6h: lifecycle ensures engineering principles" \
+    "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "ensure-engineering-principles.sh"
   assert_file_exists "D10q6i: ensure-engineering-principles script exists" \
     "$PLUGIN_ROOT/scripts/ensure-engineering-principles.sh"
   assert_file_contains "D10q6j: SessionStart hook ensures principles" \
@@ -483,9 +483,9 @@ test_templates() {
     "$PLUGIN_ROOT/references/brief-acceptance-gate.md" "does not require a new research document"
   assert_file_contains "D10q10: handoff template accepts direct request evidence" \
     "$tmpl_dir/handoff-business-to-tech.md" "For a direct feature"
-  assert_file_contains "D10q11: handoff protocol accepts direct request evidence" \
-    "$PLUGIN_ROOT/skills/startup-orchestration/references/handoff-protocol.md" \
-    "Concrete direct request plus the existing behavior"
+  assert_file_contains "D10q11: delivery-scope planning accepts direct request evidence" \
+    "$tmpl_dir/delivery-scope-planning.md" \
+    "do not require a new research artifact"
 
   # D11-D15: handoff-tech-to-business.md
   assert_file_exists "D11: handoff-tech-to-business.md exists" "$tmpl_dir/handoff-tech-to-business.md"
@@ -580,7 +580,7 @@ test_plugin_config() {
   hooks_keys=$(jq -r '.hooks | keys[]' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null)
   assert_output_contains "E8: hooks.json has PreToolUse" "$hooks_keys" "PreToolUse"
   assert_output_contains "E9: hooks.json has PostToolUse" "$hooks_keys" "PostToolUse"
-  assert_output_contains "E10: hooks.json has Stop" "$hooks_keys" "Stop"
+  assert_output_not_contains "E10: hooks.json has no Stop (lifecycle #386)" "$hooks_keys" "Stop"
   assert_output_not_contains "E11: hooks.json omits Codex-unsupported TeammateIdle" "$hooks_keys" "TeammateIdle"
   assert_output_not_contains "E12: hooks.json omits Codex-unsupported TaskCompleted" "$hooks_keys" "TaskCompleted"
 
@@ -608,247 +608,18 @@ test_plugin_config() {
 # ---------------------------------------------------------------------------
 
 test_stop_hook() {
-  echo -e "\n${CYAN}Suite F: Stop Hook${NC}"
-  local workdir ec output
-  local SCRIPT="$PLUGIN_ROOT/scripts/check-stop.sh"
-
-  # F1: check-stop.sh exists
-  assert_file_exists "F1: check-stop.sh exists" "$SCRIPT"
-
-  # F2: check-stop.sh is executable
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -x "$SCRIPT" ]; then
-    echo -e "  ${GREEN}PASS${NC} F2: check-stop.sh is executable"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} F2: check-stop.sh is executable"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("F2: check-stop.sh not executable")
-  fi
-
-  # F3: Has team-member bypass (checks --agent-id in process tree)
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if grep -q -- '--agent-id' "$SCRIPT"; then
-    echo -e "  ${GREEN}PASS${NC} F3: has team-member bypass (--agent-id check)"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} F3: missing team-member bypass"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("F3: check-stop.sh missing --agent-id team-member bypass")
-  fi
-
-  # F4: no git repo → exit 0 (allow stop)
-  workdir=$(make_workdir)
-  ec=0; (cd "$workdir" && bash "$SCRIPT") || ec=$?
-  assert_exit_code "F4: no git repo → allow stop" "$ec" 0
-  rm -rf "$workdir"
-
-  # F5: no .startup dir → exit 0
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q)
-  ec=0; (cd "$workdir" && bash "$SCRIPT") || ec=$?
-  assert_exit_code "F5: no .startup dir → allow stop" "$ec" 0
-  rm -rf "$workdir"
-
-  # F6: iteration < 2 → exit 0 (allow stop)
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup)
-  echo '{"iteration": 1, "phase": "research"}' > "$workdir/.startup/state.json"
-  ec=0; (cd "$workdir" && bash "$SCRIPT") || ec=$?
-  assert_exit_code "F6: iteration 1 → allow stop" "$ec" 0
-  rm -rf "$workdir"
-
-  # F7: iteration >= 2, no signoff → exit 2 (block stop)
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
-  echo '{"iteration": 2, "phase": "implementation"}' > "$workdir/.startup/state.json"
-  ec=0; output=$( (cd "$workdir" && bash "$SCRIPT") 2>&1 ) || ec=$?
-  assert_exit_code "F7: iteration 2 no signoff → block stop" "$ec" 2
-  rm -rf "$workdir"
-
-  # F8: iteration >= 2 with signoff → exit 0 (allow stop)
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
-  echo '{"iteration": 3, "phase": "implementation"}' > "$workdir/.startup/state.json"
-  echo "signed off" > "$workdir/.startup/go-live/solution-signoff.md"
-  ec=0; (cd "$workdir" && bash "$SCRIPT") || ec=$?
-  assert_exit_code "F8: iteration 3 with signoff → allow stop" "$ec" 0
-  rm -rf "$workdir"
-
-  # F9: block message includes iteration and phase
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
-  echo '{"iteration": 4, "phase": "review"}' > "$workdir/.startup/state.json"
-  ec=0; output=$( (cd "$workdir" && bash "$SCRIPT") 2>&1 ) || ec=$?
-  assert_output_contains "F9: block message shows iteration" "$output" "iteration 4"
-  assert_output_contains "F9b: block message shows phase" "$output" "review"
-  rm -rf "$workdir"
-
-  # F10: hooks.json Stop entry references check-stop.sh
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if jq -e '.hooks.Stop[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null | grep -q 'check-stop.sh'; then
-    echo -e "  ${GREEN}PASS${NC} F10: hooks.json Stop references check-stop.sh"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} F10: hooks.json Stop missing check-stop.sh reference"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("F10: hooks.json Stop entry missing check-stop.sh")
-  fi
-
-  # F10b: Codex hook bundle omits Claude-only ScheduleWakeup matcher.
+  echo -e "\n${CYAN}Suite F: Stop Hook removed (#386)${NC}"
+  assert_file_not_exists "F1: check-stop.sh removed" "$PLUGIN_ROOT/scripts/check-stop.sh"
+  assert_file_not_exists "F2: mark-yield.sh removed" "$PLUGIN_ROOT/scripts/mark-yield.sh"
+  local hooks_blob
+  hooks_blob=$(cat "$PLUGIN_ROOT/hooks/hooks.json")
+  assert_output_not_contains "F3: hooks.json has no Stop entry" "$hooks_blob" '"Stop"'
+  assert_output_not_contains "F4: hooks.json has no check-stop" "$hooks_blob" 'check-stop.sh'
   local post_matchers
   post_matchers=$(jq -r '.hooks.PostToolUse[]?.matcher // empty' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null)
-  assert_output_not_contains "F10b: PostToolUse omits ScheduleWakeup matcher" "$post_matchers" "ScheduleWakeup"
-
-  # F11: status=paused bypasses the block — /pause escape hatch
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
-  echo '{"iteration": 5, "phase": "review", "status": "paused"}' > "$workdir/.startup/state.json"
-  ec=0; (cd "$workdir" && bash "$SCRIPT" < /dev/null) || ec=$?
-  assert_exit_code "F11: status=paused → allow stop" "$ec" 0
-  rm -rf "$workdir"
-
-  # F12: transcript with last assistant tool_use = ScheduleWakeup → allow stop
-  # Regression for the 742-block runaway in /loop + async-Agent sessions.
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
-  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
-  cat > "$workdir/.startup/transcript.jsonl" <<'EOF'
-{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do work"}]}}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}
-{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"polling"},{"type":"tool_use","name":"ScheduleWakeup","input":{"delaySeconds":270}}]}}
-EOF
-  ec=0; (cd "$workdir" && printf '{"transcript_path":"%s/.startup/transcript.jsonl"}' "$workdir" | bash "$SCRIPT") || ec=$?
-  assert_exit_code "F12: last tool_use=ScheduleWakeup → allow stop" "$ec" 0
-  rm -rf "$workdir"
-
-  # F13: transcript with last assistant tool_use != ScheduleWakeup → still blocks
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
-  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
-  cat > "$workdir/.startup/transcript.jsonl" <<'EOF'
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"ScheduleWakeup","input":{"delaySeconds":270}}]}}
-{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"woke"}]}}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}
-EOF
-  ec=0; (cd "$workdir" && printf '{"transcript_path":"%s/.startup/transcript.jsonl"}' "$workdir" | bash "$SCRIPT") || ec=$?
-  assert_exit_code "F13: last tool_use=Bash → block stop (baseline preserved)" "$ec" 2
-  rm -rf "$workdir"
-
-  # F14: missing transcript_path → falls back to default behavior (blocks)
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
-  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
-  ec=0; (cd "$workdir" && echo '{}' | bash "$SCRIPT") || ec=$?
-  assert_exit_code "F14: missing transcript_path → block stop" "$ec" 2
-  rm -rf "$workdir"
-
-  # F15: malformed transcript JSONL → falls back to default behavior (blocks)
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
-  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
-  echo 'not valid json' > "$workdir/.startup/transcript.jsonl"
-  ec=0; (cd "$workdir" && printf '{"transcript_path":"%s/.startup/transcript.jsonl"}' "$workdir" | bash "$SCRIPT") || ec=$?
-  assert_exit_code "F15: malformed transcript → block stop (safe default)" "$ec" 2
-  rm -rf "$workdir"
-
-  local MARKYIELD="$PLUGIN_ROOT/scripts/mark-yield.sh"
-
-  # F16: fresh yield sentinel → allow stop EVEN when the transcript's last
-  # assistant tool is not ScheduleWakeup. This is the issue #103 race: the
-  # wakeup turn isn't flushed yet, so the `... | last` transcript check resolves
-  # to the previous (Bash) turn and misses — the sentinel is authoritative.
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
-  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
-  cat > "$workdir/.startup/transcript.jsonl" <<'EOF'
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}
-EOF
-  echo "$(($(date +%s) + 270))" > "$workdir/.startup/.yielding"
-  ec=0; (cd "$workdir" && printf '{"transcript_path":"%s/.startup/transcript.jsonl"}' "$workdir" | bash "$SCRIPT") || ec=$?
-  assert_exit_code "F16: fresh yield sentinel → allow stop (race-proof)" "$ec" 0
-  rm -rf "$workdir"
-
-  # F17: STALE (expired) yield sentinel → still blocks. Self-expiry must not
-  # permanently disable the hook; a genuine post-wakeup quit is still caught.
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
-  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
-  echo "$(($(date +%s) - 60))" > "$workdir/.startup/.yielding"
-  ec=0; (cd "$workdir" && bash "$SCRIPT" < /dev/null) || ec=$?
-  assert_exit_code "F17: expired yield sentinel → block stop" "$ec" 2
-  rm -rf "$workdir"
-
-  # F18: mark-yield.sh writes a future-dated sentinel from the ScheduleWakeup
-  # PostToolUse payload (delaySeconds honored).
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup)
-  ec=0; (cd "$workdir" && printf '{"tool_name":"ScheduleWakeup","tool_input":{"delaySeconds":270}}' | bash "$MARKYIELD") || ec=$?
-  assert_exit_code "F18: mark-yield exits 0" "$ec" 0
-  assert_file_exists "F18: mark-yield wrote .yielding" "$workdir/.startup/.yielding"
-  if [ -f "$workdir/.startup/.yielding" ] && [ "$(cat "$workdir/.startup/.yielding")" -gt "$(date +%s)" ]; then
-    echo -e "  ${GREEN}PASS${NC} F18: sentinel expiry is in the future"; PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} F18: sentinel expiry not in the future"; FAIL_COUNT=$((FAIL_COUNT + 1)); FAILURES+=("F18: sentinel expiry not in the future")
-  fi
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  rm -rf "$workdir"
-
-  # F19: mark-yield.sh defaults delaySeconds when the payload omits it.
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup)
-  ec=0; (cd "$workdir" && printf '{"tool_name":"ScheduleWakeup","tool_input":{}}' | bash "$MARKYIELD") || ec=$?
-  assert_exit_code "F19: mark-yield (no delaySeconds) exits 0" "$ec" 0
-  assert_file_exists "F19: mark-yield wrote .yielding with default delay" "$workdir/.startup/.yielding"
-  rm -rf "$workdir"
-
-  # F20: mark-yield.sh is a no-op outside an initialized .startup project.
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q)
-  ec=0; (cd "$workdir" && printf '{"tool_name":"ScheduleWakeup","tool_input":{"delaySeconds":270}}' | bash "$MARKYIELD") || ec=$?
-  assert_exit_code "F20: mark-yield no .startup → exit 0 (no-op)" "$ec" 0
-  assert_file_not_exists "F20: no sentinel written without .startup" "$workdir/.startup/.yielding"
-  rm -rf "$workdir"
-
-  # F21: garbage sentinel contents → rejected (not coerced into a bypass) → block.
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
-  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
-  printf 'not-a-number\n' > "$workdir/.startup/.yielding"
-  ec=0; (cd "$workdir" && bash "$SCRIPT" < /dev/null) || ec=$?
-  assert_exit_code "F21: garbage sentinel → block stop (strict validation)" "$ec" 2
-  rm -rf "$workdir"
-
-  # F22: check-stop removes an EXPIRED sentinel as it falls through to block.
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup/go-live)
-  echo '{"iteration": 5, "phase": "review"}' > "$workdir/.startup/state.json"
-  echo "$(($(date +%s) - 60))" > "$workdir/.startup/.yielding"
-  ec=0; (cd "$workdir" && bash "$SCRIPT" < /dev/null) || ec=$?
-  assert_exit_code "F22: expired sentinel → block stop" "$ec" 2
-  assert_file_not_exists "F22: expired sentinel cleaned up" "$workdir/.startup/.yielding"
-  rm -rf "$workdir"
-
-  # F23: mark-yield clamps an absurd delaySeconds so a stale sentinel can't
-  # disable the Stop block for an unreasonable span (cap = 600s).
-  workdir=$(make_workdir)
-  (cd "$workdir" && git init -q && mkdir -p .startup)
-  now=$(date +%s)
-  ec=0; (cd "$workdir" && printf '{"tool_name":"ScheduleWakeup","tool_input":{"delaySeconds":999999999}}' | bash "$MARKYIELD") || ec=$?
-  assert_exit_code "F23: mark-yield (huge delay) exits 0" "$ec" 0
-  if [ -f "$workdir/.startup/.yielding" ] && [ "$(cat "$workdir/.startup/.yielding")" -le "$((now + 600 + 5))" ]; then
-    echo -e "  ${GREEN}PASS${NC} F23: absurd delaySeconds clamped to <= now+600"; PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} F23: absurd delaySeconds not clamped"; FAIL_COUNT=$((FAIL_COUNT + 1)); FAILURES+=("F23: absurd delaySeconds not clamped")
-  fi
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  rm -rf "$workdir"
+  assert_output_not_contains "F5: PostToolUse omits ScheduleWakeup matcher" "$post_matchers" "ScheduleWakeup"
 }
 
-# ---------------------------------------------------------------------------
-# Suite G: Startup Initialization Simulation
-# ---------------------------------------------------------------------------
 
 test_startup_init() {
   echo -e "\n${CYAN}Suite G: Startup Initialization Simulation${NC}"
@@ -1010,19 +781,19 @@ test_cross_file_consistency() {
     "$PLUGIN_ROOT/commands/growth.md" 'skills/growth'
 
   # H16-H17: Orchestrator is warned never to write active_role=team-lead.
-  assert_file_contains "H16: startup.md warns against team-lead active_role" \
-    "$PLUGIN_ROOT/commands/startup.md" 'Never write `active_role: "team-lead"`'
-  assert_file_contains "H17: orchestration skill warns against team-lead active_role" \
-    "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" 'Never write `active_role: "team-lead"`'
+  assert_file_contains "H16: lifecycle bans active_role" \
+    "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" 'No `active_role`'
+  assert_file_contains "H17: startup bans state.json loop fields" \
+    "$PLUGIN_ROOT/commands/startup.md" 'initialize or update'
 
-  # H18-H20: v0.27.0 — /pause command and sync-vs-async dispatch guidance.
+  # H18-H20: pause is legacy/optional; lifecycle cancels via lease release (#386).
   assert_file_exists "H18: /pause command exists" "$PLUGIN_ROOT/commands/pause.md"
-  assert_file_contains "H18b: /pause sets status=paused" \
+  assert_file_contains "H18b: /pause can set status=paused for legacy state" \
     "$PLUGIN_ROOT/commands/pause.md" '.status = "paused"'
-  assert_file_contains "H19: startup.md documents sync vs async dispatch" \
-    "$PLUGIN_ROOT/commands/startup.md" 'Sync vs. async dispatch'
-  assert_file_contains "H20: startup.md clears paused status on resume" \
-    "$PLUGIN_ROOT/commands/startup.md" 'status == "paused"'
+  assert_file_contains "H19: lifecycle documents cancellation" \
+    "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" '`cancelled`'
+  assert_file_contains "H20: lifecycle releases lease on cancel/fail" \
+    "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" '--release'
 }
 
 # ---------------------------------------------------------------------------
@@ -2185,7 +1956,7 @@ test_auto_commit_hook() {
   # K7: hooks.json PostToolUse has 13 Codex-supported entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "K7: PostToolUse has 13 entries" "$ptu_count" "13"
+  assert_equals "K7: PostToolUse has 11 entries" "$ptu_count" "11"
 
   # K8: Fourth PostToolUse entry references auto-commit.sh
   local fourth_cmd
@@ -2393,7 +2164,7 @@ test_check_staged_size() {
   assert_file_contains "G9a: bootstrap runs the guard before commit" "$bootstrap" "check-staged-size.sh"
   assert_file_contains "G9b: improve uses supervisor commit guard" "$PLUGIN_ROOT/references/deliver/graph.md" "supervisor-commit.sh"
   assert_file_contains "G9c: tweak uses trapped commit guard" "$PLUGIN_ROOT/references/deliver/light-path.md" "tweak-run.sh"
-  assert_file_contains "G9d: startup guards the initial git add -A" "$PLUGIN_ROOT/commands/startup.md" "check-staged-size.sh"
+  assert_file_contains "G9d: lifecycle ensures engineering principles" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "ensure-engineering-principles.sh"
 
   # G10: measures the STAGED blob, not the working tree — stage a big blob, then truncate the
   # working-tree copy. The commit would still carry the big blob, so the guard must still reject.
@@ -2546,7 +2317,7 @@ EOF
   # L10: hooks.json PostToolUse has 13 Codex-supported entries
   local ptu_count
   ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "L10: PostToolUse has 13 entries" "$ptu_count" "13"
+  assert_equals "L10: PostToolUse has 11 entries" "$ptu_count" "11"
 
   # L11: Fifth PostToolUse entry references enforce-tone.sh
   local sixth_cmd
@@ -2805,475 +2576,16 @@ seed_handoffs() {
 }
 
 test_compact_state() {
-  echo -e "\n${CYAN}Suite P: compact-state.sh${NC}"
-  local script="$PLUGIN_ROOT/scripts/compact-state.sh"
-  local workdir ec output state before_hash after_hash
-
-  # P1: script exists and is executable
-  assert_file_exists "P1: compact-state.sh exists" "$script"
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -x "$script" ]; then
-    echo -e "  ${GREEN}PASS${NC} P1b: compact-state.sh is executable"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} P1b: compact-state.sh is not executable"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("P1b: compact-state.sh is not executable")
-  fi
-
-  # P2: no-op on fresh state (no handoff_* keys)
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  before_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_exit_code "P2: fresh state exits 0" "$ec" 0
-  after_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
-  assert_equals "P2b: fresh state unchanged" "$after_hash" "$before_hash"
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ ! -f "$workdir/.startup/state-archive.json" ]; then
-    echo -e "  ${GREEN}PASS${NC} P2c: no archive created for fresh state"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} P2c: archive unexpectedly created"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("P2c: archive unexpectedly created")
-  fi
-  rm -rf "$workdir"
-
-  # P3: no-op when handoff count ≤ window (default 10)
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  seed_handoffs "$workdir/.startup/state.json" 5
-  before_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_exit_code "P3: below threshold exits 0" "$ec" 0
-  after_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
-  assert_equals "P3b: below threshold unchanged" "$after_hash" "$before_hash"
-  rm -rf "$workdir"
-
-  # P4: compacts when handoff count > window
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_exit_code "P4: compaction exits 0" "$ec" 0
-  assert_file_exists "P4b: archive file created" "$workdir/.startup/state-archive.json"
-  assert_json_valid "P4c: state.json still valid" "$state"
-  assert_json_valid "P4d: archive file valid JSON" "$workdir/.startup/state-archive.json"
-  # Last 10 (6-15) remain inline; 1-5 archived
-  assert_json_field "P4e: handoff_001 archived out" "$state" '.handoff_001_ready // "MISSING"' "MISSING"
-  assert_json_field "P4f: handoff_005 archived out" "$state" '.handoff_005_ready // "MISSING"' "MISSING"
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ "$(jq -r '.handoff_015_ready // "MISSING"' "$state")" != "MISSING" ]; then
-    echo -e "  ${GREEN}PASS${NC} P4g: handoff_015 kept inline"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} P4g: handoff_015 unexpectedly archived"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("P4g: handoff_015 unexpectedly archived")
-  fi
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ "$(jq -r '.handoff_006_ready // "MISSING"' "$state")" != "MISSING" ]; then
-    echo -e "  ${GREEN}PASS${NC} P4h: handoff_006 kept inline (boundary)"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} P4h: handoff_006 wrongly archived (boundary)"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("P4h: handoff_006 wrongly archived")
-  fi
-  rm -rf "$workdir"
-
-  # P5: coordination keys preserved after compaction
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_json_field "P5a: iteration preserved" "$state" ".iteration" "13"
-  assert_json_field "P5b: phase preserved" "$state" ".phase" "implementation"
-  assert_json_field "P5c: active_role preserved" "$state" ".active_role" "tech-founder"
-  assert_json_field "P5d: status preserved" "$state" ".status" "active"
-  assert_json_field "P5e: max_iterations preserved" "$state" ".max_iterations" "20"
-  assert_json_field "P5f: started preserved" "$state" ".started" "2026-02-23T10:00:00Z"
-  rm -rf "$workdir"
-
-  # P6: schema_version, archived_through, latest_handoff added
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_json_field "P6a: schema_version = 2" "$state" ".schema_version" "2"
-  assert_json_field "P6b: archived_through = 5" "$state" ".archived_through" "5"
-  assert_json_field "P6c: latest_handoff = 15" "$state" ".latest_handoff" "15"
-  rm -rf "$workdir"
-
-  # P7: round-trip — inline ∪ archived ⊇ original keys
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  local original_keys merged_keys missing
-  original_keys=$(jq -r 'keys[]' "$state" | sort)
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  merged_keys=$(
-    { jq -r 'keys[]' "$state"; \
-      jq -r '.entries[].keys | keys[]' "$workdir/.startup/state-archive.json"; } \
-    | grep -vE '^(schema_version|archived_through|latest_handoff)$' | sort -u
-  )
-  missing=$(comm -23 <(echo "$original_keys") <(echo "$merged_keys"))
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -z "$missing" ]; then
-    echo -e "  ${GREEN}PASS${NC} P7: round-trip preserves all original keys"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} P7: missing keys after compaction: $missing"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("P7: missing keys: $missing")
-  fi
-  rm -rf "$workdir"
-
-  # P8: idempotent — second run is a no-op
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  bash "$script" --state-file "$state" --archive-file "$workdir/.startup/state-archive.json" >/dev/null 2>&1 || true
-  before_hash=$(md5sum "$state" | awk '{print $1}')
-  ec=0; output=$(bash "$script" --state-file "$state" --archive-file "$workdir/.startup/state-archive.json" 2>&1) || ec=$?
-  assert_exit_code "P8: second run exits 0" "$ec" 0
-  after_hash=$(md5sum "$state" | awk '{print $1}')
-  assert_equals "P8b: second run is no-op" "$after_hash" "$before_hash"
-  rm -rf "$workdir"
-
-  # P9: --dry-run does not write
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  before_hash=$(md5sum "$state" | awk '{print $1}')
-  ec=0; output=$(cd "$workdir" && bash "$script" --dry-run 2>&1) || ec=$?
-  assert_exit_code "P9: --dry-run exits 0" "$ec" 0
-  after_hash=$(md5sum "$state" | awk '{print $1}')
-  assert_equals "P9b: --dry-run leaves state.json unchanged" "$after_hash" "$before_hash"
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ ! -f "$workdir/.startup/state-archive.json" ]; then
-    echo -e "  ${GREEN}PASS${NC} P9c: --dry-run created no archive"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} P9c: --dry-run unexpectedly created archive"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("P9c: --dry-run unexpectedly created archive")
-  fi
-  assert_output_contains "P9d: --dry-run output labelled" "$output" "DRY RUN"
-  rm -rf "$workdir"
-
-  # P10: no .startup/state.json → exit 0 silently
-  workdir=$(make_workdir)
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_exit_code "P10: no state.json exits 0" "$ec" 0
-  rm -rf "$workdir"
-
-  # P11: historical keys (iterationN_signoff, signoff_vN) archived
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  jq '. + {"iteration8_signoff": "2026-02-26T01:00:00Z", "signoff_v2": "2026-02-25T20:10:00Z", "final_signoff": "2026-02-26T09:30:00Z"}' \
-    "$state" > "$state.tmp" && mv "$state.tmp" "$state"
-  seed_handoffs "$state" 15
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_exit_code "P11: historical+handoffs compaction exits 0" "$ec" 0
-  assert_json_field "P11b: iteration8_signoff archived" "$state" '.iteration8_signoff // "MISSING"' "MISSING"
-  assert_json_field "P11c: signoff_v2 archived"        "$state" '.signoff_v2 // "MISSING"'        "MISSING"
-  assert_json_field "P11d: final_signoff archived"     "$state" '.final_signoff // "MISSING"'     "MISSING"
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ "$(jq -r '.entries[].keys.signoff_v2 // "MISSING"' "$workdir/.startup/state-archive.json")" != "MISSING" ]; then
-    echo -e "  ${GREEN}PASS${NC} P11e: signoff_v2 present in archive"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} P11e: signoff_v2 not in archive"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("P11e: signoff_v2 not in archive")
-  fi
-  rm -rf "$workdir"
-
-  # P12: growth_* keys preserved inline (never archived)
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  jq '. + {"growth_phase": "launch", "growth_iteration": 2, "growth_last_brief": 399}' \
-    "$state" > "$state.tmp" && mv "$state.tmp" "$state"
-  seed_handoffs "$state" 15
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_json_field "P12a: growth_phase preserved inline"    "$state" ".growth_phase" "launch"
-  assert_json_field "P12b: growth_iteration preserved"       "$state" ".growth_iteration" "2"
-  assert_json_field "P12c: growth_last_brief preserved"      "$state" ".growth_last_brief" "399"
-  rm -rf "$workdir"
-
-  # P13: archive append-only — two waves of compaction produce two entries
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  bash "$script" --state-file "$state" --archive-file "$workdir/.startup/state-archive.json" >/dev/null 2>&1 || true
-  # Add 10 more handoffs (16-25), ensuring the next wave archives some of them.
-  local builder='.'
-  local i padded
-  for i in $(seq 16 25); do
-    padded=$(printf '%03d' "$i")
-    builder="$builder + {\"handoff_${padded}_ready\": \"2026-03-01T10:00:00Z\"}"
-  done
-  jq "$builder" "$state" > "$state.tmp" && mv "$state.tmp" "$state"
-  bash "$script" --state-file "$state" --archive-file "$workdir/.startup/state-archive.json" >/dev/null 2>&1 || true
-  local entry_count
-  entry_count=$(jq '.entries | length' "$workdir/.startup/state-archive.json")
-  assert_equals "P13: two archive entries after two waves" "$entry_count" "2"
-  assert_json_valid "P13b: archive still valid JSON after two waves" "$workdir/.startup/state-archive.json"
-  rm -rf "$workdir"
-
-  # P14: state.json with schema_version=2 already set is accepted
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  jq '. + {"schema_version": 2, "archived_through": 0, "latest_handoff": 0}' \
-    "$state" > "$state.tmp" && mv "$state.tmp" "$state"
-  seed_handoffs "$state" 15
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_exit_code "P14: schema v2 pre-set exits 0" "$ec" 0
-  assert_json_field "P14b: schema_version stays 2" "$state" ".schema_version" "2"
-  rm -rf "$workdir"
-
-  # P15: historical keys are archived even when handoff count ≤ window
-  # (Fixes a bug where 5 handoffs + 50 legacy keys yielded a no-op.)
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  state="$workdir/.startup/state.json"
-  jq '. + {
-    "signoff_v2":        "2026-02-25T20:10:00Z",
-    "iteration8_signoff":"2026-02-26T01:00:00Z",
-    "final_signoff":     "2026-02-26T09:30:00Z",
-    "legacy_feature_xx": "done"
-  }' "$state" > "$state.tmp" && mv "$state.tmp" "$state"
-  seed_handoffs "$state" 3                # well below window=10
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_exit_code "P15: historical-only compaction exits 0" "$ec" 0
-  assert_file_exists "P15b: archive created for historical-only" "$workdir/.startup/state-archive.json"
-  assert_json_field "P15c: signoff_v2 archived"         "$state" '.signoff_v2 // "MISSING"'         "MISSING"
-  assert_json_field "P15d: legacy_feature_xx archived"  "$state" '.legacy_feature_xx // "MISSING"'  "MISSING"
-  # Handoff keys must remain inline (count ≤ window → none archived)
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ "$(jq -r '.handoff_001_ready // "MISSING"' "$state")" != "MISSING" ]; then
-    echo -e "  ${GREEN}PASS${NC} P15e: handoff_001 kept inline (below window)"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} P15e: handoff_001 wrongly archived below window"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("P15e: handoff_001 wrongly archived below window")
-  fi
-  assert_json_field "P15f: schema_version set to 2"     "$state" ".schema_version" "2"
-  rm -rf "$workdir"
-
-  # P16: corrupt state.json → exit 1, file untouched
-  workdir=$(make_workdir)
-  mkdir -p "$workdir/.startup"
-  echo '{not valid json' > "$workdir/.startup/state.json"
-  before_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_exit_code "P16: corrupt state.json exits 1" "$ec" 1
-  after_hash=$(md5sum "$workdir/.startup/state.json" | awk '{print $1}')
-  assert_equals "P16b: corrupt state.json left unchanged" "$after_hash" "$before_hash"
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ ! -f "$workdir/.startup/state-archive.json" ]; then
-    echo -e "  ${GREEN}PASS${NC} P16c: no archive created from corrupt state"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} P16c: archive created from corrupt state"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("P16c: archive created from corrupt state")
-  fi
-  rm -rf "$workdir"
-
-  # P17: corrupt archive → renamed to .corrupt-*, compaction still succeeds, new archive started
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  echo 'CORRUPT' > "$workdir/.startup/state-archive.json"
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_exit_code "P17: corrupt archive compaction exits 0" "$ec" 0
-  # Old archive preserved as .corrupt-*
-  local corrupt_count
-  corrupt_count=$(find "$workdir/.startup" -maxdepth 1 -name 'state-archive.json.corrupt-*' | wc -l)
-  assert_equals "P17b: corrupt archive preserved as .corrupt-*" "$corrupt_count" "1"
-  assert_output_contains "P17c: warns on stderr about corrupt archive" "$output" "corrupt"
-  assert_json_valid "P17d: new archive is valid JSON" "$workdir/.startup/state-archive.json"
-  assert_equals "P17e: new archive has exactly one entry" \
-    "$(jq '.entries | length' "$workdir/.startup/state-archive.json")" "1"
-  rm -rf "$workdir"
-
-  # P18: concurrency — two parallel runs produce exactly one archive entry
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  (cd "$workdir" && bash "$script" >/dev/null 2>&1) &
-  (cd "$workdir" && bash "$script" >/dev/null 2>&1) &
-  wait
-  assert_json_valid "P18: archive still valid JSON after race" "$workdir/.startup/state-archive.json"
-  assert_equals "P18b: exactly one archive entry after two parallel runs" \
-    "$(jq '.entries | length' "$workdir/.startup/state-archive.json")" "1"
-  # Each archived key must appear exactly once (no duplicate-key inflation)
-  local archived_keys_count unique_archived_keys_count
-  archived_keys_count=$(jq '[.entries[].keys | keys[]] | length' "$workdir/.startup/state-archive.json")
-  unique_archived_keys_count=$(jq '[.entries[].keys | keys[]] | unique | length' "$workdir/.startup/state-archive.json")
-  assert_equals "P18c: no duplicate keys in archive after race" \
-    "$archived_keys_count" "$unique_archived_keys_count"
-  rm -rf "$workdir"
-
-  # P19: invalid --window argument → exit 2 with clean error
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  ec=0; output=$(cd "$workdir" && bash "$script" --window abc 2>&1) || ec=$?
-  assert_exit_code "P19: --window abc exits 2" "$ec" 2
-  assert_output_contains "P19b: --window abc shows friendly error" "$output" "window"
-  rm -rf "$workdir"
-
-  # P20: --window 0 → exit 2
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  ec=0; output=$(cd "$workdir" && bash "$script" --window 0 2>&1) || ec=$?
-  assert_exit_code "P20: --window 0 exits 2" "$ec" 2
-  rm -rf "$workdir"
-
-  # P21: pause metadata (paused_at, paused_reason) survives compaction (issue #24).
-  # A paused loop's pause timestamp/reason are legitimate inline state and must NOT be
-  # swept to the archive when an unrelated key triggers compaction.
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  jq '.status = "paused" | .paused_at = "2026-05-10T12:00:00Z" | .paused_reason = "investor stepped away"' \
-    "$state" > "$state.tmp" && mv "$state.tmp" "$state"
-  seed_handoffs "$state" 15
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_exit_code "P21: compaction with pause metadata exits 0" "$ec" 0
-  assert_json_field "P21b: paused_at preserved inline"     "$state" '.paused_at // "MISSING"'     "2026-05-10T12:00:00Z"
-  assert_json_field "P21c: paused_reason preserved inline" "$state" '.paused_reason // "MISSING"' "investor stepped away"
-  assert_json_field "P21d: status=paused preserved"        "$state" ".status" "paused"
-  # Must be kept inline, NOT also copied into the archive (no duplication).
-  assert_json_field "P21e: paused_at not duplicated into archive"     "$workdir/.startup/state-archive.json" '([.entries[].keys.paused_at] | map(select(. != null)) | length)'     "0"
-  assert_json_field "P21f: paused_reason not duplicated into archive" "$workdir/.startup/state-archive.json" '([.entries[].keys.paused_reason] | map(select(. != null)) | length)' "0"
-  rm -rf "$workdir"
+  echo -e "\n${CYAN}Suite P: compact-state.sh removed (#386)${NC}"
+  assert_file_not_exists "P1: compact-state.sh removed" "$PLUGIN_ROOT/scripts/compact-state.sh"
 }
 
-# ---------------------------------------------------------------------------
-# Suite Q: migrate-state.sh
-# ---------------------------------------------------------------------------
 
 test_migrate_state() {
-  echo -e "\n${CYAN}Suite Q: migrate-state.sh${NC}"
-  local script="$PLUGIN_ROOT/scripts/migrate-state.sh"
-  local workdir ec output state before_hash after_hash bak_count
-
-  # Q1: script exists and is executable
-  assert_file_exists "Q1: migrate-state.sh exists" "$script"
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -x "$script" ]; then
-    echo -e "  ${GREEN}PASS${NC} Q1b: migrate-state.sh is executable"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} Q1b: migrate-state.sh is not executable"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("Q1b: migrate-state.sh is not executable")
-  fi
-
-  # Q2: no args defaults to dry-run (no writes, no .bak)
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  before_hash=$(md5sum "$state" | awk '{print $1}')
-  ec=0; output=$(cd "$workdir" && bash "$script" 2>&1) || ec=$?
-  assert_exit_code "Q2: no args exits 0" "$ec" 0
-  after_hash=$(md5sum "$state" | awk '{print $1}')
-  assert_equals "Q2b: no args leaves state.json unchanged" "$after_hash" "$before_hash"
-  assert_output_contains "Q2c: no args output mentions dry-run" "$output" "DRY RUN"
-  bak_count=$(find "$workdir/.startup" -maxdepth 1 -name 'state.json.bak-*' | wc -l)
-  assert_equals "Q2d: no args created no backup" "$bak_count" "0"
-  rm -rf "$workdir"
-
-  # Q3: --yes applies compaction
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  ec=0; output=$(cd "$workdir" && bash "$script" --yes 2>&1) || ec=$?
-  assert_exit_code "Q3: --yes exits 0" "$ec" 0
-  assert_file_exists "Q3b: archive file created" "$workdir/.startup/state-archive.json"
-  assert_json_field "Q3c: schema_version = 2 after --yes" "$state" ".schema_version" "2"
-  rm -rf "$workdir"
-
-  # Q4: --yes creates timestamped .bak backup that equals pre-migration state
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  before_hash=$(md5sum "$state" | awk '{print $1}')
-  ec=0; output=$(cd "$workdir" && bash "$script" --yes 2>&1) || ec=$?
-  assert_exit_code "Q4: --yes exits 0" "$ec" 0
-  bak_count=$(find "$workdir/.startup" -maxdepth 1 -name 'state.json.bak-*' | wc -l)
-  assert_equals "Q4b: --yes created one backup" "$bak_count" "1"
-  local bak_file
-  bak_file=$(find "$workdir/.startup" -maxdepth 1 -name 'state.json.bak-*' | head -1)
-  assert_json_valid "Q4c: backup is valid JSON" "$bak_file"
-  after_hash=$(md5sum "$bak_file" | awk '{print $1}')
-  assert_equals "Q4d: backup matches pre-migration state" "$after_hash" "$before_hash"
-  rm -rf "$workdir"
-
-  # Q5: --yes is safe to run twice (no double-archiving)
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  (cd "$workdir" && bash "$script" --yes) >/dev/null 2>&1 || true
-  local first_archive_count
-  first_archive_count=$(jq '.entries | length' "$workdir/.startup/state-archive.json")
-  ec=0; output=$(cd "$workdir" && bash "$script" --yes 2>&1) || ec=$?
-  assert_exit_code "Q5: --yes second run exits 0" "$ec" 0
-  local second_archive_count
-  second_archive_count=$(jq '.entries | length' "$workdir/.startup/state-archive.json")
-  assert_equals "Q5b: archive not double-written" "$second_archive_count" "$first_archive_count"
-  rm -rf "$workdir"
-
-  # Q6: --dry-run explicit flag is also a no-op
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 13
-  state="$workdir/.startup/state.json"
-  seed_handoffs "$state" 15
-  before_hash=$(md5sum "$state" | awk '{print $1}')
-  ec=0; output=$(cd "$workdir" && bash "$script" --dry-run 2>&1) || ec=$?
-  assert_exit_code "Q6: --dry-run exits 0" "$ec" 0
-  after_hash=$(md5sum "$state" | awk '{print $1}')
-  assert_equals "Q6b: --dry-run leaves state.json unchanged" "$after_hash" "$before_hash"
-  rm -rf "$workdir"
-
-  # Q7: --yes on fresh state is no-op (no .bak needed)
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  state="$workdir/.startup/state.json"
-  before_hash=$(md5sum "$state" | awk '{print $1}')
-  ec=0; output=$(cd "$workdir" && bash "$script" --yes 2>&1) || ec=$?
-  assert_exit_code "Q7: --yes on fresh exits 0" "$ec" 0
-  after_hash=$(md5sum "$state" | awk '{print $1}')
-  assert_equals "Q7b: fresh state unchanged" "$after_hash" "$before_hash"
-  bak_count=$(find "$workdir/.startup" -maxdepth 1 -name 'state.json.bak-*' | wc -l)
-  assert_equals "Q7c: fresh state got no backup" "$bak_count" "0"
-  rm -rf "$workdir"
+  echo -e "\n${CYAN}Suite Q: migrate-state.sh removed (#386)${NC}"
+  assert_file_not_exists "Q1: migrate-state.sh removed" "$PLUGIN_ROOT/scripts/migrate-state.sh"
 }
 
-# ---------------------------------------------------------------------------
-# Suite R: Enforce Handoff Naming Hook (enforce-handoff-naming.sh)
-# ---------------------------------------------------------------------------
 
 test_enforce_handoff_naming_hook() {
   echo -e "\n${CYAN}Suite R: enforce-handoff-naming.sh${NC}"
@@ -3530,7 +2842,9 @@ EOF
     FAIL_COUNT=$((FAIL_COUNT + 1))
     FAILURES+=("S10g: source slug not removed")
   fi
-  assert_file_exists "S10h: INDEX.md regenerated" "$workdir/.startup/handoffs/INDEX.md"
+  # handoff INDEX backfill removed with #386; apply still succeeds without it
+  assert_file_not_exists "S10h: no handoff INDEX regeneration required" \
+    "$workdir/.startup/handoffs/INDEX.md"
   rm -rf "$workdir"
 
   # S11: --apply collision appends -dup suffix
@@ -4366,9 +3680,9 @@ test_operate_workflow_registry_and_gates() {
   assert_file_exists "Y14: workflow registry template exists" "$PLUGIN_ROOT/templates/workflow-registry.md"
   assert_file_exists "Y15: workflow spec template exists" "$PLUGIN_ROOT/templates/workflow-spec.md"
   assert_file_contains "Y16: bootstrap creates workflow registry" "$PLUGIN_ROOT/commands/bootstrap.md" ".startup/workflows/registry.md"
-  assert_file_contains "Y17: startup references the workflow registry (bootstrap scaffolds it)" "$PLUGIN_ROOT/commands/startup.md" ".startup/workflows/"
+  assert_file_contains "Y17: lifecycle uses bootstrap scaffold" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "/bootstrap"
   assert_file_contains "Y18: improve reads workflow registry" "$PLUGIN_ROOT/references/deliver/graph.md" ".startup/workflows/registry.md"
-  assert_file_contains "Y19: orchestration validates workflow specs" "$PLUGIN_ROOT/skills/startup-orchestration/SKILL.md" "WORKFLOW-<slug>.md"
+  assert_file_contains "Y19: lifecycle does not force numbered handoffs" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "numbered conversational handoffs"
 
   # Config and README.
   assert_file_contains "Y20: example has operate block" "$PLUGIN_ROOT/saas-startup-team.local.md.example" "operate:"
@@ -6125,11 +5439,11 @@ test_autonomous_workflow_alignment() {
   echo -e "\n${CYAN}Suite AE: autonomous workflow alignment${NC}"
   local repo_root; repo_root="$(cd "$PLUGIN_ROOT/../.." && pwd)"
   assert_file_contains "AE1: startup calls health preflight" "$PLUGIN_ROOT/commands/startup.md" "health-preflight.sh"
-  assert_file_contains "AE2: startup uses market scout" "$PLUGIN_ROOT/commands/startup.md" "market-scout.sh"
-  assert_file_contains "AE3: startup uses single-flight" "$PLUGIN_ROOT/commands/startup.md" "single-flight.sh"
+  assert_file_contains "AE2: lifecycle uses market scout" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "market-scout.sh"
+  assert_file_contains "AE3: lifecycle uses single-flight" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "single-flight.sh"
   assert_file_not_contains "AE4: startup no broad stale pkill command" "$PLUGIN_ROOT/commands/startup.md" "pkill -f 'agent-type saas-startup-team'"
-  assert_file_not_contains "AE4b: loop-control no broad pkill" \
-    "$PLUGIN_ROOT/skills/startup-orchestration/references/loop-control.md" \
+  assert_file_not_contains "AE4b: lifecycle no broad pkill" \
+    "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" \
     "pkill -f 'agent-type saas-startup-team"
   assert_file_contains "AE5: improve calls health preflight" "$PLUGIN_ROOT/references/deliver/graph.md" "health-preflight.sh"
   assert_file_contains "AE6: goal-deliver calls market scout" "$PLUGIN_ROOT/references/deliver/graph.md" "market-scout.sh"
@@ -6219,17 +5533,14 @@ main() {
   test_compress_golden_sample
   test_learnings_compress_command
 
-  # Discovered suites: tests/*.tests.sh are sourced here so contributors add
-  # tests as new files without editing this harness (which the lessons-deliver
-  # firewall protects). Sourced files use the assert_* helpers above.
+  # Discovered suites: tests/**/*.tests.sh so nested suites (e.g. lifecycle/) load.
   local suite
-  for suite in "$PLUGIN_ROOT"/tests/*.tests.sh; do
-    [ -e "$suite" ] || continue
+  while IFS= read -r -d '' suite; do
     echo ""
-    echo -e "${CYAN}Discovered suite: $(basename "$suite")${NC}"
+    echo -e "${CYAN}Discovered suite: ${suite#"$PLUGIN_ROOT/tests/"}${NC}"
     # shellcheck source=/dev/null
     . "$suite"
-  done
+  done < <(find "$PLUGIN_ROOT/tests" -type f -name '*.tests.sh' -print0 | sort -z)
 
   # Summary
   echo ""
@@ -6255,138 +5566,14 @@ main() {
 # ---------------------------------------------------------------------------
 
 test_index_handoff_hook() {
-  echo -e "\n${CYAN}Suite Q: Handoff Index Hook${NC}"
-  local script="$PLUGIN_ROOT/scripts/index-handoff.sh"
-  local backfill="$PLUGIN_ROOT/scripts/backfill-handoff-index.sh"
-  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
-  local workdir ec output
-
-  # Q1: hook script exists and is executable
-  assert_file_exists "Q1: index-handoff.sh exists" "$script"
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -x "$script" ]; then
-    echo -e "  ${GREEN}PASS${NC} Q1b: index-handoff.sh is executable"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} Q1b: index-handoff.sh is not executable"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("Q1b: index-handoff.sh is not executable")
-  fi
-
-  # Q2: backfill script exists and is executable
-  assert_file_exists "Q2: backfill-handoff-index.sh exists" "$backfill"
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -x "$backfill" ]; then
-    echo -e "  ${GREEN}PASS${NC} Q2b: backfill-handoff-index.sh is executable"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} Q2b: backfill-handoff-index.sh is not executable"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("Q2b: backfill-handoff-index.sh is not executable")
-  fi
-
-  # Q3: hooks.json references index-handoff.sh
-  local hook_refs
-  hook_refs=$(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file" 2>/dev/null)
-  assert_output_contains "Q3: hooks.json references index-handoff.sh" "$hook_refs" "index-handoff.sh"
-
-  # Q4: exits 0 for non-handoff file (must never block writes)
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "Q4: exits 0 for non-handoff file" "$ec" 0
-
-  # Q5: exits 0 for empty input (must never block writes)
-  ec=0
-  output=$(echo '{}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "Q5: exits 0 for empty input" "$ec" 0
-
-  # Q6: creates INDEX.md with header on first handoff write
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  cat > "$workdir/.startup/handoffs/001-business-to-tech.md" <<'EOF'
----
-from: business-founder
-to: tech-founder
-iteration: 1
-date: 2026-02-25
-type: requirements
----
-
-## Summary
-
-Build the initial release.
-EOF
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "Q6: exits 0 on first handoff" "$ec" 0
-  assert_file_exists "Q6b: INDEX.md created" "$workdir/.startup/handoffs/INDEX.md"
-  assert_file_contains "Q6c: INDEX has header" "$workdir/.startup/handoffs/INDEX.md" "Handoff Index"
-  assert_file_contains "Q6d: INDEX has entry for 001" "$workdir/.startup/handoffs/INDEX.md" "001 | business-to-tech | 2026-02-25 | 001-business-to-tech.md | Build the initial release."
-
-  # Q7: upsert — re-writing same file does not duplicate
-  echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" >/dev/null 2>&1 || true
-  local dup_count
-  dup_count=$(grep -c "001-business-to-tech.md" "$workdir/.startup/handoffs/INDEX.md" || echo 0)
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ "$dup_count" -eq 1 ]; then
-    echo -e "  ${GREEN}PASS${NC} Q7: upsert keeps exactly one entry per filename"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} Q7: expected 1 entry, got $dup_count"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("Q7: upsert failed ($dup_count entries)")
-  fi
-
-  # Q8: skips INDEX.md itself (avoid infinite recursion)
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/INDEX.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "Q8: exits 0 when target is INDEX.md" "$ec" 0
-  rm -rf "$workdir"
-
-  # Q9: handles unnumbered filename gracefully
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  cat > "$workdir/.startup/handoffs/business-to-tech-ad-hoc-topic.md" <<'EOF'
-## Summary
-Ad-hoc handoff without number prefix.
-EOF
-  ec=0
-  echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/business-to-tech-ad-hoc-topic.md"}}' | bash "$script" >/dev/null 2>&1 || ec=$?
-  assert_exit_code "Q9: exits 0 for unnumbered handoff" "$ec" 0
-  assert_file_contains "Q9b: unnumbered gets --- prefix" "$workdir/.startup/handoffs/INDEX.md" "business-to-tech-ad-hoc-topic.md"
-  rm -rf "$workdir"
-
-  # Q10: backfill rebuilds index from directory
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  cat > "$workdir/.startup/handoffs/001-business-to-tech.md" <<'EOF'
----
-date: 2026-03-01
----
-
-## Summary
-First.
-EOF
-  cat > "$workdir/.startup/handoffs/002-tech-to-business.md" <<'EOF'
----
-date: 2026-03-02
----
-
-## Summary
-Second.
-EOF
-  ec=0
-  output=$(bash "$backfill" "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_exit_code "Q10: backfill exits 0" "$ec" 0
-  assert_file_exists "Q10b: INDEX.md created by backfill" "$workdir/.startup/handoffs/INDEX.md"
-  assert_file_contains "Q10c: backfill includes 001" "$workdir/.startup/handoffs/INDEX.md" "001-business-to-tech.md"
-  assert_file_contains "Q10d: backfill includes 002" "$workdir/.startup/handoffs/INDEX.md" "002-tech-to-business.md"
-  rm -rf "$workdir"
+  echo -e "\n${CYAN}Suite Q: Handoff Index Hook removed (#386)${NC}"
+  assert_file_not_exists "Q1: index-handoff.sh removed" "$PLUGIN_ROOT/scripts/index-handoff.sh"
+  assert_file_not_exists "Q2: backfill-handoff-index.sh removed" "$PLUGIN_ROOT/scripts/backfill-handoff-index.sh"
+  local hooks_blob
+  hooks_blob=$(cat "$PLUGIN_ROOT/hooks/hooks.json")
+  assert_output_not_contains "Q3: hooks.json has no index-handoff" "$hooks_blob" 'index-handoff.sh'
 }
 
-# ---------------------------------------------------------------------------
-# Suite T: /goal-deliver command
-# ---------------------------------------------------------------------------
 
 test_goal_deliver() {
   echo -e "\n${CYAN}Suite T: /goal-deliver via deliver skill${NC}"

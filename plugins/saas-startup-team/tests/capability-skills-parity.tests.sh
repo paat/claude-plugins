@@ -46,10 +46,12 @@ test_capability_skills_parity() {
   assert_file_not_contains "CS: entrypoints has no ads" \
     "$PLUGIN_ROOT/integrity/entrypoints.json" '"name": "ads"'
 
-  assert_file_contains "CS: startup uses product-discovery" \
-    "$PLUGIN_ROOT/commands/startup.md" 'skills/product-discovery'
-  assert_file_contains "CS: startup uses product-acceptance" \
-    "$PLUGIN_ROOT/commands/startup.md" 'skills/product-acceptance'
+  assert_file_contains "CS: lifecycle uses product-discovery" \
+    "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" 'product-discovery'
+  assert_file_contains "CS: lifecycle uses product-acceptance" \
+    "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" 'product-acceptance'
+  assert_file_contains "CS: startup loads lifecycle" \
+    "$PLUGIN_ROOT/commands/startup.md" 'lifecycle'
   assert_file_not_contains "CS: startup no business-founder agent type" \
     "$PLUGIN_ROOT/commands/startup.md" 'saas-startup-team:business-founder'
   assert_file_not_contains "CS: startup no tech-founder-claude type" \

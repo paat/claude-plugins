@@ -1,16 +1,16 @@
 # Sourced by run-tests.sh — reliability floor (#197): disk preflight + auto-prune,
-# poll-gate.sh backoff probe, check-stop circuit breaker, check-idle.sh removed.
+# poll-gate.sh backoff probe; check-stop removed with lifecycle (#386); check-idle gone.
 # Uses the harness assert_* helpers and make_workdir.
 test_reliability_floor() {
   echo -e "\n${CYAN}Suite: reliability floor (#197)${NC}"
   local preflight="$PLUGIN_ROOT/scripts/health-preflight.sh"
   local pollgate="$PLUGIN_ROOT/scripts/poll-gate.sh"
-  local checkstop="$PLUGIN_ROOT/scripts/check-stop.sh"
   local wd bindir ec out status
 
   # --- check-idle.sh is gone (dead code removed; idle handling is the host's) ---
   assert_file_not_exists "RF0: check-idle.sh removed" "$PLUGIN_ROOT/scripts/check-idle.sh"
   assert_file_exists "RF0b: poll-gate.sh present" "$pollgate"
+  assert_file_not_exists "RF0c: check-stop.sh removed (#386)" "$PLUGIN_ROOT/scripts/check-stop.sh"
 
   # Mock df on PATH: emits a POSIX table whose Available column (KB) is picked by
   # a call counter so we can simulate space freed by a prune. DF_FREE_BEFORE for
@@ -153,28 +153,10 @@ EOF
   ec=0; out=$(GH_STDOUT='[{"databaseId":8,"headSha":"1111111111111111111111111111111111111111","status":"completed","conclusion":"success"}]' GH_EXIT=1 probe --deploy-sha "$sha") || ec=$?
   assert_equals "RF15k: gh error with JSON → pending" "$out" "pending"; assert_exit_code "RF15k2: exit 3" "$ec" 3
 
-  # --- check-stop.sh circuit breaker ---
-  # RF16: 25 identical-state blocks opens the breaker (allow stop) with a message.
-  wd="$(make_workdir)"
-  (cd "$wd" && git init -q && mkdir -p .startup/go-live .startup/handoffs)
-  echo '{"iteration": 3, "phase": "implementation"}' > "$wd/.startup/state.json"
-  local i
-  for i in $(seq 1 24); do (cd "$wd" && bash "$checkstop" < /dev/null) >/dev/null 2>&1 || true; done
-  ec=0; out=$( (cd "$wd" && bash "$checkstop" < /dev/null) 2>&1 ) || ec=$?
-  assert_exit_code "RF16: 25th identical block opens breaker (allow stop)" "$ec" 0
-  assert_output_contains "RF16b: breaker announces itself" "$out" "circuit breaker"
-
-  # RF17: a state change resets the consecutive-block counter (still blocks, count=1).
-  wd="$(make_workdir)"
-  (cd "$wd" && git init -q && mkdir -p .startup/go-live .startup/handoffs)
-  echo '{"iteration": 3, "phase": "implementation"}' > "$wd/.startup/state.json"
-  for i in 1 2 3 4 5; do (cd "$wd" && bash "$checkstop" < /dev/null) >/dev/null 2>&1 || true; done
-  # change the fingerprint (handoff count) → counter must reset
-  echo "h" > "$wd/.startup/handoffs/001-business-to-tech.md"
-  ec=0; (cd "$wd" && bash "$checkstop" < /dev/null) >/dev/null 2>&1 || ec=$?
-  assert_exit_code "RF17: state change → still blocks (not near 25)" "$ec" 2
-  local n
-  n=$(sed -n '2p' "$wd/.startup/.stop-block-count" 2>/dev/null || echo X)
-  assert_equals "RF17b: counter reset to 1 on fingerprint change" "$n" "1"
+  # check-stop circuit breaker removed with thin lifecycle (#386)
+  assert_file_not_exists "RF16: check-stop circuit breaker removed" \
+    "$PLUGIN_ROOT/scripts/check-stop.sh"
+  assert_file_not_exists "RF17: mark-yield removed with stop machinery" \
+    "$PLUGIN_ROOT/scripts/mark-yield.sh"
 }
 test_reliability_floor
