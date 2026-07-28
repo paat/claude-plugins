@@ -8,7 +8,7 @@ bash "$PLUGIN_ROOT/skills/lawyer/tests/harness.sh" >/dev/null 2>&1 || lh_ec=$?
 assert_exit_code "LH1: lawyer skill test harness passes" "$lh_ec" 0
 
 lawyer_skill=$(<"$PLUGIN_ROOT/skills/lawyer/SKILL.md")
-lawyer_registry=$(<"$PLUGIN_ROOT/skills/lawyer/references/law-registry.md")
+lawyer_registry=$(<"$PLUGIN_ROOT/references/lawyer/law-registry.md")
 assert_file_contains "LH2: autonomous topic has an early disposition" "$PLUGIN_ROOT/skills/lawyer/SKILL.md" "### Non-interactive / autonomous disposition"
 assert_file_contains "LH3: autonomous topic skips backlog expansion" "$PLUGIN_ROOT/skills/lawyer/SKILL.md" "Skip Marker Scan, Invariant Check"
 assert_file_contains "LH4: autonomous topic continues requested analysis" "$PLUGIN_ROOT/skills/lawyer/SKILL.md" 'Continue directly to'
@@ -32,11 +32,11 @@ assert_exit_code "LH20: lawyer preflight parses" "$lh_ec" 0
 assert_output_contains "LH21: read-only probes override document writes" "$lawyer_skill" "decision in chat instead of writing the default document"
 assert_output_contains "LH22: read-only project inspection is bounded" "$lawyer_skill" "at most three targeted source ranges"
 assert_output_contains "LH23: incomplete probes terminate with a decision" "$lawyer_skill" 'partial `UNCONFIRMED`'
-assert_file_contains "LH24: EUR-Lex article endpoint is documented" "$PLUGIN_ROOT/skills/lawyer/references/datalake-api.md" '/eurlex/{celex}/citation?article=N&language=EN'
+assert_file_contains "LH24: EUR-Lex article endpoint is documented" "$PLUGIN_ROOT/references/lawyer/datalake-api.md" '/eurlex/{celex}/citation?article=N&language=EN'
 assert_output_contains "LH25: bounded probes skip API inventory" "$lawyer_skill" "Never inventory"
 assert_output_contains "LH26: bounded probes do not resume broad search" "$lawyer_skill" "Never resume repository-wide searches"
-assert_file_contains "LH27: EU citation requires lifecycle evidence" "$PLUGIN_ROOT/skills/lawyer/references/datalake-api.md" 'Require `in_force == true`; preserve the'
-assert_file_contains "LH28: EU citation preserves primary source" "$PLUGIN_ROOT/skills/lawyer/references/datalake-api.md" 'returned HTTPS `source_url`'
+assert_file_contains "LH27: EU citation requires lifecycle evidence" "$PLUGIN_ROOT/references/lawyer/datalake-api.md" 'Require `in_force == true`; preserve the'
+assert_file_contains "LH28: EU citation preserves primary source" "$PLUGIN_ROOT/references/lawyer/datalake-api.md" 'returned HTTPS `source_url`'
 assert_output_contains "LH29: proposal probes skip product inspection" "$lawyer_skill" "Proposal/risk questions do not justify"
 assert_output_contains "LH30: bounded probes prohibit delegation" "$lawyer_skill" "never delegate or spawn subagents"
 assert_output_contains "LH31: current-code requests retain inspection" "$lawyer_skill" "compliance is explicitly requested or the user names files"

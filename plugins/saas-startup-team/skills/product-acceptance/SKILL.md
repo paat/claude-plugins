@@ -29,7 +29,7 @@ Verify against the unit's accepted `Done`, `Preserve`, and `Out of Scope` (from 
 - Supervisor-provided review path (e.g. `$QA_REVIEW`)
 - Workflow specs referenced by the change; acceptance packs when selected
 - `../../references/coherence-pass.md`, `../../references/triggered-saas-gates.md`
-- `../ux-review/references/design-review-leg.md` for browser transport recovery and
+- `../../references/ux-review/design-review-leg.md` for browser transport recovery and
   pre-merge design-review format
 
 ## Mutation boundary

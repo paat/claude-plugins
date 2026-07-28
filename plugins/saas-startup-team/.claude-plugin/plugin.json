@@ -1,7 +1,7 @@
 {
   "name": "saas-startup-team",
-  "version": "0.90.25",
-  "description": "Autonomous SaaS delivery \u2014 routed founder and specialist roles turn market demand into gated implementation, QA, deployment, growth, and maintenance",
+  "version": "1.0.0",
+  "description": "Portable SaaS delivery: Plan \u2192 Build \u2192 Independent Review with bounded maintenance and deterministic legal/PII/spend/release gates",
   "author": {
     "name": "Andre Paat"
   },
@@ -20,6 +20,7 @@
     "ux-testing",
     "accessibility",
     "growth",
-    "sales"
+    "sales",
+    "portable-runtime"
   ]
 }

@@ -61,10 +61,10 @@ Paying customers, MRR, funnel, CAC, LTV:CAC (>3:1), reply rate, trial-to-paid â€
 
 ## References (on demand)
 
-- `references/sales-playbook.md`
-- `references/linkedin-safety.md`
-- `references/cold-email.md`
-- `references/competitor-poaching.md`
+- `../../references/growth/sales-playbook.md`
+- `../../references/growth/linkedin-safety.md`
+- `../../references/growth/cold-email.md`
+- `../../references/growth/competitor-poaching.md`
 
 
 NEVER put a fixed checkout root such as `/workspace` in a handoff or command.

@@ -61,10 +61,10 @@ boundary and move to targeted primary sources; do not retry broadly. A 200 does 
 `in_force == true` before relying on a provision. Municipal/KOV research must
 pass an explicit municipality filter; ordinary law search defaults to state law.
 
-Read `references/datalake-routing.md` when KOV, courts/case law, enforcement,
+Read `../../references/lawyer/datalake-routing.md` when KOV, courts/case law, enforcement,
 named-company diligence, change monitoring, grants, political finance, or
 economic context may change the decision. Pure **state-law** statute work skips
-it; municipal/KOV work does not. Read `references/datalake-api.md` only when
+it; municipal/KOV work does not. Read `../../references/lawyer/datalake-api.md` only when
 making API calls. Preserve superscript citation qualifiers because a bare digit
 can return a different clause with `200`. Use `--max-time 30`; never print or
 persist credentials. Risk signals (distress, enforcement practice, grants,
@@ -79,7 +79,7 @@ confirmed registry-code links.
    Tier A. Use primary EU sources for rules outside the national corpus.
 3. Activate extra research only when the topic needs it. For municipal, courts,
    enforcement, diligence, change-monitor, grants, political finance, or
-   economic evidence, follow `references/datalake-routing.md`. Also: checklist
+   economic evidence, follow `../../references/lawyer/datalake-routing.md`. Also: checklist
    for a broad audit; dependencies/code only for licensing/IP implementation.
 4. Stop when the requested decision has enough evidence.
 5. Write one decision-first Estonian `docs/legal/õiguslik-*.md` document by
@@ -140,7 +140,7 @@ Non-interactive topic runs report the pending slugs once and continue the
 requested analysis without loading that backlog.
 
 For schema, lifecycle, marker, and subcommand details, read
-`references/law-registry.md` only when registry work is requested.
+`../../references/lawyer/law-registry.md` only when registry work is requested.
 
 ## Topic references
 

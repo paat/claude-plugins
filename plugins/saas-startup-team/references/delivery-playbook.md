@@ -117,7 +117,7 @@ Ask the investor only for true blockers (secrets, spend, legal judgment, destruc
 production, pricing/promise ambiguity).
 
 Pairs with built-in `/goal` for autonomy. Monitors GitHub Actions deploy via `gh run` /
-`gate.sh release poll`. Design-review: `skills/ux-review/references/design-review-leg.md`.
+`gate.sh release poll`. Design-review: `references/ux-review/design-review-leg.md`.
 Maintain embed may set `SAAS_EMBEDDED_WORKTREE` via `maintain-v3.sh isolate` and record
 `release-facts`.
 
