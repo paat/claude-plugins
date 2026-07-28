@@ -17,6 +17,6 @@ Expeditor for one tick. never read issue bodies, source files, or diffs.
    or immediately retry them. Completed subagent identities are not reused.
 
 Normal triage, ordering, batching, limits, implementation remain inside `/maintain`.
-`--once` launches at most one child. Coordinator: `references/workflows/maintain.md`.
+`--once` launches at most one child. Coordinator: `../../references/workflows/maintain.md`.
 
 Codex: use fresh Codex subagents for the child pass; coordinator stays thin.
