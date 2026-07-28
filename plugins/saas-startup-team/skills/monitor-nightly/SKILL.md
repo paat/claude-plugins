@@ -55,19 +55,12 @@ DRY_RUN_FLAG=""; case "${ARGUMENTS:-}" in *--dry-run*) DRY_RUN_FLAG="--dry-run" 
 REPO_FLAG=""; [ -n "$REPO" ] && REPO_FLAG="--repo $REPO"
 ```
 
-## Lock the run
-
-Serialize the whole run with `flock` so a manual run cannot overlap the cron run:
+## Lock and window
 
 ```bash
 mkdir -p "$(dirname "$STATE_FILE")"
 exec 9>"${STATE_FILE}.lock"
 flock -n 9 || { echo "monitor: another run holds the lock; exiting"; exit 0; }
-```
-
-## Scan window
-
-```bash
 eval "$("$ENGINE" window --state "$STATE_FILE")"
 export MONITOR_SINCE MONITOR_SINCE_MINUTES
 ```

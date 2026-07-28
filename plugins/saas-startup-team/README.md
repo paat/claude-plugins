@@ -70,7 +70,7 @@ only after the epic PR merges. Plan only: `/epic --plan <n>`. Parser:
 `scripts/epic_plan.py` (no network). Active-epic guard: `scripts/epic_active.py`
 (cooperative; mutating improve/maintain refuse when another epic PR is open).
 
-`/epic-compose [--dry-run]` scans issues and files one focused `label:epic` checklist; run `/epic <n>` to implement.
+`/epic-compose [--dry-run]` scans issues and files one focused epic then auto-runs `/epic <n>` (use `--compose-only` to skip implement).
 
 Git issues, branches, PRs, CI, deployments, and immutable terminal release facts are
 authoritative. No founder loop state machine, numbered conversational handoffs, or

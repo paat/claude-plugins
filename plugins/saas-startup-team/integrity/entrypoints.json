@@ -58,7 +58,7 @@
       "generate_alias": true,
       "transitional": true,
       "canonical": "skills/epic-compose/SKILL.md",
-      "description": "Scan open issues and file one focused epic for /epic. Usage: /epic-compose [--dry-run] [hint]",
+      "description": "Scan open issues, file focused epic, auto-run /epic. Usage: /epic-compose [--dry-run] [--compose-only] [hint]",
       "generate_command_alias": true
     },
     {

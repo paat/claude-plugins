@@ -1,6 +1,6 @@
 ---
 name: epic-compose
-description: "Scan open issues and file one focused epic for /epic. Usage: /epic-compose [--dry-run] [hint]"
+description: "Scan open issues, file focused epic, auto-run /epic. Usage: /epic-compose [--dry-run] [--compose-only] [hint]"
 user_invocable: true
 transitional: true
 ---

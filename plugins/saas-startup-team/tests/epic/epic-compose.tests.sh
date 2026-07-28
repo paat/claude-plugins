@@ -16,9 +16,10 @@ test_epic_compose() {
   assert_file_exists "EC2: epic_scan.py" "$scan"
   assert_file_exists "EC3: epic_compose_validate.py" "$val"
   assert_file_exists "EC4: compose docs" "$PLUGIN_ROOT/docs/legacy/epic-compose.md"
-  assert_file_contains "EC5: hands off to epic" "$skill" '/epic <n>'
+  assert_file_contains "EC5: auto-runs epic skill" "$skill" 'skills/epic/SKILL.md'
   assert_file_contains "EC6: dry-run" "$skill" '--dry-run'
-  assert_file_contains "EC7: no product implement" "$skill" 'No product implementation'
+  assert_file_contains "EC7: compose-only opt-out" "$skill" '--compose-only'
+  assert_file_contains "EC7b: same run" "$skill" 'Do not wait for a second user turn'
   assert_file_contains "EC8: entrypoint" \
     "$PLUGIN_ROOT/integrity/entrypoints.json" '"name": "epic-compose"'
   assert_file_exists "EC8b: command alias" "$PLUGIN_ROOT/commands/epic-compose.md"

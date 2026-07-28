@@ -1,19 +1,21 @@
 ---
 name: epic-compose
-description: "Scan open issues and file one focused GitHub epic for /epic. Usage: /epic-compose [--dry-run] [theme hint]"
+description: "Scan open issues, file focused epic, auto-run /epic. Usage: /epic-compose [--dry-run] [--compose-only] [hint]"
 ---
 
 # Epic compose
 
-Scan open issues → one focused epic (2–12 leaves) → validate → file `label:epic`.
-Implement with `/epic <n>`. Rules: `docs/legacy/epic-compose.md`.
+`docs/legacy/epic-compose.md`. Flow: scan → draft one focused epic (2–12 leaves) →
+validate → file → **run `skills/epic/SKILL.md` on new N** (same turn).
 
-1. Health-preflight (`--require-gh --check-sync`).
+1. Health-preflight `--require-gh --check-sync`
 2. `python3 scripts/epic_scan.py --repo OWNER/REPO > /tmp/epic-scan.json`
-3. Pick one theme from `eligible` / `suggested_clusters` (skip needs-human / on-epic).
-   No group → **no-op**.
-4. Draft Why/Done/OOS/Tracks with `- [ ] #N — title`.
-5. `python3 scripts/epic_compose_validate.py --body-file /tmp/epic-body.md --scan-file /tmp/epic-scan.json`
-6. `--dry-run` → print body. Else `gh issue create --label epic --body-file …` and point to `/epic <n>`.
+3. Pick one theme; no group → **no-op**
+4. Draft body with `- [ ] #N — title`; validate with `epic_compose_validate.py`
+5. `--dry-run` → print only. `--compose-only` → `gh issue create` and stop.
+6. Default: create epic, then execute `/epic N` end-to-end (no second user prompt).
 
-No product implementation, merge, or leaf closes. One epic per run. No state machine.
+| Result | Meaning |
+|--------|---------|
+| `complete` | filed + `/epic` done |
+| `filed` / `draft` / `no-op` / `blocked` | compose-only / dry-run / none / fail |

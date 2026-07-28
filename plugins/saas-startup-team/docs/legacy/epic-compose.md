@@ -53,14 +53,16 @@ Child lines **must** start with `#N` after the checkbox (see `epic_plan.py`).
 ```text
 epic_scan.py → (agent clusters for focus) → draft body
   → epic_compose_validate.py → gh issue create (label: epic)
-  → hand off: /epic <new>
+  → /epic <new>   # default: auto-invoke in the same run
 ```
 
 ## Modes
 
 | Mode | Mutation |
 |------|----------|
-| `--dry-run` / default plan | Scan + draft + validate only; print body |
-| file | Create epic issue after validate OK |
+| `--dry-run` | Scan + draft + validate only; print body |
+| default (file + implement) | Create epic, then run `/epic <n>` immediately |
+| `--compose-only` | Create epic only; do not start `/epic` |
 
-Never implement product code in compose. Never merge. Never close leaf issues.
+Product implementation, merge, and leaf closes happen only inside `/epic`
+(not in the compose drafting steps).

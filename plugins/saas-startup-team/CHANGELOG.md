@@ -2,7 +2,7 @@
 
 ## 1.2.0 — 2026-07-28
 
-- `/epic-compose`: scan issues → file focused epic for `/epic` (`epic_scan.py`, validate).
+- `/epic-compose`: scan issues → file focused epic → **auto-run `/epic`** (`--dry-run` / `--compose-only` opt out).
 
 ## 1.1.1 — 2026-07-28
 
