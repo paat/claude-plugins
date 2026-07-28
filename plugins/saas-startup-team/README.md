@@ -22,6 +22,7 @@ Independent Review → Release, with bounded maintenance and domain gates.
 | `ux-review` | Independent usability/a11y; host browser when available |
 | `operate` | `/monitor`, `/investigate`, `/replay-abandoned` |
 | `maintain` | One bounded externally scheduled tick (maintain-v3) |
+| `epic` | `/epic <n>` — serial multi-issue epic train (one branch/PR; see below) |
 
 Slash commands and Codex `saas-startup-team-*-workflow` skills are **generated aliases**
 only — no workflow policy in `commands/`. Regenerate via
@@ -59,6 +60,14 @@ corpus silence is `UNVERIFIABLE-IN-CORPUS`, never disproof.
 
 - **Delivery playbook** (sole): `references/delivery-playbook.md`
 - **Maintenance policy** (sole): `references/workflows/maintain-policy.md`
+- **Epic trains** (1.1): `skills/epic/SKILL.md` + `docs/legacy/epic-invariants.md`
+
+`/epic <n>` runs a **serial** multi-issue train for one GitHub epic with a child
+checklist (`- [ ] #N`). One branch `epic/<n>-…`, one draft PR, per-child `deliver`
+(no merge to main mid-train), tribunal hard-required for execution, children closed
+only after the epic PR merges. Plan only: `/epic --plan <n>`. Parser:
+`scripts/epic_plan.py` (no network). Active-epic guard: `scripts/epic_active.py`
+(cooperative; mutating improve/maintain refuse when another epic PR is open).
 
 Git issues, branches, PRs, CI, deployments, and immutable terminal release facts are
 authoritative. No founder loop state machine, numbered conversational handoffs, or
