@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Cooperative active-epic guard (Phase 1). Marker helpers + open-PR check."""
+"""Cooperative active-epic guard. Marker helpers + open-PR check.
+
+Blockers require a valid body marker (<!-- saas-epic: … -->). Unmarked
+epic/<n> branch names are advisory only (listed under advisory, never exit 3).
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -25,27 +30,110 @@ def cmd_marker(args: argparse.Namespace) -> int:
     return 0
 
 
-def _gh_json(repo: str) -> list[dict[str, Any]]:
-    """List open PRs (gh max 100 per call). Prefer head:epic/ search first."""
-    by_num: dict[Any, dict[str, Any]] = {}
+def classify_prs(prs: list[dict[str, Any]], branch: str) -> dict[str, Any]:
+    """Split open PRs into marker blockers, same-branch mine, and advisory."""
+    active: list[dict[str, Any]] = []
+    advisory: list[dict[str, Any]] = []
 
-    def _ingest(stdout: str) -> None:
-        try:
-            batch = json.loads(stdout or "[]")
-        except json.JSONDecodeError:
-            return
-        if not isinstance(batch, list):
-            return
-        for pr in batch:
-            n = pr.get("number")
-            if n is not None:
-                by_num[n] = pr
+    for pr in prs:
+        body = pr.get("body") or ""
+        m = MARKER_RE.search(body)
+        head = pr.get("headRefName") or ""
+        if m:
+            kids = [int(x) for x in re.findall(r"\d+", m.group(3))]
+            active.append(
+                {
+                    "epic": int(m.group(1)),
+                    "body_sha": m.group(2),
+                    "children": kids,
+                    "pr": pr.get("number"),
+                    "branch": head,
+                    "url": pr.get("url"),
+                    "marker": "body",
+                }
+            )
+            continue
+        tm = BRANCH_EPIC_RE.match(head)
+        if tm:
+            advisory.append(
+                {
+                    "epic": int(tm.group(1)),
+                    "body_sha": "",
+                    "children": [],
+                    "pr": pr.get("number"),
+                    "branch": head,
+                    "url": pr.get("url"),
+                    "marker": "branch-name-only",
+                }
+            )
+
+    # Only marker-bearing PRs can block mutation.
+    blockers = [
+        a
+        for a in active
+        if a.get("marker") == "body" and a.get("branch") and a["branch"] != branch
+    ]
+    mine = [
+        a
+        for a in active
+        if a.get("marker") == "body" and a.get("branch") == branch
+    ]
+    return {
+        "ok": len(blockers) == 0,
+        "branch": branch,
+        "active": active,
+        "mine": mine,
+        "blockers": blockers,
+        "advisory": advisory,
+    }
+
+
+def _parse_pr_list_json(stdout: str, *, context: str) -> list[dict[str, Any]]:
+    """Parse gh pr list JSON; fail closed on empty-unexpected or decode errors."""
+    raw = stdout if stdout is not None else ""
+    try:
+        batch = json.loads(raw or "[]")
+    except json.JSONDecodeError as exc:
+        print(
+            f"epic-active: invalid JSON from gh ({context}): {exc}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
+    if not isinstance(batch, list):
+        print(
+            f"epic-active: gh JSON must be a list ({context})",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    for item in batch:
+        if not isinstance(item, dict):
+            print(
+                f"epic-active: gh JSON list items must be objects ({context})",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+    return batch
+
+
+def _gh_json(repo: str) -> list[dict[str, Any]]:
+    """List open PRs (gh max 100 per call). Prefer head:epic/ search first.
+
+    Test hook: EPIC_ACTIVE_PR_JSON — if set, parse that string as the PR list
+    and skip network (used by unit tests).
+    """
+    fixture = os.environ.get("EPIC_ACTIVE_PR_JSON")
+    if fixture is not None:
+        return _parse_pr_list_json(fixture, context="EPIC_ACTIVE_PR_JSON")
+
+    by_num: dict[Any, dict[str, Any]] = {}
+    saw_success = False
 
     for extra in (
         ["--search", "head:epic/"],
         ["--search", "saas-epic"],
         [],
     ):
+        label = " ".join(extra) if extra else "unfiltered"
         proc = subprocess.run(
             [
                 "gh",
@@ -73,7 +161,15 @@ def _gh_json(repo: str) -> list[dict[str, Any]]:
                 )
                 raise SystemExit(1)
             continue
-        _ingest(proc.stdout)
+        saw_success = True
+        for pr in _parse_pr_list_json(proc.stdout, context=label):
+            n = pr.get("number")
+            if n is not None:
+                by_num[n] = pr
+
+    if not saw_success:
+        print("epic-active: gh pr list produced no successful responses", file=sys.stderr)
+        raise SystemExit(1)
 
     return list(by_num.values())
 
@@ -82,16 +178,27 @@ def cmd_check(args: argparse.Namespace) -> int:
     repo = args.repo
     branch = args.branch
     if not repo:
-        proc = subprocess.run(
-            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode != 0 or not proc.stdout.strip():
-            print("epic-active: cannot resolve --repo", file=sys.stderr)
-            return 1
-        repo = proc.stdout.strip()
+        if os.environ.get("EPIC_ACTIVE_PR_JSON") is not None:
+            repo = "test/repo"
+        else:
+            proc = subprocess.run(
+                [
+                    "gh",
+                    "repo",
+                    "view",
+                    "--json",
+                    "nameWithOwner",
+                    "-q",
+                    ".nameWithOwner",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode != 0 or not proc.stdout.strip():
+                print("epic-active: cannot resolve --repo", file=sys.stderr)
+                return 1
+            repo = proc.stdout.strip()
     if not branch:
         proc = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -99,54 +206,33 @@ def cmd_check(args: argparse.Namespace) -> int:
             capture_output=True,
             text=True,
         )
-        branch = (proc.stdout or "").strip()
+        if proc.returncode == 0 and proc.stdout.strip():
+            branch = proc.stdout.strip()
+        else:
+            # Fixture / non-git cwd: default for tests and dry hosts
+            branch = "main"
 
-    active: list[dict[str, Any]] = []
-    for pr in _gh_json(repo):
-        body = pr.get("body") or ""
-        m = MARKER_RE.search(body)
-        head = pr.get("headRefName") or ""
-        if m:
-            kids = [int(x) for x in re.findall(r"\d+", m.group(3))]
-            active.append(
-                {
-                    "epic": int(m.group(1)),
-                    "body_sha": m.group(2),
-                    "children": kids,
-                    "pr": pr.get("number"),
-                    "branch": head,
-                    "url": pr.get("url"),
-                    "marker": "body",
-                }
-            )
-            continue
-        tm = BRANCH_EPIC_RE.match(head)
-        if tm:
-            active.append(
-                {
-                    "epic": int(tm.group(1)),
-                    "body_sha": "",
-                    "children": [],
-                    "pr": pr.get("number"),
-                    "branch": head,
-                    "url": pr.get("url"),
-                    "marker": "branch-name-only",
-                }
-            )
-
-    blockers = [a for a in active if a.get("branch") and a["branch"] != branch]
-    mine = [a for a in active if a.get("branch") == branch]
+    classified = classify_prs(_gh_json(repo), branch)
     out = {
-        "ok": len(blockers) == 0,
+        "ok": classified["ok"],
         "repo": repo,
-        "branch": branch,
-        "active": active,
-        "mine": mine,
-        "blockers": blockers,
+        "branch": classified["branch"],
+        "active": classified["active"],
+        "mine": classified["mine"],
+        "blockers": classified["blockers"],
+        "advisory": classified["advisory"],
     }
     json.dump(out, sys.stdout, ensure_ascii=False, separators=(",", ":"))
     sys.stdout.write("\n")
-    return 0 if not blockers else 3
+    if classified["advisory"]:
+        print(
+            "epic-active: advisory unmarked epic/* branches (not blockers): "
+            + ", ".join(
+                f"#{a.get('pr')} ({a.get('branch')})" for a in classified["advisory"]
+            ),
+            file=sys.stderr,
+        )
+    return 0 if classified["ok"] else 3
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -24,9 +24,12 @@ not replace — `deliver`, `maintain`, tribunal-review, or `issue-file`.
    is not completion of the parent child.
 8. **Refuse empty checklists.** Zero parseable `- [ ] #N` children → stop
    (decompose is out of Phase 1).
-9. **Cooperative active-epic guard.** While a marked epic PR is open, mutating
-   `/improve`, `/maintain --mutate`, and ad-hoc `/deliver` on other work must
-   refuse (read-only/shadow may continue). Not an atomic lock.
+9. **Cooperative active-epic guard.** While a **marker-bearing** epic PR is open
+   (`<!-- saas-epic: … -->` in the PR body), mutating `/improve`,
+   `/maintain --mutate`, and ad-hoc `/deliver` on other work must refuse
+   (read-only/shadow may continue). Unmarked `epic/*` branch names are
+   **advisory only** (logged, never block). Not an atomic lock. Guard fails
+   closed on `gh`/JSON errors.
 10. **Close gate.** Required CI + branch protection; merge only via the epic PR.
     UI/browser changes need ux-review / product acceptance when triggered — a
     free-form “proof track” does not replace gates. After merge: close children,
