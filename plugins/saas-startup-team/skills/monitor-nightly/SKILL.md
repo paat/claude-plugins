@@ -11,12 +11,8 @@ transitional: true
 
 **Scheduling lives outside prompts** (cron/host). Job body only; on-demand → operate `monitor`.
 
-Detect failure signals, file deduplicated GitHub issues with reproduction context, persist state
-across runs. Project-agnostic — all specifics come from the `monitor:` block in
-`.claude/saas-startup-team.local.md` (all keys optional; defaults below). The command never calls
-`gh` itself — the engine (`scripts/monitor-dedup.sh`) owns all GitHub I/O.
-
-**IMPORTANT:** This creates real GitHub issues. Pass `--dry-run` to preview without creating.
+Failure markers → deduped GitHub issues via `scripts/monitor-dedup.sh` (never call `gh` here).
+Config: optional `monitor:` in `.claude/saas-startup-team.local.md`. Use `--dry-run` to preview.
 
 ## Configuration
 
@@ -59,29 +55,19 @@ DRY_RUN_FLAG=""; case "${ARGUMENTS:-}" in *--dry-run*) DRY_RUN_FLAG="--dry-run" 
 REPO_FLAG=""; [ -n "$REPO" ] && REPO_FLAG="--repo $REPO"
 ```
 
-## Lock the run
-
-Serialize the whole run with `flock` so a manual run cannot overlap the cron run:
+## Lock and window
 
 ```bash
 mkdir -p "$(dirname "$STATE_FILE")"
 exec 9>"${STATE_FILE}.lock"
 flock -n 9 || { echo "monitor: another run holds the lock; exiting"; exit 0; }
-```
-
-## Scan window
-
-```bash
 eval "$("$ENGINE" window --state "$STATE_FILE")"
 export MONITOR_SINCE MONITOR_SINCE_MINUTES
 ```
 
 ## Collect findings
 
-Self-contained: reads `MARKER_DIR`, `CUSTOM_CHECKS`, and `STATE_FILE` from the environment and
-writes findings JSONL (one object per line) to the file `${STATE_FILE}.findings` (the `## Commit`
-step reads that file — file-based handoff survives separate shell invocations). Marker `kind` is
-sanitized to a valid `pattern_key` segment.
+Write findings JSONL to `${STATE_FILE}.findings` for the Commit step.
 
 ```bash
 MARKER_DIR="${MARKER_DIR:-.monitor}"
@@ -122,12 +108,7 @@ elif [ -x "$CUSTOM_CHECKS" ]; then
 fi
 ```
 
-> The model-free workflow probe runs custom checks once with the same monitor window and
-> stores non-empty output in `${STATE_FILE}.probe-findings`; this block consumes that file
-> exactly once. A direct interactive run without a fresh probe executes the script here.
-> The custom-checks script writes its **own** findings JSONL to stdout (appended straight into
-> `$FINDINGS`) and may write diagnostics to stderr. A non-zero exit still keeps the findings it
-> already emitted and adds one `ops:monitor-checks:failure` tracking finding.
+> Probe may pre-fill `${STATE_FILE}.probe-findings` (consumed once); else run `CUSTOM_CHECKS` here.
 
 ## Commit
 
@@ -145,62 +126,9 @@ FINDINGS="${STATE_FILE:-.startup/monitor-state.json}.findings"
 
 ## Summary
 
-The engine prints one JSON action per finding. Summarize for the human:
+Summarize engine JSON actions (created/commented/skipped). Prefix `[DRY RUN]` when set.
 
-```
-Nightly Monitor — <date>
-Created: <n>  Commented: <m>  Skipped: <k>
-<created/commented issue numbers>
-```
+## Digest and cron
 
-If `--dry-run`, prefix every line with `[DRY RUN]`.
-
-## Daily digest
-
-Once per day, after the monitor pass, assemble and send the batched needs-human digest
-(`/digest`) so the investor gets one message instead of a ping per run. Add a second
-daily cron entry invoking `/digest` (same tool scope as below, plus the notify channel:
-`.startup/notify.json` or `SAAS_NOTIFY_KIND`/`SAAS_NOTIFY_URL`/`SAAS_NOTIFY_TOKEN_ENV`).
-Unconfigured channel is a clean no-op.
-
-## Cron setup
-
-```bash
-# Claude Code example:
-# 0 2 * * *  cd <product-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" monitor-nightly; then claude -p "/monitor-nightly" \
-#   --allowedTools "Bash,Read,Write,Grep,Glob" >> /var/log/monitor-nightly.log 2>&1
-#   else test $? -eq 3; fi
-# Codex example:
-# 0 2 * * *  cd /path/to/product && <codex command for this plugin> "/monitor-nightly" \
-#   >> /var/log/monitor-nightly.log 2>&1
-```
-
-Ensure `ANTHROPIC_API_KEY`, authenticated `gh`, `jq`, GNU `date`, and `flock` are available in the
-cron environment.
-
-### Hardened cron (narrow tool scope)
-
-This monitor pulls **customer-controlled content** (feedback text, custom-checks output) into
-Claude's context, so it is prompt-injection-sensitive. For that threat model, scope
-`--allowedTools` to the *narrowest* Bash set instead of a blanket `Bash`. The engine
-(`monitor-dedup.sh`) is invoked **directly** (it is executable with a shebang — not wrapped in
-a `bash <script>` call), so you can grant just the engine path and drop the full-shell
-`Bash(bash:*)` that a `bash <script>` invocation would otherwise force:
-
-```bash
-# Claude Code example:
-# 0 2 * * *  cd <product-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" monitor-nightly; then claude -p "/monitor-nightly" --allowedTools \
-#   'Bash($CLAUDE_PLUGIN_ROOT/scripts/monitor-dedup.sh:*),Bash(flock:*),Bash(mkdir:*),Bash(jq:*),Bash(grep:*),Bash(sed:*),Bash(tr:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(basename:*),Bash(dirname:*),Bash(date:*),Read,Write,Grep,Glob' \
-#   >> /var/log/monitor-nightly.log 2>&1
-#   else test $? -eq 3; fi
-```
-
-Add `Bash(<your custom_checks path>:*)` if a `custom_checks` script is configured. A successful
-injection via customer content then cannot exec arbitrary commands — only the allowlisted
-utilities — because `Bash(bash:*)` is no longer in scope.
-
-Note the GitHub CLI is intentionally **absent** from this list: the command never calls it
-directly — all GitHub I/O is encapsulated in the engine and runs as a *child process* of the
-allowlisted engine, so it never reaches the Bash permission layer. The CLI only needs to be
-installed and authenticated in the environment (per the prerequisites above), not granted as a
-tool. Granting it here would needlessly widen the blast radius.
+See `docs/legacy/monitor-nightly-cron.md` (includes **Hardened cron** / narrow
+tool-scope). Optional daily `/digest` after monitor.

@@ -48,6 +48,20 @@
       "generate_command_alias": true
     },
     {
+      "name": "epic-compose",
+      "command_file": "commands/epic-compose.md",
+      "aliases": [
+        "/saas-startup-team:epic-compose",
+        "/epic-compose"
+      ],
+      "codex_skill": "saas-startup-team-epic-compose-workflow",
+      "generate_alias": true,
+      "transitional": true,
+      "canonical": "skills/epic-compose/SKILL.md",
+      "description": "Scan open issues, file focused epic, auto-run /epic. Usage: /epic-compose [--dry-run] [--compose-only] [hint]",
+      "generate_command_alias": true
+    },
+    {
       "name": "goal-deliver",
       "command_file": "commands/goal-deliver.md",
       "aliases": [

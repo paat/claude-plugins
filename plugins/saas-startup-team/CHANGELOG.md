@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.1 — 2026-07-28
+
+- `/epic-compose`: scan → file focused epic → auto-run `/epic` (`--dry-run`/`--compose-only`).
+
 ## 1.1.1 — 2026-07-28
 
 - epic_active: marker-only blockers; JSON fail-closed; check fixture tests.
