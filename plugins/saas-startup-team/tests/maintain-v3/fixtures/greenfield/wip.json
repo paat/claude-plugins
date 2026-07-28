@@ -1,0 +1,7 @@
+{
+  "worktree": "/tmp/fixture-primary",
+  "default_branch": "main",
+  "dirty": { "clean": true, "porcelain": "", "action": "none" },
+  "items": [],
+  "summary": { "resume": 0, "delete": 0, "inspect": 0, "dirty": false }
+}

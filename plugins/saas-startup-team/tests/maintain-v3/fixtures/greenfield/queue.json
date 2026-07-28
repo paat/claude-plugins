@@ -1,0 +1,10 @@
+{
+  "eligible": [
+    {
+      "number": 100,
+      "title": "First eligible",
+      "eligible": true,
+      "excluded": false
+    }
+  ]
+}

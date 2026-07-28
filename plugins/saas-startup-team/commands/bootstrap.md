@@ -7,7 +7,8 @@ transitional: true
 
 # /bootstrap — Initialize Project Structure
 
-Set up a project for the saas-startup-team plugin without starting the agent loop. This command is idempotent — running it multiple times is safe and will not overwrite existing content.
+Idempotent project scaffold. Do not init `.startup/state.json` loop fields;
+status comes from Git/PR/CI/deploy and durable docs.
 
 ## Step 1: Create Directory Structure
 

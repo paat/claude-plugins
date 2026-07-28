@@ -1,0 +1,12 @@
+{
+  "selection": {
+    "disposition": "greenfield",
+    "kind": "issue",
+    "action": "deliver",
+    "issue": 100,
+    "pr_number": null,
+    "branch": null,
+    "deliver": true,
+    "reason": "queue_select"
+  }
+}

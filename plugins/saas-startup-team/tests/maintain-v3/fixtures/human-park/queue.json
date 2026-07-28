@@ -1,0 +1,16 @@
+{
+  "eligible": [
+    {
+      "number": 5,
+      "title": "Needs human judgment",
+      "eligible": true,
+      "excluded": false
+    },
+    {
+      "number": 6,
+      "title": "Agent fixable",
+      "eligible": true,
+      "excluded": false
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "selection": {
+    "disposition": "greenfield",
+    "kind": "issue",
+    "action": "deliver",
+    "issue": 6,
+    "pr_number": null,
+    "branch": null,
+    "deliver": true,
+    "reason": "queue_select",
+    "human_gate": {
+      "issue": 6,
+      "park": false,
+      "action": "no-op"
+    }
+  }
+}

@@ -28,4 +28,4 @@ Source command: `../../commands/maintain-loop.md`
 
 - Plugin: `saas-startup-team`
 - Command aliases: `/saas-startup-team:maintain-loop`, `/maintain-loop`
-- Source description: Expeditor + safety coordinator for sequential maintenance. Usage: /maintain-loop [flags]
+- Source description: Scheduler dispatcher for maintain ticks. Usage: /maintain-loop [--once] [--shadow|--mutate]

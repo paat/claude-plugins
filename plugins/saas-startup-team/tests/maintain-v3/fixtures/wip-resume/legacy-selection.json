@@ -1,0 +1,13 @@
+{
+  "selection": {
+    "disposition": "resume_wip",
+    "kind": "pr",
+    "action": "resume",
+    "issue": 42,
+    "pr_number": 7,
+    "branch": "fix/42-login",
+    "check_status": "success",
+    "deliver": true,
+    "reason": "open_pr"
+  }
+}

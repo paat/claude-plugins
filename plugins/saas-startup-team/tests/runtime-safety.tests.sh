@@ -462,8 +462,8 @@ SH
     "$PLUGIN_ROOT/scripts/codex-cast.sh" 'workspace-write'
   assert_file_not_contains "RS37d: legacy maintain adapter cannot narrow Codex workers" \
     "$PLUGIN_ROOT/scripts/maintain-attempt.sh" 'CODEX_SANDBOX='
-  assert_file_not_contains "RS37e: standard evaluation cannot narrow its AI worker" \
-    "$PLUGIN_ROOT/scripts/standard-medium-eval.sh" 'SAAS_CODEX_NETWORK_ACCESS='
+  assert_file_not_exists "RS37e: standard-medium-eval removed from runtime (#388)" \
+    "$PLUGIN_ROOT/scripts/standard-medium-eval.sh"
   workdir=$(make_workdir); mkdir -p "$workdir/bin"
   cat > "$workdir/bin/gh" <<'SH'
 #!/usr/bin/env bash
