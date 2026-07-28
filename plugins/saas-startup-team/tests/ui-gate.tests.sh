@@ -88,9 +88,9 @@ test_ui_gate() {
   assert_file_contains "UG14: merge-policy requires Design-review PASS" "$policy" "## Design-review: PASS"
 
   # commands reference the leg + classifier
-  assert_file_contains "UG15: improve playbook runs ui-touch.sh" "$PLUGIN_ROOT/references/deliver/graph.md" "scripts/ui-touch.sh"
-  assert_file_contains "UG16: improve playbook references the leg" "$PLUGIN_ROOT/references/deliver/graph.md" "design-review-leg.md"
+  assert_file_contains "UG15: improve playbook runs ui-touch.sh" "$PLUGIN_ROOT/references/delivery-playbook.md" "scripts/ui-touch.sh"
+  assert_file_contains "UG16: improve playbook references the leg" "$PLUGIN_ROOT/references/delivery-playbook.md" "design-review-leg.md"
   assert_file_contains "UG17: maintain playbook references the leg" "$PLUGIN_ROOT/references/workflows/maintain.md" "design-review-leg.md"
-  assert_file_contains "UG18: goal playbook references the leg" "$PLUGIN_ROOT/references/deliver/graph.md" "design-review-leg.md"
+  assert_file_contains "UG18: goal playbook references the leg" "$PLUGIN_ROOT/references/delivery-playbook.md" "design-review-leg.md"
 }
 test_ui_gate

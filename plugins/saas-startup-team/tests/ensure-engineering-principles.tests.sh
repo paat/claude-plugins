@@ -78,7 +78,7 @@ test_ensure_engineering_principles() {
 
   # EP8: bootstrap/startup/hook point at the shared script
   assert_file_contains "EP8: bootstrap calls helper" \
-    "$PLUGIN_ROOT/commands/bootstrap.md" 'scripts/ensure-engineering-principles.sh'
+    "$PLUGIN_ROOT/skills/bootstrap/SKILL.md" 'scripts/ensure-engineering-principles.sh'
   assert_file_contains "EP8b: startup calls helper" \
     "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" 'ensure-engineering-principles.sh'
   assert_file_contains "EP8c: SessionStart hook wires helper" \

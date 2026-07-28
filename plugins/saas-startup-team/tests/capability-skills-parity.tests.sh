@@ -51,11 +51,11 @@ test_capability_skills_parity() {
   assert_file_contains "CS: lifecycle uses product-acceptance" \
     "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" 'product-acceptance'
   assert_file_contains "CS: startup loads lifecycle" \
-    "$PLUGIN_ROOT/commands/startup.md" 'lifecycle'
+    "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" 'lifecycle'
   assert_file_not_contains "CS: startup no business-founder agent type" \
-    "$PLUGIN_ROOT/commands/startup.md" 'saas-startup-team:business-founder'
+    "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" 'saas-startup-team:business-founder'
   assert_file_not_contains "CS: startup no tech-founder-claude type" \
-    "$PLUGIN_ROOT/commands/startup.md" 'tech-founder-claude'
+    "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" 'tech-founder-claude'
 }
 
 test_capability_skills_parity

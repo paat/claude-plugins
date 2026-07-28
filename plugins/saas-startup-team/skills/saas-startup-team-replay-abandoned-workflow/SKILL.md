@@ -7,4 +7,4 @@ description: "Run /replay-abandoned workflow from saas-startup-team; alias /saas
 # Alias: /replay-abandoned
 
 Discovery alias for `/saas-startup-team:replay-abandoned`, `/replay-abandoned`.
-Load and execute `../../commands/replay-abandoned.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/operate/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

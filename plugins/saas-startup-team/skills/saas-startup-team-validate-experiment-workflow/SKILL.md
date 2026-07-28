@@ -7,4 +7,4 @@ description: "Run /validate-experiment workflow from saas-startup-team; alias /s
 # Alias: /validate-experiment
 
 Discovery alias for `/saas-startup-team:validate-experiment`, `/validate-experiment`.
-Load and execute `../../commands/validate-experiment.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/validate-experiment/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

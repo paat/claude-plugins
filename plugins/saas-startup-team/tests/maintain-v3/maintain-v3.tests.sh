@@ -9,7 +9,7 @@ test_maintain_v3() {
   local script="$PLUGIN_ROOT/scripts/maintain-v3.sh"
   local skill="$PLUGIN_ROOT/skills/maintain/SKILL.md"
   local operate="$PLUGIN_ROOT/skills/operate/SKILL.md"
-  local contract="$PLUGIN_ROOT/references/workflows/maintain-v3.md"
+  local contract="$PLUGIN_ROOT/references/workflows/maintain-policy.md"
   local fixtures="$PLUGIN_ROOT/tests/maintain-v3/fixtures"
   local dir out ec inv sel path repo state head merge
 
@@ -219,19 +219,19 @@ test_maintain_v3() {
   assert_file_contains "MV3-56: operate command loads skill" \
     "$PLUGIN_ROOT/commands/operate.md" 'skills/operate'
   assert_file_contains "MV3-57: monitor routes to operate" \
-    "$PLUGIN_ROOT/commands/monitor.md" 'skills/operate'
+    "$PLUGIN_ROOT/commands/operate.md" 'skills/operate'
   assert_file_contains "MV3-58: investigate routes to operate" \
-    "$PLUGIN_ROOT/commands/investigate.md" 'skills/operate'
+    "$PLUGIN_ROOT/commands/operate.md" 'skills/operate'
   assert_file_contains "MV3-59: replay routes to operate" \
-    "$PLUGIN_ROOT/commands/replay-abandoned.md" 'skills/operate'
+    "$PLUGIN_ROOT/commands/operate.md" 'skills/operate'
   assert_file_contains "MV3-60: status prefers git facts" \
-    "$PLUGIN_ROOT/commands/status.md" 'gh pr list'
+    "$PLUGIN_ROOT/skills/status/SKILL.md" 'gh pr list'
   assert_file_contains "MV3-61: status historical state only" \
-    "$PLUGIN_ROOT/commands/status.md" 'historical'
+    "$PLUGIN_ROOT/skills/status/SKILL.md" 'historical'
   assert_file_contains "MV3-62: maintain-wip allow linked" \
     "$PLUGIN_ROOT/scripts/maintain-wip.sh" 'allow-linked-worktrees'
   assert_file_contains "MV3-62b: monitor-nightly scheduling outside" \
-    "$PLUGIN_ROOT/commands/monitor-nightly.md" 'Scheduling lives outside'
+    "$PLUGIN_ROOT/skills/monitor-nightly/SKILL.md" 'Scheduling lives outside'
 
   # #389: primary-only stack deleted; drain is the legacy path.
   assert_file_not_exists "MV3-63: maintain-delivery deleted" \

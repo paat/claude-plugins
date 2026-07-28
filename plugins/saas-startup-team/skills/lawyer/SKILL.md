@@ -146,19 +146,11 @@ For schema, lifecycle, marker, and subcommand details, read
 
 Load only the relevant guide:
 
-- `references/datalake-routing.md` (non-statute intelligence routing)
-- `references/datalake-api.md` (call-time endpoints only)
-- `references/gdpr-compliance.md`
-- `references/estonian-legal.md`
-- `references/saas-contracts.md`
-- `references/software-licensing.md`
-- `references/risk-assessment.md`
 
-## Hard boundaries
+## Entrypoint
 
-- Write only the requested legal artifact; do not modify product source, tests,
-  handoffs, policies, or registry state.
-- Use real evidence and proper Estonian Unicode; never use placeholders.
-- Do not expose credentials, customer identifiers, or raw personal data.
-- Do not promote datalake risk scores or practice signals to legal liability,
-  PEP status, insolvency, or violations without Tier A authority and facts.
+`lawyer-preflight.sh`; `lawyer-check.sh`; `legal-verdict-gate.sh --validate` (or `gate.sh legal`).
+
+### Non-interactive / autonomous disposition
+
+Print pending count/slugs. Skip Marker Scan, Invariant Check, Conditional gh pre-flight, Fix-Plan Generation, Confirmation, and issue creation. Continue directly to analysis. The flags remain durable in `.startup/law-registry.json`. Issue creation still requires an explicit subcommand. re-verify it from Tier A before using it. Do not inventory or load the newest files across every docs area.

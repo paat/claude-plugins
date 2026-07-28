@@ -7,4 +7,4 @@ description: "Run /digest workflow from saas-startup-team; alias /saas-startup-t
 # Alias: /digest
 
 Discovery alias for `/saas-startup-team:digest`, `/digest`.
-Load and execute `../../commands/digest.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/digest/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

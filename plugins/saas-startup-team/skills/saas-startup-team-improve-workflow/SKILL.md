@@ -7,4 +7,4 @@ description: "Run /improve workflow from saas-startup-team; alias /saas-startup-
 # Alias: /improve
 
 Discovery alias for `/saas-startup-team:improve`, `/improve`.
-Load and execute `../../commands/improve.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/deliver/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

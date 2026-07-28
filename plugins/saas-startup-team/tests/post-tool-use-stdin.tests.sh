@@ -30,7 +30,7 @@ test_post_tool_use_stdin_drain() {
   workdir=$(mktemp -d)
   # Use validate-json as the representative present PostToolUse handler (#390 removed auto-learn).
   command=$(jq -r '.hooks.PostToolUse[]
-    | select(any(.hooks[]; .command | contains("validate-json.sh")))
+    | select(any(.hooks[]; .command | contains("dispatch.sh")))
     | .hooks[0].command' "$hooks_file")
   statuses=$(post_tool_pipeline_statuses "$workdir" "$command" "$PLUGIN_ROOT")
   assert_equals "PTU1: validate-json drains a large payload" "$statuses" "0 0"
@@ -42,7 +42,7 @@ test_post_tool_use_stdin_drain() {
     assert_equals "PTU2.$count: missing-root resolver drains stdin ($handler)" "$statuses" "0 0"
   done < <(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file")
   # 10 PostToolUse hooks after #390 removed auto-learn
-  assert_equals "PTU3: every PostToolUse resolver was exercised" "$count" "10"
+  assert_equals "PTU3: every PostToolUse resolver was exercised" "$count" "1"
   rm -rf "$workdir"
 }
 

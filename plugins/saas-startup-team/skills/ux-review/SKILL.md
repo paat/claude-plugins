@@ -44,7 +44,7 @@ Non-triggers: implementing fixes (deliver Build), product strategy, legal Tier A
 - Literal tool output; for snapshots call `browser_snapshot` with unique
   `/tmp/saas-startup-team-snapshot-<run-id>-<checkpoint>.md` and keep the tool path only
 - Missing/pending/zero browser tools → `tool-unavailable` for that leg
-- Mechanical legs may use browser-operator agents on Claude Code; **verdict stays here**
+- Use host browser capability when available; **verdict stays here**
 
 ## Audit workflow (judgment retained)
 
@@ -58,3 +58,10 @@ code pattern scan as supplement; write `docs/ux/ux-audit.md`.
 - `references/wcag-checklist.md`
 - `references/visual-testing.md`
 - `references/severity-matrix.md`
+
+## Entrypoint (/ux-test)
+
+Require a reachable URL. Use host browser capability when available (no pinned
+unconditional Playwright MCP load). Write `docs/ux/ux-*.md`. Never implement product fixes
+in this skill — file findings for deliver.
+

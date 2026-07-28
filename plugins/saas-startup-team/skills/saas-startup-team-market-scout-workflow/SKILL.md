@@ -7,4 +7,4 @@ description: "Run /market-scout workflow from saas-startup-team; alias /saas-sta
 # Alias: /market-scout
 
 Discovery alias for `/saas-startup-team:market-scout`, `/market-scout`.
-Load and execute `../../commands/market-scout.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/market-scout/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

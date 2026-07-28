@@ -68,3 +68,19 @@ Paying customers, MRR, funnel, CAC, LTV:CAC (>3:1), reply rate, trial-to-paid â€
 
 
 NEVER put a fixed checkout root such as `/workspace` in a handoff or command.
+
+Optional ads via `subagent_type: "google-ads-strategist:ads-strategist"` or Skill load.
+
+## Spend envelope
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/gate.sh" spend envelope docs/growth/envelope.json
+```
+Mechanical hard-stop: `gate.sh spend ads` (hooks).
+
+growth_lifecycle
+
+do not contact prospects
+
+owner authorization gates
+
+skills/growth

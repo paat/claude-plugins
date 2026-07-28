@@ -113,7 +113,7 @@ If a durable guard is genuinely impossible, do not silently close the issue: spl
 ## Implementation Workflow
 
 Follow the deliver skill Build phase (`../deliver/SKILL.md` /
-`../../references/deliver/graph.md`): accept brief, implement, run `./check.sh`,
+`../../references/delivery-playbook.md`): accept brief, implement, run `./check.sh`,
 document evidence, update workflow specs when touched. Workers do not commit —
 supervisor owns `supervisor-commit.sh`. Bug-fix protocol and triggered SaaS gates above
 still apply.

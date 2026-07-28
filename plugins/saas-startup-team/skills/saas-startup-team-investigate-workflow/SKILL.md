@@ -7,4 +7,4 @@ description: "Run /investigate workflow from saas-startup-team; alias /saas-star
 # Alias: /investigate
 
 Discovery alias for `/saas-startup-team:investigate`, `/investigate`.
-Load and execute `../../commands/investigate.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/operate/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

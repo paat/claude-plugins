@@ -7,4 +7,4 @@ description: "Run /status workflow from saas-startup-team; alias /saas-startup-t
 # Alias: /status
 
 Discovery alias for `/saas-startup-team:status`, `/status`.
-Load and execute `../../commands/status.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/status/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

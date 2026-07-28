@@ -7,4 +7,4 @@ description: "Run /lawyer workflow from saas-startup-team; alias /saas-startup-t
 # Alias: /lawyer
 
 Discovery alias for `/saas-startup-team:lawyer`, `/lawyer`.
-Load and execute `../../commands/lawyer.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/lawyer/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

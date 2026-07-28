@@ -7,4 +7,4 @@ description: "Run /monitor-nightly workflow from saas-startup-team; alias /saas-
 # Alias: /monitor-nightly
 
 Discovery alias for `/saas-startup-team:monitor-nightly`, `/monitor-nightly`.
-Load and execute `../../commands/monitor-nightly.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/monitor-nightly/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

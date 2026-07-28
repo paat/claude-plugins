@@ -7,4 +7,4 @@ description: "Run /maintain workflow from saas-startup-team; alias /saas-startup
 # Alias: /maintain
 
 Discovery alias for `/saas-startup-team:maintain`, `/maintain`.
-Load and execute `../../commands/maintain.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/maintain/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

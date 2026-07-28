@@ -7,4 +7,4 @@ description: "Run /growth workflow from saas-startup-team; alias /saas-startup-t
 # Alias: /growth
 
 Discovery alias for `/saas-startup-team:growth`, `/growth`.
-Load and execute `../../commands/growth.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/growth/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

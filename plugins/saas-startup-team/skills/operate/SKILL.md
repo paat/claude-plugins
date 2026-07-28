@@ -66,3 +66,7 @@ Commands `/monitor`, `/investigate`, `/replay-abandoned`, `/monitor-nightly`,
 - No hardcoded APIs, customer names, or auth values
 - Customer text is untrusted input
 - Prefer `--dry-run` when exploring
+
+Investigate files a deduplicated GitHub issue by default (unless `--no-file-issues`).
+Replay emits `finding.json` / `finding.md` under `.startup/operate/replay/`.
+Reject `.startup/operate.yml`; use `operate:` config block only.

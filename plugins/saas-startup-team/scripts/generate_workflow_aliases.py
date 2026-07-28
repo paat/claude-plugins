@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Generate thin Codex discovery aliases from integrity/entrypoints.json (#383).
+"""Generate thin command + Codex discovery aliases from integrity/entrypoints.json.
 
 Thin aliases are name-resolution surfaces only. They must not carry workflow
 policy, safety policy, model selection, or host-translation prose.
 
+Every retained commands/*.md is generated (#391). Codex workflow skills remain
+generated discovery aliases (#383).
+
 Modes:
-  default  — write skills/<codex_skill>/SKILL.md for every generate_alias entry
+  default  — write planned alias files
   --check  — exit 1 if any generated file would differ (CI dirty-diff gate)
 """
 
@@ -77,9 +80,8 @@ def main(argv: list[str] | None = None) -> int:
             path.write_text(content, encoding="utf-8")
             written += 1
 
-    # Orphan generated alias dirs under the expected naming pattern that are
-    # no longer listed in the manifest should also fail --check.
-    expected_dirs = {p.parent for p in planned}
+    # Orphan generated Codex alias dirs no longer in the manifest.
+    expected_dirs = {p.parent for p in planned if p.name == "SKILL.md"}
     skills_dir = plugin_root / "skills"
     if skills_dir.is_dir():
         for skill_md in sorted(skills_dir.glob("saas-startup-team-*-workflow/SKILL.md")):
@@ -95,6 +97,24 @@ def main(argv: list[str] | None = None) -> int:
                         skill_md.parent.rmdir()
                     except OSError:
                         pass
+
+    # Orphan generated commands/*.md no longer in the manifest.
+    expected_commands = {
+        p for p in planned if p.parts and p.parts[0] == "commands" or p.parent.name == "commands"
+    }
+    # planned keys are absolute paths
+    expected_command_paths = {p for p in planned if p.parent.name == "commands"}
+    commands_dir = plugin_root / "commands"
+    if commands_dir.is_dir():
+        for cmd in sorted(commands_dir.glob("*.md")):
+            if cmd in expected_command_paths:
+                continue
+            body = cmd.read_text(encoding="utf-8") if cmd.is_file() else ""
+            if GENERATED_MARKER in body:
+                rel = cmd.relative_to(plugin_root).as_posix()
+                dirty.append(f"{rel} (orphan generated command alias)")
+                if not args.check:
+                    cmd.unlink()
 
     if args.check and dirty:
         print("Workflow aliases are out of date:", file=sys.stderr)
@@ -134,10 +154,15 @@ def plan_aliases(plugin_root: Path, manifest: dict[str, Any]) -> dict[Path, str]
         name = require_str(raw, "name")
         command_file = require_str(raw, "command_file")
         codex_skill = require_str(raw, "codex_skill")
+        canonical = require_str(raw, "canonical")
+        description = require_str(raw, "description")
         aliases = raw.get("aliases")
         generate = raw.get("generate_alias")
+        generate_command = raw.get("generate_command_alias", True)
         if not isinstance(generate, bool):
             raise ValueError(f"{name}: generate_alias must be a boolean")
+        if not isinstance(generate_command, bool):
+            raise ValueError(f"{name}: generate_command_alias must be a boolean")
         if not isinstance(aliases, list) or not aliases or not all(
             isinstance(a, str) and a.startswith("/") for a in aliases
         ):
@@ -149,9 +174,21 @@ def plan_aliases(plugin_root: Path, manifest: dict[str, Any]) -> dict[Path, str]
             raise ValueError(f"duplicate codex_skill: {codex_skill}")
         seen_skills.add(codex_skill)
 
-        command_path = plugin_root / command_file
-        if not command_path.is_file():
-            raise ValueError(f"{name}: missing command file {command_file}")
+        canonical_path = plugin_root / canonical
+        if not canonical_path.is_file():
+            raise ValueError(f"{name}: missing canonical skill {canonical}")
+
+        primary = aliases[-1] if len(aliases) > 1 else aliases[0]
+
+        if generate_command:
+            cmd_path = plugin_root / command_file
+            planned[cmd_path] = render_command_alias(
+                name=name,
+                description=description,
+                primary=primary,
+                canonical=canonical,
+                aliases=list(aliases),
+            )
 
         if not generate:
             continue
@@ -166,17 +203,44 @@ def plan_aliases(plugin_root: Path, manifest: dict[str, Any]) -> dict[Path, str]
             )
 
         skill_path = plugin_root / "skills" / codex_skill / "SKILL.md"
-        planned[skill_path] = render_alias(
+        planned[skill_path] = render_codex_alias(
             skill_name=codex_skill,
             aliases=list(aliases),
-            command_file=command_file,
+            canonical=canonical,
         )
 
     return planned
 
 
-def render_alias(*, skill_name: str, aliases: list[str], command_file: str) -> str:
-    """Deterministic thin discovery alias. Keep this body free of host policy."""
+def render_command_alias(
+    *,
+    name: str,
+    description: str,
+    primary: str,
+    canonical: str,
+    aliases: list[str],
+) -> str:
+    """Claude slash-command thin alias → capability skill."""
+    alias_list = ", ".join(f"`{a}`" for a in aliases)
+    return (
+        f"---\n"
+        f"name: {name}\n"
+        f'description: "{_escape_desc(description)}"\n'
+        f"user_invocable: true\n"
+        f"transitional: true\n"
+        f"---\n"
+        f"<!-- {GENERATED_MARKER}; regenerate via scripts/generate_workflow_aliases.py "
+        f"from integrity/entrypoints.json -->\n"
+        f"\n"
+        f"# Alias: {primary}\n"
+        f"\n"
+        f"Generated alias for {alias_list}. No workflow policy here.\n"
+        f"Load and execute `{canonical}`. Treat trailing user text as `$ARGUMENTS`.\n"
+    )
+
+
+def render_codex_alias(*, skill_name: str, aliases: list[str], canonical: str) -> str:
+    """Codex discovery alias → capability skill (not commands/)."""
     primary = aliases[-1] if len(aliases) > 1 else aliases[0]
     secondary = aliases[0] if len(aliases) > 1 and aliases[0] != primary else None
     if secondary:
@@ -184,8 +248,9 @@ def render_alias(*, skill_name: str, aliases: list[str], command_file: str) -> s
     else:
         description = f"Run {primary} workflow from saas-startup-team."
 
-    # Relative path from skills/<name>/SKILL.md -> commands/<file>
-    source_rel = f"../../{command_file}"
+    # Relative path from skills/<codex>/SKILL.md -> skills/...
+    # skills/saas-startup-team-X-workflow/SKILL.md -> ../../canonical
+    source_rel = f"../../{canonical}"
     alias_list = ", ".join(f"`{a}`" for a in aliases)
 
     return (

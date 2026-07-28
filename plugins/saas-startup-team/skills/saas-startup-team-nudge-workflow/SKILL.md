@@ -7,4 +7,4 @@ description: "Run /nudge workflow from saas-startup-team; alias /saas-startup-te
 # Alias: /nudge
 
 Discovery alias for `/saas-startup-team:nudge`, `/nudge`.
-Load and execute `../../commands/nudge.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/nudge/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

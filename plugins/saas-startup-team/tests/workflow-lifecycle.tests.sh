@@ -9,14 +9,14 @@ test_workflow_lifecycle_safety() {
   local goal_entrypoints goal_light maintain maintain_protocol maintain_receipts
   local maintain_proof_contract maintain_loop_entry mutation_ownership startup v3 drain
 
-  goal_entrypoints="$PLUGIN_ROOT/references/deliver/entrypoints.md"
-  goal_light="$PLUGIN_ROOT/references/deliver/light-path.md"
-  maintain="$PLUGIN_ROOT/references/workflows/maintain.md"
-  maintain_protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
-  maintain_receipts="$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md"
-  maintain_proof_contract="$PLUGIN_ROOT/references/workflows/maintain-proof-contract.md"
-  maintain_loop_entry="$PLUGIN_ROOT/commands/maintain-loop.md"
-  mutation_ownership="$PLUGIN_ROOT/references/workflows/mutation-ownership.md"
+  goal_entrypoints="$PLUGIN_ROOT/references/delivery-playbook.md"
+  goal_light="$PLUGIN_ROOT/references/delivery-playbook.md"
+  maintain="$PLUGIN_ROOT/references/workflows/maintain-policy.md"
+  maintain_protocol="$PLUGIN_ROOT/docs/legacy/maintain-protocol.md"
+  maintain_receipts="$PLUGIN_ROOT/references/workflows/maintain-policy.md"
+  maintain_proof_contract="$PLUGIN_ROOT/references/workflows/maintain-policy.md"
+  maintain_loop_entry="$PLUGIN_ROOT/skills/maintain-loop/SKILL.md"
+  mutation_ownership="$PLUGIN_ROOT/references/delivery-playbook.md"
   startup="$PLUGIN_ROOT/skills/lifecycle/SKILL.md"
   v3="$PLUGIN_ROOT/scripts/maintain-v3.sh"
   drain="$PLUGIN_ROOT/scripts/legacy-drain.sh"
@@ -48,7 +48,8 @@ test_workflow_lifecycle_safety() {
     'removed in #389'
   assert_file_contains "WL15: proof via release-facts" "$maintain_proof_contract" \
     'release-facts'
-  assert_file_contains "WL16: loop prefers v3" "$maintain_loop_entry" 'maintain-v3.sh'
+  assert_file_contains "WL16: loop prefers v3" \
+    "$PLUGIN_ROOT/skills/maintain-loop/SKILL.md" 'maintain-v3.sh'
   assert_file_contains "WL17: mutation ownership file exists" "$mutation_ownership" \
     'Workers edit product source'
   assert_file_contains "WL18: lifecycle no single-flight" "$startup" 'No whole-pass session lease'

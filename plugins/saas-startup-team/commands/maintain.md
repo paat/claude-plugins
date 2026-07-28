@@ -4,9 +4,9 @@ description: "Maintain v3 tick (shadow default). Usage: /maintain [--once] [--sh
 user_invocable: true
 transitional: true
 ---
+<!-- GENERATED-ALIAS: do not edit; regenerate via scripts/generate_workflow_aliases.py from integrity/entrypoints.json -->
 
-# /maintain
+# Alias: /maintain
 
-Load `skills/maintain/SKILL.md` (v3, shadow default).
-Contract: `references/workflows/maintain-v3.md` and `references/workflows/maintain.md`.
-Stranded receipts: `scripts/legacy-drain.sh`.
+Generated alias for `/saas-startup-team:maintain`, `/maintain`. No workflow policy here.
+Load and execute `skills/maintain/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.
