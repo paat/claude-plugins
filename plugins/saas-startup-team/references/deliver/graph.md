@@ -62,15 +62,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/solution-signoff-gate.sh" \
 If the gate fails, stop and direct the investor to `/startup`. `startup-impl` skips
 this gate (the product is still being built).
 
-**Primary working directory only** for improve/tweak/standalone goal (no linked git
-worktrees; `assert-primary-only` fails closed if extras exist). Never set
-`core.worktree` on the primary checkout. Dirty tree or wrong branch: stop and report —
-do not escape into a side tree.
+Prefer isolated worktrees/clones for build (#389). Native linked worktrees coexist.
+Never set `core.worktree` on the primary checkout. Dirty primary or wrong branch: stop
+and report — do not hard-reset or `clean` the primary on cancel.
 
 Resolve the default branch only via `scripts/default-branch.sh` — never guess `main`.
 
-Claim work with `single-flight.sh` per entrypoint lease key (see entrypoints). If
-acquisition refuses, inspect the live owner; do not double-dispatch.
+No whole-pass single-flight leases. Short maintain-v3 locks cover scheduler/issue/release
+only when invoked from maintain.
 
 ### 1. Plan
 

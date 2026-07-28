@@ -148,13 +148,8 @@ Run `/bootstrap` to ensure all docs/ subdirectories exist.
 
 ### 2c: Spawn product-discovery for strategy
 
-Before dispatching, claim the growth initialization lease:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --acquire "growth:init:${PWD}" --state-dir .startup/leases \
-  --owner-file .startup/leases/.owners/growth-init.owner --ttl-seconds 1800
-```
+No whole-pass growth lease (#389). Serialize init by finishing artifacts before the next
+channel run; do not acquire single-flight keys.
 
 If no explicit channel or strategy direction was provided, run the market scout first. It
 uses configured external market evidence when available and falls back to internal demand
@@ -208,18 +203,8 @@ Claude: generic Task/Agent with skill; Codex: Skill in session):
 >
 > After writing, message the team lead: "Lifecycle-gated growth assets ready."
 
-After both initialization phases return and their artifacts are verified, heartbeat and
-release the initialization lease. Run the same release on every handled initialization
-failure before reporting it:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --heartbeat "growth:init:${PWD}" --state-dir .startup/leases \
-  --owner-file .startup/leases/.owners/growth-init.owner
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --release "growth:init:${PWD}" --state-dir .startup/leases \
-  --owner-file .startup/leases/.owners/growth-init.owner
-```
+After both initialization phases return and their artifacts are verified, continue.
+On initialization failure, report honestly and stop without primary reset.
 
 ## Step 3: Update State
 
@@ -232,14 +217,11 @@ Do not treat active_role as delivery authority; capabilities own no state.
 
 ### Dispatching the growth agent
 
-Claim a lease for the channel/objective before dispatching:
+Record the channel/objective slug for logging only (no whole-pass lease):
 
 ```bash
 channel_slug="$(printf '%s' "${channel_or_objective}" | tr '[:upper:] /:' '[:lower:]---' | tr -cd 'a-z0-9._-' | cut -c1-48)"
 [ -n "$channel_slug" ] || channel_slug=work
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --acquire "growth:${channel_or_objective}" --state-dir .startup/leases \
-  --owner-file ".startup/leases/.owners/growth-${channel_slug}.owner" --ttl-seconds 1800
 ```
 
 If a live owner exists, read its heartbeat/logs and continue from existing artifacts

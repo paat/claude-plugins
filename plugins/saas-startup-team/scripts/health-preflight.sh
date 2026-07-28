@@ -156,13 +156,10 @@ if have_cmd gh; then
 fi
 
 if [ -d "$REPO_ROOT/.git" ] || git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
-  # Hard gate: primary working directory only — no linked git worktrees.
-  if [ -x "$SELF_DIR/maintain-leases.sh" ]; then
-    if gate_out="$(bash "$SELF_DIR/maintain-leases.sh" assert-primary-only --repo-root "$REPO_ROOT" 2>&1)"; then
-      add "git:primary-only" ok "primary working directory only (no linked worktrees)"
-    else
-      add "git:primary-only" blocker "$(compact_output "$gate_out")"
-    fi
+  # Native worktrees coexist (#389). Report count; do not block on linked trees.
+  if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    wt_count=$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | grep -c '^worktree ' || true)
+    add "git:worktrees" ok "worktree_count=${wt_count:-1} (linked coexist)"
   fi
   dirty="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null || true)"
   if [ -z "$dirty" ]; then

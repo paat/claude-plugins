@@ -233,10 +233,31 @@ test_maintain_v3() {
   assert_file_contains "MV3-62b: monitor-nightly scheduling outside" \
     "$PLUGIN_ROOT/commands/monitor-nightly.md" 'Scheduling lives outside'
 
-  # maintain-delivery release tests remain the deep integration suite; v3 reuses
-  # their crash-point vocabulary without claim receipts.
-  assert_file_exists "MV3-63: legacy delivery retained for shadow" \
+  # #389: primary-only stack deleted; drain is the legacy path.
+  assert_file_not_exists "MV3-63: maintain-delivery deleted" \
     "$PLUGIN_ROOT/scripts/maintain-delivery.sh"
+  assert_file_exists "MV3-64: legacy-drain present" \
+    "$PLUGIN_ROOT/scripts/legacy-drain.sh"
+  assert_file_not_exists "MV3-65: maintain-leases deleted" \
+    "$PLUGIN_ROOT/scripts/maintain-leases.sh"
+
+  # Multi-worktree: second linked tree + isolate still non-primary
+  local wt
+  wt=$(mktemp -d)
+  git -C "$repo" worktree add --detach "$wt" HEAD >/dev/null
+  state="$dir/iso-multi"
+  mkdir -p "$state"
+  out=$(bash "$script" isolate prepare --repo-root "$repo" --issue 99 --state-dir "$state")
+  assert_equals "MV3-66: isolate with linked worktrees" "$(jq -r .prepared <<<"$out")" "true"
+  assert_equals "MV3-67: still non-primary" "$(jq -r .mutates_primary <<<"$out")" "false"
+  path=$(jq -r .path <<<"$out")
+  [ "$path" != "$repo" ] && [ "$path" != "$wt" ]
+  assert_exit_code "MV3-68: path not primary or linked wt" "$?" 0
+  # Cancel cleanup leaves primary HEAD and dirt alone
+  printf 'keep\n' > "$repo/f"
+  bash "$script" isolate cleanup --repo-root "$repo" --issue 99 --state-dir "$state" >/dev/null
+  assert_equals "MV3-69: cancel does not clean primary" "$(cat "$repo/f")" "keep"
+  git -C "$repo" worktree remove --force "$wt" 2>/dev/null || rm -rf "$wt"
 
   rm -rf -- "$dir" "$repo"
 }

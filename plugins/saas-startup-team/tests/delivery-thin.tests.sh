@@ -9,7 +9,7 @@ test_delivery_thin() {
   local pause="$PLUGIN_ROOT/scripts/hooks-paused.sh"
   local commit="$PLUGIN_ROOT/scripts/supervisor-commit.sh"
   local route="$PLUGIN_ROOT/scripts/delivery-route.sh"
-  local attempt="$PLUGIN_ROOT/scripts/maintain-attempt.sh"
+  local v3="$PLUGIN_ROOT/scripts/maintain-v3.sh"
   local repo base ec out
 
   ec=0; SAAS_PHASE=implementation bash "$pause" || ec=$?
@@ -59,13 +59,13 @@ test_delivery_thin() {
   assert_equals "DT9b: non-sensitive product diff is standard" \
     "$(jq -r .profile <<<"$out")" "standard"
   assert_output_not_contains "DT10: ignored path is absent from route reasons" "$out" "ignored"
-  # Routine hard-reset/clean disabled (#381); exclusive escalation opt-in only.
-  assert_file_contains "DT11: primary hard-reset is disabled by default" \
-    "$attempt" 'hard-reset is disabled'
-  assert_file_contains "DT11b: public reset forces ALLOW_PRIMARY_RESET=0" \
-    "$attempt" 'SAAS_MAINTAIN_ALLOW_PRIMARY_RESET=0'
-  assert_file_contains "DT11c: exclusive recovery flag is named" \
-    "$attempt" 'SAAS_MAINTAIN_ALLOW_PRIMARY_RESET'
+  # Primary reset stack deleted (#389); isolation never mutates primary by default.
+  assert_file_not_exists "DT11: maintain-attempt deleted" \
+    "$PLUGIN_ROOT/scripts/maintain-attempt.sh"
+  assert_file_contains "DT11b: v3 isolate mutates_primary false default" \
+    "$v3" 'mutates_primary:false'
+  assert_file_contains "DT11c: serial primary requires explicit flag" \
+    "$v3" 'allow-serial-primary'
 
   # Firewall must receive a real staged-diff path (lessons-deliver --firewall DIFF_FILE).
   repo=$(make_workdir)

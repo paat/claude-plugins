@@ -2,15 +2,12 @@
 # Single source of truth (SSOT) for maintain repository absolute paths.
 #
 # THE absolute repo path is MAINTAIN_PRIMARY — physical main worktree (pwd -P).
-# Every maintain script must resolve identity through this file or the thin CLI
-# `maintain-leases.sh primary-root` (which sources this). Do not invent alternate
-# `pwd` without -P, raw `git rev-parse --show-toplevel`, or string-equal checks
-# against symlink aliases such as /workspace.
+# Source this file and call maintain_paths_resolve. Do not invent alternate
+# `pwd` without -P or string-equal checks against symlink aliases.
 #
-# Accepted input: any path that realpaths into the same worktree.
+# Accepted input: any path that realpaths into the same repository common dir.
 # Stored/compared identity: always MAINTAIN_PRIMARY (physical absolute path).
-# Self-heal rewrites controller.worktree onto MAINTAIN_PRIMARY in place — never
-# quarantine delivery dirs for path alias drift.
+# Linked worktrees coexist (#389); callers must not auto-remove them.
 #
 # After maintain_paths_resolve SUPPLIED:
 #   MAINTAIN_ROOT     — physical path of SUPPLIED (must equal primary for mutate)

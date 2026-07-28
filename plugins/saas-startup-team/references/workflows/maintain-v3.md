@@ -1,9 +1,8 @@
 # Maintain v3 contract
 
 Binding product contract for the thin maintenance tick (`scripts/maintain-v3.sh`,
-`skills/maintain/SKILL.md`). Supersedes primary-only claim orchestration for
-**new** ticks. Legacy claim/receipt engine remains until #389 for shadow compare
-and nonterminal recovery only.
+`skills/maintain/SKILL.md`). Sole mutate path after #389. Legacy claim/lease/guardian
+stack is deleted; use `scripts/legacy-drain.sh` only for stranded nonterminal receipts.
 
 ## Tick
 
@@ -25,12 +24,14 @@ and nonterminal recovery only.
 | release | merge/deploy/close mutations only | 600s |
 
 No whole-pass lease. No lock across model/review/network waits.
-Do **not** use `maintain-leases.sh` for v3 normal operation.
+No `maintain-leases.sh`, `single-flight.sh`, or guardians.
 
 ## Isolation
 
 Order: native `git worktree` → disposable local clone → explicit serial primary
 (`--allow-serial-primary`). Never silent primary-checkout mutation.
+Cancellation and cleanup target isolation paths only — never hard-reset or
+`clean` the primary checkout.
 
 ## Stable JSON
 
@@ -53,23 +54,20 @@ selected → revalidate_head → authorize_merge → merge_sha_pinned
 Crash at any step: re-read facts, resume `next_step`, never repeat an irreversible
 transition with different SHA identity. Conflicting `merge_sha` fails closed.
 
-## Shadow parity vs legacy
+## Intentional diff vs legacy primary-only stack
 
-| Concern | Parity |
-|---------|--------|
-| WIP-first order | Match |
-| Human park / epic exclude | Match (same maintain-human-gate) |
-| PR identity / check_status | Match when present on selection |
-| Release disposition sequence | Match step names; storage is terminal facts not claims |
-| Claims / compatibility receipts | **Intentional diff:** v3 never creates them |
-| Isolation | **Intentional diff:** worktree/clone preferred |
-| Locks | **Intentional diff:** short three locks only |
-| Default mode | **Intentional diff:** shadow (no mutation) |
-| Parked WIP resume | **Intentional diff:** open PR/branch resume is the lock; human park filters **queue greenfield only** (same as legacy WIP-first). Parked queue issues never greenfield. |
+| Concern | Intentional diff |
+|---------|------------------|
+| Claims / compatibility receipts | v3 never creates them |
+| Isolation | worktree/clone preferred; multi-worktree coexist |
+| Locks | short three locks only |
+| Default mode | shadow (no mutation) |
+| Cancel | never hard-reset primary |
 
 ## Forbidden in normal v3
 
 - `maintain:claimed` labels or claim comments
 - Compatibility schema-v1/v2 receipt begin for new work
-- Whole-pass primary-only lease + ptrace guardian for the tick
+- Whole-pass primary-only lease + ptrace guardian
 - Holding locks during deliver model work
+- Primary hard-reset / clean on cancel

@@ -23,11 +23,8 @@ Intake → Conditional discovery → Triggered specialists → Deliver → Repor
 
 1. Health preflight: `scripts/health-preflight.sh --require-gh --check-sync`
    (Codex: add `--require-codex`). Blockers stop; unrelated warnings may continue.
-2. Claim session lease only while mutating project state:
-   `scripts/single-flight.sh --acquire "startup:${PWD}" --state-dir .startup/leases
-   --owner-file .startup/leases/.owners/startup.owner --ttl-seconds 1800`.
-   Heartbeat after durable writes; `--release` on terminal complete/cancel/fail.
-   Do not hold the lease across unbounded human waits.
+2. No whole-pass session lease (#389). Prefer short maintain-v3 locks only when a
+   maintain tick runs; lifecycle itself does not hold global ownership locks.
 3. Capture goal from `$ARGUMENTS`, existing `docs/business/brief.md`, or
    `scripts/market-scout.sh` when no concrete need exists. Ask the human only
    when no demand evidence exists.
@@ -53,7 +50,7 @@ bash scripts/lifecycle-path.sh [--concrete] [--evidence-gap] [--has-goal] [--has
 |------|------|--------|
 | **Fast** | Concrete feature/fix with clear outcome; existing repo behavior establishes Why | Skip broad market research; go to Plan under deliver |
 | **Discovery** | Material evidence gap that can change `Done` (ICP, pricing, competitor, legal constraint, greenfield product) | Load `../product-discovery/SKILL.md` only for that gap |
-| **Blocked intake** | No idea and scout empty | Honest incomplete; release lease; stop |
+| **Blocked intake** | No idea and scout empty | Honest incomplete; stop |
 
 Small scoped work **always** prefers Fast. Do not force founder research phases.
 
@@ -87,7 +84,7 @@ state.
 | `complete` | Done met; required gates passed; evidence paths named |
 | `incomplete` | What shipped, what remains, why stopped mid-path |
 | `blocked` | Environment/human/authority blocker with remediation |
-| `cancelled` | Explicit cancel; release lease; no false success |
+| `cancelled` | Explicit cancel; no false success |
 | `budget_exhausted` | Token/iteration/time budget hit; partial result + next step |
 
 Never claim success without gate evidence. Never invent customer validation.
@@ -104,6 +101,6 @@ Never claim success without gate evidence. Never invent customer validation.
 
 - Claude Code: one-shot Task/Agent workers with capability skills; no TeamCreate
 - Codex: skill load or `scripts/codex-cast.sh` with explicit worktree/mode/model/effort
-- Cancellation: on user cancel or lease refusal, release leases and report `cancelled`
+- Cancellation: on user cancel or fail, report `cancelled`/`incomplete` without resetting the primary checkout (no whole-pass lease `--release` required)
 - Budget: if context or wall budget is exhausted mid-delivery, stop with
   `budget_exhausted` and the last verified artifact paths

@@ -59,10 +59,10 @@ and verify empty list; delete exact remote branch and verify
 `git ls-remote --heads origin "refs/heads/$LIGHT_BRANCH"` empty; return to `$default`,
 `git pull --ff-only`; delete only the exact local attempt branch; require current branch
 is `$default` and empty `git status --porcelain`. No broad clean/reset. Unknown/failed
-query → blocked terminal, release lease, stop.
+query → blocked terminal, stop. Never hard-reset the primary checkout.
 
-Under `SAAS_EMBEDDED_CALLER=maintain`, light uses the receipt adapter's
-`maintain-attempt.sh` transaction — not standalone `tweak-run.sh` merge/close.
+Under `SAAS_EMBEDDED_CALLER=maintain`, light uses the isolation worktree and
+`maintain-v3.sh release-facts` for merge/close — not primary-checkout reset.
 
 ## Mechanical profile
 

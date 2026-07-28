@@ -34,7 +34,7 @@ Print JSON:
     "summary": { "resume": N, "delete": N, "inspect": N, "dirty": bool }
   }
 
---allow-linked-worktrees: skip assert-primary-only (Maintain v3 isolation).
+--allow-linked-worktrees: retained for CLI compatibility; linked worktrees always coexist.
 EOF
 }
 
@@ -59,17 +59,13 @@ done
 
 [ "$ACTION" = inventory ] || { usage; exit 2; }
 [ -n "$ROOT" ] && [ -d "$ROOT" ] || die "--repo-root must be a directory" 2
-# SSOT: physical primary absolute path only (never symlink alias like /workspace).
-if [ -x "$SCRIPT_DIR/maintain-leases.sh" ]; then
-  ROOT="$(bash "$SCRIPT_DIR/maintain-leases.sh" primary-root --repo-root "$ROOT")" \
-    || die "cannot resolve primary checkout" 2
-  if [ "$ALLOW_LINKED_WORKTREES" -eq 0 ]; then
-    bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$ROOT" >/dev/null \
-      || die "primary-only gate failed (no linked worktrees)" 2
-  fi
-else
-  ROOT="$(cd "$ROOT" && pwd -P)"
-fi
+# SSOT: physical primary absolute path (linked worktrees coexist; #389).
+# shellcheck source=maintain-paths.sh
+. "$SCRIPT_DIR/maintain-paths.sh"
+maintain_paths_resolve "$ROOT" || die "cannot resolve primary checkout" 2
+ROOT=$MAINTAIN_PRIMARY
+# --allow-linked-worktrees retained for CLI compatibility; native worktrees always OK.
+: "$ALLOW_LINKED_WORKTREES"
 WORKTREE="$ROOT"
 if [ -z "$DEFAULT_BRANCH" ]; then
   if [ -x "$SCRIPT_DIR/default-branch.sh" ]; then
