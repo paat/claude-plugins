@@ -116,6 +116,47 @@ test_epic() {
   expected='<!-- saas-epic: 1766 sha=deadbeef children=1749,1748 -->'
   assert_equals "EP71: marker line" "$(echo "$out" | head -1)" "$expected"
 
+  # --- epic_active check (fixture JSON; no network) ---
+  local pr_json ec_out
+
+  # Marked foreign PR → exit 3
+  pr_json='[{"number":9,"headRefName":"epic/10-fx","body":"<!-- saas-epic: 10 sha=abc children=1,2 -->","url":"https://example/9"}]'
+  ec=0
+  out=$(EPIC_ACTIVE_PR_JSON="$pr_json" python3 "$active" check --repo t/r --branch main 2>/dev/null) || ec=$?
+  assert_exit_code "EP72: marked foreign PR blocks" "$ec" 3
+  assert_equals "EP72b: ok false" "$(echo "$out" | python3 -c 'import sys,json; print(json.load(sys.stdin)["ok"])')" "False"
+  assert_equals "EP72c: one blocker" "$(echo "$out" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["blockers"]))')" "1"
+
+  # Same branch as marked epic → exit 0 (resume)
+  pr_json='[{"number":9,"headRefName":"epic/10-fx","body":"<!-- saas-epic: 10 sha=abc children=1,2 -->","url":"https://example/9"}]'
+  ec=0
+  out=$(EPIC_ACTIVE_PR_JSON="$pr_json" python3 "$active" check --repo t/r --branch epic/10-fx 2>/dev/null) || ec=$?
+  assert_exit_code "EP73: same-branch marked is ok" "$ec" 0
+  assert_equals "EP73b: mine populated" "$(echo "$out" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["mine"]))')" "1"
+
+  # Unmarked epic/* branch → advisory only, exit 0
+  pr_json='[{"number":11,"headRefName":"epic/999-stale","body":"no marker here","url":"https://example/11"}]'
+  ec=0
+  out=$(EPIC_ACTIVE_PR_JSON="$pr_json" python3 "$active" check --repo t/r --branch main 2>/dev/null) || ec=$?
+  assert_exit_code "EP74: unmarked epic/* does not block" "$ec" 0
+  assert_equals "EP74b: zero blockers" "$(echo "$out" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["blockers"]))')" "0"
+  assert_equals "EP74c: advisory listed" "$(echo "$out" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["advisory"]))')" "1"
+
+  # Empty open list → ok
+  ec=0
+  out=$(EPIC_ACTIVE_PR_JSON='[]' python3 "$active" check --repo t/r --branch main 2>/dev/null) || ec=$?
+  assert_exit_code "EP75: empty list ok" "$ec" 0
+
+  # Malformed JSON → fail closed exit 1
+  ec=0
+  EPIC_ACTIVE_PR_JSON='not-json' python3 "$active" check --repo t/r --branch main >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EP76: malformed JSON fails closed" "$ec" 1
+
+  # Non-list JSON → fail closed
+  ec=0
+  EPIC_ACTIVE_PR_JSON='{"nope":1}' python3 "$active" check --repo t/r --branch main >/dev/null 2>&1 || ec=$?
+  assert_exit_code "EP77: non-list JSON fails closed" "$ec" 1
+
   out1=$(python3 "$plan" --file "$fix/aruannik-1766.body.md")
   out2=$(python3 "$plan" --file "$fix/aruannik-1766.body.md")
   assert_equals "EP80: deterministic" "$out1" "$out2"
