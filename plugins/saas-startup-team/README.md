@@ -93,7 +93,8 @@ sessions.
 
 ## Prerequisites
 
-- Claude Code or Codex; `bash` 4+, `git`, `gh`, `jq`, `awk`, `sed`, `python3`, coreutils
+- Claude Code or Codex; `bash` 4+, `git`, `gh`, `jq`, `awk`, `sed`, `python3`,
+  `curl`, `npm`/`npx` (optional growth tooling), coreutils
 - Dev container recommended (YOLO mode; container is the security boundary)
 - `/lawyer`: `EST_DATALAKE_API_KEY` and reachable `DATALAKE_URL` (default
   `https://datalake.r-53.com`)
