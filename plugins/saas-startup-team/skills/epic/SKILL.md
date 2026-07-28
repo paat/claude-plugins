@@ -1,6 +1,6 @@
 ---
 name: epic
-description: "Serial multi-issue GitHub epic train — one branch/PR, deliver per child, tribunal, close after merge. Usage: /epic <n> | /epic --plan <n>"
+description: "Serial multi-issue GitHub epic train — one branch/PR, deliver per child, tribunal, merge, deploy+live verify, close. Usage: /epic <n> | /epic --plan <n>"
 ---
 
 # Epic
@@ -48,23 +48,32 @@ For each **unchecked** child in plan order (never parallel writers):
 
 ## Close (once children landed)
 
-1. Closing-tribunal on **full** epic PR diff; required CI green.
+1. Closing-tribunal on **full** epic PR diff; required **PR** CI green.
 2. Merge **only** via the epic PR (branch protection / exact-head as project requires).
-3. After merge succeeds: close children, tick checklist, file residuals via
-   `issue-file` (in-scope → append unchecked epic line; out-of-scope → GH only).
-4. Close epic issue when checklist + residuals reconciled.
+3. **Post-merge CI/deploy (same turn):** pin `merge_sha`; poll
+   `gate.sh release poll --deploy-sha "$merge_sha" --branch "$default"`
+   (or `poll-gate.sh --deploy-sha`) until green/red. Never treat "latest run" as
+   proof. Sustained pending past the poll budget → **incomplete** (resume later),
+   not `complete`.
+4. **Live verify after deploy green:** re-run
+   `scripts/ui-touch.sh --range <pre-merge>..$merge_sha`; if `ui`, run post-deploy
+   visual smoke (`references/ux-review/design-review-leg.md`). Non-UI: hit
+   project smoke/health on `SAAS_LIVE_URL` (or architecture-doc live URL) when
+   configured. Deploy red or merge-attributable live break → **blocked** (do not
+   close children as done).
+5. **Only after** merge + deploy green + required live verify: close children,
+   tick checklist, file residuals via `issue-file`, close epic.
 
-UI/browser-facing children trigger `ux-review` when acceptance requires it;
-proof tracks do not replace gates.
+UI/browser-facing children also trigger `ux-review` during the train when
+acceptance requires it; that does not replace post-deploy smoke.
 
 ## Stop / results
 
-| Result | When |
-|--------|------|
-| `complete` | Merged + children closed with evidence |
-| `blocked` | Guard, tribunal missing, drift, human gate |
-| `incomplete` | Partial branch work; not merged |
+| Result | Meaning |
+|--------|---------|
+| `complete` | Merged; deploy green on `merge_sha`; live verify done when required; children closed |
+| `blocked` | Guard, tribunal missing, drift, human gate, deploy red, live regression |
+| `incomplete` | Partial work, CI/deploy still pending, or merge without close-out |
 | `cancelled` | Human abort |
 
-Never claim success without merge + gate evidence. No `.startup` state machine.
-)
+Never claim success without merge + deploy/live evidence. No `.startup` state machine.

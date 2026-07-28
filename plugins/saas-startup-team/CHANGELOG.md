@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.2 — 2026-07-28
+
+- `/epic` close-out: after merge, poll deploy on exact `merge_sha` and live-verify
+  before closing children/epic (same unattended turn).
+
 ## 1.2.1 — 2026-07-28
 
 - `/epic-compose`: scan → file focused epic → auto-run `/epic` (`--dry-run`/`--compose-only`).

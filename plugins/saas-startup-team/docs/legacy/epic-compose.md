@@ -64,5 +64,5 @@ epic_scan.py → (agent clusters for focus) → draft body
 | default (file + implement) | Create epic, then run `/epic <n>` immediately |
 | `--compose-only` | Create epic only; do not start `/epic` |
 
-Product implementation, merge, and leaf closes happen only inside `/epic`
-(not in the compose drafting steps).
+Product implementation, merge, post-merge deploy poll, live verify, and leaf
+closes happen only inside `/epic` (not in the compose drafting steps).

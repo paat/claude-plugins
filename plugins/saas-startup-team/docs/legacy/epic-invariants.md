@@ -30,10 +30,15 @@ not replace — `deliver`, `maintain`, tribunal-review, or `issue-file`.
    (read-only/shadow may continue). Unmarked `epic/*` branch names are
    **advisory only** (logged, never block). Not an atomic lock. Guard fails
    closed on `gh`/JSON errors.
-10. **Close gate.** Required CI + branch protection; merge only via the epic PR.
-    UI/browser changes need ux-review / product acceptance when triggered — a
-    free-form “proof track” does not replace gates. After merge: close children,
-    update checkboxes, reconcile residuals, then close the epic.
+10. **Close gate.** Required **PR** CI + branch protection; merge only via the
+    epic PR. After merge the orchestrator **stays on** the train: poll default-
+    branch CI/deploy for the **exact** `merge_sha`
+    (`gate.sh release poll --deploy-sha` / `poll-gate.sh --deploy-sha` — never
+    "latest run"), then **live-verify** after deploy green (UI post-deploy smoke
+    when `ui-touch.sh` says `ui`; else project health/smoke URL when configured).
+    Close children + tick checklist + close epic **only after** merge + deploy
+    green + required live verify. Deploy red or merge-attributable live break →
+    blocked (do not mark children complete).
 
 ## PR marker (machine-readable)
 
@@ -86,12 +91,12 @@ Routing is host-side; do not pin provider models in this plugin.
 
 | Result | Meaning |
 |--------|---------|
-| `complete` | Epic PR merged; children closed; checklist reconciled |
-| `blocked` | Human gate, missing tribunal, body drift, or active-epic conflict |
-| `incomplete` | Partial children landed on epic branch; not merged |
+| `complete` | Epic PR merged; deploy green on `merge_sha`; live verify when required; children closed; checklist reconciled |
+| `blocked` | Human gate, missing tribunal, body drift, active-epic conflict, deploy red, or merge-attributable live break |
+| `incomplete` | Partial children, not merged, or post-merge CI/deploy still pending |
 | `cancelled` | Human abort; leave branch/PR for resume |
 
-Never claim success without merge + gate evidence.
+Never claim success without merge + deploy/live evidence.
 
 ## Out of Phase 1
 
