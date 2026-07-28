@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0 — 2026-07-28
+
+- `/epic-compose`: scan issues → file focused epic for `/epic` (`epic_scan.py`, validate).
+
 ## 1.1.1 — 2026-07-28
 
 - epic_active: marker-only blockers; JSON fail-closed; check fixture tests.

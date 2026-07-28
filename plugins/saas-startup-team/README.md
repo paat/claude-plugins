@@ -23,6 +23,7 @@ Independent Review → Release, with bounded maintenance and domain gates.
 | `operate` | `/monitor`, `/investigate`, `/replay-abandoned` |
 | `maintain` | One bounded externally scheduled tick (maintain-v3) |
 | `epic` | `/epic <n>` — serial multi-issue epic train (one branch/PR; see below) |
+| `epic-compose` | `/epic-compose` — scan open issues → file one focused epic for `/epic` |
 
 Slash commands and Codex `saas-startup-team-*-workflow` skills are **generated aliases**
 only — no workflow policy in `commands/`. Regenerate via
@@ -68,6 +69,8 @@ checklist (`- [ ] #N`). One branch `epic/<n>-…`, one draft PR, per-child `deli
 only after the epic PR merges. Plan only: `/epic --plan <n>`. Parser:
 `scripts/epic_plan.py` (no network). Active-epic guard: `scripts/epic_active.py`
 (cooperative; mutating improve/maintain refuse when another epic PR is open).
+
+`/epic-compose [--dry-run]` scans issues and files one focused `label:epic` checklist; run `/epic <n>` to implement.
 
 Git issues, branches, PRs, CI, deployments, and immutable terminal release facts are
 authoritative. No founder loop state machine, numbered conversational handoffs, or
