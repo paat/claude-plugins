@@ -8,7 +8,7 @@ set -euo pipefail
 # implementation.
 
 TESTS_DIR="$(cd "$(dirname "$0")" && pwd)"
-PLUGIN_ROOT="$(cd "$TESTS_DIR/../../.." && pwd)"
+PLUGIN_ROOT="$(cd "$TESTS_DIR/../.." && pwd)"
 CHECK_SCRIPT="$PLUGIN_ROOT/scripts/lawyer-check.sh"
 
 # Mock curl: /changes/feed and /citation (the pre-existing feed + lifecycle

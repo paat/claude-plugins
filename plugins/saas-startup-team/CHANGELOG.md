@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.1.0 — 2026-07-28
+
+### Added
+
+- **`epic` skill** (`/epic <n>`, `/epic --plan <n>`): serial multi-issue GitHub
+  epic train for any SaaS product repo. One branch + one draft PR; per-child
+  `deliver` without mid-train merge to main; tribunal hard-required for
+  execution; children closed only after epic PR merge.
+- `scripts/epic_plan.py` — deterministic checklist parser (fixtures: aruannik /
+  vastav-style bodies). No GitHub calls.
+- `scripts/epic_active.py` — cooperative active-epic PR marker/guard.
+- `docs/legacy/epic-invariants.md` — hard invariants (Sol ultra Phase 1).
+- Deliver/maintain skills refuse mutation when another epic train is active.
+
+### Notes
+
+- Default concurrency is **1** (no parallel writers). Parallel mode is out of
+  scope for 1.1.0.
+- Pilot on client repos (e.g. aruannik) is **not** part of this release; human
+  approval required before live epic execution.
+
 ## 1.0.0 — 2026-07-28
 
 **Major version break.** Portable Plan → Build → Independent Review runtime with

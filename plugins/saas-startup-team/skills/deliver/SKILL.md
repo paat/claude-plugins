@@ -14,6 +14,11 @@ Host-neutral — does **not** require founder personas, `.startup/state.json`, o
 Follow `../../references/delivery-playbook.md` (sole delivery playbook). Set
 `SAAS_DELIVER_ENTRYPOINT` to `improve` | `goal-deliver` | `tweak` | `startup-impl`.
 
+**Active epic guard:** before mutation outside an epic train, run
+`python3 scripts/epic_active.py check`. Exit 3 → refuse (another epic PR open).
+When `SAAS_EPIC_MODE=1`, deliver only to the existing epic branch/PR — **no merge
+to main**, no second PR; child GitHub close happens after epic merge only.
+
 Gates (deterministic):
 
 ```bash

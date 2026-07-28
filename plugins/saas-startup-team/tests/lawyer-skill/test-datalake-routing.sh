@@ -3,10 +3,9 @@ set -euo pipefail
 
 # Offline guards for datalake routing/API refs and size budgets.
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLUGIN_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+PLUGIN_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REPO_ROOT="$(cd "$PLUGIN_ROOT/../.." && pwd)"
-SKILL="$ROOT/SKILL.md"
+SKILL="$PLUGIN_ROOT/skills/lawyer/SKILL.md"
 ROUTING="$PLUGIN_ROOT/references/lawyer/datalake-routing.md"
 API="$PLUGIN_ROOT/references/lawyer/datalake-api.md"
 AGENT="$PLUGIN_ROOT/agents/lawyer.md"

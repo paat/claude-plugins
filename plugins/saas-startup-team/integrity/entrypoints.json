@@ -34,6 +34,20 @@
       "generate_command_alias": true
     },
     {
+      "name": "epic",
+      "command_file": "commands/epic.md",
+      "aliases": [
+        "/saas-startup-team:epic",
+        "/epic"
+      ],
+      "codex_skill": "saas-startup-team-epic-workflow",
+      "generate_alias": true,
+      "transitional": true,
+      "canonical": "skills/epic/SKILL.md",
+      "description": "Serial multi-issue GitHub epic train. Usage: /epic <n> | /epic --plan <n>",
+      "generate_command_alias": true
+    },
+    {
       "name": "goal-deliver",
       "command_file": "commands/goal-deliver.md",
       "aliases": [
