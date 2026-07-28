@@ -20,7 +20,7 @@ Non-triggers: implementing fixes (deliver Build), product strategy, legal Tier A
 
 - Target URL; `docs/business/brief.md` and architecture for context
 - Diff/pages under test for design-review; locale list when multi-locale
-- `references/design-review-leg.md`, severity/heuristic/WCAG refs as needed
+- `../../references/ux-review/design-review-leg.md`, severity/heuristic/WCAG refs as needed
 - `../../references/triggered-saas-gates.md` (UX rows), `../../references/coherence-pass.md`
 
 ## Mutation boundary
@@ -53,11 +53,11 @@ code pattern scan as supplement; write `docs/ux/ux-audit.md`.
 
 ## References (on demand)
 
-- `references/design-review-leg.md`
-- `references/nielsen-heuristics.md`
-- `references/wcag-checklist.md`
-- `references/visual-testing.md`
-- `references/severity-matrix.md`
+- `../../references/ux-review/design-review-leg.md`
+- `../../references/ux-review/nielsen-heuristics.md`
+- `../../references/ux-review/wcag-checklist.md`
+- `../../references/ux-review/visual-testing.md`
+- `../../references/ux-review/severity-matrix.md`
 
 ## Entrypoint (/ux-test)
 

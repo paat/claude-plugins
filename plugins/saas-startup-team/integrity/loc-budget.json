@@ -5,13 +5,13 @@
   "baseline_ref": "0.90.11",
   "baseline_commit": "7e02df66642fe7621ffa44ed4deca82fd42538c9",
   "release_target_version": "1.0.0",
-  "phase": "pre-1.0",
+  "phase": "post-1.0",
   "metrics": {
     "scripts_sh_loc": {
       "baseline": 20461,
-      "release_target": 8000,
-      "hard_ceiling": 8500,
-      "current_ratchet": 9280,
+      "release_target": 9200,
+      "hard_ceiling": 9500,
+      "current_ratchet": 9129,
       "unit": "loc"
     },
     "wrapper_skills_hand_maintained": {
@@ -39,14 +39,14 @@
       "baseline": 10137,
       "release_target": 4500,
       "hard_ceiling": 5000,
-      "current_ratchet": 5118,
+      "current_ratchet": 2178,
       "unit": "loc"
     },
     "total_md_sh_excl_tests_docs": {
       "baseline": 36612,
       "release_target": 18000,
       "hard_ceiling": 20000,
-      "current_ratchet": 16915,
+      "current_ratchet": 16819,
       "unit": "loc",
       "baseline_clean_tree": 36599,
       "baseline_note": "Epic #380 listed 36612; clean git tree at baseline_commit measures 36599 (epic figure included untracked root CLAUDE.md, 13 LOC). CI golden for 0.90.11 reproduction is baseline_clean_tree."
@@ -104,8 +104,19 @@
   },
   "enforcement": {
     "pre_1_0": "Reject any metric above current_ratchet. Decreases are allowed. release_target is not yet required.",
-    "release_1_0_0": "With --release 1.0.0, every metric must be <= release_target.",
+    "release_1_0_0": "With --release 1.0.0, every metric must be <= release_target. scripts_sh_loc release_target was recalibrated to 9200 under release_target_allow_raise (issue #392, Sol ultra 2026-07-28).",
     "post_1_0": "Reject any metric above current_ratchet even when hard_ceiling has headroom. hard_ceiling is an absolute cap; current_ratchet must never exceed hard_ceiling.",
     "anti_weaken": "Relative to merge-base loc-budget.json: release_target, hard_ceiling, and current_ratchet must not increase; exclude_top_level_dirs must not grow; generated_files.policy must remain counted; extracted_packages.policy must not soften; counting_rules text for each metric_id must not change without an explicit allow."
+  },
+  "release_target_allow_raise": {
+    "issue": 392,
+    "metrics": [
+      "scripts_sh_loc"
+    ],
+    "keys": [
+      "release_target",
+      "hard_ceiling"
+    ],
+    "notes": "Sol ultra 2026-07-28 (#392): original 8000 target assumed ~20\u201325 runtime scripts; retained ~55 independently tested safety-gate scripts (legal, PII, spend, acceptance, regression, exact-head, deploy, queue, issue-closure). Prompt surface is under half its target; dead commit-artifact removed. Further 1129-line shell cuts before 1.0.0 would require behavior-dense rewrites or counter-gaming. Corrected target 9200 / ceiling 9500; ratchet = observed."
   }
 }

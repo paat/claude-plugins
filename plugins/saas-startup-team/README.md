@@ -110,15 +110,13 @@ Config `operate:` / `monitor:` in `.claude/saas-startup-team.local.md`. Modes vi
 `scripts/health-preflight.sh`. Demand: `scripts/market-scout.sh`. Packs:
 `scripts/gate.sh acceptance` (or `acceptance-packs.sh`).
 
-## Migration (1.0 thinning train)
+## Migration (1.0.0 major)
 
-- **0.90.24** (#390): self-improvement / telemetry / evaluation removed —
-  `docs/legacy/migration-1.0-meta-removed.md`
-- **0.90.25** (#391): hooks collapse to `dispatch.sh` + `gate.sh`; browser-operator
-  personas removed; commands are generated aliases; README/playbooks rewritten
-- Legacy maintain protocol archive: `docs/legacy/maintain-protocol.md`
-- Read-only legacy brief/workflow/signoff: `scripts/legacy-import.sh`
-- Stranded maintain receipts: `scripts/legacy-drain.sh`
+**Breaking.** Full guide: `docs/legacy/migration-1.0.0.md` and `CHANGELOG.md`.
 
-Direct callers of removed hook scripts (`auto-commit*`, `enforce-*`, handoff checkers)
-must use skills or `scripts/gate.sh`.
+- Canonical delivery: `deliver` skill (`goal-deliver` / `improve` / `tweak` aliases)
+- Maintain: one externally scheduled `maintain-v3` tick; drain via `legacy-drain.sh`
+- Gates: `hooks/dispatch.sh` + `scripts/gate.sh`; no auto-commit / founder Stop loop
+- Domain references: `references/<domain>/` (loaded on demand)
+- Intermediate notes: `docs/legacy/migration-1.0-meta-removed.md`,
+  `docs/legacy/migration-1.0-hooks-gates.md`

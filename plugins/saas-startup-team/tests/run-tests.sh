@@ -352,14 +352,14 @@ test_templates() {
   assert_file_contains "D10k3: Codex-native skill applies solo-founder KISS" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "Solo-Founder KISS Rule"
   assert_file_contains "D10k4: architecture reference keeps solo-operator defaults" \
-    "$PLUGIN_ROOT/skills/tech-founder/references/architecture.md" \
+    "$PLUGIN_ROOT/references/tech-founder/architecture.md" \
     "one deployable application, one primary datastore"
   assert_file_contains "D10l: maintenance founder writes explicit brief scope" \
     "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" '`Done`, `Preserve`, and `Out of Scope`'
   assert_file_contains "D10m: Codex-native founder writes explicit brief scope" \
     "$PLUGIN_ROOT/skills/product-discovery/SKILL.md" '`Done`, `Preserve`, and `Out of Scope`'
   assert_file_contains "D10n: quality gate distinguishes unrelated failures" \
-    "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" \
+    "$PLUGIN_ROOT/references/tech-founder/quality-standards.md" \
     "Report unrelated or pre-existing failures as blockers"
   assert_file_exists "D10o: lean planning golden eval exists" \
     "$tmpl_dir/lean-planning-golden.md"
@@ -719,7 +719,7 @@ test_cross_file_consistency() {
   assert_file_contains "H14d: ux must not write product source" \
     "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'Must not write'
   assert_file_contains "H14e: direct UX baseline preserves the caller checkout" \
-    "$PLUGIN_ROOT/skills/ux-review/references/design-review-leg.md" 'never switch or'
+    "$PLUGIN_ROOT/references/ux-review/design-review-leg.md" 'never switch or'
   assert_file_contains "H15: /growth state update sets active_role" \
     "$PLUGIN_ROOT/skills/growth/SKILL.md" 'skills/growth'
 
@@ -2045,9 +2045,9 @@ test_canonical_entrypoint_wiring() {
   assert_file_contains "Y7d: tech-founder records red-green proof" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "red-before/green-after proof"
   assert_file_contains "Y8: quality-standards has single-source-of-truth principle" \
-    "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "Single source of truth"
+    "$PLUGIN_ROOT/references/tech-founder/quality-standards.md" "Single source of truth"
   assert_file_contains "Y9: quality-standards warns about re-derived rules" \
-    "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "re-derive"
+    "$PLUGIN_ROOT/references/tech-founder/quality-standards.md" "re-derive"
   assert_file_contains "Y10: maintain agent has independent spot-check" \
     "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" "independent source"
   assert_file_contains "Y11: build agent has independent spot-check" \
@@ -2057,7 +2057,7 @@ test_canonical_entrypoint_wiring() {
   assert_file_contains "Y13: build agent has duplicated-rule awareness" \
     "$PLUGIN_ROOT/skills/product-acceptance/SKILL.md" "another layer"
   assert_file_contains "Y14: quality-standards handoff checklist names check.sh" \
-    "$PLUGIN_ROOT/skills/tech-founder/references/quality-standards.md" "check.sh"
+    "$PLUGIN_ROOT/references/tech-founder/quality-standards.md" "check.sh"
 }
 
 # ---------------------------------------------------------------------------
@@ -2665,7 +2665,7 @@ test_lesson_review() {
 
 test_convergence_governor() {
   echo -e "\n${CYAN}Convergence governor integration${NC}"
-  assert_output_contains "reachability convention exists" "$(cat "$PLUGIN_ROOT/skills/tech-founder/references/reachability-convention.md" 2>/dev/null)" "last-verified"
+  assert_output_contains "reachability convention exists" "$(cat "$PLUGIN_ROOT/references/tech-founder/reachability-convention.md" 2>/dev/null)" "last-verified"
   assert_file_contains "tech-founder DoD points at maintain checklist" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "check.sh"
   assert_file_contains "tech-founder DoD has step-back" \
@@ -3646,7 +3646,7 @@ test_lessons_deliver() {
 test_lawyer_lifecycle() {
   echo -e "\n${CYAN}Suite V: /lawyer lifecycle guard (in_force/status)${NC}"
   local skill="$PLUGIN_ROOT/skills/lawyer/SKILL.md"
-  local ref="$PLUGIN_ROOT/skills/lawyer/references/law-registry.md"
+  local ref="$PLUGIN_ROOT/references/lawyer/law-registry.md"
   local scr="$PLUGIN_ROOT/scripts"
   local reg="$scr/lawyer-register.sh"
   local chk="$scr/lawyer-check.sh"

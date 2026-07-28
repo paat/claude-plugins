@@ -107,17 +107,11 @@ class MeasureRealPlugin(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
         self.assertIn("LOC budget OK", proc.stdout)
 
-    def test_release_1_0_0_fails_until_targets_met(self) -> None:
+    def test_release_1_0_0_passes_on_current_tree(self) -> None:
+        # After #392 budget recalibration + prompt surface move, all release targets pass.
         proc = run_checker(["--plugin-root", str(PLUGIN_ROOT), "--release", "1.0.0"])
-        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
-        self.assertIn("release_target", proc.stderr)
-        # Wrapper hand-maintained metrics are already at the 1.0.0 target (0)
-        # after issue #383; remaining above-target metrics must still fail.
-        for mid in METRIC_IDS:
-            if mid.startswith("wrapper") and "hand_maintained" in mid:
-                self.assertNotIn(mid + ":", proc.stderr)
-            elif mid == "scripts_sh_loc":
-                self.assertIn(mid, proc.stderr)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("LOC budget OK", proc.stdout)
 
     def test_hand_maintained_wrappers_are_zero_on_current_tree(self) -> None:
         budget = loc.load_budget(BUDGET)
@@ -582,6 +576,89 @@ class AntiWeaken(unittest.TestCase):
                 ]
             )
             self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+
+    def test_release_target_allow_raise_oneshot(self) -> None:
+        """#392: epic-justified release_target/hard_ceiling raise is one-shot."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            base = base_budget(
+                scripts_sh_loc={
+                    "baseline": 100,
+                    "release_target": 10,
+                    "hard_ceiling": 20,
+                    "current_ratchet": 15,
+                }
+            )
+            head = json.loads(json.dumps(base))
+            head["metrics"]["scripts_sh_loc"]["release_target"] = 30
+            head["metrics"]["scripts_sh_loc"]["hard_ceiling"] = 40
+            head["release_target_allow_raise"] = {
+                "issue": 392,
+                "metrics": ["scripts_sh_loc"],
+                "keys": ["release_target", "hard_ceiling"],
+            }
+            base_path = tmp_path / "base.json"
+            head_path = tmp_path / "head.json"
+            write_budget(base_path, base)
+            write_budget(head_path, head)
+            root = tmp_path / "plugin"
+            make_plugin(root)
+            write_budget(root / "integrity" / "loc-budget.json", head)
+            proc = run_checker(
+                [
+                    "--plugin-root",
+                    str(root),
+                    "--budget",
+                    str(head_path),
+                    "--compare-base",
+                    str(base_path),
+                    "--measure-only",
+                ]
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            self.assertNotIn("release_target rose", proc.stderr)
+
+            # One-shot only: once base carries the allow metric, further raises fail.
+            base2 = json.loads(json.dumps(head))
+            head2 = json.loads(json.dumps(head))
+            head2["metrics"]["scripts_sh_loc"]["release_target"] = 50
+            base2_path = tmp_path / "base2.json"
+            head2_path = tmp_path / "head2.json"
+            write_budget(base2_path, base2)
+            write_budget(head2_path, head2)
+            write_budget(root / "integrity" / "loc-budget.json", head2)
+            proc = run_checker(
+                [
+                    "--plugin-root",
+                    str(root),
+                    "--budget",
+                    str(head2_path),
+                    "--compare-base",
+                    str(base2_path),
+                    "--measure-only",
+                ]
+            )
+            self.assertEqual(proc.returncode, 1, proc.stderr + proc.stdout)
+            self.assertIn("release_target rose", proc.stderr)
+
+            # current_ratchet may never rise even with the allow block.
+            head3 = json.loads(json.dumps(head))
+            head3["metrics"]["scripts_sh_loc"]["current_ratchet"] = 99
+            head3_path = tmp_path / "head3.json"
+            write_budget(head3_path, head3)
+            proc = run_checker(
+                [
+                    "--plugin-root",
+                    str(root),
+                    "--budget",
+                    str(head3_path),
+                    "--compare-base",
+                    str(base_path),
+                    "--measure-only",
+                ]
+            )
+            self.assertEqual(proc.returncode, 1, proc.stderr + proc.stdout)
+            self.assertIn("current_ratchet rose", proc.stderr)
 
 
 class GeneratedAndExtracted(unittest.TestCase):

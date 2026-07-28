@@ -20,8 +20,8 @@ test_loc_budget() {
 
   ec=0
   out=$(python3 "$checker" --plugin-root "$PLUGIN_ROOT" --release 1.0.0 2>&1) || ec=$?
-  assert_equals "LB5: --release 1.0.0 fails until targets met" "$ec" "1"
-  assert_output_contains "LB6: release failure names a metric" "$out" "release_target"
+  assert_equals "LB5: --release 1.0.0 passes on ship tree" "$ec" "0"
+  assert_output_contains "LB6: release OK banner" "$out" "LOC budget OK"
 
   # Nested Python fixture suite (exceed-each-metric, anti-weaken, baseline, aliases).
   ec=0

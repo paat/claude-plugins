@@ -52,7 +52,7 @@ when the decision has enough evidence; no product-wide audit by default.
 
 ## References (on demand)
 
-- `references/market-research.md`
-- `references/estonian-business.md`
-- `references/saas-metrics.md`
+- `../../references/product-discovery/market-research.md`
+- `../../references/product-discovery/estonian-business.md`
+- `../../references/product-discovery/saas-metrics.md`
 - `../../references/triggered-saas-gates.md` when product class is touched

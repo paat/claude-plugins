@@ -30,7 +30,7 @@ and developer experience. Prefer the simplest managed stack one founder can oper
 
 ### Solo-Founder KISS Rule
 
-Ship a finished production product, not an MVP, using the simplest architecture one founder can operate alone. Enterprise machinery must be required by `Done` or a concrete documented security, legal, reliability, or operability need; never add it for hypothetical scale or a future team. KISS reduces operational complexity, not product completeness or customer trust. See `references/architecture.md` for concrete defaults and non-negotiable production gates.
+Ship a finished production product, not an MVP, using the simplest architecture one founder can operate alone. Enterprise machinery must be required by `Done` or a concrete documented security, legal, reliability, or operability need; never add it for hypothetical scale or a future team. KISS reduces operational complexity, not product completeness or customer trust. See `../../references/tech-founder/architecture.md` for concrete defaults and non-negotiable production gates.
 
 ### Default Stack Recommendations
 
@@ -121,8 +121,8 @@ still apply.
 
 ## Reference Documents
 
-- `references/architecture.md` — Architecture decision patterns and templates
-- `references/quality-standards.md` — Detailed code and UI quality guidelines
-- `references/empathetic-dev.md` — "Always know the why" development principles
+- `../../references/tech-founder/architecture.md` — Architecture decision patterns and templates
+- `../../references/tech-founder/quality-standards.md` — Detailed code and UI quality guidelines
+- `../../references/tech-founder/empathetic-dev.md` — "Always know the why" development principles
 - `../../references/brief-acceptance-gate.md` — Brief Acceptance Gate + scope check
 - `../../references/triggered-saas-gates.md` — Triggered SaaS product gates

@@ -21,7 +21,7 @@ needed. Do not restate those rules here.
 One topic-specific datalake query first for Estonian-law claims. Verify decisive
 claims at Tier A. If RAG is empty, irrelevant, or partial, record that boundary
 and switch to targeted primary sources; do not retry broadly. Load
-`skills/lawyer/references/datalake-routing.md` for KOV, courts, enforcement,
+`references/lawyer/datalake-routing.md` for KOV, courts, enforcement,
 diligence, change-monitor, grants, political finance, or economic evidence.
 Pure **state-law** statute skips it; municipal/KOV does not.
 

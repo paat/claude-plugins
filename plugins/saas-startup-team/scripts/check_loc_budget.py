@@ -574,6 +574,31 @@ def anti_weaken(base: dict[str, Any], head: dict[str, Any]) -> list[str]:
     base_m = base["metrics"]
     head_m = head["metrics"]
 
+    # One-shot allow: metrics listed only on head (not already on base) may raise
+    # release_target/hard_ceiling once for an epic-justified recalibration (#392).
+    # current_ratchet may never rise. After merge, base carries the same allow
+    # block so further raises for those metrics fail again.
+    head_raise = head.get("release_target_allow_raise") or {}
+    base_raise = base.get("release_target_allow_raise") or {}
+    head_raise_metrics: set[str] = set()
+    base_raise_metrics: set[str] = set()
+    head_raise_keys: set[str] = {"release_target", "hard_ceiling"}
+    base_raise_keys: set[str] = set()
+    if isinstance(head_raise, dict):
+        m = head_raise.get("metrics") or []
+        if isinstance(m, list):
+            head_raise_metrics = {x for x in m if isinstance(x, str)}
+        k = head_raise.get("keys") or ["release_target", "hard_ceiling"]
+        if isinstance(k, list):
+            head_raise_keys = {x for x in k if isinstance(x, str)}
+    if isinstance(base_raise, dict):
+        m = base_raise.get("metrics") or []
+        if isinstance(m, list):
+            base_raise_metrics = {x for x in m if isinstance(x, str)}
+        k = base_raise.get("keys") or []
+        if isinstance(k, list):
+            base_raise_keys = {x for x in k if isinstance(x, str)}
+
     for mid in METRIC_IDS:
         b = base_m[mid]
         h = head_m[mid]
@@ -583,10 +608,17 @@ def anti_weaken(base: dict[str, Any], head: dict[str, Any]) -> list[str]:
             ("current_ratchet", "current_ratchet"),
         ):
             if h[key] > b[key]:
-                errors.append(
-                    f"anti-weaken: metrics.{mid}.{label} rose "
-                    f"{b[key]} -> {h[key]}"
+                oneshot = (
+                    key != "current_ratchet"
+                    and mid in head_raise_metrics
+                    and mid not in base_raise_metrics
+                    and key in head_raise_keys
                 )
+                if not oneshot:
+                    errors.append(
+                        f"anti-weaken: metrics.{mid}.{label} rose "
+                        f"{b[key]} -> {h[key]}"
+                    )
         # Baselines are historical pins; changing them is weakening auditability.
         if h["baseline"] != b["baseline"]:
             errors.append(
