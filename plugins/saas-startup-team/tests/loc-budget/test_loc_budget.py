@@ -660,6 +660,48 @@ class AntiWeaken(unittest.TestCase):
             self.assertEqual(proc.returncode, 1, proc.stderr + proc.stdout)
             self.assertIn("current_ratchet rose", proc.stderr)
 
+            # Spent metrics are sticky: deleting the allow entry is rejected, so
+            # a later re-add cannot reopen the same metric for another raise.
+            head4 = json.loads(json.dumps(head))
+            del head4["release_target_allow_raise"]
+            head4_path = tmp_path / "head4.json"
+            write_budget(head4_path, head4)
+            # base2 already carries the allow entry from the first raise
+            proc = run_checker(
+                [
+                    "--plugin-root",
+                    str(root),
+                    "--budget",
+                    str(head4_path),
+                    "--compare-base",
+                    str(base2_path),
+                    "--measure-only",
+                ]
+            )
+            self.assertEqual(proc.returncode, 1, proc.stderr + proc.stdout)
+            self.assertIn("release_target_allow_raise.metrics removed", proc.stderr)
+
+            # delete-and-readd after a (hypothetical) base without the block is
+            # not possible once sticky spent is on base; re-raise after re-add
+            # still fails when base2 still lists the metric.
+            head5 = json.loads(json.dumps(head))
+            head5["metrics"]["scripts_sh_loc"]["release_target"] = 99
+            head5_path = tmp_path / "head5.json"
+            write_budget(head5_path, head5)
+            proc = run_checker(
+                [
+                    "--plugin-root",
+                    str(root),
+                    "--budget",
+                    str(head5_path),
+                    "--compare-base",
+                    str(base2_path),
+                    "--measure-only",
+                ]
+            )
+            self.assertEqual(proc.returncode, 1, proc.stderr + proc.stdout)
+            self.assertIn("release_target rose", proc.stderr)
+
 
 class GeneratedAndExtracted(unittest.TestCase):
     def test_generated_dir_counts_toward_total(self) -> None:

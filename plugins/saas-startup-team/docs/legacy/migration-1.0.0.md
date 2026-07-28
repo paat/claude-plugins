@@ -72,6 +72,14 @@ Thin shims (`check-ad-budget.sh`, `validate-json.sh`, …) remain for callers th
 have not migrated. Legal verdict, acceptance packs, regression, and release
 signoff backends still back `gate.sh`.
 
+## Removed helper scripts
+
+| Removed | Replacement |
+|---------|-------------|
+| `scripts/commit-artifact.sh` | None — unused dead path; use ordinary git commits for durable artifacts |
+| Hook scripts listed in `migration-1.0-hooks-gates.md` | `hooks/dispatch.sh` + `scripts/gate.sh` |
+| Meta/self-improvement scripts in `migration-1.0-meta-removed.md` | None in runtime |
+
 ## Domain references
 
 Static skill knowledge lives under plugin-root `references/<domain>/` (lawyer,

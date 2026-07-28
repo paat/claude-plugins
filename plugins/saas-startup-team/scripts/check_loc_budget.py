@@ -574,30 +574,33 @@ def anti_weaken(base: dict[str, Any], head: dict[str, Any]) -> list[str]:
     base_m = base["metrics"]
     head_m = head["metrics"]
 
-    # One-shot allow: metrics listed only on head (not already on base) may raise
-    # release_target/hard_ceiling once for an epic-justified recalibration (#392).
-    # current_ratchet may never rise. After merge, base carries the same allow
-    # block so further raises for those metrics fail again.
+    # One-shot allow: a metric may raise release_target/hard_ceiling only in the
+    # PR that first adds it to release_target_allow_raise.metrics (#392).
+    # Spent metrics are sticky — they may not be removed from the allow block —
+    # so delete-and-readd cannot re-open the same metric. current_ratchet never
+    # rises. keys defaults to release_target+hard_ceiling when omitted on head.
     head_raise = head.get("release_target_allow_raise") or {}
     base_raise = base.get("release_target_allow_raise") or {}
     head_raise_metrics: set[str] = set()
     base_raise_metrics: set[str] = set()
     head_raise_keys: set[str] = {"release_target", "hard_ceiling"}
-    base_raise_keys: set[str] = set()
     if isinstance(head_raise, dict):
         m = head_raise.get("metrics") or []
         if isinstance(m, list):
             head_raise_metrics = {x for x in m if isinstance(x, str)}
-        k = head_raise.get("keys") or ["release_target", "hard_ceiling"]
-        if isinstance(k, list):
+        k = head_raise.get("keys")
+        if isinstance(k, list) and k:
             head_raise_keys = {x for x in k if isinstance(x, str)}
     if isinstance(base_raise, dict):
         m = base_raise.get("metrics") or []
         if isinstance(m, list):
             base_raise_metrics = {x for x in m if isinstance(x, str)}
-        k = base_raise.get("keys") or []
-        if isinstance(k, list):
-            base_raise_keys = {x for x in k if isinstance(x, str)}
+    removed_raise = base_raise_metrics - head_raise_metrics
+    if removed_raise:
+        errors.append(
+            "anti-weaken: release_target_allow_raise.metrics removed "
+            f"{sorted(removed_raise)} (spent raises are sticky)"
+        )
 
     for mid in METRIC_IDS:
         b = base_m[mid]
