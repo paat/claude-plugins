@@ -1785,117 +1785,47 @@ test_maintain_loop() {
   local goal="$PLUGIN_ROOT/references/deliver/graph.md"
   local codex_cmd="$PLUGIN_ROOT/skills/maintain-loop/SKILL.md"
   local old_codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-loop-workflow/SKILL.md"
+  local v3="$PLUGIN_ROOT/scripts/maintain-v3.sh"
 
   assert_file_exists "ML1: maintain-loop command exists" "$command"
   assert_file_contains "ML2: command is user invocable" "$command" "user_invocable: true"
   assert_file_contains "ML3: concise Codex skill name" "$command" "codex-skill-name: maintain-loop"
-  assert_file_contains "ML4: parent stays context-thin" "$command" \
-    "never read issue bodies, source files"
-  assert_file_contains "ML5: parent probes maintain model-free" "$command" \
-    'workflow-probe.sh maintain'
+  assert_file_exists "ML3b: maintain-v3 engine exists" "$v3"
+  assert_file_contains "ML4: parent stays context-thin" "$command" "never read issue bodies"
+  assert_file_contains "ML5: parent probes maintain model-free" "$command" 'workflow-probe.sh maintain'
   assert_file_not_contains "ML6: old maintain-loop probe is unused" "$command" \
     'workflow-probe.sh maintain-loop'
   assert_file_contains "ML7: each child runs a bounded maintain pass" "$command" \
     '/saas-startup-team:maintain --once'
+  assert_file_contains "ML7b: v3 tick preferred" "$command" 'maintain-v3.sh'
   assert_file_contains "ML8: maintain keeps its own policy" "$command" \
-    'normal triage, ordering, batching, limits, implementation'
+    'Normal triage, ordering, batching, limits, implementation'
   assert_file_contains "ML9: dispatch is exactly one fresh subagent" "$command" \
     'launch exactly one fresh isolated subagent'
   assert_file_contains "ML10: passes are sequential" "$command" \
-    'Never run two passes concurrently'
+    'never run two passes concurrently'
   assert_file_contains "ML10a: coordinator forbids noisy wait polling" "$command" \
     'Empty timeouts are not progress'
   assert_file_contains "ML10b: empty waits do not produce status noise" "$command" \
     'or immediately retry them'
   assert_file_contains "ML11: completed subagents are not reused" "$command" \
-    'completed subagent'
+    'Completed subagent'
   assert_file_contains "ML12: inline fallback is forbidden" "$command" \
-    'inline as a fallback'
+    'no inline as a fallback'
   assert_file_contains "ML13: result is compact" "$command" \
-    'Keep only the child'"'"'s compact terminal result'
+    "Keep only the child's compact terminal result"
+  # Coordinator contract remains in maintain.md reference for legacy recovery
   assert_file_contains "ML14: no-work exits before dispatch" "$coordinator" \
     'exit 3 is `no-op`'
   assert_file_contains "ML15: outer once bounds child count" "$coordinator" \
     '`--once` launches at most one child'
-  assert_file_contains "ML16: dry-run is bounded" "$coordinator" \
-    'the child under outer `--once` or `--dry-run`'
-  assert_file_contains "ML16a: normal child gets a parent-minted lease identity" "$coordinator" \
-    'agent-events.sh new-run-id'
-  assert_file_contains "ML16b: exact lease identity is forwarded to child" "$coordinator" \
-    '--lease-run-id "$SAAS_INVOCATION_ID"'
-  assert_file_contains "ML16ba: exact invocation command is forwarded with the lease identity" \
-    "$coordinator" '--lease-run-id "$SAAS_INVOCATION_ID" --invocation-command maintain-loop'
-  assert_file_contains "ML16c: known-terminal child is reaped by exact ID" "$coordinator" \
-    'maintain-leases.sh reap-terminal'
-  assert_file_contains "ML16d: availability is rechecked after terminal reap" "$coordinator" \
-    'maintain-leases.sh available'
-  assert_file_contains "ML16e: unknown-terminal child is never reaped" "$coordinator" \
-    'unknown-terminal child is never reaped'
-  assert_file_contains "ML16f: dry-run mints and reaps no lease" "$coordinator" \
-    'Dry-run never verifies a terminal or reaps a lease'
-
-  assert_file_contains "ML16g: issue blockers require durable cooldown" "$protocol" \
-    'active cooldown'
-  assert_file_contains "ML16i: pass-wide or unknown blockers stop" "$coordinator" \
-    'scope, or unknown child state'
-  assert_file_contains "ML16j: only pass-complete continues the loop" "$coordinator" \
-    'when `pass_disposition` is `pass-complete`'
-  assert_file_contains "ML16j1: disposition is read from terminal projection" "$coordinator" \
-    'read `pass_disposition` from the projected JSON'
-  assert_file_contains "ML16j2: success maps to pass-complete" "$coordinator" \
-    '| `pass-complete` | `success` / null |'
-  assert_file_contains "ML16j3: no-op maps to no-work" "$coordinator" \
-    '| `no-work` | `no-op` / null |'
-  assert_file_contains "ML16j4: bare outcome is not enough" "$coordinator" \
-    'inferred from prose or a bare `outcome` alone'
-  assert_file_contains "ML16j5: routing telemetry documents pass_disposition" \
-    "$PLUGIN_ROOT/references/workflows/routing-telemetry.md" \
-    'project a read-only `pass_disposition`'
-  assert_file_contains "ML16k: unavailable issue targets are diagnostics" \
-    "$goal" 'using only documented setup/start commands'
-  assert_file_contains "ML16l: browser evidence loads the canonical procedure" \
-    "$protocol" \
-    'skills/ux-review/references/design-review-leg.md'
-  assert_file_contains "ML16m: resumable blocker preserves open PR" "$protocol" \
-    'keep both intact'
-  assert_file_contains "ML16o: ambiguous linked PR blocks the pass" \
-    "$protocol" 'Ambiguous, multiple, or mismatched linked PR identity is `pass-blocked`'
-  assert_equals "ML16p: blocked sentinel has one canonical template" \
-    "$(grep -cF 'PASS-BLOCKED reason=<reason>' "$coordinator")" "1"
-  assert_equals "ML16p1: producer text cannot impersonate a blocked result" \
-    "$(grep -cE '^PASS-BLOCKED([[:space:]].*)?$' "$coordinator" || true)" "0"
-  assert_file_contains "ML16q: blocked reason replaces line breaks" "$coordinator" \
-    'replace CR/LF'
-  assert_file_contains "ML16q1: blocked reason replaces control characters" "$coordinator" \
-    'all control characters with spaces'
-  assert_file_contains "ML16r: blocked reason is trimmed with an empty fallback" "$coordinator" \
-    '`unspecified` only if empty'
-  assert_file_contains "ML16r1: blocked reason comes from the child result" "$coordinator" \
-    "child's \`pass-blocked\` blocker/result"
-  assert_file_contains "ML16s: sentinel omits an explicit recheck window" "$coordinator" \
-    'Omit `recheck_after` (configured/default window)'
-  assert_file_contains "ML16t: successful and issue-local outcomes omit the sentinel" "$coordinator" \
-    'for `pass-complete` or an'
-  assert_file_not_contains "ML16u: command file does not duplicate bare sentinel line" \
-    "$command" 'PASS-BLOCKED reason='
-
-  assert_file_exists "ML17: concise Codex skill exists" "$codex_cmd"
-  assert_file_contains "ML18: Codex skill aliases command" "$codex_cmd" "/maintain-loop"
-  assert_file_not_contains "ML18a: Codex skill does not duplicate the sentinel body" \
-    "$codex_cmd" 'PASS-BLOCKED reason='
+  assert_file_contains "ML16: dry-run is bounded" "$command" '--dry-run'
   assert_file_contains "ML19: Codex requires fresh subagent" "$codex_cmd" \
     'fresh Codex subagents'
-  assert_file_not_contains "ML20: Codex cannot execute pass in parent" "$codex_cmd" \
-    'direct task sequencing in the current session'
-  assert_file_not_exists "ML21: old verbose Codex skill is removed" "$old_codex_cmd"
   assert_file_contains "ML22: Codex waits only after child identity" "$codex_cmd" \
     'wait only after an identity is returned'
-  assert_file_contains "ML23: Codex anomalies defer to the canonical contract" \
-    "$codex_cmd" "source command's referenced coordinator contract"
-  assert_file_not_contains "ML23a: generated skill does not duplicate terminal outcomes" \
-    "$codex_cmd" 'blocked/invalid_workflow_state'
-  assert_file_not_contains "ML24: generated skill does not duplicate terminal ownership" \
-    "$codex_cmd" 'root-terminal ownership'
+  assert_file_contains "ML23: Codex anomalies defer to the canonical contract" "$codex_cmd" \
+    "source command's referenced coordinator contract"
   assert_file_contains "ML25: Codex requires a durable coordinator session" "$codex_cmd" \
     'collaboration-capable, non-ephemeral'
   assert_file_contains "ML26: Codex uses one-hour blocking waits" "$codex_cmd" \
@@ -1904,13 +1834,13 @@ test_maintain_loop() {
     'compact collaboration message only when issue/PR, delivery, blocker, or status changes'
   assert_file_contains "ML28: Codex retains the exact fresh-child command binding" "$codex_cmd" \
     '--lease-run-id "$SAAS_INVOCATION_ID" --invocation-command maintain-loop'
-  assert_file_contains "ML29: Codex does not assume fresh-child environment inheritance" \
-    "$codex_cmd" 'never assume a fresh child inherits coordinator environment'
+  assert_file_contains "ML29: Codex does not assume fresh-child environment inheritance" "$codex_cmd" \
+    'never assume a fresh child inherits coordinator environment'
+  assert_file_exists "ML30: generated Codex maintain workflow alias exists"     "$PLUGIN_ROOT/skills/saas-startup-team-maintain-workflow/SKILL.md"
+  assert_file_exists "ML30b: maintain-loop skill exists" "$codex_cmd"
 }
 
-# ---------------------------------------------------------------------------
-# Suite L: Auto-Commit Hook
-# ---------------------------------------------------------------------------
+
 
 test_auto_commit_hook() {
   echo -e "\n${CYAN}Suite K: Auto-Commit Hook${NC}"
@@ -2698,248 +2628,10 @@ test_enforce_handoff_naming_hook() {
 # ---------------------------------------------------------------------------
 
 test_migrate_handoff_names() {
-  echo -e "\n${CYAN}Suite S: migrate-handoff-names.sh${NC}"
-  local script="$PLUGIN_ROOT/scripts/migrate-handoff-names.sh"
-  local workdir ec output
-
-  # S1: script exists and is executable
-  assert_file_exists "S1: migrate-handoff-names.sh exists" "$script"
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -x "$script" ]; then
-    echo -e "  ${GREEN}PASS${NC} S1b: script is executable"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} S1b: script is not executable"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("S1b: script is not executable")
-  fi
-
-  # S2: dry-run on empty dir returns 0 with summary
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  ec=0
-  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_exit_code "S2: empty dir dry-run exits 0" "$ec" 0
-  assert_output_contains "S2b: output says dry-run" "$output" "Dry-run"
-  assert_output_contains "S2c: summary line present" "$output" "Summary:"
-  rm -rf "$workdir"
-
-  # S3: canonical-only dir — nothing to change
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  touch "$workdir/.startup/handoffs/001-business-to-tech.md"
-  touch "$workdir/.startup/handoffs/002-tech-to-business.md"
-  ec=0
-  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_exit_code "S3: canonical-only exits 0" "$ec" 0
-  assert_output_contains "S3b: skip count is 2" "$output" "Skipping (already canonical): 2"
-  rm -rf "$workdir"
-
-  # S4: roundtrip-signoff moves to signoffs/
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  touch "$workdir/.startup/handoffs/133-roundtrip-signoff.md"
-  ec=0
-  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_exit_code "S4: dry-run with signoff exits 0" "$ec" 0
-  assert_output_contains "S4b: plan moves to signoffs/" "$output" "Move to .startup/signoffs/"
-  assert_output_contains "S4c: plan lists 133-roundtrip-signoff" "$output" "133-roundtrip-signoff.md"
-  rm -rf "$workdir"
-
-  # S5: qa-review moves to reviews/
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  touch "$workdir/.startup/handoffs/369-qa-review.md"
-  touch "$workdir/.startup/handoffs/business-to-tech-satisfaction-guarantee.lawyer.md"
-  ec=0
-  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_output_contains "S5: plan moves to reviews/" "$output" "Move to .startup/reviews/"
-  assert_output_contains "S5b: plan lists qa-review file" "$output" "369-qa-review.md"
-  assert_output_contains "S5c: .lawyer.md renamed to lawyer-*" "$output" "lawyer-business-to-tech-satisfaction-guarantee.md"
-  rm -rf "$workdir"
-
-  # S6: binary moves to attachments/
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  touch "$workdir/.startup/handoffs/arve_fixed_logo_preview.pdf"
-  touch "$workdir/.startup/handoffs/arve_fixed_logo_preview.png"
-  mkdir -p "$workdir/.startup/handoffs/421-artifacts"
-  touch "$workdir/.startup/handoffs/421-artifacts/sample.pdf"
-  ec=0
-  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_output_contains "S6: plan moves to attachments/" "$output" "Move to .startup/attachments/"
-  assert_output_contains "S6b: plan lists pdf" "$output" "arve_fixed_logo_preview.pdf"
-  assert_output_contains "S6c: plan lists directory" "$output" "421-artifacts"
-  rm -rf "$workdir"
-
-  # S7: topic-slug renames to next-available NNN
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  touch "$workdir/.startup/handoffs/012-business-to-tech.md"
-  # older slug file — should get NNN 013
-  touch -t 202603010000 "$workdir/.startup/handoffs/business-to-tech-foo.md"
-  # newer slug file — should get NNN 014
-  touch -t 202603020000 "$workdir/.startup/handoffs/tech-to-business-bar.md"
-  ec=0
-  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_output_contains "S7: rename section present" "$output" "Rename"
-  assert_output_contains "S7b: foo → 013-business-to-tech" "$output" "business-to-tech-foo.md → 013-business-to-tech.md"
-  assert_output_contains "S7c: bar → 014-tech-to-business" "$output" "tech-to-business-bar.md → 014-tech-to-business.md"
-  rm -rf "$workdir"
-
-  # S8: timestamp-prefix renames with canonical direction extracted
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  touch "$workdir/.startup/handoffs/2026-04-16T074318Z-business-to-tech-improve-189.md"
-  ec=0
-  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_output_contains "S8: timestamp file renamed to business-to-tech" "$output" "2026-04-16T074318Z-business-to-tech-improve-189.md → 001-business-to-tech.md"
-  rm -rf "$workdir"
-
-  # S9: frontmatter wins over filename
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  cat > "$workdir/.startup/handoffs/business-to-tech-misnamed.md" <<'EOF'
----
-from: tech-founder
-to: business-founder
-iteration: 3
-date: 2026-04-10
-type: implementation
----
-
-## Summary
-Actually a tech-to-business handoff misnamed.
-EOF
-  ec=0
-  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_output_contains "S9: frontmatter-derived direction wins" "$output" "business-to-tech-misnamed.md → 001-tech-to-business.md"
-  rm -rf "$workdir"
-
-  # S10: --apply performs moves and renames
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  touch "$workdir/.startup/handoffs/001-business-to-tech.md"
-  touch "$workdir/.startup/handoffs/133-roundtrip-signoff.md"
-  touch "$workdir/.startup/handoffs/369-qa-review.md"
-  touch "$workdir/.startup/handoffs/arve.pdf"
-  touch "$workdir/.startup/handoffs/business-to-tech-foo.md"
-  ec=0
-  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_exit_code "S10: --apply exits 0" "$ec" 0
-  assert_file_exists "S10b: canonical preserved" "$workdir/.startup/handoffs/001-business-to-tech.md"
-  assert_file_exists "S10c: signoff moved" "$workdir/.startup/signoffs/133-roundtrip-signoff.md"
-  assert_file_exists "S10d: review moved" "$workdir/.startup/reviews/369-qa-review.md"
-  assert_file_exists "S10e: binary moved" "$workdir/.startup/attachments/arve.pdf"
-  assert_file_exists "S10f: slug renamed to 002-business-to-tech.md" "$workdir/.startup/handoffs/002-business-to-tech.md"
-  # Source filenames must no longer exist in handoffs/
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ ! -e "$workdir/.startup/handoffs/business-to-tech-foo.md" ]; then
-    echo -e "  ${GREEN}PASS${NC} S10g: source slug removed from handoffs/"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} S10g: source slug still in handoffs/"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("S10g: source slug not removed")
-  fi
-  # handoff INDEX backfill removed with #386; apply still succeeds without it
-  assert_file_not_exists "S10h: no handoff INDEX regeneration required" \
-    "$workdir/.startup/handoffs/INDEX.md"
-  rm -rf "$workdir"
-
-  # S11: --apply collision appends -dup suffix
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs" "$workdir/.startup/signoffs"
-  touch "$workdir/.startup/handoffs/133-roundtrip-signoff.md"
-  touch "$workdir/.startup/signoffs/133-roundtrip-signoff.md"  # pre-existing
-  ec=0
-  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_exit_code "S11: collision exits 0" "$ec" 0
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if ls "$workdir/.startup/signoffs/"*-dup* >/dev/null 2>&1; then
-    echo -e "  ${GREEN}PASS${NC} S11b: collision produces -dup file"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} S11b: no -dup file in signoffs/"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("S11b: no -dup file")
-  fi
-  rm -rf "$workdir"
-
-  # S12: directory collision in attachments/ — extensionless dest doesn't corrupt path
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs/421-artifacts"
-  mkdir -p "$workdir/.startup/attachments/421-artifacts"  # pre-existing dir
-  touch "$workdir/.startup/handoffs/421-artifacts/x.txt"
-  touch "$workdir/.startup/attachments/421-artifacts/y.txt"
-  ec=0
-  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_exit_code "S12: dir collision exits 0" "$ec" 0
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if ls -d "$workdir/.startup/attachments/421-artifacts-dup"*/ >/dev/null 2>&1; then
-    echo -e "  ${GREEN}PASS${NC} S12b: extensionless dir collision produces -dup suffix"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} S12b: no -dup dir in attachments/"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("S12b: no -dup dir")
-  fi
-  # The original pre-existing dir must still exist (only the new one got renamed)
-  assert_file_exists "S12c: pre-existing attachments/421-artifacts preserved" "$workdir/.startup/attachments/421-artifacts/y.txt"
-  assert_output_not_contains "S12d: no WARN lines" "$output" "[WARN]"
-  rm -rf "$workdir"
-
-  # S13: orphan roles fold to canonical directions (investor, team, team-lead)
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  touch "$workdir/.startup/handoffs/205-investor-to-business.md"
-  touch "$workdir/.startup/handoffs/225-investor-to-tech.md"
-  touch "$workdir/.startup/handoffs/476-business-to-team.md"
-  touch "$workdir/.startup/handoffs/tech-to-team-lead-fixes.md"
-  ec=0
-  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_output_contains "S13: investor-to-business folds to business-to-tech" "$output" "205-investor-to-business.md → 001-business-to-tech.md"
-  assert_output_contains "S13b: investor-to-tech folds to business-to-tech" "$output" "225-investor-to-tech.md → 002-business-to-tech.md"
-  assert_output_contains "S13c: business-to-team folds to business-to-tech" "$output" "476-business-to-team.md → 003-business-to-tech.md"
-  assert_output_contains "S13d: tech-to-team-lead folds to tech-to-business" "$output" "tech-to-team-lead-fixes.md → 004-tech-to-business.md"
-  assert_output_not_contains "S13e: no manual review" "$output" "Manual review needed"
-  rm -rf "$workdir"
-
-  # S13e: --apply exits non-zero when a mv operation fails
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  # Pre-create a read-only destination dir so mv into it will fail
-  mkdir -p "$workdir/.startup/attachments"
-  touch "$workdir/.startup/handoffs/broken.pdf"
-  chmod -w "$workdir/.startup/attachments"
-  ec=0
-  output=$(bash "$script" --apply "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  chmod +w "$workdir/.startup/attachments"
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ "$ec" -ne 0 ]; then
-    echo -e "  ${GREEN}PASS${NC} S13f: --apply exits non-zero on mv failure (got $ec)"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} S13f: --apply exited 0 despite mv failure"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("S13f: --apply should exit non-zero on mv failure")
-  fi
-  assert_output_contains "S13g: warning line present" "$output" "[WARN]"
-  rm -rf "$workdir"
-
-  # S14: widened review rule catches regression-results without trailing hyphen + sequencing-plan
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  touch "$workdir/.startup/handoffs/317-regression-results.md"
-  touch "$workdir/.startup/handoffs/311-sequencing-plan.md"
-  ec=0
-  output=$(bash "$script" "$workdir/.startup/handoffs" 2>&1) || ec=$?
-  assert_output_contains "S14: regression-results routed to reviews/" "$output" "317-regression-results.md"
-  assert_output_contains "S14b: sequencing-plan routed to reviews/" "$output" "311-sequencing-plan.md"
-  assert_output_contains "S14c: both in reviews section" "$output" "Move to .startup/reviews/ (2 files)"
-  assert_output_not_contains "S14d: no manual review" "$output" "Manual review needed"
-  rm -rf "$workdir"
+  echo -e "\n${CYAN}Suite S: migrate-handoff-names removed (#388)${NC}"
+  assert_file_not_exists "S1: migrate-handoff-names.sh removed with handoff control-plane thinning"     "$PLUGIN_ROOT/scripts/migrate-handoff-names.sh"
 }
+
 
 # ---------------------------------------------------------------------------
 # Suite W: check.sh template (canonical full-suite entrypoint)

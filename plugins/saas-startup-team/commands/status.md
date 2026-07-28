@@ -1,32 +1,24 @@
 ---
 name: status
-description: "Show project lifecycle status from Git artifacts and legacy import. Usage: /status"
+description: "Project status from Git/PR/CI/deploy/harness — not state.json. Usage: /status"
 user_invocable: true
 transitional: true
 ---
 
 # /status
 
-Show current SaaS project status without reviving the delivery state machine.
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/status.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/legacy-import.sh --json" 2>/dev/null || true
+```
 
-## Actions
+Summarize for the human (authoritative sources first):
 
-1. Run the status helper (summarizes docs, signoffs, handoffs if present):
-   ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/scripts/status.sh
-   ```
-
-2. Surface legacy brief/workflow/signoff paths (read-only):
-   ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/scripts/legacy-import.sh --json
-   ```
-
-3. Summarize for the human:
-   - Goal/brief path if present
-   - Solution signoff presence
-   - Open human tasks in `docs/human-tasks.md`
-   - Git/PR facts when available (`gh pr list`, branch tip)
-   - If legacy `.startup/state.json` exists, report its fields as **historical
-     context only** — new lifecycle runs do not update `active_role` or iteration
-
-`--compact` / state migration is removed (issue #386). Existing archive files are left untouched.
+1. **Git:** branch, dirty/clean, default branch tip
+2. **PR/CI:** `gh pr list --state open`; recent run conclusions when available
+3. **Deploy:** latest successful deploy-sha proof if recorded under maintain-v3
+   release facts or project deploy config
+4. **Harness:** solution signoff path, `docs/human-tasks.md`, brief path via
+   `legacy-import.sh`
+5. **Legacy only:** if `.startup/state.json` exists, show as historical context —
+   not control state for new lifecycle/maintain ticks

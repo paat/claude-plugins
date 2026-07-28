@@ -1,6 +1,6 @@
 ---
 name: monitor-nightly
-description: "Nightly automated monitor — sweeps failure markers + an optional project custom-checks script, files/dedups GitHub issues with reproduction context, persists state across runs. Usage: /monitor-nightly [--dry-run]"
+description: "Nightly monitor job body (host-scheduled). Usage: /monitor-nightly [--dry-run]"
 argument-hint: "[--dry-run]"
 allowed-tools: Bash, Read, Write, Grep, Glob
 user_invocable: true
@@ -8,6 +8,8 @@ transitional: true
 ---
 
 # /monitor-nightly — Generic Nightly Monitor
+
+**Scheduling lives outside prompts** (cron/host). Job body only; on-demand → operate `monitor`.
 
 Detect failure signals, file deduplicated GitHub issues with reproduction context, persist state
 across runs. Project-agnostic — all specifics come from the `monitor:` block in

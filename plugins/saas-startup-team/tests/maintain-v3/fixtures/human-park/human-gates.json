@@ -1,0 +1,13 @@
+[
+  {
+    "issue": 5,
+    "park": true,
+    "action": "park",
+    "digest": "needs-human:product prioritization"
+  },
+  {
+    "issue": 6,
+    "park": false,
+    "action": "no-op"
+  }
+]

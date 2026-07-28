@@ -1,0 +1,37 @@
+{
+  "worktree": "/tmp/fixture-primary",
+  "default_branch": "main",
+  "dirty": { "clean": true, "porcelain": "", "action": "none" },
+  "items": [
+    {
+      "kind": "pr",
+      "action": "resume",
+      "issue": 42,
+      "issue_state": "OPEN",
+      "pr_number": 7,
+      "branch": "fix/42-login",
+      "ahead": 2,
+      "behind": 0,
+      "updated_at": "2026-07-27T12:00:00Z",
+      "title": "Fix login",
+      "reason": "open_pr",
+      "check_status": "success",
+      "is_draft": false
+    },
+    {
+      "kind": "remote_branch",
+      "action": "delete",
+      "issue": 10,
+      "issue_state": "CLOSED",
+      "pr_number": null,
+      "branch": "fix/10-old",
+      "ahead": 1,
+      "behind": 3,
+      "updated_at": "2026-07-20T12:00:00Z",
+      "title": "Old",
+      "reason": "issue_closed_stale_branch",
+      "is_draft": false
+    }
+  ],
+  "summary": { "resume": 1, "delete": 1, "inspect": 0, "dirty": false }
+}

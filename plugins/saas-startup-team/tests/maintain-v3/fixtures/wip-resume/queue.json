@@ -1,0 +1,10 @@
+{
+  "eligible": [
+    {
+      "number": 99,
+      "title": "Greenfield should not win",
+      "eligible": true,
+      "excluded": false
+    }
+  ]
+}

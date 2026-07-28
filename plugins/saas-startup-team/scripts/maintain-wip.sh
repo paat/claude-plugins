@@ -20,6 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat >&2 <<'EOF'
 Usage: maintain-wip.sh inventory --repo-root DIR [--default-branch NAME]
+                              [--allow-linked-worktrees]
 
 Print JSON:
   {
@@ -32,6 +33,8 @@ Print JSON:
     } ],
     "summary": { "resume": N, "delete": N, "inspect": N, "dirty": bool }
   }
+
+--allow-linked-worktrees: skip assert-primary-only (Maintain v3 isolation).
 EOF
 }
 
@@ -39,6 +42,7 @@ ACTION=""
 ROOT=""
 WORKTREE=""
 DEFAULT_BRANCH=""
+ALLOW_LINKED_WORKTREES=0
 
 die() { echo "maintain-wip: $1" >&2; exit "${2:-1}"; }
 
@@ -47,6 +51,7 @@ while [ "$#" -gt 0 ]; do
     inventory) ACTION=inventory; shift ;;
     --repo-root) ROOT="$2"; shift 2 ;;
     --default-branch) DEFAULT_BRANCH="$2"; shift 2 ;;
+    --allow-linked-worktrees) ALLOW_LINKED_WORKTREES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
   esac
@@ -58,8 +63,10 @@ done
 if [ -x "$SCRIPT_DIR/maintain-leases.sh" ]; then
   ROOT="$(bash "$SCRIPT_DIR/maintain-leases.sh" primary-root --repo-root "$ROOT")" \
     || die "cannot resolve primary checkout" 2
-  bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$ROOT" >/dev/null \
-    || die "primary-only gate failed (no linked worktrees)" 2
+  if [ "$ALLOW_LINKED_WORKTREES" -eq 0 ]; then
+    bash "$SCRIPT_DIR/maintain-leases.sh" assert-primary-only --repo-root "$ROOT" >/dev/null \
+      || die "primary-only gate failed (no linked worktrees)" 2
+  fi
 else
   ROOT="$(cd "$ROOT" && pwd -P)"
 fi
