@@ -122,31 +122,16 @@ manual and concurrent-run overlap after launch.
 
 ## Root Terminal Contract
 
-Once the probe has returned work, the detailed `/maintain` supervisor is the only
-writer allowed to append a root event for `SAAS_INVOCATION_ID`. Every handled terminal
-path—success, blocked, failure, cancelled, or escalated—runs lease/state cleanup first
-where cleanup is safe, then appends exactly one completed `--phase pass-outcome
---once` event with no `--parent-run-id`. Never infer success from a worker exit code.
+Custom agent-events telemetry was removed (#390). Terminal authority for maintain is
+privacy-safe PR, merge, deployment, and close evidence recorded with
+`scripts/maintain-v3.sh release-facts` only. Never invent a parallel event log.
 
-Use only the v2 terminal-reason registry from `routing-telemetry.md`: choose the narrow
-verified reason (for example `lease_conflict`, `verification_failed`,
-`budget_exhausted`, `timeout`, `cancelled`, or `escalated`); use `unknown_failure`
-only when no narrower registered reason applies. Success has no terminal reason.
-Append refusal, malformed state, or a conflicting terminal fails closed and must not be
-followed by a competing event.
+Once the probe has returned work, every handled terminal path—success, blocked,
+failure, cancelled, or escalated—cleans short locks/state first where cleanup is safe,
+then records release-facts for the issue when a PR/merge/deploy/close outcome exists.
+Never infer success from a worker exit code alone.
 
-The append shape is `agent-events.sh append --run-id "$SAAS_INVOCATION_ID"
---command "$SAAS_INVOCATION_COMMAND" --phase pass-outcome --event-type completed --once`, plus the
-verified outcome, actual host surface, `profile=deep`, stable supervisor writer ID, and
-an optional registered terminal reason.
-
-Every implementation, delivery, QA, tribunal, or other work attempt mints a fresh
-`SAAS_RUN_ID` with `agent-events.sh new-run-id` and appends its work events with
-`--parent-run-id "$SAAS_INVOCATION_ID"`. Children never write `phase=pass-outcome`
-for the root and their token totals are never summed into it. Standalone
-`/goal-deliver` has its own root contract, but an embedded call does not.
-
-Under `--dry-run`, do not append a root or child event.
+Under `--dry-run`, do not write release-facts or mutate GitHub.
 
 ---
 

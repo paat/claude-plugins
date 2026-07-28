@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 #
-# pii-gate.sh — shared PII/secrets gate for the self-improvement loop.
+# pii-gate.sh — shared PII/secrets gate for outbound filing helpers.
 #
-# Single source of truth so the regex cannot drift between harvest.sh (candidate
-# gate) and lesson-file.sh (public-filing boundary). Sourced, not executed.
-# Case-insensitive; errs toward OVER-blocking (safety > recall).
+# Single source of truth for secret/PII pattern matching (e.g. issue-file.sh).
+# Sourced, not executed. Case-insensitive; errs toward OVER-blocking (safety > recall).
 #
 #   pii_hit "<text>"   -> exit 0 if a secret/PII pattern is present, else 1
 

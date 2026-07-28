@@ -20,16 +20,26 @@ import generate_workflow_aliases as gen  # noqa: E402
 
 
 class EntrypointsManifest(unittest.TestCase):
-    def test_manifest_lists_all_commands_and_26_aliases(self) -> None:
+    def test_manifest_lists_all_commands_and_aliases(self) -> None:
         payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(payload["version"], 1)
         self.assertEqual(payload["plugin"], "saas-startup-team")
         entries = payload["entrypoints"]
-        # 27 commands after /ads removal (#385); 26 generate Codex aliases
-        self.assertEqual(len(entries), 27)
+        # 21 commands after #390 meta removal; 20 generate Codex aliases
+        # (maintain-loop keeps generate_alias=false).
+        self.assertEqual(len(entries), 21)
         generated = [e for e in entries if e.get("generate_alias") is True]
-        self.assertEqual(len(generated), 26)
+        self.assertEqual(len(generated), 20)
         self.assertNotIn("ads", {e["name"] for e in entries})
+        for removed in (
+            "harvest",
+            "session-insights",
+            "lessons-deliver",
+            "lessons-review",
+            "learnings-migrate",
+            "learnings-compress",
+        ):
+            self.assertNotIn(removed, {e["name"] for e in entries})
         names = {e["name"] for e in entries}
         for cmd in (PLUGIN_ROOT / "commands").glob("*.md"):
             self.assertIn(cmd.stem, names, f"command {cmd.name} missing from entrypoints")

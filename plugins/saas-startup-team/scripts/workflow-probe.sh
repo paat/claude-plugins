@@ -8,7 +8,7 @@ MODE="${1:-}"; [ "$#" -gt 0 ] && shift || true
 OUTPUT_MODE="$MODE"
 ROOT=""; REPO=""; ISSUE=""; LABEL=""; DATE=""; DRY_RUN=0
 usage() {
-  echo "usage: workflow-probe.sh {maintain|maintain-loop|monitor-nightly|digest|lessons-deliver} [--root DIR] [--repo OWNER/REPO] [--issue N] [--label LABEL] [--date YYYY-MM-DD]" >&2
+  echo "usage: workflow-probe.sh {maintain|maintain-loop|monitor-nightly|digest} [--root DIR] [--repo OWNER/REPO] [--issue N] [--label LABEL] [--date YYYY-MM-DD]" >&2
 }
 need_value() { [ "$#" -ge 2 ] || { usage; exit 2; }; }
 while [ "$#" -gt 0 ]; do
@@ -27,7 +27,7 @@ while [ "$#" -gt 0 ]; do
 done
 case "$MODE" in
   maintain-loop) MODE=maintain ;;
-  maintain|monitor-nightly|digest|lessons-deliver) : ;;
+  maintain|monitor-nightly|digest) : ;;
   *) usage; exit 2 ;;
 esac
 case "$ISSUE" in
@@ -238,14 +238,6 @@ case "$MODE" in
       END { exit(found ? 0 : 1) }
     ' "$ROOT/docs/human-tasks.md"; then pending=1; fi
     [ "$new_runs" -eq 1 ] || [ "$pending" -eq 1 ] || noop
-    ready
-    ;;
-
-  lessons-deliver)
-    [ -n "$REPO" ] || REPO="${SAAS_PLUGIN_REPO:-}"
-    [ -n "$REPO" ] || noop
-    queue="$(cd "$ROOT" && bash "$SCRIPT_DIR/lessons-deliver.sh" --list --json --repo "$REPO")" || exit 1
-    [ "$(printf '%s' "$queue" | jq length)" -gt 0 ] || noop
     ready
     ;;
 esac

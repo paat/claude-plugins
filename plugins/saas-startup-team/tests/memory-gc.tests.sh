@@ -83,15 +83,13 @@ EOF
   assert_file_not_exists "MG5: no report — out-of-scope grant ignored" "$wd/.startup/memory-gc/2026-07-09.md"
   assert_file_contains "MG5b: out-of-scope grant left in place" "$wd/CLAUDE.md" "unrelated"
 
-  # MG6: grant convention documented once in learnings-style.md.
+  # MG6: grant convention documented on memory-gc itself (#390 removed learnings-style).
   assert_file_contains "MG6: grant format documented" \
-    "$PLUGIN_ROOT/templates/learnings-style.md" "expires:"
+    "$PLUGIN_ROOT/scripts/memory-gc.sh" "expires: YYYY-MM-DD"
 
-  # MG7: auto-learn hook carries grant-expiry + sweep-back instructions.
-  assert_file_contains "MG7: auto-learn mentions grant expiry format" \
-    "$PLUGIN_ROOT/scripts/auto-learn.sh" "expires:"
-  assert_file_contains "MG7b: auto-learn spawns sweep-back task" \
-    "$PLUGIN_ROOT/scripts/auto-learn.sh" "human-tasks.md"
+  # MG7: auto-learn removed (#390); grant expiry lives on memory-gc only.
+  assert_file_not_exists "MG7: auto-learn.sh deleted" \
+    "$PLUGIN_ROOT/scripts/auto-learn.sh"
 
   # MG8: /maintain runs the weekly gc leg.
   assert_file_contains "MG8: maintain invokes memory-gc" \

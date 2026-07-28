@@ -20,7 +20,6 @@ Load once per invocation (on demand only):
 | `${CLAUDE_PLUGIN_ROOT}/references/deliver/entrypoints.md` | Always — select entrypoint config |
 | `../../templates/delivery-scope-contract.md` | Always — Done / Preserve / Out of Scope |
 | `../../templates/delivery-scope-planning.md` | Plan phase |
-| `../workflows/routing-telemetry.md` | After concrete work is selected |
 | `../workflows/mutation-ownership.md` | Before any worker mutation |
 | `../triggered-saas-gates.md` | When a product class is touched |
 | `../../templates/merge-policy.md` | Before any merge |
@@ -29,7 +28,7 @@ Load once per invocation (on demand only):
 | `../workflows/goal-deliver-maintain-receipts.md` | Only when `SAAS_EMBEDDED_CALLER=maintain` |
 
 Set `SAAS_DELIVER_ENTRYPOINT` to `improve` | `goal-deliver` | `tweak` | `startup-impl`
-before the graph. Reuse one `SAAS_RUN_ID` per delivery attempt.
+before the graph.
 
 ## Delivery graph (mandatory order)
 
