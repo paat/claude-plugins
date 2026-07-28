@@ -109,6 +109,12 @@ test_delivery_routing() {
     "$PLUGIN_ROOT/references/delivery-playbook.md" 'codex-run-role'
   assert_file_not_contains "DR43: no codex-implement in graph" \
     "$PLUGIN_ROOT/references/delivery-playbook.md" 'codex-implement'
+  assert_file_contains "DR44: conductor must not implement" \
+    "$PLUGIN_ROOT/references/delivery-playbook.md" 'must not implement'
+  assert_file_contains "DR45: isolated-build-assert required" \
+    "$PLUGIN_ROOT/references/delivery-playbook.md" 'isolated-build-assert.py'
+  assert_file_exists "DR46: isolated-build-assert script" \
+    "$PLUGIN_ROOT/scripts/isolated-build-assert.py"
 
   rm -rf "$wd" "$repo"
 }

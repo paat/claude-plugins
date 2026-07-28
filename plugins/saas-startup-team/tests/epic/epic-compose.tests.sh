@@ -17,6 +17,8 @@ test_epic_compose() {
   assert_file_exists "EC3: epic_compose_validate.py" "$val"
   assert_file_exists "EC4: compose docs" "$PLUGIN_ROOT/docs/legacy/epic-compose.md"
   assert_file_contains "EC5: auto-runs epic skill" "$skill" 'skills/epic/SKILL.md'
+  assert_file_contains "EC5b: meta-orchestrate default" "$skill" 'meta-orchestrate'
+  assert_file_contains "EC5c: parent must not implement" "$skill" 'implement product code'
   assert_file_contains "EC6: dry-run" "$skill" '--dry-run'
   assert_file_contains "EC7: compose-only opt-out" "$skill" '--compose-only'
   assert_file_contains "EC7b: same run" "$skill" 'no second user prompt'

@@ -28,6 +28,9 @@ test_epic() {
   fi
 
   assert_file_contains "EP8: serial concurrency" "$skill" 'concurrency=1'
+  assert_file_contains "EP8b: meta-orchestrator role" "$skill" 'Meta-orchestrator'
+  assert_file_contains "EP8c: isolated-build-assert preflight" "$skill" 'isolated-build-assert.py preflight'
+  assert_file_contains "EP8d: never parent product edit" "$skill" 'edit product source, product tests'
   assert_file_contains "EP9: one branch" "$skill" 'epic/<n>-<slug>'
   assert_file_contains "EP10: epic_plan" "$skill" 'epic_plan.py'
   assert_file_contains "EP11: epic_active" "$skill" 'epic_active.py'

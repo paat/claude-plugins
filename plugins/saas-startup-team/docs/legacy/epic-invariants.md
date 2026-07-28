@@ -13,24 +13,30 @@ not replace — `deliver`, `maintain`, tribunal-review, or `issue-file`.
    epic PR merges to the default branch. No premature “child done = merged.”
 4. **GH + git authority.** No `.startup` state machine, claims, or leases for
    epic orchestration. Resume evidence = PR marker + child commits / review notes.
-5. **Tribunal hard-require for execution.** `/epic --plan` may run without
+5. **Meta-orchestrator ≠ implementer.** The parent `/epic` (or `/epic-compose`
+   default) session is the conductor only. It must not edit product source,
+   product tests, or `.startup/workflows/**`. Standard/deep Isolated Build goes
+   through a host worker (`codex-cast.sh` on Codex) with
+   `isolated-build-assert.py` preflight before the worker and post+receipt after.
+   Parent product patches followed by cast-as-validation are forbidden.
+6. **Tribunal hard-require for execution.** `/epic --plan` may run without
    tribunal-review. Mutation stops if tribunal-review is missing. Each child is
    reviewed on `base_sha..head_sha` only; re-review after critical fixes.
    Closing-tribunal runs on the full final epic diff before merge.
-6. **Criticals same run.** Tribunal critical/high findings block the next child
-   until fixed and re-reviewed.
-7. **Residuals.** Use `issue-file`. Out-of-scope → GH only (no checklist change).
+7. **Criticals same run.** Tribunal critical/high findings block the next child
+   until fixed and re-reviewed (fixes via worker, not parent product edits).
+8. **Residuals.** Use `issue-file`. Out-of-scope → GH only (no checklist change).
    In-scope → GH + append unchecked checklist line on the epic. Filing a residual
    is not completion of the parent child.
-8. **Refuse empty checklists.** Zero parseable `- [ ] #N` children → stop
+9. **Refuse empty checklists.** Zero parseable `- [ ] #N` children → stop
    (decompose is out of Phase 1).
-9. **Cooperative active-epic guard.** While a **marker-bearing** epic PR is open
-   (`<!-- saas-epic: … -->` in the PR body), mutating `/improve`,
-   `/maintain --mutate`, and ad-hoc `/deliver` on other work must refuse
-   (read-only/shadow may continue). Unmarked `epic/*` branch names are
-   **advisory only** (logged, never block). Not an atomic lock. Guard fails
-   closed on `gh`/JSON errors.
-10. **Close gate.** Required **PR** CI + branch protection; merge only via the
+10. **Cooperative active-epic guard.** While a **marker-bearing** epic PR is open
+    (`<!-- saas-epic: … -->` in the PR body), mutating `/improve`,
+    `/maintain --mutate`, and ad-hoc `/deliver` on other work must refuse
+    (read-only/shadow may continue). Unmarked `epic/*` branch names are
+    **advisory only** (logged, never block). Not an atomic lock. Guard fails
+    closed on `gh`/JSON errors.
+11. **Close gate.** Required **PR** CI + branch protection; merge only via the
     epic PR. After merge the orchestrator **stays on** the train: poll default-
     branch CI/deploy for the **exact** `merge_sha`
     (`gate.sh release poll --deploy-sha` / `poll-gate.sh --deploy-sha` — never
@@ -69,9 +75,11 @@ GitHub existence/open/label checks are **preflight** (orchestrator/`gh`), not th
 for child in plan.children where not checked:
   assert concurrency 1 and branch == epic branch
   base_sha=$(git rev-parse HEAD)
-  deliver in epic mode (commit/push to epic PR only)
+  isolated-build-assert.py preflight --base base_sha
+  deliver in epic mode via worker (codex-cast); commit/push to epic PR only
+  isolated-build-assert.py post --base base_sha --receipt cast.json
   tribunal on base_sha..HEAD
-  fix criticals + re-tribunal until clean or blocked
+  fix criticals via worker + re-tribunal until clean or blocked
   record reviewed head SHA on PR (comment or checklist note)
   next child  # do not close GitHub issue yet
 ```

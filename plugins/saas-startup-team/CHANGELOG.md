@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.3 — 2026-07-28
+
+- Meta-orchestrator for `/epic` + default `/epic-compose`: parent conducts; workers implement via `isolated-build-assert.py` + cast.
+
 ## 1.2.2 — 2026-07-28
 
 - `/epic` close-out: after merge, poll deploy on exact `merge_sha` and live-verify

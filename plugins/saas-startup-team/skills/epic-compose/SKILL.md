@@ -1,12 +1,14 @@
 ---
 name: epic-compose
-description: "Scan open issues, file focused epic, auto-run /epic. Usage: /epic-compose [--dry-run] [--compose-only] [hint]"
+description: "Scan open issues, file focused epic, auto-run /epic as meta-orchestrator. Usage: /epic-compose [--dry-run] [--compose-only] [hint]"
 ---
 
 # Epic compose
 
 `docs/legacy/epic-compose.md`. Flow: scan → draft one focused epic (2–12 leaves) →
 validate → file → **run `skills/epic/SKILL.md` on new N** (same turn).
+
+Default = compose + meta-orchestrate (conductor only; must not implement product code).
 
 1. Health-preflight `--require-gh --check-sync`
 2. `python3 scripts/epic_scan.py --repo OWNER/REPO > /tmp/epic-scan.json`

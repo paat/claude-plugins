@@ -1,7 +1,9 @@
 # Epic compose — scan issues → focused epic
 
 Upstream of `/epic`. Produces **one** GitHub epic issue with a parseable child
-checklist. Implementation is always `/epic <n>` (serial train).
+checklist. Implementation is always `/epic <n>` (serial train) with the parent
+session as **meta-orchestrator** (conductor only — workers implement product
+code; see `epic-invariants.md` conductor contract).
 
 ## Focus rules (hard)
 
@@ -61,8 +63,10 @@ epic_scan.py → (agent clusters for focus) → draft body
 | Mode | Mutation |
 |------|----------|
 | `--dry-run` | Scan + draft + validate only; print body |
-| default (file + implement) | Create epic, then run `/epic <n>` immediately |
+| default (file + meta-orchestrate) | Create epic, then run `/epic <n>` immediately as conductor |
 | `--compose-only` | Create epic only; do not start `/epic` |
 
 Product implementation, merge, post-merge deploy poll, live verify, and leaf
-closes happen only inside `/epic` (not in the compose drafting steps).
+closes happen only inside `/epic` (not in the compose drafting steps). Default
+compose still lands product changes via `/epic` workers — the parent must not
+implement them itself.

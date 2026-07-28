@@ -45,25 +45,22 @@ A new public/indexable route must include `public_route_discoverability`.
 
 ## Isolated Build
 
-Workers edit product source, tests, and workflow specs but **do not commit**. After return:
-
-1. `delivery-route.sh check-diff --base "$BASE_SHA"`
-2. `supervisor-commit.sh --message TEXT --check ./check.sh` (excludes `.startup/**`)
-3. Assert new commit parent is expected base
+**Conductor must not implement.** Workers edit product source, tests, and workflow
+specs but **do not commit**. Parent-patch then cast-as-validation is forbidden.
+Standard/deep: `BASE_SHA` → classify → `isolated-build-assert.py preflight` → worker
+→ `isolated-build-assert.py post --receipt` (`codex-cast --json-out`: implement /
+success / `commit_sha=$BASE_SHA`) → `check-diff` → `supervisor-commit.sh` → assert.
 
 | Profile | Path |
 |---------|------|
 | mechanical | Named script only; no model worker |
 | light | `tweak-run.sh` containment (≤3 files, ≤15 lines, no sensitive paths); exit 20 escalates |
-| standard/deep | Host-native worker. Codex: `scripts/codex-cast.sh` with explicit `--worktree`, `--mode implement`, `--model`, `--effort`, `--timeout`. Never invent founder persona agents or nested Codex controllers. |
+| standard/deep | Host-native worker only. Codex: `codex-cast.sh` (`--worktree`, `--mode implement`, `--model`, `--effort`, `--timeout`, `--json-out`). No founder personas or nested controllers. |
 
-Fix the **recurrence class** with red-before/green-after proof and a mechanical regression
-guard when possible. Run `./check.sh` — the canonical full-suite entrypoint. Honor
-`references/triggered-saas-gates.md`.
-
-When `.startup/workflows/registry.md` exists and the change touches routes, jobs, states,
-webhooks, checkout/payment, LLM pipelines, support intake, operator flows, or contracts,
-update the affected `WORKFLOW-*.md` specs.
+Conductor-only: `.codex-cast-*.{md,json}`, `.epic-*.md`, `.epic-compose-draft.md`,
+`.epic-pr-body.md`. Worker does red/green + `./check.sh`. Honor
+`references/triggered-saas-gates.md`. When `.startup/workflows/registry.md` applies,
+the worker updates `WORKFLOW-*.md`.
 
 ## Independent Review
 

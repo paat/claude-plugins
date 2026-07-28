@@ -94,8 +94,8 @@ Cadence lives outside the plugin. Examples:
 ## Codex
 
 Command workflows ship as plugin skills. Implementation is Codex-only on Codex hosts
-(no Claude Code fallback). Separate workers: `scripts/codex-cast.sh` with explicit
-worktree, mode, model, effort, timeout.
+(no Claude Code fallback). Parent conducts; workers implement via `codex-cast.sh` (`--json-out`) gated by
+`isolated-build-assert.py`. `/epic` / default `/epic-compose` are meta-orchestrators.
 
 ## Browser / UX
 
