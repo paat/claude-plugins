@@ -1,20 +1,19 @@
 # Changelog
 
-## 1.2.3 — 2026-07-28
+## 1.2.4 — 2026-07-28
+- Hooks: PreToolUse fail-open when plugin root unset; fail-closed only if root bound but `dispatch.sh` missing.
 
+## 1.2.3 — 2026-07-28
 - Meta-orchestrator for `/epic` + default `/epic-compose`: parent conducts; workers implement via `isolated-build-assert.py` + cast.
 
 ## 1.2.2 — 2026-07-28
-
 - `/epic` close-out: after merge, poll deploy on exact `merge_sha` and live-verify
   before closing children/epic (same unattended turn).
 
 ## 1.2.1 — 2026-07-28
-
 - `/epic-compose`: scan → file focused epic → auto-run `/epic` (`--dry-run`/`--compose-only`).
 
 ## 1.1.1 — 2026-07-28
-
 - epic_active: marker-only blockers; JSON fail-closed; check fixture tests.
 
 ## 1.1.0 — 2026-07-28
