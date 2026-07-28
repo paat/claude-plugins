@@ -21,20 +21,12 @@ final chunk list.
 
 For each ready chunk (dependencies merged):
 
-0. **Claim work unit** (standalone):
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-     --acquire "goal-deliver:${chunk_slug}" \
-     --state-dir .startup/leases \
-     --owner-file ".startup/leases/.owners/goal-deliver-${chunk_slug}.owner" \
-     --ttl-seconds 1800
-   ```
-   Embedded skips this second delivery-scope lease acquisition.
+0. **Identity** (standalone): record branch/HEAD before mutation. No whole-pass lease.
+   Embedded uses the maintain-v3 isolation path.
 
 1. **Build** via the deliver graph (`SKILL.md` Plan→Build→Review) in new-branch mode off
-   the default branch. Embedded uses the receipt adapter for its source transaction, one
-   bound PR, and persisted recovery while applying the same acceptance and quality
-   requirements.
+   the default branch (prefer isolated worktree). Apply the same acceptance and quality
+   requirements; release facts via `maintain-v3.sh release-facts` when embedded.
 
 2. **Close the tribunal loop** on the open PR. Load and follow
    `tribunal-review:closing-tribunal-loop` (PR-only; each round is a PR comment). Run

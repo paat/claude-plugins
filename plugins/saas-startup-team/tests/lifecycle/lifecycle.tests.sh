@@ -126,25 +126,16 @@ test_lifecycle() {
   assert_equals "LC60: importer did not write active_role" \
     "$(jq -r .active_role "$workdir/.startup/state.json")" "product-discovery"
 
-  # Cancellation / budget honesty via lease + skill contract (executable lease release)
-  local lease_script="$PLUGIN_ROOT/scripts/single-flight.sh"
-  assert_file_exists "LC61: single-flight present for cancel/release" "$lease_script"
-  assert_file_contains "LC62: cancel releases lease" "$skill" '--release'
+  # Cancellation / budget honesty without whole-pass lease (#389)
+  assert_file_not_exists "LC61: single-flight deleted" \
+    "$PLUGIN_ROOT/scripts/single-flight.sh"
+  assert_file_contains "LC62: cancel without primary reset" "$skill" \
+    'without resetting the primary checkout'
   assert_file_contains "LC63: budget_exhausted named" "$skill" 'budget_exhausted'
   assert_file_contains "LC64: incomplete named" "$skill" 'incomplete'
-
-  # Simulate cancelled session: acquire then release leaves no live owner
-  mkdir -p "$workdir/.startup/leases/.owners"
-  ec=0
-  (cd "$workdir" && bash "$lease_script" \
-    --acquire "startup:${workdir}" --state-dir .startup/leases \
-    --owner-file .startup/leases/.owners/startup.owner --ttl-seconds 60) || ec=$?
-  assert_exit_code "LC65: cancel setup acquire" "$ec" 0
-  ec=0
-  (cd "$workdir" && bash "$lease_script" \
-    --release "startup:${workdir}" --state-dir .startup/leases \
-    --owner-file .startup/leases/.owners/startup.owner) || ec=$?
-  assert_exit_code "LC66: cancel path releases lease" "$ec" 0
+  assert_file_contains "LC65: cancelled named" "$skill" 'cancelled'
+  assert_file_contains "LC66: no whole-pass session lease" "$skill" \
+    'No whole-pass session lease'
 
   # Empty tree is fine
   workdir2=$(make_workdir)
@@ -156,7 +147,7 @@ test_lifecycle() {
 
   assert_file_contains "LC69: startup uses health preflight" "$startup" 'health-preflight.sh'
   assert_file_contains "LC70: startup uses legacy-import" "$startup" 'legacy-import.sh'
-  assert_file_contains "LC71: lifecycle uses single-flight" "$skill" 'single-flight.sh'
+  assert_file_not_contains "LC71: lifecycle has no single-flight" "$skill" 'single-flight.sh'
   assert_file_contains "LC72: lifecycle uses market-scout when needed" "$skill" \
     'market-scout.sh'
   assert_file_contains "LC73: Codex startup alias → command" \

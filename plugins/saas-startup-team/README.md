@@ -380,10 +380,9 @@ supervisor ownership into a nested `/goal-deliver` context.
 Codex CLI automation must start `/maintain-loop` in a collaboration-capable,
 non-ephemeral coordinator session so the fresh pass returns a stable child identity.
 
-**No linked product worktrees (hard).** Primary working directory only.
-`assert-primary-only` ignores leftover `/tmp/tribunal-*` review trees and fails
-closed on any other extra worktree (does not auto-delete). Isolated stacks use a
-plain `git clone`, never `git worktree add`. (`--dry-run` is read-only.)
+**Native worktrees coexist.** Maintain v3 prefers `git worktree` isolation; linked
+trees are not auto-deleted. Short scheduler/issue/release locks only — no whole-pass
+leases or primary hard-reset. Stranded legacy receipts: `scripts/legacy-drain.sh`.
 
 ### Triage verdicts
 
@@ -428,15 +427,9 @@ The supervisor also stops on deploy failure (unrecoverable infra/flaky issues ha
   negative/unchanged requirement, or implementation of any explicitly named surface
   that was not touched. Bare basenames are dropped when a full repository path with
   the same basename is already present.
-- **Single-flight leases:** `scripts/single-flight.sh` owns issue/job/scan/report/deploy
-  work units with owner, heartbeat, stale replacement audit notes, and release/status
-  commands. Long-running work is treated as alive when the heartbeat/logs advance. The
-  lease holder uses Linux ptrace to contain detached descendants without changing the
-  command's `/proc` view. This reserves the process's tracer slot, so held commands cannot
-  run ptrace-dependent tools such as `strace`, `gdb`, `rr`, or LeakSanitizer stop-the-world,
-  and stop-signal job control is not preserved. Containment assumes cooperative checks
-  inside the dev-container boundary: raw `CLONE_UNTRACED` can evade tracing, with the
-  retained process-token sweep serving only as a cleanup backstop.
+- **Short maintain locks only:** `scripts/maintain-v3.sh` provides scheduler (≤120s),
+  per-issue isolation bind (≤300s), and release-mutation (≤600s) locks. No whole-pass
+  leases, guardians, or ptrace containment.
 - **Authenticated `gh` (GitHub CLI)** and standard tooling: `bash` 4+, `git`, `jq`,
   `awk`, `sed`, OpenSSL, GNU coreutils `date`/`timeout`/`realpath`/`sha256sum`, and
   util-linux `flock` and `setpriv`, GNU findutils, Python 3, and `tar`.

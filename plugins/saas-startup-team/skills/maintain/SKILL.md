@@ -18,12 +18,10 @@ Scheduler lock → inventory → WIP-first select → release lock
 ## Invoke
 
 ```bash
-# Default: shadow (selection + facts only; no mutation)
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-v3.sh" tick --shadow \
   --repo-root "$(git rev-parse --show-toplevel)" \
   --allow-linked-worktrees
 
-# Opt-in mutation after shadow agreement
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/maintain-v3.sh" tick --mutate \
   --repo-root "$(git rev-parse --show-toplevel)" \
   --allow-linked-worktrees
@@ -47,7 +45,8 @@ Contract: `../../references/workflows/maintain-v3.md`.
    → else one eligible queue issue. Never greenfield while resume WIP exists.
 3. **Human carve-outs:** reuse `maintain-human-gate.sh`; parked issues are skipped.
 4. **Isolation:** native worktree preferred; else disposable local clone; else
-   explicit `--allow-serial-primary`. Never silent primary mutation.
+   explicit `--allow-serial-primary`. Never silent primary mutation. Cancel must
+   not reset or clean the primary checkout.
 5. **Deliver:** on mutate + deliverable selection, load `../deliver/SKILL.md` with
    `SAAS_DELIVER_ENTRYPOINT=goal-deliver` in the isolation path. No claims,
    `maintain:claimed` labels, or compatibility receipts.
@@ -62,8 +61,17 @@ Contract: `../../references/workflows/maintain-v3.md`.
 | `--shadow` (default) | Inventory + select JSON; no git/GitHub mutation |
 | `--mutate` | Isolate + hand off to deliver; release facts without claims |
 
-## Legacy
+## Legacy receipts (explicit, once per upgrade)
 
-Legacy `/maintain` + `maintain-delivery.sh` claim/receipt path remains for shadow
-comparison and recovery until #389 drains it. Prefer this skill for new ticks.
-Do not dual-write claims from v3.
+Normal ticks never create, load, or migrate legacy claims. After upgrade, when
+`workflow-probe.sh` reports `legacy receipts` or before the first mutate tick on a
+repo that still has maintain-runtime deliveries, run the isolated drain once:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/legacy-drain.sh" inventory --repo-root "$(git rev-parse --show-toplevel)" --json
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/legacy-drain.sh" drain --repo-root "$(git rev-parse --show-toplevel)" --apply
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/legacy-drain.sh" verify --repo-root "$(git rev-parse --show-toplevel)" --json
+```
+
+Idempotent. Source receipts stay on disk until verify. Unresolved items become
+sanitized `docs/human-tasks.md` lines (issue + reason code only).

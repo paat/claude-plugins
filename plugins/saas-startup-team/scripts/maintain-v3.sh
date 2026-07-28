@@ -73,19 +73,18 @@ while [ "$#" -gt 0 ]; do
 done
 need jq
 
+# shellcheck source=maintain-paths.sh
+. "$SCRIPT_DIR/maintain-paths.sh"
 primary() {
   local r=$1
   [ -d "$r" ] || die "--repo-root must be a directory" 2
-  if [ -x "$SCRIPT_DIR/maintain-leases.sh" ]; then
-    bash "$SCRIPT_DIR/maintain-leases.sh" primary-root --repo-root "$r" || die "primary resolve failed" 2
-  else
-    (cd "$r" && pwd -P)
-  fi
+  maintain_paths_resolve "$r" || die "primary resolve failed" 2
+  printf '%s\n' "$MAINTAIN_PRIMARY"
 }
 git_common() {
-  local r=$1 c; c=$(git -C "$r" rev-parse --git-common-dir) || die "not a git repo"
-  case "$c" in /*) ;; *) c="$r/$c" ;; esac
-  (cd "$c" && pwd -P)
+  local r=$1
+  maintain_paths_resolve "$r" || die "not a git repo"
+  printf '%s\n' "$MAINTAIN_COMMON"
 }
 state_dir_for() {
   local r=$1

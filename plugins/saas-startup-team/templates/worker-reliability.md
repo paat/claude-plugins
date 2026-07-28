@@ -1,10 +1,8 @@
 # Worker reliability rules
 
-- **No linked product worktrees (hard).** Primary working directory only.
-  `assert-primary-only` ignores leftover `/tmp/tribunal-*` review trees; any
-  other extra worktree fails closed (never auto-deleted). Never set
-  `core.worktree` or `git worktree add` for product isolation — use a plain
-  `git clone`. `/improve`, `/tweak`, and one-shots run on the primary only.
+- **Native worktrees coexist.** Isolation prefers `git worktree` or a disposable
+  clone (#389). Never auto-delete foreign worktrees. Never set `core.worktree`.
+  Do not hard-reset or `clean` the primary checkout on cancel.
 - **Re-resolve paths after any checkout/branch/worktree switch.** Before further
   file operations, re-run `git rev-parse --show-toplevel` and rebuild absolute
   paths from it — cwd and relative paths go stale across a switch, which is how

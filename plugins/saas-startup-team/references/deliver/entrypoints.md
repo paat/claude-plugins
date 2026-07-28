@@ -31,29 +31,22 @@ pr_url=$(gh pr list --head "$current" --state open --json url --jq '.[0].url' 2>
 2. `current != default` AND open PR → **stay** (append commits; do not open a new PR).
 3. Else ask stay vs branch-off.
 
-### Claim Work Unit
+### Work unit identity
 
-Before branch mutation, claim the work unit:
+Before branch mutation, record identity (no whole-pass lease — #389):
 
 ```bash
 ORIGINAL_BRANCH=$(git branch --show-current)
 ORIGINAL_HEAD=$(git rev-parse HEAD)
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --acquire "improve:${slug}" --state-dir .startup/leases \
-  --owner-file ".startup/leases/.owners/improve-${slug}.owner" --ttl-seconds 1800
 ```
 
-If acquisition refuses, leave branch and tree untouched. Delivery does not require
-`.startup/state.json`; if that file happens to exist, a host may snapshot it as
-`state.before` for exact refusal restoration only — it is not delivery authority.
+Delivery does not require `.startup/state.json`. Prefer isolated worktrees for build;
+never hard-reset the primary on cancel.
 
 ### Establish Branch
 
-**`stay` mode:** no branch operation. **`new-branch` mode:** create `improve/${slug}`
-only after the lease is held. On refusal to proceed, restore with
-`git checkout "$ORIGINAL_BRANCH"` after verifying
-`test -z "$(git status --porcelain)"` and `HEAD == $ORIGINAL_HEAD`; delete only the
-unmutated `improve/${slug}` branch; release the lease.
+**`stay` mode:** no branch operation. **`new-branch` mode:** create `improve/${slug}`.
+On cancel, leave the primary clean; do not `reset --hard` or `clean` the primary.
 
 **Preflight extras:** architecture doc `docs/architecture/architecture.md` should exist
 for stack/URLs; warn if missing.
@@ -72,7 +65,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/supervisor-commit.sh" \
 ```
 
 **Finish:** push; `new-branch` creates PR with What/Changes/Regression test/Closure
-audit/QA sections; `stay` reports existing PR. Never merge. Release lease after terminal.
+audit/QA sections; `stay` reports existing PR. Never merge.
 
 **Scope guard (advisory):** 3+ distinct features → suggest `/startup`; proceed if confirmed.
 
@@ -85,47 +78,19 @@ audit/QA sections; `stay` reports existing PR. Never merge. Release lease after 
 
 **Invocation identity** (`SAAS_INVOCATION_ID` matches `^run-[0-9a-f]{32}$`):
 
-- Standalone: reuse canonical inherited value or mint once; defaults an absent value to `goal-deliver` for `SAAS_INVOCATION_COMMAND`; reject other values.
-- Embedded: only `SAAS_EMBEDDED_CALLER=maintain` with inherited canonical
-  `SAAS_INVOCATION_ID` and all four bindings nonempty:
-  `SAAS_EMBEDDED_WORKTREE`, `SAAS_EMBEDDED_CLAIM`,
-  `SAAS_EMBEDDED_LEASE_STATE`, `SAAS_EMBEDDED_REMAINING_SECONDS`.
-  Embedded **must inherit an already** canonical root. Current worktree must equal
-  embedded worktree. Invocation command must be `maintain` or `maintain-loop`. Claim
-  matches `<!-- maintain:claim:ID -->`. This accepts a prior canonical run ID and the
-  bounded legacy-promoted compatibility ID; it does not require the
-  **marker ID to equal** the current invocation. Heartbeat lease with
-  `maintain-leases.sh heartbeat --run-id "$SAAS_INVOCATION_ID"`. Missing/invalid binding →
-  `blocked/context_binding_violation`. Load
-  `goal-deliver-maintain-receipts.md` only after bindings pass.
-  Embedded: `/goal-deliver` never writes a root pass outcome; `/maintain` alone does.
-  Standalone: standalone `/goal-deliver` is the sole writer for its root.
+- Standalone: reuse canonical inherited value or mint once; default
+  `SAAS_INVOCATION_COMMAND=goal-deliver`.
+- Embedded from maintain-v3: isolation path from `maintain-v3.sh isolate` (worktree/clone);
+  set `SAAS_EMBEDDED_CALLER=maintain` and `SAAS_EMBEDDED_WORKTREE` to that path. No claim
+  markers, lease state files, or `maintain:claimed` labels. Missing worktree path →
+  `blocked/context_binding_violation`. Terminal release facts use
+  `maintain-v3.sh release-facts` (not compatibility receipts).
 
-For each delivery attempt, including a retry, mint a fresh child ID and export it as
-`SAAS_RUN_ID`; every goal work event appends with
-`--parent-run-id "$SAAS_INVOCATION_ID"`. Root totals are never computed from child events.
+Mint `SAAS_RUN_ID` per attempt (`agent-events.sh new-run-id`). Optional
+`--parent-run-id` for telemetry only — not ownership.
 
-**Preflight extras:** `tribunal-review:tribunal-loop` skill required. Standalone must be
-on default branch with clean tree; **skip this standalone primary-checkout gate** under
-maintain embed.
-
-### Claim the Delivery Scope
-
-**Claim delivery scope** before route/build and before every light or deep path
-(standalone only):
-
-```bash
-goal_fingerprint=$(printf '%s' "$resolved_scope_identity" | git hash-object --stdin)
-GOAL_LEASE_KEY="goal-deliver:${goal_fingerprint}"
-GOAL_OWNER_FILE=".startup/leases/.owners/goal-deliver-${goal_fingerprint}.owner"
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --acquire "$GOAL_LEASE_KEY" --state-dir .startup/leases \
-  --owner-file "$GOAL_OWNER_FILE" --ttl-seconds 1800
-```
-
-Embedded skips this acquisition (and skips this second delivery-scope lease acquisition
-for chunks); heartbeats `SAAS_EMBEDDED_LEASE_STATE` instead. Release on success and
-every handled terminal failure with `$GOAL_LEASE_KEY` / `$GOAL_OWNER_FILE` (standalone).
+**Preflight extras:** `tribunal-review:tribunal-loop` skill required. Prefer isolated
+worktree for build; never hard-reset primary on cancel.
 
 **Plan:** load `multi-unit.md` — PR-sized chunks, dependency order, acceptance packs.
 
@@ -144,10 +109,9 @@ completion condition and re-invoke `/goal-deliver` until it holds.
 closure audit → SHA-pinned merge → close issues. Then deploy watch (`multi-unit.md`).
 
 **Embedded safety:** non-closing issue reference such as `Refs #N`; never
-`Closes`/`Fixes`/`Resolves`. Resume only the one freshly bound existing PR; never open a
-replacement PR. Marker ID need not equal the current root. Receipt adapter owns
-helper-authorized merge, release/live proof, delayed issue close, crash recovery,
-rollback-or-stop, and canonical finalization.
+`Closes`/`Fixes`/`Resolves` from isolation unless release-facts authorize close.
+Resume only the bound existing PR; never open a replacement PR. Merge/deploy/close
+use short `maintain-v3` release locks and immutable release-facts.
 
 ---
 

@@ -956,181 +956,61 @@ test_plugin_issues() {
 # ---------------------------------------------------------------------------
 
 test_maintain() {
-  echo -e "\n${CYAN}== /maintain command ==${NC}"
+  echo -e "\n${CYAN}== /maintain command (v3 + legacy-drain) ==${NC}"
   local cmd="$PLUGIN_ROOT/references/workflows/maintain.md"
   local entry="$PLUGIN_ROOT/commands/maintain.md"
-  local protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
+  local v3="$PLUGIN_ROOT/scripts/maintain-v3.sh"
+  local drain="$PLUGIN_ROOT/scripts/legacy-drain.sh"
+  local skill="$PLUGIN_ROOT/skills/maintain/SKILL.md"
+  local contract="$PLUGIN_ROOT/references/workflows/maintain-v3.md"
   local goal="$PLUGIN_ROOT/references/deliver/graph.md"
-  local receipts="$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md"
   local codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-workflow/SKILL.md"
+
   assert_file_exists "M1: maintain.md exists" "$cmd"
-  # Frontmatter
-  assert_file_contains "M2: name frontmatter"          "$cmd" "name: maintain"
-  assert_file_contains "M3: user_invocable"            "$cmd" "user_invocable: true"
-  # Reuse / dependencies
-  assert_file_contains "M4: invokes goal-deliver"      "$cmd" "goal-deliver"
-  assert_file_contains "M5: tribunal hard dep"         "$goal" "tribunal-review"
-  # Stateless supervisor + disk state
-  assert_file_contains "M6: disk state dir"            "$cmd" ".startup/maintain"
-  assert_file_contains "M7: current-run persisted"     "$cmd" "current-run.json"
-  assert_file_contains "M8: stateless re-read"         "$cmd" "stateless"
-  # Read-only triage + supervisor-only mutation
-  assert_file_contains "M9: read-only triage"          "$cmd" "read-only"
-  # Verdicts (no deliver-hold; hold tier removed)
-  assert_file_contains "M10: agent-fixable verdict"    "$cmd" "agent-fixable"
-  assert_file_contains "M11: needs-human verdict"      "$cmd" "needs-human"
-  assert_file_contains "M12: blocked verdict"          "$cmd" "maintain:blocked"
-  assert_file_contains "M13: primary-only gate" \
-    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" "assert-primary-only"
-  # Triage fences humans into human-tasks.md
-  assert_file_contains "M14: human-tasks.md"           "$cmd" "human-tasks.md"
-  # Dependency ordering in v1
-  assert_file_contains "M15: dependency order"         "$cmd" "depends on"
-  # Idempotency: linked-PR detection is delegated to the queue builder.
-  assert_file_contains "M16: linked-PR detection"      "$cmd" ".excluded.linked_pr"
-  # Injection firewall + external side-effect ban
-  assert_file_contains "M17: injection firewall"       "$cmd" "inform requirements only"
-  assert_file_contains "M18: side-effect ban"          "$cmd" "side-effect"
-  # Merge safety (no --auto default; explicit rerun)
-  assert_file_contains "M19: squash merge"             "$goal" "--squash --delete-branch"
-  # Circuit breakers
-  assert_file_contains "M20: max-issues breaker"       "$cmd" "max-issues"
-  assert_file_contains "M21: max-merges breaker"       "$cmd" "max-merges"
-  # Safety flags
-  assert_file_contains "M22: --once flag"              "$cmd" "--once"
-  assert_file_contains "M23: --dry-run flag"           "$cmd" "--dry-run"
-  # Explicit final state / digest
-  assert_file_contains "M24: run digest"               "$cmd" "runs/"
-  assert_file_contains "M25: deploy classification"    "$cmd" "deploy-blocked"
-  # Primary-only hard gate (no linked git worktrees)
-  assert_file_not_contains "M26: no worktree add"           "$cmd" "worktree add --detach"
-  assert_file_not_contains "M27: no .worktrees/maintain"    "$cmd" ".worktrees/maintain"
-  assert_file_contains "M27a: primary-only hard gate in protocol" \
-    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    'assert-primary-only'
-  assert_file_contains "M27b: improve primary-only" \
-    "$PLUGIN_ROOT/references/deliver/graph.md" \
-    'Primary working directory only'
-  assert_file_contains "M27c: primary-only never auto-deletes worktrees" \
-    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    'never deletes worktrees'
-  assert_file_contains "M27d: isolated stacks use plain clone" \
-    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    'plain `git clone`'
-  assert_file_not_contains "M27e: protocol does not instruct auto worktree remove sweep" \
-    "$PLUGIN_ROOT/references/workflows/maintain-protocol.md" \
-    'Remove extras with `git worktree remove`'
-  # Fast no-op must not strand cached deliverable issues.
-  assert_file_contains "M28: cached resumable gate" "$cmd" "cached_resumable"
-  assert_file_contains "M29: cached agent-fixable enters queue" "$cmd" "deliverable queue input"
-  assert_file_contains "M30: cache hit still feeds queue" "$cmd" "A cache hit supplies the cached verdict"
-  # Claude /maintain recurrence + tribunal gates.
-  assert_file_contains "M31: canonical recurrence class gate" "$goal" "root-cause/recurrence class"
-  assert_file_contains "M32: canonical recurrence fix requires proof" "$goal" "red-before/green-after proof"
-  assert_file_contains "M33: canonical incident work adds a guard" "$goal" "mechanical regression guard"
-  assert_file_contains "M34: canonical merge binds current HEAD" "$goal" "latest-HEAD gates"
-  assert_file_contains "M35: default or head drift restarts validation" "$goal" \
-    "default/head advance restarts final validation"
-  assert_file_contains "M36: missing durable guard cannot silently close" "$goal" \
-    "if no durable guard is possible"
-  # Generated Codex workflow stays thin and loads canonical source policy.
-  assert_file_exists "M37: Codex maintain workflow exists" "$codex_cmd"
-  assert_file_not_contains "M38: Codex maintain has no duplicated hard-gate block" \
-    "$codex_cmd" 'Codex Maintain Hard Gates'
-  assert_file_contains "M45a: maintain uses queue builder" "$cmd" "maintain-queue.sh"
-  assert_file_contains "M45a1: maintain checks queue builder exit" "$cmd" "if ! QUEUE_JSON="
-  assert_file_contains "M45a2: maintain dry-run uses fixture queue state" "$cmd" "--issues-file <issues.json>"
-  assert_file_contains "M45a3: maintain uses the route-selected controller mode" "$cmd" \
-    '"$MAINTAIN_CONTROLLER_MODE"'
-  assert_file_contains "M45a3a: maintain lease acquire binds the primary checkout" "$protocol" \
-    'maintain-leases.sh" acquire'
-  assert_file_contains "M45a3a2: acquire uses repo-root as the primary" "$protocol" \
-    '--repo-root "$REPO_ROOT" --mode "$MAINTAIN_CONTROLLER_MODE"'
-  assert_file_not_contains "M45a3b: no unconditional canonical acquire contradicts legacy recovery" \
-    "$cmd" 'maintain-leases.sh acquire --mode maintain'
-  assert_file_contains "M45a4: maintain consumes stale blocked-label cleanup" "$cmd" ".cleanup.stale_maintain_blocked"
-  assert_file_contains "M45a5: maintain uses foreground lease-set hold" "$cmd" 'maintain-leases.sh" hold'
-  assert_file_contains "M45a6: maintain bounds foreground lease lifetime" "$cmd" '--max-seconds 14400'
-  assert_file_contains "M45a7: maintain keeps delivery under the controller lease" "$protocol" \
-    "active controller lease"
-  assert_file_contains "M45a8: maintain resumes from git after shell loss" "$cmd" \
-    "resume from pushed branch/PR, not from zero"
-  assert_file_contains "M45a9: maintain processes resumable PRs before new work" "$protocol" \
-    'Process `.resumable` before'
-  assert_file_contains "M45a10: resume re-proves current-head gates" "$receipts" \
+  assert_file_exists "M2: maintain-v3 engine" "$v3"
+  assert_file_exists "M3: legacy-drain" "$drain"
+  assert_file_exists "M4: maintain skill" "$skill"
+  assert_file_exists "M5: maintain command" "$entry"
+  assert_file_contains "M6: command loads skill" "$entry" 'skills/maintain'
+  assert_file_contains "M7: shadow default" "$skill" '--shadow'
+  assert_file_contains "M8: no claims" "$skill" 'No claims'
+  assert_file_contains "M9: short locks" "$contract" 'scheduler'
+  assert_file_contains "M10: worktree preferred" "$contract" 'git worktree'
+  assert_file_contains "M11: no primary reset on cancel" "$contract" 'never hard-reset'
+  assert_file_contains "M12: tribunal hard dep" "$goal" "tribunal-review"
+  assert_file_contains "M13: human-tasks for unresolved" "$cmd" "human-tasks.md"
+  assert_file_contains "M14: legacy drain inventory" "$cmd" "legacy-drain.sh"
+  assert_file_contains "M15: source intact until verify" "$cmd" "stay intact until verify"
+  assert_file_not_contains "M16: no maintain-leases on normal path" "$cmd" "maintain-leases.sh"
+  assert_file_not_contains "M17: no single-flight on normal path" "$cmd" "single-flight.sh"
+  assert_file_not_contains "M18: no lease-guardian" "$cmd" "lease-guardian.sh"
+  assert_file_not_exists "M19: maintain-delivery deleted" "$PLUGIN_ROOT/scripts/maintain-delivery.sh"
+  assert_file_not_exists "M20: maintain-leases deleted" "$PLUGIN_ROOT/scripts/maintain-leases.sh"
+  assert_file_not_exists "M21: single-flight deleted" "$PLUGIN_ROOT/scripts/single-flight.sh"
+  assert_file_not_exists "M22: lease-guardian deleted" "$PLUGIN_ROOT/scripts/lease-guardian.sh"
+  assert_file_not_exists "M23: maintain-attempt deleted" "$PLUGIN_ROOT/scripts/maintain-attempt.sh"
+  assert_file_not_exists "M24: maintain-self-heal deleted" "$PLUGIN_ROOT/scripts/maintain-self-heal.sh"
+  assert_file_not_exists "M25: maintain-escalation deleted" "$PLUGIN_ROOT/scripts/maintain-escalation.sh"
+  assert_file_not_exists "M26: trace-containment deleted" "$PLUGIN_ROOT/scripts/trace-containment.py"
+  assert_file_exists "M27: Codex maintain workflow exists" "$codex_cmd"
+  assert_file_contains "M28: maintain uses queue builder" "$PLUGIN_ROOT/scripts/maintain-v3.sh" "maintain-queue.sh"
+  assert_file_contains "M29: WIP-first" "$contract" "WIP"
+  assert_file_contains "M30: release-facts" "$contract" "release-facts"
+  assert_file_contains "M31: empty claims array" "$v3" 'claims:\[\]'
+  assert_file_contains "M32: only three lock kinds" "$v3" 'scheduler|issue|release'
+  assert_file_contains "M45a41: WIP-first contract rejects claim ownership" \
+    "$PLUGIN_ROOT/references/workflows/maintain-v2-contract.md" 'claim comments as ownership'
+  assert_file_contains "M45a42: auto-merge when gates pass" \
+    "$PLUGIN_ROOT/references/workflows/maintain-v2-contract.md" 'Auto-merge when gates pass'
+  assert_file_contains "M45a10: resume re-proves current-head gates" \
+    "$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md" \
     'Do not trust an earlier green check'
-  assert_file_contains "M45a11: resume never creates a replacement PR" "$receipts" \
+  assert_file_contains "M45a11: resume never creates a replacement PR" \
+    "$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md" \
     'Never open a replacement PR'
-  assert_file_contains "M45a12: second browser transport failure is issue-local" "$protocol" \
-    'continues independent queue work'
-  assert_file_contains "M45a13: maintain accepts coordinator lease identity" "$cmd" \
-    '--lease-run-id ID'
-  assert_file_contains "M45a14: internal lease identity never reaches probe" "$cmd" \
-    'never forward it to the probe'
-  assert_file_contains "M45a15: maintain exports exact coordinator lease identity" "$cmd" \
-    'MAINTAIN_LEASE_RUN_ID="$SAAS_INVOCATION_ID"'
-  assert_file_contains "M45a16: lease mutations reuse the exact controller tuple" "$protocol" \
-    'MAINTAIN_CONTROLLER_ARGS=('
-  assert_file_contains "M45a17: resumable rows carry no durable permission" "$cmd" \
-    '`.resumable` / WIP row is only a candidate'
-  assert_file_contains "M45a18: resume guard runs before every sensitive phase" "$protocol" \
-    'Immediately before any checkout'
-  assert_file_contains "M45a19: resume binds complete live issue identity" "$protocol" \
-    'complete label set, and assignees'
-  assert_file_contains "M45a20: resume reapplies human and assignment eligibility" "$protocol" \
-    'OPEN, unassigned, without `needs-human` or `epic`'
-  assert_file_contains "M45a21: issue-version drift re-triages and rebuilds" "$protocol" \
-    'On version drift, re-triage and rebuild'
-  assert_file_contains "M45a22: resume requires the exact queued PR" "$protocol" \
-    'number equal to `.resumable.pr_number`'
-  assert_file_contains "M45a23: resume uses PR head not claim markers" "$protocol" \
-    'Claim markers in old PRs are ignored for ownership'
-  assert_file_contains "M45a24: resume rejects malformed live evidence before mutation" "$protocol" \
-    'fails closed before worktree mutation'
-  assert_file_contains "M45a25: full live guard repeats immediately before merge" "$protocol" \
-    'Repeat the full live guard before QA/tribunal and immediately before'
-  assert_file_contains "M45a26: resume phases use the executable exact-row guard" "$protocol" \
-    'maintain-queue.sh --resume-candidate-file'
-  assert_file_contains "M45a27: active merge atomically pins the reviewed PR head" "$receipts" \
-    'gh pr merge --match-head-commit <receipt-head>'
-  assert_file_contains "M45a28: active merge compares the final live PR head" "$protocol" \
-    '[ "$LIVE_SHA" = "$BOUND_SHA" ]'
-  assert_file_contains "M45a29: legacy migration binds actor and PR provenance" "$protocol" \
-    'comment author must equal the PR author and current actor'
-  assert_file_contains "M45a30: legacy migration preserves the proven run identity" "$protocol" \
-    'Never mint a replacement ID'
-  assert_file_contains "M45a31: partial legacy promotion is idempotent" "$protocol" \
-    'complete one missing side only'
-  assert_file_contains "M45a32: promotion rebuilds the exact queue row" "$protocol" \
-    'rebuild the queue and'
-  assert_file_contains "M45a33: legacy promotion is append-only on the PR" "$protocol" \
-    'add a missing PR side first as a standalone PR'
-  assert_file_contains "M45a34: a partial promotion grants no authority" "$protocol" \
-    'One side alone grants no'
-  assert_file_contains "M45a35: stale same-actor legacy claims cannot migrate" "$protocol" \
-    '0 <= PR.createdAt - marker.createdAt <= 21600'
-  assert_file_contains "M45a36: legacy recovery follows non-marker live guards" "$protocol" \
-    'every non-marker live guard passes'
-  assert_file_contains "M45a37: canonical marker counts are exact per side" "$protocol" \
-    'zero or one occurrence on each side'
-  assert_file_contains "M45a38: legacy run IDs use the canonical grammar" "$protocol" \
-    '`\^\[A-Za-z0-9\]\[A-Za-z0-9_.-\]{0,127}\$`'
-  assert_file_contains "M45a39: ambiguous mutation results are re-fetched" "$protocol" \
-    'instead of blindly retrying an ambiguous API result'
-  assert_file_contains "M45a40: partial marker authors bind before mutation" "$protocol" \
-    'every existing marker-comment author'
-  assert_file_contains "M45a41: WIP-first contract rejects claim ownership" "$protocol" \
-    'claim comments as ownership'
-  assert_file_contains "M45a42: auto-merge when gates pass" "$protocol" \
-    'Auto-merge when gates pass'
-  assert_file_contains "M45a43: legacy selection is deterministic" "$protocol" \
-    '`createdAt`, then comment ID'
-  assert_file_contains "M45a44: conflicting shared markers block promotion" "$protocol" \
-    'every shared-marker occurrence must equal the derived marker'
-  assert_file_contains "M45a45: promotion requires terminal two-sided proof" "$protocol" \
-    're-fetch proves one matching marker on each side'
-  assert_file_contains "M45a46: promotion appends the missing issue side" "$protocol" \
-    'then add a missing issue side as a standalone issue comment'
+  assert_file_contains "M45a27: active merge atomically pins the reviewed PR head" \
+    "$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md" \
+    'gh pr merge --match-head-commit'
 
   # Queue builder regression: no-dependency issues must survive dependency parsing.
   local queue_script issues_file prs_file resume_candidate_file race_issues_file race_prs_file blocked_file active_blocked_file expired_blocked_file legacy_blocked_file bad_blocked_file bad_blocked_err dep_issues_file dep_status_file serial_dep_issues_file serial_dep_status_file closed_issues_file fake_bin live_out repo_live_out closed_status closed_err missing_status missing_err fixture_closed_status fixture_closed_err zero_status zero_err bad_blocked_status resume_status out race_out filtered single_issue cooled active_blocked expired_blocked dual_blocked dep_out serial_dep_out queue_numbers live_repo gh_calls unbound_dir unbound_status unbound_err
@@ -1781,11 +1661,9 @@ test_maintain_loop() {
   echo -e "\n${CYAN}== /maintain-loop command ==${NC}"
   local command="$PLUGIN_ROOT/commands/maintain-loop.md"
   local coordinator="$PLUGIN_ROOT/references/workflows/maintain.md"
-  local protocol="$PLUGIN_ROOT/references/workflows/maintain-protocol.md"
-  local goal="$PLUGIN_ROOT/references/deliver/graph.md"
+  local v3="$PLUGIN_ROOT/scripts/maintain-v3.sh"
   local codex_cmd="$PLUGIN_ROOT/skills/maintain-loop/SKILL.md"
   local old_codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-loop-workflow/SKILL.md"
-  local v3="$PLUGIN_ROOT/scripts/maintain-v3.sh"
 
   assert_file_exists "ML1: maintain-loop command exists" "$command"
   assert_file_contains "ML2: command is user invocable" "$command" "user_invocable: true"
@@ -1814,31 +1692,20 @@ test_maintain_loop() {
     'no inline as a fallback'
   assert_file_contains "ML13: result is compact" "$command" \
     "Keep only the child's compact terminal result"
-  # Coordinator contract remains in maintain.md reference for legacy recovery
   assert_file_contains "ML14: no-work exits before dispatch" "$coordinator" \
     'exit 3 is `no-op`'
   assert_file_contains "ML15: outer once bounds child count" "$coordinator" \
     '`--once` launches at most one child'
   assert_file_contains "ML16: dry-run is bounded" "$command" '--dry-run'
-  assert_file_contains "ML19: Codex requires fresh subagent" "$codex_cmd" \
-    'fresh Codex subagents'
-  assert_file_contains "ML22: Codex waits only after child identity" "$codex_cmd" \
-    'wait only after an identity is returned'
-  assert_file_contains "ML23: Codex anomalies defer to the canonical contract" "$codex_cmd" \
-    "source command's referenced coordinator contract"
-  assert_file_contains "ML25: Codex requires a durable coordinator session" "$codex_cmd" \
-    'collaboration-capable, non-ephemeral'
-  assert_file_contains "ML26: Codex uses one-hour blocking waits" "$codex_cmd" \
-    'wait_agent` with `timeout_ms: 3600000'
-  assert_file_contains "ML27: Codex relays changed-state milestones" "$codex_cmd" \
-    'compact collaboration message only when issue/PR, delivery, blocker, or status changes'
-  assert_file_contains "ML28: Codex retains the exact fresh-child command binding" "$codex_cmd" \
-    '--lease-run-id "$SAAS_INVOCATION_ID" --invocation-command maintain-loop'
-  assert_file_contains "ML29: Codex does not assume fresh-child environment inheritance" "$codex_cmd" \
-    'never assume a fresh child inherits coordinator environment'
-  assert_file_exists "ML30: generated Codex maintain workflow alias exists"     "$PLUGIN_ROOT/skills/saas-startup-team-maintain-workflow/SKILL.md"
+  if [ -f "$codex_cmd" ]; then
+    assert_file_contains "ML19: Codex requires fresh subagent" "$codex_cmd" \
+      'fresh Codex subagents'
+  fi
+  assert_file_exists "ML30: generated Codex maintain workflow alias exists" \
+    "$PLUGIN_ROOT/skills/saas-startup-team-maintain-workflow/SKILL.md"
   assert_file_exists "ML30b: maintain-loop skill exists" "$codex_cmd"
 }
+
 
 
 
@@ -4538,9 +4405,9 @@ test_handoff_secret_redaction() {
 }
 
 test_autonomous_demand_infra() {
-  echo -e "\n${CYAN}Suite AD: autonomous demand/preflight/single-flight infrastructure${NC}"
+  echo -e "\n${CYAN}Suite AD: autonomous demand/preflight infrastructure${NC}"
   local health="$PLUGIN_ROOT/scripts/health-preflight.sh"
-  local lease="$PLUGIN_ROOT/scripts/single-flight.sh"
+  local v3="$PLUGIN_ROOT/scripts/maintain-v3.sh"
   local packs="$PLUGIN_ROOT/scripts/acceptance-packs.sh"
   local demand="$PLUGIN_ROOT/scripts/demand-discovery.sh"
   local market="$PLUGIN_ROOT/scripts/market-scout.sh"
@@ -4552,7 +4419,8 @@ test_autonomous_demand_infra() {
   local partial_public_route="$PLUGIN_ROOT/tests/fixtures/public-route-partial-locale.md"
 
   assert_file_exists "AD1: health-preflight exists" "$health"
-  assert_file_exists "AD2: single-flight exists" "$lease"
+  assert_file_exists "AD2: maintain-v3 exists" "$v3"
+  assert_file_not_exists "AD2b: single-flight deleted" "$PLUGIN_ROOT/scripts/single-flight.sh"
   assert_file_exists "AD3: acceptance-packs exists" "$packs"
   assert_file_exists "AD4: demand-discovery exists" "$demand"
   assert_file_exists "AD4b: market-scout exists" "$market"
@@ -4574,11 +4442,11 @@ test_autonomous_demand_infra() {
     "$health" 'timeout 10 codex login status'
   assert_file_not_contains "AD4j: health preflight ignores stale sandbox configuration" \
     "$health" 'CODEX_SANDBOX'
-  for s in "$health" "$lease" "$packs" "$demand" "$market" "$closure" \
+  for s in "$health" "$v3" "$packs" "$demand" "$market" "$closure" \
     "$PLUGIN_ROOT/scripts/codex-network-off-sandbox.sh" \
     "$PLUGIN_ROOT/scripts/supervisor-commit.sh" \
     "$PLUGIN_ROOT/scripts/hooks-paused.sh" \
-    "$PLUGIN_ROOT/scripts/maintain-leases.sh"; do
+    "$PLUGIN_ROOT/scripts/legacy-drain.sh"; do
     ec=0; bash -n "$s" || ec=$?
     assert_exit_code "AD syntax: $(basename "$s")" "$ec" 0
   done
@@ -4659,21 +4527,27 @@ SH
     'Codex authentication is unavailable: Not logged in'
   rm -rf "$workdir"
 
+  # Short maintain-v3 locks replace single-flight whole-pass leases (#389).
   workdir=$(mktemp -d)
-  ec=0; output=$(bash "$lease" --acquire issue/42 --state-dir "$workdir" --owner one 2>&1) || ec=$?
-  assert_exit_code "AD7: lease acquire exits 0" "$ec" 0
-  ec=0; output=$(bash "$lease" --acquire issue/42 --state-dir "$workdir" --owner two 2>&1) || ec=$?
-  assert_exit_code "AD8: second active owner refused" "$ec" 1
-  assert_output_contains "AD8b: active owner reported" "$output" "active owner"
-  printf '1\n' > "$workdir/issue-42/heartbeat"
-  ec=0; output=$(bash "$lease" --acquire issue/42 --state-dir "$workdir" --owner two --ttl-seconds 1 2>&1) || ec=$?
-  assert_exit_code "AD9: stale owner needs explicit replace" "$ec" 2
-  ec=0; output=$(bash "$lease" --acquire issue/42 --state-dir "$workdir" --owner two --ttl-seconds 1 --replace-stale --reason "heartbeat expired" 2>&1) || ec=$?
-  assert_exit_code "AD10: stale owner replaced with reason" "$ec" 0
-  assert_file_contains "AD10b: replacement audited" "$workdir/issue-42/audit.log" "heartbeat expired"
-  ec=0; output=$(bash "$lease" --status issue/42 --state-dir "$workdir" --json 2>&1) || ec=$?
-  assert_exit_code "AD11: lease status exits 0" "$ec" 0
-  assert_output_contains "AD11b: status has owner two" "$output" '"owner":"two"'
+  ec=0; output=$(bash "$v3" lock acquire --kind issue --key issue-42 --state-dir "$workdir" \
+    --owner one --ttl-seconds 60 2>&1) || ec=$?
+  assert_exit_code "AD7: issue lock acquire exits 0" "$ec" 0
+  ec=0; output=$(bash "$v3" lock acquire --kind issue --key issue-42 --state-dir "$workdir" \
+    --owner two --ttl-seconds 60 2>&1) || ec=$?
+  assert_exit_code "AD8: second active owner refused" "$ec" 3
+  bash "$v3" lock release --kind issue --key issue-42 --state-dir "$workdir" --owner one >/dev/null
+  ec=0; output=$(bash "$v3" lock acquire --kind scheduler --key sched-1 --state-dir "$workdir" \
+    --owner two --ttl-seconds 30 2>&1) || ec=$?
+  assert_exit_code "AD9: scheduler lock acquire exits 0" "$ec" 0
+  bash "$v3" lock release --kind scheduler --key sched-1 --state-dir "$workdir" --owner two >/dev/null
+  ec=0; output=$(bash "$v3" lock acquire --kind release --key rel-1 --state-dir "$workdir" \
+    --owner two --ttl-seconds 30 2>&1) || ec=$?
+  assert_exit_code "AD10: release lock acquire exits 0" "$ec" 0
+  bash "$v3" lock release --kind release --key rel-1 --state-dir "$workdir" --owner two >/dev/null
+  ec=0; output=$(bash "$v3" lock status --kind issue --key issue-42 --state-dir "$workdir" \
+    --owner two 2>&1) || ec=$?
+  assert_exit_code "AD11: lock status exits 0" "$ec" 0
+  assert_output_contains "AD11b: released lock not held" "$output" '"held":false'
   rm -rf "$workdir"
 
   ec=0; output=$(bash "$packs" --select --category report_output_quality --text "customer report has citations and remedies" --json 2>&1) || ec=$?
@@ -5132,7 +5006,7 @@ test_autonomous_workflow_alignment() {
   local repo_root; repo_root="$(cd "$PLUGIN_ROOT/../.." && pwd)"
   assert_file_contains "AE1: startup calls health preflight" "$PLUGIN_ROOT/commands/startup.md" "health-preflight.sh"
   assert_file_contains "AE2: lifecycle uses market scout" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "market-scout.sh"
-  assert_file_contains "AE3: lifecycle uses single-flight" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "single-flight.sh"
+  assert_file_not_contains "AE3: lifecycle has no single-flight" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "single-flight.sh"
   assert_file_not_contains "AE4: startup no broad stale pkill command" "$PLUGIN_ROOT/commands/startup.md" "pkill -f 'agent-type saas-startup-team'"
   assert_file_not_contains "AE4b: lifecycle no broad pkill" \
     "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" \
@@ -5147,7 +5021,7 @@ test_autonomous_workflow_alignment() {
   assert_file_contains "AE12: README documents health preflight" "$PLUGIN_ROOT/README.md" "health-preflight.sh"
   assert_file_contains "AE13: README documents market scout" "$PLUGIN_ROOT/README.md" "market-scout.sh"
   assert_file_contains "AE14: README documents acceptance packs" "$PLUGIN_ROOT/README.md" "acceptance-packs.sh"
-  assert_file_contains "AE15: README documents single-flight" "$PLUGIN_ROOT/README.md" "single-flight.sh"
+  assert_file_contains "AE15: README documents short maintain locks" "$PLUGIN_ROOT/README.md" "Short maintain locks only"
   assert_file_contains "AE16: improve runs closure audit" "$PLUGIN_ROOT/references/deliver/graph.md" "issue-closure-audit.sh"
   assert_file_contains "AE17: goal-deliver runs closure audit" "$PLUGIN_ROOT/references/deliver/graph.md" "issue-closure-audit.sh"
   assert_file_contains "AE18: goal-deliver asks material promise question" "$PLUGIN_ROOT/references/deliver/graph.md" "material promise"

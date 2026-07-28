@@ -1,20 +1,15 @@
 ---
 name: pause
-description: "Record an intentional pause for a legacy session or cancel an in-flight lifecycle lease. Usage: /pause [reason]"
+description: "Record an intentional pause for a legacy session. Usage: /pause [reason]"
 user_invocable: true
 transitional: true
 ---
 
 # /pause
 
-New lifecycle runs do not use Stop-hook control. Prefer ending with an honest
-`cancelled` or `incomplete` outcome and releasing the startup lease:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/single-flight.sh" \
-  --release "startup:${PWD}" --state-dir .startup/leases \
-  --owner-file .startup/leases/.owners/startup.owner
-```
+New lifecycle runs do not use Stop-hook control or whole-pass leases. Prefer ending
+with an honest `cancelled` or `incomplete` outcome. Do not hard-reset or clean the
+primary checkout on cancel.
 
 ## Legacy session only
 
@@ -35,5 +30,8 @@ else
 fi
 ```
 
-If no state file and no live lease: report nothing to pause. Resume work with
-`/startup` (lifecycle) rather than rehydrating loop counters.
+If no state file: report nothing to pause. Resume with `/startup` (lifecycle).
+
+Leftover pre-0.90.22 files under `.startup/leases/` are inert after #389 (single-flight
+removed); they do not block work. Operators may delete that directory; do not invent a
+new lease runtime.
