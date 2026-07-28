@@ -7,4 +7,4 @@ description: "Run /startup workflow from saas-startup-team; alias /saas-startup-
 # Alias: /startup
 
 Discovery alias for `/saas-startup-team:startup`, `/startup`.
-Load and execute `../../commands/startup.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/lifecycle/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

@@ -7,4 +7,4 @@ description: "Run /operate workflow from saas-startup-team; alias /saas-startup-
 # Alias: /operate
 
 Discovery alias for `/saas-startup-team:operate`, `/operate`.
-Load and execute `../../commands/operate.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/operate/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

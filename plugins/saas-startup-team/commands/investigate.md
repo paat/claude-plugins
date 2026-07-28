@@ -1,14 +1,12 @@
 ---
 name: investigate
 description: "Operate investigate mode. Usage: /investigate {CID|--recent N}"
-argument-hint: "{CID | --recent N} [--dry-run] [--no-file-issues]"
-allowed-tools: Bash, Read, Write, Grep, Glob, Task
 user_invocable: true
 transitional: true
 ---
+<!-- GENERATED-ALIAS: do not edit; regenerate via scripts/generate_workflow_aliases.py from integrity/entrypoints.json -->
 
-# /investigate
+# Alias: /investigate
 
-Load `${CLAUDE_PLUGIN_ROOT}/skills/operate/SKILL.md` mode `investigate`.
-Use `subagent_type: "saas-startup-team:incident-investigator"` when spawning.
-Supervisor files a deduplicated GitHub issue only with explicit `--file-issues`.
+Generated alias for `/saas-startup-team:investigate`, `/investigate`. No workflow policy here.
+Load and execute `skills/operate/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

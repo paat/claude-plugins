@@ -7,4 +7,4 @@ description: "Run /bootstrap workflow from saas-startup-team; alias /saas-startu
 # Alias: /bootstrap
 
 Discovery alias for `/saas-startup-team:bootstrap`, `/bootstrap`.
-Load and execute `../../commands/bootstrap.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/bootstrap/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

@@ -8,11 +8,11 @@ test_workflow_invocation_contract() {
   echo -e "\n${CYAN}Suite WI: workflow invocation identity${NC}"
   local loop_entry maintain_entry goal_entry maintain goal deliver receipts v3 drain
 
-  loop_entry="$PLUGIN_ROOT/commands/maintain-loop.md"
+  loop_entry="$PLUGIN_ROOT/skills/maintain-loop/SKILL.md"
   maintain_entry="$PLUGIN_ROOT/commands/maintain.md"
-  goal_entry="$PLUGIN_ROOT/commands/goal-deliver.md"
+  goal_entry="$PLUGIN_ROOT/skills/deliver/SKILL.md"
   maintain="$PLUGIN_ROOT/references/workflows/maintain.md"
-  goal="$PLUGIN_ROOT/references/deliver/entrypoints.md"
+  goal="$PLUGIN_ROOT/references/delivery-playbook.md"
   deliver="$PLUGIN_ROOT/skills/deliver/SKILL.md"
   receipts="$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md"
   v3="$PLUGIN_ROOT/scripts/maintain-v3.sh"
@@ -48,7 +48,7 @@ test_workflow_invocation_contract() {
     'references/workflows/maintain.md'
   # maintain command is skill-thin; skill points at maintain-v3 contract
   assert_file_contains "WI33: maintain skill contract" \
-    "$PLUGIN_ROOT/skills/maintain/SKILL.md" 'maintain-v3.md'
+    "$PLUGIN_ROOT/skills/maintain/SKILL.md" 'maintain-policy.md'
   assert_file_contains "WI34: goal entrypoint keeps sole delivery reference" "$goal_entry" \
     'sole delivery contract'
   assert_file_contains "WI34a: loop prefers maintain-v3" \

@@ -7,4 +7,4 @@ description: "Run /monitor workflow from saas-startup-team; alias /saas-startup-
 # Alias: /monitor
 
 Discovery alias for `/saas-startup-team:monitor`, `/monitor`.
-Load and execute `../../commands/monitor.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/operate/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

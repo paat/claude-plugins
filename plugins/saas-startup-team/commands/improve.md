@@ -1,13 +1,12 @@
 ---
 name: improve
-description: "One-shot founder/tech/QA improvement with a supervisor-gated commit. Usage: /improve [description]"
+description: "One-shot improvement with supervisor-gated commit. Usage: /improve [description]"
 user_invocable: true
 transitional: true
 ---
+<!-- GENERATED-ALIAS: do not edit; regenerate via scripts/generate_workflow_aliases.py from integrity/entrypoints.json -->
 
-# /improve
+# Alias: /improve
 
-Be token-frugal. Load the canonical deliver skill
-`${CLAUDE_PLUGIN_ROOT}/skills/deliver/SKILL.md` once with
-`SAAS_DELIVER_ENTRYPOINT=improve`, then follow it with `$ARGUMENTS`. The skill is
-the sole delivery contract; do not restate its Plan → Build → Review gates here.
+Generated alias for `/saas-startup-team:improve`, `/improve`. No workflow policy here.
+Load and execute `skills/deliver/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

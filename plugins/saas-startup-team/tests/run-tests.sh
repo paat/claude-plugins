@@ -224,61 +224,9 @@ run_in_dir() {
 # ---------------------------------------------------------------------------
 
 test_check_task_complete() {
-  echo -e "\n${CYAN}Suite B: check-task-complete.sh${NC}"
-  local script="$PLUGIN_ROOT/scripts/check-task-complete.sh"
-  local workdir ec output real_git fake_bin
-
-  # B1: empty JSON → exit 0
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  ec=0; output=$(cd "$workdir" && echo '{}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "B1: empty JSON allows completion" "$ec" 0
-  rm -rf "$workdir"
-
-  # B2: no .startup dir → exit 0
-  workdir=$(make_workdir)
-  ec=0; output=$(cd "$workdir" && echo '{"task_subject":"Implement feature"}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "B2: no .startup dir allows completion" "$ec" 0
-  rm -rf "$workdir"
-
-  # B3: non-matching subject → exit 0
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  ec=0; output=$(cd "$workdir" && echo '{"task_subject":"Write documentation"}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "B3: non-matching subject allows completion" "$ec" 0
-  rm -rf "$workdir"
-
-  # B4: roundtrip keyword, no handoffs → exit 2 (BLOCKS)
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  ec=0; output=$(cd "$workdir" && echo '{"task_subject":"Implement user login feature"}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "B4: roundtrip task blocks without handoffs" "$ec" 2
-  assert_output_contains "B4: shows guidance message" "$output" "handoff"
-  rm -rf "$workdir"
-
-  # B5: roundtrip keyword, has handoffs → exit 0
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  echo "handoff" > "$workdir/.startup/handoffs/001-business-to-tech.md"
-  ec=0; output=$(cd "$workdir" && echo '{"task_subject":"Implement user login feature"}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "B5: roundtrip task with handoffs allows completion" "$ec" 0
-  rm -rf "$workdir"
-
-  # B6: go-live keyword, no signoff → exit 2 (BLOCKS)
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  ec=0; output=$(cd "$workdir" && echo '{"task_subject":"Launch the product"}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "B6: go-live task blocks without signoff" "$ec" 2
-  assert_output_contains "B6: shows solution-signoff guidance" "$output" "solution-signoff"
-  rm -rf "$workdir"
-
-  # B7: go-live keyword, has signoff → exit 0
-  workdir=$(make_workdir)
-  setup_startup_dir "$workdir" 1
-  echo "signoff" > "$workdir/.startup/go-live/solution-signoff.md"
-  ec=0; output=$(cd "$workdir" && echo '{"task_subject":"Ship release v1"}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "B7: go-live task with signoff allows completion" "$ec" 0
-  rm -rf "$workdir"
+  echo -e "
+${CYAN}Suite B: check-task-complete removed (#391)${NC}"
+  assert_file_not_exists "B1: check-task-complete.sh removed" "$PLUGIN_ROOT/scripts/check-task-complete.sh"
 }
 
 # ---------------------------------------------------------------------------
@@ -448,9 +396,9 @@ test_templates() {
   assert_file_contains "D10q3: lifecycle scopes planning before discovery expansion" \
     "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "Skip broad market research"
   assert_file_contains "D10q4: goal delivery defaults to its primary planner" \
-    "$PLUGIN_ROOT/references/deliver/graph.md" "Do not dispatch a planning role by default"
+    "$PLUGIN_ROOT/references/delivery-playbook.md" "Do not dispatch a planning role by default"
   assert_file_contains "D10q5: improve brief applies scope before research" \
-    "$PLUGIN_ROOT/references/deliver/graph.md" "Before reading product or research docs, read and apply"
+    "$PLUGIN_ROOT/references/delivery-playbook.md" "Before reading product or research docs, read and apply"
   assert_file_contains "D10q6: project guidance exposes lean direct planning" \
     "$tmpl_dir/claude-md-workflow-guidance.md" "Lean direct-feature planning"
   assert_file_contains "D10q6a: project guidance stops after file-only issue asks" \
@@ -464,9 +412,9 @@ test_templates() {
   assert_file_contains "D10q6e: principles name DRY" \
     "$tmpl_dir/claude-md-engineering-principles.md" "**DRY**"
   assert_file_contains "D10q6f: bootstrap installs engineering principles" \
-    "$PLUGIN_ROOT/commands/bootstrap.md" "Engineering principles"
+    "$PLUGIN_ROOT/skills/bootstrap/SKILL.md" "Engineering principles"
   assert_file_contains "D10q6g: bootstrap calls shared helper" \
-    "$PLUGIN_ROOT/commands/bootstrap.md" "scripts/ensure-engineering-principles.sh"
+    "$PLUGIN_ROOT/skills/bootstrap/SKILL.md" "scripts/ensure-engineering-principles.sh"
   assert_file_contains "D10q6h: lifecycle ensures engineering principles" \
     "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "ensure-engineering-principles.sh"
   assert_file_exists "D10q6i: ensure-engineering-principles script exists" \
@@ -572,7 +520,9 @@ test_plugin_config() {
 
   # E6a-E6b: Claude print mode must load the browser MCP before the first turn.
   assert_json_valid "E6a: .mcp.json is valid JSON" "$PLUGIN_ROOT/.mcp.json"
-  assert_json_field "E6b: Playwright tools are eager-loaded" "$PLUGIN_ROOT/.mcp.json" '.mcpServers.playwright.alwaysLoad' "true"
+  # #391: unconditional alwaysLoad removed
+  al=$(jq -r '.mcpServers.playwright.alwaysLoad // "absent"' "$PLUGIN_ROOT/.mcp.json")
+  assert_equals "E6b: Playwright not alwaysLoad" "$al" "absent"
 
   # E7-E12: hooks.json
   assert_json_valid "E7: hooks.json is valid JSON" "$PLUGIN_ROOT/hooks/hooks.json"
@@ -584,23 +534,23 @@ test_plugin_config() {
   assert_output_not_contains "E11: hooks.json omits Codex-unsupported TeammateIdle" "$hooks_keys" "TeammateIdle"
   assert_output_not_contains "E12: hooks.json omits Codex-unsupported TaskCompleted" "$hooks_keys" "TaskCompleted"
 
-  # C-enforce: PreToolUse enforce-handoff-naming.sh is registered
+  # C-enforce: PreToolUse hooks/dispatch.sh is registered
   local enforce_cmd
-  enforce_cmd=$(jq -r '.hooks.PreToolUse[]?.hooks[]?.command // empty' "$PLUGIN_ROOT/hooks/hooks.json" | grep -F "enforce-handoff-naming.sh" || true)
+  enforce_cmd=$(jq -r '.hooks.PreToolUse[]?.hooks[]?.command // empty' "$PLUGIN_ROOT/hooks/hooks.json" | grep -F "hooks/dispatch.sh" || true)
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
   if [ -n "$enforce_cmd" ]; then
-    echo -e "  ${GREEN}PASS${NC} C-enforce: PreToolUse hook registers enforce-handoff-naming.sh"
+    echo -e "  ${GREEN}PASS${NC} C-enforce: PreToolUse hook registers hooks/dispatch.sh"
     PASS_COUNT=$((PASS_COUNT + 1))
   else
-    echo -e "  ${RED}FAIL${NC} C-enforce: PreToolUse hook does not register enforce-handoff-naming.sh"
+    echo -e "  ${RED}FAIL${NC} C-enforce: PreToolUse hook does not register hooks/dispatch.sh"
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("C-enforce: missing enforce-handoff-naming.sh in PreToolUse")
+    FAILURES+=("C-enforce: missing hooks/dispatch.sh in PreToolUse")
   fi
 
   # C-enforce-matcher: the entry uses matcher "Write"
   local enforce_matcher
-  enforce_matcher=$(jq -r '.hooks.PreToolUse[]? | select(.hooks[]?.command | test("enforce-handoff-naming.sh")) | .matcher // empty' "$PLUGIN_ROOT/hooks/hooks.json")
-  assert_equals "C-enforce-matcher: matcher is Write" "$enforce_matcher" "Write"
+  enforce_matcher=$(jq -r '.hooks.PreToolUse[]? | select(.hooks[]?.command | test("hooks/dispatch.sh")) | select(.matcher | test("Write")) | .matcher // empty' "$PLUGIN_ROOT/hooks/hooks.json" | head -1)
+  assert_output_contains "C-dispatch-matcher: Write matcher" "$enforce_matcher" "Write"
 }
 
 # ---------------------------------------------------------------------------
@@ -739,14 +689,7 @@ test_cross_file_consistency() {
 
   # H10-H11: Scripts are executable
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -x "$PLUGIN_ROOT/scripts/check-task-complete.sh" ]; then
-    echo -e "  ${GREEN}PASS${NC} H10: check-task-complete.sh is executable"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} H10: check-task-complete.sh is not executable"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("H10: check-task-complete.sh is not executable")
-  fi
+  assert_file_not_exists "H10: check-task-complete.sh removed (#391)" "$PLUGIN_ROOT/scripts/check-task-complete.sh"
 
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
   if [ -x "$PLUGIN_ROOT/scripts/status.sh" ]; then
@@ -763,33 +706,33 @@ test_cross_file_consistency() {
   # firing on stale team-lead state left by a prior /startup session.
   assert_file_contains "H12: deliver skill does not require personas or state.json" \
     "$PLUGIN_ROOT/skills/deliver/SKILL.md" 'require founder personas'
-  assert_file_contains "H13: /lawyer resets active_role" \
-    "$PLUGIN_ROOT/commands/lawyer.md" '.active_role = "lawyer"'
-  assert_file_contains "H14: /ux-test resets active_role" \
+  assert_file_contains "H13: /lawyer preflight" \
+    "$PLUGIN_ROOT/skills/lawyer/SKILL.md" 'lawyer-preflight'
+  assert_file_contains "H14: /ux-test loads ux-review" \
     "$PLUGIN_ROOT/commands/ux-test.md" 'skills/ux-review'
-  assert_file_contains "H14a: /ux-test repairs in-scope runtime failures" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'attempt only reversible runtime'
-  assert_file_contains "H14b: /ux-test can audit exact revisions locally" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'skills/ux-review/references/design-review-leg.md'
-  assert_file_contains "H14c: local UX evidence does not claim live proof" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'Post-deploy visual smoke'
-  assert_file_contains "H14d: direct UX repair cannot mutate tracked source" \
-    "$PLUGIN_ROOT/commands/ux-test.md" 'does not modify tracked product source'
+  assert_file_contains "H14a: ux-review browser evidence" \
+    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'Browser Evidence Contract'
+  assert_file_contains "H14b: design-review leg ref" \
+    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'design-review-leg.md'
+  assert_file_contains "H14c: post-deploy visual smoke" \
+    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'Post-deploy visual smoke'
+  assert_file_contains "H14d: ux must not write product source" \
+    "$PLUGIN_ROOT/skills/ux-review/SKILL.md" 'Must not write'
   assert_file_contains "H14e: direct UX baseline preserves the caller checkout" \
     "$PLUGIN_ROOT/skills/ux-review/references/design-review-leg.md" 'never switch or'
   assert_file_contains "H15: /growth state update sets active_role" \
-    "$PLUGIN_ROOT/commands/growth.md" 'skills/growth'
+    "$PLUGIN_ROOT/skills/growth/SKILL.md" 'skills/growth'
 
   # H16-H17: Orchestrator is warned never to write active_role=team-lead.
   assert_file_contains "H16: lifecycle bans active_role" \
     "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" 'No `active_role`'
-  assert_file_contains "H17: startup bans state.json loop fields" \
-    "$PLUGIN_ROOT/commands/startup.md" 'initialize or update'
+  assert_file_contains "H17: lifecycle bans state.json loop fields" \
+    "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" 'state.json'
 
   # H18-H20: pause is legacy/optional; lifecycle cancels via lease release (#386).
-  assert_file_exists "H18: /pause command exists" "$PLUGIN_ROOT/commands/pause.md"
-  assert_file_contains "H18b: /pause can set status=paused for legacy state" \
-    "$PLUGIN_ROOT/commands/pause.md" '.status = "paused"'
+  assert_file_exists "H18: /pause command exists" "$PLUGIN_ROOT/skills/pause/SKILL.md"
+  assert_file_contains "H18b: /pause parks human work" \
+    "$PLUGIN_ROOT/skills/pause/SKILL.md" 'human-tasks.md'
   assert_file_contains "H19: lifecycle documents cancellation" \
     "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" '`cancelled`'
   assert_file_contains "H20: lifecycle releases lease on cancel/fail" \
@@ -801,15 +744,17 @@ test_cross_file_consistency() {
 # ---------------------------------------------------------------------------
 
 test_post_tool_use_hook() {
-  echo -e "\n${CYAN}Suite I: PostToolUse Hook${NC}"
+  echo -e "\n${CYAN}Suite I: PostToolUse dispatcher (#391)${NC}"
   local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
-  # I4–I20: auto-learn removed (#390)
-  assert_file_not_exists "I4: auto-learn.sh deleted" "$PLUGIN_ROOT/scripts/auto-learn.sh"
-  local hooks_blob
-  hooks_blob=$(cat "$PLUGIN_ROOT/hooks/hooks.json")
-  assert_output_not_contains "I5: hooks omit auto-learn" "$hooks_blob" "auto-learn.sh"
-  assert_file_not_exists "I14: learnings-style template deleted" \
-    "$PLUGIN_ROOT/templates/learnings-style.md"
+  assert_json_valid "I1: hooks.json valid" "$hooks_file"
+  local ptu
+  ptu=$(jq -r '.hooks.PostToolUse[0].hooks[0].command' "$hooks_file")
+  assert_output_contains "I2: PostToolUse uses dispatch" "$ptu" "dispatch.sh"
+  assert_file_not_exists "I3: auto-commit gone" "$PLUGIN_ROOT/scripts/auto-commit.sh"
+  # dispatcher drains stdin
+  ec=0
+  dd if=/dev/zero bs=1024 count=64 2>/dev/null | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$PLUGIN_ROOT/hooks/dispatch.sh" post-write >/dev/null 2>&1 || ec=$?
+  assert_exit_code "I4: dispatch post-write drains large stdin" "$ec" 0
 }
 
 # ---------------------------------------------------------------------------
@@ -846,17 +791,17 @@ test_plugin_issues() {
 
   # J-bootstrap: bootstrap no longer seeds .startup/PLUGIN_ISSUES.md
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if ! grep -q "PLUGIN_ISSUES" "$PLUGIN_ROOT/commands/bootstrap.md"; then
-    echo -e "  ${GREEN}PASS${NC} J-bootstrap: bootstrap.md no longer seeds PLUGIN_ISSUES.md"
+  if ! grep -q "PLUGIN_ISSUES" "$PLUGIN_ROOT/skills/bootstrap/SKILL.md"; then
+    echo -e "  ${GREEN}PASS${NC} J-bootstrap: bootstrap skill no longer seeds PLUGIN_ISSUES.md"
     PASS_COUNT=$((PASS_COUNT + 1))
   else
-    echo -e "  ${RED}FAIL${NC} J-bootstrap: bootstrap.md still references PLUGIN_ISSUES"
+    echo -e "  ${RED}FAIL${NC} J-bootstrap: bootstrap skill still references PLUGIN_ISSUES"
     FAIL_COUNT=$((FAIL_COUNT + 1))
   fi
 
   # J-startup: startup no longer seeds .startup/PLUGIN_ISSUES.md either
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if ! grep -q "PLUGIN_ISSUES" "$PLUGIN_ROOT/commands/startup.md"; then
+  if ! grep -q "PLUGIN_ISSUES" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md"; then
     echo -e "  ${GREEN}PASS${NC} J-startup: startup.md no longer seeds PLUGIN_ISSUES.md"
     PASS_COUNT=$((PASS_COUNT + 1))
   else
@@ -876,8 +821,8 @@ test_maintain() {
   local v3="$PLUGIN_ROOT/scripts/maintain-v3.sh"
   local drain="$PLUGIN_ROOT/scripts/legacy-drain.sh"
   local skill="$PLUGIN_ROOT/skills/maintain/SKILL.md"
-  local contract="$PLUGIN_ROOT/references/workflows/maintain-v3.md"
-  local goal="$PLUGIN_ROOT/references/deliver/graph.md"
+  local contract="$PLUGIN_ROOT/references/workflows/maintain-policy.md"
+  local goal="$PLUGIN_ROOT/references/delivery-playbook.md"
   local codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-workflow/SKILL.md"
 
   assert_file_exists "M1: maintain.md exists" "$cmd"
@@ -913,17 +858,17 @@ test_maintain() {
   assert_file_contains "M31: empty claims array" "$v3" 'claims:\[\]'
   assert_file_contains "M32: only three lock kinds" "$v3" 'scheduler|issue|release'
   assert_file_contains "M45a41: WIP-first contract rejects claim ownership" \
-    "$PLUGIN_ROOT/references/workflows/maintain-v2-contract.md" 'claim comments as ownership'
+    "$PLUGIN_ROOT/references/workflows/maintain-policy.md" 'claim comments as ownership'
   assert_file_contains "M45a42: auto-merge when gates pass" \
-    "$PLUGIN_ROOT/references/workflows/maintain-v2-contract.md" 'Auto-merge when gates pass'
+    "$PLUGIN_ROOT/references/workflows/maintain-policy.md" 'exact-head merge'
   assert_file_contains "M45a10: resume re-proves current-head gates" \
-    "$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md" \
+    "$PLUGIN_ROOT/references/workflows/maintain-policy.md" \
     'Do not trust an earlier green check'
   assert_file_contains "M45a11: resume never creates a replacement PR" \
-    "$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md" \
+    "$PLUGIN_ROOT/references/workflows/maintain-policy.md" \
     'Never open a replacement PR'
   assert_file_contains "M45a27: active merge atomically pins the reviewed PR head" \
-    "$PLUGIN_ROOT/references/workflows/goal-deliver-maintain-receipts.md" \
+    "$PLUGIN_ROOT/references/workflows/maintain-policy.md" \
     'gh pr merge --match-head-commit'
 
   # Queue builder regression: no-dependency issues must survive dependency parsing.
@@ -1573,15 +1518,16 @@ SH
 
 test_maintain_loop() {
   echo -e "\n${CYAN}== /maintain-loop command ==${NC}"
-  local command="$PLUGIN_ROOT/commands/maintain-loop.md"
-  local coordinator="$PLUGIN_ROOT/references/workflows/maintain.md"
+  local command="$PLUGIN_ROOT/skills/maintain-loop/SKILL.md"
+  local cmd_alias="$PLUGIN_ROOT/commands/maintain-loop.md"
+  local coordinator="$PLUGIN_ROOT/references/workflows/maintain-policy.md"
   local v3="$PLUGIN_ROOT/scripts/maintain-v3.sh"
   local codex_cmd="$PLUGIN_ROOT/skills/maintain-loop/SKILL.md"
   local old_codex_cmd="$PLUGIN_ROOT/skills/saas-startup-team-maintain-loop-workflow/SKILL.md"
 
-  assert_file_exists "ML1: maintain-loop command exists" "$command"
-  assert_file_contains "ML2: command is user invocable" "$command" "user_invocable: true"
-  assert_file_contains "ML3: concise Codex skill name" "$command" "codex-skill-name: maintain-loop"
+  assert_file_exists "ML1: maintain-loop command exists" "$cmd_alias"
+  assert_file_contains "ML2: command is user invocable" "$cmd_alias" "user_invocable: true"
+  assert_file_contains "ML3: concise Codex skill name" "$command" "name: maintain-loop"
   assert_file_exists "ML3b: maintain-v3 engine exists" "$v3"
   assert_file_contains "ML4: parent stays context-thin" "$command" "never read issue bodies"
   assert_file_contains "ML5: parent probes maintain model-free" "$command" 'workflow-probe.sh maintain'
@@ -1624,177 +1570,18 @@ test_maintain_loop() {
 
 
 test_auto_commit_hook() {
-  echo -e "\n${CYAN}Suite K: Auto-Commit Hook${NC}"
-  local script="$PLUGIN_ROOT/scripts/auto-commit.sh"
-  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
-
-  # K1: auto-commit.sh exists
-  assert_file_exists "K1: auto-commit.sh exists" "$script"
-
-  # K2: auto-commit.sh is executable
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -x "$script" ]; then
-    echo -e "  ${GREEN}PASS${NC} K2: auto-commit.sh is executable"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} K2: auto-commit.sh is not executable"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("K2: auto-commit.sh is not executable")
-  fi
-
-  # K3: Has .startup/handoffs/ path filter
-  assert_file_contains "K3: has .startup/handoffs/ path filter" "$script" "\.startup/handoffs/"
-
-  # K3b: Has .startup/signoffs/ path filter
-  assert_file_contains "K3b: has .startup/signoffs/ path filter" "$script" "\.startup/signoffs/"
-
-  # K3c: Has .startup/reviews/ path filter
-  assert_file_contains "K3c: has .startup/reviews/ path filter" "$script" "\.startup/reviews/"
-
-  # K4: Uses git rev-parse --show-toplevel
-  assert_file_contains "K4: uses git rev-parse --show-toplevel" "$script" "git rev-parse --show-toplevel"
-
-  # K5: Exits 0 for non-handoff file
-  local ec=0 output
-  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "K5: exits 0 for non-handoff file" "$ec" 0
-
-  # K6: Exits 0 for .startup/state.json (not a handoff)
-  ec=0; output=""
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/state.json"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "K6: exits 0 for .startup/state.json" "$ec" 0
-
-  # K7: hooks.json PostToolUse count after #390 auto-learn removal
+  echo -e "\n${CYAN}Suite K: Auto-Commit removed (#391)${NC}"
+  assert_file_not_exists "K1: auto-commit.sh removed" "$PLUGIN_ROOT/scripts/auto-commit.sh"
+  assert_file_not_exists "K2: auto-commit-growth.sh removed" "$PLUGIN_ROOT/scripts/auto-commit-growth.sh"
   local ptu_count
-  ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "K7: PostToolUse has 10 entries" "$ptu_count" "10"
-
-  # K8: Third PostToolUse entry references auto-commit.sh (index 2 after #390)
-  local third_cmd
-  third_cmd=$(jq -r '.hooks.PostToolUse[2].hooks[0].command' "$hooks_file" 2>/dev/null)
-  assert_output_contains "K8: third PostToolUse references auto-commit.sh" "$third_cmd" "auto-commit.sh"
-
-  # K9: Artifact commits use the exact-file helper and never use a hook bypass flag.
-  assert_file_not_contains "K9: artifact hook does not use a bypass flag" "$script" "\-\-no-verify"
-  assert_file_contains "K9b: artifact commit uses isolated helper" "$script" "commit-artifact.sh"
-
-  # K10: Handoff writes never commit product code.
-  local workdir
-  workdir=$(mktemp -d)
-  git init -q "$workdir"
-  (cd "$workdir" && git config user.email "test@test.com" && git config user.name "Test" && git commit --allow-empty -m "init" -q)
-  mkdir -p "$workdir/.startup/handoffs"
-  echo '{"iteration":1}' > "$workdir/.startup/state.json"
-  mkdir -p "$workdir/backend"
-  echo "test app code" > "$workdir/backend/app.py"
-  echo "handoff content" > "$workdir/.startup/handoffs/001-business-to-tech.md"
-
-  ec=0; output=""
-  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
-
-  local commit_count
-  commit_count=$(cd "$workdir" && git log --oneline 2>/dev/null | wc -l)
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ "$commit_count" -eq 1 ] && ! (cd "$workdir" && git ls-files --error-unmatch backend/app.py >/dev/null 2>&1); then
-    echo -e "  ${GREEN}PASS${NC} K10: handoff leaves product code uncommitted"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} K10: handoff swept product code into a commit"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("K10: handoff committed product code")
-  fi
-  rm -rf "$workdir"
-
-  # K11: Functional test — signoff write in a git repo creates a commit
-  workdir=$(mktemp -d)
-  git init -q "$workdir"
-  (cd "$workdir" && git config user.email "test@test.com" && git config user.name "Test" && git commit --allow-empty -m "init" -q)
-  mkdir -p "$workdir/.startup/signoffs"
-  echo "signoff content" > "$workdir/.startup/signoffs/mvp-core.md"
-
-  ec=0; output=""
-  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/signoffs/mvp-core.md"}}' | bash "$script" 2>&1) || ec=$?
-
-  commit_count=$(cd "$workdir" && git log --oneline 2>/dev/null | wc -l)
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ "$commit_count" -ge 2 ]; then
-    echo -e "  ${GREEN}PASS${NC} K11: functional test — signoff creates commit ($commit_count commits)"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} K11: functional test — expected >=2 commits, got $commit_count"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("K11: expected >=2 commits, got $commit_count")
-  fi
-
-  # K11b: Commit message contains "signoff:"
-  local last_msg
-  last_msg=$(cd "$workdir" && git log -1 --format=%s 2>/dev/null)
-  assert_output_contains "K11b: signoff commit message format" "$last_msg" "signoff: mvp-core"
-  rm -rf "$workdir"
-
-  # K12: Functional test — review write in a git repo creates a commit
-  workdir=$(mktemp -d)
-  git init -q "$workdir"
-  (cd "$workdir" && git config user.email "test@test.com" && git config user.name "Test" && git commit --allow-empty -m "init" -q)
-  mkdir -p "$workdir/.startup/reviews"
-  echo "review content" > "$workdir/.startup/reviews/iteration-1.md"
-
-  ec=0; output=""
-  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/reviews/iteration-1.md"}}' | bash "$script" 2>&1) || ec=$?
-
-  commit_count=$(cd "$workdir" && git log --oneline 2>/dev/null | wc -l)
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ "$commit_count" -ge 2 ]; then
-    echo -e "  ${GREEN}PASS${NC} K12: functional test — review creates commit ($commit_count commits)"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} K12: functional test — expected >=2 commits, got $commit_count"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("K12: expected >=2 commits, got $commit_count")
-  fi
-
-  # K12b: Commit message contains "review:"
-  last_msg=$(cd "$workdir" && git log -1 --format=%s 2>/dev/null)
-  assert_output_contains "K12b: review commit message format" "$last_msg" "review: iteration-1"
-  rm -rf "$workdir"
-
-  # K13: no implementation directory is staged by the artifact hook.
-  assert_file_not_contains "K13a: auto-commit never stages src" "$script" "git add -A src/"
-  assert_file_not_contains "K13b: auto-commit never stages backend" "$script" "git add -A backend/"
-  assert_file_not_contains "K13c: auto-commit never stages frontend" "$script" "git add -A frontend/"
-
-  # K14: Functional — src remains untracked and no commit is created at handoff.
-  workdir=$(mktemp -d)
-  git init -q "$workdir"
-  (cd "$workdir" && git config user.email "test@test.com" && git config user.name "Test" && git commit --allow-empty -m "init" -q)
-  mkdir -p "$workdir/.startup/handoffs" "$workdir/src/app"
-  echo "export const Page = () => null" > "$workdir/src/app/page.tsx"
-  echo "handoff content" > "$workdir/.startup/handoffs/002-tech-to-business.md"
-  ec=0; output=""
-  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/002-tech-to-business.md"}}' | bash "$script" 2>&1) || ec=$?
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  commit_count=$(cd "$workdir" && git log --oneline | wc -l)
-  if [ "$commit_count" -eq 1 ] && ! (cd "$workdir" && git ls-files --error-unmatch src/app/page.tsx >/dev/null 2>&1); then
-    echo -e "  ${GREEN}PASS${NC} K14: src code remains supervisor-owned"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} K14: src code was auto-committed"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("K14: src code was auto-committed")
-  fi
-  rm -rf "$workdir"
-
-  # K15: An artifact commit must not sweep a pre-staged product diff.
-  workdir=$(mktemp -d); git init -q "$workdir"
-  (cd "$workdir" && git config user.email test@test.com && git config user.name Test && git commit --allow-empty -m init -q)
-  mkdir -p "$workdir/docs/research" "$workdir/src"
-  echo 'product' > "$workdir/src/app.js"; (cd "$workdir" && git add src/app.js)
-  echo '# research' > "$workdir/docs/research/market.md"
-  ec=0; output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/docs/research/market.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_output_contains "K15a: artifact was committed" "$(cd "$workdir" && git show --name-only --format= HEAD)" "docs/research/market.md"
-  assert_output_not_contains "K15b: staged product absent from artifact commit" "$(cd "$workdir" && git show --name-only --format= HEAD)" "src/app.js"
-  assert_output_contains "K15c: product remains staged" "$(cd "$workdir" && git diff --cached --name-only)" "src/app.js"
-  rm -rf "$workdir"
+  ptu_count=$(jq '.hooks.PostToolUse | length' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null)
+  assert_equals "K7: PostToolUse has 1 dispatcher entry" "$ptu_count" "1"
+  local cmd
+  cmd=$(jq -r '.hooks.PostToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json" 2>/dev/null)
+  assert_output_contains "K8: PostToolUse uses dispatch.sh" "$cmd" "dispatch.sh"
+  # Hooks must never commit
+  assert_file_not_contains "K13: dispatch never git commits" "$PLUGIN_ROOT/hooks/dispatch.sh" "git commit"
+  assert_file_not_contains "K13b: gate never git commits" "$PLUGIN_ROOT/scripts/gate.sh" "git commit"
 }
 
 # ---------------------------------------------------------------------------
@@ -1864,7 +1651,7 @@ test_check_staged_size() {
 
   # G8: /bootstrap gitignores dependency trees and package stores (issue #90 primary fix).
   # The ignore rules live in templates/gitignore-block.txt, applied by bootstrap.md.
-  local bootstrap="$PLUGIN_ROOT/commands/bootstrap.md"
+  local bootstrap="$PLUGIN_ROOT/skills/bootstrap/SKILL.md"
   local gitignore_block="$PLUGIN_ROOT/templates/gitignore-block.txt"
   assert_file_contains "G8-ref: bootstrap applies the gitignore block" "$bootstrap" "templates/gitignore-block.txt"
   assert_file_contains "G8a: gitignore block has node_modules/" "$gitignore_block" "node_modules/"
@@ -1873,8 +1660,8 @@ test_check_staged_size() {
 
   # G9: the guard is wired into the bootstrap commit and the /improve catch-all commit
   assert_file_contains "G9a: bootstrap runs the guard before commit" "$bootstrap" "check-staged-size.sh"
-  assert_file_contains "G9b: improve uses supervisor commit guard" "$PLUGIN_ROOT/references/deliver/graph.md" "supervisor-commit.sh"
-  assert_file_contains "G9c: tweak uses trapped commit guard" "$PLUGIN_ROOT/references/deliver/light-path.md" "tweak-run.sh"
+  assert_file_contains "G9b: improve uses supervisor commit guard" "$PLUGIN_ROOT/references/delivery-playbook.md" "supervisor-commit.sh"
+  assert_file_contains "G9c: tweak uses trapped commit guard" "$PLUGIN_ROOT/references/delivery-playbook.md" "tweak-run.sh"
   assert_file_contains "G9d: lifecycle ensures engineering principles" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "ensure-engineering-principles.sh"
 
   # G10: measures the STAGED blob, not the working tree — stage a big blob, then truncate the
@@ -1923,117 +1710,8 @@ SH
 # ---------------------------------------------------------------------------
 
 test_tone_enforcement_hook() {
-  echo -e "\n${CYAN}Suite L: Tone Enforcement Hook${NC}"
-  local script="$PLUGIN_ROOT/scripts/enforce-tone.sh"
-  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
-
-  # L1: enforce-tone.sh exists
-  assert_file_exists "L1: enforce-tone.sh exists" "$script"
-
-  # L2: enforce-tone.sh is executable
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -x "$script" ]; then
-    echo -e "  ${GREEN}PASS${NC} L2: enforce-tone.sh is executable"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} L2: enforce-tone.sh is not executable"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("L2: enforce-tone.sh is not executable")
-  fi
-
-  # L3: Has .startup/handoffs/ path filter
-  assert_file_contains "L3: has .startup/handoffs/ path filter" "$script" "\.startup/handoffs/"
-
-  # L4: Exits 0 for non-handoff file (e.g., src/main.py)
-  local ec=0 output
-  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "L4: exits 0 for non-handoff file" "$ec" 0
-
-  # L5: Exits 0 for .startup/state.json
-  ec=0; output=""
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/state.json"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "L5: exits 0 for .startup/state.json" "$ec" 0
-
-  # L6: Exits 0 for handoff without violations (clean production language)
-  local workdir
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  cat > "$workdir/.startup/handoffs/001-business-to-tech.md" <<'EOF'
-# Handoff 001: Business to Tech
-
-## Summary
-We need to build the initial release of the company search feature.
-This is a production implementation targeting real customers.
-
-## Requirements
-- Full-text search across company names
-- Filter by county and legal form
-- Production-grade error handling
-EOF
-  ec=0; output=""
-  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "L6: exits 0 for clean handoff" "$ec" 0
-  rm -rf "$workdir"
-
-  # L7: Exits 2 with systemMessage for handoff containing "MVP"
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  cat > "$workdir/.startup/handoffs/001-business-to-tech.md" <<'EOF'
-# Handoff 001: Business to Tech
-
-## Summary
-Build an MVP of the company search feature.
-We just need the basics working for now.
-EOF
-  ec=0; output=""
-  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "L7: exits 2 for handoff with MVP" "$ec" 2
-  assert_output_contains "L7b: systemMessage in output" "$output" "systemMessage"
-  rm -rf "$workdir"
-
-  # L8: Exits 2 for handoff containing "prototype"
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  cat > "$workdir/.startup/handoffs/002-tech-to-business.md" <<'EOF'
-# Handoff 002: Tech to Business
-
-## Summary
-I built a prototype of the search feature.
-Please review it in the browser.
-EOF
-  ec=0; output=""
-  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/002-tech-to-business.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "L8: exits 2 for handoff with prototype" "$ec" 2
-  rm -rf "$workdir"
-
-  # L9: Exits 0 when "MVP" appears in a NEVER/ALWAYS guideline line (false positive protection)
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  cat > "$workdir/.startup/handoffs/001-business-to-tech.md" <<'EOF'
-# Handoff 001: Business to Tech
-
-## Guidelines
-- NEVER use MVP language in customer-facing materials
-- ALWAYS build production-quality features, do not use prototype approaches
-- You must not refer to this as an MVP
-
-## Summary
-Build the initial release of the company search feature.
-EOF
-  ec=0; output=""
-  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "L9: exits 0 when MVP in NEVER/ALWAYS line" "$ec" 0
-  rm -rf "$workdir"
-
-  # L10: hooks.json PostToolUse count after #390 auto-learn removal
-  local ptu_count
-  ptu_count=$(jq '.hooks.PostToolUse | length' "$hooks_file" 2>/dev/null)
-  assert_equals "L10: PostToolUse has 10 entries" "$ptu_count" "10"
-
-  # L11: Fifth PostToolUse entry references enforce-tone.sh (index 4 after #390)
-  local fifth_cmd
-  fifth_cmd=$(jq -r '.hooks.PostToolUse[4].hooks[0].command' "$hooks_file" 2>/dev/null)
-  assert_output_contains "L11: fifth PostToolUse references enforce-tone.sh" "$fifth_cmd" "enforce-tone.sh"
+  echo -e "\n${CYAN}Suite: enforce-tone removed (#391)${NC}"
+  assert_file_not_exists "tone: script removed" "$PLUGIN_ROOT/scripts/enforce-tone.sh"
 }
 
 # ---------------------------------------------------------------------------
@@ -2045,24 +1723,24 @@ test_json_validation_hook() {
   local script="$PLUGIN_ROOT/scripts/validate-json.sh"
   local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
 
-  # M1: validate-json.sh exists
+  # M1: dispatch.sh exists
   assert_file_exists "M1: validate-json.sh exists" "$script"
 
-  # M2: validate-json.sh is executable
+  # M2: dispatch.sh is executable
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
   if [ -x "$script" ]; then
-    echo -e "  ${GREEN}PASS${NC} M2: validate-json.sh is executable"
+    echo -e "  ${GREEN}PASS${NC} M2: dispatch.sh is executable"
     PASS_COUNT=$((PASS_COUNT + 1))
   else
-    echo -e "  ${RED}FAIL${NC} M2: validate-json.sh is not executable"
+    echo -e "  ${RED}FAIL${NC} M2: dispatch.sh is not executable"
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("M2: validate-json.sh is not executable")
+    FAILURES+=("M2: dispatch.sh is not executable")
   fi
 
-  # M3: hooks.json references validate-json.sh
+  # M3: hooks.json references dispatch.sh
   local hook_refs
   hook_refs=$(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file" 2>/dev/null)
-  assert_output_contains "M3: hooks.json references validate-json.sh" "$hook_refs" "validate-json.sh"
+  assert_output_contains "M3: hooks.json references dispatch.sh" "$hook_refs" "dispatch.sh"
 
   # M4: Exits 0 for non-JSON file
   local ec=0 output
@@ -2116,88 +1794,8 @@ EOF
 # ---------------------------------------------------------------------------
 
 test_delegation_enforcement_hook() {
-  echo -e "\n${CYAN}Suite N: Delegation Enforcement Hook${NC}"
-  local script="$PLUGIN_ROOT/scripts/enforce-delegation.sh"
-  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
-
-  # N1: enforce-delegation.sh exists
-  assert_file_exists "N1: enforce-delegation.sh exists" "$script"
-
-  # N2: enforce-delegation.sh is executable
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -x "$script" ]; then
-    echo -e "  ${GREEN}PASS${NC} N2: enforce-delegation.sh is executable"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} N2: enforce-delegation.sh is not executable"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("N2: enforce-delegation.sh is not executable")
-  fi
-
-  # N3: hooks.json references enforce-delegation.sh
-  local hook_refs
-  hook_refs=$(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file" 2>/dev/null)
-  assert_output_contains "N3: hooks.json references enforce-delegation.sh" "$hook_refs" "enforce-delegation.sh"
-
-  # N4: Script checks .startup directory existence
-  assert_file_contains "N4: checks .startup directory" "$script" "\.startup"
-
-  # N5: Script allows writes to CLAUDE.md
-  assert_file_contains "N5: allows CLAUDE.md writes" "$script" "CLAUDE\.md"
-
-  # N6: Script has systemMessage in block output
-  assert_file_contains "N6: has systemMessage in block" "$script" "systemMessage"
-
-  # N7: Exits 0 for .startup/ file path (always allowed)
-  local ec=0 output
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "N7: exits 0 for .startup/ path" "$ec" 0
-
-  # N8: Exits 0 for CLAUDE.md path (always allowed)
-  ec=0; output=""
-  output=$(echo '{"tool_input":{"file_path":"/workspace/CLAUDE.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "N8: exits 0 for CLAUDE.md path" "$ec" 0
-
-  # N9: Exits 0 when no .startup directory exists (not an active project)
-  local workdir
-  workdir=$(mktemp -d)
-  git init -q "$workdir"
-  ec=0; output=""
-  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "N9: exits 0 when no .startup dir" "$ec" 0
-  rm -rf "$workdir"
-
-  # N10: Exits 2 when active loop + non-implementer role edits source code
-  workdir=$(mktemp -d)
-  git init -q "$workdir"
-  mkdir -p "$workdir/.startup"
-  echo '{"active_role":"product-discovery","iteration":2,"status":"running"}' > "$workdir/.startup/state.json"
-  ec=0; output=""
-  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "N10: exits 2 when active orchestrator edits source" "$ec" 2
-  assert_output_contains "N10b: systemMessage present" "$output" "systemMessage"
-  rm -rf "$workdir"
-
-  # N11: Exits 0 when active_role is absent — no orchestrator context to enforce
-  # (regression: /improve, /lawyer, and direct agent invocations hit this path)
-  workdir=$(mktemp -d)
-  git init -q "$workdir"
-  mkdir -p "$workdir/.startup"
-  echo '{}' > "$workdir/.startup/state.json"
-  ec=0; output=""
-  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "N11: exits 0 when active_role absent" "$ec" 0
-  rm -rf "$workdir"
-
-  # N12: Exits 0 when active_role is a team-member variant (e.g. tech-founder-maintain)
-  workdir=$(mktemp -d)
-  git init -q "$workdir"
-  mkdir -p "$workdir/.startup"
-  echo '{"active_role":"tech-founder-maintain"}' > "$workdir/.startup/state.json"
-  ec=0; output=""
-  output=$(cd "$workdir" && echo '{"tool_input":{"file_path":"'"$workdir"'/src/app.py"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "N12: exits 0 when active_role=tech-founder-maintain" "$ec" 0
-  rm -rf "$workdir"
+  echo -e "\n${CYAN}Suite: enforce-delegation removed (#391)${NC}"
+  assert_file_not_exists "delegation: script removed" "$PLUGIN_ROOT/scripts/enforce-delegation.sh"
 }
 
 # ---------------------------------------------------------------------------
@@ -2205,69 +1803,8 @@ test_delegation_enforcement_hook() {
 # ---------------------------------------------------------------------------
 
 test_duplicate_handoff_hook() {
-  echo -e "\n${CYAN}Suite O: Duplicate Handoff Prevention Hook${NC}"
-  local script="$PLUGIN_ROOT/scripts/check-duplicate-handoff.sh"
-  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
-
-  # O1: check-duplicate-handoff.sh exists
-  assert_file_exists "O1: check-duplicate-handoff.sh exists" "$script"
-
-  # O2: check-duplicate-handoff.sh is executable
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -x "$script" ]; then
-    echo -e "  ${GREEN}PASS${NC} O2: check-duplicate-handoff.sh is executable"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} O2: check-duplicate-handoff.sh is not executable"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("O2: check-duplicate-handoff.sh is not executable")
-  fi
-
-  # O3: hooks.json references check-duplicate-handoff.sh
-  local hook_refs
-  hook_refs=$(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file" 2>/dev/null)
-  assert_output_contains "O3: hooks.json references check-duplicate-handoff.sh" "$hook_refs" "check-duplicate-handoff.sh"
-
-  # O4: Exits 0 for non-handoff file
-  local ec=0 output
-  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "O4: exits 0 for non-handoff file" "$ec" 0
-
-  # O5: Exits 0 for first handoff (no duplicates possible)
-  local workdir
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  echo "handoff content" > "$workdir/.startup/handoffs/001-business-to-tech.md"
-  ec=0; output=""
-  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "O5: exits 0 for first handoff" "$ec" 0
-  rm -rf "$workdir"
-
-  # O6: Exits 0 for sequential handoffs (002 after 001, different direction)
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  echo "handoff 1" > "$workdir/.startup/handoffs/001-business-to-tech.md"
-  echo "handoff 2" > "$workdir/.startup/handoffs/002-tech-to-business.md"
-  ec=0; output=""
-  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/002-tech-to-business.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "O6: exits 0 for sequential handoffs" "$ec" 0
-  rm -rf "$workdir"
-
-  # O7: Exits 2 when writing handoff 001 but 003 already exists (same direction)
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  echo "handoff 3" > "$workdir/.startup/handoffs/003-business-to-tech.md"
-  echo "handoff 1 dup" > "$workdir/.startup/handoffs/001-business-to-tech.md"
-  ec=0; output=""
-  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "O7: exits 2 for lower-numbered duplicate" "$ec" 2
-  assert_output_contains "O7b: systemMessage in output" "$output" "systemMessage"
-  rm -rf "$workdir"
-
-  # O8: Exits 0 for empty file_path
-  ec=0; output=""
-  output=$(echo '{"tool_input":{}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "O8: exits 0 for empty file_path" "$ec" 0
+  echo -e "\n${CYAN}Suite: check-duplicate-handoff removed (#391)${NC}"
+  assert_file_not_exists "dup: script removed" "$PLUGIN_ROOT/scripts/check-duplicate-handoff.sh"
 }
 
 # ---------------------------------------------------------------------------
@@ -2299,109 +1836,10 @@ test_migrate_state() {
 
 
 test_enforce_handoff_naming_hook() {
-  echo -e "\n${CYAN}Suite R: enforce-handoff-naming.sh${NC}"
-  local script="$PLUGIN_ROOT/scripts/enforce-handoff-naming.sh"
-  local workdir ec output
-
-  # R1: script exists and is executable
-  assert_file_exists "R1: enforce-handoff-naming.sh exists" "$script"
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
-  if [ -x "$script" ]; then
-    echo -e "  ${GREEN}PASS${NC} R1b: script is executable"
-    PASS_COUNT=$((PASS_COUNT + 1))
-  else
-    echo -e "  ${RED}FAIL${NC} R1b: script is not executable"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    FAILURES+=("R1b: script is not executable")
-  fi
-
-  # R2: path outside .startup/handoffs/ passes
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R2: outside handoffs exits 0" "$ec" 0
-
-  # R3: INDEX.md passes
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/INDEX.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R3: INDEX.md exits 0" "$ec" 0
-
-  # R4: canonical business-to-tech passes
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/001-business-to-tech.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R4: canonical business-to-tech exits 0" "$ec" 0
-
-  # R5: canonical tech-to-business passes
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/042-tech-to-business.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R5: canonical tech-to-business exits 0" "$ec" 0
-
-  # R5b: architect plan NNN-tech-plan.md passes (#381)
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/003-tech-plan.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R5b: NNN-tech-plan exits 0" "$ec" 0
-
-  # R6: canonical business-to-growth passes
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/007-business-to-growth.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R6: canonical business-to-growth exits 0" "$ec" 0
-
-  # R7: slug-only filename is blocked
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/business-to-tech-foo.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R7: slug-only filename exits 2" "$ec" 2
-  assert_output_contains "R7b: block message mentions NNN" "$output" "NNN"
-  assert_output_contains "R7c: block message mentions next NNN 001" "$output" "001"
-  rm -rf "$workdir"
-
-  # R8: timestamp-prefixed filename is blocked
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/2026-04-16T074318Z-business-to-tech-improve-189.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R8: timestamp-prefix exits 2" "$ec" 2
-
-  # R9: non-.md (binary) is blocked
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/sample.pdf"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R9: .pdf exits 2" "$ec" 2
-  assert_output_contains "R9b: block message mentions attachments/" "$output" "attachments"
-
-  # R10: non-canonical direction NNN-business-to-team is blocked
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/handoffs/476-business-to-team.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R10: non-canonical direction exits 2" "$ec" 2
-
-  # R11: next-NNN computation reflects actual max
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  touch "$workdir/.startup/handoffs/012-business-to-tech.md"
-  touch "$workdir/.startup/handoffs/007-tech-to-business.md"
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/bogus.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R11: block with existing files exits 2" "$ec" 2
-  assert_output_contains "R11b: next NNN is 013" "$output" "013"
-  rm -rf "$workdir"
-
-  # R11c: pre-migration timestamp-prefixed files don't poison max NNN
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  touch "$workdir/.startup/handoffs/005-business-to-tech.md"
-  touch "$workdir/.startup/handoffs/2026-04-16T074318Z-business-to-tech-improve-189.md"
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"'"$workdir"'/.startup/handoffs/bogus.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R11c: exits 2" "$ec" 2
-  assert_output_contains "R11d: next NNN ignores timestamp prefix, is 006" "$output" "006"
-  rm -rf "$workdir"
-
-  # R12: empty file_path in stdin passes (defensive)
-  ec=0
-  output=$(echo '{}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R12: empty input exits 0" "$ec" 0
-
-  # R13: signoffs/ path is not blocked (not a handoff path)
-  ec=0
-  output=$(echo '{"tool_input":{"file_path":"/workspace/.startup/signoffs/roundtrip-001.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "R13: signoffs/ path exits 0" "$ec" 0
+  echo -e "\n${CYAN}Suite R: handoff naming hook removed (#391)${NC}"
+  assert_file_not_exists "R1: hooks/dispatch.sh removed" "$PLUGIN_ROOT/scripts/hooks/dispatch.sh"
+  assert_file_exists "R2: dispatch.sh present" "$PLUGIN_ROOT/hooks/dispatch.sh"
+  assert_file_exists "R3: gate.sh present" "$PLUGIN_ROOT/scripts/gate.sh"
 }
 
 # ---------------------------------------------------------------------------
@@ -2409,8 +1847,8 @@ test_enforce_handoff_naming_hook() {
 # ---------------------------------------------------------------------------
 
 test_migrate_handoff_names() {
-  echo -e "\n${CYAN}Suite S: migrate-handoff-names removed (#388)${NC}"
-  assert_file_not_exists "S1: migrate-handoff-names.sh removed with handoff control-plane thinning"     "$PLUGIN_ROOT/scripts/migrate-handoff-names.sh"
+  echo -e "\n${CYAN}Suite: handoff migration removed (#391)${NC}"
+  assert_file_not_exists "migrate: enforce-handoff removed" "$PLUGIN_ROOT/scripts/enforce-handoff-naming.sh"
 }
 
 
@@ -2504,15 +1942,16 @@ test_check_sh_template() {
 
 test_bootstrap_safety_net() {
   echo -e "\n${CYAN}Suite X: bootstrap safety-net scaffolding${NC}"
-  local cmd="$PLUGIN_ROOT/commands/bootstrap.md"
+  local cmd="$PLUGIN_ROOT/skills/bootstrap/SKILL.md"
   local workdir ec output
 
-  # Extract the scaffolding bash block from bootstrap.md
+  # Scaffold lives in scripts/bootstrap-scaffold.sh (#391)
   local script
   workdir=$(mktemp -d)
-  extract_md_bash "$cmd" "## Step 6.5: Scaffold the pre-merge safety net" > "$workdir/scaffold.sh"
+  cp "$PLUGIN_ROOT/scripts/bootstrap-scaffold.sh" "$workdir/scaffold.sh"
+  chmod +x "$workdir/scaffold.sh"
 
-  # X1: the block is non-empty
+  # X1: the script is non-empty
   assert_equals "X1: scaffold block extracted" "$([ -s "$workdir/scaffold.sh" ] && echo yes || echo no)" "yes"
 
   # X2-X5: no stack present → scaffolds files with the placeholder marker
@@ -2572,7 +2011,7 @@ test_bootstrap_safety_net() {
 
   # X20: the extracted Step 6.5 block has NO nested triple-backtick fences
   fence_cnt=$(grep -c '^```' "$workdir/scaffold.sh" || true)
-  assert_equals "X20: no nested code fences in scaffold block" "$fence_cnt" "0"
+  assert_equals "X20: scaffold script has no markdown fences" "$fence_cnt" "0"
 
   rm -rf "$workdir"
 }
@@ -2584,7 +2023,7 @@ test_bootstrap_safety_net() {
 test_canonical_entrypoint_wiring() {
   echo -e "\n${CYAN}Suite Y: canonical entrypoint wiring${NC}"
   assert_file_contains "Y1: improve.md names check.sh" \
-    "$PLUGIN_ROOT/references/deliver/graph.md" "check.sh"
+    "$PLUGIN_ROOT/references/delivery-playbook.md" "check.sh"
   assert_file_contains "Y2: tech-founder SKILL names check.sh" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "check.sh"
   assert_file_contains "Y3: ci-workflow names check.sh" \
@@ -3002,7 +2441,7 @@ test_monitor_dedup() {
   assert_file_contains "W21c: applies 'low' label" "$L" ",low"
   assert_output_not_contains "W21c: no warning for canonical severity" "$output" "unsupported severity"
 
-  local cmd="$PLUGIN_ROOT/commands/monitor-nightly.md"
+  local cmd="$PLUGIN_ROOT/skills/monitor-nightly/SKILL.md"
   # W16: command exists, right frontmatter, calls engine, uses flock, parses config — and NEVER calls gh
   assert_file_exists "W16: command exists" "$cmd"
   assert_file_contains "W16: argument-hint" "$cmd" 'argument-hint'
@@ -3133,15 +2572,15 @@ test_operate_workflow_registry_and_gates() {
   echo -e "\n${CYAN}Suite Y: Operate/workflow/gate guidance${NC}"
 
   # Public command surface.
-  assert_file_exists "Y1: /operate command exists" "$PLUGIN_ROOT/commands/operate.md"
-  assert_file_exists "Y2: /monitor command exists" "$PLUGIN_ROOT/commands/monitor.md"
-  assert_file_exists "Y3: /investigate command exists" "$PLUGIN_ROOT/commands/investigate.md"
-  assert_file_exists "Y4: /replay-abandoned command exists" "$PLUGIN_ROOT/commands/replay-abandoned.md"
-  assert_file_contains "Y5: /operate uses operate block" "$PLUGIN_ROOT/commands/operate.md" "operate:"
-  assert_file_contains "Y6: /operate rejects operate.yml" "$PLUGIN_ROOT/commands/operate.md" ".startup/operate.yml"
-  assert_file_contains "Y7: /monitor reuses monitor engine" "$PLUGIN_ROOT/commands/monitor.md" "scripts/monitor-dedup.sh"
-  assert_file_contains "Y8: /investigate files dedup issue" "$PLUGIN_ROOT/commands/investigate.md" "deduplicated GitHub issue"
-  assert_file_contains "Y9: /replay emits finding schema" "$PLUGIN_ROOT/commands/replay-abandoned.md" "finding.json"
+  assert_file_exists "Y1: /operate command exists" "$PLUGIN_ROOT/skills/operate/SKILL.md"
+  assert_file_exists "Y2: /monitor command exists" "$PLUGIN_ROOT/skills/operate/SKILL.md"
+  assert_file_exists "Y3: /investigate command exists" "$PLUGIN_ROOT/skills/operate/SKILL.md"
+  assert_file_exists "Y4: /replay-abandoned command exists" "$PLUGIN_ROOT/skills/operate/SKILL.md"
+  assert_file_contains "Y5: /operate uses operate block" "$PLUGIN_ROOT/skills/operate/SKILL.md" "operate:"
+  assert_file_contains "Y6: /operate rejects operate.yml" "$PLUGIN_ROOT/skills/operate/SKILL.md" ".startup/operate.yml"
+  assert_file_contains "Y7: /monitor reuses monitor engine" "$PLUGIN_ROOT/skills/operate/SKILL.md" "scripts/monitor-dedup.sh"
+  assert_file_contains "Y8: /investigate files dedup issue" "$PLUGIN_ROOT/skills/operate/SKILL.md" "deduplicated GitHub issue"
+  assert_file_contains "Y9: /replay emits finding schema" "$PLUGIN_ROOT/skills/operate/SKILL.md" "finding.json"
 
   # Agent surface.
   assert_file_exists "Y10: incident-investigator agent exists" "$PLUGIN_ROOT/agents/incident-investigator.md"
@@ -3152,9 +2591,9 @@ test_operate_workflow_registry_and_gates() {
   # Workflow registry.
   assert_file_exists "Y14: workflow registry template exists" "$PLUGIN_ROOT/templates/workflow-registry.md"
   assert_file_exists "Y15: workflow spec template exists" "$PLUGIN_ROOT/templates/workflow-spec.md"
-  assert_file_contains "Y16: bootstrap creates workflow registry" "$PLUGIN_ROOT/commands/bootstrap.md" ".startup/workflows/registry.md"
+  assert_file_contains "Y16: bootstrap creates workflow registry" "$PLUGIN_ROOT/skills/bootstrap/SKILL.md" ".startup/workflows/registry.md"
   assert_file_contains "Y17: lifecycle uses bootstrap scaffold" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "/bootstrap"
-  assert_file_contains "Y18: improve reads workflow registry" "$PLUGIN_ROOT/references/deliver/graph.md" ".startup/workflows/registry.md"
+  assert_file_contains "Y18: improve reads workflow registry" "$PLUGIN_ROOT/references/delivery-playbook.md" ".startup/workflows/registry.md"
   assert_file_contains "Y19: lifecycle does not force numbered handoffs" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "numbered conversational handoffs"
 
   # Config and README.
@@ -3231,8 +2670,8 @@ test_convergence_governor() {
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "check.sh"
   assert_file_contains "tech-founder DoD has step-back" \
     "$PLUGIN_ROOT/references/maintain-dod-checklist.md" "Tribunal step-back"
-  assert_output_contains "goal-deliver caps at 5" "$(cat "$PLUGIN_ROOT/references/deliver/multi-unit.md")" "Round 5:"
-  assert_output_contains "goal-deliver stops on no crit/high" "$(cat "$PLUGIN_ROOT/references/deliver/graph.md")" "zero critical and zero high"
+  assert_output_contains "goal-deliver caps at 5" "$(cat "$PLUGIN_ROOT/references/delivery-playbook.md")" "Round 5:"
+  assert_output_contains "goal-deliver stops on no crit/high" "$(cat "$PLUGIN_ROOT/references/delivery-playbook.md")" "zero critical and zero high"
 }
 
 test_learnings_style_block() {
@@ -3281,93 +2720,13 @@ test_learnings_compress_command() {
 }
 
 test_handoff_secret_redaction() {
-  echo -e "\n${CYAN}Suite SR: Handoff Secret Redaction Hook${NC}"
-  local script="$PLUGIN_ROOT/scripts/check-handoff-secrets.sh"
-  local hooks_file="$PLUGIN_ROOT/hooks/hooks.json"
-
-  assert_file_exists "SR1: check-handoff-secrets.sh exists" "$script"
-
-  # SR2: wired into PostToolUse
-  local hook_refs
-  hook_refs=$(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file" 2>/dev/null)
-  assert_output_contains "SR2: hooks.json references check-handoff-secrets.sh" "$hook_refs" "check-handoff-secrets.sh"
-
-  local workdir ec out
-  # Fragmented so this repo's bytes hold no contiguous real-looking secret
-  local OR="sk-""or-v1-""abcdef0123456789abcdef0123456789"
-
-  # SR3: non-handoff file ignored, exit 0
-  ec=0; out=$(echo '{"tool_input":{"file_path":"/workspace/src/main.py"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "SR3: exits 0 for non-handoff file" "$ec" 0
-
-  # SR4–SR7: secret-bearing handoff is REDACTED in place (not blocked), exit 0
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  local hf="$workdir/.startup/handoffs/020-tech-to-business.md"
-  printf 'curl -H "Authorization: Bearer %s" x\nOPENROUTER_API_KEY=%s\n' "$OR" "$OR" > "$hf"
-  ec=0; out=$(echo '{"tool_input":{"file_path":"'"$hf"'"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "SR4: redacting handoff still exits 0 (never blocks)" "$ec" 0
-  assert_output_contains "SR5: emits redaction systemMessage" "$out" "auto-redacted"
-  assert_file_contains "SR6: secret replaced with marker" "$hf" "***REDACTED***"
-  assert_file_not_contains "SR7: literal key scrubbed from disk" "$hf" "$OR"
-  rm -rf "$workdir"
-
-  # SR8: env-var REFERENCES are preserved untouched, exit 0 silent (no message)
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  hf="$workdir/.startup/handoffs/018-tech-to-business.md"
-  printf 'Use $OPENROUTER_API_KEY (see .env)\ncurl -H "Authorization: Bearer $OPENROUTER_API_KEY"\nADMIN_API_KEY=<configured-in-env>\n' > "$hf"
-  local sha_before; sha_before=$(cksum < "$hf")
-  ec=0; out=$(echo '{"tool_input":{"file_path":"'"$hf"'"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "SR8: exits 0 for env-var references" "$ec" 0
-  assert_output_not_contains "SR9: no redaction message for clean refs" "$out" "auto-redacted"
-  assert_equals "SR10: reference-only handoff left unchanged" "$(cksum < "$hf")" "$sha_before"
-  rm -rf "$workdir"
-
-  # SR11: emitted systemMessage is valid JSON
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  hf="$workdir/.startup/handoffs/021-tech-to-business.md"
-  printf 'OPENROUTER_API_KEY=%s\n' "$OR" > "$hf"
-  out=$(echo '{"tool_input":{"file_path":"'"$hf"'"}}' | bash "$script" 2>/dev/null)
-  ec=0; echo "$out" | jq -e .systemMessage >/dev/null 2>&1 || ec=$?
-  assert_exit_code "SR11: redaction message is valid JSON" "$ec" 0
-  rm -rf "$workdir"
-
-  # SR12: missing file is a quiet no-op (exit 0)
-  ec=0; out=$(echo '{"tool_input":{"file_path":"/nonexistent/.startup/handoffs/099-x.md"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "SR12: exits 0 for missing handoff file" "$ec" 0
-
-  # SR13: quoted secret values are redacted (double + single quote)
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  hf="$workdir/.startup/handoffs/022-tech-to-business.md"
-  printf 'ADMIN_PASSWORD="hunter2plaintextvalue"\nDB_PASSWORD='\''s3cr3tLongValue'\''\n' > "$hf"
-  out=$(echo '{"tool_input":{"file_path":"'"$hf"'"}}' | bash "$script" 2>/dev/null)
-  assert_file_not_contains "SR13a: double-quoted secret scrubbed" "$hf" "hunter2plaintextvalue"
-  assert_file_not_contains "SR13b: single-quoted secret scrubbed" "$hf" "s3cr3tLongValue"
-  rm -rf "$workdir"
-
-  # SR14: lowercase 'authorization: bearer' header is redacted (case-insensitive)
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  hf="$workdir/.startup/handoffs/023-tech-to-business.md"
-  printf 'curl -H "authorization: bearer eyJhbGciOiJIUzI1NiwidHlwIn0longjwtvalue"\n' > "$hf"
-  out=$(echo '{"tool_input":{"file_path":"'"$hf"'"}}' | bash "$script" 2>/dev/null)
-  assert_file_not_contains "SR14: lowercase bearer token scrubbed" "$hf" "eyJhbGciOiJIUzI1NiwidHlwIn0longjwtvalue"
-  assert_file_contains "SR14b: redaction marker present" "$hf" "***REDACTED***"
-  rm -rf "$workdir"
-
-  # SR15: quoted empty value and ${VAR} reference are preserved
-  workdir=$(mktemp -d)
-  mkdir -p "$workdir/.startup/handoffs"
-  hf="$workdir/.startup/handoffs/024-tech-to-business.md"
-  printf 'KEY=""\nTOKEN="${MY_TOKEN}"\nPASSWORD="$PW"\n' > "$hf"
-  local sha2; sha2=$(cksum < "$hf")
-  ec=0; out=$(echo '{"tool_input":{"file_path":"'"$hf"'"}}' | bash "$script" 2>&1) || ec=$?
-  assert_exit_code "SR15: exits 0 for quoted refs/empty" "$ec" 0
-  assert_equals "SR15b: quoted refs/empty left unchanged" "$(cksum < "$hf")" "$sha2"
-  rm -rf "$workdir"
+  echo -e "\n${CYAN}Suite: handoff secret redaction removed (#391)${NC}"
+  assert_file_not_exists "secrets: script removed" "$PLUGIN_ROOT/scripts/check-handoff-secrets.sh"
+  # Pre-write secret block via gate
+  ec=0
+  printf '%s' '{"tool_input":{"file_path":"x.md","content":"token sk-abcdefghijklmnopqrstuv"}}' \
+    | bash "$PLUGIN_ROOT/scripts/gate.sh" pii --hook-stdin --mode secrets >/dev/null 2>&1 || ec=$?
+  assert_exit_code "secrets: gate blocks secret token pre-write" "$ec" 2
 }
 
 test_autonomous_demand_infra() {
@@ -3970,17 +3329,17 @@ JSON
 test_autonomous_workflow_alignment() {
   echo -e "\n${CYAN}Suite AE: autonomous workflow alignment${NC}"
   local repo_root; repo_root="$(cd "$PLUGIN_ROOT/../.." && pwd)"
-  assert_file_contains "AE1: startup calls health preflight" "$PLUGIN_ROOT/commands/startup.md" "health-preflight.sh"
+  assert_file_contains "AE1: lifecycle/playbook health preflight" "$PLUGIN_ROOT/references/delivery-playbook.md" "health-preflight.sh"
   assert_file_contains "AE2: lifecycle uses market scout" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "market-scout.sh"
   assert_file_not_contains "AE3: lifecycle has no single-flight" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "single-flight.sh"
-  assert_file_not_contains "AE4: startup no broad stale pkill command" "$PLUGIN_ROOT/commands/startup.md" "pkill -f 'agent-type saas-startup-team'"
+  assert_file_not_contains "AE4: startup no broad stale pkill command" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "pkill -f 'agent-type saas-startup-team'"
   assert_file_not_contains "AE4b: lifecycle no broad pkill" \
     "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" \
     "pkill -f 'agent-type saas-startup-team"
-  assert_file_contains "AE5: improve calls health preflight" "$PLUGIN_ROOT/references/deliver/graph.md" "health-preflight.sh"
-  assert_file_contains "AE6: goal-deliver calls market scout" "$PLUGIN_ROOT/references/deliver/graph.md" "market-scout.sh"
-  assert_file_contains "AE7: goal-deliver requires acceptance packs" "$PLUGIN_ROOT/references/deliver/graph.md" "acceptance-packs.sh"
-  assert_file_contains "AE8: goal-deliver completion artifact" "$PLUGIN_ROOT/references/deliver/graph.md" "completion artifact"
+  assert_file_contains "AE5: improve calls health preflight" "$PLUGIN_ROOT/references/delivery-playbook.md" "health-preflight.sh"
+  assert_file_contains "AE6: goal-deliver calls market scout" "$PLUGIN_ROOT/references/delivery-playbook.md" "market-scout.sh"
+  assert_file_contains "AE7: goal-deliver requires acceptance packs" "$PLUGIN_ROOT/references/delivery-playbook.md" "acceptance-packs.sh"
+  assert_file_contains "AE8: goal-deliver completion artifact" "$PLUGIN_ROOT/references/delivery-playbook.md" "completion artifact"
   assert_file_not_exists "AE9: lessons-review removed (#390)" "$PLUGIN_ROOT/commands/lessons-review.md"
   assert_file_not_exists "AE10: lessons-deliver removed (#390)" "$PLUGIN_ROOT/commands/lessons-deliver.md"
   assert_file_not_exists "AE11: agent-events removed (#390)" "$PLUGIN_ROOT/scripts/agent-events.sh"
@@ -3988,17 +3347,17 @@ test_autonomous_workflow_alignment() {
   assert_file_contains "AE13: README documents market scout" "$PLUGIN_ROOT/README.md" "market-scout.sh"
   assert_file_contains "AE14: README documents acceptance packs" "$PLUGIN_ROOT/README.md" "acceptance-packs.sh"
   assert_file_contains "AE15: README documents short maintain locks" "$PLUGIN_ROOT/README.md" "Short maintain locks only"
-  assert_file_contains "AE16: improve runs closure audit" "$PLUGIN_ROOT/references/deliver/graph.md" "issue-closure-audit.sh"
-  assert_file_contains "AE17: goal-deliver runs closure audit" "$PLUGIN_ROOT/references/deliver/graph.md" "issue-closure-audit.sh"
-  assert_file_contains "AE18: goal-deliver asks material promise question" "$PLUGIN_ROOT/references/deliver/graph.md" "material promise"
-  assert_file_contains "AE19: growth detects lifecycle" "$PLUGIN_ROOT/commands/growth.md" "growth_lifecycle"
-  assert_file_contains "AE20: growth prelive forbids outreach" "$PLUGIN_ROOT/commands/growth.md" "do not contact prospects"
-  assert_file_contains "AE21: growth uses autonomous operations gates" "$PLUGIN_ROOT/commands/growth.md" "owner authorization gates"
-  assert_file_not_contains "AE22: growth no longer creates recurring human tasks" "$PLUGIN_ROOT/commands/growth.md" "### 2e: Create human tasks"
+  assert_file_contains "AE16: improve runs closure audit" "$PLUGIN_ROOT/references/delivery-playbook.md" "issue-closure-audit.sh"
+  assert_file_contains "AE17: goal-deliver runs closure audit" "$PLUGIN_ROOT/references/delivery-playbook.md" "issue-closure-audit.sh"
+  assert_file_contains "AE18: goal-deliver asks material promise question" "$PLUGIN_ROOT/references/delivery-playbook.md" "material promise"
+  assert_file_contains "AE19: growth detects lifecycle" "$PLUGIN_ROOT/skills/growth/SKILL.md" "growth_lifecycle"
+  assert_file_contains "AE20: growth prelive forbids outreach" "$PLUGIN_ROOT/skills/growth/SKILL.md" "do not contact prospects"
+  assert_file_contains "AE21: growth uses autonomous operations gates" "$PLUGIN_ROOT/skills/growth/SKILL.md" "owner authorization gates"
+  assert_file_not_contains "AE22: growth no longer creates recurring human tasks" "$PLUGIN_ROOT/skills/growth/SKILL.md" "### 2e: Create human tasks"
   assert_file_contains "AE22a: improve selects the public-route pack" \
-    "$PLUGIN_ROOT/references/deliver/graph.md" 'public_route_discoverability'
+    "$PLUGIN_ROOT/references/delivery-playbook.md" 'public_route_discoverability'
   assert_file_contains "AE22b: improve mechanically rejects destination-only QA" \
-    "$PLUGIN_ROOT/references/deliver/graph.md" '--verify-public-route "$QA_REVIEW"'
+    "$PLUGIN_ROOT/references/delivery-playbook.md" '--verify-public-route "$QA_REVIEW"'
   assert_file_contains "AE22c: business brief carries public-route contract" \
     "$PLUGIN_ROOT/templates/handoff-business-to-tech.md" 'Public-route discoverability'
   assert_file_contains "AE22d: tech handoff carries public-route evidence" \
@@ -4034,6 +3393,7 @@ main() {
   test_maintain
   test_maintain_loop
   test_auto_commit_hook
+
   test_check_staged_size
   test_tone_enforcement_hook
   test_json_validation_hook
@@ -4098,12 +3458,8 @@ main() {
 # ---------------------------------------------------------------------------
 
 test_index_handoff_hook() {
-  echo -e "\n${CYAN}Suite Q: Handoff Index Hook removed (#386)${NC}"
-  assert_file_not_exists "Q1: index-handoff.sh removed" "$PLUGIN_ROOT/scripts/index-handoff.sh"
-  assert_file_not_exists "Q2: backfill-handoff-index.sh removed" "$PLUGIN_ROOT/scripts/backfill-handoff-index.sh"
-  local hooks_blob
-  hooks_blob=$(cat "$PLUGIN_ROOT/hooks/hooks.json")
-  assert_output_not_contains "Q3: hooks.json has no index-handoff" "$hooks_blob" 'index-handoff.sh'
+  echo -e "\n${CYAN}Suite: index-handoff removed (#391)${NC}"
+  assert_file_not_exists "index: script removed" "$PLUGIN_ROOT/scripts/index-handoff.sh"
 }
 
 
@@ -4111,9 +3467,9 @@ test_goal_deliver() {
   echo -e "\n${CYAN}Suite T: /goal-deliver via deliver skill${NC}"
   local cmd="$PLUGIN_ROOT/commands/goal-deliver.md"
   local skill="$PLUGIN_ROOT/skills/deliver/SKILL.md"
-  local graph="$PLUGIN_ROOT/references/deliver/graph.md"
-  local entry="$PLUGIN_ROOT/references/deliver/entrypoints.md"
-  local multi="$PLUGIN_ROOT/references/deliver/multi-unit.md"
+  local graph="$PLUGIN_ROOT/references/delivery-playbook.md"
+  local entry="$PLUGIN_ROOT/references/delivery-playbook.md"
+  local multi="$PLUGIN_ROOT/references/delivery-playbook.md"
 
   assert_file_exists "T1: goal-deliver command exists" "$cmd"
   assert_file_contains "T2: command name frontmatter" "$cmd" "^name: goal-deliver"
@@ -4133,7 +3489,7 @@ test_goal_deliver() {
 
 test_ads_delegation() {
   echo -e "\n${CYAN}Suite U: growth→ads capability (no /ads command)${NC}"
-  local growth="$PLUGIN_ROOT/commands/growth.md"
+  local growth="$PLUGIN_ROOT/skills/growth/SKILL.md"
   local gh="$PLUGIN_ROOT/skills/growth/SKILL.md"
   assert_file_not_exists "U0: /ads command removed" "$PLUGIN_ROOT/commands/ads.md"
   assert_file_not_exists "U1: ads workflow alias removed" "$PLUGIN_ROOT/skills/saas-startup-team-ads-workflow/SKILL.md"
@@ -4422,3 +3778,5 @@ REG
 }
 
 main "$@"
+
+test_gate_cli_391

@@ -68,7 +68,7 @@ Apply `triggered-saas-gates.md` and coherence-pass. In particular:
 Playwright for customer experience — not curl. Browser Evidence Contract from
 `../ux-review/SKILL.md` (literal output; retain only its tool-provided path/link;
 never a retyped or inline tree; missing/pending/zero browser tools → tool-unavailable;
-never a product verdict from broken transport). Claude: optional browser-operator for
+never a product verdict from broken transport). Use host browser tools when available for
 mechanical legs only; judgment stays here. Codex: drive browser in-process.
 
 ## Independence

@@ -7,4 +7,4 @@ description: "Run /goal-deliver workflow from saas-startup-team; alias /saas-sta
 # Alias: /goal-deliver
 
 Discovery alias for `/saas-startup-team:goal-deliver`, `/goal-deliver`.
-Load and execute `../../commands/goal-deliver.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/deliver/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

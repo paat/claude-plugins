@@ -7,4 +7,4 @@ description: "Run /pause workflow from saas-startup-team; alias /saas-startup-te
 # Alias: /pause
 
 Discovery alias for `/saas-startup-team:pause`, `/pause`.
-Load and execute `../../commands/pause.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/pause/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

@@ -73,7 +73,7 @@ those entrypoints invoke deliver directly).
 ### 4. Deliver
 
 Delegate Plan → isolated Build → Independent Review → Release per
-`../deliver/SKILL.md` and `../../references/deliver/graph.md`.
+`../deliver/SKILL.md` and `../../references/delivery-playbook.md`.
 Supervisor owns commits, PR/merge, and release gates. Workers do not write loop
 state.
 
@@ -104,3 +104,5 @@ Never claim success without gate evidence. Never invent customer validation.
 - Cancellation: on user cancel or fail, report `cancelled`/`incomplete` without resetting the primary checkout (no whole-pass lease `--release` required)
 - Budget: if context or wall budget is exhausted mid-delivery, stop with
   `budget_exhausted` and the last verified artifact paths
+
+Do not initialize or update `.startup/state.json` loop fields for new runs.

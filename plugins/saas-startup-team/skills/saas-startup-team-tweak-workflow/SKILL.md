@@ -7,4 +7,4 @@ description: "Run /tweak workflow from saas-startup-team; alias /saas-startup-te
 # Alias: /tweak
 
 Discovery alias for `/saas-startup-team:tweak`, `/tweak`.
-Load and execute `../../commands/tweak.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/deliver/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

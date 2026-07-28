@@ -1,14 +1,12 @@
 ---
 name: replay-abandoned
-description: "Operate replay mode. Usage: /replay-abandoned [--dry-run]"
-argument-hint: "[--band NAME] [--max N] [--dry-run] [--no-file-issues]"
-allowed-tools: Bash, Read, Write, Grep, Glob, Task
+description: "Replay abandoned funnel sessions. Usage: /replay-abandoned"
 user_invocable: true
 transitional: true
 ---
+<!-- GENERATED-ALIAS: do not edit; regenerate via scripts/generate_workflow_aliases.py from integrity/entrypoints.json -->
 
-# /replay-abandoned
+# Alias: /replay-abandoned
 
-Load `${CLAUDE_PLUGIN_ROOT}/skills/operate/SKILL.md` mode `replay`.
-Use `subagent_type: "saas-startup-team:session-replay"` when spawning.
-Emit structured `finding.json` for build-track follow-up.
+Generated alias for `/saas-startup-team:replay-abandoned`, `/replay-abandoned`. No workflow policy here.
+Load and execute `skills/operate/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

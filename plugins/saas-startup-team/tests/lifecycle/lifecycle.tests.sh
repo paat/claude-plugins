@@ -7,7 +7,7 @@ declare -F assert_file_contains >/dev/null 2>&1 || {
 test_lifecycle() {
   echo -e "\n${CYAN}Suite LC: thin conditional lifecycle (#386)${NC}"
   local skill="$PLUGIN_ROOT/skills/lifecycle/SKILL.md"
-  local startup="$PLUGIN_ROOT/commands/startup.md"
+  local startup="$PLUGIN_ROOT/skills/lifecycle/SKILL.md"
   local importer="$PLUGIN_ROOT/scripts/legacy-import.sh"
   local pathc="$PLUGIN_ROOT/scripts/lifecycle-path.sh"
   local workdir ec out state_before
@@ -152,7 +152,7 @@ test_lifecycle() {
     'market-scout.sh'
   assert_file_contains "LC73: Codex startup alias → command" \
     "$PLUGIN_ROOT/skills/saas-startup-team-startup-workflow/SKILL.md" \
-    '../../commands/startup.md'
+    '../../skills/lifecycle/SKILL.md'
 }
 
 test_lifecycle

@@ -1,13 +1,12 @@
 ---
 name: monitor
-description: "Operate monitor mode. Usage: /monitor [section] [--dry-run]"
-argument-hint: "[sessions|payments|health|costs|traffic|funnel|support|all] [--dry-run]"
-allowed-tools: Bash, Read, Write, Grep, Glob
+description: "On-demand operations report. Usage: /monitor [--file-issues]"
 user_invocable: true
 transitional: true
 ---
+<!-- GENERATED-ALIAS: do not edit; regenerate via scripts/generate_workflow_aliases.py from integrity/entrypoints.json -->
 
-# /monitor
+# Alias: /monitor
 
-Load `${CLAUDE_PLUGIN_ROOT}/skills/operate/SKILL.md` mode `monitor` with `$ARGUMENTS`.
-Engine: `scripts/monitor-dedup.sh`. Config from `monitor:` / `operate:` blocks.
+Generated alias for `/saas-startup-team:monitor`, `/monitor`. No workflow policy here.
+Load and execute `skills/operate/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

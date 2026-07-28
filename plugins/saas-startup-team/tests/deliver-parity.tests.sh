@@ -7,10 +7,10 @@ declare -F assert_file_contains >/dev/null 2>&1 || {
 test_deliver_parity() {
   echo -e "\n${CYAN}Suite DP: canonical deliver skill parity${NC}"
   local skill="$PLUGIN_ROOT/skills/deliver/SKILL.md"
-  local graph="$PLUGIN_ROOT/references/deliver/graph.md"
-  local entry="$PLUGIN_ROOT/references/deliver/entrypoints.md"
-  local light="$PLUGIN_ROOT/references/deliver/light-path.md"
-  local multi="$PLUGIN_ROOT/references/deliver/multi-unit.md"
+  local graph="$PLUGIN_ROOT/references/delivery-playbook.md"
+  local entry="$PLUGIN_ROOT/references/delivery-playbook.md"
+  local light="$PLUGIN_ROOT/references/delivery-playbook.md"
+  local multi="$PLUGIN_ROOT/references/delivery-playbook.md"
   local improve_cmd="$PLUGIN_ROOT/commands/improve.md"
   local goal_cmd="$PLUGIN_ROOT/commands/goal-deliver.md"
   local tweak_cmd="$PLUGIN_ROOT/commands/tweak.md"
@@ -23,7 +23,7 @@ test_deliver_parity() {
   assert_file_exists "DP4: light-path config exists" "$light"
   assert_file_exists "DP5: multi-unit config exists" "$multi"
 
-  assert_file_contains "DP6: skill loads graph" "$skill" '../../references/deliver/graph.md'
+  assert_file_contains "DP6: skill loads graph" "$skill" '../../references/delivery-playbook.md'
   assert_file_contains "DP7: graph names the delivery graph" "$graph" "$graph_phrase"
   assert_file_contains "DP8: Done/Preserve/Out of Scope" "$graph" 'Out of Scope'
   assert_file_contains "DP9: triggered SaaS gates" "$graph" 'triggered-saas-gates.md'
@@ -41,16 +41,12 @@ test_deliver_parity() {
   assert_file_not_contains "DP20: skill does not mandate active_role mutation"     "$skill" '.active_role ='
   assert_file_not_contains "DP21: graph does not mandate active_role mutation"     "$graph" '.active_role ='
 
-  for pair in     "DP22:$improve_cmd:improve"     "DP23:$goal_cmd:goal-deliver"     "DP24:$tweak_cmd:tweak"; do
-    local id="${pair%%:*}"
-    local rest="${pair#*:}"
-    local cmd="${rest%%:*}"
-    local ep="${rest#*:}"
-    assert_file_contains "$id: command loads deliver skill" "$cmd" 'skills/deliver/SKILL.md'
-    assert_file_contains "$id b: sets entrypoint" "$cmd" "SAAS_DELIVER_ENTRYPOINT=$ep"
+  for cmd in "$improve_cmd" "$goal_cmd" "$tweak_cmd"; do
+    assert_file_contains "DP22: $(basename "$cmd") is generated alias" "$cmd" 'GENERATED-ALIAS'
+    assert_file_contains "DP23: $(basename "$cmd") loads deliver skill" "$cmd" 'skills/deliver/SKILL.md'
   done
-  assert_file_contains "DP25: startup implementation resolves to deliver"     "$startup_cmd" 'SAAS_DELIVER_ENTRYPOINT=startup-impl'
-  assert_file_contains "DP26: startup names deliver skill path"     "$startup_cmd" 'skills/deliver/SKILL.md'
+  assert_file_contains "DP25: startup is generated alias" "$startup_cmd" 'GENERATED-ALIAS'
+  assert_file_contains "DP26: startup loads lifecycle skill" "$startup_cmd" 'skills/lifecycle/SKILL.md'
 
   assert_file_contains "DP27: entrypoints share SKILL graph" "$entry"     'All share `skills/deliver/SKILL.md` graph phases'
   assert_file_contains "DP28: tweak is bounded fast-path only" "$entry"     'bounded light fast-path only'
@@ -67,9 +63,9 @@ test_deliver_parity() {
     assert_file_not_contains "DP36: $(basename "$cmd") has no SHA-pinned merge policy"       "$cmd" '--match-head-commit'
   done
 
-  assert_file_contains "DP37: improve Codex alias → command"     "$PLUGIN_ROOT/skills/saas-startup-team-improve-workflow/SKILL.md"     '../../commands/improve.md'
-  assert_file_contains "DP38: goal-deliver Codex alias → command"     "$PLUGIN_ROOT/skills/saas-startup-team-goal-deliver-workflow/SKILL.md"     '../../commands/goal-deliver.md'
-  assert_file_contains "DP39: tweak Codex alias → command"     "$PLUGIN_ROOT/skills/saas-startup-team-tweak-workflow/SKILL.md"     '../../commands/tweak.md'
+  assert_file_contains "DP37: improve Codex alias → command"     "$PLUGIN_ROOT/skills/saas-startup-team-improve-workflow/SKILL.md"     '../../skills/deliver/SKILL.md'
+  assert_file_contains "DP38: goal-deliver Codex alias → command"     "$PLUGIN_ROOT/skills/saas-startup-team-goal-deliver-workflow/SKILL.md"     '../../skills/deliver/SKILL.md'
+  assert_file_contains "DP39: tweak Codex alias → command"     "$PLUGIN_ROOT/skills/saas-startup-team-tweak-workflow/SKILL.md"     '../../skills/deliver/SKILL.md'
 
   # Same delivery graph phase order for all entrypoints (bounded skips only).
   assert_file_contains "DP40: graph states shared phase order" "$graph" \

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for thin workflow alias generation (issue #383)."""
+"""Tests for thin workflow alias generation (issues #383 / #391)."""
 
 from __future__ import annotations
 
@@ -25,11 +25,11 @@ class EntrypointsManifest(unittest.TestCase):
         self.assertEqual(payload["version"], 1)
         self.assertEqual(payload["plugin"], "saas-startup-team")
         entries = payload["entrypoints"]
-        # 21 commands after #390 meta removal; 20 generate Codex aliases
-        # (maintain-loop keeps generate_alias=false).
+        # 21 commands; all generate Codex + command aliases (#391).
         self.assertEqual(len(entries), 21)
         generated = [e for e in entries if e.get("generate_alias") is True]
-        self.assertEqual(len(generated), 20)
+        self.assertEqual(len(generated), 21)
+        self.assertTrue(all(e.get("canonical") for e in entries))
         self.assertNotIn("ads", {e["name"] for e in entries})
         for removed in (
             "harvest",
@@ -62,38 +62,47 @@ class EntrypointsManifest(unittest.TestCase):
             self.assertTrue(skill.is_file(), entry["codex_skill"])
             text = skill.read_text(encoding="utf-8")
             self.assertIn(gen.GENERATED_MARKER, text)
-            self.assertIn(f"../../{entry['command_file']}", text)
+            # Codex aliases load the canonical skill (#391), not commands/.
+            self.assertIn(f"../../{entry['canonical']}", text)
             self.assertNotIn("## Run Protocol", text)
             self.assertNotIn("## SaaS Startup Codex Rules", text)
             self.assertNotIn("gpt-5", text)
             self.assertNotIn("AskUserQuestion", text)
             self.assertNotIn("codex-run-role.sh", text)
-            # Thin: keep alias body small (frontmatter + marker + 3-4 lines).
             self.assertLessEqual(text.count("\n"), 12, entry["codex_skill"])
+            # Command file is a generated alias too.
+            cmd = PLUGIN_ROOT / entry["command_file"]
+            ctext = cmd.read_text(encoding="utf-8")
+            self.assertIn(gen.GENERATED_MARKER, ctext)
+            self.assertIn(entry["canonical"], ctext)
 
 
 class GeneratorDeterminism(unittest.TestCase):
     def test_render_is_stable(self) -> None:
-        a = gen.render_alias(
+        a = gen.render_codex_alias(
             skill_name="saas-startup-team-demo-workflow",
             aliases=["/saas-startup-team:demo", "/demo"],
-            command_file="commands/demo.md",
+            canonical="skills/demo/SKILL.md",
         )
-        b = gen.render_alias(
+        b = gen.render_codex_alias(
             skill_name="saas-startup-team-demo-workflow",
             aliases=["/saas-startup-team:demo", "/demo"],
-            command_file="commands/demo.md",
+            canonical="skills/demo/SKILL.md",
         )
         self.assertEqual(a, b)
         self.assertIn(gen.GENERATED_MARKER, a)
-        self.assertIn("../../commands/demo.md", a)
+        self.assertIn("../../skills/demo/SKILL.md", a)
 
     def test_check_detects_drift(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "plugin"
             (root / "commands").mkdir(parents=True)
-            (root / "skills").mkdir(parents=True)
+            (root / "skills" / "demo").mkdir(parents=True)
             (root / "integrity").mkdir(parents=True)
+            (root / "skills" / "demo" / "SKILL.md").write_text(
+                "---\nname: demo\n---\n# Demo\n",
+                encoding="utf-8",
+            )
             (root / "commands" / "demo.md").write_text(
                 "---\nname: demo\ndescription: d\n---\n# /demo\n",
                 encoding="utf-8",
@@ -105,16 +114,19 @@ class GeneratorDeterminism(unittest.TestCase):
                     {
                         "name": "demo",
                         "command_file": "commands/demo.md",
+                        "canonical": "skills/demo/SKILL.md",
+                        "description": "Demo workflow",
                         "aliases": ["/saas-startup-team:demo", "/demo"],
                         "codex_skill": "saas-startup-team-demo-workflow",
                         "generate_alias": True,
+                        "generate_command_alias": True,
                     }
                 ],
             }
             (root / "integrity" / "entrypoints.json").write_text(
                 json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
             )
-            # Missing file => check fails
+            # Stale command body => check fails
             rc = gen.main(["--plugin-root", str(root), "--check"])
             self.assertEqual(rc, 1)
             # Write then check passes
@@ -131,6 +143,7 @@ class TransitionalCommands(unittest.TestCase):
         for path in sorted((PLUGIN_ROOT / "commands").glob("*.md")):
             text = path.read_text(encoding="utf-8")
             self.assertIn("transitional: true", text, path.name)
+            self.assertIn(gen.GENERATED_MARKER, text, path.name)
 
 
 if __name__ == "__main__":

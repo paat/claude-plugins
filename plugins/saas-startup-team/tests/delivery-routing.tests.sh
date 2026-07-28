@@ -102,13 +102,13 @@ test_delivery_routing() {
 
   # deliver skill still points at cast, not nested controllers
   assert_file_contains "DR40: deliver graph references codex-cast or host-native" \
-    "$PLUGIN_ROOT/references/deliver/graph.md" 'codex-cast'
+    "$PLUGIN_ROOT/references/delivery-playbook.md" 'codex-cast'
   assert_file_not_contains "DR41: no tech-founder-codex controller guidance" \
-    "$PLUGIN_ROOT/references/deliver/graph.md" 'tech-founder-codex'
+    "$PLUGIN_ROOT/references/delivery-playbook.md" 'tech-founder-codex'
   assert_file_not_contains "DR42: no codex-run-role in graph" \
-    "$PLUGIN_ROOT/references/deliver/graph.md" 'codex-run-role'
+    "$PLUGIN_ROOT/references/delivery-playbook.md" 'codex-run-role'
   assert_file_not_contains "DR43: no codex-implement in graph" \
-    "$PLUGIN_ROOT/references/deliver/graph.md" 'codex-implement'
+    "$PLUGIN_ROOT/references/delivery-playbook.md" 'codex-implement'
 
   rm -rf "$wd" "$repo"
 }

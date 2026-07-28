@@ -14,7 +14,10 @@
       ],
       "codex_skill": "saas-startup-team-bootstrap-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/bootstrap/SKILL.md",
+      "description": "Initialize project structure for saas-startup-team. Idempotent.",
+      "generate_command_alias": true
     },
     {
       "name": "digest",
@@ -25,7 +28,10 @@
       ],
       "codex_skill": "saas-startup-team-digest-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/digest/SKILL.md",
+      "description": "Daily needs-human digest. Host-scheduled. Usage: /digest [--date YYYY-MM-DD]",
+      "generate_command_alias": true
     },
     {
       "name": "goal-deliver",
@@ -36,7 +42,10 @@
       ],
       "codex_skill": "saas-startup-team-goal-deliver-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/deliver/SKILL.md",
+      "description": "Deliver issues/milestones/specs through production gates. Usage: /goal-deliver [--full] <work>",
+      "generate_command_alias": true
     },
     {
       "name": "growth",
@@ -47,7 +56,10 @@
       ],
       "codex_skill": "saas-startup-team-growth-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/growth/SKILL.md",
+      "description": "Lifecycle-aware growth track within spend envelope. Usage: /growth [--prelive|--live|--postlive|--paused]",
+      "generate_command_alias": true
     },
     {
       "name": "improve",
@@ -58,7 +70,10 @@
       ],
       "codex_skill": "saas-startup-team-improve-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/deliver/SKILL.md",
+      "description": "One-shot improvement with supervisor-gated commit. Usage: /improve [description]",
+      "generate_command_alias": true
     },
     {
       "name": "investigate",
@@ -69,7 +84,10 @@
       ],
       "codex_skill": "saas-startup-team-investigate-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/operate/SKILL.md",
+      "description": "Operate investigate mode. Usage: /investigate {CID|--recent N}",
+      "generate_command_alias": true
     },
     {
       "name": "lawyer",
@@ -80,7 +98,10 @@
       ],
       "codex_skill": "saas-startup-team-lawyer-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/lawyer/SKILL.md",
+      "description": "On-demand legal analysis via datalake. Usage: /lawyer <topic>",
+      "generate_command_alias": true
     },
     {
       "name": "maintain-loop",
@@ -89,9 +110,12 @@
         "/saas-startup-team:maintain-loop",
         "/maintain-loop"
       ],
-      "codex_skill": "maintain-loop",
-      "generate_alias": false,
-      "transitional": true
+      "codex_skill": "saas-startup-team-maintain-loop-workflow",
+      "generate_alias": true,
+      "transitional": true,
+      "canonical": "skills/maintain-loop/SKILL.md",
+      "description": "Scheduler for maintain ticks. Usage: /maintain-loop [--once] [--shadow|--mutate]",
+      "generate_command_alias": true
     },
     {
       "name": "maintain",
@@ -102,7 +126,10 @@
       ],
       "codex_skill": "saas-startup-team-maintain-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/maintain/SKILL.md",
+      "description": "Maintain v3 tick (shadow default). Usage: /maintain [--once] [--shadow|--mutate]",
+      "generate_command_alias": true
     },
     {
       "name": "market-scout",
@@ -113,7 +140,10 @@
       ],
       "codex_skill": "saas-startup-team-market-scout-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/market-scout/SKILL.md",
+      "description": "Ranked SaaS candidates from market evidence. Usage: /market-scout [guidance]",
+      "generate_command_alias": true
     },
     {
       "name": "monitor-nightly",
@@ -124,7 +154,10 @@
       ],
       "codex_skill": "saas-startup-team-monitor-nightly-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/monitor-nightly/SKILL.md",
+      "description": "Nightly monitor job body (host-scheduled). Usage: /monitor-nightly [--dry-run]",
+      "generate_command_alias": true
     },
     {
       "name": "monitor",
@@ -135,7 +168,10 @@
       ],
       "codex_skill": "saas-startup-team-monitor-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/operate/SKILL.md",
+      "description": "On-demand operations report. Usage: /monitor [--file-issues]",
+      "generate_command_alias": true
     },
     {
       "name": "nudge",
@@ -146,7 +182,10 @@
       ],
       "codex_skill": "saas-startup-team-nudge-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/nudge/SKILL.md",
+      "description": "Unstick a deadlock or redirect. Usage: /nudge [message]",
+      "generate_command_alias": true
     },
     {
       "name": "operate",
@@ -157,7 +196,10 @@
       ],
       "codex_skill": "saas-startup-team-operate-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/operate/SKILL.md",
+      "description": "Post-launch operations entry. Usage: /operate [mode]",
+      "generate_command_alias": true
     },
     {
       "name": "pause",
@@ -168,7 +210,10 @@
       ],
       "codex_skill": "saas-startup-team-pause-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/pause/SKILL.md",
+      "description": "Record a human pause; scheduler owns backoff. Usage: /pause",
+      "generate_command_alias": true
     },
     {
       "name": "replay-abandoned",
@@ -179,7 +224,10 @@
       ],
       "codex_skill": "saas-startup-team-replay-abandoned-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/operate/SKILL.md",
+      "description": "Replay abandoned funnel sessions. Usage: /replay-abandoned",
+      "generate_command_alias": true
     },
     {
       "name": "startup",
@@ -190,7 +238,10 @@
       ],
       "codex_skill": "saas-startup-team-startup-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/lifecycle/SKILL.md",
+      "description": "Thin conditional lifecycle. Usage: /startup [goal]",
+      "generate_command_alias": true
     },
     {
       "name": "status",
@@ -201,7 +252,10 @@
       ],
       "codex_skill": "saas-startup-team-status-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/status/SKILL.md",
+      "description": "Project status. Usage: /status",
+      "generate_command_alias": true
     },
     {
       "name": "tweak",
@@ -212,7 +266,10 @@
       ],
       "codex_skill": "saas-startup-team-tweak-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/deliver/SKILL.md",
+      "description": "Light contained change. Usage: /tweak [description]",
+      "generate_command_alias": true
     },
     {
       "name": "ux-test",
@@ -223,7 +280,10 @@
       ],
       "codex_skill": "saas-startup-team-ux-test-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/ux-review/SKILL.md",
+      "description": "UX accessibility and usability audit. Usage: /ux-test <url>",
+      "generate_command_alias": true
     },
     {
       "name": "validate-experiment",
@@ -234,7 +294,10 @@
       ],
       "codex_skill": "saas-startup-team-validate-experiment-workflow",
       "generate_alias": true,
-      "transitional": true
+      "transitional": true,
+      "canonical": "skills/validate-experiment/SKILL.md",
+      "description": "Validate measured experiment results. Usage: /validate-experiment <args>",
+      "generate_command_alias": true
     }
   ]
 }

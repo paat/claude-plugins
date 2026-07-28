@@ -7,4 +7,4 @@ description: "Run /ux-test workflow from saas-startup-team; alias /saas-startup-
 # Alias: /ux-test
 
 Discovery alias for `/saas-startup-team:ux-test`, `/ux-test`.
-Load and execute `../../commands/ux-test.md`. Treat trailing user text as `$ARGUMENTS`.
+Load and execute `../../skills/ux-review/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.

@@ -1,31 +1,22 @@
 ---
 name: maintain-loop
-description: "Run /maintain-loop workflow from saas-startup-team; alias /saas-startup-team:maintain-loop."
+description: "Scheduler for maintain ticks. Usage: /maintain-loop [--once] [--shadow|--mutate]"
 ---
 
-# /saas-startup-team:maintain-loop Codex Workflow
+# Maintain-loop
 
-This generated skill is the Codex-native plugin surface for `/saas-startup-team:maintain-loop`.
-Also use it when the user invokes `/maintain-loop` or asks for the same workflow by name.
+Expeditor for one tick. never read issue bodies, source files, or diffs.
 
-Source command: `../../commands/maintain-loop.md`
+1. Probe: `workflow-probe.sh maintain` (exit 3 is no-op). Legacy receipts → once
+   `legacy-drain.sh drain --repo-root "$(git rev-parse --show-toplevel)" --apply`.
+2. Prefer v3: `maintain-v3.sh tick --shadow --repo-root "$(git rev-parse --show-toplevel)"
+   --allow-linked-worktrees`. `--dry-run`→shadow; `--mutate` after agreement.
+3. When work available, launch exactly one fresh isolated subagent as
+   `/saas-startup-team:maintain --once`. never run two passes concurrently. no inline as a fallback.
+   Keep only the child's compact terminal result. Empty timeouts are not progress
+   or immediately retry them. Completed subagent identities are not reused.
 
-## Run Protocol
+Normal triage, ordering, batching, limits, implementation remain inside `/maintain`.
+`--once` launches at most one child. Coordinator: `references/workflows/maintain.md`.
 
-1. Treat the user text after the command name as `$ARGUMENTS`.
-2. Read the source command file before executing. It is the workflow checklist after applying the Codex replacements in this skill.
-3. Execute only as a thin coordinator using fresh Codex subagents. Never run the delegated maintain pass in the current session. Require a collaboration-capable, non-ephemeral coordinator session so each spawned child returns a stable identity. Require the child to send its parent a compact collaboration message only when issue/PR, delivery, blocker, or status changes.
-4. Do not create user-local `~/.codex/prompts` wrappers. This skill is the reusable plugin-bundled workflow surface.
-5. When the source command says `Skill('plugin:skill')`, load the named plugin skill normally.
-6. When the source command references `${CLAUDE_PLUGIN_ROOT}/path`, resolve it to this installed plugin root and use `path` under that root. Do not require the environment variable to exist.
-7. When the source command contains a Claude-only primitive, use the Codex replacement:
-   - `AskUserQuestion` -> ask the user directly; in non-interactive runs, stop and report the exact required input.
-   - Claude slash-command execution -> invoke this skill or the corresponding plugin skill.
-   - Claude `Task` / `Agent` / `TeamCreate` dispatch -> spawn exactly one fresh Codex subagent and retain its returned identity; wait only after an identity is returned. Call `wait_agent` with `timeout_ms: 3600000`; never shorten waits to meet commentary cadence. After an empty timeout, emit at most one compact hourly heartbeat, then wait again. Follow the source command's referenced coordinator contract for every dispatch or terminal anomaly. Preserve its exact child bindings `--lease-run-id "$SAAS_INVOCATION_ID" --invocation-command maintain-loop`; never assume a fresh child inherits coordinator environment. Never substitute current-session execution
-   - `ScheduleWakeup` -> use Codex session continuation or an explicit user-visible status checkpoint; do not depend on a Claude lifecycle hook.
-
-## Command Metadata
-
-- Plugin: `saas-startup-team`
-- Command aliases: `/saas-startup-team:maintain-loop`, `/maintain-loop`
-- Source description: Scheduler for maintain ticks. Usage: /maintain-loop [--once] [--shadow|--mutate]
+Codex: use fresh Codex subagents for the child pass; coordinator stays thin.

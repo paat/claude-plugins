@@ -2,12 +2,12 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Write",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'p=scripts/enforce-handoff-naming.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] critical hook target not found: $p\" >&2; exit 2'",
-            "description": "Block non-conforming handoff filenames (NNN-<direction>.md only)"
+            "command": "bash -c 'p=hooks/dispatch.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\" pre-write; done; echo \"[saas-startup-team] critical hook target not found: $p\" >&2; exit 2'",
+            "description": "Path-scoped pre-write gates when content is present: secrets, JSON schema, ad spend (fail closed); LinkedIn advisory"
           }
         ]
       },
@@ -16,8 +16,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'p=scripts/check-regression-test.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; echo \"[saas-startup-team] critical hook target not found: $p\" >&2; exit 2'",
-            "description": "Block `gh pr merge` for an incident-linked PR unless the diff adds a regression test (or an explicit override is recorded)"
+            "command": "bash -c 'p=hooks/dispatch.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\" pre-bash; done; echo \"[saas-startup-team] critical hook target not found: $p\" >&2; exit 2'",
+            "description": "Block incident-linked gh pr merge without a regression test (or override)"
           }
         ]
       }
@@ -28,98 +28,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'p=scripts/validate-json.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; cat >/dev/null 2>&1 || true; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
-            "description": "Validate JSON syntax after editing .json files"
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'p=scripts/enforce-delegation.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; cat >/dev/null 2>&1 || true; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
-            "description": "Prevent team lead from directly editing implementation code"
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'p=scripts/auto-commit.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; cat >/dev/null 2>&1 || true; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
-            "description": "Persist the triggering artifact only; product commits remain supervisor-owned"
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'p=scripts/check-handoff-secrets.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; cat >/dev/null 2>&1 || true; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
-            "description": "Auto-redact hardcoded secrets, API keys, and passwords from handoff files (never blocks the write \u2014 handoffs are gitignored, so blocking lost them silently)"
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'p=scripts/enforce-tone.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; cat >/dev/null 2>&1 || true; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
-            "description": "Flag MVP/prototype language in handoff files"
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'p=scripts/check-duplicate-handoff.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; cat >/dev/null 2>&1 || true; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
-            "description": "Warn when writing a handoff that duplicates existing work"
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'p=scripts/validate-growth-brief.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; cat >/dev/null 2>&1 || true; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
-            "description": "Ensure growth briefs have Objective and Target Customer sections"
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'p=scripts/check-linkedin-limits.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; cat >/dev/null 2>&1 || true; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
-            "description": "Enforce LinkedIn daily/weekly rate limits"
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'p=scripts/check-ad-budget.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; cat >/dev/null 2>&1 || true; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
-            "description": "Hard stop at 100% of approved ad budget"
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'p=scripts/auto-commit-growth.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\"; done; cat >/dev/null 2>&1 || true; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
-            "description": "Auto-commit docs/growth/ content and metrics updates"
+            "command": "bash -c 'p=hooks/dispatch.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\" post-write; done; cat >/dev/null 2>&1 || true; echo \"[saas-startup-team] hook target not found: $p\" >&2; exit 0'",
+            "description": "Path-scoped post-write gates: JSON schema, ad spend; LinkedIn advisory"
           }
         ]
       }

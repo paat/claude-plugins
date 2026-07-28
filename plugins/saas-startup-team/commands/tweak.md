@@ -1,13 +1,12 @@
 ---
 name: tweak
-description: "Trapped shortcut for trivial copy, docs, literal-link, or small CSS changes. Usage: /tweak [description]"
+description: "Light contained change. Usage: /tweak [description]"
 user_invocable: true
 transitional: true
 ---
+<!-- GENERATED-ALIAS: do not edit; regenerate via scripts/generate_workflow_aliases.py from integrity/entrypoints.json -->
 
-# /tweak
+# Alias: /tweak
 
-Be token-frugal. Load the canonical deliver skill
-`${CLAUDE_PLUGIN_ROOT}/skills/deliver/SKILL.md` once with
-`SAAS_DELIVER_ENTRYPOINT=tweak`, then follow it with `$ARGUMENTS`. Tweak is only a
-bounded light fast-path configuration of deliver; do not recreate its gates from memory.
+Generated alias for `/saas-startup-team:tweak`, `/tweak`. No workflow policy here.
+Load and execute `skills/deliver/SKILL.md`. Treat trailing user text as `$ARGUMENTS`.
