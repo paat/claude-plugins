@@ -77,7 +77,6 @@ Intake → Conditional discovery → Triggered specialists → deliver → Repor
 | `/saas-startup-team:improve` | One-shot improvements on a completed product |
 | `/saas-startup-team:operate` | Post-launch operations entry point. Routes live monitoring, incident investigation, abandoned-session replay, and support triage from the shared `operate:` config block. |
 | `/saas-startup-team:monitor` | On-demand operations report using the existing `monitor:` engine plus configured `operate:` sources. Read-only unless `--file-issues` is passed. |
-| `/saas-startup-team:harvest` | Internal evidence harvester for self-improvement and market-need candidates. `--events` uses the authoritative root-terminal projection; harvesting stays local, while public filing remains separately repo-pinned and gated. |
 | `/saas-startup-team:market-scout` | External market-demand scout. Converts configured public evidence, source links, and dates into ranked SaaS improvement candidates; falls back to internal demand discovery when browsing/source data is unavailable. |
 | `/saas-startup-team:investigate` | Investigate a correlation ID or recent sessions, write redacted RCA artifacts, and file/update a deduplicated GitHub issue by default. |
 | `/saas-startup-team:replay-abandoned` | Replay configured abandoned funnel sessions via browser tooling, emit structured findings, and file actionable findings by default. |
@@ -85,8 +84,11 @@ Intake → Conditional discovery → Triggered specialists → deliver → Repor
 | `/saas-startup-team:ads` | Design a Google Ads campaign — spawns the `google-ads-strategist` plugin's `ads-strategist` (hard dependency) to design, browser-verify, and create the campaign in PAUSED state for investor review. The `/growth` loop also delegates here automatically. |
 | `/saas-startup-team:maintain` | Scheduled autonomous maintenance pass: triage open issues, fence human-gated ones into `human-tasks.md`, and deliver the rest to production via inline `/goal-deliver`, one-at-a-time in dependency order. An external scheduler owns repetition and backoff. Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`. Requires the `tribunal-review` plugin. |
 | `/saas-startup-team:maintain-loop` | Thin sequential coordinator: model-free probe, then one fresh `/maintain --once` subagent per bounded pass. The caller retains only compact outcomes and never loads issue or delivery context. Codex invocation: `$saas-startup-team:maintain-loop`. Accepts `/maintain` limits plus outer `--once`. |
-| `/saas-startup-team:lessons-review` | Optional manual inspection/override for the lesson queue: list candidates, approve, close, or quarantine a verified issue. Normal review is automatic through `lesson-auto-review.sh`. |
-| `/saas-startup-team:lessons-deliver` | Autonomously implements automatically approved `lesson-approved` issues end-to-end (claim → implement → diff firewall → tribunal → test suite → dual version bump → PR `Closes #N` → merge on green). Plugin-native (not `/goal-deliver`). Flags: `--once`, `--dry-run`, `--max-issues`, `--max-merges`, `--max-pass-minutes`, `--max-run-minutes`, `--repo`. Requires the `tribunal-review` plugin. |
+
+Removed in **0.90.24** (#390; no in-plugin replacement for 1.0.0): `/harvest`,
+`/session-insights`, `/lessons-review`, `/lessons-deliver`, `/learnings-migrate`,
+`/learnings-compress`, plus agent-events telemetry and standard-medium evaluation.
+See `docs/legacy/migration-1.0-meta-removed.md`.
 
 ## Agents
 
@@ -201,11 +203,12 @@ docs/
 
 Create `WORKFLOW-<slug>.md` when delivery introduces or changes routes, jobs, workers, webhooks, checkout/payment, LLM pipelines, support intake, operator workflows, entity states, or contracts. Specs cover trigger, actors, happy path, validation failures, transient/permanent failures, cleanup/compensation, concurrent conflicts, customer/operator/system states, logs/artifacts, and QA cases. Missing workflows discovered in code should be marked `Missing` in `registry.md` instead of silently ignored.
 
-### Learnings capture
+### Project memory hygiene
 
-A PostToolUse hook (`auto-learn.sh`) supplies non-blocking additional context after every handoff/review/signoff/go-live write under `.startup/`, asking the agent to extract up to 3 reusable project learnings into the project guidance file (`CLAUDE.md` in Claude Code projects; Codex projects may mirror this into `AGENTS.md` with `agent-sync`). Entries that clearly fit an existing `docs/learnings/<topic>.md` file are routed there directly; uncertain or new-topic learnings stage in the `### Recent (unsorted)` section.
-
-To keep the guidance file lean, the hook caps `### Recent (unsorted)` at **10 entries** (tune with `SAAS_LEARNINGS_MAX=N`). It counts the staged bullets deterministically in bash, and once the section nears the cap the assistant migrates the surplus (oldest first) into the best-fit `docs/learnings/` topic file — creating the file and a `## Domain Learnings` index line when no topic fits — so the staging area self-heals back to ≤ cap. Run `/saas-startup-team:learnings-migrate` for a human-in-the-loop sweep of whatever remains.
+Optional `scripts/memory-gc.sh` retires expired one-off grants under `## Learnings` /
+`docs/learnings/` and flags stale or near-duplicate bullets. It does not harvest
+sessions or file plugin issues. Automatic learnings capture, migration, and compression
+commands were removed in 0.90.24 (#390).
 
 ### Google Ads records
 
@@ -450,76 +453,12 @@ Claude Code invokes `/maintain-loop`; Codex invokes
 `$saas-startup-team:maintain-loop` or selects it from `/skills`. Codex does not support
 plugin-defined slash commands.
 
-### Delivery telemetry and local evaluation
+### Terminal release evidence (maintain-v3)
 
-Versioned, append-only events stay local in `.startup/runs/agent-events.jsonl`. They
-contain profile/model/effort, opaque writer/run IDs, timing/token fields when available,
-gate statuses, and outcomes—never prompts, issue text, diffs, secrets, customer/project
-names, URLs, or paths. `scripts/agent-events-export.sh` runs the secret/PII gate and
-exports only anonymous counts, rates, durations, profile/model/effort, and outcomes.
-`scripts/agent-events-aggregate.sh` combines sanitized exports without project identity.
-Provider/model labels such as Gemini are telemetry categories, not CLI dependencies.
-
-`scripts/standard-medium-eval.sh` supports local high-versus-medium replay for 20–50
-standard deliveries. AI workers run unrestricted inside the development-container
-boundary, in detached worktrees at recorded base SHAs with isolated Codex configuration,
-sanitized credentials, and wrappers for common remote tools. Only the deterministic
-`check.sh` harness uses the credentialless network-off sandbox. Replays fingerprint the
-primary checkout, including ignored files, and record remote or production mutation as
-unknown because local repository state cannot prove either absence. Raw material stays
-under `.startup/evaluation/`. A schema-3 assessment verifies each base and check harness
-against its source repository, validates non-empty patches, and binds each unique opaque
-sample, task, result, diff, blinded input, mapping receipt, and tribunal result by hash;
-older corpora require a fresh replay. Mapping receipts contain no model/effort identity,
-and marked candidate content is rejected. Persisted same-user artifacts are not a
-sufficient authorization boundary: assessments remain metrics-only `no-go` until a
-supervisor-owned end-to-end controller can issue receipts unavailable to workers and
-reviewers. Standard therefore remains Sol/high; unverified provenance or economics cannot
-authorize a downgrade.
-
-## Self-improvement loop (`/lessons-deliver`)
-
-The plugin improves itself: it harvests genuine, generic lessons from authoritative root
-workflow outcomes and session history, files them as de-identified, PII-gated
-`lesson-candidate` issues in a pinned plugin repo (`SAAS_PLUGIN_REPO`), and reviews them
-automatically with a fresh isolated Opus/xhigh verdict. Only an unresolved verdict invokes
-independent GPT-5.6 Sol/xhigh arbitration. High-confidence decisions approve or reject;
-unresolved pairs quarantine the candidate. Model transport failures and timeouts leave it
-for retry. A zero-exit malformed Opus verdict invokes Sol; a zero-exit malformed final Sol
-verdict is unresolved and quarantined. Each pass reviews at most three candidates. `/lessons-review` remains an optional
-manual inspection/override surface, not an implementation prerequisite.
-
-`/lessons-deliver` is the implementer. Because lessons land in a *plugin monorepo* (no
-`.startup/`, no `solution-signoff.md`, no GitHub Actions deploy), it is **not**
-`/goal-deliver`: it borrows `/maintain`'s safety skeleton (stateless supervisor,
-primary-checkout delivery with no extra worktree, circuit breakers, GitHub-native
-claim/idempotency, merge-on-green, run digest) but uses a plugin-native delivery body —
-claim → implement (fresh implementer subagent) → **mechanical diff firewall** → tribunal
-gate → `run-tests.sh` → dual version bump (`plugin.json` **and** `marketplace.json`) →
-PR with `Closes #N` → merge on green → ship. The deterministic, fail-closed surface lives
-in `scripts/lessons-deliver.sh` (tested by Suite L with a mock-`gh` harness).
-
-The delivery quality chain is locked: agent → tests → commit/PR → tribunal → merge.
-
-**The mechanical firewall** treats lesson bodies as untrusted: it blocks any change outside
-`plugins/` (+ the root marketplace manifest), any change to the loop's own safety
-infrastructure (self-modification → `lessons:needs-human`), and any secret in the diff
-(`pii-gate.sh`). Deletion or renaming of any discovered test file is blocked, as are
-reductions in assertion/test counts; the firewall itself is self-protected.
-
-**Autonomy.** Standalone mode uses a nightly `flock` cron (the loop's "deploy"):
-
-```
-0 3 * * * /usr/bin/flock -n /tmp/lessons-deliver.lock -c \
-  'cd <plugin-repo> && PLUGIN_ROOT=<installed-plugin-path>; export PLUGIN_ROOT; if bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" lessons-deliver; then <assistant-command> "/lessons-deliver --once" >> <log-path> 2>&1; else test $? -eq 3; fi'
-```
-
-Standalone cron and a governed review/probe/delivery scheduler are mutually exclusive;
-installing the governed owner must retire the standalone `/tmp/lessons-deliver.lock` line.
-For supervised/dev ticks, run `workflow-probe.sh lessons-deliver` first and invoke
-`/loop 5m /lessons-deliver --once` only on exit 0. Note this runs in the
-**plugin repo** (cwd = where the plugin source lives), independently of `/maintain` which
-runs in each **product** repo.
+Maintain v3 records only privacy-safe terminal PR, merge, deployment, and close evidence
+via `scripts/maintain-v3.sh release-facts`. Custom agent-events telemetry and
+standard-medium evaluation were removed in 0.90.24 (#390); harness tracing and Git/PR/CI
+are the authority.
 
 ## Prerequisites
 

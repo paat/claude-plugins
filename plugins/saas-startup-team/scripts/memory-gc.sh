@@ -2,8 +2,9 @@
 # memory-gc.sh — conservative garbage collection over project memory (issue #196).
 #
 # Scans CLAUDE.md '## Learnings' + docs/learnings/*.md and classifies bullets:
-#   - Expired one-off grants ('- Grant: ... expires: YYYY-MM-DD' past today) — the ONLY
-#     deletion class: moved to docs/learnings/retired.md with a retirement date.
+#   - Expired one-off grants — the ONLY deletion class. Grant line shape:
+#       - Grant: <what> — scope: <scope>, expires: YYYY-MM-DD
+#     Past-due grants move to docs/learnings/retired.md with a retirement date.
 #   - Stale entries (a bullet's absolute date older than --stale-days, default 21) — flag only.
 #   - Near-duplicate / contradiction candidates (same Label repeated in one file) — flag only.
 #

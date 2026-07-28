@@ -50,17 +50,6 @@
       "transitional": true
     },
     {
-      "name": "harvest",
-      "command_file": "commands/harvest.md",
-      "aliases": [
-        "/saas-startup-team:harvest",
-        "/harvest"
-      ],
-      "codex_skill": "saas-startup-team-harvest-workflow",
-      "generate_alias": true,
-      "transitional": true
-    },
-    {
       "name": "improve",
       "command_file": "commands/improve.md",
       "aliases": [
@@ -90,50 +79,6 @@
         "/lawyer"
       ],
       "codex_skill": "saas-startup-team-lawyer-workflow",
-      "generate_alias": true,
-      "transitional": true
-    },
-    {
-      "name": "learnings-compress",
-      "command_file": "commands/learnings-compress.md",
-      "aliases": [
-        "/saas-startup-team:learnings-compress",
-        "/learnings-compress"
-      ],
-      "codex_skill": "saas-startup-team-learnings-compress-workflow",
-      "generate_alias": true,
-      "transitional": true
-    },
-    {
-      "name": "learnings-migrate",
-      "command_file": "commands/learnings-migrate.md",
-      "aliases": [
-        "/saas-startup-team:learnings-migrate",
-        "/learnings-migrate"
-      ],
-      "codex_skill": "saas-startup-team-learnings-migrate-workflow",
-      "generate_alias": true,
-      "transitional": true
-    },
-    {
-      "name": "lessons-deliver",
-      "command_file": "commands/lessons-deliver.md",
-      "aliases": [
-        "/saas-startup-team:lessons-deliver",
-        "/lessons-deliver"
-      ],
-      "codex_skill": "saas-startup-team-lessons-deliver-workflow",
-      "generate_alias": true,
-      "transitional": true
-    },
-    {
-      "name": "lessons-review",
-      "command_file": "commands/lessons-review.md",
-      "aliases": [
-        "/saas-startup-team:lessons-review",
-        "/lessons-review"
-      ],
-      "codex_skill": "saas-startup-team-lessons-review-workflow",
       "generate_alias": true,
       "transitional": true
     },
@@ -233,17 +178,6 @@
         "/replay-abandoned"
       ],
       "codex_skill": "saas-startup-team-replay-abandoned-workflow",
-      "generate_alias": true,
-      "transitional": true
-    },
-    {
-      "name": "session-insights",
-      "command_file": "commands/session-insights.md",
-      "aliases": [
-        "/saas-startup-team:session-insights",
-        "/session-insights"
-      ],
-      "codex_skill": "saas-startup-team-session-insights-workflow",
       "generate_alias": true,
       "transitional": true
     },

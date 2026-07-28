@@ -67,7 +67,7 @@ test_delivery_thin() {
   assert_file_contains "DT11c: serial primary requires explicit flag" \
     "$v3" 'allow-serial-primary'
 
-  # Firewall must receive a real staged-diff path (lessons-deliver --firewall DIFF_FILE).
+  # Firewall must receive a real staged-diff path (supervisor-commit --firewall-script).
   repo=$(make_workdir)
   git -C "$repo" config user.email test@example.invalid
   git -C "$repo" config user.name Test

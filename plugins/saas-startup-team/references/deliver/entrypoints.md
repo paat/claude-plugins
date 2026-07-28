@@ -10,8 +10,8 @@ export SAAS_DELIVER_ENTRYPOINT=<improve|goal-deliver|tweak|startup-impl>
 export SAAS_COMMAND="$SAAS_DELIVER_ENTRYPOINT"   # except startup-impl → startup
 ```
 
-Mint/export `SAAS_RUN_ID` after classification (`agent-events.sh new-run-id`). Load
-`routing-telemetry.md` for privacy-safe events.
+Terminal release evidence for maintain-embedded delivery is privacy-safe PR/merge/
+deployment/close facts via `maintain-v3.sh release-facts` only — no custom event log.
 
 ---
 
@@ -85,9 +85,6 @@ audit/QA sections; `stay` reports existing PR. Never merge.
   markers, lease state files, or `maintain:claimed` labels. Missing worktree path →
   `blocked/context_binding_violation`. Terminal release facts use
   `maintain-v3.sh release-facts` (not compatibility receipts).
-
-Mint `SAAS_RUN_ID` per attempt (`agent-events.sh new-run-id`). Optional
-`--parent-run-id` for telemetry only — not ownership.
 
 **Preflight extras:** `tribunal-review:tribunal-loop` skill required. Prefer isolated
 worktree for build; never hard-reset primary on cancel.

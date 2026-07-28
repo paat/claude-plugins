@@ -23,7 +23,6 @@ Shared helper: `scripts/issue-file.sh` (resolve via plugin root).
 
 - Maintain partial fix → residual on same parent (no child issue)
 - Monitor recurring failures with entity state → `scripts/monitor-dedup.sh`
-- Lessons public filing → `scripts/lesson-file.sh`
 
 ## Contract
 
