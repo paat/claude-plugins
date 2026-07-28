@@ -13,7 +13,7 @@ validate → file → **run `skills/epic/SKILL.md` on new N** (same turn).
 3. Pick one theme; no group → **no-op**
 4. Draft body with `- [ ] #N — title`; validate with `epic_compose_validate.py`
 5. `--dry-run` → print only. `--compose-only` → `gh issue create` and stop.
-6. Default: create epic, then execute `/epic N` end-to-end (no second user prompt).
+6. Default: create epic, then run `/epic N` same turn (no second user prompt).
 
 | Result | Meaning |
 |--------|---------|

@@ -1,6 +1,6 @@
 {
   "name": "saas-startup-team",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Portable SaaS delivery: Plan \u2192 Build \u2192 Independent Review with bounded maintenance and deterministic legal/PII/spend/release gates",
   "author": {
     "name": "Andre Paat"

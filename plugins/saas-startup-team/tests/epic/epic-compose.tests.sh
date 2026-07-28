@@ -19,7 +19,7 @@ test_epic_compose() {
   assert_file_contains "EC5: auto-runs epic skill" "$skill" 'skills/epic/SKILL.md'
   assert_file_contains "EC6: dry-run" "$skill" '--dry-run'
   assert_file_contains "EC7: compose-only opt-out" "$skill" '--compose-only'
-  assert_file_contains "EC7b: same run" "$skill" 'Do not wait for a second user turn'
+  assert_file_contains "EC7b: same run" "$skill" 'no second user prompt'
   assert_file_contains "EC8: entrypoint" \
     "$PLUGIN_ROOT/integrity/entrypoints.json" '"name": "epic-compose"'
   assert_file_exists "EC8b: command alias" "$PLUGIN_ROOT/commands/epic-compose.md"
