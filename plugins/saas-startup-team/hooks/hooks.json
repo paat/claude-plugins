@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "bash -c 'p=hooks/dispatch.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/..\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\" pre-write; done; echo \"[saas-startup-team] critical hook target not found: $p\" >&2; exit 2'",
-            "description": "Path-scoped pre-write gates: PII/secrets, JSON schema, ad spend (fail closed); LinkedIn advisory"
+            "description": "Path-scoped pre-write gates when content is present: secrets, JSON schema, ad spend (fail closed); LinkedIn advisory"
           }
         ]
       },

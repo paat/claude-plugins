@@ -23,25 +23,23 @@ case "$MODE" in
     ;;
 esac
 
-# Resolve plugin root (Claude/Codex/plugin checkout).
+# Prefer the plugin that owns this dispatcher (never a random repo-local gate.sh).
 PLUGIN_ROOT=""
-for r in "${CLAUDE_PLUGIN_ROOT:-}" "${CODEX_PLUGIN_ROOT:-}" "${PWD:-}" "${PWD:-}/.."; do
-  if [ -n "$r" ] && [ -f "$r/scripts/gate.sh" ]; then
-    PLUGIN_ROOT="$r"
-    break
-  fi
-done
+here="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd || true)"
+if [ -n "$here" ] && [ -f "$here/scripts/gate.sh" ]; then
+  PLUGIN_ROOT="$here"
+fi
 if [ -z "$PLUGIN_ROOT" ]; then
-  # Also try relative to this script when installed as hooks/dispatch.sh.
-  here="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd || true)"
-  if [ -n "$here" ] && [ -f "$here/scripts/gate.sh" ]; then
-    PLUGIN_ROOT="$here"
-  fi
+  for r in "${CLAUDE_PLUGIN_ROOT:-}" "${CODEX_PLUGIN_ROOT:-}"; do
+    if [ -n "$r" ] && [ -f "$r/scripts/gate.sh" ]; then
+      PLUGIN_ROOT="$r"
+      break
+    fi
+  done
 fi
 
 GATE="${PLUGIN_ROOT:+$PLUGIN_ROOT/scripts/gate.sh}"
 if [ -z "${GATE:-}" ] || [ ! -f "$GATE" ]; then
-  # Drain stdin so PostToolUse pipes do not SIGPIPE the host.
   cat >/dev/null 2>&1 || true
   if [ "$MODE" = "post-write" ]; then
     echo '{"systemMessage":"[saas-startup-team] gate.sh not found — post-write advisory skip"}' >&2
@@ -51,53 +49,52 @@ if [ -z "${GATE:-}" ] || [ ! -f "$GATE" ]; then
   exit 2
 fi
 
-# One stdin read for all path-scoped rules.
 INPUT=$(timeout 5 cat 2>/dev/null || true)
 [ -n "$INPUT" ] || INPUT='{}'
 
 run_gate() {
-  # $1... = gate args; feeds $INPUT on stdin.
   printf '%s' "$INPUT" | bash "$GATE" "$@"
 }
 
 file_path=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)
-command=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
+# Write usually has content; Edit may only have old_string/new_string.
+content=$(printf '%s' "$INPUT" | jq -r '.tool_input.content // empty' 2>/dev/null || true)
+has_content=0
+[ -n "$content" ] && has_content=1
 
 case "$MODE" in
   pre-write)
-    # Critical: credential/token patterns before write when content is present.
-    run_gate pii --hook-stdin --mode secrets || exit $?
-    # Critical: schema for .json pre-write content.
-    case "${file_path:-}" in
-      *.json) run_gate schema --hook-stdin || exit $? ;;
-    esac
-    # Critical: ad budget hard stop (path-scoped).
-    case "${file_path:-}" in
-      *docs/growth/channels/ads.md) run_gate spend ads --hook-stdin || exit $? ;;
-    esac
-    # Advisory: LinkedIn rate limits (fail open).
-    case "${file_path:-}" in
-      *docs/growth/channels/linkedin.md) run_gate spend linkedin --hook-stdin || true ;;
-    esac
+    # Secrets before write only when the host supplies content (blocking PreToolUse).
+    if [ "$has_content" -eq 1 ]; then
+      run_gate pii --hook-stdin --mode secrets || exit $?
+    fi
+    # Schema / spend: require content so we never block a fix using stale on-disk state.
+    if [ "$has_content" -eq 1 ]; then
+      case "${file_path:-}" in
+        *.json) run_gate schema --hook-stdin || exit $? ;;
+      esac
+      case "${file_path:-}" in
+        *docs/growth/channels/ads.md) run_gate spend ads --hook-stdin || exit $? ;;
+      esac
+      case "${file_path:-}" in
+        *docs/growth/channels/linkedin.md) run_gate spend linkedin --hook-stdin || true ;;
+      esac
+    fi
     exit 0
     ;;
 
   pre-bash)
-    # Regression gate self-filters to `gh pr merge` only; fail closed when it blocks.
     run_gate regression --hook-stdin || exit $?
     exit 0
     ;;
 
   post-write)
-    # Critical: JSON syntax after write (content already on disk).
     case "${file_path:-}" in
       *.json) run_gate schema --hook-stdin || exit $? ;;
     esac
-    # Critical: re-check spend if ads.md was written without pre-write content.
     case "${file_path:-}" in
       *docs/growth/channels/ads.md) run_gate spend ads --hook-stdin || exit $? ;;
     esac
-    # Advisory: LinkedIn.
     case "${file_path:-}" in
       *docs/growth/channels/linkedin.md) run_gate spend linkedin --hook-stdin || true ;;
     esac

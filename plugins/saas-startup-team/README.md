@@ -47,8 +47,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/gate.sh" schema|pii|legal|spend|regression|a
 
 Hooks: one path-scoped dispatcher (`hooks/dispatch.sh`) for PreToolUse Write|Edit/Bash
 and PostToolUse Write|Edit. Critical rules fail closed; advisory rules fail open with
-warnings. Hooks never commit or mutate orchestration state. Secret prevention runs
-before write when the host supports blocking PreToolUse.
+warnings. Hooks never commit or mutate orchestration state. Credential/token prevention
+runs before write when the host supplies content on blocking PreToolUse; full PII scan
+is `gate.sh pii` (used by issue filing). Schema/spend pre-write run only when content is
+present so corrective Edits are not blocked on stale on-disk state.
 
 Legal policy remains in `skills/lawyer` — `CONFIRMED` needs Tier A verbatim quotes;
 corpus silence is `UNVERIFIABLE-IN-CORPUS`, never disproof.
