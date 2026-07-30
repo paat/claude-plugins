@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'p=hooks/dispatch.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\" pre-write; done; [ -f \"$PWD/$p\" ] && [ -f \"$PWD/scripts/gate.sh\" ] && exec bash \"$PWD/$p\" pre-write; bound=0; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\"; do [ -n \"$r\" ] && bound=1; done; cat >/dev/null 2>&1 || true; if [ \"$bound\" -eq 1 ]; then echo \"[saas-startup-team] critical hook target not found: $p\" >&2; exit 2; fi; echo \"[saas-startup-team] plugin root unset; skipping $p (rebind after marketplace update)\" >&2; exit 0'",
+            "command": "bash -c 'p=hooks/dispatch.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/plugins/saas-startup-team\" \"${HOME:-/dev/null}/.claude/plugins/marketplaces/\"*/plugins/saas-startup-team; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && [ -f \"$r/scripts/gate.sh\" ] && [ -f \"$r/scripts/pii-gate.sh\" ] && exec bash \"$r/$p\" pre-write; done; cat >/dev/null 2>&1 || true; if [ -n \"${CLAUDE_PLUGIN_ROOT:-}${CODEX_PLUGIN_ROOT:-}\" ]; then echo \"[saas-startup-team] hook target unavailable: $p (reinstall or rebind plugin)\" >&2; else echo \"[saas-startup-team] plugin root unset; skipping $p (rebind after marketplace update)\" >&2; fi; exit 0'",
             "description": "Path-scoped pre-write gates when content is present: secrets, JSON schema, ad spend (fail closed); LinkedIn advisory"
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'p=hooks/dispatch.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && exec bash \"$r/$p\" pre-bash; done; [ -f \"$PWD/$p\" ] && [ -f \"$PWD/scripts/gate.sh\" ] && exec bash \"$PWD/$p\" pre-bash; bound=0; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\"; do [ -n \"$r\" ] && bound=1; done; cat >/dev/null 2>&1 || true; if [ \"$bound\" -eq 1 ]; then echo \"[saas-startup-team] critical hook target not found: $p\" >&2; exit 2; fi; echo \"[saas-startup-team] plugin root unset; skipping $p (rebind after marketplace update)\" >&2; exit 0'",
+            "command": "bash -c 'p=hooks/dispatch.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"$PWD\" \"$PWD/plugins/saas-startup-team\" \"${HOME:-/dev/null}/.claude/plugins/marketplaces/\"*/plugins/saas-startup-team; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && [ -f \"$r/scripts/gate.sh\" ] && [ -f \"$r/scripts/check-regression-test.sh\" ] && exec bash \"$r/$p\" pre-bash; done; cat >/dev/null 2>&1 || true; if [ -n \"${CLAUDE_PLUGIN_ROOT:-}${CODEX_PLUGIN_ROOT:-}\" ]; then echo \"[saas-startup-team] hook target unavailable: $p (reinstall or rebind plugin)\" >&2; else echo \"[saas-startup-team] plugin root unset; skipping $p (rebind after marketplace update)\" >&2; fi; exit 0'",
             "description": "Block incident-linked gh pr merge without a regression test (or override)"
           }
         ]
