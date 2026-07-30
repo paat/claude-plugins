@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.2.6 — 2026-07-30
+- codex-cast: accept and forward Codex `ultra` reasoning effort (#421).
+
 ## 1.2.5 — 2026-07-30
 - maintain-v3: select reads nested `.queue.queue` from live inventory (#413).
 - maintain-v3: `tick --mutate` executes `delete_stale` cleanup (#412); fail-closed

@@ -44,7 +44,7 @@ case "$MODE" in implement|review) : ;; *) usage ;; esac
 case "$PROVIDER" in openai) : ;; *) echo "codex-cast: unsupported provider: $PROVIDER" >&2; exit 2 ;; esac
 [[ "$MODEL" =~ ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$ ]] || {
   echo "codex-cast: invalid model" >&2; exit 2; }
-case "$EFFORT" in low|medium|high|xhigh|max) : ;; *)
+case "$EFFORT" in low|medium|high|xhigh|max|ultra) : ;; *)
   echo "codex-cast: invalid effort" >&2; exit 2 ;; esac
 [[ "$TIMEOUT" =~ ^([1-9][0-9]{0,4})([smh])$ ]] || {
   echo "codex-cast: invalid timeout" >&2; exit 2; }
