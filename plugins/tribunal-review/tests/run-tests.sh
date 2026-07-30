@@ -276,6 +276,62 @@ EOF
   rm -rf "$work"
 }
 
+test_opencode_wal_isolation() {
+  local label="DeepSeek bypasses a stale shared OpenCode WAL" work fake shared_data stale_db
+  work="$(mktemp -d)"
+  fake="$work/bin"
+  shared_data="$work/shared-data"
+  stale_db="$shared_data/opencode/opencode.db"
+  mkdir -p "$fake" "$shared_data/opencode"
+  printf '%s\n' '{"fixture_auth":true}' > "$shared_data/opencode/auth.json"
+  : > "$stale_db"
+  printf '%s\n' stale > "$stale_db-wal"
+  : > "$stale_db-shm"
+  cat > "$fake/opencode" <<'EOF'
+#!/usr/bin/env bash
+data_home="${XDG_DATA_HOME:-${HOME:-}/.local/share}"
+db="${OPENCODE_DB:-$data_home/opencode/opencode.db}"
+printf '%s\n' "$db" > "${FIXTURE_OPENCODE_DB_FILE:?}"
+[ "$data_home" != "${FIXTURE_SHARED_DATA_HOME:?}" ] \
+  && grep -qx '{"fixture_auth":true}' "$data_home/opencode/auth.json" || exit 1
+if [ -e "$db-wal" ]; then
+  printf '%s\n' 'Failed query: PRAGMA wal_checkpoint(PASSIVE)' >&2
+  exit 1
+fi
+printf '%s\n' '{"provider":"deepseek","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+EOF
+  chmod +x "$fake/opencode"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    OPENCODE_DB="$stale_db" PATH="$fake:$PATH" XDG_DATA_HOME="$shared_data" \
+      FIXTURE_OPENCODE_DB_FILE="$work/opencode-db" FIXTURE_SHARED_DATA_HOME="$shared_data" \
+      TRIBUNAL_GLM=off \
+      TRIBUNAL_DEEPSEEK=on TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-opencode-review.sh" > "$work/out.json"
+  ) && jq -s -e '
+      length == 2
+      and .[0].provider == "glm" and .[0].status == "disabled"
+      and .[1].provider == "deepseek" and .[1].summary.verdict == "APPROVE"
+    ' "$work/out.json" >/dev/null \
+    && [ "$(cat "$work/opencode-db")" != "$stale_db" ] \
+    && [ -f "$stale_db-wal" ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
 test_codex_pins() {
   local expected_model="$1" expected_effort="$2" overrides="$3" label="$4"
   local work fake
@@ -1711,6 +1767,7 @@ test_claude_auth_guard
 test_grok_auth_guard
 test_preflight_smoke_probe
 test_claude_tmpdir_cleanup
+test_opencode_wal_isolation
 test_codex_pins gpt-5.6-sol medium no "codex defaults pin Sol and medium in argv"
 test_codex_pins test-model high yes "codex model and effort environment overrides stay explicit"
 test_codex_parse_diagnostics
