@@ -17,6 +17,15 @@ CODEX_MODEL="${TRIBUNAL_CODEX_MODEL:-gpt-5.6-sol}"
 CODEX_EFFORT="${TRIBUNAL_CODEX_EFFORT:-medium}"
 TMPDIR="$(mktemp -d)" || exit 1
 trap 'rm -rf "$TMPDIR"' EXIT
+# The sealed collector limits every wrapper to 64 MiB. Keep Codex's mutable
+# runtime databases out of the caller home while retaining its credentials.
+HOST_CODEX_HOME="${CODEX_HOME:-${HOME:-}/.codex}"
+ISOLATED_CODEX_HOME="$TMPDIR/codex-home"
+mkdir -p "$ISOLATED_CODEX_HOME" || { tribunal_error codex "cannot create isolated Codex home"; exit 0; }
+if [ -f "$HOST_CODEX_HOME/auth.json" ] && ! cp -p "$HOST_CODEX_HOME/auth.json" "$ISOLATED_CODEX_HOME/auth.json"; then
+  tribunal_error codex "cannot copy Codex authentication into isolated home"
+  exit 0
+fi
 REPO_ROOT="$(tribunal_repo_root)"
 PROMPT_FILE="$TMPDIR/prompt.md"
 DIFF_FILE="$TMPDIR/review.diff"
@@ -46,7 +55,7 @@ RUN_TIMEOUT=600
 [ "$MODE" = smoke ] && RUN_TIMEOUT="${TRIBUNAL_SMOKE_TIMEOUT_SECONDS:-60}"
 LAST_FILE="$TMPDIR/last-message.json"
 SCHEMA_FILE="$(tribunal_review_schema)"
-timeout -k 10 "$RUN_TIMEOUT" codex exec "${model_args[@]}" -m "$CODEX_MODEL" \
+env CODEX_HOME="$ISOLATED_CODEX_HOME" timeout -k 10 "$RUN_TIMEOUT" codex exec "${model_args[@]}" -m "$CODEX_MODEL" \
   -c "model_reasoning_effort=\"$CODEX_EFFORT\"" --output-schema "$SCHEMA_FILE" \
   --output-last-message "$LAST_FILE" -C "$REPO_ROOT" - \
   < "$PROMPT_FILE" > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
