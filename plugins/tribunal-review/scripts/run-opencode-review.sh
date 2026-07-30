@@ -15,6 +15,16 @@ TMPDIR="$(mktemp -d)" || exit 1
 trap 'rm -rf "$TMPDIR"' EXIT
 DIFF_FILE="$TMPDIR/review.diff"
 REPO_ROOT="$(tribunal_repo_root)"
+HOST_OPENCODE_DATA_HOME="${XDG_DATA_HOME:-${HOME:-}/.local/share}"
+ISOLATED_OPENCODE_DATA_HOME="$TMPDIR/opencode-data"
+ISOLATED_OPENCODE_DB="$ISOLATED_OPENCODE_DATA_HOME/opencode/opencode.db"
+
+prepare_opencode_data_home() {
+  mkdir -p "$ISOLATED_OPENCODE_DATA_HOME/opencode" || return 1
+  [ ! -f "$HOST_OPENCODE_DATA_HOME/opencode/auth.json" ] \
+    || cp -p "$HOST_OPENCODE_DATA_HOME/opencode/auth.json" \
+      "$ISOLATED_OPENCODE_DATA_HOME/opencode/auth.json"
+}
 
 glm_on=0
 deepseek_on=1
@@ -34,6 +44,12 @@ fi
 if [ "$glm_on" -eq 0 ] && [ "$deepseek_on" -eq 0 ]; then
   tribunal_disabled glm "GLM leg disabled (default off); set TRIBUNAL_GLM=on to enable"
   tribunal_disabled deepseek "DeepSeek leg disabled via TRIBUNAL_DEEPSEEK=off"
+  exit 0
+fi
+
+if ! prepare_opencode_data_home; then
+  [ "$glm_on" -eq 1 ] && tribunal_error glm "cannot prepare isolated OpenCode data directory"
+  [ "$deepseek_on" -eq 1 ] && tribunal_error deepseek "cannot prepare isolated OpenCode data directory"
   exit 0
 fi
 
@@ -61,7 +77,7 @@ run_oc_leg() {
   local rc=0 run_timeout=720
   [ "$MODE" = smoke ] && run_timeout="${TRIBUNAL_SMOKE_TIMEOUT_SECONDS:-60}"
   if [ "$MODE" = smoke ]; then
-    (cd "$cwd" && timeout -k 10 "$run_timeout" opencode run --pure \
+    (cd "$cwd" && XDG_DATA_HOME="$ISOLATED_OPENCODE_DATA_HOME" OPENCODE_DB="$ISOLATED_OPENCODE_DB" timeout -k 10 "$run_timeout" opencode run --pure \
       --dangerously-skip-permissions --agent plan -m "$model" --variant high \
       --format default "$(cat "$prompt")" > "$out" 2> "$err") || rc=$?
     if [ "$rc" -eq 0 ]; then
@@ -82,7 +98,7 @@ run_oc_leg() {
     tribunal_error "$provider" "failed to copy staged diff into $cwd"
     return
   }
-  (cd "$cwd" && timeout -k 10 "$run_timeout" opencode run --pure \
+  (cd "$cwd" && XDG_DATA_HOME="$ISOLATED_OPENCODE_DATA_HOME" OPENCODE_DB="$ISOLATED_OPENCODE_DB" timeout -k 10 "$run_timeout" opencode run --pure \
     --dangerously-skip-permissions --agent plan -m "$model" --variant high \
     --format default "$(cat "$prompt")" -f "$diff_attach" > "$out" 2> "$err") || rc=$?
   if [ "$rc" -eq 0 ]; then
