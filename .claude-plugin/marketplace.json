@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "Portable SaaS delivery: Plan \u2192 Build \u2192 Independent Review with bounded maintenance and deterministic legal/PII/spend/release gates",
-      "version": "1.2.4",
+      "version": "1.2.5",
       "author": {
         "name": "Andre Paat"
       },

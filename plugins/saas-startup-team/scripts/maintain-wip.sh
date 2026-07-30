@@ -285,13 +285,28 @@ add_branch_item() {
 
 items_json='[]'
 
+# Live origin heads. When ls-remote succeeds, ignore stale origin/* tracking refs
+# whose upstream branch was deleted (post-merge prune lag) — those must not resume (#411).
+live_heads_file="$(mktemp "${TMPDIR:-/tmp}/maintain-wip-heads.XXXXXX")"
+live_heads_ok=0
+if git -C "$ROOT" ls-remote --heads origin >"$live_heads_file" 2>/dev/null; then
+  live_heads_ok=1
+fi
+remote_branch_live() {
+  local branch=$1
+  [ "$live_heads_ok" -eq 1 ] || return 0
+  awk -v b="refs/heads/$branch" '$2 == b { found=1 } END { exit !found }' "$live_heads_file"
+}
+
 # Remote branches with unmerged commits
 while IFS= read -r short; do
   [ -n "$short" ] || continue
   [ "$short" = "HEAD" ] && continue
   [ "$short" = "$DEFAULT_BRANCH" ] && continue
+  remote_branch_live "$short" || continue
   add_branch_item remote_branch "$short" "$ROOT" "refs/remotes/origin/$short"
 done < <(git -C "$ROOT" for-each-ref --format='%(refname:strip=3)' refs/remotes/origin 2>/dev/null || true)
+rm -f -- "$live_heads_file"
 
 # Local branches (primary common store — same as worktree shared refs)
 while IFS= read -r short; do

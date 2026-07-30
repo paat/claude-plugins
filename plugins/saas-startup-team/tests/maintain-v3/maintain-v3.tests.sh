@@ -64,6 +64,34 @@ test_maintain_v3() {
     --legacy-file "$fixtures/greenfield/legacy-selection.json")
   assert_equals "MV3-22: shadow match greenfield" "$(jq -r .match <<<"$out")" "true"
 
+  # --- #413: live maintain-queue nests eligible at .queue.queue ---
+  jq -nc '{
+    schema_version:1, engine:"maintain-v3", source:"fixture",
+    wip:{dirty:{clean:true,action:"none"},items:[],summary:{resume:0,delete:0,inspect:0,dirty:false}},
+    queue:{raw_open_count:2,eligible_count:2,queue:[
+      {number:1683,title:"proof wait",eligible:true},
+      {number:1500,title:"next",eligible:true}
+    ],resumable:[],excluded:{}},
+    human_gates:[],claims:[],compatibility_receipts:[]
+  }' > "$dir/nested-queue-inv.json"
+  sel=$(bash "$script" select --inventory-file "$dir/nested-queue-inv.json")
+  assert_equals "MV3-22a: nested .queue.queue selects greenfield" \
+    "$(jq -r .selection.disposition <<<"$sel")" "greenfield"
+  assert_equals "MV3-22b: nested queue first eligible" \
+    "$(jq -r .selection.issue <<<"$sel")" "1683"
+
+  # --- #414: waiting_scheduled_run skips greenfield re-select ---
+  mkdir -p "$dir/wait-state"
+  jq -nc '{schema_version:1,issue:1683,state:"deploy_proof",recovery_step:"deploy_proof",
+    check_status:"waiting_scheduled_run_2099-01-01T00:00:00Z",claims:false}' \
+    > "$dir/wait-state/release-issue-1683.json"
+  sel=$(bash "$script" select --inventory-file "$dir/nested-queue-inv.json" \
+    --state-dir "$dir/wait-state")
+  assert_equals "MV3-22c: skips waiting issue, picks next" \
+    "$(jq -r .selection.issue <<<"$sel")" "1500"
+  assert_equals "MV3-22d: still greenfield" \
+    "$(jq -r .selection.disposition <<<"$sel")" "greenfield"
+
   # Mismatch fails closed
   jq '.selection.issue = 999' "$dir/v3.json" > "$dir/bad.json"
   ec=0
@@ -259,7 +287,133 @@ test_maintain_v3() {
   assert_equals "MV3-69: cancel does not clean primary" "$(cat "$repo/f")" "keep"
   git -C "$repo" worktree remove --force "$wt" 2>/dev/null || rm -rf "$wt"
 
-  rm -rf -- "$dir" "$repo"
+  # --- #412: mutate executes delete_stale (local branch) ---
+  local bare clone wip_script
+  wip_script="$PLUGIN_ROOT/scripts/maintain-wip.sh"
+  bare=$(mktemp -d)
+  clone=$(mktemp -d)
+  git -C "$bare" init -q --bare -b main
+  git clone -q "$bare" "$clone"
+  git -C "$clone" config user.email t@t.t
+  git -C "$clone" config user.name t
+  echo base > "$clone/f"
+  git -C "$clone" add f
+  git -C "$clone" commit -qm init
+  git -C "$clone" push -q origin HEAD:main
+  git -C "$clone" checkout -q -b fix/999-stale
+  echo stale > "$clone/f"
+  git -C "$clone" add f
+  git -C "$clone" commit -qm stale
+  # Stay on main; leave local stale branch only (kind local_branch)
+  git -C "$clone" checkout -q main
+  jq -nc '{
+    schema_version:1,engine:"maintain-v3",source:"fixture",
+    wip:{dirty:{clean:true,action:"none"},
+      items:[{kind:"local_branch",action:"delete",issue:null,issue_state:"CLOSED",
+        pr_number:null,branch:"fix/999-stale",ahead:1,behind:0,
+        updated_at:"2026-07-20T12:00:00Z",title:"",reason:"issue_closed_stale_branch",
+        is_draft:false}],
+      summary:{resume:0,delete:1,inspect:0,dirty:false}},
+    queue:{eligible:[]},human_gates:[],claims:[],compatibility_receipts:[]
+  }' > "$dir/delete-inv.json"
+  # tick --mutate with fixture uses fixture inventory path; exercise select+apply via
+  # manual disposition path: call tick against real repo with forced selection by
+  # writing last inventory shape through fixture-dir is awkward — call delete path
+  # via mutate inventory live: inject WIP-only by using select + direct apply check.
+  state="$dir/del-state"
+  mkdir -p "$state"
+  # Build a minimal fixture dir that inventory --fixture-dir can load
+  mkdir -p "$dir/del-fix"
+  jq -nc '{dirty:{clean:true,action:"none"},items:[
+    {kind:"local_branch",action:"delete",issue:null,pr_number:null,branch:"fix/999-stale",
+     ahead:1,behind:0,updated_at:"2026-07-20T12:00:00Z",title:"",
+     reason:"issue_closed_stale_branch",is_draft:false}],
+    summary:{resume:0,delete:1,inspect:0,dirty:false}}' > "$dir/del-fix/wip.json"
+  jq -nc '{eligible:[]}' > "$dir/del-fix/queue.json"
+  # tick --mutate with fixture-dir uses fixture inventory but delete_stale_apply needs
+  # real repo_root — pass --repo-root clone and --fixture-dir for inventory.
+  # Current tick prefers FIXTURE_DIR for inventory and root=FIXTURE_DIR unless REPO_ROOT.
+  # Use live inventory is heavy (gh). Call select then simulate mutate delete via
+  # tick on fixture with REPO_ROOT pointing at clone: inventory still from fixture.
+  out=$(bash "$script" tick --mutate --fixture-dir "$dir/del-fix" \
+    --repo-root "$clone" --state-dir "$state" --owner del-test)
+  assert_equals "MV3-70: mutate note delete_stale_done" "$(jq -r .note <<<"$out")" "delete_stale_done"
+  assert_equals "MV3-71: cleanup cleaned true" "$(jq -r .cleanup.cleaned <<<"$out")" "true"
+  if git -C "$clone" show-ref --verify --quiet refs/heads/fix/999-stale 2>/dev/null; then
+    assert_exit_code "MV3-72: local stale branch deleted" 1 0
+  else
+    assert_exit_code "MV3-72: local stale branch deleted" 0 0
+  fi
+
+  # --- delete_stale safety: refuse OPEN issue (fail closed) ---
+  git -C "$clone" checkout -q -b fix/888-open
+  echo openb > "$clone/f"
+  git -C "$clone" add f
+  git -C "$clone" commit -qm openb
+  git -C "$clone" checkout -q main
+  mkdir -p "$dir/del-open"
+  jq -nc '{dirty:{clean:true,action:"none"},items:[
+    {kind:"local_branch",action:"delete",issue:888,pr_number:null,branch:"fix/888-open",
+     ahead:1,behind:0,updated_at:"2026-07-20T12:00:00Z",title:"",
+     reason:"issue_closed_stale_branch",is_draft:false}],
+    summary:{resume:0,delete:1,inspect:0,dirty:false}}' > "$dir/del-open/wip.json"
+  jq -nc '{eligible:[]}' > "$dir/del-open/queue.json"
+  local openbin
+  openbin=$(mktemp -d)
+  cat > "$openbin/gh" <<'GHEOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue view"*) echo '{"state":"OPEN"}' ;;
+  *) echo '[]' ;;
+esac
+GHEOF
+  chmod +x "$openbin/gh"
+  ec=0
+  PATH="$openbin:$PATH" bash "$script" tick --mutate --fixture-dir "$dir/del-open" \
+    --repo-root "$clone" --state-dir "$dir/del-open-state" --owner del-open >/dev/null 2>&1 || ec=$?
+  assert_exit_code "MV3-72b: delete_stale refuses OPEN issue" "$ec" 3
+  if git -C "$clone" show-ref --verify --quiet refs/heads/fix/888-open 2>/dev/null; then
+    assert_exit_code "MV3-72c: OPEN-issue branch preserved" 0 0
+  else
+    assert_exit_code "MV3-72c: OPEN-issue branch preserved" 1 0
+  fi
+  git -C "$clone" branch -D fix/888-open >/dev/null 2>&1 || true
+  rm -rf -- "$openbin"
+
+  # --- #411: stale origin/* tracking ref not inventoried as resume ---
+  git -C "$clone" checkout -q -b fix/411-gone
+  echo gone > "$clone/f"
+  git -C "$clone" add f
+  git -C "$clone" commit -qm gone
+  tip=$(git -C "$clone" rev-parse HEAD)
+  git -C "$clone" push -q origin fix/411-gone
+  git -C "$clone" checkout -q main
+  git -C "$clone" branch -D fix/411-gone >/dev/null
+  git -C "$clone" push -q origin --delete fix/411-gone
+  # Leave only a stale remote-tracking ref (no local branch, no origin head)
+  git -C "$clone" update-ref refs/remotes/origin/fix/411-gone "$tip"
+  if git -C "$clone" ls-remote --heads origin refs/heads/fix/411-gone | grep -q .; then
+    assert_exit_code "MV3-73: remote branch actually gone" 1 0
+  else
+    assert_exit_code "MV3-73: remote branch actually gone" 0 0
+  fi
+  local fakebin
+  fakebin=$(mktemp -d)
+  cat > "$fakebin/gh" <<'GHEOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue list"*) echo '[]' ;;
+  *"issue view"*) echo '{"number":411,"state":"OPEN","title":"x","labels":[]}' ;;
+  *"pr list"*) echo '[]' ;;
+  *) echo '[]' ;;
+esac
+GHEOF
+  chmod +x "$fakebin/gh"
+  out=$(PATH="$fakebin:$PATH" bash "$wip_script" inventory --repo-root "$clone")
+  assert_equals "MV3-74: stale remote tracking not in WIP items" \
+    "$(jq -r --arg b fix/411-gone '[.items[]? | select(.branch==$b)] | length' <<<"$out")" "0"
+
+  rm -rf -- "$dir" "$repo" "$bare" "$clone" "$fakebin"
 }
 
 test_maintain_v3

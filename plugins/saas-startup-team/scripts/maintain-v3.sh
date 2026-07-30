@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 usage() { cat >&2 <<'EOF'
 usage: maintain-v3.sh inventory (--repo-root DIR [--allow-linked-worktrees]|--fixture-dir DIR)
        maintain-v3.sh select --inventory-file FILE [--human-gates-file FILE] [--queue-file FILE]
+         [--state-dir DIR]
        maintain-v3.sh shadow-compare --v3-file FILE --legacy-file FILE
        maintain-v3.sh tick [--shadow|--mutate] (--repo-root DIR|--fixture-dir DIR)
          [--state-dir DIR] [--owner ID] [--allow-linked-worktrees] [--allow-serial-primary]
@@ -125,26 +126,59 @@ inventory() {
       wip:$wip,queue:$queue,human_gates:[],claims:[],compatibility_receipts:[]}'
 }
 
+# Issues with release-facts check_status waiting_scheduled_run_<ISO> still in the future.
+waiting_skip_issues() {
+  local dir=${1:-} now_epoch f n cs ts te out
+  out='[]'
+  [ -n "$dir" ] && [ -d "$dir" ] || { printf '%s\n' "$out"; return 0; }
+  now_epoch=$(date -u +%s)
+  for f in "$dir"/release-issue-*.json; do
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    n=$(jq -r '.issue//empty' "$f" 2>/dev/null || true)
+    [[ "$n" =~ ^[1-9][0-9]*$ ]] || continue
+    cs=$(jq -r '.check_status//empty' "$f" 2>/dev/null || true)
+    case "$cs" in
+      waiting_scheduled_run_*)
+        ts=${cs#waiting_scheduled_run_}
+        te=$(date -u -d "$ts" +%s 2>/dev/null || true)
+        if [[ "${te:-}" =~ ^[0-9]+$ ]] && [ "$te" -gt "$now_epoch" ]; then
+          out=$(jq -c --argjson n "$n" '. + [$n]' <<<"$out")
+        fi
+        ;;
+    esac
+  done
+  printf '%s\n' "$out"
+}
+
 select_work() {
   [ -n "$INVENTORY_FILE" ] || die "select needs --inventory-file" 2
   safe_json "$INVENTORY_FILE"
-  local inv gates queue
+  local inv gates queue skip
   inv=$(jq -c . "$INVENTORY_FILE")
   if [ -n "$HUMAN_GATES_FILE" ]; then safe_json "$HUMAN_GATES_FILE"; gates=$(jq -c . "$HUMAN_GATES_FILE")
   else gates=$(jq -c '.human_gates//[]' <<<"$inv"); fi
   if [ -n "$QUEUE_FILE" ]; then safe_json "$QUEUE_FILE"; queue=$(jq -c . "$QUEUE_FILE")
-  else queue=$(jq -c 'if (.queue|type)=="array" then .queue
-    elif (.queue.eligible|type)=="array" then .queue.eligible
-    elif (.queue.items|type)=="array" then .queue.items else [] end' <<<"$inv"); fi
-  jq -nc --argjson inv "$inv" --argjson gates "$gates" --argjson queue "$queue" --arg at "$(now_iso)" '
+  else
+    # Live maintain-queue nests eligible at .queue.queue; fixtures may use .eligible/.items.
+    queue=$(jq -c 'if (.queue|type)=="array" then .queue
+      elif (.queue.queue|type)=="array" then .queue.queue
+      elif (.queue.eligible|type)=="array" then .queue.eligible
+      elif (.queue.items|type)=="array" then .queue.items else [] end' <<<"$inv")
+  fi
+  skip=$(waiting_skip_issues "${STATE_DIR:-}")
+  jq -nc --argjson inv "$inv" --argjson gates "$gates" --argjson queue "$queue" \
+    --argjson skip "$skip" --arg at "$(now_iso)" '
     def gate($n): ([ $gates[]? | select((.issue//.number//0)==$n)]|.[0]//null);
     def parked($n): (gate($n) as $g | if $g==null then false
       elif ($g.park==true) then true elif (($g.action//"")=="park") then true else false end);
+    def waiting($n): (($skip|index($n))!=null);
     def dirty: (.wip.dirty//{clean:true,action:"none"});
     def items: (.wip.items//[]);
     def first($a): ([.[]|select(.action==$a)]|.[0]//null);
     def qfirst: ([ $queue[]? | select((.excluded//false)|not)
-      | select((.eligible//true)==true) | select(parked(.number//.issue//0)|not) ]|.[0]//null);
+      | select((.eligible//true)==true)
+      | select(parked(.number//.issue//0)|not)
+      | select(waiting(.number//.issue//0)|not) ]|.[0]//null);
     ($inv) as $i |
     (if ($i|dirty|.action)=="resume" then
       {disposition:"resume_dirty",kind:"dirty",action:"resume",issue:null,pr_number:null,
@@ -169,7 +203,72 @@ select_work() {
        deliver:false,reason:"empty"}
      end) as $sel |
     {schema_version:1,engine:"maintain-v3",observed_at:$at,selection:$sel,
-     claims:[],compatibility_receipts:[]}'
+     claims:[],compatibility_receipts:[],waiting_skip:$skip}'
+}
+
+# True if any linked worktree (or primary) has refs/heads/$branch checked out.
+branch_checked_out_anywhere() {
+  local root=$1 branch=$2 line
+  while IFS= read -r line; do
+    case "$line" in
+      "branch refs/heads/$branch") return 0 ;;
+    esac
+  done < <(git -C "$root" worktree list --porcelain 2>/dev/null || true)
+  # Fallback when porcelain unavailable: primary current branch only.
+  [ "$(git -C "$root" branch --show-current 2>/dev/null || true)" = "$branch" ]
+}
+
+# Guarded cleanup for disposition=delete_stale (deliver:false path).
+delete_stale_apply() {
+  local root=$1 kind=$2 branch=$3 issue=$4
+  local istate issue_json=null ls_file ls_ec remote_present=0
+  [ -n "$branch" ] && [ "$branch" != null ] || die "delete_stale needs branch" 2
+  need git
+  # Issue-linked cleanup requires authoritative non-open state (fail closed).
+  if [[ "${issue:-}" =~ ^[1-9][0-9]*$ ]]; then
+    issue_json=$issue
+    command -v gh >/dev/null 2>&1 || die "delete_stale: gh required to revalidate issue $issue" 2
+    istate=$(cd "$root" && gh issue view "$issue" --json state -q .state 2>/dev/null || true)
+    case "$istate" in
+      CLOSED|closed) ;;
+      OPEN|open) die "delete_stale refused: issue $issue is OPEN" 3 ;;
+      *) die "delete_stale: cannot revalidate issue $issue state (${istate:-empty})" 3 ;;
+    esac
+  fi
+  # Never delete a branch checked out on primary or any linked worktree.
+  if branch_checked_out_anywhere "$root" "$branch"; then
+    die "delete_stale: branch $branch is checked out in a worktree" 3
+  fi
+  case "$kind" in
+    remote_branch)
+      ls_file=$(mktemp "${TMPDIR:-/tmp}/mv3-ls.XXXXXX")
+      ls_ec=0
+      git -C "$root" ls-remote --heads origin "refs/heads/$branch" >"$ls_file" 2>/dev/null || ls_ec=$?
+      if [ "$ls_ec" -ne 0 ]; then
+        rm -f -- "$ls_file"
+        die "delete_stale: ls-remote failed for $branch (network/auth); not cleaning" 1
+      fi
+      if grep -q . "$ls_file"; then remote_present=1; fi
+      rm -f -- "$ls_file"
+      if [ "$remote_present" -eq 1 ]; then
+        git -C "$root" push origin --delete "$branch" >/dev/null 2>&1 \
+          || die "delete_stale: remote delete failed for $branch" 1
+      fi
+      if git -C "$root" show-ref --verify --quiet "refs/remotes/origin/$branch" 2>/dev/null; then
+        git -C "$root" update-ref -d "refs/remotes/origin/$branch" \
+          || die "delete_stale: cannot drop tracking ref origin/$branch" 1
+      fi
+      ;;
+    local_branch|branch)
+      if git -C "$root" show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+        git -C "$root" branch -D "$branch" >/dev/null \
+          || die "delete_stale: local delete failed for $branch" 1
+      fi
+      ;;
+    *) die "delete_stale unsupported kind: $kind" 2 ;;
+  esac
+  jq -nc --arg kind "$kind" --arg branch "$branch" --argjson issue "$issue_json" --arg at "$(now_iso)" \
+    '{schema_version:1,cleaned:true,kind:$kind,branch:$branch,issue:$issue,cleaned_at:$at}'
 }
 
 shadow_compare() {
@@ -401,7 +500,7 @@ tick() {
   bash "$0" lock acquire --kind scheduler --key "$sk" --state-dir "$dir" --owner "$owner" --ttl-seconds 120 >/dev/null \
     || die "scheduler lock refused" 3
   inv_file="$dir/last-inventory.json"; printf '%s\n' "$inv" >"$inv_file"
-  local sargs=(select --inventory-file "$inv_file")
+  local sargs=(select --inventory-file "$inv_file" --state-dir "$dir")
   [ -n "$HUMAN_GATES_FILE" ] && sargs+=(--human-gates-file "$HUMAN_GATES_FILE")
   sel=$(bash "$0" "${sargs[@]}") || die "select failed"
   printf '%s\n' "$sel" >"$dir/last-selection.json"
@@ -411,9 +510,16 @@ tick() {
   issue=$(jq -r '.selection.issue//empty' <<<"$sel")
   deliver=$(jq -r .selection.deliver <<<"$sel")
   pr_num=$(jq -r '.selection.pr_number//empty' <<<"$sel")
-  iso=null; facts=null; note=shadow_only
+  local branch kind cleanup
+  branch=$(jq -r '.selection.branch//empty' <<<"$sel")
+  kind=$(jq -r '.selection.kind//empty' <<<"$sel")
+  iso=null; facts=null; cleanup=null; note=shadow_only
 
-  if [ "$MODE" = mutate ] && [ "$deliver" = true ] && [ -n "$issue" ]; then
+  if [ "$MODE" = mutate ] && [ "$disposition" = delete_stale ]; then
+    # deliver:false on purpose — cleanup must not require deliver=true (#412).
+    cleanup=$(delete_stale_apply "$root" "$kind" "$branch" "${issue:-}")
+    note=delete_stale_done
+  elif [ "$MODE" = mutate ] && [ "$deliver" = true ] && [ -n "$issue" ]; then
     bash "$0" lock acquire --kind issue --key "issue-$issue" --state-dir "$dir" --owner "$owner" --ttl-seconds 300 >/dev/null \
       || die "issue lock refused" 3
     local oargs=(isolate prepare --repo-root "$root" --issue "$issue" --state-dir "$dir")
@@ -427,11 +533,12 @@ tick() {
   fi
 
   jq -nc --argjson inv "$inv" --argjson sel "$sel" --argjson isolate "$iso" --argjson facts "$facts" \
+    --argjson cleanup "${cleanup:-null}" \
     --arg mode "$MODE" --arg note "$note" --arg disposition "$disposition" \
     --arg at "$(now_iso)" --arg root "$root" --arg state_dir "$dir" '
     {schema_version:1,engine:"maintain-v3",mode:$mode,observed_at:$at,repo_root:$root,state_dir:$state_dir,
      disposition:$disposition,inventory:$inv,selection:$sel.selection,isolation:$isolate,
-     release_facts:$facts,
+     release_facts:$facts,cleanup:$cleanup,
      deliver_hint:(if $mode=="mutate" and ($sel.selection.deliver==true) then
        {skill:"skills/deliver/SKILL.md",entrypoint:"goal-deliver",
         worktree:($isolate.path//null),issue:($sel.selection.issue//null)} else null end),

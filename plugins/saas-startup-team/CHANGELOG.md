@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.5 — 2026-07-30
+- maintain-v3: select reads nested `.queue.queue` from live inventory (#413).
+- maintain-v3: `tick --mutate` executes `delete_stale` cleanup (#412); fail-closed
+  issue revalidation, worktree checkout guard, and `ls-remote` transport errors.
+- maintain-v3: greenfield select skips `waiting_scheduled_run_*` release-facts (#414).
+- maintain-wip: ignore stale `origin/*` tracking refs when `ls-remote` shows the branch is gone (#411).
+
 ## 1.2.4 — 2026-07-28
 - Hooks: PreToolUse fail-open when plugin root unset; fail-closed only if root bound but `dispatch.sh` missing.
 
