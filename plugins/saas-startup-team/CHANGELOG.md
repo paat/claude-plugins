@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.2.9 — 2026-07-30
+- delivery-route: ignore repository-tooling checkout and implementation-contract phrases (#418).
+
 ## 1.2.8 — 2026-07-30
 - issue-closure-audit: match bare named filenames against changed-file basenames (#416).
 

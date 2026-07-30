@@ -72,7 +72,11 @@ labels_text() {
 
 scan_sensitive() {
   # Sets: sensitive, legal, product (true/false strings) via namerefs-like globals.
-  local text=$1
+  local text
+  # These phrases use checkout and contract as repository tooling vocabulary.
+  text=$(printf '%s\n' "$1" | sed -E \
+    -e 's/(git|candidate|disposable)[[:space:]]+checkout([^[:alnum:]_]|$)/\1\2/g' \
+    -e 's/(implementation|interface|api)[[:space:]]+contract([^[:alnum:]_]|$)/\1\2/g')
   sensitive=false legal=false product=false
 
   if has "$text" '(legal|lawyer|gdpr|privacy (law|policy|notice)|terms[[:space:]]*(&|and|of)|cookie (notice|banner|consent|policy)|eprivacy|contract|licen[cs](e|ing)|regulat|compliance|consent|data protection|(^|[^[:alnum:]_])(tax|vat|dpa|dsar)([^[:alnum:]_]|$))'; then
