@@ -3297,6 +3297,16 @@ JSON
   ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-basename.json" --issue-json "$workdir/issue-bare-only.json" --changed-files "$workdir/files-other.txt" 2>&1) || ec=$?
   assert_exit_code "AD23b: bare basename alone still requires a PR surface" "$ec" 1
   assert_output_contains "AD23c: bare basename is named as missing" "$output" "verify_finding.py"
+  # #416 — bare filenames match an exact basename in nested changed paths.
+  cat > "$workdir/pr-nested-basename.json" <<'JSON'
+{"title":"fix: VAT fixture assertions","body":"Closes #203"}
+JSON
+  cat > "$workdir/issue-nested-basename.json" <<'JSON'
+{"number":203,"state":"OPEN","title":"Update assertions","body":"Update `assertions.json`.","comments":[]}
+JSON
+  printf '%s\n' 'backend/tests/fixtures/engine_sessions/vat_payable_year_end/expected/assertions.json' > "$workdir/files-nested-basename.txt"
+  ec=0; output=$(bash "$closure" --pr-json "$workdir/pr-nested-basename.json" --issue-json "$workdir/issue-nested-basename.json" --changed-files "$workdir/files-nested-basename.txt" 2>&1) || ec=$?
+  assert_exit_code "AD23d: bare basename matches nested changed path" "$ec" 0
   rm -rf "$workdir"
 
   # #1604 — Closure-Audit-Unchanged disposition

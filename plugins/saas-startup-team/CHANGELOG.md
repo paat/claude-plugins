@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.2.8 — 2026-07-30
+- issue-closure-audit: match bare named filenames against changed-file basenames (#416).
+
 ## 1.2.7 — 2026-07-30
 - Hooks: soft-skip incomplete plugin roots after alternate/local dispatcher fallback (#419).
 
