@@ -388,6 +388,16 @@ dedupe_issue_paths() {
   done <<< "$paths"
 }
 
+changed_surface_exists() {
+  local path="$1" changed_path
+  grep -qxF "$path" "$FILES" && return 0
+  [[ "$path" != */* ]] || return 1
+  while IFS= read -r changed_path; do
+    [ "${changed_path##*/}" = "$path" ] && return 0
+  done < "$FILES"
+  return 1
+}
+
 # Explicit negative/unchanged surface disposition. A named path that must remain
 # behaviorally unchanged is not an unimplemented surface when the PR body binds
 # one exact reason (backed by test/evidence prose). Format:
@@ -541,7 +551,7 @@ for n in $closure_nums; do
 
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    if grep -qxF "$path" "$FILES"; then
+    if changed_surface_exists "$path"; then
       continue
     fi
     if has_unchanged_disposition "$n" "$path"; then
