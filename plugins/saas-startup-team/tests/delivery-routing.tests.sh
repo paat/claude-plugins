@@ -25,7 +25,24 @@ test_delivery_routing() {
     "$(jq -r .profile <<<"$out")" "standard"
   assert_equals "DR4b: not sensitive" "$(jq -r .sensitive <<<"$out")" "false"
 
-  printf '%s\n' 'Fix typo in payment amount label.' > "$task"
+  printf '%s\n' 'Prepare dependencies in a disposable candidate checkout.' \
+    'Implementation contract: do not commit.' \
+    'Prepare dependencies in a git checkout.' \
+    'Prepare dependencies in a disposable checkout.' \
+    'Interface contract: do not commit.' \
+    'API contract: do not commit.' > "$task"
+  ec=0; out=$(bash "$route" classify --mode autonomous --task-file "$task") || ec=$?
+  assert_exit_code "DR4c: tooling checkout and contract stay standard" "$ec" 0
+  assert_equals "DR4d: tooling checkout and contract are not sensitive" \
+    "$(jq -r .sensitive <<<"$out")" "false"
+  assert_equals "DR4e: tooling checkout and contract need no product judgment" \
+    "$(jq -r .requires_product_judgment <<<"$out")" "false"
+  assert_equals "DR4f: tooling checkout and contract need no legal judgment" \
+    "$(jq -r .requires_legal_judgment <<<"$out")" "false"
+  assert_equals "DR4g: tooling checkout and contract clear the risk floor" \
+    "$(jq -r '.reasons | join(",")' <<<"$out")" "risk_floor_clear"
+
+  printf '%s\n' 'Fix typo in payment amount label in a candidate checkout.' > "$task"
   ec=0; out=$(bash "$route" classify --mode autonomous --task-file "$task") || ec=$?
   assert_exit_code "DR5: payment label escalates" "$ec" 20
   assert_equals "DR6: payment precedence is deep" "$(jq -r .profile <<<"$out")" "deep"
@@ -42,7 +59,7 @@ test_delivery_routing() {
   out=$(bash "$route" classify --mode interactive-tweak --task-file "$task")
   assert_equals "DR11: interactive CSS is standard" "$(jq -r .profile <<<"$out")" "standard"
 
-  printf '%s\n' 'Update the GDPR consent rule.' > "$task"
+  printf '%s\n' 'Update the GDPR implementation contract.' > "$task"
   ec=0; out=$(bash "$route" classify --mode autonomous --task-file "$task") || ec=$?
   assert_exit_code "DR13: legal judgment escalates" "$ec" 20
   assert_equals "DR14: legal judgment is explicit" "$(jq -r .requires_legal_judgment <<<"$out")" "true"
