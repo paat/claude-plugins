@@ -1221,7 +1221,7 @@ test_wrapper_owned_provider_envelope() {
 
 test_trusted_evidence_collection() {
   local label="trusted evidence collection binds PR, providers, arbitration, and proof"
-  local work repo fake plugin collection manifest_sha proof_sha base head
+  local work repo fake plugin collection manifest_sha proof_sha base head host_codex
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$work/tmp" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
@@ -1551,6 +1551,41 @@ EOF
     echo -e "  ${GREEN}PASS${NC} interrupted finalize resumes from identical retained arbitration"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} interrupted finalize resumes from identical retained arbitration"; FAIL=$((FAIL+1)); FAILURES+=("interrupted finalize recovery")
+  fi
+
+  # The sealed wrapper's 64 MiB file limit must not apply to inherited Codex state.
+  cp "$PLUGIN_ROOT/scripts/run-codex-review.sh" "$plugin/scripts/"
+  "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
+  host_codex="$work/normal-codex-home"
+  mkdir -p "$host_codex"
+  printf '%s\n' '{"fixture_auth":true}' > "$host_codex/auth.json"
+  dd if=/dev/zero of="$host_codex/state_5.sqlite" bs=1 count=1 seek=67108864 2>/dev/null
+  cat > "$fake/codex" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '%s\n' "${CODEX_HOME:?}" > "${FIXTURE_CODEX_HOME_FILE:?}"
+grep -qx '{"fixture_auth":true}' "$CODEX_HOME/auth.json" || exit 1
+if [ "$(ulimit -f)" = 65536 ] && [ -f "$CODEX_HOME/state_5.sqlite" ] \
+  && [ "$(wc -c < "$CODEX_HOME/state_5.sqlite")" -gt 67108864 ]; then
+  exit 0
+fi
+printf '%s\n' '{"provider":"codex","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+EOF
+  chmod +x "$fake/codex"
+  if CODEX_HOME="$host_codex" FIXTURE_CODEX_HOME_FILE="$work/codex-home-used" \
+    PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    TRIBUNAL_CODEX=on TRIBUNAL_GEMINI=off TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off \
+    TRIBUNAL_QWEN=off TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/oversized-codex-state" > "$work/oversized-codex-state.json" \
+    && jq -e '.provider=="codex" and .summary.verdict=="APPROVE"' \
+      "$work/oversized-codex-state/providers/codex.json" >/dev/null \
+    && jq -e 'any(.providers[]; .provider=="codex" and .status=="ok")' \
+      "$work/oversized-codex-state/manifest.json" >/dev/null \
+    && [ "$(cat "$work/codex-home-used")" != "$host_codex" ]; then
+    echo -e "  ${GREEN}PASS${NC} sealed Codex leg isolates oversized inherited state"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} sealed Codex leg isolates oversized inherited state"; FAIL=$((FAIL+1)); FAILURES+=("sealed Codex state isolation")
   fi
   chmod -R u+w "$work" 2>/dev/null || true
   rm -rf "$work"
