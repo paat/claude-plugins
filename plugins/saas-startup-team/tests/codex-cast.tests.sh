@@ -8,7 +8,7 @@ test_codex_cast() {
   echo -e "\n${CYAN}Suite CC: codex-cast adapter${NC}"
   local cast="$PLUGIN_ROOT/scripts/codex-cast.sh"
   local route="$PLUGIN_ROOT/scripts/delivery-route.sh"
-  local repo bin ec out jsonl last result
+  local repo bin ec out jsonl last result effort config_out model
 
   assert_file_exists "CC0: codex-cast exists" "$cast"
   assert_file_not_exists "CC0b: codex-run-role removed" "$PLUGIN_ROOT/scripts/codex-run-role.sh"
@@ -57,13 +57,14 @@ while [ $# -gt 0 ]; do
     -s|--sandbox) SANDBOX=$2; shift 2 ;;
     --dangerously-bypass-approvals-and-sandbox) BYPASS=1; shift ;;
     --json|--ephemeral) shift ;;
-    -c) shift 2 ;;
+    -c) CONFIG=$2; shift 2 ;;
     -) cat >/dev/null; shift ;;
     exec) shift ;;
     *) shift ;;
   esac
 done
 : "${CD:=.}"
+[ -n "${FAKE_CODEX_CONFIG_OUT:-}" ] && printf '%s\n' "${CONFIG:-}" > "$FAKE_CODEX_CONFIG_OUT"
 case "${FAKE_CODEX_MODE:-valid}" in
   valid)
     msg='ok verdict'
@@ -95,20 +96,41 @@ esac
 SH
   chmod +x "$bin/codex"
 
-  # CC1: happy path implement (workspace-write, never unrestricted by default)
-  json_out=$(mktemp)
-  PATH="$bin:$PATH" FAKE_CODEX_MODE=valid bash "$cast" \
+  # CC1: accepted efforts are forwarded unchanged and retained in the receipt.
+  for effort in low medium high xhigh max ultra; do
+    json_out=$(mktemp)
+    config_out=$(mktemp)
+    model=gpt-5.6-sol
+    [ "$effort" = ultra ] && model=gpt-5.6-terra
+    ec=0
+    PATH="$bin:$PATH" FAKE_CODEX_MODE=valid FAKE_CODEX_CONFIG_OUT="$config_out" bash "$cast" \
+      --worktree "$repo" --mode implement --provider openai \
+      --model "$model" --effort "$effort" --timeout 30s \
+      --prompt-file "$repo/prompt.md" --json-out "$json_out" \
+      --env FAKE_CODEX_MODE --env FAKE_CODEX_CONFIG_OUT >/dev/null 2>&1 || ec=$?
+    out=$(cat "$json_out")
+    assert_exit_code "CC1a ($effort): success" "$ec" 0
+    assert_equals "CC1b ($effort): forwards reasoning effort" \
+      "$(cat "$config_out")" "model_reasoning_effort=\"$effort\""
+    assert_equals "CC1c ($effort): receipt binds effort" "$(jq -r .effort <<<"$out")" "$effort"
+    if [ "$effort" = ultra ]; then
+      assert_equals "CC1d: success outcome" "$(jq -r .outcome <<<"$out")" "success"
+      assert_equals "CC1e: binds commit SHA" "$(jq -r .commit_sha <<<"$out")" "$sha"
+      assert_equals "CC1f: binds worktree" "$(jq -r .worktree <<<"$out")" "$(cd "$repo" && pwd -P)"
+      assert_equals "CC1g: binds provider" "$(jq -r .provider <<<"$out")" "openai"
+      assert_equals "CC1h: unrestricted false by default" "$(jq -r .unrestricted <<<"$out")" "false"
+      assert_equals "CC1i: timeout_outcome completed" "$(jq -r .timeout_outcome <<<"$out")" "completed"
+    fi
+    rm -f "$json_out" "$config_out"
+  done
+
+  ec=0
+  out=$(PATH="$bin:$PATH" bash "$cast" \
     --worktree "$repo" --mode implement --provider openai \
-    --model gpt-5.6-sol --effort high --timeout 30s \
-    --prompt-file "$repo/prompt.md" --json-out "$json_out" \
-    --env FAKE_CODEX_MODE >/dev/null 2>&1 || true
-  out=$(cat "$json_out")
-  assert_equals "CC1a: success outcome" "$(jq -r .outcome <<<"$out")" "success"
-  assert_equals "CC1b: binds commit SHA" "$(jq -r .commit_sha <<<"$out")" "$sha"
-  assert_equals "CC1c: binds worktree" "$(jq -r .worktree <<<"$out")" "$(cd "$repo" && pwd -P)"
-  assert_equals "CC1d: binds provider" "$(jq -r .provider <<<"$out")" "openai"
-  assert_equals "CC1e: unrestricted false by default" "$(jq -r .unrestricted <<<"$out")" "false"
-  assert_equals "CC1f: timeout_outcome completed" "$(jq -r .timeout_outcome <<<"$out")" "completed"
+    --model gpt-5.6-sol --effort arbitrary --timeout 30s \
+    --prompt-file "$repo/prompt.md" 2>&1) || ec=$?
+  assert_exit_code "CC1j: unknown effort rejects" "$ec" 2
+  assert_output_contains "CC1k: unknown effort message" "$out" "invalid effort"
 
   # CC2: worktree mismatch (subdir of repo)
   mkdir -p "$repo/sub"
