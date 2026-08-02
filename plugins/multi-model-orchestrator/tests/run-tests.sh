@@ -59,6 +59,10 @@ printf '%s\n' "$@" > "$STUB_GROK_ARGS"
 printf '%s\n' "$HOME" > "$STUB_GROK_HOME_ENV"
 printf '%s\n' "$GROK_HOME" > "$STUB_GROK_DIR_ENV"
 [ ! -f "$GROK_HOME/config.toml" ] || cp "$GROK_HOME/config.toml" "$STUB_GROK_CONFIG"
+# Simulate a concurrent host credential refresh while this leg runs.
+if [ "${STUB_GROK_HOST_RACE:-0}" = 1 ] && [ -n "${STUB_GROK_HOST_AUTH:-}" ]; then
+  printf '{"key":"host-newer"}\n' > "$STUB_GROK_HOST_AUTH"
+fi
 [ "${STUB_GROK_REFRESH:-0}" != 1 ] || printf '{"key":"new"}\n' > "$GROK_HOME/auth.json"
 prompt=""
 while [ "$#" -gt 0 ]; do
@@ -297,6 +301,27 @@ printf 'refresh auth\n' | STUB_GROK_REFRESH=1 "$PLUGIN_ROOT/scripts/run-grok.sh"
 contains "$GROK_HOME/auth.json" '"new"' 'Grok refreshed auth copied back after stale lock recovery'
 [ ! -e "$GROK_HOME/auth.json.lockdir" ] || fail 'Grok stale auth lock removed'
 pass 'Grok recovers stale auth locks safely'
+
+# Concurrent host refresh while a leg runs must not be clobbered by stale isolated auth.
+printf '{"key":"start"}\n' > "$GROK_HOME/auth.json"
+printf 'host race no isolated refresh\n' | \
+  STUB_GROK_HOST_RACE=1 STUB_GROK_HOST_AUTH="$GROK_HOME/auth.json" \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-auth-race.err"
+contains "$GROK_HOME/auth.json" '"host-newer"' 'Grok host refresh survives when isolated did not refresh'
+printf '{"key":"start"}\n' > "$GROK_HOME/auth.json"
+printf 'host race with isolated refresh\n' | \
+  STUB_GROK_HOST_RACE=1 STUB_GROK_HOST_AUTH="$GROK_HOME/auth.json" STUB_GROK_REFRESH=1 \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-auth-race2.err"
+contains "$GROK_HOME/auth.json" '"host-newer"' 'Grok host refresh not clobbered by stale isolated refresh'
+absent "$GROK_HOME/auth.json" '"new"' 'Grok isolated refresh must not overwrite concurrent host value'
+# No host auth at start: concurrent host creation during the leg must survive.
+rm -f "$GROK_HOME/auth.json"
+printf 'host appears mid-leg\n' | \
+  STUB_GROK_HOST_RACE=1 STUB_GROK_HOST_AUTH="$GROK_HOME/auth.json" STUB_GROK_REFRESH=1 \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-auth-race3.err"
+contains "$GROK_HOME/auth.json" '"host-newer"' 'Grok concurrent host create not clobbered when no start snapshot'
+absent "$GROK_HOME/auth.json" '"new"' 'Grok isolated refresh must not overwrite mid-leg host create'
+pass 'Grok auth writeback skips when host changed during the leg'
 
 if printf x | STUB_CLAUDE_RESULT=empty "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" >/dev/null 2>&1; then
   fail 'Claude empty success rejected'
