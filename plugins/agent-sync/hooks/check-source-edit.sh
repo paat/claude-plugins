@@ -6,9 +6,10 @@
 # - Codex: mirror root AGENTS.md to root CLAUDE.md. AGENTS.md is the only source of truth.
 #
 # Correct-by-construction (issue #93): rather than only nudging, this regenerates AGENTS.md in the
-# same environment that changed the source, so the working tree never drifts. Staging is opt-in via
-# AGENT_SYNC_AUTO_STAGE. Non-blocking: every path exits 0. Silent unless the edited file is a
-# tracked source under a discoverable sources.json. Degrades to a nudge when no generator is found.
+# same environment that changed the source, so the working tree never drifts. Staging is on by
+# default; opt out with AGENT_SYNC_AUTO_STAGE=0. Non-blocking: every path exits 0. Silent unless
+# the edited file is a tracked source under a discoverable sources.json. Degrades to a nudge when
+# no generator is found.
 
 set -uo pipefail
 
@@ -61,22 +62,39 @@ auto_stage_enabled() {
 }
 
 codex_should_sync_agents_to_claude() {
-  local agents_abs edited_abs
+  local agents_abs claude_abs edited_abs
   agents_abs="$(abspath "AGENTS.md")"
+  claude_abs="$(abspath "CLAUDE.md")"
   edited_abs="$(abspath "$file_path")"
 
   if [[ "$edited_abs" == "$agents_abs" ]]; then
     return 0
   fi
 
-  # Codex apply_patch payloads may not expose a single file_path. If the payload
-  # shape changes and file_path is unavailable, fall back to git drift detection.
+  # Codex apply_patch payloads may not expose a single file_path. Treat unknown
+  # payloads as an AGENTS.md edit only when its uncommitted change is newer than
+  # the mirror target; git drift alone can be unrelated stale work.
   if [[ "$file_path" == "__agent_sync_unknown_file_path__" ]] \
      && command -v git >/dev/null 2>&1 \
-     && git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git -C "$cwd" diff --quiet -- AGENTS.md 2>/dev/null || return 0
-    git -C "$cwd" diff --cached --quiet -- AGENTS.md 2>/dev/null || return 0
+     && git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+     && { ! git -C "$cwd" diff --quiet -- AGENTS.md 2>/dev/null \
+          || ! git -C "$cwd" diff --cached --quiet -- AGENTS.md 2>/dev/null; } \
+     && [[ ! -e "$claude_abs" || "$agents_abs" -nt "$claude_abs" ]]; then
+    return 0
   fi
+
+  return 1
+}
+
+codex_claude_is_declared_source() {
+  local claude_abs rel
+  [[ -n "$config" ]] || return 1
+  claude_abs="$(abspath "CLAUDE.md")"
+
+  while IFS= read -r rel; do
+    [[ -z "$rel" ]] && continue
+    [[ "$(abspath "$rel")" == "$claude_abs" ]] && return 0
+  done < <(jq -r '.files[]? // empty' "$config" 2>/dev/null)
 
   return 1
 }
@@ -86,6 +104,7 @@ sync_agents_to_claude_for_codex() {
   local claude="$cwd/CLAUDE.md"
 
   [[ -f "$agents" ]] || exit 0
+  codex_claude_is_declared_source && exit 0
   codex_should_sync_agents_to_claude || exit 0
 
   if [[ -f "$claude" ]] && cmp -s "$agents" "$claude"; then
@@ -94,22 +113,8 @@ sync_agents_to_claude_for_codex() {
 
   cat "$agents" > "$claude" || emit "[agent-sync] AGENTS.md changed but CLAUDE.md mirror failed."
 
-  staged=""
-  if auto_stage_enabled && command -v git >/dev/null 2>&1 \
-     && git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-     && git -C "$cwd" add -- CLAUDE.md >/dev/null 2>&1; then
-    staged="yes"
-  fi
-
-  if [[ -n "$staged" ]]; then
-    emit "[agent-sync] AGENTS.md changed; mirrored it to CLAUDE.md and staged CLAUDE.md."
-  fi
   emit "[agent-sync] AGENTS.md changed; mirrored it to CLAUDE.md."
 }
-
-if is_codex_runtime; then
-  sync_agents_to_claude_for_codex
-fi
 
 # 5. Locate sources.json directly under cwd (non-recursive, matching generate.sh auto-detect).
 #    Repo root == cwd, so tracked relative paths resolve against cwd.
@@ -120,6 +125,11 @@ for candidate in "tools/agent-sync/sources.json" ".agent-sync/sources.json"; do
     break
   fi
 done
+
+if is_codex_runtime; then
+  sync_agents_to_claude_for_codex
+fi
+
 [[ -z "$config" ]] && exit 0
 
 abs_edited="$(abspath "$file_path")"

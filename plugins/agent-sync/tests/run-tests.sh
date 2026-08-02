@@ -142,9 +142,57 @@ Patch-style Codex change.
 EOF
 codex_patch_out="$(printf '%s' "{\"tool_input\":{},\"cwd\":\"$CODEXGIT\"}" | CODEX_HOME="$TMP/codex-home" bash "$HOOK" 2>/dev/null)"
 if [[ "$codex_patch_out" == *"mirrored it to CLAUDE.md"* ]] && cmp -s "$CODEXGIT/AGENTS.md" "$CODEXGIT/CLAUDE.md"; then
-  echo "PASS: codex: missing file_path falls back to AGENTS.md git drift"; PASS=$((PASS+1))
+  echo "PASS: codex: missing file_path mirrors newer dirty AGENTS.md"; PASS=$((PASS+1))
 else
-  echo "FAIL: codex: missing file_path falls back to AGENTS.md git drift — got: $codex_patch_out"; FAIL=$((FAIL+1))
+  echo "FAIL: codex: missing file_path mirrors newer dirty AGENTS.md — got: $codex_patch_out"; FAIL=$((FAIL+1))
+fi
+if git -C "$CODEXGIT" diff --cached --name-only | grep -q '^CLAUDE.md$'; then
+  echo "FAIL: codex: mirror does not auto-stage CLAUDE.md"; FAIL=$((FAIL+1))
+else
+  echo "PASS: codex: mirror does not auto-stage CLAUDE.md"; PASS=$((PASS+1))
+fi
+git -C "$CODEXGIT" add AGENTS.md CLAUDE.md
+git -C "$CODEXGIT" commit -q -m synced
+
+codex_clean_out="$(printf '%s' "{\"tool_input\":{},\"cwd\":\"$CODEXGIT\"}" | CODEX_HOME="$TMP/codex-home" bash "$HOOK" 2>/dev/null)"
+if [[ -z "$codex_clean_out" ]]; then
+  echo "PASS: codex: clean AGENTS.md with missing file_path is silent"; PASS=$((PASS+1))
+else
+  echo "FAIL: codex: clean AGENTS.md with missing file_path is silent — got: $codex_clean_out"; FAIL=$((FAIL+1))
+fi
+
+CODEXSOURCE="$TMP/codex-source"
+mkdir -p "$CODEXSOURCE/tools/agent-sync"
+cat > "$CODEXSOURCE/AGENTS.md" <<'EOF'
+# Generated AGENTS.md
+
+Dirty generated content.
+EOF
+cat > "$CODEXSOURCE/CLAUDE.md" <<'EOF'
+# Hand-written CLAUDE.md
+
+Preserve this declared source.
+EOF
+cat > "$CODEXSOURCE/tools/agent-sync/sources.json" <<'JSON'
+{"version":2,"files":{"main":"CLAUDE.md"},"outputs":[{"path":"AGENTS.md","sections":[]}]}
+JSON
+git -C "$CODEXSOURCE" init -q
+git -C "$CODEXSOURCE" config user.email t@t.t
+git -C "$CODEXSOURCE" config user.name t
+git -C "$CODEXSOURCE" add AGENTS.md CLAUDE.md tools/agent-sync/sources.json
+git -C "$CODEXSOURCE" commit -q -m init
+printf '\nUncommitted AGENTS drift.\n' >> "$CODEXSOURCE/AGENTS.md"
+codex_source_out="$(printf '%s' "{\"tool_input\":{},\"cwd\":\"$CODEXSOURCE\"}" | CODEX_HOME="$TMP/codex-home" bash "$HOOK" 2>/dev/null)"
+if [[ -z "$codex_source_out" ]] && grep -Fq "Preserve this declared source." "$CODEXSOURCE/CLAUDE.md"; then
+  echo "PASS: codex: declared CLAUDE source stays intact on unknown path"; PASS=$((PASS+1))
+else
+  echo "FAIL: codex: declared CLAUDE source stays intact on unknown path — got: $codex_source_out"; FAIL=$((FAIL+1))
+fi
+codex_source_explicit_out="$(printf '%s' "{\"tool_input\":{\"file_path\":\"$CODEXSOURCE/AGENTS.md\"},\"cwd\":\"$CODEXSOURCE\"}" | CODEX_HOME="$TMP/codex-home" bash "$HOOK" 2>/dev/null)"
+if [[ -z "$codex_source_explicit_out" ]] && grep -Fq "Preserve this declared source." "$CODEXSOURCE/CLAUDE.md"; then
+  echo "PASS: codex: declared CLAUDE source stays intact on explicit AGENTS.md"; PASS=$((PASS+1))
+else
+  echo "FAIL: codex: declared CLAUDE source stays intact on explicit AGENTS.md — got: $codex_source_explicit_out"; FAIL=$((FAIL+1))
 fi
 
 # Fallback-path tests run with no generator present, so the hook only nudges and never writes.
