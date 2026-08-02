@@ -34,6 +34,8 @@ case "${STUB_CODEX_RESULT:-ok}" in
   empty) : > "$out" ;;
   progress) : > "$out"; printf 'I will inspect the diff.\n' ;;
   noverdict) printf 'codex-final\n' > "$out" ;;
+  approved) printf 'codex findings\nAPPROVED\n' > "$out" ;;
+  needs_work_space) printf 'codex findings\nNEEDS WORK\n' > "$out" ;;
   *) printf 'codex-final APPROVE\n' > "$out" ;;
 esac
 STUB
@@ -44,6 +46,8 @@ cat > "$STUB_CLAUDE_PROMPT"
 case "${STUB_CLAUDE_RESULT:-ok}" in
   empty) exit 0 ;;
   progress) printf 'I will inspect the diff.\n' ;;
+  approved) printf 'claude findings\nAPPROVED\n' ;;
+  needs_work_space) printf 'claude findings\nNEEDS WORK\n' ;;
   *) printf 'claude-final APPROVE\n' ;;
 esac
 STUB
@@ -63,6 +67,8 @@ done
 case "${STUB_GROK_RESULT:-ok}" in
   empty) exit 0 ;;
   progress) printf 'Let me inspect the files.\n' ;;
+  approved) printf 'grok findings\nAPPROVED\n' ;;
+  needs_work_space) printf 'grok findings\nNEEDS WORK\n' ;;
   *) printf 'grok-final APPROVE\n' ;;
 esac
 STUB
@@ -107,6 +113,44 @@ if printf x | STUB_CODEX_RESULT=noverdict "$PLUGIN_ROOT/scripts/run-codex.sh" --
   fail 'Codex verdict-free review rejected'
 fi
 pass 'Codex rejects empty or verdict-free success'
+
+# Accepted terminal verdict variants (case / APPROVED / NEEDS WORK)
+out="$(printf x | STUB_CODEX_RESULT=approved "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" 2> "$WORK/codex-approved.err")" || fail 'Codex APPROVED variant accepted'
+printf '%s\n' "$out" | grep -Eq 'APPROVED' || fail 'Codex APPROVED body on stdout'
+out="$(printf x | STUB_CODEX_RESULT=needs_work_space "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" 2> "$WORK/codex-nw.err")" || fail 'Codex NEEDS WORK variant accepted'
+printf '%s\n' "$out" | grep -Eq 'NEEDS WORK' || fail 'Codex NEEDS WORK body on stdout'
+out="$(printf x | STUB_CLAUDE_RESULT=approved "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" --base HEAD 2> "$WORK/claude-approved.err")" || fail 'Claude APPROVED variant accepted'
+printf '%s\n' "$out" | grep -Eq 'APPROVED' || fail 'Claude APPROVED body on stdout'
+out="$(printf x | STUB_GROK_RESULT=needs_work_space "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD 2> "$WORK/grok-nw.err")" || fail 'Grok NEEDS WORK variant accepted'
+printf '%s\n' "$out" | grep -Eq 'NEEDS WORK' || fail 'Grok NEEDS WORK body on stdout'
+pass 'Accepted verdict variants APPROVED and NEEDS WORK across runners'
+
+# Format rejection still fails (rc=6) but preserves body in --out and stdout
+set +e
+out="$(printf x | STUB_CODEX_RESULT=noverdict "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
+  --out "$WORK/codex-format-out.txt" 2> "$WORK/codex-format.err")"
+rc=$?
+set -e
+[ "$rc" -eq 6 ] || fail "Codex format-reject exit was $rc want 6"
+[ "$(cat "$WORK/codex-format-out.txt")" = 'codex-final' ] || fail 'Codex format-reject --out keeps body'
+[ "$out" = 'codex-final' ] || fail 'Codex format-reject stdout exposes body'
+set +e
+out="$(printf x | STUB_CLAUDE_RESULT=progress "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" --base HEAD \
+  --out "$WORK/claude-format-out.txt" 2> "$WORK/claude-format.err")"
+rc=$?
+set -e
+[ "$rc" -eq 6 ] || fail "Claude format-reject exit was $rc want 6"
+[ "$(cat "$WORK/claude-format-out.txt")" = 'I will inspect the diff.' ] || fail 'Claude format-reject --out keeps body'
+[ "$out" = 'I will inspect the diff.' ] || fail 'Claude format-reject stdout exposes body'
+set +e
+out="$(printf x | STUB_GROK_RESULT=progress "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
+  --out "$WORK/grok-format-out.txt" 2> "$WORK/grok-format.err")"
+rc=$?
+set -e
+[ "$rc" -eq 6 ] || fail "Grok format-reject exit was $rc want 6"
+[ "$(cat "$WORK/grok-format-out.txt")" = 'Let me inspect the files.' ] || fail 'Grok format-reject --out keeps body'
+[ "$out" = 'Let me inspect the files.' ] || fail 'Grok format-reject stdout exposes body'
+pass 'Verdict-format rejection preserves body in --out and stdout'
 
 mkdir -p "$WORK/out-dest"
 printf 'codex out dest\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \

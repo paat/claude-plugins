@@ -240,7 +240,7 @@
     {
       "name": "multi-model-orchestrator",
       "description": "Route software tasks across current Claude, GPT-5.6, and Grok 4.5 models with task-sized reasoning and independent review",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "author": {
         "name": "Andre Paat"
       },
