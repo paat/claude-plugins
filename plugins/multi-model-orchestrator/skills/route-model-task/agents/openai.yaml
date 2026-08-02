@@ -1,0 +1,4 @@
+interface:
+  display_name: "Route Model and Effort"
+  short_description: "Choose a coding model and reasoning effort"
+  default_prompt: "Use $route-model-task to choose the best available model and effort for this task."

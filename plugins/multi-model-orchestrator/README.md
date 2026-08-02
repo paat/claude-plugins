@@ -1,69 +1,118 @@
 # multi-model-orchestrator
 
-Route a software change through fresh, bounded Codex workers with a reasoning effort
-chosen for each task, then review the complete diff independently with Opus and GPT-5.6
-Sol. The controller verifies every finding against code and tests before changing anything.
+Route each software task to a current Claude Code, Codex, or Grok Build model with the cheapest
+sufficient reasoning effort, then verify the result deterministically and review it independently
+when the risk justifies another pass.
 
-Example request:
+The standalone `route-model-task` skill can return route cards without executing work. The
+`multi-model-orchestration` skill and `/multi-model-orchestrator:orchestrate` command use those
+cards to dispatch bounded workers.
 
-> Implement this with Codex subagents using appropriate reasoning efforts. Review the
-> finished change with Opus and GPT-5.6 Sol Ultra.
+Example requests:
 
-The natural-language request activates the orchestration skill. The equivalent explicit
-command is:
+> Implement this change. Choose the model and effort per task.
 
-```text
-/multi-model-orchestrator:orchestrate <implementation request> --final-codex-effort ultra
-```
+> Use Codex only. Do not call Claude or Grok.
+
+> Do not use Claude. Use Grok for the bounded implementation and GPT-5.6 Sol for review.
+
+Natural-language restrictions are hard constraints. The router never silently substitutes a
+denied provider, model, or unsupported effort.
+
+## Current model catalog
+
+Older generations are intentionally excluded.
+
+| Provider | Models | Typical role |
+|---|---|---|
+| Claude Code | `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
+| Codex | `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol` | Mechanical work through hard technical implementation and review |
+| Grok Build | `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
+
+Haiku 4.5 is the latest Haiku and does not use Claude's current effort parameter. Claude Fable 5,
+Opus 5, and Sonnet 5 support `low` through `max`; GPT-5.6 supports `low` through `max`, with
+Sol-only `ultra` available for bounded internal fan-out; Grok 4.5 supports `low`, `medium`, and
+`high`.
 
 ## Routing policy
 
-- The controller owns intent, task boundaries, architecture judgment, and final arbitration.
-- Fresh GPT-5.6 Sol workers implement one bounded task at a time. `low` is preferred for
-  mechanical work, `medium` for ordinary multi-file features, and higher efforts require
-  concrete uncertainty or risk.
-- Opus is preferred for ambiguous product intent, frontend/UX judgment, architecture, and
-  environment/build diagnosis. An Opus advice pass produces constraints for a Codex worker;
-  the source edit still belongs to that worker when the user requested Codex implementation.
-- Implementation fan-out is sequential unless tasks have disjoint files and state. Research
-  and final read-only review may run in parallel.
-- Final review is bounded to one initial pass per reviewer and one recheck after validated
-  blocking fixes. Reviewers never edit the repository.
+The router first applies provider/model restrictions, then scores task role, ambiguity,
+scope/coupling, risk, deterministic validation, modality, latency, and expected duration.
 
-Explicit model or effort instructions override defaults. In particular, `ultra` is passed
-literally to GPT-5.6 Sol when requested; it is not an alias for `xhigh` or `max`.
+| Task | Starting route |
+|---|---|
+| File map, exact rename, focused check | Haiku 4.5 or GPT-5.6 Luna |
+| Ordinary well-specified coding | Sonnet 5 or GPT-5.6 Terra at medium |
+| Fast bounded implementation or reproduction | Grok 4.5 at medium |
+| Hard backend/data work, debugging, security, technical review | GPT-5.6 Sol at high or xhigh |
+| Large refactor, architecture, UX/visual work, long tool loop | Opus 5 at high |
+| Unusually hard or days-long work | Fable 5 at high or xhigh |
 
-The detailed router and its July 2026 Reddit evidence are bundled under
-`skills/multi-model-orchestration/references/`. Reddit reports are treated as anecdotal
-operational signals, not benchmarks or permanent model rankings.
+These are starting hypotheses, not a universal leaderboard. Local completion, latency,
+scope-control, and test data should override them. Higher effort is not a repair for unclear
+acceptance criteria. `max` and `ultra` require exceptional evidence or an explicit request.
+
+The detailed router and dated evidence notes live under `skills/route-model-task/references/` and
+`skills/multi-model-orchestration/references/`. Vendor benchmark claims are not compared as if
+their harnesses and token budgets were identical.
 
 ## Execution posture
 
-Codex workers run with `--dangerously-bypass-approvals-and-sandbox`; the development
-container is the security boundary. Opus advice can walk the repository with read-only tools.
-Final reviewers receive a strict no-write contract. Start from a clean worktree so the
-controller can attribute and review the complete produced diff.
+- The controller owns intent, restrictions, architecture judgment, task boundaries, and final
+  arbitration.
+- One fresh worker owns one bounded task. Writes are sequential unless files and generated state
+  are disjoint.
+- Every CLI leg runs in YOLO mode inside the development-container security boundary: Codex uses
+  `--dangerously-bypass-approvals-and-sandbox`, Claude uses `--dangerously-skip-permissions`, and
+  Grok uses `--sandbox none --permission-mode bypassPermissions`. Advice and review legs still
+  receive semantic no-write contracts and read-only tool allowlists.
+- Every task names allowed files and an exact gate. Reviewer prose is advisory until verified
+  against code, tests, or rendered output.
+- Ordinary nontrivial work gets at most one independent provider review. A second review must pay
+  for itself through risk or conflicting evidence. User provider restrictions remain authoritative.
+- Grok legs use an isolated configuration to avoid inheriting host agents, plugins, hooks, and
+  MCPs. OAuth `auth.json` and authentication environment variables are preserved; config-only
+  enterprise authentication should use Grok's equivalent `GROK_*` environment variables.
 
 ## Prerequisites
 
 - bash 4+
 - git and GNU `timeout`
-- OpenAI Codex CLI, authenticated
-- Claude Code CLI, authenticated, when an Opus advice or review pass is requested
+- The authenticated CLI for each selected route:
+  - Claude Code (`claude`)
+  - OpenAI Codex CLI (`codex`)
+  - latest Grok Build (`grok`), using Grok 4.5
 
-No `jq` dependency is required.
+Only selected providers are required. No `jq` dependency is used.
 
 ## Configuration
 
-Defaults can be overridden without editing the plugin:
+Defaults can be overridden without editing the plugin. Overrides must remain in the strict current
+catalog.
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `MMO_CLAUDE_MODEL` | `claude-opus-5` | Claude worker/reviewer model |
+| `MMO_CLAUDE_EFFORT` | `high` | Claude effort except Haiku |
 | `MMO_CODEX_MODEL` | `gpt-5.6-sol` | Codex worker/reviewer model |
-| `MMO_OPUS_MODEL` | `opus` | Claude advice/reviewer model |
-| `MMO_OPUS_EFFORT` | `xhigh` | Opus advice/review effort |
+| `MMO_GROK_MODEL` | `grok-4.5` | Grok worker/reviewer model |
+| `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
+| `MMO_GROK_MAX_TURNS` | `30` | Grok tool-loop cap, from 1 to 100 |
+| `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok review |
 
-Per-request model and effort instructions remain authoritative.
+`MMO_OPUS_MODEL` and `MMO_OPUS_EFFORT` remain compatibility variables for `run-opus.sh`. The old
+moving value `MMO_OPUS_MODEL=opus` maps explicitly to `claude-opus-5`; earlier versioned IDs are
+still rejected. The default is `claude-opus-5` at `high`.
+
+## Research basis
+
+The routing policy was checked against current primary guidance for
+[Claude model selection](https://platform.claude.com/docs/en/about-claude/models/choosing-a-model),
+[Claude effort](https://platform.claude.com/docs/en/build-with-claude/effort),
+[GPT-5.6 model selection](https://developers.openai.com/api/docs/guides/latest-model),
+[Grok 4.5 reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning), and the
+[Grok Build CLI](https://docs.x.ai/build/cli/reference). Existing Reddit evidence remains clearly
+marked as anecdotal and is used only as an operational signal.
 
 ## Installation
 
@@ -80,7 +129,8 @@ Per-request model and effort instructions remain authoritative.
 bash plugins/multi-model-orchestrator/tests/run-tests.sh
 ```
 
-The tests use stub CLIs; they do not call a model or consume quota.
+The tests stub all model execution and, when Grok Build is installed, also inspect `grok --help`;
+they do not call a model or consume quota.
 
 ## License
 
