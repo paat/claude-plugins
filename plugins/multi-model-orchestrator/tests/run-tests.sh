@@ -353,7 +353,10 @@ contains "$PLUGIN_ROOT/commands/orchestrate.md" 'wait "$grok_pid"' 'Orchestratio
 contains "$PLUGIN_ROOT/commands/orchestrate.md" 'review_failed' 'Orchestration refuses arbitration after reviewer failure'
 pass 'Orchestration preserves each parallel reviewer exit status'
 
+# Installed-CLI smoke must use the user's real config path, not the fixture GROK_HOME
+# (fixture auth.json is deliberately simplified and can fail stricter grok inspect).
 if [ -n "$REAL_GROK" ]; then
+  unset GROK_HOME
   real_grok_help="$($REAL_GROK --help 2>&1)"
   for flag in --reasoning-effort --sandbox --permission-mode --max-turns --no-subagents --prompt-file --tools --output-format --no-memory --disable-web-search --cwd; do
     case "$real_grok_help" in
