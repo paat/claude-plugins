@@ -55,11 +55,27 @@ isolated_grok_home="$isolated_home/.grok"
 host_grok_home="${GROK_HOME:-${HOME}/.grok}"
 host_auth="$host_grok_home/auth.json"
 isolated_auth="$isolated_grok_home/auth.json"
+# Snapshot of host auth at leg start; writeback only if host still matches this
+# and the isolated copy actually changed (avoids clobbering a concurrent refresh).
+start_auth_snapshot="$runtime_dir/auth.start.json"
 [ -n "$output_file" ] || output_file="$(mktemp)"
 
 writeback_auth() {
   local lock_dir lock_pid auth_tmp
   [ -s "$isolated_auth" ] || return 0
+  # No refresh in this leg → nothing to write back.
+  if [ -f "$start_auth_snapshot" ]; then
+    cmp -s "$isolated_auth" "$start_auth_snapshot" 2>/dev/null && return 0
+  fi
+  # Host was refreshed by another process while we ran → keep the newer host value.
+  if [ -f "$start_auth_snapshot" ]; then
+    if [ ! -f "$host_auth" ] || ! cmp -s "$host_auth" "$start_auth_snapshot" 2>/dev/null; then
+      return 0
+    fi
+  elif [ -f "$host_auth" ] && [ -s "$host_auth" ]; then
+    # No host auth at start; another process wrote one while we ran.
+    return 0
+  fi
   cmp -s "$isolated_auth" "$host_auth" 2>/dev/null && return 0
   mkdir -p "$host_grok_home"
   lock_dir="${host_auth}.lockdir"
@@ -78,6 +94,18 @@ writeback_auth() {
     fi
   fi
   printf '%s\n' "$$" > "$lock_dir/pid"
+  # Re-check host still matches start snapshot under the lock (TOCTOU).
+  if [ -f "$start_auth_snapshot" ]; then
+    if [ ! -f "$host_auth" ] || ! cmp -s "$host_auth" "$start_auth_snapshot" 2>/dev/null; then
+      rm -f "$lock_dir/pid"
+      rmdir "$lock_dir"
+      return 0
+    fi
+  elif [ -f "$host_auth" ] && [ -s "$host_auth" ]; then
+    rm -f "$lock_dir/pid"
+    rmdir "$lock_dir"
+    return 0
+  fi
   auth_tmp="$(mktemp "$host_grok_home/.auth.json.XXXXXX")" || {
     rm -f "$lock_dir/pid"
     rmdir "$lock_dir"
@@ -96,7 +124,10 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$isolated_grok_home" "$isolated_home/.claude"
-[ ! -f "$host_auth" ] || cp -p "$host_auth" "$isolated_auth"
+if [ -f "$host_auth" ]; then
+  cp -p "$host_auth" "$isolated_auth"
+  cp -p "$host_auth" "$start_auth_snapshot"
+fi
 cat > "$isolated_grok_home/config.toml" <<'EOF'
 [compat.claude]
 skills = false
