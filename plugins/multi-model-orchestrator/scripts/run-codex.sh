@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  printf '%s\n' 'Usage: run-codex.sh [--mode implement|review] [--dir DIR] [--model MODEL] [--effort LEVEL] [--timeout SECONDS] [--out FILE]'
+  printf '%s\n' 'Usage: run-codex.sh [--mode implement|review] [--dir DIR] [--model MODEL] [--effort LEVEL] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
 }
 
 valid_effort() {
@@ -18,7 +18,9 @@ mode=implement
 model="${MMO_CODEX_MODEL:-gpt-5.6-sol}"
 effort="medium"
 run_timeout=1200
+final_file=""
 stream_file=""
+stream_log_set=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -27,7 +29,8 @@ while [ "$#" -gt 0 ]; do
     --model) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; model="$2"; shift 2 ;;
     --effort) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; effort="$2"; shift 2 ;;
     --timeout) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; run_timeout="$2"; shift 2 ;;
-    --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; stream_file="$2"; shift 2 ;;
+    --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; final_file="$2"; shift 2 ;;
+    --stream-log) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; stream_file="$2"; stream_log_set=1; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'run-codex: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -51,9 +54,24 @@ valid_model "$model" || {
 command -v codex >/dev/null 2>&1 || { printf 'run-codex: codex CLI not found\n' >&2; exit 127; }
 
 prompt_file="$(mktemp)"
-final_file="$(mktemp)"
-[ -n "$stream_file" ] || stream_file="$(mktemp)"
-trap 'rm -f "$prompt_file" "$final_file"' EXIT
+user_final=0
+if [ -n "$final_file" ]; then
+  user_final=1
+else
+  final_file="$(mktemp)"
+fi
+if [ "$stream_log_set" -eq 0 ]; then
+  if [ "$user_final" -eq 1 ]; then
+    stream_file="${final_file}.stream"
+  else
+    stream_file="$(mktemp)"
+  fi
+fi
+if [ "$user_final" -eq 1 ]; then
+  trap 'rm -f "$prompt_file"' EXIT
+else
+  trap 'rm -f "$prompt_file" "$final_file"' EXIT
+fi
 cat > "$prompt_file"
 [ -s "$prompt_file" ] || { printf 'run-codex: empty prompt\n' >&2; exit 2; }
 
