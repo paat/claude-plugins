@@ -34,7 +34,10 @@ case "${STUB_CODEX_RESULT:-ok}" in
   empty) : > "$out" ;;
   progress) : > "$out"; printf 'I will inspect the diff.\n' ;;
   noverdict) printf 'codex-final\n' > "$out" ;;
-  *) printf 'codex-final APPROVE\n' > "$out" ;;
+  approved) printf 'codex findings\nAPPROVED\n' > "$out" ;;
+  needs_work_space) printf 'codex findings\nNEEDS WORK\n' > "$out" ;;
+  prose_approve) printf 'I cannot approve this change because tests fail.\n' > "$out" ;;
+  *) printf 'codex findings\nAPPROVE\n' > "$out" ;;
 esac
 STUB
 cat > "$WORK/bin/claude" <<'STUB'
@@ -44,7 +47,10 @@ cat > "$STUB_CLAUDE_PROMPT"
 case "${STUB_CLAUDE_RESULT:-ok}" in
   empty) exit 0 ;;
   progress) printf 'I will inspect the diff.\n' ;;
-  *) printf 'claude-final APPROVE\n' ;;
+  approved) printf 'claude findings\nAPPROVED\n' ;;
+  needs_work_space) printf 'claude findings\nNEEDS WORK\n' ;;
+  prose_approve) printf 'I cannot approve this change because tests fail.\n' ;;
+  *) printf 'claude findings\nAPPROVE\n' ;;
 esac
 STUB
 cat > "$WORK/bin/grok" <<'STUB'
@@ -63,7 +69,10 @@ done
 case "${STUB_GROK_RESULT:-ok}" in
   empty) exit 0 ;;
   progress) printf 'Let me inspect the files.\n' ;;
-  *) printf 'grok-final APPROVE\n' ;;
+  approved) printf 'grok findings\nAPPROVED\n' ;;
+  needs_work_space) printf 'grok findings\nNEEDS WORK\n' ;;
+  prose_approve) printf 'This section still needs work before ship.\n' ;;
+  *) printf 'grok findings\nAPPROVE\n' ;;
 esac
 STUB
 chmod +x "$WORK/bin/codex" "$WORK/bin/claude" "$WORK/bin/grok"
@@ -77,7 +86,7 @@ export GROK_HOME="$WORK/host-grok"
 mkdir -p "$GROK_HOME"
 
 out="$(printf 'bounded review\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" --effort ultra --timeout 5 2> "$WORK/codex.err")"
-[ "$out" = 'codex-final APPROVE' ] || fail 'Codex final output'
+[ "$out" = $'codex findings\nAPPROVE' ] || fail 'Codex final output'
 contains "$WORK/codex.args" 'gpt-5.6-sol' 'Codex model pin'
 contains "$WORK/codex.args" 'model_reasoning_effort="ultra"' 'Codex Ultra pin'
 contains "$WORK/codex.args" '--dangerously-bypass-approvals-and-sandbox' 'Codex unrestricted posture'
@@ -108,36 +117,95 @@ if printf x | STUB_CODEX_RESULT=noverdict "$PLUGIN_ROOT/scripts/run-codex.sh" --
 fi
 pass 'Codex rejects empty or verdict-free success'
 
+# Accepted terminal verdict variants (case / APPROVED / NEEDS WORK)
+out="$(printf x | STUB_CODEX_RESULT=approved "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" 2> "$WORK/codex-approved.err")" || fail 'Codex APPROVED variant accepted'
+printf '%s\n' "$out" | grep -Eq 'APPROVED' || fail 'Codex APPROVED body on stdout'
+out="$(printf x | STUB_CODEX_RESULT=needs_work_space "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" 2> "$WORK/codex-nw.err")" || fail 'Codex NEEDS WORK variant accepted'
+printf '%s\n' "$out" | grep -Eq 'NEEDS WORK' || fail 'Codex NEEDS WORK body on stdout'
+out="$(printf x | STUB_CLAUDE_RESULT=approved "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" --base HEAD 2> "$WORK/claude-approved.err")" || fail 'Claude APPROVED variant accepted'
+printf '%s\n' "$out" | grep -Eq 'APPROVED' || fail 'Claude APPROVED body on stdout'
+out="$(printf x | STUB_GROK_RESULT=needs_work_space "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD 2> "$WORK/grok-nw.err")" || fail 'Grok NEEDS WORK variant accepted'
+printf '%s\n' "$out" | grep -Eq 'NEEDS WORK' || fail 'Grok NEEDS WORK body on stdout'
+pass 'Accepted verdict variants APPROVED and NEEDS WORK across runners'
+
+# Format rejection still fails (rc=6) but preserves body in --out and stdout
+set +e
+out="$(printf x | STUB_CODEX_RESULT=noverdict "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
+  --out "$WORK/codex-format-out.txt" 2> "$WORK/codex-format.err")"
+rc=$?
+set -e
+[ "$rc" -eq 6 ] || fail "Codex format-reject exit was $rc want 6"
+[ "$(cat "$WORK/codex-format-out.txt")" = 'codex-final' ] || fail 'Codex format-reject --out keeps body'
+[ "$out" = 'codex-final' ] || fail 'Codex format-reject stdout exposes body'
+set +e
+out="$(printf x | STUB_CLAUDE_RESULT=progress "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" --base HEAD \
+  --out "$WORK/claude-format-out.txt" 2> "$WORK/claude-format.err")"
+rc=$?
+set -e
+[ "$rc" -eq 6 ] || fail "Claude format-reject exit was $rc want 6"
+[ "$(cat "$WORK/claude-format-out.txt")" = 'I will inspect the diff.' ] || fail 'Claude format-reject --out keeps body'
+[ "$out" = 'I will inspect the diff.' ] || fail 'Claude format-reject stdout exposes body'
+set +e
+out="$(printf x | STUB_GROK_RESULT=progress "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
+  --out "$WORK/grok-format-out.txt" 2> "$WORK/grok-format.err")"
+rc=$?
+set -e
+[ "$rc" -eq 6 ] || fail "Grok format-reject exit was $rc want 6"
+[ "$(cat "$WORK/grok-format-out.txt")" = 'Let me inspect the files.' ] || fail 'Grok format-reject --out keeps body'
+[ "$out" = 'Let me inspect the files.' ] || fail 'Grok format-reject stdout exposes body'
+# Prose containing approve/needs work mid-sentence must still fail (rc=6)
+set +e
+printf x | STUB_CODEX_RESULT=prose_approve "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
+  --out "$WORK/codex-prose-out.txt" >/dev/null 2> "$WORK/codex-prose.err"
+rc=$?
+set -e
+[ "$rc" -eq 6 ] || fail "Codex prose-approve exit was $rc want 6"
+contains "$WORK/codex-prose-out.txt" 'cannot approve' 'Codex prose body preserved on format reject'
+set +e
+printf x | STUB_CLAUDE_RESULT=prose_approve "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" --base HEAD \
+  --out "$WORK/claude-prose-out.txt" >/dev/null 2> "$WORK/claude-prose.err"
+rc=$?
+set -e
+[ "$rc" -eq 6 ] || fail "Claude prose-approve exit was $rc want 6"
+set +e
+printf x | STUB_GROK_RESULT=prose_approve "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
+  --out "$WORK/grok-prose-out.txt" >/dev/null 2> "$WORK/grok-prose.err"
+rc=$?
+set -e
+[ "$rc" -eq 6 ] || fail "Grok prose needs-work exit was $rc want 6"
+pass 'Verdict-format rejection preserves body in --out and stdout'
+pass 'Prose containing approve/needs work mid-sentence still rejected'
+
 mkdir -p "$WORK/out-dest"
 printf 'codex out dest\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
   --out "$WORK/out-dest/codex-final.txt" --timeout 5 \
   > "$WORK/out-dest/codex-stdout.txt" 2> "$WORK/out-dest/codex.err"
-[ "$(cat "$WORK/out-dest/codex-final.txt")" = 'codex-final APPROVE' ] || fail 'Codex --out holds final result'
-[ "$(cat "$WORK/out-dest/codex-stdout.txt")" = 'codex-final APPROVE' ] || fail 'Codex stdout mirrors final'
+[ "$(cat "$WORK/out-dest/codex-final.txt")" = $'codex findings\nAPPROVE' ] || fail 'Codex --out holds final result'
+[ "$(cat "$WORK/out-dest/codex-stdout.txt")" = $'codex findings\nAPPROVE' ] || fail 'Codex stdout mirrors final'
 [ -f "$WORK/out-dest/codex-final.txt.stream" ] || fail 'Codex default stream beside --out'
 contains "$WORK/out-dest/codex.err" "log=$WORK/out-dest/codex-final.txt.stream" 'Codex log= points at stream'
 printf 'codex stream-log dest\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
   --out "$WORK/out-dest/codex-final2.txt" --stream-log "$WORK/out-dest/codex.stream" --timeout 5 \
   >/dev/null 2> "$WORK/out-dest/codex2.err"
-[ "$(cat "$WORK/out-dest/codex-final2.txt")" = 'codex-final APPROVE' ] || fail 'Codex --out with --stream-log holds final'
+[ "$(cat "$WORK/out-dest/codex-final2.txt")" = $'codex findings\nAPPROVE' ] || fail 'Codex --out with --stream-log holds final'
 [ -f "$WORK/out-dest/codex.stream" ] || fail 'Codex --stream-log path used'
 contains "$WORK/out-dest/codex2.err" "log=$WORK/out-dest/codex.stream" 'Codex log= honors --stream-log'
 printf 'claude out dest\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
   --model claude-haiku-4-5 --out "$WORK/out-dest/claude-final.txt" --timeout 5 \
   > "$WORK/out-dest/claude-stdout.txt" 2> "$WORK/out-dest/claude.err"
-[ "$(cat "$WORK/out-dest/claude-final.txt")" = 'claude-final APPROVE' ] || fail 'Claude --out holds final result'
-[ "$(cat "$WORK/out-dest/claude-stdout.txt")" = 'claude-final APPROVE' ] || fail 'Claude stdout mirrors final'
+[ "$(cat "$WORK/out-dest/claude-final.txt")" = $'claude findings\nAPPROVE' ] || fail 'Claude --out holds final result'
+[ "$(cat "$WORK/out-dest/claude-stdout.txt")" = $'claude findings\nAPPROVE' ] || fail 'Claude stdout mirrors final'
 contains "$WORK/out-dest/claude.err" "log=$WORK/out-dest/claude-final.txt" 'Claude log= is --out path'
 printf 'grok out dest\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \
   --out "$WORK/out-dest/grok-final.txt" --timeout 5 \
   > "$WORK/out-dest/grok-stdout.txt" 2> "$WORK/out-dest/grok.err"
-[ "$(cat "$WORK/out-dest/grok-final.txt")" = 'grok-final APPROVE' ] || fail 'Grok --out holds final result'
-[ "$(cat "$WORK/out-dest/grok-stdout.txt")" = 'grok-final APPROVE' ] || fail 'Grok stdout mirrors final'
+[ "$(cat "$WORK/out-dest/grok-final.txt")" = $'grok findings\nAPPROVE' ] || fail 'Grok --out holds final result'
+[ "$(cat "$WORK/out-dest/grok-stdout.txt")" = $'grok findings\nAPPROVE' ] || fail 'Grok stdout mirrors final'
 contains "$WORK/out-dest/grok.err" "log=$WORK/out-dest/grok-final.txt" 'Grok log= is --out path'
 pass 'Explicit --out destinations hold final results across runners'
 
 out="$(printf 'acceptance criterion\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" --base HEAD --model claude-opus-5 --effort xhigh --timeout 5 2> "$WORK/claude.err")"
-[ "$out" = 'claude-final APPROVE' ] || fail 'Claude final output'
+[ "$out" = $'claude findings\nAPPROVE' ] || fail 'Claude final output'
 contains "$WORK/claude.args" 'claude-opus-5' 'Claude Opus 5 model pin'
 contains "$WORK/claude.args" 'xhigh' 'Opus effort pin'
 contains "$WORK/claude.args" '--dangerously-skip-permissions' 'Claude YOLO posture'
@@ -176,7 +244,7 @@ fi
 pass 'Claude runner enforces the current catalog and Haiku effort compatibility'
 
 out="$(printf 'bounded implementation\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode implement --repo "$WORK/repo" --model grok-4.5 --effort medium --timeout 5 2> "$WORK/grok.err")"
-[ "$out" = 'grok-final APPROVE' ] || fail 'Grok final output'
+[ "$out" = $'grok findings\nAPPROVE' ] || fail 'Grok final output'
 contains "$WORK/grok.args" 'grok-4.5' 'Grok 4.5 model pin'
 contains "$WORK/grok.args" '--reasoning-effort' 'Grok effort flag'
 contains "$WORK/grok.args" 'medium' 'Grok medium effort pin'
@@ -201,7 +269,7 @@ fi
 pass 'Grok runner pins 4.5 and enforces low-to-high effort'
 
 out="$(printf 'review Grok diff\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD --effort high --timeout 5 2> "$WORK/grok-review.err")"
-[ "$out" = 'grok-final APPROVE' ] || fail 'Grok review output'
+[ "$out" = $'grok findings\nAPPROVE' ] || fail 'Grok review output'
 contains "$WORK/grok.args" '--tools' 'Grok review tools restriction'
 contains "$WORK/grok.args" 'read_file,list_dir,grep' 'Grok review read-only tools'
 contains "$WORK/grok.prompt" '+after' 'Grok review receives diff'
@@ -245,7 +313,7 @@ fi
 pass 'Claude and Grok reject empty or verdict-free success'
 
 out="$(printf 'legacy alias\n' | MMO_OPUS_MODEL=opus "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --timeout 5 2> "$WORK/legacy-opus.err")"
-[ "$out" = 'claude-final APPROVE' ] || fail 'Legacy Opus alias output'
+[ "$out" = $'claude findings\nAPPROVE' ] || fail 'Legacy Opus alias output'
 contains "$WORK/claude.args" 'claude-opus-5' 'Legacy Opus alias maps to Opus 5'
 pass 'Legacy Opus alias maps only to the current model'
 

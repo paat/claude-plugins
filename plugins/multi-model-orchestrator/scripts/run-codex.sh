@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-review-verdict.sh
+. "$SCRIPT_DIR/lib-review-verdict.sh"
+
 usage() {
   printf '%s\n' 'Usage: run-codex.sh [--mode implement|review] [--dir DIR] [--model MODEL] [--effort LEVEL] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
 }
@@ -87,12 +91,14 @@ if [ "$rc" -eq 0 ] && [ ! -s "$final_file" ]; then
   printf 'run-codex: provider exited 0 without a final result\n' >&2
   rc=5
 fi
-if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! grep -Eq '(^|[^A-Z_])(APPROVE|NEEDS_WORK)([^A-Z_]|$)' "$final_file"; then
+if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$final_file"; then
   printf 'run-codex: review completed without APPROVE or NEEDS_WORK\n' >&2
   rc=6
 fi
 
-if [ "$rc" -eq 0 ]; then
+# Expose body on success and on verdict-format failure (rc=6) so controllers
+# can inspect useful review text; --out already holds the body either way.
+if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
   cat "$final_file"
 fi
 printf 'run-codex: exit=%s model=%s effort=%s mode=%s log=%s\n' "$rc" "$model" "$effort" "$mode" "$stream_file" >&2

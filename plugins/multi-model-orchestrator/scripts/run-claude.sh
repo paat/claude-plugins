@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-review-verdict.sh
+. "$SCRIPT_DIR/lib-review-verdict.sh"
+
 usage() {
   printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|review [--repo DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--timeout SECONDS] [--out FILE]'
 }
@@ -138,11 +142,15 @@ set -e
   printf 'run-claude: provider exited 0 without a result\n' >&2
   rc=5
 }
-if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! grep -Eq '(^|[^A-Z_])(APPROVE|NEEDS_WORK)([^A-Z_]|$)' "$output_file"; then
+if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_file"; then
   printf 'run-claude: review completed without APPROVE or NEEDS_WORK\n' >&2
   rc=6
 fi
-[ "$rc" -ne 0 ] || cat "$output_file"
+# Expose body on success and on verdict-format failure (rc=6) so controllers
+# can inspect useful review text; --out already holds the body either way.
+if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
+  cat "$output_file"
+fi
 if [ "$model" = claude-haiku-4-5 ]; then effective_effort=n/a; else effective_effort="$effort"; fi
 printf 'run-claude: exit=%s model=%s effort=%s mode=%s log=%s\n' "$rc" "$model" "$effective_effort" "$mode" "$output_file" >&2
 exit "$rc"
