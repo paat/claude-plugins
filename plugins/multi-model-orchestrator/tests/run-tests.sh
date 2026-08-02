@@ -108,6 +108,34 @@ if printf x | STUB_CODEX_RESULT=noverdict "$PLUGIN_ROOT/scripts/run-codex.sh" --
 fi
 pass 'Codex rejects empty or verdict-free success'
 
+mkdir -p "$WORK/out-dest"
+printf 'codex out dest\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
+  --out "$WORK/out-dest/codex-final.txt" --timeout 5 \
+  > "$WORK/out-dest/codex-stdout.txt" 2> "$WORK/out-dest/codex.err"
+[ "$(cat "$WORK/out-dest/codex-final.txt")" = 'codex-final APPROVE' ] || fail 'Codex --out holds final result'
+[ "$(cat "$WORK/out-dest/codex-stdout.txt")" = 'codex-final APPROVE' ] || fail 'Codex stdout mirrors final'
+[ -f "$WORK/out-dest/codex-final.txt.stream" ] || fail 'Codex default stream beside --out'
+contains "$WORK/out-dest/codex.err" "log=$WORK/out-dest/codex-final.txt.stream" 'Codex log= points at stream'
+printf 'codex stream-log dest\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
+  --out "$WORK/out-dest/codex-final2.txt" --stream-log "$WORK/out-dest/codex.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/out-dest/codex2.err"
+[ "$(cat "$WORK/out-dest/codex-final2.txt")" = 'codex-final APPROVE' ] || fail 'Codex --out with --stream-log holds final'
+[ -f "$WORK/out-dest/codex.stream" ] || fail 'Codex --stream-log path used'
+contains "$WORK/out-dest/codex2.err" "log=$WORK/out-dest/codex.stream" 'Codex log= honors --stream-log'
+printf 'claude out dest\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/out-dest/claude-final.txt" --timeout 5 \
+  > "$WORK/out-dest/claude-stdout.txt" 2> "$WORK/out-dest/claude.err"
+[ "$(cat "$WORK/out-dest/claude-final.txt")" = 'claude-final APPROVE' ] || fail 'Claude --out holds final result'
+[ "$(cat "$WORK/out-dest/claude-stdout.txt")" = 'claude-final APPROVE' ] || fail 'Claude stdout mirrors final'
+contains "$WORK/out-dest/claude.err" "log=$WORK/out-dest/claude-final.txt" 'Claude log= is --out path'
+printf 'grok out dest\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \
+  --out "$WORK/out-dest/grok-final.txt" --timeout 5 \
+  > "$WORK/out-dest/grok-stdout.txt" 2> "$WORK/out-dest/grok.err"
+[ "$(cat "$WORK/out-dest/grok-final.txt")" = 'grok-final APPROVE' ] || fail 'Grok --out holds final result'
+[ "$(cat "$WORK/out-dest/grok-stdout.txt")" = 'grok-final APPROVE' ] || fail 'Grok stdout mirrors final'
+contains "$WORK/out-dest/grok.err" "log=$WORK/out-dest/grok-final.txt" 'Grok log= is --out path'
+pass 'Explicit --out destinations hold final results across runners'
+
 out="$(printf 'acceptance criterion\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" --base HEAD --model claude-opus-5 --effort xhigh --timeout 5 2> "$WORK/claude.err")"
 [ "$out" = 'claude-final APPROVE' ] || fail 'Claude final output'
 contains "$WORK/claude.args" 'claude-opus-5' 'Claude Opus 5 model pin'
