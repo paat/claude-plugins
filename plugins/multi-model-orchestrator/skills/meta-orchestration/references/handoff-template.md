@@ -1,13 +1,13 @@
 # Handoff template
 
-File naming: `handoff-<UTC yyyy-mm-ddThhmmZ>.md` under `${MMO_HANDOFF_DIR:-.claude/epic-handoffs}`,
+File naming: `handoff-<UTC yyyy-mm-ddThhmmZ>.md` under `${MMO_HANDOFF_DIR:-.claude/handoffs}`,
 committed on the epic branch. Update the current handoff after every merge, verdict, or ratified
 decision — never only at session end. When a prior handoff exists, do not restate its protocol:
 state "The protocol sections of `<prior-handoff>` remain in force verbatim; this file adds only
 deltas." and record deltas.
 
 ```markdown
-# Handoff — epic <epic-ref>: <one-line epic outcome>
+# Handoff — <mission>: <one-line outcome>
 
 **For:** the fresh session continuing as meta-orchestrator.
 Written <UTC date> by the meta-orchestrator. Everything below was verified against the tree and

@@ -56,16 +56,37 @@ The detailed router and dated evidence notes live under `skills/route-model-task
 `skills/multi-model-orchestration/references/`. Vendor benchmark claims are not compared as if
 their harnesses and token budgets were identical.
 
-## Epic orchestration
+## Meta orchestration
 
-`/multi-model-orchestrator:epic-orchestrate <epic issue ref>` drives a multi-issue GitHub epic:
-one meta-orchestrator session, one epic branch, per-issue worker legs routed through the model
-catalog, adversarial review plus a bounded delta re-review by a different provider, and a
-crash-safe handoff file updated after every decision. `--resume [handoff-path]` continues from
-the newest (or named) handoff under the handoff directory; text after the flag is treated as
-pre-answered open decisions. Close-out chains `tribunal-review:closing-tribunal-loop`, so that
-plugin must be installed and the epic PR must be open. GitHub issues/PRs only — other trackers
-are out of scope.
+`/multi-model-orchestrator:meta-orchestrate <mission brief>` runs the show over a queue of
+work. The brief is free-form and describes WHAT to achieve — an epic issue, an issue list to
+prioritize and implement, a goal to discover tasks for, or "scan for new workitems" — plus any
+autonomy bounds and model restrictions. HOW is the orchestrator's job: per-item worker legs
+routed through the model catalog, adversarial review plus a bounded delta re-review by a
+different provider, merge only on a literal ready signal, and a crash-safe handoff file updated
+after every decision. `--resume [handoff-path]` continues from the newest (or named) handoff;
+trailing text is treated as pre-answered decisions. A scan that finds nothing new writes
+nothing and stops; recurrence belongs to `/loop` or cron.
+
+Delivery chains `tribunal-review:closing-tribunal-loop` (epic PR in epic mode, per-item PRs
+otherwise), so that plugin must be installed. Code delivers through GitHub branches/PRs;
+additional workitem trackers (e.g. Plane) and model constraints for orchestrator legs are
+configured per repo in `.claude/multi-model-orchestrator.local.md`:
+
+```yaml
+---
+sources:
+  - name: plane
+    list: "curl -s -H \"X-API-Key: $PLANE_API_KEY\" $PLANE_URL/.../issues/ | jq -r '...'"
+    close: "curl -s -X PATCH ..."
+models:
+  allow: [gpt-5.6-terra, grok-4.5]
+  worker: "gpt-5.6-terra high"
+---
+```
+
+Model constraints bind worker/reviewer/advise legs; the tribunal panel keeps its own
+`TRIBUNAL_*` configuration.
 
 ## Execution posture
 
@@ -110,7 +131,7 @@ catalog.
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
 | `MMO_GROK_MAX_TURNS` | `30` | Grok tool-loop cap, from 1 to 100 |
 | `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok review |
-| `MMO_HANDOFF_DIR` | `.claude/epic-handoffs` | Epic handoff directory in the target repository |
+| `MMO_HANDOFF_DIR` | `.claude/handoffs` | Handoff directory in the target repository |
 
 `MMO_OPUS_MODEL` and `MMO_OPUS_EFFORT` remain compatibility variables for `run-opus.sh`. The old
 moving value `MMO_OPUS_MODEL=opus` maps explicitly to `claude-opus-5`; earlier versioned IDs are

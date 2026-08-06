@@ -1,14 +1,14 @@
 ---
-name: multi-model-orchestrator-epic-orchestrate-workflow
-description: "Run /multi-model-orchestrator:epic-orchestrate workflow from multi-model-orchestrator."
+name: multi-model-orchestrator-meta-orchestrate-workflow
+description: "Run /multi-model-orchestrator:meta-orchestrate workflow from multi-model-orchestrator."
 ---
 
-# /multi-model-orchestrator:epic-orchestrate Codex Workflow
+# /multi-model-orchestrator:meta-orchestrate Codex Workflow
 
-This generated skill is the Codex-native plugin surface for `/multi-model-orchestrator:epic-orchestrate`.
+This generated skill is the Codex-native plugin surface for `/multi-model-orchestrator:meta-orchestrate`.
 Also use it when the user invokes that command or asks for the same workflow by name.
 
-Source command: `../../commands/epic-orchestrate.md`
+Source command: `../../commands/meta-orchestrate.md`
 
 ## Run Protocol
 
@@ -27,5 +27,5 @@ Source command: `../../commands/epic-orchestrate.md`
 ## Command Metadata
 
 - Plugin: `multi-model-orchestrator`
-- Command aliases: `/multi-model-orchestrator:epic-orchestrate`
-- Source description: Drive a GitHub epic through multi-model worker and reviewer legs with adversarial gates, crash-safe handoffs, and tribunal close-out
+- Command aliases: `/multi-model-orchestrator:meta-orchestrate`
+- Source description: Run the show over a queue of work - epic, issue list, discovery goal, or workitem scan - through multi-model worker and reviewer legs with adversarial gates, crash-safe handoffs, and tribunal close-out
