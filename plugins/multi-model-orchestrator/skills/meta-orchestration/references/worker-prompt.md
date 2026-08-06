@@ -8,8 +8,8 @@ from prior review findings on this epic, phrased as prohibitions.
 ```markdown
 # Task: implement GitHub issue #<NNN> (<owner/repo>) — <one-line restatement of the invariant>
 
-You are the workhorse coder. Spawn your own subagents when the task splits cleanly; size their
-model and reasoning effort to each subtask.
+You are the workhorse coder. If your harness supports subagents, split cleanly separable
+subtasks across them, sized to each subtask; otherwise work sequentially.
 
 ## Setup
 
@@ -42,7 +42,9 @@ carry on.
 
 ## Deliverable
 
-Commit(s) on `<feat/NNN-slug>`, explicit path adds, reference #<NNN>. **No push, no PR.**
+Commit on `<feat/NNN-slug>` when your leg's contract permits committing (explicit path adds,
+reference #<NNN>); otherwise leave the tree uncommitted and say so — the orchestrator commits.
+**No push, no PR.**
 Final message: design summary (what you chose and why), per-requirement evidence, regression
 list, suite results with exact numbers, anything you were told to do that you did not do.
 ```

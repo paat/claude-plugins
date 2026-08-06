@@ -79,6 +79,17 @@ fi
 cat > "$prompt_file"
 [ -s "$prompt_file" ] || { printf 'run-codex: empty prompt\n' >&2; exit 2; }
 
+if [ "$mode" = review ]; then
+  combined_file="$(mktemp)"
+  {
+    printf '%s\n' 'You are an independent, semantically read-only reviewer. Do not modify files or commit.'
+    printf '%s\n' 'End with APPROVE or NEEDS_WORK.'
+    printf '\n'
+    cat "$prompt_file"
+  } > "$combined_file"
+  mv "$combined_file" "$prompt_file"
+fi
+
 set +e
 timeout -k 10 "$run_timeout" codex exec \
   --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check \

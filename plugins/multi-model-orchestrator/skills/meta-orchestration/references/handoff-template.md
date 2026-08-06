@@ -1,7 +1,7 @@
 # Handoff template
 
 File naming: `handoff-<UTC yyyy-mm-ddThhmmZ>.md` under `${MMO_HANDOFF_DIR:-.claude/handoffs}`,
-committed on the epic branch. Update the current handoff after every merge, verdict, or ratified
+committed on the working branch. Update the current handoff after every merge, verdict, or ratified
 decision — never only at session end. When a prior handoff exists, do not restate its protocol:
 state "The protocol sections of `<prior-handoff>` remain in force verbatim; this file adds only
 deltas." and record deltas.
@@ -22,8 +22,9 @@ so the successor starts with a decision, not a question.>
 
 ## State
 
-- Epic branch: `<branch>` at `<sha>`; default branch untouched: <yes/no + evidence>.
-- Merged into epic branch: <N> PRs (<#list>).
+- Working branch(es) (epic branch in strategy A; item branches in B): `<branch>` at `<sha>`;
+  default branch untouched: <yes/no + evidence>.
+- Merged so far: <N> PRs (<#list>).
 - In flight: <PR #, CI status, "ready for review, not merged" / blocked-on>.
 - Worktree: <branch, clean/dirty + why>.
 
@@ -35,8 +36,9 @@ so the successor starts with a decision, not a question.>
 
 1. <item + its preconditions and evidence paths>
 2. ...
-N. Browser QA + UX pass on the epic PR.
-N+1. `tribunal-review:closing-tribunal-loop` on the epic PR; merge at zero critical/high.
+N. Browser QA + UX pass on the PR(s) under close-out.
+N+1. `tribunal-review:closing-tribunal-loop` per the delivery strategy; merge at zero
+     critical/high.
 
 ## Issues: blocking vs not
 

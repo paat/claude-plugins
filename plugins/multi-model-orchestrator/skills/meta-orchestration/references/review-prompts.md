@@ -1,7 +1,9 @@
 # Review prompt templates
 
-The reviewer must be a DIFFERENT provider than the worker that wrote the commits. Verdict token
-is `APPROVE` / `NEEDS_WORK` (the runners' review gate greps exactly these). Reviewers that must
+The reviewer must be a DIFFERENT provider than the worker that wrote the commits. Canonical
+verdict tokens are `APPROVE` / `NEEDS_WORK` — always emit these; the runners' gate also
+tolerates close variants (`APPROVED`, `NEEDS WORK`) but orchestration decisions key on the
+canonical form. Reviewers that must
 EXECUTE probes: Codex legs use `--mode review`; Claude and Grok review modes are read-only-tooled,
 so execute-probe legs on those providers use `--mode implement` with the prompt contract below,
 and the orchestrator greps the verdict from the output itself.
@@ -32,6 +34,8 @@ VERDICT: APPROVE | NEEDS_WORK
 PROBES: numbered results, each with observed vs expected
 SUITES: table with exact counts
 FINDINGS: [critical|high|medium|low] file:line — reachable failure — validating test
+If VERDICT is APPROVE and nothing further is coming, end with the literal line:
+READY TO MERGE — nothing further coming.
 ```
 
 ## Bounded delta re-review
@@ -54,4 +58,6 @@ Bounded DELTA by execution — these items only. Read-only; modify nothing.
 VERDICT: APPROVE | NEEDS_WORK
 PROBES: results for the delta items + spot-reruns
 SUITES: table with exact counts
+If VERDICT is APPROVE and nothing further is coming, end with the literal line:
+READY TO MERGE — nothing further coming.
 ```

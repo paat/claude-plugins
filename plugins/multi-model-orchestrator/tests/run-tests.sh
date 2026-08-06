@@ -95,6 +95,7 @@ contains "$WORK/codex.args" 'gpt-5.6-sol' 'Codex model pin'
 contains "$WORK/codex.args" 'model_reasoning_effort="ultra"' 'Codex Ultra pin'
 contains "$WORK/codex.args" '--dangerously-bypass-approvals-and-sandbox' 'Codex unrestricted posture'
 contains "$WORK/codex.prompt" 'bounded review' 'Codex stdin prompt'
+contains "$WORK/codex.prompt" 'semantically read-only reviewer' 'Codex review mode prepends the no-write contract'
 pass 'Codex runner pins Sol Ultra and stdin prompt'
 
 if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --effort extreme >/dev/null 2>&1; then
@@ -386,6 +387,8 @@ contains "$META_REFS/worker-prompt.md" 'Out of scope' 'Worker template keeps the
 contains "$META_REFS/review-prompts.md" 'BY EXECUTION' 'Review template mandates verification by execution'
 contains "$META_REFS/review-prompts.md" 'NEEDS_WORK' 'Review template uses the runner verdict token'
 contains "$META_REFS/review-prompts.md" 'Bounded DELTA by execution' 'Review template keeps the bounded delta round'
+contains "$META_REFS/review-prompts.md" 'READY TO MERGE — nothing further coming.' 'Review templates request the merge signal on final APPROVE'
+contains "$META_REFS/worker-prompt.md" 'the orchestrator commits' 'Worker template reconciles commits with no-commit leg contracts'
 absent "$META_REFS/review-prompts.md" 'REQUEST_CHANGES' 'Review template does not reintroduce the unsupported verdict token'
 [ "$(wc -l < "$META_SKILL")" -le 160 ] || fail 'meta-orchestration SKILL.md exceeds the 160-line budget'
 pass 'Meta orchestration command, skill, and templates carry the required contracts'

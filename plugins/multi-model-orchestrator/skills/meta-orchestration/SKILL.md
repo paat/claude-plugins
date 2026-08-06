@@ -88,9 +88,11 @@ nothing more.
 
 1. Route the item with `route-model-task` under the model constraints; emit its route card into
    the ledger.
-2. When the item is ambiguous or high-coupling, buy grounding first: one advise leg
-   (`run-claude.sh --mode advise`); its output becomes grounding for the worker prompt.
-   Skip this for well-specified items.
+2. When the item is ambiguous or high-coupling, buy grounding first: one advise leg through an
+   allowed provider (`run-claude.sh` or `run-grok.sh --mode advise`, subject to the model
+   constraints); its output becomes grounding for the worker prompt. When no allowed provider
+   offers advise, skip the leg and tighten the worker packet instead. Skip this for
+   well-specified items.
 3. Instantiate `references/worker-prompt.md`, feeding Hard-won constraints from the handoff's
    rules-learned section. Dispatch via the runner the card names:
 
@@ -103,7 +105,8 @@ nothing more.
 
    (`run-grok.sh` / `run-claude.sh` take `--repo` instead of `--dir`; same contract.)
 4. Gate the result yourself: inspect the diff on the item branch, run the named suites, verify
-   the final-message contract was honored.
+   the final-message contract was honored. If the leg's contract prevented committing, commit
+   the gated result yourself — recording a worker's output is bookkeeping, not source editing.
 5. Adversarial review by a DIFFERENT provider than the worker, from
    `references/review-prompts.md`. Codex reviewer legs use `--mode review` (the runner enforces
    the APPROVE/NEEDS_WORK verdict); Claude/Grok legs that must execute probes use
