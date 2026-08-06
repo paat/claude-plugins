@@ -100,8 +100,11 @@ Model constraints bind worker/reviewer/advise legs; the tribunal panel keeps its
   receive semantic no-write contracts and read-only tool allowlists.
 - Every task names allowed files and an exact gate. Reviewer prose is advisory until verified
   against code, tests, or rendered output.
-- Ordinary nontrivial work gets at most one independent provider review. A second review must pay
-  for itself through risk or conflicting evidence. User provider restrictions remain authoritative.
+- Final review defaults to the tribunal flow: push, PR, `tribunal-review:closing-tribunal-loop`
+  until zero critical/high. Inline reviewer legs are the fallback when tribunal-review is not
+  installed or the run is explicitly local/no-PR; there, ordinary nontrivial work gets at most
+  one independent provider review and a second must pay for itself through risk or conflicting
+  evidence. User provider restrictions remain authoritative.
 - Grok legs use an isolated configuration to avoid inheriting host agents, plugins, hooks, and
   MCPs. OAuth `auth.json` and authentication environment variables are preserved; config-only
   enterprise authentication should use Grok's equivalent `GROK_*` environment variables.

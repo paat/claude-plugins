@@ -82,11 +82,18 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
 
 ## Independent final review
 
-Choose reviewer route cards after implementation. Use one different provider for ordinary
-nontrivial work and two only for high risk or conflicting evidence, subject to provider
-restrictions. Give each the original request, acceptance criteria, `BASE_SHA`, and a bounded
-finding contract. Reviewers must not edit. Run multiple reviewers concurrently and independently.
-Create `RUN_DIR=$(mktemp -d)` before dispatch and remove it after findings are arbitrated.
+Default: push the branch, open (or update) the PR, and chain
+`tribunal-review:closing-tribunal-loop` on it — that skill owns preflight, rounds, PR comments,
+and the zero-critical/high exit; you arbitrate as calling context and never restate its
+protocol.
+
+Fallback — inline reviewer legs, only when `tribunal-review` is not installed or the caller
+explicitly asked for a local no-PR run. Choose reviewer route cards after implementation. Use
+one different provider for ordinary nontrivial work and two only for high risk or conflicting
+evidence, subject to provider restrictions. Give each the original request, acceptance criteria,
+`BASE_SHA`, and a bounded finding contract. Reviewers must not edit. Run multiple reviewers
+concurrently and independently. Create `RUN_DIR=$(mktemp -d)` before dispatch and remove it
+after findings are arbitrated.
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/run-claude.sh" --mode review --repo "$REPO_ROOT" --base "$BASE_SHA" --model claude-opus-5 --effort high <<'PROMPT' > "$RUN_DIR/claude.txt" &

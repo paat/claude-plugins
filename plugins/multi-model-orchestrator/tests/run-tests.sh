@@ -353,6 +353,12 @@ contains "$PLUGIN_ROOT/commands/orchestrate.md" 'wait "$grok_pid"' 'Orchestratio
 contains "$PLUGIN_ROOT/commands/orchestrate.md" 'review_failed' 'Orchestration refuses arbitration after reviewer failure'
 pass 'Orchestration preserves each parallel reviewer exit status'
 
+contains "$PLUGIN_ROOT/commands/orchestrate.md" 'tribunal-review:closing-tribunal-loop' 'Orchestrate defaults final review to the tribunal flow'
+contains "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" 'tribunal-review:closing-tribunal-loop' 'Orchestration skill defaults final review to the tribunal flow'
+contains "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" 'Fallback' 'Orchestration skill keeps inline review as explicit fallback'
+absent "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" 'tribunal-round' 'Orchestration skill references tribunal instead of duplicating its round protocol'
+pass 'Orchestrate uses the closing-tribunal-loop flow by default'
+
 META_CMD="$PLUGIN_ROOT/commands/meta-orchestrate.md"
 META_SKILL="$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md"
 META_REFS="$PLUGIN_ROOT/skills/meta-orchestration/references"

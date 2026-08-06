@@ -54,11 +54,20 @@ After each worker:
 After all workers, run the complete directly affected test set and inspect the whole diff from
 `BASE_SHA`. A diff over the review budget must be split or explicitly narrowed before review.
 
-## Final reviewers
+## Final review
 
-Use one provider different from the implementer for ordinary nontrivial work. Use two complementary
-allowed reviewers only when risk or conflicting evidence makes the extra pass pay for itself. A
-provider restriction may require a fresh same-provider reviewer; preserve the restriction.
+Default: deliver through the tribunal flow. Push the branch, open (or update) the PR, then
+chain `tribunal-review:closing-tribunal-loop` — it owns its own preflight, rounds, PR comments,
+and exit at zero critical/high. Your obligations are only: the PR is open, the local head is
+pushed, and you arbitrate as calling context. Never restate its protocol. Provider restrictions
+for tribunal legs belong to that plugin's `TRIBUNAL_*` configuration, not to this skill's
+routing.
+
+Fallback — inline reviewer legs, only when `tribunal-review` is not installed or the caller
+explicitly asked for a local no-PR run: use one provider different from the implementer for
+ordinary nontrivial work, two complementary allowed reviewers only when risk or conflicting
+evidence makes the extra pass pay for itself. A provider restriction may require a fresh
+same-provider reviewer; preserve the restriction.
 
 - Claude Opus 5: architecture, user intent, UX/copy, environment/build assumptions, visual
   judgment, minimality, and cross-module integration. Start at `high`.
