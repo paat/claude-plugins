@@ -56,6 +56,17 @@ The detailed router and dated evidence notes live under `skills/route-model-task
 `skills/multi-model-orchestration/references/`. Vendor benchmark claims are not compared as if
 their harnesses and token budgets were identical.
 
+## Epic orchestration
+
+`/multi-model-orchestrator:epic-orchestrate <epic issue ref>` drives a multi-issue GitHub epic:
+one meta-orchestrator session, one epic branch, per-issue worker legs routed through the model
+catalog, adversarial review plus a bounded delta re-review by a different provider, and a
+crash-safe handoff file updated after every decision. `--resume [handoff-path]` continues from
+the newest (or named) handoff under the handoff directory; text after the flag is treated as
+pre-answered open decisions. Close-out chains `tribunal-review:closing-tribunal-loop`, so that
+plugin must be installed and the epic PR must be open. GitHub issues/PRs only — other trackers
+are out of scope.
+
 ## Execution posture
 
 - The controller owns intent, restrictions, architecture judgment, task boundaries, and final
@@ -99,6 +110,7 @@ catalog.
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
 | `MMO_GROK_MAX_TURNS` | `30` | Grok tool-loop cap, from 1 to 100 |
 | `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok review |
+| `MMO_HANDOFF_DIR` | `.claude/epic-handoffs` | Epic handoff directory in the target repository |
 
 `MMO_OPUS_MODEL` and `MMO_OPUS_EFFORT` remain compatibility variables for `run-opus.sh`. The old
 moving value `MMO_OPUS_MODEL=opus` maps explicitly to `claude-opus-5`; earlier versioned IDs are

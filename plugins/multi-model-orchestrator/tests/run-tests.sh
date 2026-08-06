@@ -353,6 +353,32 @@ contains "$PLUGIN_ROOT/commands/orchestrate.md" 'wait "$grok_pid"' 'Orchestratio
 contains "$PLUGIN_ROOT/commands/orchestrate.md" 'review_failed' 'Orchestration refuses arbitration after reviewer failure'
 pass 'Orchestration preserves each parallel reviewer exit status'
 
+EPIC_CMD="$PLUGIN_ROOT/commands/epic-orchestrate.md"
+EPIC_SKILL="$PLUGIN_ROOT/skills/epic-orchestration/SKILL.md"
+EPIC_REFS="$PLUGIN_ROOT/skills/epic-orchestration/references"
+contains "$EPIC_CMD" 'skills/epic-orchestration/SKILL.md' 'Epic command loads the epic-orchestration skill'
+contains "$EPIC_CMD" '--resume' 'Epic command documents resume'
+contains "$EPIC_SKILL" 'READY TO MERGE — nothing further coming.' 'Epic skill pins the literal merge signal'
+contains "$EPIC_SKILL" 'route-model-task' 'Epic skill routes via route-model-task'
+contains "$EPIC_SKILL" 'tribunal-review:closing-tribunal-loop' 'Epic skill chains the tribunal close-out'
+contains "$EPIC_SKILL" '124' 'Epic skill keeps the exit-124 salvage rule'
+contains "$EPIC_SKILL" 'not a liveness check' 'Epic skill keeps the transcript-mtime liveness rule'
+contains "$EPIC_SKILL" 'references/handoff-template.md' 'Epic skill instantiates the handoff template'
+absent "$EPIC_SKILL" 'preflight.sh' 'Epic skill references tribunal instead of duplicating its preflight'
+absent "$EPIC_SKILL" 'tribunal-round' 'Epic skill references tribunal instead of duplicating its round protocol'
+contains "$EPIC_REFS/handoff-template.md" 'Stop here first' 'Handoff template keeps the single next action'
+contains "$EPIC_REFS/handoff-template.md" 'do not re-litigate' 'Handoff template keeps ratified decisions'
+contains "$EPIC_REFS/handoff-template.md" 'remain in force verbatim' 'Handoff template keeps delta inheritance'
+contains "$EPIC_REFS/worker-prompt.md" 'No push, no PR' 'Worker template forbids worker push'
+contains "$EPIC_REFS/worker-prompt.md" 'expected red before the fix' 'Worker template keeps the expected-red phrasing'
+contains "$EPIC_REFS/worker-prompt.md" 'Out of scope' 'Worker template keeps the scope fence'
+contains "$EPIC_REFS/review-prompts.md" 'BY EXECUTION' 'Review template mandates verification by execution'
+contains "$EPIC_REFS/review-prompts.md" 'NEEDS_WORK' 'Review template uses the runner verdict token'
+contains "$EPIC_REFS/review-prompts.md" 'Bounded DELTA by execution' 'Review template keeps the bounded delta round'
+absent "$EPIC_REFS/review-prompts.md" 'REQUEST_CHANGES' 'Review template does not reintroduce the unsupported verdict token'
+[ "$(wc -l < "$EPIC_SKILL")" -le 160 ] || fail 'epic-orchestration SKILL.md exceeds the 160-line budget'
+pass 'Epic orchestration command, skill, and templates carry the required contracts'
+
 # Installed-CLI smoke must use the user's real config path, not the fixture GROK_HOME
 # (fixture auth.json is deliberately simplified and can fail stricter grok inspect).
 if [ -n "$REAL_GROK" ]; then
