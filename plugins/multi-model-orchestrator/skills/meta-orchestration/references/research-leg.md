@@ -16,10 +16,8 @@ trigger** rules below do not gate Discovery.
 
 ## Triggers
 
-When the routed provider cannot read the tree—Codex research runs from a scratch root—the
-orchestrator MUST embed the minimal repo excerpts, or relevant paths and their needed contents,
-directly in the research question. Otherwise comparative triggers MUST route to Claude or Grok,
-whose research legs retain `Read`, `Glob`, and `Grep`.
+No research leg can read the tree. The orchestrator ALWAYS supplies the in-repo half of a
+comparative question in the research prompt as minimal excerpts or needed file contents.
 
 | Trigger | Recognizable example |
 |---|---|

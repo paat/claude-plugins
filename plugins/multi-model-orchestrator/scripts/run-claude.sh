@@ -142,7 +142,7 @@ claude_args=(
 if [ "$mode" = implement ]; then
   claude_args+=(--allowedTools 'Read,Glob,Grep,Bash,Write,Edit' --disallowedTools 'Task,WebFetch,WebSearch,NotebookEdit')
 elif [ "$mode" = research ]; then
-  claude_args+=(--allowedTools 'Read,Glob,Grep,WebSearch,WebFetch' --disallowedTools 'Bash,Write,Edit,NotebookEdit,Task')
+  claude_args+=(--allowedTools 'WebSearch,WebFetch' --disallowedTools 'Bash,Write,Edit,NotebookEdit,Task')
 else
   claude_args+=(--allowedTools 'Read,Glob,Grep' --disallowedTools 'Bash,Write,Edit,NotebookEdit,Task,WebFetch,WebSearch')
 fi

@@ -7,12 +7,13 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/repo" "$WORK/tmp"
 export TMPDIR="$WORK/tmp"
 REAL_GROK="${MMO_TEST_REAL_GROK:-$(command -v grok || true)}"
-GROK_RESEARCH_TOOLS='read_file,list_dir,grep,web_search,web_fetch'
+GROK_RESEARCH_TOOLS='web_search,web_fetch'
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 pass() { printf 'PASS: %s\n' "$1"; }
 contains() { grep -F -- "$2" "$1" >/dev/null || fail "$3"; }
 absent() { ! grep -F -- "$2" "$1" >/dev/null || fail "$3"; }
+exact_line() { grep -Fx -- "$2" "$1" >/dev/null || fail "$3"; }
 
 git -C "$WORK/repo" init -q
 git -C "$WORK/repo" config user.email test@example.com
@@ -91,20 +92,20 @@ export GROK_HOME="$WORK/host-grok"
 mkdir -p "$GROK_HOME"
 
 printf 'external fact\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode research --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/claude-research.err"
-contains "$WORK/claude.args" 'Read,Glob,Grep,WebSearch,WebFetch' 'Claude research enables repo-read and web tools'
+exact_line "$WORK/claude.args" 'WebSearch,WebFetch' 'Claude research grants only web tools'
 contains "$WORK/claude.args" 'Bash,Write,Edit,NotebookEdit,Task' 'Claude research denies mutation tools'
 contains "$WORK/claude.prompt" 'sources OUTSIDE this repository' 'Claude research prompt carries the external-source contract'
 contains "$WORK/claude.prompt" 'evidence tier' 'Claude research prompt carries evidence tiers'
-pass 'Claude research is read-only with web access and an evidence contract'
+pass 'Claude research has web-only access and an evidence contract'
 
 printf 'external fact\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode research --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-research.err"
 absent "$WORK/grok.args" '--disable-web-search' 'Grok research keeps web search enabled'
-contains "$WORK/grok.args" "$GROK_RESEARCH_TOOLS" 'Grok research enables repo-read and web tools'
+exact_line "$WORK/grok.args" "$GROK_RESEARCH_TOOLS" 'Grok research grants only web tools'
 contains "$WORK/grok.prompt" 'sources OUTSIDE this repository' 'Grok research prompt carries the external-source contract'
 [ "$(cat "$WORK/grok.home-env")" != "$HOME" ] || fail 'Grok research HOME isolation'
 printf 'repo advice\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-advice-web.err"
 contains "$WORK/grok.args" '--disable-web-search' 'Grok non-research mode keeps web search disabled'
-pass 'Grok research alone enables web tools under the read-only contract'
+pass 'Grok research alone enables web-only tools under the read-only contract'
 
 printf 'external fact\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode research --dir "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/codex-research.err"
 contains "$WORK/codex.args" 'tools.web_search=true' 'Codex research enables web search'

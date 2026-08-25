@@ -95,9 +95,9 @@ costs one resume, nothing more.
      constraints); its constraints, risks, and minimal file map ground the worker prompt. When no
      allowed provider offers advise, skip the leg and tighten the worker packet instead. Skip this
      for well-specified items.
-   - **Research (OUT-OF-REPO):** Dispatch `--mode research` through any allowed provider; every
-     runner, including Codex, supports it. Apply `references/research-leg.md` triggers and memo
-     contract.
+   - **Research (OUT-OF-REPO):** Prefer tool-restricted Claude or Grok; use Codex as the fallback
+     so a Codex-pinned deployment retains a grounding leg. Apply `references/research-leg.md`
+     triggers and memo contract.
    An unknown is not automatically a human decision. Before parking an item or putting a question in
    the handoff's open-human-decisions block, classify it: unresearched (spend a research leg) vs.
    genuinely a judgment call (escalate, with the research already attached).
@@ -114,7 +114,7 @@ costs one resume, nothing more.
    (`run-grok.sh` / `run-claude.sh` take `--repo` instead of `--dir`; same contract.)
 4. Gate the result yourself: inspect the diff on the item branch, run the named suites, verify
    the final-message contract was honored. If the leg's contract prevented committing, commit
-   the gated result yourself — recording a worker's output is bookkeeping, not source editing.
+   the gated result yourself — recording a worker's output or filing a research memo is bookkeeping, not source editing.
 5. Adversarial review by a DIFFERENT provider than the worker, from
    `references/review-prompts.md`. Codex reviewer legs use `--mode review` (the runner enforces
    the APPROVE/NEEDS_WORK verdict); Claude/Grok legs that must execute probes use

@@ -230,7 +230,7 @@ grok_args=(
   --no-memory --no-subagents --max-turns "$max_turns"
 )
 if [ "$mode" = research ]; then
-  grok_args+=(--tools read_file,list_dir,grep,web_search,web_fetch)
+  grok_args+=(--tools web_search,web_fetch)
 else
   grok_args+=(--disable-web-search)
 fi
