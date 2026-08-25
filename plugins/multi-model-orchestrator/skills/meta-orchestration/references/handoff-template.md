@@ -32,7 +32,11 @@ so the successor starts with a decision, not a question.>
 ## Decisions ratified — do not re-litigate
 
 - <decision> — recorded at <issue comment / doc §>.
-- Research memo: `<path>` — <decision or unknown supported>.
+- Research memo: `<path>` — <fact settled>.
+
+## Provisional research — re-open when better evidence appears
+
+- Research memo: `<path>` — defaulted `UNKNOWN`; re-open when better evidence appears.
 
 ## Queue (in order)
 

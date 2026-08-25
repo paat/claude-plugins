@@ -101,7 +101,8 @@ costs one resume, nothing more.
      contract, and use the memo's load-bearing claims and path to ground the worker prompt.
    An unknown is not automatically a human decision. Before parking an item or putting a question in
    the handoff's open-human-decisions block, classify it: unresearched (spend a research leg) vs.
-   genuinely a judgment call (escalate, with the research already attached).
+   genuinely a judgment call (escalate with the research attached when a trigger fired; otherwise
+   state why research was not warranted).
 3. Instantiate `references/worker-prompt.md`, feeding Hard-won constraints from the handoff's
    rules-learned section and any research memo for the item into Grounding docs / Hard-won
    constraints. Dispatch via the runner the card names:

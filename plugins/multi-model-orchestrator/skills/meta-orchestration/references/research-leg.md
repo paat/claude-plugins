@@ -16,8 +16,10 @@ trigger** rules below do not gate Discovery.
 
 ## Triggers
 
-No research leg can read the tree. The orchestrator ALWAYS supplies the in-repo half of a
-comparative question in the research prompt as minimal excerpts or needed file contents.
+The tool-restricted Claude and Grok research legs cannot read the tree; Codex research is
+prompt-bounded and starts in a scratch working root, but is not filesystem-isolated. The
+orchestrator ALWAYS supplies the in-repo half of a comparative question in the research prompt
+as minimal excerpts or needed file contents.
 
 | Trigger | Recognizable example |
 |---|---|
