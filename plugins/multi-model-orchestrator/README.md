@@ -100,8 +100,11 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
 - Every CLI leg runs in YOLO mode inside the development-container security boundary: Codex uses
   `--dangerously-bypass-approvals-and-sandbox`, Claude uses `--dangerously-skip-permissions`, and
   Grok uses `--sandbox none --permission-mode bypassPermissions`. Advice and review legs still
-  receive semantic no-write contracts and read-only tool allowlists. Research legs receive the
-  no-write contract with read-only repo tools and web tools enabled.
+  receive semantic no-write contracts and read-only tool allowlists. Claude and Grok research legs
+  are restricted at the tool layer; the Codex CLI has no per-tool allowlist, and its sandbox modes
+  fail under this container's bwrap, so Codex research runs from a scratch working root instead of
+  the repository with the no-write contract in its prompt, which bounds blast radius rather than
+  enforcing read-only.
 - Every task names allowed files and an exact gate. Reviewer prose is advisory until verified
   against code, tests, or rendered output.
 - Final review defaults to the tribunal flow: push, PR, `tribunal-review:closing-tribunal-loop`

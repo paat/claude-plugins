@@ -110,9 +110,15 @@ printf 'external fact\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode research -
 contains "$WORK/codex.args" 'tools.web_search=true' 'Codex research enables web search'
 contains "$WORK/codex.prompt" 'sources OUTSIDE this repository' 'Codex research prompt carries the external-source contract'
 contains "$WORK/codex.prompt" 'evidence tier' 'Codex research prompt carries evidence tiers'
+codex_research_root="$(awk 'previous == "-C" { print; exit } { previous = $0 }' "$WORK/codex.args")"
+[ -n "$codex_research_root" ] || fail 'Codex research passes a working root'
+[ "$codex_research_root" != "$WORK/repo" ] || fail 'Codex research working root is outside the repo'
+[ ! -e "$codex_research_root" ] || fail 'Codex research working root is removed on exit'
 printf 'implementation task\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/codex-implement-web.err"
 absent "$WORK/codex.args" 'tools.web_search=true' 'Codex non-research mode keeps web search disabled'
-pass 'Codex research alone enables web search under the evidence contract'
+codex_implement_root="$(awk 'previous == "-C" { print; exit } { previous = $0 }' "$WORK/codex.args")"
+[ "$codex_implement_root" = "$WORK/repo" ] || fail 'Codex implement uses the repo working root'
+pass 'Codex research uses a cleaned scratch root; implement uses the repo root'
 
 if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode unknown --repo "$WORK/repo" >/dev/null 2>&1; then
   fail 'unknown Claude mode rejected'
@@ -132,6 +138,8 @@ contains "$WORK/codex.args" 'model_reasoning_effort="ultra"' 'Codex Ultra pin'
 contains "$WORK/codex.args" '--dangerously-bypass-approvals-and-sandbox' 'Codex unrestricted posture'
 contains "$WORK/codex.prompt" 'bounded review' 'Codex stdin prompt'
 contains "$WORK/codex.prompt" 'semantically read-only reviewer' 'Codex review mode prepends the no-write contract'
+codex_review_root="$(awk 'previous == "-C" { print; exit } { previous = $0 }' "$WORK/codex.args")"
+[ "$codex_review_root" = "$WORK/repo" ] || fail 'Codex review uses the repo working root'
 pass 'Codex runner pins Sol Ultra and stdin prompt'
 
 if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --effort extreme >/dev/null 2>&1; then

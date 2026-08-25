@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   printf '%s\n' 'Usage: run-codex.sh [--mode implement|research|review] [--dir DIR] [--model MODEL] [--effort LEVEL] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
+  printf '%s\n' '  --dir DIR is validated in all modes; research uses a fresh temporary working root instead.'
 }
 
 valid_effort() {
@@ -58,6 +59,8 @@ valid_model "$model" || {
 command -v codex >/dev/null 2>&1 || { printf 'run-codex: codex CLI not found\n' >&2; exit 127; }
 
 prompt_file="$(mktemp)"
+research_dir=""
+[ "$mode" != research ] || research_dir="$(mktemp -d)"
 user_final=0
 if [ -n "$final_file" ]; then
   user_final=1
@@ -72,9 +75,9 @@ if [ "$stream_log_set" -eq 0 ]; then
   fi
 fi
 if [ "$user_final" -eq 1 ]; then
-  trap 'rm -f "$prompt_file"' EXIT
+  trap 'rm -f "$prompt_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
 else
-  trap 'rm -f "$prompt_file" "$final_file"' EXIT
+  trap 'rm -f "$prompt_file" "$final_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
 fi
 cat > "$prompt_file"
 [ -s "$prompt_file" ] || { printf 'run-codex: empty prompt\n' >&2; exit 2; }
@@ -105,8 +108,13 @@ fi
 
 codex_args=(
   exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check
-  -C "$repo_dir" -m "$model" -c "model_reasoning_effort=\"$effort\""
 )
+if [ "$mode" = research ]; then
+  codex_args+=(-C "$research_dir")
+else
+  codex_args+=(-C "$repo_dir")
+fi
+codex_args+=(-m "$model" -c "model_reasoning_effort=\"$effort\"")
 [ "$mode" != research ] || codex_args+=(-c tools.web_search=true)
 codex_args+=(-o "$final_file" -)
 
