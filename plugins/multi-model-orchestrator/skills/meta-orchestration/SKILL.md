@@ -96,13 +96,15 @@ costs one resume, nothing more.
      allowed provider offers advise, skip the leg and tighten the worker packet instead. Skip this
      for well-specified items.
    - **Research (OUT-OF-REPO):** Prefer tool-restricted Claude or Grok; use Codex as the fallback
-     so a Codex-pinned deployment retains a grounding leg. Apply `references/research-leg.md`
-     triggers and memo contract.
+     so a Codex-pinned deployment retains a grounding leg. Run `run-claude.sh`, `run-grok.sh`, or
+     `run-codex.sh` with `--mode research`; apply `references/research-leg.md` triggers and memo
+     contract, and use the memo's load-bearing claims and path to ground the worker prompt.
    An unknown is not automatically a human decision. Before parking an item or putting a question in
    the handoff's open-human-decisions block, classify it: unresearched (spend a research leg) vs.
    genuinely a judgment call (escalate, with the research already attached).
 3. Instantiate `references/worker-prompt.md`, feeding Hard-won constraints from the handoff's
-   rules-learned section. Dispatch via the runner the card names:
+   rules-learned section and any research memo for the item into Grounding docs / Hard-won
+   constraints. Dispatch via the runner the card names:
 
    ```bash
    "${CLAUDE_PLUGIN_ROOT}/scripts/run-codex.sh" --mode implement --dir "$REPO_ROOT" \
