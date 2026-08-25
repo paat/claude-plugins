@@ -89,6 +89,40 @@ export STUB_GROK_CONFIG="$WORK/grok.config"
 export GROK_HOME="$WORK/host-grok"
 mkdir -p "$GROK_HOME"
 
+printf 'external fact\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode research --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/claude-research.err"
+contains "$WORK/claude.args" 'Read,Glob,Grep,WebSearch,WebFetch' 'Claude research enables repo-read and web tools'
+contains "$WORK/claude.args" 'Bash,Write,Edit,NotebookEdit,Task' 'Claude research denies mutation tools'
+contains "$WORK/claude.prompt" 'sources OUTSIDE this repository' 'Claude research prompt carries the external-source contract'
+contains "$WORK/claude.prompt" 'evidence tier' 'Claude research prompt carries evidence tiers'
+pass 'Claude research is read-only with web access and an evidence contract'
+
+printf 'external fact\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode research --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-research.err"
+absent "$WORK/grok.args" '--disable-web-search' 'Grok research keeps web search enabled'
+contains "$WORK/grok.args" 'read_file,list_dir,grep,search_tool,web_fetch,open_page,open_page_with_find' 'Grok research enables repo-read and web tools'
+contains "$WORK/grok.prompt" 'sources OUTSIDE this repository' 'Grok research prompt carries the external-source contract'
+printf 'repo advice\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-advice-web.err"
+contains "$WORK/grok.args" '--disable-web-search' 'Grok non-research mode keeps web search disabled'
+pass 'Grok research alone enables web tools under the read-only contract'
+
+printf 'external fact\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode research --dir "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/codex-research.err"
+contains "$WORK/codex.args" 'tools.web_search=true' 'Codex research enables web search'
+contains "$WORK/codex.prompt" 'sources OUTSIDE this repository' 'Codex research prompt carries the external-source contract'
+contains "$WORK/codex.prompt" 'evidence tier' 'Codex research prompt carries evidence tiers'
+printf 'implementation task\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/codex-implement-web.err"
+absent "$WORK/codex.args" 'tools.web_search=true' 'Codex non-research mode keeps web search disabled'
+pass 'Codex research alone enables web search under the evidence contract'
+
+if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode unknown --repo "$WORK/repo" >/dev/null 2>&1; then
+  fail 'unknown Claude mode rejected'
+fi
+if printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode unknown --repo "$WORK/repo" >/dev/null 2>&1; then
+  fail 'unknown Grok mode rejected'
+fi
+if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode unknown --dir "$WORK/repo" >/dev/null 2>&1; then
+  fail 'unknown Codex mode rejected'
+fi
+pass 'All runners reject unknown modes'
+
 out="$(printf 'bounded review\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" --effort ultra --timeout 5 2> "$WORK/codex.err")"
 [ "$out" = $'codex findings\nAPPROVE' ] || fail 'Codex final output'
 contains "$WORK/codex.args" 'gpt-5.6-sol' 'Codex model pin'
@@ -390,7 +424,7 @@ contains "$META_REFS/review-prompts.md" 'Bounded DELTA by execution' 'Review tem
 contains "$META_REFS/review-prompts.md" 'READY TO MERGE — nothing further coming.' 'Review templates request the merge signal on final APPROVE'
 contains "$META_REFS/worker-prompt.md" 'the orchestrator commits' 'Worker template reconciles commits with no-commit leg contracts'
 absent "$META_REFS/review-prompts.md" 'REQUEST_CHANGES' 'Review template does not reintroduce the unsupported verdict token'
-[ "$(wc -l < "$META_SKILL")" -le 160 ] || fail 'meta-orchestration SKILL.md exceeds the 160-line budget'
+[ "$(wc -l < "$META_SKILL")" -le 150 ] || fail 'meta-orchestration SKILL.md exceeds the 150-line budget'
 pass 'Meta orchestration command, skill, and templates carry the required contracts'
 
 # Installed-CLI smoke must use the user's real config path, not the fixture GROK_HOME
@@ -398,7 +432,7 @@ pass 'Meta orchestration command, skill, and templates carry the required contra
 if [ -n "$REAL_GROK" ]; then
   unset GROK_HOME
   real_grok_help="$($REAL_GROK --help 2>&1)"
-  for flag in --reasoning-effort --sandbox --permission-mode --max-turns --no-subagents --prompt-file --tools --output-format --no-memory --disable-web-search --cwd; do
+  for flag in --reasoning-effort --sandbox --permission-mode --max-turns --no-subagents --prompt-file --tools --output-format --disable-web-search --cwd; do
     case "$real_grok_help" in
       *"$flag"*) ;;
       *) fail "installed Grok CLI lacks $flag" ;;
@@ -408,7 +442,7 @@ if [ -n "$REAL_GROK" ]; then
     *bypassPermissions*) ;;
     *) fail 'installed Grok CLI lacks bypassPermissions mode' ;;
   esac
-  "$REAL_GROK" --sandbox none --permission-mode bypassPermissions --no-subagents inspect >/dev/null
+  "$REAL_GROK" --sandbox none --permission-mode bypassPermissions --no-subagents --no-memory inspect >/dev/null
   pass 'Installed Grok CLI parses the runner posture and supports its flags'
 else
   printf 'SKIP: installed Grok CLI flag smoke test\n'

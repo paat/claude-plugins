@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|review [--repo DIR] [--base REF] [--model grok-4.5] [--effort low|medium|high] [--max-turns N] [--timeout SECONDS] [--out FILE]'
+  printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|research|review [--repo DIR] [--base REF] [--model grok-4.5] [--effort low|medium|high] [--max-turns N] [--timeout SECONDS] [--out FILE]'
 }
 
 valid_effort() {
@@ -37,7 +37,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-case "$mode" in advise|implement|review) ;; *) printf 'run-grok: --mode must be advise, implement, or review\n' >&2; exit 2 ;; esac
+case "$mode" in advise|implement|research|review) ;; *) printf 'run-grok: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
 [ "$model" = grok-4.5 ] || { printf 'run-grok: unsupported model %s (current catalog: grok-4.5)\n' "$model" >&2; exit 2; }
 valid_effort "$effort" || { printf 'run-grok: unsupported effort %s (expected low|medium|high)\n' "$effort" >&2; exit 2; }
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-grok: timeout must be a positive integer\n' >&2; exit 2; }
@@ -200,6 +200,17 @@ case "$mode" in
       cat "$request_file"
     } > "$prompt_file"
     ;;
+  research)
+    {
+      printf '%s\n' 'You are a semantically read-only researcher. Do not modify files or make commits.'
+      printf '%s\n' 'Answer the question from sources OUTSIDE this repository; prefer primary sources.'
+      printf '%s\n' 'Tag every load-bearing claim with an evidence tier: A = statute / official spec / vendor API reference quoted verbatim; B = official documentation page or technical spec; C = practitioner or third-party report.'
+      printf '%s\n' 'Report any unknown that survives the search as UNKNOWN with a recommended default and its rationale; never silently guess.'
+      printf '%s\n' 'End with the sources used (URL or citation per claim).'
+      printf '\n## Question\n'
+      cat "$request_file"
+    } > "$prompt_file"
+    ;;
   implement)
     {
       printf '%s\n' 'You are one fresh, bounded implementation worker.'
@@ -215,9 +226,14 @@ grok_args=(
   --cwd "$repo_dir" --model "$model" --reasoning-effort "$effort"
   --output-format plain --prompt-file "$prompt_file"
   --sandbox none --permission-mode bypassPermissions
-  --disable-web-search --no-memory --no-subagents --max-turns "$max_turns"
+  --no-memory --no-subagents --max-turns "$max_turns"
 )
-if [ "$mode" != implement ]; then
+if [ "$mode" = research ]; then
+  grok_args+=(--tools read_file,list_dir,grep,search_tool,web_fetch,open_page,open_page_with_find)
+else
+  grok_args+=(--disable-web-search)
+fi
+if [ "$mode" != implement ] && [ "$mode" != research ]; then
   grok_args+=(--tools read_file,list_dir,grep)
 fi
 

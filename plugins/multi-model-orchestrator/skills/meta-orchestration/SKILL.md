@@ -21,9 +21,9 @@ must use. All feed the same per-item loop:
 - **Epic** — the brief names one epic issue: single epic branch, delivery strategy A.
 - **Issue list** — the brief names or queries issues: one cheap triage pass ordering by
   dependency, risk, and value; then delivery strategy B per item.
-- **Discovery** — the brief states a goal without tasks: research legs propose the task list;
-  file accepted tasks as tracker items so state never lives only in context; continue per the
-  brief's autonomy bounds.
+- **Discovery** — the brief states a goal without tasks: the same out-of-repo research leg in
+  `references/research-leg.md` proposes the task list; file accepted tasks as tracker items so
+  state never lives only in context; continue per the brief's autonomy bounds.
 - **Scan** — the brief asks to check for new workitems: read the sources; when nothing is new,
   write nothing and stop. A no-op scan must cost near zero. Recurrence belongs to the caller
   (`/loop`, cron), not to this skill.
@@ -32,7 +32,7 @@ must use. All feed the same per-item loop:
 
 Optional YAML frontmatter in `.claude/multi-model-orchestrator.local.md` at the target repo
 root. Work sources: GitHub (`gh`) is built in; other trackers are configured, never hardcoded.
-Model constraints bind every leg you dispatch (worker, reviewer, advise) as hard
+Model constraints bind every leg you dispatch (worker, reviewer, advise, research) as hard
 `route-model-task` restrictions — the brief may tighten them, never widen them. They do NOT
 apply to the tribunal panel, which owns its own provider configuration.
 
@@ -48,6 +48,7 @@ models:
   worker: "gpt-5.6-terra high"                       # optional per-role pins
   reviewer: "grok-4.5 high"
   advise: "claude-opus-5 high"
+  research: "gpt-5.6-sol high"
 ```
 
 Treat sourced items exactly like issues. Code always delivers through git branches and GitHub
@@ -79,20 +80,27 @@ and brief deltas; both are ratified.
 
 ## Handoff discipline
 
-Update the current handoff after every merge, review verdict, ratified decision, or filed item —
-not at session end. Commit it on the working branch. Inherit the prior handoff's protocol
-sections verbatim and record only deltas. A session that dies mid-decision costs one resume,
-nothing more.
+Update the current handoff after every merge, review verdict, ratified decision, filed research
+memo, or filed item — not at session end. Commit it on the working branch. Inherit the prior
+handoff's protocol sections verbatim and record only deltas. A session that dies mid-decision
+costs one resume, nothing more.
 
 ## Per-item loop
 
 1. Route the item with `route-model-task` under the model constraints; emit its route card into
    the ledger.
-2. When the item is ambiguous or high-coupling, buy grounding first: one advise leg through an
-   allowed provider (`run-claude.sh` or `run-grok.sh --mode advise`, subject to the model
-   constraints); its output becomes grounding for the worker prompt. When no allowed provider
-   offers advise, skip the leg and tighten the worker packet instead. Skip this for
-   well-specified items.
+2. Buy only the grounding that is triggered:
+   - **Advise (IN-REPO):** When the item is ambiguous or high-coupling, buy one advise leg through
+     an allowed provider (`run-claude.sh` or `run-grok.sh --mode advise`, subject to the model
+     constraints); its constraints, risks, and minimal file map ground the worker prompt. When no
+     allowed provider offers advise, skip the leg and tighten the worker packet instead. Skip this
+     for well-specified items.
+   - **Research (OUT-OF-REPO):** Dispatch `--mode research` through any allowed provider; every
+     runner, including Codex, supports it. Apply `references/research-leg.md` triggers and memo
+     contract.
+   An unknown is not automatically a human decision. Before parking an item or putting a question in
+   the handoff's open-human-decisions block, classify it: unresearched (spend a research leg) vs.
+   genuinely a judgment call (escalate, with the research already attached).
 3. Instantiate `references/worker-prompt.md`, feeding Hard-won constraints from the handoff's
    rules-learned section. Dispatch via the runner the card names:
 

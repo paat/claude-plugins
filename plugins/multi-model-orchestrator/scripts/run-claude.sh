@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|review [--repo DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--timeout SECONDS] [--out FILE]'
+  printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|research|review [--repo DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--timeout SECONDS] [--out FILE]'
 }
 
 valid_model() {
@@ -49,7 +49,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-case "$mode" in advise|implement|review) ;; *) printf 'run-claude: --mode must be advise, implement, or review\n' >&2; exit 2 ;; esac
+case "$mode" in advise|implement|research|review) ;; *) printf 'run-claude: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
 valid_model "$model" || {
   printf 'run-claude: unsupported model %s (current catalog: claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-4-5)\n' "$model" >&2
   exit 2
@@ -110,6 +110,17 @@ case "$mode" in
       cat "$request_file"
     } > "$prompt_file"
     ;;
+  research)
+    {
+      printf '%s\n' 'You are a semantically read-only researcher. Do not modify files or make commits.'
+      printf '%s\n' 'Answer the question from sources OUTSIDE this repository; prefer primary sources.'
+      printf '%s\n' 'Tag every load-bearing claim with an evidence tier: A = statute / official spec / vendor API reference quoted verbatim; B = official documentation page or technical spec; C = practitioner or third-party report.'
+      printf '%s\n' 'Report any unknown that survives the search as UNKNOWN with a recommended default and its rationale; never silently guess.'
+      printf '%s\n' 'End with the sources used (URL or citation per claim).'
+      printf '\n## Question\n'
+      cat "$request_file"
+    } > "$prompt_file"
+    ;;
   implement)
     {
       printf '%s\n' 'You are one fresh, bounded implementation worker.'
@@ -129,6 +140,8 @@ claude_args=(
 [ "$model" = claude-haiku-4-5 ] || claude_args+=(--effort "$effort")
 if [ "$mode" = implement ]; then
   claude_args+=(--allowedTools 'Read,Glob,Grep,Bash,Write,Edit' --disallowedTools 'Task,WebFetch,WebSearch,NotebookEdit')
+elif [ "$mode" = research ]; then
+  claude_args+=(--allowedTools 'Read,Glob,Grep,WebSearch,WebFetch' --disallowedTools 'Bash,Write,Edit,NotebookEdit,Task')
 else
   claude_args+=(--allowedTools 'Read,Glob,Grep' --disallowedTools 'Bash,Write,Edit,NotebookEdit,Task,WebFetch,WebSearch')
 fi

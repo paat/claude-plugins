@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-codex.sh [--mode implement|review] [--dir DIR] [--model MODEL] [--effort LEVEL] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
+  printf '%s\n' 'Usage: run-codex.sh [--mode implement|research|review] [--dir DIR] [--model MODEL] [--effort LEVEL] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
 }
 
 valid_effort() {
@@ -40,7 +40,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-case "$mode" in implement|review) ;; *) printf 'run-codex: --mode must be implement or review\n' >&2; exit 2 ;; esac
+case "$mode" in implement|research|review) ;; *) printf 'run-codex: --mode must be implement, research, or review\n' >&2; exit 2 ;; esac
 valid_effort "$effort" || {
   printf 'run-codex: unsupported effort %s (expected low|medium|high|xhigh|max|ultra)\n' "$effort" >&2
   exit 2
@@ -88,13 +88,30 @@ if [ "$mode" = review ]; then
     cat "$prompt_file"
   } > "$combined_file"
   mv "$combined_file" "$prompt_file"
+elif [ "$mode" = research ]; then
+  combined_file="$(mktemp)"
+  {
+    printf '%s\n' 'You are a semantically read-only researcher. Do not modify files or make commits.'
+    printf '%s\n' 'Answer the question from sources OUTSIDE this repository; prefer primary sources.'
+    printf '%s\n' 'Tag every load-bearing claim with an evidence tier: A = statute / official spec / vendor API reference quoted verbatim; B = official documentation page or technical spec; C = practitioner or third-party report.'
+    printf '%s\n' 'Report any unknown that survives the search as UNKNOWN with a recommended default and its rationale; never silently guess.'
+    printf '%s\n' 'End with the sources used (URL or citation per claim).'
+    printf '\n'
+    cat "$prompt_file"
+  } > "$combined_file"
+  mv "$combined_file" "$prompt_file"
 fi
 
+codex_args=(
+  exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check
+  -C "$repo_dir" -m "$model" -c "model_reasoning_effort=\"$effort\""
+)
+[ "$mode" != research ] || codex_args+=(-c tools.web_search=true)
+codex_args+=(-o "$final_file" -)
+
 set +e
-timeout -k 10 "$run_timeout" codex exec \
-  --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check \
-  -C "$repo_dir" -m "$model" -c "model_reasoning_effort=\"$effort\"" \
-  -o "$final_file" - < "$prompt_file" > "$stream_file" 2> "${stream_file}.stderr"
+timeout -k 10 "$run_timeout" codex "${codex_args[@]}" \
+  < "$prompt_file" > "$stream_file" 2> "${stream_file}.stderr"
 rc=$?
 set -e
 

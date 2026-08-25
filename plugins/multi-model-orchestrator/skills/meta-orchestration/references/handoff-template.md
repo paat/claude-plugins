@@ -1,8 +1,9 @@
 # Handoff template
 
 File naming: `handoff-<UTC yyyy-mm-ddThhmmZ>.md` under `${MMO_HANDOFF_DIR:-.claude/handoffs}`,
-committed on the working branch. Update the current handoff after every merge, verdict, or ratified
-decision — never only at session end. When a prior handoff exists, do not restate its protocol:
+committed on the working branch. Update the current handoff after every merge, verdict, ratified
+decision, or filed research memo — never only at session end. When a prior handoff exists, do not
+restate its protocol:
 state "The protocol sections of `<prior-handoff>` remain in force verbatim; this file adds only
 deltas." and record deltas.
 
@@ -31,6 +32,7 @@ so the successor starts with a decision, not a question.>
 ## Decisions ratified — do not re-litigate
 
 - <decision> — recorded at <issue comment / doc §>.
+- Research memo: `<path>` — <decision or unknown supported>.
 
 ## Queue (in order)
 
