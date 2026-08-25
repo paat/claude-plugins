@@ -3,7 +3,23 @@
 Use `--mode research` for facts outside the repository. Prefer primary sources and spend the leg
 only when its evidence can change the current decision.
 
+Claude and Grok research legs are restricted at the tool layer; the Codex leg is prompt-bounded
+only, despite its scratch working root. Prefer Claude or Grok when model constraints permit; Codex
+is the fallback that preserves a grounding leg for Codex-pinned deployments.
+
+## Discovery
+
+Discovery starts with a goal and produces evidence-backed candidate tasks, not a per-item verdict.
+File accepted tasks as tracker items, then stop when the goal has enough actionable work within the
+brief's autonomy bounds or the evidence supports no work. The per-item triggers and **Do not
+trigger** rules below do not gate Discovery.
+
 ## Triggers
+
+When the routed provider cannot read the tree—Codex research runs from a scratch root—the
+orchestrator MUST embed the minimal repo excerpts, or relevant paths and their needed contents,
+directly in the research question. Otherwise comparative triggers MUST route to Claude or Grok,
+whose research legs retain `Read`, `Glob`, and `Grep`.
 
 | Trigger | Recognizable example |
 |---|---|

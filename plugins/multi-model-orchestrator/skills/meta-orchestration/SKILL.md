@@ -48,7 +48,7 @@ models:
   worker: "gpt-5.6-terra high"                       # optional per-role pins
   reviewer: "grok-4.5 high"
   advise: "claude-opus-5 high"
-  research: "gpt-5.6-sol high"
+  research: "claude-opus-5 high"
 ```
 
 Treat sourced items exactly like issues. Code always delivers through git branches and GitHub
