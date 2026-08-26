@@ -13,7 +13,7 @@ process before merge.
 - Bash 4+, Git, and standard `awk`/`sed`/coreutils commands
 - [OpenAI Codex CLI](https://github.com/openai/codex) (`npm install -g @openai/codex`)
 - [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) — **optional**, only for the Gemini leg (opt-in via `TRIBUNAL_GEMINI=on`; off by default)
-- [OpenCode CLI](https://opencode.ai) (≥ 1.15) — harness for **two opt-in** legs:
+- [OpenCode CLI](https://opencode.ai) (≥ 1.15) — **optional**, only for two opt-in legs:
   - **DeepSeek** via an [OpenCode Go](https://opencode.ai/go) subscription (model `opencode-go/deepseek-v4-pro`; subscription first, then credits on overage) — opt in with `TRIBUNAL_DEEPSEEK=on`. The supported independent transport is the direct DeepSeek API: set `TRIBUNAL_DEEPSEEK=on TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro`, then authenticate DeepSeek (`opencode auth login` → DeepSeek, or `DEEPSEEK_API_KEY`).
   - **GLM** via the same [OpenCode Go](https://opencode.ai/go) subscription (model `opencode-go/glm-5.1`) — **opt-in** (`TRIBUNAL_GLM=on`), off by default.
 - [Qwen Code CLI](https://github.com/QwenLM/qwen-code) (`npm install -g @qwen-code/qwen-code`, Node 20+) — **optional**, only for the **Qwen leg, which is opt-in** (`TRIBUNAL_QWEN=on`; off by default pending the issue #46 false-positive fix). Auth via `DASHSCOPE_API_KEY` (pay-as-you-go DashScope; new accounts get a free 1M+1M-token tier), an OpenAI-compatible / OpenRouter key, or a credential stored in `~/.qwen/settings.json`.
@@ -25,7 +25,7 @@ process before merge.
 - `sha256sum` (used to seal PR delivery manifests and retained artifacts)
 - `flock` (used to make proof finalization concurrency- and crash-safe)
 - `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or it will fall back to an error-JSON for that reviewer) — caps Codex, Gemini, Qwen, Grok, and Claude at 10 minutes and each opt-in OpenCode leg (GLM, DeepSeek) at 12 minutes (single attempt, no retry). The two OpenCode legs are serialized in one call and can take up to ~24 minutes combined; a leg that exceeds its cap simply degrades to the available quorum. OpenCode runs the GLM/DeepSeek reasoning models via `opencode run --agent plan`; their latency is inherent generation time with a heavy tail (the `--variant` reasoning-effort flag does **not** meaningfully change it), so the genuine speed lever is swapping in faster non-reasoning models for those slots — a quality/reliability tradeoff left to you
-- Valid API keys / auth configured for each CLI
+- Valid API keys / auth configured for each enabled CLI
 
 Each reviewer degrades gracefully: if a CLI is missing or a model fails, that reviewer emits an error object and the arbiter proceeds with the remaining reviewers.
 
@@ -147,8 +147,7 @@ and Qwen stay **off** until you opt in.
 ```bash
 export TRIBUNAL_GEMINI=on                           # add the opt-in Gemini leg (web/CVE search)
 export TRIBUNAL_GLM=on                              # add the opt-in OpenCode GLM leg
-export TRIBUNAL_DEEPSEEK=on                         # add the opt-in DeepSeek leg
-export TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro  # direct API; opencode-go/deepseek-v4-flash is a cheaper/faster OpenCode Go option
+export TRIBUNAL_DEEPSEEK=on TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro  # add the opt-in DeepSeek leg on the direct API; opencode-go/deepseek-v4-flash is a cheaper/faster OpenCode Go option
 export TRIBUNAL_QWEN=on                              # add the opt-in Qwen leg (see issue #46)
 export DASHSCOPE_API_KEY=sk-...                     # Qwen auth (needed when TRIBUNAL_QWEN=on)
 export TRIBUNAL_GROK=off                             # skip the default-on Grok leg

@@ -44,8 +44,9 @@ backend as the GLM leg when enabled:
 - `TRIBUNAL_DEEPSEEK=on` enables the leg. Otherwise it emits `{"provider":"deepseek","status":"disabled","note":"..."}`
   and the arbiter excludes it from quorum (`provider_assessment.deepseek.status="disabled"`).
   It is off by default (issue #461); only the literal `on` enables it.
-- `TRIBUNAL_DEEPSEEK_MODEL` (default `opencode-go/deepseek-v4-pro`; e.g. `opencode-go/deepseek-v4-flash`
-  for a cheaper/faster per-commit review, or `deepseek/deepseek-v4-pro` for the direct DeepSeek API).
+- With `TRIBUNAL_DEEPSEEK=on`, `TRIBUNAL_DEEPSEEK_MODEL` selects the model (default
+  `opencode-go/deepseek-v4-pro`; e.g. `opencode-go/deepseek-v4-flash` for a cheaper/faster
+  per-commit review, or `deepseek/deepseek-v4-pro` for the direct DeepSeek API).
 
 See `scripts/run-opencode-review.sh` for the exact script: the DeepSeek leg is
 `run_oc_leg deepseek … "$REPO_ROOT"`, run sequentially after GLM within the one call to avoid the
