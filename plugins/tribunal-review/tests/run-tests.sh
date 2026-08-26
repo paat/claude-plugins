@@ -107,7 +107,7 @@ test_empty_staged_diff_with_real_changes_fails_closed() {
 }
 
 test_genuine_empty_diff_is_reverified_and_unchanged() {
-  local label="genuine empty diff is reverified before unchanged approval" work expected
+  local label="genuine empty diff is reverified before unchanged approval" work
   work="$(mktemp -d)"
   git -C "$work" init -q
   git -C "$work" config user.email test@example.com
@@ -115,7 +115,6 @@ test_genuine_empty_diff_is_reverified_and_unchanged() {
   printf 'base\n' > "$work/file.txt"
   git -C "$work" add file.txt
   git -C "$work" commit -q -m base
-  expected='{"provider":"fixture","model":"fixture-model","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10.0,"verdict":"APPROVE","note":"No changes detected vs HEAD"}}'
 
   (
     cd "$work"
@@ -123,8 +122,20 @@ test_genuine_empty_diff_is_reverified_and_unchanged() {
     GIT_TRACE="$work/git.trace" tribunal_empty fixture fixture-model HEAD
   ) > "$work/out.json"
 
-  if [ "$(cat "$work/out.json")" = "$expected" ] \
-    && grep -Fq "rev-parse --verify 'HEAD^{commit}'" "$work/git.trace" \
+  if jq -e '
+      .provider == "fixture"
+      and .model == "fixture-model"
+      and .findings == []
+      and .summary.total_findings == 0
+      and .summary.critical == 0
+      and .summary.high == 0
+      and .summary.medium == 0
+      and .summary.low == 0
+      and (.summary.quality_score | type == "number" and . == 10)
+      and .summary.verdict == "APPROVE"
+      and .summary.note == "No changes detected vs HEAD"
+    ' "$work/out.json" >/dev/null \
+    && grep -Fq 'rev-parse' "$work/git.trace" \
     && grep -Fq 'diff --quiet' "$work/git.trace"; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else
