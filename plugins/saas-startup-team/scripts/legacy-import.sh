@@ -11,6 +11,8 @@
 
 set -euo pipefail
 
+die() { echo "legacy-import: $1" >&2; exit "${2:-1}"; }
+
 ROOT="."
 AS_JSON=0
 
@@ -29,16 +31,12 @@ while [ $# -gt 0 ]; do
       exit 0
       ;;
     *)
-      echo "legacy-import: unknown argument: $1" >&2
-      exit 2
+      die "unknown argument: $1" 2
       ;;
   esac
 done
 
-if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
-  echo "legacy-import: --root must be an existing directory" >&2
-  exit 2
-fi
+if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then die "--root must be an existing directory" 2; fi
 
 ROOT=$(cd "$ROOT" && pwd)
 
@@ -89,10 +87,7 @@ json_escape_array() {
 }
 
 if [ "$AS_JSON" -eq 1 ]; then
-  if ! command -v jq >/dev/null 2>&1; then
-    echo "legacy-import: jq required for --json" >&2
-    exit 2
-  fi
+  if ! command -v jq >/dev/null 2>&1; then die "jq required for --json" 2; fi
   workflows_json=$(printf '%s\n' "${workflows[@]+"${workflows[@]}"}" | json_escape_array)
   signoffs_json=$(printf '%s\n' "${signoffs[@]+"${signoffs[@]}"}" | json_escape_array)
   jq -n \

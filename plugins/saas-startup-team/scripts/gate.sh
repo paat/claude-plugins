@@ -47,10 +47,6 @@ hook_content() {
   printf '%s' "$HOOK_JSON" | jq -r '.tool_input.content // empty' 2>/dev/null || true
 }
 
-hook_command() {
-  printf '%s' "$HOOK_JSON" | jq -r '.tool_input.command // empty' 2>/dev/null || true
-}
-
 cmd_schema() {
   local file="" mode="file"
   while [ "$#" -gt 0 ]; do

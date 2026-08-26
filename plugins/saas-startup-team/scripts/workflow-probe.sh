@@ -4,6 +4,8 @@
 # (hard prerequisite unmet; fix the host, do not launch). Exit 1/2: real failure/usage.
 set -euo pipefail
 
+die() { echo "workflow-probe: $1" >&2; exit "${2:-1}"; }
+
 MODE="${1:-}"; [ "$#" -gt 0 ] && shift || true
 OUTPUT_MODE="$MODE"
 ROOT=""; REPO=""; ISSUE=""; LABEL=""; DATE=""; DRY_RUN=0
@@ -32,17 +34,14 @@ case "$MODE" in
 esac
 case "$ISSUE" in
   "") ;;
-  *[!0-9]*|0*) echo "workflow-probe: --issue must be a positive integer without leading zeros" >&2; exit 2 ;;
+  *[!0-9]*|0*) die "--issue must be a positive integer without leading zeros" 2 ;;
 esac
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # SSOT absolute primary path — single resolver for all maintain scripts.
 # shellcheck source=maintain-paths.sh
 . "$SCRIPT_DIR/maintain-paths.sh"
 [ -n "$ROOT" ] || ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-maintain_paths_resolve "$ROOT" || {
-  echo "workflow-probe: cannot resolve primary repository path" >&2
-  exit 1
-}
+maintain_paths_resolve "$ROOT" || die "cannot resolve primary repository path"
 # Always use the physical primary SSOT (never a symlink alias like /workspace).
 ROOT=$MAINTAIN_PRIMARY
 noop() { echo "workflow-probe: $OUTPUT_MODE no work to do"; exit 3; }
@@ -80,18 +79,13 @@ codex_cli_gate() {
     *" codex "*) ;;
     *)
       if command -v codex >/dev/null 2>&1; then
-        command -v timeout >/dev/null 2>&1 || {
-          echo "workflow-probe: $OUTPUT_MODE blocked: timeout is required to verify Codex authentication" >&2
-          exit 4
-        }
+        command -v timeout >/dev/null 2>&1 || die "$OUTPUT_MODE blocked: timeout is required to verify Codex authentication" 4
         if timeout 10 codex login status >/dev/null 2>&1; then return 0; fi
-        echo "workflow-probe: $OUTPUT_MODE blocked: Codex authentication is unavailable; run codex login before scheduling this workflow" >&2
-        exit 4
+        die "$OUTPUT_MODE blocked: Codex authentication is unavailable; run codex login before scheduling this workflow" 4
       fi
       ;;
   esac
-  echo "workflow-probe: $OUTPUT_MODE blocked: Codex CLI not found; install/authenticate Codex before scheduling this workflow" >&2
-  exit 4
+  die "$OUTPUT_MODE blocked: Codex CLI not found; install/authenticate Codex before scheduling this workflow" 4
 }
 
 # Surface leftover nonterminal legacy receipts; does not mutate (drain is explicit).
@@ -111,21 +105,20 @@ case "$MODE" in
     # v3-only: no leases, guardian, claims, or primary-only stack (#389).
     CONTROLLER_ROUTE=v3
     legacy_receipt_notice
-    command -v gh >/dev/null 2>&1 || { echo "workflow-probe: gh is required" >&2; exit 1; }
-    routing_schema_version="$(bash "$SCRIPT_DIR/delivery-route.sh" schema-version | jq -er '.schema_version | select(type == "number")')" || {
-      echo "workflow-probe: cannot resolve routing schema" >&2; exit 1; }
+    command -v gh >/dev/null 2>&1 || die "gh is required"
+    routing_schema_version="$(bash "$SCRIPT_DIR/delivery-route.sh" schema-version | jq -er '.schema_version | select(type == "number")')" || die "cannot resolve routing schema"
     cache="$ROOT/.startup/maintain/triage-cache.jsonl"
     gh_args=(issue list --state open --limit 1000 --json "number,labels,updatedAt")
     [ -z "$REPO" ] || gh_args+=(--repo "$REPO")
     [ -z "$LABEL" ] || gh_args+=(--label "$LABEL")
-    open_json="$(gh "${gh_args[@]}")" || { echo "workflow-probe: cannot list issues" >&2; exit 1; }
+    open_json="$(gh "${gh_args[@]}")" || die "cannot list issues"
     if [ -n "$ISSUE" ]; then
       open_json="$(printf '%s' "$open_json" | jq --argjson n "$ISSUE" '[.[]|select(.number==$n)]')" || exit 1
     fi
-    load_blocked_files || { echo "workflow-probe: cannot resolve blocked ledgers" >&2; exit 1; }
+    load_blocked_files || die "cannot resolve blocked ledgers"
     blocked_args=(); for blocked_file in "${BLOCKED_FILES[@]}"; do blocked_args+=(--file "$blocked_file"); done
     cooldowns="$(bash "$SCRIPT_DIR/maintain-blocked.sh" active --now "$(date -u +%FT%TZ)" \
-      "${blocked_args[@]}")" || { echo "workflow-probe: invalid blocked ledger" >&2; exit 1; }
+      "${blocked_args[@]}")" || die "invalid blocked ledger"
     stale_cleanup="$(printf '%s' "$open_json" | jq -r --argjson cooldowns "$cooldowns" '
       [.[] | .number as $number | [.labels[].name] as $labels
        | select(($labels | index("maintain:blocked")) != null)
@@ -138,8 +131,7 @@ case "$MODE" in
     [ "$open" -gt 0 ] || noop
     new="$open"; cached_resumable=0
     if [ -s "$cache" ]; then
-      jq -e . "$cache" >/dev/null 2>&1 || {
-        echo "workflow-probe: malformed triage cache: $cache" >&2; exit 1; }
+      jq -e . "$cache" >/dev/null 2>&1 || die "malformed triage cache: $cache"
       new="$(jq --argjson schema "$routing_schema_version" --slurpfile seen <(jq -c --argjson schema "$routing_schema_version" 'select(.routing_schema_version==$schema)|{number,updatedAt}' "$cache") \
         '[.[]|select({number,updatedAt} as $k|($seen|index($k))|not)]|length' <<<"$open_json")"
       cached_resumable="$(jq -s --argjson schema "$routing_schema_version" --slurpfile open <(printf '%s\n' "$open_json") '
@@ -174,8 +166,7 @@ case "$MODE" in
     marker_found=0
     if [ -d "$marker_dir" ] && find "$marker_dir" -maxdepth 1 -type f -name '*-last-failure.txt' -print -quit | grep -q .; then marker_found=1; fi
     if [ -x "$custom_checks" ]; then
-      window="$("$SCRIPT_DIR/monitor-dedup.sh" window --state "$state_file")" || {
-        echo "workflow-probe: cannot resolve monitor window" >&2; exit 1; }
+      window="$("$SCRIPT_DIR/monitor-dedup.sh" window --state "$state_file")" || die "cannot resolve monitor window"
       eval "$window"
       export MONITOR_SINCE MONITOR_SINCE_MINUTES
       set +e
@@ -208,16 +199,16 @@ case "$MODE" in
     kind="${SAAS_NOTIFY_KIND:-}"; url="${SAAS_NOTIFY_URL:-}"; token_env="${SAAS_NOTIFY_TOKEN_ENV:-}"
     notify_config="$ROOT/.startup/notify.json"
     if [ -f "$notify_config" ]; then
-      jq -e . "$notify_config" >/dev/null 2>&1 || { echo "workflow-probe: malformed notify config" >&2; exit 1; }
+      jq -e . "$notify_config" >/dev/null 2>&1 || die "malformed notify config"
       kind="$(jq -r '.kind // empty' "$notify_config")"
       url="$(jq -r '.url // empty' "$notify_config")"
       token_env="$(jq -r '.token_env // empty' "$notify_config")"
     fi
     [ -n "$kind" ] && [ "$kind" != "none" ] || noop
-    case "$kind" in ntfy|webhook) : ;; *) echo "workflow-probe: unknown notify kind: $kind" >&2; exit 1 ;; esac
-    [ -n "$url" ] || { echo "workflow-probe: notify URL is missing" >&2; exit 1; }
+    case "$kind" in ntfy|webhook) : ;; *) die "unknown notify kind: $kind" ;; esac
+    [ -n "$url" ] || die "notify URL is missing"
     if [ -n "$token_env" ] && [ -z "$(printenv "$token_env" 2>/dev/null || true)" ]; then
-      echo "workflow-probe: notify token env is empty: $token_env" >&2; exit 1
+      die "notify token env is empty: $token_env"
     fi
     state="$ROOT/.startup/digest-state.json"
     sent='[]'; [ -f "$state" ] && sent="$(jq -c '.sent_runs // []' "$state" 2>/dev/null || echo '[]')"

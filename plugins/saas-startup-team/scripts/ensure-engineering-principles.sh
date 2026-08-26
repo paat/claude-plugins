@@ -74,15 +74,6 @@ _has_complete_principles() {
   return 1
 }
 
-_write_file() {
-  local path="$1" content="$2"
-  if [ "$DRY_RUN" = 1 ]; then
-    echo "ensure-engineering-principles: [dry-run] would write $path" >&2
-    return 0
-  fi
-  printf '%s' "$content" > "$path"
-}
-
 _append_block() {
   local f="$1"
   local tmp

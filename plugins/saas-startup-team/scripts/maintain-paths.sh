@@ -24,14 +24,6 @@ maintain_paths_canon() {
   (cd -- "$path" && pwd -P)
 }
 
-maintain_paths_same() {
-  # True when both paths exist and realpath-equal.
-  local a b
-  a=$(maintain_paths_canon "$1") || return 1
-  b=$(maintain_paths_canon "$2") || return 1
-  [ "$a" = "$b" ]
-}
-
 maintain_paths_resolve() {
   local supplied=$1 raw record candidate candidate_common worktree_rows
   MAINTAIN_ROOT=""
@@ -70,14 +62,4 @@ maintain_paths_resolve() {
   rm -f -- "$worktree_rows"
   [ -n "$MAINTAIN_PRIMARY" ] || return 1
   return 0
-}
-
-# Require caller is on the SSOT primary (physical). Symlink cwd is ok if realpath matches.
-maintain_paths_require_primary() {
-  local supplied=${1:-}
-  if [ -n "$supplied" ]; then
-    maintain_paths_resolve "$supplied" || return 1
-  fi
-  [ -n "${MAINTAIN_PRIMARY:-}" ] && [ -n "${MAINTAIN_ROOT:-}" ] || return 1
-  [ "$MAINTAIN_ROOT" = "$MAINTAIN_PRIMARY" ]
 }

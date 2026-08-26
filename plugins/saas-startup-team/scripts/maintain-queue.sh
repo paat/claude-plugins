@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+die() { echo "maintain-queue: $1" >&2; exit "${2:-1}"; }
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
@@ -90,19 +92,15 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-command -v jq >/dev/null 2>&1 || { echo "maintain-queue: jq is required" >&2; exit 2; }
-if [ -n "$repo" ] && ! valid_repo_slug "$repo"; then
-  echo "maintain-queue: --repo must be OWNER/REPO" >&2
-  exit 2
-fi
+command -v jq >/dev/null 2>&1 || die "jq is required" 2
+if [ -n "$repo" ] && ! valid_repo_slug "$repo"; then die "--repo must be OWNER/REPO" 2; fi
 case "$issue" in
   "") ;;
-  *[!0-9]*|0*) echo "maintain-queue: --issue must be a positive integer without leading zeros" >&2; exit 2 ;;
+  *[!0-9]*|0*) die "--issue must be a positive integer without leading zeros" 2 ;;
 esac
 if [ "$default_branch_explicit" -eq 1 ] \
   && ! git check-ref-format --branch "$default_branch" >/dev/null 2>&1; then
-  echo "maintain-queue: default branch is invalid: $default_branch" >&2
-  exit 2
+  die "default branch is invalid: $default_branch" 2
 fi
 
 tmpdir="$(mktemp -d)"
@@ -116,10 +114,7 @@ output_json="$tmpdir/output.json"
 resume_candidate_json="$tmpdir/resume-candidate.json"
 
 if [ -n "$resume_candidate_file" ]; then
-  [ -f "$resume_candidate_file" ] && [ ! -L "$resume_candidate_file" ] || {
-    echo "maintain-queue: resume candidate is missing or unsafe" >&2
-    exit 3
-  }
+  [ -f "$resume_candidate_file" ] && [ ! -L "$resume_candidate_file" ] || die "resume candidate is missing or unsafe" 3
   if ! jq -e 'select(
     type == "object"
     and ((.number | type) == "number")
@@ -129,13 +124,11 @@ if [ -n "$resume_candidate_file" ]; then
     and ((.pr_number | type) == "number")
     and (.pr_number > 0) and (.pr_number == (.pr_number | floor))
   )' "$resume_candidate_file" > "$resume_candidate_json"; then
-    echo "maintain-queue: resume candidate is malformed" >&2
-    exit 3
+    die "resume candidate is malformed" 3
   fi
   candidate_issue=$(jq -r .number "$resume_candidate_json")
   if [ -n "$issue" ] && [ "$issue" != "$candidate_issue" ]; then
-    echo "maintain-queue: --issue does not match resume candidate" >&2
-    exit 2
+    die "--issue does not match resume candidate" 2
   fi
   issue="$candidate_issue"
 fi
@@ -147,10 +140,7 @@ gh_with_repo() {
 
 if [ -n "$issues_file" ] || [ -n "$open_prs_file" ]; then
   fixture_mode=1
-  [ -n "$issues_file" ] && [ -n "$open_prs_file" ] || {
-    echo "maintain-queue: fixture mode requires both --issues-file and --open-prs-file" >&2
-    exit 2
-  }
+  [ -n "$issues_file" ] && [ -n "$open_prs_file" ] || die "fixture mode requires both --issues-file and --open-prs-file" 2
   jq -e 'if type == "array" then . else error("issues fixture must be an array") end' \
     "$issues_file" > "$issues_json"
   jq -e 'if type == "array" then . else error("open PR fixture must be an array") end' \
@@ -160,29 +150,23 @@ if [ -n "$issues_file" ] || [ -n "$open_prs_file" ]; then
       "$issues_json" > "$issues_json.filtered"
     mv "$issues_json.filtered" "$issues_json"
     if [ "$(jq length "$issues_json")" -eq 0 ]; then
-      echo "maintain-queue: issue #$issue was not found in fixture" >&2
-      exit 3
+      die "issue #$issue was not found in fixture" 3
     fi
     if [ "$(jq -r '.[0].state // "OPEN"' "$issues_json")" != "OPEN" ]; then
-      echo "maintain-queue: issue #$issue is not open" >&2
-      exit 3
+      die "issue #$issue is not open" 3
     fi
   fi
 else
-  command -v gh >/dev/null 2>&1 || { echo "maintain-queue: gh is required" >&2; exit 2; }
+  command -v gh >/dev/null 2>&1 || die "gh is required" 2
   if [ -z "$repo" ]; then
-    repo=$(resolve_repo_slug) || {
-      echo "maintain-queue: could not bind GitHub queries to remote.origin; pass --repo OWNER/REPO" >&2
-      exit 3
-    }
+    repo=$(resolve_repo_slug) || die "could not bind GitHub queries to remote.origin; pass --repo OWNER/REPO" 3
   fi
   if [ -n "$issue" ]; then
     gh_with_repo issue view "$issue" \
       --json number,title,body,labels,assignees,state,createdAt,updatedAt,closedByPullRequestsReferences |
       jq '[.]' > "$issues_json"
     if [ "$(jq -r '.[0].state // "OPEN"' "$issues_json")" != "OPEN" ]; then
-      echo "maintain-queue: issue #$issue is not open" >&2
-      exit 3
+      die "issue #$issue is not open" 3
     fi
   else
     gh_with_repo issue list --state open --limit "$list_limit" \
@@ -196,17 +180,14 @@ else
     default_args=(--repo-root "$repo_root"); [ -z "$repo" ] || default_args+=(--repo "$repo")
     if ! default_branch=$(/usr/bin/env -u GH_REPO -u GITHUB_REPOSITORY -u GH_HOST -u GH_CONFIG_DIR \
       bash "$SCRIPT_DIR/default-branch.sh" "${default_args[@]}"); then
-      echo "maintain-queue: could not resolve repository default branch; pass --default-branch or set MAINTAIN_QUEUE_DEFAULT_BRANCH" >&2
-      exit 3
+      die "could not resolve repository default branch; pass --default-branch or set MAINTAIN_QUEUE_DEFAULT_BRANCH" 3
     fi
   fi
   if [ -z "$issue" ] && [ "$(jq length "$issues_json")" -ge "$list_limit" ]; then
-    echo "maintain-queue: fetched $list_limit open issues; refusing possibly truncated queue" >&2
-    exit 3
+    die "fetched $list_limit open issues; refusing possibly truncated queue" 3
   fi
   if [ "$(jq length "$open_prs_json")" -ge "$list_limit" ]; then
-    echo "maintain-queue: fetched $list_limit open PRs; refusing possibly truncated linked-PR set" >&2
-    exit 3
+    die "fetched $list_limit open PRs; refusing possibly truncated linked-PR set" 3
   fi
 fi
 
@@ -227,8 +208,7 @@ if [ -n "$resume_candidate_file" ]; then
       ((.number | type) == "number") and (.number > 0)
       and (.number == (.number | floor)))
   ' "$issues_json" >/dev/null; then
-    echo "maintain-queue: live resume issue data is malformed" >&2
-    exit 3
+    die "live resume issue data is malformed" 3
   fi
   if ! jq -e '
     type == "array"
@@ -242,8 +222,7 @@ if [ -n "$resume_candidate_file" ]; then
         ((.number | type) == "number") and (.number > 0)
         and (.number == (.number | floor))))
   ' "$open_prs_json" >/dev/null; then
-    echo "maintain-queue: live resume PR data is malformed" >&2
-    exit 3
+    die "live resume PR data is malformed" 3
   fi
 fi
 
