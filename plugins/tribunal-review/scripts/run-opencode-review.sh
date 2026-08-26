@@ -84,7 +84,8 @@ run_oc_leg() {
       tribunal_extract_json_object < "$out" \
         | tribunal_emit_review "$provider" "" "$out" "$err" "$rc"
     else
-      tribunal_error_with_diagnostics "$provider" "OpenCode smoke failed or timed out" \
+      tribunal_error_with_diagnostics "$provider" \
+        "$(opencode_failure_message "$provider" "$model" "$rc" "$run_timeout" "$err")" \
         execution "$rc" "$out" "$err"
     fi
     return
@@ -108,8 +109,22 @@ run_oc_leg() {
       | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
   else
     rm -f "$diff_attach"
-    tribunal_error_with_diagnostics "$provider" "OpenCode execution failed or timed out" \
+    tribunal_error_with_diagnostics "$provider" \
+      "$(opencode_failure_message "$provider" "$model" "$rc" "$run_timeout" "$err")" \
       execution "$rc" "$out" "$err"
+  fi
+}
+
+opencode_failure_message() {
+  local provider="$1" model="$2" rc="$3" run_timeout="$4" stderr_file="$5"
+  if [ "$rc" -eq 124 ]; then
+    printf 'OpenCode execution timed out after %ss' "$run_timeout"
+  elif [ "$rc" -eq 137 ]; then
+    printf 'OpenCode execution timed out or was killed after %ss' "$run_timeout"
+  elif grep -Eqi -- '^[[:space:]]*[Ee]rror:.*(requires[[:space:]]+explicit[[:space:]]+opt[ -]?in|only[[:space:]]+available[[:space:]]+hosted[[:space:]]+in[[:space:]]+china)' "$stderr_file"; then
+    printf "%s leg unavailable: provider rejected model '%s' (requires explicit opt-in)" "$provider" "$model"
+  else
+    printf 'OpenCode execution failed (exit=%s)' "$rc"
   fi
 }
 

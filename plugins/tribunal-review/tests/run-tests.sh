@@ -435,6 +435,114 @@ EOF
   rm -rf "$work"
 }
 
+run_opencode_failure_fixture() {
+  local label="$1" exit_code="$2" stderr_text="$3" assertion="$4"
+  local work fake
+  work="$(mktemp -d)"
+  fake="$work/bin"
+  mkdir -p "$fake"
+  printf '%s\n' "$stderr_text" > "$work/opencode.stderr"
+  cat > "$fake/opencode" <<'EOF'
+#!/usr/bin/env bash
+cat "${FIXTURE_OPENCODE_STDERR:?}" >&2
+exit "${FIXTURE_OPENCODE_EXIT:?}"
+EOF
+  chmod +x "$fake/opencode"
+
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    PATH="$fake:$PATH" FIXTURE_OPENCODE_STDERR="$work/opencode.stderr" \
+      FIXTURE_OPENCODE_EXIT="$exit_code" TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=on \
+      TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-opencode-review.sh" \
+      > "$work/out.json"
+  ) && jq -s -e \
+      'length == 2 and .[0].status == "disabled" and (.[1] | has("error"))' \
+      "$work/out.json" >/dev/null \
+    && eval "$assertion"; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
+test_opencode_timeout_error() {
+  run_opencode_failure_fixture \
+    "OpenCode timeout is an error and names its timeout duration" 124 "" \
+    "jq -s -e '.[1].error | contains(\"OpenCode execution timed out after 720s\")' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_killed_error() {
+  run_opencode_failure_fixture \
+    "OpenCode kill is ambiguous and names its elapsed budget" 137 "" \
+    "jq -s -e '.[1].error | contains(\"OpenCode execution timed out or was killed after 720s\")' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_gated_model_error() {
+  run_opencode_failure_fixture \
+    "OpenCode gated model error is classified without leaking stderr" 1 \
+    "Error: The latest version of this model is only available hosted in China and requires explicit opt in DECOY_SECRET_TOKEN" \
+    "jq -s -e '.[1].error | contains(\"deepseek leg unavailable: provider rejected model '\''opencode-go/deepseek-v4-pro'\'' (requires explicit opt-in)\") and (contains(\"timed out\") | not) and (contains(\"DECOY_SECRET_TOKEN\") | not)' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_gated_tool_trace_is_generic_error() {
+  run_opencode_failure_fixture \
+    "OpenCode gated tool trace is not classified at a non-timeout exit" 1 \
+    '✱ Grep "requires explicit opt-in" in . · 2 matches' \
+    "jq -s -e '((.[1].error | split(\";\")[0]) == \"OpenCode execution failed (exit=1)\") and (.[1].error | contains(\"leg unavailable\") | not)' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_gated_tool_trace_timeout_is_pure_timeout() {
+  run_opencode_failure_fixture \
+    "OpenCode gated tool trace timeout is not classified" 124 \
+    '✱ Grep "requires explicit opt-in" in . · 2 matches' \
+    "jq -s -e '((.[1].error | split(\";\")[0]) == \"OpenCode execution timed out after 720s\") and (.[1].error | contains(\"leg unavailable\") | not)' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_provider_gated_error_is_classified() {
+  run_opencode_failure_fixture \
+    "OpenCode provider gated error is classified" 1 \
+    'Error: The latest version of this model is only available hosted in China and requires explicit opt in: https://opencode.ai/workspace/wrk_TESTID/go' \
+    "jq -s -e '.[1].error | contains(\"deepseek leg unavailable\") and contains(\"opencode-go/deepseek-v4-pro\")' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_provider_gated_timeout_is_pure_timeout() {
+  run_opencode_failure_fixture \
+    "OpenCode provider gated timeout is pure timeout" 124 \
+    'Error: The latest version of this model is only available hosted in China and requires explicit opt in: https://opencode.ai/workspace/wrk_TESTID/go' \
+    "jq -s -e '((.[1].error | split(\";\")[0]) == \"OpenCode execution timed out after 720s\") and (.[1].error | contains(\"leg unavailable\") | not)' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_generic_failure_error() {
+  run_opencode_failure_fixture \
+    "OpenCode unclassified failure is not reported as a timeout" 1 "unrecognized provider failure" \
+    "jq -s -e '.[1].error | contains(\"OpenCode execution failed (exit=1)\") and (contains(\"timed out\") | not)' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_timeout_tool_output_is_not_auth_error() {
+  run_opencode_failure_fixture \
+    "OpenCode timeout tool output is not classified as an authentication error" 124 \
+    '> plan · deepseek-v4-pro
+✱ Grep "unauthorized|forbidden" in . · 3 matches' \
+    "jq -s -e '((.[1].error | split(\";\")[0]) == \"OpenCode execution timed out after 720s\") and (.[1].error | contains(\"authentication rejected\") | not) and (.[1].error | contains(\"leg unavailable\") | not)' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_filename_tool_output_is_generic_error() {
+  run_opencode_failure_fixture \
+    "OpenCode filename tool output is not classified as an authentication error" 1 \
+    '✱ Glob "**/forbidden_test.go" 1 match' \
+    "jq -s -e '((.[1].error | split(\";\")[0]) == \"OpenCode execution failed (exit=1)\") and (.[1].error | contains(\"authentication rejected\") | not) and (.[1].error | contains(\"leg unavailable\") | not)' \"\$work/out.json\" >/dev/null"
+}
+
 test_codex_pins() {
   local expected_model="$1" expected_effort="$2" overrides="$3" label="$4"
   local work fake
@@ -1874,6 +1982,16 @@ test_grok_auth_guard
 test_preflight_smoke_probe
 test_claude_tmpdir_cleanup
 test_opencode_wal_isolation
+test_opencode_timeout_error
+test_opencode_killed_error
+test_opencode_gated_model_error
+test_opencode_gated_tool_trace_is_generic_error
+test_opencode_gated_tool_trace_timeout_is_pure_timeout
+test_opencode_provider_gated_error_is_classified
+test_opencode_provider_gated_timeout_is_pure_timeout
+test_opencode_generic_failure_error
+test_opencode_timeout_tool_output_is_not_auth_error
+test_opencode_filename_tool_output_is_generic_error
 test_codex_pins gpt-5.6-sol medium no "codex defaults pin Sol and medium in argv"
 test_codex_pins test-model high yes "codex model and effort environment overrides stay explicit"
 test_codex_parse_diagnostics
