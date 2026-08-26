@@ -32,8 +32,22 @@ assert_review_verdict 'VERDICT: APPROVE' 'VERDICT: APPROVE accepted'
 assert_review_verdict 'VERDICT: NEEDS_WORK' 'VERDICT: NEEDS_WORK accepted'
 assert_review_verdict ' VERDICT : approved ' 'VERDICT: APPROVED variant accepted'
 assert_review_verdict 'VERDICT: NEEDS WORK' 'VERDICT: NEEDS WORK variant accepted'
+assert_review_verdict '**VERDICT:** APPROVE' 'Bold VERDICT prefix accepted'
+assert_review_verdict '**NEEDS_WORK**' 'Bold bare NEEDS_WORK accepted'
 assert_review_verdict 'APPROVE' 'Bare APPROVE remains accepted'
 assert_review_verdict 'NEEDS_WORK' 'Bare NEEDS_WORK remains accepted'
+reject_review_verdict 'VERDICT: APPROVE | NEEDS_WORK' 'Multiple verdict alternatives rejected'
+reject_review_verdict '**VERDICT:** APPROVE | NEEDS_WORK' 'Bold multiple verdict alternatives rejected'
+reject_review_verdict 'VERDICT:' 'Incomplete VERDICT prefix rejected'
+reject_review_verdict '## VERDICT' 'Heading without verdict token rejected'
+reject_review_verdict 'FINAL VERDICT: APPROVE' 'Final verdict prose rejected'
+reject_review_verdict 'DO NOT APPROVE' 'Negative approval prose rejected'
+reject_review_verdict 'NEEDSWORK' 'Unseparated NEEDSWORK rejected'
+reject_review_verdict '- VERDICT: APPROVE' 'List-item verdict rejected'
+reject_review_verdict '> VERDICT: APPROVE' 'Blockquote verdict rejected'
+reject_review_verdict '| VERDICT | APPROVE |' 'Table verdict rejected'
+reject_review_verdict 'VERDICT: NEEDS_WORK — two issues remain.' 'Verdict with trailing prose rejected'
+reject_review_verdict '' 'Empty verdict rejected'
 reject_review_verdict 'I would approve this if the tests passed' 'Conditional approval prose rejected'
 reject_review_verdict 'This needs work before merge' 'NEEDS WORK prose rejected'
 reject_review_verdict 'The verdict depends on whether you approve the tradeoff' 'Verdict discussion prose rejected'
@@ -75,6 +89,7 @@ case "${STUB_CLAUDE_RESULT:-ok}" in
   progress) printf 'I will inspect the diff.\n' ;;
   approved) printf 'claude findings\nAPPROVED\n' ;;
   needs_work_space) printf 'claude findings\nNEEDS WORK\n' ;;
+  template) printf 'VERDICT: APPROVE\nREADY TO MERGE — nothing further coming.\n' ;;
   prose_approve) printf 'I cannot approve this change because tests fail.\n' ;;
   *) printf 'claude findings\nAPPROVE\n' ;;
 esac
@@ -198,6 +213,8 @@ out="$(printf x | STUB_CODEX_RESULT=needs_work_space "$PLUGIN_ROOT/scripts/run-c
 printf '%s\n' "$out" | grep -Eq 'NEEDS WORK' || fail 'Codex NEEDS WORK body on stdout'
 out="$(printf x | STUB_CLAUDE_RESULT=approved "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" --base HEAD 2> "$WORK/claude-approved.err")" || fail 'Claude APPROVED variant accepted'
 printf '%s\n' "$out" | grep -Eq 'APPROVED' || fail 'Claude APPROVED body on stdout'
+out="$(printf x | STUB_CLAUDE_RESULT=template "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" --base HEAD 2> "$WORK/claude-template.err")" || fail 'Claude template verdict accepted'
+printf '%s\n' "$out" | grep -Fx 'VERDICT: APPROVE' >/dev/null || fail 'Claude template verdict body on stdout'
 out="$(printf x | STUB_GROK_RESULT=needs_work_space "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD 2> "$WORK/grok-nw.err")" || fail 'Grok NEEDS WORK variant accepted'
 printf '%s\n' "$out" | grep -Eq 'NEEDS WORK' || fail 'Grok NEEDS WORK body on stdout'
 pass 'Accepted verdict variants APPROVED and NEEDS WORK across runners'
@@ -456,9 +473,9 @@ contains "$META_REFS/worker-prompt.md" 'expected red before the fix' 'Worker tem
 contains "$META_REFS/worker-prompt.md" 'Out of scope' 'Worker template keeps the scope fence'
 contains "$META_REFS/review-prompts.md" 'BY EXECUTION' 'Review template mandates verification by execution'
 contains "$META_REFS/review-prompts.md" 'NEEDS_WORK' 'Review template uses the runner verdict token'
-# Keep the prescribed verdict body executable against the shared runner gate.
-assert_review_verdict $'VERDICT: APPROVE\n\nPROBES: none\nREADY TO MERGE — nothing further coming.' \
-  'Review template approval body satisfies the runner verdict gate'
+# Keep the prescribed template verdict line executable against the shared runner gate.
+tmpl="$(grep -m1 -E '^VERDICT:' "$META_REFS/review-prompts.md")" || fail 'Review template lost its VERDICT line'
+assert_review_verdict "${tmpl%%|*}" 'Template VERDICT line renders past the runner gate'
 contains "$META_REFS/review-prompts.md" 'Bounded DELTA by execution' 'Review template keeps the bounded delta round'
 contains "$META_REFS/review-prompts.md" 'READY TO MERGE — nothing further coming.' 'Review templates request the merge signal on final APPROVE'
 contains "$META_REFS/worker-prompt.md" 'the orchestrator commits' 'Worker template reconciles commits with no-commit leg contracts'
