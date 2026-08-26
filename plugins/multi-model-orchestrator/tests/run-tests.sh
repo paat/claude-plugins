@@ -7,11 +7,13 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/repo" "$WORK/tmp"
 export TMPDIR="$WORK/tmp"
 REAL_GROK="${MMO_TEST_REAL_GROK:-$(command -v grok || true)}"
+GROK_RESEARCH_TOOLS='web_search,web_fetch'
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 pass() { printf 'PASS: %s\n' "$1"; }
 contains() { grep -F -- "$2" "$1" >/dev/null || fail "$3"; }
 absent() { ! grep -F -- "$2" "$1" >/dev/null || fail "$3"; }
+exact_line() { grep -Fx -- "$2" "$1" >/dev/null || fail "$3"; }
 
 git -C "$WORK/repo" init -q
 git -C "$WORK/repo" config user.email test@example.com
@@ -89,6 +91,47 @@ export STUB_GROK_CONFIG="$WORK/grok.config"
 export GROK_HOME="$WORK/host-grok"
 mkdir -p "$GROK_HOME"
 
+printf 'external fact\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode research --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/claude-research.err"
+exact_line "$WORK/claude.args" 'WebSearch,WebFetch' 'Claude research grants only web tools'
+contains "$WORK/claude.args" 'Bash,Write,Edit,NotebookEdit,Task' 'Claude research denies mutation tools'
+contains "$WORK/claude.prompt" 'sources OUTSIDE this repository' 'Claude research prompt carries the external-source contract'
+contains "$WORK/claude.prompt" 'evidence tier' 'Claude research prompt carries evidence tiers'
+pass 'Claude research has web-only access and an evidence contract'
+
+printf 'external fact\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode research --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-research.err"
+absent "$WORK/grok.args" '--disable-web-search' 'Grok research keeps web search enabled'
+exact_line "$WORK/grok.args" "$GROK_RESEARCH_TOOLS" 'Grok research grants only web tools'
+contains "$WORK/grok.prompt" 'sources OUTSIDE this repository' 'Grok research prompt carries the external-source contract'
+[ "$(cat "$WORK/grok.home-env")" != "$HOME" ] || fail 'Grok research HOME isolation'
+printf 'repo advice\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-advice-web.err"
+contains "$WORK/grok.args" '--disable-web-search' 'Grok non-research mode keeps web search disabled'
+pass 'Grok research alone enables web-only tools under the read-only contract'
+
+printf 'external fact\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode research --dir "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/codex-research.err"
+contains "$WORK/codex.args" 'tools.web_search=true' 'Codex research enables web search'
+contains "$WORK/codex.prompt" 'sources OUTSIDE this repository' 'Codex research prompt carries the external-source contract'
+contains "$WORK/codex.prompt" 'evidence tier' 'Codex research prompt carries evidence tiers'
+codex_research_root="$(awk 'previous == "-C" { print; exit } { previous = $0 }' "$WORK/codex.args")"
+[ -n "$codex_research_root" ] || fail 'Codex research passes a working root'
+[ "$codex_research_root" != "$WORK/repo" ] || fail 'Codex research working root is outside the repo'
+[ ! -e "$codex_research_root" ] || fail 'Codex research working root is removed on exit'
+printf 'implementation task\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/codex-implement-web.err"
+absent "$WORK/codex.args" 'tools.web_search=true' 'Codex non-research mode keeps web search disabled'
+codex_implement_root="$(awk 'previous == "-C" { print; exit } { previous = $0 }' "$WORK/codex.args")"
+[ "$codex_implement_root" = "$WORK/repo" ] || fail 'Codex implement uses the repo working root'
+pass 'Codex research uses a cleaned scratch root; implement uses the repo root'
+
+if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode unknown --repo "$WORK/repo" >/dev/null 2>&1; then
+  fail 'unknown Claude mode rejected'
+fi
+if printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode unknown --repo "$WORK/repo" >/dev/null 2>&1; then
+  fail 'unknown Grok mode rejected'
+fi
+if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode unknown --dir "$WORK/repo" >/dev/null 2>&1; then
+  fail 'unknown Codex mode rejected'
+fi
+pass 'All runners reject unknown modes'
+
 out="$(printf 'bounded review\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" --effort ultra --timeout 5 2> "$WORK/codex.err")"
 [ "$out" = $'codex findings\nAPPROVE' ] || fail 'Codex final output'
 contains "$WORK/codex.args" 'gpt-5.6-sol' 'Codex model pin'
@@ -96,6 +139,8 @@ contains "$WORK/codex.args" 'model_reasoning_effort="ultra"' 'Codex Ultra pin'
 contains "$WORK/codex.args" '--dangerously-bypass-approvals-and-sandbox' 'Codex unrestricted posture'
 contains "$WORK/codex.prompt" 'bounded review' 'Codex stdin prompt'
 contains "$WORK/codex.prompt" 'semantically read-only reviewer' 'Codex review mode prepends the no-write contract'
+codex_review_root="$(awk 'previous == "-C" { print; exit } { previous = $0 }' "$WORK/codex.args")"
+[ "$codex_review_root" = "$WORK/repo" ] || fail 'Codex review uses the repo working root'
 pass 'Codex runner pins Sol Ultra and stdin prompt'
 
 if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --effort extreme >/dev/null 2>&1; then
@@ -376,6 +421,7 @@ contains "$META_SKILL" 'references/handoff-template.md' 'Meta skill instantiates
 contains "$META_SKILL" 'write nothing and stop' 'Meta skill makes a no-op scan near-zero cost'
 contains "$META_SKILL" 'multi-model-orchestrator.local.md' 'Meta skill reads per-repo source/model config'
 contains "$META_SKILL" 'apply to the tribunal panel' 'Meta skill exempts the tribunal panel from leg model constraints'
+contains "$META_SKILL" 'unresearched' 'Meta skill distinguishes unresearched unknowns from human decisions'
 absent "$META_SKILL" 'preflight.sh' 'Meta skill references tribunal instead of duplicating its preflight'
 absent "$META_SKILL" 'tribunal-round' 'Meta skill references tribunal instead of duplicating its round protocol'
 contains "$META_REFS/handoff-template.md" 'Stop here first' 'Handoff template keeps the single next action'
@@ -390,7 +436,9 @@ contains "$META_REFS/review-prompts.md" 'Bounded DELTA by execution' 'Review tem
 contains "$META_REFS/review-prompts.md" 'READY TO MERGE — nothing further coming.' 'Review templates request the merge signal on final APPROVE'
 contains "$META_REFS/worker-prompt.md" 'the orchestrator commits' 'Worker template reconciles commits with no-commit leg contracts'
 absent "$META_REFS/review-prompts.md" 'REQUEST_CHANGES' 'Review template does not reintroduce the unsupported verdict token'
-[ "$(wc -l < "$META_SKILL")" -le 160 ] || fail 'meta-orchestration SKILL.md exceeds the 160-line budget'
+[ -f "$META_REFS/research-leg.md" ] || fail 'Research leg reference exists'
+contains "$META_REFS/research-leg.md" 'Do not trigger' 'Research leg reference keeps the negative trigger rules'
+[ "$(wc -l < "$META_SKILL")" -le 150 ] || fail 'meta-orchestration SKILL.md exceeds the 150-line budget'
 pass 'Meta orchestration command, skill, and templates carry the required contracts'
 
 # Installed-CLI smoke must use the user's real config path, not the fixture GROK_HOME
@@ -398,7 +446,7 @@ pass 'Meta orchestration command, skill, and templates carry the required contra
 if [ -n "$REAL_GROK" ]; then
   unset GROK_HOME
   real_grok_help="$($REAL_GROK --help 2>&1)"
-  for flag in --reasoning-effort --sandbox --permission-mode --max-turns --no-subagents --prompt-file --tools --output-format --no-memory --disable-web-search --cwd; do
+  for flag in --reasoning-effort --sandbox --permission-mode --max-turns --no-subagents --prompt-file --tools --output-format --disable-web-search --cwd; do
     case "$real_grok_help" in
       *"$flag"*) ;;
       *) fail "installed Grok CLI lacks $flag" ;;
@@ -408,7 +456,15 @@ if [ -n "$REAL_GROK" ]; then
     *bypassPermissions*) ;;
     *) fail 'installed Grok CLI lacks bypassPermissions mode' ;;
   esac
-  "$REAL_GROK" --sandbox none --permission-mode bypassPermissions --no-subagents inspect >/dev/null
+  "$REAL_GROK" --sandbox none --permission-mode bypassPermissions --no-subagents --no-memory inspect >/dev/null
+  grok_debug="$WORK/grok-research.debug"
+  timeout -k 2 15 "$REAL_GROK" --cwd "$WORK/repo" --sandbox none --permission-mode bypassPermissions \
+    --no-subagents --no-memory --max-turns 1 --tools "$GROK_RESEARCH_TOOLS" \
+    --debug-file "$grok_debug" -p 'Reply only OK.' >/dev/null 2>&1 || true
+  [ -s "$grok_debug" ] || fail 'installed Grok research tool resolution produced no debug log'
+  absent "$grok_debug" 'unmappable' 'installed Grok resolves every research tool'
+  absent "$grok_debug" 'keeping full grok toolset' 'installed Grok keeps the research allowlist'
+  rm -f "$grok_debug"
   pass 'Installed Grok CLI parses the runner posture and supports its flags'
 else
   printf 'SKIP: installed Grok CLI flag smoke test\n'

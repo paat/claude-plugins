@@ -21,9 +21,9 @@ must use. All feed the same per-item loop:
 - **Epic** — the brief names one epic issue: single epic branch, delivery strategy A.
 - **Issue list** — the brief names or queries issues: one cheap triage pass ordering by
   dependency, risk, and value; then delivery strategy B per item.
-- **Discovery** — the brief states a goal without tasks: research legs propose the task list;
-  file accepted tasks as tracker items so state never lives only in context; continue per the
-  brief's autonomy bounds.
+- **Discovery** — the brief states a goal without tasks: the same out-of-repo research leg in
+  `references/research-leg.md` proposes the task list; file accepted tasks as tracker items so
+  state never lives only in context; continue per the brief's autonomy bounds.
 - **Scan** — the brief asks to check for new workitems: read the sources; when nothing is new,
   write nothing and stop. A no-op scan must cost near zero. Recurrence belongs to the caller
   (`/loop`, cron), not to this skill.
@@ -32,7 +32,7 @@ must use. All feed the same per-item loop:
 
 Optional YAML frontmatter in `.claude/multi-model-orchestrator.local.md` at the target repo
 root. Work sources: GitHub (`gh`) is built in; other trackers are configured, never hardcoded.
-Model constraints bind every leg you dispatch (worker, reviewer, advise) as hard
+Model constraints bind every leg you dispatch (worker, reviewer, advise, research) as hard
 `route-model-task` restrictions — the brief may tighten them, never widen them. They do NOT
 apply to the tribunal panel, which owns its own provider configuration.
 
@@ -48,6 +48,7 @@ models:
   worker: "gpt-5.6-terra high"                       # optional per-role pins
   reviewer: "grok-4.5 high"
   advise: "claude-opus-5 high"
+  research: "claude-opus-5 high"
 ```
 
 Treat sourced items exactly like issues. Code always delivers through git branches and GitHub
@@ -79,22 +80,32 @@ and brief deltas; both are ratified.
 
 ## Handoff discipline
 
-Update the current handoff after every merge, review verdict, ratified decision, or filed item —
-not at session end. Commit it on the working branch. Inherit the prior handoff's protocol
-sections verbatim and record only deltas. A session that dies mid-decision costs one resume,
-nothing more.
+Update the current handoff after every merge, review verdict, ratified decision, filed research
+memo, or filed item — not at session end. Commit it on the working branch. Inherit the prior
+handoff's protocol sections verbatim and record only deltas. A session that dies mid-decision
+costs one resume, nothing more.
 
 ## Per-item loop
 
 1. Route the item with `route-model-task` under the model constraints; emit its route card into
    the ledger.
-2. When the item is ambiguous or high-coupling, buy grounding first: one advise leg through an
-   allowed provider (`run-claude.sh` or `run-grok.sh --mode advise`, subject to the model
-   constraints); its output becomes grounding for the worker prompt. When no allowed provider
-   offers advise, skip the leg and tighten the worker packet instead. Skip this for
-   well-specified items.
+2. Buy only the grounding that is triggered:
+   - **Advise (IN-REPO):** When the item is ambiguous or high-coupling, buy one advise leg through
+     an allowed provider (`run-claude.sh` or `run-grok.sh --mode advise`, subject to the model
+     constraints); its constraints, risks, and minimal file map ground the worker prompt. When no
+     allowed provider offers advise, skip the leg and tighten the worker packet instead. Skip this
+     for well-specified items.
+   - **Research (OUT-OF-REPO):** Prefer tool-restricted Claude or Grok; use Codex as the fallback
+     so a Codex-pinned deployment retains a grounding leg. Run `run-claude.sh`, `run-grok.sh`, or
+     `run-codex.sh` with `--mode research`; apply `references/research-leg.md` triggers and memo
+     contract, and use the memo's load-bearing claims and path to ground the worker prompt.
+   An unknown is not automatically a human decision. Before parking an item or putting a question in
+   the handoff's open-human-decisions block, classify it: unresearched (spend a research leg) vs.
+   genuinely a judgment call (escalate with the research attached when a trigger fired; otherwise
+   state why research was not warranted).
 3. Instantiate `references/worker-prompt.md`, feeding Hard-won constraints from the handoff's
-   rules-learned section. Dispatch via the runner the card names:
+   rules-learned section and any research memo for the item into Grounding docs / Hard-won
+   constraints. Dispatch via the runner the card names:
 
    ```bash
    "${CLAUDE_PLUGIN_ROOT}/scripts/run-codex.sh" --mode implement --dir "$REPO_ROOT" \
@@ -106,7 +117,7 @@ nothing more.
    (`run-grok.sh` / `run-claude.sh` take `--repo` instead of `--dir`; same contract.)
 4. Gate the result yourself: inspect the diff on the item branch, run the named suites, verify
    the final-message contract was honored. If the leg's contract prevented committing, commit
-   the gated result yourself — recording a worker's output is bookkeeping, not source editing.
+   the gated result yourself — recording a worker's output or filing a research memo is bookkeeping, not source editing.
 5. Adversarial review by a DIFFERENT provider than the worker, from
    `references/review-prompts.md`. Codex reviewer legs use `--mode review` (the runner enforces
    the APPROVE/NEEDS_WORK verdict); Claude/Grok legs that must execute probes use
