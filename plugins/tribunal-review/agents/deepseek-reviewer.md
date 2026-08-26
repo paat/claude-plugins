@@ -27,8 +27,9 @@ backend as the GLM leg when enabled:
   reseller backend, billed against your OpenCode Go subscription (then credits on overage).
   Authenticate once with `opencode auth login` (select OpenCode Go).
 - **Decorrelation trade-off (issue #40)**: routing DeepSeek through `opencode-go/` means an
-  `opencode-go` quota/429 can take both OpenCode legs (GLM + DeepSeek) down together. In the
-  default panel contains neither OpenCode leg. To use an independent transport, set
+  `opencode-go` quota/429 can take both OpenCode legs (GLM + DeepSeek) down together. The default
+  panel contains neither OpenCode leg, with quota/429 coupling only when one or both are opted back
+  in. To use an independent transport, set
   `TRIBUNAL_DEEPSEEK=on TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro` — the
   **direct DeepSeek API** (`https://api.deepseek.com`), authenticated via `opencode auth login`
   (select DeepSeek) or `DEEPSEEK_API_KEY`.
