@@ -13,6 +13,7 @@ export TRIBUNAL_GROK=on
 export TRIBUNAL_GEMINI=off
 export TRIBUNAL_QWEN=off
 export TRIBUNAL_GLM=off
+export TRIBUNAL_DEEPSEEK=off
 # Smoke is opt-in; never inherit a host-on probe into default preflight checks.
 export TRIBUNAL_SMOKE_PROBE=off
 
@@ -257,7 +258,7 @@ EOF
 }
 
 test_preflight_smoke_probe() {
-  local label="opt-in preflight smoke verifies every default transport" work fake ec=0
+  local label="opt-in preflight smoke verifies every enabled transport" work fake ec=0
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
   cat > "$fake/codex" <<'EOF'
 #!/usr/bin/env bash
@@ -297,7 +298,7 @@ EOF
     printf 'two\n' > file.txt
     git commit -q -am change
     PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 \
-      TRIBUNAL_SMOKE_PROBE=on bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/preflight.json"
+      TRIBUNAL_DEEPSEEK=on TRIBUNAL_SMOKE_PROBE=on bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/preflight.json"
   )
   if jq -e '
       [.providers[] | select(.name=="codex" or .name=="claude" or .name=="deepseek")]
@@ -1532,16 +1533,16 @@ printf '%s\n' '{"provider":"qwen","status":"disabled","note":"fixture disabled"}
 EOF
   cat > "$plugin/scripts/run-grok-review.sh" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' '{"provider":"grok","status":"disabled","note":"fixture disabled"}'
+if [ "${FIXTURE_ZERO_SUCCESS:-off}" = on ]; then
+  printf '%s\n' '{"provider":"grok","error":"fixture Grok transport failure"}'
+else
+  printf '%s\n' '{"provider":"grok","status":"disabled","note":"fixture disabled"}'
+fi
 EOF
   cat > "$plugin/scripts/run-opencode-review.sh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' '{"provider":"glm","status":"disabled","note":"fixture disabled"}'
-if [ "${FIXTURE_ZERO_SUCCESS:-off}" = on ]; then
-  printf '%s\n' '{"provider":"deepseek","error":"fixture DeepSeek transport failure"}'
-else
-  printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabled"}'
-fi
+printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabled"}'
 EOF
   chmod +x "$plugin/scripts/"*.sh
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
@@ -1745,8 +1746,10 @@ EOF
     "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
       --output "$work/zero-success" > "$work/zero-success.json"
   if jq -e '
-      [.providers[] | select(.provider=="codex" or .provider=="deepseek" or .provider=="claude")]
-      | length==3 and all(.[]; .status=="failed")
+      [.providers[] | select(.status != "disabled")]
+      | length==3
+        and ([.[].provider] | sort == ["claude", "codex", "grok"])
+        and all(.[]; .status=="failed")
     ' "$work/zero-success/manifest.json" >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} aggregate collection retains zero-success default panel"; PASS=$((PASS+1))
   else
@@ -1756,7 +1759,7 @@ EOF
     .tribunal_verdict={"decision":"NEEDS_WORK","confidence":0,"rationale":"No default reviewer completed successfully."}
     | .summary="No usable reviewer evidence; merge remains blocked."
     | .provider_assessment.codex.status="failed"
-    | .provider_assessment.deepseek.status="failed"
+    | .provider_assessment.grok.status="failed"
     | .provider_assessment.claude.status="failed"
   ' "$work/arbitration.json" > "$work/zero-success-arbitration.json"
   if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
@@ -1902,6 +1905,9 @@ assert_grep "skill references claude runner" "$SK" "scripts/run-claude-review.sh
 assert_grep "merge gate uses trusted aggregate runner" "$SK" "scripts/collect-review-evidence.sh"
 assert_grep "caller provider JSON is not merge evidence" "$SK" "caller-created provider JSON as merge evidence"
 assert_no_grep "skill no inline provider command bloat" "$SK" "timeout -k 10 600 codex exec"
+assert_grep "skill default panel lists DeepSeek with opt-in providers" "$SK" "Gemini, DeepSeek,"
+assert_grep "skill default panel marks complete opt-in provider set" "$SK" "GLM, and Qwen are opt-in."
+assert_no_grep "skill default panel does not include DeepSeek" "$SK" "DeepSeek through OpenCode Go (repo-walking)"
 
 echo "Preflight/base-ref behavior:"
 assert_grep "resolves GitHub default branch" "$LIB" "defaultBranchRef"
@@ -1971,6 +1977,7 @@ assert_json_field "gemini disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-gemini-
 assert_json_field "qwen disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-qwen-review.sh' | jq -e '.provider==\"qwen\" and .status==\"disabled\"'"
 assert_json_field "grok disabled JSON" "TRIBUNAL_GROK=off bash '$PLUGIN_ROOT/scripts/run-grok-review.sh' | jq -e '.provider==\"grok\" and .status==\"disabled\"'"
 assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT/scripts/run-claude-review.sh' | jq -e '.provider==\"claude\" and .status==\"disabled\"'"
+assert_json_field "deepseek defaults to disabled JSON" "env -u TRIBUNAL_DEEPSEEK TRIBUNAL_GLM=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and .[1].provider==\"deepseek\" and .[1].status==\"disabled\"'"
 assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and all(.[]; .status==\"disabled\")'"
 assert_json_field "opencode usage error preserves disabled markers" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=on bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' --bad-flag | jq -s -e 'length==2 and .[0].provider==\"glm\" and .[0].status==\"disabled\" and (.[1] | .provider==\"deepseek\" and has(\"error\"))'"
 test_empty_staged_diff_with_real_changes_fails_closed

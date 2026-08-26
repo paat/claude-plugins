@@ -88,7 +88,7 @@ else
   add_provider claude skipped "CLI not authenticated"
 fi
 
-if [ "${TRIBUNAL_GLM:-off}" = "on" ] || [ "${TRIBUNAL_DEEPSEEK:-on}" = "on" ]; then
+if [ "${TRIBUNAL_GLM:-off}" = "on" ] || [ "${TRIBUNAL_DEEPSEEK:-off}" = "on" ]; then
   if command -v opencode >/dev/null 2>&1; then
     opencode models >/dev/null 2>&1 || true
     models="$(opencode models 2>/dev/null || true)"
@@ -97,18 +97,18 @@ if [ "${TRIBUNAL_GLM:-off}" = "on" ] || [ "${TRIBUNAL_DEEPSEEK:-on}" = "on" ]; t
     else
       add_provider glm disabled "default off"
     fi
-    if [ "${TRIBUNAL_DEEPSEEK:-on}" = "on" ]; then
+    if [ "${TRIBUNAL_DEEPSEEK:-off}" = "on" ]; then
       printf '%s\n' "$models" | grep -qxF "${TRIBUNAL_DEEPSEEK_MODEL:-opencode-go/deepseek-v4-pro}" && add_provider deepseek usable "model registered; non-interactive invocation not probed" || add_provider deepseek skipped "OpenCode model not in registry"
     else
-      add_provider deepseek disabled "TRIBUNAL_DEEPSEEK=off"
+      add_provider deepseek disabled "default off; issue #461; set TRIBUNAL_DEEPSEEK=on to enable"
     fi
   else
     [ "${TRIBUNAL_GLM:-off}" = "on" ] && add_provider glm skipped "opencode CLI not on PATH" || add_provider glm disabled "default off"
-    [ "${TRIBUNAL_DEEPSEEK:-on}" = "on" ] && add_provider deepseek skipped "opencode CLI not on PATH" || add_provider deepseek disabled "TRIBUNAL_DEEPSEEK=off"
+    [ "${TRIBUNAL_DEEPSEEK:-off}" = "on" ] && add_provider deepseek skipped "opencode CLI not on PATH" || add_provider deepseek disabled "default off; issue #461; set TRIBUNAL_DEEPSEEK=on to enable"
   fi
 else
   add_provider glm disabled "default off"
-  add_provider deepseek disabled "TRIBUNAL_DEEPSEEK=off"
+  add_provider deepseek disabled "default off; issue #461; set TRIBUNAL_DEEPSEEK=on to enable"
 fi
 
 if [ "${TRIBUNAL_SMOKE_PROBE:-off}" = on ]; then

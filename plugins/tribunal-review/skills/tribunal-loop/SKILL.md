@@ -6,8 +6,8 @@ description: "Use for multi-provider code review with repo-walking reviewers, di
 # Tribunal Loop
 
 Multi-provider code review with inline arbitration. By default the panel is Codex
-(repo-walking), DeepSeek through OpenCode Go (repo-walking), Grok (repo-walking),
-and Claude Code (diff-only). Gemini, GLM, and Qwen are opt-in. The calling context arbitrates
+(repo-walking), Grok (repo-walking), and Claude Code (diff-only). Gemini, DeepSeek,
+GLM, and Qwen are opt-in. The calling context arbitrates
 inline and makes the final decision.
 
 This skill is intentionally orchestration-only. Provider shell mechanics live in
@@ -28,9 +28,8 @@ the plugin `scripts/` directory:
   `gpt-5.6-sol` at `medium` effort; override with `TRIBUNAL_CODEX_MODEL` and
   `TRIBUNAL_CODEX_EFFORT`; repo-walking with unrestricted execution inside the
   development-container security boundary; the review prompt prohibits changes.
-- DeepSeek: on by default through OpenCode; disable with
-  `TRIBUNAL_DEEPSEEK=off`; model override `TRIBUNAL_DEEPSEEK_MODEL`; repo-walking
-  read-only.
+- DeepSeek: off by default; `TRIBUNAL_DEEPSEEK=on` enables it and makes
+  `TRIBUNAL_DEEPSEEK_MODEL` effective; repo-walking read-only.
 - Claude: on by default; disable with `TRIBUNAL_CLAUDE=off`; model override
   `TRIBUNAL_CLAUDE_MODEL`; diff-only from a scratch directory with tools disabled.
 - Gemini: off by default; enable with `TRIBUNAL_GEMINI=on`; diff plus web/CVE
@@ -92,7 +91,8 @@ The scripts preserve the previous runner behavior: unique temp dirs, capped
 disabled-provider markers, large diff staging as files where needed, JSON output
 normalization, and timeout-bounded provider calls. Codex and Claude use one strict
 review schema; Codex also persists its final response independently of stdout.
-OpenCode runs pure and non-interactive with permission prompts disabled.
+The OpenCode wrapper invokes `opencode` only when GLM or DeepSeek is enabled; then it runs pure
+and non-interactive with permission prompts disabled.
 
 Collect Codex, Gemini, GLM, DeepSeek, Qwen, Grok, and Claude outputs. Treat disabled
 markers as intentional absence. Treat malformed JSON or `{"error":...}` as

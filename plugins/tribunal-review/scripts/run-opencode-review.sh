@@ -27,9 +27,9 @@ prepare_opencode_data_home() {
 }
 
 glm_on=0
-deepseek_on=1
+deepseek_on=0
 [ "${TRIBUNAL_GLM:-off}" = "on" ] && glm_on=1
-[ "${TRIBUNAL_DEEPSEEK:-on}" = "off" ] && deepseek_on=0
+[ "${TRIBUNAL_DEEPSEEK:-off}" = "on" ] && deepseek_on=1
 
 if [ "$ARG_ERROR" -eq 1 ]; then
   [ "$glm_on" -eq 1 ] \
@@ -37,13 +37,13 @@ if [ "$ARG_ERROR" -eq 1 ]; then
     || tribunal_disabled glm "GLM leg disabled (default off); set TRIBUNAL_GLM=on to enable"
   [ "$deepseek_on" -eq 1 ] \
     && tribunal_error deepseek "Usage: run-opencode-review.sh [--smoke]" \
-    || tribunal_disabled deepseek "DeepSeek leg disabled via TRIBUNAL_DEEPSEEK=off"
+    || tribunal_disabled deepseek "DeepSeek leg disabled (default off; issue #461); set TRIBUNAL_DEEPSEEK=on to enable"
   exit 0
 fi
 
 if [ "$glm_on" -eq 0 ] && [ "$deepseek_on" -eq 0 ]; then
   tribunal_disabled glm "GLM leg disabled (default off); set TRIBUNAL_GLM=on to enable"
-  tribunal_disabled deepseek "DeepSeek leg disabled via TRIBUNAL_DEEPSEEK=off"
+  tribunal_disabled deepseek "DeepSeek leg disabled (default off; issue #461); set TRIBUNAL_DEEPSEEK=on to enable"
   exit 0
 fi
 
@@ -58,7 +58,7 @@ if [ "$MODE" = review ]; then
   CONTEXT_FILE="$TMPDIR/context.md"
   if ! tribunal_prepare_diff "$DIFF_FILE"; then
     [ "$glm_on" -eq 1 ] && tribunal_error glm "cannot diff against $BASE_REF" || tribunal_disabled glm "GLM leg disabled (default off); set TRIBUNAL_GLM=on to enable"
-    [ "$deepseek_on" -eq 1 ] && tribunal_error deepseek "cannot diff against $BASE_REF" || tribunal_disabled deepseek "DeepSeek leg disabled via TRIBUNAL_DEEPSEEK=off"
+    [ "$deepseek_on" -eq 1 ] && tribunal_error deepseek "cannot diff against $BASE_REF" || tribunal_disabled deepseek "DeepSeek leg disabled (default off; issue #461); set TRIBUNAL_DEEPSEEK=on to enable"
     exit 0
   fi
   tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
@@ -136,7 +136,7 @@ else
 fi
 
 if [ "$deepseek_on" -eq 0 ]; then
-  tribunal_disabled deepseek "DeepSeek leg disabled via TRIBUNAL_DEEPSEEK=off"
+  tribunal_disabled deepseek "DeepSeek leg disabled (default off; issue #461); set TRIBUNAL_DEEPSEEK=on to enable"
 else
   run_oc_leg deepseek "${TRIBUNAL_DEEPSEEK_MODEL:-opencode-go/deepseek-v4-pro}" "repo-walking" "$REPO_ROOT"
 fi
