@@ -481,6 +481,12 @@ test_opencode_timeout_error() {
     "jq -s -e '.[1].error | contains(\"OpenCode execution timed out after 720s\")' \"\$work/out.json\" >/dev/null"
 }
 
+test_opencode_killed_error() {
+  run_opencode_failure_fixture \
+    "OpenCode kill is ambiguous and names its elapsed budget" 137 "" \
+    "jq -s -e '.[1].error | contains(\"OpenCode execution timed out or was killed after 720s\")' \"\$work/out.json\" >/dev/null"
+}
+
 test_opencode_gated_model_error() {
   run_opencode_failure_fixture \
     "OpenCode gated model error is classified without leaking stderr" 1 \
@@ -1977,6 +1983,7 @@ test_preflight_smoke_probe
 test_claude_tmpdir_cleanup
 test_opencode_wal_isolation
 test_opencode_timeout_error
+test_opencode_killed_error
 test_opencode_gated_model_error
 test_opencode_gated_tool_trace_is_generic_error
 test_opencode_gated_tool_trace_timeout_is_pure_timeout

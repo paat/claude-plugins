@@ -38,7 +38,7 @@
     },
     {
       "path": "scripts/run-opencode-review.sh",
-      "sha256": "a2bec25e09f83dbeb08a37eab2b6813a0bc810c06941e1c456fd50593f4d70cf"
+      "sha256": "278b45ebb4e447b0fff151f8c28b616016ad6528714ba3cf212b7f83fd10e74c"
     },
     {
       "path": "scripts/run-qwen-review.sh",
