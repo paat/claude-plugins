@@ -1533,16 +1533,16 @@ printf '%s\n' '{"provider":"qwen","status":"disabled","note":"fixture disabled"}
 EOF
   cat > "$plugin/scripts/run-grok-review.sh" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' '{"provider":"grok","status":"disabled","note":"fixture disabled"}'
+if [ "${FIXTURE_ZERO_SUCCESS:-off}" = on ]; then
+  printf '%s\n' '{"provider":"grok","error":"fixture Grok transport failure"}'
+else
+  printf '%s\n' '{"provider":"grok","status":"disabled","note":"fixture disabled"}'
+fi
 EOF
   cat > "$plugin/scripts/run-opencode-review.sh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' '{"provider":"glm","status":"disabled","note":"fixture disabled"}'
-if [ "${FIXTURE_ZERO_SUCCESS:-off}" = on ]; then
-  printf '%s\n' '{"provider":"deepseek","error":"fixture DeepSeek transport failure"}'
-else
-  printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabled"}'
-fi
+printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabled"}'
 EOF
   chmod +x "$plugin/scripts/"*.sh
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
@@ -1746,8 +1746,10 @@ EOF
     "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
       --output "$work/zero-success" > "$work/zero-success.json"
   if jq -e '
-      [.providers[] | select(.provider=="codex" or .provider=="deepseek" or .provider=="claude")]
-      | length==3 and all(.[]; .status=="failed")
+      [.providers[] | select(.status != "disabled")]
+      | length==3
+        and ([.[].provider] | sort == ["claude", "codex", "grok"])
+        and all(.[]; .status=="failed")
     ' "$work/zero-success/manifest.json" >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} aggregate collection retains zero-success default panel"; PASS=$((PASS+1))
   else
@@ -1757,7 +1759,7 @@ EOF
     .tribunal_verdict={"decision":"NEEDS_WORK","confidence":0,"rationale":"No default reviewer completed successfully."}
     | .summary="No usable reviewer evidence; merge remains blocked."
     | .provider_assessment.codex.status="failed"
-    | .provider_assessment.deepseek.status="failed"
+    | .provider_assessment.grok.status="failed"
     | .provider_assessment.claude.status="failed"
   ' "$work/arbitration.json" > "$work/zero-success-arbitration.json"
   if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \

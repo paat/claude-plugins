@@ -148,7 +148,7 @@ and Qwen stay **off** until you opt in.
 export TRIBUNAL_GEMINI=on                           # add the opt-in Gemini leg (web/CVE search)
 export TRIBUNAL_GLM=on                              # add the opt-in OpenCode GLM leg
 export TRIBUNAL_DEEPSEEK=on                         # add the opt-in DeepSeek leg
-export TRIBUNAL_DEEPSEEK_MODEL=opencode-go/deepseek-v4-flash  # cheaper/faster DeepSeek leg (still OpenCode Go)
+export TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro  # direct API; opencode-go/deepseek-v4-flash is a cheaper/faster OpenCode Go option
 export TRIBUNAL_QWEN=on                              # add the opt-in Qwen leg (see issue #46)
 export DASHSCOPE_API_KEY=sk-...                     # Qwen auth (needed when TRIBUNAL_QWEN=on)
 export TRIBUNAL_GROK=off                             # skip the default-on Grok leg
