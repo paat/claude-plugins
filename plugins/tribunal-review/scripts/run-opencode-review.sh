@@ -117,14 +117,10 @@ run_oc_leg() {
 
 opencode_failure_message() {
   local provider="$1" model="$2" rc="$3" run_timeout="$4" stderr_file="$5"
-  local timeout_suffix=""
   if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
-    timeout_suffix="; OpenCode execution timed out after ${run_timeout}s"
-  fi
-  if grep -Eqi -- 'requires[[:space:]]+explicit[[:space:]]+opt[ -]?in|only[[:space:]]+available[[:space:]]+hosted[[:space:]]+in[[:space:]]+china' "$stderr_file"; then
-    printf "%s leg unavailable: provider rejected model '%s' (requires explicit opt-in)%s" "$provider" "$model" "$timeout_suffix"
-  elif [ -n "$timeout_suffix" ]; then
-    printf '%s' "${timeout_suffix#; }"
+    printf 'OpenCode execution timed out after %ss' "$run_timeout"
+  elif grep -Eqi -- '^[[:space:]]*[Ee]rror:.*(requires[[:space:]]+explicit[[:space:]]+opt[ -]?in|only[[:space:]]+available[[:space:]]+hosted[[:space:]]+in[[:space:]]+china)' "$stderr_file"; then
+    printf "%s leg unavailable: provider rejected model '%s' (requires explicit opt-in)" "$provider" "$model"
   else
     printf 'OpenCode execution failed (exit=%s)' "$rc"
   fi

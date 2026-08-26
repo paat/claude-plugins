@@ -484,8 +484,36 @@ test_opencode_timeout_error() {
 test_opencode_gated_model_error() {
   run_opencode_failure_fixture \
     "OpenCode gated model error is classified without leaking stderr" 1 \
-    "The latest version of this model is only available hosted in China and requires explicit opt in DECOY_SECRET_TOKEN" \
+    "Error: The latest version of this model is only available hosted in China and requires explicit opt in DECOY_SECRET_TOKEN" \
     "jq -s -e '.[1].error | contains(\"deepseek leg unavailable: provider rejected model '\''opencode-go/deepseek-v4-pro'\'' (requires explicit opt-in)\") and (contains(\"timed out\") | not) and (contains(\"DECOY_SECRET_TOKEN\") | not)' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_gated_tool_trace_is_generic_error() {
+  run_opencode_failure_fixture \
+    "OpenCode gated tool trace is not classified at a non-timeout exit" 1 \
+    '✱ Grep "requires explicit opt-in" in . · 2 matches' \
+    "jq -s -e '((.[1].error | split(\";\")[0]) == \"OpenCode execution failed (exit=1)\") and (.[1].error | contains(\"leg unavailable\") | not)' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_gated_tool_trace_timeout_is_pure_timeout() {
+  run_opencode_failure_fixture \
+    "OpenCode gated tool trace timeout is not classified" 124 \
+    '✱ Grep "requires explicit opt-in" in . · 2 matches' \
+    "jq -s -e '((.[1].error | split(\";\")[0]) == \"OpenCode execution timed out after 720s\") and (.[1].error | contains(\"leg unavailable\") | not)' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_provider_gated_error_is_classified() {
+  run_opencode_failure_fixture \
+    "OpenCode provider gated error is classified" 1 \
+    'Error: The latest version of this model is only available hosted in China and requires explicit opt in: https://opencode.ai/workspace/wrk_TESTID/go' \
+    "jq -s -e '.[1].error | contains(\"deepseek leg unavailable\") and contains(\"opencode-go/deepseek-v4-pro\")' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_provider_gated_timeout_is_pure_timeout() {
+  run_opencode_failure_fixture \
+    "OpenCode provider gated timeout is pure timeout" 124 \
+    'Error: The latest version of this model is only available hosted in China and requires explicit opt in: https://opencode.ai/workspace/wrk_TESTID/go' \
+    "jq -s -e '((.[1].error | split(\";\")[0]) == \"OpenCode execution timed out after 720s\") and (.[1].error | contains(\"leg unavailable\") | not)' \"\$work/out.json\" >/dev/null"
 }
 
 test_opencode_generic_failure_error() {
@@ -1950,6 +1978,10 @@ test_claude_tmpdir_cleanup
 test_opencode_wal_isolation
 test_opencode_timeout_error
 test_opencode_gated_model_error
+test_opencode_gated_tool_trace_is_generic_error
+test_opencode_gated_tool_trace_timeout_is_pure_timeout
+test_opencode_provider_gated_error_is_classified
+test_opencode_provider_gated_timeout_is_pure_timeout
 test_opencode_generic_failure_error
 test_opencode_timeout_tool_output_is_not_auth_error
 test_opencode_filename_tool_output_is_generic_error
