@@ -70,6 +70,109 @@ assert_json_field() {
   fi
 }
 
+test_empty_staged_diff_with_real_changes_fails_closed() {
+  local label="empty staged diff with real changes is a leg error" work base_oid head_oid
+  work="$(mktemp -d)"
+  git -C "$work" init -q
+  git -C "$work" config user.email test@example.com
+  git -C "$work" config user.name "Test User"
+  printf 'base\n' > "$work/file.txt"
+  git -C "$work" add file.txt
+  git -C "$work" commit -q -m base
+  base_oid="$(git -C "$work" rev-parse HEAD)"
+  printf 'changed\n' > "$work/file.txt"
+  git -C "$work" commit -q -am change
+  head_oid="$(git -C "$work" rev-parse HEAD)"
+
+  (
+    cd "$work"
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    tribunal_empty fixture fixture-model HEAD~1
+  ) > "$work/out.json"
+
+  if jq -e --arg base "$base_oid" --arg head "$head_oid" '
+      .provider == "fixture"
+      and has("error")
+      and (.error | contains("resolved base ref HEAD~1"))
+      and (.error | contains($base))
+      and (.error | contains($head))
+      and (.error | contains("a non-empty diff exists"))
+    ' "$work/out.json" >/dev/null \
+    && ! grep -q '"verdict":"APPROVE"' "$work/out.json"; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
+test_genuine_empty_diff_is_reverified_and_unchanged() {
+  local label="genuine empty diff is reverified before unchanged approval" work
+  work="$(mktemp -d)"
+  git -C "$work" init -q
+  git -C "$work" config user.email test@example.com
+  git -C "$work" config user.name "Test User"
+  printf 'base\n' > "$work/file.txt"
+  git -C "$work" add file.txt
+  git -C "$work" commit -q -m base
+
+  (
+    cd "$work"
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    GIT_TRACE="$work/git.trace" tribunal_empty fixture fixture-model HEAD
+  ) > "$work/out.json"
+
+  if jq -e '
+      .provider == "fixture"
+      and .model == "fixture-model"
+      and .findings == []
+      and .summary.total_findings == 0
+      and .summary.critical == 0
+      and .summary.high == 0
+      and .summary.medium == 0
+      and .summary.low == 0
+      and (.summary.quality_score | type == "number" and . == 10)
+      and .summary.verdict == "APPROVE"
+      and .summary.note == "No changes detected vs HEAD"
+    ' "$work/out.json" >/dev/null \
+    && grep -Fq 'rev-parse' "$work/git.trace" \
+    && grep -Fq 'diff --quiet' "$work/git.trace"; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
+test_unresolvable_base_during_empty_verification_fails_closed() {
+  local label="unresolvable base during empty verification is a leg error" work
+  work="$(mktemp -d)"
+  git -C "$work" init -q
+  git -C "$work" config user.email test@example.com
+  git -C "$work" config user.name "Test User"
+  printf 'base\n' > "$work/file.txt"
+  git -C "$work" add file.txt
+  git -C "$work" commit -q -m base
+
+  (
+    cd "$work"
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    tribunal_empty fixture fixture-model refs/heads/missing
+  ) > "$work/out.json"
+
+  if jq -e '
+      .provider == "fixture"
+      and has("error")
+      and (.error | contains("base ref refs/heads/missing did not resolve to a commit"))
+    ' "$work/out.json" >/dev/null \
+    && ! grep -q '"verdict":"APPROVE"' "$work/out.json"; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
 test_qwen_envelope_parser() {
   local label="qwen result envelope parsed" work fake
   work="$(mktemp -d)"
@@ -1762,6 +1865,9 @@ assert_json_field "grok disabled JSON" "TRIBUNAL_GROK=off bash '$PLUGIN_ROOT/scr
 assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT/scripts/run-claude-review.sh' | jq -e '.provider==\"claude\" and .status==\"disabled\"'"
 assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and all(.[]; .status==\"disabled\")'"
 assert_json_field "opencode usage error preserves disabled markers" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=on bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' --bad-flag | jq -s -e 'length==2 and .[0].provider==\"glm\" and .[0].status==\"disabled\" and (.[1] | .provider==\"deepseek\" and has(\"error\"))'"
+test_empty_staged_diff_with_real_changes_fails_closed
+test_genuine_empty_diff_is_reverified_and_unchanged
+test_unresolvable_base_during_empty_verification_fails_closed
 test_qwen_envelope_parser
 test_claude_auth_guard
 test_grok_auth_guard

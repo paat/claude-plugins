@@ -276,6 +276,29 @@ tribunal_grok_auth_writeback() {
 
 tribunal_empty() {
   local provider="$1" model="${2:-default}" base_ref="${3:-}"
+  local base_oid head_oid diff_rc
+  if ! base_oid="$(git rev-parse --verify "$base_ref^{commit}" 2>/dev/null)"; then
+    tribunal_error "$provider" \
+      "staged diff is empty or missing and cannot be verified: base ref $base_ref did not resolve to a commit"
+    return
+  fi
+  if ! head_oid="$(git rev-parse --verify 'HEAD^{commit}' 2>/dev/null)"; then
+    tribunal_error "$provider" \
+      "staged diff is empty or missing and cannot be verified: HEAD did not resolve to a commit (resolved base ref $base_ref, base=$base_oid)"
+    return
+  fi
+  git diff --quiet "$base_oid...$head_oid" --no-ext-diff --no-textconv \
+    && diff_rc=0 || diff_rc=$?
+  if [ "$diff_rc" -eq 1 ]; then
+    tribunal_error "$provider" \
+      "staged diff is empty or missing for resolved base ref $base_ref: base=$base_oid head=$head_oid; a non-empty diff exists"
+    return
+  fi
+  if [ "$diff_rc" -ne 0 ]; then
+    tribunal_error "$provider" \
+      "staged diff is empty or missing and verification failed for resolved base ref $base_ref: base=$base_oid head=$head_oid; git diff exited $diff_rc"
+    return
+  fi
   jq -nc --arg p "$provider" --arg m "$model" --arg b "$base_ref" \
     '{provider:$p,model:$m,findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10.0,verdict:"APPROVE",note:("No changes detected vs " + $b)}}'
 }
