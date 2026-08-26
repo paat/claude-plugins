@@ -28,8 +28,8 @@ the plugin `scripts/` directory:
   `gpt-5.6-sol` at `medium` effort; override with `TRIBUNAL_CODEX_MODEL` and
   `TRIBUNAL_CODEX_EFFORT`; repo-walking with unrestricted execution inside the
   development-container security boundary; the review prompt prohibits changes.
-- DeepSeek: on by default through OpenCode; disable with
-  `TRIBUNAL_DEEPSEEK=off`; model override `TRIBUNAL_DEEPSEEK_MODEL`; repo-walking
+- DeepSeek: off by default; enable with `TRIBUNAL_DEEPSEEK=on`; model override
+  `TRIBUNAL_DEEPSEEK_MODEL`; repo-walking
   read-only.
 - Claude: on by default; disable with `TRIBUNAL_CLAUDE=off`; model override
   `TRIBUNAL_CLAUDE_MODEL`; diff-only from a scratch directory with tools disabled.

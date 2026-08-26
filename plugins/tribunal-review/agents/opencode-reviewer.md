@@ -24,7 +24,7 @@ This agent now covers **GLM only**:
 - `opencode-go/glm-5.1` (provider field: `glm`) — runs via the user's OpenCode Go subscription,
   read-only via `--agent plan`, **diff-only** (no tools), from a non-repo scratch dir.
 
-The DeepSeek leg is documented separately in `deepseek-reviewer.md`. By default it runs on the
+The DeepSeek leg is documented separately in `deepseek-reviewer.md`. When enabled, it runs on the
 same `opencode-go` backend (`opencode-go/deepseek-v4-pro`), repo-walking, independently
 switchable. Because both default to `opencode-go`, an `opencode-go` quota/429 can take GLM and
 DeepSeek down together — set `TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro` to put DeepSeek

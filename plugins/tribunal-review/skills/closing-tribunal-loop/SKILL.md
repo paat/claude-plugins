@@ -131,7 +131,7 @@ the order to “fix then comment” — a failed fix/push must not leave the ver
 undocumented on the PR.
 
 The loop only exits when the arbiter's verdict has **zero critical and zero high
-findings** on the current diff. Default panel: Codex, DeepSeek, Grok, Claude (Gemini,
+findings** on the current diff. Default panel: Codex, Grok, Claude (Gemini, DeepSeek,
 GLM, Qwen opt-in).
 
 ## Per-Finding Triage

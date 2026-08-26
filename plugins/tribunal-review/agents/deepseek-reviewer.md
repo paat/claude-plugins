@@ -20,29 +20,29 @@ You are an OpenCode/DeepSeek CLI wrapper. Your ONLY job is to run ONE bash comma
 
 ## Transport & Independence
 
-DeepSeek is a **first-class** reviewer that, by default, runs through the same
-`opencode-go` backend as the GLM leg:
+DeepSeek is an **opt-in** reviewer that runs through the same `opencode-go`
+backend as the GLM leg when enabled:
 
 - **Provider/model**: `opencode-go/deepseek-v4-pro` — DeepSeek-V4 served via the **OpenCode Go**
   reseller backend, billed against your OpenCode Go subscription (then credits on overage).
   Authenticate once with `opencode auth login` (select OpenCode Go).
 - **Decorrelation trade-off (issue #40)**: routing DeepSeek through `opencode-go/` means an
   `opencode-go` quota/429 can take both OpenCode legs (GLM + DeepSeek) down together. In the
-  default panel only DeepSeek runs here (GLM is off), so this only bites if you opt GLM in. To
-  restore an independent transport, set `TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro` — the
+  default panel contains neither OpenCode leg. To use an independent transport, set
+  `TRIBUNAL_DEEPSEEK=on TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro` — the
   **direct DeepSeek API** (`https://api.deepseek.com`), authenticated via `opencode auth login`
   (select DeepSeek) or `DEEPSEEK_API_KEY`.
 - **Repo-walking**: this leg runs read-only **with tools enabled** (`opencode run --agent plan`
   from the repo root), so it can open related files and trace cross-file effects rather than
-  reviewing the diff in isolation. The default Codex and Qwen legs now walk too (issue #44); of
+  reviewing the diff in isolation. The default Codex leg and opt-in Qwen leg walk too (issue #44); of
   the two OpenCode-call legs, DeepSeek is the walker while GLM stays diff-only. It still receives
   the diff via `-f`.
 
 ## Switchability (mirrors the Gemini pattern)
 
-- `TRIBUNAL_DEEPSEEK=off` → the leg emits `{"provider":"deepseek","status":"disabled","note":"..."}`
+- `TRIBUNAL_DEEPSEEK=on` enables the leg. Otherwise it emits `{"provider":"deepseek","status":"disabled","note":"..."}`
   and the arbiter excludes it from quorum (`provider_assessment.deepseek.status="disabled"`).
-  Only the literal `off` disables; anything else (or unset) runs.
+  It is off by default (issue #461); only the literal `on` enables it.
 - `TRIBUNAL_DEEPSEEK_MODEL` (default `opencode-go/deepseek-v4-pro`; e.g. `opencode-go/deepseek-v4-flash`
   for a cheaper/faster per-commit review, or `deepseek/deepseek-v4-pro` for the direct DeepSeek API).
 

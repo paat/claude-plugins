@@ -13,6 +13,7 @@ export TRIBUNAL_GROK=on
 export TRIBUNAL_GEMINI=off
 export TRIBUNAL_QWEN=off
 export TRIBUNAL_GLM=off
+export TRIBUNAL_DEEPSEEK=off
 # Smoke is opt-in; never inherit a host-on probe into default preflight checks.
 export TRIBUNAL_SMOKE_PROBE=off
 
@@ -257,7 +258,7 @@ EOF
 }
 
 test_preflight_smoke_probe() {
-  local label="opt-in preflight smoke verifies every default transport" work fake ec=0
+  local label="opt-in preflight smoke verifies every enabled transport" work fake ec=0
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
   cat > "$fake/codex" <<'EOF'
 #!/usr/bin/env bash
@@ -297,7 +298,7 @@ EOF
     printf 'two\n' > file.txt
     git commit -q -am change
     PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 \
-      TRIBUNAL_SMOKE_PROBE=on bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/preflight.json"
+      TRIBUNAL_DEEPSEEK=on TRIBUNAL_SMOKE_PROBE=on bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/preflight.json"
   )
   if jq -e '
       [.providers[] | select(.name=="codex" or .name=="claude" or .name=="deepseek")]
@@ -1971,6 +1972,7 @@ assert_json_field "gemini disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-gemini-
 assert_json_field "qwen disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-qwen-review.sh' | jq -e '.provider==\"qwen\" and .status==\"disabled\"'"
 assert_json_field "grok disabled JSON" "TRIBUNAL_GROK=off bash '$PLUGIN_ROOT/scripts/run-grok-review.sh' | jq -e '.provider==\"grok\" and .status==\"disabled\"'"
 assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT/scripts/run-claude-review.sh' | jq -e '.provider==\"claude\" and .status==\"disabled\"'"
+assert_json_field "deepseek defaults to disabled JSON" "env -u TRIBUNAL_DEEPSEEK TRIBUNAL_GLM=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and .[1].provider==\"deepseek\" and .[1].status==\"disabled\"'"
 assert_json_field "opencode disabled JSONL" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -s -e 'length==2 and all(.[]; .status==\"disabled\")'"
 assert_json_field "opencode usage error preserves disabled markers" "TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=on bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' --bad-flag | jq -s -e 'length==2 and .[0].provider==\"glm\" and .[0].status==\"disabled\" and (.[1] | .provider==\"deepseek\" and has(\"error\"))'"
 test_empty_staged_diff_with_real_changes_fails_closed
