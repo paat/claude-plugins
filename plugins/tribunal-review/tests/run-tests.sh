@@ -1903,6 +1903,9 @@ assert_grep "skill references claude runner" "$SK" "scripts/run-claude-review.sh
 assert_grep "merge gate uses trusted aggregate runner" "$SK" "scripts/collect-review-evidence.sh"
 assert_grep "caller provider JSON is not merge evidence" "$SK" "caller-created provider JSON as merge evidence"
 assert_no_grep "skill no inline provider command bloat" "$SK" "timeout -k 10 600 codex exec"
+assert_grep "skill default panel lists DeepSeek with opt-in providers" "$SK" "Gemini, DeepSeek,"
+assert_grep "skill default panel marks complete opt-in provider set" "$SK" "GLM, and Qwen are opt-in."
+assert_no_grep "skill default panel does not include DeepSeek" "$SK" "DeepSeek through OpenCode Go (repo-walking)"
 
 echo "Preflight/base-ref behavior:"
 assert_grep "resolves GitHub default branch" "$LIB" "defaultBranchRef"

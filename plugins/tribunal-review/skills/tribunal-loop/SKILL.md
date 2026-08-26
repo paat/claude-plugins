@@ -6,8 +6,8 @@ description: "Use for multi-provider code review with repo-walking reviewers, di
 # Tribunal Loop
 
 Multi-provider code review with inline arbitration. By default the panel is Codex
-(repo-walking), DeepSeek through OpenCode Go (repo-walking), Grok (repo-walking),
-and Claude Code (diff-only). Gemini, GLM, and Qwen are opt-in. The calling context arbitrates
+(repo-walking), Grok (repo-walking), and Claude Code (diff-only). Gemini, DeepSeek,
+GLM, and Qwen are opt-in. The calling context arbitrates
 inline and makes the final decision.
 
 This skill is intentionally orchestration-only. Provider shell mechanics live in
