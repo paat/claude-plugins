@@ -123,8 +123,6 @@ opencode_failure_message() {
   fi
   if grep -Eqi -- 'requires[[:space:]]+explicit[[:space:]]+opt[ -]?in|only[[:space:]]+available[[:space:]]+hosted[[:space:]]+in[[:space:]]+china' "$stderr_file"; then
     printf "%s leg unavailable: provider rejected model '%s' (requires explicit opt-in)%s" "$provider" "$model" "$timeout_suffix"
-  elif grep -Eqi -- '(invalid|expired|missing)[[:space:]]+(api[[:space:]]+)?(key|token|credential)|authentication[[:space:]]+(failed|required)|unauthori[sz]ed|unauthenticated|forbidden' "$stderr_file"; then
-    printf '%s leg unavailable: provider authentication rejected%s' "$provider" "$timeout_suffix"
   elif [ -n "$timeout_suffix" ]; then
     printf '%s' "${timeout_suffix#; }"
   else

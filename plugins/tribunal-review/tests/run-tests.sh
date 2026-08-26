@@ -494,11 +494,19 @@ test_opencode_generic_failure_error() {
     "jq -s -e '.[1].error | contains(\"OpenCode execution failed (exit=1)\") and (contains(\"timed out\") | not)' \"\$work/out.json\" >/dev/null"
 }
 
-test_opencode_authentication_error() {
+test_opencode_timeout_tool_output_is_not_auth_error() {
   run_opencode_failure_fixture \
-    "OpenCode credential rejection is classified without leaking stderr" 1 \
-    "Error: invalid API key AUTH_SECRET_TOKEN" \
-    "jq -s -e '.[1].error | contains(\"deepseek leg unavailable: provider authentication rejected\") and (contains(\"AUTH_SECRET_TOKEN\") | not)' \"\$work/out.json\" >/dev/null"
+    "OpenCode timeout tool output is not classified as an authentication error" 124 \
+    '> plan · deepseek-v4-pro
+✱ Grep "unauthorized|forbidden" in . · 3 matches' \
+    "jq -s -e '((.[1].error | split(\";\")[0]) == \"OpenCode execution timed out after 720s\") and (.[1].error | contains(\"authentication rejected\") | not) and (.[1].error | contains(\"leg unavailable\") | not)' \"\$work/out.json\" >/dev/null"
+}
+
+test_opencode_filename_tool_output_is_generic_error() {
+  run_opencode_failure_fixture \
+    "OpenCode filename tool output is not classified as an authentication error" 1 \
+    '✱ Glob "**/forbidden_test.go" 1 match' \
+    "jq -s -e '((.[1].error | split(\";\")[0]) == \"OpenCode execution failed (exit=1)\") and (.[1].error | contains(\"authentication rejected\") | not) and (.[1].error | contains(\"leg unavailable\") | not)' \"\$work/out.json\" >/dev/null"
 }
 
 test_codex_pins() {
@@ -1943,7 +1951,8 @@ test_opencode_wal_isolation
 test_opencode_timeout_error
 test_opencode_gated_model_error
 test_opencode_generic_failure_error
-test_opencode_authentication_error
+test_opencode_timeout_tool_output_is_not_auth_error
+test_opencode_filename_tool_output_is_generic_error
 test_codex_pins gpt-5.6-sol medium no "codex defaults pin Sol and medium in argv"
 test_codex_pins test-model high yes "codex model and effort environment overrides stay explicit"
 test_codex_parse_diagnostics
