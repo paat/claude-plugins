@@ -15,6 +15,30 @@ contains() { grep -F -- "$2" "$1" >/dev/null || fail "$3"; }
 absent() { ! grep -F -- "$2" "$1" >/dev/null || fail "$3"; }
 exact_line() { grep -Fx -- "$2" "$1" >/dev/null || fail "$3"; }
 
+. "$PLUGIN_ROOT/scripts/lib-review-verdict.sh"
+
+assert_review_verdict() {
+  printf '%s\n' "$1" > "$WORK/review-verdict.txt"
+  mmo_has_review_verdict "$WORK/review-verdict.txt" || fail "$2"
+}
+
+reject_review_verdict() {
+  printf '%s\n' "$1" > "$WORK/review-verdict.txt"
+  ! mmo_has_review_verdict "$WORK/review-verdict.txt" || fail "$2"
+}
+
+# Prefixed and bare terminal verdicts are accepted; prose remains rejected.
+assert_review_verdict 'VERDICT: APPROVE' 'VERDICT: APPROVE accepted'
+assert_review_verdict 'VERDICT: NEEDS_WORK' 'VERDICT: NEEDS_WORK accepted'
+assert_review_verdict ' VERDICT : approved ' 'VERDICT: APPROVED variant accepted'
+assert_review_verdict 'VERDICT: NEEDS WORK' 'VERDICT: NEEDS WORK variant accepted'
+assert_review_verdict 'APPROVE' 'Bare APPROVE remains accepted'
+assert_review_verdict 'NEEDS_WORK' 'Bare NEEDS_WORK remains accepted'
+reject_review_verdict 'I would approve this if the tests passed' 'Conditional approval prose rejected'
+reject_review_verdict 'This needs work before merge' 'NEEDS WORK prose rejected'
+reject_review_verdict 'The verdict depends on whether you approve the tradeoff' 'Verdict discussion prose rejected'
+pass 'Verdict gate accepts only template-shaped or bare verdict lines'
+
 git -C "$WORK/repo" init -q
 git -C "$WORK/repo" config user.email test@example.com
 git -C "$WORK/repo" config user.name Test
@@ -432,6 +456,9 @@ contains "$META_REFS/worker-prompt.md" 'expected red before the fix' 'Worker tem
 contains "$META_REFS/worker-prompt.md" 'Out of scope' 'Worker template keeps the scope fence'
 contains "$META_REFS/review-prompts.md" 'BY EXECUTION' 'Review template mandates verification by execution'
 contains "$META_REFS/review-prompts.md" 'NEEDS_WORK' 'Review template uses the runner verdict token'
+# Keep the prescribed verdict body executable against the shared runner gate.
+assert_review_verdict $'VERDICT: APPROVE\n\nPROBES: none\nREADY TO MERGE — nothing further coming.' \
+  'Review template approval body satisfies the runner verdict gate'
 contains "$META_REFS/review-prompts.md" 'Bounded DELTA by execution' 'Review template keeps the bounded delta round'
 contains "$META_REFS/review-prompts.md" 'READY TO MERGE — nothing further coming.' 'Review templates request the merge signal on final APPROVE'
 contains "$META_REFS/worker-prompt.md" 'the orchestrator commits' 'Worker template reconciles commits with no-commit leg contracts'
