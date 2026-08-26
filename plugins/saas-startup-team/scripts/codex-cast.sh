@@ -12,6 +12,8 @@
 
 set -euo pipefail
 
+die() { echo "codex-cast: $1" >&2; exit "${2:-1}"; }
+
 WORKTREE="" MODE="" PROVIDER="" MODEL="" EFFORT="" TIMEOUT="" PROMPT_FILE=""
 JSON_OUT="" UNRESTRICTED=0
 ENV_ALLOW=()
@@ -41,13 +43,11 @@ done
   && [ -n "$EFFORT" ] && [ -n "$TIMEOUT" ] && [ -n "$PROMPT_FILE" ] || usage
 
 case "$MODE" in implement|review) : ;; *) usage ;; esac
-case "$PROVIDER" in openai) : ;; *) echo "codex-cast: unsupported provider: $PROVIDER" >&2; exit 2 ;; esac
-[[ "$MODEL" =~ ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$ ]] || {
-  echo "codex-cast: invalid model" >&2; exit 2; }
+case "$PROVIDER" in openai) : ;; *) die "unsupported provider: $PROVIDER" 2 ;; esac
+[[ "$MODEL" =~ ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$ ]] || die "invalid model" 2
 case "$EFFORT" in low|medium|high|xhigh|max|ultra) : ;; *)
-  echo "codex-cast: invalid effort" >&2; exit 2 ;; esac
-[[ "$TIMEOUT" =~ ^([1-9][0-9]{0,4})([smh])$ ]] || {
-  echo "codex-cast: invalid timeout" >&2; exit 2; }
+  die "invalid effort" 2 ;; esac
+[[ "$TIMEOUT" =~ ^([1-9][0-9]{0,4})([smh])$ ]] || die "invalid timeout" 2
 timeout_unit=${BASH_REMATCH[2]}
 timeout_num=${BASH_REMATCH[1]}
 case "$timeout_unit" in
@@ -55,51 +55,32 @@ case "$timeout_unit" in
   m) TIMEOUT_SECONDS=$((timeout_num * 60)) ;;
   h) TIMEOUT_SECONDS=$((timeout_num * 3600)) ;;
 esac
-[ "$TIMEOUT_SECONDS" -le 7200 ] || {
-  echo "codex-cast: timeout exceeds 2h maximum" >&2; exit 2; }
+[ "$TIMEOUT_SECONDS" -le 7200 ] || die "timeout exceeds 2h maximum" 2
 
 for key in "${ENV_ALLOW[@]+"${ENV_ALLOW[@]}"}"; do
-  [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || {
-    echo "codex-cast: invalid --env name: $key" >&2; exit 2; }
+  [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "invalid --env name: $key" 2
 done
 
-command -v codex >/dev/null 2>&1 || { echo "codex-cast: codex CLI not found" >&2; exit 3; }
-command -v timeout >/dev/null 2>&1 || { echo "codex-cast: timeout is required" >&2; exit 4; }
-command -v jq >/dev/null 2>&1 || { echo "codex-cast: jq is required" >&2; exit 4; }
+command -v codex >/dev/null 2>&1 || die "codex CLI not found" 3
+command -v timeout >/dev/null 2>&1 || die "timeout is required" 4
+command -v jq >/dev/null 2>&1 || die "jq is required" 4
 
-WORKTREE=$(cd -- "$WORKTREE" && pwd -P) || {
-  echo "codex-cast: worktree is not a directory" >&2; exit 4; }
-git -C "$WORKTREE" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
-  echo "codex-cast: worktree is not a git worktree" >&2; exit 4; }
-WT_TOP=$(cd -- "$(git -C "$WORKTREE" rev-parse --show-toplevel)" && pwd -P) || {
-  echo "codex-cast: could not resolve worktree root" >&2; exit 4; }
-[ "$WT_TOP" = "$WORKTREE" ] || {
-  echo "codex-cast: worktree mismatch: expected root $WORKTREE got $WT_TOP" >&2
-  exit 4
-}
+WORKTREE=$(cd -- "$WORKTREE" && pwd -P) || die "worktree is not a directory" 4
+git -C "$WORKTREE" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "worktree is not a git worktree" 4
+WT_TOP=$(cd -- "$(git -C "$WORKTREE" rev-parse --show-toplevel)" && pwd -P) || die "could not resolve worktree root" 4
+[ "$WT_TOP" = "$WORKTREE" ] || die "worktree mismatch: expected root $WORKTREE got $WT_TOP" 4
 # Fail closed if a login shell changes cwd away from the explicit worktree.
-LOGIN_CWD=$(cd -- "$WORKTREE" && timeout --signal=TERM --kill-after=1s 5s /bin/bash -lc 'pwd -P') || {
-  echo "codex-cast: could not verify login-shell working directory" >&2
-  exit 4
-}
-[ "$LOGIN_CWD" = "$WORKTREE" ] || {
-  echo "codex-cast: login startup changes cwd; remove that cd or preserve the worktree directory" >&2
-  exit 4
-}
+LOGIN_CWD=$(cd -- "$WORKTREE" && timeout --signal=TERM --kill-after=1s 5s /bin/bash -lc 'pwd -P') || die "could not verify login-shell working directory" 4
+[ "$LOGIN_CWD" = "$WORKTREE" ] || die "login startup changes cwd; remove that cd or preserve the worktree directory" 4
 
 case "$PROMPT_FILE" in /*) : ;; *) PROMPT_FILE=$WORKTREE/$PROMPT_FILE ;; esac
-[ -f "$PROMPT_FILE" ] && [ -r "$PROMPT_FILE" ] && [ ! -L "$PROMPT_FILE" ] || {
-  echo "codex-cast: prompt file unreadable" >&2; exit 4; }
+[ -f "$PROMPT_FILE" ] && [ -r "$PROMPT_FILE" ] && [ ! -L "$PROMPT_FILE" ] || die "prompt file unreadable" 4
 PROMPT_BYTES=$(stat -Lc '%s' -- "$PROMPT_FILE") || exit 4
-[ "$PROMPT_BYTES" -le 1048576 ] || {
-  echo "codex-cast: prompt file exceeds 1 MiB" >&2; exit 4; }
-PROMPT=$(LC_ALL=C head -c 1048576 -- "$PROMPT_FILE") || {
-  echo "codex-cast: could not read prompt file" >&2; exit 4; }
-[ -n "$(printf '%s' "$PROMPT" | tr -d '[:space:]')" ] || {
-  echo "codex-cast: prompt file is empty" >&2; exit 4; }
+[ "$PROMPT_BYTES" -le 1048576 ] || die "prompt file exceeds 1 MiB" 4
+PROMPT=$(LC_ALL=C head -c 1048576 -- "$PROMPT_FILE") || die "could not read prompt file" 4
+[ -n "$(printf '%s' "$PROMPT" | tr -d '[:space:]')" ] || die "prompt file is empty" 4
 
-COMMIT_SHA=$(git -C "$WORKTREE" rev-parse HEAD) || {
-  echo "codex-cast: could not read HEAD" >&2; exit 4; }
+COMMIT_SHA=$(git -C "$WORKTREE" rev-parse HEAD) || die "could not read HEAD" 4
 DIRTY_BEFORE=$(git -C "$WORKTREE" status --porcelain=v1 --untracked-files=all)
 
 if [ "$UNRESTRICTED" -eq 1 ]; then
@@ -122,10 +103,7 @@ ENV_ARGS=(
   "TMPDIR=${TMPDIR:-/tmp}"
 )
 for key in "${ENV_ALLOW[@]+"${ENV_ALLOW[@]}"}"; do
-  [ -n "${!key+x}" ] || {
-    echo "codex-cast: --env $key is not set in the parent environment" >&2
-    exit 2
-  }
+  [ -n "${!key+x}" ] || die "--env $key is not set in the parent environment" 2
   ENV_ARGS+=("$key=${!key}")
 done
 

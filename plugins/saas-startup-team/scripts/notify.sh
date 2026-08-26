@@ -19,9 +19,11 @@
 
 set -euo pipefail
 
+die() { echo "notify: $1" >&2; exit "${2:-1}"; }
+
 LEVEL=""; TITLE=""; BODY=""; FILE=""; ROOT=""
 # A value-taking flag with no following value is a usage error (not a set -e shift abort).
-need_val() { [ "$1" -ge 2 ] || { echo "notify: $2 requires a value" >&2; exit 2; }; }
+need_val() { [ "$1" -ge 2 ] || die "$2 requires a value" 2; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --digest)  LEVEL="digest"; shift ;;
@@ -30,15 +32,15 @@ while [ $# -gt 0 ]; do
     --body)    need_val $# "$1"; BODY="$2"; shift 2 ;;
     --file)    need_val $# "$1"; FILE="$2"; shift 2 ;;
     --root)    need_val $# "$1"; ROOT="$2"; shift 2 ;;
-    *) echo "notify: unknown argument: $1" >&2; exit 2 ;;
+    *) die "unknown argument: $1" 2 ;;
   esac
 done
 
-[ -n "$LEVEL" ] || { echo "notify: level required (--digest or --blocker)" >&2; exit 2; }
+[ -n "$LEVEL" ] || die "level required (--digest or --blocker)" 2
 [ -n "$ROOT" ] || ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-[ -n "$BODY" ] || [ -n "$FILE" ] || { echo "notify: --body or --file required" >&2; exit 2; }
+[ -n "$BODY" ] || [ -n "$FILE" ] || die "--body or --file required" 2
 [ -n "$BODY" ] || { [ -n "$FILE" ] && [ -f "$FILE" ] && BODY="$(cat "$FILE")"; }
-[ -n "$BODY" ] || { echo "notify: --file '$FILE' not found or empty" >&2; exit 2; }
+[ -n "$BODY" ] || die "--file '$FILE' not found or empty" 2
 [ -n "$TITLE" ] || TITLE="SaaS ${LEVEL}"
 
 # Config: .startup/notify.json wins over env.
@@ -46,7 +48,7 @@ CONFIG="$ROOT/.startup/notify.json"
 KIND=""; URL=""; TOKEN_ENV=""
 if [ -f "$CONFIG" ]; then
   # Malformed JSON is a config error, not a silent no-op.
-  jq empty "$CONFIG" 2>/dev/null || { echo "notify: malformed $CONFIG (config error)" >&2; exit 1; }
+  jq empty "$CONFIG" 2>/dev/null || die "malformed $CONFIG (config error)"
   KIND="$(jq -r '.kind // empty' "$CONFIG")"
   URL="$(jq -r '.url // empty' "$CONFIG")"
   TOKEN_ENV="$(jq -r '.token_env // empty' "$CONFIG")"
@@ -62,10 +64,7 @@ if [ -z "$KIND" ] || [ "$KIND" = "none" ]; then
   exit 3
 fi
 # A real kind with an empty URL is a half-configured channel → config error, not a no-op.
-if [ -z "$URL" ]; then
-  echo "notify: kind $KIND configured but url is empty (config error)" >&2
-  exit 1
-fi
+if [ -z "$URL" ]; then die "kind $KIND configured but url is empty (config error)"; fi
 
 # Credential from the NAMED env var only (never from config or argv). An empty token_env
 # is a valid no-auth send; a configured token_env that is unset OR empty is a
@@ -73,8 +72,7 @@ fi
 CRED=""
 [ -n "$TOKEN_ENV" ] && CRED="$(printenv "$TOKEN_ENV" 2>/dev/null || true)"
 if [ -n "$TOKEN_ENV" ] && [ -z "$CRED" ]; then
-  echo "notify: token_env '$TOKEN_ENV' is empty/unset (config error)" >&2
-  exit 1
+  die "token_env '$TOKEN_ENV' is empty/unset (config error)"
 fi
 
 # blocker → high urgency; digest → default.
@@ -120,8 +118,7 @@ case "$KIND" in
     args=(-X POST -H "Content-Type: application/json" --data-raw "$payload" "$URL")
     ;;
   *)
-    echo "notify: unknown kind '$KIND' (config error)" >&2
-    exit 1
+    die "unknown kind '$KIND' (config error)"
     ;;
 esac
 
@@ -130,8 +127,7 @@ rc=0
 if [ "$rc" -ne 0 ]; then
   # Exit a FIXED "send failed" code (10), never curl's raw code — curl exit 3 ("URL
   # malformed") would otherwise collide with the intentional no-op sentinel.
-  echo "notify: ${LEVEL} send failed (curl exit $rc)" >&2
-  exit 10
+  die "${LEVEL} send failed (curl exit $rc)" 10
 fi
 
 echo "notify: ${LEVEL} sent via ${KIND}"

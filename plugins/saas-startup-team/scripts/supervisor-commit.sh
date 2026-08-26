@@ -2,6 +2,8 @@
 # Run the product check and optionally stage and commit product changes.
 set -euo pipefail
 
+die() { echo "supervisor-commit: $1" >&2; exit "${2:-1}"; }
+
 ROOT=.
 CHECK=./check.sh
 MESSAGE=
@@ -26,18 +28,12 @@ while [ "$#" -gt 0 ]; do
 done
 
 ROOT=$(cd -- "$ROOT" && pwd -P)
-git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
-  echo "supervisor-commit: invalid repository root" >&2
-  exit 1
-}
+git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "invalid repository root"
 case "$CHECK" in
   /*) CHECK_PATH=$CHECK ;;
   *) CHECK_PATH="$ROOT/${CHECK#./}" ;;
 esac
-[ -f "$CHECK_PATH" ] && [ ! -L "$CHECK_PATH" ] || {
-  echo "supervisor-commit: check must be a regular file" >&2
-  exit 1
-}
+[ -f "$CHECK_PATH" ] && [ ! -L "$CHECK_PATH" ] || die "check must be a regular file"
 
 (cd "$ROOT" && bash "$CHECK_PATH")
 [ "$CHECK_ONLY" -eq 0 ] || exit 0
@@ -45,8 +41,7 @@ esac
 
 git -C "$ROOT" add -A -- . ':(exclude).startup' ':(exclude).startup/**'
 git -C "$ROOT" diff --cached --quiet --exit-code && {
-  echo "supervisor-commit: no product changes to commit" >&2
-  exit 1
+  die "no product changes to commit"
 }
 
 if [ -n "$FIREWALL" ]; then
@@ -54,10 +49,7 @@ if [ -n "$FIREWALL" ]; then
     /*) FIREWALL_PATH=$FIREWALL ;;
     *) FIREWALL_PATH="$ROOT/${FIREWALL#./}" ;;
   esac
-  [ -f "$FIREWALL_PATH" ] && [ ! -L "$FIREWALL_PATH" ] || {
-    echo "supervisor-commit: firewall script must be a regular file" >&2
-    exit 1
-  }
+  [ -f "$FIREWALL_PATH" ] && [ ! -L "$FIREWALL_PATH" ] || die "firewall script must be a regular file"
   diff_file=$(mktemp) || exit 1
   # shellcheck disable=SC2064
   trap 'rm -f -- "$diff_file"' EXIT

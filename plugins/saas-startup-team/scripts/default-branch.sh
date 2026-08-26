@@ -3,6 +3,8 @@
 
 set -euo pipefail
 
+die() { echo "default-branch: $1" >&2; exit "${2:-1}"; }
+
 repo=""
 root=""
 usage() {
@@ -21,7 +23,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -n "$root" ]; then
-  [ -d "$root" ] || { echo "default-branch: repository root is not a directory: $root" >&2; exit 2; }
+  [ -d "$root" ] || die "repository root is not a directory: $root" 2
   root="$(cd "$root" && pwd)"
 else
   root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -66,8 +68,7 @@ if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     origin_url="$(git -C "$root" remote get-url origin 2>/dev/null || true)"
     origin_slug="$(repo_slug "$origin_url" 2>/dev/null || true)"
     if [ -z "$requested_slug" ] || [ "${requested_slug,,}" != "${origin_slug,,}" ]; then
-      echo "default-branch: origin does not match requested repository $repo" >&2
-      exit 1
+      die "origin does not match requested repository $repo"
     fi
   fi
 
@@ -83,5 +84,4 @@ if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fi
 fi
 
-echo "default-branch: could not resolve the default branch from GitHub or verified origin/HEAD" >&2
-exit 1
+die "could not resolve the default branch from GitHub or verified origin/HEAD"

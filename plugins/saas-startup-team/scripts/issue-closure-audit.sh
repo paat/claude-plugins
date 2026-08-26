@@ -21,7 +21,9 @@ CLOSING_KEYWORD_RE='(close[sd]?|fix(e[sd])?|resolve[sd]?)'
 CLOSING_TARGET_RE='(#[0-9]+|[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*#[0-9]+|https?://github\.com/[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*/issues/[0-9]+)'
 CLOSING_REFERENCE_RE="(^|[^[:alnum:]_])${CLOSING_KEYWORD_RE}[[:space:]]*:?[[:space:]]+${CLOSING_TARGET_RE}"
 
-_need_val() { [ "$1" -ge 2 ] || { echo "issue-closure-audit: $2 needs a value" >&2; exit 2; }; }
+die() { echo "issue-closure-audit: $1" >&2; exit "${2:-1}"; }
+refuse() { echo "issue-closure-audit: $1" >&2; return 1; }
+_need_val() { [ "$1" -ge 2 ] || die "$2 needs a value" 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -31,17 +33,15 @@ while [ $# -gt 0 ]; do
     --issue-json) _need_val "$#" "$1"; ISSUE_JSON_FILES+=("$2"); shift 2 ;;
     --audit-issue)
       _need_val "$#" "$1"
-      [[ "$2" =~ ^[1-9][0-9]*$ ]] || {
-        echo "issue-closure-audit: --audit-issue must be a positive integer" >&2; exit 2; }
+      [[ "$2" =~ ^[1-9][0-9]*$ ]] || die "--audit-issue must be a positive integer" 2
       AUDIT_ISSUES+=("$2"); shift 2 ;;
     --changed-files) _need_val "$#" "$1"; CHANGED_FILES="$2"; shift 2 ;;
-    *) echo "issue-closure-audit: unknown arg: $1" >&2; exit 2 ;;
+    *) die "unknown arg: $1" 2 ;;
   esac
 done
 
 if [ -n "$REPO" ] && ! [[ "$REPO" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
-  echo "issue-closure-audit: --repo must be OWNER/REPO" >&2
-  exit 2
+  die "--repo must be OWNER/REPO" 2
 fi
 RESOLVED_REPO="$REPO"; PR_URL_REPO=""
 if [[ "$PR" =~ ^https://github\.com/([^/]+)/([^/]+)/pull/[1-9][0-9]*([/?#].*)?$ ]]; then
@@ -49,48 +49,34 @@ if [[ "$PR" =~ ^https://github\.com/([^/]+)/([^/]+)/pull/[1-9][0-9]*([/?#].*)?$ 
 fi
 if [ -n "$PR_URL_REPO" ] && [ -n "$RESOLVED_REPO" ] \
   && [ "${PR_URL_REPO,,}" != "${RESOLVED_REPO,,}" ]; then
-  echo "issue-closure-audit: --repo conflicts with the pull request URL" >&2
-  exit 2
+  die "--repo conflicts with the pull request URL" 2
 fi
 if [ -z "$PR_JSON" ] && [ -z "$RESOLVED_REPO" ]; then
   if [ -n "$PR_URL_REPO" ]; then
     RESOLVED_REPO="$PR_URL_REPO"
   else
-    RESOLVED_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || {
-      echo "issue-closure-audit: cannot resolve the pull request repository" >&2
-      exit 1
-    }
+    RESOLVED_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || die "cannot resolve the pull request repository"
   fi
 fi
 if [ -n "$RESOLVED_REPO" ] \
   && ! [[ "$RESOLVED_REPO" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
-  echo "issue-closure-audit: resolved repository identity is invalid" >&2
-  exit 1
+  die "resolved repository identity is invalid"
 fi
 
-AUDIT_TMPDIR="$(mktemp -d)" || {
-  echo "issue-closure-audit: cannot create private audit workspace" >&2
-  exit 1
-}
+AUDIT_TMPDIR="$(mktemp -d)" || die "cannot create private audit workspace"
 trap 'rm -rf "$AUDIT_TMPDIR"' EXIT
 
 PR_VIEW="$AUDIT_TMPDIR/pr.json"
 FILES="$AUDIT_TMPDIR/files.txt"
 
 if [ -n "$PR_JSON" ]; then
-  [ -f "$PR_JSON" ] || { echo "issue-closure-audit: missing --pr-json $PR_JSON" >&2; exit 2; }
-  cp "$PR_JSON" "$PR_VIEW" || {
-    echo "issue-closure-audit: cannot read --pr-json $PR_JSON" >&2
-    exit 1
-  }
+  [ -f "$PR_JSON" ] || die "missing --pr-json $PR_JSON" 2
+  cp "$PR_JSON" "$PR_VIEW" || die "cannot read --pr-json $PR_JSON"
 else
-  [ -n "$PR" ] || { echo "issue-closure-audit: --pr or --pr-json is required" >&2; exit 2; }
+  [ -n "$PR" ] || die "--pr or --pr-json is required" 2
   repo_args=()
   [ -n "$RESOLVED_REPO" ] && repo_args=(--repo "$RESOLVED_REPO")
-  gh pr view "$PR" "${repo_args[@]}" --json number,title,body,files > "$PR_VIEW" 2>/dev/null || {
-    echo "issue-closure-audit: cannot inspect PR $PR" >&2
-    exit 1
-  }
+  gh pr view "$PR" "${repo_args[@]}" --json number,title,body,files > "$PR_VIEW" 2>/dev/null || die "cannot inspect PR $PR"
 fi
 
 if ! jq -e '
@@ -98,16 +84,12 @@ if ! jq -e '
   and (.body | type == "string")
   and ((has("title") | not) or .title == null or (.title | type == "string"))
 ' "$PR_VIEW" >/dev/null 2>&1; then
-  echo "issue-closure-audit: malformed PR JSON or invalid body shape. Refusing." >&2
-  exit 1
+  die "malformed PR JSON or invalid body shape. Refusing."
 fi
 
 if [ -n "$CHANGED_FILES" ]; then
-  [ -f "$CHANGED_FILES" ] || { echo "issue-closure-audit: missing --changed-files $CHANGED_FILES" >&2; exit 2; }
-  cp "$CHANGED_FILES" "$FILES" || {
-    echo "issue-closure-audit: cannot read --changed-files $CHANGED_FILES" >&2
-    exit 1
-  }
+  [ -f "$CHANGED_FILES" ] || die "missing --changed-files $CHANGED_FILES" 2
+  cp "$CHANGED_FILES" "$FILES" || die "cannot read --changed-files $CHANGED_FILES"
 else
   if ! jq -e '
     (.files | type == "array")
@@ -115,23 +97,13 @@ else
       and (.path | type == "string")
       and (.path | length > 0))
   ' "$PR_VIEW" >/dev/null 2>&1; then
-    echo "issue-closure-audit: malformed PR JSON or invalid files shape. Refusing." >&2
-    exit 1
+    die "malformed PR JSON or invalid files shape. Refusing."
   fi
-  jq -r '.files[].path' "$PR_VIEW" > "$FILES" 2>/dev/null || {
-    echo "issue-closure-audit: cannot extract PR files. Refusing." >&2
-    exit 1
-  }
+  jq -r '.files[].path' "$PR_VIEW" > "$FILES" 2>/dev/null || die "cannot extract PR files. Refusing."
 fi
 
-title="$(jq -r '.title // ""' "$PR_VIEW" 2>/dev/null)" || {
-  echo "issue-closure-audit: cannot extract PR title. Refusing." >&2
-  exit 1
-}
-body="$(jq -r '.body' "$PR_VIEW" 2>/dev/null)" || {
-  echo "issue-closure-audit: cannot extract PR body. Refusing." >&2
-  exit 1
-}
+title="$(jq -r '.title // ""' "$PR_VIEW" 2>/dev/null)" || die "cannot extract PR title. Refusing."
+body="$(jq -r '.body' "$PR_VIEW" 2>/dev/null)" || die "cannot extract PR body. Refusing."
 pr_text="$(printf '%s\n%s\n' "$title" "$body")"
 
 contains_closing_reference() {
@@ -181,24 +153,15 @@ validate_qualified_closing_repositories() {
   local qualified current repo
   qualified=$(qualified_closing_repositories "$pr_text") || return 1
   [ -n "$qualified" ] || return 0
-  [ -n "$RESOLVED_REPO" ] || {
-    echo "issue-closure-audit: qualified closing references require --repo in offline audits. Refusing." >&2
-    return 1
-  }
+  [ -n "$RESOLVED_REPO" ] || { refuse "qualified closing references require --repo in offline audits. Refusing."; return 1; }
   current=${RESOLVED_REPO,,}
   while IFS= read -r repo; do
     [ -n "$repo" ] || continue
-    [ "$repo" = "$current" ] || {
-      echo "issue-closure-audit: cross-repository closing references are not auditable in this transaction. Refusing." >&2
-      return 1
-    }
+    [ "$repo" = "$current" ] || { refuse "cross-repository closing references are not auditable in this transaction. Refusing."; return 1; }
   done <<< "$qualified"
 }
 
-audit_nums="$(printf '%s\n' "${AUDIT_ISSUES[@]}" | sed '/^$/d' | sort -nu)" || {
-  echo "issue-closure-audit: cannot normalize audited issue numbers. Refusing." >&2
-  exit 1
-}
+audit_nums="$(printf '%s\n' "${AUDIT_ISSUES[@]}" | sed '/^$/d' | sort -nu)" || die "cannot normalize audited issue numbers. Refusing."
 if [ -n "$audit_nums" ]; then
   prospective_failures=0
   closing_rc=0
@@ -209,7 +172,7 @@ if [ -n "$audit_nums" ]; then
       prospective_failures=$((prospective_failures + 1))
       ;;
     1) ;;
-    *) echo "issue-closure-audit: cannot inspect PR closing references. Refusing." >&2; exit 1 ;;
+    *) die "cannot inspect PR closing references. Refusing." ;;
   esac
   if grep -Eq '^Closure-Audit-Path:' <<< "$body"; then
     echo "issue-closure-audit: prospective audits cannot defer named surfaces. Refusing." >&2
@@ -244,21 +207,12 @@ if [ -n "$audit_nums" ]; then
   [ "$prospective_failures" -eq 0 ] || exit 1
 fi
 
-validate_qualified_closing_repositories || {
-  echo "issue-closure-audit: cannot bind qualified closing references to this repository. Refusing." >&2
-  exit 1
-}
-detected_closure_nums="$(closing_reference_numbers "$pr_text")" || {
-  echo "issue-closure-audit: cannot extract PR closing references. Refusing." >&2
-  exit 1
-}
+validate_qualified_closing_repositories || die "cannot bind qualified closing references to this repository. Refusing."
+detected_closure_nums="$(closing_reference_numbers "$pr_text")" || die "cannot extract PR closing references. Refusing."
 closure_nums="$({
   printf '%s\n' "$detected_closure_nums"
   printf '%s\n' "$audit_nums"
-} | sed '/^$/d' | sort -nu)" || {
-  echo "issue-closure-audit: cannot normalize PR closing references. Refusing." >&2
-  exit 1
-}
+} | sed '/^$/d' | sort -nu)" || die "cannot normalize PR closing references. Refusing."
 
 if [ -z "$closure_nums" ]; then
   echo "issue-closure-audit: no closing keywords found; nothing to audit."
@@ -305,21 +259,11 @@ validate_issue_shape() {
 }
 
 for issue_json in "${ISSUE_JSON_FILES[@]}"; do
-  [ -f "$issue_json" ] || {
-    echo "issue-closure-audit: missing --issue-json $issue_json" >&2
-    exit 2
-  }
-  validate_issue_shape "$issue_json" || {
-    echo "issue-closure-audit: malformed issue JSON: $issue_json. Refusing." >&2
-    exit 1
-  }
-  fixture_number="$(jq -r '.number' "$issue_json")" || {
-    echo "issue-closure-audit: cannot read issue fixture number. Refusing." >&2
-    exit 1
-  }
+  [ -f "$issue_json" ] || die "missing --issue-json $issue_json" 2
+  validate_issue_shape "$issue_json" || die "malformed issue JSON: $issue_json. Refusing."
+  fixture_number="$(jq -r '.number' "$issue_json")" || die "cannot read issue fixture number. Refusing."
   if [ -n "${ISSUE_JSON_BY_NUMBER[$fixture_number]+present}" ]; then
-    echo "issue-closure-audit: duplicate issue JSON for #$fixture_number. Refusing." >&2
-    exit 1
+    die "duplicate issue JSON for #$fixture_number. Refusing."
   fi
   ISSUE_JSON_BY_NUMBER[$fixture_number]="$issue_json"
 done
@@ -411,14 +355,11 @@ has_unchanged_disposition() {
   ')"
   [ -n "$reasons" ] || return 1
   count=$(printf '%s\n' "$reasons" | wc -l | tr -d ' ')
-  if [ "$count" -ne 1 ]; then
-    echo "issue-closure-audit: unchanged disposition for #$n $path must appear exactly once. Refusing." >&2
-    return 1
-  fi
+  if [ "$count" -ne 1 ]; then refuse "unchanged disposition for #$n $path must appear exactly once. Refusing."; return 1; fi
   reason="$reasons"
   # Require a concrete reason (min 20 non-space-trimmed characters).
   if ! printf '%s\n' "$reason" | grep -Eq '^[^[:space:]].{19,}$'; then
-    echo "issue-closure-audit: unchanged disposition for #$n $path needs a concrete reason (min 20 chars). Refusing." >&2
+    refuse "unchanged disposition for #$n $path needs a concrete reason (min 20 chars). Refusing."
     return 1
   fi
   return 0
@@ -438,30 +379,18 @@ has_authorized_deferral() {
   ')"
   [ -n "$reasons" ] || return 1
   count=$(printf '%s\n' "$reasons" | wc -l | tr -d ' ')
-  if [ "$count" -ne 1 ]; then
-    echo "issue-closure-audit: deferral for #$n $path must appear exactly once. Refusing." >&2
-    return 1
-  fi
+  if [ "$count" -ne 1 ]; then refuse "deferral for #$n $path must appear exactly once. Refusing."; return 1; fi
   reason="$reasons"
   if ! printf '%s\n' "$reason" \
       | grep -Eq '^follow-up #[1-9][0-9]*: [^[:space:]].{19,}$'; then
-    echo "issue-closure-audit: deferral for #$n $path must name one follow-up issue and a concrete reason. Refusing." >&2
+    refuse "deferral for #$n $path must name one follow-up issue and a concrete reason. Refusing."
     return 1
   fi
   followup="$(printf '%s\n' "$reason" | sed -E 's/^follow-up #([1-9][0-9]*):.*/\1/')"
-  if [ "$followup" = "$n" ]; then
-    echo "issue-closure-audit: follow-up #$followup must differ from original issue #$n. Refusing." >&2
-    return 1
-  fi
-  if grep -Fqx -- "$followup" <<< "$closure_nums"; then
-    echo "issue-closure-audit: follow-up #$followup is also closed by this PR. Refusing." >&2
-    return 1
-  fi
+  if [ "$followup" = "$n" ]; then refuse "follow-up #$followup must differ from original issue #$n. Refusing."; return 1; fi
+  if grep -Fqx -- "$followup" <<< "$closure_nums"; then refuse "follow-up #$followup is also closed by this PR. Refusing."; return 1; fi
 
-  issue_text="$(jq -r '[.body, (.comments[].body)] | join("\n")' "$issue_file" 2>/dev/null)" || {
-    echo "issue-closure-audit: cannot inspect split authorization on issue #$n. Refusing." >&2
-    return 1
-  }
+  issue_text="$(jq -r '[.body, (.comments[].body)] | join("\n")' "$issue_file" 2>/dev/null)" || { refuse "cannot inspect split authorization on issue #$n. Refusing."; return 1; }
   split_prefix="Closure-Audit-Split: #$n $path -> #"
   split_lines="$(printf '%s\n' "$issue_text" | awk -v prefix="$split_prefix" \
     'index($0, prefix) == 1 { print }')"
@@ -469,29 +398,17 @@ has_authorized_deferral() {
   [ -z "$split_lines" ] || split_count=$(printf '%s\n' "$split_lines" | wc -l | tr -d ' ')
   if [ "$split_count" -ne 1 ] \
       || [ "$split_lines" != "${split_prefix}${followup}" ]; then
-    echo "issue-closure-audit: original issue #$n needs exactly one split authorization: ${split_prefix}${followup}" >&2
+    refuse "original issue #$n needs exactly one split authorization: ${split_prefix}${followup}"
     return 1
   fi
 
   followup_file="$AUDIT_TMPDIR/follow-up-$followup.json"
-  if [ ! -f "$followup_file" ] && ! fetch_issue "$followup" "$followup_file"; then
-    echo "issue-closure-audit: cannot inspect follow-up issue #$followup. Refusing." >&2
-    return 1
-  fi
-  if ! validate_issue_shape "$followup_file"; then
-    echo "issue-closure-audit: malformed follow-up issue #$followup. Refusing." >&2
-    return 1
-  fi
+  if [ ! -f "$followup_file" ] && ! fetch_issue "$followup" "$followup_file"; then refuse "cannot inspect follow-up issue #$followup. Refusing."; return 1; fi
+  if ! validate_issue_shape "$followup_file"; then refuse "malformed follow-up issue #$followup. Refusing."; return 1; fi
   followup_number="$(jq -r '.number' "$followup_file")"
   followup_state="$(jq -r '.state' "$followup_file")"
-  if [ "$followup_number" != "$followup" ]; then
-    echo "issue-closure-audit: follow-up payload #$followup_number does not match #$followup. Refusing." >&2
-    return 1
-  fi
-  if [ "$followup_state" != "OPEN" ]; then
-    echo "issue-closure-audit: follow-up issue #$followup is $followup_state, not OPEN. Refusing." >&2
-    return 1
-  fi
+  if [ "$followup_number" != "$followup" ]; then refuse "follow-up payload #$followup_number does not match #$followup. Refusing."; return 1; fi
+  if [ "$followup_state" != "OPEN" ]; then refuse "follow-up issue #$followup is $followup_state, not OPEN. Refusing."; return 1; fi
   return 0
 }
 

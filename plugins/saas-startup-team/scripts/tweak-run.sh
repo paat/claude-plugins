@@ -3,6 +3,8 @@
 
 set -euo pipefail
 
+die() { echo "tweak-run: $1" >&2; exit "${2:-1}"; }
+
 PATCH=""; MESSAGE=""; MODE="current"; BRANCH=""; PARENT=""; PUSH=0
 ROUTING_MODE="interactive-tweak"
 REMOTE="origin"; ROOT=""
@@ -29,7 +31,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$PATCH" ] || [ -z "$MESSAGE" ]; then usage; fi
-[ -f "$PATCH" ] || { echo "tweak-run: patch not found: $PATCH" >&2; exit 2; }
+[ -f "$PATCH" ] || die "patch not found: $PATCH" 2
 case "$MODE" in
   current) : ;;
   new-branch)
@@ -42,14 +44,10 @@ case "$ROUTING_MODE" in interactive-tweak|autonomous) : ;; *) usage ;; esac
 ROOT="$(cd "$ROOT" && pwd)"
 cd "$ROOT"
 if ! git diff --cached --quiet -- .startup/runs; then
-  echo "tweak-run: staged runtime telemetry must be removed before committing" >&2
-  exit 1
+  die "staged runtime telemetry must be removed before committing"
 fi
 initial_dirty="$(git status --porcelain --untracked-files=all | grep -vE '^.. \.startup/runs/' || true)"
-[ -z "$initial_dirty" ] || {
-  echo "tweak-run: working tree must be clean" >&2
-  exit 1
-}
+[ -z "$initial_dirty" ] || die "working tree must be clean"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROUTE_FILE="$(mktemp)"
@@ -80,8 +78,7 @@ trap 'exit 143' TERM
 
 if [ "$MODE" = new-branch ]; then
   git show-ref --verify --quiet "refs/heads/$BRANCH" && {
-    echo "tweak-run: branch exists: $BRANCH" >&2
-    exit 1
+    die "branch exists: $BRANCH"
   }
   git checkout -b "$BRANCH" "$PARENT"
 fi

@@ -16,6 +16,8 @@ export GIT_CONFIG_SYSTEM=/dev/null
 export GIT_CONFIG_NOSYSTEM=1
 unset GIT_EXTERNAL_DIFF
 
+die() { echo "delivery-route: $1" >&2; exit "${2:-1}"; }
+
 SCHEMA_VERSION=1
 REASONS=()
 
@@ -110,14 +112,8 @@ classify_issue() {
     esac
   done
   case "$mode" in autonomous|interactive-tweak) : ;; *) usage ;; esac
-  [[ "$issue" =~ ^[1-9][0-9]*$ ]] || {
-    echo "delivery-route: --issue must be a positive integer" >&2
-    exit 2
-  }
-  command -v gh >/dev/null 2>&1 || {
-    echo "delivery-route: gh is required for classify-issue" >&2
-    exit 2
-  }
+  [[ "$issue" =~ ^[1-9][0-9]*$ ]] || die "--issue must be a positive integer" 2
+  command -v gh >/dev/null 2>&1 || die "gh is required for classify-issue" 2
   issue_json=$(mktemp) || exit 2
   task_file=$(mktemp) || { rm -f -- "$issue_json"; exit 2; }
   labels_file=$(mktemp) || { rm -f -- "$issue_json" "$task_file"; exit 2; }
@@ -152,24 +148,14 @@ classify() {
   done
 
   case "$mode" in autonomous|interactive-tweak) : ;; *) usage ;; esac
-  [ -n "$task_file" ] && [ -f "$task_file" ] && [ -r "$task_file" ] || {
-    echo "delivery-route: readable --task-file is required" >&2
-    exit 2
-  }
+  [ -n "$task_file" ] && [ -f "$task_file" ] && [ -r "$task_file" ] || die "readable --task-file is required" 2
   if [ -n "$labels_file" ] && { [ ! -f "$labels_file" ] || [ ! -r "$labels_file" ]; }; then
-    echo "delivery-route: --labels-file is not readable: $labels_file" >&2
-    exit 2
+    die "--labels-file is not readable: $labels_file" 2
   fi
 
   task=$(cat "$task_file")
-  [ -n "$(printf '%s' "$task" | tr -d '[:space:]')" ] || {
-    echo "delivery-route: task file is empty" >&2
-    exit 2
-  }
-  [ -z "$labels_file" ] || labels=$(labels_text "$labels_file") || {
-    echo "delivery-route: could not parse labels file" >&2
-    exit 2
-  }
+  [ -n "$(printf '%s' "$task" | tr -d '[:space:]')" ] || die "task file is empty" 2
+  [ -z "$labels_file" ] || labels=$(labels_text "$labels_file") || die "could not parse labels file" 2
   text=$(printf '%s\n%s\n' "$task" "$labels" | tr '[:upper:]' '[:lower:]')
 
   scan_sensitive "$text"
@@ -198,14 +184,8 @@ check_diff() {
     esac
   done
   [ -n "$base" ] || usage
-  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
-    echo "delivery-route: check-diff requires a git worktree" >&2
-    exit 2
-  }
-  git -C "$repo_root" rev-parse --verify "${base}^{commit}" >/dev/null 2>&1 || {
-    echo "delivery-route: invalid base ref: $base" >&2
-    exit 2
-  }
+  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || die "check-diff requires a git worktree" 2
+  git -C "$repo_root" rev-parse --verify "${base}^{commit}" >/dev/null 2>&1 || die "invalid base ref: $base" 2
 
   tmp=$(mktemp -d)
   # shellcheck disable=SC2064
@@ -213,8 +193,7 @@ check_diff() {
   [ "$cached" -eq 0 ] || diff_args+=(--cached)
   if ! git -c core.fsmonitor=false -C "$repo_root" diff --no-ext-diff --no-textconv "${diff_args[@]}" "$base" --name-only >"$tmp/names" \
     || ! git -c core.fsmonitor=false -C "$repo_root" diff --no-ext-diff --no-textconv "${diff_args[@]}" "$base" -- >"$tmp/patch"; then
-    echo "delivery-route: git diff failed for base $base" >&2
-    exit 2
+    die "git diff failed for base $base" 2
   fi
   if [ "$cached" -eq 0 ]; then
     git -c core.fsmonitor=false -C "$repo_root" ls-files --others --exclude-standard >"$tmp/untracked"
