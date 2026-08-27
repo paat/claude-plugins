@@ -27,7 +27,9 @@ tribunal_ignored_additions() {
   exec {ignored_fd}< <(
     git diff --name-only --no-renames --diff-filter=A -z "$base_ref"...HEAD \
       | git check-ignore -v -z --no-index --stdin 2>/dev/null
-    exit "${PIPESTATUS[1]}"
+    pipeline_status=("${PIPESTATUS[@]}")
+    (( pipeline_status[0] == 0 )) || exit 2
+    exit "${pipeline_status[1]}"
   )
   ignored_pid=$!
   while IFS= read -r -d '' source \

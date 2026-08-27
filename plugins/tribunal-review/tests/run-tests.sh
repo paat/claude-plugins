@@ -72,7 +72,7 @@ assert_json_field() {
 }
 
 test_ignored_path_additions() {
-  local work fake base ignored_json preflight_json clean_json rename_json copy_json clean_rename_json
+  local work fake base ignored_json preflight_json clean_json clean_rc rename_json copy_json clean_rename_json
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
   git -C "$work" init -q -b main
   git -C "$work" config user.email test@example.com
@@ -126,11 +126,12 @@ test_ignored_path_additions() {
   printf 'clean\n' > "$work/clean.md"
   git -C "$work" add clean.md
   git -C "$work" commit -q -m clean
-  clean_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_ignored_additions "$base" 2>/dev/null)" || true
+  clean_rc=0
+  clean_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_ignored_additions "$base" 2>/dev/null)" || clean_rc=$?
   preflight_json="$(cd "$work" && PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF="$base" \
     TRIBUNAL_CODEX=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
     bash "$PLUGIN_ROOT/scripts/preflight.sh" 2>/dev/null)" || true
-  if printf '%s' "$clean_json" | jq -e 'length == 0' >/dev/null 2>&1 \
+  if [ "$clean_rc" -eq 0 ] && [ "$clean_json" = '[]' ] \
     && printf '%s' "$preflight_json" | jq -e 'all(.warnings[]; .name != "ignored-path-additions")' >/dev/null 2>&1; then
     echo -e "  ${GREEN}PASS${NC} normal additions produce no ignored-path warning"; PASS=$((PASS+1))
   else
@@ -173,6 +174,55 @@ test_ignored_path_additions() {
     echo -e "  ${GREEN}PASS${NC} rename between non-ignored paths is not reported"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} rename between non-ignored paths is not reported"; FAIL=$((FAIL+1)); FAILURES+=("non-ignored rename exclusion")
+  fi
+  rm -rf "$work"
+}
+
+test_ignored_path_diff_failures() {
+  local work fake base real_git helper_out helper_rc=0 preflight_rc=0
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  real_git="$(command -v git)"
+  git -C "$work" init -q -b main
+  git -C "$work" config user.email test@example.com
+  git -C "$work" config user.name "Test User"
+  printf 'base\n' > "$work/file.txt"
+  git -C "$work" add file.txt
+  git -C "$work" commit -q -m base
+  base="$(git -C "$work" rev-parse HEAD)"
+  git -C "$work" checkout -q -b feature
+  printf 'feature\n' > "$work/feature.txt"
+  git -C "$work" add feature.txt
+  git -C "$work" commit -q -m feature
+
+  helper_out="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" \
+    && tribunal_ignored_additions no-such-ref-xyz 2>/dev/null)" || helper_rc=$?
+  if [ "$helper_rc" -ne 0 ] && [ "$helper_out" != '[]' ]; then
+    echo -e "  ${GREEN}PASS${NC} ignored-addition inspection fails for an unresolvable base ref"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} ignored-addition inspection fails for an unresolvable base ref"; FAIL=$((FAIL+1)); FAILURES+=("ignored-addition diff failure")
+  fi
+
+  cat > "$fake/git" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = diff ]; then
+  for arg in "$@"; do
+    [ "$arg" != --name-only ] || exit 128
+  done
+fi
+exec "$TRIBUNAL_TEST_REAL_GIT" "$@"
+EOF
+  chmod +x "$fake/git"
+  (
+    cd "$work"
+    PATH="$fake:$PATH" TRIBUNAL_TEST_REAL_GIT="$real_git" \
+      TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF="$base" \
+      bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/preflight.out" 2> "$work/preflight.err"
+  ) || preflight_rc=$?
+  if [ "$preflight_rc" -ne 0 ] \
+    && grep -Fxq 'PREFLIGHT FAIL: cannot inspect ignored path additions.' "$work/preflight.err"; then
+    echo -e "  ${GREEN}PASS${NC} preflight surfaces ignored-addition diff failure"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} preflight surfaces ignored-addition diff failure"; FAIL=$((FAIL+1)); FAILURES+=("preflight ignored-addition diff failure")
   fi
   rm -rf "$work"
 }
@@ -1627,7 +1677,7 @@ test_wrapper_owned_provider_envelope() {
 
 test_trusted_evidence_collection() {
   local label="trusted evidence collection binds PR, providers, arbitration, and proof"
-  local work repo fake plugin collection manifest_sha proof_sha base head host_codex
+  local work repo fake plugin collection manifest_sha proof_sha base head host_codex real_git
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$work/tmp" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
@@ -1728,6 +1778,29 @@ if [ -n "${FIXTURE_KILL_FINALIZE:-}" ] && [ "$target" = "$FIXTURE_KILL_FINALIZE"
 fi
 EOF
   chmod +x "$fake/mv"
+
+  real_git="$(command -v git)"
+  mkdir -p "$work/diff-fail-bin"
+  cat > "$work/diff-fail-bin/git" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = diff ]; then
+  for arg in "$@"; do
+    [ "$arg" != --name-only ] || exit 128
+  done
+fi
+exec "$TRIBUNAL_TEST_REAL_GIT" "$@"
+EOF
+  chmod +x "$work/diff-fail-bin/git"
+  local diff_failed_collection="$work/diff-failed-collection" diff_failure_rc=0
+  PATH="$work/diff-fail-bin:$fake:$PATH" TRIBUNAL_TEST_REAL_GIT="$real_git" \
+    FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$diff_failed_collection" >/dev/null 2>&1 || diff_failure_rc=$?
+  if [ "$diff_failure_rc" -ne 0 ] && [ ! -e "$diff_failed_collection" ]; then
+    echo -e "  ${GREEN}PASS${NC} collection fails closed when ignored-addition diff fails"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} collection fails closed when ignored-addition diff fails"; FAIL=$((FAIL+1)); FAILURES+=("collection ignored-addition diff failure")
+  fi
 
   if FIXTURE_MUTATE_WORKTREE=on PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
     "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 --output "$work/mutated" >/dev/null 2>&1; then
@@ -2225,6 +2298,7 @@ test_codex_vacuous_guard " BLOCK " 0.0 "codex vacuous verdict tolerates surround
 test_codex_line_bounds_guard
 test_wrapper_owned_provider_envelope
 test_ignored_path_additions
+test_ignored_path_diff_failures
 test_ignored_path_validation
 test_trusted_evidence_collection
 
