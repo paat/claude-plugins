@@ -77,7 +77,7 @@ test_ignored_path_additions() {
   git -C "$work" init -q -b main
   git -C "$work" config user.email test@example.com
   git -C "$work" config user.name "Test User"
-  printf '# never commit\nscratch/\n' > "$work/.gitignore"
+  printf '# never commit\nscratch/\n*.log\n!keep.log\n' > "$work/.gitignore"
   mkdir -p "$work/scratch"
   printf 'already tracked\n' > "$work/scratch/already.md"
   git -C "$work" add .gitignore
@@ -86,8 +86,9 @@ test_ignored_path_additions() {
   base="$(git -C "$work" rev-parse HEAD)"
   git -C "$work" checkout -q -b feature
   printf 'normal\n' > "$work/normal.md"
+  printf 're-included addition\n' > "$work/keep.log"
   printf 'ignored addition\n' > "$work/scratch/note.md"
-  git -C "$work" add normal.md
+  git -C "$work" add normal.md keep.log
   git -C "$work" add -f scratch/note.md
   git -C "$work" commit -q -m feature
 
@@ -1931,6 +1932,26 @@ EOF
       arbiter_notes:"Deterministic repository-policy signal; default medium severity."
     }] | .summary="One deterministic medium repository-policy finding remains non-blocking."' \
     "$work/arbitration.json" > "$work/ignored-arbitration.json"
+  cp -a "$work/ignored" "$work/ignored-high"
+  jq '
+    .tribunal_verdict={decision:"NEEDS_WORK",confidence:1,rationale:"The repository policy finding blocks approval."}
+    | .findings[0].severity="high"
+    | .findings[0].blocking_proof={
+        reachable_path:"The reviewed diff force-adds the sealed ignored path.",
+        material_impact:"The ignore policy marks the path as never commit.",
+        caused_by_change:"The path is newly added in the reviewed range."
+      }
+    | .findings[0].arbiter_notes="Deterministic repository-policy signal escalated by a sensitive ignore comment."
+    | .summary="One high repository-policy finding blocks approval."
+  ' "$work/ignored-arbitration.json" > "$work/ignored-high-arbitration.json"
+  if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/ignored-high" \
+      --expected-manifest-sha256 "$ignored_manifest" --arbitration "$work/ignored-high-arbitration.json" \
+      >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} high repository-policy finding overrides vacuous approval"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} high repository-policy finding overrides vacuous approval"; FAIL=$((FAIL+1)); FAILURES+=("repository-policy vacuous approval exemption")
+  fi
   if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
     "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/ignored" \
       --expected-manifest-sha256 "$ignored_manifest" --arbitration "$work/ignored-arbitration.json" \

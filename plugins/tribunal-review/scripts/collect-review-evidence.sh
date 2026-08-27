@@ -641,6 +641,7 @@ validate_arbitration() {
       then .tribunal_verdict.decision=="NEEDS_WORK" and .tribunal_verdict.confidence==0 else true end)
     and (if ([$statuses[]|select(.=="ok")]|length)>0
             and ([$evidence[]|(.findings // [])[]]|length)==0
+            and ([.findings[]|select(.providers==["repository-policy"])]|length)==0
             and ([.scope_findings[]|select(.disposition=="must-remove-before-merge")]|length)==0
       then .tribunal_verdict.decision=="APPROVE" and .tribunal_verdict.confidence==0.95 else true end)
   ' "$arbitration" >/dev/null
