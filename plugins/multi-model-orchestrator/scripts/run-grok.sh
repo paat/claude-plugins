@@ -60,6 +60,7 @@ isolated_auth="$isolated_grok_home/auth.json"
 # and the isolated copy actually changed (avoids clobbering a concurrent refresh).
 start_auth_snapshot="$runtime_dir/auth.start.json"
 [ -n "$output_file" ] || output_file="$(mktemp)"
+output_file="$(realpath -m -- "$output_file")"
 
 writeback_auth() {
   local lock_dir lock_pid auth_tmp

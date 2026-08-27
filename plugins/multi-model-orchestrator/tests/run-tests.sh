@@ -383,6 +383,20 @@ printf 'grok out dest\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --re
 contains "$WORK/out-dest/grok.err" "log=$WORK/out-dest/grok-final.txt" 'Grok log= is --out path'
 pass 'Explicit --out destinations hold final results across runners'
 
+if ! (
+  cd "$WORK/out-dest"
+  printf 'relative claude out\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+    --model claude-haiku-4-5 --out claude-relative.txt --timeout 5 \
+    > claude-relative.stdout 2> claude-relative.err
+); then
+  fail 'Claude relative --out invocation succeeds from caller cwd'
+fi
+[ -f "$WORK/out-dest/claude-relative.txt" ] || fail 'Claude relative --out resolves at caller cwd'
+[ -f "$WORK/out-dest/claude-relative.txt.stderr" ] || fail 'Claude relative --out stderr resolves at caller cwd'
+[ ! -e "$WORK/repo/claude-relative.txt" ] || fail 'Claude relative --out stays outside reviewed repo'
+[ ! -e "$WORK/repo/claude-relative.txt.stderr" ] || fail 'Claude relative --out stderr stays outside reviewed repo'
+pass 'Claude relative --out resolves at caller cwd outside the reviewed repo'
+
 out="$(printf 'acceptance criterion\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" --base HEAD --model claude-opus-5 --effort xhigh --timeout 5 2> "$WORK/claude.err")"
 [ "$out" = $'claude findings\nAPPROVE' ] || fail 'Claude final output'
 contains "$WORK/claude.args" 'claude-opus-5' 'Claude Opus 5 model pin'
@@ -552,11 +566,24 @@ contains "$META_SKILL" 'write nothing and stop' 'Meta skill makes a no-op scan n
 contains "$META_SKILL" 'multi-model-orchestrator.local.md' 'Meta skill reads per-repo source/model config'
 contains "$META_SKILL" 'apply to the tribunal panel' 'Meta skill exempts the tribunal panel from leg model constraints'
 contains "$META_SKILL" 'unresearched' 'Meta skill distinguishes unresearched unknowns from human decisions'
+contains "$META_SKILL" 'completion re-invokes the orchestrator' 'Meta skill requires a completion path back to the orchestrator'
+contains "$META_SKILL" 'run_in_background: true' 'Meta skill names the Claude Code completion mechanism'
+contains "$META_SKILL" 'never use bare shell `&`' 'Meta skill forbids bare shell backgrounding'
+contains "$META_SKILL" 'At the start of every turn, before anything else' 'Meta skill reads unread leg output at turn start'
+contains "$META_SKILL" 'resume at the gate' 'Meta skill resumes completed legs at their gate'
+contains "$META_SKILL" 'a defect, not a wait' 'Meta skill rejects ending a turn with an unarranged live leg'
+contains "$META_SKILL" 'record it in the handoff' 'Meta skill records live legs before ending a turn'
+absent "$META_SKILL" 'Poll long-running legs on a ~30-minute cadence; no tight loops.' 'Meta skill removes unactionable polling guidance'
 absent "$META_SKILL" 'preflight.sh' 'Meta skill references tribunal instead of duplicating its preflight'
 absent "$META_SKILL" 'tribunal-round' 'Meta skill references tribunal instead of duplicating its round protocol'
 contains "$META_REFS/handoff-template.md" 'Stop here first' 'Handoff template keeps the single next action'
 contains "$META_REFS/handoff-template.md" 'do not re-litigate' 'Handoff template keeps ratified decisions'
 contains "$META_REFS/handoff-template.md" 'remain in force verbatim' 'Handoff template keeps delta inheritance'
+contains "$META_REFS/handoff-template.md" 'In-flight legs:' 'Handoff template records dispatched legs'
+contains "$META_REFS/handoff-template.md" 'runner + mode + model' 'In-flight legs identify their runner configuration'
+contains "$META_REFS/handoff-template.md" 'output path' 'In-flight legs identify their output'
+contains "$META_REFS/handoff-template.md" 'dispatch time (UTC)' 'In-flight legs record UTC dispatch time'
+contains "$META_REFS/handoff-template.md" 'how completion will be observed' 'In-flight legs record their completion path'
 contains "$META_REFS/worker-prompt.md" 'No push, no PR' 'Worker template forbids worker push'
 contains "$META_REFS/worker-prompt.md" 'expected red before the fix' 'Worker template keeps the expected-red phrasing'
 contains "$META_REFS/worker-prompt.md" 'Out of scope' 'Worker template keeps the scope fence'
