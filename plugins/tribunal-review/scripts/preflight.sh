@@ -39,6 +39,11 @@ add_provider() {
 add_warning() {
   warnings_json="$(printf '%s' "$warnings_json" | jq --arg n "$1" --arg note "$2" '. + [{name:$n,note:$note}]')"
 }
+ignored_paths_json="$(tribunal_ignored_additions "$BASE_REF")"
+if [ "$(printf '%s' "$ignored_paths_json" | jq 'length')" -gt 0 ]; then
+  add_warning ignored-path-additions "added paths ignored by Git: $(printf '%s' "$ignored_paths_json" \
+    | jq -r 'map("\(.path) (pattern \(.pattern), \(.source):\(.line))") | join("; ")')"
+fi
 provider_usable() {
   printf '%s' "$providers_json" | jq -e --arg n "$1" 'any(.[]; .name==$n and .status=="usable")' >/dev/null
 }

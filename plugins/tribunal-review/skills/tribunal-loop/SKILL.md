@@ -171,6 +171,10 @@ report diff-global positions). A `line_check`-marked finding has unreliable
 evidence linking: verify it against the real file before counting it toward
 severity or consensus, and cap it at `medium` unless independently confirmed.
 
+### Ignored Added Paths
+If preflight warns or sealed `ignored-paths.json` exists, read its source line and make each signal a `repository-policy` finding; it must become a finding, not be reported and forgotten.
+The default is medium; escalate to high when the preceding ignore comment says `secret`, `PII`, `credential`, `key`, or `never commit`. That high blocks the gate by design.
+
 ### Conflicts
 
 For conflicts, prefer direct code evidence over reviewer confidence. If two

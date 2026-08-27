@@ -21,6 +21,20 @@ tribunal_base_ref() {
   printf '%s\n' "${TRIBUNAL_BASE_REF:-origin/$branch}"
 }
 
+tribunal_ignored_additions() {
+  local base_ref="${1:-$(tribunal_base_ref)}" source line pattern path result="[]"
+  while IFS= read -r -d '' source \
+    && IFS= read -r -d '' line \
+    && IFS= read -r -d '' pattern \
+    && IFS= read -r -d '' path; do
+    result="$(printf '%s' "$result" | jq -c \
+      --arg path "$path" --arg pattern "$pattern" --arg source "$source" --argjson line "$line" \
+      '. + [{path:$path,pattern:$pattern,source:$source,line:$line}]')"
+  done < <(git diff --name-only --diff-filter=A -z "$base_ref"...HEAD \
+    | git check-ignore -v -z --no-index --stdin 2>/dev/null)
+  printf '%s\n' "$result"
+}
+
 # Plugin root for schema/assets. Explicit TRIBUNAL_PLUGIN_ROOT / CLAUDE_PLUGIN_ROOT
 # are authoritative even when the schema is missing (so the runner can fail loud
 # instead of silently loading another install — issue #378 / Codex review).

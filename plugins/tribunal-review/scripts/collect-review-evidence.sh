@@ -168,6 +168,20 @@ validate_provider() {
   ' "$file" >/dev/null
 }
 
+validate_ignored_paths() {
+  jq -e '
+    type == "array" and length > 0
+    and all(.[];
+      type == "object" and keys == ["line","path","pattern","source"]
+      and (.path | type == "string" and length > 0 and startswith("/") | not)
+      and (.path | contains("../") | not)
+      and (.pattern | type == "string" and length > 0)
+      and (.source | type == "string" and length > 0)
+      and (.line | type == "number" and . >= 1 and . == floor))
+    and ([.[].path] | length) == ([.[].path] | unique | length)
+  ' "$1" >/dev/null
+}
+
 provider_status() {
   jq -r 'if .status == "disabled" then "disabled" elif has("error") then "failed" else "ok" end' "$1"
 }
@@ -246,7 +260,7 @@ wrapper_for_provider() {
 
 collect() {
   local root="" pr="" output="" started binding head_oid base_oid parent review_tmp bundle
-  local wrapper name rc provider status artifact stderr wrapper_name providers_json
+  local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json
   local codex_worktree gemini_worktree opencode_worktree qwen_worktree grok_worktree claude_worktree review_worktree
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -280,6 +294,11 @@ collect() {
   printf '%s' "$binding" | jq -j .pull_request.body > "$STAGING/pr-body.txt"
   git -C "$root" diff --binary --no-ext-diff --no-textconv "$base_oid...$head_oid" > "$STAGING/review.diff"
   [ -s "$STAGING/review.diff" ] || die "PR has no diff"
+  ignored_paths_json="$(cd "$root" && tribunal_ignored_additions "$base_oid")"
+  if [ "$(printf '%s' "$ignored_paths_json" | jq 'length')" -gt 0 ]; then
+    printf '%s' "$ignored_paths_json" | jq -S . > "$STAGING/ignored-paths.json"
+    validate_ignored_paths "$STAGING/ignored-paths.json" || die "internal ignored-path evidence is invalid"
+  fi
 
   REVIEW_SOURCE="$root"; REVIEW_WORKTREES=()
   for name in codex gemini opencode qwen grok claude; do
@@ -351,6 +370,8 @@ collect() {
     --argjson body_bytes "$(bytes_file "$STAGING/pr-body.txt")" \
     --arg diff_sha256 "$(sha_file "$STAGING/review.diff")" \
     --argjson diff_bytes "$(bytes_file "$STAGING/review.diff")" \
+    --arg ignored_paths_sha256 "$([ ! -f "$STAGING/ignored-paths.json" ] || sha_file "$STAGING/ignored-paths.json")" \
+    --argjson ignored_paths_bytes "$([ ! -f "$STAGING/ignored-paths.json" ] && printf '0' || bytes_file "$STAGING/ignored-paths.json")" \
     --arg runner_path "$SCRIPT_DIR/collect-review-evidence.sh" \
     --arg runner_sha256 "$(sha_file "$SCRIPT_DIR/collect-review-evidence.sh")" \
     --arg library_path "$SCRIPT_DIR/lib.sh" --arg library_sha256 "$(sha_file "$SCRIPT_DIR/lib.sh")" \
@@ -366,9 +387,13 @@ collect() {
       diff:{path:"review.diff",sha256:$diff_sha256,bytes:$diff_bytes},
       runner:{path:$runner_path,sha256:$runner_sha256,library_path:$library_path,library_sha256:$library_sha256,
         bundle_manifest_path:$bundle_manifest_path,bundle_manifest_sha256:$bundle_manifest_sha256},
-      providers:$providers}' > "$STAGING/manifest.json"
+      providers:$providers}
+      + (if $ignored_paths_sha256 == "" then {} else
+          {ignored_paths:{path:"ignored-paths.json",sha256:$ignored_paths_sha256,bytes:$ignored_paths_bytes}} end)' \
+    > "$STAGING/manifest.json"
   rm -f "$providers_json"
   chmod 0444 "$STAGING/manifest.json" "$STAGING/pr-body.txt" "$STAGING/review.diff" "$STAGING/providers/"*.json
+  [ ! -f "$STAGING/ignored-paths.json" ] || chmod 0444 "$STAGING/ignored-paths.json"
   mv -T -- "$STAGING" "$output" 2>/dev/null \
     || die "collection output appeared concurrently"
   STAGING=""
@@ -388,7 +413,7 @@ validate_manifest_shape() {
     def oid: type=="string" and test("^[0-9a-f]{40}$");
     def uint: type=="number" and .>=0 and .==floor;
     def stamp: type=="string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
-    exact(["schema","started_at","completed_at","repository","pull_request","diff","runner","providers"];
+    exact(["schema","started_at","completed_at","repository","pull_request","diff","runner","providers","ignored_paths"];
           ["schema","started_at","completed_at","repository","pull_request","diff","runner","providers"])
     and .schema==$schema and (.started_at|stamp) and (.completed_at|stamp) and .started_at<=.completed_at
     and (.repository | exact(["root","host","name_with_owner","url"];
@@ -404,6 +429,9 @@ validate_manifest_shape() {
               and .path=="pr-body.txt" and (.sha256|sha) and (.bytes|uint)))
     and (.diff | exact(["path","sha256","bytes"];["path","sha256","bytes"])
          and .path=="review.diff" and (.sha256|sha) and (.bytes|uint and .>0))
+    and ((has("ignored_paths")|not) or
+         (.ignored_paths | exact(["path","sha256","bytes"];["path","sha256","bytes"])
+          and .path=="ignored-paths.json" and (.sha256|sha) and (.bytes|uint and .>0)))
     and (.runner | exact(["path","sha256","library_path","library_sha256","bundle_manifest_path","bundle_manifest_sha256"];
                          ["path","sha256","library_path","library_sha256","bundle_manifest_path","bundle_manifest_sha256"])
          and (.path|text and startswith("/")) and (.sha256|sha)
@@ -427,7 +455,7 @@ validate_manifest_shape() {
 }
 
 verify_live_binding() {
-  local dir="$1" manifest="$2" root pr current expected body_tmp diff_tmp
+  local dir="$1" manifest="$2" root pr current expected body_tmp diff_tmp ignored_tmp ignored_json
   root="$(jq -r .repository.root "$manifest")"; root="$(real_dir "$root")"
   pr="$(jq -r .pull_request.number "$manifest")"
   current="$(live_binding "$root" "$pr")"
@@ -446,6 +474,16 @@ verify_live_binding() {
   rm -f "$body_tmp" "$diff_tmp"
   [ "$(git -C "$root" rev-parse HEAD)" = "$(jq -r .pull_request.head_oid "$manifest")" ] \
     || die "worktree HEAD drifted after collection"
+  ignored_json="$(cd "$root" && tribunal_ignored_additions "$(jq -r .pull_request.base_oid "$manifest")")"
+  if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
+    ignored_tmp="$(mktemp)"; printf '%s' "$ignored_json" | jq -S . > "$ignored_tmp"
+    cmp -s "$ignored_tmp" "$dir/ignored-paths.json" \
+      || { rm -f "$ignored_tmp"; die "ignored-path evidence drifted after collection"; }
+    rm -f "$ignored_tmp"
+  else
+    [ "$(printf '%s' "$ignored_json" | jq 'length')" -eq 0 ] \
+      || die "ignored-path evidence appeared after collection"
+  fi
   [ "$(sha_file "$dir/pr-body.txt")" = "$(jq -r .pull_request.body.sha256 "$manifest")" ] \
     || die "retained PR body digest mismatch"
   [ "$(bytes_file "$dir/pr-body.txt")" = "$(jq -r .pull_request.body.bytes "$manifest")" ] \
@@ -466,6 +504,17 @@ verify_collection_internal() {
   [ -f "$dir/review.diff" ] && [ ! -L "$dir/review.diff" ] || die "retained diff missing or symbolic"
   [ "$expected_sha" = "$(sha_file "$manifest")" ] || die "collection manifest digest mismatch"
   validate_manifest_shape "$manifest" || die "collection manifest schema invalid"
+  if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
+    [ -f "$dir/ignored-paths.json" ] && [ ! -L "$dir/ignored-paths.json" ] \
+      || die "ignored-path artifact missing or symbolic"
+    [ "$(sha_file "$dir/ignored-paths.json")" = "$(jq -r .ignored_paths.sha256 "$manifest")" ] \
+      || die "ignored-path artifact digest mismatch"
+    [ "$(bytes_file "$dir/ignored-paths.json")" = "$(jq -r .ignored_paths.bytes "$manifest")" ] \
+      || die "ignored-path artifact size mismatch"
+    validate_ignored_paths "$dir/ignored-paths.json" || die "ignored-path artifact schema invalid"
+  else
+    [ ! -e "$dir/ignored-paths.json" ] || die "unbound ignored-path artifact"
+  fi
   [ "$(jq -r .runner.path "$manifest")" = "$SCRIPT_DIR/collect-review-evidence.sh" ] \
     || die "collection runner path differs from installed runner"
   [ "$(jq -r .runner.sha256 "$manifest")" = "$(sha_file "$SCRIPT_DIR/collect-review-evidence.sh")" ] \
@@ -504,7 +553,7 @@ verify_collection_internal() {
 }
 
 validate_arbitration() {
-  local arbitration="$1" manifest="$2" statuses dir evidence
+  local arbitration="$1" manifest="$2" statuses dir evidence ignored_paths
   statuses="$(jq -c '[.providers[]|{key:.provider,value:.status}]|from_entries' "$manifest")"
   dir="$(dirname "$manifest")"
   evidence="$(jq -nc \
@@ -513,7 +562,12 @@ validate_arbitration() {
     --slurpfile qwen "$dir/providers/qwen.json" --slurpfile grok "$dir/providers/grok.json" \
     --slurpfile claude "$dir/providers/claude.json" \
     '{codex:$codex[0],gemini:$gemini[0],glm:$glm[0],deepseek:$deepseek[0],qwen:$qwen[0],grok:$grok[0],claude:$claude[0]}')"
-  jq -e --argjson statuses "$statuses" --argjson evidence "$evidence" '
+  if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
+    ignored_paths="$(jq -c . "$dir/ignored-paths.json")"
+  else
+    ignored_paths="[]"
+  fi
+  jq -e --argjson statuses "$statuses" --argjson evidence "$evidence" --argjson ignored_paths "$ignored_paths" '
     def exact($a;$r): (type=="object") and ((keys-$a)|length==0) and (($r-keys)|length==0);
     def text: type=="string" and length>0;
     def uint: type=="number" and .>=0 and .==floor;
@@ -524,8 +578,13 @@ validate_arbitration() {
       and (.id|test("^T-[0-9]{3,}$")) and (.consensus|IN("CONSENSUS","SINGLE_PROVIDER"))
       and (. as $finding | .providers|type=="array" and length>0 and length==([.[]]|unique|length)
            and all(.[]; . as $p
-             | IN("codex","gemini","glm","deepseek","qwen","grok","claude") and $statuses[$p] == "ok"
-             and (($evidence[$p].findings // []) | any(.[]; .file == $finding.file))))
+             | if $p == "repository-policy" then
+                 ($ignored_paths | any(.[]; .path == $finding.file))
+               else
+                 ($p | IN("codex","gemini","glm","deepseek","qwen","grok","claude"))
+                 and $statuses[$p] == "ok"
+                 and (($evidence[$p].findings // []) | any(.[]; .file == $finding.file))
+               end))
       and ((.providers|length)>=2) == (.consensus=="CONSENSUS")
       and (.severity|IN("critical","high","medium","low"))
       and (.category|IN("logic","security","performance","quality","edge-case","architecture","testing"))
@@ -562,6 +621,8 @@ validate_arbitration() {
                                 ["decision","confidence","rationale"])
          and (.decision|IN("APPROVE","NEEDS_WORK","BLOCK")) and (.confidence|conf) and (.rationale|text))
     and (.findings|type=="array" and all(.[];finding) and ([.[].id]|length)==([.[].id]|unique|length))
+    and (.findings as $findings | $ignored_paths | all(.[]; .path as $path
+      | any($findings[]; .file == $path and (.providers | index("repository-policy")))))
     and (.scope_findings|type=="array" and all(.[];scope) and ([.[].id]|length)==([.[].id]|unique|length))
     and (.findings as $final_findings | .provider_assessment
          | exact(["codex","gemini","glm","deepseek","qwen","grok","claude"];

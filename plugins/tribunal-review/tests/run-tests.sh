@@ -71,6 +71,72 @@ assert_json_field() {
   fi
 }
 
+test_ignored_path_additions() {
+  local work fake base ignored_json preflight_json clean_json
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  git -C "$work" init -q -b main
+  git -C "$work" config user.email test@example.com
+  git -C "$work" config user.name "Test User"
+  printf '# never commit\nscratch/\n' > "$work/.gitignore"
+  mkdir -p "$work/scratch"
+  printf 'already tracked\n' > "$work/scratch/already.md"
+  git -C "$work" add .gitignore
+  git -C "$work" add -f scratch/already.md
+  git -C "$work" commit -q -m base
+  base="$(git -C "$work" rev-parse HEAD)"
+  git -C "$work" checkout -q -b feature
+  printf 'normal\n' > "$work/normal.md"
+  printf 'ignored addition\n' > "$work/scratch/note.md"
+  git -C "$work" add normal.md
+  git -C "$work" add -f scratch/note.md
+  git -C "$work" commit -q -m feature
+
+  ignored_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_ignored_additions "$base" 2>/dev/null)" || true
+  if printf '%s' "$ignored_json" | jq -e '
+      length == 1 and .[0] == {path:"scratch/note.md",pattern:"scratch/",source:".gitignore",line:2}
+    ' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} ignored addition reports path, pattern, and ignore source line"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} ignored addition reports path, pattern, and ignore source line"; FAIL=$((FAIL+1)); FAILURES+=("ignored addition details")
+  fi
+  if printf '%s' "$ignored_json" | jq -e 'all(.[]; .path != "scratch/already.md")' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} ignored path tracked before reviewed range is not reported"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} ignored path tracked before reviewed range is not reported"; FAIL=$((FAIL+1)); FAILURES+=("pre-existing ignored path exclusion")
+  fi
+
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"; chmod +x "$fake/codex"
+  preflight_json="$(cd "$work" && PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF="$base" \
+    TRIBUNAL_CODEX=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
+    bash "$PLUGIN_ROOT/scripts/preflight.sh" 2>/dev/null)" || true
+  if printf '%s' "$preflight_json" | jq -e '
+      any(.warnings[]; .name == "ignored-path-additions"
+        and (.note | contains("scratch/note.md"))
+        and (.note | contains("scratch/"))
+        and (.note | contains(".gitignore:2")))
+    ' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} preflight warns about ignored path additions"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} preflight warns about ignored path additions"; FAIL=$((FAIL+1)); FAILURES+=("preflight ignored addition warning")
+  fi
+
+  git -C "$work" checkout -q -b clean "$base"
+  printf 'clean\n' > "$work/clean.md"
+  git -C "$work" add clean.md
+  git -C "$work" commit -q -m clean
+  clean_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_ignored_additions "$base" 2>/dev/null)" || true
+  preflight_json="$(cd "$work" && PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF="$base" \
+    TRIBUNAL_CODEX=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
+    bash "$PLUGIN_ROOT/scripts/preflight.sh" 2>/dev/null)" || true
+  if printf '%s' "$clean_json" | jq -e 'length == 0' >/dev/null 2>&1 \
+    && printf '%s' "$preflight_json" | jq -e 'all(.warnings[]; .name != "ignored-path-additions")' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} normal additions produce no ignored-path warning"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} normal additions produce no ignored-path warning"; FAIL=$((FAIL+1)); FAILURES+=("clean ignored addition check")
+  fi
+  rm -rf "$work"
+}
+
 test_empty_staged_diff_with_real_changes_fails_closed() {
   local label="empty staged diff with real changes is a leg error" work base_oid head_oid
   work="$(mktemp -d)"
@@ -1619,6 +1685,13 @@ EOF
   fi
   manifest_sha="$(jq -r .manifest_sha256 "$work/collect.json")"
 
+  if [ ! -e "$collection/ignored-paths.json" ] \
+    && jq -e 'has("ignored_paths") | not' "$collection/manifest.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} clean collection has no ignored-path artifact noise"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} clean collection has no ignored-path artifact noise"; FAIL=$((FAIL+1)); FAILURES+=("clean collection artifact noise")
+  fi
+
   # The codex fixture claims to be Claude; the aggregate runner owns and
   # rewrites identity before sealing the artifact.
   if ! jq -e '.provider=="codex" and (has("caller_owned")|not)' "$collection/providers/codex.json" >/dev/null; then
@@ -1823,6 +1896,53 @@ EOF
     echo -e "  ${RED}FAIL${NC} interrupted finalize resumes from identical retained arbitration"; FAIL=$((FAIL+1)); FAILURES+=("interrupted finalize recovery")
   fi
 
+  printf '# never commit\nscratch/\n' > "$repo/.gitignore"
+  mkdir -p "$repo/scratch"
+  printf 'ignored addition\n' > "$repo/scratch/note.md"
+  git -C "$repo" add .gitignore
+  git -C "$repo" add -f scratch/note.md
+  git -C "$repo" commit -q -m 'force-add ignored path'
+  head="$(git -C "$repo" rev-parse HEAD)"
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/ignored" > "$work/ignored.json"
+  local ignored_manifest
+  ignored_manifest="$(jq -r .manifest_sha256 "$work/ignored.json")"
+  if jq -e '. == [{path:"scratch/note.md",pattern:"scratch/",source:".gitignore",line:2}]' \
+      "$work/ignored/ignored-paths.json" >/dev/null 2>&1 \
+    && jq -e '.ignored_paths.path == "ignored-paths.json" and (.ignored_paths.sha256 | test("^[0-9a-f]{64}$"))
+      and (.ignored_paths.bytes > 0)' "$work/ignored/manifest.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} merge-gate collection seals ignored-path evidence"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} merge-gate collection seals ignored-path evidence"; FAIL=$((FAIL+1)); FAILURES+=("sealed ignored-path evidence")
+  fi
+  if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/ignored" \
+      --expected-manifest-sha256 "$ignored_manifest" --arbitration "$work/arbitration.json" >/dev/null 2>&1; then
+    echo -e "  ${RED}FAIL${NC} finalize rejects a forgotten ignored-path signal"; FAIL=$((FAIL+1)); FAILURES+=("forgotten ignored-path signal")
+  else
+    echo -e "  ${GREEN}PASS${NC} finalize rejects a forgotten ignored-path signal"; PASS=$((PASS+1))
+  fi
+  jq '.findings=[{
+      id:"T-001",consensus:"SINGLE_PROVIDER",providers:["repository-policy"],severity:"medium",
+      category:"security",file:"scratch/note.md",line:1,title:"Force-added ignored path",
+      description:"The reviewed diff adds a path matched by scratch/ at .gitignore:2.",
+      suggestion:"Remove the file or document why force-adding it is safe.",confidence:1,
+      arbiter_notes:"Deterministic repository-policy signal; default medium severity."
+    }] | .summary="One deterministic medium repository-policy finding remains non-blocking."' \
+    "$work/arbitration.json" > "$work/ignored-arbitration.json"
+  if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/ignored" \
+      --expected-manifest-sha256 "$ignored_manifest" --arbitration "$work/ignored-arbitration.json" \
+      > "$work/ignored-finalize.json" \
+    && jq -e '.proof_sha256 | test("^[0-9a-f]{64}$")' "$work/ignored-finalize.json" >/dev/null \
+    && jq -e '.schema == "tribunal-proof/v1" and .arbitration.decision == "APPROVE"' \
+      "$work/ignored/proof.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} ignored-path finding survives collect-to-finalize round trip"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} ignored-path finding survives collect-to-finalize round trip"; FAIL=$((FAIL+1)); FAILURES+=("ignored-path finalize round trip")
+  fi
+
   # The sealed wrapper's 64 MiB file limit must not apply to inherited Codex state.
   cp "$PLUGIN_ROOT/scripts/run-codex-review.sh" "$plugin/scripts/"
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
@@ -2012,6 +2132,7 @@ test_codex_vacuous_guard NEEDS_WORK 7.5 "codex vacuous empty-NEEDS_WORK (nonzero
 test_codex_vacuous_guard " BLOCK " 0.0 "codex vacuous verdict tolerates surrounding whitespace"
 test_codex_line_bounds_guard
 test_wrapper_owned_provider_envelope
+test_ignored_path_additions
 test_trusted_evidence_collection
 
 echo "Finding position validation:"
@@ -2021,6 +2142,10 @@ for runner in run-codex-review.sh run-claude-review.sh run-gemini-review.sh run-
   assert_grep "$runner pipes through line check" "scripts/$runner" "tribunal_line_check"
 done
 assert_grep "arbiter told to distrust marked positions" "$SK" "line_check"
+assert_grep "ignored-path signal must become a finding" "$SK" "must become a finding"
+assert_grep "ignored-path finding defaults medium" "$SK" "default.*medium"
+assert_grep "sensitive ignore comments escalate high" "$SK" "secret.*PII.*credential.*key.*never commit"
+assert_grep "high ignored-path finding blocks gate" "$SK" "high.*blocks the gate"
 
 echo "Arbitration contract:"
 assert_grep "3b-0 in SKILL" "$SK" "3b-0: Blocking-Finding Standard"
