@@ -688,7 +688,6 @@ test_cross_file_consistency() {
     "$PLUGIN_ROOT/templates/handoff-tech-to-business.md"
 
   # H10-H11: Scripts are executable
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
   assert_file_not_exists "H10: check-task-complete.sh removed (#391)" "$PLUGIN_ROOT/scripts/check-task-complete.sh"
 
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
@@ -776,6 +775,7 @@ test_plugin_issues() {
   else
     echo -e "  ${RED}FAIL${NC} J1: PLUGIN_ISSUES.md still exists at plugin root"
     FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("J1: PLUGIN_ISSUES.md still exists at plugin root")
   fi
 
   # J2-J5: the shared reference routes through the dry-funnel filing helper; remaining
@@ -797,6 +797,7 @@ test_plugin_issues() {
   else
     echo -e "  ${RED}FAIL${NC} J-bootstrap: bootstrap skill still references PLUGIN_ISSUES"
     FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("J-bootstrap: bootstrap skill still references PLUGIN_ISSUES")
   fi
 
   # J-startup: startup no longer seeds .startup/PLUGIN_ISSUES.md either
@@ -807,6 +808,7 @@ test_plugin_issues() {
   else
     echo -e "  ${RED}FAIL${NC} J-startup: startup.md still references PLUGIN_ISSUES"
     FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("J-startup: startup.md still references PLUGIN_ISSUES")
   fi
 }
 
@@ -3455,12 +3457,23 @@ main() {
     for f in "${FAILURES[@]}"; do
       echo -e "  ${RED}- $f${NC}"
     done
-    exit 1
   else
     echo ""
-    echo -e "${GREEN}All tests passed!${NC}"
-    exit 0
   fi
+
+  if [ "$TOTAL_COUNT" -ne "$((PASS_COUNT + FAIL_COUNT))" ]; then
+    echo -e "${RED}COUNTER MISMATCH: Total: $TOTAL_COUNT | Pass: $PASS_COUNT | Fail: $FAIL_COUNT${NC}"
+    exit 1
+  fi
+
+  if [ "${#FAILURES[@]}" -ne "$FAIL_COUNT" ]; then
+    echo -e "${RED}FAILURE MISMATCH: Failures: ${#FAILURES[@]} | Fail: $FAIL_COUNT${NC}"
+    exit 1
+  fi
+
+  [ "$FAIL_COUNT" -eq 0 ] || exit 1
+  echo -e "${GREEN}All tests passed!${NC}"
+  exit 0
 }
 
 # ---------------------------------------------------------------------------
