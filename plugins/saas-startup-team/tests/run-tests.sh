@@ -775,6 +775,7 @@ test_plugin_issues() {
   else
     echo -e "  ${RED}FAIL${NC} J1: PLUGIN_ISSUES.md still exists at plugin root"
     FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("J1: PLUGIN_ISSUES.md still exists at plugin root")
   fi
 
   # J2-J5: the shared reference routes through the dry-funnel filing helper; remaining
@@ -796,6 +797,7 @@ test_plugin_issues() {
   else
     echo -e "  ${RED}FAIL${NC} J-bootstrap: bootstrap skill still references PLUGIN_ISSUES"
     FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("J-bootstrap: bootstrap skill still references PLUGIN_ISSUES")
   fi
 
   # J-startup: startup no longer seeds .startup/PLUGIN_ISSUES.md either
@@ -806,6 +808,7 @@ test_plugin_issues() {
   else
     echo -e "  ${RED}FAIL${NC} J-startup: startup.md still references PLUGIN_ISSUES"
     FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("J-startup: startup.md still references PLUGIN_ISSUES")
   fi
 }
 
@@ -3448,6 +3451,17 @@ main() {
   echo -e "${YELLOW}=== Summary ===${NC}"
   echo -e "Total: $TOTAL_COUNT | ${GREEN}Pass: $PASS_COUNT${NC} | ${RED}Fail: $FAIL_COUNT${NC}"
 
+  if [ "$FAIL_COUNT" -gt 0 ]; then
+    echo ""
+    echo -e "${RED}Failures:${NC}"
+    for f in "${FAILURES[@]}"; do
+      echo -e "  ${RED}- $f${NC}"
+    done
+  else
+    echo ""
+    echo -e "${GREEN}All tests passed!${NC}"
+  fi
+
   if [ "$TOTAL_COUNT" -ne "$((PASS_COUNT + FAIL_COUNT))" ]; then
     echo -e "${RED}COUNTER MISMATCH: Total: $TOTAL_COUNT | Pass: $PASS_COUNT | Fail: $FAIL_COUNT${NC}"
     exit 1
@@ -3458,18 +3472,8 @@ main() {
     exit 1
   fi
 
-  if [ "$FAIL_COUNT" -gt 0 ]; then
-    echo ""
-    echo -e "${RED}Failures:${NC}"
-    for f in "${FAILURES[@]}"; do
-      echo -e "  ${RED}- $f${NC}"
-    done
-    exit 1
-  else
-    echo ""
-    echo -e "${GREEN}All tests passed!${NC}"
-    exit 0
-  fi
+  [ "$FAIL_COUNT" -eq 0 ] || exit 1
+  exit 0
 }
 
 # ---------------------------------------------------------------------------
