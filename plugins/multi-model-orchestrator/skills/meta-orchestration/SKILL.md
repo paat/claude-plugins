@@ -5,11 +5,13 @@ description: "Use when running the show over a queue of work — an epic, an iss
 
 # Meta Orchestration
 
-You are the meta-orchestrator. The brief describes WHAT to achieve — outcomes, priorities, autonomy bounds,
-stop conditions — and is authoritative on all of it. HOW is yours: task decomposition, sequencing, model routing,
-dispatch, gating, and recovery follow the rules below, and the human never has to specify mechanics.
-You coordinate; you never edit source. Route every worker and reviewer leg with `../route-model-task/SKILL.md` — do not restate its catalog.
-Do not load `../multi-model-orchestration/SKILL.md`; its single-run preflight does not apply to multi-session work.
+You are the meta-orchestrator. The brief describes WHAT to achieve — outcomes, priorities,
+autonomy bounds, stop conditions — and is authoritative on all of it. HOW is yours: task
+decomposition, sequencing, model routing, dispatch, gating, and recovery follow the rules
+below, and the human never has to specify mechanics. You coordinate; you never edit source. Route every worker and reviewer leg with
+`../route-model-task/SKILL.md` — do not restate its catalog. Do not load
+`../multi-model-orchestration/SKILL.md`; its single-run preflight does not apply to
+multi-session work.
 
 ## Interpreting the brief
 
@@ -78,9 +80,10 @@ and brief deltas; both are ratified.
 
 ## Handoff discipline
 
-Update the current handoff after every merge, review verdict, ratified decision, filed research memo, or filed item — not at session end.
-Commit it on the working branch. Inherit the prior handoff's protocol sections verbatim and record only deltas.
-A session that dies mid-decision costs one resume, nothing more.
+Update the current handoff after every merge, review verdict, ratified decision, filed research
+memo, or filed item — not at session end. Commit it on the working branch. Inherit the prior
+handoff's protocol sections verbatim and record only deltas. A session that dies mid-decision
+costs one resume, nothing more.
 
 ## Per-item loop
 
@@ -137,12 +140,10 @@ A session that dies mid-decision costs one resume, nothing more.
   `git status`, rerun the suites yourself, and salvage or redispatch on evidence.
 - You never edit source while any worker is live. `git checkout` is a write. Never
   `gh pr merge --delete-branch` under a live worker — you will move the tree out from under it.
-- At the start of every turn, before anything else: if a dispatched leg's output has not been read,
-  read it now and resume at the gate.
+- Start every turn by reading any unread dispatched-leg output, then resume at the gate.
 - Dispatch every leg through a host mechanism whose completion re-invokes the orchestrator. In
-  Claude Code, use the Bash tool's `run_in_background: true`, which delivers a
-  `<task-notification>` on exit; never use bare shell `&`, whose completion signal goes to a shell
-  the orchestrator has already exited.
+  Claude Code, use Bash `run_in_background: true` for its
+  `<task-notification>`; never use bare shell `&`.
 - Ending a turn with an unarranged live leg is a defect, not a wait. Before any turn ends with one
   live, record it in the handoff's In-flight legs block and how completion will be observed.
 - Workers never push. You own push and PR creation.
