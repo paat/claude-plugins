@@ -3459,7 +3459,6 @@ main() {
     done
   else
     echo ""
-    echo -e "${GREEN}All tests passed!${NC}"
   fi
 
   if [ "$TOTAL_COUNT" -ne "$((PASS_COUNT + FAIL_COUNT))" ]; then
@@ -3473,6 +3472,7 @@ main() {
   fi
 
   [ "$FAIL_COUNT" -eq 0 ] || exit 1
+  echo -e "${GREEN}All tests passed!${NC}"
   exit 0
 }
 
