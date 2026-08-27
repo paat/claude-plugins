@@ -688,7 +688,6 @@ test_cross_file_consistency() {
     "$PLUGIN_ROOT/templates/handoff-tech-to-business.md"
 
   # H10-H11: Scripts are executable
-  TOTAL_COUNT=$((TOTAL_COUNT + 1))
   assert_file_not_exists "H10: check-task-complete.sh removed (#391)" "$PLUGIN_ROOT/scripts/check-task-complete.sh"
 
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
@@ -3448,6 +3447,11 @@ main() {
   echo ""
   echo -e "${YELLOW}=== Summary ===${NC}"
   echo -e "Total: $TOTAL_COUNT | ${GREEN}Pass: $PASS_COUNT${NC} | ${RED}Fail: $FAIL_COUNT${NC}"
+
+  if [ "$TOTAL_COUNT" -ne "$((PASS_COUNT + FAIL_COUNT))" ]; then
+    echo -e "${RED}COUNTER MISMATCH: Total: $TOTAL_COUNT | Pass: $PASS_COUNT | Fail: $FAIL_COUNT${NC}"
+    exit 1
+  fi
 
   if [ "$FAIL_COUNT" -gt 0 ]; then
     echo ""
