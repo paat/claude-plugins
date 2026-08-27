@@ -68,8 +68,8 @@ after every decision. `--resume [handoff-path]` continues from the newest (or na
 trailing text is treated as pre-answered decisions. A scan that finds nothing new writes
 nothing and stops; recurrence belongs to `/loop` or cron.
 
-When an item depends on out-of-repo facts, a read-only research leg records tiered evidence in a
-tracked memo. Unknowns are researched before they are escalated as human decisions.
+When an item depends on out-of-repo facts, a research leg records tiered evidence in a tracked
+memo. Unknowns are researched before they are escalated as human decisions.
 
 Delivery chains `tribunal-review:closing-tribunal-loop` (epic PR in epic mode, per-item PRs
 otherwise), so that plugin must be installed. Code delivers through GitHub branches/PRs;

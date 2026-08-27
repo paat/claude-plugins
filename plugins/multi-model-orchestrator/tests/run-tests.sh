@@ -635,6 +635,7 @@ contains "$META_REFS/worker-prompt.md" 'the orchestrator commits' 'Worker templa
 absent "$META_REFS/review-prompts.md" 'REQUEST_CHANGES' 'Review template does not reintroduce the unsupported verdict token'
 [ -f "$META_REFS/research-leg.md" ] || fail 'Research leg reference exists'
 contains "$META_REFS/research-leg.md" 'Do not trigger' 'Research leg reference keeps the negative trigger rules'
+absent "$META_REFS/research-leg.md" 'prompt-bounded' 'Research leg reference does not restate runner posture'
 [ "$(wc -l < "$META_SKILL")" -le 150 ] || fail 'meta-orchestration SKILL.md exceeds the 150-line budget'
 pass 'Meta orchestration command, skill, and templates carry the required contracts'
 

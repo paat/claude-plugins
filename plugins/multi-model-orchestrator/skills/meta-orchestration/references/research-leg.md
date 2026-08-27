@@ -3,9 +3,8 @@
 Use `--mode research` for facts outside the repository. Prefer primary sources and spend the leg
 only when its evidence can change the current decision.
 
-Claude and Grok research legs are restricted at the tool layer; the Codex leg is prompt-bounded
-only, despite its scratch working root. Prefer Claude or Grok when model constraints permit; Codex
-is the fallback that preserves a grounding leg for Codex-pinned deployments.
+Prefer Claude or Grok when model constraints permit; Codex is the fallback that preserves a
+grounding leg for Codex-pinned deployments.
 
 ## Discovery
 
@@ -16,9 +15,7 @@ trigger** rules below do not gate Discovery.
 
 ## Triggers
 
-The tool-restricted Claude and Grok research legs cannot read the tree; Codex research is
-prompt-bounded and starts in a scratch working root, but is not filesystem-isolated. The
-orchestrator ALWAYS supplies the in-repo half of a comparative question in the research prompt
+The orchestrator ALWAYS supplies the in-repo half of a comparative question in the research prompt
 as minimal excerpts or needed file contents.
 
 | Trigger | Recognizable example |
