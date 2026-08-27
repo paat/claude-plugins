@@ -20,10 +20,14 @@ test_codex_cast() {
   lines=$(wc -l < "$cast" | tr -d ' ')
   [ "$lines" -le 350 ] || {
     echo -e "  ${RED}FAIL${NC} CC0f: adapter LOC $lines exceeds 350"
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    FAIL_COUNT=$((FAIL_COUNT + 1))
     FAILURES+=("CC0f: adapter LOC $lines exceeds 350")
     return 0
   }
   echo -e "  ${GREEN}PASS${NC} CC0f: adapter LOC $lines <= 350"
+  TOTAL_COUNT=$((TOTAL_COUNT + 1))
+  PASS_COUNT=$((PASS_COUNT + 1))
 
   # ---- fixtures ----
   repo=$(mktemp -d)
@@ -169,10 +173,15 @@ SH
   assert_equals "CC4b: outcome timeout" "$(jq -r .outcome <<<"$out")" "timeout"
   [ "$ec" -eq 124 ] || [ "$ec" -eq 137 ] || [ "$ec" -eq 1 ] || {
     echo -e "  ${RED}FAIL${NC} CC4c: timeout exit expected 124/137/1 got $ec"
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    FAIL_COUNT=$((FAIL_COUNT + 1))
     FAILURES+=("CC4c: timeout exit $ec")
   }
-  [ "$ec" -eq 124 ] || [ "$ec" -eq 137 ] || [ "$ec" -eq 1 ] \
-    && echo -e "  ${GREEN}PASS${NC} CC4c: timeout exit $ec"
+  if [ "$ec" -eq 124 ] || [ "$ec" -eq 137 ] || [ "$ec" -eq 1 ]; then
+    echo -e "  ${GREEN}PASS${NC} CC4c: timeout exit $ec"
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    PASS_COUNT=$((PASS_COUNT + 1))
+  fi
 
   # CC5: malformed output
   ec=0

@@ -3453,6 +3453,11 @@ main() {
     exit 1
   fi
 
+  if [ "${#FAILURES[@]}" -ne "$FAIL_COUNT" ]; then
+    echo -e "${RED}FAILURE MISMATCH: Failures: ${#FAILURES[@]} | Fail: $FAIL_COUNT${NC}"
+    exit 1
+  fi
+
   if [ "$FAIL_COUNT" -gt 0 ]; then
     echo ""
     echo -e "${RED}Failures:${NC}"
