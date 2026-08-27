@@ -6,7 +6,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/repo" "$WORK/tmp"
 export TMPDIR="$WORK/tmp"
-REAL_GROK="${MMO_TEST_REAL_GROK:-$(command -v grok || true)}"
+REAL_GROK="${MMO_TEST_REAL_GROK-$(command -v grok || true)}"
 GROK_RESEARCH_TOOLS='web_search,web_fetch'
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
@@ -543,6 +543,7 @@ contains "$META_CMD" 'mission brief' 'Meta command takes a free-form what-to-ach
 contains "$META_SKILL" 'HOW is yours' 'Meta skill owns the how; the brief owns the what'
 contains "$META_SKILL" 'READY TO MERGE — nothing further coming.' 'Meta skill pins the literal merge signal'
 contains "$META_SKILL" 'route-model-task' 'Meta skill routes via route-model-task'
+contains "$META_SKILL" 'any research memo for the item' 'Meta skill feeds research memos into the worker packet'
 contains "$META_SKILL" 'tribunal-review:closing-tribunal-loop' 'Meta skill chains the tribunal close-out'
 contains "$META_SKILL" '124' 'Meta skill keeps the exit-124 salvage rule'
 contains "$META_SKILL" 'not a liveness check' 'Meta skill keeps the transcript-mtime liveness rule'
