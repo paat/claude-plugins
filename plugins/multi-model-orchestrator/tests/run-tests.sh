@@ -108,11 +108,20 @@ if [ "${STUB_GROK_HOST_RACE:-0}" = 1 ] && [ -n "${STUB_GROK_HOST_AUTH:-}" ]; the
 fi
 [ "${STUB_GROK_REFRESH:-0}" != 1 ] || printf '{"key":"new"}\n' > "$GROK_HOME/auth.json"
 prompt=""
+debug_file=""
 while [ "$#" -gt 0 ]; do
   [ "$1" = --prompt-file ] && { prompt="$2"; shift 2; continue; }
+  [ "$1" = --debug-file ] && { debug_file="$2"; shift 2; continue; }
   shift
 done
 [ -n "$prompt" ] && cat "$prompt" > "$STUB_GROK_PROMPT"
+case "${STUB_GROK_DEBUG:-}" in
+  clean) : > "$debug_file" ;;
+  fail_open)
+    printf '%s\n' 'tools allowlist had unmappable entries; keeping full grok toolset unresolved=["renamed_tool"]' \
+      'sensitive-provider-debug-marker' > "$debug_file"
+    ;;
+esac
 case "${STUB_GROK_RESULT:-ok}" in
   empty) exit 0 ;;
   progress) printf 'Let me inspect the files.\n' ;;
@@ -147,6 +156,42 @@ contains "$WORK/grok.prompt" 'sources OUTSIDE this repository' 'Grok research pr
 printf 'repo advice\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-advice-web.err"
 contains "$WORK/grok.args" '--disable-web-search' 'Grok non-research mode keeps web search disabled'
 pass 'Grok research alone enables web-only tools under the read-only contract'
+
+grok_allowlist_regression=0
+set +e
+printf 'external fact\n' | STUB_GROK_DEBUG=fail_open "$PLUGIN_ROOT/scripts/run-grok.sh" \
+  --mode research --repo "$WORK/repo" --timeout 5 > "$WORK/grok-allowlist-research.out" 2> "$WORK/grok-allowlist-research.err"
+research_rc=$?
+set -e
+[ "$research_rc" -ne 0 ] || { printf 'FAIL: Grok research accepts an unenforced tool allowlist\n' >&2; grok_allowlist_regression=1; }
+grep -F 'allowlist not enforced by the installed grok CLI' "$WORK/grok-allowlist-research.err" >/dev/null \
+  || { printf 'FAIL: Grok research does not name allowlist enforcement failure\n' >&2; grok_allowlist_regression=1; }
+! grep -F 'sensitive-provider-debug-marker' "$WORK/grok-allowlist-research.err" >/dev/null \
+  || { printf 'FAIL: Grok research exposes provider debug output\n' >&2; grok_allowlist_regression=1; }
+for debug_fragment in unmappable 'keeping full grok toolset'; do
+  ! grep -F "$debug_fragment" "$WORK/grok-allowlist-research.err" >/dev/null \
+    || { printf 'FAIL: Grok research exposes provider debug vocabulary\n' >&2; grok_allowlist_regression=1; }
+done
+[ ! -s "$WORK/grok-allowlist-research.out" ] || { printf 'FAIL: Grok research exposes rejected leg output\n' >&2; grok_allowlist_regression=1; }
+research_debug="$(awk 'previous == "--debug-file" { print; exit } { previous = $0 }' "$WORK/grok.args")"
+[ -n "$research_debug" ] || { printf 'FAIL: Grok research omits --debug-file\n' >&2; grok_allowlist_regression=1; }
+case "$research_debug" in "$WORK/repo"/*) printf 'FAIL: Grok debug file is inside the repository\n' >&2; grok_allowlist_regression=1 ;; esac
+[ -z "$research_debug" ] || [ ! -e "$research_debug" ] || { printf 'FAIL: Grok debug file survives runner cleanup\n' >&2; grok_allowlist_regression=1; }
+
+set +e
+printf 'repo advice\n' | STUB_GROK_DEBUG=fail_open "$PLUGIN_ROOT/scripts/run-grok.sh" \
+  --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-advice.err"
+advice_rc=$?
+set -e
+[ "$advice_rc" -ne 0 ] || { printf 'FAIL: Grok advice accepts an unenforced tool allowlist\n' >&2; grok_allowlist_regression=1; }
+grep -F 'allowlist not enforced by the installed grok CLI' "$WORK/grok-allowlist-advice.err" >/dev/null \
+  || { printf 'FAIL: Grok advice does not name allowlist enforcement failure\n' >&2; grok_allowlist_regression=1; }
+
+printf 'repo advice\n' | STUB_GROK_DEBUG=clean "$PLUGIN_ROOT/scripts/run-grok.sh" \
+  --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-clean.err" \
+  || { printf 'FAIL: Grok rejects a clean allowlist debug file\n' >&2; grok_allowlist_regression=1; }
+[ "$grok_allowlist_regression" -eq 0 ] || exit 1
+pass 'Grok tool allowlists fail closed without exposing provider diagnostics'
 
 printf 'external fact\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode research --dir "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/codex-research.err"
 contains "$WORK/codex.args" 'tools.web_search=true' 'Codex research enables web search'
