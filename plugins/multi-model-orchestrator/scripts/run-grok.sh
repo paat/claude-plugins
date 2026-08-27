@@ -50,6 +50,7 @@ runtime_dir="$(mktemp -d)"
 request_file="$runtime_dir/request.txt"
 prompt_file="$runtime_dir/prompt.txt"
 diff_file="$runtime_dir/review.diff"
+debug_file="$runtime_dir/grok.debug"
 isolated_home="$runtime_dir/home"
 isolated_grok_home="$isolated_home/.grok"
 host_grok_home="${GROK_HOME:-${HOME}/.grok}"
@@ -237,6 +238,7 @@ fi
 if [ "$mode" != implement ] && [ "$mode" != research ]; then
   grok_args+=(--tools read_file,list_dir,grep)
 fi
+[ "$mode" = implement ] || grok_args+=(--debug-file "$debug_file")
 
 child_home="$isolated_home"
 [ "$mode" != implement ] || child_home="$HOME"
@@ -246,6 +248,18 @@ HOME="$child_home" GROK_HOME="$isolated_grok_home" \
   timeout -k 10 "$run_timeout" grok "${grok_args[@]}" > "$output_file" 2> "${output_file}.stderr"
 rc=$?
 set -e
+if [ "$mode" != implement ] && ! awk '
+  /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:.]+Z [A-Z]+ session[.]spawn[{][^}]*[}]: xai_grok_agent::builder: tools allowlist / {
+    last = $0
+  }
+  END {
+    applied = "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:.]+Z DEBUG session[.]spawn[{][^}]*[}]: xai_grok_agent::builder: tools allowlist applied agent=[^[:space:]]+ allowed=\\[[^]]*\\]$"
+    exit !(last ~ applied)
+  }
+' "$debug_file" 2>/dev/null; then
+  printf 'run-grok: tool allowlist not enforced by the installed grok CLI\n' >&2
+  [ "$rc" -ne 0 ] || rc=7
+fi
 [ "$rc" -ne 0 ] || [ -s "$output_file" ] || {
   printf 'run-grok: provider exited 0 without a result\n' >&2
   rc=5

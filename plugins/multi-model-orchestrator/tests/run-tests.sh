@@ -108,13 +108,43 @@ if [ "${STUB_GROK_HOST_RACE:-0}" = 1 ] && [ -n "${STUB_GROK_HOST_AUTH:-}" ]; the
 fi
 [ "${STUB_GROK_REFRESH:-0}" != 1 ] || printf '{"key":"new"}\n' > "$GROK_HOME/auth.json"
 prompt=""
+debug_file=""
 while [ "$#" -gt 0 ]; do
   [ "$1" = --prompt-file ] && { prompt="$2"; shift 2; continue; }
+  [ "$1" = --debug-file ] && { debug_file="$2"; shift 2; continue; }
   shift
 done
 [ -n "$prompt" ] && cat "$prompt" > "$STUB_GROK_PROMPT"
+allowlist_applied='2026-08-27T07:16:41.995595Z DEBUG session.spawn{session_id=fixture client_type=Generic start_type="new"}: xai_grok_agent::builder: tools allowlist applied agent=grok-build-plan allowed=["read_file", "list_dir", "grep"]'
+if [ -n "$debug_file" ]; then
+  case "${STUB_GROK_DEBUG:-applied}" in
+    absent) ;;
+    applied) printf '%s\n' "$allowlist_applied" > "$debug_file" ;;
+    prompt_warning_applied)
+      printf '%s\n' "$allowlist_applied" \
+        '2026-08-27T07:16:42.074473Z DEBUG xai_acp_lib::gateway: sending "session/prompt" request: {"text":"tools allowlist had unmappable entries; keeping full grok toolset"}' \
+        > "$debug_file"
+      ;;
+    unmappable)
+      printf '%s\n' \
+        '2026-08-27T07:16:41.995595Z WARN session.spawn{session_id=fixture client_type=Generic start_type="new"}: xai_grok_agent::builder: tools allowlist had unmappable entries; keeping full grok toolset unresolved=["renamed_tool"]' \
+        'sensitive-provider-debug-marker' > "$debug_file"
+      ;;
+    unresolvable)
+      printf '%s\n' "$allowlist_applied" \
+        '2026-08-27T07:16:42.000000Z WARN session.spawn{session_id=fixture client_type=Generic start_type="new"}: xai_grok_agent::builder: tools allowlist had unresolvable entries; keeping full grok toolset unresolved=["renamed_tool"]' \
+        > "$debug_file"
+      ;;
+    dropped_clause)
+      printf '%s\n' \
+        '2026-08-27T07:16:41.995595Z WARN session.spawn{session_id=fixture client_type=Generic start_type="new"}: xai_grok_agent::builder: tools allowlist had unmappable entries unresolved=["renamed_tool"]' \
+        > "$debug_file"
+      ;;
+  esac
+fi
 case "${STUB_GROK_RESULT:-ok}" in
   empty) exit 0 ;;
+  timeout) exit 124 ;;
   progress) printf 'Let me inspect the files.\n' ;;
   approved) printf 'grok findings\nAPPROVED\n' ;;
   needs_work_space) printf 'grok findings\nNEEDS WORK\n' ;;
@@ -147,6 +177,62 @@ contains "$WORK/grok.prompt" 'sources OUTSIDE this repository' 'Grok research pr
 printf 'repo advice\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-advice-web.err"
 contains "$WORK/grok.args" '--disable-web-search' 'Grok non-research mode keeps web search disabled'
 pass 'Grok research alone enables web-only tools under the read-only contract'
+
+absent_rc=0
+printf 'repo advice\n' | STUB_GROK_DEBUG=absent "$PLUGIN_ROOT/scripts/run-grok.sh" \
+  --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-absent.err" \
+  || absent_rc=$?
+[ "$absent_rc" -ne 0 ] || fail 'Grok accepts a missing allowlist debug file'
+contains "$WORK/grok-allowlist-absent.err" 'allowlist not enforced by the installed grok CLI' \
+  'Grok missing debug file does not name allowlist enforcement failure'
+
+printf 'repo advice\n' | STUB_GROK_DEBUG=prompt_warning_applied "$PLUGIN_ROOT/scripts/run-grok.sh" \
+  --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-prompt.err" \
+  || fail 'Grok rejects an applied allowlist because prompt content quotes warning vocabulary'
+
+research_rc=0
+printf 'external fact\n' | STUB_GROK_DEBUG=unmappable "$PLUGIN_ROOT/scripts/run-grok.sh" \
+  --mode research --repo "$WORK/repo" --timeout 5 > "$WORK/grok-allowlist-research.out" 2> "$WORK/grok-allowlist-research.err" \
+  || research_rc=$?
+[ "$research_rc" -ne 0 ] || fail 'Grok research accepts an unenforced tool allowlist'
+contains "$WORK/grok-allowlist-research.err" 'allowlist not enforced by the installed grok CLI' \
+  'Grok research does not name allowlist enforcement failure'
+absent "$WORK/grok-allowlist-research.err" 'sensitive-provider-debug-marker' \
+  'Grok research exposes provider debug output'
+for debug_fragment in unmappable 'keeping full grok toolset'; do
+  absent "$WORK/grok-allowlist-research.err" "$debug_fragment" \
+    'Grok research exposes provider debug vocabulary'
+done
+[ ! -s "$WORK/grok-allowlist-research.out" ] || fail 'Grok research exposes rejected leg output'
+research_debug="$(awk 'previous == "--debug-file" { print; exit } { previous = $0 }' "$WORK/grok.args")"
+[ -n "$research_debug" ] || fail 'Grok research omits --debug-file'
+case "$research_debug" in "$WORK/repo"/*) fail 'Grok debug file is inside the repository' ;; esac
+[ ! -e "$research_debug" ] || fail 'Grok debug file survives runner cleanup'
+
+advice_rc=0
+printf 'repo advice\n' | STUB_GROK_DEBUG=unresolvable "$PLUGIN_ROOT/scripts/run-grok.sh" \
+  --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-advice.err" \
+  || advice_rc=$?
+[ "$advice_rc" -ne 0 ] || fail 'Grok advice accepts an unresolvable tool allowlist warning after an applied record'
+contains "$WORK/grok-allowlist-advice.err" 'allowlist not enforced by the installed grok CLI' \
+  'Grok advice does not name allowlist enforcement failure'
+
+dropped_rc=0
+printf 'repo advice\n' | STUB_GROK_DEBUG=dropped_clause "$PLUGIN_ROOT/scripts/run-grok.sh" \
+  --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-dropped.err" \
+  || dropped_rc=$?
+[ "$dropped_rc" -ne 0 ] || fail 'Grok accepts a warning after the full-toolset clause is dropped'
+
+printf 'repo advice\n' | STUB_GROK_DEBUG=applied "$PLUGIN_ROOT/scripts/run-grok.sh" \
+  --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-applied.err" \
+  || fail 'Grok rejects a clean applied allowlist record'
+
+timeout_rc=0
+printf 'repo advice\n' | STUB_GROK_DEBUG=unmappable STUB_GROK_RESULT=timeout "$PLUGIN_ROOT/scripts/run-grok.sh" \
+  --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-timeout.err" \
+  || timeout_rc=$?
+[ "$timeout_rc" -eq 124 ] || fail "Grok allowlist warning changed provider exit 124 to $timeout_rc"
+pass 'Grok tool allowlists fail closed without exposing provider diagnostics'
 
 printf 'external fact\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode research --dir "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/codex-research.err"
 contains "$WORK/codex.args" 'tools.web_search=true' 'Codex research enables web search'
