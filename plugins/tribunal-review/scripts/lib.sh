@@ -21,6 +21,32 @@ tribunal_base_ref() {
   printf '%s\n' "${TRIBUNAL_BASE_REF:-origin/$branch}"
 }
 
+tribunal_ignored_additions() {
+  local base_ref="${1:-$(tribunal_base_ref)}" source line pattern path result="[]"
+  local ignored_fd ignored_pid ignored_rc=0
+  exec {ignored_fd}< <(
+    git diff --name-only --no-renames --diff-filter=A -z "$base_ref"...HEAD \
+      | git check-ignore -v -z --no-index --stdin 2>/dev/null
+    pipeline_status=("${PIPESTATUS[@]}")
+    (( pipeline_status[0] == 0 )) || exit 2
+    exit "${pipeline_status[1]}"
+  )
+  ignored_pid=$!
+  while IFS= read -r -d '' source \
+    && IFS= read -r -d '' line \
+    && IFS= read -r -d '' pattern \
+    && IFS= read -r -d '' path; do
+    case "$pattern" in !*) continue ;; esac
+    result="$(printf '%s' "$result" | jq -c \
+      --arg path "$path" --arg pattern "$pattern" --arg source "$source" --argjson line "$line" \
+      '. + [{path:$path,pattern:$pattern,source:$source,line:$line}]')"
+  done <&"$ignored_fd"
+  exec {ignored_fd}<&-
+  wait "$ignored_pid" || ignored_rc=$?
+  (( ignored_rc < 2 )) || { printf 'git check-ignore failed (exit %s)\n' "$ignored_rc" >&2; return 1; }
+  printf '%s\n' "$result"
+}
+
 # Plugin root for schema/assets. Explicit TRIBUNAL_PLUGIN_ROOT / CLAUDE_PLUGIN_ROOT
 # are authoritative even when the schema is missing (so the runner can fail loud
 # instead of silently loading another install — issue #378 / Codex review).

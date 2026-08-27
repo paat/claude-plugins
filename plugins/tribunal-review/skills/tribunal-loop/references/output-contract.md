@@ -3,6 +3,8 @@
 The inline arbitration (Step 3 of the `tribunal-loop` skill) returns JSON only, matching this
 schema. All numeric values must reflect actual counts from the provider inputs. The `consensus`
 field is `CONSENSUS` (reported by ≥2 providers) or `SINGLE_PROVIDER` (one provider).
+The deterministic ignored-path source is attributed as `repository-policy`; it
+does not add a provider-assessment entry.
 
 ```json
 {
@@ -62,6 +64,8 @@ from the wrapper-owned collection, and critical/high findings without all three
 `blocking_proof` strings are rejected. Each provider attributed to a finding
 must have returned a finding for that file. `findings_accepted` must equal the
 number of final findings attributed to that provider.
+Every sealed ignored-path signal must be represented by a finding attributed to
+`repository-policy`.
 
 `collect-review-evidence.sh finalize` retains the canonical arbitration and
 emits a proof with this shape:
