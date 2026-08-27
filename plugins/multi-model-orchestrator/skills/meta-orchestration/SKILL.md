@@ -140,6 +140,11 @@ costs one resume, nothing more.
   `git status`, rerun the suites yourself, and salvage or redispatch on evidence.
 - You never edit source while any worker is live. `git checkout` is a write. Never
   `gh pr merge --delete-branch` under a live worker — you will move the tree out from under it.
-- Poll long-running legs on a ~30-minute cadence; no tight loops.
+- Start every turn by reading any unread dispatched-leg output, then resume at the gate.
+- Dispatch every leg through a host mechanism whose completion re-invokes the orchestrator. In
+  Claude Code, use Bash `run_in_background: true` for its
+  `<task-notification>`; never use bare shell `&`.
+- Ending a turn with an unarranged live leg is a defect, not a wait. Before any turn ends with one
+  live, record it in the handoff's In-flight legs block and how completion will be observed.
 - Workers never push. You own push and PR creation.
 - When a worker pushes back on your instructions, treat it as signal: verify before overruling.

@@ -73,6 +73,7 @@ while [ "$#" -gt 0 ]; do
 done
 cat > "$STUB_CODEX_PROMPT"
 case "${STUB_CODEX_RESULT:-ok}" in
+  error) exit 23 ;;
   empty) : > "$out" ;;
   progress) : > "$out"; printf 'I will inspect the diff.\n' ;;
   noverdict) printf 'codex-final\n' > "$out" ;;
@@ -87,6 +88,7 @@ cat > "$WORK/bin/claude" <<'STUB'
 printf '%s\n' "$@" > "$STUB_CLAUDE_ARGS"
 cat > "$STUB_CLAUDE_PROMPT"
 case "${STUB_CLAUDE_RESULT:-ok}" in
+  error) exit 23 ;;
   empty) exit 0 ;;
   progress) printf 'I will inspect the diff.\n' ;;
   approved) printf 'claude findings\nAPPROVED\n' ;;
@@ -143,6 +145,7 @@ if [ -n "$debug_file" ]; then
   esac
 fi
 case "${STUB_GROK_RESULT:-ok}" in
+  error) exit 23 ;;
   empty) exit 0 ;;
   timeout) exit 124 ;;
   progress) printf 'Let me inspect the files.\n' ;;
@@ -383,6 +386,53 @@ printf 'grok out dest\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --re
 contains "$WORK/out-dest/grok.err" "log=$WORK/out-dest/grok-final.txt" 'Grok log= is --out path'
 pass 'Explicit --out destinations hold final results across runners'
 
+if ! (
+  cd "$WORK/out-dest"
+  printf 'relative claude out\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+    --model claude-haiku-4-5 --out claude-relative.txt --timeout 5 \
+    > claude-relative.stdout 2> claude-relative.err
+  printf 'relative codex out\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
+    --out codex-relative.txt --timeout 5 \
+    > codex-relative.stdout 2> codex-relative.err
+  printf 'relative grok out\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \
+    --out grok-relative.txt --timeout 5 \
+    > grok-relative.stdout 2> grok-relative.err
+); then
+  fail 'Relative --out invocation succeeds from caller cwd across runners'
+fi
+[ -f "$WORK/out-dest/claude-relative.txt" ] || fail 'Claude relative --out resolves at caller cwd'
+[ -f "$WORK/out-dest/claude-relative.txt.stderr" ] || fail 'Claude relative --out stderr resolves at caller cwd'
+[ ! -e "$WORK/repo/claude-relative.txt" ] || fail 'Claude relative --out stays outside reviewed repo'
+[ ! -e "$WORK/repo/claude-relative.txt.stderr" ] || fail 'Claude relative --out stderr stays outside reviewed repo'
+[ -f "$WORK/out-dest/codex-relative.txt" ] || fail 'Codex relative --out resolves at caller cwd'
+[ -f "$WORK/out-dest/codex-relative.txt.stream" ] || fail 'Codex relative stream resolves at caller cwd'
+[ ! -e "$WORK/repo/codex-relative.txt" ] || fail 'Codex relative --out stays outside reviewed repo'
+[ ! -e "$WORK/repo/codex-relative.txt.stream" ] || fail 'Codex relative stream stays outside reviewed repo'
+[ -f "$WORK/out-dest/grok-relative.txt" ] || fail 'Grok relative --out resolves at caller cwd'
+[ -f "$WORK/out-dest/grok-relative.txt.stderr" ] || fail 'Grok relative --out stderr resolves at caller cwd'
+[ ! -e "$WORK/repo/grok-relative.txt" ] || fail 'Grok relative --out stays outside reviewed repo'
+[ ! -e "$WORK/repo/grok-relative.txt.stderr" ] || fail 'Grok relative --out stderr stays outside reviewed repo'
+
+printf 'dev claude out\n' | STUB_CLAUDE_RESULT=error "$PLUGIN_ROOT/scripts/run-claude.sh" \
+  --mode advise --repo "$WORK/repo" --model claude-haiku-4-5 --out /dev/stdout --timeout 5 \
+  > "$WORK/out-dest/claude-dev.stdout" 2> "$WORK/out-dest/claude-dev.err" || true
+contains "$WORK/out-dest/claude-dev.err" 'log=/dev/stdout' 'Claude preserves /dev/stdout output path'
+printf 'dev codex out\n' | STUB_CODEX_RESULT=error "$PLUGIN_ROOT/scripts/run-codex.sh" \
+  --mode review --dir "$WORK/repo" --out /dev/stdout \
+  --stream-log "$WORK/out-dest/codex-dev.stream" --timeout 5 \
+  > "$WORK/out-dest/codex-dev.stdout" 2> "$WORK/out-dest/codex-dev.err" || true
+exact_line "$WORK/codex.args" '/dev/stdout' 'Codex preserves /dev/stdout output path'
+printf 'dev codex stream\n' | STUB_CODEX_RESULT=error "$PLUGIN_ROOT/scripts/run-codex.sh" \
+  --mode review --dir "$WORK/repo" --out "$WORK/out-dest/codex-dev-final.txt" \
+  --stream-log /dev/stderr --timeout 5 \
+  > "$WORK/out-dest/codex-dev-stream.stdout" 2> "$WORK/out-dest/codex-dev-stream.err" || true
+contains "$WORK/out-dest/codex-dev-stream.err" 'log=/dev/stderr' 'Codex preserves /dev/stderr stream path'
+printf 'dev grok out\n' | STUB_GROK_RESULT=error "$PLUGIN_ROOT/scripts/run-grok.sh" \
+  --mode advise --repo "$WORK/repo" --out /dev/stdout --timeout 5 \
+  > "$WORK/out-dest/grok-dev.stdout" 2> "$WORK/out-dest/grok-dev.err" || true
+contains "$WORK/out-dest/grok-dev.err" 'log=/dev/stdout' 'Grok preserves /dev/stdout output path'
+pass 'Relative --out stays at caller cwd and device paths remain lexical across runners'
+
 out="$(printf 'acceptance criterion\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" --base HEAD --model claude-opus-5 --effort xhigh --timeout 5 2> "$WORK/claude.err")"
 [ "$out" = $'claude findings\nAPPROVE' ] || fail 'Claude final output'
 contains "$WORK/claude.args" 'claude-opus-5' 'Claude Opus 5 model pin'
@@ -552,11 +602,24 @@ contains "$META_SKILL" 'write nothing and stop' 'Meta skill makes a no-op scan n
 contains "$META_SKILL" 'multi-model-orchestrator.local.md' 'Meta skill reads per-repo source/model config'
 contains "$META_SKILL" 'apply to the tribunal panel' 'Meta skill exempts the tribunal panel from leg model constraints'
 contains "$META_SKILL" 'unresearched' 'Meta skill distinguishes unresearched unknowns from human decisions'
+contains "$META_SKILL" 'completion re-invokes the orchestrator' 'Meta skill requires a completion path back to the orchestrator'
+contains "$META_SKILL" 'run_in_background: true' 'Meta skill names the Claude Code completion mechanism'
+contains "$META_SKILL" 'never use bare shell `&`' 'Meta skill forbids bare shell backgrounding'
+contains "$META_SKILL" 'Start every turn by reading any unread dispatched-leg output' 'Meta skill reads unread leg output at turn start'
+contains "$META_SKILL" 'resume at the gate' 'Meta skill resumes completed legs at their gate'
+contains "$META_SKILL" 'a defect, not a wait' 'Meta skill rejects ending a turn with an unarranged live leg'
+contains "$META_SKILL" 'record it in the handoff' 'Meta skill records live legs before ending a turn'
+absent "$META_SKILL" 'Poll ' 'Meta skill removes unactionable polling guidance'
 absent "$META_SKILL" 'preflight.sh' 'Meta skill references tribunal instead of duplicating its preflight'
 absent "$META_SKILL" 'tribunal-round' 'Meta skill references tribunal instead of duplicating its round protocol'
 contains "$META_REFS/handoff-template.md" 'Stop here first' 'Handoff template keeps the single next action'
 contains "$META_REFS/handoff-template.md" 'do not re-litigate' 'Handoff template keeps ratified decisions'
 contains "$META_REFS/handoff-template.md" 'remain in force verbatim' 'Handoff template keeps delta inheritance'
+contains "$META_REFS/handoff-template.md" 'In-flight legs:' 'Handoff template records dispatched legs'
+contains "$META_REFS/handoff-template.md" 'runner + mode + model' 'In-flight legs identify their runner configuration'
+contains "$META_REFS/handoff-template.md" 'output path' 'In-flight legs identify their output'
+contains "$META_REFS/handoff-template.md" 'dispatch time (UTC)' 'In-flight legs record UTC dispatch time'
+contains "$META_REFS/handoff-template.md" 'how completion will be observed' 'In-flight legs record their completion path'
 contains "$META_REFS/worker-prompt.md" 'No push, no PR' 'Worker template forbids worker push'
 contains "$META_REFS/worker-prompt.md" 'expected red before the fix' 'Worker template keeps the expected-red phrasing'
 contains "$META_REFS/worker-prompt.md" 'Out of scope' 'Worker template keeps the scope fence'

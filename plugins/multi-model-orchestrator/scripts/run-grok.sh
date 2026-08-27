@@ -60,6 +60,7 @@ isolated_auth="$isolated_grok_home/auth.json"
 # and the isolated copy actually changed (avoids clobbering a concurrent refresh).
 start_auth_snapshot="$runtime_dir/auth.start.json"
 [ -n "$output_file" ] || output_file="$(mktemp)"
+case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
 
 writeback_auth() {
   local lock_dir lock_pid auth_tmp
