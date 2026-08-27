@@ -25,7 +25,7 @@ tribunal_ignored_additions() {
   local base_ref="${1:-$(tribunal_base_ref)}" source line pattern path result="[]"
   local ignored_fd ignored_pid ignored_rc=0
   exec {ignored_fd}< <(
-    git diff --name-only --diff-filter=A -z "$base_ref"...HEAD \
+    git diff --name-only --no-renames --diff-filter=A -z "$base_ref"...HEAD \
       | git check-ignore -v -z --no-index --stdin 2>/dev/null
     exit "${PIPESTATUS[1]}"
   )

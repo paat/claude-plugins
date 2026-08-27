@@ -72,15 +72,16 @@ assert_json_field() {
 }
 
 test_ignored_path_additions() {
-  local work fake base ignored_json preflight_json clean_json
+  local work fake base ignored_json preflight_json clean_json rename_json copy_json clean_rename_json
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
   git -C "$work" init -q -b main
   git -C "$work" config user.email test@example.com
   git -C "$work" config user.name "Test User"
   printf '# never commit\nscratch/\n*.log\n!keep.log\n' > "$work/.gitignore"
+  printf 'tracked secret\n' > "$work/secret.env"
   mkdir -p "$work/scratch"
   printf 'already tracked\n' > "$work/scratch/already.md"
-  git -C "$work" add .gitignore
+  git -C "$work" add .gitignore secret.env
   git -C "$work" add -f scratch/already.md
   git -C "$work" commit -q -m base
   base="$(git -C "$work" rev-parse HEAD)"
@@ -134,6 +135,76 @@ test_ignored_path_additions() {
     echo -e "  ${GREEN}PASS${NC} normal additions produce no ignored-path warning"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} normal additions produce no ignored-path warning"; FAIL=$((FAIL+1)); FAILURES+=("clean ignored addition check")
+  fi
+
+  git -C "$work" checkout -q -b ignored-rename "$base"
+  git -C "$work" mv secret.env scratch/secret.env
+  git -C "$work" commit -q -m 'rename into ignored path'
+  rename_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_ignored_additions "$base" 2>/dev/null)" || true
+  if printf '%s' "$rename_json" | jq -e '
+      . == [{path:"scratch/secret.env",pattern:"scratch/",source:".gitignore",line:2}]
+    ' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} rename into ignored path is reported"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} rename into ignored path is reported"; FAIL=$((FAIL+1)); FAILURES+=("ignored destination rename")
+  fi
+
+  git -C "$work" checkout -q -b ignored-copy "$base"
+  git -C "$work" config diff.renames copies
+  cp "$work/secret.env" "$work/scratch/copy.env"
+  printf 'source changed after copy\n' >> "$work/secret.env"
+  git -C "$work" add secret.env
+  git -C "$work" add -f scratch/copy.env
+  git -C "$work" commit -q -m 'copy into ignored path'
+  copy_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_ignored_additions "$base" 2>/dev/null)" || true
+  if printf '%s' "$copy_json" | jq -e '
+      . == [{path:"scratch/copy.env",pattern:"scratch/",source:".gitignore",line:2}]
+    ' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} copy into ignored path is reported"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} copy into ignored path is reported"; FAIL=$((FAIL+1)); FAILURES+=("ignored destination copy")
+  fi
+
+  git -C "$work" checkout -q -b clean-rename "$base"
+  git -C "$work" mv secret.env public.env
+  git -C "$work" commit -q -m 'rename outside ignored paths'
+  clean_rename_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_ignored_additions "$base" 2>/dev/null)" || true
+  if printf '%s' "$clean_rename_json" | jq -e 'length == 0' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} rename between non-ignored paths is not reported"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} rename between non-ignored paths is not reported"; FAIL=$((FAIL+1)); FAILURES+=("non-ignored rename exclusion")
+  fi
+  rm -rf "$work"
+}
+
+test_ignored_path_validation() {
+  local work artifact value label
+  work="$(mktemp -d)"; artifact="$work/ignored-paths.json"
+  source <(sed -n '/^validate_ignored_paths() {/,/^}/p' \
+    "$PLUGIN_ROOT/scripts/collect-review-evidence.sh")
+
+  for value in '""' null 5; do
+    jq -n --argjson path "$value" '[{line:2,path:$path,pattern:"scratch/",source:".gitignore"}]' > "$artifact"
+    label="ignored-path validator rejects path: $value"
+    if validate_ignored_paths "$artifact"; then
+      echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+    else
+      echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+    fi
+  done
+
+  jq -n '[{line:2,path:"scratch/note.md",pattern:"scratch/",source:".gitignore"}]' > "$artifact"
+  if validate_ignored_paths "$artifact"; then
+    echo -e "  ${GREEN}PASS${NC} ignored-path validator accepts a relative path"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} ignored-path validator accepts a relative path"; FAIL=$((FAIL+1)); FAILURES+=("relative ignored-path validation")
+  fi
+
+  jq -n '[{line:2,path:"/scratch/note.md",pattern:"scratch/",source:".gitignore"}]' > "$artifact"
+  if validate_ignored_paths "$artifact"; then
+    echo -e "  ${RED}FAIL${NC} ignored-path validator rejects an absolute path"; FAIL=$((FAIL+1)); FAILURES+=("absolute ignored-path validation")
+  else
+    echo -e "  ${GREEN}PASS${NC} ignored-path validator rejects an absolute path"; PASS=$((PASS+1))
   fi
   rm -rf "$work"
 }
@@ -2154,6 +2225,7 @@ test_codex_vacuous_guard " BLOCK " 0.0 "codex vacuous verdict tolerates surround
 test_codex_line_bounds_guard
 test_wrapper_owned_provider_envelope
 test_ignored_path_additions
+test_ignored_path_validation
 test_trusted_evidence_collection
 
 echo "Finding position validation:"

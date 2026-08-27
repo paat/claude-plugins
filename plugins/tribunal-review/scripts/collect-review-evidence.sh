@@ -173,7 +173,7 @@ validate_ignored_paths() {
     type == "array" and length > 0
     and all(.[];
       type == "object" and keys == ["line","path","pattern","source"]
-      and (.path | type == "string" and length > 0 and startswith("/") | not)
+      and (.path | type == "string" and length > 0 and (startswith("/") | not))
       and (.path | contains("../") | not)
       and (.pattern | type == "string" and length > 0)
       and (.source | type == "string" and length > 0)
