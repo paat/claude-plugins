@@ -68,7 +68,7 @@ request_file="$(mktemp)"
 prompt_file="$(mktemp)"
 diff_file="$(mktemp)"
 [ -n "$output_file" ] || output_file="$(mktemp)"
-output_file="$(realpath -m -- "$output_file")"
+case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
 trap 'rm -f "$request_file" "$prompt_file" "$diff_file"' EXIT
 cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-claude: empty prompt\n' >&2; exit 2; }

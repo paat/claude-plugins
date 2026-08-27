@@ -67,7 +67,7 @@ if [ -n "$final_file" ]; then
 else
   final_file="$(mktemp)"
 fi
-final_file="$(realpath -m -- "$final_file")"
+case "$final_file" in /*) ;; *) final_file="$PWD/$final_file" ;; esac
 if [ "$stream_log_set" -eq 0 ]; then
   if [ "$user_final" -eq 1 ]; then
     stream_file="${final_file}.stream"
@@ -75,7 +75,7 @@ if [ "$stream_log_set" -eq 0 ]; then
     stream_file="$(mktemp)"
   fi
 fi
-stream_file="$(realpath -m -- "$stream_file")"
+case "$stream_file" in /*) ;; *) stream_file="$PWD/$stream_file" ;; esac
 if [ "$user_final" -eq 1 ]; then
   trap 'rm -f "$prompt_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
 else
