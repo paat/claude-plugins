@@ -553,7 +553,7 @@ verify_collection_internal() {
 }
 
 validate_arbitration() {
-  local arbitration="$1" manifest="$2" statuses dir evidence ignored_paths
+  local arbitration="$1" manifest="$2" statuses dir evidence ignored_paths sensitive_paths root source line path
   statuses="$(jq -c '[.providers[]|{key:.provider,value:.status}]|from_entries' "$manifest")"
   dir="$(dirname "$manifest")"
   evidence="$(jq -nc \
@@ -567,7 +567,24 @@ validate_arbitration() {
   else
     ignored_paths="[]"
   fi
-  jq -e --argjson statuses "$statuses" --argjson evidence "$evidence" --argjson ignored_paths "$ignored_paths" '
+  sensitive_paths="[]"
+  root="$(jq -r .repository.root "$manifest")"
+  if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
+    while IFS=$'\t' read -r source line path; do
+      if git -C "$root" show "HEAD:$source" 2>/dev/null | sed -n "1,${line}p" | awk -v line="$line" '
+        NR >= line { exit }
+        /^[[:space:]]*#/ {
+          if (tolower($0) ~ /(secret|pii|credential|key|never commit)/) sensitive=1
+          next
+        }
+        { sensitive=0 }
+        END { exit !sensitive }
+      '; then
+        sensitive_paths="$(jq -c --arg path "$path" '. + [$path]' <<<"$sensitive_paths")"
+      fi
+    done < <(jq -r '.[] | [.source, (.line | tostring), .path] | @tsv' "$dir/ignored-paths.json")
+  fi
+  jq -e --argjson statuses "$statuses" --argjson evidence "$evidence" --argjson ignored_paths "$ignored_paths" --argjson sensitive_paths "$sensitive_paths" '
     def exact($a;$r): (type=="object") and ((keys-$a)|length==0) and (($r-keys)|length==0);
     def text: type=="string" and length>0;
     def uint: type=="number" and .>=0 and .==floor;
@@ -623,6 +640,9 @@ validate_arbitration() {
     and (.findings|type=="array" and all(.[];finding) and ([.[].id]|length)==([.[].id]|unique|length))
     and (.findings as $findings | $ignored_paths | all(.[]; .path as $path
       | any($findings[]; .file == $path and (.providers | index("repository-policy")))))
+    and (.findings as $findings | $sensitive_paths | all(.[]; . as $path
+      | any($findings[]; .file == $path and (.providers | index("repository-policy"))
+          and .severity == "high")))
     and (.scope_findings|type=="array" and all(.[];scope) and ([.[].id]|length)==([.[].id]|unique|length))
     and (.findings as $final_findings | .provider_assessment
          | exact(["codex","gemini","glm","deepseek","qwen","grok","claude"];
@@ -634,7 +654,8 @@ validate_arbitration() {
          and (.claude|assessment("claude";$final_findings)))
     and (.conflicts_resolved|type=="array" and all(.[];type=="string")) and (.summary|text)
     and (if .tribunal_verdict.decision=="APPROVE" then
-      ([.findings[]|select(.severity=="critical" or .severity=="high")]|length)==0
+      .tribunal_verdict.confidence==0.95
+      and ([.findings[]|select(.severity=="critical" or .severity=="high")]|length)==0
       and ([.scope_findings[]|select(.disposition=="must-remove-before-merge")]|length)==0
       else true end)
     and (if ([$statuses[]|select(.=="ok")]|length)==0
