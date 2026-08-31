@@ -223,8 +223,8 @@ Any `must-remove-before-merge` scope finding makes the verdict at least
 ## Verdict Rules
 
 - If all non-disabled providers failed: `NEEDS_WORK`, confidence `0.0`.
-- If all non-disabled providers returned zero findings and there are no blocking
-  scope findings: `APPROVE`, confidence `0.95`.
+- If all non-disabled providers returned zero findings, there are no blocking scope findings,
+  and no sealed ignored-path signals require repository-policy findings: `APPROVE`, confidence `0.95`.
 - If any valid critical/high finding remains: `NEEDS_WORK` or `BLOCK` depending
   on blast radius and release risk.
 - Medium/low findings may be approved with notes when the change is otherwise

@@ -18,7 +18,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "557aba6aa1842f0dff4a74e4929424062a13b1dbf288e1b66a197875e6a1bb69"
+      "sha256": "1a246d0a41bfcb745666d29d6255b37a3f17fad1a28f234013939f6d14a95f2d"
     },
     {
       "path": "scripts/run-claude-review.sh",

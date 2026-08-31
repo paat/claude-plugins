@@ -22,29 +22,53 @@ tribunal_base_ref() {
 }
 
 tribunal_ignored_additions() {
-  local base_ref="${1:-$(tribunal_base_ref)}" source line pattern path result="[]"
-  local ignored_fd ignored_pid ignored_rc=0
-  exec {ignored_fd}< <(
-    git diff --name-only --no-renames --diff-filter=A -z "$base_ref"...HEAD \
-      | git check-ignore -v -z --no-index --stdin 2>/dev/null
+  local base_ref="${1:-$(tribunal_base_ref)}" repo_root base_commit head_commit
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" \
+    || { printf 'cannot resolve repository root\n' >&2; return 1; }
+  base_commit="$(git rev-parse --verify "${base_ref}^{commit}" 2>/dev/null)" \
+    || { printf 'cannot resolve base ref %s\n' "$base_ref" >&2; return 1; }
+  head_commit="$(git rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" \
+    || { printf 'cannot resolve HEAD\n' >&2; return 1; }
+
+  (
+    local temp_root checkout ignored_file empty_excludes
+    local -a pipeline_status
+    temp_root="$(mktemp -d)" || exit 1
+    trap 'rm -rf -- "$temp_root"' EXIT
+    trap 'exit 1' HUP INT TERM
+    checkout="$temp_root/head"
+    ignored_file="$temp_root/ignored"
+    empty_excludes="$temp_root/empty-excludes"
+    mkdir "$temp_root/template" || exit 1
+    : > "$empty_excludes" || exit 1
+
+    git -c init.templateDir="$temp_root/template" clone --shared --no-checkout --quiet \
+      "$repo_root" "$checkout" \
+      || { printf 'cannot create pristine HEAD checkout\n' >&2; exit 1; }
+    git -C "$checkout" -c core.excludesFile="$empty_excludes" checkout --detach --quiet "$head_commit" \
+      || { printf 'cannot check out reviewed HEAD\n' >&2; exit 1; }
+
+    set +e
+    git -C "$checkout" diff --name-only --no-renames --diff-filter=A -z "$base_commit"..."$head_commit" \
+      | git -C "$checkout" -c core.excludesFile="$empty_excludes" \
+          check-ignore -v -z --no-index --stdin > "$ignored_file" 2>/dev/null
     pipeline_status=("${PIPESTATUS[@]}")
-    (( pipeline_status[0] == 0 )) || exit 2
-    exit "${pipeline_status[1]}"
+    if (( pipeline_status[0] != 0 || pipeline_status[1] > 1 )); then
+      printf 'git check-ignore failed (diff %s, check-ignore %s)\n' \
+        "${pipeline_status[0]}" "${pipeline_status[1]}" >&2
+      exit 1
+    fi
+
+    jq -Rs -c '
+      split("\u0000")
+      | if .[-1] == "" then .[:-1] else . end
+      | . as $fields
+      | [range(0; length; 4) as $i
+          | select(($fields[$i + 2] | startswith("!")) | not)
+          | {path:$fields[$i + 3], pattern:$fields[$i + 2],
+             source:$fields[$i], line:($fields[$i + 1] | tonumber)}]
+    ' "$ignored_file"
   )
-  ignored_pid=$!
-  while IFS= read -r -d '' source \
-    && IFS= read -r -d '' line \
-    && IFS= read -r -d '' pattern \
-    && IFS= read -r -d '' path; do
-    case "$pattern" in !*) continue ;; esac
-    result="$(printf '%s' "$result" | jq -c \
-      --arg path "$path" --arg pattern "$pattern" --arg source "$source" --argjson line "$line" \
-      '. + [{path:$path,pattern:$pattern,source:$source,line:$line}]')"
-  done <&"$ignored_fd"
-  exec {ignored_fd}<&-
-  wait "$ignored_pid" || ignored_rc=$?
-  (( ignored_rc < 2 )) || { printf 'git check-ignore failed (exit %s)\n' "$ignored_rc" >&2; return 1; }
-  printf '%s\n' "$result"
 }
 
 # Plugin root for schema/assets. Explicit TRIBUNAL_PLUGIN_ROOT / CLAUDE_PLUGIN_ROOT
