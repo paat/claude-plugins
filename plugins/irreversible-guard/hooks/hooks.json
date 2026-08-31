@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'p=hooks/guard.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && grep -qF irreversible-guard \"$r/.claude-plugin/plugin.json\" 2>/dev/null && exec bash \"$r/$p\"; done; echo \"[irreversible-guard] hook target not found: $p\" >&2; exit 0'",
+            "command": "bash -c 'if [ -f \"${CLAUDE_PLUGIN_ROOT:-}/hooks/guard.sh\" ] && grep -qF irreversible-guard \"${CLAUDE_PLUGIN_ROOT:-}/.claude-plugin/plugin.json\" 2>/dev/null; then exec bash \"${CLAUDE_PLUGIN_ROOT:-}/hooks/guard.sh\"; fi; if [ -f \"${CODEX_PLUGIN_ROOT:-}/hooks/guard.sh\" ] && grep -qF irreversible-guard \"${CODEX_PLUGIN_ROOT:-}/.claude-plugin/plugin.json\" 2>/dev/null; then exec bash \"${CODEX_PLUGIN_ROOT:-}/hooks/guard.sh\"; fi; echo \"[irreversible-guard] hook target not found: hooks/guard.sh\" >&2; exit 0'",
             "timeout": 10
           }
         ]

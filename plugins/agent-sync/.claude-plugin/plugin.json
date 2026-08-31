@@ -1,6 +1,6 @@
 {
   "name": "agent-sync",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Generate AGENTS.md from Claude Code project configuration files (CLAUDE.md, .claude/rules/, settings.json, hooks)",
   "author": {
     "name": "Andre Paat"

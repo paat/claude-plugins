@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'p=hooks/preflight.sh; for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\"; do [ -n \"$r\" ] && [ -f \"$r/$p\" ] && grep -qF session-preflight \"$r/.claude-plugin/plugin.json\" 2>/dev/null && exec bash \"$r/$p\"; done; echo \"[session-preflight] hook target not found: $p\" >&2; exit 0'",
+            "command": "bash -c 'if [ -f \"${CLAUDE_PLUGIN_ROOT:-}/hooks/preflight.sh\" ] && grep -qF session-preflight \"${CLAUDE_PLUGIN_ROOT:-}/.claude-plugin/plugin.json\" 2>/dev/null; then exec bash \"${CLAUDE_PLUGIN_ROOT:-}/hooks/preflight.sh\"; fi; if [ -f \"${CODEX_PLUGIN_ROOT:-}/hooks/preflight.sh\" ] && grep -qF session-preflight \"${CODEX_PLUGIN_ROOT:-}/.claude-plugin/plugin.json\" 2>/dev/null; then exec bash \"${CODEX_PLUGIN_ROOT:-}/hooks/preflight.sh\"; fi; echo \"[session-preflight] hook target not found: hooks/preflight.sh\" >&2; exit 0'",
             "timeout": 30
           }
         ]

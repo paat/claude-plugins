@@ -37,7 +37,7 @@ test_post_tool_use_stdin_drain() {
 
   while IFS= read -r command; do
     count=$((count + 1))
-    handler=$(sed -n 's/.*p=\([^;]*\).*/\1/p' <<< "$command")
+    handler=$(sed -n 's/.*hook target not found: \([^ "]*\).*/\1/p' <<< "$command")
     statuses=$(post_tool_pipeline_statuses "$workdir" "$command")
     assert_equals "PTU2.$count: missing-root resolver drains stdin ($handler)" "$statuses" "0 0"
   done < <(jq -r '.hooks.PostToolUse[].hooks[].command' "$hooks_file")
