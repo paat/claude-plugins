@@ -189,6 +189,25 @@ make_workdir() {
   echo "$tmpdir"
 }
 
+lint_sourced_suite_prints() {
+  local target="$1" suite failed=0
+
+  while IFS= read -r -d '' suite; do
+    if grep -Eq '(echo|printf).*\$\{(GREEN|RED)\}(PASS|FAIL)' "$suite" && ! grep -qF 'TOTAL_COUNT' "$suite"; then
+      echo "SOURCED SUITE PRINT LINT: $suite prints PASS/FAIL without TOTAL_COUNT" >&2
+      failed=1
+    fi
+  done < <(
+    if [ -f "$target" ]; then
+      printf '%s\0' "$target"
+    else
+      find "$target" -type f -name '*.tests.sh' -print0
+    fi | sort -z
+  )
+
+  return "$failed"
+}
+
 setup_startup_dir() {
   local workdir="$1" iteration="${2:-1}"
   mkdir -p "$workdir/docs"
@@ -3350,6 +3369,20 @@ JSON
   rm -rf "$workdir"
 }
 
+test_sourced_suite_print_lint() {
+  echo -e "\n${CYAN}Suite: sourced suite print lint (#477)${NC}"
+  local fixture_dir="$PLUGIN_ROOT/fixtures/sourced-suite-print-lint"
+  local output ec=0
+
+  output=$(lint_sourced_suite_prints "$fixture_dir" 2>&1) || ec=$?
+  assert_exit_code "L1: lint rejects print-without-TOTAL_COUNT fixture" "$ec" 1
+  assert_output_contains "L2: lint reports a named error" "$output" "SOURCED SUITE PRINT LINT"
+
+  ec=0
+  lint_sourced_suite_prints "$PLUGIN_ROOT/tests" || ec=$?
+  assert_exit_code "L3: all sourced suites pass print counter lint" "$ec" 0
+}
+
 test_autonomous_workflow_alignment() {
   echo -e "\n${CYAN}Suite AE: autonomous workflow alignment${NC}"
   local repo_root; repo_root="$(cd "$PLUGIN_ROOT/../.." && pwd)"
@@ -3437,6 +3470,7 @@ main() {
   test_session_insights
   test_harvest
   test_autonomous_demand_infra
+  test_sourced_suite_print_lint
   test_autonomous_workflow_alignment
   test_lesson_file
   test_lesson_review
