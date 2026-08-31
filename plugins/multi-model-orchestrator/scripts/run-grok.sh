@@ -231,14 +231,16 @@ grok_args=(
   --sandbox none --permission-mode bypassPermissions
   --no-memory --no-subagents --max-turns "$max_turns"
 )
+allowed_tools=""
 if [ "$mode" = research ]; then
-  grok_args+=(--tools web_search,web_fetch)
+  allowed_tools="web_search,web_fetch"
 else
   grok_args+=(--disable-web-search)
 fi
 if [ "$mode" != implement ] && [ "$mode" != research ]; then
-  grok_args+=(--tools read_file,list_dir,grep)
+  allowed_tools="read_file,list_dir,grep"
 fi
+[ -n "$allowed_tools" ] && grok_args+=(--tools "$allowed_tools")
 [ "$mode" = implement ] || grok_args+=(--debug-file "$debug_file")
 
 child_home="$isolated_home"
@@ -249,17 +251,62 @@ HOME="$child_home" GROK_HOME="$isolated_grok_home" \
   timeout -k 10 "$run_timeout" grok "${grok_args[@]}" > "$output_file" 2> "${output_file}.stderr"
 rc=$?
 set -e
-if [ "$mode" != implement ] && ! awk '
-  /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:.]+Z [A-Z]+ session[.]spawn[{][^}]*[}]: xai_grok_agent::builder: tools allowlist / {
-    last = $0
-  }
-  END {
-    applied = "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:.]+Z DEBUG session[.]spawn[{][^}]*[}]: xai_grok_agent::builder: tools allowlist applied agent=[^[:space:]]+ allowed=\\[[^]]*\\]$"
-    exit !(last ~ applied)
-  }
-' "$debug_file" 2>/dev/null; then
-  printf 'run-grok: tool allowlist not enforced by the installed grok CLI\n' >&2
-  [ "$rc" -ne 0 ] || rc=7
+if [ "$mode" != implement ]; then
+  if [ ! -s "$debug_file" ]; then
+    printf 'run-grok: installed grok CLI produced no allowlist debug evidence\n' >&2
+    [ "$rc" -ne 0 ] || rc=7
+  elif ! awk -v expected="$allowed_tools" '
+    function trim(value) {
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      return value
+    }
+    BEGIN {
+      expected_count = split(expected, expected_values, ",")
+      for (i = 1; i <= expected_count; i++) {
+        expected_set[expected_values[i]] = 1
+      }
+    }
+    /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:.]+Z [A-Z]+ ([[:alnum:]_.-]+[{][^}]*[}]: )?xai_grok_agent::builder: tools allowlist / {
+      last = $0
+    }
+    END {
+      applied = "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:.]+Z [A-Z]+ ([[:alnum:]_.-]+[{][^}]*[}]: )?xai_grok_agent::builder: tools allowlist applied([[:space:]]|$)"
+      if (last !~ applied || !match(last, /(^|[[:space:]])allowed=\[[^]]*\]([[:space:]]|$)/)) {
+        exit 1
+      }
+      allowed = trim(substr(last, RSTART, RLENGTH))
+      sub(/^allowed=\[/, "", allowed)
+      sub(/\]$/, "", allowed)
+      actual_count = 0
+      if (allowed != "") {
+        value_count = split(allowed, values, ",")
+        for (i = 1; i <= value_count; i++) {
+          value = trim(values[i])
+          if (value ~ /^"[^"]+"$/) {
+            value = substr(value, 2, length(value) - 2)
+          } else if (value !~ /^[[:alnum:]_.-]+$/) {
+            exit 1
+          }
+          if (!(value in actual_set)) {
+            actual_set[value] = 1
+            actual_count++
+          }
+        }
+      }
+      if (actual_count != expected_count) {
+        exit 1
+      }
+      for (value in expected_set) {
+        if (!(value in actual_set)) {
+          exit 1
+        }
+      }
+    }
+  ' "$debug_file" 2>/dev/null; then
+    printf 'run-grok: tool allowlist not enforced by the installed grok CLI\n' >&2
+    [ "$rc" -ne 0 ] || rc=7
+  fi
 fi
 [ "$rc" -ne 0 ] || [ -s "$output_file" ] || {
   printf 'run-grok: provider exited 0 without a result\n' >&2
