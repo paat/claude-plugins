@@ -2037,7 +2037,7 @@ EOF
     "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 --output "$work/finding" > "$work/finding.json"
   cat > "$work/finding-arbitration.json" <<'EOF'
 {
-  "tribunal_verdict":{"decision":"APPROVE","confidence":0.9,"rationale":"The medium finding is non-blocking."},
+  "tribunal_verdict":{"decision":"APPROVE","confidence":0.95,"rationale":"The medium finding is non-blocking."},
   "findings":[{"id":"T-001","consensus":"SINGLE_PROVIDER","providers":["codex"],"severity":"medium",
     "category":"logic","file":"app.txt","line":1,"title":"Fixture finding","description":"A concrete fixture defect.",
     "suggestion":"Apply the fixture fix.","confidence":0.9,"arbiter_notes":"Verified and non-blocking."}],
@@ -2131,13 +2131,108 @@ EOF
   if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
     "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/ignored" \
       --expected-manifest-sha256 "$ignored_manifest" --arbitration "$work/ignored-arbitration.json" \
-      > "$work/ignored-finalize.json" \
-    && jq -e '.proof_sha256 | test("^[0-9a-f]{64}$")' "$work/ignored-finalize.json" >/dev/null \
-    && jq -e '.schema == "tribunal-proof/v1" and .arbitration.decision == "APPROVE"' \
-      "$work/ignored/proof.json" >/dev/null; then
-    echo -e "  ${GREEN}PASS${NC} ignored-path finding survives collect-to-finalize round trip"; PASS=$((PASS+1))
+      >/dev/null 2>&1; then
+    echo -e "  ${RED}FAIL${NC} sensitive ignored-path finding cannot be downgraded to medium"; FAIL=$((FAIL+1)); FAILURES+=("sensitive ignored-path severity floor")
   else
-    echo -e "  ${RED}FAIL${NC} ignored-path finding survives collect-to-finalize round trip"; FAIL=$((FAIL+1)); FAILURES+=("ignored-path finalize round trip")
+    echo -e "  ${GREEN}PASS${NC} sensitive ignored-path finding cannot be downgraded to medium"; PASS=$((PASS+1))
+  fi
+
+  local initial_base="$base"
+  base="$(git -C "$repo" rev-parse HEAD)"
+  printf '# never commit\nscratch/\n*.log\n' > "$repo/.gitignore"
+  printf 'ignored log addition\n' > "$repo/audit.log"
+  git -C "$repo" add .gitignore
+  git -C "$repo" add -f audit.log
+  git -C "$repo" commit -q -m 'add second sensitive ignored pattern'
+  head="$(git -C "$repo" rev-parse HEAD)"
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/second-sensitive" > "$work/second-sensitive.json"
+  local second_sensitive_manifest
+  second_sensitive_manifest="$(jq -r .manifest_sha256 "$work/second-sensitive.json")"
+  jq '.findings=[{
+      id:"T-001",consensus:"SINGLE_PROVIDER",providers:["repository-policy"],severity:"medium",
+      category:"security",file:"audit.log",line:1,title:"Force-added ignored log",
+      description:"The reviewed diff adds a path matched by *.log at .gitignore:3.",
+      suggestion:"Remove the file or document why force-adding it is safe.",confidence:1,
+      arbiter_notes:"Deterministic repository-policy signal; default medium severity."
+    }] | .summary="One deterministic medium repository-policy finding remains non-blocking."' \
+    "$work/arbitration.json" > "$work/second-sensitive-arbitration.json"
+  if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/second-sensitive" \
+      --expected-manifest-sha256 "$second_sensitive_manifest" --arbitration "$work/second-sensitive-arbitration.json" \
+      >/dev/null 2>&1; then
+    echo -e "  ${RED}FAIL${NC} second sensitive ignored pattern cannot be downgraded to medium"; FAIL=$((FAIL+1)); FAILURES+=("second sensitive ignored-path severity floor")
+  else
+    echo -e "  ${GREEN}PASS${NC} second sensitive ignored pattern cannot be downgraded to medium"; PASS=$((PASS+1))
+  fi
+
+  base="$(git -C "$repo" rev-parse HEAD)"
+  printf '# keyboard build artifacts\n*.tmp\n# secretary exports\n*.csv\n' > "$repo/.gitignore"
+  printf 'temporary artifact\n' > "$repo/cache.tmp"
+  printf 'export artifact\n' > "$repo/report.csv"
+  git -C "$repo" add .gitignore
+  git -C "$repo" add -f cache.tmp report.csv
+  git -C "$repo" commit -q -m 'add non-sensitive keyword-like ignore comments'
+  head="$(git -C "$repo" rev-parse HEAD)"
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/keyword-like" > "$work/keyword-like.json"
+  local keyword_like_manifest
+  keyword_like_manifest="$(jq -r .manifest_sha256 "$work/keyword-like.json")"
+  jq '.findings=[
+      {id:"T-001",consensus:"SINGLE_PROVIDER",providers:["repository-policy"],severity:"medium",
+       category:"security",file:"cache.tmp",line:1,title:"Force-added ignored temporary artifact",
+       description:"The reviewed diff adds a path matched by *.tmp at .gitignore:2.",
+       suggestion:"Remove the file or document why force-adding it is safe.",confidence:1,
+       arbiter_notes:"Deterministic repository-policy signal; default medium severity."},
+      {id:"T-002",consensus:"SINGLE_PROVIDER",providers:["repository-policy"],severity:"medium",
+       category:"security",file:"report.csv",line:1,title:"Force-added ignored export artifact",
+       description:"The reviewed diff adds a path matched by *.csv at .gitignore:4.",
+       suggestion:"Remove the file or document why force-adding it is safe.",confidence:1,
+       arbiter_notes:"Deterministic repository-policy signal; default medium severity."}
+    ] | .summary="Two deterministic medium repository-policy findings remain non-blocking."' \
+    "$work/arbitration.json" > "$work/keyword-like-arbitration.json"
+  if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/keyword-like" \
+      --expected-manifest-sha256 "$keyword_like_manifest" --arbitration "$work/keyword-like-arbitration.json" \
+      >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} keyboard and secretary ignore comments stay non-sensitive"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} keyboard and secretary ignore comments stay non-sensitive"; FAIL=$((FAIL+1)); FAILURES+=("keyword-like ignore comments")
+  fi
+  base="$initial_base"
+
+  printf '# ordinary scratch files\nscratch/\n' > "$repo/.gitignore"
+  git -C "$repo" add .gitignore
+  git -C "$repo" commit -q -m 'make ignored path non-sensitive'
+  head="$(git -C "$repo" rev-parse HEAD)"
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/non-sensitive" > "$work/non-sensitive.json"
+  local non_sensitive_manifest
+  non_sensitive_manifest="$(jq -r .manifest_sha256 "$work/non-sensitive.json")"
+  # The ambient worktree is deliberately more sensitive than HEAD. Finalization must use HEAD.
+  printf '# never commit\nscratch/\n' > "$repo/.gitignore"
+  if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/non-sensitive" \
+      --expected-manifest-sha256 "$non_sensitive_manifest" --arbitration "$work/ignored-arbitration.json" \
+      > "$work/non-sensitive-finalize.json" \
+    && jq -e '.proof_sha256 | test("^[0-9a-f]{64}$")' "$work/non-sensitive-finalize.json" >/dev/null \
+    && jq -e '.schema == "tribunal-proof/v1" and .arbitration.decision == "APPROVE"' \
+      "$work/non-sensitive/proof.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} non-sensitive ignored path accepts medium severity from HEAD"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} non-sensitive ignored path accepts medium severity from HEAD"; FAIL=$((FAIL+1)); FAILURES+=("non-sensitive ignored-path medium severity")
+  fi
+  jq '.tribunal_verdict.confidence=0' "$work/ignored-arbitration.json" > "$work/non-sensitive-low-confidence.json"
+  if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/non-sensitive" \
+      --expected-manifest-sha256 "$non_sensitive_manifest" --arbitration "$work/non-sensitive-low-confidence.json" \
+      >/dev/null 2>&1; then
+    echo -e "  ${RED}FAIL${NC} APPROVE requires confidence 0.95 with repository policy findings"; FAIL=$((FAIL+1)); FAILURES+=("APPROVE confidence pin")
+  else
+    echo -e "  ${GREEN}PASS${NC} APPROVE requires confidence 0.95 with repository policy findings"; PASS=$((PASS+1))
   fi
 
   # The sealed wrapper's 64 MiB file limit must not apply to inherited Codex state.
