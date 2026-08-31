@@ -73,6 +73,7 @@ assert_json_field() {
 
 test_ignored_path_additions() {
   local work fake base ignored_json preflight_json clean_json clean_rc rename_json copy_json clean_rename_json
+  local dirty_added_json dirty_removed_json subdir_preflight_json
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
   git -C "$work" init -q -b main
   git -C "$work" config user.email test@example.com
@@ -122,6 +123,28 @@ test_ignored_path_additions() {
     echo -e "  ${RED}FAIL${NC} preflight warns about ignored path additions"; FAIL=$((FAIL+1)); FAILURES+=("preflight ignored addition warning")
   fi
 
+  subdir_preflight_json="$(cd "$work/scratch" && PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF="$base" \
+    TRIBUNAL_CODEX=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
+    bash "$PLUGIN_ROOT/scripts/preflight.sh" 2>/dev/null)" || true
+  if printf '%s' "$subdir_preflight_json" | jq -e '
+      any(.warnings[]; .name == "ignored-path-additions" and (.note | contains("scratch/note.md")))
+    ' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} preflight from a subdirectory finds ignored additions"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} preflight from a subdirectory finds ignored additions"; FAIL=$((FAIL+1)); FAILURES+=("subdirectory preflight ignored addition")
+  fi
+
+  printf '# never commit\n*.log\n!keep.log\n' > "$work/.gitignore"
+  dirty_removed_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_ignored_additions "$base" 2>/dev/null)" || true
+  if printf '%s' "$dirty_removed_json" | jq -e '
+      . == [{path:"scratch/note.md",pattern:"scratch/",source:".gitignore",line:2}]
+    ' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} uncommitted ignore-rule removal cannot hide a committed force-add"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} uncommitted ignore-rule removal cannot hide a committed force-add"; FAIL=$((FAIL+1)); FAILURES+=("dirty ignore-rule removal")
+  fi
+  git -C "$work" checkout -q -- .gitignore
+
   git -C "$work" checkout -q -b clean "$base"
   printf 'clean\n' > "$work/clean.md"
   git -C "$work" add clean.md
@@ -137,6 +160,15 @@ test_ignored_path_additions() {
   else
     echo -e "  ${RED}FAIL${NC} normal additions produce no ignored-path warning"; FAIL=$((FAIL+1)); FAILURES+=("clean ignored addition check")
   fi
+
+  printf '\nclean.md\n' >> "$work/.gitignore"
+  dirty_added_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_ignored_additions "$base" 2>/dev/null)" || true
+  if [ "$dirty_added_json" = '[]' ]; then
+    echo -e "  ${GREEN}PASS${NC} uncommitted ignore rule cannot create an ignored-path finding"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} uncommitted ignore rule cannot create an ignored-path finding"; FAIL=$((FAIL+1)); FAILURES+=("dirty ignore-rule addition")
+  fi
+  git -C "$work" checkout -q -- .gitignore
 
   git -C "$work" checkout -q -b ignored-rename "$base"
   git -C "$work" mv secret.env scratch/secret.env
@@ -204,11 +236,11 @@ test_ignored_path_diff_failures() {
 
   cat > "$fake/git" <<'EOF'
 #!/usr/bin/env bash
-if [ "${1:-}" = diff ]; then
-  for arg in "$@"; do
-    [ "$arg" != --name-only ] || exit 128
-  done
-fi
+saw_diff=0
+for arg in "$@"; do
+  [ "$arg" != diff ] || saw_diff=1
+  [ "$saw_diff" -eq 0 ] || [ "$arg" != --name-only ] || exit 128
+done
 exec "$TRIBUNAL_TEST_REAL_GIT" "$@"
 EOF
   chmod +x "$fake/git"
@@ -1783,11 +1815,11 @@ EOF
   mkdir -p "$work/diff-fail-bin"
   cat > "$work/diff-fail-bin/git" <<'EOF'
 #!/usr/bin/env bash
-if [ "${1:-}" = diff ]; then
-  for arg in "$@"; do
-    [ "$arg" != --name-only ] || exit 128
-  done
-fi
+saw_diff=0
+for arg in "$@"; do
+  [ "$arg" != diff ] || saw_diff=1
+  [ "$saw_diff" -eq 0 ] || [ "$arg" != --name-only ] || exit 128
+done
 exec "$TRIBUNAL_TEST_REAL_GIT" "$@"
 EOF
   chmod +x "$work/diff-fail-bin/git"
@@ -2313,6 +2345,7 @@ assert_grep "ignored-path signal must become a finding" "$SK" "must become a fin
 assert_grep "ignored-path finding defaults medium" "$SK" "default.*medium"
 assert_grep "sensitive ignore comments escalate high" "$SK" "secret.*PII.*credential.*key.*never commit"
 assert_grep "high ignored-path finding blocks gate" "$SK" "high.*blocks the gate"
+assert_grep "zero-finding approval excludes ignored-path signals" "$SK" "sealed ignored-path signals"
 
 echo "Arbitration contract:"
 assert_grep "3b-0 in SKILL" "$SK" "3b-0: Blocking-Finding Standard"
