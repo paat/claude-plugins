@@ -636,7 +636,13 @@ absent "$META_REFS/review-prompts.md" 'REQUEST_CHANGES' 'Review template does no
 [ -f "$META_REFS/research-leg.md" ] || fail 'Research leg reference exists'
 contains "$META_REFS/research-leg.md" 'Do not trigger' 'Research leg reference keeps the negative trigger rules'
 absent "$META_REFS/research-leg.md" 'prompt-bounded' 'Research leg reference does not restate runner posture'
-[ "$(wc -l < "$META_SKILL")" -le 150 ] || fail 'meta-orchestration SKILL.md exceeds the 150-line budget'
+meta_over_budget_fixture="$WORK/meta-orchestration-over-budget.md"
+printf '%10001s' '' | tr ' ' x > "$meta_over_budget_fixture"
+[ "$(wc -l < "$meta_over_budget_fixture")" -lt 150 ] || fail 'Meta skill budget fixture must stay below 150 lines'
+[ "$(wc -c < "$meta_over_budget_fixture")" -gt 10000 ] || fail 'Meta skill budget fixture must exceed 10000 bytes'
+! [ "$(wc -c < "$meta_over_budget_fixture")" -le 10000 ] || fail 'Meta skill character budget accepts an over-budget fixture'
+[ "$(wc -c < "$META_SKILL")" -le 10000 ] || fail 'meta-orchestration SKILL.md exceeds the 10000-byte budget'
+pass 'Meta orchestration skill character budget rejects an over-budget fixture'
 pass 'Meta orchestration command, skill, and templates carry the required contracts'
 
 # Installed-CLI smoke must use the user's real config path, not the fixture GROK_HOME
