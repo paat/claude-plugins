@@ -111,17 +111,40 @@ fi
 [ "${STUB_GROK_REFRESH:-0}" != 1 ] || printf '{"key":"new"}\n' > "$GROK_HOME/auth.json"
 prompt=""
 debug_file=""
+requested_tools=""
 while [ "$#" -gt 0 ]; do
   [ "$1" = --prompt-file ] && { prompt="$2"; shift 2; continue; }
   [ "$1" = --debug-file ] && { debug_file="$2"; shift 2; continue; }
+  [ "$1" = --tools ] && { requested_tools="$2"; shift 2; continue; }
   shift
 done
 [ -n "$prompt" ] && cat "$prompt" > "$STUB_GROK_PROMPT"
-allowlist_applied='2026-08-27T07:16:41.995595Z DEBUG session.spawn{session_id=fixture client_type=Generic start_type="new"}: xai_grok_agent::builder: tools allowlist applied agent=grok-build-plan allowed=["read_file", "list_dir", "grep"]'
+formatted_tools="${requested_tools//,/\", \"}"
+allowlist_applied="2026-08-27T07:16:41.995595Z DEBUG session.spawn{session_id=fixture client_type=Generic start_type=\"new\"}: xai_grok_agent::builder: tools allowlist applied agent=grok-build-plan allowed=[\"$formatted_tools\"]"
 if [ -n "$debug_file" ]; then
   case "${STUB_GROK_DEBUG:-applied}" in
     absent) ;;
+    empty) : > "$debug_file" ;;
     applied) printf '%s\n' "$allowlist_applied" > "$debug_file" ;;
+    info) printf '%s\n' "${allowlist_applied/ DEBUG / INFO }" > "$debug_file" ;;
+    trailing_field) printf '%s duration_ms=3\n' "$allowlist_applied" > "$debug_file" ;;
+    no_agent) printf '%s\n' "${allowlist_applied/ agent=grok-build-plan/}" > "$debug_file" ;;
+    no_span) printf '%s\n' "${allowlist_applied/session.spawn\{session_id=fixture client_type=Generic start_type=\"new\"\}: /}" > "$debug_file" ;;
+    reordered_allowed)
+      printf '%s\n' '2026-08-27T07:16:41.995595Z DEBUG xai_grok_agent::builder: tools allowlist applied allowed=["grep", "read_file", "list_dir"]' > "$debug_file"
+      ;;
+    empty_allowed)
+      printf '%s\n' '2026-08-27T07:16:41.995595Z DEBUG xai_grok_agent::builder: tools allowlist applied allowed=[]' > "$debug_file"
+      ;;
+    wrong_allowed)
+      printf '%s\n' '2026-08-27T07:16:41.995595Z DEBUG xai_grok_agent::builder: tools allowlist applied allowed=["bash"]' > "$debug_file"
+      ;;
+    extra_allowed)
+      printf '%s\n' '2026-08-27T07:16:41.995595Z DEBUG xai_grok_agent::builder: tools allowlist applied allowed=["read_file", "list_dir", "grep", "bash"]' > "$debug_file"
+      ;;
+    cross_mode_allowed)
+      printf '%s\n' '2026-08-27T07:16:41.995595Z DEBUG xai_grok_agent::builder: tools allowlist applied allowed=["web_search", "web_fetch"]' > "$debug_file"
+      ;;
     prompt_warning_applied)
       printf '%s\n' "$allowlist_applied" \
         '2026-08-27T07:16:42.074473Z DEBUG xai_acp_lib::gateway: sending "session/prompt" request: {"text":"tools allowlist had unmappable entries; keeping full grok toolset"}' \
@@ -181,13 +204,33 @@ printf 'repo advice\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo
 contains "$WORK/grok.args" '--disable-web-search' 'Grok non-research mode keeps web search disabled'
 pass 'Grok research alone enables web-only tools under the read-only contract'
 
-absent_rc=0
-printf 'repo advice\n' | STUB_GROK_DEBUG=absent "$PLUGIN_ROOT/scripts/run-grok.sh" \
-  --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-absent.err" \
-  || absent_rc=$?
-[ "$absent_rc" -ne 0 ] || fail 'Grok accepts a missing allowlist debug file'
-contains "$WORK/grok-allowlist-absent.err" 'allowlist not enforced by the installed grok CLI' \
-  'Grok missing debug file does not name allowlist enforcement failure'
+for debug_case in absent empty; do
+  debug_rc=0
+  printf 'repo advice\n' | STUB_GROK_DEBUG="$debug_case" "$PLUGIN_ROOT/scripts/run-grok.sh" \
+    --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-$debug_case.err" \
+    || debug_rc=$?
+  [ "$debug_rc" -eq 7 ] || fail "Grok $debug_case allowlist debug file exits $debug_rc instead of 7"
+  contains "$WORK/grok-allowlist-$debug_case.err" 'produced no allowlist debug evidence' \
+    "Grok $debug_case debug file does not name missing debug evidence"
+  absent "$WORK/grok-allowlist-$debug_case.err" 'tool allowlist not enforced' \
+    "Grok $debug_case debug file shares the unenforced-allowlist diagnostic"
+done
+
+for drift_case in info trailing_field no_agent no_span reordered_allowed; do
+  drift_rc=0
+  printf 'repo advice\n' | STUB_GROK_DEBUG="$drift_case" "$PLUGIN_ROOT/scripts/run-grok.sh" \
+    --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-$drift_case.err" \
+    || drift_rc=$?
+  [ "$drift_rc" -eq 0 ] || fail "Grok rejects applied allowlist variant $drift_case with exit $drift_rc"
+done
+
+for invalid_case in empty_allowed wrong_allowed extra_allowed cross_mode_allowed; do
+  invalid_rc=0
+  printf 'repo advice\n' | STUB_GROK_DEBUG="$invalid_case" "$PLUGIN_ROOT/scripts/run-grok.sh" \
+    --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-$invalid_case.err" \
+    || invalid_rc=$?
+  [ "$invalid_rc" -eq 7 ] || fail "Grok accepts mismatched allowlist case $invalid_case with exit $invalid_rc"
+done
 
 printf 'repo advice\n' | STUB_GROK_DEBUG=prompt_warning_applied "$PLUGIN_ROOT/scripts/run-grok.sh" \
   --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-prompt.err" \
@@ -487,6 +530,8 @@ contains "$WORK/grok.args" 'bypassPermissions' 'Grok YOLO permission mode'
 contains "$WORK/grok.prompt" 'bounded implementation' 'Grok receives task packet'
 contains "$WORK/grok.config" '[compat.claude]' 'Grok isolated config disables Claude compatibility'
 contains "$WORK/grok.config" 'skills = false' 'Grok isolated config disables inherited skills'
+absent "$WORK/grok.args" '--tools' 'Grok implementation unexpectedly restricts tools'
+absent "$WORK/grok.args" '--debug-file' 'Grok implementation unexpectedly requests allowlist debug evidence'
 [ "$(cat "$WORK/grok.home-env")" = "$HOME" ] || fail 'Grok implementation preserves toolchain HOME'
 [ "$(cat "$WORK/grok.dir-env")" != "$GROK_HOME" ] || fail 'Grok config isolation'
 if printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --model grok-4 >/dev/null 2>&1; then
