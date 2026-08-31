@@ -534,6 +534,18 @@ test_plugin_config() {
   assert_output_not_contains "E11: hooks.json omits Codex-unsupported TeammateIdle" "$hooks_keys" "TeammateIdle"
   assert_output_not_contains "E12: hooks.json omits Codex-unsupported TaskCompleted" "$hooks_keys" "TaskCompleted"
 
+  local repo_root grok_interpolations hooks_file
+  repo_root="$(cd "$PLUGIN_ROOT/../.." && pwd)"
+  grok_interpolations=$(
+    for hooks_file in "$repo_root"/plugins/*/hooks/hooks.json; do
+      jq -r '.. | objects | .command? // empty' "$hooks_file" \
+        | sed -E 's/\$\{([[:alpha:]_][[:alnum:]_]*):-/\{\1:-/g' \
+        | grep -nF '$' \
+        | sed "s#^#$hooks_file:#" || true
+    done
+  )
+  assert_equals "E13: hook commands default every Grok interpolation" "$grok_interpolations" ""
+
   # C-enforce: PreToolUse hooks/dispatch.sh is registered
   local enforce_cmd
   enforce_cmd=$(jq -r '.hooks.PreToolUse[]?.hooks[]?.command // empty' "$PLUGIN_ROOT/hooks/hooks.json" | grep -F "hooks/dispatch.sh" || true)
