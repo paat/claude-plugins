@@ -98,13 +98,14 @@ def main() -> int:
         if marketplace_entry is None:
             errors.append(f"{plugin_dir.name}: missing entry in {rel(MARKETPLACE_PATH)}")
         else:
-            version = manifest.get("version")
-            marketplace_version = marketplace_entry.get("version")
-            if version != marketplace_version:
-                errors.append(
-                    f"{plugin_name}: version mismatch: {rel(manifest_path)}={version!r}, "
-                    f"{rel(MARKETPLACE_PATH)}={marketplace_version!r}"
-                )
+            check_manifest_versions(
+                plugin_name,
+                manifest_path,
+                manifest,
+                MARKETPLACE_PATH,
+                marketplace_entry,
+                errors,
+            )
             source = marketplace_entry.get("source")
             expected_source = f"./plugins/{plugin_name}"
             if source != expected_source:
@@ -140,6 +141,39 @@ def load_json(path: Path, errors: list[str]) -> Any:
     except json.JSONDecodeError as exc:
         errors.append(f"{rel(path)}: invalid JSON: {exc}")
     return None
+
+
+def check_manifest_versions(
+    plugin_name: str,
+    manifest_path: Path,
+    manifest: dict[str, Any],
+    marketplace_path: Path,
+    marketplace_entry: dict[str, Any],
+    errors: list[str],
+) -> None:
+    version = manifest.get("version")
+    marketplace_version = marketplace_entry.get("version")
+    codex_manifest_path = manifest_path.parent.parent / ".codex-plugin" / "plugin.json"
+    if codex_manifest_path.is_file():
+        codex_manifest = load_json(codex_manifest_path, errors)
+        if not isinstance(codex_manifest, dict):
+            if codex_manifest is not None:
+                errors.append(f"{rel(codex_manifest_path)}: manifest must be an object")
+            return
+        codex_version = codex_manifest.get("version")
+        if version != marketplace_version or version != codex_version:
+            errors.append(
+                f"{plugin_name}: version mismatch: {rel(manifest_path)}={version!r}, "
+                f"{rel(marketplace_path)}={marketplace_version!r}, "
+                f"{rel(codex_manifest_path)}={codex_version!r}"
+            )
+        return
+
+    if version != marketplace_version:
+        errors.append(
+            f"{plugin_name}: version mismatch: {rel(manifest_path)}={version!r}, "
+            f"{rel(marketplace_path)}={marketplace_version!r}"
+        )
 
 
 def check_installation_section(plugin_name: str, readme_path: Path, errors: list[str]) -> None:
