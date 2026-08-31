@@ -574,10 +574,11 @@ validate_arbitration() {
       if git -C "$root" show "HEAD:$source" 2>/dev/null | sed -n "1,${line}p" | awk -v line="$line" '
         NR >= line { exit }
         /^[[:space:]]*#/ {
-          if (tolower($0) ~ /(secret|pii|credential|key|never commit)/) sensitive=1
+          if (tolower($0) ~ /(^|[^[:alnum:]])(secret|pii|credential|key)([^[:alnum:]]|$)/ \
+              || tolower($0) ~ /(^|[^[:alnum:]])never[[:space:]]+commit([^[:alnum:]]|$)/) sensitive=1
           next
         }
-        { sensitive=0 }
+        /^[[:space:]]*$/ { sensitive=0 }
         END { exit !sensitive }
       '; then
         sensitive_paths="$(jq -c --arg path "$path" '. + [$path]' <<<"$sensitive_paths")"
