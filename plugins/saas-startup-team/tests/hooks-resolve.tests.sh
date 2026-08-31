@@ -102,7 +102,7 @@ test_hooks_resolve() {
   assert_output_not_contains "HR7d: source pre-bash does not skip" "$out" 'hook target unavailable'
 
   # A marketplace clone is also a usable fallback.
-  local marketplace_root="$workdir/home/.claude/plugins/marketplaces/local/plugins/saas-startup-team"
+  local marketplace_root="$workdir/home/.claude/plugins/marketplaces/paat-plugins/plugins/saas-startup-team"
   mkdir -p "$marketplace_root/hooks" "$marketplace_root/scripts"
   cp "$PLUGIN_ROOT/hooks/dispatch.sh" "$marketplace_root/hooks/dispatch.sh"
   cp "$PLUGIN_ROOT/scripts/gate.sh" "$marketplace_root/scripts/gate.sh"
@@ -112,6 +112,15 @@ test_hooks_resolve() {
     | HOME="$workdir/home" CLAUDE_PLUGIN_ROOT="$workdir/missing-root" CODEX_PLUGIN_ROOT= bash -c "$pre_write" 2>&1) || ec=$?
   assert_exit_code "HR8: marketplace fallback blocks invalid JSON" "$ec" 2
   assert_output_contains "HR8b: marketplace fallback reached gate" "$out" 'JSON syntax error'
+
+  local other_marketplace_root="$workdir/home/.claude/plugins/marketplaces/another/plugins/saas-startup-team"
+  mkdir -p "$other_marketplace_root"
+  cp -R "$marketplace_root/hooks" "$marketplace_root/scripts" "$other_marketplace_root/"
+  ec=0
+  out=$(cd "$workdir" && printf '%s' '{"tool_input":{"file_path":"x.json","content":"{"}}' \
+    | HOME="$workdir/home" CLAUDE_PLUGIN_ROOT="$workdir/missing-root" CODEX_PLUGIN_ROOT= bash -c "$pre_write" 2>&1) || ec=$?
+  assert_equals "HR8c: N>1 marketplace trees still reach gate" \
+    "$ec:$([[ "$out" == *'JSON syntax error'* ]] && printf yes)" "2:yes"
 
   # Healthy root resolves and runs dispatch (empty stdin is ok for dispatch entry)
   ec=0
