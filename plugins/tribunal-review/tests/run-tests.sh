@@ -355,6 +355,9 @@ test_genuine_empty_diff_is_reverified_and_unchanged() {
       and (.summary.quality_score | type == "number" and . == 10)
       and .summary.verdict == "APPROVE"
       and .summary.note == "No changes detected vs HEAD"
+      and .diff_stat.files_changed == 0
+      and (.diff_stat.base_oid | test("^[0-9a-f]{40}$"))
+      and (.diff_stat.head_oid | test("^[0-9a-f]{40}$"))
     ' "$work/out.json" >/dev/null \
     && grep -Fq 'rev-parse' "$work/git.trace" \
     && grep -Fq 'diff --quiet' "$work/git.trace"; then
