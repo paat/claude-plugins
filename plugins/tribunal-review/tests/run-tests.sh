@@ -308,7 +308,8 @@ test_empty_staged_diff_with_real_changes_fails_closed() {
   (
     cd "$work"
     . "$PLUGIN_ROOT/scripts/lib.sh"
-    tribunal_empty fixture fixture-model HEAD~1
+    TRIBUNAL_BASE_REF=HEAD~1 tribunal_prepare_diff "$work/d.diff"
+    tribunal_empty fixture fixture-model HEAD~1 "$(tribunal_take_diff_stat "$work/d.diff")"
   ) > "$work/out.json"
 
   if jq -e --arg base "$base_oid" --arg head "$head_oid" '
@@ -328,7 +329,7 @@ test_empty_staged_diff_with_real_changes_fails_closed() {
 }
 
 test_genuine_empty_diff_is_reverified_and_unchanged() {
-  local label="genuine empty diff is reverified before unchanged approval" work
+  local label="genuine empty diff is reverified over the pinned range" work
   work="$(mktemp -d)"
   git -C "$work" init -q
   git -C "$work" config user.email test@example.com
@@ -340,10 +341,12 @@ test_genuine_empty_diff_is_reverified_and_unchanged() {
   (
     cd "$work"
     . "$PLUGIN_ROOT/scripts/lib.sh"
-    GIT_TRACE="$work/git.trace" tribunal_empty fixture fixture-model HEAD
+    TRIBUNAL_BASE_REF=HEAD tribunal_prepare_diff "$work/d.diff"
+    GIT_TRACE="$work/git.trace" tribunal_empty fixture fixture-model HEAD \
+      "$(tribunal_take_diff_stat "$work/d.diff")"
   ) > "$work/out.json"
 
-  if jq -e '
+  if jq -e --arg oid "$(git -C "$work" rev-parse HEAD)" '
       .provider == "fixture"
       and .model == "fixture-model"
       and .findings == []
@@ -356,10 +359,10 @@ test_genuine_empty_diff_is_reverified_and_unchanged() {
       and .summary.verdict == "APPROVE"
       and .summary.note == "No changes detected vs HEAD"
       and .diff_stat.files_changed == 0
-      and (.diff_stat.base_oid | test("^[0-9a-f]{40}$"))
-      and (.diff_stat.head_oid | test("^[0-9a-f]{40}$"))
+      and .diff_stat.base_oid == $oid
+      and .diff_stat.head_oid == $oid
     ' "$work/out.json" >/dev/null \
-    && grep -Fq 'rev-parse' "$work/git.trace" \
+    && ! grep -Fq 'rev-parse' "$work/git.trace" \
     && grep -Fq 'diff --quiet' "$work/git.trace"; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else
@@ -381,13 +384,19 @@ test_unresolvable_base_during_empty_verification_fails_closed() {
   (
     cd "$work"
     . "$PLUGIN_ROOT/scripts/lib.sh"
-    tribunal_empty fixture fixture-model refs/heads/missing
+    if TRIBUNAL_BASE_REF=refs/heads/missing tribunal_prepare_diff "$work/d.diff"; then
+      printf '%s\n' '{"provider":"fixture","error":"capture unexpectedly succeeded"}'
+    else
+      tribunal_empty fixture fixture-model refs/heads/missing \
+        "$(tribunal_take_diff_stat "$work/d.diff")"
+    fi
   ) > "$work/out.json"
 
   if jq -e '
       .provider == "fixture"
       and has("error")
-      and (.error | contains("base ref refs/heads/missing did not resolve to a commit"))
+      and (.error | contains("the reviewed range was not captured"))
+      and (.error | contains("refs/heads/missing"))
     ' "$work/out.json" >/dev/null \
     && ! grep -q '"verdict":"APPROVE"' "$work/out.json"; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))

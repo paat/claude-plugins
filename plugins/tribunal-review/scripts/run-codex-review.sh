@@ -36,7 +36,7 @@ else
   CONTEXT_FILE="$TMPDIR/context.md"
   tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error codex "cannot diff against $BASE_REF"; exit 0; }
   DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
-  [ -s "$DIFF_FILE" ] || { tribunal_empty codex "$CODEX_MODEL" "$BASE_REF"; exit 0; }
+  [ -s "$DIFF_FILE" ] || { tribunal_empty codex "$CODEX_MODEL" "$BASE_REF" "$DIFF_STAT"; exit 0; }
   tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
   tribunal_review_prompt codex "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROMPT_FILE"
 fi

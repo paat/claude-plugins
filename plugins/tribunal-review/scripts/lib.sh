@@ -324,17 +324,17 @@ tribunal_grok_auth_writeback() {
   ) 9>>"$lock"
 }
 
+# $4 is the range `tribunal_prepare_diff` pinned, taken by the runner. The
+# emptiness re-verification and the stamp both use it, so this path cannot claim
+# a range that differs from the one the diff was captured over (issue #487).
 tribunal_empty() {
-  local provider="$1" model="${2:-default}" base_ref="${3:-}"
+  local provider="$1" model="${2:-default}" base_ref="${3:-}" stat="${4:-}"
   local base_oid head_oid diff_rc
-  if ! base_oid="$(git rev-parse --verify "$base_ref^{commit}" 2>/dev/null)"; then
+  base_oid="$(printf '%s' "$stat" | jq -r '.base_oid // empty' 2>/dev/null)"
+  head_oid="$(printf '%s' "$stat" | jq -r '.head_oid // empty' 2>/dev/null)"
+  if [ -z "$base_oid" ] || [ -z "$head_oid" ]; then
     tribunal_error "$provider" \
-      "staged diff is empty or missing and cannot be verified: base ref $base_ref did not resolve to a commit"
-    return
-  fi
-  if ! head_oid="$(git rev-parse --verify 'HEAD^{commit}' 2>/dev/null)"; then
-    tribunal_error "$provider" \
-      "staged diff is empty or missing and cannot be verified: HEAD did not resolve to a commit (resolved base ref $base_ref, base=$base_oid)"
+      "staged diff is empty or missing and cannot be verified: the reviewed range was not captured (base ref $base_ref)"
     return
   fi
   git diff --quiet "$base_oid...$head_oid" --no-ext-diff --no-textconv \

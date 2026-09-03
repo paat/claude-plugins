@@ -67,7 +67,7 @@ fi
 
 run_oc_leg() {
   local provider="$1" model="$2" mode="$3" cwd="$4"
-  if [ "$MODE" = review ] && [ ! -s "$DIFF_FILE" ]; then tribunal_empty "$provider" "$model" "$BASE_REF"; return; fi
+  if [ "$MODE" = review ] && [ ! -s "$DIFF_FILE" ]; then tribunal_empty "$provider" "$model" "$BASE_REF" "$DIFF_STAT"; return; fi
   command -v opencode >/dev/null 2>&1 || { tribunal_error "$provider" "OpenCode CLI not on PATH"; return; }
   local prompt="$TMPDIR/$provider.prompt.md" out="$TMPDIR/$provider.out" err="$TMPDIR/$provider.err" diff_attach
   if [ "$MODE" = smoke ]; then
