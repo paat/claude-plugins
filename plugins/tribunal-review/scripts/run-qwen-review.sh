@@ -46,7 +46,8 @@ if [ "$rc" -eq 0 ]; then
     [ -n "$actual_model" ] && json="$(printf '%s' "$json" | jq --arg m "$actual_model" '.model = $m')"
     printf '%s' "$json" \
       | tribunal_emit_review qwen "" "$TMPDIR/out.txt" "$TMPDIR/err.txt" "$rc" \
-      | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
+      | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
+      | tribunal_stamp_diff_stat "$REPO_ROOT" "$DIFF_FILE"
   else
     tribunal_error_with_diagnostics qwen "unparseable Qwen output" parse \
       "$rc" "$TMPDIR/out.txt" "$TMPDIR/err.txt"

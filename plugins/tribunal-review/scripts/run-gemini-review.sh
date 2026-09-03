@@ -23,7 +23,8 @@ printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 gemini --model "${TRIBUN
 if [ "$rc" -eq 0 ]; then
   tribunal_extract_json_object < "$TMPDIR/out.txt" \
     | tribunal_emit_review gemini "" "$TMPDIR/out.txt" "$TMPDIR/err.txt" "$rc" \
-    | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
+    | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
+    | tribunal_stamp_diff_stat "$REPO_ROOT" "$DIFF_FILE"
 else
   tribunal_error_with_diagnostics gemini "Gemini execution failed or timed out" execution \
     "$rc" "$TMPDIR/out.txt" "$TMPDIR/err.txt"

@@ -1696,6 +1696,72 @@ EOF
   rm -rf "$work"
 }
 
+# A wrapper agent can hand back a well-formed but fabricated leg envelope, which
+# the arbiter cannot distinguish from a genuine clean pass (issue #487). Only a
+# runner script can stamp .diff_stat: the provider output schema forbids the
+# field and tribunal_emit_review strips any model-authored one.
+test_wrapper_stamped_diff_stat() {
+  local label="review leg carries the wrapper-stamped diff stat"
+  local work fake head
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  cat > "$fake/codex" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '%s\n' '{"provider":"codex","model":"default","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},"diff_stat":{"files_changed":99}}'
+EOF
+  chmod +x "$fake/codex"
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\nthree\n' > file.txt
+    printf 'new\n' > added.txt
+    git add added.txt
+    git commit -q -am change
+    PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
+  ); then
+    head="$(git -C "$work" rev-parse HEAD)"
+    if jq -e --arg head "$head" '
+        .diff_stat.files_changed == 2 and .diff_stat.insertions == 3
+        and .diff_stat.deletions == 1 and .diff_stat.truncated == false
+        and .diff_stat.base == "HEAD~1" and .diff_stat.head_oid == $head
+      ' "$work/out.json" >/dev/null; then
+      echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+    fi
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+
+  local label2="model-authored diff_stat is stripped before the wrapper stamps"
+  if printf '%s\n' '{"provider":"claude","model":"fixture","diff_stat":{"files_changed":99},"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+    | bash -c '. "$1"; tribunal_emit_review codex' _ "$PLUGIN_ROOT/scripts/lib.sh" \
+    | jq -e 'has("diff_stat") | not' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label2"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label2"; FAIL=$((FAIL+1)); FAILURES+=("$label2")
+  fi
+
+  local label3="stamp leaves error and disabled legs untouched"
+  if printf '%s\n' '{"provider":"codex","error":"boom"}' \
+    | bash -c '. "$1"; tribunal_stamp_diff_stat "$2" "$2/none.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT" \
+    | jq -e 'has("diff_stat") | not' >/dev/null \
+    && printf '%s\n' '{"provider":"codex","status":"disabled","note":"off"}' \
+    | bash -c '. "$1"; tribunal_stamp_diff_stat "$2" "$2/none.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT" \
+    | jq -e 'has("diff_stat") | not' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label3"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label3"; FAIL=$((FAIL+1)); FAILURES+=("$label3")
+  fi
+}
+
 test_wrapper_owned_provider_envelope() {
   local out
   out="$(printf '%s\n' '{"provider":"claude","status":"disabled","error":"spoof","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
@@ -1727,9 +1793,11 @@ elif [ "${FIXTURE_CODEX_MODE:-ok}" = malformed ]; then
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = diagnostic ]; then
   printf '%s\n' '{"provider":"claude","error":"unparseable codex output: no review JSON object found; phase=parse; exit=0; stdout_bytes=12; stdout_truncated=false; stdout_tail=omitted; stderr_bytes=0; stderr_truncated=false; stderr_tail=omitted"}'
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = finding ]; then
-  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[{"severity":"medium","category":"logic","file":"app.txt","line":1,"title":"Fixture finding","description":"A concrete fixture defect.","suggestion":"Apply the fixture fix.","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"}}'
-else
+  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[{"severity":"medium","category":"logic","file":"app.txt","line":1,"title":"Fixture finding","description":"A concrete fixture defect.","suggestion":"Apply the fixture fix.","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"},"diff_stat":{"files_changed":1,"insertions":1,"deletions":0,"base":"origin/main","base_oid":"1111111111111111111111111111111111111111","head_oid":"2222222222222222222222222222222222222222","truncated":false}}'
+elif [ "${FIXTURE_CODEX_MODE:-ok}" = nostat ]; then
   printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+else
+  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},"diff_stat":{"files_changed":1,"insertions":1,"deletions":0,"base":"origin/main","base_oid":"1111111111111111111111111111111111111111","head_oid":"2222222222222222222222222222222222222222","truncated":false}}'
 fi
 EOF
   for provider in gemini qwen grok; do
@@ -1981,6 +2049,14 @@ EOF
     echo -e "  ${GREEN}PASS${NC} strict provider schema rejects caller/model extras"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} strict provider schema rejects caller/model extras"; FAIL=$((FAIL+1)); FAILURES+=("strict provider schema")
+  fi
+  FIXTURE_CODEX_MODE=nostat PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 --output "$work/nostat" > "$work/nostat.json"
+  if jq -e '.provider=="codex" and has("error")' "$work/nostat/providers/codex.json" >/dev/null \
+    && jq -e 'any(.providers[]; .provider=="codex" and .status=="failed")' "$work/nostat/manifest.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} review leg without wrapper diff_stat is a provider failure"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} review leg without wrapper diff_stat is a provider failure"; FAIL=$((FAIL+1)); FAILURES+=("missing diff_stat rejection")
   fi
   jq '.provider_assessment.codex.status="failed"' "$work/arbitration.json" > "$work/no-quorum-approve.json"
   if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
@@ -2424,6 +2500,7 @@ test_codex_vacuous_guard NEEDS_WORK 7.5 "codex vacuous empty-NEEDS_WORK (nonzero
 test_codex_vacuous_guard " BLOCK " 0.0 "codex vacuous verdict tolerates surrounding whitespace"
 test_codex_line_bounds_guard
 test_wrapper_owned_provider_envelope
+test_wrapper_stamped_diff_stat
 test_ignored_path_additions
 test_ignored_path_diff_failures
 test_ignored_path_validation

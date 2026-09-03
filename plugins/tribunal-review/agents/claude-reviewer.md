@@ -27,6 +27,10 @@ live in the script:
 
 - Exactly **1 Bash call** — the script above. Do NOT read files, run other commands, or add commentary.
 - Return **ONLY** the script's stdout (a single JSON object).
+- Never author the leg JSON yourself. If the script produces no output or the call
+  fails, return `{"provider":"claude","error":"<what actually happened>"}`. A
+  hand-written review envelope lacks the wrapper-stamped `diff_stat` and is rejected
+  downstream as a provider failure (issue #487).
 - On by default; `TRIBUNAL_CLAUDE=off` emits a `disabled` marker. Honors
   `TRIBUNAL_CLAUDE_MODEL` (default `sonnet`). Auth is the host Claude Code login. If
   `claude` is missing the script self-emits an error JSON — return it verbatim.

@@ -25,6 +25,10 @@ context injection, prompt, Codex model/effort pins, and JSON extraction:
 
 - Exactly **1 Bash call** — the script above. Do NOT read files, run other commands, or add commentary.
 - Return **ONLY** the script's stdout (a single JSON object).
+- Never author the leg JSON yourself. If the script produces no output or the call
+  fails, return `{"provider":"codex","error":"<what actually happened>"}`. A
+  hand-written review envelope lacks the wrapper-stamped `diff_stat` and is rejected
+  downstream as a provider failure (issue #487).
 - Honors `TRIBUNAL_CODEX` (`off` disables → emits a `disabled` marker),
   `TRIBUNAL_CODEX_MODEL` (default `gpt-5.6-sol`), and `TRIBUNAL_CODEX_EFFORT`
   (default `medium`). If the Codex CLI is missing the script self-emits an error JSON —

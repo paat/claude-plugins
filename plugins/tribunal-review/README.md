@@ -238,6 +238,12 @@ Codex · Gemini · GLM · DeepSeek · Qwen · Grok · Claude (equal advisory pee
 
 The reviewers are equal peers (up to seven; by default Codex + Grok + Claude, with Gemini, DeepSeek, GLM, and Qwen opt-in); a finding flagged by ≥2 is CONSENSUS. The calling context can override a reviewer finding, but must weigh claims on evidence rather than provider identity.
 
+Each review-shaped leg carries a `diff_stat` (`files_changed`, `insertions`,
+`deletions`, `base`, `base_oid`, `head_oid`, `truncated`) stamped by the runner
+script, not by the provider. A leg missing it did not come from a runner and is
+counted as a provider failure regardless of its verdict, so a fabricated clean
+pass cannot satisfy a merge gate.
+
 ## License
 
 MIT

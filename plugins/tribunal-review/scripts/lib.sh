@@ -350,7 +350,9 @@ tribunal_empty() {
     return
   fi
   jq -nc --arg p "$provider" --arg m "$model" --arg b "$base_ref" \
-    '{provider:$p,model:$m,findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10.0,verdict:"APPROVE",note:("No changes detected vs " + $b)}}'
+    --arg base_oid "$base_oid" --arg head_oid "$head_oid" \
+    '{provider:$p,model:$m,findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10.0,verdict:"APPROVE",note:("No changes detected vs " + $b)},
+      diff_stat:{files_changed:0,insertions:0,deletions:0,base:$b,base_oid:$base_oid,head_oid:$head_oid,truncated:false}}'
 }
 
 tribunal_prepare_diff() {
@@ -490,7 +492,34 @@ tribunal_emit_review() {
   fi
   # Provider identity belongs to the wrapper, not model-authored JSON. The
   # aggregate evidence runner relies on this assignment when it seals each leg.
-  printf '%s\n' "$json" | jq -c --arg provider "$provider" '.provider = $provider | del(.status, .error)'
+  printf '%s\n' "$json" | jq -c --arg provider "$provider" '.provider = $provider | del(.status, .error, .diff_stat)'
+}
+
+# Stamp the wrapper-computed diff stat onto a review leg. The provider output
+# schema forbids this field and `tribunal_emit_review` strips any model-authored
+# one, so only a runner script can produce it: a leg fabricated by a wrapper
+# agent, or one whose runner never executed, is missing it and is rejected
+# downstream instead of counting as a clean pass (issue #487). Counts come from
+# the full range, not the possibly-truncated review diff, and `truncated` says
+# how much of it the provider actually saw.
+# $1 repo root  $2 diff file ("$2.truncated" marks a capped diff)
+# stdin: one leg JSON object  stdout: same object with .diff_stat
+tribunal_stamp_diff_stat() {
+  local root="$1" diff_file="$2" base_ref base_oid head_oid counts truncated=false
+  base_ref="$(tribunal_base_ref)"
+  base_oid="$(git -C "$root" rev-parse --verify "$base_ref^{commit}" 2>/dev/null)" || base_oid=""
+  head_oid="$(git -C "$root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || head_oid=""
+  [ -f "$diff_file.truncated" ] && truncated=true
+  counts="$(git -C "$root" diff --numstat "$base_ref"...HEAD --no-ext-diff --no-textconv 2>/dev/null \
+    | awk 'BEGIN{f=0;i=0;d=0}
+           NF>=3{f++; if ($1 != "-") i+=$1; if ($2 != "-") d+=$2}
+           END{printf "{\"files_changed\":%d,\"insertions\":%d,\"deletions\":%d}", f, i, d}')"
+  [ -n "$counts" ] || counts='{"files_changed":0,"insertions":0,"deletions":0}'
+  jq -c --argjson counts "$counts" --arg base "$base_ref" --arg base_oid "$base_oid" \
+    --arg head_oid "$head_oid" --argjson truncated "$truncated" '
+    if (has("error") or (.status? == "disabled")) then .
+    else .diff_stat = ($counts + {base:$base,base_oid:$base_oid,head_oid:$head_oid,truncated:$truncated})
+    end'
 }
 
 # Mark findings whose position cannot exist: a missing/mistyped file field, a

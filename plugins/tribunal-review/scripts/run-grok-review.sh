@@ -218,7 +218,8 @@ emit_from_envelope() {
   [ -n "$actual_model" ] && json="$(printf '%s' "$json" | jq --arg m "$actual_model" '.model = $m')"
   printf '%s' "$json" \
     | tribunal_emit_review grok "" "$out" "$err" "$rc" \
-    | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
+    | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
+    | tribunal_stamp_diff_stat "$REPO_ROOT" "$DIFF_FILE"
   return 0
 }
 

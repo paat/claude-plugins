@@ -25,6 +25,10 @@ every mechanic — base-ref resolution, diff capture/truncation, context injecti
 
 - Exactly **1 Bash call** — the script above. Do NOT read files, run other commands, or add commentary.
 - Return **ONLY** the script's stdout (a single JSON object).
+- Never author the leg JSON yourself. If the script produces no output or the call
+  fails, return `{"provider":"gemini","error":"<what actually happened>"}`. A
+  hand-written review envelope lacks the wrapper-stamped `diff_stat` and is rejected
+  downstream as a provider failure (issue #487).
 - Gemini is **off by default**: the script emits a `disabled` marker unless `TRIBUNAL_GEMINI=on`.
   Honors `TRIBUNAL_GEMINI_MODEL` (default `gemini-3-pro-preview`). If the Gemini CLI is missing the
   script self-emits an error JSON — return it verbatim.

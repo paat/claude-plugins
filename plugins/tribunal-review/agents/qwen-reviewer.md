@@ -27,6 +27,10 @@ unknown `-m`):
 
 - Exactly **1 Bash call** — the script above. Do NOT read files, run other commands, or add commentary.
 - Return **ONLY** the script's stdout (a single JSON object).
+- Never author the leg JSON yourself. If the script produces no output or the call
+  fails, return `{"provider":"qwen","error":"<what actually happened>"}`. A
+  hand-written review envelope lacks the wrapper-stamped `diff_stat` and is rejected
+  downstream as a provider failure (issue #487).
 - Qwen is **off by default** (issue #46: ungrounded diff-text reasoning → repeated false positives):
   the script emits a `disabled` marker unless `TRIBUNAL_QWEN=on`. Honors `TRIBUNAL_QWEN_MODEL`
   (default `qwen3.7-plus`; ids vary by account/region — override as needed). Auth is the Qwen Code

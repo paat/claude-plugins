@@ -153,6 +153,12 @@ validate_provider() {
       and .medium == ([$fs[] | select(.severity == "medium")] | length)
       and .low == ([$fs[] | select(.severity == "low")] | length)
       and ((.total_findings > 0) or (.verdict == "APPROVE"));
+    def diff_stat:
+      exact(["files_changed","insertions","deletions","base","base_oid","head_oid","truncated"];
+            ["files_changed","insertions","deletions","base","base_oid","head_oid","truncated"])
+      and (.files_changed | uint) and (.insertions | uint) and (.deletions | uint)
+      and (.base | text) and (.truncated | type == "boolean")
+      and (.base_oid | test("^[0-9a-f]{40}$")) and (.head_oid | test("^[0-9a-f]{40}$"));
     .provider == $p and (
       (exact(["provider","status","note"];["provider","status","note"])
        and .status == "disabled" and (.note | text))
@@ -160,10 +166,11 @@ validate_provider() {
       (exact(["provider","error"];["provider","error"])
        and (.error | text))
       or
-      (exact(["provider","model","findings","summary"];
-             ["provider","model","findings","summary"])
+      (exact(["provider","model","findings","summary","diff_stat"];
+             ["provider","model","findings","summary","diff_stat"])
        and (.model | text) and (.findings | type == "array" and all(.[]; finding))
-       and (.findings as $findings | .summary | summary($findings)))
+       and (.findings as $findings | .summary | summary($findings))
+       and (.diff_stat | diff_stat))
     )
   ' "$file" >/dev/null
 }

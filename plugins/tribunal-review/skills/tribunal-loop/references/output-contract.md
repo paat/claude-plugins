@@ -58,6 +58,14 @@ does not add a provider-assessment entry.
 }
 ```
 
+Each review-shaped provider leg read in Step 3 carries a wrapper-stamped
+`diff_stat` — `files_changed`, `insertions`, `deletions`, `base`, `base_oid`,
+`head_oid`, `truncated` — computed over the full base…HEAD range, with
+`truncated` saying whether the provider saw the whole diff. The provider output
+schema forbids the field and the wrapper strips any model-authored one, so a leg
+missing it was not produced by a runner: it counts as `failed`, not `ok`, in
+`provider_assessment` (issue #487). Error and disabled legs carry no `diff_stat`.
+
 For sealed PR delivery, this is an exact schema: unknown keys, unknown enum
 values, duplicate IDs/providers, invalid counts, provider status that differs
 from the wrapper-owned collection, and critical/high findings without all three

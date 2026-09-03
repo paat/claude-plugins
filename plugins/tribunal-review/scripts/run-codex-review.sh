@@ -71,7 +71,8 @@ if [ "$rc" -eq 0 ]; then
       | tribunal_emit_review codex \
         "Codex returned an unusable repository review" \
         "$RESPONSE_FILE" "$TMPDIR/err.txt" "$rc" \
-      | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
+      | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
+      | tribunal_stamp_diff_stat "$REPO_ROOT" "$DIFF_FILE"
   fi
 else
   tribunal_error_with_diagnostics codex "Codex execution failed or timed out" execution \
