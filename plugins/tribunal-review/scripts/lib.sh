@@ -381,13 +381,17 @@ tribunal_prepare_diff() {
     rm -f "$out.truncated"
   fi
   rm -f "$full"
-  git diff --numstat "$base_oid...$head_oid" --no-ext-diff --no-textconv 2>/dev/null \
-    | awk -v base="$base_ref" -v base_oid="$base_oid" -v head_oid="$head_oid" -v trunc="$truncated" '
-        BEGIN{f=0;i=0;d=0}
-        NF>=3{f++; if ($1 != "-") i+=$1; if ($2 != "-") d+=$2}
-        END{printf "{\"files_changed\":%d,\"insertions\":%d,\"deletions\":%d,\"base\":\"%s\",\"base_oid\":\"%s\",\"head_oid\":\"%s\",\"truncated\":%s}",
-            f, i, d, base, base_oid, head_oid, trunc}' > "$out.stat" || return 1
-  jq -e . "$out.stat" >/dev/null 2>&1 || return 1
+  git diff --numstat "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$out.numstat" || return 1
+  jq -Rn --arg base "$base_ref" --arg base_oid "$base_oid" --arg head_oid "$head_oid" \
+    --argjson truncated "$truncated" --rawfile numstat "$out.numstat" '
+    ($numstat | split("\n") | map(select(length > 0) | split("\t"))
+      | map(select(length >= 3))) as $rows |
+    {files_changed: ($rows | length),
+     insertions: ([$rows[] | .[0] | select(. != "-") | tonumber] | add // 0),
+     deletions:  ([$rows[] | .[1] | select(. != "-") | tonumber] | add // 0),
+     base: $base, base_oid: $base_oid, head_oid: $head_oid, truncated: $truncated}' \
+    > "$out.stat" || return 1
+  rm -f "$out.numstat"
 }
 
 tribunal_context_block() {

@@ -1752,6 +1752,30 @@ EOF
     echo -e "  ${RED}FAIL${NC} $label2"; FAIL=$((FAIL+1)); FAILURES+=("$label2")
   fi
 
+  local label_q="pinned range survives a base ref name containing a quote"
+  local qwork; qwork="$(mktemp -d)"
+  if (
+    set -e
+    cd "$qwork"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > f.txt
+    git add f.txt
+    git commit -q -m base
+    git branch 'we"ird'
+    printf 'two\n' > f.txt
+    git commit -q -am change
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF='we"ird' tribunal_prepare_diff "$qwork/d.diff"
+  ) && jq -e '.base == "we\"ird" and .files_changed == 1 and .insertions == 1 and .deletions == 1' \
+      "$qwork/d.diff.stat" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label_q"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label_q"; FAIL=$((FAIL+1)); FAILURES+=("$label_q")
+  fi
+  rm -rf "$qwork"
+
   local label_u="uncaptured reviewed range becomes an explicit leg error"
   if printf '%s\n' '{"provider":"codex","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
     | bash -c '. "$1"; tribunal_stamp_diff_stat "$2/absent.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$(mktemp -d)" \
@@ -2429,6 +2453,8 @@ assert_grep "resolves GitHub default branch" "$LIB" "defaultBranchRef"
 assert_grep "supports base-ref override" "$LIB" "TRIBUNAL_BASE_REF"
 assert_grep "resolves the base ref before diffing" "$LIB" 'git rev-parse --verify "$base_ref^{commit}"'
 assert_grep "diffs the pinned range" "$LIB" 'git diff "$base_oid...$head_oid"'
+assert_grep "pinned range JSON is built by jq, not string interpolation" "$LIB" 'jq -Rn --arg base "$base_ref"'
+assert_grep "numstat failure is fail-closed" "$LIB" 'git diff --numstat "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$out.numstat" || return 1'
 assert_grep "tracks active reviewer legs" "$PF" "zero active reviewer legs"
 assert_grep "warms OpenCode model registry" "$PF" "opencode models"
 assert_grep "Claude auth probe is bounded" "$LIB" "timeout -k 1 10 claude auth status --json"
