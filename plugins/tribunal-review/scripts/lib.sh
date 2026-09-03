@@ -505,21 +505,31 @@ tribunal_emit_review() {
 # $1 repo root  $2 diff file ("$2.truncated" marks a capped diff)
 # stdin: one leg JSON object  stdout: same object with .diff_stat
 tribunal_stamp_diff_stat() {
-  local root="$1" diff_file="$2" base_ref base_oid head_oid counts truncated=false
+  local root="$1" diff_file="$2" json provider base_ref base_oid head_oid counts truncated=false
+  json="$(cat)"
+  # Error and disabled legs carry no diff_stat; leave them alone rather than
+  # walking the diff for a value they discard.
+  if printf '%s' "$json" | jq -e 'has("error") or (.status? == "disabled")' >/dev/null 2>&1; then
+    printf '%s\n' "$json"
+    return
+  fi
   base_ref="$(tribunal_base_ref)"
-  base_oid="$(git -C "$root" rev-parse --verify "$base_ref^{commit}" 2>/dev/null)" || base_oid=""
-  head_oid="$(git -C "$root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || head_oid=""
+  provider="$(printf '%s' "$json" | jq -r '.provider // "provider"')"
+  if ! base_oid="$(git -C "$root" rev-parse --verify "$base_ref^{commit}" 2>/dev/null)" \
+    || ! head_oid="$(git -C "$root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)"; then
+    tribunal_error "$provider" \
+      "cannot stamp the reviewed range: base ref $base_ref or HEAD did not resolve to a commit"
+    return
+  fi
   [ -f "$diff_file.truncated" ] && truncated=true
   counts="$(git -C "$root" diff --numstat "$base_ref"...HEAD --no-ext-diff --no-textconv 2>/dev/null \
     | awk 'BEGIN{f=0;i=0;d=0}
            NF>=3{f++; if ($1 != "-") i+=$1; if ($2 != "-") d+=$2}
            END{printf "{\"files_changed\":%d,\"insertions\":%d,\"deletions\":%d}", f, i, d}')"
   [ -n "$counts" ] || counts='{"files_changed":0,"insertions":0,"deletions":0}'
-  jq -c --argjson counts "$counts" --arg base "$base_ref" --arg base_oid "$base_oid" \
-    --arg head_oid "$head_oid" --argjson truncated "$truncated" '
-    if (has("error") or (.status? == "disabled")) then .
-    else .diff_stat = ($counts + {base:$base,base_oid:$base_oid,head_oid:$head_oid,truncated:$truncated})
-    end'
+  printf '%s' "$json" | jq -c --argjson counts "$counts" --arg base "$base_ref" \
+    --arg base_oid "$base_oid" --arg head_oid "$head_oid" --argjson truncated "$truncated" '
+    .diff_stat = ($counts + {base:$base,base_oid:$base_oid,head_oid:$head_oid,truncated:$truncated})'
 }
 
 # Mark findings whose position cannot exist: a missing/mistyped file field, a

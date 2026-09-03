@@ -65,6 +65,8 @@ Each review-shaped provider leg read in Step 3 carries a wrapper-stamped
 schema forbids the field and the wrapper strips any model-authored one, so a leg
 missing it was not produced by a runner: it counts as `failed`, not `ok`, in
 `provider_assessment` (issue #487). Error and disabled legs carry no `diff_stat`.
+`collect-review-evidence.sh` also binds `base_oid`/`head_oid` to the collection's
+own revision, so a leg stamped over a different range seals as `failed`.
 
 For sealed PR delivery, this is an exact schema: unknown keys, unknown enum
 values, duplicate IDs/providers, invalid counts, provider status that differs

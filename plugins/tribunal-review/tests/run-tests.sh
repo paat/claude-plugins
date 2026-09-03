@@ -1749,6 +1749,26 @@ EOF
     echo -e "  ${RED}FAIL${NC} $label2"; FAIL=$((FAIL+1)); FAILURES+=("$label2")
   fi
 
+  local label_t="capped diff is stamped truncated=true"
+  if printf '%s\n' '{"provider":"codex","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+    | bash -c 'set -e; . "$1"; : > "$2.truncated"; tribunal_stamp_diff_stat "$3" "$2"' \
+      _ "$PLUGIN_ROOT/scripts/lib.sh" "$(mktemp)" "$PLUGIN_ROOT" \
+    | jq -e '.diff_stat.truncated == true' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label_t"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label_t"; FAIL=$((FAIL+1)); FAILURES+=("$label_t")
+  fi
+
+  local label_u="unresolvable reviewed range becomes an explicit leg error"
+  if printf '%s\n' '{"provider":"codex","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+    | TRIBUNAL_BASE_REF=refs/tribunal/no-such-ref \
+      bash -c '. "$1"; tribunal_stamp_diff_stat "$2" "$2/none.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT" \
+    | jq -e '.provider == "codex" and (.error | test("cannot stamp the reviewed range")) and (has("diff_stat") | not)' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label_u"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label_u"; FAIL=$((FAIL+1)); FAILURES+=("$label_u")
+  fi
+
   local label3="stamp leaves error and disabled legs untouched"
   if printf '%s\n' '{"provider":"codex","error":"boom"}' \
     | bash -c '. "$1"; tribunal_stamp_diff_stat "$2" "$2/none.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT" \
@@ -1786,6 +1806,13 @@ test_trusted_evidence_collection() {
 
   cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
 #!/usr/bin/env bash
+fixture_stat() {
+  local base head
+  base="$(git rev-parse --verify "${FIXTURE_STAT_BASE:-${TRIBUNAL_BASE_REF}}^{commit}")"
+  head="$(git rev-parse --verify "${FIXTURE_STAT_HEAD:-HEAD}^{commit}")"
+  printf '"diff_stat":{"files_changed":1,"insertions":1,"deletions":0,"base":"%s","base_oid":"%s","head_oid":"%s","truncated":false}' \
+    "$TRIBUNAL_BASE_REF" "$base" "$head"
+}
 if [ "${FIXTURE_ZERO_SUCCESS:-off}" = on ]; then
   printf '%s\n' '{"provider":"codex","error":"fixture Codex transport failure"}'
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = malformed ]; then
@@ -1793,11 +1820,11 @@ elif [ "${FIXTURE_CODEX_MODE:-ok}" = malformed ]; then
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = diagnostic ]; then
   printf '%s\n' '{"provider":"claude","error":"unparseable codex output: no review JSON object found; phase=parse; exit=0; stdout_bytes=12; stdout_truncated=false; stdout_tail=omitted; stderr_bytes=0; stderr_truncated=false; stderr_tail=omitted"}'
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = finding ]; then
-  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[{"severity":"medium","category":"logic","file":"app.txt","line":1,"title":"Fixture finding","description":"A concrete fixture defect.","suggestion":"Apply the fixture fix.","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"},"diff_stat":{"files_changed":1,"insertions":1,"deletions":0,"base":"origin/main","base_oid":"1111111111111111111111111111111111111111","head_oid":"2222222222222222222222222222222222222222","truncated":false}}'
+  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[{"severity":"medium","category":"logic","file":"app.txt","line":1,"title":"Fixture finding","description":"A concrete fixture defect.","suggestion":"Apply the fixture fix.","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"},'"$(fixture_stat)"'}'
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = nostat ]; then
   printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
 else
-  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},"diff_stat":{"files_changed":1,"insertions":1,"deletions":0,"base":"origin/main","base_oid":"1111111111111111111111111111111111111111","head_oid":"2222222222222222222222222222222222222222","truncated":false}}'
+  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},'"$(fixture_stat)"'}'
 fi
 EOF
   for provider in gemini qwen grok; do
@@ -2057,6 +2084,14 @@ EOF
     echo -e "  ${GREEN}PASS${NC} review leg without wrapper diff_stat is a provider failure"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} review leg without wrapper diff_stat is a provider failure"; FAIL=$((FAIL+1)); FAILURES+=("missing diff_stat rejection")
+  fi
+  FIXTURE_STAT_HEAD="$base" PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 --output "$work/wrongrev" > "$work/wrongrev.json"
+  if jq -e '.provider=="codex" and has("error")' "$work/wrongrev/providers/codex.json" >/dev/null \
+    && jq -e 'any(.providers[]; .provider=="codex" and .status=="failed")' "$work/wrongrev/manifest.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} review leg stamped over another revision is a provider failure"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} review leg stamped over another revision is a provider failure"; FAIL=$((FAIL+1)); FAILURES+=("wrong-revision diff_stat rejection")
   fi
   jq '.provider_assessment.codex.status="failed"' "$work/arbitration.json" > "$work/no-quorum-approve.json"
   if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
