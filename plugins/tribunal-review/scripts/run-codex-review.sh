@@ -35,6 +35,7 @@ else
   BASE_REF="$(tribunal_base_ref)"
   CONTEXT_FILE="$TMPDIR/context.md"
   tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error codex "cannot diff against $BASE_REF"; exit 0; }
+  DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
   [ -s "$DIFF_FILE" ] || { tribunal_empty codex "$CODEX_MODEL" "$BASE_REF"; exit 0; }
   tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
   tribunal_review_prompt codex "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROMPT_FILE"
@@ -72,7 +73,7 @@ if [ "$rc" -eq 0 ]; then
         "Codex returned an unusable repository review" \
         "$RESPONSE_FILE" "$TMPDIR/err.txt" "$rc" \
       | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
-      | tribunal_stamp_diff_stat "$DIFF_FILE"
+      | tribunal_stamp_diff_stat "$DIFF_STAT"
   fi
 else
   tribunal_error_with_diagnostics codex "Codex execution failed or timed out" execution \

@@ -1776,9 +1776,40 @@ EOF
   fi
   rm -rf "$qwork"
 
+  local label_r="pinned range is taken off disk before the provider runs"
+  local rwork; rwork="$(mktemp -d)"
+  cat > "$rwork/fake-codex" <<EOF
+#!/usr/bin/env bash
+cat >/dev/null
+find "$rwork" -name '*.stat' > "$rwork/stat-visible" 2>/dev/null
+printf '%s\\n' '{"provider":"codex","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+EOF
+  chmod +x "$rwork/fake-codex"
+  if (
+    set -e
+    cd "$rwork"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > f.txt
+    git add f.txt
+    git commit -q -m base
+    printf 'two\n' > f.txt
+    git commit -q -am change
+    mkdir -p bin && ln -sf "$rwork/fake-codex" bin/codex
+    PATH="$rwork/bin:$PATH" TMPDIR="$rwork" TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$rwork/out.json"
+  ) && jq -e '.diff_stat.files_changed == 1' "$rwork/out.json" >/dev/null \
+    && [ ! -s "$rwork/stat-visible" ]; then
+    echo -e "  ${GREEN}PASS${NC} $label_r"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label_r"; FAIL=$((FAIL+1)); FAILURES+=("$label_r")
+  fi
+  rm -rf "$rwork"
+
   local label_u="uncaptured reviewed range becomes an explicit leg error"
   if printf '%s\n' '{"provider":"codex","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
-    | bash -c '. "$1"; tribunal_stamp_diff_stat "$2/absent.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$(mktemp -d)" \
+    | bash -c '. "$1"; tribunal_stamp_diff_stat ""' _ "$PLUGIN_ROOT/scripts/lib.sh" \
     | jq -e '.provider == "codex" and (.error | test("reviewed range was not captured")) and (has("diff_stat") | not)' >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label_u"; PASS=$((PASS+1))
   else
@@ -1787,10 +1818,10 @@ EOF
 
   local label3="stamp leaves error and disabled legs untouched"
   if printf '%s\n' '{"provider":"codex","error":"boom"}' \
-    | bash -c '. "$1"; tribunal_stamp_diff_stat "$2/absent.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$(mktemp -d)" \
+    | bash -c '. "$1"; tribunal_stamp_diff_stat ""' _ "$PLUGIN_ROOT/scripts/lib.sh" \
     | jq -e 'has("diff_stat") | not' >/dev/null \
     && printf '%s\n' '{"provider":"codex","status":"disabled","note":"off"}' \
-    | bash -c '. "$1"; tribunal_stamp_diff_stat "$2/absent.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$(mktemp -d)" \
+    | bash -c '. "$1"; tribunal_stamp_diff_stat ""' _ "$PLUGIN_ROOT/scripts/lib.sh" \
     | jq -e 'has("diff_stat") | not' >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label3"; PASS=$((PASS+1))
   else
@@ -2566,6 +2597,7 @@ assert_grep "prepare_diff records NUL-delimited changed paths" "$LIB" 'git diff 
 for runner in run-codex-review.sh run-claude-review.sh run-gemini-review.sh run-qwen-review.sh run-grok-review.sh run-opencode-review.sh; do
   assert_grep "$runner pipes through line check" "scripts/$runner" "tribunal_line_check"
   assert_grep "$runner stamps the reviewed range" "scripts/$runner" "tribunal_stamp_diff_stat"
+  assert_grep "$runner takes the range off disk before the provider runs" "scripts/$runner" 'DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"'
 done
 assert_grep "arbiter told to distrust marked positions" "$SK" "line_check"
 assert_grep "ignored-path signal must become a finding" "$SK" "must become a finding"

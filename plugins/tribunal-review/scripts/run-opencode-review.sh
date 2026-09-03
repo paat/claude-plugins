@@ -61,6 +61,7 @@ if [ "$MODE" = review ]; then
     [ "$deepseek_on" -eq 1 ] && tribunal_error deepseek "cannot diff against $BASE_REF" || tribunal_disabled deepseek "DeepSeek leg disabled (default off; issue #461); set TRIBUNAL_DEEPSEEK=on to enable"
     exit 0
   fi
+  DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
   tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
 fi
 
@@ -107,7 +108,7 @@ run_oc_leg() {
     tribunal_extract_json_object < "$out" \
       | tribunal_emit_review "$provider" "" "$out" "$err" "$rc" \
       | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
-      | tribunal_stamp_diff_stat "$DIFF_FILE"
+      | tribunal_stamp_diff_stat "$DIFF_STAT"
   else
     rm -f "$diff_attach"
     tribunal_error_with_diagnostics "$provider" \

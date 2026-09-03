@@ -512,28 +512,40 @@ tribunal_emit_review() {
   printf '%s\n' "$json" | jq -c --arg provider "$provider" '.provider = $provider | del(.status, .error, .diff_stat)'
 }
 
+# Read the pinned range out of the capture file and delete it. Runners call this
+# before invoking the provider: reviewers run unsandboxed inside the container
+# boundary, so a file left on disk during the run is provider-writable, and
+# runner-owned provenance must not be. Prints the diff_stat; empty on failure.
+# $1 diff file ("$1.stat" holds the pinned range)
+tribunal_take_diff_stat() {
+  local stat_file="$1.stat" stat
+  stat="$(jq -c . "$stat_file" 2>/dev/null)" || stat=""
+  rm -f "$stat_file"
+  printf '%s' "$stat"
+}
+
 # Stamp the reviewed range onto a review leg, from the diff_stat that
 # `tribunal_prepare_diff` pinned when it captured the diff. The provider output
 # schema forbids this field and `tribunal_emit_review` strips any model-authored
 # one, so only a runner script can produce it: a leg fabricated by a wrapper
 # agent, or one whose runner never executed, is missing it and is rejected
 # downstream instead of counting as a clean pass (issue #487).
-# $1 diff file ("$1.stat" holds the pinned range)
+# $1 pinned range from `tribunal_take_diff_stat`
 # stdin: one leg JSON object  stdout: same object with .diff_stat
 tribunal_stamp_diff_stat() {
-  local stat_file="$1.stat" json provider
+  local stat="$1" json provider
   json="$(cat)"
   # Error and disabled legs carry no diff_stat.
   if printf '%s' "$json" | jq -e 'has("error") or (.status? == "disabled")' >/dev/null 2>&1; then
     printf '%s\n' "$json"
     return
   fi
-  if ! jq -e . "$stat_file" >/dev/null 2>&1; then
+  if ! printf '%s' "$stat" | jq -e . >/dev/null 2>&1; then
     provider="$(printf '%s' "$json" | jq -r '.provider // "provider"')"
     tribunal_error "$provider" "the reviewed range was not captured; leg cannot be stamped"
     return
   fi
-  printf '%s' "$json" | jq -c --slurpfile stat "$stat_file" '.diff_stat = $stat[0]'
+  printf '%s' "$json" | jq -c --argjson stat "$stat" '.diff_stat = $stat'
 }
 
 # Mark findings whose position cannot exist: a missing/mistyped file field, a

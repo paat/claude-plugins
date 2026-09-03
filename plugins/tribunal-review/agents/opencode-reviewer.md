@@ -42,5 +42,5 @@ in `scripts/lib.sh`.
 ## Error Handling
 If the script fails because OpenCode is not installed, return:
 ```json
-{"error": "OpenCode CLI not found. Install from: https://opencode.ai"}
+{"provider": "glm", "error": "OpenCode CLI not found. Install from: https://opencode.ai"}
 ```

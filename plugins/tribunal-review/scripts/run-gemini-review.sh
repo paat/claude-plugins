@@ -13,6 +13,7 @@ DIFF_FILE="$TMPDIR/review.diff"
 CONTEXT_FILE="$TMPDIR/context.md"
 REPO_ROOT="$(tribunal_repo_root)"
 tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error gemini "cannot diff against $BASE_REF"; exit 0; }
+DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
 [ -s "$DIFF_FILE" ] || { tribunal_empty gemini "${TRIBUNAL_GEMINI_MODEL:-gemini-3-pro-preview}" "$BASE_REF"; exit 0; }
 tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
 PROMPT_FILE="$TMPDIR/prompt.md"
@@ -24,7 +25,7 @@ if [ "$rc" -eq 0 ]; then
   tribunal_extract_json_object < "$TMPDIR/out.txt" \
     | tribunal_emit_review gemini "" "$TMPDIR/out.txt" "$TMPDIR/err.txt" "$rc" \
     | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
-    | tribunal_stamp_diff_stat "$DIFF_FILE"
+    | tribunal_stamp_diff_stat "$DIFF_STAT"
 else
   tribunal_error_with_diagnostics gemini "Gemini execution failed or timed out" execution \
     "$rc" "$TMPDIR/out.txt" "$TMPDIR/err.txt"
