@@ -38,10 +38,10 @@ Disabled providers emit `{"provider":"...","status":"disabled"}` and are
 excluded from quorum. Provider errors degrade the run, but if all non-disabled
 providers fail the verdict must be `NEEDS_WORK` with confidence `0.0`.
 
-Only a runner script can stamp `diff_stat` onto a leg. A review-shaped leg
-missing it, or whose `base_oid`/`head_oid` differ from the run's own, did not
-come from this run's wrapper: treat it as a provider failure and exclude it from
-quorum whatever verdict it carries (issue #487).
+Only a runner script can stamp `diff_stat` onto a leg, and it pins the range
+when it captures the diff. A review-shaped leg without one did not come from a
+runner: treat it as a provider failure and exclude it from quorum whatever
+verdict it carries (issue #487).
 
 ## Step 1: Preflight
 

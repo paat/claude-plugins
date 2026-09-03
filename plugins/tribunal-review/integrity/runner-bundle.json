@@ -18,31 +18,31 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "1469b1e04949d3d39bc8d46f3698b9ddddc57126e3384347cd919599aa70d096"
+      "sha256": "06c642c5c9968adf5f2a7b2c58aabdf9f0232ac4249b039d4c42554f98a6ac8f"
     },
     {
       "path": "scripts/run-claude-review.sh",
-      "sha256": "de8bd85647db6a5addab88fe5eb40b8c3913faf1d0e10fe9ebb064a1aed43a55"
+      "sha256": "078a3d9ee5d643df23c6defe90fe8731b79091734c227a44a6f7462f1e072b9d"
     },
     {
       "path": "scripts/run-codex-review.sh",
-      "sha256": "242dbf7e30d9f47d88401d55eb3147a4cc246cdfbb2ca9ebf4201d961aa17392"
+      "sha256": "e7f8f84ae8c8604b59485381839c3564b6665ea51053a8c45fc85f0d7da23ef9"
     },
     {
       "path": "scripts/run-gemini-review.sh",
-      "sha256": "0ded50402ae19c031ae6e03cb35266d69d162b21654d06eebb24543397c21e70"
+      "sha256": "68e0374eab1bfaa810eeb4f1f465e4dd60ad39caf11811eb7065be2dfcd9afed"
     },
     {
       "path": "scripts/run-grok-review.sh",
-      "sha256": "d3c4c8015396b5c0d878d9d728de9a0233859ca7c52a048eb5a47d21589123e7"
+      "sha256": "6baa3f435df6120f0c5e2e29d8ba9e34500c02d776755d16f5f707d2788d653e"
     },
     {
       "path": "scripts/run-opencode-review.sh",
-      "sha256": "4c7f17667fee164a6bf0512938e6c923479cf5afd9f769889dd02d4d42f5dc9f"
+      "sha256": "4ed7fec73677a71d80888c9acebb55765b1ab06b9eb48bc8d3c8fe51c53a7b93"
     },
     {
       "path": "scripts/run-qwen-review.sh",
-      "sha256": "4a21b5b1bcd2188dfcbbd8a4ce9b381a80f969f723225f9d15173495e41e7924"
+      "sha256": "8bf932aecde53bc0087686491c838950d7f7f492c35219fc60da406d51fa1c6c"
     }
   ],
   "plugin": "tribunal-review",

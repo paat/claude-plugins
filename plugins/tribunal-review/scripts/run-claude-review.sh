@@ -62,7 +62,7 @@ if [ "$rc" -eq 0 ]; then
     tribunal_extract_json_object < "$TMPDIR/response.txt" \
       | tribunal_emit_review claude "" "$TMPDIR/out.json" "$TMPDIR/err.txt" "$rc" \
       | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
-      | tribunal_stamp_diff_stat "$REPO_ROOT" "$DIFF_FILE"
+      | tribunal_stamp_diff_stat "$DIFF_FILE"
   fi
 else
   tribunal_error_with_diagnostics claude "Claude execution failed or timed out" execution \

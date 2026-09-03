@@ -24,7 +24,7 @@ if [ "$rc" -eq 0 ]; then
   tribunal_extract_json_object < "$TMPDIR/out.txt" \
     | tribunal_emit_review gemini "" "$TMPDIR/out.txt" "$TMPDIR/err.txt" "$rc" \
     | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
-    | tribunal_stamp_diff_stat "$REPO_ROOT" "$DIFF_FILE"
+    | tribunal_stamp_diff_stat "$DIFF_FILE"
 else
   tribunal_error_with_diagnostics gemini "Gemini execution failed or timed out" execution \
     "$rc" "$TMPDIR/out.txt" "$TMPDIR/err.txt"

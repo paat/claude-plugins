@@ -1724,13 +1724,16 @@ EOF
     git add added.txt
     git commit -q -am change
     PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
+    PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_DIFF_LIMIT_BYTES=16 \
+      bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/capped.json"
   ); then
     head="$(git -C "$work" rev-parse HEAD)"
     if jq -e --arg head "$head" '
         .diff_stat.files_changed == 2 and .diff_stat.insertions == 3
         and .diff_stat.deletions == 1 and .diff_stat.truncated == false
         and .diff_stat.base == "HEAD~1" and .diff_stat.head_oid == $head
-      ' "$work/out.json" >/dev/null; then
+      ' "$work/out.json" >/dev/null \
+      && jq -e '.diff_stat.truncated == true and .diff_stat.files_changed == 2' "$work/capped.json" >/dev/null; then
       echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
     else
       echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
@@ -1749,21 +1752,10 @@ EOF
     echo -e "  ${RED}FAIL${NC} $label2"; FAIL=$((FAIL+1)); FAILURES+=("$label2")
   fi
 
-  local label_t="capped diff is stamped truncated=true"
+  local label_u="uncaptured reviewed range becomes an explicit leg error"
   if printf '%s\n' '{"provider":"codex","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
-    | bash -c 'set -e; . "$1"; : > "$2.truncated"; tribunal_stamp_diff_stat "$3" "$2"' \
-      _ "$PLUGIN_ROOT/scripts/lib.sh" "$(mktemp)" "$PLUGIN_ROOT" \
-    | jq -e '.diff_stat.truncated == true' >/dev/null; then
-    echo -e "  ${GREEN}PASS${NC} $label_t"; PASS=$((PASS+1))
-  else
-    echo -e "  ${RED}FAIL${NC} $label_t"; FAIL=$((FAIL+1)); FAILURES+=("$label_t")
-  fi
-
-  local label_u="unresolvable reviewed range becomes an explicit leg error"
-  if printf '%s\n' '{"provider":"codex","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
-    | TRIBUNAL_BASE_REF=refs/tribunal/no-such-ref \
-      bash -c '. "$1"; tribunal_stamp_diff_stat "$2" "$2/none.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT" \
-    | jq -e '.provider == "codex" and (.error | test("cannot stamp the reviewed range")) and (has("diff_stat") | not)' >/dev/null; then
+    | bash -c '. "$1"; tribunal_stamp_diff_stat "$2/absent.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$(mktemp -d)" \
+    | jq -e '.provider == "codex" and (.error | test("reviewed range was not captured")) and (has("diff_stat") | not)' >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label_u"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} $label_u"; FAIL=$((FAIL+1)); FAILURES+=("$label_u")
@@ -1771,10 +1763,10 @@ EOF
 
   local label3="stamp leaves error and disabled legs untouched"
   if printf '%s\n' '{"provider":"codex","error":"boom"}' \
-    | bash -c '. "$1"; tribunal_stamp_diff_stat "$2" "$2/none.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT" \
+    | bash -c '. "$1"; tribunal_stamp_diff_stat "$2/absent.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$(mktemp -d)" \
     | jq -e 'has("diff_stat") | not' >/dev/null \
     && printf '%s\n' '{"provider":"codex","status":"disabled","note":"off"}' \
-    | bash -c '. "$1"; tribunal_stamp_diff_stat "$2" "$2/none.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT" \
+    | bash -c '. "$1"; tribunal_stamp_diff_stat "$2/absent.diff"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$(mktemp -d)" \
     | jq -e 'has("diff_stat") | not' >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label3"; PASS=$((PASS+1))
   else
@@ -2435,7 +2427,8 @@ assert_no_grep "skill default panel does not include DeepSeek" "$SK" "DeepSeek t
 echo "Preflight/base-ref behavior:"
 assert_grep "resolves GitHub default branch" "$LIB" "defaultBranchRef"
 assert_grep "supports base-ref override" "$LIB" "TRIBUNAL_BASE_REF"
-assert_grep "checks diff vs BASE_REF" "$LIB" 'git diff "$base_ref"...HEAD'
+assert_grep "resolves the base ref before diffing" "$LIB" 'git rev-parse --verify "$base_ref^{commit}"'
+assert_grep "diffs the pinned range" "$LIB" 'git diff "$base_oid...$head_oid"'
 assert_grep "tracks active reviewer legs" "$PF" "zero active reviewer legs"
 assert_grep "warms OpenCode model registry" "$PF" "opencode models"
 assert_grep "Claude auth probe is bounded" "$LIB" "timeout -k 1 10 claude auth status --json"
@@ -2543,9 +2536,10 @@ test_trusted_evidence_collection
 
 echo "Finding position validation:"
 assert_grep "lib defines line-bounds validator" "$LIB" "tribunal_line_check()"
-assert_grep "prepare_diff records NUL-delimited changed paths" "$LIB" 'git diff --name-only -z "$base_ref"'
+assert_grep "prepare_diff records NUL-delimited changed paths" "$LIB" 'git diff --name-only -z "$base_oid...$head_oid"'
 for runner in run-codex-review.sh run-claude-review.sh run-gemini-review.sh run-qwen-review.sh run-grok-review.sh run-opencode-review.sh; do
   assert_grep "$runner pipes through line check" "scripts/$runner" "tribunal_line_check"
+  assert_grep "$runner stamps the reviewed range" "scripts/$runner" "tribunal_stamp_diff_stat"
 done
 assert_grep "arbiter told to distrust marked positions" "$SK" "line_check"
 assert_grep "ignored-path signal must become a finding" "$SK" "must become a finding"

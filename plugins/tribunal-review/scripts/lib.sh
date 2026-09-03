@@ -356,25 +356,38 @@ tribunal_empty() {
 }
 
 tribunal_prepare_diff() {
-  local out="$1" base_ref
+  local out="$1" base_ref base_oid head_oid
   base_ref="$(tribunal_base_ref)"
   if ! git rev-parse --verify --quiet "$base_ref" >/dev/null; then
     git fetch origin "$(tribunal_default_branch)" --quiet 2>/dev/null || return 2
   fi
-  local full max size
+  # Pin the reviewed range to immutable oids here, at capture time. A provider
+  # can run for ten minutes, during which a commit or a moving base ref would
+  # otherwise make the stamped provenance describe a range it never saw (#487).
+  base_oid="$(git rev-parse --verify "$base_ref^{commit}" 2>/dev/null)" || return 1
+  head_oid="$(git rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || return 1
+  local full max size truncated=false
   full="$out.full"
   max="${TRIBUNAL_DIFF_LIMIT_BYTES:-524288}"
-  git diff "$base_ref"...HEAD --no-ext-diff --no-textconv > "$full" || return 1
-  git diff --name-only -z "$base_ref"...HEAD --no-ext-diff --no-textconv > "$out.paths" || return 1
+  git diff "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$full" || return 1
+  git diff --name-only -z "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$out.paths" || return 1
   size="$(wc -c < "$full" | tr -d ' ')"
   if [ -n "$size" ] && [ "$size" -gt "$max" ]; then
     head -c "$max" "$full" > "$out"
     printf '%s\n' "$size" > "$out.truncated"
+    truncated=true
   else
     mv "$full" "$out"
     rm -f "$out.truncated"
   fi
   rm -f "$full"
+  git diff --numstat "$base_oid...$head_oid" --no-ext-diff --no-textconv 2>/dev/null \
+    | awk -v base="$base_ref" -v base_oid="$base_oid" -v head_oid="$head_oid" -v trunc="$truncated" '
+        BEGIN{f=0;i=0;d=0}
+        NF>=3{f++; if ($1 != "-") i+=$1; if ($2 != "-") d+=$2}
+        END{printf "{\"files_changed\":%d,\"insertions\":%d,\"deletions\":%d,\"base\":\"%s\",\"base_oid\":\"%s\",\"head_oid\":\"%s\",\"truncated\":%s}",
+            f, i, d, base, base_oid, head_oid, trunc}' > "$out.stat" || return 1
+  jq -e . "$out.stat" >/dev/null 2>&1 || return 1
 }
 
 tribunal_context_block() {
@@ -495,41 +508,28 @@ tribunal_emit_review() {
   printf '%s\n' "$json" | jq -c --arg provider "$provider" '.provider = $provider | del(.status, .error, .diff_stat)'
 }
 
-# Stamp the wrapper-computed diff stat onto a review leg. The provider output
+# Stamp the reviewed range onto a review leg, from the diff_stat that
+# `tribunal_prepare_diff` pinned when it captured the diff. The provider output
 # schema forbids this field and `tribunal_emit_review` strips any model-authored
 # one, so only a runner script can produce it: a leg fabricated by a wrapper
 # agent, or one whose runner never executed, is missing it and is rejected
-# downstream instead of counting as a clean pass (issue #487). Counts come from
-# the full range, not the possibly-truncated review diff, and `truncated` says
-# how much of it the provider actually saw.
-# $1 repo root  $2 diff file ("$2.truncated" marks a capped diff)
+# downstream instead of counting as a clean pass (issue #487).
+# $1 diff file ("$1.stat" holds the pinned range)
 # stdin: one leg JSON object  stdout: same object with .diff_stat
 tribunal_stamp_diff_stat() {
-  local root="$1" diff_file="$2" json provider base_ref base_oid head_oid counts truncated=false
+  local stat_file="$1.stat" json provider
   json="$(cat)"
-  # Error and disabled legs carry no diff_stat; leave them alone rather than
-  # walking the diff for a value they discard.
+  # Error and disabled legs carry no diff_stat.
   if printf '%s' "$json" | jq -e 'has("error") or (.status? == "disabled")' >/dev/null 2>&1; then
     printf '%s\n' "$json"
     return
   fi
-  base_ref="$(tribunal_base_ref)"
-  provider="$(printf '%s' "$json" | jq -r '.provider // "provider"')"
-  if ! base_oid="$(git -C "$root" rev-parse --verify "$base_ref^{commit}" 2>/dev/null)" \
-    || ! head_oid="$(git -C "$root" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)"; then
-    tribunal_error "$provider" \
-      "cannot stamp the reviewed range: base ref $base_ref or HEAD did not resolve to a commit"
+  if ! jq -e . "$stat_file" >/dev/null 2>&1; then
+    provider="$(printf '%s' "$json" | jq -r '.provider // "provider"')"
+    tribunal_error "$provider" "the reviewed range was not captured; leg cannot be stamped"
     return
   fi
-  [ -f "$diff_file.truncated" ] && truncated=true
-  counts="$(git -C "$root" diff --numstat "$base_ref"...HEAD --no-ext-diff --no-textconv 2>/dev/null \
-    | awk 'BEGIN{f=0;i=0;d=0}
-           NF>=3{f++; if ($1 != "-") i+=$1; if ($2 != "-") d+=$2}
-           END{printf "{\"files_changed\":%d,\"insertions\":%d,\"deletions\":%d}", f, i, d}')"
-  [ -n "$counts" ] || counts='{"files_changed":0,"insertions":0,"deletions":0}'
-  printf '%s' "$json" | jq -c --argjson counts "$counts" --arg base "$base_ref" \
-    --arg base_oid "$base_oid" --arg head_oid "$head_oid" --argjson truncated "$truncated" '
-    .diff_stat = ($counts + {base:$base,base_oid:$base_oid,head_oid:$head_oid,truncated:$truncated})'
+  printf '%s' "$json" | jq -c --slurpfile stat "$stat_file" '.diff_stat = $stat[0]'
 }
 
 # Mark findings whose position cannot exist: a missing/mistyped file field, a
