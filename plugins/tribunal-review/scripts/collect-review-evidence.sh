@@ -161,7 +161,8 @@ validate_provider() {
             ["files_changed","insertions","deletions","base","base_oid","head_oid","truncated"])
       and (.files_changed | uint) and (.insertions | uint) and (.deletions | uint)
       and (.base | text) and (.truncated | type == "boolean")
-      and (.base_oid | test("^[0-9a-f]{40}$")) and (.head_oid | test("^[0-9a-f]{40}$"))
+      and (.base_oid | test("^[0-9a-f]{40}$|^[0-9a-f]{64}$"))
+      and (.head_oid | test("^[0-9a-f]{40}$|^[0-9a-f]{64}$"))
       and ($want_base == "" or .base_oid == $want_base)
       and ($want_head == "" or .head_oid == $want_head);
     .provider == $p and (

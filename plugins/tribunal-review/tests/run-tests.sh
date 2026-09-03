@@ -1819,6 +1819,27 @@ EOF
   fi
   rm -rf "$rwork"
 
+  local label_s="sha256 repositories stamp 64-hex object ids"
+  local swork; swork="$(mktemp -d)"
+  if (
+    set -e
+    cd "$swork"
+    git init -q --object-format=sha256
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > f.txt
+    git add f.txt
+    git commit -q -m base
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD tribunal_prepare_diff "$swork/d.diff"
+  ) && jq -e '(.base_oid | test("^[0-9a-f]{64}$")) and (.head_oid | test("^[0-9a-f]{64}$"))' \
+      "$swork/d.diff.stat" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label_s"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label_s"; FAIL=$((FAIL+1)); FAILURES+=("$label_s")
+  fi
+  rm -rf "$swork"
+
   local label_u="uncaptured reviewed range becomes an explicit leg error"
   if printf '%s\n' '{"provider":"codex","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
     | bash -c '. "$1"; tribunal_stamp_diff_stat ""' _ "$PLUGIN_ROOT/scripts/lib.sh" \
@@ -2466,6 +2487,7 @@ do
   assert_executable "$script executable" "$script"
   assert_bash_n "$script parses" "$script"
 done
+assert_grep "diff_stat oid schema accepts sha256 ids" "scripts/collect-review-evidence.sh" '{64}'
 assert_file "structured review schema exists" "schemas/review-output.json"
 assert_json_field "structured review schema is valid JSON" "jq -e '.type==\"object\" and .additionalProperties==false' '$PLUGIN_ROOT/schemas/review-output.json'"
 assert_file "static runner bundle manifest exists" "integrity/runner-bundle.json"
