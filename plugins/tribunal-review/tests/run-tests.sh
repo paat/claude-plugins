@@ -308,7 +308,8 @@ test_empty_staged_diff_with_real_changes_fails_closed() {
   (
     cd "$work"
     . "$PLUGIN_ROOT/scripts/lib.sh"
-    tribunal_empty fixture fixture-model HEAD~1
+    TRIBUNAL_BASE_REF=HEAD~1 tribunal_prepare_diff "$work/d.diff"
+    tribunal_empty fixture fixture-model HEAD~1 "$(tribunal_take_diff_stat "$work/d.diff")"
   ) > "$work/out.json"
 
   if jq -e --arg base "$base_oid" --arg head "$head_oid" '
@@ -328,7 +329,7 @@ test_empty_staged_diff_with_real_changes_fails_closed() {
 }
 
 test_genuine_empty_diff_is_reverified_and_unchanged() {
-  local label="genuine empty diff is reverified before unchanged approval" work
+  local label="genuine empty diff is reverified over the pinned range" work
   work="$(mktemp -d)"
   git -C "$work" init -q
   git -C "$work" config user.email test@example.com
@@ -340,10 +341,12 @@ test_genuine_empty_diff_is_reverified_and_unchanged() {
   (
     cd "$work"
     . "$PLUGIN_ROOT/scripts/lib.sh"
-    GIT_TRACE="$work/git.trace" tribunal_empty fixture fixture-model HEAD
+    TRIBUNAL_BASE_REF=HEAD tribunal_prepare_diff "$work/d.diff"
+    GIT_TRACE="$work/git.trace" tribunal_empty fixture fixture-model HEAD \
+      "$(tribunal_take_diff_stat "$work/d.diff")"
   ) > "$work/out.json"
 
-  if jq -e '
+  if jq -e --arg oid "$(git -C "$work" rev-parse HEAD)" '
       .provider == "fixture"
       and .model == "fixture-model"
       and .findings == []
@@ -355,8 +358,11 @@ test_genuine_empty_diff_is_reverified_and_unchanged() {
       and (.summary.quality_score | type == "number" and . == 10)
       and .summary.verdict == "APPROVE"
       and .summary.note == "No changes detected vs HEAD"
+      and .diff_stat.files_changed == 0
+      and .diff_stat.base_oid == $oid
+      and .diff_stat.head_oid == $oid
     ' "$work/out.json" >/dev/null \
-    && grep -Fq 'rev-parse' "$work/git.trace" \
+    && ! grep -Fq 'rev-parse' "$work/git.trace" \
     && grep -Fq 'diff --quiet' "$work/git.trace"; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else
@@ -378,13 +384,19 @@ test_unresolvable_base_during_empty_verification_fails_closed() {
   (
     cd "$work"
     . "$PLUGIN_ROOT/scripts/lib.sh"
-    tribunal_empty fixture fixture-model refs/heads/missing
+    if TRIBUNAL_BASE_REF=refs/heads/missing tribunal_prepare_diff "$work/d.diff"; then
+      printf '%s\n' '{"provider":"fixture","error":"capture unexpectedly succeeded"}'
+    else
+      tribunal_empty fixture fixture-model refs/heads/missing \
+        "$(tribunal_take_diff_stat "$work/d.diff")"
+    fi
   ) > "$work/out.json"
 
   if jq -e '
       .provider == "fixture"
       and has("error")
-      and (.error | contains("base ref refs/heads/missing did not resolve to a commit"))
+      and (.error | contains("the reviewed range was not captured"))
+      and (.error | contains("refs/heads/missing"))
     ' "$work/out.json" >/dev/null \
     && ! grep -q '"verdict":"APPROVE"' "$work/out.json"; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
@@ -1696,6 +1708,160 @@ EOF
   rm -rf "$work"
 }
 
+# A wrapper agent can hand back a well-formed but fabricated leg envelope, which
+# the arbiter cannot distinguish from a genuine clean pass (issue #487). Only a
+# runner script can stamp .diff_stat: the provider output schema forbids the
+# field and tribunal_emit_review strips any model-authored one.
+test_wrapper_stamped_diff_stat() {
+  local label="review leg carries the wrapper-stamped diff stat"
+  local work fake head
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  cat > "$fake/codex" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '%s\n' '{"provider":"codex","model":"default","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},"diff_stat":{"files_changed":99}}'
+EOF
+  chmod +x "$fake/codex"
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\nthree\n' > file.txt
+    printf 'new\n' > added.txt
+    git add added.txt
+    git commit -q -am change
+    PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
+    PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_DIFF_LIMIT_BYTES=16 \
+      bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/capped.json"
+  ); then
+    head="$(git -C "$work" rev-parse HEAD)"
+    if jq -e --arg head "$head" '
+        .diff_stat.files_changed == 2 and .diff_stat.insertions == 3
+        and .diff_stat.deletions == 1 and .diff_stat.truncated == false
+        and .diff_stat.base == "HEAD~1" and .diff_stat.head_oid == $head
+      ' "$work/out.json" >/dev/null \
+      && jq -e '.diff_stat.truncated == true and .diff_stat.files_changed == 2' "$work/capped.json" >/dev/null; then
+      echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+    fi
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+
+  local label2="model-authored diff_stat is stripped before the wrapper stamps"
+  if printf '%s\n' '{"provider":"claude","model":"fixture","diff_stat":{"files_changed":99},"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+    | bash -c '. "$1"; tribunal_emit_review codex' _ "$PLUGIN_ROOT/scripts/lib.sh" \
+    | jq -e 'has("diff_stat") | not' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label2"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label2"; FAIL=$((FAIL+1)); FAILURES+=("$label2")
+  fi
+
+  local label_q="pinned range survives a base ref name containing a quote"
+  local qwork; qwork="$(mktemp -d)"
+  if (
+    set -e
+    cd "$qwork"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > f.txt
+    git add f.txt
+    git commit -q -m base
+    git branch 'we"ird'
+    printf 'two\n' > f.txt
+    git commit -q -am change
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF='we"ird' tribunal_prepare_diff "$qwork/d.diff"
+  ) && jq -e '.base == "we\"ird" and .files_changed == 1 and .insertions == 1 and .deletions == 1' \
+      "$qwork/d.diff.stat" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label_q"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label_q"; FAIL=$((FAIL+1)); FAILURES+=("$label_q")
+  fi
+  rm -rf "$qwork"
+
+  local label_r="pinned range is taken off disk before the provider runs"
+  local rwork; rwork="$(mktemp -d)"
+  cat > "$rwork/fake-codex" <<EOF
+#!/usr/bin/env bash
+cat >/dev/null
+find "$rwork" -name '*.stat' > "$rwork/stat-visible" 2>/dev/null
+printf '%s\\n' '{"provider":"codex","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+EOF
+  chmod +x "$rwork/fake-codex"
+  if (
+    set -e
+    cd "$rwork"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > f.txt
+    git add f.txt
+    git commit -q -m base
+    printf 'two\n' > f.txt
+    git commit -q -am change
+    mkdir -p bin && ln -sf "$rwork/fake-codex" bin/codex
+    PATH="$rwork/bin:$PATH" TMPDIR="$rwork" TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$rwork/out.json"
+  ) && jq -e '.diff_stat.files_changed == 1' "$rwork/out.json" >/dev/null \
+    && [ ! -s "$rwork/stat-visible" ]; then
+    echo -e "  ${GREEN}PASS${NC} $label_r"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label_r"; FAIL=$((FAIL+1)); FAILURES+=("$label_r")
+  fi
+  rm -rf "$rwork"
+
+  local label_s="sha256 repositories stamp 64-hex object ids"
+  local swork; swork="$(mktemp -d)"
+  if (
+    set -e
+    cd "$swork"
+    git init -q --object-format=sha256
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > f.txt
+    git add f.txt
+    git commit -q -m base
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD tribunal_prepare_diff "$swork/d.diff"
+  ) && jq -e '(.base_oid | test("^[0-9a-f]{64}$")) and (.head_oid | test("^[0-9a-f]{64}$"))' \
+      "$swork/d.diff.stat" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label_s"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label_s"; FAIL=$((FAIL+1)); FAILURES+=("$label_s")
+  fi
+  rm -rf "$swork"
+
+  local label_u="uncaptured reviewed range becomes an explicit leg error"
+  if printf '%s\n' '{"provider":"codex","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+    | bash -c '. "$1"; tribunal_stamp_diff_stat ""' _ "$PLUGIN_ROOT/scripts/lib.sh" \
+    | jq -e '.provider == "codex" and (.error | test("reviewed range was not captured")) and (has("diff_stat") | not)' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label_u"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label_u"; FAIL=$((FAIL+1)); FAILURES+=("$label_u")
+  fi
+
+  local label3="stamp leaves error and disabled legs untouched"
+  if printf '%s\n' '{"provider":"codex","error":"boom"}' \
+    | bash -c '. "$1"; tribunal_stamp_diff_stat ""' _ "$PLUGIN_ROOT/scripts/lib.sh" \
+    | jq -e 'has("diff_stat") | not' >/dev/null \
+    && printf '%s\n' '{"provider":"codex","status":"disabled","note":"off"}' \
+    | bash -c '. "$1"; tribunal_stamp_diff_stat ""' _ "$PLUGIN_ROOT/scripts/lib.sh" \
+    | jq -e 'has("diff_stat") | not' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label3"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label3"; FAIL=$((FAIL+1)); FAILURES+=("$label3")
+  fi
+}
+
 test_wrapper_owned_provider_envelope() {
   local out
   out="$(printf '%s\n' '{"provider":"claude","status":"disabled","error":"spoof","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
@@ -1720,6 +1886,13 @@ test_trusted_evidence_collection() {
 
   cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
 #!/usr/bin/env bash
+fixture_stat() {
+  local base head
+  base="$(git rev-parse --verify "${FIXTURE_STAT_BASE:-${TRIBUNAL_BASE_REF}}^{commit}")"
+  head="$(git rev-parse --verify "${FIXTURE_STAT_HEAD:-HEAD}^{commit}")"
+  printf '"diff_stat":{"files_changed":1,"insertions":1,"deletions":0,"base":"%s","base_oid":"%s","head_oid":"%s","truncated":false}' \
+    "$TRIBUNAL_BASE_REF" "$base" "$head"
+}
 if [ "${FIXTURE_ZERO_SUCCESS:-off}" = on ]; then
   printf '%s\n' '{"provider":"codex","error":"fixture Codex transport failure"}'
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = malformed ]; then
@@ -1727,9 +1900,11 @@ elif [ "${FIXTURE_CODEX_MODE:-ok}" = malformed ]; then
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = diagnostic ]; then
   printf '%s\n' '{"provider":"claude","error":"unparseable codex output: no review JSON object found; phase=parse; exit=0; stdout_bytes=12; stdout_truncated=false; stdout_tail=omitted; stderr_bytes=0; stderr_truncated=false; stderr_tail=omitted"}'
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = finding ]; then
-  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[{"severity":"medium","category":"logic","file":"app.txt","line":1,"title":"Fixture finding","description":"A concrete fixture defect.","suggestion":"Apply the fixture fix.","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"}}'
-else
+  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[{"severity":"medium","category":"logic","file":"app.txt","line":1,"title":"Fixture finding","description":"A concrete fixture defect.","suggestion":"Apply the fixture fix.","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"},'"$(fixture_stat)"'}'
+elif [ "${FIXTURE_CODEX_MODE:-ok}" = nostat ]; then
   printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+else
+  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},'"$(fixture_stat)"'}'
 fi
 EOF
   for provider in gemini qwen grok; do
@@ -1981,6 +2156,22 @@ EOF
     echo -e "  ${GREEN}PASS${NC} strict provider schema rejects caller/model extras"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} strict provider schema rejects caller/model extras"; FAIL=$((FAIL+1)); FAILURES+=("strict provider schema")
+  fi
+  FIXTURE_CODEX_MODE=nostat PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 --output "$work/nostat" > "$work/nostat.json"
+  if jq -e '.provider=="codex" and has("error")' "$work/nostat/providers/codex.json" >/dev/null \
+    && jq -e 'any(.providers[]; .provider=="codex" and .status=="failed")' "$work/nostat/manifest.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} review leg without wrapper diff_stat is a provider failure"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} review leg without wrapper diff_stat is a provider failure"; FAIL=$((FAIL+1)); FAILURES+=("missing diff_stat rejection")
+  fi
+  FIXTURE_STAT_HEAD="$base" PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 --output "$work/wrongrev" > "$work/wrongrev.json"
+  if jq -e '.provider=="codex" and has("error")' "$work/wrongrev/providers/codex.json" >/dev/null \
+    && jq -e 'any(.providers[]; .provider=="codex" and .status=="failed")' "$work/wrongrev/manifest.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} review leg stamped over another revision is a provider failure"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} review leg stamped over another revision is a provider failure"; FAIL=$((FAIL+1)); FAILURES+=("wrong-revision diff_stat rejection")
   fi
   jq '.provider_assessment.codex.status="failed"' "$work/arbitration.json" > "$work/no-quorum-approve.json"
   if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
@@ -2296,6 +2487,7 @@ do
   assert_executable "$script executable" "$script"
   assert_bash_n "$script parses" "$script"
 done
+assert_grep "diff_stat oid schema accepts sha256 ids" "scripts/collect-review-evidence.sh" '{64}'
 assert_file "structured review schema exists" "schemas/review-output.json"
 assert_json_field "structured review schema is valid JSON" "jq -e '.type==\"object\" and .additionalProperties==false' '$PLUGIN_ROOT/schemas/review-output.json'"
 assert_file "static runner bundle manifest exists" "integrity/runner-bundle.json"
@@ -2324,7 +2516,10 @@ assert_no_grep "skill default panel does not include DeepSeek" "$SK" "DeepSeek t
 echo "Preflight/base-ref behavior:"
 assert_grep "resolves GitHub default branch" "$LIB" "defaultBranchRef"
 assert_grep "supports base-ref override" "$LIB" "TRIBUNAL_BASE_REF"
-assert_grep "checks diff vs BASE_REF" "$LIB" 'git diff "$base_ref"...HEAD'
+assert_grep "resolves the base ref before diffing" "$LIB" 'git rev-parse --verify "$base_ref^{commit}"'
+assert_grep "diffs the pinned range" "$LIB" 'git diff "$base_oid...$head_oid"'
+assert_grep "pinned range JSON is built by jq, not string interpolation" "$LIB" 'jq -Rn --arg base "$base_ref"'
+assert_grep "numstat failure is fail-closed" "$LIB" 'git diff --numstat "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$out.numstat" || return 1'
 assert_grep "tracks active reviewer legs" "$PF" "zero active reviewer legs"
 assert_grep "warms OpenCode model registry" "$PF" "opencode models"
 assert_grep "Claude auth probe is bounded" "$LIB" "timeout -k 1 10 claude auth status --json"
@@ -2424,6 +2619,7 @@ test_codex_vacuous_guard NEEDS_WORK 7.5 "codex vacuous empty-NEEDS_WORK (nonzero
 test_codex_vacuous_guard " BLOCK " 0.0 "codex vacuous verdict tolerates surrounding whitespace"
 test_codex_line_bounds_guard
 test_wrapper_owned_provider_envelope
+test_wrapper_stamped_diff_stat
 test_ignored_path_additions
 test_ignored_path_diff_failures
 test_ignored_path_validation
@@ -2431,9 +2627,11 @@ test_trusted_evidence_collection
 
 echo "Finding position validation:"
 assert_grep "lib defines line-bounds validator" "$LIB" "tribunal_line_check()"
-assert_grep "prepare_diff records NUL-delimited changed paths" "$LIB" 'git diff --name-only -z "$base_ref"'
+assert_grep "prepare_diff records NUL-delimited changed paths" "$LIB" 'git diff --name-only -z "$base_oid...$head_oid"'
 for runner in run-codex-review.sh run-claude-review.sh run-gemini-review.sh run-qwen-review.sh run-grok-review.sh run-opencode-review.sh; do
   assert_grep "$runner pipes through line check" "scripts/$runner" "tribunal_line_check"
+  assert_grep "$runner stamps the reviewed range" "scripts/$runner" "tribunal_stamp_diff_stat"
+  assert_grep "$runner takes the range off disk before the provider runs" "scripts/$runner" 'DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"'
 done
 assert_grep "arbiter told to distrust marked positions" "$SK" "line_check"
 assert_grep "ignored-path signal must become a finding" "$SK" "must become a finding"

@@ -10,7 +10,7 @@
     },
     {
       "path": "scripts/collect-review-evidence.sh",
-      "sha256": "a13c77779e1b7f849f0c3fb3e5362e8b5c24282e357b17647b04c2bc3c10bc88"
+      "sha256": "27c2daa02165037b53519b68efd4184bf7f40ca5355ab3eef497ad4c080e450f"
     },
     {
       "path": "scripts/generate-runner-bundle.sh",
@@ -18,31 +18,31 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "1a246d0a41bfcb745666d29d6255b37a3f17fad1a28f234013939f6d14a95f2d"
+      "sha256": "cecd0faa0453031c987734e701f85242cfe8f59fc2191ec9c443ea13cbcebc5f"
     },
     {
       "path": "scripts/run-claude-review.sh",
-      "sha256": "c065a9e1f94ebee7bc73ccfa2ffcb079170f1483dfc53a829a4eaebe573fc577"
+      "sha256": "0d9dc4db9d0f022fc274559cceebedeedb3a3f0e7345e7bf16cbebdb3f0902ef"
     },
     {
       "path": "scripts/run-codex-review.sh",
-      "sha256": "e6ce9a0c6b47ecd2badfcf51618fb87a3cc59cd0eb73e45149ea31f2f1568ce8"
+      "sha256": "a770449a8f73fe60ea99ae6176966cd50a0cbef9c2959df2686e1ba95e0e28f5"
     },
     {
       "path": "scripts/run-gemini-review.sh",
-      "sha256": "1d399904ca6f582cef0a5c57e1eb721e3f782202d89053d1e50062247dc92d32"
+      "sha256": "a11a6f8d5ceaebca34017e567f9d72d5497d3a19838148674e438417e10a5ee9"
     },
     {
       "path": "scripts/run-grok-review.sh",
-      "sha256": "0b060a70cca9f3cdec86b5f837afc04acde5f9996161273592f0c0c0739cd15d"
+      "sha256": "b2a4999ba3df7d4022445a64e485db30e90daf647e0ff75e0bd92c8421770427"
     },
     {
       "path": "scripts/run-opencode-review.sh",
-      "sha256": "b419624c5cd61b928281c59518c0fd1ceeba9e6610a14671fabf1d7abf5ed15b"
+      "sha256": "f22214e0beb565b94dc1ce9a067ab9a3badd0720dc1a33e758667bce4b03fede"
     },
     {
       "path": "scripts/run-qwen-review.sh",
-      "sha256": "bb8ead6675509bc422d32025a235467c422c6d369c8c87656b01c151d3d4c930"
+      "sha256": "c0d263620be72aa9a847599135fa8b0be57a2f4c4dc183d3345e7133ffa70120"
     }
   ],
   "plugin": "tribunal-review",

@@ -26,7 +26,8 @@ else
   BASE_REF="$(tribunal_base_ref)"
   CONTEXT_FILE="$TMPDIR/context.md"
   tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error claude "cannot diff against $BASE_REF"; exit 0; }
-  [ -s "$DIFF_FILE" ] || { tribunal_empty claude "${TRIBUNAL_CLAUDE_MODEL:-sonnet}" "$BASE_REF"; exit 0; }
+  DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
+  [ -s "$DIFF_FILE" ] || { tribunal_empty claude "${TRIBUNAL_CLAUDE_MODEL:-sonnet}" "$BASE_REF" "$DIFF_STAT"; exit 0; }
   tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
   tribunal_review_prompt claude "$DIFF_FILE" "$CONTEXT_FILE" "diff-only" > "$PROMPT_FILE"
 fi
@@ -61,7 +62,8 @@ if [ "$rc" -eq 0 ]; then
   else
     tribunal_extract_json_object < "$TMPDIR/response.txt" \
       | tribunal_emit_review claude "" "$TMPDIR/out.json" "$TMPDIR/err.txt" "$rc" \
-      | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
+      | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
+      | tribunal_stamp_diff_stat "$DIFF_STAT"
   fi
 else
   tribunal_error_with_diagnostics claude "Claude execution failed or timed out" execution \

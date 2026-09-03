@@ -324,17 +324,17 @@ tribunal_grok_auth_writeback() {
   ) 9>>"$lock"
 }
 
+# $4 is the range `tribunal_prepare_diff` pinned, taken by the runner. The
+# emptiness re-verification and the stamp both use it, so this path cannot claim
+# a range that differs from the one the diff was captured over (issue #487).
 tribunal_empty() {
-  local provider="$1" model="${2:-default}" base_ref="${3:-}"
+  local provider="$1" model="${2:-default}" base_ref="${3:-}" stat="${4:-}"
   local base_oid head_oid diff_rc
-  if ! base_oid="$(git rev-parse --verify "$base_ref^{commit}" 2>/dev/null)"; then
+  base_oid="$(printf '%s' "$stat" | jq -r '.base_oid // empty' 2>/dev/null)"
+  head_oid="$(printf '%s' "$stat" | jq -r '.head_oid // empty' 2>/dev/null)"
+  if [ -z "$base_oid" ] || [ -z "$head_oid" ]; then
     tribunal_error "$provider" \
-      "staged diff is empty or missing and cannot be verified: base ref $base_ref did not resolve to a commit"
-    return
-  fi
-  if ! head_oid="$(git rev-parse --verify 'HEAD^{commit}' 2>/dev/null)"; then
-    tribunal_error "$provider" \
-      "staged diff is empty or missing and cannot be verified: HEAD did not resolve to a commit (resolved base ref $base_ref, base=$base_oid)"
+      "staged diff is empty or missing and cannot be verified: the reviewed range was not captured (base ref $base_ref)"
     return
   fi
   git diff --quiet "$base_oid...$head_oid" --no-ext-diff --no-textconv \
@@ -350,29 +350,48 @@ tribunal_empty() {
     return
   fi
   jq -nc --arg p "$provider" --arg m "$model" --arg b "$base_ref" \
-    '{provider:$p,model:$m,findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10.0,verdict:"APPROVE",note:("No changes detected vs " + $b)}}'
+    --arg base_oid "$base_oid" --arg head_oid "$head_oid" \
+    '{provider:$p,model:$m,findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10.0,verdict:"APPROVE",note:("No changes detected vs " + $b)},
+      diff_stat:{files_changed:0,insertions:0,deletions:0,base:$b,base_oid:$base_oid,head_oid:$head_oid,truncated:false}}'
 }
 
 tribunal_prepare_diff() {
-  local out="$1" base_ref
+  local out="$1" base_ref base_oid head_oid
   base_ref="$(tribunal_base_ref)"
   if ! git rev-parse --verify --quiet "$base_ref" >/dev/null; then
     git fetch origin "$(tribunal_default_branch)" --quiet 2>/dev/null || return 2
   fi
-  local full max size
+  # Pin the reviewed range to immutable oids here, at capture time. A provider
+  # can run for ten minutes, during which a commit or a moving base ref would
+  # otherwise make the stamped provenance describe a range it never saw (#487).
+  base_oid="$(git rev-parse --verify "$base_ref^{commit}" 2>/dev/null)" || return 1
+  head_oid="$(git rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || return 1
+  local full max size truncated=false
   full="$out.full"
   max="${TRIBUNAL_DIFF_LIMIT_BYTES:-524288}"
-  git diff "$base_ref"...HEAD --no-ext-diff --no-textconv > "$full" || return 1
-  git diff --name-only -z "$base_ref"...HEAD --no-ext-diff --no-textconv > "$out.paths" || return 1
+  git diff "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$full" || return 1
+  git diff --name-only -z "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$out.paths" || return 1
   size="$(wc -c < "$full" | tr -d ' ')"
   if [ -n "$size" ] && [ "$size" -gt "$max" ]; then
     head -c "$max" "$full" > "$out"
     printf '%s\n' "$size" > "$out.truncated"
+    truncated=true
   else
     mv "$full" "$out"
     rm -f "$out.truncated"
   fi
   rm -f "$full"
+  git diff --numstat "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$out.numstat" || return 1
+  jq -Rn --arg base "$base_ref" --arg base_oid "$base_oid" --arg head_oid "$head_oid" \
+    --argjson truncated "$truncated" --rawfile numstat "$out.numstat" '
+    ($numstat | split("\n") | map(select(length > 0) | split("\t"))
+      | map(select(length >= 3))) as $rows |
+    {files_changed: ($rows | length),
+     insertions: ([$rows[] | .[0] | select(. != "-") | tonumber] | add // 0),
+     deletions:  ([$rows[] | .[1] | select(. != "-") | tonumber] | add // 0),
+     base: $base, base_oid: $base_oid, head_oid: $head_oid, truncated: $truncated}' \
+    > "$out.stat" || return 1
+  rm -f "$out.numstat"
 }
 
 tribunal_context_block() {
@@ -490,7 +509,43 @@ tribunal_emit_review() {
   fi
   # Provider identity belongs to the wrapper, not model-authored JSON. The
   # aggregate evidence runner relies on this assignment when it seals each leg.
-  printf '%s\n' "$json" | jq -c --arg provider "$provider" '.provider = $provider | del(.status, .error)'
+  printf '%s\n' "$json" | jq -c --arg provider "$provider" '.provider = $provider | del(.status, .error, .diff_stat)'
+}
+
+# Read the pinned range out of the capture file and delete it. Runners call this
+# before invoking the provider: reviewers run unsandboxed inside the container
+# boundary, so a file left on disk during the run is provider-writable, and
+# runner-owned provenance must not be. Prints the diff_stat; empty on failure.
+# $1 diff file ("$1.stat" holds the pinned range)
+tribunal_take_diff_stat() {
+  local stat_file="$1.stat" stat
+  stat="$(jq -c . "$stat_file" 2>/dev/null)" || stat=""
+  rm -f "$stat_file"
+  printf '%s' "$stat"
+}
+
+# Stamp the reviewed range onto a review leg, from the diff_stat that
+# `tribunal_prepare_diff` pinned when it captured the diff. The provider output
+# schema forbids this field and `tribunal_emit_review` strips any model-authored
+# one, so only a runner script can produce it: a leg fabricated by a wrapper
+# agent, or one whose runner never executed, is missing it and is rejected
+# downstream instead of counting as a clean pass (issue #487).
+# $1 pinned range from `tribunal_take_diff_stat`
+# stdin: one leg JSON object  stdout: same object with .diff_stat
+tribunal_stamp_diff_stat() {
+  local stat="$1" json provider
+  json="$(cat)"
+  # Error and disabled legs carry no diff_stat.
+  if printf '%s' "$json" | jq -e 'has("error") or (.status? == "disabled")' >/dev/null 2>&1; then
+    printf '%s\n' "$json"
+    return
+  fi
+  if ! printf '%s' "$stat" | jq -e . >/dev/null 2>&1; then
+    provider="$(printf '%s' "$json" | jq -r '.provider // "provider"')"
+    tribunal_error "$provider" "the reviewed range was not captured; leg cannot be stamped"
+    return
+  fi
+  printf '%s' "$json" | jq -c --argjson stat "$stat" '.diff_stat = $stat'
 }
 
 # Mark findings whose position cannot exist: a missing/mistyped file field, a

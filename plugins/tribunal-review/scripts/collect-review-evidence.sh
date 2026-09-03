@@ -119,9 +119,12 @@ live_binding() {
        url:$repo_url},pull_request:$pr}'
 }
 
+# $3/$4 optional authoritative base/head oids: when given, a review leg must
+# have been stamped over exactly that range, so a well-formed leg for another
+# revision cannot seal as ok (issue #487).
 validate_provider() {
-  local provider="$1" file="$2"
-  jq -e --arg p "$provider" '
+  local provider="$1" file="$2" want_base="${3:-}" want_head="${4:-}"
+  jq -e --arg p "$provider" --arg want_base "$want_base" --arg want_head "$want_head" '
     def exact($allowed; $required):
       (type == "object") and ((keys - $allowed) | length == 0)
       and (($required - keys) | length == 0);
@@ -153,6 +156,15 @@ validate_provider() {
       and .medium == ([$fs[] | select(.severity == "medium")] | length)
       and .low == ([$fs[] | select(.severity == "low")] | length)
       and ((.total_findings > 0) or (.verdict == "APPROVE"));
+    def diff_stat:
+      exact(["files_changed","insertions","deletions","base","base_oid","head_oid","truncated"];
+            ["files_changed","insertions","deletions","base","base_oid","head_oid","truncated"])
+      and (.files_changed | uint) and (.insertions | uint) and (.deletions | uint)
+      and (.base | text) and (.truncated | type == "boolean")
+      and (.base_oid | test("^[0-9a-f]{40}$|^[0-9a-f]{64}$"))
+      and (.head_oid | test("^[0-9a-f]{40}$|^[0-9a-f]{64}$"))
+      and ($want_base == "" or .base_oid == $want_base)
+      and ($want_head == "" or .head_oid == $want_head);
     .provider == $p and (
       (exact(["provider","status","note"];["provider","status","note"])
        and .status == "disabled" and (.note | text))
@@ -160,10 +172,11 @@ validate_provider() {
       (exact(["provider","error"];["provider","error"])
        and (.error | text))
       or
-      (exact(["provider","model","findings","summary"];
-             ["provider","model","findings","summary"])
+      (exact(["provider","model","findings","summary","diff_stat"];
+             ["provider","model","findings","summary","diff_stat"])
        and (.model | text) and (.findings | type == "array" and all(.[]; finding))
-       and (.findings as $findings | .summary | summary($findings)))
+       and (.findings as $findings | .summary | summary($findings))
+       and (.diff_stat | diff_stat))
     )
   ' "$file" >/dev/null
 }
@@ -203,7 +216,7 @@ run_wrapper() {
 }
 
 normalize_single() {
-  local provider="$1" raw="$2" rc="$3" out="$4" count
+  local provider="$1" raw="$2" rc="$3" out="$4" want_base="${5:-}" want_head="${6:-}" count
   if [ "$rc" -ne 0 ]; then
     write_failed_provider "$provider" "provider wrapper exited $rc" "$out"
     return
@@ -215,7 +228,7 @@ normalize_single() {
   fi
   jq -S -s --arg p "$provider" '.[0] | .provider = $p' "$raw" > "$out.tmp" 2>/dev/null \
     || { rm -f "$out.tmp"; write_failed_provider "$provider" "provider wrapper emitted malformed JSON" "$out"; return; }
-  if validate_provider "$provider" "$out.tmp"; then
+  if validate_provider "$provider" "$out.tmp" "$want_base" "$want_head"; then
     mv "$out.tmp" "$out"
   else
     rm -f "$out.tmp"
@@ -224,7 +237,7 @@ normalize_single() {
 }
 
 normalize_opencode() {
-  local raw="$1" rc="$2" dir="$3" provider count candidate
+  local raw="$1" rc="$2" dir="$3" want_base="${4:-}" want_head="${5:-}" provider count candidate
   for provider in glm deepseek; do
     if [ "$rc" -ne 0 ]; then
       write_failed_provider "$provider" "provider wrapper exited $rc" "$dir/providers/$provider.json"
@@ -237,7 +250,7 @@ normalize_opencode() {
     fi
     candidate="$dir/providers/$provider.tmp"
     jq -S -s --arg p "$provider" '[.[] | select(.provider == $p)][0] | .provider = $p' "$raw" > "$candidate"
-    if validate_provider "$provider" "$candidate"; then
+    if validate_provider "$provider" "$candidate" "$want_base" "$want_head"; then
       mv "$candidate" "$dir/providers/$provider.json"
     else
       rm -f "$candidate"
@@ -331,15 +344,17 @@ collect() {
 
   for name in codex gemini qwen grok claude; do
     rc="$(cat "$STAGING/wrappers/$name.exit")"
-    normalize_single "$name" "$STAGING/wrappers/$name.raw" "$rc" "$STAGING/providers/$name.json"
+    normalize_single "$name" "$STAGING/wrappers/$name.raw" "$rc" "$STAGING/providers/$name.json" \
+      "$base_oid" "$head_oid"
   done
   rc="$(cat "$STAGING/wrappers/opencode.exit")"
-  normalize_opencode "$STAGING/wrappers/opencode.raw" "$rc" "$STAGING"
+  normalize_opencode "$STAGING/wrappers/opencode.raw" "$rc" "$STAGING" "$base_oid" "$head_oid"
 
   providers_json="$STAGING/providers.jsonl"; : > "$providers_json"
   for provider in $PROVIDERS; do
     artifact="$STAGING/providers/$provider.json"
-    validate_provider "$provider" "$artifact" || die "internal provider normalization failed: $provider"
+    validate_provider "$provider" "$artifact" "$base_oid" "$head_oid" \
+      || die "internal provider normalization failed: $provider"
     wrapper="$(wrapper_for_provider "$provider")"; wrapper_name="$(basename "$wrapper" .sh)"
     [ "$provider" = glm ] || [ "$provider" = deepseek ] || wrapper_name="${wrapper_name#run-}"
     case "$provider" in glm|deepseek) name=opencode ;; *) name="$provider" ;; esac

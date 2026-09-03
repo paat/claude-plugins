@@ -11,16 +11,8 @@ GLM, and Qwen are opt-in. The calling context arbitrates
 inline and makes the final decision.
 
 This skill is intentionally orchestration-only. Provider shell mechanics live in
-the plugin `scripts/` directory:
-
-- `scripts/preflight.sh`
-- `scripts/run-codex-review.sh`
-- `scripts/run-gemini-review.sh`
-- `scripts/run-opencode-review.sh`
-- `scripts/run-qwen-review.sh`
-- `scripts/run-grok-review.sh`
-- `scripts/run-claude-review.sh`
-- `scripts/lib.sh`
+the plugin `scripts/` directory, shared through `scripts/lib.sh`; the runners are
+named in the steps below.
 
 ## Provider Policy
 
@@ -45,6 +37,11 @@ the plugin `scripts/` directory:
 Disabled providers emit `{"provider":"...","status":"disabled"}` and are
 excluded from quorum. Provider errors degrade the run, but if all non-disabled
 providers fail the verdict must be `NEEDS_WORK` with confidence `0.0`.
+
+Only a runner script can stamp `diff_stat` onto a leg, and it pins the range
+when it captures the diff. A review-shaped leg without one did not come from a
+runner: treat it as a provider failure and exclude it from quorum whatever
+verdict it carries (issue #487).
 
 ## Step 1: Preflight
 

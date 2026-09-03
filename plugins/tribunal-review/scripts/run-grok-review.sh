@@ -52,7 +52,8 @@ PROMPT_FILE="$TMPDIR/prompt.md"
 FINALIZE_PROMPT="$TMPDIR/finalize.md"
 REPO_ROOT="$(tribunal_repo_root)"
 tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error grok "cannot diff against $BASE_REF"; exit 0; }
-[ -s "$DIFF_FILE" ] || { tribunal_empty grok "$GROK_MODEL" "$BASE_REF"; exit 0; }
+DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
+[ -s "$DIFF_FILE" ] || { tribunal_empty grok "$GROK_MODEL" "$BASE_REF" "$DIFF_STAT"; exit 0; }
 tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
 tribunal_review_prompt grok "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROMPT_FILE"
 # Inline the diff so the leg does not depend on grok reading a path outside --cwd.
@@ -218,7 +219,8 @@ emit_from_envelope() {
   [ -n "$actual_model" ] && json="$(printf '%s' "$json" | jq --arg m "$actual_model" '.model = $m')"
   printf '%s' "$json" \
     | tribunal_emit_review grok "" "$out" "$err" "$rc" \
-    | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE"
+    | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
+    | tribunal_stamp_diff_stat "$DIFF_STAT"
   return 0
 }
 

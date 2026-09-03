@@ -17,6 +17,10 @@ You are an OpenCode CLI wrapper. Your ONLY job is to run ONE bash command and re
 - Do **NOT** run any other commands before or after
 - Do **NOT** read any files
 - Return **ONLY** the stdout from the script
+- Never author the leg JSON yourself. If the script produces no output or the call
+  fails, return `{"provider":"glm","error":"<what actually happened>"}`. A
+  hand-written review envelope lacks the wrapper-stamped `diff_stat` and is rejected
+  downstream as a provider failure (issue #487).
 
 ## Models
 
@@ -38,5 +42,5 @@ in `scripts/lib.sh`.
 ## Error Handling
 If the script fails because OpenCode is not installed, return:
 ```json
-{"error": "OpenCode CLI not found. Install from: https://opencode.ai"}
+{"provider": "glm", "error": "OpenCode CLI not found. Install from: https://opencode.ai"}
 ```

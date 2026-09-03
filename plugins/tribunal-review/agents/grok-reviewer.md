@@ -27,6 +27,10 @@ field to the model that actually ran, read from `.modelUsage`):
 
 - Exactly **1 Bash call** — the script above. Do NOT read files, run other commands, or add commentary.
 - Return **ONLY** the script's stdout (a single JSON object).
+- Never author the leg JSON yourself. If the script produces no output or the call
+  fails, return `{"provider":"grok","error":"<what actually happened>"}`. A
+  hand-written review envelope lacks the wrapper-stamped `diff_stat` and is rejected
+  downstream as a provider failure (issue #487).
 - Grok is **on by default**: disable with `TRIBUNAL_GROK=off`. Honors
   `TRIBUNAL_GROK_MODEL` (default `grok-4.5`). Runs with a tools allowlist (`read_file,list_dir,grep`),
   `--sandbox` default `none` (override with `TRIBUNAL_GROK_SANDBOX` / `GROK_SANDBOX`; issue #378),
