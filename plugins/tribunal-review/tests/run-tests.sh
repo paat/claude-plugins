@@ -2606,7 +2606,7 @@ test_opencode_provider_gated_timeout_is_pure_timeout
 test_opencode_generic_failure_error
 test_opencode_timeout_tool_output_is_not_auth_error
 test_opencode_filename_tool_output_is_generic_error
-test_codex_pins gpt-5.6-sol medium no "codex defaults pin Sol and medium in argv"
+test_codex_pins gpt-6-astra medium no "codex defaults pin Astra and medium in argv"
 test_codex_pins test-model high yes "codex model and effort environment overrides stay explicit"
 test_codex_parse_diagnostics
 test_codex_empty_output

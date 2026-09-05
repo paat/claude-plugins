@@ -28,4 +28,4 @@ Source command: `../../commands/codex-critique.md`
 
 - Plugin: `codex-subagent`
 - Command aliases: `/codex-subagent:codex-critique`, `/codex-critique`
-- Source description: Pure-reasoning critic via Codex/GPT-5.6 Sol - paste the artifact + context, no repo access needed
+- Source description: Pure-reasoning critic via Codex/GPT-6 Astra - paste the artifact + context, no repo access needed

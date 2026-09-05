@@ -1,14 +1,14 @@
 {
   "name": "codex-subagent",
-  "version": "0.4.4",
-  "description": "Drive GPT-5.6 Sol as scoped subagents with task-routed low-xhigh effort and explicit max/ultra",
+  "version": "0.4.5",
+  "description": "Drive GPT-6 Astra as scoped subagents with task-routed low-xhigh effort and explicit max/ultra",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "Codex Subagent",
-    "shortDescription": "Drive GPT-5.6 Sol as scoped subagents with task-routed low-xhigh effort and explicit max/ultra",
-    "longDescription": "Drive GPT-5.6 Sol as scoped subagents with task-routed low-xhigh effort and explicit max/ultra",
+    "shortDescription": "Drive GPT-6 Astra as scoped subagents with task-routed low-xhigh effort and explicit max/ultra",
+    "longDescription": "Drive GPT-6 Astra as scoped subagents with task-routed low-xhigh effort and explicit max/ultra",
     "developerName": "Andre Paat",
     "category": "Development",
     "capabilities": [
@@ -24,7 +24,7 @@
   "keywords": [
     "codex",
     "openai",
-    "gpt-5",
+    "gpt-6",
     "subagent",
     "code-review",
     "second-opinion",

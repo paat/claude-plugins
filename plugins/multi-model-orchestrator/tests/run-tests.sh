@@ -307,14 +307,14 @@ pass 'All runners reject unknown modes'
 
 out="$(printf 'bounded review\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" --effort ultra --timeout 5 2> "$WORK/codex.err")"
 [ "$out" = $'codex findings\nAPPROVE' ] || fail 'Codex final output'
-contains "$WORK/codex.args" 'gpt-5.6-sol' 'Codex model pin'
+contains "$WORK/codex.args" 'gpt-6-astra' 'Codex model pin'
 contains "$WORK/codex.args" 'model_reasoning_effort="ultra"' 'Codex Ultra pin'
 contains "$WORK/codex.args" '--dangerously-bypass-approvals-and-sandbox' 'Codex unrestricted posture'
 contains "$WORK/codex.prompt" 'bounded review' 'Codex stdin prompt'
 contains "$WORK/codex.prompt" 'semantically read-only reviewer' 'Codex review mode prepends the no-write contract'
 codex_review_root="$(awk 'previous == "-C" { print; exit } { previous = $0 }' "$WORK/codex.args")"
 [ "$codex_review_root" = "$WORK/repo" ] || fail 'Codex review uses the repo working root'
-pass 'Codex runner pins Sol Ultra and stdin prompt'
+pass 'Codex runner pins Astra Ultra and stdin prompt'
 
 if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --effort extreme >/dev/null 2>&1; then
   fail 'invalid Codex effort rejected'
@@ -325,9 +325,9 @@ if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --model gpt
   fail 'earlier Codex model rejected'
 fi
 if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --model gpt-5.6-terra --effort ultra >/dev/null 2>&1; then
-  fail 'Ultra on non-Sol model rejected'
+  fail 'Ultra on non-Astra model rejected'
 fi
-pass 'Codex runner enforces the GPT-5.6 catalog and Sol-only Ultra'
+pass 'Codex runner enforces the GPT-5.6/GPT-6 catalog and Astra-only Ultra'
 
 if printf x | STUB_CODEX_RESULT=empty "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/repo" >/dev/null 2>&1; then
   fail 'Codex empty success rejected'
@@ -618,7 +618,7 @@ contains "$WORK/claude.args" 'xhigh' 'Compatibility wrapper preserves primary ef
 pass 'Opus wrapper does not override primary Claude configuration'
 
 contains "$PLUGIN_ROOT/commands/orchestrate.md" 'wait "$claude_pid"' 'Orchestration checks Claude reviewer status'
-contains "$PLUGIN_ROOT/commands/orchestrate.md" 'wait "$sol_pid"' 'Orchestration checks Codex reviewer status'
+contains "$PLUGIN_ROOT/commands/orchestrate.md" 'wait "$astra_pid"' 'Orchestration checks Codex reviewer status'
 contains "$PLUGIN_ROOT/commands/orchestrate.md" 'wait "$grok_pid"' 'Orchestration checks Grok reviewer status'
 contains "$PLUGIN_ROOT/commands/orchestrate.md" 'review_failed' 'Orchestration refuses arbitration after reviewer failure'
 pass 'Orchestration preserves each parallel reviewer exit status'

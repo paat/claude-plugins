@@ -12,7 +12,7 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
 
 - Natural wording is authoritative. Apply “only,” “do not use,” and provider/model allowlists or
   denylists before routing. Never dispatch a forbidden provider.
-- “Implement with Codex only” means every source edit belongs to a GPT-5.6 worker. A fresh Codex
+- “Implement with Codex only” means every source edit belongs to a Codex worker. A fresh Codex
   reviewer is allowed; Claude Code and Grok Build are not.
 - An explicit current model or compatible effort overrides the router default for that named leg.
   Reject contradictory restrictions and unsupported effort/model combinations.
@@ -100,19 +100,19 @@ after findings are arbitrated.
 <task and acceptance criteria; ask for architecture, intent, UX, scope, and integration defects>
 PROMPT
 claude_pid=$!
-"${CLAUDE_PLUGIN_ROOT}/scripts/run-codex.sh" --mode review --dir "$REPO_ROOT" --model gpt-5.6-sol --effort "$ROUTED_REVIEW_EFFORT" --timeout 1200 <<'PROMPT' > "$RUN_DIR/sol.txt" &
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-codex.sh" --mode review --dir "$REPO_ROOT" --model gpt-6-astra --effort "$ROUTED_REVIEW_EFFORT" --timeout 1200 <<'PROMPT' > "$RUN_DIR/astra.txt" &
 Review the complete diff from BASE_SHA=<sha> to the working tree. Do not modify files.
 Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.
 Ignore speculative edge cases without a realistic failure path. End with APPROVE or NEEDS_WORK.
 PROMPT
-sol_pid=$!
+astra_pid=$!
 "${CLAUDE_PLUGIN_ROOT}/scripts/run-grok.sh" --mode review --repo "$REPO_ROOT" --base "$BASE_SHA" --model grok-4.5 --effort high <<'PROMPT' > "$RUN_DIR/grok.txt" &
 <task and acceptance criteria; ask for reachable code defects and a verdict>
 PROMPT
 grok_pid=$!
 review_failed=0
 wait "$claude_pid" || review_failed=1
-wait "$sol_pid" || review_failed=1
+wait "$astra_pid" || review_failed=1
 wait "$grok_pid" || review_failed=1
 [ "$review_failed" -eq 0 ] || { printf '%s\n' 'One or more reviewers failed; do not arbitrate their output.' >&2; exit 1; }
 ```

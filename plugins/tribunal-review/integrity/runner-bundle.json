@@ -26,7 +26,7 @@
     },
     {
       "path": "scripts/run-codex-review.sh",
-      "sha256": "a770449a8f73fe60ea99ae6176966cd50a0cbef9c2959df2686e1ba95e0e28f5"
+      "sha256": "cda78dbae513d193ccf54e6715ae09c22b1f5e8a0e7bc81544f4eaadbca1196c"
     },
     {
       "path": "scripts/run-gemini-review.sh",

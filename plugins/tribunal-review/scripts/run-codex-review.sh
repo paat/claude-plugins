@@ -13,7 +13,7 @@ esac
 if [ "${TRIBUNAL_CODEX:-on}" = "off" ]; then tribunal_disabled codex "Codex leg disabled via TRIBUNAL_CODEX=off"; exit 0; fi
 command -v codex >/dev/null 2>&1 || { tribunal_error codex "Codex CLI not on PATH"; exit 0; }
 
-CODEX_MODEL="${TRIBUNAL_CODEX_MODEL:-gpt-5.6-sol}"
+CODEX_MODEL="${TRIBUNAL_CODEX_MODEL:-gpt-6-astra}"
 CODEX_EFFORT="${TRIBUNAL_CODEX_EFFORT:-medium}"
 TMPDIR="$(mktemp -d)" || exit 1
 trap 'rm -rf "$TMPDIR"' EXIT

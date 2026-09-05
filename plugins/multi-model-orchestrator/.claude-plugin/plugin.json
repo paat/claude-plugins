@@ -1,7 +1,7 @@
 {
   "name": "multi-model-orchestrator",
-  "version": "0.7.4",
-  "description": "Route software tasks across current Claude, GPT-5.6, and Grok 4.5 models with task-sized reasoning and independent review",
+  "version": "0.7.5",
+  "description": "Route software tasks across current Claude, GPT-5.6/GPT-6, and Grok 4.5 models with task-sized reasoning and independent review",
   "author": {
     "name": "Andre Paat"
   },
@@ -14,6 +14,7 @@
     "opus",
     "grok",
     "gpt-5.6",
+    "gpt-6",
     "subagents",
     "code-review",
     "epic"

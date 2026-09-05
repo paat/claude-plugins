@@ -6,14 +6,14 @@ A non-technical Estonian business owner who paid **€49** for a *täisaruanne* 
 2. trust that the document does **not contradict itself**;
 3. act on a **short** prioritised list — not 30 identical “vajab inimkontrolli” cards.
 
-This epic is the **residual after #563 / #564**. Epic #563 defined the owner-ready product; #564 required a blind €49 customer read that would not refund. The **2026-07-28 aruannik.ee full report + gpt-5.6-sol owner read** failed that bar (fair price **~€15**, would strip the doc before showing a lawyer).
+This epic is the **residual after #563 / #564**. Epic #563 defined the owner-ready product; #564 required a blind €49 customer read that would not refund. The **2026-07-28 aruannik.ee full report + gpt-6-astra owner read** failed that bar (fair price **~€15**, would strip the doc before showing a lawyer).
 
 Evidence (read-only share):
 
 | Path | What |
 |------|------|
 | `/mnt/vastav-share/aruannik.ee-full-report-2026-07-28/report/aruanne.md` | Customer markdown |
-| `/mnt/vastav-share/aruannik.ee-full-report-2026-07-28/customer-read-gpt-5.6-sol.txt` | Blind owner persona (report-only) |
+| `/mnt/vastav-share/aruannik.ee-full-report-2026-07-28/customer-read-gpt-6-astra.txt` | Blind owner persona (report-only) |
 | `/mnt/vastav-share/aruannik.ee-full-report-2026-07-28/README.md` | Run metadata (codex CLI, 32 findings, registry VERIFIED) |
 
 Related closed work (do not re-open wholesale): #329 (Report v3), #563 (owner-ready epic), #564 (validation), #532 (coverage “Puuduvad” for *Mida ei kontrollitud*), #496 (uniform hedging), #519 (duplicate do-first items), #557 (prior “not worth €49” read).

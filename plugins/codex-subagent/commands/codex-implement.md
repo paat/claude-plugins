@@ -4,7 +4,7 @@ description: Dispatch OpenAI Codex CLI as the implementer for ONE named task fro
 argument-hint: <plan.md> <taskN> [--model <id>] [--effort <level>] [--dir <repo>]
 ---
 
-Dispatch the OpenAI Codex CLI (`codex exec`, GPT-5.6 Sol with task-sized reasoning effort) as an **implementer subagent** to implement exactly one task from a written plan, then review what it produced. You are the controller — Codex edits and commits, you verify.
+Dispatch the OpenAI Codex CLI (`codex exec`, GPT-6 Astra with task-sized reasoning effort) as an **implementer subagent** to implement exactly one task from a written plan, then review what it produced. You are the controller — Codex edits and commits, you verify.
 
 **Arguments:** $ARGUMENTS
 

@@ -104,7 +104,7 @@ SH
   for effort in low medium high xhigh max ultra; do
     json_out=$(mktemp)
     config_out=$(mktemp)
-    model=gpt-5.6-sol
+    model=gpt-6-astra
     [ "$effort" = ultra ] && model=gpt-5.6-terra
     ec=0
     PATH="$bin:$PATH" FAKE_CODEX_MODE=valid FAKE_CODEX_CONFIG_OUT="$config_out" bash "$cast" \
@@ -131,7 +131,7 @@ SH
   ec=0
   out=$(PATH="$bin:$PATH" bash "$cast" \
     --worktree "$repo" --mode implement --provider openai \
-    --model gpt-5.6-sol --effort arbitrary --timeout 30s \
+    --model gpt-6-astra --effort arbitrary --timeout 30s \
     --prompt-file "$repo/prompt.md" 2>&1) || ec=$?
   assert_exit_code "CC1j: unknown effort rejects" "$ec" 2
   assert_output_contains "CC1k: unknown effort message" "$out" "invalid effort"
@@ -141,7 +141,7 @@ SH
   ec=0
   out=$(PATH="$bin:$PATH" bash "$cast" \
     --worktree "$repo/sub" --mode implement --provider openai \
-    --model gpt-5.6-sol --effort high --timeout 30s \
+    --model gpt-6-astra --effort high --timeout 30s \
     --prompt-file "$repo/prompt.md" 2>&1) || ec=$?
   assert_exit_code "CC2a: worktree mismatch exits 4" "$ec" 4
   assert_output_contains "CC2b: mismatch message" "$out" "worktree mismatch"
@@ -151,7 +151,7 @@ SH
   ec=0
   PATH="$bin:$PATH" FAKE_CODEX_MODE=mutate-review bash "$cast" \
     --worktree "$repo" --mode review --provider openai \
-    --model gpt-5.6-sol --effort medium --timeout 30s \
+    --model gpt-6-astra --effort medium --timeout 30s \
     --prompt-file "$repo/prompt.md" --json-out "$json_out" \
     --env FAKE_CODEX_MODE >/dev/null 2>&1 || ec=$?
   out=$(cat "$json_out")
@@ -165,7 +165,7 @@ SH
   ec=0
   PATH="$bin:$PATH" FAKE_CODEX_MODE=hang bash "$cast" \
     --worktree "$repo" --mode implement --provider openai \
-    --model gpt-5.6-sol --effort high --timeout 1s \
+    --model gpt-6-astra --effort high --timeout 1s \
     --prompt-file "$repo/prompt.md" --json-out "$json_out" \
     --env FAKE_CODEX_MODE >/dev/null 2>&1 || ec=$?
   out=$(cat "$json_out")
@@ -187,7 +187,7 @@ SH
   ec=0
   PATH="$bin:$PATH" FAKE_CODEX_MODE=malformed bash "$cast" \
     --worktree "$repo" --mode implement --provider openai \
-    --model gpt-5.6-sol --effort high --timeout 30s \
+    --model gpt-6-astra --effort high --timeout 30s \
     --prompt-file "$repo/prompt.md" --json-out "$json_out" \
     --env FAKE_CODEX_MODE >/dev/null 2>&1 || ec=$?
   out=$(cat "$json_out")
@@ -197,7 +197,7 @@ SH
   ec=0
   PATH="$bin:$PATH" FAKE_CODEX_MODE=no-terminal bash "$cast" \
     --worktree "$repo" --mode implement --provider openai \
-    --model gpt-5.6-sol --effort high --timeout 30s \
+    --model gpt-6-astra --effort high --timeout 30s \
     --prompt-file "$repo/prompt.md" --json-out "$json_out" \
     --env FAKE_CODEX_MODE >/dev/null 2>&1 || ec=$?
   out=$(cat "$json_out")

@@ -31,7 +31,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — Codex + Grok + Claude (diff-only) by default; Gemini, OpenCode DeepSeek, OpenCode GLM and Qwen opt-in, with calling-context arbitration",
-      "version": "0.24.7",
+      "version": "0.24.8",
       "author": {
         "name": "Andre Paat"
       },
@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "Portable SaaS delivery: Plan → Build → Independent Review with bounded maintenance and deterministic legal/PII/spend/release gates",
-      "version": "1.2.15",
+      "version": "1.2.16",
       "author": {
         "name": "Andre Paat"
       },
@@ -184,8 +184,8 @@
     },
     {
       "name": "codex-subagent",
-      "description": "Drive GPT-5.6 Sol as scoped subagents with task-routed low-xhigh effort and explicit max/ultra",
-      "version": "0.4.4",
+      "description": "Drive GPT-6 Astra as scoped subagents with task-routed low-xhigh effort and explicit max/ultra",
+      "version": "0.4.5",
       "author": {
         "name": "Andre Paat"
       },
@@ -239,8 +239,8 @@
     },
     {
       "name": "multi-model-orchestrator",
-      "description": "Route software tasks across current Claude, GPT-5.6, and Grok 4.5 models with task-sized reasoning and independent review",
-      "version": "0.7.4",
+      "description": "Route software tasks across current Claude, GPT-5.6/GPT-6, and Grok 4.5 models with task-sized reasoning and independent review",
+      "version": "0.7.5",
       "author": {
         "name": "Andre Paat"
       },

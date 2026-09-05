@@ -17,7 +17,7 @@ named in the steps below.
 ## Provider Policy
 
 - Codex: on by default; disable with `TRIBUNAL_CODEX=off`; defaults to
-  `gpt-5.6-sol` at `medium` effort; override with `TRIBUNAL_CODEX_MODEL` and
+  `gpt-6-astra` at `medium` effort; override with `TRIBUNAL_CODEX_MODEL` and
   `TRIBUNAL_CODEX_EFFORT`; repo-walking with unrestricted execution inside the
   development-container security boundary; the review prompt prohibits changes.
 - DeepSeek: off by default; `TRIBUNAL_DEEPSEEK=on` enables it and makes

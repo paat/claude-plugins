@@ -1,6 +1,6 @@
 # codex-subagent
 
-Drive the **OpenAI Codex CLI** (`codex exec`, GPT-5.6 Sol with task-routed `low` through `xhigh` effort and explicit `max`/`ultra`) as **subagents** from Claude Code, with Claude as the controller. You get an independent second model that reads the repo, edits files, runs tests, and commits — orchestrated task-by-task from a written plan — plus a high-value pre-flight review that catches integration defects a same-model pass rationalizes past.
+Drive the **OpenAI Codex CLI** (`codex exec`, GPT-6 Astra with task-routed `low` through `xhigh` effort and explicit `max`/`ultra`) as **subagents** from Claude Code, with Claude as the controller. You get an independent second model that reads the repo, edits files, runs tests, and commits — orchestrated task-by-task from a written plan — plus a high-value pre-flight review that catches integration defects a same-model pass rationalizes past.
 
 This plugin packages the non-obvious operational gotchas so you don't re-derive them.
 
@@ -36,13 +36,13 @@ All three call `scripts/codex-run.sh`, which builds the canonical invocation:
 ```bash
 codex exec --dangerously-bypass-approvals-and-sandbox \
   --skip-git-repo-check -C <repo-abs-path> \
-  -m gpt-5.6-sol -c 'model_reasoning_effort="high"' -
+  -m gpt-6-astra -c 'model_reasoning_effort="high"' -
 ```
 
 - `-C` sets the working dir (avoids a leading `cd`, which complicates Bash permission matching).
 - `--skip-git-repo-check` avoids the repo-check prompt.
 - The prompt is fed on **stdin** (`codex exec -`), never as a giant argv string — this dodges the `MAX_ARG_STRLEN` "Argument list too long" trap on large prompts.
-- Model and effort are explicit, so `~/.codex/config.toml` cannot silently change unattended behavior. The role-agnostic wrapper defaults to `gpt-5.6-sol` + `high`; `/codex-implement` and `/codex-review` choose the cheapest sufficient `low|medium|high|xhigh` level unless an argument or `CODEX_SUBAGENT_EFFORT` overrides it. `max` and `ultra` are explicit-only; critique remains `high` by default.
+- Model and effort are explicit, so `~/.codex/config.toml` cannot silently change unattended behavior. The role-agnostic wrapper defaults to `gpt-6-astra` + `high`; `/codex-implement` and `/codex-review` choose the cheapest sufficient `low|medium|high|xhigh` level unless an argument or `CODEX_SUBAGENT_EFFORT` overrides it. `max` and `ultra` are explicit-only; critique remains `high` by default.
 
 ### Effort routing
 
@@ -82,7 +82,7 @@ It encodes every gotcha — the fixed unrestricted execution posture, dual timeo
 
 ## Why the pre-flight review is high-value
 
-Pointed at a written plan + the real source files, GPT-5.6 Sol finds real integration defects a same-model pass misses: line-anchor drift, dispatch-signature mismatches (builder arity/return type), a second validator recomputing totals with the wrong formula, renderers hardcoding old field names. Run `/codex-review <plan.md>` **before** implementing.
+Pointed at a written plan + the real source files, GPT-6 Astra finds real integration defects a same-model pass misses: line-anchor drift, dispatch-signature mismatches (builder arity/return type), a second validator recomputing totals with the wrong formula, renderers hardcoding old field names. Run `/codex-review <plan.md>` **before** implementing.
 
 ## Relationship to other plugins
 
@@ -95,7 +95,7 @@ The `saas-startup-team` plugin also drives `codex exec` workers. Both plugins ru
 | Driven by | a written plan + task id | business→tech handoff files |
 | Prompt | role-agnostic | opinionated production contract |
 
-Use this plugin for one generic, plan-driven Codex worker or reviewer; use `multi-model-orchestrator` when the request needs task-by-task effort routing plus independent Opus and Sol final reviews; use `saas-startup-team` for its handoff-driven team loop. Each plugin installs and works standalone.
+Use this plugin for one generic, plan-driven Codex worker or reviewer; use `multi-model-orchestrator` when the request needs task-by-task effort routing plus independent Opus and Astra final reviews; use `saas-startup-team` for its handoff-driven team loop. Each plugin installs and works standalone.
 
 ## Installation
 

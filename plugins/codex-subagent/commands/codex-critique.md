@@ -1,10 +1,10 @@
 ---
 allowed-tools: Bash, Read
-description: Pure-reasoning critic via Codex/GPT-5.6 Sol — paste the artifact + context, no repo access needed
+description: Pure-reasoning critic via Codex/GPT-6 Astra — paste the artifact + context, no repo access needed
 argument-hint: <question or topic> [--model <id>] [--effort <level>]
 ---
 
-Use the OpenAI Codex CLI (`codex exec`, GPT-5.6 Sol at `high` reasoning effort by default) as a **pure-reasoning critic**. Unlike `/codex-review`, this needs no filesystem access — you paste the full artifact and context into the prompt. Good for "critique this methodology", "poke holes in this design", "review this self-contained snippet", "stress-test this argument".
+Use the OpenAI Codex CLI (`codex exec`, GPT-6 Astra at `high` reasoning effort by default) as a **pure-reasoning critic**. Unlike `/codex-review`, this needs no filesystem access — you paste the full artifact and context into the prompt. Good for "critique this methodology", "poke holes in this design", "review this self-contained snippet", "stress-test this argument".
 
 **Question / topic:** $ARGUMENTS
 

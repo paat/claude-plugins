@@ -5,7 +5,7 @@ description: "Use to drive Codex CLI as implementer or reviewer from a written p
 
 # Codex Subagent-Driven Development
 
-This mirrors superpowers subagent-driven-development, but the **implementer/reviewer is the OpenAI Codex CLI** (`codex exec`, GPT-5.6 Sol with task-sized reasoning effort) and **Claude is the controller**. Codex reads the repo, edits files, runs tests, and commits — one plan task at a time. Claude dispatches, reviews each diff, permits one task-blocking correction, and keeps the ledger. The payoff is an independent second model: Codex catches integration defects a same-model pass rationalizes past.
+This mirrors superpowers subagent-driven-development, but the **implementer/reviewer is the OpenAI Codex CLI** (`codex exec`, GPT-6 Astra with task-sized reasoning effort) and **Claude is the controller**. Codex reads the repo, edits files, runs tests, and commits — one plan task at a time. Claude dispatches, reviews each diff, permits one task-blocking correction, and keeps the ledger. The payoff is an independent second model: Codex catches integration defects a same-model pass rationalizes past.
 
 ## Execution posture
 
@@ -49,7 +49,7 @@ digraph { "Plan" -> "Pre-flight review (/codex-review on plan+source)";
 ```
 
 1. **Write the plan first.** Use superpowers `writing-plans`. Each task names the exact files, the exact code, and the tests that gate it. Codex reads the plan file itself — you never paste it.
-2. **Pre-flight review the plan against real source** with `/codex-review <plan.md>`. Pointing GPT-5.6 Sol at the plan + the actual tree reliably surfaces line-anchor drift, dispatch-signature mismatches (arity/return type), a second validator recomputing a total with the wrong formula, renderers hardcoding old field names. Reconcile task-blocking defects into the plan; record adjacent findings without expanding the task.
+2. **Pre-flight review the plan against real source** with `/codex-review <plan.md>`. Pointing GPT-6 Astra at the plan + the actual tree reliably surfaces line-anchor drift, dispatch-signature mismatches (arity/return type), a second validator recomputing a total with the wrong formula, renderers hardcoding old field names. Reconcile task-blocking defects into the plan; record adjacent findings without expanding the task.
 3. **Dispatch one task** with `/codex-implement <plan.md> <taskN>` — see that command's steps 2-3 for the full implementer contract (one task only, exact plan code, test gate, commit + trailer, stop on anchor mismatch).
 4. **Review the resulting diff yourself.** Only the named files changed? Matches the plan? Trailer present? Tests real? Allow at most one targeted correction for a task-blocking defect; if it still fails, report the blocker instead of recursively re-dispatching.
 5. **Run the minimal-diff scope-control check** — see `/codex-implement` step 5 for the full reject-list. Revert or split out-of-scope work unless the plan explicitly asked for it.

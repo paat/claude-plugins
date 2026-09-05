@@ -1,10 +1,10 @@
 ---
 allowed-tools: Bash, Read, Grep
-description: Independent second-model (Codex/GPT-5.6 Sol) review of a diff, plan, or file — repo-walking, read-only
+description: Independent second-model (Codex/GPT-6 Astra) review of a diff, plan, or file — repo-walking, read-only
 argument-hint: "[<target>] [--model <id>] [--effort <level>] [--dir <repo>]"
 ---
 
-Get an independent **second-model review** from the OpenAI Codex CLI (`codex exec`, GPT-5.6 Sol with target-sized reasoning effort). Codex reads the real source tree itself to verify cross-file effects — this catches integration defects a same-model pass rationalizes past (line-anchor drift, dispatch-signature mismatches, wrong recomputed formulas, renderers hardcoding old field names). Then synthesize with your own review.
+Get an independent **second-model review** from the OpenAI Codex CLI (`codex exec`, GPT-6 Astra with target-sized reasoning effort). Codex reads the real source tree itself to verify cross-file effects — this catches integration defects a same-model pass rationalizes past (line-anchor drift, dispatch-signature mismatches, wrong recomputed formulas, renderers hardcoding old field names). Then synthesize with your own review.
 
 **Target:** $ARGUMENTS
 

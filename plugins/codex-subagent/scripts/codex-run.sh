@@ -21,7 +21,7 @@
 #
 # Options:
 #   -C, --dir DIR        Repo/working dir codex runs in (default: $PWD).
-#   -m, --model MODEL    Codex model (default: gpt-5.6-sol).
+#   -m, --model MODEL    Codex model (default: gpt-6-astra).
 #   -e, --effort LEVEL   low|medium|high|xhigh|max|ultra (default: high).
 #   -t, --timeout SECS   Inner timeout for the codex run (default: 600).
 #   -f, --prompt-file F  Read the prompt from file F instead of argv/stdin.
@@ -35,7 +35,7 @@
 set -euo pipefail
 
 CS_DEFAULT_TIMEOUT="600"
-CS_DEFAULT_MODEL="${CODEX_SUBAGENT_MODEL:-gpt-5.6-sol}"
+CS_DEFAULT_MODEL="${CODEX_SUBAGENT_MODEL:-gpt-6-astra}"
 CS_DEFAULT_EFFORT="${CODEX_SUBAGENT_EFFORT:-high}"
 
 cs_usage() {

@@ -41,7 +41,7 @@ contains "print-cmd has effort"              'model_reasoning_effort="medium"' "
 check "print-cmd ends with stdin dash" "-" "$(printf '%s' "$cmd" | tail -1)"
 
 defaults="$("$SCRIPT" --print-cmd -C /repo)"
-contains "default model is pinned" "gpt-5.6-sol" "$defaults"
+contains "default model is pinned" "gpt-6-astra" "$defaults"
 contains "default effort is pinned" 'model_reasoning_effort="high"' "$defaults"
 
 env_defaults="$(CODEX_SUBAGENT_MODEL=gpt-5.6-terra CODEX_SUBAGENT_EFFORT=low "$SCRIPT" --print-cmd -C /repo)"
