@@ -14,9 +14,10 @@ tracks the latest Haiku 4.5 release instead of pinning an earlier dated snapshot
 | Codex | `gpt-6-astra` | Hard technical implementation, debugging, adversarial review, security | `low`–`max`; `ultra` only as below |
 | Grok Build | `grok-4.5` | Fast bounded agentic implementation, independent reproduction, extra review lens | `low`, `medium`, `high` |
 
-No earlier Claude, GPT, or Grok model is a fallback. Haiku 4.5 is included because it is the
-latest Haiku. Treat unavailable subscription models as unavailable routes, not as permission to
-use an older generation.
+Astra replaces only Sol. Keep Terra and Luna as lower-cost routes: use Luna for mechanical tasks
+and narrow checks, Terra for ordinary bounded implementation, and Astra for hard technical work.
+A newer flagship does not retire the cheaper tiers. Explicit model requests still take precedence.
+Only catalogued models are allowed; unavailable models do not authorize an unlisted fallback.
 
 ## Task starting points
 

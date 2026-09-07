@@ -16,8 +16,8 @@ or effort. Use the evidence notes only when explaining or revisiting the policy.
    provider. If no valid route remains, return the exact blocker.
 3. Classify the task by role, ambiguity, scope/coupling, risk, determinism of validation, modality,
    and expected duration.
-4. Select the model from the strict catalog in `references/routing.md`, then select the cheapest
-   sufficient supported effort. Model choice and effort are separate decisions.
+4. Select the cheapest sufficient model from the strict catalog in `references/routing.md`, then
+   select the cheapest sufficient supported effort. Model choice and effort are separate decisions.
 5. Add another model only when independent evidence can change the result. Prefer a provider
    different from the implementer for high-risk review or contradictory diagnoses.
 
