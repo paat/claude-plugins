@@ -263,6 +263,8 @@ for disposition in fix-now-no-item record-as-limitation; do
   proposed_run="$(write_register "$TMP/proposed-snapshot.json" "$TMP/proposed.json" "worked-$disposition")"
   check "direction 2 worked $disposition preserves decision and local provenance" 0 "$(jq -e --slurpfile want "$HERE/expected/proposed/$disposition.json" '.items[0] | . as $row | all($want[0]|del(.code_refs)|keys[]; $row[.] == $want[0][.]) and .provenance.item_id==$want[0].id and .provenance.updatedAt==null and .provenance.comments_fetched==0 and .url==null' "$proposed_run/register.json" >/dev/null 2>&1; echo $?)"
 done
+proposed_fix_now_queue="$(awk '/^## Implement now/{emit=1;next} /^## /{emit=0} emit' "$TMP/output/work-item-triage/worked-fix-now-no-item/queue.md")"
+check 'tribunal T-008 proposed ready fix-now-no-item renders under implement-now' 1 "$(grep -c 'Priority 1 — draft-contact-link: Correct the anchor in the existing support note and verify the link.' <<< "$proposed_fix_now_queue" || true)"
 check 'direction 2 file draft warns explicitly no PII review' 1 "$(grep -c 'WARNING: .*draft.*no PII review' "$TMP/output/work-item-triage/proposed-file-minimal/summary.md" || true)"
 export WIT_MODE=missing-history
 read_snapshot github --id 301 > "$TMP/missing-history.json"

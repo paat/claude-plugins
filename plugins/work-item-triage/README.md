@@ -70,8 +70,9 @@ Configured commands are trusted code and must honor their read contract. The hos
 a general shell; these plugin boundaries do not sandbox the entire session.
 
 Every queue row reports `native`, `instruction-only` or `unavailable` enforcement and its mechanism.
-Instruction links alone do not change unattended selectors. A `maintain:blocked` label without an
-active ledger entry may still be selected; inspect the installed consumer before claiming otherwise.
+Instruction links alone do not change unattended selectors. A consumer-specific blocked label without
+an active consumer ledger entry may still be selected; inspect the consumer's selection code before
+claiming otherwise.
 The plugin introduces no label taxonomy, scheduler or automatic implementation.
 
 ## Validation

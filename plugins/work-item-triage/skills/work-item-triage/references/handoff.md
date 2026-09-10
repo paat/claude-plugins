@@ -32,7 +32,10 @@ and report one of these classes per row:
 | `instruction-only` | An agent preflight can obey it; unattended selection remains unchanged |
 | `unavailable` | No verified consumer mechanism preserves the requested decision |
 
-For the existing `saas-startup-team` maintain selector, inspect these possible levers before use:
+### Worked example — one known consumer
+
+The following is an example, not a contract for other consumers. Inspect that consumer's own
+selection code before claiming a handoff controls it. One known maintain selector has these levers:
 
 - `needs-human`, any assignee and `epic` may be hard exclusions.
 - A `depends on #N` / `blocked by #N` clause in title/body can block until the dependency is
@@ -42,7 +45,7 @@ For the existing `saas-startup-team` maintain selector, inspect these possible l
 - Priority may sort only severity labels, age and item number; triage priority and `steering`
   may have no effect. Severity changes require their own authorization and semantic justification.
 
-In particular, `maintain:blocked` without an active ledger row may be cleanup-only and still queued.
+In this example, `maintain:blocked` without an active ledger row may be cleanup-only and still queued.
 Never claim low-value triage is a native exclusion merely because its decision was commented.
 Recommend an existing dependency or ledger mechanism only with evidence; changes remain proposals.
 Entry-point links are instruction-only unless the consumer proves otherwise.

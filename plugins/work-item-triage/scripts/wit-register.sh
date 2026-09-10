@@ -126,7 +126,7 @@ jq -r '
     (if has("revisit_trigger") then "Revisit: \(.revisit_trigger)\n" else empty end))
 ' "$stage/register.json" > "$stage/summary.md"
 jq -r '
-  def eligible: .direction=="existing" and .disposition=="implement-minimally" and .readiness=="ready" and .provenance.completeness=="complete";
+  def eligible: (.disposition=="implement-minimally" or .disposition=="fix-now-no-item") and .readiness=="ready" and .provenance.completeness=="complete";
   def row: "- Priority \(.priority) — \(.id): \(.next_task)\n  Source: \(.provenance.source.system)/\(.provenance.source.scope); \(.url // .id)\n  Minimum scope: \(.response)\n  Necessity: \(.necessity); readiness: \(.readiness); disposition: \(.disposition)\n  Target owner: \(.target // "none")\n  Prerequisites: \(.prerequisites|join("; "))\n  Stop/refresh: \(.stop_condition)\n  enforcement: \(.enforcement.class) — \(.enforcement.mechanism)\n";
   "# Next actions: \(.run_id)\n\nAssessment: register.json; latest snapshot: ../pointer.json.\n",
   "Read the consuming selector before claiming enforcement. An instruction link does not change an unattended scheduler.\n",

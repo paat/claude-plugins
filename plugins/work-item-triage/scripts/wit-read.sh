@@ -14,7 +14,7 @@ except ValueError:
             active=True; base=len(line)-len(line.lstrip()); continue
         if not active or not line.strip() or line.lstrip().startswith('#'): continue
         if len(line)-len(line.lstrip()) <= base: break
-        match=re.match(r'\s*(-\s+)?(name|list|show|search|comment|close):\s*(.*?)\s*$',line)
+        match=re.match(r'\s*(-\s+)?(name|list|show|search):\s*(.*?)\s*$',line)
         if not match: raise SystemExit('Unsupported sources syntax; use JSON or quoted scalar YAML entries')
         entry,key,value=match.groups()
         if entry:
