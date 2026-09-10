@@ -1,6 +1,6 @@
 ---
 name: deepseek-reviewer
-description: Invokes DeepSeek-V4 (via the OpenCode Go backend) for independent, repo-walking code review. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
+description: Invokes DeepSeek-V4 (via the direct DeepSeek API through OpenCode) for independent, repo-walking code review. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
 tools: Bash
 model: haiku
 color: purple
@@ -24,19 +24,13 @@ You are an OpenCode/DeepSeek CLI wrapper. Your ONLY job is to run ONE bash comma
 
 ## Transport & Independence
 
-DeepSeek is an **opt-in** reviewer that runs through the same `opencode-go`
-backend as the GLM leg when enabled:
+DeepSeek is an **opt-in** reviewer using the direct DeepSeek API through OpenCode:
 
-- **Provider/model**: `opencode-go/deepseek-v4-pro` — DeepSeek-V4 served via the **OpenCode Go**
-  reseller backend, billed against your OpenCode Go subscription (then credits on overage).
-  Authenticate once with `opencode auth login` (select OpenCode Go).
-- **Decorrelation trade-off (issue #40)**: routing DeepSeek through `opencode-go/` means an
-  `opencode-go` quota/429 can take both OpenCode legs (GLM + DeepSeek) down together. The default
-  panel contains neither OpenCode leg, with quota/429 coupling only when one or both are opted back
-  in. To use an independent transport, set
-  `TRIBUNAL_DEEPSEEK=on TRIBUNAL_DEEPSEEK_MODEL=deepseek/deepseek-v4-pro` — the
-  **direct DeepSeek API** (`https://api.deepseek.com`), authenticated via `opencode auth login`
+- **Provider/model**: `deepseek/deepseek-v4-pro`, authenticated via `opencode auth login`
   (select DeepSeek) or `DEEPSEEK_API_KEY`.
+- **Transport independence (issue #40)**: the direct API uses an independent transport
+  from GLM's `opencode-go` backend. Overriding the model to `opencode-go/*` can couple
+  both legs' quota/429 failures. See the README provider policy before enabling DeepSeek.
 - **Repo-walking**: this leg runs read-only **with tools enabled** (`opencode run --agent plan`
   from the repo root), so it can open related files and trace cross-file effects rather than
   reviewing the diff in isolation. The default Codex leg and opt-in Qwen leg walk too (issue #44); of
@@ -49,8 +43,7 @@ backend as the GLM leg when enabled:
   and the arbiter excludes it from quorum (`provider_assessment.deepseek.status="disabled"`).
   It is off by default (issue #461); only the literal `on` enables it.
 - With `TRIBUNAL_DEEPSEEK=on`, `TRIBUNAL_DEEPSEEK_MODEL` selects the model (default
-  `opencode-go/deepseek-v4-pro`; e.g. `opencode-go/deepseek-v4-flash` for a cheaper/faster
-  per-commit review, or `deepseek/deepseek-v4-pro` for the direct DeepSeek API).
+  `deepseek/deepseek-v4-pro` on the direct DeepSeek API).
 
 See `scripts/run-opencode-review.sh` for the exact script: the DeepSeek leg is
 `run_oc_leg deepseek … "$REPO_ROOT"`, run sequentially after GLM within the one call to avoid the
@@ -64,5 +57,5 @@ If the script fails because OpenCode is not installed, return:
 If the provider is not authenticated, its model will be absent from
 `opencode models` and the leg is skipped with a distinct error:
 ```json
-{"error": "OpenCode model opencode-go/deepseek-v4-pro not in registry (cold/stale cache, or provider not authenticated) — run `opencode models` / `opencode auth login`; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "deepseek"}
+{"error": "OpenCode model deepseek/deepseek-v4-pro not in registry (cold/stale cache, or provider not authenticated) — run `opencode models` / `opencode auth login`; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "deepseek"}
 ```

@@ -82,8 +82,7 @@ run_oc_leg() {
       --dangerously-skip-permissions --agent plan -m "$model" --variant high \
       --format default "$(cat "$prompt")" > "$out" 2> "$err") || rc=$?
     if [ "$rc" -eq 0 ]; then
-      tribunal_extract_json_object < "$out" \
-        | tribunal_emit_review "$provider" "" "$out" "$err" "$rc"
+      opencode_emit_review "$provider" "$rc" "$out" "$err"
     else
       tribunal_error_with_diagnostics "$provider" \
         "$(opencode_failure_message "$provider" "$model" "$rc" "$run_timeout" "$err")" \
@@ -105,8 +104,7 @@ run_oc_leg() {
     --format default "$(cat "$prompt")" -f "$diff_attach" > "$out" 2> "$err") || rc=$?
   if [ "$rc" -eq 0 ]; then
     rm -f "$diff_attach"
-    tribunal_extract_json_object < "$out" \
-      | tribunal_emit_review "$provider" "" "$out" "$err" "$rc" \
+    opencode_emit_review "$provider" "$rc" "$out" "$err" \
       | tribunal_line_check "$REPO_ROOT" "$DIFF_STAT" \
       | tribunal_stamp_diff_stat "$DIFF_STAT"
   else
@@ -115,6 +113,20 @@ run_oc_leg() {
       "$(opencode_failure_message "$provider" "$model" "$rc" "$run_timeout" "$err")" \
       execution "$rc" "$out" "$err"
   fi
+}
+
+opencode_emit_review() {
+  local provider="$1" rc="$2" out="$3" err="$4" json
+  json="$(tribunal_extract_json_object < "$out")"
+  # Exit 0 alone is not success: OpenCode can reject execution on stderr (#492).
+  if [ "$rc" -eq 0 ] && [ -s "$err" ] \
+    && ! printf '%s' "$json" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    tribunal_error_with_diagnostics "$provider" \
+      "$provider leg unavailable: OpenCode returned no JSON object and reported stderr" \
+      execution "$rc" "$out" "$err" on
+    return
+  fi
+  printf '%s' "$json" | tribunal_emit_review "$provider" "" "$out" "$err" "$rc"
 }
 
 opencode_failure_message() {
@@ -140,5 +152,5 @@ fi
 if [ "$deepseek_on" -eq 0 ]; then
   tribunal_disabled deepseek "DeepSeek leg disabled (default off; issue #461); set TRIBUNAL_DEEPSEEK=on to enable"
 else
-  run_oc_leg deepseek "${TRIBUNAL_DEEPSEEK_MODEL:-opencode-go/deepseek-v4-pro}" "repo-walking" "$REPO_ROOT"
+  run_oc_leg deepseek "$(tribunal_deepseek_model)" "repo-walking" "$REPO_ROOT"
 fi

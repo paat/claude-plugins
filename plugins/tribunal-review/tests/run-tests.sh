@@ -554,7 +554,7 @@ EOF
   cat > "$fake/opencode" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = models ]; then
-  printf '%s\n' opencode-go/deepseek-v4-pro opencode-go/glm-5.1
+  printf '%s\n' deepseek/deepseek-v4-pro opencode-go/glm-5.1
   exit 0
 fi
 printf '%s\n' '{"provider":"deepseek","model":"smoke","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
@@ -768,7 +768,7 @@ test_opencode_gated_model_error() {
   run_opencode_failure_fixture \
     "OpenCode gated model error is classified without leaking stderr" 1 \
     "Error: The latest version of this model is only available hosted in China and requires explicit opt in DECOY_SECRET_TOKEN" \
-    "jq -s -e '.[1].error | contains(\"deepseek leg unavailable: provider rejected model '\''opencode-go/deepseek-v4-pro'\'' (requires explicit opt-in)\") and (contains(\"timed out\") | not) and (contains(\"DECOY_SECRET_TOKEN\") | not)' \"\$work/out.json\" >/dev/null"
+    "jq -s -e '.[1].error | contains(\"deepseek leg unavailable: provider rejected model '\''deepseek/deepseek-v4-pro'\'' (requires explicit opt-in)\") and (contains(\"timed out\") | not) and (contains(\"DECOY_SECRET_TOKEN\") | not)' \"\$work/out.json\" >/dev/null"
 }
 
 test_opencode_gated_tool_trace_is_generic_error() {
@@ -789,7 +789,7 @@ test_opencode_provider_gated_error_is_classified() {
   run_opencode_failure_fixture \
     "OpenCode provider gated error is classified" 1 \
     'Error: The latest version of this model is only available hosted in China and requires explicit opt in: https://opencode.ai/workspace/wrk_TESTID/go' \
-    "jq -s -e '.[1].error | contains(\"deepseek leg unavailable\") and contains(\"opencode-go/deepseek-v4-pro\")' \"\$work/out.json\" >/dev/null"
+    "jq -s -e '.[1].error | contains(\"deepseek leg unavailable\") and contains(\"deepseek/deepseek-v4-pro\")' \"\$work/out.json\" >/dev/null"
 }
 
 test_opencode_provider_gated_timeout_is_pure_timeout() {
@@ -2726,6 +2726,8 @@ test_grok_auth_guard
 test_preflight_smoke_probe
 test_claude_tmpdir_cleanup
 test_opencode_wal_isolation
+assert_json_field "OpenCode exit-0 classification and stderr regressions" "bash '$PLUGIN_ROOT/tests/test-opencode-exit0.sh'"
+assert_json_field "OpenCode runner and preflight model selection" "bash '$PLUGIN_ROOT/tests/test-opencode-model.sh'"
 test_opencode_timeout_error
 test_opencode_killed_error
 test_opencode_gated_model_error
