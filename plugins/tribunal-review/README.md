@@ -59,9 +59,10 @@ are never merge authority. Failed provider artifacts retain the failure phase,
 exit code, byte counts, and truncation flags. Set `TRIBUNAL_DIAGNOSTIC_TAILS=on`
 only for local troubleshooting to add printable-ASCII 2 KiB stdout/stderr tails;
 tails are otherwise omitted by default because provider errors can contain credentials.
-For either OpenCode leg, exit 0 with no review JSON and non-empty stderr is a
-`phase=execution` failure: the last 2048 bytes of stderr are always included,
-filtered to printable ASCII and JSON-escaped, so the provider reason is visible without diagnostic mode. Valid
+For either OpenCode leg, exit 0 with no review JSON and non-whitespace stderr is a
+`phase=execution` failure. Known gates get a credential-free classified message;
+the stderr tail is included automatically only when no classifier matched,
+limited to the last 2048 bytes, filtered to printable ASCII and JSON-escaped. Valid
 review JSON still succeeds with incidental stderr output.
 Preflight `usable` status confirms discovery/authentication only; it does not
 claim that a non-interactive reviewer invocation has succeeded. Set
