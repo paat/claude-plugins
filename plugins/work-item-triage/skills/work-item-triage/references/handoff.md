@@ -6,19 +6,15 @@ The implement-now section excludes deferred, blocked and unknown-readiness work 
 
 A usable row identifies the item/source reference, minimum response, priority, readiness,
 dependency/owner/evidence prerequisites, next concrete task, and stop/refresh condition.
-The register remains the historical assessment. Record successful tracker execution separately
-in `applied.json`; changed assessments require a new linked run.
+The register remains the historical assessment; changed assessments require a new linked run.
 
 ## Entry-point connection
 
-Within existing authorization, link the current run or stable pointer from the repository
-instructions fresh sessions actually load. Respect local instruction ownership: edit the source
-file when an entry point is generated or symlinked. Do not dump the census into instructions.
-When the output is not shared across checkouts, prepare an accessible tracker summary with the
-next task, minimum scope, blockers and durable source links. Publish only through a supported,
-authorized comment action; retain private evidence locally and state publication limits.
-If no existing tracker item can hold the reference, delegate any new filing through `issue-file`
-when installed; otherwise return a draft with the no-PII-review warning required by the skill.
+Prepare a link to the current run or stable pointer for the repository instructions fresh sessions
+actually load. Identify the source file when an entry point is generated or symlinked.
+When output is not shared across checkouts, draft a tracker summary with the next task, minimum
+scope, blockers and durable source links. Retain private evidence locally and report unpublished
+links as handoff limits. Any filing draft must state: **This draft has had no PII review.**
 
 The entry-point instruction should direct a fresh session to check queue prerequisites before
 delivery, select the first eligible task, and stop/refresh when the stated condition changes.
@@ -48,7 +44,6 @@ For the existing `saas-startup-team` maintain selector, inspect these possible l
 
 In particular, `maintain:blocked` without an active ledger row may be cleanup-only and still queued.
 Never claim low-value triage is a native exclusion merely because its decision was commented.
-Use an applicable existing dependency or ledger mechanism only with evidence and authorization;
-unsupported local/config changes remain proposals. This plugin's apply helper writes comments
-and closures only. Entry-point links are instruction-only unless the consumer proves otherwise.
+Recommend an existing dependency or ledger mechanism only with evidence; changes remain proposals.
+Entry-point links are instruction-only unless the consumer proves otherwise.
 Do not add a scheduler or label taxonomy to disguise unavailable enforcement.

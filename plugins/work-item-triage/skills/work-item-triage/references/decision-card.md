@@ -15,7 +15,7 @@ The same card fields apply to both directions; only prior-art lookup and disposi
 | `response` | Smallest adequate intervention, retained acceptance, do-nothing consequence |
 | `cost` | Qualitative marginal complexity/retrieval/review/operations burden |
 | `disposition` | One token from the selected direction below |
-| `priority` | Positive integer ordering; smaller comes first, without scoring formulas |
+| `priority` | Positive integer; within each section, required precedes discretionary, then smaller priority comes first |
 | `prerequisites` | Array naming dependency, owner, review or evidence prerequisites |
 | `next_task` | A concrete bounded task preserving minimum scope |
 | `stop_condition` | When to stop or refresh instead of executing stale advice |
@@ -42,15 +42,24 @@ Keep explanations concise in these fields; free-form supplemental prose belongs 
 | Proposed item | Required qualification |
 |---|---|
 | `do-not-file` | Explain why no durable tracked intervention is needed |
-| `file-minimal` | Minimal draft and evidence; filing is delegated, never performed here |
+| `file-minimal` | Minimal draft and evidence; display “This draft has had no PII review.” |
 | `append-to` | Non-empty `target`; existing item owns the same outcome |
 | `fix-now-no-item` | Bounded already-authorized intervention recommended to the caller |
 | `record-as-limitation` | Supported limitation permitted by policy, with accessible disclosure |
 
 ## Script-owned output
 
-`wit-register.sh --snapshot FILE --decisions FILE --output-dir DIR [--code-ref DIR] [--run-id ID]`
-prints a new run directory under `DIR/work-item-triage/`. `WIT_NOW` permits a deterministic clock.
+Resolve `WIT_ROOT` from `${CLAUDE_PLUGIN_ROOT}` in Claude Code or the installed plugin directory
+containing this skill (`../..` relative to its directory) in Codex.
+
+```bash
+"$WIT_ROOT/scripts/wit-register.sh" --snapshot "$SNAPSHOT" --decisions "$DECISIONS" \
+  --output-dir "$OUTPUT_DIR" --code-ref "$CODE_REFERENCE"
+```
+
+Omit `--code-ref` for non-code work; optional `--run-id ID` selects a run name.
+The writer prints a new run directory under `OUTPUT_DIR/work-item-triage/`.
+`WIT_NOW` permits a deterministic clock.
 It refuses an existing run directory; never edit previous output to update an assessment.
 
 Snapshots require `source: {system, scope}`, `fetched_at`, `completeness: complete|incomplete`,
@@ -64,7 +73,6 @@ completeness, inspected code commit and `supersedes: {run_id, disposition}` when
 These facts come from the reader, git and prior register, never model-supplied provenance.
 Source-specific raw fields stay outside the core card; provenance is a separate envelope.
 
-The run also contains `summary.md`, `queue.md` and `applied.json`; `pointer.json` identifies the
-newest snapshot. The summary bounds detail to five priority cards; all decisions remain in the register.
-`applied.json` records execution outcomes independently of immutable proposed dispositions.
+The run also contains `summary.md` and `queue.md`; `pointer.json` identifies the
+newest snapshot. The summary bounds detail to five cards by necessity, then priority; all decisions remain in the register.
 Changing owner rulings or new evidence produce another run linked to the previous decision.

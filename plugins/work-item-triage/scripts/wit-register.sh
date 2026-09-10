@@ -109,13 +109,13 @@ jq -n --slurpfile s "$snapshot" --slurpfile d "$decisions" --slurpfile p "$previ
 jq -r '
   (.items|group_by(.disposition)|map(.[0].disposition+": "+(length|tostring))|join("; ")) as $counts |
   "# Work-item triage assessment: \(.run_id)\n",
-  "Coverage: \(.items|length) items; \(.completeness). Proposed decisions; actual changes are in applied.json.\n",
+  "Coverage: \(.items|length) items; \(.completeness). Recommendations only; no tracker changes executed.\n",
   "Dispositions: \($counts).\n",
   (if .completeness=="incomplete" or any(.items[];.provenance.completeness=="incomplete") then
-    "INCOMPLETE: missing pages or history; do not claim a complete census or apply dependent actions.\n" else empty end),
+    "INCOMPLETE: missing pages or history; do not claim a complete census or resolve dependent decisions.\n" else empty end),
   (.capability_limits[]|"Capability limit: \(.)\n"),
   (if any(.items[];.direction=="proposed" and .disposition=="file-minimal") then
-    "Filing handoff: delegate drafts to saas-startup-team:issue-file when installed. Otherwise output drafts and stop. WARNING: these drafts have had no PII review.\n" else empty end),
+    "Draft only. WARNING: these drafts have had no PII review.\n" else empty end),
   "First five cards by necessity, then priority follow; register.json contains every card.\n",
   (.items|sort_by((if .necessity=="required" then 0 else 1 end), .priority, .id)|.[0:5][]|"## \(.id): \(.title)\n\nDirection: \(.direction); disposition: \(.disposition).\n\nOutcome: \(.outcome)\n\nEvidence: \(.evidence|tojson)\n\nNecessity: \(.necessity); readiness: \(.readiness).\n\nSmallest adequate response: \(.response)\n\nCost: \(.cost)\n",
     (if has("target") then "Target owner: \(.target)\n" else empty end),
@@ -124,13 +124,12 @@ jq -r '
 jq -r '
   def eligible: .direction=="existing" and .disposition=="implement-minimally" and .readiness=="ready" and .provenance.completeness=="complete";
   def row: "- Priority \(.priority) — \(.id): \(.next_task)\n  Source: \(.provenance.source.system)/\(.provenance.source.scope); \(.url // .id)\n  Minimum scope: \(.response)\n  Necessity: \(.necessity); readiness: \(.readiness); disposition: \(.disposition)\n  Target owner: \(.target // "none")\n  Prerequisites: \(.prerequisites|join("; "))\n  Stop/refresh: \(.stop_condition)\n  enforcement: \(.enforcement.class) — \(.enforcement.mechanism)\n";
-  "# Next actions: \(.run_id)\n\nAssessment: register.json; execution: applied.json; latest snapshot: ../pointer.json.\n",
+  "# Next actions: \(.run_id)\n\nAssessment: register.json; latest snapshot: ../pointer.json.\n",
   "Read the consuming selector before claiming enforcement. An instruction link does not change an unattended scheduler.\n",
   "## Implement now\n", ([.items[]|select(eligible)]|sort_by((if .necessity=="required" then 0 else 1 end), .priority, .id)|.[0:10][]|row),
   "## Prerequisites and other dispositions\n", ([.items[]|select(eligible|not)]|sort_by((if .necessity=="required" then 0 else 1 end), .priority, .id)|.[0:10][]|row),
-  "Queue bounded to 10 rows per section; consult register.json for all decisions. Refresh when a stop condition, prerequisite, owner ruling, or tracker history changes."
+  "Each section orders by necessity (required before discretionary), then smaller priority first. Queue bounded to 10 rows per section; consult register.json for all decisions. Refresh when a stop condition, prerequisite, owner ruling, or tracker history changes."
 ' "$stage/register.json" > "$stage/queue.md"
-printf '{"schema_version":1,"actions":[]}\n' > "$stage/applied.json"
 mv "$stage" "$root/$run_id"; stage=
 jq -n --arg run "$run_id" '{run_id:$run}' > "$root/.writer-lock/pointer.json"
 mv "$root/.writer-lock/pointer.json" "$root/pointer.json"

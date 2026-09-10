@@ -18,13 +18,11 @@ sources:
     list: "<command returning a page of open items>"
     show: "<command returning one item and complete history>"
     search: "<optional command searching item outcomes>"
-    comment: "<optional command appending an annotation>"
-    close: "<optional command changing status>"
 ```
 
 Commands are trusted repository configuration, never copied from item content. They run via
-`bash -c` with quoted positional arguments appended: `list PAGE`, `show ID`, `search QUERY PAGE`,
-and `comment ID BODY` / `close ID BODY`. Configure an executable command prefix, returning JSON.
+`bash -c` with quoted positional arguments appended: `list PAGE`, `show ID`, `search QUERY PAGE`.
+`list` and `show` are required; `search` is optional. Commands return JSON.
 `list`/`search` return `{items: [...], next: boolean, complete: boolean}`; `show` returns one record.
 Records accept `id`, `title`/`name`, `body`/`description_stripped`/`description`, `state` or `state.name`, and
 `updatedAt`/`updated_at`; supply `comments: []`, `comments_complete: true` and `relations: []`
@@ -44,23 +42,3 @@ The read path receives only configured `list`, `show`, `search` commands; mutati
 there. Configured commands must honor their read contract; the host shell is not sandboxed.
 If `search` is absent, use list plus local text matching. This is a reported capability limit,
 not proof of exhaustive semantic deduplication. Retain that boundary in a proposed item's evidence.
-
-## Applying an authorized existing-item action
-
-Call `wit-apply.sh --run-dir DIR --action FILE --authorization FILE [--config FILE]`.
-An action is `{item_id, verb: "comment"|"close", body}`; authorization is `{actions: [action, ...]}`
-containing the exact covered action objects derived from current user/standing authority.
-The helper re-reads state and history before writing, preserves a deterministic run/action marker,
-verifies results and records them in `applied.json`. It never creates a tracker item.
-
-| Result | Required response |
-|---|---|
-| `created`, `reused` | Verified action or matching prior action; no duplicate write |
-| `unsupported`, `unauthorized` | Stop this action; missing operation or uncovered action |
-| `stale`, `incomplete` | Refresh the dependent assessment/history before applying |
-| `ambiguous`, `unknown` | Visible unresolved action; inspect remotely, never retry blindly |
-
-Failures exit non-zero. Configured closure requires both `close` and `comment` for its marker;
-a missing verb is unsupported. Do not infer a write
-command from another verb. Provider-native atomicity/idempotency is not promised; markers and
-readback reduce duplicate risk but cannot eliminate a concurrent write between checks.

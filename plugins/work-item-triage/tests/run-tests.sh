@@ -12,9 +12,9 @@ check() {
 truth() { jq -e "$2" "$1" >/dev/null 2>&1; printf '%s' "$?"; }
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-mkdir "$TMP/bin" "$TMP/state"
-export WIT_FIX="$FIX" WIT_LOG="$TMP/calls" WIT_STATE="$TMP/state"
-export WIT_MODE=worked WIT_MUTATION=normal WIT_NOW=2026-09-10T10:00:00Z
+mkdir "$TMP/bin"
+export WIT_FIX="$FIX" WIT_LOG="$TMP/calls"
+export WIT_MODE=worked WIT_NOW=2026-09-10T10:00:00Z
 export PATH="$TMP/bin:$PATH"
 : > "$WIT_LOG"
 cat > "$TMP/bin/gh" <<'STUB'
@@ -26,13 +26,12 @@ if [ "$1" = api ]; then
     if [ "$WIT_MODE" = shared-relations ]; then
       printf '%s\n' '[{"source":{"issue":{"number":12,"html_url":"https://github.com/sample/project/issues/12"}}},{"source":{"issue":{"number":12,"html_url":"https://github.com/other/project/issues/12"}}}]'; exit
     fi
-    if [ -f "$WIT_STATE/comments.json" ]; then jq '[last|{id:77,event:"commented",body:.body,created_at:"2026-09-10T10:00:00Z"}]' "$WIT_STATE/comments.json"; else printf '[]\n'; fi
+    printf '[]\n'
     exit
   fi
   if [[ "$endpoint" == *'/comments?'* ]]; then
     [ "$WIT_MODE" = missing-history ] && exit 1
-    if [ -f "$WIT_STATE/comments.json" ]; then cat "$WIT_STATE/comments.json";
-    elif [ "$WIT_MODE" = worked ]; then
+    if [ "$WIT_MODE" = worked ]; then
       id="${endpoint#*/issues/}"; id="${id%%/*}"
       jq -s --argjson id "$id" '[.[]|select(.number==$id)|.fixture_comments[]?]' "$WIT_FIX"/{shipped-alert,future-database,upload-next-action,invoice-consolidation,conditional-successor,owner-permitted-behavior,rare-high-consequence,unavailable-incident-data,conditional-activation,changed-owner-ruling}.json 2>/dev/null || printf '[]\n'
     else jq '.fixture_comments // []' "$WIT_FIX/github-parity.json"; fi
@@ -40,7 +39,7 @@ if [ "$1" = api ]; then
   fi
   if [[ "$endpoint" == *'/issues?'* ]]; then
     case "$WIT_MODE" in
-      body-reference|missing-relation|shared-relations)
+      body-reference|body-reference-403|body-reference-auth|body-reference-network|missing-relation|shared-relations)
         jq --arg mode "$WIT_MODE" '[. + {body:"Use #336699 for the banner. See also #12",relations:(if $mode=="missing-relation" then [{id:"336699",kind:"related"}] else [] end)}]' "$WIT_FIX/github-parity.json" ;;
       large) jq '[. + {body:("long evidence " * 12000)}]' "$WIT_FIX/github-parity.json" ;;
       worked) jq -s '[.[] | del(.fixture_comments)]' "$WIT_FIX"/{shipped-alert,future-database,upload-next-action,invoice-consolidation,conditional-successor,owner-permitted-behavior,rare-high-consequence,unavailable-incident-data,conditional-activation,changed-owner-ruling}.json ;;
@@ -53,26 +52,20 @@ if [ "$1" = api ]; then
     exit
   fi
   if [[ "$endpoint" == *'/issues/'* ]]; then
-    [[ "$endpoint" != */issues/336699 ]] || exit 1
+    if [[ "$endpoint" == */issues/336699 ]]; then printf 'gh: Not Found (HTTP 404)\n' >&2; exit 1; fi
+    if [[ "$endpoint" == */issues/12 ]]; then
+      case "$WIT_MODE" in
+        body-reference-403) printf 'gh: API rate limit exceeded (HTTP 403)\n' >&2; exit 1 ;;
+        body-reference-auth) printf 'gh: Bad credentials (HTTP 401)\n' >&2; exit 1 ;;
+        body-reference-network) printf 'dial tcp: lookup api.github.com: no such host\n' >&2; exit 1 ;;
+      esac
+    fi
     if [[ "$endpoint" == */issues/12 ]]; then jq -n --arg url "https://github.com/${endpoint#repos/}" '{number:12,title:"Linked item",state:"open",html_url:$url}'; exit; fi
     if [[ "$endpoint" == */issues/302 ]]; then printf '%s\n' '{"number":302,"title":"Existing support policy","state":"open","html_url":"https://tracker.example/items/302"}'; exit; fi
-    if [ "$WIT_MUTATION" = concurrent ]; then jq '.updated_at="2026-09-10T12:00:00Z"' "$WIT_FIX/github-parity.json";
-    elif [ -f "$WIT_STATE/closed" ]; then jq '.state="closed"' "$WIT_FIX/github-parity.json";
-    else cat "$WIT_FIX/github-parity.json"; fi
+    cat "$WIT_FIX/github-parity.json"
     exit
   fi
 fi
-if [ "$1 $2" = 'issue comment' ]; then
-  [ "$WIT_MUTATION" = unknown ] && exit 1
-  body=''
-  while [ "$#" -gt 0 ]; do
-    case "$1" in --body) body="$2"; shift;; --body-file) body="$(cat "$2")"; shift;; esac
-    shift
-  done
-  jq --arg body "$body" '(.fixture_comments // []) + [{id:77,body:$body,created_at:"2026-09-10T10:00:00Z"}]' "$WIT_FIX/github-parity.json" > "$WIT_STATE/comments.json"
-  printf 'https://tracker.example/items/301#comment-77\n'; exit
-fi
-if [ "$1 $2" = 'issue close' ]; then touch "$WIT_STATE/closed"; exit; fi
 printf 'Unexpected gh call: %s\n' "$*" >&2
 exit 2
 STUB
@@ -114,6 +107,7 @@ jq '{items:[.items[0] + {id:"cosmetic-ready",necessity:"discretionary",priority:
 jq --slurpfile d "$TMP/ordering-decisions.json" '.items[0] as $item | .items=[$d[0].items[] | $item + {id:.id}]' "$TMP/worked.json" > "$TMP/ordering-snapshot.json"
 ordering_run="$(write_register "$TMP/ordering-snapshot.json" "$TMP/ordering-decisions.json" ordering)"
 check 'necessity orders both queue sections and summary before priority' 'payment-ready cosmetic-ready payment-blocked cosmetic-blocked |payment-blocked payment-ready cosmetic-blocked cosmetic-ready ' "$(sed -n 's/^- Priority [0-9]* — \([^:]*\):.*/\1/p' "$ordering_run/queue.md" | tr '\n' ' ')|$(sed -n 's/^## \([^:]*\):.*/\1/p' "$ordering_run/summary.md" | tr '\n' ' ')"
+check 'queue explains necessity before priority within each section' 1 "$(grep -c 'Each section orders by necessity (required before discretionary), then smaller priority first' "$ordering_run/queue.md" || true)"
 # The fixture answers are authored examples, compared as field contracts.
 for expected in "$HERE"/expected/*.json; do
   check "scenario $(basename "$expected" .json) preserves obligations" 0 "$(jq -e --slurpfile want "$expected" '.items[]|select(.id==$want[0].id)|. as $row|all($want[0]|del(.code_refs)|keys[]; $row[.] == $want[0][.]) and (.provenance.code_refs|length)==0' "$register" >/dev/null 2>&1; printf '%s' "$?")"
@@ -193,7 +187,12 @@ read_snapshot plane --config "$TMP/plane.json" --search recovery > "$TMP/search.
 check '11 absent optional search reports local-match limit' 0 "$(truth "$TMP/search.json" '.capability_limits|join(" ")|test("search|local";"i")')"
 export WIT_MODE=body-reference
 read_snapshot github > "$TMP/body-reference.json"
-check 'unresolvable body reference is dropped without poisoning completeness' 0 "$(truth "$TMP/body-reference.json" '.completeness=="complete" and .items[0].completeness=="complete" and ([.items[0].relations[].id]==["12"])')"
+check 'confirmed 404 body reference is dropped without poisoning completeness' 0 "$(truth "$TMP/body-reference.json" '.completeness=="complete" and .items[0].completeness=="complete" and ([.items[0].relations[].id]==["12"])')"
+for failure in 403 auth network; do
+  export WIT_MODE="body-reference-$failure"
+  read_snapshot github > "$TMP/body-reference-$failure.json" 2> "$TMP/body-reference-$failure.err"
+  check "body reference $failure failure retains unavailable link and incomplete history" 0 "$(truth "$TMP/body-reference-$failure.json" '.completeness=="incomplete" and .items[0].completeness=="incomplete" and (.items[0].relations|length)==1 and .items[0].relations[0].id=="12" and .items[0].relations[0].resolution=="unavailable"')"
+done
 export WIT_MODE=missing-relation
 read_snapshot github > "$TMP/missing-relation.json"
 check 'unresolved tracker-declared link still marks history incomplete' 0 "$(truth "$TMP/missing-relation.json" '.completeness=="incomplete" and .items[0].completeness=="incomplete" and any(.items[0].relations[]; .id=="336699" and .resolution=="unavailable")')"
@@ -202,8 +201,7 @@ links_before=$(grep -c '^api repos/sample/project/issues/12$' "$WIT_LOG" || true
 read_snapshot github > "$TMP/shared-relations.json"
 check 'body and timeline link dedupe retains distinct repository scopes' 0 "$(truth "$TMP/shared-relations.json" '.completeness=="complete" and (.items[0].relations|length)==2 and ([.items[0].relations[].url]|unique|length)==2 and all(.items[0].relations[]; .id=="12" and .kind=="related" and .resolution=="resolved")')"
 check 'body and timeline duplicate makes one lookup per scope' 1 "$(($(grep -c '^api repos/sample/project/issues/12$' "$WIT_LOG") - links_before))"
-check '8 read source has no mutating verbs' 0 "$(grep -Eic 'issue (close|edit|comment)|pr (merge|close)|(--method[ =]+|-X[ =]*)(POST|PATCH|DELETE|PUT)' "$SCRIPTS/wit-read.sh" || true)"
-check '8 pre-direct-ID analysis call log contains read calls only' 0 "$(awk '!/^api repos\/[^/ ]+\/[^/ ]+\/(issues|pulls)(\/[0-9]+(\/(comments|timeline))?)?(\?[^ ]*)?$/ && !/^api search\/issues\?[^ ]+$/ && !/^plane (list [0-9]+|show [^ ]+)$/ {bad++} END {print bad+0}' "$WIT_LOG")"
+check '8 source has no mutating verbs' 0 "$(grep -Eic 'issue (close|edit|comment)|pr (merge|close)|(--method[ =]+|-X[ =]*)(POST|PATCH|DELETE|PUT)' "$SCRIPTS"/*.sh | awk -F: '{n+=$NF} END {print n+0}')"
 export WIT_MODE=large
 read_snapshot github > "$TMP/large.json"
 check 'large tracker body normalizes without argv overflow' 0 "$?"
@@ -231,80 +229,6 @@ check 'direction 2 file draft warns explicitly no PII review' 1 "$(grep -c 'WARN
 export WIT_MODE=missing-history
 read_snapshot github --id 301 > "$TMP/missing-history.json"
 check '3 unavailable comment history is incomplete' 0 "$(truth "$TMP/missing-history.json" '.completeness=="incomplete" and .items[0].completeness=="incomplete"')"
-export WIT_MODE=parity
-# Authorized mutation surface: a comment is created once, never an issue.
-jq -n '{item_id:"301",verb:"comment",body:"Triage: retain the existing support contact scope."}' > "$TMP/action.json"
-jq '{actions:[.]}' "$TMP/action.json" > "$TMP/auth.json"
-apply() { bash "$SCRIPTS/wit-apply.sh" --run-dir "$1" --action "$TMP/action.json" --authorization "$TMP/auth.json" "${@:2}"; }
-apply "$github_run" > "$TMP/applied-first.json"
-check '9 first authorized comment succeeds' 0 "$?"
-apply "$github_run" > "$TMP/applied-second.json"
-check '9 identical authorized action succeeds again' 0 "$?"
-check '9 rerun reports reused' 1 "$(grep -c reused "$TMP/applied-second.json" || true)"
-cross_run="$(write_register "$TMP/github.json" "$TMP/parity-decisions.json" same-action-new-run)"
-apply "$cross_run" > "$TMP/cross-run.json"
-check '9 new snapshot reuses same authorized action' 0 "$(truth "$TMP/cross-run.json" '.status=="reused"')"
-check '9 exactly one comment creation' 1 "$(grep -c '^issue comment ' "$WIT_LOG" || true)"
-check 'direction 2 never creates tracker issues' 0 "$(grep -c '^issue create ' "$WIT_LOG" || true)"
-jq '. + [last]' "$WIT_STATE/comments.json" > "$TMP/double-marker.json"
-cp "$TMP/double-marker.json" "$WIT_STATE/comments.json"
-apply "$github_run" > "$TMP/ambiguous.json" 2>/dev/null
-check 'duplicate action markers return nonzero' 1 "$([ "$?" -ne 0 ] && echo 1 || echo 0)"
-check 'ambiguous markers remain visibly unresolved' 0 "$(truth "$TMP/ambiguous.json" '.status=="ambiguous"')"
-incomplete_run="$(write_register "$TMP/missing-history.json" "$TMP/parity-decisions.json" missing-history)"
-apply "$incomplete_run" > "$TMP/incomplete-apply.json" 2>/dev/null
-check 'incomplete original history prevents mutation' 0 "$(truth "$TMP/incomplete-apply.json" '.status=="incomplete"')"
-# Fresh runs isolate conflict and unknown-write checks from idempotency markers.
-rm -f "$WIT_STATE/comments.json"
-jq '.body="Concurrent-state assessment comment."' "$TMP/action.json" > "$TMP/new-action.json"
-mv "$TMP/new-action.json" "$TMP/action.json"
-jq '{actions:[.]}' "$TMP/action.json" > "$TMP/auth.json"
-concurrent_run="$(write_register "$TMP/github.json" "$TMP/parity-decisions.json" concurrent)"
-export WIT_MUTATION=concurrent
-apply "$concurrent_run" > "$TMP/concurrent.json" 2>/dev/null
-check 'concurrent tracker update stops dependent write' 1 "$([ "$?" -ne 0 ] && echo 1 || echo 0)"
-check 'concurrent update has visible unresolved result' 0 "$(truth "$TMP/concurrent.json" '.status=="stale"')"
-export WIT_MUTATION=unknown
-jq '.body="Uncertain-write assessment comment."' "$TMP/action.json" > "$TMP/new-action.json"
-mv "$TMP/new-action.json" "$TMP/action.json"
-jq '{actions:[.]}' "$TMP/action.json" > "$TMP/auth.json"
-unknown_run="$(write_register "$TMP/github.json" "$TMP/parity-decisions.json" unknown)"
-apply "$unknown_run" > "$TMP/unknown-first.json" 2>/dev/null
-check 'unknown write returns nonzero' 1 "$([ "$?" -ne 0 ] && echo 1 || echo 0)"
-apply "$unknown_run" > "$TMP/unknown-second.json" 2>/dev/null
-check 'unknown write is not retried blindly' 2 "$(grep -c '^issue comment ' "$WIT_LOG" || true)"
-check 'unknown write remains visible' 0 "$(truth "$TMP/unknown-second.json" '.status=="unknown"')"
-unknown_next_run="$(write_register "$TMP/github.json" "$TMP/parity-decisions.json" unknown-next-run)"
-apply "$unknown_next_run" > "$TMP/unknown-next.json" 2>/dev/null
-check 'unknown prior write remains unresolved across snapshots' 0 "$(truth "$TMP/unknown-next.json" '.status=="unknown"')"
-check 'new snapshot never blindly retries unknown write' 2 "$(grep -c '^issue comment ' "$WIT_LOG" || true)"
-export WIT_MUTATION=normal
-jq -n '{item_id:"301",verb:"close",body:"Close verified tracking."}' > "$TMP/action.json"
-jq '{actions:[.]}' "$TMP/action.json" > "$TMP/auth.json"
-apply "$plane_run" --config "$TMP/plane.json" > "$TMP/unsupported.json" 2>/dev/null
-check '11 missing close capability returns nonzero' 1 "$([ "$?" -ne 0 ] && echo 1 || echo 0)"
-check '11 missing close reports unsupported' 1 "$(grep -c unsupported "$TMP/unsupported.json" || true)"
-# Repeated closure, real comment timeline events, and exact authorization.
-rm -f "$WIT_STATE/comments.json"
-close_run="$(write_register "$TMP/github.json" "$TMP/parity-decisions.json" close)"
-apply "$close_run" > "$TMP/close-first.json"
-check '9 first authorized closure succeeds with comment timeline' 0 "$?"
-apply "$close_run" > "$TMP/close-second.json"
-check '9 repeated closure is verified reused' 0 "$(truth "$TMP/close-second.json" '.status=="reused"')"
-check '9 exactly one status change' 1 "$(grep -c '^issue close ' "$WIT_LOG" || true)"
-rm -f "$WIT_STATE/comments.json" "$WIT_STATE/closed"
-jq -n '{actions:[]}' > "$TMP/auth.json"
-unauthorized_run="$(write_register "$TMP/github.json" "$TMP/parity-decisions.json" unauthorized)"
-mutations_before="$(grep -c '^issue ' "$WIT_LOG" || true)"
-apply "$unauthorized_run" > "$TMP/unauthorized.json" 2>/dev/null
-check 'unauthorized action visibly refused' 0 "$(truth "$TMP/unauthorized.json" '.status=="unauthorized"')"
-check 'unauthorized action performs no mutation' "$mutations_before" "$(grep -c '^issue ' "$WIT_LOG" || true)"
-jq '{actions:[.]}' "$TMP/action.json" > "$TMP/auth.json"
-# Equal timestamps and counts cannot hide edited decision history.
-jq '.fixture_comments|.[0].body="Edited owner ruling"' "$FIX/github-parity.json" > "$WIT_STATE/comments.json"
-edited_run="$(write_register "$TMP/github.json" "$TMP/parity-decisions.json" edited-history)"
-apply "$edited_run" > "$TMP/edited.json" 2>/dev/null
-check 'same-count edited history invalidates assessment' 0 "$(truth "$TMP/edited.json" '.status=="stale"')"
-check 'changed history causes no mutation' "$mutations_before" "$(grep -c '^issue ' "$WIT_LOG" || true)"
+check '8 every analysis call is a read call' 0 "$(awk '!/^api repos\/[^/ ]+\/[^/ ]+\/(issues|pulls)(\/[0-9]+(\/(comments|timeline))?)?(\?[^ ]*)?$/ && !/^api search\/issues\?[^ ]+$/ && !/^plane (list [0-9]+|show [^ ]+)$/ {bad++} END {print bad+0}' "$WIT_LOG")"
 printf '\n%d passed, %d failed\n'  "$pass" "$fail"
 if [ "$fail" -eq 0 ]; then printf 'ALL GREEN\n'; else exit 1; fi

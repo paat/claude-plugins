@@ -127,8 +127,11 @@ wit_read_main() {
       : > "$tmp/relations"
       while IFS= read -r relation; do
         linked_scope=$(jq -r "._scope" <<< "$relation"); linked_id=$(jq -r '.id' <<< "$relation")
-        if [[ ! $linked_id =~ ^[0-9]+$ ]] || ! details=$(gh api "repos/$linked_scope/issues/$linked_id"); then
-          [[ $(jq -r "._body_candidate" <<< "$relation") == false ]] || continue
+        if [[ ! $linked_id =~ ^[0-9]+$ ]] || ! details=$(gh api "repos/$linked_scope/issues/$linked_id" 2> "$tmp/relation-error"); then
+          if [[ $linked_id =~ ^[0-9]+$ ]]; then
+            if [[ $(jq -r "._body_candidate" <<< "$relation") == true ]] && grep -Eq '^gh: .*\(HTTP 404\)$' "$tmp/relation-error"; then continue; fi
+            cat "$tmp/relation-error" >&2
+          fi
           item_complete=false; relation=$(jq '. + {resolution:"unavailable"}' <<< "$relation")
         else
           relation=$(wit_json '.[0] as $r | .[1] as $d | $r + {title:($d.title // ""),state:($d.state // "unknown"),url:($d.html_url // $r.url // ""),resolution:"resolved"}' "$relation" "$details")

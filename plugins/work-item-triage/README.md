@@ -17,16 +17,15 @@ consolidation, verification, concrete deferral or closure. `proposed` checks whe
 a durable issue, including no filing, appending to an owner, immediate bounded work or a limitation.
 Both use the same card and evidence rules, with separate necessity and readiness fields.
 
-The plugin never files issues itself. For an accepted draft, it delegates by instruction to the
-installed `saas-startup-team:issue-file` skill, whose filing flow runs its PII gate. Without that
-skill, it returns the draft and stops with an explicit warning that it has had no PII review.
+The plugin only assesses and drafts; it never executes or delegates tracker changes or implementation.
+Accepted filing drafts include an explicit warning that they have had no PII review.
 No other plugin is a runtime dependency and no external plugin scripts are sourced.
 
 ## Dependencies
 
 - Bash 4+, standard POSIX utilities and `mktemp` for temporary files/directories.
 - `jq` for normalized JSON and register validation/rendering.
-- `python3` (standard library only) for configured-source parsing and action hashes.
+- `python3` (standard library only) for configured-source parsing and history digests.
 - `git` when pinning inspected code to its commit.
 - Authenticated `gh` for GitHub sources. Plane sources use caller-configured commands;
   install/document any dependencies required by those commands in the target repository.
@@ -34,7 +33,7 @@ No other plugin is a runtime dependency and no external plugin scripts are sourc
 ## Use
 
 Ask the `work-item-triage` skill to assess a tracker scope or a proposed issue, with an output
-directory and optional code checkout. Analysis is the default; use apply only for covered actions.
+directory and optional code checkout. Analysis is the only mode.
 The skill is identical on Claude Code and Codex; no command wrappers or host-specific workflow
 copies are maintained. Resolve `WIT_ROOT` to the installed plugin root before direct script use.
 
@@ -54,22 +53,19 @@ Without search, duplicate lookup falls back to listing and local matching and re
 ## Durable results and handoff
 
 Each run appends `OUTPUT_DIR/work-item-triage/RUN_ID/` containing `register.json`, `summary.md`,
-`queue.md` and `applied.json`; `pointer.json` names the newest run. Previous assessments remain
+and `queue.md`; `pointer.json` names the newest run. Previous assessments remain
 unchanged, with per-item source/fetch/history/code provenance and links to superseded decisions.
 Use a caller-selected output location appropriate for its evidence; artifacts are not PII-reviewed
 by this plugin. Public summaries must retain useful links without copying private source material.
 
 The queue separates priority from eligibility, preserving dependencies, minimum scope, next task
-and stop/refresh conditions. Link it from normal repository/tracker entry points so a fresh session
+and stop/refresh conditions. Prepare a link for normal repository/tracker entry points so a fresh session
 can identify eligible work without repeating the census. The consumer must actually enforce any
 claimed exclusion; see [handoff.md](skills/work-item-triage/references/handoff.md).
 
 ## Mutation and enforcement boundaries
 
 `wit-read.sh` has no tracker mutation operation and receives only read verbs from configured sources.
-`wit-apply.sh` is the sole tracker-writing helper: authorized comments/closures, re-read before write,
-deterministic action markers, readback and separate execution results. Unknown/ambiguous writes
-stay unresolved. Providers need not offer atomic writes or native idempotency.
 Configured commands are trusted code and must honor their read contract. The host agent still has
 a general shell; these plugin boundaries do not sandbox the entire session.
 
@@ -82,7 +78,7 @@ The plugin introduces no label taxonomy, scheduler or automatic implementation.
 
 Run `bash plugins/work-item-triage/tests/run-tests.sh` from the repository root. Stubbed tracker tests
 cover schemas, page/history completeness, evidence limits, immutable provenance, read-only analysis,
-repeat-safe application and GitHub/Plane parity. Fixtures cover ten required scenarios and non-code
+and GitHub/Plane parity. Fixtures cover ten required scenarios and non-code
 work. A live two-repository pilot remains separate operational validation, not a code-test claim.
 
 ## Installation
