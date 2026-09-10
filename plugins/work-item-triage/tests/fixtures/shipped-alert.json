@@ -1,0 +1,17 @@
+{
+  "number": 1,
+  "title": "Alert repair shipped",
+  "body": "The default-branch correction is merged. Production recovery must still be verified under #91.",
+  "html_url": "https://tracker.example/items/1",
+  "state": "open",
+  "updated_at": "2026-09-09T00:00:00Z",
+  "comments": 1,
+  "labels": [],
+  "fixture_comments": [
+    {
+      "id": 1,
+      "body": "The default-branch correction is merged. Production recovery must still be verified under #91.",
+      "created_at": "2026-09-09T00:00:00Z"
+    }
+  ]
+}

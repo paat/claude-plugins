@@ -1,0 +1,18 @@
+{
+  "id": "4",
+  "direction": "existing",
+  "outcome": {"who": "Affected users", "trigger": "Invoice authority and preview disagree", "consequence": "Authority, matching and preview overlap, but accepted money invariants and legitimate corrections differ. Successor #94 owns each acceptance and is review-blocked.", "current_coping": "Use current supported recovery where available"},
+  "evidence": {"class": "reproduced", "missing": "Production or incidence evidence remains separate from code evidence", "counter_evidence": "Record current owner rulings and activation boundaries"},
+  "necessity": "required",
+  "readiness": "blocked",
+  "response": "Retain authority, matching, preview and legitimate correction acceptance under #94; respect its review ceiling.",
+  "cost": {"estimate": "qualitative", "common_path": "Reuse existing interaction", "ownership": "Keep existing state owner", "obligations": "Relevant tests and documentation", "review_operations": "Bounded review; measured token cost unavailable"},
+  "disposition": "consolidate-into",
+  "priority": 4,
+  "prerequisites": ["Owner, review or activation evidence"],
+  "next_task": "Retain authority, matching, preview and legitimate correction acceptance under #94; respect its review ceiling.",
+  "stop_condition": "Refresh if code, activation evidence or owner ruling changes",
+  "enforcement": {"class": "instruction-only", "mechanism": "Fresh session reads queue before selecting work"},
+  "code_refs": [],
+  "target": "94"
+}

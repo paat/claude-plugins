@@ -1,0 +1,23 @@
+{
+  "number": 301,
+  "title": "Document the supported recovery contact",
+  "body": "A non-code support handoff needs its existing contact clarified.",
+  "html_url": "https://tracker.example/items/301",
+  "state": "open",
+  "updated_at": "2026-09-09T00:00:00Z",
+  "comments": 1,
+  "labels": [],
+  "fixture_comments": [
+    {
+      "id": 12,
+      "body": "The support lead confirms the existing contact remains authoritative.",
+      "updated_at": "2026-09-09T00:00:00Z"
+    }
+  ],
+  "relations": [
+    {
+      "id": "302",
+      "kind": "related"
+    }
+  ]
+}

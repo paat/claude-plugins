@@ -1,0 +1,17 @@
+{
+  "number": 3,
+  "title": "Rejected upload gives no next action",
+  "body": "A reproduced rejected upload leaves users unable to find correction. Existing inline feedback and navigation can serve recovery.",
+  "html_url": "https://tracker.example/items/3",
+  "state": "open",
+  "updated_at": "2026-09-09T00:00:00Z",
+  "comments": 1,
+  "labels": [],
+  "fixture_comments": [
+    {
+      "id": 3,
+      "body": "A reproduced rejected upload leaves users unable to find correction. Existing inline feedback and navigation can serve recovery.",
+      "created_at": "2026-09-09T00:00:00Z"
+    }
+  ]
+}

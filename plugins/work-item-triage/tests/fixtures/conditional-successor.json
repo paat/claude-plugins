@@ -1,0 +1,21 @@
+{
+  "number": 5,
+  "title": "Close duplicate after successor ships",
+  "body": "Explicit owner condition: close only after #95 ships. Its PR is still unmerged; a duplicate label cannot discharge this condition.",
+  "html_url": "https://tracker.example/items/5",
+  "state": "open",
+  "updated_at": "2026-09-09T00:00:00Z",
+  "comments": 1,
+  "labels": [
+    {
+      "name": "high"
+    }
+  ],
+  "fixture_comments": [
+    {
+      "id": 5,
+      "body": "Explicit owner condition: close only after #95 ships. Its PR is still unmerged; a duplicate label cannot discharge this condition.",
+      "created_at": "2026-09-09T00:00:00Z"
+    }
+  ]
+}

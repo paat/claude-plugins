@@ -1,0 +1,17 @@
+{
+  "name": "work-item-triage",
+  "version": "0.1.0",
+  "description": "Evidence-based work-item decisions: decide what deserves implementation or filing, preserve provenance, and hand off a bounded next-action queue.",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "license": "MIT",
+  "keywords": [
+    "triage",
+    "work-items",
+    "github",
+    "plane",
+    "evidence",
+    "scope"
+  ]
+}
