@@ -98,7 +98,7 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
     providers = ('codex', 'gemini', 'glm', 'deepseek', 'qwen', 'grok', 'claude')
     (work / 'providers').mkdir()
 
-    def verdict_case(statuses, decision, confidence, accepts=True):
+    def verdict_case(statuses, decision, confidence, accepts=True, findings=[]):
         manifest = {'repository': {'root': str(repo)}, 'providers': [
             {'provider': name, 'status': statuses.get(name, 'disabled')} for name in providers]}
         (work / 'manifest.json').write_text(json.dumps(manifest))
@@ -109,7 +109,7 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
             elif row['status'] == 'disabled':
                 artifact['status'] = 'disabled'
             else:
-                artifact['findings'] = []
+                artifact['findings'] = findings if row['provider'] == 'codex' else []
             (work / 'providers' / (row['provider'] + '.json')).write_text(json.dumps(artifact))
         arbitration = {'tribunal_verdict': {'decision': decision, 'confidence': confidence,
                         'rationale': 'GLM failed to produce a review; remaining evidence assessed.'},
@@ -138,6 +138,9 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
           lambda: verdict_case({'codex': 'ok', 'glm': 'failed'}, 'APPROVE', 0.90))
     check('full healthy empty panel rejects APPROVE confidence 0.90',
           lambda: verdict_case(dict.fromkeys(providers, 'ok'), 'APPROVE', 0.90, accepts=False))
+    check('healthy panel with findings rejects APPROVE confidence 0.90',
+          lambda: verdict_case({'codex': 'ok'}, 'APPROVE', 0.90, accepts=False,
+                               findings=[{'file': 'f.txt'}]))
 
 print(f'{passed} PASS / {failed} FAIL')
 sys.exit(bool(failed))

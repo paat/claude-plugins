@@ -634,7 +634,8 @@ tribunal_line_check() {
   printf '%s' "$json" | jq -c --slurpfile aux "$aux" '
     $aux[0].changed as $changed | $aux[0].counts as $counts |
     .findings = [ .findings[] | . as $f |
-      if (($f.file? | type) != "string") then
+      if (type != "object") then .
+      elif (($f.file? | type) != "string") then
         .line_check = "malformed finding coordinates"
       elif (($changed | length) > 0) and (($changed | index($f.file)) == null) then
         .line_check = "file not in reviewed diff"

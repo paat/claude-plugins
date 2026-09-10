@@ -71,3 +71,11 @@ if [ "$scenario" = pruned ]; then
   printf 'PASS pruned line check: stray scalar survives: '
   cat "$work/scalar.json"
 fi
+if [ "$scenario" = healthy ]; then
+  printf '%s\n' '{"provider":"x","findings":[{"file":"file.txt","line":3},"stray note"],"summary":{}}' \
+    | tribunal_line_check "$work" "$stat" > "$work/scalar.json"
+  jq -e '. == {"provider":"x","findings":[{"file":"file.txt","line":3},"stray note"],"summary":{}}' \
+    "$work/scalar.json" >/dev/null
+  printf 'PASS healthy line check: stray scalar survives: '
+  cat "$work/scalar.json"
+fi
