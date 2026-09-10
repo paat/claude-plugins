@@ -512,6 +512,37 @@ tribunal_emit_review() {
   printf '%s\n' "$json" | jq -c --arg provider "$provider" '.provider = $provider | del(.status, .error, .diff_stat)'
 }
 
+# Stamp a wrapper-resolved model only when it belongs to the requested provider
+# family. A missing resolved model is not evidence of substitution, but the
+# model-authored value remains untrusted.
+# $1 provider  $2 resolved model (empty when unavailable)  $3/$4 captured
+# stdout/stderr paths  $5 wrapper exit code. stdin: emitted review JSON.
+tribunal_stamp_executed_model() {
+  local provider="$1" model="$2" stdout_file="${3:-}" stderr_file="${4:-}"
+  local exit_code="${5:-0}" json family
+  json="$(cat)"
+  if printf '%s' "$json" | jq -e 'has("error") or (.status? == "disabled")' >/dev/null 2>&1; then
+    printf '%s\n' "$json"
+    return
+  fi
+  if [ -z "$model" ]; then
+    printf '%s' "$json" | jq -c '.model = "unverified"'
+    return
+  fi
+  case "$provider" in
+    grok) family='^grok([[:digit:]._-]|$)' ;;
+    qwen) family='^([[:alnum:]_.-]+/)?qwen([[:digit:]._-]|$)' ;;
+    *) family='' ;;
+  esac
+  if [ -n "$family" ] && ! [[ "${model,,}" =~ $family ]]; then
+    tribunal_review_error "$provider" \
+      "executed model family mismatch: requested provider $provider, but executed model $model" \
+      model_family "$stdout_file" "$stderr_file" "$exit_code"
+    return
+  fi
+  printf '%s' "$json" | jq -c --arg model "$model" '.model = $model'
+}
+
 # Read the pinned range out of the capture file and delete it. Runners call this
 # before invoking the provider: reviewers run unsandboxed inside the container
 # boundary, so a file left on disk during the run is provider-writable, and
