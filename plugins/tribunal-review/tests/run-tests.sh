@@ -1764,14 +1764,16 @@ test_line_check_pinned_range() {
     git config user.name "Test User"
     printf 'base\n' > file.txt
     printf 'gone\n' > gone.txt
-    git add file.txt gone.txt
+    printf 'kept\n' > removed-later.txt
+    git add file.txt gone.txt removed-later.txt
     git commit -q -m base
     git branch reviewed-base
     unusual=$'quoted"\\\t\n.txt'
     printf 'one\ntwo\nthree\n' > file.txt
     printf 'one\ntwo\n' > "$unusual"
+    printf 'kept\nchanged\n' > removed-later.txt
     git rm -q gone.txt
-    git add file.txt "$unusual"
+    git add file.txt "$unusual" removed-later.txt
     git commit -q -m captured
     . "$PLUGIN_ROOT/scripts/lib.sh"
     TRIBUNAL_BASE_REF=reviewed-base tribunal_prepare_diff "$work/d.diff"
@@ -1782,6 +1784,7 @@ test_line_check_pinned_range() {
       printf 'short\n' > "$unusual"
       printf 'added later\n' > later.txt
       printf 'restored later\n' > gone.txt
+      git rm -q removed-later.txt
       git add file.txt "$unusual" later.txt gone.txt
       git commit -q -m later
       git branch -f reviewed-base HEAD
@@ -1790,7 +1793,7 @@ test_line_check_pinned_range() {
     jq -n --arg unusual "$unusual" '{findings:[
       {file:"file.txt",line:3}, {file:"file.txt",line:4},
       {file:"later.txt",line:0}, {file:$unusual,line:2},
-      {file:"gone.txt",line:1}
+      {file:"gone.txt",line:1}, {file:"removed-later.txt",line:2}
     ]}' | tribunal_line_check "$work" "$stat" > "$work/out.json"
     if [ "$scenario" = sibling ]; then
       test "$paths_absent" = true || exit 1
@@ -1801,6 +1804,7 @@ test_line_check_pinned_range() {
       and .findings[2].line_check == "file not in reviewed diff"
       and (.findings[3] | has("line_check") | not)
       and .findings[4].line_check == "file missing at HEAD"
+      and (.findings[5] | has("line_check") | not)
     ' "$work/out.json" >/dev/null
   ); then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
