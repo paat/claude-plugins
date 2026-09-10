@@ -107,7 +107,7 @@ run_oc_leg() {
     rm -f "$diff_attach"
     tribunal_extract_json_object < "$out" \
       | tribunal_emit_review "$provider" "" "$out" "$err" "$rc" \
-      | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
+      | tribunal_line_check "$REPO_ROOT" "$DIFF_STAT" \
       | tribunal_stamp_diff_stat "$DIFF_STAT"
   else
     rm -f "$diff_attach"

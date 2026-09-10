@@ -219,7 +219,7 @@ emit_from_envelope() {
   printf '%s' "$json" \
     | tribunal_emit_review grok "" "$out" "$err" "$rc" \
     | tribunal_stamp_executed_model grok "$actual_model" "$out" "$err" "$rc" \
-    | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
+    | tribunal_line_check "$REPO_ROOT" "$DIFF_STAT" \
     | tribunal_stamp_diff_stat "$DIFF_STAT"
   return 0
 }

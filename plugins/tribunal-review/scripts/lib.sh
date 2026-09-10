@@ -370,7 +370,6 @@ tribunal_prepare_diff() {
   full="$out.full"
   max="${TRIBUNAL_DIFF_LIMIT_BYTES:-524288}"
   git diff "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$full" || return 1
-  git diff --name-only -z "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$out.paths" || return 1
   size="$(wc -c < "$full" | tr -d ' ')"
   if [ -n "$size" ] && [ "$size" -gt "$max" ]; then
     head -c "$max" "$full" > "$out"
@@ -581,35 +580,47 @@ tribunal_stamp_diff_stat() {
 
 # Mark findings whose position cannot exist: a missing/mistyped file field, a
 # file outside the reviewed change set, a non-positive/non-integer line, a
-# line beyond the target file's length at HEAD, or a positioned finding in a
-# file that no longer exists at HEAD. Providers sometimes emit
+# line beyond the target file's length at the pinned head, or a positioned finding
+# in a file missing at that head. Providers sometimes emit
 # unified-diff/prompt-global positions instead of target-file line numbers
 # (issue #259); marked findings still flow to the arbiter, but the evidence
 # defect is explicit instead of silent. Paths travel NUL-delimited and the
 # lookup tables travel via a temp file, so C-quoted/unusual filenames and
 # argv size limits cannot corrupt or abort the check.
-# $1 repo root  $2 diff file ("$2.paths" holds the NUL-delimited changed list)
+# $1 repo root  $2 pinned range from `tribunal_take_diff_stat`
 # stdin: one leg JSON object  stdout: same object with line_check marks
 tribunal_line_check() {
-  local root="$1" diff_file="$2" json aux f n
+  local root="$1" stat="$2" json range base_oid head_oid aux f n
   json="$(cat)"
   if ! printf '%s' "$json" | jq -e '(.findings? | type) == "array"' >/dev/null 2>&1; then
     printf '%s\n' "$json"
     return
   fi
+  # Missing provenance is handled by tribunal_stamp_diff_stat later in the pipe.
+  if ! range="$(printf '%s' "$stat" | jq -er '
+    [.base_oid, .head_oid] |
+    select(all(.[]; type == "string" and test("^([0-9a-f]{40}|[0-9a-f]{64})$"))) |
+    join(" ")' 2>/dev/null)"; then
+    printf '%s\n' "$json"
+    return
+  fi
+  read -r base_oid head_oid <<< "$range"
   aux="$(mktemp)"
+  # Rebuild after the provider returns; no writable capture-time path list survives.
+  if ! git -C "$root" diff --name-only -z "$base_oid...$head_oid" --no-ext-diff --no-textconv \
+    > "$aux.changed" 2>/dev/null; then
+    rm -f "$aux" "$aux.changed"
+    printf '%s\n' "$json"
+    return
+  fi
   {
-    if [ -s "$diff_file.paths" ]; then
-      jq -Rs 'split("\u0000") | map(select(length > 0))' < "$diff_file.paths"
-    else
-      printf '[]\n'
-    fi
+    jq -Rs 'split("\u0000") | map(select(length > 0))' < "$aux.changed"
     printf '%s' "$json" | jq -j '[.findings[]?.file? | strings] | unique | map(. + "\u0000") | join("")' \
       | while IFS= read -r -d '' f; do
           case "$f" in /*) continue ;; esac
           case "/$f/" in */../*) continue ;; esac
-          if git -C "$root" cat-file -e "HEAD:$f" 2>/dev/null; then
-            n="$(git -C "$root" cat-file -p "HEAD:$f" 2>/dev/null | grep -c '')" || n=0
+          if git -C "$root" cat-file -e "$head_oid:$f" 2>/dev/null; then
+            n="$(git -C "$root" cat-file -p "$head_oid:$f" 2>/dev/null | grep -c '')" || n=0
           else
             n=-1
           fi
@@ -631,7 +642,7 @@ tribunal_line_check() {
       elif ($counts[$f.file] != null) and ($f.line > $counts[$f.file]) then
         .line_check = ("line out of bounds: file has " + ($counts[$f.file] | tostring) + " lines")
       else . end ]'
-  rm -f "$aux"
+  rm -f "$aux" "$aux.changed"
 }
 
 tribunal_extract_json_object() {

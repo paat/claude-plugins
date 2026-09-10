@@ -72,7 +72,7 @@ if [ "$rc" -eq 0 ]; then
       | tribunal_emit_review codex \
         "Codex returned an unusable repository review" \
         "$RESPONSE_FILE" "$TMPDIR/err.txt" "$rc" \
-      | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
+      | tribunal_line_check "$REPO_ROOT" "$DIFF_STAT" \
       | tribunal_stamp_diff_stat "$DIFF_STAT"
   fi
 else
