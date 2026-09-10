@@ -202,8 +202,8 @@ links_before=$(grep -c '^api repos/sample/project/issues/12$' "$WIT_LOG" || true
 read_snapshot github > "$TMP/shared-relations.json"
 check 'body and timeline link dedupe retains distinct repository scopes' 0 "$(truth "$TMP/shared-relations.json" '.completeness=="complete" and (.items[0].relations|length)==2 and ([.items[0].relations[].url]|unique|length)==2 and all(.items[0].relations[]; .id=="12" and .kind=="related" and .resolution=="resolved")')"
 check 'body and timeline duplicate makes one lookup per scope' 1 "$(($(grep -c '^api repos/sample/project/issues/12$' "$WIT_LOG") - links_before))"
-check '8 read source has no mutating verbs' 0 "$(grep -Ec 'issue (close|edit|comment)|pr (merge|close)|(--method[ =]+|-X[ =]*)(POST|PATCH|DELETE|PUT)' "$SCRIPTS/wit-read.sh" || true)"
-check '8 complete analysis call log contains read verbs only' 0 "$(awk '!/^api repos\/[^/ ]+\/[^/ ]+\/(issues|pulls)(\/[0-9]+(\/(comments|timeline))?)?(\?[^ ]*)?$/ && !/^api search\/issues\?[^ ]+$/ && !/^plane (list [0-9]+|show [^ ]+)$/ {bad++} END {print bad+0}' "$WIT_LOG")"
+check '8 read source has no mutating verbs' 0 "$(grep -Eic 'issue (close|edit|comment)|pr (merge|close)|(--method[ =]+|-X[ =]*)(POST|PATCH|DELETE|PUT)' "$SCRIPTS/wit-read.sh" || true)"
+check '8 pre-direct-ID analysis call log contains read calls only' 0 "$(awk '!/^api repos\/[^/ ]+\/[^/ ]+\/(issues|pulls)(\/[0-9]+(\/(comments|timeline))?)?(\?[^ ]*)?$/ && !/^api search\/issues\?[^ ]+$/ && !/^plane (list [0-9]+|show [^ ]+)$/ {bad++} END {print bad+0}' "$WIT_LOG")"
 export WIT_MODE=large
 read_snapshot github > "$TMP/large.json"
 check 'large tracker body normalizes without argv overflow' 0 "$?"
