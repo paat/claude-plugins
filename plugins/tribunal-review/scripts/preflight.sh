@@ -105,7 +105,7 @@ if [ "${TRIBUNAL_GLM:-off}" = "on" ] || [ "${TRIBUNAL_DEEPSEEK:-off}" = "on" ]; 
       add_provider glm disabled "default off"
     fi
     if [ "${TRIBUNAL_DEEPSEEK:-off}" = "on" ]; then
-      printf '%s\n' "$models" | grep -qxF "${TRIBUNAL_DEEPSEEK_MODEL:-opencode-go/deepseek-v4-pro}" && add_provider deepseek usable "model registered; non-interactive invocation not probed" || add_provider deepseek skipped "OpenCode model not in registry"
+      printf '%s\n' "$models" | grep -qxF "$(tribunal_deepseek_model)" && add_provider deepseek usable "model registered; non-interactive invocation not probed" || add_provider deepseek skipped "OpenCode model not in registry"
     else
       add_provider deepseek disabled "default off; issue #461; set TRIBUNAL_DEEPSEEK=on to enable"
     fi

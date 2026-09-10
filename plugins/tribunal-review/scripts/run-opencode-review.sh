@@ -82,8 +82,7 @@ run_oc_leg() {
       --dangerously-skip-permissions --agent plan -m "$model" --variant high \
       --format default "$(cat "$prompt")" > "$out" 2> "$err") || rc=$?
     if [ "$rc" -eq 0 ]; then
-      tribunal_extract_json_object < "$out" \
-        | tribunal_emit_review "$provider" "" "$out" "$err" "$rc"
+      opencode_emit_review "$provider" "$rc" "$out" "$err" "$model" "$run_timeout"
     else
       tribunal_error_with_diagnostics "$provider" \
         "$(opencode_failure_message "$provider" "$model" "$rc" "$run_timeout" "$err")" \
@@ -105,8 +104,7 @@ run_oc_leg() {
     --format default "$(cat "$prompt")" -f "$diff_attach" > "$out" 2> "$err") || rc=$?
   if [ "$rc" -eq 0 ]; then
     rm -f "$diff_attach"
-    tribunal_extract_json_object < "$out" \
-      | tribunal_emit_review "$provider" "" "$out" "$err" "$rc" \
+    opencode_emit_review "$provider" "$rc" "$out" "$err" "$model" "$run_timeout" \
       | tribunal_line_check "$REPO_ROOT" "$DIFF_STAT" \
       | tribunal_stamp_diff_stat "$DIFF_STAT"
   else
@@ -117,6 +115,22 @@ run_oc_leg() {
   fi
 }
 
+opencode_emit_review() {
+  local provider="$1" rc="$2" out="$3" err="$4" model="$5" run_timeout="$6" json message
+  json="$(tribunal_extract_json_object < "$out")"
+  # Exit 0 alone is not success: OpenCode can reject execution on stderr (#492).
+  if [ "$rc" -eq 0 ] && [ -n "$(tr -d '[:space:]' < "$err")" ] \
+    && ! printf '%s' "$json" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    if ! message="$(opencode_failure_message "$provider" "$model" "$rc" "$run_timeout" "$err")"; then
+      message="$provider leg unavailable: OpenCode returned no JSON object and reported stderr; set TRIBUNAL_DIAGNOSTIC_TAILS=on to see it"
+    fi
+    tribunal_error_with_diagnostics "$provider" "$message" \
+      execution "$rc" "$out" "$err"
+    return
+  fi
+  printf '%s' "$json" | tribunal_emit_review "$provider" "" "$out" "$err" "$rc"
+}
+
 opencode_failure_message() {
   local provider="$1" model="$2" rc="$3" run_timeout="$4" stderr_file="$5"
   if [ "$rc" -eq 124 ]; then
@@ -125,6 +139,8 @@ opencode_failure_message() {
     printf 'OpenCode execution timed out or was killed after %ss' "$run_timeout"
   elif grep -Eqi -- '^[[:space:]]*[Ee]rror:.*(requires[[:space:]]+explicit[[:space:]]+opt[ -]?in|only[[:space:]]+available[[:space:]]+hosted[[:space:]]+in[[:space:]]+china)' "$stderr_file"; then
     printf "%s leg unavailable: provider rejected model '%s' (requires explicit opt-in)" "$provider" "$model"
+  elif [ "$rc" -eq 0 ]; then
+    return 1
   else
     printf 'OpenCode execution failed (exit=%s)' "$rc"
   fi
@@ -140,5 +156,5 @@ fi
 if [ "$deepseek_on" -eq 0 ]; then
   tribunal_disabled deepseek "DeepSeek leg disabled (default off; issue #461); set TRIBUNAL_DEEPSEEK=on to enable"
 else
-  run_oc_leg deepseek "${TRIBUNAL_DEEPSEEK_MODEL:-opencode-go/deepseek-v4-pro}" "repo-walking" "$REPO_ROOT"
+  run_oc_leg deepseek "$(tribunal_deepseek_model)" "repo-walking" "$REPO_ROOT"
 fi

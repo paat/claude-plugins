@@ -2,6 +2,11 @@
 # Shared tribunal-review script helpers.
 set -u
 
+# Shared by the OpenCode runner and preflight registry check.
+tribunal_deepseek_model() {
+  printf '%s\n' "${TRIBUNAL_DEEPSEEK_MODEL:-deepseek/deepseek-v4-pro}"
+}
+
 tribunal_repo_root() {
   git rev-parse --show-toplevel 2>/dev/null || pwd
 }
