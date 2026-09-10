@@ -61,9 +61,9 @@ only for local troubleshooting to add printable-ASCII 2 KiB stdout/stderr tails;
 tails are otherwise omitted by default because provider errors can contain credentials.
 For either OpenCode leg, exit 0 with no review JSON and non-whitespace stderr is a
 `phase=execution` failure. Known gates get a credential-free classified message;
-the stderr tail is included automatically only when no classifier matched,
-limited to the last 2048 bytes, filtered to printable ASCII and JSON-escaped. Valid
-review JSON still succeeds with incidental stderr output.
+stderr tails remain opt-in through `TRIBUNAL_DIAGNOSTIC_TAILS=on`, limited to the
+last 2048 bytes, filtered to printable ASCII and JSON-escaped. Valid review JSON
+still succeeds with incidental stderr output.
 Preflight `usable` status confirms discovery/authentication only; it does not
 claim that a non-interactive reviewer invocation has succeeded. Set
 `TRIBUNAL_SMOKE_PROBE=on` to make preflight issue one minimal, timeout-bounded
@@ -144,7 +144,7 @@ The `opencode-go` DeepSeek gate exists because of China hosting; the direct `dee
 | `TRIBUNAL_CLAUDE_MODEL` | `sonnet` | Model passed to `claude -p --model` for the diff-only leg. Accepts an alias (`sonnet`, `haiku`, `opus`) or a full id (e.g. `claude-sonnet-5`). |
 | `TRIBUNAL_SMOKE_PROBE` | `off` | Set to `on` to make preflight verify the actual non-interactive Codex, Claude, and enabled OpenCode transports with minimal structured responses. Each probe is a real provider request; a failed probe removes that leg from usable quorum. |
 | `TRIBUNAL_SMOKE_TIMEOUT_SECONDS` | `60` | Per-provider timeout for the opt-in smoke probe; accepted range is 5–300 seconds. |
-| `TRIBUNAL_DIAGNOSTIC_TAILS` | `off` | Set to `on` only for local troubleshooting to include printable-ASCII 2 KiB stdout/stderr tails in failed provider artifacts. OpenCode exit-0 failures with no review JSON and non-empty stderr always include a printable-ASCII, JSON-escaped stderr tail from the last 2048 bytes. Phase, exit code, byte counts, and truncation remain available when tails are omitted. Tails may contain sensitive provider output. |
+| `TRIBUNAL_DIAGNOSTIC_TAILS` | `off` | Set to `on` only for local troubleshooting to include printable-ASCII 2 KiB stdout/stderr tails in failed provider artifacts, including OpenCode exit-0 failures with no review JSON and non-empty stderr. Phase, exit code, byte counts, and truncation remain available when tails are omitted. Tails may contain sensitive provider output. |
 | `TRIBUNAL_SCOPE_LENS` | `off` | Set to `on` to add the minimal-diff scope-control lens. The arbiter reports unrelated file changes, opportunistic refactors, unnecessary abstractions, and unrelated churn in a separate `scope_findings` section. |
 | `TRIBUNAL_CALLER_PROVIDER` | _(unset)_ | Optional informational identity for the inline calling context. It does not select or spawn an arbiter. |
 | `TRIBUNAL_CALLER_MODEL` | _(unset)_ | Optional caller model metadata. Standalone runs may leave it unset. |

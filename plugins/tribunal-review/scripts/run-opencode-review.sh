@@ -116,17 +116,16 @@ run_oc_leg() {
 }
 
 opencode_emit_review() {
-  local provider="$1" rc="$2" out="$3" err="$4" model="$5" run_timeout="$6" json message show_stderr=off
+  local provider="$1" rc="$2" out="$3" err="$4" model="$5" run_timeout="$6" json message
   json="$(tribunal_extract_json_object < "$out")"
   # Exit 0 alone is not success: OpenCode can reject execution on stderr (#492).
   if [ "$rc" -eq 0 ] && [ -n "$(tr -d '[:space:]' < "$err")" ] \
     && ! printf '%s' "$json" | jq -e 'type == "object"' >/dev/null 2>&1; then
     if ! message="$(opencode_failure_message "$provider" "$model" "$rc" "$run_timeout" "$err")"; then
-      message="$provider leg unavailable: OpenCode returned no JSON object and reported stderr"
-      show_stderr=on
+      message="$provider leg unavailable: OpenCode returned no JSON object and reported stderr; set TRIBUNAL_DIAGNOSTIC_TAILS=on to see it"
     fi
     tribunal_error_with_diagnostics "$provider" "$message" \
-      execution "$rc" "$out" "$err" "$show_stderr"
+      execution "$rc" "$out" "$err"
     return
   fi
   printf '%s' "$json" | tribunal_emit_review "$provider" "" "$out" "$err" "$rc"

@@ -191,7 +191,6 @@ tribunal_error() {
 tribunal_error_with_diagnostics() {
   local provider="$1" message="$2" phase="$3" exit_code="$4"
   local stdout_file="$5" stderr_file="$6" max_bytes=2048
-  local show_stderr="${7:-off}"
   local stdout_bytes=0 stderr_bytes=0
   local stdout_tail="[omitted; set TRIBUNAL_DIAGNOSTIC_TAILS=on]"
   local stderr_tail="[omitted; set TRIBUNAL_DIAGNOSTIC_TAILS=on]"
@@ -207,7 +206,7 @@ tribunal_error_with_diagnostics() {
   fi
   if [ -f "$stderr_file" ] && [ ! -L "$stderr_file" ]; then
     stderr_bytes="$(wc -c < "$stderr_file" | tr -d ' ')"
-    if [ "$show_stderr" = on ] || [ "${TRIBUNAL_DIAGNOSTIC_TAILS:-off}" = on ]; then
+    if [ "${TRIBUNAL_DIAGNOSTIC_TAILS:-off}" = on ]; then
       stderr_tail="$(tail -c "$max_bytes" -- "$stderr_file" 2>/dev/null \
         | LC_ALL=C tr -cd '\11\12\15\40-\176')"
     fi

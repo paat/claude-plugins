@@ -31,7 +31,7 @@ EOF
     export TRIBUNAL_DEEPSEEK=off TRIBUNAL_GLM=off
     if [ "$provider" = deepseek ]; then export TRIBUNAL_DEEPSEEK=on; else export TRIBUNAL_GLM=on; fi
     for mode in review smoke; do
-      for scenario in unavailable findings chatter silent gate gate_workspace whitespace; do
+      for scenario in unavailable unavailable_tails findings chatter silent gate gate_workspace whitespace; do
         label="$provider $mode exit=0 $scenario"
         [ "$scenario" = silent ] || label="$label with stderr"
         # More than 2 KiB, including JSON-sensitive characters and a control byte.
@@ -40,6 +40,11 @@ EOF
         [ "$scenario" != chatter ] || printf 'Provider startup banner\n' > "$work/stdout"
         [ "$scenario" != silent ] || : > "$work/stderr"
         [ "$scenario" != whitespace ] || printf '\n' > "$work/stderr"
+        if [ "$scenario" = unavailable_tails ]; then
+          export TRIBUNAL_DIAGNOSTIC_TAILS=on
+        else
+          unset TRIBUNAL_DIAGNOSTIC_TAILS
+        fi
         if [ "$scenario" = gate ] || [ "$scenario" = gate_workspace ]; then
           printf '%s\n' 'Error: The latest version of this model is only available hosted in China and requires explicit opt in: https://opencode.ai/workspace/<id>/go' > "$work/stderr"
           if [ "$scenario" = gate_workspace ]; then
@@ -76,10 +81,15 @@ EOF
               else
                 keys == ["error", "provider"]
                 and (.error | contains("phase=execution; exit=0") and contains("leg unavailable")
+                  and contains("TRIBUNAL_DIAGNOSTIC_TAILS=on")
                   and contains("stderr_truncated=true") and (contains("unparseable") | not)
                   and (contains("discarded-prefix") | not)
                   and (split("; stderr_tail=")[1] | fromjson |
-                    length <= 2048 and contains("Error: provider unavailable \"quoted\" \\path\tmarker")))
+                    if $scenario == "unavailable_tails" then
+                      length <= 2048 and contains("Error: provider unavailable \"quoted\" \\path\tmarker")
+                    else
+                      . == "[omitted; set TRIBUNAL_DIAGNOSTIC_TAILS=on]"
+                    end))
               end))' "$work/result" >/dev/null; then
           printf 'PASS %s\n' "$label"; passed=$((passed+1))
         else
