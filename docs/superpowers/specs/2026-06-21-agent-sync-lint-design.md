@@ -41,7 +41,7 @@ lint.sh [--config <path>] [--root <path>]
   root (a relative `--root` is resolved against the current working directory); it does **not**
   affect config autodetection, which always searches the cwd. All file/glob paths in `lint`
   resolve against the final `REPO_ROOT`.
-- Reads the optional `lint` block from `sources.json`. **No `lint` block → print nothing, exit 0.**
+- Reads the optional `lint` block from `sources.json`. **No `lint` block → report that nothing was checked and exit `0`, or `2` with `--require-config` (the exit code is otherwise unchanged).**
 - Runs three independent checks, collects **all** findings, prints them sorted, then exits.
 - **All `grep`/`sort`/character-class operations run under `LC_ALL=C`** for byte-deterministic,
   locale-independent output.
@@ -215,8 +215,8 @@ For each group in `exclusiveGroups`:
   - `1` — at least one `error`-severity finding.
   - `2` — config error (invalid severity / non-numeric max / unreadable config).
 - **Summary line:** printed whenever at least one check block is configured — even with zero
-  findings (`[agent-sync lint] summary: 0 errors, 0 warnings`). Only a fully-absent `lint` block
-  prints **nothing** at all.
+  findings (`[agent-sync lint] summary: 0 errors, 0 warnings`). A fully-absent `lint` block reports
+  that nothing was checked.
 
 ## Wiring
 
@@ -284,13 +284,13 @@ suite is added alongside the others rather than wired into `run-tests.sh` (which
    literally (the non-alphanumeric-boundary rule).
 7. Mid-sentence `users prefer dark mode` → **no** soft-preference finding.
 8. Single term from a group present → **no** contradiction finding.
-9. Missing `lint` block → no output, exit 0.
+9. Missing `lint` block → reports that nothing was checked, exit 0 (or 2 with `--require-config`).
 10. Glob matching nothing / explicitly-listed missing file → silently skipped, no error.
 11. Invalid `severity` value, non-positive-integer `max`, or malformed JSON → config error, exit 2.
 12. `severity: "off"` on a check → that check produces no findings.
 13. Deterministic output ordering — same fixture produces byte-identical output across runs.
 14. A configured `lint` block with zero findings prints the `summary: 0 errors, 0 warnings` line and
-    exits 0; a fully-absent `lint` block prints nothing.
+    exits 0; a fully-absent `lint` block reports that nothing was checked.
 15. Overlapping globs/entries resolving to the same file scan it once (de-dup).
 
 ## Out of scope (v1 / YAGNI)

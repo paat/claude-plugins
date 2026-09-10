@@ -77,8 +77,8 @@ jq empty <<<"$CONFIG" 2>/dev/null || { echo "[agent-sync lint] config error: mal
 
 # --- Gate: no lint block -> opt-in no-op ---
 if [[ "$(jq 'has("lint")' <<<"$CONFIG")" != "true" ]]; then
+  if "$REQUIRE_CONFIG"; then echo "[agent-sync lint] no \`lint\` block in $CONFIG_PATH — nothing checked." >&2; exit 2; fi
   echo "[agent-sync lint] no \`lint\` block in $CONFIG_PATH — nothing checked."
-  "$REQUIRE_CONFIG" && exit 2
   exit 0
 fi
 

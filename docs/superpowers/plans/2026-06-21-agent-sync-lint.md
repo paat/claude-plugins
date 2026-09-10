@@ -862,7 +862,7 @@ short ambiguous terms; no aliases/section-scoping in v1), raw-line-count budget,
 }
 ```
 
-- **No `lint` block** → linter prints nothing and exits 0 (fully backward compatible).
+- **No `lint` block** → linter reports that nothing was checked and exits `0`, or `2` with `--require-config` (the exit code is otherwise unchanged).
 - Exit codes: `0` no error-severity findings · `1` an error-severity finding · `2` config error.
 - Contradiction matching is whole-word with non-alphanumeric boundaries (handles `.NET`, `Node.js`,
   `C++`; `Postgres` does not match inside `PostgreSQL`). Co-occurrence is a heuristic, not proof —

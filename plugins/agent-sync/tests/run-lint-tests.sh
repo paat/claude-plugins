@@ -52,7 +52,7 @@ JSON
 assert_stdout_contains "no lint block -> notice" "no \`lint\` block" -- --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
 assert_exit "no lint block -> exit 0" 0 -- --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
 assert_exit "no lint block required -> exit 2" 2 -- --require-config --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
-assert_stdout_contains "no lint block required -> notice" "nothing checked" -- --require-config --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
+out="$(bash "$LINT" --require-config --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT" 2>&1 >/dev/null)"; [[ "$out" == *"nothing checked"* ]] && { echo "PASS: no lint block required -> notice"; PASS=$((PASS+1)); } || { echo "FAIL: no lint block required -> missing 'nothing checked' in: $out"; FAIL=$((FAIL+1)); }
 
 # --- Fixture: empty lint block -> prints summary 0/0, exit 0 ---
 EMPTY="$TMP/empty"; mkdir -p "$EMPTY/.agent-sync"
