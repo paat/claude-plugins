@@ -44,9 +44,9 @@ if [ "$rc" -eq 0 ]; then
         .model // .message.model // empty
       else empty end
     ' "$TMPDIR/out.txt" 2>/dev/null || true)"
-    [ -n "$actual_model" ] && json="$(printf '%s' "$json" | jq --arg m "$actual_model" '.model = $m')"
     printf '%s' "$json" \
       | tribunal_emit_review qwen "" "$TMPDIR/out.txt" "$TMPDIR/err.txt" "$rc" \
+      | tribunal_stamp_executed_model qwen "$actual_model" "$TMPDIR/out.txt" "$TMPDIR/err.txt" "$rc" \
       | tribunal_line_check "$REPO_ROOT" "$DIFF_FILE" \
       | tribunal_stamp_diff_stat "$DIFF_STAT"
   else

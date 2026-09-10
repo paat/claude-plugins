@@ -443,6 +443,38 @@ EOF
   rm -rf "$work"
 }
 
+test_executed_model_family_guard() {
+  local label="executed model family guard" work review off_family on_family unresolved
+  work="$(mktemp -d)"
+  review='{"provider":"model-authored","model":"claude-haiku-4-5","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+  : > "$work/stdout"
+  : > "$work/stderr"
+
+  off_family="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model grok claude-haiku-4-5 "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
+  on_family="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model grok grok-4.6 "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
+  unresolved="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model qwen "" "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
+
+  if printf '%s' "$off_family" | jq -e '
+      .provider == "grok"
+      and (.error | contains("requested provider grok"))
+      and (.error | contains("claude-haiku-4-5"))
+      and (.error | contains("phase=model_family"))
+      and (has("findings") | not)
+      and (.summary == null)
+    ' >/dev/null \
+    && printf '%s' "$on_family" | jq -e '
+      .provider == "model-authored" and .model == "grok-4.6" and .summary.verdict == "APPROVE"
+    ' >/dev/null \
+    && printf '%s' "$unresolved" | jq -e '
+      .provider == "model-authored" and .model == "unverified" and .summary.verdict == "APPROVE"
+    ' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
 test_claude_auth_guard() {
   local label="expired Claude auth is skipped before provider execution" work fake
   work="$(mktemp -d)"
@@ -995,7 +1027,7 @@ printf '%s\t%s\n' "\$phase" "\$tools_val" >> "$state/phases.log"
 printf '%s\n' "\$@" >> "$state/args.log"
 if [ "\$phase" = finalize ]; then
   cat <<'JSON'
-{"text":"done","stopReason":"EndTurn","sessionId":"11111111-1111-1111-1111-111111111111","structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"modelUsage":{"fixture-model":{"inputTokens":1,"outputTokens":1}}}
+{"text":"done","stopReason":"EndTurn","sessionId":"11111111-1111-1111-1111-111111111111","structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"modelUsage":{"grok-fixture-model":{"inputTokens":1,"outputTokens":1}}}
 JSON
   exit 0
 fi
@@ -1024,7 +1056,7 @@ EOF
   ) && jq -e '
       .provider=="grok"
       and .summary.verdict=="APPROVE"
-      and .model=="fixture-model"
+      and .model=="grok-fixture-model"
       and ((.findings|length)==0)
       and (has("error")|not)
     ' "$work/out-a.json" >/dev/null; then
@@ -1101,7 +1133,7 @@ n=0
 n=\$((n+1))
 printf '%s\\n' "\$n" > "\$count_file"
 cat <<'JSON'
-{"structuredOutput":{"provider":"grok","model":"fixture","findings":[{"severity":"medium","category":"logic","file":"file.txt","line":1,"title":"t","description":"d","suggestion":"s","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"}},"sessionId":"33333333-3333-3333-3333-333333333333","modelUsage":{"fixture-model":{"inputTokens":1}}}
+{"structuredOutput":{"provider":"grok","model":"fixture","findings":[{"severity":"medium","category":"logic","file":"file.txt","line":1,"title":"t","description":"d","suggestion":"s","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"}},"sessionId":"33333333-3333-3333-3333-333333333333","modelUsage":{"grok-fixture-model":{"inputTokens":1}}}
 JSON
 exit 0
 EOF
@@ -1118,7 +1150,7 @@ EOF
       .provider=="grok"
       and .summary.verdict=="NEEDS_WORK"
       and (.findings|length)==1
-      and .model=="fixture-model"
+      and .model=="grok-fixture-model"
     ' "$work/out-c.json" >/dev/null \
     && [ "$(cat "$state/calls")" = "1" ]; then
     echo -e "  ${GREEN}PASS${NC} grok camelCase structuredOutput completes in one pass"; PASS=$((PASS+1))
@@ -1134,7 +1166,7 @@ EOF
 #!/usr/bin/env bash
 if printf '%s\n' "$@" | grep -q -- '--resume'; then
   cat <<'JSON'
-{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"44444444-4444-4444-4444-444444444444","modelUsage":{"fixture-model":{}}}
+{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"44444444-4444-4444-4444-444444444444","modelUsage":{"grok-fixture-model":{}}}
 JSON
   exit 0
 fi
@@ -1192,7 +1224,7 @@ EOF
 #!/usr/bin/env bash
 printf '%s\n' "$@" >> "${ARGS_LOG:?}"
 cat <<'JSON'
-{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"sessionId":"77777777-7777-7777-7777-777777777777","modelUsage":{"fixture-model":{}}}
+{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"sessionId":"77777777-7777-7777-7777-777777777777","modelUsage":{"grok-fixture-model":{}}}
 JSON
 exit 0
 EOF
@@ -1260,7 +1292,7 @@ EOF
   cat > "$fake/grok" <<'EOF'
 #!/usr/bin/env bash
 cat <<'JSON'
-{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"99999999-9999-9999-9999-999999999999","modelUsage":{"fixture-model":{}}}
+{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"99999999-9999-9999-9999-999999999999","modelUsage":{"grok-fixture-model":{}}}
 JSON
 exit 0
 EOF
@@ -1417,7 +1449,7 @@ jq '
   )
 ' "$auth" > "$auth.tmp" && mv "$auth.tmp" "$auth"
 cat <<'JSON'
-{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"sessionId":"55555555-5555-5555-5555-555555555555","modelUsage":{"fixture-model":{}}}
+{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"sessionId":"55555555-5555-5555-5555-555555555555","modelUsage":{"grok-fixture-model":{}}}
 JSON
 exit 0
 EOF
@@ -1468,7 +1500,7 @@ jq '
 printf '%s\n' '{"https://auth.x.ai::fixture":{"key":"access-host-fresh","refresh_token":"refresh-host-fresh","expires_at":"2099-12-01T00:00:00Z","auth_mode":"oidc"}}' \
   > "${AUTH_HOST_PATH:?}"
 cat <<'JSON'
-{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"66666666-6666-6666-6666-666666666666","modelUsage":{"fixture-model":{}}}
+{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"66666666-6666-6666-6666-666666666666","modelUsage":{"grok-fixture-model":{}}}
 JSON
 exit 0
 EOF
@@ -2591,6 +2623,7 @@ test_empty_staged_diff_with_real_changes_fails_closed
 test_genuine_empty_diff_is_reverified_and_unchanged
 test_unresolvable_base_during_empty_verification_fails_closed
 test_qwen_envelope_parser
+test_executed_model_family_guard
 test_claude_auth_guard
 test_grok_auth_guard
 test_preflight_smoke_probe
