@@ -163,7 +163,7 @@ rules never override 3b-0. Required for critical/high findings:
 
 ### Marked Positions (`line_check`)
 
-The runner marks invalid positions and checks it could not run. Verify positions only against the leg's pinned tree:
+The runner marks findings whose position cannot exist — providers sometimes report diff-global positions — and marks findings whose check could not run. Verify positions only against the leg's pinned tree:
 `git show <head_oid>:<path>` with that leg's stamped `diff_stat.head_oid`, never the ambient worktree.
 Verify marked findings before counting them toward severity or consensus; cap at `medium` unless independently
 confirmed against that pinned tree. If the pinned object is unavailable, report the provider and unavailable evidence
@@ -224,9 +224,9 @@ Any `must-remove-before-merge` scope finding makes the verdict at least
 - The zero-findings shortcut requires every non-disabled provider to have produced a leg (`status == "ok"`)
   with zero findings, no blocking scope findings, and no sealed ignored-path signals requiring repository-policy findings:
   `APPROVE`, confidence `0.95`.
-- A `failed` provider prevents that shortcut. Name each failed provider and missing independent review in
-  `tribunal_verdict.rationale` and `summary`; assess remaining evidence explicitly. Keep manifest statuses in
-  `provider_assessment`; `disabled` remains excluded from quorum.
+- `APPROVE` requires confidence `0.95` when every non-disabled provider is `ok`. Any `failed` provider prevents the shortcut but still permits `APPROVE` with confidence `> 0` and `< 0.95`.
+  Assess remaining evidence explicitly; justify reduced confidence and name each failed provider and missing independent review in `tribunal_verdict.rationale` and `summary`.
+  Keep manifest statuses in `provider_assessment`; `disabled` remains excluded from quorum and never triggers reduced confidence.
 - If any valid critical/high finding remains: `NEEDS_WORK` or `BLOCK` depending
   on blast radius and release risk.
 - Medium/low findings may be approved with notes when the change is otherwise

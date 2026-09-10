@@ -670,7 +670,9 @@ validate_arbitration() {
          and (.claude|assessment("claude";$final_findings)))
     and (.conflicts_resolved|type=="array" and all(.[];type=="string")) and (.summary|text)
     and (if .tribunal_verdict.decision=="APPROVE" then
-      .tribunal_verdict.confidence==0.95
+      (if ($statuses | any(.[]; .=="failed")) then
+        .tribunal_verdict.confidence > 0 and .tribunal_verdict.confidence < 0.95
+      else .tribunal_verdict.confidence==0.95 end)
       and ([.findings[]|select(.severity=="critical" or .severity=="high")]|length)==0
       and ([.scope_findings[]|select(.disposition=="must-remove-before-merge")]|length)==0
       else true end)

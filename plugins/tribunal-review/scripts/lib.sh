@@ -611,7 +611,9 @@ tribunal_line_check() {
     > "$aux.changed" 2>/dev/null; then
     rm -f "$aux" "$aux.changed"
     printf '%s' "$json" | jq -c '.findings |= map(
-      if has("file") or has("line") then .line_check = "position check unavailable"
+      if type != "object" then .
+      elif (.file | type) != "string" then .line_check = "malformed finding coordinates"
+      elif has("file") or has("line") then .line_check = "position check unavailable"
       else . end)'
     return
   fi

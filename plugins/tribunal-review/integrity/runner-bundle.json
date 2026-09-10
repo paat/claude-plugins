@@ -10,7 +10,7 @@
     },
     {
       "path": "scripts/collect-review-evidence.sh",
-      "sha256": "14032df1c4345f747af59ed365c7ae148739f3a8f468a7de9fd0b647dc52c0af"
+      "sha256": "e6df5cd46349624c56b96124926163f6511ab10590a965cb99f20a90705f245e"
     },
     {
       "path": "scripts/generate-runner-bundle.sh",
@@ -18,7 +18,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "d40eddd9ea3815afebf516ba24f711a9a9066129256a768453de76761c252208"
+      "sha256": "43a82ea4d8a8a1df3a6e402acf9306f5706975276949aedab4359f404e1eb277"
     },
     {
       "path": "scripts/run-claude-review.sh",

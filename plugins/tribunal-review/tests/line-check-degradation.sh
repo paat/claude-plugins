@@ -42,8 +42,14 @@ case "$scenario" in
       echo 'fixture failed to prune reviewed head' >&2
       exit 1
     fi
-    jq -c '.findings |= map(if has("file") or has("line")
-      then .line_check = "position check unavailable" else . end)' \
+    jq -c '.findings[0].line_check = "position check unavailable"
+      | .findings[1].line_check = "position check unavailable"
+      | .findings[2].line_check = "position check unavailable"
+      | .findings[3].line_check = "position check unavailable"
+      | .findings[4].line_check = "position check unavailable"
+      | .findings[5].line_check = "position check unavailable"
+      | .findings[6].line_check = "malformed finding coordinates"
+      | .findings[7].line_check = "malformed finding coordinates"' \
       "$work/input.json" > "$work/expected.json"
     ;;
   *) exit 2 ;;
@@ -57,3 +63,11 @@ if ! cmp -s "$work/expected.json" "$work/actual.json"; then
   exit 1
 fi
 printf 'PASS %s line check: output matches expected bytes; diff_stat remains valid\n' "$scenario"
+if [ "$scenario" = pruned ]; then
+  printf '%s\n' '{"provider":"x","findings":[{"file":"a.txt","line":9},"stray note"],"summary":{}}' \
+    | tribunal_line_check "$work" "$stat" > "$work/scalar.json"
+  jq -e '. == {"provider":"x","findings":[{"file":"a.txt","line":9,"line_check":"position check unavailable"},"stray note"],"summary":{}}' \
+    "$work/scalar.json" >/dev/null
+  printf 'PASS pruned line check: stray scalar survives: '
+  cat "$work/scalar.json"
+fi

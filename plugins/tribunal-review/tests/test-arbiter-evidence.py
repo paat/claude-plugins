@@ -98,7 +98,7 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
     providers = ('codex', 'gemini', 'glm', 'deepseek', 'qwen', 'grok', 'claude')
     (work / 'providers').mkdir()
 
-    def verdict_case(statuses, decision, confidence):
+    def verdict_case(statuses, decision, confidence, accepts=True):
         manifest = {'repository': {'root': str(repo)}, 'providers': [
             {'provider': name, 'status': statuses.get(name, 'disabled')} for name in providers]}
         (work / 'manifest.json').write_text(json.dumps(manifest))
@@ -122,8 +122,9 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
         result = subprocess.run(['bash', '-c', validator + '\nvalidate_arbitration "$1" "$2"',
                                  'fixture', str(work / 'arbitration.json'), str(work / 'manifest.json')],
                                 capture_output=True, text=True)
-        require(result.returncode == 0,
-                f'validator rejected {decision} confidence={confidence}: exit={result.returncode}')
+        print(f'validator statuses={statuses} {decision}/{confidence}: exit={result.returncode}')
+        require((result.returncode == 0) == accepts,
+                f'validator {decision} confidence={confidence}: exit={result.returncode}, accepts={accepts}')
 
     check('mixed ok and failed panel can retain NEEDS_WORK',
           lambda: verdict_case({'codex': 'ok', 'glm': 'failed'}, 'NEEDS_WORK', 0.7))
@@ -131,6 +132,12 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
           lambda: verdict_case({'codex': 'ok'}, 'APPROVE', 0.95))
     check('all failed panel keeps NEEDS_WORK confidence zero',
           lambda: verdict_case({'codex': 'failed', 'glm': 'failed'}, 'NEEDS_WORK', 0))
+    check('failed leg forbids APPROVE confidence 0.95',
+          lambda: verdict_case({'codex': 'ok', 'glm': 'failed'}, 'APPROVE', 0.95, accepts=False))
+    check('failed leg permits APPROVE confidence 0.90',
+          lambda: verdict_case({'codex': 'ok', 'glm': 'failed'}, 'APPROVE', 0.90))
+    check('full healthy empty panel rejects APPROVE confidence 0.90',
+          lambda: verdict_case(dict.fromkeys(providers, 'ok'), 'APPROVE', 0.90, accepts=False))
 
 print(f'{passed} PASS / {failed} FAIL')
 sys.exit(bool(failed))
