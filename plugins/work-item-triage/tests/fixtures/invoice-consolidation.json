@@ -1,0 +1,17 @@
+{
+  "number": 4,
+  "title": "Invoice authority and preview disagree",
+  "body": "Authority, matching and preview overlap, but accepted money invariants and legitimate corrections differ. Successor #94 owns each acceptance and is review-blocked.",
+  "html_url": "https://tracker.example/items/4",
+  "state": "open",
+  "updated_at": "2026-09-09T00:00:00Z",
+  "comments": 1,
+  "labels": [],
+  "fixture_comments": [
+    {
+      "id": 4,
+      "body": "Authority, matching and preview overlap, but accepted money invariants and legitimate corrections differ. Successor #94 owns each acceptance and is review-blocked.",
+      "created_at": "2026-09-09T00:00:00Z"
+    }
+  ]
+}

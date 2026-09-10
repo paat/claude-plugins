@@ -1,0 +1,17 @@
+{
+  "number": 6,
+  "title": "Older issue rejects supported behavior",
+  "body": "The authorized owner ruling now permits this behavior and rejects the proposed code fix. Preserve the ruling and supported limitation.",
+  "html_url": "https://tracker.example/items/6",
+  "state": "open",
+  "updated_at": "2026-09-09T00:00:00Z",
+  "comments": 1,
+  "labels": [],
+  "fixture_comments": [
+    {
+      "id": 6,
+      "body": "The authorized owner ruling now permits this behavior and rejects the proposed code fix. Preserve the ruling and supported limitation.",
+      "created_at": "2026-09-09T00:00:00Z"
+    }
+  ]
+}

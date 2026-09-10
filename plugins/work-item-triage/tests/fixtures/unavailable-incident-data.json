@@ -1,0 +1,17 @@
+{
+  "number": 8,
+  "title": "Unknown incidence of recovery failure",
+  "body": "Incident records are unavailable. No defensible denominator or observation window exists; the incidence is unknown.",
+  "html_url": "https://tracker.example/items/8",
+  "state": "open",
+  "updated_at": "2026-09-09T00:00:00Z",
+  "comments": 1,
+  "labels": [],
+  "fixture_comments": [
+    {
+      "id": 8,
+      "body": "Incident records are unavailable. No defensible denominator or observation window exists; the incidence is unknown.",
+      "created_at": "2026-09-09T00:00:00Z"
+    }
+  ]
+}

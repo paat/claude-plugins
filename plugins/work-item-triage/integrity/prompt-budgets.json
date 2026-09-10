@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "description": "Byte ceilings for the triage prompt and on-demand references; keep the core within 130 lines.",
+  "files": {
+    "skills/work-item-triage/SKILL.md": 6780,
+    "skills/work-item-triage/references/adapters.md": 4246,
+    "skills/work-item-triage/references/decision-card.md": 4915,
+    "skills/work-item-triage/references/evidence-rules.md": 4067,
+    "skills/work-item-triage/references/handoff.md": 3599,
+    "skills/work-item-triage/references/worked-examples.md": 4209
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "number": 2,
+  "title": "Future database migration",
+  "body": "Only the current embedded database is supported. No server database migration is approved.",
+  "html_url": "https://tracker.example/items/2",
+  "state": "open",
+  "updated_at": "2026-09-09T00:00:00Z",
+  "comments": 1,
+  "labels": [],
+  "fixture_comments": [
+    {
+      "id": 2,
+      "body": "Only the current embedded database is supported. No server database migration is approved.",
+      "created_at": "2026-09-09T00:00:00Z"
+    }
+  ]
+}

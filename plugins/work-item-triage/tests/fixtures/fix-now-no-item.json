@@ -1,0 +1,10 @@
+{
+  "id": "draft-contact-link",
+  "title": "Correct the existing support contact link",
+  "body": "The support note links to a removed anchor; the current contact heading is present in the same document.",
+  "updatedAt": null,
+  "comments_fetched": 0,
+  "completeness": "complete",
+  "comments": [],
+  "relations": []
+}

@@ -1,0 +1,17 @@
+{
+  "id": "9",
+  "direction": "existing",
+  "outcome": {"who": "Affected users", "trigger": "Merged feature awaits activation", "consequence": "Tests pass and the PR is merged, but the feature flag remains disabled. Customer recovery has not been verified.", "current_coping": "Use current supported recovery where available"},
+  "evidence": {"class": "source-reachable", "missing": "Production or incidence evidence remains separate from code evidence", "counter_evidence": "Record current owner rulings and activation boundaries"},
+  "necessity": "required",
+  "readiness": "blocked",
+  "response": "Check activation evidence and verify customer recovery before closing live obligations.",
+  "cost": {"estimate": "qualitative", "common_path": "Reuse existing interaction", "ownership": "Keep existing state owner", "obligations": "Relevant tests and documentation", "review_operations": "Bounded review; measured token cost unavailable"},
+  "disposition": "verify-first",
+  "priority": 9,
+  "prerequisites": ["Owner, review or activation evidence"],
+  "next_task": "Check activation evidence and verify customer recovery before closing live obligations.",
+  "stop_condition": "Refresh if code, activation evidence or owner ruling changes",
+  "enforcement": {"class": "instruction-only", "mechanism": "Fresh session reads queue before selecting work"},
+  "code_refs": []
+}

@@ -1,0 +1,17 @@
+{
+  "number": 10,
+  "title": "Owner reverses previous supported limitation",
+  "body": "A newer authorized owner decision withdraws the older limitation and requires correcting the behavior. Historical reasoning must remain auditable.",
+  "html_url": "https://tracker.example/items/10",
+  "state": "open",
+  "updated_at": "2026-09-09T00:00:00Z",
+  "comments": 1,
+  "labels": [],
+  "fixture_comments": [
+    {
+      "id": 10,
+      "body": "A newer authorized owner decision withdraws the older limitation and requires correcting the behavior. Historical reasoning must remain auditable.",
+      "created_at": "2026-09-09T00:00:00Z"
+    }
+  ]
+}

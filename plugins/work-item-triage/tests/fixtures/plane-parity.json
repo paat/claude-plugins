@@ -1,0 +1,45 @@
+{
+  "id": "301",
+  "name": "Document the supported recovery contact",
+  "description_stripped": "A non-code support handoff needs its existing contact clarified.",
+  "url": "https://tracker.example/items/301",
+  "state": "open",
+  "updated_at": "2026-09-09T00:00:00Z",
+  "comments": [
+    {
+      "id": 12,
+      "body": "The support lead confirms the existing contact remains authoritative.",
+      "updated_at": "2026-09-09T00:00:00Z",
+      "author": "support-owner"
+    },
+    {
+      "id": 13,
+      "body": "Unattributed imported comment.",
+      "updated_at": "2026-09-09T00:00:00Z"
+    }
+  ],
+  "comments_complete": true,
+  "relations": [
+    {
+      "id": "302",
+      "kind": "related",
+      "title": "Existing support policy",
+      "state": "open",
+      "url": "https://tracker.example/items/302",
+      "resolution": "resolved"
+    }
+  ],
+  "history": [
+    {
+      "event": "decision",
+      "created_at": "2026-09-09T00:00:00Z",
+      "body": "Keep the existing contact.",
+      "author": "support-owner"
+    },
+    {
+      "event": "imported",
+      "created_at": "2026-09-09T00:00:00Z",
+      "body": "Unattributed imported event."
+    }
+  ]
+}

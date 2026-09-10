@@ -1,0 +1,17 @@
+{
+  "id": "3",
+  "direction": "existing",
+  "outcome": {"who": "Affected users", "trigger": "Rejected upload gives no next action", "consequence": "A reproduced rejected upload leaves users unable to find correction. Existing inline feedback and navigation can serve recovery.", "current_coping": "Use current supported recovery where available"},
+  "evidence": {"class": "reproduced", "missing": "Production or incidence evidence remains separate from code evidence", "counter_evidence": "Record current owner rulings and activation boundaries"},
+  "necessity": "required",
+  "readiness": "ready",
+  "response": "Improve existing inline feedback and correction navigation; no permanent dashboard.",
+  "cost": {"estimate": "qualitative", "common_path": "Reuse existing interaction", "ownership": "Keep existing state owner", "obligations": "Relevant tests and documentation", "review_operations": "Bounded review; measured token cost unavailable"},
+  "disposition": "implement-minimally",
+  "priority": 3,
+  "prerequisites": [],
+  "next_task": "Improve existing inline feedback and correction navigation; no permanent dashboard.",
+  "stop_condition": "Refresh if code, activation evidence or owner ruling changes",
+  "enforcement": {"class": "instruction-only", "mechanism": "Fresh session reads queue before selecting work"},
+  "code_refs": []
+}

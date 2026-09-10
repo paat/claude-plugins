@@ -1,0 +1,10 @@
+{
+  "id": "draft-offline-history",
+  "title": "Record the supported offline history boundary",
+  "body": "Offline history lookup is unsupported under the current documented service scope; the owner confirms connected lookup remains the supported route.",
+  "updatedAt": null,
+  "comments_fetched": 0,
+  "completeness": "complete",
+  "comments": [],
+  "relations": []
+}

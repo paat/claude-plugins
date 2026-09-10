@@ -1,0 +1,23 @@
+{
+  "id": "draft-contact-link",
+  "direction": "proposed",
+  "outcome": "The support note links to a removed anchor; the current contact heading is present in the same document.",
+  "evidence": {
+    "class": "reproduced",
+    "counter_evidence": "No separate tracking is needed for this bounded documentation response."
+  },
+  "necessity": "required",
+  "readiness": "ready",
+  "response": "Correct the anchor in the existing support note and verify the link.",
+  "cost": "One local documentation edit and link check; no ongoing owner or new workflow.",
+  "disposition": "fix-now-no-item",
+  "priority": 1,
+  "prerequisites": [],
+  "next_task": "Correct the anchor in the existing support note and verify the link.",
+  "stop_condition": "Refresh if the supported route or owner ruling changes",
+  "enforcement": {
+    "class": "instruction-only",
+    "mechanism": "Fresh session reads queue before selecting work"
+  },
+  "code_refs": []
+}

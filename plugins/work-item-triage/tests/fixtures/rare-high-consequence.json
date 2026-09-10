@@ -1,0 +1,17 @@
+{
+  "number": 7,
+  "title": "Irreversible data loss on recovery",
+  "body": "One reproduced irreversible loss in 100000 recovery attempts over the last 90 days. Existing data preservation commitment applies.",
+  "html_url": "https://tracker.example/items/7",
+  "state": "open",
+  "updated_at": "2026-09-09T00:00:00Z",
+  "comments": 1,
+  "labels": [],
+  "fixture_comments": [
+    {
+      "id": 7,
+      "body": "One reproduced irreversible loss in 100000 recovery attempts over the last 90 days. Existing data preservation commitment applies.",
+      "created_at": "2026-09-09T00:00:00Z"
+    }
+  ]
+}

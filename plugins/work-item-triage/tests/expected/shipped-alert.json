@@ -1,0 +1,17 @@
+{
+  "id": "1",
+  "direction": "existing",
+  "outcome": {"who": "Affected users", "trigger": "Alert repair shipped", "consequence": "The default-branch correction is merged. Production recovery must still be verified under #91.", "current_coping": "Use current supported recovery where available"},
+  "evidence": {"class": "source-reachable", "missing": "Production or incidence evidence remains separate from code evidence", "counter_evidence": "Record current owner rulings and activation boundaries"},
+  "necessity": "required",
+  "readiness": "ready",
+  "response": "Close recovered code tracking; keep live-recovery verification owned by #91.",
+  "cost": {"estimate": "qualitative", "common_path": "Reuse existing interaction", "ownership": "Keep existing state owner", "obligations": "Relevant tests and documentation", "review_operations": "Bounded review; measured token cost unavailable"},
+  "disposition": "close-completed",
+  "priority": 1,
+  "prerequisites": [],
+  "next_task": "Close recovered code tracking; keep live-recovery verification owned by #91.",
+  "stop_condition": "Refresh if code, activation evidence or owner ruling changes",
+  "enforcement": {"class": "instruction-only", "mechanism": "Fresh session reads queue before selecting work"},
+  "code_refs": []
+}
