@@ -1752,6 +1752,92 @@ EOF
   rm -rf "$work"
 }
 
+# Capture once, then change both refs and the worktree while the reviewer runs (#489).
+test_line_check_pinned_range() {
+  local scenario="$1" label="$2" work paths_absent=true
+  work="$(mktemp -d)"
+  if (
+    set -e
+    cd "$work"
+    git init -q -b main
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'base\n' > file.txt
+    printf 'gone\n' > gone.txt
+    printf 'kept\n' > removed-later.txt
+    git add file.txt gone.txt removed-later.txt
+    git commit -q -m base
+    git branch reviewed-base
+    unusual=$'quoted"\\\t\n.txt'
+    printf 'one\ntwo\nthree\n' > file.txt
+    printf 'one\ntwo\n' > "$unusual"
+    printf 'kept\nchanged\n' > removed-later.txt
+    git rm -q gone.txt
+    git add file.txt "$unusual" removed-later.txt
+    git commit -q -m captured
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=reviewed-base tribunal_prepare_diff "$work/d.diff"
+    [ ! -e "$work/d.diff.paths" ] || paths_absent=false
+    stat="$(tribunal_take_diff_stat "$work/d.diff")"
+    if [ "$scenario" = moving ]; then
+      printf 'short\n' > file.txt
+      printf 'short\n' > "$unusual"
+      printf 'added later\n' > later.txt
+      printf 'restored later\n' > gone.txt
+      git rm -q removed-later.txt
+      git add file.txt "$unusual" later.txt gone.txt
+      git commit -q -m later
+      git branch -f reviewed-base HEAD
+      printf 'ambient\n%.0s' {1..8} > file.txt
+    fi
+    jq -n --arg unusual "$unusual" '{findings:[
+      {file:"file.txt",line:3}, {file:"file.txt",line:4},
+      {file:"later.txt",line:0}, {file:$unusual,line:2},
+      {file:"gone.txt",line:1}, {file:"removed-later.txt",line:2}
+    ]}' | tribunal_line_check "$work" "$stat" > "$work/out.json"
+    if [ "$scenario" = sibling ]; then
+      test "$paths_absent" = true || exit 1
+    fi
+    jq -e '
+      (.findings[0] | has("line_check") | not)
+      and .findings[1].line_check == "line out of bounds: file has 3 lines"
+      and .findings[2].line_check == "file not in reviewed diff"
+      and (.findings[3] | has("line_check") | not)
+      and .findings[4].line_check == "file missing at HEAD"
+      and (.findings[5] | has("line_check") | not)
+    ' "$work/out.json" >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+    cat "$work/out.json" >&2
+    if [ -e "$work/d.diff.paths" ]; then echo 'capture left d.diff.paths on disk' >&2; fi
+  fi
+  rm -rf "$work"
+}
+
+test_line_check_unavailable_range() {
+  local label="line check passes through unmarked when pinned range is unavailable"
+  local stat output ok=true
+  local input='{"provider":"codex","findings":[{"line":0},{"file":"outside.txt","line":-1}]}'
+  for stat in '' 'not-json' 'null' '{}' '[]' \
+    '{"base_oid":42,"head_oid":"HEAD"}' \
+    '{"base_oid":"HEAD~1","head_oid":"HEAD"}' \
+    '{"base_oid":"0000000000000000000000000000000000000000","head_oid":"0000000000000000000000000000000000000000"}'; do
+    if ! output="$(printf '%s' "$input" | bash -euo pipefail -c \
+      '. "$1"; tribunal_line_check "$2" "$3"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT" "$stat")" \
+      || [ "$output" != "$input" ]; then
+      ok=false
+      break
+    fi
+  done
+  if [ "$ok" = true ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+}
+
 # A wrapper agent can hand back a well-formed but fabricated leg envelope, which
 # the arbiter cannot distinguish from a genuine clean pass (issue #487). Only a
 # runner script can stamp .diff_stat: the provider output schema forbids the
@@ -2663,6 +2749,9 @@ test_codex_vacuous_guard BLOCK 0.0 "codex vacuous empty-BLOCK downgraded to leg 
 test_codex_vacuous_guard NEEDS_WORK 7.5 "codex vacuous empty-NEEDS_WORK (nonzero quality) downgraded to leg error"
 test_codex_vacuous_guard " BLOCK " 0.0 "codex vacuous verdict tolerates surrounding whitespace"
 test_codex_line_bounds_guard
+test_line_check_pinned_range moving "line check uses captured tree after branch and worktree move"
+test_line_check_pinned_range sibling "line check rejects outside files without a writable paths sibling"
+test_line_check_unavailable_range
 test_wrapper_owned_provider_envelope
 test_wrapper_stamped_diff_stat
 test_ignored_path_additions
@@ -2672,9 +2761,9 @@ test_trusted_evidence_collection
 
 echo "Finding position validation:"
 assert_grep "lib defines line-bounds validator" "$LIB" "tribunal_line_check()"
-assert_grep "prepare_diff records NUL-delimited changed paths" "$LIB" 'git diff --name-only -z "$base_oid...$head_oid"'
+assert_grep "line check derives NUL-delimited changed paths from pinned range" "$LIB" 'diff --name-only -z "$base_oid...$head_oid"'
 for runner in run-codex-review.sh run-claude-review.sh run-gemini-review.sh run-qwen-review.sh run-grok-review.sh run-opencode-review.sh; do
-  assert_grep "$runner pipes through line check" "scripts/$runner" "tribunal_line_check"
+  assert_grep "$runner passes pinned range to line check" "scripts/$runner" 'tribunal_line_check "$REPO_ROOT" "$DIFF_STAT"'
   assert_grep "$runner stamps the reviewed range" "scripts/$runner" "tribunal_stamp_diff_stat"
   assert_grep "$runner takes the range off disk before the provider runs" "scripts/$runner" 'DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"'
 done
