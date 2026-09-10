@@ -531,7 +531,7 @@ tribunal_stamp_executed_model() {
   fi
   case "$provider" in
     grok) family='^grok([[:digit:]._-]|$)' ;;
-    qwen) family='^qwen([[:digit:]._-]|$)' ;;
+    qwen) family='^([[:alnum:]_.-]+/)?qwen([[:digit:]._-]|$)' ;;
     *) family='' ;;
   esac
   if [ -n "$family" ] && ! [[ "${model,,}" =~ $family ]]; then

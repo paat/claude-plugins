@@ -444,7 +444,7 @@ EOF
 }
 
 test_executed_model_family_guard() {
-  local label="executed model family guard" work review off_family on_family unresolved
+  local label="executed model family guard" work review off_family on_family qwen_namespaced qwen_claude qwen_coder unresolved
   work="$(mktemp -d)"
   review='{"provider":"model-authored","model":"claude-haiku-4-5","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
   : > "$work/stdout"
@@ -452,6 +452,9 @@ test_executed_model_family_guard() {
 
   off_family="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model grok claude-haiku-4-5 "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
   on_family="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model grok grok-4.6 "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
+  qwen_namespaced="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model qwen qwen/qwen3-coder "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
+  qwen_claude="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model qwen claude-haiku-4-5 "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
+  qwen_coder="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model qwen coder-qwen "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
   unresolved="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model qwen "" "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
 
   if printf '%s' "$off_family" | jq -e '
@@ -464,6 +467,15 @@ test_executed_model_family_guard() {
     ' >/dev/null \
     && printf '%s' "$on_family" | jq -e '
       .provider == "model-authored" and .model == "grok-4.6" and .summary.verdict == "APPROVE"
+    ' >/dev/null \
+    && printf '%s' "$qwen_namespaced" | jq -e '
+      .provider == "model-authored" and .model == "qwen/qwen3-coder" and .summary.verdict == "APPROVE"
+    ' >/dev/null \
+    && printf '%s' "$qwen_claude" | jq -e '
+      .provider == "qwen" and (.error | contains("requested provider qwen")) and (.error | contains("claude-haiku-4-5")) and (.error | contains("phase=model_family"))
+    ' >/dev/null \
+    && printf '%s' "$qwen_coder" | jq -e '
+      .provider == "qwen" and (.error | contains("requested provider qwen")) and (.error | contains("coder-qwen")) and (.error | contains("phase=model_family"))
     ' >/dev/null \
     && printf '%s' "$unresolved" | jq -e '
       .provider == "model-authored" and .model == "unverified" and .summary.verdict == "APPROVE"
