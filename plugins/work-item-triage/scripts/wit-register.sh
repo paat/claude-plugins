@@ -103,7 +103,7 @@ jq -n --slurpfile s "$snapshot" --slurpfile d "$decisions" --slurpfile p "$previ
       {title:$item.title,url:($item.url//null),
        provenance:({source:$snapshot.source,item_id:$item.id,fetched_at:$snapshot.fetched_at,
          updatedAt:$item.updatedAt,comments_fetched:$item.comments_fetched,
-         completeness:(if $snapshot.completeness=="incomplete" then "incomplete" else $item.completeness end),
+         completeness:$item.completeness,
          code_refs:[$decision.code_refs[]|{ref:.,commit:$commit,dirty:$dirty}]} +
          (if $item.history_digest then {history_digest:$item.history_digest} else {} end)),
        supersedes:([$p[]|select(.source==$snapshot.source)|. as $previous|.items[]|

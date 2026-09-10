@@ -120,9 +120,9 @@ wit_read_main() {
       relations=$(wit_json '
         .[0] as $relations | .[1] as $r | .[2] as $scope |
         ($relations | map(. + {_body_candidate:false})) +
-        [(($r.body // "")|scan("#([0-9]+)"))|{id:.[0],kind:"referenced",_body_candidate:true}] |
+        [(($r.body // "")|scan("([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#([0-9]+)"))|{id:.[1],_scope:(.[0] // $scope),kind:"referenced",_body_candidate:true}] |
         map(. as $r | ((.url // "" | capture("^https://github.com/(?<scope>[^/]+/[^/]+)/(issues|pull)/(?<id>[0-9]+)$")?) //
-          {scope:$scope,id:(.id|tostring)}) as $link | $r + {id:$link.id,_scope:$link.scope}) |
+          {scope:(._scope // $scope),id:(.id|tostring)}) as $link | $r + {id:$link.id,_scope:$link.scope}) |
         unique_by([._scope,.id])' "$relations" "$raw" "$(jq -n --arg scope "$scope" '$scope')")
       : > "$tmp/relations"
       while IFS= read -r relation; do

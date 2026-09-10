@@ -40,6 +40,8 @@ if [ "$1" = api ]; then
   fi
   if [[ "$endpoint" == *'/issues?'* ]]; then
     case "$WIT_MODE" in
+      qualified-body-reference)
+        jq '[. + {body:"See other/project#12",relations:[]}]' "$WIT_FIX/github-parity.json" ;;
       body-reference|body-reference-403|body-reference-auth|body-reference-network|missing-relation|shared-relations)
         jq --arg mode "$WIT_MODE" '[. + {body:"Use #336699 for the banner. See also #12",relations:(if $mode=="missing-relation" then [{id:"336699",kind:"related"}] else [] end)}]' "$WIT_FIX/github-parity.json" ;;
       large) jq '[. + {body:("long evidence " * 12000)}]' "$WIT_FIX/github-parity.json" ;;
@@ -177,6 +179,13 @@ jq --slurpfile d "$HERE/expected/upload-next-action.json" '{items:[.items[]|.id 
 truncated_run="$(write_register "$TMP/truncated.json" "$TMP/truncated-decisions.json" truncated)"
 check '3 register preserves incomplete census' 0 "$(truth "$truncated_run/register.json" '.completeness=="incomplete"')"
 check '3 summary warns incomplete' 1 "$(grep -ic 'incomplete' "$truncated_run/summary.md" | awk '{print ($1>0)?1:0}')"
+jq '.items=[.items[0]]' "$TMP/truncated.json" > "$TMP/partial-census.json"
+jq '.items=[.items[0]]' "$TMP/truncated-decisions.json" > "$TMP/partial-census-decisions.json"
+partial_run="$(write_register "$TMP/partial-census.json" "$TMP/partial-census-decisions.json" partial-census)"
+check 'tribunal T-016 incomplete census preserves complete item provenance' 0 "$(truth "$partial_run/register.json" '.completeness=="incomplete" and (.items|length)==1 and .items[0].provenance.completeness=="complete"')"
+partial_now="$(awk '/^## Implement now/{emit=1;next} /^## /{emit=0} emit' "$partial_run/queue.md")"
+check 'tribunal T-016 complete item remains under Implement now' 1 "$(grep -c '^- Priority .* — 1001:' <<< "$partial_now" || true)"
+check 'tribunal T-016 summary retains census warning' 1 "$(grep -c '^INCOMPLETE: missing pages or history;' "$partial_run/summary.md" || true)"
 export WIT_MODE=duplicate-pages
 read_snapshot github > "$TMP/duplicate-pages.json"
 check 'tribunal T-003 latest duplicate observation survives pagination' 0 "$(truth "$TMP/duplicate-pages.json" '.completeness=="complete" and (.items|length)==100 and ([.items[]|select(.id=="1001")|.body]==["Page 2 observation"])')"
@@ -213,6 +222,12 @@ check '11 absent optional search reports local-match limit' 0 "$(truth "$TMP/sea
 export WIT_MODE=body-reference
 read_snapshot github > "$TMP/body-reference.json"
 check 'confirmed 404 body reference is dropped without poisoning completeness' 0 "$(truth "$TMP/body-reference.json" '.completeness=="complete" and .items[0].completeness=="complete" and ([.items[0].relations[].id]==["12"])')"
+check 'tribunal T-015 bare #12 still resolves in current scope' 0 "$(truth "$TMP/body-reference.json" '.items[0].relations | length==1 and .[0].url=="https://github.com/sample/project/issues/12" and .[0].resolution=="resolved"')"
+export WIT_MODE=qualified-body-reference
+links_before=$(grep -c '^api repos/sample/project/issues/12$' "$WIT_LOG" || true)
+read_snapshot github > "$TMP/qualified-body-reference.json"
+check 'tribunal T-015 other/project#12 resolves against other/project' 0 "$(truth "$TMP/qualified-body-reference.json" '.completeness=="complete" and (.items[0].relations | length==1 and .[0].id=="12" and .[0].url=="https://github.com/other/project/issues/12" and .[0].resolution=="resolved")')"
+check 'tribunal T-015 qualified reference never fetches existing local issue 12' 0 "$(($(grep -c '^api repos/sample/project/issues/12$' "$WIT_LOG") - links_before))"
 for failure in 403 auth network; do
   export WIT_MODE="body-reference-$failure"
   read_snapshot github > "$TMP/body-reference-$failure.json" 2> "$TMP/body-reference-$failure.err"
