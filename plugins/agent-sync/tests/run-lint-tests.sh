@@ -43,14 +43,16 @@ assert_stdout_absent() {
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-# --- Fixture: no lint block -> silent exit 0 ---
+# --- Fixture: no lint block -> reported no-op, exit 0 (or 2 when required) ---
 NOLINT="$TMP/nolint"; mkdir -p "$NOLINT/.agent-sync"
 echo "# claude" > "$NOLINT/CLAUDE.md"
 cat > "$NOLINT/.agent-sync/sources.json" <<'JSON'
 {"version":2,"files":{"m":"CLAUDE.md"},"outputs":[{"path":"AGENTS.md","sections":[{"id":"a","title":"R","source":"m","type":"full-body"}]}]}
 JSON
-assert_stdout_empty "no lint block -> silent" -- --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
+assert_stdout_contains "no lint block -> notice" "no \`lint\` block" -- --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
 assert_exit "no lint block -> exit 0" 0 -- --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
+assert_exit "no lint block required -> exit 2" 2 -- --require-config --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
+assert_stdout_contains "no lint block required -> notice" "nothing checked" -- --require-config --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
 
 # --- Fixture: empty lint block -> prints summary 0/0, exit 0 ---
 EMPTY="$TMP/empty"; mkdir -p "$EMPTY/.agent-sync"
