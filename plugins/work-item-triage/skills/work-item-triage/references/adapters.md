@@ -8,10 +8,10 @@ repo-local commands, including for self-hosted installations. No Plane URL or cr
 
 ## Configured sources
 
-Reuse the consuming tool's repo-local `sources:` configuration, explicitly passed with `--config`;
-JSON with the same `sources` array is also accepted. For example, one orchestrator uses
-`.claude/multi-model-orchestrator.local.md`. The reader parses the flat source mapping, not arbitrary
-YAML features. Configure commands for the target environment:
+This plugin defines its own `sources:` contract, passed explicitly with `--config` as markdown/YAML
+or JSON with the same `sources` array. The shape is deliberately familiar, but orchestrator config
+files are not interchangeable. The reader parses flat source mappings, not arbitrary YAML features.
+Configure commands for the target environment:
 
 ```yaml
 sources:

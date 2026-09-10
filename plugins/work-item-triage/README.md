@@ -47,7 +47,7 @@ The skill prepares `DECISIONS`; the writer validates coverage/enums and owns all
 Omit the code reference for non-code work. Detailed contracts are loaded on demand from
 [decision-card.md](skills/work-item-triage/references/decision-card.md) and
 [adapters.md](skills/work-item-triage/references/adapters.md).
-Plane reuses the repo-local `sources:` configuration shape, including optional `search`.
+Plane uses this plugin's own repo-local `sources:` contract, including optional `search`.
 Without search, duplicate lookup falls back to listing and local matching and reports that limit.
 
 ## Durable results and handoff

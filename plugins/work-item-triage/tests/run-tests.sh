@@ -88,6 +88,7 @@ esac
 STUB
 chmod +x "$TMP/bin/gh" "$TMP/bin/plane-stub"
 jq -n '{sources:[{name:"plane",list:"plane-stub list",show:"plane-stub show"}]}' > "$TMP/plane.json"
+check 'tribunal T-024 YAML frontmatter adapter matches JSON with quotes comments and sibling key' "$(jq -cS '.sources[0] | {list,show}' "$TMP/plane.json")" "$(source "$SCRIPTS/wit-read.sh"; wit_config "$FIX/plane-config.md" plane list,show,search | jq -cS .)"
 read_snapshot() { bash "$SCRIPTS/wit-read.sh" --system "$1" --scope sample/project "${@:2}"; }
 write_register() { bash "$SCRIPTS/wit-register.sh" --snapshot "$1" --decisions "$2" --output-dir "$TMP/output" --run-id "$3"; }
 # All ten worked examples exercise real normalization and the same writer.
@@ -193,6 +194,9 @@ check 'tribunal T-003 latest duplicate observation survives pagination' 0 "$(tru
 export WIT_MODE=parity
 read_snapshot github > "$TMP/github.json"
 read_snapshot plane --config "$TMP/plane.json" > "$TMP/plane-snapshot.json"
+read_snapshot plane --config "$FIX/plane-config.md" > "$TMP/plane-yaml-snapshot.json"
+check 'tribunal T-024 YAML config read succeeds' 0 "$?"
+check 'tribunal T-024 YAML config snapshot matches JSON config snapshot' 0 "$(jq -e --slurpfile expected "$TMP/plane-snapshot.json" '. == $expected[0]' "$TMP/plane-yaml-snapshot.json" >/dev/null; printf '%s' "$?")"
 jq '{items:[. + {id:"301",outcome:"Clarify existing support contact",response:"Update the existing support note",next_task:"Amend the contact note",code_refs:[]}]}' "$HERE/expected/upload-next-action.json" > "$TMP/parity-decisions.json"
 github_run="$(write_register "$TMP/github.json" "$TMP/parity-decisions.json" github)"
 plane_run="$(write_register "$TMP/plane-snapshot.json" "$TMP/parity-decisions.json" plane)"
