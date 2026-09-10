@@ -23,7 +23,7 @@ the three problems above.
 - **Deterministic bash.** bash 4+, `jq`, `awk`, `sed`. No LLM, no network.
 - **Vendorable into CI without the plugin installed.** Same model as `generate.sh`: `/agent-sync:init`
   vendors the script into the repo; CI runs the repo-local copy.
-- **Backward compatible.** A `sources.json` with no `lint` key produces no lint output and exits 0.
+- **Backward compatible.** A `sources.json` with no `lint` key reports that nothing was checked and exits `0`, or `2` with `--require-config`.
 
 ## Architecture
 
@@ -31,7 +31,7 @@ A new standalone script **`scripts/lint.sh`**, sibling to `scripts/generate.sh`,
 conventions:
 
 ```
-lint.sh [--config <path>] [--root <path>]
+lint.sh [--config <path>] [--root <path>] [--require-config]
 ```
 
 - Auto-detects `sources.json` the same way `generate.sh` does (`tools/agent-sync/sources.json`,
@@ -213,7 +213,7 @@ For each group in `exclusiveGroups`:
 - **Exit code:**
   - `0` — no `error`-severity findings (warnings may be present, or no `lint` block at all).
   - `1` — at least one `error`-severity finding.
-  - `2` — config error (invalid severity / non-numeric max / unreadable config).
+  - `2` — config error (invalid severity / non-numeric max / unreadable config), or a missing `lint` block with `--require-config`.
 - **Summary line:** printed whenever at least one check block is configured — even with zero
   findings (`[agent-sync lint] summary: 0 errors, 0 warnings`). A fully-absent `lint` block reports
   that nothing was checked.

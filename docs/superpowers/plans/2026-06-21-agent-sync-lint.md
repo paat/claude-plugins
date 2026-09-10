@@ -12,7 +12,7 @@
 
 - bash 4+, POSIX tools only; dependencies `jq`, `grep`, `awk`, `sort`, `sed`.
 - Deterministic and vendorable into CI **without** the plugin or any LLM installed.
-- Backward compatible: a `sources.json` with **no** `lint` key produces **no** output and exits 0.
+- Backward compatible: a `sources.json` with **no** `lint` key reports that nothing was checked and exits `0`, or `2` with `--require-config`.
 - All `grep`/`sort`/character-class ops run under `export LC_ALL=C` for byte-stable output.
 - No hardcoded project names/paths/stacks — generic plugin code only.
 - Exit codes: `0` = no error-severity findings; `1` = ≥1 error-severity finding; `2` = config error.
@@ -89,13 +89,13 @@ assert_stdout_absent() {
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-# --- Fixture: no lint block -> silent exit 0 ---
+# --- Fixture: no lint block -> reported no-op, exit 0 (or 2 when required) ---
 NOLINT="$TMP/nolint"; mkdir -p "$NOLINT/.agent-sync"
 echo "# claude" > "$NOLINT/CLAUDE.md"
 cat > "$NOLINT/.agent-sync/sources.json" <<'JSON'
 {"version":2,"files":{"m":"CLAUDE.md"},"outputs":[{"path":"AGENTS.md","sections":[{"id":"a","title":"R","source":"m","type":"full-body"}]}]}
 JSON
-assert_stdout_empty "no lint block -> silent" -- --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
+assert_stdout_contains "no lint block -> notice" "nothing was checked" -- --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
 assert_exit "no lint block -> exit 0" 0 -- --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
 
 # --- Fixture: empty lint block -> prints summary 0/0, exit 0 ---
@@ -141,7 +141,7 @@ while [[ $# -gt 0 ]]; do
       [[ -z "${2:-}" ]] && { echo "[agent-sync lint] --root requires a path" >&2; exit 2; }
       REPO_ROOT="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: lint.sh [--config <path>] [--root <path>]"
+      echo "Usage: lint.sh [--config <path>] [--root <path>] [--require-config]"
       echo ""
       echo "  --config <path>  Path to sources.json (default: auto-detect)"
       echo "  --root <path>    Project root (default: inferred from config dir)"
@@ -195,8 +195,11 @@ done
 CONFIG="$(cat "$CONFIG_PATH")"
 jq empty <<<"$CONFIG" 2>/dev/null || { echo "[agent-sync lint] config error: malformed JSON in $CONFIG_PATH" >&2; exit 2; }
 
-# --- Gate: no lint block -> silent success ---
-[[ "$(jq 'has("lint")' <<<"$CONFIG")" == "true" ]] || exit 0
+# --- Gate: no lint block -> reported no-op ---
+if [[ "$(jq 'has("lint")' <<<"$CONFIG")" != "true" ]]; then
+  echo "[agent-sync lint] no \`lint\` block in $CONFIG_PATH — nothing was checked."
+  exit 0
+fi
 
 # --- Findings collector ---
 # Each entry: "SEVERITY<TAB>CHECK_IDX<TAB>SORT_KEY<TAB>MESSAGE"
@@ -929,7 +932,7 @@ git commit -m "feat(agent-sync): wire lint into check/init/CI + docs, bump to 0.
 
 **Spec coverage:**
 - New `scripts/lint.sh`, CLI/config/root conventions → Task 1. ✓
-- No-lint-block → exit 0 silent; empty block → summary → Task 1. ✓
+- No-lint-block → reports that nothing was checked and exits 0; empty block → summary → Task 1. ✓
 - "Only configured blocks run"; default file lists → Tasks 2–5 (per-check `has(...)` gates + `resolve_files` defaults). ✓
 - Config validation (severity/max/files/groups/malformed JSON) → exit 2 → Task 2. ✓
 - Severities error/warn/off + defaults warn → each check (Tasks 3–5). ✓
