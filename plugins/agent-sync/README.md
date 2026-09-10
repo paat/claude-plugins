@@ -106,7 +106,8 @@ Three checks are available (all optional, configured in the `lint` block of `sou
 - **Line budget** — warns when a rules file exceeds a raw-line-count threshold.
 - **Soft preferences** — flags line-leading `prefer`/`prefers`/`prefer to`/`preferred` directives that should be rewritten as hard rules.
 
-If no `lint` block is present, `lint.sh` exits 0 silently (fully backward compatible). See
+If no `lint` block is present, `lint.sh` reports that nothing was checked and exits 0; with
+`--require-config`, it exits 2 (the exit code is otherwise unchanged). See
 `skills/agent-sync/references/sources-json-format.md` for the full `lint` block reference.
 
 ## Staying in sync
