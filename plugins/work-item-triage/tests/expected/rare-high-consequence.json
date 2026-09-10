@@ -8,7 +8,7 @@
   "response": "Repair the loss path minimally; low observed frequency does not remove the commitment.",
   "cost": {"estimate": "qualitative", "common_path": "Reuse existing interaction", "ownership": "Keep existing state owner", "obligations": "Relevant tests and documentation", "review_operations": "Bounded review; measured token cost unavailable"},
   "disposition": "implement-minimally",
-  "priority": 7,
+  "priority": 1,
   "prerequisites": [],
   "next_task": "Repair the loss path minimally; low observed frequency does not remove the commitment.",
   "stop_condition": "Refresh if code, activation evidence or owner ruling changes",

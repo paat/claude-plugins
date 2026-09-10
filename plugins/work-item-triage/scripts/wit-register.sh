@@ -76,7 +76,10 @@ prior_run=
 if [ -f "$root/pointer.json" ]; then
   prior=$(jq -er '.run_id | select(test("^[A-Za-z0-9][A-Za-z0-9._-]*$"))' "$root/pointer.json")
   prior_run=$prior
+  seen='|'
   while [ -n "$prior" ]; do
+    [[ $seen != *"|$prior|"* ]] || { echo 'wit-register: cyclic assessment history' >&2; exit 1; }
+    seen="$seen$prior|"
     cat "$root/$prior/register.json" >> "$previous"
     prior=$(jq -r '.previous_run_id // empty' "$root/$prior/register.json")
     [[ -z "$prior" || "$prior" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || usage
@@ -113,8 +116,8 @@ jq -r '
   (.capability_limits[]|"Capability limit: \(.)\n"),
   (if any(.items[];.direction=="proposed" and .disposition=="file-minimal") then
     "Filing handoff: delegate drafts to saas-startup-team:issue-file when installed. Otherwise output drafts and stop. WARNING: these drafts have had no PII review.\n" else empty end),
-  "First five cards by priority follow; register.json contains every card.\n",
-  (.items|sort_by(.priority,.id)|.[0:5][]|"## \(.id): \(.title)\n\nDirection: \(.direction); disposition: \(.disposition).\n\nOutcome: \(.outcome)\n\nEvidence: \(.evidence|tojson)\n\nNecessity: \(.necessity); readiness: \(.readiness).\n\nSmallest adequate response: \(.response)\n\nCost: \(.cost)\n",
+  "First five cards by necessity, then priority follow; register.json contains every card.\n",
+  (.items|sort_by((if .necessity=="required" then 0 else 1 end), .priority, .id)|.[0:5][]|"## \(.id): \(.title)\n\nDirection: \(.direction); disposition: \(.disposition).\n\nOutcome: \(.outcome)\n\nEvidence: \(.evidence|tojson)\n\nNecessity: \(.necessity); readiness: \(.readiness).\n\nSmallest adequate response: \(.response)\n\nCost: \(.cost)\n",
     (if has("target") then "Target owner: \(.target)\n" else empty end),
     (if has("revisit_trigger") then "Revisit: \(.revisit_trigger)\n" else empty end))
 ' "$stage/register.json" > "$stage/summary.md"
@@ -123,8 +126,8 @@ jq -r '
   def row: "- Priority \(.priority) — \(.id): \(.next_task)\n  Source: \(.provenance.source.system)/\(.provenance.source.scope); \(.url // .id)\n  Minimum scope: \(.response)\n  Necessity: \(.necessity); readiness: \(.readiness); disposition: \(.disposition)\n  Target owner: \(.target // "none")\n  Prerequisites: \(.prerequisites|join("; "))\n  Stop/refresh: \(.stop_condition)\n  enforcement: \(.enforcement.class) — \(.enforcement.mechanism)\n";
   "# Next actions: \(.run_id)\n\nAssessment: register.json; execution: applied.json; latest snapshot: ../pointer.json.\n",
   "Read the consuming selector before claiming enforcement. An instruction link does not change an unattended scheduler.\n",
-  "## Implement now\n", ([.items[]|select(eligible)]|sort_by(.priority,.id)|.[0:10][]|row),
-  "## Prerequisites and other dispositions\n", ([.items[]|select(eligible|not)]|sort_by(.priority,.id)|.[0:10][]|row),
+  "## Implement now\n", ([.items[]|select(eligible)]|sort_by((if .necessity=="required" then 0 else 1 end), .priority, .id)|.[0:10][]|row),
+  "## Prerequisites and other dispositions\n", ([.items[]|select(eligible|not)]|sort_by((if .necessity=="required" then 0 else 1 end), .priority, .id)|.[0:10][]|row),
   "Queue bounded to 10 rows per section; consult register.json for all decisions. Refresh when a stop condition, prerequisite, owner ruling, or tracker history changes."
 ' "$stage/register.json" > "$stage/queue.md"
 printf '{"schema_version":1,"actions":[]}\n' > "$stage/applied.json"

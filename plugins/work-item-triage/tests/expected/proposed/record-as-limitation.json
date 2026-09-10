@@ -1,0 +1,23 @@
+{
+  "id": "draft-offline-history",
+  "direction": "proposed",
+  "outcome": "Offline history lookup is unsupported under the current documented service scope; the owner confirms connected lookup remains the supported route.",
+  "evidence": {
+    "class": "source-reachable",
+    "counter_evidence": "No separate tracking is needed for this bounded documentation response."
+  },
+  "necessity": "discretionary",
+  "readiness": "ready",
+  "response": "Record the offline lookup limitation beside the existing connected lookup instructions.",
+  "cost": "One limitation note maintained with the existing support guide; no offline implementation.",
+  "disposition": "record-as-limitation",
+  "priority": 1,
+  "prerequisites": [],
+  "next_task": "Record the offline lookup limitation beside the existing connected lookup instructions.",
+  "stop_condition": "Refresh if the supported route or owner ruling changes",
+  "enforcement": {
+    "class": "instruction-only",
+    "mechanism": "Fresh session reads queue before selecting work"
+  },
+  "code_refs": []
+}

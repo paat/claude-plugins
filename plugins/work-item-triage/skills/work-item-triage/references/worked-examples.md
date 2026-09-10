@@ -31,6 +31,7 @@ not an additional decision procedure.
 7. **Rare irreversible consequence** — `tests/fixtures/rare-high-consequence.json`: a measured low
    incidence still requires a response when the demonstrated consequence violates a commitment.
    Keep the observation denominator/window rather than substituting a discretionary reach score.
+   Priority 1 puts this repair first in the implement queue, ahead of discretionary work.
 
 8. **Unavailable incidents** — `tests/fixtures/unavailable-incident-data.json`: missing observation
    access supports a bounded verification task. Evidence remains unavailable and has no frequency
@@ -43,6 +44,14 @@ not an additional decision procedure.
 10. **Changed owner ruling** — `tests/fixtures/changed-owner-ruling.json`: new attributable authority
     changes a previous assessment. Write a fresh snapshot with supersession provenance, retaining
     the old rationale instead of silently editing history.
+
+11. **Fix without filing** — `tests/fixtures/fix-now-no-item.json`: a proposed support-note repair
+    corrects a reproduced broken anchor in one local edit. Choose `fix-now-no-item`; verify the link
+    within the current task without creating ongoing tracking for a completed bounded correction.
+
+12. **Record a limitation** — `tests/fixtures/record-as-limitation.json`: a proposed offline lookup
+    feature lies outside the owner-confirmed supported scope. Choose `record-as-limitation`; document
+    the boundary and connected workaround in the existing guide without filing implementation work.
 
 The non-code support handoff in `tests/fixtures/github-parity.json` and `tests/fixtures/plane-parity.json`
 must yield the same neutral decision. Source unavailability does not invite invented code evidence.

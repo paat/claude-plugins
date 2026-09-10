@@ -23,6 +23,9 @@ printf '%s\n' "$*" >> "$WIT_LOG"
 if [ "$1" = api ]; then
   endpoint="$2"
   if [[ "$endpoint" == *'/timeline?'* ]]; then
+    if [ "$WIT_MODE" = shared-relations ]; then
+      printf '%s\n' '[{"source":{"issue":{"number":12,"html_url":"https://github.com/sample/project/issues/12"}}},{"source":{"issue":{"number":12,"html_url":"https://github.com/other/project/issues/12"}}}]'; exit
+    fi
     if [ -f "$WIT_STATE/comments.json" ]; then jq '[last|{id:77,event:"commented",body:.body,created_at:"2026-09-10T10:00:00Z"}]' "$WIT_STATE/comments.json"; else printf '[]\n'; fi
     exit
   fi
@@ -37,6 +40,8 @@ if [ "$1" = api ]; then
   fi
   if [[ "$endpoint" == *'/issues?'* ]]; then
     case "$WIT_MODE" in
+      body-reference|missing-relation|shared-relations)
+        jq --arg mode "$WIT_MODE" '[. + {body:"Use #336699 for the banner. See also #12",relations:(if $mode=="missing-relation" then [{id:"336699",kind:"related"}] else [] end)}]' "$WIT_FIX/github-parity.json" ;;
       large) jq '[. + {body:("long evidence " * 12000)}]' "$WIT_FIX/github-parity.json" ;;
       worked) jq -s '[.[] | del(.fixture_comments)]' "$WIT_FIX"/{shipped-alert,future-database,upload-next-action,invoice-consolidation,conditional-successor,owner-permitted-behavior,rare-high-consequence,unavailable-incident-data,conditional-activation,changed-owner-ruling}.json ;;
       pages|truncated)
@@ -48,6 +53,8 @@ if [ "$1" = api ]; then
     exit
   fi
   if [[ "$endpoint" == *'/issues/'* ]]; then
+    [[ "$endpoint" != */issues/336699 ]] || exit 1
+    if [[ "$endpoint" == */issues/12 ]]; then jq -n --arg url "https://github.com/${endpoint#repos/}" '{number:12,title:"Linked item",state:"open",html_url:$url}'; exit; fi
     if [[ "$endpoint" == */issues/302 ]]; then printf '%s\n' '{"number":302,"title":"Existing support policy","state":"open","html_url":"https://tracker.example/items/302"}'; exit; fi
     if [ "$WIT_MUTATION" = concurrent ]; then jq '.updated_at="2026-09-10T12:00:00Z"' "$WIT_FIX/github-parity.json";
     elif [ -f "$WIT_STATE/closed" ]; then jq '.state="closed"' "$WIT_FIX/github-parity.json";
@@ -101,6 +108,12 @@ check '6 implement-now contains eligible minimum task' 1 "$(printf '%s\n' "$impl
 check '6 fresh-session queue retains scope blockers stop and enforcement' 4 "$(grep -Eo 'Minimum scope:|Prerequisites:|Stop/refresh:|enforcement: instruction-only' <<< "$implement_now" | sort -u | wc -l | tr -d ' ')"
 check 'queue preserves consolidation target owner' 1 "$(grep -c 'Target owner: 94' "$run/queue.md" || true)"
 check 'summary preserves consolidation target owner' 1 "$(grep -c 'Target owner: 94' "$run/summary.md" || true)"
+check 'rare irreversible consequence leads worked implement queue' 7 "$(sed -n 's/^- Priority [0-9]* — \([^:]*\):.*/\1/p' <<< "$implement_now" | head -n 1)"
+# Both queue sections and summary must rank required work above discretionary priority 1.
+jq '{items:[.items[0] + {id:"cosmetic-ready",necessity:"discretionary",priority:1}, .items[0] + {id:"payment-ready",necessity:"required",priority:2}, .items[0] + {id:"cosmetic-blocked",necessity:"discretionary",priority:1,readiness:"blocked"}, .items[0] + {id:"payment-blocked",necessity:"required",priority:2,readiness:"blocked"}]}' "$TMP/decisions.json" | jq '(.items[].disposition)="implement-minimally"' > "$TMP/ordering-decisions.json"
+jq --slurpfile d "$TMP/ordering-decisions.json" '.items[0] as $item | .items=[$d[0].items[] | $item + {id:.id}]' "$TMP/worked.json" > "$TMP/ordering-snapshot.json"
+ordering_run="$(write_register "$TMP/ordering-snapshot.json" "$TMP/ordering-decisions.json" ordering)"
+check 'necessity orders both queue sections and summary before priority' 'payment-ready cosmetic-ready payment-blocked cosmetic-blocked |payment-blocked payment-ready cosmetic-blocked cosmetic-ready ' "$(sed -n 's/^- Priority [0-9]* — \([^:]*\):.*/\1/p' "$ordering_run/queue.md" | tr '\n' ' ')|$(sed -n 's/^## \([^:]*\):.*/\1/p' "$ordering_run/summary.md" | tr '\n' ' ')"
 # The fixture answers are authored examples, compared as field contracts.
 for expected in "$HERE"/expected/*.json; do
   check "scenario $(basename "$expected" .json) preserves obligations" 0 "$(jq -e --slurpfile want "$expected" '.items[]|select(.id==$want[0].id)|. as $row|all($want[0]|del(.code_refs)|keys[]; $row[.] == $want[0][.]) and (.provenance.code_refs|length)==0' "$register" >/dev/null 2>&1; printf '%s' "$?")"
@@ -112,6 +125,17 @@ check '1 wrong direction enum rejected' 1 "$([ "$?" -ne 0 ] && echo 1 || echo 0)
 jq '(.items[]|select(.evidence.class=="unavailable")).evidence.frequency="rare"' "$TMP/decisions.json" > "$TMP/invalid.json"
 write_register "$TMP/worked.json" "$TMP/invalid.json" invalid-frequency >/dev/null 2>&1
 check '4 invented frequency rejected' 1 "$([ "$?" -ne 0 ] && echo 1 || echo 0)"
+for rule in defer-trigger id-coverage necessity enforcement; do
+  case "$rule" in
+    defer-trigger) filter='(.items[]|select(.disposition=="defer")).revisit_trigger="someday"' ;;
+    id-coverage) filter='.items[0].id="absent-from-snapshot"' ;;
+    necessity) filter='.items[0].necessity="optional"' ;;
+    enforcement) filter='.items[0].enforcement.class="automatic"' ;;
+  esac
+  jq "$filter" "$TMP/decisions.json" > "$TMP/invalid.json"
+  write_register "$TMP/worked.json" "$TMP/invalid.json" "invalid-$rule" >/dev/null 2>&1
+  check "validator rejects invalid $rule" 1 "$([ "$?" -ne 0 ] && echo 1 || echo 0)"
+done
 cp "$register" "$TMP/original-register.json"
 export WIT_NOW=2026-09-10T11:00:00Z
 second="$(write_register "$TMP/worked.json" "$TMP/decisions.json" rerun)"
@@ -124,6 +148,20 @@ check '7 existing run cannot be overwritten' 1 "$([ "$?" -ne 0 ] && echo 1 || ec
 write_register "$TMP/worked.json" "$TMP/decisions.json" pointer.json >/dev/null 2>&1
 check 'reserved pointer filename cannot be used as run directory' 1 "$([ "$?" -ne 0 ] && echo 1 || echo 0)"
 check 'reserved run refusal preserves latest pointer' 0 "$(truth "$TMP/output/work-item-triage/pointer.json" '.run_id=="rerun"')"
+# Corrupt an isolated history chain; a timeout is a failure, not successful rejection.
+mkdir -p "$TMP/cycle/work-item-triage/loop"
+printf '{"run_id":"loop"}\n' > "$TMP/cycle/work-item-triage/pointer.json"
+printf '{"previous_run_id":"loop"}\n' > "$TMP/cycle/work-item-triage/loop/register.json"
+python3 - "$SCRIPTS/wit-register.sh" "$TMP/worked.json" "$TMP/decisions.json" "$TMP/cycle" <<'PYTEST' >/dev/null 2>&1
+import subprocess, sys
+try:
+    result = subprocess.run(["bash", sys.argv[1], "--snapshot", sys.argv[2], "--decisions", sys.argv[3], "--output-dir", sys.argv[4], "--run-id", "after-cycle"], timeout=5)
+except subprocess.TimeoutExpired:
+    sys.exit(124)
+sys.exit(result.returncode)
+PYTEST
+check 'cyclic prior-run chain fails promptly' 1 "$?"
+check 'cycle refusal preserves pointer and releases lock' 1 "$([ "$(jq -r .run_id "$TMP/cycle/work-item-triage/pointer.json")" = loop ] && [ ! -e "$TMP/cycle/work-item-triage/.writer-lock" ] && [ ! -e "$TMP/cycle/work-item-triage/after-cycle" ] && echo 1 || echo 0)"
 # More than a provider page, followed by a transport-truncated second page.
 export WIT_MODE=pages
 read_snapshot github > "$TMP/pages.json"
@@ -153,8 +191,19 @@ check '7 interleaved provider retains matching prior provenance' 0 "$(truth "$ch
 check '10 core contains no provider-specific keys'  0 "$(truth "$plane_run/register.json" '[..|objects|keys[]|select(.=="number" or .=="sequence_id" or .=="html_url" or .=="description_stripped")]|length==0')"
 read_snapshot plane --config "$TMP/plane.json" --search recovery > "$TMP/search.json"
 check '11 absent optional search reports local-match limit' 0 "$(truth "$TMP/search.json" '.capability_limits|join(" ")|test("search|local";"i")')"
-check '8 read source has no mutating verbs' 0 "$(grep -Ec 'issue (close|edit|comment)|pr (merge|close)|--method (POST|PATCH|DELETE)' "$SCRIPTS/wit-read.sh" || true)"
-check '8 complete analysis call log contains read verbs only' 0 "$(awk '!/^api repos\// && !/^plane (list|show)/ {bad++} END {print bad+0}' "$WIT_LOG")"
+export WIT_MODE=body-reference
+read_snapshot github > "$TMP/body-reference.json"
+check 'unresolvable body reference is dropped without poisoning completeness' 0 "$(truth "$TMP/body-reference.json" '.completeness=="complete" and .items[0].completeness=="complete" and ([.items[0].relations[].id]==["12"])')"
+export WIT_MODE=missing-relation
+read_snapshot github > "$TMP/missing-relation.json"
+check 'unresolved tracker-declared link still marks history incomplete' 0 "$(truth "$TMP/missing-relation.json" '.completeness=="incomplete" and .items[0].completeness=="incomplete" and any(.items[0].relations[]; .id=="336699" and .resolution=="unavailable")')"
+export WIT_MODE=shared-relations
+links_before=$(grep -c '^api repos/sample/project/issues/12$' "$WIT_LOG" || true)
+read_snapshot github > "$TMP/shared-relations.json"
+check 'body and timeline link dedupe retains distinct repository scopes' 0 "$(truth "$TMP/shared-relations.json" '.completeness=="complete" and (.items[0].relations|length)==2 and ([.items[0].relations[].url]|unique|length)==2 and all(.items[0].relations[]; .id=="12" and .kind=="related" and .resolution=="resolved")')"
+check 'body and timeline duplicate makes one lookup per scope' 1 "$(($(grep -c '^api repos/sample/project/issues/12$' "$WIT_LOG") - links_before))"
+check '8 read source has no mutating verbs' 0 "$(grep -Ec 'issue (close|edit|comment)|pr (merge|close)|(--method[ =]+|-X[ =]*)(POST|PATCH|DELETE|PUT)' "$SCRIPTS/wit-read.sh" || true)"
+check '8 complete analysis call log contains read verbs only' 0 "$(awk '!/^api repos\/[^/ ]+\/[^/ ]+\/(issues|pulls)(\/[0-9]+(\/(comments|timeline))?)?(\?[^ ]*)?$/ && !/^api search\/issues\?[^ ]+$/ && !/^plane (list [0-9]+|show [^ ]+)$/ {bad++} END {print bad+0}' "$WIT_LOG")"
 export WIT_MODE=large
 read_snapshot github > "$TMP/large.json"
 check 'large tracker body normalizes without argv overflow' 0 "$?"
@@ -171,6 +220,12 @@ for disposition in do-not-file file-minimal append-to fix-now-no-item record-as-
   jq --arg disposition "$disposition" '.items[0] += {id:"draft-1",direction:"proposed",disposition:$disposition,target:"88"}' "$TMP/parity-decisions.json" > "$TMP/proposed.json"
   proposed_run="$(write_register "$TMP/proposed-snapshot.json" "$TMP/proposed.json" "proposed-$disposition")"
   check "1 proposed disposition $disposition" 0 "$(truth "$proposed_run/register.json" ".items[0].direction==\"proposed\" and .items[0].disposition==\"$disposition\"")"
+done
+for disposition in fix-now-no-item record-as-limitation; do
+  jq --slurpfile item "$FIX/$disposition.json" '.items=$item' "$TMP/github.json" > "$TMP/proposed-snapshot.json"
+  jq '{items:[.]}' "$HERE/expected/proposed/$disposition.json" > "$TMP/proposed.json"
+  proposed_run="$(write_register "$TMP/proposed-snapshot.json" "$TMP/proposed.json" "worked-$disposition")"
+  check "direction 2 worked $disposition preserves decision and local provenance" 0 "$(jq -e --slurpfile want "$HERE/expected/proposed/$disposition.json" '.items[0] | . as $row | all($want[0]|del(.code_refs)|keys[]; $row[.] == $want[0][.]) and .provenance.item_id==$want[0].id and .provenance.updatedAt==null and .provenance.comments_fetched==0 and .url==null' "$proposed_run/register.json" >/dev/null 2>&1; echo $?)"
 done
 check 'direction 2 file draft warns explicitly no PII review' 1 "$(grep -c 'WARNING: .*draft.*no PII review' "$TMP/output/work-item-triage/proposed-file-minimal/summary.md" || true)"
 export WIT_MODE=missing-history

@@ -114,16 +114,21 @@ wit_read_main() {
       [[ $(jq -r '.comments_complete // false' <<< "$raw") == true ]] || item_complete=false
       [[ $(jq -r '.complete // true' <<< "$raw") == true ]] || item_complete=false
     fi
-    local relations relation linked_scope linked_id linked details
+    local relations relation linked_scope linked_id details
     relations=$(wit_json '.[0] as $r | .[1] as $t | $r.relations // [] | . + [$t[]|select(.source.issue? != null)|.source.issue|{id:(.number|tostring),url:(.html_url // ""),kind:(if .pull_request then "delivery" else "related" end)}]' "$raw" "$timeline")
     if [[ $system == github ]]; then
-      relations=$(wit_json '.[0] as $relations | .[1] as $r | $relations + [(($r.body // "")|scan("#([0-9]+)"))|{id:.[0],kind:"referenced"}] | unique_by([.url // "",.id])' "$relations" "$raw")
+      relations=$(wit_json '
+        .[0] as $relations | .[1] as $r | .[2] as $scope |
+        ($relations | map(. + {_body_candidate:false})) +
+        [(($r.body // "")|scan("#([0-9]+)"))|{id:.[0],kind:"referenced",_body_candidate:true}] |
+        map(. as $r | ((.url // "" | capture("^https://github.com/(?<scope>[^/]+/[^/]+)/(issues|pull)/(?<id>[0-9]+)$")?) //
+          {scope:$scope,id:(.id|tostring)}) as $link | $r + {id:$link.id,_scope:$link.scope}) |
+        unique_by([._scope,.id])' "$relations" "$raw" "$(jq -n --arg scope "$scope" '$scope')")
       : > "$tmp/relations"
       while IFS= read -r relation; do
-        linked_scope=$scope; linked_id=$(jq -r '.id' <<< "$relation")
-        linked=$(jq -r '(.url // "")|capture("^https://github.com/(?<scope>[^/]+/[^/]+)/(issues|pull)/(?<id>[0-9]+)$")?|[.scope,.id]|@tsv' <<< "$relation")
-        [[ -z $linked ]] || IFS=$'\t' read -r linked_scope linked_id <<< "$linked"
+        linked_scope=$(jq -r "._scope" <<< "$relation"); linked_id=$(jq -r '.id' <<< "$relation")
         if [[ ! $linked_id =~ ^[0-9]+$ ]] || ! details=$(gh api "repos/$linked_scope/issues/$linked_id"); then
+          [[ $(jq -r "._body_candidate" <<< "$relation") == false ]] || continue
           item_complete=false; relation=$(jq '. + {resolution:"unavailable"}' <<< "$relation")
         else
           relation=$(wit_json '.[0] as $r | .[1] as $d | $r + {title:($d.title // ""),state:($d.state // "unknown"),url:($d.html_url // $r.url // ""),resolution:"resolved"}' "$relation" "$details")
@@ -133,7 +138,7 @@ wit_read_main() {
             else item_complete=false; relation=$(jq '. + {resolution:"unavailable"}' <<< "$relation"); fi
           fi
         fi
-        printf '%s\n' "$relation" >> "$tmp/relations"
+        jq -c 'del(._body_candidate,._scope)' <<< "$relation" >> "$tmp/relations"
       done < <(jq -c '.[]' <<< "$relations")
       relations=$(jq -s '.' "$tmp/relations")
     fi
