@@ -94,6 +94,7 @@ and non-interactive with permission prompts disabled.
 Collect Codex, Gemini, GLM, DeepSeek, Qwen, Grok, and Claude outputs. Treat disabled
 markers as intentional absence. Treat malformed JSON or `{"error":...}` as
 provider failure and continue with remaining non-disabled providers.
+Report per-leg results with status using `references/output-contract.md`, including in human progress updates.
 
 ### PR delivery evidence
 
@@ -162,11 +163,11 @@ rules never override 3b-0. Required for critical/high findings:
 
 ### Marked Positions (`line_check`)
 
-The runner marks findings whose position cannot exist — a file outside the
-reviewed diff or a line beyond the target file's length (providers sometimes
-report diff-global positions). A `line_check`-marked finding has unreliable
-evidence linking: verify it against the real file before counting it toward
-severity or consensus, and cap it at `medium` unless independently confirmed.
+The runner marks findings whose position cannot exist — providers sometimes report diff-global positions — and marks findings whose check could not run. Verify positions only against the leg's pinned tree:
+`git show <head_oid>:<path>` with that leg's stamped `diff_stat.head_oid`, never the ambient worktree.
+Verify marked findings before counting them toward severity or consensus; cap at `medium` unless independently
+confirmed against that pinned tree. If the pinned object is unavailable, report the provider and unavailable evidence
+in `summary` and the finding's `arbiter_notes`; retain the mark in those notes and keep the medium cap, with no ambient fallback.
 
 ### Ignored Added Paths
 If preflight warns or sealed `ignored-paths.json` exists, read the preceding stanza comments from `git show HEAD:<source>` (never the ambient worktree) and make each signal a `repository-policy` finding; it must become a finding, not be reported and forgotten.
@@ -220,8 +221,12 @@ Any `must-remove-before-merge` scope finding makes the verdict at least
 ## Verdict Rules
 
 - If all non-disabled providers failed: `NEEDS_WORK`, confidence `0.0`.
-- If all non-disabled providers returned zero findings, there are no blocking scope findings,
-  and no sealed ignored-path signals require repository-policy findings: `APPROVE`, confidence `0.95`.
+- The zero-findings shortcut requires every non-disabled provider to have produced a leg (`status == "ok"`)
+  with zero findings, no blocking scope findings, and no sealed ignored-path signals requiring repository-policy findings:
+  `APPROVE`, confidence `0.95`.
+- `APPROVE` requires confidence `0.95` when every non-disabled provider is `ok`. Any `failed` provider prevents the shortcut but still permits `APPROVE` with confidence `> 0` and `< 0.95`.
+  Assess remaining evidence explicitly; justify reduced confidence and name each failed provider and missing independent review in `tribunal_verdict.rationale` and `summary`.
+  Keep manifest statuses in `provider_assessment`; `disabled` remains excluded from quorum and never triggers reduced confidence.
 - If any valid critical/high finding remains: `NEEDS_WORK` or `BLOCK` depending
   on blast radius and release risk.
 - Medium/low findings may be approved with notes when the change is otherwise
@@ -229,10 +234,8 @@ Any `must-remove-before-merge` scope finding makes the verdict at least
 
 ## Output Contract
 
-Return JSON only, matching the schema in `references/output-contract.md` (top-level keys:
-`tribunal_verdict`, `findings`, `scope_findings`, `provider_assessment`, `conflicts_resolved`,
-`summary`; each finding carries a `consensus` of `CONSENSUS` or `SINGLE_PROVIDER`, and every
-critical/high finding must include the `blocking_proof` block from 3b-0).
+Return JSON only, matching `references/output-contract.md`, including provider statuses,
+finding consensus, and the `blocking_proof` required by 3b-0 for critical/high findings.
 
 For a merge gate, save that JSON to `arbitration.json`, then have the delivery
 controller finalize the collection with its retained manifest digest:

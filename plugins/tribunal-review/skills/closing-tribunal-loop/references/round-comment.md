@@ -12,7 +12,7 @@ round are decided. Use the stable HTML marker so rounds are greppable.
 - **Decision:** …
 - **Confidence:** …
 - **Critical/high remaining:** <count>
-- **Providers:** ok / failed / disabled summary (one line)
+- **Providers:** <provider name>: <status and result per tribunal-loop Step 2>; … (one line)
 
 ### Findings
 

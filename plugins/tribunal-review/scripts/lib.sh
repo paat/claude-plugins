@@ -610,7 +610,11 @@ tribunal_line_check() {
   if ! git -C "$root" diff --name-only -z "$base_oid...$head_oid" --no-ext-diff --no-textconv \
     > "$aux.changed" 2>/dev/null; then
     rm -f "$aux" "$aux.changed"
-    printf '%s\n' "$json"
+    printf '%s' "$json" | jq -c '.findings |= map(
+      if type != "object" then .
+      elif (.file | type) != "string" then .line_check = "malformed finding coordinates"
+      elif has("file") or has("line") then .line_check = "position check unavailable"
+      else . end)'
     return
   fi
   {
@@ -630,7 +634,8 @@ tribunal_line_check() {
   printf '%s' "$json" | jq -c --slurpfile aux "$aux" '
     $aux[0].changed as $changed | $aux[0].counts as $counts |
     .findings = [ .findings[] | . as $f |
-      if (($f.file? | type) != "string") then
+      if (type != "object") then .
+      elif (($f.file? | type) != "string") then
         .line_check = "malformed finding coordinates"
       elif (($changed | length) > 0) and (($changed | index($f.file)) == null) then
         .line_check = "file not in reviewed diff"
@@ -638,7 +643,7 @@ tribunal_line_check() {
       elif (($f.line | type) != "number") or ($f.line < 1) or ($f.line != ($f.line | floor)) then
         .line_check = "invalid line number"
       elif ($counts[$f.file] == -1) then
-        .line_check = "file missing at HEAD"
+        .line_check = "file missing at reviewed head"
       elif ($counts[$f.file] != null) and ($f.line > $counts[$f.file]) then
         .line_check = ("line out of bounds: file has " + ($counts[$f.file] | tostring) + " lines")
       else . end ]'
