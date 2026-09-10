@@ -5,12 +5,20 @@
   "html_url": "https://tracker.example/items/301",
   "state": "open",
   "updated_at": "2026-09-09T00:00:00Z",
-  "comments": 1,
+  "comments": 2,
   "labels": [],
   "fixture_comments": [
     {
       "id": 12,
       "body": "The support lead confirms the existing contact remains authoritative.",
+      "updated_at": "2026-09-09T00:00:00Z",
+      "user": {
+        "login": "support-owner"
+      }
+    },
+    {
+      "id": 13,
+      "body": "Unattributed imported comment.",
       "updated_at": "2026-09-09T00:00:00Z"
     }
   ],
@@ -18,6 +26,21 @@
     {
       "id": "302",
       "kind": "related"
+    }
+  ],
+  "fixture_history": [
+    {
+      "event": "decision",
+      "created_at": "2026-09-09T00:00:00Z",
+      "body": "Keep the existing contact.",
+      "actor": {
+        "login": "support-owner"
+      }
+    },
+    {
+      "event": "imported",
+      "created_at": "2026-09-09T00:00:00Z",
+      "body": "Unattributed imported event."
     }
   ]
 }

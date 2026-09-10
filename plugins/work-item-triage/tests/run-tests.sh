@@ -26,7 +26,8 @@ if [ "$1" = api ]; then
     if [ "$WIT_MODE" = shared-relations ]; then
       printf '%s\n' '[{"source":{"issue":{"number":12,"html_url":"https://github.com/sample/project/issues/12"}}},{"source":{"issue":{"number":12,"html_url":"https://github.com/other/project/issues/12"}}}]'; exit
     fi
-    printf '[]\n'
+    if [ "$WIT_MODE" = parity ]; then jq '.fixture_history' "$WIT_FIX/github-parity.json";
+    else printf '[]\n'; fi
     exit
   fi
   if [[ "$endpoint" == *'/comments?'* ]]; then
@@ -43,6 +44,9 @@ if [ "$1" = api ]; then
         jq --arg mode "$WIT_MODE" '[. + {body:"Use #336699 for the banner. See also #12",relations:(if $mode=="missing-relation" then [{id:"336699",kind:"related"}] else [] end)}]' "$WIT_FIX/github-parity.json" ;;
       large) jq '[. + {body:("long evidence " * 12000)}]' "$WIT_FIX/github-parity.json" ;;
       worked) jq -s '[.[] | del(.fixture_comments)]' "$WIT_FIX"/{shipped-alert,future-database,upload-next-action,invoice-consolidation,conditional-successor,owner-permitted-behavior,rare-high-consequence,unavailable-incident-data,conditional-activation,changed-owner-ruling}.json ;;
+      duplicate-pages)
+        if [[ "$endpoint" == *'page=1' ]]; then jq '.[0].body="Page 1 observation"' "$WIT_FIX/github-page1.json";
+        else jq '[.[0] + {body:"Page 2 observation"}]' "$WIT_FIX/github-page1.json"; fi ;;
       pages|truncated)
         if [[ "$endpoint" == *'page=1' ]]; then cat "$WIT_FIX/github-page1.json";
         elif [ "$WIT_MODE" = truncated ]; then cat "$WIT_FIX/github-page2-truncated.json"; exit 1;
@@ -74,7 +78,9 @@ cat > "$TMP/bin/plane-stub" <<'STUB'
 printf 'plane %s\n' "$*" >> "$WIT_LOG"
 case "$1" in
   list) [ "${2:-}" = 1 ] || exit 2; jq '{items:[.],next:false,complete:true}' "$WIT_FIX/plane-parity.json" ;;
-  show) [ "${2:-}" = 301 ] || exit 2; cat "$WIT_FIX/plane-parity.json" ;;
+  show) [ "${2:-}" = 301 ] || exit 2
+    if [ "$WIT_MODE" = incomplete-source ]; then jq '. + {complete:false,comments_complete:true}' "$WIT_FIX/plane-parity.json";
+    else cat "$WIT_FIX/plane-parity.json"; fi ;;
   *) exit 2 ;;
 esac
 STUB
@@ -171,6 +177,9 @@ jq --slurpfile d "$HERE/expected/upload-next-action.json" '{items:[.items[]|.id 
 truncated_run="$(write_register "$TMP/truncated.json" "$TMP/truncated-decisions.json" truncated)"
 check '3 register preserves incomplete census' 0 "$(truth "$truncated_run/register.json" '.completeness=="incomplete"')"
 check '3 summary warns incomplete' 1 "$(grep -ic 'incomplete' "$truncated_run/summary.md" | awk '{print ($1>0)?1:0}')"
+export WIT_MODE=duplicate-pages
+read_snapshot github > "$TMP/duplicate-pages.json"
+check 'tribunal T-003 latest duplicate observation survives pagination' 0 "$(truth "$TMP/duplicate-pages.json" '.completeness=="complete" and (.items|length)==100 and ([.items[]|select(.id=="1001")|.body]==["Page 2 observation"])')"
 # Parity uses identical authored decisions; provider normalization must not change them.
 export WIT_MODE=parity
 read_snapshot github > "$TMP/github.json"
@@ -178,7 +187,23 @@ read_snapshot plane --config "$TMP/plane.json" > "$TMP/plane-snapshot.json"
 jq '{items:[. + {id:"301",outcome:"Clarify existing support contact",response:"Update the existing support note",next_task:"Amend the contact note",code_refs:[]}]}' "$HERE/expected/upload-next-action.json" > "$TMP/parity-decisions.json"
 github_run="$(write_register "$TMP/github.json" "$TMP/parity-decisions.json" github)"
 plane_run="$(write_register "$TMP/plane-snapshot.json" "$TMP/parity-decisions.json" plane)"
-check '10 GitHub and Plane normalize same non-code item' 0 "$(jq -e -s 'length==2 and (.[0].items|length)==1 and ((.[0].items|map({id,title,url,state,updatedAt,body,comments,comments_fetched,relations}))==(.[1].items|map({id,title,url,state,updatedAt,body,comments,comments_fetched,relations})))' "$TMP/github.json" "$TMP/plane-snapshot.json" >/dev/null 2>&1; echo $?)"
+check '10 GitHub and Plane normalize same non-code item' 0 "$(jq -e -s 'length==2 and (.[0].items|length)==1 and ((.[0].items|map({id,title,url,state,updatedAt,body,comments,history,comments_fetched,relations}))==(.[1].items|map({id,title,url,state,updatedAt,body,comments,history,comments_fetched,relations})))' "$TMP/github.json" "$TMP/plane-snapshot.json" >/dev/null 2>&1; echo $?)"
+check 'tribunal T-001 missing complete retains complete default' 0 "$(truth "$TMP/plane-snapshot.json" '.completeness=="complete" and .items[0].completeness=="complete"')"
+for provider in github plane; do
+  args=(); [ "$provider" != plane ] || args=(--config "$TMP/plane.json")
+  for detail in compact full; do
+    full=(); [ "$detail" != full ] || full=(--full)
+    read_snapshot "$provider" "${args[@]}" "${full[@]}" > "$TMP/authors.json"
+    check "tribunal T-002 $provider $detail preserves known authors and omits unknown authors" 0 "$(truth "$TMP/authors.json" '.items[0] | .comments[0].author=="support-owner" and .history[0].author=="support-owner" and (.comments[1]|has("author")|not) and (.history[1]|has("author")|not)')"
+  done
+done
+export WIT_MODE=incomplete-source
+for operation in list show; do
+  args=(); [ "$operation" != show ] || args=(--id 301)
+  read_snapshot plane --config "$TMP/plane.json" "${args[@]}" > "$TMP/incomplete-source.json"
+  check "tribunal T-001 $operation honors explicit incomplete with complete comments" 0 "$(truth "$TMP/incomplete-source.json" '.completeness=="incomplete" and .items[0].completeness=="incomplete" and .items[0].comments_fetched==2')"
+done
+export WIT_MODE=parity
 check '10 identical decision payload retains provider parity' 0 "$(jq -e -s 'length==2 and (.[0].items|length)==1 and ((.[0].items|map({disposition,necessity,response}))==(.[1].items|map({disposition,necessity,response})))' "$github_run/register.json" "$plane_run/register.json" >/dev/null 2>&1; echo $?)"
 chain_run="$(write_register "$TMP/github.json" "$TMP/parity-decisions.json" github-again)"
 check '7 interleaved provider retains matching prior provenance' 0 "$(truth "$chain_run/register.json" '.items[0].supersedes.run_id=="github"')"
@@ -210,8 +235,21 @@ read_snapshot github --full > "$TMP/large-full.json"
 check 'full evidence preserves large tracker body' 0 "$(truth "$TMP/large-full.json" '(.items[0].body|length)>131072 and .items[0].text_truncated==false')"
 export WIT_MODE=parity
 jq '.items[0].code_refs=["README.md"]' "$TMP/parity-decisions.json" > "$TMP/pinned.json"
-pinned_run="$(bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/github.json" --decisions "$TMP/pinned.json" --output-dir "$TMP/output" --run-id pinned --code-ref "$HERE/../../..")"
-check '7 code references pinned to actual HEAD' "$(git -C "$HERE/../../.." rev-parse HEAD)" "$(jq -r '.items[0].provenance.code_refs[0].commit' "$pinned_run/register.json")"
+git init -q "$TMP/code"
+printf 'Committed evidence\n' > "$TMP/code/README.md"
+git -C "$TMP/code" add README.md
+git -C "$TMP/code" -c user.name=Test -c user.email=test@example.invalid commit -qm 'Fixture evidence'
+pinned_run="$(bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/github.json" --decisions "$TMP/pinned.json" --output-dir "$TMP/output" --run-id pinned --code-ref "$TMP/code")"
+check '7 code references pinned to actual HEAD' "$(git -C "$TMP/code" rev-parse HEAD)" "$(jq -r '.items[0].provenance.code_refs[0].commit' "$pinned_run/register.json")"
+check 'tribunal T-004 clean evidence records dirty false' 0 "$(truth "$pinned_run/register.json" '.items[0].provenance.code_refs[0].dirty==false')"
+for change in modified staged untracked; do
+  git -C "$TMP/code" reset --hard -q HEAD
+  if [ "$change" = untracked ]; then printf 'New evidence\n' > "$TMP/code/new.txt";
+  else printf 'Edited evidence\n' >> "$TMP/code/README.md"; fi
+  [ "$change" != staged ] || git -C "$TMP/code" add README.md
+  dirty_run="$(bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/github.json" --decisions "$TMP/pinned.json" --output-dir "$TMP/output" --run-id "dirty-$change" --code-ref "$TMP/code")"
+  check "tribunal T-004 $change evidence records dirty true and retains commit" 0 "$(truth "$dirty_run/register.json" ".items[0].provenance.code_refs[0] | .dirty==true and .commit==\"$(git -C "$TMP/code" rev-parse HEAD)\"")"
+done
 # Both direction enums share one validated card mechanism; no tracker item exists yet.
 jq ' .items=[{id:"draft-1",title:"Proposed support note",updatedAt:null,comments_fetched:0,completeness:.completeness,comments:[],relations:[]}]' "$TMP/github.json" > "$TMP/proposed-snapshot.json"
 for disposition in do-not-file file-minimal append-to fix-now-no-item record-as-limitation; do

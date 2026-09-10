@@ -27,6 +27,9 @@ Commands are trusted repository configuration, never copied from item content. T
 Records accept `id`, `title`/`name`, `body`/`description_stripped`/`description`, `state` or `state.name`, and
 `updatedAt`/`updated_at`; supply `comments: []`, `comments_complete: true` and `relations: []`
 only when complete comment/decision history is known; include `history: []` for separate events.
+Comments and history accept optional `author` strings (provider login/identity); omit when unknown.
+Both normalize to `author`, using GitHub comment `user.login` and timeline `actor.login`; missing
+authors remain absent, never inferred.
 Resolve links in the wrapper, retaining delivery states; set `complete: false` for unresolved history
 or relations. Wrappers must map completed states to `closed`. Missing `comments_complete`
 is incomplete, never an empty-history success. GitHub resolves numbered references and timeline

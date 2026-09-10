@@ -90,7 +90,7 @@ wit_read_main() {
     done
   fi
   # A repeated id is not a second work item; retain the latest observation.
-  records=$(jq 'unique_by((.id // .number)|tostring)' <<< "$records")
+  records=$(jq 'reverse | unique_by((.id // .number)|tostring)' <<< "$records")
   : > "$tmp/items"
   while IFS= read -r raw; do
     iid=$(jq -r '(.number // .id)|tostring' <<< "$raw")
@@ -112,7 +112,7 @@ wit_read_main() {
       if [[ -z $id ]]; then payload=$(wit_command show "$iid") && raw=$payload || item_complete=false; fi
       comments=$(jq '.comments // []' <<< "$raw"); timeline=$(jq '.history // []' <<< "$raw")
       [[ $(jq -r '.comments_complete // false' <<< "$raw") == true ]] || item_complete=false
-      [[ $(jq -r '.complete // true' <<< "$raw") == true ]] || item_complete=false
+      [[ $(jq -r 'if has("complete") then .complete else true end' <<< "$raw") == true ]] || item_complete=false
     fi
     local relations relation linked_scope linked_id details
     relations=$(wit_json '.[0] as $r | .[1] as $t | $r.relations // [] | . + [$t[]|select(.source.issue? != null)|.source.issue|{id:(.number|tostring),url:(.html_url // ""),kind:(if .pull_request then "delivery" else "related" end)}]' "$raw" "$timeline")
@@ -152,11 +152,12 @@ wit_read_main() {
     item=$(jq -cs --arg query "$query" --arg digest "$digest" --argjson full "$full" --argjson ok "$item_complete" '
       .[0] as $r | .[1] as $c | .[2] as $t | .[3] as $relations |
       def clip: if $full then . else .[0:600] end;
+      def attribution($who): if $who == null then {} else {author:$who} end;
       {history_digest:$digest,id:(($r.number // $r.id)|tostring), title:($r.title // $r.name // ""), url:($r.html_url // $r.url // ""),
        state:(($r.state | if type=="object" then .name else . end) // "unknown" | ascii_downcase), updatedAt:($r.updatedAt // $r.updated_at // null),
        body:(($r.body // $r.description_stripped // $r.description // "")|clip), labels:[($r.labels // [])[]|if type=="object" then .name else . end],
-       comments:[$c[]|{id:(.id|tostring),body:((.body // .comment // "")|clip),updatedAt:(.updated_at // .updatedAt // "")}], comments_fetched:($c|length),
-       history:[$t[]|{event:(.event // .type // "decision"),at:(.created_at // .createdAt // ""),body:((.body // "")|clip)}],
+       comments:[$c[]|{id:(.id|tostring),body:((.body // .comment // "")|clip),updatedAt:(.updated_at // .updatedAt // "")} + attribution(.user.login // .author)], comments_fetched:($c|length),
+       history:[$t[]|{event:(.event // .type // "decision"),at:(.created_at // .createdAt // ""),body:((.body // "")|clip)} + attribution(.actor.login // .author)],
        completeness:(if $ok then "complete" else "incomplete" end), text_truncated:(((($r.body // $r.description_stripped // $r.description // "")|length)>600 or any($c[]; ((.body // .comment // "")|length)>600) or any($t[]; ((.body // "")|length)>600)) and ($full|not)),
        lookup_match:(((($r.title // $r.name // "")+" "+($r.body // $r.description_stripped // $r.description // ""))|ascii_downcase)|contains($query|ascii_downcase)),relations:$relations }' "$tmp/input")
     printf '%s\n' "$item" >> "$tmp/items"

@@ -17,8 +17,12 @@ while [ "$#" -gt 0 ]; do
 done
 [ -f "$snapshot" ] && [ -f "$decisions" ] && [ -n "$output" ] || usage
 now=${WIT_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
-commit=null
-if [ -n "$code" ]; then commit=$(git -C "$code" rev-parse --verify HEAD); fi
+commit=null dirty=false
+if [ -n "$code" ]; then
+  commit=$(git -C "$code" rev-parse --verify HEAD)
+  status=$(git -C "$code" status --porcelain)
+  [ -z "$status" ] || dirty=true
+fi
 # Reject malformed or mismatched cards before allocating any durable output.
 jq -en --slurpfile s "$snapshot" --slurpfile d "$decisions" '
   def text: type == "string" and test("\\S");
@@ -87,7 +91,7 @@ if [ -f "$root/pointer.json" ]; then
 fi
 stage=$(mktemp -d "$root/.snapshot.XXXXXX")
 jq -n --slurpfile s "$snapshot" --slurpfile d "$decisions" --slurpfile p "$previous" \
-  --arg run "$run_id" --arg prior "$prior_run" --arg now "$now" --arg commit "$commit" '
+  --arg run "$run_id" --arg prior "$prior_run" --arg now "$now" --arg commit "$commit" --argjson dirty "$dirty" '
   $s[0] as $snapshot | {schema_version:1,run_id:$run,previous_run_id:(if $prior=="" then null else $prior end),created_at:$now,source:$snapshot.source,
     completeness:$snapshot.completeness,capability_limits:$snapshot.capability_limits,
     items:[$d[0].items[] | . as $decision |
@@ -100,7 +104,7 @@ jq -n --slurpfile s "$snapshot" --slurpfile d "$decisions" --slurpfile p "$previ
        provenance:({source:$snapshot.source,item_id:$item.id,fetched_at:$snapshot.fetched_at,
          updatedAt:$item.updatedAt,comments_fetched:$item.comments_fetched,
          completeness:(if $snapshot.completeness=="incomplete" then "incomplete" else $item.completeness end),
-         code_refs:[$decision.code_refs[]|{ref:.,commit:$commit}]} +
+         code_refs:[$decision.code_refs[]|{ref:.,commit:$commit,dirty:$dirty}]} +
          (if $item.history_digest then {history_digest:$item.history_digest} else {} end)),
        supersedes:([$p[]|select(.source==$snapshot.source)|. as $previous|.items[]|
          select(.id==$decision.id and .direction==$decision.direction)|
