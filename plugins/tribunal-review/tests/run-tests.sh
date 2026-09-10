@@ -1740,7 +1740,7 @@ EOF
       and (.findings[2].line_check == "file not in reviewed diff")
       and (.findings[3].line_check == "invalid line number")
       and (.findings[4].line_check == "malformed finding coordinates")
-      and (.findings[5].line_check == "file missing at HEAD")
+      and (.findings[5].line_check == "file missing at reviewed head")
       and (.findings[6].line_check == "line out of bounds: file has 0 lines")
       and (.findings[7].line_check == "file not in reviewed diff")
       and (.findings[8].line_check == "line out of bounds: file has 1 lines")
@@ -1803,7 +1803,7 @@ test_line_check_pinned_range() {
       and .findings[1].line_check == "line out of bounds: file has 3 lines"
       and .findings[2].line_check == "file not in reviewed diff"
       and (.findings[3] | has("line_check") | not)
-      and .findings[4].line_check == "file missing at HEAD"
+      and .findings[4].line_check == "file missing at reviewed head"
       and (.findings[5] | has("line_check") | not)
     ' "$work/out.json" >/dev/null
   ); then
@@ -1817,13 +1817,12 @@ test_line_check_pinned_range() {
 }
 
 test_line_check_unavailable_range() {
-  local label="line check passes through unmarked when pinned range is unavailable"
+  local label="line check leaves unparseable provenance to the stamping stage"
   local stat output ok=true
   local input='{"provider":"codex","findings":[{"line":0},{"file":"outside.txt","line":-1}]}'
   for stat in '' 'not-json' 'null' '{}' '[]' \
     '{"base_oid":42,"head_oid":"HEAD"}' \
-    '{"base_oid":"HEAD~1","head_oid":"HEAD"}' \
-    '{"base_oid":"0000000000000000000000000000000000000000","head_oid":"0000000000000000000000000000000000000000"}'; do
+    '{"base_oid":"HEAD~1","head_oid":"HEAD"}'; do
     if ! output="$(printf '%s' "$input" | bash -euo pipefail -c \
       '. "$1"; tribunal_line_check "$2" "$3"' _ "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT" "$stat")" \
       || [ "$output" != "$input" ]; then
@@ -2752,6 +2751,9 @@ test_codex_line_bounds_guard
 test_line_check_pinned_range moving "line check uses captured tree after branch and worktree move"
 test_line_check_pinned_range sibling "line check rejects outside files without a writable paths sibling"
 test_line_check_unavailable_range
+assert_json_field "pruned reviewed head marks all positioned findings without losing the leg" "bash '$PLUGIN_ROOT/tests/line-check-degradation.sh' '$PLUGIN_ROOT/scripts/lib.sh' pruned"
+assert_json_field "healthy position check preserves output bytes" "bash '$PLUGIN_ROOT/tests/line-check-degradation.sh' '$PLUGIN_ROOT/scripts/lib.sh' healthy"
+assert_json_field "arbiter requires produced legs and verifies pinned evidence" "python3 '$PLUGIN_ROOT/tests/test-arbiter-evidence.py' '$PLUGIN_ROOT'"
 test_wrapper_owned_provider_envelope
 test_wrapper_stamped_diff_stat
 test_ignored_path_additions
