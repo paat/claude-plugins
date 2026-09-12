@@ -802,17 +802,30 @@ printf 'codex base\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir 
   || fail 'Codex accepts and honors --base in review'
 contains "$WORK/codex.prompt" 'Unified diff from HEAD' 'Codex --base injects review diff'
 contains "$WORK/codex.prompt" '+after' 'Codex --base diff includes working-tree changes'
-# --max-turns: Grok honors; Claude/Codex must name the flag and say why they cannot.
+# --max-turns: Grok and Claude honor (forward to CLI); Codex must name the flag
+# and say why it cannot. Claude invalid values fail exit 2 naming the bound.
 printf 'grok turns\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \
   --max-turns 7 --timeout 5 >/dev/null 2> "$WORK/flag-dest/grok-turns.err" \
   || fail 'Grok accepts --max-turns'
 contains "$WORK/grok.args" '7' 'Grok honors --max-turns value'
-if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --max-turns 3 --timeout 5 >/dev/null 2> "$WORK/flag-dest/claude-turns.err"; then
-  fail 'Claude must not silently ignore --max-turns'
-fi
-contains "$WORK/flag-dest/claude-turns.err" '--max-turns' 'Claude rejection names --max-turns'
-contains "$WORK/flag-dest/claude-turns.err" 'Claude CLI' 'Claude rejection explains provider cannot honor --max-turns'
+printf 'claude turns\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --max-turns 3 --timeout 5 >/dev/null 2> "$WORK/flag-dest/claude-turns.err" \
+  || fail 'Claude accepts --max-turns'
+contains "$WORK/claude.args" '--max-turns' 'Claude forwards --max-turns to CLI'
+exact_line "$WORK/claude.args" '3' 'Claude honors --max-turns value'
+printf 'opus turns\n' | "$PLUGIN_ROOT/scripts/run-opus.sh" --mode advise --repo "$WORK/repo" \
+  --max-turns 5 --timeout 5 >/dev/null 2> "$WORK/flag-dest/opus-turns.err" \
+  || fail 'Opus inherits --max-turns via run-claude.sh'
+contains "$WORK/claude.args" '--max-turns' 'Opus forwards --max-turns to CLI'
+exact_line "$WORK/claude.args" '5' 'Opus honors --max-turns value'
+set +e
+printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --max-turns notanumber --timeout 5 \
+  >/dev/null 2> "$WORK/flag-dest/claude-turns-bad.err"
+claude_turns_bad_rc=$?
+set -e
+[ "$claude_turns_bad_rc" -eq 2 ] || fail "Claude invalid --max-turns rc=$claude_turns_bad_rc want 2"
+contains "$WORK/flag-dest/claude-turns-bad.err" 'max turns' 'Claude invalid --max-turns names the flag'
 if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
   --max-turns 3 --timeout 5 >/dev/null 2> "$WORK/flag-dest/codex-turns.err"; then
   fail 'Codex must not silently ignore --max-turns'

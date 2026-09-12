@@ -36,6 +36,7 @@ run_timeout=1200
 output_file=""
 stream_file=""
 stream_log_set=0
+max_turns=""
 max_turns_set=0
 
 while [ "$#" -gt 0 ]; do
@@ -45,7 +46,7 @@ while [ "$#" -gt 0 ]; do
     --base) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; base_ref="$2"; shift 2 ;;
     --model) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; model="$2"; shift 2 ;;
     --effort) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; effort="$2"; effort_set=1; shift 2 ;;
-    --max-turns) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; max_turns_set=1; shift 2 ;;
+    --max-turns) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; max_turns="$2"; max_turns_set=1; shift 2 ;;
     --timeout) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; run_timeout="$2"; shift 2 ;;
     --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; output_file="$2"; shift 2 ;;
     --stream-log) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; stream_file="$2"; stream_log_set=1; shift 2 ;;
@@ -65,10 +66,12 @@ else
   valid_effort "$effort" || { printf 'run-claude: unsupported effort: %s\n' "$effort" >&2; exit 2; }
 fi
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-claude: timeout must be a positive integer\n' >&2; exit 2; }
-[ "$max_turns_set" -eq 0 ] || {
-  printf 'run-claude: --max-turns cannot be honored; the Claude CLI has no turn cap to enforce\n' >&2
-  exit 2
-}
+if [ "$max_turns_set" -eq 1 ]; then
+  [[ "$max_turns" =~ ^[1-9][0-9]*$ ]] && [ "$max_turns" -le 100 ] || {
+    printf 'run-claude: max turns must be an integer from 1 to 100\n' >&2
+    exit 2
+  }
+fi
 command -v git >/dev/null 2>&1 || { printf 'run-claude: git not found\n' >&2; exit 127; }
 command -v claude >/dev/null 2>&1 || { printf 'run-claude: claude CLI not found\n' >&2; exit 127; }
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
@@ -152,6 +155,7 @@ claude_args=(
   --strict-mcp-config --mcp-config '{"mcpServers":{}}' --no-session-persistence
 )
 [ "$model" = claude-haiku-4-5 ] || claude_args+=(--effort "$effort")
+[ "$max_turns_set" -eq 1 ] && claude_args+=(--max-turns "$max_turns")
 if [ "$mode" = implement ]; then
   claude_args+=(--allowedTools 'Read,Glob,Grep,Bash,Write,Edit' --disallowedTools 'Task,WebFetch,WebSearch,NotebookEdit')
 elif [ "$mode" = research ]; then
