@@ -1010,4 +1010,75 @@ contains "$WORK/missing-grok.err" "$WORK/missing-grok.txt" 'Grok missing-output 
 [ ! -f "$WORK/missing-grok.txt" ] || fail 'Grok missing artifact path must stay absent'
 pass '#517 req4: missing or empty final-message on exit 0 fails and names the artifact'
 
+# --- #521: untracked --no-index exit >1 must fail the review leg (not silent drop) ---
+# Pattern from PR #522 Codex verification: shim git so --no-index exits 2; a
+# tracked change keeps the run green if the error is swallowed, so a silent
+# || true would falsely pass. Exit 1 (files differ) must still succeed.
+mkdir -p "$WORK/untracked-repo" "$WORK/git-shim-fail" "$WORK/git-shim-ok"
+git -C "$WORK/untracked-repo" init -q
+git -C "$WORK/untracked-repo" config user.email test@example.com
+git -C "$WORK/untracked-repo" config user.name Test
+printf 'base\n' > "$WORK/untracked-repo/app.txt"
+git -C "$WORK/untracked-repo" add app.txt
+git -C "$WORK/untracked-repo" commit -qm base
+printf 'changed\n' > "$WORK/untracked-repo/app.txt"
+printf 'trigger no-index failure\n' > "$WORK/untracked-repo/bad-untracked.txt"
+real_git="$(command -v git)"
+cat > "$WORK/git-shim-fail/git" <<EOF
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  [ "\$arg" != --no-index ] || exit 2
+done
+exec "$real_git" "\$@"
+EOF
+chmod +x "$WORK/git-shim-fail/git"
+cat > "$WORK/git-shim-ok/git" <<EOF
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  [ "\$arg" != --no-index ] || exit 1
+done
+exec "$real_git" "\$@"
+EOF
+chmod +x "$WORK/git-shim-ok/git"
+
+set +e
+printf 'claude untracked fail\n' | PATH="$WORK/git-shim-fail:$PATH" \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/untracked-repo" \
+  --base HEAD --timeout 5 >/dev/null 2> "$WORK/claude-untracked-fail.err"
+claude_untracked_fail_rc=$?
+set -e
+[ "$claude_untracked_fail_rc" -ne 0 ] || fail 'Claude must fail when untracked --no-index exits 2'
+contains "$WORK/claude-untracked-fail.err" 'failed to include untracked file in review diff' \
+  'Claude untracked --no-index exit 2 names the failure'
+contains "$WORK/claude-untracked-fail.err" 'bad-untracked.txt' \
+  'Claude untracked --no-index exit 2 names the file'
+set +e
+printf 'claude untracked ok\n' | PATH="$WORK/git-shim-ok:$PATH" \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/untracked-repo" \
+  --base HEAD --timeout 5 >/dev/null 2> "$WORK/claude-untracked-ok.err"
+claude_untracked_ok_rc=$?
+set -e
+[ "$claude_untracked_ok_rc" -eq 0 ] || fail "Claude must tolerate untracked --no-index exit 1 (rc=$claude_untracked_ok_rc)"
+pass '#521: Claude fails loud on untracked --no-index exit >1; tolerates exit 1'
+
+set +e
+printf 'grok untracked fail\n' | PATH="$WORK/git-shim-fail:$PATH" \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/untracked-repo" \
+  --base HEAD --timeout 5 >/dev/null 2> "$WORK/grok-untracked-fail.err"
+grok_untracked_fail_rc=$?
+set -e
+[ "$grok_untracked_fail_rc" -ne 0 ] || fail 'Grok must fail when untracked --no-index exits 2'
+contains "$WORK/grok-untracked-fail.err" 'failed to include untracked file in review diff' \
+  'Grok untracked --no-index exit 2 names the failure'
+contains "$WORK/grok-untracked-fail.err" 'bad-untracked.txt' \
+  'Grok untracked --no-index exit 2 names the file'
+set +e
+printf 'grok untracked ok\n' | PATH="$WORK/git-shim-ok:$PATH" \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/untracked-repo" \
+  --base HEAD --timeout 5 >/dev/null 2> "$WORK/grok-untracked-ok.err"
+grok_untracked_ok_rc=$?
+set -e
+[ "$grok_untracked_ok_rc" -eq 0 ] || fail "Grok must tolerate untracked --no-index exit 1 (rc=$grok_untracked_ok_rc)"
+pass '#521: Grok fails loud on untracked --no-index exit >1; tolerates exit 1'
+
 printf 'All multi-model-orchestrator tests passed.\n'
