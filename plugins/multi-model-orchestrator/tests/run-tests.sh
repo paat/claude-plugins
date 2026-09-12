@@ -802,6 +802,29 @@ printf 'codex base\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir 
   || fail 'Codex accepts and honors --base in review'
 contains "$WORK/codex.prompt" 'Unified diff from HEAD' 'Codex --base injects review diff'
 contains "$WORK/codex.prompt" '+after' 'Codex --base diff includes working-tree changes'
+# --base empty-diff and size guards (match Claude/Grok exit 3 / exit 4).
+mkdir -p "$WORK/codex-clean"
+git -C "$WORK/codex-clean" init -q
+git -C "$WORK/codex-clean" config user.email test@example.com
+git -C "$WORK/codex-clean" config user.name Test
+printf 'clean\n' > "$WORK/codex-clean/app.txt"
+git -C "$WORK/codex-clean" add app.txt
+git -C "$WORK/codex-clean" commit -qm clean
+set +e
+printf 'codex empty diff\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/codex-clean" \
+  --base HEAD --timeout 5 >/dev/null 2> "$WORK/flag-dest/codex-empty.err"
+codex_empty_rc=$?
+set -e
+[ "$codex_empty_rc" -eq 3 ] || fail "Codex --base empty diff rc=$codex_empty_rc want 3"
+contains "$WORK/flag-dest/codex-empty.err" 'no diff to review' 'Codex empty --base diff message'
+set +e
+printf 'codex oversized diff\n' | MMO_REVIEW_DIFF_MAX_BYTES=1 \
+  "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
+  --base HEAD --timeout 5 >/dev/null 2> "$WORK/flag-dest/codex-oversize.err"
+codex_oversize_rc=$?
+set -e
+[ "$codex_oversize_rc" -eq 4 ] || fail "Codex --base oversized diff rc=$codex_oversize_rc want 4"
+contains "$WORK/flag-dest/codex-oversize.err" 'MMO_REVIEW_DIFF_MAX_BYTES' 'Codex oversized --base diff names cap'
 # --max-turns: Grok and Claude honor (forward to CLI); Codex must name the flag
 # and say why it cannot. Claude invalid values fail exit 2 naming the bound.
 printf 'grok turns\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \

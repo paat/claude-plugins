@@ -121,6 +121,14 @@ if [ "$mode" = review ]; then
         exit "$untracked_rc"
       fi
     done < <(git -C "$repo_dir" ls-files -z --others --exclude-standard)
+    [ -s "$diff_file" ] || { printf 'run-codex: no diff to review\n' >&2; exit 3; }
+    max_bytes="${MMO_REVIEW_DIFF_MAX_BYTES:-1048576}"
+    [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { printf 'run-codex: MMO_REVIEW_DIFF_MAX_BYTES must be positive\n' >&2; exit 2; }
+    diff_bytes="$(wc -c < "$diff_file" | tr -d ' ')"
+    [ "$diff_bytes" -le "$max_bytes" ] || {
+      printf 'run-codex: diff is %s bytes; split or raise MMO_REVIEW_DIFF_MAX_BYTES=%s explicitly\n' "$diff_bytes" "$max_bytes" >&2
+      exit 4
+    }
   fi
   combined_file="$(mktemp)"
   {
