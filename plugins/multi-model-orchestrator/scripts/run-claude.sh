@@ -169,7 +169,15 @@ if [ "$stream_log_set" -eq 1 ]; then
   # Live transcript to --stream-log; final message still lands in --out.
   (cd "$repo_dir" && timeout -k 10 "$run_timeout" claude "${claude_args[@]}" < "$prompt_file") \
     2> "${output_file}.stderr" | tee "$stream_file" > "$output_file"
-  rc=${PIPESTATUS[0]}
+  provider_rc=${PIPESTATUS[0]} tee_rc=${PIPESTATUS[1]}
+  if [ "$provider_rc" -ne 0 ]; then
+    rc=$provider_rc
+  elif [ "$tee_rc" -ne 0 ]; then
+    printf 'run-claude: failed writing --stream-log: %s\n' "$stream_file" >&2
+    rc=$tee_rc
+  else
+    rc=0
+  fi
 else
   (cd "$repo_dir" && timeout -k 10 "$run_timeout" claude "${claude_args[@]}" \
     < "$prompt_file" > "$output_file" 2> "${output_file}.stderr")

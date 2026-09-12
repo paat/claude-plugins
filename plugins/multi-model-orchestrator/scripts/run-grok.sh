@@ -258,7 +258,15 @@ if [ "$stream_log_set" -eq 1 ]; then
   HOME="$child_home" GROK_HOME="$isolated_grok_home" \
     timeout -k 10 "$run_timeout" grok "${grok_args[@]}" \
     2> "${output_file}.stderr" | tee "$stream_file" > "$output_file"
-  rc=${PIPESTATUS[0]}
+  provider_rc=${PIPESTATUS[0]} tee_rc=${PIPESTATUS[1]}
+  if [ "$provider_rc" -ne 0 ]; then
+    rc=$provider_rc
+  elif [ "$tee_rc" -ne 0 ]; then
+    printf 'run-grok: failed writing --stream-log: %s\n' "$stream_file" >&2
+    rc=$tee_rc
+  else
+    rc=0
+  fi
 else
   HOME="$child_home" GROK_HOME="$isolated_grok_home" \
     timeout -k 10 "$run_timeout" grok "${grok_args[@]}" > "$output_file" 2> "${output_file}.stderr"

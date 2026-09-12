@@ -877,6 +877,32 @@ set -e
 [ -f "$WORK/stream-fail/grok-final.txt.stderr" ] || fail 'Grok --stream-log failure still writes ${out}.stderr artifact'
 pass '#517 regression: --stream-log propagates provider exit, not tee'
 
+# Regression: provider exit 0 through tee into an unwritable --stream-log path
+# must fail with tee's status and name the stream path (not report success).
+mkdir -p "$WORK/stream-tee-fail"
+bad_claude_stream="$WORK/stream-tee-fail/missing-dir/claude.stream"
+bad_grok_stream="$WORK/stream-tee-fail/missing-dir/grok.stream"
+set +e
+printf 'claude tee fail\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 \
+  --out "$WORK/stream-tee-fail/claude-final.txt" \
+  --stream-log "$bad_claude_stream" --timeout 5 \
+  >/dev/null 2> "$WORK/stream-tee-fail/claude-run.err"
+claude_tee_fail_rc=$?
+set -e
+[ "$claude_tee_fail_rc" -ne 0 ] || fail 'Claude unwritable --stream-log must not exit 0'
+contains "$WORK/stream-tee-fail/claude-run.err" "$bad_claude_stream" 'Claude tee failure names stream path'
+set +e
+printf 'grok tee fail\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \
+  --out "$WORK/stream-tee-fail/grok-final.txt" \
+  --stream-log "$bad_grok_stream" --timeout 5 \
+  >/dev/null 2> "$WORK/stream-tee-fail/grok-run.err"
+grok_tee_fail_rc=$?
+set -e
+[ "$grok_tee_fail_rc" -ne 0 ] || fail 'Grok unwritable --stream-log must not exit 0'
+contains "$WORK/stream-tee-fail/grok-run.err" "$bad_grok_stream" 'Grok tee failure names stream path'
+pass '#517 regression: --stream-log tee write failure fails and names path'
+
 # Req 3: run-codex.sh resolves --dir/--repo to a git toplevel (match claude/grok).
 # Intentional behavior change vs 0.7.6: existing non-git directory exits 2.
 mkdir -p "$WORK/not-a-repo"
