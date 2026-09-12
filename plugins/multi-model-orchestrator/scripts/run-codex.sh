@@ -157,8 +157,8 @@ timeout -k 10 "$run_timeout" codex "${codex_args[@]}" \
 rc=$?
 set -e
 
-if [ "$rc" -eq 0 ] && [ -f "$final_file" ] && [ ! -s "$final_file" ]; then
-  printf 'run-codex: empty final-message artifact: %s\n' "$final_file" >&2
+if [ "$rc" -eq 0 ] && [ ! -s "$final_file" ]; then
+  printf 'run-codex: missing or empty final-message artifact: %s\n' "$final_file" >&2
   rc=5
 fi
 if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$final_file"; then

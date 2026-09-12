@@ -75,6 +75,8 @@ cat > "$STUB_CODEX_PROMPT"
 case "${STUB_CODEX_RESULT:-ok}" in
   error) exit 23 ;;
   empty) : > "$out" ;;
+  # Exit 0 without writing --out: simulates a silent no-op dispatch.
+  missing) exit 0 ;;
   progress) : > "$out"; printf 'I will inspect the diff.\n' ;;
   noverdict) printf 'codex-final\n' > "$out" ;;
   approved) printf 'codex findings\nAPPROVED\n' > "$out" ;;
@@ -90,6 +92,9 @@ cat > "$STUB_CLAUDE_PROMPT"
 case "${STUB_CLAUDE_RESULT:-ok}" in
   error) exit 23 ;;
   empty) exit 0 ;;
+  # Unlink --out while the runner's redirect FD is still open so the path is
+  # missing after the subshell closes (shell > always creates the file first).
+  missing) [ -n "${STUB_UNLINK_OUT:-}" ] && rm -f "$STUB_UNLINK_OUT"; exit 0 ;;
   progress) printf 'I will inspect the diff.\n' ;;
   approved) printf 'claude findings\nAPPROVED\n' ;;
   needs_work_space) printf 'claude findings\nNEEDS WORK\n' ;;
@@ -170,6 +175,9 @@ fi
 case "${STUB_GROK_RESULT:-ok}" in
   error) exit 23 ;;
   empty) exit 0 ;;
+  # Unlink --out while the runner's redirect FD is still open so the path is
+  # missing after the subshell closes (shell > always creates the file first).
+  missing) [ -n "${STUB_UNLINK_OUT:-}" ] && rm -f "$STUB_UNLINK_OUT"; exit 0 ;;
   timeout) exit 124 ;;
   progress) printf 'Let me inspect the files.\n' ;;
   approved) printf 'grok findings\nAPPROVED\n' ;;
@@ -820,7 +828,8 @@ printf 'toplevel resolve\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode impleme
 exact_line "$WORK/codex.args" "$WORK/repo" 'Codex -C uses git toplevel not the subdirectory'
 pass '#517 req3: Codex resolves repo arg to git toplevel'
 
-# Req 4: exit 0 with an empty final-message artifact is failure; message names the artifact.
+# Req 4: exit 0 with a missing OR empty final-message artifact is failure;
+# message names the artifact in both states.
 rm -f "$WORK/empty-claude.txt" "$WORK/empty-codex.txt" "$WORK/empty-grok.txt"
 : > "$WORK/empty-claude.txt"
 : > "$WORK/empty-codex.txt"
@@ -843,11 +852,46 @@ if printf x | STUB_GROK_RESULT=empty "$PLUGIN_ROOT/scripts/run-grok.sh" --mode a
   fail 'Grok empty final-message must not exit 0'
 fi
 contains "$WORK/empty-grok.err" "$WORK/empty-grok.txt" 'Grok empty-output message names the artifact'
-# Guard fires on positive evidence only: existing empty file, not a missing path.
-# (stubs leave the --out path present and empty after exit 0)
 [ -f "$WORK/empty-claude.txt" ] && [ ! -s "$WORK/empty-claude.txt" ] || fail 'Claude empty artifact exists and is empty'
 [ -f "$WORK/empty-codex.txt" ] && [ ! -s "$WORK/empty-codex.txt" ] || fail 'Codex empty artifact exists and is empty'
 [ -f "$WORK/empty-grok.txt" ] && [ ! -s "$WORK/empty-grok.txt" ] || fail 'Grok empty artifact exists and is empty'
-pass '#517 req4: empty final-message on exit 0 fails and names the artifact'
+
+# Missing artifact (rc=0, path absent): the silent no-op case req4 closes.
+# Assert the guard message (not merely non-zero exit): a missing --out also
+# trips `cat` under set -e, which is not the req4 failure mode.
+rm -f "$WORK/missing-claude.txt" "$WORK/missing-codex.txt" "$WORK/missing-grok.txt"
+set +e
+printf x | STUB_CLAUDE_RESULT=missing STUB_UNLINK_OUT="$WORK/missing-claude.txt" \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/missing-claude.txt" --timeout 5 \
+  >/dev/null 2> "$WORK/missing-claude.err"
+missing_claude_rc=$?
+set -e
+[ "$missing_claude_rc" -eq 5 ] || fail "Claude missing final-message rc=$missing_claude_rc want 5"
+contains "$WORK/missing-claude.err" 'final-message artifact' 'Claude missing-output guard message'
+contains "$WORK/missing-claude.err" "$WORK/missing-claude.txt" 'Claude missing-output message names the artifact'
+[ ! -f "$WORK/missing-claude.txt" ] || fail 'Claude missing artifact path must stay absent'
+set +e
+printf x | STUB_CODEX_RESULT=missing "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/repo" \
+  --out "$WORK/missing-codex.txt" --timeout 5 \
+  >/dev/null 2> "$WORK/missing-codex.err"
+missing_codex_rc=$?
+set -e
+[ "$missing_codex_rc" -eq 5 ] || fail "Codex missing final-message rc=$missing_codex_rc want 5"
+contains "$WORK/missing-codex.err" 'final-message artifact' 'Codex missing-output guard message'
+contains "$WORK/missing-codex.err" "$WORK/missing-codex.txt" 'Codex missing-output message names the artifact'
+[ ! -f "$WORK/missing-codex.txt" ] || fail 'Codex missing artifact path must stay absent'
+set +e
+printf x | STUB_GROK_RESULT=missing STUB_UNLINK_OUT="$WORK/missing-grok.txt" \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \
+  --out "$WORK/missing-grok.txt" --timeout 5 \
+  >/dev/null 2> "$WORK/missing-grok.err"
+missing_grok_rc=$?
+set -e
+[ "$missing_grok_rc" -eq 5 ] || fail "Grok missing final-message rc=$missing_grok_rc want 5"
+contains "$WORK/missing-grok.err" 'final-message artifact' 'Grok missing-output guard message'
+contains "$WORK/missing-grok.err" "$WORK/missing-grok.txt" 'Grok missing-output message names the artifact'
+[ ! -f "$WORK/missing-grok.txt" ] || fail 'Grok missing artifact path must stay absent'
+pass '#517 req4: missing or empty final-message on exit 0 fails and names the artifact'
 
 printf 'All multi-model-orchestrator tests passed.\n'

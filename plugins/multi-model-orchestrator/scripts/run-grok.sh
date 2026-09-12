@@ -322,8 +322,8 @@ if [ "$mode" != implement ]; then
     [ "$rc" -ne 0 ] || rc=7
   fi
 fi
-if [ "$rc" -eq 0 ] && [ -f "$output_file" ] && [ ! -s "$output_file" ]; then
-  printf 'run-grok: empty final-message artifact: %s\n' "$output_file" >&2
+if [ "$rc" -eq 0 ] && [ ! -s "$output_file" ]; then
+  printf 'run-grok: missing or empty final-message artifact: %s\n' "$output_file" >&2
   rc=5
 fi
 if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_file"; then
