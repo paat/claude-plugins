@@ -15,11 +15,14 @@ multi-session work.
 
 ## Autonomy
 
-Once the queue is ratified, proceed implement → review → tribunal → merge without pausing.
-Self-merge IS permitted. Stop only for credentials, browser authentication, repo-policy changes,
-spend, or irreversible production data — nothing else. Queue refused or unavailable privileged
-actions in the handoff's `OPERATOR ACTIONS REQUIRED` block and continue with the next
-tree-independent item. Do not burn the session on preflight before the first dispatch.
+Once the queue is ratified, proceed implement → review → tribunal → merge without pausing to ask the
+human for approval. Pause to ask only for credentials, browser authentication, repo-policy changes,
+spend, or irreversible production data. The brief's stop conditions, gate blockers, and genuine judgment calls still stop
+— park that item and continue with the next tree-independent item. Self-merge IS permitted: merging your
+own gated PR needs no human approval, but never bypass branch protection or required reviews (no
+`--admin`); when protection blocks the merge, that is an OPERATOR ACTIONS REQUIRED entry, not a pause.
+Queue refused or unavailable privileged actions in the handoff's `OPERATOR ACTIONS REQUIRED` block and
+continue with the next tree-independent item. Do not burn the session on preflight before the first dispatch.
 
 ## Interpreting the brief
 
@@ -48,12 +51,12 @@ apply to the tribunal panel, which owns its own provider configuration.
 sources:
   - name: plane
     list: "<shell command printing open workitem ids and titles>"
-    show: "<shell command printing one workitem body; id appended>"
-    close: "<shell command closing or commenting a workitem; id appended>"
+    show: "<shell command printing one workitem body; id appended>"   # optional
+    close: "<shell command closing or commenting a workitem; id appended>"  # optional
 models:
-  allow: [gpt-5.6-terra, grok-4.5, claude-sonnet-5]
-  deny: [claude-fable-5]
-  worker: "gpt-5.6-terra high"
+  allow: [gpt-5.6-terra, grok-4.5, claude-sonnet-5]  # optional leg allowlist
+  deny: [claude-fable-5]                             # optional leg denylist
+  worker: "gpt-5.6-terra high"                       # optional per-role pins
   reviewer: "grok-4.5 high"
   advise: "claude-opus-5 high"
   research: "claude-opus-5 high"
@@ -77,7 +80,7 @@ you arbitrate as calling context — never restate its protocol.
 ## Preflight and resume
 
 Fresh start: require `gh` authenticated, a GitHub remote, and a clean worktree; verify any
-referenced issues/workitems that the first dispatch needs. Write and commit the handoff
+referenced issues/workitems exist. Write and commit the handoff
 (instantiate `references/handoff-template.md`) the instant a background leg is dispatched —
 before this turn ends with that leg live — never for a no-op scan. If another session's handoff
 already records conflicting in-flight work on this branch, reconcile; do not overwrite it.
