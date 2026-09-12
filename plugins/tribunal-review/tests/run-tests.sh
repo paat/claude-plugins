@@ -4,7 +4,7 @@
 set -euo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PASS=0; FAIL=0; FAILURES=()
+PASS=0; FAIL=0; SKIP=0; FAILURES=()
 GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 
 # Pin product defaults so host shell exports cannot flip panel membership mid-suite.
@@ -1015,8 +1015,8 @@ test_diagnostics_unreadable_artifacts() {
   label="unreadable stderr still emits JSON failure with unavailable byte count"
   chmod 000 "$err"
   if [ -r "$err" ]; then
-    echo -e "  ${RED}FAIL${NC} $label (could not construct unreadable fixture; running as root?)"
-    FAIL=$((FAIL+1)); FAILURES+=("$label")
+    echo -e "  SKIP $label (could not construct unreadable fixture; running as root?)"
+    SKIP=$((SKIP+1))
   else
     json="$(
       # shellcheck disable=SC1091
@@ -1041,8 +1041,8 @@ test_diagnostics_unreadable_artifacts() {
   chmod 644 "$out" "$err"
   chmod 000 "$out"
   if [ -r "$out" ]; then
-    echo -e "  ${RED}FAIL${NC} $label (could not construct unreadable fixture; running as root?)"
-    FAIL=$((FAIL+1)); FAILURES+=("$label")
+    echo -e "  SKIP $label (could not construct unreadable fixture; running as root?)"
+    SKIP=$((SKIP+1))
   else
     json="$(
       # shellcheck disable=SC1091
@@ -2895,5 +2895,9 @@ assert_grep "round comment posts with body-file" "skills/closing-tribunal-loop/r
 assert_grep "round comment uses will-fix before commits" "skills/closing-tribunal-loop/references/round-comment.md" "Will-fix"
 
 echo ""
-echo "PASS=$PASS FAIL=$FAIL"
+if [ "$SKIP" -ne 0 ]; then
+  echo "PASS=$PASS FAIL=$FAIL SKIP=$SKIP"
+else
+  echo "PASS=$PASS FAIL=$FAIL"
+fi
 if [ "$FAIL" -ne 0 ]; then printf '  - %s\n' "${FAILURES[@]}"; exit 1; fi
