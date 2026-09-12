@@ -3085,6 +3085,10 @@ assert_grep "standalone caller identity is optional" "$SK" "standalone runs may 
 assert_no_grep "tribunal skill has no Opus authority claim" "$SK" "Opus"
 assert_no_grep "closing skill has no Opus authority claim" "$CL" "Opus"
 assert_no_grep "README has no Opus authority claim" "README.md" "Opus"
+assert_no_grep "README no longer claims preflight stops only at zero usable legs" "README.md" \
+  'Only if \*\*zero\*\* active reviewer legs are usable does it stop.'
+assert_grep "README documents preflight stop at TRIBUNAL_MIN_OK_LEGS" "README.md" \
+  'Preflight stops when zero reviewer legs are usable, or when fewer are usable than `TRIBUNAL_MIN_OK_LEGS`.'
 assert_no_grep "Claude reviewer has no Opus authority claim" "agents/claude-reviewer.md" "Opus"
 
 echo "Closing loop governor:"
