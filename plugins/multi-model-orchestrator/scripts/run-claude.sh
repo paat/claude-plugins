@@ -196,19 +196,32 @@ if [ "$stream_log_set" -eq 1 ]; then
     printf 'run-claude: failed writing --stream-log: %s\n' "$stream_file" >&2
     rc=$tee_rc
   else
-    result_event="$(jq -c 'select(.type == "result")' "$stream_file" 2>/dev/null | tail -n 1)"
-    if [ -z "$result_event" ]; then
-      # No result event: leave --out empty so the missing-or-empty guard fires.
-      rc=0
+    # stream-json is JSONL by contract; a parse failure with provider+tee rc=0
+    # is a protocol violation. Do not suppress jq's error here.
+    if ! jq -e . "$stream_file" >/dev/null; then
+      printf 'run-claude: malformed stream in --stream-log: %s\n' "$stream_file" >&2
+      rc=1
     else
-      is_error="$(printf '%s\n' "$result_event" | jq -r '.is_error')"
-      subtype="$(printf '%s\n' "$result_event" | jq -r '.subtype')"
-      if [ "$is_error" = true ] || [ "$subtype" != success ]; then
-        printf 'run-claude: error result in --stream-log: %s\n' "$stream_file" >&2
-        rc=1
-      else
-        printf '%s\n' "$result_event" | jq -r '.result' > "$output_file"
+      result_event="$(jq -c 'select(.type == "result")' "$stream_file" | tail -n 1)"
+      if [ -z "$result_event" ]; then
+        # No result event: leave --out empty so the missing-or-empty guard fires.
         rc=0
+      else
+        is_error="$(printf '%s\n' "$result_event" | jq -r '.is_error')"
+        subtype="$(printf '%s\n' "$result_event" | jq -r '.subtype')"
+        if [ "$is_error" = true ] || [ "$subtype" != success ]; then
+          printf 'run-claude: error result in --stream-log: %s\n' "$stream_file" >&2
+          rc=1
+        else
+          result_type="$(printf '%s\n' "$result_event" | jq -r '.result | type')"
+          if [ "$result_type" != string ]; then
+            printf 'run-claude: success result missing string .result in --stream-log: %s\n' "$stream_file" >&2
+            rc=1
+          else
+            printf '%s\n' "$result_event" | jq -r '.result' > "$output_file"
+            rc=0
+          fi
+        fi
       fi
     fi
   fi

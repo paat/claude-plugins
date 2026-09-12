@@ -134,6 +134,27 @@ if [ "$format" = stream-json ]; then
       printf '%s\n' '{"type":"result","subtype":"error","is_error":true,"result":"provider reported an error"}'
       exit 0
       ;;
+    # Valid success result, then a truncated non-JSON line (protocol violation).
+    stream_trunc_after)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      jq -nc --arg r "$(text_for_result)" \
+        '{type:"result",subtype:"success",is_error:false,result:$r}'
+      printf '%s\n' 'truncated{'
+      exit 0
+      ;;
+    # Non-JSON line before a valid success result (protocol violation).
+    stream_bad_before)
+      printf '%s\n' 'not json at all'
+      jq -nc --arg r "$(text_for_result)" \
+        '{type:"result",subtype:"success",is_error:false,result:$r}'
+      exit 0
+      ;;
+    # Success result event with no string .result field.
+    stream_null_result)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      printf '%s\n' '{"type":"result","subtype":"success","is_error":false}'
+      exit 0
+      ;;
     *)
       printf '%s\n' '{"type":"system","subtype":"init"}'
       printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}'
@@ -153,6 +174,9 @@ else
     stream_error)
       printf 'provider reported an error\n'
       exit 0
+      ;;
+    stream_trunc_after|stream_bad_before|stream_null_result)
+      printf 'claude findings\nAPPROVE\n'
       ;;
     progress) printf 'I will inspect the diff.\n' ;;
     approved) printf 'claude findings\nAPPROVED\n' ;;
@@ -1085,6 +1109,50 @@ printf 'claude 523e\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --re
   || fail '523e: review with --stream-log must pass on APPROVE'
 contains "$WORK/523/e-final.txt" 'APPROVE' '523e: --out holds extracted APPROVE verdict'
 pass '#523e: review --stream-log verdict gate reads extracted final message'
+
+# (f) valid success result followed by truncated JSON: provider 0 → runner non-zero.
+set +e
+printf 'claude 523f\n' | STUB_CLAUDE_RESULT=stream_trunc_after \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/f-final.txt" \
+  --stream-log "$WORK/523/f.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/f.err"
+claude_523f_rc=$?
+set -e
+[ "$claude_523f_rc" -ne 0 ] || fail '523f: truncated line after result must exit nonzero'
+contains "$WORK/523/f.err" 'malformed' '523f: malformed stream message'
+contains "$WORK/523/f.err" "$WORK/523/f.stream" '523f: malformed stream names stream file'
+pass '#523f: truncated line after result fails and names the stream file'
+
+# (g) non-JSON before a valid success result: not the missing-or-empty guard.
+set +e
+printf 'claude 523g\n' | STUB_CLAUDE_RESULT=stream_bad_before \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/g-final.txt" \
+  --stream-log "$WORK/523/g.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/g.err"
+claude_523g_rc=$?
+set -e
+[ "$claude_523g_rc" -ne 0 ] || fail '523g: bad line before result must exit nonzero'
+contains "$WORK/523/g.err" 'malformed' '523g: malformed stream message'
+contains "$WORK/523/g.err" "$WORK/523/g.stream" '523g: malformed stream names stream file'
+absent "$WORK/523/g.err" 'missing or empty final-message artifact' \
+  '523g: must not use missing-or-empty message'
+pass '#523g: bad line before result fails as malformed, not missing-or-empty'
+
+# (h) success result without string .result: fail; --out must not contain null.
+set +e
+printf 'claude 523h\n' | STUB_CLAUDE_RESULT=stream_null_result \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/h-final.txt" \
+  --stream-log "$WORK/523/h.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/h.err"
+claude_523h_rc=$?
+set -e
+[ "$claude_523h_rc" -ne 0 ] || fail '523h: success without string .result must exit nonzero'
+contains "$WORK/523/h.err" "$WORK/523/h.stream" '523h: null-result failure names stream file'
+absent "$WORK/523/h-final.txt" 'null' '523h: --out must not contain null'
+pass '#523h: success without string .result fails; --out has no null'
 
 # README/contract: jq is required only for Claude --stream-log (#523).
 absent "$PLUGIN_ROOT/README.md" 'No `jq` dependency is used' \
