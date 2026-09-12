@@ -75,7 +75,8 @@ from the wrapper-owned collection, and critical/high findings without all three
 must have returned a finding for that file. `findings_accepted` must equal the
 number of final findings attributed to that provider. Failed legs keep numeric counts at zero.
 Every human-facing per-leg result must include status: `ok, findings=0` for a clean leg,
-`failed, findings=unavailable` for a failed leg, and `disabled` for an intentionally absent leg.
+`ok, findings=N` for a leg that ran and returned findings, `failed, findings=unavailable`
+for a failed leg, and `disabled` for an intentionally absent leg.
 Use the sealed manifest status when available.
 Every sealed ignored-path signal must be represented by a finding attributed to
 `repository-policy`.

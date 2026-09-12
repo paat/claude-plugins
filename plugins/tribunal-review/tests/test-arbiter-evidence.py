@@ -36,7 +36,7 @@ check('arbiter zero-findings shortcut requires produced legs', lambda: require(
     'every non-disabled provider' in skill and 'status == "ok"' in skill,
     'shortcut does not require every non-disabled provider status == "ok"'))
 check('human per-leg results distinguish failure from zero findings', lambda: require(
-    all(text in contract for text in ('ok, findings=0', 'failed, findings=unavailable', 'disabled'))
+    all(text in contract for text in ('ok, findings=0', 'ok, findings=N', 'failed, findings=unavailable', 'disabled'))
     and all(text in skill for text in ('tribunal_verdict.rationale', 'summary', 'references/output-contract.md')),
     'missing explicit failed-provider reporting and per-leg display contract'))
 check('marked position policy reports unavailable pinned evidence', lambda: require(
