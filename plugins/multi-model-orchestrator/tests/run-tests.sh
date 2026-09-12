@@ -1086,6 +1086,14 @@ printf 'claude 523e\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --re
 contains "$WORK/523/e-final.txt" 'APPROVE' '523e: --out holds extracted APPROVE verdict'
 pass '#523e: review --stream-log verdict gate reads extracted final message'
 
+# README/contract: jq is required only for Claude --stream-log (#523).
+absent "$PLUGIN_ROOT/README.md" 'No `jq` dependency is used' \
+  'README must not claim no jq dependency'
+contains "$PLUGIN_ROOT/README.md" \
+  '`jq` is required only for `run-claude.sh --stream-log`' \
+  'README documents jq required only for run-claude.sh --stream-log'
+pass 'README documents jq only for Claude --stream-log'
+
 # Req 3: run-codex.sh resolves --dir/--repo to a git toplevel (match claude/grok).
 # Intentional behavior change vs 0.7.6: existing non-git directory exits 2.
 mkdir -p "$WORK/not-a-repo"

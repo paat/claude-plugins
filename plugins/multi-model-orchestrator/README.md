@@ -125,7 +125,7 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
   - OpenAI Codex CLI (`codex`)
   - latest Grok Build (`grok`), using Grok 4.5
 
-Only selected providers are required. No `jq` dependency is used.
+Only selected providers are required. `jq` is required only for `run-claude.sh --stream-log`, to extract the final message from Claude's stream output; nothing else in the plugin needs it.
 
 ## Configuration
 
