@@ -79,11 +79,12 @@ PR open, local head pushed, you arbitrate as calling context — never restate i
 ## Preflight and resume
 
 Fresh start: require `gh` authenticated, a GitHub remote, and a clean worktree; verify any
-referenced issues/workitems exist. Write the handoff (instantiate `references/handoff-template.md`)
-with the literal resume command, expected artifact paths, and baseline — all known before launch —
-and path-limited commit it immediately before dispatch (`git add <handoff> && git commit -m … -- <handoff>`); never for a
-no-op scan. If another session's handoff already records conflicting in-flight work on
-this branch, reconcile; do not overwrite it.
+referenced issues/workitems exist; in strategy B add `${MMO_HANDOFF_DIR:-.claude/handoffs}` to
+`.git/info/exclude`. Once the queue is ordered and immediately before every dispatch — never for a
+no-op scan — write the handoff (instantiate `references/handoff-template.md`) with the literal resume command,
+expected artifact paths, and baseline — all known before launch. Strategy A: path-limited commit on the epic branch
+(`git add <handoff> && git commit -m … -- <handoff>`). Strategy B: never commit it. If another session's
+handoff already records conflicting in-flight work on this branch, reconcile; do not overwrite it.
 
 Resume (`--resume`): read the handoff top-down. Execute its "Stop here first" action before
 anything else. Treat "Decisions ratified — do not re-litigate" as settled. The handoff State
@@ -93,9 +94,10 @@ judgment calls and brief deltas; both are ratified.
 
 ## Handoff discipline
 
-Update and commit the current handoff after every merge, review verdict, ratified decision, filed
-research memo, or filed item — not at session end. Inherit prior protocol sections verbatim;
-record only deltas. A session that dies mid-decision costs one resume, nothing more.
+Update the current handoff after every merge, review verdict, ratified decision, filed
+research memo, or filed item — not at session end; commit only in strategy A. Inherit prior
+protocol sections verbatim; record only deltas. A session that dies mid-decision costs one
+resume, nothing more.
 
 ## Per-item loop
 
@@ -143,7 +145,7 @@ record only deltas. A session that dies mid-decision costs one resume, nothing m
 - Start every turn by reading any unread dispatched-leg output, then resume at the gate.
 - Dispatch every leg through a host mechanism whose completion re-invokes the orchestrator. In
   Claude Code, use Bash `run_in_background: true` for its `<task-notification>`; never use bare shell `&`.
-- Ending a turn with an unarranged live leg is a defect, not a wait. Follow Preflight's path-limited
-  handoff commit — announcing a dispatch without that committed artifact is a defect.
+- Ending a turn with an unarranged live leg is a defect, not a wait. Follow Preflight's handoff
+  write — announcing a dispatch without that written handoff (committed in strategy A) is a defect.
 - Workers never push. You own push and PR creation.
 - When a worker pushes back on your instructions, treat it as signal: verify before overruling.
