@@ -93,19 +93,75 @@ printf '%s\n' "$@" > "$STUB_CLAUDE_ARGS"
 # Record the working directory the runner actually placed us in.
 pwd > "$STUB_CLAUDE_CWD"
 cat > "$STUB_CLAUDE_PROMPT"
-case "${STUB_CLAUDE_RESULT:-ok}" in
-  error) exit 23 ;;
-  empty) exit 0 ;;
-  # Unlink --out while the runner's redirect FD is still open so the path is
-  # missing after the subshell closes (shell > always creates the file first).
-  missing) [ -n "${STUB_UNLINK_OUT:-}" ] && rm -f "$STUB_UNLINK_OUT"; exit 0 ;;
-  progress) printf 'I will inspect the diff.\n' ;;
-  approved) printf 'claude findings\nAPPROVED\n' ;;
-  needs_work_space) printf 'claude findings\nNEEDS WORK\n' ;;
-  template) printf '**VERDICT:** APPROVE\nREADY TO MERGE — nothing further coming.\n' ;;
-  prose_approve) printf 'I cannot approve this change because tests fail.\n' ;;
-  *) printf 'claude findings\nAPPROVE\n' ;;
-esac
+format=text
+verbose=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output-format) format="$2"; shift 2 ;;
+    --verbose) verbose=1; shift ;;
+    *) shift ;;
+  esac
+done
+# Mirror real Claude: stream-json under -p requires --verbose.
+if [ "$format" = stream-json ] && [ "$verbose" -ne 1 ]; then
+  printf 'Error: When using --print, --output-format=stream-json requires --verbose\n' >&2
+  exit 1
+fi
+text_for_result() {
+  case "${STUB_CLAUDE_RESULT:-ok}" in
+    progress) printf 'I will inspect the diff.\n' ;;
+    approved) printf 'claude findings\nAPPROVED\n' ;;
+    needs_work_space) printf 'claude findings\nNEEDS WORK\n' ;;
+    template) printf '**VERDICT:** APPROVE\nREADY TO MERGE — nothing further coming.\n' ;;
+    prose_approve) printf 'I cannot approve this change because tests fail.\n' ;;
+    *) printf 'claude findings\nAPPROVE\n' ;;
+  esac
+}
+if [ "$format" = stream-json ]; then
+  case "${STUB_CLAUDE_RESULT:-ok}" in
+    error) exit 23 ;;
+    empty) exit 0 ;;
+    missing) [ -n "${STUB_UNLINK_OUT:-}" ] && rm -f "$STUB_UNLINK_OUT"; exit 0 ;;
+    # Emit events, then sleep past the runner timeout so a kill leaves a live stream.
+    live_sleep)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"live partial"}]}}'
+      sleep 120
+      exit 0
+      ;;
+    stream_error)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      printf '%s\n' '{"type":"result","subtype":"error","is_error":true,"result":"provider reported an error"}'
+      exit 0
+      ;;
+    *)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}'
+      jq -nc --arg r "$(text_for_result)" \
+        '{type:"result",subtype:"success",is_error:false,result:$r}'
+      ;;
+  esac
+else
+  case "${STUB_CLAUDE_RESULT:-ok}" in
+    error) exit 23 ;;
+    empty) exit 0 ;;
+    # Unlink --out while the runner's redirect FD is still open so the path is
+    # missing after the subshell closes (shell > always creates the file first).
+    missing) [ -n "${STUB_UNLINK_OUT:-}" ] && rm -f "$STUB_UNLINK_OUT"; exit 0 ;;
+    # Text mode prints nothing until completion — sleep without emitting.
+    live_sleep) sleep 120; exit 0 ;;
+    stream_error)
+      printf 'provider reported an error\n'
+      exit 0
+      ;;
+    progress) printf 'I will inspect the diff.\n' ;;
+    approved) printf 'claude findings\nAPPROVED\n' ;;
+    needs_work_space) printf 'claude findings\nNEEDS WORK\n' ;;
+    template) printf '**VERDICT:** APPROVE\nREADY TO MERGE — nothing further coming.\n' ;;
+    prose_approve) printf 'I cannot approve this change because tests fail.\n' ;;
+    *) printf 'claude findings\nAPPROVE\n' ;;
+  esac
+fi
 STUB
 cat > "$WORK/bin/grok" <<'STUB'
 #!/usr/bin/env bash
@@ -969,6 +1025,66 @@ set -e
 [ "$grok_tee_fail_rc" -ne 0 ] || fail 'Grok unwritable --stream-log must not exit 0'
 contains "$WORK/stream-tee-fail/grok-run.err" "$bad_grok_stream" 'Grok tee failure names stream path'
 pass '#517 regression: --stream-log tee write failure fails and names path'
+
+# --- #523 Claude --stream-log must be live (stream-json); --out stays final message ---
+mkdir -p "$WORK/523"
+
+# (a) completed --stream-log: --out equals result text; stream holds event lines.
+printf 'claude 523a\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/a-final.txt" \
+  --stream-log "$WORK/523/a.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/a.err" \
+  || fail '523a: completed --stream-log run succeeds'
+[ "$(cat "$WORK/523/a-final.txt")" = $'claude findings\nAPPROVE' ] || fail '523a: --out equals result text'
+contains "$WORK/523/a.stream" '"type":"result"' '523a: stream holds result event'
+contains "$WORK/523/a.stream" '"type":"system"' '523a: stream holds event lines'
+pass '#523a: completed --stream-log extracts result text; stream holds events'
+
+# (b) live stream: events then sleep past --timeout leaves a non-empty stream file.
+set +e
+printf 'claude 523b\n' | STUB_CLAUDE_RESULT=live_sleep \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/b-final.txt" \
+  --stream-log "$WORK/523/b.stream" --timeout 2 \
+  >/dev/null 2> "$WORK/523/b.err"
+claude_523b_rc=$?
+set -e
+[ "$claude_523b_rc" -ne 0 ] || fail '523b: live mid-stream kill must exit nonzero'
+[ -s "$WORK/523/b.stream" ] || fail '523b: killed mid-stream must leave a non-empty stream file'
+pass '#523b: --stream-log is live (non-empty after mid-stream kill)'
+
+# (c) error result (is_error:true) with provider exit 0: fail and name the stream file.
+set +e
+printf 'claude 523c\n' | STUB_CLAUDE_RESULT=stream_error \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/c-final.txt" \
+  --stream-log "$WORK/523/c.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/c.err"
+claude_523c_rc=$?
+set -e
+[ "$claude_523c_rc" -ne 0 ] || fail '523c: error result must not report success'
+contains "$WORK/523/c.err" 'error result in --stream-log' '523c: error result message'
+contains "$WORK/523/c.err" "$WORK/523/c.stream" '523c: error result names stream file'
+pass '#523c: error result fails nonzero and names the stream file'
+
+# (d) without --stream-log: argv stays --output-format text (not stream-json).
+printf 'claude 523d\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/d-final.txt" --timeout 5 \
+  >/dev/null 2> "$WORK/523/d.err" \
+  || fail '523d: run without --stream-log succeeds'
+exact_line "$WORK/claude.args" 'text' '523d: without --stream-log uses --output-format text'
+absent "$WORK/claude.args" 'stream-json' '523d: without --stream-log omits stream-json'
+absent "$WORK/claude.args" '--verbose' '523d: without --stream-log omits --verbose'
+pass '#523d: without --stream-log invocation stays text mode'
+
+# (e) review mode with --stream-log: verdict gate reads extracted final message.
+printf 'claude 523e\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" \
+  --base HEAD --model claude-haiku-4-5 --out "$WORK/523/e-final.txt" \
+  --stream-log "$WORK/523/e.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/e.err" \
+  || fail '523e: review with --stream-log must pass on APPROVE'
+contains "$WORK/523/e-final.txt" 'APPROVE' '523e: --out holds extracted APPROVE verdict'
+pass '#523e: review --stream-log verdict gate reads extracted final message'
 
 # Req 3: run-codex.sh resolves --dir/--repo to a git toplevel (match claude/grok).
 # Intentional behavior change vs 0.7.6: existing non-git directory exits 2.

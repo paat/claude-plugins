@@ -74,6 +74,9 @@ if [ "$max_turns_set" -eq 1 ]; then
 fi
 command -v git >/dev/null 2>&1 || { printf 'run-claude: git not found\n' >&2; exit 127; }
 command -v claude >/dev/null 2>&1 || { printf 'run-claude: claude CLI not found\n' >&2; exit 127; }
+if [ "$stream_log_set" -eq 1 ]; then
+  command -v jq >/dev/null 2>&1 || { printf 'run-claude: jq not found (required for --stream-log)\n' >&2; exit 127; }
+fi
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
 
 request_file="$(mktemp)"
@@ -159,8 +162,14 @@ case "$mode" in
     ;;
 esac
 
-claude_args=(
-  -p --model "$model" --output-format text
+claude_args=(-p --model "$model")
+if [ "$stream_log_set" -eq 1 ]; then
+  # stream-json is live; --verbose is mandatory with -p (Claude CLI rejects without it).
+  claude_args+=(--output-format stream-json --verbose)
+else
+  claude_args+=(--output-format text)
+fi
+claude_args+=(
   --dangerously-skip-permissions --disable-slash-commands
   --strict-mcp-config --mcp-config '{"mcpServers":{}}' --no-session-persistence
 )
@@ -176,9 +185,10 @@ fi
 
 set +e
 if [ "$stream_log_set" -eq 1 ]; then
-  # Live transcript to --stream-log; final message still lands in --out.
+  # NDJSON event stream to --stream-log while live; final message extracted into --out after success.
+  : > "$output_file"
   (cd "$repo_dir" && timeout -k 10 "$run_timeout" claude "${claude_args[@]}" < "$prompt_file") \
-    2> "${output_file}.stderr" | tee "$stream_file" > "$output_file"
+    2> "${output_file}.stderr" | tee "$stream_file" > /dev/null
   provider_rc=${PIPESTATUS[0]} tee_rc=${PIPESTATUS[1]}
   if [ "$provider_rc" -ne 0 ]; then
     rc=$provider_rc
@@ -186,7 +196,21 @@ if [ "$stream_log_set" -eq 1 ]; then
     printf 'run-claude: failed writing --stream-log: %s\n' "$stream_file" >&2
     rc=$tee_rc
   else
-    rc=0
+    result_event="$(jq -c 'select(.type == "result")' "$stream_file" 2>/dev/null | tail -n 1)"
+    if [ -z "$result_event" ]; then
+      # No result event: leave --out empty so the missing-or-empty guard fires.
+      rc=0
+    else
+      is_error="$(printf '%s\n' "$result_event" | jq -r '.is_error')"
+      subtype="$(printf '%s\n' "$result_event" | jq -r '.subtype')"
+      if [ "$is_error" = true ] || [ "$subtype" != success ]; then
+        printf 'run-claude: error result in --stream-log: %s\n' "$stream_file" >&2
+        rc=1
+      else
+        printf '%s\n' "$result_event" | jq -r '.result' > "$output_file"
+        rc=0
+      fi
+    fi
   fi
 else
   (cd "$repo_dir" && timeout -k 10 "$run_timeout" claude "${claude_args[@]}" \
