@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|research|review [--repo DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--timeout SECONDS] [--out FILE]'
+  printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
 }
 
 valid_model() {
@@ -34,16 +34,21 @@ effort="${MMO_CLAUDE_EFFORT:-${MMO_OPUS_EFFORT:-high}}"
 effort_set=0
 run_timeout=1200
 output_file=""
+stream_file=""
+stream_log_set=0
+max_turns_set=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; mode="$2"; shift 2 ;;
-    --repo) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; repo_dir="$2"; shift 2 ;;
+    --repo|--dir) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; repo_dir="$2"; shift 2 ;;
     --base) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; base_ref="$2"; shift 2 ;;
     --model) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; model="$2"; shift 2 ;;
     --effort) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; effort="$2"; effort_set=1; shift 2 ;;
+    --max-turns) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; max_turns_set=1; shift 2 ;;
     --timeout) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; run_timeout="$2"; shift 2 ;;
     --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; output_file="$2"; shift 2 ;;
+    --stream-log) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; stream_file="$2"; stream_log_set=1; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'run-claude: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -60,6 +65,10 @@ else
   valid_effort "$effort" || { printf 'run-claude: unsupported effort: %s\n' "$effort" >&2; exit 2; }
 fi
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-claude: timeout must be a positive integer\n' >&2; exit 2; }
+[ "$max_turns_set" -eq 0 ] || {
+  printf 'run-claude: --max-turns cannot be honored; the Claude CLI has no turn cap to enforce\n' >&2
+  exit 2
+}
 command -v git >/dev/null 2>&1 || { printf 'run-claude: git not found\n' >&2; exit 127; }
 command -v claude >/dev/null 2>&1 || { printf 'run-claude: claude CLI not found\n' >&2; exit 127; }
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
@@ -69,6 +78,9 @@ prompt_file="$(mktemp)"
 diff_file="$(mktemp)"
 [ -n "$output_file" ] || output_file="$(mktemp)"
 case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
+if [ "$stream_log_set" -eq 1 ]; then
+  case "$stream_file" in /*) ;; *) stream_file="$PWD/$stream_file" ;; esac
+fi
 trap 'rm -f "$request_file" "$prompt_file" "$diff_file"' EXIT
 cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-claude: empty prompt\n' >&2; exit 2; }
@@ -149,14 +161,21 @@ else
 fi
 
 set +e
-(cd "$repo_dir" && timeout -k 10 "$run_timeout" claude "${claude_args[@]}" \
-  < "$prompt_file" > "$output_file" 2> "${output_file}.stderr")
-rc=$?
+if [ "$stream_log_set" -eq 1 ]; then
+  # Live transcript to --stream-log; final message still lands in --out.
+  (cd "$repo_dir" && timeout -k 10 "$run_timeout" claude "${claude_args[@]}" < "$prompt_file") \
+    2> "${output_file}.stderr" | tee "$stream_file" > "$output_file"
+  rc=${PIPESTATUS[0]}
+else
+  (cd "$repo_dir" && timeout -k 10 "$run_timeout" claude "${claude_args[@]}" \
+    < "$prompt_file" > "$output_file" 2> "${output_file}.stderr")
+  rc=$?
+fi
 set -e
-[ "$rc" -ne 0 ] || [ -s "$output_file" ] || {
-  printf 'run-claude: provider exited 0 without a result\n' >&2
+if [ "$rc" -eq 0 ] && [ -f "$output_file" ] && [ ! -s "$output_file" ]; then
+  printf 'run-claude: empty final-message artifact: %s\n' "$output_file" >&2
   rc=5
-}
+fi
 if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_file"; then
   printf 'run-claude: review completed without APPROVE or NEEDS_WORK\n' >&2
   rc=6
@@ -167,5 +186,6 @@ if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
   cat "$output_file"
 fi
 if [ "$model" = claude-haiku-4-5 ]; then effective_effort=n/a; else effective_effort="$effort"; fi
-printf 'run-claude: exit=%s model=%s effort=%s mode=%s log=%s\n' "$rc" "$model" "$effective_effort" "$mode" "$output_file" >&2
+if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="$output_file"; fi
+printf 'run-claude: exit=%s model=%s effort=%s mode=%s log=%s\n' "$rc" "$model" "$effective_effort" "$mode" "$log_path" >&2
 exit "$rc"

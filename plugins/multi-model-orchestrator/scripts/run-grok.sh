@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|research|review [--repo DIR] [--base REF] [--model grok-4.5] [--effort low|medium|high] [--max-turns N] [--timeout SECONDS] [--out FILE]'
+  printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model grok-4.5] [--effort low|medium|high] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
 }
 
 valid_effort() {
@@ -21,17 +21,20 @@ effort="${MMO_GROK_EFFORT:-medium}"
 run_timeout=1200
 max_turns="${MMO_GROK_MAX_TURNS:-30}"
 output_file=""
+stream_file=""
+stream_log_set=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; mode="$2"; shift 2 ;;
-    --repo) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; repo_dir="$2"; shift 2 ;;
+    --repo|--dir) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; repo_dir="$2"; shift 2 ;;
     --base) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; base_ref="$2"; shift 2 ;;
     --model) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; model="$2"; shift 2 ;;
     --effort) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; effort="$2"; shift 2 ;;
     --max-turns) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; max_turns="$2"; shift 2 ;;
     --timeout) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; run_timeout="$2"; shift 2 ;;
     --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; output_file="$2"; shift 2 ;;
+    --stream-log) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; stream_file="$2"; stream_log_set=1; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'run-grok: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -61,6 +64,9 @@ isolated_auth="$isolated_grok_home/auth.json"
 start_auth_snapshot="$runtime_dir/auth.start.json"
 [ -n "$output_file" ] || output_file="$(mktemp)"
 case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
+if [ "$stream_log_set" -eq 1 ]; then
+  case "$stream_file" in /*) ;; *) stream_file="$PWD/$stream_file" ;; esac
+fi
 
 writeback_auth() {
   local lock_dir lock_pid auth_tmp
@@ -247,9 +253,17 @@ child_home="$isolated_home"
 [ "$mode" != implement ] || child_home="$HOME"
 
 set +e
-HOME="$child_home" GROK_HOME="$isolated_grok_home" \
-  timeout -k 10 "$run_timeout" grok "${grok_args[@]}" > "$output_file" 2> "${output_file}.stderr"
-rc=$?
+if [ "$stream_log_set" -eq 1 ]; then
+  # Live transcript to --stream-log; final message still lands in --out.
+  HOME="$child_home" GROK_HOME="$isolated_grok_home" \
+    timeout -k 10 "$run_timeout" grok "${grok_args[@]}" \
+    2> "${output_file}.stderr" | tee "$stream_file" > "$output_file"
+  rc=${PIPESTATUS[0]}
+else
+  HOME="$child_home" GROK_HOME="$isolated_grok_home" \
+    timeout -k 10 "$run_timeout" grok "${grok_args[@]}" > "$output_file" 2> "${output_file}.stderr"
+  rc=$?
+fi
 set -e
 if [ "$mode" != implement ]; then
   if [ ! -s "$debug_file" ]; then
@@ -308,10 +322,10 @@ if [ "$mode" != implement ]; then
     [ "$rc" -ne 0 ] || rc=7
   fi
 fi
-[ "$rc" -ne 0 ] || [ -s "$output_file" ] || {
-  printf 'run-grok: provider exited 0 without a result\n' >&2
+if [ "$rc" -eq 0 ] && [ -f "$output_file" ] && [ ! -s "$output_file" ]; then
+  printf 'run-grok: empty final-message artifact: %s\n' "$output_file" >&2
   rc=5
-}
+fi
 if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_file"; then
   printf 'run-grok: review completed without APPROVE or NEEDS_WORK\n' >&2
   rc=6
@@ -321,5 +335,6 @@ fi
 if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
   cat "$output_file"
 fi
-printf 'run-grok: exit=%s model=%s effort=%s mode=%s log=%s\n' "$rc" "$model" "$effort" "$mode" "$output_file" >&2
+if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="$output_file"; fi
+printf 'run-grok: exit=%s model=%s effort=%s mode=%s log=%s\n' "$rc" "$model" "$effort" "$mode" "$log_path" >&2
 exit "$rc"

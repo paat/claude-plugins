@@ -6,8 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-codex.sh [--mode implement|research|review] [--dir DIR] [--model MODEL] [--effort LEVEL] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
-  printf '%s\n' '  --dir DIR is validated in all modes; research uses a fresh temporary working root instead.'
+  printf '%s\n' 'Usage: run-codex.sh [--mode implement|research|review] [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
+  printf '%s\n' '  --repo/--dir DIR is resolved to a git toplevel in all modes; research uses a fresh temporary working root instead.'
 }
 
 valid_effort() {
@@ -26,13 +26,18 @@ run_timeout=1200
 final_file=""
 stream_file=""
 stream_log_set=0
+base_ref=""
+base_set=0
+max_turns_set=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; mode="$2"; shift 2 ;;
-    --dir) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; repo_dir="$2"; shift 2 ;;
+    --repo|--dir) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; repo_dir="$2"; shift 2 ;;
+    --base) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; base_ref="$2"; base_set=1; shift 2 ;;
     --model) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; model="$2"; shift 2 ;;
     --effort) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; effort="$2"; shift 2 ;;
+    --max-turns) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; max_turns_set=1; shift 2 ;;
     --timeout) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; run_timeout="$2"; shift 2 ;;
     --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; final_file="$2"; shift 2 ;;
     --stream-log) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; stream_file="$2"; stream_log_set=1; shift 2 ;;
@@ -55,10 +60,21 @@ valid_model "$model" || {
   exit 2
 }
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-codex: timeout must be a positive integer\n' >&2; exit 2; }
+[ "$max_turns_set" -eq 0 ] || {
+  printf 'run-codex: --max-turns cannot be honored; the Codex CLI has no turn cap to enforce\n' >&2
+  exit 2
+}
+if [ "$base_set" -eq 1 ] && [ "$mode" != review ]; then
+  printf 'run-codex: --base applies only to --mode review\n' >&2
+  exit 2
+fi
 [ -d "$repo_dir" ] || { printf 'run-codex: directory not found: %s\n' "$repo_dir" >&2; exit 2; }
+command -v git >/dev/null 2>&1 || { printf 'run-codex: git not found\n' >&2; exit 127; }
 command -v codex >/dev/null 2>&1 || { printf 'run-codex: codex CLI not found\n' >&2; exit 127; }
+repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
 
 prompt_file="$(mktemp)"
+diff_file=""
 research_dir=""
 [ "$mode" != research ] || research_dir="$(mktemp -d)"
 user_final=0
@@ -77,20 +93,35 @@ if [ "$stream_log_set" -eq 0 ]; then
 fi
 case "$stream_file" in /*) ;; *) stream_file="$PWD/$stream_file" ;; esac
 if [ "$user_final" -eq 1 ]; then
-  trap 'rm -f "$prompt_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
+  trap 'rm -f "$prompt_file" "$diff_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
 else
-  trap 'rm -f "$prompt_file" "$final_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
+  trap 'rm -f "$prompt_file" "$diff_file" "$final_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
 fi
 cat > "$prompt_file"
 [ -s "$prompt_file" ] || { printf 'run-codex: empty prompt\n' >&2; exit 2; }
 
 if [ "$mode" = review ]; then
+  if [ "$base_set" -eq 1 ]; then
+    diff_file="$(mktemp)"
+    git -C "$repo_dir" rev-parse --verify "$base_ref^{commit}" >/dev/null || {
+      printf 'run-codex: invalid base ref: %s\n' "$base_ref" >&2
+      exit 2
+    }
+    git -C "$repo_dir" diff --no-ext-diff --binary "$base_ref" -- > "$diff_file"
+    while IFS= read -r -d '' untracked; do
+      git -C "$repo_dir" diff --no-index --binary -- /dev/null "$untracked" >> "$diff_file" 2>/dev/null || true
+    done < <(git -C "$repo_dir" ls-files -z --others --exclude-standard)
+  fi
   combined_file="$(mktemp)"
   {
     printf '%s\n' 'You are an independent, semantically read-only reviewer. Do not modify files or commit.'
     printf '%s\n' 'End with APPROVE or NEEDS_WORK.'
     printf '\n'
     cat "$prompt_file"
+    if [ "$base_set" -eq 1 ]; then
+      printf '\n## Unified diff from %s\n' "$base_ref"
+      cat "$diff_file"
+    fi
   } > "$combined_file"
   mv "$combined_file" "$prompt_file"
 elif [ "$mode" = research ]; then
@@ -126,8 +157,8 @@ timeout -k 10 "$run_timeout" codex "${codex_args[@]}" \
 rc=$?
 set -e
 
-if [ "$rc" -eq 0 ] && [ ! -s "$final_file" ]; then
-  printf 'run-codex: provider exited 0 without a final result\n' >&2
+if [ "$rc" -eq 0 ] && [ -f "$final_file" ] && [ ! -s "$final_file" ]; then
+  printf 'run-codex: empty final-message artifact: %s\n' "$final_file" >&2
   rc=5
 fi
 if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$final_file"; then

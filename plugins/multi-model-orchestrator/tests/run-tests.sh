@@ -719,4 +719,135 @@ else
   printf 'SKIP: installed Grok CLI flag smoke test\n'
 fi
 
+# --- #517 runner flag surface: one vocabulary, no silent ignore, no empty exit-0 ---
+
+# Req 1: --repo and --dir are synonyms on every runner (including opus wrapper).
+printf 'synonym claude dir\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --dir "$WORK/repo" \
+  --model claude-haiku-4-5 --timeout 5 >/dev/null 2> "$WORK/syn-claude-dir.err" \
+  || fail 'Claude accepts --dir as --repo synonym'
+printf 'synonym claude repo\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --timeout 5 >/dev/null 2> "$WORK/syn-claude-repo.err" \
+  || fail 'Claude keeps accepting --repo'
+printf 'synonym grok dir\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --dir "$WORK/repo" \
+  --timeout 5 >/dev/null 2> "$WORK/syn-grok-dir.err" \
+  || fail 'Grok accepts --dir as --repo synonym'
+printf 'synonym grok repo\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \
+  --timeout 5 >/dev/null 2> "$WORK/syn-grok-repo.err" \
+  || fail 'Grok keeps accepting --repo'
+printf 'synonym codex repo\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --repo "$WORK/repo" \
+  --timeout 5 >/dev/null 2> "$WORK/syn-codex-repo.err" \
+  || fail 'Codex accepts --repo as --dir synonym'
+printf 'synonym codex dir\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
+  --timeout 5 >/dev/null 2> "$WORK/syn-codex-dir.err" \
+  || fail 'Codex keeps accepting --dir'
+printf 'synonym opus dir\n' | "$PLUGIN_ROOT/scripts/run-opus.sh" --mode advise --dir "$WORK/repo" \
+  --timeout 5 >/dev/null 2> "$WORK/syn-opus-dir.err" \
+  || fail 'Opus wrapper accepts --dir via Claude'
+contains "$PLUGIN_ROOT/scripts/run-claude.sh" '--repo|--dir)' 'Claude case lists --repo|--dir synonym'
+contains "$PLUGIN_ROOT/scripts/run-grok.sh" '--repo|--dir)' 'Grok case lists --repo|--dir synonym'
+contains "$PLUGIN_ROOT/scripts/run-codex.sh" '--repo|--dir)' 'Codex case lists --repo|--dir synonym'
+contains "$PLUGIN_ROOT/scripts/run-claude.sh" '[--repo DIR|--dir DIR]' 'Claude usage documents synonym pair'
+contains "$PLUGIN_ROOT/scripts/run-grok.sh" '[--repo DIR|--dir DIR]' 'Grok usage documents synonym pair'
+contains "$PLUGIN_ROOT/scripts/run-codex.sh" '[--repo DIR|--dir DIR]' 'Codex usage documents synonym pair'
+pass '#517 req1: --repo/--dir synonyms work on every runner'
+
+# Req 2: every runner accepts --base, --stream-log, --max-turns; never silently ignore.
+# --stream-log must actually stream where accepted.
+mkdir -p "$WORK/flag-dest"
+printf 'claude stream\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/flag-dest/claude-final.txt" \
+  --stream-log "$WORK/flag-dest/claude.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/flag-dest/claude-stream.err" \
+  || fail 'Claude accepts --stream-log'
+[ -f "$WORK/flag-dest/claude.stream" ] || fail 'Claude --stream-log creates stream file'
+[ -s "$WORK/flag-dest/claude.stream" ] || fail 'Claude --stream-log actually streams content'
+contains "$WORK/flag-dest/claude-stream.err" "log=$WORK/flag-dest/claude.stream" 'Claude log= honors --stream-log'
+printf 'grok stream\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \
+  --out "$WORK/flag-dest/grok-final.txt" --stream-log "$WORK/flag-dest/grok.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/flag-dest/grok-stream.err" \
+  || fail 'Grok accepts --stream-log'
+[ -f "$WORK/flag-dest/grok.stream" ] || fail 'Grok --stream-log creates stream file'
+[ -s "$WORK/flag-dest/grok.stream" ] || fail 'Grok --stream-log actually streams content'
+contains "$WORK/flag-dest/grok-stream.err" "log=$WORK/flag-dest/grok.stream" 'Grok log= honors --stream-log'
+printf 'codex base\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
+  --base HEAD --timeout 5 >/dev/null 2> "$WORK/flag-dest/codex-base.err" \
+  || fail 'Codex accepts and honors --base in review'
+contains "$WORK/codex.prompt" 'Unified diff from HEAD' 'Codex --base injects review diff'
+contains "$WORK/codex.prompt" '+after' 'Codex --base diff includes working-tree changes'
+# --max-turns: Grok honors; Claude/Codex must name the flag and say why they cannot.
+printf 'grok turns\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \
+  --max-turns 7 --timeout 5 >/dev/null 2> "$WORK/flag-dest/grok-turns.err" \
+  || fail 'Grok accepts --max-turns'
+contains "$WORK/grok.args" '7' 'Grok honors --max-turns value'
+if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --max-turns 3 --timeout 5 >/dev/null 2> "$WORK/flag-dest/claude-turns.err"; then
+  fail 'Claude must not silently ignore --max-turns'
+fi
+contains "$WORK/flag-dest/claude-turns.err" '--max-turns' 'Claude rejection names --max-turns'
+contains "$WORK/flag-dest/claude-turns.err" 'Claude CLI' 'Claude rejection explains provider cannot honor --max-turns'
+if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
+  --max-turns 3 --timeout 5 >/dev/null 2> "$WORK/flag-dest/codex-turns.err"; then
+  fail 'Codex must not silently ignore --max-turns'
+fi
+contains "$WORK/flag-dest/codex-turns.err" '--max-turns' 'Codex rejection names --max-turns'
+contains "$WORK/flag-dest/codex-turns.err" 'Codex CLI' 'Codex rejection explains provider cannot honor --max-turns'
+# usage() must advertise the shared flag surface
+contains "$PLUGIN_ROOT/scripts/run-claude.sh" '--stream-log FILE' 'Claude usage lists --stream-log'
+contains "$PLUGIN_ROOT/scripts/run-claude.sh" '--max-turns N' 'Claude usage lists --max-turns'
+contains "$PLUGIN_ROOT/scripts/run-grok.sh" '--stream-log FILE' 'Grok usage lists --stream-log'
+contains "$PLUGIN_ROOT/scripts/run-codex.sh" '--base REF' 'Codex usage lists --base'
+contains "$PLUGIN_ROOT/scripts/run-codex.sh" '--max-turns N' 'Codex usage lists --max-turns'
+# unknown flags stay loud
+if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --bogus 1 \
+  >/dev/null 2> "$WORK/flag-dest/claude-unknown.err"; then
+  fail 'Claude unknown option still rejected'
+fi
+contains "$WORK/flag-dest/claude-unknown.err" 'unknown option' 'Claude unknown-option path stays loud'
+pass '#517 req2: shared flags accepted; honor or name-the-flag; stream-log streams'
+
+# Req 3: run-codex.sh resolves --dir/--repo to a git toplevel (match claude/grok).
+mkdir -p "$WORK/not-a-repo"
+if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/not-a-repo" \
+  --timeout 5 >/dev/null 2> "$WORK/codex-toplevel.err"; then
+  fail 'Codex non-git directory must exit non-zero'
+fi
+[ "$(cat "$WORK/codex-toplevel.err" | head -1 | wc -c)" -gt 0 ] || fail 'Codex non-git failure prints a message'
+# Positive: subdirectory of a git repo resolves to toplevel (codex -C gets toplevel).
+mkdir -p "$WORK/repo/subdir"
+printf 'toplevel resolve\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/repo/subdir" \
+  --timeout 5 >/dev/null 2> "$WORK/codex-toplevel-ok.err" \
+  || fail 'Codex resolves a git subdirectory to toplevel'
+exact_line "$WORK/codex.args" "$WORK/repo" 'Codex -C uses git toplevel not the subdirectory'
+pass '#517 req3: Codex resolves repo arg to git toplevel'
+
+# Req 4: exit 0 with an empty final-message artifact is failure; message names the artifact.
+rm -f "$WORK/empty-claude.txt" "$WORK/empty-codex.txt" "$WORK/empty-grok.txt"
+: > "$WORK/empty-claude.txt"
+: > "$WORK/empty-codex.txt"
+: > "$WORK/empty-grok.txt"
+if printf x | STUB_CLAUDE_RESULT=empty "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/empty-claude.txt" --timeout 5 \
+  >/dev/null 2> "$WORK/empty-claude.err"; then
+  fail 'Claude empty final-message must not exit 0'
+fi
+contains "$WORK/empty-claude.err" "$WORK/empty-claude.txt" 'Claude empty-output message names the artifact'
+if printf x | STUB_CODEX_RESULT=empty "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/repo" \
+  --out "$WORK/empty-codex.txt" --timeout 5 \
+  >/dev/null 2> "$WORK/empty-codex.err"; then
+  fail 'Codex empty final-message must not exit 0'
+fi
+contains "$WORK/empty-codex.err" "$WORK/empty-codex.txt" 'Codex empty-output message names the artifact'
+if printf x | STUB_GROK_RESULT=empty "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \
+  --out "$WORK/empty-grok.txt" --timeout 5 \
+  >/dev/null 2> "$WORK/empty-grok.err"; then
+  fail 'Grok empty final-message must not exit 0'
+fi
+contains "$WORK/empty-grok.err" "$WORK/empty-grok.txt" 'Grok empty-output message names the artifact'
+# Guard fires on positive evidence only: existing empty file, not a missing path.
+# (stubs leave the --out path present and empty after exit 0)
+[ -f "$WORK/empty-claude.txt" ] && [ ! -s "$WORK/empty-claude.txt" ] || fail 'Claude empty artifact exists and is empty'
+[ -f "$WORK/empty-codex.txt" ] && [ ! -s "$WORK/empty-codex.txt" ] || fail 'Codex empty artifact exists and is empty'
+[ -f "$WORK/empty-grok.txt" ] && [ ! -s "$WORK/empty-grok.txt" ] || fail 'Grok empty artifact exists and is empty'
+pass '#517 req4: empty final-message on exit 0 fails and names the artifact'
+
 printf 'All multi-model-orchestrator tests passed.\n'
