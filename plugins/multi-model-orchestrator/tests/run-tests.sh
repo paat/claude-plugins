@@ -67,8 +67,10 @@ cat > "$WORK/bin/codex" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$STUB_CODEX_ARGS"
 out=""
+: > "$STUB_CODEX_CWD"
 while [ "$#" -gt 0 ]; do
   [ "$1" = -o ] && { out="$2"; shift 2; continue; }
+  [ "$1" = -C ] && { printf '%s\n' "$2" > "$STUB_CODEX_CWD"; shift 2; continue; }
   shift
 done
 cat > "$STUB_CODEX_PROMPT"
@@ -88,6 +90,8 @@ STUB
 cat > "$WORK/bin/claude" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$STUB_CLAUDE_ARGS"
+# Record the working directory the runner actually placed us in.
+pwd > "$STUB_CLAUDE_CWD"
 cat > "$STUB_CLAUDE_PROMPT"
 case "${STUB_CLAUDE_RESULT:-ok}" in
   error) exit 23 ;;
@@ -117,10 +121,12 @@ fi
 prompt=""
 debug_file=""
 requested_tools=""
+: > "$STUB_GROK_CWD"
 while [ "$#" -gt 0 ]; do
   [ "$1" = --prompt-file ] && { prompt="$2"; shift 2; continue; }
   [ "$1" = --debug-file ] && { debug_file="$2"; shift 2; continue; }
   [ "$1" = --tools ] && { requested_tools="$2"; shift 2; continue; }
+  [ "$1" = --cwd ] && { printf '%s\n' "$2" > "$STUB_GROK_CWD"; shift 2; continue; }
   shift
 done
 [ -n "$prompt" ] && cat "$prompt" > "$STUB_GROK_PROMPT"
@@ -188,9 +194,9 @@ esac
 STUB
 chmod +x "$WORK/bin/codex" "$WORK/bin/claude" "$WORK/bin/grok"
 export PATH="$WORK/bin:$PATH"
-export STUB_CODEX_ARGS="$WORK/codex.args" STUB_CODEX_PROMPT="$WORK/codex.prompt"
-export STUB_CLAUDE_ARGS="$WORK/claude.args" STUB_CLAUDE_PROMPT="$WORK/claude.prompt"
-export STUB_GROK_ARGS="$WORK/grok.args" STUB_GROK_PROMPT="$WORK/grok.prompt"
+export STUB_CODEX_ARGS="$WORK/codex.args" STUB_CODEX_PROMPT="$WORK/codex.prompt" STUB_CODEX_CWD="$WORK/codex.cwd"
+export STUB_CLAUDE_ARGS="$WORK/claude.args" STUB_CLAUDE_PROMPT="$WORK/claude.prompt" STUB_CLAUDE_CWD="$WORK/claude.cwd"
+export STUB_GROK_ARGS="$WORK/grok.args" STUB_GROK_PROMPT="$WORK/grok.prompt" STUB_GROK_CWD="$WORK/grok.cwd"
 export STUB_GROK_HOME_ENV="$WORK/grok.home-env" STUB_GROK_DIR_ENV="$WORK/grok.dir-env"
 export STUB_GROK_CONFIG="$WORK/grok.config"
 export GROK_HOME="$WORK/host-grok"
@@ -730,27 +736,41 @@ fi
 # --- #517 runner flag surface: one vocabulary, no silent ignore, no empty exit-0 ---
 
 # Req 1: --repo and --dir are synonyms on every runner (including opus wrapper).
+# Behavioral: stubs record the cwd/repo they actually received; both spellings
+# must deliver the supplied repo (not a silent fallback to $PWD).
+repo_top="$(git -C "$WORK/repo" rev-parse --show-toplevel)"
 printf 'synonym claude dir\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --dir "$WORK/repo" \
   --model claude-haiku-4-5 --timeout 5 >/dev/null 2> "$WORK/syn-claude-dir.err" \
   || fail 'Claude accepts --dir as --repo synonym'
+exact_line "$WORK/claude.cwd" "$repo_top" 'Claude --dir places the stub in the supplied repo'
 printf 'synonym claude repo\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
   --model claude-haiku-4-5 --timeout 5 >/dev/null 2> "$WORK/syn-claude-repo.err" \
   || fail 'Claude keeps accepting --repo'
+exact_line "$WORK/claude.cwd" "$repo_top" 'Claude --repo places the stub in the supplied repo'
 printf 'synonym grok dir\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --dir "$WORK/repo" \
   --timeout 5 >/dev/null 2> "$WORK/syn-grok-dir.err" \
   || fail 'Grok accepts --dir as --repo synonym'
+exact_line "$WORK/grok.cwd" "$repo_top" 'Grok --dir passes the supplied repo as --cwd'
 printf 'synonym grok repo\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \
   --timeout 5 >/dev/null 2> "$WORK/syn-grok-repo.err" \
   || fail 'Grok keeps accepting --repo'
+exact_line "$WORK/grok.cwd" "$repo_top" 'Grok --repo passes the supplied repo as --cwd'
 printf 'synonym codex repo\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --repo "$WORK/repo" \
   --timeout 5 >/dev/null 2> "$WORK/syn-codex-repo.err" \
   || fail 'Codex accepts --repo as --dir synonym'
+exact_line "$WORK/codex.cwd" "$repo_top" 'Codex --repo passes the supplied repo as -C'
 printf 'synonym codex dir\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
   --timeout 5 >/dev/null 2> "$WORK/syn-codex-dir.err" \
   || fail 'Codex keeps accepting --dir'
+exact_line "$WORK/codex.cwd" "$repo_top" 'Codex --dir passes the supplied repo as -C'
 printf 'synonym opus dir\n' | "$PLUGIN_ROOT/scripts/run-opus.sh" --mode advise --dir "$WORK/repo" \
   --timeout 5 >/dev/null 2> "$WORK/syn-opus-dir.err" \
   || fail 'Opus wrapper accepts --dir via Claude'
+exact_line "$WORK/claude.cwd" "$repo_top" 'Opus --dir places the stub in the supplied repo'
+printf 'synonym opus repo\n' | "$PLUGIN_ROOT/scripts/run-opus.sh" --mode advise --repo "$WORK/repo" \
+  --timeout 5 >/dev/null 2> "$WORK/syn-opus-repo.err" \
+  || fail 'Opus wrapper accepts --repo via Claude'
+exact_line "$WORK/claude.cwd" "$repo_top" 'Opus --repo places the stub in the supplied repo'
 contains "$PLUGIN_ROOT/scripts/run-claude.sh" '--repo|--dir)' 'Claude case lists --repo|--dir synonym'
 contains "$PLUGIN_ROOT/scripts/run-grok.sh" '--repo|--dir)' 'Grok case lists --repo|--dir synonym'
 contains "$PLUGIN_ROOT/scripts/run-codex.sh" '--repo|--dir)' 'Codex case lists --repo|--dir synonym'
@@ -813,12 +833,46 @@ fi
 contains "$WORK/flag-dest/claude-unknown.err" 'unknown option' 'Claude unknown-option path stays loud'
 pass '#517 req2: shared flags accepted; honor or name-the-flag; stream-log streams'
 
+# Regression: under --stream-log, provider failure must surface as the provider's
+# rc (PIPESTATUS[0]), not tee's always-success rc (PIPESTATUS[1]). Assert the
+# final, stream, and ${out}.stderr artifacts still exist.
+mkdir -p "$WORK/stream-fail"
+set +e
+printf 'claude stream fail\n' | STUB_CLAUDE_RESULT=error \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 \
+  --out "$WORK/stream-fail/claude-final.txt" \
+  --stream-log "$WORK/stream-fail/claude.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/stream-fail/claude-run.err"
+claude_stream_fail_rc=$?
+set -e
+[ "$claude_stream_fail_rc" -eq 23 ] || fail "Claude --stream-log provider failure rc=$claude_stream_fail_rc want 23 (provider), not tee"
+[ -f "$WORK/stream-fail/claude-final.txt" ] || fail 'Claude --stream-log failure still writes --out artifact'
+[ -f "$WORK/stream-fail/claude.stream" ] || fail 'Claude --stream-log failure still writes stream artifact'
+[ -f "$WORK/stream-fail/claude-final.txt.stderr" ] || fail 'Claude --stream-log failure still writes ${out}.stderr artifact'
+set +e
+printf 'grok stream fail\n' | STUB_GROK_RESULT=error \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \
+  --out "$WORK/stream-fail/grok-final.txt" \
+  --stream-log "$WORK/stream-fail/grok.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/stream-fail/grok-run.err"
+grok_stream_fail_rc=$?
+set -e
+[ "$grok_stream_fail_rc" -eq 23 ] || fail "Grok --stream-log provider failure rc=$grok_stream_fail_rc want 23 (provider), not tee"
+[ -f "$WORK/stream-fail/grok-final.txt" ] || fail 'Grok --stream-log failure still writes --out artifact'
+[ -f "$WORK/stream-fail/grok.stream" ] || fail 'Grok --stream-log failure still writes stream artifact'
+[ -f "$WORK/stream-fail/grok-final.txt.stderr" ] || fail 'Grok --stream-log failure still writes ${out}.stderr artifact'
+pass '#517 regression: --stream-log propagates provider exit, not tee'
+
 # Req 3: run-codex.sh resolves --dir/--repo to a git toplevel (match claude/grok).
+# Intentional behavior change vs 0.7.6: existing non-git directory exits 2.
 mkdir -p "$WORK/not-a-repo"
-if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/not-a-repo" \
-  --timeout 5 >/dev/null 2> "$WORK/codex-toplevel.err"; then
-  fail 'Codex non-git directory must exit non-zero'
-fi
+set +e
+printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/not-a-repo" \
+  --timeout 5 >/dev/null 2> "$WORK/codex-toplevel.err"
+codex_nongit_rc=$?
+set -e
+[ "$codex_nongit_rc" -eq 2 ] || fail "Codex non-git directory rc=$codex_nongit_rc want 2"
 [ "$(cat "$WORK/codex-toplevel.err" | head -1 | wc -c)" -gt 0 ] || fail 'Codex non-git failure prints a message'
 # Positive: subdirectory of a git repo resolves to toplevel (codex -C gets toplevel).
 mkdir -p "$WORK/repo/subdir"

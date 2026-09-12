@@ -109,7 +109,17 @@ if [ "$mode" = review ]; then
     }
     git -C "$repo_dir" diff --no-ext-diff --binary "$base_ref" -- > "$diff_file"
     while IFS= read -r -d '' untracked; do
-      git -C "$repo_dir" diff --no-index --binary -- /dev/null "$untracked" >> "$diff_file" 2>/dev/null || true
+      # --no-index exits 1 when files differ (expected). Keep 2>/dev/null so the
+      # exit-1 path does not leak incidental git stderr into the runner; exit 2+
+      # is a real failure and must not be swallowed.
+      set +e
+      git -C "$repo_dir" diff --no-index --binary -- /dev/null "$untracked" >> "$diff_file" 2>/dev/null
+      untracked_rc=$?
+      set -e
+      if [ "$untracked_rc" -gt 1 ]; then
+        printf 'run-codex: failed to include untracked file in review diff: %s\n' "$untracked" >&2
+        exit "$untracked_rc"
+      fi
     done < <(git -C "$repo_dir" ls-files -z --others --exclude-standard)
   fi
   combined_file="$(mktemp)"
