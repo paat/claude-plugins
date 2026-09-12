@@ -191,26 +191,39 @@ tribunal_error() {
 tribunal_error_with_diagnostics() {
   local provider="$1" message="$2" phase="$3" exit_code="$4"
   local stdout_file="$5" stderr_file="$6" max_bytes=2048
+  # Missing artifact -> 0. Unreadable artifact -> null (unavailable, not empty) (#504).
   local stdout_bytes=0 stderr_bytes=0
   local stdout_tail="[omitted; set TRIBUNAL_DIAGNOSTIC_TAILS=on]"
   local stderr_tail="[omitted; set TRIBUNAL_DIAGNOSTIC_TAILS=on]"
   local stdout_truncated=false stderr_truncated=false
   [[ "$exit_code" =~ ^[0-9]+$ ]] || exit_code=255
   if [ -f "$stdout_file" ] && [ ! -L "$stdout_file" ]; then
-    stdout_bytes="$(wc -c < "$stdout_file" | tr -d ' ')"
-    if [ "${TRIBUNAL_DIAGNOSTIC_TAILS:-off}" = on ]; then
-      stdout_tail="$(tail -c "$max_bytes" -- "$stdout_file" 2>/dev/null \
-        | LC_ALL=C tr -cd '\11\12\15\40-\176')"
+    # Unreadable is unavailable (null), not empty (0). Probe -r before wc so a
+    # failed redirect cannot empty --argjson and erase the failure record (#504).
+    if [ -r "$stdout_file" ] \
+      && stdout_bytes="$(wc -c < "$stdout_file" | tr -d ' ')" \
+      && [[ "$stdout_bytes" =~ ^[0-9]+$ ]]; then
+      if [ "${TRIBUNAL_DIAGNOSTIC_TAILS:-off}" = on ]; then
+        stdout_tail="$(tail -c "$max_bytes" -- "$stdout_file" 2>/dev/null \
+          | LC_ALL=C tr -cd '\11\12\15\40-\176')"
+      fi
+      [ "$stdout_bytes" -le "$max_bytes" ] || stdout_truncated=true
+    else
+      stdout_bytes=null
     fi
-    [ "$stdout_bytes" -le "$max_bytes" ] || stdout_truncated=true
   fi
   if [ -f "$stderr_file" ] && [ ! -L "$stderr_file" ]; then
-    stderr_bytes="$(wc -c < "$stderr_file" | tr -d ' ')"
-    if [ "${TRIBUNAL_DIAGNOSTIC_TAILS:-off}" = on ]; then
-      stderr_tail="$(tail -c "$max_bytes" -- "$stderr_file" 2>/dev/null \
-        | LC_ALL=C tr -cd '\11\12\15\40-\176')"
+    if [ -r "$stderr_file" ] \
+      && stderr_bytes="$(wc -c < "$stderr_file" | tr -d ' ')" \
+      && [[ "$stderr_bytes" =~ ^[0-9]+$ ]]; then
+      if [ "${TRIBUNAL_DIAGNOSTIC_TAILS:-off}" = on ]; then
+        stderr_tail="$(tail -c "$max_bytes" -- "$stderr_file" 2>/dev/null \
+          | LC_ALL=C tr -cd '\11\12\15\40-\176')"
+      fi
+      [ "$stderr_bytes" -le "$max_bytes" ] || stderr_truncated=true
+    else
+      stderr_bytes=null
     fi
-    [ "$stderr_bytes" -le "$max_bytes" ] || stderr_truncated=true
   fi
   jq -nc --arg p "$provider" --arg message "$message" --arg phase "$phase" \
     --argjson exit "$exit_code" --argjson stdout_bytes "$stdout_bytes" \
