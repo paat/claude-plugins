@@ -50,12 +50,12 @@ apply to the tribunal panel, which owns its own provider configuration.
 sources:
   - name: plane
     list: "<shell command printing open workitem ids and titles>"
-    show: "<shell command printing one workitem body; id appended>"
-    close: "<shell command closing or commenting a workitem; id appended>"
+    show: "<shell command printing one workitem body; id appended>"   # optional
+    close: "<shell command closing or commenting a workitem; id appended>"  # optional
 models:
-  allow: [gpt-5.6-terra, grok-4.5, claude-sonnet-5]
-  deny: [claude-fable-5]
-  worker: "gpt-5.6-terra high"
+  allow: [gpt-5.6-terra, grok-4.5, claude-sonnet-5]  # optional leg allowlist
+  deny: [claude-fable-5]                             # optional leg denylist
+  worker: "gpt-5.6-terra high"                       # optional per-role pins
   reviewer: "grok-4.5 high"
   advise: "claude-opus-5 high"
   research: "claude-opus-5 high"
@@ -72,7 +72,7 @@ annotate the source via its `close` command.
 - **B (per-item):** branch → push → PR → `tribunal-review:closing-tribunal-loop` → merge at zero
   critical/high → close/annotate the source item.
 
-Default-branch merges require the tribunal exit unless the brief waives it. Tribunal obligations:
+Default-branch merges require the tribunal exit unless the brief explicitly waives it. Tribunal obligations:
 PR open, local head pushed, you arbitrate as calling context — never restate its protocol.
 
 ## Preflight and resume
@@ -80,7 +80,7 @@ PR open, local head pushed, you arbitrate as calling context — never restate i
 Fresh start: require `gh` authenticated, a GitHub remote, and a clean worktree; verify any
 referenced issues/workitems exist. Write the handoff (instantiate `references/handoff-template.md`)
 with the literal resume command, expected artifact paths, and baseline — all known before launch —
-and path-limited commit it immediately before dispatch (`git commit -m … -- <handoff>`); never for a
+and path-limited commit it immediately before dispatch (`git add <handoff> && git commit -m … -- <handoff>`); never for a
 no-op scan. Record the task/job id after dispatch without committing; commit it at the next gate,
 when no leg is live. If another session's handoff already records conflicting in-flight work on
 this branch, reconcile; do not overwrite it.
@@ -143,7 +143,7 @@ record only deltas. A session that dies mid-decision costs one resume, nothing m
 - Start every turn by reading any unread dispatched-leg output, then resume at the gate.
 - Dispatch every leg through a host mechanism whose completion re-invokes the orchestrator. In
   Claude Code, use Bash `run_in_background: true` for its `<task-notification>`; never use bare shell `&`.
-- Ending a turn with an unarranged live leg is a defect, not a wait. Path-limited handoff commit
-  with the literal resume command immediately before dispatch — announcing a dispatch without that committed artifact is a defect.
+- Ending a turn with an unarranged live leg is a defect, not a wait. Follow Preflight's path-limited
+  handoff commit — announcing a dispatch without that committed artifact is a defect.
 - Workers never push. You own push and PR creation.
 - When a worker pushes back on your instructions, treat it as signal: verify before overruling.
