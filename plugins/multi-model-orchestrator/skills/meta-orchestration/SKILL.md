@@ -8,26 +8,25 @@ description: "Use when running the show over a queue of work — an epic, an iss
 You are the meta-orchestrator. The brief describes WHAT to achieve — outcomes, priorities,
 autonomy bounds, stop conditions — and is authoritative on all of it. HOW is yours: task
 decomposition, sequencing, model routing, dispatch, gating, and recovery follow the rules
-below, and the human never has to specify mechanics. You coordinate; you never edit source. Route every worker and reviewer leg with
+below. You coordinate; you never edit source. Route every worker and reviewer leg with
 `../route-model-task/SKILL.md` — do not restate its catalog. Do not load
 `../multi-model-orchestration/SKILL.md`; its single-run preflight does not apply to
 multi-session work.
 
 ## Autonomy
 
-Once the queue is ratified, proceed implement → review → tribunal → merge without pausing to ask the
-human for approval. Pause to ask only for credentials, browser authentication, repo-policy changes,
+Within the brief's autonomy bounds, run implement → review → tribunal → merge without asking for
+approval. Pause to ask only for credentials, browser authentication, repo-policy changes,
 spend, or irreversible production data. The brief's stop conditions, gate blockers, and genuine judgment calls still stop
-— park that item and continue with the next tree-independent item. Self-merge IS permitted: merging your
-own gated PR needs no human approval, but never bypass branch protection or required reviews (no
-`--admin`); when protection blocks the merge, that is an OPERATOR ACTIONS REQUIRED entry, not a pause.
-Queue refused or unavailable privileged actions in the handoff's `OPERATOR ACTIONS REQUIRED` block and
-continue with the next tree-independent item. Do not burn the session on preflight before the first dispatch.
+at their scope: a run-level stop condition or unexplained worktree state stops the run; a gate blocker or genuine judgment call parks that item.
+Self-merge IS permitted for your own gated PR, never by bypassing branch protection or required reviews (no `--admin`).
+Queue a blocked merge or refused/unavailable privileged action under the handoff's `OPERATOR ACTIONS REQUIRED`;
+continue with the next tree-independent item. Do not burn the session on preflight beyond the Fresh-start checks.
 
 ## Interpreting the brief
 
-Infer the shape from the brief's wording — these are recognition patterns, not syntax the human
-must use. All feed the same per-item loop:
+Infer the shape from the brief's wording — recognition patterns, not required syntax. All feed
+the same per-item loop:
 
 - **Epic** — the brief names one epic issue: single epic branch, delivery strategy A.
 - **Issue list** — the brief names or queries issues: one cheap triage pass ordering by
@@ -51,39 +50,40 @@ apply to the tribunal panel, which owns its own provider configuration.
 sources:
   - name: plane
     list: "<shell command printing open workitem ids and titles>"
-    show: "<shell command printing one workitem body; id appended>"   # optional
-    close: "<shell command closing or commenting a workitem; id appended>"  # optional
+    show: "<shell command printing one workitem body; id appended>"
+    close: "<shell command closing or commenting a workitem; id appended>"
 models:
-  allow: [gpt-5.6-terra, grok-4.5, claude-sonnet-5]  # optional leg allowlist
-  deny: [claude-fable-5]                             # optional leg denylist
-  worker: "gpt-5.6-terra high"                       # optional per-role pins
+  allow: [gpt-5.6-terra, grok-4.5, claude-sonnet-5]
+  deny: [claude-fable-5]
+  worker: "gpt-5.6-terra high"
   reviewer: "grok-4.5 high"
   advise: "claude-opus-5 high"
   research: "claude-opus-5 high"
 ```
 
-Treat sourced items exactly like issues. Code always delivers through git branches and GitHub
-PRs; after merge, close or annotate the source workitem via its `close` command.
+Treat sourced items like issues. Deliver via git branches and GitHub PRs; after merge, close or
+annotate the source via its `close` command.
 
 ## Delivery strategies
 
 - **A (epic):** per-item branches merge into the epic branch on the merge signal. Close-out:
-  browser QA + UX pass on the epic PR, then `tribunal-review:closing-tribunal-loop`; merge to
-  the default branch at zero critical/high; write the final handoff; close the epic.
-- **B (per-item):** branch per item → push → PR → `tribunal-review:closing-tribunal-loop` on
-  that PR → merge at zero critical/high → close/annotate the source item.
+  browser QA + UX on the epic PR, then `tribunal-review:closing-tribunal-loop`; merge to the
+  default branch at zero critical/high; write the final handoff; close the epic.
+- **B (per-item):** branch → push → PR → `tribunal-review:closing-tribunal-loop` → merge at zero
+  critical/high → close/annotate the source item.
 
-Merges to the default branch require the tribunal exit unless the brief explicitly waives it.
-Your obligations to the tribunal skill are only: the PR is open, the local head is pushed, and
-you arbitrate as calling context — never restate its protocol.
+Default-branch merges require the tribunal exit unless the brief waives it. Tribunal obligations:
+PR open, local head pushed, you arbitrate as calling context — never restate its protocol.
 
 ## Preflight and resume
 
 Fresh start: require `gh` authenticated, a GitHub remote, and a clean worktree; verify any
-referenced issues/workitems exist. Write and commit the handoff
-(instantiate `references/handoff-template.md`) the instant a background leg is dispatched —
-before this turn ends with that leg live — never for a no-op scan. If another session's handoff
-already records conflicting in-flight work on this branch, reconcile; do not overwrite it.
+referenced issues/workitems exist. Write the handoff (instantiate `references/handoff-template.md`)
+with the literal resume command, expected artifact paths, and baseline — all known before launch —
+and path-limited commit it immediately before dispatch (`git commit -m … -- <handoff>`); never for a
+no-op scan. Record the task/job id after dispatch without committing; commit it at the next gate,
+when no leg is live. If another session's handoff already records conflicting in-flight work on
+this branch, reconcile; do not overwrite it.
 
 Resume (`--resume`): read the handoff top-down. Execute its "Stop here first" action before
 anything else. Treat "Decisions ratified — do not re-litigate" as settled. The handoff State
@@ -103,27 +103,25 @@ record only deltas. A session that dies mid-decision costs one resume, nothing m
    the ledger.
 2. Buy only the grounding that is triggered:
    - **Advise (IN-REPO):** For ambiguous or high-coupling items, one advise leg via an allowed
-     provider (`run-claude.sh` or `run-grok.sh --mode advise`); its constraints, risks, and file
-     map ground the worker. Skip when well-specified or no advise provider is allowed — tighten
-     the worker packet instead.
+     provider (`run-claude.sh` or `run-grok.sh --mode advise`); constraints/risks/file map ground
+     the worker. Skip when well-specified or no advise provider is allowed — tighten the packet.
    - **Research (OUT-OF-REPO):** Prefer tool-restricted Claude or Grok; Codex is the fallback.
      Run `run-claude.sh`, `run-grok.sh`, or `run-codex.sh` with `--mode research`; apply
      `references/research-leg.md` and ground the worker on the memo's load-bearing claims.
-   An unknown is not automatically a human decision. Before parking an item or putting a question in
-   the handoff's open-human-decisions block, classify it: unresearched (spend a research leg) vs.
-   genuinely a judgment call (escalate with the research attached when a trigger fired; otherwise
-   state why research was not warranted).
+   An unknown is not automatically a human decision. Before parking or escalating, classify:
+   unresearched (spend a research leg) vs. genuine judgment call (escalate with research when a
+   trigger fired; otherwise state why research was not warranted).
 3. Instantiate `references/worker-prompt.md`, feeding Hard-won constraints from the handoff's
    rules-learned section and any research memo for the item into Grounding docs / Hard-won
-   constraints. Dispatch via the runner the card names (`run-codex.sh` / `run-grok.sh` /
-   `run-claude.sh`; `--dir` and `--repo` are synonyms).
-4. Gate the result yourself: inspect the diff on the item branch, run the named suites, verify
-   the final-message contract was honored. If the leg's contract prevented committing, commit
-   the gated result yourself — recording a worker's output or filing a research memo is bookkeeping, not source editing.
+   constraints. Dispatch via `${CLAUDE_PLUGIN_ROOT}/scripts/` (`run-codex.sh` / `run-grok.sh` /
+   `run-claude.sh`; `--dir`/`--repo` are synonyms; implement legs `--timeout 1800`).
+4. Gate yourself: inspect the item-branch diff, run the named suites, verify the final-message
+   contract. If the leg's contract prevented committing, commit the gated result yourself —
+   recording output or filing a research memo is bookkeeping, not source editing.
 5. Adversarial review by a DIFFERENT provider than the worker, from
-   `references/review-prompts.md`. Codex reviewer legs use `--mode review` (the runner enforces
-   the APPROVE/NEEDS_WORK verdict); Claude/Grok legs that must execute probes use
-   `--mode implement` with the template's modify-nothing contract, and you grep the verdict.
+   `references/review-prompts.md`. Codex reviewers use `--mode review` (runner enforces
+   APPROVE/NEEDS_WORK); Claude/Grok probe legs use `--mode implement` with the modify-nothing
+   contract; grep the verdict.
 6. On NEEDS_WORK: one fix cycle by the worker ("address exactly these, nothing else"), then the
    bounded delta re-review by the SAME reviewer. A second NEEDS_WORK is a blocker to report,
    not a loop to continue.
@@ -139,15 +137,13 @@ record only deltas. A session that dies mid-decision costs one resume, nothing m
 - Before dispatching the next worker, confirm the previous worker's transcript/output mtime has
   stopped advancing. A process-list snapshot is not a liveness check.
 - Worker exit 124 (timeout) often lands AFTER the work completed: never discard on 124 — check
-  `git status`, rerun the suites yourself, and salvage or redispatch on evidence.
+  `git status`, rerun suites, and salvage or redispatch on evidence.
 - You never edit source while any worker is live. `git checkout` is a write. Never
-  `gh pr merge --delete-branch` under a live worker — you will move the tree out from under it.
+  `gh pr merge --delete-branch` under a live worker — that moves the tree out from under it.
 - Start every turn by reading any unread dispatched-leg output, then resume at the gate.
 - Dispatch every leg through a host mechanism whose completion re-invokes the orchestrator. In
-  Claude Code, use Bash `run_in_background: true` for its
-  `<task-notification>`; never use bare shell `&`.
-- Ending a turn with an unarranged live leg is a defect, not a wait. Dispatch includes writing and
-  committing the handoff In-flight legs block (with the literal resume command) before the turn
-  ends with a leg live — announcing a dispatch without that committed artifact is a defect.
+  Claude Code, use Bash `run_in_background: true` for its `<task-notification>`; never use bare shell `&`.
+- Ending a turn with an unarranged live leg is a defect, not a wait. Path-limited handoff commit
+  with the literal resume command immediately before dispatch — announcing a dispatch without that committed artifact is a defect.
 - Workers never push. You own push and PR creation.
 - When a worker pushes back on your instructions, treat it as signal: verify before overruling.
