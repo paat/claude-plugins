@@ -31,7 +31,7 @@ EOF
     export TRIBUNAL_DEEPSEEK=off TRIBUNAL_GLM=off
     if [ "$provider" = deepseek ]; then export TRIBUNAL_DEEPSEEK=on; else export TRIBUNAL_GLM=on; fi
     for mode in review smoke; do
-      for scenario in unavailable unavailable_tails findings chatter silent gate gate_workspace whitespace; do
+      for scenario in unavailable unavailable_tails findings chatter silent gate gate_workspace whitespace status_blob; do
         label="$provider $mode exit=0 $scenario"
         [ "$scenario" = silent ] || label="$label with stderr"
         # More than 2 KiB, including JSON-sensitive characters and a control byte.
@@ -55,6 +55,11 @@ EOF
         if [ "$scenario" = findings ]; then
           jq -nc --arg p "$provider" '{provider:$p,model:"fixture",findings:[{severity:"medium",category:"logic",file:"file.txt",line:1,title:"Preserve this finding",description:"fixture",suggestion:"fix",confidence:0.9}],summary:{total_findings:1,critical:0,high:0,medium:1,low:0,quality_score:8,verdict:"APPROVE"}}' > "$work/stdout"
         fi
+        # Non-review JSON object on stdout must still take the exit-0 execution path (#503).
+        if [ "$scenario" = status_blob ]; then
+          printf '%s\n' '{"status":"ok","progress":true}' > "$work/stdout"
+          printf '%s\n' 'Error: fatal provider failure' > "$work/stderr"
+        fi
         rc=0
         if [ "$mode" = smoke ]; then
           bash "$plugin_root/scripts/run-opencode-review.sh" --smoke > "$work/result" || rc=$?
@@ -77,6 +82,14 @@ EOF
                     + (if $p == "deepseek" then "deepseek/deepseek-v4-pro" else "opencode-go/glm-5.1" end)
                     + "\u0027 (requires explicit opt-in)"))
                   and (contains("opencode.ai/workspace/") | not) and (contains("wrk_ABC") | not)
+                  and (split("; stderr_tail=")[1] | fromjson == "[omitted; set TRIBUNAL_DIAGNOSTIC_TAILS=on]"))
+              elif $scenario == "status_blob" then
+                keys == ["error", "provider"]
+                and (.error | contains("phase=execution; exit=0")
+                  and contains("leg unavailable")
+                  and contains("no review findings/summary envelope")
+                  and (contains("phase=schema") | not)
+                  and (contains("omitted the review findings/summary envelope") | not)
                   and (split("; stderr_tail=")[1] | fromjson == "[omitted; set TRIBUNAL_DIAGNOSTIC_TAILS=on]"))
               else
                 keys == ["error", "provider"]

@@ -1002,6 +1002,69 @@ EOF
   rm -rf "$work"
 }
 
+# Unreadable stdout/stderr must still emit a failure record; byte counts are
+# null (unavailable), never a fabricated 0 and never silent (#504).
+test_diagnostics_unreadable_artifacts() {
+  local work out err json label
+  work="$(mktemp -d)"
+  out="$work/stdout.txt"
+  err="$work/stderr.txt"
+  printf 'stdout-bytes\n' > "$out"
+  printf 'stderr-bytes\n' > "$err"
+
+  label="unreadable stderr still emits JSON failure with unavailable byte count"
+  chmod 000 "$err"
+  if [ -r "$err" ]; then
+    echo -e "  ${RED}FAIL${NC} $label (could not construct unreadable fixture; running as root?)"
+    FAIL=$((FAIL+1)); FAILURES+=("$label")
+  else
+    json="$(
+      # shellcheck disable=SC1091
+      . "$PLUGIN_ROOT/scripts/lib.sh"
+      tribunal_error_with_diagnostics deepseek "fixture failure" execution 1 "$out" "$err"
+    )"
+    if printf '%s' "$json" | jq -e '
+        .provider == "deepseek"
+        and (.error | contains("phase=execution; exit=1"))
+        and (.error | contains("stdout_bytes=13"))
+        and (.error | contains("stderr_bytes=null"))
+        and (.error | contains("stderr_bytes=0") | not)
+      ' >/dev/null; then
+      echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} $label"; printf '%s\n' "$json"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+    fi
+  fi
+  chmod 600 "$err" 2>/dev/null || true
+
+  label="unreadable stdout still emits JSON failure with unavailable byte count"
+  chmod 644 "$out" "$err"
+  chmod 000 "$out"
+  if [ -r "$out" ]; then
+    echo -e "  ${RED}FAIL${NC} $label (could not construct unreadable fixture; running as root?)"
+    FAIL=$((FAIL+1)); FAILURES+=("$label")
+  else
+    json="$(
+      # shellcheck disable=SC1091
+      . "$PLUGIN_ROOT/scripts/lib.sh"
+      tribunal_error_with_diagnostics deepseek "fixture failure" execution 1 "$out" "$err"
+    )"
+    if printf '%s' "$json" | jq -e '
+        .provider == "deepseek"
+        and (.error | contains("phase=execution; exit=1"))
+        and (.error | contains("stdout_bytes=null"))
+        and (.error | contains("stderr_bytes=13"))
+        and (.error | contains("stdout_bytes=0") | not)
+      ' >/dev/null; then
+      echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} $label"; printf '%s\n' "$json"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+    fi
+  fi
+  chmod 600 "$out" 2>/dev/null || true
+  rm -rf "$work"
+}
+
 # Fixture OIDC session for Grok runner/preflight tests (issue #374).
 install_grok_auth_fixture() {
   local dest="$1" refresh="${2:-refresh-fixture}" expires="${3:-2099-01-01T00:00:00Z}"
@@ -2743,6 +2806,7 @@ test_codex_pins test-model high yes "codex model and effort environment override
 test_codex_parse_diagnostics
 test_codex_empty_output
 test_claude_execution_diagnostics
+test_diagnostics_unreadable_artifacts
 test_claude_non_json_output
 test_grok_deterministic_completion
 test_grok_auth_copy_writeback
