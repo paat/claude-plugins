@@ -167,5 +167,12 @@ if [ "$usable" -eq 0 ]; then
   exit 1
 fi
 
-jq -nc --arg base "$BASE_REF" --arg default "$DEFAULT_BRANCH" --argjson providers "$providers_json" --argjson warnings "$warnings_json" \
-  '{status:"ok",base_ref:$base,default_branch:$default,providers:$providers,warnings:$warnings}'
+min_ok_legs="$(tribunal_min_ok_legs)" || exit 2
+if [ "$usable" -lt "$min_ok_legs" ]; then
+  echo "PREFLIGHT FAIL: usable legs ($usable) below TRIBUNAL_MIN_OK_LEGS ($min_ok_legs)." >&2
+  exit 1
+fi
+
+jq -nc --arg base "$BASE_REF" --arg default "$DEFAULT_BRANCH" --argjson providers "$providers_json" \
+  --argjson warnings "$warnings_json" --argjson min_ok_legs "$min_ok_legs" \
+  '{status:"ok",base_ref:$base,default_branch:$default,providers:$providers,warnings:$warnings,min_ok_legs:$min_ok_legs}'

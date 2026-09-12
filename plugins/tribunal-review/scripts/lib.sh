@@ -7,6 +7,21 @@ tribunal_deepseek_model() {
   printf '%s\n' "${TRIBUNAL_DEEPSEEK_MODEL:-deepseek/deepseek-v4-pro}"
 }
 
+# Per-environment APPROVE floor (issue #519). Unset/empty ⇒ 1; otherwise an
+# integer in 1..7. Membership still uses the TRIBUNAL_<PROVIDER> toggles.
+tribunal_min_ok_legs() {
+  local raw="${TRIBUNAL_MIN_OK_LEGS:-}"
+  if [ -z "$raw" ]; then
+    printf '%s\n' 1
+    return 0
+  fi
+  case "$raw" in
+    [1-7]) printf '%s\n' "$raw"; return 0 ;;
+  esac
+  printf 'invalid TRIBUNAL_MIN_OK_LEGS value: %s (want integer 1..7)\n' "$raw" >&2
+  return 1
+}
+
 tribunal_repo_root() {
   git rev-parse --show-toplevel 2>/dev/null || pwd
 }

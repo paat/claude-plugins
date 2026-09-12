@@ -81,6 +81,13 @@ Use the sealed manifest status when available.
 Every sealed ignored-path signal must be represented by a finding attributed to
 `repository-policy`.
 
+Collections seal the environment APPROVE floor as
+`panel_policy: {"min_ok_legs": <1..7>, "source": "env"}` (from
+`TRIBUNAL_MIN_OK_LEGS` at collect time). Finalize enforces that sealed floor for
+`APPROVE` — never the ambient env — so a later lower `TRIBUNAL_MIN_OK_LEGS`
+cannot weaken an already-sealed gate. Manifests without `panel_policy` keep
+floor 1.
+
 `collect-review-evidence.sh finalize` retains the canonical arbitration and
 emits a proof with this shape:
 

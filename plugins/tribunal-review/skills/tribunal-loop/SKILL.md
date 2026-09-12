@@ -209,6 +209,7 @@ Any `must-remove-before-merge` scope finding makes the verdict at least
 - The zero-findings shortcut requires every non-disabled provider to have produced a leg (`status == "ok"`)
   with zero findings, no blocking scope findings, and no sealed ignored-path signals requiring repository-policy findings:
   `APPROVE`, confidence `0.95`.
+- `APPROVE` also requires at least the sealed `panel_policy.min_ok_legs` floor of `ok` legs (from `TRIBUNAL_MIN_OK_LEGS`, default 1; see `references/provider-policy.md`).
 - `APPROVE` requires confidence `0.95` when every non-disabled provider is `ok`. Any `failed` provider prevents the shortcut but still permits `APPROVE` with confidence `> 0` and `< 0.95`.
   Assess remaining evidence explicitly; justify reduced confidence and name each failed provider and missing independent review in `tribunal_verdict.rationale` and `summary`.
   Keep manifest statuses in `provider_assessment`; `disabled` remains excluded from quorum and never triggers reduced confidence.
