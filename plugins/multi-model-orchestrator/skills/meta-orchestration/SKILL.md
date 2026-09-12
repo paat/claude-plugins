@@ -81,8 +81,7 @@ Fresh start: require `gh` authenticated, a GitHub remote, and a clean worktree; 
 referenced issues/workitems exist. Write the handoff (instantiate `references/handoff-template.md`)
 with the literal resume command, expected artifact paths, and baseline — all known before launch —
 and path-limited commit it immediately before dispatch (`git add <handoff> && git commit -m … -- <handoff>`); never for a
-no-op scan. Record the task/job id after dispatch without committing; commit it at the next gate,
-when no leg is live. If another session's handoff already records conflicting in-flight work on
+no-op scan. If another session's handoff already records conflicting in-flight work on
 this branch, reconcile; do not overwrite it.
 
 Resume (`--resume`): read the handoff top-down. Execute its "Stop here first" action before
