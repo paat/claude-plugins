@@ -13,6 +13,14 @@ below, and the human never has to specify mechanics. You coordinate; you never e
 `../multi-model-orchestration/SKILL.md`; its single-run preflight does not apply to
 multi-session work.
 
+## Autonomy
+
+Once the queue is ratified, proceed implement → review → tribunal → merge without pausing.
+Self-merge IS permitted. Stop only for credentials, browser authentication, repo-policy changes,
+spend, or irreversible production data — nothing else. Queue refused or unavailable privileged
+actions in the handoff's `OPERATOR ACTIONS REQUIRED` block and continue with the next
+tree-independent item. Do not burn the session on preflight before the first dispatch.
+
 ## Interpreting the brief
 
 Infer the shape from the brief's wording — these are recognition patterns, not syntax the human
@@ -40,12 +48,12 @@ apply to the tribunal panel, which owns its own provider configuration.
 sources:
   - name: plane
     list: "<shell command printing open workitem ids and titles>"
-    show: "<shell command printing one workitem body; id appended>"   # optional
-    close: "<shell command closing or commenting a workitem; id appended>"  # optional
+    show: "<shell command printing one workitem body; id appended>"
+    close: "<shell command closing or commenting a workitem; id appended>"
 models:
-  allow: [gpt-5.6-terra, grok-4.5, claude-sonnet-5]  # optional leg allowlist
-  deny: [claude-fable-5]                             # optional leg denylist
-  worker: "gpt-5.6-terra high"                       # optional per-role pins
+  allow: [gpt-5.6-terra, grok-4.5, claude-sonnet-5]
+  deny: [claude-fable-5]
+  worker: "gpt-5.6-terra high"
   reviewer: "grok-4.5 high"
   advise: "claude-opus-5 high"
   research: "claude-opus-5 high"
@@ -69,8 +77,10 @@ you arbitrate as calling context — never restate its protocol.
 ## Preflight and resume
 
 Fresh start: require `gh` authenticated, a GitHub remote, and a clean worktree; verify any
-referenced issues/workitems exist. Write the first handoff (instantiate
-`references/handoff-template.md`) as soon as real work starts — never for a no-op scan.
+referenced issues/workitems that the first dispatch needs. Write and commit the handoff
+(instantiate `references/handoff-template.md`) the instant a background leg is dispatched —
+before this turn ends with that leg live — never for a no-op scan. If another session's handoff
+already records conflicting in-flight work on this branch, reconcile; do not overwrite it.
 
 Resume (`--resume`): read the handoff top-down. Execute its "Stop here first" action before
 anything else. Treat "Decisions ratified — do not re-litigate" as settled. The handoff State
@@ -80,41 +90,30 @@ and brief deltas; both are ratified.
 
 ## Handoff discipline
 
-Update the current handoff after every merge, review verdict, ratified decision, filed research
-memo, or filed item — not at session end. Commit it on the working branch. Inherit the prior
-handoff's protocol sections verbatim and record only deltas. A session that dies mid-decision
-costs one resume, nothing more.
+Update and commit the current handoff after every merge, review verdict, ratified decision, filed
+research memo, or filed item — not at session end. Inherit prior protocol sections verbatim;
+record only deltas. A session that dies mid-decision costs one resume, nothing more.
 
 ## Per-item loop
 
 1. Route the item with `route-model-task` under the model constraints; emit its route card into
    the ledger.
 2. Buy only the grounding that is triggered:
-   - **Advise (IN-REPO):** When the item is ambiguous or high-coupling, buy one advise leg through
-     an allowed provider (`run-claude.sh` or `run-grok.sh --mode advise`, subject to the model
-     constraints); its constraints, risks, and minimal file map ground the worker prompt. When no
-     allowed provider offers advise, skip the leg and tighten the worker packet instead. Skip this
-     for well-specified items.
-   - **Research (OUT-OF-REPO):** Prefer tool-restricted Claude or Grok; use Codex as the fallback
-     so a Codex-pinned deployment retains a grounding leg. Run `run-claude.sh`, `run-grok.sh`, or
-     `run-codex.sh` with `--mode research`; apply `references/research-leg.md` triggers and memo
-     contract, and use the memo's load-bearing claims and path to ground the worker prompt.
+   - **Advise (IN-REPO):** For ambiguous or high-coupling items, one advise leg via an allowed
+     provider (`run-claude.sh` or `run-grok.sh --mode advise`); its constraints, risks, and file
+     map ground the worker. Skip when well-specified or no advise provider is allowed — tighten
+     the worker packet instead.
+   - **Research (OUT-OF-REPO):** Prefer tool-restricted Claude or Grok; Codex is the fallback.
+     Run `run-claude.sh`, `run-grok.sh`, or `run-codex.sh` with `--mode research`; apply
+     `references/research-leg.md` and ground the worker on the memo's load-bearing claims.
    An unknown is not automatically a human decision. Before parking an item or putting a question in
    the handoff's open-human-decisions block, classify it: unresearched (spend a research leg) vs.
    genuinely a judgment call (escalate with the research attached when a trigger fired; otherwise
    state why research was not warranted).
 3. Instantiate `references/worker-prompt.md`, feeding Hard-won constraints from the handoff's
    rules-learned section and any research memo for the item into Grounding docs / Hard-won
-   constraints. Dispatch via the runner the card names:
-
-   ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/run-codex.sh" --mode implement --dir "$REPO_ROOT" \
-     --model "$ROUTED_MODEL" --effort "$ROUTED_EFFORT" --timeout 1800 <<'PROMPT'
-   <instantiated worker prompt>
-   PROMPT
-   ```
-
-   (`run-grok.sh` / `run-claude.sh` take `--repo` instead of `--dir`; same contract.)
+   constraints. Dispatch via the runner the card names (`run-codex.sh` / `run-grok.sh` /
+   `run-claude.sh`; `--dir` and `--repo` are synonyms).
 4. Gate the result yourself: inspect the diff on the item branch, run the named suites, verify
    the final-message contract was honored. If the leg's contract prevented committing, commit
    the gated result yourself — recording a worker's output or filing a research memo is bookkeeping, not source editing.
@@ -144,7 +143,8 @@ costs one resume, nothing more.
 - Dispatch every leg through a host mechanism whose completion re-invokes the orchestrator. In
   Claude Code, use Bash `run_in_background: true` for its
   `<task-notification>`; never use bare shell `&`.
-- Ending a turn with an unarranged live leg is a defect, not a wait. Before any turn ends with one
-  live, record it in the handoff's In-flight legs block and how completion will be observed.
+- Ending a turn with an unarranged live leg is a defect, not a wait. Dispatch includes writing and
+  committing the handoff In-flight legs block (with the literal resume command) before the turn
+  ends with a leg live — announcing a dispatch without that committed artifact is a defect.
 - Workers never push. You own push and PR creation.
 - When a worker pushes back on your instructions, treat it as signal: verify before overruling.

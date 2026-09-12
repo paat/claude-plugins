@@ -27,9 +27,15 @@ so the successor starts with a decision, not a question.>
   default branch untouched: <yes/no + evidence>.
 - Merged so far: <N> PRs (<#list>).
 - In flight: <PR #, CI status, "ready for review, not merged" / blocked-on>.
-- In-flight legs: `<runner + mode + model, output path, dispatch time (UTC), one line on what the leg
-  was told, how completion will be observed>` — or `none`.
+- In-flight legs: `<repo path, branch, runner + mode + model, task/job id, output path,
+  expected artifact paths, baseline the gate measures against, dispatch time (UTC),
+  one line on what the leg was told, how completion will be observed, literal resume command>`
+  — or `none`.
 - Worktree: <branch, clean/dirty + why>.
+
+## OPERATOR ACTIONS REQUIRED
+
+- <refused or unavailable privileged action; items that do not depend on it continue>.
 
 ## Decisions ratified — do not re-litigate
 
