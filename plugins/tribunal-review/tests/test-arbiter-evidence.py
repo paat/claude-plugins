@@ -98,9 +98,12 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
     providers = ('codex', 'gemini', 'glm', 'deepseek', 'qwen', 'grok', 'claude')
     (work / 'providers').mkdir()
 
-    def verdict_case(statuses, decision, confidence, accepts=True, findings=[]):
+    def verdict_case(statuses, decision, confidence, accepts=True, findings=[],
+                     panel_policy=None):
         manifest = {'repository': {'root': str(repo)}, 'providers': [
             {'provider': name, 'status': statuses.get(name, 'disabled')} for name in providers]}
+        if panel_policy is not None:
+            manifest['panel_policy'] = panel_policy
         (work / 'manifest.json').write_text(json.dumps(manifest))
         for row in manifest['providers']:
             artifact = {'provider': row['provider']}
@@ -122,7 +125,8 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
         result = subprocess.run(['bash', '-c', validator + '\nvalidate_arbitration "$1" "$2"',
                                  'fixture', str(work / 'arbitration.json'), str(work / 'manifest.json')],
                                 capture_output=True, text=True)
-        print(f'validator statuses={statuses} {decision}/{confidence}: exit={result.returncode}')
+        print(f'validator statuses={statuses} policy={panel_policy} '
+              f'{decision}/{confidence}: exit={result.returncode}')
         require((result.returncode == 0) == accepts,
                 f'validator {decision} confidence={confidence}: exit={result.returncode}, accepts={accepts}')
 
@@ -141,6 +145,17 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
     check('healthy panel with findings rejects APPROVE confidence 0.90',
           lambda: verdict_case({'codex': 'ok'}, 'APPROVE', 0.90, accepts=False,
                                findings=[{'file': 'f.txt'}]))
+    floor2 = {'min_ok_legs': 2, 'source': 'env'}
+    check('sealed floor 2 rejects single-ok APPROVE',
+          lambda: verdict_case({'codex': 'ok'}, 'APPROVE', 0.95, accepts=False,
+                               panel_policy=floor2))
+    check('sealed floor 2 accepts single-ok NEEDS_WORK',
+          lambda: verdict_case({'codex': 'ok'}, 'NEEDS_WORK', 0.7, panel_policy=floor2))
+    check('sealed floor 2 accepts two-ok APPROVE',
+          lambda: verdict_case({'codex': 'ok', 'grok': 'ok'}, 'APPROVE', 0.95,
+                               panel_policy=floor2))
+    check('legacy manifest without panel_policy keeps floor 1',
+          lambda: verdict_case({'codex': 'ok'}, 'APPROVE', 0.95))
 
 print(f'{passed} PASS / {failed} FAIL')
 sys.exit(bool(failed))

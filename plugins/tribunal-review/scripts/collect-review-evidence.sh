@@ -275,6 +275,7 @@ collect() {
   local root="" pr="" output="" started binding head_oid base_oid parent review_tmp bundle
   local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json
   local codex_worktree gemini_worktree opencode_worktree qwen_worktree grok_worktree claude_worktree review_worktree
+  local min_ok_legs
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --repo-root) [ "$#" -ge 2 ] || die "--repo-root needs a value"; root="$2"; shift 2 ;;
@@ -285,6 +286,8 @@ collect() {
   done
   [ -n "$root" ] && [ -n "$pr" ] && [ -n "$output" ] || die "collect requires --repo-root, --pr, and --output"
   case "$pr" in ''|*[!0-9]*|0) die "invalid PR number" ;; esac
+  # Fail closed on an invalid floor before any provider leg runs (issue #519).
+  min_ok_legs="$(tribunal_min_ok_legs)" || exit 1
   root="$(real_dir "$root")"
   [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || die "--repo-root is not a Git worktree root"
   case "$output" in /*) ;; *) die "--output must be absolute" ;; esac
@@ -392,6 +395,7 @@ collect() {
     --arg library_path "$SCRIPT_DIR/lib.sh" --arg library_sha256 "$(sha_file "$SCRIPT_DIR/lib.sh")" \
     --arg bundle_manifest_path "$PLUGIN_ROOT/integrity/runner-bundle.json" \
     --arg bundle_manifest_sha256 "$(printf '%s' "$bundle" | jq -r .sha256)" \
+    --argjson min_ok_legs "$min_ok_legs" \
     --slurpfile providers "$providers_json" \
     '{schema:$schema,started_at:$started_at,completed_at:$completed_at,
       repository:$binding.repository,
@@ -402,7 +406,8 @@ collect() {
       diff:{path:"review.diff",sha256:$diff_sha256,bytes:$diff_bytes},
       runner:{path:$runner_path,sha256:$runner_sha256,library_path:$library_path,library_sha256:$library_sha256,
         bundle_manifest_path:$bundle_manifest_path,bundle_manifest_sha256:$bundle_manifest_sha256},
-      providers:$providers}
+      providers:$providers,
+      panel_policy:{min_ok_legs:$min_ok_legs,source:"env"}}
       + (if $ignored_paths_sha256 == "" then {} else
           {ignored_paths:{path:"ignored-paths.json",sha256:$ignored_paths_sha256,bytes:$ignored_paths_bytes}} end)' \
     > "$STAGING/manifest.json"
@@ -428,7 +433,7 @@ validate_manifest_shape() {
     def oid: type=="string" and test("^[0-9a-f]{40}$");
     def uint: type=="number" and .>=0 and .==floor;
     def stamp: type=="string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
-    exact(["schema","started_at","completed_at","repository","pull_request","diff","runner","providers","ignored_paths"];
+    exact(["schema","started_at","completed_at","repository","pull_request","diff","runner","providers","ignored_paths","panel_policy"];
           ["schema","started_at","completed_at","repository","pull_request","diff","runner","providers"])
     and .schema==$schema and (.started_at|stamp) and (.completed_at|stamp) and .started_at<=.completed_at
     and (.repository | exact(["root","host","name_with_owner","url"];
@@ -447,6 +452,10 @@ validate_manifest_shape() {
     and ((has("ignored_paths")|not) or
          (.ignored_paths | exact(["path","sha256","bytes"];["path","sha256","bytes"])
           and .path=="ignored-paths.json" and (.sha256|sha) and (.bytes|uint and .>0)))
+    and ((has("panel_policy")|not) or
+         (.panel_policy | exact(["min_ok_legs","source"];["min_ok_legs","source"])
+          and (.min_ok_legs|type=="number" and .>=1 and .<=7 and .==floor)
+          and .source=="env"))
     and (.runner | exact(["path","sha256","library_path","library_sha256","bundle_manifest_path","bundle_manifest_sha256"];
                          ["path","sha256","library_path","library_sha256","bundle_manifest_path","bundle_manifest_sha256"])
          and (.path|text and startswith("/")) and (.sha256|sha)
@@ -569,7 +578,10 @@ verify_collection_internal() {
 
 validate_arbitration() {
   local arbitration="$1" manifest="$2" statuses dir evidence ignored_paths sensitive_paths root source line path
+  local min_ok_legs
   statuses="$(jq -c '[.providers[]|{key:.provider,value:.status}]|from_entries' "$manifest")"
+  # Sealed floor only — never re-read ambient TRIBUNAL_MIN_OK_LEGS (issue #519).
+  min_ok_legs="$(jq '.panel_policy.min_ok_legs // 1' "$manifest")"
   dir="$(dirname "$manifest")"
   evidence="$(jq -nc \
     --slurpfile codex "$dir/providers/codex.json" --slurpfile gemini "$dir/providers/gemini.json" \
@@ -600,7 +612,7 @@ validate_arbitration() {
       fi
     done < <(jq -r '.[] | [.source, (.line | tostring), .path] | @tsv' "$dir/ignored-paths.json")
   fi
-  jq -e --argjson statuses "$statuses" --argjson evidence "$evidence" --argjson ignored_paths "$ignored_paths" --argjson sensitive_paths "$sensitive_paths" '
+  jq -e --argjson statuses "$statuses" --argjson min_ok_legs "$min_ok_legs" --argjson evidence "$evidence" --argjson ignored_paths "$ignored_paths" --argjson sensitive_paths "$sensitive_paths" '
     def exact($a;$r): (type=="object") and ((keys-$a)|length==0) and (($r-keys)|length==0);
     def text: type=="string" and length>0;
     def uint: type=="number" and .>=0 and .==floor;
@@ -670,7 +682,8 @@ validate_arbitration() {
          and (.claude|assessment("claude";$final_findings)))
     and (.conflicts_resolved|type=="array" and all(.[];type=="string")) and (.summary|text)
     and (if .tribunal_verdict.decision=="APPROVE" then
-      (if ($statuses | any(.[]; .=="failed")) then
+      (([$statuses[]|select(.=="ok")]|length) >= $min_ok_legs)
+      and (if ($statuses | any(.[]; .=="failed")) then
         .tribunal_verdict.confidence > 0 and .tribunal_verdict.confidence < 0.95
       else .tribunal_verdict.confidence==0.95 end)
       and ([.findings[]|select(.severity=="critical" or .severity=="high")]|length)==0
@@ -678,7 +691,7 @@ validate_arbitration() {
       else true end)
     and (if ([$statuses[]|select(.=="ok")]|length)==0
       then .tribunal_verdict.decision=="NEEDS_WORK" and .tribunal_verdict.confidence==0 else true end)
-    and (if ([$statuses[]|select(.=="ok")]|length)>0
+    and (if ([$statuses[]|select(.=="ok")]|length) >= $min_ok_legs
             and ($statuses | all(.[]; .=="ok" or .=="disabled"))
             and ([$evidence[]|(.findings // [])[]]|length)==0
             and ([.findings[]|select(.providers==["repository-policy"])]|length)==0

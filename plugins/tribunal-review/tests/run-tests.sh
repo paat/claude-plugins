@@ -2656,6 +2656,227 @@ EOF
   rm -rf "$work"
 }
 
+test_preflight_min_ok_legs() {
+  local work fake ec=0 out err
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  cat > "$fake/codex" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"fixture"}'
+  exit 0
+fi
+exit 0
+EOF
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  # Grok auth via XAI_API_KEY; no CLI probe required beyond presence.
+  chmod +x "$fake/codex" "$fake/claude" "$fake/grok"
+  (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    git checkout -qb feature
+    printf 'two\n' > file.txt
+    git commit -q -am change
+  )
+
+  # One usable (codex only) with floor 2 → exit 1 naming both counts.
+  ec=0
+  (
+    cd "$work"
+    PATH="$fake:$PATH" XAI_API_KEY=fixture TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 \
+      TRIBUNAL_CLAUDE=off TRIBUNAL_GROK=off TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off \
+      TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off TRIBUNAL_MIN_OK_LEGS=2 \
+      bash "$PLUGIN_ROOT/scripts/preflight.sh" > /dev/null 2> "$work/below.err"
+  ) || ec=$?
+  if [ "$ec" -eq 1 ] \
+    && grep -Fq 'PREFLIGHT FAIL: usable legs (1) below TRIBUNAL_MIN_OK_LEGS (2).' "$work/below.err"; then
+    echo -e "  ${GREEN}PASS${NC} preflight rejects usable below TRIBUNAL_MIN_OK_LEGS"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} preflight rejects usable below TRIBUNAL_MIN_OK_LEGS"; FAIL=$((FAIL+1))
+    FAILURES+=("preflight usable below min_ok_legs")
+  fi
+
+  # Two usable with floor 2 → ok; status JSON carries min_ok_legs=2.
+  ec=0
+  (
+    cd "$work"
+    PATH="$fake:$PATH" XAI_API_KEY=fixture TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 \
+      TRIBUNAL_CLAUDE=off TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off TRIBUNAL_GLM=off \
+      TRIBUNAL_DEEPSEEK=off TRIBUNAL_MIN_OK_LEGS=2 \
+      bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/ok.json" 2> "$work/ok.err"
+  ) || ec=$?
+  if [ "$ec" -eq 0 ] \
+    && jq -e '.status=="ok" and .min_ok_legs==2
+        and ([.providers[]|select(.status=="usable")]|length) >= 2' "$work/ok.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} preflight accepts usable at TRIBUNAL_MIN_OK_LEGS"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} preflight accepts usable at TRIBUNAL_MIN_OK_LEGS"; FAIL=$((FAIL+1))
+    FAILURES+=("preflight usable at min_ok_legs")
+  fi
+
+  # Invalid values → exit 2 naming the key; unset → floor 1.
+  local bad
+  for bad in 0 abc 8; do
+    ec=0
+    (
+      cd "$work"
+      PATH="$fake:$PATH" XAI_API_KEY=fixture TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 \
+        TRIBUNAL_CLAUDE=off TRIBUNAL_GROK=off TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off \
+        TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off TRIBUNAL_MIN_OK_LEGS="$bad" \
+        bash "$PLUGIN_ROOT/scripts/preflight.sh" > /dev/null 2> "$work/bad.err"
+    ) || ec=$?
+    if [ "$ec" -eq 2 ] && grep -q 'TRIBUNAL_MIN_OK_LEGS' "$work/bad.err"; then
+      echo -e "  ${GREEN}PASS${NC} preflight rejects invalid TRIBUNAL_MIN_OK_LEGS=$bad"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} preflight rejects invalid TRIBUNAL_MIN_OK_LEGS=$bad"; FAIL=$((FAIL+1))
+      FAILURES+=("preflight invalid min_ok_legs=$bad")
+    fi
+  done
+  ec=0
+  (
+    cd "$work"
+    PATH="$fake:$PATH" XAI_API_KEY=fixture TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 \
+      TRIBUNAL_CLAUDE=off TRIBUNAL_GROK=off TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off \
+      TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off \
+      env -u TRIBUNAL_MIN_OK_LEGS bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/unset.json" 2> "$work/unset.err"
+  ) || ec=$?
+  if [ "$ec" -eq 0 ] && jq -e '.status=="ok" and .min_ok_legs==1' "$work/unset.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} preflight defaults TRIBUNAL_MIN_OK_LEGS to 1"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} preflight defaults TRIBUNAL_MIN_OK_LEGS to 1"; FAIL=$((FAIL+1))
+    FAILURES+=("preflight default min_ok_legs")
+  fi
+  rm -rf "$work"
+}
+
+test_sealed_panel_quorum() {
+  local work repo fake plugin collection manifest_sha base head ec=0
+  work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
+  mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
+  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
+  cp "$PLUGIN_ROOT/.claude-plugin/plugin.json" "$plugin/.claude-plugin/plugin.json"
+
+  cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
+#!/usr/bin/env bash
+base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"
+head="$(git rev-parse --verify 'HEAD^{commit}')"
+printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
+EOF
+  for provider in gemini qwen grok claude; do
+    cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
+EOF
+  done
+  cat > "$plugin/scripts/run-opencode-review.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' '{"provider":"glm","status":"disabled","note":"fixture disabled"}'
+printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabled"}'
+EOF
+  chmod +x "$plugin/scripts/"*.sh
+  "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
+
+  (
+    cd "$repo"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > app.txt
+    git add app.txt
+    git commit -q -m base
+    printf 'two\n' > app.txt
+    git commit -q -am change
+    git remote add origin https://github.com/example/fixture.git
+  )
+  base="$(git -C "$repo" rev-parse HEAD~1)"; head="$(git -C "$repo" rev-parse HEAD)"
+  printf 'Bound PR body' > "$work/pr-body"
+  cat > "$fake/gh" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = repo ] && [ "$2" = view ]; then
+  jq -nc '{nameWithOwner:"example/fixture",url:"https://github.com/example/fixture"}'
+elif [ "$1" = pr ] && [ "$2" = view ]; then
+  jq -nc --argjson number "$3" --arg base "$FIXTURE_BASE" --arg head "$FIXTURE_HEAD" \
+    --rawfile body "$FIXTURE_BODY_FILE" \
+    '{number:$number,url:("https://github.com/example/fixture/pull/"+($number|tostring)),state:"OPEN",
+      baseRefName:"main",baseRefOid:$base,headRefName:"feature",headRefOid:$head,body:$body}'
+else
+  printf 'unexpected gh invocation: %s\n' "$*" >&2
+  exit 2
+fi
+EOF
+  chmod +x "$fake/gh"
+
+  collection="$work/collection"
+  if ! PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    TRIBUNAL_MIN_OK_LEGS=2 \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$collection" > "$work/collect.json"; then
+    echo -e "  ${RED}FAIL${NC} collect seals panel_policy under TRIBUNAL_MIN_OK_LEGS=2"; FAIL=$((FAIL+1))
+    FAILURES+=("collect seals panel_policy"); rm -rf "$work"; return
+  fi
+  manifest_sha="$(jq -r .manifest_sha256 "$work/collect.json")"
+  if jq -e '.panel_policy == {"min_ok_legs":2,"source":"env"}' "$collection/manifest.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} collect seals panel_policy from TRIBUNAL_MIN_OK_LEGS"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} collect seals panel_policy from TRIBUNAL_MIN_OK_LEGS"; FAIL=$((FAIL+1))
+    FAILURES+=("collect seals panel_policy")
+  fi
+
+  cat > "$work/arbitration.json" <<'EOF'
+{
+  "tribunal_verdict":{"decision":"APPROVE","confidence":0.95,"rationale":"One valid reviewer found no defects."},
+  "findings":[],"scope_findings":[],
+  "provider_assessment":{
+    "codex":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "gemini":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "glm":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
+  },
+  "conflicts_resolved":[],"summary":"No blocking findings."
+}
+EOF
+  # Ambient floor lowered to 1 must not weaken the sealed floor of 2.
+  ec=0
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    TRIBUNAL_MIN_OK_LEGS=1 \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$collection" \
+      --expected-manifest-sha256 "$manifest_sha" --arbitration "$work/arbitration.json" \
+      >/dev/null 2>&1 || ec=$?
+  if [ "$ec" -ne 0 ]; then
+    echo -e "  ${GREEN}PASS${NC} sealed panel_policy floor beats ambient TRIBUNAL_MIN_OK_LEGS"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} sealed panel_policy floor beats ambient TRIBUNAL_MIN_OK_LEGS"; FAIL=$((FAIL+1))
+    FAILURES+=("sealed panel_policy integrity")
+  fi
+
+  if bash "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" | jq -e '.status=="valid"' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} runner bundle valid after panel quorum changes"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} runner bundle valid after panel quorum changes"; FAIL=$((FAIL+1))
+    FAILURES+=("runner bundle after panel quorum")
+  fi
+  chmod -R u+w "$work" 2>/dev/null || true
+  rm -rf "$work"
+}
+
 SK=skills/tribunal-loop/SKILL.md
 CL=skills/closing-tribunal-loop/SKILL.md
 LIB=scripts/lib.sh
@@ -2787,6 +3008,7 @@ test_executed_model_family_guard
 test_claude_auth_guard
 test_grok_auth_guard
 test_preflight_smoke_probe
+test_preflight_min_ok_legs
 test_claude_tmpdir_cleanup
 test_opencode_wal_isolation
 assert_json_field "OpenCode exit-0 classification and stderr regressions" "bash '$PLUGIN_ROOT/tests/test-opencode-exit0.sh'"
@@ -2826,6 +3048,7 @@ test_ignored_path_additions
 test_ignored_path_diff_failures
 test_ignored_path_validation
 test_trusted_evidence_collection
+test_sealed_panel_quorum
 
 echo "Finding position validation:"
 assert_grep "lib defines line-bounds validator" "$LIB" "tribunal_line_check()"
@@ -2862,6 +3085,10 @@ assert_grep "standalone caller identity is optional" "$SK" "standalone runs may 
 assert_no_grep "tribunal skill has no Opus authority claim" "$SK" "Opus"
 assert_no_grep "closing skill has no Opus authority claim" "$CL" "Opus"
 assert_no_grep "README has no Opus authority claim" "README.md" "Opus"
+assert_no_grep "README no longer claims preflight stops only at zero usable legs" "README.md" \
+  'Only if \*\*zero\*\* active reviewer legs are usable does it stop.'
+assert_grep "README documents preflight stop at TRIBUNAL_MIN_OK_LEGS" "README.md" \
+  'Preflight stops when zero reviewer legs are usable, or when fewer are usable than `TRIBUNAL_MIN_OK_LEGS`.'
 assert_no_grep "Claude reviewer has no Opus authority claim" "agents/claude-reviewer.md" "Opus"
 
 echo "Closing loop governor:"

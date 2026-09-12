@@ -17,3 +17,12 @@
   `TRIBUNAL_GROK_MODEL` (default `grok-4.5`); repo-walking on the xAI Grok CLI
   with tools allowlist, sandbox default `none` (`TRIBUNAL_GROK_SANDBOX`),
   `bypassPermissions`, isolated host config, web search off (issue #378).
+
+## APPROVE quorum
+
+`TRIBUNAL_MIN_OK_LEGS` (default `1`, range 1..7) is the per-environment floor
+of `ok` provider legs required for `APPROVE`. It is environment-only — never
+read from the repository under review — and is sealed into the collection
+manifest as `panel_policy` at collect time. A documented lower value is that
+environment's degraded quorum; membership still uses the `TRIBUNAL_<PROVIDER>`
+toggles.
