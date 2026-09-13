@@ -3,8 +3,8 @@
 The inline arbitration (Step 3 of the `tribunal-loop` skill) returns JSON only, matching this
 schema. All numeric values must reflect actual counts from the provider inputs. The `consensus`
 field is `CONSENSUS` (reported by ≥2 providers) or `SINGLE_PROVIDER` (one provider).
-The deterministic ignored-path source is attributed as `repository-policy`; it
-does not add a provider-assessment entry.
+The deterministic ignored-path and deleted-path sources are attributed as
+`repository-policy`; they do not add a provider-assessment entry.
 
 ```json
 {
@@ -81,8 +81,8 @@ Every human-facing per-leg result must include status: `ok, findings=0` for a cl
 `ok, findings=N` (N = findings the leg returned) for a leg that ran and returned findings, `failed, findings=unavailable`
 for a failed leg, and `disabled` for an intentionally absent leg.
 Use the sealed manifest status when available.
-Every sealed ignored-path signal must be represented by a finding attributed to
-`repository-policy`.
+Every sealed ignored-path or deleted-path signal must be represented by a finding
+attributed to `repository-policy`.
 
 Collections seal the environment APPROVE floor as
 `panel_policy: {"min_ok_legs": <1..7>, "source": "env"}` (from

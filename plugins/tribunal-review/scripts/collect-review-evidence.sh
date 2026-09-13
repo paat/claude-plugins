@@ -198,6 +198,18 @@ validate_ignored_paths() {
   ' "$1" >/dev/null
 }
 
+validate_deleted_paths() {
+  jq -e '
+    type == "array" and length > 0
+    and all(.[];
+      type == "object" and keys == ["glob","path"]
+      and (.path | type == "string" and length > 0 and (startswith("/") | not))
+      and (.path | contains("../") | not)
+      and (.glob | type == "string" and length > 0))
+    and ([.[].path] | length) == ([.[].path] | unique | length)
+  ' "$1" >/dev/null
+}
+
 provider_status() {
   jq -r 'if .status == "disabled" then "disabled" elif has("error") then "failed" else "ok" end' "$1"
 }
@@ -276,7 +288,7 @@ wrapper_for_provider() {
 
 collect() {
   local root="" pr="" output="" started binding head_oid base_oid parent review_tmp bundle
-  local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json
+  local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json deleted_paths_json
   local codex_worktree gemini_worktree opencode_worktree qwen_worktree grok_worktree claude_worktree review_worktree
   local min_ok_legs
   while [ "$#" -gt 0 ]; do
@@ -317,6 +329,11 @@ collect() {
   if [ "$(printf '%s' "$ignored_paths_json" | jq 'length')" -gt 0 ]; then
     printf '%s' "$ignored_paths_json" | jq -S . > "$STAGING/ignored-paths.json"
     validate_ignored_paths "$STAGING/ignored-paths.json" || die "internal ignored-path evidence is invalid"
+  fi
+  deleted_paths_json="$(cd "$root" && tribunal_deleted_policy_paths "$base_oid")"
+  if [ "$(printf '%s' "$deleted_paths_json" | jq 'length')" -gt 0 ]; then
+    printf '%s' "$deleted_paths_json" | jq -S . > "$STAGING/deleted-paths.json"
+    validate_deleted_paths "$STAGING/deleted-paths.json" || die "internal deleted-path evidence is invalid"
   fi
 
   REVIEW_SOURCE="$root"; REVIEW_WORKTREES=()
@@ -393,6 +410,8 @@ collect() {
     --argjson diff_bytes "$(bytes_file "$STAGING/review.diff")" \
     --arg ignored_paths_sha256 "$([ ! -f "$STAGING/ignored-paths.json" ] || sha_file "$STAGING/ignored-paths.json")" \
     --argjson ignored_paths_bytes "$([ ! -f "$STAGING/ignored-paths.json" ] && printf '0' || bytes_file "$STAGING/ignored-paths.json")" \
+    --arg deleted_paths_sha256 "$([ ! -f "$STAGING/deleted-paths.json" ] || sha_file "$STAGING/deleted-paths.json")" \
+    --argjson deleted_paths_bytes "$([ ! -f "$STAGING/deleted-paths.json" ] && printf '0' || bytes_file "$STAGING/deleted-paths.json")" \
     --arg runner_path "$SCRIPT_DIR/collect-review-evidence.sh" \
     --arg runner_sha256 "$(sha_file "$SCRIPT_DIR/collect-review-evidence.sh")" \
     --arg library_path "$SCRIPT_DIR/lib.sh" --arg library_sha256 "$(sha_file "$SCRIPT_DIR/lib.sh")" \
@@ -412,11 +431,14 @@ collect() {
       providers:$providers,
       panel_policy:{min_ok_legs:$min_ok_legs,source:"env"}}
       + (if $ignored_paths_sha256 == "" then {} else
-          {ignored_paths:{path:"ignored-paths.json",sha256:$ignored_paths_sha256,bytes:$ignored_paths_bytes}} end)' \
+          {ignored_paths:{path:"ignored-paths.json",sha256:$ignored_paths_sha256,bytes:$ignored_paths_bytes}} end)
+      + (if $deleted_paths_sha256 == "" then {} else
+          {deleted_paths:{path:"deleted-paths.json",sha256:$deleted_paths_sha256,bytes:$deleted_paths_bytes}} end)' \
     > "$STAGING/manifest.json"
   rm -f "$providers_json"
   chmod 0444 "$STAGING/manifest.json" "$STAGING/pr-body.txt" "$STAGING/review.diff" "$STAGING/providers/"*.json
   [ ! -f "$STAGING/ignored-paths.json" ] || chmod 0444 "$STAGING/ignored-paths.json"
+  [ ! -f "$STAGING/deleted-paths.json" ] || chmod 0444 "$STAGING/deleted-paths.json"
   mv -T -- "$STAGING" "$output" 2>/dev/null \
     || die "collection output appeared concurrently"
   STAGING=""
@@ -436,7 +458,7 @@ validate_manifest_shape() {
     def oid: type=="string" and test("^[0-9a-f]{40}$");
     def uint: type=="number" and .>=0 and .==floor;
     def stamp: type=="string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
-    exact(["schema","started_at","completed_at","repository","pull_request","diff","runner","providers","ignored_paths","panel_policy"];
+    exact(["schema","started_at","completed_at","repository","pull_request","diff","runner","providers","ignored_paths","deleted_paths","panel_policy"];
           ["schema","started_at","completed_at","repository","pull_request","diff","runner","providers"])
     and .schema==$schema and (.started_at|stamp) and (.completed_at|stamp) and .started_at<=.completed_at
     and (.repository | exact(["root","host","name_with_owner","url"];
@@ -455,6 +477,9 @@ validate_manifest_shape() {
     and ((has("ignored_paths")|not) or
          (.ignored_paths | exact(["path","sha256","bytes"];["path","sha256","bytes"])
           and .path=="ignored-paths.json" and (.sha256|sha) and (.bytes|uint and .>0)))
+    and ((has("deleted_paths")|not) or
+         (.deleted_paths | exact(["path","sha256","bytes"];["path","sha256","bytes"])
+          and .path=="deleted-paths.json" and (.sha256|sha) and (.bytes|uint and .>0)))
     and ((has("panel_policy")|not) or
          (.panel_policy | exact(["min_ok_legs","source"];["min_ok_legs","source"])
           and (.min_ok_legs|type=="number" and .>=1 and .<=7 and .==floor)
@@ -483,6 +508,7 @@ validate_manifest_shape() {
 
 verify_live_binding() {
   local dir="$1" manifest="$2" root pr current expected body_tmp diff_tmp ignored_tmp ignored_json
+  local deleted_tmp deleted_json
   root="$(jq -r .repository.root "$manifest")"; root="$(real_dir "$root")"
   pr="$(jq -r .pull_request.number "$manifest")"
   current="$(live_binding "$root" "$pr")"
@@ -510,6 +536,16 @@ verify_live_binding() {
   else
     [ "$(printf '%s' "$ignored_json" | jq 'length')" -eq 0 ] \
       || die "ignored-path evidence appeared after collection"
+  fi
+  deleted_json="$(cd "$root" && tribunal_deleted_policy_paths "$(jq -r .pull_request.base_oid "$manifest")")"
+  if jq -e 'has("deleted_paths")' "$manifest" >/dev/null; then
+    deleted_tmp="$(mktemp)"; printf '%s' "$deleted_json" | jq -S . > "$deleted_tmp"
+    cmp -s "$deleted_tmp" "$dir/deleted-paths.json" \
+      || { rm -f "$deleted_tmp"; die "deleted-path evidence drifted after collection"; }
+    rm -f "$deleted_tmp"
+  else
+    [ "$(printf '%s' "$deleted_json" | jq 'length')" -eq 0 ] \
+      || die "deleted-path evidence appeared after collection"
   fi
   [ "$(sha_file "$dir/pr-body.txt")" = "$(jq -r .pull_request.body.sha256 "$manifest")" ] \
     || die "retained PR body digest mismatch"
@@ -541,6 +577,17 @@ verify_collection_internal() {
     validate_ignored_paths "$dir/ignored-paths.json" || die "ignored-path artifact schema invalid"
   else
     [ ! -e "$dir/ignored-paths.json" ] || die "unbound ignored-path artifact"
+  fi
+  if jq -e 'has("deleted_paths")' "$manifest" >/dev/null; then
+    [ -f "$dir/deleted-paths.json" ] && [ ! -L "$dir/deleted-paths.json" ] \
+      || die "deleted-path artifact missing or symbolic"
+    [ "$(sha_file "$dir/deleted-paths.json")" = "$(jq -r .deleted_paths.sha256 "$manifest")" ] \
+      || die "deleted-path artifact digest mismatch"
+    [ "$(bytes_file "$dir/deleted-paths.json")" = "$(jq -r .deleted_paths.bytes "$manifest")" ] \
+      || die "deleted-path artifact size mismatch"
+    validate_deleted_paths "$dir/deleted-paths.json" || die "deleted-path artifact schema invalid"
+  else
+    [ ! -e "$dir/deleted-paths.json" ] || die "unbound deleted-path artifact"
   fi
   [ "$(jq -r .runner.path "$manifest")" = "$SCRIPT_DIR/collect-review-evidence.sh" ] \
     || die "collection runner path differs from installed runner"
@@ -580,7 +627,7 @@ verify_collection_internal() {
 }
 
 validate_arbitration() {
-  local arbitration="$1" manifest="$2" statuses dir evidence ignored_paths sensitive_paths root source line path
+  local arbitration="$1" manifest="$2" statuses dir evidence ignored_paths deleted_paths sensitive_paths root source line path
   local min_ok_legs
   statuses="$(jq -c '[.providers[]|{key:.provider,value:.status}]|from_entries' "$manifest")"
   # Sealed floor only — never re-read ambient TRIBUNAL_MIN_OK_LEGS (issue #519).
@@ -596,6 +643,11 @@ validate_arbitration() {
     ignored_paths="$(jq -c . "$dir/ignored-paths.json")"
   else
     ignored_paths="[]"
+  fi
+  if jq -e 'has("deleted_paths")' "$manifest" >/dev/null; then
+    deleted_paths="$(jq -c . "$dir/deleted-paths.json")"
+  else
+    deleted_paths="[]"
   fi
   sensitive_paths="[]"
   root="$(jq -r .repository.root "$manifest")"
@@ -615,7 +667,9 @@ validate_arbitration() {
       fi
     done < <(jq -r '.[] | [.source, (.line | tostring), .path] | @tsv' "$dir/ignored-paths.json")
   fi
-  jq -e --argjson statuses "$statuses" --argjson min_ok_legs "$min_ok_legs" --argjson evidence "$evidence" --argjson ignored_paths "$ignored_paths" --argjson sensitive_paths "$sensitive_paths" '
+  jq -e --argjson statuses "$statuses" --argjson min_ok_legs "$min_ok_legs" --argjson evidence "$evidence" \
+    --argjson ignored_paths "$ignored_paths" --argjson deleted_paths "$deleted_paths" \
+    --argjson sensitive_paths "$sensitive_paths" '
     def exact($a;$r): (type=="object") and ((keys-$a)|length==0) and (($r-keys)|length==0);
     def text: type=="string" and length>0;
     def uint: type=="number" and .>=0 and .==floor;
@@ -628,6 +682,7 @@ validate_arbitration() {
            and all(.[]; . as $p
              | if $p == "repository-policy" then
                  ($ignored_paths | any(.[]; .path == $finding.file))
+                 or ($deleted_paths | any(.[]; .path == $finding.file))
                else
                  ($p | IN("codex","gemini","glm","deepseek","qwen","grok","claude"))
                  and $statuses[$p] == "ok"
@@ -670,6 +725,8 @@ validate_arbitration() {
          and (.decision|IN("APPROVE","NEEDS_WORK","BLOCK")) and (.confidence|conf) and (.rationale|text))
     and (.findings|type=="array" and all(.[];finding) and ([.[].id]|length)==([.[].id]|unique|length))
     and (.findings as $findings | $ignored_paths | all(.[]; .path as $path
+      | any($findings[]; .file == $path and (.providers | index("repository-policy")))))
+    and (.findings as $findings | $deleted_paths | all(.[]; .path as $path
       | any($findings[]; .file == $path and (.providers | index("repository-policy")))))
     and (.findings as $findings | $sensitive_paths | all(.[]; . as $path
       | any($findings[]; .file == $path and (.providers | index("repository-policy"))

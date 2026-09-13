@@ -46,6 +46,13 @@ if [ "$(printf '%s' "$ignored_paths_json" | jq 'length')" -gt 0 ]; then
   add_warning ignored-path-additions "added paths ignored by Git: $(printf '%s' "$ignored_paths_json" \
     | jq -r 'map("\(.path) (pattern \(.pattern), \(.source):\(.line))") | join("; ")')"
 fi
+deleted_paths_json="$(tribunal_deleted_policy_paths "$BASE_REF")" || {
+  echo "PREFLIGHT FAIL: cannot inspect deleted policy paths." >&2; exit 1;
+}
+if [ "$(printf '%s' "$deleted_paths_json" | jq 'length')" -gt 0 ]; then
+  add_warning deleted-policy-paths "deleted policy/rules paths: $(printf '%s' "$deleted_paths_json" \
+    | jq -r 'map("\(.path) (glob \(.glob))") | join("; ")')"
+fi
 provider_usable() {
   printf '%s' "$providers_json" | jq -e --arg n "$1" 'any(.[]; .name==$n and .status=="usable")' >/dev/null
 }

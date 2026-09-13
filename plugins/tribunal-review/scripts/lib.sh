@@ -91,6 +91,73 @@ tribunal_ignored_additions() {
   )
 }
 
+# Deleted paths matching policy/rules globs in base...HEAD (issue #537).
+# Defaults: docs/policies/** and rules/**. If HEAD contains
+# .tribunal-deleted-globs (one glob per line; blanks/# ignored), that list
+# replaces the defaults. Uses a pristine HEAD checkout — never the dirty worktree.
+tribunal_deleted_policy_paths() {
+  local base_ref="${1:-$(tribunal_base_ref)}" repo_root base_commit head_commit
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" \
+    || { printf 'cannot resolve repository root\n' >&2; return 1; }
+  base_commit="$(git rev-parse --verify "${base_ref}^{commit}" 2>/dev/null)" \
+    || { printf 'cannot resolve base ref %s\n' "$base_ref" >&2; return 1; }
+  head_commit="$(git rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" \
+    || { printf 'cannot resolve HEAD\n' >&2; return 1; }
+
+  (
+    local temp_root checkout excludes_file matched_file empty_excludes globs_file
+    local -a pipeline_status
+    temp_root="$(mktemp -d)" || exit 1
+    trap 'rm -rf -- "$temp_root"' EXIT
+    trap 'exit 1' HUP INT TERM
+    checkout="$temp_root/head"
+    excludes_file="$temp_root/excludes"
+    matched_file="$temp_root/matched"
+    empty_excludes="$temp_root/empty-excludes"
+    mkdir "$temp_root/template" || exit 1
+    : > "$empty_excludes" || exit 1
+
+    git -c init.templateDir="$temp_root/template" clone --shared --no-checkout --quiet \
+      "$repo_root" "$checkout" \
+      || { printf 'cannot create pristine HEAD checkout\n' >&2; exit 1; }
+    git -C "$checkout" -c core.excludesFile="$empty_excludes" checkout --detach --quiet "$head_commit" \
+      || { printf 'cannot check out reviewed HEAD\n' >&2; exit 1; }
+
+    globs_file="$checkout/.tribunal-deleted-globs"
+    if [ -f "$globs_file" ]; then
+      # Repo's own list replaces defaults (including when empty after comments).
+      awk '
+        /^[[:space:]]*#/ { next }
+        /^[[:space:]]*$/ { next }
+        { print }
+      ' "$globs_file" > "$excludes_file" || exit 1
+    else
+      printf '%s\n' 'docs/policies/**' 'rules/**' > "$excludes_file" || exit 1
+    fi
+
+    set +e
+    git -C "$checkout" diff --name-only --no-renames --diff-filter=D -z \
+      "$base_commit"..."$head_commit" \
+      | git -C "$checkout" -c core.excludesFile="$excludes_file" \
+          check-ignore -v -z --no-index --stdin > "$matched_file" 2>/dev/null
+    pipeline_status=("${PIPESTATUS[@]}")
+    if (( pipeline_status[0] != 0 || pipeline_status[1] > 1 )); then
+      printf 'git deleted-policy path match failed (diff %s, check-ignore %s)\n' \
+        "${pipeline_status[0]}" "${pipeline_status[1]}" >&2
+      exit 1
+    fi
+
+    jq -Rs -c '
+      split("\u0000")
+      | if .[-1] == "" then .[:-1] else . end
+      | . as $fields
+      | [range(0; length; 4) as $i
+          | select(($fields[$i + 2] | startswith("!")) | not)
+          | {path:$fields[$i + 3], glob:$fields[$i + 2]}]
+    ' "$matched_file"
+  )
+}
+
 # Plugin root for schema/assets. Explicit TRIBUNAL_PLUGIN_ROOT / CLAUDE_PLUGIN_ROOT
 # are authoritative even when the schema is missing (so the runner can fail loud
 # instead of silently loading another install — issue #378 / Codex review).

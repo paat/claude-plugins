@@ -158,6 +158,9 @@ in `summary` and the finding's `arbiter_notes`; retain the mark in those notes a
 If preflight warns or sealed `ignored-paths.json` exists, read the preceding stanza comments from `git show HEAD:<source>` (never the ambient worktree) and make each signal a `repository-policy` finding; it must become a finding, not be reported and forgotten.
 The default is medium; escalate to high when the preceding ignore comment says `secret`, `PII`, `credential`, `key`, or `never commit`. That high blocks the gate by design.
 
+### Deleted Policy Paths
+If preflight warns or sealed `deleted-paths.json` exists, make each path a medium `repository-policy` finding; it must become a finding, not be reported and forgotten.
+
 ### Conflicts
 
 For conflicts, prefer direct code evidence over reviewer confidence. If two
@@ -207,7 +210,7 @@ Any `must-remove-before-merge` scope finding makes the verdict at least
 
 - If all non-disabled providers failed: `NEEDS_WORK`, confidence `0.0`.
 - The zero-findings shortcut requires every non-disabled provider to have produced a leg (`status == "ok"`)
-  with zero findings, no blocking scope findings, and no sealed ignored-path signals requiring repository-policy findings:
+  with zero findings, no blocking scope findings, and no sealed ignored-path signals or deleted-path signals requiring repository-policy findings:
   `APPROVE`, confidence `0.95`.
 - `APPROVE` also requires at least the sealed `panel_policy.min_ok_legs` floor of `ok` legs (from `TRIBUNAL_MIN_OK_LEGS`, default 1; see `references/provider-policy.md`).
 - `APPROVE` requires confidence `0.95` when every non-disabled provider is `ok`. Any `failed` provider prevents the shortcut but still permits `APPROVE` with confidence `> 0` and `< 0.95`.
