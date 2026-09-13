@@ -60,11 +60,13 @@ if [ "$1" = api ]; then
       duplicate-pages)
         if [[ "$endpoint" == *'page=1' ]]; then jq '.[0].body="Page 1 observation"' "$WIT_FIX/github-page1.json";
         else jq '[.[0] + {body:"Page 2 observation"}]' "$WIT_FIX/github-page1.json"; fi ;;
-      pages|truncated|rate-limit-list)
+      pages|truncated|rate-limit-list|rate-limit-variant)
         if [[ "$endpoint" == *'page=1' ]]; then cat "$WIT_FIX/github-page1.json";
         elif [ "$WIT_MODE" = truncated ]; then cat "$WIT_FIX/github-page2-truncated.json"; exit 1;
         elif [ "$WIT_MODE" = rate-limit-list ]; then
           printf 'gh: API rate limit exceeded for user ID 1. (HTTP 403)\n' >&2; exit 1;
+        elif [ "$WIT_MODE" = rate-limit-variant ]; then
+          printf '%s\n' "${WIT_RATE_LIMIT_MSG}" >&2; exit 1;
         else jq '[. + {number:1101,title:"Final synthetic item",html_url:"https://tracker.example/items/1101"}]' "$WIT_FIX/github-parity.json"; fi ;;
       rate-limit-comments)
         jq '[.]' "$WIT_FIX/github-parity.json" ;;
@@ -348,6 +350,19 @@ for failure in 403 auth network; do
 done
 check 'r3 body-reference-403 also reports rate-limit capability limit once' 0 "$(truth "$TMP/body-reference-403.json" "$RATE_LIMIT_FILTER==1")"
 check 'r4 body-reference-network does not report rate-limit capability limit' 0 "$(truth "$TMP/body-reference-network.json" "$RATE_LIMIT_FILTER==0")"
+export WIT_MODE=rate-limit-variant
+r5_ok=1
+for msg in \
+  'gh: API rate limit already exceeded for user ID 1. (HTTP 403)' \
+  'gh: Secondary rate limit exceeded. (HTTP 403)'; do
+  export WIT_RATE_LIMIT_MSG="$msg"
+  read_snapshot github > "$TMP/rate-limit-variant.json" 2>"$TMP/rate-limit-variant.err"
+  [ "$(truth "$TMP/rate-limit-variant.json" ".completeness==\"incomplete\" and $RATE_LIMIT_FILTER==1")" = 0 ] || r5_ok=0
+done
+export WIT_RATE_LIMIT_MSG='gh: Resource not accessible by integration (HTTP 403)'
+read_snapshot github > "$TMP/rate-limit-perm.json" 2>"$TMP/rate-limit-perm.err"
+[ "$(truth "$TMP/rate-limit-perm.json" ".completeness==\"incomplete\" and $RATE_LIMIT_FILTER==0")" = 0 ] || r5_ok=0
+check 'r5 GraphQL already-exceeded and Secondary variants report once; non-rate 403 does not' 1 "$r5_ok"
 export WIT_MODE=missing-relation
 read_snapshot github > "$TMP/missing-relation.json"
 check 'unresolved tracker-declared link still marks history incomplete' 0 "$(truth "$TMP/missing-relation.json" '.completeness=="incomplete" and .items[0].completeness=="incomplete" and any(.items[0].relations[]; .id=="336699" and .resolution=="unavailable")')"

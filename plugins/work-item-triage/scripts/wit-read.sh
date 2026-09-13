@@ -185,7 +185,7 @@ wit_read_main() {
        lookup_match:(((($r.title // $r.name // "")+" "+($r.body // $r.description_stripped // $r.description // ""))|ascii_downcase)|contains($query|ascii_downcase)),relations:$relations }' "$tmp/input")
     printf '%s\n' "$item" >> "$tmp/items"
   done < <(jq -c '.[]' <<< "$records")
-  if grep -Eq 'API rate limit exceeded|secondary rate limit|HTTP 429' "$tmp/gh-errors" 2>/dev/null; then
+  if grep -Eiq 'rate limit|HTTP 429' "$tmp/gh-errors" 2>/dev/null; then
     limits=$(jq -cn --argjson limits "$limits" --arg msg 'github rate limit hit: items marked incomplete may be throttled, not missing evidence; retry after the limit resets' '$limits + [$msg]')
   fi
   jq -s --arg system "$system" --arg scope "$scope" --arg now "${WIT_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" --argjson ok "$complete" --argjson limits "$limits" --arg query "$query" --argjson fallback "$([[ $system != github && -n $query && $verb == list ]] && echo true || echo false)" '
