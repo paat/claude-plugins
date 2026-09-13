@@ -3547,6 +3547,8 @@ assert_grep "fixes remain causal and minimal" "$CL" "smallest causal fix"
 assert_grep "adjacent concerns do not expand investigation" "$CL" "beyond evidence already present"
 assert_grep "step-back preserves architecture" "$CL" "existing architecture"
 assert_grep "step-back workflow" "$CL" "Step-back workflow (anti-spiral)"
+assert_grep "step-back descope accepts covering issue" "$CL" 'Descope.*covering issue'
+assert_grep "falsifiable output accepts covering issue" "$CL" 'follow-up or covering issue'
 assert_grep "no-net-increase guard" "$CL" "no-net-increase"
 assert_grep "round 3 checkpoint" "$CL" "Round 3 — checkpoint"
 assert_grep "round 5 ceiling" "$CL" "Round 5 — hard ceiling"
@@ -3560,6 +3562,8 @@ assert_grep "HEAD must match PR headRefOid" "$CL" 'LOCAL_HEAD'
 assert_grep "resume derives round from existing markers" "$CL" "PRIOR_MAX"
 assert_grep "ceiling is cumulative on the PR" "$CL" "cumulative on the PR"
 assert_grep "post comment before applying fixes" "$CL" "applying code fixes for that verdict"
+assert_grep "follow-up filing gate with machinery bypass" "$CL" "tribunal/review-machinery follow-ups bypass"
+assert_grep "covering-issue or skip recorded in round comment" "$CL" "covering-issue link or the skip reason"
 assert_file "round comment template exists" "skills/closing-tribunal-loop/references/round-comment.md"
 assert_file "follow-up issue template exists" "skills/closing-tribunal-loop/references/follow-up-issue.md"
 assert_grep "round comment template has marker" "skills/closing-tribunal-loop/references/round-comment.md" "<!-- tribunal-round:N -->"

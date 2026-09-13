@@ -20,7 +20,7 @@
     {
       "name": "reddit-fetch",
       "description": "Research any topic using Reddit via Gemini CLI's web access capabilities",
-      "version": "0.2.4",
+      "version": "0.2.6",
       "author": {
         "name": "Andre Paat"
       },
@@ -31,7 +31,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — Codex + Grok + Claude (diff-only) by default; Gemini, OpenCode DeepSeek, OpenCode GLM and Qwen opt-in, with calling-context arbitration",
-      "version": "0.24.24",
+      "version": "0.24.26",
       "author": {
         "name": "Andre Paat"
       },
@@ -64,7 +64,7 @@
     {
       "name": "saas-startup-team",
       "description": "Portable SaaS delivery: Plan → Build → Independent Review with bounded maintenance and deterministic legal/PII/spend/release gates",
-      "version": "1.2.16",
+      "version": "1.2.17",
       "author": {
         "name": "Andre Paat"
       },
@@ -97,7 +97,7 @@
     {
       "name": "google-ads-strategist",
       "description": "Senior Google Ads strategist — iterative campaign design + Chrome-based creation in PAUSED state for investor review. Browser verification via Ad Preview Tool, SERP capture, and Ads Transparency Center. Enforces hypothesis discipline, buyer-intent + product-value gates, and accumulates learnings.",
-      "version": "0.7.6",
+      "version": "0.7.7",
       "author": {
         "name": "Andre Paat"
       },
@@ -108,7 +108,7 @@
     {
       "name": "emails-to-github-issues",
       "description": "Turn emails from named senders into GitHub issues — IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping that respects customer-side numbering, inline-screenshot handling, and scope confirmation before writes",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -119,7 +119,7 @@
     {
       "name": "analyst-companion",
       "description": "Real-time in-person meeting analyst — live transcription with speaker diarization via WhisperLiveKit, clarifying questions, voice commands with Chrome screen context, and Plane work items at meeting end",
-      "version": "0.3.1",
+      "version": "0.3.3",
       "author": {
         "name": "Andre Paat"
       },
@@ -251,7 +251,7 @@
     {
       "name": "work-item-triage",
       "description": "Evidence-based work-item decisions: decide what deserves implementation or filing, preserve provenance, and hand off a bounded next-action queue.",
-      "version": "0.2.8",
+      "version": "0.2.9",
       "author": {
         "name": "Andre Paat"
       },

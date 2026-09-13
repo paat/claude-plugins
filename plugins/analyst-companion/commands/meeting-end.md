@@ -55,14 +55,17 @@ Close the active meeting and turn it into reviewed Plane work items.
    Bridge rules:
    - Only mirror items approved in Step 4.
    - Dedupe by normalized title and Plane id/link before creating.
+   - Before `gh issue create`, run `work-item-triage`'s proposed-item check when installed;
+     otherwise comment on an open issue that already covers the outcome, and skip filing
+     when it is not the smallest adequate response.
    - Use `gh issue create --body-file`, never `--body`, so `meeting_language` text and
      copied customer wording survive shell quoting.
    - Include the Plane id/link, meeting session id, concise customer ask, acceptance hint,
-     and a PII-minimized source note. Do not paste raw transcript unless the project
-     explicitly allows it.
+     and a PII-minimized source note in the issue body or fallback comment. Do not paste raw
+     transcript unless the project explicitly allows it.
    - Apply configured labels; include `customer-issue` when no project label override is
      configured so `saas-startup-team` `/maintain` can triage the issue later.
 
 7. **Report.** List the created work items with their Plane ids/names and any mirrored
-   GitHub issue URLs. Note that the
+   GitHub issue URLs, plus gated skips from Step 6 with the covering-issue link or skip reason. Note that the
    transcript and `work-items.md` remain in the session dir for reference.

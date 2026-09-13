@@ -1,5 +1,6 @@
 # Plugin Issue Reporting
 
+Plugin-defect reports bypass the should-this-be-filed gate; file them, relying on `issue-file.sh` dedupe.
 If you hit a problem with the **plugin itself** (not the product or work you're
 producing), file a GitHub issue on the pinned plugin repo — `$SAAS_PLUGIN_REPO`
 (`OWNER/REPO`, set in `.claude/saas-startup-team.local.md`; if unset, ask the

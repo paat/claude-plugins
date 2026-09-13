@@ -23,9 +23,11 @@ Gemini CLI 0.43.0+ must be installed and authenticated with `GEMINI_API_KEY` or 
 
 1. Apply the protocol's host adapter and safe shell transport to invoke the bounded runner once.
 2. Present findings using the protocol's output format.
-3. If filing issues, first run the verification protocol in `references/protocol.md` — never
-   call `gh issue create` for a pain point without at least two independent supporting threads
-   each verified via a non-Gemini source.
+3. Run the verification protocol in `references/protocol.md` first — never comment on or file
+   an issue for a pain point without at least two independent supporting threads each verified
+   via a non-Gemini source.
+4. Only for pain points that passed that threshold: follow SaaS demand bridge step 2 in
+   `references/protocol.md` before any comment or `gh issue create`.
 
 Read `references/protocol.md` now for the full prompt patterns, bounded-run contract, output
 format, error handling, verification protocol, and SaaS demand bridge rules.

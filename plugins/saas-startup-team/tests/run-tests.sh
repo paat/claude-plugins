@@ -815,6 +815,14 @@ test_plugin_issues() {
     "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" 'scripts/issue-file.sh'
   assert_file_contains "J-gh-ref: issue funnel receives the pinned repo" \
     "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" '--repo "${SAAS_PLUGIN_REPO}"'
+  assert_file_contains "J-gh-ref: plugin-defect reports bypass filing gate" \
+    "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" 'bypass the should-this-be-filed gate'
+  assert_file_contains "J-gh-skill: NEW issues other than plugin-defect pass the filing gate" \
+    "$PLUGIN_ROOT/skills/issue-file/SKILL.md" 'Every NEW issue other than a plugin-defect report passes the filing gate'
+  assert_file_contains "J-gh-skill: filing-gate fallback covers open issues" \
+    "$PLUGIN_ROOT/skills/issue-file/SKILL.md" 'already covers the outcome'
+  assert_file_contains "J-gh-skill: gate comment passes pii-gate" \
+    "$PLUGIN_ROOT/skills/issue-file/SKILL.md" 'pii-gate'
   for agent in lawyer.md; do
     assert_file_contains "J-gh: $agent references the plugin-issue-reporting doc" \
       "$PLUGIN_ROOT/agents/$agent" "templates/plugin-issue-reporting.md"
@@ -2077,6 +2085,8 @@ test_canonical_entrypoint_wiring() {
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "durable mechanical guard"
   assert_file_contains "Y7d: tech-founder records red-green proof" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "red-before/green-after proof"
+  assert_file_contains "Y7e: tech-founder follow-ups go through issue-file" \
+    "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "issue-file"
   assert_file_contains "Y8: quality-standards has single-source-of-truth principle" \
     "$PLUGIN_ROOT/references/tech-founder/quality-standards.md" "Single source of truth"
   assert_file_contains "Y9: quality-standards warns about re-derived rules" \

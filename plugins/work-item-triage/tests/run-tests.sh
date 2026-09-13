@@ -429,6 +429,8 @@ done
 proposed_fix_now_queue="$(awk '/^## Implement now/{emit=1;next} /^## /{emit=0} emit' "$TMP/output/work-item-triage/worked-fix-now-no-item/queue.md")"
 check 'tribunal T-008 proposed ready fix-now-no-item renders under implement-now' 1 "$(grep -c 'Priority 1 — draft-contact-link: Correct the anchor in the existing support note and verify the link.' <<< "$proposed_fix_now_queue" || true)"
 check 'direction 2 file draft warns explicitly no PII review' 1 "$(grep -c 'WARNING: .*draft.*no PII review' "$TMP/output/work-item-triage/proposed-file-minimal/summary.md" || true)"
+check 'filing gate canonical lives in skill' 1 "$(grep -c 'Filing gate (canonical)' "$HERE/../skills/work-item-triage/SKILL.md" || true)"
+check 'plugin-defect reports bypass is canonical' 1 "$(grep 'Plugin-defect reports' "$HERE/../skills/work-item-triage/SKILL.md" | grep -c bypass || true)"
 export WIT_MODE=missing-history
 read_snapshot github --id 301 > "$TMP/missing-history.json"
 check '3 unavailable comment history is incomplete' 0 "$(truth "$TMP/missing-history.json" '.completeness=="incomplete" and .items[0].completeness=="incomplete"')"

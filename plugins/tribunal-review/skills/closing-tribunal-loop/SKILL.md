@@ -146,7 +146,11 @@ one outcome and record it in the round PR comment:
 | **File follow-up issue** | Verified, plausibly actionable bug that is pre-existing or explicitly out of PR scope |
 | **Reject** | False positive (verified against actual code) |
 
-Verify against the cited code (or a 30s repro). Don't trust consensus/confidence alone.
+Before filing a product-code follow-up, run `work-item-triage`'s proposed-item check when
+installed (else comment on a covering open issue, or skip when filing is not the smallest
+adequate response); the round comment records the covering-issue link or the skip reason as
+the outcome; tribunal/review-machinery follow-ups bypass that gate (biased toward filing;
+still dedupe). Verify against the cited code (or a 30s repro). Don't trust consensus/confidence alone.
 Use the smallest causal fix consistent with the existing architecture. Validate the
 reproduced finding and the original acceptance checks; no broader audit or generalized
 machinery for hypothetical variants.
@@ -162,7 +166,7 @@ Closes on **zero `critical` and zero `high`** on the latest diff. Medium/low do 
 hold the gate — YAGNI triage below.
 
 A `high` is **cleared** when it is fixed, re-rated below high by the arbiter (failed
-3b-0), or **descoped** (mechanism removed from the diff + follow-up issue filed).
+3b-0), or **descoped** (mechanism removed from the diff + follow-up issue filed or covering issue linked).
 
 Post a final round comment on close (even if round 1 is already zero-crit/high).
 
@@ -185,14 +189,14 @@ Post a final round comment on close (even if round 1 is already zero-crit/high).
   share a *class* (design problem, not bug), choose exactly one:
   - **Simplify** within original acceptance criteria and existing architecture so the
     class disappears. Broader redesign → descope or escalate.
-  - **Descope** — remove contested mechanism + file follow-up.
+  - **Descope** — remove contested mechanism + file follow-up or link covering issue.
   - **Confirm-unreachable** — arbiter down-rates under 3b-0 / reachability.md.
 - Stay in step-back on later stalled rounds; do not guard-pile. Record the choice in
   the round PR comment.
 
 **Falsifiable output:** a step-back round must produce (a) collapsed class with
 defensive-mechanism count not increased (added ≤ removed), or (b) descope + linked
-follow-up, or (c) arbiter ruling the class fails 3b-0. "Added another guard, relabeled
+follow-up or covering issue, or (c) arbiter ruling the class fails 3b-0. "Added another guard, relabeled
 as re-architecture" is invalid (no-net-increase check).
 
 ## Common Mistakes

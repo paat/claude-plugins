@@ -26,6 +26,7 @@ Shared helper: `scripts/issue-file.sh` (resolve via plugin root).
 
 ## Contract
 
+Every NEW issue other than a plugin-defect report passes the filing gate first (`work-item-triage` proposed-item check when installed; else comment on an open issue that already covers the outcome — comment body must pass `pii-gate.sh` (`pii_hit`) first, and on a hit park exactly as `issue-file.sh` does instead of commenting — and skip filing when it is not the smallest adequate response). Plugin-defect filings bypass it (still deduped by `issue-file.sh`).
 1. Build title + body. If you have an **authoritative** pattern key (caller-owned,
    single-line lowercase `^[a-z0-9][a-z0-9:_-]*$`), pass `--pattern-key`. Do **not**
    invent product semantics for a key; omit the flag and use title dedup instead.
