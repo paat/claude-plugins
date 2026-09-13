@@ -222,7 +222,10 @@ if [ "$stream_log_set" -eq 1 ]; then
             # fires (rc=5), matching text-mode empty success. Non-empty output
             # stays byte-identical to jq -r '.result' (trailing newline included).
             printf '%s\n' "$result_event" | jq -r '.result | select(length > 0)' > "$output_file"
-            rc=0
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              printf 'run-claude: failed writing final message: %s\n' "$output_file" >&2
+            fi
           fi
         fi
       fi

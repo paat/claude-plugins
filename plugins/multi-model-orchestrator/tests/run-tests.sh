@@ -167,6 +167,18 @@ if [ "$format" = stream-json ]; then
       printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":""}'
       exit 0
       ;;
+    # Valid success stream, then make --out unwritable with stale non-empty
+    # content so a failed final write cannot be masked by the empty-artifact guard.
+    stream_lock_out)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      jq -nc --arg r "$(text_for_result)" \
+        '{type:"result",subtype:"success",is_error:false,result:$r}'
+      if [ -n "${STUB_LOCK_OUT:-}" ]; then
+        printf 'stale-pre-write\n' > "$STUB_LOCK_OUT"
+        chmod a-w "$STUB_LOCK_OUT"
+      fi
+      exit 0
+      ;;
     *)
       printf '%s\n' '{"type":"system","subtype":"init"}'
       printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}'
@@ -187,7 +199,7 @@ else
       printf 'provider reported an error\n'
       exit 0
       ;;
-    stream_trunc_after|stream_bad_before|stream_null_result|stream_number_result|stream_empty_result)
+    stream_trunc_after|stream_bad_before|stream_null_result|stream_number_result|stream_empty_result|stream_lock_out)
       printf 'claude findings\nAPPROVE\n'
       ;;
     progress) printf 'I will inspect the diff.\n' ;;
@@ -1196,6 +1208,23 @@ contains "$WORK/523/j.err" "$WORK/523/j-final.txt" '523j: message names --out'
 [ -f "$WORK/523/j-final.txt" ] && [ ! -s "$WORK/523/j-final.txt" ] \
   || fail '523j: --out must exist and be empty'
 pass '#523j: empty-string .result exits 5 with empty --out'
+
+# (k) final --out write failure must not report success (seed stale + lock file).
+set +e
+printf 'claude 523k\n' | STUB_CLAUDE_RESULT=stream_lock_out \
+  STUB_LOCK_OUT="$WORK/523/k-final.txt" \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/k-final.txt" \
+  --stream-log "$WORK/523/k.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/k.err"
+claude_523k_rc=$?
+set -e
+# Unlock for cleanup even on assertion failure.
+chmod u+w "$WORK/523/k-final.txt" 2>/dev/null || true
+[ "$claude_523k_rc" -ne 0 ] || fail '523k: failed final --out write must not exit 0'
+contains "$WORK/523/k.err" 'failed writing final message' '523k: write-failure diagnostic'
+contains "$WORK/523/k.err" "$WORK/523/k-final.txt" '523k: diagnostic names --out'
+pass '#523k: final --out write failure exits nonzero and names path'
 
 # README/contract: jq is required only for Claude --stream-log (#523).
 absent "$PLUGIN_ROOT/README.md" 'No `jq` dependency is used' \
