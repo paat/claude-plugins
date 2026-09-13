@@ -17,8 +17,9 @@ multi-session work.
 
 Within the brief's autonomy bounds, run implement → review → tribunal → merge without asking for
 approval. Pause to ask only for credentials, browser authentication, repo-policy changes,
-spend, or irreversible production data. The brief's stop conditions, gate blockers, and genuine judgment calls still stop
-at their scope: a run-level stop condition or unexplained worktree state stops the run; a gate blocker or genuine judgment call parks that item.
+spend, or irreversible production data. The brief's stop conditions and gate blockers still stop
+at their scope: a run-level stop condition or unexplained worktree state stops the run; a gate blocker parks that item.
+Genuine judgment calls outside the pause set above are decided with the recommended default and recorded in the handoff and PR body, not parked.
 Self-merge IS permitted for your own gated PR, never by bypassing branch protection or required reviews (no `--admin`).
 Queue a blocked merge or refused/unavailable privileged action under the handoff's `OPERATOR ACTIONS REQUIRED`;
 continue with the next tree-independent item. Do not burn the session on preflight beyond the Fresh-start checks.
@@ -87,8 +88,8 @@ this branch, reconcile; do not overwrite it.
 Resume (`--resume`): read the handoff top-down. Execute its "Stop here first" action before
 anything else. Treat "Decisions ratified — do not re-litigate" as settled. The handoff State
 block is the authoritative baseline; worktree state it does not explain is a stop condition —
-inspect and reconcile, never discard. Trailing text after the flag is pre-answered decisions
-and brief deltas; both are ratified.
+inspect and reconcile, never discard. Trailing text after the flag is overrides of decided
+judgment calls and brief deltas; both are ratified.
 
 ## Handoff discipline
 
@@ -107,9 +108,9 @@ record only deltas. A session that dies mid-decision costs one resume, nothing m
    - **Research (OUT-OF-REPO):** Prefer tool-restricted Claude or Grok; Codex is the fallback.
      Run `run-claude.sh`, `run-grok.sh`, or `run-codex.sh` with `--mode research`; apply
      `references/research-leg.md` and ground the worker on the memo's load-bearing claims.
-   An unknown is not automatically a human decision. Before parking or escalating, classify:
-   unresearched (spend a research leg) vs. genuine judgment call (escalate with research when a
-   trigger fired; otherwise state why research was not warranted).
+   An unknown is not automatically a human decision. Classify: unresearched (spend a research
+   leg) vs. genuine judgment call (decide with the recommended default, attach research when a
+   trigger fired else state why not, and record the choice).
 3. Instantiate `references/worker-prompt.md`, feeding Hard-won constraints from the handoff's
    rules-learned section and any research memo for the item into Grounding docs / Hard-won
    constraints. Dispatch via `${CLAUDE_PLUGIN_ROOT}/scripts/` (`run-codex.sh` / `run-grok.sh` /
@@ -121,9 +122,9 @@ record only deltas. A session that dies mid-decision costs one resume, nothing m
    `references/review-prompts.md`. Codex reviewers use `--mode review` (runner enforces
    APPROVE/NEEDS_WORK); Claude/Grok probe legs use `--mode implement` with the modify-nothing
    contract; grep the verdict.
-6. On NEEDS_WORK: one fix cycle by the worker ("address exactly these, nothing else"), then the
-   bounded delta re-review by the SAME reviewer. A second NEEDS_WORK is a blocker to report,
-   not a loop to continue.
+6. On NEEDS_WORK: up to 5 fix cycles by the worker ("address exactly these, nothing else"), each
+   followed by the SAME reviewer's bounded delta. From cycle 3, prefer simplify/descope over
+   adding guards. If the fifth cycle's delta still returns NEEDS_WORK, report a blocker and park.
 7. Merge or open the PR only on the reviewer's literal line
    `READY TO MERGE — nothing further coming.` — a report is not a merge signal. Absent that
    line, ask the reviewer leg to confirm or state what is still coming.

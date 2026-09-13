@@ -15,7 +15,7 @@ Load `skills/meta-orchestration/SKILL.md` and execute it for `$ARGUMENTS`.
   or provider/model restrictions. HOW is the skill's responsibility.
 - `--resume [handoff-path]` — continue from a handoff. Without an explicit path, use the newest
   `handoff-*.md` under `${MMO_HANDOFF_DIR:-.claude/handoffs}` in the target repository.
-  Trailing text is pre-answered open decisions and brief deltas.
+  Trailing text is overrides of decided judgment calls and brief deltas.
 
 Reject `--resume` when no handoff exists.
 
