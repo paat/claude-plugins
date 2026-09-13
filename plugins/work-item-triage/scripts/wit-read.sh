@@ -157,11 +157,21 @@ wit_read_main() {
       .[0] as $r | .[1] as $c | .[2] as $t | .[3] as $relations |
       def clip: if $full then . else .[0:600] end;
       def attribution($who): if $who == null then {} else {author:$who} end;
+      def history_detail:
+        . as $e
+        | def field($o; $k): if ($o|type) == "object" then $o[$k] else null end;
+        (($e.detail | if type == "object" then . else {} end)
+         + ({label:field($e.label; "name"), assignee:field($e.assignee; "login"),
+             rename_from:field($e.rename; "from"), rename_to:field($e.rename; "to"),
+             milestone:field($e.milestone; "title"), state_reason:$e.state_reason}
+            | with_entries(select(.value | type == "string" and test("\\S"))))
+         | with_entries(select(.value | type == "string" and test("\\S"))))
+        | if length > 0 then {detail:.} else {} end;
       {history_digest:$digest,id:(($r.number // $r.id)|tostring), title:($r.title // $r.name // ""), url:($r.html_url // $r.url // ""),
        state:(($r.state | if type=="object" then .name else . end) // "unknown" | ascii_downcase), updatedAt:($r.updatedAt // $r.updated_at // null),
        body:(($r.body // $r.description_stripped // $r.description // "")|clip), labels:[($r.labels // [])[]|if type=="object" then .name else . end],
        comments:[$c[]|{id:(.id|tostring),body:((.body // .comment // "")|clip),updatedAt:(.updated_at // .updatedAt // "")} + attribution(.user.login // .author)], comments_fetched:($c|length),
-       history:[$t[]|{event:(.event // .type // "decision"),at:(.created_at // .createdAt // ""),body:((.body // "")|clip)} + attribution(.actor.login // .author)],
+       history:[$t[]|{event:(.event // .type // "decision"),at:(.created_at // .createdAt // ""),body:((.body // "")|clip)} + attribution(.actor.login // .author) + history_detail],
        completeness:(if $ok then "complete" else "incomplete" end), text_truncated:(((($r.body // $r.description_stripped // $r.description // "")|length)>600 or any($c[]; ((.body // .comment // "")|length)>600) or any($t[]; ((.body // "")|length)>600)) and ($full|not)),
        lookup_match:(((($r.title // $r.name // "")+" "+($r.body // $r.description_stripped // $r.description // ""))|ascii_downcase)|contains($query|ascii_downcase)),relations:$relations }' "$tmp/input")
     printf '%s\n' "$item" >> "$tmp/items"

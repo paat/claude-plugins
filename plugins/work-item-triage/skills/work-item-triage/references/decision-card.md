@@ -15,7 +15,7 @@ The same card fields apply to both directions; only prior-art lookup and disposi
 | `response` | Smallest adequate intervention, retained acceptance, do-nothing consequence |
 | `cost` | Qualitative marginal complexity/retrieval/review/operations burden |
 | `disposition` | One token from the selected direction below |
-| `priority` | Positive integer; within each section, required precedes discretionary, then smaller priority comes first |
+| `priority` | Positive integer; required before discretionary, then smaller first |
 | `prerequisites` | Array naming dependency, owner, review or evidence prerequisites |
 | `next_task` | A concrete bounded task preserving minimum scope |
 | `stop_condition` | When to stop or refresh instead of executing stale advice |
@@ -26,7 +26,7 @@ Evidence classes: `reproduced`, `source-reachable`, `hypothetical`, `unavailable
 `outcome` and `cost` accept a non-empty string or object of non-empty string values.
 An `unavailable` evidence object must omit `frequency`; do not substitute zero or “rare”.
 Enforcement classes: `native`, `instruction-only`, `unavailable`.
-Keep explanations concise in these fields; free-form supplemental prose belongs in the summary.
+Keep these fields concise; free-form prose belongs in the summary.
 
 ## Disposition by direction
 
@@ -42,7 +42,7 @@ Keep explanations concise in these fields; free-form supplemental prose belongs 
 | Proposed item | Required qualification |
 |---|---|
 | `do-not-file` | Explain why no durable tracked intervention is needed |
-| `file-minimal` | Minimal draft and evidence; display “This draft has had no PII review.” |
+| `file-minimal` | `draft` {title, body}: minimal draft with evidence, acceptance, retained limitations; display “This draft has had no PII review.” |
 | `append-to` | Non-empty `target`; existing item owns the same outcome |
 | `fix-now-no-item` | Bounded already-authorized intervention recommended to the caller |
 | `record-as-limitation` | Supported limitation permitted by policy, with accessible disclosure |

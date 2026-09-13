@@ -26,6 +26,14 @@ if [ "$1" = api ]; then
     if [ "$WIT_MODE" = shared-relations ]; then
       printf '%s\n' '[{"source":{"issue":{"number":12,"html_url":"https://github.com/sample/project/issues/12"}}},{"source":{"issue":{"number":12,"html_url":"https://github.com/other/project/issues/12"}}}]'; exit
     fi
+    if [ "$WIT_MODE" = history-detail ]; then
+      printf '%s\n' '[{"event":"closed","created_at":"2026-09-09T00:00:00Z","body":"","rename":{"from":"Old title","to":"New title"},"assignee":{"login":"alice"},"milestone":{"title":"M1"},"state_reason":"completed","actor":{"login":"alice"}}]'
+      exit
+    fi
+    if [ "$WIT_MODE" = history-scalar ]; then
+      printf '%s\n' '[{"event":"labeled","created_at":"2026-09-09T00:00:00Z","body":"","label":"bug","assignee":7,"rename":"t","milestone":7,"actor":{"login":"alice"}}]'
+      exit
+    fi
     if [ "$WIT_MODE" = parity ]; then jq '.fixture_history' "$WIT_FIX/github-parity.json";
     else printf '[]\n'; fi
     exit
@@ -289,6 +297,13 @@ for provider in github plane; do
     check "tribunal T-002 $provider $detail preserves known authors and omits unknown authors" 0 "$(truth "$TMP/authors.json" '.items[0] | .comments[0].author=="support-owner" and .history[0].author=="support-owner" and (.comments[1]|has("author")|not) and (.history[1]|has("author")|not)')"
   done
 done
+check 'h1 GitHub labeled history keeps detail and omits empty detail' 0 "$(truth "$TMP/github.json" '.items[0].history as $h | ($h|map(select(.event=="labeled"))|length)==1 and ($h[]|select(.event=="labeled")|.detail=={"label":"support"}) and all($h[]|select(.event!="labeled"); (has("detail")|not))')"
+export WIT_MODE=history-detail
+read_snapshot github > "$TMP/history-detail.json"
+check 'h2 GitHub rename assignee milestone state_reason map to flat detail' 0 "$(truth "$TMP/history-detail.json" '.items[0].history[0].detail == {"rename_from":"Old title","rename_to":"New title","assignee":"alice","milestone":"M1","state_reason":"completed"}')"
+export WIT_MODE=history-scalar
+read_snapshot github > "$TMP/history-scalar.json"
+check 'h3 scalar nested history containers exit 0 without detail' 0 "$(truth "$TMP/history-scalar.json" '.items[0].history|length==1 and all(.[]; has("detail")|not)')"
 export WIT_MODE=incomplete-source
 for operation in list show; do
   args=(); [ "$operation" != show ] || args=(--id 301)
@@ -350,11 +365,29 @@ for change in modified staged untracked; do
 done
 # Both direction enums share one validated card mechanism; no tracker item exists yet.
 jq ' .items=[{id:"draft-1",title:"Proposed support note",updatedAt:null,comments_fetched:0,completeness:.completeness,comments:[],relations:[]}]' "$TMP/github.json" > "$TMP/proposed-snapshot.json"
+jq --arg disposition file-minimal '.items[0] += {id:"draft-1",direction:"proposed",disposition:$disposition,target:"88"}' "$TMP/parity-decisions.json" > "$TMP/proposed-no-draft.json"
+write_register "$TMP/proposed-snapshot.json" "$TMP/proposed-no-draft.json" proposed-file-minimal-missing-draft >/dev/null 2>&1
+check 'd1 proposed file-minimal without draft is rejected' 2 "$?"
 for disposition in do-not-file file-minimal append-to fix-now-no-item record-as-limitation; do
-  jq --arg disposition "$disposition" '.items[0] += {id:"draft-1",direction:"proposed",disposition:$disposition,target:"88"}' "$TMP/parity-decisions.json" > "$TMP/proposed.json"
+  jq --arg disposition "$disposition" '
+    .items[0] += {id:"draft-1",direction:"proposed",disposition:$disposition,target:"88"}
+    | if $disposition == "file-minimal" then
+        .items[0].draft = {title:"Support note draft",body:"Evidence, acceptance, and retained limitations."}
+      else . end
+  ' "$TMP/parity-decisions.json" > "$TMP/proposed.json"
   proposed_run="$(write_register "$TMP/proposed-snapshot.json" "$TMP/proposed.json" "proposed-$disposition")"
   check "1 proposed disposition $disposition" 0 "$(truth "$proposed_run/register.json" ".items[0].direction==\"proposed\" and .items[0].disposition==\"$disposition\"")"
 done
+check 'd2 file-minimal draft is durable and summarized with PII line' 0 "$(
+  jq -e '.items[0].draft == {"title":"Support note draft","body":"Evidence, acceptance, and retained limitations."}' \
+    "$TMP/output/work-item-triage/proposed-file-minimal/register.json" >/dev/null 2>&1 || { echo 1; exit 0; }
+  awk '
+    /Draft title: Support note draft/ {title=1; next}
+    title && !body && $0=="Evidence, acceptance, and retained limitations." {body=1; next}
+    body && $0=="This draft has had no PII review." {pii=1}
+    END {print (title && body && pii) ? 0 : 1}
+  ' "$TMP/output/work-item-triage/proposed-file-minimal/summary.md"
+)"
 for disposition in fix-now-no-item record-as-limitation; do
   jq --slurpfile item "$FIX/$disposition.json" '.items=$item' "$TMP/github.json" > "$TMP/proposed-snapshot.json"
   jq '{items:[.]}' "$HERE/expected/proposed/$disposition.json" > "$TMP/proposed.json"
