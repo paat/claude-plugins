@@ -9,6 +9,7 @@ round are decided. Use the stable HTML marker so rounds are greppable.
 
 - **PR:** #<number>
 - **HEAD:** `<full sha>`
+- **CI:** <name=conclusion, … from `scripts/required-checks.sh` JSON for this HEAD; include ok>
 - **Decision:** …
 - **Confidence:** …
 - **Critical/high remaining:** <count>
