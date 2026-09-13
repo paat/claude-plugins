@@ -3548,6 +3548,7 @@ assert_grep "adjacent concerns do not expand investigation" "$CL" "beyond eviden
 assert_grep "step-back preserves architecture" "$CL" "existing architecture"
 assert_grep "step-back workflow" "$CL" "Step-back workflow (anti-spiral)"
 assert_grep "step-back descope accepts covering issue" "$CL" 'Descope.*covering issue'
+assert_grep "falsifiable output accepts covering issue" "$CL" 'follow-up or covering issue'
 assert_grep "no-net-increase guard" "$CL" "no-net-increase"
 assert_grep "round 3 checkpoint" "$CL" "Round 3 — checkpoint"
 assert_grep "round 5 ceiling" "$CL" "Round 5 — hard ceiling"

@@ -196,7 +196,7 @@ Post a final round comment on close (even if round 1 is already zero-crit/high).
 
 **Falsifiable output:** a step-back round must produce (a) collapsed class with
 defensive-mechanism count not increased (added ≤ removed), or (b) descope + linked
-follow-up, or (c) arbiter ruling the class fails 3b-0. "Added another guard, relabeled
+follow-up or covering issue, or (c) arbiter ruling the class fails 3b-0. "Added another guard, relabeled
 as re-architecture" is invalid (no-net-increase check).
 
 ## Common Mistakes
