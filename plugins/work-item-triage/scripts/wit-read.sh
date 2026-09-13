@@ -39,6 +39,14 @@ PY
 }
 wit_command() { local command; command=$(jq -r --arg k "$1" '.[$k] // empty' <<< "$adapter"); shift; [[ -n $command ]] && bash -c "$command \"\$@\"" wit "$@"; }
 wit_json() { local filter=$1; shift; printf '%s\n' "$@" | jq -cs "$filter"; }
+# Capture gh stderr for rate-limit detection without racing a process substitution.
+wit_gh() {
+  local ec=0
+  gh api "$@" 2>"$tmp/gh-err-one" || ec=$?
+  cat "$tmp/gh-err-one" >> "$tmp/gh-errors"
+  cat "$tmp/gh-err-one" >&2
+  return "$ec"
+}
 wit_read_main() {
   local system=github scope='' config='' id='' query='' full=false max_pages=100 verb=list
   while (($#)); do
@@ -52,13 +60,14 @@ wit_read_main() {
   [[ -n $scope && $max_pages =~ ^[1-9][0-9]*$ && ( -z $id || -z $query ) ]] || return 2
   local tmp adapter='{}' complete=true limits='[]' records='[]' page payload count endpoint verb next raw iid comments timeline item
   tmp=$(mktemp -d); trap "rm -rf '$tmp'" EXIT
+  : > "$tmp/gh-errors"
   if [[ $system != github ]]; then
     [[ -n $config ]] || { echo 'Configured source requires --config' >&2; return 2; }
     adapter=$(wit_config "$config" "$system" 'list,show,search')
     jq -e '.list and .show' <<< "$adapter" >/dev/null || { echo 'Source requires list and show commands' >&2; return 2; }
   fi
   if [[ -n $id ]]; then
-    if [[ $system == github ]]; then payload=$(gh api "repos/$scope/issues/$id") || return 1
+    if [[ $system == github ]]; then payload=$(wit_gh "repos/$scope/issues/$id") || return 1
     else payload=$(wit_command show "$id") || return 1; fi
     records=$(jq -cs '.' <<< "$payload")
   else
@@ -72,7 +81,7 @@ wit_read_main() {
       if [[ $system == github ]]; then
         endpoint="repos/$scope/issues?state=open&per_page=100&page=$page"
         [[ -z $query ]] || endpoint="search/issues?q=$(jq -rn --arg q "$query repo:$scope is:issue" '$q|@uri')&per_page=100&page=$page"
-        if ! payload=$(gh api "$endpoint"); then complete=false; break; fi
+        if ! payload=$(wit_gh "$endpoint"); then complete=false; break; fi
         if ! jq -e 'type=="array" or (.items|type=="array")' <<< "$payload" >/dev/null; then complete=false; break; fi
         count=$(jq 'if type=="array" then length else .items|length end' <<< "$payload")
         [[ $(jq -r 'if type=="object" then .incomplete_results // false else false end' <<< "$payload") == false ]] || complete=false
@@ -103,7 +112,7 @@ wit_read_main() {
         local collected='[]'
         : > "$tmp/collected"
         for ((page=1;page<=max_pages;page++)); do
-          if ! payload=$(gh api "repos/$scope/issues/$iid/$endpoint?per_page=100&page=$page") || ! jq -e 'type=="array"' <<< "$payload" >/dev/null; then item_complete=false; break; fi
+          if ! payload=$(wit_gh "repos/$scope/issues/$iid/$endpoint?per_page=100&page=$page") || ! jq -e 'type=="array"' <<< "$payload" >/dev/null; then item_complete=false; break; fi
           printf '%s\n' "$payload" >> "$tmp/collected"
           count=$(jq length <<< "$payload"); ((count<100)) && break
           ((page<max_pages)) || item_complete=false
@@ -131,7 +140,7 @@ wit_read_main() {
       : > "$tmp/relations"
       while IFS= read -r relation; do
         linked_scope=$(jq -r "._scope" <<< "$relation"); linked_id=$(jq -r '.id' <<< "$relation")
-        if [[ ! $linked_id =~ ^[0-9]+$ ]] || ! details=$(gh api "repos/$linked_scope/issues/$linked_id" 2> "$tmp/relation-error"); then
+        if [[ ! $linked_id =~ ^[0-9]+$ ]] || ! details=$(wit_gh "repos/$linked_scope/issues/$linked_id" 2> "$tmp/relation-error"); then
           if [[ $linked_id =~ ^[0-9]+$ ]]; then
             if [[ $(jq -r "._body_candidate" <<< "$relation") == true ]] && grep -Eq '^gh: .*\(HTTP 404\)$' "$tmp/relation-error"; then continue; fi
             cat "$tmp/relation-error" >&2
@@ -140,7 +149,7 @@ wit_read_main() {
         else
           relation=$(wit_json '.[0] as $r | .[1] as $d | $r + {title:($d.title // ""),state:($d.state // "unknown"),url:($d.html_url // $r.url // ""),resolution:"resolved"}' "$relation" "$details")
           if jq -e '.pull_request' <<< "$details" >/dev/null || [[ $(jq -r '.kind' <<< "$relation") == delivery ]]; then
-            if details=$(gh api "repos/$linked_scope/pulls/$linked_id"); then
+            if details=$(wit_gh "repos/$linked_scope/pulls/$linked_id"); then
               relation=$(wit_json '.[0] as $r | .[1] as $d | $r + {kind:"delivery",mergedAt:($d.merged_at // null),baseRef:($d.base.ref // null),headCommit:($d.head.sha // null)}' "$relation" "$details")
             else item_complete=false; relation=$(jq '. + {resolution:"unavailable"}' <<< "$relation"); fi
           fi
@@ -176,6 +185,9 @@ wit_read_main() {
        lookup_match:(((($r.title // $r.name // "")+" "+($r.body // $r.description_stripped // $r.description // ""))|ascii_downcase)|contains($query|ascii_downcase)),relations:$relations }' "$tmp/input")
     printf '%s\n' "$item" >> "$tmp/items"
   done < <(jq -c '.[]' <<< "$records")
+  if grep -Eq 'API rate limit exceeded|secondary rate limit|HTTP 429' "$tmp/gh-errors" 2>/dev/null; then
+    limits=$(jq -cn --argjson limits "$limits" --arg msg 'github rate limit hit: items marked incomplete may be throttled, not missing evidence; retry after the limit resets' '$limits + [$msg]')
+  fi
   jq -s --arg system "$system" --arg scope "$scope" --arg now "${WIT_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" --argjson ok "$complete" --argjson limits "$limits" --arg query "$query" --argjson fallback "$([[ $system != github && -n $query && $verb == list ]] && echo true || echo false)" '
     {source:{system:$system,scope:$scope},fetched_at:$now,completeness:(if $ok then "complete" else "incomplete" end),capability_limits:$limits,
      items:((if $fallback then map(select(.lookup_match)) else . end)|map(del(.lookup_match)))}' "$tmp/items"

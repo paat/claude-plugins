@@ -36,12 +36,16 @@ Resolve links in the wrapper, retaining delivery states; set `complete: false` f
 or relations. Wrappers must map completed states to `closed`. Missing `comments_complete`
 is incomplete, never an empty-history success. GitHub resolves numbered references and timeline
 links, reading linked PR merge time, base branch and head commit separately from item state.
+GitHub references that name another repository (body `owner/repo#N`, timeline cross-references) are
+resolved read-only against that repository, bounded by the `gh` token's own access. Tracker text can
+therefore widen which repositories are read, never written.
 
 ## Completeness and capability limits
 
 The reader emits `source`, `fetched_at`, `items`, `completeness` and `capability_limits`.
 Each item has neutral identity/title/body/state, update time, comment count/digest and relations.
 Pages are bounded; failed/missing pages, partial comments and unresolved history are reported.
+GitHub rate limiting is reported as a capability limit.
 Compact packets bound body/comment text; `--full` is for ambiguity that needs full evidence.
 The read path receives only configured `list`, `show`, `search` commands; mutations are unavailable
 there. Configured commands must honor their read contract; the host shell is not sandboxed.
