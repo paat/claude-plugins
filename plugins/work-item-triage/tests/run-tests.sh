@@ -30,6 +30,10 @@ if [ "$1" = api ]; then
       printf '%s\n' '[{"event":"closed","created_at":"2026-09-09T00:00:00Z","body":"","rename":{"from":"Old title","to":"New title"},"assignee":{"login":"alice"},"milestone":{"title":"M1"},"state_reason":"completed","actor":{"login":"alice"}}]'
       exit
     fi
+    if [ "$WIT_MODE" = history-scalar ]; then
+      printf '%s\n' '[{"event":"labeled","created_at":"2026-09-09T00:00:00Z","body":"","label":"bug","assignee":7,"rename":"t","milestone":7,"actor":{"login":"alice"}}]'
+      exit
+    fi
     if [ "$WIT_MODE" = parity ]; then jq '.fixture_history' "$WIT_FIX/github-parity.json";
     else printf '[]\n'; fi
     exit
@@ -297,6 +301,9 @@ check 'h1 GitHub labeled history keeps detail and omits empty detail' 0 "$(truth
 export WIT_MODE=history-detail
 read_snapshot github > "$TMP/history-detail.json"
 check 'h2 GitHub rename assignee milestone state_reason map to flat detail' 0 "$(truth "$TMP/history-detail.json" '.items[0].history[0].detail == {"rename_from":"Old title","rename_to":"New title","assignee":"alice","milestone":"M1","state_reason":"completed"}')"
+export WIT_MODE=history-scalar
+read_snapshot github > "$TMP/history-scalar.json"
+check 'h3 scalar nested history containers exit 0 without detail' 0 "$(truth "$TMP/history-scalar.json" '.items[0].history|length==1 and all(.[]; has("detail")|not)')"
 export WIT_MODE=incomplete-source
 for operation in list show; do
   args=(); [ "$operation" != show ] || args=(--id 301)

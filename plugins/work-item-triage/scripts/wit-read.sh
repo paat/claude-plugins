@@ -159,12 +159,13 @@ wit_read_main() {
       def attribution($who): if $who == null then {} else {author:$who} end;
       def history_detail:
         . as $e
-        | (($e.detail | if type == "object" then . else {} end)
-           + ({label:$e.label.name, assignee:$e.assignee.login,
-               rename_from:$e.rename.from, rename_to:$e.rename.to,
-               milestone:$e.milestone.title, state_reason:$e.state_reason}
-              | with_entries(select(.value | type == "string" and test("\\S"))))
-           | with_entries(select(.value | type == "string" and test("\\S"))))
+        | def field($o; $k): if ($o|type) == "object" then $o[$k] else null end;
+        (($e.detail | if type == "object" then . else {} end)
+         + ({label:field($e.label; "name"), assignee:field($e.assignee; "login"),
+             rename_from:field($e.rename; "from"), rename_to:field($e.rename; "to"),
+             milestone:field($e.milestone; "title"), state_reason:$e.state_reason}
+            | with_entries(select(.value | type == "string" and test("\\S"))))
+         | with_entries(select(.value | type == "string" and test("\\S"))))
         | if length > 0 then {detail:.} else {} end;
       {history_digest:$digest,id:(($r.number // $r.id)|tostring), title:($r.title // $r.name // ""), url:($r.html_url // $r.url // ""),
        state:(($r.state | if type=="object" then .name else . end) // "unknown" | ascii_downcase), updatedAt:($r.updatedAt // $r.updated_at // null),
