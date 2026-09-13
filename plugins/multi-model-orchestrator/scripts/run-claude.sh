@@ -218,7 +218,10 @@ if [ "$stream_log_set" -eq 1 ]; then
             printf 'run-claude: success result missing string .result in --stream-log: %s\n' "$stream_file" >&2
             rc=1
           else
-            printf '%s\n' "$result_event" | jq -r '.result' > "$output_file"
+            # Empty .result must leave --out empty so the missing-or-empty guard
+            # fires (rc=5), matching text-mode empty success. Non-empty output
+            # stays byte-identical to jq -r '.result' (trailing newline included).
+            printf '%s\n' "$result_event" | jq -r '.result | select(length > 0)' > "$output_file"
             rc=0
           fi
         fi

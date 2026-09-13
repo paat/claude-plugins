@@ -161,6 +161,12 @@ if [ "$format" = stream-json ]; then
       printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":42}'
       exit 0
       ;;
+    # Success with empty-string .result (must not bypass the empty-artifact guard).
+    stream_empty_result)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":""}'
+      exit 0
+      ;;
     *)
       printf '%s\n' '{"type":"system","subtype":"init"}'
       printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}'
@@ -181,7 +187,7 @@ else
       printf 'provider reported an error\n'
       exit 0
       ;;
-    stream_trunc_after|stream_bad_before|stream_null_result|stream_number_result)
+    stream_trunc_after|stream_bad_before|stream_null_result|stream_number_result|stream_empty_result)
       printf 'claude findings\nAPPROVE\n'
       ;;
     progress) printf 'I will inspect the diff.\n' ;;
@@ -1173,6 +1179,23 @@ set -e
 contains "$WORK/523/i.err" "$WORK/523/i.stream" '523i: non-string .result failure names stream file'
 absent "$WORK/523/i-final.txt" '42' '523i: --out must not contain coerced 42'
 pass '#523i: non-string .result fails; stream named; no coerced --out'
+
+# (j) success with empty-string .result: missing-or-empty guard (rc=5), empty --out.
+set +e
+printf 'claude 523j\n' | STUB_CLAUDE_RESULT=stream_empty_result \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/j-final.txt" \
+  --stream-log "$WORK/523/j.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/j.err"
+claude_523j_rc=$?
+set -e
+[ "$claude_523j_rc" -eq 5 ] || fail "523j: empty-string .result rc=$claude_523j_rc want 5"
+contains "$WORK/523/j.err" 'missing or empty final-message artifact' \
+  '523j: missing-or-empty message'
+contains "$WORK/523/j.err" "$WORK/523/j-final.txt" '523j: message names --out'
+[ -f "$WORK/523/j-final.txt" ] && [ ! -s "$WORK/523/j-final.txt" ] \
+  || fail '523j: --out must exist and be empty'
+pass '#523j: empty-string .result exits 5 with empty --out'
 
 # README/contract: jq is required only for Claude --stream-log (#523).
 absent "$PLUGIN_ROOT/README.md" 'No `jq` dependency is used' \
