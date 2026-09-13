@@ -79,13 +79,17 @@ digraph close_tribunal {
     "Per-finding triage" [shape=box];
     "Apply fixes + tests" [shape=box];
     "Push to PR branch" [shape=box];
+    "required-checks.sh on LOCAL_HEAD" [shape=diamond];
     "DONE — ready to merge / hand off" [shape=doublecircle];
+    "Refuse merge; record CI JSON" [shape=box];
 
     "Resolve open PR" -> "tribunal-loop on PR HEAD";
     "tribunal-loop on PR HEAD" -> "Post round PR comment";
     "Post round PR comment" -> "Zero critical & high?";
-    "Zero critical & high?" -> "DONE — ready to merge / hand off" [label="yes"];
+    "Zero critical & high?" -> "required-checks.sh on LOCAL_HEAD" [label="yes"];
     "Zero critical & high?" -> "Per-finding triage" [label="no"];
+    "required-checks.sh on LOCAL_HEAD" -> "DONE — ready to merge / hand off" [label="ok=true"];
+    "required-checks.sh on LOCAL_HEAD" -> "Refuse merge; record CI JSON" [label="exit non-zero"];
     "Per-finding triage" -> "Apply fixes + tests";
     "Apply fixes + tests" -> "Push to PR branch";
     "Push to PR branch" -> "tribunal-loop on PR HEAD";
@@ -120,10 +124,12 @@ After each `tribunal-loop` (including the final close):
 2. **Post and verify** the round PR comment for this `ROUND` + `LOCAL_HEAD` **before**
    applying code fixes for that verdict. A round without a verified comment is not
    complete. Load body from `references/round-comment.md` (`<!-- tribunal-round:N -->`,
-   `gh pr comment --body-file`).
+   `gh pr comment --body-file`). Every round comment includes a **CI:** line for the
+   exact HEAD (name+conclusion from the `required-checks.sh` JSON).
 3. If critical/high remain: apply fixes + tests, **push**, re-check HEAD == PR head,
    run the next round (step 1 again).
-4. If zero critical/high: stop (final comment already posted in step 2).
+4. If zero critical/high: run CI-proven-green on `LOCAL_HEAD` (below). Only when that
+   gate passes may you stop at **DONE — ready to merge / hand off**.
 
 Disposition lines for still-uncommitted fixes are `will-fix` (no commit sha yet).
 After the fix lands, the next round's HEAD and trail show the result. Do not reverse
@@ -131,8 +137,32 @@ the order to “fix then comment” — a failed fix/push must not leave the ver
 undocumented on the PR.
 
 The loop only exits when the arbiter's verdict has **zero critical and zero high
-findings** on the current diff. Default panel: Codex, Grok, Claude (Gemini, DeepSeek,
-GLM, Qwen opt-in).
+findings** on the current diff **and** required CI checks on `LOCAL_HEAD` are green.
+Default panel: Codex, Grok, Claude (Gemini, DeepSeek, GLM, Qwen opt-in).
+
+### CI-proven green (refuse-to-merge)
+
+Before declaring **DONE — ready to merge / hand off**, prove the exact HEAD is green:
+
+```bash
+OWNER_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+PLUGIN_ROOT="${TRIBUNAL_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -z "$PLUGIN_ROOT" ]; then
+  echo "TRIBUNAL_PLUGIN_ROOT or CLAUDE_PLUGIN_ROOT required" >&2
+  exit 1
+fi
+CI_EC=0
+CI_JSON="$(bash "${PLUGIN_ROOT}/scripts/required-checks.sh" \
+  --repo "$OWNER_REPO" --sha "$LOCAL_HEAD")" || CI_EC=$?
+# Always put name=conclusion pairs from CI_JSON into the round comment **CI:** line.
+```
+
+- If `required-checks.sh` exits non-zero (`ok=false`, empty checks, pending, or failed):
+  **refuse to merge**. Record the full `CI_JSON` in the round PR comment (and the
+  **CI:** summary line), stop the close-out, and do not merge or hand off as ready.
+- If it exits 0 (`ok=true`): proceed to **DONE — ready to merge / hand off**.
+- Do not use `gh pr checks` as the only source — the script queries REST check-runs
+  for the exact sha.
 
 ## Per-Finding Triage
 
@@ -162,13 +192,16 @@ Follow-up issue body: `references/follow-up-issue.md`. Cross-link PR ↔ issue b
 
 ## Stop Condition
 
-Closes on **zero `critical` and zero `high`** on the latest diff. Medium/low do not
-hold the gate — YAGNI triage below.
+Closes on **zero `critical` and zero `high`** on the latest diff **and**
+`scripts/required-checks.sh` exiting 0 for `LOCAL_HEAD`. Medium/low do not hold the
+finding gate — YAGNI triage below. Unearned CI green does not close the loop: refuse
+to merge when required checks are missing, pending, or failed.
 
 A `high` is **cleared** when it is fixed, re-rated below high by the arbiter (failed
 3b-0), or **descoped** (mechanism removed from the diff + follow-up issue filed or covering issue linked).
 
-Post a final round comment on close (even if round 1 is already zero-crit/high).
+Post a final round comment on close (even if round 1 is already zero-crit/high),
+including the **CI:** line from `required-checks.sh`.
 
 ### YAGNI triage (leftover medium/low at close)
 
@@ -211,10 +244,13 @@ as re-architecture" is invalid (no-net-increase check).
 - **One-line follow-up issues** — use `references/follow-up-issue.md`.
 - **Stale verdict** — only the arbiter result on current HEAD counts, after its round
   comment is posted.
+- **Merging without CI-proven green** — never skip `scripts/required-checks.sh` on
+  `LOCAL_HEAD`; refuse to merge when it exits non-zero.
 
 ## Related
 
 - `tribunal-loop` — single multi-provider review round
+- `scripts/required-checks.sh` — CI-proven green for the exact HEAD (REST check-runs)
 - `references/round-comment.md` — PR comment template + post/verify
 - `references/follow-up-issue.md` — follow-up issue body
 - `superpowers:receiving-code-review` — verify findings, don't performatively agree

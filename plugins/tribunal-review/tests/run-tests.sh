@@ -3666,6 +3666,187 @@ EOF
   rm -rf "$work"
 }
 
+test_required_checks() {
+  local work fake sha out ec mutated
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  sha="$(python3 -c 'print("a" * 40)')"
+
+  cat > "$fake/gh" <<'EOF'
+#!/usr/bin/env bash
+# required-checks.sh must force plain JSON (no ANSI / forced TTY).
+if [ "${NO_COLOR:-}" != "1" ] || [ "${CLICOLOR_FORCE:-}" != "0" ] || [ -n "${GH_FORCE_TTY:-}" ]; then
+  printf 'gh colour env leaked: NO_COLOR=%s CLICOLOR_FORCE=%s GH_FORCE_TTY=%s\n' \
+    "${NO_COLOR-}" "${CLICOLOR_FORCE-}" "${GH_FORCE_TTY-}" >&2
+  exit 99
+fi
+if [ "$1" != api ]; then
+  printf 'unexpected gh invocation: %s\n' "$*" >&2
+  exit 2
+fi
+# Reject gh pr checks as the only source — REST check-runs only.
+for arg in "$@"; do
+  case "$arg" in
+    pr|checks)
+      printf 'forbidden gh pr checks path: %s\n' "$*" >&2
+      exit 2
+      ;;
+  esac
+done
+endpoint=""
+for arg in "$@"; do
+  case "$arg" in
+    repos/*/commits/*/check-runs*) endpoint="$arg" ;;
+  esac
+done
+[ -n "$endpoint" ] || { printf 'missing check-runs endpoint: %s\n' "$*" >&2; exit 2; }
+
+case "${FIXTURE_CHECKS:-empty}" in
+  empty)
+    jq -nc '{total_count:0,check_runs:[]}'
+    ;;
+  failed)
+    jq -nc '{total_count:2,check_runs:[
+      {name:"unit",status:"completed",conclusion:"success"},
+      {name:"lint",status:"completed",conclusion:"failure"}
+    ]}'
+    ;;
+  pending)
+    jq -nc '{total_count:2,check_runs:[
+      {name:"unit",status:"completed",conclusion:"success"},
+      {name:"build",status:"in_progress",conclusion:null}
+    ]}'
+    ;;
+  success)
+    # Em-dash in a check name must survive JSON output (no ensure_ascii escape).
+    jq -nc '{total_count:2,check_runs:[
+      {name:"unit — core",status:"completed",conclusion:"success"},
+      {name:"lint",status:"completed",conclusion:"success"}
+    ]}'
+    ;;
+  skipped_only)
+    jq -nc '{total_count:1,check_runs:[
+      {name:"optional",status:"completed",conclusion:"skipped"}
+    ]}'
+    ;;
+  *)
+    printf 'unknown FIXTURE_CHECKS=%s\n' "${FIXTURE_CHECKS-}" >&2
+    exit 2
+    ;;
+esac
+EOF
+  chmod +x "$fake/gh"
+
+  ec=0
+  out="$(PATH="$fake:$PATH" FIXTURE_CHECKS=empty \
+    bash "$PLUGIN_ROOT/scripts/required-checks.sh" --repo example/fixture --sha "$sha" 2>/dev/null)" || ec=$?
+  if [ "$ec" -eq 1 ] && printf '%s' "$out" | jq -e --arg sha "$sha" \
+      '.sha == $sha and .ok == false and (.checks|length) == 0' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} required-checks exits 1 on empty check-runs"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} required-checks exits 1 on empty check-runs"; FAIL=$((FAIL+1))
+    FAILURES+=("required-checks empty"); printf '%s\n' "$out" >&2
+  fi
+
+  ec=0
+  out="$(PATH="$fake:$PATH" FIXTURE_CHECKS=failed \
+    bash "$PLUGIN_ROOT/scripts/required-checks.sh" --repo example/fixture --sha "$sha" 2>/dev/null)" || ec=$?
+  if [ "$ec" -eq 1 ] && printf '%s' "$out" | jq -e \
+      '.ok == false and any(.checks[]; .conclusion == "failure")' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} required-checks exits 1 when a check failed"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} required-checks exits 1 when a check failed"; FAIL=$((FAIL+1))
+    FAILURES+=("required-checks failed"); printf '%s\n' "$out" >&2
+  fi
+
+  ec=0
+  out="$(PATH="$fake:$PATH" FIXTURE_CHECKS=pending \
+    bash "$PLUGIN_ROOT/scripts/required-checks.sh" --repo example/fixture --sha "$sha" 2>/dev/null)" || ec=$?
+  if [ "$ec" -eq 1 ] && printf '%s' "$out" | jq -e \
+      '.ok == false and any(.checks[]; .status == "in_progress")' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} required-checks exits 1 when a check is pending"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} required-checks exits 1 when a check is pending"; FAIL=$((FAIL+1))
+    FAILURES+=("required-checks pending"); printf '%s\n' "$out" >&2
+  fi
+
+  ec=0
+  out="$(PATH="$fake:$PATH" FIXTURE_CHECKS=success \
+    bash "$PLUGIN_ROOT/scripts/required-checks.sh" --repo example/fixture --sha "$sha" 2>/dev/null)" || ec=$?
+  if [ "$ec" -eq 0 ] && printf '%s' "$out" | jq -e --arg sha "$sha" \
+      '.sha == $sha and .ok == true
+       and all(.checks[]; .status == "completed" and .conclusion == "success")
+       and any(.checks[]; .name == "unit — core")' >/dev/null \
+    && printf '%s' "$out" | grep -q 'unit — core' \
+    && ! printf '%s' "$out" | grep -q 'unit \\u2014 core'; then
+    echo -e "  ${GREEN}PASS${NC} required-checks exits 0 when all completed success"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} required-checks exits 0 when all completed success"; FAIL=$((FAIL+1))
+    FAILURES+=("required-checks success"); printf '%s\n' "$out" >&2
+  fi
+
+  ec=0
+  out="$(PATH="$fake:$PATH" FIXTURE_CHECKS=skipped_only \
+    bash "$PLUGIN_ROOT/scripts/required-checks.sh" --repo example/fixture --sha "$sha" 2>/dev/null)" || ec=$?
+  if [ "$ec" -eq 1 ] && printf '%s' "$out" | jq -e '.ok == false' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} required-checks exits 1 when only skipped checks exist"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} required-checks exits 1 when only skipped checks exist"; FAIL=$((FAIL+1))
+    FAILURES+=("required-checks skipped-only"); printf '%s\n' "$out" >&2
+  fi
+
+  ec=0
+  PATH="$fake:$PATH" bash "$PLUGIN_ROOT/scripts/required-checks.sh" --repo example/fixture 2>/dev/null || ec=$?
+  if [ "$ec" -eq 2 ]; then
+    echo -e "  ${GREEN}PASS${NC} required-checks fails loud on missing --sha"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} required-checks fails loud on missing --sha"; FAIL=$((FAIL+1))
+    FAILURES+=("required-checks bad args")
+  fi
+
+  # Mutation RED (one target): skill copy without refuse-to-merge must fail the
+  # assertion that requires the refuse path (exit non-zero / RED on grep).
+  mutated="$work/closing-SKILL.md"
+  cp "$PLUGIN_ROOT/skills/closing-tribunal-loop/SKILL.md" "$mutated"
+  python3 - "$mutated" <<'PY'
+from pathlib import Path
+import re, sys
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+# Strip the refuse-to-merge gate block and any remaining refuse-to-merge wording.
+text2, n = re.subn(
+    r"### CI-proven green \(refuse-to-merge\).*?(?=^## |\Z)",
+    "",
+    text,
+    count=1,
+    flags=re.S | re.M,
+)
+if n != 1:
+    raise SystemExit("refuse-to-merge section missing from skill")
+text2 = text2.replace("refuse to merge", "CONTINUE_MERGE_PLACEHOLDER")
+text2 = text2.replace("Refuse merge", "Continue merge")
+path.write_text(text2, encoding="utf-8")
+PY
+  ec=0
+  grep -Eq 'refuse to merge|Refuse merge|refuse-to-merge' "$mutated" || ec=$?
+  if [ "$ec" -ne 0 ]; then
+    echo -e "  ${GREEN}PASS${NC} mutated closing skill fails refuse-to-merge assertion (RED)"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} mutated closing skill fails refuse-to-merge assertion (RED)"; FAIL=$((FAIL+1))
+    FAILURES+=("required-checks mutation RED")
+  fi
+
+  # Live skill must still carry the refuse path the mutation removed.
+  if grep -Eq 'refuse to merge|scripts/required-checks\.sh' \
+      "$PLUGIN_ROOT/skills/closing-tribunal-loop/SKILL.md"; then
+    echo -e "  ${GREEN}PASS${NC} closing skill keeps refuse-to-merge + required-checks.sh"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} closing skill keeps refuse-to-merge + required-checks.sh"; FAIL=$((FAIL+1))
+    FAILURES+=("closing skill CI refuse anchors")
+  fi
+
+  rm -rf "$work"
+}
+
 SK=skills/tribunal-loop/SKILL.md
 CL=skills/closing-tribunal-loop/SKILL.md
 LIB=scripts/lib.sh
@@ -3683,7 +3864,8 @@ for script in \
   scripts/run-claude-review.sh \
   scripts/collect-review-evidence.sh \
   scripts/check-runner-bundle.sh \
-  scripts/generate-runner-bundle.sh
+  scripts/generate-runner-bundle.sh \
+  scripts/required-checks.sh
 do
   assert_file "$script exists" "$script"
   assert_executable "$script executable" "$script"
@@ -3842,6 +4024,7 @@ test_deleted_policy_paths
 test_deleted_policy_paths_gate
 test_trusted_evidence_collection
 test_sealed_panel_quorum
+test_required_checks
 
 echo "Finding position validation:"
 assert_grep "lib defines line-bounds validator" "$LIB" "tribunal_line_check()"
@@ -3920,6 +4103,15 @@ assert_file "follow-up issue template exists" "skills/closing-tribunal-loop/refe
 assert_grep "round comment template has marker" "skills/closing-tribunal-loop/references/round-comment.md" "<!-- tribunal-round:N -->"
 assert_grep "round comment posts with body-file" "skills/closing-tribunal-loop/references/round-comment.md" "gh pr comment"
 assert_grep "round comment uses will-fix before commits" "skills/closing-tribunal-loop/references/round-comment.md" "Will-fix"
+assert_grep "round comment template has CI line" "skills/closing-tribunal-loop/references/round-comment.md" 'CI:'
+assert_grep "round comment CI line cites required-checks" "skills/closing-tribunal-loop/references/round-comment.md" 'required-checks.sh'
+assert_grep "closing skill references required-checks script" "$CL" "scripts/required-checks.sh"
+assert_grep "closing skill refuses merge on CI failure" "$CL" "refuse to merge"
+assert_grep "closing skill runs required-checks before DONE" "$CL" "required-checks.sh on LOCAL_HEAD"
+assert_grep "closing skill captures CI exit under set -e" "$CL" '|| CI_EC=$?'
+assert_grep "closing skill prefers TRIBUNAL_PLUGIN_ROOT" "$CL" "TRIBUNAL_PLUGIN_ROOT"
+assert_grep "required-checks queries REST check-runs" "scripts/required-checks.sh" "check-runs"
+assert_no_grep "required-checks is not sealed collector bundle input" "scripts/generate-runner-bundle.sh" "required-checks.sh"
 
 echo ""
 if [ "$SKIP" -ne 0 ]; then
