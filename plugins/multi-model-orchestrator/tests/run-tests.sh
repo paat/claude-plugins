@@ -1227,6 +1227,22 @@ contains "$WORK/523/k.err" 'failed writing final message' '523k: write-failure d
 contains "$WORK/523/k.err" "$WORK/523/k-final.txt" '523k: diagnostic names --out'
 pass '#523k: final --out write failure exits nonzero and names path'
 
+# (l) provider exit 0 with empty stream under --stream-log: missing-or-empty
+# guard (rc=5), not malformed (jq -e would false-positive on empty input).
+set +e
+printf 'claude 523l\n' | STUB_CLAUDE_RESULT=empty \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/l-final.txt" \
+  --stream-log "$WORK/523/l.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/l.err"
+claude_523l_rc=$?
+set -e
+[ "$claude_523l_rc" -eq 5 ] || fail "523l: empty stream rc=$claude_523l_rc want 5"
+contains "$WORK/523/l.err" 'missing or empty final-message artifact' \
+  '523l: missing-or-empty message'
+absent "$WORK/523/l.err" 'malformed stream' '523l: must not report malformed stream'
+pass '#523l: empty stream under --stream-log exits 5, not malformed'
+
 # README/contract: jq is required only for Claude --stream-log (#523).
 absent "$PLUGIN_ROOT/README.md" 'No `jq` dependency is used' \
   'README must not claim no jq dependency'

@@ -198,7 +198,7 @@ if [ "$stream_log_set" -eq 1 ]; then
   else
     # stream-json is JSONL by contract; a parse failure with provider+tee rc=0
     # is a protocol violation. Do not suppress jq's error here.
-    if ! jq -e . "$stream_file" >/dev/null; then
+    if ! jq empty "$stream_file" >/dev/null; then
       printf 'run-claude: malformed stream in --stream-log: %s\n' "$stream_file" >&2
       rc=1
     else
