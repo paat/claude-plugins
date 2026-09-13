@@ -67,5 +67,5 @@ Close the active meeting and turn it into reviewed Plane work items.
      configured so `saas-startup-team` `/maintain` can triage the issue later.
 
 7. **Report.** List the created work items with their Plane ids/names and any mirrored
-   GitHub issue URLs. Note that the
+   GitHub issue URLs, plus gated skips from Step 6 with the covering-issue link or skip reason. Note that the
    transcript and `work-items.md` remain in the session dir for reference.
