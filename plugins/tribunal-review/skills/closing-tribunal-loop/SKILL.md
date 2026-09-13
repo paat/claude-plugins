@@ -146,9 +146,14 @@ Before declaring **DONE — ready to merge / hand off**, prove the exact HEAD is
 
 ```bash
 OWNER_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
-CI_JSON="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/required-checks.sh" \
-  --repo "$OWNER_REPO" --sha "$LOCAL_HEAD")"
-CI_EC=$?
+PLUGIN_ROOT="${TRIBUNAL_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -z "$PLUGIN_ROOT" ]; then
+  echo "TRIBUNAL_PLUGIN_ROOT or CLAUDE_PLUGIN_ROOT required" >&2
+  exit 1
+fi
+CI_EC=0
+CI_JSON="$(bash "${PLUGIN_ROOT}/scripts/required-checks.sh" \
+  --repo "$OWNER_REPO" --sha "$LOCAL_HEAD")" || CI_EC=$?
 # Always put name=conclusion pairs from CI_JSON into the round comment **CI:** line.
 ```
 

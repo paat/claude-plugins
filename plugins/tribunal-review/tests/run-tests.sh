@@ -4108,6 +4108,8 @@ assert_grep "round comment CI line cites required-checks" "skills/closing-tribun
 assert_grep "closing skill references required-checks script" "$CL" "scripts/required-checks.sh"
 assert_grep "closing skill refuses merge on CI failure" "$CL" "refuse to merge"
 assert_grep "closing skill runs required-checks before DONE" "$CL" "required-checks.sh on LOCAL_HEAD"
+assert_grep "closing skill captures CI exit under set -e" "$CL" '|| CI_EC=$?'
+assert_grep "closing skill prefers TRIBUNAL_PLUGIN_ROOT" "$CL" "TRIBUNAL_PLUGIN_ROOT"
 assert_grep "required-checks queries REST check-runs" "scripts/required-checks.sh" "check-runs"
 assert_no_grep "required-checks is not sealed collector bundle input" "scripts/generate-runner-bundle.sh" "required-checks.sh"
 
