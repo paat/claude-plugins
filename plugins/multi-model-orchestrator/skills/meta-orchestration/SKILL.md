@@ -68,8 +68,8 @@ annotate the source via its `close` command.
 ## Delivery strategies
 
 - **A (epic):** per-item branches merge into the epic branch on the merge signal. Close-out:
-  QA + UX on the epic PR, then `tribunal-review:closing-tribunal-loop`; merge to the
-  default branch at zero critical/high without `--delete-branch`; write the final handoff and commit it on the epic branch, path-limited, when
+  browser QA + UX on the epic PR, then `tribunal-review:closing-tribunal-loop`; merge to the
+  default branch at zero critical/high without `--delete-branch`; write the final handoff and commit it on the epic branch when
   no leg is live (`git add -f <handoff> && git commit -m … -- <handoff>`); close the epic.
 - **B (per-item):** branch → push → PR → `tribunal-review:closing-tribunal-loop` → merge at zero
   critical/high → close/annotate the source item.
