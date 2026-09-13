@@ -21,7 +21,7 @@ TRIBUNAL_BASE_REF="$base" tribunal_prepare_diff "$work/review.diff"
 stat="$(tribunal_take_diff_stat "$work/review.diff")"
 head="$(printf '%s' "$stat" | jq -r .head_oid)"
 cat > "$work/input.json" <<'JSON'
-{"provider":"codex","findings":[{"file":"file.txt","line":3},{"file":"file.txt","line":999},{"file":"outside.txt","line":1},{"file":"outside.txt"},{"file":"file.txt"},{"file":"file.txt","line":0},{"line":2},{"title":"no position"}],"summary":{"total_findings":8}}
+{"provider":"codex","files_examined":["file.txt"],"findings":[{"file":"file.txt","line":3},{"file":"file.txt","line":999},{"file":"outside.txt","line":1},{"file":"outside.txt"},{"file":"file.txt"},{"file":"file.txt","line":0},{"line":2},{"title":"no position"}],"summary":{"total_findings":8}}
 JSON
 case "$scenario" in
   healthy)

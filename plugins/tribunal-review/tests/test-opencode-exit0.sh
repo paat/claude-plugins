@@ -53,7 +53,7 @@ EOF
           fi
         fi
         if [ "$scenario" = findings ]; then
-          jq -nc --arg p "$provider" '{provider:$p,model:"fixture",findings:[{severity:"medium",category:"logic",file:"file.txt",line:1,title:"Preserve this finding",description:"fixture",suggestion:"fix",confidence:0.9}],summary:{total_findings:1,critical:0,high:0,medium:1,low:0,quality_score:8,verdict:"APPROVE"}}' > "$work/stdout"
+          jq -nc --arg p "$provider" '{provider:$p,model:"fixture",files_examined:["file.txt"],findings:[{severity:"medium",category:"logic",file:"file.txt",line:1,title:"Preserve this finding",description:"fixture",suggestion:"fix",confidence:0.9}],summary:{total_findings:1,critical:0,high:0,medium:1,low:0,quality_score:8,verdict:"APPROVE"}}' > "$work/stdout"
         fi
         # Non-review JSON object on stdout must still take the exit-0 execution path (#503).
         if [ "$scenario" = status_blob ]; then

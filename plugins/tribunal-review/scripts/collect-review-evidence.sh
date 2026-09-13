@@ -142,6 +142,8 @@ validate_provider() {
       and (.title | text) and (.description | text) and (.suggestion | text)
       and (.confidence | confidence)
       and ((has("line_check") | not) or (.line_check | text));
+    def examined_path:
+      text and (startswith("/") | not) and (contains("../") | not);
     def summary($fs):
       exact(["total_findings","critical","high","medium","low","quality_score","verdict","note"];
             ["total_findings","critical","high","medium","low","quality_score","verdict"])
@@ -172,11 +174,12 @@ validate_provider() {
       (exact(["provider","error"];["provider","error"])
        and (.error | text))
       or
-      (exact(["provider","model","findings","summary","diff_stat"];
-             ["provider","model","findings","summary","diff_stat"])
+      (exact(["provider","model","findings","summary","diff_stat","files_examined"];
+             ["provider","model","findings","summary","diff_stat","files_examined"])
        and (.model | text) and (.findings | type == "array" and all(.[]; finding))
        and (.findings as $findings | .summary | summary($findings))
-       and (.diff_stat | diff_stat))
+       and (.diff_stat | diff_stat)
+       and (.files_examined | type == "array" and all(.[]; examined_path)))
     )
   ' "$file" >/dev/null
 }

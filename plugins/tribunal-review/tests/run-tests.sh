@@ -350,6 +350,7 @@ test_genuine_empty_diff_is_reverified_and_unchanged() {
       .provider == "fixture"
       and .model == "fixture-model"
       and .findings == []
+      and .files_examined == []
       and .summary.total_findings == 0
       and .summary.critical == 0
       and .summary.high == 0
@@ -416,7 +417,7 @@ test_qwen_envelope_parser() {
 cat <<'JSON'
 [
   {"type":"assistant","message":{"model":"qwen-envelope-test","content":null}},
-  {"type":"result","model":"qwen-envelope-test","result":"{\"provider\":\"qwen\",\"model\":\"placeholder\",\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10.0,\"verdict\":\"APPROVE\"}}"}
+  {"type":"result","model":"qwen-envelope-test","result":"{\"provider\":\"qwen\",\"model\":\"placeholder\",\"files_examined\":[\"file.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10.0,\"verdict\":\"APPROVE\"}}"}
 ]
 JSON
 EOF
@@ -446,7 +447,7 @@ EOF
 test_executed_model_family_guard() {
   local label="executed model family guard" work review off_family on_family qwen_namespaced qwen_claude qwen_coder unresolved
   work="$(mktemp -d)"
-  review='{"provider":"model-authored","model":"claude-haiku-4-5","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+  review='{"provider":"model-authored","model":"claude-haiku-4-5","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
   : > "$work/stdout"
   : > "$work/stderr"
 
@@ -533,6 +534,33 @@ EOF
   rm -rf "$work"
 }
 
+# Issue #518 / tribunal T-001: smoke prompt must emit files_examined so the
+# shared review-output schema's required keys are satisfied (smoke reads no files).
+test_smoke_prompt_files_examined() {
+  local label="smoke prompt includes files_examined satisfying schema required keys"
+  if (
+    set -euo pipefail
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    prompt="$(tribunal_smoke_prompt codex)"
+    printf '%s\n' "$prompt" | grep -q 'files_examined'
+    obj="$(printf '%s\n' "$prompt" | sed -n 's/^Return only this JSON object with no fence or commentary: \(.*\)\. Do not inspect files or use tools\.$/\1/p')"
+    [ -n "$obj" ]
+    printf '%s' "$obj" | jq -e . >/dev/null
+    required="$(jq -c '.required' "$PLUGIN_ROOT/schemas/review-output.json")"
+    printf '%s' "$obj" | jq -e --argjson req "$required" \
+      '(.files_examined == []) and (($req - keys) | length == 0)' >/dev/null
+    # preflight smoke_review_ok accepts the smoke-shaped object
+    printf '%s\n' "$obj" | jq -s -e --arg p codex '
+      [.[] | select(.provider==$p and (has("error")|not) and (.findings|type)=="array" and (.summary|type)=="object")]
+      | length==1
+    ' >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+}
+
 test_preflight_smoke_probe() {
   local label="opt-in preflight smoke verifies every enabled transport" work fake ec=0
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
@@ -540,7 +568,7 @@ test_preflight_smoke_probe() {
 #!/usr/bin/env bash
 cat >/dev/null
 [ "${SMOKE_CODEX_EMPTY:-off}" = on ] && exit 0
-printf '%s\n' '{"provider":"codex","model":"smoke","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+printf '%s\n' '{"provider":"codex","model":"smoke","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
 EOF
   cat > "$fake/claude" <<'EOF'
 #!/usr/bin/env bash
@@ -549,7 +577,7 @@ if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
   exit 0
 fi
 cat >/dev/null
-printf '%s\n' '{"structured_output":{"provider":"claude","model":"smoke","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}}'
+printf '%s\n' '{"structured_output":{"provider":"claude","model":"smoke","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}}'
 EOF
   cat > "$fake/opencode" <<'EOF'
 #!/usr/bin/env bash
@@ -557,7 +585,7 @@ if [ "${1:-}" = models ]; then
   printf '%s\n' deepseek/deepseek-v4-pro opencode-go/glm-5.1
   exit 0
 fi
-printf '%s\n' '{"provider":"deepseek","model":"smoke","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+printf '%s\n' '{"provider":"deepseek","model":"smoke","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
 EOF
   chmod +x "$fake/codex" "$fake/claude" "$fake/opencode"
 
@@ -623,7 +651,7 @@ if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; then
 fi
 cat >/dev/null
 cat <<'JSON'
-{"result":"{\"provider\":\"claude\",\"model\":\"fixture\",\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10.0,\"verdict\":\"APPROVE\"}}"}
+{"result":"{\"provider\":\"claude\",\"model\":\"fixture\",\"files_examined\":[\"file.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10.0,\"verdict\":\"APPROVE\"}}"}
 JSON
 EOF
   chmod +x "$fake/claude"
@@ -678,7 +706,7 @@ if [ -e "$db-wal" ]; then
   printf '%s\n' 'Failed query: PRAGMA wal_checkpoint(PASSIVE)' >&2
   exit 1
 fi
-printf '%s\n' '{"provider":"deepseek","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+printf '%s\n' '{"provider":"deepseek","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
 EOF
   chmod +x "$fake/opencode"
 
@@ -831,7 +859,7 @@ test_codex_pins() {
 printf '%s\n' "\$@" > "$work/codex.args"
 cat >/dev/null
 cat <<'JSON'
-{"provider":"codex","model":"fake","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10.0,"verdict":"APPROVE"}}
+{"provider":"codex","model":"fake","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10.0,"verdict":"APPROVE"}}
 JSON
 EOF
   chmod +x "$fake/codex"
@@ -1102,7 +1130,7 @@ printf '%s\t%s\n' "\$phase" "\$tools_val" >> "$state/phases.log"
 printf '%s\n' "\$@" >> "$state/args.log"
 if [ "\$phase" = finalize ]; then
   cat <<'JSON'
-{"text":"done","stopReason":"EndTurn","sessionId":"11111111-1111-1111-1111-111111111111","structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"modelUsage":{"grok-fixture-model":{"inputTokens":1,"outputTokens":1}}}
+{"text":"done","stopReason":"EndTurn","sessionId":"11111111-1111-1111-1111-111111111111","structuredOutput":{"provider":"grok","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"modelUsage":{"grok-fixture-model":{"inputTokens":1,"outputTokens":1}}}
 JSON
   exit 0
 fi
@@ -1208,7 +1236,7 @@ n=0
 n=\$((n+1))
 printf '%s\\n' "\$n" > "\$count_file"
 cat <<'JSON'
-{"structuredOutput":{"provider":"grok","model":"fixture","findings":[{"severity":"medium","category":"logic","file":"file.txt","line":1,"title":"t","description":"d","suggestion":"s","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"}},"sessionId":"33333333-3333-3333-3333-333333333333","modelUsage":{"grok-fixture-model":{"inputTokens":1}}}
+{"structuredOutput":{"provider":"grok","model":"fixture","files_examined":["file.txt"],"findings":[{"severity":"medium","category":"logic","file":"file.txt","line":1,"title":"t","description":"d","suggestion":"s","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"}},"sessionId":"33333333-3333-3333-3333-333333333333","modelUsage":{"grok-fixture-model":{"inputTokens":1}}}
 JSON
 exit 0
 EOF
@@ -1241,7 +1269,7 @@ EOF
 #!/usr/bin/env bash
 if printf '%s\n' "$@" | grep -q -- '--resume'; then
   cat <<'JSON'
-{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"44444444-4444-4444-4444-444444444444","modelUsage":{"grok-fixture-model":{}}}
+{"structuredOutput":{"provider":"grok","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"44444444-4444-4444-4444-444444444444","modelUsage":{"grok-fixture-model":{}}}
 JSON
   exit 0
 fi
@@ -1272,7 +1300,7 @@ EOF
   fi
 
   # Lib helper: camelCase + snake_case extract, payload complete check
-  complete_ok='{"provider":"grok","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+  complete_ok='{"provider":"grok","model":"m","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
   if printf '%s' "{\"structuredOutput\":$complete_ok}" \
       | bash -c ". '$PLUGIN_ROOT/scripts/lib.sh'; tribunal_extract_grok_result" \
       | jq -e '.summary.verdict=="APPROVE"' >/dev/null \
@@ -1299,7 +1327,7 @@ EOF
 #!/usr/bin/env bash
 printf '%s\n' "$@" >> "${ARGS_LOG:?}"
 cat <<'JSON'
-{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"sessionId":"77777777-7777-7777-7777-777777777777","modelUsage":{"grok-fixture-model":{}}}
+{"structuredOutput":{"provider":"grok","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"sessionId":"77777777-7777-7777-7777-777777777777","modelUsage":{"grok-fixture-model":{}}}
 JSON
 exit 0
 EOF
@@ -1367,7 +1395,7 @@ EOF
   cat > "$fake/grok" <<'EOF'
 #!/usr/bin/env bash
 cat <<'JSON'
-{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"99999999-9999-9999-9999-999999999999","modelUsage":{"grok-fixture-model":{}}}
+{"structuredOutput":{"provider":"grok","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"99999999-9999-9999-9999-999999999999","modelUsage":{"grok-fixture-model":{}}}
 JSON
 exit 0
 EOF
@@ -1524,7 +1552,7 @@ jq '
   )
 ' "$auth" > "$auth.tmp" && mv "$auth.tmp" "$auth"
 cat <<'JSON'
-{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"sessionId":"55555555-5555-5555-5555-555555555555","modelUsage":{"grok-fixture-model":{}}}
+{"structuredOutput":{"provider":"grok","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}},"sessionId":"55555555-5555-5555-5555-555555555555","modelUsage":{"grok-fixture-model":{}}}
 JSON
 exit 0
 EOF
@@ -1575,7 +1603,7 @@ jq '
 printf '%s\n' '{"https://auth.x.ai::fixture":{"key":"access-host-fresh","refresh_token":"refresh-host-fresh","expires_at":"2099-12-01T00:00:00Z","auth_mode":"oidc"}}' \
   > "${AUTH_HOST_PATH:?}"
 cat <<'JSON'
-{"structuredOutput":{"provider":"grok","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"66666666-6666-6666-6666-666666666666","modelUsage":{"grok-fixture-model":{}}}
+{"structuredOutput":{"provider":"grok","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"66666666-6666-6666-6666-666666666666","modelUsage":{"grok-fixture-model":{}}}
 JSON
 exit 0
 EOF
@@ -1712,7 +1740,7 @@ test_codex_vacuous_guard() {
 printf '%s\n' "\$@" > "$work/codex.args"
 cat >/dev/null
 cat <<'JSON'
-{"provider":"codex","model":"default","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":$quality,"verdict":"$verdict"}}
+{"provider":"codex","model":"default","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":$quality,"verdict":"$verdict"}}
 JSON
 EOF
   chmod +x "$fake/codex"
@@ -1763,7 +1791,7 @@ test_codex_line_bounds_guard() {
 #!/usr/bin/env bash
 cat >/dev/null
 cat <<'JSON'
-{"provider":"codex","model":"default","findings":[
+{"provider":"codex","model":"default","files_examined":["file.txt"],"findings":[
   {"severity":"high","category":"logic","file":"file.txt","line":1,"title":"valid position","description":"d","suggestion":"s","confidence":0.9},
   {"severity":"high","category":"logic","file":"file.txt","line":9333,"title":"diff-global position","description":"d","suggestion":"s","confidence":0.9},
   {"severity":"medium","category":"logic","file":"other.py","line":12,"title":"file outside diff","description":"d","suggestion":"s","confidence":0.8},
@@ -1911,7 +1939,7 @@ test_wrapper_stamped_diff_stat() {
   cat > "$fake/codex" <<'EOF'
 #!/usr/bin/env bash
 cat >/dev/null
-printf '%s\n' '{"provider":"codex","model":"default","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},"diff_stat":{"files_changed":99}}'
+printf '%s\n' '{"provider":"codex","model":"default","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},"diff_stat":{"files_changed":99}}'
 EOF
   chmod +x "$fake/codex"
   if (
@@ -1948,7 +1976,7 @@ EOF
   rm -rf "$work"
 
   local label2="model-authored diff_stat is stripped before the wrapper stamps"
-  if printf '%s\n' '{"provider":"claude","model":"fixture","diff_stat":{"files_changed":99},"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+  if printf '%s\n' '{"provider":"claude","model":"fixture","files_examined":["file.txt"],"diff_stat":{"files_changed":99},"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
     | bash -c '. "$1"; tribunal_emit_review codex' _ "$PLUGIN_ROOT/scripts/lib.sh" \
     | jq -e 'has("diff_stat") | not' >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label2"; PASS=$((PASS+1))
@@ -1986,7 +2014,7 @@ EOF
 #!/usr/bin/env bash
 cat >/dev/null
 find "$rwork" -name '*.stat' > "$rwork/stat-visible" 2>/dev/null
-printf '%s\\n' '{"provider":"codex","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+printf '%s\\n' '{"provider":"codex","model":"m","files_examined":["f.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
 EOF
   chmod +x "$rwork/fake-codex"
   if (
@@ -2033,7 +2061,7 @@ EOF
   rm -rf "$swork"
 
   local label_u="uncaptured reviewed range becomes an explicit leg error"
-  if printf '%s\n' '{"provider":"codex","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+  if printf '%s\n' '{"provider":"codex","model":"m","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
     | bash -c '. "$1"; tribunal_stamp_diff_stat ""' _ "$PLUGIN_ROOT/scripts/lib.sh" \
     | jq -e '.provider == "codex" and (.error | test("reviewed range was not captured")) and (has("diff_stat") | not)' >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} $label_u"; PASS=$((PASS+1))
@@ -2056,7 +2084,7 @@ EOF
 
 test_wrapper_owned_provider_envelope() {
   local out
-  out="$(printf '%s\n' '{"provider":"claude","status":"disabled","error":"spoof","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+  out="$(printf '%s\n' '{"provider":"claude","status":"disabled","error":"spoof","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
     | bash -c '. "$1"; tribunal_emit_review codex' _ "$PLUGIN_ROOT/scripts/lib.sh")"
   if printf '%s' "$out" | jq -e '.provider=="codex" and (has("status")|not) and (has("error")|not)' >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} wrapper owns provider identity and review status"; PASS=$((PASS+1))
@@ -2088,15 +2116,15 @@ fixture_stat() {
 if [ "${FIXTURE_ZERO_SUCCESS:-off}" = on ]; then
   printf '%s\n' '{"provider":"codex","error":"fixture Codex transport failure"}'
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = malformed ]; then
-  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},"caller_owned":true}'
+  printf '%s\n' '{"provider":"claude","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},"caller_owned":true}'
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = diagnostic ]; then
   printf '%s\n' '{"provider":"claude","error":"unparseable codex output: no review JSON object found; phase=parse; exit=0; stdout_bytes=12; stdout_truncated=false; stdout_tail=omitted; stderr_bytes=0; stderr_truncated=false; stderr_tail=omitted"}'
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = finding ]; then
-  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[{"severity":"medium","category":"logic","file":"app.txt","line":1,"title":"Fixture finding","description":"A concrete fixture defect.","suggestion":"Apply the fixture fix.","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"},'"$(fixture_stat)"'}'
+  printf '%s\n' '{"provider":"claude","model":"fixture","files_examined":["app.txt"],"findings":[{"severity":"medium","category":"logic","file":"app.txt","line":1,"title":"Fixture finding","description":"A concrete fixture defect.","suggestion":"Apply the fixture fix.","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"},'"$(fixture_stat)"'}'
 elif [ "${FIXTURE_CODEX_MODE:-ok}" = nostat ]; then
-  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+  printf '%s\n' '{"provider":"claude","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
 else
-  printf '%s\n' '{"provider":"claude","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},'"$(fixture_stat)"'}'
+  printf '%s\n' '{"provider":"claude","model":"fixture","files_examined":["app.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},'"$(fixture_stat)"'}'
 fi
 EOF
   for provider in gemini qwen grok; do
@@ -2634,7 +2662,7 @@ if [ "$(ulimit -f)" = 65536 ] && [ -f "$CODEX_HOME/state_5.sqlite" ] \
   && [ "$(wc -c < "$CODEX_HOME/state_5.sqlite")" -gt 67108864 ]; then
   exit 0
 fi
-printf '%s\n' '{"provider":"codex","model":"fixture","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+printf '%s\n' '{"provider":"codex","model":"fixture","files_examined":["app.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
 EOF
   chmod +x "$fake/codex"
   if CODEX_HOME="$host_codex" FIXTURE_CODEX_HOME_FILE="$work/codex-home-used" \
@@ -2761,6 +2789,421 @@ EOF
   rm -rf "$work"
 }
 
+# Issue #518: empty-findings APPROVE without examined overlap against the
+# reviewed range must become a provider error, never seal as ok.
+test_blind_approve_guard() {
+  local work stat base head out label
+
+  # (b1) findings:[] + APPROVE + files_examined:[] → failed
+  label="blind APPROVE with empty files_examined is a provider error"
+  work="$(mktemp -d)"
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD~1 tribunal_prepare_diff "$work/d.diff"
+    stat="$(tribunal_take_diff_stat "$work/d.diff")"
+    printf '%s\n' '{"provider":"codex","model":"m","files_examined":[],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+      | tribunal_stamp_diff_stat "$stat" > "$work/out.json"
+    jq -e '.provider=="codex" and (.error|test("blind APPROVE")) and (has("diff_stat")|not)' "$work/out.json" >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+
+  # (b2) findings:[] + APPROVE + files_examined lists only unchanged paths → failed
+  label="blind APPROVE listing only unchanged paths is a provider error"
+  work="$(mktemp -d)"
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    printf 'keep\n' > other.txt
+    git add file.txt other.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD~1 tribunal_prepare_diff "$work/d.diff"
+    stat="$(tribunal_take_diff_stat "$work/d.diff")"
+    printf '%s\n' '{"provider":"codex","model":"m","files_examined":["other.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+      | tribunal_stamp_diff_stat "$stat" > "$work/out.json"
+    jq -e '.provider=="codex" and (.error|test("blind APPROVE")) and (has("diff_stat")|not)' "$work/out.json" >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+
+  # (b3) findings:[] + APPROVE + files_examined contains a changed path → ok
+  label="empty-findings APPROVE with examined changed path stamps ok"
+  work="$(mktemp -d)"
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD~1 tribunal_prepare_diff "$work/d.diff"
+    stat="$(tribunal_take_diff_stat "$work/d.diff")"
+    printf '%s\n' '{"provider":"codex","model":"m","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+      | tribunal_stamp_diff_stat "$stat" > "$work/out.json"
+    jq -e '.provider=="codex" and (has("error")|not) and .diff_stat.files_changed==1 and .files_examined==["file.txt"]' \
+      "$work/out.json" >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+
+  # (b4) missing files_examined → failed
+  label="missing files_examined is a provider error"
+  work="$(mktemp -d)"
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD~1 tribunal_prepare_diff "$work/d.diff"
+    stat="$(tribunal_take_diff_stat "$work/d.diff")"
+    printf '%s\n' '{"provider":"codex","model":"m","findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+      | tribunal_stamp_diff_stat "$stat" > "$work/out.json"
+    jq -e '.provider=="codex" and (.error|test("files_examined")) and (has("diff_stat")|not)' "$work/out.json" >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+
+  # (b5) empty-range tribunal_empty leg remains ok
+  label="empty-range tribunal_empty leg remains ok with files_examined:[]"
+  work="$(mktemp -d)"
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD tribunal_prepare_diff "$work/d.diff"
+    stat="$(tribunal_take_diff_stat "$work/d.diff")"
+    tribunal_empty fixture fixture-model HEAD "$stat" > "$work/empty.json"
+    jq -e '.files_examined==[] and .summary.verdict=="APPROVE" and .diff_stat.files_changed==0' \
+      "$work/empty.json" >/dev/null
+    tribunal_stamp_diff_stat "$stat" < "$work/empty.json" > "$work/stamped.json"
+    jq -e '(has("error")|not) and .files_examined==[] and .diff_stat.files_changed==0' \
+      "$work/stamped.json" >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+
+  # (b6) collector rejects absolute or ../ files_examined entries
+  label="collector validate_provider rejects absolute or ../ files_examined"
+  work="$(mktemp -d)"
+  if (
+    set -euo pipefail
+    base="$(printf 'a%.0s' {1..40})"; head="$(printf 'b%.0s' {1..40})"
+    stat_json="$(jq -nc --arg b "$base" --arg h "$head" \
+      '{files_changed:1,insertions:1,deletions:0,base:"HEAD~1",base_oid:$b,head_oid:$h,truncated:false}')"
+    mk_leg() {
+      jq -nc --argjson examined "$1" --argjson ds "$stat_json" \
+        '{provider:"codex",model:"m",files_examined:$examined,findings:[],
+          summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10,verdict:"APPROVE"},
+          diff_stat:$ds}'
+    }
+    mk_leg '["file.txt"]' > "$work/ok.json"
+    mk_leg '["/abs/file.txt"]' > "$work/abs.json"
+    mk_leg '["../escape.txt"]' > "$work/dotdot.json"
+    eval "$(sed -n '/^validate_provider()/,/^}/p' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh")"
+    validate_provider codex "$work/ok.json"
+    if validate_provider codex "$work/abs.json"; then exit 1; fi
+    if validate_provider codex "$work/dotdot.json"; then exit 1; fi
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+
+  # (b7) zero-findings APPROVE 0.95 shortcut unreachable when one of three legs is blind
+  label="blind APPROVE among three legs blocks zero-findings APPROVE 0.95 shortcut"
+  work="$(mktemp -d)"
+  local repo fake plugin collection manifest_sha base head ec=0
+  repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
+  mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
+  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
+  cp "$PLUGIN_ROOT/.claude-plugin/plugin.json" "$plugin/.claude-plugin/plugin.json"
+  cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
+#!/usr/bin/env bash
+set -u
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/lib.sh"
+REPO_ROOT="$(tribunal_repo_root)"
+DIFF_FILE="$(mktemp)"
+trap 'rm -f "$DIFF_FILE"' EXIT
+BASE_REF="$(tribunal_base_ref)"
+tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error codex "cannot diff"; exit 0; }
+DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
+printf '%s\n' '{"provider":"codex","model":"fixture","files_examined":["app.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+  | tribunal_stamp_diff_stat "$DIFF_STAT"
+EOF
+  cat > "$plugin/scripts/run-claude-review.sh" <<'EOF'
+#!/usr/bin/env bash
+set -u
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/lib.sh"
+DIFF_FILE="$(mktemp)"
+trap 'rm -f "$DIFF_FILE"' EXIT
+tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error claude "cannot diff"; exit 0; }
+DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
+printf '%s\n' '{"provider":"claude","model":"fixture","files_examined":["app.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+  | tribunal_stamp_diff_stat "$DIFF_STAT"
+EOF
+  # Blind Grok APPROVE: empty files_examined.
+  cat > "$plugin/scripts/run-grok-review.sh" <<'EOF'
+#!/usr/bin/env bash
+set -u
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/lib.sh"
+DIFF_FILE="$(mktemp)"
+trap 'rm -f "$DIFF_FILE"' EXIT
+tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error grok "cannot diff"; exit 0; }
+DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
+printf '%s\n' '{"provider":"grok","model":"fixture","files_examined":[],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+  | tribunal_stamp_diff_stat "$DIFF_STAT"
+EOF
+  for provider in gemini qwen; do
+    cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
+EOF
+  done
+  cat > "$plugin/scripts/run-opencode-review.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' '{"provider":"glm","status":"disabled","note":"fixture disabled"}'
+printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabled"}'
+EOF
+  chmod +x "$plugin/scripts/"*.sh
+  "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
+  (
+    cd "$repo"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > app.txt
+    git add app.txt
+    git commit -q -m base
+    printf 'two\n' > app.txt
+    git commit -q -am change
+    git remote add origin https://github.com/example/fixture.git
+  )
+  base="$(git -C "$repo" rev-parse HEAD~1)"; head="$(git -C "$repo" rev-parse HEAD)"
+  printf 'Bound PR body' > "$work/pr-body"
+  cat > "$fake/gh" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = repo ] && [ "$2" = view ]; then
+  jq -nc '{nameWithOwner:"example/fixture",url:"https://github.com/example/fixture"}'
+elif [ "$1" = pr ] && [ "$2" = view ]; then
+  jq -nc --argjson number "$3" --arg base "$FIXTURE_BASE" --arg head "$FIXTURE_HEAD" \
+    --rawfile body "$FIXTURE_BODY_FILE" \
+    '{number:$number,url:("https://github.com/example/fixture/pull/"+($number|tostring)),state:"OPEN",
+      baseRefName:"main",baseRefOid:$base,headRefName:"feature",headRefOid:$head,body:$body}'
+else
+  printf 'unexpected gh invocation: %s\n' "$*" >&2
+  exit 2
+fi
+EOF
+  chmod +x "$fake/gh"
+  collection="$work/collection"
+  if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    TRIBUNAL_CODEX=on TRIBUNAL_CLAUDE=on TRIBUNAL_GROK=on \
+    TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$collection" > "$work/collect.json" \
+    && jq -e '
+        any(.providers[]; .provider=="codex" and .status=="ok")
+        and any(.providers[]; .provider=="claude" and .status=="ok")
+        and any(.providers[]; .provider=="grok" and .status=="failed")
+      ' "$collection/manifest.json" >/dev/null \
+    && jq -e 'has("error") and (.error|test("blind APPROVE"))' "$collection/providers/grok.json" >/dev/null; then
+    manifest_sha="$(jq -r .manifest_sha256 "$work/collect.json")"
+    cat > "$work/arbitration.json" <<'EOF'
+{
+  "tribunal_verdict":{"decision":"APPROVE","confidence":0.95,"rationale":"Zero findings across usable legs."},
+  "findings":[],"scope_findings":[],
+  "provider_assessment":{
+    "codex":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "gemini":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "glm":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"failed"},
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"}
+  },
+  "conflicts_resolved":[],"summary":"Blind leg must block the 0.95 shortcut."
+}
+EOF
+    ec=0
+    PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+      "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$collection" \
+        --expected-manifest-sha256 "$manifest_sha" --arbitration "$work/arbitration.json" \
+        >/dev/null 2>"$work/finalize.err" || ec=$?
+    if [ "$ec" -ne 0 ]; then
+      echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} $label (finalize accepted APPROVE 0.95)"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+    fi
+  else
+    echo -e "  ${RED}FAIL${NC} $label (collection/status setup)"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+    cat "$work/collect.json" 2>/dev/null || true
+    cat "$collection/providers/grok.json" 2>/dev/null || true
+  fi
+  chmod -R u+w "$work" 2>/dev/null || true
+  rm -rf "$work"
+
+  # (b8) large changed-path list must not blow argv when verifying files_examined
+  label="empty-findings APPROVE over a large changed-path list stamps ok"
+  work="$(mktemp -d)"
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'base\n' > README
+    git add README
+    git commit -q -m base
+    mkdir -p bulk
+    i=1
+    while [ "$i" -le 3000 ]; do
+      # ~70-byte paths so --name-only -z exceeds 200 KiB (argv-limit regression).
+      printf 'x\n' > "bulk/padded-name-$(printf '%05d' "$i")-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.txt"
+      i=$((i + 1))
+    done
+    git add bulk
+    git commit -q -m change
+    examined="bulk/padded-name-00001-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.txt"
+    # Guard the fixture size: --name-only -z output must exceed 200 KiB.
+    git diff --name-only -z HEAD~1...HEAD --no-ext-diff --no-textconv > "$work/names.z"
+    size="$(wc -c < "$work/names.z" | tr -d ' ')"
+    [ "$size" -gt 204800 ]
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD~1 tribunal_prepare_diff "$work/d.diff"
+    stat="$(tribunal_take_diff_stat "$work/d.diff")"
+    jq -nc --arg f "$examined" \
+      '{provider:"codex",model:"m",files_examined:[$f],findings:[],
+        summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10,verdict:"APPROVE"}}' \
+      | tribunal_stamp_diff_stat "$stat" > "$work/out.json"
+    jq -e --arg f "$examined" '
+        .provider=="codex"
+        and (has("error")|not)
+        and (.diff_stat|type)=="object"
+        and .files_examined==[$f]
+      ' "$work/out.json" >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+
+  # (b9) rename source path counts as changed: empty-findings APPROVE listing
+  # only the rename-from path must stamp ok (default rename detection would omit it).
+  label="empty-findings APPROVE listing rename source path stamps ok"
+  work="$(mktemp -d)"
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'content\n' > old.txt
+    git add old.txt
+    git commit -q -m base
+    git mv old.txt new.txt
+    git commit -q -m rename
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD~1 tribunal_prepare_diff "$work/d.diff"
+    stat="$(tribunal_take_diff_stat "$work/d.diff")"
+    printf '%s\n' '{"provider":"codex","model":"m","files_examined":["old.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+      | tribunal_stamp_diff_stat "$stat" > "$work/out.json"
+    jq -e '.provider=="codex" and (has("error")|not) and (.diff_stat|type)=="object" and .files_examined==["old.txt"]' \
+      "$work/out.json" >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+
+  # (b10) ./ prefix on a changed path must still overlap: empty-findings APPROVE
+  # with files_examined:["./<changed>"] stamps ok (exact-string match would miss it).
+  label="empty-findings APPROVE with ./prefixed examined changed path stamps ok"
+  work="$(mktemp -d)"
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD~1 tribunal_prepare_diff "$work/d.diff"
+    stat="$(tribunal_take_diff_stat "$work/d.diff")"
+    printf '%s\n' '{"provider":"codex","model":"m","files_examined":["./file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+      | tribunal_stamp_diff_stat "$stat" > "$work/out.json"
+    jq -e '.provider=="codex" and (has("error")|not) and .diff_stat.files_changed==1 and .files_examined==["./file.txt"]' \
+      "$work/out.json" >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
 test_sealed_panel_quorum() {
   local work repo fake plugin collection manifest_sha base head ec=0
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
@@ -2775,7 +3218,7 @@ test_sealed_panel_quorum() {
 #!/usr/bin/env bash
 base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"
 head="$(git rev-parse --verify 'HEAD^{commit}')"
-printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
+printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 EOF
   for provider in gemini qwen grok claude; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
@@ -3007,6 +3450,7 @@ test_qwen_envelope_parser
 test_executed_model_family_guard
 test_claude_auth_guard
 test_grok_auth_guard
+test_smoke_prompt_files_examined
 test_preflight_smoke_probe
 test_preflight_min_ok_legs
 test_claude_tmpdir_cleanup
@@ -3044,6 +3488,7 @@ assert_json_field "healthy position check preserves output bytes" "bash '$PLUGIN
 assert_json_field "arbiter requires produced legs and verifies pinned evidence" "python3 '$PLUGIN_ROOT/tests/test-arbiter-evidence.py' '$PLUGIN_ROOT'"
 test_wrapper_owned_provider_envelope
 test_wrapper_stamped_diff_stat
+test_blind_approve_guard
 test_ignored_path_additions
 test_ignored_path_diff_failures
 test_ignored_path_validation

@@ -126,7 +126,7 @@ tribunal_grok_stop_reason() {
 
 tribunal_smoke_prompt() {
   local provider="$1"
-  printf '%s\n' "Return only this JSON object with no fence or commentary: {\"provider\":\"$provider\",\"model\":\"smoke\",\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"}}. Do not inspect files or use tools."
+  printf '%s\n' "Return only this JSON object with no fence or commentary: {\"provider\":\"$provider\",\"model\":\"smoke\",\"findings\":[],\"files_examined\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"}}. Do not inspect files or use tools."
 }
 
 tribunal_extract_claude_result() {
@@ -384,7 +384,7 @@ tribunal_empty() {
   fi
   jq -nc --arg p "$provider" --arg m "$model" --arg b "$base_ref" \
     --arg base_oid "$base_oid" --arg head_oid "$head_oid" \
-    '{provider:$p,model:$m,findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10.0,verdict:"APPROVE",note:("No changes detected vs " + $b)},
+    '{provider:$p,model:$m,findings:[],files_examined:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10.0,verdict:"APPROVE",note:("No changes detected vs " + $b)},
       diff_stat:{files_changed:0,insertions:0,deletions:0,base:$b,base_oid:$base_oid,head_oid:$head_oid,truncated:false}}'
 }
 
@@ -466,6 +466,7 @@ Report JSON only:
 {
   "provider": "$provider",
   "model": "default",
+  "files_examined": ["path/to/file"],
   "findings": [
     {
       "severity": "critical|high|medium|low",
@@ -496,6 +497,7 @@ Rules:
 - Use exact file paths from diff headers and line numbers from the changed hunk.
 - In repo-walking mode, open only the files needed to verify a finding — do not scan the tree.
 - If context is insufficient, lower confidence or omit the finding.
+- List, in files_examined, the repository-relative paths you actually read or reviewed, including at least the changed files you reviewed. Diff-only reviewers list paths from the diff they were given.
 
 $(cat "$context_path" 2>/dev/null)
 PROMPT
@@ -593,20 +595,65 @@ tribunal_take_diff_stat() {
 # one, so only a runner script can produce it: a leg fabricated by a wrapper
 # agent, or one whose runner never executed, is missing it and is rejected
 # downstream instead of counting as a clean pass (issue #487).
+# Also enforces files_examined (issue #518): missing/malformed lists, or an
+# empty-findings APPROVE whose list intersects none of the paths changed in
+# base_oid...head_oid, become provider errors excluded from quorum. A genuine
+# empty range (diff_stat.files_changed==0, as from tribunal_empty) is exempt.
 # $1 pinned range from `tribunal_take_diff_stat`
 # stdin: one leg JSON object  stdout: same object with .diff_stat
 tribunal_stamp_diff_stat() {
-  local stat="$1" json provider
+  local stat="$1" json provider root base_oid head_oid files_changed tmpdir
   json="$(cat)"
   # Error and disabled legs carry no diff_stat.
   if printf '%s' "$json" | jq -e 'has("error") or (.status? == "disabled")' >/dev/null 2>&1; then
     printf '%s\n' "$json"
     return
   fi
+  provider="$(printf '%s' "$json" | jq -r '.provider // "provider"')"
   if ! printf '%s' "$stat" | jq -e . >/dev/null 2>&1; then
-    provider="$(printf '%s' "$json" | jq -r '.provider // "provider"')"
     tribunal_error "$provider" "the reviewed range was not captured; leg cannot be stamped"
     return
+  fi
+  if ! printf '%s' "$json" | jq -e '
+      (.files_examined | type) == "array"
+      and all(.files_examined[]; type == "string" and length > 0)
+    ' >/dev/null 2>&1; then
+    tribunal_error "$provider" \
+      "files_examined missing or not an array of non-empty strings; excluded from quorum"
+    return
+  fi
+  files_changed="$(printf '%s' "$stat" | jq -r '.files_changed // empty')"
+  # Empty-range exemption: tribunal_empty synthesizes APPROVE with files_examined:[].
+  if [ "$files_changed" != "0" ] \
+    && printf '%s' "$json" | jq -e '((.findings // []) | length) == 0' >/dev/null 2>&1; then
+    base_oid="$(printf '%s' "$stat" | jq -r '.base_oid // empty')"
+    head_oid="$(printf '%s' "$stat" | jq -r '.head_oid // empty')"
+    root="$(tribunal_repo_root)"
+    # Changed paths travel via a temp file (--rawfile), not argv: a large
+    # --name-only -z list exceeds MAX_ARG_STRLEN when passed as --argjson.
+    tmpdir="$(mktemp -d)" || {
+      tribunal_error "$provider" \
+        "blind APPROVE: cannot verify files_examined against the reviewed range; excluded from quorum"
+      return
+    }
+    if [ -z "$base_oid" ] || [ -z "$head_oid" ] \
+      || ! git -C "$root" diff --name-only --no-renames -z "$base_oid...$head_oid" \
+            --no-ext-diff --no-textconv > "$tmpdir/changed" 2>/dev/null; then
+      rm -rf "$tmpdir"
+      tribunal_error "$provider" \
+        "blind APPROVE: cannot verify files_examined against the reviewed range; excluded from quorum"
+      return
+    fi
+    if ! printf '%s' "$json" | jq -e --rawfile changed_raw "$tmpdir/changed" '
+        ($changed_raw | split("\u0000") | map(select(length > 0))) as $changed |
+        (.files_examined | any((sub("^(\\./)+"; "")) as $f | $changed | index($f) != null))
+      ' >/dev/null 2>&1; then
+      rm -rf "$tmpdir"
+      tribunal_error "$provider" \
+        "blind APPROVE: findings empty and files_examined lists no path changed in the reviewed range; excluded from quorum"
+      return
+    fi
+    rm -rf "$tmpdir"
   fi
   printf '%s' "$json" | jq -c --argjson stat "$stat" '.diff_stat = $stat'
 }

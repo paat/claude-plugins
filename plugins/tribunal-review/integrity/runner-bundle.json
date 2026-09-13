@@ -2,7 +2,7 @@
   "files": [
     {
       "path": "schemas/review-output.json",
-      "sha256": "8628fe160a9449be83393226cdfb8f2d4a07da04a29848a92c5f16cea5bb102c"
+      "sha256": "9d791f5fd32c2736f95c35b4107fea62606d5f662985f5a093ada2d3392f1282"
     },
     {
       "path": "scripts/check-runner-bundle.sh",
@@ -10,7 +10,7 @@
     },
     {
       "path": "scripts/collect-review-evidence.sh",
-      "sha256": "dd80e797941d87a8538242fbdabf496a643469ac9866279d7786afa98d5b6d54"
+      "sha256": "7d8c8d21b73141ec55ef4d214b279a893f0b1e2a71f8fe2e72be0c9d6e2ffcf7"
     },
     {
       "path": "scripts/generate-runner-bundle.sh",
@@ -18,7 +18,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "2ab3c7592859673d57fb47435f5659bbda46ef0539fe3f610443a802b1e6ff40"
+      "sha256": "995ab09d45b3f9cfa6d61342ba8ee35a4583d970bdfbdbd4420840df47fea69b"
     },
     {
       "path": "scripts/run-claude-review.sh",
