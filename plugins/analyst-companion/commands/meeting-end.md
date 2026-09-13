@@ -55,6 +55,9 @@ Close the active meeting and turn it into reviewed Plane work items.
    Bridge rules:
    - Only mirror items approved in Step 4.
    - Dedupe by normalized title and Plane id/link before creating.
+   - Before `gh issue create`, run `work-item-triage`'s proposed-item check when installed;
+     otherwise comment on an open issue that already covers the outcome, and skip filing
+     when it is not the smallest adequate response.
    - Use `gh issue create --body-file`, never `--body`, so `meeting_language` text and
      copied customer wording survive shell quoting.
    - Include the Plane id/link, meeting session id, concise customer ask, acceptance hint,

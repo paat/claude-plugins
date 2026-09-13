@@ -18,6 +18,7 @@ Shared helper: `scripts/issue-file.sh` (resolve via plugin root).
 - Need create-or-comment without post-create GitHub search fail-closed
 - Optional **source-repo escalate** so a product-repo filing also lands once on
   the plugin/source tracker for the same pattern key
+- A NEW non-defect issue passes the filing gate first (`work-item-triage` proposed-item check when installed; else comment/skip per that skill's fallback); plugin/agent-defect filings bypass it (still deduped by `issue-file.sh`)
 
 ## When not
 

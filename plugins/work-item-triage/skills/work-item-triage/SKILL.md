@@ -28,6 +28,9 @@ Infer available inputs from the request and repository; ask only for required mi
    Without configured search, use list plus local matching and report the dedup capability limit.
    Build a proposed snapshot with stable caller-local IDs, null update times and zero comments;
    copy source/fetch/completeness/limits from the lookup, retaining matches as evidence references.
+   Filing gate (canonical): other plugins' issue-filing paths invoke this proposed direction before
+   filing a NEW issue; when this skill is absent, comment on an open issue that already covers the
+   same outcome, and skip filing when it is not the smallest adequate response (record in-run instead).
 4. Compare relevant claims with current code/configuration/tests when available. Pin code evidence
    to the inspected commit. Non-code work uses its available sources; absent code is a limitation.
 

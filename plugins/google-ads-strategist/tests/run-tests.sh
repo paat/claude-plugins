@@ -238,4 +238,8 @@ grep -q 'exactly one account field and one campaign field' "$create"
 grep -q 'Campaign creation incomplete' "$create"
 pass creation-conditional-success
 
+agent="$ROOT/agents/ads-strategist.md"
+grep -q 'bypass the should-this-be-filed gate' "$agent"
+pass plugin-defect-bypasses-filing-gate
+
 printf '%s tests passed\n' "$passes"

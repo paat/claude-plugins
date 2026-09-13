@@ -815,6 +815,10 @@ test_plugin_issues() {
     "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" 'scripts/issue-file.sh'
   assert_file_contains "J-gh-ref: issue funnel receives the pinned repo" \
     "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" '--repo "${SAAS_PLUGIN_REPO}"'
+  assert_file_contains "J-gh-ref: plugin-defect reports bypass filing gate" \
+    "$PLUGIN_ROOT/templates/plugin-issue-reporting.md" 'bypass the should-this-be-filed gate'
+  assert_file_contains "J-gh-skill: non-defect filings pass the filing gate" \
+    "$PLUGIN_ROOT/skills/issue-file/SKILL.md" 'NEW non-defect issue passes the filing gate'
   for agent in lawyer.md; do
     assert_file_contains "J-gh: $agent references the plugin-issue-reporting doc" \
       "$PLUGIN_ROOT/agents/$agent" "templates/plugin-issue-reporting.md"

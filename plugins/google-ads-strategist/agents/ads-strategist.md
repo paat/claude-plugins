@@ -145,4 +145,5 @@ Each language is verified independently in Ad Preview Tool with the correct loca
 
 ## Plugin Issue Reporting
 
+Plugin-defect reports bypass the should-this-be-filed gate (still dedupe against open issues).
 If you hit a problem with the **plugin itself** (not the ad work), file a GitHub issue on the plugin repo: `gh issue create --repo paat/claude-plugins --title "google-ads-strategist: <short title>" --body "<details>"`. GitHub issues replaced the local `PLUGIN_ISSUES.md` workflow — the per-project file was never aggregated across downstream projects.

@@ -146,6 +146,9 @@ one outcome and record it in the round PR comment:
 | **File follow-up issue** | Verified, plausibly actionable bug that is pre-existing or explicitly out of PR scope |
 | **Reject** | False positive (verified against actual code) |
 
+Before filing a product-code follow-up, run `work-item-triage`'s proposed-item check when
+installed (else comment on a covering open issue, or skip when filing is not the smallest
+adequate response); tribunal/review-machinery follow-ups bypass that gate (still dedupe).
 Verify against the cited code (or a 30s repro). Don't trust consensus/confidence alone.
 Use the smallest causal fix consistent with the existing architecture. Validate the
 reproduced finding and the original acceptance checks; no broader audit or generalized
