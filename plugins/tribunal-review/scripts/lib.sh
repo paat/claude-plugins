@@ -646,7 +646,7 @@ tribunal_stamp_diff_stat() {
     fi
     if ! printf '%s' "$json" | jq -e --rawfile changed_raw "$tmpdir/changed" '
         ($changed_raw | split("\u0000") | map(select(length > 0))) as $changed |
-        (.files_examined | any(. as $f | $changed | index($f) != null))
+        (.files_examined | any((sub("^(\\./)+"; "")) as $f | $changed | index($f) != null))
       ' >/dev/null 2>&1; then
       rm -rf "$tmpdir"
       tribunal_error "$provider" \

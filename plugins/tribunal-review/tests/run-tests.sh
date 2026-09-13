@@ -3173,6 +3173,35 @@ EOF
     echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
   fi
   rm -rf "$work"
+
+  # (b10) ./ prefix on a changed path must still overlap: empty-findings APPROVE
+  # with files_examined:["./<changed>"] stamps ok (exact-string match would miss it).
+  label="empty-findings APPROVE with ./prefixed examined changed path stamps ok"
+  work="$(mktemp -d)"
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD~1 tribunal_prepare_diff "$work/d.diff"
+    stat="$(tribunal_take_diff_stat "$work/d.diff")"
+    printf '%s\n' '{"provider":"codex","model":"m","files_examined":["./file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+      | tribunal_stamp_diff_stat "$stat" > "$work/out.json"
+    jq -e '.provider=="codex" and (has("error")|not) and .diff_stat.files_changed==1 and .files_examined==["./file.txt"]' \
+      "$work/out.json" >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
 }
 
 test_sealed_panel_quorum() {
