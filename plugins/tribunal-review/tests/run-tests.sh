@@ -292,7 +292,8 @@ test_ignored_path_validation() {
 }
 
 test_deleted_policy_paths() {
-  local work fake base deleted_json preflight_json clean_json clean_rc custom_json dirty_json helper_rc=0
+  local work fake base deleted_json preflight_json clean_json clean_rc custom_json dirty_json
+  local gitignore_base gitignore_json empty_globs_json helper_rc=0
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
   git -C "$work" init -q -b main
   git -C "$work" config user.email test@example.com
@@ -377,6 +378,36 @@ test_deleted_policy_paths() {
     echo -e "  ${RED}FAIL${NC} dirty .tribunal-deleted-globs cannot replace HEAD list"; FAIL=$((FAIL+1)); FAILURES+=("dirty deleted globs")
   fi
   git -C "$work" checkout -q -- .tribunal-deleted-globs
+
+  # Tracked deletion under .gitignore must not use ignore rules for this signal.
+  git -C "$work" checkout -q -b gitignore-vendor "$base"
+  mkdir -p "$work/vendor"
+  printf 'vendored\n' > "$work/vendor/lib.js"
+  printf 'vendor/\n' > "$work/.gitignore"
+  git -C "$work" add -f vendor/lib.js .gitignore
+  git -C "$work" commit -q -m 'track vendor despite gitignore'
+  gitignore_base="$(git -C "$work" rev-parse HEAD)"
+  git -C "$work" rm -q vendor/lib.js
+  git -C "$work" commit -q -m 'delete gitignored-tracked vendor path'
+  gitignore_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$gitignore_base" 2>/dev/null)" || true
+  if [ "$gitignore_json" = '[]' ]; then
+    echo -e "  ${GREEN}PASS${NC} .gitignore-only deletion is not reported as deleted policy path"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} .gitignore-only deletion is not reported as deleted policy path"; FAIL=$((FAIL+1)); FAILURES+=("gitignore deletion exclusion")
+  fi
+
+  # Empty .tribunal-deleted-globs (comments/blanks only) ⇒ [] even if .gitignore matches.
+  git -C "$work" checkout -q -b empty-globs "$gitignore_base"
+  printf '# no globs\n\n# still empty\n' > "$work/.tribunal-deleted-globs"
+  git -C "$work" add .tribunal-deleted-globs
+  git -C "$work" rm -q vendor/lib.js
+  git -C "$work" commit -q -m 'empty deleted-globs and vendor deletion'
+  empty_globs_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$gitignore_base" 2>/dev/null)" || true
+  if [ "$empty_globs_json" = '[]' ]; then
+    echo -e "  ${GREEN}PASS${NC} empty .tribunal-deleted-globs yields [] despite .gitignore match"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} empty .tribunal-deleted-globs yields [] despite .gitignore match"; FAIL=$((FAIL+1)); FAILURES+=("empty deleted globs")
+  fi
 
   helper_rc=0
   deleted_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" \
