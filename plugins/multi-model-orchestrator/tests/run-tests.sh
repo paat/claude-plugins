@@ -167,16 +167,17 @@ if [ "$format" = stream-json ]; then
       printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":""}'
       exit 0
       ;;
-    # Valid success stream, then make --out unwritable with stale non-empty
-    # content so a failed final write cannot be masked by the empty-artifact guard.
-    stream_lock_out)
+    # Valid success stream, but replace --out with a directory before the
+    # result event so the runner's final redirect fails for every uid (root
+    # included). Permission bits alone are bypassed by root.
+    stream_out_dir)
       printf '%s\n' '{"type":"system","subtype":"init"}'
+      if [ -n "${STUB_LOCK_OUT:-}" ]; then
+        rm -f "$STUB_LOCK_OUT"
+        mkdir -p "$STUB_LOCK_OUT"
+      fi
       jq -nc --arg r "$(text_for_result)" \
         '{type:"result",subtype:"success",is_error:false,result:$r}'
-      if [ -n "${STUB_LOCK_OUT:-}" ]; then
-        printf 'stale-pre-write\n' > "$STUB_LOCK_OUT"
-        chmod a-w "$STUB_LOCK_OUT"
-      fi
       exit 0
       ;;
     *)
@@ -199,7 +200,7 @@ else
       printf 'provider reported an error\n'
       exit 0
       ;;
-    stream_trunc_after|stream_bad_before|stream_null_result|stream_number_result|stream_empty_result|stream_lock_out)
+    stream_trunc_after|stream_bad_before|stream_null_result|stream_number_result|stream_empty_result|stream_out_dir)
       printf 'claude findings\nAPPROVE\n'
       ;;
     progress) printf 'I will inspect the diff.\n' ;;
@@ -1209,9 +1210,9 @@ contains "$WORK/523/j.err" "$WORK/523/j-final.txt" '523j: message names --out'
   || fail '523j: --out must exist and be empty'
 pass '#523j: empty-string .result exits 5 with empty --out'
 
-# (k) final --out write failure must not report success (seed stale + lock file).
+# (k) final --out write failure must not report success (--out replaced by a dir).
 set +e
-printf 'claude 523k\n' | STUB_CLAUDE_RESULT=stream_lock_out \
+printf 'claude 523k\n' | STUB_CLAUDE_RESULT=stream_out_dir \
   STUB_LOCK_OUT="$WORK/523/k-final.txt" \
   "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
   --model claude-haiku-4-5 --out "$WORK/523/k-final.txt" \
@@ -1219,8 +1220,8 @@ printf 'claude 523k\n' | STUB_CLAUDE_RESULT=stream_lock_out \
   >/dev/null 2> "$WORK/523/k.err"
 claude_523k_rc=$?
 set -e
-# Unlock for cleanup even on assertion failure.
-chmod u+w "$WORK/523/k-final.txt" 2>/dev/null || true
+# Remove the directory stand-in even on assertion failure.
+rm -rf "$WORK/523/k-final.txt"
 [ "$claude_523k_rc" -ne 0 ] || fail '523k: failed final --out write must not exit 0'
 contains "$WORK/523/k.err" 'failed writing final message' '523k: write-failure diagnostic'
 contains "$WORK/523/k.err" "$WORK/523/k-final.txt" '523k: diagnostic names --out'
