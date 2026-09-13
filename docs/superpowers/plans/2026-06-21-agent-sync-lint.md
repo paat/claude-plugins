@@ -95,7 +95,7 @@ echo "# claude" > "$NOLINT/CLAUDE.md"
 cat > "$NOLINT/.agent-sync/sources.json" <<'JSON'
 {"version":2,"files":{"m":"CLAUDE.md"},"outputs":[{"path":"AGENTS.md","sections":[{"id":"a","title":"R","source":"m","type":"full-body"}]}]}
 JSON
-assert_stdout_contains "no lint block -> notice" "nothing was checked" -- --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
+assert_stdout_contains "no lint block -> notice" "nothing checked" -- --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
 assert_exit "no lint block -> exit 0" 0 -- --config "$NOLINT/.agent-sync/sources.json" --root "$NOLINT"
 
 # --- Fixture: empty lint block -> prints summary 0/0, exit 0 ---
@@ -130,6 +130,7 @@ export LC_ALL=C
 
 CONFIG_PATH=""
 REPO_ROOT=""
+REQUIRE_CONFIG=false
 
 # --- CLI parsing (mirrors generate.sh) ---
 while [[ $# -gt 0 ]]; do
@@ -140,11 +141,14 @@ while [[ $# -gt 0 ]]; do
     --root)
       [[ -z "${2:-}" ]] && { echo "[agent-sync lint] --root requires a path" >&2; exit 2; }
       REPO_ROOT="$2"; shift 2 ;;
+    --require-config)
+      REQUIRE_CONFIG=true; shift ;;
     -h|--help)
       echo "Usage: lint.sh [--config <path>] [--root <path>] [--require-config]"
       echo ""
       echo "  --config <path>  Path to sources.json (default: auto-detect)"
       echo "  --root <path>    Project root (default: inferred from config dir)"
+      echo "  --require-config Exit 2 when config has no lint block"
       exit 0 ;;
     *)
       echo "[agent-sync lint] Unknown argument: $1" >&2; exit 2 ;;
@@ -195,9 +199,10 @@ done
 CONFIG="$(cat "$CONFIG_PATH")"
 jq empty <<<"$CONFIG" 2>/dev/null || { echo "[agent-sync lint] config error: malformed JSON in $CONFIG_PATH" >&2; exit 2; }
 
-# --- Gate: no lint block -> reported no-op ---
+# --- Gate: no lint block -> opt-in no-op ---
 if [[ "$(jq 'has("lint")' <<<"$CONFIG")" != "true" ]]; then
-  echo "[agent-sync lint] no \`lint\` block in $CONFIG_PATH — nothing was checked."
+  if "$REQUIRE_CONFIG"; then echo "[agent-sync lint] no \`lint\` block in $CONFIG_PATH — nothing checked." >&2; exit 2; fi
+  echo "[agent-sync lint] no \`lint\` block in $CONFIG_PATH — nothing checked."
   exit 0
 fi
 
