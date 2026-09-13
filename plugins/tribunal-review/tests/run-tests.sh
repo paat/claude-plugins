@@ -3945,6 +3945,24 @@ case "${FIXTURE_CHECKS:-empty}" in
       {name:"optional",status:"completed",conclusion:"skipped"}
     ]}'
     ;;
+  retry_success)
+    # Same name twice: older failure, newer success (greater id / later completed_at).
+    jq -nc '{total_count:2,check_runs:[
+      {id:1001,name:"plugin-checks",status:"completed",conclusion:"failure",
+       started_at:"2024-01-01T00:00:00Z",completed_at:"2024-01-01T00:05:00Z"},
+      {id:1002,name:"plugin-checks",status:"completed",conclusion:"success",
+       started_at:"2024-01-01T01:00:00Z",completed_at:"2024-01-01T01:05:00Z"}
+    ]}'
+    ;;
+  retry_failure)
+    # Same name twice: older success, newer failure.
+    jq -nc '{total_count:2,check_runs:[
+      {id:2001,name:"plugin-checks",status:"completed",conclusion:"success",
+       started_at:"2024-01-01T00:00:00Z",completed_at:"2024-01-01T00:05:00Z"},
+      {id:2002,name:"plugin-checks",status:"completed",conclusion:"failure",
+       started_at:"2024-01-01T01:00:00Z",completed_at:"2024-01-01T01:05:00Z"}
+    ]}'
+    ;;
   *)
     printf 'unknown FIXTURE_CHECKS=%s\n' "${FIXTURE_CHECKS-}" >&2
     exit 2
@@ -4012,12 +4030,65 @@ EOF
   fi
 
   ec=0
+  out="$(PATH="$fake:$PATH" FIXTURE_CHECKS=retry_success \
+    bash "$PLUGIN_ROOT/scripts/required-checks.sh" --repo example/fixture --sha "$sha" 2>/dev/null)" || ec=$?
+  if [ "$ec" -eq 0 ] && printf '%s' "$out" | jq -e '.ok == true' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} required-checks latest-per-name retry success is ok"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} required-checks latest-per-name retry success is ok"; FAIL=$((FAIL+1))
+    FAILURES+=("required-checks retry_success"); printf '%s\n' "$out" >&2
+  fi
+
+  ec=0
+  out="$(PATH="$fake:$PATH" FIXTURE_CHECKS=retry_failure \
+    bash "$PLUGIN_ROOT/scripts/required-checks.sh" --repo example/fixture --sha "$sha" 2>/dev/null)" || ec=$?
+  if [ "$ec" -eq 1 ] && printf '%s' "$out" | jq -e '.ok == false' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} required-checks latest-per-name retry failure is not ok"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} required-checks latest-per-name retry failure is not ok"; FAIL=$((FAIL+1))
+    FAILURES+=("required-checks retry_failure"); printf '%s\n' "$out" >&2
+  fi
+
+  ec=0
   PATH="$fake:$PATH" bash "$PLUGIN_ROOT/scripts/required-checks.sh" --repo example/fixture 2>/dev/null || ec=$?
   if [ "$ec" -eq 2 ]; then
     echo -e "  ${GREEN}PASS${NC} required-checks fails loud on missing --sha"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} required-checks fails loud on missing --sha"; FAIL=$((FAIL+1))
     FAILURES+=("required-checks bad args")
+  fi
+
+  # Mutation RED (one copy): delete only the latest-per-name collapse from a
+  # copy of required-checks.sh; retry_success must then exit 1 / ok=false.
+  mutated="$work/required-checks.sh"
+  cp "$PLUGIN_ROOT/scripts/required-checks.sh" "$mutated"
+  python3 - "$mutated" <<'PY'
+from pathlib import Path
+import re, sys
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+text2, n = re.subn(
+    r"\(\$raw_runs\n\s*\| group_by\(\.name // \"\"\)\n\s*\| map\(max_by\(\[\n"
+    r"\s*\(if \(\.id \| type\) == \"number\" then \.id else -1 end\),\n"
+    r"\s*\(\.completed_at // \"\"\),\n"
+    r"\s*\(\.started_at // \"\"\)\n"
+    r"\s*\]\)\)\n\s*\) as \$runs",
+    "($raw_runs) as $runs",
+    text,
+    count=1,
+)
+if n != 1:
+    raise SystemExit(f"latest-per-name collapse needle missing (n={n})")
+path.write_text(text2, encoding="utf-8")
+PY
+  ec=0
+  out="$(PATH="$fake:$PATH" FIXTURE_CHECKS=retry_success \
+    bash "$mutated" --repo example/fixture --sha "$sha" 2>/dev/null)" || ec=$?
+  if [ "$ec" -eq 1 ] && printf '%s' "$out" | jq -e '.ok == false' >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} mutated required-checks treats stale retry as current (RED)"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} mutated required-checks treats stale retry as current (RED)"; FAIL=$((FAIL+1))
+    FAILURES+=("required-checks latest-per-name mutation RED"); printf '%s\n' "$out" >&2
   fi
 
   # Mutation RED (one target): skill copy without refuse-to-merge must fail the

@@ -97,10 +97,21 @@ if [ "$RAW_EC" -ne 0 ]; then
   exit 2
 fi
 
-# Paginate may emit one object per page. Slurp + flatten. jq keeps unicode
-# (e.g. em-dashes in check names) without ensure_ascii escaping.
+# Paginate may emit one object per page. Slurp + flatten. Keep one run per
+# name (latest) before evaluating ok — GitHub retains historical re-runs as
+# separate objects with the same name. Latest = greatest id when present
+# (monotonic); if id is missing, max completed_at, then started_at.
+# jq keeps unicode (e.g. em-dashes in check names) without ensure_ascii escaping.
 OUT="$(printf '%s\n' "$RAW" | jq -sc --arg sha "$SHA" '
-  [.[].check_runs[]?] as $runs
+  [.[].check_runs[]?] as $raw_runs
+  | ($raw_runs
+     | group_by(.name // "")
+     | map(max_by([
+         (if (.id | type) == "number" then .id else -1 end),
+         (.completed_at // ""),
+         (.started_at // "")
+       ]))
+    ) as $runs
   | ($runs | map({
       name: (.name // ""),
       status: (.status // ""),
