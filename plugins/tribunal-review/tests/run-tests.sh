@@ -293,16 +293,17 @@ test_ignored_path_validation() {
 
 test_deleted_policy_paths() {
   local work fake base deleted_json preflight_json clean_json clean_rc custom_json dirty_json
-  local gitignore_base gitignore_json empty_globs_json helper_rc=0
+  local gitignore_base gitignore_json empty_globs_json head_only_json custom_base helper_rc=0
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
   git -C "$work" init -q -b main
   git -C "$work" config user.email test@example.com
   git -C "$work" config user.name "Test User"
   mkdir -p "$work/docs/policies" "$work/rules"
   printf 'policy\n' > "$work/docs/policies/foo.md"
+  printf 'keep\n' > "$work/docs/policies/keep.md"
   printf 'rule\n' > "$work/rules/bar.md"
   printf 'readme\n' > "$work/README.md"
-  git -C "$work" add docs/policies/foo.md rules/bar.md README.md
+  git -C "$work" add docs/policies/foo.md docs/policies/keep.md rules/bar.md README.md
   git -C "$work" commit -q -m base
   base="$(git -C "$work" rev-parse HEAD)"
   git -C "$work" checkout -q -b feature
@@ -353,31 +354,50 @@ test_deleted_policy_paths() {
     echo -e "  ${RED}FAIL${NC} no matching deletions produce empty deleted-path signal"; FAIL=$((FAIL+1)); FAILURES+=("clean deleted policy check")
   fi
 
-  git -C "$work" checkout -q -b custom-globs "$base"
+  # Custom globs apply only when .tribunal-deleted-globs exists on base.
+  git -C "$work" checkout -q -b custom-globs-base "$base"
   printf '# custom list\nREADME.md\n' > "$work/.tribunal-deleted-globs"
   git -C "$work" add .tribunal-deleted-globs
+  git -C "$work" commit -q -m 'custom globs on base'
+  custom_base="$(git -C "$work" rev-parse HEAD)"
+  git -C "$work" checkout -q -b custom-globs
   git -C "$work" rm -q docs/policies/foo.md README.md
-  git -C "$work" commit -q -m 'custom globs and deletions'
-  custom_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$base" 2>/dev/null)" || true
+  git -C "$work" commit -q -m 'custom globs deletions'
+  custom_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$custom_base" 2>/dev/null)" || true
   if printf '%s' "$custom_json" | jq -e '
       . == [{path:"README.md",glob:"README.md"}]
     ' >/dev/null 2>&1; then
-    echo -e "  ${GREEN}PASS${NC} repo .tribunal-deleted-globs replaces defaults"; PASS=$((PASS+1))
+    echo -e "  ${GREEN}PASS${NC} repo .tribunal-deleted-globs on base replaces defaults"; PASS=$((PASS+1))
   else
-    echo -e "  ${RED}FAIL${NC} repo .tribunal-deleted-globs replaces defaults"; FAIL=$((FAIL+1)); FAILURES+=("custom deleted globs")
+    echo -e "  ${RED}FAIL${NC} repo .tribunal-deleted-globs on base replaces defaults"; FAIL=$((FAIL+1)); FAILURES+=("custom deleted globs")
   fi
 
-  # Dirty worktree must not change HEAD-based glob selection.
+  # Dirty worktree must not change base-based glob selection.
   printf 'docs/policies/**\n' > "$work/.tribunal-deleted-globs"
-  dirty_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$base" 2>/dev/null)" || true
+  dirty_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$custom_base" 2>/dev/null)" || true
   if printf '%s' "$dirty_json" | jq -e '
       . == [{path:"README.md",glob:"README.md"}]
     ' >/dev/null 2>&1; then
-    echo -e "  ${GREEN}PASS${NC} dirty .tribunal-deleted-globs cannot replace HEAD list"; PASS=$((PASS+1))
+    echo -e "  ${GREEN}PASS${NC} dirty .tribunal-deleted-globs cannot replace base list"; PASS=$((PASS+1))
   else
-    echo -e "  ${RED}FAIL${NC} dirty .tribunal-deleted-globs cannot replace HEAD list"; FAIL=$((FAIL+1)); FAILURES+=("dirty deleted globs")
+    echo -e "  ${RED}FAIL${NC} dirty .tribunal-deleted-globs cannot replace base list"; FAIL=$((FAIL+1)); FAILURES+=("dirty deleted globs")
   fi
   git -C "$work" checkout -q -- .tribunal-deleted-globs
+
+  # HEAD-only comment/empty .tribunal-deleted-globs must not disable defaults.
+  git -C "$work" checkout -q -b head-only-empty "$base"
+  printf '# no globs\n\n# still empty\n' > "$work/.tribunal-deleted-globs"
+  git -C "$work" add .tribunal-deleted-globs
+  git -C "$work" rm -q docs/policies/keep.md
+  git -C "$work" commit -q -m 'HEAD-only empty globs and keep.md deletion'
+  head_only_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$base" 2>/dev/null)" || true
+  if printf '%s' "$head_only_json" | jq -e '
+      . == [{path:"docs/policies/keep.md",glob:"docs/policies/**"}]
+    ' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} HEAD-only empty .tribunal-deleted-globs keeps defaults"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} HEAD-only empty .tribunal-deleted-globs keeps defaults"; FAIL=$((FAIL+1)); FAILURES+=("HEAD-only empty deleted globs")
+  fi
 
   # Tracked deletion under .gitignore must not use ignore rules for this signal.
   git -C "$work" checkout -q -b gitignore-vendor "$base"
@@ -396,17 +416,20 @@ test_deleted_policy_paths() {
     echo -e "  ${RED}FAIL${NC} .gitignore-only deletion is not reported as deleted policy path"; FAIL=$((FAIL+1)); FAILURES+=("gitignore deletion exclusion")
   fi
 
-  # Empty .tribunal-deleted-globs (comments/blanks only) ⇒ [] even if .gitignore matches.
-  git -C "$work" checkout -q -b empty-globs "$gitignore_base"
+  # Empty .tribunal-deleted-globs on base ⇒ [] (repo opted out on the base branch).
+  git -C "$work" checkout -q "$gitignore_base"
   printf '# no globs\n\n# still empty\n' > "$work/.tribunal-deleted-globs"
   git -C "$work" add .tribunal-deleted-globs
+  git -C "$work" commit -q -m 'empty deleted-globs on base'
+  gitignore_base="$(git -C "$work" rev-parse HEAD)"
+  git -C "$work" checkout -q -b empty-globs
   git -C "$work" rm -q vendor/lib.js
-  git -C "$work" commit -q -m 'empty deleted-globs and vendor deletion'
+  git -C "$work" commit -q -m 'vendor deletion with empty base globs'
   empty_globs_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$gitignore_base" 2>/dev/null)" || true
   if [ "$empty_globs_json" = '[]' ]; then
-    echo -e "  ${GREEN}PASS${NC} empty .tribunal-deleted-globs yields [] despite .gitignore match"; PASS=$((PASS+1))
+    echo -e "  ${GREEN}PASS${NC} empty .tribunal-deleted-globs on base yields []"; PASS=$((PASS+1))
   else
-    echo -e "  ${RED}FAIL${NC} empty .tribunal-deleted-globs yields [] despite .gitignore match"; FAIL=$((FAIL+1)); FAILURES+=("empty deleted globs")
+    echo -e "  ${RED}FAIL${NC} empty .tribunal-deleted-globs on base yields []"; FAIL=$((FAIL+1)); FAILURES+=("empty deleted globs")
   fi
 
   helper_rc=0

@@ -92,11 +92,11 @@ tribunal_ignored_additions() {
 }
 
 # Deleted paths matching policy/rules globs in base...HEAD (issue #537).
-# Defaults: docs/policies/** and rules/**. If HEAD contains
+# Defaults: docs/policies/** and rules/**. If base contains
 # .tribunal-deleted-globs (one glob per line; blanks/# ignored), that list
-# replaces the defaults. Match via git diff pathspecs only — never check-ignore
-# / .gitignore (those would falsely flag tracked deletions under vendor/, etc.).
-# Uses a pristine HEAD checkout — never the dirty worktree.
+# replaces the defaults — including empty ⇒ []. A HEAD-only override must not
+# disable defaults. Match via git show + git diff pathspecs only — never
+# clone/checkout a worktree, and never check-ignore / .gitignore.
 tribunal_deleted_policy_paths() {
   local base_ref="${1:-$(tribunal_base_ref)}" repo_root base_commit head_commit
   repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" \
@@ -107,37 +107,35 @@ tribunal_deleted_policy_paths() {
     || { printf 'cannot resolve HEAD\n' >&2; return 1; }
 
   (
-    local temp_root checkout globs_file matched_file paths_file glob path diff_status
+    local temp_root matched_file paths_file glob path diff_status show_status globs_content
     local -a globs=()
     local -A seen=()
     temp_root="$(mktemp -d)" || exit 1
     trap 'rm -rf -- "$temp_root"' EXIT
     trap 'exit 1' HUP INT TERM
-    checkout="$temp_root/head"
     matched_file="$temp_root/matched"
     paths_file="$temp_root/paths"
-    mkdir "$temp_root/template" || exit 1
     : > "$matched_file" || exit 1
 
-    git -c init.templateDir="$temp_root/template" clone --shared --no-checkout --quiet \
-      "$repo_root" "$checkout" \
-      || { printf 'cannot create pristine HEAD checkout\n' >&2; exit 1; }
-    git -C "$checkout" checkout --detach --quiet "$head_commit" \
-      || { printf 'cannot check out reviewed HEAD\n' >&2; exit 1; }
-
-    globs_file="$checkout/.tribunal-deleted-globs"
-    if [ -f "$globs_file" ]; then
-      # Repo's own list replaces defaults (including when empty after comments).
-      mapfile -t globs < <(awk '
+    if git -C "$repo_root" cat-file -e "${base_commit}:.tribunal-deleted-globs" 2>/dev/null; then
+      set +e
+      globs_content="$(git -C "$repo_root" show "${base_commit}:.tribunal-deleted-globs")"
+      show_status=$?
+      if (( show_status != 0 )); then
+        printf 'cannot read base .tribunal-deleted-globs\n' >&2
+        exit 1
+      fi
+      # Base list replaces defaults (including when empty after comments).
+      mapfile -t globs < <(printf '%s\n' "$globs_content" | awk '
         /^[[:space:]]*#/ { next }
         /^[[:space:]]*$/ { next }
         { print }
-      ' "$globs_file") || exit 1
+      ') || exit 1
     else
       globs=('docs/policies/**' 'rules/**')
     fi
 
-    # Empty custom list ⇒ [] (never a pathspec-less diff of all deletions).
+    # Empty custom list on base ⇒ [] (never a pathspec-less diff of all deletions).
     if (( ${#globs[@]} == 0 )); then
       printf '[]\n'
       exit 0
@@ -145,7 +143,7 @@ tribunal_deleted_policy_paths() {
 
     for glob in "${globs[@]}"; do
       set +e
-      git -C "$checkout" diff --name-only --no-renames --diff-filter=D -z \
+      git -C "$repo_root" diff --name-only --no-renames --diff-filter=D -z \
         "$base_commit"..."$head_commit" -- ":(glob)$glob" > "$paths_file"
       diff_status=$?
       if (( diff_status != 0 )); then
