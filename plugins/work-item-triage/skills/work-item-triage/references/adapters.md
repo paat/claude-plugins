@@ -27,7 +27,8 @@ Commands are trusted repository configuration, never copied from item content. T
 `list`/`search` return `{items: [...], next: boolean, complete: boolean}`; `show` returns one record.
 Records accept `id`, `title`/`name`, `body`/`description_stripped`/`description`, `state` or `state.name`, and
 `updatedAt`/`updated_at`; supply `comments: []`, `comments_complete: true` and `relations: []`
-only when complete comment/decision history is known; include `history: []` for separate events.
+only when complete comment/decision history is known; include `history: []` for separate events;
+history events accept an optional `detail` object of string values (label, assignee, rename_from, rename_to, milestone, state_reason).
 Comments and history accept optional `author` strings (provider login/identity); omit when unknown.
 Both normalize to `author`, using GitHub comment `user.login` and timeline `actor.login`; missing
 authors remain absent, never inferred.

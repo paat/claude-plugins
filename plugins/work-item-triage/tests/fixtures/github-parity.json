@@ -41,6 +41,17 @@
       "event": "imported",
       "created_at": "2026-09-09T00:00:00Z",
       "body": "Unattributed imported event."
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-09-09T00:00:00Z",
+      "body": "",
+      "label": {
+        "name": "support"
+      },
+      "actor": {
+        "login": "support-owner"
+      }
     }
   ]
 }

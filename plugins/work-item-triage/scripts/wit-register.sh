@@ -55,7 +55,8 @@ jq -en --slurpfile s "$snapshot" --slurpfile d "$decisions" '
     (.enforcement.class as $class | ["native","instruction-only","unavailable"]|index($class)!=null) and
     (.enforcement.mechanism|text) and
     (if .disposition=="defer" then (.revisit_trigger|text and test("[0-9]{4}-[0-9]{2}-[0-9]{2}|#[0-9]+|evidence: *[^ ]")) else true end) and
-    (if .disposition=="consolidate-into" or .disposition=="append-to" then (.target|text) else true end))
+    (if .disposition=="consolidate-into" or .disposition=="append-to" then (.target|text) else true end) and
+    (if .direction=="proposed" and .disposition=="file-minimal" then (.draft|type=="object" and (.title|text) and (.body|text)) else true end))
 ' >/dev/null || { echo 'wit-register: invalid snapshot or decision schema/coverage' >&2; exit 2; }
 if [ "$commit" = null ] && jq -e 'any(.items[]; .code_refs|length>0)' "$decisions" >/dev/null; then
   echo 'wit-register: code_refs require --code-ref to pin HEAD' >&2; exit 2
@@ -113,6 +114,7 @@ jq -n --slurpfile s "$snapshot" --slurpfile d "$decisions" --slurpfile p "$previ
        prerequisites,next_task,stop_condition,enforcement} +
       (if has("target") then {target} else {} end) +
       (if has("revisit_trigger") then {revisit_trigger} else {} end) +
+      (if has("draft") then {draft} else {} end) +
       {title:$item.title,url:($item.url//null),
        provenance:({source:$snapshot.source,item_id:$item.id,fetched_at:$snapshot.fetched_at,
          updatedAt:$item.updatedAt,comments_fetched:$item.comments_fetched,
@@ -136,7 +138,8 @@ jq -r '
   "First five cards by necessity, then priority follow; register.json contains every card.\n",
   (.items|sort_by((if .necessity=="required" then 0 else 1 end), .priority, .id)|.[0:5][]|"## \(.id): \(.title)\n\nDirection: \(.direction); disposition: \(.disposition).\n\nOutcome: \(.outcome)\n\nEvidence: \(.evidence|tojson)\n\nNecessity: \(.necessity); readiness: \(.readiness).\n\nSmallest adequate response: \(.response)\n\nCost: \(.cost)\n",
     (if has("target") then "Target owner: \(.target)\n" else empty end),
-    (if has("revisit_trigger") then "Revisit: \(.revisit_trigger)\n" else empty end))
+    (if has("revisit_trigger") then "Revisit: \(.revisit_trigger)\n" else empty end),
+    (if has("draft") then "Draft title: \(.draft.title)\n\(.draft.body)\nThis draft has had no PII review.\n" else empty end))
 ' "$stage/register.json" > "$stage/summary.md"
 jq -r '
   def eligible: (.disposition=="implement-minimally" or .disposition=="fix-now-no-item") and .readiness=="ready" and .provenance.completeness=="complete";
