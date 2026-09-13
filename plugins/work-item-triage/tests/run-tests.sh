@@ -165,39 +165,85 @@ sys.exit(result.returncode)
 PYTEST
 check 'cyclic prior-run chain fails promptly' 1 "$?"
 check 'cycle refusal preserves pointer and releases lock' 1 "$([ "$(jq -r .run_id "$TMP/cycle/work-item-triage/pointer.json")" = loop ] && [ ! -e "$TMP/cycle/work-item-triage/.writer-lock" ] && [ ! -e "$TMP/cycle/work-item-triage/after-cycle" ] && echo 1 || echo 0)"
-# Writer lock recovers from hard-kill leftovers; a live lock stays exclusive.
-mkdir -p "$TMP/stale-dead/work-item-triage/.writer-lock"
-sleep 0 &
-dead_pid=$!
-wait "$dead_pid" || true
-printf '%s %s\n' "$dead_pid" "$(date +%s)" > "$TMP/stale-dead/work-item-triage/.writer-lock/owner"
-bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/stale-dead" --run-id dead-pid >/dev/null 2>"$TMP/stale-dead.err"
-check 'stale lock recovers when owner pid is dead' 0 "$?"
-check 'stale lock dead-pid stderr names recovery' 1 "$(grep -c 'recovering stale writer lock' "$TMP/stale-dead.err" || true)"
-check 'stale lock dead-pid writes pointer and clears lock' 1 "$([ -f "$TMP/stale-dead/work-item-triage/pointer.json" ] && [ ! -e "$TMP/stale-dead/work-item-triage/.writer-lock" ] && echo 1 || echo 0)"
-mkdir -p "$TMP/live-lock/work-item-triage/.writer-lock"
-printf '%s %s\n' "$$" "$(date +%s)" > "$TMP/live-lock/work-item-triage/.writer-lock/owner"
-cp "$TMP/live-lock/work-item-triage/.writer-lock/owner" "$TMP/live-lock-owner-before"
-bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/live-lock" --run-id live >/dev/null 2>"$TMP/live-lock.err"
+# Writer lock: kernel flock; leftover .writer-lock/ is private scratch, never steal a live holder.
+mkdir -p "$TMP/leftover/work-item-triage/.writer-lock"
+printf '{"run_id":"junk-prev"}\n' > "$TMP/leftover/work-item-triage/.writer-lock/previous.json"
+printf '{"run_id":"junk-pointer"}\n' > "$TMP/leftover/work-item-triage/.writer-lock/pointer.json"
+bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/leftover" --run-id leftover-ok >/dev/null 2>"$TMP/leftover.err"
+check 'leftover writer state recovers' 0 "$?"
+check 'leftover writer state stderr names cleanup' 1 "$(grep -c 'removing leftover writer state from an interrupted run' "$TMP/leftover.err" || true)"
+check 'leftover writer state pointer names new run' leftover-ok "$(jq -r .run_id "$TMP/leftover/work-item-triage/pointer.json")"
+check 'leftover writer state does not inherit junk previous_run_id' null "$(jq -r '.previous_run_id | tostring' "$TMP/leftover/work-item-triage/leftover-ok/register.json")"
+check 'leftover writer state clears .writer-lock' 1 "$([ ! -e "$TMP/leftover/work-item-triage/.writer-lock" ] && echo 1 || echo 0)"
+mkdir -p "$TMP/live-writer/work-item-triage"
+python3 -c 'import fcntl,sys,time; f=open(sys.argv[1],"a"); fcntl.flock(f, fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(60)' \
+  "$TMP/live-writer/work-item-triage/.writer.lock" "$TMP/live-writer-ready" &
+live_helper=$!
+ready=0
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50; do
+  [ -f "$TMP/live-writer-ready" ] && ready=1 && break
+  sleep 0.1
+done
+check 'live writer helper became ready' 1 "$ready"
+bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/live-writer" --run-id live-blocked >/dev/null 2>"$TMP/live-writer.err"
 check 'live writer lock is not stolen' 1 "$([ "$?" -ne 0 ] && echo 1 || echo 0)"
-check 'live writer stderr is another writer active' 1 "$(grep -c 'another writer is active' "$TMP/live-lock.err" || true)"
-check 'live writer lock and owner untouched' 1 "$([ -d "$TMP/live-lock/work-item-triage/.writer-lock" ] && cmp -s "$TMP/live-lock-owner-before" "$TMP/live-lock/work-item-triage/.writer-lock/owner" && echo 1 || echo 0)"
-mkdir -p "$TMP/stale-old/work-item-triage/.writer-lock"
-printf '%s %s\n' "$$" "$(($(date +%s) - 3601))" > "$TMP/stale-old/work-item-triage/.writer-lock/owner"
-bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/stale-old" --run-id old-epoch >/dev/null 2>"$TMP/stale-old.err"
-check 'stale lock recovers when owner epoch exceeds 3600s' 0 "$?"
-check 'stale lock old-epoch stderr names recovery' 1 "$(grep -c 'recovering stale writer lock' "$TMP/stale-old.err" || true)"
-mkdir -p "$TMP/no-owner-fresh/work-item-triage/.writer-lock"
-bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/no-owner-fresh" --run-id no-owner-fresh >/dev/null 2>"$TMP/no-owner-fresh.err"
-check 'fresh lock without owner is not stolen' 1 "$([ "$?" -ne 0 ] && echo 1 || echo 0)"
-check 'fresh lock without owner keeps another-writer message' 1 "$(grep -c 'another writer is active' "$TMP/no-owner-fresh.err" || true)"
-mkdir -p "$TMP/no-owner-old/work-item-triage/.writer-lock"
-touch -d '2 hours ago' "$TMP/no-owner-old/work-item-triage/.writer-lock"
-bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/no-owner-old" --run-id no-owner-old >/dev/null 2>"$TMP/no-owner-old.err"
-check 'aged lock without owner is recovered' 0 "$?"
-check 'aged lock without owner stderr names recovery' 1 "$(grep -c 'recovering stale writer lock' "$TMP/no-owner-old.err" || true)"
-bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/lock-release" --run-id release-ok >/dev/null 2>&1
-check 'successful register removes writer lock' 1 "$([ "$?" -eq 0 ] && [ ! -e "$TMP/lock-release/work-item-triage/.writer-lock" ] && echo 1 || echo 0)"
+check 'live writer stderr is another writer active' 1 "$(grep -c 'another writer is active' "$TMP/live-writer.err" || true)"
+check 'live writer creates no run directory or pointer' 1 "$([ ! -e "$TMP/live-writer/work-item-triage/live-blocked" ] && [ ! -e "$TMP/live-writer/work-item-triage/pointer.json" ] && echo 1 || echo 0)"
+kill "$live_helper" 2>/dev/null || true
+wait "$live_helper" 2>/dev/null || true
+mkdir -p "$TMP/hard-kill/work-item-triage"
+python3 -c 'import fcntl,sys,time; f=open(sys.argv[1],"a"); fcntl.flock(f, fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(60)' \
+  "$TMP/hard-kill/work-item-triage/.writer.lock" "$TMP/hard-kill-ready" &
+hard_helper=$!
+ready=0
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50; do
+  [ -f "$TMP/hard-kill-ready" ] && ready=1 && break
+  sleep 0.1
+done
+check 'hard-kill helper became ready' 1 "$ready"
+kill -9 "$hard_helper" 2>/dev/null || true
+wait "$hard_helper" 2>/dev/null || true
+bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/hard-kill" --run-id after-kill >/dev/null 2>"$TMP/hard-kill.err"
+check 'hard kill releases writer lock' 0 "$?"
+mkdir -p "$TMP/concurrent"
+for i in 1 2 3 4 5; do
+  (
+    bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/concurrent" --run-id "c-$i" >/dev/null 2>"$TMP/concurrent-c-$i.err"
+    printf '%s\n' "$?" > "$TMP/concurrent-c-$i.exit"
+  ) &
+done
+wait
+concurrent_ok=1
+ok_runs=0
+for i in 1 2 3 4 5; do
+  rc=$(cat "$TMP/concurrent-c-$i.exit")
+  if [ "$rc" = 0 ]; then
+    ok_runs=$((ok_runs + 1))
+  elif [ "$rc" = 1 ] && grep -q 'another writer is active' "$TMP/concurrent-c-$i.err"; then
+    :
+  else
+    concurrent_ok=0
+  fi
+done
+run_dirs=$(find "$TMP/concurrent/work-item-triage" -mindepth 1 -maxdepth 1 -type d ! -name '.writer-lock' ! -name '.snapshot.*' 2>/dev/null | wc -l | tr -d ' ')
+check 'concurrent writers exit 0 or another-writer' 1 "$concurrent_ok"
+check 'concurrent successful run dirs match exit-0 count' "$ok_runs" "$run_dirs"
+chain_ok=1
+visited=0
+cur=$(jq -r .run_id "$TMP/concurrent/work-item-triage/pointer.json" 2>/dev/null || true)
+seen='|'
+while [ -n "$cur" ]; do
+  case "$seen" in *"|$cur|"*) chain_ok=0; break ;; esac
+  seen="$seen$cur|"
+  visited=$((visited + 1))
+  cur=$(jq -r '.previous_run_id // empty' "$TMP/concurrent/work-item-triage/$cur/register.json")
+done
+[ "$visited" = "$ok_runs" ] || chain_ok=0
+check 'concurrent previous_run_id chain visits each success once' 1 "$chain_ok"
+bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/lock-release" --run-id release-a >/dev/null 2>&1
+check 'release on success first run' 1 "$([ "$?" -eq 0 ] && [ ! -e "$TMP/lock-release/work-item-triage/.writer-lock" ] && echo 1 || echo 0)"
+bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/lock-release" --run-id release-b >/dev/null 2>&1
+check 'release on success second run' 1 "$([ "$?" -eq 0 ] && [ ! -e "$TMP/lock-release/work-item-triage/.writer-lock" ] && echo 1 || echo 0)"
 # More than a provider page, followed by a transport-truncated second page.
 export WIT_MODE=pages
 read_snapshot github > "$TMP/pages.json"

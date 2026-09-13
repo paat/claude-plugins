@@ -62,34 +62,20 @@ if [ "$commit" = null ] && jq -e 'any(.items[]; .code_refs|length>0)' "$decision
 fi
 root=$output/work-item-triage
 mkdir -p "$root"
-if ! mkdir "$root/.writer-lock" 2>/dev/null; then
-  stale_reason=
-  if read -r lock_pid lock_epoch < "$root/.writer-lock/owner" 2>/dev/null \
-    && [[ "$lock_pid" =~ ^[0-9]+$ ]] && [[ "$lock_epoch" =~ ^[0-9]+$ ]]; then
-    if ! kill_err=$(kill -0 "$lock_pid" 2>&1); then
-      case "$kill_err" in
-        *"No such process"*) stale_reason="pid $lock_pid not running" ;;
-      esac
-    fi
-    if [ -z "$stale_reason" ] && [ "$(( $(date +%s) - lock_epoch ))" -gt 3600 ]; then
-      stale_reason="lock older than 3600s"
-    fi
-  else
-    now_s=$(date +%s)
-    lock_mtime=$(stat -c %Y "$root/.writer-lock" 2>/dev/null || printf '%s' "$now_s")
-    if [ "$((now_s - lock_mtime))" -gt 3600 ]; then
-      stale_reason="lock older than 3600s"
-    fi
-  fi
-  if [ -n "$stale_reason" ]; then
-    echo "wit-register: recovering stale writer lock ($stale_reason)" >&2
-    rm -rf "$root/.writer-lock"
-    mkdir "$root/.writer-lock" 2>/dev/null || { echo 'wit-register: another writer is active' >&2; exit 1; }
-  else
-    echo 'wit-register: another writer is active' >&2; exit 1
-  fi
+exec 9>>"$root/.writer.lock"
+lock_rc=0
+python3 -c 'import fcntl, sys
+try:
+    fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.exit(75)' || lock_rc=$?
+[ "$lock_rc" != 75 ] || { echo 'wit-register: another writer is active' >&2; exit 1; }
+[ "$lock_rc" = 0 ] || { echo "wit-register: cannot lock $root/.writer.lock" >&2; exit 1; }
+if [ -e "$root/.writer-lock" ]; then
+  echo 'wit-register: removing leftover writer state from an interrupted run' >&2
+  rm -rf "$root/.writer-lock"
 fi
-printf '%s %s\n' "$$" "$(date +%s)" > "$root/.writer-lock/owner"
+mkdir "$root/.writer-lock"
 stage=
 trap '[ -z "$stage" ] || rm -rf "$stage"; rm -rf "$root/.writer-lock"' EXIT
 if [ -n "$run_id" ]; then
