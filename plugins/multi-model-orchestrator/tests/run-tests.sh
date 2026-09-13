@@ -788,6 +788,7 @@ absent "$META_SKILL" 'Strategy B: never commit it' 'Meta skill no longer splits 
 absent "$META_SKILL" '.git/info/exclude' 'Meta skill does not hardcode .git/info/exclude as a literal path'
 absent "$META_SKILL" 'task/job id' 'Meta skill does not record a session-local task/job id'
 contains "$META_SKILL" 'unless already listed' 'Meta skill appends the handoff exclude entry only when absent'
+contains "$META_SKILL" 'grep -qxF' 'Meta skill names the exact-match exclude check'
 contains "$META_SKILL" 'literal resume command' 'Meta skill requires the literal resume command in the handoff'
 contains "$META_SKILL" 'announcing a dispatch without that written handoff is a defect' 'Meta skill forbids announced dispatches without the written handoff'
 contains "$META_SKILL" 'unless the brief explicitly waives it' 'Meta skill requires an explicit tribunal waiver'

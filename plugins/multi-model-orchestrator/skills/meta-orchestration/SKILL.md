@@ -80,7 +80,7 @@ PR open, local head pushed, you arbitrate as calling context — never restate i
 
 Fresh start: require `gh` authenticated, a GitHub remote, and a clean worktree; verify any
 referenced issues/workitems exist; add `${MMO_HANDOFF_DIR:-.claude/handoffs}` (repo-relative) to
-`$(git rev-parse --git-path info/exclude)` unless already listed. Handoff is local — never commit it during the run.
+`$(git rev-parse --git-path info/exclude)` unless already listed (`grep -qxF`). Handoff is local — never commit it during the run.
 Once the queue is ordered, and again immediately before every dispatch (including a pre-queue Discovery
 research leg) — never for a no-op scan — write the handoff (instantiate `references/handoff-template.md`)
 with the literal resume command, expected artifact paths, and baseline — all known before launch.
