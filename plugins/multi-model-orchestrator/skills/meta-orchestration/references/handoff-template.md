@@ -26,7 +26,7 @@ so the successor starts with a decision, not a question.>
   default branch untouched: <yes/no + evidence>.
 - Merged so far: <N> PRs (<#list>).
 - In flight: <PR #, CI status, "ready for review, not merged" / blocked-on>.
-- In-flight legs: `<repo path, branch, runner + mode + model, output path,
+- In-flight legs: `<repo path, branch, runner + mode + model, output path, exit marker path,
   expected artifact paths, baseline the gate measures against, dispatch time (UTC),
   one line on what the leg was told, how completion will be observed, literal resume command>`
   — or `none`.
