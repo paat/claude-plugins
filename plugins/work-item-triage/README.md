@@ -25,7 +25,7 @@ No other plugin is a runtime dependency and no external plugin scripts are sourc
 
 - Bash 4+, standard POSIX utilities and `mktemp` for temporary files/directories.
 - `jq` for normalized JSON and register validation/rendering.
-- `python3` (standard library only) for configured-source parsing and history digests.
+- `python3` (standard library only) for configured-source parsing, history digests, and the writer lock.
 - `git` when pinning inspected code to its commit.
 - Authenticated `gh` for GitHub sources. Plane sources use caller-configured commands;
   install/document any dependencies required by those commands in the target repository.

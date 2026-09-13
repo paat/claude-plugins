@@ -251,7 +251,7 @@
     {
       "name": "work-item-triage",
       "description": "Evidence-based work-item decisions: decide what deserves implementation or filing, preserve provenance, and hand off a bounded next-action queue.",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "author": {
         "name": "Andre Paat"
       },

@@ -62,7 +62,20 @@ if [ "$commit" = null ] && jq -e 'any(.items[]; .code_refs|length>0)' "$decision
 fi
 root=$output/work-item-triage
 mkdir -p "$root"
-mkdir "$root/.writer-lock" 2>/dev/null || { echo 'wit-register: another writer is active' >&2; exit 1; }
+exec 9>>"$root/.writer.lock"
+lock_rc=0
+python3 -c 'import fcntl, sys
+try:
+    fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.exit(75)' || lock_rc=$?
+[ "$lock_rc" != 75 ] || { echo 'wit-register: another writer is active' >&2; exit 1; }
+[ "$lock_rc" = 0 ] || { echo "wit-register: cannot lock $root/.writer.lock" >&2; exit 1; }
+if [ -e "$root/.writer-lock" ]; then
+  echo 'wit-register: removing leftover writer state from an interrupted run' >&2
+  rm -rf "$root/.writer-lock"
+fi
+mkdir "$root/.writer-lock"
 stage=
 trap '[ -z "$stage" ] || rm -rf "$stage"; rm -rf "$root/.writer-lock"' EXIT
 if [ -n "$run_id" ]; then
