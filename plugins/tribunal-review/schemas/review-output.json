@@ -38,7 +38,11 @@
         "verdict": { "type": "string", "enum": ["APPROVE", "NEEDS_WORK", "BLOCK"] }
       },
       "required": ["total_findings", "critical", "high", "medium", "low", "quality_score", "verdict"]
+    },
+    "files_examined": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
     }
   },
-  "required": ["provider", "model", "findings", "summary"]
+  "required": ["provider", "model", "findings", "summary", "files_examined"]
 }

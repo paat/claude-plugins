@@ -27,7 +27,7 @@ case "$1" in
       shift
     done
     jq -nc --arg p "$FIXTURE_PROVIDER" --arg m "$FIXTURE_MODEL" \
-      '{provider:$p,model:$m,findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10,verdict:"APPROVE"}}'
+      '{provider:$p,model:$m,files_examined:["file.txt"],findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10,verdict:"APPROVE"}}'
     ;;
   *) exit 1 ;;
 esac
