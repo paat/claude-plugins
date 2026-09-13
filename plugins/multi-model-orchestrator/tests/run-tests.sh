@@ -794,6 +794,7 @@ contains "$META_SKILL" 'announcing a dispatch without that written handoff is a 
 contains "$META_SKILL" 'unless the brief explicitly waives it' 'Meta skill requires an explicit tribunal waiver'
 [ "$(grep -cF '# optional' "$META_SKILL")" -eq 5 ] || fail 'Meta skill YAML example keeps exactly five # optional markers'
 contains "$META_SKILL" 'reconcile; do not overwrite it' 'Meta skill refuses conflicting concurrent handoff overwrites'
+contains "$META_SKILL" 'reconcile it with reality' 'Meta skill reconciles recorded in-flight legs with reality on resume'
 contains "$META_SKILL" "Within the brief's autonomy bounds" 'Meta skill runs within the brief autonomy bounds'
 absent "$META_SKILL" 'queue is ratified' 'Meta skill does not reopen a queue-ratification stall'
 contains "$META_SKILL" 'Self-merge IS permitted' 'Meta skill states self-merge is permitted'

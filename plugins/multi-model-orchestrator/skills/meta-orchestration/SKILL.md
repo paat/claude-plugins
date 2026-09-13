@@ -89,9 +89,10 @@ reconcile; do not overwrite it.
 
 Resume (`--resume`): read the handoff top-down. Execute its "Stop here first" action before
 anything else. Treat "Decisions ratified — do not re-litigate" as settled. The handoff State
-block is the authoritative baseline; worktree state it does not explain is a stop condition —
-inspect and reconcile, never discard. Trailing text after the flag is overrides of decided
-judgment calls and brief deltas; both are ratified.
+block is the authoritative baseline; unexplained worktree state is a stop — inspect and
+reconcile, never discard. Before acting on a recorded in-flight leg or open item,
+reconcile it with reality: PR merged/closed, output mtime still advancing, branch head as recorded.
+Trailing text after the flag overrides decided judgment calls and brief deltas; both are ratified.
 
 ## Handoff discipline
 
