@@ -821,6 +821,8 @@ test_plugin_issues() {
     "$PLUGIN_ROOT/skills/issue-file/SKILL.md" 'Every NEW issue other than a plugin-defect report passes the filing gate'
   assert_file_contains "J-gh-skill: filing-gate fallback covers open issues" \
     "$PLUGIN_ROOT/skills/issue-file/SKILL.md" 'already covers the outcome'
+  assert_file_contains "J-gh-skill: gate comment passes pii-gate" \
+    "$PLUGIN_ROOT/skills/issue-file/SKILL.md" 'pii-gate'
   for agent in lawyer.md; do
     assert_file_contains "J-gh: $agent references the plugin-issue-reporting doc" \
       "$PLUGIN_ROOT/agents/$agent" "templates/plugin-issue-reporting.md"
