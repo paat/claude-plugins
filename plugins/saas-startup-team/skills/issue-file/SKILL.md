@@ -18,7 +18,6 @@ Shared helper: `scripts/issue-file.sh` (resolve via plugin root).
 - Need create-or-comment without post-create GitHub search fail-closed
 - Optional **source-repo escalate** so a product-repo filing also lands once on
   the plugin/source tracker for the same pattern key
-- A NEW non-defect issue passes the filing gate first (`work-item-triage` proposed-item check when installed; else comment/skip per that skill's fallback); plugin/agent-defect filings bypass it (still deduped by `issue-file.sh`)
 
 ## When not
 
@@ -27,6 +26,7 @@ Shared helper: `scripts/issue-file.sh` (resolve via plugin root).
 
 ## Contract
 
+Every NEW issue other than a plugin-defect report passes the filing gate first (`work-item-triage` proposed-item check when installed; else comment on an open issue that already covers the outcome, and skip filing when it is not the smallest adequate response). Plugin-defect filings bypass it (still deduped by `issue-file.sh`).
 1. Build title + body. If you have an **authoritative** pattern key (caller-owned,
    single-line lowercase `^[a-z0-9][a-z0-9:_-]*$`), pass `--pattern-key`. Do **not**
    invent product semantics for a key; omit the flag and use title dedup instead.
