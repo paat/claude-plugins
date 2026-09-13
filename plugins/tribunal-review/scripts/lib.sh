@@ -91,6 +91,81 @@ tribunal_ignored_additions() {
   )
 }
 
+# Deleted paths matching policy/rules globs in base...HEAD (issue #537).
+# Defaults: docs/policies/** and rules/**. If base contains
+# .tribunal-deleted-globs (one glob per line; blanks/# ignored), that list
+# replaces the defaults — including empty ⇒ []. A HEAD-only override must not
+# disable defaults. Match via git show + git diff pathspecs only — never
+# clone/checkout a worktree, and never check-ignore / .gitignore.
+tribunal_deleted_policy_paths() {
+  local base_ref="${1:-$(tribunal_base_ref)}" repo_root base_commit head_commit
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" \
+    || { printf 'cannot resolve repository root\n' >&2; return 1; }
+  base_commit="$(git rev-parse --verify "${base_ref}^{commit}" 2>/dev/null)" \
+    || { printf 'cannot resolve base ref %s\n' "$base_ref" >&2; return 1; }
+  head_commit="$(git rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" \
+    || { printf 'cannot resolve HEAD\n' >&2; return 1; }
+
+  (
+    local temp_root matched_file paths_file glob path diff_status show_status globs_content
+    local -a globs=()
+    local -A seen=()
+    temp_root="$(mktemp -d)" || exit 1
+    trap 'rm -rf -- "$temp_root"' EXIT
+    trap 'exit 1' HUP INT TERM
+    matched_file="$temp_root/matched"
+    paths_file="$temp_root/paths"
+    : > "$matched_file" || exit 1
+
+    if git -C "$repo_root" cat-file -e "${base_commit}:.tribunal-deleted-globs" 2>/dev/null; then
+      set +e
+      globs_content="$(git -C "$repo_root" show "${base_commit}:.tribunal-deleted-globs")"
+      show_status=$?
+      if (( show_status != 0 )); then
+        printf 'cannot read base .tribunal-deleted-globs\n' >&2
+        exit 1
+      fi
+      # Base list replaces defaults (including when empty after comments).
+      mapfile -t globs < <(printf '%s\n' "$globs_content" | awk '
+        /^[[:space:]]*#/ { next }
+        /^[[:space:]]*$/ { next }
+        { print }
+      ') || exit 1
+    else
+      globs=('docs/policies/**' 'rules/**')
+    fi
+
+    # Empty custom list on base ⇒ [] (never a pathspec-less diff of all deletions).
+    if (( ${#globs[@]} == 0 )); then
+      printf '[]\n'
+      exit 0
+    fi
+
+    for glob in "${globs[@]}"; do
+      set +e
+      git -C "$repo_root" diff --name-only --no-renames --diff-filter=D -z \
+        "$base_commit"..."$head_commit" -- ":(glob)$glob" > "$paths_file"
+      diff_status=$?
+      if (( diff_status != 0 )); then
+        printf 'git deleted-policy path match failed (diff %s)\n' "$diff_status" >&2
+        exit 1
+      fi
+      while IFS= read -r -d '' path; do
+        [ -n "${seen[$path]+x}" ] && continue
+        seen[$path]=1
+        jq -nc --arg path "$path" --arg glob "$glob" '{path:$path,glob:$glob}' \
+          >> "$matched_file" || exit 1
+      done < "$paths_file"
+    done
+
+    if [ ! -s "$matched_file" ]; then
+      printf '[]\n'
+    else
+      jq -s -c '.' "$matched_file"
+    fi
+  )
+}
+
 # Plugin root for schema/assets. Explicit TRIBUNAL_PLUGIN_ROOT / CLAUDE_PLUGIN_ROOT
 # are authoritative even when the schema is missing (so the runner can fail loud
 # instead of silently loading another install — issue #378 / Codex review).

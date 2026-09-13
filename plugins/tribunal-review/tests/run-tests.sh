@@ -291,6 +291,351 @@ test_ignored_path_validation() {
   rm -rf "$work"
 }
 
+test_deleted_policy_paths() {
+  local work fake base deleted_json preflight_json clean_json clean_rc custom_json dirty_json
+  local gitignore_base gitignore_json empty_globs_json head_only_json custom_base helper_rc=0
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  git -C "$work" init -q -b main
+  git -C "$work" config user.email test@example.com
+  git -C "$work" config user.name "Test User"
+  mkdir -p "$work/docs/policies" "$work/rules"
+  printf 'policy\n' > "$work/docs/policies/foo.md"
+  printf 'keep\n' > "$work/docs/policies/keep.md"
+  printf 'rule\n' > "$work/rules/bar.md"
+  printf 'readme\n' > "$work/README.md"
+  git -C "$work" add docs/policies/foo.md docs/policies/keep.md rules/bar.md README.md
+  git -C "$work" commit -q -m base
+  base="$(git -C "$work" rev-parse HEAD)"
+  git -C "$work" checkout -q -b feature
+  git -C "$work" rm -q docs/policies/foo.md README.md
+  git -C "$work" commit -q -m 'delete policy and readme'
+
+  deleted_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$base" 2>/dev/null)" || true
+  if printf '%s' "$deleted_json" | jq -e '
+      length == 1 and .[0] == {path:"docs/policies/foo.md",glob:"docs/policies/**"}
+    ' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} deleted policy path reports path and glob"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} deleted policy path reports path and glob"; FAIL=$((FAIL+1)); FAILURES+=("deleted policy path details")
+  fi
+  if printf '%s' "$deleted_json" | jq -e 'all(.[]; .path != "README.md")' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} non-matching deleted path is not reported"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} non-matching deleted path is not reported"; FAIL=$((FAIL+1)); FAILURES+=("non-matching deleted path exclusion")
+  fi
+
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"; chmod +x "$fake/codex"
+  preflight_json="$(cd "$work" && PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF="$base" \
+    TRIBUNAL_CODEX=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
+    bash "$PLUGIN_ROOT/scripts/preflight.sh" 2>/dev/null)" || true
+  if printf '%s' "$preflight_json" | jq -e '
+      any(.warnings[]; .name == "deleted-policy-paths"
+        and (.note | contains("docs/policies/foo.md"))
+        and (.note | contains("docs/policies/**")))
+    ' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} preflight warns about deleted policy paths"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} preflight warns about deleted policy paths"; FAIL=$((FAIL+1)); FAILURES+=("preflight deleted policy warning")
+  fi
+
+  git -C "$work" checkout -q -b clean "$base"
+  printf 'clean\n' > "$work/clean.md"
+  git -C "$work" add clean.md
+  git -C "$work" commit -q -m clean
+  clean_rc=0
+  clean_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$base" 2>/dev/null)" || clean_rc=$?
+  preflight_json="$(cd "$work" && PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF="$base" \
+    TRIBUNAL_CODEX=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
+    bash "$PLUGIN_ROOT/scripts/preflight.sh" 2>/dev/null)" || true
+  if [ "$clean_rc" -eq 0 ] && [ "$clean_json" = '[]' ] \
+    && printf '%s' "$preflight_json" | jq -e 'all(.warnings[]; .name != "deleted-policy-paths")' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} no matching deletions produce empty deleted-path signal"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} no matching deletions produce empty deleted-path signal"; FAIL=$((FAIL+1)); FAILURES+=("clean deleted policy check")
+  fi
+
+  # Custom globs apply only when .tribunal-deleted-globs exists on base.
+  git -C "$work" checkout -q -b custom-globs-base "$base"
+  printf '# custom list\nREADME.md\n' > "$work/.tribunal-deleted-globs"
+  git -C "$work" add .tribunal-deleted-globs
+  git -C "$work" commit -q -m 'custom globs on base'
+  custom_base="$(git -C "$work" rev-parse HEAD)"
+  git -C "$work" checkout -q -b custom-globs
+  git -C "$work" rm -q docs/policies/foo.md README.md
+  git -C "$work" commit -q -m 'custom globs deletions'
+  custom_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$custom_base" 2>/dev/null)" || true
+  if printf '%s' "$custom_json" | jq -e '
+      . == [{path:"README.md",glob:"README.md"}]
+    ' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} repo .tribunal-deleted-globs on base replaces defaults"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} repo .tribunal-deleted-globs on base replaces defaults"; FAIL=$((FAIL+1)); FAILURES+=("custom deleted globs")
+  fi
+
+  # Dirty worktree must not change base-based glob selection.
+  printf 'docs/policies/**\n' > "$work/.tribunal-deleted-globs"
+  dirty_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$custom_base" 2>/dev/null)" || true
+  if printf '%s' "$dirty_json" | jq -e '
+      . == [{path:"README.md",glob:"README.md"}]
+    ' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} dirty .tribunal-deleted-globs cannot replace base list"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} dirty .tribunal-deleted-globs cannot replace base list"; FAIL=$((FAIL+1)); FAILURES+=("dirty deleted globs")
+  fi
+  git -C "$work" checkout -q -- .tribunal-deleted-globs
+
+  # HEAD-only comment/empty .tribunal-deleted-globs must not disable defaults.
+  git -C "$work" checkout -q -b head-only-empty "$base"
+  printf '# no globs\n\n# still empty\n' > "$work/.tribunal-deleted-globs"
+  git -C "$work" add .tribunal-deleted-globs
+  git -C "$work" rm -q docs/policies/keep.md
+  git -C "$work" commit -q -m 'HEAD-only empty globs and keep.md deletion'
+  head_only_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$base" 2>/dev/null)" || true
+  if printf '%s' "$head_only_json" | jq -e '
+      . == [{path:"docs/policies/keep.md",glob:"docs/policies/**"}]
+    ' >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} HEAD-only empty .tribunal-deleted-globs keeps defaults"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} HEAD-only empty .tribunal-deleted-globs keeps defaults"; FAIL=$((FAIL+1)); FAILURES+=("HEAD-only empty deleted globs")
+  fi
+
+  # Tracked deletion under .gitignore must not use ignore rules for this signal.
+  git -C "$work" checkout -q -b gitignore-vendor "$base"
+  mkdir -p "$work/vendor"
+  printf 'vendored\n' > "$work/vendor/lib.js"
+  printf 'vendor/\n' > "$work/.gitignore"
+  git -C "$work" add -f vendor/lib.js .gitignore
+  git -C "$work" commit -q -m 'track vendor despite gitignore'
+  gitignore_base="$(git -C "$work" rev-parse HEAD)"
+  git -C "$work" rm -q vendor/lib.js
+  git -C "$work" commit -q -m 'delete gitignored-tracked vendor path'
+  gitignore_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$gitignore_base" 2>/dev/null)" || true
+  if [ "$gitignore_json" = '[]' ]; then
+    echo -e "  ${GREEN}PASS${NC} .gitignore-only deletion is not reported as deleted policy path"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} .gitignore-only deletion is not reported as deleted policy path"; FAIL=$((FAIL+1)); FAILURES+=("gitignore deletion exclusion")
+  fi
+
+  # Empty .tribunal-deleted-globs on base ⇒ [] (repo opted out on the base branch).
+  git -C "$work" checkout -q "$gitignore_base"
+  printf '# no globs\n\n# still empty\n' > "$work/.tribunal-deleted-globs"
+  git -C "$work" add .tribunal-deleted-globs
+  git -C "$work" commit -q -m 'empty deleted-globs on base'
+  gitignore_base="$(git -C "$work" rev-parse HEAD)"
+  git -C "$work" checkout -q -b empty-globs
+  git -C "$work" rm -q vendor/lib.js
+  git -C "$work" commit -q -m 'vendor deletion with empty base globs'
+  empty_globs_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$gitignore_base" 2>/dev/null)" || true
+  if [ "$empty_globs_json" = '[]' ]; then
+    echo -e "  ${GREEN}PASS${NC} empty .tribunal-deleted-globs on base yields []"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} empty .tribunal-deleted-globs on base yields []"; FAIL=$((FAIL+1)); FAILURES+=("empty deleted globs")
+  fi
+
+  helper_rc=0
+  deleted_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" \
+    && tribunal_deleted_policy_paths no-such-ref-xyz 2>/dev/null)" || helper_rc=$?
+  if [ "$helper_rc" -ne 0 ] && [ "$deleted_json" != '[]' ]; then
+    echo -e "  ${GREEN}PASS${NC} deleted-policy inspection fails for an unresolvable base ref"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} deleted-policy inspection fails for an unresolvable base ref"; FAIL=$((FAIL+1)); FAILURES+=("deleted-policy diff failure")
+  fi
+  rm -rf "$work"
+}
+
+test_deleted_policy_paths_gate() {
+  local work repo fake plugin collection manifest_sha base head ec=0 mutated
+  work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
+  mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
+  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
+  cp "$PLUGIN_ROOT/.claude-plugin/plugin.json" "$plugin/.claude-plugin/plugin.json"
+
+  cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
+#!/usr/bin/env bash
+base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"
+head="$(git rev-parse --verify 'HEAD^{commit}')"
+printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":0,\"deletions\":1,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
+EOF
+  for provider in gemini qwen grok claude; do
+    cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
+EOF
+  done
+  cat > "$plugin/scripts/run-opencode-review.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' '{"provider":"glm","status":"disabled","note":"fixture disabled"}'
+printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabled"}'
+EOF
+  chmod +x "$plugin/scripts/"*.sh
+  "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
+
+  (
+    cd "$repo"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    mkdir -p docs/policies
+    printf 'policy\n' > docs/policies/foo.md
+    printf 'one\n' > app.txt
+    printf 'readme\n' > README.md
+    git add docs/policies/foo.md app.txt README.md
+    git commit -q -m base
+    git rm -q docs/policies/foo.md
+    printf 'two\n' > app.txt
+    git add app.txt
+    git commit -q -m 'delete policy path'
+    git remote add origin https://github.com/example/fixture.git
+  )
+  base="$(git -C "$repo" rev-parse HEAD~1)"; head="$(git -C "$repo" rev-parse HEAD)"
+  printf 'Bound PR body' > "$work/pr-body"
+  cat > "$fake/gh" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = repo ] && [ "$2" = view ]; then
+  jq -nc '{nameWithOwner:"example/fixture",url:"https://github.com/example/fixture"}'
+elif [ "$1" = pr ] && [ "$2" = view ]; then
+  jq -nc --argjson number "$3" --arg base "$FIXTURE_BASE" --arg head "$FIXTURE_HEAD" \
+    --rawfile body "$FIXTURE_BODY_FILE" \
+    '{number:$number,url:("https://github.com/example/fixture/pull/"+($number|tostring)),state:"OPEN",
+      baseRefName:"main",baseRefOid:$base,headRefName:"feature",headRefOid:$head,body:$body}'
+else
+  printf 'unexpected gh invocation: %s\n' "$*" >&2
+  exit 2
+fi
+EOF
+  chmod +x "$fake/gh"
+
+  cat > "$work/arbitration.json" <<'EOF'
+{
+  "tribunal_verdict":{"decision":"APPROVE","confidence":0.95,"rationale":"One valid reviewer found no defects."},
+  "findings":[],"scope_findings":[],
+  "provider_assessment":{
+    "codex":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "gemini":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "glm":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
+  },
+  "conflicts_resolved":[],"summary":"No blocking findings."
+}
+EOF
+
+  collection="$work/deleted"
+  if ! PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$collection" > "$work/deleted.json"; then
+    echo -e "  ${RED}FAIL${NC} merge-gate collection seals deleted-path evidence (collect)"; FAIL=$((FAIL+1)); FAILURES+=("sealed deleted-path evidence")
+    rm -rf "$work"; return
+  fi
+  manifest_sha="$(jq -r .manifest_sha256 "$work/deleted.json")"
+  if jq -e '. == [{glob:"docs/policies/**",path:"docs/policies/foo.md"}]' \
+      "$collection/deleted-paths.json" >/dev/null 2>&1 \
+    && jq -e '.deleted_paths.path == "deleted-paths.json" and (.deleted_paths.sha256 | test("^[0-9a-f]{64}$"))
+      and (.deleted_paths.bytes > 0)' "$collection/manifest.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} merge-gate collection seals deleted-path evidence"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} merge-gate collection seals deleted-path evidence"; FAIL=$((FAIL+1)); FAILURES+=("sealed deleted-path evidence")
+  fi
+
+  ec=0
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$collection" \
+      --expected-manifest-sha256 "$manifest_sha" --arbitration "$work/arbitration.json" \
+      >/dev/null 2>"$work/forgotten.err" || ec=$?
+  if [ "$ec" -ne 0 ]; then
+    echo -e "  ${GREEN}PASS${NC} finalize rejects a forgotten deleted-path signal"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} finalize rejects a forgotten deleted-path signal"; FAIL=$((FAIL+1)); FAILURES+=("forgotten deleted-path signal")
+  fi
+
+  # Mutation RED: strip only the deleted_paths finding requirement in a copy.
+  # Without that gate, forgotten-signal finalize must succeed (exit 0).
+  mutated="$work/mutated-plugin"
+  cp -a "$plugin" "$mutated"
+  python3 - "$mutated/scripts/collect-review-evidence.sh" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+needle = """    and (.findings as $findings | $deleted_paths | all(.[]; .path as $path
+      | any($findings[]; .file == $path and (.providers | index(\"repository-policy\")))))
+"""
+if needle not in text:
+    raise SystemExit("deleted_paths finding requirement needle missing")
+path.write_text(text.replace(needle, "", 1))
+PY
+  "$mutated/scripts/generate-runner-bundle.sh" >/dev/null
+  cp -a "$collection" "$work/deleted-mutated"
+  # Re-seal collection against mutated runner digests by re-collecting.
+  rm -rf "$work/deleted-mutated"
+  if ! PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$mutated/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/deleted-mutated" > "$work/deleted-mutated.json"; then
+    echo -e "  ${RED}FAIL${NC} mutated deleted-path gate collect"; FAIL=$((FAIL+1)); FAILURES+=("mutated deleted-path RED")
+    rm -rf "$work"; return
+  fi
+  ec=0
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$mutated/scripts/collect-review-evidence.sh" finalize --collection "$work/deleted-mutated" \
+      --expected-manifest-sha256 "$(jq -r .manifest_sha256 "$work/deleted-mutated.json")" \
+      --arbitration "$work/arbitration.json" >/dev/null 2>"$work/mutated.err" || ec=$?
+  if [ "$ec" -eq 0 ]; then
+    echo -e "  ${GREEN}PASS${NC} mutated copy accepts forgotten deleted-path (RED anchor)"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} mutated copy accepts forgotten deleted-path (RED anchor)"; FAIL=$((FAIL+1)); FAILURES+=("mutated deleted-path RED")
+    cat "$work/mutated.err" >&2 || true
+    rm -rf "$work"; return
+  fi
+
+  jq '.findings=[{
+      id:"T-001",consensus:"SINGLE_PROVIDER",providers:["repository-policy"],severity:"medium",
+      category:"quality",file:"docs/policies/foo.md",line:1,title:"Deleted policy path",
+      description:"The reviewed diff deletes docs/policies/foo.md matched by docs/policies/**.",
+      suggestion:"Restore the policy file or document the intentional deletion.",confidence:1,
+      arbiter_notes:"Deterministic repository-policy signal; default medium severity."
+    }] | .summary="One deterministic medium repository-policy finding remains non-blocking."' \
+    "$work/arbitration.json" > "$work/deleted-arbitration.json"
+  cp -a "$collection" "$work/deleted-accept"
+  if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/deleted-accept" \
+      --expected-manifest-sha256 "$manifest_sha" --arbitration "$work/deleted-arbitration.json" \
+      >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} finalize accepts medium deleted-path repository-policy finding"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} finalize accepts medium deleted-path repository-policy finding"; FAIL=$((FAIL+1)); FAILURES+=("accepted deleted-path finding")
+  fi
+
+  # Non-matching deletion only: unaffected APPROVE with no repository-policy findings.
+  git -C "$repo" checkout -q -b nonmatch "$base"
+  git -C "$repo" rm -q README.md
+  printf 'two\n' > "$repo/app.txt"
+  git -C "$repo" add app.txt
+  git -C "$repo" commit -q -m 'delete non-matching path'
+  head="$(git -C "$repo" rev-parse HEAD)"
+  if ! PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/nonmatch" > "$work/nonmatch.json"; then
+    echo -e "  ${RED}FAIL${NC} non-matching deletion collection"; FAIL=$((FAIL+1)); FAILURES+=("non-matching deletion unaffected")
+    rm -rf "$work"; return
+  fi
+  if [ ! -e "$work/nonmatch/deleted-paths.json" ] \
+    && jq -e 'has("deleted_paths") | not' "$work/nonmatch/manifest.json" >/dev/null \
+    && PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+      "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/nonmatch" \
+        --expected-manifest-sha256 "$(jq -r .manifest_sha256 "$work/nonmatch.json")" \
+        --arbitration "$work/arbitration.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} non-matching deletion finalizes APPROVE without repository-policy findings"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} non-matching deletion finalizes APPROVE without repository-policy findings"; FAIL=$((FAIL+1)); FAILURES+=("non-matching deletion unaffected")
+  fi
+  chmod -R u+w "$work" 2>/dev/null || true
+  rm -rf "$work"
+}
+
 test_empty_staged_diff_with_real_changes_fails_closed() {
   local label="empty staged diff with real changes is a leg error" work base_oid head_oid
   work="$(mktemp -d)"
@@ -2258,10 +2603,11 @@ EOF
   manifest_sha="$(jq -r .manifest_sha256 "$work/collect.json")"
 
   if [ ! -e "$collection/ignored-paths.json" ] \
-    && jq -e 'has("ignored_paths") | not' "$collection/manifest.json" >/dev/null; then
-    echo -e "  ${GREEN}PASS${NC} clean collection has no ignored-path artifact noise"; PASS=$((PASS+1))
+    && [ ! -e "$collection/deleted-paths.json" ] \
+    && jq -e '(has("ignored_paths") | not) and (has("deleted_paths") | not)' "$collection/manifest.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} clean collection has no ignored-path or deleted-path artifact noise"; PASS=$((PASS+1))
   else
-    echo -e "  ${RED}FAIL${NC} clean collection has no ignored-path artifact noise"; FAIL=$((FAIL+1)); FAILURES+=("clean collection artifact noise")
+    echo -e "  ${RED}FAIL${NC} clean collection has no ignored-path or deleted-path artifact noise"; FAIL=$((FAIL+1)); FAILURES+=("clean collection artifact noise")
   fi
 
   # The codex fixture claims to be Claude; the aggregate runner owns and
@@ -3492,6 +3838,8 @@ test_blind_approve_guard
 test_ignored_path_additions
 test_ignored_path_diff_failures
 test_ignored_path_validation
+test_deleted_policy_paths
+test_deleted_policy_paths_gate
 test_trusted_evidence_collection
 test_sealed_panel_quorum
 
@@ -3509,6 +3857,9 @@ assert_grep "ignored-path finding defaults medium" "$SK" "default.*medium"
 assert_grep "sensitive ignore comments escalate high" "$SK" "secret.*PII.*credential.*key.*never commit"
 assert_grep "high ignored-path finding blocks gate" "$SK" "high.*blocks the gate"
 assert_grep "zero-finding approval excludes ignored-path signals" "$SK" "sealed ignored-path signals"
+assert_grep "deleted-path signal must become a finding" "$SK" "deleted-paths.json"
+assert_grep "deleted-path finding defaults medium" "$SK" "medium .repository-policy. finding"
+assert_grep "zero-finding approval excludes deleted-path signals" "$SK" "deleted-path signals"
 
 echo "Arbitration contract:"
 assert_grep "3b-0 in SKILL" "$SK" "3b-0: Blocking-Finding Standard"
