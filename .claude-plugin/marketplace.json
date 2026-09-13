@@ -20,7 +20,7 @@
     {
       "name": "reddit-fetch",
       "description": "Research any topic using Reddit via Gemini CLI's web access capabilities",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "author": {
         "name": "Andre Paat"
       },
@@ -31,7 +31,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — Codex + Grok + Claude (diff-only) by default; Gemini, OpenCode DeepSeek, OpenCode GLM and Qwen opt-in, with calling-context arbitration",
-      "version": "0.24.25",
+      "version": "0.24.26",
       "author": {
         "name": "Andre Paat"
       },
@@ -119,7 +119,7 @@
     {
       "name": "analyst-companion",
       "description": "Real-time in-person meeting analyst — live transcription with speaker diarization via WhisperLiveKit, clarifying questions, voice commands with Chrome screen context, and Plane work items at meeting end",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "author": {
         "name": "Andre Paat"
       },
