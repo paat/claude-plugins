@@ -534,6 +534,33 @@ EOF
   rm -rf "$work"
 }
 
+# Issue #518 / tribunal T-001: smoke prompt must emit files_examined so the
+# shared review-output schema's required keys are satisfied (smoke reads no files).
+test_smoke_prompt_files_examined() {
+  local label="smoke prompt includes files_examined satisfying schema required keys"
+  if (
+    set -euo pipefail
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    prompt="$(tribunal_smoke_prompt codex)"
+    printf '%s\n' "$prompt" | grep -q 'files_examined'
+    obj="$(printf '%s\n' "$prompt" | sed -n 's/^Return only this JSON object with no fence or commentary: \(.*\)\. Do not inspect files or use tools\.$/\1/p')"
+    [ -n "$obj" ]
+    printf '%s' "$obj" | jq -e . >/dev/null
+    required="$(jq -c '.required' "$PLUGIN_ROOT/schemas/review-output.json")"
+    printf '%s' "$obj" | jq -e --argjson req "$required" \
+      '(.files_examined == []) and (($req - keys) | length == 0)' >/dev/null
+    # preflight smoke_review_ok accepts the smoke-shaped object
+    printf '%s\n' "$obj" | jq -s -e --arg p codex '
+      [.[] | select(.provider==$p and (has("error")|not) and (.findings|type)=="array" and (.summary|type)=="object")]
+      | length==1
+    ' >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+}
+
 test_preflight_smoke_probe() {
   local label="opt-in preflight smoke verifies every enabled transport" work fake ec=0
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
@@ -3365,6 +3392,7 @@ test_qwen_envelope_parser
 test_executed_model_family_guard
 test_claude_auth_guard
 test_grok_auth_guard
+test_smoke_prompt_files_examined
 test_preflight_smoke_probe
 test_preflight_min_ok_legs
 test_claude_tmpdir_cleanup

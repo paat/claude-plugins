@@ -126,7 +126,7 @@ tribunal_grok_stop_reason() {
 
 tribunal_smoke_prompt() {
   local provider="$1"
-  printf '%s\n' "Return only this JSON object with no fence or commentary: {\"provider\":\"$provider\",\"model\":\"smoke\",\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"}}. Do not inspect files or use tools."
+  printf '%s\n' "Return only this JSON object with no fence or commentary: {\"provider\":\"$provider\",\"model\":\"smoke\",\"findings\":[],\"files_examined\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"}}. Do not inspect files or use tools."
 }
 
 tribunal_extract_claude_result() {
