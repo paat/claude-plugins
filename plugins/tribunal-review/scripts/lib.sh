@@ -166,6 +166,120 @@ tribunal_deleted_policy_paths() {
   )
 }
 
+# Opt-in mutation gate (issue #538 item 3): when head contains
+# .tribunal-mutation-gate with one non-comment command line, overlay
+# added/changed test paths from head onto a base checkout and run that
+# command. Non-zero exit ⇒ RED; zero ⇒ vacuous. Absence / comments-only ⇒ [].
+# Enablement is read from head_oid via git show (never the ambient worktree).
+tribunal_mutation_test_path() {
+  local path="$1" base
+  case "/$path/" in
+    */test/*|*/tests/*|*/__tests__/*) return 0 ;;
+  esac
+  base="${path##*/}"
+  case "$base" in
+    test_*|*_test.*|*.test.*|*.spec.*) return 0 ;;
+  esac
+  return 1
+}
+
+tribunal_mutation_gate() {
+  local base_ref="$1" head_ref="$2" repo_root base_commit head_commit
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" \
+    || { printf 'cannot resolve repository root\n' >&2; return 1; }
+  base_commit="$(git rev-parse --verify "${base_ref}^{commit}" 2>/dev/null)" \
+    || { printf 'cannot resolve base ref %s\n' "$base_ref" >&2; return 1; }
+  head_commit="$(git rev-parse --verify "${head_ref}^{commit}" 2>/dev/null)" \
+    || { printf 'cannot resolve head ref %s\n' "$head_ref" >&2; return 1; }
+
+  (
+    local temp_root paths_file matched_file config_content command path
+    local show_status diff_status worktree exit_code result parent
+    local -a targets=()
+    temp_root="$(mktemp -d)" || exit 1
+    trap 'rm -rf -- "$temp_root"' EXIT
+    trap 'exit 1' HUP INT TERM
+    paths_file="$temp_root/paths"
+    matched_file="$temp_root/matched"
+    : > "$matched_file" || exit 1
+
+    if ! git -C "$repo_root" cat-file -e "${head_commit}:.tribunal-mutation-gate" 2>/dev/null; then
+      printf '[]\n'
+      exit 0
+    fi
+    set +e
+    config_content="$(git -C "$repo_root" show "${head_commit}:.tribunal-mutation-gate")"
+    show_status=$?
+    set -e
+    if (( show_status != 0 )); then
+      printf 'cannot read head .tribunal-mutation-gate\n' >&2
+      exit 1
+    fi
+    command="$(printf '%s\n' "$config_content" | awk '
+      /^[[:space:]]*#/ { next }
+      /^[[:space:]]*$/ { next }
+      { print; exit }
+    ')"
+    if [ -z "$command" ]; then
+      printf '[]\n'
+      exit 0
+    fi
+
+    set +e
+    git -C "$repo_root" diff --name-only --diff-filter=AMR --find-renames \
+      "$base_commit"..."$head_commit" > "$paths_file"
+    diff_status=$?
+    set -e
+    if (( diff_status != 0 )); then
+      printf 'git mutation-gate path match failed (diff %s)\n' "$diff_status" >&2
+      exit 1
+    fi
+    while IFS= read -r path || [ -n "$path" ]; do
+      [ -n "$path" ] || continue
+      tribunal_mutation_test_path "$path" || continue
+      targets+=("$path")
+    done < "$paths_file"
+
+    if (( ${#targets[@]} == 0 )); then
+      printf '[]\n'
+      exit 0
+    fi
+
+    worktree="$temp_root/base-wt"
+    git -C "$repo_root" worktree add --detach --quiet "$worktree" "$base_commit" \
+      || { printf 'cannot create base worktree for mutation gate\n' >&2; exit 1; }
+    # shellcheck disable=SC2064
+    trap 'git -C "$repo_root" worktree remove --force "$worktree" >/dev/null 2>&1 || true; rm -rf -- "$temp_root"' EXIT
+
+    for path in "${targets[@]}"; do
+      parent="$(dirname -- "$path")"
+      mkdir -p -- "$worktree/$parent" || exit 1
+      git -C "$repo_root" show "${head_commit}:${path}" > "$worktree/$path" || {
+        printf 'cannot overlay mutation-gate test path from head: %s\n' "$path" >&2
+        exit 1
+      }
+    done
+
+    set +e
+    (cd "$worktree" && bash -c "$command") >/dev/null 2>&1
+    exit_code=$?
+    set -e
+    if (( exit_code == 0 )); then
+      result=vacuous
+    else
+      result=RED
+    fi
+
+    for path in "${targets[@]}"; do
+      jq -nc --arg path "$path" --arg command "$command" \
+        --argjson exit_code "$exit_code" --arg result "$result" \
+        '{path:$path,command:$command,exit_code:$exit_code,result:$result}' \
+        >> "$matched_file" || exit 1
+    done
+    jq -s -c 'sort_by(.path)' "$matched_file"
+  )
+}
+
 # Plugin root for schema/assets. Explicit TRIBUNAL_PLUGIN_ROOT / CLAUDE_PLUGIN_ROOT
 # are authoritative even when the schema is missing (so the runner can fail loud
 # instead of silently loading another install — issue #378 / Codex review).
