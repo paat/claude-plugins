@@ -93,19 +93,124 @@ printf '%s\n' "$@" > "$STUB_CLAUDE_ARGS"
 # Record the working directory the runner actually placed us in.
 pwd > "$STUB_CLAUDE_CWD"
 cat > "$STUB_CLAUDE_PROMPT"
-case "${STUB_CLAUDE_RESULT:-ok}" in
-  error) exit 23 ;;
-  empty) exit 0 ;;
-  # Unlink --out while the runner's redirect FD is still open so the path is
-  # missing after the subshell closes (shell > always creates the file first).
-  missing) [ -n "${STUB_UNLINK_OUT:-}" ] && rm -f "$STUB_UNLINK_OUT"; exit 0 ;;
-  progress) printf 'I will inspect the diff.\n' ;;
-  approved) printf 'claude findings\nAPPROVED\n' ;;
-  needs_work_space) printf 'claude findings\nNEEDS WORK\n' ;;
-  template) printf '**VERDICT:** APPROVE\nREADY TO MERGE — nothing further coming.\n' ;;
-  prose_approve) printf 'I cannot approve this change because tests fail.\n' ;;
-  *) printf 'claude findings\nAPPROVE\n' ;;
-esac
+format=text
+verbose=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output-format) format="$2"; shift 2 ;;
+    --verbose) verbose=1; shift ;;
+    *) shift ;;
+  esac
+done
+# Mirror real Claude: stream-json under -p requires --verbose.
+if [ "$format" = stream-json ] && [ "$verbose" -ne 1 ]; then
+  printf 'Error: When using --print, --output-format=stream-json requires --verbose\n' >&2
+  exit 1
+fi
+text_for_result() {
+  case "${STUB_CLAUDE_RESULT:-ok}" in
+    progress) printf 'I will inspect the diff.\n' ;;
+    approved) printf 'claude findings\nAPPROVED\n' ;;
+    needs_work_space) printf 'claude findings\nNEEDS WORK\n' ;;
+    template) printf '**VERDICT:** APPROVE\nREADY TO MERGE — nothing further coming.\n' ;;
+    prose_approve) printf 'I cannot approve this change because tests fail.\n' ;;
+    *) printf 'claude findings\nAPPROVE\n' ;;
+  esac
+}
+if [ "$format" = stream-json ]; then
+  case "${STUB_CLAUDE_RESULT:-ok}" in
+    error) exit 23 ;;
+    empty) exit 0 ;;
+    missing) [ -n "${STUB_UNLINK_OUT:-}" ] && rm -f "$STUB_UNLINK_OUT"; exit 0 ;;
+    # Emit events, then sleep past the runner timeout so a kill leaves a live stream.
+    live_sleep)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"live partial"}]}}'
+      sleep 120
+      exit 0
+      ;;
+    stream_error)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      printf '%s\n' '{"type":"result","subtype":"error","is_error":true,"result":"provider reported an error"}'
+      exit 0
+      ;;
+    # Valid success result, then a truncated non-JSON line (protocol violation).
+    stream_trunc_after)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      jq -nc --arg r "$(text_for_result)" \
+        '{type:"result",subtype:"success",is_error:false,result:$r}'
+      printf '%s\n' 'truncated{'
+      exit 0
+      ;;
+    # Non-JSON line before a valid success result (protocol violation).
+    stream_bad_before)
+      printf '%s\n' 'not json at all'
+      jq -nc --arg r "$(text_for_result)" \
+        '{type:"result",subtype:"success",is_error:false,result:$r}'
+      exit 0
+      ;;
+    # Success result event with no string .result field.
+    stream_null_result)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      printf '%s\n' '{"type":"result","subtype":"success","is_error":false}'
+      exit 0
+      ;;
+    # Success result with a non-string .result (must not coerce into --out).
+    stream_number_result)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":42}'
+      exit 0
+      ;;
+    # Success with empty-string .result (must not bypass the empty-artifact guard).
+    stream_empty_result)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":""}'
+      exit 0
+      ;;
+    # Valid success stream, but replace --out with a directory before the
+    # result event so the runner's final redirect fails for every uid (root
+    # included). Permission bits alone are bypassed by root.
+    stream_out_dir)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      if [ -n "${STUB_LOCK_OUT:-}" ]; then
+        rm -f "$STUB_LOCK_OUT"
+        mkdir -p "$STUB_LOCK_OUT"
+      fi
+      jq -nc --arg r "$(text_for_result)" \
+        '{type:"result",subtype:"success",is_error:false,result:$r}'
+      exit 0
+      ;;
+    *)
+      printf '%s\n' '{"type":"system","subtype":"init"}'
+      printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}'
+      jq -nc --arg r "$(text_for_result)" \
+        '{type:"result",subtype:"success",is_error:false,result:$r}'
+      ;;
+  esac
+else
+  case "${STUB_CLAUDE_RESULT:-ok}" in
+    error) exit 23 ;;
+    empty) exit 0 ;;
+    # Unlink --out while the runner's redirect FD is still open so the path is
+    # missing after the subshell closes (shell > always creates the file first).
+    missing) [ -n "${STUB_UNLINK_OUT:-}" ] && rm -f "$STUB_UNLINK_OUT"; exit 0 ;;
+    # Text mode prints nothing until completion — sleep without emitting.
+    live_sleep) sleep 120; exit 0 ;;
+    stream_error)
+      printf 'provider reported an error\n'
+      exit 0
+      ;;
+    stream_trunc_after|stream_bad_before|stream_null_result|stream_number_result|stream_empty_result|stream_out_dir)
+      printf 'claude findings\nAPPROVE\n'
+      ;;
+    progress) printf 'I will inspect the diff.\n' ;;
+    approved) printf 'claude findings\nAPPROVED\n' ;;
+    needs_work_space) printf 'claude findings\nNEEDS WORK\n' ;;
+    template) printf '**VERDICT:** APPROVE\nREADY TO MERGE — nothing further coming.\n' ;;
+    prose_approve) printf 'I cannot approve this change because tests fail.\n' ;;
+    *) printf 'claude findings\nAPPROVE\n' ;;
+  esac
+fi
 STUB
 cat > "$WORK/bin/grok" <<'STUB'
 #!/usr/bin/env bash
@@ -969,6 +1074,182 @@ set -e
 [ "$grok_tee_fail_rc" -ne 0 ] || fail 'Grok unwritable --stream-log must not exit 0'
 contains "$WORK/stream-tee-fail/grok-run.err" "$bad_grok_stream" 'Grok tee failure names stream path'
 pass '#517 regression: --stream-log tee write failure fails and names path'
+
+# --- #523 Claude --stream-log must be live (stream-json); --out stays final message ---
+mkdir -p "$WORK/523"
+
+# (a) completed --stream-log: --out equals result text; stream holds event lines.
+printf 'claude 523a\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/a-final.txt" \
+  --stream-log "$WORK/523/a.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/a.err" \
+  || fail '523a: completed --stream-log run succeeds'
+[ "$(cat "$WORK/523/a-final.txt")" = $'claude findings\nAPPROVE' ] || fail '523a: --out equals result text'
+contains "$WORK/523/a.stream" '"type":"result"' '523a: stream holds result event'
+contains "$WORK/523/a.stream" '"type":"system"' '523a: stream holds event lines'
+pass '#523a: completed --stream-log extracts result text; stream holds events'
+
+# (b) live stream: events then sleep past --timeout leaves a non-empty stream file.
+set +e
+printf 'claude 523b\n' | STUB_CLAUDE_RESULT=live_sleep \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/b-final.txt" \
+  --stream-log "$WORK/523/b.stream" --timeout 2 \
+  >/dev/null 2> "$WORK/523/b.err"
+claude_523b_rc=$?
+set -e
+[ "$claude_523b_rc" -ne 0 ] || fail '523b: live mid-stream kill must exit nonzero'
+[ -s "$WORK/523/b.stream" ] || fail '523b: killed mid-stream must leave a non-empty stream file'
+pass '#523b: --stream-log is live (non-empty after mid-stream kill)'
+
+# (c) error result (is_error:true) with provider exit 0: fail and name the stream file.
+set +e
+printf 'claude 523c\n' | STUB_CLAUDE_RESULT=stream_error \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/c-final.txt" \
+  --stream-log "$WORK/523/c.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/c.err"
+claude_523c_rc=$?
+set -e
+[ "$claude_523c_rc" -ne 0 ] || fail '523c: error result must not report success'
+contains "$WORK/523/c.err" 'error result in --stream-log' '523c: error result message'
+contains "$WORK/523/c.err" "$WORK/523/c.stream" '523c: error result names stream file'
+pass '#523c: error result fails nonzero and names the stream file'
+
+# (d) without --stream-log: argv stays --output-format text (not stream-json).
+printf 'claude 523d\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/d-final.txt" --timeout 5 \
+  >/dev/null 2> "$WORK/523/d.err" \
+  || fail '523d: run without --stream-log succeeds'
+exact_line "$WORK/claude.args" 'text' '523d: without --stream-log uses --output-format text'
+absent "$WORK/claude.args" 'stream-json' '523d: without --stream-log omits stream-json'
+absent "$WORK/claude.args" '--verbose' '523d: without --stream-log omits --verbose'
+pass '#523d: without --stream-log invocation stays text mode'
+
+# (e) review mode with --stream-log: verdict gate reads extracted final message.
+printf 'claude 523e\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" \
+  --base HEAD --model claude-haiku-4-5 --out "$WORK/523/e-final.txt" \
+  --stream-log "$WORK/523/e.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/e.err" \
+  || fail '523e: review with --stream-log must pass on APPROVE'
+contains "$WORK/523/e-final.txt" 'APPROVE' '523e: --out holds extracted APPROVE verdict'
+pass '#523e: review --stream-log verdict gate reads extracted final message'
+
+# (f) valid success result followed by truncated JSON: provider 0 → runner non-zero.
+set +e
+printf 'claude 523f\n' | STUB_CLAUDE_RESULT=stream_trunc_after \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/f-final.txt" \
+  --stream-log "$WORK/523/f.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/f.err"
+claude_523f_rc=$?
+set -e
+[ "$claude_523f_rc" -ne 0 ] || fail '523f: truncated line after result must exit nonzero'
+contains "$WORK/523/f.err" 'malformed' '523f: malformed stream message'
+contains "$WORK/523/f.err" "$WORK/523/f.stream" '523f: malformed stream names stream file'
+pass '#523f: truncated line after result fails and names the stream file'
+
+# (g) non-JSON before a valid success result: not the missing-or-empty guard.
+set +e
+printf 'claude 523g\n' | STUB_CLAUDE_RESULT=stream_bad_before \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/g-final.txt" \
+  --stream-log "$WORK/523/g.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/g.err"
+claude_523g_rc=$?
+set -e
+[ "$claude_523g_rc" -eq 1 ] || fail "523g: bad line before result rc=$claude_523g_rc want 1"
+contains "$WORK/523/g.err" 'malformed' '523g: malformed stream message'
+contains "$WORK/523/g.err" "$WORK/523/g.stream" '523g: malformed stream names stream file'
+absent "$WORK/523/g.err" 'missing or empty final-message artifact' \
+  '523g: must not use missing-or-empty message'
+pass '#523g: bad line before result fails as malformed, not missing-or-empty'
+
+# (h) success result without string .result: fail; --out must not contain null.
+set +e
+printf 'claude 523h\n' | STUB_CLAUDE_RESULT=stream_null_result \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/h-final.txt" \
+  --stream-log "$WORK/523/h.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/h.err"
+claude_523h_rc=$?
+set -e
+[ "$claude_523h_rc" -ne 0 ] || fail '523h: success without string .result must exit nonzero'
+contains "$WORK/523/h.err" "$WORK/523/h.stream" '523h: null-result failure names stream file'
+absent "$WORK/523/h-final.txt" 'null' '523h: --out must not contain null'
+pass '#523h: success without string .result fails; --out has no null'
+
+# (i) success result with non-string .result (number): fail; do not coerce into --out.
+set +e
+printf 'claude 523i\n' | STUB_CLAUDE_RESULT=stream_number_result \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/i-final.txt" \
+  --stream-log "$WORK/523/i.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/i.err"
+claude_523i_rc=$?
+set -e
+[ "$claude_523i_rc" -ne 0 ] || fail '523i: non-string .result must exit nonzero'
+contains "$WORK/523/i.err" "$WORK/523/i.stream" '523i: non-string .result failure names stream file'
+absent "$WORK/523/i-final.txt" '42' '523i: --out must not contain coerced 42'
+pass '#523i: non-string .result fails; stream named; no coerced --out'
+
+# (j) success with empty-string .result: missing-or-empty guard (rc=5), empty --out.
+set +e
+printf 'claude 523j\n' | STUB_CLAUDE_RESULT=stream_empty_result \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/j-final.txt" \
+  --stream-log "$WORK/523/j.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/j.err"
+claude_523j_rc=$?
+set -e
+[ "$claude_523j_rc" -eq 5 ] || fail "523j: empty-string .result rc=$claude_523j_rc want 5"
+contains "$WORK/523/j.err" 'missing or empty final-message artifact' \
+  '523j: missing-or-empty message'
+contains "$WORK/523/j.err" "$WORK/523/j-final.txt" '523j: message names --out'
+[ -f "$WORK/523/j-final.txt" ] && [ ! -s "$WORK/523/j-final.txt" ] \
+  || fail '523j: --out must exist and be empty'
+pass '#523j: empty-string .result exits 5 with empty --out'
+
+# (k) final --out write failure must not report success (--out replaced by a dir).
+set +e
+printf 'claude 523k\n' | STUB_CLAUDE_RESULT=stream_out_dir \
+  STUB_LOCK_OUT="$WORK/523/k-final.txt" \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/k-final.txt" \
+  --stream-log "$WORK/523/k.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/k.err"
+claude_523k_rc=$?
+set -e
+# Remove the directory stand-in even on assertion failure.
+rm -rf "$WORK/523/k-final.txt"
+[ "$claude_523k_rc" -ne 0 ] || fail '523k: failed final --out write must not exit 0'
+contains "$WORK/523/k.err" 'failed writing final message' '523k: write-failure diagnostic'
+contains "$WORK/523/k.err" "$WORK/523/k-final.txt" '523k: diagnostic names --out'
+pass '#523k: final --out write failure exits nonzero and names path'
+
+# (l) provider exit 0 with empty stream under --stream-log: missing-or-empty
+# guard (rc=5), not malformed (jq -e would false-positive on empty input).
+set +e
+printf 'claude 523l\n' | STUB_CLAUDE_RESULT=empty \
+  "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+  --model claude-haiku-4-5 --out "$WORK/523/l-final.txt" \
+  --stream-log "$WORK/523/l.stream" --timeout 5 \
+  >/dev/null 2> "$WORK/523/l.err"
+claude_523l_rc=$?
+set -e
+[ "$claude_523l_rc" -eq 5 ] || fail "523l: empty stream rc=$claude_523l_rc want 5"
+contains "$WORK/523/l.err" 'missing or empty final-message artifact' \
+  '523l: missing-or-empty message'
+absent "$WORK/523/l.err" 'malformed stream' '523l: must not report malformed stream'
+pass '#523l: empty stream under --stream-log exits 5, not malformed'
+
+# README/contract: jq is required only for Claude --stream-log (#523).
+absent "$PLUGIN_ROOT/README.md" 'No `jq` dependency is used' \
+  'README must not claim no jq dependency'
+contains "$PLUGIN_ROOT/README.md" \
+  '`jq` is required only for `run-claude.sh --stream-log`' \
+  'README documents jq required only for run-claude.sh --stream-log'
+pass 'README documents jq only for Claude --stream-log'
 
 # Req 3: run-codex.sh resolves --dir/--repo to a git toplevel (match claude/grok).
 # Intentional behavior change vs 0.7.6: existing non-git directory exits 2.
