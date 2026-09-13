@@ -67,6 +67,7 @@ wit_read_main() {
       if jq -e '.search' <<< "$adapter" >/dev/null; then verb=search
       else limits='["search unavailable: duplicate lookup uses bounded list + local text matching; semantic duplicates and closed items may be missed"]'; fi
     fi
+    : > "$tmp/pages"
     for ((page=1;page<=max_pages;page++)); do
       if [[ $system == github ]]; then
         endpoint="repos/$scope/issues?state=open&per_page=100&page=$page"
@@ -84,10 +85,11 @@ wit_read_main() {
         next=$(jq -r '.next' <<< "$payload"); [[ $(jq -r '.complete' <<< "$payload") == true ]] || complete=false
         payload=$(jq '.items' <<< "$payload")
       fi
-      records=$(wit_json '.[0]+.[1]' "$records" "$payload")
+      printf '%s\n' "$payload" >> "$tmp/pages"
       [[ $next == true ]] || break
       ((page<max_pages)) || complete=false
     done
+    records=$(jq -cs 'add // []' "$tmp/pages")
   fi
   # A repeated id is not a second work item; retain the latest observation.
   records=$(jq 'reverse | unique_by((.id // .number)|tostring)' <<< "$records")
@@ -99,12 +101,14 @@ wit_read_main() {
     if [[ $system == github ]]; then
       for endpoint in comments timeline; do
         local collected='[]'
+        : > "$tmp/collected"
         for ((page=1;page<=max_pages;page++)); do
           if ! payload=$(gh api "repos/$scope/issues/$iid/$endpoint?per_page=100&page=$page") || ! jq -e 'type=="array"' <<< "$payload" >/dev/null; then item_complete=false; break; fi
-          collected=$(wit_json '.[0]+.[1]' "$collected" "$payload")
+          printf '%s\n' "$payload" >> "$tmp/collected"
           count=$(jq length <<< "$payload"); ((count<100)) && break
           ((page<max_pages)) || item_complete=false
         done
+        collected=$(jq -cs 'add // []' "$tmp/collected")
         if [[ $endpoint == comments ]]; then comments=$collected; else timeline=$collected; fi
       done
       [[ $(jq length <<< "$comments") -ge $(jq '.comments // 0' <<< "$raw") ]] || item_complete=false
