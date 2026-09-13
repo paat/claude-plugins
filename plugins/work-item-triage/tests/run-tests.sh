@@ -165,6 +165,39 @@ sys.exit(result.returncode)
 PYTEST
 check 'cyclic prior-run chain fails promptly' 1 "$?"
 check 'cycle refusal preserves pointer and releases lock' 1 "$([ "$(jq -r .run_id "$TMP/cycle/work-item-triage/pointer.json")" = loop ] && [ ! -e "$TMP/cycle/work-item-triage/.writer-lock" ] && [ ! -e "$TMP/cycle/work-item-triage/after-cycle" ] && echo 1 || echo 0)"
+# Writer lock recovers from hard-kill leftovers; a live lock stays exclusive.
+mkdir -p "$TMP/stale-dead/work-item-triage/.writer-lock"
+sleep 0 &
+dead_pid=$!
+wait "$dead_pid" || true
+printf '%s %s\n' "$dead_pid" "$(date +%s)" > "$TMP/stale-dead/work-item-triage/.writer-lock/owner"
+bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/stale-dead" --run-id dead-pid >/dev/null 2>"$TMP/stale-dead.err"
+check 'stale lock recovers when owner pid is dead' 0 "$?"
+check 'stale lock dead-pid stderr names recovery' 1 "$(grep -c 'recovering stale writer lock' "$TMP/stale-dead.err" || true)"
+check 'stale lock dead-pid writes pointer and clears lock' 1 "$([ -f "$TMP/stale-dead/work-item-triage/pointer.json" ] && [ ! -e "$TMP/stale-dead/work-item-triage/.writer-lock" ] && echo 1 || echo 0)"
+mkdir -p "$TMP/live-lock/work-item-triage/.writer-lock"
+printf '%s %s\n' "$$" "$(date +%s)" > "$TMP/live-lock/work-item-triage/.writer-lock/owner"
+cp "$TMP/live-lock/work-item-triage/.writer-lock/owner" "$TMP/live-lock-owner-before"
+bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/live-lock" --run-id live >/dev/null 2>"$TMP/live-lock.err"
+check 'live writer lock is not stolen' 1 "$([ "$?" -ne 0 ] && echo 1 || echo 0)"
+check 'live writer stderr is another writer active' 1 "$(grep -c 'another writer is active' "$TMP/live-lock.err" || true)"
+check 'live writer lock and owner untouched' 1 "$([ -d "$TMP/live-lock/work-item-triage/.writer-lock" ] && cmp -s "$TMP/live-lock-owner-before" "$TMP/live-lock/work-item-triage/.writer-lock/owner" && echo 1 || echo 0)"
+mkdir -p "$TMP/stale-old/work-item-triage/.writer-lock"
+printf '%s %s\n' "$$" "$(($(date +%s) - 3601))" > "$TMP/stale-old/work-item-triage/.writer-lock/owner"
+bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/stale-old" --run-id old-epoch >/dev/null 2>"$TMP/stale-old.err"
+check 'stale lock recovers when owner epoch exceeds 3600s' 0 "$?"
+check 'stale lock old-epoch stderr names recovery' 1 "$(grep -c 'recovering stale writer lock' "$TMP/stale-old.err" || true)"
+mkdir -p "$TMP/no-owner-fresh/work-item-triage/.writer-lock"
+bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/no-owner-fresh" --run-id no-owner-fresh >/dev/null 2>"$TMP/no-owner-fresh.err"
+check 'fresh lock without owner is not stolen' 1 "$([ "$?" -ne 0 ] && echo 1 || echo 0)"
+check 'fresh lock without owner keeps another-writer message' 1 "$(grep -c 'another writer is active' "$TMP/no-owner-fresh.err" || true)"
+mkdir -p "$TMP/no-owner-old/work-item-triage/.writer-lock"
+touch -d '2 hours ago' "$TMP/no-owner-old/work-item-triage/.writer-lock"
+bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/no-owner-old" --run-id no-owner-old >/dev/null 2>"$TMP/no-owner-old.err"
+check 'aged lock without owner is recovered' 0 "$?"
+check 'aged lock without owner stderr names recovery' 1 "$(grep -c 'recovering stale writer lock' "$TMP/no-owner-old.err" || true)"
+bash "$SCRIPTS/wit-register.sh" --snapshot "$TMP/worked.json" --decisions "$TMP/decisions.json" --output-dir "$TMP/lock-release" --run-id release-ok >/dev/null 2>&1
+check 'successful register removes writer lock' 1 "$([ "$?" -eq 0 ] && [ ! -e "$TMP/lock-release/work-item-triage/.writer-lock" ] && echo 1 || echo 0)"
 # More than a provider page, followed by a transport-truncated second page.
 export WIT_MODE=pages
 read_snapshot github > "$TMP/pages.json"
