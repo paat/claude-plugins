@@ -67,7 +67,7 @@ N+1. `tribunal-review:closing-tribunal-loop` per the delivery strategy; merge at
 
 <pushbacks that caught orchestrator errors, misreports, exit codes, which model handled what.>
 
-## Open human decisions
+## Judgment calls decided
 
-<questions only the owner can answer; the human may pre-answer these inline when resuming.>
+<choice — recommended default taken, reason, how to reverse; the human may overrule any of these inline when resuming.>
 ```

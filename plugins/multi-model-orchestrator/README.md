@@ -65,7 +65,7 @@ autonomy bounds and model restrictions. HOW is the orchestrator's job: per-item 
 routed through the model catalog, adversarial review plus a bounded delta re-review by a
 different provider, merge only on a literal ready signal, and a crash-safe handoff file updated
 after every decision. `--resume [handoff-path]` continues from the newest (or named) handoff;
-trailing text is treated as pre-answered decisions. A scan that finds nothing new writes
+trailing text is treated as overrides of decided judgment calls and brief deltas. A scan that finds nothing new writes
 nothing and stops; recurrence belongs to `/loop` or cron.
 
 When an item depends on out-of-repo facts, a research leg records tiered evidence in a tracked
