@@ -68,8 +68,8 @@ annotate the source via its `close` command.
 ## Delivery strategies
 
 - **A (epic):** per-item branches merge into the epic branch on the merge signal. Close-out:
-  browser QA + UX on the epic PR, then `tribunal-review:closing-tribunal-loop`; merge to the
-  default branch at zero critical/high; write the final handoff and commit it on the epic branch, path-limited, when
+  QA + UX on the epic PR, then `tribunal-review:closing-tribunal-loop`; merge to the
+  default branch at zero critical/high without `--delete-branch`; write the final handoff and commit it on the epic branch, path-limited, when
   no leg is live (`git add -f <handoff> && git commit -m … -- <handoff>`); close the epic.
 - **B (per-item):** branch → push → PR → `tribunal-review:closing-tribunal-loop` → merge at zero
   critical/high → close/annotate the source item.
@@ -81,11 +81,11 @@ PR open, local head pushed, you arbitrate as calling context — never restate i
 
 Fresh start: require `gh` authenticated, a GitHub remote, and a clean worktree; verify any
 referenced issues/workitems exist; add `${MMO_HANDOFF_DIR:-.claude/handoffs}` (repo-relative) to
-`$(git rev-parse --git-path info/exclude)` unless already listed. Local — never commit it during the run.
-Once the queue is ordered, and again immediately before every dispatch (including a Discovery
-research leg before any queue exists) — never for a no-op scan — write the handoff (instantiate `references/handoff-template.md`)
+`$(git rev-parse --git-path info/exclude)` unless already listed. Handoff is local — never commit it during the run.
+Once the queue is ordered, and again immediately before every dispatch (including a pre-queue Discovery
+research leg) — never for a no-op scan — write the handoff (instantiate `references/handoff-template.md`)
 with the literal resume command, expected artifact paths, and baseline — all known before launch.
-If another session's handoff already records conflicting in-flight work on this branch,
+If another session's handoff records conflicting in-flight work on this branch,
 reconcile; do not overwrite it.
 
 Resume (`--resume`): read the handoff top-down. Execute its "Stop here first" action before
