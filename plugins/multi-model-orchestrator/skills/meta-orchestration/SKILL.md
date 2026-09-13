@@ -81,18 +81,18 @@ PR open, local head pushed, you arbitrate as calling context — never restate i
 Fresh start: require `gh` authenticated, a GitHub remote, and a clean worktree; verify any
 referenced issues/workitems exist; add `${MMO_HANDOFF_DIR:-.claude/handoffs}` (repo-relative) to
 `$(git rev-parse --git-path info/exclude)` unless already listed (`grep -qxF`). Handoff is local — never commit it during the run.
+If `git ls-files -- "${MMO_HANDOFF_DIR:-.claude/handoffs}"` is non-empty, queue OPERATOR ACTIONS REQUIRED (`git rm -r --cached <dir>` then commit) and write new handoffs under fresh names.
 Once the queue is ordered, and again immediately before every dispatch (including a pre-queue Discovery
 research leg) — never for a no-op scan — write the handoff (instantiate `references/handoff-template.md`)
 with the literal resume command, expected artifact paths, and baseline — all known before launch.
 If another session's handoff records conflicting in-flight work on this branch,
 reconcile; do not overwrite it.
 
-Resume (`--resume`): read the handoff top-down; reconcile each recorded in-flight leg and open item
+Resume (`--resume`): reconcile each recorded in-flight leg and open item
 with reality (PR merged/closed, output mtime still advancing, branch head as recorded),
-then execute its "Stop here first" action. Treat "Decisions ratified — do not re-litigate" as settled.
-The handoff State block is the authoritative baseline; unexplained worktree state is a stop —
-inspect and reconcile, never discard. Trailing text after the flag is
-overrides of decided judgment calls and brief deltas; both are ratified.
+then execute its "Stop here first" action.
+The handoff State block is the authoritative baseline; reconcile, never discard. Trailing text after the flag is
+overrides of decided judgment calls and brief deltas.
 
 ## Handoff discipline
 
