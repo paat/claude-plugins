@@ -637,7 +637,7 @@ tribunal_stamp_diff_stat() {
       return
     }
     if [ -z "$base_oid" ] || [ -z "$head_oid" ] \
-      || ! git -C "$root" diff --name-only -z "$base_oid...$head_oid" \
+      || ! git -C "$root" diff --name-only --no-renames -z "$base_oid...$head_oid" \
             --no-ext-diff --no-textconv > "$tmpdir/changed" 2>/dev/null; then
       rm -rf "$tmpdir"
       tribunal_error "$provider" \

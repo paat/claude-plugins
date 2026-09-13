@@ -3144,6 +3144,35 @@ EOF
     echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
   fi
   rm -rf "$work"
+
+  # (b9) rename source path counts as changed: empty-findings APPROVE listing
+  # only the rename-from path must stamp ok (default rename detection would omit it).
+  label="empty-findings APPROVE listing rename source path stamps ok"
+  work="$(mktemp -d)"
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'content\n' > old.txt
+    git add old.txt
+    git commit -q -m base
+    git mv old.txt new.txt
+    git commit -q -m rename
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD~1 tribunal_prepare_diff "$work/d.diff"
+    stat="$(tribunal_take_diff_stat "$work/d.diff")"
+    printf '%s\n' '{"provider":"codex","model":"m","files_examined":["old.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
+      | tribunal_stamp_diff_stat "$stat" > "$work/out.json"
+    jq -e '.provider=="codex" and (has("error")|not) and (.diff_stat|type)=="object" and .files_examined==["old.txt"]' \
+      "$work/out.json" >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
 }
 
 test_sealed_panel_quorum() {
