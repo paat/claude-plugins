@@ -1,7 +1,7 @@
 # Handoff template
 
 File naming: `handoff-<UTC yyyy-mm-ddThhmmZ>.md` under `${MMO_HANDOFF_DIR:-.claude/handoffs}`.
-Write/commit rules: see the skill's Preflight and Handoff discipline. When a prior handoff
+Write rules: see the skill's Preflight and Handoff discipline (handoffs are local; never commit them). When a prior handoff
 exists, do not restate its protocol:
 state "The protocol sections of `<prior-handoff>` remain in force verbatim; this file adds only
 deltas." and record deltas.
