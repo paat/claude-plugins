@@ -31,6 +31,8 @@ Infer available inputs from the request and repository; ask only for required mi
    Filing gate (canonical): other plugins' issue-filing paths invoke this proposed direction before
    filing a NEW issue; when this skill is absent, comment on an open issue that already covers the
    same outcome, and skip filing when it is not the smallest adequate response (record in-run instead).
+   Plugin-defect reports, including review-machinery follow-ups, bypass this gate, are biased toward
+   filing, and are still deduplicated.
 4. Compare relevant claims with current code/configuration/tests when available. Pin code evidence
    to the inspected commit. Non-code work uses its available sources; absent code is a limitation.
 
