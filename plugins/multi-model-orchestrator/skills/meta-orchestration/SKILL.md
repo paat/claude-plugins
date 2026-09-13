@@ -87,11 +87,12 @@ with the literal resume command, expected artifact paths, and baseline — all k
 If another session's handoff records conflicting in-flight work on this branch,
 reconcile; do not overwrite it.
 
-Resume (`--resume`): read the handoff top-down. Execute its "Stop here first" action before
-anything else. Treat "Decisions ratified — do not re-litigate" as settled. The handoff State
-block is the authoritative baseline; worktree state it does not explain is a stop condition —
-inspect and reconcile, never discard. Trailing text after the flag is overrides of decided
-judgment calls and brief deltas; both are ratified.
+Resume (`--resume`): read the handoff top-down; reconcile each recorded in-flight leg and open item
+with reality (PR merged/closed, output mtime still advancing, branch head as recorded),
+then execute its "Stop here first" action. Treat "Decisions ratified — do not re-litigate" as settled.
+The handoff State block is the authoritative baseline; unexplained worktree state is a stop —
+inspect and reconcile, never discard. Trailing text after the flag is
+overrides of decided judgment calls and brief deltas; both are ratified.
 
 ## Handoff discipline
 
