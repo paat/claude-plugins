@@ -42,7 +42,7 @@ wit_json() { local filter=$1; shift; printf '%s\n' "$@" | jq -cs "$filter"; }
 # Capture gh stderr for rate-limit detection without racing a process substitution.
 wit_gh() {
   local ec=0
-  gh api "$@" 2>"$tmp/gh-err-one" || ec=$?
+  NO_COLOR=1 CLICOLOR_FORCE=0 GH_FORCE_TTY= gh api "$@" 2>"$tmp/gh-err-one" || ec=$?
   cat "$tmp/gh-err-one" >> "$tmp/gh-errors"
   cat "$tmp/gh-err-one" >&2
   return "$ec"
