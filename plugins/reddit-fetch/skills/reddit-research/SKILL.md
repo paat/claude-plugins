@@ -26,7 +26,8 @@ Gemini CLI 0.43.0+ must be installed and authenticated with `GEMINI_API_KEY` or 
 3. Run the verification protocol in `references/protocol.md` first — never comment on or file
    an issue for a pain point without at least two independent supporting threads each verified
    via a non-Gemini source.
-4. Only for pain points that passed that threshold: before filing, run `work-item-triage`'s proposed-item check when installed; else comment on an open issue that already covers the outcome, and skip filing when it is not the smallest adequate response.
+4. Only for pain points that passed that threshold: follow SaaS demand bridge step 2 in
+   `references/protocol.md` before any comment or `gh issue create`.
 
 Read `references/protocol.md` now for the full prompt patterns, bounded-run contract, output
 format, error handling, verification protocol, and SaaS demand bridge rules.

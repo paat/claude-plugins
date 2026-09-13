@@ -76,7 +76,6 @@ and prevents provider failure from causing an external retry or partial write.
 Only after the host command completes, if it failed, was killed, or returned neither a valid ready
 nor terminal envelope, the entire next and final assistant message must be exactly
 `reddit research blocked: runner did not return a result`; make no further tool call and end the turn.
-
 Never retry after a terminal result. With `--file-issue`, file nothing when the runner is unavailable.
 
 ## Workflow budget
@@ -137,14 +136,15 @@ Gemini citations are leads, not proof. Before a thread can justify a GitHub issu
 
 Convert evidence into durable, objectively checkable work without promoting anecdotes to demand:
 
-1. Save consequential findings under `docs/research/reddit-<topic>.md`, marking every thread
-   verified or unverified. Derive `<topic>` as a lowercase ASCII slug matching
-   `^[a-z0-9]+(-[a-z0-9]+)*$`, at most 80 characters; never use raw topic text as a path.
-2. File only specific product issues supported by two independently verified threads. Use
-   `gh issue create --body-file`, never an inline body.
-3. Apply `market-signal` and `customer-issue` labels unless project conventions differ.
+1. Save consequential findings under `docs/research/reddit-<topic>.md`, marking every thread verified
+   or unverified. Derive `<topic>` as a lowercase ASCII slug matching `^[a-z0-9]+(-[a-z0-9]+)*$`, at most 80 characters; never use raw topic text as a path.
+2. File only specific product issues supported by two independently verified threads. Before any
+   comment or `gh issue create`, run `work-item-triage`'s proposed-item check when installed;
+   otherwise comment on an open issue that already covers the outcome, and skip filing when it is
+   not the smallest adequate response. Use `gh issue create --body-file`, never an inline body.
+3. Apply `market-signal` and `customer-issue` labels unless project conventions differ. State
+   plainly that verified Reddit evidence is still anecdotal public evidence.
 4. Route positioning, legal/compliance judgment, and pricing strategy to research notes or
    `docs/human-tasks.md`, not implementation issues.
-5. State plainly that verified Reddit evidence is still anecdotal public evidence.
-6. Report an issue as filed only when `gh issue create` exits zero and returns the repository's
+5. Report an issue as filed only when `gh issue create` exits zero and returns the repository's
    expected `https://github.com/<owner>/<repo>/issues/<number>` URL; otherwise report failure without retrying weaker evidence.
