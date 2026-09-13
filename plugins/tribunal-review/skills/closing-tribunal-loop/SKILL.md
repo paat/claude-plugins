@@ -189,7 +189,7 @@ Post a final round comment on close (even if round 1 is already zero-crit/high).
   share a *class* (design problem, not bug), choose exactly one:
   - **Simplify** within original acceptance criteria and existing architecture so the
     class disappears. Broader redesign → descope or escalate.
-  - **Descope** — remove contested mechanism + file follow-up.
+  - **Descope** — remove contested mechanism + file follow-up or link covering issue.
   - **Confirm-unreachable** — arbiter down-rates under 3b-0 / reachability.md.
 - Stay in step-back on later stalled rounds; do not guard-pile. Record the choice in
   the round PR comment.
