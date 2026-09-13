@@ -602,7 +602,7 @@ tribunal_take_diff_stat() {
 # $1 pinned range from `tribunal_take_diff_stat`
 # stdin: one leg JSON object  stdout: same object with .diff_stat
 tribunal_stamp_diff_stat() {
-  local stat="$1" json provider root base_oid head_oid changed files_changed
+  local stat="$1" json provider root base_oid head_oid files_changed tmpdir
   json="$(cat)"
   # Error and disabled legs carry no diff_stat.
   if printf '%s' "$json" | jq -e 'has("error") or (.status? == "disabled")' >/dev/null 2>&1; then
@@ -629,21 +629,31 @@ tribunal_stamp_diff_stat() {
     base_oid="$(printf '%s' "$stat" | jq -r '.base_oid // empty')"
     head_oid="$(printf '%s' "$stat" | jq -r '.head_oid // empty')"
     root="$(tribunal_repo_root)"
+    # Changed paths travel via a temp file (--rawfile), not argv: a large
+    # --name-only -z list exceeds MAX_ARG_STRLEN when passed as --argjson.
+    tmpdir="$(mktemp -d)" || {
+      tribunal_error "$provider" \
+        "blind APPROVE: cannot verify files_examined against the reviewed range; excluded from quorum"
+      return
+    }
     if [ -z "$base_oid" ] || [ -z "$head_oid" ] \
-      || ! changed="$(git -C "$root" diff --name-only -z "$base_oid...$head_oid" \
-            --no-ext-diff --no-textconv 2>/dev/null \
-          | jq -Rs 'split("\u0000") | map(select(length > 0))')"; then
+      || ! git -C "$root" diff --name-only -z "$base_oid...$head_oid" \
+            --no-ext-diff --no-textconv > "$tmpdir/changed" 2>/dev/null; then
+      rm -rf "$tmpdir"
       tribunal_error "$provider" \
         "blind APPROVE: cannot verify files_examined against the reviewed range; excluded from quorum"
       return
     fi
-    if ! printf '%s' "$json" | jq -e --argjson changed "$changed" '
+    if ! printf '%s' "$json" | jq -e --rawfile changed_raw "$tmpdir/changed" '
+        ($changed_raw | split("\u0000") | map(select(length > 0))) as $changed |
         (.files_examined | any(. as $f | $changed | index($f) != null))
       ' >/dev/null 2>&1; then
+      rm -rf "$tmpdir"
       tribunal_error "$provider" \
         "blind APPROVE: findings empty and files_examined lists no path changed in the reviewed range; excluded from quorum"
       return
     fi
+    rm -rf "$tmpdir"
   fi
   printf '%s' "$json" | jq -c --argjson stat "$stat" '.diff_stat = $stat'
 }

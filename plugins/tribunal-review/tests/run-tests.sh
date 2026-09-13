@@ -3071,6 +3071,52 @@ EOF
   fi
   chmod -R u+w "$work" 2>/dev/null || true
   rm -rf "$work"
+
+  # (b8) large changed-path list must not blow argv when verifying files_examined
+  label="empty-findings APPROVE over a large changed-path list stamps ok"
+  work="$(mktemp -d)"
+  if (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'base\n' > README
+    git add README
+    git commit -q -m base
+    mkdir -p bulk
+    i=1
+    while [ "$i" -le 3000 ]; do
+      # ~70-byte paths so --name-only -z exceeds 200 KiB (argv-limit regression).
+      printf 'x\n' > "bulk/padded-name-$(printf '%05d' "$i")-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.txt"
+      i=$((i + 1))
+    done
+    git add bulk
+    git commit -q -m change
+    examined="bulk/padded-name-00001-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.txt"
+    # Guard the fixture size: --name-only -z output must exceed 200 KiB.
+    git diff --name-only -z HEAD~1...HEAD --no-ext-diff --no-textconv > "$work/names.z"
+    size="$(wc -c < "$work/names.z" | tr -d ' ')"
+    [ "$size" -gt 204800 ]
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD~1 tribunal_prepare_diff "$work/d.diff"
+    stat="$(tribunal_take_diff_stat "$work/d.diff")"
+    jq -nc --arg f "$examined" \
+      '{provider:"codex",model:"m",files_examined:[$f],findings:[],
+        summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10,verdict:"APPROVE"}}' \
+      | tribunal_stamp_diff_stat "$stat" > "$work/out.json"
+    jq -e --arg f "$examined" '
+        .provider=="codex"
+        and (has("error")|not)
+        and (.diff_stat|type)=="object"
+        and .files_examined==[$f]
+      ' "$work/out.json" >/dev/null
+  ); then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
 }
 
 test_sealed_panel_quorum() {
