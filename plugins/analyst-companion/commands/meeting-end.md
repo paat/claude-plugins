@@ -61,8 +61,8 @@ Close the active meeting and turn it into reviewed Plane work items.
    - Use `gh issue create --body-file`, never `--body`, so `meeting_language` text and
      copied customer wording survive shell quoting.
    - Include the Plane id/link, meeting session id, concise customer ask, acceptance hint,
-     and a PII-minimized source note. Do not paste raw transcript unless the project
-     explicitly allows it.
+     and a PII-minimized source note in the issue body or fallback comment. Do not paste raw
+     transcript unless the project explicitly allows it.
    - Apply configured labels; include `customer-issue` when no project label override is
      configured so `saas-startup-team` `/maintain` can triage the issue later.
 
