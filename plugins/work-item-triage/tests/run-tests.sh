@@ -22,6 +22,8 @@ cat > "$TMP/bin/gh" <<'STUB'
 printf '%s\n' "$*" >> "$WIT_LOG"
 if [ "$1" = api ]; then
   endpoint="$2"
+  tmp_out=$(mktemp)
+  (
   if [[ "$endpoint" == *'/timeline?'* ]]; then
     if [ "$WIT_MODE" = shared-relations ]; then
       printf '%s\n' '[{"source":{"issue":{"number":12,"html_url":"https://github.com/sample/project/issues/12"}}},{"source":{"issue":{"number":12,"html_url":"https://github.com/other/project/issues/12"}}}]'; exit
@@ -88,6 +90,18 @@ if [ "$1" = api ]; then
     cat "$WIT_FIX/github-parity.json"
     exit
   fi
+  ) >"$tmp_out"
+  ec=$?
+  # Mirror real gh: forced colour wraps JSON even on a pipe.
+  if { [ -n "${CLICOLOR_FORCE:-}" ] && [ "$CLICOLOR_FORCE" != "0" ]; } || [ -n "${GH_FORCE_TTY:-}" ]; then
+    printf '\033[1;37m'
+    cat "$tmp_out"
+    printf '\033[m'
+  else
+    cat "$tmp_out"
+  fi
+  rm -f "$tmp_out"
+  exit "$ec"
 fi
 printf 'Unexpected gh call: %s\n' "$*" >&2
 exit 2
@@ -297,6 +311,9 @@ check 'tribunal T-003 latest duplicate observation survives pagination' 0 "$(tru
 # Parity uses identical authored decisions; provider normalization must not change them.
 export WIT_MODE=parity
 read_snapshot github > "$TMP/github.json"
+# (c1) Forced colour must not break gh JSON parsing; env is per-invocation only.
+CLICOLOR_FORCE=1 read_snapshot github > "$TMP/c1-colour.json"
+check 'c1 CLICOLOR_FORCE=1 still yields complete github snapshot' 0 "$(truth "$TMP/c1-colour.json" '.completeness=="complete" and (.items|length)==1')"
 read_snapshot plane --config "$TMP/plane.json" > "$TMP/plane-snapshot.json"
 read_snapshot plane --config "$FIX/plane-config.md" > "$TMP/plane-yaml-snapshot.json"
 check 'tribunal T-024 YAML config read succeeds' 0 "$?"
