@@ -490,6 +490,12 @@ require_match protocol-untrusted-fetch 'fetched page.*untrusted data' "$protocol
 require_match protocol-artifact-slug '\^\[a-z0-9\].*at most 80 characters' "$protocol"
 require_match protocol-gh-success 'Report an issue as filed only when `gh issue create` exits zero' "$protocol"
 require_match skill-filing-gate "work-item-triage.*proposed-item check" "$skill"
+require_match skill-verify-before-gate 'Run the verification protocol in `references/protocol.md` first' "$skill"
+require_match skill-gate-after-threshold 'Only for pain points that passed that threshold' "$skill"
+require_match skill-threshold-covers-comments 'never comment on or file' "$skill"
+require_match protocol-threshold-covers-comments 'never comment on or call `gh issue create`' "$protocol"
+awk '/Run the verification protocol/{v=NR} /work-item-triage/{g=NR} END{exit !(v && g && v<g)}' "$skill" \
+  || fail skill-verify-precedes-gate
 require_match runner-plan-mode '--approval-mode plan --skip-trust' "$RUNNER"
 require_match runner-no-extensions '-e none --allowed-mcp-server-names "\$no_mcp"' "$RUNNER"
 require_match runner-admin-policy '--admin-policy "\$admin_policy"' "$RUNNER"

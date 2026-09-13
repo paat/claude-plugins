@@ -130,8 +130,8 @@ Gemini citations are leads, not proof. Before a thread can justify a GitHub issu
 4. A pain point is filing-worthy only when at least **two independent supporting threads** have
    each passed step 2. They must be distinct, non-crossposted discussions from different authors,
    ideally in different communities. Anything short of that remains a research note.
-5. **Hard block:** never call `gh issue create` below that threshold. State `unverified — could
-   not confirm enough supporting threads exist` instead.
+5. **Hard block:** never comment on or call `gh issue create` below that threshold. State
+   `unverified — could not confirm enough supporting threads exist` instead.
 
 ## SaaS demand bridge
 
