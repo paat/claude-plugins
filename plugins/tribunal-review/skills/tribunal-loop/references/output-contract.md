@@ -82,7 +82,8 @@ Every human-facing per-leg result must include status: `ok, findings=0` for a cl
 for a failed leg, and `disabled` for an intentionally absent leg.
 Use the sealed manifest status when available.
 Every sealed ignored-path or deleted-path signal must be represented by a finding
-attributed to `repository-policy`.
+attributed to `repository-policy`. Sealed vacuous mutation signals must appear as
+`repository-policy` findings before APPROVE.
 
 Collections seal the environment APPROVE floor as
 `panel_policy: {"min_ok_legs": <1..7>, "source": "env"}` (from

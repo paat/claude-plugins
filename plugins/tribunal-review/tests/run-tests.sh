@@ -636,6 +636,223 @@ PY
   rm -rf "$work"
 }
 
+test_mutation_gate() {
+  local work repo fake plugin collection manifest_sha base head ec=0 mutated
+  work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
+  mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
+  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
+  cp "$PLUGIN_ROOT/.claude-plugin/plugin.json" "$plugin/.claude-plugin/plugin.json"
+
+  cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
+#!/usr/bin/env bash
+base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"
+head="$(git rev-parse --verify 'HEAD^{commit}')"
+printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
+EOF
+  for provider in gemini qwen grok claude; do
+    cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
+EOF
+  done
+  cat > "$plugin/scripts/run-opencode-review.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' '{"provider":"glm","status":"disabled","note":"fixture disabled"}'
+printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabled"}'
+EOF
+  chmod +x "$plugin/scripts/"*.sh
+  "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
+
+  (
+    cd "$repo"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > app.txt
+    git add app.txt
+    git commit -q -m base
+    mkdir -p tests
+    printf 'fixture\n' > tests/foo_test.sh
+    printf 'two\n' > app.txt
+    git add app.txt tests/foo_test.sh
+    git commit -q -m 'add test path'
+    git remote add origin https://github.com/example/fixture.git
+  )
+  base="$(git -C "$repo" rev-parse HEAD~1)"; head="$(git -C "$repo" rev-parse HEAD)"
+  printf 'Bound PR body' > "$work/pr-body"
+  cat > "$fake/gh" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = repo ] && [ "$2" = view ]; then
+  jq -nc '{nameWithOwner:"example/fixture",url:"https://github.com/example/fixture"}'
+elif [ "$1" = pr ] && [ "$2" = view ]; then
+  jq -nc --argjson number "$3" --arg base "$FIXTURE_BASE" --arg head "$FIXTURE_HEAD" \
+    --rawfile body "$FIXTURE_BODY_FILE" \
+    '{number:$number,url:("https://github.com/example/fixture/pull/"+($number|tostring)),state:"OPEN",
+      baseRefName:"main",baseRefOid:$base,headRefName:"feature",headRefOid:$head,body:$body}'
+else
+  printf 'unexpected gh invocation: %s\n' "$*" >&2
+  exit 2
+fi
+EOF
+  chmod +x "$fake/gh"
+
+  cat > "$work/arbitration.json" <<'EOF'
+{
+  "tribunal_verdict":{"decision":"APPROVE","confidence":0.95,"rationale":"One valid reviewer found no defects."},
+  "findings":[],"scope_findings":[],
+  "provider_assessment":{
+    "codex":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "gemini":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "glm":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
+  },
+  "conflicts_resolved":[],"summary":"No blocking findings."
+}
+EOF
+
+  # 1) Default-off: no .tribunal-mutation-gate ⇒ no mutation artifact / key.
+  collection="$work/off"
+  if ! PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$collection" > "$work/off.json"; then
+    echo -e "  ${RED}FAIL${NC} mutation-gate default-off collect"; FAIL=$((FAIL+1)); FAILURES+=("mutation-gate default-off")
+    rm -rf "$work"; return
+  fi
+  if [ ! -e "$collection/mutation-gate.json" ] \
+    && jq -e 'has("mutation_gate") | not' "$collection/manifest.json" >/dev/null \
+    && PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+      "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$collection" \
+        --expected-manifest-sha256 "$(jq -r .manifest_sha256 "$work/off.json")" \
+        --arbitration "$work/arbitration.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} mutation-gate default-off leaves no artifact"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} mutation-gate default-off leaves no artifact"; FAIL=$((FAIL+1)); FAILURES+=("mutation-gate default-off")
+  fi
+
+  # 2) RED-on-base: command exit 1 ⇒ sealed RED ⇒ finalize APPROVE when otherwise clean.
+  git -C "$repo" checkout -q -B feature "$base"
+  printf 'exit 1\n' > "$repo/.tribunal-mutation-gate"
+  mkdir -p "$repo/tests"
+  printf 'fixture\n' > "$repo/tests/foo_test.sh"
+  printf 'two\n' > "$repo/app.txt"
+  git -C "$repo" add .tribunal-mutation-gate app.txt tests/foo_test.sh
+  git -C "$repo" commit -q -m 'enable mutation gate RED'
+  head="$(git -C "$repo" rev-parse HEAD)"
+  collection="$work/red"
+  if ! PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$collection" > "$work/red.json"; then
+    echo -e "  ${RED}FAIL${NC} mutation-gate RED collect"; FAIL=$((FAIL+1)); FAILURES+=("mutation-gate RED")
+    rm -rf "$work"; return
+  fi
+  manifest_sha="$(jq -r .manifest_sha256 "$work/red.json")"
+  if jq -e '. == [{command:"exit 1",exit_code:1,path:"tests/foo_test.sh",result:"RED"}]' \
+      "$collection/mutation-gate.json" >/dev/null 2>&1 \
+    && jq -e '.mutation_gate.path == "mutation-gate.json" and (.mutation_gate.sha256 | test("^[0-9a-f]{64}$"))
+      and (.mutation_gate.bytes > 0)' "$collection/manifest.json" >/dev/null \
+    && PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+      "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$collection" \
+        --expected-manifest-sha256 "$manifest_sha" --arbitration "$work/arbitration.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} mutation-gate RED seals and finalizes APPROVE"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} mutation-gate RED seals and finalizes APPROVE"; FAIL=$((FAIL+1)); FAILURES+=("mutation-gate RED")
+  fi
+
+  # 3) Vacuous: exit 0 ⇒ forgotten finding rejects; covering repository-policy finding accepts.
+  git -C "$repo" checkout -q -B feature "$base"
+  printf 'exit 0\n' > "$repo/.tribunal-mutation-gate"
+  mkdir -p "$repo/tests"
+  printf 'fixture\n' > "$repo/tests/foo_test.sh"
+  printf 'two\n' > "$repo/app.txt"
+  git -C "$repo" add .tribunal-mutation-gate app.txt tests/foo_test.sh
+  git -C "$repo" commit -q -m 'enable mutation gate vacuous'
+  head="$(git -C "$repo" rev-parse HEAD)"
+  collection="$work/vacuous"
+  if ! PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$collection" > "$work/vacuous.json"; then
+    echo -e "  ${RED}FAIL${NC} mutation-gate vacuous collect"; FAIL=$((FAIL+1)); FAILURES+=("mutation-gate vacuous")
+    rm -rf "$work"; return
+  fi
+  manifest_sha="$(jq -r .manifest_sha256 "$work/vacuous.json")"
+  if ! jq -e '. == [{command:"exit 0",exit_code:0,path:"tests/foo_test.sh",result:"vacuous"}]' \
+      "$collection/mutation-gate.json" >/dev/null 2>&1; then
+    echo -e "  ${RED}FAIL${NC} mutation-gate vacuous seals expected artifact"; FAIL=$((FAIL+1)); FAILURES+=("mutation-gate vacuous")
+    rm -rf "$work"; return
+  fi
+  ec=0
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$collection" \
+      --expected-manifest-sha256 "$manifest_sha" --arbitration "$work/arbitration.json" \
+      >/dev/null 2>"$work/forgotten.err" || ec=$?
+  if [ "$ec" -ne 0 ]; then
+    echo -e "  ${GREEN}PASS${NC} finalize rejects forgotten vacuous mutation-gate signal"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} finalize rejects forgotten vacuous mutation-gate signal"; FAIL=$((FAIL+1)); FAILURES+=("forgotten vacuous mutation-gate")
+  fi
+
+  jq '.findings=[{
+      id:"T-001",consensus:"SINGLE_PROVIDER",providers:["repository-policy"],severity:"medium",
+      category:"testing",file:"tests/foo_test.sh",line:1,title:"Vacuous mutation-gate result",
+      description:"The sealed mutation gate reported vacuous for tests/foo_test.sh on base.",
+      suggestion:"Strengthen the added or changed test so it fails against unmodified base.",confidence:1,
+      arbiter_notes:"Deterministic repository-policy signal for sealed vacuous mutation-gate result."
+    }] | .summary="One deterministic medium repository-policy finding remains non-blocking."' \
+    "$work/arbitration.json" > "$work/vacuous-arbitration.json"
+  cp -a "$collection" "$work/vacuous-accept"
+  if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/vacuous-accept" \
+      --expected-manifest-sha256 "$manifest_sha" --arbitration "$work/vacuous-arbitration.json" \
+      >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} finalize accepts covering vacuous mutation-gate finding"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} finalize accepts covering vacuous mutation-gate finding"; FAIL=$((FAIL+1)); FAILURES+=("accepted vacuous mutation-gate finding")
+  fi
+
+  # 4) Mutation RED: strip only the vacuous-finding finalize requirement in a copy.
+  mutated="$work/mutated-plugin"
+  cp -a "$plugin" "$mutated"
+  python3 - "$mutated/scripts/collect-review-evidence.sh" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+needle = """    and (.findings as $findings | [$mutation_gate[] | select(.result == \"vacuous\")] | all(.[]; .path as $path
+      | any($findings[]; .file == $path and (.providers | index(\"repository-policy\")))))
+"""
+if needle not in text:
+    raise SystemExit("mutation_gate vacuous finding requirement needle missing")
+path.write_text(text.replace(needle, "", 1))
+PY
+  "$mutated/scripts/generate-runner-bundle.sh" >/dev/null
+  rm -rf "$work/vacuous-mutated"
+  if ! PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$mutated/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/vacuous-mutated" > "$work/vacuous-mutated.json"; then
+    echo -e "  ${RED}FAIL${NC} mutated mutation-gate vacuous collect"; FAIL=$((FAIL+1)); FAILURES+=("mutated mutation-gate RED")
+    rm -rf "$work"; return
+  fi
+  ec=0
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$mutated/scripts/collect-review-evidence.sh" finalize --collection "$work/vacuous-mutated" \
+      --expected-manifest-sha256 "$(jq -r .manifest_sha256 "$work/vacuous-mutated.json")" \
+      --arbitration "$work/arbitration.json" >/dev/null 2>"$work/mutated.err" || ec=$?
+  if [ "$ec" -eq 0 ]; then
+    echo -e "  ${GREEN}PASS${NC} mutated copy accepts forgotten vacuous mutation-gate (RED anchor)"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} mutated copy accepts forgotten vacuous mutation-gate (RED anchor)"; FAIL=$((FAIL+1)); FAILURES+=("mutated mutation-gate RED")
+    cat "$work/mutated.err" >&2 || true
+  fi
+
+  chmod -R u+w "$work" 2>/dev/null || true
+  rm -rf "$work"
+}
+
 test_empty_staged_diff_with_real_changes_fails_closed() {
   local label="empty staged diff with real changes is a leg error" work base_oid head_oid
   work="$(mktemp -d)"
@@ -4022,6 +4239,7 @@ test_ignored_path_diff_failures
 test_ignored_path_validation
 test_deleted_policy_paths
 test_deleted_policy_paths_gate
+test_mutation_gate
 test_trusted_evidence_collection
 test_sealed_panel_quorum
 test_required_checks
@@ -4043,6 +4261,10 @@ assert_grep "zero-finding approval excludes ignored-path signals" "$SK" "sealed 
 assert_grep "deleted-path signal must become a finding" "$SK" "deleted-paths.json"
 assert_grep "deleted-path finding defaults medium" "$SK" "medium .repository-policy. finding"
 assert_grep "zero-finding approval excludes deleted-path signals" "$SK" "deleted-path signals"
+assert_grep "mutation-gate config needle" "$LIB" ".tribunal-mutation-gate"
+assert_grep "mutation-gate vacuous result needle" "$LIB" "vacuous"
+assert_grep "mutation-gate artifact needle" "scripts/collect-review-evidence.sh" "mutation-gate.json"
+assert_grep "vacuous mutation-gate must become a finding" "$SK" "vacuous mutation-gate results must become a finding"
 
 echo "Arbitration contract:"
 assert_grep "3b-0 in SKILL" "$SK" "3b-0: Blocking-Finding Standard"

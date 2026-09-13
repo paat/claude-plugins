@@ -210,6 +210,23 @@ validate_deleted_paths() {
   ' "$1" >/dev/null
 }
 
+validate_mutation_gate() {
+  jq -e '
+    type == "array" and length > 0
+    and all(.[];
+      type == "object" and keys == ["command","exit_code","path","result"]
+      and (.path | type == "string" and length > 0 and (startswith("/") | not))
+      and (.path | contains("../") | not)
+      and (.command | type == "string" and length > 0)
+      and (.exit_code | type == "number" and . >= 0 and . == floor)
+      and (.result | IN("RED","vacuous"))
+      and ((.result == "vacuous") == (.exit_code == 0))
+      and ((.result == "RED") == (.exit_code != 0)))
+    and ([.[].path] | length) == ([.[].path] | unique | length)
+    and . == ([.[] | .] | sort_by(.path))
+  ' "$1" >/dev/null
+}
+
 provider_status() {
   jq -r 'if .status == "disabled" then "disabled" elif has("error") then "failed" else "ok" end' "$1"
 }
@@ -289,6 +306,7 @@ wrapper_for_provider() {
 collect() {
   local root="" pr="" output="" started binding head_oid base_oid parent review_tmp bundle
   local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json deleted_paths_json
+  local mutation_gate_json
   local codex_worktree gemini_worktree opencode_worktree qwen_worktree grok_worktree claude_worktree review_worktree
   local min_ok_legs
   while [ "$#" -gt 0 ]; do
@@ -334,6 +352,11 @@ collect() {
   if [ "$(printf '%s' "$deleted_paths_json" | jq 'length')" -gt 0 ]; then
     printf '%s' "$deleted_paths_json" | jq -S . > "$STAGING/deleted-paths.json"
     validate_deleted_paths "$STAGING/deleted-paths.json" || die "internal deleted-path evidence is invalid"
+  fi
+  mutation_gate_json="$(cd "$root" && tribunal_mutation_gate "$base_oid" "$head_oid")"
+  if [ "$(printf '%s' "$mutation_gate_json" | jq 'length')" -gt 0 ]; then
+    printf '%s' "$mutation_gate_json" | jq -S . > "$STAGING/mutation-gate.json"
+    validate_mutation_gate "$STAGING/mutation-gate.json" || die "internal mutation-gate evidence is invalid"
   fi
 
   REVIEW_SOURCE="$root"; REVIEW_WORKTREES=()
@@ -412,6 +435,8 @@ collect() {
     --argjson ignored_paths_bytes "$([ ! -f "$STAGING/ignored-paths.json" ] && printf '0' || bytes_file "$STAGING/ignored-paths.json")" \
     --arg deleted_paths_sha256 "$([ ! -f "$STAGING/deleted-paths.json" ] || sha_file "$STAGING/deleted-paths.json")" \
     --argjson deleted_paths_bytes "$([ ! -f "$STAGING/deleted-paths.json" ] && printf '0' || bytes_file "$STAGING/deleted-paths.json")" \
+    --arg mutation_gate_sha256 "$([ ! -f "$STAGING/mutation-gate.json" ] || sha_file "$STAGING/mutation-gate.json")" \
+    --argjson mutation_gate_bytes "$([ ! -f "$STAGING/mutation-gate.json" ] && printf '0' || bytes_file "$STAGING/mutation-gate.json")" \
     --arg runner_path "$SCRIPT_DIR/collect-review-evidence.sh" \
     --arg runner_sha256 "$(sha_file "$SCRIPT_DIR/collect-review-evidence.sh")" \
     --arg library_path "$SCRIPT_DIR/lib.sh" --arg library_sha256 "$(sha_file "$SCRIPT_DIR/lib.sh")" \
@@ -433,12 +458,15 @@ collect() {
       + (if $ignored_paths_sha256 == "" then {} else
           {ignored_paths:{path:"ignored-paths.json",sha256:$ignored_paths_sha256,bytes:$ignored_paths_bytes}} end)
       + (if $deleted_paths_sha256 == "" then {} else
-          {deleted_paths:{path:"deleted-paths.json",sha256:$deleted_paths_sha256,bytes:$deleted_paths_bytes}} end)' \
+          {deleted_paths:{path:"deleted-paths.json",sha256:$deleted_paths_sha256,bytes:$deleted_paths_bytes}} end)
+      + (if $mutation_gate_sha256 == "" then {} else
+          {mutation_gate:{path:"mutation-gate.json",sha256:$mutation_gate_sha256,bytes:$mutation_gate_bytes}} end)' \
     > "$STAGING/manifest.json"
   rm -f "$providers_json"
   chmod 0444 "$STAGING/manifest.json" "$STAGING/pr-body.txt" "$STAGING/review.diff" "$STAGING/providers/"*.json
   [ ! -f "$STAGING/ignored-paths.json" ] || chmod 0444 "$STAGING/ignored-paths.json"
   [ ! -f "$STAGING/deleted-paths.json" ] || chmod 0444 "$STAGING/deleted-paths.json"
+  [ ! -f "$STAGING/mutation-gate.json" ] || chmod 0444 "$STAGING/mutation-gate.json"
   mv -T -- "$STAGING" "$output" 2>/dev/null \
     || die "collection output appeared concurrently"
   STAGING=""
@@ -458,7 +486,7 @@ validate_manifest_shape() {
     def oid: type=="string" and test("^[0-9a-f]{40}$");
     def uint: type=="number" and .>=0 and .==floor;
     def stamp: type=="string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
-    exact(["schema","started_at","completed_at","repository","pull_request","diff","runner","providers","ignored_paths","deleted_paths","panel_policy"];
+    exact(["schema","started_at","completed_at","repository","pull_request","diff","runner","providers","ignored_paths","deleted_paths","mutation_gate","panel_policy"];
           ["schema","started_at","completed_at","repository","pull_request","diff","runner","providers"])
     and .schema==$schema and (.started_at|stamp) and (.completed_at|stamp) and .started_at<=.completed_at
     and (.repository | exact(["root","host","name_with_owner","url"];
@@ -480,6 +508,9 @@ validate_manifest_shape() {
     and ((has("deleted_paths")|not) or
          (.deleted_paths | exact(["path","sha256","bytes"];["path","sha256","bytes"])
           and .path=="deleted-paths.json" and (.sha256|sha) and (.bytes|uint and .>0)))
+    and ((has("mutation_gate")|not) or
+         (.mutation_gate | exact(["path","sha256","bytes"];["path","sha256","bytes"])
+          and .path=="mutation-gate.json" and (.sha256|sha) and (.bytes|uint and .>0)))
     and ((has("panel_policy")|not) or
          (.panel_policy | exact(["min_ok_legs","source"];["min_ok_legs","source"])
           and (.min_ok_legs|type=="number" and .>=1 and .<=7 and .==floor)
@@ -508,7 +539,7 @@ validate_manifest_shape() {
 
 verify_live_binding() {
   local dir="$1" manifest="$2" root pr current expected body_tmp diff_tmp ignored_tmp ignored_json
-  local deleted_tmp deleted_json
+  local deleted_tmp deleted_json mutation_tmp mutation_json
   root="$(jq -r .repository.root "$manifest")"; root="$(real_dir "$root")"
   pr="$(jq -r .pull_request.number "$manifest")"
   current="$(live_binding "$root" "$pr")"
@@ -546,6 +577,16 @@ verify_live_binding() {
   else
     [ "$(printf '%s' "$deleted_json" | jq 'length')" -eq 0 ] \
       || die "deleted-path evidence appeared after collection"
+  fi
+  mutation_json="$(cd "$root" && tribunal_mutation_gate "$(jq -r .pull_request.base_oid "$manifest")" "$(jq -r .pull_request.head_oid "$manifest")")"
+  if jq -e 'has("mutation_gate")' "$manifest" >/dev/null; then
+    mutation_tmp="$(mktemp)"; printf '%s' "$mutation_json" | jq -S . > "$mutation_tmp"
+    cmp -s "$mutation_tmp" "$dir/mutation-gate.json" \
+      || { rm -f "$mutation_tmp"; die "mutation-gate evidence drifted after collection"; }
+    rm -f "$mutation_tmp"
+  else
+    [ "$(printf '%s' "$mutation_json" | jq 'length')" -eq 0 ] \
+      || die "mutation-gate evidence appeared after collection"
   fi
   [ "$(sha_file "$dir/pr-body.txt")" = "$(jq -r .pull_request.body.sha256 "$manifest")" ] \
     || die "retained PR body digest mismatch"
@@ -589,6 +630,17 @@ verify_collection_internal() {
   else
     [ ! -e "$dir/deleted-paths.json" ] || die "unbound deleted-path artifact"
   fi
+  if jq -e 'has("mutation_gate")' "$manifest" >/dev/null; then
+    [ -f "$dir/mutation-gate.json" ] && [ ! -L "$dir/mutation-gate.json" ] \
+      || die "mutation-gate artifact missing or symbolic"
+    [ "$(sha_file "$dir/mutation-gate.json")" = "$(jq -r .mutation_gate.sha256 "$manifest")" ] \
+      || die "mutation-gate artifact digest mismatch"
+    [ "$(bytes_file "$dir/mutation-gate.json")" = "$(jq -r .mutation_gate.bytes "$manifest")" ] \
+      || die "mutation-gate artifact size mismatch"
+    validate_mutation_gate "$dir/mutation-gate.json" || die "mutation-gate artifact schema invalid"
+  else
+    [ ! -e "$dir/mutation-gate.json" ] || die "unbound mutation-gate artifact"
+  fi
   [ "$(jq -r .runner.path "$manifest")" = "$SCRIPT_DIR/collect-review-evidence.sh" ] \
     || die "collection runner path differs from installed runner"
   [ "$(jq -r .runner.sha256 "$manifest")" = "$(sha_file "$SCRIPT_DIR/collect-review-evidence.sh")" ] \
@@ -627,7 +679,7 @@ verify_collection_internal() {
 }
 
 validate_arbitration() {
-  local arbitration="$1" manifest="$2" statuses dir evidence ignored_paths deleted_paths sensitive_paths root source line path
+  local arbitration="$1" manifest="$2" statuses dir evidence ignored_paths deleted_paths mutation_gate sensitive_paths root source line path
   local min_ok_legs
   statuses="$(jq -c '[.providers[]|{key:.provider,value:.status}]|from_entries' "$manifest")"
   # Sealed floor only — never re-read ambient TRIBUNAL_MIN_OK_LEGS (issue #519).
@@ -649,6 +701,11 @@ validate_arbitration() {
   else
     deleted_paths="[]"
   fi
+  if jq -e 'has("mutation_gate")' "$manifest" >/dev/null; then
+    mutation_gate="$(jq -c . "$dir/mutation-gate.json")"
+  else
+    mutation_gate="[]"
+  fi
   sensitive_paths="[]"
   root="$(jq -r .repository.root "$manifest")"
   if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
@@ -669,6 +726,7 @@ validate_arbitration() {
   fi
   jq -e --argjson statuses "$statuses" --argjson min_ok_legs "$min_ok_legs" --argjson evidence "$evidence" \
     --argjson ignored_paths "$ignored_paths" --argjson deleted_paths "$deleted_paths" \
+    --argjson mutation_gate "$mutation_gate" \
     --argjson sensitive_paths "$sensitive_paths" '
     def exact($a;$r): (type=="object") and ((keys-$a)|length==0) and (($r-keys)|length==0);
     def text: type=="string" and length>0;
@@ -683,6 +741,7 @@ validate_arbitration() {
              | if $p == "repository-policy" then
                  ($ignored_paths | any(.[]; .path == $finding.file))
                  or ($deleted_paths | any(.[]; .path == $finding.file))
+                 or ($mutation_gate | any(.[]; .path == $finding.file))
                else
                  ($p | IN("codex","gemini","glm","deepseek","qwen","grok","claude"))
                  and $statuses[$p] == "ok"
@@ -728,6 +787,8 @@ validate_arbitration() {
       | any($findings[]; .file == $path and (.providers | index("repository-policy")))))
     and (.findings as $findings | $deleted_paths | all(.[]; .path as $path
       | any($findings[]; .file == $path and (.providers | index("repository-policy")))))
+    and (.findings as $findings | [$mutation_gate[] | select(.result == "vacuous")] | all(.[]; .path as $path
+      | any($findings[]; .file == $path and (.providers | index("repository-policy")))))
     and (.findings as $findings | $sensitive_paths | all(.[]; . as $path
       | any($findings[]; .file == $path and (.providers | index("repository-policy"))
           and .severity == "high")))
@@ -756,6 +817,7 @@ validate_arbitration() {
             and ([$evidence[]|(.findings // [])[]]|length)==0
             and ([.findings[]|select(.providers==["repository-policy"])]|length)==0
             and ([.scope_findings[]|select(.disposition=="must-remove-before-merge")]|length)==0
+            and ([$mutation_gate[] | select(.result == "vacuous")] | length) == 0
       then .tribunal_verdict.decision=="APPROVE" and .tribunal_verdict.confidence==0.95 else true end)
   ' "$arbitration" >/dev/null
 }
