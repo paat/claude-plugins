@@ -69,8 +69,8 @@ annotate the source via its `close` command.
 
 - **A (epic):** per-item branches merge into the epic branch on the merge signal. Close-out:
   browser QA + UX on the epic PR, then `tribunal-review:closing-tribunal-loop`; merge to the
-  default branch at zero critical/high; write the final handoff and commit it path-limited on the
-  epic branch when no leg is live (`git add <handoff> && git commit -m … -- <handoff>`); close the epic.
+  default branch at zero critical/high; write the final handoff and commit it path-limited when
+  no leg is live (`git add -f <handoff> && git commit -m … -- <handoff>`); close the epic.
 - **B (per-item):** branch → push → PR → `tribunal-review:closing-tribunal-loop` → merge at zero
   critical/high → close/annotate the source item.
 
@@ -81,9 +81,9 @@ PR open, local head pushed, you arbitrate as calling context — never restate i
 
 Fresh start: require `gh` authenticated, a GitHub remote, and a clean worktree; verify any
 referenced issues/workitems exist; add `${MMO_HANDOFF_DIR:-.claude/handoffs}` (repo-relative) to
-`$(git rev-parse --git-path info/exclude)`. The handoff is a local file under that directory — never commit it during the run.
+`$(git rev-parse --git-path info/exclude)` unless already listed. Local file there — never commit it during the run.
 Once the queue is ordered, and again immediately before every dispatch (including a Discovery
-research leg, which runs before any queue exists) — never for a no-op scan — write the handoff (instantiate `references/handoff-template.md`)
+research leg before any queue exists) — never for a no-op scan — write the handoff (instantiate `references/handoff-template.md`)
 with the literal resume command, expected artifact paths, and baseline — all known before launch.
 If another session's handoff already records conflicting in-flight work on this branch,
 reconcile; do not overwrite it.
@@ -97,9 +97,8 @@ judgment calls and brief deltas; both are ratified.
 ## Handoff discipline
 
 Update the current handoff after every merge, review verdict, ratified decision, filed
-research memo, or filed item — not at session end. Inherit prior
-protocol sections verbatim; record only deltas. A session that dies mid-decision costs one
-resume, nothing more.
+research memo, or filed item — not at session end. Inherit prior protocol sections verbatim;
+record only deltas. A session that dies mid-decision costs one resume, nothing more.
 
 ## Per-item loop
 
