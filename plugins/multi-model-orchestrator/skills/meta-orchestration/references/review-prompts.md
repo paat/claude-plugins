@@ -40,7 +40,7 @@ READY TO MERGE — nothing further coming.
 
 ## Bounded delta re-review
 
-Same reviewer as the adversarial round. Send after the worker's single fix cycle.
+Same reviewer as the adversarial round. Send after each fix cycle (up to 5, per the skill's step 6).
 
 ```markdown
 # Delta re-review: commit <sha> on <branch>

@@ -19,7 +19,7 @@ Within the brief's autonomy bounds, run implement → review → tribunal → me
 approval. Pause to ask only for credentials, browser authentication, repo-policy changes,
 spend, or irreversible production data. The brief's stop conditions and gate blockers still stop
 at their scope: a run-level stop condition or unexplained worktree state stops the run; a gate blocker parks that item.
-Genuine judgment calls are decided with the recommended default and recorded in the handoff and PR body, not parked.
+Genuine judgment calls outside the pause set above are decided with the recommended default and recorded in the handoff and PR body, not parked.
 Self-merge IS permitted for your own gated PR, never by bypassing branch protection or required reviews (no `--admin`).
 Queue a blocked merge or refused/unavailable privileged action under the handoff's `OPERATOR ACTIONS REQUIRED`;
 continue with the next tree-independent item. Do not burn the session on preflight beyond the Fresh-start checks.
@@ -124,7 +124,7 @@ record only deltas. A session that dies mid-decision costs one resume, nothing m
    contract; grep the verdict.
 6. On NEEDS_WORK: up to 5 fix cycles by the worker ("address exactly these, nothing else"), each
    followed by the SAME reviewer's bounded delta. From cycle 3, prefer simplify/descope over
-   adding guards. After the fifth NEEDS_WORK, report a blocker.
+   adding guards. If the fifth cycle's delta still returns NEEDS_WORK, report a blocker and park.
 7. Merge or open the PR only on the reviewer's literal line
    `READY TO MERGE — nothing further coming.` — a report is not a merge signal. Absent that
    line, ask the reviewer leg to confirm or state what is still coming.

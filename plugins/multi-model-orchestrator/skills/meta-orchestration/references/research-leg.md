@@ -47,6 +47,6 @@ memo path in the handoff.
 
 ## When to buy two legs
 
-Use two independent research legs only when the decision is expensive to reverse or a human expert
-would otherwise be escalated to. Require convergence, then re-verify the load-bearing quotes before
-skipping the human. Otherwise use one leg.
+Use two independent research legs only when the decision is expensive to reverse or the decision
+would otherwise need a human expert. Require convergence, then re-verify the load-bearing quotes
+before relying on the decision. Otherwise use one leg.

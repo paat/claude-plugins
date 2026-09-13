@@ -69,7 +69,7 @@ trailing text is treated as overrides of decided judgment calls and brief deltas
 nothing and stops; recurrence belongs to `/loop` or cron.
 
 When an item depends on out-of-repo facts, a research leg records tiered evidence in a tracked
-memo. Unknowns are researched before they are escalated as human decisions.
+memo. Unknowns are researched before a judgment call is decided with the recommended default and recorded.
 
 Delivery chains `tribunal-review:closing-tribunal-loop` (epic PR in epic mode, per-item PRs
 otherwise), so that plugin must be installed. Code delivers through GitHub branches/PRs;
