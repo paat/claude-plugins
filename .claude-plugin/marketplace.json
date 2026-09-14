@@ -194,6 +194,17 @@
       "homepage": "https://github.com/paat/claude-plugins"
     },
     {
+      "name": "subagent-local-qwen3.8-27b",
+      "description": "Drive local llama.cpp Qwen3.8-27B as a coding implementer/reviewer via Qwen Code CLI",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/subagent-local-qwen3.8-27b",
+      "category": "development",
+      "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
       "name": "session-preflight",
       "description": "SessionStart hook running a fast read-only environment preflight — auth commands, expected tokens in shell env and known env files, required CLIs, and a host/user/repo/branch identity line — surfacing failures before the first tool call",
       "version": "0.1.3",
