@@ -1,0 +1,34 @@
+{
+  "name": "subagent-local-qwen3.8-27b",
+  "version": "0.1.0",
+  "description": "Drive local llama.cpp Qwen3.8-27B as a coding implementer/reviewer via Qwen Code CLI",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Subagent Local Qwen3.8 27b",
+    "shortDescription": "Drive local llama.cpp Qwen3.8-27B as a coding implementer/reviewer via Qwen Code CLI",
+    "longDescription": "Drive local llama.cpp Qwen3.8-27B as a coding implementer/reviewer via Qwen Code CLI",
+    "developerName": "Andre Paat",
+    "category": "Development",
+    "capabilities": [
+      "Skills",
+      "Scripts"
+    ],
+    "defaultPrompt": "Use the subagent-local-qwen3.8-27b plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "qwen",
+    "qwen3.8",
+    "llama.cpp",
+    "local",
+    "subagent",
+    "implementer",
+    "code-review"
+  ],
+  "skills": "./skills/"
+}

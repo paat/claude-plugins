@@ -1,0 +1,31 @@
+---
+name: subagent-local-qwen3-8-27b-subagent-local-qwen3-8-27b-implement-workflow
+description: "Run /subagent-local-qwen3-8-27b-implement workflow from subagent-local-qwen3.8-27b; alias /subagent-local-qwen3.8-27b:subagent-local-qwen3-8-27b-implement."
+---
+
+# /subagent-local-qwen3.8-27b:subagent-local-qwen3-8-27b-implement Codex Workflow
+
+This generated skill is the Codex-native plugin surface for `/subagent-local-qwen3.8-27b:subagent-local-qwen3-8-27b-implement`.
+Also use it when the user invokes `/subagent-local-qwen3-8-27b-implement` or asks for the same workflow by name.
+
+Source command: `../../commands/subagent-local-qwen3.8-27b-implement.md`
+
+## Run Protocol
+
+1. Treat the user text after the command name as `$ARGUMENTS`.
+2. Read the source command file before executing. It is the workflow checklist after applying the Codex replacements in this skill.
+3. Execute the workflow through Codex-native mechanisms: Codex skills, direct task sequencing in the current session, the Codex CLI, or Codex-supported multi-agent tooling when available.
+4. Do not create user-local `~/.codex/prompts` wrappers. This skill is the reusable plugin-bundled workflow surface.
+5. When the source command says `Skill('plugin:skill')`, load the named plugin skill normally.
+6. When the source command references `${CLAUDE_PLUGIN_ROOT}/path`, resolve it to this installed plugin root and use `path` under that root. Do not require the environment variable to exist.
+7. When the source command contains a Claude-only primitive, use the Codex replacement:
+   - `AskUserQuestion` -> ask the user directly; in non-interactive runs, stop and report the exact required input.
+   - Claude slash-command execution -> invoke this skill or the corresponding plugin skill.
+   - Claude `Task` / `Agent` / `TeamCreate` dispatch -> use Codex-native multi-agent tooling if available, `codex exec --dangerously-bypass-approvals-and-sandbox` when a separate Codex process is useful, or a fresh role phase in the current Codex session. The development container is the security boundary.
+   - `ScheduleWakeup` -> use Codex session continuation or an explicit user-visible status checkpoint; do not depend on a Claude lifecycle hook.
+
+## Command Metadata
+
+- Plugin: `subagent-local-qwen3.8-27b`
+- Command aliases: `/subagent-local-qwen3.8-27b:subagent-local-qwen3-8-27b-implement`, `/subagent-local-qwen3-8-27b-implement`
+- Source description: Dispatch local llama.cpp Qwen3.8-27B (Qwen Code CLI) as the implementer for ONE named task from a plan file

@@ -209,6 +209,18 @@
       "category": "Development"
     },
     {
+      "name": "subagent-local-qwen3.8-27b",
+      "source": {
+        "source": "local",
+        "path": "./plugins/subagent-local-qwen3.8-27b"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
       "name": "session-preflight",
       "source": {
         "source": "local",

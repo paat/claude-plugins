@@ -1,0 +1,453 @@
+#!/usr/bin/env bash
+# subagent-local-qwen3.8-27b-run.sh — drive Qwen Code CLI against local llama.cpp
+# serving Qwen3.8-27B (coding profile). Role-agnostic: implement (--yolo) or
+# review (--approval-mode plan).
+#
+# Gotchas encoded here:
+#   1. Isolated HOME — never write the host ~/.qwen (tribunal DashScope creds).
+#   2. Preflight refuses down / busy / wrong-model / non-coding aliases.
+#   3. Prompt on stdin (never giant argv). Dual timeouts (inner timeout +
+#      host Bash-tool timeout must both be generous).
+#   4. Keep Qwen Code's built-in system prompt; append a short contract only.
+#   5. reasoning_effort is medium only (xhigh|medium|low — never high).
+#
+# Usage:
+#   subagent-local-qwen3.8-27b-run.sh [options] [PROMPT]
+#   <build prompt> | subagent-local-qwen3.8-27b-run.sh [options]
+#
+# Options:
+#   -C, --dir DIR              Working directory (default: $PWD).
+#   -m, --model MODEL          Served llama.cpp alias
+#                              (default: Qwen3.8-27B-UD-Q6_K_XL-coding).
+#   -e, --effort LEVEL         xhigh|medium|low (default: medium; never high).
+#   -t, --timeout SECS         Inner timeout for the qwen run (default: 900).
+#       --max-session-turns N  Cap agent turns (default: 40).
+#       --max-wall-time DUR    Cap wall clock, e.g. 15m (default: 15m).
+#       --yolo                 Implement mode: auto-approve tools (default).
+#       --approval-mode MODE   Use plan for read-only review; overrides --yolo.
+#   -f, --prompt-file F        Read the prompt from file F instead of argv/stdin.
+#   -o, --out FILE             Where to keep the full captured stream (default: temp).
+#       --print-cmd            Print the qwen command that would run, then exit.
+#   -h, --help                 Show this help and exit.
+#
+# Env:
+#   OPENAI_BASE_URL   OpenAI-compat base (default: http://127.0.0.1:8000/v1).
+#   OPENAI_API_KEY    Dummy key for local servers (default: dummy).
+#   QWEN38_MODEL      Default model alias override.
+#
+# Output: prints ONLY the final answer on stdout, then a short footer on stderr.
+# Host Bash-tool timeout must also be generous (≥ inner --timeout in ms).
+set -euo pipefail
+
+QL_DEFAULT_TIMEOUT="900"
+QL_DEFAULT_MODEL="${QWEN38_MODEL:-Qwen3.8-27B-UD-Q6_K_XL-coding}"
+QL_DEFAULT_EFFORT="medium"
+QL_DEFAULT_TURNS="40"
+QL_DEFAULT_WALL="15m"
+QL_DEFAULT_BASE="http://127.0.0.1:8000/v1"
+QL_PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+ql_usage() {
+  awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' \
+    "${BASH_SOURCE[0]}"
+}
+
+ql_valid_effort() {
+  case "$1" in
+    xhigh|medium|low) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ql_extract_final_answer — prefer tribunal-style JSON result extraction;
+# fall back to the raw stream tail when JSON is absent/unparseable.
+ql_extract_final_answer() {
+  local raw extracted
+  raw="$(cat)"
+  if command -v jq >/dev/null 2>&1; then
+    extracted="$(printf '%s' "$raw" | jq -r '
+      if type == "array" then
+        (([ .[] | select(.type == "result") | .result // empty ] | last) as $r
+          | if ($r != null and $r != "") then $r
+            else ([ .[] | select(.type == "assistant")
+                    | (.message.content // [])[]?
+                    | select(.type == "text") | .text ] | join("")) end)
+      elif type == "object" and has("response") then .response
+      elif type == "object" and (.result? | type) == "string" then .result
+      else empty end
+    ' 2>/dev/null || true)"
+    if [ -n "${extracted}" ]; then
+      printf '%s\n' "$extracted"
+      return 0
+    fi
+  fi
+  printf '%s\n' "$raw"
+}
+
+# ql_is_coding_profile — served id must look like Qwen3.8-27B coding, not longctx.
+ql_is_coding_profile() {
+  local id="$1"
+  case "$id" in
+    *longctx*) return 1 ;;
+  esac
+  case "$id" in
+    *Qwen3.8-27B*) ;;
+    *) return 1 ;;
+  esac
+  case "$id" in
+    *coding*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ql_preflight_cli — qwen on PATH and recent enough for --yolo / --approval-mode.
+ql_preflight_cli() {
+  if ! command -v qwen >/dev/null 2>&1; then
+    printf 'subagent-local-qwen3.8-27b-run: qwen CLI not found on PATH. install Qwen Code >= 0.23.4\n' >&2
+    return 127
+  fi
+  local help
+  help="$(qwen --help 2>&1 || true)"
+  if ! printf '%s' "$help" | grep -qE -- '--yolo|--approval-mode'; then
+    printf 'subagent-local-qwen3.8-27b-run: qwen --help missing --yolo/--approval-mode; install Qwen Code >= 0.23.4\n' >&2
+    return 127
+  fi
+  return 0
+}
+
+# ql_preflight_models — GET $BASE/models; require coding-profile alias; fail busy/down.
+ql_preflight_models() {
+  local base="$1" want="$2"
+  local url body http_code curl_rc
+  url="${base%/}/models"
+
+  if ! command -v curl >/dev/null 2>&1; then
+    printf 'subagent-local-qwen3.8-27b-run: curl is required for llama.cpp preflight\n' >&2
+    return 2
+  fi
+
+  set +e
+  body="$(curl -sS -m 5 -w '\n%{http_code}' "$url" 2>/tmp/ql-curl-err.$$)"
+  curl_rc=$?
+  set -e
+  if [ "$curl_rc" -ne 0 ]; then
+    printf 'subagent-local-qwen3.8-27b-run: llama.cpp down or unreachable at %s (%s)\n' \
+      "$url" "$(tr '\n' ' ' </tmp/ql-curl-err.$$ 2>/dev/null || true)" >&2
+    rm -f /tmp/ql-curl-err.$$
+    return 1
+  fi
+  rm -f /tmp/ql-curl-err.$$
+
+  http_code="$(printf '%s' "$body" | tail -n1)"
+  body="$(printf '%s' "$body" | sed '$d')"
+
+  if printf '%s' "$body" | grep -qiE 'busy|overloaded|too many requests'; then
+    printf 'subagent-local-qwen3.8-27b-run: llama.cpp busy (one in-flight request only); retry later\n' >&2
+    return 1
+  fi
+  if [ "$http_code" = "503" ] || [ "$http_code" = "429" ]; then
+    printf 'subagent-local-qwen3.8-27b-run: llama.cpp busy (HTTP %s); retry later\n' "$http_code" >&2
+    return 1
+  fi
+  if [ "$http_code" != "200" ] && [ "$http_code" != "000" ]; then
+    # Some servers omit a clean code in -w when body-only; still parse body.
+    if ! printf '%s' "$body" | grep -q '"id"'; then
+      printf 'subagent-local-qwen3.8-27b-run: llama.cpp models preflight failed (HTTP %s) at %s\n' \
+        "$http_code" "$url" >&2
+      return 1
+    fi
+  fi
+
+  local ids
+  if command -v jq >/dev/null 2>&1; then
+    ids="$(printf '%s' "$body" | jq -r '.data[]?.id // empty' 2>/dev/null || true)"
+  else
+    ids="$(printf '%s' "$body" | grep -oE '"id"[[:space:]]*:[[:space:]]*"[^"]+"' \
+      | sed 's/.*"\([^"]*\)"$/\1/' || true)"
+  fi
+
+  if [ -z "${ids}" ]; then
+    printf 'subagent-local-qwen3.8-27b-run: llama.cpp returned no model ids from %s\n' "$url" >&2
+    return 1
+  fi
+
+  local found="" id
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    if [ "$id" = "$want" ]; then
+      found="$id"
+      break
+    fi
+  done <<< "$ids"
+
+  if [ -z "$found" ]; then
+    # Accept a served id that matches the coding profile when want is the default family.
+    while IFS= read -r id; do
+      [ -n "$id" ] || continue
+      if ql_is_coding_profile "$id"; then
+        found="$id"
+        break
+      fi
+    done <<< "$ids"
+  fi
+
+  if [ -z "$found" ]; then
+    printf 'subagent-local-qwen3.8-27b-run: wrong-model: need Qwen3.8-27B coding profile (got: %s)\n' \
+      "$(printf '%s' "$ids" | tr '\n' ' ')" >&2
+    return 1
+  fi
+
+  if ! ql_is_coding_profile "$found"; then
+    printf 'subagent-local-qwen3.8-27b-run: wrong-model: refusing non-coding/longctx alias %s\n' "$found" >&2
+    return 1
+  fi
+
+  if [ "$found" != "$want" ] && [ "$want" = "$QL_DEFAULT_MODEL" ]; then
+    # Default request can follow the served coding alias.
+    printf '%s' "$found"
+    return 0
+  fi
+
+  if [ "$found" != "$want" ]; then
+    # Explicit -m must be present exactly.
+    local exact=0
+    while IFS= read -r id; do
+      [ "$id" = "$want" ] && exact=1 && break
+    done <<< "$ids"
+    if [ "$exact" -ne 1 ]; then
+      printf 'subagent-local-qwen3.8-27b-run: wrong-model: requested %s not served (have: %s)\n' \
+        "$want" "$(printf '%s' "$ids" | tr '\n' ' ')" >&2
+      return 1
+    fi
+    if ! ql_is_coding_profile "$want"; then
+      printf 'subagent-local-qwen3.8-27b-run: wrong-model: refusing non-coding/longctx alias %s\n' "$want" >&2
+      return 1
+    fi
+    found="$want"
+  fi
+
+  printf '%s' "$found"
+  return 0
+}
+
+ql_write_isolated_settings() {
+  local home_dir="$1" model="$2" base="$3" effort="$4"
+  mkdir -p "$home_dir/.qwen"
+  cat > "$home_dir/.qwen/settings.json" <<EOF
+{
+  "security": {
+    "auth": {
+      "selectedType": "openai"
+    }
+  },
+  "model": {
+    "name": "$model"
+  },
+  "modelProviders": {
+    "openai": [
+      {
+        "id": "$model",
+        "name": "Local Qwen3.8-27B coding",
+        "baseUrl": "$base",
+        "envKey": "OPENAI_API_KEY",
+        "generationConfig": {
+          "timeout": 600000,
+          "streamIdleTimeoutMs": 600000,
+          "contextWindowSize": 65536,
+          "samplingParams": {
+            "temperature": 1.0,
+            "top_p": 0.95,
+            "top_k": 20,
+            "reasoning_effort": "$effort"
+          },
+          "extra_body": {
+            "chat_template_kwargs": {
+              "enable_thinking": true,
+              "preserve_thinking": true
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+EOF
+}
+
+# ql_build_cmd — NUL-delimited argv stream. Prompt is never included (fed on stdin).
+# Multi-line contracts must stay a single argv; never emit newline-separated argv.
+ql_build_cmd() {
+  local model="$1" approval_mode="$2" turns="$3" wall="$4" contract_text="$5"
+  printf '%s\0' qwen
+  printf '%s\0' -m "$model"
+  printf '%s\0' -o json
+  printf '%s\0' --output-style Concise
+  printf '%s\0' --exclude-tools agent
+  printf '%s\0' --max-session-turns "$turns"
+  printf '%s\0' --max-wall-time "$wall"
+  printf '%s\0' --append-system-prompt "$contract_text"
+  if [ "$approval_mode" = "plan" ]; then
+    printf '%s\0' --approval-mode plan
+  else
+    printf '%s\0' --yolo
+  fi
+  # Empty -p: full user prompt arrives on stdin (appended by qwen).
+  printf '%s\0' -p
+  printf '%s\0' ""
+}
+
+# ql_print_cmd — one argv per line for --print-cmd; encode internal newlines as \n.
+ql_print_cmd() {
+  local arg
+  while IFS= read -r -d '' arg; do
+    printf '%s\n' "${arg//$'\n'/\\n}"
+  done < <(ql_build_cmd "$@")
+}
+
+ql_main() {
+  local dir="$PWD" model="$QL_DEFAULT_MODEL" effort="$QL_DEFAULT_EFFORT"
+  local timeout_secs="$QL_DEFAULT_TIMEOUT" prompt_file="" out="" print_cmd=0
+  local turns="$QL_DEFAULT_TURNS" wall="$QL_DEFAULT_WALL"
+  local approval_mode="yolo" prompt=""
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--dir)             dir="$2"; shift 2 ;;
+      -m|--model)           model="$2"; shift 2 ;;
+      -e|--effort)          effort="$2"; shift 2 ;;
+      -t|--timeout)         timeout_secs="$2"; shift 2 ;;
+      --max-session-turns)  turns="$2"; shift 2 ;;
+      --max-wall-time)      wall="$2"; shift 2 ;;
+      --yolo)               approval_mode="yolo"; shift ;;
+      --approval-mode)      approval_mode="$2"; shift 2 ;;
+      -f|--prompt-file)     prompt_file="$2"; shift 2 ;;
+      -o|--out)             out="$2"; shift 2 ;;
+      --print-cmd)          print_cmd=1; shift ;;
+      -h|--help)            ql_usage; return 0 ;;
+      --)                   shift; break ;;
+      -*)                   printf 'subagent-local-qwen3.8-27b-run: unknown option: %s\n' "$1" >&2; return 2 ;;
+      *)                    break ;;
+    esac
+  done
+
+  ql_valid_effort "$effort" || {
+    printf 'subagent-local-qwen3.8-27b-run: unsupported effort: %s (expected xhigh|medium|low; never high)\n' "$effort" >&2
+    return 2
+  }
+
+  case "$approval_mode" in
+    yolo|plan|default|auto-edit|auto) ;;
+    *)
+      printf 'subagent-local-qwen3.8-27b-run: unsupported approval-mode: %s\n' "$approval_mode" >&2
+      return 2
+      ;;
+  esac
+
+  local contract_file
+  if [ "$approval_mode" = "plan" ]; then
+    contract_file="$QL_PLUGIN_ROOT/references/review-contract.md"
+  else
+    contract_file="$QL_PLUGIN_ROOT/references/implement-contract.md"
+  fi
+  [ -r "$contract_file" ] || {
+    printf 'subagent-local-qwen3.8-27b-run: missing contract: %s\n' "$contract_file" >&2
+    return 2
+  }
+  local contract_text
+  contract_text="$(cat "$contract_file")"
+
+  if [ "$print_cmd" -eq 1 ]; then
+    ql_print_cmd "$model" "$approval_mode" "$turns" "$wall" "$contract_text"
+    return 0
+  fi
+
+  if [ -n "$prompt_file" ]; then
+    [ -r "$prompt_file" ] || {
+      printf 'subagent-local-qwen3.8-27b-run: cannot read prompt file: %s\n' "$prompt_file" >&2
+      return 2
+    }
+    prompt="$(cat "$prompt_file")"
+  elif [ $# -gt 0 ]; then
+    prompt="$*"
+  elif [ ! -t 0 ]; then
+    prompt="$(cat)"
+  fi
+
+  if [ -z "${prompt//[[:space:]]/}" ]; then
+    printf 'subagent-local-qwen3.8-27b-run: empty prompt (pass as argument, --prompt-file, or stdin)\n' >&2
+    return 2
+  fi
+
+  ql_preflight_cli || return $?
+
+  local base="${OPENAI_BASE_URL:-$QL_DEFAULT_BASE}"
+  local served
+  served="$(ql_preflight_models "$base" "$model")" || return $?
+  model="$served"
+
+  local iso_home
+  iso_home="$(mktemp -d -t qwen38-home.XXXXXX)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$iso_home'" EXIT
+  ql_write_isolated_settings "$iso_home" "$model" "$base" "$effort"
+
+  local log final errlog
+  log="${out:-$(mktemp -t qwen38-run-log.XXXXXX)}"
+  final="$(mktemp -t qwen38-run-final.XXXXXX)"
+  errlog="${log}.stderr"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$iso_home'; rm -f '$final'" EXIT
+  : > "$log"
+  : > "$errlog"
+
+  local -a cmd=()
+  while IFS= read -r -d '' arg; do cmd+=("$arg"); done < <(
+    ql_build_cmd "$model" "$approval_mode" "$turns" "$wall" "$contract_text"
+  )
+
+  [ -d "$dir" ] || {
+    printf 'subagent-local-qwen3.8-27b-run: directory does not exist: %s\n' "$dir" >&2
+    return 2
+  }
+
+  set +e
+  (
+    cd "$dir" || exit 2
+    export HOME="$iso_home"
+    export OPENAI_BASE_URL="$base"
+    export OPENAI_API_KEY="${OPENAI_API_KEY:-dummy}"
+    export OPENAI_MODEL="$model"
+    export QWEN_CODE_SUPPRESS_YOLO_WARNING=1
+    printf '%s' "$prompt" | timeout -k 10 "$timeout_secs" "${cmd[@]}"
+  ) >"$log" 2>"$errlog"
+  local rc=$?
+  set -e
+
+  if [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ]; then
+    cat >&2 <<EOF
+subagent-local-qwen3.8-27b-run: TIMEOUT after ${timeout_secs}s (exit $rc). qwen was killed mid-task.
+  Partial, UNCOMMITTED edits may be in the working tree. To recover:
+    git -C "$dir" status
+    git -C "$dir" checkout -- .
+    # remove any newly-created files, then retry with a larger --timeout AND a
+    # larger host Bash-tool timeout (ms >= inner timeout * 1000).
+  Full log: $log (stderr: $errlog)
+EOF
+    return "$rc"
+  fi
+
+  # Prefer JSON result extraction; write to final for symmetry with codex-run.
+  if ql_extract_final_answer < "$log" > "$final" && [ -s "$final" ]; then
+    cat "$final"
+  else
+    cat "$log"
+  fi
+
+  printf 'subagent-local-qwen3.8-27b-run: exit %d, model=%s, approval=%s, full log: %s (stderr: %s)\n' \
+    "$rc" "$model" "$approval_mode" "$log" "$errlog" >&2
+  return "$rc"
+}
+
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  ql_main "$@"
+fi
