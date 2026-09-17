@@ -183,6 +183,12 @@ rc=0
 printf '%s\n' "$prompt_text" | "$wrapper" "${wrapper_args[@]}" > "$output_file" 2>"$runtime_dir/err.txt" || rc=$?
 cat "$runtime_dir/err.txt" >&2
 
+# The wrapper reports a missing/too-old qwen CLI as 127: that is the local engine
+# being unavailable, which this contract expresses as 75.
+if [ "$rc" -eq 127 ]; then
+  printf 'run-qwen-local: qwen CLI missing or too old; route elsewhere\n' >&2
+  rc=75
+fi
 if [ "$rc" -eq 0 ] && [ ! -s "$output_file" ]; then
   printf 'run-qwen-local: missing or empty final-message artifact: %s\n' "$output_file" >&2
   rc=5

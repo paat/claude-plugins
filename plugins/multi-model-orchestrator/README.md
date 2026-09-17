@@ -125,8 +125,9 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
   - Claude Code (`claude`)
   - OpenAI Codex CLI (`codex`)
   - latest Grok Build (`grok`), using Grok 4.5
-- Optional local engine: the `subagent-local-qwen3.8-27b` plugin plus a llama.cpp endpoint and
-  `flock`. Without all three, local routes report unavailable (exit 75) and work goes to Grok.
+- Optional local engine: the `subagent-local-qwen3.8-27b` plugin, a llama.cpp endpoint, the `qwen`
+  CLI, `curl`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
+  work goes to Grok.
 
 Only selected providers are required. `jq` is required only for `run-claude.sh --stream-log`, to extract the final message from Claude's stream output; nothing else in the plugin needs it.
 

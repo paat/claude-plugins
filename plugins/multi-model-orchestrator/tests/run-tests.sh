@@ -1859,6 +1859,24 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
 [ "$rc" -eq 0 ] || fail "an endpoint without /slots still dispatches (got $rc)"
 pass 'run-qwen-local: no /slots route still dispatches'
 
+# A missing qwen CLI is the engine being unavailable, not a hard worker failure.
+cat > "$WORK/bin/qwen-wrapper-127.sh" <<'WRAP'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--print-base" ]; then
+  printf '%s\n' "${QL_STUB_BASE:-http://127.0.0.1:9/v1}"
+  exit 0
+fi
+printf '%s\n' 'qwen CLI not found on PATH' >&2
+exit 127
+WRAP
+chmod +x "$WORK/bin/qwen-wrapper-127.sh"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-127.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 75 ] || fail "a missing qwen CLI exits 75 (got $rc)"
+pass 'run-qwen-local: a missing qwen CLI exits 75'
+
 # Doc contracts: deleting these silently disables the local route, so pin them.
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \
   'run-qwen-local.sh' 'leg-liveness keeps the local-Qwen exit-75 exception'
@@ -1868,6 +1886,8 @@ contains "$PLUGIN_ROOT/skills/route-model-task/references/routing.md" \
   'qwen3.8-27b-local' 'routing catalog keeps the local engine'
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
   'run-qwen-local.sh --mode review' 'review-leg rule keeps the local reviewer read-only'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
+  'cannot run anything' 'review-leg rule says the local lens cannot execute probes'
 pass 'run-qwen-local: skill and routing contracts are pinned'
 
 printf 'All multi-model-orchestrator tests passed.\n'
