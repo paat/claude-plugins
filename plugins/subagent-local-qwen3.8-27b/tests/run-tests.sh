@@ -251,6 +251,7 @@ if [ "${1:-}" = "--help" ]; then
   exit 0
 fi
 cat > "${QL_STUB_STDIN:-/tmp/ql-stub-stdin}"
+printf '%s\n' "$@" > "${QL_STUB_ARGV:-/tmp/ql-stub-argv}"
 printf '%s\n' '[{"type":"result","result":"REVIEW OK"}]'
 exit 0
 STUB
@@ -261,12 +262,16 @@ git -C "$diffrepo" add -A
 git -C "$diffrepo" -c user.name=t -c user.email=t@t commit -qm base
 printf 'two\n' > "$diffrepo/f.txt"
 git -C "$diffrepo" -c user.name=t -c user.email=t@t commit -qam change
-stdin_file2="$(mktemp)"
-QL_STUB_STDIN="$stdin_file2" run -C "$diffrepo" --approval-mode plan --diff HEAD~1 \
+stdin_file2="$(mktemp)"; argv_file2="$(mktemp)"
+QL_STUB_STDIN="$stdin_file2" QL_STUB_ARGV="$argv_file2" \
+  run -C "$diffrepo" --approval-mode plan --diff HEAD~1 \
   "review it" >/dev/null 2>&1
 contains "diff prompt names the patch file" "/review.patch" "$(cat "$stdin_file2")"
 check "patch is not written into the repo" 0 \
   "$(find "$diffrepo" -maxdepth 1 -name '*.patch' | wc -l)"
+# plan mode has no shell: the patch is only readable if its dir joins the workspace
+contains "patch dir shared with the worker" "--include-directories" \
+  "$(tr '\n' ' ' <"$argv_file2")"
 check "review repo left clean" "" "$(git -C "$diffrepo" status --porcelain)"
 QL_STUB_STDIN="$stdin_file2" run -C "$diffrepo" --approval-mode plan --diff HEAD \
   "review it" >/dev/null 2>&1

@@ -37,7 +37,9 @@ scripts/subagent-local-qwen3.8-27b-run.sh [--dir D] [--model M] [--effort medium
 
 `--diff BASE` writes `git diff BASE` to a temp dir **outside** the repo, shares it with the worker via `--include-directories`, and points the prompt at it — nothing is ever written into the target repo. Name both ends of the range — `--diff 'HEAD~1..HEAD'` for a commit, `--diff 'origin/main...HEAD'` for a branch, `--diff HEAD` for the uncommitted working tree — and note it requires `--approval-mode plan` — review mode (`--approval-mode plan`) has **no shell**, so the worker cannot run git and would otherwise review only the current files and miss regressions.
 
-`--print-cmd` shows the `qwen` argv without executing. Preflight fails closed when llama.cpp is down, busy (one in-flight GPU request), or serving a non-coding / `longctx` alias.
+`--print-cmd` shows the `qwen` argv without executing; it prints the base command, without the `--diff` patch wiring (no patch is produced for a preview).
+
+`--diff HEAD` covers tracked changes only — `git diff` never reports untracked files, so commit or stage a brand-new file before reviewing it. Preflight fails closed when llama.cpp is down, busy (one in-flight GPU request), or serving a non-coding / `longctx` alias.
 
 `reasoning_effort` is `medium` only (`xhigh|medium|low` — never `high`). Thinking-mode sampling: temp 1.0, top_p 0.95, top_k 20.
 

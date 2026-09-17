@@ -34,7 +34,8 @@
 #                              'HEAD~1..HEAD' for a commit, 'origin/main...HEAD' for
 #                              a branch, HEAD for the uncommitted working tree.
 #   -o, --out FILE             Where to keep the full captured stream (default: temp).
-#       --print-cmd            Print the qwen command that would run, then exit.
+#       --print-cmd            Print the base qwen command, then exit (no --diff
+#                              patch wiring: nothing is produced for a preview).
 #   -h, --help                 Show this help and exit.
 #
 # Env:
