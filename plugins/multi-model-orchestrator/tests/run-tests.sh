@@ -82,6 +82,12 @@ case "${STUB_CODEX_RESULT:-ok}" in
     printf 'ERROR: sandbox setup failed\n' >&2
     exit 1
     ;;
+  # Prompt echo can contain ERROR: 401; a later panic must not reclassify (#556).
+  panic_after_prompt_error)
+    printf 'ERROR: 401 unauthorized\n' >&2
+    printf "thread 'main' panicked at 'index out of bounds', src/main.rs:10:5\n" >&2
+    exit 1
+    ;;
   auth)
     cat "$STUB_CODEX_PROMPT" >&2
     printf 'ERROR: Reconnecting... 5/5\n' >&2
@@ -1543,6 +1549,8 @@ assert_provider_failure_class() {
 # Codex: prompt leak must not reclassify; last ERROR: line is authoritative.
 assert_provider_failure_class codex STUB_CODEX_RESULT prompt_leak 1 '' \
   'Codex prompt mentioning 429/503 with ERROR: sandbox → stays 1'
+assert_provider_failure_class codex STUB_CODEX_RESULT panic_after_prompt_error 1 '' \
+  'Codex prompt ERROR: 401 then panic → stays 1'
 assert_provider_failure_class codex STUB_CODEX_RESULT auth 77 auth \
   'Codex Reconnecting then 401 Unauthorized → 77'
 assert_provider_failure_class codex STUB_CODEX_RESULT transient 75 transient \

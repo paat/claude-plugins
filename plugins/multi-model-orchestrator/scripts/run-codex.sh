@@ -193,8 +193,11 @@ fi
 
 : > "$classify_file"
 if [ -s "${stream_file}.stderr" ]; then
-  # Best-effort: last ERROR: line that is not a reconnect; tool output can also emit ERROR:.
-  grep -E '^ERROR: ' "${stream_file}.stderr" | grep -v Reconnecting | tail -n 1 > "$classify_file" || true
+  # Only classify when the last non-empty stderr line is itself ERROR: (not Reconnecting).
+  last_line="$(grep -E -v '^[[:space:]]*$' "${stream_file}.stderr" | tail -n 1 || true)"
+  if [[ "$last_line" == ERROR:\ * && "$last_line" != *Reconnecting* ]]; then
+    printf '%s\n' "$last_line" > "$classify_file"
+  fi
 fi
 mmo_finish run-codex "$rc" "$classify_file" \
   "model=$model" "effort=$effort" "mode=$mode" "log=$stream_file"
