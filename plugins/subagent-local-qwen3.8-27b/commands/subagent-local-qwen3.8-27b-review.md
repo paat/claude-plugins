@@ -18,7 +18,8 @@ Get an independent **read-only review** from local **Qwen3.8-27B** via the Qwen 
 
    For a diff / commit / branch target, pass `--diff <base>` — `--diff HEAD~1` for a
    commit, `--diff 'origin/main...HEAD'` for a branch (three-dot: merge-base, so
-   commits that landed on main meanwhile are not counted as changes). The wrapper writes that diff into the repo and points the
+   commits that landed on main meanwhile are not counted as changes), `--diff HEAD`
+   for an uncommitted working tree. The wrapper writes that diff into the repo and points the
    worker at it: **approval-mode plan has no shell**, so the worker cannot run git
    itself and will otherwise review only the files as they now stand and miss
    regressions.

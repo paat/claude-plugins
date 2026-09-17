@@ -54,6 +54,18 @@ QL_DEFAULT_WALL="15m"
 QL_DEFAULT_BASE="http://127.0.0.1:8000/v1"
 QL_PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Cleanup: paths are registered as they are created and removed once, on exit.
+# Nothing is interpolated into trap source, so repository paths containing quotes
+# or shell syntax are harmless.
+QL_CLEANUP_PATHS=()
+
+ql_cleanup() {
+  local path
+  for path in ${QL_CLEANUP_PATHS+"${QL_CLEANUP_PATHS[@]}"}; do
+    [ -n "$path" ] && rm -rf "$path"
+  done
+}
+
 ql_usage() {
   awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' \
     "${BASH_SOURCE[0]}"
@@ -330,6 +342,7 @@ ql_print_cmd() {
 }
 
 ql_main() {
+  trap ql_cleanup EXIT
   local dir="$PWD" model="$QL_DEFAULT_MODEL" effort="$QL_DEFAULT_EFFORT"
   local timeout_secs="$QL_DEFAULT_TIMEOUT" prompt_file="" out="" print_cmd=0
   local turns="$QL_DEFAULT_TURNS" wall="$QL_DEFAULT_WALL"
@@ -407,10 +420,13 @@ ql_main() {
   if [ -n "$diff_base" ]; then
     # Unique name: never truncate a file the repo (or a parallel run) already has.
     diff_file="$(mktemp "$dir/.qwen-review-diff.XXXXXX.patch")"
-    # shellcheck disable=SC2064
-    trap "rm -f '$diff_file'" EXIT
-    if ! git -C "$dir" --no-pager diff "$diff_base" > "$diff_file" 2>/dev/null; then
-      printf 'subagent-local-qwen3.8-27b-run: cannot diff %s in %s\n' "$diff_base" "$dir" >&2
+    QL_CLEANUP_PATHS+=("$diff_file")
+    local git_err
+    git_err="$(mktemp -t qwen38-git-err.XXXXXX)"
+    QL_CLEANUP_PATHS+=("$git_err")
+    if ! git -C "$dir" --no-pager diff "$diff_base" > "$diff_file" 2>"$git_err"; then
+      printf 'subagent-local-qwen3.8-27b-run: cannot diff %s in %s: %s\n' \
+        "$diff_base" "$dir" "$(tr '\n' ' ' <"$git_err")" >&2
       return 2
     fi
     if [ ! -s "$diff_file" ]; then
@@ -445,16 +461,14 @@ $prompt"
   local iso_home real_home
   real_home="$HOME"
   iso_home="$(mktemp -d -t qwen38-home.XXXXXX)"
-  # shellcheck disable=SC2064
-  trap "rm -rf '$iso_home'" EXIT
+  QL_CLEANUP_PATHS+=("$iso_home")
   ql_write_isolated_settings "$iso_home" "$model" "$base" "$effort"
 
   local log final errlog
   log="${out:-$(mktemp -t qwen38-run-log.XXXXXX)}"
   final="$(mktemp -t qwen38-run-final.XXXXXX)"
   errlog="${log}.stderr"
-  # shellcheck disable=SC2064
-  trap "rm -rf '$iso_home'; rm -f '$final' ${diff_file:+'$diff_file'}" EXIT
+  QL_CLEANUP_PATHS+=("$final")
   : > "$log"
   : > "$errlog"
 
