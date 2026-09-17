@@ -26,6 +26,8 @@
 #       --yolo                 Implement mode: auto-approve tools (default).
 #       --approval-mode MODE   Use plan for read-only review; overrides --yolo.
 #   -f, --prompt-file F        Read the prompt from file F instead of argv/stdin.
+#       --diff-file F          Use an already-produced patch F instead of diffing
+#                              (one source of truth when the caller already has it).
 #   -d, --diff BASE            Write `git diff BASE` to a temp dir OUTSIDE the repo,
 #                              share it with --include-directories, and point the
 #                              prompt at it (review mode only).
@@ -367,7 +369,7 @@ ql_main() {
   local dir="$PWD" model="$QL_DEFAULT_MODEL" effort="$QL_DEFAULT_EFFORT"
   local timeout_secs="$QL_DEFAULT_TIMEOUT" prompt_file="" out="" print_cmd=0 print_base=0
   local turns="$QL_DEFAULT_TURNS" wall="$QL_DEFAULT_WALL"
-  local approval_mode="yolo" prompt="" diff_base="" diff_file="" diff_dir=""
+  local approval_mode="yolo" prompt="" diff_base="" diff_file="" diff_dir="" diff_ready=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -381,6 +383,7 @@ ql_main() {
       --approval-mode)      approval_mode="$2"; shift 2 ;;
       -f|--prompt-file)     prompt_file="$2"; shift 2 ;;
       -d|--diff)            diff_base="$2"; shift 2 ;;
+      --diff-file)          diff_ready="$2"; shift 2 ;;
       -o|--out)             out="$2"; shift 2 ;;
       --print-cmd)          print_cmd=1; shift ;;
       --print-base)         print_base=1; shift ;;
@@ -448,6 +451,18 @@ ql_main() {
     return 2
   fi
 
+  if [ -n "$diff_ready" ]; then
+    [ -r "$diff_ready" ] || {
+      printf 'subagent-local-qwen3.8-27b-run: cannot read diff file: %s\n' "$diff_ready" >&2
+      return 2
+    }
+    [ -z "$diff_base" ] || {
+      printf 'subagent-local-qwen3.8-27b-run: pass --diff or --diff-file, not both\n' >&2
+      return 2
+    }
+    diff_base="__ready__"
+  fi
+
   if [ -n "$diff_base" ] && [ "$approval_mode" != "plan" ]; then
     printf 'subagent-local-qwen3.8-27b-run: --diff requires --approval-mode plan (implement mode has a shell and can run git itself)\n' >&2
     return 2
@@ -465,10 +480,13 @@ ql_main() {
     diff_dir="$(mktemp -d -t qwen38-review.XXXXXX)"
     QL_CLEANUP_PATHS+=("$diff_dir")
     diff_file="$diff_dir/review.patch"
+    if [ -n "$diff_ready" ]; then
+      cp "$diff_ready" "$diff_file"
+    fi
     local git_err
     git_err="$(mktemp -t qwen38-git-err.XXXXXX)"
     QL_CLEANUP_PATHS+=("$git_err")
-    if ! git -C "$dir" --no-pager diff "$diff_base" > "$diff_file" 2>"$git_err"; then
+    if [ -z "$diff_ready" ] && ! git -C "$dir" --no-pager diff "$diff_base" > "$diff_file" 2>"$git_err"; then
       printf 'subagent-local-qwen3.8-27b-run: cannot diff %s in %s: %s\n' \
         "$diff_base" "$dir" "$(tr '\n' ' ' <"$git_err")" >&2
       return 2

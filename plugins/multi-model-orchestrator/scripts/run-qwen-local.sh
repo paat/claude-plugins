@@ -133,7 +133,9 @@ for tool in flock curl; do
   }
 done
 # Normalize first: .../v1 and .../v1/ address the same GPU and must share a lock.
-lock_key="$(printf '%s' "${base_url%/}" | cksum | tr -d ' \t' )"
+# Normalize first: http://h:8000, .../v1 and .../v1/ all address the same GPU.
+lock_base="${base_url%/}"; lock_base="${lock_base%/v1}"
+lock_key="$(printf '%s' "$lock_base" | cksum | tr -d ' \t' )"
 # Own directory, created without -p: mkdir -p stats through a symlink, so a path
 # planted in a shared /tmp before the first run could redirect the lock open.
 lock_dir="${TMPDIR:-/tmp}/mmo-qwen-local-$(id -u)"
@@ -181,7 +183,10 @@ case "$slots_code" in
 esac
 
 runtime_dir="$(mktemp -d)"
-trap 'rm -rf "$runtime_dir"' EXIT
+# Keep the worker's stream and stderr when something went wrong: the wrapper only
+# prints their paths, and a failed or timed-out leg is diagnosed from them.
+cleanup() { [ "${keep_runtime:-0}" = 1 ] || rm -rf "$runtime_dir"; }
+trap cleanup EXIT
 # --out holds the FINAL MESSAGE, as in the sibling runners; the wrapper's raw
 # stream goes to a temp file. meta-orchestration reads --out to resume a leg.
 stream_file="$runtime_dir/stream.json"
@@ -190,7 +195,11 @@ case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
 
 wrapper_args=(--dir "$repo_dir" --timeout "$run_timeout" --out "$stream_file")
 if [ "$mode" = review ]; then
-  wrapper_args+=(--approval-mode plan --diff "$base_ref")
+  # Hand over the patch we just validated: re-diffing in the wrapper would be a
+  # second source of truth that the size gate never saw.
+  review_patch="$runtime_dir/review.patch"
+  printf '%s\n' "$review_diff" > "$review_patch"
+  wrapper_args+=(--approval-mode plan --diff-file "$review_patch")
   prompt_text="$prompt_text
 
 End with one terminal line: APPROVE or NEEDS_WORK."
@@ -221,5 +230,9 @@ fi
 # Body on success and on a verdict-format failure, as the siblings do.
 if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
   cat "$output_file"
+fi
+if [ "$rc" -ne 0 ] && [ "$rc" -ne 6 ]; then
+  keep_runtime=1
+  printf 'run-qwen-local: worker logs kept in %s\n' "$runtime_dir" >&2
 fi
 mmo_finish run-qwen-local "$rc" "$runtime_dir/err.txt" "model=local-qwen" "mode=$mode"

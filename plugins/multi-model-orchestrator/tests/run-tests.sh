@@ -1653,7 +1653,7 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BAS
 [ "$rc" -eq 0 ] || fail "review dispatch succeeded (got $rc)"
 contains "$QL_WRAPPER_ARGV" '--approval-mode' 'review dispatch passes --approval-mode'
 contains "$QL_WRAPPER_ARGV" 'plan' 'review dispatch pins plan mode'
-contains "$QL_WRAPPER_ARGV" 'HEAD~1..HEAD' 'review dispatch forwards the diff range'
+contains "$QL_WRAPPER_ARGV" '--diff-file' 'review dispatch hands over the validated patch'
 pass 'run-qwen-local: review dispatch is read-only with the diff'
 
 # implement mode is write-capable
@@ -1687,12 +1687,24 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" \
   bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 75 ] || fail "in-flight request on /slots exits 75 (got $rc)"
 pass 'run-qwen-local: a request already on the GPU exits 75'
-rm -f "$WORK/bin/curl"
+# Restore an idle stub immediately: a later case must never run with no curl.
+cat > "$WORK/bin/curl" <<'IDLEAGAIN'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
+case "$url" in
+  *slots) printf '%s\n' '[{"id":0,"is_processing":false}]'; printf '%s\n' '200' ;;
+  *) exit 7 ;;
+esac
+IDLEAGAIN
+chmod +x "$WORK/bin/curl"
 
 # a held lock means the slot is taken: refuse with 75 rather than queue
 if command -v flock >/dev/null 2>&1; then
   lock_url="http://127.0.0.1:9/v1"
-  lock_key="$(printf '%s' "$lock_url" | cksum | tr -d ' \t')"
+  # same normalization as the runner: strip a trailing slash and a /v1 suffix
+  lock_norm="${lock_url%/}"; lock_norm="${lock_norm%/v1}"
+  lock_key="$(printf '%s' "$lock_norm" | cksum | tr -d ' \t')"
   lock_path="${TMPDIR:-/tmp}/mmo-qwen-local-$(id -u)/${lock_key}.lock"
   mkdir -p "$(dirname "$lock_path")"
   exec 8>"$lock_path"

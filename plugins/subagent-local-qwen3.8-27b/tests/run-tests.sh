@@ -276,6 +276,17 @@ check "review repo left clean" "" "$(git -C "$diffrepo" status --porcelain)"
 QL_STUB_STDIN="$stdin_file2" run -C "$diffrepo" --approval-mode plan --diff HEAD \
   "review it" >/dev/null 2>&1
 check "empty diff refused" 2 "$?"
+# --diff-file: use a caller's patch instead of diffing again
+ready_patch="$(mktemp)"
+git -C "$diffrepo" --no-pager diff HEAD~1 > "$ready_patch"
+QL_STUB_STDIN="$stdin_file2" run -C "$diffrepo" --approval-mode plan --diff-file "$ready_patch" \
+  "review it" >/dev/null 2>&1
+contains "diff-file prompt names the patch" "/review.patch" "$(cat "$stdin_file2")"
+check "diff-file repo left clean" "" "$(git -C "$diffrepo" status --porcelain)"
+rc=0
+run -C "$diffrepo" --approval-mode plan --diff HEAD~1 --diff-file "$ready_patch" "x" >/dev/null 2>&1 || rc=$?
+check "diff and diff-file together refused" 2 "$rc"
+rm -f "$ready_patch"
 # preflight failure after a non-empty write must not leave the patch behind
 # no qwen on PATH -> CLI preflight fails *after* the patch is written
 PATH="/usr/bin:/bin" HOME="$host_qwen_dir" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
