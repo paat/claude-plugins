@@ -276,6 +276,38 @@ PATH="/usr/bin:/bin" HOME="$host_qwen_dir" OPENAI_BASE_URL="http://127.0.0.1:9/v
   "$SCRIPT" -C "$diffrepo" --approval-mode plan --diff HEAD~1 "x" >/dev/null 2>&1
 check "patch removed when preflight fails" 0 \
   "$(find "$diffrepo" -maxdepth 1 -name '.qwen-review-diff.*' | wc -l)"
+run -C "$diffrepo" --yolo --diff HEAD~1 "x" >/dev/null 2>&1
+check "diff refused outside plan mode" 2 "$?"
+
+# (b3) base-URL fallback: no OPENAI_BASE_URL, only the container host answers
+cat > "$stubdir/curl" <<'CURL'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
+case "$url" in
+  *host.docker.internal*/models)
+    printf '%s\n' '{"data":[{"id":"Qwen3.8-27B-UD-Q6_K_XL-coding"}]}'
+    printf '%s\n' '200'
+    ;;
+  *127.0.0.1*/models) exit 7 ;;   # nothing listening
+  *) exit 7 ;;
+esac
+CURL
+chmod +x "$stubdir/curl"
+make_qwen <<'STUB'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  echo "Usage: qwen --yolo --approval-mode"
+  exit 0
+fi
+printf '%s\n' "${OPENAI_BASE_URL:-unset}" > "${QL_STUB_BASE:-/tmp/ql-stub-base}"
+printf '%s\n' '[{"type":"result","result":"REVIEW OK"}]'
+exit 0
+STUB
+base_file="$(mktemp)"
+QL_STUB_BASE="$base_file" PATH="$stubdir:$PATH" HOME="$host_qwen_dir" \
+  "$SCRIPT" -C /tmp --approval-mode plan "review" >/dev/null 2>&1
+contains "falls back to the container host" "host.docker.internal" "$(cat "$base_file")"
 rm -rf "$diffrepo"
 
 # (c) missing qwen → 127

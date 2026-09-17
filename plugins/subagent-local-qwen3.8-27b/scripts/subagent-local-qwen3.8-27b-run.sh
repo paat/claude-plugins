@@ -29,8 +29,9 @@
 #   -d, --diff BASE            Write `git diff BASE` into the repo as a temporary
 #                              .qwen-review-diff.*.patch and point the prompt at it.
 #                              Required for review: approval-mode plan has NO shell,
-#                              so the worker cannot run git itself. For a branch use
-#                              the merge-base form: --diff 'origin/main...HEAD'.
+#                              so the worker cannot run git itself. Name both ends:
+#                              'HEAD~1..HEAD' for a commit, 'origin/main...HEAD' for
+#                              a branch, HEAD for the uncommitted working tree.
 #   -o, --out FILE             Where to keep the full captured stream (default: temp).
 #       --print-cmd            Print the qwen command that would run, then exit.
 #   -h, --help                 Show this help and exit.
@@ -129,7 +130,7 @@ ql_pick_base() {
     "${QL_DEFAULT_BASE/127.0.0.1/host.docker.internal}" \
     "${gw:+${QL_DEFAULT_BASE/127.0.0.1/$gw}}"; do
     [ -n "$c" ] || continue
-    if curl -sS -m 3 -o /dev/null "${c%/}/models" 2>/dev/null; then
+    if curl -fsS -m 3 "${c%/}/models" 2>/dev/null | grep -q '"id"'; then
       printf '%s' "$c"
       return 0
     fi
@@ -414,6 +415,11 @@ ql_main() {
 
   if [ -z "${prompt//[[:space:]]/}" ]; then
     printf 'subagent-local-qwen3.8-27b-run: empty prompt (pass as argument, --prompt-file, or stdin)\n' >&2
+    return 2
+  fi
+
+  if [ -n "$diff_base" ] && [ "$approval_mode" != "plan" ]; then
+    printf 'subagent-local-qwen3.8-27b-run: --diff requires --approval-mode plan (implement mode has a shell and can run git itself)\n' >&2
     return 2
   fi
 

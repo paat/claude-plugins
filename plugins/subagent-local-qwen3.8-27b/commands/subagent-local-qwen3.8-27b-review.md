@@ -16,10 +16,11 @@ Get an independent **read-only review** from local **Qwen3.8-27B** via the Qwen 
 
 3. **Dispatch the local reviewer (read-only).** Point it at the artifact by path (it opens files itself — don't paste large diffs). Use a generous Bash-tool timeout (≥ 600000 ms):
 
-   For a diff / commit / branch target, pass `--diff <base>` — `--diff HEAD~1` for a
-   commit, `--diff 'origin/main...HEAD'` for a branch (three-dot: merge-base, so
-   commits that landed on main meanwhile are not counted as changes), `--diff HEAD`
-   for an uncommitted working tree. The wrapper writes that diff into the repo and points the
+   For a diff / commit / branch target, pass `--diff <range>`, naming both ends so
+   uncommitted edits cannot ride along: `--diff 'HEAD~1..HEAD'` for a commit,
+   `--diff 'origin/main...HEAD'` for a branch (three-dot: merge-base, so commits that
+   landed on main meanwhile are not counted), `--diff HEAD` for the uncommitted
+   working tree. `--diff` requires `--approval-mode plan`. The wrapper writes that diff into the repo and points the
    worker at it: **approval-mode plan has no shell**, so the worker cannot run git
    itself and will otherwise review only the files as they now stand and miss
    regressions.
