@@ -1877,6 +1877,22 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-127.sh" \
 [ "$rc" -eq 75 ] || fail "a missing qwen CLI exits 75 (got $rc)"
 pass 'run-qwen-local: a missing qwen CLI exits 75'
 
+# An oversized review diff belongs on a bigger-context model, not a truncated local one.
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" MMO_REVIEW_DIFF_MAX_BYTES=10 \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD~1..HEAD' "review" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 75 ] || fail "an oversized review diff exits 75 (got $rc)"
+pass 'run-qwen-local: an oversized review diff routes elsewhere'
+
+# Usage errors must not take the GPU slot first.
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "" >/dev/null 2>&1 </dev/null || rc=$?
+[ "$rc" -eq 2 ] || fail "an empty prompt is a usage error (got $rc)"
+pass 'run-qwen-local: an empty prompt fails before the slot is taken'
+
 # Doc contracts: deleting these silently disables the local route, so pin them.
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \
   'run-qwen-local.sh' 'leg-liveness keeps the local-Qwen exit-75 exception'

@@ -79,8 +79,8 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
    PROMPT
    ```
 
-   Exit `75` means unavailable or busy: dispatch that task to Grok 4.5 at once and note the
-   substitution. Do not wait for the slot or retry it in the same pass. For review, add
+   Exit `75` means unavailable or busy: dispatch that task to the route card's allowed fallback
+   at once — Grok 4.5 by default, never a denied provider — and note the substitution. Do not wait for the slot or retry it in the same pass. For review, add
    `--mode review --base <range>` — the local worker has no shell and is handed the diff.
 
    For Claude Haiku 4.5, omit `--effort`; its current reasoning control is not supported by this

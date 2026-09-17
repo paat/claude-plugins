@@ -91,6 +91,19 @@ base_url="${found#*$'\t'}"
 # Pin it: the wrapper must use the endpoint we checked and locked, not re-resolve.
 export OPENAI_BASE_URL="$base_url"
 
+# One prompt source, always delivered on stdin: argv, --prompt-file, or a heredoc.
+# Never as an argv word, so a prompt starting with a dash stays prompt text.
+prompt_text=""
+if [ -n "$prompt_file" ]; then
+  [ -r "$prompt_file" ] || { printf 'run-qwen-local: cannot read prompt file: %s\n' "$prompt_file" >&2; exit 2; }
+  prompt_text="$(cat "$prompt_file")"
+elif [ "$#" -gt 0 ]; then
+  prompt_text="$*"
+elif [ ! -t 0 ]; then
+  prompt_text="$(cat)"
+fi
+[ -n "${prompt_text//[[:space:]]/}" ] || { printf 'run-qwen-local: empty prompt\n' >&2; exit 2; }
+
 # 2. Take the slot first, so our own dispatches never race each other into the
 # window between a check and the lock. Everything that cannot be guaranteed here
 # exits 75: the controller routes elsewhere rather than queueing on one GPU.
@@ -106,8 +119,8 @@ lock_key="$(printf '%s' "${base_url%/}" | cksum | tr -d ' \t' )"
 # planted in a shared /tmp before the first run could redirect the lock open.
 lock_dir="${TMPDIR:-/tmp}/mmo-qwen-local-$(id -u)"
 mkdir "$lock_dir" 2>/dev/null || true
-if [ ! -d "$lock_dir" ] || [ -L "$lock_dir" ]; then
-  printf 'run-qwen-local: lock directory %s is missing or not a real directory; route elsewhere\n' "$lock_dir" >&2
+if [ ! -d "$lock_dir" ] || [ -L "$lock_dir" ] || [ ! -O "$lock_dir" ]; then
+  printf 'run-qwen-local: lock directory %s is missing, a symlink, or not owned by us; route elsewhere\n' "$lock_dir" >&2
   exit 75
 fi
 lock_file="$lock_dir/${lock_key}.lock"
@@ -156,21 +169,17 @@ stream_file="$runtime_dir/stream.json"
 [ -n "$output_file" ] || output_file="$runtime_dir/body.txt"
 case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
 
-# One prompt source, always delivered on stdin: argv, --prompt-file, or a heredoc.
-# Never as an argv word, so a prompt starting with a dash stays prompt text.
-prompt_text=""
-if [ -n "$prompt_file" ]; then
-  [ -r "$prompt_file" ] || { printf 'run-qwen-local: cannot read prompt file: %s\n' "$prompt_file" >&2; exit 2; }
-  prompt_text="$(cat "$prompt_file")"
-elif [ "$#" -gt 0 ]; then
-  prompt_text="$*"
-elif [ ! -t 0 ]; then
-  prompt_text="$(cat)"
-fi
-[ -n "${prompt_text//[[:space:]]/}" ] || { printf 'run-qwen-local: empty prompt\n' >&2; exit 2; }
-
 wrapper_args=(--dir "$repo_dir" --timeout "$run_timeout" --out "$stream_file")
 if [ "$mode" = review ]; then
+  # Same cap as the sibling review legs: an oversized diff belongs on a model with
+  # a bigger context window, so report unavailable rather than truncating silently.
+  max_bytes="${MMO_REVIEW_DIFF_MAX_BYTES:-1048576}"
+  [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { printf 'run-qwen-local: MMO_REVIEW_DIFF_MAX_BYTES must be positive\n' >&2; exit 2; }
+  diff_bytes="$(git -C "$repo_dir" --no-pager diff "$base_ref" | wc -c)"
+  if [ "$diff_bytes" -gt "$max_bytes" ]; then
+    printf 'run-qwen-local: diff is %s bytes (cap %s); route elsewhere or split\n' "$diff_bytes" "$max_bytes" >&2
+    exit 75
+  fi
   wrapper_args+=(--approval-mode plan --diff "$base_ref")
   prompt_text="$prompt_text
 
