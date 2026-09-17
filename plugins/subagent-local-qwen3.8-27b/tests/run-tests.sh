@@ -264,11 +264,18 @@ git -C "$diffrepo" -c user.name=t -c user.email=t@t commit -qam change
 stdin_file2="$(mktemp)"
 QL_STUB_STDIN="$stdin_file2" run -C "$diffrepo" --approval-mode plan --diff HEAD~1 \
   "review it" >/dev/null 2>&1
-contains "diff prompt names the patch file" ".qwen-review-diff.patch" "$(cat "$stdin_file2")"
-check "diff patch cleaned up" 0 "$(ls "$diffrepo"/.qwen-review-diff.patch 2>/dev/null | wc -l)"
+contains "diff prompt names the patch file" ".qwen-review-diff." "$(cat "$stdin_file2")"
+check "diff patch cleaned up" 0 \
+  "$(find "$diffrepo" -maxdepth 1 -name '.qwen-review-diff.*' | wc -l)"
 QL_STUB_STDIN="$stdin_file2" run -C "$diffrepo" --approval-mode plan --diff HEAD \
   "review it" >/dev/null 2>&1
 check "empty diff refused" 2 "$?"
+# preflight failure after a non-empty write must not leave the patch behind
+# no qwen on PATH -> CLI preflight fails *after* the patch is written
+PATH="/usr/bin:/bin" HOME="$host_qwen_dir" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  "$SCRIPT" -C "$diffrepo" --approval-mode plan --diff HEAD~1 "x" >/dev/null 2>&1
+check "patch removed when preflight fails" 0 \
+  "$(find "$diffrepo" -maxdepth 1 -name '.qwen-review-diff.*' | wc -l)"
 rm -rf "$diffrepo"
 
 # (c) missing qwen → 127

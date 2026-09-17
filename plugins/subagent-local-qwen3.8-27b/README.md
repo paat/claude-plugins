@@ -35,7 +35,7 @@ scripts/subagent-local-qwen3.8-27b-run.sh [--dir D] [--model M] [--effort medium
   [--yolo | --approval-mode plan] [--diff BASE] [--out F] [--prompt-file F] [PROMPT]
 ```
 
-`--diff BASE` writes `git diff BASE` into the repo as `.qwen-review-diff.patch` (removed afterwards) and points the prompt at it — review mode (`--approval-mode plan`) has **no shell**, so the worker cannot run git and would otherwise review only the current files and miss regressions.
+`--diff BASE` writes `git diff BASE` into the repo as a temporary `.qwen-review-diff.*.patch` (removed on exit, including when preflight fails) and points the prompt at it. For a branch, pass the merge-base form `--diff 'origin/main...HEAD'` — review mode (`--approval-mode plan`) has **no shell**, so the worker cannot run git and would otherwise review only the current files and miss regressions.
 
 `--print-cmd` shows the `qwen` argv without executing. Preflight fails closed when llama.cpp is down, busy (one in-flight GPU request), or serving a non-coding / `longctx` alias.
 

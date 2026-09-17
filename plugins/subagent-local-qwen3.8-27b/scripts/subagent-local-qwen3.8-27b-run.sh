@@ -26,10 +26,11 @@
 #       --yolo                 Implement mode: auto-approve tools (default).
 #       --approval-mode MODE   Use plan for read-only review; overrides --yolo.
 #   -f, --prompt-file F        Read the prompt from file F instead of argv/stdin.
-#   -d, --diff BASE            Write `git diff BASE` into the repo as
-#                              .qwen-review-diff.patch and point the prompt at it.
+#   -d, --diff BASE            Write `git diff BASE` into the repo as a temporary
+#                              .qwen-review-diff.*.patch and point the prompt at it.
 #                              Required for review: approval-mode plan has NO shell,
-#                              so the worker cannot run git itself.
+#                              so the worker cannot run git itself. For a branch use
+#                              the merge-base form: --diff 'origin/main...HEAD'.
 #   -o, --out FILE             Where to keep the full captured stream (default: temp).
 #       --print-cmd            Print the qwen command that would run, then exit.
 #   -h, --help                 Show this help and exit.
@@ -404,18 +405,19 @@ ql_main() {
   fi
 
   if [ -n "$diff_base" ]; then
-    diff_file="$dir/.qwen-review-diff.patch"
+    # Unique name: never truncate a file the repo (or a parallel run) already has.
+    diff_file="$(mktemp "$dir/.qwen-review-diff.XXXXXX.patch")"
+    # shellcheck disable=SC2064
+    trap "rm -f '$diff_file'" EXIT
     if ! git -C "$dir" --no-pager diff "$diff_base" > "$diff_file" 2>/dev/null; then
-      rm -f "$diff_file"
       printf 'subagent-local-qwen3.8-27b-run: cannot diff %s in %s\n' "$diff_base" "$dir" >&2
       return 2
     fi
     if [ ! -s "$diff_file" ]; then
-      rm -f "$diff_file"
       printf 'subagent-local-qwen3.8-27b-run: empty diff against %s — nothing to review\n' "$diff_base" >&2
       return 2
     fi
-    prompt="The diff under review is in .qwen-review-diff.patch (repo root). Read that file first, then open the files it touches.
+    prompt="The diff under review is in $(basename "$diff_file") (repo root). Read that file first, then open the files it touches.
 
 $prompt"
   fi
@@ -470,8 +472,8 @@ $prompt"
   (
     cd "$dir" || exit 2
     export HOME="$iso_home"
-    # The isolated HOME also hides ~/.local python user-site, which breaks the
-    # project's own `python3 -m pytest`. Keep user installs visible.
+    # The isolated HOME also hides the ~/.local user-site directory, which breaks
+    # the project's own test runner (pytest and friends). Keep user installs visible.
     export PYTHONUSERBASE="${PYTHONUSERBASE:-$real_home/.local}"
     export OPENAI_BASE_URL="$base"
     export OPENAI_API_KEY="${OPENAI_API_KEY:-dummy}"

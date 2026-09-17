@@ -16,8 +16,9 @@ Get an independent **read-only review** from local **Qwen3.8-27B** via the Qwen 
 
 3. **Dispatch the local reviewer (read-only).** Point it at the artifact by path (it opens files itself — don't paste large diffs). Use a generous Bash-tool timeout (≥ 600000 ms):
 
-   For a diff / commit / branch target, pass `--diff <base>` (e.g. `--diff HEAD~1`,
-   `--diff origin/main`). The wrapper writes that diff into the repo and points the
+   For a diff / commit / branch target, pass `--diff <base>` — `--diff HEAD~1` for a
+   commit, `--diff 'origin/main...HEAD'` for a branch (three-dot: merge-base, so
+   commits that landed on main meanwhile are not counted as changes). The wrapper writes that diff into the repo and points the
    worker at it: **approval-mode plan has no shell**, so the worker cannot run git
    itself and will otherwise review only the files as they now stand and miss
    regressions.
