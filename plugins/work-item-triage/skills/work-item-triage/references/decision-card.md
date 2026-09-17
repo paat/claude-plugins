@@ -11,7 +11,7 @@ The same card fields apply to both directions; only prior-art lookup and disposi
 | `outcome` | Audience, trigger, consequence and coping path |
 | `evidence` | Object with `class`; observations, counter-evidence and gaps when available |
 | `necessity` | `required` or `discretionary`; explain obligations in the response |
-| `readiness` | `ready`, `blocked` or `unknown`, independent of necessity |
+| `readiness` | `ready`, `blocked` or `unknown`, independent of necessity; a non-empty snapshot `assignees` value is an ownership/readiness input (`Target owner` / prerequisites) |
 | `response` | Smallest adequate intervention, retained acceptance, do-nothing consequence |
 | `cost` | Qualitative marginal complexity/retrieval/review/operations burden |
 | `disposition` | One token from the selected direction below |

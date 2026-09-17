@@ -160,7 +160,7 @@ wit_read_main() {
     fi
     [[ $item_complete == true ]] || complete=false
     local digest
-    digest=$(wit_json '.[0] as $r | .[1] as $c | .[2] as $t | {title:($r.title // $r.name),state:$r.state,labels:($r.labels // []),relations:.[3],body:($r.body // $r.description_stripped // $r.description // ""),comments:$c,history:$t}' "$raw" "$comments" "$timeline" "$relations" | jq -cS . | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')
+    digest=$(wit_json '.[0] as $r | .[1] as $c | .[2] as $t | {title:($r.title // $r.name),state:$r.state,labels:($r.labels // []),assignees:[($r.assignees // [])[]|if type=="object" then .login else . end],relations:.[3],body:($r.body // $r.description_stripped // $r.description // ""),comments:$c,history:$t}' "$raw" "$comments" "$timeline" "$relations" | jq -cS . | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')
     printf '%s\n' "$raw" "$comments" "$timeline" "$relations" > "$tmp/input"
     item=$(jq -cs --arg query "$query" --arg digest "$digest" --argjson full "$full" --argjson ok "$item_complete" '
       .[0] as $r | .[1] as $c | .[2] as $t | .[3] as $relations |
@@ -179,6 +179,7 @@ wit_read_main() {
       {history_digest:$digest,id:(($r.number // $r.id)|tostring), title:($r.title // $r.name // ""), url:($r.html_url // $r.url // ""),
        state:(($r.state | if type=="object" then .name else . end) // "unknown" | ascii_downcase), updatedAt:($r.updatedAt // $r.updated_at // null),
        body:(($r.body // $r.description_stripped // $r.description // "")|clip), labels:[($r.labels // [])[]|if type=="object" then .name else . end],
+       assignees:[($r.assignees // [])[]|if type=="object" then .login else . end],
        comments:[$c[]|{id:(.id|tostring),body:((.body // .comment // "")|clip),updatedAt:(.updated_at // .updatedAt // "")} + attribution(.user.login // .author)], comments_fetched:($c|length),
        history:[$t[]|{event:(.event // .type // "decision"),at:(.created_at // .createdAt // ""),body:((.body // "")|clip)} + attribution(.actor.login // .author) + history_detail],
        completeness:(if $ok then "complete" else "incomplete" end), text_truncated:(((($r.body // $r.description_stripped // $r.description // "")|length)>600 or any($c[]; ((.body // .comment // "")|length)>600) or any($t[]; ((.body // "")|length)>600)) and ($full|not)),
