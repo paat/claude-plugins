@@ -82,12 +82,13 @@ repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
 request_file="$(mktemp)"
 prompt_file="$(mktemp)"
 diff_file="$(mktemp)"
+classify_file="$(mktemp)"
 [ -n "$output_file" ] || output_file="$(mktemp)"
 case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
 if [ "$stream_log_set" -eq 1 ]; then
   case "$stream_file" in /*) ;; *) stream_file="$PWD/$stream_file" ;; esac
 fi
-trap 'rm -f "$request_file" "$prompt_file" "$diff_file"' EXIT
+trap 'rm -f "$request_file" "$prompt_file" "$diff_file" "$classify_file"' EXIT
 cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-claude: empty prompt\n' >&2; exit 2; }
 
@@ -183,6 +184,7 @@ else
   claude_args+=(--allowedTools 'Read,Glob,Grep' --disallowedTools 'Bash,Write,Edit,NotebookEdit,Task,WebFetch,WebSearch')
 fi
 
+provider_rc=0
 set +e
 if [ "$stream_log_set" -eq 1 ]; then
   # NDJSON event stream to --stream-log while live; final message extracted into --out after success.
@@ -234,7 +236,8 @@ if [ "$stream_log_set" -eq 1 ]; then
 else
   (cd "$repo_dir" && timeout -k 10 "$run_timeout" claude "${claude_args[@]}" \
     < "$prompt_file" > "$output_file" 2> "${output_file}.stderr")
-  rc=$?
+  provider_rc=$?
+  rc=$provider_rc
 fi
 set -e
 if [ "$rc" -eq 0 ] && [ ! -s "$output_file" ]; then
@@ -252,5 +255,21 @@ if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
 fi
 if [ "$model" = claude-haiku-4-5 ]; then effective_effort=n/a; else effective_effort="$effort"; fi
 if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="$output_file"; fi
-printf 'run-claude: exit=%s model=%s effort=%s mode=%s log=%s\n' "$rc" "$model" "$effective_effort" "$mode" "$log_path" >&2
-exit "$rc"
+
+: > "$classify_file"
+if [ "$provider_rc" -ne 0 ]; then
+  if [ "$stream_log_set" -eq 1 ] && [ -f "$stream_file" ]; then
+    result_event="$(jq -c 'select(.type == "result")' "$stream_file" 2>/dev/null | tail -n 1 || true)"
+    if [ -n "$result_event" ]; then
+      api_status="$(printf '%s\n' "$result_event" | jq -r '.api_error_status // empty')"
+      [ -z "$api_status" ] || printf '%s\n' "$api_status" > "$classify_file"
+    fi
+  elif [ -s "$output_file" ]; then
+    last_line="$(grep -Ev '^[[:space:]]*$' "$output_file" | tail -n 1 || true)"
+    if printf '%s\n' "$last_line" | grep -Eq 'API Error: [0-9]{3}'; then
+      printf '%s\n' "$last_line" > "$classify_file"
+    fi
+  fi
+fi
+mmo_finish run-claude "$rc" "$classify_file" \
+  "model=$model" "effort=$effective_effort" "mode=$mode" "log=$log_path"
