@@ -1609,6 +1609,10 @@ git -C "$qwen_repo" -c user.name=t -c user.email=t@t commit -qam change
 # stub wrapper records argv and succeeds
 cat > "$WORK/bin/qwen-wrapper.sh" <<'WRAP'
 #!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  exit 0
+fi
 if [ "${1:-}" = "--print-base" ]; then
   printf '%s\n' "${QL_STUB_BASE:-http://127.0.0.1:9/v1}"
   exit 0
@@ -1779,6 +1783,10 @@ chmod +x "$WORK/bin/curl"
 # The documented heredoc form must work: nothing may consume the prompt on stdin.
 cat > "$WORK/bin/qwen-wrapper-stdin.sh" <<'WRAP'
 #!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  exit 0
+fi
 if [ "${1:-}" = "--print-base" ]; then
   printf '%s\n' "${QL_STUB_BASE:-http://127.0.0.1:9/v1}"
   exit 0
@@ -1807,6 +1815,10 @@ pass 'run-qwen-local: heredoc prompt, verdict line, and dash-leading prompts rea
 # A review that returns prose without a verdict is not a passing review.
 cat > "$WORK/bin/qwen-wrapper-noverdict.sh" <<'WRAP'
 #!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  exit 0
+fi
 if [ "${1:-}" = "--print-base" ]; then
   printf '%s\n' "${QL_STUB_BASE:-http://127.0.0.1:9/v1}"
   exit 0
@@ -1874,6 +1886,10 @@ pass 'run-qwen-local: no /slots route still dispatches'
 # A missing qwen CLI is the engine being unavailable, not a hard worker failure.
 cat > "$WORK/bin/qwen-wrapper-127.sh" <<'WRAP'
 #!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  exit 0
+fi
 if [ "${1:-}" = "--print-base" ]; then
   printf '%s\n' "${QL_STUB_BASE:-http://127.0.0.1:9/v1}"
   exit 0
@@ -1917,6 +1933,27 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
   bash "$QL_RUN" --mode implement --repo "$qwen_repo" "" >/dev/null 2>&1 </dev/null || rc=$?
 [ "$rc" -eq 2 ] || fail "an empty prompt is a usage error (got $rc)"
 pass 'run-qwen-local: an empty prompt fails before the slot is taken'
+
+# A wrapper too old for --diff-file is unavailable, not a usage error mid-dispatch.
+cat > "$WORK/bin/qwen-wrapper-old.sh" <<'WRAP'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  printf '%s\n' '--print-base --approval-mode --yolo'
+  exit 0
+fi
+if [ "${1:-}" = "--print-base" ]; then
+  printf '%s\n' 'http://127.0.0.1:9/v1'
+  exit 0
+fi
+exit 0
+WRAP
+chmod +x "$WORK/bin/qwen-wrapper-old.sh"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-old.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 75 ] || fail "a wrapper without --diff-file exits 75 (got $rc)"
+pass 'run-qwen-local: a wrapper missing a required flag exits 75'
 
 # Doc contracts: deleting these silently disables the local route, so pin them.
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \

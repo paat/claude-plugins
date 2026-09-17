@@ -64,10 +64,13 @@ esac
 # 1. Wrapper discovery. Absent plugin is "unavailable", not an error to debug.
 # A candidate counts only if it answers --print-base: older wrappers exit 1 on a
 # busy server instead of 75, which would silently disable the Grok fallback.
-# Prints "<wrapper path><tab><base url>": --print-base probes the network when
-# OPENAI_BASE_URL is unset, so ask once and carry the answer.
+# Prints "<wrapper path><tab><base url>". A candidate must support every flag this
+# runner sends (--print-base and --diff-file); a stale cached copy that predates
+# one of them would fail dispatch with a usage error instead of the 75 the
+# fallback contract expects. --print-base probes the network when OPENAI_BASE_URL
+# is unset, so ask once and carry the answer.
 mmo_find_wrapper() {
-  local candidate base
+  local candidate base help
   # Unmatched cache globs must disappear, not survive as literal candidates.
   shopt -s nullglob
   for candidate in "${MMO_QWEN_LOCAL_RUN:-}" \
@@ -75,6 +78,8 @@ mmo_find_wrapper() {
     "${HOME}"/.claude/plugins/cache/*/subagent-local-qwen3.8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh \
     "${HOME}"/.agents/plugins/cache/*/subagent-local-qwen3.8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh; do
     [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+    help="$("$candidate" --help 2>/dev/null || true)"
+    case "$help" in *--diff-file*) ;; *) continue ;; esac
     base="$("$candidate" --print-base 2>/dev/null || true)"
     if [ -n "$base" ]; then
       printf '%s\t%s' "$candidate" "$base"
