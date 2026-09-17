@@ -68,6 +68,8 @@ esac
 # OPENAI_BASE_URL is unset, so ask once and carry the answer.
 mmo_find_wrapper() {
   local candidate base
+  # Unmatched cache globs must disappear, not survive as literal candidates.
+  shopt -s nullglob
   for candidate in "${MMO_QWEN_LOCAL_RUN:-}" \
     "$(command -v subagent-local-qwen3.8-27b-run.sh 2>/dev/null || true)" \
     "${HOME}"/.claude/plugins/cache/*/subagent-local-qwen3.8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh \
@@ -76,9 +78,11 @@ mmo_find_wrapper() {
     base="$("$candidate" --print-base 2>/dev/null || true)"
     if [ -n "$base" ]; then
       printf '%s\t%s' "$candidate" "$base"
+      shopt -u nullglob
       return 0
     fi
   done
+  shopt -u nullglob
   return 1
 }
 
@@ -135,8 +139,7 @@ for tool in flock curl; do
     exit 75
   }
 done
-# Normalize first: .../v1 and .../v1/ address the same GPU and must share a lock.
-# Normalize first: http://h:8000, .../v1 and .../v1/ all address the same GPU.
+# http://h:8000, .../v1 and .../v1/ all address the same GPU, so they share a lock.
 lock_base="${base_url%/}"; lock_base="${lock_base%/v1}"
 # cksum prints "<checksum> <bytes>"; keep a separator so the two fields cannot
 # merge into the same key for different URLs.

@@ -486,7 +486,8 @@ ql_main() {
     local git_err
     git_err="$(mktemp -t qwen38-git-err.XXXXXX)"
     QL_CLEANUP_PATHS+=("$git_err")
-    if [ -z "$diff_ready" ] && ! git -C "$dir" --no-pager diff "$diff_base" > "$diff_file" 2>"$git_err"; then
+    if [ -z "$diff_ready" ] && ! git -C "$dir" --no-pager diff --no-ext-diff --binary "$diff_base" \
+      > "$diff_file" 2>"$git_err"; then
       printf 'subagent-local-qwen3.8-27b-run: cannot diff %s in %s: %s\n' \
         "$diff_base" "$dir" "$(tr '\n' ' ' <"$git_err")" >&2
       return 2
