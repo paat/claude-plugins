@@ -193,6 +193,7 @@ else
 fi
 # Prove isolated HOME: must be a temp dir containing our settings, not host.
 printf '%s\n' "$HOME" > "${QL_STUB_HOME:-/tmp/ql-stub-home}"
+printf '%s\n' "${PYTHONUSERBASE:-unset}" > "${QL_STUB_PYUSERBASE:-/tmp/ql-stub-pyuserbase}"
 if [ -f "$HOME/.qwen/settings.json" ]; then
   cp "$HOME/.qwen/settings.json" "${QL_STUB_SETTINGS:-/tmp/ql-stub-settings}"
 fi
@@ -201,15 +202,18 @@ exit 0
 STUB
 
 argv_file="$(mktemp)"; stdin_file="$(mktemp)"; home_file="$(mktemp)"; settings_file="$(mktemp)"
+pyuserbase_file="$(mktemp)"
 got="$(
   QL_STUB_ARGV="$argv_file" QL_STUB_STDIN="$stdin_file" \
   QL_STUB_HOME="$home_file" QL_STUB_SETTINGS="$settings_file" \
+  QL_STUB_PYUSERBASE="$pyuserbase_file" \
   run -C /tmp --yolo <<'PROMPT' 2>/dev/null
 do a thing from stdin
 PROMPT
 )"
 check "happy path prints JSON result" "CLEAN FINAL MESSAGE" "$got"
 contains "stdin delivered prompt" "do a thing from stdin" "$(cat "$stdin_file")"
+contains "python user-site stays visible" "$host_qwen_dir/.local" "$(cat "$pyuserbase_file")"
 check "argv does not carry giant prompt" 0 \
   "$(grep -c 'do a thing from stdin' "$argv_file" || true)"
 contains "yolo flag passed" "--yolo" "$(tr '\n' ' ' <"$argv_file")"
@@ -239,9 +243,83 @@ contains "plan flag passed" "--approval-mode" "$(tr '\n' ' ' </tmp/ql-stub-argv-
 contains "plan value passed" "plan" "$(tr '\n' ' ' </tmp/ql-stub-argv-plan)"
 check "plan mode omits yolo" 0 "$(grep -cx -- '--yolo' /tmp/ql-stub-argv-plan || true)"
 
+# (b2) --diff feeds the review the patch (plan mode has no shell)
+make_qwen <<'STUB'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  echo "Usage: qwen --yolo --approval-mode"
+  exit 0
+fi
+cat > "${QL_STUB_STDIN:-/tmp/ql-stub-stdin}"
+printf '%s\n' "$@" > "${QL_STUB_ARGV:-/tmp/ql-stub-argv}"
+printf '%s\n' '[{"type":"result","result":"REVIEW OK"}]'
+exit 0
+STUB
+diffrepo="$(mktemp -d)"
+git -C "$diffrepo" init -q
+printf 'one\n' > "$diffrepo/f.txt"
+git -C "$diffrepo" add -A
+git -C "$diffrepo" -c user.name=t -c user.email=t@t commit -qm base
+printf 'two\n' > "$diffrepo/f.txt"
+git -C "$diffrepo" -c user.name=t -c user.email=t@t commit -qam change
+stdin_file2="$(mktemp)"; argv_file2="$(mktemp)"
+QL_STUB_STDIN="$stdin_file2" QL_STUB_ARGV="$argv_file2" \
+  run -C "$diffrepo" --approval-mode plan --diff HEAD~1 \
+  "review it" >/dev/null 2>&1
+contains "diff prompt names the patch file" "/review.patch" "$(cat "$stdin_file2")"
+check "patch is not written into the repo" 0 \
+  "$(find "$diffrepo" -maxdepth 1 -name '*.patch' | wc -l)"
+# plan mode has no shell: the patch is only readable if its dir joins the workspace
+contains "patch dir shared with the worker" "--include-directories" \
+  "$(tr '\n' ' ' <"$argv_file2")"
+check "review repo left clean" "" "$(git -C "$diffrepo" status --porcelain)"
+QL_STUB_STDIN="$stdin_file2" run -C "$diffrepo" --approval-mode plan --diff HEAD \
+  "review it" >/dev/null 2>&1
+check "empty diff refused" 2 "$?"
+# preflight failure after a non-empty write must not leave the patch behind
+# no qwen on PATH -> CLI preflight fails *after* the patch is written
+PATH="/usr/bin:/bin" HOME="$host_qwen_dir" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  "$SCRIPT" -C "$diffrepo" --approval-mode plan --diff HEAD~1 "x" >/dev/null 2>&1
+check "repo still clean when preflight fails" "" "$(git -C "$diffrepo" status --porcelain)"
+run -C "$diffrepo" --yolo --diff HEAD~1 "x" >/dev/null 2>&1
+check "diff refused outside plan mode" 2 "$?"
+
+# (b3) base-URL fallback: no OPENAI_BASE_URL, only the container host answers
+cat > "$stubdir/curl" <<'CURL'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
+case "$url" in
+  *host.docker.internal*/models)
+    printf '%s\n' '{"data":[{"id":"Qwen3.8-27B-UD-Q6_K_XL-coding"}]}'
+    printf '%s\n' '200'
+    ;;
+  *127.0.0.1*/models) exit 7 ;;   # nothing listening
+  *) exit 7 ;;
+esac
+CURL
+chmod +x "$stubdir/curl"
+make_qwen <<'STUB'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  echo "Usage: qwen --yolo --approval-mode"
+  exit 0
+fi
+printf '%s\n' "${OPENAI_BASE_URL:-unset}" > "${QL_STUB_BASE:-/tmp/ql-stub-base}"
+printf '%s\n' '[{"type":"result","result":"REVIEW OK"}]'
+exit 0
+STUB
+base_file="$(mktemp)"
+QL_STUB_BASE="$base_file" PATH="$stubdir:$PATH" HOME="$host_qwen_dir" \
+  env -u OPENAI_BASE_URL \
+  "$SCRIPT" -C /tmp --approval-mode plan "review" >/dev/null 2>&1
+contains "falls back to the container host" "host.docker.internal" "$(cat "$base_file")"
+rm -rf "$diffrepo"
+
 # (c) missing qwen → 127
 rm -f "$stubdir/qwen"
-PATH="$stubdir:$PATH" HOME="$host_qwen_dir" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+# Minimal PATH: a real qwen installed on the host PATH would mask this case.
+PATH="$stubdir:/usr/bin:/bin" HOME="$host_qwen_dir" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
   "$SCRIPT" -C /tmp "x" >/dev/null 2>&1
 check "missing qwen exits 127" 127 "$?"
 

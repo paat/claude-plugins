@@ -34,7 +34,7 @@ Wrapper: `scripts/subagent-local-qwen3.8-27b-run.sh`
 - Appends the short contracts via `--append-system-prompt` from the plugin-root files
   implement-contract.md and review-contract.md under the references/ directory
 - Isolated `HOME` (does not write host `~/.qwen`)
-- `--yolo` for implement; `--approval-mode plan` for review
+- `--yolo` for implement; `--approval-mode plan` for review (plan mode has **no shell**: pass `--diff <base>` so the reviewer gets the patch, or it reviews only current files and misses regressions)
 - Thinking on; `reasoning_effort` is `medium` only (never `high`)
 
 Prefer the slash commands; they call the wrapper with the right contract and timeouts.

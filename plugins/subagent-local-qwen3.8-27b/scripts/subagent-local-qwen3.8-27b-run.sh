@@ -26,12 +26,22 @@
 #       --yolo                 Implement mode: auto-approve tools (default).
 #       --approval-mode MODE   Use plan for read-only review; overrides --yolo.
 #   -f, --prompt-file F        Read the prompt from file F instead of argv/stdin.
+#   -d, --diff BASE            Write `git diff BASE` to a temp dir OUTSIDE the repo,
+#                              share it with --include-directories, and point the
+#                              prompt at it (review mode only).
+#                              Required for review: approval-mode plan has NO shell,
+#                              so the worker cannot run git itself. Name both ends:
+#                              'HEAD~1..HEAD' for a commit, 'origin/main...HEAD' for
+#                              a branch, HEAD for the uncommitted working tree.
 #   -o, --out FILE             Where to keep the full captured stream (default: temp).
-#       --print-cmd            Print the qwen command that would run, then exit.
+#       --print-cmd            Print the base qwen command, then exit (no --diff
+#                              patch wiring: nothing is produced for a preview).
 #   -h, --help                 Show this help and exit.
 #
 # Env:
-#   OPENAI_BASE_URL   OpenAI-compat base (default: http://127.0.0.1:8000/v1).
+#   OPENAI_BASE_URL   OpenAI-compat base (default: http://127.0.0.1:8000/v1; when
+#                     unset and that is unreachable, the container gateway
+#                     (host.docker.internal / default route) is tried too).
 #   OPENAI_API_KEY    Dummy key for local servers (default: dummy).
 #   QWEN38_MODEL      Default model alias override.
 #
@@ -46,6 +56,18 @@ QL_DEFAULT_TURNS="40"
 QL_DEFAULT_WALL="15m"
 QL_DEFAULT_BASE="http://127.0.0.1:8000/v1"
 QL_PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Cleanup: paths are registered as they are created and removed once, on exit.
+# Nothing is interpolated into trap source, so repository paths containing quotes
+# or shell syntax are harmless.
+QL_CLEANUP_PATHS=()
+
+ql_cleanup() {
+  local path
+  for path in ${QL_CLEANUP_PATHS+"${QL_CLEANUP_PATHS[@]}"}; do
+    [ -n "$path" ] && rm -rf "$path"
+  done
+}
 
 ql_usage() {
   awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' \
@@ -98,6 +120,29 @@ ql_is_coding_profile() {
     *coding*) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# ql_pick_base — first reachable candidate base (llama.cpp usually runs on the
+# container host, not in the container). Falls back to the default so the real
+# preflight below prints the accurate error.
+ql_pick_base() {
+  local c gw probe code
+  gw="$(ip route 2>/dev/null | awk '/^default/ { print $3; exit }' || true)"
+  for c in "$QL_DEFAULT_BASE" \
+    "${QL_DEFAULT_BASE/127.0.0.1/host.docker.internal}" \
+    "${gw:+${QL_DEFAULT_BASE/127.0.0.1/$gw}}"; do
+    [ -n "$c" ] || continue
+    probe="$(curl -sS -m 3 -w '\n%{http_code}' "${c%/}/models" 2>/dev/null || true)"
+    code="$(printf '%s' "$probe" | tail -n1)"
+    # Accept a real models payload, and also a busy server: falling through to
+    # another host would hide the fail-closed busy error from preflight.
+    if { [ "$code" = "200" ] && printf '%s' "$probe" | grep -q '"id"'; } \
+      || [ "$code" = "429" ] || [ "$code" = "503" ]; then
+      printf '%s' "$c"
+      return 0
+    fi
+  done
+  printf '%s' "$QL_DEFAULT_BASE"
 }
 
 # ql_preflight_cli — qwen on PATH and recent enough for --yolo / --approval-mode.
@@ -278,6 +323,7 @@ EOF
 # Multi-line contracts must stay a single argv; never emit newline-separated argv.
 ql_build_cmd() {
   local model="$1" approval_mode="$2" turns="$3" wall="$4" contract_text="$5"
+  local extra_dir="${6:-}"
   printf '%s\0' qwen
   printf '%s\0' -m "$model"
   printf '%s\0' -o json
@@ -286,6 +332,7 @@ ql_build_cmd() {
   printf '%s\0' --max-session-turns "$turns"
   printf '%s\0' --max-wall-time "$wall"
   printf '%s\0' --append-system-prompt "$contract_text"
+  [ -n "$extra_dir" ] && printf '%s\0' --include-directories "$extra_dir"
   if [ "$approval_mode" = "plan" ]; then
     printf '%s\0' --approval-mode plan
   else
@@ -305,10 +352,11 @@ ql_print_cmd() {
 }
 
 ql_main() {
+  trap ql_cleanup EXIT
   local dir="$PWD" model="$QL_DEFAULT_MODEL" effort="$QL_DEFAULT_EFFORT"
   local timeout_secs="$QL_DEFAULT_TIMEOUT" prompt_file="" out="" print_cmd=0
   local turns="$QL_DEFAULT_TURNS" wall="$QL_DEFAULT_WALL"
-  local approval_mode="yolo" prompt=""
+  local approval_mode="yolo" prompt="" diff_base="" diff_file="" diff_dir=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -321,6 +369,7 @@ ql_main() {
       --yolo)               approval_mode="yolo"; shift ;;
       --approval-mode)      approval_mode="$2"; shift 2 ;;
       -f|--prompt-file)     prompt_file="$2"; shift 2 ;;
+      -d|--diff)            diff_base="$2"; shift 2 ;;
       -o|--out)             out="$2"; shift 2 ;;
       --print-cmd)          print_cmd=1; shift ;;
       -h|--help)            ql_usage; return 0 ;;
@@ -357,7 +406,7 @@ ql_main() {
   contract_text="$(cat "$contract_file")"
 
   if [ "$print_cmd" -eq 1 ]; then
-    ql_print_cmd "$model" "$approval_mode" "$turns" "$wall" "$contract_text"
+    ql_print_cmd "$model" "$approval_mode" "$turns" "$wall" "$contract_text" "$diff_dir"
     return 0
   fi
 
@@ -378,42 +427,86 @@ ql_main() {
     return 2
   fi
 
-  ql_preflight_cli || return $?
-
-  local base="${OPENAI_BASE_URL:-$QL_DEFAULT_BASE}"
-  local served
-  served="$(ql_preflight_models "$base" "$model")" || return $?
-  model="$served"
-
-  local iso_home
-  iso_home="$(mktemp -d -t qwen38-home.XXXXXX)"
-  # shellcheck disable=SC2064
-  trap "rm -rf '$iso_home'" EXIT
-  ql_write_isolated_settings "$iso_home" "$model" "$base" "$effort"
-
-  local log final errlog
-  log="${out:-$(mktemp -t qwen38-run-log.XXXXXX)}"
-  final="$(mktemp -t qwen38-run-final.XXXXXX)"
-  errlog="${log}.stderr"
-  # shellcheck disable=SC2064
-  trap "rm -rf '$iso_home'; rm -f '$final'" EXIT
-  : > "$log"
-  : > "$errlog"
-
-  local -a cmd=()
-  while IFS= read -r -d '' arg; do cmd+=("$arg"); done < <(
-    ql_build_cmd "$model" "$approval_mode" "$turns" "$wall" "$contract_text"
-  )
+  if [ -n "$diff_base" ] && [ "$approval_mode" != "plan" ]; then
+    printf 'subagent-local-qwen3.8-27b-run: --diff requires --approval-mode plan (implement mode has a shell and can run git itself)\n' >&2
+    return 2
+  fi
 
   [ -d "$dir" ] || {
     printf 'subagent-local-qwen3.8-27b-run: directory does not exist: %s\n' "$dir" >&2
     return 2
   }
 
+  if [ -n "$diff_base" ]; then
+    # The patch lives OUTSIDE the target repo and reaches the worker through
+    # --include-directories, so no artifact can be staged, committed, or left
+    # behind in the repo if this process is killed.
+    diff_dir="$(mktemp -d -t qwen38-review.XXXXXX)"
+    QL_CLEANUP_PATHS+=("$diff_dir")
+    diff_file="$diff_dir/review.patch"
+    local git_err
+    git_err="$(mktemp -t qwen38-git-err.XXXXXX)"
+    QL_CLEANUP_PATHS+=("$git_err")
+    if ! git -C "$dir" --no-pager diff "$diff_base" > "$diff_file" 2>"$git_err"; then
+      printf 'subagent-local-qwen3.8-27b-run: cannot diff %s in %s: %s\n' \
+        "$diff_base" "$dir" "$(tr '\n' ' ' <"$git_err")" >&2
+      return 2
+    fi
+    if [ ! -s "$diff_file" ]; then
+      printf 'subagent-local-qwen3.8-27b-run: empty diff against %s — nothing to review\n' "$diff_base" >&2
+      return 2
+    fi
+    prompt="The diff under review is in $diff_file. Read that file first, then open the files it touches in the repo.
+
+$prompt"
+  fi
+
+  ql_preflight_cli || return $?
+
+  local base served rc
+  if [ -n "${OPENAI_BASE_URL:-}" ]; then
+    base="$OPENAI_BASE_URL"
+  else
+    base="$(ql_pick_base)"
+  fi
+  set +e
+  served="$(ql_preflight_models "$base" "$model")"
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    if [ -z "${OPENAI_BASE_URL:-}" ]; then
+      printf 'subagent-local-qwen3.8-27b-run: set OPENAI_BASE_URL to the llama.cpp endpoint (from a container the host is usually http://host.docker.internal:8000/v1)\n' >&2
+    fi
+    return "$rc"
+  fi
+  model="$served"
+
+  local iso_home real_home
+  real_home="$HOME"
+  iso_home="$(mktemp -d -t qwen38-home.XXXXXX)"
+  QL_CLEANUP_PATHS+=("$iso_home")
+  ql_write_isolated_settings "$iso_home" "$model" "$base" "$effort"
+
+  local log final errlog
+  log="${out:-$(mktemp -t qwen38-run-log.XXXXXX)}"
+  final="$(mktemp -t qwen38-run-final.XXXXXX)"
+  errlog="${log}.stderr"
+  QL_CLEANUP_PATHS+=("$final")
+  : > "$log"
+  : > "$errlog"
+
+  local -a cmd=()
+  while IFS= read -r -d '' arg; do cmd+=("$arg"); done < <(
+    ql_build_cmd "$model" "$approval_mode" "$turns" "$wall" "$contract_text" "$diff_dir"
+  )
+
   set +e
   (
     cd "$dir" || exit 2
     export HOME="$iso_home"
+    # The isolated HOME also hides the ~/.local user-site directory, which breaks
+    # the project's own test runner (pytest and friends). Keep user installs visible.
+    export PYTHONUSERBASE="${PYTHONUSERBASE:-$real_home/.local}"
     export OPENAI_BASE_URL="$base"
     export OPENAI_API_KEY="${OPENAI_API_KEY:-dummy}"
     export OPENAI_MODEL="$model"

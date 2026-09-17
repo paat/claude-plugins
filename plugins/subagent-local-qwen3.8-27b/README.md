@@ -7,7 +7,7 @@ This plugin is bound to **Qwen3.8-27B**. A different local model is a different 
 ## Prerequisites
 
 1. **Qwen Code CLI >= 0.23.4** on `PATH` as `qwen` (needs `--yolo` / `--approval-mode`).
-2. **llama.cpp** (or compatible) serving the **Qwen3.8-27B coding** profile on an OpenAI endpoint. Default base URL: `http://127.0.0.1:8000/v1` (override with `OPENAI_BASE_URL`). Default alias: `Qwen3.8-27B-UD-Q6_K_XL-coding`.
+2. **llama.cpp** (or compatible) serving the **Qwen3.8-27B coding** profile on an OpenAI endpoint. Default base URL: `http://127.0.0.1:8000/v1`; when `OPENAI_BASE_URL` is unset and that is unreachable, the wrapper also tries the container gateway (`host.docker.internal`, then the default route) — llama.cpp usually runs on the host, not in the dev container. Default alias: `Qwen3.8-27B-UD-Q6_K_XL-coding`.
 3. Standard tools: `bash` 4+, `curl`, `jq`, `timeout` (GNU coreutils), `mktemp`, `git`.
 
 The wrapper uses an **isolated HOME** and writes `settings.json` only there — it never writes the host `~/.qwen` (so tribunal DashScope credentials stay untouched).
@@ -32,10 +32,14 @@ Both call `scripts/subagent-local-qwen3.8-27b-run.sh`:
 ```bash
 scripts/subagent-local-qwen3.8-27b-run.sh [--dir D] [--model M] [--effort medium] \
   [--timeout S] [--max-session-turns N] [--max-wall-time 15m] \
-  [--yolo | --approval-mode plan] [--out F] [--prompt-file F] [PROMPT]
+  [--yolo | --approval-mode plan] [--diff BASE] [--out F] [--prompt-file F] [PROMPT]
 ```
 
-`--print-cmd` shows the `qwen` argv without executing. Preflight fails closed when llama.cpp is down, busy (one in-flight GPU request), or serving a non-coding / `longctx` alias.
+`--diff BASE` writes `git diff BASE` to a temp dir **outside** the repo, shares it with the worker via `--include-directories`, and points the prompt at it — nothing is ever written into the target repo. Name both ends of the range — `--diff 'HEAD~1..HEAD'` for a commit, `--diff 'origin/main...HEAD'` for a branch, `--diff HEAD` for the uncommitted working tree — and note it requires `--approval-mode plan` — review mode (`--approval-mode plan`) has **no shell**, so the worker cannot run git and would otherwise review only the current files and miss regressions.
+
+`--print-cmd` shows the `qwen` argv without executing; it prints the base command, without the `--diff` patch wiring (no patch is produced for a preview).
+
+`--diff HEAD` covers tracked changes only — `git diff` never reports untracked files, so commit or stage a brand-new file before reviewing it. Preflight fails closed when llama.cpp is down, busy (one in-flight GPU request), or serving a non-coding / `longctx` alias.
 
 `reasoning_effort` is `medium` only (`xhigh|medium|low` — never `high`). Thinking-mode sampling: temp 1.0, top_p 0.95, top_k 20.
 
