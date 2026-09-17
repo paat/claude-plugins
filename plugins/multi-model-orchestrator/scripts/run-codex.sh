@@ -189,5 +189,24 @@ fi
 if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
   cat "$final_file"
 fi
-printf 'run-codex: exit=%s model=%s effort=%s mode=%s log=%s\n' "$rc" "$model" "$effort" "$mode" "$stream_file" >&2
+
+failure_kind=""
+case "$rc" in
+  0|2|3|4|5|6|7|124) ;;
+  *)
+    failure_kind="$(mmo_classify_provider_failure "${stream_file}.stderr")"
+    case "$failure_kind" in
+      transient) rc=75 ;;
+      auth) rc=77 ;;
+      *) failure_kind="" ;;
+    esac
+    ;;
+esac
+if [ -n "$failure_kind" ]; then
+  printf 'run-codex: exit=%s failure=%s model=%s effort=%s mode=%s log=%s\n' \
+    "$rc" "$failure_kind" "$model" "$effort" "$mode" "$stream_file" >&2
+else
+  printf 'run-codex: exit=%s model=%s effort=%s mode=%s log=%s\n' \
+    "$rc" "$model" "$effort" "$mode" "$stream_file" >&2
+fi
 exit "$rc"

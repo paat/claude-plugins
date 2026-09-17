@@ -10,3 +10,12 @@ Liveness is transcript/output mtime plus an exit marker. A process-list snapshot
 - **Done:** exit marker present (contents = numeric exit code) — done regardless of any process list.
 - **Not done:** marker absent (even if mtime stopped) — stalled/unknown; do not invent liveness from `pgrep`/`ps`.
 - Before dispatching the next worker, wait until the prior leg is **done** (marker present).
+
+## Provider failure exits
+
+Runners may reclassify provider failures (never model stdout) as:
+
+- **75 (EX_TEMPFAIL):** transient (429/529/503, overloaded, rate limit, temporarily unavailable). Wait at least 60s, retry the same route once; if it fails 75 again, dispatch the route card's allowed `Fallback`; with no allowed fallback, park the item as blocked and continue with the next item.
+- **77 (EX_NOPERM):** auth (401, unauthorized, not logged in, login required, expired/invalid token or API key). Do not retry; queue re-authentication under the handoff's `OPERATOR ACTIONS REQUIRED` and continue with the next item that does not need that provider.
+
+Before retrying an implement leg, inspect `git status` and salvage or reset partial edits on evidence (same principle as exit 124).

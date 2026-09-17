@@ -76,6 +76,10 @@ done
 cat > "$STUB_CODEX_PROMPT"
 case "${STUB_CODEX_RESULT:-ok}" in
   error) exit 23 ;;
+  transient) printf 'Error: HTTP 529 overloaded — rate limit\n' >&2; exit 23 ;;
+  auth) printf 'Error: 401 unauthorized — not logged in\n' >&2; exit 23 ;;
+  timeout) exit 124 ;;
+  rate_in_output) printf 'docs mentioned 429 rate limit\nAPPROVE\n' > "$out" ;;
   empty) : > "$out" ;;
   # Exit 0 without writing --out: simulates a silent no-op dispatch.
   missing) exit 0 ;;
@@ -114,12 +118,16 @@ text_for_result() {
     needs_work_space) printf 'claude findings\nNEEDS WORK\n' ;;
     template) printf '**VERDICT:** APPROVE\nREADY TO MERGE — nothing further coming.\n' ;;
     prose_approve) printf 'I cannot approve this change because tests fail.\n' ;;
+    rate_in_output) printf 'docs mentioned 429 rate limit\nAPPROVE\n' ;;
     *) printf 'claude findings\nAPPROVE\n' ;;
   esac
 }
 if [ "$format" = stream-json ]; then
   case "${STUB_CLAUDE_RESULT:-ok}" in
     error) exit 23 ;;
+    transient) printf 'Error: HTTP 529 overloaded — rate limit\n' >&2; exit 23 ;;
+    auth) printf 'Error: 401 unauthorized — not logged in\n' >&2; exit 23 ;;
+    timeout) exit 124 ;;
     empty) exit 0 ;;
     missing) [ -n "${STUB_UNLINK_OUT:-}" ] && rm -f "$STUB_UNLINK_OUT"; exit 0 ;;
     # Emit events, then sleep past the runner timeout so a kill leaves a live stream.
@@ -190,6 +198,9 @@ if [ "$format" = stream-json ]; then
 else
   case "${STUB_CLAUDE_RESULT:-ok}" in
     error) exit 23 ;;
+    transient) printf 'Error: HTTP 529 overloaded — rate limit\n' >&2; exit 23 ;;
+    auth) printf 'Error: 401 unauthorized — not logged in\n' >&2; exit 23 ;;
+    timeout) exit 124 ;;
     empty) exit 0 ;;
     # Unlink --out while the runner's redirect FD is still open so the path is
     # missing after the subshell closes (shell > always creates the file first).
@@ -208,6 +219,7 @@ else
     needs_work_space) printf 'claude findings\nNEEDS WORK\n' ;;
     template) printf '**VERDICT:** APPROVE\nREADY TO MERGE — nothing further coming.\n' ;;
     prose_approve) printf 'I cannot approve this change because tests fail.\n' ;;
+    rate_in_output) printf 'docs mentioned 429 rate limit\nAPPROVE\n' ;;
     *) printf 'claude findings\nAPPROVE\n' ;;
   esac
 fi
@@ -285,11 +297,14 @@ if [ -n "$debug_file" ]; then
 fi
 case "${STUB_GROK_RESULT:-ok}" in
   error) exit 23 ;;
+  transient) printf 'Error: HTTP 529 overloaded — rate limit\n' >&2; exit 23 ;;
+  auth) printf 'Error: 401 unauthorized — not logged in\n' >&2; exit 23 ;;
   empty) exit 0 ;;
   # Unlink --out while the runner's redirect FD is still open so the path is
   # missing after the subshell closes (shell > always creates the file first).
   missing) [ -n "${STUB_UNLINK_OUT:-}" ] && rm -f "$STUB_UNLINK_OUT"; exit 0 ;;
   timeout) exit 124 ;;
+  rate_in_output) printf 'docs mentioned 429 rate limit\nAPPROVE\n' ;;
   progress) printf 'Let me inspect the files.\n' ;;
   approved) printf 'grok findings\nAPPROVED\n' ;;
   needs_work_space) printf 'grok findings\nNEEDS WORK\n' ;;
@@ -768,6 +783,11 @@ contains "$META_SKILL" 'references/leg-liveness.md' 'Meta skill points at the le
 contains "$META_REFS/leg-liveness.md" 'echo $?' 'Leg liveness reference names the exit-marker write'
 contains "$META_REFS/leg-liveness.md" 'out.exit' 'Leg liveness reference names the out.exit example'
 contains "$META_REFS/leg-liveness.md" 'never `pgrep`' 'Leg liveness reference forbids pgrep'
+contains "$META_REFS/leg-liveness.md" '75 (EX_TEMPFAIL)' 'Leg liveness reference names exit 75 transient rule'
+contains "$META_REFS/leg-liveness.md" '77 (EX_NOPERM)' 'Leg liveness reference names exit 77 auth rule'
+contains "$META_REFS/leg-liveness.md" 'Wait at least 60s' 'Leg liveness reference requires 60s wait before transient retry'
+contains "$META_REFS/leg-liveness.md" 'OPERATOR ACTIONS REQUIRED' 'Leg liveness reference queues auth under operator actions'
+contains "$META_SKILL" 'failure exits 75/77' 'Meta skill points at failure exits in leg-liveness'
 absent "$META_REFS/leg-liveness.md" 'queue.json' 'Leg liveness reference does not introduce queue.json'
 contains "$META_SKILL" 'references/handoff-template.md' 'Meta skill instantiates the handoff template'
 contains "$META_SKILL" 'write nothing and stop' 'Meta skill makes a no-op scan near-zero cost'
@@ -1440,5 +1460,76 @@ grok_untracked_ok_rc=$?
 set -e
 [ "$grok_untracked_ok_rc" -eq 0 ] || fail "Grok must tolerate untracked --no-index exit 1 (rc=$grok_untracked_ok_rc)"
 pass '#521: Grok fails loud on untracked --no-index exit >1; tolerates exit 1'
+
+# --- #520 slice 3: classify transient/auth provider failures as exit 75/77 ---
+assert_provider_failure_class() {
+  local runner="$1" stub_env="$2" stub_val="$3" want_rc="$4" want_failure="$5" label="$6"
+  local err_file rc=0
+  err_file="$WORK/520-${runner}-${stub_val}.err"
+  set +e
+  case "$runner" in
+    claude)
+      printf '520 %s\n' "$stub_val" | env "$stub_env=$stub_val" \
+        "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
+        --model claude-haiku-4-5 --timeout 5 >/dev/null 2> "$err_file"
+      rc=$?
+      ;;
+    grok)
+      printf '520 %s\n' "$stub_val" | env "$stub_env=$stub_val" \
+        "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" \
+        --timeout 5 >/dev/null 2> "$err_file"
+      rc=$?
+      ;;
+    codex)
+      printf '520 %s\n' "$stub_val" | env "$stub_env=$stub_val" \
+        "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/repo" \
+        --timeout 5 >/dev/null 2> "$err_file"
+      rc=$?
+      ;;
+    *) fail "unknown runner $runner" ;;
+  esac
+  set -e
+  [ "$rc" -eq "$want_rc" ] || fail "$label: rc=$rc want $want_rc"
+  contains "$err_file" "exit=$want_rc" "$label: exit= line reports $want_rc"
+  if [ -n "$want_failure" ]; then
+    contains "$err_file" "failure=$want_failure" "$label: failure=$want_failure on exit line"
+  else
+    absent "$err_file" 'failure=' "$label: no failure= on unreclassified exit"
+  fi
+}
+
+assert_provider_failure_class claude STUB_CLAUDE_RESULT transient 75 transient \
+  'Claude transient stderr → 75'
+assert_provider_failure_class claude STUB_CLAUDE_RESULT auth 77 auth \
+  'Claude auth stderr → 77'
+assert_provider_failure_class claude STUB_CLAUDE_RESULT error 23 '' \
+  'Claude unrelated failure keeps 23'
+assert_provider_failure_class claude STUB_CLAUDE_RESULT timeout 124 '' \
+  'Claude timeout stays 124'
+assert_provider_failure_class claude STUB_CLAUDE_RESULT rate_in_output 0 '' \
+  'Claude success with 429 rate limit in output stays 0'
+
+assert_provider_failure_class grok STUB_GROK_RESULT transient 75 transient \
+  'Grok transient stderr → 75'
+assert_provider_failure_class grok STUB_GROK_RESULT auth 77 auth \
+  'Grok auth stderr → 77'
+assert_provider_failure_class grok STUB_GROK_RESULT error 23 '' \
+  'Grok unrelated failure keeps 23'
+assert_provider_failure_class grok STUB_GROK_RESULT timeout 124 '' \
+  'Grok timeout stays 124'
+assert_provider_failure_class grok STUB_GROK_RESULT rate_in_output 0 '' \
+  'Grok success with 429 rate limit in output stays 0'
+
+assert_provider_failure_class codex STUB_CODEX_RESULT transient 75 transient \
+  'Codex transient stderr → 75'
+assert_provider_failure_class codex STUB_CODEX_RESULT auth 77 auth \
+  'Codex auth stderr → 77'
+assert_provider_failure_class codex STUB_CODEX_RESULT error 23 '' \
+  'Codex unrelated failure keeps 23'
+assert_provider_failure_class codex STUB_CODEX_RESULT timeout 124 '' \
+  'Codex timeout stays 124'
+assert_provider_failure_class codex STUB_CODEX_RESULT rate_in_output 0 '' \
+  'Codex success with 429 rate limit in output stays 0'
+pass '#520 slice 3: runners classify transient/auth failures as 75/77; never model output'
 
 printf 'All multi-model-orchestrator tests passed.\n'

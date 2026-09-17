@@ -183,6 +183,7 @@ else
   claude_args+=(--allowedTools 'Read,Glob,Grep' --disallowedTools 'Bash,Write,Edit,NotebookEdit,Task,WebFetch,WebSearch')
 fi
 
+result_error_file=""
 set +e
 if [ "$stream_log_set" -eq 1 ]; then
   # NDJSON event stream to --stream-log while live; final message extracted into --out after success.
@@ -210,6 +211,9 @@ if [ "$stream_log_set" -eq 1 ]; then
         is_error="$(printf '%s\n' "$result_event" | jq -r '.is_error')"
         subtype="$(printf '%s\n' "$result_event" | jq -r '.subtype')"
         if [ "$is_error" = true ] || [ "$subtype" != success ]; then
+          result_error_file="${output_file}.result-error"
+          printf '%s\n' "$result_event" | jq -r 'if (.result|type)=="string" then .result else empty end' \
+            > "$result_error_file"
           printf 'run-claude: error result in --stream-log: %s\n' "$stream_file" >&2
           rc=1
         else
@@ -252,5 +256,24 @@ if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
 fi
 if [ "$model" = claude-haiku-4-5 ]; then effective_effort=n/a; else effective_effort="$effort"; fi
 if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="$output_file"; fi
-printf 'run-claude: exit=%s model=%s effort=%s mode=%s log=%s\n' "$rc" "$model" "$effective_effort" "$mode" "$log_path" >&2
+
+failure_kind=""
+case "$rc" in
+  0|2|3|4|5|6|7|124) ;;
+  *)
+    failure_kind="$(mmo_classify_provider_failure "${output_file}.stderr" ${result_error_file:+"$result_error_file"})"
+    case "$failure_kind" in
+      transient) rc=75 ;;
+      auth) rc=77 ;;
+      *) failure_kind="" ;;
+    esac
+    ;;
+esac
+if [ -n "$failure_kind" ]; then
+  printf 'run-claude: exit=%s failure=%s model=%s effort=%s mode=%s log=%s\n' \
+    "$rc" "$failure_kind" "$model" "$effective_effort" "$mode" "$log_path" >&2
+else
+  printf 'run-claude: exit=%s model=%s effort=%s mode=%s log=%s\n' \
+    "$rc" "$model" "$effective_effort" "$mode" "$log_path" >&2
+fi
 exit "$rc"
