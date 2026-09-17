@@ -59,6 +59,9 @@ an unsupported effort silently; select a supported level or return an incompatib
 - `Codex only`: choose Luna, Terra, or Astra by task complexity; Astra Ultra is not the default.
 - `Claude only`: choose Haiku 4.5, Sonnet 5, Opus 5, or Fable 5; use `n/a` for Haiku.
 - `Grok only`: use Grok 4.5 and scale only across low/medium/high.
+- `No Claude`: route between GPT-5.6/GPT-6 and Grok 4.5; any independence check must use the other one.
+- A pinned allowed model wins over defaults. A pinned unsupported effort produces a blocker unless
+  the user also authorized automatic effort adjustment.
 
 ## Local Qwen availability
 
@@ -67,9 +70,6 @@ when the wrapper is not installed, the server is down, or the slot is taken — 
 or by anything else using the endpoint. Treat `75` as "route this task to Grok 4.5 now", not as a
 failure to retry, and never hold work waiting for the slot. It is a mechanical-work engine only:
 architecture, security, and ambiguous design stay on the hosted catalog.
-- `No Claude`: route between GPT-5.6/GPT-6 and Grok 4.5; any independence check must use the other one.
-- A pinned allowed model wins over defaults. A pinned unsupported effort produces a blocker unless
-  the user also authorized automatic effort adjustment.
 
 ## Evidence basis, 2026-08-02
 

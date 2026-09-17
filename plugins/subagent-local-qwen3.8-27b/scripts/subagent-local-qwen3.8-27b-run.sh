@@ -34,6 +34,8 @@
 #                              'HEAD~1..HEAD' for a commit, 'origin/main...HEAD' for
 #                              a branch, HEAD for the uncommitted working tree.
 #   -o, --out FILE             Where to keep the full captured stream (default: temp).
+#       --print-base           Print the llama.cpp base URL this run would use, then
+#                              exit (callers share one resolver instead of guessing).
 #       --print-cmd            Print the base qwen command, then exit (no --diff
 #                              patch wiring: nothing is produced for a preview).
 #   -h, --help                 Show this help and exit.
@@ -357,7 +359,7 @@ ql_print_cmd() {
 ql_main() {
   trap ql_cleanup EXIT
   local dir="$PWD" model="$QL_DEFAULT_MODEL" effort="$QL_DEFAULT_EFFORT"
-  local timeout_secs="$QL_DEFAULT_TIMEOUT" prompt_file="" out="" print_cmd=0
+  local timeout_secs="$QL_DEFAULT_TIMEOUT" prompt_file="" out="" print_cmd=0 print_base=0
   local turns="$QL_DEFAULT_TURNS" wall="$QL_DEFAULT_WALL"
   local approval_mode="yolo" prompt="" diff_base="" diff_file="" diff_dir=""
 
@@ -375,12 +377,22 @@ ql_main() {
       -d|--diff)            diff_base="$2"; shift 2 ;;
       -o|--out)             out="$2"; shift 2 ;;
       --print-cmd)          print_cmd=1; shift ;;
+      --print-base)         print_base=1; shift ;;
       -h|--help)            ql_usage; return 0 ;;
       --)                   shift; break ;;
       -*)                   printf 'subagent-local-qwen3.8-27b-run: unknown option: %s\n' "$1" >&2; return 2 ;;
       *)                    break ;;
     esac
   done
+
+  if [ "$print_base" -eq 1 ]; then
+    if [ -n "${OPENAI_BASE_URL:-}" ]; then
+      printf '%s\n' "$OPENAI_BASE_URL"
+    else
+      printf '%s\n' "$(ql_pick_base)"
+    fi
+    return 0
+  fi
 
   ql_valid_effort "$effort" || {
     printf 'subagent-local-qwen3.8-27b-run: unsupported effort: %s (expected xhigh|medium|low; never high)\n' "$effort" >&2

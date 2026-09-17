@@ -1609,6 +1609,10 @@ git -C "$qwen_repo" -c user.name=t -c user.email=t@t commit -qam change
 # stub wrapper records argv and succeeds
 cat > "$WORK/bin/qwen-wrapper.sh" <<'WRAP'
 #!/usr/bin/env bash
+if [ "${1:-}" = "--print-base" ]; then
+  printf '%s\n' "${QL_STUB_BASE:-http://127.0.0.1:9/v1}"
+  exit 0
+fi
 printf '%s\n' "$@" > "$QL_WRAPPER_ARGV"
 exit 0
 WRAP
@@ -1644,6 +1648,25 @@ MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1
   bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1
 contains "$QL_WRAPPER_ARGV" '--yolo' 'implement dispatch passes --yolo'
 pass 'run-qwen-local: implement dispatch is write-capable'
+
+# a request already on the GPU (even one we did not start) means busy
+cat > "$WORK/bin/curl" <<'CURLSTUB'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in
+    *"/slots") printf '%s\n' '[{"id":0,"is_processing":true}]'; exit 0 ;;
+  esac
+done
+exit 7
+CURLSTUB
+chmod +x "$WORK/bin/curl"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" \
+  QL_STUB_BASE="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 75 ] || fail "in-flight request on /slots exits 75 (got $rc)"
+pass 'run-qwen-local: a request already on the GPU exits 75'
+rm -f "$WORK/bin/curl"
 
 # a held lock means the slot is taken: refuse with 75 rather than queue
 if command -v flock >/dev/null 2>&1; then

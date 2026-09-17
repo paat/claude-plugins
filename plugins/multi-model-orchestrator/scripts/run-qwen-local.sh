@@ -65,10 +65,15 @@ mmo_find_wrapper() {
     printf '%s' "$found"
     return 0
   fi
-  local candidate
-  for candidate in "${HOME}"/.claude/plugins/cache/*/subagent-local-qwen3.8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh; do
-    [ -x "$candidate" ] && printf '%s' "$candidate" && return 0
-  done
+  # Newest cached version wins: an older copy left behind returns 1 instead of 75
+  # for a busy server, which would silently disable the fallback.
+  local newest
+  newest="$(ls -d "${HOME}"/.claude/plugins/cache/*/subagent-local-qwen3.8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh 2>/dev/null \
+    | sort -V | tail -n 1)"
+  if [ -n "$newest" ] && [ -x "$newest" ]; then
+    printf '%s' "$newest"
+    return 0
+  fi
   return 1
 }
 
@@ -78,7 +83,11 @@ if [ -z "$wrapper" ] || [ ! -x "$wrapper" ]; then
   exit 75
 fi
 
-base_url="${OPENAI_BASE_URL:-http://127.0.0.1:8000/v1}"
+# Ask the wrapper which endpoint it will actually use: with OPENAI_BASE_URL unset it
+# probes localhost, the container host, then the gateway, so guessing here would
+# check a server the worker never talks to.
+base_url="$("$wrapper" --print-base 2>/dev/null || true)"
+[ -n "$base_url" ] || base_url="${OPENAI_BASE_URL:-http://127.0.0.1:8000/v1}"
 
 # 2. Someone else's request on the GPU counts as busy too (llama.cpp /slots).
 slots_url="${base_url%/}"
@@ -91,17 +100,20 @@ if command -v curl >/dev/null 2>&1; then
 fi
 
 # 3. One dispatch at a time per endpoint. Non-blocking: we refuse, never queue.
+# Without flock the no-queue guarantee cannot be kept, so fail closed rather than
+# promise it and let two dispatches pile onto one slot.
+command -v flock >/dev/null 2>&1 || {
+  printf 'run-qwen-local: flock not available; cannot guarantee the single-slot lock, route elsewhere\n' >&2
+  exit 75
+}
 lock_key="$(printf '%s' "$base_url" | cksum | tr -d ' \t' )"
 lock_file="${TMPDIR:-/tmp}/mmo-qwen-local-${lock_key}.lock"
 exec 9>"$lock_file"
-if command -v flock >/dev/null 2>&1; then
-  if ! flock -n 9; then
-    printf 'run-qwen-local: another local-qwen dispatch holds the slot; route elsewhere\n' >&2
-    exit 75
-  fi
+if ! flock -n 9; then
+  printf 'run-qwen-local: another local-qwen dispatch holds the slot; route elsewhere\n' >&2
+  exit 75
 fi
 
-set -- "$@"
 wrapper_args=(--dir "$repo_dir" --timeout "$run_timeout")
 [ -n "$output_file" ] && wrapper_args+=(--out "$output_file")
 [ -n "$prompt_file" ] && wrapper_args+=(--prompt-file "$prompt_file")
