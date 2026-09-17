@@ -69,6 +69,10 @@ esac
   printf 'run-qwen-local: review mode needs --base (the worker has no shell and cannot run git)\n' >&2
   exit 2
 }
+# A ref must not be able to turn into a git option (e.g. --output=<path>).
+case "$base_ref" in
+  -*) printf 'run-qwen-local: --base must be a revision or range, not an option: %s\n' "$base_ref" >&2; exit 2 ;;
+esac
 
 # 1. Wrapper discovery. Absent plugin is "unavailable", not an error to debug.
 # A candidate counts only if it answers --print-base: older wrappers exit 1 on a

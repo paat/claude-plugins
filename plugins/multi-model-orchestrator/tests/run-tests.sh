@@ -2003,6 +2003,16 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-blank.sh" \
 [ "$rc" -eq 5 ] || fail "a whitespace-only final message exits 5 (got $rc)"
 pass 'run-qwen-local: a whitespace-only final message exits 5'
 
+# A --base that looks like a git option must be refused, not passed to git diff.
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base "--output=$WORK/injected.patch" \
+  "review" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "an option-shaped --base exits 2 (got $rc)"
+[ ! -e "$WORK/injected.patch" ] || fail 'option-shaped --base must not reach git diff'
+pass 'run-qwen-local: an option-shaped --base is refused'
+
 # Doc contracts: deleting these silently disables the local route, so pin them.
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \
   'run-qwen-local.sh' 'leg-liveness keeps the local-Qwen exit-75 exception'
