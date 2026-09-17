@@ -13,7 +13,7 @@ Liveness is transcript/output mtime plus an exit marker. A process-list snapshot
 
 ## Provider failure exits
 
-Runners may reclassify provider failures (never model stdout) as:
+Runners reclassify from each CLI's own error line only (Codex last `ERROR:` sans Reconnecting; Claude `api_error_status` / text `API Error:`; Grok stderr) as:
 
 - **75 (EX_TEMPFAIL):** transient (429/529/503, overloaded, rate limit, temporarily unavailable). Wait at least 60s, retry the same route once; if it fails 75 again, dispatch the route card's allowed `Fallback`; with no allowed fallback, park the item as blocked and continue with the next item.
 - **77 (EX_NOPERM):** auth (401, unauthorized, not logged in, login required, expired/invalid token or API key). Do not retry; queue re-authentication under the handoff's `OPERATOR ACTIONS REQUIRED` and continue with the next item that does not need that provider.

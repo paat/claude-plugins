@@ -74,6 +74,7 @@ command -v codex >/dev/null 2>&1 || { printf 'run-codex: codex CLI not found\n' 
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
 
 prompt_file="$(mktemp)"
+classify_file="$(mktemp)"
 diff_file=""
 research_dir=""
 [ "$mode" != research ] || research_dir="$(mktemp -d)"
@@ -93,9 +94,9 @@ if [ "$stream_log_set" -eq 0 ]; then
 fi
 case "$stream_file" in /*) ;; *) stream_file="$PWD/$stream_file" ;; esac
 if [ "$user_final" -eq 1 ]; then
-  trap 'rm -f "$prompt_file" "$diff_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
+  trap 'rm -f "$prompt_file" "$diff_file" "$classify_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
 else
-  trap 'rm -f "$prompt_file" "$diff_file" "$final_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
+  trap 'rm -f "$prompt_file" "$diff_file" "$final_file" "$classify_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
 fi
 cat > "$prompt_file"
 [ -s "$prompt_file" ] || { printf 'run-codex: empty prompt\n' >&2; exit 2; }
@@ -190,23 +191,10 @@ if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
   cat "$final_file"
 fi
 
-failure_kind=""
-case "$rc" in
-  0|2|3|4|5|6|7|124) ;;
-  *)
-    failure_kind="$(mmo_classify_provider_failure "${stream_file}.stderr")"
-    case "$failure_kind" in
-      transient) rc=75 ;;
-      auth) rc=77 ;;
-      *) failure_kind="" ;;
-    esac
-    ;;
-esac
-if [ -n "$failure_kind" ]; then
-  printf 'run-codex: exit=%s failure=%s model=%s effort=%s mode=%s log=%s\n' \
-    "$rc" "$failure_kind" "$model" "$effort" "$mode" "$stream_file" >&2
-else
-  printf 'run-codex: exit=%s model=%s effort=%s mode=%s log=%s\n' \
-    "$rc" "$model" "$effort" "$mode" "$stream_file" >&2
+: > "$classify_file"
+if [ -s "${stream_file}.stderr" ]; then
+  # Best-effort: last ERROR: line that is not a reconnect; tool output can also emit ERROR:.
+  grep -E '^ERROR: ' "${stream_file}.stderr" | grep -v Reconnecting | tail -n 1 > "$classify_file" || true
 fi
-exit "$rc"
+mmo_finish run-codex "$rc" "$classify_file" \
+  "model=$model" "effort=$effort" "mode=$mode" "log=$stream_file"
