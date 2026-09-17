@@ -101,9 +101,14 @@ for tool in flock curl; do
 done
 # Normalize first: .../v1 and .../v1/ address the same GPU and must share a lock.
 lock_key="$(printf '%s' "${base_url%/}" | cksum | tr -d ' \t' )"
-# Own directory: a pre-created symlink in a shared /tmp must not redirect the open.
+# Own directory, created without -p: mkdir -p stats through a symlink, so a path
+# planted in a shared /tmp before the first run could redirect the lock open.
 lock_dir="${TMPDIR:-/tmp}/mmo-qwen-local-$(id -u)"
-mkdir -p "$lock_dir" 2>/dev/null || true
+mkdir "$lock_dir" 2>/dev/null || true
+if [ ! -d "$lock_dir" ] || [ -L "$lock_dir" ]; then
+  printf 'run-qwen-local: lock directory %s is missing or not a real directory; route elsewhere\n' "$lock_dir" >&2
+  exit 75
+fi
 lock_file="$lock_dir/${lock_key}.lock"
 # Brace group: without it the redirect would apply to this shell for the rest of
 # the run and swallow the wrapper's own diagnostics.
@@ -125,11 +130,22 @@ slots_body="$(curl -sS -m 3 -w '\n%{http_code}' "$slots_url" 2>/dev/null)" || {
   printf 'run-qwen-local: local endpoint %s unreachable; route elsewhere\n' "$slots_url" >&2
   exit 75
 }
-if [ "$(printf '%s' "$slots_body" | tail -n1)" = "200" ] \
-  && printf '%s' "$slots_body" | grep -q '"is_processing"[[:space:]]*:[[:space:]]*true'; then
-  printf 'run-qwen-local: local model busy with another request; route elsewhere\n' >&2
-  exit 75
-fi
+slots_code="$(printf '%s' "$slots_body" | tail -n1)"
+case "$slots_code" in
+  # The server says it is saturated.
+  503|429)
+    printf 'run-qwen-local: local server reports it is busy (HTTP %s); route elsewhere\n' "$slots_code" >&2
+    exit 75
+    ;;
+  200)
+    if printf '%s' "$slots_body" | grep -q '"is_processing"[[:space:]]*:[[:space:]]*true'; then
+      printf 'run-qwen-local: local model busy with another request; route elsewhere\n' >&2
+      exit 75
+    fi
+    ;;
+  # Anything else (404 and friends): this server exposes no slot state, which is
+  # not evidence of a busy GPU. The lock still covers our own dispatches.
+esac
 
 runtime_dir="$(mktemp -d)"
 trap 'rm -rf "$runtime_dir"' EXIT

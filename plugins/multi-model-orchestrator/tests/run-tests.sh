@@ -1811,6 +1811,42 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-noverdict.sh" 
 [ "$rc" -eq 6 ] || fail "verdict-less review exits 6 (got $rc)"
 pass 'run-qwen-local: a review without a verdict fails the leg'
 
+# A server that reports saturation is busy even when it never sets is_processing.
+cat > "$WORK/bin/curl" <<'BUSY503'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
+case "$url" in
+  *slots) printf '%s\n' 'server busy'; printf '%s\n' '503' ;;
+  *) exit 7 ;;
+esac
+BUSY503
+chmod +x "$WORK/bin/curl"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 75 ] || fail "a 503 from /slots exits 75 (got $rc)"
+pass 'run-qwen-local: a saturated server exits 75'
+
+# A server with no /slots route is not evidence of a busy GPU: dispatch proceeds.
+cat > "$WORK/bin/curl" <<'NOSLOTS'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
+case "$url" in
+  *slots) printf '%s\n' 'not found'; printf '%s\n' '404' ;;
+  *) exit 7 ;;
+esac
+NOSLOTS
+chmod +x "$WORK/bin/curl"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 0 ] || fail "an endpoint without /slots still dispatches (got $rc)"
+pass 'run-qwen-local: no /slots route still dispatches'
+
 # Doc contracts: deleting these silently disables the local route, so pin them.
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \
   'run-qwen-local.sh' 'leg-liveness keeps the local-Qwen exit-75 exception'
