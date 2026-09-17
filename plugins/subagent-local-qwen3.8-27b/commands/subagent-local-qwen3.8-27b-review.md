@@ -50,7 +50,7 @@ Get an independent **read-only review** from local **Qwen3.8-27B** via the Qwen 
    or plan-source mismatch. Omit speculative, low-probability, stylistic, and adjacent
    concerns; for diff or plan reviews, also omit unrelated pre-existing issues. Stop
    after checking the target and its directly affected paths.
-   End with a one-line verdict: APPROVE / NEEDS_WORK / BLOCK.
+   End with a one-line verdict: APPROVE or NEEDS_WORK.
    PROMPT
    ```
 
