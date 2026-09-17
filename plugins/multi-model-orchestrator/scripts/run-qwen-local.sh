@@ -93,7 +93,7 @@ mmo_find_wrapper() {
 
 found="$(mmo_find_wrapper || true)"
 if [ -z "$found" ]; then
-  printf 'run-qwen-local: no subagent-local-qwen3.8-27b wrapper with --print-base (>= 0.3.3); route elsewhere\n' >&2
+  printf 'run-qwen-local: no subagent-local-qwen3.8-27b wrapper supporting --print-base and --diff-file (>= 0.4.0); route elsewhere\n' >&2
   exit 75
 fi
 wrapper="${found%%$'\t'*}"
@@ -114,6 +114,12 @@ elif [ ! -t 0 ]; then
 fi
 [ -n "${prompt_text//[[:space:]]/}" ] || { printf 'run-qwen-local: empty prompt\n' >&2; exit 2; }
 
+runtime_dir="$(mktemp -d)"
+# Keep the worker's stream and stderr when something went wrong: the wrapper only
+# prints their paths, and a failed or timed-out leg is diagnosed from them.
+cleanup() { [ "${keep_runtime:-0}" = 1 ] || rm -rf "$runtime_dir"; }
+trap cleanup EXIT
+
 # Review preflight before the slot: an invalid ref, an empty diff, or an oversized
 # one is a usage problem, not slot unavailability, and must not lock the GPU.
 # Codes match the sibling runners: 2 usage, 3 nothing to review, 4 over the cap.
@@ -121,14 +127,28 @@ if [ "$mode" = review ]; then
   # Same invocation as the sibling review legs: a repo-configured external differ
   # must not decide what the reviewer sees. (Untracked files are out of scope here;
   # the README says --diff HEAD covers tracked changes only.)
-  review_diff="$(git -C "$repo_dir" --no-pager diff --no-ext-diff --binary "$base_ref" 2>/dev/null)" || {
+  review_patch="$runtime_dir/review.patch"
+  git -C "$repo_dir" --no-pager diff --no-ext-diff --binary "$base_ref" > "$review_patch" 2>/dev/null || {
     printf 'run-qwen-local: cannot diff %s in %s\n' "$base_ref" "$repo_dir" >&2
     exit 2
   }
-  [ -n "$review_diff" ] || { printf 'run-qwen-local: no diff to review\n' >&2; exit 3; }
+  # Fold in untracked files, as the sibling review legs do: a brand-new file is
+  # part of the change under review. --no-index exits 1 when files differ
+  # (expected); 2+ is a real failure and must not be swallowed.
+  while IFS= read -r -d '' untracked; do
+    set +e
+    git -C "$repo_dir" diff --no-index --binary -- /dev/null "$untracked" >> "$review_patch" 2>/dev/null
+    untracked_rc=$?
+    set -e
+    if [ "$untracked_rc" -gt 1 ]; then
+      printf 'run-qwen-local: failed to include untracked file in review diff: %s\n' "$untracked" >&2
+      exit "$untracked_rc"
+    fi
+  done < <(git -C "$repo_dir" ls-files -z --others --exclude-standard)
+  [ -s "$review_patch" ] || { printf 'run-qwen-local: no diff to review\n' >&2; exit 3; }
   max_bytes="${MMO_REVIEW_DIFF_MAX_BYTES:-1048576}"
   [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { printf 'run-qwen-local: MMO_REVIEW_DIFF_MAX_BYTES must be positive\n' >&2; exit 2; }
-  diff_bytes="$(printf '%s' "$review_diff" | wc -c | tr -d ' ')"
+  diff_bytes="$(wc -c < "$review_patch" | tr -d ' ')"
   [ "$diff_bytes" -le "$max_bytes" ] || {
     printf 'run-qwen-local: diff is %s bytes; split or raise MMO_REVIEW_DIFF_MAX_BYTES=%s explicitly\n' "$diff_bytes" "$max_bytes" >&2
     exit 4
@@ -195,11 +215,6 @@ case "$slots_code" in
   # not evidence of a busy GPU. The lock still covers our own dispatches.
 esac
 
-runtime_dir="$(mktemp -d)"
-# Keep the worker's stream and stderr when something went wrong: the wrapper only
-# prints their paths, and a failed or timed-out leg is diagnosed from them.
-cleanup() { [ "${keep_runtime:-0}" = 1 ] || rm -rf "$runtime_dir"; }
-trap cleanup EXIT
 # --out holds the FINAL MESSAGE, as in the sibling runners; the wrapper's raw
 # stream goes to a temp file. meta-orchestration reads --out to resume a leg.
 stream_file="$runtime_dir/stream.json"
@@ -210,8 +225,6 @@ wrapper_args=(--dir "$repo_dir" --timeout "$run_timeout" --out "$stream_file")
 if [ "$mode" = review ]; then
   # Hand over the patch we just validated: re-diffing in the wrapper would be a
   # second source of truth that the size gate never saw.
-  review_patch="$runtime_dir/review.patch"
-  printf '%s\n' "$review_diff" > "$review_patch"
   wrapper_args+=(--approval-mode plan --diff-file "$review_patch")
   prompt_text="$prompt_text
 

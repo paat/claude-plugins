@@ -1955,6 +1955,17 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-old.sh" \
 [ "$rc" -eq 75 ] || fail "a wrapper without --diff-file exits 75 (got $rc)"
 pass 'run-qwen-local: a wrapper missing a required flag exits 75'
 
+# A brand-new untracked file is part of the change under review.
+printf 'brand new\n' > "$qwen_repo/untracked-new.txt"
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" QL_WRAPPER_STDIN="$WORK/untracked-stdin.txt" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD' --out "$WORK/untracked-out.txt" \
+  "review" >/dev/null 2>&1
+rc=$?
+rm -f "$qwen_repo/untracked-new.txt"
+[ "$rc" -eq 0 ] || fail "untracked-only review still has a diff to review (got $rc)"
+pass 'run-qwen-local: untracked files join the review diff'
+
 # Doc contracts: deleting these silently disables the local route, so pin them.
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \
   'run-qwen-local.sh' 'leg-liveness keeps the local-Qwen exit-75 exception'
