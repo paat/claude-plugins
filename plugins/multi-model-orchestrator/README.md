@@ -28,6 +28,7 @@ Older generations are intentionally excluded.
 | Claude Code | `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
 | Codex | `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-6-astra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
+| Local Qwen | `qwen3.8-27b-local` | Free mechanical edits and a cheap second review lens; one GPU slot, falls back to Grok when busy (needs the `subagent-local-qwen3.8-27b` plugin) |
 
 Haiku 4.5 is the latest Haiku and does not use Claude's current effort parameter. Claude Fable 5,
 Opus 5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with

@@ -340,7 +340,7 @@ echo "connection refused" >&2
 exit 7
 CURL
 err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
-check "down preflight non-zero" 1 "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+check "down preflight is transient 75" 75 "$rc"
 contains "down message" "down or unreachable" "$err"
 
 # (e) wrong-model (longctx only)
@@ -360,7 +360,7 @@ printf '%s\n' '{"data":[{"id":"Qwen3.8-27B-UD-Q6_K_XL-longctx"}]}'
 printf '%s\n' '200'
 CURL
 err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
-check "wrong-model preflight non-zero" 1 "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+check "wrong-model preflight is 1 (not transient)" 1 "$rc"
 contains "wrong-model message" "wrong-model" "$err"
 
 # (f) busy
@@ -370,7 +370,7 @@ printf '%s\n' 'server busy'
 printf '%s\n' '503'
 CURL
 err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
-check "busy preflight non-zero" 1 "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+check "busy preflight is transient 75" 75 "$rc"
 contains "busy message" "busy" "$err"
 
 # Restore healthy curl + sleeping qwen for timeout

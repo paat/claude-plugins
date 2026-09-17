@@ -71,6 +71,18 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
    PROMPT
    ```
 
+   Local Qwen route (mechanical work only, one GPU slot):
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/run-qwen-local.sh" --mode implement --repo "$REPO_ROOT" <<'PROMPT'
+   <same bounded worker contract>
+   PROMPT
+   ```
+
+   Exit `75` means unavailable or busy: dispatch that task to Grok 4.5 at once and note the
+   substitution. Do not wait for the slot or retry it in the same pass. For review, add
+   `--mode review --base <range>` — the local worker has no shell and is handed the diff.
+
    For Claude Haiku 4.5, omit `--effort`; its current reasoning control is not supported by this
    runner. Never replace a current model with an earlier generation when a route is unavailable.
 

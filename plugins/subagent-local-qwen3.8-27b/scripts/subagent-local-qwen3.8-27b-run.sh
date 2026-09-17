@@ -45,6 +45,9 @@
 #   OPENAI_API_KEY    Dummy key for local servers (default: dummy).
 #   QWEN38_MODEL      Default model alias override.
 #
+# Exit codes: 0 ok; 2 usage; 75 transient (server down or busy — retry or route
+# elsewhere); 1 wrong model or other refusal; 124/143 timeout; 127 CLI missing.
+#
 # Output: prints ONLY the final answer on stdout, then a short footer on stderr.
 # Host Bash-tool timeout must also be generous (≥ inner --timeout in ms).
 set -euo pipefail
@@ -179,7 +182,7 @@ ql_preflight_models() {
     printf 'subagent-local-qwen3.8-27b-run: llama.cpp down or unreachable at %s (%s)\n' \
       "$url" "$(tr '\n' ' ' </tmp/ql-curl-err.$$ 2>/dev/null || true)" >&2
     rm -f /tmp/ql-curl-err.$$
-    return 1
+    return 75
   fi
   rm -f /tmp/ql-curl-err.$$
 
@@ -188,11 +191,11 @@ ql_preflight_models() {
 
   if printf '%s' "$body" | grep -qiE 'busy|overloaded|too many requests'; then
     printf 'subagent-local-qwen3.8-27b-run: llama.cpp busy (one in-flight request only); retry later\n' >&2
-    return 1
+    return 75
   fi
   if [ "$http_code" = "503" ] || [ "$http_code" = "429" ]; then
     printf 'subagent-local-qwen3.8-27b-run: llama.cpp busy (HTTP %s); retry later\n' "$http_code" >&2
-    return 1
+    return 75
   fi
   if [ "$http_code" != "200" ] && [ "$http_code" != "000" ]; then
     # Some servers omit a clean code in -w when body-only; still parse body.

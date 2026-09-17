@@ -13,6 +13,7 @@ tracks the latest Haiku 4.5 release instead of pinning an earlier dated snapshot
 | Codex | `gpt-5.6-terra` | Balanced everyday implementation and bounded investigation | `low`–`max` |
 | Codex | `gpt-6-astra` | Hard technical implementation, debugging, adversarial review, security | `low`–`max`; `ultra` only as below |
 | Grok Build | `grok-4.5` | Fast bounded agentic implementation, independent reproduction, extra review lens | `low`, `medium`, `high` |
+| Local Qwen | `qwen3.8-27b-local` | Free bounded mechanical edits with a named test, and a cheap second review lens — only when the local endpoint answers | `n/a` (the wrapper pins `medium`) |
 
 Astra replaces only Sol. Keep Terra and Luna as lower-cost routes: use Luna for mechanical tasks
 and narrow checks, Terra for ordinary bounded implementation, and Astra for hard technical work.
@@ -23,7 +24,7 @@ Only catalogued models are allowed; unavailable models do not authorize an unlis
 
 | Task evidence | Primary route | Default effort | Useful allowed alternative |
 |---|---|---|---|
-| Exact rename, fixture, file map, focused check | Haiku 4.5 or Luna | `n/a` or `low` | Grok 4.5 `low` |
+| Exact rename, fixture, file map, focused check | Local Qwen when available, else Haiku 4.5 or Luna | `n/a` or `low` | Grok 4.5 `low` |
 | Well-specified everyday change with known tests | Terra or Sonnet 5 | `medium` | Grok 4.5 `medium` when turnaround matters |
 | Bounded independent implementation or reproduction | Grok 4.5 | `medium` | Terra `medium` |
 | Cross-module backend/data/API work or hard root cause | Astra | `high` | Opus 5 `high` |
@@ -58,6 +59,14 @@ an unsupported effort silently; select a supported level or return an incompatib
 - `Codex only`: choose Luna, Terra, or Astra by task complexity; Astra Ultra is not the default.
 - `Claude only`: choose Haiku 4.5, Sonnet 5, Opus 5, or Fable 5; use `n/a` for Haiku.
 - `Grok only`: use Grok 4.5 and scale only across low/medium/high.
+
+## Local Qwen availability
+
+The local engine runs on one GPU slot and is never queued. `scripts/run-qwen-local.sh` exits `75`
+when the wrapper is not installed, the server is down, or the slot is taken — by another dispatch
+or by anything else using the endpoint. Treat `75` as "route this task to Grok 4.5 now", not as a
+failure to retry, and never hold work waiting for the slot. It is a mechanical-work engine only:
+architecture, security, and ambiguous design stay on the hosted catalog.
 - `No Claude`: route between GPT-5.6/GPT-6 and Grok 4.5; any independence check must use the other one.
 - A pinned allowed model wins over defaults. A pinned unsupported effort produces a blocker unless
   the user also authorized automatic effort adjustment.

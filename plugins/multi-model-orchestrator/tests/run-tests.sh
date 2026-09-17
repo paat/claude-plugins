@@ -1595,4 +1595,69 @@ assert_provider_failure_class grok STUB_GROK_RESULT rate_in_output 0 '' \
   'Grok success with 429 rate limit in output stays 0'
 pass '#520 slice 3: runners classify transient/auth failures as 75/77; never model output'
 
+# run-qwen-local: one GPU slot, refuse instead of queue (exit 75 → route to Grok)
+QL_RUN="$PLUGIN_ROOT/scripts/run-qwen-local.sh"
+qwen_repo="$WORK/qwen-repo"
+mkdir -p "$qwen_repo"
+git -C "$qwen_repo" init -q
+printf 'one\n' > "$qwen_repo/f.txt"
+git -C "$qwen_repo" add -A
+git -C "$qwen_repo" -c user.name=t -c user.email=t@t commit -qm base
+printf 'two\n' > "$qwen_repo/f.txt"
+git -C "$qwen_repo" -c user.name=t -c user.email=t@t commit -qam change
+
+# stub wrapper records argv and succeeds
+cat > "$WORK/bin/qwen-wrapper.sh" <<'WRAP'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$QL_WRAPPER_ARGV"
+exit 0
+WRAP
+chmod +x "$WORK/bin/qwen-wrapper.sh"
+export QL_WRAPPER_ARGV="$WORK/qwen-argv.txt"
+
+# no wrapper installed → unavailable, not an error to debug
+rc=0
+MMO_QWEN_LOCAL_RUN="$WORK/does-not-exist" HOME="$WORK" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 75 ] || fail "missing local wrapper exits 75 (got $rc)"
+pass 'run-qwen-local: missing wrapper exits 75'
+
+# review mode requires a base (plan mode has no shell to run git)
+rc=0
+MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "review without --base exits 2 (got $rc)"
+pass 'run-qwen-local: review without --base is a usage error'
+
+# review mode forwards plan mode + the diff range to the wrapper
+rc=0
+MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD~1..HEAD' "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 0 ] || fail "review dispatch succeeded (got $rc)"
+contains "$QL_WRAPPER_ARGV" '--approval-mode' 'review dispatch passes --approval-mode'
+contains "$QL_WRAPPER_ARGV" 'plan' 'review dispatch pins plan mode'
+contains "$QL_WRAPPER_ARGV" 'HEAD~1..HEAD' 'review dispatch forwards the diff range'
+pass 'run-qwen-local: review dispatch is read-only with the diff'
+
+# implement mode is write-capable
+MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1
+contains "$QL_WRAPPER_ARGV" '--yolo' 'implement dispatch passes --yolo'
+pass 'run-qwen-local: implement dispatch is write-capable'
+
+# a held lock means the slot is taken: refuse with 75 rather than queue
+if command -v flock >/dev/null 2>&1; then
+  lock_url="http://127.0.0.1:9/v1"
+  lock_key="$(printf '%s' "$lock_url" | cksum | tr -d ' \t')"
+  lock_path="${TMPDIR:-/tmp}/mmo-qwen-local-${lock_key}.lock"
+  exec 8>"$lock_path"
+  flock -n 8 || fail 'test could not take the lock first'
+  rc=0
+  MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="$lock_url" \
+    bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+  exec 8>&-
+  [ "$rc" -eq 75 ] || fail "busy slot exits 75 (got $rc)"
+  pass 'run-qwen-local: a taken slot exits 75 instead of queueing'
+fi
+
 printf 'All multi-model-orchestrator tests passed.\n'
