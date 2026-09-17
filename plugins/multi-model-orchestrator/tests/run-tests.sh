@@ -1614,6 +1614,8 @@ if [ "${1:-}" = "--print-base" ]; then
   exit 0
 fi
 printf '%s\n' "$@" > "$QL_WRAPPER_ARGV"
+cat > /dev/null
+printf '%s\n' 'APPROVE'
 exit 0
 WRAP
 chmod +x "$WORK/bin/qwen-wrapper.sh"
@@ -1750,6 +1752,65 @@ CURLSTUB
   pass 'run-qwen-local: real wrapper accepts the flags this runner sends'
 fi
 
+# Restore an idle /slots stub (the busy case removed it).
+cat > "$WORK/bin/curl" <<'IDLESTUB2'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
+case "$url" in
+  *slots) printf '%s\n' '[{"id":0,"is_processing":false}]'; printf '%s\n' '200' ;;
+  *) exit 7 ;;
+esac
+IDLESTUB2
+chmod +x "$WORK/bin/curl"
+
+# The documented heredoc form must work: nothing may consume the prompt on stdin.
+cat > "$WORK/bin/qwen-wrapper-stdin.sh" <<'WRAP'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--print-base" ]; then
+  printf '%s\n' "${QL_STUB_BASE:-http://127.0.0.1:9/v1}"
+  exit 0
+fi
+cat > "$QL_WRAPPER_STDIN"
+printf '%s\n' 'APPROVE'
+exit 0
+WRAP
+chmod +x "$WORK/bin/qwen-wrapper-stdin.sh"
+export QL_WRAPPER_STDIN="$WORK/qwen-stdin.txt"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD~1..HEAD' >/dev/null 2>"$WORK/heredoc.err" <<'PROMPT' || rc=$?
+review this heredoc prompt
+PROMPT
+[ "$rc" -eq 0 ] || fail "heredoc dispatch succeeded (got $rc): $(cat "$WORK/heredoc.err")"
+contains "$QL_WRAPPER_STDIN" 'review this heredoc prompt' 'heredoc prompt reaches the wrapper'
+contains "$QL_WRAPPER_STDIN" 'APPROVE or NEEDS_WORK' 'review dispatch asks for a terminal verdict'
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" -- "-dash leading prompt" >/dev/null 2>&1
+contains "$QL_WRAPPER_STDIN" '-dash leading prompt' 'a dash-leading prompt survives as prompt text'
+pass 'run-qwen-local: heredoc prompt, verdict line, and dash-leading prompts reach the wrapper'
+
+# A review that returns prose without a verdict is not a passing review.
+cat > "$WORK/bin/qwen-wrapper-noverdict.sh" <<'WRAP'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--print-base" ]; then
+  printf '%s\n' "${QL_STUB_BASE:-http://127.0.0.1:9/v1}"
+  exit 0
+fi
+cat >/dev/null
+printf '%s\n' 'looks fine to me'
+exit 0
+WRAP
+chmod +x "$WORK/bin/qwen-wrapper-noverdict.sh"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-noverdict.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD~1..HEAD' "review" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 6 ] || fail "verdict-less review exits 6 (got $rc)"
+pass 'run-qwen-local: a review without a verdict fails the leg'
+
 # Doc contracts: deleting these silently disables the local route, so pin them.
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \
   'run-qwen-local.sh' 'leg-liveness keeps the local-Qwen exit-75 exception'
@@ -1757,6 +1818,8 @@ contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
   'run-qwen-local.sh' 'meta-orchestration can dispatch the local runner'
 contains "$PLUGIN_ROOT/skills/route-model-task/references/routing.md" \
   'qwen3.8-27b-local' 'routing catalog keeps the local engine'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
+  'run-qwen-local.sh --mode review' 'review-leg rule keeps the local reviewer read-only'
 pass 'run-qwen-local: skill and routing contracts are pinned'
 
 printf 'All multi-model-orchestrator tests passed.\n'

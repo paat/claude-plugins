@@ -61,3 +61,10 @@ SUITES: table with exact counts
 If VERDICT is APPROVE and nothing further is coming, end with the literal line:
 READY TO MERGE — nothing further coming.
 ```
+
+## Local Qwen review leg
+
+`run-qwen-local.sh --mode review --base <range>` only. It is read-only in that mode; `--mode
+implement` would hand the reviewer write access (`--yolo`). It needs `--base` because the worker
+has no shell and cannot run git itself, and it exits `75` when the one local slot is unavailable —
+substitute the card's allowed fallback at once rather than waiting.
