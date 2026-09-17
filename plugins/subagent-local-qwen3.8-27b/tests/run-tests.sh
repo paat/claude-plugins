@@ -314,6 +314,14 @@ QL_STUB_BASE="$base_file" PATH="$stubdir:$PATH" HOME="$host_qwen_dir" \
   env -u OPENAI_BASE_URL \
   "$SCRIPT" -C /tmp --approval-mode plan "review" >/dev/null 2>&1
 contains "falls back to the container host" "host.docker.internal" "$(cat "$base_file")"
+
+# --print-base is the contract MMO uses to align its busy check and lock with us
+printed="$(PATH="$stubdir:$PATH" HOME="$host_qwen_dir" \
+  OPENAI_BASE_URL="http://pinned.example:8000/v1" "$SCRIPT" --print-base 2>/dev/null)"
+check "print-base honors OPENAI_BASE_URL" "http://pinned.example:8000/v1" "$printed"
+printed="$(PATH="$stubdir:$PATH" HOME="$host_qwen_dir" env -u OPENAI_BASE_URL \
+  "$SCRIPT" --print-base 2>/dev/null)"
+contains "print-base probes when unset" "host.docker.internal" "$printed"
 rm -rf "$diffrepo"
 
 # (c) missing qwen → 127

@@ -1672,7 +1672,8 @@ rm -f "$WORK/bin/curl"
 if command -v flock >/dev/null 2>&1; then
   lock_url="http://127.0.0.1:9/v1"
   lock_key="$(printf '%s' "$lock_url" | cksum | tr -d ' \t')"
-  lock_path="${TMPDIR:-/tmp}/mmo-qwen-local-${lock_key}.lock"
+  lock_path="${TMPDIR:-/tmp}/mmo-qwen-local-$(id -u)/${lock_key}.lock"
+  mkdir -p "$(dirname "$lock_path")"
   exec 8>"$lock_path"
   flock -n 8 || fail 'test could not take the lock first'
   rc=0

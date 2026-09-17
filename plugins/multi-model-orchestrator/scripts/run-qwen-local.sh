@@ -14,7 +14,8 @@
 # not installed) — route elsewhere; other codes come from the wrapper.
 #
 # Env:
-#   MMO_QWEN_LOCAL_RUN  Path to subagent-local-qwen3.8-27b-run.sh (else discovered).
+#   MMO_QWEN_LOCAL_RUN  Path to subagent-local-qwen3.8-27b-run.sh (else discovered on
+#                       PATH, then the Claude Code and Codex plugin caches).
 #   OPENAI_BASE_URL     llama.cpp OpenAI base; also keys the lock.
 set -euo pipefail
 
@@ -54,32 +55,38 @@ esac
 }
 
 # 1. Wrapper discovery. Absent plugin is "unavailable", not an error to debug.
+# A candidate counts only if it answers --print-base: older wrappers exit 1 on a
+# busy server instead of 75, which would silently disable the Grok fallback.
+mmo_usable_wrapper() {
+  [ -x "$1" ] && "$1" --print-base >/dev/null 2>&1
+}
+
 mmo_find_wrapper() {
+  local candidate
   if [ -n "${MMO_QWEN_LOCAL_RUN:-}" ]; then
     printf '%s' "$MMO_QWEN_LOCAL_RUN"
     return 0
   fi
-  local found
-  found="$(command -v subagent-local-qwen3.8-27b-run.sh 2>/dev/null || true)"
-  if [ -n "$found" ]; then
-    printf '%s' "$found"
+  candidate="$(command -v subagent-local-qwen3.8-27b-run.sh 2>/dev/null || true)"
+  if mmo_usable_wrapper "$candidate"; then
+    printf '%s' "$candidate"
     return 0
   fi
-  # Newest cached version wins: an older copy left behind returns 1 instead of 75
-  # for a busy server, which would silently disable the fallback.
-  local newest
-  newest="$(ls -d "${HOME}"/.claude/plugins/cache/*/subagent-local-qwen3.8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh 2>/dev/null \
-    | sort -V | tail -n 1)"
-  if [ -n "$newest" ] && [ -x "$newest" ]; then
-    printf '%s' "$newest"
-    return 0
-  fi
+  # Both plugin surfaces: Claude Code and Codex keep their own caches.
+  for candidate in \
+    "${HOME}"/.claude/plugins/cache/*/subagent-local-qwen3.8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh \
+    "${HOME}"/.agents/plugins/cache/*/subagent-local-qwen3.8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh; do
+    if mmo_usable_wrapper "$candidate"; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
   return 1
 }
 
 wrapper="$(mmo_find_wrapper || true)"
-if [ -z "$wrapper" ] || [ ! -x "$wrapper" ]; then
-  printf 'run-qwen-local: subagent-local-qwen3.8-27b wrapper not installed; route elsewhere\n' >&2
+if ! mmo_usable_wrapper "$wrapper"; then
+  printf 'run-qwen-local: no subagent-local-qwen3.8-27b wrapper with --print-base (>= 0.3.1); route elsewhere\n' >&2
   exit 75
 fi
 
@@ -88,6 +95,8 @@ fi
 # check a server the worker never talks to.
 base_url="$("$wrapper" --print-base 2>/dev/null || true)"
 [ -n "$base_url" ] || base_url="${OPENAI_BASE_URL:-http://127.0.0.1:8000/v1}"
+# Pin it: the wrapper must use the endpoint we checked and locked, not re-resolve.
+export OPENAI_BASE_URL="$base_url"
 
 # 2. Someone else's request on the GPU counts as busy too (llama.cpp /slots).
 slots_url="${base_url%/}"
@@ -107,7 +116,10 @@ command -v flock >/dev/null 2>&1 || {
   exit 75
 }
 lock_key="$(printf '%s' "$base_url" | cksum | tr -d ' \t' )"
-lock_file="${TMPDIR:-/tmp}/mmo-qwen-local-${lock_key}.lock"
+# Own directory: a pre-created symlink in a shared /tmp must not redirect the open.
+lock_dir="${TMPDIR:-/tmp}/mmo-qwen-local-$(id -u)"
+mkdir -p "$lock_dir" 2>/dev/null || true
+lock_file="$lock_dir/${lock_key}.lock"
 exec 9>"$lock_file"
 if ! flock -n 9; then
   printf 'run-qwen-local: another local-qwen dispatch holds the slot; route elsewhere\n' >&2

@@ -62,6 +62,9 @@ an unsupported effort silently; select a supported level or return an incompatib
 - `No Claude`: route between GPT-5.6/GPT-6 and Grok 4.5; any independence check must use the other one.
 - A pinned allowed model wins over defaults. A pinned unsupported effort produces a blocker unless
   the user also authorized automatic effort adjustment.
+- Local Qwen is a provider like any other: an allow/deny list that excludes it removes it from the
+  mechanical route, and a provider-only restriction (`Codex only`, `Claude only`, `Grok only`)
+  excludes it too.
 
 ## Local Qwen availability
 
