@@ -34,7 +34,8 @@ jq -en --slurpfile s "$snapshot" --slurpfile d "$decisions" '
     (.completeness|complete) and (.capability_limits|strings) and
     (.items|type=="array") and all(.items[];
       (.id|text) and (.title|text) and (.updatedAt == null or (.updatedAt|text)) and
-      (.comments_fetched|type=="number" and .>=0 and floor==.) and (.completeness|complete))) and
+      (.comments_fetched|type=="number" and .>=0 and floor==.) and (.completeness|complete) and
+      ((has("assignees")|not) or (.assignees|type=="array" and all(.[]; text))))) and
   ($d[0].items|type=="array") and
   ([$s[0].items[].id]|sort) == ([$d[0].items[].id]|sort) and
   ([$s[0].items[].id]|length) == ([$s[0].items[].id]|unique|length) and

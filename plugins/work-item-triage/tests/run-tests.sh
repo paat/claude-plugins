@@ -58,6 +58,11 @@ if [ "$1" = api ]; then
       body-reference|body-reference-403|body-reference-auth|body-reference-network|missing-relation|shared-relations)
         jq --arg mode "$WIT_MODE" '[. + {body:"Use #336699 for the banner. See also #12",relations:(if $mode=="missing-relation" then [{id:"336699",kind:"related"}] else [] end)}]' "$WIT_FIX/github-parity.json" ;;
       large) jq '[. + {body:("long evidence " * 12000)}]' "$WIT_FIX/github-parity.json" ;;
+      assignees)
+        jq -n '[
+          {number:501,title:"Assigned item",body:"Has an owner.",html_url:"https://tracker.example/items/501",state:"open",updated_at:"2026-09-09T00:00:00Z",comments:0,labels:[],assignees:[{login:"alice"}]},
+          {number:502,title:"Unassigned item",body:"No owner.",html_url:"https://tracker.example/items/502",state:"open",updated_at:"2026-09-09T00:00:00Z",comments:0,labels:[],assignees:[]}
+        ]' ;;
       worked) jq -s '[.[] | del(.fixture_comments)]' "$WIT_FIX"/{shipped-alert,future-database,upload-next-action,invoice-consolidation,conditional-successor,owner-permitted-behavior,rare-high-consequence,unavailable-incident-data,conditional-activation,changed-owner-ruling}.json ;;
       duplicate-pages)
         if [[ "$endpoint" == *'page=1' ]]; then jq '.[0].body="Page 1 observation"' "$WIT_FIX/github-page1.json";
@@ -338,6 +343,10 @@ check 'h2 GitHub rename assignee milestone state_reason map to flat detail' 0 "$
 export WIT_MODE=history-scalar
 read_snapshot github > "$TMP/history-scalar.json"
 check 'h3 scalar nested history containers exit 0 without detail' 0 "$(truth "$TMP/history-scalar.json" '.items[0].history|length==1 and all(.[]; has("detail")|not)')"
+export WIT_MODE=assignees
+read_snapshot github > "$TMP/assignees.json"
+check 'a1 assigned issue exposes current assignee login' 0 "$(truth "$TMP/assignees.json" '.items[]|select(.id=="501")|.assignees==["alice"]')"
+check 'a2 unassigned issue exposes empty assignees' 0 "$(truth "$TMP/assignees.json" '.items[]|select(.id=="502")|.assignees==[]')"
 export WIT_MODE=incomplete-source
 for operation in list show; do
   args=(); [ "$operation" != show ] || args=(--id 301)
