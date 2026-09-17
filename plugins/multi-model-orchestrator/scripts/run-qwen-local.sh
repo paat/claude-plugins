@@ -145,7 +145,8 @@ if [ "$mode" = review ]; then
   # (expected); 2+ is a real failure and must not be swallowed.
   while IFS= read -r -d '' untracked; do
     set +e
-    git -C "$repo_dir" diff --no-index --binary -- /dev/null "$untracked" >> "$review_patch" 2>/dev/null
+    git -C "$repo_dir" diff --no-ext-diff --no-index --binary -- /dev/null "$untracked" \
+      >> "$review_patch" 2>/dev/null
     untracked_rc=$?
     set -e
     if [ "$untracked_rc" -gt 1 ]; then

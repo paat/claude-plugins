@@ -18,7 +18,9 @@ explaining the community evidence behind the original policy.
   Grok 4.5; and local Qwen3.8-27B for mechanical work when its endpoint answers.
 - Run every CLI leg in YOLO mode inside the development-container boundary: Codex bypasses
   approvals and sandboxing, Claude skips permissions, and Grok uses sandbox `none` with
-  `bypassPermissions`. Keep reviewer mutation control in prompts and tool allowlists.
+  `bypassPermissions`. Keep reviewer mutation control in prompts and tool allowlists — except
+  local Qwen, whose read-only review is enforced by `--mode review`; dispatching its review as
+  `--mode implement` would pass `--yolo` and give a reviewer real write access.
 - Keep implementation workers fresh and context packets self-contained. Do not pass the full
   conversation when a task ledger entry is sufficient.
 - One worker owns one bounded task. Start sequentially; parallel writes are allowed only for
