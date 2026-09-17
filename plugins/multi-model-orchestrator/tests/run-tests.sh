@@ -1882,8 +1882,21 @@ rc=0
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
   OPENAI_BASE_URL="http://127.0.0.1:9/v1" MMO_REVIEW_DIFF_MAX_BYTES=10 \
   bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD~1..HEAD' "review" >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 75 ] || fail "an oversized review diff exits 75 (got $rc)"
-pass 'run-qwen-local: an oversized review diff routes elsewhere'
+[ "$rc" -eq 4 ] || fail "an oversized review diff exits 4 like its siblings (got $rc)"
+pass 'run-qwen-local: an oversized review diff exits 4'
+
+# An invalid ref and an empty diff are usage problems, not slot unavailability.
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'no-such-ref' "review" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "an invalid --base exits 2 (got $rc)"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD' "review" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || fail "an empty diff exits 3 (got $rc)"
+pass 'run-qwen-local: review target is gated before the slot is taken'
 
 # Usage errors must not take the GPU slot first.
 rc=0

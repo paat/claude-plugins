@@ -10,7 +10,8 @@
 #   run-qwen-local.sh --mode implement|review [--repo DIR] [--base REF]
 #                     [--timeout SECONDS] [--out FILE] [--prompt-file FILE] [PROMPT]
 #
-# Exit codes: 0 ok; 2 usage; 5 empty final message; 6 review without a terminal
+# Exit codes: 0 ok; 2 usage; 3 nothing to review; 4 diff over the cap; 5 empty
+# final message; 6 review without a terminal
 # APPROVE/NEEDS_WORK; 75 unavailable (slot busy, server down, or no wrapper) —
 # route elsewhere; other codes come from the wrapper.
 #
@@ -104,6 +105,24 @@ elif [ ! -t 0 ]; then
 fi
 [ -n "${prompt_text//[[:space:]]/}" ] || { printf 'run-qwen-local: empty prompt\n' >&2; exit 2; }
 
+# Review preflight before the slot: an invalid ref, an empty diff, or an oversized
+# one is a usage problem, not slot unavailability, and must not lock the GPU.
+# Codes match the sibling runners: 2 usage, 3 nothing to review, 4 over the cap.
+if [ "$mode" = review ]; then
+  review_diff="$(git -C "$repo_dir" --no-pager diff "$base_ref" 2>/dev/null)" || {
+    printf 'run-qwen-local: cannot diff %s in %s\n' "$base_ref" "$repo_dir" >&2
+    exit 2
+  }
+  [ -n "$review_diff" ] || { printf 'run-qwen-local: no diff to review\n' >&2; exit 3; }
+  max_bytes="${MMO_REVIEW_DIFF_MAX_BYTES:-1048576}"
+  [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { printf 'run-qwen-local: MMO_REVIEW_DIFF_MAX_BYTES must be positive\n' >&2; exit 2; }
+  diff_bytes="$(printf '%s' "$review_diff" | wc -c | tr -d ' ')"
+  [ "$diff_bytes" -le "$max_bytes" ] || {
+    printf 'run-qwen-local: diff is %s bytes; split or raise MMO_REVIEW_DIFF_MAX_BYTES=%s explicitly\n' "$diff_bytes" "$max_bytes" >&2
+    exit 4
+  }
+fi
+
 # 2. Take the slot first, so our own dispatches never race each other into the
 # window between a check and the lock. Everything that cannot be guaranteed here
 # exits 75: the controller routes elsewhere rather than queueing on one GPU.
@@ -171,15 +190,6 @@ case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
 
 wrapper_args=(--dir "$repo_dir" --timeout "$run_timeout" --out "$stream_file")
 if [ "$mode" = review ]; then
-  # Same cap as the sibling review legs: an oversized diff belongs on a model with
-  # a bigger context window, so report unavailable rather than truncating silently.
-  max_bytes="${MMO_REVIEW_DIFF_MAX_BYTES:-1048576}"
-  [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { printf 'run-qwen-local: MMO_REVIEW_DIFF_MAX_BYTES must be positive\n' >&2; exit 2; }
-  diff_bytes="$(git -C "$repo_dir" --no-pager diff "$base_ref" | wc -c)"
-  if [ "$diff_bytes" -gt "$max_bytes" ]; then
-    printf 'run-qwen-local: diff is %s bytes (cap %s); route elsewhere or split\n' "$diff_bytes" "$max_bytes" >&2
-    exit 75
-  fi
   wrapper_args+=(--approval-mode plan --diff "$base_ref")
   prompt_text="$prompt_text
 
