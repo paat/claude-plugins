@@ -371,6 +371,31 @@ err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
 check "wrong-model preflight is 1 (not transient)" 1 "$rc"
 contains "wrong-model message" "wrong-model" "$err"
 
+# (e2) structural failures are NOT transient: they never self-resolve, so a caller
+# must see them instead of substituting another engine forever.
+make_curl <<'CURL'
+#!/usr/bin/env bash
+printf '%s\n' '{"error":"not found"}'
+printf '%s\n' '404'
+CURL
+err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
+check "404 preflight is structural 1" 1 "$rc"
+make_curl <<'CURL'
+#!/usr/bin/env bash
+printf '%s\n' '{"data":[]}'
+printf '%s\n' '200'
+CURL
+err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
+check "empty model list is structural 1" 1 "$rc"
+contains "empty model list message" "no model ids" "$err"
+make_curl <<'CURL'
+#!/usr/bin/env bash
+printf '%s\n' 'upstream error'
+printf '%s\n' '502'
+CURL
+err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
+check "502 preflight is transient 75" 75 "$rc"
+
 # (f) busy
 make_curl <<'CURL'
 #!/usr/bin/env bash

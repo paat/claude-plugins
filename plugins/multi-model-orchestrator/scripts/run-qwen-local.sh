@@ -108,7 +108,9 @@ lock_key="$(printf '%s' "$base_url" | cksum | tr -d ' \t' )"
 lock_dir="${TMPDIR:-/tmp}/mmo-qwen-local-$(id -u)"
 mkdir -p "$lock_dir" 2>/dev/null || true
 lock_file="$lock_dir/${lock_key}.lock"
-exec 9>"$lock_file" 2>/dev/null || {
+# Brace group: without it the redirect would apply to this shell for the rest of
+# the run and swallow the wrapper's own diagnostics.
+{ exec 9>"$lock_file"; } 2>/dev/null || {
   printf 'run-qwen-local: cannot open the lock file %s; route elsewhere\n' "$lock_file" >&2
   exit 75
 }

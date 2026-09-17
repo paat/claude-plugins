@@ -117,10 +117,11 @@ record only deltas. A session that dies mid-decision costs one resume, nothing m
 3. Instantiate `references/worker-prompt.md`, feeding Hard-won constraints from the handoff's
    rules-learned section and any research memo for the item into Grounding docs / Hard-won
    constraints. Dispatch via `${CLAUDE_PLUGIN_ROOT}/scripts/` (`run-codex.sh` / `run-grok.sh` /
-   `run-claude.sh`; `--dir`/`--repo` are synonyms; implement legs `--timeout 1800`).
+   `run-claude.sh` / `run-qwen-local.sh`; `--dir`/`--repo` are synonyms; implement legs
+   `--timeout 1800`).
 4. Gate yourself: inspect the item-branch diff, run the named suites, verify the final-message
    contract. If the leg's contract prevented committing, commit the gated result yourself —
-   recording output or filing a research memo is bookkeeping, not source editing.
+   recording output or a memo is bookkeeping, not source editing.
 5. Adversarial review by a DIFFERENT provider than the worker, from
    `references/review-prompts.md`. Codex reviewers use `--mode review` (runner enforces
    APPROVE/NEEDS_WORK); Claude/Grok probe legs use `--mode implement` with the modify-nothing

@@ -1750,4 +1750,13 @@ CURLSTUB
   pass 'run-qwen-local: real wrapper accepts the flags this runner sends'
 fi
 
+# Doc contracts: deleting these silently disables the local route, so pin them.
+contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \
+  'run-qwen-local.sh' 'leg-liveness keeps the local-Qwen exit-75 exception'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
+  'run-qwen-local.sh' 'meta-orchestration can dispatch the local runner'
+contains "$PLUGIN_ROOT/skills/route-model-task/references/routing.md" \
+  'qwen3.8-27b-local' 'routing catalog keeps the local engine'
+pass 'run-qwen-local: skill and routing contracts are pinned'
+
 printf 'All multi-model-orchestrator tests passed.\n'

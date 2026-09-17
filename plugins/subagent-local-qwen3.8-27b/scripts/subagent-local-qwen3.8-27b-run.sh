@@ -202,10 +202,15 @@ ql_preflight_models() {
   if [ "$http_code" != "200" ] && [ "$http_code" != "000" ]; then
     # Some servers omit a clean code in -w when body-only; still parse body.
     if ! printf '%s' "$body" | grep -q '"id"'; then
-      # A 5xx or an id-less body during a reload is transient, not a wrong model.
       printf 'subagent-local-qwen3.8-27b-run: llama.cpp models preflight failed (HTTP %s) at %s\n' \
         "$http_code" "$url" >&2
-      return 75
+      # 5xx clears on a reload or restart; anything else is a misconfigured
+      # endpoint that will not fix itself, so surface it instead of falling back
+      # to another engine forever.
+      case "$http_code" in
+        5??) return 75 ;;
+        *) return 1 ;;
+      esac
     fi
   fi
 
@@ -219,7 +224,7 @@ ql_preflight_models() {
 
   if [ -z "${ids}" ]; then
     printf 'subagent-local-qwen3.8-27b-run: llama.cpp returned no model ids from %s\n' "$url" >&2
-    return 75
+    return 1
   fi
 
   local found="" id
