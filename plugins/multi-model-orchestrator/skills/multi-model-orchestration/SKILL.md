@@ -43,8 +43,9 @@ explaining the community evidence behind the original policy.
    `scripts/run-qwen-local.sh` as named by the route card. Every runner pins a current model;
    supported efforts are pinned explicitly.
 6. Local Qwen holds one GPU slot. `run-qwen-local.sh` exits `75` when it is unavailable or busy;
-   dispatch that task to Grok 4.5 immediately and record the substitution in the ledger. Never
-   wait for the slot, and never retry the same task on it in the same pass.
+   dispatch that task to the route card's allowed fallback at once — Grok 4.5 by default, and only
+   a provider the allow/deny list permits — and record the substitution. Never wait for the slot,
+   and never retry the same task on it in the same pass.
 
 ## Implementation gates
 

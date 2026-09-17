@@ -58,7 +58,7 @@ esac
 # A candidate counts only if it answers --print-base: older wrappers exit 1 on a
 # busy server instead of 75, which would silently disable the Grok fallback.
 mmo_usable_wrapper() {
-  [ -x "$1" ] && "$1" --print-base >/dev/null 2>&1
+  [ -n "$1" ] && [ -x "$1" ] && "$1" --print-base >/dev/null 2>&1
 }
 
 mmo_find_wrapper() {
@@ -85,32 +85,20 @@ mmo_find_wrapper() {
 }
 
 wrapper="$(mmo_find_wrapper || true)"
-if ! mmo_usable_wrapper "$wrapper"; then
-  printf 'run-qwen-local: no subagent-local-qwen3.8-27b wrapper with --print-base (>= 0.3.1); route elsewhere\n' >&2
+# --print-base doubles as the capability probe and as the endpoint answer, so ask
+# once: with OPENAI_BASE_URL unset it probes localhost, the container host, then
+# the gateway, and guessing here would check a server the worker never talks to.
+base_url="$("$wrapper" --print-base 2>/dev/null || true)"
+if [ -z "$base_url" ]; then
+  printf 'run-qwen-local: no subagent-local-qwen3.8-27b wrapper with --print-base (>= 0.3.2); route elsewhere\n' >&2
   exit 75
 fi
-
-# Ask the wrapper which endpoint it will actually use: with OPENAI_BASE_URL unset it
-# probes localhost, the container host, then the gateway, so guessing here would
-# check a server the worker never talks to.
-base_url="$("$wrapper" --print-base 2>/dev/null || true)"
-[ -n "$base_url" ] || base_url="${OPENAI_BASE_URL:-http://127.0.0.1:8000/v1}"
 # Pin it: the wrapper must use the endpoint we checked and locked, not re-resolve.
 export OPENAI_BASE_URL="$base_url"
 
-# 2. Someone else's request on the GPU counts as busy too (llama.cpp /slots).
-slots_url="${base_url%/}"
-slots_url="${slots_url%/v1}/slots"
-if command -v curl >/dev/null 2>&1; then
-  if curl -fsS -m 3 "$slots_url" 2>/dev/null | grep -q '"is_processing"[[:space:]]*:[[:space:]]*true'; then
-    printf 'run-qwen-local: local model busy with another request; route elsewhere\n' >&2
-    exit 75
-  fi
-fi
-
-# 3. One dispatch at a time per endpoint. Non-blocking: we refuse, never queue.
-# Without flock the no-queue guarantee cannot be kept, so fail closed rather than
-# promise it and let two dispatches pile onto one slot.
+# 2. Take the slot first, so our own dispatches never race each other into the
+# window between a check and the lock. Everything that cannot be guaranteed here
+# exits 75: the controller routes elsewhere rather than queueing on one GPU.
 command -v flock >/dev/null 2>&1 || {
   printf 'run-qwen-local: flock not available; cannot guarantee the single-slot lock, route elsewhere\n' >&2
   exit 75
@@ -120,10 +108,30 @@ lock_key="$(printf '%s' "$base_url" | cksum | tr -d ' \t' )"
 lock_dir="${TMPDIR:-/tmp}/mmo-qwen-local-$(id -u)"
 mkdir -p "$lock_dir" 2>/dev/null || true
 lock_file="$lock_dir/${lock_key}.lock"
-exec 9>"$lock_file"
+exec 9>"$lock_file" 2>/dev/null || {
+  printf 'run-qwen-local: cannot open the lock file %s; route elsewhere\n' "$lock_file" >&2
+  exit 75
+}
 if ! flock -n 9; then
   printf 'run-qwen-local: another local-qwen dispatch holds the slot; route elsewhere\n' >&2
   exit 75
+fi
+
+# 3. A request from anything else on the GPU counts as busy (llama.cpp /slots).
+# An unreachable endpoint is unavailable; a 404 only means this server has no
+# /slots route, which is not evidence that the GPU is occupied.
+slots_url="${base_url%/}"
+slots_url="${slots_url%/v1}/slots"
+if command -v curl >/dev/null 2>&1; then
+  slots_body="$(curl -sS -m 3 -w '\n%{http_code}' "$slots_url" 2>/dev/null)" || {
+    printf 'run-qwen-local: local endpoint %s unreachable; route elsewhere\n' "$slots_url" >&2
+    exit 75
+  }
+  if [ "$(printf '%s' "$slots_body" | tail -n1)" = "200" ] \
+    && printf '%s' "$slots_body" | grep -q '"is_processing"[[:space:]]*:[[:space:]]*true'; then
+    printf 'run-qwen-local: local model busy with another request; route elsewhere\n' >&2
+    exit 75
+  fi
 fi
 
 wrapper_args=(--dir "$repo_dir" --timeout "$run_timeout")
