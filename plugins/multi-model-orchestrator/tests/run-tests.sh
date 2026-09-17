@@ -1966,6 +1966,43 @@ rm -f "$qwen_repo/untracked-new.txt"
 [ "$rc" -eq 0 ] || fail "untracked-only review still has a diff to review (got $rc)"
 pass 'run-qwen-local: untracked files join the review diff'
 
+# --repo resolves to the git toplevel, and a non-git path is a usage error.
+mkdir -p "$qwen_repo/sub/dir"
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" QL_WRAPPER_ARGV="$WORK/toplevel-argv.txt" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo/sub/dir" "task" >/dev/null 2>&1
+contains "$WORK/toplevel-argv.txt" "$qwen_repo" 'dispatch uses the repository root'
+absent "$WORK/toplevel-argv.txt" 'sub/dir' 'dispatch does not scope the worker to a subdirectory'
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$WORK/not-a-repo-at-all" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "a non-git --repo exits 2 (got $rc)"
+pass 'run-qwen-local: --repo resolves to the git toplevel'
+
+# A whitespace-only body is not a final message.
+cat > "$WORK/bin/qwen-wrapper-blank.sh" <<'WRAP'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  exit 0
+fi
+if [ "${1:-}" = "--print-base" ]; then
+  printf '%s\n' 'http://127.0.0.1:9/v1'
+  exit 0
+fi
+cat >/dev/null
+printf '\n'
+exit 0
+WRAP
+chmod +x "$WORK/bin/qwen-wrapper-blank.sh"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-blank.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 5 ] || fail "a whitespace-only final message exits 5 (got $rc)"
+pass 'run-qwen-local: a whitespace-only final message exits 5'
+
 # Doc contracts: deleting these silently disables the local route, so pin them.
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \
   'run-qwen-local.sh' 'leg-liveness keeps the local-Qwen exit-75 exception'

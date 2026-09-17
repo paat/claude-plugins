@@ -54,6 +54,12 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+command -v git >/dev/null 2>&1 || { printf 'run-qwen-local: git not found\n' >&2; exit 127; }
+repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel 2>/dev/null)" || {
+  printf 'run-qwen-local: not a git repository: %s\n' "$repo_dir" >&2
+  exit 2
+}
+
 case "$mode" in
   implement|review) ;;
   *) printf 'run-qwen-local: --mode must be implement or review\n' >&2; exit 2 ;;
@@ -247,7 +253,7 @@ if [ "$rc" -eq 127 ]; then
   printf 'run-qwen-local: qwen CLI missing or too old; route elsewhere\n' >&2
   rc=75
 fi
-if [ "$rc" -eq 0 ] && [ ! -s "$output_file" ]; then
+if [ "$rc" -eq 0 ] && [ -z "$(tr -d '[:space:]' < "$output_file")" ]; then
   printf 'run-qwen-local: missing or empty final-message artifact: %s\n' "$output_file" >&2
   rc=5
 fi
