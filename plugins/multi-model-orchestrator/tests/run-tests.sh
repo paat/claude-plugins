@@ -1811,6 +1811,18 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-noverdict.sh" 
 [ "$rc" -eq 6 ] || fail "verdict-less review exits 6 (got $rc)"
 pass 'run-qwen-local: a review without a verdict fails the leg'
 
+# --out is the final message (what meta-orchestration resumes from), and the leg
+# ends with the same exit footer as every sibling runner.
+out_file="$WORK/qwen-final.txt"
+err_file="$WORK/qwen-finish.err"
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD~1..HEAD' --out "$out_file" \
+  "review" >/dev/null 2>"$err_file"
+exact_line "$out_file" 'APPROVE' '--out holds the final message, not the raw stream'
+contains "$err_file" 'run-qwen-local: exit=0' 'leg prints the shared exit footer'
+pass 'run-qwen-local: --out and exit footer match the sibling runners'
+
 # A server that reports saturation is busy even when it never sets is_processing.
 cat > "$WORK/bin/curl" <<'BUSY503'
 #!/usr/bin/env bash

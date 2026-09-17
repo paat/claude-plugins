@@ -10,8 +10,9 @@
 #   run-qwen-local.sh --mode implement|review [--repo DIR] [--base REF]
 #                     [--timeout SECONDS] [--out FILE] [--prompt-file FILE] [PROMPT]
 #
-# Exit codes: 0 ok; 2 usage; 75 unavailable (slot busy, server down, or wrapper
-# not installed) — route elsewhere; other codes come from the wrapper.
+# Exit codes: 0 ok; 2 usage; 5 empty final message; 6 review without a terminal
+# APPROVE/NEEDS_WORK; 75 unavailable (slot busy, server down, or no wrapper) —
+# route elsewhere; other codes come from the wrapper.
 #
 # Env:
 #   MMO_QWEN_LOCAL_RUN  Path to subagent-local-qwen3.8-27b-run.sh (else discovered on
@@ -149,7 +150,11 @@ esac
 
 runtime_dir="$(mktemp -d)"
 trap 'rm -rf "$runtime_dir"' EXIT
-body_file="${output_file:-$runtime_dir/body.txt}"
+# --out holds the FINAL MESSAGE, as in the sibling runners; the wrapper's raw
+# stream goes to a temp file. meta-orchestration reads --out to resume a leg.
+stream_file="$runtime_dir/stream.json"
+[ -n "$output_file" ] || output_file="$runtime_dir/body.txt"
+case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
 
 # One prompt source, always delivered on stdin: argv, --prompt-file, or a heredoc.
 # Never as an argv word, so a prompt starting with a dash stays prompt text.
@@ -164,7 +169,7 @@ elif [ ! -t 0 ]; then
 fi
 [ -n "${prompt_text//[[:space:]]/}" ] || { printf 'run-qwen-local: empty prompt\n' >&2; exit 2; }
 
-wrapper_args=(--dir "$repo_dir" --timeout "$run_timeout" --out "$body_file")
+wrapper_args=(--dir "$repo_dir" --timeout "$run_timeout" --out "$stream_file")
 if [ "$mode" = review ]; then
   wrapper_args+=(--approval-mode plan --diff "$base_ref")
   prompt_text="$prompt_text
@@ -175,13 +180,21 @@ else
 fi
 
 rc=0
-printf '%s\n' "$prompt_text" | "$wrapper" "${wrapper_args[@]}" > "$runtime_dir/stdout.txt" || rc=$?
-cat "$runtime_dir/stdout.txt"
+printf '%s\n' "$prompt_text" | "$wrapper" "${wrapper_args[@]}" > "$output_file" 2>"$runtime_dir/err.txt" || rc=$?
+cat "$runtime_dir/err.txt" >&2
 
+if [ "$rc" -eq 0 ] && [ ! -s "$output_file" ]; then
+  printf 'run-qwen-local: missing or empty final-message artifact: %s\n' "$output_file" >&2
+  rc=5
+fi
 # Same contract as the sibling runners: a review without a terminal verdict is
 # not a review, however much prose it returned.
-if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$runtime_dir/stdout.txt"; then
+if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_file"; then
   printf 'run-qwen-local: review completed without APPROVE or NEEDS_WORK\n' >&2
   rc=6
 fi
-exit "$rc"
+# Body on success and on a verdict-format failure, as the siblings do.
+if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
+  cat "$output_file"
+fi
+mmo_finish run-qwen-local "$rc" "$runtime_dir/err.txt" "model=local-qwen" "mode=$mode"
