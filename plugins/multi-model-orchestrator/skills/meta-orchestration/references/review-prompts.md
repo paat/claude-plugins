@@ -61,3 +61,22 @@ SUITES: table with exact counts
 If VERDICT is APPROVE and nothing further is coming, end with the literal line:
 READY TO MERGE — nothing further coming.
 ```
+
+## Runner mode per reviewer
+
+| Reviewer | Mode | Why |
+|---|---|---|
+| Codex | `--mode review` | runner enforces APPROVE/NEEDS_WORK |
+| Local Qwen | `--mode review` | read-only; `--mode implement` would pass `--yolo` to a reviewer |
+| Claude / Grok probe legs | `--mode implement` + modify-nothing contract | they must run probes to verify by execution |
+
+## Local Qwen review leg
+
+`run-qwen-local.sh --mode review --base <range>` only. It is read-only in that mode; `--mode
+implement` would hand the reviewer write access (`--yolo`). It needs `--base` because the worker
+has no shell and cannot run git itself, and it exits `75` when the one local slot is unavailable —
+substitute the card's allowed fallback at once rather than waiting.
+
+It reads the diff; it cannot run anything. Never hand it a template that requires verification by
+execution, and never make it the only adversarial reviewer for work whose gate is a runnable probe.
+Use it as an extra decorrelated lens beside a reviewer that can execute.

@@ -26,6 +26,8 @@
 #       --yolo                 Implement mode: auto-approve tools (default).
 #       --approval-mode MODE   Use plan for read-only review; overrides --yolo.
 #   -f, --prompt-file F        Read the prompt from file F instead of argv/stdin.
+#       --diff-file F          Use an already-produced patch F instead of diffing
+#                              (one source of truth when the caller already has it).
 #   -d, --diff BASE            Write `git diff BASE` to a temp dir OUTSIDE the repo,
 #                              share it with --include-directories, and point the
 #                              prompt at it (review mode only).
@@ -34,6 +36,8 @@
 #                              'HEAD~1..HEAD' for a commit, 'origin/main...HEAD' for
 #                              a branch, HEAD for the uncommitted working tree.
 #   -o, --out FILE             Where to keep the full captured stream (default: temp).
+#       --print-base           Print the llama.cpp base URL this run would use, then
+#                              exit (callers share one resolver instead of guessing).
 #       --print-cmd            Print the base qwen command, then exit (no --diff
 #                              patch wiring: nothing is produced for a preview).
 #   -h, --help                 Show this help and exit.
@@ -44,6 +48,9 @@
 #                     (host.docker.internal / default route) is tried too).
 #   OPENAI_API_KEY    Dummy key for local servers (default: dummy).
 #   QWEN38_MODEL      Default model alias override.
+#
+# Exit codes: 0 ok; 2 usage; 75 transient (server down or busy — retry or route
+# elsewhere); 1 wrong model or other refusal; 124/143 timeout; 127 CLI missing.
 #
 # Output: prints ONLY the final answer on stdout, then a short footer on stderr.
 # Host Bash-tool timeout must also be generous (≥ inner --timeout in ms).
@@ -179,7 +186,7 @@ ql_preflight_models() {
     printf 'subagent-local-qwen3.8-27b-run: llama.cpp down or unreachable at %s (%s)\n' \
       "$url" "$(tr '\n' ' ' </tmp/ql-curl-err.$$ 2>/dev/null || true)" >&2
     rm -f /tmp/ql-curl-err.$$
-    return 1
+    return 75
   fi
   rm -f /tmp/ql-curl-err.$$
 
@@ -188,18 +195,24 @@ ql_preflight_models() {
 
   if printf '%s' "$body" | grep -qiE 'busy|overloaded|too many requests'; then
     printf 'subagent-local-qwen3.8-27b-run: llama.cpp busy (one in-flight request only); retry later\n' >&2
-    return 1
+    return 75
   fi
   if [ "$http_code" = "503" ] || [ "$http_code" = "429" ]; then
     printf 'subagent-local-qwen3.8-27b-run: llama.cpp busy (HTTP %s); retry later\n' "$http_code" >&2
-    return 1
+    return 75
   fi
   if [ "$http_code" != "200" ] && [ "$http_code" != "000" ]; then
     # Some servers omit a clean code in -w when body-only; still parse body.
     if ! printf '%s' "$body" | grep -q '"id"'; then
       printf 'subagent-local-qwen3.8-27b-run: llama.cpp models preflight failed (HTTP %s) at %s\n' \
         "$http_code" "$url" >&2
-      return 1
+      # 5xx clears on a reload or restart; anything else is a misconfigured
+      # endpoint that will not fix itself, so surface it instead of falling back
+      # to another engine forever.
+      case "$http_code" in
+        5??) return 75 ;;
+        *) return 1 ;;
+      esac
     fi
   fi
 
@@ -354,9 +367,9 @@ ql_print_cmd() {
 ql_main() {
   trap ql_cleanup EXIT
   local dir="$PWD" model="$QL_DEFAULT_MODEL" effort="$QL_DEFAULT_EFFORT"
-  local timeout_secs="$QL_DEFAULT_TIMEOUT" prompt_file="" out="" print_cmd=0
+  local timeout_secs="$QL_DEFAULT_TIMEOUT" prompt_file="" out="" print_cmd=0 print_base=0
   local turns="$QL_DEFAULT_TURNS" wall="$QL_DEFAULT_WALL"
-  local approval_mode="yolo" prompt="" diff_base="" diff_file="" diff_dir=""
+  local approval_mode="yolo" prompt="" diff_base="" diff_file="" diff_dir="" diff_ready=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -370,14 +383,25 @@ ql_main() {
       --approval-mode)      approval_mode="$2"; shift 2 ;;
       -f|--prompt-file)     prompt_file="$2"; shift 2 ;;
       -d|--diff)            diff_base="$2"; shift 2 ;;
+      --diff-file)          diff_ready="$2"; shift 2 ;;
       -o|--out)             out="$2"; shift 2 ;;
       --print-cmd)          print_cmd=1; shift ;;
+      --print-base)         print_base=1; shift ;;
       -h|--help)            ql_usage; return 0 ;;
       --)                   shift; break ;;
       -*)                   printf 'subagent-local-qwen3.8-27b-run: unknown option: %s\n' "$1" >&2; return 2 ;;
       *)                    break ;;
     esac
   done
+
+  if [ "$print_base" -eq 1 ]; then
+    if [ -n "${OPENAI_BASE_URL:-}" ]; then
+      printf '%s\n' "$OPENAI_BASE_URL"
+    else
+      printf '%s\n' "$(ql_pick_base)"
+    fi
+    return 0
+  fi
 
   ql_valid_effort "$effort" || {
     printf 'subagent-local-qwen3.8-27b-run: unsupported effort: %s (expected xhigh|medium|low; never high)\n' "$effort" >&2
@@ -427,8 +451,20 @@ ql_main() {
     return 2
   fi
 
+  if [ -n "$diff_ready" ]; then
+    [ -r "$diff_ready" ] || {
+      printf 'subagent-local-qwen3.8-27b-run: cannot read diff file: %s\n' "$diff_ready" >&2
+      return 2
+    }
+    [ -z "$diff_base" ] || {
+      printf 'subagent-local-qwen3.8-27b-run: pass --diff or --diff-file, not both\n' >&2
+      return 2
+    }
+    diff_base="__ready__"
+  fi
+
   if [ -n "$diff_base" ] && [ "$approval_mode" != "plan" ]; then
-    printf 'subagent-local-qwen3.8-27b-run: --diff requires --approval-mode plan (implement mode has a shell and can run git itself)\n' >&2
+    printf 'subagent-local-qwen3.8-27b-run: --diff/--diff-file require --approval-mode plan (implement mode has a shell and can run git itself)\n' >&2
     return 2
   fi
 
@@ -444,10 +480,14 @@ ql_main() {
     diff_dir="$(mktemp -d -t qwen38-review.XXXXXX)"
     QL_CLEANUP_PATHS+=("$diff_dir")
     diff_file="$diff_dir/review.patch"
+    if [ -n "$diff_ready" ]; then
+      cp "$diff_ready" "$diff_file"
+    fi
     local git_err
     git_err="$(mktemp -t qwen38-git-err.XXXXXX)"
     QL_CLEANUP_PATHS+=("$git_err")
-    if ! git -C "$dir" --no-pager diff "$diff_base" > "$diff_file" 2>"$git_err"; then
+    if [ -z "$diff_ready" ] && ! git -C "$dir" --no-pager diff --no-ext-diff --binary "$diff_base" \
+      > "$diff_file" 2>"$git_err"; then
       printf 'subagent-local-qwen3.8-27b-run: cannot diff %s in %s: %s\n' \
         "$diff_base" "$dir" "$(tr '\n' ' ' <"$git_err")" >&2
       return 2

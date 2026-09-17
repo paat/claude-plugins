@@ -1337,13 +1337,13 @@ contains "$WORK/523/l.err" 'missing or empty final-message artifact' \
 absent "$WORK/523/l.err" 'malformed stream' '523l: must not report malformed stream'
 pass '#523l: empty stream under --stream-log exits 5, not malformed'
 
-# README/contract: jq is required only for Claude --stream-log (#523).
+# README/contract: jq is required for Claude --stream-log and the local-Qwen route.
 absent "$PLUGIN_ROOT/README.md" 'No `jq` dependency is used' \
   'README must not claim no jq dependency'
 contains "$PLUGIN_ROOT/README.md" \
-  '`jq` is required only for `run-claude.sh --stream-log`' \
-  'README documents jq required only for run-claude.sh --stream-log'
-pass 'README documents jq only for Claude --stream-log'
+  '`jq` is required for `run-claude.sh --stream-log` and for the local-Qwen route' \
+  'README documents where jq is required'
+pass 'README documents jq for Claude --stream-log and local Qwen'
 
 # Req 3: run-codex.sh resolves --dir/--repo to a git toplevel (match claude/grok).
 # Intentional behavior change vs 0.7.6: existing non-git directory exits 2.
@@ -1594,5 +1594,438 @@ assert_provider_failure_class grok STUB_GROK_RESULT timeout 124 '' \
 assert_provider_failure_class grok STUB_GROK_RESULT rate_in_output 0 '' \
   'Grok success with 429 rate limit in output stays 0'
 pass '#520 slice 3: runners classify transient/auth failures as 75/77; never model output'
+
+# run-qwen-local: one GPU slot, refuse instead of queue (exit 75 → route to Grok)
+QL_RUN="$PLUGIN_ROOT/scripts/run-qwen-local.sh"
+qwen_repo="$WORK/qwen-repo"
+mkdir -p "$qwen_repo"
+git -C "$qwen_repo" init -q
+printf 'one\n' > "$qwen_repo/f.txt"
+git -C "$qwen_repo" add -A
+git -C "$qwen_repo" -c user.name=t -c user.email=t@t commit -qm base
+printf 'two\n' > "$qwen_repo/f.txt"
+git -C "$qwen_repo" -c user.name=t -c user.email=t@t commit -qam change
+
+# stub wrapper records argv and succeeds
+cat > "$WORK/bin/qwen-wrapper.sh" <<'WRAP'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  exit 0
+fi
+if [ "${1:-}" = "--print-base" ]; then
+  printf '%s\n' "${QL_STUB_BASE:-http://127.0.0.1:9/v1}"
+  exit 0
+fi
+printf '%s\n' "$@" > "$QL_WRAPPER_ARGV"
+cat > /dev/null
+printf '%s\n' 'APPROVE'
+exit 0
+WRAP
+chmod +x "$WORK/bin/qwen-wrapper.sh"
+export QL_WRAPPER_ARGV="$WORK/qwen-argv.txt"
+
+cat > "$WORK/bin/curl" <<'IDLESTUB'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
+case "$url" in
+  *127.0.0.1:9/*slots) printf '%s\n' '[{"id":0,"is_processing":false}]'; printf '%s\n' '200' ;;
+  *) exit 7 ;;
+esac
+IDLESTUB
+chmod +x "$WORK/bin/curl"
+
+# no wrapper installed → unavailable, not an error to debug
+rc=0
+MMO_QWEN_LOCAL_RUN="$WORK/does-not-exist" HOME="$WORK" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 75 ] || fail "missing local wrapper exits 75 (got $rc)"
+pass 'run-qwen-local: missing wrapper exits 75'
+
+# review mode requires a base (plan mode has no shell to run git)
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "review without --base exits 2 (got $rc)"
+pass 'run-qwen-local: review without --base is a usage error'
+
+# review mode forwards plan mode + the diff range to the wrapper
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD~1..HEAD' "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 0 ] || fail "review dispatch succeeded (got $rc)"
+contains "$QL_WRAPPER_ARGV" '--approval-mode' 'review dispatch passes --approval-mode'
+contains "$QL_WRAPPER_ARGV" 'plan' 'review dispatch pins plan mode'
+contains "$QL_WRAPPER_ARGV" '--diff-file' 'review dispatch hands over the validated patch'
+pass 'run-qwen-local: review dispatch is read-only with the diff'
+
+# implement mode is write-capable
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1
+contains "$QL_WRAPPER_ARGV" '--yolo' 'implement dispatch passes --yolo'
+pass 'run-qwen-local: implement dispatch is write-capable'
+
+# an endpoint that does not answer at all is unavailable, not a hard failure
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" \
+  QL_STUB_BASE="http://127.0.0.1:9999/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 75 ] || fail "unreachable endpoint exits 75 (got $rc)"
+pass 'run-qwen-local: an unreachable endpoint exits 75'
+
+# a request already on the GPU (even one we did not start) means busy
+cat > "$WORK/bin/curl" <<'CURLSTUB'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in
+    *"/slots") printf '%s\n' '[{"id":0,"is_processing":true}]'; printf '%s\n' '200'; exit 0 ;;
+  esac
+done
+exit 7
+CURLSTUB
+chmod +x "$WORK/bin/curl"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" \
+  QL_STUB_BASE="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 75 ] || fail "in-flight request on /slots exits 75 (got $rc)"
+pass 'run-qwen-local: a request already on the GPU exits 75'
+# Restore an idle stub immediately: a later case must never run with no curl.
+cat > "$WORK/bin/curl" <<'IDLEAGAIN'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
+case "$url" in
+  *slots) printf '%s\n' '[{"id":0,"is_processing":false}]'; printf '%s\n' '200' ;;
+  *) exit 7 ;;
+esac
+IDLEAGAIN
+chmod +x "$WORK/bin/curl"
+
+# a held lock means the slot is taken: refuse with 75 rather than queue
+if command -v flock >/dev/null 2>&1; then
+  lock_url="http://127.0.0.1:9/v1"
+  # same normalization as the runner: strip a trailing slash and a /v1 suffix
+  lock_norm="${lock_url%/}"; lock_norm="${lock_norm%/v1}"
+  lock_key="$(printf '%s' "$lock_norm" | cksum | awk '{print $1 "-" $2}')"
+  lock_path="${TMPDIR:-/tmp}/mmo-qwen-local-$(id -u)/${lock_key}.lock"
+  mkdir -p "$(dirname "$lock_path")"
+  exec 8>"$lock_path"
+  flock -n 8 || fail 'test could not take the lock first'
+  rc=0
+  PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="$lock_url" \
+    bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+  exec 8>&-
+  [ "$rc" -eq 75 ] || fail "busy slot exits 75 (got $rc)"
+  pass 'run-qwen-local: a taken slot exits 75 instead of queueing'
+fi
+
+# Contract test: dispatch through the REAL wrapper (stubbed qwen + curl), so a
+# flag-name mismatch between the two plugins fails here instead of at runtime.
+real_wrapper=""
+for candidate in "$PLUGIN_ROOT/../subagent-local-qwen3.8-27b/scripts/subagent-local-qwen3.8-27b-run.sh" \
+  "${HOME}"/.claude/plugins/cache/*/subagent-local-qwen3.8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh; do
+  [ -x "$candidate" ] && real_wrapper="$candidate" && break
+done
+if [ -n "$real_wrapper" ]; then
+  contract_bin="$WORK/contract-bin"
+  mkdir -p "$contract_bin"
+  cat > "$contract_bin/qwen" <<'QWENSTUB'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  echo "Usage: qwen --yolo --approval-mode"
+  exit 0
+fi
+printf '%s\n' "$@" > "$QL_CONTRACT_ARGV"
+printf '%s\n' '[{"type":"result","result":"CONTRACT OK"}]'
+exit 0
+QWENSTUB
+  cat > "$contract_bin/curl" <<'CURLSTUB'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
+case "$url" in
+  */models)
+    printf '%s\n' '{"data":[{"id":"Qwen3.8-27B-UD-Q6_K_XL-coding"}]}'
+    printf '%s\n' '200'
+    ;;
+  */slots)
+    printf '%s\n' '[{"id":0,"is_processing":false}]'
+    printf '%s\n' '200'
+    ;;
+  *) exit 7 ;;
+esac
+CURLSTUB
+  chmod +x "$contract_bin/qwen" "$contract_bin/curl"
+  export QL_CONTRACT_ARGV="$WORK/contract-argv.txt"
+  rc=0
+  PATH="$contract_bin:$PATH" MMO_QWEN_LOCAL_RUN="$real_wrapper" \
+    OPENAI_BASE_URL="http://127.0.0.1:8000/v1" HOME="$WORK" \
+    bash "$QL_RUN" --mode implement --repo "$qwen_repo" --timeout 30 "task" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 0 ] || fail "real-wrapper implement dispatch succeeds (got $rc)"
+  contains "$QL_CONTRACT_ARGV" '--yolo' 'real wrapper received implement mode'
+  pass 'run-qwen-local: real wrapper accepts the flags this runner sends'
+fi
+
+# Restore an idle /slots stub (the busy case removed it).
+cat > "$WORK/bin/curl" <<'IDLESTUB2'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
+case "$url" in
+  *slots) printf '%s\n' '[{"id":0,"is_processing":false}]'; printf '%s\n' '200' ;;
+  *) exit 7 ;;
+esac
+IDLESTUB2
+chmod +x "$WORK/bin/curl"
+
+# The documented heredoc form must work: nothing may consume the prompt on stdin.
+cat > "$WORK/bin/qwen-wrapper-stdin.sh" <<'WRAP'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  exit 0
+fi
+if [ "${1:-}" = "--print-base" ]; then
+  printf '%s\n' "${QL_STUB_BASE:-http://127.0.0.1:9/v1}"
+  exit 0
+fi
+cat > "$QL_WRAPPER_STDIN"
+printf '%s\n' 'APPROVE'
+exit 0
+WRAP
+chmod +x "$WORK/bin/qwen-wrapper-stdin.sh"
+export QL_WRAPPER_STDIN="$WORK/qwen-stdin.txt"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD~1..HEAD' >/dev/null 2>"$WORK/heredoc.err" <<'PROMPT' || rc=$?
+review this heredoc prompt
+PROMPT
+[ "$rc" -eq 0 ] || fail "heredoc dispatch succeeded (got $rc): $(cat "$WORK/heredoc.err")"
+contains "$QL_WRAPPER_STDIN" 'review this heredoc prompt' 'heredoc prompt reaches the wrapper'
+contains "$QL_WRAPPER_STDIN" 'APPROVE or NEEDS_WORK' 'review dispatch asks for a terminal verdict'
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" -- "-dash leading prompt" >/dev/null 2>&1
+contains "$QL_WRAPPER_STDIN" '-dash leading prompt' 'a dash-leading prompt survives as prompt text'
+pass 'run-qwen-local: heredoc prompt, verdict line, and dash-leading prompts reach the wrapper'
+
+# A review that returns prose without a verdict is not a passing review.
+cat > "$WORK/bin/qwen-wrapper-noverdict.sh" <<'WRAP'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  exit 0
+fi
+if [ "${1:-}" = "--print-base" ]; then
+  printf '%s\n' "${QL_STUB_BASE:-http://127.0.0.1:9/v1}"
+  exit 0
+fi
+cat >/dev/null
+printf '%s\n' 'looks fine to me'
+exit 0
+WRAP
+chmod +x "$WORK/bin/qwen-wrapper-noverdict.sh"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-noverdict.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD~1..HEAD' "review" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 6 ] || fail "verdict-less review exits 6 (got $rc)"
+pass 'run-qwen-local: a review without a verdict fails the leg'
+
+# --out is the final message (what meta-orchestration resumes from), and the leg
+# ends with the same exit footer as every sibling runner.
+out_file="$WORK/qwen-final.txt"
+err_file="$WORK/qwen-finish.err"
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD~1..HEAD' --out "$out_file" \
+  "review" >/dev/null 2>"$err_file"
+exact_line "$out_file" 'APPROVE' '--out holds the final message, not the raw stream'
+contains "$err_file" 'run-qwen-local: exit=0' 'leg prints the shared exit footer'
+pass 'run-qwen-local: --out and exit footer match the sibling runners'
+
+# A server that reports saturation is busy even when it never sets is_processing.
+cat > "$WORK/bin/curl" <<'BUSY503'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
+case "$url" in
+  *slots) printf '%s\n' 'server busy'; printf '%s\n' '503' ;;
+  *) exit 7 ;;
+esac
+BUSY503
+chmod +x "$WORK/bin/curl"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 75 ] || fail "a 503 from /slots exits 75 (got $rc)"
+pass 'run-qwen-local: a saturated server exits 75'
+
+# A server with no /slots route is not evidence of a busy GPU: dispatch proceeds.
+cat > "$WORK/bin/curl" <<'NOSLOTS'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
+case "$url" in
+  *slots) printf '%s\n' 'not found'; printf '%s\n' '404' ;;
+  *) exit 7 ;;
+esac
+NOSLOTS
+chmod +x "$WORK/bin/curl"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 0 ] || fail "an endpoint without /slots still dispatches (got $rc)"
+pass 'run-qwen-local: no /slots route still dispatches'
+
+# A missing qwen CLI is the engine being unavailable, not a hard worker failure.
+cat > "$WORK/bin/qwen-wrapper-127.sh" <<'WRAP'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  exit 0
+fi
+if [ "${1:-}" = "--print-base" ]; then
+  printf '%s\n' "${QL_STUB_BASE:-http://127.0.0.1:9/v1}"
+  exit 0
+fi
+printf '%s\n' 'qwen CLI not found on PATH' >&2
+exit 127
+WRAP
+chmod +x "$WORK/bin/qwen-wrapper-127.sh"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-127.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 75 ] || fail "a missing qwen CLI exits 75 (got $rc)"
+pass 'run-qwen-local: a missing qwen CLI exits 75'
+
+# An oversized review diff belongs on a bigger-context model, not a truncated local one.
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" MMO_REVIEW_DIFF_MAX_BYTES=10 \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD~1..HEAD' "review" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 4 ] || fail "an oversized review diff exits 4 like its siblings (got $rc)"
+pass 'run-qwen-local: an oversized review diff exits 4'
+
+# An invalid ref and an empty diff are usage problems, not slot unavailability.
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'no-such-ref' "review" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "an invalid --base exits 2 (got $rc)"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD' "review" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || fail "an empty diff exits 3 (got $rc)"
+pass 'run-qwen-local: review target is gated before the slot is taken'
+
+# Usage errors must not take the GPU slot first.
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "" >/dev/null 2>&1 </dev/null || rc=$?
+[ "$rc" -eq 2 ] || fail "an empty prompt is a usage error (got $rc)"
+pass 'run-qwen-local: an empty prompt fails before the slot is taken'
+
+# A wrapper too old for --diff-file is unavailable, not a usage error mid-dispatch.
+cat > "$WORK/bin/qwen-wrapper-old.sh" <<'WRAP'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  printf '%s\n' '--print-base --approval-mode --yolo'
+  exit 0
+fi
+if [ "${1:-}" = "--print-base" ]; then
+  printf '%s\n' 'http://127.0.0.1:9/v1'
+  exit 0
+fi
+exit 0
+WRAP
+chmod +x "$WORK/bin/qwen-wrapper-old.sh"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-old.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 75 ] || fail "a wrapper without --diff-file exits 75 (got $rc)"
+pass 'run-qwen-local: a wrapper missing a required flag exits 75'
+
+# A brand-new untracked file is part of the change under review.
+printf 'brand new\n' > "$qwen_repo/untracked-new.txt"
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" QL_WRAPPER_STDIN="$WORK/untracked-stdin.txt" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base 'HEAD' --out "$WORK/untracked-out.txt" \
+  "review" >/dev/null 2>&1
+rc=$?
+rm -f "$qwen_repo/untracked-new.txt"
+[ "$rc" -eq 0 ] || fail "untracked-only review still has a diff to review (got $rc)"
+pass 'run-qwen-local: untracked files join the review diff'
+
+# --repo resolves to the git toplevel, and a non-git path is a usage error.
+mkdir -p "$qwen_repo/sub/dir"
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" QL_WRAPPER_ARGV="$WORK/toplevel-argv.txt" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo/sub/dir" "task" >/dev/null 2>&1
+contains "$WORK/toplevel-argv.txt" "$qwen_repo" 'dispatch uses the repository root'
+absent "$WORK/toplevel-argv.txt" 'sub/dir' 'dispatch does not scope the worker to a subdirectory'
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$WORK/not-a-repo-at-all" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "a non-git --repo exits 2 (got $rc)"
+pass 'run-qwen-local: --repo resolves to the git toplevel'
+
+# A whitespace-only body is not a final message.
+cat > "$WORK/bin/qwen-wrapper-blank.sh" <<'WRAP'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  exit 0
+fi
+if [ "${1:-}" = "--print-base" ]; then
+  printf '%s\n' 'http://127.0.0.1:9/v1'
+  exit 0
+fi
+cat >/dev/null
+printf '\n'
+exit 0
+WRAP
+chmod +x "$WORK/bin/qwen-wrapper-blank.sh"
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-blank.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 5 ] || fail "a whitespace-only final message exits 5 (got $rc)"
+pass 'run-qwen-local: a whitespace-only final message exits 5'
+
+# A --base that looks like a git option must be refused, not passed to git diff.
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode review --repo "$qwen_repo" --base "--output=$WORK/injected.patch" \
+  "review" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "an option-shaped --base exits 2 (got $rc)"
+[ ! -e "$WORK/injected.patch" ] || fail 'option-shaped --base must not reach git diff'
+pass 'run-qwen-local: an option-shaped --base is refused'
+
+# Doc contracts: deleting these silently disables the local route, so pin them.
+contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \
+  'run-qwen-local.sh' 'leg-liveness keeps the local-Qwen exit-75 exception'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
+  'run-qwen-local.sh' 'meta-orchestration can dispatch the local runner'
+contains "$PLUGIN_ROOT/skills/route-model-task/references/routing.md" \
+  'qwen3.8-27b-local' 'routing catalog keeps the local engine'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
+  'run-qwen-local.sh --mode review' 'review-leg rule keeps the local reviewer read-only'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
+  'cannot run anything' 'review-leg rule says the local lens cannot execute probes'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
+  'Runner mode per reviewer' 'reviewer runner modes live in one table'
+pass 'run-qwen-local: skill and routing contracts are pinned'
 
 printf 'All multi-model-orchestrator tests passed.\n'

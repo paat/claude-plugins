@@ -61,7 +61,7 @@ contains "print-cmd review contract line encodes newline" '\n' "$rev_prompt_line
 contains "print-cmd review contract line has Read-only" \
   "Read-only. Do not modify, stage, or commit." "$rev_prompt_line"
 contains "print-cmd review contract line has verdict" \
-  "APPROVE | NEEDS_WORK | BLOCK" "$rev_prompt_line"
+  "APPROVE or NEEDS_WORK" "$rev_prompt_line"
 
 # --- Contract / README needles (must stay one line) ---
 impl_c="$(<"$IMPLEMENT_CONTRACT")"
@@ -73,7 +73,7 @@ rev_cmd="$(<"$REVIEW_COMMAND")"
 contains "implement contract ONE named task" "bounded coding implementer for ONE named task" "$impl_c"
 contains "implement contract no agent tool" "Do not push, open PRs, or call the agent/subagent tool." "$impl_c"
 contains "review contract read-only line" "Read-only. Do not modify, stage, or commit." "$rev_c"
-contains "review contract verdict line" "End with one line: APPROVE | NEEDS_WORK | BLOCK." "$rev_c"
+contains "review contract verdict line" "End with one line: APPROVE or NEEDS_WORK." "$rev_c"
 contains "README bound model Qwen3.8-27B" "Qwen3.8-27B" "$readme"
 contains "README naming pattern" "subagent-local-<modelname>-<version>" "$readme"
 contains "README documents qwen CLI" "qwen" "$readme"
@@ -133,7 +133,7 @@ done
 check "review argv next has real newline" 1 \
   "$(printf '%s' "$rev_next" | grep -q $'\n' && echo 1 || echo 0)"
 contains "review argv next has Read-only" "Read-only" "$rev_next"
-contains "review argv next has verdict" "APPROVE | NEEDS_WORK | BLOCK" "$rev_next"
+contains "review argv next has verdict" "APPROVE or NEEDS_WORK" "$rev_next"
 
 # --- Integration stubs ---
 stubdir="$(mktemp -d)"
@@ -276,6 +276,17 @@ check "review repo left clean" "" "$(git -C "$diffrepo" status --porcelain)"
 QL_STUB_STDIN="$stdin_file2" run -C "$diffrepo" --approval-mode plan --diff HEAD \
   "review it" >/dev/null 2>&1
 check "empty diff refused" 2 "$?"
+# --diff-file: use a caller's patch instead of diffing again
+ready_patch="$(mktemp)"
+git -C "$diffrepo" --no-pager diff HEAD~1 > "$ready_patch"
+QL_STUB_STDIN="$stdin_file2" run -C "$diffrepo" --approval-mode plan --diff-file "$ready_patch" \
+  "review it" >/dev/null 2>&1
+contains "diff-file prompt names the patch" "/review.patch" "$(cat "$stdin_file2")"
+check "diff-file repo left clean" "" "$(git -C "$diffrepo" status --porcelain)"
+rc=0
+run -C "$diffrepo" --approval-mode plan --diff HEAD~1 --diff-file "$ready_patch" "x" >/dev/null 2>&1 || rc=$?
+check "diff and diff-file together refused" 2 "$rc"
+rm -f "$ready_patch"
 # preflight failure after a non-empty write must not leave the patch behind
 # no qwen on PATH -> CLI preflight fails *after* the patch is written
 PATH="/usr/bin:/bin" HOME="$host_qwen_dir" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
@@ -314,6 +325,14 @@ QL_STUB_BASE="$base_file" PATH="$stubdir:$PATH" HOME="$host_qwen_dir" \
   env -u OPENAI_BASE_URL \
   "$SCRIPT" -C /tmp --approval-mode plan "review" >/dev/null 2>&1
 contains "falls back to the container host" "host.docker.internal" "$(cat "$base_file")"
+
+# --print-base is the contract MMO uses to align its busy check and lock with us
+printed="$(PATH="$stubdir:$PATH" HOME="$host_qwen_dir" \
+  OPENAI_BASE_URL="http://pinned.example:8000/v1" "$SCRIPT" --print-base 2>/dev/null)"
+check "print-base honors OPENAI_BASE_URL" "http://pinned.example:8000/v1" "$printed"
+printed="$(PATH="$stubdir:$PATH" HOME="$host_qwen_dir" env -u OPENAI_BASE_URL \
+  "$SCRIPT" --print-base 2>/dev/null)"
+contains "print-base probes when unset" "host.docker.internal" "$printed"
 rm -rf "$diffrepo"
 
 # (c) missing qwen → 127
@@ -340,7 +359,7 @@ echo "connection refused" >&2
 exit 7
 CURL
 err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
-check "down preflight non-zero" 1 "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+check "down preflight is transient 75" 75 "$rc"
 contains "down message" "down or unreachable" "$err"
 
 # (e) wrong-model (longctx only)
@@ -360,8 +379,33 @@ printf '%s\n' '{"data":[{"id":"Qwen3.8-27B-UD-Q6_K_XL-longctx"}]}'
 printf '%s\n' '200'
 CURL
 err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
-check "wrong-model preflight non-zero" 1 "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+check "wrong-model preflight is 1 (not transient)" 1 "$rc"
 contains "wrong-model message" "wrong-model" "$err"
+
+# (e2) structural failures are NOT transient: they never self-resolve, so a caller
+# must see them instead of substituting another engine forever.
+make_curl <<'CURL'
+#!/usr/bin/env bash
+printf '%s\n' '{"error":"not found"}'
+printf '%s\n' '404'
+CURL
+err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
+check "404 preflight is structural 1" 1 "$rc"
+make_curl <<'CURL'
+#!/usr/bin/env bash
+printf '%s\n' '{"data":[]}'
+printf '%s\n' '200'
+CURL
+err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
+check "empty model list is structural 1" 1 "$rc"
+contains "empty model list message" "no model ids" "$err"
+make_curl <<'CURL'
+#!/usr/bin/env bash
+printf '%s\n' 'upstream error'
+printf '%s\n' '502'
+CURL
+err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
+check "502 preflight is transient 75" 75 "$rc"
 
 # (f) busy
 make_curl <<'CURL'
@@ -370,7 +414,7 @@ printf '%s\n' 'server busy'
 printf '%s\n' '503'
 CURL
 err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
-check "busy preflight non-zero" 1 "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+check "busy preflight is transient 75" 75 "$rc"
 contains "busy message" "busy" "$err"
 
 # Restore healthy curl + sleeping qwen for timeout

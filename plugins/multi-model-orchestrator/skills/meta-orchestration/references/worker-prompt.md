@@ -1,7 +1,8 @@
 # Worker prompt template
 
 Instantiate per issue and pass on stdin to the runner named by the route card
-(`run-codex.sh --mode implement`, `run-grok.sh --mode implement`, or `run-claude.sh
+(`run-codex.sh --mode implement`, `run-grok.sh --mode implement`, `run-qwen-local.sh --mode
+implement` for mechanical work on the local slot, or `run-claude.sh
 --mode implement`). Feed **Hard-won constraints** from the handoff's rules-learned section and
 from prior review findings on this epic, phrased as prohibitions.
 

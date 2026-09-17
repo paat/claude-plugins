@@ -28,6 +28,7 @@ Older generations are intentionally excluded.
 | Claude Code | `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
 | Codex | `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-6-astra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
+| Local Qwen | `qwen3.8-27b-local` | Free mechanical edits and a cheap second review lens; one GPU slot, falls back to Grok when busy (needs the `subagent-local-qwen3.8-27b` plugin) |
 
 Haiku 4.5 is the latest Haiku and does not use Claude's current effort parameter. Claude Fable 5,
 Opus 5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
@@ -41,7 +42,7 @@ scope/coupling, risk, deterministic validation, modality, latency, and expected 
 
 | Task | Starting route |
 |---|---|
-| File map, exact rename, focused check | Haiku 4.5 or GPT-5.6 Luna |
+| File map, exact rename, focused check | Local Qwen when its endpoint answers, else Haiku 4.5 or GPT-5.6 Luna |
 | Ordinary well-specified coding | Sonnet 5 or GPT-5.6 Terra at medium |
 | Fast bounded implementation or reproduction | Grok 4.5 at medium |
 | Hard backend/data work, debugging, security, technical review | GPT-6 Astra at high or xhigh |
@@ -124,8 +125,11 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
   - Claude Code (`claude`)
   - OpenAI Codex CLI (`codex`)
   - latest Grok Build (`grok`), using Grok 4.5
+- Optional local engine: the `subagent-local-qwen3.8-27b` plugin, a llama.cpp endpoint, the `qwen`
+  CLI, `curl`, `jq`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
+  work goes to Grok.
 
-Only selected providers are required. `jq` is required only for `run-claude.sh --stream-log`, to extract the final message from Claude's stream output; nothing else in the plugin needs it.
+Only selected providers are required. `jq` is required for `run-claude.sh --stream-log` and for the local-Qwen route, both of which extract a final message from a JSON stream.
 
 ## Configuration
 
@@ -140,8 +144,9 @@ catalog.
 | `MMO_GROK_MODEL` | `grok-4.5` | Grok worker/reviewer model |
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
 | `MMO_GROK_MAX_TURNS` | `30` | Grok tool-loop cap, from 1 to 100 |
-| `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok review |
+| `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/local-Qwen review |
 | `MMO_HANDOFF_DIR` | `.claude/handoffs` | Repo-relative handoff directory in the target repository |
+| `MMO_QWEN_LOCAL_RUN` | discovered | Path to the `subagent-local-qwen3.8-27b` wrapper when it is not on `PATH` or in a plugin cache |
 
 `MMO_OPUS_MODEL` and `MMO_OPUS_EFFORT` remain compatibility variables for `run-opus.sh`. The old
 moving value `MMO_OPUS_MODEL=opus` maps explicitly to `claude-opus-5`; earlier versioned IDs are

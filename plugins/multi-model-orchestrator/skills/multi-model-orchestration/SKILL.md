@@ -14,10 +14,13 @@ explaining the community evidence behind the original policy.
 
 - Apply provider/model allowlists and denylists before routing. Preserve compatible explicit model
   and effort choices; never silently substitute a forbidden provider.
-- Use only Claude Fable 5, Opus 5, Sonnet 5, Haiku 4.5; GPT-6 Astra, GPT-5.6 Terra and Luna; and Grok 4.5.
+- Use only Claude Fable 5, Opus 5, Sonnet 5, Haiku 4.5; GPT-6 Astra, GPT-5.6 Terra and Luna;
+  Grok 4.5; and local Qwen3.8-27B for mechanical work when its endpoint answers.
 - Run every CLI leg in YOLO mode inside the development-container boundary: Codex bypasses
   approvals and sandboxing, Claude skips permissions, and Grok uses sandbox `none` with
-  `bypassPermissions`. Keep reviewer mutation control in prompts and tool allowlists.
+  `bypassPermissions`. Keep reviewer mutation control in prompts and tool allowlists — except
+  local Qwen, whose read-only review is enforced by `--mode review`; dispatching its review as
+  `--mode implement` would pass `--yolo` and give a reviewer real write access.
 - Keep implementation workers fresh and context packets self-contained. Do not pass the full
   conversation when a task ledger entry is sufficient.
 - One worker owns one bounded task. Start sequentially; parallel writes are allowed only for
@@ -38,8 +41,13 @@ explaining the community evidence behind the original policy.
 3. When the user restricts implementation to one provider, every source edit belongs to that
    provider. Other allowed providers may advise or review only.
 4. Keep task packets narrow enough that a worker does not need to rediscover the project.
-5. Dispatch with `scripts/run-claude.sh`, `scripts/run-codex.sh`, or `scripts/run-grok.sh` as named
-   by the route card. Every runner pins a current model; supported efforts are pinned explicitly.
+5. Dispatch with `scripts/run-claude.sh`, `scripts/run-codex.sh`, `scripts/run-grok.sh`, or
+   `scripts/run-qwen-local.sh` as named by the route card. Every runner pins a current model;
+   supported efforts are pinned explicitly.
+6. Local Qwen holds one GPU slot. `run-qwen-local.sh` exits `75` when it is unavailable or busy;
+   dispatch that task to the route card's allowed fallback at once — Grok 4.5 by default, and only
+   a provider the allow/deny list permits — and record the substitution. Never wait for the slot,
+   and never retry the same task on it in the same pass.
 
 ## Implementation gates
 
