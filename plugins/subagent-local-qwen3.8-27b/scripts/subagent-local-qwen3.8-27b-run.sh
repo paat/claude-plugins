@@ -26,8 +26,9 @@
 #       --yolo                 Implement mode: auto-approve tools (default).
 #       --approval-mode MODE   Use plan for read-only review; overrides --yolo.
 #   -f, --prompt-file F        Read the prompt from file F instead of argv/stdin.
-#   -d, --diff BASE            Write `git diff BASE` into the repo as a temporary
-#                              .qwen-review-diff.*.patch and point the prompt at it.
+#   -d, --diff BASE            Write `git diff BASE` to a temp dir OUTSIDE the repo,
+#                              share it with --include-directories, and point the
+#                              prompt at it (review mode only).
 #                              Required for review: approval-mode plan has NO shell,
 #                              so the worker cannot run git itself. Name both ends:
 #                              'HEAD~1..HEAD' for a commit, 'origin/main...HEAD' for
@@ -124,13 +125,18 @@ ql_is_coding_profile() {
 # container host, not in the container). Falls back to the default so the real
 # preflight below prints the accurate error.
 ql_pick_base() {
-  local c gw
+  local c gw probe code
   gw="$(ip route 2>/dev/null | awk '/^default/ { print $3; exit }' || true)"
   for c in "$QL_DEFAULT_BASE" \
     "${QL_DEFAULT_BASE/127.0.0.1/host.docker.internal}" \
     "${gw:+${QL_DEFAULT_BASE/127.0.0.1/$gw}}"; do
     [ -n "$c" ] || continue
-    if curl -fsS -m 3 "${c%/}/models" 2>/dev/null | grep -q '"id"'; then
+    probe="$(curl -sS -m 3 -w '\n%{http_code}' "${c%/}/models" 2>/dev/null || true)"
+    code="$(printf '%s' "$probe" | tail -n1)"
+    # Accept a real models payload, and also a busy server: falling through to
+    # another host would hide the fail-closed busy error from preflight.
+    if { [ "$code" = "200" ] && printf '%s' "$probe" | grep -q '"id"'; } \
+      || [ "$code" = "429" ] || [ "$code" = "503" ]; then
       printf '%s' "$c"
       return 0
     fi
@@ -316,6 +322,7 @@ EOF
 # Multi-line contracts must stay a single argv; never emit newline-separated argv.
 ql_build_cmd() {
   local model="$1" approval_mode="$2" turns="$3" wall="$4" contract_text="$5"
+  local extra_dir="${6:-}"
   printf '%s\0' qwen
   printf '%s\0' -m "$model"
   printf '%s\0' -o json
@@ -324,6 +331,7 @@ ql_build_cmd() {
   printf '%s\0' --max-session-turns "$turns"
   printf '%s\0' --max-wall-time "$wall"
   printf '%s\0' --append-system-prompt "$contract_text"
+  [ -n "$extra_dir" ] && printf '%s\0' --include-directories "$extra_dir"
   if [ "$approval_mode" = "plan" ]; then
     printf '%s\0' --approval-mode plan
   else
@@ -347,7 +355,7 @@ ql_main() {
   local dir="$PWD" model="$QL_DEFAULT_MODEL" effort="$QL_DEFAULT_EFFORT"
   local timeout_secs="$QL_DEFAULT_TIMEOUT" prompt_file="" out="" print_cmd=0
   local turns="$QL_DEFAULT_TURNS" wall="$QL_DEFAULT_WALL"
-  local approval_mode="yolo" prompt="" diff_base="" diff_file=""
+  local approval_mode="yolo" prompt="" diff_base="" diff_file="" diff_dir=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -397,7 +405,7 @@ ql_main() {
   contract_text="$(cat "$contract_file")"
 
   if [ "$print_cmd" -eq 1 ]; then
-    ql_print_cmd "$model" "$approval_mode" "$turns" "$wall" "$contract_text"
+    ql_print_cmd "$model" "$approval_mode" "$turns" "$wall" "$contract_text" "$diff_dir"
     return 0
   fi
 
@@ -423,10 +431,18 @@ ql_main() {
     return 2
   fi
 
+  [ -d "$dir" ] || {
+    printf 'subagent-local-qwen3.8-27b-run: directory does not exist: %s\n' "$dir" >&2
+    return 2
+  }
+
   if [ -n "$diff_base" ]; then
-    # Unique name: never truncate a file the repo (or a parallel run) already has.
-    diff_file="$(mktemp "$dir/.qwen-review-diff.XXXXXX.patch")"
-    QL_CLEANUP_PATHS+=("$diff_file")
+    # The patch lives OUTSIDE the target repo and reaches the worker through
+    # --include-directories, so no artifact can be staged, committed, or left
+    # behind in the repo if this process is killed.
+    diff_dir="$(mktemp -d -t qwen38-review.XXXXXX)"
+    QL_CLEANUP_PATHS+=("$diff_dir")
+    diff_file="$diff_dir/review.patch"
     local git_err
     git_err="$(mktemp -t qwen38-git-err.XXXXXX)"
     QL_CLEANUP_PATHS+=("$git_err")
@@ -439,7 +455,7 @@ ql_main() {
       printf 'subagent-local-qwen3.8-27b-run: empty diff against %s — nothing to review\n' "$diff_base" >&2
       return 2
     fi
-    prompt="The diff under review is in $(basename "$diff_file") (repo root). Read that file first, then open the files it touches.
+    prompt="The diff under review is in $diff_file. Read that file first, then open the files it touches in the repo.
 
 $prompt"
   fi
@@ -480,13 +496,8 @@ $prompt"
 
   local -a cmd=()
   while IFS= read -r -d '' arg; do cmd+=("$arg"); done < <(
-    ql_build_cmd "$model" "$approval_mode" "$turns" "$wall" "$contract_text"
+    ql_build_cmd "$model" "$approval_mode" "$turns" "$wall" "$contract_text" "$diff_dir"
   )
-
-  [ -d "$dir" ] || {
-    printf 'subagent-local-qwen3.8-27b-run: directory does not exist: %s\n' "$dir" >&2
-    return 2
-  }
 
   set +e
   (

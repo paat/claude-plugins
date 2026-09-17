@@ -264,9 +264,10 @@ git -C "$diffrepo" -c user.name=t -c user.email=t@t commit -qam change
 stdin_file2="$(mktemp)"
 QL_STUB_STDIN="$stdin_file2" run -C "$diffrepo" --approval-mode plan --diff HEAD~1 \
   "review it" >/dev/null 2>&1
-contains "diff prompt names the patch file" ".qwen-review-diff." "$(cat "$stdin_file2")"
-check "diff patch cleaned up" 0 \
-  "$(find "$diffrepo" -maxdepth 1 -name '.qwen-review-diff.*' | wc -l)"
+contains "diff prompt names the patch file" "/review.patch" "$(cat "$stdin_file2")"
+check "patch is not written into the repo" 0 \
+  "$(find "$diffrepo" -maxdepth 1 -name '*.patch' | wc -l)"
+check "review repo left clean" "" "$(git -C "$diffrepo" status --porcelain)"
 QL_STUB_STDIN="$stdin_file2" run -C "$diffrepo" --approval-mode plan --diff HEAD \
   "review it" >/dev/null 2>&1
 check "empty diff refused" 2 "$?"
@@ -274,8 +275,7 @@ check "empty diff refused" 2 "$?"
 # no qwen on PATH -> CLI preflight fails *after* the patch is written
 PATH="/usr/bin:/bin" HOME="$host_qwen_dir" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
   "$SCRIPT" -C "$diffrepo" --approval-mode plan --diff HEAD~1 "x" >/dev/null 2>&1
-check "patch removed when preflight fails" 0 \
-  "$(find "$diffrepo" -maxdepth 1 -name '.qwen-review-diff.*' | wc -l)"
+check "repo still clean when preflight fails" "" "$(git -C "$diffrepo" status --porcelain)"
 run -C "$diffrepo" --yolo --diff HEAD~1 "x" >/dev/null 2>&1
 check "diff refused outside plan mode" 2 "$?"
 
@@ -306,6 +306,7 @@ exit 0
 STUB
 base_file="$(mktemp)"
 QL_STUB_BASE="$base_file" PATH="$stubdir:$PATH" HOME="$host_qwen_dir" \
+  env -u OPENAI_BASE_URL \
   "$SCRIPT" -C /tmp --approval-mode plan "review" >/dev/null 2>&1
 contains "falls back to the container host" "host.docker.internal" "$(cat "$base_file")"
 rm -rf "$diffrepo"

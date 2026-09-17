@@ -20,8 +20,8 @@ Get an independent **read-only review** from local **Qwen3.8-27B** via the Qwen 
    uncommitted edits cannot ride along: `--diff 'HEAD~1..HEAD'` for a commit,
    `--diff 'origin/main...HEAD'` for a branch (three-dot: merge-base, so commits that
    landed on main meanwhile are not counted), `--diff HEAD` for the uncommitted
-   working tree. `--diff` requires `--approval-mode plan`. The wrapper writes that diff into the repo and points the
-   worker at it: **approval-mode plan has no shell**, so the worker cannot run git
+   working tree. `--diff` requires `--approval-mode plan`. The wrapper writes that diff outside the repo, shares it via
+   `--include-directories`, and points the worker at it: **approval-mode plan has no shell**, so the worker cannot run git
    itself and will otherwise review only the files as they now stand and miss
    regressions.
 
