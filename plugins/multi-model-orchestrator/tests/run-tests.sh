@@ -1704,7 +1704,7 @@ if command -v flock >/dev/null 2>&1; then
   lock_url="http://127.0.0.1:9/v1"
   # same normalization as the runner: strip a trailing slash and a /v1 suffix
   lock_norm="${lock_url%/}"; lock_norm="${lock_norm%/v1}"
-  lock_key="$(printf '%s' "$lock_norm" | cksum | tr -d ' \t')"
+  lock_key="$(printf '%s' "$lock_norm" | cksum | awk '{print $1 "-" $2}')"
   lock_path="${TMPDIR:-/tmp}/mmo-qwen-local-$(id -u)/${lock_key}.lock"
   mkdir -p "$(dirname "$lock_path")"
   exec 8>"$lock_path"
@@ -1929,6 +1929,8 @@ contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
   'run-qwen-local.sh --mode review' 'review-leg rule keeps the local reviewer read-only'
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
   'cannot run anything' 'review-leg rule says the local lens cannot execute probes'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
+  'Runner mode per reviewer' 'reviewer runner modes live in one table'
 pass 'run-qwen-local: skill and routing contracts are pinned'
 
 printf 'All multi-model-orchestrator tests passed.\n'

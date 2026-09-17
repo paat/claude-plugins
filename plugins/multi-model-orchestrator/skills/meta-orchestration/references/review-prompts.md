@@ -62,6 +62,14 @@ If VERDICT is APPROVE and nothing further is coming, end with the literal line:
 READY TO MERGE — nothing further coming.
 ```
 
+## Runner mode per reviewer
+
+| Reviewer | Mode | Why |
+|---|---|---|
+| Codex | `--mode review` | runner enforces APPROVE/NEEDS_WORK |
+| Local Qwen | `--mode review` | read-only; `--mode implement` would pass `--yolo` to a reviewer |
+| Claude / Grok probe legs | `--mode implement` + modify-nothing contract | they must run probes to verify by execution |
+
 ## Local Qwen review leg
 
 `run-qwen-local.sh --mode review --base <range>` only. It is read-only in that mode; `--mode

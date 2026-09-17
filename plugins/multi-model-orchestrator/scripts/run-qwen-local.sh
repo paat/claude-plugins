@@ -109,7 +109,10 @@ fi
 # one is a usage problem, not slot unavailability, and must not lock the GPU.
 # Codes match the sibling runners: 2 usage, 3 nothing to review, 4 over the cap.
 if [ "$mode" = review ]; then
-  review_diff="$(git -C "$repo_dir" --no-pager diff "$base_ref" 2>/dev/null)" || {
+  # Same invocation as the sibling review legs: a repo-configured external differ
+  # must not decide what the reviewer sees. (Untracked files are out of scope here;
+  # the README says --diff HEAD covers tracked changes only.)
+  review_diff="$(git -C "$repo_dir" --no-pager diff --no-ext-diff --binary "$base_ref" 2>/dev/null)" || {
     printf 'run-qwen-local: cannot diff %s in %s\n' "$base_ref" "$repo_dir" >&2
     exit 2
   }
@@ -135,7 +138,9 @@ done
 # Normalize first: .../v1 and .../v1/ address the same GPU and must share a lock.
 # Normalize first: http://h:8000, .../v1 and .../v1/ all address the same GPU.
 lock_base="${base_url%/}"; lock_base="${lock_base%/v1}"
-lock_key="$(printf '%s' "$lock_base" | cksum | tr -d ' \t' )"
+# cksum prints "<checksum> <bytes>"; keep a separator so the two fields cannot
+# merge into the same key for different URLs.
+lock_key="$(printf '%s' "$lock_base" | cksum | awk '{print $1 "-" $2}')"
 # Own directory, created without -p: mkdir -p stats through a symlink, so a path
 # planted in a shared /tmp before the first run could redirect the lock open.
 lock_dir="${TMPDIR:-/tmp}/mmo-qwen-local-$(id -u)"
