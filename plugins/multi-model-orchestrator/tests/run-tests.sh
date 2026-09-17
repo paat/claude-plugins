@@ -1337,13 +1337,13 @@ contains "$WORK/523/l.err" 'missing or empty final-message artifact' \
 absent "$WORK/523/l.err" 'malformed stream' '523l: must not report malformed stream'
 pass '#523l: empty stream under --stream-log exits 5, not malformed'
 
-# README/contract: jq is required only for Claude --stream-log (#523).
+# README/contract: jq is required for Claude --stream-log and the local-Qwen route.
 absent "$PLUGIN_ROOT/README.md" 'No `jq` dependency is used' \
   'README must not claim no jq dependency'
 contains "$PLUGIN_ROOT/README.md" \
-  '`jq` is required only for `run-claude.sh --stream-log`' \
-  'README documents jq required only for run-claude.sh --stream-log'
-pass 'README documents jq only for Claude --stream-log'
+  '`jq` is required for `run-claude.sh --stream-log` and for the local-Qwen route' \
+  'README documents where jq is required'
+pass 'README documents jq for Claude --stream-log and local Qwen'
 
 # Req 3: run-codex.sh resolves --dir/--repo to a git toplevel (match claude/grok).
 # Intentional behavior change vs 0.7.6: existing non-git directory exits 2.

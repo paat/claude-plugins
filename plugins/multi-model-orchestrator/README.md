@@ -126,10 +126,10 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
   - OpenAI Codex CLI (`codex`)
   - latest Grok Build (`grok`), using Grok 4.5
 - Optional local engine: the `subagent-local-qwen3.8-27b` plugin, a llama.cpp endpoint, the `qwen`
-  CLI, `curl`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
+  CLI, `curl`, `jq`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
   work goes to Grok.
 
-Only selected providers are required. `jq` is required only for `run-claude.sh --stream-log`, to extract the final message from Claude's stream output; nothing else in the plugin needs it.
+Only selected providers are required. `jq` is required for `run-claude.sh --stream-log` and for the local-Qwen route, both of which extract a final message from a JSON stream.
 
 ## Configuration
 
@@ -144,7 +144,7 @@ catalog.
 | `MMO_GROK_MODEL` | `grok-4.5` | Grok worker/reviewer model |
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
 | `MMO_GROK_MAX_TURNS` | `30` | Grok tool-loop cap, from 1 to 100 |
-| `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok review |
+| `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/local-Qwen review |
 | `MMO_HANDOFF_DIR` | `.claude/handoffs` | Repo-relative handoff directory in the target repository |
 | `MMO_QWEN_LOCAL_RUN` | discovered | Path to the `subagent-local-qwen3.8-27b` wrapper when it is not on `PATH` or in a plugin cache |
 

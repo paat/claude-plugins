@@ -16,6 +16,9 @@
 # route elsewhere; other codes come from the wrapper.
 #
 # Env:
+# Requires flock, curl and jq; without any of them the contract cannot be kept and
+# the runner reports unavailable (75).
+#
 #   MMO_QWEN_LOCAL_RUN  Path to subagent-local-qwen3.8-27b-run.sh (else discovered on
 #                       PATH, then the Claude Code and Codex plugin caches).
 #   OPENAI_BASE_URL     llama.cpp OpenAI base; also keys the lock.
@@ -125,8 +128,7 @@ trap cleanup EXIT
 # Codes match the sibling runners: 2 usage, 3 nothing to review, 4 over the cap.
 if [ "$mode" = review ]; then
   # Same invocation as the sibling review legs: a repo-configured external differ
-  # must not decide what the reviewer sees. (Untracked files are out of scope here;
-  # the README says --diff HEAD covers tracked changes only.)
+  # must not decide what the reviewer sees. Untracked files are folded in below.
   review_patch="$runtime_dir/review.patch"
   git -C "$repo_dir" --no-pager diff --no-ext-diff --binary "$base_ref" > "$review_patch" 2>/dev/null || {
     printf 'run-qwen-local: cannot diff %s in %s\n' "$base_ref" "$repo_dir" >&2
@@ -158,7 +160,9 @@ fi
 # 2. Take the slot first, so our own dispatches never race each other into the
 # window between a check and the lock. Everything that cannot be guaranteed here
 # exits 75: the controller routes elsewhere rather than queueing on one GPU.
-for tool in flock curl; do
+# jq is required too: without it the wrapper cannot extract the final message from
+# qwen's JSON stream, and the verdict gate would reject a perfectly good review.
+for tool in flock curl jq; do
   command -v "$tool" >/dev/null 2>&1 || {
     printf 'run-qwen-local: %s not available; cannot guarantee the single-slot contract, route elsewhere\n' "$tool" >&2
     exit 75

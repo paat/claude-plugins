@@ -464,7 +464,7 @@ ql_main() {
   fi
 
   if [ -n "$diff_base" ] && [ "$approval_mode" != "plan" ]; then
-    printf 'subagent-local-qwen3.8-27b-run: --diff requires --approval-mode plan (implement mode has a shell and can run git itself)\n' >&2
+    printf 'subagent-local-qwen3.8-27b-run: --diff/--diff-file require --approval-mode plan (implement mode has a shell and can run git itself)\n' >&2
     return 2
   fi
 

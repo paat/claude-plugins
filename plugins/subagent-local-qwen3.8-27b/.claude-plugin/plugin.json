@@ -1,6 +1,6 @@
 {
   "name": "subagent-local-qwen3.8-27b",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Drive local llama.cpp Qwen3.8-27B as a coding implementer/reviewer via Qwen Code CLI",
   "author": {
     "name": "Andre Paat"
