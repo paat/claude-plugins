@@ -2102,7 +2102,7 @@ for label in 'Local Qwen' 'qwen3.8-27b-local' 'Qwen-Local' 'gemini' 'codex-local
   bash "$GATE" --leg "$label=$gate_dir/qwen.txt" >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 3 ] || fail "label '$label' alone is advisory (got $rc)"
 done
-for label in codex Claude grok-4.5 gpt-6-astra claude-opus-5; do
+for label in codex Claude grok-4.5 gpt-6-astra claude-opus-5 gpt GPT-5.6; do
   out="$(bash "$GATE" --leg "Local Qwen=$gate_dir/qwen.txt" --leg "$label=$gate_dir/codex.txt")" \
     || fail "label '$label' counts as independent"
   [ "$out" = APPROVE ] || fail "label '$label' beside Local Qwen approves (got $out)"

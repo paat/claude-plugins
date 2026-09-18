@@ -46,7 +46,7 @@ mmo_is_independent_provider() {
   # A local engine is advisory whatever else the label contains.
   case "$label" in *qwen*|*local*) return 1 ;; esac
   case "$label" in
-    claude*|opus*|sonnet*|haiku*|fable*|codex*|gpt-*|astra*|terra*|luna*|grok*) return 0 ;;
+    claude*|opus*|sonnet*|haiku*|fable*|codex*|gpt*|astra*|terra*|luna*|grok*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -69,9 +69,15 @@ for leg in "${legs[@]}"; do
     printf 'review-gate: %s leg has no terminal APPROVE/NEEDS_WORK: %s\n' "$provider" "$file" >&2
     exit 2
   fi
-  if [ "$(mmo_terminal_verdict "$file")" = NEEDS_WORK ]; then
-    needs_work=1
-  fi
+  # Classify explicitly: an empty or unexpected result must not read as APPROVE.
+  case "$(mmo_terminal_verdict "$file")" in
+    APPROVE) ;;
+    NEEDS_WORK) needs_work=1 ;;
+    *)
+      printf 'review-gate: cannot classify the terminal verdict of the %s leg: %s\n' "$provider" "$file" >&2
+      exit 2
+      ;;
+  esac
   if mmo_is_independent_provider "$provider"; then
     independent=1
   fi

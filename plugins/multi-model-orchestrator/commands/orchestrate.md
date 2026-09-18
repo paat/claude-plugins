@@ -110,28 +110,34 @@ concurrently and independently. Create `RUN_DIR=$(mktemp -d)` before dispatch an
 after findings are arbitrated.
 
 ```bash
+legs=()   # one --leg per reviewer actually launched
 "${CLAUDE_PLUGIN_ROOT}/scripts/run-claude.sh" --mode review --repo "$REPO_ROOT" --base "$BASE_SHA" --model claude-opus-5 --effort high <<'PROMPT' > "$RUN_DIR/claude.txt" &
 <task and acceptance criteria; ask for architecture, intent, UX, scope, and integration defects>
 PROMPT
-claude_pid=$!
+claude_pid=$!; legs+=(--leg claude="$RUN_DIR/claude.txt")
 "${CLAUDE_PLUGIN_ROOT}/scripts/run-codex.sh" --mode review --dir "$REPO_ROOT" --model gpt-6-astra --effort "$ROUTED_REVIEW_EFFORT" --timeout 1200 <<'PROMPT' > "$RUN_DIR/astra.txt" &
 Review the complete diff from BASE_SHA=<sha> to the working tree. Do not modify files.
 Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.
 Ignore speculative edge cases without a realistic failure path. End with APPROVE or NEEDS_WORK.
 PROMPT
-astra_pid=$!
+astra_pid=$!; legs+=(--leg codex="$RUN_DIR/astra.txt")
 "${CLAUDE_PLUGIN_ROOT}/scripts/run-grok.sh" --mode review --repo "$REPO_ROOT" --base "$BASE_SHA" --model grok-4.5 --effort high <<'PROMPT' > "$RUN_DIR/grok.txt" &
 <task and acceptance criteria; ask for reachable code defects and a verdict>
 PROMPT
-grok_pid=$!
+grok_pid=$!; legs+=(--leg grok="$RUN_DIR/grok.txt")
 review_failed=0
 wait "$claude_pid" || review_failed=1
 wait "$astra_pid" || review_failed=1
 wait "$grok_pid" || review_failed=1
 [ "$review_failed" -eq 0 ] || { printf '%s\n' 'One or more reviewers failed; do not arbitrate their output.' >&2; exit 1; }
-# Combine the legs you launched; exit 3 means no independent hosted reviewer ran.
-"${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh" --leg claude="$RUN_DIR/claude.txt" \
-  --leg codex="$RUN_DIR/astra.txt" --leg grok="$RUN_DIR/grok.txt"
+gate_rc=0
+verdict="$("${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh" "${legs[@]}")" || gate_rc=$?
+case "$gate_rc" in
+  0) ;;                                   # APPROVE: continue to arbitration notes
+  1) printf 'Review verdict: %s — fix confirmed findings\n' "$verdict" >&2 ;;
+  3) printf '%s\n' 'Only the advisory local engine reviewed; launch an independent reviewer.' >&2; exit 3 ;;
+  *) printf '%s\n' 'A review leg is missing or has no verdict; do not arbitrate.' >&2; exit "$gate_rc" ;;
+esac
 ```
 
 The snippet illustrates all providers; launch only the selected allowed route cards. Verify every
