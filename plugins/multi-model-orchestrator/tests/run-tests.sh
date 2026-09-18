@@ -2066,4 +2066,68 @@ contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
   'Runner mode per reviewer' 'reviewer runner modes live in one table'
 pass 'run-qwen-local: skill and routing contracts are pinned'
 
+# review-gate: the advisory local engine may never be the only reviewer.
+GATE="$PLUGIN_ROOT/scripts/review-gate.sh"
+gate_dir="$WORK/gate"
+mkdir -p "$gate_dir"
+printf 'nothing blocking\n\nAPPROVE\n' > "$gate_dir/qwen.txt"
+printf 'fine\n\nAPPROVE\n' > "$gate_dir/codex.txt"
+printf 'a real problem\n\nNEEDS_WORK\n' > "$gate_dir/grok.txt"
+printf 'prose with no verdict\n' > "$gate_dir/noverdict.txt"
+
+rc=0
+bash "$GATE" --leg qwen-local="$gate_dir/qwen.txt" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || fail "a local-only review set exits 3 (got $rc)"
+rc=0
+bash "$GATE" --leg qwen-local-8b="$gate_dir/qwen.txt" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || fail "any qwen-local-* provider is advisory (got $rc)"
+out="$(bash "$GATE" --leg qwen-local="$gate_dir/qwen.txt" --leg codex="$gate_dir/codex.txt")"
+[ "$out" = "APPROVE" ] || fail "local plus an independent approver returns APPROVE (got $out)"
+rc=0
+out="$(bash "$GATE" --leg qwen-local="$gate_dir/qwen.txt" --leg grok="$gate_dir/grok.txt")" || rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "NEEDS_WORK" ] || fail "any NEEDS_WORK leg wins (got $rc/$out)"
+rc=0
+bash "$GATE" --leg codex="$gate_dir/noverdict.txt" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "a leg without a terminal verdict exits 2 (got $rc)"
+rc=0
+bash "$GATE" --leg codex="$gate_dir/missing.txt" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "an unreadable leg exits 2 (got $rc)"
+rc=0
+bash "$GATE" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "no legs is a usage error (got $rc)"
+# Fail-closed labels: the catalog names for the local engine, other casings, and
+# unknown providers are all advisory; only hosted catalog names count.
+for label in 'Local Qwen' 'qwen3.8-27b-local' 'Qwen-Local' 'gemini' 'codex-local'; do
+  rc=0
+  bash "$GATE" --leg "$label=$gate_dir/qwen.txt" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 3 ] || fail "label '$label' alone is advisory (got $rc)"
+done
+for label in codex Claude grok-4.5 gpt-6-astra claude-opus-5 gpt GPT-5.6; do
+  out="$(bash "$GATE" --leg "Local Qwen=$gate_dir/qwen.txt" --leg "$label=$gate_dir/codex.txt")" \
+    || fail "label '$label' counts as independent"
+  [ "$out" = APPROVE ] || fail "label '$label' beside Local Qwen approves (got $out)"
+done
+# The verdict is the LAST verdict line: quoted options earlier must not decide it.
+printf 'the options are:\n* NEEDS_WORK\n* APPROVE\n\nall fine\n\nAPPROVE\n' > "$gate_dir/quoted.txt"
+out="$(bash "$GATE" --leg codex="$gate_dir/quoted.txt")" || fail 'quoted options with terminal APPROVE approves'
+[ "$out" = APPROVE ] || fail "terminal verdict decides the leg (got $out)"
+pass 'review-gate: the local engine can never be the only reviewer'
+
+contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
+  'review-gate.sh' 'review-prompts points at the enforced gate'
+# The meta loop is the surface that uses those prompts: it must call the gate,
+# not hand-grep a verdict it could satisfy with an advisory leg alone.
+contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
+  'review-gate.sh' 'meta per-item loop combines legs through the gate'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
+  'never hand-grep' 'meta loop forbids hand-grepping the verdict'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
+  '${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh' 'meta loop calls the gate by plugin-root path'
+contains "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" \
+  'review-gate.sh' 'orchestration skill keeps the gate instruction'
+contains "$PLUGIN_ROOT/commands/orchestrate.md" \
+  'scripts/review-gate.sh' 'orchestrate fallback block calls the gate'
+contains "$PLUGIN_ROOT/commands/orchestrate.md" \
+  'Only a gate exit of 0 ends' 'NEEDS_WORK loops back through the gate instead of proceeding'
+
 printf 'All multi-model-orchestrator tests passed.\n'

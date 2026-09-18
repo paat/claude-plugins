@@ -11,6 +11,18 @@ mmo_has_review_verdict() {
   grep -Eiq '^[[:space:]]*#*[[:space:]]*\**(VERDICT\**[[:space:]]*:[[:space:]]*\**[[:space:]]*)?(APPROVE[D]?|NEEDS[ _]WORK)\**[[:space:]]*$' "$1"
 }
 
+# Print APPROVE or NEEDS_WORK from the LAST verdict-shaped line: the reviewer's
+# final word is the verdict, so a bullet quoting the two options earlier in the
+# prose cannot decide it. Same line shape as mmo_has_review_verdict.
+mmo_terminal_verdict() {
+  local last
+  last="$(grep -Ei '^[[:space:]]*#*[[:space:]]*\**(VERDICT\**[[:space:]]*:[[:space:]]*\**[[:space:]]*)?(APPROVE[D]?|NEEDS[ _]WORK)\**[[:space:]]*$' "$1" | tail -n 1)"
+  case "$(printf '%s' "$last" | tr '[:lower:]' '[:upper:]')" in
+    *NEEDS*) printf 'NEEDS_WORK\n' ;;
+    *APPROVE*) printf 'APPROVE\n' ;;
+  esac
+}
+
 # Classify provider failure text from a single error-text file the runner built
 # (Codex last ERROR: line, Claude api_error_status / API Error line, Grok stderr).
 # Prints "transient", "auth", or nothing. Callers must not pass model stdout bodies.
