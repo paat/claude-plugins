@@ -129,6 +129,9 @@ wait "$claude_pid" || review_failed=1
 wait "$astra_pid" || review_failed=1
 wait "$grok_pid" || review_failed=1
 [ "$review_failed" -eq 0 ] || { printf '%s\n' 'One or more reviewers failed; do not arbitrate their output.' >&2; exit 1; }
+# Combine the legs you launched; exit 3 means no independent hosted reviewer ran.
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh" --leg claude="$RUN_DIR/claude.txt" \
+  --leg codex="$RUN_DIR/astra.txt" --leg grok="$RUN_DIR/grok.txt"
 ```
 
 The snippet illustrates all providers; launch only the selected allowed route cards. Verify every

@@ -120,10 +120,12 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
 ## Review gate
 
 `scripts/review-gate.sh --leg <provider>=<final-message-file> [--leg ...]` combines reviewer legs
-into one verdict: `0` APPROVE, `1` NEEDS_WORK, `2` a missing file or a leg without a terminal
-verdict, and `3` when every leg is the advisory local engine. The local reviewer reads the diff and
-has no shell, so it cannot be the only reviewer — the gate enforces that rather than trusting a
-prompt to say so.
+into one verdict taken from each leg's last verdict line: `0` APPROVE, `1` NEEDS_WORK, `2` a missing
+file or a leg without a terminal verdict, and `3` when no leg is from an independent hosted provider.
+Classification is fail-closed: only labels naming a hosted catalog provider or model (Claude, Codex,
+GPT, Grok and their model names) count as independent; `Local Qwen`, `qwen3.8-27b-local`, or an
+unrecognized label are advisory. The local reviewer reads the diff and has no shell, so it can never
+be the only reviewer — the gate enforces that rather than trusting a prompt to say so.
 
 ## Prerequisites
 

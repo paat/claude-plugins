@@ -2095,6 +2095,22 @@ bash "$GATE" --leg codex="$gate_dir/missing.txt" >/dev/null 2>&1 || rc=$?
 rc=0
 bash "$GATE" >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || fail "no legs is a usage error (got $rc)"
+# Fail-closed labels: the catalog names for the local engine, other casings, and
+# unknown providers are all advisory; only hosted catalog names count.
+for label in 'Local Qwen' 'qwen3.8-27b-local' 'Qwen-Local' 'gemini' 'codex-local'; do
+  rc=0
+  bash "$GATE" --leg "$label=$gate_dir/qwen.txt" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 3 ] || fail "label '$label' alone is advisory (got $rc)"
+done
+for label in codex Claude grok-4.5 gpt-6-astra claude-opus-5; do
+  out="$(bash "$GATE" --leg "Local Qwen=$gate_dir/qwen.txt" --leg "$label=$gate_dir/codex.txt")" \
+    || fail "label '$label' counts as independent"
+  [ "$out" = APPROVE ] || fail "label '$label' beside Local Qwen approves (got $out)"
+done
+# The verdict is the LAST verdict line: quoted options earlier must not decide it.
+printf 'the options are:\n* NEEDS_WORK\n* APPROVE\n\nall fine\n\nAPPROVE\n' > "$gate_dir/quoted.txt"
+out="$(bash "$GATE" --leg codex="$gate_dir/quoted.txt")" || fail 'quoted options with terminal APPROVE approves'
+[ "$out" = APPROVE ] || fail "terminal verdict decides the leg (got $out)"
 pass 'review-gate: the local engine can never be the only reviewer'
 
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
@@ -2109,5 +2125,7 @@ contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
   '${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh' 'meta loop calls the gate by plugin-root path'
 contains "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" \
   'review-gate.sh' 'orchestration skill keeps the gate instruction'
+contains "$PLUGIN_ROOT/commands/orchestrate.md" \
+  'scripts/review-gate.sh' 'orchestrate fallback block calls the gate'
 
 printf 'All multi-model-orchestrator tests passed.\n'

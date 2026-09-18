@@ -9,14 +9,16 @@
 # Usage:
 #   review-gate.sh --leg <provider>=<final-message-file> [--leg ...]
 #
-# Providers whose name is `qwen-local` (or starts with `qwen-local-`) are
-# advisory. Any other provider counts as an independent reviewer.
+# Fail-closed: only a label naming a hosted catalog provider or model counts as an
+# independent reviewer (claude/opus/sonnet/haiku/fable, codex/gpt/astra/terra/luna,
+# grok). Anything else — `Local Qwen`, `qwen3.8-27b-local`, a typo — is advisory,
+# so a label the gate does not recognize can never satisfy independence.
 #
 # Exit codes:
 #   0  APPROVE     — every leg approved and at least one independent leg did
 #   1  NEEDS_WORK  — at least one leg asked for work
 #   2  usage, unreadable leg, or a leg without a terminal verdict
-#   3  advisory-only review set: no independent reviewer present
+#   3  no leg from an independent hosted provider (advisory-only set)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,9 +40,13 @@ done
 
 [ "${#legs[@]}" -gt 0 ] || { printf 'review-gate: no --leg given\n' >&2; usage >&2; exit 2; }
 
-mmo_is_advisory_provider() {
-  case "$1" in
-    qwen-local|qwen-local-*) return 0 ;;
+mmo_is_independent_provider() {
+  local label
+  label="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  # A local engine is advisory whatever else the label contains.
+  case "$label" in *qwen*|*local*) return 1 ;; esac
+  case "$label" in
+    claude*|opus*|sonnet*|haiku*|fable*|codex*|gpt-*|astra*|terra*|luna*|grok*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -63,14 +69,16 @@ for leg in "${legs[@]}"; do
     printf 'review-gate: %s leg has no terminal APPROVE/NEEDS_WORK: %s\n' "$provider" "$file" >&2
     exit 2
   fi
-  if mmo_verdict_is_needs_work "$file"; then
+  if [ "$(mmo_terminal_verdict "$file")" = NEEDS_WORK ]; then
     needs_work=1
   fi
-  mmo_is_advisory_provider "$provider" || independent=1
+  if mmo_is_independent_provider "$provider"; then
+    independent=1
+  fi
 done
 
 if [ "$independent" -eq 0 ]; then
-  printf 'review-gate: advisory-only review set — the local engine reads the diff and cannot run probes, so it may not be the only reviewer; add an independent provider\n' >&2
+  printf 'review-gate: advisory-only review set — no leg is from an independent hosted provider (claude, codex, grok); the local engine reads the diff and cannot run probes, so it may not be the only reviewer\n' >&2
   exit 3
 fi
 
