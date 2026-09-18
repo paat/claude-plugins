@@ -134,11 +134,15 @@ gate_rc=0
 verdict="$("${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh" "${legs[@]}")" || gate_rc=$?
 case "$gate_rc" in
   0) ;;                                   # APPROVE: continue to arbitration notes
-  1) printf 'Review verdict: %s — fix confirmed findings\n' "$verdict" >&2 ;;
+  1) review_needs_work=1 ;;               # arbitrate to find WHAT to fix; never proceed on this verdict
   3) printf '%s\n' 'Only the advisory local engine reviewed; launch an independent reviewer.' >&2; exit 3 ;;
   *) printf '%s\n' 'A review leg is missing or has no verdict; do not arbitrate.' >&2; exit "$gate_rc" ;;
 esac
 ```
+
+On `review_needs_work=1` the run is not done: arbitrate the findings, fix only the confirmed ones,
+rerun the affected tests, and run the reviewers and this gate again. Only a gate exit of 0 ends
+review.
 
 The snippet illustrates all providers; launch only the selected allowed route cards. Verify every
 finding against the repository. Fix only confirmed task-blocking defects, rerun affected tests,

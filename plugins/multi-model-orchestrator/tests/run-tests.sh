@@ -2127,5 +2127,7 @@ contains "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" \
   'review-gate.sh' 'orchestration skill keeps the gate instruction'
 contains "$PLUGIN_ROOT/commands/orchestrate.md" \
   'scripts/review-gate.sh' 'orchestrate fallback block calls the gate'
+contains "$PLUGIN_ROOT/commands/orchestrate.md" \
+  'Only a gate exit of 0 ends' 'NEEDS_WORK loops back through the gate instead of proceeding'
 
 printf 'All multi-model-orchestrator tests passed.\n'
