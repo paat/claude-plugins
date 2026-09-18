@@ -2104,6 +2104,10 @@ contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
 contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
   'review-gate.sh' 'meta per-item loop combines legs through the gate'
 contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
-  'never hand-grep the verdict' 'meta loop forbids hand-grepping the verdict'
+  'never hand-grep' 'meta loop forbids hand-grepping the verdict'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
+  '${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh' 'meta loop calls the gate by plugin-root path'
+contains "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" \
+  'review-gate.sh' 'orchestration skill keeps the gate instruction'
 
 printf 'All multi-model-orchestrator tests passed.\n'

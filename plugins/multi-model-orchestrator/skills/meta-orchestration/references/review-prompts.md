@@ -5,8 +5,9 @@ verdict tokens are `APPROVE` / `NEEDS_WORK` — always emit these; the runners' 
 tolerates close variants (`APPROVED`, `NEEDS WORK`) but orchestration decisions key on the
 canonical form. Reviewers that must
 EXECUTE probes: Codex legs use `--mode review`; Claude and Grok review modes are read-only-tooled,
-so execute-probe legs on those providers use `--mode implement` with the prompt contract below,
-and the orchestrator greps the verdict from the output itself.
+so execute-probe legs on those providers use `--mode implement` with the prompt contract below.
+Those legs carry no runner verdict check of their own, so they go through
+`${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh` with every other leg — never a hand-grep.
 
 ## Adversarial review
 
