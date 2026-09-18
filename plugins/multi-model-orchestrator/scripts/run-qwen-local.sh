@@ -84,12 +84,14 @@ esac
 # is unset, so ask once and carry the answer.
 mmo_find_wrapper() {
   local candidate base help
-  # Unmatched cache globs must disappear, not survive as literal candidates.
+  # Unmatched cache globs must disappear, not survive as literal candidates. The
+  # host may normalize dots in the cached plugin directory name
+  # (subagent-local-qwen3.8-27b -> subagent-local-qwen3-8-27b), hence qwen3?8-27b.
   shopt -s nullglob
   for candidate in "${MMO_QWEN_LOCAL_RUN:-}" \
     "$(command -v subagent-local-qwen3.8-27b-run.sh 2>/dev/null || true)" \
-    "${HOME}"/.claude/plugins/cache/*/subagent-local-qwen3.8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh \
-    "${HOME}"/.agents/plugins/cache/*/subagent-local-qwen3.8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh; do
+    "${HOME}"/.claude/plugins/cache/*/subagent-local-qwen3?8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh \
+    "${HOME}"/.agents/plugins/cache/*/subagent-local-qwen3?8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh; do
     [ -n "$candidate" ] && [ -x "$candidate" ] || continue
     help="$("$candidate" --help 2>/dev/null || true)"
     case "$help" in *--diff-file*) ;; *) continue ;; esac

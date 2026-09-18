@@ -2013,6 +2013,21 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
 [ ! -e "$WORK/injected.patch" ] || fail 'option-shaped --base must not reach git diff'
 pass 'run-qwen-local: an option-shaped --base is refused'
 
+# The host normalizes dots in the cached plugin dir name: discovery must find
+# subagent-local-qwen3-8-27b as well as subagent-local-qwen3.8-27b.
+for cache_name in 'subagent-local-qwen3.8-27b' 'subagent-local-qwen3-8-27b'; do
+  cache_home="$WORK/fakehome-$cache_name"
+  cache_dir="$cache_home/.claude/plugins/cache/mk/$cache_name/0.4.5/scripts"
+  mkdir -p "$cache_dir"
+  cp "$WORK/bin/qwen-wrapper-stdin.sh" "$cache_dir/subagent-local-qwen3.8-27b-run.sh"
+  rc=0
+  PATH="$WORK/bin:/usr/bin:/bin" HOME="$cache_home" \
+    OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+    bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 0 ] || fail "discovery finds a wrapper cached as $cache_name (got $rc)"
+done
+pass 'run-qwen-local: discovery finds both cached plugin directory spellings'
+
 # Doc contracts: deleting these silently disables the local route, so pin them.
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \
   'run-qwen-local.sh' 'leg-liveness keeps the local-Qwen exit-75 exception'
