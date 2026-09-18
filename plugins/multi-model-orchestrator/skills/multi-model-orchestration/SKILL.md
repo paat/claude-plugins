@@ -86,6 +86,10 @@ same-provider reviewer; preserve the restriction.
 - Ultra requires a bounded prompt: one pass, at most 10 findings, realistic reachable failures,
   a severity threshold, and a hard stop after the verdict. Never create recursive review/fix loops.
 
+Combine reviewer legs with `scripts/review-gate.sh --leg <provider>=<final-message-file>`: it
+returns the combined verdict and exits 3 when the set contains only the advisory local engine,
+which cannot verify by execution.
+
 The controller verifies file/line claims and reachable failures. Fix confirmed blocking findings
 only, rerun deterministic checks, then allow one affected-scope recheck. If reviewers disagree,
 prefer code and test evidence; report unresolved disagreement instead of forcing consensus.

@@ -2066,4 +2066,38 @@ contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
   'Runner mode per reviewer' 'reviewer runner modes live in one table'
 pass 'run-qwen-local: skill and routing contracts are pinned'
 
+# review-gate: the advisory local engine may never be the only reviewer.
+GATE="$PLUGIN_ROOT/scripts/review-gate.sh"
+gate_dir="$WORK/gate"
+mkdir -p "$gate_dir"
+printf 'nothing blocking\n\nAPPROVE\n' > "$gate_dir/qwen.txt"
+printf 'fine\n\nAPPROVE\n' > "$gate_dir/codex.txt"
+printf 'a real problem\n\nNEEDS_WORK\n' > "$gate_dir/grok.txt"
+printf 'prose with no verdict\n' > "$gate_dir/noverdict.txt"
+
+rc=0
+bash "$GATE" --leg qwen-local="$gate_dir/qwen.txt" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || fail "a local-only review set exits 3 (got $rc)"
+rc=0
+bash "$GATE" --leg qwen-local-8b="$gate_dir/qwen.txt" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || fail "any qwen-local-* provider is advisory (got $rc)"
+out="$(bash "$GATE" --leg qwen-local="$gate_dir/qwen.txt" --leg codex="$gate_dir/codex.txt")"
+[ "$out" = "APPROVE" ] || fail "local plus an independent approver returns APPROVE (got $out)"
+rc=0
+out="$(bash "$GATE" --leg qwen-local="$gate_dir/qwen.txt" --leg grok="$gate_dir/grok.txt")" || rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "NEEDS_WORK" ] || fail "any NEEDS_WORK leg wins (got $rc/$out)"
+rc=0
+bash "$GATE" --leg codex="$gate_dir/noverdict.txt" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "a leg without a terminal verdict exits 2 (got $rc)"
+rc=0
+bash "$GATE" --leg codex="$gate_dir/missing.txt" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "an unreadable leg exits 2 (got $rc)"
+rc=0
+bash "$GATE" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "no legs is a usage error (got $rc)"
+pass 'review-gate: the local engine can never be the only reviewer'
+
+contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
+  'review-gate.sh' 'review-prompts points at the enforced gate'
+
 printf 'All multi-model-orchestrator tests passed.\n'

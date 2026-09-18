@@ -78,5 +78,7 @@ has no shell and cannot run git itself, and it exits `75` when the one local slo
 substitute the card's allowed fallback at once rather than waiting.
 
 It reads the diff; it cannot run anything. Never hand it a template that requires verification by
-execution, and never make it the only adversarial reviewer for work whose gate is a runnable probe.
-Use it as an extra decorrelated lens beside a reviewer that can execute.
+execution. It may never be the only reviewer, and that is enforced, not advisory: pass every leg
+through `scripts/review-gate.sh --leg <provider>=<final-message-file>`, which exits 3 on a set
+containing no independent provider. Use the local leg as an extra decorrelated lens beside a
+reviewer that can execute.
