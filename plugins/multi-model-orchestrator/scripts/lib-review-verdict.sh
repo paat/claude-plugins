@@ -11,6 +11,12 @@ mmo_has_review_verdict() {
   grep -Eiq '^[[:space:]]*#*[[:space:]]*\**(VERDICT\**[[:space:]]*:[[:space:]]*\**[[:space:]]*)?(APPROVE[D]?|NEEDS[ _]WORK)\**[[:space:]]*$' "$1"
 }
 
+# True when the file's terminal verdict asks for work. Same shape as
+# mmo_has_review_verdict so the two cannot drift apart.
+mmo_verdict_is_needs_work() {
+  grep -Eiq '^[[:space:]]*#*[[:space:]]*\**(VERDICT\**[[:space:]]*:[[:space:]]*\**[[:space:]]*)?NEEDS[ _]WORK\**[[:space:]]*$' "$1"
+}
+
 # Classify provider failure text from a single error-text file the runner built
 # (Codex last ERROR: line, Claude api_error_status / API Error line, Grok stderr).
 # Prints "transient", "auth", or nothing. Callers must not pass model stdout bodies.

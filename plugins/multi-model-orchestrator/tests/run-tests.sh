@@ -2099,5 +2099,11 @@ pass 'review-gate: the local engine can never be the only reviewer'
 
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
   'review-gate.sh' 'review-prompts points at the enforced gate'
+# The meta loop is the surface that uses those prompts: it must call the gate,
+# not hand-grep a verdict it could satisfy with an advisory leg alone.
+contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
+  'review-gate.sh' 'meta per-item loop combines legs through the gate'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
+  'never hand-grep the verdict' 'meta loop forbids hand-grepping the verdict'
 
 printf 'All multi-model-orchestrator tests passed.\n'

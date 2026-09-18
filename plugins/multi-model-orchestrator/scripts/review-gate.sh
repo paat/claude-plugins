@@ -63,7 +63,7 @@ for leg in "${legs[@]}"; do
     printf 'review-gate: %s leg has no terminal APPROVE/NEEDS_WORK: %s\n' "$provider" "$file" >&2
     exit 2
   fi
-  if grep -Eiq '^[[:space:]]*#*[[:space:]]*\**(VERDICT\**[[:space:]]*:[[:space:]]*\**[[:space:]]*)?NEEDS[ _]WORK\**[[:space:]]*$' "$file"; then
+  if mmo_verdict_is_needs_work "$file"; then
     needs_work=1
   fi
   mmo_is_advisory_provider "$provider" || independent=1
