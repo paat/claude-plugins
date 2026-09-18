@@ -2019,12 +2019,34 @@ for cache_name in 'subagent-local-qwen3.8-27b' 'subagent-local-qwen3-8-27b'; do
   cache_home="$WORK/fakehome-$cache_name"
   cache_dir="$cache_home/.claude/plugins/cache/mk/$cache_name/0.4.5/scripts"
   mkdir -p "$cache_dir"
-  cp "$WORK/bin/qwen-wrapper-stdin.sh" "$cache_dir/subagent-local-qwen3.8-27b-run.sh"
+  # Each cached stub records that IT ran, so the assertion cannot pass because some
+  # other wrapper on PATH answered.
+  marker="$WORK/discovered-$cache_name.txt"
+  cat > "$cache_dir/subagent-local-qwen3.8-27b-run.sh" <<WRAP
+#!/usr/bin/env bash
+if [ "\${1:-}" = "--help" ]; then
+  printf '%s\\n' '--print-base --diff-file --approval-mode --yolo'
+  exit 0
+fi
+if [ "\${1:-}" = "--print-base" ]; then
+  printf '%s\\n' 'http://127.0.0.1:9/v1'
+  exit 0
+fi
+printf '%s\\n' "$cache_name" > "$marker"
+cat >/dev/null
+printf '%s\\n' 'APPROVE'
+exit 0
+WRAP
+  chmod +x "$cache_dir/subagent-local-qwen3.8-27b-run.sh"
   rc=0
-  PATH="$WORK/bin:/usr/bin:/bin" HOME="$cache_home" \
+  # $WORK/bin supplies the stub curl (and keeps jq on PATH); the marker below is
+  # what proves the cached wrapper ran, not merely that something answered.
+  PATH="$WORK/bin:$PATH" HOME="$cache_home" \
     OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
     bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 0 ] || fail "discovery finds a wrapper cached as $cache_name (got $rc)"
+  [ -f "$marker" ] || fail "the wrapper cached as $cache_name is the one that ran"
+  exact_line "$marker" "$cache_name" "marker names the cache directory that was used"
 done
 pass 'run-qwen-local: discovery finds both cached plugin directory spellings'
 
