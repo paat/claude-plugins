@@ -2043,6 +2043,7 @@ WRAP
   # what proves the cached wrapper ran, not merely that something answered.
   PATH="$WORK/bin:$PATH" HOME="$cache_home" \
     OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+    env -u MMO_QWEN_LOCAL_RUN \
     bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 0 ] || fail "discovery finds a wrapper cached as $cache_name (got $rc)"
   [ -f "$marker" ] || fail "the wrapper cached as $cache_name is the one that ran"

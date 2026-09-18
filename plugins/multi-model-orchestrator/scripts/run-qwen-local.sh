@@ -85,14 +85,16 @@ esac
 mmo_find_wrapper() {
   local candidate base help
   # Unmatched cache globs must disappear, not survive as literal candidates. The
-  # host may rewrite dots in the cached plugin directory name
-  # (subagent-local-qwen3.8-27b -> subagent-local-qwen3-8-27b), so the separator
-  # is a wildcard while both ends stay anchored.
+  # host may rewrite dots in the cached plugin directory name, so both known
+  # spellings are listed exactly rather than guessed at with a wildcard: a third
+  # spelling should fail visibly, not match something unrelated.
   shopt -s nullglob
   for candidate in "${MMO_QWEN_LOCAL_RUN:-}" \
     "$(command -v subagent-local-qwen3.8-27b-run.sh 2>/dev/null || true)" \
-    "${HOME}"/.claude/plugins/cache/*/subagent-local-qwen3*8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh \
-    "${HOME}"/.agents/plugins/cache/*/subagent-local-qwen3*8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh; do
+    "${HOME}"/.claude/plugins/cache/*/subagent-local-qwen3.8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh \
+    "${HOME}"/.claude/plugins/cache/*/subagent-local-qwen3-8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh \
+    "${HOME}"/.agents/plugins/cache/*/subagent-local-qwen3.8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh \
+    "${HOME}"/.agents/plugins/cache/*/subagent-local-qwen3-8-27b/*/scripts/subagent-local-qwen3.8-27b-run.sh; do
     [ -n "$candidate" ] && [ -x "$candidate" ] || continue
     help="$("$candidate" --help 2>/dev/null || true)"
     case "$help" in *--diff-file*) ;; *) continue ;; esac
