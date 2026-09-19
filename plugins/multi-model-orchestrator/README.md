@@ -27,13 +27,13 @@ Older generations are intentionally excluded.
 |---|---|---|
 | Claude Code | `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
 | Codex | `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-6-astra` | Mechanical work through hard technical implementation and review |
-| Grok Build | `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
+| Grok Build | `grok-4.6` (default), `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
 | Local Qwen | `qwen3.8-27b-local` | Free mechanical edits and a cheap second review lens; one GPU slot, falls back to Grok when busy (needs the `subagent-local-qwen3.8-27b` plugin) |
 
 Haiku 4.5 is the latest Haiku and does not use Claude's current effort parameter. Claude Fable 5,
 Opus 5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
-Astra-only `ultra` available for bounded internal fan-out; Grok 4.5 supports `low`, `medium`, and
-`high`.
+Astra-only `ultra` available for bounded internal fan-out; Grok 4.6 supports `low`, `medium`,
+`high`, and `xhigh`; Grok 4.5 supports `low`, `medium`, and `high`.
 
 ## Routing policy
 
@@ -44,7 +44,7 @@ scope/coupling, risk, deterministic validation, modality, latency, and expected 
 |---|---|
 | File map, exact rename, focused check | Local Qwen when its endpoint answers, else Haiku 4.5 or GPT-5.6 Luna |
 | Ordinary well-specified coding | Sonnet 5 or GPT-5.6 Terra at medium |
-| Fast bounded implementation or reproduction | Grok 4.5 at medium |
+| Fast bounded implementation or reproduction | Grok 4.6 at medium |
 | Hard backend/data work, debugging, security, technical review | GPT-6 Astra at high or xhigh |
 | Large refactor, architecture, UX/visual work, long tool loop | Opus 5 at high |
 | Unusually hard or days-long work | Fable 5 at high or xhigh |
@@ -84,7 +84,7 @@ sources:
     list: "curl -s -H \"X-API-Key: $PLANE_API_KEY\" $PLANE_URL/.../issues/ | jq -r '...'"
     close: "curl -s -X PATCH ..."
 models:
-  allow: [gpt-5.6-terra, grok-4.5]
+  allow: [gpt-5.6-terra, grok-4.6]
   worker: "gpt-5.6-terra high"
 ---
 ```
@@ -134,7 +134,7 @@ be the only reviewer — the gate enforces that rather than trusting a prompt to
 - The authenticated CLI for each selected route:
   - Claude Code (`claude`)
   - OpenAI Codex CLI (`codex`)
-  - latest Grok Build (`grok`), using Grok 4.5
+  - latest Grok Build (`grok`), using Grok 4.6 by default
 - Optional local engine: the `subagent-local-qwen3.8-27b` plugin, a llama.cpp endpoint, the `qwen`
   CLI, `curl`, `jq`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
   work goes to Grok.
@@ -151,7 +151,7 @@ catalog.
 | `MMO_CLAUDE_MODEL` | `claude-opus-5` | Claude worker/reviewer model |
 | `MMO_CLAUDE_EFFORT` | `high` | Claude effort except Haiku |
 | `MMO_CODEX_MODEL` | `gpt-6-astra` | Codex worker/reviewer model |
-| `MMO_GROK_MODEL` | `grok-4.5` | Grok worker/reviewer model |
+| `MMO_GROK_MODEL` | `grok-4.6` | Grok worker/reviewer model |
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
 | `MMO_GROK_MAX_TURNS` | `30` | Grok tool-loop cap, from 1 to 100 |
 | `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/local-Qwen review |
@@ -168,7 +168,7 @@ The routing policy was checked against current primary guidance for
 [Claude model selection](https://platform.claude.com/docs/en/about-claude/models/choosing-a-model),
 [Claude effort](https://platform.claude.com/docs/en/build-with-claude/effort),
 [OpenAI model guidance](https://developers.openai.com/api/docs/guides/latest-model),
-[Grok 4.5 reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning), and the
+[Grok reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning), and the
 [Grok Build CLI](https://docs.x.ai/build/cli/reference). Existing Reddit evidence remains clearly
 marked as anecdotal and is used only as an operational signal.
 

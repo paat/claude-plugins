@@ -66,7 +66,7 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
    Grok Build route:
 
    ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/run-grok.sh" --mode implement --repo "$REPO_ROOT" --model grok-4.5 --effort "$ROUTED_EFFORT" <<'PROMPT'
+   "${CLAUDE_PLUGIN_ROOT}/scripts/run-grok.sh" --mode implement --repo "$REPO_ROOT" --model grok-4.6 --effort "$ROUTED_EFFORT" <<'PROMPT'
    <same bounded worker contract>
    PROMPT
    ```
@@ -80,7 +80,7 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
    ```
 
    Exit `75` means unavailable or busy: dispatch that task to the route card's allowed fallback
-   at once — Grok 4.5 by default, never a denied provider — and note the substitution. The
+   at once — Grok 4.6 by default, never a denied provider — and note the substitution. The
    YOLO-mode rule stated earlier in this command does not apply to this runner's review leg: `--mode review` is what keeps
    it read-only, and `--mode implement` would hand a reviewer write access. Do not wait for the slot or retry it in the same pass. For review, add
    `--mode review --base <range>` — the local worker has no shell and is handed the diff.
@@ -121,7 +121,7 @@ Return at most 10 actionable findings with severity, file:line, reachable failur
 Ignore speculative edge cases without a realistic failure path. End with APPROVE or NEEDS_WORK.
 PROMPT
 astra_pid=$!; legs+=(--leg codex="$RUN_DIR/astra.txt")
-"${CLAUDE_PLUGIN_ROOT}/scripts/run-grok.sh" --mode review --repo "$REPO_ROOT" --base "$BASE_SHA" --model grok-4.5 --effort high <<'PROMPT' > "$RUN_DIR/grok.txt" &
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-grok.sh" --mode review --repo "$REPO_ROOT" --base "$BASE_SHA" --model grok-4.6 --effort high <<'PROMPT' > "$RUN_DIR/grok.txt" &
 <task and acceptance criteria; ask for reachable code defects and a verdict>
 PROMPT
 grok_pid=$!; legs+=(--leg grok="$RUN_DIR/grok.txt")
