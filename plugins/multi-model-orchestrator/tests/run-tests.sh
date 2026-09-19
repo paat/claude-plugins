@@ -6,6 +6,8 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/repo" "$WORK/tmp"
 export TMPDIR="$WORK/tmp"
+# Keep default model/effort pin assertions hermetic; explicit MMO_GROK_* overrides still work per-call.
+unset MMO_GROK_MODEL MMO_GROK_EFFORT
 REAL_GROK="${MMO_TEST_REAL_GROK-$(command -v grok || true)}"
 GROK_RESEARCH_TOOLS='web_search,web_fetch'
 
