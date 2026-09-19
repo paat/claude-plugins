@@ -735,6 +735,23 @@ printf 'xhigh 4.6\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "
 contains "$WORK/grok.args" 'grok-4.6' 'grok-4.6+xhigh forwards model'
 contains "$WORK/grok.args" '--reasoning-effort' 'grok-4.6+xhigh forwards effort flag'
 exact_line "$WORK/grok.args" 'xhigh' 'grok-4.6+xhigh passes xhigh through'
+rm -f "$WORK/grok.args"
+set +e
+printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --model grok-4.6 --effort max >/dev/null 2> "$WORK/grok-46-max.err"
+max46_rc=$?
+set -e
+[ "$max46_rc" -eq 2 ] || fail "grok-4.6+max rc=$max46_rc want 2"
+[ ! -f "$WORK/grok.args" ] || fail 'grok-4.6+max must not invoke grok'
+rm -f "$WORK/grok.args"
+set +e
+printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --model grok-4.6 --effort ultra >/dev/null 2> "$WORK/grok-46-ultra.err"
+ultra46_rc=$?
+set -e
+[ "$ultra46_rc" -eq 2 ] || fail "grok-4.6+ultra rc=$ultra46_rc want 2"
+[ ! -f "$WORK/grok.args" ] || fail 'grok-4.6+ultra must not invoke grok'
+printf 'env model override\n' | MMO_GROK_MODEL=grok-4.5 "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --effort medium --timeout 5 >/dev/null 2> "$WORK/grok-env-model.err" \
+  || fail 'MMO_GROK_MODEL=grok-4.5 accepted'
+contains "$WORK/grok.args" 'grok-4.5' 'MMO_GROK_MODEL override forwarded'
 if printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --model grok-4 >/dev/null 2>&1; then
   fail 'earlier Grok model rejected'
 fi

@@ -85,9 +85,9 @@ architecture, security, and ambiguous design stay on the hosted catalog.
   or max only for demanding work.
 - OpenAI describes Astra as the GPT-6 flagship, Terra as the balanced GPT-5.6 tier, and Luna as the
   fast, high-volume GPT-5.6 tier. It recommends medium as a baseline and higher efforts only for measured gains.
-- xAI exposes Grok 4.6 in Grok Build with low, medium, high, and xhigh reasoning, and keeps Grok 4.5
-  as a prior-generation route with low, medium, and high. xAI reports strong coding performance and
-  high serving speed; treat those vendor measurements as hypotheses.
+- The Grok Build CLI (1.0.5) still offers grok-4.5, which accepts low, medium, and high; grok-4.6
+  accepts low, medium, high, and xhigh. xAI reports strong coding performance and high serving
+  speed; treat those vendor measurements as hypotheses.
 - Cross-vendor benchmark numbers are not directly comparable when model dates, harnesses, tools,
   token budgets, and reasoning settings differ. Prefer controlled local task results.
 
@@ -97,5 +97,5 @@ Primary sources:
 - [Anthropic effort](https://platform.claude.com/docs/en/build-with-claude/effort)
 - [Claude Opus 5 prompting](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5)
 - [OpenAI model guidance](https://developers.openai.com/api/docs/guides/latest-model)
-- [xAI Grok 4.5 reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning)
+- [xAI Grok reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning)
 - [Grok Build CLI reference](https://docs.x.ai/build/cli/reference)

@@ -168,7 +168,7 @@ The routing policy was checked against current primary guidance for
 [Claude model selection](https://platform.claude.com/docs/en/about-claude/models/choosing-a-model),
 [Claude effort](https://platform.claude.com/docs/en/build-with-claude/effort),
 [OpenAI model guidance](https://developers.openai.com/api/docs/guides/latest-model),
-[Grok 4.5 reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning), and the
+[Grok reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning), and the
 [Grok Build CLI](https://docs.x.ai/build/cli/reference). Existing Reddit evidence remains clearly
 marked as anecdotal and is used only as an operational signal.
 
