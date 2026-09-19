@@ -15,7 +15,7 @@ explaining the community evidence behind the original policy.
 - Apply provider/model allowlists and denylists before routing. Preserve compatible explicit model
   and effort choices; never silently substitute a forbidden provider.
 - Use only Claude Fable 5, Opus 5, Sonnet 5, Haiku 4.5; GPT-6 Astra, GPT-5.6 Terra and Luna;
-  Grok 4.5; and local Qwen3.8-27B for mechanical work when its endpoint answers.
+  Grok 4.6 (with Grok 4.5 kept for compatibility); and local Qwen3.8-27B for mechanical work when its endpoint answers.
 - Run every CLI leg in YOLO mode inside the development-container boundary: Codex bypasses
   approvals and sandboxing, Claude skips permissions, and Grok uses sandbox `none` with
   `bypassPermissions`. Keep reviewer mutation control in prompts and tool allowlists — except
@@ -45,7 +45,7 @@ explaining the community evidence behind the original policy.
    `scripts/run-qwen-local.sh` as named by the route card. Every runner pins a current model;
    supported efforts are pinned explicitly.
 6. Local Qwen holds one GPU slot. `run-qwen-local.sh` exits `75` when it is unavailable or busy;
-   dispatch that task to the route card's allowed fallback at once — Grok 4.5 by default, and only
+   dispatch that task to the route card's allowed fallback at once — Grok 4.6 by default, and only
    a provider the allow/deny list permits — and record the substitution. Never wait for the slot,
    and never retry the same task on it in the same pass.
 
@@ -81,8 +81,8 @@ same-provider reviewer; preserve the restriction.
   judgment, minimality, and cross-module integration. Start at `high`.
 - GPT-6 Astra: repo-walking correctness, data flow, edge cases, tests, contradictions, and security.
   Start at `high`; honor compatible explicit `xhigh`, `max`, or `ultra`.
-- Grok 4.5: fast independent reproduction and a decorrelated code-review lens. Start at `medium`
-  and use `high` for difficult review; it does not support higher efforts.
+- Grok 4.6: fast independent reproduction and a decorrelated code-review lens. Start at `medium`
+  and use `high` or `xhigh` for difficult review; Grok 4.5 remains available without `xhigh`.
 - Ultra requires a bounded prompt: one pass, at most 10 findings, realistic reachable failures,
   a severity threshold, and a hard stop after the verdict. Never create recursive review/fix loops.
 

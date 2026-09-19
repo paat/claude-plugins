@@ -688,9 +688,9 @@ if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/r
 fi
 pass 'Claude runner enforces the current catalog and Haiku effort compatibility'
 
-out="$(printf 'bounded implementation\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode implement --repo "$WORK/repo" --model grok-4.5 --effort medium --timeout 5 2> "$WORK/grok.err")"
+out="$(printf 'bounded implementation\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode implement --repo "$WORK/repo" --effort medium --timeout 5 2> "$WORK/grok.err")"
 [ "$out" = $'grok findings\nAPPROVE' ] || fail 'Grok final output'
-contains "$WORK/grok.args" 'grok-4.5' 'Grok 4.5 model pin'
+contains "$WORK/grok.args" 'grok-4.6' 'Grok default model pin'
 contains "$WORK/grok.args" '--reasoning-effort' 'Grok effort flag'
 contains "$WORK/grok.args" 'medium' 'Grok medium effort pin'
 contains "$WORK/grok.args" '--no-subagents' 'Grok worker fan-out disabled'
@@ -707,13 +707,38 @@ absent "$WORK/grok.args" '--tools' 'Grok implementation unexpectedly restricts t
 absent "$WORK/grok.args" '--debug-file' 'Grok implementation unexpectedly requests allowlist debug evidence'
 [ "$(cat "$WORK/grok.home-env")" = "$HOME" ] || fail 'Grok implementation preserves toolchain HOME'
 [ "$(cat "$WORK/grok.dir-env")" != "$GROK_HOME" ] || fail 'Grok config isolation'
+printf 'explicit 4.6\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --model grok-4.6 --effort medium --timeout 5 >/dev/null 2> "$WORK/grok-46.err" \
+  || fail 'grok-4.6 accepted'
+contains "$WORK/grok.args" 'grok-4.6' 'explicit grok-4.6 forwarded'
+printf 'compat 4.5\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --model grok-4.5 --effort medium --timeout 5 >/dev/null 2> "$WORK/grok-45.err" \
+  || fail 'grok-4.5 still accepted'
+contains "$WORK/grok.args" 'grok-4.5' 'explicit grok-4.5 forwarded'
+rm -f "$WORK/grok.args"
+set +e
+printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --model grok-9.9 >/dev/null 2> "$WORK/grok-unknown.err"
+unknown_rc=$?
+set -e
+[ "$unknown_rc" -eq 2 ] || fail "unknown Grok model rc=$unknown_rc want 2"
+contains "$WORK/grok-unknown.err" 'grok-4.6' 'unknown model error names grok-4.6'
+contains "$WORK/grok-unknown.err" 'grok-4.5' 'unknown model error names grok-4.5'
+[ ! -f "$WORK/grok.args" ] || fail 'unknown Grok model must not invoke grok'
+set +e
+printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --model grok-4.5 --effort xhigh >/dev/null 2> "$WORK/grok-45-xhigh.err"
+xhigh45_rc=$?
+set -e
+[ "$xhigh45_rc" -eq 2 ] || fail "grok-4.5+xhigh rc=$xhigh45_rc want 2"
+contains "$WORK/grok-45-xhigh.err" 'low|medium|high' 'grok-4.5+xhigh names allowed efforts'
+contains "$WORK/grok-45-xhigh.err" 'grok-4.5' 'grok-4.5+xhigh names the model'
+[ ! -f "$WORK/grok.args" ] || fail 'grok-4.5+xhigh must not invoke grok'
+printf 'xhigh 4.6\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --model grok-4.6 --effort xhigh --timeout 5 >/dev/null 2> "$WORK/grok-46-xhigh.err" \
+  || fail 'grok-4.6+xhigh accepted'
+contains "$WORK/grok.args" 'grok-4.6' 'grok-4.6+xhigh forwards model'
+contains "$WORK/grok.args" '--reasoning-effort' 'grok-4.6+xhigh forwards effort flag'
+exact_line "$WORK/grok.args" 'xhigh' 'grok-4.6+xhigh passes xhigh through'
 if printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --model grok-4 >/dev/null 2>&1; then
   fail 'earlier Grok model rejected'
 fi
-if printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --effort xhigh >/dev/null 2>&1; then
-  fail 'unsupported Grok effort rejected'
-fi
-pass 'Grok runner pins 4.5 and enforces low-to-high effort'
+pass 'Grok runner defaults to 4.6 and enforces per-model efforts'
 
 out="$(printf 'review Grok diff\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD --effort high --timeout 5 2> "$WORK/grok-review.err")"
 [ "$out" = $'grok findings\nAPPROVE' ] || fail 'Grok review output'
@@ -2102,7 +2127,7 @@ for label in 'Local Qwen' 'qwen3.8-27b-local' 'Qwen-Local' 'gemini' 'codex-local
   bash "$GATE" --leg "$label=$gate_dir/qwen.txt" >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 3 ] || fail "label '$label' alone is advisory (got $rc)"
 done
-for label in codex Claude grok-4.5 gpt-6-astra claude-opus-5 gpt GPT-5.6; do
+for label in codex Claude grok-4.6 grok-4.5 gpt-6-astra claude-opus-5 gpt GPT-5.6; do
   out="$(bash "$GATE" --leg "Local Qwen=$gate_dir/qwen.txt" --leg "$label=$gate_dir/codex.txt")" \
     || fail "label '$label' counts as independent"
   [ "$out" = APPROVE ] || fail "label '$label' beside Local Qwen approves (got $out)"

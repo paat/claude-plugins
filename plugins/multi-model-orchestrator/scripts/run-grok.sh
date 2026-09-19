@@ -6,17 +6,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model grok-4.5] [--effort low|medium|high] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
+  printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model grok-4.6|grok-4.5] [--effort low|medium|high|xhigh] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
 }
 
 valid_effort() {
   case "$1" in low|medium|high) return 0 ;; *) return 1 ;; esac
 }
 
+valid_effort_46() {
+  case "$1" in low|medium|high|xhigh) return 0 ;; *) return 1 ;; esac
+}
+
 mode=""
 repo_dir="$PWD"
 base_ref="HEAD"
-model="${MMO_GROK_MODEL:-grok-4.5}"
+model="${MMO_GROK_MODEL:-grok-4.6}"
 effort="${MMO_GROK_EFFORT:-medium}"
 run_timeout=1200
 max_turns="${MMO_GROK_MAX_TURNS:-30}"
@@ -41,8 +45,24 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$mode" in advise|implement|research|review) ;; *) printf 'run-grok: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
-[ "$model" = grok-4.5 ] || { printf 'run-grok: unsupported model %s (current catalog: grok-4.5)\n' "$model" >&2; exit 2; }
-valid_effort "$effort" || { printf 'run-grok: unsupported effort %s (expected low|medium|high)\n' "$effort" >&2; exit 2; }
+case "$model" in
+  grok-4.6|grok-4.5) ;;
+  *) printf 'run-grok: unsupported model %s (current catalog: grok-4.6 grok-4.5)\n' "$model" >&2; exit 2 ;;
+esac
+case "$model" in
+  grok-4.6)
+    valid_effort_46 "$effort" || {
+      printf 'run-grok: unsupported effort %s for grok-4.6 (expected low|medium|high|xhigh)\n' "$effort" >&2
+      exit 2
+    }
+    ;;
+  grok-4.5)
+    valid_effort "$effort" || {
+      printf 'run-grok: unsupported effort %s for grok-4.5 (expected low|medium|high)\n' "$effort" >&2
+      exit 2
+    }
+    ;;
+esac
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-grok: timeout must be a positive integer\n' >&2; exit 2; }
 [[ "$max_turns" =~ ^[1-9][0-9]*$ ]] && [ "$max_turns" -le 100 ] || { printf 'run-grok: max turns must be an integer from 1 to 100\n' >&2; exit 2; }
 command -v git >/dev/null 2>&1 || { printf 'run-grok: git not found\n' >&2; exit 127; }
