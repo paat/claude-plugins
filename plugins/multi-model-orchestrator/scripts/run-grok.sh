@@ -6,21 +6,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model grok-4.6|grok-4.5] [--effort low|medium|high|xhigh(grok-4.6 only)] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
+  printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model grok-4.7|grok-4.6|grok-4.5] [--effort low|medium|high|xhigh(grok-4.7 and grok-4.6)] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
 }
 
 valid_effort() {
   case "$1" in low|medium|high) return 0 ;; *) return 1 ;; esac
 }
 
-valid_effort_46() {
+valid_effort_xhigh() {
   case "$1" in low|medium|high|xhigh) return 0 ;; *) return 1 ;; esac
 }
 
 mode=""
 repo_dir="$PWD"
 base_ref="HEAD"
-model="${MMO_GROK_MODEL:-grok-4.6}"
+model="${MMO_GROK_MODEL:-grok-4.7}"
 effort="${MMO_GROK_EFFORT:-medium}"
 run_timeout=1200
 max_turns="${MMO_GROK_MAX_TURNS:-30}"
@@ -46,13 +46,13 @@ done
 
 case "$mode" in advise|implement|research|review) ;; *) printf 'run-grok: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
 case "$model" in
-  grok-4.6|grok-4.5) ;;
-  *) printf 'run-grok: unsupported model %s (current catalog: grok-4.6 grok-4.5)\n' "$model" >&2; exit 2 ;;
+  grok-4.7|grok-4.6|grok-4.5) ;;
+  *) printf 'run-grok: unsupported model %s (current catalog: grok-4.7 grok-4.6 grok-4.5)\n' "$model" >&2; exit 2 ;;
 esac
 case "$model" in
-  grok-4.6)
-    valid_effort_46 "$effort" || {
-      printf 'run-grok: unsupported effort %s for grok-4.6 (expected low|medium|high|xhigh)\n' "$effort" >&2
+  grok-4.7|grok-4.6)
+    valid_effort_xhigh "$effort" || {
+      printf 'run-grok: unsupported effort %s for %s (expected low|medium|high|xhigh)\n' "$effort" "$model" >&2
       exit 2
     }
     ;;

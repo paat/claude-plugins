@@ -14,7 +14,7 @@
 - Qwen: off by default; enable with `TRIBUNAL_QWEN=on`; repo-walking on its own
   transport.
 - Grok: on by default; disable with `TRIBUNAL_GROK=off`; model override
-  `TRIBUNAL_GROK_MODEL` (default `grok-4.5`); repo-walking on the xAI Grok CLI
+  `TRIBUNAL_GROK_MODEL` (default `grok-4.7`); repo-walking on the xAI Grok CLI
   with tools allowlist, sandbox default `none` (`TRIBUNAL_GROK_SANDBOX`),
   `bypassPermissions`, isolated host config, web search off (issue #378).
 
