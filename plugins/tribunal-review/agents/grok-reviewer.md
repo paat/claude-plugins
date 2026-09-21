@@ -32,7 +32,7 @@ field to the model that actually ran, read from `.modelUsage`):
   hand-written review envelope lacks the wrapper-stamped `diff_stat` and is rejected
   downstream as a provider failure (issue #487).
 - Grok is **on by default**: disable with `TRIBUNAL_GROK=off`. Honors
-  `TRIBUNAL_GROK_MODEL` (default `grok-4.5`). Runs with a tools allowlist (`read_file,list_dir,grep`),
+  `TRIBUNAL_GROK_MODEL` (default `grok-4.7`). Runs with a tools allowlist (`read_file,list_dir,grep`),
   `--sandbox` default `none` (override with `TRIBUNAL_GROK_SANDBOX` / `GROK_SANDBOX`; issue #378),
   `--permission-mode bypassPermissions`, isolated scratch `HOME`/`GROK_HOME` (auth **copied** into
   isolation and write-back under flock so OIDC refresh rotation stays durable — issue #374; host
