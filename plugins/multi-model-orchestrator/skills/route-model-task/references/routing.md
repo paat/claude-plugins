@@ -31,12 +31,12 @@ Only catalogued models are allowed; unavailable models do not authorize an unlis
 | Exact rename, fixture, file map, focused check | Local Qwen when available, else Haiku 4.5 or Luna | `n/a` or `low` | Grok 4.7 `low` |
 | Well-specified everyday change with known tests | Terra or Sonnet 5 | `medium` | Grok 4.7 `medium` when turnaround matters |
 | Bounded independent implementation or reproduction | Grok 4.7 | `medium` | Terra `medium` |
-| Cross-module backend/data/API work or hard root cause | Astra | `high` | Opus 5 `high` |
-| Large refactor, long tool loop, complex system design | Opus 5 | `high` | Astra `high` |
-| Ambiguous product intent, UX, copy, or visual replication | Opus 5 | `high` | Sonnet 5 `high` for a well-specified version |
-| Days-long or unusually hard work where marginal capability matters | Fable 5 | `high` or `xhigh` | Opus 5 `xhigh` |
-| Security, payments, destructive migration, subtle concurrency | Astra implementation plus Opus 5 independent advice/review | `xhigh` each | Fable 5 only when the remaining uncertainty justifies it |
-| Technical adversarial review | A provider different from the implementer: Astra or Opus 5 | `high` | Grok 4.7 `high` as a fast third lens only when it pays for itself |
+| Cross-module backend/data/API work or hard root cause | Astra | `high` | Opus 5.5 `high` |
+| Large refactor, long tool loop, complex system design | Opus 5.5 | `high` | Astra `high` |
+| Ambiguous product intent, UX, copy, or visual replication | Opus 5.5 | `high` | Sonnet 5 `high` for a well-specified version |
+| Days-long or unusually hard work where marginal capability matters | Fable 5.1 | `high` or `xhigh` | Opus 5.5 `xhigh` |
+| Security, payments, destructive migration, subtle concurrency | Astra implementation plus Opus 5.5 independent advice/review | `xhigh` each | Fable 5.1 only when the remaining uncertainty justifies it |
+| Technical adversarial review | A provider different from the implementer: Astra or Opus 5.5 | `high` | Grok 4.7 `high` as a fast third lens only when it pays for itself |
 | Mechanical verification after a model-authored change | Haiku 4.5 or Luna | `n/a` or `low` | Run the deterministic check directly when no model judgment is needed |
 
 Task evidence outranks the table. A clear, localized payment copy edit does not become `xhigh`
@@ -62,7 +62,7 @@ silently; select a supported level or return an incompatibility.
 ## Restrictions and fallbacks
 
 - `Codex only`: choose Luna, Terra, or Astra by task complexity; Astra Ultra is not the default.
-- `Claude only`: choose Haiku 4.5, Sonnet 5, Opus 5, or Fable 5; use `n/a` for Haiku.
+- `Claude only`: choose Haiku 4.5, Sonnet 5, Opus 5.5, or Fable 5.1; use `n/a` for Haiku.
 - `Grok only`: use Grok 4.7 by default (or Grok 4.6 or Grok 4.5 when explicitly pinned) and scale
   only across that model's supported efforts.
 - `No Claude`: route between GPT-5.6/GPT-6 and Grok 4.7; any independence check must use the other one.

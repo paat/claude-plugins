@@ -14,7 +14,7 @@ explaining the community evidence behind the original policy.
 
 - Apply provider/model allowlists and denylists before routing. Preserve compatible explicit model
   and effort choices; never silently substitute a forbidden provider.
-- Use only Claude Fable 5, Opus 5, Sonnet 5, Haiku 4.5; GPT-6 Astra, GPT-5.6 Terra and Luna;
+- Use only Claude Fable 5.1, Opus 5.5, Sonnet 5, Haiku 4.5 (Fable 5 and Opus 5 compat); GPT-6 Astra, GPT-5.6 Terra and Luna;
   Grok 4.7 (with Grok 4.6 and Grok 4.5 kept for compatibility); and local Qwen3.8-27B for mechanical work when its endpoint answers.
 - Run every CLI leg in YOLO mode inside the development-container boundary: Codex bypasses
   approvals and sandboxing, Claude skips permissions, and Grok uses sandbox `none` with
@@ -77,7 +77,7 @@ ordinary nontrivial work, two complementary allowed reviewers only when risk or 
 evidence makes the extra pass pay for itself. A provider restriction may require a fresh
 same-provider reviewer; preserve the restriction.
 
-- Claude Opus 5: architecture, user intent, UX/copy, environment/build assumptions, visual
+- Claude Opus 5.5: architecture, user intent, UX/copy, environment/build assumptions, visual
   judgment, minimality, and cross-module integration. Start at `high`.
 - GPT-6 Astra: repo-walking correctness, data flow, edge cases, tests, contradictions, and security.
   Start at `high`; honor compatible explicit `xhigh`, `max`, or `ultra`.
