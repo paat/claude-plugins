@@ -25,13 +25,13 @@ Older generations are intentionally excluded.
 
 | Provider | Models | Typical role |
 |---|---|---|
-| Claude Code | `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
+| Claude Code | `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5-5`, `claude-fable-5-1`; prior-generation `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
 | Codex | `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-6-astra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
 | Local Qwen | `qwen3.8-27b-local` | Free mechanical edits and a cheap second review lens; one GPU slot, falls back to Grok when busy (needs the `subagent-local-qwen3.8-27b` plugin) |
 
-Haiku 4.5 is the latest Haiku and does not use Claude's current effort parameter. Claude Fable 5,
-Opus 5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
+Haiku 4.5 is the latest Haiku and does not use Claude's current effort parameter. Claude Fable 5.1,
+Fable 5, Opus 5.5, Opus 5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
 Astra-only `ultra` available for bounded internal fan-out; Grok 4.7 and Grok 4.6 support `low`,
 `medium`, `high`, and `xhigh`; Grok 4.5 supports `low`, `medium`, and `high`.
 
@@ -46,8 +46,8 @@ scope/coupling, risk, deterministic validation, modality, latency, and expected 
 | Ordinary well-specified coding | Sonnet 5 or GPT-5.6 Terra at medium |
 | Fast bounded implementation or reproduction | Grok 4.7 at medium |
 | Hard backend/data work, debugging, security, technical review | GPT-6 Astra at high or xhigh |
-| Large refactor, architecture, UX/visual work, long tool loop | Opus 5 at high |
-| Unusually hard or days-long work | Fable 5 at high or xhigh |
+| Large refactor, architecture, UX/visual work, long tool loop | Opus 5.5 at high |
+| Unusually hard or days-long work | Fable 5.1 at high or xhigh |
 
 These are starting hypotheses, not a universal leaderboard. Local completion, latency,
 scope-control, and test data should override them. Higher effort is not a repair for unclear
@@ -139,7 +139,7 @@ be the only reviewer — the gate enforces that rather than trusting a prompt to
   CLI, `curl`, `jq`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
   work goes to Grok.
 
-Only selected providers are required. `jq` is required for `run-claude.sh --stream-log` and for the local-Qwen route, both of which extract a final message from a JSON stream.
+Only selected providers are required. `jq` is required for `run-claude.sh --stream-log` and for the local-Qwen route, both of which extract a final message from a JSON stream. `run-claude.sh --mcp` also uses `jq` to encode each server URL.
 
 ## Configuration
 
@@ -148,7 +148,7 @@ catalog.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `MMO_CLAUDE_MODEL` | `claude-opus-5` | Claude worker/reviewer model |
+| `MMO_CLAUDE_MODEL` | `claude-opus-5-5` | Claude worker/reviewer model |
 | `MMO_CLAUDE_EFFORT` | `high` | Claude effort except Haiku |
 | `MMO_CODEX_MODEL` | `gpt-6-astra` | Codex worker/reviewer model |
 | `MMO_GROK_MODEL` | `grok-4.7` | Grok worker/reviewer model |
@@ -159,8 +159,14 @@ catalog.
 | `MMO_QWEN_LOCAL_RUN` | discovered | Path to the `subagent-local-qwen3.8-27b` wrapper when it is not on `PATH` or in a plugin cache |
 
 `MMO_OPUS_MODEL` and `MMO_OPUS_EFFORT` remain compatibility variables for `run-opus.sh`. The old
-moving value `MMO_OPUS_MODEL=opus` maps explicitly to `claude-opus-5`; earlier versioned IDs are
-still rejected. The default is `claude-opus-5` at `high`.
+moving value `MMO_OPUS_MODEL=opus` maps explicitly to `claude-opus-5-5`; earlier versioned IDs are
+still rejected. The default is `claude-opus-5-5` at `high`.
+
+`run-claude.sh` accepts repeatable `--mcp NAME=URL` to attach named HTTP MCP servers to that leg
+(for example a local browser server). Each server is `{"type":"http","url":URL}` inside
+`--mcp-config`, `--strict-mcp-config` stays on, and `mcp__NAME` is appended to the active mode's
+`--allowedTools`. `NAME` must match `[A-Za-z0-9_-]+`. With no `--mcp`, the MCP config stays
+`{"mcpServers":{}}`. Encoding `--mcp` uses `jq`.
 
 ## Research basis
 

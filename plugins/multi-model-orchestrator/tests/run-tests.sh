@@ -657,6 +657,9 @@ contains "$WORK/claude.args" 'claude-opus-5' 'Claude Opus 5 model pin'
 contains "$WORK/claude.args" 'xhigh' 'Opus effort pin'
 contains "$WORK/claude.args" '--dangerously-skip-permissions' 'Claude YOLO posture'
 contains "$WORK/claude.args" 'Bash,Write,Edit,NotebookEdit,Task,WebFetch,WebSearch' 'Opus mutation tools disabled'
+exact_line "$WORK/claude.args" '--strict-mcp-config' 'Claude keeps strict MCP config'
+exact_line "$WORK/claude.args" '{"mcpServers":{}}' 'Claude default MCP config stays empty'
+absent "$WORK/claude.args" 'mcp__' 'Claude default allowed tools omit MCP servers'
 contains "$WORK/claude.prompt" 'acceptance criterion' 'Opus review task'
 contains "$WORK/claude.prompt" '+after' 'Opus receives diff'
 pass 'Claude review is current-model pinned, bounded, and diff-aware'
@@ -664,8 +667,8 @@ pass 'Claude review is current-model pinned, bounded, and diff-aware'
 printf 'new file\n' > "$WORK/repo/new.txt"
 printf 'review new file\n' | "$PLUGIN_ROOT/scripts/run-opus.sh" --mode review --repo "$WORK/repo" --base HEAD --timeout 5 >/dev/null 2> "$WORK/opus-untracked.err"
 contains "$WORK/claude.prompt" 'new.txt' 'Opus receives untracked file diff'
-contains "$WORK/claude.args" 'claude-opus-5' 'Compatibility wrapper pins Opus 5'
-pass 'Opus compatibility wrapper uses Opus 5 and includes untracked files'
+exact_line "$WORK/claude.args" 'claude-opus-5-5' 'Compatibility wrapper pins Opus 5.5'
+pass 'Opus compatibility wrapper uses Opus 5.5 and includes untracked files'
 
 printf 'architecture question\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-sonnet-5 --effort high --timeout 5 >/dev/null 2> "$WORK/claude-advice.err"
 contains "$WORK/claude.prompt" 'architecture question' 'Opus advice prompt'
@@ -685,10 +688,46 @@ absent "$WORK/claude.args" '--effort' 'Haiku must omit unsupported effort flag'
 if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-haiku-4-5 --effort low >/dev/null 2>&1; then
   fail 'explicit Haiku effort rejected'
 fi
-if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-opus-4-8 >/dev/null 2>&1; then
+if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-opus-4-8 >/dev/null 2>"$WORK/claude-unknown-model.err"; then
   fail 'earlier Claude model rejected'
 fi
+contains "$WORK/claude-unknown-model.err" 'claude-fable-5-1|claude-opus-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-4-5' 'unsupported model lists the full catalog'
+printf 'pin opus 5.5\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-opus-5-5 --effort high --timeout 5 >/dev/null 2>"$WORK/claude-opus55.err" \
+  || fail 'claude-opus-5-5 accepted'
+exact_line "$WORK/claude.args" 'claude-opus-5-5' 'claude-opus-5-5 pinned in args'
+printf 'pin fable 5.1\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-fable-5-1 --effort max --timeout 5 >/dev/null 2>"$WORK/claude-fable51.err" \
+  || fail 'claude-fable-5-1 accepted'
+exact_line "$WORK/claude.args" 'claude-fable-5-1' 'claude-fable-5-1 pinned in args'
 pass 'Claude runner enforces the current catalog and Haiku effort compatibility'
+
+printf 'one mcp\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-sonnet-5 --effort high --timeout 5 \
+  --mcp 'browseros=http://127.0.0.1:9200/mcp' >/dev/null 2>"$WORK/claude-mcp1.err" || fail 'one --mcp accepted'
+exact_line "$WORK/claude.args" '--strict-mcp-config' 'one --mcp keeps strict MCP config'
+exact_line "$WORK/claude.args" '{"mcpServers":{"browseros":{"type":"http","url":"http://127.0.0.1:9200/mcp"}}}' 'one --mcp config'
+exact_line "$WORK/claude.args" 'Read,Glob,Grep,mcp__browseros' 'one --mcp advise allowedTools'
+printf 'research mcp\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode research --repo "$WORK/repo" --model claude-sonnet-5 --effort high --timeout 5 \
+  --mcp 'browseros=http://127.0.0.1:9200/mcp' >/dev/null 2>"$WORK/claude-mcp-research.err" || fail 'research --mcp accepted'
+exact_line "$WORK/claude.args" 'WebSearch,WebFetch,mcp__browseros' 'research --mcp allowedTools'
+printf 'two mcp\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode implement --repo "$WORK/repo" --model claude-sonnet-5 --effort high --timeout 5 \
+  --mcp 'browseros=http://127.0.0.1:9200/mcp' \
+  --mcp 'docs=http://127.0.0.1:9/mcp?q="a\b"' >/dev/null 2>"$WORK/claude-mcp2.err" || fail 'two --mcp accepted'
+exact_line "$WORK/claude.args" '{"mcpServers":{"browseros":{"type":"http","url":"http://127.0.0.1:9200/mcp"},"docs":{"type":"http","url":"http://127.0.0.1:9/mcp?q=\"a\\b\""}}}' 'two --mcp config escapes URL'
+exact_line "$WORK/claude.args" 'Read,Glob,Grep,Bash,Write,Edit,mcp__browseros,mcp__docs' 'two --mcp implement allowedTools'
+reject_mcp() {
+  rm -f "$WORK/claude.args"
+  set +e
+  printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-sonnet-5 --mcp "$1" >/dev/null 2>"$WORK/claude-mcp-bad.err"
+  local mcp_rc=$?
+  set -e
+  [ "$mcp_rc" -eq 2 ] || fail "$2 rc=$mcp_rc want 2"
+  [ ! -f "$WORK/claude.args" ] || fail "$2 must not invoke claude"
+  contains "$WORK/claude-mcp-bad.err" '--mcp' "$2 explains --mcp"
+}
+reject_mcp 'browseros' 'mcp missing equals'
+reject_mcp '=http://127.0.0.1:9200/mcp' 'mcp empty name'
+reject_mcp 'browseros=' 'mcp empty url'
+reject_mcp 'bad name=http://127.0.0.1:9200/mcp' 'mcp invalid name'
+pass 'Claude --mcp attaches named HTTP servers and rejects malformed values'
 
 out="$(printf 'bounded implementation\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode implement --repo "$WORK/repo" --effort medium --timeout 5 2> "$WORK/grok.err")"
 [ "$out" = $'grok findings\nAPPROVE' ] || fail 'Grok final output'
@@ -849,7 +888,7 @@ pass 'Claude and Grok reject empty or verdict-free success'
 
 out="$(printf 'legacy alias\n' | MMO_OPUS_MODEL=opus "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --timeout 5 2> "$WORK/legacy-opus.err")"
 [ "$out" = $'claude findings\nAPPROVE' ] || fail 'Legacy Opus alias output'
-contains "$WORK/claude.args" 'claude-opus-5' 'Legacy Opus alias maps to Opus 5'
+exact_line "$WORK/claude.args" 'claude-opus-5-5' 'Legacy Opus alias maps to Opus 5.5'
 pass 'Legacy Opus alias maps only to the current model'
 
 printf 'primary config\n' | MMO_CLAUDE_MODEL=claude-sonnet-5 MMO_CLAUDE_EFFORT=xhigh "$PLUGIN_ROOT/scripts/run-opus.sh" --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/primary-config.err"

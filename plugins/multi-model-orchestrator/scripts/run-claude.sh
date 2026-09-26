@@ -6,12 +6,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
+  printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE] [--mcp NAME=URL]'
 }
+
+claude_model_catalog='claude-fable-5-1|claude-opus-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-4-5'
 
 valid_model() {
   case "$1" in
-    claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-4-5) return 0 ;;
+    claude-fable-5-1|claude-opus-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-4-5) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -26,9 +28,9 @@ base_ref="HEAD"
 if [ -n "${MMO_CLAUDE_MODEL:-}" ]; then
   model="$MMO_CLAUDE_MODEL"
 elif [ "${MMO_OPUS_MODEL:-}" = opus ]; then
-  model=claude-opus-5
+  model=claude-opus-5-5
 else
-  model="${MMO_OPUS_MODEL:-claude-opus-5}"
+  model="${MMO_OPUS_MODEL:-claude-opus-5-5}"
 fi
 effort="${MMO_CLAUDE_EFFORT:-${MMO_OPUS_EFFORT:-high}}"
 effort_set=0
@@ -38,6 +40,8 @@ stream_file=""
 stream_log_set=0
 max_turns=""
 max_turns_set=0
+mcp_names=()
+mcp_urls=()
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -50,6 +54,27 @@ while [ "$#" -gt 0 ]; do
     --timeout) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; run_timeout="$2"; shift 2 ;;
     --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; output_file="$2"; shift 2 ;;
     --stream-log) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; stream_file="$2"; stream_log_set=1; shift 2 ;;
+    --mcp)
+      [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+      mcp_spec="$2"
+      case "$mcp_spec" in
+        *=*) ;;
+        *) printf 'run-claude: --mcp must be NAME=URL: %s\n' "$mcp_spec" >&2; exit 2 ;;
+      esac
+      mcp_name="${mcp_spec%%=*}"
+      mcp_url="${mcp_spec#*=}"
+      if [ -z "$mcp_name" ] || [ -z "$mcp_url" ]; then
+        printf 'run-claude: --mcp requires a non-empty NAME and URL: %s\n' "$mcp_spec" >&2
+        exit 2
+      fi
+      if ! [[ "$mcp_name" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        printf 'run-claude: --mcp NAME must match [A-Za-z0-9_-]+: %s\n' "$mcp_name" >&2
+        exit 2
+      fi
+      mcp_names+=("$mcp_name")
+      mcp_urls+=("$mcp_url")
+      shift 2
+      ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'run-claude: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -57,7 +82,7 @@ done
 
 case "$mode" in advise|implement|research|review) ;; *) printf 'run-claude: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
 valid_model "$model" || {
-  printf 'run-claude: unsupported model %s (current catalog: claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-4-5)\n' "$model" >&2
+  printf 'run-claude: unsupported model %s (current catalog: %s)\n' "$model" "$claude_model_catalog" >&2
   exit 2
 }
 if [ "$model" = claude-haiku-4-5 ]; then
@@ -76,6 +101,16 @@ command -v git >/dev/null 2>&1 || { printf 'run-claude: git not found\n' >&2; ex
 command -v claude >/dev/null 2>&1 || { printf 'run-claude: claude CLI not found\n' >&2; exit 127; }
 if [ "$stream_log_set" -eq 1 ]; then
   command -v jq >/dev/null 2>&1 || { printf 'run-claude: jq not found (required for --stream-log)\n' >&2; exit 127; }
+fi
+mcp_config='{"mcpServers":{}}'
+if [ "${#mcp_names[@]}" -gt 0 ]; then
+  command -v jq >/dev/null 2>&1 || { printf 'run-claude: jq not found (required for --mcp)\n' >&2; exit 127; }
+  for mcp_index in "${!mcp_names[@]}"; do
+    mcp_config="$(printf '%s' "$mcp_config" | jq -c \
+      --arg name "${mcp_names[$mcp_index]}" \
+      --arg url "${mcp_urls[$mcp_index]}" \
+      '.mcpServers[$name] = {type:"http", url:$url}')"
+  done
 fi
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
 
@@ -172,17 +207,24 @@ else
 fi
 claude_args+=(
   --dangerously-skip-permissions --disable-slash-commands
-  --strict-mcp-config --mcp-config '{"mcpServers":{}}' --no-session-persistence
+  --strict-mcp-config --mcp-config "$mcp_config" --no-session-persistence
 )
 [ "$model" = claude-haiku-4-5 ] || claude_args+=(--effort "$effort")
 [ "$max_turns_set" -eq 1 ] && claude_args+=(--max-turns "$max_turns")
 if [ "$mode" = implement ]; then
-  claude_args+=(--allowedTools 'Read,Glob,Grep,Bash,Write,Edit' --disallowedTools 'Task,WebFetch,WebSearch,NotebookEdit')
+  allowed_tools='Read,Glob,Grep,Bash,Write,Edit'
+  disallowed_tools='Task,WebFetch,WebSearch,NotebookEdit'
 elif [ "$mode" = research ]; then
-  claude_args+=(--allowedTools 'WebSearch,WebFetch' --disallowedTools 'Bash,Write,Edit,NotebookEdit,Task')
+  allowed_tools='WebSearch,WebFetch'
+  disallowed_tools='Bash,Write,Edit,NotebookEdit,Task'
 else
-  claude_args+=(--allowedTools 'Read,Glob,Grep' --disallowedTools 'Bash,Write,Edit,NotebookEdit,Task,WebFetch,WebSearch')
+  allowed_tools='Read,Glob,Grep'
+  disallowed_tools='Bash,Write,Edit,NotebookEdit,Task,WebFetch,WebSearch'
 fi
+for mcp_index in "${!mcp_names[@]}"; do
+  allowed_tools="${allowed_tools},mcp__${mcp_names[$mcp_index]}"
+done
+claude_args+=(--allowedTools "$allowed_tools" --disallowedTools "$disallowed_tools")
 
 provider_rc=0
 set +e

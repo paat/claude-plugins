@@ -7,8 +7,10 @@ tracks the latest Haiku 4.5 release instead of pinning an earlier dated snapshot
 |---|---|---|---|
 | Claude Code | `claude-haiku-4-5` | Fast, high-volume triage, file maps, simple checks | `n/a`; Haiku 4.5 has manual thinking, not the current effort control |
 | Claude Code | `claude-sonnet-5` | Ordinary coding, tool use, browser/visual work, cost-aware agents | `low`–`max` |
-| Claude Code | `claude-opus-5` | Complex agentic coding, hard review, large refactors, vision-heavy work | `low`–`max` |
-| Claude Code | `claude-fable-5` | Highest-capability, long-running or unusually hard coding and knowledge work | `low`–`max` |
+| Claude Code | `claude-opus-5-5` | Current Opus: complex agentic coding, hard review, large refactors, vision-heavy work | `low`–`max` |
+| Claude Code | `claude-opus-5` | Prior-generation Opus compatibility route | `low`–`max` |
+| Claude Code | `claude-fable-5-1` | Current Fable: highest-capability, long-running or unusually hard coding and knowledge work | `low`–`max` |
+| Claude Code | `claude-fable-5` | Prior-generation Fable compatibility route | `low`–`max` |
 | Codex | `gpt-5.6-luna` | Fast mechanical edits, extraction, classification, narrow checks | `low`–`max` |
 | Codex | `gpt-5.6-terra` | Balanced everyday implementation and bounded investigation | `low`–`max` |
 | Codex | `gpt-6-astra` | Hard technical implementation, debugging, adversarial review, security | `low`–`max`; `ultra` only as below |
