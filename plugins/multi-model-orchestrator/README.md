@@ -21,7 +21,7 @@ denied provider, model, or unsupported effort.
 
 ## Current model catalog
 
-Older generations are intentionally excluded.
+Only the previous Claude generation (Opus 5, Fable 5) is kept for compatibility and is never routed by default; older generations are excluded.
 
 | Provider | Models | Typical role |
 |---|---|---|

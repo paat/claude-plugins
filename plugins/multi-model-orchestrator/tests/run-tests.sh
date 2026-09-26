@@ -653,7 +653,7 @@ pass 'Relative --out stays at caller cwd and device paths remain lexical across 
 
 out="$(printf 'acceptance criterion\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" --base HEAD --model claude-opus-5 --effort xhigh --timeout 5 2> "$WORK/claude.err")"
 [ "$out" = $'claude findings\nAPPROVE' ] || fail 'Claude final output'
-contains "$WORK/claude.args" 'claude-opus-5' 'Claude Opus 5 model pin'
+exact_line "$WORK/claude.args" 'claude-opus-5' 'explicit prior-generation pin'
 contains "$WORK/claude.args" 'xhigh' 'Opus effort pin'
 contains "$WORK/claude.args" '--dangerously-skip-permissions' 'Claude YOLO posture'
 contains "$WORK/claude.args" 'Bash,Write,Edit,NotebookEdit,Task,WebFetch,WebSearch' 'Opus mutation tools disabled'
@@ -690,6 +690,9 @@ if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/r
 fi
 if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-opus-4-8 >/dev/null 2>"$WORK/claude-unknown-model.err"; then
   fail 'earlier Claude model rejected'
+fi
+if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-opus >/dev/null 2>"$WORK/claude-partial-model.err"; then
+  fail 'partial Claude model id rejected'
 fi
 contains "$WORK/claude-unknown-model.err" 'claude-fable-5-1|claude-opus-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-4-5' 'unsupported model lists the full catalog'
 printf 'pin opus 5.5\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-opus-5-5 --effort high --timeout 5 >/dev/null 2>"$WORK/claude-opus55.err" \
