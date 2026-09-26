@@ -694,6 +694,9 @@ fi
 if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-opus >/dev/null 2>"$WORK/claude-partial-model.err"; then
   fail 'partial Claude model id rejected'
 fi
+if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model 'claude-fable-5-1|claude-opus-5-5' >/dev/null 2>"$WORK/claude-pipe-model.err"; then
+  fail 'pipe-joined Claude model ids rejected'
+fi
 contains "$WORK/claude-unknown-model.err" 'claude-fable-5-1|claude-opus-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-4-5' 'unsupported model lists the full catalog'
 printf 'pin opus 5.5\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-opus-5-5 --effort high --timeout 5 >/dev/null 2>"$WORK/claude-opus55.err" \
   || fail 'claude-opus-5-5 accepted'

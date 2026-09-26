@@ -159,7 +159,7 @@ catalog.
 | `MMO_QWEN_LOCAL_RUN` | discovered | Path to the `subagent-local-qwen3.8-27b` wrapper when it is not on `PATH` or in a plugin cache |
 
 `MMO_OPUS_MODEL` and `MMO_OPUS_EFFORT` remain compatibility variables for `run-opus.sh`. The old
-moving value `MMO_OPUS_MODEL=opus` maps explicitly to `claude-opus-5-5`; earlier versioned IDs are
+moving value `MMO_OPUS_MODEL=opus` maps explicitly to `claude-opus-5-5`; versioned IDs older than the previous generation are
 still rejected. The default is `claude-opus-5-5` at `high`.
 
 `run-claude.sh` accepts repeatable `--mcp NAME=URL` to attach named HTTP MCP servers to that leg

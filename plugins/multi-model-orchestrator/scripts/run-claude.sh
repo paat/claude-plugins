@@ -12,6 +12,9 @@ usage() {
 claude_model_catalog='claude-fable-5-1|claude-opus-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-4-5'
 
 valid_model() {
+  case "$1" in
+    *'|'*) return 1 ;;
+  esac
   case "|$claude_model_catalog|" in
     *"|$1|"*) return 0 ;;
     *) return 1 ;;
