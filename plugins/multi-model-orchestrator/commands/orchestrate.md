@@ -37,7 +37,7 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
 2. When the route card asks for Claude advice before implementation:
 
    ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/run-claude.sh" --mode advise --repo "$REPO_ROOT" --model claude-opus-5 --effort high <<'PROMPT'
+   "${CLAUDE_PLUGIN_ROOT}/scripts/run-claude.sh" --mode advise --repo "$REPO_ROOT" --model claude-opus-5-5 --effort high <<'PROMPT'
    <one self-contained question; request constraints and a file map, not source edits>
    PROMPT
    ```
@@ -111,7 +111,7 @@ after findings are arbitrated.
 
 ```bash
 legs=()   # one --leg per reviewer actually launched
-"${CLAUDE_PLUGIN_ROOT}/scripts/run-claude.sh" --mode review --repo "$REPO_ROOT" --base "$BASE_SHA" --model claude-opus-5 --effort high <<'PROMPT' > "$RUN_DIR/claude.txt" &
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-claude.sh" --mode review --repo "$REPO_ROOT" --base "$BASE_SHA" --model claude-opus-5-5 --effort high <<'PROMPT' > "$RUN_DIR/claude.txt" &
 <task and acceptance criteria; ask for architecture, intent, UX, scope, and integration defects>
 PROMPT
 claude_pid=$!; legs+=(--leg claude="$RUN_DIR/claude.txt")

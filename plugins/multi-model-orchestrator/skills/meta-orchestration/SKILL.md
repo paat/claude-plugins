@@ -55,11 +55,11 @@ sources:
     close: "<shell command closing or commenting a workitem; id appended>"  # optional
 models:
   allow: [gpt-5.6-terra, grok-4.7, claude-sonnet-5]  # optional leg allowlist
-  deny: [claude-fable-5]                             # optional leg denylist
+  deny: [claude-fable-5-1]                           # optional leg denylist
   worker: "gpt-5.6-terra high"                       # optional per-role pins
   reviewer: "grok-4.7 high"
-  advise: "claude-opus-5 high"
-  research: "claude-opus-5 high"
+  advise: "claude-opus-5-5 high"
+  research: "claude-opus-5-5 high"
 ```
 
 Treat sourced items like issues. Deliver via git branches and GitHub PRs; after merge, close or
