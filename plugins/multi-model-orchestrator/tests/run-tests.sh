@@ -1784,8 +1784,8 @@ contains "$QL_WRAPPER_ARGV" '--max-wall-time' 'dispatch passes a qwen wall-time 
 contains "$QL_WRAPPER_ARGV" '3540s' 'large timeout reserves 60 seconds outside qwen'
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
   bash "$QL_RUN" --mode implement --repo "$qwen_repo" --timeout 100 "task" >/dev/null 2>&1
-contains "$QL_WRAPPER_ARGV" '100s' 'small timeout is passed through as qwen wall time'
-pass 'run-qwen-local: timeout bounds the qwen worker wall clock'
+contains "$QL_WRAPPER_ARGV" '50s' 'small timeout reserves half for qwen wall time'
+pass 'run-qwen-local: timeout reserves a monotonic qwen wall-time margin'
 
 rc=0
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" QL_STUB_EXIT=55 \

@@ -65,11 +65,7 @@ case "$mode" in
   *) printf 'run-qwen-local: --mode must be implement or review\n' >&2; exit 2 ;;
 esac
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-qwen-local: timeout must be a positive integer\n' >&2; exit 2; }
-if [ "$run_timeout" -gt 120 ]; then
-  qwen_wall_time="$((run_timeout - 60))s"
-else
-  qwen_wall_time="${run_timeout}s"
-fi
+qwen_wall_time="$((run_timeout - (run_timeout / 2 < 60 ? run_timeout / 2 : 60)))s"
 [ "$mode" != review ] || [ -n "$base_ref" ] || {
   printf 'run-qwen-local: review mode needs --base (the worker has no shell and cannot run git)\n' >&2
   exit 2
