@@ -69,7 +69,10 @@ after every decision. `--resume [handoff-path]` continues from the newest (or na
 trailing text is treated as overrides of decided judgment calls and brief deltas. A scan that finds nothing new writes
 nothing and stops; recurrence belongs to `/loop` or cron.
 
-Long runs reset their context through compaction: the handoff is always current, and after a
+In the Claude desktop app the orchestrator resets its own context at each item boundary: it
+writes the handoff and a `.reset-pending` marker, calls `clear_session`, and a `SessionStart`
+`clear` hook (`asyncRewake`) wakes the fresh session to resume from that handoff. Elsewhere, or
+when the clear is refused, long runs reset through compaction: the handoff is always current, and after a
 compaction the re-attached skill plus a `SessionStart` `compact` hook send the orchestrator back to
 the newest handoff (modified within 24 hours) to continue as `--resume`. The default window lets a
 1M-context session grow to ~967k tokens before that happens, so every turn re-sends up to that
