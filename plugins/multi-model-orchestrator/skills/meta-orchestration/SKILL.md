@@ -96,10 +96,10 @@ overrides of decided judgment calls and brief deltas.
 ## Handoff discipline
 
 Update the handoff after every merge, review verdict, ratified decision, filed
-research memo, or filed item — not at session end. Item boundaries: reset per
-`references/context-reset.md`. After compaction, resume from the newest handoff;
-the summary is not authoritative. Browser QA, screenshots, logs and diffs go to a leg or
-subagent returning a verdict.
+research memo, or filed item — not at session end. At item ends, reset per
+`references/context-reset.md`. After compaction, resume from this run's handoff
+(the summary names it); the summary is not authoritative. Browser QA, screenshots,
+logs, diffs: a leg or subagent returns a verdict.
 
 ## Per-item loop
 

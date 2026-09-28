@@ -2249,14 +2249,14 @@ REANCHOR="$PLUGIN_ROOT/hooks/reanchor.sh"
 R="$WORK/re anchor"; H="$R/.claude/handoffs"; mkdir -p "$H"
 hook() { printf '%s' "$1" | CLAUDE_PROJECT_DIR="$R" bash "$REANCHOR"; }
 [ -z "$(hook '{"source": "compact"}')" ] || fail 'Compact hook is silent without a handoff'
-touch -d '2 days ago' "$H/handoff-2026-01-01T0000Z.md"
+touch -t 200001010000 "$H/handoff-2026-01-01T0000Z.md"
 [ -z "$(hook '{"source": "compact"}')" ] || fail 'Compact hook ignores a stale handoff'
 touch "$H/handoff-2026-01-02T0000Z.md"
 case "$(hook '{"hook_event_name":"SessionStart","source":"compact","model":"clear"}')" in
   *"handoff-2026-01-02T0000Z.md"*"--resume"*) ;; *) fail 'Compact hook reads the source field exactly and names the newest fresh handoff' ;; esac
 [ -z "$(hook '{"source": "startup"}')" ] || fail 'Reanchor hook ignores other SessionStart sources'
 hook '{"source": "clear"}' >/dev/null 2>&1 || fail 'Clear without a marker does not wake'
-printf '%s\n' "$H/handoff-2026-01-02T0000Z.md" > "$H/.reset-pending"; touch -d '10 minutes ago' "$H/.reset-pending"
+printf '%s\n' "$H/handoff-2026-01-02T0000Z.md" > "$H/.reset-pending"; touch -t 200001010000 "$H/.reset-pending"
 hook '{"source": "clear"}' >/dev/null 2>&1 || fail 'Clear ignores a stale marker'
 [ ! -e "$H/.reset-pending" ] || fail 'Clear removes a stale marker'
 printf '%s\n' "$H/missing.md" > "$H/.reset-pending"
