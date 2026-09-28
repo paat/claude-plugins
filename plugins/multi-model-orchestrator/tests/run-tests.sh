@@ -917,7 +917,10 @@ pass 'Orchestrate uses the closing-tribunal-loop flow by default'
 META_CMD="$PLUGIN_ROOT/commands/meta-orchestrate.md"
 META_SKILL="$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md"
 META_REFS="$PLUGIN_ROOT/skills/meta-orchestration/references"
-contains "$META_CMD" 'skills/meta-orchestration/SKILL.md' 'Meta command loads the meta-orchestration skill'
+contains "$META_CMD" "Skill('multi-model-orchestrator:meta-orchestration')" 'Meta command invokes the meta-orchestration skill via the Skill tool'
+contains "$META_CMD" 'allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill' 'Meta command allows the Skill tool'
+contains "$META_SKILL" 'the summary is not authoritative' 'Meta skill re-anchors on the handoff after compaction'
+contains "$PLUGIN_ROOT/README.md" '"autoCompactWindow": "300k"' 'README documents the compaction cap'
 contains "$META_CMD" '--resume' 'Meta command documents resume'
 contains "$META_CMD" 'mission brief' 'Meta command takes a free-form what-to-achieve brief'
 contains "$META_SKILL" 'HOW is yours' 'Meta skill owns the how; the brief owns the what'

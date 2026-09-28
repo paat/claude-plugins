@@ -10,8 +10,7 @@ autonomy bounds, stop conditions — and is authoritative on all of it. HOW is y
 decomposition, sequencing, model routing, dispatch, gating, and recovery follow the rules
 below. You coordinate; you never edit source. Route every worker and reviewer leg with
 `../route-model-task/SKILL.md` — do not restate its catalog. Do not load
-`../multi-model-orchestration/SKILL.md`; its single-run preflight does not apply to
-multi-session work.
+`../multi-model-orchestration/SKILL.md` (single-run preflight).
 
 ## Autonomy
 
@@ -26,7 +25,7 @@ continue with the next tree-independent item. Do not burn the session on preflig
 
 ## Interpreting the brief
 
-Infer the shape from the brief's wording — recognition patterns, not required syntax. All feed
+Infer the shape from the brief's wording, not required syntax. All feed
 the same per-item loop:
 
 - **Epic** — the brief names one epic issue: single epic branch, delivery strategy A.
@@ -97,8 +96,9 @@ overrides of decided judgment calls and brief deltas.
 ## Handoff discipline
 
 Update the current handoff after every merge, review verdict, ratified decision, filed
-research memo, or filed item — not at session end. Inherit prior protocol sections verbatim;
-record only deltas. A session that dies mid-decision costs one resume, nothing more.
+research memo, or filed item — not at session end. After compaction, re-read the newest
+handoff and continue as `--resume`; the summary is not authoritative. Browser QA, screenshots,
+full logs and diffs go to a leg or subagent returning a verdict.
 
 ## Per-item loop
 

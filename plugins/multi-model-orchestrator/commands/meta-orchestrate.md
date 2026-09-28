@@ -1,12 +1,13 @@
 ---
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill
 description: Run the show over a queue of work — epic, issue list, discovery goal, or workitem scan — through multi-model worker and reviewer legs with adversarial gates, crash-safe handoffs, and tribunal close-out
 argument-hint: "<mission brief: what to achieve> | --resume [handoff-path]"
 ---
 
 # /multi-model-orchestrator:meta-orchestrate
 
-Load `skills/meta-orchestration/SKILL.md` and execute it for `$ARGUMENTS`.
+Invoke `Skill('multi-model-orchestrator:meta-orchestration')` and execute it for `$ARGUMENTS`.
+Load it through the Skill tool, not Read: only invoked skills are re-attached after compaction.
 
 ## Arguments
 
