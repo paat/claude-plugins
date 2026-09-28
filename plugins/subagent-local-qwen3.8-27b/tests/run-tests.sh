@@ -91,22 +91,8 @@ contains "review command uses plan mode" "--approval-mode plan" "$rev_cmd"
 source "$SCRIPT"
 set +e
 
-installed_qwen="$(command -v qwen 2>/dev/null || true)"
-if [ -n "$installed_qwen" ]; then
-  installed_help="$("$installed_qwen" --help 2>&1)"
-  installed_missing=""
-  for smoke_mode in yolo plan; do
-    while IFS= read -r -d '' smoke_arg; do
-      case "$smoke_arg" in
-        --*)
-          if ! printf '%s' "$installed_help" | grep -qF -- "$smoke_arg"; then
-            installed_missing="${installed_missing:+$installed_missing }$smoke_arg"
-          fi
-          ;;
-      esac
-    done < <(ql_build_cmd "Qwen3.8-27B-UD-Q6_K_XL-coding" "$smoke_mode" "1" "1m" "" "/tmp")
-  done
-  check "installed qwen supports ql_build_cmd long flags" "" "$installed_missing"
+if command -v qwen >/dev/null 2>&1; then
+  ql_preflight_cli; check "installed qwen passes ql_preflight_cli" 0 "$?"
 else
   echo "SKIP  installed qwen smoke test (qwen not on PATH)"
 fi
