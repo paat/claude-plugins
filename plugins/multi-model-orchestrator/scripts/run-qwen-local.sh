@@ -11,9 +11,9 @@
 #                     [--timeout SECONDS] [--out FILE] [--prompt-file FILE] [PROMPT]
 #
 # Exit codes: 0 ok; 2 usage; 3 nothing to review; 4 diff over the cap; 5 empty
-# final message; 6 review without a terminal
-# APPROVE/NEEDS_WORK; 75 unavailable (slot busy, server down, or no wrapper) —
-# route elsewhere; other codes come from the wrapper.
+# final message; 6 review without a terminal APPROVE/NEEDS_WORK; 55 qwen run
+# budget exceeded (worktree may be partly edited); 75 unavailable (slot busy,
+# server down, or no wrapper) — route elsewhere; other codes come from the wrapper.
 #
 # Env:
 # Requires flock, curl and jq; without any of them the contract cannot be kept and
@@ -65,6 +65,11 @@ case "$mode" in
   *) printf 'run-qwen-local: --mode must be implement or review\n' >&2; exit 2 ;;
 esac
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-qwen-local: timeout must be a positive integer\n' >&2; exit 2; }
+if [ "$run_timeout" -gt 120 ]; then
+  qwen_wall_time="$((run_timeout - 60))s"
+else
+  qwen_wall_time="${run_timeout}s"
+fi
 [ "$mode" != review ] || [ -n "$base_ref" ] || {
   printf 'run-qwen-local: review mode needs --base (the worker has no shell and cannot run git)\n' >&2
   exit 2
@@ -241,7 +246,7 @@ stream_file="$runtime_dir/stream.json"
 [ -n "$output_file" ] || output_file="$runtime_dir/body.txt"
 case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
 
-wrapper_args=(--dir "$repo_dir" --timeout "$run_timeout" --out "$stream_file")
+wrapper_args=(--dir "$repo_dir" --timeout "$run_timeout" --max-wall-time "$qwen_wall_time" --out "$stream_file")
 if [ "$mode" = review ]; then
   # Hand over the patch we just validated: re-diffing in the wrapper would be a
   # second source of truth that the size gate never saw.
@@ -262,6 +267,9 @@ cat "$runtime_dir/err.txt" >&2
 if [ "$rc" -eq 127 ]; then
   printf 'run-qwen-local: qwen CLI missing or too old; route elsewhere\n' >&2
   rc=75
+fi
+if [ "$rc" -eq 55 ]; then
+  printf 'run-qwen-local: qwen run budget exceeded (exit 55: --max-wall-time or --max-session-turns); worktree may be partly edited\n' >&2
 fi
 if [ "$rc" -eq 0 ] && [ -z "$(tr -d '[:space:]' < "$output_file")" ]; then
   printf 'run-qwen-local: missing or empty final-message artifact: %s\n' "$output_file" >&2
