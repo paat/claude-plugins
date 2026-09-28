@@ -152,16 +152,33 @@ ql_pick_base() {
   printf '%s' "$QL_DEFAULT_BASE"
 }
 
-# ql_preflight_cli — qwen on PATH and recent enough for --yolo / --approval-mode.
+# ql_preflight_cli — qwen on PATH and supports every long option we build.
 ql_preflight_cli() {
   if ! command -v qwen >/dev/null 2>&1; then
     printf 'subagent-local-qwen3.8-27b-run: qwen CLI not found on PATH. install Qwen Code >= 0.23.4\n' >&2
     return 127
   fi
-  local help
+  local help arg mode required_flags="" missing_flags=""
   help="$(qwen --help 2>&1 || true)"
-  if ! printf '%s' "$help" | grep -qE -- '--yolo|--approval-mode'; then
-    printf 'subagent-local-qwen3.8-27b-run: qwen --help missing --yolo/--approval-mode; install Qwen Code >= 0.23.4\n' >&2
+  for mode in yolo plan; do
+    while IFS= read -r -d '' arg; do
+      case "$arg" in
+        --*)
+          case " $required_flags " in
+            *" $arg "*) ;;
+            *) required_flags="${required_flags:+$required_flags }$arg" ;;
+          esac
+          ;;
+      esac
+    done < <(ql_build_cmd "Qwen3.8-27B-UD-Q6_K_XL-coding" "$mode" "1" "1m" "" "/tmp")
+  done
+  for arg in $required_flags; do
+    if ! printf '%s' "$help" | grep -qF -- "$arg"; then
+      missing_flags="${missing_flags:+$missing_flags }$arg"
+    fi
+  done
+  if [ -n "$missing_flags" ]; then
+    printf 'subagent-local-qwen3.8-27b-run: qwen --help missing %s; install Qwen Code >= 0.23.4\n' "$missing_flags" >&2
     return 127
   fi
   return 0

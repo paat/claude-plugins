@@ -1849,7 +1849,7 @@ if [ -n "$real_wrapper" ]; then
   cat > "$contract_bin/qwen" <<'QWENSTUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
-  echo "Usage: qwen --yolo --approval-mode"
+  echo "Usage: qwen --yolo --approval-mode --output-style --exclude-tools --max-session-turns --max-wall-time --append-system-prompt --include-directories"
   exit 0
 fi
 printf '%s\n' "$@" > "$QL_CONTRACT_ARGV"
@@ -2016,8 +2016,9 @@ chmod +x "$WORK/bin/qwen-wrapper-127.sh"
 rc=0
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-127.sh" \
   OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
-  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>"$WORK/qwen-wrapper-127.err" || rc=$?
 [ "$rc" -eq 75 ] || fail "a missing qwen CLI exits 75 (got $rc)"
+contains "$WORK/qwen-wrapper-127.err" 'qwen CLI not found on PATH' 'a missing qwen CLI surfaces wrapper stderr'
 pass 'run-qwen-local: a missing qwen CLI exits 75'
 
 # An oversized review diff belongs on a bigger-context model, not a truncated local one.
