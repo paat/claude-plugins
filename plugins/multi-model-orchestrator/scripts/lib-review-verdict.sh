@@ -46,7 +46,7 @@ mmo_finish() {
   shift 3
   local failure_kind=""
   case "$rc" in
-    0|2|3|4|5|6|7|124) ;;
+    0|2|3|4|5|6|7|55|124) ;;
     *)
       failure_kind="$(mmo_classify_provider_failure "$errf")"
       case "$failure_kind" in

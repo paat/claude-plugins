@@ -139,7 +139,7 @@ logs, diffs: a leg or subagent returns a verdict.
 ## Reliability rules
 
 - Prior leg done per `references/leg-liveness.md` (mtime + exit marker; never `pgrep`; failure exits 75/77). A process-list snapshot is not a liveness check.
-- Worker exit 124 (timeout) often lands AFTER the work completed: never discard on 124 — check
+- Exits 124 (timeout) or 55 (local Qwen budget) may follow work: never discard either — check
   `git status`, rerun suites, and salvage or redispatch on evidence.
 - You never edit source while any worker is live. `git checkout` is a write. Never
   `gh pr merge --delete-branch` under a live worker — that moves the tree out from under it.

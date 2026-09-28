@@ -1735,7 +1735,8 @@ fi
 printf '%s\n' "$@" > "$QL_WRAPPER_ARGV"
 cat > /dev/null
 printf '%s\n' 'APPROVE'
-exit 0
+printf '%s\n' "${QL_STUB_ERR:-}" >&2
+exit "${QL_STUB_EXIT:-0}"
 WRAP
 chmod +x "$WORK/bin/qwen-wrapper.sh"
 export QL_WRAPPER_ARGV="$WORK/qwen-argv.txt"
@@ -1773,7 +1774,31 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BAS
 contains "$QL_WRAPPER_ARGV" '--approval-mode' 'review dispatch passes --approval-mode'
 contains "$QL_WRAPPER_ARGV" 'plan' 'review dispatch pins plan mode'
 contains "$QL_WRAPPER_ARGV" '--diff-file' 'review dispatch hands over the validated patch'
+contains "$QL_WRAPPER_ARGV" '--max-wall-time' 'review dispatch passes a qwen wall-time limit'
+contains "$QL_WRAPPER_ARGV" '840s' 'default timeout reserves 60 seconds outside qwen'
 pass 'run-qwen-local: review dispatch is read-only with the diff'
+
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" --timeout 3600 "task" >/dev/null 2>&1
+contains "$QL_WRAPPER_ARGV" '--max-wall-time' 'dispatch passes a qwen wall-time limit'
+contains "$QL_WRAPPER_ARGV" '3540s' 'large timeout reserves 60 seconds outside qwen'
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" --timeout 100 "task" >/dev/null 2>&1
+contains "$QL_WRAPPER_ARGV" '50s' 'small timeout reserves half for qwen wall time'
+pass 'run-qwen-local: timeout reserves a monotonic qwen wall-time margin'
+
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" QL_STUB_EXIT=55 \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>"$WORK/qwen-budget.err" || rc=$?
+[ "$rc" -eq 55 ] || fail "qwen budget exit stays 55 (got $rc)"
+contains "$WORK/qwen-budget.err" 'budget exceeded' 'qwen budget exit has a named diagnostic'
+pass 'run-qwen-local: qwen run budget exit is reported and preserved'
+
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" QL_STUB_EXIT=55 QL_STUB_ERR='503 Service Unavailable' \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 55 ] || fail "qwen budget exit with provider stderr stays 55 (got $rc)"
+pass 'run-qwen-local: qwen budget exit ignores provider-like stderr'
 
 # implement mode is write-capable
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
