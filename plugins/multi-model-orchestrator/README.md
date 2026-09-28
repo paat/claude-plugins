@@ -75,8 +75,8 @@ the newest handoff (modified within 24 hours) to continue as `--resume`. The def
 1M-context session grow to ~967k tokens before that happens, so every turn re-sends up to that
 much. Cap it in the dev container's user settings so resets happen early:
 `"autoCompactWindow": 300000` in `~/.claude/settings.json` (Claude Code) and
-`model_auto_compact_token_limit = 300000` in `~/.codex/config.toml` (Codex). The hook ships for
-Claude Code only; Codex supports the same `SessionStart` hook (matcher `^compact$`) in user config.
+`model_auto_compact_token_limit = 300000` in `~/.codex/config.toml` (Codex). The same hook
+runs on Codex, which also re-runs `SessionStart` hooks after compaction.
 
 When an item depends on out-of-repo facts, a research leg records tiered evidence in a tracked
 memo. Unknowns are researched before a judgment call is decided with the recommended default and recorded.
