@@ -69,6 +69,15 @@ after every decision. `--resume [handoff-path]` continues from the newest (or na
 trailing text is treated as overrides of decided judgment calls and brief deltas. A scan that finds nothing new writes
 nothing and stops; recurrence belongs to `/loop` or cron.
 
+Long runs reset their context through compaction: the handoff is always current, and after a
+compaction the re-attached skill plus a `SessionStart` `compact` hook send the orchestrator back to
+the newest handoff (modified within 24 hours) to continue as `--resume`. The default window lets a
+1M-context session grow to ~967k tokens before that happens, so every turn re-sends up to that
+much. Cap it in the dev container's user settings so resets happen early:
+`"autoCompactWindow": 200000` in `~/.claude/settings.json` (Claude Code) and
+`model_auto_compact_token_limit = 200000` in `~/.codex/config.toml` (Codex). The same hook
+runs on Codex, which also re-runs `SessionStart` hooks after compaction.
+
 When an item depends on out-of-repo facts, a research leg records tiered evidence in a tracked
 memo. Unknowns are researched before a judgment call is decided with the recommended default and recorded.
 
