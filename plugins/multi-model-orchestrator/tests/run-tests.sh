@@ -920,7 +920,7 @@ META_REFS="$PLUGIN_ROOT/skills/meta-orchestration/references"
 contains "$META_CMD" "Skill('multi-model-orchestrator:meta-orchestration')" 'Meta command invokes the meta-orchestration skill via the Skill tool'
 contains "$META_CMD" 'allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill' 'Meta command allows the Skill tool'
 contains "$META_SKILL" 'the summary is not authoritative' 'Meta skill re-anchors on the handoff after compaction'
-contains "$PLUGIN_ROOT/README.md" '"autoCompactWindow": "300k"' 'README documents the compaction cap'
+contains "$PLUGIN_ROOT/README.md" '"autoCompactWindow": 300000' 'README documents the compaction cap'
 contains "$META_CMD" '--resume' 'Meta command documents resume'
 contains "$META_CMD" 'mission brief' 'Meta command takes a free-form what-to-achieve brief'
 contains "$META_SKILL" 'HOW is yours' 'Meta skill owns the how; the brief owns the what'
@@ -2244,5 +2244,19 @@ contains "$PLUGIN_ROOT/commands/orchestrate.md" \
   'scripts/review-gate.sh' 'orchestrate fallback block calls the gate'
 contains "$PLUGIN_ROOT/commands/orchestrate.md" \
   'Only a gate exit of 0 ends' 'NEEDS_WORK loops back through the gate instead of proceeding'
+
+REANCHOR="$PLUGIN_ROOT/hooks/reanchor.sh"
+mkdir -p "$WORK/reanchor/.claude/handoffs"
+out=$(CLAUDE_PROJECT_DIR="$WORK/reanchor" bash "$REANCHOR" </dev/null)
+[ -z "$out" ] || fail 'Reanchor hook is silent without a handoff'
+touch "$WORK/reanchor/.claude/handoffs/handoff-2026-01-01T0000Z.md"
+touch -d '2 days ago' "$WORK/reanchor/.claude/handoffs/handoff-2026-01-01T0000Z.md"
+out=$(CLAUDE_PROJECT_DIR="$WORK/reanchor" bash "$REANCHOR" </dev/null)
+[ -z "$out" ] || fail 'Reanchor hook ignores a stale handoff'
+touch "$WORK/reanchor/.claude/handoffs/handoff-2026-01-02T0000Z.md"
+out=$(echo '{}' | CLAUDE_PROJECT_DIR="$WORK/reanchor" bash "$REANCHOR")
+case "$out" in *"handoffs/handoff-2026-01-02T0000Z.md"*"--resume"*) ;; *) fail 'Reanchor hook points at the newest fresh handoff' ;; esac
+contains "$PLUGIN_ROOT/hooks/hooks.json" '"matcher": "compact"' 'Reanchor hook runs only after compaction'
+pass 'Reanchor hook re-points a compacted orchestrator at its newest handoff'
 
 printf 'All multi-model-orchestrator tests passed.\n'
