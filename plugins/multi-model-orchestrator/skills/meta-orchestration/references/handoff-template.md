@@ -15,6 +15,11 @@ the tracker, not recalled. Supersedes <prior-handoff or "nothing">.
 
 Read in this order before acting: <this file> → <grounding doc(s)> → <epic issue>.
 
+## Brief
+
+<the original mission brief, verbatim, then every override in force (autonomy bounds, stop
+conditions, provider/model restrictions) with where each came from. A fresh session has no other copy.>
+
 ## Stop here first
 
 <ONE next action, already decided. State the decision and why nothing else can proceed before it,
