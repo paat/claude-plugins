@@ -10,7 +10,7 @@ autonomy bounds, stop conditions — and is authoritative on all of it. HOW is y
 decomposition, sequencing, model routing, dispatch, gating, and recovery follow the rules
 below. You coordinate; you never edit source. Route every worker and reviewer leg with
 `../route-model-task/SKILL.md` — do not restate its catalog. Do not load
-`../multi-model-orchestration/SKILL.md` (single-run preflight).
+`../multi-model-orchestration/SKILL.md`.
 
 ## Autonomy
 
@@ -95,10 +95,11 @@ overrides of decided judgment calls and brief deltas.
 
 ## Handoff discipline
 
-Update the current handoff after every merge, review verdict, ratified decision, filed
-research memo, or filed item — not at session end. After compaction, re-read the newest
-handoff and continue as `--resume`; the summary is not authoritative. Browser QA, screenshots,
-full logs and diffs go to a leg or subagent returning a verdict.
+Update the handoff after every merge, review verdict, ratified decision, filed
+research memo, or filed item — not at session end. Item boundaries: reset per
+`references/context-reset.md`. After compaction, resume from the newest handoff;
+the summary is not authoritative. Browser QA, screenshots, logs and diffs go to a leg or
+subagent returning a verdict.
 
 ## Per-item loop
 

@@ -2256,7 +2256,18 @@ out=$(CLAUDE_PROJECT_DIR="$WORK/reanchor" bash "$REANCHOR" </dev/null)
 touch "$WORK/reanchor/.claude/handoffs/handoff-2026-01-02T0000Z.md"
 out=$(echo '{}' | CLAUDE_PROJECT_DIR="$WORK/reanchor" bash "$REANCHOR")
 case "$out" in *"handoffs/handoff-2026-01-02T0000Z.md"*"--resume"*) ;; *) fail 'Reanchor hook points at the newest fresh handoff' ;; esac
-contains "$PLUGIN_ROOT/hooks/hooks.json" '"matcher": "compact"' 'Reanchor hook runs only after compaction'
+out=$(echo '{"source": "clear"}' | CLAUDE_PROJECT_DIR="$WORK/reanchor" bash "$REANCHOR" 2>&1) || fail 'Clear without a reset marker stays silent and does not wake'
+[ -z "$out" ] || fail 'Clear without a reset marker prints nothing'
+printf '%s\n' .claude/handoffs/handoff-2026-01-02T0000Z.md > "$WORK/reanchor/.claude/handoffs/.reset-pending"
+set +e; err=$(echo '{"source": "clear"}' | CLAUDE_PROJECT_DIR="$WORK/reanchor" bash "$REANCHOR" 2>&1 >/dev/null); rc=$?; set -e
+[ "$rc" -eq 2 ] || fail 'Clear with a reset marker exits 2 to wake the session'
+case "$err" in *"--resume .claude/handoffs/handoff-2026-01-02T0000Z.md"*) ;; *) fail 'Clear wake names the marked handoff' ;; esac
+[ ! -e "$WORK/reanchor/.claude/handoffs/.reset-pending" ] || fail 'Clear wake consumes the reset marker'
+contains "$PLUGIN_ROOT/hooks/hooks.json" '"matcher": "compact"' 'Reanchor hook runs after compaction'
+contains "$PLUGIN_ROOT/hooks/hooks.json" '"asyncRewake": true' 'Clear hook wakes an idle session'
+contains "$META_REFS/context-reset.md" 'clear_session' 'Checkpoint reset uses the desktop clear_session tool'
+contains "$META_REFS/context-reset.md" 'no leg is in flight' 'Checkpoint reset waits for in-flight legs'
+contains "$META_SKILL" 'references/context-reset.md' 'Meta skill resets at item boundaries'
 pass 'Reanchor hook re-points a compacted orchestrator at its newest handoff'
 
 printf 'All multi-model-orchestrator tests passed.\n'
