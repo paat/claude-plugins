@@ -91,6 +91,26 @@ contains "review command uses plan mode" "--approval-mode plan" "$rev_cmd"
 source "$SCRIPT"
 set +e
 
+installed_qwen="$(command -v qwen 2>/dev/null || true)"
+if [ -n "$installed_qwen" ]; then
+  installed_help="$("$installed_qwen" --help 2>&1)"
+  installed_missing=""
+  for smoke_mode in yolo plan; do
+    while IFS= read -r -d '' smoke_arg; do
+      case "$smoke_arg" in
+        --*)
+          if ! printf '%s' "$installed_help" | grep -qF -- "$smoke_arg"; then
+            installed_missing="${installed_missing:+$installed_missing }$smoke_arg"
+          fi
+          ;;
+      esac
+    done < <(ql_build_cmd "Qwen3.8-27B-UD-Q6_K_XL-coding" "$smoke_mode" "1" "1m" "" "/tmp")
+  done
+  check "installed qwen supports ql_build_cmd long flags" "" "$installed_missing"
+else
+  echo "SKIP  installed qwen smoke test (qwen not on PATH)"
+fi
+
 out="$(printf '%s' '[{"type":"message"},{"type":"result","result":"FINAL FROM JSON"}]' | ql_extract_final_answer)"
 check "extract JSON array last result" "FINAL FROM JSON" "$out"
 
@@ -181,7 +201,7 @@ run() {
 make_qwen <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
-  echo "Usage: qwen --yolo --approval-mode"
+  echo "Usage: qwen --yolo --approval-mode --output-style --exclude-tools --max-session-turns --max-wall-time --append-system-prompt --include-directories"
   exit 0
 fi
 # Record argv + whether prompt arrived on stdin; emit JSON result.
@@ -230,7 +250,7 @@ contains "isolated settings reasoning_effort medium" '"reasoning_effort": "mediu
 make_qwen <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
-  echo "Usage: qwen --yolo --approval-mode"
+  echo "Usage: qwen --yolo --approval-mode --output-style --exclude-tools --max-session-turns --max-wall-time --append-system-prompt --include-directories"
   exit 0
 fi
 printf '%s\n' "$@" > /tmp/ql-stub-argv-plan
@@ -247,7 +267,7 @@ check "plan mode omits yolo" 0 "$(grep -cx -- '--yolo' /tmp/ql-stub-argv-plan ||
 make_qwen <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
-  echo "Usage: qwen --yolo --approval-mode"
+  echo "Usage: qwen --yolo --approval-mode --output-style --exclude-tools --max-session-turns --max-wall-time --append-system-prompt --include-directories"
   exit 0
 fi
 cat > "${QL_STUB_STDIN:-/tmp/ql-stub-stdin}"
@@ -313,7 +333,7 @@ chmod +x "$stubdir/curl"
 make_qwen <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
-  echo "Usage: qwen --yolo --approval-mode"
+  echo "Usage: qwen --yolo --approval-mode --output-style --exclude-tools --max-session-turns --max-wall-time --append-system-prompt --include-directories"
   exit 0
 fi
 printf '%s\n' "${OPENAI_BASE_URL:-unset}" > "${QL_STUB_BASE:-/tmp/ql-stub-base}"
@@ -346,7 +366,7 @@ check "missing qwen exits 127" 127 "$?"
 make_qwen <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
-  echo "Usage: qwen --yolo --approval-mode"
+  echo "Usage: qwen --yolo --approval-mode --output-style --exclude-tools --max-session-turns --max-wall-time --append-system-prompt --include-directories"
   exit 0
 fi
 exit 0
@@ -436,7 +456,7 @@ CURL
 make_qwen <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
-  echo "Usage: qwen --yolo --approval-mode"
+  echo "Usage: qwen --yolo --approval-mode --output-style --exclude-tools --max-session-turns --max-wall-time --append-system-prompt --include-directories"
   exit 0
 fi
 sleep 10
@@ -450,14 +470,15 @@ contains "timeout surfaces recovery steps" "git -C" "$err"
 check "host settings still unchanged at end" "$host_settings_before" \
   "$(cat "$host_qwen_dir/.qwen/settings.json")"
 
-# (g) old qwen without --yolo in --help
+# (g) qwen with an obsolete --help must fail before command execution.
 make_qwen <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
-  echo "Usage: qwen (old)"
+  echo "Usage: qwen --yolo --approval-mode --exclude-tools --max-session-turns --max-wall-time --append-system-prompt --include-directories"
   exit 0
 fi
-exit 0
+echo "Unknown arguments: output-style" >&2
+exit 1
 STUB
 make_curl <<'CURL'
 #!/usr/bin/env bash
@@ -465,8 +486,21 @@ printf '%s\n' '{"data":[{"id":"Qwen3.8-27B-UD-Q6_K_XL-coding"}]}'
 printf '%s\n' '200'
 CURL
 err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
-check "old qwen exits 127" 127 "$rc"
-contains "old qwen asks for 0.23.4" "install Qwen Code >= 0.23.4" "$err"
+check "qwen missing output-style exits 127" 127 "$rc"
+contains "qwen missing output-style is named" "--output-style" "$err"
+contains "qwen missing output-style asks for 0.23.4" "install Qwen Code >= 0.23.4" "$err"
+
+# (h) a CLI whose help advertises every long flag built by ql_build_cmd passes.
+make_qwen <<'STUB'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  echo "Usage: qwen --yolo --approval-mode --output-style --exclude-tools --max-session-turns --max-wall-time --append-system-prompt --include-directories"
+  exit 0
+fi
+exit 0
+STUB
+err="$(PATH="$stubdir:$PATH" ql_preflight_cli 2>&1)"; rc=$?
+check "qwen with all built flags passes preflight" 0 "$rc"
 
 rm -rf "$stubdir" "$host_qwen_dir" "$argv_file" "$stdin_file" "$home_file" "$settings_file"
 echo
