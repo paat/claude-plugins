@@ -1735,6 +1735,7 @@ fi
 printf '%s\n' "$@" > "$QL_WRAPPER_ARGV"
 cat > /dev/null
 printf '%s\n' 'APPROVE'
+printf '%s\n' "${QL_STUB_ERR:-}" >&2
 exit "${QL_STUB_EXIT:-0}"
 WRAP
 chmod +x "$WORK/bin/qwen-wrapper.sh"
@@ -1792,6 +1793,12 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BAS
 [ "$rc" -eq 55 ] || fail "qwen budget exit stays 55 (got $rc)"
 contains "$WORK/qwen-budget.err" 'budget exceeded' 'qwen budget exit has a named diagnostic'
 pass 'run-qwen-local: qwen run budget exit is reported and preserved'
+
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" QL_STUB_EXIT=55 QL_STUB_ERR='503 Service Unavailable' \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 55 ] || fail "qwen budget exit with provider stderr stays 55 (got $rc)"
+pass 'run-qwen-local: qwen budget exit ignores provider-like stderr'
 
 # implement mode is write-capable
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
