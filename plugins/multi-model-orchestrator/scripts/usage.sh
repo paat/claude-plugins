@@ -47,10 +47,17 @@ codex_as_of=0
 sessions="${CODEX_HOME:-$HOME/.codex}/sessions"
 if [ -d "$sessions" ]; then
   while IFS= read -r f; do
-    row=$(grep -F '"rate_limits":{' "$f" 2>/dev/null | tail -n 1 | jq -r '
-      .payload.rate_limits | [.primary, .secondary][] | select(. != null)
-      | [(.window_minutes | if . == 300 then "5h" elif . == 10080 then "7d" else "\(.)m" end),
-         (.used_percent | round), .resets_at] | @tsv' 2>/dev/null) || row=""
+    row=$(grep -F '"rate_limits":{' "$f" 2>/dev/null | jq -R -n -r '
+      def mkrow(wm; up; ra):
+        if (ra | type) == "number" and (up | type) == "number"
+        then [(wm | if . == 300 then "5h" elif . == 10080 then "7d" else "\(.)m" end), (up | round), ra]
+        else empty end;
+      [inputs | fromjson?
+       | .payload.rate_limits as $rl
+       | [[$rl.primary, $rl.secondary][]? | select(. != null)
+          | mkrow(.window_minutes; .used_percent; .resets_at)] as $rows
+       | select($rows | length > 0) | $rows]
+      | last // empty | .[]? | @tsv' 2>/dev/null) || row=""
     if [ -n "$row" ]; then codex_rows="$row"; codex_as_of=$(stat -c %Y "$f"); break; fi
   done < <(find "$sessions" -name 'rollout-*.jsonl' -mtime -8 -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 20 | cut -d' ' -f2-)
 fi
@@ -62,10 +69,18 @@ fi
 
 # Claude stream-json: rate_limit_event.rate_limit_info.unifiedWindows.<name>.{utilization,resetsAt}.
 claude_rows() {
-  grep -hF '"rate_limit_event"' "$@" 2>/dev/null | tail -n 1 | jq -r '
-    .rate_limit_info.unifiedWindows // {} | to_entries[]
-    | [(.key | sub("five_hour"; "5h") | sub("seven_day"; "7d")),
-       (.value.utilization * 100 | round), .value.resetsAt] | @tsv' 2>/dev/null || true
+  grep -hF '"rate_limit_event"' "$@" 2>/dev/null | jq -R -n -r '
+    def relabel(t): (t | sub("five_hour"; "5h") | sub("seven_day"; "7d"));
+    def mkrow(name; ra; up):
+      if (ra | type) == "number" and (up | type) == "number"
+      then [name, (up * 100 | round), ra] else empty end;
+    [inputs | fromjson?
+     | .rate_limit_info as $ri | ($ri.unifiedWindows // {}) as $uw
+     | (([$uw | to_entries[] | mkrow(relabel(.key); .value.resetsAt; .value.utilization)])
+        + (if ($ri.rateLimitType != null) and (($uw | has($ri.rateLimitType)) | not)
+           then [mkrow(relabel($ri.rateLimitType); $ri.resetsAt; $ri.utilization)] else [] end)) as $rows
+     | select($rows | length > 0) | $rows]
+    | last // empty | .[]? | @tsv' 2>/dev/null || true
 }
 claude_out=""
 claude_as_of=0

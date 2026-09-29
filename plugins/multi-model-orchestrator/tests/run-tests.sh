@@ -2325,6 +2325,33 @@ out=$(CODEX_HOME="$U/none" PATH="$U/bin:$PATH" bash "$USAGE_SH" --probe-claude)
 case "$out" in *"claude unknown (probe returned no rate_limit_event)"*) ;; *) fail "usage.sh reports a failed probe as unknown: $out" ;; esac
 set +e; bash "$USAGE_SH" --bogus >/dev/null 2>&1; rc=$?; set -e
 [ "$rc" -eq 2 ] || fail "usage.sh rejects unknown flags (got $rc)"
+
+# Top-level per-model window (e.g. seven_day_opus) not among unifiedWindows is also emitted.
+printf '{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.02,"resetsAt":%s}},"rateLimitType":"seven_day_opus","utilization":1.0,"resetsAt":%s}}\n' "$future" "$future" > "$U/claude-toplevel.jsonl"
+out=$(CODEX_HOME="$U/none" bash "$USAGE_SH" --claude-log "$U/claude-toplevel.jsonl")
+case "$out" in *"claude 7d_opus 100% resets"*) ;; *) fail "usage.sh emits a per-model top-level window not in unifiedWindows: $out" ;; esac
+
+# A window with a non-numeric reset is dropped, not shown blank, while a valid sibling survives.
+printf '{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.5,"resetsAt":null},"seven_day":{"utilization":0.2,"resetsAt":%s}}}}\n' "$future" > "$U/claude-badreset.jsonl"
+out=$(CODEX_HOME="$U/none" bash "$USAGE_SH" --claude-log "$U/claude-badreset.jsonl")
+case "$out" in *"claude 5h"*) fail "usage.sh should drop a Claude window with a non-numeric reset: $out" ;; esac
+case "$out" in *"claude 7d 20% resets"*) ;; *) fail "usage.sh keeps a valid Claude window beside a dropped one: $out" ;; esac
+
+mkdir -p "$U/codex-badreset/sessions/2026/01/01"
+printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":"n/a","window_minutes":300,"resets_at":"2026-01-01"}}}}\n' > "$U/codex-badreset/sessions/2026/01/01/rollout-a.jsonl"
+out=$(CODEX_HOME="$U/codex-badreset" PATH="$U/bin:$PATH" bash "$USAGE_SH")
+case "$out" in *"codex unknown"*) ;; *) fail "usage.sh drops a Codex window with a non-numeric used value: $out" ;; esac
+
+# A truncated final JSONL line must not hide the last complete event.
+printf '{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.3,"resetsAt":%s}}}}\n{"type":"rate_limit_event","rate_limit_info":{"unifiedWindow' "$future" > "$U/claude-trunc.jsonl"
+out=$(CODEX_HOME="$U/none" bash "$USAGE_SH" --claude-log "$U/claude-trunc.jsonl")
+case "$out" in *"claude 5h 30% resets"*) ;; *) fail "usage.sh keeps the last complete Claude event despite a truncated line after it: $out" ;; esac
+
+mkdir -p "$U/codex-trunc/sessions/2026/01/01"
+printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":15,"window_minutes":300,"resets_at":%s}}}}\n{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_pe' "$future" > "$U/codex-trunc/sessions/2026/01/01/rollout-a.jsonl"
+out=$(CODEX_HOME="$U/codex-trunc" PATH="$U/bin:$PATH" bash "$USAGE_SH")
+case "$out" in *"codex 5h 15% resets"*) ;; *) fail "usage.sh keeps the last complete Codex event despite a truncated line after it: $out" ;; esac
+
 contains "$META_SKILL" 'references/usage-limits.md' 'Meta skill routes with usage headroom'
 contains "$META_REFS/usage-limits.md" 'get_usage' 'Usage limits prefer the desktop get_usage tool'
 contains "$META_REFS/handoff-template.md" '- Usage:' 'Handoff records the usage snapshot'

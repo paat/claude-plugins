@@ -28,9 +28,12 @@ A window is **tight** at ≥ 90% used when it resets after the leg would finish 
   provider were denied (`route-model-task` hard constraint). A fix-cycle delta stays with the SAME
   reviewer; if that reviewer is tight, finish the cycle and let exit 75 route the fallback.
 - Tight per-model window (for example `Weekly · Fable`): avoid that model only.
-- Every allowed route for a required role is tight: park the remaining items with the earliest
-  reset as the unblock condition, write the handoff, and stop the run.
+- Every allowed route for a role a queued item needs is tight: park only the items needing that
+  role, with the earliest reset as their unblock condition, and keep routing items that are still
+  routable elsewhere. Stop the run only once no queued item is routable.
 - The host running you is tight (≥ 95% for the orchestrator itself): finish the current gate, write
   the handoff with "Stop here first: resume after <reset UTC>", and stop at this item boundary
-  rather than dying mid-leg. Recurrence belongs to the caller (`/loop`, cron).
+  rather than dying mid-leg. This stop replaces the checkpoint reset (`context-reset.md`) — do not
+  call `clear_session`, so no successor wakes before the reset. Recurrence belongs to the caller
+  (`/loop`, cron).
 - Report each routing change and stop caused by usage in the handoff's Judgment calls decided.
