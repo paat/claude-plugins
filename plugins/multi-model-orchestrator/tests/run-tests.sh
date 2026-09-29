@@ -2305,6 +2305,28 @@ contains "$META_REFS/handoff-template.md" '## Brief' 'Handoff template carries t
 contains "$META_SKILL" 'references/context-reset.md' 'Meta skill resets at item boundaries'
 pass 'Reanchor hook re-points a compacted orchestrator at its newest handoff'
 
+WATCH="$PLUGIN_ROOT/hooks/context-watch.sh"
+CW="$WORK/cw"; mkdir -p "$CW"
+cw_claude() { printf '{"type":"user","message":{"content":"/multi-model-orchestrator:meta-orchestrate epic"}}\n{"message":{"usage":{"input_tokens":2,"cache_read_input_tokens":%s,"cache_creation_input_tokens":1000}},"type":"assistant"}\n{"type":"attachment","attachment":{"type":"x"}}\n' "$1" > "$CW/claude.jsonl"; }
+watch() { printf '{"session_id":"%s","transcript_path":"%s"}' "$1" "$2" | MMO_CONTEXT_WARN_TOKENS=100000 bash "$WATCH"; }
+cw_claude 50000
+[ -z "$(watch s1 "$CW/claude.jsonl")" ] || fail 'Context watch is silent below the threshold'
+cw_claude 120000
+case "$(watch s1 "$CW/claude.jsonl")" in
+  *'"hookEventName":"PostToolUse"'*'121002 tokens'*'checkpoint reset'*) ;; *) fail 'Context watch sums Claude usage and warns past the threshold' ;; esac
+[ -z "$(watch s1 "$CW/claude.jsonl")" ] || fail 'Context watch warns once per crossing'
+cw_claude 10000; watch s1 "$CW/claude.jsonl" >/dev/null; cw_claude 120000
+[ -n "$(watch s1 "$CW/claude.jsonl")" ] || fail 'Context watch re-arms after context drops (compaction)'
+printf '{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":130000,"cached_input_tokens":120000}}}}\n{"type":"x","payload":"multi-model-orchestrator:meta-orchestrate"}\n' > "$CW/codex.jsonl"
+case "$(watch s2 "$CW/codex.jsonl")" in *'130000 tokens'*) ;; *) fail 'Context watch reads Codex token_count input tokens' ;; esac
+printf '{"type":"assistant","message":{"usage":{"input_tokens":200000}}}\n' > "$CW/plain.jsonl"
+[ -z "$(watch s3 "$CW/plain.jsonl")" ] || fail 'Context watch stays silent outside meta-orchestrate sessions'
+printf '{"type":"user","message":{"content":"/multi-model-orchestrator:meta-orchestrate go"}}\n' >> "$CW/plain.jsonl"
+[ -n "$(watch s3 "$CW/plain.jsonl")" ] || fail 'Context watch warns when meta-orchestrate starts after the crossing'
+[ -z "$(printf '{}' | bash "$WATCH")" ] || fail 'Context watch tolerates missing hook fields'
+contains "$PLUGIN_ROOT/hooks/hooks.json" 'hooks/context-watch.sh' 'Context watch runs as a PostToolUse hook'
+pass 'Context watch warns a meta-orchestrator once past MMO_CONTEXT_WARN_TOKENS'
+
 USAGE_SH="$PLUGIN_ROOT/scripts/usage.sh"
 U="$WORK/usage"; mkdir -p "$U/codex/sessions/2026/01/01" "$U/bin"
 future=$(( $(date +%s) + 90000 )); past=$(( $(date +%s) - 60 ))
