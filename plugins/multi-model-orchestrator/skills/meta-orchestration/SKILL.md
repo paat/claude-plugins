@@ -103,8 +103,8 @@ logs, diffs: a leg or subagent returns a verdict.
 
 ## Per-item loop
 
-1. Route the item with `route-model-task` under the model constraints; emit its route card into
-   the ledger.
+1. Route the item with `route-model-task` under the model constraints and
+   `references/usage-limits.md`; emit its route card into the ledger.
 2. Buy only the grounding that is triggered:
    - **Advise (IN-REPO):** For ambiguous or high-coupling items, one advise leg via an allowed
      provider (`run-claude.sh` or `run-grok.sh --mode advise`); constraints/risks/file map ground
@@ -118,7 +118,7 @@ logs, diffs: a leg or subagent returns a verdict.
 3. Instantiate `references/worker-prompt.md`, feeding Hard-won constraints from the handoff's
    rules-learned section and any research memo for the item into Grounding docs / Hard-won
    constraints. Dispatch via `${CLAUDE_PLUGIN_ROOT}/scripts/` (`run-codex.sh` / `run-grok.sh` /
-   `run-claude.sh` / `run-qwen-local.sh`; `--dir`/`--repo` are synonyms; implement legs
+   `run-claude.sh` / `run-qwen-local.sh`; implement legs
    `--timeout 1800`).
 4. Gate yourself: inspect the item-branch diff, run the named suites, verify the final-message
    contract. If the leg's contract prevented committing, commit the gated result yourself —
@@ -138,7 +138,7 @@ logs, diffs: a leg or subagent returns a verdict.
 
 ## Reliability rules
 
-- Prior leg done per `references/leg-liveness.md` (mtime + exit marker; never `pgrep`; failure exits 75/77). A process-list snapshot is not a liveness check.
+- Prior leg done per `references/leg-liveness.md` (mtime + exit marker; never `pgrep` — not a liveness check; failure exits 75/77).
 - Exits 124 (timeout) or 55 (local Qwen budget) may follow work: never discard either — check
   `git status`, rerun suites, and salvage or redispatch on evidence.
 - You never edit source while any worker is live. `git checkout` is a write. Never
