@@ -22,6 +22,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'if [ -f \"${CLAUDE_PLUGIN_ROOT:-}/hooks/context-watch.sh\" ]; then exec bash \"${CLAUDE_PLUGIN_ROOT:-}/hooks/context-watch.sh\"; fi; if [ -f \"${CODEX_PLUGIN_ROOT:-}/hooks/context-watch.sh\" ]; then exec bash \"${CODEX_PLUGIN_ROOT:-}/hooks/context-watch.sh\"; fi; cat >/dev/null 2>&1 || true; echo \"[multi-model-orchestrator] hook target not found: hooks/context-watch.sh\" >&2; exit 0'",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

@@ -81,6 +81,12 @@ much. Cap it in the dev container's user settings so resets happen early:
 `model_auto_compact_token_limit = 200000` in `~/.codex/config.toml` (Codex). The same hook
 runs on Codex, which also re-runs `SessionStart` hooks after compaction.
 
+A `PostToolUse` hook (`hooks/context-watch.sh`, needs `jq`) reads the last usage record from the
+session transcript and, once context crosses `MMO_CONTEXT_WARN_TOKENS` (default 400000), tells a
+meta-orchestrator to bring its handoff current, keep the item lean and reset at the next boundary.
+It warns once per crossing and re-arms after compaction; it only matters when the compaction
+window is larger than the threshold.
+
 The orchestrator reads plan limits (percent used and reset time per 5-hour, weekly and per-model
 window) at start, resume and every item boundary: the desktop app's `get_usage` tool for Claude, or
 `scripts/usage.sh`, which reads Codex session logs and Claude `rate_limit_event`s (a run-claude
@@ -175,6 +181,7 @@ catalog.
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
 | `MMO_GROK_MAX_TURNS` | `30` | Grok tool-loop cap, from 1 to 100 |
 | `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/local-Qwen review |
+| `MMO_CONTEXT_WARN_TOKENS` | `400000` | Context size at which the context-watch hook warns a meta-orchestrator |
 | `MMO_HANDOFF_DIR` | `.claude/handoffs` | Repo-relative handoff directory in the target repository |
 | `MMO_QWEN_LOCAL_RUN` | discovered | Path to the `subagent-local-qwen3.8-27b` wrapper when it is not on `PATH` or in a plugin cache |
 
