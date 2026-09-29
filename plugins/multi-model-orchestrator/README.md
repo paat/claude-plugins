@@ -77,15 +77,15 @@ compaction the re-attached skill plus a `SessionStart` `compact` hook send the o
 the newest handoff (modified within 24 hours) to continue as `--resume`. The default window lets a
 1M-context session grow to ~967k tokens before that happens, so every turn re-sends up to that
 much. Cap it in the dev container's user settings so resets happen early:
-`"autoCompactWindow": 200000` in `~/.claude/settings.json` (Claude Code) and
-`model_auto_compact_token_limit = 200000` in `~/.codex/config.toml` (Codex). The same hook
+`"autoCompactWindow": 500000` in `~/.claude/settings.json` (Claude Code) and
+`model_auto_compact_token_limit = 200000` in `~/.codex/config.toml` (Codex, whose window is ~258k). The same hook
 runs on Codex, which also re-runs `SessionStart` hooks after compaction.
 
 A `PostToolUse` hook (`hooks/context-watch.sh`, needs `jq`) reads the last usage record from the
 session transcript and, once context crosses `MMO_CONTEXT_WARN_TOKENS` (default 400000), tells a
 meta-orchestrator to bring its handoff current, keep the item lean and reset at the next boundary.
-It warns once per crossing and re-arms after compaction; it only matters when the compaction
-window is larger than the threshold.
+It warns once per crossing and re-arms after compaction. With the recommended 500k Claude window it
+fires ~65k tokens before compaction (~467k); below a ~435k window it never fires.
 
 The orchestrator reads plan limits (percent used and reset time per 5-hour, weekly and per-model
 window) at start, resume and every item boundary: the desktop app's `get_usage` tool for Claude, or
