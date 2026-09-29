@@ -2305,4 +2305,29 @@ contains "$META_REFS/handoff-template.md" '## Brief' 'Handoff template carries t
 contains "$META_SKILL" 'references/context-reset.md' 'Meta skill resets at item boundaries'
 pass 'Reanchor hook re-points a compacted orchestrator at its newest handoff'
 
+USAGE_SH="$PLUGIN_ROOT/scripts/usage.sh"
+U="$WORK/usage"; mkdir -p "$U/codex/sessions/2026/01/01" "$U/bin"
+future=$(( $(date +%s) + 90000 )); past=$(( $(date +%s) - 60 ))
+rl() { printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":%s,"window_minutes":300,"resets_at":%s},"secondary":{"used_percent":91.6,"window_minutes":10080,"resets_at":%s}}}}\n' "$1" "$2" "$future"; }
+{ rl 10 "$future"; rl 40 "$past"; } > "$U/codex/sessions/2026/01/01/rollout-a.jsonl"
+out=$(CODEX_HOME="$U/codex" PATH="$U/bin:$PATH" bash "$USAGE_SH")
+case "$out" in *"codex 5h 0% (reset at"*) ;; *) fail "usage.sh zeroes a Codex window whose reset passed: $out" ;; esac
+case "$out" in *"codex 7d 92% resets "*" in 1d1h0m as-of "*|*"codex 7d 92% resets "*" in 1d0h59m as-of "*) ;; *) fail "usage.sh reports the newest Codex secondary window: $out" ;; esac
+case "$out" in *"claude unknown (pass --claude-log or --probe-claude"*"grok unknown"*) ;; *) fail "usage.sh names providers it cannot read: $out" ;; esac
+printf '{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.014,"resetsAt":%s},"seven_day":{"utilization":0.86,"resetsAt":%s}}}}\n' "$future" "$future" > "$U/claude.jsonl"
+out=$(CODEX_HOME="$U/none" bash "$USAGE_SH" --claude-log "$U/claude.jsonl" --claude-log "$U/missing.jsonl")
+case "$out" in *"codex unknown"*"claude 5h 1% resets"*"claude 7d 86% resets"*) ;; *) fail "usage.sh reads Claude windows from a stream log: $out" ;; esac
+printf '#!/usr/bin/env bash\n[ "$PWD" != "%s" ] || exit 9\ncat "%s"\n' "$PWD" "$U/claude.jsonl" > "$U/bin/claude"; chmod +x "$U/bin/claude"
+out=$(CODEX_HOME="$U/none" PATH="$U/bin:$PATH" bash "$USAGE_SH" --probe-claude)
+case "$out" in *"claude 7d 86% resets"*) ;; *) fail "usage.sh --probe-claude parses the probe stream: $out" ;; esac
+printf '#!/usr/bin/env bash\nexit 1\n' > "$U/bin/claude"
+out=$(CODEX_HOME="$U/none" PATH="$U/bin:$PATH" bash "$USAGE_SH" --probe-claude)
+case "$out" in *"claude unknown (probe returned no rate_limit_event)"*) ;; *) fail "usage.sh reports a failed probe as unknown: $out" ;; esac
+set +e; bash "$USAGE_SH" --bogus >/dev/null 2>&1; rc=$?; set -e
+[ "$rc" -eq 2 ] || fail "usage.sh rejects unknown flags (got $rc)"
+contains "$META_SKILL" 'references/usage-limits.md' 'Meta skill routes with usage headroom'
+contains "$META_REFS/usage-limits.md" 'get_usage' 'Usage limits prefer the desktop get_usage tool'
+contains "$META_REFS/handoff-template.md" '- Usage:' 'Handoff records the usage snapshot'
+pass 'usage.sh reports plan-limit windows per provider'
+
 printf 'All multi-model-orchestrator tests passed.\n'

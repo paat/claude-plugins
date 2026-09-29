@@ -81,6 +81,14 @@ much. Cap it in the dev container's user settings so resets happen early:
 `model_auto_compact_token_limit = 200000` in `~/.codex/config.toml` (Codex). The same hook
 runs on Codex, which also re-runs `SessionStart` hooks after compaction.
 
+The orchestrator reads plan limits (percent used and reset time per 5-hour, weekly and per-model
+window) at start, resume and every item boundary: the desktop app's `get_usage` tool for Claude, or
+`scripts/usage.sh`, which reads Codex session logs and Claude `rate_limit_event`s (a run-claude
+stream log, or one tiny `--probe-claude` call). A window at 90% or more that resets after the next
+leg would finish reroutes that provider's legs; when no allowed route has headroom, or the host
+itself passes 95%, the run stops at the item boundary with the reset time in the handoff. Grok
+exposes no limit data and is left to the exit-75 fallback.
+
 When an item depends on out-of-repo facts, a research leg records tiered evidence in a tracked
 memo. Unknowns are researched before a judgment call is decided with the recommended default and recorded.
 
@@ -151,7 +159,7 @@ be the only reviewer — the gate enforces that rather than trusting a prompt to
   CLI, `curl`, `jq`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
   work goes to Grok.
 
-Only selected providers are required. `jq` is required for `run-claude.sh --stream-log` and for the local-Qwen route, both of which extract a final message from a JSON stream. `run-claude.sh --mcp` also uses `jq` to encode each server URL.
+Only selected providers are required. `jq` is required for `run-claude.sh --stream-log` and for the local-Qwen route, both of which extract a final message from a JSON stream; `usage.sh` also needs it. `run-claude.sh --mcp` also uses `jq` to encode each server URL.
 
 ## Configuration
 

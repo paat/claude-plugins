@@ -36,6 +36,7 @@ so the successor starts with a decision, not a question.>
   one line on what the leg was told, how completion will be observed, literal resume command>`
   — or `none`.
 - Worktree: <branch, clean/dirty + why>.
+- Usage: <per provider: tightest window %, reset UTC, as-of; or `unknown`>.
 
 ## OPERATOR ACTIONS REQUIRED
 
