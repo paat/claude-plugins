@@ -73,7 +73,7 @@ if [ "$rc" -eq 0 ] && [ "$(jq -r '.status // ""' <<<"$result")" = SUCCESS ] \
   jq -r '.response' <<<"$result"
   exit 0
 fi
-reason="$(jq -r '.error // "" | split("\n")[0]' <<<"$result")"
+reason="$(jq -r '.error // "" | split("\n")[0] // ""' <<<"$result")"
 [ -n "$reason" ] || reason="$(tail -n 3 "$tmp/err.txt" | tr '\n' ' ')"
 [ "$rc" -ne 124 ] && [ "$rc" -ne 137 ] || reason="timed out after ${seconds}s"
 echo "agy failed (exit $rc): ${reason:-empty response}" >&2

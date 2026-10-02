@@ -25,6 +25,7 @@ jq -r 'select(.event=="user") | .message.content' > "$state/prompt"
 case "\$(cat "$state/mode" 2>/dev/null || echo ok)" in
   ok) jq -nc '{event:"result",result:{status:"SUCCESS",response:"FAKE ANSWER"}}' ;;
   error) jq -nc '{event:"result",result:{status:"ERROR",response:"",error:("model exploded\n" + ("x" * 200000))}}'; exit 1 ;;
+  stderr) echo "boom: quota exhausted" >&2; exit 1 ;;
   empty) jq -nc '{event:"result",result:{status:"SUCCESS",response:"  \n"}}' ;;
 esac
 FAKE
@@ -64,6 +65,12 @@ echo error > "$state/mode"
 out="$(run bash "$RUNNER" -- "hi" 2>"$work/err")"; rc=$?
 ok=0; [ "$rc" -eq 3 ] && [ -z "$out" ] && [ "$(wc -l < "$work/err")" -eq 1 ] && grep -q 'model exploded' "$work/err" || ok=1
 check "$ok" "large multi-line provider error exits 3 with a one-line reason"
+
+# No result event: the reason falls back to agy stderr.
+echo stderr > "$state/mode"
+run bash "$RUNNER" -- "hi" >/dev/null 2>"$work/err"; rc=$?
+ok=0; [ "$rc" -eq 3 ] && grep -q 'boom: quota exhausted' "$work/err" && ! grep -q 'null' "$work/err" || ok=1
+check "$ok" "stderr-only failure reports the agy stderr reason"
 
 # Whitespace-only response counts as failure.
 echo empty > "$state/mode"
