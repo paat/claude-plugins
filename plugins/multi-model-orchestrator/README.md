@@ -175,7 +175,7 @@ directory and exits 7 if the repository changed anyway.
 ## Prerequisites
 
 - bash 4+
-- git and GNU `timeout`
+- git and GNU coreutils (`timeout`, `date -d`, `stat -c`, `realpath -m`)
 - The authenticated CLI for each selected route:
   - Claude Code (`claude`)
   - OpenAI Codex CLI (`codex`)

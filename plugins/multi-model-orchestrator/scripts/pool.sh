@@ -15,7 +15,8 @@
 #
 # pick prints "tier provider model effort" (TSV) per remaining worker, best first.
 # run feeds the prompt to each in turn; a runner exit of 75, 77, or 127 moves to the next
-# worker unless the leg changed the repository. Any other exit is the result.
+# worker, unless the leg changed the repository: then it exits 55 (partly edited — salvage
+# or reset before redispatch). Any other runner exit is the result.
 # Exit 75 when no worker is left; the reason and the earliest reset go to stderr.
 set -euo pipefail
 
@@ -180,6 +181,7 @@ for row in "${candidates[@]}"; do
     75|77|127)
       if [ "$(mmo_tree_state "$repo_dir" "$out_abs")" != "$before" ]; then
         printf 'pool: %s exited %s after changing the repository; not handing the task to another worker\n' "$r_provider" "$rc" >&2
+        rc=55
         break
       fi
       printf 'pool: %s unavailable (exit %s); next worker\n' "$r_provider" "$rc" >&2

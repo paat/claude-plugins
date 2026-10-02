@@ -2397,13 +2397,15 @@ contains "$META_REFS/usage-limits.md" 'get_usage' 'Usage limits prefer the deskt
 contains "$META_REFS/handoff-template.md" '- Usage:' 'Handoff records the usage snapshot'
 pass 'usage.sh reports plan-limit windows per provider'
 
-# --- plan limits are transient (75), not task failures ---
+# --- plan limits are 75 with failure=limit, not task failures or transient retries ---
 for msg in 'You have hit your usage limit' 'RESOURCE_EXHAUSTED: quota exceeded' 'Resource exhausted' \
   'API error (status 402 Payment Required): Grok Build usage balance exhausted'; do
   printf '%s\n' "$msg" > "$WORK/plan-limit.txt"
-  [ "$(mmo_classify_provider_failure "$WORK/plan-limit.txt")" = transient ] || fail "plan limit '$msg' classifies as transient"
+  [ "$(mmo_classify_provider_failure "$WORK/plan-limit.txt")" = limit ] || fail "plan limit '$msg' classifies as limit"
 done
-pass 'Plan-limit errors classify as transient'
+printf '429 Too Many Requests\n' > "$WORK/plan-limit.txt"
+[ "$(mmo_classify_provider_failure "$WORK/plan-limit.txt")" = transient ] || fail 'a 429 stays transient'
+pass 'Plan-limit errors classify as limit; rate limits stay transient'
 
 # --- mmo_tree_state sees tracked, untracked-content, and HEAD changes; ignores the --out prefix ---
 TS="$WORK/tree-state"; mkdir -p "$TS"
@@ -2471,7 +2473,7 @@ rc=0; printf 'x\n' | "${agy_env[@]}" STUB_AGY_RESPONSE='looks fine' bash "$AGY_R
 [ "$rc" -eq 6 ] || fail "an agy review without a verdict exits 6 (got $rc)"
 rc=0; printf 'x\n' | "${agy_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-medium bash "$AGY_RUN" --mode implement --repo "$AR" --timeout 30 >/dev/null 2>"$AG/err" || rc=$?
 [ "$rc" -eq 75 ] || fail "an agy quota error exits 75 (got $rc)"
-contains "$AG/err" 'failure=transient' 'agy quota error is reported as transient'
+contains "$AG/err" 'failure=limit' 'agy quota error is reported as a plan limit'
 for bad in '--mode review' '--mode implement --base HEAD' '--mode implement --effort xhigh' '--mode implement --model gemini-3.1-pro' '--mode review --base --output=x'; do
   rc=0
   # shellcheck disable=SC2086
@@ -2554,7 +2556,7 @@ rm -f "$AR"/leg.out*
 rm -f "$PL/calls"/*
 rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-low STUB_AGY_TOUCH="$AR/f.txt" \
   bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
-[ "$rc" -eq 75 ] || fail "pool returns the dirty leg's exit (got $rc)"
+[ "$rc" -eq 55 ] || fail "pool exits 55 when the failed leg changed the repo (got $rc)"
 [ ! -e "$PL/calls/call.1.args" ] || fail 'pool must not hand a dirtied tree to another worker'
 contains "$PL/err" 'after changing the repository' 'pool explains why it stopped'
 git -C "$AR" checkout -q -- f.txt

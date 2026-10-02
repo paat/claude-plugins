@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Shared helpers for the runners and pool.sh:
 # - review terminal-verdict check
-# - provider failure classification (transient or plan limit → 75, auth → 77)
+# - provider failure classification (plan limit or transient → 75, auth → 77)
 # - repository write detection
 #
 # Verdict check: case-insensitive. A line must be either a bare APPROVE/APPROVED or
@@ -26,11 +26,16 @@ mmo_terminal_verdict() {
 
 # Classify provider failure text from a single error-text file the runner built
 # (Codex last ERROR: line, Claude api_error_status / API Error line, Grok stderr).
-# Prints "transient", "auth", or nothing. Callers must not pass model stdout bodies.
+# Prints "limit" (plan window or balance used up), "transient", "auth", or nothing.
+# Callers must not pass model stdout bodies.
 mmo_classify_provider_failure() {
   local f="${1:-}"
   [ -n "$f" ] && [ -s "$f" ] || return 0
-  if grep -Eiq '\b(402|429|529|503)\b|overloaded|rate[[:space:]_-]?limit|usage[[:space:]_-]?limit|quota|(resource|balance|credits?)[[:space:]_-]?exhausted|temporarily[[:space:]]+unavailable' "$f"; then
+  if grep -Eiq '\b402\b|usage[[:space:]_-]?limit|quota|(resource|balance|credits?)[[:space:]_-]?exhausted' "$f"; then
+    printf 'limit\n'
+    return 0
+  fi
+  if grep -Eiq '\b(429|529|503)\b|overloaded|rate[[:space:]_-]?limit|temporarily[[:space:]]+unavailable' "$f"; then
     printf 'transient\n'
     return 0
   fi
@@ -51,7 +56,7 @@ mmo_finish() {
     *)
       failure_kind="$(mmo_classify_provider_failure "$errf")"
       case "$failure_kind" in
-        transient) rc=75 ;;
+        limit|transient) rc=75 ;;
         auth) rc=77 ;;
         *) failure_kind="" ;;
       esac

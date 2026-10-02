@@ -86,8 +86,8 @@ silently; select a supported level or return an incompatibility.
 Every runner exits `75` when its worker cannot take the task now: a transient provider error or
 plan limit, or — for `scripts/run-qwen-local.sh` — the one GPU slot busy, the server down or
 serving another model, or no wrapper. Local Qwen is never queued. `pool.sh run` moves to the next
-worker on `75`, `77`, or `127` unless the leg changed the repository; its own `75` means nobody in
-the tier chain was available. Local Qwen and agy are mechanical-work engines and advisory
+worker on `75`, `77`, or `127`; if that leg changed the repository it exits `55` instead (salvage
+or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen and agy are mechanical-work engines and advisory
 reviewers only: architecture, security, and ambiguous design stay on the hosted catalog.
 
 ## Evidence basis, 2026-08-02
