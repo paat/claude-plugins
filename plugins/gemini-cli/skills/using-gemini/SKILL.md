@@ -13,7 +13,7 @@ Use for complex reviews, architecture decisions with several valid approaches, h
 
 ## How to Call
 
-Always go through the bundled runner. It runs `agy` read-only in an isolated home and sterile directory, inlines `--file` contents (Gemini cannot open files, run commands, or fetch URLs; web search stays available), and prints only the response:
+Always go through the bundled runner. It runs `agy` read-only in an isolated home and sterile directory, inlines `--file` contents (Gemini cannot open files, run commands, or fetch URLs; web search stays available), and prints only the response (outside Claude Code, `${CLAUDE_PLUGIN_ROOT}` is the plugin directory two levels above this skill):
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/run-agy.sh" [--model ID] [--timeout SECONDS] [--file PATH]... -- "PROMPT"

@@ -24,7 +24,7 @@ env > "$state/env"
 jq -r 'select(.event=="user") | .message.content' > "$state/prompt"
 case "\$(cat "$state/mode" 2>/dev/null || echo ok)" in
   ok) jq -nc '{event:"result",result:{status:"SUCCESS",response:"FAKE ANSWER"}}' ;;
-  error) jq -nc '{event:"result",result:{status:"ERROR",response:"",error:"model exploded\nsecond line"}}'; exit 1 ;;
+  error) jq -nc '{event:"result",result:{status:"ERROR",response:"",error:("model exploded\n" + ("x" * 200000))}}'; exit 1 ;;
   empty) jq -nc '{event:"result",result:{status:"SUCCESS",response:"  \n"}}' ;;
 esac
 FAKE
@@ -63,7 +63,7 @@ printf 'token\n' > "$home/.gemini/antigravity-cli/antigravity-oauth-token"
 echo error > "$state/mode"
 out="$(run bash "$RUNNER" -- "hi" 2>"$work/err")"; rc=$?
 ok=0; [ "$rc" -eq 3 ] && [ -z "$out" ] && [ "$(wc -l < "$work/err")" -eq 1 ] && grep -q 'model exploded' "$work/err" || ok=1
-check "$ok" "provider error exits 3 with a one-line reason"
+check "$ok" "large multi-line provider error exits 3 with a one-line reason"
 
 # Whitespace-only response counts as failure.
 echo empty > "$state/mode"
@@ -78,7 +78,17 @@ ok=0
 run bash "$RUNNER" >/dev/null 2>&1; [ $? -eq 2 ] || ok=1
 run bash "$RUNNER" --timeout 5 -- "hi" >/dev/null 2>&1; [ $? -eq 2 ] || ok=1
 run bash "$RUNNER" --file missing.txt -- "hi" >/dev/null 2>&1; [ $? -eq 2 ] || ok=1
+run bash "$RUNNER" --timeout 090 -- "hi" >/dev/null 2>&1; [ $? -eq 2 ] || ok=1
 check "$ok" "usage errors and unreadable files exit 2"
+
+# A file that fails mid-read (after the pre-check) aborts instead of sending partial input.
+printf 'two\n' > "$work/repo/two.py"
+printf '#!/bin/bash\n[ "$2" = code.py ] && exit 1\nexec /usr/bin/cat "$@"\n' > "$fake/cat"; chmod +x "$fake/cat"
+rm -f "$state/args"
+run bash "$RUNNER" --file code.py --file two.py -- "hi" >/dev/null 2>&1; rc=$?
+rm -f "$fake/cat"
+ok=0; [ "$rc" -eq 2 ] && [ ! -e "$state/args" ] || ok=1
+check "$ok" "mid-read file failure exits 2 without calling agy"
 
 # Missing agy exits 4.
 (cd "$work/repo" && env HOME="$home" PATH="/usr/bin:/bin" bash "$RUNNER" -- "hi" >/dev/null 2>&1); rc=$?

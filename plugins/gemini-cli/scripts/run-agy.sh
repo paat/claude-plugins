@@ -12,7 +12,7 @@ model="" seconds=180 files=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --model) [ "$#" -ge 2 ] || usage; model="$2"; shift 2 ;;
-    --timeout) [ "$#" -ge 2 ] && [[ "$2" =~ ^[0-9]+$ ]] && [ "$2" -ge 20 ] || usage; seconds="$2"; shift 2 ;;
+    --timeout) [ "$#" -ge 2 ] && [[ "$2" =~ ^[1-9][0-9]*$ ]] && [ "$2" -ge 20 ] || usage; seconds="$2"; shift 2 ;;
     --file) [ "$#" -ge 2 ] || usage; files+=("$2"); shift 2 ;;
     --) shift; break ;;
     *) usage ;;
@@ -53,14 +53,16 @@ model_args=()
 env_args=(env -i "HOME=$tmp/home" "PATH=$PATH" "TMPDIR=$tmp" "LANG=C.UTF-8" "NO_COLOR=1" "TERM=dumb")
 [ -z "$provider" ] || env_args+=("GEMINI_API_KEY=$GEMINI_API_KEY")
 
-rc=0
 {
   printf '%s\n' "$prompt"
   for f in ${files[@]+"${files[@]}"}; do
     printf '\n=== FILE: %s ===\n' "$f"
-    cat -- "$f"
+    cat -- "$f" || { echo "agy unavailable: cannot read file: $f" >&2; exit 2; }
   done
-} | jq -Rsc '{event:"user",message:{content:.}}' \
+} > "$tmp/prompt.txt"
+
+rc=0
+jq -Rsc '{event:"user",message:{content:.}}' < "$tmp/prompt.txt" \
   | (cd "$tmp/work" && "${env_args[@]}" timeout -k 5 "$seconds" agy ${model_args[@]+"${model_args[@]}"} \
       --input-format stream-json --output-format stream-json --print-timeout "$((seconds - 5))s" -p=) \
   > "$tmp/stream.jsonl" 2> "$tmp/err.txt" || rc=$?
@@ -71,7 +73,7 @@ if [ "$rc" -eq 0 ] && [ "$(jq -r '.status // ""' <<<"$result")" = SUCCESS ] \
   jq -r '.response' <<<"$result"
   exit 0
 fi
-reason="$(jq -r '.error // empty' <<<"$result" | head -n 1)"
+reason="$(jq -r '.error // "" | split("\n")[0]' <<<"$result")"
 [ -n "$reason" ] || reason="$(tail -n 3 "$tmp/err.txt" | tr '\n' ' ')"
 [ "$rc" -ne 124 ] && [ "$rc" -ne 137 ] || reason="timed out after ${seconds}s"
 echo "agy failed (exit $rc): ${reason:-empty response}" >&2
