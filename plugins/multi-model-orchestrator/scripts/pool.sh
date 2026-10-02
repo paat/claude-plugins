@@ -10,8 +10,8 @@
 # task now: not allowed or denied (LIST = comma-separated providers or models), CLI not
 # installed, an advisory engine (local qwen, agy) on a review, or a plan window >= 90% used
 # that resets after the timeout. Usage comes from --usage (usage.sh output) or a fresh
-# usage.sh run. A T1 or T2 tier with nobody left escalates upward; T3 and T4 never fall to a
-# weaker tier.
+# usage.sh run. T1 and T2 workers are followed by the higher tiers' workers as fallbacks;
+# T3 and T4 never fall to a weaker tier.
 #
 # pick prints "tier provider model effort" (TSV) per remaining worker, best first.
 # run feeds the prompt to each in turn; a runner exit of 75, 77, or 127 moves to the next
@@ -138,8 +138,6 @@ for t in $chain; do
       candidates+=("$row")
     fi
   done
-  # Escalate only when this tier left nobody.
-  [ "${#candidates[@]}" -eq 0 ] || break
 done
 
 if [ "${#candidates[@]}" -eq 0 ]; then

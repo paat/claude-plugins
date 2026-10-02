@@ -2423,6 +2423,19 @@ before="$(mmo_tree_state "$TS" "$TS/out.txt")"
 printf 'x\n' > "$TS/out.txt"; printf 'x\n' > "$TS/out.txt.stream"
 [ "$(mmo_tree_state "$TS" "$TS/out.txt")" = "$before" ] || fail 'tree state ignores the --out file and its siblings'
 printf 'b\n' > "$TS/a.txt"; [ "$(mmo_tree_state "$TS" "$TS/out.txt")" != "$before" ] || fail 'tree state sees a tracked edit'
+# The --out exclusion is exact: a source file sharing the --out prefix still counts.
+printf 'r\n' > "$TS/result.py"; git -C "$TS" add result.py; git -C "$TS" -c user.email=t@t -c user.name=t commit -qm r
+before="$(mmo_tree_state "$TS" "$TS/result")"
+printf 'x\n' > "$TS/result"; printf 'x\n' > "$TS/result.exit"; printf 'x\n' > "$TS/result.stream.stderr"
+[ "$(mmo_tree_state "$TS" "$TS/result")" = "$before" ] || fail 'tree state ignores --out, .exit, and .stream.stderr'
+printf 'r2\n' > "$TS/result.py"
+[ "$(mmo_tree_state "$TS" "$TS/result")" != "$before" ] || fail 'tree state sees an edit to a file that shares the --out prefix'
+# A repository with no commits: a staged rewrite still counts.
+TN="$WORK/tree-nohead"; mkdir -p "$TN"; git -C "$TN" init -q
+printf 'one\n' > "$TN/n.txt"; git -C "$TN" add n.txt
+before="$(mmo_tree_state "$TN")"
+printf 'two\n' > "$TN/n.txt"; git -C "$TN" add n.txt
+[ "$(mmo_tree_state "$TN")" != "$before" ] || fail 'tree state sees a staged rewrite in a repository without HEAD'
 pass 'mmo_tree_state detects repository writes and ignores leg artifacts'
 
 # --- run-agy.sh against a stub agy ---
@@ -2503,7 +2516,9 @@ far=$(( $(date +%s) + 86400 )); soon=$(( $(date +%s) + 60 ))
 utc_min() { date -u -d "@$1" +%Y-%m-%dT%H:%MZ; }
 printf 'codex 7d 98%% resets %s in 1d as-of x\nclaude 7d_opus 95%% resets %s in 1d as-of x\nclaude 5h 95%% resets %s in 1m as-of x\ngrok unknown (none)\n' \
   "$(utc_min "$far")" "$(utc_min "$far")" "$(utc_min "$soon")" > "$PL/usage.txt"
-pool_env=(env PATH="$PL/bin:/usr/bin:/bin" MMO_POOL_TIERS="$PL/tiers.tsv" STUB_AGY_CALLS="$PL/calls")
+mkdir -p "$PL/home"
+# HOME and PATH hide any real local-Qwen wrapper, so the qwen row answers 75 (no wrapper).
+pool_env=(env -u MMO_QWEN_LOCAL_RUN HOME="$PL/home" PATH="$PL/bin:/usr/bin:/bin" MMO_POOL_TIERS="$PL/tiers.tsv" STUB_AGY_CALLS="$PL/calls")
 pick() { "${pool_env[@]}" bash "$POOL" pick --usage "$PL/usage.txt" "$@"; }
 
 out="$(pick --tier T2 2>"$PL/err")"
@@ -2569,6 +2584,14 @@ rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash ST
 [ -e "$PL/calls/call.1.args" ] || fail 'the second worker ran after a clean fall-through'
 [ "$rc" -eq 55 ] || fail "a dirtying leg after a clean fall-through exits 55 (got $rc)"
 git -C "$AR" checkout -q -- f.txt
+
+# run: when every T1 worker is unavailable at run time, the T2 workers are next.
+rm -f "$PL/calls"/*
+printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-low \
+  bash "$POOL" run --tier T1 --deny claude --usage "$PL/usage.txt" --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" \
+  || fail "a T1 run falls back to T2 workers: $(cat "$PL/err")"
+contains "$PL/err" 'pool: qwen unavailable (exit 75); next worker' 'the T1 qwen row was tried first'
+contains "$PL/err" 'pool: exit=0 worker=agy model=gemini-3.8-flash effort=high tier=T2' 'a T2 worker ran after T1 was exhausted'
 
 # run: every worker unavailable -> 75 naming the tier.
 rm -f "$PL/calls"/*

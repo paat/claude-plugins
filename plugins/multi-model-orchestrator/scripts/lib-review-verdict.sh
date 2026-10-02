@@ -75,16 +75,24 @@ mmo_finish() {
 }
 
 # Fingerprint HEAD, index, working tree, and untracked file contents, so a caller can
-# tell whether a leg wrote to the repository. Files whose path starts with the optional
-# absolute IGNORE_PREFIX (a leg's --out and its .stream/.stderr/.exit siblings) do not
-# count. Prints one cksum line; never fails.
-mmo_tree_state() {  # mmo_tree_state REPO [IGNORE_PREFIX]
-  local repo="$1" spec=(.)
-  case "${2:-}" in "$repo"/*) spec+=(":(exclude)${2#"$repo"/}*") ;; esac
+# tell whether a leg wrote to the repository. The optional absolute OUT path (a leg's
+# --out) and the runner files written beside it (.stream, .stderr, .stream.stderr, .exit)
+# do not count. Prints one cksum line; never fails.
+mmo_tree_state() {  # mmo_tree_state REPO [OUT]
+  local repo="$1" spec=(.) rel suffix
+  case "${2:-}" in
+    "$repo"/*)
+      rel="${2#"$repo"/}"
+      for suffix in '' .stream .stderr .stream.stderr .exit; do
+        spec+=(":(exclude,literal)$rel$suffix")
+      done
+      ;;
+  esac
   {
     git -C "$repo" rev-parse --verify -q HEAD || true
     git -C "$repo" status --porcelain=v1 --untracked-files=all -- "${spec[@]}" || true
-    git -C "$repo" diff --no-ext-diff --binary HEAD -- "${spec[@]}" || true
+    git -C "$repo" diff --no-ext-diff --binary --cached -- "${spec[@]}" || true
+    git -C "$repo" diff --no-ext-diff --binary -- "${spec[@]}" || true
     git -C "$repo" ls-files -z --others --exclude-standard -- "${spec[@]}" | (cd "$repo" && xargs -0 -r cksum) || true
   } 2>/dev/null | cksum
 }

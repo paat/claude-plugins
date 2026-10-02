@@ -53,8 +53,9 @@ Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in or
 
 `pool.sh` drops workers that are not allowed, not installed, advisory on a review (local Qwen,
 agy), or at 90%+ of a plan window that resets after the leg's timeout, then tries the rest in
-order and moves past any that exit 75 (busy, down, or at a limit). T1 and T2 escalate when nobody
-is left; T3 and T4 never fall to a weaker tier and exit 75 with the earliest reset instead.
+order and moves past any that exit 75 (busy, down, or at a limit). T1 and T2 fall back to the
+higher tiers' workers; T3 and T4 never fall to a weaker tier and exit 75 with the earliest reset
+instead.
 
 ```bash
 pool.sh pick --tier T2 --deny claude              # one "tier provider model effort" line per worker
