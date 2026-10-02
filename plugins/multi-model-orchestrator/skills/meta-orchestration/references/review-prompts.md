@@ -1,6 +1,7 @@
 # Review prompt templates
 
-The reviewer must be a DIFFERENT provider than the worker that wrote the commits. Canonical
+The reviewer must be a DIFFERENT provider than the worker that wrote the commits; pick it with
+`${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh pick --tier <T> --mode review --deny <worker provider>`. Canonical
 verdict tokens are `APPROVE` / `NEEDS_WORK` — always emit these; the runners' gate also
 tolerates close variants (`APPROVED`, `NEEDS WORK`) but orchestration decisions key on the
 canonical form. Reviewers that must
@@ -69,6 +70,7 @@ READY TO MERGE — nothing further coming.
 |---|---|---|
 | Codex | `--mode review` | runner enforces APPROVE/NEEDS_WORK |
 | Local Qwen | `--mode review` | read-only; `--mode implement` would pass `--yolo` to a reviewer |
+| agy | `--mode review` | diff-only from an empty directory; the runner fails 7 if the repo changed |
 | Claude / Grok probe legs | `--mode implement` + modify-nothing contract | they must run probes to verify by execution |
 
 ## Local Qwen review leg
@@ -78,8 +80,9 @@ implement` would hand the reviewer write access (`--yolo`). It needs `--base` be
 has no shell and cannot run git itself, and it exits `75` when the one local slot is unavailable —
 substitute the card's allowed fallback at once rather than waiting.
 
-It reads the diff; it cannot run anything. Never hand it a template that requires verification by
-execution. It may never be the only reviewer, and that is enforced, not advisory: pass every leg
+It reads the diff; it cannot run anything, and neither can an agy leg (`run-agy.sh --mode review
+--base <range>`). Never hand either a template that requires verification by execution. Neither
+may be the only reviewer, and that is enforced, not advisory: pass every leg
 through `scripts/review-gate.sh --leg <provider>=<final-message-file>`, which exits 3 on a set
 containing no independent provider. Use the local leg as an extra decorrelated lens beside a
 reviewer that can execute.

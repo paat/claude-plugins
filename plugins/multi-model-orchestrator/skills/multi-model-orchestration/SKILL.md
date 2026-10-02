@@ -41,13 +41,12 @@ explaining the community evidence behind the original policy.
 3. When the user restricts implementation to one provider, every source edit belongs to that
    provider. Other allowed providers may advise or review only.
 4. Keep task packets narrow enough that a worker does not need to rediscover the project.
-5. Dispatch with `scripts/run-claude.sh`, `scripts/run-codex.sh`, `scripts/run-grok.sh`, or
-   `scripts/run-qwen-local.sh` as named by the route card. Every runner pins a current model;
-   supported efforts are pinned explicitly.
-6. Local Qwen holds one GPU slot. `run-qwen-local.sh` exits `75` when it is unavailable or busy;
-   dispatch that task to the route card's allowed fallback at once — Grok 4.7 by default, and only
-   a provider the allow/deny list permits — and record the substitution. Never wait for the slot,
-   and never retry the same task on it in the same pass.
+5. Dispatch with `scripts/pool.sh run --tier <T>`, which tries the tier's workers in order and
+   moves past unavailable ones (exit 75: local Qwen's one GPU slot busy, a plan limit, a transient
+   error) and records the worker that ran. A pinned route calls `scripts/run-claude.sh`,
+   `run-codex.sh`, `run-grok.sh`, `run-agy.sh`, or `run-qwen-local.sh` directly. Every runner pins
+   a current model; supported efforts are pinned explicitly.
+6. Never wait for the local GPU slot, and never retry the same task on it in the same pass.
 
 ## Implementation gates
 

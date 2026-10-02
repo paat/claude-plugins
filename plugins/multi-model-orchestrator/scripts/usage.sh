@@ -2,8 +2,8 @@
 # Print plan-limit windows per provider, one line each:
 #   <provider> <window> <used>% resets <UTC> in <XdYhZm> as-of <UTC>
 # Codex: newest rate_limits event in its session logs (free). Claude: newest rate_limit_event in a
-# run-claude.sh --stream-log (free) or, with --probe-claude, one tiny claude -p call. Grok has no
-# source. A provider with no data prints "<provider> unknown <why>". Always exits 0 unless misused.
+# run-claude.sh --stream-log (free) or, with --probe-claude, one tiny claude -p call. agy: its
+# local /usage command (free; Gemini buckets only). Grok has no source. A provider with no data prints "<provider> unknown <why>". Always exits 0 unless misused.
 set -euo pipefail
 
 usage() {
@@ -106,6 +106,28 @@ elif [ "$probe_claude" -eq 1 ]; then
   printf 'claude unknown (probe returned no rate_limit_event)\n'
 else
   printf 'claude unknown (pass --claude-log or --probe-claude; desktop app: get_usage)\n'
+fi
+
+# agy print-mode /usage answers locally (0 tokens): command.data.groups[].buckets[] with
+# id gemini-5h|gemini-weekly, remaining_fraction, reset_time. The 3p buckets (Claude/GPT
+# inside agy) are not pool routes and are skipped.
+if command -v agy >/dev/null 2>&1; then
+  agy_dir=$(mktemp -d)
+  agy_rows=$( (cd "$agy_dir" && timeout -k 5 60 agy -p=/usage --output-format json </dev/null 2>/dev/null) | jq -r '
+    [.command.data.groups[]?.buckets[]?
+     | select((.id | type) == "string" and (.remaining_fraction | type) == "number")
+     | (.id | if . == "gemini-5h" then "5h" elif . == "gemini-weekly" then "7d" else empty end) as $w
+     | ((.reset_time // "") | try (sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch empty) as $r
+     | [$w, ((1 - .remaining_fraction) * 100 | round), $r]]
+    | .[] | @tsv' 2>/dev/null) || agy_rows=""
+  rm -rf "$agy_dir"
+  if [ -n "$agy_rows" ]; then
+    printf '%s\n' "$agy_rows" | emit agy "$now"
+  else
+    printf 'agy unknown (/usage returned no Gemini buckets)\n'
+  fi
+else
+  printf 'agy unknown (agy CLI not installed)\n'
 fi
 
 printf 'grok unknown (Grok CLI exposes no plan-limit data)\n'

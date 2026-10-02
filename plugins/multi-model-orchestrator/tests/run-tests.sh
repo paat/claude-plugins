@@ -1456,9 +1456,9 @@ pass '#523l: empty stream under --stream-log exits 5, not malformed'
 absent "$PLUGIN_ROOT/README.md" 'No `jq` dependency is used' \
   'README must not claim no jq dependency'
 contains "$PLUGIN_ROOT/README.md" \
-  '`jq` is required for `run-claude.sh --stream-log` and for the local-Qwen route' \
+  '`jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, and the local-Qwen route' \
   'README documents where jq is required'
-pass 'README documents jq for Claude --stream-log and local Qwen'
+pass 'README documents jq for Claude --stream-log, agy, and local Qwen'
 
 # Req 3: run-codex.sh resolves --dir/--repo to a git toplevel (match claude/grok).
 # Intentional behavior change vs 0.7.6: existing non-git directory exits 2.
@@ -2329,6 +2329,9 @@ pass 'Context watch warns a meta-orchestrator once past MMO_CONTEXT_WARN_TOKENS'
 
 USAGE_SH="$PLUGIN_ROOT/scripts/usage.sh"
 U="$WORK/usage"; mkdir -p "$U/codex/sessions/2026/01/01" "$U/bin"
+# Hermetic: a real agy on PATH must not answer these runs.
+printf '#!/usr/bin/env bash\nexit 1\n' > "$U/bin/agy"; chmod +x "$U/bin/agy"
+export PATH="$U/bin:$PATH"
 future=$(( $(date +%s) + 90000 )); past=$(( $(date +%s) - 60 ))
 rl() { printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":%s,"window_minutes":300,"resets_at":%s},"secondary":{"used_percent":91.6,"window_minutes":10080,"resets_at":%s}}}}\n' "$1" "$2" "$future"; }
 { rl 10 "$future"; rl 40 "$past"; } > "$U/codex/sessions/2026/01/01/rollout-a.jsonl"
@@ -2374,9 +2377,212 @@ printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"prim
 out=$(CODEX_HOME="$U/codex-trunc" PATH="$U/bin:$PATH" bash "$USAGE_SH")
 case "$out" in *"codex 5h 15% resets"*) ;; *) fail "usage.sh keeps the last complete Codex event despite a truncated line after it: $out" ;; esac
 
+# agy: local /usage JSON, Gemini buckets only; fractional-second resets parse.
+iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%S; }
+cat > "$U/bin/agy" <<STUB
+#!/usr/bin/env bash
+[ "\$1" = "-p=/usage" ] || exit 9
+printf '%s' '{"status":"SUCCESS","command":{"name":"usage","data":{"groups":[{"name":"Gemini Models","buckets":[{"id":"gemini-weekly","remaining_fraction":0.97,"reset_time":"$(iso "$future")Z"},{"id":"gemini-5h","remaining_fraction":0.84,"reset_time":"$(iso "$future").250Z"}]},{"name":"Claude and GPT models","buckets":[{"id":"3p-5h","remaining_fraction":0.5,"reset_time":"$(iso "$future")Z"}]}]}}}'
+STUB
+out=$(CODEX_HOME="$U/none" bash "$USAGE_SH")
+case "$out" in *"agy 7d 3% resets"*) ;; *) fail "usage.sh reads the agy weekly bucket: $out" ;; esac
+case "$out" in *"agy 5h 16% resets"*) ;; *) fail "usage.sh parses a fractional-second agy reset: $out" ;; esac
+case "$out" in *"3p"*|*"agy 5h 50%"*) fail "usage.sh skips agy's Claude/GPT buckets: $out" ;; esac
+printf '#!/usr/bin/env bash\nexit 1\n' > "$U/bin/agy"
+out=$(CODEX_HOME="$U/none" bash "$USAGE_SH")
+case "$out" in *"agy unknown (/usage returned no Gemini buckets)"*) ;; *) fail "usage.sh reports a failed agy probe as unknown: $out" ;; esac
+
 contains "$META_SKILL" 'references/usage-limits.md' 'Meta skill routes with usage headroom'
 contains "$META_REFS/usage-limits.md" 'get_usage' 'Usage limits prefer the desktop get_usage tool'
 contains "$META_REFS/handoff-template.md" '- Usage:' 'Handoff records the usage snapshot'
 pass 'usage.sh reports plan-limit windows per provider'
+
+# --- plan limits are 75 with failure=limit, not task failures or transient retries ---
+for msg in 'You have hit your usage limit' 'RESOURCE_EXHAUSTED: quota exceeded' 'Resource exhausted' \
+  'API error (status 402 Payment Required): Grok Build usage balance exhausted'; do
+  printf '%s\n' "$msg" > "$WORK/plan-limit.txt"
+  [ "$(mmo_classify_provider_failure "$WORK/plan-limit.txt")" = limit ] || fail "plan limit '$msg' classifies as limit"
+done
+printf '429 Too Many Requests\n' > "$WORK/plan-limit.txt"
+[ "$(mmo_classify_provider_failure "$WORK/plan-limit.txt")" = transient ] || fail 'a 429 stays transient'
+pass 'Plan-limit errors classify as limit; rate limits stay transient'
+
+# --- mmo_tree_state sees tracked, untracked-content, and HEAD changes; ignores the --out prefix ---
+TS="$WORK/tree-state"; mkdir -p "$TS"
+git -C "$TS" init -q
+printf 'a\n' > "$TS/a.txt"; git -C "$TS" add a.txt; git -C "$TS" -c user.email=t@t -c user.name=t commit -qm a
+s0="$(mmo_tree_state "$TS")"
+printf 'u1\n' > "$TS/u.txt"; s1="$(mmo_tree_state "$TS")"
+[ "$s1" != "$s0" ] || fail 'tree state sees a new untracked file'
+printf 'u2\n' > "$TS/u.txt"; [ "$(mmo_tree_state "$TS")" != "$s1" ] || fail 'tree state sees untracked content change'
+rm "$TS/u.txt"; [ "$(mmo_tree_state "$TS")" = "$s0" ] || fail 'tree state is stable for an unchanged tree'
+printf 'x\n' > "$TS/out.txt"; printf 'x\n' > "$TS/out.txt.stream"
+[ "$(mmo_tree_state "$TS" "$TS/out.txt")" = "$(mmo_tree_state "$TS" "$TS/out.txt")" ] || fail 'tree state is deterministic'
+rm "$TS/out.txt" "$TS/out.txt.stream"
+before="$(mmo_tree_state "$TS" "$TS/out.txt")"
+printf 'x\n' > "$TS/out.txt"; printf 'x\n' > "$TS/out.txt.stream"
+[ "$(mmo_tree_state "$TS" "$TS/out.txt")" = "$before" ] || fail 'tree state ignores the --out file and its siblings'
+printf 'b\n' > "$TS/a.txt"; [ "$(mmo_tree_state "$TS" "$TS/out.txt")" != "$before" ] || fail 'tree state sees a tracked edit'
+pass 'mmo_tree_state detects repository writes and ignores leg artifacts'
+
+# --- run-agy.sh against a stub agy ---
+AG="$WORK/agy"; mkdir -p "$AG/bin" "$AG/calls"
+AGY_RUN="$PLUGIN_ROOT/scripts/run-agy.sh"
+cat > "$AG/bin/agy" <<'STUB'
+#!/usr/bin/env bash
+n=$(find "$STUB_AGY_CALLS" -name 'call.*.args' | wc -l)
+printf '%s\n' "$@" > "$STUB_AGY_CALLS/call.$n.args"
+pwd > "$STUB_AGY_CALLS/call.$n.cwd"
+cat > "$STUB_AGY_CALLS/call.$n.stdin"
+printf '%s\n' '{"event":"init","init":{}}'
+case "$*" in *"${STUB_AGY_TOUCH_MODEL:-}"*) [ -z "${STUB_AGY_TOUCH:-}" ] || printf 'touched\n' >> "$STUB_AGY_TOUCH" ;; esac
+case "$*" in
+  *"${STUB_AGY_FAIL_MODEL:-<none>}"*)
+    printf '%s\n' '{"event":"result","result":{"status":"ERROR","response":"","error":"RESOURCE_EXHAUSTED: quota exceeded"}}'
+    exit 1 ;;
+esac
+jq -cn --arg r "${STUB_AGY_RESPONSE:-done
+
+APPROVE}" '{event:"result",result:{status:"SUCCESS",response:$r}}'
+STUB
+chmod +x "$AG/bin/agy"
+AR="$AG/repo"; mkdir -p "$AR"; git -C "$AR" init -q
+printf 'one\n' > "$AR/f.txt"; git -C "$AR" add f.txt; git -C "$AR" -c user.email=t@t -c user.name=t commit -qm base
+agy_env=(env PATH="$AG/bin:$PATH" STUB_AGY_CALLS="$AG/calls")
+
+out="$(printf 'make f say two\n' | "${agy_env[@]}" bash "$AGY_RUN" --mode implement --repo "$AR" --timeout 30 2>"$AG/err")" || fail "run-agy implement succeeds: $(cat "$AG/err")"
+contains "$AG/calls/call.0.args" '--dangerously-skip-permissions' 'agy implement runs YOLO'
+exact_line "$AG/calls/call.0.args" 'gemini-3.8-flash-medium' 'agy encodes the effort in the model id'
+exact_line "$AG/calls/call.0.cwd" "$AR" 'agy implement runs in the repository'
+[ "$(jq -r '.event' "$AG/calls/call.0.stdin")" = user ] || fail 'agy prompt arrives as a stream-json user event'
+jq -r '.message.content' "$AG/calls/call.0.stdin" | grep -qF 'make f say two' || fail 'agy prompt carries the task packet'
+case "$out" in *done*) ;; *) fail "run-agy prints the final response: $out" ;; esac
+contains "$AG/err" 'run-agy: exit=0' 'run-agy reports its exit line'
+
+printf 'two\n' > "$AR/f.txt"
+out="$(printf 'review it\n' | "${agy_env[@]}" bash "$AGY_RUN" --mode review --repo "$AR" --base HEAD --effort low --timeout 30 2>"$AG/err")" || fail "run-agy review succeeds: $(cat "$AG/err")"
+absent "$AG/calls/call.1.args" '--dangerously-skip-permissions' 'agy review is not YOLO'
+[ "$(cat "$AG/calls/call.1.cwd")" != "$AR" ] || fail 'agy review runs outside the repository'
+jq -r '.message.content' "$AG/calls/call.1.stdin" | grep -qF '+two' || fail 'agy review is handed the diff'
+case "$out" in *APPROVE*) ;; *) fail "run-agy review prints the verdict: $out" ;; esac
+
+rc=0; printf 'review it\n' | "${agy_env[@]}" STUB_AGY_TOUCH="$AR/f.txt" bash "$AGY_RUN" --mode review --repo "$AR" --base HEAD --timeout 30 >/dev/null 2>"$AG/err" || rc=$?
+[ "$rc" -eq 7 ] || fail "a review leg that wrote to the repo exits 7 (got $rc)"
+printf 'two\n' > "$AR/f.txt"
+rc=0; printf 'x\n' | "${agy_env[@]}" STUB_AGY_RESPONSE='looks fine' bash "$AGY_RUN" --mode review --repo "$AR" --base HEAD --timeout 30 >/dev/null 2>"$AG/err" || rc=$?
+[ "$rc" -eq 6 ] || fail "an agy review without a verdict exits 6 (got $rc)"
+rc=0; printf 'x\n' | "${agy_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-medium bash "$AGY_RUN" --mode implement --repo "$AR" --timeout 30 >/dev/null 2>"$AG/err" || rc=$?
+[ "$rc" -eq 75 ] || fail "an agy quota error exits 75 (got $rc)"
+contains "$AG/err" 'failure=limit' 'agy quota error is reported as a plan limit'
+for bad in '--mode review' '--mode implement --base HEAD' '--mode implement --effort xhigh' '--mode implement --model gemini-3.1-pro' '--mode review --base --output=x'; do
+  rc=0
+  # shellcheck disable=SC2086
+  printf 'x\n' | "${agy_env[@]}" bash "$AGY_RUN" $bad --repo "$AR" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 2 ] || fail "run-agy rejects '$bad' as usage (got $rc)"
+done
+git -C "$AR" checkout -q -- f.txt
+pass 'run-agy: YOLO implement, diff-only review outside the repo, write detection, exits'
+
+# --- pool.sh: pick filters and orders; run falls through unavailable workers ---
+POOL="$PLUGIN_ROOT/scripts/pool.sh"
+PL="$WORK/pool"; mkdir -p "$PL/bin" "$PL/calls"
+for cli in claude codex grok; do printf '#!/usr/bin/env bash\nexit 0\n' > "$PL/bin/$cli"; chmod +x "$PL/bin/$cli"; done
+cp "$AG/bin/agy" "$PL/bin/agy"
+cat > "$PL/tiers.tsv" <<'TSV'
+# test table
+T1	qwen	qwen3.8-27b-local	n/a
+T1	agy	gemini-3.8-flash	low
+T2	claude	claude-sonnet-5	medium
+T2	agy	gemini-3.8-flash	low
+T2	agy	gemini-3.8-flash	high
+T2	codex	gpt-5.6-terra	medium
+T3	codex	gpt-6-astra	high
+T3	claude	claude-opus-5-5	high
+TSV
+far=$(( $(date +%s) + 86400 )); soon=$(( $(date +%s) + 60 ))
+utc_min() { date -u -d "@$1" +%Y-%m-%dT%H:%MZ; }
+printf 'codex 7d 98%% resets %s in 1d as-of x\nclaude 7d_opus 95%% resets %s in 1d as-of x\nclaude 5h 95%% resets %s in 1m as-of x\ngrok unknown (none)\n' \
+  "$(utc_min "$far")" "$(utc_min "$far")" "$(utc_min "$soon")" > "$PL/usage.txt"
+pool_env=(env PATH="$PL/bin:/usr/bin:/bin" MMO_POOL_TIERS="$PL/tiers.tsv" STUB_AGY_CALLS="$PL/calls")
+pick() { "${pool_env[@]}" bash "$POOL" pick --usage "$PL/usage.txt" "$@"; }
+
+out="$(pick --tier T2 2>"$PL/err")"
+[ "$(printf '%s\n' "$out" | cut -f2,4 | tr '\t\n' ': ')" = "claude:medium agy:low agy:high " ] || fail "T2 pick keeps table order and skips a tight provider: $out"
+contains "$PL/err" 'skip T2 codex/gpt-5.6-terra: plan window >= 90%' 'pick names the tight window it skipped'
+rc=0; pick --tier T3 >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 75 ] || fail "T3 with Astra tight and Opus behind 7d_opus exits 75 (got $rc)"
+contains "$PL/err" 'skip T3 claude/claude-opus-5-5: plan window' 'a per-model window binds Opus'
+contains "$PL/err" "earliest plan reset $(utc_min "$far")" 'no-worker exit names the earliest reset'
+absent "$PL/err" 'claude-sonnet-5' 'T3 never falls to a weaker tier'
+out="$(pick --tier T2 --deny agy 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | cut -f2 | tr '\n' ' ')" = "claude " ] || fail "a short-window 95% that resets before the timeout does not bind; deny removes a provider: $out"
+out="$(pick --tier T2 --allow gemini-3.8-flash --prefer agy 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | cut -f2 | sort -u)" = agy ] || fail "allow by model keeps only that model: $out"
+out="$(pick --tier T2 --prefer agy 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | cut -f2,4 | tr '\t\n' ': ')" = "agy:low agy:high claude:medium " ] || fail "prefer moves a provider first, keeping its table order: $out"
+out="$(pick --tier T2 --mode review 2>"$PL/err")"
+[ "$(printf '%s\n' "$out" | cut -f2 | tr '\n' ' ')" = "claude " ] || fail "review skips advisory engines: $out"
+contains "$PL/err" 'advisory reviewer' 'pick names the advisory skip'
+out="$(pick --tier T1 --deny agy 2>"$PL/err")"
+[ "$(printf '%s\n' "$out" | cut -f1,2 | head -n1 | tr '\t' ':')" = "T1:qwen" ] || fail "qwen needs no CLI on PATH to be picked: $out"
+out="$(pick --tier T1 --deny agy,qwen 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | cut -f1 | sort -u)" = T2 ] || fail "an empty T1 escalates to T2: $out"
+rm "$PL/bin/claude"
+out="$(pick --tier T2 --deny agy 2>"$PL/err")" || true
+contains "$PL/err" 'skip T2 claude/claude-sonnet-5: CLI not installed' 'pick skips a provider whose CLI is missing'
+printf '#!/usr/bin/env bash\nexit 0\n' > "$PL/bin/claude"; chmod +x "$PL/bin/claude"
+for bad in '--tier T5' '--tier T2 --mode advise' '--tier T2 --timeout 0' '--tier T2 --bogus'; do
+  rc=0
+  # shellcheck disable=SC2086
+  "${pool_env[@]}" bash "$POOL" pick --usage "$PL/usage.txt" $bad >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 2 ] || fail "pool rejects '$bad' as usage (got $rc)"
+done
+rc=0; printf 'x\n' | "${pool_env[@]}" bash "$POOL" run --tier T2 --mode review --usage "$PL/usage.txt" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "pool run --mode review without --base is usage (got $rc)"
+
+# run: the low worker hits a quota (75), the pool moves to the high one; --out inside the repo is fine.
+rm -f "$PL/calls"/*
+out="$(printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-low \
+  bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$AR" --timeout 30 --out "$AR/leg.out" 2>"$PL/err")" \
+  || fail "pool run falls through to the next worker: $(cat "$PL/err")"
+exact_line "$PL/calls/call.0.args" 'gemini-3.8-flash-low' 'pool tries the first worker first'
+exact_line "$PL/calls/call.1.args" 'gemini-3.8-flash-high' 'pool moves to the next worker on exit 75'
+contains "$PL/err" 'pool: agy unavailable (exit 75); next worker' 'pool reports the fall-through'
+contains "$PL/err" 'pool: exit=0 worker=agy model=gemini-3.8-flash effort=high tier=T2' 'pool names the worker that ran'
+case "$out" in *done*) ;; *) fail "pool passes the worker's body through: $out" ;; esac
+rm -f "$AR"/leg.out*
+
+# run: a worker that changed the repo before failing is not replaced.
+rm -f "$PL/calls"/*
+rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-low STUB_AGY_TOUCH="$AR/f.txt" \
+  bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 55 ] || fail "pool exits 55 when the failed leg changed the repo (got $rc)"
+[ ! -e "$PL/calls/call.1.args" ] || fail 'pool must not hand a dirtied tree to another worker'
+contains "$PL/err" 'after changing the repository' 'pool explains why it stopped'
+git -C "$AR" checkout -q -- f.txt
+
+# run: a clean fall-through followed by a leg that edits and fails still exits 55.
+rm -f "$PL/calls"/*
+rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash STUB_AGY_TOUCH="$AR/f.txt" \
+  STUB_AGY_TOUCH_MODEL=gemini-3.8-flash-high \
+  bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
+[ -e "$PL/calls/call.1.args" ] || fail 'the second worker ran after a clean fall-through'
+[ "$rc" -eq 55 ] || fail "a dirtying leg after a clean fall-through exits 55 (got $rc)"
+git -C "$AR" checkout -q -- f.txt
+
+# run: every worker unavailable -> 75 naming the tier.
+rm -f "$PL/calls"/*
+rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash \
+  bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 75 ] || fail "pool exits 75 when every worker is unavailable (got $rc)"
+contains "$PL/err" 'every T2 worker was unavailable' 'pool names the exhausted tier'
+pass 'pool.sh: tiers, headroom, allow/deny/prefer, advisory review skip, escalation, fall-through'
+
+contains "$PLUGIN_ROOT/skills/route-model-task/SKILL.md" 'pool.sh pick --tier' 'route-model-task picks through the pool'
+contains "$PLUGIN_ROOT/skills/route-model-task/references/routing.md" 'pool-tiers.tsv' 'routing names the tier table'
+contains "$PLUGIN_ROOT/commands/orchestrate.md" 'pool.sh" run --tier' 'orchestrate dispatches through the pool'
+contains "$META_SKILL" 'pool.sh run --tier' 'meta loop dispatches implement legs through the pool'
+contains "$META_REFS/usage-limits.md" '--usage <file>' 'usage limits feed the pool'
+pass 'Pool is wired into route-model-task, orchestrate, and meta-orchestrate'
 
 printf 'All multi-model-orchestrator tests passed.\n'

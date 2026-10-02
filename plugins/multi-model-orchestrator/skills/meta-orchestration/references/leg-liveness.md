@@ -13,12 +13,14 @@ Liveness is transcript/output mtime plus an exit marker. A process-list snapshot
 
 ## Provider failure exits
 
-Runners reclassify from each CLI's own error line only (Codex last `ERROR:` sans Reconnecting; Claude `api_error_status` / text `API Error:`; Grok stderr) as:
+Runners reclassify from each CLI's own error line only (Codex last `ERROR:` sans Reconnecting; Claude `api_error_status` / text `API Error:`; Grok stderr; agy result `error` and stderr) as:
 
-- **75 (EX_TEMPFAIL):** transient (429/529/503, overloaded, rate limit, temporarily unavailable). Wait at least 60s, retry the same route once; if it fails 75 again, dispatch the route card's allowed `Fallback`; with no allowed fallback, park the item as blocked and continue with the next item.
+- **75 (EX_TEMPFAIL):** transient (429/529/503, overloaded, rate limit, temporarily unavailable) or, with `failure=limit` on the exit line, a plan limit (402, usage limit, quota, resource/balance/credits exhausted) — skip the wait and retry for a limit. Wait at least 60s, retry the same route once; if it fails 75 again, dispatch the route card's allowed `Fallback`; with no allowed fallback, park the item as blocked and continue with the next item.
   Exception — local Qwen (`run-qwen-local.sh`): its 75 means the one GPU slot is unavailable, so
   substitute the fallback immediately. Do not wait and do not retry the same route in this pass;
   waiting only re-contends for the same slot.
+  `pool.sh run` already moved past every unavailable worker in the tier chain: its 75 parks the
+  item until the earliest reset it printed, with no wait-and-retry.
 - **77 (EX_NOPERM):** auth (401, unauthorized, not logged in, login required, expired/invalid token or API key). Do not retry; queue re-authentication under the handoff's `OPERATOR ACTIONS REQUIRED` and continue with the next item that does not need that provider.
 
 Before retrying an implement leg, inspect `git status` and salvage or reset partial edits on evidence (same principle as exit 124).
