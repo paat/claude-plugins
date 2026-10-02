@@ -32,8 +32,8 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
 ## Execute
 
 1. Load `skills/route-model-task/SKILL.md`, apply its strict catalog and restrictions, and produce
-   a compact task ledger: task id, acceptance test, allowed files, dependencies, provider, exact
-   model, effort, and one-sentence routing reason. Prefer one pass and shallow fan-out.
+   a compact task ledger: task id, tier, acceptance test, allowed files, dependencies, provider,
+   exact model, effort, and one-sentence routing reason. Prefer one pass and shallow fan-out.
 2. When the route card asks for Claude advice before implementation:
 
    ```bash
@@ -42,11 +42,12 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
    PROMPT
    ```
 
-3. Dispatch each ready task with the runner named by its route card. Default to sequential
-   execution; parallel writes require disjoint declared files and no shared generated state.
+3. Dispatch each ready task through the pool at its tier, with the request's restrictions as
+   `--allow`/`--deny` lists. Default to sequential execution; parallel writes require disjoint
+   declared files and no shared generated state.
 
    ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/run-codex.sh" --mode implement --dir "$REPO_ROOT" --model "$ROUTED_MODEL" --effort "$ROUTED_EFFORT" --timeout 1200 <<'PROMPT'
+   "${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh" run --tier "$ROUTED_TIER" --mode implement --repo "$REPO_ROOT" --timeout 1200 <<'PROMPT'
    You are one bounded implementation worker. Implement only TASK <id>.
    Acceptance: <observable result and exact test>.
    Allowed files: <paths>. Do not edit any other path or commit.
@@ -55,38 +56,14 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
    PROMPT
    ```
 
-   Claude Code route:
-
-   ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/run-claude.sh" --mode implement --repo "$REPO_ROOT" --model "$ROUTED_MODEL" --effort "$ROUTED_EFFORT" <<'PROMPT'
-   <same bounded worker contract>
-   PROMPT
-   ```
-
-   Grok Build route:
-
-   ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/run-grok.sh" --mode implement --repo "$REPO_ROOT" --model grok-4.7 --effort "$ROUTED_EFFORT" <<'PROMPT'
-   <same bounded worker contract>
-   PROMPT
-   ```
-
-   Local Qwen route (mechanical work only, one GPU slot):
-
-   ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/run-qwen-local.sh" --mode implement --repo "$REPO_ROOT" <<'PROMPT'
-   <same bounded worker contract>
-   PROMPT
-   ```
-
-   Exit `75` means unavailable or busy: dispatch that task to the route card's allowed fallback
-   at once — Grok 4.7 by default, never a denied provider — and note the substitution. The
-   YOLO-mode rule stated earlier in this command does not apply to this runner's review leg: `--mode review` is what keeps
-   it read-only, and `--mode implement` would hand a reviewer write access. Do not wait for the slot or retry it in the same pass. For review, add
-   `--mode review --base <range>` — the local worker has no shell and is handed the diff.
-
-   For Claude Haiku 4.5, omit `--effort`; its current reasoning control is not supported by this
-   runner. Never replace a current model with an earlier generation when a route is unavailable.
+   The pool moves past workers that exit `75` (unavailable or at a plan limit), `77`, or `127`,
+   and names the worker that ran on stderr; record it in the ledger. Its own `75` means nobody in
+   the tier chain was available: report the blocker with the reset it printed. A pinned model calls
+   its runner directly with the same contract (`run-codex.sh --dir`, `run-claude.sh`,
+   `run-grok.sh`, `run-agy.sh`, or `run-qwen-local.sh --repo`); omit `--effort` for Claude Haiku
+   4.5. Local Qwen and agy review only with `--mode review --base <range>`: diff-only advisory
+   lenses that `--mode implement` would turn into writers. Never replace a current model with an
+   earlier generation when a route is unavailable.
 
 4. After every worker, inspect the diff, reject out-of-scope paths, and run its named test.
    Do not launch the next dependent task until this gate passes. Allow one targeted correction;

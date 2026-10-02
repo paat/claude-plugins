@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Shared helpers for run-claude/codex/grok:
+# Shared helpers for the runners and pool.sh:
 # - review terminal-verdict check
-# - provider failure classification (transient → 75, auth → 77)
+# - provider failure classification (transient or plan limit → 75, auth → 77)
+# - repository write detection
 #
 # Verdict check: case-insensitive. A line must be either a bare APPROVE/APPROVED or
 # NEEDS_WORK / NEEDS WORK token, or the same token prefixed by VERDICT:.
@@ -29,7 +30,7 @@ mmo_terminal_verdict() {
 mmo_classify_provider_failure() {
   local f="${1:-}"
   [ -n "$f" ] && [ -s "$f" ] || return 0
-  if grep -Eiq '\b(429|529|503)\b|overloaded|rate[[:space:]_-]?limit|temporarily[[:space:]]+unavailable' "$f"; then
+  if grep -Eiq '\b(429|529|503)\b|overloaded|rate[[:space:]_-]?limit|usage[[:space:]_-]?limit|quota|resource[[:space:]_-]?exhausted|temporarily[[:space:]]+unavailable' "$f"; then
     printf 'transient\n'
     return 0
   fi
@@ -66,4 +67,19 @@ mmo_finish() {
     printf '\n'
   } >&2
   exit "$rc"
+}
+
+# Fingerprint HEAD, index, working tree, and untracked file contents, so a caller can
+# tell whether a leg wrote to the repository. Files whose path starts with the optional
+# absolute IGNORE_PREFIX (a leg's --out and its .stream/.stderr/.exit siblings) do not
+# count. Prints one cksum line; never fails.
+mmo_tree_state() {  # mmo_tree_state REPO [IGNORE_PREFIX]
+  local repo="$1" spec=(.)
+  case "${2:-}" in "$repo"/*) spec+=(":(exclude)${2#"$repo"/}*") ;; esac
+  {
+    git -C "$repo" rev-parse --verify -q HEAD || true
+    git -C "$repo" status --porcelain=v1 --untracked-files=all -- "${spec[@]}" || true
+    git -C "$repo" diff --no-ext-diff --binary HEAD -- "${spec[@]}" || true
+    git -C "$repo" ls-files -z --others --exclude-standard -- "${spec[@]}" | (cd "$repo" && xargs -0 -r cksum) || true
+  } 2>/dev/null | cksum
 }

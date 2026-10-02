@@ -1,6 +1,6 @@
 ---
 name: route-model-task
-description: "Choose a Claude Code, Codex, or Grok Build model and reasoning effort for implementation, planning, investigation, review, or verification. Use when an orchestrator must assign tasks, when the user asks which coding model or effort to use, or when provider restrictions, latency, cost, risk, or independent-review needs affect routing."
+description: "Choose a worker (Claude Code, Codex, Grok Build, Antigravity Gemini Flash, or local Qwen), model, and reasoning effort by task complexity, plan-limit headroom, and availability. Use when an orchestrator must assign tasks, when the user asks which coding model or effort to use, or when provider restrictions, latency, cost, risk, or independent-review needs affect routing."
 ---
 
 # Route Model Task
@@ -16,8 +16,10 @@ or effort. Use the evidence notes only when explaining or revisiting the policy.
    provider. If no valid route remains, return the exact blocker.
 3. Classify the task by role, ambiguity, scope/coupling, risk, determinism of validation, modality,
    and expected duration.
-4. Select the cheapest sufficient model from the strict catalog in `references/routing.md`, then
-   select the cheapest sufficient supported effort. Model choice and effort are separate decisions.
+4. Classify complexity into a tier (T1–T4, `references/routing.md`). Run
+   `${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh pick --tier <T>` with the restrictions as `--allow`/`--deny`;
+   its first line is the route, and the rest are its fallbacks. An explicit model or effort pin
+   skips the pool: select from the strict catalog directly.
 5. Add another model only when independent evidence can change the result. Prefer a provider
    different from the implementer for high-risk review or contradictory diagnoses.
 
@@ -33,8 +35,9 @@ or effort. Use the evidence notes only when explaining or revisiting the policy.
 - Route a repeated scope violation, stalled tool loop, or contradictory diagnosis to another
   allowed provider before blindly increasing effort.
 - Keep a model's testimony advisory. Tests, rendered output, and repository evidence decide Done.
-- Query installed CLI versions and model availability when a route will actually execute. If the
-  chosen CLI is unavailable or unsigned-in, use only an allowed fallback or report the blocker.
+- To execute, `pool.sh run` (same flags plus `--repo`, `--base` for review, and `--out`; prompt on
+  stdin) falls through unavailable workers itself. With no worker left it exits 75 and prints the
+  earliest plan reset: report that blocker.
 
 ## Emit a route card
 
@@ -43,6 +46,7 @@ Return one compact entry per task:
 ```text
 Task: <bounded outcome>
 Role: <plan|implement|investigate|review|verify>
+Tier: <T1|T2|T3|T4, or pinned>
 Route: <provider> / <exact model> / <effort or n/a>
 Why: <task evidence that justifies this route>
 Access: <read-only or edit; required tools>

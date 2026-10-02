@@ -12,7 +12,7 @@
 #
 # Exit codes: 0 ok; 2 usage; 3 nothing to review; 4 diff over the cap; 5 empty
 # final message; 6 review without a terminal APPROVE/NEEDS_WORK; 55 qwen run
-# budget exceeded (worktree may be partly edited); 75 unavailable (slot busy,
+# budget exceeded (worktree may be partly edited); 75 unavailable (slot busy, another model served,
 # server down, or no wrapper) — route elsewhere; other codes come from the wrapper.
 #
 # Env:
@@ -262,6 +262,12 @@ cat "$runtime_dir/err.txt" >&2
 # being unavailable, which this contract expresses as 75.
 if [ "$rc" -eq 127 ]; then
   printf 'run-qwen-local: qwen CLI missing or too old; route elsewhere\n' >&2
+  rc=75
+fi
+# The wrapper's preflight refuses with 1 when the GPU serves another model: the local
+# engine is unavailable, and nothing was edited yet.
+if [ "$rc" -eq 1 ] && grep -q 'wrong-model:' "$runtime_dir/err.txt"; then
+  printf 'run-qwen-local: local server is serving a different model; route elsewhere\n' >&2
   rc=75
 fi
 if [ "$rc" -eq 55 ]; then
