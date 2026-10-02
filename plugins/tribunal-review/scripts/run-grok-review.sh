@@ -15,6 +15,10 @@ tribunal_grok_authenticated || {
 }
 
 GROK_MODEL="${TRIBUNAL_GROK_MODEL:-grok-4.7}"
+RISK_EFFORT="$(tribunal_risk_effort grok 2>&1)" || { tribunal_error grok "$RISK_EFFORT"; exit 0; }
+GROK_EFFORT="${TRIBUNAL_GROK_EFFORT:-$RISK_EFFORT}"
+effort_args=()
+[ -z "$GROK_EFFORT" ] || effort_args=(--reasoning-effort "$GROK_EFFORT")
 INSPECT_TIMEOUT="${TRIBUNAL_GROK_TIMEOUT_SECONDS:-600}"
 FINALIZE_TIMEOUT="${TRIBUNAL_GROK_FINALIZE_TIMEOUT_SECONDS:-120}"
 INSPECT_MAX_TURNS="${TRIBUNAL_GROK_MAX_TURNS:-30}"
@@ -195,7 +199,7 @@ run_grok() {
   HOME="$ISOLATED_HOME" \
     GROK_HOME="$ISOLATED_HOME/.grok" \
     GROK_SANDBOX="$GROK_SANDBOX_PROFILE" \
-    timeout -k 10 "$timeout_s" grok --model "$GROK_MODEL" --output-format json \
+    timeout -k 10 "$timeout_s" grok --model "$GROK_MODEL" ${effort_args[@]+"${effort_args[@]}"} --output-format json \
     --json-schema "$SCHEMA_JSON" \
     --tools "$tools" \
     --sandbox "$GROK_SANDBOX_PROFILE" \

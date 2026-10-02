@@ -45,7 +45,9 @@ The preflight script resolves the repository default branch (`defaultBranchRef`,
 reports usable/skipped/disabled active reviewer legs.
 
 Stop if preflight exits non-zero. Otherwise report the base ref and active
-reviewer leg status before launching review.
+reviewer leg status before launching review. When the caller names a risk tier, prefix
+preflight and every review command with `TRIBUNAL_RISK=<T1..T4>`; shell environment does not
+persist between calls.
 
 Set `TRIBUNAL_SMOKE_PROBE=on` when CLI presence/auth is insufficient evidence.
 It makes one minimal bounded request through each usable default transport and
@@ -78,7 +80,8 @@ and non-interactive with permission prompts disabled.
 
 Collect Codex, Gemini, GLM, DeepSeek, Qwen, Grok, and Claude outputs. Treat disabled
 markers as intentional absence. Treat malformed JSON or `{"error":...}` as
-provider failure and continue with remaining non-disabled providers.
+provider failure and continue with remaining non-disabled providers. For an error starting
+with `plan limit:`, run one backup leg per `references/provider-policy.md`.
 Report per-leg results with status using `references/output-contract.md`, including in human progress updates.
 
 ### PR delivery evidence

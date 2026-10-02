@@ -308,7 +308,7 @@ collect() {
   local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json deleted_paths_json
   local mutation_gate_json
   local codex_worktree gemini_worktree opencode_worktree qwen_worktree grok_worktree claude_worktree review_worktree
-  local min_ok_legs
+  local min_ok_legs backup_legs backups backup limited idle
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --repo-root) [ "$#" -ge 2 ] || die "--repo-root needs a value"; root="$2"; shift 2 ;;
@@ -321,6 +321,8 @@ collect() {
   case "$pr" in ''|*[!0-9]*|0) die "invalid PR number" ;; esac
   # Fail closed on an invalid floor before any provider leg runs (issue #519).
   min_ok_legs="$(tribunal_min_ok_legs)" || exit 1
+  tribunal_risk_tier >/dev/null || exit 1
+  backup_legs="$(tribunal_backup_legs)" || exit 1
   root="$(real_dir "$root")"
   [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || die "--repo-root is not a Git worktree root"
   case "$output" in /*) ;; *) die "--output must be absolute" ;; esac
@@ -395,6 +397,56 @@ collect() {
   done
   rc="$(cat "$STAGING/wrappers/opencode.exit")"
   normalize_opencode "$STAGING/wrappers/opencode.raw" "$rc" "$STAGING" "$base_oid" "$head_oid"
+
+  # One backup leg per plan-limited leg, from TRIBUNAL_BACKUP_LEGS: an installed leg whose
+  # wrapper sat idle this run (GLM and DeepSeek share one). The limited leg stays failed.
+  limited=0
+  for provider in $PROVIDERS; do
+    jq -e '(.error // "") | startswith("plan limit:")' "$STAGING/providers/$provider.json" >/dev/null \
+      && limited=$((limited + 1))
+  done
+  backups=""
+  for backup in $backup_legs; do
+    [ "$limited" -gt 0 ] || break
+    case "$backup" in glm|deepseek) idle="glm deepseek" ;; *) idle="$backup" ;; esac
+    for provider in $idle; do
+      [ "$(provider_status "$STAGING/providers/$provider.json")" = disabled ] || continue 2
+    done
+    tribunal_backup_installed "$backup" || continue
+    backups="$backups $backup "; limited=$((limited - 1))
+  done
+  if [ -n "$backups" ]; then
+    printf 'tribunal evidence: running backup legs for plan-limited legs:%s\n' "$backups" >&2
+    case "$backups" in *" glm "*|*" deepseek "*)
+      ( case "$backups" in *" glm "*) export TRIBUNAL_GLM=on ;; esac
+        case "$backups" in *" deepseek "*) export TRIBUNAL_DEEPSEEK=on ;; esac
+        run_wrapper opencode "$SCRIPT_DIR/run-opencode-review.sh" "$opencode_worktree" "$base_oid" "$STAGING/wrappers" ) & ;;
+    esac
+    case "$backups" in *" gemini "*)
+      ( export TRIBUNAL_GEMINI=on
+        run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers" ) & ;;
+    esac
+    case "$backups" in *" qwen "*)
+      ( export TRIBUNAL_QWEN=on
+        run_wrapper qwen "$SCRIPT_DIR/run-qwen-review.sh" "$qwen_worktree" "$base_oid" "$STAGING/wrappers" ) & ;;
+    esac
+    wait
+    for review_worktree in "${REVIEW_WORKTREES[@]}"; do
+      [ "$(git -C "$review_worktree" rev-parse HEAD)" = "$head_oid" ] || die "provider changed review HEAD"
+      [ -z "$(git -C "$review_worktree" status --porcelain --untracked-files=all)" ] \
+        || die "provider changed its sealed review worktree"
+    done
+    for backup in $backups; do
+      case "$backup" in gemini|qwen)
+        normalize_single "$backup" "$STAGING/wrappers/$backup.raw" "$(cat "$STAGING/wrappers/$backup.exit")" \
+          "$STAGING/providers/$backup.json" "$base_oid" "$head_oid" ;;
+      esac
+    done
+    case "$backups" in *" glm "*|*" deepseek "*)
+      normalize_opencode "$STAGING/wrappers/opencode.raw" "$(cat "$STAGING/wrappers/opencode.exit")" \
+        "$STAGING" "$base_oid" "$head_oid" ;;
+    esac
+  fi
 
   providers_json="$STAGING/providers.jsonl"; : > "$providers_json"
   for provider in $PROVIDERS; do

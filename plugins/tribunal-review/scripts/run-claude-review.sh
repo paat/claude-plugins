@@ -32,6 +32,10 @@ else
   tribunal_review_prompt claude "$DIFF_FILE" "$CONTEXT_FILE" "diff-only" > "$PROMPT_FILE"
 fi
 
+RISK_EFFORT="$(tribunal_risk_effort claude 2>&1)" || { tribunal_error claude "$RISK_EFFORT"; exit 0; }
+CLAUDE_EFFORT="${TRIBUNAL_CLAUDE_EFFORT:-$RISK_EFFORT}"
+effort_args=()
+case "${TRIBUNAL_CLAUDE_MODEL:-sonnet}" in *haiku*) ;; *) [ -z "$CLAUDE_EFFORT" ] || effort_args=(--effort "$CLAUDE_EFFORT") ;; esac
 SCRATCH="$(mktemp -d "$TMPDIR/claude.XXXXXX")"
 rc=0
 RUN_TIMEOUT=600
@@ -39,7 +43,7 @@ RUN_TIMEOUT=600
 SCHEMA_JSON="$(jq -c . "$(tribunal_review_schema)")"
 if [ "$MODE" = smoke ]; then
   (cd "$SCRATCH" && timeout -k 10 "$RUN_TIMEOUT" claude -p \
-    --model "${TRIBUNAL_CLAUDE_MODEL:-sonnet}" --output-format json \
+    --model "${TRIBUNAL_CLAUDE_MODEL:-sonnet}" ${effort_args[@]+"${effort_args[@]}"} --output-format json \
     --json-schema "$SCHEMA_JSON" --safe-mode --disable-slash-commands \
     --tools "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
     --no-session-persistence < "$PROMPT_FILE" > "$TMPDIR/out.json" 2> "$TMPDIR/err.txt") || rc=$?
@@ -49,7 +53,7 @@ else
     printf '\n## Unified Diff\n'
     cat "$DIFF_FILE"
   } | timeout -k 10 "$RUN_TIMEOUT" claude -p \
-    --model "${TRIBUNAL_CLAUDE_MODEL:-sonnet}" --output-format json \
+    --model "${TRIBUNAL_CLAUDE_MODEL:-sonnet}" ${effort_args[@]+"${effort_args[@]}"} --output-format json \
     --json-schema "$SCHEMA_JSON" --safe-mode --disable-slash-commands \
     --tools "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
     --no-session-persistence > "$TMPDIR/out.json" 2> "$TMPDIR/err.txt") || rc=$?

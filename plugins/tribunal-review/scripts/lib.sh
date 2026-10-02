@@ -22,6 +22,82 @@ tribunal_min_ok_legs() {
   return 1
 }
 
+# PR risk tier (environment only, never from the reviewed repository): T1..T4, or
+# empty when unset so every leg keeps its CLI default effort.
+tribunal_risk_tier() {
+  case "${TRIBUNAL_RISK:-}" in
+    ''|T1|T2|T3|T4) printf '%s\n' "${TRIBUNAL_RISK:-}"; return 0 ;;
+  esac
+  printf 'invalid TRIBUNAL_RISK value: %s (want T1, T2, T3, or T4)\n' "$TRIBUNAL_RISK" >&2
+  return 1
+}
+
+# Reviewer effort for the risk tier; empty when TRIBUNAL_RISK is unset. Only Codex goes
+# to xhigh, and only at T4: maximum-effort reviewers over-report speculative findings.
+tribunal_risk_effort() {
+  local tier
+  tier="$(tribunal_risk_tier)" || return 1
+  case "$tier" in
+    '') ;;
+    T1) printf 'low\n' ;;
+    T2) printf 'medium\n' ;;
+    T3) printf 'high\n' ;;
+    T4) if [ "$1" = codex ]; then printf 'xhigh\n'; else printf 'high\n'; fi ;;
+  esac
+}
+
+# Opt-in legs that stand in for a plan-limited leg (environment only). Unset means
+# deepseek; "off" means none. Prints one provider per line; duplicates are rejected.
+tribunal_backup_legs() {
+  local raw="${TRIBUNAL_BACKUP_LEGS-deepseek}" leg seen=" "
+  local -a legs=()
+  [ "$raw" = off ] && return 0
+  case "$raw" in
+    *[[:space:]]*) printf 'invalid TRIBUNAL_BACKUP_LEGS value: whitespace is not allowed (comma-separated list)\n' >&2; return 1 ;;
+  esac
+  IFS=, read -r -a legs <<< "$raw"
+  for leg in ${legs[@]+"${legs[@]}"}; do
+    case "$leg" in
+      glm|deepseek|gemini|qwen) ;;
+      *) printf 'invalid TRIBUNAL_BACKUP_LEGS entry: %s (want glm, deepseek, gemini, qwen, or off)\n' "$leg" >&2; return 1 ;;
+    esac
+    case "$seen" in *" $leg "*) printf 'duplicate TRIBUNAL_BACKUP_LEGS entry: %s\n' "$leg" >&2; return 1 ;; esac
+    seen="$seen$leg "
+    printf '%s\n' "$leg"
+  done
+}
+
+# A backup leg runs only when its transport is installed (and its model registered).
+# The first `opencode models` call can initialize state and print nothing, as in preflight.
+tribunal_backup_installed() {
+  local model models
+  case "$1" in
+    glm|deepseek)
+      command -v opencode >/dev/null 2>&1 || return 1
+      if [ "$1" = glm ]; then model="${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.1}"; else model="$(tribunal_deepseek_model)"; fi
+      opencode models >/dev/null 2>&1 || true
+      models="$(opencode models 2>/dev/null || true)"
+      grep -qxF -- "$model" <<< "$models" ;;
+    gemini) command -v agy >/dev/null 2>&1 ;;
+    qwen) command -v qwen >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# A CLI that failed because its plan window or balance is used up. Timeouts are never
+# plan limits; only the tails are read, where CLIs print the terminal error.
+tribunal_plan_limited() {
+  local exit_code="$1" f
+  shift
+  case "$exit_code" in 124|137) return 1 ;; esac
+  for f in "$@"; do
+    [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || continue
+    grep -Eiq '\b402\b|usage[[:space:]_-]?limit|quota|(resource|balance|credits?)[[:space:]_-]?exhausted' \
+      <<< "$(tail -c 4096 -- "$f" 2>/dev/null)" && return 0
+  done
+  return 1
+}
+
 tribunal_repo_root() {
   git rev-parse --show-toplevel 2>/dev/null || pwd
 }
@@ -401,6 +477,10 @@ tribunal_error_with_diagnostics() {
   local stderr_tail="[omitted; set TRIBUNAL_DIAGNOSTIC_TAILS=on]"
   local stdout_truncated=false stderr_truncated=false
   [[ "$exit_code" =~ ^[0-9]+$ ]] || exit_code=255
+  # The collector replaces a plan-limited leg with a backup leg (TRIBUNAL_BACKUP_LEGS).
+  if [ "$phase" = execution ] && tribunal_plan_limited "$exit_code" "$stdout_file" "$stderr_file"; then
+    message="plan limit: $message"
+  fi
   if [ -f "$stdout_file" ] && [ ! -L "$stdout_file" ]; then
     # Unreadable is unavailable (null), not empty (0). Probe -r before wc so a
     # failed redirect cannot empty --argjson and erase the failure record (#504).

@@ -46,6 +46,8 @@ tier — park until the reset `pool.sh` prints. An explicit model pin bypasses t
 | Mechanical verification after a model-authored change | T1 | run the deterministic check directly when no judgment is needed |
 | Days-long or unusually hard work where marginal capability matters | outside the pool | pin Fable 5.1 `high` or `xhigh` |
 
+Pass the item's tier to its close-out tribunal as `TRIBUNAL_RISK=<T>`; it sets reviewer effort.
+
 Task evidence outranks the table. A clear, localized payment copy edit stays T1 or T2 because the
 change is local; a subtle idempotency change is T4. Escalate a tier after a failed gate with new
 evidence, not because the product matters.
