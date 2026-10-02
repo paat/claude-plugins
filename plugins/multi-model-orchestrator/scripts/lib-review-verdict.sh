@@ -30,7 +30,7 @@ mmo_terminal_verdict() {
 mmo_classify_provider_failure() {
   local f="${1:-}"
   [ -n "$f" ] && [ -s "$f" ] || return 0
-  if grep -Eiq '\b(429|529|503)\b|overloaded|rate[[:space:]_-]?limit|usage[[:space:]_-]?limit|quota|resource[[:space:]_-]?exhausted|temporarily[[:space:]]+unavailable' "$f"; then
+  if grep -Eiq '\b(402|429|529|503)\b|overloaded|rate[[:space:]_-]?limit|usage[[:space:]_-]?limit|quota|(resource|balance|credits?)[[:space:]_-]?exhausted|temporarily[[:space:]]+unavailable' "$f"; then
     printf 'transient\n'
     return 0
   fi

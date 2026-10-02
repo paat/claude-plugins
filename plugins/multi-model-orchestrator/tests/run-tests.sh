@@ -2398,7 +2398,8 @@ contains "$META_REFS/handoff-template.md" '- Usage:' 'Handoff records the usage 
 pass 'usage.sh reports plan-limit windows per provider'
 
 # --- plan limits are transient (75), not task failures ---
-for msg in 'You have hit your usage limit' 'RESOURCE_EXHAUSTED: quota exceeded' 'Resource exhausted'; do
+for msg in 'You have hit your usage limit' 'RESOURCE_EXHAUSTED: quota exceeded' 'Resource exhausted' \
+  'API error (status 402 Payment Required): Grok Build usage balance exhausted'; do
   printf '%s\n' "$msg" > "$WORK/plan-limit.txt"
   [ "$(mmo_classify_provider_failure "$WORK/plan-limit.txt")" = transient ] || fail "plan limit '$msg' classifies as transient"
 done
