@@ -48,7 +48,7 @@ variable, or unquoted interpolation for these values. For example,
 '<encoded-runner>' --workflow --prompt '<encoded-prompt>'
 ```
 
-The runner isolates `agy` to web search plus Reddit and search-grounding reads. With Claude's Bash
+The runner isolates `agy` to web search and URL reads; local file access is denied. With Claude's Bash
 tool, set `timeout: 270000`; with Codex, poll the same invocation for up to 270 seconds and terminate
 it only if still running at that limit. An in-progress yield or poll is neither a result nor a retry.
 These host allowances do not raise runner limits. Never call `agy` or `timeout` directly, invoke

@@ -153,8 +153,8 @@ printf 'user history\n' > "$token_home/.gemini/antigravity-cli/history.jsonl"
 printf 'UNTRUSTED GLOBAL CONTEXT\n' > "$token_home/.gemini/GEMINI.md"
 printf 'legacy gemini credential\n' > "$key_home/.gemini/oauth_creds.json"
 
-token_settings='{"permissions":{"allow":["read_url(reddit.com)","read_url(vertexaisearch.cloud.google.com)"],"deny":["command(*)","write_file(*)","execute_url(*)","mcp(*)"]}}'
-key_settings='{"permissions":{"allow":["read_url(reddit.com)","read_url(vertexaisearch.cloud.google.com)"],"deny":["command(*)","write_file(*)","execute_url(*)","mcp(*)"]},"modelProvider":"gemini"}'
+token_settings='{"permissions":{"allow":["read_url(*)"],"deny":["read_file(*)","command(*)","write_file(*)","execute_url(*)","mcp(*)"]}}'
+key_settings='{"permissions":{"allow":["read_url(*)"],"deny":["read_file(*)","command(*)","write_file(*)","execute_url(*)","mcp(*)"]},"modelProvider":"gemini"}'
 base_env='HOME
 LANG
 LC_ALL

@@ -87,7 +87,7 @@ elif [ -n "${GEMINI_API_KEY:-}" ]; then
 else
   terminal_failure 4 "reddit research blocked: Antigravity authentication is required; sign in with agy or set GEMINI_API_KEY (0 calls)"
 fi
-printf '{"permissions":{"allow":["read_url(reddit.com)","read_url(vertexaisearch.cloud.google.com)"],"deny":["command(*)","write_file(*)","execute_url(*)","mcp(*)"]}%s}\n' \
+printf '{"permissions":{"allow":["read_url(*)"],"deny":["read_file(*)","command(*)","write_file(*)","execute_url(*)","mcp(*)"]}%s}\n' \
   "$model_provider" > "$isolated_agy_dir/settings.json"
 
 stdout_file="$tmp_dir/stdout"

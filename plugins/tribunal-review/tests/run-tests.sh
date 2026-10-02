@@ -1692,14 +1692,11 @@ dir="\$HOME/.gemini/antigravity-cli"
 cp "\$dir/settings.json" "$state/settings.json"
 [ ! -f "\$dir/antigravity-oauth-token" ] || stat -c %a "\$dir/antigravity-oauth-token" > "$state/token-mode"
 printf '%s\n' "\$HOME" > "$state/home"
-prev=""
-for a in "\$@"; do
-  if [ "\$prev" = "--add-dir" ] && [ -s "\$a/review.diff" ]; then : > "$state/diff-readable"; fi
-  prev="\$a"
-done
-cat <<'JSON'
-{"provider":"gemini","model":"default","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":9,"verdict":"APPROVE"}}
-JSON
+pwd -P > "$state/cwd"
+jq -r 'select(.event=="user") | .message.content' | grep -q '^+two' && : > "$state/diff-inline"
+case "\$*" in *"--input-format stream-json"*"-p="*) : > "$state/stream-args" ;; esac
+printf '%s\n' '{"event":"init"}'
+jq -nc '{event:"result",result:{status:"SUCCESS",response:({provider:"gemini",model:"default",files_examined:["file.txt"],findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:9,verdict:"APPROVE"}}|tojson)}}'
 EOF
   chmod +x "$fake/agy"
   gemini_leg_run() {
@@ -1720,11 +1717,12 @@ EOF
   gemini_leg_run PATH="$fake:$PATH" GEMINI_API_KEY=unused > "$work/out-a.json"
   rc=0
   jq -e '.provider=="gemini" and .summary.verdict=="APPROVE" and (has("error")|not)' "$work/out-a.json" >/dev/null \
-    && jq -e '.permissions.deny==["write_file(*)","command(*)","execute_url(*)","mcp(*)"] and (.permissions.allow==null) and (has("modelProvider")|not)' \
+    && jq -e '.permissions.deny==["read_file(*)","write_file(*)","command(*)","execute_url(*)","mcp(*)"] and (.permissions.allow==null) and (has("modelProvider")|not)' \
       "$state/settings.json" >/dev/null \
     && [ "$(cat "$state/token-mode")" = 600 ] \
     && [ "$(cat "$state/home")" != "$home" ] \
-    && [ -e "$state/diff-readable" ] || rc=1
+    && [ "$(cat "$state/cwd")" != "$(cd "$work" && pwd -P)" ] \
+    && [ -e "$state/diff-inline" ] && [ -e "$state/stream-args" ] || rc=1
   gemini_leg_check "$rc" "gemini leg runs agy read-only with isolated sign-in"
 
   # Scenario B: API-key mode when agy is not signed in.

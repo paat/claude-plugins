@@ -65,8 +65,8 @@ Triggers proactively when your question would benefit from Reddit community insi
 1. Constructs a Reddit-focused prompt for `agy`
 2. Invokes one bundled runner with a 150-second attempt and at most one 90-second retry
 3. Runs `agy` with its default model from an empty private home and work directory, a clean
-   environment, and only your sign-in token (or `GEMINI_API_KEY`); permissions allow reading only
-   Reddit and Google search-grounding pages and deny commands, file writes, URL execution, and MCP
+   environment, and only your sign-in token (or `GEMINI_API_KEY`); permissions allow web search and
+   URL reads (search grounding redirects off Reddit) and deny file reads, commands, file writes, URL execution, and MCP
 4. Requires a full Reddit comments URL before accepting the output
 5. Preserves time for verification and a complete caveated report
 

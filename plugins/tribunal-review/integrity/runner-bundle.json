@@ -30,7 +30,7 @@
     },
     {
       "path": "scripts/run-gemini-review.sh",
-      "sha256": "e50b65496b9ca69d5f26451bbb9d6deea27bdbf0b039f05429324ed9ad740bd0"
+      "sha256": "7b34251016c0da94066d62a1d73c8c10bdbb58c2fe5d45c470b199bab483df20"
     },
     {
       "path": "scripts/run-grok-review.sh",

@@ -1,6 +1,6 @@
 {
   "name": "reddit-fetch",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Research any topic using Reddit via Antigravity CLI (agy) web search",
   "author": {
     "name": "Andre Paat"
