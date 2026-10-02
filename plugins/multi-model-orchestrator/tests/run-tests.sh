@@ -2435,7 +2435,7 @@ printf '%s\n' "$@" > "$STUB_AGY_CALLS/call.$n.args"
 pwd > "$STUB_AGY_CALLS/call.$n.cwd"
 cat > "$STUB_AGY_CALLS/call.$n.stdin"
 printf '%s\n' '{"event":"init","init":{}}'
-[ -z "${STUB_AGY_TOUCH:-}" ] || printf 'touched\n' >> "$STUB_AGY_TOUCH"
+case "$*" in *"${STUB_AGY_TOUCH_MODEL:-}"*) [ -z "${STUB_AGY_TOUCH:-}" ] || printf 'touched\n' >> "$STUB_AGY_TOUCH" ;; esac
 case "$*" in
   *"${STUB_AGY_FAIL_MODEL:-<none>}"*)
     printf '%s\n' '{"event":"result","result":{"status":"ERROR","response":"","error":"RESOURCE_EXHAUSTED: quota exceeded"}}'
@@ -2559,6 +2559,15 @@ rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-lo
 [ "$rc" -eq 55 ] || fail "pool exits 55 when the failed leg changed the repo (got $rc)"
 [ ! -e "$PL/calls/call.1.args" ] || fail 'pool must not hand a dirtied tree to another worker'
 contains "$PL/err" 'after changing the repository' 'pool explains why it stopped'
+git -C "$AR" checkout -q -- f.txt
+
+# run: a clean fall-through followed by a leg that edits and fails still exits 55.
+rm -f "$PL/calls"/*
+rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash STUB_AGY_TOUCH="$AR/f.txt" \
+  STUB_AGY_TOUCH_MODEL=gemini-3.8-flash-high \
+  bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
+[ -e "$PL/calls/call.1.args" ] || fail 'the second worker ran after a clean fall-through'
+[ "$rc" -eq 55 ] || fail "a dirtying leg after a clean fall-through exits 55 (got $rc)"
 git -C "$AR" checkout -q -- f.txt
 
 # run: every worker unavailable -> 75 naming the tier.

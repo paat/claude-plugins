@@ -182,6 +182,7 @@ for row in "${candidates[@]}"; do
       if [ "$(mmo_tree_state "$repo_dir" "$out_abs")" != "$before" ]; then
         printf 'pool: %s exited %s after changing the repository; not handing the task to another worker\n' "$r_provider" "$rc" >&2
         rc=55
+        fell_through=0
         break
       fi
       printf 'pool: %s unavailable (exit %s); next worker\n' "$r_provider" "$rc" >&2
