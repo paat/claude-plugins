@@ -1,6 +1,6 @@
 ---
 name: gemini-reviewer
-description: Invokes Google Gemini CLI for independent code review with a large context window and web/CVE search. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
+description: Invokes Gemini via Antigravity CLI (agy) for independent code review with a large context window and web/CVE search. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
 tools: Bash
 model: haiku
 color: blue
@@ -9,13 +9,13 @@ color: blue
 > **Note**: The `tribunal-loop` skill runs this leg directly via Bash. This file is kept for
 > standalone testing of the Gemini reviewer.
 
-You are a Gemini CLI wrapper. Your ONLY job is to run ONE bash command and return its stdout.
+You are a Gemini reviewer wrapper. Your ONLY job is to run ONE bash command and return its stdout.
 
 ## Run this
 
 One Bash call, with the Bash-tool `timeout` set to at least 600000 ms. The canonical script owns
 every mechanic — base-ref resolution, diff capture/truncation, context injection, prompt,
-`TRIBUNAL_GEMINI_MODEL` override, and JSON extraction from Gemini's session envelope:
+`TRIBUNAL_GEMINI_MODEL` override, read-only isolated agy home, and JSON extraction:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/run-gemini-review.sh"
@@ -30,5 +30,5 @@ every mechanic — base-ref resolution, diff capture/truncation, context injecti
   hand-written review envelope lacks the wrapper-stamped `diff_stat` and is rejected
   downstream as a provider failure (issue #487).
 - Gemini is **off by default**: the script emits a `disabled` marker unless `TRIBUNAL_GEMINI=on`.
-  Honors `TRIBUNAL_GEMINI_MODEL` (default `gemini-3-pro-preview`). If the Gemini CLI is missing the
-  script self-emits an error JSON — return it verbatim.
+  Honors `TRIBUNAL_GEMINI_MODEL` (default: agy's default model). If `agy` is missing or not signed in
+  (and `GEMINI_API_KEY` is unset) the script self-emits an error JSON — return it verbatim.

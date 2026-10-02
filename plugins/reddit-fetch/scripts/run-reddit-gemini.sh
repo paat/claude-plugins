@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run bounded Gemini discovery without exposing provider stderr or retrying indefinitely.
+# Run bounded Antigravity CLI (agy) discovery without exposing provider stderr or retrying indefinitely.
 set -euo pipefail
 export LC_ALL=C
 
@@ -42,29 +42,16 @@ prompt="$2"
   terminal_failure 2 "reddit research unavailable: prompt exceeds 12000 bytes (0 calls)"
 }
 
-gemini_bin="$(command -v gemini 2>/dev/null || true)"
-[ -n "$gemini_bin" ] || {
-  terminal_failure 4 "reddit research blocked: Gemini CLI is not installed (0 calls)"
+agy_bin="$(command -v agy 2>/dev/null || true)"
+[ -n "$agy_bin" ] || {
+  terminal_failure 4 "reddit research blocked: Antigravity CLI (agy) is not installed (0 calls)"
 }
 timeout_bin="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
 [ -n "$timeout_bin" ] || {
   terminal_failure 4 "reddit research blocked: GNU-compatible timeout is not installed (0 calls)"
 }
 
-case "${OSTYPE:-}" in
-  darwin*) system_policy_dir="/Library/Application Support/GeminiCli/policies" ;;
-  cygwin*|msys*|win32*) system_policy_dir="C:/ProgramData/gemini-cli/policies" ;;
-  *) system_policy_dir="/etc/gemini-cli/policies" ;;
-esac
-shopt -s nullglob
-system_policy_files=("$system_policy_dir"/*.toml)
-shopt -u nullglob
-[ "${#system_policy_files[@]}" -eq 0 ] || {
-  terminal_failure 4 "reddit research blocked: system Gemini policies prevent isolated tool enforcement (0 calls)"
-}
-
 tmp_dir=""
-source_cli_home="${GEMINI_CLI_HOME:-${HOME:-}}"
 tmp_base="${TMPDIR:-/tmp}"
 case "$tmp_base" in /*) ;; *) tmp_base="/tmp" ;; esac
 tmp_base="${tmp_base%/}"
@@ -82,66 +69,35 @@ canonical_tmp="$(cd "$tmp_dir" 2>/dev/null && pwd -P)" || {
 tmp_dir="$canonical_tmp"
 work_dir="$tmp_dir/work"
 isolated_home="$tmp_dir/home"
-isolated_gemini_dir="$isolated_home/.gemini"
+isolated_agy_dir="$isolated_home/.gemini/antigravity-cli"
 if ! mkdir "$work_dir" 2>/dev/null || ! mkdir "$work_dir/.git" 2>/dev/null \
-  || ! mkdir -p "$isolated_gemini_dir" 2>/dev/null; then
+  || ! mkdir -p "$isolated_agy_dir" 2>/dev/null; then
   terminal_failure 3 "reddit research unavailable: could not create bounded-run workspace (0 calls)"
 fi
-auth_type="gemini-api-key"
-if [ -z "${GEMINI_API_KEY:-}" ]; then
-  auth_type="oauth-personal"
-  oauth_credential_staged=0
-  source_gemini_dir="$source_cli_home/.gemini"
-  for auth_file in gemini-credentials.json oauth_creds.json google_accounts.json; do
-    [ -n "$source_cli_home" ] || continue
-    source_auth_file="$source_gemini_dir/$auth_file"
-    [ -f "$source_auth_file" ] && [ ! -L "$source_auth_file" ] || continue
-    if ! cp "$source_auth_file" "$isolated_gemini_dir/$auth_file" 2>/dev/null \
-      || ! chmod 600 "$isolated_gemini_dir/$auth_file" 2>/dev/null; then
-      terminal_failure 4 "reddit research blocked: could not stage Gemini authentication (0 calls)"
-    fi
-    case "$auth_file" in gemini-credentials.json|oauth_creds.json) oauth_credential_staged=1 ;; esac
-  done
-  [ "$oauth_credential_staged" -eq 1 ] || {
-    terminal_failure 4 "reddit research blocked: file-backed Gemini authentication is required (0 calls)"
-  }
-fi
 
-scan_dir="$work_dir"
-while :; do
-  env_file="$scan_dir/.gemini/.env"
-  if [ -e "$env_file" ] || [ -L "$env_file" ]; then
-    terminal_failure 4 "reddit research blocked: ancestor Gemini environment file prevents isolation (0 calls)"
+source_token="${HOME:-}/.gemini/antigravity-cli/antigravity-oauth-token"
+model_provider=""
+if [ -n "${HOME:-}" ] && [ -f "$source_token" ] && [ ! -L "$source_token" ]; then
+  if ! cp "$source_token" "$isolated_agy_dir/antigravity-oauth-token" 2>/dev/null \
+    || ! chmod 600 "$isolated_agy_dir/antigravity-oauth-token" 2>/dev/null; then
+    terminal_failure 4 "reddit research blocked: could not stage Antigravity sign-in (0 calls)"
   fi
-  [ "$scan_dir" = "/" ] && break
-  scan_dir="${scan_dir%/*}"
-  [ -n "$scan_dir" ] || scan_dir="/"
-done
+elif [ -n "${GEMINI_API_KEY:-}" ]; then
+  model_provider=',"modelProvider":"gemini"'
+else
+  terminal_failure 4 "reddit research blocked: Antigravity authentication is required; sign in with agy or set GEMINI_API_KEY (0 calls)"
+fi
+printf '{"permissions":{"allow":["read_url(reddit.com)","read_url(vertexaisearch.cloud.google.com)"],"deny":["command(*)","write_file(*)","execute_url(*)","mcp(*)"]}%s}\n' \
+  "$model_provider" > "$isolated_agy_dir/settings.json"
+
 stdout_file="$tmp_dir/stdout"
 stderr_file="$tmp_dir/stderr"
 allowed_urls_file="$tmp_dir/allowed-urls"
-admin_policy="$tmp_dir/admin-policy.toml"
-system_settings="$tmp_dir/system-settings.json"
 last_rc=0
-reddit_url_pattern='https://(www|old)\.reddit\.com/r/[[:alnum:]_]+/comments/[[:alnum:]]+(/[[:alnum:]_%?=&./-]*)?'
+reddit_url_pattern='https://(www|old)[.]reddit[.]com/r/[[:alnum:]_]+/comments/[[:alnum:]]+(/[[:alnum:]_%?=&./-]*)?'
 
 bounded_prompt="${prompt}"$'\n\nReturn at most 5 threads and 800 words. Include a full https://www.reddit.com/r/.../comments/... URL for every thread.'
 retry_prompt="${bounded_prompt}"$'\nNarrow the search to the highest-signal results.'
-
-cat > "$admin_policy" <<'EOF'
-[[rule]]
-toolName = "*"
-decision = "deny"
-priority = 998
-denyMessage = "Only bounded Google web search is enabled."
-
-[[rule]]
-toolName = "google_web_search"
-decision = "allow"
-priority = 999
-EOF
-
-printf '%s\n' "{\"general\":{\"previewFeatures\":true},\"admin\":{\"secureModeEnabled\":true,\"extensions\":{\"enabled\":false},\"mcp\":{\"enabled\":false},\"skills\":{\"enabled\":false}},\"hooksConfig\":{\"enabled\":false},\"security\":{\"auth\":{\"selectedType\":\"$auth_type\"},\"environmentVariableRedaction\":{\"enabled\":true,\"blocked\":[\"GEMINI_API_KEY\"]}},\"advanced\":{\"ignoreLocalEnv\":true}}" > "$system_settings"
 
 clean_env=(
   env -i
@@ -152,30 +108,18 @@ clean_env=(
   "LC_ALL=C"
   "NO_COLOR=1"
   "TERM=dumb"
-  "GEMINI_CLI_HOME=$isolated_home"
-  "GEMINI_CLI_NO_RELAUNCH=true"
-  "GEMINI_DEFAULT_AUTH_TYPE=$auth_type"
-  "GEMINI_CLI_SYSTEM_SETTINGS_PATH=$system_settings"
 )
-[ -z "${GEMINI_API_KEY:-}" ] || clean_env+=("GEMINI_API_KEY=$GEMINI_API_KEY")
-if [ "$auth_type" = "oauth-personal" ]; then
-  clean_env+=("GOOGLE_GENAI_USE_GCA=true" "NO_BROWSER=true")
-  if [ -f "$isolated_gemini_dir/gemini-credentials.json" ]; then
-    clean_env+=("GEMINI_FORCE_ENCRYPTED_FILE_STORAGE=true" "GEMINI_FORCE_FILE_STORAGE=true")
-  fi
-fi
+[ -z "$model_provider" ] || clean_env+=("GEMINI_API_KEY=$GEMINI_API_KEY")
 
 run_call() {
-  local model="$1" seconds="$2" query="$3" no_mcp
-  no_mcp="__reddit_fetch_no_mcp_${$}_${RANDOM}_${RANDOM}__"
+  local seconds="$1" query="$2"
   : > "$stdout_file"
   : > "$stderr_file"
   set +e
   (
     cd "$work_dir" || exit 125
-    "${clean_env[@]}" "$timeout_bin" -k 5 "$seconds" "$gemini_bin" \
-      -m "$model" -p "$query" -o text --approval-mode plan --skip-trust \
-      -e none --allowed-mcp-server-names "$no_mcp" --admin-policy "$admin_policy" </dev/null
+    "${clean_env[@]}" "$timeout_bin" -k 5 "$seconds" "$agy_bin" \
+      -p "$query" --print-timeout "$((seconds - 10))s" </dev/null
   ) >"$stdout_file" 2>"$stderr_file"
   last_rc=$?
   set -e
@@ -201,15 +145,15 @@ usable_output() {
 }
 
 auth_failure() {
-  grep -Eqi 'unauthenticated|authentication (failed|required)|auth method|re-authenticate|no authentication|api key (is )?(missing|not valid)|api_key_invalid|invalid (api key|credentials)|oauth|log[ -]?in required|(^|[^0-9])401([^0-9]|$)' "$stderr_file"
+  grep -Eqi 'unauthenticated|authentication (failed|required|interrupted)|re-authenticate|no authentication|api key (is )?(missing|not valid)|api_key_invalid|invalid (api key|credentials)|oauth|log[ -]?in required|(^|[^0-9])401([^0-9]|$)' "$stderr_file"
 }
 
 quota_failure() {
-  grep -Eqi 'quota|rate limit|resource exhausted|(^|[^0-9])429([^0-9]|$)' "$stderr_file"
+  grep -Eqi 'quota|rate limit|resource[ _]exhausted|(^|[^0-9])429([^0-9]|$)' "$stderr_file"
 }
 
 retryable_failure() {
-  grep -Eqi 'model[^[:cntrl:]]*(not found|does not exist|unsupported)|404[^[:cntrl:]]*model|service unavailable|(^|[^0-9])503([^0-9]|$)|(^|[^[:alnum:]_])unavailable([^[:alnum:]_]|$)' "$stderr_file"
+  grep -Eqi '(^|[^0-9])503([^0-9]|$)|(^|[^[:alnum:]_])unavailable([^[:alnum:]_]|$)' "$stderr_file"
 }
 
 emit_success() {
@@ -227,15 +171,15 @@ emit_success() {
   exit 0
 }
 
-run_call "gemini-3-flash-preview" 90 "$bounded_prompt"
+run_call 150 "$bounded_prompt"
 if [ "$last_rc" -eq 0 ] && usable_output; then
   emit_success
 fi
 if [ "$last_rc" -ne 0 ] && auth_failure; then
-  terminal_failure 4 "reddit research blocked: Gemini authentication is required after 1 call"
+  terminal_failure 4 "reddit research blocked: Antigravity authentication is required after 1 call"
 fi
 if [ "$last_rc" -ne 0 ] && quota_failure; then
-  terminal_failure 3 "reddit research unavailable: Gemini quota or rate limit reached after 1 call"
+  terminal_failure 3 "reddit research unavailable: Antigravity quota or rate limit reached after 1 call"
 fi
 
 retry=0
@@ -250,18 +194,18 @@ else
   esac
 fi
 [ "$retry" -eq 1 ] || {
-  terminal_failure 3 "reddit research unavailable: Gemini failed before producing usable Reddit threads after 1 call"
+  terminal_failure 3 "reddit research unavailable: Antigravity failed before producing usable Reddit threads after 1 call"
 }
 
-run_call "gemini-2.5-flash" 45 "$retry_prompt"
+run_call 90 "$retry_prompt"
 if [ "$last_rc" -eq 0 ] && usable_output; then
   emit_success
 fi
 if [ "$last_rc" -ne 0 ] && auth_failure; then
-  terminal_failure 4 "reddit research blocked: Gemini authentication is required after 2 calls"
+  terminal_failure 4 "reddit research blocked: Antigravity authentication is required after 2 calls"
 fi
 if [ "$last_rc" -ne 0 ] && quota_failure; then
-  terminal_failure 3 "reddit research unavailable: Gemini quota or rate limit reached after 2 calls"
+  terminal_failure 3 "reddit research unavailable: Antigravity quota or rate limit reached after 2 calls"
 fi
 
 terminal_failure 3 "reddit research unavailable: no usable Reddit thread result after 2 bounded calls"

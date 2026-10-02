@@ -1,14 +1,14 @@
 {
   "name": "reddit-fetch",
-  "version": "0.2.6",
-  "description": "Research any topic using Reddit via Gemini CLI's web access capabilities",
+  "version": "0.3.0",
+  "description": "Research any topic using Reddit via Antigravity CLI (agy) web search",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "Reddit Fetch",
-    "shortDescription": "Research any topic using Reddit via Gemini CLI's web access capabilities",
-    "longDescription": "Research any topic using Reddit via Gemini CLI's web access capabilities",
+    "shortDescription": "Research any topic using Reddit via Antigravity CLI (agy) web search",
+    "longDescription": "Research any topic using Reddit via Antigravity CLI (agy) web search",
     "developerName": "Andre Paat",
     "category": "Research",
     "capabilities": [
@@ -24,6 +24,7 @@
   "keywords": [
     "reddit",
     "research",
+    "antigravity",
     "gemini",
     "web-search",
     "community"

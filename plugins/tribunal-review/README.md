@@ -12,7 +12,7 @@ process before merge.
 
 - Bash 4+, Git, and standard `awk`/`sed`/coreutils commands
 - [OpenAI Codex CLI](https://github.com/openai/codex) (`npm install -g @openai/codex`)
-- [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) — **optional**, only for the Gemini leg (opt-in via `TRIBUNAL_GEMINI=on`; off by default)
+- [Antigravity CLI](https://antigravity.google/docs/cli/install/) (`agy`) — **optional**, only for the Gemini leg (opt-in via `TRIBUNAL_GEMINI=on`; off by default). Sign in once with a Google AI Pro/Ultra account, or set `GEMINI_API_KEY` for API-key mode. Gemini CLI no longer serves personal Google accounts
 - [OpenCode CLI](https://opencode.ai) (≥ 1.15) — **optional**, only for two opt-in legs:
   - **DeepSeek** via the direct DeepSeek API (model `deepseek/deepseek-v4-pro`) — opt in with `TRIBUNAL_DEEPSEEK=on`, then authenticate DeepSeek (`opencode auth login` → DeepSeek, or `DEEPSEEK_API_KEY`). Override the model with `TRIBUNAL_DEEPSEEK_MODEL`.
   - **GLM** via an [OpenCode Go](https://opencode.ai/go) subscription (model `opencode-go/glm-5.1`) — **opt-in** (`TRIBUNAL_GLM=on`), off by default.
@@ -123,7 +123,7 @@ The `opencode-go` DeepSeek gate exists because of China hosting; the direct `dee
 | `TRIBUNAL_CODEX_MODEL` | `gpt-6-astra` | Model passed explicitly to `codex exec -m`. An environment value overrides this default. |
 | `TRIBUNAL_CODEX_EFFORT` | `medium` | Reasoning effort passed explicitly through `model_reasoning_effort`. An environment value overrides this default. The Codex leg forces isolated user configuration and always passes `--dangerously-bypass-approvals-and-sandbox`; the development container is the security boundary. |
 | `TRIBUNAL_GEMINI` | `off` | Set to `on` to enable the Gemini leg (web/CVE search). **Off by default**; when off the arbiter reports Gemini as `disabled`, not failed. Only the literal `on` enables. |
-| `TRIBUNAL_GEMINI_MODEL` | `gemini-3-pro-preview` | Model passed to `gemini --model`. Point it at a faster/cheaper slot to keep a full quorum while controlling latency/cost. |
+| `TRIBUNAL_GEMINI_MODEL` | agy default | Model passed to `agy --model` (see `agy models`). Point it at a faster/cheaper slot to keep a full quorum while controlling latency/cost. |
 | `TRIBUNAL_DEEPSEEK` | `off` | Set to `on` to enable the DeepSeek leg. **Off by default** (issue [#461](https://github.com/paat/claude-plugins/issues/461)); when off the arbiter reports DeepSeek as `disabled`, not failed. Only the literal `on` enables. |
 | `TRIBUNAL_DEEPSEEK_MODEL` | `deepseek/deepseek-v4-pro` | Model passed to `opencode run -m`. Defaults to the direct DeepSeek API and independent transport (authenticate with `DEEPSEEK_API_KEY` or `opencode auth login` → DeepSeek). |
 | `TRIBUNAL_GLM` | `off` | Set to `on` to enable the OpenCode Go GLM leg. **Off by default**; it shares lineage with DeepSeek and tends to fail in lockstep (issue #41), remains opt-in and is not a DeepSeek replacement. Only the literal `on` enables. |

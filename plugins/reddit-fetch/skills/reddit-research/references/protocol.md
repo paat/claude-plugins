@@ -1,11 +1,11 @@
 # Reddit Research Protocol (canonical)
 
-This is the single source of truth for reddit-fetch prompting, bounded Gemini execution, reporting,
+This is the single source of truth for reddit-fetch prompting, bounded `agy` execution, reporting,
 verification, and issue-filing safeguards. The command and agent point here instead of duplicating it.
 
 ## Fabrication risk
 
-Gemini CLI has fabricated thread titles, subreddits, quotes, and consensus in production.
+Gemini via `agy` has fabricated thread titles, subreddits, quotes, and consensus in production.
 Treat every result as a **directional lead, not a verified fact**. Never present it as confirmed
 Reddit content or let it enter an automated work queue without the verification below.
 
@@ -48,13 +48,13 @@ variable, or unquoted interpolation for these values. For example,
 '<encoded-runner>' --workflow --prompt '<encoded-prompt>'
 ```
 
-The runner isolates Gemini to Google web search and owns fallback. With Claude's Bash tool, set
-`timeout: 180000`; with Codex, poll the same invocation for up to 180 seconds and terminate it only
-if still running at that limit. An in-progress yield or poll is neither a result nor a retry. These
-host allowances do not raise runner limits. Never call `gemini` or `timeout` directly, invoke the
-runner again, increase limits, or suppress diagnostics. It tries the preview model for 90 seconds,
-then only for timeout/model-unavailable/empty/URL-less output tries the stable model for 45 seconds;
-it accepts bounded output only when it contains a full Reddit comments URL.
+The runner isolates `agy` to web search plus Reddit and search-grounding reads. With Claude's Bash
+tool, set `timeout: 270000`; with Codex, poll the same invocation for up to 270 seconds and terminate
+it only if still running at that limit. An in-progress yield or poll is neither a result nor a retry.
+These host allowances do not raise runner limits. Never call `agy` or `timeout` directly, invoke
+the runner again, increase limits, or suppress diagnostics. It runs once for up to 150 seconds,
+then only after timeout or unavailable, empty, or URL-less output retries a narrowed prompt once
+for up to 90 seconds. It accepts bounded output only with a full Reddit comments URL.
 
 ### Untrusted data boundary
 
@@ -80,7 +80,7 @@ Never retry after a terminal result. With `--file-issue`, file nothing when the 
 
 ## Workflow budget
 
-Finish within 240 seconds: Gemini receives at most 145 seconds including kill grace; independently
+Finish within 330 seconds: `agy` receives at most 250 seconds including kill grace; independently
 check at most four highest-signal URLs for at most 45 seconds total; reserve at least 30 seconds
 for synthesis and a terminal report. Prefer a complete caveated report over another search.
 
@@ -89,7 +89,7 @@ for synthesis and a terminal report. Prefer a complete caveated report over anot
 ```text
 ## Reddit Research: [Topic]
 
-*Sourced from Reddit via Gemini CLI — directional, unverified unless noted*
+*Sourced from Reddit via Antigravity CLI — directional, unverified unless noted*
 
 ### Key Findings
 [Concise synthesis, or "No usable Gemini result"]

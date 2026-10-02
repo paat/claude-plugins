@@ -10,7 +10,7 @@
     },
     {
       "path": "scripts/collect-review-evidence.sh",
-      "sha256": "bf8f344df859eb7b07514bd262ad74d2337a1a77de537e193d9836238ae885b8"
+      "sha256": "49dfd65024e0dabae7da081051f74b383bed7efe945be36ab2603e5a41695118"
     },
     {
       "path": "scripts/generate-runner-bundle.sh",
@@ -30,7 +30,7 @@
     },
     {
       "path": "scripts/run-gemini-review.sh",
-      "sha256": "5de16e34cf6c99376b07ec60e930de41ab4ec88e2a8274904aa9ed57ae85d02d"
+      "sha256": "e50b65496b9ca69d5f26451bbb9d6deea27bdbf0b039f05429324ed9ad740bd0"
     },
     {
       "path": "scripts/run-grok-review.sh",

@@ -1,9 +1,9 @@
 # reddit-fetch
 
-Research any topic using Reddit via Gemini CLI's web access capabilities.
+Research any topic using Reddit via Antigravity CLI (`agy`) web search.
 
-Claude's WebFetch often cannot access Reddit content. This plugin uses Gemini CLI's Google web
-search for lead discovery, then requires independent verification before durable action.
+Claude's WebFetch often cannot access Reddit content. This plugin uses `agy`'s Google web search
+for lead discovery, then requires independent verification before durable action.
 
 ## Mission Fit
 
@@ -20,13 +20,14 @@ writing requirements, positioning, or demand-backed issue candidates.
 
 ## Prerequisites
 
-1. **Gemini CLI 0.43.0+** must be installed and authenticated:
+1. **Antigravity CLI (`agy`)** must be installed and authenticated, either signed in with a
+   Google AI Pro/Ultra subscription or through a Gemini API key:
    ```bash
-   npm install -g @google/gemini-cli
-   export GEMINI_API_KEY=...  # Recommended for non-interactive use
-   # Or create file-backed OAuth credentials:
-   GEMINI_FORCE_ENCRYPTED_FILE_STORAGE=true GEMINI_FORCE_FILE_STORAGE=true gemini
+   curl -fsSL https://antigravity.google/cli/install.sh | bash
+   agy                        # run once and complete the Google sign-in
+   export GEMINI_API_KEY=...  # alternative to signing in
    ```
+   A sign-in takes precedence over `GEMINI_API_KEY`.
 
 2. **GNU-compatible timeout** must be available as `timeout` (Linux) or `gtimeout` (`brew install coreutils` on macOS).
 
@@ -35,7 +36,7 @@ writing requirements, positioning, or demand-backed issue candidates.
 
 4. **`gh` CLI**, authenticated (`gh auth status`), required by `--file-issue`.
 
-> **Note:** This plugin installs none of these dependencies. Gemini CLI, GNU-compatible timeout,
+> **Note:** This plugin installs none of these dependencies. `agy`, GNU-compatible timeout,
 > and `gh` (when filing) must already be available in your PATH.
 
 ## Components
@@ -61,16 +62,17 @@ Triggers proactively when your question would benefit from Reddit community insi
 
 ## How It Works
 
-1. Constructs a Reddit-focused prompt for Gemini CLI
-2. Invokes one bundled runner with a fixed 90-second attempt and at most one 45-second fallback
-3. Disables hooks, skills, extensions, MCP, shell, and file tools; clears unrelated environment
-   variables and user Gemini context; and runs from a private home with only Google web search
-4. Requires a full Reddit comments URL before accepting Gemini output
+1. Constructs a Reddit-focused prompt for `agy`
+2. Invokes one bundled runner with a 150-second attempt and at most one 90-second retry
+3. Runs `agy` with its default model from an empty private home and work directory, a clean
+   environment, and only your sign-in token (or `GEMINI_API_KEY`); permissions allow reading only
+   Reddit and Google search-grounding pages and deny commands, file writes, URL execution, and MCP
+4. Requires a full Reddit comments URL before accepting the output
 5. Preserves time for verification and a complete caveated report
 
 ## Fabrication Risk
 
-Gemini CLI has fabricated Reddit thread titles, subreddits, quotes, and consensus in
+Gemini via `agy` has fabricated Reddit thread titles, subreddits, quotes, and consensus in
 production use. All three surfaces (command, skill, agent) treat Gemini's output as a
 directional lead, not verified fact. A thread becomes verified only when a non-Gemini fetch
 confirms its visible content supports the claimed pain point; unverified leads may still be
@@ -91,8 +93,8 @@ parts while parking judgment calls.
 
 | Issue | Solution |
 |-------|----------|
-| Empty response | Gemini may not find Reddit results — try more specific terms or subreddits |
-| Auth error | Replace `GEMINI_API_KEY` or recreate file-backed OAuth credentials as above |
-| Model unavailable | Update Gemini CLI; the runner enables preview features and tries the stable model once |
-| Command not found | Install Gemini CLI: `npm install -g @google/gemini-cli` |
+| Empty response | No Reddit results found — try more specific terms or subreddits |
+| Auth error | Run `agy` and sign in again, or replace `GEMINI_API_KEY` |
+| Quota or rate limit | Wait for the subscription or API quota to reset |
+| Command not found | Install `agy` as above and make sure it is on your PATH |
 | Timeout | Narrow the topic; the runner keeps its fixed budget and still returns a caveated report |
