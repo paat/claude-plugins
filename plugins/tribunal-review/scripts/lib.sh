@@ -52,6 +52,9 @@ tribunal_backup_legs() {
   local raw="${TRIBUNAL_BACKUP_LEGS-deepseek}" leg seen=" "
   local -a legs=()
   [ "$raw" = off ] && return 0
+  case "$raw" in
+    *[[:space:]]*) printf 'invalid TRIBUNAL_BACKUP_LEGS value: whitespace is not allowed (comma-separated list)\n' >&2; return 1 ;;
+  esac
   IFS=, read -r -a legs <<< "$raw"
   for leg in ${legs[@]+"${legs[@]}"}; do
     case "$leg" in
