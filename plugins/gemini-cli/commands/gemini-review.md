@@ -1,60 +1,42 @@
 ---
-allowed-tools: Bash(gemini:*), Read, Grep
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/run-agy.sh:*), Read, Grep
 description: Get a dual AI code review — Gemini + Claude analyze code together
-argument-hint: <file or directory path>
+argument-hint: "[--model <id>] <file or directory path>"
 ---
 
-Perform a dual code review: get Gemini's analysis of the code, then do your own review, and present a unified report.
-
-## Instructions
-
-The user wants a code review of:
+Perform a dual code review: get Gemini's analysis of the code (via `agy`), do your own review, and present a unified report.
 
 **Target:** $ARGUMENTS
 
 ## Steps
 
 1. Determine what to review:
-   - If `$ARGUMENTS` contains file paths, review those files
-   - If `$ARGUMENTS` contains a directory, review key files in it — cap at ~10 files, skip generated/vendored paths (`node_modules/`, `dist/`, `build/`, lockfiles, minified assets)
-   - If unclear, ask the user what to review
+   - File paths: review those files
+   - A directory: pick its key files, at most ~10, skipping generated or vendored paths (`node_modules/`, `dist/`, `build/`, lockfiles, minified assets)
+   - Unclear: ask the user
 
-2. Determine the model to use:
-   - Default: `-m gemini-3-pro-preview` (thorough analysis for code review)
-   - If the user included `--flash` in their arguments, use `-m gemini-3-flash-preview` instead
-   - If the user included `--pro` in their arguments, use `-m gemini-3-pro-preview` explicitly
-   - Remove the model flag from the file path arguments
+2. If the arguments contain `--model <id>`, remove it and pass it to the runner. Otherwise use agy's default model.
 
-3. Read the file(s) yourself first to understand the code. Stay frugal: for large files, read targeted ranges (the changed hunks, or the relevant functions) instead of the full file.
+3. Read the files yourself first. Stay frugal: for large files, read targeted ranges.
 
-4. Send the file(s) to Gemini for review using `@file` injection:
+4. Send the files to Gemini, one `--file` per file (Bash tool `timeout: 270000`):
    ```bash
-   timeout 120 gemini [-m model] -p "Review this code thoroughly. Look for: bugs, security vulnerabilities, performance issues, code quality problems, error handling gaps, and suggest improvements. Be specific with line references. @path/to/file" -o text 2>/dev/null
-   ```
-   For multiple files:
-   ```bash
-   timeout 180 gemini [-m model] -p "Review these files for bugs, security, performance, and quality issues. @file1 @file2" -o text 2>/dev/null
+   "${CLAUDE_PLUGIN_ROOT}/scripts/run-agy.sh" [--model ID] --timeout 240 --file path/one --file path/two -- "Review these files thoroughly for bugs, security vulnerabilities, performance issues, error-handling gaps, and code quality. Cite file and line for every finding."
    ```
 
-5. Perform your own independent code review of the same file(s).
+5. Do your own independent review of the same files.
 
-6. Present a unified report in this format:
+6. Present a unified report:
 
    ## Code Review: [filename(s)]
 
    ### Gemini's Findings
-   [Summarize Gemini's key findings — bugs, issues, suggestions]
-
    ### My Findings
-   [Your own code review findings]
-
    ### Where We Agree
-   [Issues both identified — higher confidence these are real problems]
-
+   [Higher confidence these are real problems]
    ### Where We Differ
-   [Any disagreements, with your reasoning]
-
+   [Disagreements, with your reasoning]
    ### Recommendations
-   [Prioritized list of suggested changes, combining both analyses]
+   [Prioritized changes combining both analyses]
 
-7. If Gemini is unavailable, proceed with your own review and note that Gemini was unavailable.
+7. If the runner exits non-zero, do your own review and note that Gemini was unavailable (give the stderr reason).

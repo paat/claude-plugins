@@ -1,6 +1,6 @@
 # gemini-cli
 
-Integrate Google's Gemini CLI into Claude Code for second opinions, dual code reviews, and AI-assisted explanations. Get two AI perspectives on your code and technical decisions.
+Integrate Google's Gemini (via Antigravity CLI) into Claude Code for second opinions, dual code reviews, and AI-assisted explanations. Get two AI perspectives on your code and technical decisions.
 
 ## Mission Fit
 
@@ -17,39 +17,27 @@ architecture, debugging, and code-review decisions.
 
 ## Prerequisites
 
-1. **Install Gemini CLI:**
-   ```bash
-   npm install -g @google/gemini-cli
-   ```
+1. **Install Antigravity CLI** (`agy`): see https://antigravity.google/docs/cli/install/
+2. **Authenticate:** run `agy` once and sign in with a Google AI Pro/Ultra account, or set `GEMINI_API_KEY`.
+3. `jq` and GNU `timeout` on `PATH`.
 
-2. **Authenticate:** Run `gemini` once interactively to complete OAuth login.
-
-3. **Enable Gemini 3 preview models (recommended):** Add the following to `~/.gemini/settings.json`:
-   ```json
-   {
-     "general": {
-       "previewFeatures": true
-     }
-   }
-   ```
-   This unlocks `gemini-3-flash-preview` and `gemini-3-pro-preview`, which the commands use by default. Without this setting, commands will fall back to `gemini-2.5-flash` / `gemini-2.5-pro`.
+Gemini CLI stopped serving personal Google accounts on 2026-06-18 (`IneligibleTierError`), so this plugin now drives `agy`. The plugin name is kept for compatibility.
 
 ## Commands
 
-| Command | Description | Default Model |
-|---------|-------------|---------------|
-| `/gemini-ask <question>` | Ask Gemini any question | `gemini-3-flash-preview` |
-| `/gemini-review <file>` | Dual AI code review (Gemini + Claude) | `gemini-3-pro-preview` |
-| `/gemini-second-opinion <topic>` | Get Gemini's take on an approach or decision | `gemini-3-pro-preview` |
-| `/gemini-explain <file or concept>` | Get Gemini to explain code or a concept | `gemini-3-flash-preview` |
+| Command | Description |
+|---------|-------------|
+| `/gemini-ask <question>` | Ask Gemini any question |
+| `/gemini-review <file>` | Dual AI code review (Gemini + Claude) |
+| `/gemini-second-opinion <topic>` | Get Gemini's take on an approach or decision |
+| `/gemini-explain <file or concept>` | Get Gemini to explain code or a concept |
 
 ### Model Override
 
-Every command accepts `--pro` or `--flash` to override the default model:
+Every command uses agy's default model and accepts `--model <id>` (IDs from `agy models`):
 
 ```
-/gemini-ask --pro what is the most efficient sorting algorithm for nearly-sorted data
-/gemini-review --flash src/utils.py
+/gemini-review --model gemini-3.1-pro-high src/utils.py
 ```
 
 ## Skill
@@ -58,22 +46,9 @@ The plugin also includes a `using-gemini` skill that teaches Claude Code when an
 
 ## How It Works
 
-All commands invoke Gemini CLI in non-interactive mode:
+Every command calls `scripts/run-agy.sh`, which:
 
-```bash
-gemini [-m model] -p "prompt" -o text 2>/dev/null
-```
-
-- `-o text` produces clean output
-- `2>/dev/null` suppresses OAuth and hook noise
-- `@file` syntax injects file contents directly into Gemini's context
-- `timeout` prevents hanging on large prompts
-
-## Available Models
-
-| Model | Speed | Best For | Notes |
-|-------|-------|----------|-------|
-| `gemini-2.5-flash` | Fast | Quick queries, explanations | Stable |
-| `gemini-2.5-pro` | Moderate | Complex analysis, code review | Stable |
-| `gemini-3-flash-preview` | Fast | Quick queries, explanations | Requires `previewFeatures: true` |
-| `gemini-3-pro-preview` | Slower | Deep reasoning, thorough review | Requires `previewFeatures: true` |
+- runs `agy` from an empty temporary home and work directory, copying only your sign-in token (or passing `GEMINI_API_KEY`)
+- denies agy file reads, writes, commands, URL fetches, and MCP; web search stays available
+- inlines `--file` contents into the prompt over stdin, so file size is not limited by argv
+- prints only the response; on failure it exits non-zero with a one-line reason on stderr

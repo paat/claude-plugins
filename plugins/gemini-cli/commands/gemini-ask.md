@@ -1,29 +1,22 @@
 ---
-allowed-tools: Bash(gemini:*)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/run-agy.sh:*)
 description: Ask Gemini a question and get a response
-argument-hint: <question or prompt>
+argument-hint: "[--model <id>] <question or prompt>"
 ---
 
-Send a question or prompt to Google's Gemini AI and return the response.
-
-## Instructions
-
-The user wants to ask Gemini the following:
+Send a question to Gemini through Antigravity CLI (`agy`) and return the response.
 
 **Prompt:** $ARGUMENTS
 
 ## Steps
 
-1. Determine the model to use:
-   - Default: `-m gemini-3-flash-preview` (fast for general queries)
-   - If the user included `--pro` in their arguments, use `-m gemini-3-pro-preview` instead and remove `--pro` from the prompt
-   - If the user included `--flash` in their arguments, use `-m gemini-3-flash-preview` explicitly and remove `--flash` from the prompt
+1. If the arguments contain `--model <id>`, remove it from the prompt and pass it to the runner (`agy models` lists IDs). Otherwise use agy's default model.
 
-2. Run the Gemini command:
+2. Run (Bash tool `timeout: 120000`):
    ```bash
-   timeout 60 gemini [-m model] -p "USER_PROMPT" -o text 2>/dev/null
+   "${CLAUDE_PLUGIN_ROOT}/scripts/run-agy.sh" [--model ID] --timeout 90 -- "USER_PROMPT"
    ```
 
-3. Present Gemini's response clearly, prefixed with a note that this comes from Gemini.
+3. Present the response, labeled as coming from Gemini.
 
-4. If the response is empty or an error occurs, retry once. If it still fails, inform the user that Gemini is unavailable and offer to answer the question yourself.
+4. On a non-zero exit, show the runner's one-line stderr reason and offer to answer yourself. Exit 4 means agy is missing or not signed in; do not retry it.

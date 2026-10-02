@@ -8,8 +8,8 @@
   "plugins": [
     {
       "name": "gemini-cli",
-      "description": "Integrate Google's Gemini CLI into Claude Code for second opinions, dual code reviews, and AI-assisted explanations",
-      "version": "0.2.1",
+      "description": "Integrate Google's Gemini (via Antigravity CLI) into Claude Code for second opinions, dual code reviews, and AI-assisted explanations",
+      "version": "0.3.0",
       "author": {
         "name": "Andre Paat"
       },
