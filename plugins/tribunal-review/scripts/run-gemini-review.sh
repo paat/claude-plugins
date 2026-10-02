@@ -4,23 +4,58 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 if [ "${TRIBUNAL_GEMINI:-off}" != "on" ]; then tribunal_disabled gemini "Gemini leg disabled (default off); set TRIBUNAL_GEMINI=on to enable"; exit 0; fi
-command -v gemini >/dev/null 2>&1 || { tribunal_error gemini "Gemini CLI not on PATH"; exit 0; }
+command -v agy >/dev/null 2>&1 || { tribunal_error gemini "Antigravity CLI (agy) not on PATH"; exit 0; }
+AGY_TOKEN="${HOME:-}/.gemini/antigravity-cli/antigravity-oauth-token"
+if [ -f "$AGY_TOKEN" ] && [ ! -L "$AGY_TOKEN" ]; then
+  PROVIDER_SETTING=""
+elif [ -n "${GEMINI_API_KEY:-}" ]; then
+  PROVIDER_SETTING=',"modelProvider":"gemini"'
+else
+  tribunal_error gemini "agy is not signed in and GEMINI_API_KEY is unset"; exit 0
+fi
+MODEL="${TRIBUNAL_GEMINI_MODEL:-default}"
 
 BASE_REF="$(tribunal_base_ref)"
 TMPDIR="$(mktemp -d)" || exit 1
 trap 'rm -rf "$TMPDIR"' EXIT
+WORK_DIR="$TMPDIR/work"
+AGY_DIR="$TMPDIR/home/.gemini/antigravity-cli"
+mkdir -p "$WORK_DIR/.git" "$AGY_DIR" || { tribunal_error gemini "cannot create review workspace"; exit 0; }
 DIFF_FILE="$TMPDIR/review.diff"
 CONTEXT_FILE="$TMPDIR/context.md"
 REPO_ROOT="$(tribunal_repo_root)"
 tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error gemini "cannot diff against $BASE_REF"; exit 0; }
 DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
-[ -s "$DIFF_FILE" ] || { tribunal_empty gemini "${TRIBUNAL_GEMINI_MODEL:-gemini-3-pro-preview}" "$BASE_REF" "$DIFF_STAT"; exit 0; }
+[ -s "$DIFF_FILE" ] || { tribunal_empty gemini "$MODEL" "$BASE_REF" "$DIFF_STAT"; exit 0; }
 tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
 PROMPT_FILE="$TMPDIR/prompt.md"
 tribunal_review_prompt gemini "$DIFF_FILE" "$CONTEXT_FILE" "diff-with-web-cve-search" > "$PROMPT_FILE"
 
+# agy runs workspace .agents hooks, auto-allows workspace writes and may read any
+# host file, so it runs from a sterile cwd with file tools denied and gets the diff
+# inline over stdin (argv caps one argument at 128 KB). search_web needs no permission.
+if [ -z "$PROVIDER_SETTING" ]; then
+  (umask 077 && cp "$AGY_TOKEN" "$AGY_DIR/antigravity-oauth-token") \
+    || { tribunal_error gemini "cannot stage agy sign-in"; exit 0; }
+fi
+printf '{"permissions":{"deny":["read_file(*)","write_file(*)","command(*)","execute_url(*)","mcp(*)"]}%s}\n' \
+  "$PROVIDER_SETTING" > "$AGY_DIR/settings.json" \
+  || { tribunal_error gemini "cannot write agy permission policy"; exit 0; }
+MODEL_ARGS=()
+[ "$MODEL" = default ] || MODEL_ARGS=(--model "$MODEL")
+
 rc=0
-printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 gemini --model "${TRIBUNAL_GEMINI_MODEL:-gemini-3-pro-preview}" -p "$(cat "$PROMPT_FILE")" > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
+{ cat "$PROMPT_FILE"; printf '\nThe diff file is not readable by tools; its full contents follow.\n\n'; cat "$DIFF_FILE"; } \
+  | jq -Rsc '{event:"user",message:{content:.}}' \
+  | (cd "$WORK_DIR" && HOME="$TMPDIR/home" timeout -k 10 600 agy ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} \
+      --input-format stream-json --output-format stream-json --print-timeout 590s -p=) \
+  > "$TMPDIR/stream.jsonl" 2> "$TMPDIR/err.txt" || rc=$?
+jq -Rrn '[inputs | fromjson? | select(.event=="result")] | last | .result // {} | .response // empty' \
+  < "$TMPDIR/stream.jsonl" > "$TMPDIR/out.txt"
+[ "$rc" -ne 0 ] || jq -Rne '[inputs | fromjson? | select(.event=="result")] | last | .result.status == "SUCCESS"' \
+  < "$TMPDIR/stream.jsonl" >/dev/null || rc=1
+[ "$rc" -eq 0 ] || jq -Rrn '[inputs | fromjson? | select(.event=="result")] | last | .result.error // empty' \
+  < "$TMPDIR/stream.jsonl" >> "$TMPDIR/err.txt"
 if [ "$rc" -eq 0 ]; then
   tribunal_extract_json_object < "$TMPDIR/out.txt" \
     | tribunal_emit_review gemini "" "$TMPDIR/out.txt" "$TMPDIR/err.txt" "$rc" \

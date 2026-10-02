@@ -19,8 +19,8 @@
     },
     {
       "name": "reddit-fetch",
-      "description": "Research any topic using Reddit via Gemini CLI's web access capabilities",
-      "version": "0.2.6",
+      "description": "Research any topic using Reddit via Antigravity CLI (agy) web search",
+      "version": "0.3.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -31,7 +31,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — Codex + Grok + Claude (diff-only) by default; Gemini, OpenCode DeepSeek, OpenCode GLM and Qwen opt-in, with calling-context arbitration",
-      "version": "0.24.34",
+      "version": "0.25.1",
       "author": {
         "name": "Andre Paat"
       },

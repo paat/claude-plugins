@@ -1667,6 +1667,90 @@ install_grok_auth_fixture() {
 
 # Grok leg (#331): progress-only / timeout must not report success; tools-off
 # resume of the same session must produce a schema verdict or a blocked error.
+test_gemini_agy_leg() {
+  local work fake state home
+  work="$(mktemp -d)"
+  fake="$work/bin"
+  state="$work/state"
+  home="$work/home"
+  mkdir -p "$fake" "$state" "$home/.gemini/antigravity-cli"
+  (
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+  )
+  cat > "$fake/agy" <<EOF
+#!/usr/bin/env bash
+: > "$state/ran"
+dir="\$HOME/.gemini/antigravity-cli"
+cp "\$dir/settings.json" "$state/settings.json"
+[ ! -f "\$dir/antigravity-oauth-token" ] || stat -c %a "\$dir/antigravity-oauth-token" > "$state/token-mode"
+printf '%s\n' "\$HOME" > "$state/home"
+pwd -P > "$state/cwd"
+jq -r 'select(.event=="user") | .message.content' | grep -q '^+two' && : > "$state/diff-inline"
+case "\$*" in *"--input-format stream-json"*"-p="*) : > "$state/stream-args" ;; esac
+printf '%s\n' '{"event":"init"}'
+jq -nc '{event:"result",result:{status:"SUCCESS",response:({provider:"gemini",model:"default",files_examined:["file.txt"],findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:9,verdict:"APPROVE"}}|tojson)}}'
+EOF
+  chmod +x "$fake/agy"
+  gemini_leg_run() {
+    (cd "$work" && env "$@" HOME="$home" TRIBUNAL_GEMINI=on TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-gemini-review.sh")
+  }
+  gemini_leg_check() {
+    if [ "$1" -eq 0 ]; then
+      echo -e "  ${GREEN}PASS${NC} $2"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} $2"; FAIL=$((FAIL+1)); FAILURES+=("$2")
+    fi
+  }
+  local rc
+
+  # Scenario A: signed-in agy runs read-only in an isolated home; API key is ignored.
+  printf 'token\n' > "$home/.gemini/antigravity-cli/antigravity-oauth-token"
+  gemini_leg_run PATH="$fake:$PATH" GEMINI_API_KEY=unused > "$work/out-a.json"
+  rc=0
+  jq -e '.provider=="gemini" and .summary.verdict=="APPROVE" and (has("error")|not)' "$work/out-a.json" >/dev/null \
+    && jq -e '.permissions.deny==["read_file(*)","write_file(*)","command(*)","execute_url(*)","mcp(*)"] and (.permissions.allow==null) and (has("modelProvider")|not)' \
+      "$state/settings.json" >/dev/null \
+    && [ "$(cat "$state/token-mode")" = 600 ] \
+    && [ "$(cat "$state/home")" != "$home" ] \
+    && [ "$(cat "$state/cwd")" != "$(cd "$work" && pwd -P)" ] \
+    && [ -e "$state/diff-inline" ] && [ -e "$state/stream-args" ] || rc=1
+  gemini_leg_check "$rc" "gemini leg runs agy read-only with isolated sign-in"
+
+  # Scenario B: API-key mode when agy is not signed in.
+  rm -f "$home/.gemini/antigravity-cli/antigravity-oauth-token" "$state/token-mode"
+  gemini_leg_run PATH="$fake:$PATH" GEMINI_API_KEY=key > "$work/out-b.json"
+  rc=0
+  jq -e '.provider=="gemini" and (has("error")|not)' "$work/out-b.json" >/dev/null \
+    && jq -e '.modelProvider=="gemini"' "$state/settings.json" >/dev/null \
+    && [ ! -e "$state/token-mode" ] || rc=1
+  gemini_leg_check "$rc" "gemini leg falls back to agy API-key mode"
+
+  # Scenario C: neither sign-in nor key fails before agy runs.
+  rm -f "$state/ran"
+  gemini_leg_run -u GEMINI_API_KEY PATH="$fake:$PATH" > "$work/out-c.json"
+  rc=0
+  jq -e '.provider=="gemini" and (.error|test("not signed in"))' "$work/out-c.json" >/dev/null \
+    && [ ! -e "$state/ran" ] || rc=1
+  gemini_leg_check "$rc" "gemini leg without agy sign-in fails before provider run"
+
+  # Scenario D: agy missing from PATH.
+  gemini_leg_run PATH="/usr/bin:/bin" > "$work/out-d.json"
+  rc=0
+  jq -e '.provider=="gemini" and (.error|test("agy"))' "$work/out-d.json" >/dev/null || rc=1
+  gemini_leg_check "$rc" "gemini leg reports missing agy"
+
+  rm -rf "$work"
+}
+
 test_grok_deterministic_completion() {
   local work fake state host_grok
   work="$(mktemp -d)"
@@ -4291,6 +4375,7 @@ test_claude_execution_diagnostics
 test_diagnostics_unreadable_artifacts
 test_claude_non_json_output
 test_grok_deterministic_completion
+test_gemini_agy_leg
 test_grok_auth_copy_writeback
 test_codex_vacuous_guard BLOCK 0.0 "codex vacuous empty-BLOCK downgraded to leg error"
 test_codex_vacuous_guard NEEDS_WORK 7.5 "codex vacuous empty-NEEDS_WORK (nonzero quality) downgraded to leg error"

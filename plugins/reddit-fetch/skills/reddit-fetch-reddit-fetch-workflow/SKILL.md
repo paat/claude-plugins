@@ -28,4 +28,4 @@ Source command: `../../commands/reddit-fetch.md`
 
 - Plugin: `reddit-fetch`
 - Command aliases: `/reddit-fetch:reddit-fetch`, `/reddit-fetch`
-- Source description: Research any topic using Reddit via Gemini CLI
+- Source description: Research any topic using Reddit via Antigravity CLI

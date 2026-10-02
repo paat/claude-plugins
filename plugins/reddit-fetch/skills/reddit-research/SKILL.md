@@ -3,19 +3,19 @@ name: reddit-research
 description: "Use to research Reddit opinions, recommendations, troubleshooting, product feedback, and real user experiences."
 ---
 
-# Reddit Research via Gemini CLI
+# Reddit Research via Antigravity CLI
 
-Research any topic using Reddit by delegating web searches to Gemini CLI, which has full web
-access and can fetch Reddit content that Claude's WebFetch cannot.
+Research any topic using Reddit by delegating web searches to Antigravity CLI (`agy`), which has
+web access and can reach Reddit content that Claude's WebFetch cannot.
 
-This skill routes to reddit-fetch's Gemini prompt templates, bounded runner contract, output
+This skill routes to reddit-fetch's prompt templates, bounded runner contract, output
 format, verification protocol, and SaaS demand-bridge rules. `/reddit-fetch` and
 the `reddit-researcher` agent both read `references/protocol.md` instead of duplicating it —
-read it in full before running Gemini research or filing any issue.
+read it in full before running research or filing any issue.
 
 ## Prerequisites
 
-Gemini CLI 0.43.0+ must be installed and authenticated with `GEMINI_API_KEY` or file-backed OAuth as documented in the plugin README. A GNU-compatible `timeout` command (`timeout` or macOS coreutils `gtimeout`) is also required.
+`agy` must be installed and signed in with a Google AI Pro/Ultra account, or `GEMINI_API_KEY` must be set, as documented in the plugin README. A GNU-compatible `timeout` command (`timeout` or macOS coreutils `gtimeout`) is also required.
 
 `gh` (authenticated) is required if you intend to file GitHub issues from research findings.
 

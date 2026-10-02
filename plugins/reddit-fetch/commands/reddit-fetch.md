@@ -1,10 +1,10 @@
 ---
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/run-reddit-gemini.sh:*), Bash(gh:*), Bash(mkdir:*), WebFetch, Write, Read
-description: Research any topic using Reddit via Gemini CLI
+description: Research any topic using Reddit via Antigravity CLI
 argument-hint: <topic to research on Reddit> [--file-issue] [--repo owner/name]
 ---
 
-Research a topic by searching Reddit via Gemini CLI. Gemini has web access and can fetch Reddit content that Claude's WebFetch cannot.
+Research a topic by searching Reddit via Antigravity CLI (`agy`), which has web access and can reach Reddit content that Claude's WebFetch cannot.
 
 ## Instructions
 
