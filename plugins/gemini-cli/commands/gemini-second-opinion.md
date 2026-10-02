@@ -1,55 +1,38 @@
 ---
-allowed-tools: Bash(gemini:*), Read
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/run-agy.sh:*), Read
 description: Get Gemini's second opinion on an approach or decision
-argument-hint: <topic, approach, or decision to evaluate>
+argument-hint: "[--model <id>] <topic, approach, or decision to evaluate>"
 ---
 
-Get Gemini's perspective on a technical approach, architecture decision, or implementation strategy, then synthesize both AI perspectives.
-
-## Instructions
-
-The user wants a second opinion on:
+Get Gemini's perspective (via `agy`) on a technical approach, architecture decision, or implementation strategy, then synthesize both views.
 
 **Topic:** $ARGUMENTS
 
 ## Steps
 
-1. Determine the model to use:
-   - Default: `-m gemini-3-pro-preview` (deep reasoning for decisions)
-   - If the user included `--flash` in their arguments, use `-m gemini-3-flash-preview` instead
-   - Remove the model flag from the prompt
+1. If the arguments contain `--model <id>`, remove it and pass it to the runner. Otherwise use agy's default model.
 
-2. If the topic references specific files, read them first to build context.
+2. If the topic references specific files, read them to build context.
 
-3. Construct a detailed prompt for Gemini that includes:
-   - The decision or approach being considered
-   - Relevant context (file contents, constraints, requirements)
-   - Ask for pros/cons, alternatives, and a recommendation
+3. Write a prompt that states the decision being considered, the constraints and requirements, and asks for pros and cons, alternatives, and a recommendation.
 
-4. Send to Gemini:
+4. Run it, attaching relevant files with `--file` (Bash tool `timeout: 210000`):
    ```bash
-   timeout 120 gemini [-m model] -p "CONTEXT AND QUESTION [@relevant_files]" -o text 2>/dev/null
+   "${CLAUDE_PLUGIN_ROOT}/scripts/run-agy.sh" [--model ID] --timeout 180 [--file path] -- "CONTEXT AND QUESTION"
    ```
 
-5. Form your own independent opinion on the same topic.
+5. Form your own independent opinion.
 
-6. Present a synthesized analysis:
+6. Present:
 
    ## Second Opinion: [topic summary]
 
    ### Gemini's Perspective
-   [Key points from Gemini's analysis]
-
    ### My Perspective
-   [Your own analysis]
-
    ### Consensus
-   [Points both AIs agree on]
-
    ### Different Takes
-   [Where perspectives differ, with reasoning from each side]
-
+   [Reasoning from each side]
    ### Recommendation
-   [Your synthesized recommendation, weighing both perspectives]
+   [Your synthesized recommendation]
 
-7. If Gemini is unavailable, provide your own analysis and note Gemini was unavailable.
+7. If the runner exits non-zero, give your own analysis and note that Gemini was unavailable (give the stderr reason).

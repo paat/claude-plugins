@@ -1,38 +1,26 @@
 ---
-allowed-tools: Bash(gemini:*), Read
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/run-agy.sh:*), Read
 description: Get Gemini to explain code or a concept
-argument-hint: <file path or concept>
+argument-hint: "[--model <id>] <file path or concept>"
 ---
 
-Ask Gemini to explain code from a file or a freeform concept, and present the explanation.
-
-## Instructions
-
-The user wants an explanation of:
+Ask Gemini (via `agy`) to explain code from a file or a freeform concept, and present the explanation.
 
 **Target:** $ARGUMENTS
 
 ## Steps
 
-1. Determine the model to use:
-   - Default: `-m gemini-3-flash-preview` (fast for explanations)
-   - If the user included `--pro` in their arguments, use `-m gemini-3-pro-preview` instead
-   - Remove the model flag from the arguments
+1. If the arguments contain `--model <id>`, remove it and pass it to the runner. Otherwise use agy's default model.
 
-2. Determine if the target is a file or a concept:
-   - **File path** (contains `/` or common extensions like `.py`, `.js`, `.ts`, `.go`, `.rs`, etc.): Use `@file` injection
-   - **Concept/question** (freeform text): Send as a prompt directly
-
-3. For files:
+2. Run (Bash tool `timeout: 150000`). For a file, pass it with `--file` (the runner inlines it; Gemini cannot open files itself):
    ```bash
-   timeout 90 gemini [-m model] -p "Explain this code clearly. Cover: what it does, how it works, key design decisions, dependencies, and any non-obvious behavior. Use simple language. @path/to/file" -o text 2>/dev/null
+   "${CLAUDE_PLUGIN_ROOT}/scripts/run-agy.sh" [--model ID] --timeout 120 --file path/to/file -- "Explain this code clearly: what it does, how it works, key design decisions, dependencies, and non-obvious behavior."
+   ```
+   For a concept:
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/run-agy.sh" [--model ID] --timeout 90 -- "Explain the following clearly and concisely, with examples where helpful: CONCEPT"
    ```
 
-4. For concepts:
-   ```bash
-   timeout 60 gemini [-m model] -p "Explain the following clearly and concisely, with examples where helpful: CONCEPT" -o text 2>/dev/null
-   ```
+3. Present the explanation. If it misses important points, add them and mark them as yours.
 
-5. Present Gemini's explanation. If it's particularly good, present it directly. If it misses important points, supplement with your own additions.
-
-6. If Gemini is unavailable, provide the explanation yourself and note Gemini was unavailable.
+4. If the runner exits non-zero, explain it yourself and note that Gemini was unavailable (give the stderr reason).
