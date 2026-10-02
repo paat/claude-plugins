@@ -4522,7 +4522,12 @@ test_risk_tier_and_backup_config() {
     [ "$(env -u TRIBUNAL_BACKUP_LEGS bash -c ". \"$1/scripts/lib.sh\"; tribunal_backup_legs")" = deepseek ] &&
     [ "$(TRIBUNAL_BACKUP_LEGS=glm,qwen tribunal_backup_legs | tr "\n" " ")" = "glm qwen " ] &&
     [ -z "$(TRIBUNAL_BACKUP_LEGS=off tribunal_backup_legs)" ] &&
-    ! TRIBUNAL_BACKUP_LEGS=deepseek,codex tribunal_backup_legs >/dev/null 2>&1' _ "$PLUGIN_ROOT"
+    ! TRIBUNAL_BACKUP_LEGS=deepseek,codex tribunal_backup_legs >/dev/null 2>&1 &&
+    ! TRIBUNAL_BACKUP_LEGS=deepseek,deepseek,gemini tribunal_backup_legs >/dev/null 2>&1' _ "$PLUGIN_ROOT"
+  local glob_dir; glob_dir="$(mktemp -d)"; touch "$glob_dir/deepseek" "$glob_dir/qwen"
+  tr_check "a glob in TRIBUNAL_BACKUP_LEGS is rejected, not expanded against the cwd" bash -c '
+    cd "$2" && . "$1/scripts/lib.sh" && ! TRIBUNAL_BACKUP_LEGS="*" tribunal_backup_legs >/dev/null 2>&1' _ "$PLUGIN_ROOT" "$glob_dir"
+  rm -rf "$glob_dir"
 
   local work; work="$(mktemp -d)"
   printf 'API error (status 402 Payment Required): Grok Build usage balance exhausted\n' > "$work/limit.err"

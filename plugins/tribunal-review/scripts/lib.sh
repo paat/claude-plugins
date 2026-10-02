@@ -47,15 +47,20 @@ tribunal_risk_effort() {
 }
 
 # Opt-in legs that stand in for a plan-limited leg (environment only). Unset means
-# deepseek; "off" means none. Prints one provider per line.
+# deepseek; "off" means none. Prints one provider per line; duplicates are rejected.
 tribunal_backup_legs() {
-  local raw="${TRIBUNAL_BACKUP_LEGS-deepseek}" leg
+  local raw="${TRIBUNAL_BACKUP_LEGS-deepseek}" leg seen=" "
+  local -a legs=()
   [ "$raw" = off ] && return 0
-  for leg in ${raw//,/ }; do
+  IFS=, read -r -a legs <<< "$raw"
+  for leg in ${legs[@]+"${legs[@]}"}; do
     case "$leg" in
-      glm|deepseek|gemini|qwen) printf '%s\n' "$leg" ;;
+      glm|deepseek|gemini|qwen) ;;
       *) printf 'invalid TRIBUNAL_BACKUP_LEGS entry: %s (want glm, deepseek, gemini, qwen, or off)\n' "$leg" >&2; return 1 ;;
     esac
+    case "$seen" in *" $leg "*) printf 'duplicate TRIBUNAL_BACKUP_LEGS entry: %s\n' "$leg" >&2; return 1 ;; esac
+    seen="$seen$leg "
+    printf '%s\n' "$leg"
   done
 }
 
