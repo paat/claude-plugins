@@ -30,7 +30,7 @@ Only catalogued models are allowed; unavailable models do not authorize an unlis
 Complexity picks the tier. `scripts/pool-tiers.tsv` lists each tier's workers in order, and
 `scripts/pool.sh pick|run --tier <T>` drops the ones that cannot take the task now (not allowed,
 CLI not installed, an advisory engine on a review, or a plan window near its limit) and tries the
-rest in order. A T1 or T2 tier with nobody left escalates upward; T3 and T4 never fall to a weaker
+rest in order. T1 and T2 fall back to the higher tiers' workers; T3 and T4 never fall to a weaker
 tier — park until the reset `pool.sh` prints. An explicit model pin bypasses the pool.
 
 | Task evidence | Tier | Pool flags |
