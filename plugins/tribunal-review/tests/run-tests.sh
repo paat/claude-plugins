@@ -1439,8 +1439,11 @@ EOF
     git commit -q -am change
     export PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1
     unset TRIBUNAL_CODEX_MODEL TRIBUNAL_CODEX_EFFORT
+    unset TRIBUNAL_RISK
     if [ "$overrides" = "yes" ]; then
       export TRIBUNAL_CODEX_MODEL="$expected_model" TRIBUNAL_CODEX_EFFORT="$expected_effort"
+    elif [ "${overrides#risk:}" != "$overrides" ]; then
+      export TRIBUNAL_RISK="${overrides#risk:}"
     fi
     bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
   ) && jq -e '.provider=="codex" and .summary.verdict=="APPROVE"' "$work/out.json" >/dev/null &&
@@ -4369,6 +4372,8 @@ test_opencode_timeout_tool_output_is_not_auth_error
 test_opencode_filename_tool_output_is_generic_error
 test_codex_pins gpt-6-astra medium no "codex defaults pin Astra and medium in argv"
 test_codex_pins test-model high yes "codex model and effort environment overrides stay explicit"
+test_codex_pins gpt-6-astra xhigh risk:T4 "TRIBUNAL_RISK=T4 lifts the Codex leg to xhigh"
+test_codex_pins gpt-6-astra low risk:T1 "TRIBUNAL_RISK=T1 lowers the Codex leg to low"
 test_codex_parse_diagnostics
 test_codex_empty_output
 test_claude_execution_diagnostics
@@ -4490,6 +4495,222 @@ assert_grep "closing skill captures CI exit under set -e" "$CL" '|| CI_EC=$?'
 assert_grep "closing skill prefers TRIBUNAL_PLUGIN_ROOT" "$CL" "TRIBUNAL_PLUGIN_ROOT"
 assert_grep "required-checks queries REST check-runs" "scripts/required-checks.sh" "check-runs"
 assert_no_grep "required-checks is not sealed collector bundle input" "scripts/generate-runner-bundle.sh" "required-checks.sh"
+
+jqe() { jq -e "$@" >/dev/null; }
+tr_check() {  # tr_check LABEL COMMAND...
+  local label="$1"; shift
+  if "$@"; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+}
+
+test_risk_tier_and_backup_config() {
+  local out
+  tr_check "risk T1..T4 map to low/medium/high and Codex xhigh at T4" bash -c '
+    . "$1/scripts/lib.sh"
+    [ "$(TRIBUNAL_RISK=T1 tribunal_risk_effort grok)" = low ] &&
+    [ "$(TRIBUNAL_RISK=T2 tribunal_risk_effort claude)" = medium ] &&
+    [ "$(TRIBUNAL_RISK=T3 tribunal_risk_effort codex)" = high ] &&
+    [ "$(TRIBUNAL_RISK=T4 tribunal_risk_effort codex)" = xhigh ] &&
+    [ "$(TRIBUNAL_RISK=T4 tribunal_risk_effort grok)" = high ] &&
+    [ -z "$(env -u TRIBUNAL_RISK bash -c ". \"$1/scripts/lib.sh\"; tribunal_risk_effort codex")" ] &&
+    ! TRIBUNAL_RISK=T9 tribunal_risk_effort codex 2>/dev/null' _ "$PLUGIN_ROOT"
+  tr_check "backup legs default to deepseek, accept lists and off, reject unknown" bash -c '
+    . "$1/scripts/lib.sh"
+    [ "$(env -u TRIBUNAL_BACKUP_LEGS bash -c ". \"$1/scripts/lib.sh\"; tribunal_backup_legs")" = deepseek ] &&
+    [ "$(TRIBUNAL_BACKUP_LEGS=glm,qwen tribunal_backup_legs | tr "\n" " ")" = "glm qwen " ] &&
+    [ -z "$(TRIBUNAL_BACKUP_LEGS=off tribunal_backup_legs)" ] &&
+    ! TRIBUNAL_BACKUP_LEGS=deepseek,codex tribunal_backup_legs >/dev/null 2>&1' _ "$PLUGIN_ROOT"
+
+  local work; work="$(mktemp -d)"
+  printf 'API error (status 402 Payment Required): Grok Build usage balance exhausted\n' > "$work/limit.err"
+  printf '429 Too Many Requests: rate limit\n' > "$work/rate.err"
+  : > "$work/empty.out"
+  out="$(bash -c '. "$1/scripts/lib.sh"; tribunal_error_with_diagnostics grok "Grok execution failed or timed out" execution 1 "$2/empty.out" "$2/limit.err"' _ "$PLUGIN_ROOT" "$work")"
+  tr_check "a plan-limit execution failure is tagged 'plan limit:'" jqe '.error | startswith("plan limit: Grok execution failed")' <<< "$out"
+  out="$(bash -c '. "$1/scripts/lib.sh"; tribunal_error_with_diagnostics grok "Grok execution failed or timed out" execution 124 "$2/empty.out" "$2/limit.err"' _ "$PLUGIN_ROOT" "$work")"
+  tr_check "a timeout is never a plan limit" jqe '.error | startswith("plan limit") | not' <<< "$out"
+  out="$(bash -c '. "$1/scripts/lib.sh"; tribunal_error_with_diagnostics grok "unparseable output" parse 0 "$2/empty.out" "$2/limit.err"' _ "$PLUGIN_ROOT" "$work")"
+  tr_check "a parse failure is never a plan limit" jqe '.error | startswith("plan limit") | not' <<< "$out"
+  out="$(bash -c '. "$1/scripts/lib.sh"; tribunal_error_with_diagnostics codex "Codex execution failed or timed out" execution 1 "$2/empty.out" "$2/rate.err"' _ "$PLUGIN_ROOT" "$work")"
+  tr_check "a transient rate limit is not a plan limit" jqe '.error | startswith("plan limit") | not' <<< "$out"
+  rm -rf "$work"
+}
+
+test_risk_effort_reaches_claude_and_grok() {
+  local work fake host_grok
+  work="$(mktemp -d)"; fake="$work/bin"; host_grok="$work/host-grok"; mkdir -p "$fake"
+  install_grok_auth_fixture "$host_grok"
+  for cli in claude grok; do
+    cat > "$fake/$cli" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = auth ] && [ "\${2:-}" = status ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"fixture"}'; exit 0
+fi
+printf '%s\n' "\$@" > "$work/$cli.args"
+cat >/dev/null
+exit 1
+EOF
+  done
+  chmod +x "$fake/claude" "$fake/grok"
+  (
+    cd "$work" && git init -q && git config user.email t@t && git config user.name t
+    printf 'one\n' > file.txt && git add file.txt && git commit -q -m base
+    printf 'two\n' > file.txt && git commit -q -am change
+  )
+  run_leg() {  # run_leg claude|grok ENV...
+    local cli="$1"; shift
+    rm -f "$work/$cli.args"
+    (cd "$work" && env -u XAI_API_KEY -u TRIBUNAL_RISK -u TRIBUNAL_CLAUDE_EFFORT -u TRIBUNAL_GROK_EFFORT \
+      -u TRIBUNAL_CLAUDE_MODEL PATH="$fake:$PATH" GROK_HOME="$host_grok" TRIBUNAL_BASE_REF=HEAD~1 \
+      "$@" bash "$PLUGIN_ROOT/scripts/run-$cli-review.sh" </dev/null >/dev/null 2>&1) || true
+  }
+  pair() { awk -v f="$2" -v v="$3" 'p == f && $0 == v { ok = 1 } { p = $0 } END { exit !ok }' "$work/$1.args"; }
+  run_leg claude TRIBUNAL_RISK=T3
+  tr_check "TRIBUNAL_RISK=T3 passes --effort high to the Claude leg" pair claude --effort high
+  run_leg claude TRIBUNAL_RISK=T3 TRIBUNAL_CLAUDE_MODEL=haiku
+  tr_check "Claude Haiku never gets --effort" bash -c '! grep -qx -- --effort "$1"' _ "$work/claude.args"
+  run_leg claude
+  tr_check "unset TRIBUNAL_RISK keeps the Claude CLI default effort" bash -c '! grep -qx -- --effort "$1"' _ "$work/claude.args"
+  run_leg grok TRIBUNAL_RISK=T4
+  tr_check "TRIBUNAL_RISK=T4 passes --reasoning-effort high to the Grok leg" pair grok --reasoning-effort high
+  run_leg grok TRIBUNAL_RISK=T4 TRIBUNAL_GROK_EFFORT=xhigh
+  tr_check "TRIBUNAL_GROK_EFFORT overrides the risk tier" pair grok --reasoning-effort xhigh
+  run_leg grok
+  tr_check "unset TRIBUNAL_RISK keeps the Grok CLI default effort" bash -c '! grep -qx -- --reasoning-effort "$1"' _ "$work/grok.args"
+  run_leg grok TRIBUNAL_RISK=T9
+  tr_check "an invalid TRIBUNAL_RISK fails the leg before the CLI runs" test ! -e "$work/grok.args"
+  rm -rf "$work"
+}
+
+test_preflight_risk_and_backups() {
+  local work fake out ec
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"; chmod +x "$fake/codex"
+  (
+    cd "$work" && git init -q && git config user.email t@t && git config user.name t
+    printf 'one\n' > file.txt && git add file.txt && git commit -q -m base
+    git checkout -qb feature && printf 'two\n' > file.txt && git commit -q -am change
+  )
+  pre() { (cd "$work" && env -u TRIBUNAL_RISK -u TRIBUNAL_BACKUP_LEGS PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main \
+    TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CLAUDE=off TRIBUNAL_GROK=off "$@" \
+    bash "$PLUGIN_ROOT/scripts/preflight.sh" 2>/dev/null); }
+  out="$(pre TRIBUNAL_RISK=T3)" || true
+  tr_check "preflight reports the risk tier and default backup legs" \
+    jqe '.risk_tier == "T3" and .backup_legs == ["deepseek"]' <<< "$out"
+  out="$(pre TRIBUNAL_BACKUP_LEGS=off)" || true
+  tr_check "preflight reports no risk tier and no backups when unset/off" \
+    jqe '.risk_tier == null and .backup_legs == []' <<< "$out"
+  ec=0; pre TRIBUNAL_RISK=high >/dev/null || ec=$?
+  tr_check "preflight rejects an invalid TRIBUNAL_RISK" test "$ec" -eq 2
+  ec=0; pre TRIBUNAL_BACKUP_LEGS=codex >/dev/null || ec=$?
+  tr_check "preflight rejects a non-opt-in backup leg" test "$ec" -eq 2
+  rm -rf "$work"
+}
+
+test_backup_leg_collection() {
+  local work repo fake plugin state base head n
+  work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"; state="$work/state"
+  mkdir -p "$repo" "$fake" "$state" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
+  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$PLUGIN_ROOT/scripts/lib.sh" \
+    "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
+  cp "$PLUGIN_ROOT/.claude-plugin/plugin.json" "$plugin/.claude-plugin/plugin.json"
+  cat > "$plugin/scripts/fixture-review.sh" <<'EOF'
+#!/usr/bin/env bash
+base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"; head="$(git rev-parse --verify 'HEAD^{commit}')"
+printf '%s\n' "{\"provider\":\"$1\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
+EOF
+  cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
+#!/usr/bin/env bash
+jq -nc --arg e "${FIXTURE_CODEX_ERROR:?}" '{provider:"codex",error:$e}'
+EOF
+  cat > "$plugin/scripts/run-claude-review.sh" <<'EOF'
+#!/usr/bin/env bash
+bash "$(dirname "$0")/fixture-review.sh" claude
+EOF
+  for provider in gemini qwen grok; do
+    printf '#!/usr/bin/env bash\nprintf "%%s\\n" %s\n' \
+      "'{\"provider\":\"$provider\",\"status\":\"disabled\",\"note\":\"fixture disabled\"}'" > "$plugin/scripts/run-$provider-review.sh"
+  done
+  cat > "$plugin/scripts/run-opencode-review.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'run\n' >> "${FIXTURE_STATE:?}/opencode.runs"
+for p in glm deepseek; do
+  flag="TRIBUNAL_$(printf '%s' "$p" | tr '[:lower:]' '[:upper:]')"
+  if [ "${!flag:-off}" = on ]; then bash "$(dirname "$0")/fixture-review.sh" "$p"
+  else printf '%s\n' "{\"provider\":\"$p\",\"status\":\"disabled\",\"note\":\"fixture disabled\"}"; fi
+done
+EOF
+  chmod +x "$plugin/scripts/"*.sh
+  "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
+  printf '#!/usr/bin/env bash\n[ "$1" = models ] && printf "%%s\\n" deepseek/deepseek-v4-pro opencode-go/glm-5.1\n' > "$fake/opencode"
+  cat > "$fake/gh" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = repo ] && [ "$2" = view ]; then
+  jq -nc '{nameWithOwner:"example/fixture",url:"https://github.com/example/fixture"}'
+elif [ "$1" = pr ] && [ "$2" = view ]; then
+  jq -nc --argjson number "$3" --arg base "$FIXTURE_BASE" --arg head "$FIXTURE_HEAD" \
+    '{number:$number,url:("https://github.com/example/fixture/pull/"+($number|tostring)),state:"OPEN",
+      baseRefName:"main",baseRefOid:$base,headRefName:"feature",headRefOid:$head,body:"Bound PR body"}'
+else
+  exit 2
+fi
+EOF
+  chmod +x "$fake/opencode" "$fake/gh"
+  (
+    cd "$repo" && git init -q && git config user.email t@t && git config user.name t
+    printf 'one\n' > app.txt && git add app.txt && git commit -q -m base
+    printf 'two\n' > app.txt && git commit -q -am change
+    git remote add origin https://github.com/example/fixture.git
+  )
+  base="$(git -C "$repo" rev-parse HEAD~1)"; head="$(git -C "$repo" rev-parse HEAD)"
+  n=0
+  collect() {  # collect ENV... -> sets $collection, returns collect's exit
+    n=$((n + 1)); collection="$work/collection-$n"; rm -f "$state/opencode.runs"
+    env -u TRIBUNAL_BACKUP_LEGS -u TRIBUNAL_RISK -u TRIBUNAL_GLM -u TRIBUNAL_DEEPSEEK -u TRIBUNAL_DEEPSEEK_MODEL \
+      PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
+      FIXTURE_CODEX_ERROR="plan limit: Codex execution failed or timed out; phase=execution; exit=1" "$@" \
+      "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$collection" > "$work/collect-$n.json" 2> "$work/collect-$n.err"
+  }
+  status_of() { jq -r --arg p "$1" '.providers[] | select(.provider == $p) | .status' "$collection/manifest.json"; }
+  runs() { [ -f "$state/opencode.runs" ] && wc -l < "$state/opencode.runs" | tr -d ' ' || printf 0; }
+
+  collect
+  tr_check "a plan-limited Codex leg brings in the DeepSeek backup" \
+    test "$(status_of codex) $(status_of deepseek) $(status_of glm) $(status_of claude) $(runs)" = "failed ok disabled ok 2"
+  tr_check "the backup run is announced on stderr" grep -q 'running backup legs for plan-limited legs: deepseek' "$work/collect-$n.err"
+  tr_check "a collection with a backup leg still verifies" env PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" \
+    bash -c '"$1/scripts/collect-review-evidence.sh" verify-collection --collection "$2" --expected-manifest-sha256 "$(jq -r .manifest_sha256 "$3")" >/dev/null' \
+    _ "$plugin" "$collection" "$work/collect-$n.json"
+
+  collect TRIBUNAL_BACKUP_LEGS=off
+  tr_check "TRIBUNAL_BACKUP_LEGS=off runs no backup" test "$(status_of deepseek) $(runs)" = "disabled 1"
+  collect FIXTURE_CODEX_ERROR="Codex execution failed or timed out; phase=execution; exit=1"
+  tr_check "an ordinary failure runs no backup" test "$(status_of codex) $(status_of deepseek) $(runs)" = "failed disabled 1"
+  collect TRIBUNAL_DEEPSEEK_MODEL=fixture/absent
+  tr_check "an uninstalled backup is not run" test "$(status_of deepseek) $(runs)" = "disabled 1"
+  collect TRIBUNAL_GLM=on
+  tr_check "a backup never reruns a wrapper that already ran" test "$(status_of glm) $(status_of deepseek) $(runs)" = "ok disabled 1"
+  collect TRIBUNAL_BACKUP_LEGS=glm,deepseek
+  tr_check "one backup per plan-limited leg, in list order" test "$(status_of glm) $(status_of deepseek) $(runs)" = "ok disabled 2"
+  collect TRIBUNAL_BACKUP_LEGS=codex || true
+  tr_check "an invalid backup list fails collection before any leg runs" test "$(runs)" -eq 0
+  collect TRIBUNAL_RISK=T5 || true
+  tr_check "an invalid TRIBUNAL_RISK fails collection before any leg runs" test "$(runs)" -eq 0
+  chmod -R u+w "$work" 2>/dev/null || true
+  rm -rf "$work"
+}
+
+echo ""
+echo "Risk tier, effort, and backup legs"
+test_risk_tier_and_backup_config
+test_risk_effort_reaches_claude_and_grok
+test_preflight_risk_and_backups
+test_backup_leg_collection
 
 echo ""
 if [ "$SKIP" -ne 0 ]; then

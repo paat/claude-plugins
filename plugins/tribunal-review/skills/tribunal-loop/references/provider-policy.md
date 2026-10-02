@@ -18,6 +18,22 @@
   with tools allowlist, sandbox default `none` (`TRIBUNAL_GROK_SANDBOX`),
   `bypassPermissions`, isolated host config, web search off (issue #378).
 
+## Risk tier and effort
+
+`TRIBUNAL_RISK` (environment only: `T1`–`T4`, the multi-model-orchestrator complexity tier)
+sets reviewer effort: T1 `low`, T2 `medium`, T3 `high`, T4 `high` with only Codex at `xhigh`
+(maximum-effort reviewers over-report speculative findings). Unset keeps each CLI default.
+`TRIBUNAL_CODEX_EFFORT`, `TRIBUNAL_CLAUDE_EFFORT`, and `TRIBUNAL_GROK_EFFORT` override it.
+Panel membership never depends on the tier.
+
+## Plan-limited legs
+
+A leg whose CLI failed on a plan limit (402, usage limit, quota, resource/balance/credits
+exhausted; never a timeout) reports an error starting with `plan limit:`. The evidence
+collector then runs one backup leg per limited leg from `TRIBUNAL_BACKUP_LEGS` (environment
+only; default `deepseek`; `off` disables): an installed leg whose wrapper sat out the run.
+The limited leg stays `failed`, so confidence still reflects it.
+
 ## APPROVE quorum
 
 `TRIBUNAL_MIN_OK_LEGS` (default `1`, range 1..7) is the per-environment floor
