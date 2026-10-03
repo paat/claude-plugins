@@ -15,7 +15,7 @@ valid_effort() {
 }
 
 valid_model() {
-  case "$1" in gpt-6-astra|gpt-5.6-terra|gpt-5.6-luna) return 0 ;; *) return 1 ;; esac
+  case "$1" in gpt-6-astra|gpt-6-sol|gpt-6-luna|gpt-5.6-terra|gpt-5.6-luna) return 0 ;; *) return 1 ;; esac
 }
 
 repo_dir="$PWD"
@@ -52,7 +52,7 @@ valid_effort "$effort" || {
   exit 2
 }
 valid_model "$model" || {
-  printf 'run-codex: unsupported model %s (current catalog: gpt-6-astra|gpt-5.6-terra|gpt-5.6-luna)\n' "$model" >&2
+  printf 'run-codex: unsupported model %s (current catalog: gpt-6-astra|gpt-6-sol|gpt-6-luna|gpt-5.6-terra|gpt-5.6-luna)\n' "$model" >&2
   exit 2
 }
 [ "$effort" != ultra ] || [ "$model" = gpt-6-astra ] || {

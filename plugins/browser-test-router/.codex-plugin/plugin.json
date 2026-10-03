@@ -1,14 +1,14 @@
 {
   "name": "browser-test-router",
-  "version": "0.4.1",
-  "description": "Multi-model delegation for browser testing \u2014 Kimi K2.5 (via opencode) for execution, Opus for analysis",
+  "version": "0.4.2",
+  "description": "Multi-model delegation for browser testing \u2014 a free OpenCode model (via opencode) for execution, Opus for analysis",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "Browser Test Router",
-    "shortDescription": "Multi-model delegation for browser testing \u2014 Kimi K2.5 (via opencode) for execution, Opus for analysis",
-    "longDescription": "Multi-model delegation for browser testing \u2014 Kimi K2.5 (via opencode) for execution, Opus for analysis",
+    "shortDescription": "Multi-model delegation for browser testing \u2014 a free OpenCode model (via opencode) for execution, Opus for analysis",
+    "longDescription": "Multi-model delegation for browser testing \u2014 a free OpenCode model (via opencode) for execution, Opus for analysis",
     "developerName": "Andre Paat",
     "category": "Testing",
     "capabilities": [
@@ -25,7 +25,7 @@
     "browser-testing",
     "model-routing",
     "delegation",
-    "kimi-k2.5",
+    "opencode-zen",
     "opencode",
     "openweights",
     "token-optimization"

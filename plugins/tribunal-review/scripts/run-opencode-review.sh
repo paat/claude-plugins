@@ -152,7 +152,7 @@ opencode_failure_message() {
 
 if [ "$glm_on" -eq 1 ]; then
   GLM_TMP="$(mktemp -d "$TMPDIR/glm.XXXXXX")"
-  run_oc_leg glm "${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.1}" "diff-only" "$GLM_TMP"
+  run_oc_leg glm "${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.3}" "diff-only" "$GLM_TMP"
 else
   tribunal_disabled glm "GLM leg disabled (default off); set TRIBUNAL_GLM=on to enable"
 fi

@@ -1,6 +1,6 @@
 ---
 name: opencode-reviewer
-description: Invokes the OpenCode Go GLM-5.1 model for independent code review. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
+description: Invokes the OpenCode Go GLM-5.3 model for independent code review. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
 tools: Bash
 model: haiku
 color: cyan
@@ -25,7 +25,7 @@ You are an OpenCode CLI wrapper. Your ONLY job is to run ONE bash command and re
 ## Models
 
 This standalone agent covers the **opt-in GLM leg only**; neither OpenCode leg runs by default:
-- `opencode-go/glm-5.1` (provider field: `glm`) — runs via the user's OpenCode Go subscription,
+- `opencode-go/glm-5.3` (provider field: `glm`) — runs via the user's OpenCode Go subscription,
   read-only via `--agent plan`, **diff-only** (no tools), from a non-repo scratch dir.
 
 The DeepSeek leg is documented separately in `deepseek-reviewer.md`. When enabled with

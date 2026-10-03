@@ -1,6 +1,6 @@
 # browser-test-router
 
-Multi-model delegation plugin for browser testing. Routes mechanical browser work to Kimi K2.5 (via opencode CLI), saving 40-55% tokens on browser-heavy testing sessions.
+Multi-model delegation plugin for browser testing. Routes mechanical browser work to a free OpenCode Zen model (via opencode CLI), saving 40-55% tokens on browser-heavy testing sessions.
 
 ## Mission Fit
 
@@ -21,13 +21,13 @@ Claude Max subscriptions deplete quickly when Opus handles everything — includ
 
 ## Solution
 
-Delegate mechanical browser operations to Kimi K2.5 (open-weight model) via opencode CLI, with enhanced visual testing via text-based visual property descriptions:
+Delegate mechanical browser operations to a free OpenCode Zen model via opencode CLI, with enhanced visual testing via text-based visual property descriptions:
 
 | Task Type | Model | Cost vs Opus | Savings |
 |-----------|-------|--------------|---------|
-| Navigation, health checks | Kimi K2.5 (via opencode) | ~15% | 85% |
-| Form operations, sessions | Kimi K2.5 (via opencode) | ~15% | 85% |
-| Page comparison, structural diff | Kimi K2.5 (via opencode) | ~15% | 85% |
+| Navigation, health checks | Delegate model (via opencode) | ~15% | 85% |
+| Form operations, sessions | Delegate model (via opencode) | ~15% | 85% |
+| Page comparison, structural diff | Delegate model (via opencode) | ~15% | 85% |
 | Spec parsing, gap classification | Opus (inline) | 100% | 0% |
 
 **Overall session savings: 40-55%** of total token consumption.
@@ -74,11 +74,11 @@ Free-tier model ids on opencode churn. Override the default by creating `.claude
 
 ```yaml
 ---
-model: "opencode/kimi-k2.5-free"
+model: "opencode/big-pickle"
 ---
 ```
 
-If the file or the `model` key is missing, the plugin defaults to `opencode/kimi-k2.5-free`. Every `opencode run -m` call below reads this setting once (as `$MODEL`) and reuses it for the rest of the session.
+If the file or the `model` key is missing, the plugin defaults to `opencode/big-pickle`. The free tier requires OpenCode 1.18.0 or newer. Every `opencode run -m` call below reads this setting once (as `$MODEL`) and reuses it for the rest of the session.
 
 ## How It Works
 
@@ -87,7 +87,7 @@ Opus (main session, Claude Code)
   ↓
   Bash tool: opencode run -m "$MODEL" "prompt with full context"
   ↓
-  Kimi K2.5 executes with chrome-devtools MCP access
+  Delegate model executes with chrome-devtools MCP access
   ↓
   Returns JSON result to stdout
   ↓
@@ -116,9 +116,9 @@ Opus (main session, Claude Code)
 ### Mental Model: Blind Guide + Sighted Assistant
 
 **Opus = Blind person** (can't see the page directly)
-**Kimi = Sighted assistant** (can see the page, uses chrome-devtools MCP)
+**Delegate model = Sighted assistant** (can see the page, uses chrome-devtools MCP)
 
-**Primary approach: Kimi describes what it sees**
+**Primary approach: the delegate model describes what it sees**
 - Element colors, sizes, positions, states → as TEXT
 - Rich visual property descriptions (borderColor: "rgb(220, 53, 69)")
 - Adds ~60% tokens vs text-only
@@ -206,7 +206,7 @@ Use lightweight mode for quick navigation/behavior checks. Use `--evidence` befo
 /acceptance-test crm
 ```
 
-The skill automatically delegates mechanical operations to Kimi K2.5 via opencode.
+The skill automatically delegates mechanical operations to the delegate model via opencode.
 
 ## Delegation Pattern
 
@@ -250,10 +250,10 @@ This plugin provides the generic delegation pattern. Project-specific testing sk
 - **MCP Context**: Uses chrome-devtools MCP (via opencode), not Chrome extension MCP (Claude Code)
 - **Zero Context Isolation**: Each opencode run starts fresh with no prior session state
 - **Opus Orchestrates**: Determines which .env file to use and which variables contain credentials, analyzes visual properties from text descriptions
-- **Kimi Executes**: Reads credentials from .env file, runs browser operations via chrome-devtools MCP, extracts visual properties using evaluate_script, returns JSON observations (without credential values)
-- **Visual Testing**: Kimi describes visual properties (colors, sizes, positions, states) as text. Opus compares these descriptions without seeing the page. Screenshots only used when text descriptions are insufficient (<10% of cases)
+- **Delegate Model Executes**: Reads credentials from .env file, runs browser operations via chrome-devtools MCP, extracts visual properties using evaluate_script, returns JSON observations (without credential values)
+- **Visual Testing**: The delegate model describes visual properties (colors, sizes, positions, states) as text. Opus compares these descriptions without seeing the page. Screenshots only used when text descriptions are insufficient (<10% of cases)
 - **Parallelism**: Bash background jobs enable parallel navigation (requires `--isolated` flag in opencode.json)
-- **Credential Security**: Credentials stay in .env files and are read by Kimi subprocess, never logged in Opus session
+- **Credential Security**: Credentials stay in .env files and are read by the delegate subprocess, never logged in Opus session
 - **Screenshot Storage**: Optional screenshots saved to a run-specific directory created via `mktemp -d` for complex layout analysis (created by pre-flight checks); this avoids collisions when parallel sessions run concurrently
 
 ## Cost Tracking
