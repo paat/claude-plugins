@@ -2546,6 +2546,10 @@ rm "$PL/bin/claude"
 out="$(pick --tier T2 --deny agy 2>"$PL/err")" || true
 contains "$PL/err" 'skip T2 claude/claude-sonnet-5: CLI not installed' 'pick skips a provider whose CLI is missing'
 printf '#!/usr/bin/env bash\nexit 0\n' > "$PL/bin/claude"; chmod +x "$PL/bin/claude"
+for compat in gpt-5.6-luna claude-sonnet-5 gpt-5.6-terra; do
+  out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T1 --allow "$compat" --usage /dev/null 2>/dev/null)" || true
+  [ "$(printf '%s\n' "$out" | head -n1 | cut -f3)" = "$compat" ] || fail "shipped table keeps an allowlisted prior-generation model routable: $compat ($out)"
+done
 for bad in '--tier T5' '--tier T2 --mode advise' '--tier T2 --timeout 0' '--tier T2 --bogus'; do
   rc=0
   # shellcheck disable=SC2086
