@@ -6,7 +6,7 @@ argument-hint: "[url_or_module] [--evidence] [--out docs/qa/browser-test/<run>]"
 
 # /browser-test-router:browser-test
 
-Activate the browser-test-orchestration skill with multi-model delegation via opencode CLI and Kimi K2.5.
+Activate the browser-test-orchestration skill with multi-model delegation via opencode CLI and a delegate model.
 
 ## What to do
 
@@ -14,7 +14,7 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
 
    If arguments include `--evidence`, also load `skills/browser-test-orchestration/references/evidence-reporting.md`.
 
-   Read `.claude/browser-test-router.local.md` for the `model` setting (frontmatter key `model`). If the file or key is missing, default to `opencode/kimi-k2.5-free`. Use this value as `$MODEL` in every `opencode run` call in this command.
+   Read `.claude/browser-test-router.local.md` for the `model` setting (frontmatter key `model`). If the file or key is missing, default to `opencode/big-pickle`. Use this value as `$MODEL` in every `opencode run` call in this command.
 
 2. **Run pre-flight checks** (MUST pass before any delegation):
    ```bash
@@ -84,7 +84,7 @@ Activate the browser-test-orchestration skill with multi-model delegation via op
    ```
    Pre-flight: opencode ok, chrome-devtools MCP ok, L1 ok, L2 ok
    Model Usage:
-   - Kimi K2.5 (opencode run): {N} calls ({description}) [{W} wasted]
+   - Delegate model (opencode run): {N} calls ({description}) [{W} wasted]
    - Opus: inline (analysis, classification)
 
    Estimated savings: ~{X}% vs all-Opus

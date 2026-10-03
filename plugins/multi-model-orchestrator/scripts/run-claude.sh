@@ -9,7 +9,7 @@ usage() {
   printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE] [--mcp NAME=URL]'
 }
 
-claude_model_catalog='claude-fable-5-1|claude-opus-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-4-5'
+claude_model_catalog='claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-4-5'
 
 valid_model() {
   case "$1" in

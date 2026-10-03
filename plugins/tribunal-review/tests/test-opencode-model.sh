@@ -49,7 +49,7 @@ EOF
         expected=custom/deepseek-review
         export TRIBUNAL_DEEPSEEK_MODEL="$expected"
         ;;
-      glm-default) provider=glm; expected=opencode-go/glm-5.1 ;;
+      glm-default) provider=glm; expected=opencode-go/glm-5.3 ;;
     esac
     if [ "$provider" = deepseek ]; then export TRIBUNAL_DEEPSEEK=on; else export TRIBUNAL_GLM=on; fi
     export FIXTURE_PROVIDER="$provider" FIXTURE_MODEL="$expected"

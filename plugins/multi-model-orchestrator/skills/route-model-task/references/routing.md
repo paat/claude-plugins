@@ -6,23 +6,25 @@ tracks the latest Haiku 4.5 release instead of pinning an earlier dated snapshot
 | Provider | Model | Start here for | Supported effort in this plugin |
 |---|---|---|---|
 | Claude Code | `claude-haiku-4-5` | Fast, high-volume triage, file maps, simple checks | `n/a`; Haiku 4.5 has manual thinking, not the current effort control |
-| Claude Code | `claude-sonnet-5` | Ordinary coding, tool use, browser/visual work, cost-aware agents | `low`–`max` |
+| Claude Code | `claude-sonnet-5-5` | Current Sonnet: ordinary coding, tool use, browser/visual work, cost-aware agents | `low`–`max` |
+| Claude Code | `claude-sonnet-5` | Prior-generation Sonnet compatibility route | `low`–`max` |
 | Claude Code | `claude-opus-5-5` | Current Opus: complex agentic coding, hard review, large refactors, vision-heavy work | `low`–`max` |
 | Claude Code | `claude-opus-5` | Prior-generation Opus compatibility route | `low`–`max` |
 | Claude Code | `claude-fable-5-1` | Current Fable: highest-capability, long-running or unusually hard coding and knowledge work | `low`–`max` |
 | Claude Code | `claude-fable-5` | Prior-generation Fable compatibility route | `low`–`max` |
-| Codex | `gpt-5.6-luna` | Fast mechanical edits, extraction, classification, narrow checks | `low`–`max` |
-| Codex | `gpt-5.6-terra` | Balanced everyday implementation and bounded investigation | `low`–`max` |
+| Codex | `gpt-6-luna` | Fast mechanical edits, extraction, classification, narrow checks | `low`–`max` |
+| Codex | `gpt-6-sol` | Balanced everyday implementation and bounded investigation | `low`–`max` |
 | Codex | `gpt-6-astra` | Hard technical implementation, debugging, adversarial review, security | `low`–`max`; `ultra` only as below |
+| Codex | `gpt-5.6-luna`, `gpt-5.6-terra` | Prior-generation Codex compatibility routes | `low`–`max` |
 | Grok Build | `grok-4.7` | Default Grok route: fast bounded agentic implementation, independent reproduction, extra review lens | `low`, `medium`, `high`, `xhigh` |
 | Grok Build | `grok-4.6` | Prior-generation Grok compatibility route | `low`, `medium`, `high`, `xhigh` |
 | Grok Build | `grok-4.5` | Older Grok compatibility route | `low`, `medium`, `high` |
 | Local Qwen | `qwen3.8-27b-local` | Free bounded mechanical edits with a named test, and a cheap second review lens — only when the local endpoint answers | `n/a` (the wrapper pins `medium`) |
 | agy (Antigravity) | `gemini-3.8-flash` | Cheap, fast bounded edits; an advisory diff-only review lens | `low`, `medium`, `high` |
 
-Astra replaces only Sol. Keep Terra and Luna as lower-cost routes: use Luna for mechanical tasks
-and narrow checks, Terra for ordinary bounded implementation, and Astra for hard technical work.
-A newer flagship does not retire the cheaper tiers. Explicit model requests still take precedence.
+GPT-6 Sol replaces GPT-5.6 Terra and GPT-6 Luna replaces GPT-5.6 Luna at the same or lower price:
+use Luna for mechanical tasks and narrow checks, Sol for ordinary bounded implementation, and Astra
+for hard technical work. A newer flagship does not retire the cheaper tiers. Explicit model requests still take precedence.
 Only catalogued models are allowed; unavailable models do not authorize an unlisted fallback.
 
 ## Complexity tiers
@@ -71,11 +73,11 @@ silently; select a supported level or return an incompatibility.
 
 ## Restrictions and fallbacks
 
-- `Codex only`: choose Luna, Terra, or Astra by task complexity; Astra Ultra is not the default.
-- `Claude only`: choose Haiku 4.5, Sonnet 5, Opus 5.5, or Fable 5.1; use `n/a` for Haiku.
+- `Codex only`: choose Luna, Sol, or Astra by task complexity; Astra Ultra is not the default.
+- `Claude only`: choose Haiku 4.5, Sonnet 5.5, Opus 5.5, or Fable 5.1; use `n/a` for Haiku.
 - `Grok only`: use Grok 4.7 by default (or Grok 4.6 or Grok 4.5 when explicitly pinned) and scale
   only across that model's supported efforts.
-- `No Claude`: route between GPT-5.6/GPT-6 and Grok 4.7; any independence check must use the other one.
+- `No Claude`: route between GPT-6 and Grok 4.7; any independence check must use the other one.
 - A pinned allowed model wins over defaults. A pinned unsupported effort produces a blocker unless
   the user also authorized automatic effort adjustment.
 - Local Qwen (`qwen`) and agy are providers like any other: an allow/deny list that excludes them
@@ -92,15 +94,16 @@ worker on `75`, `77`, or `127`; if that leg changed the repository it exits `55`
 or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen and agy are mechanical-work engines and advisory
 reviewers only: architecture, security, and ambiguous design stay on the hosted catalog.
 
-## Evidence basis, 2026-08-02
+## Evidence basis, 2026-10-03
 
-- Anthropic describes Fable 5 as its highest-capability long-running model, Opus 5 for complex
-  agentic coding, Sonnet 5 as the speed/intelligence balance, and Haiku 4.5 as its fastest current
-  tier. Its effort guidance favors high as a baseline, lower settings where evals hold, and xhigh
+- Anthropic describes Fable 5.1 as its highest-capability long-running model, Opus 5.5 for complex
+  agentic coding, Sonnet 5.5 as the speed/intelligence balance, and Haiku 4.5 as its fastest current
+  tier. Sonnet 5.5 recalibrated its effort levels; start agentic coding at `medium`. Its effort guidance favors high as a baseline, lower settings where evals hold, and xhigh
   or max only for demanding work.
-- OpenAI describes Astra as the GPT-6 flagship, Terra as the balanced GPT-5.6 tier, and Luna as the
-  fast, high-volume GPT-5.6 tier. It recommends medium as a baseline and higher efforts only for measured gains.
-- The Grok Build CLI (1.0.40) defaults to grok-4.7. grok-4.7 and grok-4.6 accept low, medium, high,
+- OpenAI describes Astra as the GPT-6 flagship, Sol for complex coding and agentic work, and Luna
+  for focused, high-volume tasks. It recommends medium as a baseline and higher efforts only for measured gains.
+- The Grok Build CLI (1.0.41) also lists `grok-4.7-build-fast` (same model, faster serving, twice
+  the price, Grok Build only); it is not catalogued. grok-4.7 and grok-4.6 accept low, medium, high,
   and xhigh; grok-4.5 accepts low, medium, and high. xAI reports strong coding performance and high
   serving speed; treat those vendor measurements as hypotheses.
 - Antigravity CLI 1.2.14 serves `gemini-3.8-flash-{low,medium,high}` and answers `/usage` locally.

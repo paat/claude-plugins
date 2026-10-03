@@ -74,7 +74,7 @@ tribunal_backup_installed() {
   case "$1" in
     glm|deepseek)
       command -v opencode >/dev/null 2>&1 || return 1
-      if [ "$1" = glm ]; then model="${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.1}"; else model="$(tribunal_deepseek_model)"; fi
+      if [ "$1" = glm ]; then model="${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.3}"; else model="$(tribunal_deepseek_model)"; fi
       opencode models >/dev/null 2>&1 || true
       models="$(opencode models 2>/dev/null || true)"
       grep -qxF -- "$model" <<< "$models" ;;

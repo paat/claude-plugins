@@ -107,7 +107,7 @@ if [ "${TRIBUNAL_GLM:-off}" = "on" ] || [ "${TRIBUNAL_DEEPSEEK:-off}" = "on" ]; 
     opencode models >/dev/null 2>&1 || true
     models="$(opencode models 2>/dev/null || true)"
     if [ "${TRIBUNAL_GLM:-off}" = "on" ]; then
-      printf '%s\n' "$models" | grep -qxF "${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.1}" && add_provider glm usable "model registered; non-interactive invocation not probed" || add_provider glm skipped "OpenCode model not in registry"
+      printf '%s\n' "$models" | grep -qxF "${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.3}" && add_provider glm usable "model registered; non-interactive invocation not probed" || add_provider glm skipped "OpenCode model not in registry"
     else
       add_provider glm disabled "default off"
     fi

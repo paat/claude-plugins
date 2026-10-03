@@ -1144,7 +1144,7 @@ EOF
   cat > "$fake/opencode" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = models ]; then
-  printf '%s\n' deepseek/deepseek-v4-pro opencode-go/glm-5.1
+  printf '%s\n' deepseek/deepseek-v4-pro opencode-go/glm-5.3
   exit 0
 fi
 printf '%s\n' '{"provider":"deepseek","model":"smoke","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
@@ -4653,7 +4653,7 @@ done
 EOF
   chmod +x "$plugin/scripts/"*.sh
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
-  printf '#!/usr/bin/env bash\n[ "$1" = models ] && printf "%%s\\n" deepseek/deepseek-v4-pro opencode-go/glm-5.1\n' > "$fake/opencode"
+  printf '#!/usr/bin/env bash\n[ "$1" = models ] && printf "%%s\\n" deepseek/deepseek-v4-pro opencode-go/glm-5.3\n' > "$fake/opencode"
   cat > "$fake/gh" <<'EOF'
 #!/usr/bin/env bash
 if [ "$1" = repo ] && [ "$2" = view ]; then
