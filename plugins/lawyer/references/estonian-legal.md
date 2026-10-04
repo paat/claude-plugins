@@ -44,10 +44,11 @@
 - Annual report submission deadline: 6 months after financial year end
 
 ### Tax Obligations (EMTA)
-- **Corporate tax:** 0% on retained earnings, 20% on distributions (14% regular)
-- **VAT:** 22% standard rate, registration threshold 40,000 EUR/year
-- **Employment:** Social tax 33%, income tax 20%, unemployment insurance 0.8%+0.8%
-- **Monthly declarations:** TSD (employment taxes), KMD (VAT) by 10th of following month
+- **Corporate tax (from 2026):** 0% on retained earnings, 22/78 on distributions ([tax rates](https://www.emta.ee/en/business-client/taxes-and-payment/income-and-social-taxes/tax-rates)) — the 14/86 regular-distribution rate was abolished from 2025
+- **VAT (from 1 July 2025):** 24% standard rate ([VAT](https://www.emta.ee/en/business-client/taxes-and-payment/value-added-tax)), registration threshold 40,000 EUR/year
+- **Employment (from 2026):** social tax 33%, withheld income tax 22%, unemployment insurance 1.6% employee + 0.8% employer ([rates](https://www.emta.ee/en/business-client/taxes-and-payment/income-and-social-taxes/unemployment-insurance-premiums))
+- **Monthly declarations:** TSD (employment taxes) by the 10th, KMD (VAT) by the 20th of the following month
+- Rates and deadlines change by year and by transaction date — verify against EMTA for the period under analysis before relying on any figure above
 
 ### e-Residency Specifics
 - Digital ID for company management (not physical residency)
