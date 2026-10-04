@@ -68,6 +68,7 @@ esac
 command -v git >/dev/null 2>&1 || { printf 'run-grok: git not found\n' >&2; exit 127; }
 command -v grok >/dev/null 2>&1 || { printf 'run-grok: grok CLI not found\n' >&2; exit 127; }
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
+[ "$mode" = research ] || mmo_guard_env_files run-grok "$repo_dir" || exit 2
 
 runtime_dir="$(mktemp -d)"
 request_file="$runtime_dir/request.txt"
@@ -285,7 +286,7 @@ child_home="$isolated_home"
 set +e
 if [ "$stream_log_set" -eq 1 ]; then
   # Live transcript to --stream-log; final message still lands in --out.
-  HOME="$child_home" GROK_HOME="$isolated_grok_home" \
+  HOME="$child_home" GROK_HOME="$isolated_grok_home" mmo_leg_env 'GROK_*' XAI_API_KEY -- \
     timeout -k 10 "$run_timeout" grok "${grok_args[@]}" \
     2> "${output_file}.stderr" | tee "$stream_file" > "$output_file"
   provider_rc=${PIPESTATUS[0]} tee_rc=${PIPESTATUS[1]}
@@ -298,7 +299,7 @@ if [ "$stream_log_set" -eq 1 ]; then
     rc=0
   fi
 else
-  HOME="$child_home" GROK_HOME="$isolated_grok_home" \
+  HOME="$child_home" GROK_HOME="$isolated_grok_home" mmo_leg_env 'GROK_*' XAI_API_KEY -- \
     timeout -k 10 "$run_timeout" grok "${grok_args[@]}" > "$output_file" 2> "${output_file}.stderr"
   rc=$?
 fi

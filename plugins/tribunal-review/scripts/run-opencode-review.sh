@@ -160,5 +160,9 @@ fi
 if [ "$deepseek_on" -eq 0 ]; then
   tribunal_disabled deepseek "DeepSeek leg disabled (default off; issue #461); set TRIBUNAL_DEEPSEEK=on to enable"
 else
-  run_oc_leg deepseek "$(tribunal_deepseek_model)" "repo-walking" "$REPO_ROOT"
+  if WALK_ROOT="$(tribunal_walk_root "$TMPDIR/walk")"; then
+    run_oc_leg deepseek "$(tribunal_deepseek_model)" "repo-walking" "$WALK_ROOT"
+  else
+    tribunal_error deepseek "cannot prepare a checkout without the repository's untracked .env files"
+  fi
 fi

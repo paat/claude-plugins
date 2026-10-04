@@ -150,6 +150,13 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
   keeps shell access, so Codex research runs from a scratch working root instead of the repository,
   bounded by that root and its prompt contract. This bounds blast radius rather than enforcing
   read-only.
+- The host's `.env` deny rules do not bind a leg, so runners keep secrets out of provider context
+  instead. Every leg that works in the repository refuses a checkout holding untracked `.env*`
+  files (exit 2); run from a `git worktree add` checkout, which has none. Every CLI starts under
+  `env -i` with `PATH HOME USER LOGNAME SHELL LANG LC_ALL TERM TMPDIR`, proxy and CA variables,
+  its own provider variables, and the names in `MMO_LEG_ENV`. A test database URL passed that
+  way must point at a dev/test database. This stops accidental reads, not a leg that goes looking
+  outside its checkout. The local Qwen route sends nothing to a hosted provider and is exempt.
 - Every task names allowed files and an exact gate. Reviewer prose is advisory until verified
   against code, tests, or rendered output.
 - Final review defaults to the tribunal flow: push, PR, `tribunal-review:closing-tribunal-loop`
@@ -158,7 +165,7 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
   one independent provider review and a second must pay for itself through risk or conflicting
   evidence. User provider restrictions remain authoritative.
 - Grok legs use an isolated configuration to avoid inheriting host agents, plugins, hooks, and
-  MCPs. OAuth `auth.json` and authentication environment variables are preserved; config-only
+  MCPs. OAuth `auth.json`, `XAI_API_KEY`, and `GROK_*` variables are preserved; config-only
   enterprise authentication should use Grok's equivalent `GROK_*` environment variables.
 
 ## Review gate
@@ -208,6 +215,8 @@ catalog.
 | `MMO_AGY_EFFORT` | `medium` | agy effort (`low`, `medium`, `high`) |
 | `MMO_POOL_TIERS` | `scripts/pool-tiers.tsv` | Replacement tier table for `pool.sh`, same format |
 | `MMO_QWEN_LOCAL_RUN` | discovered | Path to the `subagent-local-qwen3.8-27b` wrapper when it is not on `PATH` or in a plugin cache |
+| `MMO_LEG_ENV` | empty | Space-separated variable names (or `PREFIX*` patterns) passed into the scrubbed leg environment, e.g. `DATABASE_URL` for a test database |
+| `MMO_ALLOW_ENV_FILES` | `0` | `1` lets legs run in a checkout holding untracked `.env*` files |
 
 `MMO_OPUS_MODEL` and `MMO_OPUS_EFFORT` remain compatibility variables for `run-opus.sh`. The old
 moving value `MMO_OPUS_MODEL=opus` maps explicitly to `claude-opus-5-5`; versioned IDs older than the previous generation are

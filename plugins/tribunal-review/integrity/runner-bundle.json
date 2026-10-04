@@ -18,7 +18,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "46e9df22cb2b4336d38ff53c4c162a95d614f5fcad3b8d95b1b951842393d8ba"
+      "sha256": "be0f18d53cff99b5e70c765e4da0dcb513807eac812207b24d04725c3c23d864"
     },
     {
       "path": "scripts/run-claude-review.sh",
@@ -26,7 +26,7 @@
     },
     {
       "path": "scripts/run-codex-review.sh",
-      "sha256": "31ea17ad88c1cc6f2ebacf7516d602dffbbb6c84a6650b0e8a636b8eab27888b"
+      "sha256": "f7a7748affd9a579d196932cff68ddfdc8ffaf3a8f8c44f9b62d5048321f064e"
     },
     {
       "path": "scripts/run-gemini-review.sh",
@@ -34,15 +34,15 @@
     },
     {
       "path": "scripts/run-grok-review.sh",
-      "sha256": "0082a98ed94384ea81984fbc8ef413bc19652ce8db43821ea3d6ae439bb4f23b"
+      "sha256": "f906d2796ecb8a5199bfe4e1b0282d82579419df65bd147a3cc4e964e173313f"
     },
     {
       "path": "scripts/run-opencode-review.sh",
-      "sha256": "d38247bb3a7192984548b51f6ac5688f58e2821f3707d539d30b769ae346fcc1"
+      "sha256": "9006ed97fbac7100b250c7bc2ba6d33b5909d7d669b2aeeaa6c9c60e5d227401"
     },
     {
       "path": "scripts/run-qwen-review.sh",
-      "sha256": "7c12ce01bdc3d54f591b49648498b97efb291deb092eb0de3db778c5657b908d"
+      "sha256": "ecd2e76a5408948044b4aee25eb055633f732c8be7303735862d79c5c285cc51"
     }
   ],
   "plugin": "tribunal-review",

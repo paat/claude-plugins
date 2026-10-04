@@ -55,6 +55,7 @@ for tool in git jq agy; do
   command -v "$tool" >/dev/null 2>&1 || { printf 'run-agy: %s not found\n' "$tool" >&2; exit 127; }
 done
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
+[ "$mode" = review ] || mmo_guard_env_files run-agy "$repo_dir" || exit 2
 
 runtime_dir="$(mktemp -d)"
 trap 'rm -rf "$runtime_dir"' EXIT
@@ -128,7 +129,7 @@ fi
 jq -cn --rawfile c "$prompt_file" '{event: "user", message: {content: $c}}' > "$runtime_dir/input.jsonl"
 
 set +e
-(cd "$work_dir" && timeout -k 10 "$run_timeout" agy --input-format stream-json --output-format stream-json \
+(cd "$work_dir" && mmo_leg_env GEMINI_API_KEY -- timeout -k 10 "$run_timeout" agy --input-format stream-json --output-format stream-json \
   --model "$model-$effort" ${agy_args[@]+"${agy_args[@]}"} \
   < "$runtime_dir/input.jsonl" > "$stream_file" 2> "$runtime_dir/stderr.txt")
 rc=$?

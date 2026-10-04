@@ -28,6 +28,8 @@ if [ -f "$HOST_CODEX_HOME/auth.json" ] && ! cp -p "$HOST_CODEX_HOME/auth.json" "
   exit 0
 fi
 REPO_ROOT="$(tribunal_repo_root)"
+WALK_ROOT="$(tribunal_walk_root "$TMPDIR/walk")" \
+  || { tribunal_error codex "cannot prepare a checkout without the repository's untracked .env files"; exit 0; }
 PROMPT_FILE="$TMPDIR/prompt.md"
 DIFF_FILE="$TMPDIR/review.diff"
 if [ "$MODE" = smoke ]; then
@@ -59,7 +61,7 @@ LAST_FILE="$TMPDIR/last-message.json"
 SCHEMA_FILE="$(tribunal_review_schema)"
 env CODEX_HOME="$ISOLATED_CODEX_HOME" timeout -k 10 "$RUN_TIMEOUT" codex exec "${model_args[@]}" -m "$CODEX_MODEL" \
   -c "model_reasoning_effort=\"$CODEX_EFFORT\"" --output-schema "$SCHEMA_FILE" \
-  --output-last-message "$LAST_FILE" -C "$REPO_ROOT" - \
+  --output-last-message "$LAST_FILE" -C "$WALK_ROOT" - \
   < "$PROMPT_FILE" > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
 if [ "$rc" -eq 0 ]; then
   RESPONSE_FILE="$TMPDIR/out.txt"

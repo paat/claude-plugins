@@ -13,6 +13,8 @@ trap 'rm -rf "$TMPDIR"' EXIT
 DIFF_FILE="$TMPDIR/review.diff"
 CONTEXT_FILE="$TMPDIR/context.md"
 REPO_ROOT="$(tribunal_repo_root)"
+WALK_ROOT="$(tribunal_walk_root "$TMPDIR/walk")" \
+  || { tribunal_error qwen "cannot prepare a checkout without the repository's untracked .env files"; exit 0; }
 tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error qwen "cannot diff against $BASE_REF"; exit 0; }
 DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
 [ -s "$DIFF_FILE" ] || { tribunal_empty qwen "$QWEN_MODEL" "$BASE_REF" "$DIFF_STAT"; exit 0; }
@@ -21,7 +23,7 @@ PROMPT_FILE="$TMPDIR/prompt.md"
 tribunal_review_prompt qwen "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROMPT_FILE"
 
 rc=0
-printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 qwen --model "$QWEN_MODEL" -p "$(cat "$PROMPT_FILE")" --yolo -o json > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
+printf '%s\n' "$(cat "$DIFF_FILE")" | (cd "$WALK_ROOT" && timeout -k 10 600 qwen --model "$QWEN_MODEL" -p "$(cat "$PROMPT_FILE")" --yolo -o json) > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
 if [ "$rc" -eq 0 ]; then
   response="$(jq -r '
     if type == "array" then
