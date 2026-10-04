@@ -27,24 +27,22 @@ mmo_terminal_verdict() {
 }
 
 # Plain Grok output concatenates assistant messages with no separator, so a
-# terminal verdict can sit mid-line (`worktree.VERDICT: NEEDS_WORK`). Break
-# only before a trailing VERDICT token that is glued to the previous character.
-# A space before the token, or any trailing prose, stays one line so the gate
-# still rejects ordinary sentences.
+# terminal verdict can sit mid-line (`worktree.VERDICT: NEEDS_WORK` or
+# `worktree.**VERDICT: APPROVE**`). Split only when that trailing token,
+# optionally **-decorated, is glued to a non-whitespace, non-* character.
+# Match on tolower (POSIX awk has no IGNORECASE) and cut the original line at
+# the same offset. A space or * before the token, or trailing prose, stays one
+# line so the gate still rejects ordinary sentences.
 mmo_separate_glued_verdict() {
   local src="$1" tmp
   [ -s "$src" ] || return 0
   tmp="$(mktemp)"
   awk '
     {
-      if (match($0, /[^[:space:]]((\*\*)?VERDICT(\*\*)?[[:space:]]*:[[:space:]]*(\*\*)?[[:space:]]*(APPROVE[D]?|NEEDS[ _]WORK)\**\.?\**[[:space:]]*)$/)) {
-        pre = substr($0, 1, RSTART)
-        post = substr($0, RSTART + 1)
-        if (pre != "" && post ~ /^(\*\*)?VERDICT/) {
-          print pre
-          print post
-          next
-        }
+      if (match(tolower($0), /[^[:space:]*]((\*\*)?verdict(\*\*)?[[:space:]]*:[[:space:]]*(\*\*)?[[:space:]]*(approve[d]?|needs[ _]work)\**\.?\**[[:space:]]*)$/)) {
+        print substr($0, 1, RSTART)
+        print substr($0, RSTART + 1)
+        next
       }
       print
     }

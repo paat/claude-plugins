@@ -363,6 +363,9 @@ case "${STUB_GROK_RESULT:-ok}" in
   prose_approve) printf 'This section still needs work before ship.\n' ;;
   # Plain Grok joins assistant messages with no newline (#597).
   glued_verdict) printf '%s' 'The suites passed. Next I will execute touching the worktree.VERDICT: NEEDS_WORK' ;;
+  glued_verdict_lower) printf '%s' 'The suites passed. Next I will execute touching the worktree.verdict: needs_work' ;;
+  glued_bold_verdict) printf '%s' 'The suites passed. Next I will execute touching the worktree.**VERDICT: APPROVE**' ;;
+  glued_bold_prose) printf '%s' 'Do not emit **VERDICT: APPROVE**' ;;
   glued_prose) printf '%s' 'Ship it.I approve.' ;;
   *) printf 'grok findings\nAPPROVE\n' ;;
 esac
@@ -600,11 +603,41 @@ rc=0
 gout="$(bash "$PLUGIN_ROOT/scripts/review-gate.sh" --leg grok="$WORK/grok-glued.txt")" || rc=$?
 [ "$rc" -eq 1 ] && [ "$gout" = NEEDS_WORK ] || fail "gate reads a glued Grok verdict (got $rc/$gout)"
 set +e
+out="$(printf x | STUB_GROK_RESULT=glued_verdict_lower "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
+  --out "$WORK/grok-glued-lower.txt" 2> "$WORK/grok-glued-lower.err")"
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "Grok lowercase glued verdict exit was $rc want 0 ($(cat "$WORK/grok-glued-lower.err"))"
+grep -qx 'verdict: needs_work' "$WORK/grok-glued-lower.txt" || fail 'Grok final output puts a lowercase glued verdict on its own line'
+rc=0
+gout="$(bash "$PLUGIN_ROOT/scripts/review-gate.sh" --leg grok="$WORK/grok-glued-lower.txt")" || rc=$?
+[ "$rc" -eq 1 ] && [ "$gout" = NEEDS_WORK ] || fail "gate reads a lowercase glued Grok verdict (got $rc/$gout)"
+set +e
+out="$(printf x | STUB_GROK_RESULT=glued_bold_verdict "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
+  --out "$WORK/grok-glued-bold.txt" 2> "$WORK/grok-glued-bold.err")"
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "Grok bold-glued verdict exit was $rc want 0 ($(cat "$WORK/grok-glued-bold.err"))"
+exact_line "$WORK/grok-glued-bold.txt" '**VERDICT: APPROVE**' 'Grok final output puts a bold-glued verdict on its own line'
+rc=0
+gout="$(bash "$PLUGIN_ROOT/scripts/review-gate.sh" --leg grok="$WORK/grok-glued-bold.txt")" || rc=$?
+[ "$rc" -eq 0 ] && [ "$gout" = APPROVE ] || fail "gate reads a bold-glued Grok verdict (got $rc/$gout)"
+set +e
 printf x | STUB_GROK_RESULT=glued_prose "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
   --out "$WORK/grok-glued-prose.txt" >/dev/null 2> "$WORK/grok-glued-prose.err"
 rc=$?
 set -e
 [ "$rc" -eq 6 ] || fail "Grok glued 'I approve.' exit was $rc want 6"
+set +e
+printf x | STUB_GROK_RESULT=glued_bold_prose "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
+  --out "$WORK/grok-bold-prose.txt" >/dev/null 2> "$WORK/grok-bold-prose.err"
+rc=$?
+set -e
+[ "$rc" -eq 6 ] || fail "Grok bold-prose VERDICT exit was $rc want 6"
+[ "$(cat "$WORK/grok-bold-prose.txt")" = 'Do not emit **VERDICT: APPROVE**' ] || fail 'Bold prose mentioning VERDICT stays unchanged'
+rc=0
+gout="$(bash "$PLUGIN_ROOT/scripts/review-gate.sh" --leg grok="$WORK/grok-bold-prose.txt" 2>"$WORK/grok-bold-prose.gate")" || rc=$?
+[ "$rc" -eq 2 ] || fail "gate finds no verdict in bold VERDICT prose (got $rc/$gout)"
 # Implement and research legs are probe reviews too: the same glued line must reach the gate (#597).
 set +e
 out="$(printf x | STUB_GROK_RESULT=glued_verdict "$PLUGIN_ROOT/scripts/run-grok.sh" --mode implement --repo "$WORK/repo" \
@@ -619,6 +652,9 @@ gout="$(bash "$PLUGIN_ROOT/scripts/review-gate.sh" --leg grok="$WORK/grok-glued-
 pass 'Verdict-format rejection preserves body in --out and stdout'
 pass 'Prose containing approve/needs work mid-sentence still rejected'
 pass 'Grok plain output separates a glued trailing verdict before the gate reads it'
+pass 'Grok plain output separates a lowercase glued verdict before the gate reads it'
+pass 'Grok plain output separates a bold-glued trailing verdict before the gate reads it'
+pass 'Bold prose mentioning a verdict token stays unchanged and is not a verdict'
 pass 'Implement-mode Grok output separates a glued trailing verdict before the gate reads it'
 
 mkdir -p "$WORK/out-dest"
