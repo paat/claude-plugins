@@ -85,6 +85,30 @@ section base conflicts|§ 14 lõige 1¹|{"paragraph":"14","section":"2"}
 section missing from parts|§ 14 lõige 1¹|{"paragraph":"14"}
 unparseable citation|lõige 1¹|{"paragraph":"14","section":"1"}
 CASES
+
+  # Collector must record a refusal in the artifact rather than an empty new_text.
+  local art
+  while IFS='|' read -r name parts want; do
+    legacy_fixture "$legacy_dir" '§ 14 lõige 1¹' "$parts" true
+    mkdir -p "$legacy_dir/plan"
+    legacy_rc=0
+    (cd "$legacy_dir" && PATH="$legacy_dir/bin:$PATH" EST_DATALAKE_API_KEY=synthetic-key LEGACY_URL_LOG="$legacy_dir/urls" \
+      bash "$PLUGIN_ROOT/scripts/lawyer-fixplan-collect.sh" "$legacy_dir/plan") > "$legacy_dir/out" 2>&1 || legacy_rc=$?
+    art="$legacy_dir/plan/sample-law.json"
+    ok=0
+    [ "$legacy_rc" -eq 0 ] || ok=1
+    if [ "$want" = refused ]; then
+      [ ! -s "$legacy_dir/urls" ] || ok=1
+      jq -e '(.fetch_error | type == "string" and contains("re-register")) and .new_text == ""' "$art" >/dev/null 2>&1 || ok=1
+    else
+      [ -s "$legacy_dir/urls" ] || ok=1
+      jq -e '.fetch_error == null and .new_text == "Verified replacement text."' "$art" >/dev/null 2>&1 || ok=1
+    fi
+    record "fixplan-collect $name: fetch_error recorded" "$ok" "exit=$legacy_rc; $(cat "$art" 2>/dev/null); $(cat "$legacy_dir/out")"
+  done <<'CASES'
+refused entry|{"paragraph":"14","section":"2"}|refused
+normal entry|{"paragraph":"14","section":"1"}|fetched
+CASES
   rm -rf "$legacy_dir"
 }
 
