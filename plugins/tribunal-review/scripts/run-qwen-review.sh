@@ -23,7 +23,7 @@ PROMPT_FILE="$TMPDIR/prompt.md"
 tribunal_review_prompt qwen "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROMPT_FILE"
 
 rc=0
-printf '%s\n' "$(cat "$DIFF_FILE")" | (cd "$WALK_ROOT" && tribunal_leg_env 'QWEN_*' 'DASHSCOPE_*' 'OPENAI_*' -- timeout -k 10 600 qwen --model "$QWEN_MODEL" -p "$(cat "$PROMPT_FILE")" --yolo -o json) > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
+printf '%s\n' "$(cat "$DIFF_FILE")" | (cd "$WALK_ROOT" && tribunal_leg_env 'QWEN_*' 'DASHSCOPE_*' 'OPENAI_*' OPENROUTER_API_KEY -- timeout -k 10 600 qwen --model "$QWEN_MODEL" -p "$(cat "$PROMPT_FILE")" --yolo -o json) > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
 if [ "$rc" -eq 0 ]; then
   response="$(jq -r '
     if type == "array" then

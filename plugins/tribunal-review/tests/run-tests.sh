@@ -4534,7 +4534,7 @@ printf '%s\n' '{"text":"done","stopReason":"EndTurn","sessionId":"11111111-1111-
 EOF
   cat > "$fake/qwen" <<EOF
 #!/usr/bin/env bash
-printf '%s %s %s %s\n' "\$PWD" "\$([ -e .env ] && echo env || echo noenv)" "\$(cat file.txt)" "\${LEG_SECRET-unset}" > "$work/qwen.walk"
+printf '%s %s %s %s %s\n' "\$PWD" "\$([ -e .env ] && echo env || echo noenv)" "\$(cat file.txt)" "\${LEG_SECRET-unset}" "\${OPENROUTER_API_KEY-unset}" > "$work/qwen.walk"
 cat >/dev/null
 printf '%s\n' '${review/PROVIDER/qwen}'
 EOF
@@ -4559,7 +4559,7 @@ EOF
     printf 'dirty\n' > file.txt
     printf 'TOKEN=1\n' > .env
     export PATH="$fake:$PATH" GROK_HOME="$host_grok" TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_GROK=on TRIBUNAL_QWEN=on
-    export TRIBUNAL_DEEPSEEK=on TRIBUNAL_GLM=off LEG_SECRET=leak
+    export TRIBUNAL_DEEPSEEK=on TRIBUNAL_GLM=off LEG_SECRET=leak OPENROUTER_API_KEY=or-key
     unset TRIBUNAL_QWEN_MODEL
     bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/codex.json"
     env -u XAI_API_KEY bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/grok.json"
@@ -4571,9 +4571,10 @@ EOF
   ) || ok=0
   for leg in codex grok qwen deepseek; do
     jq -e '.summary.verdict=="APPROVE"' "$work/$leg.json" >/dev/null 2>&1 || ok=0
-    read -r dir env content secret < "$work/$leg.envwalk" 2>/dev/null || ok=0
+    read -r dir env content secret auth < "$work/$leg.envwalk" 2>/dev/null || ok=0
     [ "${dir:-}" != "$work/repo" ] && [ "${env:-}" = noenv ] && [ "${content:-}" = two ] || ok=0
     case "$leg" in qwen|deepseek) [ "${secret:-}" = unset ] || ok=0 ;; esac
+    [ "$leg" != qwen ] || [ "${auth:-}" = or-key ] || ok=0
   done
   read -r dir env content < "$work/codex.walk" 2>/dev/null || ok=0
   [ "${dir:-}" = "$work/repo" ] || ok=0

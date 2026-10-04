@@ -42,7 +42,7 @@
     },
     {
       "path": "scripts/run-qwen-review.sh",
-      "sha256": "d52bcb78a5bfccc732e30c495fae138e3bccab11837d8fb230d5a5b8062abd5f"
+      "sha256": "ae2f9d2f074a874b841d40cb5946a883b8f4e3df47cb3e46742dbae18add8550"
     }
   ],
   "plugin": "tribunal-review",
