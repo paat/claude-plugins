@@ -1144,7 +1144,7 @@ EOF
   cat > "$fake/opencode" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = models ]; then
-  printf '%s\n' deepseek/deepseek-v4-pro opencode-go/glm-5.3
+  printf '%s\n' deepseek/deepseek-flash opencode-go/glm-5.3
   exit 0
 fi
 printf '%s\n' '{"provider":"deepseek","model":"smoke","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
@@ -1358,7 +1358,7 @@ test_opencode_gated_model_error() {
   run_opencode_failure_fixture \
     "OpenCode gated model error is classified without leaking stderr" 1 \
     "Error: The latest version of this model is only available hosted in China and requires explicit opt in DECOY_SECRET_TOKEN" \
-    "jq -s -e '.[1].error | contains(\"deepseek leg unavailable: provider rejected model '\''deepseek/deepseek-v4-pro'\'' (requires explicit opt-in)\") and (contains(\"timed out\") | not) and (contains(\"DECOY_SECRET_TOKEN\") | not)' \"\$work/out.json\" >/dev/null"
+    "jq -s -e '.[1].error | contains(\"deepseek leg unavailable: provider rejected model '\''deepseek/deepseek-flash'\'' (requires explicit opt-in)\") and (contains(\"timed out\") | not) and (contains(\"DECOY_SECRET_TOKEN\") | not)' \"\$work/out.json\" >/dev/null"
 }
 
 test_opencode_gated_tool_trace_is_generic_error() {
@@ -1379,7 +1379,7 @@ test_opencode_provider_gated_error_is_classified() {
   run_opencode_failure_fixture \
     "OpenCode provider gated error is classified" 1 \
     'Error: The latest version of this model is only available hosted in China and requires explicit opt in: https://opencode.ai/workspace/wrk_TESTID/go' \
-    "jq -s -e '.[1].error | contains(\"deepseek leg unavailable\") and contains(\"deepseek/deepseek-v4-pro\")' \"\$work/out.json\" >/dev/null"
+    "jq -s -e '.[1].error | contains(\"deepseek leg unavailable\") and contains(\"deepseek/deepseek-flash\")' \"\$work/out.json\" >/dev/null"
 }
 
 test_opencode_provider_gated_timeout_is_pure_timeout() {
@@ -4653,7 +4653,7 @@ done
 EOF
   chmod +x "$plugin/scripts/"*.sh
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
-  printf '#!/usr/bin/env bash\n[ "$1" = models ] && printf "%%s\\n" deepseek/deepseek-v4-pro opencode-go/glm-5.3\n' > "$fake/opencode"
+  printf '#!/usr/bin/env bash\n[ "$1" = models ] && printf "%%s\\n" deepseek/deepseek-flash opencode-go/glm-5.3\n' > "$fake/opencode"
   cat > "$fake/gh" <<'EOF'
 #!/usr/bin/env bash
 if [ "$1" = repo ] && [ "$2" = view ]; then

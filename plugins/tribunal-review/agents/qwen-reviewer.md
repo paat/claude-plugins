@@ -33,6 +33,6 @@ unknown `-m`):
   downstream as a provider failure (issue #487).
 - Qwen is **off by default** (issue #46: ungrounded diff-text reasoning → repeated false positives):
   the script emits a `disabled` marker unless `TRIBUNAL_QWEN=on`. Honors `TRIBUNAL_QWEN_MODEL`
-  (default `qwen3.7-plus`; ids vary by account/region — override as needed). Auth is the Qwen Code
+  (default `qwen3.8-max`; ids vary by account/region — override as needed). Auth is the Qwen Code
   CLI's own env (`DASHSCOPE_API_KEY`, or an OpenAI-compatible / OpenRouter key). If the CLI is missing
   the script self-emits an error JSON — return it verbatim.
