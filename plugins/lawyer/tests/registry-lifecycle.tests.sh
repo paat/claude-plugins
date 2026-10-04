@@ -37,10 +37,10 @@ test_lawyer_lifecycle() {
   local workdir ec output has
 
   # --- Spec assertions: guard present on each script + docs ---
-  assert_file_contains "V1: register parses in_force" "$reg" 'CITE_IN_FORCE='
+  assert_file_contains "V1: register uses shared lifecycle classification" "$reg" 'lawyer_fetch_citation'
   assert_file_contains "V2: register refuses non-valid (message)" "$reg" "not in force"
   assert_file_contains "V3: register honours --force" "$reg" 'FORCE=1'
-  assert_file_contains "V4: change detection lifecycle re-check" "$chk" 'lc_notvalid'
+  assert_file_contains "V4: change detection lifecycle re-check" "$chk" 'lawyer_fetch_citation'
   assert_file_contains "V5: check lifecycle re-check" "$chk" 'elutsükli-kontrolliga'
   assert_file_contains "V6: ack refuses non-valid" "$ackscr" 'Refusing to ack'
   assert_file_contains "V7: ack-all skips non-valid" "$ackall" 'flag kept'

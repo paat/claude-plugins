@@ -59,13 +59,12 @@ ACT_TYPE=$(echo "$graph_body" | jq -r '.act.act_type // ""')
 [ -n "$RT_ID" ] || { echo "Error: /laws/${ACT_ID}/graph has no .act.rt_id"; exit 1; }
 
 cite_url=$(lawyer_cite_url "$ACT_ID" "$PARAGRAPH" "$PARAGRAPH_Q" "$SECTION" "$SECTION_Q" "$POINT" "$POINT_Q")
-cite_resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" "$cite_url")
-cite_code=$(printf '%s' "$cite_resp" | tail -n1)
-cite_body=$(printf '%s' "$cite_resp" | sed '$d')
-if [ "$cite_code" != "200" ]; then
-  echo "Error: /laws/${ACT_ID}/citation returned HTTP $cite_code — citation '$CITATION' parses as paragraph=${PARAGRAPH}${PARAGRAPH_Q:+ (qual=$PARAGRAPH_Q)} section=${SECTION}${SECTION_Q:+ (qual=$SECTION_Q)} point=${POINT}${POINT_Q:+ (qual=$POINT_Q)}"
+lawyer_fetch_citation "$cite_url"
+if [ "$CITE_LIFECYCLE" = unknown ]; then
+  echo "Error: citation lifecycle unknown for '$SLUG' ($CITE_FAILURE) — refusing to register, even with --force; snapshot and review flags kept." >&2
   exit 1
 fi
+cite_body="$CITE_BODY"
 text=$(echo "$cite_body" | jq -r '.text // empty')
 REDAKTSIOON_URL=$(echo "$cite_body" | jq -r '.url // empty')
 REDAKTSIOON_ID=""
@@ -75,15 +74,10 @@ if [ -n "$REDAKTSIOON_URL" ]; then
 fi
 [ -n "$text" ] || { echo "Error: citation endpoint returned empty text"; exit 1; }
 
-# Lifecycle guard — a 200 + text does NOT mean the law is in force. Refuse a
-# repealed/superseded/never-in-force act unless --force. Absent fields (older
-# datalake) are unknown → non-blocking.
-CITE_STATUS=$(echo "$cite_body" | jq -r '.status // empty')
-CITE_IN_FORCE=$(echo "$cite_body" | jq -r 'if has("in_force") and .in_force != null then (.in_force|tostring) else "" end')
+# --force permits deliberate registration of an explicitly non-valid law only.
 REDAKTSIOON_DATE=$(echo "$cite_body" | jq -r '.redaktsioon_date // empty')
 NOT_IN_FORCE=0
-[ "$CITE_IN_FORCE" = "false" ] && NOT_IN_FORCE=1
-{ [ -n "$CITE_STATUS" ] && [ "$CITE_STATUS" != "valid" ]; } && NOT_IN_FORCE=1
+[ "$CITE_LIFECYCLE" = verified-invalid ] && NOT_IN_FORCE=1
 if [ "$NOT_IN_FORCE" = "1" ] && [ "$FORCE" != "1" ]; then
   echo "Error: act ${ACT_ID} is status=${CITE_STATUS:-unknown}, in_force=${CITE_IN_FORCE:-unknown} — not in force."
   echo "       Refusing to register a repealed/superseded/never-in-force paragraph as a load-bearing dependency."
@@ -129,6 +123,7 @@ entry=$(jq -n \
   --arg pt_q "$POINT_Q" \
   --arg rturl "$REDAKTSIOON_URL" \
   --arg now "$NOW" \
+  --arg lifecycle "$CITE_LIFECYCLE" \
   --arg by "${REGISTERED_BY:-lawyer}" \
   --arg purp "$PURPOSE" \
   --arg status "$CITE_STATUS" \
@@ -154,7 +149,7 @@ entry=$(jq -n \
     },
     rt_url: $rturl,
     registered_at: $now,
-    verified_at: $now,
+    verified_at: (if $lifecycle == "verified-valid" then $now else null end),
     registered_by: $by,
     purpose: $purp,
     needs_review: false,
