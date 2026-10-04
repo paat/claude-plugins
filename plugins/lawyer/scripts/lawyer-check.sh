@@ -72,17 +72,19 @@ fi
 # 200 + text does NOT mean the paragraph is still in force. Flag any served
 # redaction that is no longer valid so it flows through the same fix path.
 LC_SLUGS=$(jq -r '.entries | to_entries[] | select(.value.needs_review != true) | .key' "$REGISTRY")
+LC_INCOMPLETE=0
 while IFS= read -r lcslug; do
   [ -z "$lcslug" ] && continue
   lc_act=$(jq -r --arg s "$lcslug" '.entries[$s].act_id' "$REGISTRY")
-  lc_resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$(lawyer_slug_cite_url "$lcslug")" 2>/dev/null || echo "")
-  echo "$lc_resp" | jq empty 2>/dev/null || continue
-  lc_status=$(echo "$lc_resp" | jq -r '.status // empty')
-  lc_in_force=$(echo "$lc_resp" | jq -r 'if has("in_force") and .in_force != null then (.in_force|tostring) else "" end')
-  lc_notvalid=0
-  [ "$lc_in_force" = "false" ] && lc_notvalid=1
-  { [ -n "$lc_status" ] && [ "$lc_status" != "valid" ]; } && lc_notvalid=1
-  [ "$lc_notvalid" = "1" ] || continue
+  lawyer_fetch_citation "$(lawyer_slug_cite_url "$lcslug")"
+  case "$CITE_LIFECYCLE" in
+    unknown)
+      echo "WARNING: $lcslug: citation lifecycle unknown ($CITE_FAILURE) — incomplete coverage; snapshot and review flags kept." >&2
+      LC_INCOMPLETE=1
+      continue ;;
+    verified-valid) continue ;;
+  esac
+  lc_status="$CITE_STATUS"
   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   jq --arg s "$lcslug" --arg st "$lc_status" --arg now "$NOW" '
     .entries[$s].needs_review = true
@@ -141,3 +143,5 @@ while IFS= read -r feslug; do
     mv "${REGISTRY}.tmp" "$REGISTRY"
   fi
 done <<< "$FE_SLUGS"
+
+exit "$LC_INCOMPLETE"

@@ -174,9 +174,9 @@ Response: `{act_id, act_title, paragraph, section, point, text, url, status, in_
 > **WARNING: 200 ≠ in force.** A repealed/superseded/never-in-force act still returns
 > **200 + text** (so callers don't 404) but carries `in_force: false`. Every
 > `/citation` consumer in the command body guards on these:
-> - **`register`** refuses a non-`valid` act (`in_force == false` or `status != "valid"`) unless `--force` is passed, and stores `status` + `redaktsioon_date` in the entry.
-> - **Change detection** re-fetches `/citation` per not-yet-flagged entry (feed-independent) and flags any whose served redaction is no longer valid — catching repeals the `/changes/feed` missed.
-> - **`ack` / `ack-all`** refuse to clear flags or overwrite the snapshot when the freshly fetched citation is not in force — a non-valid act must be resolved with a code change, not re-blessed.
+> - **`register`** requires `status == "valid"` and `in_force == true`; `--force` permits explicit non-valid lifecycle evidence with `verified_at: null`, never failed requests or missing lifecycle fields, and stores `status` + `redaktsioon_date` in the entry.
+> - **Change detection** re-fetches `/citation` per not-yet-flagged entry (feed-independent), flags explicit non-valid redactions, and reports unknown results as incomplete coverage with a slug-specific stderr warning and non-zero exit.
+> - **`ack` / `ack-all`** require a successful request with `status == "valid"` and `in_force == true` before updating snapshots or verification timestamps and clearing flags; unknown or non-valid results preserve the entry and snapshot and return non-zero (including partially failed batches).
 
 ## Future-effective watch
 

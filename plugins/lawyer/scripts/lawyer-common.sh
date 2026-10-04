@@ -91,14 +91,50 @@ print(f"{int(y):04d}-{int(mo):02d}-{int(d):02d}")
 '
 }
 
-# Ack one slug: re-fetch /citation, refuse a non-valid redaction, else refresh the
+# Fetch and classify one /citation result. Globals CITE_* are reset per call;
+# only a successful request with complete lifecycle evidence can be verified.
+lawyer_fetch_citation() {
+  local resp code
+  CITE_BODY="" CITE_STATUS="" CITE_IN_FORCE=""
+  CITE_LIFECYCLE=unknown CITE_FAILURE="transport failure"
+  resp=$(curl --max-time 30 -s -w '\n%{http_code}' \
+    -H "X-API-Key: $EST_DATALAKE_API_KEY" "$1") || return 0
+  code=$(printf '%s' "$resp" | tail -n1)
+  CITE_BODY=$(printf '%s' "$resp" | sed '$d')
+  CITE_FAILURE="HTTP $code"
+  [[ "$code" =~ ^2[0-9][0-9]$ ]] || return 0
+  CITE_FAILURE="invalid response or missing lifecycle fields"
+  CITE_LIFECYCLE=$(printf '%s' "$CITE_BODY" | jq -sr '
+    if length != 1 then "unknown"
+    elif (.[0] | type) != "object" then "unknown"
+    else .[0] |
+      if has("detail") or has("error") then "unknown"
+      elif (.status | type) != "string" or .status == ""
+        or (.in_force | type) != "boolean" then "unknown"
+      elif .status == "valid" and .in_force == true then "verified-valid"
+      else "verified-invalid" end
+    end
+  ' 2>/dev/null) || CITE_LIFECYCLE=unknown
+  [ "$CITE_LIFECYCLE" != unknown ] || return 0
+  CITE_STATUS=$(printf '%s' "$CITE_BODY" | jq -r '.status')
+  CITE_IN_FORCE=$(printf '%s' "$CITE_BODY" | jq -r '.in_force')
+  CITE_FAILURE=""
+}
+
+# Ack one slug: re-fetch /citation, require a verified-valid redaction, then refresh the
 # snapshot and clear flags. Sets globals ACK_ACT_ID / ACK_STATUS / ACK_IN_FORCE for
 # the caller's message. Returns: 0 ok, 2 empty-text, 3 not-in-force,
-# 4 snapshot-write-failed (registry left untouched).
+# 4 snapshot-write-failed (registry left untouched), 5 unknown lifecycle.
 lawyer_ack_one() {
-  local SLUG="$1" resp text cite_url_resp red tail_seg ack_red_date ack_notvalid NOW normalised
+  local SLUG="$1" resp text cite_url_resp red tail_seg ack_red_date NOW normalised
   ACK_ACT_ID=$(jq -r --arg s "$SLUG" '.entries[$s].act_id' "$REGISTRY")
-  resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$(lawyer_slug_cite_url "$SLUG")")
+  lawyer_fetch_citation "$(lawyer_slug_cite_url "$SLUG")"
+  ACK_STATUS="$CITE_STATUS" ACK_IN_FORCE="$CITE_IN_FORCE"
+  case "$CITE_LIFECYCLE" in
+    unknown) return 5 ;;
+    verified-invalid) return 3 ;;
+  esac
+  resp="$CITE_BODY"
   text=$(echo "$resp" | jq -r '.text // empty')
   cite_url_resp=$(echo "$resp" | jq -r '.url // empty')
   red=""
@@ -108,15 +144,7 @@ lawyer_ack_one() {
   fi
   [ -n "$text" ] || return 2
 
-  # Lifecycle guard — a 200 + text does NOT mean the law is in force. Refuse to
-  # re-bless a repealed/superseded/not-in-force redaction.
-  ACK_STATUS=$(echo "$resp" | jq -r '.status // empty')
-  ACK_IN_FORCE=$(echo "$resp" | jq -r 'if has("in_force") and .in_force != null then (.in_force|tostring) else "" end')
   ack_red_date=$(echo "$resp" | jq -r '.redaktsioon_date // empty')
-  ack_notvalid=0
-  [ "$ACK_IN_FORCE" = "false" ] && ack_notvalid=1
-  { [ -n "$ACK_STATUS" ] && [ "$ACK_STATUS" != "valid" ]; } && ack_notvalid=1
-  [ "$ack_notvalid" = "1" ] && return 3
 
   # Snapshot first; only a verified write may clear registry flags.
   normalised=$(printf '%s' "$text" | lawyer_normalise)

@@ -14,8 +14,8 @@ and own `.startup/law-registry.json` plus `.startup/laws/`.
 
   `slug` is kebab-case. `act_id` is integer search-result `.id`, not `rt_id` or
   an RT URL segment. Preserve superscript qualifiers. The script refuses
-  non-valid/non-in-force provisions unless explicit `--force` is supplied and
-  leaves no partial registry/snapshot write on failure.
+  unknown lifecycle evidence even with `--force`; explicit non-valid/non-in-force
+  provisions allow `--force` with `verified_at: null` and no partial registry/snapshot write on failure.
 
 - `unregister <slug>`:
   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/lawyer-unregister.sh" <slug>`
@@ -31,7 +31,7 @@ and own `.startup/law-registry.json` plus `.startup/laws/`.
   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/lawyer-check.sh"`
 
 `ack`/`ack-all` belong inside the PR that updates every dependent `LAW:` file.
-They re-fetch source text and refuse to bless a repealed/superseded provision.
+They re-fetch source text and require verified-valid lifecycle evidence; unknown or non-valid results preserve snapshots and flags and exit non-zero.
 `issue` is an explicit external mutation and requires authenticated `gh`.
 
 ## Interactive backlog review
