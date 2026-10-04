@@ -1,25 +1,42 @@
 #!/usr/bin/env bash
 # /lawyer marker scan (internal helper). Scans project source for `LAW:` markers
 # and prints one "<slug>\t<file>:<line>" line per marker-slug pair on stdout.
-# Scope: source + customer-facing content; excludes docs/legal/ (lawyer output).
+# Scope: source + customer-facing content, including nested source roots in
+# monorepos (e.g. frontend/src, backend/app); excludes dependency/generated
+# trees (node_modules, vendor, .venv, dist, build, .git) and docs/legal/
+# (lawyer output) at any depth.
 set -uo pipefail
 
-SCAN_DIRS=()
-for d in src app pages components lib server public content docs; do
-  [ -d "$d" ] && SCAN_DIRS+=("$d")
+PRUNE_RE='(^|/)(node_modules|vendor|\.venv|dist|build|\.git)(/|$)'
+OWN_OUTPUT_RE='(^|/)docs/legal(/|$)'
+
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  mapfile -t ALL_FILES < <(git ls-files --cached --others --exclude-standard 2>/dev/null)
+else
+  mapfile -t ALL_FILES < <(find . \
+    \( -type d \( -name node_modules -o -name vendor -o -name .venv -o -name dist -o -name build -o -name .git \) -prune \) \
+    -o -type f -print 2>/dev/null | sed 's#^\./##')
+fi
+
+SCAN_FILES=()
+for f in "${ALL_FILES[@]}"; do
+  [ -f "$f" ] || continue
+  [[ "$f" =~ $PRUNE_RE ]] && continue
+  [[ "$f" =~ $OWN_OUTPUT_RE ]] && continue
+  SCAN_FILES+=("$f")
 done
 
-# Guard: with no known source dirs, skip entirely — an unscoped rg/grep would
-# recurse from cwd and match LAW: tokens in docs/plans/, .startup/, node_modules.
-if [ ${#SCAN_DIRS[@]} -eq 0 ]; then
+# Guard: with no candidate files, skip entirely rather than letting rg/grep
+# fall back to an unscoped recursive scan.
+if [ ${#SCAN_FILES[@]} -eq 0 ]; then
   exit 0
 fi
 
 PATTERN='(//|#|/\*|<!--|\{/\*)\s*LAW:\s*[a-z0-9-]+(\s*,\s*[a-z0-9-]+)*'
 if command -v rg >/dev/null 2>&1; then
-  raw=$(rg -n --pcre2 "$PATTERN" "${SCAN_DIRS[@]}" 2>/dev/null | grep -v '^docs/legal/' || true)
+  raw=$(rg -n -H --pcre2 "$PATTERN" "${SCAN_FILES[@]}" 2>/dev/null || true)
 else
-  raw=$(grep -rEn "$PATTERN" "${SCAN_DIRS[@]}" 2>/dev/null | grep -v '^docs/legal/' || true)
+  raw=$(grep -nH -E "$PATTERN" "${SCAN_FILES[@]}" 2>/dev/null || true)
 fi
 
 printf '%s\n' "$raw" | awk -F: '
