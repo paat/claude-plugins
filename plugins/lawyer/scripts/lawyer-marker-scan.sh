@@ -9,6 +9,7 @@ set -uo pipefail
 
 PRUNE_RE='(^|/)(node_modules|vendor|\.venv|dist|build|\.git)(/|$)'
 OWN_OUTPUT_RE='(^|/)docs/legal(/|$)'
+HIDDEN_DIR_RE='(^|/)\.[^/]+/'
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   mapfile -t ALL_FILES < <(git ls-files --cached --others --exclude-standard 2>/dev/null)
@@ -23,6 +24,7 @@ for f in "${ALL_FILES[@]}"; do
   [ -f "$f" ] || continue
   [[ "$f" =~ $PRUNE_RE ]] && continue
   [[ "$f" =~ $OWN_OUTPUT_RE ]] && continue
+  [[ "$f" =~ $HIDDEN_DIR_RE ]] && continue
   SCAN_FILES+=("$f")
 done
 
@@ -34,9 +36,25 @@ fi
 
 PATTERN='(//|#|/\*|<!--|\{/\*)\s*LAW:\s*[a-z0-9-]+(\s*,\s*[a-z0-9-]+)*'
 if command -v rg >/dev/null 2>&1; then
-  raw=$(rg -n -H --pcre2 "$PATTERN" "${SCAN_FILES[@]}" 2>/dev/null || true)
+  TOOL=(rg -n -H --pcre2 --)
 else
-  raw=$(grep -nH -E "$PATTERN" "${SCAN_FILES[@]}" 2>/dev/null || true)
+  TOOL=(grep -nH -E --)
+fi
+
+# Stream the file list through xargs instead of one argv: on large repos the
+# full path list can exceed ARG_MAX and exec fails with E2BIG. xargs chunks
+# the list to fit, invoking the search tool as many times as needed.
+ERR_FILE=$(mktemp)
+trap 'rm -f "$ERR_FILE"' EXIT
+
+raw=$(printf '%s\0' "${SCAN_FILES[@]}" | xargs -0 "${TOOL[@]}" "$PATTERN" 2>"$ERR_FILE")
+
+# Exit code 1 from rg/grep just means "no matches in this batch" - normal.
+# A real failure (E2BIG, missing file, tool crash, ...) writes to stderr.
+if [ -s "$ERR_FILE" ]; then
+  cat "$ERR_FILE" >&2
+  echo "lawyer-marker-scan.sh: marker search failed" >&2
+  exit 1
 fi
 
 printf '%s\n' "$raw" | awk -F: '

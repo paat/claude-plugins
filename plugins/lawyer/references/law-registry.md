@@ -130,8 +130,9 @@ Implemented in `scripts/lawyer-marker-scan.sh`. It walks the whole project
 (via `git ls-files` inside a git repo, or a plain `find` otherwise), so markers
 under nested source roots in monorepos (e.g. `frontend/src/`, `backend/app/`)
 are found alongside root-level ones. Dependency and generated trees
-(`node_modules/`, `vendor/`, `.venv/`, `dist/`, `build/`, `.git/`) and the
-lawyer's own output (`docs/legal/`) are excluded at any depth.
+(`node_modules/`, `vendor/`, `.venv/`, `dist/`, `build/`, `.git/`), hidden
+(dot-prefixed) directories, and the lawyer's own output (`docs/legal/`) are
+excluded at any depth.
 
 ## Datalake API templates
 

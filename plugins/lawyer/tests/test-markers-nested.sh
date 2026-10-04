@@ -12,7 +12,7 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 
-mkdir -p src frontend/src backend/app node_modules/some-dep docs/legal
+mkdir -p src frontend/src backend/app node_modules/some-dep docs/legal .startup
 
 cat > src/control.ts <<'EOF'
 // LAW: root-control
@@ -38,6 +38,10 @@ cat > docs/legal/privacy.md <<'EOF'
 <!-- LAW: own-output-noise -->
 EOF
 
+cat > .startup/state.json <<'EOF'
+// LAW: hidden-dir-noise
+EOF
+
 output=$(bash "$SCAN_SCRIPT")
 
 echo "$output" | grep -qE $'^root-control\tsrc/control\\.ts:' \
@@ -55,6 +59,10 @@ fi
 
 if echo "$output" | grep -q 'docs/legal'; then
   echo "FAIL: docs/legal (own output) marker leaked into output"; echo "$output"; exit 1
+fi
+
+if echo "$output" | grep -q 'hidden-dir-noise\|\.startup'; then
+  echo "FAIL: hidden directory (.startup) marker leaked into output"; echo "$output"; exit 1
 fi
 
 echo "PASS: test-markers-nested"

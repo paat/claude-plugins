@@ -44,4 +44,8 @@ while IFS= read -r slug; do
     > "$TMP/${slug}.json"
 done <<< "$FLAGGED_SLUGS"
 
-bash "$(dirname "$0")/lawyer-marker-scan.sh" > "$TMP/markers.tsv"
+if ! bash "$(dirname "$0")/lawyer-marker-scan.sh" > "$TMP/markers.tsv"; then
+  rm -f "$TMP/markers.tsv"
+  echo "lawyer-fixplan-collect.sh: marker scan failed" >&2
+  exit 1
+fi
