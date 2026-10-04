@@ -21,7 +21,7 @@ Trailing user text is `$ARGUMENTS`; run from the project root. `$R` below is
    `status`, or `check`, run only its section of the operations reference
    `../../references/lawyer-operations.md`, report, and stop.
 3. Otherwise run `bash "$R/lawyer-check.sh"` once, apply the disposition below,
-   then the Analysis Workflow.
+   then the Analysis Workflow; a non-zero exit with lifecycle WARNINGs means incomplete coverage — continue and treat every warned slug as flagged for this run, re-verifying it from Tier A before using it.
 4. Before reporting, `bash "$R/legal-verdict-gate.sh" --validate <doc>` for
    every written document; fix structural failures.
 

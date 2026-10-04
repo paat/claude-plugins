@@ -43,6 +43,7 @@ assert_output_contains "LH31: current-code requests retain inspection" "$lawyer_
 assert_file_contains "LH32: agent applies claim taxonomy" "$PLUGIN_ROOT/agents/lawyer.md" "Compliance/Risk Product Claim Taxonomy"
 assert_file_contains "LH33: skill states evidence tiers" "$PLUGIN_ROOT/skills/lawyer/SKILL.md" 'Evidence-Tier Policy'
 assert_output_contains "LH34: skill restores topic guides" "$lawyer_skill" '`gdpr-compliance.md`'
+assert_output_contains "LH36: lifecycle warnings continue as flagged coverage" "$lawyer_skill" 'incomplete coverage — continue and treat every warned slug as flagged for this run'
 
 # saas-startup-team ships the same verdict gate for its merge policy; in a repo
 # checkout both copies must stay byte-identical.

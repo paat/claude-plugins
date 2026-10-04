@@ -61,7 +61,7 @@ ACT_TYPE=$(echo "$graph_body" | jq -r '.act.act_type // ""')
 cite_url=$(lawyer_cite_url "$ACT_ID" "$PARAGRAPH" "$PARAGRAPH_Q" "$SECTION" "$SECTION_Q" "$POINT" "$POINT_Q")
 lawyer_fetch_citation "$cite_url"
 if [ "$CITE_LIFECYCLE" = unknown ]; then
-  echo "Error: citation lifecycle unknown for '$SLUG' ($CITE_FAILURE) — refusing to register, even with --force; snapshot and review flags kept." >&2
+  echo "Error: citation lifecycle unknown for '$SLUG' ($CITE_FAILURE) — refusing to register, even with --force; no entry or snapshot was written." >&2
   exit 1
 fi
 cite_body="$CITE_BODY"
