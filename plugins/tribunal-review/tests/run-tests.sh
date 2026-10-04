@@ -970,7 +970,7 @@ test_unresolvable_base_during_empty_verification_fails_closed() {
 }
 
 test_qwen_envelope_parser() {
-  local label="qwen result envelope parsed" work fake
+  local label="qwen result envelope parsed; model fallback warns" work fake
   work="$(mktemp -d)"
   fake="$work/bin"
   mkdir -p "$fake"
@@ -996,8 +996,11 @@ EOF
     git commit -q -m base
     printf 'two\n' > file.txt
     git commit -q -am change
-    PATH="$fake:$PATH" TRIBUNAL_QWEN=on TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-qwen-review.sh" > "$work/out.json"
-  ) && jq -e '.provider=="qwen" and .model=="qwen-envelope-test" and .summary.verdict=="APPROVE"' "$work/out.json" >/dev/null; then
+    PATH="$fake:$PATH" TRIBUNAL_QWEN=on TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-qwen-review.sh" > "$work/out.json" 2> "$work/err"
+    PATH="$fake:$PATH" TRIBUNAL_QWEN=on TRIBUNAL_QWEN_MODEL=qwen-envelope-test TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-qwen-review.sh" > /dev/null 2> "$work/err-match"
+  ) && jq -e '.provider=="qwen" and .model=="qwen-envelope-test" and .summary.verdict=="APPROVE"' "$work/out.json" >/dev/null \
+    && grep -qF 'qwen: requested qwen3.8-max but qwen-code ran qwen-envelope-test' "$work/err" \
+    && ! grep -qF 'qwen: requested' "$work/err-match"; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
