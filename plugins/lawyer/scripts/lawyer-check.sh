@@ -8,6 +8,9 @@ source "$(dirname "$0")/lawyer-common.sh"
 
 [ -f "$REGISTRY" ] || { echo "Registry is empty; nothing to check."; exit 0; }
 
+# Set when the change feed does not prove the window. Same exit as an unknown lifecycle.
+FEED_INCOMPLETE=0
+
 # One feed call per run: query without ?domain= and match client-side by rt_id.
 # The server's ?domain= enum doesn't match the plugin's historical domain strings.
 RT_IDS=$(jq -r '.entries | to_entries[] | .value.rt_id // empty' "$REGISTRY" | sort -u)
@@ -21,23 +24,66 @@ else
     SINCE=$(python3 -c 'import datetime; print((datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ"))')
   fi
 
-  feed_url="$DATALAKE_URL/api/v1/changes/feed?since=${SINCE}&limit=500"
-  resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" "$feed_url")
+  # datalake-api.md: since, limit, and domain only — no offset or next page.
+  # A page that fills limit is unproven; do not invent a continuation parameter.
+  FEED_LIMIT=500
+  feed_url="$DATALAKE_URL/api/v1/changes/feed?since=${SINCE}&limit=${FEED_LIMIT}"
+  # Issued-at, not processed-at: events that arrive during the request stay in the next window.
+  FEED_REQUESTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  curl_rc=0
+  resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" "$feed_url") || curl_rc=$?
   body=$(printf '%s' "$resp" | sed '$d')
   code=$(printf '%s' "$resp" | tail -n1)
+  case "$code" in
+    [0-9][0-9][0-9]) ;;
+    *) code=000 ;;
+  esac
 
-  FEED_OK=1
-  if [ "$code" != "200" ]; then
-    echo "WARNING: seaduste muudatuste kontroll ebaõnnestus ($code) — vaata üle käsitsi"
-    FEED_OK=0
-    events='[]'
+  events='[]'
+  feed_reason=""
+  feed_add_reason() {
+    if [ -n "$feed_reason" ]; then
+      feed_reason="$feed_reason; $1"
+    else
+      feed_reason="$1"
+    fi
+  }
+
+  # Usable items are still applied when the page itself is partial, warned, or full.
+  # Non-2xx, transport failure, and schema-invalid bodies are not a feed page.
+  if [ "$curl_rc" -ne 0 ]; then
+    feed_add_reason "transport (HTTP $code)"
   else
-    events=$(echo "$body" | jq '.items // []')
+    case "$code" in
+      2[0-9][0-9]) feed_http_ok=1 ;;
+      *) feed_http_ok=0 ;;
+    esac
+    if [ "$feed_http_ok" != 1 ]; then
+      feed_add_reason "HTTP $code"
+    elif ! printf '%s' "$body" | jq -e 'type == "object" and (.items | type) == "array"' >/dev/null 2>&1; then
+      feed_add_reason "malformed or schema-invalid feed"
+    else
+      events=$(printf '%s' "$body" | jq -c '.items')
+      partial_flag=$(printf '%s' "$body" | jq -r 'if .partial == true then "yes" else "no" end')
+      warn_flag=$(printf '%s' "$body" | jq -r 'if .warnings == null then "no" elif (.warnings | type) != "array" then "yes" elif (.warnings | length) > 0 then "yes" else "no" end')
+      item_count=$(printf '%s' "$events" | jq -r 'length')
+      [ "$partial_flag" = "yes" ] && feed_add_reason "partial"
+      [ "$warn_flag" = "yes" ] && feed_add_reason "warnings"
+      if [ "$item_count" -ge "$FEED_LIMIT" ]; then
+        # Item order and whether since is inclusive are undocumented, so a full
+        # page must not move last_feed_check_at past events this page did not return.
+        feed_add_reason "window is saturated and cannot advance (limit=${FEED_LIMIT}, no continuation parameter)"
+      fi
+    fi
   fi
 
   # Match feed events against registered rt_ids (domain ignored — rt_id is identity).
   rt_ids_json=$(printf '%s\n' "$RT_IDS" | jq -R . | jq -s .)
-  matched=$(echo "$events" | jq --argjson rts "$rt_ids_json" '[.[] | select(.rt_id as $r | $rts | index($r))]')
+  matched=$(printf '%s' "$events" | jq -c --argjson rts "$rt_ids_json" '[.[] | select(.rt_id as $r | $rts | index($r))]') || {
+    matched='[]'
+    # A failed match is not an empty page: keep the cursor so the event is not skipped.
+    feed_add_reason "feed item match failed"
+  }
 
   # Re-detection while an issue is open (gh_issue_url != null) updates change info
   # but does NOT re-create an issue — surfaced as a reminder elsewhere.
@@ -56,14 +102,33 @@ else
         else . end
       )
     )
-  ' "$REGISTRY")
+  ' "$REGISTRY") || updated=""
 
-  # Advance last_feed_check_at only on a clean query so a failed run retries the window.
-  if [ "$FEED_OK" = "1" ]; then
-    NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    echo "$updated" | jq --arg now "$NOW" '.last_feed_check_at = $now' > "$REGISTRY"
-  else
-    echo "$updated" > "$REGISTRY"
+  if [ -z "$updated" ]; then
+    feed_add_reason "registry update failed"
+  fi
+  if [ -n "$feed_reason" ]; then
+    echo "WARNING: seaduste muudatuste kontroll ebaõnnestus ($feed_reason) — vaata üle käsitsi; incomplete coverage" >&2
+    FEED_INCOMPLETE=1
+  fi
+  # Write beside the registry and replace it only after jq succeeds, so a bad
+  # body cannot truncate last_feed_check_at or an existing pending flag.
+  if [ -n "$updated" ]; then
+    write_ok=0
+    if [ -z "$feed_reason" ]; then
+      printf '%s' "$updated" | jq --arg now "$FEED_REQUESTED_AT" '.last_feed_check_at = $now' > "${REGISTRY}.tmp" && write_ok=1
+    else
+      printf '%s' "$updated" | jq '.' > "${REGISTRY}.tmp" && write_ok=1
+    fi
+    if [ "$write_ok" = 1 ]; then
+      mv "${REGISTRY}.tmp" "$REGISTRY"
+    else
+      rm -f "${REGISTRY}.tmp"
+      if [ "$FEED_INCOMPLETE" = 0 ]; then
+        echo "WARNING: seaduste muudatuste kontroll ebaõnnestus (registry write failed) — vaata üle käsitsi; incomplete coverage" >&2
+        FEED_INCOMPLETE=1
+      fi
+    fi
   fi
 fi
 
@@ -144,4 +209,8 @@ while IFS= read -r feslug; do
   fi
 done <<< "$FE_SLUGS"
 
-exit "$LC_INCOMPLETE"
+check_rc=0
+if [ "$FEED_INCOMPLETE" -ne 0 ] || [ "$LC_INCOMPLETE" -ne 0 ]; then
+  check_rc=1
+fi
+exit "$check_rc"

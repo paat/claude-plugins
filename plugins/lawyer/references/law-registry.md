@@ -167,7 +167,7 @@ Response: `{act_id, act_title, paragraph, section, point, text, url, status, in_
 > **200 + text** (so callers don't 404) but carries `in_force: false`. Every
 > `/citation` consumer in the command body guards on these:
 > - **`register`** requires `status == "valid"` and `in_force == true`; `--force` permits explicit non-valid lifecycle evidence with `verified_at: null`, never failed requests or missing lifecycle fields, and stores `status` + `redaktsioon_date` in the entry.
-> - **Change detection** re-fetches `/citation` per not-yet-flagged entry (feed-independent), flags explicit non-valid redactions, and reports unknown results as incomplete coverage with a slug-specific stderr warning and non-zero exit.
+> - **Change detection** re-fetches `/citation` per not-yet-flagged entry (feed-independent), flags explicit non-valid redactions, and reports unknown citation results or unproven change-feed coverage as incomplete coverage with a stderr WARNING and non-zero exit — continue and treat every warned slug as flagged for this run.
 > - **`ack` / `ack-all`** require a successful request with `status == "valid"` and `in_force == true` before updating snapshots or verification timestamps and clearing flags; unknown or non-valid results preserve the entry and snapshot and return non-zero (including partially failed batches).
 
 ## Future-effective watch
@@ -189,7 +189,9 @@ curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
   "$DATALAKE_URL/api/v1/changes/feed?since=${SINCE}&limit=500"
 ```
 
-Response: `{items:[ChangeEvent], total}` where each event has `{id, change_type, act_title, rt_id, act_type, issuer, detected_at, effective_date, description, domains[]}`. Filter client-side: `select(.rt_id == registered_rt_id)`.
+Response: `{items:[ChangeEvent], total}` where each event has `{id, change_type, act_title, rt_id, act_type, issuer, detected_at, effective_date, description, domains[]}`. Filter client-side: `select(.rt_id == registered_rt_id)`. `total` is part of that shape and is not a continuation cursor.
+
+Proven coverage is HTTP 2xx, a JSON object, `items` an array, `partial` not true, and `warnings` absent or empty. The call documents `since`, `limit`, and `domain` only — no offset or next-page parameter, and neither item order nor whether `since` is inclusive — so `items | length >= limit` (`limit=500`) is unproven: that saturated window cannot advance and `last_feed_check_at` stays. Unproven coverage (also a malformed or schema-invalid body, non-2xx, or transport failure) keeps `last_feed_check_at`, prints a stderr WARNING, and exits non-zero, the same incomplete-coverage exit as an unknown citation lifecycle. A usable `items` array may still flag the entries it contains. A proven response advances `last_feed_check_at` to the time the request was issued, not the time processing finished.
 
 **Augment the fix-plan with the datalake's impact analysis** (optional):
 
