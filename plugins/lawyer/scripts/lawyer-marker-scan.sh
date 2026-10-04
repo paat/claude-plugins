@@ -38,7 +38,7 @@ PATTERN='(//|#|/\*|<!--|\{/\*)\s*LAW:\s*[a-z0-9-]+(\s*,\s*[a-z0-9-]+)*'
 if command -v rg >/dev/null 2>&1; then
   TOOL=(rg -n -H --pcre2 --)
 else
-  TOOL=(grep -nH -E --)
+  TOOL=(grep -nH -I -E --)
 fi
 
 # Stream the file list through xargs instead of one argv: on large repos the
