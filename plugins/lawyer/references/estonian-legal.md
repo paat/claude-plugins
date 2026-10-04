@@ -44,9 +44,9 @@
 - Annual report submission deadline: 6 months after financial year end
 
 ### Tax Obligations (EMTA)
-- **Corporate tax (from 1 January 2025):** 0% on retained earnings, 22/78 on all distributions ([tax rates](https://www.emta.ee/en/business-client/taxes-and-payment/income-and-social-taxes/tax-rates)) — the lower 14/86 regular-distribution rate was abolished from 2025
+- **Corporate tax (from 1 January 2025):** 0% on retained earnings, 22/78 on distributions ([tax rates](https://www.emta.ee/en/business-client/taxes-and-payment/income-and-social-taxes/tax-rates)) — the lower 14/86 regular-distribution rate was abolished from 2025
 - **VAT (from 1 July 2025):** 24% standard rate ([VAT](https://www.emta.ee/en/business-client/taxes-and-payment/value-added-tax)); registration threshold 40,000 EUR/year, unrelated to the rate change date ([registration](https://www.emta.ee/en/business-client/taxes-and-payment/value-added-tax/registration-vat-payer/obligation-register-taxable-person))
-- **Employment:** social tax 33% (unchanged 2024-2026), withheld income tax 22% (from 1 January 2025), unemployment insurance 1.6% employee + 0.8% employer (from 1 January 2025 to end of 2028) ([rates](https://www.emta.ee/en/business-client/taxes-and-payment/income-and-social-taxes/tax-rates))
+- **Employment:** social tax 33% (unchanged 2024-2026), withheld income tax 22% (from 1 January 2025), unemployment insurance 1.6% employee + 0.8% employer (from 1 January 2025 to end of 2028) ([rates](https://www.emta.ee/en/business-client/taxes-and-payment/income-and-social-taxes/tax-rates), [unemployment insurance premiums](https://www.emta.ee/en/business-client/taxes-and-payment/income-and-social-taxes/unemployment-insurance-premiums))
 - **Monthly declarations:** TSD (employment taxes, due the month after payment) by the 10th ([TSD](https://www.emta.ee/en/business-client/taxes-and-payment/income-and-social-taxes/submission-declaration-form-tsd)), KMD (VAT) by the 20th of the following month ([KMD](https://www.emta.ee/en/business-client/taxes-and-payment/value-added-tax/filing-vat-returns-and-reports))
 - Rates and deadlines change by year and by transaction date — verify against EMTA for the period under analysis before relying on any figure above
 
