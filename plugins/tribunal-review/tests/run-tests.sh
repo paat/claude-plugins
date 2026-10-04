@@ -16,6 +16,8 @@ export TRIBUNAL_GLM=off
 export TRIBUNAL_DEEPSEEK=off
 # Smoke is opt-in; never inherit a host-on probe into default preflight checks.
 export TRIBUNAL_SMOKE_PROBE=off
+# Qwen/DeepSeek legs run under a scrubbed environment; the fakes read FIXTURE_* through it.
+export TRIBUNAL_LEG_ENV='FIXTURE_*'
 
 assert_grep() {
   local label="$1" file="$2" pat="$3"
@@ -4511,7 +4513,7 @@ tr_check() {  # tr_check LABEL COMMAND...
 
 # Repo-walking legs must not walk a checkout holding untracked .env files (#589).
 test_walk_root_hides_env_files() {
-  local label="repo-walking legs walk a HEAD clone when the checkout holds .env files" work fake host_grok leg ok=1
+  local label="repo-walking legs walk a HEAD clone when the checkout holds .env files; shell legs get a scrubbed env" work fake host_grok leg ok=1
   work="$(mktemp -d)"; fake="$work/bin"; host_grok="$work/host-grok"
   mkdir -p "$fake" "$work/repo"
   install_grok_auth_fixture "$host_grok"
@@ -4532,11 +4534,16 @@ printf '%s\n' '{"text":"done","stopReason":"EndTurn","sessionId":"11111111-1111-
 EOF
   cat > "$fake/qwen" <<EOF
 #!/usr/bin/env bash
-printf '%s %s %s\n' "\$PWD" "\$([ -e .env ] && echo env || echo noenv)" "\$(cat file.txt)" > "$work/qwen.walk"
+printf '%s %s %s %s\n' "\$PWD" "\$([ -e .env ] && echo env || echo noenv)" "\$(cat file.txt)" "\${LEG_SECRET-unset}" > "$work/qwen.walk"
 cat >/dev/null
 printf '%s\n' '${review/PROVIDER/qwen}'
 EOF
-  chmod +x "$fake/codex" "$fake/grok" "$fake/qwen"
+  cat > "$fake/opencode" <<EOF
+#!/usr/bin/env bash
+printf '%s %s %s %s\n' "\$PWD" "\$([ -e .env ] && echo env || echo noenv)" "\$(cat file.txt)" "\${LEG_SECRET-unset}" > "$work/deepseek.walk"
+printf '%s\n' '${review/PROVIDER/deepseek}'
+EOF
+  chmod +x "$fake/codex" "$fake/grok" "$fake/qwen" "$fake/opencode"
   (
     set -e
     cd "$work/repo"
@@ -4552,18 +4559,21 @@ EOF
     printf 'dirty\n' > file.txt
     printf 'TOKEN=1\n' > .env
     export PATH="$fake:$PATH" GROK_HOME="$host_grok" TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_GROK=on TRIBUNAL_QWEN=on
+    export TRIBUNAL_DEEPSEEK=on TRIBUNAL_GLM=off LEG_SECRET=leak
     unset TRIBUNAL_QWEN_MODEL
     bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/codex.json"
     env -u XAI_API_KEY bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/grok.json"
     bash "$PLUGIN_ROOT/scripts/run-qwen-review.sh" > "$work/qwen.json"
-    for leg in codex grok qwen; do mv "$work/$leg.walk" "$work/$leg.envwalk"; done
+    bash "$PLUGIN_ROOT/scripts/run-opencode-review.sh" | jq -c 'select(.provider=="deepseek")' > "$work/deepseek.json"
+    for leg in codex grok qwen deepseek; do mv "$work/$leg.walk" "$work/$leg.envwalk"; done
     rm .env
     bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/codex-clean.json"
   ) || ok=0
-  for leg in codex grok qwen; do
+  for leg in codex grok qwen deepseek; do
     jq -e '.summary.verdict=="APPROVE"' "$work/$leg.json" >/dev/null 2>&1 || ok=0
-    read -r dir env content < "$work/$leg.envwalk" 2>/dev/null || ok=0
+    read -r dir env content secret < "$work/$leg.envwalk" 2>/dev/null || ok=0
     [ "${dir:-}" != "$work/repo" ] && [ "${env:-}" = noenv ] && [ "${content:-}" = two ] || ok=0
+    case "$leg" in qwen|deepseek) [ "${secret:-}" = unset ] || ok=0 ;; esac
   done
   read -r dir env content < "$work/codex.walk" 2>/dev/null || ok=0
   [ "${dir:-}" = "$work/repo" ] || ok=0
@@ -4571,7 +4581,7 @@ EOF
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
-    for leg in codex grok qwen; do echo "    $leg: $(cat "$work/$leg.envwalk" 2>/dev/null) $(head -c 300 "$work/$leg.json" 2>/dev/null)" >&2; done
+    for leg in codex grok qwen deepseek; do echo "    $leg: $(cat "$work/$leg.envwalk" 2>/dev/null) $(head -c 300 "$work/$leg.json" 2>/dev/null)" >&2; done
   fi
   rm -rf "$work"
 }

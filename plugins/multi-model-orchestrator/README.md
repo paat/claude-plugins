@@ -151,8 +151,8 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
   bounded by that root and its prompt contract. This bounds blast radius rather than enforcing
   read-only.
 - The host's `.env` deny rules do not bind a leg, so runners keep secrets out of provider context
-  instead. Every leg that works in the repository refuses a checkout holding untracked `.env*`
-  files (exit 2); run from a `git worktree add` checkout, which has none. Every CLI starts under
+  instead. Every leg except research refuses a checkout holding untracked `.env*` files outside
+  ignored directories (exit 2); run from a `git worktree add` checkout, which has none. Every CLI starts under
   `env -i` with `PATH HOME USER LOGNAME SHELL LANG LC_ALL TERM TMPDIR`, proxy and CA variables,
   its own provider variables, and the names in `MMO_LEG_ENV`. A test database URL passed that
   way must point at a dev/test database. This stops accidental reads, not a leg that goes looking

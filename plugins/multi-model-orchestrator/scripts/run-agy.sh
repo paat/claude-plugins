@@ -55,7 +55,7 @@ for tool in git jq agy; do
   command -v "$tool" >/dev/null 2>&1 || { printf 'run-agy: %s not found\n' "$tool" >&2; exit 127; }
 done
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
-[ "$mode" = review ] || mmo_guard_env_files run-agy "$repo_dir" || exit 2
+mmo_guard_env_files run-agy "$repo_dir" || exit 2
 
 runtime_dir="$(mktemp -d)"
 trap 'rm -rf "$runtime_dir"' EXIT

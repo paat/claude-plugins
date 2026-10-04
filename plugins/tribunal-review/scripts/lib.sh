@@ -121,6 +121,30 @@ tribunal_walk_root() {  # tribunal_walk_root SCRATCH_DIR
     && printf '%s\n' "$1"
 }
 
+# Run a provider CLI with a scrubbed environment: a base allowlist, the provider's own
+# variables (names or PREFIX* patterns before --), and the names in TRIBUNAL_LEG_ENV, so a
+# leg's shell cannot read controller secrets. The Codex leg scrubs its shell with
+# shell_environment_policy; Grok has no shell.
+tribunal_leg_env() {  # tribunal_leg_env [NAME|PREFIX*]... -- COMMAND [ARG]...
+  local keep=(PATH HOME USER LOGNAME SHELL LANG LC_ALL TERM TMPDIR
+    HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy SSL_CERT_FILE NODE_EXTRA_CA_CERTS)
+  local pass=() names=() extra=() name
+  while [ "$1" != -- ]; do keep+=("$1"); shift; done
+  shift
+  read -r -a extra <<< "${TRIBUNAL_LEG_ENV:-}"
+  for name in "${keep[@]}" ${extra[@]+"${extra[@]}"}; do
+    case "$name" in
+      *'*') mapfile -t -O "${#names[@]}" names < <(compgen -e -- "${name%\*}") ;;
+      *) names+=("$name") ;;
+    esac
+  done
+  for name in "${names[@]}"; do
+    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { printf 'tribunal: ignoring invalid TRIBUNAL_LEG_ENV name: %s\n' "$name" >&2; continue; }
+    [ -z "${!name+x}" ] || pass+=("$name=${!name}")
+  done
+  env -i ${pass[@]+"${pass[@]}"} "$@"
+}
+
 tribunal_default_branch() {
   local branch
   branch="${TRIBUNAL_BASE_BRANCH:-}"

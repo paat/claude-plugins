@@ -2514,6 +2514,8 @@ for runner in claude codex grok agy; do
   [ "$rc" -eq 2 ] || fail "run-$runner refuses a repo holding an untracked .env file (got $rc)"
   contains "$WORK/secret.err" '.env.local' "run-$runner names the env file it refused"
 done
+rc=0; printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-agy.sh" --mode review --base HEAD --repo "$SE" --timeout 30 >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "run-agy review refuses too, since its diff inlines untracked files (got $rc)"
 [ ! -s "$seen" ] || fail 'a refused leg never starts its provider CLI'
 printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-claude.sh" --mode research --repo "$SE" --timeout 30 >/dev/null 2>"$WORK/secret.err" \
   || fail "a research leg has no repository access and is not refused: $(cat "$WORK/secret.err")"

@@ -78,7 +78,8 @@ run_oc_leg() {
   local rc=0 run_timeout=720
   [ "$MODE" = smoke ] && run_timeout="${TRIBUNAL_SMOKE_TIMEOUT_SECONDS:-60}"
   if [ "$MODE" = smoke ]; then
-    (cd "$cwd" && XDG_DATA_HOME="$ISOLATED_OPENCODE_DATA_HOME" OPENCODE_DB="$ISOLATED_OPENCODE_DB" timeout -k 10 "$run_timeout" opencode run --pure \
+    (cd "$cwd" && XDG_DATA_HOME="$ISOLATED_OPENCODE_DATA_HOME" OPENCODE_DB="$ISOLATED_OPENCODE_DB" \
+      tribunal_leg_env XDG_DATA_HOME XDG_CONFIG_HOME 'OPENCODE_*' 'DEEPSEEK_*' -- timeout -k 10 "$run_timeout" opencode run --pure \
       --dangerously-skip-permissions --agent plan -m "$model" --variant high \
       --format default "$(cat "$prompt")" > "$out" 2> "$err") || rc=$?
     if [ "$rc" -eq 0 ]; then
@@ -99,7 +100,8 @@ run_oc_leg() {
     tribunal_error "$provider" "failed to copy staged diff into $cwd"
     return
   }
-  (cd "$cwd" && XDG_DATA_HOME="$ISOLATED_OPENCODE_DATA_HOME" OPENCODE_DB="$ISOLATED_OPENCODE_DB" timeout -k 10 "$run_timeout" opencode run --pure \
+  (cd "$cwd" && XDG_DATA_HOME="$ISOLATED_OPENCODE_DATA_HOME" OPENCODE_DB="$ISOLATED_OPENCODE_DB" \
+      tribunal_leg_env XDG_DATA_HOME XDG_CONFIG_HOME 'OPENCODE_*' 'DEEPSEEK_*' -- timeout -k 10 "$run_timeout" opencode run --pure \
     --dangerously-skip-permissions --agent plan -m "$model" --variant high \
     --format default "$(cat "$prompt")" -f "$diff_attach" > "$out" 2> "$err") || rc=$?
   if [ "$rc" -eq 0 ]; then

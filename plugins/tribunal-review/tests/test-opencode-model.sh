@@ -38,6 +38,7 @@ EOF
   export TRIBUNAL_CODEX=off TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off
   export TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off TRIBUNAL_SMOKE_PROBE=off
   export FIXTURE_MODEL_LOG="$work/model-log"
+  export TRIBUNAL_LEG_ENV='FIXTURE_*'
   cd "$work"
   for scenario in deepseek-default deepseek-override glm-default; do
     unset TRIBUNAL_DEEPSEEK_MODEL TRIBUNAL_GLM_MODEL
