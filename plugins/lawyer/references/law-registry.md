@@ -10,8 +10,11 @@ Per-project registry of Estonian legal paragraphs the product depends on.
 The index is always read in full; snapshots are read per-slug only when needed (fix-plan rendering, ack).
 
 The registry is schema **version 2**. Entries may omit the optional
-`paragraph_qualifier` / `section_qualifier` / `point_qualifier` fields; readers
-default them to `""` via `// ""`, so no migration is needed.
+`paragraph_qualifier` / `section_qualifier` / `point_qualifier` fields (legacy
+entries); before each fetch, missing qualifiers are recovered from `citation`
+(e.g. `lõige 1¹`), not defaulted to `""`. Parts that otherwise disagree with
+`citation`, or an unparseable `citation`, block ack/check until the slug is
+re-registered.
 
 ## Index schema (v2)
 

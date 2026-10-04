@@ -15,7 +15,12 @@ FLAGGED_SLUGS=$(jq -r '.entries | to_entries[] | select(.value.needs_review == t
 
 while IFS= read -r slug; do
   [ -z "$slug" ] && continue
-  resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$(lawyer_slug_cite_url "$slug")")
+  resp=""
+  if lawyer_slug_cite_url "$slug"; then
+    resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$SLUG_CITE_URL")
+  else
+    echo "WARNING: $SLUG_CITE_ERROR — new text not fetched." >&2
+  fi
   new_text=$(echo "$resp" | jq -r '.text // ""')
   old_text=$(cat "${LAWS_DIR}/${slug}.txt" 2>/dev/null || echo "")
 

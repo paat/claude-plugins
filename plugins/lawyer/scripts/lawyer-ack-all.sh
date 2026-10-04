@@ -18,6 +18,7 @@ while IFS= read -r SLUG; do
     3) echo "WARNING: skipping $SLUG: act $ACK_ACT_ID is status=${ACK_STATUS:-unknown}, in_force=${ACK_IN_FORCE:-unknown} — not in force; flag kept."; continue ;;
     4) echo "Error: could not write snapshot .startup/laws/${SLUG}.txt — registry left untouched; flag kept. Skipping $SLUG."; continue ;;
     5) echo "Error: citation lifecycle unknown for '$SLUG' ($CITE_FAILURE) — skipping; snapshot and review flags kept." >&2; continue ;;
+    6) echo "Error: $SLUG_CITE_ERROR. Skipping; snapshot and review flags kept." >&2; continue ;;
   esac
 done <<< "$FLAGGED"
 

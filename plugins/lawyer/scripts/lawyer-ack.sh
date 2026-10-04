@@ -20,6 +20,7 @@ case "$rc" in
      exit 1 ;;
   4) echo "Error: could not write snapshot .startup/laws/${SLUG}.txt — registry left untouched; flags kept."; exit 1 ;;
   5) echo "Error: citation lifecycle unknown for '$SLUG' ($CITE_FAILURE) — refusing to ack; snapshot and review flags kept." >&2; exit 1 ;;
+  6) echo "Error: $SLUG_CITE_ERROR. Snapshot and review flags kept." >&2; exit 1 ;;
 esac
 
 echo "Ack: $SLUG — snapshot refreshed, flags cleared."
