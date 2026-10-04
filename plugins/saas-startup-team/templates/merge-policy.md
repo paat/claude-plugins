@@ -22,8 +22,8 @@ mechanics:
   compliance rule) is still delivered and merged like any other issue. Only work
   hinging on legal/compliance/tax/pricing **interpretation** is carved out.
 - Work that states a hedged `docs/legal/*.md` verdict (frontmatter schema in
-  `skills/lawyer/SKILL.md` "Analysis Workflow"; policy in its "Evidence-Tier
-  Policy" section) as unconditional fact stays `needs-human`.
+  the `lawyer` plugin's `skills/lawyer/SKILL.md` "Analysis Workflow"; policy in
+  its "Evidence-Tier Policy" section) as unconditional fact stays `needs-human`.
   `scripts/legal-verdict-gate.sh --enforce <doc>...` is the mechanical check.
 - **UI-touching diffs** (per `scripts/ui-touch.sh`) must additionally carry
   `## Design-review: PASS` evidence in the PR body — the design-review leg's

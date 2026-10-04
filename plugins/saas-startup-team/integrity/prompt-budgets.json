@@ -3,7 +3,6 @@
   "description": "Per-file max byte budgets for agents/ and commands/. Growth past baseline fails the plugin content gate.",
   "files": {
     "agents/incident-investigator.md": 2124,
-    "agents/lawyer.md": 3370,
     "agents/maintain-triage.md": 648,
     "agents/session-replay.md": 2475,
     "agents/support-triage.md": 1908,
@@ -13,7 +12,6 @@
     "commands/growth.md": 494,
     "commands/improve.md": 474,
     "commands/investigate.md": 472,
-    "commands/lawyer.md": 450,
     "commands/maintain-loop.md": 504,
     "commands/maintain.md": 479,
     "commands/market-scout.md": 495,

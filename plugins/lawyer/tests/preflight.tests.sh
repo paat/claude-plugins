@@ -6,10 +6,7 @@ lpf_root=$(mktemp -d)
 lpf_project="$lpf_root/project"
 lpf_bin="$lpf_root/bin"
 lpf_log="$lpf_root/curl.log"
-mkdir -p "$lpf_project/.startup" "$lpf_project/docs/business" "$lpf_bin"
-printf '%s\n' '{"active_role":"lawyer","growth_status":"active"}' \
-  > "$lpf_project/.startup/state.json"
-printf '%s\n' '# Business brief' > "$lpf_project/docs/business/brief.md"
+mkdir -p "$lpf_project" "$lpf_bin"
 
 cat > "$lpf_bin/curl" <<'SH'
 #!/usr/bin/env bash
@@ -27,7 +24,7 @@ lpf_ec=0
 lpf_out=$(cd "$lpf_project" && PATH="$lpf_bin:$PATH" \
   EST_DATALAKE_API_KEY=valid-test-key DATALAKE_URL=https://datalake.example \
   FAKE_AUTH_CODE=200 FAKE_CURL_LOG="$lpf_log" bash "$lpf_script" 2>&1) || lpf_ec=$?
-assert_exit_code "LPF1: compatible legacy state passes" "$lpf_ec" 0
+assert_exit_code "LPF1: project without .startup/ passes" "$lpf_ec" 0
 assert_output_contains "LPF2: successful preflight is explicit" "$lpf_out" 'lawyer preflight: ok'
 assert_equals "LPF3: readiness and authentication are both checked" \
   "$(wc -l < "$lpf_log" | tr -d ' ')" "2"
@@ -44,23 +41,17 @@ assert_output_contains "LPF6: authentication failure is actionable" "$lpf_out" \
 assert_output_not_contains "LPF7: authentication failure never echoes the key" "$lpf_out" \
   'revoked-test-key'
 
-printf '%s\n' '{}' > "$lpf_project/.startup/state.json"
+mkdir -p "$lpf_project/.startup"
+printf '%s\n' '{"version":1}' > "$lpf_project/.startup/law-registry.json"
 : > "$lpf_log"
 lpf_ec=0
 lpf_out=$(cd "$lpf_project" && PATH="$lpf_bin:$PATH" \
   EST_DATALAKE_API_KEY=valid-test-key DATALAKE_URL=https://datalake.example \
   FAKE_AUTH_CODE=200 FAKE_CURL_LOG="$lpf_log" bash "$lpf_script" 2>&1) || lpf_ec=$?
-assert_exit_code "LPF8: malformed startup state fails preflight" "$lpf_ec" 2
-assert_output_contains "LPF9: malformed state failure is explicit" "$lpf_out" \
-  '.startup/state.json is invalid'
-assert_equals "LPF10: invalid state makes no network request" \
+assert_exit_code "LPF8: invalid registry fails preflight" "$lpf_ec" 2
+assert_output_contains "LPF9: invalid registry failure is explicit" "$lpf_out" \
+  'law-registry.json is invalid or not version 2'
+assert_equals "LPF10: invalid registry makes no network request" \
   "$(wc -l < "$lpf_log" | tr -d ' ')" "0"
-
-: > "$lpf_project/.startup/state.json"
-lpf_ec=0
-(cd "$lpf_project" && PATH="$lpf_bin:$PATH" \
-  EST_DATALAKE_API_KEY=valid-test-key DATALAKE_URL=https://datalake.example \
-  FAKE_AUTH_CODE=200 FAKE_CURL_LOG="$lpf_log" bash "$lpf_script" >/dev/null 2>&1) || lpf_ec=$?
-assert_exit_code "LPF11: empty startup state fails preflight" "$lpf_ec" 2
 
 rm -rf "$lpf_root"

@@ -21,7 +21,7 @@ needed. Do not restate those rules here.
 One topic-specific datalake query first for Estonian-law claims. Verify decisive
 claims at Tier A. If RAG is empty, irrelevant, or partial, record that boundary
 and switch to targeted primary sources; do not retry broadly. Load
-`references/lawyer/datalake-routing.md` for KOV, courts, enforcement,
+`references/datalake-routing.md` for KOV, courts, enforcement,
 diligence, change-monitor, grants, political finance, or economic evidence.
 Pure **state-law** statute skips it; municipal/KOV does not.
 
@@ -34,7 +34,7 @@ promote datalake risk scores to liability, PEP, or insolvency.
 
 ## Execution
 
-1. Define the exact decision or risk from the investor's topic.
+1. Define the exact decision or risk from the requested topic.
 2. Read only named files, relevant brief sections, and targeted matches.
 3. Gather the minimum evidence under the skill workflow.
 4. Stop when the decision is supported; omit unrelated audit sections.
@@ -59,13 +59,13 @@ promote datalake risk scores to liability, PEP, or insolvency.
 
 - Write only the requested `docs/legal/õiguslik-*.md` artifact. Do not modify
   product source, tests, handoffs, policies, or other project files.
-- Never modify `.startup/law-registry.json` or `.startup/laws/*.txt`; the command
-  owns registration and acknowledgement.
+- Never modify `.startup/law-registry.json` or `.startup/laws/*.txt`; the registry
+  subcommands own registration and acknowledgement.
 - Never use mock evidence or expose credentials/customer identifiers.
 - For a `Seadusemuudatuste parandusplaan`, plain-language fix plan per affected
   file and one-sentence summary per slug; legal detail in a collapsed appendix.
 
-## Plugin issue reporting
+## Plugin defects
 
-If the plugin itself misbehaves, follow
-`${CLAUDE_PLUGIN_ROOT}/templates/plugin-issue-reporting.md`.
+If a plugin script or reference misbehaves, name the failing script and its
+output in the report; never work around it silently.

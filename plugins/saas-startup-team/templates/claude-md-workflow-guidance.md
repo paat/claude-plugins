@@ -10,7 +10,7 @@
 - SEO tweaks, content updates, copy changes
 - Single feature where you already know the "why"
 - Ops/infrastructure work (docker, nginx, CI)
-- Quick research tasks (use `/lawyer` or `/ux-test` standalone)
+- Quick research tasks (use `/ux-test`, or `/lawyer` from the `lawyer` plugin, standalone)
 
 ### Use `/growth` (growth track) when:
 - Product is live and ready for customers — need to acquire paying users

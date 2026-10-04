@@ -1,14 +1,14 @@
 # Sourced by run-tests.sh's discovered-suite loop. The lawyer skill's own
-# test-*.sh files live under tests/lawyer-skill/ and are run by their own
+# test-*.sh files live under tests/ and are run by their own
 # harness.sh — this shim makes that harness's pass/fail visible to the main
 # runner, which otherwise has no path to them.
 echo -e "${CYAN}Testing: lawyer skill test harness${NC}"
 lh_ec=0
-bash "$PLUGIN_ROOT/tests/lawyer-skill/harness.sh" >/dev/null 2>&1 || lh_ec=$?
+bash "$PLUGIN_ROOT/tests/harness.sh" >/dev/null 2>&1 || lh_ec=$?
 assert_exit_code "LH1: lawyer skill test harness passes" "$lh_ec" 0
 
 lawyer_skill=$(<"$PLUGIN_ROOT/skills/lawyer/SKILL.md")
-lawyer_registry=$(<"$PLUGIN_ROOT/references/lawyer/law-registry.md")
+lawyer_registry=$(<"$PLUGIN_ROOT/references/law-registry.md")
 assert_file_contains "LH2: autonomous topic has an early disposition" "$PLUGIN_ROOT/skills/lawyer/SKILL.md" "### Non-interactive / autonomous disposition"
 assert_file_contains "LH3: autonomous topic skips backlog expansion" "$PLUGIN_ROOT/skills/lawyer/SKILL.md" "Skip Marker Scan, Invariant Check"
 assert_file_contains "LH4: autonomous topic continues requested analysis" "$PLUGIN_ROOT/skills/lawyer/SKILL.md" 'Continue directly to'
@@ -32,11 +32,22 @@ assert_exit_code "LH20: lawyer preflight parses" "$lh_ec" 0
 assert_output_contains "LH21: read-only probes override document writes" "$lawyer_skill" "decision in chat instead of writing the default document"
 assert_output_contains "LH22: read-only project inspection is bounded" "$lawyer_skill" "at most three targeted source ranges"
 assert_output_contains "LH23: incomplete probes terminate with a decision" "$lawyer_skill" 'partial `UNCONFIRMED`'
-assert_file_contains "LH24: EUR-Lex article endpoint is documented" "$PLUGIN_ROOT/references/lawyer/datalake-api.md" '/eurlex/{celex}/citation?article=N&language=EN'
+assert_file_contains "LH24: EUR-Lex article endpoint is documented" "$PLUGIN_ROOT/references/datalake-api.md" '/eurlex/{celex}/citation?article=N&language=EN'
 assert_output_contains "LH25: bounded probes skip API inventory" "$lawyer_skill" "Never inventory"
 assert_output_contains "LH26: bounded probes do not resume broad search" "$lawyer_skill" "Never resume repository-wide searches"
-assert_file_contains "LH27: EU citation requires lifecycle evidence" "$PLUGIN_ROOT/references/lawyer/datalake-api.md" 'Require `in_force == true`; preserve the'
-assert_file_contains "LH28: EU citation preserves primary source" "$PLUGIN_ROOT/references/lawyer/datalake-api.md" 'returned HTTPS `source_url`'
+assert_file_contains "LH27: EU citation requires lifecycle evidence" "$PLUGIN_ROOT/references/datalake-api.md" 'Require `in_force == true`; preserve the'
+assert_file_contains "LH28: EU citation preserves primary source" "$PLUGIN_ROOT/references/datalake-api.md" 'returned HTTPS `source_url`'
 assert_output_contains "LH29: proposal probes skip product inspection" "$lawyer_skill" "Proposal/risk questions do not justify"
 assert_output_contains "LH30: bounded probes prohibit delegation" "$lawyer_skill" "never delegate or spawn subagents"
 assert_output_contains "LH31: current-code requests retain inspection" "$lawyer_skill" "compliance is explicitly requested or the user names files"
+assert_file_contains "LH32: agent applies claim taxonomy" "$PLUGIN_ROOT/agents/lawyer.md" "Compliance/Risk Product Claim Taxonomy"
+assert_file_contains "LH33: skill states evidence tiers" "$PLUGIN_ROOT/skills/lawyer/SKILL.md" 'Evidence-Tier Policy'
+assert_output_contains "LH34: skill restores topic guides" "$lawyer_skill" '`gdpr-compliance.md`'
+
+# saas-startup-team ships the same verdict gate for its merge policy; in a repo
+# checkout both copies must stay byte-identical.
+lh_saas_gate="$PLUGIN_ROOT/../saas-startup-team/scripts/legal-verdict-gate.sh"
+if [ -f "$lh_saas_gate" ]; then
+  lh_ec=0; cmp -s "$PLUGIN_ROOT/scripts/legal-verdict-gate.sh" "$lh_saas_gate" || lh_ec=$?
+  assert_exit_code "LH35: legal-verdict-gate.sh matches saas-startup-team copy" "$lh_ec" 0
+fi

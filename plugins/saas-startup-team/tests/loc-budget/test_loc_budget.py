@@ -175,6 +175,8 @@ class BaselineReproduction(unittest.TestCase):
             )
             root = dest / "plugins" / "saas-startup-team"
             budget = loc.load_budget(BUDGET)
+            # Later extractions are declared for the current tree, not 0.90.11.
+            budget["extracted_packages"]["declared_siblings"] = []
             measured = loc.measure(root, budget)
             for mid, golden in self.GOLDEN.items():
                 self.assertEqual(
@@ -883,6 +885,43 @@ class UndeclaredExtraction(unittest.TestCase):
                 budget=budget,
             )
             self.assertTrue(any("undeclared extraction" in e for e in errors), errors)
+
+    def test_moved_tests_and_docs_are_not_charged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            plugin = repo / "plugins" / "saas-startup-team"
+            sibling = repo / "plugins" / "extracted-bits"
+            make_plugin(plugin)
+            write_lines(plugin / "tests" / "moved-test.sh", 7)
+            write_lines(plugin / "docs" / "moved-plan.md", 9)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            for key, value in (("user.email", "t@t.t"), ("user.name", "t")):
+                subprocess.run(["git", "config", key, value], cwd=repo, check=True)
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+            base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            (sibling / "tests").mkdir(parents=True)
+            (sibling / "docs").mkdir(parents=True)
+            subprocess.run(
+                ["git", "mv", "plugins/saas-startup-team/tests/moved-test.sh",
+                 "plugins/extracted-bits/tests/moved-test.sh"],
+                cwd=repo, check=True,
+            )
+            subprocess.run(
+                ["git", "mv", "plugins/saas-startup-team/docs/moved-plan.md",
+                 "plugins/extracted-bits/docs/moved-plan.md"],
+                cwd=repo, check=True,
+            )
+            subprocess.run(["git", "commit", "-qm", "extract"], cwd=repo, check=True)
+            errors = loc.detect_undeclared_extractions(
+                repo_root=repo,
+                plugin_root=plugin,
+                git_base=base,
+                budget=base_budget(),
+            )
+            self.assertEqual(errors, [])
 
     def test_anti_weaken_rejects_removed_counting_rule(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

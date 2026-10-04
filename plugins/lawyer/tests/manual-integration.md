@@ -1,6 +1,6 @@
 # Manual Integration Scenarios
 
-Prerequisites: a scratch startup project initialised via `/startup`, a real
+Prerequisites: a scratch git project, a real
 GitHub remote, `gh auth login` completed, `EST_DATALAKE_API_KEY` exported,
 datalake reachable.
 

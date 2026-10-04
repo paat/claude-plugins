@@ -64,11 +64,22 @@
     {
       "name": "saas-startup-team",
       "description": "Portable SaaS delivery: Plan → Build → Independent Review with bounded maintenance and deterministic legal/PII/spend/release gates",
-      "version": "1.2.17",
+      "version": "1.3.0",
       "author": {
         "name": "Andre Paat"
       },
       "source": "./plugins/saas-startup-team",
+      "category": "development",
+      "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "lawyer",
+      "description": "On-demand Estonian/EU legal risk analysis for SaaS projects via est-saas-datalake and primary sources, with a law registry that flags load-bearing provisions when they change",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/lawyer",
       "category": "development",
       "homepage": "https://github.com/paat/claude-plugins"
     },

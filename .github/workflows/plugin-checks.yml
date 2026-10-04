@@ -36,6 +36,9 @@ jobs:
       - name: Check saas-startup-team workflow aliases
         run: python3 plugins/saas-startup-team/scripts/generate_workflow_aliases.py --check
 
+      - name: Check legal-verdict-gate.sh copies match (saas-startup-team, lawyer)
+        run: cmp plugins/saas-startup-team/scripts/legal-verdict-gate.sh plugins/lawyer/scripts/legal-verdict-gate.sh
+
       - name: saas-startup-team LOC budget
         run: |
           set -euo pipefail

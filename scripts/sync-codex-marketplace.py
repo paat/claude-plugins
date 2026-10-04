@@ -28,7 +28,7 @@ CODEX_DESCRIPTION_OVERRIDES = {
     ),
     "saas-startup-team": (
         "Codex-native SaaS startup orchestration using file-based founder handoffs, business "
-        "research, implementation, growth, legal, UX, and review loops for Estonian SaaS projects."
+        "research, implementation, growth, UX, and review loops for Estonian SaaS projects."
     ),
     "silent-failure-scanner": (
         "Deterministic diff-time detector for swallowed errors and ghost transactions, with a "

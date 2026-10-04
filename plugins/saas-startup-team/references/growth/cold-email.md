@@ -29,7 +29,7 @@ Cold email is the #1 channel cited by B2B SaaS founders for reaching $10K MRR.
 
 ## Legal Compliance
 
-Before launching the first cold email campaign, request a legal review from the lawyer agent (`/lawyer cold email compliance`). Key requirements:
+Before launching the first cold email campaign, request a legal review via the `lawyer` plugin (`/lawyer cold email compliance`). Key requirements:
 - CAN-SPAM: physical address, unsubscribe link, honest subject lines
 - GDPR Article 6: legitimate interest basis for B2B cold outreach (document your reasoning)
 - Estonian e-Commerce Act requirements for commercial communications
