@@ -2,7 +2,9 @@
 # /lawyer fix-plan input collector. Args: <tmpdir>
 # For every flagged-and-unacked slug (needs_review=true AND gh_issue_url=null),
 # re-fetches the current paragraph text and writes <tmpdir>/<slug>.json with
-# old_text + new_text + lifecycle status + feed change + datalake impact. Also
+# old_text + new_text + lifecycle status + feed change + datalake impact, plus
+# fetch_error (the refusal reason when the citation cannot be resolved to a URL,
+# else null; new_text is then empty because nothing was fetched). Also
 # writes <tmpdir>/markers.tsv (slug → file:line) via the marker scan. The Lawyer
 # agent reads these to write the fix plan.
 set -uo pipefail
@@ -15,7 +17,13 @@ FLAGGED_SLUGS=$(jq -r '.entries | to_entries[] | select(.value.needs_review == t
 
 while IFS= read -r slug; do
   [ -z "$slug" ] && continue
-  resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$(lawyer_slug_cite_url "$slug")")
+  resp="" fetch_error=""
+  if lawyer_slug_cite_url "$slug"; then
+    resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$SLUG_CITE_URL")
+  else
+    fetch_error="$SLUG_CITE_ERROR"
+    echo "WARNING: $fetch_error — new text not fetched." >&2
+  fi
   new_text=$(echo "$resp" | jq -r '.text // ""')
   old_text=$(cat "${LAWS_DIR}/${slug}.txt" 2>/dev/null || echo "")
 
@@ -34,13 +42,14 @@ while IFS= read -r slug; do
   fi
 
   jq -n --arg slug "$slug" --arg old "$old_text" --arg new "$new_text" \
-    --arg status "$cite_status" --arg inforce "$cite_in_force" \
+    --arg status "$cite_status" --arg inforce "$cite_in_force" --arg err "$fetch_error" \
     --argjson change "$(jq -c --arg s "$slug" '.entries[$s].change' "$REGISTRY")" \
     --argjson impact "$impact" \
     '{slug:$slug, old_text:$old, new_text:$new,
       status:(if $status == "" then null else $status end),
       in_force:(if $inforce == "" then null else ($inforce == "true") end),
-      change:$change, impact:$impact}' \
+      change:$change, impact:$impact,
+      fetch_error:(if $err == "" then null else $err end)}' \
     > "$TMP/${slug}.json"
 done <<< "$FLAGGED_SLUGS"
 

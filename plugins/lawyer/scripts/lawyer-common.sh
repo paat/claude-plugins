@@ -34,17 +34,33 @@ print(f"{base}/api/v1/laws/{act}/citation?" + "&".join(parts))
 ' "$DATALAKE_URL" "$@"
 }
 
-# Build a /citation URL for a registered slug (reads citation_parts from registry).
+# Build the /citation URL for a registered slug into SLUG_CITE_URL. Stored
+# citation_parts are reconciled with the entry's citation via the parser: legacy
+# v2 entries that predate the qualifier fields get them recovered from the
+# citation (not persisted; recomputed per call). Any other mismatch, or an
+# unparseable citation, sets SLUG_CITE_ERROR and returns 1 without a URL.
 lawyer_slug_cite_url() {
-  local s="$1"
-  lawyer_cite_url \
-    "$(jq -r --arg s "$s" '.entries[$s].act_id' "$REGISTRY")" \
-    "$(jq -r --arg s "$s" '.entries[$s].citation_parts.paragraph // ""' "$REGISTRY")" \
-    "$(jq -r --arg s "$s" '.entries[$s].citation_parts.paragraph_qualifier // ""' "$REGISTRY")" \
-    "$(jq -r --arg s "$s" '.entries[$s].citation_parts.section // ""' "$REGISTRY")" \
-    "$(jq -r --arg s "$s" '.entries[$s].citation_parts.section_qualifier // ""' "$REGISTRY")" \
-    "$(jq -r --arg s "$s" '.entries[$s].citation_parts.point // ""' "$REGISTRY")" \
-    "$(jq -r --arg s "$s" '.entries[$s].citation_parts.point_qualifier // ""' "$REGISTRY")"
+  local s="$1" act cit stored parsed i
+  local -a st pa
+  SLUG_CITE_URL="" SLUG_CITE_ERROR=""
+  act=$(jq -r --arg s "$s" '.entries[$s].act_id' "$REGISTRY")
+  cit=$(jq -r --arg s "$s" '.entries[$s].citation // ""' "$REGISTRY")
+  # "?" marks an absent qualifier field (legacy); bases default to "" as before.
+  stored=$(jq -r --arg s "$s" '(.entries[$s].citation_parts // {}) as $c
+    | [$c.paragraph // "", $c.paragraph_qualifier // "?", $c.section // "",
+       $c.section_qualifier // "?", $c.point // "", $c.point_qualifier // "?"]
+    | map(tostring) | join("|")' "$REGISTRY")
+  parsed=$(lawyer_parse_citation "$cit")
+  IFS='|' read -r st[0] st[1] st[2] st[3] st[4] st[5] <<< "$stored"
+  IFS='|' read -r pa[0] pa[1] pa[2] pa[3] pa[4] pa[5] <<< "$parsed"
+  for i in 0 2 4; do
+    [ "${st[i+1]}" = "?" ] && st[i+1]="${pa[i+1]}"
+  done
+  if [ -z "${pa[0]}" ] || [ "${st[*]}" != "${pa[*]}" ]; then
+    SLUG_CITE_ERROR="$s: citation_parts ($stored) do not match citation '$cit' ($parsed) — refusing to fetch a different clause; re-register the slug with its intended citation: /lawyer register $s $act \"<citation>\" \"<purpose>\""
+    return 1
+  fi
+  SLUG_CITE_URL=$(lawyer_cite_url "$act" "${st[@]}")
 }
 
 # Parse an Estonian compound citation ("§ 10 lõige 1 punkt 3") into six
@@ -124,11 +140,13 @@ lawyer_fetch_citation() {
 # Ack one slug: re-fetch /citation, require a verified-valid redaction, then refresh the
 # snapshot and clear flags. Sets globals ACK_ACT_ID / ACK_STATUS / ACK_IN_FORCE for
 # the caller's message. Returns: 0 ok, 2 empty-text, 3 not-in-force,
-# 4 snapshot-write-failed (registry left untouched), 5 unknown lifecycle.
+# 4 snapshot-write-failed (registry left untouched), 5 unknown lifecycle,
+# 6 citation_parts irreconcilable with the citation (SLUG_CITE_ERROR; no fetch).
 lawyer_ack_one() {
   local SLUG="$1" resp text cite_url_resp red tail_seg ack_red_date NOW normalised
   ACK_ACT_ID=$(jq -r --arg s "$SLUG" '.entries[$s].act_id' "$REGISTRY")
-  lawyer_fetch_citation "$(lawyer_slug_cite_url "$SLUG")"
+  lawyer_slug_cite_url "$SLUG" || return 6
+  lawyer_fetch_citation "$SLUG_CITE_URL"
   ACK_STATUS="$CITE_STATUS" ACK_IN_FORCE="$CITE_IN_FORCE"
   case "$CITE_LIFECYCLE" in
     unknown) return 5 ;;

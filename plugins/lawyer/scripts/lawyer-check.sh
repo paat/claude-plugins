@@ -141,7 +141,12 @@ LC_INCOMPLETE=0
 while IFS= read -r lcslug; do
   [ -z "$lcslug" ] && continue
   lc_act=$(jq -r --arg s "$lcslug" '.entries[$s].act_id' "$REGISTRY")
-  lawyer_fetch_citation "$(lawyer_slug_cite_url "$lcslug")"
+  if ! lawyer_slug_cite_url "$lcslug"; then
+    echo "WARNING: $SLUG_CITE_ERROR — incomplete coverage; snapshot and review flags kept." >&2
+    LC_INCOMPLETE=1
+    continue
+  fi
+  lawyer_fetch_citation "$SLUG_CITE_URL"
   case "$CITE_LIFECYCLE" in
     unknown)
       echo "WARNING: $lcslug: citation lifecycle unknown ($CITE_FAILURE) — incomplete coverage; snapshot and review flags kept." >&2
