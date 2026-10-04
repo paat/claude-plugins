@@ -126,21 +126,13 @@ The comment-opener prefix rejects prose false positives ("the LAW: is clear that
 
 ## Scan command (ripgrep preferred, grep fallback)
 
-```bash
-if command -v rg >/dev/null; then
-  rg -n --pcre2 '(?://|#|/\*|<!--|\{/\*)\s*LAW:\s*([a-z0-9-]+(?:\s*,\s*[a-z0-9-]+)*)' \
-    src/ app/ pages/ components/ lib/ server/ public/ content/ 2>/dev/null
-  rg -n --pcre2 '(?://|#|/\*|<!--|\{/\*)\s*LAW:\s*([a-z0-9-]+(?:\s*,\s*[a-z0-9-]+)*)' \
-    docs/ 2>/dev/null | grep -v '^docs/legal/'
-else
-  grep -rEn '(//|#|/\*|<!--|\{/\*)\s*LAW:\s*[a-z0-9-]+(\s*,\s*[a-z0-9-]+)*' \
-    src/ app/ pages/ components/ lib/ server/ public/ content/ 2>/dev/null
-  grep -rEn '(//|#|/\*|<!--|\{/\*)\s*LAW:\s*[a-z0-9-]+(\s*,\s*[a-z0-9-]+)*' \
-    docs/ 2>/dev/null | grep -v '^docs/legal/'
-fi
-```
-
-Directories missing in a given project are silently skipped.
+Implemented in `scripts/lawyer-marker-scan.sh`. It walks the whole project
+(via `git ls-files` inside a git repo, or a plain `find` otherwise), so markers
+under nested source roots in monorepos (e.g. `frontend/src/`, `backend/app/`)
+are found alongside root-level ones. Dependency and generated trees
+(`node_modules/`, `vendor/`, `.venv/`, `dist/`, `build/`, `.git/`), hidden
+(dot-prefixed) directories, and the lawyer's own output (`docs/legal/`) are
+excluded at any depth.
 
 ## Datalake API templates
 
