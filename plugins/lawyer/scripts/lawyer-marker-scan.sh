@@ -12,7 +12,10 @@ OWN_OUTPUT_RE='(^|/)docs/legal(/|$)'
 HIDDEN_DIR_RE='(^|/)\.[^/]+/'
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  mapfile -t ALL_FILES < <(git ls-files --cached --others --exclude-standard 2>/dev/null)
+  ALL_FILES=()
+  while IFS= read -r -d '' f; do
+    ALL_FILES+=("$f")
+  done < <(git ls-files -z --cached --others --exclude-standard 2>/dev/null)
 else
   mapfile -t ALL_FILES < <(find . \
     \( -type d \( -name node_modules -o -name vendor -o -name .venv -o -name dist -o -name build -o -name .git \) -prune \) \
