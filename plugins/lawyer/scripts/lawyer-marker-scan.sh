@@ -11,16 +11,29 @@ PRUNE_RE='(^|/)(node_modules|vendor|\.venv|dist|build|\.git)(/|$)'
 OWN_OUTPUT_RE='(^|/)docs/legal(/|$)'
 HIDDEN_DIR_RE='(^|/)\.[^/]+/'
 
+LIST_ERR=$(mktemp)
+
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   ALL_FILES=()
   while IFS= read -r -d '' f; do
     ALL_FILES+=("$f")
-  done < <(git ls-files -z --cached --others --exclude-standard 2>/dev/null)
+  done < <(git ls-files -z --cached --others --exclude-standard 2>"$LIST_ERR")
 else
   mapfile -t ALL_FILES < <(find . \
     \( -type d \( -name node_modules -o -name vendor -o -name .venv -o -name dist -o -name build -o -name .git \) -prune \) \
-    -o -type f -print 2>/dev/null | sed 's#^\./##')
+    -o -type f -print 2>"$LIST_ERR" | sed 's#^\./##')
 fi
+
+# A listing failure (git ls-files or find erroring out) must not pass through
+# as an empty, silently-clean scan - it needs to look like the hardened
+# search-step failure below, not a healthy "nothing to report" exit 0.
+if [ -s "$LIST_ERR" ]; then
+  cat "$LIST_ERR" >&2
+  rm -f "$LIST_ERR"
+  echo "lawyer-marker-scan.sh: file listing failed" >&2
+  exit 1
+fi
+rm -f "$LIST_ERR"
 
 SCAN_FILES=()
 for f in "${ALL_FILES[@]}"; do
