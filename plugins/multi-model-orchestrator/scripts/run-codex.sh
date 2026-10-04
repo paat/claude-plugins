@@ -72,6 +72,7 @@ fi
 command -v git >/dev/null 2>&1 || { printf 'run-codex: git not found\n' >&2; exit 127; }
 command -v codex >/dev/null 2>&1 || { printf 'run-codex: codex CLI not found\n' >&2; exit 127; }
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
+[ "$mode" = research ] || mmo_guard_env_files run-codex "$repo_dir" || exit 2
 
 prompt_file="$(mktemp)"
 classify_file="$(mktemp)"
@@ -171,7 +172,7 @@ codex_args+=(-m "$model" -c "model_reasoning_effort=\"$effort\"")
 codex_args+=(-o "$final_file" -)
 
 set +e
-timeout -k 10 "$run_timeout" codex "${codex_args[@]}" \
+mmo_leg_env CODEX_HOME CODEX_API_KEY OPENAI_API_KEY -- timeout -k 10 "$run_timeout" codex "${codex_args[@]}" \
   < "$prompt_file" > "$stream_file" 2> "${stream_file}.stderr"
 rc=$?
 set -e

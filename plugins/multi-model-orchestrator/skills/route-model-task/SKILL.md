@@ -38,6 +38,11 @@ or effort. Use the evidence notes only when explaining or revisiting the policy.
 - To execute, `pool.sh run` (same flags plus `--repo`, `--base` for review, and `--out`; prompt on
   stdin) falls through unavailable workers itself. With no worker left it exits 75 and prints the
   earliest plan reset: report that blocker.
+- Runners refuse (exit 2) a checkout holding untracked `.env*` files, since a leg could send their
+  values to its provider. Run the whole run from a `git worktree add` checkout without them
+  (install dependencies there if tests need them). Legs get a scrubbed environment; pass a
+  variable a packet's test needs with `MMO_LEG_ENV="DATABASE_URL"`, pointed at a dev/test
+  database, never production.
 
 ## Emit a route card
 

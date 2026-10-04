@@ -3,6 +3,7 @@
 # - review terminal-verdict check
 # - provider failure classification (plan limit or transient → 75, auth → 77)
 # - repository write detection
+# - leg secret isolation (untracked .env* refusal, scrubbed environment)
 #
 # Verdict check: case-insensitive. A line must be either a bare APPROVE/APPROVED or
 # NEEDS_WORK / NEEDS WORK token, or the same token prefixed by VERDICT:.
@@ -95,4 +96,41 @@ mmo_tree_state() {  # mmo_tree_state REPO [OUT]
     git -C "$repo" diff --no-ext-diff --binary -- "${spec[@]}" || true
     git -C "$repo" ls-files -z --others --exclude-standard -- "${spec[@]}" | (cd "$repo" && xargs -0 -r cksum) || true
   } 2>/dev/null | cksum
+}
+
+# A leg's tools are not bound by the host's deny rules, so a leg working in REPO could read an
+# untracked .env* file (ignored or not) and send its values to the provider. Fails with a
+# message unless REPO holds none or MMO_ALLOW_ENV_FILES=1. Ignored directories are not entered.
+mmo_guard_env_files() {  # mmo_guard_env_files RUNNER REPO
+  local found
+  [ "${MMO_ALLOW_ENV_FILES:-0}" != 1 ] || return 0
+  found="$( { git -C "$2" ls-files -z --others --exclude-standard
+    git -C "$2" ls-files -z --others --ignored --exclude-standard --directory; } \
+    | tr '\0' '\n' | grep -E '(^|/)\.env[^/]*$' | paste -sd ' ' -)" || true
+  [ -n "$found" ] || return 0
+  printf '%s: %s holds untracked env files a leg could send to its provider: %s\n' "$1" "$2" "$found" >&2
+  printf '%s: run from a git worktree without them, or set MMO_ALLOW_ENV_FILES=1\n' "$1" >&2
+  return 1
+}
+
+# Run a provider CLI with a scrubbed environment: a base allowlist, the provider's own
+# variables (names, or PREFIX* patterns, before --), and the names listed in MMO_LEG_ENV.
+mmo_leg_env() {  # mmo_leg_env [NAME|PREFIX*]... -- COMMAND [ARG]...
+  local keep=(PATH HOME USER LOGNAME SHELL LANG LC_ALL TERM TMPDIR
+    HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy SSL_CERT_FILE NODE_EXTRA_CA_CERTS)
+  local pass=() names=() extra=() name
+  while [ "$1" != -- ]; do keep+=("$1"); shift; done
+  shift
+  read -r -a extra <<< "${MMO_LEG_ENV:-}"
+  for name in "${keep[@]}" ${extra[@]+"${extra[@]}"}; do
+    case "$name" in
+      *'*') mapfile -t -O "${#names[@]}" names < <(compgen -e -- "${name%\*}") ;;
+      *) names+=("$name") ;;
+    esac
+  done
+  for name in "${names[@]}"; do
+    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { printf 'mmo: invalid MMO_LEG_ENV name: %s\n' "$name" >&2; return 2; }
+    [ -z "${!name+x}" ] || pass+=("$name=${!name}")
+  done
+  env -i ${pass[@]+"${pass[@]}"} "$@"
 }

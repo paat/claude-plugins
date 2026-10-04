@@ -116,6 +116,7 @@ if [ "${#mcp_names[@]}" -gt 0 ]; then
   done
 fi
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
+[ "$mode" = research ] || mmo_guard_env_files run-claude "$repo_dir" || exit 2
 
 request_file="$(mktemp)"
 prompt_file="$(mktemp)"
@@ -228,13 +229,14 @@ for mcp_index in "${!mcp_names[@]}"; do
   allowed_tools="${allowed_tools},mcp__${mcp_names[$mcp_index]}"
 done
 claude_args+=(--allowedTools "$allowed_tools" --disallowedTools "$disallowed_tools")
+leg_env=('ANTHROPIC_*' CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR)
 
 provider_rc=0
 set +e
 if [ "$stream_log_set" -eq 1 ]; then
   # NDJSON event stream to --stream-log while live; final message extracted into --out after success.
   : > "$output_file"
-  (cd "$repo_dir" && timeout -k 10 "$run_timeout" claude "${claude_args[@]}" < "$prompt_file") \
+  (cd "$repo_dir" && mmo_leg_env "${leg_env[@]}" -- timeout -k 10 "$run_timeout" claude "${claude_args[@]}" < "$prompt_file") \
     2> "${output_file}.stderr" | tee "$stream_file" > /dev/null
   provider_rc=${PIPESTATUS[0]} tee_rc=${PIPESTATUS[1]}
   if [ "$provider_rc" -ne 0 ]; then
@@ -279,7 +281,7 @@ if [ "$stream_log_set" -eq 1 ]; then
     fi
   fi
 else
-  (cd "$repo_dir" && timeout -k 10 "$run_timeout" claude "${claude_args[@]}" \
+  (cd "$repo_dir" && mmo_leg_env "${leg_env[@]}" -- timeout -k 10 "$run_timeout" claude "${claude_args[@]}" \
     < "$prompt_file" > "$output_file" 2> "${output_file}.stderr")
   provider_rc=$?
   rc=$provider_rc

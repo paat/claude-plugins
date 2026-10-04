@@ -67,6 +67,7 @@ printf 'after\n' > "$WORK/repo/app.txt"
 
 cat > "$WORK/bin/codex" <<'STUB'
 #!/usr/bin/env bash
+[ -z "${STUB_SECRET_SEEN:-}" ] || printf '%s %s\n' "${0##*/}" "${LEG_SECRET-unset}" >> "$STUB_SECRET_SEEN"
 printf '%s\n' "$@" > "$STUB_CODEX_ARGS"
 out=""
 : > "$STUB_CODEX_CWD"
@@ -115,6 +116,7 @@ esac
 STUB
 cat > "$WORK/bin/claude" <<'STUB'
 #!/usr/bin/env bash
+[ -z "${STUB_SECRET_SEEN:-}" ] || printf '%s %s\n' "${0##*/}" "${LEG_SECRET-unset}" >> "$STUB_SECRET_SEEN"
 printf '%s\n' "$@" > "$STUB_CLAUDE_ARGS"
 # Record the working directory the runner actually placed us in.
 pwd > "$STUB_CLAUDE_CWD"
@@ -264,6 +266,7 @@ fi
 STUB
 cat > "$WORK/bin/grok" <<'STUB'
 #!/usr/bin/env bash
+[ -z "${STUB_SECRET_SEEN:-}" ] || printf '%s %s\n' "${0##*/}" "${LEG_SECRET-unset}" >> "$STUB_SECRET_SEEN"
 printf '%s\n' "$@" > "$STUB_GROK_ARGS"
 printf '%s\n' "$HOME" > "$STUB_GROK_HOME_ENV"
 printf '%s\n' "$GROK_HOME" > "$STUB_GROK_DIR_ENV"
@@ -355,6 +358,8 @@ esac
 STUB
 chmod +x "$WORK/bin/codex" "$WORK/bin/claude" "$WORK/bin/grok"
 export PATH="$WORK/bin:$PATH"
+# Legs run under a scrubbed environment; the stubs read their STUB_* settings through it.
+export MMO_LEG_ENV='STUB_*'
 export STUB_CODEX_ARGS="$WORK/codex.args" STUB_CODEX_PROMPT="$WORK/codex.prompt" STUB_CODEX_CWD="$WORK/codex.cwd"
 export STUB_CLAUDE_ARGS="$WORK/claude.args" STUB_CLAUDE_PROMPT="$WORK/claude.prompt" STUB_CLAUDE_CWD="$WORK/claude.cwd"
 export STUB_GROK_ARGS="$WORK/grok.args" STUB_GROK_PROMPT="$WORK/grok.prompt" STUB_GROK_CWD="$WORK/grok.cwd"
@@ -2443,6 +2448,7 @@ AG="$WORK/agy"; mkdir -p "$AG/bin" "$AG/calls"
 AGY_RUN="$PLUGIN_ROOT/scripts/run-agy.sh"
 cat > "$AG/bin/agy" <<'STUB'
 #!/usr/bin/env bash
+[ -z "${STUB_SECRET_SEEN:-}" ] || printf '%s %s\n' "${0##*/}" "${LEG_SECRET-unset}" >> "$STUB_SECRET_SEEN"
 n=$(find "$STUB_AGY_CALLS" -name 'call.*.args' | wc -l)
 printf '%s\n' "$@" > "$STUB_AGY_CALLS/call.$n.args"
 pwd > "$STUB_AGY_CALLS/call.$n.cwd"
@@ -2495,6 +2501,39 @@ for bad in '--mode review' '--mode implement --base HEAD' '--mode implement --ef
 done
 git -C "$AR" checkout -q -- f.txt
 pass 'run-agy: YOLO implement, diff-only review outside the repo, write detection, exits'
+
+# --- secret isolation (#589): untracked .env* refusal and a scrubbed leg environment ---
+SE="$WORK/secret-env"; mkdir -p "$SE"; git -C "$SE" init -q
+printf '.env*\n' > "$SE/.gitignore"; printf 'x\n' > "$SE/f.txt"
+git -C "$SE" add .gitignore f.txt; git -C "$SE" -c user.email=t@t -c user.name=t commit -qm base
+printf 'TOKEN=1\n' > "$SE/.env.local"
+seen="$WORK/secret-seen"; : > "$seen"
+se_env=(env PATH="$WORK/bin:$AG/bin:$PATH" STUB_AGY_CALLS="$AG/calls" STUB_SECRET_SEEN="$seen" LEG_SECRET=leak)
+for runner in claude codex grok agy; do
+  rc=0; printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-$runner.sh" --mode implement --repo "$SE" --timeout 30 >/dev/null 2>"$WORK/secret.err" || rc=$?
+  [ "$rc" -eq 2 ] || fail "run-$runner refuses a repo holding an untracked .env file (got $rc)"
+  contains "$WORK/secret.err" '.env.local' "run-$runner names the env file it refused"
+done
+rc=0; printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-agy.sh" --mode review --base HEAD --repo "$SE" --timeout 30 >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "run-agy review refuses too, since its diff inlines untracked files (got $rc)"
+[ ! -s "$seen" ] || fail 'a refused leg never starts its provider CLI'
+printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-claude.sh" --mode research --repo "$SE" --timeout 30 >/dev/null 2>"$WORK/secret.err" \
+  || fail "a research leg has no repository access and is not refused: $(cat "$WORK/secret.err")"
+printf 'x\n' | "${se_env[@]}" MMO_ALLOW_ENV_FILES=1 bash "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --repo "$SE" --timeout 30 >/dev/null 2>&1 \
+  || fail 'MMO_ALLOW_ENV_FILES=1 opts out of the refusal'
+rm "$SE/.env.local"; : > "$seen"
+for runner in claude codex grok agy; do
+  printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-$runner.sh" --mode implement --repo "$SE" --timeout 30 >/dev/null 2>"$WORK/secret.err" \
+    || fail "run-$runner runs in a repo without env files: $(cat "$WORK/secret.err")"
+  exact_line "$seen" "$runner unset" "run-$runner scrubs an unlisted variable from the leg environment"
+done
+: > "$seen"
+printf 'x\n' | "${se_env[@]}" MMO_LEG_ENV='STUB_* LEG_SECRET' bash "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --repo "$SE" --timeout 30 >/dev/null 2>&1 \
+  || fail 'run-codex runs with MMO_LEG_ENV additions'
+exact_line "$seen" 'codex leak' 'MMO_LEG_ENV passes a listed variable through'
+rc=0; MMO_LEG_ENV='BAD-NAME' mmo_leg_env -- true 2>/dev/null || rc=$?
+[ "$rc" -eq 2 ] || fail "an invalid MMO_LEG_ENV name is rejected (got $rc)"
+pass 'Legs refuse untracked .env files and run with a scrubbed environment'
 
 # --- pool.sh: pick filters and orders; run falls through unavailable workers ---
 POOL="$PLUGIN_ROOT/scripts/pool.sh"

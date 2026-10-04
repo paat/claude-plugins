@@ -25,6 +25,7 @@ EOF
   export PATH="$work/bin:$PATH" XDG_DATA_HOME="$work/data"
   export TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1
   export FIXTURE_STDOUT="$work/stdout" FIXTURE_STDERR="$work/stderr"
+  export TRIBUNAL_LEG_ENV='FIXTURE_*'
   unset TRIBUNAL_DIAGNOSTIC_TAILS
   cd "$work"
   for provider in deepseek glm; do

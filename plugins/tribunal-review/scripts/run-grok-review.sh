@@ -55,6 +55,8 @@ CONTEXT_FILE="$TMPDIR/context.md"
 PROMPT_FILE="$TMPDIR/prompt.md"
 FINALIZE_PROMPT="$TMPDIR/finalize.md"
 REPO_ROOT="$(tribunal_repo_root)"
+WALK_ROOT="$(tribunal_walk_root "$TMPDIR/walk")" \
+  || { tribunal_error grok "cannot prepare a checkout without the repository's untracked .env files"; exit 0; }
 tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error grok "cannot diff against $BASE_REF"; exit 0; }
 DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
 [ -s "$DIFF_FILE" ] || { tribunal_empty grok "$GROK_MODEL" "$BASE_REF" "$DIFF_STAT"; exit 0; }
@@ -208,7 +210,7 @@ run_grok() {
     --no-subagents --no-plan --no-memory \
     --max-turns "$max_turns" \
     "${session_args[@]}" \
-    --cwd "$REPO_ROOT" --prompt-file "$prompt" \
+    --cwd "$WALK_ROOT" --prompt-file "$prompt" \
     > "$out" 2> "$err"
 }
 
