@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ "${TRIBUNAL_QWEN:-off}" != "on" ]; then tribunal_disabled qwen "Qwen leg disabled (default off, issue #46); set TRIBUNAL_QWEN=on to enable"; exit 0; fi
 command -v qwen >/dev/null 2>&1 || { tribunal_error qwen "Qwen CLI not on PATH"; exit 0; }
+QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.8-max}"
 
 BASE_REF="$(tribunal_base_ref)"
 TMPDIR="$(mktemp -d)" || exit 1
@@ -14,13 +15,13 @@ CONTEXT_FILE="$TMPDIR/context.md"
 REPO_ROOT="$(tribunal_repo_root)"
 tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error qwen "cannot diff against $BASE_REF"; exit 0; }
 DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
-[ -s "$DIFF_FILE" ] || { tribunal_empty qwen "${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}" "$BASE_REF" "$DIFF_STAT"; exit 0; }
+[ -s "$DIFF_FILE" ] || { tribunal_empty qwen "$QWEN_MODEL" "$BASE_REF" "$DIFF_STAT"; exit 0; }
 tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
 PROMPT_FILE="$TMPDIR/prompt.md"
 tribunal_review_prompt qwen "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROMPT_FILE"
 
 rc=0
-printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 qwen --model "${TRIBUNAL_QWEN_MODEL:-qwen3.7-plus}" -p "$(cat "$PROMPT_FILE")" --yolo -o json > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
+printf '%s\n' "$(cat "$DIFF_FILE")" | timeout -k 10 600 qwen --model "$QWEN_MODEL" -p "$(cat "$PROMPT_FILE")" --yolo -o json > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
 if [ "$rc" -eq 0 ]; then
   response="$(jq -r '
     if type == "array" then
@@ -44,6 +45,9 @@ if [ "$rc" -eq 0 ]; then
         .model // .message.model // empty
       else empty end
     ' "$TMPDIR/out.txt" 2>/dev/null || true)"
+    [ -z "$actual_model" ] || [ "${actual_model##*/}" = "${QWEN_MODEL##*/}" ] \
+      || printf 'qwen: requested %s but qwen-code ran %s; list %s under modelProviders.openai in ~/.qwen/settings.json\n' \
+        "$QWEN_MODEL" "$actual_model" "$QWEN_MODEL" >&2
     printf '%s' "$json" \
       | tribunal_emit_review qwen "" "$TMPDIR/out.txt" "$TMPDIR/err.txt" "$rc" \
       | tribunal_stamp_executed_model qwen "$actual_model" "$TMPDIR/out.txt" "$TMPDIR/err.txt" "$rc" \

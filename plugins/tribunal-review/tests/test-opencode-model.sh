@@ -44,7 +44,7 @@ EOF
     export TRIBUNAL_DEEPSEEK=off TRIBUNAL_GLM=off
     provider=deepseek
     case "$scenario" in
-      deepseek-default) expected=deepseek/deepseek-v4-pro ;;
+      deepseek-default) expected=deepseek/deepseek-flash ;;
       deepseek-override)
         expected=custom/deepseek-review
         export TRIBUNAL_DEEPSEEK_MODEL="$expected"

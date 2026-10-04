@@ -4,7 +4,7 @@ set -u
 
 # Shared by the OpenCode runner and preflight registry check.
 tribunal_deepseek_model() {
-  printf '%s\n' "${TRIBUNAL_DEEPSEEK_MODEL:-deepseek/deepseek-v4-pro}"
+  printf '%s\n' "${TRIBUNAL_DEEPSEEK_MODEL:-deepseek/deepseek-flash}"
 }
 
 # Per-environment APPROVE floor (issue #519). Unset/empty ⇒ 1; otherwise an

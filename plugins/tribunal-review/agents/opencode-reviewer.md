@@ -29,7 +29,7 @@ This standalone agent covers the **opt-in GLM leg only**; neither OpenCode leg r
   read-only via `--agent plan`, **diff-only** (no tools), from a non-repo scratch dir.
 
 The DeepSeek leg is documented separately in `deepseek-reviewer.md`. When enabled with
-`TRIBUNAL_DEEPSEEK=on`, it defaults to `deepseek/deepseek-v4-pro` on the direct DeepSeek API,
+`TRIBUNAL_DEEPSEEK=on`, it defaults to `deepseek/deepseek-flash` on the direct DeepSeek API,
 repo-walking and using an independent transport from GLM's `opencode-go` backend (issue #40).
 
 The GLM and DeepSeek legs run **sequentially within one Bash call** (`scripts/run-opencode-review.sh`,

@@ -18,7 +18,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "e839a9375ca77c29a0264f16267368f8e2110af32240b9fb6e2d1226e1bab813"
+      "sha256": "46e9df22cb2b4336d38ff53c4c162a95d614f5fcad3b8d95b1b951842393d8ba"
     },
     {
       "path": "scripts/run-claude-review.sh",
@@ -42,7 +42,7 @@
     },
     {
       "path": "scripts/run-qwen-review.sh",
-      "sha256": "df1327762618cce4b2736acbd89324569387aff99099f4f402d26124202b84c4"
+      "sha256": "7c12ce01bdc3d54f591b49648498b97efb291deb092eb0de3db778c5657b908d"
     }
   ],
   "plugin": "tribunal-review",

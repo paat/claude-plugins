@@ -79,7 +79,7 @@ EOF
                 keys == ["error", "provider"]
                 and (.error | contains("phase=execution; exit=0")
                   and (split(";")[0] == ($p + " leg unavailable: provider rejected model " + "\u0027"
-                    + (if $p == "deepseek" then "deepseek/deepseek-v4-pro" else "opencode-go/glm-5.3" end)
+                    + (if $p == "deepseek" then "deepseek/deepseek-flash" else "opencode-go/glm-5.3" end)
                     + "\u0027 (requires explicit opt-in)"))
                   and (contains("opencode.ai/workspace/") | not) and (contains("wrk_ABC") | not)
                   and (split("; stderr_tail=")[1] | fromjson == "[omitted; set TRIBUNAL_DIAGNOSTIC_TAILS=on]"))
