@@ -2435,46 +2435,56 @@ out=$(CODEX_HOME="$U/codex-trunc" PATH="$U/bin:$PATH" bash "$USAGE_SH")
 case "$out" in *"codex 5h 15% resets"*) ;; *) fail "usage.sh keeps the last complete Codex event despite a truncated line after it: $out" ;; esac
 
 # Newer file mtime must not beat an older file whose last rate_limits event is newer (#577).
+# Mtimes are offsets from now (older file first, both inside 8 days). Event order stays on .timestamp.
 mkdir -p "$U/codex-order/sessions/old" "$U/codex-order/sessions/new"
-printf '{"timestamp":"2026-10-03T12:00:00.500Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":55,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$U/codex-order/sessions/old/rollout-older-mtime.jsonl"
-printf '{"timestamp":"2026-10-01T00:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":10,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$U/codex-order/sessions/new/rollout-newer-mtime.jsonl"
-touch -t 202610010000 "$U/codex-order/sessions/old/rollout-older-mtime.jsonl"
-touch -t 202610031200 "$U/codex-order/sessions/new/rollout-newer-mtime.jsonl"
+order_older_ts='2026-10-03T12:00:00.500Z'
+order_newer_ts='2026-10-01T00:00:00Z'
+printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":55,"window_minutes":300,"resets_at":%s}}}}\n' "$order_older_ts" "$future" > "$U/codex-order/sessions/old/rollout-older-mtime.jsonl"
+printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":10,"window_minutes":300,"resets_at":%s}}}}\n' "$order_newer_ts" "$future" > "$U/codex-order/sessions/new/rollout-newer-mtime.jsonl"
+order_now=$(date +%s)
+touch -d "@$((order_now - 3 * 86400))" "$U/codex-order/sessions/old/rollout-older-mtime.jsonl"
+touch -d "@$((order_now - 86400))" "$U/codex-order/sessions/new/rollout-newer-mtime.jsonl"
 out=$(CODEX_HOME="$U/codex-order" PATH="$U/bin:$PATH" bash "$USAGE_SH")
-expect_asof=$(jq -nr '"2026-10-03T12:00:00Z" | fromdateiso8601 | strftime("%Y-%m-%dT%H:%MZ")')
+expect_asof=$(jq -nr --arg t "$order_older_ts" '$t | sub("\\.[0-9]+"; "") | fromdateiso8601 | strftime("%Y-%m-%dT%H:%MZ")')
+lose_asof=$(jq -nr --arg t "$order_newer_ts" '$t | sub("\\.[0-9]+"; "") | fromdateiso8601 | strftime("%Y-%m-%dT%H:%MZ")')
 case "$out" in *"codex 5h 55% resets "*" as-of ${expect_asof}"*) ;; *) fail "usage.sh as-of follows the newer rate_limits event (want as-of ${expect_asof}): $out" ;; esac
-case "$out" in *"codex 5h 10%"*|*"as-of 2026-10-01T00:00Z"*) fail "usage.sh let the newer-mtime file hide a newer event: $out" ;; esac
+case "$out" in *"codex 5h 10%"*|*"as-of ${lose_asof}"*) fail "usage.sh let the newer-mtime file hide a newer event: $out" ;; esac
 absent "$USAGE_SH" 'date -u -d' 'usage.sh does not format times with GNU date -d'
 absent "$USAGE_SH" 'stat -c' 'usage.sh does not read mtime with GNU stat -c'
 absent "$USAGE_SH" '-printf' 'usage.sh does not list files with GNU find -printf'
 
 # Only the 20 newest rollout files are candidates. A newer event in an older file stays unread.
+# bi=0 is the oldest mtime; each later file is one minute newer, a few hours before now.
 mkdir -p "$U/codex-bound/sessions"
+bound_excluded_ts='2026-10-04T18:00:00Z'
+bound_kept_ts='2026-10-03T08:00:00Z'
+bound_base=$(( $(date +%s) - 4 * 3600 ))
 bi=0
 while [ "$bi" -lt 21 ]; do
   bf="$U/codex-bound/sessions/rollout-$bi.jsonl"
   if [ "$bi" -eq 0 ]; then
-    printf '{"timestamp":"2026-10-04T18:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":99,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$bf"
+    printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":99,"window_minutes":300,"resets_at":%s}}}}\n' "$bound_excluded_ts" "$future" > "$bf"
   elif [ "$bi" -eq 20 ]; then
-    printf '{"timestamp":"2026-10-03T08:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":12,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$bf"
+    printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":12,"window_minutes":300,"resets_at":%s}}}}\n' "$bound_kept_ts" "$future" > "$bf"
   else
     printf '{"timestamp":"2026-10-01T00:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":3,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$bf"
   fi
-  printf -v bstamp '2026100312%02d' "$bi"
-  touch -t "$bstamp" "$bf"
+  touch -d "@$((bound_base + bi * 60))" "$bf"
   bi=$((bi + 1))
 done
 out=$(CODEX_HOME="$U/codex-bound" PATH="$U/bin:$PATH" bash "$USAGE_SH")
-expect_bound=$(jq -nr '"2026-10-03T08:00:00Z" | fromdateiso8601 | strftime("%Y-%m-%dT%H:%MZ")')
+expect_bound=$(jq -nr --arg t "$bound_kept_ts" '$t | sub("\\.[0-9]+"; "") | fromdateiso8601 | strftime("%Y-%m-%dT%H:%MZ")')
+lose_bound=$(jq -nr --arg t "$bound_excluded_ts" '$t | sub("\\.[0-9]+"; "") | fromdateiso8601 | strftime("%Y-%m-%dT%H:%MZ")')
 case "$out" in *"codex 5h 12% resets "*" as-of ${expect_bound}"*) ;; *) fail "usage.sh keeps Codex candidates to the 20 newest files (want 12% as-of ${expect_bound}): $out" ;; esac
-case "$out" in *"codex 5h 99%"*|*"as-of 2026-10-04T18:00Z"*) fail "usage.sh read a rate_limits event outside the 20 newest files: $out" ;; esac
+case "$out" in *"codex 5h 99%"*|*"as-of ${lose_bound}"*) fail "usage.sh read a rate_limits event outside the 20 newest files: $out" ;; esac
 
-# No .timestamp: the newer file mtime wins, and as-of is that mtime.
+# No .timestamp: the newer file mtime wins, and as-of is that mtime (still inside 8 days).
 mkdir -p "$U/codex-mtime/sessions"
 printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":77,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$U/codex-mtime/sessions/rollout-old.jsonl"
 printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":33,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$U/codex-mtime/sessions/rollout-new.jsonl"
-touch -t 202610020100 "$U/codex-mtime/sessions/rollout-old.jsonl"
-touch -t 202610031530 "$U/codex-mtime/sessions/rollout-new.jsonl"
+mtime_now=$(date +%s)
+touch -d "@$((mtime_now - 2 * 86400))" "$U/codex-mtime/sessions/rollout-old.jsonl"
+touch -d "@$((mtime_now - 86400))" "$U/codex-mtime/sessions/rollout-new.jsonl"
 out=$(CODEX_HOME="$U/codex-mtime" PATH="$U/bin:$PATH" bash "$USAGE_SH")
 mt_new=$(date -r "$U/codex-mtime/sessions/rollout-new.jsonl" +%s)
 expect_mt=$(jq -nr --argjson t "$mt_new" '$t | strftime("%Y-%m-%dT%H:%MZ")')
