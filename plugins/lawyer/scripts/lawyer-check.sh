@@ -79,7 +79,11 @@ else
 
   # Match feed events against registered rt_ids (domain ignored — rt_id is identity).
   rt_ids_json=$(printf '%s\n' "$RT_IDS" | jq -R . | jq -s .)
-  matched=$(printf '%s' "$events" | jq -c --argjson rts "$rt_ids_json" '[.[] | select(.rt_id as $r | $rts | index($r))]') || matched='[]'
+  matched=$(printf '%s' "$events" | jq -c --argjson rts "$rt_ids_json" '[.[] | select(.rt_id as $r | $rts | index($r))]') || {
+    matched='[]'
+    # A failed match is not an empty page: keep the cursor so the event is not skipped.
+    feed_add_reason "feed item match failed"
+  }
 
   # Re-detection while an issue is open (gh_issue_url != null) updates change info
   # but does NOT re-create an issue — surfaced as a reminder elsewhere.

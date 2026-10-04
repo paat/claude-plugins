@@ -190,6 +190,17 @@ test_feed_cursor() {
   feed_cursor_run
   feed_cursor_check "feed schema-invalid body (items not an array) is unproven" 1 kept clean
 
+  # A non-object item makes the rt_id match fail. That must not become an empty
+  # match that advances the cursor and drops the sibling event.
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  feed_cursor_reset
+  feed_cursor_body "$(jq -n '{
+    partial: false, warnings: [], total: 2,
+    items: [42, {id:7, rt_id:"456", change_type:"amendment", detected_at:"2026-09-02T00:00:00Z", effective_date:"2026-10-01", description:"Observed amendment"}]
+  }')"
+  feed_cursor_run
+  feed_cursor_check "feed items mixing a non-object with a matching event keep the cursor" 1 kept clean
+
   FEED_CODE=503 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
   feed_cursor_reset
   feed_cursor_body "$(feed_cursor_item)"
