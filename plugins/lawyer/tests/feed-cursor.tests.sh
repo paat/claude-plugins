@@ -24,8 +24,19 @@ case "$url" in
     if [ "${FEED_RC:-0}" -ne 0 ]; then
       exit "$FEED_RC"
     fi
+    if [ -n "${FEED_URL_LOG:-}" ]; then
+      printf '%s\n' "$url" >> "$FEED_URL_LOG"
+    fi
     if [ -n "${FEED_BODY_FILE:-}" ]; then
       body=$(cat "$FEED_BODY_FILE")
+      if [ -n "${FEED_CALLS:-}" ]; then
+        n=$(cat "$FEED_CALLS" 2>/dev/null || echo 0)
+        n=$((n + 1))
+        printf '%s' "$n" > "$FEED_CALLS"
+        if [ "$n" -ge 2 ] && [ -n "${FEED_BODY_FILE2:-}" ]; then
+          body=$(cat "$FEED_BODY_FILE2")
+        fi
+      fi
     else
       body=""
     fi
@@ -79,6 +90,9 @@ feed_cursor_run() {
       EST_DATALAKE_API_KEY=synthetic-key \
       DATALAKE_URL=https://example.invalid \
       FEED_BODY_FILE="$feed_dir/feed.json" \
+      FEED_BODY_FILE2="${FEED_BODY_FILE2:-}" \
+      FEED_CALLS="${FEED_CALLS:-}" \
+      FEED_URL_LOG="${FEED_URL_LOG:-}" \
       FEED_CODE="${FEED_CODE:-200}" \
       FEED_RC="${FEED_RC:-0}" \
       FEED_SLEEP="${FEED_SLEEP:-0}" \
@@ -249,6 +263,58 @@ test_feed_cursor() {
   }' > "$feed_dir/feed.json"
   feed_cursor_run
   feed_cursor_check "feed page under limit 500 is proven coverage" 0 advanced flagged
+
+  # Order and whether `since` is inclusive are undocumented, so two full pages
+  # must not move the cursor. The second mock call is the next slice; the
+  # WARNING has to say the window is saturated and cannot advance.
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  FEED_BODY_FILE2="$feed_dir/feed-next.json"
+  FEED_CALLS="$feed_dir/calls"
+  FEED_URL_LOG="$feed_dir/urls"
+  printf '0' > "$feed_dir/calls"
+  : > "$feed_dir/urls"
+  feed_cursor_reset
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: (if . == 0 then 7 else . end),
+      rt_id: (if . == 0 then "456" else "999" end),
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "page"
+    }]
+  }' > "$feed_dir/feed.json"
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: (if . == 0 then 8 else (1000 + .) end),
+      rt_id: (if . == 0 then "456" else "998" end),
+      change_type: "amendment",
+      detected_at: "2026-09-15T00:00:00Z",
+      effective_date: "2026-11-01",
+      description: "Next slice"
+    }]
+  }' > "$feed_dir/feed-next.json"
+  feed_cursor_run
+  sat_rc1=$feed_rc
+  sat_err1=$(cat "$feed_dir/stderr")
+  feed_cursor_run
+  sat_ok=0
+  sat_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$sat_rc1" -eq 1 ] || sat_ok=1
+  [ "$feed_rc" -eq 1 ] || sat_ok=1
+  [ "$sat_cursor" = "2026-09-01T00:00:00Z" ] || sat_ok=1
+  grep -qF 'window is saturated and cannot advance' <<<"$sat_err1" || sat_ok=1
+  grep -qF 'window is saturated and cannot advance' "$feed_dir/stderr" || sat_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" || sat_ok=1
+  [ "$(grep -c 'since=2026-09-01T00:00:00Z' "$feed_dir/urls")" -eq 2 ] || sat_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.feed_event_id == 8 and .change.summary == "Next slice"' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || sat_ok=1
+  jq -e '.entries["pending-law"] | .needs_review == true and .change.summary == "Pending review"' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || sat_ok=1
+  record "feed two full pages stay saturated and cannot advance" "$sat_ok" "rc1=$sat_rc1 rc2=$feed_rc cursor=$sat_cursor urls=$(tr '\n' ' ' < "$feed_dir/urls") stderr1=$(tr '\n' ' ' <<<"$sat_err1") stderr2=$(tr '\n' ' ' < "$feed_dir/stderr")"
+  unset FEED_BODY_FILE2 FEED_CALLS FEED_URL_LOG
 
   rm -rf "$feed_dir"
 }

@@ -70,7 +70,9 @@ else
       [ "$partial_flag" = "yes" ] && feed_add_reason "partial"
       [ "$warn_flag" = "yes" ] && feed_add_reason "warnings"
       if [ "$item_count" -ge "$FEED_LIMIT" ]; then
-        feed_add_reason "full page (limit=${FEED_LIMIT}, no continuation parameter)"
+        # Item order and whether since is inclusive are undocumented, so a full
+        # page must not move last_feed_check_at past events this page did not return.
+        feed_add_reason "window is saturated and cannot advance (limit=${FEED_LIMIT}, no continuation parameter)"
       fi
     fi
   fi

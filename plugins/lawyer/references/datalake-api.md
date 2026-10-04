@@ -68,8 +68,9 @@ URL-encodes the superscript.
 - `GET /changes/feed` — optional `since` (ISO), `limit`, `domain` where domain
   is exactly one of `law` or `distress` (omit to mix). Label mixed events by
   `event_key` prefix `law:` / `distress:`. Respect `partial` and `warnings`.
-  No offset, cursor, or next-page parameter is documented; a page that fills
-  `limit` is not proven-complete.
+  No offset, cursor, or next-page parameter is documented, and neither item
+  order nor whether `since` is inclusive is documented; a page that fills
+  `limit` is not proven-complete and that saturated window cannot advance.
 - `GET /changes/{change_id}/impact`
 
 ## Company diligence
