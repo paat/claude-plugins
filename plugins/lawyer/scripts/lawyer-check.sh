@@ -6,7 +6,7 @@
 set -uo pipefail
 source "$(dirname "$0")/lawyer-common.sh"
 
-lawyer_registry_init
+[ -f "$REGISTRY" ] || { echo "Registry is empty; nothing to check."; exit 0; }
 
 # One feed call per run: query without ?domain= and match client-side by rt_id.
 # The server's ?domain= enum doesn't match the plugin's historical domain strings.

@@ -61,7 +61,7 @@ Load a specialist skill only when its own Triggers fire. Never load all by defau
 | Skill | Load when |
 |-------|-----------|
 | `product-discovery` | Evidence gap or growth strategy assets missing under discovery path |
-| `lawyer` | Tier-A legal/compliance claim or Estonian/EU legal risk on the changed surface |
+| `lawyer` (`lawyer` plugin; not installed → legal verdict stays `needs-human`) | Tier-A legal/compliance claim or Estonian/EU legal risk on the changed surface |
 | `ux-review` | UI audit request or pre-merge UI design-review |
 | `product-acceptance` | Independent post-build QA / go-live judgment (never the implementer) |
 | `growth` | Explicit growth objective after product exists (or prelive staging) |

@@ -3,11 +3,11 @@ set -euo pipefail
 
 # Offline guards for datalake routing/API refs and size budgets.
 
-PLUGIN_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$PLUGIN_ROOT/../.." && pwd)"
 SKILL="$PLUGIN_ROOT/skills/lawyer/SKILL.md"
-ROUTING="$PLUGIN_ROOT/references/lawyer/datalake-routing.md"
-API="$PLUGIN_ROOT/references/lawyer/datalake-api.md"
+ROUTING="$PLUGIN_ROOT/references/datalake-routing.md"
+API="$PLUGIN_ROOT/references/datalake-api.md"
 AGENT="$PLUGIN_ROOT/agents/lawyer.md"
 CLAUDE_PLUGIN="$PLUGIN_ROOT/.claude-plugin/plugin.json"
 CODEX_PLUGIN="$PLUGIN_ROOT/.codex-plugin/plugin.json"
@@ -117,7 +117,7 @@ fi
 # Three-way version parity
 claude_ver=$(jq -r '.version' "$CLAUDE_PLUGIN")
 codex_ver=$(jq -r '.version' "$CODEX_PLUGIN")
-market_ver=$(jq -r '.plugins[] | select(.name=="saas-startup-team") | .version' "$MARKETPLACE")
+market_ver=$(jq -r '.plugins[] | select(.name=="lawyer") | .version' "$MARKETPLACE")
 if [[ -z "$claude_ver" || "$claude_ver" != "$codex_ver" || "$claude_ver" != "$market_ver" ]]; then
   echo "FAIL: version mismatch claude=$claude_ver codex=$codex_ver marketplace=$market_ver"
   exit 1

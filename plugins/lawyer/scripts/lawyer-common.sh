@@ -13,6 +13,7 @@ LAWS_DIR=".startup/laws"
 
 # Ensure the registry file exists (schema v2). Missing file is fine — created here.
 lawyer_registry_init() {
+  mkdir -p "${REGISTRY%/*}"
   [ -f "$REGISTRY" ] || echo '{"version":2,"last_feed_check_at":null,"entries":{}}' > "$REGISTRY"
 }
 

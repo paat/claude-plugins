@@ -17,7 +17,6 @@ Independent Review → Release, with bounded maintenance and domain gates.
 | `lifecycle` | `/startup` — intake, discovery only on evidence gaps, triggered specialists, deliver |
 | `deliver` | `/improve`, `/goal-deliver`, `/tweak`, startup implementation |
 | `product-discovery` / `product-acceptance` | Requirements and independent go-live judgment |
-| `lawyer` | Legal/compliance; evidence tiers; UNVERIFIABLE is not disproven |
 | `growth` | Lifecycle-gated acquisition within spend envelope |
 | `ux-review` | Independent usability/a11y; host browser when available |
 | `operate` | `/monitor`, `/investigate`, `/replay-abandoned` |
@@ -54,8 +53,8 @@ runs before write when the host supplies content on blocking PreToolUse; full PI
 is `gate.sh pii` (used by issue filing). Schema/spend pre-write run only when content is
 present so corrective Edits are not blocked on stale on-disk state.
 
-Legal policy remains in `skills/lawyer` — `CONFIRMED` needs Tier A verbatim quotes;
-corpus silence is `UNVERIFIABLE-IN-CORPUS`, never disproof.
+Legal analysis lives in the separate `lawyer` plugin, which owns the verdict schema;
+`gate.sh legal` keeps a byte-identical copy of its `legal-verdict-gate.sh`.
 
 ## Delivery and maintenance
 
@@ -108,8 +107,7 @@ sessions.
 - Claude Code or Codex; `bash` 4+, `git`, `gh`, `jq`, `awk`, `sed`, `python3`,
   `curl`, `npm`/`npx` (optional growth tooling), coreutils
 - Dev container recommended (YOLO mode; container is the security boundary)
-- `/lawyer`: `EST_DATALAKE_API_KEY` and reachable `DATALAKE_URL` (default
-  `https://datalake.r-53.com`)
+- Optional: `lawyer` for `/lawyer` legal analysis (moved out in 1.3.0)
 - Optional: `google-ads-strategist` for Google Ads (always PAUSED at create)
 - Optional: `tribunal-review` for merge-path closing loops
 

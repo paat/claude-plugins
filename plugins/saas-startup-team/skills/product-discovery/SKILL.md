@@ -47,7 +47,7 @@ PRs, merges, deploys, or `active_role`/state authority. Supervisor commits artif
 
 Read scope contract; run discovery only when triggered. Full discovery: market, browsed
 competition, customer language, pricing, Estonian legal as needed → `docs/research/`
-(ASCII filenames; Estonian prose with diacritics). Legal Tier A → `lawyer` skill. Stop
+(ASCII filenames; Estonian prose with diacritics). Legal Tier A → `lawyer` plugin. Stop
 when the decision has enough evidence; no product-wide audit by default.
 
 ## References (on demand)

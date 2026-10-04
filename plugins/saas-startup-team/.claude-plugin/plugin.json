@@ -1,6 +1,6 @@
 {
   "name": "saas-startup-team",
-  "version": "1.2.17",
+  "version": "1.3.0",
   "description": "Portable SaaS delivery: Plan \u2192 Build \u2192 Independent Review with bounded maintenance and deterministic legal/PII/spend/release gates",
   "author": {
     "name": "Andre Paat"
@@ -15,8 +15,6 @@
     "handoff-protocol",
     "iterative-development",
     "role-based-agents",
-    "legal-compliance",
-    "datalake",
     "ux-testing",
     "accessibility",
     "growth",

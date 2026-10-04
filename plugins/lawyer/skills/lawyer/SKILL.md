@@ -1,6 +1,7 @@
 ---
 name: lawyer
 description: "Use for legal compliance, GDPR, privacy, contracts, licensing, Estonian OÜ/e-Residency/EMTA/AKI topics, and SaaS risk."
+argument-hint: "<topic> | register|unregister|ack|ack-all|issue|status|check ..."
 ---
 
 # Legal Consultant
@@ -10,12 +11,40 @@ a licensed attorney. Use risk levels and concrete mitigations, not definitive
 legal opinions. Read only what the decision needs and stop when it has enough
 evidence.
 
+## Invocation
+
+Trailing user text is `$ARGUMENTS`; run from the project root. `$R` below is
+`${CLAUDE_PLUGIN_ROOT}/scripts` (plugin root: two levels above this file).
+
+1. `bash "$R/lawyer-preflight.sh"`; stop on failure.
+2. If the first token is `register`, `unregister`, `ack`, `ack-all`, `issue`,
+   `status`, or `check`, run only its section of the operations reference
+   `../../references/lawyer-operations.md`, report, and stop.
+3. Otherwise run `bash "$R/lawyer-check.sh"` once, apply the disposition below,
+   then the Analysis Workflow.
+4. Before reporting, `bash "$R/legal-verdict-gate.sh" --validate <doc>` for
+   every written document; fix structural failures.
+
+### Non-interactive / autonomous disposition
+
+Non-interactive topic runs report the pending slugs and issue URLs once.
+The flags remain durable in `.startup/law-registry.json`.
+Skip Marker Scan, Invariant Check, gh pre-flight, Fix-Plan Generation,
+Confirmation, and issue creation. Continue directly to the requested analysis.
+Issue creation still requires an explicit subcommand; never ack flags here.
+Topic depends on a flagged slug: re-verify it from Tier A before using it.
+Interactive with unfiled flags: first run only the operations reference's
+`Interactive backlog review`.
+
 ## Scope
 
 Relevant domains include Estonian/EU business law, GDPR/ePrivacy, SaaS
 contracts, consumer rules, marketing, licensing/IP, data processing, and
 sector-specific regulation. Activate only domains named or implicated by the
-request; do not turn one question into a product-wide audit.
+request; do not turn one question into a product-wide audit. Load only the
+relevant topic guide from `../../references/`: `gdpr-compliance.md`,
+`estonian-legal.md`, `saas-contracts.md`, `software-licensing.md`,
+`risk-assessment.md`.
 
 ### Compliance/Risk Product Claim Taxonomy
 
@@ -61,10 +90,10 @@ boundary and move to targeted primary sources; do not retry broadly. A 200 does 
 `in_force == true` before relying on a provision. Municipal/KOV research must
 pass an explicit municipality filter; ordinary law search defaults to state law.
 
-Read `../../references/lawyer/datalake-routing.md` when KOV, courts/case law, enforcement,
+Read `../../references/datalake-routing.md` when KOV, courts/case law, enforcement,
 named-company diligence, change monitoring, grants, political finance, or
 economic context may change the decision. Pure **state-law** statute work skips
-it; municipal/KOV work does not. Read `../../references/lawyer/datalake-api.md` only when
+it; municipal/KOV work does not. Read `../../references/datalake-api.md` only when
 making API calls. Preserve superscript citation qualifiers because a bare digit
 can return a different clause with `200`. Use `--max-time 30`; never print or
 persist credentials. Risk signals (distress, enforcement practice, grants,
@@ -73,13 +102,14 @@ confirmed registry-code links.
 
 ## Analysis Workflow
 
-1. Define the requested decision, claim, or risk. Read only relevant brief
-   sections, named files, and targeted matches.
+1. Define the requested decision, claim, or risk. Read only relevant sections
+   of project context (e.g. `docs/business/brief.md`), named files, and
+   targeted matches. Do not inventory or load the newest files across every docs area.
 2. Query the datalake once for Estonian law, then verify decisive claims at
    Tier A. Use primary EU sources for rules outside the national corpus.
 3. Activate extra research only when the topic needs it. For municipal, courts,
    enforcement, diligence, change-monitor, grants, political finance, or
-   economic evidence, follow `../../references/lawyer/datalake-routing.md`. Also: checklist
+   economic evidence, follow `../../references/datalake-routing.md`. Also: checklist
    for a broad audit; dependencies/code only for licensing/IP implementation.
 4. Stop when the requested decision has enough evidence.
 5. Write one decision-first Estonian `docs/legal/õiguslik-*.md` document by
@@ -131,26 +161,10 @@ YAML block items.
 
 Projects track load-bearing Estonian provisions in
 `.startup/law-registry.json` plus `.startup/laws/<slug>.txt`; source/customer
-files reference them with `LAW: <slug>` markers. The `/lawyer` command owns all
+files reference them with `LAW: <slug>` markers. The registry subcommands own all
 registry writes, change detection, issue creation, and acknowledgement. The
 agent must not edit registry/snapshot files. A citation used only in an
 internal `docs/legal/õiguslik-*.md` report is not load-bearing.
 
-Non-interactive topic runs report the pending slugs once and continue the
-requested analysis without loading that backlog.
-
-For schema, lifecycle, marker, and subcommand details, read
-`../../references/lawyer/law-registry.md` only when registry work is requested.
-
-## Topic references
-
-Load only the relevant guide:
-
-
-## Entrypoint
-
-`lawyer-preflight.sh`; `lawyer-check.sh`; `legal-verdict-gate.sh --validate` (or `gate.sh legal`).
-
-### Non-interactive / autonomous disposition
-
-Print pending count/slugs. Skip Marker Scan, Invariant Check, Conditional gh pre-flight, Fix-Plan Generation, Confirmation, and issue creation. Continue directly to analysis. The flags remain durable in `.startup/law-registry.json`. Issue creation still requires an explicit subcommand. re-verify it from Tier A before using it. Do not inventory or load the newest files across every docs area.
+For schema, lifecycle, and marker details, read
+`../../references/law-registry.md` only when registry work is requested.

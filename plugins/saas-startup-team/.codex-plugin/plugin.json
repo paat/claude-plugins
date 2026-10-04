@@ -1,14 +1,14 @@
 {
   "name": "saas-startup-team",
-  "version": "1.2.17",
-  "description": "Codex-native SaaS startup orchestration using file-based founder handoffs, business research, implementation, growth, legal, UX, and review loops for Estonian SaaS projects.",
+  "version": "1.3.0",
+  "description": "Codex-native SaaS startup orchestration using file-based founder handoffs, business research, implementation, growth, UX, and review loops for Estonian SaaS projects.",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "SaaS Startup Team",
-    "shortDescription": "Codex-native SaaS startup orchestration using file-based founder handoffs, business research, implementation, growth, legal, UX, and review loops for Estonian SaaS projects.",
-    "longDescription": "Codex-native SaaS startup orchestration using file-based founder handoffs, business research, implementation, growth, legal, UX, and review loops for Estonian SaaS projects.",
+    "shortDescription": "Codex-native SaaS startup orchestration using file-based founder handoffs, business research, implementation, growth, UX, and review loops for Estonian SaaS projects.",
+    "longDescription": "Codex-native SaaS startup orchestration using file-based founder handoffs, business research, implementation, growth, UX, and review loops for Estonian SaaS projects.",
     "developerName": "Andre Paat",
     "category": "Development",
     "capabilities": [
@@ -31,8 +31,6 @@
     "handoff-protocol",
     "iterative-development",
     "role-based-agents",
-    "legal-compliance",
-    "datalake",
     "ux-testing",
     "accessibility",
     "growth",

@@ -10,10 +10,9 @@ test_capability_skills_parity() {
   local pa="$PLUGIN_ROOT/skills/product-acceptance/SKILL.md"
   local gr="$PLUGIN_ROOT/skills/growth/SKILL.md"
   local ux="$PLUGIN_ROOT/skills/ux-review/SKILL.md"
-  local law="$PLUGIN_ROOT/skills/lawyer/SKILL.md"
   local del="$PLUGIN_ROOT/skills/deliver/SKILL.md"
 
-  for f in "$pd" "$pa" "$gr" "$ux" "$law" "$del"; do
+  for f in "$pd" "$pa" "$gr" "$ux" "$del"; do
     assert_file_exists "CS: $(basename $(dirname $f)) skill exists" "$f"
   done
 
@@ -26,7 +25,6 @@ test_capability_skills_parity() {
     assert_file_not_contains "CS: no model pin in $(basename $(dirname $skill))" "$skill" 'model:'
   done
 
-  assert_file_contains "CS: lawyer evidence tiers" "$law" 'Evidence-Tier Policy'
   assert_file_contains "CS: growth spend/ads policy" "$gr" 'envelope'
   assert_file_contains "CS: ux evidence contract" "$ux" 'Browser Evidence Contract'
   assert_file_contains "CS: product-acceptance independent" "$pa" 'Independent of the implementation'

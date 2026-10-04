@@ -1,0 +1,33 @@
+{
+  "name": "lawyer",
+  "version": "0.1.0",
+  "description": "On-demand Estonian/EU legal risk analysis for SaaS projects via est-saas-datalake and primary sources, with a law registry that flags load-bearing provisions when they change",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "Lawyer",
+    "shortDescription": "On-demand Estonian/EU legal risk analysis for SaaS projects via est-saas-datalake and primary sources, with a law registry that flags load-bearing provisions when they change",
+    "longDescription": "On-demand Estonian/EU legal risk analysis for SaaS projects via est-saas-datalake and primary sources, with a law registry that flags load-bearing provisions when they change",
+    "developerName": "Andre Paat",
+    "category": "Development",
+    "capabilities": [
+      "Skills",
+      "Scripts"
+    ],
+    "defaultPrompt": "Use the lawyer plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "legal-compliance",
+    "gdpr",
+    "estonia",
+    "datalake",
+    "law-registry",
+    "risk-analysis"
+  ],
+  "skills": "./skills/"
+}

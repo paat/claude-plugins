@@ -118,20 +118,6 @@
       "generate_command_alias": true
     },
     {
-      "name": "lawyer",
-      "command_file": "commands/lawyer.md",
-      "aliases": [
-        "/saas-startup-team:lawyer",
-        "/lawyer"
-      ],
-      "codex_skill": "saas-startup-team-lawyer-workflow",
-      "generate_alias": true,
-      "transitional": true,
-      "canonical": "skills/lawyer/SKILL.md",
-      "description": "On-demand legal analysis via datalake. Usage: /lawyer <topic>",
-      "generate_command_alias": true
-    },
-    {
       "name": "maintain-loop",
       "command_file": "commands/maintain-loop.md",
       "aliases": [

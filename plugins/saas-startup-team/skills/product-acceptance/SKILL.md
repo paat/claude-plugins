@@ -16,7 +16,7 @@ Not a founder persona. No colors, dialogue scripts, model pins, or role-owned st
 4. Maintain deep **product** verdict when the human gate emits `delegate-fable` for
    judgment / production-signoff / customer-communication kinds (not pure legal).
 
-Non-triggers: implementation; pure legal/compliance Tier-A claims (`lawyer` skill —
+Non-triggers: implementation; pure legal/compliance Tier-A claims (`lawyer` plugin —
 maintain routes `delegate-fable:legal` there); pure a11y audits (`ux-review`).
 
 ## Inputs

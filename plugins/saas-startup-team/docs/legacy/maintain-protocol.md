@@ -316,7 +316,7 @@ during delivery (no-progress / deploy-blocked) and recorded with a cooldown.
 default toward delivery, including reversible fixes on visible surfaces. Ambiguity,
 legal or customer-communication judgment, production sign-off, product prioritization
 with no defensible default, or insufficient evidence goes through the deep capability
-verdict (`skills/product-acceptance` for product/judgment/production-signoff; `skills/lawyer` for `legal`); only that full pass may decide
+verdict (`skills/product-acceptance` for product/judgment/production-signoff; `lawyer` plugin skill for `legal`); only that full pass may decide
 `agent-fixable` versus `needs-human`, and it **must** post a GitHub decision comment
 before any park or de-gate (see §Fable decision comments).
 
@@ -359,7 +359,7 @@ apply `needs-human` **only** when the whole issue hinges on:
 - manual external verification that only a human can perform (portal upload, real card,
   ID-card auth) — not "hard repro"
 
-**Delegate deep verdict first** (`skills/product-acceptance` for product/judgment/customer/production-signoff; `skills/lawyer` for legal) — do **not**
+**Delegate deep verdict first** (`skills/product-acceptance` for product/judgment/customer/production-signoff; `lawyer` plugin skill for legal) — do **not**
 park from the light triage / mechanical gate alone — when the issue hinges on:
 
 - legal or customer-communication judgment
@@ -472,7 +472,7 @@ Interpret `.action` — only `park` applies the human label:
 | `exclude-epic` | Do **not** add `needs-human`. If `.remove_needs_human`, remove the label. Cache final state `skipped:epic`. Record digest `.digest`. |
 | `override-cleared` | Do **not** add `needs-human`. If `.remove_needs_human`, remove the label. Do not re-write human-tasks as a fresh park. Cache final state `skipped:human-cleared`. Record `.digest` (`verdict-overridden-by:<login>`). |
 | `reject-not-human` | Do **not** add `needs-human`. If `.remove_needs_human`, remove the label. Treat as mis-triage: keep/re-queue as `agent-fixable` (or re-triage). Cache final state `skipped:not-human-decision`. Record `.digest` (`rejected:not-human-decision`). |
-| `delegate-fable` | Do **not** add `needs-human`. If `.remove_needs_human`, remove a premature label. Route deep verdict by kind: `legal` → `skills/lawyer`; `judgment` / `production-signoff` / customer-communication → `skills/product-acceptance`. Cache interim state `deferred:fable`. Record `.digest` (`delegate-fable:<kind>`). The specialist **must** post a GH `<!-- fable:decision:N -->` comment before any later park or de-gate. |
+| `delegate-fable` | Do **not** add `needs-human`. If `.remove_needs_human`, remove a premature label. Route deep verdict by kind: `legal` → `lawyer` plugin skill (not installed → `needs-human`); `judgment` / `production-signoff` / customer-communication → `skills/product-acceptance`. Cache interim state `deferred:fable`. Record `.digest` (`delegate-fable:<kind>`). The specialist **must** post a GH `<!-- fable:decision:N -->` comment before any later park or de-gate. |
 | `fable-de-gated` | Fable documented `agent-fixable` / `partially-fixable` / `de-gated` via `<!-- fable:decision:N -->`. Do **not** add `needs-human`. If `.remove_needs_human`, remove a premature label. Re-queue / continue delivery as appropriate. Digest `fable-decision:<verdict>:<kind>`. |
 | `park` | Apply `needs-human` + bot comment + human-tasks as today. (Also returned when a matching Fable decision comment records `Verdict: needs-human` — digest `fable-decision:needs-human:<kind>`.) |
 | `no-op` | Caller used a non-`needs-human` verdict; re-invoke with `--verdict needs-human` for residual parks. |

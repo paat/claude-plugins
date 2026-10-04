@@ -241,28 +241,14 @@ def measure(plugin_root: Path, budget: dict[str, Any]) -> dict[str, int]:
         if base.is_dir():
             runtime.extend(p for p in base.rglob("*.md") if is_regular_file(p))
 
-    total_excl = budget.get("exclusions", {}).get("total_md_sh_excl_tests_docs", {})
-    excl = total_excl.get("exclude_top_level_dirs", ["tests", "docs"])
-    if not isinstance(excl, list) or not all(isinstance(x, str) for x in excl):
-        raise ValueError("exclusions.total_md_sh_excl_tests_docs.exclude_top_level_dirs invalid")
-    exclude_set = set(excl)
-    exclude_root_files = total_excl.get("exclude_root_files", ["CLAUDE.md", "AGENTS.md"])
-    if not isinstance(exclude_root_files, list) or not all(
-        isinstance(x, str) for x in exclude_root_files
-    ):
-        raise ValueError("exclusions.total_md_sh_excl_tests_docs.exclude_root_files invalid")
-    exclude_root_set = set(exclude_root_files)
-
+    total_excl = _total_exclusions(budget)
     total_files: list[Path] = []
     for p in plugin_root.rglob("*"):
         if not is_regular_file(p):
             continue
         if p.suffix not in {".md", ".sh"}:
             continue
-        rel = p.relative_to(plugin_root)
-        if rel.parts and rel.parts[0] in exclude_set:
-            continue
-        if len(rel.parts) == 1 and rel.name in exclude_root_set:
+        if _excluded_from_total(p.relative_to(plugin_root).parts, total_excl):
             continue
         total_files.append(p)
 
@@ -370,8 +356,34 @@ def _git_show_bytes(repo_root: Path, rev: str, path: str) -> bytes | None:
     return proc.stdout
 
 
+def _total_exclusions(budget: dict[str, Any]) -> tuple[set[str], set[str]]:
+    """(top-level dirs, root files) excluded from total_md_sh_excl_tests_docs."""
+    total_excl = budget.get("exclusions", {}).get("total_md_sh_excl_tests_docs", {})
+    excl = total_excl.get("exclude_top_level_dirs", ["tests", "docs"])
+    if not isinstance(excl, list) or not all(isinstance(x, str) for x in excl):
+        raise ValueError("exclusions.total_md_sh_excl_tests_docs.exclude_top_level_dirs invalid")
+    exclude_root_files = total_excl.get("exclude_root_files", ["CLAUDE.md", "AGENTS.md"])
+    if not isinstance(exclude_root_files, list) or not all(
+        isinstance(x, str) for x in exclude_root_files
+    ):
+        raise ValueError("exclusions.total_md_sh_excl_tests_docs.exclude_root_files invalid")
+    return set(excl), set(exclude_root_files)
+
+
+def _excluded_from_total(
+    parts: tuple[str, ...], total_excl: tuple[set[str], set[str]]
+) -> bool:
+    exclude_dirs, exclude_root_files = total_excl
+    if parts and parts[0] in exclude_dirs:
+        return True
+    return len(parts) == 1 and parts[0] in exclude_root_files
+
+
 def _metrics_for_plugin_rel(
-    rel_plugin: str, path: str, content: bytes | None = None
+    rel_plugin: str,
+    path: str,
+    content: bytes | None,
+    total_excl: tuple[set[str], set[str]],
 ) -> list[str]:
     """Map a former plugin path to the metrics it contributed to."""
     # path is repo-relative like plugins/saas-startup-team/scripts/x.sh
@@ -379,7 +391,9 @@ def _metrics_for_plugin_rel(
     if not path.startswith(prefix):
         return []
     inner = path[len(prefix) :]
-    metrics: list[str] = ["total_md_sh_excl_tests_docs"]
+    metrics: list[str] = []
+    if not _excluded_from_total(tuple(inner.split("/")), total_excl):
+        metrics.append("total_md_sh_excl_tests_docs")
     if inner.startswith("scripts/") and inner.endswith(".sh"):
         metrics.append("scripts_sh_loc")
     if inner.startswith("agents/") and inner.endswith(".md"):
@@ -507,13 +521,17 @@ def detect_undeclared_extractions(
     needed_by_metric: dict[str, int] = {mid: 0 for mid in METRIC_IDS}
     extracted_paths: list[str] = []
     seen_old: set[str] = set()
+    total_excl = _total_exclusions(budget)
 
     def charge(old: str, new: str, data: bytes) -> None:
         if old in seen_old:
             return
         seen_old.add(old)
+        metrics = _metrics_for_plugin_rel(rel_plugin, old, data, total_excl)
+        if not metrics:
+            return
         loc = data.count(b"\n") if data else 0
-        for mid in _metrics_for_plugin_rel(rel_plugin, old, data):
+        for mid in metrics:
             needed_by_metric[mid] += loc
         extracted_paths.append(f"{old} -> {new} ({loc} loc)")
 

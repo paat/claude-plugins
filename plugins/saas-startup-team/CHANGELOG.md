@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0 — 2026-10-04
+- Breaking: `/lawyer`, the `lawyer` skill/agent, law-registry scripts, and their
+  references/tests move to the separate `lawyer` plugin. Install
+  `lawyer@paat-plugins` to keep `/lawyer`; existing `.startup/law-registry.json`
+  files work unchanged. `gate.sh legal` stays here with a byte-identical copy of
+  `legal-verdict-gate.sh`.
+
 ## 1.2.9 — 2026-07-30
 - delivery-route: ignore repository-tooling checkout and implementation-contract phrases (#418).
 

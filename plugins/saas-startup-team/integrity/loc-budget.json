@@ -99,7 +99,12 @@
   },
   "extracted_packages": {
     "policy": "declare_or_count",
-    "declared_siblings": [],
+    "declared_siblings": [
+      {"metric_id": "scripts_sh_loc", "loc": 758, "path": "plugins/lawyer"},
+      {"metric_id": "agents_md_loc", "loc": 71, "path": "plugins/lawyer"},
+      {"metric_id": "runtime_prompt_surface_loc", "loc": 227, "path": "plugins/lawyer"},
+      {"metric_id": "total_md_sh_excl_tests_docs", "loc": 2096, "path": "plugins/lawyer"}
+    ],
     "notes": "Runtime code moved to sibling packages or out of the plugin path must be listed in declared_siblings with metric_id and loc; undeclared extractions fail the gate. Declared sibling LOC is added to the named metric before ratchet checks."
   },
   "enforcement": {
