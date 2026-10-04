@@ -13,8 +13,9 @@ exit 75. Not before every leg.
 - Claude elsewhere: `${CLAUDE_PLUGIN_ROOT}/scripts/usage.sh --claude-log <newest run-claude.sh
   --stream-log>` (free); with no such log and Claude legs allowed or Claude as host, add
   `--probe-claude` (one tiny call).
-- Codex: `usage.sh` reads the newest Codex session log (free). Its `as-of` may be hours old; a
-  window whose reset passed since then reads 0%.
+- Codex: `usage.sh` reads the newest `rate_limits` event among the 20 newest session logs from
+  the last 8 days (free). `as-of` is that event's timestamp and may be hours old; a window whose
+  reset passed since then reads 0%.
 - agy: `usage.sh` asks its local `/usage` command (free).
 - Grok, or any provider printing `unknown`: no constraint; exit 75 handling in
   `leg-liveness.md` still applies.

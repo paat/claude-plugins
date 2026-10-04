@@ -51,6 +51,14 @@ reject_review_verdict '* APPROVE' 'Asterisk list-item bare verdict rejected'
 reject_review_verdict '> VERDICT: APPROVE' 'Blockquote verdict rejected'
 reject_review_verdict '| VERDICT | APPROVE |' 'Table verdict rejected'
 reject_review_verdict 'VERDICT: NEEDS_WORK — two issues remain.' 'Verdict with trailing prose rejected'
+assert_review_verdict '**VERDICT: APPROVE.**' 'Bold VERDICT with one trailing period accepted'
+assert_review_verdict 'VERDICT: NEEDS_WORK.' 'VERDICT: NEEDS_WORK with one trailing period accepted'
+printf '%s\n' '**VERDICT: APPROVE.**' > "$WORK/review-verdict.txt"
+[ "$(mmo_terminal_verdict "$WORK/review-verdict.txt")" = APPROVE ] || fail 'trailing period classifies as APPROVE'
+printf '%s\n' 'VERDICT: NEEDS_WORK.' > "$WORK/review-verdict.txt"
+[ "$(mmo_terminal_verdict "$WORK/review-verdict.txt")" = NEEDS_WORK ] || fail 'trailing period classifies as NEEDS_WORK'
+reject_review_verdict 'I approve.' 'Prose ending in approve. rejected'
+reject_review_verdict 'VERDICT: APPROVE..' 'Two trailing periods rejected'
 reject_review_verdict '' 'Empty verdict rejected'
 reject_review_verdict 'I would approve this if the tests passed' 'Conditional approval prose rejected'
 reject_review_verdict 'This needs work before merge' 'NEEDS WORK prose rejected'
@@ -353,6 +361,9 @@ case "${STUB_GROK_RESULT:-ok}" in
   approved) printf 'grok findings\nAPPROVED\n' ;;
   needs_work_space) printf 'grok findings\nNEEDS WORK\n' ;;
   prose_approve) printf 'This section still needs work before ship.\n' ;;
+  # Plain Grok joins assistant messages with no newline (#597).
+  glued_verdict) printf '%s' 'The suites passed. Next I will execute touching the worktree.VERDICT: NEEDS_WORK' ;;
+  glued_prose) printf '%s' 'Ship it.I approve.' ;;
   *) printf 'grok findings\nAPPROVE\n' ;;
 esac
 STUB
@@ -578,8 +589,37 @@ printf x | STUB_GROK_RESULT=prose_approve "$PLUGIN_ROOT/scripts/run-grok.sh" --m
 rc=$?
 set -e
 [ "$rc" -eq 6 ] || fail "Grok prose needs-work exit was $rc want 6"
+set +e
+out="$(printf x | STUB_GROK_RESULT=glued_verdict "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
+  --out "$WORK/grok-glued.txt" 2> "$WORK/grok-glued.err")"
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "Grok glued VERDICT exit was $rc want 0 ($(cat "$WORK/grok-glued.err"))"
+grep -qx 'VERDICT: NEEDS_WORK' "$WORK/grok-glued.txt" || fail 'Grok final output puts a glued verdict on its own line'
+rc=0
+gout="$(bash "$PLUGIN_ROOT/scripts/review-gate.sh" --leg grok="$WORK/grok-glued.txt")" || rc=$?
+[ "$rc" -eq 1 ] && [ "$gout" = NEEDS_WORK ] || fail "gate reads a glued Grok verdict (got $rc/$gout)"
+set +e
+printf x | STUB_GROK_RESULT=glued_prose "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
+  --out "$WORK/grok-glued-prose.txt" >/dev/null 2> "$WORK/grok-glued-prose.err"
+rc=$?
+set -e
+[ "$rc" -eq 6 ] || fail "Grok glued 'I approve.' exit was $rc want 6"
+# Implement and research legs are probe reviews too: the same glued line must reach the gate (#597).
+set +e
+out="$(printf x | STUB_GROK_RESULT=glued_verdict "$PLUGIN_ROOT/scripts/run-grok.sh" --mode implement --repo "$WORK/repo" \
+  --out "$WORK/grok-glued-impl.txt" 2> "$WORK/grok-glued-impl.err")"
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "Grok implement glued VERDICT exit was $rc want 0 ($(cat "$WORK/grok-glued-impl.err"))"
+grep -qx 'VERDICT: NEEDS_WORK' "$WORK/grok-glued-impl.txt" || fail 'implement-mode Grok output puts a glued verdict on its own line'
+rc=0
+gout="$(bash "$PLUGIN_ROOT/scripts/review-gate.sh" --leg grok="$WORK/grok-glued-impl.txt")" || rc=$?
+[ "$rc" -eq 1 ] && [ "$gout" = NEEDS_WORK ] || fail "gate reads an implement-mode glued Grok verdict (got $rc/$gout)"
 pass 'Verdict-format rejection preserves body in --out and stdout'
 pass 'Prose containing approve/needs work mid-sentence still rejected'
+pass 'Grok plain output separates a glued trailing verdict before the gate reads it'
+pass 'Implement-mode Grok output separates a glued trailing verdict before the gate reads it'
 
 mkdir -p "$WORK/out-dest"
 printf 'codex out dest\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
@@ -2257,7 +2297,19 @@ done
 printf 'the options are:\n* NEEDS_WORK\n* APPROVE\n\nall fine\n\nAPPROVE\n' > "$gate_dir/quoted.txt"
 out="$(bash "$GATE" --leg codex="$gate_dir/quoted.txt")" || fail 'quoted options with terminal APPROVE approves'
 [ "$out" = APPROVE ] || fail "terminal verdict decides the leg (got $out)"
+printf '%s\n' '**VERDICT: APPROVE.**' > "$gate_dir/approve-period.txt"
+out="$(bash "$GATE" --leg claude="$gate_dir/approve-period.txt")" || fail 'gate accepts **VERDICT: APPROVE.**'
+[ "$out" = APPROVE ] || fail "gate APPROVE. got $out"
+printf '%s\n' 'VERDICT: NEEDS_WORK.' > "$gate_dir/needs-period.txt"
+rc=0
+out="$(bash "$GATE" --leg claude="$gate_dir/needs-period.txt")" || rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = NEEDS_WORK ] || fail "gate NEEDS_WORK. got $rc/$out"
+printf '%s\n' 'I approve.' > "$gate_dir/i-approve.txt"
+rc=0
+bash "$GATE" --leg claude="$gate_dir/i-approve.txt" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "gate rejects 'I approve.' (got $rc)"
 pass 'review-gate: the local engine can never be the only reviewer'
+pass 'review-gate accepts one trailing period and still rejects prose'
 
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
   'review-gate.sh' 'review-prompts points at the enforced gate'
@@ -2381,6 +2433,53 @@ mkdir -p "$U/codex-trunc/sessions/2026/01/01"
 printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":15,"window_minutes":300,"resets_at":%s}}}}\n{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_pe' "$future" > "$U/codex-trunc/sessions/2026/01/01/rollout-a.jsonl"
 out=$(CODEX_HOME="$U/codex-trunc" PATH="$U/bin:$PATH" bash "$USAGE_SH")
 case "$out" in *"codex 5h 15% resets"*) ;; *) fail "usage.sh keeps the last complete Codex event despite a truncated line after it: $out" ;; esac
+
+# Newer file mtime must not beat an older file whose last rate_limits event is newer (#577).
+mkdir -p "$U/codex-order/sessions/old" "$U/codex-order/sessions/new"
+printf '{"timestamp":"2026-10-03T12:00:00.500Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":55,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$U/codex-order/sessions/old/rollout-older-mtime.jsonl"
+printf '{"timestamp":"2026-10-01T00:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":10,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$U/codex-order/sessions/new/rollout-newer-mtime.jsonl"
+touch -t 202610010000 "$U/codex-order/sessions/old/rollout-older-mtime.jsonl"
+touch -t 202610031200 "$U/codex-order/sessions/new/rollout-newer-mtime.jsonl"
+out=$(CODEX_HOME="$U/codex-order" PATH="$U/bin:$PATH" bash "$USAGE_SH")
+expect_asof=$(jq -nr '"2026-10-03T12:00:00Z" | fromdateiso8601 | strftime("%Y-%m-%dT%H:%MZ")')
+case "$out" in *"codex 5h 55% resets "*" as-of ${expect_asof}"*) ;; *) fail "usage.sh as-of follows the newer rate_limits event (want as-of ${expect_asof}): $out" ;; esac
+case "$out" in *"codex 5h 10%"*|*"as-of 2026-10-01T00:00Z"*) fail "usage.sh let the newer-mtime file hide a newer event: $out" ;; esac
+absent "$USAGE_SH" 'date -u -d' 'usage.sh does not format times with GNU date -d'
+absent "$USAGE_SH" 'stat -c' 'usage.sh does not read mtime with GNU stat -c'
+absent "$USAGE_SH" '-printf' 'usage.sh does not list files with GNU find -printf'
+
+# Only the 20 newest rollout files are candidates. A newer event in an older file stays unread.
+mkdir -p "$U/codex-bound/sessions"
+bi=0
+while [ "$bi" -lt 21 ]; do
+  bf="$U/codex-bound/sessions/rollout-$bi.jsonl"
+  if [ "$bi" -eq 0 ]; then
+    printf '{"timestamp":"2026-10-04T18:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":99,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$bf"
+  elif [ "$bi" -eq 20 ]; then
+    printf '{"timestamp":"2026-10-03T08:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":12,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$bf"
+  else
+    printf '{"timestamp":"2026-10-01T00:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":3,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$bf"
+  fi
+  printf -v bstamp '2026100312%02d' "$bi"
+  touch -t "$bstamp" "$bf"
+  bi=$((bi + 1))
+done
+out=$(CODEX_HOME="$U/codex-bound" PATH="$U/bin:$PATH" bash "$USAGE_SH")
+expect_bound=$(jq -nr '"2026-10-03T08:00:00Z" | fromdateiso8601 | strftime("%Y-%m-%dT%H:%MZ")')
+case "$out" in *"codex 5h 12% resets "*" as-of ${expect_bound}"*) ;; *) fail "usage.sh keeps Codex candidates to the 20 newest files (want 12% as-of ${expect_bound}): $out" ;; esac
+case "$out" in *"codex 5h 99%"*|*"as-of 2026-10-04T18:00Z"*) fail "usage.sh read a rate_limits event outside the 20 newest files: $out" ;; esac
+
+# No .timestamp: the newer file mtime wins, and as-of is that mtime.
+mkdir -p "$U/codex-mtime/sessions"
+printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":77,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$U/codex-mtime/sessions/rollout-old.jsonl"
+printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":33,"window_minutes":300,"resets_at":%s}}}}\n' "$future" > "$U/codex-mtime/sessions/rollout-new.jsonl"
+touch -t 202610020100 "$U/codex-mtime/sessions/rollout-old.jsonl"
+touch -t 202610031530 "$U/codex-mtime/sessions/rollout-new.jsonl"
+out=$(CODEX_HOME="$U/codex-mtime" PATH="$U/bin:$PATH" bash "$USAGE_SH")
+mt_new=$(date -r "$U/codex-mtime/sessions/rollout-new.jsonl" +%s)
+expect_mt=$(jq -nr --argjson t "$mt_new" '$t | strftime("%Y-%m-%dT%H:%MZ")')
+case "$out" in *"codex 5h 33% resets "*" as-of ${expect_mt}"*) ;; *) fail "usage.sh falls back to file mtime when the event has no timestamp (want 33% as-of ${expect_mt}): $out" ;; esac
+case "$out" in *"codex 5h 77%"*) fail "usage.sh let an older untimestamped rollout win: $out" ;; esac
 
 # agy: local /usage JSON, Gemini buckets only; fractional-second resets parse.
 iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%S; }

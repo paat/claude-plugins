@@ -365,6 +365,14 @@ if [ "$rc" -eq 0 ] && [ ! -s "$output_file" ]; then
   printf 'run-grok: missing or empty final-message artifact: %s\n' "$output_file" >&2
   rc=5
 fi
+# --output-format plain joins assistant messages with no newline in every mode
+# (implement and research probe reviews, not only --mode review). streaming-messages-json
+# can separate them, but that would replace the final-message text the runners and tests
+# already consume. Put a glued trailing verdict on its own line so review-gate can read it.
+# Only --mode review still requires a verdict line.
+if [ "$rc" -eq 0 ] && [ -s "$output_file" ]; then
+  mmo_separate_glued_verdict "$output_file"
+fi
 if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_file"; then
   printf 'run-grok: review completed without APPROVE or NEEDS_WORK\n' >&2
   rc=6

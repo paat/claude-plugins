@@ -8,9 +8,10 @@
 # Verdict check: case-insensitive. A line must be either a bare APPROVE/APPROVED or
 # NEEDS_WORK / NEEDS WORK token, or the same token prefixed by VERDICT:.
 # Markdown headings and bold decoration around the prefix or token are
-# tolerated; empty output and prose containing those words are rejected.
+# tolerated, as is one trailing period (`**VERDICT: APPROVE.**`). Empty output
+# and prose containing those words are rejected (`I approve.`).
 mmo_has_review_verdict() {
-  grep -Eiq '^[[:space:]]*#*[[:space:]]*\**(VERDICT\**[[:space:]]*:[[:space:]]*\**[[:space:]]*)?(APPROVE[D]?|NEEDS[ _]WORK)\**[[:space:]]*$' "$1"
+  grep -Eiq '^[[:space:]]*#*[[:space:]]*\**(VERDICT\**[[:space:]]*:[[:space:]]*\**[[:space:]]*)?(APPROVE[D]?|NEEDS[ _]WORK)\**\.?\**[[:space:]]*$' "$1"
 }
 
 # Print APPROVE or NEEDS_WORK from the LAST verdict-shaped line: the reviewer's
@@ -18,11 +19,37 @@ mmo_has_review_verdict() {
 # prose cannot decide it. Same line shape as mmo_has_review_verdict.
 mmo_terminal_verdict() {
   local last
-  last="$(grep -Ei '^[[:space:]]*#*[[:space:]]*\**(VERDICT\**[[:space:]]*:[[:space:]]*\**[[:space:]]*)?(APPROVE[D]?|NEEDS[ _]WORK)\**[[:space:]]*$' "$1" | tail -n 1)"
+  last="$(grep -Ei '^[[:space:]]*#*[[:space:]]*\**(VERDICT\**[[:space:]]*:[[:space:]]*\**[[:space:]]*)?(APPROVE[D]?|NEEDS[ _]WORK)\**\.?\**[[:space:]]*$' "$1" | tail -n 1)"
   case "$(printf '%s' "$last" | tr '[:lower:]' '[:upper:]')" in
     *NEEDS*) printf 'NEEDS_WORK\n' ;;
     *APPROVE*) printf 'APPROVE\n' ;;
   esac
+}
+
+# Plain Grok output concatenates assistant messages with no separator, so a
+# terminal verdict can sit mid-line (`worktree.VERDICT: NEEDS_WORK`). Break
+# only before a trailing VERDICT token that is glued to the previous character.
+# A space before the token, or any trailing prose, stays one line so the gate
+# still rejects ordinary sentences.
+mmo_separate_glued_verdict() {
+  local src="$1" tmp
+  [ -s "$src" ] || return 0
+  tmp="$(mktemp)"
+  awk '
+    {
+      if (match($0, /[^[:space:]]((\*\*)?VERDICT(\*\*)?[[:space:]]*:[[:space:]]*(\*\*)?[[:space:]]*(APPROVE[D]?|NEEDS[ _]WORK)\**\.?\**[[:space:]]*)$/)) {
+        pre = substr($0, 1, RSTART)
+        post = substr($0, RSTART + 1)
+        if (pre != "" && post ~ /^(\*\*)?VERDICT/) {
+          print pre
+          print post
+          next
+        }
+      }
+      print
+    }
+  ' "$src" > "$tmp"
+  mv "$tmp" "$src"
 }
 
 # Classify provider failure text from a single error-text file the runner built
