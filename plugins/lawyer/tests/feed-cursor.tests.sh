@@ -727,7 +727,7 @@ test_feed_cursor() {
   [ "$feed_rc" -eq 0 ] || test_e_ok=1
   [ "$test_e_cursor" != "2026-09-01T00:00:00Z" ] || test_e_ok=1
   grep -qF 'incomplete coverage' "$feed_dir/stderr" && test_e_ok=1
-  grep -qF 'NOTE: muudatuste aken oli küllastunud; tulevaste redaktsioonide etteteatamist ei saa tõendada (/citation ei tagasta next_redaktsioon_date)' "$feed_dir/stdout" || test_e_ok=1
+  grep -qF 'NOTE: muudatuste aken oli küllastunud; tulevaste redaktsioonide etteteatamist ei saa täielikult tõendada (/citation ei tagasta next_redaktsioon_date või tagastab ainult varaseima)' "$feed_dir/stdout" || test_e_ok=1
   jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_e_ok=1
   record "feed saturated page with omitted next_redaktsioon_date advances with NOTE" "$test_e_ok" "rc=$feed_rc cursor=$test_e_cursor stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
 
@@ -795,6 +795,32 @@ test_feed_cursor() {
   grep -qF 'WARNING:' "$feed_dir/stdout" && test_g_ok=1
   jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_g_ok=1
   record "feed saturated page with matching next date does not flag" "$test_g_ok" "rc=$feed_rc cursor=$test_g_cursor"
+
+  # Case G2: Saturated page, matching next date -> cursor advanced, exit 0, stdout has the NOTE line (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE="2026-11-01" CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].next_redaktsioon_date = "2026-11-01"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  feed_cursor_run
+  test_g2_ok=0
+  test_g2_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 0 ] || test_g2_ok=1
+  [ "$test_g2_cursor" != "2026-09-01T00:00:00Z" ] || test_g2_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" && test_g2_ok=1
+  grep -qF 'NOTE: muudatuste aken oli küllastunud; tulevaste redaktsioonide etteteatamist ei saa täielikult tõendada (/citation ei tagasta next_redaktsioon_date või tagastab ainult varaseima)' "$feed_dir/stdout" || test_g2_ok=1
+  jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_g2_ok=1
+  record "feed saturated page with matching next date advances with NOTE" "$test_g2_ok" "rc=$feed_rc cursor=$test_g2_cursor stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
 
   # Case H1: Non-saturated proven page, stored redaktsioon_id null, served next_redaktsioon_date new -> future_amendment flagged, exit 0, cursor advanced (#610)
   FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=

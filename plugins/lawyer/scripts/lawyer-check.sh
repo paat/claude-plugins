@@ -250,6 +250,8 @@ while IFS= read -r lcslug; do
               echo "WARNING: $lcslug: registry write failed — incomplete coverage; snapshot and review flags kept." >&2
               LC_INCOMPLETE=1
             fi
+          elif [ -n "$served_next_date" ] && [ "$served_next_date" = "$stored_next_date" ]; then
+            LC_NEXT_UNKNOWN=1
           fi
         else
           LC_NEXT_UNKNOWN=1
@@ -302,7 +304,7 @@ if [ "$FEED_SATURATED_SOLO" -eq 1 ]; then
       echo "WARNING: seaduste muudatuste kontroll ebaõnnestus (registry write failed) — vaata üle käsitsi; incomplete coverage" >&2
       FEED_INCOMPLETE=1
     elif [ "$LC_NEXT_UNKNOWN" -eq 1 ]; then
-      echo "NOTE: muudatuste aken oli küllastunud; tulevaste redaktsioonide etteteatamist ei saa tõendada (/citation ei tagasta next_redaktsioon_date)"
+      echo "NOTE: muudatuste aken oli küllastunud; tulevaste redaktsioonide etteteatamist ei saa täielikult tõendada (/citation ei tagasta next_redaktsioon_date või tagastab ainult varaseima)"
     fi
   else
     echo "WARNING: seaduste muudatuste kontroll ebaõnnestus ($SATURATED_MSG) — vaata üle käsitsi; incomplete coverage" >&2
