@@ -243,19 +243,32 @@ while IFS= read -r lcslug; do
         fi
 
         if [ "$has_next" = "true" ]; then
+          fa_summary=""
+          fa_eff_date=""
+          fa_warn=""
           if [ -n "$served_next_date" ] && [ "$served_next_date" != "$stored_next_date" ]; then
+            fa_summary="Aktile on avaldatud tulevane redaktsioon (jõustub $served_next_date) — kontrolli muudatust enne jõustumist"
+            fa_eff_date="$served_next_date"
+            fa_warn="aktile on avaldatud tulevane redaktsioon (jõustub $served_next_date) — märgitud läbivaatamiseks"
+          elif [ -z "$served_next_date" ] && [ -n "$stored_next_date" ] && [[ "$stored_next_date" > "$TODAY" ]]; then
+            fa_summary="Varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud — kontrolli, kas muudatus tühistati või lükati edasi"
+            fa_eff_date=""
+            fa_warn="varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud — märgitud läbivaatamiseks"
+          fi
+
+          if [ -n "$fa_summary" ]; then
             NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-            if jq --arg s "$lcslug" --arg now "$NOW" --arg nextdate "$served_next_date" '
+            if jq --arg s "$lcslug" --arg now "$NOW" --arg summary "$fa_summary" --arg effdate "$fa_eff_date" '
               .entries[$s].needs_review = true
               | .entries[$s].change_detected_at = $now
               | .entries[$s].change = {
                   feed_event_id: null,
                   type: "future_amendment",
-                  summary: ("Aktile on avaldatud tulevane redaktsioon (jõustub " + $nextdate + ") — kontrolli muudatust enne jõustumist"),
-                  effective_date: $nextdate
+                  summary: $summary,
+                  effective_date: (if $effdate == "" then null else $effdate end)
                 }
             ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"; then
-              echo "WARNING: $lcslug: aktile on avaldatud tulevane redaktsioon (jõustub $served_next_date) — märgitud läbivaatamiseks"
+              echo "WARNING: $lcslug: $fa_warn"
             else
               rm -f "${REGISTRY}.tmp"
               echo "WARNING: $lcslug: registry write failed — incomplete coverage; snapshot and review flags kept." >&2
