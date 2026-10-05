@@ -195,14 +195,23 @@ while IFS= read -r lcslug; do
 
         if [ -n "$stored" ] && [ -n "$served" ] && [ "$stored" != "$rt" ] && [ "$served" != "$rt" ] && [ "$served" != "$stored" ]; then
           cite_red_date=$(printf '%s' "$CITE_BODY" | jq -r '.redaktsioon_date // empty')
+          cite_next_date=""
+          has_next=$(printf '%s' "$CITE_BODY" | jq -r 'has("next_redaktsioon_date")')
+          if [ "$has_next" = "true" ]; then
+            served_next=$(printf '%s' "$CITE_BODY" | jq -r '.next_redaktsioon_date // empty')
+            stored_next=$(jq -r --arg s "$lcslug" '.entries[$s].next_redaktsioon_date // empty' "$REGISTRY")
+            if [ -n "$served_next" ] && [ "$served_next" != "$stored_next" ]; then
+              cite_next_date="$served_next"
+            fi
+          fi
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          if jq --arg s "$lcslug" --arg now "$NOW" --arg stored "$stored" --arg served "$served" --arg reddate "$cite_red_date" '
+          if jq --arg s "$lcslug" --arg now "$NOW" --arg stored "$stored" --arg served "$served" --arg reddate "$cite_red_date" --arg nextdate "$cite_next_date" '
             .entries[$s].needs_review = true
             | .entries[$s].change_detected_at = $now
             | .entries[$s].change = {
                 feed_event_id: null,
                 type: "redaction_change",
-                summary: ("Akti redaktsioon muutus (" + $stored + " -> " + $served + "); tsiteeritud tekst on sama — kontrolli akti muid muudatusi"),
+                summary: (("Akti redaktsioon muutus (" + $stored + " -> " + $served + "); tsiteeritud tekst on sama — kontrolli akti muid muudatusi") + (if $nextdate != "" then ("; avaldatud on ka tulevane redaktsioon (jõustub " + $nextdate + ")") else "" end)),
                 effective_date: (if $reddate == "" then null else $reddate end)
               }
           ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"; then
