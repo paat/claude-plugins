@@ -31,7 +31,6 @@ else
 
   # datalake-api.md: since, limit, and domain only — no offset or next page.
   # A page that fills limit is unproven; do not invent a continuation parameter.
-  FEED_LIMIT=500
   feed_url="$DATALAKE_URL/api/v1/changes/feed?since=${SINCE}&limit=${FEED_LIMIT}"
   # Issued-at, not processed-at: events that arrive during the request stay in the next window.
   FEED_REQUESTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -128,19 +127,19 @@ else
   if [ -n "$updated" ]; then
     write_ok=0
     if [ -z "$feed_reason" ] && [ "$FEED_SATURATED_SOLO" -eq 0 ]; then
-      printf '%s' "$updated" | jq --arg now "$FEED_REQUESTED_AT" '.last_feed_check_at = $now' > "${REGISTRY}.tmp" && write_ok=1
+      printf '%s' "$updated" | jq --arg now "$FEED_REQUESTED_AT" '.last_feed_check_at = $now' > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY" && write_ok=1
     else
-      printf '%s' "$updated" | jq '.' > "${REGISTRY}.tmp" && write_ok=1
+      printf '%s' "$updated" | jq '.' > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY" && write_ok=1
     fi
-    if [ "$write_ok" = 1 ]; then
-      mv "${REGISTRY}.tmp" "$REGISTRY"
-    else
+    if [ "$write_ok" = 0 ]; then
       rm -f "${REGISTRY}.tmp"
-      feed_add_reason "registry write failed"
-      if [ "$FEED_SATURATED" -eq 1 ]; then
-        feed_add_reason "$SATURATED_MSG"
+      if [ "$FEED_INCOMPLETE" -eq 0 ]; then
+        feed_add_reason "registry write failed"
+        if [ "$FEED_SATURATED_SOLO" -eq 1 ]; then
+          feed_add_reason "$SATURATED_MSG"
+        fi
+        echo "WARNING: seaduste muudatuste kontroll ebaõnnestus ($feed_reason) — vaata üle käsitsi; incomplete coverage" >&2
       fi
-      echo "WARNING: seaduste muudatuste kontroll ebaõnnestus ($feed_reason) — vaata üle käsitsi; incomplete coverage" >&2
       FEED_INCOMPLETE=1
       FEED_SATURATED_SOLO=0
     fi
@@ -229,10 +228,8 @@ done <<< "$LC_SLUGS"
 if [ "$FEED_SATURATED_SOLO" -eq 1 ]; then
   if [ "$LC_INCOMPLETE" -eq 0 ]; then
     write_ok=0
-    jq --arg now "$FEED_REQUESTED_AT" '.last_feed_check_at = $now' "$REGISTRY" > "${REGISTRY}.tmp" && write_ok=1
-    if [ "$write_ok" = 1 ]; then
-      mv "${REGISTRY}.tmp" "$REGISTRY"
-    else
+    jq --arg now "$FEED_REQUESTED_AT" '.last_feed_check_at = $now' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY" && write_ok=1
+    if [ "$write_ok" = 0 ]; then
       rm -f "${REGISTRY}.tmp"
       echo "WARNING: seaduste muudatuste kontroll ebaõnnestus (registry write failed) — vaata üle käsitsi; incomplete coverage" >&2
       FEED_INCOMPLETE=1

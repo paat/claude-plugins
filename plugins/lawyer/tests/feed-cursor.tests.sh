@@ -67,9 +67,33 @@ else
 fi
 MOCK
   chmod +x "$dir/bin/curl"
+  cat > "$dir/bin/mv" <<'MOCK_MV'
+#!/usr/bin/env bash
+if [ -n "${MV_FAIL_N:-}" ]; then
+  calls_file="${MV_CALLS_FILE:-$(dirname "$0")/../mv_calls}"
+  n=0
+  if [ -f "$calls_file" ]; then
+    n=$(cat "$calls_file" 2>/dev/null || echo 0)
+  fi
+  n=$((n + 1))
+  printf '%s' "$n" > "$calls_file"
+  if [ "$n" -ge "$MV_FAIL_N" ]; then
+    exit 1
+  fi
+fi
+if [ -x /usr/bin/mv ]; then
+  exec /usr/bin/mv "$@"
+elif [ -x /bin/mv ]; then
+  exec /bin/mv "$@"
+else
+  command -p mv "$@"
+fi
+MOCK_MV
+  chmod +x "$dir/bin/mv"
 }
 
 feed_cursor_reset() {
+  rm -f "$feed_dir/mv_calls"
   mkdir -p "$feed_dir/.startup/laws"
   printf 'Current clause.\n' > "$feed_dir/.startup/laws/open-law.txt"
   jq -n '{
@@ -111,6 +135,8 @@ feed_cursor_run() {
       CITE_CODE="${CITE_CODE:-200}" \
       CITE_TEXT="${CITE_TEXT:-}" \
       CITE_FAIL_ACT="${CITE_FAIL_ACT:-}" \
+      MV_FAIL_N="${MV_FAIL_N:-}" \
+      MV_CALLS_FILE="$feed_dir/mv_calls" \
       bash "$PLUGIN_ROOT/scripts/lawyer-check.sh"
   ) > "$feed_dir/stdout" 2> "$feed_dir/stderr" || feed_rc=$?
 }
@@ -475,6 +501,64 @@ test_feed_cursor() {
     "$feed_dir/.startup/law-registry.json" >/dev/null || sat_e_ok=1
   [ "$(cat "$feed_dir/.startup/laws/open-law.txt")" = "Current clause." ] || sat_e_ok=1
   record "feed proven page plus changed citation text flags text_change and advances" "$sat_e_ok" "rc=$feed_rc cursor=$sat_e_cursor stdout=$(tr '\n' ' ' < "$feed_dir/stdout") stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # Case f: Saturated page registry write mv failure paths (#608)
+  # Assertion 1: saturated page, matching snapshot, the FIRST mv fails -> exit 1, cursor kept, registry byte-identical,
+  # no law-registry.json.tmp, stderr has registry write failed and incomplete coverage, saturation sentence appears exactly once
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT=
+  MV_FAIL_N=1
+  feed_cursor_reset
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  cp "$feed_dir/.startup/law-registry.json" "$feed_dir/reg.orig"
+  feed_cursor_run
+  sat_f1_ok=0
+  sat_f1_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 1 ] || sat_f1_ok=1
+  [ "$sat_f1_cursor" = "2026-09-01T00:00:00Z" ] || sat_f1_ok=1
+  cmp -s "$feed_dir/.startup/law-registry.json" "$feed_dir/reg.orig" || sat_f1_ok=1
+  [ ! -e "$feed_dir/.startup/law-registry.json.tmp" ] || sat_f1_ok=1
+  grep -qF 'registry write failed' "$feed_dir/stderr" || sat_f1_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" || sat_f1_ok=1
+  [ "$(grep -c 'window is saturated and cannot advance' "$feed_dir/stderr")" -eq 1 ] || sat_f1_ok=1
+  record "feed saturated page with first mv failure keeps cursor, cleans tmp, warns" "$sat_f1_ok" "rc=$feed_rc cursor=$sat_f1_cursor stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # Assertion 2: saturated page, matching snapshot, only fallback mv fails (feed rewrite mv succeeds) -> exit 1,
+  # cursor kept, no .tmp left, stderr has registry write failed
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT=
+  MV_FAIL_N=2
+  feed_cursor_reset
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  feed_cursor_run
+  sat_f2_ok=0
+  sat_f2_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 1 ] || sat_f2_ok=1
+  [ "$sat_f2_cursor" = "2026-09-01T00:00:00Z" ] || sat_f2_ok=1
+  [ ! -e "$feed_dir/.startup/law-registry.json.tmp" ] || sat_f2_ok=1
+  grep -qF 'registry write failed' "$feed_dir/stderr" || sat_f2_ok=1
+  record "feed saturated page with fallback mv failure keeps cursor, cleans tmp, warns" "$sat_f2_ok" "rc=$feed_rc cursor=$sat_f2_cursor stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+  unset MV_FAIL_N
 
   rm -rf "$feed_dir"
 }
