@@ -352,7 +352,7 @@ fi
 # redaction's "Jõustumise kp:" header. Best-effort: a curl failure or
 # unparseable header skips that entry silently — never fails the run.
 FE_SLUGS=$(jq -r '.entries | to_entries[] | select(.value.expected_effective_date != null and .value.needs_review != true) | .key' "$REGISTRY")
-fe_today=$(date -u +%Y-%m-%d)
+TODAY=$(date -u +%Y-%m-%d)
 while IFS= read -r feslug; do
   [ -z "$feslug" ] && continue
   fe_rt_id=$(jq -r --arg s "$feslug" '.entries[$s].rt_id' "$REGISTRY")
@@ -381,7 +381,7 @@ while IFS= read -r feslug; do
     ' "$REGISTRY" > "${REGISTRY}.tmp"
     mv "${REGISTRY}.tmp" "$REGISTRY"
     echo "WARNING: $feslug: jõustumise kuupäev muutus ($fe_expected -> $fe_new) — märgitud läbivaatamiseks"
-  elif [[ "$fe_expected" < "$fe_today" || "$fe_expected" == "$fe_today" ]]; then
+  elif [[ "$fe_expected" < "$TODAY" || "$fe_expected" == "$TODAY" ]]; then
     jq --arg s "$feslug" '.entries[$s].expected_effective_date = null' "$REGISTRY" > "${REGISTRY}.tmp"
     mv "${REGISTRY}.tmp" "$REGISTRY"
   fi
