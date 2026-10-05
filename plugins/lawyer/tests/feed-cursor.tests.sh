@@ -53,6 +53,11 @@ case "$url" in
       cite_text="${CITE_TEXT:-Current clause.}"
       cite_red_id="${CITE_RED_ID:-100000000001}"
       cite_url="${CITE_URL:-https://www.riigiteataja.ee/akt/$cite_red_id}"
+      if [ -n "${CITE_RED_DATE:-}" ]; then
+        red_part=",\"redaktsioon_date\":\"$CITE_RED_DATE\""
+      else
+        red_part=""
+      fi
       if [ -n "${CITE_OMIT_NEXT_DATE:-}" ]; then
         next_part=""
       elif [ -n "${CITE_NEXT_DATE:-}" ]; then
@@ -60,7 +65,7 @@ case "$url" in
       else
         next_part=",\"next_redaktsioon_date\":null"
       fi
-      body="{\"text\":\"$cite_text\",\"status\":\"valid\",\"in_force\":true,\"url\":\"$cite_url\"$next_part}"
+      body="{\"text\":\"$cite_text\",\"status\":\"valid\",\"in_force\":true,\"url\":\"$cite_url\"$next_part$red_part}"
       code=200
     fi
     ;;
@@ -145,6 +150,7 @@ feed_cursor_run() {
       CITE_TEXT="${CITE_TEXT:-}" \
       CITE_FAIL_ACT="${CITE_FAIL_ACT:-}" \
       CITE_RED_ID="${CITE_RED_ID:-}" \
+      CITE_RED_DATE="${CITE_RED_DATE:-}" \
       CITE_URL="${CITE_URL:-}" \
       CITE_NEXT_DATE="${CITE_NEXT_DATE:-}" \
       CITE_OMIT_NEXT_DATE="${CITE_OMIT_NEXT_DATE:-}" \
@@ -953,7 +959,7 @@ test_feed_cursor() {
 
   # Case I1 (T-001): stored future redaction date withdrawn (served null) -> future_amendment flagged, effective_date null, summary contains stored date
   FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
-  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_RED_DATE="2026-01-01" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
   feed_cursor_reset
   jq '.entries["open-law"].next_redaktsioon_date = "2099-01-01"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
   feed_cursor_body "$(jq -n '{
@@ -967,11 +973,11 @@ test_feed_cursor() {
     "$feed_dir/.startup/law-registry.json" >/dev/null || test_i1_ok=1
   record "feed withdrawn future redaction flags future_amendment with null effective_date" "$test_i1_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
 
-  # Case I2 (T-001): stored past redaction date with served null -> no flag
+  # Case I2: withdrawn with stored 2020-06-01, served redaktsioon_date 2020-01-01, served next null -> future_amendment, effective_date null (#610)
   FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
-  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_RED_DATE="2020-01-01" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
   feed_cursor_reset
-  jq '.entries["open-law"].next_redaktsioon_date = "2020-01-01"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  jq '.entries["open-law"].next_redaktsioon_date = "2020-06-01"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
   feed_cursor_body "$(jq -n '{
     partial: false, warnings: [], total: 1,
     items: [{id: 7, rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated"}]
@@ -979,12 +985,28 @@ test_feed_cursor() {
   feed_cursor_run
   test_i2_ok=0
   [ "$feed_rc" -eq 0 ] || test_i2_ok=1
-  jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_i2_ok=1
-  record "feed stored past redaction date with served null does not flag" "$test_i2_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "future_amendment" and .change.effective_date == null and (.change.summary | contains("2020-06-01"))' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_i2_ok=1
+  record "feed withdrawn future redaction with passed date flags future_amendment" "$test_i2_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
+
+  # Case I2b: took effect: stored 2020-06-01, served redaktsioon_date 2020-06-01, served next null -> no flag (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_RED_DATE="2020-06-01" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].next_redaktsioon_date = "2020-06-01"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  feed_cursor_body "$(jq -n '{
+    partial: false, warnings: [], total: 1,
+    items: [{id: 7, rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated"}]
+  }')"
+  feed_cursor_run
+  test_i2b_ok=0
+  [ "$feed_rc" -eq 0 ] || test_i2b_ok=1
+  jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_i2b_ok=1
+  record "feed next redaction took effect with matching served date does not flag" "$test_i2b_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
 
   # Case I3 (T-001): cited text changed and stored future date withdrawn -> text_change summary contains ei ole enam avaldatud
   FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
-  CITE_CODE=200 CITE_TEXT="Changed clause text." CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  CITE_CODE=200 CITE_TEXT="Changed clause text." CITE_FAIL_ACT= CITE_RED_ID= CITE_RED_DATE="2026-01-01" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
   feed_cursor_reset
   jq '.entries["open-law"].next_redaktsioon_date = "2099-01-01"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
   feed_cursor_body "$(jq -n '{

@@ -154,7 +154,6 @@ LC_SLUGS=$(jq -r '.entries | to_entries[] | select(.value.needs_review != true) 
 LC_INCOMPLETE=0
 LC_ACT_UNPROVEN=0
 LC_NEXT_UNKNOWN=0
-TODAY=$(date -u +%Y-%m-%d)
 while IFS= read -r lcslug; do
   [ -z "$lcslug" ] && continue
   lc_act=$(jq -r --arg s "$lcslug" '.entries[$s].act_id' "$REGISTRY")
@@ -192,14 +191,20 @@ while IFS= read -r lcslug; do
       has_next=$(printf '%s' "$CITE_BODY" | jq -r 'has("next_redaktsioon_date")')
       served_next_date=$(printf '%s' "$CITE_BODY" | jq -r '.next_redaktsioon_date // empty')
       stored_next_date=$(jq -r --arg s "$lcslug" '.entries[$s].next_redaktsioon_date // empty' "$REGISTRY")
-      next_note=""
+      served_red_date=$(printf '%s' "$CITE_BODY" | jq -r '.redaktsioon_date // empty')
+      next_kind=""
       if [ "$has_next" = "true" ]; then
         if [ -n "$served_next_date" ] && [ "$served_next_date" != "$stored_next_date" ]; then
-          next_note="; avaldatud on ka tulevane redaktsioon (jõustub $served_next_date)"
-        elif [ -z "$served_next_date" ] && [ -n "$stored_next_date" ] && [[ "$stored_next_date" > "$TODAY" ]]; then
-          next_note="; varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud"
+          next_kind=new
+        elif [ -z "$served_next_date" ] && [ -n "$stored_next_date" ] && [ -n "$served_red_date" ] && [[ "$served_red_date" < "$stored_next_date" ]]; then
+          next_kind=withdrawn
         fi
       fi
+      case "$next_kind" in
+        new) next_note="; avaldatud on ka tulevane redaktsioon (jõustub $served_next_date)" ;;
+        withdrawn) next_note="; varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud" ;;
+        *) next_note="" ;;
+      esac
 
       if printf '%s\n' "$normalised" | cmp -s - "$snap"; then
         cite_url_val=$(printf '%s' "$CITE_BODY" | jq -r '.url // empty')
@@ -208,9 +213,8 @@ while IFS= read -r lcslug; do
         rt=$(jq -r --arg s "$lcslug" '.entries[$s].rt_id // empty' "$REGISTRY")
 
         if [ -n "$stored" ] && [ -n "$served" ] && [ "$stored" != "$rt" ] && [ "$served" != "$rt" ] && [ "$served" != "$stored" ]; then
-          cite_red_date=$(printf '%s' "$CITE_BODY" | jq -r '.redaktsioon_date // empty')
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          if jq --arg s "$lcslug" --arg now "$NOW" --arg stored "$stored" --arg served "$served" --arg reddate "$cite_red_date" --arg nextnote "$next_note" '
+          if jq --arg s "$lcslug" --arg now "$NOW" --arg stored "$stored" --arg served "$served" --arg reddate "$served_red_date" --arg nextnote "$next_note" '
             .entries[$s].needs_review = true
             | .entries[$s].change_detected_at = $now
             | .entries[$s].change = {
@@ -246,15 +250,18 @@ while IFS= read -r lcslug; do
           fa_summary=""
           fa_eff_date=""
           fa_warn=""
-          if [ -n "$served_next_date" ] && [ "$served_next_date" != "$stored_next_date" ]; then
-            fa_summary="Aktile on avaldatud tulevane redaktsioon (jõustub $served_next_date) — kontrolli muudatust enne jõustumist"
-            fa_eff_date="$served_next_date"
-            fa_warn="aktile on avaldatud tulevane redaktsioon (jõustub $served_next_date) — märgitud läbivaatamiseks"
-          elif [ -z "$served_next_date" ] && [ -n "$stored_next_date" ] && [[ "$stored_next_date" > "$TODAY" ]]; then
-            fa_summary="Varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud — kontrolli, kas muudatus tühistati või lükati edasi"
-            fa_eff_date=""
-            fa_warn="varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud — märgitud läbivaatamiseks"
-          fi
+          case "$next_kind" in
+            new)
+              fa_summary="Aktile on avaldatud tulevane redaktsioon (jõustub $served_next_date) — kontrolli muudatust enne jõustumist"
+              fa_eff_date="$served_next_date"
+              fa_warn="aktile on avaldatud tulevane redaktsioon (jõustub $served_next_date) — märgitud läbivaatamiseks"
+              ;;
+            withdrawn)
+              fa_summary="Varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud — kontrolli, kas muudatus tühistati või lükati edasi"
+              fa_eff_date=""
+              fa_warn="varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud — märgitud läbivaatamiseks"
+              ;;
+          esac
 
           if [ -n "$fa_summary" ]; then
             NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -274,7 +281,7 @@ while IFS= read -r lcslug; do
               echo "WARNING: $lcslug: registry write failed — incomplete coverage; snapshot and review flags kept." >&2
               LC_INCOMPLETE=1
             fi
-          elif [ -n "$served_next_date" ] && [ "$served_next_date" = "$stored_next_date" ]; then
+          elif [ -z "$next_kind" ] && [ -n "$served_next_date" ]; then
             LC_NEXT_UNKNOWN=1
           fi
         else
@@ -345,7 +352,7 @@ fi
 # redaction's "Jõustumise kp:" header. Best-effort: a curl failure or
 # unparseable header skips that entry silently — never fails the run.
 FE_SLUGS=$(jq -r '.entries | to_entries[] | select(.value.expected_effective_date != null and .value.needs_review != true) | .key' "$REGISTRY")
-TODAY=$(date -u +%Y-%m-%d)
+fe_today=$(date -u +%Y-%m-%d)
 while IFS= read -r feslug; do
   [ -z "$feslug" ] && continue
   fe_rt_id=$(jq -r --arg s "$feslug" '.entries[$s].rt_id' "$REGISTRY")
@@ -374,7 +381,7 @@ while IFS= read -r feslug; do
     ' "$REGISTRY" > "${REGISTRY}.tmp"
     mv "${REGISTRY}.tmp" "$REGISTRY"
     echo "WARNING: $feslug: jõustumise kuupäev muutus ($fe_expected -> $fe_new) — märgitud läbivaatamiseks"
-  elif [[ "$fe_expected" < "$TODAY" || "$fe_expected" == "$TODAY" ]]; then
+  elif [[ "$fe_expected" < "$fe_today" || "$fe_expected" == "$fe_today" ]]; then
     jq --arg s "$feslug" '.entries[$s].expected_effective_date = null' "$REGISTRY" > "${REGISTRY}.tmp"
     mv "${REGISTRY}.tmp" "$REGISTRY"
   fi
