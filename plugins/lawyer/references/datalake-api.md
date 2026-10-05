@@ -70,7 +70,8 @@ URL-encodes the superscript.
   `event_key` prefix `law:` / `distress:`. Respect `partial` and `warnings`.
   No offset, cursor, or next-page parameter is documented, and neither item
   order nor whether `since` is inclusive is documented; a page that fills
-  `limit` is not proven-complete and that saturated window cannot advance.
+  `limit` is not proven-complete by the feed alone, but direct `/citation`
+  text verification can prove the window for registered entries.
 - `GET /changes/{change_id}/impact`
 
 ## Company diligence
