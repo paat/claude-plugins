@@ -17,7 +17,7 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   ALL_FILES=()
   while IFS= read -r -d '' f; do
     ALL_FILES+=("$f")
-  done < <(git ls-files -z --cached --others --exclude-standard 2>"$LIST_ERR")
+  done < <({ git ls-files -z --cached --recurse-submodules && git ls-files -z --others --exclude-standard; } 2>"$LIST_ERR")
 else
   mapfile -t ALL_FILES < <(find . \
     \( -type d \( -name node_modules -o -name vendor -o -name .venv -o -name dist -o -name build -o -name .git \) -prune \) \
