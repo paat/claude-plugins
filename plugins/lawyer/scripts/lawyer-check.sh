@@ -154,6 +154,7 @@ LC_SLUGS=$(jq -r '.entries | to_entries[] | select(.value.needs_review != true) 
 LC_INCOMPLETE=0
 LC_ACT_UNPROVEN=0
 LC_NEXT_UNKNOWN=0
+TODAY=$(date -u +%Y-%m-%d)
 while IFS= read -r lcslug; do
   [ -z "$lcslug" ] && continue
   lc_act=$(jq -r --arg s "$lcslug" '.entries[$s].act_id' "$REGISTRY")
@@ -187,6 +188,19 @@ while IFS= read -r lcslug; do
         LC_INCOMPLETE=1
         continue
       fi
+
+      has_next=$(printf '%s' "$CITE_BODY" | jq -r 'has("next_redaktsioon_date")')
+      served_next_date=$(printf '%s' "$CITE_BODY" | jq -r '.next_redaktsioon_date // empty')
+      stored_next_date=$(jq -r --arg s "$lcslug" '.entries[$s].next_redaktsioon_date // empty' "$REGISTRY")
+      next_note=""
+      if [ "$has_next" = "true" ]; then
+        if [ -n "$served_next_date" ] && [ "$served_next_date" != "$stored_next_date" ]; then
+          next_note="; avaldatud on ka tulevane redaktsioon (jõustub $served_next_date)"
+        elif [ -z "$served_next_date" ] && [ -n "$stored_next_date" ] && [[ "$stored_next_date" > "$TODAY" ]]; then
+          next_note="; varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud"
+        fi
+      fi
+
       if printf '%s\n' "$normalised" | cmp -s - "$snap"; then
         cite_url_val=$(printf '%s' "$CITE_BODY" | jq -r '.url // empty')
         served=$(lawyer_redaction_id_from_url "$cite_url_val")
@@ -195,23 +209,14 @@ while IFS= read -r lcslug; do
 
         if [ -n "$stored" ] && [ -n "$served" ] && [ "$stored" != "$rt" ] && [ "$served" != "$rt" ] && [ "$served" != "$stored" ]; then
           cite_red_date=$(printf '%s' "$CITE_BODY" | jq -r '.redaktsioon_date // empty')
-          cite_next_date=""
-          has_next=$(printf '%s' "$CITE_BODY" | jq -r 'has("next_redaktsioon_date")')
-          if [ "$has_next" = "true" ]; then
-            served_next=$(printf '%s' "$CITE_BODY" | jq -r '.next_redaktsioon_date // empty')
-            stored_next=$(jq -r --arg s "$lcslug" '.entries[$s].next_redaktsioon_date // empty' "$REGISTRY")
-            if [ -n "$served_next" ] && [ "$served_next" != "$stored_next" ]; then
-              cite_next_date="$served_next"
-            fi
-          fi
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          if jq --arg s "$lcslug" --arg now "$NOW" --arg stored "$stored" --arg served "$served" --arg reddate "$cite_red_date" --arg nextdate "$cite_next_date" '
+          if jq --arg s "$lcslug" --arg now "$NOW" --arg stored "$stored" --arg served "$served" --arg reddate "$cite_red_date" --arg nextnote "$next_note" '
             .entries[$s].needs_review = true
             | .entries[$s].change_detected_at = $now
             | .entries[$s].change = {
                 feed_event_id: null,
                 type: "redaction_change",
-                summary: (("Akti redaktsioon muutus (" + $stored + " -> " + $served + "); tsiteeritud tekst on sama — kontrolli akti muid muudatusi") + (if $nextdate != "" then ("; avaldatud on ka tulevane redaktsioon (jõustub " + $nextdate + ")") else "" end)),
+                summary: (("Akti redaktsioon muutus (" + $stored + " -> " + $served + "); tsiteeritud tekst on sama — kontrolli akti muid muudatusi") + $nextnote),
                 effective_date: (if $reddate == "" then null else $reddate end)
               }
           ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"; then
@@ -237,10 +242,7 @@ while IFS= read -r lcslug; do
           fi
         fi
 
-        has_next=$(printf '%s' "$CITE_BODY" | jq -r 'has("next_redaktsioon_date")')
         if [ "$has_next" = "true" ]; then
-          served_next_date=$(printf '%s' "$CITE_BODY" | jq -r '.next_redaktsioon_date // empty')
-          stored_next_date=$(jq -r --arg s "$lcslug" '.entries[$s].next_redaktsioon_date // empty' "$REGISTRY")
           if [ -n "$served_next_date" ] && [ "$served_next_date" != "$stored_next_date" ]; then
             NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
             if jq --arg s "$lcslug" --arg now "$NOW" --arg nextdate "$served_next_date" '
@@ -268,13 +270,13 @@ while IFS= read -r lcslug; do
         continue
       fi
       NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-      if jq --arg s "$lcslug" --arg now "$NOW" '
+      if jq --arg s "$lcslug" --arg now "$NOW" --arg nextnote "$next_note" '
         .entries[$s].needs_review = true
         | .entries[$s].change_detected_at = $now
         | .entries[$s].change = {
             feed_event_id: null,
             type: "text_change",
-            summary: "Tsiteeritud tekst erineb hetktõmmisest — tuvastatud /citation otsevõrdlusega, mitte feed-sündmusega",
+            summary: ("Tsiteeritud tekst erineb hetktõmmisest — tuvastatud /citation otsevõrdlusega, mitte feed-sündmusega" + $nextnote),
             effective_date: null
           }
       ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"; then

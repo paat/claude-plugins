@@ -778,6 +778,21 @@ test_feed_cursor() {
     "$feed_dir/.startup/law-registry.json" >/dev/null || test_f1b_ok=1
   record "feed redaction_change names new next redaction date in summary and omits without one" "$test_f1b_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
 
+  # Case F1c: Text change with new next_redaktsioon_date names it in summary (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT="Changed clause text." CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE="2026-11-01" CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  feed_cursor_body "$(jq -n '{
+    partial: false, warnings: [], total: 1,
+    items: [{id: 7, rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated"}]
+  }')"
+  feed_cursor_run
+  test_f1c_ok=0
+  [ "$feed_rc" -eq 0 ] || test_f1c_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "text_change" and (.change.summary | contains("jõustub 2026-11-01"))' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_f1c_ok=1
+  record "feed text_change names new next redaction date in summary" "$test_f1c_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
+
   # Case F2: Non-saturated page with stored id null -> no flag, no new warning, exit 0 (#610)
   FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
   CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
