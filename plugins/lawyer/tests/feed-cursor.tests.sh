@@ -1000,6 +1000,54 @@ test_feed_cursor() {
   jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_ack_ok=1
   record "lawyer ack refreshes redaktsioon_id and next_redaktsioon_date and check flags nothing" "$test_ack_ok" "ack_rc=$ack_rc check_rc=$feed_rc"
 
+  # Ack case 2 (T-003): ack with key omitted keeps a stored 2099-01-01
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID="100000000001" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=1
+  feed_cursor_reset
+  jq '.entries["open-law"].needs_review = true | .entries["open-law"].next_redaktsioon_date = "2099-01-01"' \
+    "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  ack_rc2=0
+  (
+    cd "$feed_dir" && PATH="$feed_dir/bin:$PATH" \
+      EST_DATALAKE_API_KEY=synthetic-key \
+      DATALAKE_URL=https://example.invalid \
+      CITE_CODE=200 \
+      CITE_TEXT="Current clause." \
+      CITE_RED_ID="100000000001" \
+      CITE_NEXT_DATE= \
+      CITE_OMIT_NEXT_DATE=1 \
+      bash "$PLUGIN_ROOT/scripts/lawyer-ack.sh" open-law
+  ) > "$feed_dir/stdout_ack2" 2> "$feed_dir/stderr_ack2" || ack_rc2=$?
+  test_ack_omit_ok=0
+  [ "$ack_rc2" -eq 0 ] || test_ack_omit_ok=1
+  jq -e '.entries["open-law"] | .needs_review == false and .next_redaktsioon_date == "2099-01-01"' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_ack_omit_ok=1
+  record "lawyer ack with omitted next_redaktsioon_date key keeps stored date" "$test_ack_omit_ok" "ack_rc=$ack_rc2"
+
+  # Ack case 3 (T-003): ack with an explicit null writes null
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID="100000000001" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].needs_review = true | .entries["open-law"].next_redaktsioon_date = "2099-01-01"' \
+    "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  ack_rc3=0
+  (
+    cd "$feed_dir" && PATH="$feed_dir/bin:$PATH" \
+      EST_DATALAKE_API_KEY=synthetic-key \
+      DATALAKE_URL=https://example.invalid \
+      CITE_CODE=200 \
+      CITE_TEXT="Current clause." \
+      CITE_RED_ID="100000000001" \
+      CITE_NEXT_DATE= \
+      CITE_OMIT_NEXT_DATE= \
+      bash "$PLUGIN_ROOT/scripts/lawyer-ack.sh" open-law
+  ) > "$feed_dir/stdout_ack3" 2> "$feed_dir/stderr_ack3" || ack_rc3=$?
+  test_ack_null_ok=0
+  [ "$ack_rc3" -eq 0 ] || test_ack_null_ok=1
+  jq -e '.entries["open-law"] | .needs_review == false and .next_redaktsioon_date == null' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_ack_null_ok=1
+  record "lawyer ack with explicit null next_redaktsioon_date writes null" "$test_ack_null_ok" "ack_rc=$ack_rc3"
+
   rm -rf "$feed_dir"
 }
 

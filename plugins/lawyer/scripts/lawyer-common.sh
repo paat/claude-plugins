@@ -158,7 +158,7 @@ lawyer_fetch_citation() {
 # 4 snapshot-write-failed (registry left untouched), 5 unknown lifecycle,
 # 6 citation_parts irreconcilable with the citation (SLUG_CITE_ERROR; no fetch).
 lawyer_ack_one() {
-  local SLUG="$1" resp text cite_url_resp red ack_red_date ack_next_red_date NOW normalised
+  local SLUG="$1" resp text cite_url_resp red ack_red_date ack_next_red_date ack_has_next NOW normalised
   ACK_ACT_ID=$(jq -r --arg s "$SLUG" '.entries[$s].act_id' "$REGISTRY")
   lawyer_slug_cite_url "$SLUG" || return 6
   lawyer_fetch_citation "$SLUG_CITE_URL"
@@ -175,6 +175,7 @@ lawyer_ack_one() {
 
   ack_red_date=$(echo "$resp" | jq -r '.redaktsioon_date // empty')
   ack_next_red_date=$(echo "$resp" | jq -r '.next_redaktsioon_date // empty')
+  ack_has_next=$(echo "$resp" | jq -r 'has("next_redaktsioon_date")')
 
   # Snapshot first; only a verified write may clear registry flags.
   normalised=$(printf '%s' "$text" | lawyer_normalise)
@@ -182,14 +183,15 @@ lawyer_ack_one() {
 
   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   jq --arg slug "$SLUG" --arg now "$NOW" --arg red "$red" --arg rturl "$cite_url_resp" \
-     --arg st "$ACK_STATUS" --arg reddate "$ack_red_date" --arg nextdate "$ack_next_red_date" '
+     --arg st "$ACK_STATUS" --arg reddate "$ack_red_date" --arg nextdate "$ack_next_red_date" \
+     --arg nexthas "$ack_has_next" '
     .entries[$slug].needs_review = false
     | .entries[$slug].change = null
     | .entries[$slug].change_detected_at = null
     | .entries[$slug].verified_at = $now
     | .entries[$slug].redaktsioon_id = (if $red == "" then null else $red end)
     | .entries[$slug].redaktsioon_date = (if $reddate == "" then .entries[$slug].redaktsioon_date else $reddate end)
-    | .entries[$slug].next_redaktsioon_date = (if $nextdate == "" then null else $nextdate end)
+    | .entries[$slug].next_redaktsioon_date = (if $nexthas != "true" then .entries[$slug].next_redaktsioon_date elif $nextdate == "" then null else $nextdate end)
     | .entries[$slug].status = (if $st == "" then .entries[$slug].status else $st end)
     | .entries[$slug].rt_url = (if $rturl == "" then .entries[$slug].rt_url else $rturl end)
   ' "$REGISTRY" > "${REGISTRY}.tmp"
