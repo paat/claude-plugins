@@ -2373,29 +2373,15 @@ touch -t 200001010000 "$H/handoff-2026-01-01T0000Z.md"
 touch "$H/handoff-2026-01-02T0000Z.md"
 case "$(hook '{"hook_event_name":"SessionStart","source":"compact","model":"clear"}')" in
   *"handoff-2026-01-02T0000Z.md"*"--resume"*) ;; *) fail 'Compact hook reads the source field exactly and names the newest fresh handoff' ;; esac
-[ -z "$(hook '{"source": "startup"}')" ] || fail 'Reanchor hook ignores other SessionStart sources'
-hook '{"source": "clear"}' >/dev/null 2>&1 || fail 'Clear without a marker does not wake'
-printf '%s\n' "$H/handoff-2026-01-02T0000Z.md" > "$H/.reset-pending"; touch -t 200001010000 "$H/.reset-pending"
-hook '{"source": "clear"}' >/dev/null 2>&1 || fail 'Clear ignores a stale marker'
-[ ! -e "$H/.reset-pending" ] || fail 'Clear removes a stale marker'
-printf '%s\n' "$H/missing.md" > "$H/.reset-pending"
-hook '{"source": "clear"}' >/dev/null 2>&1 || fail 'Clear ignores a marker naming a missing handoff'
-printf '%s\n' "$H/handoff-2026-01-02T0000Z.md" > "$H/.reset-pending"
-set +e; err=$(hook '{"source":"clear"}' 2>&1 >/dev/null); rc=$?; set -e
-[ "$rc" -eq 2 ] || fail 'Clear with a fresh marker exits 2 to wake the session'
-case "$err" in *"--resume \"$H/handoff-2026-01-02T0000Z.md\""*) ;; *) fail 'Clear wake names the marked handoff, quoted' ;; esac
-[ -z "$(ls -A "$H" | grep reset-pending)" ] || fail 'Clear wake consumes the marker'
+for src in startup clear; do
+  [ -z "$(hook "{\"source\": \"$src\"}" 2>&1)" ] || fail "Reanchor hook ignores SessionStart source $src"
+done
 mkdir -p "$WORK/abs-handoffs"; touch "$WORK/abs-handoffs/handoff-2026-01-03T0000Z.md"
 case "$(printf '%s' '{"source":"compact"}' | MMO_HANDOFF_DIR="$WORK/abs-handoffs" CLAUDE_PROJECT_DIR="$R" bash "$REANCHOR")" in
   *"$WORK/abs-handoffs/handoff-2026-01-03T0000Z.md"*) ;; *) fail 'Reanchor hook honors an absolute MMO_HANDOFF_DIR' ;; esac
 contains "$PLUGIN_ROOT/hooks/hooks.json" '"matcher": "compact"' 'Reanchor hook runs after compaction'
-contains "$PLUGIN_ROOT/hooks/hooks.json" '"asyncRewake": true' 'Clear hook wakes an idle session'
-contains "$META_REFS/context-reset.md" 'clear_session' 'Checkpoint reset uses the desktop clear_session tool'
-contains "$META_REFS/context-reset.md" 'no leg is in flight' 'Checkpoint reset waits for in-flight legs'
-contains "$META_REFS/context-reset.md" 'Filing a follow-up item is not a boundary' 'Checkpoint reset excludes filed follow-ups'
-contains "$META_REFS/context-reset.md" 'verbatim brief' 'Checkpoint reset requires the brief in the handoff'
+! grep -q '"matcher": "clear"' "$PLUGIN_ROOT/hooks/hooks.json" || fail 'No clear hook: the desktop app does not restart a cleared session'
 contains "$META_REFS/handoff-template.md" '## Brief' 'Handoff template carries the verbatim brief'
-contains "$META_SKILL" 'references/context-reset.md' 'Meta skill resets at item boundaries'
 pass 'Reanchor hook re-points a compacted orchestrator at its newest handoff'
 
 WATCH="$PLUGIN_ROOT/hooks/context-watch.sh"
@@ -2406,7 +2392,7 @@ cw_claude 50000
 [ -z "$(watch s1 "$CW/claude.jsonl")" ] || fail 'Context watch is silent below the threshold'
 cw_claude 120000
 case "$(watch s1 "$CW/claude.jsonl")" in
-  *'"hookEventName":"PostToolUse"'*'121002 tokens'*'checkpoint reset'*) ;; *) fail 'Context watch sums Claude usage and warns past the threshold' ;; esac
+  *'"hookEventName":"PostToolUse"'*'121002 tokens'*'compaction resumes from the handoff'*) ;; *) fail 'Context watch sums Claude usage and warns past the threshold' ;; esac
 [ -z "$(watch s1 "$CW/claude.jsonl")" ] || fail 'Context watch warns once per crossing'
 cw_claude 10000; watch s1 "$CW/claude.jsonl" >/dev/null; cw_claude 120000
 [ -n "$(watch s1 "$CW/claude.jsonl")" ] || fail 'Context watch re-arms after context drops (compaction)'

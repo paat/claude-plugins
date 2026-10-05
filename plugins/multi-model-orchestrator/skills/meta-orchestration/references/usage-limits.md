@@ -37,7 +37,5 @@ A window is **tight** at ≥ 90% used when it resets after the leg would finish 
   items that are still routable elsewhere. Stop the run only once no queued item is routable.
 - The host running you is tight (≥ 95% for the orchestrator itself): finish the current gate, write
   the handoff with "Stop here first: resume after <reset UTC>", and stop at this item boundary
-  rather than dying mid-leg. This stop replaces the checkpoint reset (`context-reset.md`) — do not
-  call `clear_session`, so no successor wakes before the reset. Recurrence belongs to the caller
-  (`/loop`, cron).
+  rather than dying mid-leg. Recurrence belongs to the caller (`/loop`, cron).
 - Report each routing change and stop caused by usage in the handoff's Judgment calls decided.

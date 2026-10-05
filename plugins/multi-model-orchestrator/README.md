@@ -87,10 +87,7 @@ after every decision. `--resume [handoff-path]` continues from the newest (or na
 trailing text is treated as overrides of decided judgment calls and brief deltas. A scan that finds nothing new writes
 nothing and stops; recurrence belongs to `/loop` or cron.
 
-In the Claude desktop app the orchestrator resets its own context at each item boundary: it
-writes the handoff and a `.reset-pending` marker, calls `clear_session`, and a `SessionStart`
-`clear` hook (`asyncRewake`) wakes the fresh session to resume from that handoff. Elsewhere, or
-when the clear is refused, long runs reset through compaction: the handoff is always current, and after a
+Long runs reset through compaction: the handoff is always current, and after a
 compaction the re-attached skill plus a `SessionStart` `compact` hook send the orchestrator back to
 the newest handoff (modified within 24 hours) to continue as `--resume`. The default window lets a
 1M-context session grow to ~967k tokens before that happens, so every turn re-sends up to that
@@ -101,7 +98,7 @@ runs on Codex, which also re-runs `SessionStart` hooks after compaction.
 
 A `PostToolUse` hook (`hooks/context-watch.sh`, needs `jq`) reads the last usage record from the
 session transcript and, once context crosses `MMO_CONTEXT_WARN_TOKENS` (default 400000), tells a
-meta-orchestrator to bring its handoff current, keep the item lean and reset at the next boundary.
+meta-orchestrator to bring its handoff current and keep the item lean before compaction.
 It warns once per crossing and re-arms after compaction. With the recommended 500k Claude window it
 fires ~65k tokens before compaction (~467k); below a ~435k window it never fires.
 
