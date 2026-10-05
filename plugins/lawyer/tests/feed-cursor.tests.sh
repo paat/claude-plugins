@@ -51,7 +51,21 @@ case "$url" in
       body='{"error":"citation failure"}'
     else
       cite_text="${CITE_TEXT:-Current clause.}"
-      body="{\"text\":\"$cite_text\",\"status\":\"valid\",\"in_force\":true}"
+      cite_red_id="${CITE_RED_ID:-100000000001}"
+      cite_url="${CITE_URL:-https://www.riigiteataja.ee/akt/$cite_red_id}"
+      if [ -n "${CITE_RED_DATE:-}" ]; then
+        red_part=",\"redaktsioon_date\":\"$CITE_RED_DATE\""
+      else
+        red_part=""
+      fi
+      if [ -n "${CITE_OMIT_NEXT_DATE:-}" ]; then
+        next_part=""
+      elif [ -n "${CITE_NEXT_DATE:-}" ]; then
+        next_part=",\"next_redaktsioon_date\":\"$CITE_NEXT_DATE\""
+      else
+        next_part=",\"next_redaktsioon_date\":null"
+      fi
+      body="{\"text\":\"$cite_text\",\"status\":\"valid\",\"in_force\":true,\"url\":\"$cite_url\"$next_part$red_part}"
       code=200
     fi
     ;;
@@ -101,7 +115,7 @@ feed_cursor_reset() {
     last_feed_check_at: "2026-09-01T00:00:00Z",
     entries: {
       "pending-law": {
-        act_id: 1, rt_id: "111", citation: "§ 1",
+        act_id: 1, rt_id: "111", redaktsioon_id: "100000000001", next_redaktsioon_date: null, citation: "§ 1",
         citation_parts: {paragraph:"1", paragraph_qualifier:"", section:"", section_qualifier:"", point:"", point_qualifier:""},
         status: "valid", verified_at: "2020-01-01T00:00:00Z",
         needs_review: true, change_detected_at: "2020-02-01T00:00:00Z",
@@ -109,7 +123,7 @@ feed_cursor_reset() {
         gh_issue_url: "https://example.test/issues/9"
       },
       "open-law": {
-        act_id: 123, rt_id: "456", citation: "§ 14 lõige 1",
+        act_id: 123, rt_id: "456", redaktsioon_id: "100000000001", next_redaktsioon_date: null, citation: "§ 14 lõige 1",
         citation_parts: {paragraph:"14", paragraph_qualifier:"", section:"1", section_qualifier:"", point:"", point_qualifier:""},
         status: "valid", verified_at: "2020-01-01T00:00:00Z",
         needs_review: false, change_detected_at: null, change: null, gh_issue_url: null
@@ -135,6 +149,11 @@ feed_cursor_run() {
       CITE_CODE="${CITE_CODE:-200}" \
       CITE_TEXT="${CITE_TEXT:-}" \
       CITE_FAIL_ACT="${CITE_FAIL_ACT:-}" \
+      CITE_RED_ID="${CITE_RED_ID:-}" \
+      CITE_RED_DATE="${CITE_RED_DATE:-}" \
+      CITE_URL="${CITE_URL:-}" \
+      CITE_NEXT_DATE="${CITE_NEXT_DATE:-}" \
+      CITE_OMIT_NEXT_DATE="${CITE_OMIT_NEXT_DATE:-}" \
       MV_FAIL_N="${MV_FAIL_N:-}" \
       MV_CALLS_FILE="$feed_dir/mv_calls" \
       bash "$PLUGIN_ROOT/scripts/lawyer-check.sh"
@@ -268,7 +287,7 @@ test_feed_cursor() {
   FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
   feed_cursor_reset
   jq '.entries["unproved-law"] = {
-    act_id: 888, rt_id: "777", citation: "§ 1",
+    act_id: 888, rt_id: "777", redaktsioon_id: "100000000001", next_redaktsioon_date: null, citation: "§ 1",
     citation_parts: {paragraph:"1", paragraph_qualifier:"", section:"", section_qualifier:"", point:"", point_qualifier:""},
     status: "valid", verified_at: "2020-01-01T00:00:00Z",
     needs_review: false, change_detected_at: null, change: null, gh_issue_url: null
@@ -336,7 +355,7 @@ test_feed_cursor() {
   : > "$feed_dir/urls"
   feed_cursor_reset
   jq '.entries["unproved-law"] = {
-    act_id: 888, rt_id: "777", citation: "§ 1",
+    act_id: 888, rt_id: "777", redaktsioon_id: "100000000001", next_redaktsioon_date: null, citation: "§ 1",
     citation_parts: {paragraph:"1", paragraph_qualifier:"", section:"", section_qualifier:"", point:"", point_qualifier:""},
     status: "valid", verified_at: "2020-01-01T00:00:00Z",
     needs_review: false, change_detected_at: null, change: null, gh_issue_url: null
@@ -559,6 +578,534 @@ test_feed_cursor() {
   grep -qF 'registry write failed' "$feed_dir/stderr" || sat_f2_ok=1
   record "feed saturated page with fallback mv failure keeps cursor, cleans tmp, warns" "$sat_f2_ok" "rc=$feed_rc cursor=$sat_f2_cursor stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
   unset MV_FAIL_N
+
+  # Case A: Saturated page, text equal, served id changed -> redaction_change flagged, snapshot unchanged, cursor advanced, exit 0 (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID="100000000002" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  feed_cursor_run
+  test_a_ok=0
+  test_a_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 0 ] || test_a_ok=1
+  [ "$test_a_cursor" != "2026-09-01T00:00:00Z" ] || test_a_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" && test_a_ok=1
+  grep -qF 'WARNING: open-law: akti redaktsioon muutus (100000000001 -> 100000000002) — märgitud läbivaatamiseks' "$feed_dir/stdout" || test_a_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "redaction_change" and .change.feed_event_id == null' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_a_ok=1
+  [ "$(cat "$feed_dir/.startup/laws/open-law.txt")" = "Current clause." ] || test_a_ok=1
+  record "feed saturated page with served redaction id changed flags redaction_change and advances" "$test_a_ok" "rc=$feed_rc cursor=$test_a_cursor stdout=$(tr '\n' ' ' < "$feed_dir/stdout") stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # Case B: Saturated page, text and id equal, next_redaktsioon_date set -> future_amendment flagged with effective_date = that date; cursor advanced (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE="2026-11-01" CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  feed_cursor_run
+  test_b_ok=0
+  test_b_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 0 ] || test_b_ok=1
+  [ "$test_b_cursor" != "2026-09-01T00:00:00Z" ] || test_b_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" && test_b_ok=1
+  grep -qF 'WARNING: open-law: aktile on avaldatud tulevane redaktsioon (jõustub 2026-11-01) — märgitud läbivaatamiseks' "$feed_dir/stdout" || test_b_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "future_amendment" and .change.effective_date == "2026-11-01"' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_b_ok=1
+  [ "$(cat "$feed_dir/.startup/laws/open-law.txt")" = "Current clause." ] || test_b_ok=1
+  record "feed saturated page with next_redaktsioon_date flags future_amendment and advances" "$test_b_ok" "rc=$feed_rc cursor=$test_b_cursor stdout=$(tr '\n' ' ' < "$feed_dir/stdout") stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # Case C: Saturated page, stored redaktsioon_id null -> cursor advanced, exit 1, stderr names the slug and /lawyer ack (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].redaktsioon_id = null' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  feed_cursor_run
+  test_c_ok=0
+  test_c_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 1 ] || test_c_ok=1
+  [ "$test_c_cursor" != "2026-09-01T00:00:00Z" ] || test_c_ok=1
+  grep -qF 'open-law' "$feed_dir/stderr" || test_c_ok=1
+  grep -qF '/lawyer ack open-law' "$feed_dir/stderr" || test_c_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" || test_c_ok=1
+  jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_c_ok=1
+  record "feed saturated page with stored redaktsioon_id null advances cursor and warns" "$test_c_ok" "rc=$feed_rc cursor=$test_c_cursor stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # Case D1: Saturated page, stored id equals rt_id -> cursor advanced, exit 1 (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].redaktsioon_id = "456"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  feed_cursor_run
+  test_d1_ok=0
+  test_d1_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 1 ] || test_d1_ok=1
+  [ "$test_d1_cursor" != "2026-09-01T00:00:00Z" ] || test_d1_ok=1
+  grep -qF 'open-law' "$feed_dir/stderr" || test_d1_ok=1
+  grep -qF 'stored redaktsioon_id missing or not redaction-unique — run /lawyer ack open-law' "$feed_dir/stderr" || test_d1_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" || test_d1_ok=1
+  record "feed saturated page with stored id equals rt_id advances cursor and warns" "$test_d1_ok" "rc=$feed_rc cursor=$test_d1_cursor stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # Case D2: Saturated page, served URL id equals rt_id -> cursor advanced, exit 1 (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID="456" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  feed_cursor_run
+  test_d2_ok=0
+  test_d2_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 1 ] || test_d2_ok=1
+  [ "$test_d2_cursor" != "2026-09-01T00:00:00Z" ] || test_d2_ok=1
+  grep -qF 'open-law' "$feed_dir/stderr" || test_d2_ok=1
+  grep -qF 'served citation URL has no redaction-unique id — review the act manually' "$feed_dir/stderr" || test_d2_ok=1
+  grep -qF '/lawyer ack' "$feed_dir/stderr" && test_d2_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" || test_d2_ok=1
+  record "feed saturated page with served URL id equals rt_id advances cursor and warns" "$test_d2_ok" "rc=$feed_rc cursor=$test_d2_cursor stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # Case D3: EUR-Lex served URL has no redaction-unique id, two consecutive saturated runs each exit 1 and advance cursor (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32016R0679" CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  feed_cursor_run
+  test_d3_ok=0
+  test_d3_cursor1=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 1 ] || test_d3_ok=1
+  [ "$test_d3_cursor1" != "2026-09-01T00:00:00Z" ] || test_d3_ok=1
+  grep -qF 'open-law' "$feed_dir/stderr" || test_d3_ok=1
+  grep -qF 'served citation URL has no redaction-unique id — review the act manually' "$feed_dir/stderr" || test_d3_ok=1
+  grep -qF '/lawyer ack' "$feed_dir/stderr" && test_d3_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" || test_d3_ok=1
+
+  # Second consecutive saturated run
+  sleep 1
+  feed_cursor_run
+  test_d3_cursor2=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 1 ] || test_d3_ok=1
+  [ "$test_d3_cursor2" != "$test_d3_cursor1" ] || test_d3_ok=1
+  grep -qF 'open-law' "$feed_dir/stderr" || test_d3_ok=1
+  grep -qF 'served citation URL has no redaction-unique id — review the act manually' "$feed_dir/stderr" || test_d3_ok=1
+  grep -qF '/lawyer ack' "$feed_dir/stderr" && test_d3_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" || test_d3_ok=1
+  record "feed EUR-Lex served URL two consecutive saturated runs each exit 1 and advance cursor" "$test_d3_ok" "rc=$feed_rc cursor1=$test_d3_cursor1 cursor2=$test_d3_cursor2"
+
+  # Case E: Saturated page, key next_redaktsioon_date omitted, everything else proven -> cursor advanced, exit 0, stdout has the NOTE line (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=1
+  feed_cursor_reset
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  feed_cursor_run
+  test_e_ok=0
+  test_e_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 0 ] || test_e_ok=1
+  [ "$test_e_cursor" != "2026-09-01T00:00:00Z" ] || test_e_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" && test_e_ok=1
+  grep -qF 'NOTE: muudatuste aken oli küllastunud; tulevaste redaktsioonide etteteatamist ei saa täielikult tõendada (/citation ei tagasta next_redaktsioon_date või tagastab ainult varaseima)' "$feed_dir/stdout" || test_e_ok=1
+  jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_e_ok=1
+  record "feed saturated page with omitted next_redaktsioon_date advances with NOTE" "$test_e_ok" "rc=$feed_rc cursor=$test_e_cursor stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
+
+  # Case F1: Non-saturated proven page, served id changed -> redaction_change flagged, cursor advanced, exit 0 (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID="100000000002" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  feed_cursor_body "$(jq -n '{
+    partial: false, warnings: [], total: 1,
+    items: [{id: 7, rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated"}]
+  }')"
+  feed_cursor_run
+  test_f1_ok=0
+  test_f1_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 0 ] || test_f1_ok=1
+  [ "$test_f1_cursor" != "2026-09-01T00:00:00Z" ] || test_f1_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" && test_f1_ok=1
+  grep -qF 'WARNING: open-law: akti redaktsioon muutus (100000000001 -> 100000000002) — märgitud läbivaatamiseks' "$feed_dir/stdout" || test_f1_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "redaction_change" and .change.feed_event_id == null' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_f1_ok=1
+  record "feed proven page with served redaction id changed flags redaction_change and advances" "$test_f1_ok" "rc=$feed_rc cursor=$test_f1_cursor stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
+
+  # Case F1b: Redaction change with new next_redaktsioon_date names it in summary; without next date omits it (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID="100000000002" CITE_URL= CITE_NEXT_DATE="2026-11-01" CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  feed_cursor_body "$(jq -n '{
+    partial: false, warnings: [], total: 1,
+    items: [{id: 7, rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated"}]
+  }')"
+  feed_cursor_run
+  test_f1b_ok=0
+  [ "$feed_rc" -eq 0 ] || test_f1b_ok=1
+  [ "$(jq '[.entries[] | select(.needs_review == true)] | length' "$feed_dir/.startup/law-registry.json")" -eq 2 ] || test_f1b_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "redaction_change" and (.change.summary | contains("jõustub 2026-11-01"))' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_f1b_ok=1
+
+  # Plus the same without a next date -> summary has no jõustub
+  CITE_NEXT_DATE=
+  feed_cursor_reset
+  feed_cursor_body "$(jq -n '{
+    partial: false, warnings: [], total: 1,
+    items: [{id: 7, rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated"}]
+  }')"
+  feed_cursor_run
+  [ "$feed_rc" -eq 0 ] || test_f1b_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "redaction_change" and (.change.summary | contains("jõustub") | not)' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_f1b_ok=1
+  record "feed redaction_change names new next redaction date in summary and omits without one" "$test_f1b_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
+
+  # Case F1c: Text change with new next_redaktsioon_date names it in summary (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT="Changed clause text." CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE="2026-11-01" CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  feed_cursor_body "$(jq -n '{
+    partial: false, warnings: [], total: 1,
+    items: [{id: 7, rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated"}]
+  }')"
+  feed_cursor_run
+  test_f1c_ok=0
+  [ "$feed_rc" -eq 0 ] || test_f1c_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "text_change" and (.change.summary | contains("jõustub 2026-11-01"))' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_f1c_ok=1
+  record "feed text_change names new next redaction date in summary" "$test_f1c_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
+
+  # Case F2: Non-saturated page with stored id null -> no flag, no new warning, exit 0 (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].redaktsioon_id = null' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  feed_cursor_body "$(jq -n '{
+    partial: false, warnings: [], total: 1,
+    items: [{id: 7, rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated"}]
+  }')"
+  feed_cursor_run
+  test_f2_ok=0
+  test_f2_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 0 ] || test_f2_ok=1
+  [ "$test_f2_cursor" != "2026-09-01T00:00:00Z" ] || test_f2_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" && test_f2_ok=1
+  grep -qF 'WARNING:' "$feed_dir/stdout" && test_f2_ok=1
+  grep -qF 'WARNING:' "$feed_dir/stderr" && test_f2_ok=1
+  jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_f2_ok=1
+  record "feed proven page with stored id null does not flag and advances" "$test_f2_ok" "rc=$feed_rc cursor=$test_f2_cursor"
+
+  # Case G: The served next date equals the stored one -> no flag (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE="2026-11-01" CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].next_redaktsioon_date = "2026-11-01"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  feed_cursor_run
+  test_g_ok=0
+  test_g_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 0 ] || test_g_ok=1
+  [ "$test_g_cursor" != "2026-09-01T00:00:00Z" ] || test_g_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" && test_g_ok=1
+  grep -qF 'WARNING:' "$feed_dir/stdout" && test_g_ok=1
+  jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_g_ok=1
+  record "feed saturated page with matching next date does not flag" "$test_g_ok" "rc=$feed_rc cursor=$test_g_cursor"
+
+  # Case G2: Saturated page, matching next date -> cursor advanced, exit 0, stdout has the NOTE line (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE="2026-11-01" CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].next_redaktsioon_date = "2026-11-01"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  feed_cursor_run
+  test_g2_ok=0
+  test_g2_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 0 ] || test_g2_ok=1
+  [ "$test_g2_cursor" != "2026-09-01T00:00:00Z" ] || test_g2_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" && test_g2_ok=1
+  grep -qF 'NOTE: muudatuste aken oli küllastunud; tulevaste redaktsioonide etteteatamist ei saa täielikult tõendada (/citation ei tagasta next_redaktsioon_date või tagastab ainult varaseima)' "$feed_dir/stdout" || test_g2_ok=1
+  jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_g2_ok=1
+  record "feed saturated page with matching next date advances with NOTE" "$test_g2_ok" "rc=$feed_rc cursor=$test_g2_cursor stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
+
+  # Case H1: Non-saturated proven page, stored redaktsioon_id null, served next_redaktsioon_date new -> future_amendment flagged, exit 0, cursor advanced (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE="2026-11-01" CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].redaktsioon_id = null' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  feed_cursor_body "$(jq -n '{
+    partial: false, warnings: [], total: 1,
+    items: [{id: 7, rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated"}]
+  }')"
+  feed_cursor_run
+  test_h1_ok=0
+  test_h1_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 0 ] || test_h1_ok=1
+  [ "$test_h1_cursor" != "2026-09-01T00:00:00Z" ] || test_h1_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" && test_h1_ok=1
+  grep -qF 'WARNING: open-law: aktile on avaldatud tulevane redaktsioon (jõustub 2026-11-01) — märgitud läbivaatamiseks' "$feed_dir/stdout" || test_h1_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "future_amendment" and .change.effective_date == "2026-11-01"' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_h1_ok=1
+  record "feed proven page with stored redaktsioon_id null flags future_amendment and advances" "$test_h1_ok" "rc=$feed_rc cursor=$test_h1_cursor stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
+
+  # Case H2: Saturated page, stored redaktsioon_id null, served next_redaktsioon_date new -> future_amendment flagged, cursor ADVANCED, exit 1, stderr names slug and /lawyer ack (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE="2026-11-01" CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].redaktsioon_id = null' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  feed_cursor_run
+  test_h2_ok=0
+  test_h2_cursor=$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json" 2>/dev/null || echo "<missing>")
+  [ "$feed_rc" -eq 1 ] || test_h2_ok=1
+  [ "$test_h2_cursor" != "2026-09-01T00:00:00Z" ] || test_h2_ok=1
+  grep -qF 'open-law' "$feed_dir/stderr" || test_h2_ok=1
+  grep -qF '/lawyer ack open-law' "$feed_dir/stderr" || test_h2_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" || test_h2_ok=1
+  grep -qF 'WARNING: open-law: aktile on avaldatud tulevane redaktsioon (jõustub 2026-11-01) — märgitud läbivaatamiseks' "$feed_dir/stdout" || test_h2_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "future_amendment" and .change.effective_date == "2026-11-01"' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_h2_ok=1
+  record "feed saturated page with stored redaktsioon_id null flags future_amendment and advances" "$test_h2_ok" "rc=$feed_rc cursor=$test_h2_cursor stdout=$(tr '\n' ' ' < "$feed_dir/stdout") stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # Case I1 (T-001): stored future redaction date withdrawn (served null) -> future_amendment flagged, effective_date null, summary contains stored date
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_RED_DATE="2026-01-01" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].next_redaktsioon_date = "2099-01-01"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  feed_cursor_body "$(jq -n '{
+    partial: false, warnings: [], total: 1,
+    items: [{id: 7, rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated"}]
+  }')"
+  feed_cursor_run
+  test_i1_ok=0
+  [ "$feed_rc" -eq 0 ] || test_i1_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "future_amendment" and .change.effective_date == null and (.change.summary | contains("2099-01-01"))' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_i1_ok=1
+  record "feed withdrawn future redaction flags future_amendment with null effective_date" "$test_i1_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
+
+  # Case I2: withdrawn with stored 2020-06-01, served redaktsioon_date 2020-01-01, served next null -> future_amendment, effective_date null (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_RED_DATE="2020-01-01" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].next_redaktsioon_date = "2020-06-01"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  feed_cursor_body "$(jq -n '{
+    partial: false, warnings: [], total: 1,
+    items: [{id: 7, rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated"}]
+  }')"
+  feed_cursor_run
+  test_i2_ok=0
+  [ "$feed_rc" -eq 0 ] || test_i2_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "future_amendment" and .change.effective_date == null and (.change.summary | contains("2020-06-01"))' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_i2_ok=1
+  record "feed withdrawn future redaction with passed date flags future_amendment" "$test_i2_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
+
+  # Case I2b: took effect: stored 2020-06-01, served redaktsioon_date 2020-06-01, served next null -> no flag (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_RED_DATE="2020-06-01" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].next_redaktsioon_date = "2020-06-01"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  feed_cursor_body "$(jq -n '{
+    partial: false, warnings: [], total: 1,
+    items: [{id: 7, rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated"}]
+  }')"
+  feed_cursor_run
+  test_i2b_ok=0
+  [ "$feed_rc" -eq 0 ] || test_i2b_ok=1
+  jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_i2b_ok=1
+  record "feed next redaction took effect with matching served date does not flag" "$test_i2b_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
+
+  # Case I3 (T-001): cited text changed and stored future date withdrawn -> text_change summary contains ei ole enam avaldatud
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT="Changed clause text." CITE_FAIL_ACT= CITE_RED_ID= CITE_RED_DATE="2026-01-01" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].next_redaktsioon_date = "2099-01-01"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  feed_cursor_body "$(jq -n '{
+    partial: false, warnings: [], total: 1,
+    items: [{id: 7, rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated"}]
+  }')"
+  feed_cursor_run
+  test_i3_ok=0
+  [ "$feed_rc" -eq 0 ] || test_i3_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "text_change" and (.change.summary | contains("ei ole enam avaldatud"))' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_i3_ok=1
+  record "feed text_change with withdrawn future redaction notes it in summary" "$test_i3_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout")"
+
+  # Ack case: after ack, redaktsioon_id and next_redaktsioon_date equal served values, next check flags nothing (#610)
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID="100000000099" CITE_URL= CITE_NEXT_DATE="2026-12-01" CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].needs_review = true | .entries["open-law"].change = {feed_event_id:null, type:"redaction_change", summary:"flagged", effective_date:null}' \
+    "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  ack_rc=0
+  (
+    cd "$feed_dir" && PATH="$feed_dir/bin:$PATH" \
+      EST_DATALAKE_API_KEY=synthetic-key \
+      DATALAKE_URL=https://example.invalid \
+      CITE_CODE=200 \
+      CITE_TEXT="Current clause." \
+      CITE_RED_ID="100000000099" \
+      CITE_NEXT_DATE="2026-12-01" \
+      bash "$PLUGIN_ROOT/scripts/lawyer-ack.sh" open-law
+  ) > "$feed_dir/stdout_ack" 2> "$feed_dir/stderr_ack" || ack_rc=$?
+  test_ack_ok=0
+  [ "$ack_rc" -eq 0 ] || test_ack_ok=1
+  jq -e '.entries["open-law"] | .needs_review == false and .change == null and .redaktsioon_id == "100000000099" and .next_redaktsioon_date == "2026-12-01"' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_ack_ok=1
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {
+      id: .,
+      rt_id: "999",
+      change_type: "amendment",
+      detected_at: "2026-09-02T00:00:00Z",
+      effective_date: "2026-10-01",
+      description: "unrelated event"
+    }]
+  }' > "$feed_dir/feed.json"
+  feed_cursor_run
+  [ "$feed_rc" -eq 0 ] || test_ack_ok=1
+  grep -qF 'WARNING:' "$feed_dir/stdout" && test_ack_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" && test_ack_ok=1
+  jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_ack_ok=1
+  record "lawyer ack refreshes redaktsioon_id and next_redaktsioon_date and check flags nothing" "$test_ack_ok" "ack_rc=$ack_rc check_rc=$feed_rc"
+
+  # Ack case 2 (T-003): ack with key omitted keeps a stored 2099-01-01
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID="100000000001" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=1
+  feed_cursor_reset
+  jq '.entries["open-law"].needs_review = true | .entries["open-law"].next_redaktsioon_date = "2099-01-01"' \
+    "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  ack_rc2=0
+  (
+    cd "$feed_dir" && PATH="$feed_dir/bin:$PATH" \
+      EST_DATALAKE_API_KEY=synthetic-key \
+      DATALAKE_URL=https://example.invalid \
+      CITE_CODE=200 \
+      CITE_TEXT="Current clause." \
+      CITE_RED_ID="100000000001" \
+      CITE_NEXT_DATE= \
+      CITE_OMIT_NEXT_DATE=1 \
+      bash "$PLUGIN_ROOT/scripts/lawyer-ack.sh" open-law
+  ) > "$feed_dir/stdout_ack2" 2> "$feed_dir/stderr_ack2" || ack_rc2=$?
+  test_ack_omit_ok=0
+  [ "$ack_rc2" -eq 0 ] || test_ack_omit_ok=1
+  jq -e '.entries["open-law"] | .needs_review == false and .next_redaktsioon_date == "2099-01-01"' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_ack_omit_ok=1
+  record "lawyer ack with omitted next_redaktsioon_date key keeps stored date" "$test_ack_omit_ok" "ack_rc=$ack_rc2"
+
+  # Ack case 3 (T-003): ack with an explicit null writes null
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID="100000000001" CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+  feed_cursor_reset
+  jq '.entries["open-law"].needs_review = true | .entries["open-law"].next_redaktsioon_date = "2099-01-01"' \
+    "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  ack_rc3=0
+  (
+    cd "$feed_dir" && PATH="$feed_dir/bin:$PATH" \
+      EST_DATALAKE_API_KEY=synthetic-key \
+      DATALAKE_URL=https://example.invalid \
+      CITE_CODE=200 \
+      CITE_TEXT="Current clause." \
+      CITE_RED_ID="100000000001" \
+      CITE_NEXT_DATE= \
+      CITE_OMIT_NEXT_DATE= \
+      bash "$PLUGIN_ROOT/scripts/lawyer-ack.sh" open-law
+  ) > "$feed_dir/stdout_ack3" 2> "$feed_dir/stderr_ack3" || ack_rc3=$?
+  test_ack_null_ok=0
+  [ "$ack_rc3" -eq 0 ] || test_ack_null_ok=1
+  jq -e '.entries["open-law"] | .needs_review == false and .next_redaktsioon_date == null' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || test_ack_null_ok=1
+  record "lawyer ack with explicit null next_redaktsioon_date writes null" "$test_ack_null_ok" "ack_rc=$ack_rc3"
 
   rm -rf "$feed_dir"
 }

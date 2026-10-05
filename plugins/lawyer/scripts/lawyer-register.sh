@@ -67,15 +67,12 @@ fi
 cite_body="$CITE_BODY"
 text=$(echo "$cite_body" | jq -r '.text // empty')
 REDAKTSIOON_URL=$(echo "$cite_body" | jq -r '.url // empty')
-REDAKTSIOON_ID=""
-if [ -n "$REDAKTSIOON_URL" ]; then
-  tail_seg="${REDAKTSIOON_URL##*/akt/}"
-  REDAKTSIOON_ID="${tail_seg%%[!0-9]*}"
-fi
+REDAKTSIOON_ID=$(lawyer_redaction_id_from_url "$REDAKTSIOON_URL")
 [ -n "$text" ] || { echo "Error: citation endpoint returned empty text"; exit 1; }
 
 # --force permits deliberate registration of an explicitly non-valid law only.
 REDAKTSIOON_DATE=$(echo "$cite_body" | jq -r '.redaktsioon_date // empty')
+NEXT_REDAKTSIOON_DATE=$(echo "$cite_body" | jq -r '.next_redaktsioon_date // empty')
 NOT_IN_FORCE=0
 [ "$CITE_LIFECYCLE" = verified-invalid ] && NOT_IN_FORCE=1
 if [ "$NOT_IN_FORCE" = "1" ] && [ "$FORCE" != "1" ]; then
@@ -128,12 +125,14 @@ entry=$(jq -n \
   --arg purp "$PURPOSE" \
   --arg status "$CITE_STATUS" \
   --arg reddate "$REDAKTSIOON_DATE" \
+  --arg nextred "$NEXT_REDAKTSIOON_DATE" \
   --arg expeff "$EXPECTED_EFFECTIVE_DATE" \
   '{
     act_id: $act,
     rt_id: $rt,
     redaktsioon_id: (if $red == "" then null else $red end),
     redaktsioon_date: (if $reddate == "" then null else $reddate end),
+    next_redaktsioon_date: (if $nextred == "" then null else $nextred end),
     status: (if $status == "" then null else $status end),
     expected_effective_date: (if $expeff == "" then null else $expeff end),
     act_title: $title,
