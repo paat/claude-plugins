@@ -19,7 +19,7 @@ params, and force/coverage fields only.
   `rt_id` or an RT URL segment.
 - `GET /laws/{act_id}/citation` — optional `paragraph`, `section`, `point` (and
   qualifiers via shared builder). Require `status == "valid"` and
-  `in_force == true`.
+  `in_force == true`. Returns `url` with a trailing redaction-unique ID and `next_redaktsioon_date` (start date of the earliest published redaction after the served one, or null).
 - `GET /laws/rt/{rtAktId}/source` — optional `format=html|text|json` (pick one).
 - `GET /laws/{act_id}/graph`
 - `GET /laws/{act_id}/citing-decisions`

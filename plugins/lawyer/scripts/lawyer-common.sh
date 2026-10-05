@@ -107,6 +107,21 @@ print(f"{int(y):04d}-{int(mo):02d}-{int(d):02d}")
 '
 }
 
+# Extract the trailing numeric segment after /akt/ from an RT URL (e.g.
+# https://www.riigiteataja.ee/akt/106032026010 -> 106032026010). Prints empty
+# for an empty or unparsable URL.
+lawyer_redaction_id_from_url() {
+  local u="${1:-}" tail_seg id
+  [ -n "$u" ] || return 0
+  case "$u" in
+    */akt/*)
+      tail_seg="${u##*/akt/}"
+      id="${tail_seg%%[!0-9]*}"
+      [ -n "$id" ] && printf '%s\n' "$id"
+      ;;
+  esac
+}
+
 # Fetch and classify one /citation result. Globals CITE_* are reset per call;
 # only a successful request with complete lifecycle evidence can be verified.
 lawyer_fetch_citation() {
@@ -143,7 +158,7 @@ lawyer_fetch_citation() {
 # 4 snapshot-write-failed (registry left untouched), 5 unknown lifecycle,
 # 6 citation_parts irreconcilable with the citation (SLUG_CITE_ERROR; no fetch).
 lawyer_ack_one() {
-  local SLUG="$1" resp text cite_url_resp red tail_seg ack_red_date NOW normalised
+  local SLUG="$1" resp text cite_url_resp red ack_red_date ack_next_red_date NOW normalised
   ACK_ACT_ID=$(jq -r --arg s "$SLUG" '.entries[$s].act_id' "$REGISTRY")
   lawyer_slug_cite_url "$SLUG" || return 6
   lawyer_fetch_citation "$SLUG_CITE_URL"
@@ -155,14 +170,11 @@ lawyer_ack_one() {
   resp="$CITE_BODY"
   text=$(echo "$resp" | jq -r '.text // empty')
   cite_url_resp=$(echo "$resp" | jq -r '.url // empty')
-  red=""
-  if [ -n "$cite_url_resp" ]; then
-    tail_seg="${cite_url_resp##*/akt/}"
-    red="${tail_seg%%[!0-9]*}"
-  fi
+  red=$(lawyer_redaction_id_from_url "$cite_url_resp")
   [ -n "$text" ] || return 2
 
   ack_red_date=$(echo "$resp" | jq -r '.redaktsioon_date // empty')
+  ack_next_red_date=$(echo "$resp" | jq -r '.next_redaktsioon_date // empty')
 
   # Snapshot first; only a verified write may clear registry flags.
   normalised=$(printf '%s' "$text" | lawyer_normalise)
@@ -170,13 +182,14 @@ lawyer_ack_one() {
 
   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   jq --arg slug "$SLUG" --arg now "$NOW" --arg red "$red" --arg rturl "$cite_url_resp" \
-     --arg st "$ACK_STATUS" --arg reddate "$ack_red_date" '
+     --arg st "$ACK_STATUS" --arg reddate "$ack_red_date" --arg nextdate "$ack_next_red_date" '
     .entries[$slug].needs_review = false
     | .entries[$slug].change = null
     | .entries[$slug].change_detected_at = null
     | .entries[$slug].verified_at = $now
     | .entries[$slug].redaktsioon_id = (if $red == "" then null else $red end)
     | .entries[$slug].redaktsioon_date = (if $reddate == "" then .entries[$slug].redaktsioon_date else $reddate end)
+    | .entries[$slug].next_redaktsioon_date = (if $nextdate == "" then null else $nextdate end)
     | .entries[$slug].status = (if $st == "" then .entries[$slug].status else $st end)
     | .entries[$slug].rt_url = (if $rturl == "" then .entries[$slug].rt_url else $rturl end)
   ' "$REGISTRY" > "${REGISTRY}.tmp"

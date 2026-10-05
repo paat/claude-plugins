@@ -28,7 +28,7 @@ case "$url" in
     exit 0
     ;;
   *changes/feed*) body='{"items":[],"total":0}' ;;
-  *citation*)     body='{"status":"valid","in_force":true,"text":"x","url":"https://www.riigiteataja.ee/akt/1","redaktsioon_date":"2026-01-01"}' ;;
+  *citation*)     body='{"status":"valid","in_force":true,"text":"x","url":"https://www.riigiteataja.ee/akt/106032026099","redaktsioon_date":"2026-01-01"}' ;;
   *)              body='{}' ;;
 esac
 if [ "$emit_code" = 1 ]; then printf '%s\n200' "$body"; else printf '%s' "$body"; fi

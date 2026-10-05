@@ -28,6 +28,7 @@ re-registered.
       "rt_id": "1045568",
       "redaktsioon_id": "106032026010",
       "redaktsioon_date": "2026-03-01",
+      "next_redaktsioon_date": null,
       "status": "valid",
       "expected_effective_date": null,
       "act_title": "Isikuandmete kaitse seadus",
@@ -63,6 +64,7 @@ re-registered.
 | `rt_id` | string | The terviktekst identifier (short digit string like `"1045568"`). Stable across non-breaking amendments. Used for **feed matching** — `ChangeEvent.rt_id` is the same ID. |
 | `redaktsioon_id` | string \| null | Trailing numeric segment of the citation URL (e.g. `"106032026010"`). Per-redaction RT identifier. Useful for cheap equality at ack time. |
 | `redaktsioon_date` | string \| null | `redaktsioon_date` from `/citation` — the validFrom of the served redaction (e.g. `"2026-03-01"`), or null. Stored at register and refreshed at ack. |
+| `next_redaktsioon_date` | string \| null | `next_redaktsioon_date` from `/citation` — start date of the earliest published redaction after the served one (e.g. `"2026-11-01"`), or null if none is published. Stored at register and refreshed at ack. |
 | `status` | string \| null | `status` from `/citation` — `"valid"` \| `"superseded"` \| `"repealed"`, or null if the datalake didn't return it. Set at register (must be `"valid"` unless `--force`), refreshed at ack, and updated to the detected status when the lifecycle re-check flags the entry. |
 | `expected_effective_date` | string \| null | `redaktsioon_date` at register time when the served redaction was future-dated. Absent (`null`) for already-effective acts. Re-baselined to the newly announced date when the watch flags a postponement; cleared once the date passes and Riigi Teataja agrees. See "Future-effective watch" below. |
 | `act_title` | string | Human-readable act title. |
@@ -194,7 +196,7 @@ curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
 
 Response: `{items:[ChangeEvent], total}` where each event has `{id, change_type, act_title, rt_id, act_type, issuer, detected_at, effective_date, description, domains[]}`. Filter client-side: `select(.rt_id == registered_rt_id)`. `total` is part of that shape and is not a continuation cursor.
 
-Proven coverage is HTTP 2xx, a JSON object, `items` an array, `partial` not true, and `warnings` absent or empty. The call documents `since`, `limit`, and `domain` only — no offset or next-page parameter, and neither item order nor whether `since` is inclusive — so `items | length >= limit` (`limit=500`) is unproven by the feed alone. When saturation is the only feed issue, direct `/citation` text verification of all unflagged registered entries can prove the window instead: if all unflagged entries are successfully compared (`LC_INCOMPLETE=0`), `last_feed_check_at` advances to the request-issue time. Otherwise, unproven coverage (incomplete direct verification, malformed or schema-invalid body, non-2xx, or transport failure) keeps `last_feed_check_at`, prints a stderr WARNING, and exits non-zero, the same incomplete-coverage exit as an unknown citation lifecycle. A usable `items` array may still flag the entries it contains. A proven response advances `last_feed_check_at` to the time the request was issued, not the time processing finished.
+Proven coverage is HTTP 2xx, a JSON object, `items` an array, `partial` not true, and `warnings` absent or empty. The call documents `since`, `limit`, and `domain` only — no offset or next-page parameter, and neither item order nor whether `since` is inclusive — so `items | length >= limit` (`limit=500`) is unproven by the feed alone. When saturation is the only feed issue, direct `/citation` verification of all unflagged registered entries can prove the window instead: direct verification proves cited text equality, act redaction identity, and published next redactions when the API returns `next_redaktsioon_date`. If all unflagged entries are fully proven (`LC_INCOMPLETE=0` and `LC_ACT_UNPROVEN=0`), `last_feed_check_at` advances to the request-issue time (printing a stdout note if `next_redaktsioon_date` is omitted by the API). Otherwise, unproven coverage (unprovable act redaction, incomplete direct verification, malformed or schema-invalid body, non-2xx, or transport failure) keeps `last_feed_check_at`, prints a stderr WARNING, and exits non-zero, the same incomplete-coverage exit as an unknown citation lifecycle. A usable `items` array may still flag the entries it contains. A proven response advances `last_feed_check_at` to the time the request was issued, not the time processing finished.
 
 **Augment the fix-plan with the datalake's impact analysis** (optional):
 
@@ -231,7 +233,7 @@ Issue title: `Seadusemuudatus: <citation> — <slug>`
 Labels: `legal-review,seadusemuudatus`
 Body: the "Mida tuleb teha" section for that slug from `docs/legal/õiguslik-muudatused-YYYY-MM-DD.md`, plus a trailing block titled "Registri värskendus PR-s" listing:
 - File to overwrite: `.startup/laws/<slug>.txt` (content will be fetched fresh at ack time)
-- Index fields to update: `needs_review=false`, `change=null`, `change_detected_at=null`, `verified_at=<now>`, `redaktsioon_id=<trailing segment of the new citation URL>`
+- Index fields to update: `needs_review=false`, `change=null`, `change_detected_at=null`, `verified_at=<now>`, `redaktsioon_id=<trailing segment of the new citation URL>`, `next_redaktsioon_date=<next_redaktsioon_date from citation response or null>`
 - Helper to run inside the fix branch: `/lawyer ack <slug>`
 
 ## Common failure modes
@@ -244,3 +246,5 @@ Body: the "Mida tuleb teha" section for that slug from `docs/legal/õiguslik-muu
 - **Entry rt_id mismatches feed even for the right act** — possible if the terviktekst ID drifted (rare, happens on structural republications). Resolve by re-running `/lawyer register` with the same slug — it refreshes rt_id from `/laws/{act_id}/graph`.
 - **Act no longer in force (`status != "valid"`)** — the lifecycle re-check flags the entry (`needs_review=true`, `change.type="lifecycle"`) even with no feed event. A repeal/supersession has no "new text to adopt" — the fix is to remove or replace the dependency in code, then `/lawyer unregister <slug>`. `ack` refuses such an entry by design; do not `--force`-register a replacement for a repealed paragraph without confirming the new act is actually valid.
 - **Citation text changed (`change.type="text_change"`)** — direct `/citation` text comparison detected differences between served text and the local snapshot (`.startup/laws/<slug>.txt`). Fix path: review the new text, update dependent code, and run `/lawyer ack <slug>` to refresh the snapshot and clear the flag.
+- **Act redaction changed (`change.type="redaction_change"`)** — direct `/citation` comparison detected that the act's redaction ID changed while the cited text stayed the same. Fix path: review the act's change, update dependent code if needed, and run `/lawyer ack <slug>`.
+- **Future amendment published (`change.type="future_amendment"`)** — a new future redaction date was published for the act. Fix path: review the act's change, update dependent code if needed, and run `/lawyer ack <slug>`.
