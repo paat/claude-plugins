@@ -25,5 +25,5 @@ if [ "$tokens" -lt "$limit" ]; then rm -f "$marker"; exit 0; fi
 grep -qF 'multi-model-orchestrator:meta-orchestrat' "$transcript" || exit 0
 : > "$marker"
 
-msg="Context is at $tokens tokens (MMO_CONTEXT_WARN_TOKENS=$limit). If this session is running /multi-model-orchestrator:meta-orchestrate: bring the handoff current now, keep this item lean (legs return verdicts, no full-file reads here), and take the checkpoint reset at the next item boundary."
+msg="Context is at $tokens tokens (MMO_CONTEXT_WARN_TOKENS=$limit). If this session is running /multi-model-orchestrator:meta-orchestrate: bring the handoff current now, and keep this item lean (legs return verdicts, no full-file reads here); compaction resumes from the handoff."
 jq -cn --arg m "$msg" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$m}}'

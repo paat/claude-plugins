@@ -1,6 +1,6 @@
 {
   "name": "multi-model-orchestrator",
-  "version": "0.19.4",
+  "version": "0.19.5",
   "description": "Route software tasks across Claude, GPT-5.6/GPT-6, Grok 4.7, Gemini Flash, and local Qwen by complexity, plan-limit headroom, and availability, with independent review",
   "author": {
     "name": "Andre Paat"
