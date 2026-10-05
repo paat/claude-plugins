@@ -44,6 +44,7 @@ export RT_PUBLIC_API=https://rt-test.example/public-api/api/v1
 seed_registry() {
   local work="$1" expected_json="$2"
   mkdir -p "$work/.startup/laws"
+  printf 'x\n' > "$work/.startup/laws/future-act.txt"
   jq -n --argjson exp "$expected_json" '{
     version: 2,
     last_feed_check_at: "2026-04-23T10:00:00Z",

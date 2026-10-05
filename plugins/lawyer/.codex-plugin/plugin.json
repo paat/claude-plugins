@@ -1,6 +1,6 @@
 {
   "name": "lawyer",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "On-demand Estonian/EU legal risk analysis for SaaS projects via est-saas-datalake and primary sources, with a law registry that flags load-bearing provisions when they change",
   "author": {
     "name": "Andre Paat"

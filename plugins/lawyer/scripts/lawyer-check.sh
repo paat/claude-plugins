@@ -10,6 +10,11 @@ source "$(dirname "$0")/lawyer-common.sh"
 
 # Set when the change feed does not prove the window. Same exit as an unknown lifecycle.
 FEED_INCOMPLETE=0
+FEED_SATURATED=0
+FEED_SATURATED_SOLO=0
+FEED_LIMIT=500
+FEED_REQUESTED_AT=""
+SATURATED_MSG="window is saturated and cannot advance (limit=${FEED_LIMIT}, no continuation parameter)"
 
 # One feed call per run: query without ?domain= and match client-side by rt_id.
 # The server's ?domain= enum doesn't match the plugin's historical domain strings.
@@ -26,7 +31,6 @@ else
 
   # datalake-api.md: since, limit, and domain only — no offset or next page.
   # A page that fills limit is unproven; do not invent a continuation parameter.
-  FEED_LIMIT=500
   feed_url="$DATALAKE_URL/api/v1/changes/feed?since=${SINCE}&limit=${FEED_LIMIT}"
   # Issued-at, not processed-at: events that arrive during the request stay in the next window.
   FEED_REQUESTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -72,7 +76,7 @@ else
       if [ "$item_count" -ge "$FEED_LIMIT" ]; then
         # Item order and whether since is inclusive are undocumented, so a full
         # page must not move last_feed_check_at past events this page did not return.
-        feed_add_reason "window is saturated and cannot advance (limit=${FEED_LIMIT}, no continuation parameter)"
+        FEED_SATURATED=1
       fi
     fi
   fi
@@ -107,6 +111,13 @@ else
   if [ -z "$updated" ]; then
     feed_add_reason "registry update failed"
   fi
+  if [ "$FEED_SATURATED" -eq 1 ]; then
+    if [ -z "$feed_reason" ]; then
+      FEED_SATURATED_SOLO=1
+    else
+      feed_add_reason "$SATURATED_MSG"
+    fi
+  fi
   if [ -n "$feed_reason" ]; then
     echo "WARNING: seaduste muudatuste kontroll ebaõnnestus ($feed_reason) — vaata üle käsitsi; incomplete coverage" >&2
     FEED_INCOMPLETE=1
@@ -115,19 +126,22 @@ else
   # body cannot truncate last_feed_check_at or an existing pending flag.
   if [ -n "$updated" ]; then
     write_ok=0
-    if [ -z "$feed_reason" ]; then
-      printf '%s' "$updated" | jq --arg now "$FEED_REQUESTED_AT" '.last_feed_check_at = $now' > "${REGISTRY}.tmp" && write_ok=1
+    if [ -z "$feed_reason" ] && [ "$FEED_SATURATED_SOLO" -eq 0 ]; then
+      printf '%s' "$updated" | jq --arg now "$FEED_REQUESTED_AT" '.last_feed_check_at = $now' > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY" && write_ok=1
     else
-      printf '%s' "$updated" | jq '.' > "${REGISTRY}.tmp" && write_ok=1
+      printf '%s' "$updated" | jq '.' > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY" && write_ok=1
     fi
-    if [ "$write_ok" = 1 ]; then
-      mv "${REGISTRY}.tmp" "$REGISTRY"
-    else
+    if [ "$write_ok" = 0 ]; then
       rm -f "${REGISTRY}.tmp"
-      if [ "$FEED_INCOMPLETE" = 0 ]; then
-        echo "WARNING: seaduste muudatuste kontroll ebaõnnestus (registry write failed) — vaata üle käsitsi; incomplete coverage" >&2
-        FEED_INCOMPLETE=1
+      if [ "$FEED_INCOMPLETE" -eq 0 ]; then
+        feed_add_reason "registry write failed"
+        if [ "$FEED_SATURATED_SOLO" -eq 1 ]; then
+          feed_add_reason "$SATURATED_MSG"
+        fi
+        echo "WARNING: seaduste muudatuste kontroll ebaõnnestus ($feed_reason) — vaata üle käsitsi; incomplete coverage" >&2
       fi
+      FEED_INCOMPLETE=1
+      FEED_SATURATED_SOLO=0
     fi
   fi
 fi
@@ -152,7 +166,46 @@ while IFS= read -r lcslug; do
       echo "WARNING: $lcslug: citation lifecycle unknown ($CITE_FAILURE) — incomplete coverage; snapshot and review flags kept." >&2
       LC_INCOMPLETE=1
       continue ;;
-    verified-valid) continue ;;
+    verified-valid)
+      text=$(printf '%s' "$CITE_BODY" | jq -r '.text // empty')
+      if [ -z "$text" ]; then
+        echo "WARNING: $lcslug: citation text empty — incomplete coverage; snapshot and review flags kept." >&2
+        LC_INCOMPLETE=1
+        continue
+      fi
+      normalised=$(printf '%s' "$text" | lawyer_normalise)
+      if [ -z "$normalised" ]; then
+        echo "WARNING: $lcslug: citation text empty — incomplete coverage; snapshot and review flags kept." >&2
+        LC_INCOMPLETE=1
+        continue
+      fi
+      snap="${LAWS_DIR}/${lcslug}.txt"
+      if [ ! -f "$snap" ] || [ ! -r "$snap" ]; then
+        echo "WARNING: $lcslug: snapshot missing or unreadable — incomplete coverage; snapshot and review flags kept." >&2
+        LC_INCOMPLETE=1
+        continue
+      fi
+      if printf '%s\n' "$normalised" | cmp -s - "$snap"; then
+        continue
+      fi
+      NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      if jq --arg s "$lcslug" --arg now "$NOW" '
+        .entries[$s].needs_review = true
+        | .entries[$s].change_detected_at = $now
+        | .entries[$s].change = {
+            feed_event_id: null,
+            type: "text_change",
+            summary: "Tsiteeritud tekst erineb hetktõmmisest — tuvastatud /citation otsevõrdlusega, mitte feed-sündmusega",
+            effective_date: null
+          }
+      ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"; then
+        echo "WARNING: $lcslug: tsiteeritud tekst erineb hetktõmmisest — märgitud läbivaatamiseks"
+      else
+        rm -f "${REGISTRY}.tmp"
+        echo "WARNING: $lcslug: registry write failed — incomplete coverage; snapshot and review flags kept." >&2
+        LC_INCOMPLETE=1
+      fi
+      continue ;;
   esac
   lc_status="$CITE_STATUS"
   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -170,6 +223,22 @@ while IFS= read -r lcslug; do
   mv "${REGISTRY}.tmp" "$REGISTRY"
   echo "WARNING: $lcslug: akt $lc_act ei ole enam jõus (status=${lc_status:-not_in_force}) — märgitud läbivaatamiseks"
 done <<< "$LC_SLUGS"
+
+# Saturation fallback: advance cursor when all unflagged entries are proven directly.
+if [ "$FEED_SATURATED_SOLO" -eq 1 ]; then
+  if [ "$LC_INCOMPLETE" -eq 0 ]; then
+    write_ok=0
+    jq --arg now "$FEED_REQUESTED_AT" '.last_feed_check_at = $now' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY" && write_ok=1
+    if [ "$write_ok" = 0 ]; then
+      rm -f "${REGISTRY}.tmp"
+      echo "WARNING: seaduste muudatuste kontroll ebaõnnestus (registry write failed) — vaata üle käsitsi; incomplete coverage" >&2
+      FEED_INCOMPLETE=1
+    fi
+  else
+    echo "WARNING: seaduste muudatuste kontroll ebaõnnestus ($SATURATED_MSG) — vaata üle käsitsi; incomplete coverage" >&2
+    FEED_INCOMPLETE=1
+  fi
+fi
 
 # Future-effective-date watch (feed- and lifecycle-independent). /changes/feed
 # only reports events it detects; a postponement of a not-yet-in-force act's

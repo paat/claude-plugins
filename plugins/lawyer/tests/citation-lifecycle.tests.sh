@@ -56,8 +56,9 @@ lifecycle_prepare() {
 }
 
 lifecycle_preserved() {
+  local exp="${1:-OLD SNAPSHOT}"
   [ "$(jq -cS '.entries' "$lifecycle_dir/.startup/law-registry.json")" = "$lifecycle_before" ] &&
-    [ "$(cat "$lifecycle_dir/.startup/laws/sample-law.txt")" = 'OLD SNAPSHOT' ]
+    [ "$(cat "$lifecycle_dir/.startup/laws/sample-law.txt")" = "$exp" ]
 }
 
 test_citation_lifecycle() {
@@ -127,11 +128,14 @@ test_citation_lifecycle() {
   CITATION_BODY="$valid"
   for action in check ack ack-all register; do
     lifecycle_prepare "$action"
+    if [ "$action" = check ]; then
+      printf 'Verified replacement text.\n' > "$lifecycle_dir/.startup/laws/sample-law.txt"
+    fi
     lifecycle_run "$action"
     ok=0
     [ "$lifecycle_rc" -eq 0 ] || ok=1
     if [ "$action" = check ]; then
-      lifecycle_preserved || ok=1
+      lifecycle_preserved 'Verified replacement text.' || ok=1
     else
       jq -e '.entries["sample-law"] | .needs_review == false and .status == "valid" and (.verified_at != null and .verified_at != "2020-01-01T00:00:00Z")' \
         "$lifecycle_dir/.startup/law-registry.json" >/dev/null || ok=1
