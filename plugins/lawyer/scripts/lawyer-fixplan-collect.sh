@@ -4,7 +4,8 @@
 # re-fetches the current paragraph text and writes <tmpdir>/<slug>.json with
 # old_text + new_text + lifecycle status + feed change + datalake impact, plus
 # fetch_error (the refusal reason when the citation cannot be resolved to a URL,
-# else null; new_text is then empty because nothing was fetched). Also
+# the classified failure reason when the citation fetch itself fails, else null;
+# new_text is then empty because nothing valid was fetched). Also
 # writes <tmpdir>/markers.tsv (slug → file:line) via the marker scan. The Lawyer
 # agent reads these to write the fix plan.
 set -uo pipefail
@@ -19,7 +20,13 @@ while IFS= read -r slug; do
   [ -z "$slug" ] && continue
   resp="" fetch_error=""
   if lawyer_slug_cite_url "$slug"; then
-    resp=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$SLUG_CITE_URL")
+    lawyer_fetch_citation "$SLUG_CITE_URL"
+    if [ "$CITE_LIFECYCLE" = unknown ]; then
+      fetch_error="$CITE_FAILURE"
+      echo "WARNING: $fetch_error — new text not fetched." >&2
+    else
+      resp="$CITE_BODY"
+    fi
   else
     fetch_error="$SLUG_CITE_ERROR"
     echo "WARNING: $fetch_error — new text not fetched." >&2

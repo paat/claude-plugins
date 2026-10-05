@@ -49,7 +49,9 @@ Use this only when immediate user confirmation is available and
    requested topic may still continue.
 4. Run `lawyer-fixplan-collect.sh` for the exact affected files/snapshots. Spawn
    one Lawyer fix-plan task, not one per slug. It may write only a concise
-   `docs/legal/õiguslik-*.md` plan and must not mutate registry/source.
+   `docs/legal/õiguslik-*.md` plan and must not mutate registry/source. A
+   non-null `fetch_error` in an artifact means the current text is UNKNOWN,
+   never removed.
 5. Ask once whether to create deduplicated issues. “No” keeps every flag and
    continues the topic. “Yes” runs `lawyer-issue.sh <slug>` for each unfiled
    slug; the script records the URL only after successful creation.
