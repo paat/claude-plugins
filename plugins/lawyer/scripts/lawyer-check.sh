@@ -232,10 +232,10 @@ while IFS= read -r lcslug; do
         if [ -z "$stored" ] || [ "$stored" = "$rt" ] || [ -z "$served" ] || [ "$served" = "$rt" ]; then
           if [ "$FEED_SATURATED_SOLO" -eq 1 ]; then
             reason=""
-            if [ -z "$stored" ] || [ "$stored" = "$rt" ]; then
+            if [ -n "$served" ] && [ "$served" != "$rt" ]; then
               reason="stored redaktsioon_id missing or not redaction-unique — run /lawyer ack $lcslug"
             else
-              reason="served citation URL has no redaction-unique id"
+              reason="served citation URL has no redaction-unique id — review the act manually"
             fi
             echo "WARNING: $lcslug: akti redaktsiooni ei saa tõendada ($reason) — incomplete coverage." >&2
             LC_ACT_UNPROVEN=1
@@ -318,9 +318,9 @@ while IFS= read -r lcslug; do
   echo "WARNING: $lcslug: akt $lc_act ei ole enam jõus (status=${lc_status:-not_in_force}) — märgitud läbivaatamiseks"
 done <<< "$LC_SLUGS"
 
-# Saturation fallback: advance cursor when all unflagged entries are proven directly.
+# Advance when every unflagged entry was verified directly; an unprovable act redaction exits non-zero but does not hold the cursor because the feed cannot page.
 if [ "$FEED_SATURATED_SOLO" -eq 1 ]; then
-  if [ "$LC_INCOMPLETE" -eq 0 ] && [ "$LC_ACT_UNPROVEN" -eq 0 ]; then
+  if [ "$LC_INCOMPLETE" -eq 0 ]; then
     write_ok=0
     jq --arg now "$FEED_REQUESTED_AT" '.last_feed_check_at = $now' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY" && write_ok=1
     if [ "$write_ok" = 0 ]; then
@@ -330,6 +330,7 @@ if [ "$FEED_SATURATED_SOLO" -eq 1 ]; then
     elif [ "$LC_NEXT_UNKNOWN" -eq 1 ]; then
       echo "NOTE: muudatuste aken oli küllastunud; tulevaste redaktsioonide etteteatamist ei saa täielikult tõendada (/citation ei tagasta next_redaktsioon_date või tagastab ainult varaseima)"
     fi
+    [ "$LC_ACT_UNPROVEN" -eq 1 ] && FEED_INCOMPLETE=1
   else
     echo "WARNING: seaduste muudatuste kontroll ebaõnnestus ($SATURATED_MSG) — vaata üle käsitsi; incomplete coverage" >&2
     FEED_INCOMPLETE=1
