@@ -213,7 +213,9 @@ while IFS= read -r lcslug; do
             LC_INCOMPLETE=1
           fi
           continue
-        elif [ -z "$stored" ] || [ "$stored" = "$rt" ] || [ -z "$served" ] || [ "$served" = "$rt" ]; then
+        fi
+
+        if [ -z "$stored" ] || [ "$stored" = "$rt" ] || [ -z "$served" ] || [ "$served" = "$rt" ]; then
           if [ "$FEED_SATURATED_SOLO" -eq 1 ]; then
             reason=""
             if [ -z "$stored" ] || [ "$stored" = "$rt" ]; then
@@ -224,36 +226,35 @@ while IFS= read -r lcslug; do
             echo "WARNING: $lcslug: akti redaktsiooni ei saa tõendada ($reason) — incomplete coverage; snapshot and review flags kept." >&2
             LC_ACT_UNPROVEN=1
           fi
-          continue
-        else
-          has_next=$(printf '%s' "$CITE_BODY" | jq -r 'has("next_redaktsioon_date")')
-          if [ "$has_next" = "true" ]; then
-            served_next_date=$(printf '%s' "$CITE_BODY" | jq -r '.next_redaktsioon_date // empty')
-            stored_next_date=$(jq -r --arg s "$lcslug" '.entries[$s].next_redaktsioon_date // empty' "$REGISTRY")
-            if [ -n "$served_next_date" ] && [ "$served_next_date" != "$stored_next_date" ]; then
-              NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-              if jq --arg s "$lcslug" --arg now "$NOW" --arg nextdate "$served_next_date" '
-                .entries[$s].needs_review = true
-                | .entries[$s].change_detected_at = $now
-                | .entries[$s].change = {
-                    feed_event_id: null,
-                    type: "future_amendment",
-                    summary: ("Aktile on avaldatud tulevane redaktsioon (jõustub " + $nextdate + ") — kontrolli muudatust enne jõustumist"),
-                    effective_date: $nextdate
-                  }
-              ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"; then
-                echo "WARNING: $lcslug: aktile on avaldatud tulevane redaktsioon (jõustub $served_next_date) — märgitud läbivaatamiseks"
-              else
-                rm -f "${REGISTRY}.tmp"
-                echo "WARNING: $lcslug: registry write failed — incomplete coverage; snapshot and review flags kept." >&2
-                LC_INCOMPLETE=1
-              fi
-            fi
-          else
-            LC_NEXT_UNKNOWN=1
-          fi
-          continue
         fi
+
+        has_next=$(printf '%s' "$CITE_BODY" | jq -r 'has("next_redaktsioon_date")')
+        if [ "$has_next" = "true" ]; then
+          served_next_date=$(printf '%s' "$CITE_BODY" | jq -r '.next_redaktsioon_date // empty')
+          stored_next_date=$(jq -r --arg s "$lcslug" '.entries[$s].next_redaktsioon_date // empty' "$REGISTRY")
+          if [ -n "$served_next_date" ] && [ "$served_next_date" != "$stored_next_date" ]; then
+            NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            if jq --arg s "$lcslug" --arg now "$NOW" --arg nextdate "$served_next_date" '
+              .entries[$s].needs_review = true
+              | .entries[$s].change_detected_at = $now
+              | .entries[$s].change = {
+                  feed_event_id: null,
+                  type: "future_amendment",
+                  summary: ("Aktile on avaldatud tulevane redaktsioon (jõustub " + $nextdate + ") — kontrolli muudatust enne jõustumist"),
+                  effective_date: $nextdate
+                }
+            ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"; then
+              echo "WARNING: $lcslug: aktile on avaldatud tulevane redaktsioon (jõustub $served_next_date) — märgitud läbivaatamiseks"
+            else
+              rm -f "${REGISTRY}.tmp"
+              echo "WARNING: $lcslug: registry write failed — incomplete coverage; snapshot and review flags kept." >&2
+              LC_INCOMPLETE=1
+            fi
+          fi
+        else
+          LC_NEXT_UNKNOWN=1
+        fi
+        continue
       fi
       NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       if jq --arg s "$lcslug" --arg now "$NOW" '

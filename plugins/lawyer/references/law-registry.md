@@ -166,7 +166,7 @@ curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
 
 When a qualifier is set, the param value is the base digit followed by the unicode superscript digit, URL-encoded (e.g. `section=1¹` → `section=1%C2%B9`). The command body builds this via an inline Python helper; do not concatenate by hand.
 
-Response: `{act_id, act_title, paragraph, section, point, text, url, status, in_force, redaktsioon_date}`. The trailing segment of `url` (after `/akt/`) is the per-redaction RT identifier — store as `redaktsioon_id`. `status` (`"valid"`|`"superseded"`|`"repealed"`), `in_force` (== `status == "valid"`), and `redaktsioon_date` (validFrom of the served redaction, may be null) are additive lifecycle signals.
+Response: `{act_id, act_title, paragraph, section, point, text, url, status, in_force, redaktsioon_date, next_redaktsioon_date}`. The trailing segment of `url` (after `/akt/`) is the per-redaction RT identifier — store as `redaktsioon_id`. `status` (`"valid"`|`"superseded"`|`"repealed"`), `in_force` (== `status == "valid"`), and `redaktsioon_date` (validFrom of the served redaction, may be null) are additive lifecycle signals.
 
 > **WARNING: 200 ≠ in force.** A repealed/superseded/never-in-force act still returns
 > **200 + text** (so callers don't 404) but carries `in_force: false`. Every
