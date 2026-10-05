@@ -223,7 +223,7 @@ while IFS= read -r lcslug; do
             else
               reason="served citation URL has no redaction-unique id"
             fi
-            echo "WARNING: $lcslug: akti redaktsiooni ei saa tõendada ($reason) — incomplete coverage; snapshot and review flags kept." >&2
+            echo "WARNING: $lcslug: akti redaktsiooni ei saa tõendada ($reason) — incomplete coverage." >&2
             LC_ACT_UNPROVEN=1
           fi
         fi
