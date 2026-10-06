@@ -4,6 +4,11 @@
 # (floors at 128KB), so a few thousand files is enough to reproduce the
 # E2BIG that silently dropped every marker on 37d86d3, without needing a
 # real 60k-file repo.
+#
+# The argmax case runs with rg absent from PATH: rg (14.x) aborts on a
+# 128KB stack ("fatal runtime error: stack overflow"), which is unrelated to
+# the E2BIG regression. With rg gone the scanner falls back to grep, which
+# copes with the shrunken stack, so the case still exercises xargs chunking.
 set -uo pipefail
 
 TESTS_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -24,9 +29,16 @@ echo "// LAW: argmax-last" > src/file_08000.txt
   ulimit -s 128 2>/dev/null
 ) || { echo "SKIP: cannot lower ulimit -s on this system; test-markers-argmax skipped"; exit 0; }
 
+# PATH with rg absent (see header): everything the scanner needs, minus rg.
+NOPATH_DIR=$(mktemp -d)
+trap 'rm -rf "$WORK" "$NOPATH_DIR"' EXIT
+for tool in bash sh grep xargs git mktemp cat rm awk find sed mkdir; do
+  path=$(command -v "$tool") && ln -sf "$path" "$NOPATH_DIR/$tool"
+done
+
 output=$(
   ulimit -s 128
-  bash "$SCAN_SCRIPT"
+  PATH="$NOPATH_DIR" bash "$SCAN_SCRIPT"
 )
 rc=$?
 
@@ -45,7 +57,6 @@ echo "PASS: test-markers-argmax"
 # check above mistook for a real scan failure. A binary file containing a
 # marker-like byte sequence must be skipped, not treated as an error.
 BINWORK=$(mktemp -d)
-NOPATH_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK" "$BINWORK" "$NOPATH_DIR"' EXIT
 
 cd "$BINWORK"
@@ -66,9 +77,6 @@ run_binary_case() {
     || { echo "FAIL: binary-file case ($label) output mismatch"; echo "$output"; exit 1; }
 }
 
-for tool in bash sh grep xargs git mktemp cat rm awk find sed mkdir; do
-  path=$(command -v "$tool") && ln -sf "$path" "$NOPATH_DIR/$tool"
-done
 PATH="$NOPATH_DIR" run_binary_case "grep path, rg absent"
 
 if command -v rg >/dev/null 2>&1; then
