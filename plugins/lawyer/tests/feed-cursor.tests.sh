@@ -1256,6 +1256,19 @@ test_feed_cursor() {
     "$feed_dir/.startup/law-registry.json" >/dev/null || t612b_ok=1
   record "feed saturated flagged entry with new next date is re-flagged future_amendment (#612)" "$t612b_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout") change=$(open612)"
 
+  # b2: recorded change lacks the next-date key, same id, run 2 serves a next date -> future_amendment re-flag
+  flag612
+  reg612 '.entries["open-law"].change |= del(.served_next_redaktsioon_date)'
+  t612b2_before=$(open612)
+  CITE_NEXT_DATE="2026-10-15"
+  sat612
+  t612b2_ok=0
+  [ "$feed_rc" -eq 0 ] || t612b2_ok=1
+  grep -qF 'WARNING: open-law:' "$feed_dir/stdout" || t612b2_ok=1
+  jq -e --argjson p "$t612b2_before" '.entries["open-law"].change | .type == "future_amendment" and .previous[0] == $p' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || t612b2_ok=1
+  record "feed saturated flagged entry lacking recorded next date is re-flagged future_amendment (#612)" "$t612b2_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout") change=$(open612)"
+
   # c: run 2 with nothing changed -> proven, cursor advanced, change untouched
   flag612
   t612c_before=$(open612)

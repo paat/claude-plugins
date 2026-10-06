@@ -247,11 +247,10 @@ while IFS= read -r lcslug; do
         LC_ACT_UNPROVEN=1
       elif [ "$served" != "$recorded" ]; then
         lc_flag "$lcslug" redaction_change "Akti redaktsioon muutus läbivaatamise ootel ($recorded -> $served) — kontrolli akti muudatusi$next_note" "$served_red_date" "akti redaktsioon muutus ($recorded -> $served) — märgitud läbivaatamiseks"
-      elif [ "$(jq -r --arg s "$lcslug" '.entries[$s].change | has("served_next_redaktsioon_date")' "$REGISTRY")" != true ]; then
-        LC_NEXT_UNKNOWN=1
       elif [ -n "$fa_summary" ]; then
         lc_flag "$lcslug" future_amendment "$fa_summary" "$fa_eff_date" "$fa_warn"
-      elif [ "$has_next" != true ] || [ -n "$served_next_date" ]; then
+      elif [ "$(jq -r --arg s "$lcslug" '.entries[$s].change | has("served_next_redaktsioon_date")' "$REGISTRY")" != true ] \
+        || [ "$has_next" != true ] || [ -n "$served_next_date" ]; then
         LC_NEXT_UNKNOWN=1
       fi
       continue
