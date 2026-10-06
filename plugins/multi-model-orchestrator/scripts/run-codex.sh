@@ -80,6 +80,8 @@ diff_file=""
 research_dir=""
 [ "$mode" != research ] || research_dir="$(mktemp -d)"
 user_final=0
+out_dev=""
+case "$final_file" in /dev/*) out_dev="$final_file"; final_file="" ;; esac
 if [ -n "$final_file" ]; then
   user_final=1
 else
@@ -189,7 +191,7 @@ fi
 # Expose body on success and on verdict-format failure (rc=6) so controllers
 # can inspect useful review text; --out already holds the body either way.
 if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
-  cat "$final_file"
+  if [ -n "$out_dev" ]; then cat "$final_file" > "$out_dev"; else cat "$final_file"; fi
 fi
 
 : > "$classify_file"

@@ -731,7 +731,7 @@ printf 'dev codex out\n' | STUB_CODEX_RESULT=error "$PLUGIN_ROOT/scripts/run-cod
   --mode review --dir "$WORK/repo" --out /dev/stdout \
   --stream-log "$WORK/out-dest/codex-dev.stream" --timeout 5 \
   > "$WORK/out-dest/codex-dev.stdout" 2> "$WORK/out-dest/codex-dev.err" || true
-exact_line "$WORK/codex.args" '/dev/stdout' 'Codex preserves /dev/stdout output path'
+absent "$WORK/codex.args" '/dev/stdout' 'Codex hands the provider a temp file, not the device (#625)'
 printf 'dev codex stream\n' | STUB_CODEX_RESULT=error "$PLUGIN_ROOT/scripts/run-codex.sh" \
   --mode review --dir "$WORK/repo" --out "$WORK/out-dest/codex-dev-final.txt" \
   --stream-log /dev/stderr --timeout 5 \
@@ -1412,6 +1412,18 @@ printf x | STUB_GROK_RESULT=transient503 "$PLUGIN_ROOT/scripts/run-grok.sh" --mo
 [ "$rc" -eq 75 ] || fail "grok --out /dev/stdout transient rc=$rc want 75"
 contains "$WORK/grok-devout-tr.err" 'failure=transient' 'grok --out /dev/stdout classifies transient failure'
 pass '#621: grok --out /dev/* keeps verdict check, file stdout, and failure classification'
+
+# #625: claude/codex --out /dev/stdout piped: body once, verdict gate intact.
+for r in claude codex; do
+  case "$r" in claude) rs=STUB_CLAUDE_RESULT nv=progress ;; codex) rs=STUB_CODEX_RESULT nv=noverdict ;; esac
+  printf x | env "$rs=ok" "$PLUGIN_ROOT/scripts/run-$r.sh" --mode review --repo "$WORK/repo" --base HEAD --out /dev/stdout --timeout 10 2> "$WORK/$r-devout.err" | cat > "$WORK/$r-devout.out"
+  [ "${PIPESTATUS[1]}" -eq 0 ] || fail "$r --out /dev/stdout success rc want 0"
+  [ "$(grep -c "$r findings" "$WORK/$r-devout.out")" -eq 1 ] || fail "$r --out /dev/stdout piped must hold the body exactly once"
+  rc=0
+  printf x | env "$rs=$nv" "$PLUGIN_ROOT/scripts/run-$r.sh" --mode review --repo "$WORK/repo" --base HEAD --out /dev/stdout --timeout 10 >/dev/null 2> "$WORK/$r-devout-nv.err" || rc=$?
+  [ "$rc" -eq 6 ] || fail "$r --out /dev/stdout review without verdict rc=$rc want 6"
+done
+pass '#625: claude/codex --out /dev/stdout: body once, verdict gate intact'
 
 # usage() must advertise the shared flag surface
 contains "$PLUGIN_ROOT/scripts/run-claude.sh" '--stream-log FILE' 'Claude usage lists --stream-log'
@@ -2828,6 +2840,15 @@ for bad in '--mode review --base --output=x' '--mode implement --effort ultra' '
   [ "$rc" -eq 2 ] || fail "run-muse rejects '$bad' as usage (got $rc)"
 done
 git -C "$MR" checkout -q -- f.txt
+printf 'two\n' > "$MR/f.txt"
+printf x | "${muse_env[@]}" bash "$MUSE_RUN" --mode review --repo "$MR" --base HEAD --out /dev/stdout --timeout 30 2> "$WORK/muse-devout.err" | cat > "$WORK/muse-devout.out"
+[ "${PIPESTATUS[1]}" -eq 0 ] || fail 'muse --out /dev/stdout success rc want 0'
+[ "$(grep -c 'APPROVE' "$WORK/muse-devout.out")" -eq 1 ] || fail 'muse --out /dev/stdout piped must hold the body exactly once'
+rc=0
+printf x | "${muse_env[@]}" STUB_MUSE_RESPONSE='looks fine' bash "$MUSE_RUN" --mode review --repo "$MR" --base HEAD --out /dev/stdout --timeout 30 >/dev/null 2> "$WORK/muse-devout-nv.err" || rc=$?
+[ "$rc" -eq 6 ] || fail "muse --out /dev/stdout review without verdict rc=$rc want 6"
+git -C "$MR" checkout -q -- f.txt
+pass '#625: muse --out /dev/stdout: body once, verdict gate intact'
 pass 'run-muse: YOLO implement, read-only advise/review, web-only research, default model, pin check, write detection, exits'
 
 # --- secret isolation (#589): untracked .env* refusal and a scrubbed leg environment ---
