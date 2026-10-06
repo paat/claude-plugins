@@ -1391,6 +1391,17 @@ test_feed_cursor() {
   jq -e '.entries["pending-law"].change | .feed_event_id == 9 and (.previous | length) == 2' "$feed_dir/.startup/law-registry.json" >/dev/null || t627j_ok=1
   record "re-applying the same feed events on a held cursor is idempotent (#627)" "$t627j_ok" "run1=$t627j_1 run2=$t627j_2"
 
+  # k: a descending feed page yields the same result as an ascending one (#627)
+  feed_cursor_reset
+  feed_cursor_body '{"partial":false,"warnings":[],"items":[
+    {"id":9,"rt_id":"111","change_type":"repeal","detected_at":"2026-09-03T00:00:00Z","effective_date":null,"description":"Second"},
+    {"id":8,"rt_id":"111","change_type":"amendment","detected_at":"2026-09-02T00:00:00Z","effective_date":"2026-10-01","description":"First"}]}'
+  feed_cursor_run
+  t627k_ok=0
+  jq -e --argjson old "$t627_old" '.entries["pending-law"].change
+    | .feed_event_id == 9 and (.previous | length) == 2 and .previous[0] == $old and .previous[1].feed_event_id == 8' "$feed_dir/.startup/law-registry.json" >/dev/null || t627k_ok=1
+  record "feed events listed newest-first are applied oldest-first (#627)" "$t627k_ok" "pending=$(jq -c '.entries["pending-law"].change' "$feed_dir/.startup/law-registry.json")"
+
   rm -rf "$feed_dir"
 }
 

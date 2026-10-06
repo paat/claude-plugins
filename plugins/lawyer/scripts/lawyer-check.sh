@@ -93,7 +93,7 @@ else
   # Re-detection while an issue is open (gh_issue_url != null) updates change info
   # but does NOT re-create an issue — surfaced as a reminder elsewhere.
   updated=$(jq --argjson matched "$matched" "$PREV_DEF"'
-    reduce ($matched[]) as $e (.;
+    reduce ($matched | sort_by(.detected_at, .id))[] as $e (.;
       .entries |= with_entries(
         if .value.rt_id == $e.rt_id
           and (.value.change.feed_event_id? != $e.id)
