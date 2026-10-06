@@ -59,7 +59,7 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
    The pool moves past workers that exit `75` (unavailable or at a plan limit), `77`, or `127`,
    and names the worker that ran on stderr; record it in the ledger. Its own `75` means nobody in
    the tier chain was available: report the blocker with the reset it printed. `55` means the
-   failing worker had already edited the tree: salvage or reset before redispatching. A pinned model calls
+   failing worker had already edited the tree: salvage or reset before redispatching; `76` (a Grok implement leg hit its turn cap after possibly editing) is handled the same way. A pinned model calls
    its runner directly with the same contract (`run-codex.sh --dir`, `run-claude.sh`,
    `run-grok.sh`, `run-muse.sh`, `run-agy.sh`, or `run-qwen-local.sh --repo`); omit `--effort` for Claude Haiku
    4.5. Local Qwen and agy review only with `--mode review --base <range>`: diff-only advisory

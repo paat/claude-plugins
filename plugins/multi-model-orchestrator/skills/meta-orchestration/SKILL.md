@@ -137,7 +137,7 @@ logs, diffs: a leg or subagent returns a verdict.
 ## Reliability rules
 
 - Prior leg done per `references/leg-liveness.md` (mtime + exit marker; never `pgrep` — not a liveness check; failure exits 75/77).
-- Exits 124 (timeout), 55 (partly edited) or 76 (max turns) may follow work: never discard either — check
+- Exits 124 (timeout), 55 (partly edited) or 76 (max turns) may follow work: never discard any of them — check
   `git status`, rerun suites, and salvage or redispatch on evidence.
 - You never edit source while any worker is live. `git checkout` is a write. Never
   `gh pr merge --delete-branch` under a live worker — that moves the tree out from under it.

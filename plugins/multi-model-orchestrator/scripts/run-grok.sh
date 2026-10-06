@@ -95,9 +95,9 @@ isolated_auth="$isolated_grok_home/auth.json"
 # and the isolated copy actually changed (avoids clobbering a concurrent refresh).
 start_auth_snapshot="$runtime_dir/auth.start.json"
 [ -n "$output_file" ] || output_file="$(mktemp)"
-case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
+case "$output_file" in /dev/*) ;; *) output_file="$(realpath -m "$output_file")" ;; esac
 if [ "$stream_log_set" -eq 1 ]; then
-  case "$stream_file" in /*) ;; *) stream_file="$PWD/$stream_file" ;; esac
+  case "$stream_file" in /dev/*) ;; *) stream_file="$(realpath -m "$stream_file")" ;; esac
 fi
 
 writeback_auth() {
@@ -346,7 +346,7 @@ while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max tur
   run_grok_call "$left" "$resume_prompt" --resume "$session_id"
 done
 if [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
-  printf 'run-grok: max turns reached (%s); work may be partial and uncommitted — salvage like a timeout, or raise --max-turns (implement cap 300)\n' "$max_turns" >&2
+  printf 'run-grok: max turns reached (%s); work may be partial and uncommitted — salvage like a timeout, or raise --max-turns (--mode %s cap %s)\n' "$max_turns" "$mode" "$turns_cap" >&2
   rc=76
 fi
 set -e

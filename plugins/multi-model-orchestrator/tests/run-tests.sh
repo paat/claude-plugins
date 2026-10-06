@@ -7,7 +7,7 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/repo" "$WORK/tmp"
 export TMPDIR="$WORK/tmp"
 # Keep default model/effort pin assertions hermetic; explicit MMO_GROK_* overrides still work per-call.
-unset MMO_GROK_MODEL MMO_GROK_EFFORT
+unset MMO_GROK_MODEL MMO_GROK_EFFORT MMO_GROK_MAX_TURNS MMO_GROK_CONTINUE_ON_MAX_TURNS
 REAL_GROK="${MMO_TEST_REAL_GROK-$(command -v grok || true)}"
 GROK_RESEARCH_TOOLS='web_search,web_fetch'
 
@@ -1338,8 +1338,15 @@ rm -f "$STUB_GROK_TOUCH"
 STUB_GROK_TOUCH= grok_mt "$WORK/mt-clean.err" --mode implement --max-turns 5
 [ "$mt_rc" -eq 76 ] || fail "max turns on clean tree rc=$mt_rc want 76"
 contains "$WORK/mt-clean.err" 'run-grok: max turns reached (5); work may be partial and uncommitted' 'max-turns stop prints the clear line'
+contains "$WORK/mt-clean.err" '(--mode implement cap 300)' 'max-turns line names actual mode and cap'
 contains "$WORK/mt-clean.err" 'exit=76' 'mmo_finish does not remap exit 76'
 [ "$(wc -l < "$STUB_GROK_CALLS")" -eq 1 ] || fail 'clean tree at max turns must not resume'
+: > "$STUB_GROK_CALLS"
+ln -sfn "$WORK/repo" "$WORK/repo-link"
+(cd "$WORK/repo-link" && printf 'implement thing\n' | STUB_GROK_TOUCH= "$PLUGIN_ROOT/scripts/run-grok.sh" --mode implement --max-turns 5 --continue-on-max-turns 1 --timeout 60 --out rel.out >/dev/null 2> "$WORK/mt-symlink.err") && mt_link_rc=0 || mt_link_rc=$?
+[ "$mt_link_rc" -eq 76 ] || fail "symlinked cwd relative --out rc=$mt_link_rc want 76"
+[ "$(wc -l < "$STUB_GROK_CALLS")" -eq 1 ] || fail 'symlinked cwd + relative --out must not resume on a clean tree'
+rm -f "$WORK/repo/rel.out" "$WORK/repo/rel.out.stderr" "$WORK/repo-link"
 : > "$STUB_GROK_CALLS"
 grok_mt "$WORK/mt-resume-all.err" --mode implement --max-turns 5 --continue-on-max-turns 2
 rm -f "$STUB_GROK_TOUCH"
