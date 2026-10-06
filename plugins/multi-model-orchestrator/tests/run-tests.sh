@@ -357,6 +357,7 @@ fi
 case "${STUB_GROK_RESULT:-ok}" in
   error) exit 23 ;;
   transient) printf '429 Too Many Requests\n' >&2; exit 1 ;;
+  transient503) printf '503 overloaded\n' >&2; exit 1 ;;
   auth)
     printf 'Error: Not signed in. To authenticate without a browser, run: grok login --device-code\n' >&2
     exit 1
@@ -1399,6 +1400,18 @@ dev_out="$(printf x | STUB_GROK_RESULT=ok "$PLUGIN_ROOT/scripts/run-grok.sh" --m
 [ "$rc" -eq 0 ] || fail "grok --out /dev/stdout success rc=$rc want 0"
 printf '%s\n' "$dev_out" | grep -qx 'APPROVE' || fail 'grok --out /dev/stdout verdict not on its own line'
 pass '#621: grok --out /dev/stdout success path exits 0'
+rc=0
+printf x | STUB_GROK_RESULT=progress "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --out /dev/stdout --timeout 10 >/dev/null 2> "$WORK/grok-devout-nv.err" || rc=$?
+[ "$rc" -eq 6 ] || fail "grok --out /dev/stdout review without verdict rc=$rc want 6"
+rc=0
+printf x | STUB_GROK_RESULT=ok "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --out /dev/stdout --timeout 10 > "$WORK/grok-devout-file.out" 2> "$WORK/grok-devout-file.err" || rc=$?
+[ "$rc" -eq 0 ] || fail "grok --out /dev/stdout to file rc=$rc want 0"
+[ "$(grep -c 'grok findings' "$WORK/grok-devout-file.out")" -eq 1 ] || fail 'grok --out /dev/stdout to file must hold the body exactly once'
+rc=0
+printf x | STUB_GROK_RESULT=transient503 "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --out /dev/stdout --timeout 10 >/dev/null 2> "$WORK/grok-devout-tr.err" || rc=$?
+[ "$rc" -eq 75 ] || fail "grok --out /dev/stdout transient rc=$rc want 75"
+contains "$WORK/grok-devout-tr.err" 'failure=transient' 'grok --out /dev/stdout classifies transient failure'
+pass '#621: grok --out /dev/* keeps verdict check, file stdout, and failure classification'
 
 # usage() must advertise the shared flag surface
 contains "$PLUGIN_ROOT/scripts/run-claude.sh" '--stream-log FILE' 'Claude usage lists --stream-log'

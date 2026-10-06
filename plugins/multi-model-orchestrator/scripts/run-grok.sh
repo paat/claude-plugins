@@ -100,7 +100,11 @@ isolated_auth="$isolated_grok_home/auth.json"
 # and the isolated copy actually changed (avoids clobbering a concurrent refresh).
 start_auth_snapshot="$runtime_dir/auth.start.json"
 [ -n "$output_file" ] || output_file="$(mktemp)"
-case "$output_file" in /dev/*) ;; *) output_file="$(realpath -m "$output_file")" ;; esac
+out_dev=""
+case "$output_file" in
+  /dev/*) out_dev="$output_file"; output_file="$runtime_dir/out.txt" ;;
+  *) output_file="$(realpath -m "$output_file")" ;;
+esac
 if [ "$stream_log_set" -eq 1 ]; then
   case "$stream_file" in /dev/*) ;; *) stream_file="$(realpath -m "$stream_file")" ;; esac
 fi
@@ -414,9 +418,7 @@ if [ "$mode" != implement ]; then
     [ "$rc" -ne 0 ] || rc=7
   fi
 fi
-out_stream=0
-[ ! -e "$output_file" ] || [ -f "$output_file" ] || out_stream=1
-if [ "$rc" -eq 0 ] && [ "$out_stream" -eq 0 ] && [ ! -s "$output_file" ]; then
+if [ "$rc" -eq 0 ] && [ ! -s "$output_file" ]; then
   printf 'run-grok: missing or empty final-message artifact: %s\n' "$output_file" >&2
   rc=5
 fi
@@ -428,16 +430,16 @@ fi
 if [ "$rc" -eq 0 ] && [ -s "$output_file" ]; then
   mmo_separate_glued_verdict "$output_file"
 fi
-if [ "$rc" -eq 0 ] && [ "$out_stream" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_file"; then
+if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_file"; then
   printf 'run-grok: review completed without APPROVE or NEEDS_WORK\n' >&2
   rc=6
 fi
 # Expose body on success and on verdict-format failure (rc=6) so controllers
 # can inspect useful review text; --out already holds the body either way.
-if [ "$out_stream" -eq 0 ] && { [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; }; then
-  cat "$output_file"
+if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
+  if [ -n "$out_dev" ]; then cat "$output_file" > "$out_dev"; else cat "$output_file"; fi
 fi
-if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="$output_file"; fi
+if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="${out_dev:-$output_file}"; fi
 
 classify_file="$runtime_dir/provider-failure.txt"
 : > "$classify_file"
