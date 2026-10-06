@@ -66,7 +66,12 @@ prompt_file="$runtime_dir/prompt.txt"
 diff_file="$runtime_dir/review.diff"
 classify_file="$runtime_dir/provider-failure.txt"
 [ -n "$output_file" ] || output_file="$runtime_dir/body.txt"
-case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
+out_dev=""
+case "$output_file" in
+  /dev/*) out_dev="$output_file"; output_file="$runtime_dir/body.txt" ;;
+  /*) ;;
+  *) output_file="$PWD/$output_file" ;;
+esac
 # Keep the event stream beside --out, as run-agy does, or in its own temp file.
 if [ "$output_file" = "$runtime_dir/body.txt" ]; then
   stream_file="$(mktemp)"
@@ -196,7 +201,7 @@ if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_
   rc=6
 fi
 if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
-  cat "$output_file"
+  if [ -n "$out_dev" ]; then cat "$output_file" > "$out_dev"; else cat "$output_file"; fi
 fi
 mmo_finish run-muse "$rc" "$classify_file" \
   "model=${served:-$model}" "effort=$effort" "mode=$mode" "log=$stream_file"

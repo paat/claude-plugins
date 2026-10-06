@@ -123,11 +123,16 @@ prompt_file="$(mktemp)"
 diff_file="$(mktemp)"
 classify_file="$(mktemp)"
 [ -n "$output_file" ] || output_file="$(mktemp)"
-case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
+out_dev=""
+case "$output_file" in
+  /dev/*) out_dev="$output_file"; output_file="$(mktemp)" ;;
+  /*) ;;
+  *) output_file="$PWD/$output_file" ;;
+esac
 if [ "$stream_log_set" -eq 1 ]; then
   case "$stream_file" in /*) ;; *) stream_file="$PWD/$stream_file" ;; esac
 fi
-trap 'rm -f "$request_file" "$prompt_file" "$diff_file" "$classify_file"' EXIT
+trap 'rm -f "$request_file" "$prompt_file" "$diff_file" "$classify_file"; [ -z "$out_dev" ] || rm -f "$output_file" "${output_file}.stderr"' EXIT
 cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-claude: empty prompt\n' >&2; exit 2; }
 
@@ -298,10 +303,10 @@ fi
 # Expose body on success and on verdict-format failure (rc=6) so controllers
 # can inspect useful review text; --out already holds the body either way.
 if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
-  cat "$output_file"
+  if [ -n "$out_dev" ]; then cat "$output_file" > "$out_dev"; else cat "$output_file"; fi
 fi
 if [ "$model" = claude-haiku-4-5 ]; then effective_effort=n/a; else effective_effort="$effort"; fi
-if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="$output_file"; fi
+if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="${out_dev:-$output_file}"; fi
 
 : > "$classify_file"
 if [ "$provider_rc" -ne 0 ]; then
