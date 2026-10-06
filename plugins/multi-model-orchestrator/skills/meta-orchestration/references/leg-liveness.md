@@ -23,4 +23,4 @@ Runners reclassify from each CLI's own error line only (Codex last `ERROR:` sans
   item until the earliest reset it printed, with no wait-and-retry.
 - **77 (EX_NOPERM):** auth (401, unauthorized, not logged in, login required, expired/invalid token or API key). Do not retry; queue re-authentication under the handoff's `OPERATOR ACTIONS REQUIRED` and continue with the next item that does not need that provider.
 
-Before retrying an implement leg, inspect `git status` and salvage or reset partial edits on evidence (same principle as exit 124).
+Before retrying an implement leg, inspect `git status` and salvage or reset partial edits on evidence (same principle as exit 124; exit 76 = Grok max turns, same salvage rule).

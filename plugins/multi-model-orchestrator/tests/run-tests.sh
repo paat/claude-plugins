@@ -7,7 +7,7 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/repo" "$WORK/tmp"
 export TMPDIR="$WORK/tmp"
 # Keep default model/effort pin assertions hermetic; explicit MMO_GROK_* overrides still work per-call.
-unset MMO_GROK_MODEL MMO_GROK_EFFORT
+unset MMO_GROK_MODEL MMO_GROK_EFFORT MMO_GROK_MAX_TURNS MMO_GROK_CONTINUE_ON_MAX_TURNS
 REAL_GROK="${MMO_TEST_REAL_GROK-$(command -v grok || true)}"
 GROK_RESEARCH_TOOLS='web_search,web_fetch'
 
@@ -276,6 +276,7 @@ cat > "$WORK/bin/grok" <<'STUB'
 #!/usr/bin/env bash
 [ -z "${STUB_SECRET_SEEN:-}" ] || printf '%s %s\n' "${0##*/}" "${LEG_SECRET-unset}" >> "$STUB_SECRET_SEEN"
 printf '%s\n' "$@" > "$STUB_GROK_ARGS"
+[ -z "${STUB_GROK_CALLS:-}" ] || printf '%s\n' "$*" >> "$STUB_GROK_CALLS"
 printf '%s\n' "$HOME" > "$STUB_GROK_HOME_ENV"
 printf '%s\n' "$GROK_HOME" > "$STUB_GROK_DIR_ENV"
 [ ! -f "$GROK_HOME/config.toml" ] || cp "$GROK_HOME/config.toml" "$STUB_GROK_CONFIG"
@@ -343,6 +344,13 @@ if [ -n "$debug_file" ]; then
         > "$debug_file"
       ;;
   esac
+fi
+if [ "${STUB_GROK_RESULT:-ok}" = maxturns ]; then
+  if [ "$(wc -l < "$STUB_GROK_CALLS")" -le "${STUB_GROK_MAXTURNS_FIRST:-999}" ]; then
+    [ -z "${STUB_GROK_TOUCH:-}" ] || printf 'x\n' >> "$STUB_GROK_TOUCH"
+    printf 'Conversation compacted. Max turns reached\nError: max turns reached\n' >&2
+    exit 1
+  fi
 fi
 case "${STUB_GROK_RESULT:-ok}" in
   error) exit 23 ;;
@@ -823,7 +831,7 @@ contains "$WORK/grok.args" '--reasoning-effort' 'Grok effort flag'
 contains "$WORK/grok.args" 'medium' 'Grok medium effort pin'
 contains "$WORK/grok.args" '--no-subagents' 'Grok worker fan-out disabled'
 contains "$WORK/grok.args" '--max-turns' 'Grok turn cap flag'
-contains "$WORK/grok.args" '30' 'Grok default turn cap'
+contains "$WORK/grok.args" '150' 'Grok implement default turn cap'
 contains "$WORK/grok.args" '--sandbox' 'Grok sandbox flag'
 contains "$WORK/grok.args" 'none' 'Grok unrestricted sandbox'
 contains "$WORK/grok.args" '--permission-mode' 'Grok permission mode flag'
@@ -1294,6 +1302,85 @@ if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/rep
 fi
 contains "$WORK/flag-dest/codex-turns.err" '--max-turns' 'Codex rejection names --max-turns'
 contains "$WORK/flag-dest/codex-turns.err" 'Codex CLI' 'Codex rejection explains provider cannot honor --max-turns'
+# #614: per-mode turn caps, exit 76 on a turn-budget stop, finishing resume on a changed tree.
+grok_mt() {  # grok_mt ERRFILE ARGS... (prompt from stdin); sets mt_rc
+  local err="$1"; shift
+  set +e
+  printf 'implement thing\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --repo "$WORK/repo" --timeout 60 "$@" >/dev/null 2> "$err"
+  mt_rc=$?
+  set -e
+}
+export STUB_GROK_CALLS="$WORK/grok.calls"
+: > "$STUB_GROK_CALLS"
+grok_mt "$WORK/mt-250.err" --mode implement --max-turns 250
+[ "$mt_rc" -eq 0 ] || fail "implement --max-turns 250 rc=$mt_rc want 0"
+exact_line "$WORK/grok.args" '250' 'implement forwards --max-turns 250'
+contains "$WORK/grok.prompt" 'at most 250 agent turns' 'implement preamble states the turn budget'
+contains "$WORK/grok.prompt" 'Do not broaden scope or commit.' 'implement preamble keeps the no-commit contract'
+grok_mt "$WORK/mt-default.err" --mode implement
+exact_line "$WORK/grok.args" '150' 'implement default max turns is 150'
+grok_mt "$WORK/mt-301.err" --mode implement --max-turns 301
+[ "$mt_rc" -eq 2 ] || fail "implement --max-turns 301 rc=$mt_rc want 2"
+grok_mt "$WORK/mt-review250.err" --mode review --max-turns 250
+[ "$mt_rc" -eq 2 ] || fail "review --max-turns 250 rc=$mt_rc want 2"
+contains "$WORK/mt-review250.err" 'max turns must be an integer from 1 to 100 for --mode review' 'review cap message names mode and cap'
+grok_mt "$WORK/mt-cont-review.err" --mode review --continue-on-max-turns 1
+[ "$mt_rc" -eq 2 ] || fail "review --continue-on-max-turns 1 rc=$mt_rc want 2"
+grok_mt "$WORK/mt-cont-4.err" --mode implement --continue-on-max-turns 4
+[ "$mt_rc" -eq 2 ] || fail "--continue-on-max-turns 4 rc=$mt_rc want 2"
+: > "$STUB_GROK_CALLS"
+MMO_GROK_CONTINUE_ON_MAX_TURNS=2 grok_mt "$WORK/mt-env-review.err" --mode advise
+[ "$mt_rc" -eq 0 ] || fail "env continue default must be ignored outside implement (rc=$mt_rc)"
+MMO_GROK_MAX_TURNS=200 grok_mt "$WORK/mt-env200-review.err" --mode review
+[ "$mt_rc" -eq 0 ] || fail "review env MMO_GROK_MAX_TURNS=200 rc=$mt_rc want 0"
+exact_line "$WORK/grok.args" '100' 'review clamps env max turns to 100'
+MMO_GROK_MAX_TURNS=200 grok_mt "$WORK/mt-env200-impl.err" --mode implement
+exact_line "$WORK/grok.args" '200' 'implement honors env max turns 200'
+MMO_GROK_MAX_TURNS=301 grok_mt "$WORK/mt-env301-impl.err" --mode implement
+[ "$mt_rc" -eq 2 ] || fail "implement env MMO_GROK_MAX_TURNS=301 rc=$mt_rc want 2"
+MMO_GROK_MAX_TURNS=200 grok_mt "$WORK/mt-flag200-review.err" --mode review --max-turns 200
+[ "$mt_rc" -eq 2 ] || fail "review --max-turns 200 with env rc=$mt_rc want 2"
+MMO_GROK_CONTINUE_ON_MAX_TURNS=5 grok_mt "$WORK/mt-env5-review.err" --mode review
+[ "$mt_rc" -eq 0 ] || fail "review env continue=5 rc=$mt_rc want 0"
+MMO_GROK_CONTINUE_ON_MAX_TURNS=5 grok_mt "$WORK/mt-env5-impl.err" --mode implement
+[ "$mt_rc" -eq 2 ] || fail "implement env continue=5 rc=$mt_rc want 2"
+
+export STUB_GROK_RESULT=maxturns STUB_GROK_TOUCH="$WORK/repo/mt-touched.txt"
+rm -f "$STUB_GROK_TOUCH"
+: > "$STUB_GROK_CALLS"
+STUB_GROK_TOUCH= grok_mt "$WORK/mt-clean.err" --mode implement --max-turns 5
+[ "$mt_rc" -eq 76 ] || fail "max turns on clean tree rc=$mt_rc want 76"
+contains "$WORK/mt-clean.err" 'run-grok: max turns reached (5); work may be partial and uncommitted' 'max-turns stop prints the clear line'
+contains "$WORK/mt-clean.err" '(--mode implement cap 300)' 'max-turns line names actual mode and cap'
+contains "$WORK/mt-clean.err" 'exit=76' 'mmo_finish does not remap exit 76'
+[ "$(wc -l < "$STUB_GROK_CALLS")" -eq 1 ] || fail 'clean tree at max turns must not resume'
+: > "$STUB_GROK_CALLS"
+ln -sfn "$WORK/repo" "$WORK/repo-link"
+(cd "$WORK/repo-link" && printf 'implement thing\n' | STUB_GROK_TOUCH= "$PLUGIN_ROOT/scripts/run-grok.sh" --mode implement --max-turns 5 --continue-on-max-turns 1 --timeout 60 --out rel.out >/dev/null 2> "$WORK/mt-symlink.err") && mt_link_rc=0 || mt_link_rc=$?
+[ "$mt_link_rc" -eq 76 ] || fail "symlinked cwd relative --out rc=$mt_link_rc want 76"
+[ "$(wc -l < "$STUB_GROK_CALLS")" -eq 1 ] || fail 'symlinked cwd + relative --out must not resume on a clean tree'
+rm -f "$WORK/repo/rel.out" "$WORK/repo/rel.out.stderr" "$WORK/repo-link"
+: > "$STUB_GROK_CALLS"
+grok_mt "$WORK/mt-resume-all.err" --mode implement --max-turns 5 --continue-on-max-turns 2
+rm -f "$STUB_GROK_TOUCH"
+[ "$mt_rc" -eq 76 ] || fail "exhausted resumes rc=$mt_rc want 76"
+[ "$(wc -l < "$STUB_GROK_CALLS")" -eq 3 ] || fail 'resumes must stop at N=2 (3 calls total)'
+contains "$WORK/mt-resume-all.err" 'continues=2' 'final line reports continues=2'
+mt_sid="$(sed -n 's/.*--session-id \([0-9a-f-]*\).*/\1/p' "$STUB_GROK_CALLS" | head -1)"
+[[ "$mt_sid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || fail "first call lacks a v4 --session-id ($mt_sid)"
+[ "$(grep -c -- "--resume $mt_sid" "$STUB_GROK_CALLS")" -eq 2 ] || fail 'resumes must reuse the same session UUID'
+[ "$(grep -c -- '--session-id' "$STUB_GROK_CALLS")" -eq 1 ] || fail 'only the first call carries --session-id'
+: > "$STUB_GROK_CALLS"
+STUB_GROK_MAXTURNS_FIRST=1 grok_mt "$WORK/mt-resume-ok.err" --mode implement --max-turns 5 --stream-log "$WORK/mt.stream" --out "$WORK/mt.out"
+rm -f "$STUB_GROK_TOUCH"
+[ "$mt_rc" -eq 0 ] || fail "successful finishing resume rc=$mt_rc want 0"
+contains "$WORK/mt-resume-ok.err" 'continues=1' 'successful resume reports continues=1'
+contains "$WORK/mt.out" 'grok findings' '--out holds the last call final message'
+contains "$WORK/mt.out.stderr" 'max turns reached' '.stderr accumulates the first call'
+contains "$WORK/grok.prompt" 'Finish the remaining edits now' 'resume uses the finishing prompt'
+unset STUB_GROK_RESULT STUB_GROK_TOUCH
+pass '#614: per-mode caps, exit 76, finishing resume bounded by N and tree change'
+
 # usage() must advertise the shared flag surface
 contains "$PLUGIN_ROOT/scripts/run-claude.sh" '--stream-log FILE' 'Claude usage lists --stream-log'
 contains "$PLUGIN_ROOT/scripts/run-claude.sh" '--max-turns N' 'Claude usage lists --max-turns'
