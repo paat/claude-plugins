@@ -1331,6 +1331,19 @@ grok_mt "$WORK/mt-cont-4.err" --mode implement --continue-on-max-turns 4
 : > "$STUB_GROK_CALLS"
 MMO_GROK_CONTINUE_ON_MAX_TURNS=2 grok_mt "$WORK/mt-env-review.err" --mode advise
 [ "$mt_rc" -eq 0 ] || fail "env continue default must be ignored outside implement (rc=$mt_rc)"
+MMO_GROK_MAX_TURNS=200 grok_mt "$WORK/mt-env200-review.err" --mode review
+[ "$mt_rc" -eq 0 ] || fail "review env MMO_GROK_MAX_TURNS=200 rc=$mt_rc want 0"
+exact_line "$WORK/grok.args" '100' 'review clamps env max turns to 100'
+MMO_GROK_MAX_TURNS=200 grok_mt "$WORK/mt-env200-impl.err" --mode implement
+exact_line "$WORK/grok.args" '200' 'implement honors env max turns 200'
+MMO_GROK_MAX_TURNS=301 grok_mt "$WORK/mt-env301-impl.err" --mode implement
+[ "$mt_rc" -eq 2 ] || fail "implement env MMO_GROK_MAX_TURNS=301 rc=$mt_rc want 2"
+MMO_GROK_MAX_TURNS=200 grok_mt "$WORK/mt-flag200-review.err" --mode review --max-turns 200
+[ "$mt_rc" -eq 2 ] || fail "review --max-turns 200 with env rc=$mt_rc want 2"
+MMO_GROK_CONTINUE_ON_MAX_TURNS=5 grok_mt "$WORK/mt-env5-review.err" --mode review
+[ "$mt_rc" -eq 0 ] || fail "review env continue=5 rc=$mt_rc want 0"
+MMO_GROK_CONTINUE_ON_MAX_TURNS=5 grok_mt "$WORK/mt-env5-impl.err" --mode implement
+[ "$mt_rc" -eq 2 ] || fail "implement env continue=5 rc=$mt_rc want 2"
 
 export STUB_GROK_RESULT=maxturns STUB_GROK_TOUCH="$WORK/repo/mt-touched.txt"
 rm -f "$STUB_GROK_TOUCH"

@@ -68,9 +68,14 @@ case "$model" in
 esac
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-grok: timeout must be a positive integer\n' >&2; exit 2; }
 if [ "$mode" = implement ]; then turns_cap=300 turns_default=150; else turns_cap=100 turns_default=30; fi
-[ -n "$max_turns" ] || max_turns="${MMO_GROK_MAX_TURNS:-$turns_default}"
+if [ -z "$max_turns" ]; then
+  max_turns="${MMO_GROK_MAX_TURNS:-$turns_default}"
+  if [[ "$max_turns" =~ ^[1-9][0-9]*$ ]] && [ "$max_turns" -gt "$turns_cap" ] && [ "$mode" != implement ]; then max_turns="$turns_cap"; fi
+fi
 [[ "$max_turns" =~ ^[1-9][0-9]*$ ]] && [ "$max_turns" -le "$turns_cap" ] || { printf 'run-grok: max turns must be an integer from 1 to %s for --mode %s\n' "$turns_cap" "$mode" >&2; exit 2; }
-[ -n "$continue_n" ] || continue_n="${MMO_GROK_CONTINUE_ON_MAX_TURNS:-1}"
+if [ -z "$continue_n" ]; then
+  if [ "$mode" = implement ]; then continue_n="${MMO_GROK_CONTINUE_ON_MAX_TURNS:-1}"; else continue_n=0; fi
+fi
 [[ "$continue_n" =~ ^[0-3]$ ]] || { printf 'run-grok: continue-on-max-turns must be an integer from 0 to 3\n' >&2; exit 2; }
 if [ "$mode" != implement ]; then
   [ "$continue_set" -eq 0 ] || [ "$continue_n" -eq 0 ] || { printf 'run-grok: --continue-on-max-turns applies only to --mode implement\n' >&2; exit 2; }
