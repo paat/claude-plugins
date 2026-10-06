@@ -148,12 +148,12 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
   receive semantic no-write contracts and read-only tool allowlists; Muse's drop write and shell
   tools and exit 7 if the repository changed anyway. Claude and Grok research legs have web-only
   tool allowlists with no file access; Muse research has no write or shell tools and runs from an
-  empty directory. The Codex CLI has no per-tool allowlist and
+  empty directory but keeps read tools. The Codex CLI has no per-tool allowlist and
   keeps shell access, so Codex research runs from a scratch working root instead of the repository,
   bounded by that root and its prompt contract. This bounds blast radius rather than enforcing
   read-only.
 - The host's `.env` deny rules do not bind a leg, so runners keep secrets out of provider context
-  instead. Every leg except research refuses a checkout holding untracked `.env*` files outside
+  instead. Every leg except Claude, Codex, and Grok research refuses a checkout holding untracked `.env*` files outside
   ignored directories (exit 2); run from a `git worktree add` checkout, which has none. Every CLI starts under
   `env -i` with `PATH HOME USER LOGNAME SHELL LANG LC_ALL TERM TMPDIR`, proxy and CA variables,
   its own provider variables, and the names in `MMO_LEG_ENV`. A test database URL passed that

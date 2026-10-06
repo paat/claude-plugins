@@ -2644,7 +2644,11 @@ printf '%s\n' "$@" > "$STUB_MUSE_CALLS/call.$n.args"
 pwd > "$STUB_MUSE_CALLS/call.$n.cwd"
 prev=""; for a in "$@"; do [ "$prev" != --prompt-file ] || cp "$a" "$STUB_MUSE_CALLS/call.$n.prompt"; prev="$a"; done
 [ -z "${STUB_MUSE_TOUCH:-}" ] || printf 'touched\n' >> "$STUB_MUSE_TOUCH"
-jq -cn --arg m "${STUB_MUSE_SERVED:-muse-spark-1.3}" '{payload_type:"run.model.configured",payload:{model_id:$m}}'
+if [ "${STUB_MUSE_SERVED:-}" = none ]; then
+  printf '%s\n' '{"payload_type":"run.model.configured","payload":{}}'
+else
+  jq -cn --arg m "${STUB_MUSE_SERVED:-muse-spark-1.3}" '{payload_type:"run.model.configured",payload:{model_id:$m}}'
+fi
 if [ -n "${STUB_MUSE_FAIL:-}" ]; then
   jq -cn --arg r "$STUB_MUSE_FAIL" '{payload_type:"run.terminal.failed",payload:{terminal:"failed",reason:$r,text:""}}'
   printf 'run ended with Failed: %s\n' "$STUB_MUSE_FAIL" >&2
@@ -2689,6 +2693,8 @@ printf 'two\n' > "$MR/f.txt"
 rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_SERVED=muse-spark-1.3-contributor bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
 [ "$rc" -eq 7 ] || fail "a leg served by another model exits 7 (got $rc)"
 contains "$MU/err" 'not the requested muse-spark-1.3' 'run-muse names the model it was served'
+printf 'x\n' | "${muse_env[@]}" STUB_MUSE_SERVED=none bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" \
+  || fail "a configured event without model_id is not a model mismatch: $(cat "$MU/err")"
 rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_RESPONSE='looks fine' bash "$MUSE_RUN" --mode review --repo "$MR" --base HEAD --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
 [ "$rc" -eq 6 ] || fail "a muse review without a verdict exits 6 (got $rc)"
 rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_FAIL='429 Too Many Requests' bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
@@ -2718,6 +2724,8 @@ for runner in claude codex grok agy muse; do
 done
 rc=0; printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-agy.sh" --mode review --base HEAD --repo "$SE" --timeout 30 >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || fail "run-agy review refuses too, since its diff inlines untracked files (got $rc)"
+rc=0; printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-muse.sh" --mode research --repo "$SE" --timeout 30 >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "run-muse research refuses too, since it keeps read tools (got $rc)"
 [ ! -s "$seen" ] || fail 'a refused leg never starts its provider CLI'
 printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-claude.sh" --mode research --repo "$SE" --timeout 30 >/dev/null 2>"$WORK/secret.err" \
   || fail "a research leg has no repository access and is not refused: $(cat "$WORK/secret.err")"

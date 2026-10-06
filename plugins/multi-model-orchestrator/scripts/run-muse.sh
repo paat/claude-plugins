@@ -4,7 +4,7 @@
 # Every mode runs --yolo: headless exec has no one to answer an approval prompt and would
 # hang until the timeout. implement keeps write and shell; advise and review drop both and
 # walk the repository read-only; research drops both and runs in an empty directory with
-# web tools. A non-implement leg that changed the repository exits 7.
+# web and read tools. A non-implement leg that changed the repository exits 7.
 #
 # The model is pinned to the non-contributor id: Muse's default `-contributor` models allow
 # "your content ... to be used for product improvement".
@@ -56,7 +56,8 @@ for tool in git jq muse; do
   command -v "$tool" >/dev/null 2>&1 || { printf 'run-muse: %s not found\n' "$tool" >&2; exit 127; }
 done
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
-[ "$mode" = research ] || mmo_guard_env_files run-muse "$repo_dir" || exit 2
+# Every mode: research keeps read tools, so an untracked .env* is reachable by absolute path.
+mmo_guard_env_files run-muse "$repo_dir" || exit 2
 
 runtime_dir="$(mktemp -d)"
 trap 'rm -rf "$runtime_dir"' EXIT
@@ -166,7 +167,7 @@ rc=$?
 set -e
 
 terminal="$(jq -c 'select((.payload_type // "") | startswith("run.terminal.")) | .payload' "$stream_file" 2>/dev/null | tail -n 1 || true)"
-served="$(jq -r 'select(.payload_type == "run.model.configured") | .payload.model_id' "$stream_file" 2>/dev/null | tail -n 1 || true)"
+served="$(jq -r 'select(.payload_type == "run.model.configured") | .payload.model_id // empty' "$stream_file" 2>/dev/null | tail -n 1 || true)"
 printf '%s' "$terminal" | jq -r 'if .terminal == "completed" then .text // empty else empty end' > "$output_file" 2>/dev/null || : > "$output_file"
 {
   printf '%s' "$terminal" | jq -r '.reason // empty' 2>/dev/null || true
