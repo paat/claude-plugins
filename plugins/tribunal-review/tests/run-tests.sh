@@ -1027,7 +1027,10 @@ if [ -n "${FIXTURE_MUSE_FAIL:-}" ]; then
   printf 'run ended with Failed: %s\n' "$FIXTURE_MUSE_FAIL" >&2
   exit 1
 fi
-jq -cn '{payload_type:"run.terminal.completed",payload:{terminal:"completed",text:"{\"provider\":\"muse\",\"model\":\"Muse Spark\",\"files_examined\":[\"file.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"}}"}}'
+[ "${FIXTURE_MUSE_NO_TERMINAL:-off}" = off ] || exit 0
+# Pretty-printed answer: the leg must not keep only the last line of a multi-line text.
+review="$(jq -n '{provider:"muse",model:"Muse Spark",files_examined:["file.txt"],findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10,verdict:"APPROVE"}}')"
+jq -cn --arg t "$review" '{payload_type:"run.terminal.completed",payload:{terminal:"completed",text:$t}}'
 EOF
   chmod +x "$fake/muse"
   (
@@ -1050,6 +1053,10 @@ EOF
   jq -e '.provider=="muse" and (.error|contains("not the requested muse-spark-1.3"))' "$work/pin.json" >/dev/null || ok=0
   run_muse env TRIBUNAL_MUSE_MODEL=muse-spark-1.3 FIXTURE_MUSE_SERVED=muse-spark-1.3 > "$work/pin-ok.json" 2>/dev/null || ok=0
   jq -e '.model=="muse-spark-1.3" and .summary.verdict=="APPROVE"' "$work/pin-ok.json" >/dev/null || ok=0
+  run_muse env FIXTURE_MUSE_SERVED=claude-haiku-4-5 > "$work/family.json" 2>/dev/null || ok=0
+  jq -e '.provider=="muse" and (.error|contains("executed model family mismatch"))' "$work/family.json" >/dev/null || ok=0
+  run_muse env FIXTURE_MUSE_NO_TERMINAL=on > "$work/noterm.json" 2>/dev/null || ok=0
+  jq -e '.provider=="muse" and (.error|contains("Muse execution failed"))' "$work/noterm.json" >/dev/null || ok=0
   run_muse env FIXTURE_MUSE_FAIL='402 Payment Required: usage balance exhausted' > "$work/limit.json" 2>/dev/null || ok=0
   jq -e '.provider=="muse" and (.error|startswith("plan limit:"))' "$work/limit.json" >/dev/null || ok=0
   run_muse env TRIBUNAL_MUSE=off > "$work/off.json" 2>/dev/null || ok=0

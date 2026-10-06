@@ -59,7 +59,8 @@ rc=0
   --workspace "$WALK_ROOT" --disable-write --disable-shell --disable-web-tools \
   --no-foreign-personal-context --disable-reminders) < /dev/null > "$OUT" 2> "$ERR" || rc=$?
 
-terminal="$(jq -r 'select(.payload_type? == "run.terminal.completed") | .payload.text // empty' "$OUT" 2>/dev/null | tail -n 1)"
+# Last completed event as one compact line; its text may span many lines.
+terminal="$(jq -c 'select(.payload_type? == "run.terminal.completed") | .payload' "$OUT" 2>/dev/null | tail -n 1 | jq -r '.text // empty' 2>/dev/null)"
 actual_model="$(jq -r 'select(.payload_type? == "run.model.configured") | .payload.model_id // empty' "$OUT" 2>/dev/null | tail -n 1)"
 if [ "$rc" -ne 0 ] || [ -z "$terminal" ]; then
   tribunal_error_with_diagnostics muse "Muse execution failed or timed out" execution "$rc" "$OUT" "$ERR"

@@ -240,6 +240,8 @@ The tribunal produces a JSON verdict:
     "glm":      { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "disabled" },
     "deepseek": { "findings_accepted": 1, "findings_rejected": 1, "false_positives": [], "status": "ok" },
     "qwen":     { "findings_accepted": 1, "findings_rejected": 0, "false_positives": [], "status": "ok" },
+    "grok":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok" },
+    "muse":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok" },
     "claude":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok" }
   },
   "conflicts_resolved": [],
