@@ -15,6 +15,7 @@ FEED_SATURATED_SOLO=0
 FEED_LIMIT=500
 FEED_REQUESTED_AT=""
 SATURATED_MSG="window is saturated and cannot advance (limit=${FEED_LIMIT}, no continuation parameter)"
+PREV_DEF='def with_prev($old): if $old == null then {} else {previous: (($old.previous // []) + [$old | del(.previous)])} end;'
 
 # One feed call per run: query without ?domain= and match client-side by rt_id.
 # The server's ?domain= enum doesn't match the plugin's historical domain strings.
@@ -91,18 +92,21 @@ else
 
   # Re-detection while an issue is open (gh_issue_url != null) updates change info
   # but does NOT re-create an issue — surfaced as a reminder elsewhere.
-  updated=$(jq --argjson matched "$matched" '
-    reduce ($matched[]) as $e (.;
+  updated=$(jq --argjson matched "$matched" "$PREV_DEF"'
+    reduce ($matched | sort_by(.detected_at, .id))[] as $e (.;
       .entries |= with_entries(
-        if .value.rt_id == $e.rt_id then
-          .value.needs_review = true
+        if .value.rt_id == $e.rt_id
+          and (.value.change.feed_event_id? != $e.id)
+          and (([.value.change.previous[]?.feed_event_id] | index($e.id)) == null) then
+          .value.change as $old
+          | .value.needs_review = true
           | .value.change_detected_at = $e.detected_at
-          | .value.change = {
+          | .value.change = ({
               feed_event_id: $e.id,
               type: $e.change_type,
               summary: $e.description,
               effective_date: $e.effective_date
-            }
+            } + with_prev($old))
         else . end
       )
     )
@@ -152,7 +156,7 @@ fi
 # run can later re-verify the flag against it.
 lc_flag() {
   if jq --arg s "$1" --arg type "$2" --arg summary "$3" --arg effdate "$4" --arg st "${6:-}" \
-    --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg served "$served" --arg has_next "$has_next" --arg next "$served_next_date" '
+    --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg served "$served" --arg has_next "$has_next" --arg next "$served_next_date" "$PREV_DEF"'
     .entries[$s] as $e
     | (($e.change.served_redaktsioon_id // $e.redaktsioon_id) // "") as $base
     | .entries[$s].needs_review = true
@@ -166,7 +170,7 @@ lc_flag() {
         served_redaktsioon_id: (if $base != "" and $base != $e.rt_id and $served != "" and ($served == $base or $type == "redaction_change") then $served else null end)
       }
       + (if $has_next == "true" then {served_next_redaktsioon_date: (if $next == "" then null else $next end)} else {} end)
-      + (if $e.change == null then {} else {previous: (($e.change.previous // []) + [$e.change | del(.previous)])} end))
+      + with_prev($e.change))
   ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"; then
     echo "WARNING: $1: $5"
   else

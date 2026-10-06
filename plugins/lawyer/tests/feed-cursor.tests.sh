@@ -1359,6 +1359,49 @@ test_feed_cursor() {
   record "lawyer ack clears a re-flagged change including previous (#612)" "$t612h_ok" "change=$(open612) stderr=$(tr '\n' ' ' < "$feed_dir/stderr_ack612")"
   CITE_RED_ID=
 
+  # i: feed events on an already-flagged entry keep the earlier pending change in previous (#627)
+  CITE_RED_ID= CITE_NEXT_DATE=
+  feed_cursor_reset
+  t627_old=$(jq -c '.entries["pending-law"].change' "$feed_dir/.startup/law-registry.json")
+  feed_cursor_body '{"partial":false,"warnings":[],"items":[
+    {"id":8,"rt_id":"111","change_type":"amendment","detected_at":"2026-09-02T00:00:00Z","effective_date":"2026-10-01","description":"First"},
+    {"id":9,"rt_id":"111","change_type":"repeal","detected_at":"2026-09-03T00:00:00Z","effective_date":null,"description":"Second"},
+    {"id":7,"rt_id":"456","change_type":"amendment","detected_at":"2026-09-02T00:00:00Z","effective_date":"2026-10-01","description":"Open"}]}'
+  feed_cursor_run
+  t627_ok=0
+  [ "$feed_rc" -eq 0 ] || t627_ok=1
+  jq -e --argjson old "$t627_old" '.entries["pending-law"].change
+    | .feed_event_id == 9 and (has("served_redaktsioon_id") | not) and (has("served_next_redaktsioon_date") | not)
+    and (.previous | length) == 2 and .previous[0] == $old and .previous[1].feed_event_id == 8
+    and (.previous | map(has("previous")) | any | not)' "$feed_dir/.startup/law-registry.json" >/dev/null || t627_ok=1
+  jq -e '.entries["open-law"].change | .feed_event_id == 7 and (has("previous") | not)' "$feed_dir/.startup/law-registry.json" >/dev/null || t627_ok=1
+  record "feed events on a flagged entry push earlier changes into previous; unflagged entry gets none (#627)" "$t627_ok" "rc=$feed_rc pending=$(jq -c '.entries["pending-law"].change' "$feed_dir/.startup/law-registry.json")"
+
+  # j: a held cursor re-applies the same events; the second run must not change change/previous (#627)
+  feed_cursor_reset
+  feed_cursor_body '{"partial":true,"warnings":[],"items":[
+    {"id":8,"rt_id":"111","change_type":"amendment","detected_at":"2026-09-02T00:00:00Z","effective_date":"2026-10-01","description":"First"},
+    {"id":9,"rt_id":"111","change_type":"repeal","detected_at":"2026-09-03T00:00:00Z","effective_date":null,"description":"Second"}]}'
+  feed_cursor_run
+  t627j_1=$(jq -cS '.entries["pending-law"] | {change, change_detected_at}' "$feed_dir/.startup/law-registry.json")
+  feed_cursor_run
+  t627j_2=$(jq -cS '.entries["pending-law"] | {change, change_detected_at}' "$feed_dir/.startup/law-registry.json")
+  t627j_ok=0
+  [ "$t627j_1" = "$t627j_2" ] || t627j_ok=1
+  jq -e '.entries["pending-law"].change | .feed_event_id == 9 and (.previous | length) == 2' "$feed_dir/.startup/law-registry.json" >/dev/null || t627j_ok=1
+  record "re-applying the same feed events on a held cursor is idempotent (#627)" "$t627j_ok" "run1=$t627j_1 run2=$t627j_2"
+
+  # k: a descending feed page yields the same result as an ascending one (#627)
+  feed_cursor_reset
+  feed_cursor_body '{"partial":false,"warnings":[],"items":[
+    {"id":9,"rt_id":"111","change_type":"repeal","detected_at":"2026-09-03T00:00:00Z","effective_date":null,"description":"Second"},
+    {"id":8,"rt_id":"111","change_type":"amendment","detected_at":"2026-09-02T00:00:00Z","effective_date":"2026-10-01","description":"First"}]}'
+  feed_cursor_run
+  t627k_ok=0
+  jq -e --argjson old "$t627_old" '.entries["pending-law"].change
+    | .feed_event_id == 9 and (.previous | length) == 2 and .previous[0] == $old and .previous[1].feed_event_id == 8' "$feed_dir/.startup/law-registry.json" >/dev/null || t627k_ok=1
+  record "feed events listed newest-first are applied oldest-first (#627)" "$t627k_ok" "pending=$(jq -c '.entries["pending-law"].change' "$feed_dir/.startup/law-registry.json")"
+
   rm -rf "$feed_dir"
 }
 
