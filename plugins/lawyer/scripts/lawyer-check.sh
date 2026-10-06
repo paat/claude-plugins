@@ -146,11 +146,42 @@ else
   fi
 fi
 
+# lc_flag SLUG TYPE SUMMARY EFFECTIVE_DATE WARNING [STATUS]
+# The newest change stays in .change; an earlier pending one moves to .change.previous.
+# The served redaction id is recorded only when proven at flag time, so a saturated
+# run can later re-verify the flag against it.
+lc_flag() {
+  if jq --arg s "$1" --arg type "$2" --arg summary "$3" --arg effdate "$4" --arg st "${6:-}" \
+    --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg served "$served" --arg has_next "$has_next" --arg next "$served_next_date" '
+    .entries[$s] as $e
+    | (($e.change.served_redaktsioon_id // $e.redaktsioon_id) // "") as $base
+    | .entries[$s].needs_review = true
+    | (if $st == "" then . else .entries[$s].status = $st end)
+    | .entries[$s].change_detected_at = $now
+    | .entries[$s].change = ({
+        feed_event_id: null,
+        type: $type,
+        summary: $summary,
+        effective_date: (if $effdate == "" then null else $effdate end),
+        served_redaktsioon_id: (if $base != "" and $base != $e.rt_id and $served != "" and ($served == $base or $type == "redaction_change") then $served else null end)
+      }
+      + (if $has_next == "true" then {served_next_redaktsioon_date: (if $next == "" then null else $next end)} else {} end)
+      + (if $e.change == null then {} else {previous: (($e.change.previous // []) + [$e.change | del(.previous)])} end))
+  ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"; then
+    echo "WARNING: $1: $5"
+  else
+    rm -f "${REGISTRY}.tmp"
+    echo "WARNING: $1: registry write failed — incomplete coverage; snapshot and review flags kept." >&2
+    LC_INCOMPLETE=1
+  fi
+}
+
 # Lifecycle re-check (feed-independent). The feed can miss a repeal/supersession.
 # For each not-yet-flagged entry, re-fetch /citation and read status/in_force — a
 # 200 + text does NOT mean the paragraph is still in force. Flag any served
 # redaction that is no longer valid so it flows through the same fix path.
-LC_SLUGS=$(jq -r '.entries | to_entries[] | select(.value.needs_review != true) | .key' "$REGISTRY")
+# A saturated window also re-verifies flagged entries against their recorded served state.
+LC_SLUGS=$(jq -r --argjson sat "$FEED_SATURATED_SOLO" '.entries | to_entries[] | select(.value.needs_review != true or $sat == 1) | .key' "$REGISTRY")
 LC_INCOMPLETE=0
 LC_ACT_UNPROVEN=0
 LC_NEXT_UNKNOWN=0
@@ -163,11 +194,70 @@ while IFS= read -r lcslug; do
     continue
   fi
   lawyer_fetch_citation "$SLUG_CITE_URL"
+  if [ "$CITE_LIFECYCLE" = unknown ]; then
+    echo "WARNING: $lcslug: citation lifecycle unknown ($CITE_FAILURE) — incomplete coverage; snapshot and review flags kept." >&2
+    LC_INCOMPLETE=1
+    continue
+  fi
+
+  served=$(lawyer_redaction_id_from_url "$(printf '%s' "$CITE_BODY" | jq -r '.url // empty')")
+  rt=$(jq -r --arg s "$lcslug" '.entries[$s].rt_id // empty' "$REGISTRY")
+  has_next=$(printf '%s' "$CITE_BODY" | jq -r 'has("next_redaktsioon_date")')
+  served_next_date=$(printf '%s' "$CITE_BODY" | jq -r '.next_redaktsioon_date // empty')
+  stored_next_date=$(jq -r --arg s "$lcslug" '.entries[$s] | (if .needs_review == true then .change.served_next_redaktsioon_date else .next_redaktsioon_date end) // empty' "$REGISTRY")
+  served_red_date=$(printf '%s' "$CITE_BODY" | jq -r '.redaktsioon_date // empty')
+  next_kind=""
+  if [ "$has_next" = "true" ]; then
+    if [ -n "$served_next_date" ] && [ "$served_next_date" != "$stored_next_date" ]; then
+      next_kind=new
+    elif [ -z "$served_next_date" ] && [ -n "$stored_next_date" ] && [ -n "$served_red_date" ] && [[ "$served_red_date" < "$stored_next_date" ]]; then
+      next_kind=withdrawn
+    fi
+  fi
+  next_note="" fa_summary="" fa_eff_date="" fa_warn=""
+  case "$next_kind" in
+    new)
+      next_note="; avaldatud on ka tulevane redaktsioon (jõustub $served_next_date)"
+      fa_summary="Aktile on avaldatud tulevane redaktsioon (jõustub $served_next_date) — kontrolli muudatust enne jõustumist"
+      fa_eff_date="$served_next_date"
+      fa_warn="aktile on avaldatud tulevane redaktsioon (jõustub $served_next_date) — märgitud läbivaatamiseks"
+      ;;
+    withdrawn)
+      next_note="; varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud"
+      fa_summary="Varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud — kontrolli, kas muudatus tühistati või lükati edasi"
+      fa_warn="varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud — märgitud läbivaatamiseks"
+      ;;
+  esac
+
+  # A flagged entry's snapshot is the pre-change baseline, so it is proven only by
+  # its recorded served redaction id and next date.
+  if [ "$(jq -r --arg s "$lcslug" '.entries[$s].needs_review == true' "$REGISTRY")" = true ]; then
+    if [ "$CITE_LIFECYCLE" = verified-invalid ]; then
+      [ "$(jq -r --arg s "$lcslug" '.entries[$s].change.type // empty' "$REGISTRY")" = lifecycle ] && continue
+    else
+      recorded=$(jq -r --arg s "$lcslug" '.entries[$s].change.served_redaktsioon_id // empty' "$REGISTRY")
+      reason=""
+      if [ -z "$recorded" ]; then
+        reason="pending-review entry has no recorded redaction — run /lawyer ack $lcslug after review"
+      elif [ -z "$served" ] || [ "$served" = "$rt" ]; then
+        reason="served citation URL has no redaction-unique id — review the act manually"
+      fi
+      if [ -n "$reason" ]; then
+        echo "WARNING: $lcslug: akti redaktsiooni ei saa tõendada ($reason) — incomplete coverage." >&2
+        LC_ACT_UNPROVEN=1
+      elif [ "$served" != "$recorded" ]; then
+        lc_flag "$lcslug" redaction_change "Akti redaktsioon muutus läbivaatamise ootel ($recorded -> $served) — kontrolli akti muudatusi$next_note" "$served_red_date" "akti redaktsioon muutus ($recorded -> $served) — märgitud läbivaatamiseks"
+      elif [ -n "$fa_summary" ]; then
+        lc_flag "$lcslug" future_amendment "$fa_summary" "$fa_eff_date" "$fa_warn"
+      elif [ "$(jq -r --arg s "$lcslug" '.entries[$s].change | has("served_next_redaktsioon_date")' "$REGISTRY")" != true ] \
+        || [ "$has_next" != true ] || [ -n "$served_next_date" ]; then
+        LC_NEXT_UNKNOWN=1
+      fi
+      continue
+    fi
+  fi
+
   case "$CITE_LIFECYCLE" in
-    unknown)
-      echo "WARNING: $lcslug: citation lifecycle unknown ($CITE_FAILURE) — incomplete coverage; snapshot and review flags kept." >&2
-      LC_INCOMPLETE=1
-      continue ;;
     verified-valid)
       text=$(printf '%s' "$CITE_BODY" | jq -r '.text // empty')
       if [ -z "$text" ]; then
@@ -188,29 +278,8 @@ while IFS= read -r lcslug; do
         continue
       fi
 
-      has_next=$(printf '%s' "$CITE_BODY" | jq -r 'has("next_redaktsioon_date")')
-      served_next_date=$(printf '%s' "$CITE_BODY" | jq -r '.next_redaktsioon_date // empty')
-      stored_next_date=$(jq -r --arg s "$lcslug" '.entries[$s].next_redaktsioon_date // empty' "$REGISTRY")
-      served_red_date=$(printf '%s' "$CITE_BODY" | jq -r '.redaktsioon_date // empty')
-      next_kind=""
-      if [ "$has_next" = "true" ]; then
-        if [ -n "$served_next_date" ] && [ "$served_next_date" != "$stored_next_date" ]; then
-          next_kind=new
-        elif [ -z "$served_next_date" ] && [ -n "$stored_next_date" ] && [ -n "$served_red_date" ] && [[ "$served_red_date" < "$stored_next_date" ]]; then
-          next_kind=withdrawn
-        fi
-      fi
-      case "$next_kind" in
-        new) next_note="; avaldatud on ka tulevane redaktsioon (jõustub $served_next_date)" ;;
-        withdrawn) next_note="; varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud" ;;
-        *) next_note="" ;;
-      esac
-
       if printf '%s\n' "$normalised" | cmp -s - "$snap"; then
-        cite_url_val=$(printf '%s' "$CITE_BODY" | jq -r '.url // empty')
-        served=$(lawyer_redaction_id_from_url "$cite_url_val")
         stored=$(jq -r --arg s "$lcslug" '.entries[$s].redaktsioon_id // empty' "$REGISTRY")
-        rt=$(jq -r --arg s "$lcslug" '.entries[$s].rt_id // empty' "$REGISTRY")
         stored_red_date=$(jq -r --arg s "$lcslug" '.entries[$s].redaktsioon_date // empty' "$REGISTRY")
 
         if { [ -z "$stored" ] || [ "$stored" = "$rt" ]; } && [ -n "$served" ] && [ "$served" != "$rt" ] && [ -n "$stored_red_date" ] && [ "$stored_red_date" = "$served_red_date" ]; then
@@ -225,23 +294,7 @@ while IFS= read -r lcslug; do
         fi
 
         if [ -n "$stored" ] && [ -n "$served" ] && [ "$stored" != "$rt" ] && [ "$served" != "$rt" ] && [ "$served" != "$stored" ]; then
-          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          if jq --arg s "$lcslug" --arg now "$NOW" --arg stored "$stored" --arg served "$served" --arg reddate "$served_red_date" --arg nextnote "$next_note" '
-            .entries[$s].needs_review = true
-            | .entries[$s].change_detected_at = $now
-            | .entries[$s].change = {
-                feed_event_id: null,
-                type: "redaction_change",
-                summary: (("Akti redaktsioon muutus (" + $stored + " -> " + $served + "); tsiteeritud tekst on sama — kontrolli akti muid muudatusi") + $nextnote),
-                effective_date: (if $reddate == "" then null else $reddate end)
-              }
-          ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"; then
-            echo "WARNING: $lcslug: akti redaktsioon muutus ($stored -> $served) — märgitud läbivaatamiseks"
-          else
-            rm -f "${REGISTRY}.tmp"
-            echo "WARNING: $lcslug: registry write failed — incomplete coverage; snapshot and review flags kept." >&2
-            LC_INCOMPLETE=1
-          fi
+          lc_flag "$lcslug" redaction_change "Akti redaktsioon muutus ($stored -> $served); tsiteeritud tekst on sama — kontrolli akti muid muudatusi$next_note" "$served_red_date" "akti redaktsioon muutus ($stored -> $served) — märgitud läbivaatamiseks"
           continue
         fi
 
@@ -258,86 +311,21 @@ while IFS= read -r lcslug; do
           fi
         fi
 
-        if [ "$has_next" = "true" ]; then
-          fa_summary=""
-          fa_eff_date=""
-          fa_warn=""
-          case "$next_kind" in
-            new)
-              fa_summary="Aktile on avaldatud tulevane redaktsioon (jõustub $served_next_date) — kontrolli muudatust enne jõustumist"
-              fa_eff_date="$served_next_date"
-              fa_warn="aktile on avaldatud tulevane redaktsioon (jõustub $served_next_date) — märgitud läbivaatamiseks"
-              ;;
-            withdrawn)
-              fa_summary="Varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud — kontrolli, kas muudatus tühistati või lükati edasi"
-              fa_eff_date=""
-              fa_warn="varem avaldatud tulevane redaktsioon (jõustub $stored_next_date) ei ole enam avaldatud — märgitud läbivaatamiseks"
-              ;;
-          esac
-
-          if [ -n "$fa_summary" ]; then
-            NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-            if jq --arg s "$lcslug" --arg now "$NOW" --arg summary "$fa_summary" --arg effdate "$fa_eff_date" '
-              .entries[$s].needs_review = true
-              | .entries[$s].change_detected_at = $now
-              | .entries[$s].change = {
-                  feed_event_id: null,
-                  type: "future_amendment",
-                  summary: $summary,
-                  effective_date: (if $effdate == "" then null else $effdate end)
-                }
-            ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"; then
-              echo "WARNING: $lcslug: $fa_warn"
-            else
-              rm -f "${REGISTRY}.tmp"
-              echo "WARNING: $lcslug: registry write failed — incomplete coverage; snapshot and review flags kept." >&2
-              LC_INCOMPLETE=1
-            fi
-          elif [ -z "$next_kind" ] && [ -n "$served_next_date" ]; then
-            LC_NEXT_UNKNOWN=1
-          fi
-        else
+        if [ -n "$fa_summary" ]; then
+          lc_flag "$lcslug" future_amendment "$fa_summary" "$fa_eff_date" "$fa_warn"
+        elif [ "$has_next" != true ] || [ -n "$served_next_date" ]; then
           LC_NEXT_UNKNOWN=1
         fi
         continue
       fi
-      NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-      if jq --arg s "$lcslug" --arg now "$NOW" --arg nextnote "$next_note" '
-        .entries[$s].needs_review = true
-        | .entries[$s].change_detected_at = $now
-        | .entries[$s].change = {
-            feed_event_id: null,
-            type: "text_change",
-            summary: ("Tsiteeritud tekst erineb hetktõmmisest — tuvastatud /citation otsevõrdlusega, mitte feed-sündmusega" + $nextnote),
-            effective_date: null
-          }
-      ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"; then
-        echo "WARNING: $lcslug: tsiteeritud tekst erineb hetktõmmisest — märgitud läbivaatamiseks"
-      else
-        rm -f "${REGISTRY}.tmp"
-        echo "WARNING: $lcslug: registry write failed — incomplete coverage; snapshot and review flags kept." >&2
-        LC_INCOMPLETE=1
-      fi
+      lc_flag "$lcslug" text_change "Tsiteeritud tekst erineb hetktõmmisest — tuvastatud /citation otsevõrdlusega, mitte feed-sündmusega$next_note" "" "tsiteeritud tekst erineb hetktõmmisest — märgitud läbivaatamiseks"
       continue ;;
   esac
   lc_status="$CITE_STATUS"
-  NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  jq --arg s "$lcslug" --arg st "$lc_status" --arg now "$NOW" '
-    .entries[$s].needs_review = true
-    | .entries[$s].status = (if $st == "" then .entries[$s].status else $st end)
-    | .entries[$s].change_detected_at = $now
-    | .entries[$s].change = {
-        feed_event_id: null,
-        type: "lifecycle",
-        summary: ("Akt ei ole enam jõus (status=" + (if $st == "" then "not_in_force" else $st end) + ") — tuvastatud /citation elutsükli-kontrolliga, mitte feed-sündmusega"),
-        effective_date: null
-      }
-  ' "$REGISTRY" > "${REGISTRY}.tmp"
-  mv "${REGISTRY}.tmp" "$REGISTRY"
-  echo "WARNING: $lcslug: akt $lc_act ei ole enam jõus (status=${lc_status:-not_in_force}) — märgitud läbivaatamiseks"
+  lc_flag "$lcslug" lifecycle "Akt ei ole enam jõus (status=${lc_status:-not_in_force}) — tuvastatud /citation elutsükli-kontrolliga, mitte feed-sündmusega" "" "akt $lc_act ei ole enam jõus (status=${lc_status:-not_in_force}) — märgitud läbivaatamiseks" "$lc_status"
 done <<< "$LC_SLUGS"
 
-# Advance when every unflagged entry was verified directly; an unprovable act redaction exits non-zero but does not hold the cursor because the feed cannot page.
+# Advance when every entry was verified directly; an unprovable act redaction exits non-zero but does not hold the cursor because the feed cannot page.
 if [ "$FEED_SATURATED_SOLO" -eq 1 ]; then
   if [ "$LC_INCOMPLETE" -eq 0 ]; then
     write_ok=0
