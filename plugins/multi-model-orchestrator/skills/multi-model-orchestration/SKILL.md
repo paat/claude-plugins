@@ -15,7 +15,7 @@ explaining the community evidence behind the original policy.
 - Apply provider/model allowlists and denylists before routing. Preserve compatible explicit model
   and effort choices; never silently substitute a forbidden provider.
 - Use only Claude Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 4.5 (Fable 5, Opus 5, Sonnet 5 compat); GPT-6 Astra, Sol, Luna (GPT-5.6 Terra, Luna compat);
-  Grok 4.7 (with Grok 4.6 and Grok 4.5 kept for compatibility); Muse Spark 1.3; and local Qwen3.8-27B for mechanical work when its endpoint answers.
+  Grok 4.7 (with Grok 4.6 and Grok 4.5 kept for compatibility); Muse (CLI default model); and local Qwen3.8-27B for mechanical work when its endpoint answers.
 - Run every CLI leg in YOLO mode inside the development-container boundary: Codex bypasses
   approvals and sandboxing, Claude skips permissions, Grok uses sandbox `none` with
   `bypassPermissions`, and Muse uses `--yolo`. Keep reviewer mutation control in prompts and tool allowlists — except
@@ -83,7 +83,7 @@ same-provider reviewer; preserve the restriction.
 - Grok 4.7: fast independent reproduction and a decorrelated code-review lens. Start at `medium`
   and use `high` or `xhigh` for difficult review; Grok 4.6 keeps the same efforts, and Grok 4.5
   remains available without `xhigh`.
-- Muse Spark 1.3: a second fast decorrelated lens on the same terms as Grok. Start at `medium`.
+- Muse: a second fast decorrelated lens on the same terms as Grok. Start at `medium`.
 - Ultra requires a bounded prompt: one pass, at most 10 findings, realistic reachable failures,
   a severity threshold, and a hard stop after the verdict. Never create recursive review/fix loops.
 

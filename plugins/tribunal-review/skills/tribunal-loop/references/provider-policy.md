@@ -17,13 +17,17 @@
   `TRIBUNAL_GROK_MODEL` (default `grok-4.7`); repo-walking on the xAI Grok CLI
   with tools allowlist, sandbox default `none` (`TRIBUNAL_GROK_SANDBOX`),
   `bypassPermissions`, isolated host config, web search off (issue #378).
+- Muse: on by default; disable with `TRIBUNAL_MUSE=off`; CLI default model unless
+  `TRIBUNAL_MUSE_MODEL` is set (the current default may use content for product
+  improvement); repo-walking via `muse exec --yolo` with write, shell, and web tools off.
 
 ## Risk tier and effort
 
 `TRIBUNAL_RISK` (environment only: `T1`–`T4`, the multi-model-orchestrator complexity tier)
 sets reviewer effort: T1 `low`, T2 `medium`, T3 `high`, T4 `high` with only Codex at `xhigh`
 (maximum-effort reviewers over-report speculative findings). Unset keeps each CLI default.
-`TRIBUNAL_CODEX_EFFORT`, `TRIBUNAL_CLAUDE_EFFORT`, and `TRIBUNAL_GROK_EFFORT` override it.
+`TRIBUNAL_CODEX_EFFORT`, `TRIBUNAL_CLAUDE_EFFORT`, `TRIBUNAL_GROK_EFFORT`, and
+`TRIBUNAL_MUSE_EFFORT` override it.
 Panel membership never depends on the tier.
 
 ## Plan-limited legs
@@ -36,7 +40,7 @@ The limited leg stays `failed`, so confidence still reflects it.
 
 ## APPROVE quorum
 
-`TRIBUNAL_MIN_OK_LEGS` (default `1`, range 1..7) is the per-environment floor
+`TRIBUNAL_MIN_OK_LEGS` (default `1`, range 1..8) is the per-environment floor
 of `ok` provider legs required for `APPROVE`. It is environment-only — never
 read from the repository under review — and is sealed into the collection
 manifest as `panel_policy` at collect time. A documented lower value is that

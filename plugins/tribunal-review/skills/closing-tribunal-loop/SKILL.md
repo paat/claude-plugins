@@ -138,7 +138,7 @@ undocumented on the PR.
 
 The loop only exits when the arbiter's verdict has **zero critical and zero high
 findings** on the current diff **and** required CI checks on `LOCAL_HEAD` are green.
-Default panel: Codex, Grok, Claude (Gemini, DeepSeek, GLM, Qwen opt-in).
+Default panel: Codex, Grok, Muse, Claude (Gemini, DeepSeek, GLM, Qwen opt-in).
 
 ### CI-proven green (refuse-to-merge)
 

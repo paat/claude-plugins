@@ -6,8 +6,8 @@
 # walk the repository read-only; research drops both and runs in an empty directory with
 # web and read tools. A non-implement leg that changed the repository exits 7.
 #
-# The model is pinned to the non-contributor id: Muse's default `-contributor` models allow
-# "your content ... to be used for product improvement".
+# `--model default` (the default) runs the CLI default model; a pinned model must be the one
+# the run configured.
 #
 # Exit codes: 0 ok; 2 usage; 3 nothing to review; 4 diff over the cap; 5 empty final
 # message; 6 review without APPROVE/NEEDS_WORK; 7 leg wrote to the repository or ran
@@ -19,13 +19,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-muse.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model muse-spark-1.3] [--effort minimal|low|medium|high|xhigh|max] [--max-steps N] [--timeout SECONDS] [--out FILE]'
+  printf '%s\n' 'Usage: run-muse.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model default|muse-*] [--effort minimal|low|medium|high|xhigh|max] [--max-steps N] [--timeout SECONDS] [--out FILE]'
 }
 
 mode=""
 repo_dir="$PWD"
 base_ref="HEAD"
-model="${MMO_MUSE_MODEL:-muse-spark-1.3}"
+model="${MMO_MUSE_MODEL:-default}"
 effort="${MMO_MUSE_EFFORT:-medium}"
 max_steps="${MMO_MUSE_MAX_STEPS:-50}"
 run_timeout=1200
@@ -47,7 +47,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$mode" in advise|implement|research|review) ;; *) printf 'run-muse: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
-case "$model" in muse-spark-1.3) ;; *) printf 'run-muse: unsupported model %s (current catalog: muse-spark-1.3)\n' "$model" >&2; exit 2 ;; esac
+case "$model" in default|muse-*) ;; *) printf 'run-muse: unsupported model %s (expected default or a muse-* id)\n' "$model" >&2; exit 2 ;; esac
 case "$effort" in minimal|low|medium|high|xhigh|max) ;; *) printf 'run-muse: unsupported effort %s (expected minimal|low|medium|high|xhigh|max)\n' "$effort" >&2; exit 2 ;; esac
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-muse: timeout must be a positive integer\n' >&2; exit 2; }
 [[ "$max_steps" =~ ^[1-9][0-9]*$ ]] && [ "$max_steps" -le 200 ] || { printf 'run-muse: max steps must be an integer from 1 to 200\n' >&2; exit 2; }
@@ -145,7 +145,7 @@ case "$mode" in
 esac
 
 work_dir="$repo_dir"
-muse_args=(exec --json --yolo --model "$model" --reasoning-effort "$effort"
+muse_args=(exec --json --yolo --reasoning-effort "$effort"
   --max-model-steps "$max_steps" --prompt-file "$prompt_file"
   --no-foreign-personal-context --disable-reminders)
 case "$mode" in
@@ -157,6 +157,7 @@ case "$mode" in
     muse_args+=(--disable-write --disable-shell)
     ;;
 esac
+[ "$model" = default ] || muse_args+=(--model "$model")
 muse_args+=(--workspace "$work_dir")
 [ "$mode" = implement ] || tree_before="$(mmo_tree_state "$repo_dir" "$(realpath -m "$output_file")")"
 
@@ -178,7 +179,7 @@ if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$terminal" | jq -r '.terminal // empty' 
   printf 'run-muse: muse finished without a completed run terminal\n' >&2
   rc=1
 fi
-if [ -n "$served" ] && [ "$served" != "$model" ]; then
+if [ "$model" != default ] && [ -n "$served" ] && [ "$served" != "$model" ]; then
   printf 'run-muse: muse configured model %s, not the requested %s\n' "$served" "$model" >&2
   rc=7
 fi
@@ -198,4 +199,4 @@ if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
   cat "$output_file"
 fi
 mmo_finish run-muse "$rc" "$classify_file" \
-  "model=$model" "effort=$effort" "mode=$mode" "log=$stream_file"
+  "model=${served:-$model}" "effort=$effort" "mode=$mode" "log=$stream_file"

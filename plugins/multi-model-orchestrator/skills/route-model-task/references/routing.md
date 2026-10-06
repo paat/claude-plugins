@@ -19,7 +19,7 @@ tracks the latest Haiku 4.5 release instead of pinning an earlier dated snapshot
 | Grok Build | `grok-4.7` | Default Grok route: fast bounded agentic implementation, independent reproduction, extra review lens | `low`, `medium`, `high`, `xhigh` |
 | Grok Build | `grok-4.6` | Prior-generation Grok compatibility route | `low`, `medium`, `high`, `xhigh` |
 | Grok Build | `grok-4.5` | Older Grok compatibility route | `low`, `medium`, `high` |
-| Muse Code | `muse-spark-1.3` | Bounded agentic implementation, independent reproduction, web research, extra review lens | `minimal`–`max` |
+| Muse Code | `default` | Bounded agentic implementation, independent reproduction, web research, extra review lens | `minimal`–`max` |
 | Local Qwen | `qwen3.8-27b-local` | Free bounded mechanical edits with a named test, and a cheap second review lens — only when the local endpoint answers | `n/a` (the wrapper pins `medium`) |
 | agy (Antigravity) | `gemini-3.8-flash` | Cheap, fast bounded edits; an advisory diff-only review lens | `low`, `medium`, `high` |
 
@@ -78,8 +78,8 @@ silently; select a supported level or return an incompatibility.
 - `Claude only`: choose Haiku 4.5, Sonnet 5.5, Opus 5.5, or Fable 5.1; use `n/a` for Haiku.
 - `Grok only`: use Grok 4.7 by default (or Grok 4.6 or Grok 4.5 when explicitly pinned) and scale
   only across that model's supported efforts.
-- `Muse only`: use Muse Spark 1.3 and scale across its efforts.
-- `No Claude`: route between GPT-6, Grok 4.7, and Muse Spark 1.3; any independence check must use
+- `Muse only`: use Muse's default model and scale across its efforts.
+- `No Claude`: route between GPT-6, Grok 4.7, and Muse; any independence check must use
   another of them.
 - A pinned allowed model wins over defaults. A pinned unsupported effort produces a blocker unless
   the user also authorized automatic effort adjustment.
@@ -109,11 +109,10 @@ reviewers only: architecture, security, and ambiguous design stay on the hosted 
   the price, Grok Build only); it is not catalogued. grok-4.7 and grok-4.6 accept low, medium, high,
   and xhigh; grok-4.5 accepts low, medium, and high. xAI reports strong coding performance and high
   serving speed; treat those vendor measurements as hypotheses.
-- Muse Code CLI 1.4.3 serves `muse-spark-1.3` and `muse-spark-1.3-contributor` (the default); the
-  contributor id's content may be used for product improvement, so it is not catalogued, and
-  `run-muse.sh` exits 7 if the run configured another model. Headless `muse exec` blocks on an
-  approval prompt until the timeout unless `--yolo`. Meta publishes no coding benchmarks for it;
-  route on local task results.
+- Muse Code CLI 1.4.3 defaults to `muse-spark-1.3-contributor` (content may be used for product
+  improvement); routes use the CLI default, and `MMO_MUSE_MODEL=muse-spark-1.3` opts out.
+  Headless `muse exec` blocks on an approval prompt until the timeout unless `--yolo`. Meta
+  publishes no coding benchmarks for it; route on local task results.
 - Antigravity CLI 1.2.14 serves `gemini-3.8-flash-{low,medium,high}` and answers `/usage` locally.
   Its print mode enforces no read-only mode (`--mode plan` still edits files), so `run-agy.sh`
   reviews diff-only from an empty directory and fails with 7 if the repository changed.

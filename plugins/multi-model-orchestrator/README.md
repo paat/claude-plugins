@@ -29,14 +29,14 @@ Only the previous Claude generation (Opus 5, Fable 5) is kept for compatibility 
 | Claude Code | `claude-haiku-4-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-1`; prior-generation `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
 | Codex | `gpt-6-luna`, `gpt-6-sol`, `gpt-6-astra`; prior-generation `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
-| Muse Code (`muse`) | `muse-spark-1.3` | Bounded implementation, reproduction, research, and independent review; pinned to the non-`-contributor` model, whose content is not used for product improvement |
+| Muse Code (`muse`) | `default` (the CLI default, currently `muse-spark-1.3-contributor`) | Bounded implementation, reproduction, research, and independent review |
 | Local Qwen | `qwen3.8-27b-local` | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or serving another model (needs the `subagent-local-qwen3.8-27b` plugin) |
 | Antigravity (`agy`) | `gemini-3.8-flash` | Cheap, fast bounded edits and an advisory diff-only review lens |
 
 Haiku 4.5 is the latest Haiku and does not use Claude's current effort parameter. Claude Fable 5.1,
 Fable 5, Opus 5.5, Opus 5, Sonnet 5.5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
 Astra-only `ultra` available for bounded internal fan-out; Grok 4.7 and Grok 4.6 support `low`,
-`medium`, `high`, and `xhigh`; Grok 4.5 and Gemini 3.8 Flash support `low`, `medium`, and `high`; Muse Spark 1.3 supports
+`medium`, `high`, and `xhigh`; Grok 4.5 and Gemini 3.8 Flash support `low`, `medium`, and `high`; Muse Spark supports
 `minimal` through `max`.
 
 ## Routing policy
@@ -49,7 +49,7 @@ Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in or
 | Tier | Task evidence | Workers, in order |
 |---|---|---|
 | T1 | Exact rename, fixture, file map, focused check | Local Qwen, Gemini 3.8 Flash low, GPT-6 Luna low |
-| T2 | Well-specified change with known tests | Sonnet 5.5, Grok 4.7, Muse Spark 1.3, Gemini 3.8 Flash high, GPT-6 Sol (all medium unless noted) |
+| T2 | Well-specified change with known tests | Sonnet 5.5, Grok 4.7, Muse (default model), Gemini 3.8 Flash high, GPT-6 Sol (all medium unless noted) |
 | T3 | Cross-module work, hard debugging, ambiguous design | GPT-6 Astra high, Opus 5.5 high |
 | T4 | Security, payments, destructive migration, concurrency | GPT-6 Astra xhigh, Opus 5.5 xhigh |
 
@@ -170,8 +170,9 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
   MCPs. OAuth `auth.json`, `XAI_API_KEY`, and `GROK_*` variables are preserved; config-only
   enterprise authentication should use Grok's equivalent `GROK_*` environment variables.
 - Muse legs pass `--no-foreign-personal-context` so they do not load host Claude rules and skills,
-  and keep `MUSE_*`, `META_API_KEY`, and `XDG_*` for authentication. A leg whose configured model is
-  not the requested one exits 7.
+  and keep `MUSE_*`, `META_API_KEY`, and `XDG_*` for authentication. They run the CLI default model,
+  whose `-contributor` suffix means Meta may use the content for product improvement; set
+  `MMO_MUSE_MODEL=muse-spark-1.3` to opt out. A leg pinned to a model it did not run exits 7.
 
 ## Review gate
 
@@ -193,7 +194,7 @@ directory and exits 7 if the repository changed anyway.
   - Claude Code (`claude`)
   - OpenAI Codex CLI (`codex`)
   - latest Grok Build (`grok`), using Grok 4.7 by default
-  - Meta Muse Code (`muse`), using Muse Spark 1.3
+  - Meta Muse Code (`muse`), using its default model
   - Google Antigravity CLI (`agy`) for the Gemini Flash route
 - Optional local engine: the `subagent-local-qwen3.8-27b` plugin, a llama.cpp endpoint, the `qwen`
   CLI, `curl`, `jq`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
@@ -214,7 +215,7 @@ catalog.
 | `MMO_GROK_MODEL` | `grok-4.7` | Grok worker/reviewer model |
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
 | `MMO_GROK_MAX_TURNS` | `30` | Grok tool-loop cap, from 1 to 100 |
-| `MMO_MUSE_MODEL` | `muse-spark-1.3` | Muse worker/reviewer model |
+| `MMO_MUSE_MODEL` | `default` | Muse worker/reviewer model; `default` passes no `--model` |
 | `MMO_MUSE_EFFORT` | `medium` | Muse reasoning effort |
 | `MMO_MUSE_MAX_STEPS` | `50` | Muse model-step cap, from 1 to 200 |
 | `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/Muse/agy/local-Qwen review |

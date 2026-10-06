@@ -8,7 +8,7 @@ tribunal_deepseek_model() {
 }
 
 # Per-environment APPROVE floor (issue #519). Unset/empty ⇒ 1; otherwise an
-# integer in 1..7. Membership still uses the TRIBUNAL_<PROVIDER> toggles.
+# integer in 1..8. Membership still uses the TRIBUNAL_<PROVIDER> toggles.
 tribunal_min_ok_legs() {
   local raw="${TRIBUNAL_MIN_OK_LEGS:-}"
   if [ -z "$raw" ]; then
@@ -16,9 +16,9 @@ tribunal_min_ok_legs() {
     return 0
   fi
   case "$raw" in
-    [1-7]) printf '%s\n' "$raw"; return 0 ;;
+    [1-8]) printf '%s\n' "$raw"; return 0 ;;
   esac
-  printf 'invalid TRIBUNAL_MIN_OK_LEGS value: %s (want integer 1..7)\n' "$raw" >&2
+  printf 'invalid TRIBUNAL_MIN_OK_LEGS value: %s (want integer 1..8)\n' "$raw" >&2
   return 1
 }
 
@@ -877,6 +877,7 @@ tribunal_stamp_executed_model() {
   fi
   case "$provider" in
     grok) family='^grok([[:digit:]._-]|$)' ;;
+    muse) family='^muse([[:digit:]._-]|$)' ;;
     qwen) family='^([[:alnum:]_.-]+/)?qwen([[:digit:]._-]|$)' ;;
     *) family='' ;;
   esac

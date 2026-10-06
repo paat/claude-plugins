@@ -2664,10 +2664,11 @@ printf 'one\n' > "$MR/f.txt"; git -C "$MR" add f.txt; git -C "$MR" -c user.email
 muse_env=(env -u MMO_MUSE_MODEL -u MMO_MUSE_EFFORT -u MMO_MUSE_MAX_STEPS PATH="$MU/bin:$PATH" STUB_MUSE_CALLS="$MU/calls")
 
 out="$(printf 'make f say two\n' | "${muse_env[@]}" bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 2>"$MU/err")" || fail "run-muse implement succeeds: $(cat "$MU/err")"
-for flag in exec --json --yolo muse-spark-1.3 medium --disable-web-tools --no-foreign-personal-context --disable-reminders; do
+for flag in exec --json --yolo medium --disable-web-tools --no-foreign-personal-context --disable-reminders; do
   exact_line "$MU/calls/call.0.args" "$flag" "muse implement passes $flag"
 done
 absent "$MU/calls/call.0.args" '--disable-write' 'muse implement keeps write tools'
+absent "$MU/calls/call.0.args" '--model' 'muse runs the CLI default model unless pinned'
 exact_line "$MU/calls/call.0.cwd" "$MR" 'muse implement runs in the repository'
 contains "$MU/calls/call.0.prompt" 'make f say two' 'muse prompt carries the task packet'
 case "$out" in *done*) ;; *) fail "run-muse prints the final response: $out" ;; esac
@@ -2690,10 +2691,10 @@ contains "$MU/calls/call.2.prompt" 'sources OUTSIDE this repository' 'muse resea
 rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_TOUCH="$MR/f.txt" bash "$MUSE_RUN" --mode advise --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
 [ "$rc" -eq 7 ] || fail "an advise leg that wrote to the repo exits 7 (got $rc)"
 printf 'two\n' > "$MR/f.txt"
-rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_SERVED=muse-spark-1.3-contributor bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
-[ "$rc" -eq 7 ] || fail "a leg served by another model exits 7 (got $rc)"
+rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_SERVED=muse-spark-1.3-contributor bash "$MUSE_RUN" --mode implement --model muse-spark-1.3 --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
+[ "$rc" -eq 7 ] || fail "a pinned leg served by another model exits 7 (got $rc)"
 contains "$MU/err" 'not the requested muse-spark-1.3' 'run-muse names the model it was served'
-printf 'x\n' | "${muse_env[@]}" STUB_MUSE_SERVED=none bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" \
+printf 'x\n' | "${muse_env[@]}" STUB_MUSE_SERVED=none bash "$MUSE_RUN" --mode implement --model muse-spark-1.3 --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" \
   || fail "a configured event without model_id is not a model mismatch: $(cat "$MU/err")"
 rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_RESPONSE='looks fine' bash "$MUSE_RUN" --mode review --repo "$MR" --base HEAD --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
 [ "$rc" -eq 6 ] || fail "a muse review without a verdict exits 6 (got $rc)"
@@ -2701,14 +2702,14 @@ rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_FAIL='429 Too Many Requests' bas
 [ "$rc" -eq 75 ] || fail "a muse rate limit exits 75 (got $rc)"
 rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_FAIL='missing meta credentials: run `muse login` or set META_API_KEY' bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
 [ "$rc" -eq 77 ] || fail "missing muse credentials exit 77 (got $rc)"
-for bad in '--mode review --base --output=x' '--mode implement --effort ultra' '--mode implement --model muse-spark-1.3-contributor' '--mode implement --max-steps 0' '--mode bogus'; do
+for bad in '--mode review --base --output=x' '--mode implement --effort ultra' '--mode implement --model gpt-6-sol' '--mode implement --max-steps 0' '--mode bogus'; do
   rc=0
   # shellcheck disable=SC2086
   printf 'x\n' | "${muse_env[@]}" bash "$MUSE_RUN" $bad --repo "$MR" >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 2 ] || fail "run-muse rejects '$bad' as usage (got $rc)"
 done
 git -C "$MR" checkout -q -- f.txt
-pass 'run-muse: YOLO implement, read-only advise/review, web-only research, model pin, write detection, exits'
+pass 'run-muse: YOLO implement, read-only advise/review, web-only research, default model, pin check, write detection, exits'
 
 # --- secret isolation (#589): untracked .env* refusal and a scrubbed leg environment ---
 SE="$WORK/secret-env"; mkdir -p "$SE"; git -C "$SE" init -q
@@ -2801,7 +2802,7 @@ for compat in gpt-5.6-luna claude-sonnet-5 gpt-5.6-terra; do
 done
 cp "$MU/bin/muse" "$PL/bin/muse"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow muse --mode review --usage /dev/null 2>/dev/null)" || true
-[ "$(printf '%s\n' "$out" | head -n1 | cut -f2-4 | tr '\t' ' ')" = "muse muse-spark-1.3 medium" ] || fail "shipped T2 table routes Muse, including review: $out"
+[ "$(printf '%s\n' "$out" | head -n1 | cut -f2-4 | tr '\t' ' ')" = "muse default medium" ] || fail "shipped T2 table routes Muse, including review: $out"
 for bad in '--tier T5' '--tier T2 --mode advise' '--tier T2 --timeout 0' '--tier T2 --bogus'; do
   rc=0
   # shellcheck disable=SC2086
