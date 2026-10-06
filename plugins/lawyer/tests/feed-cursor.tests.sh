@@ -1377,6 +1377,20 @@ test_feed_cursor() {
   jq -e '.entries["open-law"].change | .feed_event_id == 7 and (has("previous") | not)' "$feed_dir/.startup/law-registry.json" >/dev/null || t627_ok=1
   record "feed events on a flagged entry push earlier changes into previous; unflagged entry gets none (#627)" "$t627_ok" "rc=$feed_rc pending=$(jq -c '.entries["pending-law"].change' "$feed_dir/.startup/law-registry.json")"
 
+  # j: a held cursor re-applies the same events; the second run must not change change/previous (#627)
+  feed_cursor_reset
+  feed_cursor_body '{"partial":true,"warnings":[],"items":[
+    {"id":8,"rt_id":"111","change_type":"amendment","detected_at":"2026-09-02T00:00:00Z","effective_date":"2026-10-01","description":"First"},
+    {"id":9,"rt_id":"111","change_type":"repeal","detected_at":"2026-09-03T00:00:00Z","effective_date":null,"description":"Second"}]}'
+  feed_cursor_run
+  t627j_1=$(jq -cS '.entries["pending-law"] | {change, change_detected_at}' "$feed_dir/.startup/law-registry.json")
+  feed_cursor_run
+  t627j_2=$(jq -cS '.entries["pending-law"] | {change, change_detected_at}' "$feed_dir/.startup/law-registry.json")
+  t627j_ok=0
+  [ "$t627j_1" = "$t627j_2" ] || t627j_ok=1
+  jq -e '.entries["pending-law"].change | .feed_event_id == 9 and (.previous | length) == 2' "$feed_dir/.startup/law-registry.json" >/dev/null || t627j_ok=1
+  record "re-applying the same feed events on a held cursor is idempotent (#627)" "$t627j_ok" "run1=$t627j_1 run2=$t627j_2"
+
   rm -rf "$feed_dir"
 }
 

@@ -95,7 +95,9 @@ else
   updated=$(jq --argjson matched "$matched" "$PREV_DEF"'
     reduce ($matched[]) as $e (.;
       .entries |= with_entries(
-        if .value.rt_id == $e.rt_id then
+        if .value.rt_id == $e.rt_id
+          and (.value.change.feed_event_id? != $e.id)
+          and (([.value.change.previous[]?.feed_event_id] | index($e.id)) == null) then
           .value.change as $old
           | .value.needs_review = true
           | .value.change_detected_at = $e.detected_at
