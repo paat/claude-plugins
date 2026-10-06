@@ -17,7 +17,7 @@ exit 75. Not before every leg.
   the last 8 days (free). `as-of` is that event's timestamp and may be hours old; a window whose
   reset passed since then reads 0%.
 - agy: `usage.sh` asks its local `/usage` command (free).
-- Grok, or any provider printing `unknown`: no constraint; exit 75 handling in
+- Grok, Muse, or any provider printing `unknown`: no constraint; exit 75 handling in
   `leg-liveness.md` still applies.
 
 Save the `usage.sh` output to a file in the run directory and record one `Usage:` line in the

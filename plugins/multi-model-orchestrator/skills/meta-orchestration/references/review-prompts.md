@@ -5,7 +5,7 @@ The reviewer must be a DIFFERENT provider than the worker that wrote the commits
 verdict tokens are `APPROVE` / `NEEDS_WORK` — always emit these; the runners' gate also
 tolerates close variants (`APPROVED`, `NEEDS WORK`) but orchestration decisions key on the
 canonical form. Reviewers that must
-EXECUTE probes: Codex legs use `--mode review`; Claude and Grok review modes are read-only-tooled,
+EXECUTE probes: Codex legs use `--mode review`; Claude, Grok, and Muse review modes are read-only-tooled,
 so execute-probe legs on those providers use `--mode implement` with the prompt contract below.
 Those legs carry no runner verdict check of their own, so they go through
 `${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh` with every other leg — never a hand-grep.
@@ -71,7 +71,7 @@ READY TO MERGE — nothing further coming.
 | Codex | `--mode review` | runner enforces APPROVE/NEEDS_WORK |
 | Local Qwen | `--mode review` | read-only; `--mode implement` would pass `--yolo` to a reviewer |
 | agy | `--mode review` | diff-only from an empty directory; the runner fails 7 if the repo changed |
-| Claude / Grok probe legs | `--mode implement` + modify-nothing contract | they must run probes to verify by execution |
+| Claude / Grok / Muse probe legs | `--mode implement` + modify-nothing contract | they must run probes to verify by execution |
 
 ## Local Qwen review leg
 

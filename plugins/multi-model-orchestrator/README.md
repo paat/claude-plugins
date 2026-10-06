@@ -1,7 +1,7 @@
 # multi-model-orchestrator
 
-Route each software task to a current Claude Code, Codex, Grok Build, Antigravity (Gemini Flash),
-or local Qwen worker by task complexity, plan-limit headroom, and availability, then verify the
+Route each software task to a current Claude Code, Codex, Grok Build, Muse Code, Antigravity
+(Gemini Flash), or local Qwen worker by task complexity, plan-limit headroom, and availability, then verify the
 result deterministically and review it independently when the risk justifies another pass.
 
 The standalone `route-model-task` skill can return route cards without executing work, and
@@ -29,13 +29,15 @@ Only the previous Claude generation (Opus 5, Fable 5) is kept for compatibility 
 | Claude Code | `claude-haiku-4-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-1`; prior-generation `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
 | Codex | `gpt-6-luna`, `gpt-6-sol`, `gpt-6-astra`; prior-generation `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
+| Muse Code (`muse`) | `muse-spark-1.3` | Bounded implementation, reproduction, research, and independent review; pinned to the non-`-contributor` model, whose content is not used for product improvement |
 | Local Qwen | `qwen3.8-27b-local` | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or serving another model (needs the `subagent-local-qwen3.8-27b` plugin) |
 | Antigravity (`agy`) | `gemini-3.8-flash` | Cheap, fast bounded edits and an advisory diff-only review lens |
 
 Haiku 4.5 is the latest Haiku and does not use Claude's current effort parameter. Claude Fable 5.1,
 Fable 5, Opus 5.5, Opus 5, Sonnet 5.5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
 Astra-only `ultra` available for bounded internal fan-out; Grok 4.7 and Grok 4.6 support `low`,
-`medium`, `high`, and `xhigh`; Grok 4.5 and Gemini 3.8 Flash support `low`, `medium`, and `high`.
+`medium`, `high`, and `xhigh`; Grok 4.5 and Gemini 3.8 Flash support `low`, `medium`, and `high`; Muse Spark 1.3 supports
+`minimal` through `max`.
 
 ## Routing policy
 
@@ -47,7 +49,7 @@ Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in or
 | Tier | Task evidence | Workers, in order |
 |---|---|---|
 | T1 | Exact rename, fixture, file map, focused check | Local Qwen, Gemini 3.8 Flash low, GPT-6 Luna low |
-| T2 | Well-specified change with known tests | Sonnet 5.5, Grok 4.7, Gemini 3.8 Flash high, GPT-6 Sol (all medium unless noted) |
+| T2 | Well-specified change with known tests | Sonnet 5.5, Grok 4.7, Muse Spark 1.3, Gemini 3.8 Flash high, GPT-6 Sol (all medium unless noted) |
 | T3 | Cross-module work, hard debugging, ambiguous design | GPT-6 Astra high, Opus 5.5 high |
 | T4 | Security, payments, destructive migration, concurrency | GPT-6 Astra xhigh, Opus 5.5 xhigh |
 
@@ -141,9 +143,12 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
   are disjoint.
 - Every CLI leg runs in YOLO mode inside the development-container security boundary: Codex uses
   `--dangerously-bypass-approvals-and-sandbox`, Claude uses `--dangerously-skip-permissions`, and
-  Grok uses `--sandbox none --permission-mode bypassPermissions`. Advice and review legs still
-  receive semantic no-write contracts and read-only tool allowlists. Claude and Grok research legs
-  have web-only tool allowlists with no file access. The Codex CLI has no per-tool allowlist and
+  Grok uses `--sandbox none --permission-mode bypassPermissions`, and Muse uses `--yolo` (headless
+  `muse exec` otherwise blocks on an approval prompt until the timeout). Advice and review legs still
+  receive semantic no-write contracts and read-only tool allowlists; Muse's drop write and shell
+  tools and exit 7 if the repository changed anyway. Claude and Grok research legs have web-only
+  tool allowlists with no file access; Muse research has no write or shell tools and runs from an
+  empty directory. The Codex CLI has no per-tool allowlist and
   keeps shell access, so Codex research runs from a scratch working root instead of the repository,
   bounded by that root and its prompt contract. This bounds blast radius rather than enforcing
   read-only.
@@ -164,6 +169,9 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
 - Grok legs use an isolated configuration to avoid inheriting host agents, plugins, hooks, and
   MCPs. OAuth `auth.json`, `XAI_API_KEY`, and `GROK_*` variables are preserved; config-only
   enterprise authentication should use Grok's equivalent `GROK_*` environment variables.
+- Muse legs pass `--no-foreign-personal-context` so they do not load host Claude rules and skills,
+  and keep `MUSE_*`, `META_API_KEY`, and `XDG_*` for authentication. A leg whose configured model is
+  not the requested one exits 7.
 
 ## Review gate
 
@@ -171,7 +179,7 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
 into one verdict taken from each leg's last verdict line: `0` APPROVE, `1` NEEDS_WORK, `2` a missing
 file or a leg without a terminal verdict, and `3` when no leg is from an independent hosted provider.
 Classification is fail-closed: only labels naming a hosted catalog provider or model (Claude, Codex,
-GPT, Grok and their model names) count as independent; `Local Qwen`, `qwen3.8-27b-local`, `agy`, or
+GPT, Grok, Muse and their model names) count as independent; `Local Qwen`, `qwen3.8-27b-local`, `agy`, or
 an unrecognized label are advisory. The local and agy reviewers read the diff and cannot run probes,
 so neither can be the only reviewer — the gate enforces that rather than trusting a prompt to say
 so. agy enforces no read-only mode in print mode, so `run-agy.sh --mode review` runs from an empty
@@ -185,12 +193,13 @@ directory and exits 7 if the repository changed anyway.
   - Claude Code (`claude`)
   - OpenAI Codex CLI (`codex`)
   - latest Grok Build (`grok`), using Grok 4.7 by default
+  - Meta Muse Code (`muse`), using Muse Spark 1.3
   - Google Antigravity CLI (`agy`) for the Gemini Flash route
 - Optional local engine: the `subagent-local-qwen3.8-27b` plugin, a llama.cpp endpoint, the `qwen`
   CLI, `curl`, `jq`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
   the pool moves to the next worker.
 
-Only selected providers are required; `pool.sh` skips a provider whose CLI is not installed. `jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, and the local-Qwen route, both of which extract a final message from a JSON stream; `usage.sh` also needs it. `run-claude.sh --mcp` also uses `jq` to encode each server URL.
+Only selected providers are required; `pool.sh` skips a provider whose CLI is not installed. `jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, and the local-Qwen route, all of which extract a final message from a JSON stream; `usage.sh` also needs it. `run-claude.sh --mcp` also uses `jq` to encode each server URL.
 
 ## Configuration
 
@@ -205,7 +214,10 @@ catalog.
 | `MMO_GROK_MODEL` | `grok-4.7` | Grok worker/reviewer model |
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
 | `MMO_GROK_MAX_TURNS` | `30` | Grok tool-loop cap, from 1 to 100 |
-| `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/agy/local-Qwen review |
+| `MMO_MUSE_MODEL` | `muse-spark-1.3` | Muse worker/reviewer model |
+| `MMO_MUSE_EFFORT` | `medium` | Muse reasoning effort |
+| `MMO_MUSE_MAX_STEPS` | `50` | Muse model-step cap, from 1 to 200 |
+| `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/Muse/agy/local-Qwen review |
 | `MMO_CONTEXT_WARN_TOKENS` | `400000` | Context size at which the context-watch hook warns a meta-orchestrator |
 | `MMO_HANDOFF_DIR` | `.claude/handoffs` | Repo-relative handoff directory in the target repository |
 | `MMO_AGY_MODEL` | `gemini-3.8-flash` | agy worker/reviewer model |

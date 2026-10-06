@@ -1,6 +1,6 @@
 ---
 name: multi-model-orchestration
-description: "Use when a user asks to implement through Claude Code, Codex, or Grok Build workers with task-appropriate model and reasoning selection plus independent review."
+description: "Use when a user asks to implement through Claude Code, Codex, Grok Build, or Muse Code workers with task-appropriate model and reasoning selection plus independent review."
 ---
 
 # Multi-Model Orchestration
@@ -15,10 +15,10 @@ explaining the community evidence behind the original policy.
 - Apply provider/model allowlists and denylists before routing. Preserve compatible explicit model
   and effort choices; never silently substitute a forbidden provider.
 - Use only Claude Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 4.5 (Fable 5, Opus 5, Sonnet 5 compat); GPT-6 Astra, Sol, Luna (GPT-5.6 Terra, Luna compat);
-  Grok 4.7 (with Grok 4.6 and Grok 4.5 kept for compatibility); and local Qwen3.8-27B for mechanical work when its endpoint answers.
+  Grok 4.7 (with Grok 4.6 and Grok 4.5 kept for compatibility); Muse Spark 1.3; and local Qwen3.8-27B for mechanical work when its endpoint answers.
 - Run every CLI leg in YOLO mode inside the development-container boundary: Codex bypasses
-  approvals and sandboxing, Claude skips permissions, and Grok uses sandbox `none` with
-  `bypassPermissions`. Keep reviewer mutation control in prompts and tool allowlists — except
+  approvals and sandboxing, Claude skips permissions, Grok uses sandbox `none` with
+  `bypassPermissions`, and Muse uses `--yolo`. Keep reviewer mutation control in prompts and tool allowlists — except
   local Qwen, whose read-only review is enforced by `--mode review`; dispatching its review as
   `--mode implement` would pass `--yolo` and give a reviewer real write access.
 - Keep implementation workers fresh and context packets self-contained. Do not pass the full
@@ -44,7 +44,7 @@ explaining the community evidence behind the original policy.
 5. Dispatch with `scripts/pool.sh run --tier <T>`, which tries the tier's workers in order and
    moves past unavailable ones (exit 75: local Qwen's one GPU slot busy, a plan limit, a transient
    error) and records the worker that ran. A pinned route calls `scripts/run-claude.sh`,
-   `run-codex.sh`, `run-grok.sh`, `run-agy.sh`, or `run-qwen-local.sh` directly. Every runner pins
+   `run-codex.sh`, `run-grok.sh`, `run-muse.sh`, `run-agy.sh`, or `run-qwen-local.sh` directly. Every runner pins
    a current model; supported efforts are pinned explicitly.
 6. Never wait for the local GPU slot, and never retry the same task on it in the same pass.
 
@@ -83,6 +83,7 @@ same-provider reviewer; preserve the restriction.
 - Grok 4.7: fast independent reproduction and a decorrelated code-review lens. Start at `medium`
   and use `high` or `xhigh` for difficult review; Grok 4.6 keeps the same efforts, and Grok 4.5
   remains available without `xhigh`.
+- Muse Spark 1.3: a second fast decorrelated lens on the same terms as Grok. Start at `medium`.
 - Ultra requires a bounded prompt: one pass, at most 10 findings, realistic reachable failures,
   a severity threshold, and a hard stop after the verdict. Never create recursive review/fix loops.
 

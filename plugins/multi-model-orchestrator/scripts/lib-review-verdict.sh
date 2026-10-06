@@ -51,7 +51,8 @@ mmo_separate_glued_verdict() {
 }
 
 # Classify provider failure text from a single error-text file the runner built
-# (Codex last ERROR: line, Claude api_error_status / API Error line, Grok stderr).
+# (Codex last ERROR: line, Claude api_error_status / API Error line, Grok stderr,
+# Muse failed-run reason and stderr).
 # Prints "limit" (plan window or balance used up), "transient", "auth", or nothing.
 # Callers must not pass model stdout bodies.
 mmo_classify_provider_failure() {
@@ -65,7 +66,7 @@ mmo_classify_provider_failure() {
     printf 'transient\n'
     return 0
   fi
-  if grep -Eiq '\b401\b|unauthorized|not[[:space:]]+signed[[:space:]]+in|not[[:space:]]+logged[[:space:]]+in|login[[:space:]]+required|(expired|invalid)[[:space:]]+(api[[:space:]]*key|token)|(api[[:space:]]*key|token).*(expired|invalid)' "$f"; then
+  if grep -Eiq '\b401\b|unauthorized|not[[:space:]]+signed[[:space:]]+in|not[[:space:]]+logged[[:space:]]+in|login[[:space:]]+required|missing[[:space:]]+([[:alnum:]_-]+[[:space:]]+)?credentials|(expired|invalid)[[:space:]]+(api[[:space:]]*key|token)|(api[[:space:]]*key|token).*(expired|invalid)' "$f"; then
     printf 'auth\n'
     return 0
   fi
