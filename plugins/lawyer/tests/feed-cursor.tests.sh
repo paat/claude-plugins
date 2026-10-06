@@ -43,6 +43,9 @@ case "$url" in
     code="${FEED_CODE:-200}"
     ;;
   */citation*)
+    if [ -n "${CITE_URL_LOG:-}" ]; then
+      printf '%s\n' "$url" >> "$CITE_URL_LOG"
+    fi
     if [ -n "${CITE_FAIL_ACT:-}" ] && [[ "$url" == *"/laws/${CITE_FAIL_ACT}/citation"* ]]; then
       code=500
       body='{"error":"citation failure"}'
@@ -119,7 +122,7 @@ feed_cursor_reset() {
         citation_parts: {paragraph:"1", paragraph_qualifier:"", section:"", section_qualifier:"", point:"", point_qualifier:""},
         status: "valid", verified_at: "2020-01-01T00:00:00Z",
         needs_review: true, change_detected_at: "2020-02-01T00:00:00Z",
-        change: {feed_event_id:null, type:"lifecycle", summary:"Pending review", effective_date:null},
+        change: {feed_event_id:null, type:"lifecycle", summary:"Pending review", effective_date:null, served_redaktsioon_id:"100000000001", served_next_redaktsioon_date:null},
         gh_issue_url: "https://example.test/issues/9"
       },
       "open-law": {
@@ -130,6 +133,12 @@ feed_cursor_reset() {
       }
     }
   }' > "$feed_dir/.startup/law-registry.json"
+}
+
+# Align the flagged pending-law fixture's recorded proof with what the mock serves.
+feed_cursor_pending_proof() {
+  jq --arg i "$1" --arg n "$2" '.entries["pending-law"].change.served_redaktsioon_id = $i | .entries["pending-law"].change.served_next_redaktsioon_date = (if $n == "" then null else $n end)' \
+    "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
 }
 
 feed_cursor_run() {
@@ -154,6 +163,7 @@ feed_cursor_run() {
       CITE_URL="${CITE_URL:-}" \
       CITE_NEXT_DATE="${CITE_NEXT_DATE:-}" \
       CITE_OMIT_NEXT_DATE="${CITE_OMIT_NEXT_DATE:-}" \
+      CITE_URL_LOG="${CITE_URL_LOG:-}" \
       MV_FAIL_N="${MV_FAIL_N:-}" \
       MV_FAIL_MAX="${MV_FAIL_MAX:-}" \
       MV_CALLS_FILE="$feed_dir/mv_calls" \
@@ -668,6 +678,7 @@ test_feed_cursor() {
   }' > "$feed_dir/sat613.json"
   adopt_reg() {
     feed_cursor_reset
+    feed_cursor_pending_proof "$CITE_RED_ID" ""
     jq --arg i "$1" --arg d "$2" '.entries["open-law"].redaktsioon_id = (if $i == "" then null else $i end) | .entries["open-law"].redaktsioon_date = (if $d == "" then null else $d end)' \
       "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
     cp "$feed_dir/sat613.json" "$feed_dir/feed.json"
@@ -947,6 +958,7 @@ test_feed_cursor() {
   FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
   CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID= CITE_URL= CITE_NEXT_DATE="2026-11-01" CITE_OMIT_NEXT_DATE=
   feed_cursor_reset
+  feed_cursor_pending_proof 100000000001 2026-11-01
   jq '.entries["open-law"].next_redaktsioon_date = "2026-11-01"' "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
   jq -n '{
     partial: false, warnings: [], total: 500,
@@ -1111,6 +1123,7 @@ test_feed_cursor() {
   FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
   CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_ID="100000000099" CITE_URL= CITE_NEXT_DATE="2026-12-01" CITE_OMIT_NEXT_DATE=
   feed_cursor_reset
+  feed_cursor_pending_proof 100000000099 2026-12-01
   jq '.entries["open-law"].needs_review = true | .entries["open-law"].change = {feed_event_id:null, type:"redaction_change", summary:"flagged", effective_date:null}' \
     "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
   ack_rc=0
@@ -1193,6 +1206,145 @@ test_feed_cursor() {
   jq -e '.entries["open-law"] | .needs_review == false and .next_redaktsioon_date == null' \
     "$feed_dir/.startup/law-registry.json" >/dev/null || test_ack_null_ok=1
   record "lawyer ack with explicit null next_redaktsioon_date writes null" "$test_ack_null_ok" "ack_rc=$ack_rc3"
+
+  # ---- #612: a flagged entry on a saturated window is proven only by its recorded served state ----
+  reg612() {
+    jq "$@" "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+  }
+  sat612() {
+    reg612 '.last_feed_check_at = "2026-09-01T00:00:00Z"'
+    cp "$feed_dir/sat613.json" "$feed_dir/feed.json"
+    feed_cursor_run
+  }
+  cursor612() { jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json"; }
+  open612() { jq -c '.entries["open-law"].change' "$feed_dir/.startup/law-registry.json"; }
+  # Run 1: saturated, flags open-law future_amendment with recorded proof.
+  flag612() {
+    CITE_RED_ID= CITE_NEXT_DATE="2026-11-01"
+    feed_cursor_reset
+    feed_cursor_pending_proof 100000000001 2026-11-01
+    sat612
+  }
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_RED_DATE= CITE_URL= CITE_OMIT_NEXT_DATE=
+
+  # a: run 2 serves a new redaction id -> redaction_change re-flag keeps the future_amendment in previous
+  flag612
+  t612a_ok=0
+  [ "$feed_rc" -eq 0 ] || t612a_ok=1
+  jq -e '.entries["open-law"].change | .type == "future_amendment" and .served_redaktsioon_id == "100000000001" and .served_next_redaktsioon_date == "2026-11-01" and (has("previous") | not)' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || t612a_ok=1
+  CITE_RED_ID="100000000002"
+  sat612
+  [ "$feed_rc" -eq 0 ] || t612a_ok=1
+  [ "$(cursor612)" != "2026-09-01T00:00:00Z" ] || t612a_ok=1
+  grep -qF 'WARNING: open-law: akti redaktsioon muutus (100000000001 -> 100000000002) — märgitud läbivaatamiseks' "$feed_dir/stdout" || t612a_ok=1
+  jq -e '.entries["open-law"] | .needs_review == true and .change.type == "redaction_change" and .change.served_redaktsioon_id == "100000000002"
+    and (.change.previous | length) == 1 and .change.previous[0].type == "future_amendment" and (.change.previous[0] | has("previous") | not)' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || t612a_ok=1
+  record "feed saturated flagged entry with new served redaction id is re-flagged with previous (#612)" "$t612a_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout") change=$(open612)"
+
+  # b: run 2 serves a different next date, same id -> future_amendment re-flag with previous
+  flag612
+  CITE_NEXT_DATE="2026-10-15"
+  sat612
+  t612b_ok=0
+  [ "$feed_rc" -eq 0 ] || t612b_ok=1
+  grep -qF 'WARNING: open-law: aktile on avaldatud tulevane redaktsioon (jõustub 2026-10-15)' "$feed_dir/stdout" || t612b_ok=1
+  jq -e '.entries["open-law"].change | .type == "future_amendment" and .effective_date == "2026-10-15" and .served_next_redaktsioon_date == "2026-10-15"
+    and (.previous | length) == 1 and .previous[0].effective_date == "2026-11-01"' \
+    "$feed_dir/.startup/law-registry.json" >/dev/null || t612b_ok=1
+  record "feed saturated flagged entry with new next date is re-flagged future_amendment (#612)" "$t612b_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout") change=$(open612)"
+
+  # c: run 2 with nothing changed -> proven, cursor advanced, change untouched
+  flag612
+  t612c_before=$(open612)
+  sat612
+  t612c_ok=0
+  [ "$feed_rc" -eq 0 ] || t612c_ok=1
+  [ "$(cursor612)" != "2026-09-01T00:00:00Z" ] || t612c_ok=1
+  [ "$(open612)" = "$t612c_before" ] || t612c_ok=1
+  grep -qF 'WARNING:' "$feed_dir/stdout" && t612c_ok=1
+  grep -qF 'incomplete coverage' "$feed_dir/stderr" && t612c_ok=1
+  record "feed saturated flagged entry with unchanged served state is proven (#612)" "$t612c_ok" "rc=$feed_rc stdout=$(tr '\n' ' ' < "$feed_dir/stdout") stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # d: legacy/feed flag with no recorded proof -> exit 1, cursor advanced, WARNING names the slug, change untouched
+  CITE_RED_ID= CITE_NEXT_DATE=
+  feed_cursor_reset
+  reg612 '.entries["open-law"].needs_review = true | .entries["open-law"].change = {feed_event_id: 7, type: "amendment", summary: "legacy", effective_date: null}'
+  t612d_before=$(open612)
+  sat612
+  t612d_ok=0
+  [ "$feed_rc" -eq 1 ] || t612d_ok=1
+  [ "$(cursor612)" != "2026-09-01T00:00:00Z" ] || t612d_ok=1
+  grep -qF 'WARNING: open-law: akti redaktsiooni ei saa tõendada (pending-review entry has no recorded redaction — run /lawyer ack open-law after review)' "$feed_dir/stderr" || t612d_ok=1
+  [ "$(open612)" = "$t612d_before" ] || t612d_ok=1
+  record "feed saturated flagged entry without recorded redaction exits 1 and names the slug (#612)" "$t612d_ok" "rc=$feed_rc cursor=$(cursor612) stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # e: flagged entry whose /citation fails -> cursor kept, exit 1
+  flag612
+  CITE_FAIL_ACT=123
+  sat612
+  CITE_FAIL_ACT=
+  t612e_ok=0
+  [ "$feed_rc" -eq 1 ] || t612e_ok=1
+  [ "$(cursor612)" = "2026-09-01T00:00:00Z" ] || t612e_ok=1
+  grep -qF 'WARNING: open-law: citation lifecycle unknown' "$feed_dir/stderr" || t612e_ok=1
+  record "feed saturated flagged entry with failed citation keeps cursor (#612)" "$t612e_ok" "rc=$feed_rc cursor=$(cursor612) stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # f: future_amendment flagged on a legacy stored id records no served id; the next saturated run cannot prove it
+  for t612f_id in "" 456; do
+    CITE_RED_ID= CITE_NEXT_DATE="2026-11-01"
+    feed_cursor_reset
+    feed_cursor_pending_proof 100000000001 2026-11-01
+    reg612 --arg i "$t612f_id" '.entries["open-law"].redaktsioon_id = (if $i == "" then null else $i end)'
+    sat612
+    t612f_ok=0
+    jq -e '.entries["open-law"].change | .type == "future_amendment" and .served_redaktsioon_id == null and .served_next_redaktsioon_date == "2026-11-01"' \
+      "$feed_dir/.startup/law-registry.json" >/dev/null || t612f_ok=1
+    sat612
+    [ "$feed_rc" -eq 1 ] || t612f_ok=1
+    [ "$(cursor612)" != "2026-09-01T00:00:00Z" ] || t612f_ok=1
+    grep -qF 'WARNING: open-law: akti redaktsiooni ei saa tõendada (pending-review entry has no recorded redaction' "$feed_dir/stderr" || t612f_ok=1
+    record "feed future_amendment on legacy stored id '${t612f_id:-null}' records no id and stays unprovable (#612)" "$t612f_ok" "rc=$feed_rc change=$(open612) stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+  done
+
+  # g: a non-saturated run never fetches /citation for flagged entries
+  CITE_RED_ID= CITE_NEXT_DATE=
+  feed_cursor_reset
+  rm -f "$feed_dir/cite_urls"
+  feed_cursor_body '{"items":[],"partial":false,"warnings":[]}'
+  CITE_URL_LOG="$feed_dir/cite_urls"
+  feed_cursor_run
+  CITE_URL_LOG=
+  t612g_ok=0
+  [ "$feed_rc" -eq 0 ] || t612g_ok=1
+  grep -qF '/laws/123/citation' "$feed_dir/cite_urls" || t612g_ok=1
+  grep -qF '/laws/1/citation' "$feed_dir/cite_urls" && t612g_ok=1
+  record "feed non-saturated run makes no citation call for flagged entries (#612)" "$t612g_ok" "rc=$feed_rc urls=$(tr '\n' ' ' < "$feed_dir/cite_urls" 2>/dev/null)"
+
+  # h: re-flagged redaction_change then ack -> change null, previous gone
+  CITE_RED_ID="100000000002" CITE_NEXT_DATE=
+  feed_cursor_reset
+  feed_cursor_pending_proof 100000000002 ""
+  sat612
+  CITE_RED_ID="100000000003"
+  feed_cursor_pending_proof 100000000003 ""
+  sat612
+  t612h_ok=0
+  jq -e '.entries["open-law"].change | .type == "redaction_change" and (.previous | length) == 1' "$feed_dir/.startup/law-registry.json" >/dev/null || t612h_ok=1
+  (
+    cd "$feed_dir" && PATH="$feed_dir/bin:$PATH" \
+      EST_DATALAKE_API_KEY=synthetic-key \
+      DATALAKE_URL=https://example.invalid \
+      CITE_CODE=200 \
+      CITE_TEXT="Current clause." \
+      CITE_RED_ID="100000000003" \
+      bash "$PLUGIN_ROOT/scripts/lawyer-ack.sh" open-law
+  ) > "$feed_dir/stdout_ack612" 2> "$feed_dir/stderr_ack612" || t612h_ok=1
+  jq -e '.entries["open-law"] | .needs_review == false and .change == null' "$feed_dir/.startup/law-registry.json" >/dev/null || t612h_ok=1
+  record "lawyer ack clears a re-flagged change including previous (#612)" "$t612h_ok" "change=$(open612) stderr=$(tr '\n' ' ' < "$feed_dir/stderr_ack612")"
+  CITE_RED_ID=
 
   rm -rf "$feed_dir"
 }
