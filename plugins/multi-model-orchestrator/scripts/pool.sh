@@ -104,7 +104,7 @@ tight_reset() {  # tight_reset provider model
 }
 
 cli_for() {
-  case "$1" in claude|codex|grok|agy) printf '%s' "$1" ;; *) printf '' ;; esac
+  case "$1" in claude|codex|grok|muse|agy) printf '%s' "$1" ;; *) printf '' ;; esac
 }
 
 candidates=()

@@ -28,4 +28,4 @@ Source command: `../../commands/orchestrate.md`
 
 - Plugin: `multi-model-orchestrator`
 - Command aliases: `/multi-model-orchestrator:orchestrate`
-- Source description: Route implementation across Claude Code, Codex, and Grok Build with task-sized models and efforts, then review independently
+- Source description: Route implementation across Claude Code, Codex, Grok Build, and Muse Code with task-sized models and efforts, then review independently

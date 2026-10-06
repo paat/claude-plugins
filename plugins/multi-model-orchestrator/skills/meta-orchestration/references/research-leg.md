@@ -3,7 +3,7 @@
 Use `--mode research` for facts outside the repository. Prefer primary sources and spend the leg
 only when its evidence can change the current decision.
 
-Prefer Claude or Grok when model constraints permit; Codex is the fallback that preserves a
+Prefer Claude, Grok, or Muse when model constraints permit; Codex is the fallback that preserves a
 grounding leg for Codex-pinned deployments.
 
 ## Discovery

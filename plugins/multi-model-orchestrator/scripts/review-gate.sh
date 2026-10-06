@@ -11,7 +11,7 @@
 #
 # Fail-closed: only a label naming a hosted catalog provider or model counts as an
 # independent reviewer (claude/opus/sonnet/haiku/fable, codex/gpt/astra/terra/luna,
-# grok). Anything else — `Local Qwen`, `qwen3.8-27b-local`, a typo — is advisory,
+# grok, muse). Anything else — `Local Qwen`, `qwen3.8-27b-local`, a typo — is advisory,
 # so a label the gate does not recognize can never satisfy independence.
 #
 # Exit codes:
@@ -46,7 +46,7 @@ mmo_is_independent_provider() {
   # A local engine is advisory whatever else the label contains.
   case "$label" in *qwen*|*local*) return 1 ;; esac
   case "$label" in
-    claude*|opus*|sonnet*|haiku*|fable*|codex*|gpt*|astra*|terra*|luna*|grok*) return 0 ;;
+    claude*|opus*|sonnet*|haiku*|fable*|codex*|gpt*|astra*|terra*|luna*|grok*|muse*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -84,7 +84,7 @@ for leg in "${legs[@]}"; do
 done
 
 if [ "$independent" -eq 0 ]; then
-  printf 'review-gate: advisory-only review set — no leg is from an independent hosted provider (claude, codex, grok); the local engine reads the diff and cannot run probes, so it may not be the only reviewer\n' >&2
+  printf 'review-gate: advisory-only review set — no leg is from an independent hosted provider (claude, codex, grok, muse); the local engine reads the diff and cannot run probes, so it may not be the only reviewer\n' >&2
   exit 3
 fi
 

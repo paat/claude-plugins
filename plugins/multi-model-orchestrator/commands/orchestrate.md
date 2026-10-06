@@ -1,6 +1,6 @@
 ---
 allowed-tools: Bash, Read, Glob, Grep
-description: Route implementation across Claude Code, Codex, and Grok Build with task-sized models and efforts, then review independently
+description: Route implementation across Claude Code, Codex, Grok Build, and Muse Code with task-sized models and efforts, then review independently
 argument-hint: "<implementation request and any provider/model/effort restrictions>"
 ---
 
@@ -13,7 +13,7 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
 - Natural wording is authoritative. Apply “only,” “do not use,” and provider/model allowlists or
   denylists before routing. Never dispatch a forbidden provider.
 - “Implement with Codex only” means every source edit belongs to a Codex worker. A fresh Codex
-  reviewer is allowed; Claude Code and Grok Build are not.
+  reviewer is allowed; Claude Code, Grok Build, and Muse Code are not.
 - An explicit current model or compatible effort overrides the router default for that named leg.
   Reject contradictory restrictions and unsupported effort/model combinations.
 - Every selected CLI runs in YOLO mode. Do not downgrade the runner flags; the development
@@ -61,7 +61,7 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
    the tier chain was available: report the blocker with the reset it printed. `55` means the
    failing worker had already edited the tree: salvage or reset before redispatching. A pinned model calls
    its runner directly with the same contract (`run-codex.sh --dir`, `run-claude.sh`,
-   `run-grok.sh`, `run-agy.sh`, or `run-qwen-local.sh --repo`); omit `--effort` for Claude Haiku
+   `run-grok.sh`, `run-muse.sh`, `run-agy.sh`, or `run-qwen-local.sh --repo`); omit `--effort` for Claude Haiku
    4.5. Local Qwen and agy review only with `--mode review --base <range>`: diff-only advisory
    lenses that `--mode implement` would turn into writers. Never replace a current model with an
    earlier generation when a route is unavailable.

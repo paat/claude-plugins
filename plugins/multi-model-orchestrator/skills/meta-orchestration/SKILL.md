@@ -106,10 +106,10 @@ logs, diffs: a leg or subagent returns a verdict.
    `references/usage-limits.md`; emit its route card into the ledger.
 2. Buy only the grounding that is triggered:
    - **Advise (IN-REPO):** For ambiguous or high-coupling items, one advise leg via an allowed
-     provider (`run-claude.sh` or `run-grok.sh --mode advise`); constraints/risks/file map ground
+     provider (`run-claude.sh`, `run-grok.sh`, or `run-muse.sh --mode advise`); constraints/risks/file map ground
      the worker. Skip when well-specified or no advise provider is allowed — tighten the packet.
-   - **Research (OUT-OF-REPO):** Prefer tool-restricted Claude or Grok; Codex is the fallback.
-     Run `run-claude.sh`, `run-grok.sh`, or `run-codex.sh` with `--mode research`; apply
+   - **Research (OUT-OF-REPO):** Prefer tool-restricted Claude, Grok, or Muse; Codex is the fallback.
+     Run `run-claude.sh`, `run-grok.sh`, `run-muse.sh`, or `run-codex.sh` with `--mode research`; apply
      `references/research-leg.md` and ground the worker on the memo's load-bearing claims.
    An unknown is not automatically a human decision. Classify: unresearched (spend a research
    leg) vs. genuine judgment call (decide with the recommended default, attach research when a

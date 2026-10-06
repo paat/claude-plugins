@@ -4,7 +4,7 @@
 # Codex: newest rate_limits event by that event's own timestamp, among the 20 newest session
 # logs from the last 8 days (free). Claude: newest rate_limit_event in a run-claude.sh --stream-log (free) or,
 # with --probe-claude, one tiny claude -p call. agy: its local /usage command (free; Gemini
-# buckets only). Grok has no source. A provider with no data prints "<provider> unknown <why>".
+# buckets only). Grok and Muse have no source. A provider with no data prints "<provider> unknown <why>".
 # Always exits 0 unless misused.
 set -euo pipefail
 
@@ -205,3 +205,4 @@ else
 fi
 
 printf 'grok unknown (Grok CLI exposes no plan-limit data)\n'
+printf 'muse unknown (Muse CLI exposes no plan-limit data)\n'

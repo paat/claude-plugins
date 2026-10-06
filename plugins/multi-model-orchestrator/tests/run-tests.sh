@@ -1537,9 +1537,9 @@ pass '#523l: empty stream under --stream-log exits 5, not malformed'
 absent "$PLUGIN_ROOT/README.md" 'No `jq` dependency is used' \
   'README must not claim no jq dependency'
 contains "$PLUGIN_ROOT/README.md" \
-  '`jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, and the local-Qwen route' \
+  '`jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, and the local-Qwen route' \
   'README documents where jq is required'
-pass 'README documents jq for Claude --stream-log, agy, and local Qwen'
+pass 'README documents jq for Claude --stream-log, agy, Muse, and local Qwen'
 
 # Req 3: run-codex.sh resolves --dir/--repo to a git toplevel (match claude/grok).
 # Intentional behavior change vs 0.7.6: existing non-git directory exits 2.
@@ -2324,7 +2324,7 @@ for label in 'Local Qwen' 'qwen3.8-27b-local' 'Qwen-Local' 'gemini' 'codex-local
   bash "$GATE" --leg "$label=$gate_dir/qwen.txt" >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 3 ] || fail "label '$label' alone is advisory (got $rc)"
 done
-for label in codex Claude grok-4.7 grok-4.6 grok-4.5 gpt-6-astra claude-opus-5 gpt GPT-5.6; do
+for label in codex Claude grok-4.7 grok-4.6 grok-4.5 muse-spark-1.3 gpt-6-astra claude-opus-5 gpt GPT-5.6; do
   out="$(bash "$GATE" --leg "Local Qwen=$gate_dir/qwen.txt" --leg "$label=$gate_dir/codex.txt")" \
     || fail "label '$label' counts as independent"
   [ "$out" = APPROVE ] || fail "label '$label' beside Local Qwen approves (got $out)"
@@ -2417,7 +2417,7 @@ rl() { printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits"
 out=$(CODEX_HOME="$U/codex" PATH="$U/bin:$PATH" bash "$USAGE_SH")
 case "$out" in *"codex 5h 0% (reset at"*) ;; *) fail "usage.sh zeroes a Codex window whose reset passed: $out" ;; esac
 case "$out" in *"codex 7d 92% resets "*" in 1d1h0m as-of "*|*"codex 7d 92% resets "*" in 1d0h59m as-of "*) ;; *) fail "usage.sh reports the newest Codex secondary window: $out" ;; esac
-case "$out" in *"claude unknown (pass --claude-log or --probe-claude"*"grok unknown"*) ;; *) fail "usage.sh names providers it cannot read: $out" ;; esac
+case "$out" in *"claude unknown (pass --claude-log or --probe-claude"*"grok unknown"*"muse unknown"*) ;; *) fail "usage.sh names providers it cannot read: $out" ;; esac
 printf '{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.014,"resetsAt":%s},"seven_day":{"utilization":0.86,"resetsAt":%s}}}}\n' "$future" "$future" > "$U/claude.jsonl"
 out=$(CODEX_HOME="$U/none" bash "$USAGE_SH" --claude-log "$U/claude.jsonl" --claude-log "$U/missing.jsonl")
 case "$out" in *"codex unknown"*"claude 5h 1% resets"*"claude 7d 86% resets"*) ;; *) fail "usage.sh reads Claude windows from a stream log: $out" ;; esac
@@ -2633,27 +2633,106 @@ done
 git -C "$AR" checkout -q -- f.txt
 pass 'run-agy: YOLO implement, diff-only review outside the repo, write detection, exits'
 
+# --- run-muse.sh against a stub muse ---
+MU="$WORK/muse"; mkdir -p "$MU/bin" "$MU/calls"
+MUSE_RUN="$PLUGIN_ROOT/scripts/run-muse.sh"
+cat > "$MU/bin/muse" <<'STUB'
+#!/usr/bin/env bash
+[ -z "${STUB_SECRET_SEEN:-}" ] || printf '%s %s\n' "${0##*/}" "${LEG_SECRET-unset}" >> "$STUB_SECRET_SEEN"
+n=$(find "$STUB_MUSE_CALLS" -name 'call.*.args' | wc -l)
+printf '%s\n' "$@" > "$STUB_MUSE_CALLS/call.$n.args"
+pwd > "$STUB_MUSE_CALLS/call.$n.cwd"
+prev=""; for a in "$@"; do [ "$prev" != --prompt-file ] || cp "$a" "$STUB_MUSE_CALLS/call.$n.prompt"; prev="$a"; done
+[ -z "${STUB_MUSE_TOUCH:-}" ] || printf 'touched\n' >> "$STUB_MUSE_TOUCH"
+if [ "${STUB_MUSE_SERVED:-}" = none ]; then
+  printf '%s\n' '{"payload_type":"run.model.configured","payload":{}}'
+else
+  jq -cn --arg m "${STUB_MUSE_SERVED:-muse-spark-1.3}" '{payload_type:"run.model.configured",payload:{model_id:$m}}'
+fi
+if [ -n "${STUB_MUSE_FAIL:-}" ]; then
+  jq -cn --arg r "$STUB_MUSE_FAIL" '{payload_type:"run.terminal.failed",payload:{terminal:"failed",reason:$r,text:""}}'
+  printf 'run ended with Failed: %s\n' "$STUB_MUSE_FAIL" >&2
+  exit 1
+fi
+jq -cn --arg t "${STUB_MUSE_RESPONSE:-done
+
+APPROVE}" '{payload_type:"run.terminal.completed",payload:{terminal:"completed",reason:null,text:$t}}'
+STUB
+chmod +x "$MU/bin/muse"
+MR="$MU/repo"; mkdir -p "$MR"; git -C "$MR" init -q
+printf 'one\n' > "$MR/f.txt"; git -C "$MR" add f.txt; git -C "$MR" -c user.email=t@t -c user.name=t commit -qm base
+muse_env=(env -u MMO_MUSE_MODEL -u MMO_MUSE_EFFORT -u MMO_MUSE_MAX_STEPS PATH="$MU/bin:$PATH" STUB_MUSE_CALLS="$MU/calls")
+
+out="$(printf 'make f say two\n' | "${muse_env[@]}" bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 2>"$MU/err")" || fail "run-muse implement succeeds: $(cat "$MU/err")"
+for flag in exec --json --yolo muse-spark-1.3 medium --disable-web-tools --no-foreign-personal-context --disable-reminders; do
+  exact_line "$MU/calls/call.0.args" "$flag" "muse implement passes $flag"
+done
+absent "$MU/calls/call.0.args" '--disable-write' 'muse implement keeps write tools'
+exact_line "$MU/calls/call.0.cwd" "$MR" 'muse implement runs in the repository'
+contains "$MU/calls/call.0.prompt" 'make f say two' 'muse prompt carries the task packet'
+case "$out" in *done*) ;; *) fail "run-muse prints the final response: $out" ;; esac
+contains "$MU/err" 'run-muse: exit=0' 'run-muse reports its exit line'
+
+printf 'two\n' > "$MR/f.txt"
+out="$(printf 'review it\n' | "${muse_env[@]}" bash "$MUSE_RUN" --mode review --repo "$MR" --base HEAD --effort low --timeout 30 2>"$MU/err")" || fail "run-muse review succeeds: $(cat "$MU/err")"
+for flag in --disable-write --disable-shell --disable-web-tools; do
+  exact_line "$MU/calls/call.1.args" "$flag" "muse review passes $flag"
+done
+contains "$MU/calls/call.1.prompt" '+two' 'muse review is handed the diff'
+case "$out" in *APPROVE*) ;; *) fail "run-muse review prints the verdict: $out" ;; esac
+
+printf 'what is new\n' | "${muse_env[@]}" bash "$MUSE_RUN" --mode research --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || fail "run-muse research succeeds: $(cat "$MU/err")"
+absent "$MU/calls/call.2.args" '--disable-web-tools' 'muse research keeps web tools'
+exact_line "$MU/calls/call.2.args" '--disable-write' 'muse research drops write tools'
+[ "$(cat "$MU/calls/call.2.cwd")" != "$MR" ] || fail 'muse research runs outside the repository'
+contains "$MU/calls/call.2.prompt" 'sources OUTSIDE this repository' 'muse research prompt carries the external-source contract'
+
+rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_TOUCH="$MR/f.txt" bash "$MUSE_RUN" --mode advise --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
+[ "$rc" -eq 7 ] || fail "an advise leg that wrote to the repo exits 7 (got $rc)"
+printf 'two\n' > "$MR/f.txt"
+rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_SERVED=muse-spark-1.3-contributor bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
+[ "$rc" -eq 7 ] || fail "a leg served by another model exits 7 (got $rc)"
+contains "$MU/err" 'not the requested muse-spark-1.3' 'run-muse names the model it was served'
+printf 'x\n' | "${muse_env[@]}" STUB_MUSE_SERVED=none bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" \
+  || fail "a configured event without model_id is not a model mismatch: $(cat "$MU/err")"
+rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_RESPONSE='looks fine' bash "$MUSE_RUN" --mode review --repo "$MR" --base HEAD --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
+[ "$rc" -eq 6 ] || fail "a muse review without a verdict exits 6 (got $rc)"
+rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_FAIL='429 Too Many Requests' bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
+[ "$rc" -eq 75 ] || fail "a muse rate limit exits 75 (got $rc)"
+rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_FAIL='missing meta credentials: run `muse login` or set META_API_KEY' bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
+[ "$rc" -eq 77 ] || fail "missing muse credentials exit 77 (got $rc)"
+for bad in '--mode review --base --output=x' '--mode implement --effort ultra' '--mode implement --model muse-spark-1.3-contributor' '--mode implement --max-steps 0' '--mode bogus'; do
+  rc=0
+  # shellcheck disable=SC2086
+  printf 'x\n' | "${muse_env[@]}" bash "$MUSE_RUN" $bad --repo "$MR" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 2 ] || fail "run-muse rejects '$bad' as usage (got $rc)"
+done
+git -C "$MR" checkout -q -- f.txt
+pass 'run-muse: YOLO implement, read-only advise/review, web-only research, model pin, write detection, exits'
+
 # --- secret isolation (#589): untracked .env* refusal and a scrubbed leg environment ---
 SE="$WORK/secret-env"; mkdir -p "$SE"; git -C "$SE" init -q
 printf '.env*\n' > "$SE/.gitignore"; printf 'x\n' > "$SE/f.txt"
 git -C "$SE" add .gitignore f.txt; git -C "$SE" -c user.email=t@t -c user.name=t commit -qm base
 printf 'TOKEN=1\n' > "$SE/.env.local"
 seen="$WORK/secret-seen"; : > "$seen"
-se_env=(env PATH="$WORK/bin:$AG/bin:$PATH" STUB_AGY_CALLS="$AG/calls" STUB_SECRET_SEEN="$seen" LEG_SECRET=leak)
-for runner in claude codex grok agy; do
+se_env=(env PATH="$WORK/bin:$AG/bin:$MU/bin:$PATH" STUB_AGY_CALLS="$AG/calls" STUB_MUSE_CALLS="$MU/calls" STUB_SECRET_SEEN="$seen" LEG_SECRET=leak)
+for runner in claude codex grok agy muse; do
   rc=0; printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-$runner.sh" --mode implement --repo "$SE" --timeout 30 >/dev/null 2>"$WORK/secret.err" || rc=$?
   [ "$rc" -eq 2 ] || fail "run-$runner refuses a repo holding an untracked .env file (got $rc)"
   contains "$WORK/secret.err" '.env.local' "run-$runner names the env file it refused"
 done
 rc=0; printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-agy.sh" --mode review --base HEAD --repo "$SE" --timeout 30 >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || fail "run-agy review refuses too, since its diff inlines untracked files (got $rc)"
+rc=0; printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-muse.sh" --mode research --repo "$SE" --timeout 30 >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "run-muse research refuses too, since it keeps read tools (got $rc)"
 [ ! -s "$seen" ] || fail 'a refused leg never starts its provider CLI'
 printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-claude.sh" --mode research --repo "$SE" --timeout 30 >/dev/null 2>"$WORK/secret.err" \
   || fail "a research leg has no repository access and is not refused: $(cat "$WORK/secret.err")"
 printf 'x\n' | "${se_env[@]}" MMO_ALLOW_ENV_FILES=1 bash "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --repo "$SE" --timeout 30 >/dev/null 2>&1 \
   || fail 'MMO_ALLOW_ENV_FILES=1 opts out of the refusal'
 rm "$SE/.env.local"; : > "$seen"
-for runner in claude codex grok agy; do
+for runner in claude codex grok agy muse; do
   printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-$runner.sh" --mode implement --repo "$SE" --timeout 30 >/dev/null 2>"$WORK/secret.err" \
     || fail "run-$runner runs in a repo without env files: $(cat "$WORK/secret.err")"
   exact_line "$seen" "$runner unset" "run-$runner scrubs an unlisted variable from the leg environment"
@@ -2720,6 +2799,9 @@ for compat in gpt-5.6-luna claude-sonnet-5 gpt-5.6-terra; do
   out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T1 --allow "$compat" --usage /dev/null 2>/dev/null)" || true
   [ "$(printf '%s\n' "$out" | head -n1 | cut -f3)" = "$compat" ] || fail "shipped table keeps an allowlisted prior-generation model routable: $compat ($out)"
 done
+cp "$MU/bin/muse" "$PL/bin/muse"
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow muse --mode review --usage /dev/null 2>/dev/null)" || true
+[ "$(printf '%s\n' "$out" | head -n1 | cut -f2-4 | tr '\t' ' ')" = "muse muse-spark-1.3 medium" ] || fail "shipped T2 table routes Muse, including review: $out"
 for bad in '--tier T5' '--tier T2 --mode advise' '--tier T2 --timeout 0' '--tier T2 --bogus'; do
   rc=0
   # shellcheck disable=SC2086
