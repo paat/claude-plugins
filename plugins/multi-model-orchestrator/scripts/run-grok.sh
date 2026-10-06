@@ -100,7 +100,11 @@ isolated_auth="$isolated_grok_home/auth.json"
 # and the isolated copy actually changed (avoids clobbering a concurrent refresh).
 start_auth_snapshot="$runtime_dir/auth.start.json"
 [ -n "$output_file" ] || output_file="$(mktemp)"
-case "$output_file" in /dev/*) ;; *) output_file="$(realpath -m "$output_file")" ;; esac
+out_dev=""
+case "$output_file" in
+  /dev/*) out_dev="$output_file"; output_file="$runtime_dir/out.txt" ;;
+  *) output_file="$(realpath -m "$output_file")" ;;
+esac
 if [ "$stream_log_set" -eq 1 ]; then
   case "$stream_file" in /dev/*) ;; *) stream_file="$(realpath -m "$stream_file")" ;; esac
 fi
@@ -346,11 +350,13 @@ run_grok_call "$run_timeout" "$prompt_file" ${session_id:+--session-id "$session
 while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max turns reached' "$call_err"; do
   left=$((run_timeout - (SECONDS - started)))
   [ "$left" -ge 30 ] || break
-  [ "$(mmo_tree_state "$repo_dir" "$output_file")" != "$before" ] || break
+  now="$(mmo_tree_state "$repo_dir" "$output_file")"
+  [ "$now" != "$before" ] || break
+  before="$now"
   continues=$((continues + 1))
   run_grok_call "$left" "$resume_prompt" --resume "$session_id"
 done
-if [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
+if [ "$mode" = implement ] && [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
   printf 'run-grok: max turns reached (%s); work may be partial and uncommitted — salvage like a timeout, or raise --max-turns (--mode %s cap %s)\n' "$max_turns" "$mode" "$turns_cap" >&2
   rc=76
 fi
@@ -431,9 +437,9 @@ fi
 # Expose body on success and on verdict-format failure (rc=6) so controllers
 # can inspect useful review text; --out already holds the body either way.
 if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
-  cat "$output_file"
+  if [ -n "$out_dev" ]; then cat "$output_file" > "$out_dev"; else cat "$output_file"; fi
 fi
-if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="$output_file"; fi
+if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="${out_dev:-$output_file}"; fi
 
 classify_file="$runtime_dir/provider-failure.txt"
 : > "$classify_file"

@@ -347,7 +347,9 @@ if [ -n "$debug_file" ]; then
 fi
 if [ "${STUB_GROK_RESULT:-ok}" = maxturns ]; then
   if [ "$(wc -l < "$STUB_GROK_CALLS")" -le "${STUB_GROK_MAXTURNS_FIRST:-999}" ]; then
-    [ -z "${STUB_GROK_TOUCH:-}" ] || printf 'x\n' >> "$STUB_GROK_TOUCH"
+    if [ -n "${STUB_GROK_TOUCH:-}" ] && { [ -z "${STUB_GROK_TOUCH_ONCE:-}" ] || [ "$(wc -l < "$STUB_GROK_CALLS")" -eq 1 ]; }; then
+      printf 'x\n' >> "$STUB_GROK_TOUCH"
+    fi
     printf 'Conversation compacted. Max turns reached\nError: max turns reached\n' >&2
     exit 1
   fi
@@ -355,6 +357,7 @@ fi
 case "${STUB_GROK_RESULT:-ok}" in
   error) exit 23 ;;
   transient) printf '429 Too Many Requests\n' >&2; exit 1 ;;
+  transient503) printf '503 overloaded\n' >&2; exit 1 ;;
   auth)
     printf 'Error: Not signed in. To authenticate without a browser, run: grok login --device-code\n' >&2
     exit 1
@@ -1378,8 +1381,37 @@ contains "$WORK/mt-resume-ok.err" 'continues=1' 'successful resume reports conti
 contains "$WORK/mt.out" 'grok findings' '--out holds the last call final message'
 contains "$WORK/mt.out.stderr" 'max turns reached' '.stderr accumulates the first call'
 contains "$WORK/grok.prompt" 'Finish the remaining edits now' 'resume uses the finishing prompt'
+: > "$STUB_GROK_CALLS"
+STUB_GROK_TOUCH_ONCE=1 grok_mt "$WORK/mt-incr.err" --mode implement --max-turns 5 --continue-on-max-turns 2
+rm -f "$STUB_GROK_TOUCH"
+[ "$mt_rc" -eq 76 ] || fail "incremental baseline rc=$mt_rc want 76"
+[ "$(wc -l < "$STUB_GROK_CALLS")" -eq 2 ] || fail 'a resume that changes nothing must not trigger a second resume'
+contains "$WORK/mt-incr.err" 'continues=1' 'incremental baseline reports continues=1'
+: > "$STUB_GROK_CALLS"
+grok_mt "$WORK/mt-review76.err" --mode review --max-turns 5
+[ "$mt_rc" -ne 76 ] || fail 'review leg at max turns must not exit 76'
+[ "$mt_rc" -ne 0 ] || fail 'review leg at max turns must fail'
 unset STUB_GROK_RESULT STUB_GROK_TOUCH
 pass '#614: per-mode caps, exit 76, finishing resume bounded by N and tree change'
+
+# #621: --out /dev/stdout success path must exit 0 with the verdict on its own line.
+rc=0
+dev_out="$(printf x | STUB_GROK_RESULT=ok "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --out /dev/stdout --timeout 10 2> "$WORK/grok-devout.err")" || rc=$?
+[ "$rc" -eq 0 ] || fail "grok --out /dev/stdout success rc=$rc want 0"
+printf '%s\n' "$dev_out" | grep -qx 'APPROVE' || fail 'grok --out /dev/stdout verdict not on its own line'
+pass '#621: grok --out /dev/stdout success path exits 0'
+rc=0
+printf x | STUB_GROK_RESULT=progress "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --out /dev/stdout --timeout 10 >/dev/null 2> "$WORK/grok-devout-nv.err" || rc=$?
+[ "$rc" -eq 6 ] || fail "grok --out /dev/stdout review without verdict rc=$rc want 6"
+rc=0
+printf x | STUB_GROK_RESULT=ok "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --out /dev/stdout --timeout 10 > "$WORK/grok-devout-file.out" 2> "$WORK/grok-devout-file.err" || rc=$?
+[ "$rc" -eq 0 ] || fail "grok --out /dev/stdout to file rc=$rc want 0"
+[ "$(grep -c 'grok findings' "$WORK/grok-devout-file.out")" -eq 1 ] || fail 'grok --out /dev/stdout to file must hold the body exactly once'
+rc=0
+printf x | STUB_GROK_RESULT=transient503 "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --out /dev/stdout --timeout 10 >/dev/null 2> "$WORK/grok-devout-tr.err" || rc=$?
+[ "$rc" -eq 75 ] || fail "grok --out /dev/stdout transient rc=$rc want 75"
+contains "$WORK/grok-devout-tr.err" 'failure=transient' 'grok --out /dev/stdout classifies transient failure'
+pass '#621: grok --out /dev/* keeps verdict check, file stdout, and failure classification'
 
 # usage() must advertise the shared flag surface
 contains "$PLUGIN_ROOT/scripts/run-claude.sh" '--stream-log FILE' 'Claude usage lists --stream-log'
