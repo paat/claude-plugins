@@ -2,23 +2,23 @@
   "files": [
     {
       "path": "schemas/review-output.json",
-      "sha256": "9d791f5fd32c2736f95c35b4107fea62606d5f662985f5a093ada2d3392f1282"
+      "sha256": "a7f4e561c9fbd28421b47c12f390ff05c3254b64e40243187f6366018d41bd87"
     },
     {
       "path": "scripts/check-runner-bundle.sh",
-      "sha256": "2675b04231e76ec48ba7dbc534a8a993290d91a212e5b6c349ce1f713f465d97"
+      "sha256": "c05c57209e050c7fef0626a80346bdd4608c4029a0ad0504ee383954c527e399"
     },
     {
       "path": "scripts/collect-review-evidence.sh",
-      "sha256": "c381655c80419bdbc7b341c2c0a060c1c85e6405a3b1359f83a858df6520fef8"
+      "sha256": "b02e1e373eebcd9033765e37cac9edfff40f76c90042ba538656af12c8fb40e7"
     },
     {
       "path": "scripts/generate-runner-bundle.sh",
-      "sha256": "f97ecbb1ff75435f7167ffe51d0a62f85d35a3e4be14ed18f52ae9c49b385ef4"
+      "sha256": "47c4e0e970e674bb50bed04e9dc7cf3b9360b6bffbe50d36d386e91af3c92ae1"
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "b0bc860fe2b1c65c2ea1b86f159fcfcb4fca813f5992b46bd1b8920591332cf9"
+      "sha256": "fb5d3ae0698b9adf3f2b7acb5b30cfbba061344106edd6dd42dff2e26a155945"
     },
     {
       "path": "scripts/run-claude-review.sh",
@@ -35,6 +35,10 @@
     {
       "path": "scripts/run-grok-review.sh",
       "sha256": "f906d2796ecb8a5199bfe4e1b0282d82579419df65bd147a3cc4e964e173313f"
+    },
+    {
+      "path": "scripts/run-muse-review.sh",
+      "sha256": "9a7724e6f41cc900187f3ac1ebdfa0365d0f649f5bcbd89e9ff09d9939554b70"
     },
     {
       "path": "scripts/run-opencode-review.sh",

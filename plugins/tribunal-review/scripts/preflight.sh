@@ -92,6 +92,7 @@ else
   # Match Claude: a present CLI with a dead OIDC session is skipped, not usable (issue #374).
   add_provider grok skipped "CLI not signed in (no usable auth.json / XAI_API_KEY)"
 fi
+if [ "${TRIBUNAL_MUSE:-on}" = "off" ]; then add_provider muse disabled "TRIBUNAL_MUSE=off"; elif command -v muse >/dev/null 2>&1; then add_provider muse usable "CLI present; non-interactive invocation not probed"; else add_provider muse skipped "CLI not on PATH"; fi
 if [ "${TRIBUNAL_CLAUDE:-on}" = "off" ]; then
   add_provider claude disabled "TRIBUNAL_CLAUDE=off"
 elif ! command -v claude >/dev/null 2>&1; then

@@ -10,6 +10,8 @@ GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 # Pin product defaults so host shell exports cannot flip panel membership mid-suite.
 # Per-test prefixes still override (e.g. TRIBUNAL_GROK=off for disabled-marker cases).
 export TRIBUNAL_GROK=on
+# Muse is on by default in product; off here so a real muse on PATH never answers a fixture.
+export TRIBUNAL_MUSE=off
 export TRIBUNAL_GEMINI=off
 export TRIBUNAL_QWEN=off
 export TRIBUNAL_GLM=off
@@ -461,7 +463,7 @@ base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"
 head="$(git rev-parse --verify 'HEAD^{commit}')"
 printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":0,\"deletions\":1,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 EOF
-  for provider in gemini qwen grok claude; do
+  for provider in gemini qwen grok muse claude; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -521,6 +523,7 @@ EOF
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
   },
   "conflicts_resolved":[],"summary":"No blocking findings."
@@ -654,7 +657,7 @@ base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"
 head="$(git rev-parse --verify 'HEAD^{commit}')"
 printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 EOF
-  for provider in gemini qwen grok claude; do
+  for provider in gemini qwen grok muse claude; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -712,6 +715,7 @@ EOF
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
   },
   "conflicts_resolved":[],"summary":"No blocking findings."
@@ -1008,6 +1012,59 @@ EOF
     echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
   fi
   chmod -R u+w "$work" 2>/dev/null || true
+  rm -rf "$work"
+}
+
+test_muse_leg() {
+  local label="muse leg: read-only flags, default model, stamped model, failures" work fake ok=1
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  cat > "$fake/muse" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$FIXTURE_MUSE_ARGS"
+jq -cn --arg m "${FIXTURE_MUSE_SERVED:-muse-spark-1.3-contributor}" '{payload_type:"run.model.configured",payload:{model_id:$m}}'
+if [ -n "${FIXTURE_MUSE_FAIL:-}" ]; then
+  jq -cn --arg r "$FIXTURE_MUSE_FAIL" '{payload_type:"run.terminal.failed",payload:{terminal:"failed",reason:$r}}'
+  printf 'run ended with Failed: %s\n' "$FIXTURE_MUSE_FAIL" >&2
+  exit 1
+fi
+jq -cn '{payload_type:"run.terminal.completed",payload:{terminal:"completed",text:"{\"provider\":\"muse\",\"model\":\"Muse Spark\",\"files_examined\":[\"file.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"}}"}}'
+EOF
+  chmod +x "$fake/muse"
+  (
+    set -e
+    cd "$work"
+    git init -q; git config user.email test@example.com; git config user.name "Test User"
+    printf 'one\n' > file.txt; git add file.txt; git commit -q -m base
+    printf 'two\n' > file.txt; git commit -q -am change
+  ) || ok=0
+  run_muse() { (cd "$work" && PATH="$fake:$PATH" TRIBUNAL_MUSE=on TRIBUNAL_BASE_REF=HEAD~1 \
+    FIXTURE_MUSE_ARGS="$work/args" "$@" bash "$PLUGIN_ROOT/scripts/run-muse-review.sh"); }
+  run_muse env > "$work/ok.json" 2>/dev/null || ok=0
+  jq -e '.provider=="muse" and .model=="muse-spark-1.3-contributor" and .summary.verdict=="APPROVE" and (.diff_stat|type=="object")' \
+    "$work/ok.json" >/dev/null || ok=0
+  for flag in exec --json --yolo --disable-write --disable-shell --disable-web-tools --no-foreign-personal-context --output-schema; do
+    grep -qxF -- "$flag" "$work/args" || ok=0
+  done
+  ! grep -qxF -- --model "$work/args" || ok=0
+  run_muse env TRIBUNAL_MUSE_MODEL=muse-spark-1.3 > "$work/pin.json" 2>/dev/null || ok=0
+  jq -e '.provider=="muse" and (.error|contains("not the requested muse-spark-1.3"))' "$work/pin.json" >/dev/null || ok=0
+  run_muse env TRIBUNAL_MUSE_MODEL=muse-spark-1.3 FIXTURE_MUSE_SERVED=muse-spark-1.3 > "$work/pin-ok.json" 2>/dev/null || ok=0
+  jq -e '.model=="muse-spark-1.3" and .summary.verdict=="APPROVE"' "$work/pin-ok.json" >/dev/null || ok=0
+  run_muse env FIXTURE_MUSE_FAIL='402 Payment Required: usage balance exhausted' > "$work/limit.json" 2>/dev/null || ok=0
+  jq -e '.provider=="muse" and (.error|startswith("plan limit:"))' "$work/limit.json" >/dev/null || ok=0
+  run_muse env TRIBUNAL_MUSE=off > "$work/off.json" 2>/dev/null || ok=0
+  jq -e '.provider=="muse" and .status=="disabled"' "$work/off.json" >/dev/null || ok=0
+  (cd "$work" && PATH="/usr/bin:/bin" TRIBUNAL_MUSE=on bash "$PLUGIN_ROOT/scripts/run-muse-review.sh") > "$work/missing.json" 2>/dev/null || ok=0
+  jq -e '.provider=="muse" and .error=="Muse CLI not on PATH"' "$work/missing.json" >/dev/null || ok=0
+  (cd "$work" && git branch -q -m main && git checkout -q -b feature && PATH="$fake:$PATH" TRIBUNAL_MUSE=on \
+    TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CODEX=off TRIBUNAL_CLAUDE=off TRIBUNAL_GROK=off \
+    bash "$PLUGIN_ROOT/scripts/preflight.sh") > "$work/preflight.json" 2>/dev/null || ok=0
+  jq -e '.providers[]|select(.name=="muse")|.status=="usable"' "$work/preflight.json" >/dev/null || ok=0
+  if [ "$ok" -eq 1 ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
   rm -rf "$work"
 }
 
@@ -2781,7 +2838,7 @@ else
   printf '%s\n' '{"provider":"claude","model":"fixture","files_examined":["app.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},'"$(fixture_stat)"'}'
 fi
 EOF
-  for provider in gemini qwen grok; do
+  for provider in gemini qwen grok muse; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -2967,6 +3024,7 @@ EOF
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
   },
   "conflicts_resolved":[],"summary":"No blocking findings."
@@ -3115,6 +3173,7 @@ EOF
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
   },
   "conflicts_resolved":[],"summary":"One medium finding remains non-blocking."
@@ -3411,7 +3470,7 @@ EOF
 
   # Invalid values → exit 2 naming the key; unset → floor 1.
   local bad
-  for bad in 0 abc 8; do
+  for bad in 0 abc 9; do
     ec=0
     (
       cd "$work"
@@ -3665,7 +3724,7 @@ DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
 printf '%s\n' '{"provider":"grok","model":"fixture","files_examined":[],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
   | tribunal_stamp_diff_stat "$DIFF_STAT"
 EOF
-  for provider in gemini qwen; do
+  for provider in gemini qwen muse; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -3731,6 +3790,7 @@ EOF
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"failed"},
+    "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"}
   },
   "conflicts_resolved":[],"summary":"Blind leg must block the 0.95 shortcut."
@@ -3875,7 +3935,7 @@ base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"
 head="$(git rev-parse --verify 'HEAD^{commit}')"
 printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 EOF
-  for provider in gemini qwen grok claude; do
+  for provider in gemini qwen grok muse claude; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -3946,6 +4006,7 @@ EOF
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
   },
   "conflicts_resolved":[],"summary":"No blocking findings."
@@ -4241,6 +4302,7 @@ for script in \
   scripts/run-opencode-review.sh \
   scripts/run-qwen-review.sh \
   scripts/run-grok-review.sh \
+  scripts/run-muse-review.sh \
   scripts/run-claude-review.sh \
   scripts/collect-review-evidence.sh \
   scripts/check-runner-bundle.sh \
@@ -4355,6 +4417,7 @@ test_empty_staged_diff_with_real_changes_fails_closed
 test_genuine_empty_diff_is_reverified_and_unchanged
 test_unresolvable_base_during_empty_verification_fails_closed
 test_qwen_envelope_parser
+test_muse_leg
 test_executed_model_family_guard
 test_claude_auth_guard
 test_grok_auth_guard
@@ -4719,7 +4782,7 @@ EOF
 #!/usr/bin/env bash
 bash "$(dirname "$0")/fixture-review.sh" claude
 EOF
-  for provider in gemini qwen grok; do
+  for provider in gemini qwen grok muse; do
     printf '#!/usr/bin/env bash\nprintf "%%s\\n" %s\n' \
       "'{\"provider\":\"$provider\",\"status\":\"disabled\",\"note\":\"fixture disabled\"}'" > "$plugin/scripts/run-$provider-review.sh"
   done
