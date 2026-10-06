@@ -211,6 +211,18 @@ while IFS= read -r lcslug; do
         served=$(lawyer_redaction_id_from_url "$cite_url_val")
         stored=$(jq -r --arg s "$lcslug" '.entries[$s].redaktsioon_id // empty' "$REGISTRY")
         rt=$(jq -r --arg s "$lcslug" '.entries[$s].rt_id // empty' "$REGISTRY")
+        stored_red_date=$(jq -r --arg s "$lcslug" '.entries[$s].redaktsioon_date // empty' "$REGISTRY")
+
+        if { [ -z "$stored" ] || [ "$stored" = "$rt" ]; } && [ -n "$served" ] && [ "$served" != "$rt" ] && [ -n "$stored_red_date" ] && [ "$stored_red_date" = "$served_red_date" ]; then
+          if jq --arg s "$lcslug" --arg served "$served" '.entries[$s].redaktsioon_id = $served' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"; then
+            stored="$served"
+          else
+            rm -f "${REGISTRY}.tmp"
+            echo "WARNING: $lcslug: registry write failed — incomplete coverage; snapshot and review flags kept." >&2
+            LC_INCOMPLETE=1
+            continue
+          fi
+        fi
 
         if [ -n "$stored" ] && [ -n "$served" ] && [ "$stored" != "$rt" ] && [ "$served" != "$rt" ] && [ "$served" != "$stored" ]; then
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)

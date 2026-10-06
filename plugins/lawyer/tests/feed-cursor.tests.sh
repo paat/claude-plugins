@@ -91,7 +91,7 @@ if [ -n "${MV_FAIL_N:-}" ]; then
   fi
   n=$((n + 1))
   printf '%s' "$n" > "$calls_file"
-  if [ "$n" -ge "$MV_FAIL_N" ]; then
+  if [ "$n" -ge "$MV_FAIL_N" ] && { [ -z "${MV_FAIL_MAX:-}" ] || [ "$n" -le "$MV_FAIL_MAX" ]; }; then
     exit 1
   fi
 fi
@@ -155,6 +155,7 @@ feed_cursor_run() {
       CITE_NEXT_DATE="${CITE_NEXT_DATE:-}" \
       CITE_OMIT_NEXT_DATE="${CITE_OMIT_NEXT_DATE:-}" \
       MV_FAIL_N="${MV_FAIL_N:-}" \
+      MV_FAIL_MAX="${MV_FAIL_MAX:-}" \
       MV_CALLS_FILE="$feed_dir/mv_calls" \
       bash "$PLUGIN_ROOT/scripts/lawyer-check.sh"
   ) > "$feed_dir/stdout" 2> "$feed_dir/stderr" || feed_rc=$?
@@ -659,6 +660,92 @@ test_feed_cursor() {
   grep -qF 'incomplete coverage' "$feed_dir/stderr" || test_c_ok=1
   jq -e '.entries["open-law"].needs_review == false' "$feed_dir/.startup/law-registry.json" >/dev/null || test_c_ok=1
   record "feed saturated page with stored redaktsioon_id null advances cursor and warns" "$test_c_ok" "rc=$feed_rc cursor=$test_c_cursor stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # Cases #613: a legacy entry adopts the served redaction id only when the stored redaktsioon_date equals the served one
+  jq -n '{
+    partial: false, warnings: [], total: 500,
+    items: [range(500) | {id: ., rt_id: "999", change_type: "amendment", detected_at: "2026-09-02T00:00:00Z", effective_date: "2026-10-01", description: "unrelated event"}]
+  }' > "$feed_dir/sat613.json"
+  adopt_reg() {
+    feed_cursor_reset
+    jq --arg i "$1" --arg d "$2" '.entries["open-law"].redaktsioon_id = (if $i == "" then null else $i end) | .entries["open-law"].redaktsioon_date = (if $d == "" then null else $d end)' \
+      "$feed_dir/.startup/law-registry.json" > "$feed_dir/reg.tmp" && mv "$feed_dir/reg.tmp" "$feed_dir/.startup/law-registry.json"
+    cp "$feed_dir/sat613.json" "$feed_dir/feed.json"
+  }
+  FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
+  CITE_CODE=200 CITE_TEXT= CITE_FAIL_ACT= CITE_URL= CITE_NEXT_DATE= CITE_OMIT_NEXT_DATE=
+
+  # a: equal dates -> adopt, exit 0, cursor advanced
+  CITE_RED_ID="100000000009" CITE_RED_DATE="2026-03-01"
+  adopt_reg 456 "2026-03-01"
+  feed_cursor_run
+  t613a_ok=0
+  [ "$feed_rc" -eq 0 ] || t613a_ok=1
+  [ "$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json")" != "2026-09-01T00:00:00Z" ] || t613a_ok=1
+  jq -e '.entries["open-law"] | .redaktsioon_id == "100000000009" and .needs_review == false and .change == null and .verified_at == "2020-01-01T00:00:00Z"' "$feed_dir/.startup/law-registry.json" >/dev/null || t613a_ok=1
+  ! grep -qF 'akti redaktsiooni ei saa tõendada' "$feed_dir/stderr" || t613a_ok=1
+  record "feed saturated legacy entry with equal redaktsioon_date adopts served id and advances (#613)" "$t613a_ok" "rc=$feed_rc stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # b: different dates -> no adoption, WARNING
+  CITE_RED_ID="100000000009" CITE_RED_DATE="2026-09-15"
+  adopt_reg 456 "2026-03-01"
+  feed_cursor_run
+  t613b_ok=0
+  [ "$feed_rc" -eq 1 ] || t613b_ok=1
+  grep -qF 'akti redaktsiooni ei saa tõendada' "$feed_dir/stderr" || t613b_ok=1
+  jq -e '.entries["open-law"].redaktsioon_id == "456"' "$feed_dir/.startup/law-registry.json" >/dev/null || t613b_ok=1
+  record "feed saturated legacy entry with different redaktsioon_date is not adopted (#613)" "$t613b_ok" "rc=$feed_rc stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # c: stored date null -> non-saturated run then saturated run never adopt
+  CITE_RED_ID="100000000009" CITE_RED_DATE="2026-03-01"
+  adopt_reg 456 ""
+  feed_cursor_body '{"items":[],"partial":false,"warnings":[]}'
+  feed_cursor_run
+  t613c_ok=0
+  [ "$feed_rc" -eq 0 ] || t613c_ok=1
+  jq -e '.entries["open-law"].redaktsioon_id == "456"' "$feed_dir/.startup/law-registry.json" >/dev/null || t613c_ok=1
+  cp "$feed_dir/sat613.json" "$feed_dir/feed.json"
+  feed_cursor_run
+  [ "$feed_rc" -eq 1 ] || t613c_ok=1
+  grep -qF 'akti redaktsiooni ei saa tõendada' "$feed_dir/stderr" || t613c_ok=1
+  jq -e '.entries["open-law"].redaktsioon_id == "456"' "$feed_dir/.startup/law-registry.json" >/dev/null || t613c_ok=1
+  record "feed legacy entry with null redaktsioon_date is never adopted across runs (#613)" "$t613c_ok" "rc=$feed_rc stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # d: served id equals rt_id -> no adoption
+  CITE_RED_ID="456" CITE_RED_DATE="2026-03-01"
+  adopt_reg 456 "2026-03-01"
+  feed_cursor_run
+  t613d_ok=0
+  [ "$feed_rc" -eq 1 ] || t613d_ok=1
+  grep -qF 'akti redaktsiooni ei saa tõendada' "$feed_dir/stderr" || t613d_ok=1
+  jq -e '.entries["open-law"].redaktsioon_id == "456"' "$feed_dir/.startup/law-registry.json" >/dev/null || t613d_ok=1
+  record "feed legacy entry whose served id equals rt_id is not adopted (#613)" "$t613d_ok" "rc=$feed_rc stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # e: adoption write fails -> exit 1, cursor kept, no .tmp
+  CITE_RED_ID="100000000009" CITE_RED_DATE="2026-03-01"
+  adopt_reg 456 "2026-03-01"
+  MV_FAIL_N=2 MV_FAIL_MAX=2
+  feed_cursor_run
+  unset MV_FAIL_N MV_FAIL_MAX
+  t613e_ok=0
+  [ "$feed_rc" -eq 1 ] || t613e_ok=1
+  [ "$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json")" = "2026-09-01T00:00:00Z" ] || t613e_ok=1
+  [ ! -e "$feed_dir/.startup/law-registry.json.tmp" ] || t613e_ok=1
+  jq -e '.entries["open-law"].redaktsioon_id == "456"' "$feed_dir/.startup/law-registry.json" >/dev/null || t613e_ok=1
+  grep -qF 'open-law: registry write failed' "$feed_dir/stderr" || t613e_ok=1
+  record "feed legacy adoption write failure keeps cursor and cleans tmp (#613)" "$t613e_ok" "rc=$feed_rc stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+
+  # f: stored id null, equal dates -> adopt, exit 0, cursor advanced
+  CITE_RED_ID="100000000009" CITE_RED_DATE="2026-03-01"
+  adopt_reg "" "2026-03-01"
+  feed_cursor_run
+  t613f_ok=0
+  [ "$feed_rc" -eq 0 ] || t613f_ok=1
+  [ "$(jq -r '.last_feed_check_at' "$feed_dir/.startup/law-registry.json")" != "2026-09-01T00:00:00Z" ] || t613f_ok=1
+  jq -e '.entries["open-law"].redaktsioon_id == "100000000009"' "$feed_dir/.startup/law-registry.json" >/dev/null || t613f_ok=1
+  ! grep -qF 'akti redaktsiooni ei saa tõendada' "$feed_dir/stderr" || t613f_ok=1
+  record "feed saturated null-id entry with equal redaktsioon_date adopts served id (#613)" "$t613f_ok" "rc=$feed_rc stderr=$(tr '\n' ' ' < "$feed_dir/stderr")"
+  CITE_RED_ID= CITE_RED_DATE=
 
   # Case D1: Saturated page, stored id equals rt_id -> cursor advanced, exit 1 (#610)
   FEED_CODE=200 FEED_RC=0 FEED_SLEEP=0 FEED_STAMP=
