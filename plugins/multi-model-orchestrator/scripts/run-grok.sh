@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model grok-4.7|grok-4.6|grok-4.5] [--effort low|medium|high|xhigh(grok-4.7 and grok-4.6)] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
+  printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model grok-4.7|grok-4.6|grok-4.5] [--effort low|medium|high|xhigh(grok-4.7 and grok-4.6)] [--max-turns N] [--continue-on-max-turns 0-3] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
 }
 
 valid_effort() {
@@ -23,10 +23,12 @@ base_ref="HEAD"
 model="${MMO_GROK_MODEL:-grok-4.7}"
 effort="${MMO_GROK_EFFORT:-medium}"
 run_timeout=1200
-max_turns="${MMO_GROK_MAX_TURNS:-30}"
+max_turns=""
+continue_n=""
 output_file=""
 stream_file=""
 stream_log_set=0
+continue_set=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -36,6 +38,7 @@ while [ "$#" -gt 0 ]; do
     --model) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; model="$2"; shift 2 ;;
     --effort) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; effort="$2"; shift 2 ;;
     --max-turns) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; max_turns="$2"; shift 2 ;;
+    --continue-on-max-turns) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; continue_n="$2"; continue_set=1; shift 2 ;;
     --timeout) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; run_timeout="$2"; shift 2 ;;
     --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; output_file="$2"; shift 2 ;;
     --stream-log) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; stream_file="$2"; stream_log_set=1; shift 2 ;;
@@ -64,7 +67,15 @@ case "$model" in
     ;;
 esac
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-grok: timeout must be a positive integer\n' >&2; exit 2; }
-[[ "$max_turns" =~ ^[1-9][0-9]*$ ]] && [ "$max_turns" -le 100 ] || { printf 'run-grok: max turns must be an integer from 1 to 100\n' >&2; exit 2; }
+if [ "$mode" = implement ]; then turns_cap=300 turns_default=150; else turns_cap=100 turns_default=30; fi
+[ -n "$max_turns" ] || max_turns="${MMO_GROK_MAX_TURNS:-$turns_default}"
+[[ "$max_turns" =~ ^[1-9][0-9]*$ ]] && [ "$max_turns" -le "$turns_cap" ] || { printf 'run-grok: max turns must be an integer from 1 to %s for --mode %s\n' "$turns_cap" "$mode" >&2; exit 2; }
+[ -n "$continue_n" ] || continue_n="${MMO_GROK_CONTINUE_ON_MAX_TURNS:-1}"
+[[ "$continue_n" =~ ^[0-3]$ ]] || { printf 'run-grok: continue-on-max-turns must be an integer from 0 to 3\n' >&2; exit 2; }
+if [ "$mode" != implement ]; then
+  [ "$continue_set" -eq 0 ] || [ "$continue_n" -eq 0 ] || { printf 'run-grok: --continue-on-max-turns applies only to --mode implement\n' >&2; exit 2; }
+  continue_n=0
+fi
 command -v git >/dev/null 2>&1 || { printf 'run-grok: git not found\n' >&2; exit 127; }
 command -v grok >/dev/null 2>&1 || { printf 'run-grok: grok CLI not found\n' >&2; exit 127; }
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
@@ -255,6 +266,7 @@ case "$mode" in
     {
       printf '%s\n' 'You are one fresh, bounded implementation worker.'
       printf '%s\n' 'Obey the task acceptance, allowed files, and test exactly. Do not broaden scope or commit.'
+      printf 'You have at most %s agent turns: make the edits early, keep dev-server, screenshot and exploration loops short, and leave room to run the named test and write your final message.\n' "$max_turns"
       printf '%s\n' 'Inspect your diff, run the named test, and stop when acceptance passes.'
       printf '\n## Task packet\n'
       cat "$request_file"
@@ -264,7 +276,7 @@ esac
 
 grok_args=(
   --cwd "$repo_dir" --model "$model" --reasoning-effort "$effort"
-  --output-format plain --prompt-file "$prompt_file"
+  --output-format plain
   --sandbox none --permission-mode bypassPermissions
   --no-memory --no-subagents --max-turns "$max_turns"
 )
@@ -283,25 +295,59 @@ fi
 child_home="$isolated_home"
 [ "$mode" != implement ] || child_home="$HOME"
 
-set +e
-if [ "$stream_log_set" -eq 1 ]; then
-  # Live transcript to --stream-log; final message still lands in --out.
-  HOME="$child_home" GROK_HOME="$isolated_grok_home" mmo_leg_env 'GROK_*' XAI_API_KEY -- \
-    timeout -k 10 "$run_timeout" grok "${grok_args[@]}" \
-    2> "${output_file}.stderr" | tee "$stream_file" > "$output_file"
-  provider_rc=${PIPESTATUS[0]} tee_rc=${PIPESTATUS[1]}
-  if [ "$provider_rc" -ne 0 ]; then
-    rc=$provider_rc
-  elif [ "$tee_rc" -ne 0 ]; then
-    printf 'run-grok: failed writing --stream-log: %s\n' "$stream_file" >&2
-    rc=$tee_rc
+call_err="$runtime_dir/call.stderr"
+resume_prompt="$runtime_dir/resume-prompt.txt"
+printf '%s\n' 'Finish the remaining edits now. Do not start new exploration. Run the named test, then give the final message required by the task packet. Do not commit.' > "$resume_prompt"
+
+run_grok_call() {  # run_grok_call SECONDS PROMPT_FILE [extra grok args...]
+  local secs="$1" pf="$2" provider_rc tee_rc
+  shift 2
+  : > "$call_err"
+  if [ "$stream_log_set" -eq 1 ]; then
+    # Live transcript to --stream-log; final message still lands in --out.
+    HOME="$child_home" GROK_HOME="$isolated_grok_home" mmo_leg_env 'GROK_*' XAI_API_KEY -- \
+      timeout -k 10 "$secs" grok "${grok_args[@]}" --prompt-file "$pf" "$@" \
+      2> "$call_err" | tee -a "$stream_file" > "$output_file"
+    provider_rc=${PIPESTATUS[0]} tee_rc=${PIPESTATUS[1]}
+    if [ "$provider_rc" -ne 0 ]; then
+      rc=$provider_rc
+    elif [ "$tee_rc" -ne 0 ]; then
+      printf 'run-grok: failed writing --stream-log: %s\n' "$stream_file" >&2
+      rc=$tee_rc
+    else
+      rc=0
+    fi
   else
-    rc=0
+    HOME="$child_home" GROK_HOME="$isolated_grok_home" mmo_leg_env 'GROK_*' XAI_API_KEY -- \
+      timeout -k 10 "$secs" grok "${grok_args[@]}" --prompt-file "$pf" "$@" > "$output_file" 2> "$call_err"
+    rc=$?
   fi
-else
-  HOME="$child_home" GROK_HOME="$isolated_grok_home" mmo_leg_env 'GROK_*' XAI_API_KEY -- \
-    timeout -k 10 "$run_timeout" grok "${grok_args[@]}" > "$output_file" 2> "${output_file}.stderr"
-  rc=$?
+  cat "$call_err" >> "${output_file}.stderr"
+}
+
+session_id=""
+before=""
+continues=0
+set +e
+: > "${output_file}.stderr"
+[ "$stream_log_set" -eq 0 ] || : > "$stream_file"
+if [ "$continue_n" -gt 0 ]; then
+  session_id="$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')"
+  session_id="${session_id:0:8}-${session_id:8:4}-4${session_id:13:3}-a${session_id:17:3}-${session_id:20:12}"
+  before="$(mmo_tree_state "$repo_dir" "$output_file")"
+fi
+started=$SECONDS
+run_grok_call "$run_timeout" "$prompt_file" ${session_id:+--session-id "$session_id"}
+while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max turns reached' "$call_err"; do
+  left=$((run_timeout - (SECONDS - started)))
+  [ "$left" -ge 30 ] || break
+  [ "$(mmo_tree_state "$repo_dir" "$output_file")" != "$before" ] || break
+  continues=$((continues + 1))
+  run_grok_call "$left" "$resume_prompt" --resume "$session_id"
+done
+if [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
+  printf 'run-grok: max turns reached (%s); work may be partial and uncommitted — salvage like a timeout, or raise --max-turns (implement cap 300)\n' "$max_turns" >&2
+  rc=76
 fi
 set -e
 if [ "$mode" != implement ]; then
@@ -388,5 +434,6 @@ classify_file="$runtime_dir/provider-failure.txt"
 : > "$classify_file"
 # Grok stderr is error-only in real captures; classify it whole.
 [ ! -s "${output_file}.stderr" ] || cp "${output_file}.stderr" "$classify_file"
-mmo_finish run-grok "$rc" "$classify_file" \
-  "model=$model" "effort=$effort" "mode=$mode" "log=$log_path"
+finish_kv=("model=$model" "effort=$effort" "mode=$mode" "log=$log_path")
+[ "$continues" -eq 0 ] || finish_kv+=("continues=$continues")
+mmo_finish run-grok "$rc" "$classify_file" "${finish_kv[@]}"

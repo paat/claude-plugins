@@ -214,7 +214,8 @@ catalog.
 | `MMO_CODEX_MODEL` | `gpt-6-astra` | Codex worker/reviewer model |
 | `MMO_GROK_MODEL` | `grok-4.7` | Grok worker/reviewer model |
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
-| `MMO_GROK_MAX_TURNS` | `30` | Grok tool-loop cap, from 1 to 100 |
+| `MMO_GROK_MAX_TURNS` | `30` (`150` for implement) | Grok tool-loop cap: 1 to 100, or 1 to 300 for `--mode implement` |
+| `MMO_GROK_CONTINUE_ON_MAX_TURNS` | `1` | Implement only: finishing `--resume` passes (0-3) after a max-turns stop on a changed tree, within the one `--timeout`; a max-turns stop exits 76 |
 | `MMO_MUSE_MODEL` | `default` | Muse worker/reviewer model; `default` passes no `--model` |
 | `MMO_MUSE_EFFORT` | `medium` | Muse reasoning effort |
 | `MMO_MUSE_MAX_STEPS` | `50` | Muse model-step cap, from 1 to 200 |
