@@ -346,11 +346,13 @@ run_grok_call "$run_timeout" "$prompt_file" ${session_id:+--session-id "$session
 while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max turns reached' "$call_err"; do
   left=$((run_timeout - (SECONDS - started)))
   [ "$left" -ge 30 ] || break
-  [ "$(mmo_tree_state "$repo_dir" "$output_file")" != "$before" ] || break
+  now="$(mmo_tree_state "$repo_dir" "$output_file")"
+  [ "$now" != "$before" ] || break
+  before="$now"
   continues=$((continues + 1))
   run_grok_call "$left" "$resume_prompt" --resume "$session_id"
 done
-if [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
+if [ "$mode" = implement ] && [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
   printf 'run-grok: max turns reached (%s); work may be partial and uncommitted — salvage like a timeout, or raise --max-turns (--mode %s cap %s)\n' "$max_turns" "$mode" "$turns_cap" >&2
   rc=76
 fi
@@ -412,7 +414,9 @@ if [ "$mode" != implement ]; then
     [ "$rc" -ne 0 ] || rc=7
   fi
 fi
-if [ "$rc" -eq 0 ] && [ ! -s "$output_file" ]; then
+out_stream=0
+[ ! -e "$output_file" ] || [ -f "$output_file" ] || out_stream=1
+if [ "$rc" -eq 0 ] && [ "$out_stream" -eq 0 ] && [ ! -s "$output_file" ]; then
   printf 'run-grok: missing or empty final-message artifact: %s\n' "$output_file" >&2
   rc=5
 fi
@@ -424,13 +428,13 @@ fi
 if [ "$rc" -eq 0 ] && [ -s "$output_file" ]; then
   mmo_separate_glued_verdict "$output_file"
 fi
-if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_file"; then
+if [ "$rc" -eq 0 ] && [ "$out_stream" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_file"; then
   printf 'run-grok: review completed without APPROVE or NEEDS_WORK\n' >&2
   rc=6
 fi
 # Expose body on success and on verdict-format failure (rc=6) so controllers
 # can inspect useful review text; --out already holds the body either way.
-if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
+if [ "$out_stream" -eq 0 ] && { [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; }; then
   cat "$output_file"
 fi
 if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="$output_file"; fi

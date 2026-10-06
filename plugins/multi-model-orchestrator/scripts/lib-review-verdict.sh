@@ -35,7 +35,7 @@ mmo_terminal_verdict() {
 # line so the gate still rejects ordinary sentences.
 mmo_separate_glued_verdict() {
   local src="$1" tmp
-  [ -s "$src" ] || return 0
+  [ -f "$src" ] && [ -s "$src" ] || return 0
   tmp="$(mktemp)"
   awk '
     {
