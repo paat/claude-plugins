@@ -6,6 +6,7 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | Provider | Model | Start here for | Supported effort in this plugin |
 |---|---|---|---|
 | Claude Code | `claude-haiku-5-5` | Fast, high-volume triage, file maps, simple checks | `n/a`; the wrapper runs Haiku without `--effort` |
+| Claude Code | `claude-haiku-4-5` | Prior-generation Haiku compatibility route | `n/a` |
 | Claude Code | `claude-sonnet-5-5` | Current Sonnet: ordinary coding, tool use, browser/visual work, cost-aware agents | `low`–`max` |
 | Claude Code | `claude-sonnet-5` | Prior-generation Sonnet compatibility route | `low`–`max` |
 | Claude Code | `claude-opus-5-5` | Current Opus: complex agentic coding, hard review, large refactors, vision-heavy work | `low`–`max` |

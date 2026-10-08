@@ -777,6 +777,9 @@ pass 'Claude implementation is writable, single-agent, and unrestricted'
 printf 'quick file map\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-haiku-5-5 --timeout 5 >/dev/null 2> "$WORK/haiku.err"
 contains "$WORK/claude.args" 'claude-haiku-5-5' 'Haiku current model pin'
 absent "$WORK/claude.args" '--effort' 'Haiku must omit unsupported effort flag'
+printf 'quick file map\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-haiku-4-5 --timeout 5 >/dev/null 2>&1 || fail 'prior-generation Haiku stays routable'
+exact_line "$WORK/claude.args" 'claude-haiku-4-5' 'prior-generation Haiku pin'
+absent "$WORK/claude.args" '--effort' 'prior-generation Haiku omits the effort flag'
 if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-haiku-5-5 --effort low >/dev/null 2>&1; then
   fail 'explicit Haiku effort rejected'
 fi
@@ -789,7 +792,7 @@ fi
 if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model 'claude-fable-5-1|claude-opus-5-5' >/dev/null 2>"$WORK/claude-pipe-model.err"; then
   fail 'pipe-joined Claude model ids rejected'
 fi
-contains "$WORK/claude-unknown-model.err" 'claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-5-5' 'unsupported model lists the full catalog'
+contains "$WORK/claude-unknown-model.err" 'claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-5-5|claude-haiku-4-5' 'unsupported model lists the full catalog'
 printf 'pin opus 5.5\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-opus-5-5 --effort high --timeout 5 >/dev/null 2>"$WORK/claude-opus55.err" \
   || fail 'claude-opus-5-5 accepted'
 exact_line "$WORK/claude.args" 'claude-opus-5-5' 'claude-opus-5-5 pinned in args'

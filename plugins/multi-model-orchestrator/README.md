@@ -26,7 +26,7 @@ Only the previous Claude generation (Opus 5, Fable 5) is kept for compatibility 
 
 | Provider | Models | Typical role |
 |---|---|---|
-| Claude Code | `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-1`; prior-generation `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
+| Claude Code | `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-1`; prior-generation `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
 | Codex | `gpt-6-luna`, `gpt-6-sol`, `gpt-6-astra`; prior-generation `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
 | Muse Code (`muse`) | `default` (the CLI default, currently `muse-spark-1.3-contributor`) | Bounded implementation, reproduction, research, and independent review |
