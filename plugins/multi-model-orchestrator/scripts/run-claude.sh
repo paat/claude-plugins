@@ -9,7 +9,7 @@ usage() {
   printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE] [--mcp NAME=URL]'
 }
 
-claude_model_catalog='claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-4-5'
+claude_model_catalog='claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-5-5'
 
 valid_model() {
   case "$1" in
@@ -88,8 +88,8 @@ valid_model "$model" || {
   printf 'run-claude: unsupported model %s (current catalog: %s)\n' "$model" "$claude_model_catalog" >&2
   exit 2
 }
-if [ "$model" = claude-haiku-4-5 ]; then
-  [ "$effort_set" -eq 0 ] || { printf 'run-claude: Claude Haiku 4.5 does not support --effort; omit it\n' >&2; exit 2; }
+if [ "$model" = claude-haiku-5-5 ]; then
+  [ "$effort_set" -eq 0 ] || { printf 'run-claude: Claude Haiku runs without --effort; omit it\n' >&2; exit 2; }
 else
   valid_effort "$effort" || { printf 'run-claude: unsupported effort: %s\n' "$effort" >&2; exit 2; }
 fi
@@ -218,7 +218,7 @@ claude_args+=(
   --dangerously-skip-permissions --disable-slash-commands
   --strict-mcp-config --mcp-config "$mcp_config" --no-session-persistence
 )
-[ "$model" = claude-haiku-4-5 ] || claude_args+=(--effort "$effort")
+[ "$model" = claude-haiku-5-5 ] || claude_args+=(--effort "$effort")
 [ "$max_turns_set" -eq 1 ] && claude_args+=(--max-turns "$max_turns")
 if [ "$mode" = implement ]; then
   allowed_tools='Read,Glob,Grep,Bash,Write,Edit'
@@ -305,7 +305,7 @@ fi
 if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
   if [ -n "$out_dev" ]; then cat "$output_file" > "$out_dev"; else cat "$output_file"; fi
 fi
-if [ "$model" = claude-haiku-4-5 ]; then effective_effort=n/a; else effective_effort="$effort"; fi
+if [ "$model" = claude-haiku-5-5 ]; then effective_effort=n/a; else effective_effort="$effort"; fi
 if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="${out_dev:-$output_file}"; fi
 
 : > "$classify_file"

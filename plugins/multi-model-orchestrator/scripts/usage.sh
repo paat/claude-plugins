@@ -168,7 +168,7 @@ done
 if [ -z "$claude_out" ] && [ "$probe_claude" -eq 1 ] && command -v claude >/dev/null 2>&1; then
   probe_dir=$(mktemp -d)
   # Non-repo cwd and closed stdin: the probe must not load project context or wait on input.
-  (cd "$probe_dir" && timeout -k 5 90 claude -p ok --model claude-haiku-4-5 --max-turns 1 \
+  (cd "$probe_dir" && timeout -k 5 90 claude -p ok --model claude-haiku-5-5 --max-turns 1 \
     --output-format stream-json --verbose </dev/null > "$probe_dir/stream.jsonl" 2>/dev/null) || true
   claude_out=$(claude_rows "$probe_dir/stream.jsonl")
   claude_as_of=$now

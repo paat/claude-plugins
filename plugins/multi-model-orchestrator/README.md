@@ -26,14 +26,14 @@ Only the previous Claude generation (Opus 5, Fable 5) is kept for compatibility 
 
 | Provider | Models | Typical role |
 |---|---|---|
-| Claude Code | `claude-haiku-4-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-1`; prior-generation `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
+| Claude Code | `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-1`; prior-generation `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
 | Codex | `gpt-6-luna`, `gpt-6-sol`, `gpt-6-astra`; prior-generation `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
 | Muse Code (`muse`) | `default` (the CLI default, currently `muse-spark-1.3-contributor`) | Bounded implementation, reproduction, research, and independent review |
 | Local Qwen | `qwen3.8-27b-local` | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or serving another model (needs the `subagent-local-qwen3.8-27b` plugin) |
 | Antigravity (`agy`) | `gemini-3.8-flash` | Cheap, fast bounded edits and an advisory diff-only review lens |
 
-Haiku 4.5 is the latest Haiku and does not use Claude's current effort parameter. Claude Fable 5.1,
+Haiku 5.5 is the latest Haiku; the wrapper runs it without `--effort`. Claude Fable 5.1,
 Fable 5, Opus 5.5, Opus 5, Sonnet 5.5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
 Astra-only `ultra` available for bounded internal fan-out; Grok 4.7 and Grok 4.6 support `low`,
 `medium`, `high`, and `xhigh`; Grok 4.5 and Gemini 3.8 Flash support `low`, `medium`, and `high`; Muse Spark supports
