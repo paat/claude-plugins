@@ -112,6 +112,23 @@ In Codex, invoke the `update-codex-marketplace` skill from this repo for the sam
 
 Codex-specific behavior differences are tracked in `docs/codex-plugin-behavior.md`.
 
+## Model ID Refresh
+
+`scripts/refresh-model-versions.sh` snapshots the model catalogs of the installed
+`codex`, `opencode`, `grok`, and `agy` CLIs. When a new ID appears in a model family
+the plugins already use, a headless `claude -p` session in a throwaway worktree
+updates superseded pins within the same family and tier and opens a
+`chore/model-refresh-*` PR. It never merges, and it skips runs while such a PR is
+open. Other days exit before any model call. Run it daily from cron:
+
+```
+15 5 * * * bash /mnt/data/ai/claude-plugins/scripts/refresh-model-versions.sh >> "$HOME/.local/state/model-refresh/cron.log" 2>&1
+```
+
+State, the handled catalog, and the last run log live in `~/.local/state/model-refresh/`.
+It needs `claude`, `gh`, `jq`, util-linux `flock`, and all four provider CLIs; it
+fails closed when any catalog comes back empty.
+
 ## Plugin Structure
 
 Each plugin lives under `plugins/` with this structure:
