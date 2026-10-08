@@ -72,7 +72,10 @@ truth for which models exist; do not use memory or the web.
 2. Never change family or tier (opus -> fable, flash -> pro, sol -> astra), local
    model names, Muse (it runs on the CLI default), changelog or history text, or
    test fixtures that use an old ID on purpose. Keep a pin whose nearby comment
-   justifies the older version and list it in the PR body.
+   justifies the older version and list it in the PR body. In a list of
+   accepted or routable IDs, put the new ID directly ahead of the old one and
+   keep the old one while the catalog still lists it; only defaults and
+   current-model pins move.
 3. If nothing qualifies, change nothing and print NO_CHANGES as the final line.
 4. Otherwise edit, update tests that assert the old IDs, bump each touched
    plugin's version and sync Codex metadata per CLAUDE.md, run each touched
