@@ -1,11 +1,12 @@
 # Strict model and effort router
 
 Use only this catalog. Names stay within the requested generations; the Haiku alias deliberately
-tracks the latest Haiku 4.5 release instead of pinning an earlier dated snapshot.
+tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot.
 
 | Provider | Model | Start here for | Supported effort in this plugin |
 |---|---|---|---|
-| Claude Code | `claude-haiku-4-5` | Fast, high-volume triage, file maps, simple checks | `n/a`; Haiku 4.5 has manual thinking, not the current effort control |
+| Claude Code | `claude-haiku-5-5` | Fast, high-volume triage, file maps, simple checks | `n/a`; the wrapper runs Haiku without `--effort` |
+| Claude Code | `claude-haiku-4-5` | Prior-generation Haiku compatibility route | `n/a` |
 | Claude Code | `claude-sonnet-5-5` | Current Sonnet: ordinary coding, tool use, browser/visual work, cost-aware agents | `low`–`max` |
 | Claude Code | `claude-sonnet-5` | Prior-generation Sonnet compatibility route | `low`–`max` |
 | Claude Code | `claude-opus-5-5` | Current Opus: complex agentic coding, hard review, large refactors, vision-heavy work | `low`–`max` |
@@ -75,7 +76,7 @@ silently; select a supported level or return an incompatibility.
 ## Restrictions and fallbacks
 
 - `Codex only`: choose Luna, Sol, or Astra by task complexity; Astra Ultra is not the default.
-- `Claude only`: choose Haiku 4.5, Sonnet 5.5, Opus 5.5, or Fable 5.1; use `n/a` for Haiku.
+- `Claude only`: choose Haiku 5.5, Sonnet 5.5, Opus 5.5, or Fable 5.1; use `n/a` for Haiku.
 - `Grok only`: use Grok 4.7 by default (or Grok 4.6 or Grok 4.5 when explicitly pinned) and scale
   only across that model's supported efforts.
 - `Muse only`: use Muse's default model and scale across its efforts.

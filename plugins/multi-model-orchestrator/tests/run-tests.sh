@@ -683,7 +683,7 @@ printf 'codex stream-log dest\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode re
 [ -f "$WORK/out-dest/codex.stream" ] || fail 'Codex --stream-log path used'
 contains "$WORK/out-dest/codex2.err" "log=$WORK/out-dest/codex.stream" 'Codex log= honors --stream-log'
 printf 'claude out dest\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/out-dest/claude-final.txt" --timeout 5 \
+  --model claude-haiku-5-5 --out "$WORK/out-dest/claude-final.txt" --timeout 5 \
   > "$WORK/out-dest/claude-stdout.txt" 2> "$WORK/out-dest/claude.err"
 [ "$(cat "$WORK/out-dest/claude-final.txt")" = $'claude findings\nAPPROVE' ] || fail 'Claude --out holds final result'
 [ "$(cat "$WORK/out-dest/claude-stdout.txt")" = $'claude findings\nAPPROVE' ] || fail 'Claude stdout mirrors final'
@@ -699,7 +699,7 @@ pass 'Explicit --out destinations hold final results across runners'
 if ! (
   cd "$WORK/out-dest"
   printf 'relative claude out\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-    --model claude-haiku-4-5 --out claude-relative.txt --timeout 5 \
+    --model claude-haiku-5-5 --out claude-relative.txt --timeout 5 \
     > claude-relative.stdout 2> claude-relative.err
   printf 'relative codex out\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" \
     --out codex-relative.txt --timeout 5 \
@@ -724,7 +724,7 @@ fi
 [ ! -e "$WORK/repo/grok-relative.txt.stderr" ] || fail 'Grok relative --out stderr stays outside reviewed repo'
 
 printf 'dev claude out\n' | STUB_CLAUDE_RESULT=error "$PLUGIN_ROOT/scripts/run-claude.sh" \
-  --mode advise --repo "$WORK/repo" --model claude-haiku-4-5 --out /dev/stdout --timeout 5 \
+  --mode advise --repo "$WORK/repo" --model claude-haiku-5-5 --out /dev/stdout --timeout 5 \
   > "$WORK/out-dest/claude-dev.stdout" 2> "$WORK/out-dest/claude-dev.err" || true
 contains "$WORK/out-dest/claude-dev.err" 'log=/dev/stdout' 'Claude preserves /dev/stdout output path'
 printf 'dev codex out\n' | STUB_CODEX_RESULT=error "$PLUGIN_ROOT/scripts/run-codex.sh" \
@@ -774,10 +774,13 @@ contains "$WORK/claude.args" '--dangerously-skip-permissions' 'Claude implementa
 contains "$WORK/claude.prompt" 'implementation task' 'Claude implementation task packet'
 pass 'Claude implementation is writable, single-agent, and unrestricted'
 
-printf 'quick file map\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-haiku-4-5 --timeout 5 >/dev/null 2> "$WORK/haiku.err"
-contains "$WORK/claude.args" 'claude-haiku-4-5' 'Haiku current model pin'
+printf 'quick file map\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-haiku-5-5 --timeout 5 >/dev/null 2> "$WORK/haiku.err"
+contains "$WORK/claude.args" 'claude-haiku-5-5' 'Haiku current model pin'
 absent "$WORK/claude.args" '--effort' 'Haiku must omit unsupported effort flag'
-if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-haiku-4-5 --effort low >/dev/null 2>&1; then
+printf 'quick file map\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-haiku-4-5 --timeout 5 >/dev/null 2>&1 || fail 'prior-generation Haiku stays routable'
+exact_line "$WORK/claude.args" 'claude-haiku-4-5' 'prior-generation Haiku pin'
+absent "$WORK/claude.args" '--effort' 'prior-generation Haiku omits the effort flag'
+if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-haiku-5-5 --effort low >/dev/null 2>&1; then
   fail 'explicit Haiku effort rejected'
 fi
 if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-opus-4-8 >/dev/null 2>"$WORK/claude-unknown-model.err"; then
@@ -789,7 +792,7 @@ fi
 if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model 'claude-fable-5-1|claude-opus-5-5' >/dev/null 2>"$WORK/claude-pipe-model.err"; then
   fail 'pipe-joined Claude model ids rejected'
 fi
-contains "$WORK/claude-unknown-model.err" 'claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-4-5' 'unsupported model lists the full catalog'
+contains "$WORK/claude-unknown-model.err" 'claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-5-5|claude-haiku-4-5' 'unsupported model lists the full catalog'
 printf 'pin opus 5.5\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-opus-5-5 --effort high --timeout 5 >/dev/null 2>"$WORK/claude-opus55.err" \
   || fail 'claude-opus-5-5 accepted'
 exact_line "$WORK/claude.args" 'claude-opus-5-5' 'claude-opus-5-5 pinned in args'
@@ -1190,11 +1193,11 @@ fi
 # must deliver the supplied repo (not a silent fallback to $PWD).
 repo_top="$(git -C "$WORK/repo" rev-parse --show-toplevel)"
 printf 'synonym claude dir\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --dir "$WORK/repo" \
-  --model claude-haiku-4-5 --timeout 5 >/dev/null 2> "$WORK/syn-claude-dir.err" \
+  --model claude-haiku-5-5 --timeout 5 >/dev/null 2> "$WORK/syn-claude-dir.err" \
   || fail 'Claude accepts --dir as --repo synonym'
 exact_line "$WORK/claude.cwd" "$repo_top" 'Claude --dir places the stub in the supplied repo'
 printf 'synonym claude repo\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --timeout 5 >/dev/null 2> "$WORK/syn-claude-repo.err" \
+  --model claude-haiku-5-5 --timeout 5 >/dev/null 2> "$WORK/syn-claude-repo.err" \
   || fail 'Claude keeps accepting --repo'
 exact_line "$WORK/claude.cwd" "$repo_top" 'Claude --repo places the stub in the supplied repo'
 printf 'synonym grok dir\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --dir "$WORK/repo" \
@@ -1233,7 +1236,7 @@ pass '#517 req1: --repo/--dir synonyms work on every runner'
 # --stream-log must actually stream where accepted.
 mkdir -p "$WORK/flag-dest"
 printf 'claude stream\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/flag-dest/claude-final.txt" \
+  --model claude-haiku-5-5 --out "$WORK/flag-dest/claude-final.txt" \
   --stream-log "$WORK/flag-dest/claude.stream" --timeout 5 \
   >/dev/null 2> "$WORK/flag-dest/claude-stream.err" \
   || fail 'Claude accepts --stream-log'
@@ -1282,7 +1285,7 @@ printf 'grok turns\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo 
   || fail 'Grok accepts --max-turns'
 contains "$WORK/grok.args" '7' 'Grok honors --max-turns value'
 printf 'claude turns\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --max-turns 3 --timeout 5 >/dev/null 2> "$WORK/flag-dest/claude-turns.err" \
+  --model claude-haiku-5-5 --max-turns 3 --timeout 5 >/dev/null 2> "$WORK/flag-dest/claude-turns.err" \
   || fail 'Claude accepts --max-turns'
 contains "$WORK/claude.args" '--max-turns' 'Claude forwards --max-turns to CLI'
 exact_line "$WORK/claude.args" '3' 'Claude honors --max-turns value'
@@ -1293,7 +1296,7 @@ contains "$WORK/claude.args" '--max-turns' 'Opus forwards --max-turns to CLI'
 exact_line "$WORK/claude.args" '5' 'Opus honors --max-turns value'
 set +e
 printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --max-turns notanumber --timeout 5 \
+  --model claude-haiku-5-5 --max-turns notanumber --timeout 5 \
   >/dev/null 2> "$WORK/flag-dest/claude-turns-bad.err"
 claude_turns_bad_rc=$?
 set -e
@@ -1446,7 +1449,7 @@ mkdir -p "$WORK/stream-fail"
 set +e
 printf 'claude stream fail\n' | STUB_CLAUDE_RESULT=error \
   "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 \
+  --model claude-haiku-5-5 \
   --out "$WORK/stream-fail/claude-final.txt" \
   --stream-log "$WORK/stream-fail/claude.stream" --timeout 5 \
   >/dev/null 2> "$WORK/stream-fail/claude-run.err"
@@ -1477,7 +1480,7 @@ bad_claude_stream="$WORK/stream-tee-fail/missing-dir/claude.stream"
 bad_grok_stream="$WORK/stream-tee-fail/missing-dir/grok.stream"
 set +e
 printf 'claude tee fail\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 \
+  --model claude-haiku-5-5 \
   --out "$WORK/stream-tee-fail/claude-final.txt" \
   --stream-log "$bad_claude_stream" --timeout 5 \
   >/dev/null 2> "$WORK/stream-tee-fail/claude-run.err"
@@ -1501,7 +1504,7 @@ mkdir -p "$WORK/523"
 
 # (a) completed --stream-log: --out equals result text; stream holds event lines.
 printf 'claude 523a\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/523/a-final.txt" \
+  --model claude-haiku-5-5 --out "$WORK/523/a-final.txt" \
   --stream-log "$WORK/523/a.stream" --timeout 5 \
   >/dev/null 2> "$WORK/523/a.err" \
   || fail '523a: completed --stream-log run succeeds'
@@ -1514,7 +1517,7 @@ pass '#523a: completed --stream-log extracts result text; stream holds events'
 set +e
 printf 'claude 523b\n' | STUB_CLAUDE_RESULT=live_sleep \
   "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/523/b-final.txt" \
+  --model claude-haiku-5-5 --out "$WORK/523/b-final.txt" \
   --stream-log "$WORK/523/b.stream" --timeout 2 \
   >/dev/null 2> "$WORK/523/b.err"
 claude_523b_rc=$?
@@ -1527,7 +1530,7 @@ pass '#523b: --stream-log is live (non-empty after mid-stream kill)'
 set +e
 printf 'claude 523c\n' | STUB_CLAUDE_RESULT=stream_error \
   "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/523/c-final.txt" \
+  --model claude-haiku-5-5 --out "$WORK/523/c-final.txt" \
   --stream-log "$WORK/523/c.stream" --timeout 5 \
   >/dev/null 2> "$WORK/523/c.err"
 claude_523c_rc=$?
@@ -1539,7 +1542,7 @@ pass '#523c: error result fails nonzero and names the stream file'
 
 # (d) without --stream-log: argv stays --output-format text (not stream-json).
 printf 'claude 523d\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/523/d-final.txt" --timeout 5 \
+  --model claude-haiku-5-5 --out "$WORK/523/d-final.txt" --timeout 5 \
   >/dev/null 2> "$WORK/523/d.err" \
   || fail '523d: run without --stream-log succeeds'
 exact_line "$WORK/claude.args" 'text' '523d: without --stream-log uses --output-format text'
@@ -1549,7 +1552,7 @@ pass '#523d: without --stream-log invocation stays text mode'
 
 # (e) review mode with --stream-log: verdict gate reads extracted final message.
 printf 'claude 523e\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode review --repo "$WORK/repo" \
-  --base HEAD --model claude-haiku-4-5 --out "$WORK/523/e-final.txt" \
+  --base HEAD --model claude-haiku-5-5 --out "$WORK/523/e-final.txt" \
   --stream-log "$WORK/523/e.stream" --timeout 5 \
   >/dev/null 2> "$WORK/523/e.err" \
   || fail '523e: review with --stream-log must pass on APPROVE'
@@ -1560,7 +1563,7 @@ pass '#523e: review --stream-log verdict gate reads extracted final message'
 set +e
 printf 'claude 523f\n' | STUB_CLAUDE_RESULT=stream_trunc_after \
   "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/523/f-final.txt" \
+  --model claude-haiku-5-5 --out "$WORK/523/f-final.txt" \
   --stream-log "$WORK/523/f.stream" --timeout 5 \
   >/dev/null 2> "$WORK/523/f.err"
 claude_523f_rc=$?
@@ -1574,7 +1577,7 @@ pass '#523f: truncated line after result fails and names the stream file'
 set +e
 printf 'claude 523g\n' | STUB_CLAUDE_RESULT=stream_bad_before \
   "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/523/g-final.txt" \
+  --model claude-haiku-5-5 --out "$WORK/523/g-final.txt" \
   --stream-log "$WORK/523/g.stream" --timeout 5 \
   >/dev/null 2> "$WORK/523/g.err"
 claude_523g_rc=$?
@@ -1590,7 +1593,7 @@ pass '#523g: bad line before result fails as malformed, not missing-or-empty'
 set +e
 printf 'claude 523h\n' | STUB_CLAUDE_RESULT=stream_null_result \
   "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/523/h-final.txt" \
+  --model claude-haiku-5-5 --out "$WORK/523/h-final.txt" \
   --stream-log "$WORK/523/h.stream" --timeout 5 \
   >/dev/null 2> "$WORK/523/h.err"
 claude_523h_rc=$?
@@ -1604,7 +1607,7 @@ pass '#523h: success without string .result fails; --out has no null'
 set +e
 printf 'claude 523i\n' | STUB_CLAUDE_RESULT=stream_number_result \
   "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/523/i-final.txt" \
+  --model claude-haiku-5-5 --out "$WORK/523/i-final.txt" \
   --stream-log "$WORK/523/i.stream" --timeout 5 \
   >/dev/null 2> "$WORK/523/i.err"
 claude_523i_rc=$?
@@ -1618,7 +1621,7 @@ pass '#523i: non-string .result fails; stream named; no coerced --out'
 set +e
 printf 'claude 523j\n' | STUB_CLAUDE_RESULT=stream_empty_result \
   "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/523/j-final.txt" \
+  --model claude-haiku-5-5 --out "$WORK/523/j-final.txt" \
   --stream-log "$WORK/523/j.stream" --timeout 5 \
   >/dev/null 2> "$WORK/523/j.err"
 claude_523j_rc=$?
@@ -1636,7 +1639,7 @@ set +e
 printf 'claude 523k\n' | STUB_CLAUDE_RESULT=stream_out_dir \
   STUB_LOCK_OUT="$WORK/523/k-final.txt" \
   "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/523/k-final.txt" \
+  --model claude-haiku-5-5 --out "$WORK/523/k-final.txt" \
   --stream-log "$WORK/523/k.stream" --timeout 5 \
   >/dev/null 2> "$WORK/523/k.err"
 claude_523k_rc=$?
@@ -1653,7 +1656,7 @@ pass '#523k: final --out write failure exits nonzero and names path'
 set +e
 printf 'claude 523l\n' | STUB_CLAUDE_RESULT=empty \
   "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/523/l-final.txt" \
+  --model claude-haiku-5-5 --out "$WORK/523/l-final.txt" \
   --stream-log "$WORK/523/l.stream" --timeout 5 \
   >/dev/null 2> "$WORK/523/l.err"
 claude_523l_rc=$?
@@ -1697,7 +1700,7 @@ rm -f "$WORK/empty-claude.txt" "$WORK/empty-codex.txt" "$WORK/empty-grok.txt"
 : > "$WORK/empty-codex.txt"
 : > "$WORK/empty-grok.txt"
 if printf x | STUB_CLAUDE_RESULT=empty "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/empty-claude.txt" --timeout 5 \
+  --model claude-haiku-5-5 --out "$WORK/empty-claude.txt" --timeout 5 \
   >/dev/null 2> "$WORK/empty-claude.err"; then
   fail 'Claude empty final-message must not exit 0'
 fi
@@ -1725,7 +1728,7 @@ rm -f "$WORK/missing-claude.txt" "$WORK/missing-codex.txt" "$WORK/missing-grok.t
 set +e
 printf x | STUB_CLAUDE_RESULT=missing STUB_UNLINK_OUT="$WORK/missing-claude.txt" \
   "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-  --model claude-haiku-4-5 --out "$WORK/missing-claude.txt" --timeout 5 \
+  --model claude-haiku-5-5 --out "$WORK/missing-claude.txt" --timeout 5 \
   >/dev/null 2> "$WORK/missing-claude.err"
 missing_claude_rc=$?
 set -e
@@ -1840,12 +1843,12 @@ assert_provider_failure_class() {
         stream_file="$WORK/520-claude-${stub_val}.stream"
         printf 'handle the rate limit, 429, 503\n' | env "$stub_env=$stub_val" \
           "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-          --model claude-haiku-4-5 --timeout 5 --stream-log "$stream_file" \
+          --model claude-haiku-5-5 --timeout 5 --stream-log "$stream_file" \
           >/dev/null 2> "$err_file"
       else
         printf 'handle the rate limit, 429, 503\n' | env "$stub_env=$stub_val" \
           "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" \
-          --model claude-haiku-4-5 --timeout 5 >/dev/null 2> "$err_file"
+          --model claude-haiku-5-5 --timeout 5 >/dev/null 2> "$err_file"
       fi
       rc=$?
       ;;
