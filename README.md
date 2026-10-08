@@ -119,7 +119,8 @@ Codex-specific behavior differences are tracked in `docs/codex-plugin-behavior.m
 the plugins already use, a headless `claude -p` session in a throwaway worktree
 updates superseded pins within the same family and tier and opens a
 `chore/model-refresh-*` PR. It never merges, and it skips runs while such a PR is
-open. Other days exit before any model call. Run it daily from cron:
+open. Other days exit before any model call. Create `~/.local/state/model-refresh/`
+once, then run it daily from cron:
 
 ```
 15 5 * * * bash /mnt/data/ai/claude-plugins/scripts/refresh-model-versions.sh >> "$HOME/.local/state/model-refresh/cron.log" 2>&1

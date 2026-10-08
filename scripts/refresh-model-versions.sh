@@ -64,7 +64,11 @@ truth for which models exist; do not use memory or the web.
 1. Find model IDs pinned in plugins/ (defaults, routing tables, runner scripts,
    agent and command frontmatter, README or doc lines stating a current default)
    where the catalog lists a newer version of the same family and tier, e.g.
-   glm-5.3 -> glm-5.4 or gpt-6-astra -> gpt-6.1-astra.
+   glm-5.3 -> glm-5.4 or gpt-6-astra -> gpt-6.1-astra. The new ID must be listed
+   for the CLI and provider prefix that runs the pin: a Codex pin needs the
+   codex section, opencode-go/glm-5.3 needs an opencode-go/ ID. A pin run by
+   the claude CLI may take a Claude ID listed under opencode/ only after
+   claude -p --model <new-id> 'Reply OK' exits 0.
 2. Never change family or tier (opus -> fable, flash -> pro, sol -> astra), local
    model names, Muse (it runs on the CLI default), changelog or history text, or
    test fixtures that use an old ID on purpose. Keep a pin whose nearby comment
