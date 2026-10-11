@@ -128,17 +128,6 @@
       "homepage": "https://github.com/paat/claude-plugins"
     },
     {
-      "name": "analyst-companion",
-      "description": "Real-time in-person meeting analyst — live transcription with speaker diarization via WhisperLiveKit, clarifying questions, voice commands with Chrome screen context, and Plane work items at meeting end",
-      "version": "0.3.3",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/analyst-companion",
-      "category": "productivity",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
       "name": "silent-failure-scanner",
       "description": "Deterministic diff-time detector for swallowed errors & ghost transactions — flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook that hands findings to Claude to arbitrate",
       "version": "0.2.10",
