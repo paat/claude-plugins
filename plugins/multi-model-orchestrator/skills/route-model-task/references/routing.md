@@ -14,7 +14,8 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | Claude Code | `claude-fable-5-1` | Current Fable: highest-capability, long-running or unusually hard coding and knowledge work | `low`–`max` |
 | Claude Code | `claude-fable-5` | Prior-generation Fable compatibility route | `low`–`max` |
 | Codex | `gpt-6-luna` | Fast mechanical edits, extraction, classification, narrow checks | `low`–`max` |
-| Codex | `gpt-6-sol` | Balanced everyday implementation and bounded investigation | `low`–`max` |
+| Codex | `gpt-6.1-sol` | Current Sol: balanced everyday implementation and bounded investigation | `low`–`max` |
+| Codex | `gpt-6-sol` | Prior-generation Sol compatibility route | `low`–`max` |
 | Codex | `gpt-6-astra` | Hard technical implementation, debugging, adversarial review, security | `low`–`max`; `ultra` only as below |
 | Codex | `gpt-5.6-luna`, `gpt-5.6-terra` | Prior-generation Codex compatibility routes | `low`–`max` |
 | Grok Build | `grok-4.7` | Default Grok route: fast bounded agentic implementation, independent reproduction, extra review lens | `low`, `medium`, `high`, `xhigh` |

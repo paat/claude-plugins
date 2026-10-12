@@ -27,7 +27,7 @@ Only the previous Claude generation (Opus 5, Fable 5) is kept for compatibility 
 | Provider | Models | Typical role |
 |---|---|---|
 | Claude Code | `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-1`; prior-generation `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
-| Codex | `gpt-6-luna`, `gpt-6-sol`, `gpt-6-astra`; prior-generation `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
+| Codex | `gpt-6-luna`, `gpt-6.1-sol`, `gpt-6-astra`; prior-generation `gpt-6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
 | Muse Code (`muse`) | `default` (passes no `--model`; the installed CLI selects its model); explicit pin `muse-wonder-1.0` | Bounded implementation, reproduction, research, and independent review; `muse-wonder-1.0` is the T3 coding pin |
 | Local Qwen | `qwen3.8-27b-local` | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or serving another model (needs the `subagent-local-qwen3.8-27b` plugin) |
@@ -49,7 +49,7 @@ Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in or
 | Tier | Task evidence | Workers, in order |
 |---|---|---|
 | T1 | Exact rename, fixture, file map, focused check | Local Qwen, Gemini 3.8 Flash low, GPT-6 Luna low |
-| T2 | Well-specified change with known tests | Sonnet 5.5, Grok 4.7, Muse (default model), Gemini 3.8 Flash high, GPT-6 Sol (all medium unless noted) |
+| T2 | Well-specified change with known tests | Sonnet 5.5, Grok 4.7, Muse (default model), Gemini 3.8 Flash high, GPT-6.1 Sol (all medium unless noted) |
 | T3 | Cross-module work, hard debugging, ambiguous design | GPT-6 Astra high, Opus 5.5 high, Muse `muse-wonder-1.0` high |
 | T4 | Security, payments, destructive migration, concurrency | GPT-6 Astra xhigh, Opus 5.5 xhigh |
 
@@ -127,8 +127,8 @@ sources:
     list: "curl -s -H \"X-API-Key: $PLANE_API_KEY\" $PLANE_URL/.../issues/ | jq -r '...'"
     close: "curl -s -X PATCH ..."
 models:
-  allow: [gpt-6-sol, grok-4.7]
-  worker: "gpt-6-sol high"
+  allow: [gpt-6.1-sol, grok-4.7]
+  worker: "gpt-6.1-sol high"
 ---
 ```
 
