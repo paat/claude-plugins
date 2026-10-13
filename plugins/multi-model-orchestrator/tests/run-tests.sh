@@ -2830,6 +2830,15 @@ rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_SERVED=muse-spark-1.3-contributo
 contains "$MU/err" 'not the requested muse-spark-1.3' 'run-muse names the model it was served'
 printf 'x\n' | "${muse_env[@]}" STUB_MUSE_SERVED=none bash "$MUSE_RUN" --mode implement --model muse-spark-1.3 --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" \
   || fail "a configured event without model_id is not a model mismatch: $(cat "$MU/err")"
+wonder_n="$(find "$MU/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
+printf 'x\n' | "${muse_env[@]}" STUB_MUSE_SERVED=muse-wonder-1.0 bash "$MUSE_RUN" --mode implement --model muse-wonder-1.0 --effort high --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" \
+  || fail "run-muse accepts an explicit muse-wonder-1.0 pin: $(cat "$MU/err")"
+exact_line "$MU/calls/call.${wonder_n}.args" '--model' 'muse-wonder-1.0 is passed to the Muse CLI'
+exact_line "$MU/calls/call.${wonder_n}.args" 'muse-wonder-1.0' 'muse-wonder-1.0 reaches the Muse CLI model argument'
+exact_line "$MU/calls/call.${wonder_n}.args" 'high' 'muse-wonder-1.0 pin keeps the requested high effort'
+rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_SERVED=muse-spark-1.3 bash "$MUSE_RUN" --mode implement --model muse-wonder-1.0 --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
+[ "$rc" -eq 7 ] || fail "a muse-wonder-1.0 pin served as another model exits 7 (got $rc)"
+contains "$MU/err" 'not the requested muse-wonder-1.0' 'run-muse names the wonder model it was not served'
 rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_RESPONSE='looks fine' bash "$MUSE_RUN" --mode review --repo "$MR" --base HEAD --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
 [ "$rc" -eq 6 ] || fail "a muse review without a verdict exits 6 (got $rc)"
 rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_FAIL='429 Too Many Requests' bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
@@ -2946,6 +2955,22 @@ done
 cp "$MU/bin/muse" "$PL/bin/muse"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow muse --mode review --usage /dev/null 2>/dev/null)" || true
 [ "$(printf '%s\n' "$out" | head -n1 | cut -f2-4 | tr '\t' ' ')" = "muse default medium" ] || fail "shipped T2 table routes Muse, including review: $out"
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --usage /dev/null 2>/dev/null)" || true
+[ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ' | tr '\n' '|')" = "codex gpt-6-astra high|claude claude-opus-5-5 high|muse muse-wonder-1.0 high|" ] \
+  || fail "shipped T3 table keeps Astra and Opus ahead of muse-wonder-1.0: $out"
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --allow muse-wonder-1.0 --usage /dev/null 2>/dev/null)" || true
+[ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ')" = "muse muse-wonder-1.0 high" ] || fail "allow muse-wonder-1.0 keeps only that T3 worker: $out"
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --deny muse-wonder-1.0 --usage /dev/null 2>/dev/null)" || true
+case "$out" in *muse-wonder-1.0*) fail "deny muse-wonder-1.0 still listed it: $out" ;; esac
+[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gpt-6-astra claude-opus-5-5 " ] || fail "deny muse-wonder-1.0 keeps the earlier T3 workers: $out"
+rm -rf "$PL/muse-calls"; mkdir -p "$PL/muse-calls"
+printf 'task\n' | "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" \
+  STUB_MUSE_CALLS="$PL/muse-calls" STUB_MUSE_SERVED=muse-wonder-1.0 \
+  bash "$POOL" run --tier T3 --allow muse-wonder-1.0 --usage /dev/null --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" \
+  || fail "pool run dispatches muse-wonder-1.0: $(cat "$PL/err")"
+exact_line "$PL/muse-calls/call.0.args" '--model' 'pool run passes --model for muse-wonder-1.0'
+exact_line "$PL/muse-calls/call.0.args" 'muse-wonder-1.0' 'pool run sends muse-wonder-1.0 to the Muse CLI'
+exact_line "$PL/muse-calls/call.0.args" 'high' 'pool run sends the T3 high effort'
 for bad in '--tier T5' '--tier T2 --mode advise' '--tier T2 --timeout 0' '--tier T2 --bogus'; do
   rc=0
   # shellcheck disable=SC2086
