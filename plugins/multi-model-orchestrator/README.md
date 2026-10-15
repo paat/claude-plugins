@@ -108,9 +108,12 @@ The orchestrator reads plan limits (percent used and reset time per 5-hour, week
 window) at start, resume and every item boundary: the desktop app's `get_usage` tool for Claude, or
 `scripts/usage.sh`, which reads Codex session logs, agy's local `/usage` command, and Claude
 `rate_limit_event`s (a run-claude stream log, or one tiny `--probe-claude` call). `pool.sh` skips
-a provider or model whose window is at 90% or more and resets after the next leg would finish; when no allowed route has headroom, or the host
+a provider or model whose window is at 90% or more and resets after the next leg would finish, and
+moves a provider whose weekly window is at most 60% used and resets within 24h to the front of
+each tier (use it or lose it; an explicit `--prefer` still goes first); when no allowed route has headroom, or the host
 itself passes 95%, the run stops at the item boundary with the reset time in the handoff. Grok
-exposes no limit data and is left to the exit-75 fallback.
+and Muse expose no limit data and are left to the exit-75 fallback unless the operator appends a
+line in `usage.sh`'s format (e.g. `grok 7d 40% resets 2026-10-16T09:00Z`) to the `--usage` file.
 
 When an item depends on out-of-repo facts, a research leg records tiered evidence in a tracked
 memo. Unknowns are researched before a judgment call is decided with the recommended default and recorded.
