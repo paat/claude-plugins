@@ -28,7 +28,7 @@ assert_exit_code "LPF1: project without .startup/ passes" "$lpf_ec" 0
 assert_output_contains "LPF2: successful preflight is explicit" "$lpf_out" 'lawyer preflight: ok'
 assert_equals "LPF3: readiness and authentication are both checked" \
   "$(wc -l < "$lpf_log" | tr -d ' ')" "2"
-assert_file_contains "LPF4: authenticated check sends the key header" "$lpf_script" 'X-API-Key:'
+assert_file_contains "LPF4: authenticated check sends the key header" "$PLUGIN_ROOT/scripts/lawyer-common.sh" 'X-API-Key:'
 
 : > "$lpf_log"
 lpf_ec=0
@@ -40,6 +40,20 @@ assert_output_contains "LPF6: authentication failure is actionable" "$lpf_out" \
   'datalake authentication failed (HTTP 401)'
 assert_output_not_contains "LPF7: authentication failure never echoes the key" "$lpf_out" \
   'revoked-test-key'
+
+for lpf_case in "unset 200 0 ok (no API key)" "unset 401 2 requires EST_DATALAKE_API_KEY" \
+  "set 401 2 datalake authentication failed (HTTP 401)"; do
+  read -r lpf_key lpf_code lpf_want lpf_msg <<< "$lpf_case"
+  : > "$lpf_log"
+  lpf_ec=0
+  if [ "$lpf_key" = set ]; then export EST_DATALAKE_API_KEY=revoked-test-key; else unset EST_DATALAKE_API_KEY; fi
+  lpf_out=$(cd "$lpf_project" && PATH="$lpf_bin:$PATH" DATALAKE_URL=https://datalake.example \
+    FAKE_AUTH_CODE=$lpf_code FAKE_CURL_LOG="$lpf_log" bash "$lpf_script" 2>&1) || lpf_ec=$?
+  unset EST_DATALAKE_API_KEY
+  assert_exit_code "LPF11: key $lpf_key + probe $lpf_code exits $lpf_want" "$lpf_ec" "$lpf_want"
+  assert_output_contains "LPF12: key $lpf_key + probe $lpf_code message" "$lpf_out" "$lpf_msg"
+  assert_output_not_contains "LPF13: key $lpf_key + probe $lpf_code never echoes the key" "$lpf_out" 'revoked-test-key'
+done
 
 mkdir -p "$lpf_project/.startup"
 printf '%s\n' '{"version":1}' > "$lpf_project/.startup/law-registry.json"

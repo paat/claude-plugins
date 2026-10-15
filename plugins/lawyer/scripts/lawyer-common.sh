@@ -11,6 +11,15 @@
 REGISTRY=".startup/law-registry.json"
 LAWS_DIR=".startup/laws"
 
+# curl for datalake requests: sends X-API-Key only when EST_DATALAKE_API_KEY is set.
+lawyer_dl_curl() {
+  if [ -n "${EST_DATALAKE_API_KEY:-}" ]; then
+    curl -H "X-API-Key: $EST_DATALAKE_API_KEY" "$@"
+  else
+    curl "$@"
+  fi
+}
+
 # Ensure the registry file exists (schema v2). Missing file is fine — created here.
 lawyer_registry_init() {
   mkdir -p "${REGISTRY%/*}"
@@ -73,7 +82,7 @@ SUP_TO_ASCII = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
 SUP = r"[⁰¹²³⁴-⁹]"
 t = sys.stdin.read()
 p = re.search(rf"§\s*(\d+)({SUP}*)", t)
-s = re.search(rf"l[oõ]ige\s*(\d+)({SUP}*)", t, re.IGNORECASE)
+s = re.search(rf"\bl(?:[oõ]ige|g\.?)\s*(\d+)({SUP}*)", t, re.IGNORECASE)
 k = re.search(rf"punkt\s*(\d+)({SUP}*)", t, re.IGNORECASE)
 def parts(m):
     if not m: return ("", "")
@@ -128,8 +137,7 @@ lawyer_fetch_citation() {
   local resp code
   CITE_BODY="" CITE_STATUS="" CITE_IN_FORCE=""
   CITE_LIFECYCLE=unknown CITE_FAILURE="transport failure"
-  resp=$(curl --max-time 30 -s -w '\n%{http_code}' \
-    -H "X-API-Key: $EST_DATALAKE_API_KEY" "$1") || return 0
+  resp=$(lawyer_dl_curl --max-time 30 -s -w '\n%{http_code}' "$1") || return 0
   code=$(printf '%s' "$resp" | tail -n1)
   CITE_BODY=$(printf '%s' "$resp" | sed '$d')
   CITE_FAILURE="HTTP $code"

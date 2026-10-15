@@ -36,7 +36,7 @@ else
   # Issued-at, not processed-at: events that arrive during the request stay in the next window.
   FEED_REQUESTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   curl_rc=0
-  resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" "$feed_url") || curl_rc=$?
+  resp=$(lawyer_dl_curl --max-time 30 -s -w '\n%{http_code}' "$feed_url") || curl_rc=$?
   body=$(printf '%s' "$resp" | sed '$d')
   code=$(printf '%s' "$resp" | tail -n1)
   case "$code" in

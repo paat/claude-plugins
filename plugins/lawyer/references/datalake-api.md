@@ -46,6 +46,8 @@ URL-encodes the superscript.
 
 ## EU
 
+Direct `eur-lex.europa.eu` page fetches can return HTTP 202 with an empty body (bot challenge); use the datalake `/eurlex` endpoints and treat such a response as unavailable, never as source text.
+
 - `GET /eurlex/search` — required `q`; optional `doc_type`, `in_force`, `limit`,
   `offset`
 - `GET /eurlex/{celex}` — metadata
