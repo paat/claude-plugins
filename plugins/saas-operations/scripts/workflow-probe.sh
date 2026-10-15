@@ -25,13 +25,18 @@ config="$ROOT/.claude/saas-operations.local.md"
 [ -f "$config" ] || config="$ROOT/.claude/saas-startup-team.local.md"
 marker_dir="$ROOT/.monitor"; custom_checks="$ROOT/.startup/monitor-checks.sh"
 state_file="$ROOT/.startup/monitor-state.json"
+# Same resolution as the monitor-nightly skill's cfg(): unquoted values lose a ` # comment`, then trim and unquote.
+monitor_value() {
+  printf '%s\n' "$block" | sed -nE "s/^[[:space:]]+$1:[[:space:]]*(.*)\$/\\1/p" | head -1 \
+    | sed -E '/["'"'"']/!s/[[:space:]]+#.*$//; s/^#.*$//; s/[[:space:]]+$//; s/^['"'"'"]//; s/['"'"'"]$//'
+}
 if [ -f "$config" ] && grep -q '^[[:space:]]*monitor:[[:space:]]*$' "$config"; then
   block="$(sed -n '/^[[:space:]]*monitor:[[:space:]]*$/,/^[^[:space:]#]/p' "$config")"
-  value="$(printf '%s\n' "$block" | sed -nE 's/^[[:space:]]+marker_dir:[[:space:]]*([^#[:space:]][^#]*)$/\1/p' | head -1 | sed -E 's/[[:space:]]+$//;s/^['"'"'"]//;s/['"'"'"]$//')"
+  value="$(monitor_value marker_dir)"
   if [ -n "$value" ]; then case "$value" in /*) marker_dir="$value" ;; *) marker_dir="$ROOT/${value#./}" ;; esac; fi
-  value="$(printf '%s\n' "$block" | sed -nE 's/^[[:space:]]+custom_checks:[[:space:]]*([^#[:space:]][^#]*)$/\1/p' | head -1 | sed -E 's/[[:space:]]+$//;s/^['"'"'"]//;s/['"'"'"]$//')"
+  value="$(monitor_value custom_checks)"
   if [ -n "$value" ]; then case "$value" in /*) custom_checks="$value" ;; *) custom_checks="$ROOT/${value#./}" ;; esac; fi
-  value="$(printf '%s\n' "$block" | sed -nE 's/^[[:space:]]+state_file:[[:space:]]*([^#[:space:]][^#]*)$/\1/p' | head -1 | sed -E 's/[[:space:]]+$//;s/^['"'"'"]//;s/['"'"'"]$//')"
+  value="$(monitor_value state_file)"
   if [ -n "$value" ]; then case "$value" in /*) state_file="$value" ;; *) state_file="$ROOT/${value#./}" ;; esac; fi
 fi
 probe_cache="${state_file}.probe-findings"

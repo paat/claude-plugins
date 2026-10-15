@@ -71,6 +71,25 @@ CHECK
   printf 'failure\n' > "$linked/.monitor/service-last-failure.txt"
   ec=0; out=$(cd "$linked" && bash "$script" monitor-nightly 2>&1) || ec=$?
   assert_exit_code 'WP11: linked checkout reads its own marker' "$ec" 0
+
+  # Inline YAML comments (and quotes) on values resolve like the skill's cfg().
+  mkdir -p "$work/cm-markers"
+  printf 'failure\n' > "$work/cm-markers/service-last-failure.txt"
+  cat > "$work/.claude/saas-operations.local.md" <<'CFG'
+monitor:
+  marker_dir: cm-markers   # commented marker dir
+  custom_checks: cm-checks.sh  # commented checks
+  state_file: cm/state.json # commented state
+CFG
+  ec=0; out=$(bash "$script" monitor-nightly --root "$work" 2>&1) || ec=$?
+  assert_exit_code 'WP12: commented marker_dir finds marker' "$ec" 0
+  rm "$work/cm-markers/service-last-failure.txt"
+  cp "$work/new-checks.sh" "$work/cm-checks.sh"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" '"'"'{"pattern_key":"cm:error","severity":"high","entity":null,"title":"F","body":"b"}'"'"'\n' > "$work/cm-checks.sh"
+  chmod +x "$work/cm-checks.sh"
+  ec=0; out=$(bash "$script" monitor-nightly --root "$work" 2>&1) || ec=$?
+  assert_exit_code 'WP13: commented custom_checks runs' "$ec" 0
+  assert_json_field 'WP13: cache beside commented state_file' "$work/cm/state.json.probe-findings" '.pattern_key' 'cm:error'
 }
 
 test_workflow_probe
