@@ -108,6 +108,10 @@ a#b@@a#b
 # note@@
 |@@
 .monitor@@.monitor
+"ssh h \\"x\\""@@ssh h \\"x\\"
+"ssh h \\"x\\"" # c@@ssh h \\"x\\"
+'it''s' # c@@it''s
+|   @@
 TBL
 
   # Quoted value followed by a comment still resolves the configured marker_dir.
