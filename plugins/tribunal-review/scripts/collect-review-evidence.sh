@@ -332,13 +332,15 @@ write_failed_provider() {
 
 fail_mutated_providers() {
   local expected_head="$1" dir="$2" provider name worktree_var worktree artifact actual_head dirty paths message changed_paths
-  # Worktree variables and mutation_errors belong to the active collect invocation.
+  local -x GIT_DIR GIT_COMMON_DIR="$SURFACE_COMMON" GIT_WORK_TREE
+  # Worktree variables, review_gitdirs and mutation_errors belong to the active collect invocation.
   for provider in $PROVIDERS; do
     artifact="$dir/providers/$provider.json"
     [ "$(provider_status "$artifact")" != disabled ] || continue
     [ -z "${mutation_errors[$provider]:-}" ] || continue
     case "$provider" in glm|deepseek) name=opencode ;; *) name="$provider" ;; esac
     worktree_var="${name}_worktree"; worktree="${!worktree_var}"
+    GIT_DIR="${review_gitdirs[$worktree]}"; GIT_WORK_TREE="$worktree"
     actual_head="$(git -C "$worktree" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" \
       || actual_head=unresolvable
     dirty="$(git -C "$worktree" status --porcelain --untracked-files=all 2>/dev/null)" \
@@ -451,7 +453,7 @@ collect() {
   local codex_worktree gemini_worktree opencode_worktree qwen_worktree grok_worktree muse_worktree claude_worktree review_worktree
   local min_ok_legs backup_legs backups backup limited idle
   local backup_glm backup_deepseek
-  local -A mutation_errors=()
+  local -A mutation_errors=() review_gitdirs=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --repo-root) [ "$#" -ge 2 ] || die "--repo-root needs a value"; root="$2"; shift 2 ;;
@@ -514,7 +516,10 @@ collect() {
   for name in codex gemini opencode qwen grok muse claude; do
     review_tmp="$(mktemp -d "${TMPDIR:-/tmp}/tribunal-$name.XXXXXX")"; rmdir "$review_tmp"
     git -C "$root" worktree add --detach --quiet "$review_tmp" "$head_oid"
+    review_tmp="$(real_dir "$review_tmp")"
     REVIEW_WORKTREES+=("$review_tmp")
+    # Pin the admin directory, including its worktree id, before any reviewer runs.
+    review_gitdirs["$review_tmp"]="$(real_dir "$(git -C "$review_tmp" rev-parse --absolute-git-dir)")"
     case "$name" in
       codex) codex_worktree="$review_tmp" ;;
       gemini) gemini_worktree="$review_tmp" ;;

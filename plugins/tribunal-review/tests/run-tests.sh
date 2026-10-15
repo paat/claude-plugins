@@ -4790,9 +4790,16 @@ cp "$common/config" "$evil/config"
 cat > "$FIXTURE_STATE/driver" <<'DRIVER'
 #!/usr/bin/env bash
 printf 'executed\n' >> "$FIXTURE_STATE/driver.executed"
+if [[ "${FIXTURE_MUTATION:-}" == worktree-* ]]; then
+  staging=("$FIXTURE_WORK"/.tribunal-collection.*)
+  evidence="${staging[0]}/providers/claude.json"
+  jq '.model = "forged"' "$evidence" > "$FIXTURE_STATE/forged.json"
+  cp "$FIXTURE_STATE/forged.json" "$evidence"
+fi
 cat
 DRIVER
 chmod +x "$FIXTURE_STATE/driver"
+git config --file "$evil/config" filter.evil.clean "$FIXTURE_STATE/driver"
 git config --file "$evil/config" filter.evil.smudge "$FIXTURE_STATE/driver"
 git config --file "$evil/config" filter.evil.required true
 printf '* filter=evil\n' > "$evil/info/attributes"
@@ -4802,8 +4809,14 @@ done
 for entry in "$common"/worktrees/*; do
   [ ! -d "$entry" ] || ln -sfn "$entry" "$evil/worktrees/${entry##*/}"
 done
-touch "$FIXTURE_STATE/git.watch"
-printf '%s\n' "$evil" > "$common/commondir"
+case "${2:-commondir}" in
+  worktree-commondir) printf '%s\n' "$evil" > "$(git rev-parse --absolute-git-dir)/commondir" ;;
+  worktree-gitfile)
+    admin="$(git rev-parse --absolute-git-dir)"
+    cp "$admin/HEAD" "$admin/index" "$evil/"
+    printf 'gitdir: %s\n' "$evil" > .git ;;
+  *) touch "$FIXTURE_STATE/git.watch"; printf '%s\n' "$evil" > "$common/commondir" ;;
+esac
 EOF
   cat > "$plugin/scripts/fixture-review.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -4816,12 +4829,16 @@ if [ "${FIXTURE_MUTATOR:-}" = "$1" ]; then
       printf 'scratch\n' > scratch.txt
       git add scratch.txt && git commit -q -m 'reviewer mutation' ;;
     orphan) git symbolic-ref HEAD refs/heads/scratch-unborn ;;
-    commondir)
+    commondir|worktree-commondir|worktree-gitfile)
       if [ "$1" = codex ]; then
         read -r ready < "$FIXTURE_STATE/claude.ready"
         rm "$FIXTURE_STATE/claude.ready"
       fi
-      bash "$FIXTURE_STATE/plant-commondir.sh" "$(git rev-parse --git-common-dir)" ;;
+      if [ "$FIXTURE_MUTATION" != commondir ]; then
+        printf 'bad\n' > app.txt
+        touch -t 200001010000 app.txt
+      fi
+      bash "$FIXTURE_STATE/plant-commondir.sh" "$(git rev-parse --git-common-dir)" "$FIXTURE_MUTATION" ;;
     fsmonitor|hooks|filter|filter-equals|filter-info|filter-info-equals|filter-attrfile|filter-global)
       printf 'scratch\n' > scratch.txt
       cat > "$FIXTURE_STATE/fsmonitor" <<'HOOK'
@@ -4907,7 +4924,7 @@ fi
 printf '%s\n' "{\"provider\":\"$1\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 if [ "$1" = claude ]; then
   case "${FIXTURE_MUTATION:-}" in
-    config-fifo|commondir) printf 'ready\n' > "$FIXTURE_STATE/claude.ready" ;;
+    config-fifo|commondir|worktree-commondir|worktree-gitfile) printf 'ready\n' > "$FIXTURE_STATE/claude.ready" ;;
   esac
 fi
 EOF
@@ -4979,7 +4996,9 @@ EOF
 staging="${@: -1}"; staging="${staging%/wrappers}"
 case "${staging##*/}" in
   .tribunal-collection.*)
-    jq -S . "$staging/wrappers/claude.raw" > "$FIXTURE_STATE/claude.expected.json"
+    if [ -f "$staging/wrappers/claude.raw" ]; then
+      jq -S . "$staging/wrappers/claude.raw" > "$FIXTURE_STATE/claude.expected.json"
+    fi
     if [ -f "$staging/providers/claude.json" ]; then
       cp "$staging/providers/claude.json" "$FIXTURE_STATE/claude.evidence.json"
     else
@@ -5187,6 +5206,26 @@ EOF
     rm -rf "$work/home"
     while IFS= read -r wt; do
       [ "$wt" = "$repo" ] || git -C "$repo" worktree remove -f -f "$wt"
+    done < <(git -C "$repo" worktree list --porcelain | sed -n 's/^worktree //p')
+  done
+  for scenario in worktree-commondir worktree-gitfile; do
+    rm -f "$state/driver.executed" "$state/claude.evidence.json" "$state/claude.expected.json"
+    mkfifo "$state/claude.ready"
+    ec=0
+    collect FIXTURE_CODEX_ERROR= FIXTURE_MUTATOR=codex FIXTURE_MUTATION="$scenario" TRIBUNAL_BACKUP_LEGS=off || ec=$?
+    worktree_redirect_reported() {
+      grep -Fq 'codex: provider mutated its review worktree' "$work/collect-$n.err" || return 1
+      if [ "$ec" -eq 0 ]; then
+        [ "$(status_of codex)" = failed ] && jqe '.error | contains("app.txt")' "$collection/providers/codex.json"
+      else
+        [ "$ec" -eq 128 ] && [ ! -e "$collection" ] && grep -Fq 'fatal: validation failed' "$work/collect-$n.err"
+      fi
+    }
+    tr_check "leg containment: $scenario never runs the redirected filter driver" test ! -e "$state/driver.executed"
+    tr_check "leg containment: $scenario preserves sibling evidence" cmp -s "$state/claude.evidence.json" "$state/claude.expected.json"
+    tr_check "leg containment: $scenario reports the mutated leg" worktree_redirect_reported
+    while IFS= read -r wt; do
+      [ "$wt" = "$repo" ] || { rm -rf -- "$wt"; git -C "$repo" worktree remove -f -f "$wt"; }
     done < <(git -C "$repo" worktree list --porcelain | sed -n 's/^worktree //p')
   done
   for scenario in commondir backup-commondir; do
