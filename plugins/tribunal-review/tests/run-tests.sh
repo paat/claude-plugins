@@ -2948,11 +2948,14 @@ EOF
   fi
 
   if FIXTURE_MUTATE_WORKTREE=on PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
-    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 --output "$work/mutated" >/dev/null 2>&1; then
-    echo -e "  ${RED}FAIL${NC} trusted evidence runner rejects provider worktree mutation"; FAIL=$((FAIL+1)); FAILURES+=("provider worktree mutation")
-    rm -rf "$work"; return
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 --output "$work/mutated" \
+      >/dev/null 2>"$work/mutated.err" \
+    && jq -e '.status == "disabled" and (has("error") | not)' "$work/mutated/providers/qwen.json" >/dev/null \
+    && ! grep -q 'tribunal evidence: qwen: provider mutated' "$work/mutated.err"; then
+    echo -e "  ${GREEN}PASS${NC} disabled provider stays disabled despite an unused worktree mutation"; PASS=$((PASS+1))
   else
-    echo -e "  ${GREEN}PASS${NC} trusted evidence runner rejects provider worktree mutation"; PASS=$((PASS+1))
+    echo -e "  ${RED}FAIL${NC} disabled provider stays disabled despite an unused worktree mutation"; FAIL=$((FAIL+1)); FAILURES+=("disabled provider worktree mutation")
+    rm -rf "$work"; return
   fi
 
   local killed_collection="$work/killed-collection" interrupted_ec=0
@@ -4769,7 +4772,7 @@ test_preflight_risk_and_backups() {
 }
 
 test_backup_leg_collection() {
-  local work repo fake plugin state base head n
+  local work repo fake plugin state base head n scenario ec expected mutator mode manifest_sha
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"; state="$work/state"
   mkdir -p "$repo" "$fake" "$state" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$PLUGIN_ROOT/scripts/lib.sh" \
@@ -4779,11 +4782,24 @@ test_backup_leg_collection() {
   cat > "$plugin/scripts/fixture-review.sh" <<'EOF'
 #!/usr/bin/env bash
 base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"; head="$(git rev-parse --verify 'HEAD^{commit}')"
+if [ "${FIXTURE_MUTATOR:-}" = "$1" ]; then
+  case "${FIXTURE_MUTATION:-dirty}" in
+    dirty) printf 'scratch\n' > scratch.txt ;;
+    commit)
+      printf 'scratch\n' > scratch.txt
+      git add scratch.txt && git commit -q -m 'reviewer mutation' ;;
+    many) for i in {01..25}; do printf 'scratch\n' > "scratch-$i.txt"; done ;;
+  esac
+fi
 printf '%s\n' "{\"provider\":\"$1\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 EOF
   cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
 #!/usr/bin/env bash
-jq -nc --arg e "${FIXTURE_CODEX_ERROR:?}" '{provider:"codex",error:$e}'
+if [ -n "${FIXTURE_CODEX_ERROR:-}" ]; then
+  jq -nc --arg e "$FIXTURE_CODEX_ERROR" '{provider:"codex",error:$e}'
+else
+  bash "$(dirname "$0")/fixture-review.sh" codex
+fi
 EOF
   cat > "$plugin/scripts/run-claude-review.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -4859,6 +4875,74 @@ EOF
   tr_check "an invalid backup list fails collection before any leg runs" test "$(runs)" -eq 0
   collect TRIBUNAL_RISK=T5 || true
   tr_check "an invalid TRIBUNAL_RISK fails collection before any leg runs" test "$(runs)" -eq 0
+  # Mutation fixtures print valid reviews bound to the original HEAD, even after committing.
+  for scenario in dirty commit clean opencode disabled backup backup-commit many; do
+    mutator=codex; mode="$scenario"; expected='{"codex":"failed","claude":"ok","glm":"ok","deepseek":"ok"}'
+    case "$scenario" in
+      clean) mutator=none; expected='{"codex":"ok","claude":"ok","glm":"ok","deepseek":"ok"}' ;;
+      opencode) mutator=glm; mode=dirty; expected='{"codex":"ok","claude":"ok","glm":"failed","deepseek":"failed"}' ;;
+      disabled) mutator=glm; mode=dirty; expected='{"codex":"ok","claude":"ok","glm":"failed","deepseek":"disabled"}' ;;
+      backup*) mutator=deepseek; mode=dirty; [ "$scenario" != backup-commit ] || mode=commit
+        expected='{"codex":"failed","claude":"ok","glm":"disabled","deepseek":"failed"}' ;;
+    esac
+    ec=0
+    case "$scenario" in
+      backup*) collect FIXTURE_MUTATOR="$mutator" FIXTURE_MUTATION="$mode" || ec=$? ;;
+      *) collect FIXTURE_CODEX_ERROR= FIXTURE_MUTATOR="$mutator" FIXTURE_MUTATION="$mode" \
+           TRIBUNAL_MIN_OK_LEGS="$([ "$scenario" = many ] && echo 4 || echo 1)" \
+           TRIBUNAL_BACKUP_LEGS=off TRIBUNAL_GLM=on TRIBUNAL_DEEPSEEK="$([ "$scenario" = disabled ] && echo off || echo on)" || ec=$? ;;
+    esac
+    mutation_case_ok() {
+      [ "$ec" -eq 0 ] || return 1
+      jq -e --argjson expected "$expected" '
+        ([.providers[] | {key:.provider,value:.status}] | from_entries) as $actual
+        | $actual == ({gemini:"disabled",qwen:"disabled",grok:"disabled",muse:"disabled"} + $expected)
+      ' "$collection/manifest.json" >/dev/null || return 1
+      manifest_sha="$(jq -r .manifest_sha256 "$work/collect-$n.json")"
+      fixture_finalize() {
+        env PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" \
+          "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$collection" \
+          --expected-manifest-sha256 "$manifest_sha" --arbitration "$1" \
+          > "$work/finalize.json" 2> "$work/finalize.err"
+      }
+      jq '{tribunal_verdict:{decision:"APPROVE",
+          confidence:(if any(.providers[]; .status == "failed") then 0.9 else 0.95 end),rationale:"Fixture review."},
+        findings:[],scope_findings:[],conflicts_resolved:[],summary:"Fixture review.",
+        provider_assessment:(.providers | map({key:.provider,value:{status:.status,
+          findings_accepted:0,findings_rejected:0,false_positives:[]}}) | from_entries)}' \
+        "$collection/manifest.json" > "$work/arbitration.json"
+      if [ "$scenario" = dirty ]; then
+        jq '.provider_assessment.codex.status="ok"' "$work/arbitration.json" > "$work/false-ok.json"
+        if fixture_finalize "$work/false-ok.json"; then return 1; fi
+      fi
+      if [ "$scenario" = many ]; then
+        if fixture_finalize "$work/arbitration.json"; then return 1; fi
+        jq '.tribunal_verdict.decision="NEEDS_WORK"' "$work/arbitration.json" > "$work/below-floor.json"
+        fixture_finalize "$work/below-floor.json" || return 1
+      else
+        fixture_finalize "$work/arbitration.json" || return 1
+      fi
+      if [ "$scenario" = clean ]; then
+        ! grep -q 'mutated its review worktree' "$work/collect-$n.err"
+        return
+      fi
+      jq -e '.error | contains("mutated its review worktree") and contains("scratch")' \
+        "$collection/providers/$mutator.json" >/dev/null || return 1
+      if [ "$mode" = commit ]; then
+        jq -e '.error | contains("HEAD moved")' "$collection/providers/$mutator.json" >/dev/null || return 1
+      fi
+      if [ "$scenario" = many ]; then
+        jq -e '.error | (split("\n") | length) <= 21' "$collection/providers/$mutator.json" >/dev/null || return 1
+      fi
+      [ "$(grep -c "tribunal evidence: $mutator: provider mutated its review worktree" "$work/collect-$n.err")" -eq 1 ] || return 1
+      if [ "$scenario" = opencode ]; then
+        cmp -s <(jq .error "$collection/providers/glm.json") <(jq .error "$collection/providers/deepseek.json") || return 1
+        [ "$(grep -c 'tribunal evidence: deepseek: provider mutated its review worktree' "$work/collect-$n.err")" -eq 1 ] || return 1
+      fi
+      ! grep -q 'tribunal evidence: gemini: provider mutated' "$work/collect-$n.err"
+    }
+    tr_check "review worktree mutation: $scenario preserves collection and provider statuses" mutation_case_ok
+  done
   chmod -R u+w "$work" 2>/dev/null || true
   rm -rf "$work"
 }
