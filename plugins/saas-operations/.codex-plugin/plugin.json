@@ -1,0 +1,35 @@
+{
+  "name": "saas-operations",
+  "version": "1.0.1",
+  "description": "Standalone SaaS operations: monitoring, incident investigation, session replay, support triage, and deduplicated issue filing",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "interface": {
+    "displayName": "SaaS Operations",
+    "shortDescription": "Standalone SaaS operations: monitoring, incident investigation, session replay, support triage, and deduplicated issue filing",
+    "longDescription": "Standalone SaaS operations: monitoring, incident investigation, session replay, support triage, and deduplicated issue filing",
+    "developerName": "Andre Paat",
+    "category": "Development",
+    "capabilities": [
+      "Skills",
+      "MCP Servers",
+      "Scripts"
+    ],
+    "defaultPrompt": "Use the saas-operations plugin for this task.",
+    "websiteURL": "https://github.com/paat/claude-plugins"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "saas",
+    "operations",
+    "monitoring",
+    "incident-investigation",
+    "session-replay",
+    "support-triage"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

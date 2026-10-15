@@ -25,13 +25,18 @@ class EntrypointsManifest(unittest.TestCase):
         self.assertEqual(payload["version"], 1)
         self.assertEqual(payload["plugin"], "saas-startup-team")
         entries = payload["entrypoints"]
-        # 22 commands; all generate Codex + command aliases (#391).
-        self.assertEqual(len(entries), 22)
+        # 17 delivery commands remain after operations extraction (#629).
+        self.assertEqual(len(entries), 17)
         generated = [e for e in entries if e.get("generate_alias") is True]
-        self.assertEqual(len(generated), 22)
+        self.assertEqual(len(generated), 17)
         self.assertTrue(all(e.get("canonical") for e in entries))
         self.assertNotIn("ads", {e["name"] for e in entries})
         for removed in (
+            "operate",
+            "monitor",
+            "investigate",
+            "replay-abandoned",
+            "monitor-nightly",
             "harvest",
             "session-insights",
             "lessons-deliver",

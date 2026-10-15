@@ -8,19 +8,15 @@ test_maintain_v3() {
   echo -e "\n${CYAN}Suite MV3: Build and shadow Maintain v3 (#388)${NC}"
   local script="$PLUGIN_ROOT/scripts/maintain-v3.sh"
   local skill="$PLUGIN_ROOT/skills/maintain/SKILL.md"
-  local operate="$PLUGIN_ROOT/skills/operate/SKILL.md"
   local contract="$PLUGIN_ROOT/references/workflows/maintain-policy.md"
   local fixtures="$PLUGIN_ROOT/tests/maintain-v3/fixtures"
   local dir out ec inv sel path repo state head merge
 
   assert_file_exists "MV3-1: maintain-v3.sh exists" "$script"
   assert_file_exists "MV3-2: maintain skill exists" "$skill"
-  assert_file_exists "MV3-3: operate skill exists" "$operate"
   assert_file_exists "MV3-4: maintain-v3 contract exists" "$contract"
   assert_file_contains "MV3-5: skill default shadow" "$skill" '--shadow'
   assert_file_contains "MV3-6: skill no claims" "$skill" 'No claims'
-  assert_file_contains "MV3-7: operate modes table" "$operate" 'investigate'
-  assert_file_contains "MV3-8: scheduling outside prompts" "$operate" 'outside'
   assert_file_contains "MV3-9: intentional diffs documented" "$contract" 'Intentional diff'
   assert_file_contains "MV3-10: worktree preferred" "$contract" 'git worktree'
 
@@ -244,22 +240,12 @@ test_maintain_v3() {
   # --- Commands thin to skills ---
   assert_file_contains "MV3-55: maintain command loads skill" \
     "$PLUGIN_ROOT/commands/maintain.md" 'skills/maintain'
-  assert_file_contains "MV3-56: operate command loads skill" \
-    "$PLUGIN_ROOT/commands/operate.md" 'skills/operate'
-  assert_file_contains "MV3-57: monitor routes to operate" \
-    "$PLUGIN_ROOT/commands/operate.md" 'skills/operate'
-  assert_file_contains "MV3-58: investigate routes to operate" \
-    "$PLUGIN_ROOT/commands/operate.md" 'skills/operate'
-  assert_file_contains "MV3-59: replay routes to operate" \
-    "$PLUGIN_ROOT/commands/operate.md" 'skills/operate'
   assert_file_contains "MV3-60: status prefers git facts" \
     "$PLUGIN_ROOT/skills/status/SKILL.md" 'gh pr list'
   assert_file_contains "MV3-61: status historical state only" \
     "$PLUGIN_ROOT/skills/status/SKILL.md" 'historical'
   assert_file_contains "MV3-62: maintain-wip allow linked" \
     "$PLUGIN_ROOT/scripts/maintain-wip.sh" 'allow-linked-worktrees'
-  assert_file_contains "MV3-62b: monitor-nightly scheduling outside" \
-    "$PLUGIN_ROOT/skills/monitor-nightly/SKILL.md" 'Scheduling lives outside'
 
   # #389: primary-only stack deleted; drain is the legacy path.
   assert_file_not_exists "MV3-63: maintain-delivery deleted" \

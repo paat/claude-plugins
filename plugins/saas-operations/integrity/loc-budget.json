@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "description": "Operations extraction from saas-startup-team (#629); baselines and ratchets measured at saas-operations 1.0.0 extraction.",
+  "plugin": "saas-operations",
+  "baseline_ref": "1.0.0",
+  "baseline_commit": "b623b2b05130d7dbb716fa9972f1571a0fc17433",
+  "release_target_version": "1.0.0",
+  "phase": "post-1.0",
+  "metrics": {
+    "scripts_sh_loc": {
+      "baseline": 947,
+      "release_target": 947,
+      "hard_ceiling": 947,
+      "current_ratchet": 947,
+      "unit": "loc"
+    },
+    "wrapper_skills_hand_maintained": {
+      "baseline": 0,
+      "release_target": 0,
+      "hard_ceiling": 0,
+      "current_ratchet": 0,
+      "unit": "count"
+    },
+    "wrapper_skills_hand_maintained_loc": {
+      "baseline": 0,
+      "release_target": 0,
+      "hard_ceiling": 0,
+      "current_ratchet": 0,
+      "unit": "loc"
+    },
+    "agents_md_loc": {
+      "baseline": 149,
+      "release_target": 149,
+      "hard_ceiling": 149,
+      "current_ratchet": 149,
+      "unit": "loc"
+    },
+    "runtime_prompt_surface_loc": {
+      "baseline": 632,
+      "release_target": 632,
+      "hard_ceiling": 632,
+      "current_ratchet": 632,
+      "unit": "loc"
+    },
+    "total_md_sh_excl_tests_docs": {
+      "baseline": 1651,
+      "release_target": 1651,
+      "hard_ceiling": 1651,
+      "current_ratchet": 1651,
+      "unit": "loc",
+      "baseline_clean_tree": 1651,
+      "baseline_note": "Clean git tree at the #629 saas-operations 1.0.0 extraction."
+    }
+  },
+  "exclusions": {
+    "total_md_sh_excl_tests_docs": {
+      "exclude_top_level_dirs": [
+        "tests",
+        "docs"
+      ],
+      "exclude_root_files": [
+        "CLAUDE.md",
+        "AGENTS.md"
+      ],
+      "extensions": [
+        ".md",
+        ".sh"
+      ],
+      "follow_symlinks": false,
+      "notes": "Only plugin-root tests/ and docs/ are excluded as directories. Nested trees (e.g. skills/*/tests) remain in the total so tests cannot hide runtime surface by relocation. Root CLAUDE.md/AGENTS.md are harness local files and are not plugin runtime surface."
+    }
+  },
+  "counting_rules": {
+    "line_count": "wc -l semantics: count newline bytes per regular file (no symlink follow)",
+    "scripts_sh_loc": "Sum LOC of all regular files matching scripts/**/*.sh",
+    "wrapper_skills_hand_maintained": "Count of directories skills/saas-operations-*-workflow whose SKILL.md lacks both the GENERATED-ALIAS: do not edit marker and the repo-sync marker: This generated skill is the Codex-native plugin surface for",
+    "wrapper_skills_hand_maintained_loc": "Sum LOC of SKILL.md in hand-maintained skills/saas-operations-*-workflow directories (neither GENERATED-ALIAS: do not edit nor the repo-sync marker: This generated skill is the Codex-native plugin surface for)",
+    "agents_md_loc": "Sum LOC of all regular files matching agents/**/*.md",
+    "runtime_prompt_surface_loc": "Sum LOC of all regular *.md under agents/, commands/, and skills/ (includes skill references and wrapper SKILL.md)",
+    "total_md_sh_excl_tests_docs": "Sum LOC of all regular *.md and *.sh under the plugin root, excluding only top-level tests/ and docs/, and root CLAUDE.md/AGENTS.md (harness local files)",
+    "wrapper_namespace": "Wrapper prefix follows plugin; repo-sync generated Codex workflows are generated aliases and still count toward runtime/total LOC."
+  },
+  "counting_rules_allow_change": {
+    "issue": 629,
+    "keys": [
+      "wrapper_skills_hand_maintained",
+      "wrapper_skills_hand_maintained_loc"
+    ],
+    "notes": "The #629 extraction uses the saas-operations wrapper namespace; hand-maintained metrics exclude GENERATED-ALIAS and repo-sync generated workflows."
+  },
+  "generated_files": {
+    "patterns": [
+      "**/generated/**",
+      "**/*.generated.md",
+      "**/*.generated.sh",
+      "**/gen/**"
+    ],
+    "policy": "counted",
+    "notes": "Generated prompt/script output under the plugin root is counted. Generation is not an escape hatch from budgets."
+  },
+  "extracted_packages": {
+    "policy": "declare_or_count",
+    "declared_siblings": [],
+    "notes": "Runtime code moved to sibling packages or out of the plugin path must be listed in declared_siblings with metric_id and loc; undeclared extractions fail the gate. Declared sibling LOC is added to the named metric before ratchet checks."
+  },
+  "enforcement": {
+    "pre_1_0": "Reject any metric above current_ratchet. Decreases are allowed. release_target is not yet required.",
+    "release_1_0_0": "With --release 1.0.0, every metric must be <= release_target.",
+    "post_1_0": "Reject any metric above current_ratchet even when hard_ceiling has headroom. hard_ceiling is an absolute cap; current_ratchet must never exceed hard_ceiling.",
+    "anti_weaken": "Relative to merge-base loc-budget.json: release_target, hard_ceiling, and current_ratchet must not increase; exclude_top_level_dirs must not grow; generated_files.policy must remain counted; extracted_packages.policy must not soften; counting_rules text for each metric_id must not change without an explicit allow."
+  }
+}

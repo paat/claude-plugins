@@ -64,11 +64,22 @@
     {
       "name": "saas-startup-team",
       "description": "Portable SaaS delivery: Plan → Build → Independent Review with bounded maintenance and deterministic legal/PII/spend/release gates",
-      "version": "1.3.0",
+      "version": "2.0.0",
       "author": {
         "name": "Andre Paat"
       },
       "source": "./plugins/saas-startup-team",
+      "category": "development",
+      "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "saas-operations",
+      "description": "Standalone SaaS operations: monitoring, incident investigation, session replay, support triage, and deduplicated issue filing",
+      "version": "1.0.1",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/saas-operations",
       "category": "development",
       "homepage": "https://github.com/paat/claude-plugins"
     },

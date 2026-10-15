@@ -1,0 +1,58 @@
+---
+# Optional per-project settings for the saas-operations plugin.
+# Copy to `.claude/saas-operations.local.md` in your product repo and edit.
+# All keys are optional; sensible defaults apply when omitted.
+
+# --- Nightly monitor (/monitor-nightly, scripts/monitor-dedup.sh) ---
+# All optional. Defaults shown. repro_recipe is single-line; {entity} is substituted.
+monitor:
+  repo: owner/name                          # default: resolved via `gh repo view`
+  labels: [monitor, customer-issue]         # base labels; the finding's severity is appended
+  marker_dir: .monitor
+  state_file: .startup/monitor-state.json
+  custom_checks: .startup/monitor-checks.sh
+  # repro_recipe: ssh <readonly-host> "session-tar {entity}"
+
+# --- Post-launch operate phase (/operate, /monitor, /investigate, /replay-abandoned) ---
+# All keys are optional until the matching command is used. Values below are placeholders;
+# replace them with project-specific values in your repo-local copy.
+operate:
+  api_base_url: https://api.example.invalid
+  auth_header: Authorization
+  auth_env_var: ADMIN_API_TOKEN
+  app_base_url: https://app.example.invalid
+  incidents:
+    repo: owner/name
+    labels: [bug, customer-issue]
+    issue_template_path: .github/ISSUE_TEMPLATE/bug.md
+  funnel:
+    abandoned_sessions_source: .startup/operate/abandoned-sessions.json
+    steps:
+      - name: signup
+        warning_abandonment_pct: 25
+        critical_abandonment_pct: 40
+      - name: checkout
+        warning_abandonment_pct: 20
+        critical_abandonment_pct: 35
+  support_api:
+    base_url: https://support-api.example.invalid
+    auth_header: X-Support-Key
+    auth_env_var: SUPPORT_API_KEY
+    feedback_path: /feedback?status=open
+    session_path_template: /sessions/{cid}
+    logs_path_template: /sessions/{cid}/logs
+    items_json_path: .items
+  log_sources:
+    - name: app-errors
+      command: ./scripts/export-recent-errors.sh
+    - name: app-health
+      path: .monitor/health-last-failure.txt
+  analytics_sources:
+    - name: funnel
+      command: ./scripts/export-funnel-metrics.sh
+---
+
+# saas-operations — project settings
+
+Configures nightly monitoring and post-launch operations. When this file is absent,
+the plugin reads `.claude/saas-startup-team.local.md` for migration compatibility.

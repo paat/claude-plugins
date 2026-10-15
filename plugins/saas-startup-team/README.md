@@ -19,7 +19,6 @@ Independent Review → Release, with bounded maintenance and domain gates.
 | `product-discovery` / `product-acceptance` | Requirements and independent go-live judgment |
 | `growth` | Lifecycle-gated acquisition within spend envelope |
 | `ux-review` | Independent usability/a11y; host browser when available |
-| `operate` | `/monitor`, `/investigate`, `/replay-abandoned` |
 | `maintain` | One bounded externally scheduled tick (maintain-v3) |
 | `epic` | `/epic <n>` — serial multi-issue epic train (one branch/PR; see below) |
 | `epic-compose` | `/epic-compose` — scan open issues → file one focused epic for `/epic` |
@@ -77,6 +76,10 @@ Stop/yield control on the normal path.
 
 Short maintain locks only (scheduler/issue/release).
 
+Workflow registry: `.startup/workflows/`. Delivery health checks use
+`scripts/health-preflight.sh`; demand discovery uses `scripts/market-scout.sh`;
+acceptance packs use `scripts/gate.sh acceptance` (`scripts/acceptance-packs.sh`).
+
 ## External scheduling
 
 Cadence lives outside the plugin. Examples:
@@ -84,10 +87,6 @@ Cadence lives outside the plugin. Examples:
 ```cron
 # Maintain one tick per scheduler interval
 0 */6 * * * cd <repo> && <assistant> "/maintain-loop --once"
-
-# Nightly monitor
-0 6 * * * cd <repo> && bash "$PLUGIN_ROOT/scripts/workflow-probe.sh" monitor-nightly \
-  && <assistant> "/monitor-nightly"
 ```
 
 ## Codex
@@ -98,9 +97,8 @@ Command workflows ship as plugin skills. Implementation is Codex-only on Codex h
 
 ## Browser / UX
 
-Unconditional pinned Playwright MCP loading is off. UX review uses host browser
-capability when available; missing tools → `tool-unavailable`, never PASS from empty
-sessions.
+UX review uses host browser capability when available; missing tools →
+`tool-unavailable`, never PASS from empty sessions.
 
 ## Prerequisites
 
@@ -111,15 +109,12 @@ sessions.
 - Optional: `google-ads-strategist` for Google Ads (always PAUSED at create)
 - Optional: `tribunal-review` for merge-path closing loops
 
+## Migration (2.0.0 major)
 
-### Operate phase
-
-Config `operate:` / `monitor:` in `.claude/saas-startup-team.local.md`. Modes via
-`skills/operate`. Nightly monitor uses `monitor-checks.sh` custom-checks and
-`repro_recipe`; filing via `scripts/monitor-dedup.sh` / `issue-file.sh` (PII via
-`gate.sh pii`). Workflow registry under `.startup/workflows/`. Health:
-`scripts/health-preflight.sh`. Demand: `scripts/market-scout.sh`. Packs:
-`scripts/gate.sh acceptance` (or `acceptance-packs.sh`).
+Post-launch operations move to the standalone `saas-operations` plugin. Install
+`saas-operations@paat-plugins`; see its [migration table](../saas-operations/README.md#migration-from-saas-startup-team-1x)
+for command/skill names, configuration, MCP allowlists, and cron paths. Delivery,
+maintenance, growth, and `/digest` remain here.
 
 ## Migration (1.0.0 major)
 

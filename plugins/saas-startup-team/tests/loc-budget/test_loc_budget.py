@@ -280,6 +280,25 @@ class FixtureExceedEachMetric(unittest.TestCase):
             self.assertEqual(measured["wrapper_skills_hand_maintained"], 1)
             self.assertGreater(measured["wrapper_skills_hand_maintained_loc"], 0)
 
+    def test_operations_wrappers_count_without_startup_team_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wrapper = root / "skills" / "saas-operations-monitor-workflow"
+            wrapper.mkdir(parents=True)
+            skill = wrapper / "SKILL.md"
+            budget = base_budget()
+            budget["plugin"] = "saas-operations"
+            skill.write_text("Hand-maintained workflow\n", encoding="utf-8")
+            measured = loc.measure(root, budget)
+            self.assertEqual(measured["wrapper_skills_hand_maintained"], 1)
+            skill.write_text(loc.CODEX_GENERATED_MARKER + " `/saas-operations:monitor`.\n", encoding="utf-8")
+            measured = loc.measure(root, budget)
+            self.assertEqual(measured["wrapper_skills_hand_maintained"], 0)
+            self.assertEqual(measured["runtime_prompt_surface_loc"], 1)
+            self.assertEqual(measured["total_md_sh_excl_tests_docs"], 1)
+            write_lines(wrapper / "notes.md", 3)
+            self.assertEqual(loc.measure(root, budget)["wrapper_skills_hand_maintained"], 1)
+
     def test_exceed_agents_md_loc(self) -> None:
         def setup(root: Path) -> None:
             write_lines(root / "agents" / "a.md", 4)

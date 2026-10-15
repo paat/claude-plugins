@@ -103,11 +103,6 @@ MD
   python3 "$val" --body-file "$work/one.md" --scan-file "$work/scan.json" >/dev/null 2>&1 || ec=$?
   assert_exit_code "EC23: single child fails" "$ec" 1
 
-  # monitor-nightly slimmed
-  assert_file_contains "EC30: monitor cron moved" \
-    "$PLUGIN_ROOT/skills/monitor-nightly/SKILL.md" 'monitor-nightly-cron.md'
-  assert_file_exists "EC31: cron doc" "$PLUGIN_ROOT/docs/legacy/monitor-nightly-cron.md"
-
   rm -rf "$work"
 }
 

@@ -33,9 +33,10 @@ METRIC_IDS = (
     "total_md_sh_excl_tests_docs",
 )
 
-WRAPPER_GLOB = "saas-startup-team-*-workflow"
+DEFAULT_PLUGIN = "saas-startup-team"
 # Generated thin aliases (issue #383) carry this marker and are not hand-maintained.
 GENERATED_ALIAS_MARKER = "GENERATED-ALIAS: do not edit"
+CODEX_GENERATED_MARKER = "This generated skill is the Codex-native plugin surface for"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -170,11 +171,11 @@ def is_regular_file(path: Path) -> bool:
         return False
 
 
-def is_hand_maintained_wrapper(wrapper_dir: Path) -> bool:
-    """True when a saas-startup-team-*-workflow dir is not a pure generated alias.
+def is_hand_maintained_wrapper(wrapper_dir: Path, *, codex_generated: bool = False) -> bool:
+    """True when a workflow directory is not a pure generated alias.
 
     A pure generated alias is exactly one regular file, SKILL.md, containing
-    GENERATED_ALIAS_MARKER. Baseline 0.90.11 wrappers had no marker. Extra
+    GENERATED_ALIAS_MARKER (or repo-sync marker for other plugins). Extra
     files beside a marked SKILL.md re-enter the hand-maintained count so the
     metric cannot be gamed by smuggling content under a generated dir.
     """
@@ -185,7 +186,7 @@ def is_hand_maintained_wrapper(wrapper_dir: Path) -> bool:
         text = skill.read_text(encoding="utf-8")
     except OSError:
         return True
-    if GENERATED_ALIAS_MARKER not in text:
+    if GENERATED_ALIAS_MARKER not in text and not (codex_generated and CODEX_GENERATED_MARKER in text):
         return True
     try:
         for path in wrapper_dir.rglob("*"):
@@ -219,12 +220,15 @@ def measure(plugin_root: Path, budget: dict[str, Any]) -> dict[str, int]:
         for p in (plugin_root / "scripts").rglob("*.sh")
         if is_regular_file(p)
     ]
+    # SST preserves its historical fat-wrapper baseline; other plugins use repo sync.
     wrappers = sorted(
         p
-        for p in (plugin_root / "skills").glob(WRAPPER_GLOB)
+        for p in (plugin_root / "skills").glob(f"{budget.get('plugin', DEFAULT_PLUGIN)}-*-workflow")
         if p.is_dir()
         and not p.is_symlink()
-        and is_hand_maintained_wrapper(p)
+        and is_hand_maintained_wrapper(
+            p, codex_generated=budget.get("plugin", DEFAULT_PLUGIN) != DEFAULT_PLUGIN
+        )
     )
     wrapper_skills = [
         p / "SKILL.md" for p in wrappers if is_regular_file(p / "SKILL.md")
@@ -405,13 +409,15 @@ def _metrics_for_plugin_rel(
     ) and inner.endswith(".md"):
         metrics.append("runtime_prompt_surface_loc")
     if (
-        "/saas-startup-team-" in inner
+        f"/{Path(rel_plugin).name}-" in inner
         and inner.endswith("-workflow/SKILL.md")
         and inner.startswith("skills/")
     ):
         # Generated aliases are not hand-maintained (issue #383).
         text = content.decode("utf-8", errors="replace") if content is not None else ""
-        if GENERATED_ALIAS_MARKER not in text:
+        if GENERATED_ALIAS_MARKER not in text and not (
+            Path(rel_plugin).name != DEFAULT_PLUGIN and CODEX_GENERATED_MARKER in text
+        ):
             metrics.append("wrapper_skills_hand_maintained_loc")
     return metrics
 

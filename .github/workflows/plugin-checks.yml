@@ -39,29 +39,38 @@ jobs:
       - name: Check legal-verdict-gate.sh copies match (saas-startup-team, lawyer)
         run: cmp plugins/saas-startup-team/scripts/legal-verdict-gate.sh plugins/lawyer/scripts/legal-verdict-gate.sh
 
-      - name: saas-startup-team LOC budget
+      - name: Check shared operations scripts match (saas-startup-team, saas-operations)
+        run: |
+          cmp plugins/saas-startup-team/scripts/pii-gate.sh plugins/saas-operations/scripts/pii-gate.sh
+          cmp plugins/saas-startup-team/scripts/issue-file.sh plugins/saas-operations/scripts/issue-file.sh
+
+      - name: saas-operations tests
+        run: bash plugins/saas-operations/tests/run-tests.sh
+
+      - name: Plugin LOC budgets
         run: |
           set -euo pipefail
-          PLUGIN=plugins/saas-startup-team
-          CHECKER=$PLUGIN/scripts/check_loc_budget.py
-          BUDGET=$PLUGIN/integrity/loc-budget.json
-          EXTRA=()
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags origin "${{ github.base_ref }}"
-            MERGE_BASE=$(git merge-base HEAD "origin/${{ github.base_ref }}")
-            EXTRA+=(--git-base "$MERGE_BASE" --repo-root .)
-            if git cat-file -e "$MERGE_BASE:$BUDGET" 2>/dev/null; then
-              tmp=$(mktemp)
-              git show "$MERGE_BASE:$BUDGET" > "$tmp"
-              EXTRA+=(--compare-base "$tmp")
-              python3 "$CHECKER" --plugin-root "$PLUGIN" --budget "$BUDGET" "${EXTRA[@]}"
-              rm -f "$tmp"
+          CHECKER=plugins/saas-startup-team/scripts/check_loc_budget.py
+          for PLUGIN in plugins/saas-startup-team plugins/saas-operations; do
+            BUDGET=$PLUGIN/integrity/loc-budget.json
+            EXTRA=()
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              git fetch --no-tags origin "${{ github.base_ref }}"
+              MERGE_BASE=$(git merge-base HEAD "origin/${{ github.base_ref }}")
+              EXTRA+=(--git-base "$MERGE_BASE" --repo-root .)
+              if git cat-file -e "$MERGE_BASE:$BUDGET" 2>/dev/null; then
+                tmp=$(mktemp)
+                git show "$MERGE_BASE:$BUDGET" > "$tmp"
+                EXTRA+=(--compare-base "$tmp")
+                python3 "$CHECKER" --plugin-root "$PLUGIN" --budget "$BUDGET" "${EXTRA[@]}"
+                rm -f "$tmp"
+              else
+                python3 "$CHECKER" --plugin-root "$PLUGIN" --budget "$BUDGET" "${EXTRA[@]}"
+              fi
             else
-              python3 "$CHECKER" --plugin-root "$PLUGIN" --budget "$BUDGET" "${EXTRA[@]}"
+              python3 "$CHECKER" --plugin-root "$PLUGIN" --budget "$BUDGET"
             fi
-          else
-            python3 "$CHECKER" --plugin-root "$PLUGIN" --budget "$BUDGET"
-          fi
+          done
 
       - name: saas-startup-team LOC budget tests
         run: python3 -m unittest discover -s plugins/saas-startup-team/tests/loc-budget -p 'test_*.py' -v
