@@ -41,7 +41,7 @@ on hedged `docs/legal/*.md` verdicts; the two copies must stay byte-identical
 
 - `bash` 4+, `curl`, `jq`, `python3`, `awk`, `sed`, `git`
 - `gh` (authenticated) — only for `/lawyer issue` and interactive backlog review
-- `EST_DATALAKE_API_KEY`; `DATALAKE_URL` (default `https://datalake.r-53.com`)
+- `DATALAKE_URL` (default `https://datalake.r-53.com`); `EST_DATALAKE_API_KEY` — required for the hosted default, optional for a datalake that accepts unauthenticated reads (e.g. an in-network `DATALAKE_URL`)
 
 ## Installation
 

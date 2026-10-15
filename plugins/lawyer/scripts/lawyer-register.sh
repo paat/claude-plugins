@@ -44,7 +44,7 @@ if [ -n "$existing" ] && [ "$existing" != "$SLUG" ]; then
 fi
 
 # Resolve act metadata (rt_id, title, type) via the cheap /graph endpoint.
-graph_resp=$(curl --max-time 30 -s -w '\n%{http_code}' -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+graph_resp=$(lawyer_dl_curl --max-time 30 -s -w '\n%{http_code}' \
   "$DATALAKE_URL/api/v1/laws/${ACT_ID}/graph")
 graph_code=$(printf '%s' "$graph_resp" | tail -n1)
 graph_body=$(printf '%s' "$graph_resp" | sed '$d')

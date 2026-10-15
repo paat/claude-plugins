@@ -43,7 +43,7 @@ while IFS= read -r slug; do
   change_id=$(jq -r --arg s "$slug" '.entries[$s].change.feed_event_id // empty' "$REGISTRY")
   impact="{}"
   if [ -n "$change_id" ]; then
-    impact=$(curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+    impact=$(lawyer_dl_curl --max-time 30 -s \
       "$DATALAKE_URL/api/v1/changes/${change_id}/impact" 2>/dev/null || echo "{}")
     echo "$impact" | jq empty 2>/dev/null || impact="{}"
   fi
