@@ -1,55 +1,55 @@
 {
   "version": 1,
-  "description": "Operations extraction from saas-startup-team (#629); historical baselines and policy inherited from #382, ratchets pinned at extraction.",
+  "description": "Operations extraction from saas-startup-team (#629); baselines and ratchets measured at saas-operations 1.0.0 extraction.",
   "plugin": "saas-operations",
-  "baseline_ref": "0.90.11",
-  "baseline_commit": "7e02df66642fe7621ffa44ed4deca82fd42538c9",
+  "baseline_ref": "1.0.0",
+  "baseline_commit": "b623b2b05130d7dbb716fa9972f1571a0fc17433",
   "release_target_version": "1.0.0",
   "phase": "post-1.0",
   "metrics": {
     "scripts_sh_loc": {
-      "baseline": 20461,
+      "baseline": 947,
       "release_target": 947,
       "hard_ceiling": 947,
       "current_ratchet": 947,
       "unit": "loc"
     },
     "wrapper_skills_hand_maintained": {
-      "baseline": 27,
+      "baseline": 0,
       "release_target": 0,
       "hard_ceiling": 0,
       "current_ratchet": 0,
       "unit": "count"
     },
     "wrapper_skills_hand_maintained_loc": {
-      "baseline": 1188,
+      "baseline": 0,
       "release_target": 0,
       "hard_ceiling": 0,
       "current_ratchet": 0,
       "unit": "loc"
     },
     "agents_md_loc": {
-      "baseline": 1532,
+      "baseline": 149,
       "release_target": 149,
       "hard_ceiling": 149,
       "current_ratchet": 149,
       "unit": "loc"
     },
     "runtime_prompt_surface_loc": {
-      "baseline": 10137,
+      "baseline": 632,
       "release_target": 632,
       "hard_ceiling": 632,
       "current_ratchet": 632,
       "unit": "loc"
     },
     "total_md_sh_excl_tests_docs": {
-      "baseline": 36612,
+      "baseline": 1651,
       "release_target": 1651,
       "hard_ceiling": 1651,
       "current_ratchet": 1651,
       "unit": "loc",
-      "baseline_clean_tree": 36599,
-      "baseline_note": "Epic #380 listed 36612; clean git tree at baseline_commit measures 36599 (epic figure included untracked root CLAUDE.md, 13 LOC). CI golden for 0.90.11 reproduction is baseline_clean_tree."
+      "baseline_clean_tree": 1651,
+      "baseline_note": "Clean git tree at the #629 saas-operations 1.0.0 extraction."
     }
   },
   "exclusions": {
@@ -73,20 +73,20 @@
   "counting_rules": {
     "line_count": "wc -l semantics: count newline bytes per regular file (no symlink follow)",
     "scripts_sh_loc": "Sum LOC of all regular files matching scripts/**/*.sh",
-    "wrapper_skills_hand_maintained": "Count of directories skills/saas-startup-team-*-workflow whose SKILL.md lacks the GENERATED-ALIAS marker",
-    "wrapper_skills_hand_maintained_loc": "Sum LOC of SKILL.md in hand-maintained wrapper directories (no GENERATED-ALIAS marker)",
+    "wrapper_skills_hand_maintained": "Count of directories skills/saas-operations-*-workflow whose SKILL.md lacks both the GENERATED-ALIAS: do not edit marker and the repo-sync marker: This generated skill is the Codex-native plugin surface for",
+    "wrapper_skills_hand_maintained_loc": "Sum LOC of SKILL.md in hand-maintained skills/saas-operations-*-workflow directories (neither GENERATED-ALIAS: do not edit nor the repo-sync marker: This generated skill is the Codex-native plugin surface for)",
     "agents_md_loc": "Sum LOC of all regular files matching agents/**/*.md",
     "runtime_prompt_surface_loc": "Sum LOC of all regular *.md under agents/, commands/, and skills/ (includes skill references and wrapper SKILL.md)",
     "total_md_sh_excl_tests_docs": "Sum LOC of all regular *.md and *.sh under the plugin root, excluding only top-level tests/ and docs/, and root CLAUDE.md/AGENTS.md (harness local files)",
     "wrapper_namespace": "Wrapper prefix follows plugin; repo-sync generated Codex workflows are generated aliases and still count toward runtime/total LOC."
   },
   "counting_rules_allow_change": {
-    "issue": 383,
+    "issue": 629,
     "keys": [
       "wrapper_skills_hand_maintained",
       "wrapper_skills_hand_maintained_loc"
     ],
-    "notes": "Issue #383 replaces fat wrappers with generated thin aliases; hand-maintained metrics exclude GENERATED-ALIAS files while baseline 0.90.11 unmarked wrappers remain countable."
+    "notes": "The #629 extraction uses the saas-operations wrapper namespace; hand-maintained metrics exclude GENERATED-ALIAS and repo-sync generated workflows."
   },
   "generated_files": {
     "patterns": [
