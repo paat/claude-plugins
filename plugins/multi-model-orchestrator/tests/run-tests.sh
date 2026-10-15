@@ -2940,6 +2940,30 @@ out="$(pick --tier T2 --allow gemini-3.8-flash --prefer agy 2>/dev/null)"
 [ "$(printf '%s\n' "$out" | cut -f2 | sort -u)" = agy ] || fail "allow by model keeps only that model: $out"
 out="$(pick --tier T2 --prefer agy 2>/dev/null)"
 [ "$(printf '%s\n' "$out" | cut -f2,4 | tr '\t\n' ': ')" = "agy:low agy:high claude:medium " ] || fail "prefer moves a provider first, keeping its table order: $out"
+# Use it or lose it: a 7d window <= 60% used that resets within 24h moves that provider first.
+half=$(( $(date +%s) + 43200 )); twodays=$(( $(date +%s) + 172800 ))
+printf 'codex 7d 40%% resets %s in 12h as-of x\nagy 7d 61%% resets %s\nclaude 7d 10%% resets %s\n' \
+  "$(utc_min "$half")" "$(utc_min "$half")" "$(utc_min "$twodays")" > "$PL/spare.txt"
+out="$(pick --tier T2 --usage "$PL/spare.txt" 2>"$PL/err")"
+[ "$(printf '%s\n' "$out" | grep '^T2' | cut -f2,4 | tr '\t\n' ': ')" = "codex:medium claude:medium agy:low agy:high " ] \
+  || fail "a spare 7d window resetting within 24h moves its provider first; >60% or >24h does not: $out"
+contains "$PL/err" 'use it or lose it: codex 7d 40% used' 'pick names the spare window'
+absent "$PL/err" 'lose it: agy' 'a 61% window is not spare'
+absent "$PL/err" 'lose it: claude' 'a window resetting after 24h is not spare'
+out="$(pick --tier T2 --usage "$PL/spare.txt" --prefer agy 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | grep '^T2' | cut -f2,4 | tr '\t\n' ': ')" = "agy:low agy:high codex:medium claude:medium " ] || fail "explicit --prefer stays ahead of a spare provider: $out"
+out="$(pick --tier T3 --usage "$PL/spare.txt" 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | cut -f1,2 | tr '\t\n' ': ')" = "T3:codex T3:claude " ] || fail "spare reorders T3 within the tier only: $out"
+printf 'claude 7d 30%% resets %s\n' "$(utc_min "$half")" > "$PL/spare.txt"
+out="$(pick --tier T3 --usage "$PL/spare.txt" 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | cut -f1,2 | tr '\t\n' ': ')" = "T3:claude T3:codex " ] || fail "a spare provider leads T3 without pulling in a weaker tier: $out"
+# Operator-written lines for providers usage.sh cannot read (Grok, Muse) parse like usage.sh's own.
+printf 'grok unknown (none)\ngrok 7d 30%% resets %s\n' "$(utc_min "$half")" > "$PL/manual.txt"
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --usage "$PL/manual.txt" 2>/dev/null)" || true
+[ "$(printf '%s\n' "$out" | head -n1 | cut -f2)" = grok ] || fail "an operator-written spare Grok line moves Grok first: $out"
+printf 'grok 7d 95%% resets %s\n' "$(utc_min "$far")" > "$PL/manual.txt"
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --usage "$PL/manual.txt" 2>"$PL/err")" || true
+contains "$PL/err" 'skip T2 grok/grok-4.7: plan window >= 90%' 'an operator-written tight Grok line skips Grok'
 out="$(pick --tier T2 --mode review 2>"$PL/err")"
 [ "$(printf '%s\n' "$out" | cut -f2 | tr '\n' ' ')" = "claude " ] || fail "review skips advisory engines: $out"
 contains "$PL/err" 'advisory reviewer' 'pick names the advisory skip'

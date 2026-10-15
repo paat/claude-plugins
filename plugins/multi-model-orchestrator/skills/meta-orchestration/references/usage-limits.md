@@ -18,7 +18,9 @@ exit 75. Not before every leg.
   reset passed since then reads 0%.
 - agy: `usage.sh` asks its local `/usage` command (free).
 - Grok, Muse, or any provider printing `unknown`: no constraint; exit 75 handling in
-  `leg-liveness.md` still applies.
+  `leg-liveness.md` still applies. When the operator knows a window (the provider's account
+  page), append it to the saved file in the same format, e.g. `grok 7d 40% resets
+  2026-10-16T09:00Z`; `pool.sh` reads it like `usage.sh`'s own lines (`in`/`as-of` optional).
 
 Save the `usage.sh` output to a file in the run directory and record one `Usage:` line in the
 handoff State (per provider: tightest window %, its reset UTC, as-of).
@@ -29,9 +31,13 @@ A window is **tight** at ≥ 90% used when it resets after the leg would finish 
 
 - Pass the saved file to every `pool.sh pick|run` as `--usage <file>`; the pool skips tight
   provider-wide windows and tight per-model windows (Claude `7d_opus` binds Opus only). A Claude
-  window seen only through `get_usage` goes in as `--deny claude` or `--deny <model>`. A fix-cycle
+  window seen only through `get_usage` goes into the saved file as a line in that format (e.g.
+  `claude 7d_opus 95% resets <UTC>`). A fix-cycle
   delta stays with the SAME reviewer; if that reviewer is tight, finish the cycle and let exit 75
   route the fallback.
+- A provider is **spare** when its weekly `7d` window is ≤ 60% used and resets within 24h (use it
+  or lose it): `pool.sh` moves its rows to the front of each tier, after any `--prefer` rows,
+  and prints `use it or lose it: ...` on stderr. It never changes which tiers are tried.
 - `pool.sh` exits 75 with no worker left for a role a queued item needs: park only the items
   needing that role, with the printed earliest reset as their unblock condition, and keep routing
   items that are still routable elsewhere. Stop the run only once no queued item is routable.
