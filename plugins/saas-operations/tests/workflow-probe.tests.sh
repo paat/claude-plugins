@@ -102,14 +102,17 @@ CFG
     assert_equals "WP14: skill resolves [$raw]" "$(cfg k)" "$want"
   done <<'TBL'
 ".monitor" # x@@.monitor
+".monitor" # dir for "x"@@.monitor
+"qm" # use "qm" dir@@qm
+'a' # 'b'@@a
 'a b' # it's@@a b
 x.sh # customer's checks@@x.sh
 a#b@@a#b
 # note@@
 |@@
 .monitor@@.monitor
-"ssh h \\"x\\""@@ssh h \\"x\\"
-"ssh h \\"x\\"" # c@@ssh h \\"x\\"
+"ssh h \"x\""@@ssh h \"x\"
+"ssh h \"x\"" # c@@ssh h \"x\"
 'it''s' # c@@it''s
 |   @@
 TBL

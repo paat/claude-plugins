@@ -28,7 +28,7 @@ state_file="$ROOT/.startup/monitor-state.json"
 # Same resolution as the monitor-nightly skill's cfg(): a quoted value is the text inside its quotes; otherwise a ` # comment` is stripped.
 monitor_value() {
   printf '%s\n' "$block" | sed -nE "s/^[[:space:]]+$1:[[:space:]]*(.*)\$/\\1/p" | head -1 \
-    | sed -E "s/^\"(.*)\"[[:space:]]*(#.*)?\$/\\1/; t; s/^'(.*)'[[:space:]]*(#.*)?\$/\\1/; t; s/[[:space:]]+\$//; s/[[:space:]]+#.*\$//; s/^#.*\$//; s/^[|>]\$//"
+    | sed -E "s/^\"(([^\"\\\\]|\\\\.)*)\"[[:space:]]*(#.*)?\$/\\1/; t; s/^'(([^']|'')*)'[[:space:]]*(#.*)?\$/\\1/; t; s/[[:space:]]+\$//; s/[[:space:]]+#.*\$//; s/^#.*\$//; s/^[|>]\$//"
 }
 if [ -f "$config" ] && grep -q '^[[:space:]]*monitor:[[:space:]]*$' "$config"; then
   block="$(sed -n '/^[[:space:]]*monitor:[[:space:]]*$/,/^[^[:space:]#]/p' "$config")"
