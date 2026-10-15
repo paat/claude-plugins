@@ -54,6 +54,15 @@ kill_leg() {
   done < <(ps -eo sid=,pgid= | awk -v sid="$pid" '$1 == sid && !seen[$2]++ { print $2 }')
 }
 
+reject_worktree_config() {
+  local enabled rc
+  enabled="$(git -C "$1" config --type=bool --get extensions.worktreeConfig)" || {
+    rc=$?
+    [ "$rc" -eq 1 ] || die "cannot read extensions.worktreeConfig"
+  }
+  [ "$enabled" != true ] || die "sealed collection does not support extensions.worktreeConfig (per-worktree config cannot be contained); disable it or run tribunal from a clone without it"
+}
+
 check_shared_config() {
   local changes
   [ -n "$CONFIG_SNAPSHOT" ] || return 0
@@ -420,6 +429,7 @@ collect() {
   tribunal_risk_tier >/dev/null || exit 1
   backup_legs="$(tribunal_backup_legs)" || exit 1
   root="$(real_dir "$root")"
+  reject_worktree_config "$root"
   [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || die "--repo-root is not a Git worktree root"
   case "$output" in /*) ;; *) die "--output must be absolute" ;; esac
   [ ! -e "$output" ] && [ ! -L "$output" ] || die "collection output already exists"
@@ -759,6 +769,7 @@ verify_collection_internal() {
   [ -f "$dir/review.diff" ] && [ ! -L "$dir/review.diff" ] || die "retained diff missing or symbolic"
   [ "$expected_sha" = "$(sha_file "$manifest")" ] || die "collection manifest digest mismatch"
   validate_manifest_shape "$manifest" || die "collection manifest schema invalid"
+  reject_worktree_config "$(jq -r .repository.root "$manifest")"
   if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
     [ -f "$dir/ignored-paths.json" ] && [ ! -L "$dir/ignored-paths.json" ] \
       || die "ignored-path artifact missing or symbolic"

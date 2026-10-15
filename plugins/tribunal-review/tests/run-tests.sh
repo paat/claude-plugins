@@ -4773,6 +4773,8 @@ test_preflight_risk_and_backups() {
 
 test_backup_leg_collection() {
   local work repo fake plugin state base head n scenario ec expected mutator mode manifest_sha
+  local wrapper command worktree_config_message
+  local -a verify_args
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"; state="$work/state"
   mkdir -p "$repo" "$fake" "$state" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$PLUGIN_ROOT/scripts/lib.sh" \
@@ -4902,6 +4904,10 @@ for p in glm deepseek; do
   else printf '%s\n' "{\"provider\":\"$p\",\"status\":\"disabled\",\"note\":\"fixture disabled\"}"; fi
 done
 EOF
+  for wrapper in "$plugin/scripts"/run-*-review.sh; do
+    sed '1a printf "started\\n" >> "${FIXTURE_STATE:?}/wrappers.started"' "$wrapper" > "$work/wrapper"
+    mv "$work/wrapper" "$wrapper"
+  done
   chmod +x "$plugin/scripts/"*.sh
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
   printf '#!/usr/bin/env bash\n[ "$1" = models ] && printf "%%s\\n" deepseek/deepseek-flash opencode-go/glm-5.3\n' > "$fake/opencode"
@@ -4963,6 +4969,20 @@ EOF
   }
   status_of() { jq -r --arg p "$1" '.providers[] | select(.provider == $p) | .status' "$collection/manifest.json"; }
   runs() { [ -f "$state/opencode.runs" ] && wc -l < "$state/opencode.runs" | tr -d ' ' || printf 0; }
+
+  worktree_config_message='sealed collection does not support extensions.worktreeConfig (per-worktree config cannot be contained); disable it or run tribunal from a clone without it'
+  worktree_config_rejected() {
+    [ "$ec" -eq 1 ] && grep -Fq "$worktree_config_message" "$1" || return 1
+    [ "$(git -C "$repo" worktree list --porcelain | grep -c '^worktree ')" -eq 1 ]
+  }
+  collect_worktree_config_rejected() {
+    worktree_config_rejected "$work/collect-$n.err" \
+      && [ ! -e "$state/wrappers.started" ] && [ ! -e "$collection" ]
+  }
+  git -C "$repo" config extensions.worktreeConfig true
+  ec=0; collect FIXTURE_CODEX_ERROR= TRIBUNAL_BACKUP_LEGS=off || ec=$?
+  tr_check "collect rejects extensions.worktreeConfig before any wrapper starts" collect_worktree_config_rejected
+  git -C "$repo" config extensions.worktreeConfig false
 
   collect
   tr_check "main and backup legs inherit disabled core dumps" \
@@ -5136,6 +5156,18 @@ EOF
     provider_assessment:(.providers | map({key:.provider,value:{status:.status,
       findings_accepted:0,findings_rejected:0,false_positives:[]}}) | from_entries)}' \
     "$collection/manifest.json" > "$work/arbitration.json"
+  git -C "$repo" config extensions.worktreeConfig true
+  for command in verify-collection finalize; do
+    verify_args=("$command")
+    [ "$command" != finalize ] || verify_args+=(--arbitration "$work/arbitration.json")
+    ec=0
+    env PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
+      "$plugin/scripts/collect-review-evidence.sh" "${verify_args[@]}" --collection "$collection" \
+      --expected-manifest-sha256 "$manifest_sha" \
+      > "$work/$command.json" 2> "$work/$command.err" || ec=$?
+    tr_check "$command rejects extensions.worktreeConfig" worktree_config_rejected "$work/$command.err"
+  done
+  git -C "$repo" config --unset extensions.worktreeConfig
   git -C "$repo" config core.hooksPath "$state/hooks"
   git -C "$repo" config core.fsmonitor "$state/fsmonitor"
   rm -f "$state/fsmonitor.executed"

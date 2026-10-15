@@ -61,6 +61,7 @@ are never merge authority. Failed provider artifacts retain the failure phase,
 exit code, byte counts, and truncation flags. Set `TRIBUNAL_DIAGNOSTIC_TAILS=on`
 only for local troubleshooting to add printable-ASCII 2 KiB stdout/stderr tails;
 tails are otherwise omitted by default because provider errors can contain credentials.
+Sealed collection does not support `extensions.worktreeConfig=true` (per-worktree config cannot be contained); disable it or run tribunal from a clone without it.
 For either OpenCode leg, exit 0 with no review JSON and non-whitespace stderr is a
 `phase=execution` failure. Known gates get a credential-free classified message;
 stderr tails remain opt-in through `TRIBUNAL_DIAGNOSTIC_TAILS=on`, limited to the
