@@ -4788,6 +4788,17 @@ if [ "${FIXTURE_MUTATOR:-}" = "$1" ]; then
     commit)
       printf 'scratch\n' > scratch.txt
       git add scratch.txt && git commit -q -m 'reviewer mutation' ;;
+    orphan) git symbolic-ref HEAD refs/heads/scratch-unborn ;;
+    fsmonitor)
+      printf 'scratch\n' > scratch.txt
+      cat > "$FIXTURE_STATE/fsmonitor" <<'HOOK'
+#!/usr/bin/env bash
+printf 'executed\n' > "$FIXTURE_STATE/fsmonitor.executed"
+rm -f scratch.txt
+printf 'token\0'
+HOOK
+      chmod +x "$FIXTURE_STATE/fsmonitor"
+      git config core.fsmonitor "$FIXTURE_STATE/fsmonitor" ;;
     many) for i in {01..25}; do printf 'scratch\n' > "scratch-$i.txt"; done ;;
   esac
 fi
@@ -4876,7 +4887,7 @@ EOF
   collect TRIBUNAL_RISK=T5 || true
   tr_check "an invalid TRIBUNAL_RISK fails collection before any leg runs" test "$(runs)" -eq 0
   # Mutation fixtures print valid reviews bound to the original HEAD, even after committing.
-  for scenario in dirty commit clean opencode disabled backup backup-commit many; do
+  for scenario in dirty commit clean opencode disabled backup backup-commit many orphan fsmonitor; do
     mutator=codex; mode="$scenario"; expected='{"codex":"failed","claude":"ok","glm":"ok","deepseek":"ok"}'
     case "$scenario" in
       clean) mutator=none; expected='{"codex":"ok","claude":"ok","glm":"ok","deepseek":"ok"}' ;;
@@ -4926,8 +4937,14 @@ EOF
         ! grep -q 'mutated its review worktree' "$work/collect-$n.err"
         return
       fi
-      jq -e '.error | contains("mutated its review worktree") and contains("scratch")' \
+      jq -e '.error | contains("mutated its review worktree") and (contains("scratch") or contains("unresolvable"))' \
         "$collection/providers/$mutator.json" >/dev/null || return 1
+      if [ "$scenario" = orphan ]; then
+        jq -e '.error | contains("unresolvable")' "$collection/providers/$mutator.json" >/dev/null || return 1
+      fi
+      if [ "$scenario" = fsmonitor ]; then
+        [ ! -e "$state/fsmonitor.executed" ] || return 1
+      fi
       if [ "$mode" = commit ]; then
         jq -e '.error | contains("HEAD moved")' "$collection/providers/$mutator.json" >/dev/null || return 1
       fi
@@ -4942,6 +4959,7 @@ EOF
       ! grep -q 'tribunal evidence: gemini: provider mutated' "$work/collect-$n.err"
     }
     tr_check "review worktree mutation: $scenario preserves collection and provider statuses" mutation_case_ok
+    git -C "$repo" config --unset core.fsmonitor || true
   done
   chmod -R u+w "$work" 2>/dev/null || true
   rm -rf "$work"

@@ -237,7 +237,7 @@ write_failed_provider() {
 }
 
 fail_mutated_providers() {
-  local expected_head="$1" dir="$2" provider name worktree_var worktree artifact actual_head dirty paths message
+  local expected_head="$1" dir="$2" provider name worktree_var worktree artifact actual_head dirty paths message changed_paths
   # Worktree variables and mutation_errors belong to the active collect invocation.
   for provider in $PROVIDERS; do
     artifact="$dir/providers/$provider.json"
@@ -245,14 +245,20 @@ fail_mutated_providers() {
     [ -z "${mutation_errors[$provider]:-}" ] || continue
     case "$provider" in glm|deepseek) name=opencode ;; *) name="$provider" ;; esac
     worktree_var="${name}_worktree"; worktree="${!worktree_var}"
-    actual_head="$(git -C "$worktree" rev-parse HEAD)"
-    dirty="$(git -C "$worktree" status --porcelain --untracked-files=all)"
+    actual_head="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$worktree" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" \
+      || actual_head=unresolvable
+    dirty="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$worktree" status --porcelain --untracked-files=all 2>/dev/null)" \
+      || dirty="git status failed"
     [ "$actual_head" != "$expected_head" ] || [ -n "$dirty" ] || continue
     message="provider mutated its review worktree"
     paths="$dirty"
     if [ "$actual_head" != "$expected_head" ]; then
       message="$message: HEAD moved from $expected_head to $actual_head"
-      paths="$paths"$'\n'"$(git -C "$worktree" diff --no-ext-diff --no-textconv --name-status "$expected_head" "$actual_head")"
+      if [ "$actual_head" != unresolvable ]; then
+        changed_paths="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$worktree" diff --no-ext-diff --no-textconv --name-status "$expected_head" "$actual_head" 2>/dev/null)" \
+          || changed_paths="git diff failed"
+        paths="$paths"$'\n'"$changed_paths"
+      fi
     fi
     paths="$(printf '%s\n' "$paths" | sed '/^$/d' | sed -n '1,20p')"
     [ -z "$paths" ] || message="$message: $paths"
@@ -495,7 +501,9 @@ collect() {
 
   rm -rf "$STAGING/wrappers"
   for review_worktree in "${REVIEW_WORKTREES[@]}"; do
-    git -C "$root" worktree remove --force "$review_worktree" >/dev/null
+    # A leg may delete its .git file; remove that disposable directory before deregistering it.
+    [ -e "$review_worktree/.git" ] || rm -rf -- "$review_worktree"
+    git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$root" worktree remove --force "$review_worktree" >/dev/null
   done
   REVIEW_WORKTREES=(); REVIEW_SOURCE=""
   jq -S -n --arg schema "$SCHEMA_COLLECTION" --arg started_at "$started" \
