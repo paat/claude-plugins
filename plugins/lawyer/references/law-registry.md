@@ -144,7 +144,7 @@ output (`docs/legal/`) are excluded at any depth.
 **Look up an act's integer `act_id` from its Estonian name** (required before `register`):
 
 ```bash
-curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+curl --max-time 30 -s -H "X-API-Key: ${EST_DATALAKE_API_KEY:-}" \
   "$DATALAKE_URL/api/v1/laws/search?q=isikuandmete+kaitse&limit=5" \
   | jq '.items[] | {id, rt_id, title}'
 ```
@@ -152,7 +152,7 @@ curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
 **Resolve `rt_id` + title from a known `act_id`** (used during `register`):
 
 ```bash
-curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+curl --max-time 30 -s -H "X-API-Key: ${EST_DATALAKE_API_KEY:-}" \
   "$DATALAKE_URL/api/v1/laws/${ACT_ID}/graph" \
   | jq '.act | {id, title, rt_id, act_type, status}'
 ```
@@ -160,7 +160,7 @@ curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
 **Fetch paragraph text for a registered act** (parsed parts, not compound string):
 
 ```bash
-curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+curl --max-time 30 -s -H "X-API-Key: ${EST_DATALAKE_API_KEY:-}" \
   "$DATALAKE_URL/api/v1/laws/${ACT_ID}/citation?paragraph=${PARAGRAPH}&section=${SECTION}&point=${POINT}"
 ```
 
@@ -190,7 +190,7 @@ curl --max-time 30 -s "$RT_PUBLIC_API/akt/${rt_id}/blob-html"
 **Poll changes feed since last check** (one call per run, no per-domain loop):
 
 ```bash
-curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+curl --max-time 30 -s -H "X-API-Key: ${EST_DATALAKE_API_KEY:-}" \
   "$DATALAKE_URL/api/v1/changes/feed?since=${SINCE}&limit=500"
 ```
 
@@ -201,7 +201,7 @@ Proven coverage is HTTP 2xx, a JSON object, `items` an array, `partial` not true
 **Augment the fix-plan with the datalake's impact analysis** (optional):
 
 ```bash
-curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+curl --max-time 30 -s -H "X-API-Key: ${EST_DATALAKE_API_KEY:-}" \
   "$DATALAKE_URL/api/v1/changes/${CHANGE_ID}/impact"
 ```
 

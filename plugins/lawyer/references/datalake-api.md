@@ -1,8 +1,9 @@
 # Datalake API reference
 
-Load this file only for endpoint work. Base: `$DATALAKE_URL/api/v1/`. All calls
-need `X-API-Key: $EST_DATALAKE_API_KEY` and `curl --max-time 30`. Never print or
-persist credentials.
+Load this file only for endpoint work. Base: `$DATALAKE_URL/api/v1/`. Send
+`X-API-Key` when `EST_DATALAKE_API_KEY` is set (required for the hosted default);
+a datalake accepting unauthenticated reads (e.g. in-network `DATALAKE_URL`) needs
+no key. Use `curl --max-time 30`. Never print or persist credentials.
 
 Routing (when/what/stop) lives in `datalake-routing.md`. This file owns paths,
 params, and force/coverage fields only.
@@ -31,14 +32,14 @@ Superscript qualifiers are load-bearing: `§ 14 lõige 1¹` is not lõige 1.
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/lawyer-common.sh"
 # KOV search — encode the exact municipality name
-curl --max-time 30 -s -G -H "X-API-Key: $EST_DATALAKE_API_KEY" \
+curl --max-time 30 -s -G -H "X-API-Key: ${EST_DATALAKE_API_KEY:-}" \
   --data-urlencode "q=reklaam" \
   --data-urlencode "status=valid" \
   --data-urlencode "municipality=Tallinn" \
   "$DATALAKE_URL/api/v1/laws/search"
 url=$(lawyer_cite_url <act_id> <paragraph> <paragraph_qualifier> \
   <section> <section_qualifier> <point> <point_qualifier>)
-curl --max-time 30 -s -H "X-API-Key: $EST_DATALAKE_API_KEY" "$url"
+curl --max-time 30 -s -H "X-API-Key: ${EST_DATALAKE_API_KEY:-}" "$url"
 ```
 
 Qualifier args use ordinary digits (`1` for `¹`); the helper reattaches and
