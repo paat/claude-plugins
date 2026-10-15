@@ -16,17 +16,9 @@ unset command_name
 
 # Also covers library helpers and traps; never exported to reviewer shells.
 git() {
-  local key
-  local -a prefix=() safe=(-c core.fsmonitor=false -c core.hooksPath=/dev/null)
-  while [ "${1:-}" = -C ] || [ "${1:-}" = -c ]; do
-    prefix+=("$1" "$2"); shift 2
-  done
-  # Status/checkout can execute attribute filters even with hooks disabled.
-  while IFS= read -r -d '' key; do
-    safe+=(-c "$key=" -c "${key%.*}.required=false")
-  done < <(command git ${prefix[@]+"${prefix[@]}"} "${safe[@]}" config --null --name-only \
-    --get-regexp '^filter\..*\.(clean|smudge|process)$')
-  GIT_NO_LAZY_FETCH=1 command git ${prefix[@]+"${prefix[@]}"} "${safe[@]}" "$@"
+  # Ignore worktree attributes, including drivers whose names contain '='.
+  GIT_NO_LAZY_FETCH=1 command git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 \
+    -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -64,10 +56,15 @@ kill_leg() {
 check_shared_config() {
   local changes
   [ -n "$CONFIG_SNAPSHOT" ] || return 0
-  cmp -s "$CONFIG_SNAPSHOT" "$CONFIG_FILE" && return 0
-  changes="$(diff -u -N --label "$CONFIG_FILE (before)" --label "$CONFIG_FILE (after)" \
-    "$CONFIG_SNAPSHOT" "$CONFIG_FILE" | sed -n '1,20p')" || true
-  cp -- "$CONFIG_SNAPSHOT" "$CONFIG_FILE" || { printf 'cannot restore shared git config: %s\n' "$CONFIG_FILE" >&2; return 1; }
+  if [ -f "$CONFIG_FILE" ] && [ ! -L "$CONFIG_FILE" ]; then
+    cmp -s "$CONFIG_SNAPSHOT" "$CONFIG_FILE" && return 0
+    changes="$(diff -u -N --label "$CONFIG_FILE (before)" --label "$CONFIG_FILE (after)" \
+      "$CONFIG_SNAPSHOT" "$CONFIG_FILE" | sed -n '1,20p')" || true
+  else
+    changes='config path is missing, symbolic, or not a regular file'
+  fi
+  { rm -rf -- "$CONFIG_FILE" && cp -- "$CONFIG_SNAPSHOT" "$CONFIG_FILE"; } \
+    || { printf 'cannot restore shared git config: %s\n' "$CONFIG_FILE" >&2; return 1; }
   printf 'tribunal evidence: shared git config changed: %s (restored)\n%s\n' "$CONFIG_FILE" "$changes" >&2
   return 1
 }
@@ -91,10 +88,14 @@ trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
 require_tools() {
-  local tool
+  local tool version
   for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp diff flock setsid ps; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
   done
+  version="$(command git --version)"
+  [[ "$version" =~ ^git\ version\ ([0-9]+)\.([0-9]+) ]] \
+    && (( BASH_REMATCH[1] > 2 || (BASH_REMATCH[1] == 2 && BASH_REMATCH[2] >= 40) )) \
+    || die "git 2.40+ is required for --attr-source (found: $version)"
 }
 
 real_dir() {
