@@ -4790,20 +4790,27 @@ if [ "${FIXTURE_MUTATOR:-}" = "$1" ]; then
       printf 'scratch\n' > scratch.txt
       git add scratch.txt && git commit -q -m 'reviewer mutation' ;;
     orphan) git symbolic-ref HEAD refs/heads/scratch-unborn ;;
-    fsmonitor|hooks|filter|filter-equals)
+    fsmonitor|hooks|filter|filter-equals|filter-info|filter-info-equals|filter-attrfile|filter-global)
       printf 'scratch\n' > scratch.txt
       cat > "$FIXTURE_STATE/fsmonitor" <<'HOOK'
 #!/usr/bin/env bash
 printf 'executed\n' > "$FIXTURE_STATE/fsmonitor.executed"
 rm -f scratch.txt
 case "$FIXTURE_MUTATION" in
-  filter|filter-equals)
+  filter*)
     staging=("$FIXTURE_WORK"/.tribunal-collection.*)
     evidence="${staging[0]}/providers/claude.json"
     jq '.model = "forged"' "$evidence" > "$FIXTURE_STATE/forged.json"
     cp "$FIXTURE_STATE/forged.json" "$evidence"
-    driver=fixture; [ "$FIXTURE_MUTATION" != filter-equals ] || driver='a=b'
-    git config --remove-section "filter.$driver" ;;
+    driver=fixture; case "$FIXTURE_MUTATION" in *equals) driver='a=b' ;; esac
+    if [ "$FIXTURE_MUTATION" = filter-global ]; then
+      git config --global --remove-section "filter.$driver"
+      rm -f "$HOME/.config/git/attributes"
+    else
+      git config --remove-section "filter.$driver"
+      git config --unset core.attributesFile || true
+      rm -f "$(git rev-parse --git-common-dir)/info/attributes"
+    fi ;;
 esac
 printf 'token\0'
 HOOK
@@ -4815,14 +4822,30 @@ HOOK
           cp "$FIXTURE_STATE/fsmonitor" "$FIXTURE_STATE/hooks/post-checkout"
           git config core.hooksPath "$FIXTURE_STATE/hooks"
           git worktree lock "$PWD" ;;
-        filter|filter-equals)
-          driver=fixture; [ "$FIXTURE_MUTATION" != filter-equals ] || driver='a=b'
-          printf 'app.txt filter=%s\n' "$driver" > .gitattributes
+        filter*)
+          driver=fixture; case "$FIXTURE_MUTATION" in *equals) driver='a=b' ;; esac
+          case "$FIXTURE_MUTATION" in
+            filter-info*) attributes="$(git rev-parse --git-common-dir)/info/attributes" ;;
+            filter-attrfile)
+              attributes="$FIXTURE_STATE/attributes"
+              git config core.attributesFile "$attributes" ;;
+            filter-global) attributes="$HOME/.config/git/attributes" ;;
+            *) attributes=.gitattributes ;;
+          esac
+          mkdir -p "$(dirname "$attributes")"
+          printf 'app.txt filter=%s\n' "$driver" > "$attributes"
           printf 'bad\n' > app.txt
           touch -t 200001010000 app.txt
-          git config "filter.$driver.clean" "$FIXTURE_STATE/fsmonitor"
-          git config "filter.$driver.required" true ;;
+          scope=--local; [ "$FIXTURE_MUTATION" != filter-global ] || scope=--global
+          git config "$scope" "filter.$driver.clean" "$FIXTURE_STATE/fsmonitor"
+          git config "$scope" "filter.$driver.required" true ;;
       esac ;;
+    config-fifo)
+      read -r ready < "$FIXTURE_STATE/claude.ready"
+      rm "$FIXTURE_STATE/claude.ready"
+      config="$(git rev-parse --git-common-dir)/config"
+      rm "$config"
+      mkfifo "$config" ;;
     config-symlink)
       config="$(git rev-parse --git-common-dir)/config"
       cp "$config" "$FIXTURE_STATE/config.target"
@@ -4850,6 +4873,9 @@ HOOK
   esac
 fi
 printf '%s\n' "{\"provider\":\"$1\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
+if [ "$1" = claude ] && [ "${FIXTURE_MUTATION:-}" = config-fifo ]; then
+  printf 'ready\n' > "$FIXTURE_STATE/claude.ready"
+fi
 EOF
   cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -4898,14 +4924,25 @@ EOF
 if [ "${FIXTURE_MUTATION:-}" = background ] && [ "$*" != "${*%.raw}" ]; then
   sleep 0.5
 fi
-# Retain normalized evidence across collector cleanup for containment assertions.
-case "${@: -1}" in
-  */.tribunal-collection.*/providers/claude.json)
-    cp "${@: -1}" "$FIXTURE_STATE/claude.evidence.json" ;;
-esac
 EOF
   printf 'exec %q "$@"\n' "$(command -v jq)" >> "$fake/jq"
   chmod +x "$fake/jq"
+  # Retain evidence even when config rejection precedes normalization.
+  cat > "$fake/rm" <<'EOF'
+#!/usr/bin/env bash
+staging="${@: -1}"; staging="${staging%/wrappers}"
+case "${staging##*/}" in
+  .tribunal-collection.*)
+    jq -S . "$staging/wrappers/claude.raw" > "$FIXTURE_STATE/claude.expected.json"
+    if [ -f "$staging/providers/claude.json" ]; then
+      cp "$staging/providers/claude.json" "$FIXTURE_STATE/claude.evidence.json"
+    else
+      cp "$FIXTURE_STATE/claude.expected.json" "$FIXTURE_STATE/claude.evidence.json"
+    fi ;;
+esac
+EOF
+  printf 'exec %q "$@"\n' "$(command -v rm)" >> "$fake/rm"
+  chmod +x "$fake/rm"
   (
     cd "$repo" && git init -q && git config user.email t@t && git config user.name t
     printf 'one\n' > app.txt && git add app.txt && git commit -q -m base
@@ -5029,22 +5066,35 @@ EOF
   git -C "$repo" commit -qm 'mutation-gate fixture'
   head="$(git -C "$repo" rev-parse HEAD)"
   cp "$repo/.git/config" "$state/config.before"
-  for scenario in fsmonitor hooks filter filter-equals config-symlink backup-hooks lock backup-lock background backup-background; do
+  for scenario in fsmonitor hooks filter filter-equals filter-info filter-info-equals filter-attrfile filter-global \
+    config-symlink config-fifo backup-hooks lock backup-lock background backup-background; do
     mode="${scenario#backup-}"; ec=0; mutator=codex
     rm -f "$state/fsmonitor.executed" "$state/background.executed" "$state/child.pid" "$state/claude.evidence.json"
+    # Finish sibling evidence before replacing config, so only the collector can block.
+    [ "$mode" != config-fifo ] || mkfifo "$state/claude.ready"
     case "$scenario" in
       backup-*) mutator=deepseek; collect FIXTURE_MUTATOR="$mutator" FIXTURE_MUTATION="$mode" || ec=$? ;;
+      filter-global)
+        mkdir -p "$work/home"
+        collect HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" FIXTURE_CODEX_ERROR= \
+          FIXTURE_MUTATOR="$mutator" FIXTURE_MUTATION="$mode" TRIBUNAL_BACKUP_LEGS=off || ec=$? ;;
       *) collect FIXTURE_CODEX_ERROR= FIXTURE_MUTATOR="$mutator" FIXTURE_MUTATION="$mode" TRIBUNAL_BACKUP_LEGS=off || ec=$? ;;
     esac
     containment_case_ok() {
       case "$mode" in
-        fsmonitor|hooks|filter|filter-equals)
+        fsmonitor|hooks|filter|filter-equals|filter-info|filter-info-equals|filter-attrfile)
           [ "$ec" -eq 1 ] && [ ! -e "$collection" ] || return 1
-          grep -q 'shared git config changed' "$work/collect-$n.err" || return 1
+          grep -q "shared git config changed: $repo/.git/config" "$work/collect-$n.err" || return 1
           case "$mode" in filter*) expected=clean ;; *) expected="$mode" ;; esac
           grep -q "^+.*$expected" "$work/collect-$n.err" || return 1
-          [ ! -e "$state/fsmonitor.executed" ] || return 1
-          jq -e '.model == "fixture" and .summary.verdict == "APPROVE"' "$state/claude.evidence.json" >/dev/null || return 1
+          cmp -s "$repo/.git/config" "$state/config.before" || return 1 ;;
+        filter-global)
+          [ "$ec" -eq 0 ] || return 1
+          cmp -s "$repo/.git/config" "$state/config.before" || return 1 ;;
+        config-fifo)
+          [ "$ec" -eq 1 ] && [ ! -e "$collection" ] || return 1
+          grep -q "shared git config changed: $repo/.git/config" "$work/collect-$n.err" || return 1
+          [ -f "$repo/.git/config" ] && [ ! -L "$repo/.git/config" ] || return 1
           cmp -s "$repo/.git/config" "$state/config.before" || return 1 ;;
         config-symlink)
           [ "$ec" -eq 1 ] && [ ! -e "$collection" ] || return 1
@@ -5064,12 +5114,17 @@ EOF
             case "$(ps -o stat= -p "$(cat "$state/child.pid")")" in ''|Z*) ;; *) return 1 ;; esac
           fi ;;
       esac
+      [ ! -e "$state/fsmonitor.executed" ] || return 1
+      jq -e '.model == "fixture" and .summary.verdict == "APPROVE"' "$state/claude.evidence.json" >/dev/null || return 1
+      cmp -s "$state/claude.evidence.json" "$state/claude.expected.json" || return 1
       [ "$(git -C "$repo" worktree list --porcelain | grep -c '^worktree ')" -eq 1 ]
     }
     tr_check "leg containment: $scenario" containment_case_ok
     # Restore baseline and remove locked worktrees even when exercising the unfixed runner.
     rm -f "$repo/.git/config"
     cp "$state/config.before" "$repo/.git/config"
+    rm -f "$repo/.git/info/attributes"
+    rm -rf "$work/home"
     while IFS= read -r wt; do
       [ "$wt" = "$repo" ] || git -C "$repo" worktree remove -f -f "$wt"
     done < <(git -C "$repo" worktree list --porcelain | sed -n 's/^worktree //p')

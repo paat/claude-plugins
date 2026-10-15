@@ -16,9 +16,10 @@ unset command_name
 
 # Also covers library helpers and traps; never exported to reviewer shells.
 git() {
-  # Ignore worktree attributes, including drivers whose names contain '='.
-  GIT_NO_LAZY_FETCH=1 command git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 \
-    -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
+  # Ignore external config and worktree attributes, including '=' driver names.
+  GIT_NO_LAZY_FETCH=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    command git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 \
+    -c core.attributesFile=/dev/null -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -329,6 +330,7 @@ wait_wrappers() {
     pid="${REVIEW_PIDS[$index]}"; name="${REVIEW_NAMES[$index]}"; rc=0
     wait "$pid" || rc=$?
     kill_leg "$pid"
+    check_shared_config || die "shared git config changed: $CONFIG_FILE; collection rejected"
     printf '%s\n' "$rc" > "$STAGING/wrappers/$name.exit"
     printf '%s\n' "$(now)" > "$STAGING/wrappers/$name.finished"
   done
@@ -543,8 +545,6 @@ collect() {
     esac
     fail_mutated_providers "$head_oid" "$STAGING"
   fi
-  check_shared_config || die "shared git config changed; collection rejected"
-
   providers_json="$STAGING/providers.jsonl"; : > "$providers_json"
   for provider in $PROVIDERS; do
     artifact="$STAGING/providers/$provider.json"
