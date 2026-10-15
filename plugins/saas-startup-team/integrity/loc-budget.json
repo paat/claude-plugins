@@ -11,7 +11,7 @@
       "baseline": 20461,
       "release_target": 9200,
       "hard_ceiling": 9500,
-      "current_ratchet": 9129,
+      "current_ratchet": 9058,
       "unit": "loc"
     },
     "wrapper_skills_hand_maintained": {
@@ -39,14 +39,14 @@
       "baseline": 10137,
       "release_target": 4500,
       "hard_ceiling": 5000,
-      "current_ratchet": 2137,
+      "current_ratchet": 2115,
       "unit": "loc"
     },
     "total_md_sh_excl_tests_docs": {
       "baseline": 36612,
       "release_target": 18000,
       "hard_ceiling": 20000,
-      "current_ratchet": 15664,
+      "current_ratchet": 15596,
       "unit": "loc",
       "baseline_clean_tree": 36599,
       "baseline_note": "Epic #380 listed 36612; clean git tree at baseline_commit measures 36599 (epic figure included untracked root CLAUDE.md, 13 LOC). CI golden for 0.90.11 reproduction is baseline_clean_tree."
@@ -103,9 +103,13 @@
       {"metric_id": "scripts_sh_loc", "loc": 758, "path": "plugins/lawyer"},
       {"metric_id": "agents_md_loc", "loc": 71, "path": "plugins/lawyer"},
       {"metric_id": "runtime_prompt_surface_loc", "loc": 227, "path": "plugins/lawyer"},
-      {"metric_id": "total_md_sh_excl_tests_docs", "loc": 2096, "path": "plugins/lawyer"}
+      {"metric_id": "total_md_sh_excl_tests_docs", "loc": 2096, "path": "plugins/lawyer"},
+      {"metric_id": "scripts_sh_loc", "loc": 346, "path": "plugins/saas-operations"},
+      {"metric_id": "agents_md_loc", "loc": 149, "path": "plugins/saas-operations"},
+      {"metric_id": "runtime_prompt_surface_loc", "loc": 547, "path": "plugins/saas-operations"},
+      {"metric_id": "total_md_sh_excl_tests_docs", "loc": 893, "path": "plugins/saas-operations"}
     ],
-    "notes": "Runtime code moved to sibling packages or out of the plugin path must be listed in declared_siblings with metric_id and loc; undeclared extractions fail the gate. Declared sibling LOC is added to the named metric before ratchet checks."
+    "notes": "Runtime code moved to sibling packages or out of the plugin path must be listed in declared_siblings with metric_id and loc; undeclared extractions fail the gate. Declared sibling LOC is added to the named metric before ratchet checks. Issue #629 declares original LOC for moved operations files and the extracted monitor-nightly probe arm; shared script copies remain counted locally."
   },
   "enforcement": {
     "pre_1_0": "Reject any metric above current_ratchet. Decreases are allowed. release_target is not yet required.",

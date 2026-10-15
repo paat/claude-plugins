@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.0 — 2026-10-15
+- Breaking (#629): post-launch operations move to standalone `saas-operations` 1.0.0:
+  `/operate`, `/monitor`, `/investigate`, `/replay-abandoned`, `/monitor-nightly`,
+  their Codex workflow skills, `issue-file`, the three operations agents, and Playwright MCP.
+  Install `saas-operations@paat-plugins`; update namespaced calls, MCP allowlists, and
+  the nightly `workflow-probe.sh` cron path. See its [migration table](../saas-operations/README.md#migration-from-saas-startup-team-1x).
+- Operations prefer `.claude/saas-operations.local.md`, falling back to the old config.
+  Delivery/regression settings and `/digest` stay here; local `issue-file.sh` and
+  `pii-gate.sh` copies remain for delivery issue reporting.
+
 ## 1.3.0 — 2026-10-04
 - Breaking: `/lawyer`, the `lawyer` skill/agent, law-registry scripts, and their
   references/tests move to the separate `lawyer` plugin. Install

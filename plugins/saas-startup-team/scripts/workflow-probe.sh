@@ -10,7 +10,7 @@ MODE="${1:-}"; [ "$#" -gt 0 ] && shift || true
 OUTPUT_MODE="$MODE"
 ROOT=""; REPO=""; ISSUE=""; LABEL=""; DATE=""; DRY_RUN=0
 usage() {
-  echo "usage: workflow-probe.sh {maintain|maintain-loop|monitor-nightly|digest} [--root DIR] [--repo OWNER/REPO] [--issue N] [--label LABEL] [--date YYYY-MM-DD]" >&2
+  echo "usage: workflow-probe.sh {maintain|maintain-loop|digest} [--root DIR] [--repo OWNER/REPO] [--issue N] [--label LABEL] [--date YYYY-MM-DD]" >&2
 }
 need_value() { [ "$#" -ge 2 ] || { usage; exit 2; }; }
 while [ "$#" -gt 0 ]; do
@@ -29,7 +29,7 @@ while [ "$#" -gt 0 ]; do
 done
 case "$MODE" in
   maintain-loop) MODE=maintain ;;
-  maintain|monitor-nightly|digest) : ;;
+  maintain|digest) : ;;
   *) usage; exit 2 ;;
 esac
 case "$ISSUE" in
@@ -145,50 +145,6 @@ case "$MODE" in
     [ -z "$stale_cleanup" ] || echo "workflow-probe: maintain stale maintain:blocked cleanup: $stale_cleanup"
     codex_cli_gate
     ready
-    ;;
-
-  monitor-nightly)
-    config="$ROOT/.claude/saas-startup-team.local.md"
-    marker_dir="$ROOT/.monitor"; custom_checks="$ROOT/.startup/monitor-checks.sh"
-    state_file="$ROOT/.startup/monitor-state.json"
-    if [ -f "$config" ] && grep -q '^[[:space:]]*monitor:[[:space:]]*$' "$config"; then
-      block="$(sed -n '/^[[:space:]]*monitor:[[:space:]]*$/,/^[^[:space:]#]/p' "$config")"
-      value="$(printf '%s\n' "$block" | sed -nE 's/^[[:space:]]+marker_dir:[[:space:]]*([^#[:space:]][^#]*)$/\1/p' | head -1 | sed -E 's/[[:space:]]+$//;s/^['"'"'"]//;s/['"'"'"]$//')"
-      if [ -n "$value" ]; then case "$value" in /*) marker_dir="$value" ;; *) marker_dir="$ROOT/${value#./}" ;; esac; fi
-      value="$(printf '%s\n' "$block" | sed -nE 's/^[[:space:]]+custom_checks:[[:space:]]*([^#[:space:]][^#]*)$/\1/p' | head -1 | sed -E 's/[[:space:]]+$//;s/^['"'"'"]//;s/['"'"'"]$//')"
-      if [ -n "$value" ]; then case "$value" in /*) custom_checks="$value" ;; *) custom_checks="$ROOT/${value#./}" ;; esac; fi
-      value="$(printf '%s\n' "$block" | sed -nE 's/^[[:space:]]+state_file:[[:space:]]*([^#[:space:]][^#]*)$/\1/p' | head -1 | sed -E 's/[[:space:]]+$//;s/^['"'"'"]//;s/['"'"'"]$//')"
-      if [ -n "$value" ]; then case "$value" in /*) state_file="$value" ;; *) state_file="$ROOT/${value#./}" ;; esac; fi
-    fi
-    probe_cache="${state_file}.probe-findings"
-    if [ -s "$probe_cache" ] && find "$probe_cache" -mmin -60 -print -quit | grep -q .; then ready; fi
-    rm -f "$probe_cache"
-    marker_found=0
-    if [ -d "$marker_dir" ] && find "$marker_dir" -maxdepth 1 -type f -name '*-last-failure.txt' -print -quit | grep -q .; then marker_found=1; fi
-    if [ -x "$custom_checks" ]; then
-      window="$("$SCRIPT_DIR/monitor-dedup.sh" window --state "$state_file")" || die "cannot resolve monitor window"
-      eval "$window"
-      export MONITOR_SINCE MONITOR_SINCE_MINUTES
-      set +e
-      custom_output="$(cd "$ROOT" && "$custom_checks")"; custom_ec=$?
-      set -e
-      if [ "$custom_ec" -ne 0 ] || [ -n "$(printf '%s' "$custom_output" | tr -d '[:space:]')" ]; then
-        mkdir -p "$(dirname "$probe_cache")"
-        probe_tmp="${probe_cache}.tmp.$$"
-        printf '%s\n' "$custom_output" > "$probe_tmp"
-        if [ "$custom_ec" -ne 0 ]; then
-          jq -nc --arg b "custom-checks exited $custom_ec" \
-            '{pattern_key:"ops:monitor-checks:failure",severity:"high",entity:null,title:"[Monitor] custom-checks script failed",body:$b}' >> "$probe_tmp"
-        fi
-        mv "$probe_tmp" "$probe_cache"
-        ready
-      fi
-      rm -f "$probe_cache"
-    else
-      rm -f "$probe_cache"
-    fi
-    [ "$marker_found" -eq 0 ] || ready
-    noop
     ;;
 
   digest)

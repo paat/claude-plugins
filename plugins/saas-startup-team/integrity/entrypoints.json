@@ -104,20 +104,6 @@
       "generate_command_alias": true
     },
     {
-      "name": "investigate",
-      "command_file": "commands/investigate.md",
-      "aliases": [
-        "/saas-startup-team:investigate",
-        "/investigate"
-      ],
-      "codex_skill": "saas-startup-team-investigate-workflow",
-      "generate_alias": true,
-      "transitional": true,
-      "canonical": "skills/operate/SKILL.md",
-      "description": "Operate investigate mode. Usage: /investigate {CID|--recent N}",
-      "generate_command_alias": true
-    },
-    {
       "name": "maintain-loop",
       "command_file": "commands/maintain-loop.md",
       "aliases": [
@@ -160,34 +146,6 @@
       "generate_command_alias": true
     },
     {
-      "name": "monitor-nightly",
-      "command_file": "commands/monitor-nightly.md",
-      "aliases": [
-        "/saas-startup-team:monitor-nightly",
-        "/monitor-nightly"
-      ],
-      "codex_skill": "saas-startup-team-monitor-nightly-workflow",
-      "generate_alias": true,
-      "transitional": true,
-      "canonical": "skills/monitor-nightly/SKILL.md",
-      "description": "Nightly monitor job body (host-scheduled). Usage: /monitor-nightly [--dry-run]",
-      "generate_command_alias": true
-    },
-    {
-      "name": "monitor",
-      "command_file": "commands/monitor.md",
-      "aliases": [
-        "/saas-startup-team:monitor",
-        "/monitor"
-      ],
-      "codex_skill": "saas-startup-team-monitor-workflow",
-      "generate_alias": true,
-      "transitional": true,
-      "canonical": "skills/operate/SKILL.md",
-      "description": "On-demand operations report. Usage: /monitor [--file-issues]",
-      "generate_command_alias": true
-    },
-    {
       "name": "nudge",
       "command_file": "commands/nudge.md",
       "aliases": [
@@ -202,20 +160,6 @@
       "generate_command_alias": true
     },
     {
-      "name": "operate",
-      "command_file": "commands/operate.md",
-      "aliases": [
-        "/saas-startup-team:operate",
-        "/operate"
-      ],
-      "codex_skill": "saas-startup-team-operate-workflow",
-      "generate_alias": true,
-      "transitional": true,
-      "canonical": "skills/operate/SKILL.md",
-      "description": "Post-launch operations entry. Usage: /operate [mode]",
-      "generate_command_alias": true
-    },
-    {
       "name": "pause",
       "command_file": "commands/pause.md",
       "aliases": [
@@ -227,20 +171,6 @@
       "transitional": true,
       "canonical": "skills/pause/SKILL.md",
       "description": "Record a human pause; scheduler owns backoff. Usage: /pause",
-      "generate_command_alias": true
-    },
-    {
-      "name": "replay-abandoned",
-      "command_file": "commands/replay-abandoned.md",
-      "aliases": [
-        "/saas-startup-team:replay-abandoned",
-        "/replay-abandoned"
-      ],
-      "codex_skill": "saas-startup-team-replay-abandoned-workflow",
-      "generate_alias": true,
-      "transitional": true,
-      "canonical": "skills/operate/SKILL.md",
-      "description": "Replay abandoned funnel sessions. Usage: /replay-abandoned",
       "generate_command_alias": true
     },
     {
