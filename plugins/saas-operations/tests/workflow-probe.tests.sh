@@ -73,6 +73,7 @@ CHECK
   assert_exit_code 'WP11: linked checkout reads its own marker' "$ec" 0
 
   # Inline YAML comments (and quotes) on values resolve like the skill's cfg().
+  rm -rf "$work/.monitor"
   mkdir -p "$work/cm-markers"
   printf 'failure\n' > "$work/cm-markers/service-last-failure.txt"
   cat > "$work/.claude/saas-operations.local.md" <<'CFG'

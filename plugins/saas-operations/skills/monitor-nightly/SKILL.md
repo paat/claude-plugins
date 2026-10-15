@@ -37,7 +37,7 @@ cfg() {
   #   always trim trailing whitespace and blank a bare block scalar (`|`/`>`).
   # sed2: remove a single pair of surrounding quotes. sed3: literal `\n` → real newline.
   printf '%s\n' "$mon_block" | grep -oP "^\s+$1:\s*\K.*" | head -1 \
-    | sed -E '/["'"'"']/!s/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^[|>]$//' \
+    | sed -E '/["'"'"']/!s/[[:space:]]+#.*$//; s/^#.*$//; s/[[:space:]]+$//; s/^[|>]$//' \
     | sed -E 's/^["'"'"']//; s/["'"'"']$//' \
     | sed -E 's/\\n/\n/g'
 }
