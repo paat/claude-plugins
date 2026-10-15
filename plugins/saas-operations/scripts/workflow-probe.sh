@@ -25,19 +25,19 @@ config="$ROOT/.claude/saas-operations.local.md"
 [ -f "$config" ] || config="$ROOT/.claude/saas-startup-team.local.md"
 marker_dir="$ROOT/.monitor"; custom_checks="$ROOT/.startup/monitor-checks.sh"
 state_file="$ROOT/.startup/monitor-state.json"
-# Same resolution as the monitor-nightly skill's cfg(): unquoted values lose a ` # comment`, then trim and unquote.
+# Same resolution as the monitor-nightly skill's cfg(): a quoted value is the text inside its quotes; otherwise a ` # comment` is stripped.
 monitor_value() {
   printf '%s\n' "$block" | sed -nE "s/^[[:space:]]+$1:[[:space:]]*(.*)\$/\\1/p" | head -1 \
-    | sed -E '/["'"'"']/!s/[[:space:]]+#.*$//; s/^#.*$//; s/[[:space:]]+$//; s/^['"'"'"]//; s/['"'"'"]$//'
+    | sed -E "s/^\"([^\"]*)\".*\$/\\1/; t; s/^'([^']*)'.*\$/\\1/; t; s/[[:space:]]+#.*\$//; s/^#.*\$//; s/^[|>]\$//; s/[[:space:]]+\$//"
 }
 if [ -f "$config" ] && grep -q '^[[:space:]]*monitor:[[:space:]]*$' "$config"; then
   block="$(sed -n '/^[[:space:]]*monitor:[[:space:]]*$/,/^[^[:space:]#]/p' "$config")"
-  value="$(monitor_value marker_dir)"
-  if [ -n "$value" ]; then case "$value" in /*) marker_dir="$value" ;; *) marker_dir="$ROOT/${value#./}" ;; esac; fi
-  value="$(monitor_value custom_checks)"
-  if [ -n "$value" ]; then case "$value" in /*) custom_checks="$value" ;; *) custom_checks="$ROOT/${value#./}" ;; esac; fi
-  value="$(monitor_value state_file)"
-  if [ -n "$value" ]; then case "$value" in /*) state_file="$value" ;; *) state_file="$ROOT/${value#./}" ;; esac; fi
+  for key in marker_dir custom_checks state_file; do
+    value="$(monitor_value "$key")"
+    [ -n "$value" ] || continue
+    case "$value" in /*) ;; *) value="$ROOT/${value#./}" ;; esac
+    printf -v "$key" '%s' "$value"
+  done
 fi
 probe_cache="${state_file}.probe-findings"
 if [ -s "$probe_cache" ] && find "$probe_cache" -mmin -60 -print -quit | grep -q .; then ready; fi
@@ -48,9 +48,7 @@ if [ -x "$custom_checks" ]; then
   window="$("$SCRIPT_DIR/monitor-dedup.sh" window --state "$state_file")" || die "cannot resolve monitor window"
   eval "$window"
   export MONITOR_SINCE MONITOR_SINCE_MINUTES
-  set +e
-  custom_output="$(cd "$ROOT" && "$custom_checks")"; custom_ec=$?
-  set -e
+  custom_output="$(cd "$ROOT" && "$custom_checks")" && custom_ec=0 || custom_ec=$?
   if [ "$custom_ec" -ne 0 ] || [ -n "$(printf '%s' "$custom_output" | tr -d '[:space:]')" ]; then
     mkdir -p "$(dirname "$probe_cache")"
     probe_tmp="${probe_cache}.tmp.$$"
@@ -62,9 +60,6 @@ if [ -x "$custom_checks" ]; then
     mv "$probe_tmp" "$probe_cache"
     ready
   fi
-  rm -f "$probe_cache"
-else
-  rm -f "$probe_cache"
 fi
 [ "$marker_found" -eq 0 ] || ready
 noop
