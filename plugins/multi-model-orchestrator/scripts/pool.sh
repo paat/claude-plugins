@@ -9,9 +9,10 @@
 # pool-tiers.tsv (or MMO_POOL_TIERS). This script only removes workers that cannot take the
 # task now: not allowed or denied (LIST = comma-separated providers or models), CLI not
 # installed, an advisory engine (local qwen, agy) on a review, or a plan window >= 90% used
-# that resets after the timeout. Usage comes from --usage (usage.sh output) or a fresh
-# usage.sh run. T1 and T2 workers are followed by the higher tiers' workers as fallbacks;
-# T3 and T4 never fall to a weaker tier.
+# that resets after the timeout. Within each tier, --prefer's rows go first, then the rows of
+# any provider whose 7d window is <= 60% used and resets within 24h (use it or lose it).
+# Usage comes from --usage (usage.sh output) or a fresh usage.sh run. T1 and T2 workers are
+# followed by the higher tiers' workers as fallbacks; T3 and T4 never fall to a weaker tier.
 #
 # pick prints "tier provider model effort" (TSV) per remaining worker, best first.
 # run feeds the prompt to each in turn; a runner exit of 75, 77, or 127 moves to the next
@@ -73,6 +74,7 @@ in_list() {  # in_list LIST provider model
 
 # Tight windows as "provider window reset_epoch". A window named <w>_<x> (Claude's 7d_opus)
 # binds only models containing <x>; any other window binds the whole provider.
+# Spare providers (" provider " each): a 7d window with headroom that is about to reset.
 now=$(date +%s)
 if [ -n "$usage_file" ]; then
   [ -r "$usage_file" ] || { printf 'pool: cannot read usage file %s\n' "$usage_file" >&2; exit 2; }
@@ -81,13 +83,18 @@ else
   usage_text="$("$SCRIPT_DIR/usage.sh" 2>/dev/null || true)"
 fi
 tight=""
+spare=""
 while read -r u_provider u_window u_used u_word u_reset _; do
   [ "$u_word" = resets ] || continue
   u_used="${u_used%\%}"
-  [[ "$u_used" =~ ^[0-9]+$ ]] && [ "$u_used" -ge 90 ] || continue
+  [[ "$u_used" =~ ^[0-9]+$ ]] || continue
   u_epoch="$(date -u -d "$u_reset" +%s 2>/dev/null)" || continue
-  [ "$u_epoch" -gt $((now + run_timeout)) ] || continue
-  tight+="$u_provider $u_window $u_epoch"$'\n'
+  if [ "$u_used" -ge 90 ] && [ "$u_epoch" -gt $((now + run_timeout)) ]; then
+    tight+="$u_provider $u_window $u_epoch"$'\n'
+  elif [ "$u_window" = 7d ] && [ "$u_used" -le 60 ] && [ "$u_epoch" -gt "$now" ] && [ "$u_epoch" -le $((now + 86400)) ]; then
+    spare+=" $u_provider "
+    printf 'pool: use it or lose it: %s 7d %s%% used, resets %s\n' "$u_provider" "$u_used" "$u_reset" >&2
+  fi
 done <<< "$usage_text"
 
 # Prints the earliest reset among the windows that bind this worker; fails when none does.
@@ -112,15 +119,18 @@ earliest=""
 for t in $chain; do
   rows=()
   preferred=()
+  spared=()
   while IFS=$'\t' read -r r_tier r_provider r_model r_effort; do
     [ "$r_tier" = "$t" ] || continue
     if [ -n "$prefer" ] && [ "$r_provider" = "$prefer" ]; then
       preferred+=("$r_tier"$'\t'"$r_provider"$'\t'"$r_model"$'\t'"$r_effort")
+    elif [[ "$spare" == *" $r_provider "* ]]; then
+      spared+=("$r_tier"$'\t'"$r_provider"$'\t'"$r_model"$'\t'"$r_effort")
     else
       rows+=("$r_tier"$'\t'"$r_provider"$'\t'"$r_model"$'\t'"$r_effort")
     fi
   done < <(grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$tiers_file")
-  rows=(${preferred[@]+"${preferred[@]}"} ${rows[@]+"${rows[@]}"})
+  rows=(${preferred[@]+"${preferred[@]}"} ${spared[@]+"${spared[@]}"} ${rows[@]+"${rows[@]}"})
   for row in ${rows[@]+"${rows[@]}"}; do
     IFS=$'\t' read -r r_tier r_provider r_model r_effort <<< "$row"
     why=""
