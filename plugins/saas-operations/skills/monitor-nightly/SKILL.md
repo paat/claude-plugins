@@ -33,12 +33,10 @@ mon_block=""; [ -f "$CONFIG" ] && mon_block="$(sed -n '/^[[:space:]]*monitor:[[:
 # (`|`/`>`) yields empty (block scalars are NOT supported), and a literal `\n` becomes a real
 # newline — so a multi-line value (e.g. repro_recipe) has a safe single-line spelling. (#87)
 cfg() {
-  # sed1 (on the raw value, quotes intact): for UNQUOTED values only, strip a ` # comment`;
-  #   always trim trailing whitespace and blank a bare block scalar (`|`/`>`).
-  # sed2: remove a single pair of surrounding quotes. sed3: literal `\n` → real newline.
+  # sed1 (raw value): a quoted value is the text inside its quotes (rest ignored); otherwise strip a
+  #   ` # comment`, trim trailing whitespace, blank a bare block scalar (`|`/`>`). sed2: literal `\n` → newline.
   printf '%s\n' "$mon_block" | grep -oP "^\s+$1:\s*\K.*" | head -1 \
-    | sed -E '/["'"'"']/!s/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^[|>]$//' \
-    | sed -E 's/^["'"'"']//; s/["'"'"']$//' \
+    | sed -E "s/^\"(([^\"\\\\]|\\\\.)*)\"[[:space:]]*(#.*)?\$/\\1/; t; s/^'(([^']|'')*)'[[:space:]]*(#.*)?\$/\\1/; t; s/[[:space:]]+\$//; s/[[:space:]]+#.*\$//; s/^#.*\$//; s/^[|>]\$//" \
     | sed -E 's/\\n/\n/g'
 }
 

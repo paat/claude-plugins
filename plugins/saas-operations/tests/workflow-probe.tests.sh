@@ -71,6 +71,58 @@ CHECK
   printf 'failure\n' > "$linked/.monitor/service-last-failure.txt"
   ec=0; out=$(cd "$linked" && bash "$script" monitor-nightly 2>&1) || ec=$?
   assert_exit_code 'WP11: linked checkout reads its own marker' "$ec" 0
+
+  # Inline YAML comments (and quotes) on values resolve like the skill's cfg().
+  rm -rf "$work/.monitor"
+  mkdir -p "$work/cm-markers"
+  printf 'failure\n' > "$work/cm-markers/service-last-failure.txt"
+  cat > "$work/.claude/saas-operations.local.md" <<'CFG'
+monitor:
+  marker_dir: cm-markers   # commented marker dir
+  custom_checks: cm-checks.sh  # commented checks
+  state_file: cm/state.json # commented state
+CFG
+  ec=0; out=$(bash "$script" monitor-nightly --root "$work" 2>&1) || ec=$?
+  assert_exit_code 'WP12: commented marker_dir finds marker' "$ec" 0
+  rm "$work/cm-markers/service-last-failure.txt"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" '"'"'{"pattern_key":"cm:error","severity":"high","entity":null,"title":"F","body":"b"}'"'"'\n' > "$work/cm-checks.sh"
+  chmod +x "$work/cm-checks.sh"
+  ec=0; out=$(bash "$script" monitor-nightly --root "$work" 2>&1) || ec=$?
+  assert_exit_code 'WP13: commented custom_checks runs' "$ec" 0
+  assert_json_field 'WP13: cache beside commented state_file' "$work/cm/state.json.probe-findings" '.pattern_key' 'cm:error'
+
+  # Parity: probe monitor_value and skill cfg() resolve every value form identically.
+  skill="$PLUGIN_ROOT/skills/monitor-nightly/SKILL.md"
+  eval "$(sed -n '/^monitor_value() {/,/^}/p' "$script")"
+  eval "$(sed -n '/^cfg() {/,/^}/p' "$skill")"
+  while IFS= read -r line; do
+    raw="${line%@@*}"; want="${line##*@@}"
+    block="  k: $raw"; mon_block="$block"
+    assert_equals "WP14: probe resolves [$raw]" "$(monitor_value k)" "$want"
+    assert_equals "WP14: skill resolves [$raw]" "$(cfg k)" "$want"
+  done <<'TBL'
+".monitor" # x@@.monitor
+".monitor" # dir for "x"@@.monitor
+"qm" # use "qm" dir@@qm
+'a' # 'b'@@a
+'a b' # it's@@a b
+x.sh # customer's checks@@x.sh
+a#b@@a#b
+# note@@
+|@@
+.monitor@@.monitor
+"ssh h \"x\""@@ssh h \"x\"
+"ssh h \"x\"" # c@@ssh h \"x\"
+'it''s' # c@@it''s
+|   @@
+TBL
+
+  # Quoted value followed by a comment still resolves the configured marker_dir.
+  rm -rf "$work/cm-markers"; mkdir -p "$work/qm"
+  printf 'failure\n' > "$work/qm/service-last-failure.txt"
+  printf 'monitor:\n  marker_dir: "qm" # quoted\n' > "$work/.claude/saas-operations.local.md"
+  ec=0; out=$(bash "$script" monitor-nightly --root "$work" 2>&1) || ec=$?
+  assert_exit_code 'WP15: quoted+comment marker_dir finds marker' "$ec" 0
 }
 
 test_workflow_probe

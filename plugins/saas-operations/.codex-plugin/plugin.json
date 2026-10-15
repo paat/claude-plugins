@@ -1,6 +1,6 @@
 {
   "name": "saas-operations",
-  "version": "1.0.1",
+  "version": "1.0.5",
   "description": "Standalone SaaS operations: monitoring, incident investigation, session replay, support triage, and deduplicated issue filing",
   "author": {
     "name": "Andre Paat"
