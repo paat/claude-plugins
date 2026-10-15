@@ -9,10 +9,25 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CONFIG_PARAMETERS \
   GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_SSH_COMMAND
 
-for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp codex agy opencode qwen grok muse claude; do
+for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp diff setsid ps kill codex agy opencode qwen grok muse claude; do
   unset -f "$command_name" 2>/dev/null || true
 done
 unset command_name
+
+# Also covers library helpers and traps; never exported to reviewer shells.
+git() {
+  local key
+  local -a prefix=() safe=(-c core.fsmonitor=false -c core.hooksPath=/dev/null)
+  while [ "${1:-}" = -C ] || [ "${1:-}" = -c ]; do
+    prefix+=("$1" "$2"); shift 2
+  done
+  # Status/checkout can execute attribute filters even with hooks disabled.
+  while IFS= read -r -d '' key; do
+    safe+=(-c "$key=" -c "${key%.*}.required=false")
+  done < <(command git ${prefix[@]+"${prefix[@]}"} "${safe[@]}" config --null --name-only \
+    --get-regexp '^filter\..*\.(clean|smudge|process)$')
+  GIT_NO_LAZY_FETCH=1 command git ${prefix[@]+"${prefix[@]}"} "${safe[@]}" "$@"
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
@@ -24,6 +39,10 @@ PROVIDERS="codex gemini glm deepseek qwen grok muse claude"
 STAGING=""
 REVIEW_SOURCE=""
 REVIEW_WORKTREES=()
+REVIEW_PIDS=()
+REVIEW_NAMES=()
+CONFIG_FILE=""
+CONFIG_SNAPSHOT=""
 FINAL_TMP1=""
 FINAL_TMP2=""
 
@@ -32,22 +51,48 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 sha_file() { sha256sum -- "$1" | awk '{print $1}'; }
 bytes_file() { wc -c < "$1" | tr -d ' '; }
 
+kill_leg() {
+  local pid="$1" group
+  # timeout may create nested groups. Kill every group in the wrapper's session;
+  # SIGKILL has no handler/grace period and we never wait for orphan descendants.
+  kill -KILL "$pid" 2>/dev/null || true
+  while read -r group; do
+    kill -KILL -- "-$group" 2>/dev/null || true
+  done < <(ps -eo sid=,pgid= | awk -v sid="$pid" '$1 == sid && !seen[$2]++ { print $2 }')
+}
+
+check_shared_config() {
+  local changes
+  [ -n "$CONFIG_SNAPSHOT" ] || return 0
+  cmp -s "$CONFIG_SNAPSHOT" "$CONFIG_FILE" && return 0
+  changes="$(diff -u -N --label "$CONFIG_FILE (before)" --label "$CONFIG_FILE (after)" \
+    "$CONFIG_SNAPSHOT" "$CONFIG_FILE" | sed -n '1,20p')" || true
+  cp -- "$CONFIG_SNAPSHOT" "$CONFIG_FILE" || { printf 'cannot restore shared git config: %s\n' "$CONFIG_FILE" >&2; return 1; }
+  printf 'tribunal evidence: shared git config changed: %s (restored)\n%s\n' "$CONFIG_FILE" "$changes" >&2
+  return 1
+}
+
 cleanup() {
-  local review_worktree
+  local rc=$? review_worktree pid
+  for pid in ${REVIEW_PIDS[@]+"${REVIEW_PIDS[@]}"}; do kill_leg "$pid"; done
+  check_shared_config || rc=1
   if [ -n "$REVIEW_SOURCE" ]; then
     for review_worktree in "${REVIEW_WORKTREES[@]}"; do
-      [ ! -d "$review_worktree" ] || git -C "$REVIEW_SOURCE" worktree remove --force "$review_worktree" >/dev/null 2>&1 || true
+      git -C "$REVIEW_SOURCE" worktree remove -f -f "$review_worktree" >/dev/null 2>&1 || true
     done
   fi
   [ -z "$STAGING" ] || [ ! -e "$STAGING" ] || rm -rf -- "$STAGING"
   [ -z "$FINAL_TMP1" ] || [ ! -e "$FINAL_TMP1" ] || rm -f -- "$FINAL_TMP1"
   [ -z "$FINAL_TMP2" ] || [ ! -e "$FINAL_TMP2" ] || rm -f -- "$FINAL_TMP2"
+  [ -z "$CONFIG_SNAPSHOT" ] || rm -f -- "$CONFIG_SNAPSHOT"
+  exit "$rc"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 
 require_tools() {
   local tool
-  for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp flock; do
+  for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp diff flock setsid ps; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
   done
 }
@@ -245,9 +290,9 @@ fail_mutated_providers() {
     [ -z "${mutation_errors[$provider]:-}" ] || continue
     case "$provider" in glm|deepseek) name=opencode ;; *) name="$provider" ;; esac
     worktree_var="${name}_worktree"; worktree="${!worktree_var}"
-    actual_head="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$worktree" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" \
+    actual_head="$(git -C "$worktree" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" \
       || actual_head=unresolvable
-    dirty="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$worktree" status --porcelain --untracked-files=all 2>/dev/null)" \
+    dirty="$(git -C "$worktree" status --porcelain --untracked-files=all 2>/dev/null)" \
       || dirty="git status failed"
     [ "$actual_head" != "$expected_head" ] || [ -n "$dirty" ] || continue
     message="provider mutated its review worktree"
@@ -255,7 +300,7 @@ fail_mutated_providers() {
     if [ "$actual_head" != "$expected_head" ]; then
       message="$message: HEAD moved from $expected_head to $actual_head"
       if [ "$actual_head" != unresolvable ]; then
-        changed_paths="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$worktree" diff --no-ext-diff --no-textconv --name-status "$expected_head" "$actual_head" 2>/dev/null)" \
+        changed_paths="$(git -C "$worktree" diff --no-ext-diff --no-textconv --name-status "$expected_head" "$actual_head" 2>/dev/null)" \
           || changed_paths="git diff failed"
         paths="$paths"$'\n'"$changed_paths"
       fi
@@ -271,12 +316,22 @@ fail_mutated_providers() {
 run_wrapper() {
   local name="$1" script="$2" worktree="$3" base_oid="$4" dir="$5"
   printf '%s\n' "$(now)" > "$dir/$name.started"
-  set +e
-  (cd "$worktree" && ulimit -f 65536 && TRIBUNAL_BASE_REF="$base_oid" bash "$script") \
-    > "$dir/$name.raw" 2> "$dir/$name.stderr"
-  printf '%s\n' "$?" > "$dir/$name.exit"
-  set -e
-  printf '%s\n' "$(now)" > "$dir/$name.finished"
+  # With monitor mode off, $! is not a group leader: setsid execs without forking.
+  (cd "$worktree" && ulimit -f 65536 && exec setsid env TRIBUNAL_BASE_REF="$base_oid" bash "$script") \
+    > "$dir/$name.raw" 2> "$dir/$name.stderr" &
+  REVIEW_PIDS+=("$!"); REVIEW_NAMES+=("$name")
+}
+
+wait_wrappers() {
+  local index pid name rc
+  for index in "${!REVIEW_PIDS[@]}"; do
+    pid="${REVIEW_PIDS[$index]}"; name="${REVIEW_NAMES[$index]}"; rc=0
+    wait "$pid" || rc=$?
+    kill_leg "$pid"
+    printf '%s\n' "$rc" > "$STAGING/wrappers/$name.exit"
+    printf '%s\n' "$(now)" > "$STAGING/wrappers/$name.finished"
+  done
+  REVIEW_PIDS=(); REVIEW_NAMES=()
 }
 
 normalize_single() {
@@ -339,11 +394,13 @@ wrapper_for_provider() {
 collect() {
   # Crashing legs must not leave core files in their sealed review worktrees.
   ulimit -c 0 || true
+  set +m
   local root="" pr="" output="" started binding head_oid base_oid parent review_tmp bundle
   local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json deleted_paths_json
   local mutation_gate_json
   local codex_worktree gemini_worktree opencode_worktree qwen_worktree grok_worktree muse_worktree claude_worktree review_worktree
   local min_ok_legs backup_legs backups backup limited idle
+  local backup_glm backup_deepseek
   local -A mutation_errors=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -413,14 +470,23 @@ collect() {
     esac
   done
 
-  run_wrapper codex "$SCRIPT_DIR/run-codex-review.sh" "$codex_worktree" "$base_oid" "$STAGING/wrappers" &
-  run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers" &
-  run_wrapper opencode "$SCRIPT_DIR/run-opencode-review.sh" "$opencode_worktree" "$base_oid" "$STAGING/wrappers" &
-  run_wrapper qwen "$SCRIPT_DIR/run-qwen-review.sh" "$qwen_worktree" "$base_oid" "$STAGING/wrappers" &
-  run_wrapper grok "$SCRIPT_DIR/run-grok-review.sh" "$grok_worktree" "$base_oid" "$STAGING/wrappers" &
-  run_wrapper muse "$SCRIPT_DIR/run-muse-review.sh" "$muse_worktree" "$base_oid" "$STAGING/wrappers" &
-  run_wrapper claude "$SCRIPT_DIR/run-claude-review.sh" "$claude_worktree" "$base_oid" "$STAGING/wrappers" &
-  wait
+  CONFIG_FILE="$(cd "$root" && git rev-parse --git-common-dir)"
+  case "$CONFIG_FILE" in /*) ;; *) CONFIG_FILE="$root/$CONFIG_FILE" ;; esac
+  CONFIG_FILE="$CONFIG_FILE/config"
+  CONFIG_SNAPSHOT="$(mktemp)"
+  cp -- "$CONFIG_FILE" "$CONFIG_SNAPSHOT" || {
+    rm -f -- "$CONFIG_SNAPSHOT"; CONFIG_SNAPSHOT=""
+    die "cannot snapshot shared git config: $CONFIG_FILE"
+  }
+
+  run_wrapper codex "$SCRIPT_DIR/run-codex-review.sh" "$codex_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper opencode "$SCRIPT_DIR/run-opencode-review.sh" "$opencode_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper qwen "$SCRIPT_DIR/run-qwen-review.sh" "$qwen_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper grok "$SCRIPT_DIR/run-grok-review.sh" "$grok_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper muse "$SCRIPT_DIR/run-muse-review.sh" "$muse_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper claude "$SCRIPT_DIR/run-claude-review.sh" "$claude_worktree" "$base_oid" "$STAGING/wrappers"
+  wait_wrappers
 
   for name in codex gemini qwen grok muse claude; do
     rc="$(cat "$STAGING/wrappers/$name.exit")"
@@ -451,19 +517,19 @@ collect() {
   if [ -n "$backups" ]; then
     printf 'tribunal evidence: running backup legs for plan-limited legs:%s\n' "$backups" >&2
     case "$backups" in *" glm "*|*" deepseek "*)
-      ( case "$backups" in *" glm "*) export TRIBUNAL_GLM=on ;; esac
-        case "$backups" in *" deepseek "*) export TRIBUNAL_DEEPSEEK=on ;; esac
-        run_wrapper opencode "$SCRIPT_DIR/run-opencode-review.sh" "$opencode_worktree" "$base_oid" "$STAGING/wrappers" ) & ;;
+      backup_glm="${TRIBUNAL_GLM:-off}"; backup_deepseek="${TRIBUNAL_DEEPSEEK:-off}"
+      case "$backups" in *" glm "*) backup_glm=on ;; esac
+      case "$backups" in *" deepseek "*) backup_deepseek=on ;; esac
+      TRIBUNAL_GLM="$backup_glm" TRIBUNAL_DEEPSEEK="$backup_deepseek" \
+        run_wrapper opencode "$SCRIPT_DIR/run-opencode-review.sh" "$opencode_worktree" "$base_oid" "$STAGING/wrappers" ;;
     esac
     case "$backups" in *" gemini "*)
-      ( export TRIBUNAL_GEMINI=on
-        run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers" ) & ;;
+      TRIBUNAL_GEMINI=on run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers" ;;
     esac
     case "$backups" in *" qwen "*)
-      ( export TRIBUNAL_QWEN=on
-        run_wrapper qwen "$SCRIPT_DIR/run-qwen-review.sh" "$qwen_worktree" "$base_oid" "$STAGING/wrappers" ) & ;;
+      TRIBUNAL_QWEN=on run_wrapper qwen "$SCRIPT_DIR/run-qwen-review.sh" "$qwen_worktree" "$base_oid" "$STAGING/wrappers" ;;
     esac
-    wait
+    wait_wrappers
     for backup in $backups; do
       case "$backup" in gemini|qwen)
         normalize_single "$backup" "$STAGING/wrappers/$backup.raw" "$(cat "$STAGING/wrappers/$backup.exit")" \
@@ -476,6 +542,7 @@ collect() {
     esac
     fail_mutated_providers "$head_oid" "$STAGING"
   fi
+  check_shared_config || die "shared git config changed; collection rejected"
 
   providers_json="$STAGING/providers.jsonl"; : > "$providers_json"
   for provider in $PROVIDERS; do
@@ -505,7 +572,7 @@ collect() {
   for review_worktree in "${REVIEW_WORKTREES[@]}"; do
     # A leg may delete its .git file; remove that disposable directory before deregistering it.
     [ -e "$review_worktree/.git" ] || rm -rf -- "$review_worktree"
-    git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$root" worktree remove --force "$review_worktree" >/dev/null
+    git -C "$root" worktree remove -f -f "$review_worktree" >/dev/null
   done
   REVIEW_WORKTREES=(); REVIEW_SOURCE=""
   jq -S -n --arg schema "$SCHEMA_COLLECTION" --arg started_at "$started" \

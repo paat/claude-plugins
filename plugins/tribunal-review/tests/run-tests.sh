@@ -4790,7 +4790,7 @@ if [ "${FIXTURE_MUTATOR:-}" = "$1" ]; then
       printf 'scratch\n' > scratch.txt
       git add scratch.txt && git commit -q -m 'reviewer mutation' ;;
     orphan) git symbolic-ref HEAD refs/heads/scratch-unborn ;;
-    fsmonitor)
+    fsmonitor|hooks|filter)
       printf 'scratch\n' > scratch.txt
       cat > "$FIXTURE_STATE/fsmonitor" <<'HOOK'
 #!/usr/bin/env bash
@@ -4799,7 +4799,36 @@ rm -f scratch.txt
 printf 'token\0'
 HOOK
       chmod +x "$FIXTURE_STATE/fsmonitor"
-      git config core.fsmonitor "$FIXTURE_STATE/fsmonitor" ;;
+      case "$FIXTURE_MUTATION" in
+        fsmonitor) git config core.fsmonitor "$FIXTURE_STATE/fsmonitor" ;;
+        hooks)
+          mkdir -p "$FIXTURE_STATE/hooks"
+          cp "$FIXTURE_STATE/fsmonitor" "$FIXTURE_STATE/hooks/post-checkout"
+          git config core.hooksPath "$FIXTURE_STATE/hooks"
+          git worktree lock "$PWD" ;;
+        filter)
+          printf 'app.txt filter=fixture\n' > .gitattributes
+          printf 'bad\n' > app.txt
+          touch -t 200001010000 app.txt
+          git config filter.fixture.clean "$FIXTURE_STATE/fsmonitor"
+          git config filter.fixture.required true ;;
+      esac ;;
+    lock) git worktree lock "$PWD" ;;
+    background)
+      staging=("$FIXTURE_WORK"/.tribunal-collection.*)
+      mkfifo "$FIXTURE_STATE/ready"
+      # timeout creates a nested group, as the real reviewer wrappers do.
+      timeout 10 bash -c '
+        trap "" TERM
+        printf "%s\n" "$BASHPID" > "$FIXTURE_STATE/child.pid"
+        printf "ready\n" > "$FIXTURE_STATE/ready"
+        sleep 0.3
+        printf "forged\n" > "$1/wrappers/$2.raw"
+        touch "$FIXTURE_STATE/background.executed"
+      ' _ "${staging[0]}" "$([ "$1" = deepseek ] && echo opencode || echo "$1")" >/dev/null 2>&1 &
+      read -r ready < "$FIXTURE_STATE/ready"
+      rm "$FIXTURE_STATE/ready"
+      ;;
     many) for i in {01..25}; do printf 'scratch\n' > "scratch-$i.txt"; done ;;
   esac
 fi
@@ -4846,6 +4875,15 @@ else
 fi
 EOF
   chmod +x "$fake/opencode" "$fake/gh"
+  # Hold normalization past the delayed write; no timing race with a fast collector.
+  cat > "$fake/jq" <<'EOF'
+#!/usr/bin/env bash
+if [ "${FIXTURE_MUTATION:-}" = background ] && [ "$*" != "${*%.raw}" ]; then
+  sleep 0.5
+fi
+EOF
+  printf 'exec %q "$@"\n' "$(command -v jq)" >> "$fake/jq"
+  chmod +x "$fake/jq"
   (
     cd "$repo" && git init -q && git config user.email t@t && git config user.name t
     printf 'one\n' > app.txt && git add app.txt && git commit -q -m base
@@ -4859,8 +4897,9 @@ EOF
     (ulimit -S -c 1
     env -u TRIBUNAL_BACKUP_LEGS -u TRIBUNAL_RISK -u TRIBUNAL_GLM -u TRIBUNAL_DEEPSEEK -u TRIBUNAL_DEEPSEEK_MODEL \
       PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
+      FIXTURE_WORK="$work" \
       FIXTURE_CODEX_ERROR="plan limit: Codex execution failed or timed out; phase=execution; exit=1" "$@" \
-      "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      timeout -k 1 30 "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
       --output "$collection" > "$work/collect-$n.json" 2> "$work/collect-$n.err")
   }
   status_of() { jq -r --arg p "$1" '.providers[] | select(.provider == $p) | .status' "$collection/manifest.json"; }
@@ -4891,7 +4930,7 @@ EOF
   collect TRIBUNAL_RISK=T5 || true
   tr_check "an invalid TRIBUNAL_RISK fails collection before any leg runs" test "$(runs)" -eq 0
   # Mutation fixtures print valid reviews bound to the original HEAD, even after committing.
-  for scenario in dirty commit clean opencode disabled backup backup-commit many orphan fsmonitor; do
+  for scenario in dirty commit clean opencode disabled backup backup-commit many orphan; do
     mutator=codex; mode="$scenario"; expected='{"codex":"failed","claude":"ok","glm":"ok","deepseek":"ok"}'
     case "$scenario" in
       clean) mutator=none; expected='{"codex":"ok","claude":"ok","glm":"ok","deepseek":"ok"}' ;;
@@ -4946,9 +4985,6 @@ EOF
       if [ "$scenario" = orphan ]; then
         jq -e '.error | contains("unresolvable")' "$collection/providers/$mutator.json" >/dev/null || return 1
       fi
-      if [ "$scenario" = fsmonitor ]; then
-        [ ! -e "$state/fsmonitor.executed" ] || return 1
-      fi
       if [ "$mode" = commit ]; then
         jq -e '.error | contains("HEAD moved")' "$collection/providers/$mutator.json" >/dev/null || return 1
       fi
@@ -4963,8 +4999,69 @@ EOF
       ! grep -q 'tribunal evidence: gemini: provider mutated' "$work/collect-$n.err"
     }
     tr_check "review worktree mutation: $scenario preserves collection and provider statuses" mutation_case_ok
-    git -C "$repo" config --unset core.fsmonitor || true
   done
+  # Include a verification-time worktree add, which must not run a planted hook.
+  printf 'false\n' > "$repo/.tribunal-mutation-gate"
+  printf 'fixture\n' > "$repo/test_fixture.sh"
+  git -C "$repo" add .tribunal-mutation-gate test_fixture.sh
+  git -C "$repo" commit -qm 'mutation-gate fixture'
+  head="$(git -C "$repo" rev-parse HEAD)"
+  cp "$repo/.git/config" "$state/config.before"
+  for scenario in fsmonitor hooks filter backup-hooks lock backup-lock background backup-background; do
+    mode="${scenario#backup-}"; ec=0; mutator=codex
+    rm -f "$state/fsmonitor.executed" "$state/background.executed" "$state/child.pid"
+    case "$scenario" in
+      backup-*) mutator=deepseek; collect FIXTURE_MUTATOR="$mutator" FIXTURE_MUTATION="$mode" || ec=$? ;;
+      *) collect FIXTURE_CODEX_ERROR= FIXTURE_MUTATOR="$mutator" FIXTURE_MUTATION="$mode" TRIBUNAL_BACKUP_LEGS=off || ec=$? ;;
+    esac
+    containment_case_ok() {
+      case "$mode" in
+        fsmonitor|hooks|filter)
+          [ "$ec" -eq 1 ] && [ ! -e "$collection" ] || return 1
+          grep -q 'shared git config changed' "$work/collect-$n.err" || return 1
+          grep -q "^+.*$([ "$mode" = filter ] && echo clean || echo "$mode")" "$work/collect-$n.err" || return 1
+          [ ! -e "$state/fsmonitor.executed" ] || return 1
+          cmp -s "$repo/.git/config" "$state/config.before" || return 1 ;;
+        lock|background)
+          [ "$ec" -eq 0 ] || return 1
+          [ "$(status_of "$mutator")" = ok ] || return 1
+          jq -e '.model == "fixture"' "$collection/providers/$mutator.json" >/dev/null || return 1
+          [ ! -e "$state/background.executed" ] || return 1
+          if [ "$mode" = background ]; then
+            [ -s "$state/child.pid" ] || return 1
+            case "$(ps -o stat= -p "$(cat "$state/child.pid")")" in ''|Z*) ;; *) return 1 ;; esac
+          fi ;;
+      esac
+      [ "$(git -C "$repo" worktree list --porcelain | grep -c '^worktree ')" -eq 1 ]
+    }
+    tr_check "leg containment: $scenario" containment_case_ok
+    # Restore baseline and remove locked worktrees even when exercising the unfixed runner.
+    cp "$state/config.before" "$repo/.git/config"
+    while IFS= read -r wt; do
+      [ "$wt" = "$repo" ] || git -C "$repo" worktree remove -f -f "$wt"
+    done < <(git -C "$repo" worktree list --porcelain | sed -n 's/^worktree //p')
+  done
+  collect FIXTURE_CODEX_ERROR= TRIBUNAL_BACKUP_LEGS=off
+  manifest_sha="$(jq -r .manifest_sha256 "$work/collect-$n.json")"
+  jq '{tribunal_verdict:{decision:"APPROVE",confidence:0.95,rationale:"Fixture review."},
+    findings:[],scope_findings:[],conflicts_resolved:[],summary:"Fixture review.",
+    provider_assessment:(.providers | map({key:.provider,value:{status:.status,
+      findings_accepted:0,findings_rejected:0,false_positives:[]}}) | from_entries)}' \
+    "$collection/manifest.json" > "$work/arbitration.json"
+  git -C "$repo" config core.hooksPath "$state/hooks"
+  git -C "$repo" config core.fsmonitor "$state/fsmonitor"
+  rm -f "$state/fsmonitor.executed"
+  verify_config_containment() {
+    jq -e 'has("mutation_gate")' "$collection/manifest.json" >/dev/null || return 1
+    env PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
+      "$plugin/scripts/collect-review-evidence.sh" "$@" --collection "$collection" \
+      --expected-manifest-sha256 "$manifest_sha" > "$work/verify.json" 2> "$work/verify.err" || return 1
+    [ ! -e "$state/fsmonitor.executed" ] || return 1
+    [ "$(git -C "$repo" worktree list --porcelain | grep -c '^worktree ')" -eq 1 ]
+  }
+  tr_check "verify-collection suppresses hooks and fsmonitor in library helpers" verify_config_containment verify-collection
+  tr_check "finalize suppresses hooks and fsmonitor in library helpers" verify_config_containment finalize --arbitration "$work/arbitration.json"
+  cp "$state/config.before" "$repo/.git/config"
   chmod -R u+w "$work" 2>/dev/null || true
   rm -rf "$work"
 }
