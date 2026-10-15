@@ -337,6 +337,8 @@ wrapper_for_provider() {
 }
 
 collect() {
+  # Crashing legs must not leave core files in their sealed review worktrees.
+  ulimit -c 0 || true
   local root="" pr="" output="" started binding head_oid base_oid parent review_tmp bundle
   local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json deleted_paths_json
   local mutation_gate_json

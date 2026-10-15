@@ -4781,6 +4781,7 @@ test_backup_leg_collection() {
   cp "$PLUGIN_ROOT/.claude-plugin/plugin.json" "$plugin/.claude-plugin/plugin.json"
   cat > "$plugin/scripts/fixture-review.sh" <<'EOF'
 #!/usr/bin/env bash
+ulimit -c > "${FIXTURE_STATE:?}/$1.core-limit"
 base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"; head="$(git rev-parse --verify 'HEAD^{commit}')"
 if [ "${FIXTURE_MUTATOR:-}" = "$1" ]; then
   case "${FIXTURE_MUTATION:-dirty}" in
@@ -4855,16 +4856,19 @@ EOF
   n=0
   collect() {  # collect ENV... -> sets $collection, returns collect's exit
     n=$((n + 1)); collection="$work/collection-$n"; rm -f "$state/opencode.runs"
+    (ulimit -S -c 1
     env -u TRIBUNAL_BACKUP_LEGS -u TRIBUNAL_RISK -u TRIBUNAL_GLM -u TRIBUNAL_DEEPSEEK -u TRIBUNAL_DEEPSEEK_MODEL \
       PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
       FIXTURE_CODEX_ERROR="plan limit: Codex execution failed or timed out; phase=execution; exit=1" "$@" \
       "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
-      --output "$collection" > "$work/collect-$n.json" 2> "$work/collect-$n.err"
+      --output "$collection" > "$work/collect-$n.json" 2> "$work/collect-$n.err")
   }
   status_of() { jq -r --arg p "$1" '.providers[] | select(.provider == $p) | .status' "$collection/manifest.json"; }
   runs() { [ -f "$state/opencode.runs" ] && wc -l < "$state/opencode.runs" | tr -d ' ' || printf 0; }
 
   collect
+  tr_check "main and backup legs inherit disabled core dumps" \
+    test "$(cat "$state/claude.core-limit") $(cat "$state/deepseek.core-limit")" = "0 0"
   tr_check "a plan-limited Codex leg brings in the DeepSeek backup" \
     test "$(status_of codex) $(status_of deepseek) $(status_of glm) $(status_of claude) $(runs)" = "failed ok disabled ok 2"
   tr_check "the backup run is announced on stderr" grep -q 'running backup legs for plan-limited legs: deepseek' "$work/collect-$n.err"
