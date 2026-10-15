@@ -4781,6 +4781,30 @@ test_backup_leg_collection() {
     "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
   cp "$PLUGIN_ROOT/.claude-plugin/plugin.json" "$plugin/.claude-plugin/plugin.json"
+  cat > "$state/plant-commondir.sh" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+common="$1"; evil="$FIXTURE_STATE/evil-common"
+mkdir -p "$evil/info" "$evil/worktrees"
+cp "$common/config" "$evil/config"
+cat > "$FIXTURE_STATE/driver" <<'DRIVER'
+#!/usr/bin/env bash
+printf 'executed\n' >> "$FIXTURE_STATE/driver.executed"
+cat
+DRIVER
+chmod +x "$FIXTURE_STATE/driver"
+git config --file "$evil/config" filter.evil.smudge "$FIXTURE_STATE/driver"
+git config --file "$evil/config" filter.evil.required true
+printf '* filter=evil\n' > "$evil/info/attributes"
+for entry in objects refs; do
+  ln -sfn "$common/$entry" "$evil/$entry"
+done
+for entry in "$common"/worktrees/*; do
+  [ ! -d "$entry" ] || ln -sfn "$entry" "$evil/worktrees/${entry##*/}"
+done
+touch "$FIXTURE_STATE/git.watch"
+printf '%s\n' "$evil" > "$common/commondir"
+EOF
   cat > "$plugin/scripts/fixture-review.sh" <<'EOF'
 #!/usr/bin/env bash
 ulimit -c > "${FIXTURE_STATE:?}/$1.core-limit"
@@ -4792,6 +4816,12 @@ if [ "${FIXTURE_MUTATOR:-}" = "$1" ]; then
       printf 'scratch\n' > scratch.txt
       git add scratch.txt && git commit -q -m 'reviewer mutation' ;;
     orphan) git symbolic-ref HEAD refs/heads/scratch-unborn ;;
+    commondir)
+      if [ "$1" = codex ]; then
+        read -r ready < "$FIXTURE_STATE/claude.ready"
+        rm "$FIXTURE_STATE/claude.ready"
+      fi
+      bash "$FIXTURE_STATE/plant-commondir.sh" "$(git rev-parse --git-common-dir)" ;;
     fsmonitor|hooks|filter|filter-equals|filter-info|filter-info-equals|filter-attrfile|filter-global)
       printf 'scratch\n' > scratch.txt
       cat > "$FIXTURE_STATE/fsmonitor" <<'HOOK'
@@ -4875,8 +4905,10 @@ HOOK
   esac
 fi
 printf '%s\n' "{\"provider\":\"$1\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
-if [ "$1" = claude ] && [ "${FIXTURE_MUTATION:-}" = config-fifo ]; then
-  printf 'ready\n' > "$FIXTURE_STATE/claude.ready"
+if [ "$1" = claude ]; then
+  case "${FIXTURE_MUTATION:-}" in
+    config-fifo|commondir) printf 'ready\n' > "$FIXTURE_STATE/claude.ready" ;;
+  esac
 fi
 EOF
   cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
@@ -4924,6 +4956,14 @@ else
 fi
 EOF
   chmod +x "$fake/opencode" "$fake/gh"
+  cat > "$fake/git" <<'EOF'
+#!/usr/bin/env bash
+if [ -n "${FIXTURE_STATE:-}" ] && [ -e "$FIXTURE_STATE/git.watch" ]; then
+  printf '%s\n' "$*" >> "$FIXTURE_STATE/git.calls"
+fi
+EOF
+  printf 'exec %q "$@"\n' "$(command -v git)" >> "$fake/git"
+  chmod +x "$fake/git"
   # Hold normalization past the delayed write; no timing race with a fast collector.
   cat > "$fake/jq" <<'EOF'
 #!/usr/bin/env bash
@@ -5149,8 +5189,31 @@ EOF
       [ "$wt" = "$repo" ] || git -C "$repo" worktree remove -f -f "$wt"
     done < <(git -C "$repo" worktree list --porcelain | sed -n 's/^worktree //p')
   done
+  for scenario in commondir backup-commondir; do
+    rm -f "$state/git.watch" "$state/git.calls" "$state/driver.executed"
+    ec=0
+    if [ "$scenario" = commondir ]; then
+      mkfifo "$state/claude.ready"
+      collect FIXTURE_CODEX_ERROR= FIXTURE_MUTATOR=codex FIXTURE_MUTATION=commondir TRIBUNAL_BACKUP_LEGS=off || ec=$?
+    else
+      collect FIXTURE_MUTATOR=deepseek FIXTURE_MUTATION=commondir || ec=$?
+    fi
+    commondir_collect_rejected() {
+      [ "$ec" -eq 1 ] && [ ! -e "$collection" ] || return 1
+      grep -Fq "git surface changed: $repo/.git/commondir" "$work/collect-$n.err" || return 1
+      [ ! -e "$repo/.git/commondir" ] && [ ! -e "$state/driver.executed" ] && [ ! -e "$state/git.calls" ]
+    }
+    tr_check "leg containment: $scenario refuses before Git and removes commondir" commondir_collect_rejected
+    rm -f "$repo/.git/commondir" "$state/git.watch" "$state/claude.ready"
+    while IFS= read -r wt; do
+      [ "$wt" = "$repo" ] || git -C "$repo" worktree remove -f -f "$wt"
+    done < <(git -C "$repo" worktree list --porcelain | sed -n 's/^worktree //p')
+  done
   collect FIXTURE_CODEX_ERROR= TRIBUNAL_BACKUP_LEGS=off
   manifest_sha="$(jq -r .manifest_sha256 "$work/collect-$n.json")"
+  tr_check "collection records resolved Git paths and directory identity" \
+    jqe --arg gitdir "$repo/.git" --arg identity "$(stat -c '%d:%i' "$repo/.git")" \
+    '.git_surface == {git_dir:$gitdir,common_dir:$gitdir,git_dir_identity:$identity}' "$collection/manifest.json"
   jq '{tribunal_verdict:{decision:"APPROVE",confidence:0.95,rationale:"Fixture review."},
     findings:[],scope_findings:[],conflicts_resolved:[],summary:"Fixture review.",
     provider_assessment:(.providers | map({key:.provider,value:{status:.status,
@@ -5168,6 +5231,67 @@ EOF
     tr_check "$command rejects extensions.worktreeConfig" worktree_config_rejected "$work/$command.err"
   done
   git -C "$repo" config --unset extensions.worktreeConfig
+  for command in verify-collection finalize; do
+    rm -f "$state/git.calls" "$state/driver.executed"
+    FIXTURE_STATE="$state" bash "$state/plant-commondir.sh" "$repo/.git"
+    verify_args=("$command")
+    [ "$command" != finalize ] || verify_args+=(--arbitration "$work/arbitration.json")
+    ec=0
+    env PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
+      "$plugin/scripts/collect-review-evidence.sh" "${verify_args[@]}" --collection "$collection" \
+      --expected-manifest-sha256 "$manifest_sha" \
+      > "$work/$command.json" 2> "$work/$command.err" || ec=$?
+    commondir_verify_rejected() {
+      [ "$ec" -eq 1 ] || return 1
+      grep -Fq "git surface changed: $repo/.git/commondir" "$work/$command.err" || return 1
+      [ ! -e "$repo/.git/commondir" ] && [ ! -e "$state/driver.executed" ] && [ ! -e "$state/git.calls" ]
+    }
+    tr_check "$command refuses post-collect commondir before any Git call" commondir_verify_rejected
+    tr_check "$command never runs the redirected filter driver" test ! -e "$state/driver.executed"
+    chmod u+w "$collection"
+    rm -f "$repo/.git/commondir" "$state/git.watch" "$collection/proof.json" "$collection/arbitration.json"
+  done
+  cp "$collection/manifest.json" "$state/manifest.before"
+  chmod u+w "$collection/manifest.json"
+  for mode in gitfile symlink replacement legacy; do
+    if [ "$mode" = legacy ]; then
+      jq 'del(.git_surface)' "$state/manifest.before" > "$collection/manifest.json"
+      manifest_sha="$(sha256sum "$collection/manifest.json" | awk '{print $1}')"
+      expected='collection manifest lacks git_surface identity; recollect'
+    else
+      mv "$repo/.git" "$repo/.git.saved"
+      case "$mode" in
+        gitfile) printf 'gitdir: %s\n' "$repo/.git.saved" > "$repo/.git" ;;
+        symlink) ln -s "$repo/.git.saved" "$repo/.git" ;;
+        replacement) cp -a "$repo/.git.saved" "$repo/.git" ;;
+      esac
+      expected="git surface changed: $repo/.git"
+    fi
+    for command in verify-collection finalize; do
+      rm -f "$state/git.calls"
+      touch "$state/git.watch"
+      verify_args=("$command")
+      # An invalid arbitration path must not mask a changed Git surface.
+      [ "$command" != finalize ] || verify_args+=(--arbitration "$work/missing-arbitration.json")
+      ec=0
+      env PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
+        "$plugin/scripts/collect-review-evidence.sh" "${verify_args[@]}" --collection "$collection" \
+        --expected-manifest-sha256 "$manifest_sha" \
+        > "$work/$command.json" 2> "$work/$command.err" || ec=$?
+      surface_verify_rejected() {
+        [ "$ec" -eq 1 ] && grep -Fq "$expected" "$work/$command.err" && [ ! -e "$state/git.calls" ]
+      }
+      tr_check "$command rejects $mode before Git or arbitration" surface_verify_rejected
+      rm -f "$state/git.watch"
+    done
+    if [ "$mode" != legacy ]; then
+      rm -rf "$repo/.git"
+      mv "$repo/.git.saved" "$repo/.git"
+    fi
+  done
+  cp "$state/manifest.before" "$collection/manifest.json"
+  chmod 0444 "$collection/manifest.json"
+  manifest_sha="$(sha256sum "$collection/manifest.json" | awk '{print $1}')"
   git -C "$repo" config core.hooksPath "$state/hooks"
   git -C "$repo" config core.fsmonitor "$state/fsmonitor"
   rm -f "$state/fsmonitor.executed"

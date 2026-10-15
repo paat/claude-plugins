@@ -9,13 +9,14 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CONFIG_PARAMETERS \
   GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_SSH_COMMAND
 
-for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp diff setsid ps kill codex agy opencode qwen grok muse claude; do
+for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp diff stat setsid ps kill codex agy opencode qwen grok muse claude; do
   unset -f "$command_name" 2>/dev/null || true
 done
 unset command_name
 
 # Also covers library helpers and traps; never exported to reviewer shells.
 git() {
+  check_git_surface || die "git surface validation failed"
   # Ignore external config and worktree attributes, including '=' driver names.
   GIT_NO_LAZY_FETCH=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
     command git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 \
@@ -36,6 +37,12 @@ REVIEW_PIDS=()
 REVIEW_NAMES=()
 CONFIG_FILE=""
 CONFIG_SNAPSHOT=""
+SURFACE_ROOT=""
+SURFACE_GITDIR=""
+SURFACE_COMMON=""
+SURFACE_ID=""
+SURFACE_FAILED=0
+VERIFIED_COLLECTION=""
 FINAL_TMP1=""
 FINAL_TMP2=""
 
@@ -63,16 +70,43 @@ reject_worktree_config() {
   [ "$enabled" != true ] || die "sealed collection does not support extensions.worktreeConfig (per-worktree config cannot be contained); disable it or run tribunal from a clone without it"
 }
 
-check_shared_config() {
-  local changes
-  [ -n "$CONFIG_SNAPSHOT" ] || return 0
+check_git_surface() {
+  local changes problem="" gitdir
+  [ "$SURFACE_FAILED" -eq 0 ] || return 1
+  [ -n "$SURFACE_ROOT" ] || return 0
+  gitdir="$SURFACE_ROOT/.git"
+  if [ ! -d "$gitdir" ] || [ -L "$gitdir" ] \
+    || [ "$(stat -c '%d:%i' -- "$gitdir" 2>/dev/null)" != "$SURFACE_ID" ] \
+    || [ "$(real_dir "$gitdir")" != "$SURFACE_GITDIR" ]; then
+    problem="$gitdir (expected the original real directory, device:inode $SURFACE_ID)"
+  elif [ -e "$gitdir/commondir" ] || [ -L "$gitdir/commondir" ]; then
+    problem="$gitdir/commondir (common-dir redirection is unsupported)"
+  elif [ "$SURFACE_COMMON" != "$SURFACE_GITDIR" ] \
+    || [ "$(real_dir "$SURFACE_COMMON")" != "$SURFACE_COMMON" ]; then
+    problem="$SURFACE_COMMON (common-dir realpath changed)"
+  fi
+  if [ -n "$problem" ]; then
+    SURFACE_FAILED=1
+    printf 'tribunal evidence: git surface changed: %s\n' "$problem" >&2
+    # Do not follow a replaced .git symlink or use Git for cleanup after redirection.
+    if [ -d "$gitdir" ] && [ ! -L "$gitdir" ]; then
+      rm -f -- "$gitdir/commondir" || printf 'cannot remove planted commondir: %s\n' "$gitdir/commondir" >&2
+    fi
+    return 1
+  fi
   if [ -f "$CONFIG_FILE" ] && [ ! -L "$CONFIG_FILE" ]; then
+    # Rollback bytes exist only while collecting; later commands bind directory identity.
+    [ -n "$CONFIG_SNAPSHOT" ] || return 0
     cmp -s "$CONFIG_SNAPSHOT" "$CONFIG_FILE" && return 0
     changes="$(diff -u -N --label "$CONFIG_FILE (before)" --label "$CONFIG_FILE (after)" \
       "$CONFIG_SNAPSHOT" "$CONFIG_FILE" | sed -n '1,20p')" || true
   else
     changes='config path is missing, symbolic, or not a regular file'
   fi
+  [ -n "$CONFIG_SNAPSHOT" ] || {
+    printf 'tribunal evidence: shared git config changed: %s (%s)\n' "$CONFIG_FILE" "$changes" >&2
+    return 1
+  }
   { rm -rf -- "$CONFIG_FILE" && cp -- "$CONFIG_SNAPSHOT" "$CONFIG_FILE"; } \
     || { printf 'cannot restore shared git config: %s\n' "$CONFIG_FILE" >&2; return 1; }
   printf 'tribunal evidence: shared git config changed: %s (restored)\n%s\n' "$CONFIG_FILE" "$changes" >&2
@@ -82,8 +116,8 @@ check_shared_config() {
 cleanup() {
   local rc=$? review_worktree pid
   for pid in ${REVIEW_PIDS[@]+"${REVIEW_PIDS[@]}"}; do kill_leg "$pid"; done
-  check_shared_config || rc=1
-  if [ -n "$REVIEW_SOURCE" ]; then
+  check_git_surface || rc=1
+  if [ "$SURFACE_FAILED" -eq 0 ] && [ -n "$REVIEW_SOURCE" ]; then
     for review_worktree in "${REVIEW_WORKTREES[@]}"; do
       git -C "$REVIEW_SOURCE" worktree remove -f -f "$review_worktree" >/dev/null 2>&1 || true
     done
@@ -98,10 +132,14 @@ trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
 require_tools() {
-  local tool version
-  for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp diff flock setsid ps; do
+  local tool
+  for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp diff stat flock setsid ps; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
   done
+}
+
+require_git_version() {
+  local version
   version="$(command git --version)"
   [[ "$version" =~ ^git\ version\ ([0-9]+)\.([0-9]+) ]] \
     && (( BASH_REMATCH[1] > 2 || (BASH_REMATCH[1] == 2 && BASH_REMATCH[2] >= 40) )) \
@@ -339,7 +377,7 @@ wait_wrappers() {
     pid="${REVIEW_PIDS[$index]}"; name="${REVIEW_NAMES[$index]}"; rc=0
     wait "$pid" || rc=$?
     kill_leg "$pid"
-    check_shared_config || die "shared git config changed: $CONFIG_FILE; collection rejected"
+    check_git_surface || die "git surface changed; collection rejected"
     printf '%s\n' "$rc" > "$STAGING/wrappers/$name.exit"
     printf '%s\n' "$(now)" > "$STAGING/wrappers/$name.finished"
   done
@@ -429,6 +467,11 @@ collect() {
   tribunal_risk_tier >/dev/null || exit 1
   backup_legs="$(tribunal_backup_legs)" || exit 1
   root="$(real_dir "$root")"
+  SURFACE_ROOT="$root"; SURFACE_GITDIR="$root/.git"; SURFACE_COMMON="$SURFACE_GITDIR"
+  SURFACE_ID="$(stat -c '%d:%i' -- "$SURFACE_GITDIR" 2>/dev/null)" || die "cannot snapshot git directory: $SURFACE_GITDIR"
+  CONFIG_FILE="$SURFACE_COMMON/config"
+  check_git_surface || die "sealed collection requires an unchanged real .git directory without commondir"
+  require_git_version
   reject_worktree_config "$root"
   [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || die "--repo-root is not a Git worktree root"
   case "$output" in /*) ;; *) die "--output must be absolute" ;; esac
@@ -483,9 +526,6 @@ collect() {
     esac
   done
 
-  CONFIG_FILE="$(cd "$root" && git rev-parse --git-common-dir)"
-  case "$CONFIG_FILE" in /*) ;; *) CONFIG_FILE="$root/$CONFIG_FILE" ;; esac
-  CONFIG_FILE="$CONFIG_FILE/config"
   CONFIG_SNAPSHOT="$(mktemp)"
   cp -- "$CONFIG_FILE" "$CONFIG_SNAPSHOT" || {
     rm -f -- "$CONFIG_SNAPSHOT"; CONFIG_SNAPSHOT=""
@@ -588,6 +628,7 @@ collect() {
   REVIEW_WORKTREES=(); REVIEW_SOURCE=""
   jq -S -n --arg schema "$SCHEMA_COLLECTION" --arg started_at "$started" \
     --arg completed_at "$(now)" --argjson binding "$binding" \
+    --arg git_dir "$SURFACE_GITDIR" --arg common_dir "$SURFACE_COMMON" --arg git_dir_identity "$SURFACE_ID" \
     --arg body_sha256 "$(sha_file "$STAGING/pr-body.txt")" \
     --argjson body_bytes "$(bytes_file "$STAGING/pr-body.txt")" \
     --arg diff_sha256 "$(sha_file "$STAGING/review.diff")" \
@@ -607,6 +648,7 @@ collect() {
     --slurpfile providers "$providers_json" \
     '{schema:$schema,started_at:$started_at,completed_at:$completed_at,
       repository:$binding.repository,
+      git_surface:{git_dir:$git_dir,common_dir:$common_dir,git_dir_identity:$git_dir_identity},
       pull_request:{number:$binding.pull_request.number,url:$binding.pull_request.url,state:$binding.pull_request.state,
         base_ref:$binding.pull_request.baseRefName,base_oid:$binding.pull_request.baseRefOid,
         head_ref:$binding.pull_request.headRefName,head_oid:$binding.pull_request.headRefOid,
@@ -647,9 +689,12 @@ validate_manifest_shape() {
     def oid: type=="string" and test("^[0-9a-f]{40}$");
     def uint: type=="number" and .>=0 and .==floor;
     def stamp: type=="string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
-    exact(["schema","started_at","completed_at","repository","pull_request","diff","runner","providers","ignored_paths","deleted_paths","mutation_gate","panel_policy"];
-          ["schema","started_at","completed_at","repository","pull_request","diff","runner","providers"])
+    exact(["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","ignored_paths","deleted_paths","mutation_gate","panel_policy"];
+          ["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers"])
     and .schema==$schema and (.started_at|stamp) and (.completed_at|stamp) and .started_at<=.completed_at
+    and (.git_surface | exact(["git_dir","common_dir","git_dir_identity"];["git_dir","common_dir","git_dir_identity"])
+         and (.git_dir|text and startswith("/")) and (.common_dir|text and startswith("/"))
+         and (.git_dir_identity|type=="string" and test("^[0-9]+:[0-9]+$")))
     and (.repository | exact(["root","host","name_with_owner","url"];
                              ["root","host","name_with_owner","url"])
          and (.root|text and startswith("/")) and (.host|test("^[A-Za-z0-9.-]+$"))
@@ -768,8 +813,17 @@ verify_collection_internal() {
   [ -f "$dir/pr-body.txt" ] && [ ! -L "$dir/pr-body.txt" ] || die "retained PR body missing or symbolic"
   [ -f "$dir/review.diff" ] && [ ! -L "$dir/review.diff" ] || die "retained diff missing or symbolic"
   [ "$expected_sha" = "$(sha_file "$manifest")" ] || die "collection manifest digest mismatch"
+  jq -e 'has("git_surface")' "$manifest" >/dev/null \
+    || die "collection manifest lacks git_surface identity; recollect with this runner (older manifests are unsupported)"
   validate_manifest_shape "$manifest" || die "collection manifest schema invalid"
-  reject_worktree_config "$(jq -r .repository.root "$manifest")"
+  SURFACE_ROOT="$(jq -r .repository.root "$manifest")"
+  SURFACE_GITDIR="$(jq -r .git_surface.git_dir "$manifest")"
+  SURFACE_COMMON="$(jq -r .git_surface.common_dir "$manifest")"
+  SURFACE_ID="$(jq -r .git_surface.git_dir_identity "$manifest")"
+  CONFIG_FILE="$SURFACE_COMMON/config"
+  check_git_surface || die "git surface changed; collection rejected"
+  require_git_version
+  reject_worktree_config "$SURFACE_ROOT"
   if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
     [ -f "$dir/ignored-paths.json" ] && [ ! -L "$dir/ignored-paths.json" ] \
       || die "ignored-path artifact missing or symbolic"
@@ -837,7 +891,7 @@ verify_collection_internal() {
       || die "provider wrapper digest mismatch: $provider"
   done
   verify_live_binding "$dir" "$manifest"
-  printf '%s\n' "$dir"
+  VERIFIED_COLLECTION="$dir"
 }
 
 validate_arbitration() {
@@ -1071,10 +1125,11 @@ idempotent_finalize_result() {
 
 finalize() {
   parse_collection_args "$@"
+  local dir manifest canonical retained_tmp proof_tmp lock_fd
+  verify_collection_internal "$COLLECTION" "$EXPECTED_MANIFEST"
+  dir="$VERIFIED_COLLECTION"
   [ -n "$ARBITRATION" ] || die "finalize requires --arbitration"
   [ -f "$ARBITRATION" ] && [ ! -L "$ARBITRATION" ] || die "arbitration file missing or symbolic"
-  local dir manifest canonical retained_tmp proof_tmp lock_fd
-  dir="$(verify_collection_internal "$COLLECTION" "$EXPECTED_MANIFEST")"
   manifest="$dir/manifest.json"
   validate_arbitration "$ARBITRATION" "$manifest" || die "arbitration schema or provider status is invalid"
   canonical="$(mktemp "${TMPDIR:-/tmp}/tribunal-arbitration.XXXXXX")"; FINAL_TMP1="$canonical"
@@ -1124,7 +1179,8 @@ verify_collection_cmd() {
   parse_collection_args "$@"
   [ -z "$ARBITRATION" ] && [ -z "$EXPECTED_PROOF" ] || die "unexpected verify-collection argument"
   local dir
-  dir="$(verify_collection_internal "$COLLECTION" "$EXPECTED_MANIFEST")"
+  verify_collection_internal "$COLLECTION" "$EXPECTED_MANIFEST"
+  dir="$VERIFIED_COLLECTION"
   jq -nc --arg collection "$dir" --arg manifest_sha256 "$EXPECTED_MANIFEST" \
     '{collection:$collection,manifest_sha256:$manifest_sha256,status:"valid"}'
 }
@@ -1135,7 +1191,8 @@ verify_proof_cmd() {
   case "$EXPECTED_PROOF" in *[!0-9a-f]*|'') die "invalid expected proof digest" ;; esac
   [ "${#EXPECTED_PROOF}" -eq 64 ] || die "invalid expected proof digest"
   local dir
-  dir="$(verify_collection_internal "$COLLECTION" "$EXPECTED_MANIFEST")"
+  verify_collection_internal "$COLLECTION" "$EXPECTED_MANIFEST"
+  dir="$VERIFIED_COLLECTION"
   verify_proof_internal "$dir" "$EXPECTED_MANIFEST" "$EXPECTED_PROOF"
   jq -nc --arg collection "$dir" --arg proof_sha256 "$EXPECTED_PROOF" \
     '{collection:$collection,proof_sha256:$proof_sha256,status:"valid"}'

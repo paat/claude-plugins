@@ -25,7 +25,7 @@ process before merge.
 - `python3` (fallback UUID generation when `uuidgen` and `/proc/sys/kernel/random/uuid` are unavailable)
 - `sha256sum` (used to seal PR delivery manifests and retained artifacts)
 - `flock` (used to make proof finalization concurrency- and crash-safe)
-- `setsid` (util-linux), `ps` (procps), and `diff` — sealed collection isolates reviewer sessions, kills surviving process groups, and reports/restores shared Git config changes
+- `setsid` (util-linux), `ps` (procps), `stat` (GNU coreutils), and `diff` — sealed collection isolates reviewer sessions, kills surviving process groups, checks Git directory identity, and reports/restores shared Git config changes
 - `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or it will fall back to an error-JSON for that reviewer) — caps Codex, Gemini, Qwen, Grok, Muse, and Claude at 10 minutes and each opt-in OpenCode leg (GLM, DeepSeek) at 12 minutes (single attempt, no retry). The two OpenCode legs are serialized in one call and can take up to ~24 minutes combined; a leg that exceeds its cap simply degrades to the available quorum. OpenCode runs the GLM/DeepSeek reasoning models via `opencode run --agent plan`; their latency is inherent generation time with a heavy tail (the `--variant` reasoning-effort flag does **not** meaningfully change it), so the genuine speed lever is swapping in faster non-reasoning models for those slots — a quality/reliability tradeoff left to you
 - Valid API keys / auth configured for each enabled CLI
 
@@ -62,6 +62,10 @@ exit code, byte counts, and truncation flags. Set `TRIBUNAL_DIAGNOSTIC_TAILS=on`
 only for local troubleshooting to add printable-ASCII 2 KiB stdout/stderr tails;
 tails are otherwise omitted by default because provider errors can contain credentials.
 Sealed collection does not support `extensions.worktreeConfig=true` (per-worktree config cannot be contained); disable it or run tribunal from a clone without it.
+The repository root must have a real `.git` directory without `commondir` redirection.
+Collections bind its device/inode and resolved Git/common-directory paths; verification
+and finalization check them before invoking Git. Older manifests without `git_surface`
+are rejected with a recollect instruction.
 For either OpenCode leg, exit 0 with no review JSON and non-whitespace stderr is a
 `phase=execution` failure. Known gates get a credential-free classified message;
 stderr tails remain opt-in through `TRIBUNAL_DIAGNOSTIC_TAILS=on`, limited to the
