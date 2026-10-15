@@ -236,6 +236,38 @@ write_failed_provider() {
   jq -S -n --arg p "$provider" --arg e "$message" '{provider:$p,error:$e}' > "$out"
 }
 
+fail_mutated_providers() {
+  local expected_head="$1" dir="$2" provider name worktree_var worktree artifact actual_head dirty paths message changed_paths
+  # Worktree variables and mutation_errors belong to the active collect invocation.
+  for provider in $PROVIDERS; do
+    artifact="$dir/providers/$provider.json"
+    [ "$(provider_status "$artifact")" != disabled ] || continue
+    [ -z "${mutation_errors[$provider]:-}" ] || continue
+    case "$provider" in glm|deepseek) name=opencode ;; *) name="$provider" ;; esac
+    worktree_var="${name}_worktree"; worktree="${!worktree_var}"
+    actual_head="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$worktree" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" \
+      || actual_head=unresolvable
+    dirty="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$worktree" status --porcelain --untracked-files=all 2>/dev/null)" \
+      || dirty="git status failed"
+    [ "$actual_head" != "$expected_head" ] || [ -n "$dirty" ] || continue
+    message="provider mutated its review worktree"
+    paths="$dirty"
+    if [ "$actual_head" != "$expected_head" ]; then
+      message="$message: HEAD moved from $expected_head to $actual_head"
+      if [ "$actual_head" != unresolvable ]; then
+        changed_paths="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$worktree" diff --no-ext-diff --no-textconv --name-status "$expected_head" "$actual_head" 2>/dev/null)" \
+          || changed_paths="git diff failed"
+        paths="$paths"$'\n'"$changed_paths"
+      fi
+    fi
+    paths="$(printf '%s\n' "$paths" | sed '/^$/d' | sed -n '1,20p')"
+    [ -z "$paths" ] || message="$message: $paths"
+    mutation_errors[$provider]="$message"
+    write_failed_provider "$provider" "$message" "$artifact"
+    printf 'tribunal evidence: %s: %s\n' "$provider" "${message//$'\n'/; }" >&2
+  done
+}
+
 run_wrapper() {
   local name="$1" script="$2" worktree="$3" base_oid="$4" dir="$5"
   printf '%s\n' "$(now)" > "$dir/$name.started"
@@ -305,11 +337,14 @@ wrapper_for_provider() {
 }
 
 collect() {
+  # Crashing legs must not leave core files in their sealed review worktrees.
+  ulimit -c 0 || true
   local root="" pr="" output="" started binding head_oid base_oid parent review_tmp bundle
   local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json deleted_paths_json
   local mutation_gate_json
   local codex_worktree gemini_worktree opencode_worktree qwen_worktree grok_worktree muse_worktree claude_worktree review_worktree
   local min_ok_legs backup_legs backups backup limited idle
+  local -A mutation_errors=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --repo-root) [ "$#" -ge 2 ] || die "--repo-root needs a value"; root="$2"; shift 2 ;;
@@ -387,12 +422,6 @@ collect() {
   run_wrapper claude "$SCRIPT_DIR/run-claude-review.sh" "$claude_worktree" "$base_oid" "$STAGING/wrappers" &
   wait
 
-  for review_worktree in "${REVIEW_WORKTREES[@]}"; do
-    [ "$(git -C "$review_worktree" rev-parse HEAD)" = "$head_oid" ] || die "provider changed review HEAD"
-    [ -z "$(git -C "$review_worktree" status --porcelain --untracked-files=all)" ] \
-      || die "provider changed its sealed review worktree"
-  done
-
   for name in codex gemini qwen grok muse claude; do
     rc="$(cat "$STAGING/wrappers/$name.exit")"
     normalize_single "$name" "$STAGING/wrappers/$name.raw" "$rc" "$STAGING/providers/$name.json" \
@@ -400,6 +429,7 @@ collect() {
   done
   rc="$(cat "$STAGING/wrappers/opencode.exit")"
   normalize_opencode "$STAGING/wrappers/opencode.raw" "$rc" "$STAGING" "$base_oid" "$head_oid"
+  fail_mutated_providers "$head_oid" "$STAGING"
 
   # One backup leg per plan-limited leg, from TRIBUNAL_BACKUP_LEGS: an installed leg whose
   # wrapper sat idle this run (GLM and DeepSeek share one). The limited leg stays failed.
@@ -434,11 +464,6 @@ collect() {
         run_wrapper qwen "$SCRIPT_DIR/run-qwen-review.sh" "$qwen_worktree" "$base_oid" "$STAGING/wrappers" ) & ;;
     esac
     wait
-    for review_worktree in "${REVIEW_WORKTREES[@]}"; do
-      [ "$(git -C "$review_worktree" rev-parse HEAD)" = "$head_oid" ] || die "provider changed review HEAD"
-      [ -z "$(git -C "$review_worktree" status --porcelain --untracked-files=all)" ] \
-        || die "provider changed its sealed review worktree"
-    done
     for backup in $backups; do
       case "$backup" in gemini|qwen)
         normalize_single "$backup" "$STAGING/wrappers/$backup.raw" "$(cat "$STAGING/wrappers/$backup.exit")" \
@@ -449,6 +474,7 @@ collect() {
       normalize_opencode "$STAGING/wrappers/opencode.raw" "$(cat "$STAGING/wrappers/opencode.exit")" \
         "$STAGING" "$base_oid" "$head_oid" ;;
     esac
+    fail_mutated_providers "$head_oid" "$STAGING"
   fi
 
   providers_json="$STAGING/providers.jsonl"; : > "$providers_json"
@@ -477,7 +503,9 @@ collect() {
 
   rm -rf "$STAGING/wrappers"
   for review_worktree in "${REVIEW_WORKTREES[@]}"; do
-    git -C "$root" worktree remove --force "$review_worktree" >/dev/null
+    # A leg may delete its .git file; remove that disposable directory before deregistering it.
+    [ -e "$review_worktree/.git" ] || rm -rf -- "$review_worktree"
+    git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$root" worktree remove --force "$review_worktree" >/dev/null
   done
   REVIEW_WORKTREES=(); REVIEW_SOURCE=""
   jq -S -n --arg schema "$SCHEMA_COLLECTION" --arg started_at "$started" \
