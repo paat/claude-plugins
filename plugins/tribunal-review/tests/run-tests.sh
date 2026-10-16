@@ -4488,7 +4488,23 @@ tr_check() {  # tr_check LABEL COMMAND...
   fi
 }
 
-# Repo-walking legs must not walk a checkout holding untracked .env files (#589).
+test_collector_subdirectory_root() {
+  local work ec=0
+  work="$(mktemp -d)"
+  git init -q "$work/repo"
+  mkdir -p "$work/repo/subdirectory" "$work/bin"
+  printf '#!/usr/bin/env bash\nexit 99\n' > "$work/bin/gh"
+  chmod +x "$work/bin/gh"
+  PATH="$work/bin:$PATH" bash "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" collect \
+    --repo-root "$work/repo/subdirectory" --pr 7 --output "$work/collection" > "$work/out" 2> "$work/err" || ec=$?
+  subdirectory_root_rejected() {
+    [ "$ec" -eq 1 ] && grep -Fq -- '--repo-root is not a Git worktree root' "$work/err" \
+      && ! grep -Fq 'root git path is not a directory or gitfile' "$work/err"
+  }
+  tr_check "subdirectory repo-root gets the toplevel error before surface pinning" subdirectory_root_rejected
+  rm -rf "$work"
+}
+
 test_collector_surface_leftovers() {
   local work ec=0
   work="$(mktemp -d)"
@@ -4589,6 +4605,7 @@ EOF
   rm -rf "$work"
 }
 
+# Repo-walking legs must not walk a checkout holding untracked .env files (#589).
 test_walk_root_hides_env_files() {
   local label="repo-walking legs walk a HEAD clone when the checkout holds .env files; shell legs get a scrubbed env" work fake host_grok leg ok=1
   work="$(mktemp -d)"; fake="$work/bin"; host_grok="$work/host-grok"
@@ -5535,6 +5552,7 @@ test_backup_leg_collection
 test_collector_completion_order
 test_collector_config_includes
 test_collector_surface_leftovers
+test_collector_subdirectory_root
 test_walk_root_hides_env_files
 
 echo ""

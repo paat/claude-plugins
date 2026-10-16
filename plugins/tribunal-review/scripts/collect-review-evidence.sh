@@ -675,9 +675,9 @@ collect() {
   SURFACE_ROOT="$root"
   load_safe_directories
   require_git_version
+  [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || die "--repo-root is not a Git worktree root"
   pin_git_surface
   reject_uncontained_config "$root"
-  [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || die "--repo-root is not a Git worktree root"
   case "$output" in /*) ;; *) die "--output must be absolute" ;; esac
   [ ! -e "$output" ] && [ ! -L "$output" ] || die "collection output already exists"
   parent="$(dirname "$output")"; parent="$(real_dir "$parent")"
