@@ -2656,6 +2656,13 @@ test_trusted_evidence_collection() {
 
   cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
 #!/usr/bin/env bash
+if [ "${FIXTURE_REPLACE_IGNORE:-off}" = on ]; then
+  staging="$(dirname "$(dirname "$(readlink /proc/$$/fd/1)")")"
+  cp "$staging/sensitive-paths.json" "$FIXTURE_SENSITIVE_CAPTURE" 2>/dev/null || true
+  blob="$(git rev-parse HEAD:.gitignore)"
+  replacement="$(printf '# ordinary artifacts\nscratch/\n' | git hash-object -w --stdin)"
+  git replace "$blob" "$replacement"
+fi
 fixture_stat() {
   local base head
   base="$(git rev-parse --verify "${FIXTURE_STAT_BASE:-${TRIBUNAL_BASE_REF}}^{commit}")"
@@ -3100,6 +3107,58 @@ EOF
   else
     echo -e "  ${GREEN}PASS${NC} sensitive ignored-path finding cannot be downgraded to medium"; PASS=$((PASS+1))
   fi
+
+  local replace_base="$base" replace_head="$head" replace_manifest replace_ec
+  base="$head"
+  printf 'another ignored addition\n' > "$repo/scratch/replaced.md"
+  printf 'three\n' > "$repo/app.txt"
+  git -C "$repo" add app.txt
+  git -C "$repo" add -f scratch/replaced.md
+  git -C "$repo" commit -q -m 'force-add with unchanged ignore policy'
+  head="$(git -C "$repo" rev-parse HEAD)"
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    FIXTURE_REPLACE_IGNORE=on FIXTURE_SENSITIVE_CAPTURE="$work/preleg-sensitive.json" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/replaced-ignore" > "$work/replaced-ignore.json"
+  replace_manifest="$(jq -r .manifest_sha256 "$work/replaced-ignore.json")"
+  if jq -e '. == ["scratch/replaced.md"]' "$work/preleg-sensitive.json" >/dev/null 2>&1 \
+    && cmp -s "$work/preleg-sensitive.json" "$work/replaced-ignore/sensitive-paths.json" \
+    && [ "$(sha256sum "$work/preleg-sensitive.json" | awk '{print $1}')" = \
+         "$(jq -r .sensitive_paths.sha256 "$work/replaced-ignore/manifest.json")" ]; then
+    echo -e "  ${GREEN}PASS${NC} sensitive paths are captured before legs and sealed"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} sensitive paths are captured before legs and sealed"; FAIL=$((FAIL+1)); FAILURES+=("pre-leg sensitive paths")
+  fi
+  jq '.findings[0].file="scratch/replaced.md"' "$work/ignored-arbitration.json" > "$work/replace-medium.json"
+  jq '.findings[0].file="scratch/replaced.md"' "$work/ignored-high-arbitration.json" > "$work/replace-high.json"
+  replace_ec=0
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/replaced-ignore" \
+      --expected-manifest-sha256 "$replace_manifest" --arbitration "$work/replace-medium.json" \
+      > "$work/replace-medium.out" 2> "$work/replace-medium.err" || replace_ec=$?
+  if [ "$replace_ec" -ne 0 ] && grep -q 'arbitration.*invalid' "$work/replace-medium.err" \
+    && PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+      "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/replaced-ignore" \
+        --expected-manifest-sha256 "$replace_manifest" --arbitration "$work/replace-high.json" >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} replace ref cannot lower sensitive ignored-path severity"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} replace ref cannot lower sensitive ignored-path severity"; FAIL=$((FAIL+1)); FAILURES+=("replace ref sensitive severity")
+  fi
+  chmod u+w "$work/replaced-ignore"
+  chmod u+w "$work/replaced-ignore/sensitive-paths.json" 2>/dev/null || true
+  printf '[]\n' > "$work/replaced-ignore/sensitive-paths.json"
+  replace_ec=0
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" verify-collection --collection "$work/replaced-ignore" \
+      --expected-manifest-sha256 "$replace_manifest" >/dev/null 2> "$work/replace-tamper.err" || replace_ec=$?
+  if [ "$replace_ec" -ne 0 ] && grep -q 'sensitive-path artifact digest mismatch' "$work/replace-tamper.err"; then
+    echo -e "  ${GREEN}PASS${NC} sealed sensitive paths reject tampering"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} sealed sensitive paths reject tampering"; FAIL=$((FAIL+1)); FAILURES+=("sensitive paths tampering")
+  fi
+  git -C "$repo" replace -d "$(git -C "$repo" rev-parse HEAD:.gitignore)" >/dev/null
+  git -C "$repo" reset -q --hard "$replace_head"
+  base="$replace_base"; head="$replace_head"
 
   local initial_base="$base"
   base="$(git -C "$repo" rev-parse HEAD)"
