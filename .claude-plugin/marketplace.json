@@ -51,17 +51,6 @@
       "homepage": "https://github.com/paat/claude-plugins"
     },
     {
-      "name": "browser-test-router",
-      "description": "Multi-model delegation for browser testing — a free OpenCode model (via opencode) for execution, Opus for analysis",
-      "version": "0.4.2",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/browser-test-router",
-      "category": "testing",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
       "name": "saas-startup-team",
       "description": "Portable SaaS delivery: Plan → Build → Independent Review with bounded maintenance and deterministic legal/PII/spend/release gates",
       "version": "2.0.0",
