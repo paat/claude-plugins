@@ -31,7 +31,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — Codex + Grok + Muse + Claude (diff-only) by default; Gemini, DeepSeek via dsh and Qwen opt-in, with calling-context arbitration",
-      "version": "0.28.2",
+      "version": "0.28.3",
       "author": {
         "name": "Andre Paat"
       },
