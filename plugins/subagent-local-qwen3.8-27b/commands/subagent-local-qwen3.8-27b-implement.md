@@ -10,7 +10,7 @@ Dispatch **local Qwen3.8-27B** via the Qwen Code CLI (`--yolo`, llama.cpp OpenAI
 
 ## Steps
 
-1. **Parse arguments.** First token is the plan file path (`<plan.md>`), second is the task identifier (`<taskN>`, e.g. `Task 3`). Optional `--model <id>` overrides the served coding alias; `--dir <repo>` sets the repo (default: current repo root). Read the plan file yourself so you know which files and tests the task touches — but do NOT paste it; the worker reads the plan itself.
+1. **Parse arguments.** First token is the plan file path (`<plan.md>`), second is the task identifier (`<taskN>`, e.g. `Task 3`). Optional `--model <id>` pins a served model (default: whatever the endpoint serves); `--dir <repo>` sets the repo (default: current repo root). Read the plan file yourself so you know which files and tests the task touches — but do NOT paste it; the worker reads the plan itself.
 
 2. **Determine the commit trailer.** If this project requires a trailer on commits (check `CLAUDE.md` / project conventions), note its literal text — you'll substitute it for `<COMMIT_TRAILER>` in the prompt below. If none, omit the trailer instruction.
 
@@ -64,5 +64,5 @@ Dispatch **local Qwen3.8-27B** via the Qwen Code CLI (`--yolo`, llama.cpp OpenAI
 ## Notes
 
 - One task per invocation. Narrow scope, named test gate, per-task review.
-- Bound model is **Qwen3.8-27B** (coding profile). A different local model needs a different plugin.
+- Runs the model the endpoint serves; contracts and sampling are tuned for **Qwen3.8-27B**.
 - For architecture, security, or ambiguous design, keep Codex/Grok instead of this worker.

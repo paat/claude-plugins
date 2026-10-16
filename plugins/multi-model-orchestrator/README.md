@@ -30,7 +30,7 @@ Only the previous Claude generation (Opus 5, Fable 5) is kept for compatibility 
 | Codex | `gpt-6-luna`, `gpt-6.1-sol`, `gpt-6-astra`; prior-generation `gpt-6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
 | Muse Code (`muse`) | `default` (passes no `--model`; the installed CLI selects its model); explicit pin `muse-wonder-1.0` | Bounded implementation, reproduction, research, and independent review; `muse-wonder-1.0` is the T3 coding pin |
-| Local Qwen | `qwen3.8-27b-local` | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or serving another model (needs the `subagent-local-qwen3.8-27b` plugin) |
+| Local Qwen | `default` (whatever the llama.cpp endpoint serves); explicit pin: a served model id | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or not serving a pinned model (needs the `subagent-local-qwen3.8-27b` plugin) |
 | Antigravity (`agy`) | `gemini-3.8-flash` | Cheap, fast bounded edits and an advisory diff-only review lens |
 
 Haiku 5.5 is the latest Haiku; the wrapper runs it without `--effort`. Claude Fable 5.1,

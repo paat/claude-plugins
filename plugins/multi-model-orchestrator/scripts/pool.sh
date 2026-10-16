@@ -176,7 +176,7 @@ fell_through=0
 for row in "${candidates[@]}"; do
   IFS=$'\t' read -r r_tier r_provider r_model r_effort <<< "$row"
   args=(--mode "$mode" --repo "$repo_dir" --timeout "$run_timeout")
-  [ "$r_provider" = qwen ] || args+=(--model "$r_model")
+  args+=(--model "$r_model")
   [ "$r_effort" = n/a ] || args+=(--effort "$r_effort")
   [ -z "$base_ref" ] || args+=(--base "$base_ref")
   [ -z "$output_file" ] || args+=(--out "$output_file")

@@ -2,12 +2,12 @@
 
 Drive **local llama.cpp Qwen3.8-27B** as a coding implementer/reviewer subagent from Claude Code / Codex / Grok, using the **Qwen Code CLI** against a host OpenAI-compatible endpoint.
 
-This plugin is bound to **Qwen3.8-27B**. A different local model is a different `subagent-local-<modelname>-<version>` plugin (prompts, sampling, and preflight aliases stay per-plugin).
+Contracts and sampling are tuned for **Qwen3.8-27B**, but the wrapper runs whatever model the endpoint serves unless you pin one with `--model` / `QWEN38_MODEL`. A model that needs different prompts or sampling belongs in its own `subagent-local-<modelname>-<version>` plugin.
 
 ## Prerequisites
 
 1. **Qwen Code CLI >= 0.23.4** on `PATH` as `qwen` (needs `--yolo` / `--approval-mode`).
-2. **llama.cpp** (or compatible) serving the **Qwen3.8-27B coding** profile on an OpenAI endpoint. Default base URL: `http://127.0.0.1:8000/v1`; when `OPENAI_BASE_URL` is unset and that is unreachable, the wrapper also tries the container gateway (`host.docker.internal`, then the default route) — llama.cpp usually runs on the host, not in the dev container. Default alias: `Qwen3.8-27B-UD-Q6_K_XL-coding`.
+2. **llama.cpp** (or compatible) serving one model (normally the **Qwen3.8-27B coding** profile) on an OpenAI endpoint. Default base URL: `http://127.0.0.1:8000/v1`; when `OPENAI_BASE_URL` is unset and that is unreachable, the wrapper also tries the container gateway (`host.docker.internal`, then the default route) — llama.cpp usually runs on the host, not in the dev container. Default model: the one id `/v1/models` lists; when it lists several, pin one. Qwen Code's context window follows the served `meta.n_ctx` (65536 when absent).
 3. Standard tools: `bash` 4+, `curl`, `jq`, `timeout` (GNU coreutils), `mktemp`, `git`.
 
 The wrapper uses an **isolated HOME** and writes `settings.json` only there — it never writes the host `~/.qwen` (so tribunal DashScope credentials stay untouched).
@@ -37,11 +37,11 @@ scripts/subagent-local-qwen3.8-27b-run.sh [--dir D] [--model M] [--effort medium
 
 `--diff BASE` writes `git diff BASE` to a temp dir **outside** the repo, shares it with the worker via `--include-directories`, and points the prompt at it — nothing is ever written into the target repo. Name both ends of the range — `--diff 'HEAD~1..HEAD'` for a commit, `--diff 'origin/main...HEAD'` for a branch, `--diff HEAD` for the uncommitted working tree — and note it requires `--approval-mode plan` — review mode (`--approval-mode plan`) has **no shell**, so the worker cannot run git and would otherwise review only the current files and miss regressions.
 
-Exit codes: `0` ok, `2` usage, `75` transient (llama.cpp down or busy — retry, or route the task to another engine), `1` wrong model or other refusal, `124`/`143` timeout, `127` CLI missing.
+Exit codes: `0` ok, `2` usage, `75` transient (llama.cpp down or busy — retry, or route the task to another engine), `1` wrong model (pin not served, or several served and none pinned) or other refusal, `124`/`143` timeout, `127` CLI missing.
 
 `--print-cmd` shows the `qwen` argv without executing; it prints the base command, without the `--diff` patch wiring (no patch is produced for a preview).
 
-`--diff HEAD` covers tracked changes only — `git diff` never reports untracked files, so commit or stage a brand-new file before reviewing it, or pass a patch that already includes it with `--diff-file`. Preflight fails closed when llama.cpp is down, busy (one in-flight GPU request), or serving a non-coding / `longctx` alias.
+`--diff HEAD` covers tracked changes only — `git diff` never reports untracked files, so commit or stage a brand-new file before reviewing it, or pass a patch that already includes it with `--diff-file`. Preflight fails closed when llama.cpp is down, busy (one in-flight GPU request), or not serving the pinned model. The run prints `running model <id>` on stderr, and the footer names the same id.
 
 `reasoning_effort` is `medium` only (`xhigh|medium|low` — never `high`). Thinking-mode sampling: temp 1.0, top_p 0.95, top_k 20.
 
@@ -62,7 +62,7 @@ Exit codes: `0` ok, `2` usage, `75` transient (llama.cpp down or busy — retry,
 bash plugins/subagent-local-qwen3.8-27b/tests/run-tests.sh
 ```
 
-Stub `qwen` on `PATH` (no live llama.cpp). Covers print-cmd flags, isolated HOME, missing binary, down/wrong-model preflight, yolo vs plan, stdin prompt, and timeout.
+Stub `qwen` on `PATH` (no live llama.cpp). Covers print-cmd flags, isolated HOME, missing binary, down/wrong-model preflight, served-model default, yolo vs plan, stdin prompt, and timeout.
 
 ## License
 

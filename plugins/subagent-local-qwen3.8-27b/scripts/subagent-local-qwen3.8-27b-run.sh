@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# subagent-local-qwen3.8-27b-run.sh — drive Qwen Code CLI against local llama.cpp
-# serving Qwen3.8-27B (coding profile). Role-agnostic: implement (--yolo) or
-# review (--approval-mode plan).
+# subagent-local-qwen3.8-27b-run.sh — drive Qwen Code CLI against the model local
+# llama.cpp is serving (tuned for Qwen3.8-27B). Role-agnostic: implement (--yolo)
+# or review (--approval-mode plan).
 #
 # Gotchas encoded here:
 #   1. Isolated HOME — never write the host ~/.qwen (tribunal DashScope creds).
-#   2. Preflight refuses down / busy / wrong-model / non-coding aliases.
+#   2. Preflight refuses down / busy, and a pinned model the endpoint does not serve.
 #   3. Prompt on stdin (never giant argv). Dual timeouts (inner timeout +
 #      host Bash-tool timeout must both be generous).
 #   4. Keep Qwen Code's built-in system prompt; append a short contract only.
@@ -17,8 +17,8 @@
 #
 # Options:
 #   -C, --dir DIR              Working directory (default: $PWD).
-#   -m, --model MODEL          Served llama.cpp alias
-#                              (default: Qwen3.8-27B-UD-Q6_K_XL-coding).
+#   -m, --model MODEL          Pin a served llama.cpp model id (default: the one
+#                              model the endpoint serves).
 #   -e, --effort LEVEL         xhigh|medium|low (default: medium; never high).
 #   -t, --timeout SECS         Inner timeout for the qwen run (default: 900).
 #       --max-session-turns N  Cap agent turns (default: 40).
@@ -47,21 +47,24 @@
 #                     unset and that is unreachable, the container gateway
 #                     (host.docker.internal / default route) is tried too).
 #   OPENAI_API_KEY    Dummy key for local servers (default: dummy).
-#   QWEN38_MODEL      Default model alias override.
+#   QWEN38_MODEL      Model pin, same as --model.
 #
 # Exit codes: 0 ok; 2 usage; 75 transient (server down or busy — retry or route
-# elsewhere); 1 wrong model or other refusal; 124/143 timeout; 127 CLI missing.
+# elsewhere); 1 wrong model (pin not served, or several served and none pinned) or
+# other refusal; 124/143 timeout; 127 CLI missing.
 #
-# Output: prints ONLY the final answer on stdout, then a short footer on stderr.
+# Output: prints ONLY the final answer on stdout. On stderr, a `running model <id>`
+# line before the run and a short footer after it.
 # Host Bash-tool timeout must also be generous (≥ inner --timeout in ms).
 set -euo pipefail
 
 QL_DEFAULT_TIMEOUT="900"
-QL_DEFAULT_MODEL="${QWEN38_MODEL:-Qwen3.8-27B-UD-Q6_K_XL-coding}"
 QL_DEFAULT_EFFORT="medium"
 QL_DEFAULT_TURNS="40"
 QL_DEFAULT_WALL="15m"
 QL_DEFAULT_BASE="http://127.0.0.1:8000/v1"
+# Qwen Code's context window when the server does not report its n_ctx.
+QL_DEFAULT_CTX="65536"
 QL_PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Cleanup: paths are registered as they are created and removed once, on exit.
@@ -113,22 +116,6 @@ ql_extract_final_answer() {
   printf '%s\n' "$raw"
 }
 
-# ql_is_coding_profile — served id must look like Qwen3.8-27B coding, not longctx.
-ql_is_coding_profile() {
-  local id="$1"
-  case "$id" in
-    *longctx*) return 1 ;;
-  esac
-  case "$id" in
-    *Qwen3.8-27B*) ;;
-    *) return 1 ;;
-  esac
-  case "$id" in
-    *coding*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 # ql_pick_base — first reachable candidate base (llama.cpp usually runs on the
 # container host, not in the container). Falls back to the default so the real
 # preflight below prints the accurate error.
@@ -172,8 +159,10 @@ ql_preflight_cli() {
       esac
     done < <(ql_build_cmd "Qwen3.8-27B-UD-Q6_K_XL-coding" "$mode" "1" "1m" "" "/tmp")
   done
+  # A here-string, not printf | grep -q: grep -q exits on the first matching line, the
+  # writer can take SIGPIPE on the rest of the help, and pipefail reports the flag missing.
   for arg in $required_flags; do
-    if ! printf '%s' "$help" | grep -qF -- "$arg"; then
+    if ! grep -qF -- "$arg" <<< "$help"; then
       missing_flags="${missing_flags:+$missing_flags }$arg"
     fi
   done
@@ -184,7 +173,9 @@ ql_preflight_cli() {
   return 0
 }
 
-# ql_preflight_models — GET $BASE/models; require coding-profile alias; fail busy/down.
+# ql_preflight_models — GET $BASE/models; fail busy/down. Prints "<id><TAB><n_ctx>"
+# for the model to run: the pinned id, which must be served exactly, or with no pin
+# the one model the endpoint serves.
 ql_preflight_models() {
   local base="$1" want="$2"
   local url body http_code curl_rc
@@ -247,66 +238,38 @@ ql_preflight_models() {
   fi
 
   local found="" id
-  while IFS= read -r id; do
-    [ -n "$id" ] || continue
-    if [ "$id" = "$want" ]; then
-      found="$id"
-      break
-    fi
-  done <<< "$ids"
-
-  if [ -z "$found" ]; then
-    # Accept a served id that matches the coding profile when want is the default family.
+  if [ -n "$want" ]; then
     while IFS= read -r id; do
-      [ -n "$id" ] || continue
-      if ql_is_coding_profile "$id"; then
-        found="$id"
-        break
-      fi
+      [ "$id" = "$want" ] && found="$id" && break
     done <<< "$ids"
-  fi
-
-  if [ -z "$found" ]; then
-    printf 'subagent-local-qwen3.8-27b-run: wrong-model: need Qwen3.8-27B coding profile (got: %s)\n' \
+    if [ -z "$found" ]; then
+      printf 'subagent-local-qwen3.8-27b-run: wrong-model: pinned %s not served (have: %s)\n' \
+        "$want" "$(printf '%s' "$ids" | tr '\n' ' ')" >&2
+      return 1
+    fi
+  elif [ "$(printf '%s\n' "$ids" | grep -c .)" -eq 1 ]; then
+    found="$ids"
+  else
+    printf 'subagent-local-qwen3.8-27b-run: wrong-model: several models served (%s); pin one with --model or QWEN38_MODEL\n' \
       "$(printf '%s' "$ids" | tr '\n' ' ')" >&2
     return 1
   fi
 
-  if ! ql_is_coding_profile "$found"; then
-    printf 'subagent-local-qwen3.8-27b-run: wrong-model: refusing non-coding/longctx alias %s\n' "$found" >&2
-    return 1
+  local n_ctx=""
+  if command -v jq >/dev/null 2>&1; then
+    n_ctx="$(printf '%s' "$body" | jq -r --arg id "$found" \
+      'first(.data[]? | select(.id == $id) | .meta.n_ctx? | numbers) // empty' 2>/dev/null || true)"
   fi
+  [[ "$n_ctx" =~ ^[1-9][0-9]*$ ]] || n_ctx="$QL_DEFAULT_CTX"
 
-  if [ "$found" != "$want" ] && [ "$want" = "$QL_DEFAULT_MODEL" ]; then
-    # Default request can follow the served coding alias.
-    printf '%s' "$found"
-    return 0
-  fi
-
-  if [ "$found" != "$want" ]; then
-    # Explicit -m must be present exactly.
-    local exact=0
-    while IFS= read -r id; do
-      [ "$id" = "$want" ] && exact=1 && break
-    done <<< "$ids"
-    if [ "$exact" -ne 1 ]; then
-      printf 'subagent-local-qwen3.8-27b-run: wrong-model: requested %s not served (have: %s)\n' \
-        "$want" "$(printf '%s' "$ids" | tr '\n' ' ')" >&2
-      return 1
-    fi
-    if ! ql_is_coding_profile "$want"; then
-      printf 'subagent-local-qwen3.8-27b-run: wrong-model: refusing non-coding/longctx alias %s\n' "$want" >&2
-      return 1
-    fi
-    found="$want"
-  fi
-
-  printf '%s' "$found"
+  printf '%s\t%s' "$found" "$n_ctx"
   return 0
 }
 
 ql_write_isolated_settings() {
-  local home_dir="$1" model="$2" base="$3" effort="$4"
+  local home_dir="$1" model="$2" base="$3" effort="$4" ctx="$5"
+  # The id comes from the server: escape it so it cannot break the JSON.
+  model="${model//\\/\\\\}"; model="${model//\"/\\\"}"
   mkdir -p "$home_dir/.qwen"
   cat > "$home_dir/.qwen/settings.json" <<EOF
 {
@@ -322,13 +285,13 @@ ql_write_isolated_settings() {
     "openai": [
       {
         "id": "$model",
-        "name": "Local Qwen3.8-27B coding",
+        "name": "Local llama.cpp model",
         "baseUrl": "$base",
         "envKey": "OPENAI_API_KEY",
         "generationConfig": {
           "timeout": 600000,
           "streamIdleTimeoutMs": 600000,
-          "contextWindowSize": 65536,
+          "contextWindowSize": $ctx,
           "samplingParams": {
             "temperature": 1.0,
             "top_p": 0.95,
@@ -383,7 +346,7 @@ ql_print_cmd() {
 
 ql_main() {
   trap ql_cleanup EXIT
-  local dir="$PWD" model="$QL_DEFAULT_MODEL" effort="$QL_DEFAULT_EFFORT"
+  local dir="$PWD" model="${QWEN38_MODEL:-}" effort="$QL_DEFAULT_EFFORT"
   local timeout_secs="$QL_DEFAULT_TIMEOUT" prompt_file="" out="" print_cmd=0 print_base=0
   local turns="$QL_DEFAULT_TURNS" wall="$QL_DEFAULT_WALL"
   local approval_mode="yolo" prompt="" diff_base="" diff_file="" diff_dir="" diff_ready=""
@@ -447,7 +410,7 @@ ql_main() {
   contract_text="$(cat "$contract_file")"
 
   if [ "$print_cmd" -eq 1 ]; then
-    ql_print_cmd "$model" "$approval_mode" "$turns" "$wall" "$contract_text" "$diff_dir"
+    ql_print_cmd "${model:-<served>}" "$approval_mode" "$turns" "$wall" "$contract_text" "$diff_dir"
     return 0
   fi
 
@@ -520,7 +483,7 @@ $prompt"
 
   ql_preflight_cli || return $?
 
-  local base served rc
+  local base served rc ctx
   if [ -n "${OPENAI_BASE_URL:-}" ]; then
     base="$OPENAI_BASE_URL"
   else
@@ -536,13 +499,15 @@ $prompt"
     fi
     return "$rc"
   fi
-  model="$served"
+  model="${served%%$'\t'*}"
+  ctx="${served##*$'\t'}"
+  printf 'subagent-local-qwen3.8-27b-run: running model %s\n' "$model" >&2
 
   local iso_home real_home
   real_home="$HOME"
   iso_home="$(mktemp -d -t qwen38-home.XXXXXX)"
   QL_CLEANUP_PATHS+=("$iso_home")
-  ql_write_isolated_settings "$iso_home" "$model" "$base" "$effort"
+  ql_write_isolated_settings "$iso_home" "$model" "$base" "$effort" "$ctx"
 
   local log final errlog
   log="${out:-$(mktemp -t qwen38-run-log.XXXXXX)}"

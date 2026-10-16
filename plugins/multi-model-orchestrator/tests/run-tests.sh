@@ -2022,7 +2022,21 @@ pass 'run-qwen-local: qwen budget exit ignores provider-like stderr'
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
   bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1
 contains "$QL_WRAPPER_ARGV" '--yolo' 'implement dispatch passes --yolo'
+absent "$QL_WRAPPER_ARGV" '--model' 'the default route leaves the model to the served one'
 pass 'run-qwen-local: implement dispatch is write-capable'
+
+# A pinned id reaches the wrapper; the old pool-table label still means the default route.
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" --model pinned-id "task" >/dev/null 2>&1
+[ "$(grep -x -A1 -- '--model' "$QL_WRAPPER_ARGV" | tail -n1)" = pinned-id ] || fail 'a pinned model reaches the wrapper'
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" --model qwen3.8-27b-local "task" >/dev/null 2>&1
+absent "$QL_WRAPPER_ARGV" '--model' 'the legacy qwen3.8-27b-local label is the default route'
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" --model '' "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "an empty --model is a usage error (got $rc)"
+pass 'run-qwen-local: --model default|ID reaches the wrapper only as a pin'
 
 # an endpoint that does not answer at all is unavailable, not a hard failure
 rc=0
@@ -2105,7 +2119,7 @@ url=""
 for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
 case "$url" in
   */models)
-    printf '%s\n' '{"data":[{"id":"Qwen3.8-27B-UD-Q6_K_XL-coding"}]}'
+    printf '%s\n' '{"data":[{"id":"gpt-oss-120b","meta":{"n_ctx":32768}}]}'
     printf '%s\n' '200'
     ;;
   */slots)
@@ -2120,10 +2134,25 @@ CURLSTUB
   rc=0
   PATH="$contract_bin:$PATH" MMO_QWEN_LOCAL_RUN="$real_wrapper" \
     OPENAI_BASE_URL="http://127.0.0.1:8000/v1" HOME="$WORK" \
-    bash "$QL_RUN" --mode implement --repo "$qwen_repo" --timeout 30 "task" >/dev/null 2>&1 || rc=$?
+    bash "$QL_RUN" --mode implement --repo "$qwen_repo" --timeout 30 "task" >/dev/null 2>"$WORK/contract.err" || rc=$?
   [ "$rc" -eq 0 ] || fail "real-wrapper implement dispatch succeeds (got $rc)"
   contains "$QL_CONTRACT_ARGV" '--yolo' 'real wrapper received implement mode'
   pass 'run-qwen-local: real wrapper accepts the flags this runner sends'
+  # Whatever the endpoint serves is the default, and the exit line names it.
+  [ "$(grep -x -A1 -- '-m' "$QL_CONTRACT_ARGV" | tail -n1)" = gpt-oss-120b ] || fail 'the leg runs the served non-Qwen model'
+  contains "$WORK/contract.err" 'run-qwen-local: exit=0 model=gpt-oss-120b' 'the exit line names the served model'
+  # An explicit pin the endpoint does not serve still refuses, as unavailable.
+  : > "$QL_CONTRACT_ARGV"
+  rc=0
+  PATH="$contract_bin:$PATH" MMO_QWEN_LOCAL_RUN="$real_wrapper" \
+    OPENAI_BASE_URL="http://127.0.0.1:8000/v1" HOME="$WORK" \
+    bash "$QL_RUN" --mode implement --repo "$qwen_repo" --timeout 30 --model Qwen3.8-27B-UD-Q6_K_XL-coding "task" \
+    >/dev/null 2>"$WORK/contract.err" || rc=$?
+  [ "$rc" -eq 75 ] || fail "a pinned model the endpoint does not serve exits 75 (got $rc)"
+  contains "$WORK/contract.err" 'does not serve the requested model' 'a mismatched pin is named'
+  contains "$WORK/contract.err" 'model=Qwen3.8-27B-UD-Q6_K_XL-coding' 'a refused leg names the requested model'
+  [ ! -s "$QL_CONTRACT_ARGV" ] || fail 'a mismatched pin never runs qwen'
+  pass 'run-qwen-local: the served model is the default; a mismatched pin refuses'
 fi
 
 # Restore an idle /slots stub (the busy case removed it).
@@ -2416,7 +2445,7 @@ contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \
 contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
   'run-qwen-local.sh' 'meta-orchestration can dispatch the local runner'
 contains "$PLUGIN_ROOT/skills/route-model-task/references/routing.md" \
-  'qwen3.8-27b-local' 'routing catalog keeps the local engine'
+  '| Local Qwen | `default` |' 'routing catalog keeps the local engine'
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
   'run-qwen-local.sh --mode review' 'review-leg rule keeps the local reviewer read-only'
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
@@ -2908,7 +2937,7 @@ for cli in claude codex grok; do printf '#!/usr/bin/env bash\nexit 0\n' > "$PL/b
 cp "$AG/bin/agy" "$PL/bin/agy"
 cat > "$PL/tiers.tsv" <<'TSV'
 # test table
-T1	qwen	qwen3.8-27b-local	n/a
+T1	qwen	default	n/a
 T1	agy	gemini-3.8-flash	low
 T2	claude	claude-sonnet-5	medium
 T2	agy	gemini-3.8-flash	low
