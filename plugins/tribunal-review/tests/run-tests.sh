@@ -4489,6 +4489,36 @@ tr_check() {  # tr_check LABEL COMMAND...
 }
 
 # Repo-walking legs must not walk a checkout holding untracked .env files (#589).
+test_collector_surface_leftovers() {
+  local work ec=0
+  work="$(mktemp -d)"
+  git init -q "$work/repo"
+  git -C "$work/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m base
+  git -C "$work/repo" worktree add -q --detach "$work/review-one"
+  git -C "$work/repo" worktree add -q --detach "$work/review-two"
+  sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$work/lib.sh"
+  bash -c '
+    . "$1/collector-functions.sh"
+    SURFACE_ROOT="$1/repo"
+    load_safe_directories
+    pin_git_surface
+    REVIEW_SOURCE="$SURFACE_ROOT"
+    REVIEW_WORKTREES=("$1/review-one" "$1/review-two")
+    printf "/missing-common-dir\n" > "$SURFACE_ROOT/.git/commondir"
+  ' _ "$work" > "$work/out" 2> "$work/err" || ec=$?
+  leftovers_reported() {
+    [ "$ec" -eq 1 ] && [ -d "$work/review-one" ] && [ -d "$work/review-two" ] \
+      && grep -Fq "leftover review worktree: $work/review-one" "$work/err" \
+      && grep -Fq "leftover review worktree: $work/review-two" "$work/err" \
+      && grep -Fq 'git worktree prune' "$work/err"
+  }
+  tr_check "surface failure names every leftover worktree and the prune hint on stderr" leftovers_reported
+  git -C "$work/repo" worktree remove -f "$work/review-one"
+  git -C "$work/repo" worktree remove -f "$work/review-two"
+  rm -rf "$work"
+}
+
 test_collector_config_includes() {
   local work directive ec
   work="$(mktemp -d)"
@@ -5485,6 +5515,7 @@ test_preflight_risk_and_backups
 test_backup_leg_collection
 test_collector_completion_order
 test_collector_config_includes
+test_collector_surface_leftovers
 test_walk_root_hides_env_files
 
 echo ""

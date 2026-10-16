@@ -328,6 +328,11 @@ cleanup() {
     for review_worktree in "${REVIEW_WORKTREES[@]}"; do
       git -C "$REVIEW_SOURCE" worktree remove -f -f "$review_worktree" >/dev/null 2>&1 || true
     done
+  elif [ "$SURFACE_FAILED" -eq 1 ] && [ -n "${REVIEW_WORKTREES[0]:-}" ]; then
+    for review_worktree in "${REVIEW_WORKTREES[@]}"; do
+      printf 'tribunal evidence: leftover review worktree: %s\n' "$review_worktree" >&2
+    done
+    printf 'tribunal evidence: after restoring the Git surface, remove leftover worktrees and run git worktree prune\n' >&2
   fi
   [ -z "$STAGING" ] || [ ! -e "$STAGING" ] || rm -rf -- "$STAGING"
   [ -z "$FINAL_TMP1" ] || [ ! -e "$FINAL_TMP1" ] || rm -f -- "$FINAL_TMP1"
