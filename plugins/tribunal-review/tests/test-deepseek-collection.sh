@@ -30,7 +30,8 @@ cat > "$fake/dsh" <<'FIXTURE'
 #!/usr/bin/env bash
 cat >/dev/null
 if [ -n "${FIXTURE_DSH_ERROR:-}" ]; then
-  printf 'dsh: %s: fixture failure\n' "$FIXTURE_DSH_ERROR" >&2
+  printf 'dsh: %s: fixture failure %s\n' "$FIXTURE_DSH_ERROR" "$DEEPSEEK_API_KEY" >&2
+  jq -nc --arg key "$DEEPSEEK_API_KEY" '{type:"error",text:$key}'
   exit 1
 fi
 jq -nc --arg text '{"model":"deepseek-v4-pro","files_examined":["app.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' '{type:"final",text:$text}'
@@ -59,6 +60,7 @@ git -C "$repo" commit -qam change
 export FIXTURE_BASE="$(git -C "$repo" rev-parse HEAD~1)" FIXTURE_HEAD="$(git -C "$repo" rev-parse HEAD)"
 export PATH="$fake:$PATH" TRIBUNAL_LEG_ENV='FIXTURE_*' DEEPSEEK_API_KEY=DSH_COLLECT_SENTINEL_651
 export TRIBUNAL_DEEPSEEK=on TRIBUNAL_QWEN=off TRIBUNAL_BACKUP_LEGS=off
+export TRIBUNAL_DIAGNOSTIC_TAILS=on
 export DSH_HOME="$work/dsh-home"
 collect() {
   env "$@" bash "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 --output "$work/$case" > "$work/$case.json" 2> "$work/$case.err"
@@ -80,5 +82,8 @@ for error in RATE_LIMIT QUOTA; do
   jq -e 'any(.providers[]; .provider=="qwen" and .status=="ok")' "$work/$case/manifest.json" >/dev/null
   printf 'PASS: %s relaunches the next backup\n' "$error"
 done
-! grep -R -F -q "$DEEPSEEK_API_KEY" "$work" --exclude=test-deepseek-collection.sh
+if grep -R -F -q "$DEEPSEEK_API_KEY" "$work" --exclude=test-deepseek-collection.sh; then
+  printf 'FAIL: sentinel credential leaked into fixture outputs or artifacts\n'
+  exit 1
+fi
 printf 'PASS: sentinel credential absent from all fixture outputs and artifacts\n'
