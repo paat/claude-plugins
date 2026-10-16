@@ -5,12 +5,13 @@
   `TRIBUNAL_CODEX_EFFORT`; repo-walking with unrestricted execution inside the
   development-container security boundary; the review prompt prohibits changes.
 - DeepSeek: off by default; `TRIBUNAL_DEEPSEEK=on` enables it and makes
-  `TRIBUNAL_DEEPSEEK_MODEL` effective; repo-walking read-only.
+  `TRIBUNAL_DEEPSEEK_MODEL` effective (default `deepseek-v4-pro`); repo-walking
+  through dsh with a read-only sandbox, approval disabled, and session uploads,
+  telemetry, and web tools disabled. Requires dsh and a configured API key.
 - Claude: on by default; disable with `TRIBUNAL_CLAUDE=off`; model override
   `TRIBUNAL_CLAUDE_MODEL`; diff-only from a scratch directory with tools disabled.
 - Gemini: off by default; enable with `TRIBUNAL_GEMINI=on`; diff plus web/CVE
   lens.
-- GLM: off by default; enable with `TRIBUNAL_GLM=on`; OpenCode diff-only leg.
 - Qwen: off by default; enable with `TRIBUNAL_QWEN=on`; repo-walking on its own
   transport.
 - Grok: on by default; disable with `TRIBUNAL_GROK=off`; model override
@@ -25,7 +26,8 @@
 
 `TRIBUNAL_RISK` (environment only: `T1`–`T4`, the multi-model-orchestrator complexity tier)
 sets reviewer effort: T1 `low`, T2 `medium`, T3 `high`, T4 `high` with only Codex at `xhigh`
-(maximum-effort reviewers over-report speculative findings). Unset keeps each CLI default.
+(maximum-effort reviewers over-report speculative findings). DeepSeek maps T1 to `low`
+and T2–T4 to `high`; unset uses `high`. Unset keeps other CLI defaults.
 `TRIBUNAL_CODEX_EFFORT`, `TRIBUNAL_CLAUDE_EFFORT`, `TRIBUNAL_GROK_EFFORT`, and
 `TRIBUNAL_MUSE_EFFORT` override it.
 Panel membership never depends on the tier.
@@ -40,7 +42,7 @@ The limited leg stays `failed`, so confidence still reflects it.
 
 ## APPROVE quorum
 
-`TRIBUNAL_MIN_OK_LEGS` (default `1`, range 1..8) is the per-environment floor
+`TRIBUNAL_MIN_OK_LEGS` (default `1`, range 1..7) is the per-environment floor
 of `ok` provider legs required for `APPROVE`. It is environment-only — never
 read from the repository under review — and is sealed into the collection
 manifest as `panel_policy` at collect time. A documented lower value is that

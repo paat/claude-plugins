@@ -9,7 +9,7 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CONFIG_PARAMETERS \
   GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_SSH_COMMAND
 
-for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp stat setsid ps kill codex agy opencode qwen grok muse claude; do
+for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp stat setsid ps kill codex agy dsh qwen grok muse claude; do
   unset -f "$command_name" 2>/dev/null || true
 done
 unset command_name
@@ -67,7 +67,7 @@ PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
 SCHEMA_COLLECTION="tribunal-collection/v1"
 SCHEMA_PROOF="tribunal-proof/v1"
-PROVIDERS="codex gemini glm deepseek qwen grok muse claude"
+PROVIDERS="codex gemini deepseek qwen grok muse claude"
 STAGING=""
 REVIEW_SOURCE=""
 REVIEW_WORKTREES=()
@@ -542,7 +542,7 @@ fail_mutated_providers() {
     artifact="$dir/providers/$provider.json"
     [ "$(provider_status "$artifact")" != disabled ] || continue
     [ -z "${mutation_errors[$provider]:-}" ] || continue
-    case "$provider" in glm|deepseek) name=opencode ;; *) name="$provider" ;; esac
+    name="$provider"
     worktree_var="${name}_worktree"; worktree="${!worktree_var}"
     GIT_DIR="${review_gitdirs[$worktree]}"; GIT_WORK_TREE="$worktree"
     actual_head="$(git -C "$worktree" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" \
@@ -616,34 +616,11 @@ normalize_single() {
   fi
 }
 
-normalize_opencode() {
-  local raw="$1" rc="$2" dir="$3" want_base="${4:-}" want_head="${5:-}" provider count candidate
-  for provider in glm deepseek; do
-    if [ "$rc" -ne 0 ]; then
-      write_failed_provider "$provider" "$(wrapper_exit_message "$rc")" "$dir/providers/$provider.json"
-      continue
-    fi
-    count="$(jq -s --arg p "$provider" '[.[] | select(.provider == $p)] | length' "$raw" 2>/dev/null || printf 0)"
-    if [ "$count" != 1 ]; then
-      write_failed_provider "$provider" "OpenCode wrapper omitted or duplicated provider leg" "$dir/providers/$provider.json"
-      continue
-    fi
-    candidate="$dir/providers/$provider.tmp"
-    jq -S -s --arg p "$provider" '[.[] | select(.provider == $p)][0] | .provider = $p' "$raw" > "$candidate"
-    if validate_provider "$provider" "$candidate" "$want_base" "$want_head"; then
-      mv "$candidate" "$dir/providers/$provider.json"
-    else
-      rm -f "$candidate"
-      write_failed_provider "$provider" "provider wrapper output failed schema validation" "$dir/providers/$provider.json"
-    fi
-  done
-}
-
 wrapper_for_provider() {
   case "$1" in
     codex) printf '%s/run-codex-review.sh\n' "$SCRIPT_DIR" ;;
     gemini) printf '%s/run-gemini-review.sh\n' "$SCRIPT_DIR" ;;
-    glm|deepseek) printf '%s/run-opencode-review.sh\n' "$SCRIPT_DIR" ;;
+    deepseek) printf '%s/run-deepseek-review.sh\n' "$SCRIPT_DIR" ;;
     qwen) printf '%s/run-qwen-review.sh\n' "$SCRIPT_DIR" ;;
     grok) printf '%s/run-grok-review.sh\n' "$SCRIPT_DIR" ;;
     muse) printf '%s/run-muse-review.sh\n' "$SCRIPT_DIR" ;;
@@ -659,9 +636,8 @@ collect() {
   local root="" pr="" output="" started binding head_oid base_oid parent review_tmp bundle
   local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json deleted_paths_json
   local mutation_gate_json
-  local codex_worktree gemini_worktree opencode_worktree qwen_worktree grok_worktree muse_worktree claude_worktree review_worktree
-  local min_ok_legs backup_legs backups backup limited idle
-  local backup_glm backup_deepseek
+  local codex_worktree gemini_worktree deepseek_worktree qwen_worktree grok_worktree muse_worktree claude_worktree review_worktree
+  local min_ok_legs backup_legs backups backup limited
   local -A mutation_errors=() review_gitdirs=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -721,7 +697,7 @@ collect() {
   fi
 
   REVIEW_SOURCE="$root"; REVIEW_WORKTREES=()
-  for name in codex gemini opencode qwen grok muse claude; do
+  for name in codex gemini deepseek qwen grok muse claude; do
     review_tmp="$(mktemp -d "${TMPDIR:-/tmp}/tribunal-$name.XXXXXX")"; rmdir "$review_tmp"
     git -C "$root" worktree add --detach --quiet "$review_tmp" "$head_oid"
     review_tmp="$(real_dir "$review_tmp")"
@@ -731,7 +707,7 @@ collect() {
     case "$name" in
       codex) codex_worktree="$review_tmp" ;;
       gemini) gemini_worktree="$review_tmp" ;;
-      opencode) opencode_worktree="$review_tmp" ;;
+      deepseek) deepseek_worktree="$review_tmp" ;;
       qwen) qwen_worktree="$review_tmp" ;;
       grok) grok_worktree="$review_tmp" ;;
       muse) muse_worktree="$review_tmp" ;;
@@ -741,24 +717,22 @@ collect() {
 
   run_wrapper codex "$SCRIPT_DIR/run-codex-review.sh" "$codex_worktree" "$base_oid" "$STAGING/wrappers"
   run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers"
-  run_wrapper opencode "$SCRIPT_DIR/run-opencode-review.sh" "$opencode_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper deepseek "$SCRIPT_DIR/run-deepseek-review.sh" "$deepseek_worktree" "$base_oid" "$STAGING/wrappers"
   run_wrapper qwen "$SCRIPT_DIR/run-qwen-review.sh" "$qwen_worktree" "$base_oid" "$STAGING/wrappers"
   run_wrapper grok "$SCRIPT_DIR/run-grok-review.sh" "$grok_worktree" "$base_oid" "$STAGING/wrappers"
   run_wrapper muse "$SCRIPT_DIR/run-muse-review.sh" "$muse_worktree" "$base_oid" "$STAGING/wrappers"
   run_wrapper claude "$SCRIPT_DIR/run-claude-review.sh" "$claude_worktree" "$base_oid" "$STAGING/wrappers"
   wait_wrappers
 
-  for name in codex gemini qwen grok muse claude; do
+  for name in $PROVIDERS; do
     rc="$(cat "$STAGING/wrappers/$name.exit")"
     normalize_single "$name" "$STAGING/wrappers/$name.raw" "$rc" "$STAGING/providers/$name.json" \
       "$base_oid" "$head_oid"
   done
-  rc="$(cat "$STAGING/wrappers/opencode.exit")"
-  normalize_opencode "$STAGING/wrappers/opencode.raw" "$rc" "$STAGING" "$base_oid" "$head_oid"
   fail_mutated_providers "$head_oid" "$STAGING"
 
   # One backup leg per plan-limited leg, from TRIBUNAL_BACKUP_LEGS: an installed leg whose
-  # wrapper sat idle this run (GLM and DeepSeek share one). The limited leg stays failed.
+  # wrapper sat idle this run. The limited leg stays failed.
   limited=0
   for provider in $PROVIDERS; do
     jq -e '(.error // "") | startswith("plan limit:")' "$STAGING/providers/$provider.json" >/dev/null \
@@ -767,21 +741,14 @@ collect() {
   backups=""
   for backup in $backup_legs; do
     [ "$limited" -gt 0 ] || break
-    case "$backup" in glm|deepseek) idle="glm deepseek" ;; *) idle="$backup" ;; esac
-    for provider in $idle; do
-      [ "$(provider_status "$STAGING/providers/$provider.json")" = disabled ] || continue 2
-    done
+    [ "$(provider_status "$STAGING/providers/$backup.json")" = disabled ] || continue
     tribunal_backup_installed "$backup" || continue
     backups="$backups $backup "; limited=$((limited - 1))
   done
   if [ -n "$backups" ]; then
     printf 'tribunal evidence: running backup legs for plan-limited legs:%s\n' "$backups" >&2
-    case "$backups" in *" glm "*|*" deepseek "*)
-      backup_glm="${TRIBUNAL_GLM:-off}"; backup_deepseek="${TRIBUNAL_DEEPSEEK:-off}"
-      case "$backups" in *" glm "*) backup_glm=on ;; esac
-      case "$backups" in *" deepseek "*) backup_deepseek=on ;; esac
-      TRIBUNAL_GLM="$backup_glm" TRIBUNAL_DEEPSEEK="$backup_deepseek" \
-        run_wrapper opencode "$SCRIPT_DIR/run-opencode-review.sh" "$opencode_worktree" "$base_oid" "$STAGING/wrappers" ;;
+    case "$backups" in *" deepseek "*)
+      TRIBUNAL_DEEPSEEK=on run_wrapper deepseek "$SCRIPT_DIR/run-deepseek-review.sh" "$deepseek_worktree" "$base_oid" "$STAGING/wrappers" ;;
     esac
     case "$backups" in *" gemini "*)
       TRIBUNAL_GEMINI=on run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers" ;;
@@ -791,15 +758,9 @@ collect() {
     esac
     wait_wrappers
     for backup in $backups; do
-      case "$backup" in gemini|qwen)
-        normalize_single "$backup" "$STAGING/wrappers/$backup.raw" "$(cat "$STAGING/wrappers/$backup.exit")" \
-          "$STAGING/providers/$backup.json" "$base_oid" "$head_oid" ;;
-      esac
+      normalize_single "$backup" "$STAGING/wrappers/$backup.raw" "$(cat "$STAGING/wrappers/$backup.exit")" \
+          "$STAGING/providers/$backup.json" "$base_oid" "$head_oid"
     done
-    case "$backups" in *" glm "*|*" deepseek "*)
-      normalize_opencode "$STAGING/wrappers/opencode.raw" "$(cat "$STAGING/wrappers/opencode.exit")" \
-        "$STAGING" "$base_oid" "$head_oid" ;;
-    esac
     fail_mutated_providers "$head_oid" "$STAGING"
   fi
   providers_json="$STAGING/providers.jsonl"; : > "$providers_json"
@@ -808,8 +769,8 @@ collect() {
     validate_provider "$provider" "$artifact" "$base_oid" "$head_oid" \
       || die "internal provider normalization failed: $provider"
     wrapper="$(wrapper_for_provider "$provider")"; wrapper_name="$(basename "$wrapper" .sh)"
-    [ "$provider" = glm ] || [ "$provider" = deepseek ] || wrapper_name="${wrapper_name#run-}"
-    case "$provider" in glm|deepseek) name=opencode ;; *) name="$provider" ;; esac
+    wrapper_name="${wrapper_name#run-}"
+    name="$provider"
     status="$(provider_status "$artifact")"
     stderr="$STAGING/wrappers/$name.stderr"
     jq -nc --arg provider "$provider" --arg status "$status" \
@@ -937,19 +898,19 @@ validate_manifest_shape() {
           and .path=="mutation-gate.json" and (.sha256|sha) and (.bytes|uint and .>0)))
     and ((has("panel_policy")|not) or
          (.panel_policy | exact(["min_ok_legs","source"];["min_ok_legs","source"])
-          and (.min_ok_legs|type=="number" and .>=1 and .<=8 and .==floor)
+          and (.min_ok_legs|type=="number" and .>=1 and .<=7 and .==floor)
           and .source=="env"))
     and (.runner | exact(["path","sha256","library_path","library_sha256","bundle_manifest_path","bundle_manifest_sha256"];
                          ["path","sha256","library_path","library_sha256","bundle_manifest_path","bundle_manifest_sha256"])
          and (.path|text and startswith("/")) and (.sha256|sha)
          and (.library_path|text and startswith("/")) and (.library_sha256|sha)
          and (.bundle_manifest_path|text and startswith("/")) and (.bundle_manifest_sha256|sha))
-    and (.providers|type=="array" and length==8
-         and ([.[].provider]|sort)==(["claude","codex","deepseek","gemini","glm","grok","muse","qwen"])
+    and (.providers|type=="array" and length==7
+         and ([.[].provider]|sort)==(["claude","codex","deepseek","gemini","grok","muse","qwen"])
          and all(.[];
            exact(["provider","status","wrapper","artifact","started_at","finished_at","exit_code","stderr"];
                  ["provider","status","wrapper","artifact","started_at","finished_at","exit_code","stderr"])
-           and (.provider|IN("codex","gemini","glm","deepseek","qwen","grok","muse","claude"))
+           and (.provider|IN("codex","gemini","deepseek","qwen","grok","muse","claude"))
            and (.status|IN("ok","failed","disabled"))
            and (.wrapper|exact(["path","sha256"];["path","sha256"])
                 and (.path|text and startswith("/")) and (.sha256|sha))
@@ -1117,11 +1078,11 @@ validate_arbitration() {
   dir="$(dirname "$manifest")"
   evidence="$(jq -nc \
     --slurpfile codex "$dir/providers/codex.json" --slurpfile gemini "$dir/providers/gemini.json" \
-    --slurpfile glm "$dir/providers/glm.json" --slurpfile deepseek "$dir/providers/deepseek.json" \
+    --slurpfile deepseek "$dir/providers/deepseek.json" \
     --slurpfile qwen "$dir/providers/qwen.json" --slurpfile grok "$dir/providers/grok.json" \
     --slurpfile muse "$dir/providers/muse.json" \
     --slurpfile claude "$dir/providers/claude.json" \
-    '{codex:$codex[0],gemini:$gemini[0],glm:$glm[0],deepseek:$deepseek[0],qwen:$qwen[0],grok:$grok[0],muse:$muse[0],claude:$claude[0]}')"
+    '{codex:$codex[0],gemini:$gemini[0],deepseek:$deepseek[0],qwen:$qwen[0],grok:$grok[0],muse:$muse[0],claude:$claude[0]}')"
   if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
     ignored_paths="$(jq -c . "$dir/ignored-paths.json")"
   else
@@ -1174,7 +1135,7 @@ validate_arbitration() {
                  or ($deleted_paths | any(.[]; .path == $finding.file))
                  or ($mutation_gate | any(.[]; .path == $finding.file))
                else
-                 ($p | IN("codex","gemini","glm","deepseek","qwen","grok","muse","claude"))
+                 ($p | IN("codex","gemini","deepseek","qwen","grok","muse","claude"))
                  and $statuses[$p] == "ok"
                  and (($evidence[$p].findings // []) | any(.[]; .file == $finding.file))
                end))
@@ -1225,11 +1186,11 @@ validate_arbitration() {
           and .severity == "high")))
     and (.scope_findings|type=="array" and all(.[];scope) and ([.[].id]|length)==([.[].id]|unique|length))
     and (.findings as $final_findings | .provider_assessment
-         | exact(["codex","gemini","glm","deepseek","qwen","grok","muse","claude"];
-                 ["codex","gemini","glm","deepseek","qwen","grok","muse","claude"])
+         | exact(["codex","gemini","deepseek","qwen","grok","muse","claude"];
+                 ["codex","gemini","deepseek","qwen","grok","muse","claude"])
          and (.codex|assessment("codex";$final_findings))
          and (.gemini|assessment("gemini";$final_findings))
-         and (.glm|assessment("glm";$final_findings)) and (.deepseek|assessment("deepseek";$final_findings))
+         and (.deepseek|assessment("deepseek";$final_findings))
          and (.qwen|assessment("qwen";$final_findings)) and (.grok|assessment("grok";$final_findings))
          and (.muse|assessment("muse";$final_findings))
          and (.claude|assessment("claude";$final_findings)))

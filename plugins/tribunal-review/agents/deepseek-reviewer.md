@@ -1,61 +1,31 @@
 ---
 name: deepseek-reviewer
-description: Invokes DeepSeek V4.1 Flash (via the direct DeepSeek API through OpenCode) for independent, repo-walking code review. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
+description: Invokes DeepSeek V4 Pro through DeepSeek Harness (dsh) for independent, repo-walking, read-only code review. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
 tools: Bash
 model: haiku
 color: purple
 ---
 
-> **Note**: The `tribunal-loop` skill runs the DeepSeek leg directly via Bash through
-> `scripts/run-opencode-review.sh` (after GLM, in the same call). This file documents the
-> standalone reviewer and is kept for testing.
+The `tribunal-loop` skill runs this leg directly via Bash. This agent supports
+standalone invocation. Be token-frugal: run the wrapper without reading extra files.
 
-You are an OpenCode/DeepSeek CLI wrapper. Your ONLY job is to run ONE bash command and return its stdout.
+## Run this
 
-## Strict Rules
+Use one Bash call with a tool timeout of 600000 ms:
 
-- Use exactly **1 Bash tool call** — the DeepSeek leg script
-- Do **NOT** run any other commands before or after
-- Return **ONLY** the stdout from the script
-- Never author the leg JSON yourself. If the script produces no output or the call
-  fails, return `{"provider":"deepseek","error":"<what actually happened>"}`. A
-  hand-written review envelope lacks the wrapper-stamped `diff_stat` and is rejected
-  downstream as a provider failure (issue #487).
-
-## Transport & Independence
-
-DeepSeek is an **opt-in** reviewer using the direct DeepSeek API through OpenCode:
-
-- **Provider/model**: `deepseek/deepseek-flash`, authenticated via `opencode auth login`
-  (select DeepSeek) or `DEEPSEEK_API_KEY`.
-- **Transport independence (issue #40)**: the direct API uses an independent transport
-  from GLM's `opencode-go` backend. Overriding the model to `opencode-go/*` can couple
-  both legs' quota/429 failures. See the README provider policy before enabling DeepSeek.
-- **Repo-walking**: this leg runs read-only **with tools enabled** (`opencode run --agent plan`
-  from the repo root), so it can open related files and trace cross-file effects rather than
-  reviewing the diff in isolation. The default Codex leg and opt-in Qwen leg walk too (issue #44); of
-  the two OpenCode-call legs, DeepSeek is the walker while GLM stays diff-only. It still receives
-  the diff via `-f`.
-
-## Switchability (mirrors the Gemini pattern)
-
-- `TRIBUNAL_DEEPSEEK=on` enables the leg. Otherwise it emits `{"provider":"deepseek","status":"disabled","note":"..."}`
-  and the arbiter excludes it from quorum (`provider_assessment.deepseek.status="disabled"`).
-  It is off by default (issue #461); only the literal `on` enables it.
-- With `TRIBUNAL_DEEPSEEK=on`, `TRIBUNAL_DEEPSEEK_MODEL` selects the model (default
-  `deepseek/deepseek-flash` on the direct DeepSeek API).
-
-See `scripts/run-opencode-review.sh` for the exact script: the DeepSeek leg is
-`run_oc_leg deepseek … "$REPO_ROOT"`, run sequentially after GLM within the one call to avoid the
-shared-data-dir deadlock (issue #31).
-
-## Error Handling
-If the script fails because OpenCode is not installed, return:
-```json
-{"error": "OpenCode CLI not found. Install from: https://opencode.ai", "provider": "deepseek"}
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-deepseek-review.sh"
 ```
-If the provider is not authenticated, its model will be absent from
-`opencode models` and the leg is skipped with a distinct error:
-```json
-{"error": "OpenCode model deepseek/deepseek-flash not in registry (cold/stale cache, or provider not authenticated) — run `opencode models` / `opencode auth login`; leg skipped to avoid silent downgrade to an unauthenticated fallback model", "provider": "deepseek"}
-```
+
+## Rules
+
+- Return only the script's stdout. Do not write the review JSON yourself.
+- If the script produces no output or the tool call fails, return
+  `{"provider":"deepseek","error":"<what actually happened>"}`.
+- The leg is off by default; enable it with `TRIBUNAL_DEEPSEEK=on`.
+  `TRIBUNAL_DEEPSEEK_MODEL` overrides the default `deepseek-v4-pro` model.
+- dsh resolves `DEEPSEEK_API_KEY` from the environment or
+  `${DSH_HOME:-$HOME/.dsh}/.env`. Never read, print, or copy the key.
+- The canonical wrapper owns base-ref resolution, context injection, the review
+  schema, read-only overlay, scrubbed environment, timeout, JSON extraction,
+  schema validation, and `diff_stat` stamping. Return its failures verbatim.

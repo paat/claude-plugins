@@ -1,6 +1,6 @@
 ---
 name: qwen-reviewer
-description: Invokes the Qwen Code CLI (Alibaba Qwen, direct transport) for independent, repo-walking (read-only) code review. Decorrelated from the OpenCode GLM/DeepSeek legs. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
+description: Invokes the Qwen Code CLI (Alibaba Qwen, direct transport) for independent, repo-walking (read-only) code review. Uses Alibaba's own model and transport. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
 tools: Bash
 model: haiku
 color: cyan

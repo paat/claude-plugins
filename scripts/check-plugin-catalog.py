@@ -31,7 +31,7 @@ NON_POSIX_DEPS = {
     "node": ("node", "node.js"),
     "npm": ("npm",),
     "npx": ("npx",),
-    "opencode": ("opencode",),
+    "dsh": ("dsh",),
     "python3": ("python3", "python"),
     "qwen": ("qwen", "qwen code"),
 }
