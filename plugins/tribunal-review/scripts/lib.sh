@@ -80,7 +80,7 @@ tribunal_deepseek_available() {
       }
       END { exit !found }
     ' "${DSH_HOME:-${HOME}/.dsh}/.credentials.yaml" 2>/dev/null \
-    || grep -q '^DEEPSEEK_API_KEY=' "${DSH_HOME:-${HOME}/.dsh}/.env" 2>/dev/null; then
+    || grep -q '^DEEPSEEK_API_KEY=.' "${DSH_HOME:-${HOME}/.dsh}/.env" 2>/dev/null; then
     return 0
   fi
   printf 'MISSING_CREDENTIAL: DEEPSEEK_API_KEY is not set and no dsh credential key entry exists\n'
