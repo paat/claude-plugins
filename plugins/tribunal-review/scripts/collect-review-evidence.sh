@@ -107,8 +107,11 @@ kill_leg() {
   done < <(ps -eo sid=,pgid= | awk -v sid="$pid" '$1 == sid && !seen[$2]++ { print $2 }')
 }
 
-reject_worktree_config() {
-  local enabled rc
+reject_uncontained_config() {
+  local enabled rc entries
+  entries="$(config_entries "$CONFIG_SNAPSHOT")" || die "cannot parse common repository config"
+  printf '%s' "$entries" | jq -e 'keys | all(.[]; test("^(include|includeif)\\.") | not)' >/dev/null \
+    || die "sealed collection does not support repository config include/includeIf directives; use a clone without them"
   enabled="$(git -C "$1" config --type=bool --get extensions.worktreeConfig)" || {
     rc=$?
     [ "$rc" -eq 1 ] || die "cannot read extensions.worktreeConfig"
@@ -668,7 +671,7 @@ collect() {
   load_safe_directories
   require_git_version
   pin_git_surface
-  reject_worktree_config "$root"
+  reject_uncontained_config "$root"
   [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || die "--repo-root is not a Git worktree root"
   case "$output" in /*) ;; *) die "--output must be absolute" ;; esac
   [ ! -e "$output" ] && [ ! -L "$output" ] || die "collection output already exists"
@@ -1032,7 +1035,7 @@ verify_collection_internal() {
   load_git_surface "$manifest"
   load_safe_directories
   require_git_version
-  reject_worktree_config "$SURFACE_ROOT"
+  reject_uncontained_config "$SURFACE_ROOT"
   if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
     [ -f "$dir/ignored-paths.json" ] && [ ! -L "$dir/ignored-paths.json" ] \
       || die "ignored-path artifact missing or symbolic"

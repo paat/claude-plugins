@@ -4489,6 +4489,27 @@ tr_check() {  # tr_check LABEL COMMAND...
 }
 
 # Repo-walking legs must not walk a checkout holding untracked .env files (#589).
+test_collector_config_includes() {
+  local work directive ec
+  work="$(mktemp -d)"
+  git init -q "$work/repo"
+  mkdir "$work/bin"
+  printf '#!/usr/bin/env bash\nexit 99\n' > "$work/bin/gh"
+  chmod +x "$work/bin/gh"
+  for directive in include.path 'includeIf.gitdir:/nonmatching/.path'; do
+    git -C "$work/repo" config "$directive" "$work/external-config"
+    ec=0
+    PATH="$work/bin:$PATH" bash "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" collect \
+      --repo-root "$work/repo" --pr 7 --output "$work/collection" > "$work/out" 2> "$work/err" || ec=$?
+    config_include_rejected() {
+      [ "$ec" -eq 1 ] && grep -Fq 'sealed collection does not support repository config include/includeIf directives' "$work/err"
+    }
+    tr_check "common config refuses $directive with a named error" config_include_rejected
+    git -C "$work/repo" config --unset "$directive"
+  done
+  rm -rf "$work"
+}
+
 test_collector_completion_order() {
   local work ec=0
   work="$(mktemp -d)"
@@ -5463,6 +5484,7 @@ test_risk_effort_reaches_claude_and_grok
 test_preflight_risk_and_backups
 test_backup_leg_collection
 test_collector_completion_order
+test_collector_config_includes
 test_walk_root_hides_env_files
 
 echo ""
