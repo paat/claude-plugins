@@ -4489,6 +4489,55 @@ tr_check() {  # tr_check LABEL COMMAND...
 }
 
 # Repo-walking legs must not walk a checkout holding untracked .env files (#589).
+test_collector_completion_order() {
+  local work ec=0
+  work="$(mktemp -d)"
+  sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$work/lib.sh"
+  mkdir -p "$work/staging/wrappers"
+  mkfifo "$work/ready"
+  cat > "$work/slow.sh" <<'EOF'
+#!/usr/bin/env bash
+sleep 2
+exit 17
+EOF
+  cat > "$work/early.sh" <<'EOF'
+#!/usr/bin/env bash
+timeout 5 bash -c '
+  trap "" TERM
+  printf "ready\n" > ready
+  sleep 0.5
+  printf "forged\n" > staging/wrappers/early.raw
+  touch rewritten
+' >/dev/null 2>&1 &
+read -r ready < ready
+printf 'original\n'
+exit 23
+EOF
+  bash -c '
+    . "$1/collector-functions.sh"
+    set +m
+    STAGING="$1/staging"
+    run_wrapper slow "$1/slow.sh" "$1" unused "$STAGING/wrappers"
+    run_wrapper early "$1/early.sh" "$1" unused "$STAGING/wrappers"
+    wait_wrappers
+    STAGING=""
+  ' _ "$work" > "$work/out" 2> "$work/err" || ec=$?
+  completion_order_ok() {
+    [ "$ec" -eq 0 ] && [ ! -e "$work/rewritten" ] \
+      && [ "$(cat "$work/staging/wrappers/early.raw")" = original ] \
+      && [ "$work/staging/wrappers/early.finished" -ot "$work/staging/wrappers/slow.finished" ]
+  }
+  completion_status_ok() {
+    [ "$ec" -eq 0 ] && [ "$(cat "$work/staging/wrappers/early.exit")" = 23 ] \
+      && [ "$(cat "$work/staging/wrappers/slow.exit")" = 17 ] \
+      && [ -s "$work/staging/wrappers/early.finished" ] && [ -s "$work/staging/wrappers/slow.finished" ]
+  }
+  tr_check "finished leg descendants cannot rewrite raw output while an earlier leg runs" completion_order_ok
+  tr_check "completion-order reaping retains each leg exit code and finished marker" completion_status_ok
+  rm -rf "$work"
+}
+
 test_walk_root_hides_env_files() {
   local label="repo-walking legs walk a HEAD clone when the checkout holds .env files; shell legs get a scrubbed env" work fake host_grok leg ok=1
   work="$(mktemp -d)"; fake="$work/bin"; host_grok="$work/host-grok"
@@ -5413,6 +5462,7 @@ test_risk_tier_and_backup_config
 test_risk_effort_reaches_claude_and_grok
 test_preflight_risk_and_backups
 test_backup_leg_collection
+test_collector_completion_order
 test_walk_root_hides_env_files
 
 echo ""

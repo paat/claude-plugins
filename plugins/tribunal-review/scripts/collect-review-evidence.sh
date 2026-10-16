@@ -336,6 +336,8 @@ trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
 require_tools() {
+  (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3) )) \
+    || die "bash 4.3+ is required for wait -n"
   local tool
   for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp stat flock setsid ps; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
@@ -583,14 +585,22 @@ run_wrapper() {
 }
 
 wait_wrappers() {
-  local index pid name rc
-  for index in "${!REVIEW_PIDS[@]}"; do
-    pid="${REVIEW_PIDS[$index]}"; name="${REVIEW_NAMES[$index]}"; rc=0
-    wait "$pid" || rc=$?
-    kill_leg "$pid"
-    check_git_surface || die "git surface changed; collection rejected"
-    printf '%s\n' "$rc" > "$STAGING/wrappers/$name.exit"
-    printf '%s\n' "$(now)" > "$STAGING/wrappers/$name.finished"
+  local index pid name rc running remaining="${#REVIEW_PIDS[@]}"
+  while [ "$remaining" -gt 0 ]; do
+    running="$(jobs -pr)"
+    for index in "${!REVIEW_PIDS[@]}"; do
+      pid="${REVIEW_PIDS[$index]}"; name="${REVIEW_NAMES[$index]}"
+      [[ $'\n'"$running"$'\n' != *$'\n'"$pid"$'\n'* ]] || continue
+      rc=0
+      wait "$pid" || rc=$?
+      kill_leg "$pid"
+      unset 'REVIEW_PIDS[index]' 'REVIEW_NAMES[index]'
+      remaining=$((remaining - 1))
+      check_git_surface || die "git surface changed; collection rejected"
+      printf '%s\n' "$rc" > "$STAGING/wrappers/$name.exit"
+      printf '%s\n' "$(now)" > "$STAGING/wrappers/$name.finished"
+    done
+    if [ "$remaining" -gt 0 ]; then wait -n || true; fi
   done
   REVIEW_PIDS=(); REVIEW_NAMES=()
 }
