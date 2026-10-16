@@ -24,7 +24,7 @@ process before merge.
 - `sha256sum` (used to seal PR delivery manifests and retained artifacts)
 - `flock` (used to make proof finalization concurrency- and crash-safe)
 - Sealed collection requires Linux: `setsid` (util-linux), procps `ps -o sid`, and GNU `stat -c` for session containment and Git directory identity/config checks. On macOS, run sealed collection in a Linux container; the `gtimeout` guidance below applies only to standalone reviewer legs.
-- `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or the reviewer returns an error JSON) — caps Codex, Gemini, Qwen, Grok, Muse, and Claude at 10 minutes and DeepSeek at 12 minutes. Each leg has an independent timeout; a failed leg degrades to the available quorum.
+- `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or the reviewer returns an error JSON) — caps Codex, Gemini, Qwen, Grok, Muse, Claude, and DeepSeek at 10 minutes. Each leg has an independent timeout; a failed leg degrades to the available quorum.
 - Valid API keys / auth configured for each enabled CLI
 
 Each reviewer degrades gracefully: if a CLI is missing or a model fails, that reviewer emits an error object and the arbiter proceeds with the remaining reviewers.
