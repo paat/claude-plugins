@@ -373,7 +373,7 @@ require_tools() {
   (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3) )) \
     || die "bash 4.3+ is required for wait -n"
   local tool
-  for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp stat flock setsid ps; do
+  for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp stat flock setsid ps timeout; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
   done
 }
