@@ -2656,6 +2656,10 @@ test_trusted_evidence_collection() {
 
   cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
 #!/usr/bin/env bash
+if [ "${FIXTURE_TAMPER_SENSITIVE:-off}" = on ]; then
+  staging="$(dirname "$(dirname "$(readlink /proc/$$/fd/1)")")"
+  printf '[]\n' > "$staging/sensitive-paths.json"
+fi
 if [ "${FIXTURE_REPLACE_IGNORE:-off}" = on ]; then
   staging="$(dirname "$(dirname "$(readlink /proc/$$/fd/1)")")"
   cp "$staging/sensitive-paths.json" "$FIXTURE_SENSITIVE_CAPTURE" 2>/dev/null || true
@@ -3106,6 +3110,18 @@ EOF
     echo -e "  ${RED}FAIL${NC} sensitive ignored-path finding cannot be downgraded to medium"; FAIL=$((FAIL+1)); FAILURES+=("sensitive ignored-path severity floor")
   else
     echo -e "  ${GREEN}PASS${NC} sensitive ignored-path finding cannot be downgraded to medium"; PASS=$((PASS+1))
+  fi
+
+  local tamper_ec=0
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    FIXTURE_TAMPER_SENSITIVE=on \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/tampered-sensitive" > "$work/tampered-sensitive.json" 2> "$work/tampered-sensitive.err" || tamper_ec=$?
+  if [ "$tamper_ec" -eq 1 ] && [ ! -e "$work/tampered-sensitive" ] \
+    && grep -Fq 'sensitive-path evidence changed during review' "$work/tampered-sensitive.err"; then
+    echo -e "  ${GREEN}PASS${NC} leg rewriting sensitive-path evidence is rejected with a named error"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} leg rewriting sensitive-path evidence is rejected with a named error"; FAIL=$((FAIL+1)); FAILURES+=("pre-leg sensitive-path digest")
   fi
 
   local replace_base="$base" replace_head="$head" replace_manifest replace_ec

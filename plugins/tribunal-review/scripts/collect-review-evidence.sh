@@ -679,7 +679,7 @@ collect() {
   set +m
   local root="" pr="" output="" started binding head_oid base_oid parent review_tmp bundle
   local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json deleted_paths_json
-  local mutation_gate_json sensitive_paths source line path content
+  local mutation_gate_json sensitive_paths sensitive_paths_sha256="" source line path content
   local codex_worktree gemini_worktree deepseek_worktree qwen_worktree grok_worktree muse_worktree claude_worktree review_worktree
   local min_ok_legs backup_legs backups backup limited
   local -A mutation_errors=() review_gitdirs=()
@@ -745,6 +745,7 @@ collect() {
       fi
     done < <(jq -r '.[] | [.source, (.line | tostring), .path] | @tsv' "$STAGING/ignored-paths.json")
     printf '%s' "$sensitive_paths" | jq -S . > "$STAGING/sensitive-paths.json"
+    sensitive_paths_sha256="$(sha_file "$STAGING/sensitive-paths.json")"
   fi
   deleted_paths_json="$(cd "$root" && tribunal_deleted_policy_paths "$base_oid")"
   if [ "$(printf '%s' "$deleted_paths_json" | jq 'length')" -gt 0 ]; then
@@ -858,6 +859,11 @@ collect() {
   mkdir "$STAGING/git-surface"
   cp -- "$SURFACE_SNAPSHOTS/"* "$STAGING/git-surface/"
   chmod 0400 "$STAGING/git-surface/"*
+  if [ -n "$sensitive_paths_sha256" ]; then
+    [ -f "$STAGING/sensitive-paths.json" ] && [ ! -L "$STAGING/sensitive-paths.json" ] \
+      && [ "$(sha_file "$STAGING/sensitive-paths.json")" = "$sensitive_paths_sha256" ] \
+      || die "sensitive-path evidence changed during review"
+  fi
   jq -S -n --arg schema "$SCHEMA_COLLECTION" --arg started_at "$started" \
     --arg completed_at "$(now)" --argjson binding "$binding" \
     --argjson git_surface "$SURFACE_STATE" \
