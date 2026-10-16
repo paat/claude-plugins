@@ -3,7 +3,7 @@
 # this runner owns provider identity, repository/PR binding, and artifact hashes.
 set -euo pipefail
 umask 077
-export LC_ALL=C
+export LC_ALL=C GIT_NO_REPLACE_OBJECTS=1
 unset BASH_ENV ENV CDPATH GLOBIGNORE
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CONFIG_PARAMETERS \
