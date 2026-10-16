@@ -17,8 +17,6 @@ tribunal_grok_authenticated || {
 GROK_MODEL="${TRIBUNAL_GROK_MODEL:-grok-4.7}"
 RISK_EFFORT="$(tribunal_risk_effort grok 2>&1)" || { tribunal_error grok "$RISK_EFFORT"; exit 0; }
 GROK_EFFORT="${TRIBUNAL_GROK_EFFORT:-$RISK_EFFORT}"
-effort_args=()
-[ -z "$GROK_EFFORT" ] || effort_args=(--reasoning-effort "$GROK_EFFORT")
 INSPECT_TIMEOUT="${TRIBUNAL_GROK_TIMEOUT_SECONDS:-600}"
 FINALIZE_TIMEOUT="${TRIBUNAL_GROK_FINALIZE_TIMEOUT_SECONDS:-120}"
 INSPECT_MAX_TURNS="${TRIBUNAL_GROK_MAX_TURNS:-30}"
@@ -192,11 +190,13 @@ LAST_RC=0
 # Propagate GROK_SANDBOX so the CLI flag and env agree; never env -u it away.
 run_grok() {
   local phase="$1" tools="$2" max_turns="$3" timeout_s="$4" out="$5" err="$6" prompt="$7"
-  local -a session_args=()
+  local -a session_args=() effort_args=()
   if [ "$phase" = inspect ]; then
     session_args=(--session-id "$SESSION_ID")
+    [ -z "$GROK_EFFORT" ] || effort_args=(--reasoning-effort "$GROK_EFFORT")
   else
     session_args=(--resume "$SESSION_ID")
+    effort_args=(--reasoning-effort low)
   fi
   HOME="$ISOLATED_HOME" \
     GROK_HOME="$ISOLATED_HOME/.grok" \

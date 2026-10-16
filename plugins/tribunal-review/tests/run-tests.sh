@@ -5064,6 +5064,70 @@ EOF
   rm -rf "$work"
 }
 
+test_grok_finalize_effort() {
+  local work fake host_grok tier override expected
+  work="$(mktemp -d)"; fake="$work/bin"; host_grok="$work/host-grok"; mkdir -p "$fake"
+  install_grok_auth_fixture "$host_grok"
+  (
+    cd "$work" && git init -q && git config user.email t@t && git config user.name t
+    printf 'one\n' > file.txt && git add file.txt && git commit -q -m base
+    printf 'two\n' > file.txt && git commit -q -am change
+  )
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+phase=inspect effort=default tools_val=missing sid= prompt= prev=
+for arg in "$@"; do
+  case "$prev" in
+    --reasoning-effort) effort="$arg" ;;
+    --tools) tools_val="$arg" ;;
+    --resume) phase=finalize; sid="$arg" ;;
+    --prompt-file) prompt="$arg" ;;
+  esac
+  prev="$arg"
+done
+printf '%s %s\n' "$phase" "$effort" >> "$FIXTURE_STATE/phases"
+# Model timeouts are simulated without spending the real 600/120-second budgets.
+if [ "$phase" = inspect ] || [ "$effort" != low ] || [ "${FIXTURE_PROGRESS_ONLY:-}" = yes ]; then
+  printf '%s\n' '{"text":"still reviewing...","sessionId":"44444444-4444-4444-4444-444444444444"}'
+  exit 124
+fi
+[ -z "$tools_val" ] && [ "$sid" = 44444444-4444-4444-4444-444444444444 ] \
+  && grep -q 'diff --git a/file.txt b/file.txt' "$prompt" || exit 1
+cat <<'JSON'
+{"structuredOutput":{"provider":"grok","model":"fixture","files_examined":["file.txt"],"findings":[{"severity":"medium","category":"logic","file":"file.txt","line":1,"title":"Changed value breaks the consumer","description":"The consumer requires the original value.","suggestion":"Preserve the required value.","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"}},"modelUsage":{"grok-fixture-model":{}}}
+JSON
+EOF
+  chmod +x "$fake/grok"
+  run_finalize_fixture() {
+    : > "$work/phases"
+    (cd "$work" && env -u XAI_API_KEY TRIBUNAL_RISK="$tier" TRIBUNAL_GROK_EFFORT="$override" \
+      PATH="$fake:$PATH" GROK_HOME="$host_grok" TRIBUNAL_BASE_REF=HEAD~1 FIXTURE_STATE="$work" FIXTURE_PROGRESS_ONLY=no \
+      "$@" bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out.json")
+  }
+  recovered() {
+    jq -e '.provider=="grok" and .model=="grok-fixture-model" and .summary.verdict=="NEEDS_WORK"
+      and (.findings|length)==1 and (has("error")|not)' "$work/out.json" >/dev/null \
+      && [ "$(cat "$work/phases")" = "$(printf 'inspect %s\nfinalize low' "$expected")" ]
+  }
+  for tier in T3 T4; do
+    override= expected=high
+    run_finalize_fixture
+    tr_check "grok $tier reasoning timeout recovers a schema verdict at low finalize effort" recovered
+  done
+  override=xhigh expected=xhigh
+  run_finalize_fixture
+  tr_check "grok explicit inspect effort preserves bounded low-effort finalize" recovered
+  tier= override= expected=default
+  run_finalize_fixture
+  tr_check "grok CLI default inspect effort preserves bounded low-effort finalize" recovered
+  tier=T4
+  run_finalize_fixture FIXTURE_PROGRESS_ONLY=yes
+  tr_check "grok low-effort finalize timeout remains a named progress-only failure" \
+    jq -e '.provider=="grok" and (.error|contains("inspect_rc=124 finalize_rc=124"))
+      and (.error|contains("completion_state=progress_only")) and (has("summary")|not)' "$work/out.json"
+  rm -rf "$work"
+}
+
 test_preflight_risk_and_backups() {
   local work fake out ec
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
@@ -5917,6 +5981,7 @@ echo ""
 echo "Risk tier, effort, and backup legs"
 test_risk_tier_and_backup_config
 test_risk_effort_reaches_claude_and_grok
+test_grok_finalize_effort
 test_preflight_risk_and_backups
 test_backup_leg_collection
 test_collector_completion_order
