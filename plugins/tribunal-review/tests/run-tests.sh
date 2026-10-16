@@ -4924,12 +4924,29 @@ HOOK
           git config "$scope" "filter.$driver.clean" "$FIXTURE_STATE/fsmonitor"
           git config "$scope" "filter.$driver.required" true ;;
       esac ;;
-    config-fifo)
-      read -r ready < "$FIXTURE_STATE/claude.ready"
-      rm "$FIXTURE_STATE/claude.ready"
+    config-fifo|config-fifo-race)
       config="$(git rev-parse --git-common-dir)/config"
+      staging=("$FIXTURE_WORK"/.tribunal-collection.*)
+      if [ "$FIXTURE_MUTATION" = config-fifo ]; then
+        # The collector has reaped this sibling; no provider still needs Git.
+        until [ -f "${staging[0]}/wrappers/claude.finished" ]; do sleep 0.01; done
+      else
+        read -r ready < "$FIXTURE_STATE/claude.ready"
+        rm "$FIXTURE_STATE/claude.ready"
+        touch "$FIXTURE_STATE/config-race.ready"
+        read -r ready < "$FIXTURE_STATE/config-race.go"
+        # Alternate at the read boundary while the collector reaps the sibling.
+        for i in 1 2 3; do
+          rm "$config"; mkfifo "$config"
+          cp "$FIXTURE_STATE/config.before" "$FIXTURE_STATE/config.regular"
+          mv -fT "$FIXTURE_STATE/config.regular" "$config"
+        done
+      fi
       rm "$config"
-      mkfifo "$config" ;;
+      mkfifo "$config"
+      if [ "$FIXTURE_MUTATION" = config-fifo-race ]; then
+        printf 'swapped\n' > "$FIXTURE_STATE/config-race.done"
+      fi ;;
     config-symlink)
       config="$(git rev-parse --git-common-dir)/config"
       cp "$config" "$FIXTURE_STATE/config.target"
@@ -4965,7 +4982,10 @@ fi
 printf '%s\n' "{\"provider\":\"$1\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 if [ "$1" = claude ]; then
   case "${FIXTURE_MUTATION:-}" in
-    config-fifo|commondir|worktree-commondir|worktree-gitfile|root-gitfile|root-commondir) printf 'ready\n' > "$FIXTURE_STATE/claude.ready" ;;
+    config-fifo-race)
+      printf 'ready\n' > "$FIXTURE_STATE/claude.ready"
+      until [ -f "$FIXTURE_STATE/config-race.ready" ] || [ -f "$FIXTURE_STATE/config-race.exercised" ]; do sleep 0.01; done ;;
+    commondir|worktree-commondir|worktree-gitfile|root-gitfile|root-commondir) printf 'ready\n' > "$FIXTURE_STATE/claude.ready" ;;
   esac
 fi
 EOF
@@ -5019,6 +5039,19 @@ fi
 EOF
   printf 'exec %q "$@"\n' "$(command -v git)" >> "$fake/git"
   chmod +x "$fake/git"
+  # Force the old live-config cmp to open after the type check and FIFO swap.
+  # Fixed collectors compare a private copy, then reject the FIFO on the next check.
+  cat > "$fake/cmp" <<'EOF'
+#!/usr/bin/env bash
+if [ "${FIXTURE_MUTATION:-}" = config-fifo-race ] && [ -f "$FIXTURE_STATE/config-race.ready" ]; then
+  rm "$FIXTURE_STATE/config-race.ready"
+  printf 'swap\n' > "$FIXTURE_STATE/config-race.go"
+  read -r ready < "$FIXTURE_STATE/config-race.done"
+  touch "$FIXTURE_STATE/config-race.exercised"
+fi
+EOF
+  printf 'exec %q "$@"\n' "$(command -v cmp)" >> "$fake/cmp"
+  chmod +x "$fake/cmp"
   # Hold normalization past the delayed write; no timing race with a fast collector.
   cat > "$fake/jq" <<'EOF'
 #!/usr/bin/env bash
@@ -5246,11 +5279,12 @@ EOF
   head="$(git -C "$repo" rev-parse HEAD)"
   cp "$repo/.git/config" "$state/config.before"
   for scenario in fsmonitor hooks filter filter-equals filter-info filter-info-equals filter-attrfile filter-global \
-    config-symlink config-fifo backup-hooks lock backup-lock background backup-background; do
+    config-symlink config-fifo config-fifo-race backup-hooks lock backup-lock background backup-background; do
     mode="${scenario#backup-}"; ec=0; mutator=codex
     rm -f "$state/fsmonitor.executed" "$state/background.executed" "$state/child.pid" "$state/claude.evidence.json"
-    # Finish sibling evidence before replacing config, so only the collector can block.
-    [ "$mode" != config-fifo ] || mkfifo "$state/claude.ready"
+    if [ "$mode" = config-fifo-race ]; then
+      mkfifo "$state/claude.ready" "$state/config-race.go" "$state/config-race.done"
+    fi
     case "$scenario" in
       backup-*) mutator=deepseek; collect FIXTURE_MUTATOR="$mutator" FIXTURE_MUTATION="$mode" || ec=$? ;;
       filter-global)
@@ -5274,11 +5308,12 @@ EOF
         filter-global)
           [ "$ec" -eq 0 ] || return 1
           cmp -s "$repo/.git/config" "$state/config.before" || return 1 ;;
-        config-fifo)
+        config-fifo|config-fifo-race)
           [ "$ec" -eq 1 ] && [ ! -e "$collection" ] || return 1
           grep -q "shared git config changed: $repo/.git/config" "$work/collect-$n.err" || return 1
           [ -f "$repo/.git/config" ] && [ ! -L "$repo/.git/config" ] || return 1
-          cmp -s "$repo/.git/config" "$state/config.before" || return 1 ;;
+          cmp -s "$repo/.git/config" "$state/config.before" || return 1
+          [ "$mode" != config-fifo-race ] || [ -f "$state/config-race.exercised" ] ;;
         config-symlink)
           [ "$ec" -eq 1 ] && [ ! -e "$collection" ] || return 1
           grep -q "shared git config changed: $repo/.git/config" "$work/collect-$n.err" || return 1

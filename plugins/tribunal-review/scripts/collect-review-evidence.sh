@@ -139,18 +139,34 @@ load_safe_directories() {
   done
 }
 
+copy_surface_file() {
+  # Bound even the open: a live sibling can replace a checked path with a FIFO.
+  # Check the opened fd before reading, and expose only a private regular copy.
+  timeout -k 1 2 bash -c '
+    [ -f "$1" ] && [ ! -L "$1" ] || exit 1
+    exec 3< "$1"
+    [ -f /proc/self/fd/3 ] || exit 1
+    cat <&3
+  ' _ "$1" > "$2"
+}
+
 config_entries() {
-  [ -f "$1" ] && [ ! -L "$1" ] || return 1
-  # Parsing a regular file executes nothing; bypass the recursive surface guard.
-  GIT_DIR="$SURFACE_GITDIR" GIT_COMMON_DIR="$SURFACE_COMMON" hardened_git config --file "$1" --list --no-includes --null 2>/dev/null \
-    | jq -Rs 'split("\u0000")[:-1] | group_by(split("\n")[0])
-      | map({key:(.[0] | split("\n")[0]), value:.}) | from_entries'
+  local copy rc=0
+  copy="$(mktemp)" || return 1
+  if copy_surface_file "$1" "$copy"; then
+    # Parse only the private copy; bypass the recursive surface guard.
+    GIT_DIR="$SURFACE_GITDIR" GIT_COMMON_DIR="$SURFACE_COMMON" hardened_git config --file "$copy" --list --no-includes --null 2>/dev/null \
+      | jq -Rs 'split("\u0000")[:-1] | group_by(split("\n")[0])
+        | map({key:(.[0] | split("\n")[0]), value:.}) | from_entries' || rc=$?
+  else rc=1; fi
+  rm -f -- "$copy"
+  return "$rc"
 }
 
 changed_config_keys() {
   local before after
   before="$(config_entries "$CONFIG_SNAPSHOT")" || return 1
-  after="$(config_entries "$CONFIG_FILE")" || return 1
+  after="$(config_entries "$1")" || return 1
   printf '%s\n%s\n' "$before" "$after" | jq -s '
     .[0] as $before | .[1] as $after
     | [($before + $after | keys[]) | select($before[.] != $after[.])]'
@@ -207,7 +223,11 @@ same_surface_dir() {
 }
 
 same_surface_file() {
-  [ -f "$1" ] && [ ! -L "$1" ] && cmp -s -- "$1" "$SURFACE_SNAPSHOTS/$2"
+  local copy rc=0
+  copy="$(mktemp "$SURFACE_SNAPSHOTS/current.XXXXXX")" || return 1
+  copy_surface_file "$1" "$copy" && cmp -s -- "$copy" "$SURFACE_SNAPSHOTS/$2" || rc=1
+  rm -f -- "$copy"
+  return "$rc"
 }
 
 restore_surface_file() {
@@ -230,7 +250,7 @@ restore_surface_file() {
 }
 
 check_git_surface() {
-  local changes problem="" root_git git_ok=0 common_ok=0 root_bad=0 commondir_bad=0
+  local changes config_copy problem="" root_git git_ok=0 common_ok=0 root_bad=0 commondir_bad=0
   [ "$SURFACE_FAILED" -eq 0 ] || return 1
   [ "$SURFACE_PINNED" -eq 1 ] || return 0
   root_git="$SURFACE_ROOT/.git"
@@ -270,9 +290,14 @@ check_git_surface() {
     fi
     return 1
   fi
-  if [ -f "$CONFIG_FILE" ] && [ ! -L "$CONFIG_FILE" ]; then
-    cmp -s "$CONFIG_SNAPSHOT" "$CONFIG_FILE" && return 0
-    if changes="$(changed_config_keys)"; then
+  config_copy="$(mktemp "$SURFACE_SNAPSHOTS/current.XXXXXX")" || return 1
+  if copy_surface_file "$CONFIG_FILE" "$config_copy"; then
+    if cmp -s "$CONFIG_SNAPSHOT" "$config_copy"; then
+      rm -f -- "$config_copy"
+      return 0
+    fi
+    if changes="$(changed_config_keys "$config_copy")"; then
+      rm -f -- "$config_copy"
       # Upstream tracking writes from concurrent operator sessions are legitimate.
       printf '%s' "$changes" | jq -e 'all(.[]; startswith("branch."))' >/dev/null && return 0
       changes="$(printf '%s' "$changes" | jq -r '.[:20][]')"
@@ -280,8 +305,9 @@ check_git_surface() {
       changes='config key names unavailable (cannot parse config)'
     fi
   else
-    changes='config path is missing, symbolic, or not a regular file'
+    changes='config path is missing, symbolic, not a regular file, or cannot be read within the deadline'
   fi
+  rm -f -- "$config_copy"
   restore_surface_file "$CONFIG_FILE" config \
     || { printf 'cannot restore shared git config: %s\n' "$CONFIG_FILE" >&2; return 1; }
   printf 'tribunal evidence: shared git config changed: %s (restored)\n%s\n' "$CONFIG_FILE" "$changes" >&2
