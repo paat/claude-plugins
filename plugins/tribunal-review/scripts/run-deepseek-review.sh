@@ -78,9 +78,11 @@ else
   response="$(jq -sr '[.[] | select(.type=="final")] | last | .text // empty' "$OUT")"
   json="$(printf '%s' "$response" | tribunal_extract_json_object)"
   if [ "$MODE" = smoke ]; then
-    printf '%s' "$json" | tribunal_emit_review deepseek '' "$OUT" "$ERR" "$rc"
+    printf '%s' "$json" | tribunal_emit_review deepseek '' "$OUT" "$ERR" "$rc" \
+      | tribunal_stamp_executed_model deepseek "$MODEL" "$OUT" "$ERR" "$rc"
   else
     printf '%s' "$json" | tribunal_emit_review deepseek '' "$OUT" "$ERR" "$rc" \
+      | tribunal_stamp_executed_model deepseek "$MODEL" "$OUT" "$ERR" "$rc" \
       | tribunal_line_check "$REPO_ROOT" "$DIFF_STAT" | tribunal_stamp_diff_stat "$DIFF_STAT"
   fi
 fi

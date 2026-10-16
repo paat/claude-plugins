@@ -46,7 +46,7 @@
     },
     {
       "path": "scripts/run-deepseek-review.sh",
-      "sha256": "e3b1f05a34d108b6b6cbc080ef7eb5d86b31394be497f96a1fdd729acf5487e9"
+      "sha256": "f21764895bed9e7b538bbfff7c6fdaf71c06ed6104fa554b2c7b32e1569d2592"
     },
     {
       "path": "scripts/run-qwen-review.sh",
