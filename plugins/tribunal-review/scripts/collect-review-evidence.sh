@@ -791,7 +791,7 @@ collect() {
       if printf '%s\n' "$content" | sed -n "1,${line}p" | awk -v line="$line" '
         NR >= line { exit }
         /^[[:space:]]*#/ {
-          if (tolower($0) ~ /(^|[^[:alnum:]])(secret|pii|credential|key)([^[:alnum:]]|$)/ \
+          if (tolower($0) ~ /(^|[^[:alnum:]])(secrets?|pii|credentials?|keys?)([^[:alnum:]]|$)/ \
               || tolower($0) ~ /(^|[^[:alnum:]])never[[:space:]]+commit([^[:alnum:]]|$)/) sensitive=1
           next
         }

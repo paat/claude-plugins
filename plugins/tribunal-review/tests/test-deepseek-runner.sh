@@ -52,6 +52,8 @@ DSH
   events
   scenario='extract last final and stamp reviewed diff'; run_leg
   check jq -e '.provider=="deepseek" and .findings==[] and (.diff_stat|length)>0 and (has("error")|not)' "$work/output/result"
+  scenario='requested model stamped over model-authored id'
+  check jq -e '.model=="deepseek-v4-pro"' "$work/output/result"
   scenario='read-only patch and stdin contract'; check bash -c 'grep -q "mode: read-only" "$1" && grep -q "policy: never" "$1" && grep -q "DISABLED" "$1" && grep -q "session-log-deepseek" "$1" && grep -q "files_examined" "$2"' _ "$FIXTURE_PATCH" "$FIXTURE_PROMPT"
   scenario='overlay disables permission, session upload, telemetry, and web'
   check bash -c 'grep -A1 "id: permission" "$1" | grep -q "disabled: true" && grep -A1 "id: tool-web" "$1" | grep -q "disabled: true" && grep -A1 "id: session-log-deepseek" "$1" | grep -q "enabled: false" && grep -A1 "id: session-telemetry-otel" "$1" | grep -q "mode: DISABLED"' _ "$FIXTURE_PATCH"
@@ -88,7 +90,7 @@ DSH
   events; FIXTURE_RC=124; scenario='timeout named failure'; run_leg
   check jq -e '.error|contains("timed out")' "$work/output/result"
   events; scenario='smoke uses dsh JSON runner'; run_leg --smoke
-  check jq -e '.provider=="deepseek" and (has("error")|not)' "$work/output/result"
+  check jq -e '.provider=="deepseek" and .model=="deepseek-v4-pro" and (has("error")|not)' "$work/output/result"
   preflight() {
     preflight_number=$((preflight_number+1))
     bash "$plugin_root/scripts/preflight.sh" > "$work/output/preflight" 2> "$work/output/preflight-error"

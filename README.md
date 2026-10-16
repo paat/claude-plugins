@@ -130,6 +130,8 @@ State, the handled catalog, and the last run log live in `~/.local/state/model-r
 It needs `claude`, `gh`, `jq`, util-linux `flock`, and all four provider CLIs; it
 fails closed when any catalog comes back empty.
 
+The opt-in DeepSeek leg (`tribunal-review`, default `deepseek-v4-pro`) is excluded from this refresh; its pin is bumped by hand.
+
 ## Plugin Structure
 
 Each plugin lives under `plugins/` with this structure:
