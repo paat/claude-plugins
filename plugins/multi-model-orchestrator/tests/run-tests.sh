@@ -1943,7 +1943,7 @@ git -C "$qwen_repo" -c user.name=t -c user.email=t@t commit -qam change
 cat > "$WORK/bin/qwen-wrapper.sh" <<'WRAP'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
-  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo running model'
   exit 0
 fi
 if [ "${1:-}" = "--print-base" ]; then
@@ -2025,13 +2025,10 @@ contains "$QL_WRAPPER_ARGV" '--yolo' 'implement dispatch passes --yolo'
 absent "$QL_WRAPPER_ARGV" '--model' 'the default route leaves the model to the served one'
 pass 'run-qwen-local: implement dispatch is write-capable'
 
-# A pinned id reaches the wrapper; the old pool-table label still means the default route.
+# A pinned id reaches the wrapper unchanged.
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
   bash "$QL_RUN" --mode implement --repo "$qwen_repo" --model pinned-id "task" >/dev/null 2>&1
 [ "$(grep -x -A1 -- '--model' "$QL_WRAPPER_ARGV" | tail -n1)" = pinned-id ] || fail 'a pinned model reaches the wrapper'
-PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
-  bash "$QL_RUN" --mode implement --repo "$qwen_repo" --model qwen3.8-27b-local "task" >/dev/null 2>&1
-absent "$QL_WRAPPER_ARGV" '--model' 'the legacy qwen3.8-27b-local label is the default route'
 rc=0
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
   bash "$QL_RUN" --mode implement --repo "$qwen_repo" --model '' "task" >/dev/null 2>&1 || rc=$?
@@ -2171,7 +2168,7 @@ chmod +x "$WORK/bin/curl"
 cat > "$WORK/bin/qwen-wrapper-stdin.sh" <<'WRAP'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
-  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo running model'
   exit 0
 fi
 if [ "${1:-}" = "--print-base" ]; then
@@ -2203,7 +2200,7 @@ pass 'run-qwen-local: heredoc prompt, verdict line, and dash-leading prompts rea
 cat > "$WORK/bin/qwen-wrapper-noverdict.sh" <<'WRAP'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
-  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo running model'
   exit 0
 fi
 if [ "${1:-}" = "--print-base" ]; then
@@ -2274,7 +2271,7 @@ pass 'run-qwen-local: no /slots route still dispatches'
 cat > "$WORK/bin/qwen-wrapper-127.sh" <<'WRAP'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
-  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo running model'
   exit 0
 fi
 if [ "${1:-}" = "--print-base" ]; then
@@ -2372,7 +2369,7 @@ pass 'run-qwen-local: --repo resolves to the git toplevel'
 cat > "$WORK/bin/qwen-wrapper-blank.sh" <<'WRAP'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--help" ]; then
-  printf '%s\n' '--print-base --diff-file --approval-mode --yolo'
+  printf '%s\n' '--print-base --diff-file --approval-mode --yolo running model'
   exit 0
 fi
 if [ "${1:-}" = "--print-base" ]; then
@@ -2405,7 +2402,7 @@ pass 'run-qwen-local: an option-shaped --base is refused'
 # subagent-local-qwen3-8-27b as well as subagent-local-qwen3.8-27b.
 for cache_name in 'subagent-local-qwen3.8-27b' 'subagent-local-qwen3-8-27b'; do
   cache_home="$WORK/fakehome-$cache_name"
-  cache_dir="$cache_home/.claude/plugins/cache/mk/$cache_name/0.4.5/scripts"
+  cache_dir="$cache_home/.claude/plugins/cache/mk/$cache_name/0.5.0/scripts"
   mkdir -p "$cache_dir"
   # Each cached stub records that IT ran, so the assertion cannot pass because some
   # other wrapper on PATH answered.
@@ -2413,7 +2410,7 @@ for cache_name in 'subagent-local-qwen3.8-27b' 'subagent-local-qwen3-8-27b'; do
   cat > "$cache_dir/subagent-local-qwen3.8-27b-run.sh" <<WRAP
 #!/usr/bin/env bash
 if [ "\${1:-}" = "--help" ]; then
-  printf '%s\\n' '--print-base --diff-file --approval-mode --yolo'
+  printf '%s\\n' '--print-base --diff-file --approval-mode --yolo running model'
   exit 0
 fi
 if [ "\${1:-}" = "--print-base" ]; then
@@ -2438,6 +2435,32 @@ WRAP
   exact_line "$marker" "$cache_name" "marker names the cache directory that was used"
 done
 pass 'run-qwen-local: discovery finds both cached plugin directory spellings'
+
+# The host keeps old versions cached, and 0.4.6 sorts first: a wrapper that does not
+# print the running-model line is skipped for the one that does.
+cache_home="$WORK/fakehome-mixed"
+for v in 0.4.6 0.5.0; do
+  cache_dir="$cache_home/.claude/plugins/cache/mk/subagent-local-qwen3-8-27b/$v/scripts"
+  mkdir -p "$cache_dir"
+  help_text='--print-base --diff-file --approval-mode --yolo'
+  [ "$v" = 0.4.6 ] || help_text="$help_text running model"
+  cat > "$cache_dir/subagent-local-qwen3.8-27b-run.sh" <<WRAP
+#!/usr/bin/env bash
+if [ "\${1:-}" = "--help" ]; then printf '%s\\n' '$help_text'; exit 0; fi
+if [ "\${1:-}" = "--print-base" ]; then printf '%s\\n' 'http://127.0.0.1:9/v1'; exit 0; fi
+printf '%s\\n' '$v' > "$WORK/discovered-mixed.txt"
+cat >/dev/null
+printf '%s\\n' 'APPROVE'
+WRAP
+  chmod +x "$cache_dir/subagent-local-qwen3.8-27b-run.sh"
+done
+rc=0
+PATH="$WORK/bin:$PATH" HOME="$cache_home" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  env -u MMO_QWEN_LOCAL_RUN \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 0 ] || fail "a mixed-version cache still dispatches (got $rc)"
+exact_line "$WORK/discovered-mixed.txt" '0.5.0' 'discovery skips a cached wrapper without the running-model line'
+pass 'run-qwen-local: discovery skips stale cached wrapper versions'
 
 # Doc contracts: deleting these silently disables the local route, so pin them.
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \

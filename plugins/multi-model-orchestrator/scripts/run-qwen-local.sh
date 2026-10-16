@@ -70,8 +70,6 @@ case "$mode" in
   implement|review) ;;
   *) printf 'run-qwen-local: --mode must be implement or review\n' >&2; exit 2 ;;
 esac
-# qwen3.8-27b-local is the old pool-table label for the default route, not a served id.
-[ "$model" != qwen3.8-27b-local ] || model=default
 [ -n "$model" ] || { printf 'run-qwen-local: --model must be default or a served model id\n' >&2; exit 2; }
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-qwen-local: timeout must be a positive integer\n' >&2; exit 2; }
 qwen_wall_time="$((run_timeout - (run_timeout / 2 < 60 ? run_timeout / 2 : 60)))s"
@@ -88,9 +86,10 @@ esac
 # A candidate counts only if it answers --print-base: older wrappers exit 1 on a
 # busy server instead of 75, which would silently disable the Grok fallback.
 # Prints "<wrapper path><tab><base url>". A candidate must support every flag this
-# runner sends (--print-base and --diff-file); a stale cached copy that predates
-# one of them would fail dispatch with a usage error instead of the 75 the
-# fallback contract expects. --print-base probes the network when OPENAI_BASE_URL
+# runner sends (--print-base and --diff-file) and print the `running model` line it
+# reads; the host keeps old versions cached, and a stale copy would fail dispatch
+# with a usage error, refuse a served model that is not the Qwen coding alias, or
+# hide which model ran. --print-base probes the network when OPENAI_BASE_URL
 # is unset, so ask once and carry the answer.
 mmo_find_wrapper() {
   local candidate base help
@@ -108,6 +107,7 @@ mmo_find_wrapper() {
     [ -n "$candidate" ] && [ -x "$candidate" ] || continue
     help="$("$candidate" --help 2>/dev/null || true)"
     case "$help" in *--diff-file*) ;; *) continue ;; esac
+    case "$help" in *'running model'*) ;; *) continue ;; esac
     base="$("$candidate" --print-base 2>/dev/null || true)"
     if [ -n "$base" ]; then
       printf '%s\t%s' "$candidate" "$base"
@@ -121,7 +121,7 @@ mmo_find_wrapper() {
 
 found="$(mmo_find_wrapper || true)"
 if [ -z "$found" ]; then
-  printf 'run-qwen-local: no subagent-local-qwen3.8-27b wrapper supporting --print-base and --diff-file (>= 0.4.0); route elsewhere\n' >&2
+  printf 'run-qwen-local: no subagent-local-qwen3.8-27b wrapper supporting --print-base, --diff-file and the running-model line (>= 0.5.0); route elsewhere\n' >&2
   exit 75
 fi
 wrapper="${found%%$'\t'*}"
