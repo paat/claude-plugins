@@ -4902,6 +4902,11 @@ HOOK
       touch -r "$FIXTURE_STATE/config.target" "$FIXTURE_STATE/config.target.timestamp"
       rm "$config"
       ln -s "$FIXTURE_STATE/config.target" "$config" ;;
+    config-token)
+      git config remote.origin.url https://fixture-secret-token@github.com/example/fixture.git ;;
+    config-branch)
+      git config branch.concurrent.remote origin
+      git config branch.concurrent.merge refs/heads/concurrent ;;
     lock) git worktree lock "$PWD" ;;
     background)
       staging=("$FIXTURE_WORK"/.tribunal-collection.*)
@@ -5043,6 +5048,53 @@ EOF
   tr_check "collect rejects extensions.worktreeConfig before any wrapper starts" collect_worktree_config_rejected
   git -C "$repo" config extensions.worktreeConfig false
 
+  printf '.\n' > "$repo/.git/commondir"
+  ec=0; collect FIXTURE_CODEX_ERROR= TRIBUNAL_BACKUP_LEGS=off || ec=$?
+  preexisting_commondir_rejected() {
+    [ "$ec" -eq 1 ] && [ ! -e "$collection" ] && [ ! -e "$state/wrappers.started" ] \
+      && [ -f "$repo/.git/commondir" ] && [ "$(cat "$repo/.git/commondir")" = . ]
+  }
+  tr_check "T-004: pre-leg commondir is rejected without deletion" preexisting_commondir_rejected
+  rm -f "$repo/.git/commondir"
+
+  mkdir -p "$work/home" "$work/tmp"
+  # The simulation marks even new clones/worktrees foreign; trust them in this fixture HOME.
+  git config --file "$work/home/.gitconfig" --add safe.directory '*'
+  ec=0; collect HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" TMPDIR="$work/tmp" \
+    GIT_TEST_ASSUME_DIFFERENT_OWNER=1 FIXTURE_CODEX_ERROR= TRIBUNAL_BACKUP_LEGS=off || ec=$?
+  safe_directory_collected() {
+    [ "$ec" -eq 0 ] && [ "$(status_of codex) $(status_of claude)" = 'ok ok' ]
+  }
+  tr_check "T-003: protected safe.directory permits different-owner collection" safe_directory_collected
+  rm -rf "$work/home"
+
+  cp "$repo/.git/config" "$state/config.before"
+  ec=0; collect FIXTURE_CODEX_ERROR= FIXTURE_MUTATOR=codex FIXTURE_MUTATION=config-branch \
+    TRIBUNAL_BACKUP_LEGS=off || ec=$?
+  branch_config_preserved() {
+    [ "$ec" -eq 0 ] && [ -f "$collection/manifest.json" ] \
+      && [ "$(git -C "$repo" config branch.concurrent.remote)" = origin ] \
+      && [ "$(git -C "$repo" config branch.concurrent.merge)" = refs/heads/concurrent ]
+  }
+  tr_check "T-002: concurrent branch config changes survive collection" branch_config_preserved
+  cp "$state/config.before" "$repo/.git/config"
+  for mode in 0664 0644; do
+    chmod "$mode" "$repo/.git/config"
+    ec=0; collect FIXTURE_CODEX_ERROR= FIXTURE_MUTATOR=codex FIXTURE_MUTATION=config-token \
+      TRIBUNAL_BACKUP_LEGS=off || ec=$?
+    config_token_redacted() {
+      [ "$ec" -eq 1 ] && [ ! -e "$collection" ] \
+        && grep -Fxq remote.origin.url "$work/collect-$n.err" \
+        && ! grep -Eq 'fixture-secret-token|https://|^(@@|---|\+\+\+)' "$work/collect-$n.err"
+    }
+    config_mode_restored() {
+      [ "$ec" -eq 1 ] && cmp -s "$state/config.before" "$repo/.git/config" \
+        && [ "$(stat -c '%a' "$repo/.git/config")" = "${mode#0}" ]
+    }
+    tr_check "T-001: config change reports key without token ($mode)" config_token_redacted
+    tr_check "T-002: non-branch config restore keeps mode $mode" config_mode_restored
+  done
+
   collect
   tr_check "main and backup legs inherit disabled core dumps" \
     test "$(cat "$state/claude.core-limit") $(cat "$state/deepseek.core-limit")" = "0 0"
@@ -5164,8 +5216,12 @@ EOF
         fsmonitor|hooks|filter|filter-equals|filter-info|filter-info-equals|filter-attrfile)
           [ "$ec" -eq 1 ] && [ ! -e "$collection" ] || return 1
           grep -q "shared git config changed: $repo/.git/config" "$work/collect-$n.err" || return 1
-          case "$mode" in filter*) expected=clean ;; *) expected="$mode" ;; esac
-          grep -q "^+.*$expected" "$work/collect-$n.err" || return 1
+          case "$mode" in
+            filter*) expected='^filter\..*\.clean$' ;;
+            hooks) expected='^core\.hookspath$' ;;
+            *) expected='^core\.fsmonitor$' ;;
+          esac
+          grep -Eq "$expected" "$work/collect-$n.err" || return 1
           cmp -s "$repo/.git/config" "$state/config.before" || return 1 ;;
         filter-global)
           [ "$ec" -eq 0 ] || return 1

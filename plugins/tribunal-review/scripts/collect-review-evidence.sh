@@ -9,7 +9,7 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CONFIG_PARAMETERS \
   GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_SSH_COMMAND
 
-for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp diff stat setsid ps kill codex agy opencode qwen grok muse claude; do
+for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp stat setsid ps kill codex agy opencode qwen grok muse claude; do
   unset -f "$command_name" 2>/dev/null || true
 done
 unset command_name
@@ -17,10 +17,30 @@ unset command_name
 # Also covers library helpers and traps; never exported to reviewer shells.
 git() {
   check_git_surface || die "git surface validation failed"
+  hardened_git "$@"
+}
+
+hardened_git() {
+  local arg upload_pack=""
+  local -a options=() invocation
   # Ignore external config and worktree attributes, including '=' driver names.
-  GIT_NO_LAZY_FETCH=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
-    command git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 \
-    -c core.attributesFile=/dev/null -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
+  invocation=(env GIT_NO_LAZY_FETCH=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+    GIT_CONFIG_COUNT="$SAFE_DIRECTORY_COUNT" "${SAFE_DIRECTORY_ENV[@]+"${SAFE_DIRECTORY_ENV[@]}"}"
+    git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904
+    -c core.attributesFile=/dev/null -c core.fsmonitor=false -c core.hooksPath=/dev/null)
+  while [ "${1:-}" = -c ] || [ "${1:-}" = -C ]; do
+    options+=("$1" "$2"); shift 2
+  done
+  if [ "${1:-}" = clone ]; then
+    shift
+    # Local clone drops command-scope config in its upload-pack child.
+    # Reapply the same pinned environment there, quoted for Git's POSIX shell.
+    for arg in "${invocation[@]}" upload-pack; do
+      upload_pack+="'${arg//\'/\'\\\'\'}' "
+    done
+    set -- clone "--upload-pack=$upload_pack" "$@"
+  fi
+  "${invocation[@]}" "${options[@]+"${options[@]}"}" "$@"
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -37,11 +57,15 @@ REVIEW_PIDS=()
 REVIEW_NAMES=()
 CONFIG_FILE=""
 CONFIG_SNAPSHOT=""
+CONFIG_MODE=""
+SAFE_DIRECTORY_COUNT=0
+SAFE_DIRECTORY_ENV=()
 SURFACE_ROOT=""
 SURFACE_GITDIR=""
 SURFACE_COMMON=""
 SURFACE_ID=""
 SURFACE_FAILED=0
+SURFACE_PINNED=0
 VERIFIED_COLLECTION=""
 FINAL_TMP1=""
 FINAL_TMP2=""
@@ -70,6 +94,40 @@ reject_worktree_config() {
   [ "$enabled" != true ] || die "sealed collection does not support extensions.worktreeConfig (per-worktree config cannot be contained); disable it or run tribunal from a clone without it"
 }
 
+load_safe_directories() {
+  local scope values value rc
+  # Read only the operator's protected scopes, before any reviewer can change them.
+  for scope in system global; do
+    values="$(command git config --"$scope" --includes --null --get-all safe.directory \
+      | jq -Rs 'split("\u0000")[:-1]')" || {
+      rc=$?
+      [ "$rc" -eq 1 ] || die "cannot read protected safe.directory ($scope)"
+    }
+    while IFS= read -r -d '' value; do
+      SAFE_DIRECTORY_ENV+=("GIT_CONFIG_KEY_$SAFE_DIRECTORY_COUNT=safe.directory"
+        "GIT_CONFIG_VALUE_$SAFE_DIRECTORY_COUNT=$value")
+      SAFE_DIRECTORY_COUNT=$((SAFE_DIRECTORY_COUNT + 1))
+    done < <(printf '%s' "$values" | jq -j '.[] | ., "\u0000"')
+  done
+}
+
+config_entries() {
+  [ -f "$1" ] && [ ! -L "$1" ] || return 1
+  # Parsing a regular file executes nothing; bypass the recursive surface guard.
+  hardened_git config --file "$1" --list --no-includes --null 2>/dev/null \
+    | jq -Rs 'split("\u0000")[:-1] | group_by(split("\n")[0])
+      | map({key:(.[0] | split("\n")[0]), value:.}) | from_entries'
+}
+
+changed_config_keys() {
+  local before after
+  before="$(config_entries "$CONFIG_SNAPSHOT")" || return 1
+  after="$(config_entries "$CONFIG_FILE")" || return 1
+  printf '%s\n%s\n' "$before" "$after" | jq -s '
+    .[0] as $before | .[1] as $after
+    | [($before + $after | keys[]) | select($before[.] != $after[.])]'
+}
+
 check_git_surface() {
   local changes problem="" gitdir
   [ "$SURFACE_FAILED" -eq 0 ] || return 1
@@ -89,7 +147,7 @@ check_git_surface() {
     SURFACE_FAILED=1
     printf 'tribunal evidence: git surface changed: %s\n' "$problem" >&2
     # Do not follow a replaced .git symlink or use Git for cleanup after redirection.
-    if [ -d "$gitdir" ] && [ ! -L "$gitdir" ]; then
+    if [ "$SURFACE_PINNED" -eq 1 ] && [ -d "$gitdir" ] && [ ! -L "$gitdir" ]; then
       rm -f -- "$gitdir/commondir" || printf 'cannot remove planted commondir: %s\n' "$gitdir/commondir" >&2
     fi
     return 1
@@ -98,8 +156,13 @@ check_git_surface() {
     # Rollback bytes exist only while collecting; later commands bind directory identity.
     [ -n "$CONFIG_SNAPSHOT" ] || return 0
     cmp -s "$CONFIG_SNAPSHOT" "$CONFIG_FILE" && return 0
-    changes="$(diff -u -N --label "$CONFIG_FILE (before)" --label "$CONFIG_FILE (after)" \
-      "$CONFIG_SNAPSHOT" "$CONFIG_FILE" | sed -n '1,20p')" || true
+    if changes="$(changed_config_keys)"; then
+      # Upstream tracking writes from concurrent operator sessions are legitimate.
+      printf '%s' "$changes" | jq -e 'all(.[]; startswith("branch."))' >/dev/null && return 0
+      changes="$(printf '%s' "$changes" | jq -r '.[:20][]')"
+    else
+      changes='config key names unavailable (cannot parse config)'
+    fi
   else
     changes='config path is missing, symbolic, or not a regular file'
   fi
@@ -107,7 +170,8 @@ check_git_surface() {
     printf 'tribunal evidence: shared git config changed: %s (%s)\n' "$CONFIG_FILE" "$changes" >&2
     return 1
   }
-  { rm -rf -- "$CONFIG_FILE" && cp -- "$CONFIG_SNAPSHOT" "$CONFIG_FILE"; } \
+  { rm -rf -- "$CONFIG_FILE" && cp -- "$CONFIG_SNAPSHOT" "$CONFIG_FILE" \
+    && chmod "$CONFIG_MODE" "$CONFIG_FILE"; } \
     || { printf 'cannot restore shared git config: %s\n' "$CONFIG_FILE" >&2; return 1; }
   printf 'tribunal evidence: shared git config changed: %s (restored)\n%s\n' "$CONFIG_FILE" "$changes" >&2
   return 1
@@ -133,7 +197,7 @@ trap 'exit 1' HUP INT TERM
 
 require_tools() {
   local tool
-  for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp diff stat flock setsid ps; do
+  for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp stat flock setsid ps; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
   done
 }
@@ -473,6 +537,8 @@ collect() {
   SURFACE_ID="$(stat -c '%d:%i' -- "$SURFACE_GITDIR" 2>/dev/null)" || die "cannot snapshot git directory: $SURFACE_GITDIR"
   CONFIG_FILE="$SURFACE_COMMON/config"
   check_git_surface || die "sealed collection requires an unchanged real .git directory without commondir"
+  SURFACE_PINNED=1
+  load_safe_directories
   require_git_version
   reject_worktree_config "$root"
   [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || die "--repo-root is not a Git worktree root"
@@ -531,6 +597,7 @@ collect() {
     esac
   done
 
+  CONFIG_MODE="$(stat -c '%a' -- "$CONFIG_FILE")" || die "cannot snapshot shared git config mode"
   CONFIG_SNAPSHOT="$(mktemp)"
   cp -- "$CONFIG_FILE" "$CONFIG_SNAPSHOT" || {
     rm -f -- "$CONFIG_SNAPSHOT"; CONFIG_SNAPSHOT=""
@@ -826,7 +893,10 @@ verify_collection_internal() {
   SURFACE_COMMON="$(jq -r .git_surface.common_dir "$manifest")"
   SURFACE_ID="$(jq -r .git_surface.git_dir_identity "$manifest")"
   CONFIG_FILE="$SURFACE_COMMON/config"
+  # A sealed manifest pins a surface already checked for absence of commondir.
+  SURFACE_PINNED=1
   check_git_surface || die "git surface changed; collection rejected"
+  load_safe_directories
   require_git_version
   reject_worktree_config "$SURFACE_ROOT"
   if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
