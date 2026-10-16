@@ -2656,6 +2656,17 @@ test_trusted_evidence_collection() {
 
   cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
 #!/usr/bin/env bash
+if [ "${FIXTURE_TAMPER_SENSITIVE:-off}" = on ]; then
+  staging="$(dirname "$(dirname "$(readlink /proc/$$/fd/1)")")"
+  printf '[]\n' > "$staging/sensitive-paths.json"
+fi
+if [ "${FIXTURE_REPLACE_IGNORE:-off}" = on ]; then
+  staging="$(dirname "$(dirname "$(readlink /proc/$$/fd/1)")")"
+  cp "$staging/sensitive-paths.json" "$FIXTURE_SENSITIVE_CAPTURE" 2>/dev/null || true
+  blob="$(git rev-parse HEAD:.gitignore)"
+  replacement="$(printf '# ordinary artifacts\nscratch/\n' | git hash-object -w --stdin)"
+  git replace "$blob" "$replacement"
+fi
 fixture_stat() {
   local base head
   base="$(git rev-parse --verify "${FIXTURE_STAT_BASE:-${TRIBUNAL_BASE_REF}}^{commit}")"
@@ -3100,6 +3111,70 @@ EOF
   else
     echo -e "  ${GREEN}PASS${NC} sensitive ignored-path finding cannot be downgraded to medium"; PASS=$((PASS+1))
   fi
+
+  local tamper_ec=0
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    FIXTURE_TAMPER_SENSITIVE=on \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/tampered-sensitive" > "$work/tampered-sensitive.json" 2> "$work/tampered-sensitive.err" || tamper_ec=$?
+  if [ "$tamper_ec" -eq 1 ] && [ ! -e "$work/tampered-sensitive" ] \
+    && grep -Fq 'sensitive-path evidence changed during review' "$work/tampered-sensitive.err"; then
+    echo -e "  ${GREEN}PASS${NC} leg rewriting sensitive-path evidence is rejected with a named error"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} leg rewriting sensitive-path evidence is rejected with a named error"; FAIL=$((FAIL+1)); FAILURES+=("pre-leg sensitive-path digest")
+  fi
+
+  local replace_base="$base" replace_head="$head" replace_manifest replace_ec
+  base="$head"
+  printf 'another ignored addition\n' > "$repo/scratch/replaced.md"
+  printf 'three\n' > "$repo/app.txt"
+  git -C "$repo" add app.txt
+  git -C "$repo" add -f scratch/replaced.md
+  git -C "$repo" commit -q -m 'force-add with unchanged ignore policy'
+  head="$(git -C "$repo" rev-parse HEAD)"
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    FIXTURE_REPLACE_IGNORE=on FIXTURE_SENSITIVE_CAPTURE="$work/preleg-sensitive.json" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/replaced-ignore" > "$work/replaced-ignore.json"
+  replace_manifest="$(jq -r .manifest_sha256 "$work/replaced-ignore.json")"
+  if jq -e '. == ["scratch/replaced.md"]' "$work/preleg-sensitive.json" >/dev/null 2>&1 \
+    && cmp -s "$work/preleg-sensitive.json" "$work/replaced-ignore/sensitive-paths.json" \
+    && [ "$(sha256sum "$work/preleg-sensitive.json" | awk '{print $1}')" = \
+         "$(jq -r .sensitive_paths.sha256 "$work/replaced-ignore/manifest.json")" ]; then
+    echo -e "  ${GREEN}PASS${NC} sensitive paths are captured before legs and sealed"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} sensitive paths are captured before legs and sealed"; FAIL=$((FAIL+1)); FAILURES+=("pre-leg sensitive paths")
+  fi
+  jq '.findings[0].file="scratch/replaced.md"' "$work/ignored-arbitration.json" > "$work/replace-medium.json"
+  jq '.findings[0].file="scratch/replaced.md"' "$work/ignored-high-arbitration.json" > "$work/replace-high.json"
+  replace_ec=0
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/replaced-ignore" \
+      --expected-manifest-sha256 "$replace_manifest" --arbitration "$work/replace-medium.json" \
+      > "$work/replace-medium.out" 2> "$work/replace-medium.err" || replace_ec=$?
+  if [ "$replace_ec" -ne 0 ] && grep -q 'arbitration.*invalid' "$work/replace-medium.err" \
+    && PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+      "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/replaced-ignore" \
+        --expected-manifest-sha256 "$replace_manifest" --arbitration "$work/replace-high.json" >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} replace ref cannot lower sensitive ignored-path severity"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} replace ref cannot lower sensitive ignored-path severity"; FAIL=$((FAIL+1)); FAILURES+=("replace ref sensitive severity")
+  fi
+  chmod u+w "$work/replaced-ignore"
+  chmod u+w "$work/replaced-ignore/sensitive-paths.json" 2>/dev/null || true
+  printf '[]\n' > "$work/replaced-ignore/sensitive-paths.json"
+  replace_ec=0
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" verify-collection --collection "$work/replaced-ignore" \
+      --expected-manifest-sha256 "$replace_manifest" >/dev/null 2> "$work/replace-tamper.err" || replace_ec=$?
+  if [ "$replace_ec" -ne 0 ] && grep -q 'sensitive-path artifact digest mismatch' "$work/replace-tamper.err"; then
+    echo -e "  ${GREEN}PASS${NC} sealed sensitive paths reject tampering"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} sealed sensitive paths reject tampering"; FAIL=$((FAIL+1)); FAILURES+=("sensitive paths tampering")
+  fi
+  git -C "$repo" replace -d "$(git -C "$repo" rev-parse HEAD:.gitignore)" >/dev/null
+  git -C "$repo" reset -q --hard "$replace_head"
+  base="$replace_base"; head="$replace_head"
 
   local initial_base="$base"
   base="$(git -C "$repo" rev-parse HEAD)"
@@ -4429,6 +4504,175 @@ tr_check() {  # tr_check LABEL COMMAND...
   fi
 }
 
+test_collector_subdirectory_root() {
+  local work ec=0
+  work="$(mktemp -d)"
+  git init -q "$work/repo"
+  mkdir -p "$work/repo/subdirectory" "$work/bin"
+  printf '#!/usr/bin/env bash\nexit 99\n' > "$work/bin/gh"
+  chmod +x "$work/bin/gh"
+  PATH="$work/bin:$PATH" bash "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" collect \
+    --repo-root "$work/repo/subdirectory" --pr 7 --output "$work/collection" > "$work/out" 2> "$work/err" || ec=$?
+  subdirectory_root_rejected() {
+    [ "$ec" -eq 1 ] && grep -Fq -- '--repo-root is not a Git worktree root' "$work/err" \
+      && ! grep -Fq 'root git path is not a directory or gitfile' "$work/err"
+  }
+  tr_check "subdirectory repo-root gets the toplevel error before surface pinning" subdirectory_root_rejected
+  rm -rf "$work"
+}
+
+test_collector_surface_leftovers() {
+  local work ec=0
+  work="$(mktemp -d)"
+  git init -q "$work/repo"
+  git -C "$work/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m base
+  git -C "$work/repo" worktree add -q --detach "$work/review-one"
+  git -C "$work/repo" worktree add -q --detach "$work/review-two"
+  sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$work/lib.sh"
+  bash -c '
+    . "$1/collector-functions.sh"
+    SURFACE_ROOT="$1/repo"
+    load_safe_directories
+    pin_git_surface
+    REVIEW_SOURCE="$SURFACE_ROOT"
+    REVIEW_WORKTREES=("$1/review-one" "$1/review-two")
+    printf "/missing-common-dir\n" > "$SURFACE_ROOT/.git/commondir"
+  ' _ "$work" > "$work/out" 2> "$work/err" || ec=$?
+  leftovers_reported() {
+    [ "$ec" -eq 1 ] && [ -d "$work/review-one" ] && [ -d "$work/review-two" ] \
+      && grep -Fq "leftover review worktree: $work/review-one" "$work/err" \
+      && grep -Fq "leftover review worktree: $work/review-two" "$work/err" \
+      && grep -Fq 'git worktree prune' "$work/err"
+  }
+  tr_check "surface failure names every leftover worktree and the prune hint on stderr" leftovers_reported
+  git -C "$work/repo" worktree remove -f "$work/review-one"
+  git -C "$work/repo" worktree remove -f "$work/review-two"
+  rm -rf "$work"
+}
+
+test_collector_config_includes() {
+  local work directive ec
+  work="$(mktemp -d)"
+  git init -q "$work/repo"
+  mkdir "$work/bin"
+  printf '#!/usr/bin/env bash\nexit 99\n' > "$work/bin/gh"
+  chmod +x "$work/bin/gh"
+  for directive in include.path 'includeIf.gitdir:/nonmatching/.path'; do
+    git -C "$work/repo" config "$directive" "$work/external-config"
+    ec=0
+    PATH="$work/bin:$PATH" bash "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" collect \
+      --repo-root "$work/repo" --pr 7 --output "$work/collection" > "$work/out" 2> "$work/err" || ec=$?
+    config_include_rejected() {
+      [ "$ec" -eq 1 ] && grep -Fq 'sealed collection does not support repository config include/includeIf directives' "$work/err"
+    }
+    tr_check "common config refuses $directive with a named error" config_include_rejected
+    git -C "$work/repo" config --unset "$directive"
+  done
+  rm -rf "$work"
+}
+
+test_collector_reap_rescan() {
+  local work ec=0
+  work="$(mktemp -d)"
+  sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$work/lib.sh"
+  mkdir -p "$work/staging/wrappers"
+  mkfifo "$work/a.go" "$work/b.go" "$work/child.ready"
+  cat > "$work/a.sh" <<'LEG'
+read -r go < a.go
+exit 17
+LEG
+  cat > "$work/b.sh" <<'LEG'
+read -r go < b.go
+timeout 5 bash -c '
+  trap "" TERM
+  printf "ready\n" > child.ready
+  sleep 1
+  touch rewritten
+' >/dev/null 2>&1 &
+read -r ready < child.ready
+exit 23
+LEG
+  printf 'sleep 3\n' > "$work/c.sh"
+  timeout -k 1 10 bash -c '
+    . "$1/collector-functions.sh"
+    set +m
+    STAGING="$1/staging"
+    checked=0; fixture_root="$1"
+    check_git_surface() {
+      if [ "$checked" -eq 0 ]; then
+        checked=1
+        printf "go\n" > "$fixture_root/b.go"
+        sleep 0.4
+      fi
+    }
+    run_wrapper a "$1/a.sh" "$1" unused "$STAGING/wrappers"
+    run_wrapper b "$1/b.sh" "$1" unused "$STAGING/wrappers"
+    run_wrapper c "$1/c.sh" "$1" unused "$STAGING/wrappers"
+    printf "go\n" > "$1/a.go"
+    wait_wrappers
+    STAGING=""
+  ' _ "$work" > "$work/out" 2> "$work/err" || ec=$?
+  reap_rescan_ok() {
+    [ "$ec" -eq 0 ] && [ ! -e "$work/rewritten" ] \
+      && [ "$(cat "$work/staging/wrappers/a.exit")" = 17 ] \
+      && [ "$(cat "$work/staging/wrappers/b.exit")" = 23 ] \
+      && [ "$work/staging/wrappers/b.finished" -ot "$work/staging/wrappers/c.finished" ]
+  }
+  tr_check "rescan reaps a leg finishing during another leg surface check before its descendant acts" reap_rescan_ok
+  rm -rf "$work"
+}
+
+test_collector_completion_order() {
+  local work ec=0
+  work="$(mktemp -d)"
+  sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$work/lib.sh"
+  mkdir -p "$work/staging/wrappers"
+  mkfifo "$work/ready"
+  cat > "$work/slow.sh" <<'EOF'
+#!/usr/bin/env bash
+sleep 2
+exit 17
+EOF
+  cat > "$work/early.sh" <<'EOF'
+#!/usr/bin/env bash
+timeout 5 bash -c '
+  trap "" TERM
+  printf "ready\n" > ready
+  sleep 0.5
+  printf "forged\n" > staging/wrappers/early.raw
+  touch rewritten
+' >/dev/null 2>&1 &
+read -r ready < ready
+printf 'original\n'
+exit 23
+EOF
+  bash -c '
+    . "$1/collector-functions.sh"
+    set +m
+    STAGING="$1/staging"
+    run_wrapper slow "$1/slow.sh" "$1" unused "$STAGING/wrappers"
+    run_wrapper early "$1/early.sh" "$1" unused "$STAGING/wrappers"
+    wait_wrappers
+    STAGING=""
+  ' _ "$work" > "$work/out" 2> "$work/err" || ec=$?
+  completion_order_ok() {
+    [ "$ec" -eq 0 ] && [ ! -e "$work/rewritten" ] \
+      && [ "$(cat "$work/staging/wrappers/early.raw")" = original ] \
+      && [ "$work/staging/wrappers/early.finished" -ot "$work/staging/wrappers/slow.finished" ]
+  }
+  completion_status_ok() {
+    [ "$ec" -eq 0 ] && [ "$(cat "$work/staging/wrappers/early.exit")" = 23 ] \
+      && [ "$(cat "$work/staging/wrappers/slow.exit")" = 17 ] \
+      && [ -s "$work/staging/wrappers/early.finished" ] && [ -s "$work/staging/wrappers/slow.finished" ]
+  }
+  tr_check "finished leg descendants cannot rewrite raw output while an earlier leg runs" completion_order_ok
+  tr_check "completion-order reaping retains each leg exit code and finished marker" completion_status_ok
+  rm -rf "$work"
+}
+
 # Repo-walking legs must not walk a checkout holding untracked .env files (#589).
 test_walk_root_hides_env_files() {
   local label="repo-walking legs walk a HEAD clone when the checkout holds .env files; shell legs get a scrubbed env" work fake host_grok leg ok=1
@@ -4748,12 +4992,29 @@ HOOK
           git config "$scope" "filter.$driver.clean" "$FIXTURE_STATE/fsmonitor"
           git config "$scope" "filter.$driver.required" true ;;
       esac ;;
-    config-fifo)
-      read -r ready < "$FIXTURE_STATE/claude.ready"
-      rm "$FIXTURE_STATE/claude.ready"
+    config-fifo|config-fifo-race)
       config="$(git rev-parse --git-common-dir)/config"
+      staging=("$FIXTURE_WORK"/.tribunal-collection.*)
+      if [ "$FIXTURE_MUTATION" = config-fifo ]; then
+        # The collector has reaped this sibling; no provider still needs Git.
+        until [ -f "${staging[0]}/wrappers/claude.finished" ]; do sleep 0.01; done
+      else
+        read -r ready < "$FIXTURE_STATE/claude.ready"
+        rm "$FIXTURE_STATE/claude.ready"
+        touch "$FIXTURE_STATE/config-race.ready"
+        read -r ready < "$FIXTURE_STATE/config-race.go"
+        # Alternate at the read boundary while the collector reaps the sibling.
+        for i in 1 2 3; do
+          rm "$config"; mkfifo "$config"
+          cp "$FIXTURE_STATE/config.before" "$FIXTURE_STATE/config.regular"
+          mv -fT "$FIXTURE_STATE/config.regular" "$config"
+        done
+      fi
       rm "$config"
-      mkfifo "$config" ;;
+      mkfifo "$config"
+      if [ "$FIXTURE_MUTATION" = config-fifo-race ]; then
+        printf 'swapped\n' > "$FIXTURE_STATE/config-race.done"
+      fi ;;
     config-symlink)
       config="$(git rev-parse --git-common-dir)/config"
       cp "$config" "$FIXTURE_STATE/config.target"
@@ -4789,7 +5050,10 @@ fi
 printf '%s\n' "{\"provider\":\"$1\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 if [ "$1" = claude ]; then
   case "${FIXTURE_MUTATION:-}" in
-    config-fifo|commondir|worktree-commondir|worktree-gitfile|root-gitfile|root-commondir) printf 'ready\n' > "$FIXTURE_STATE/claude.ready" ;;
+    config-fifo-race)
+      printf 'ready\n' > "$FIXTURE_STATE/claude.ready"
+      until [ -f "$FIXTURE_STATE/config-race.ready" ] || [ -f "$FIXTURE_STATE/config-race.exercised" ]; do sleep 0.01; done ;;
+    commondir|worktree-commondir|worktree-gitfile|root-gitfile|root-commondir) printf 'ready\n' > "$FIXTURE_STATE/claude.ready" ;;
   esac
 fi
 EOF
@@ -4843,6 +5107,19 @@ fi
 EOF
   printf 'exec %q "$@"\n' "$(command -v git)" >> "$fake/git"
   chmod +x "$fake/git"
+  # Force the old live-config cmp to open after the type check and FIFO swap.
+  # Fixed collectors compare a private copy, then reject the FIFO on the next check.
+  cat > "$fake/cmp" <<'EOF'
+#!/usr/bin/env bash
+if [ "${FIXTURE_MUTATION:-}" = config-fifo-race ] && [ -f "$FIXTURE_STATE/config-race.ready" ]; then
+  rm "$FIXTURE_STATE/config-race.ready"
+  printf 'swap\n' > "$FIXTURE_STATE/config-race.go"
+  read -r ready < "$FIXTURE_STATE/config-race.done"
+  touch "$FIXTURE_STATE/config-race.exercised"
+fi
+EOF
+  printf 'exec %q "$@"\n' "$(command -v cmp)" >> "$fake/cmp"
+  chmod +x "$fake/cmp"
   # Hold normalization past the delayed write; no timing race with a fast collector.
   cat > "$fake/jq" <<'EOF'
 #!/usr/bin/env bash
@@ -4923,6 +5200,25 @@ EOF
     [ "$ec" -eq 0 ] && [ "$(status_of codex) $(status_of claude)" = 'ok ok' ]
   }
   tr_check "T-003: protected safe.directory permits different-owner collection" safe_directory_collected
+  git -C "$repo" config branch.verification.remote origin
+  git config --file "$work/home/.gitconfig" --unset-all safe.directory
+  git config --file "$work/home/.gitconfig" "includeIf.gitdir:$repo/.git.path" "$work/home/trusted-config"
+  git config --file "$work/home/trusted-config" safe.directory '*'
+  tr_check "different-owner verification accepts branch drift with conditional safe.directory" \
+    env HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" GIT_TEST_ASSUME_DIFFERENT_OWNER=1 \
+      PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" \
+      bash -c '"$1/scripts/collect-review-evidence.sh" verify-collection --collection "$2" --expected-manifest-sha256 "$(jq -r .manifest_sha256 "$3")" >/dev/null' \
+      _ "$plugin" "$collection" "$work/collect-$n.json"
+  sed '/^require_tools$/,$d' "$plugin/scripts/collect-review-evidence.sh" > "$plugin/scripts/verify-functions.sh"
+  tr_check "explicit-file config parsing in a different-owner repo needs no loaded safe.directory" \
+    env HOME="$work/empty-home" XDG_CONFIG_HOME="$work/empty-home/.config" GIT_CONFIG_NOSYSTEM=1 \
+      GIT_TEST_ASSUME_DIFFERENT_OWNER=1 \
+    bash -c '
+      . "$1/scripts/verify-functions.sh"
+      SURFACE_GITDIR="$2/.git"; SURFACE_COMMON="$SURFACE_GITDIR"
+      [ "$SAFE_DIRECTORY_COUNT" -eq 0 ]
+      config_entries "$SURFACE_COMMON/config" | jq -e "length > 0" >/dev/null
+    ' _ "$plugin" "$repo"
   rm -rf "$work/home"
 
   cp "$repo/.git/config" "$state/config.before"
@@ -5051,11 +5347,12 @@ EOF
   head="$(git -C "$repo" rev-parse HEAD)"
   cp "$repo/.git/config" "$state/config.before"
   for scenario in fsmonitor hooks filter filter-equals filter-info filter-info-equals filter-attrfile filter-global \
-    config-symlink config-fifo backup-hooks lock backup-lock background backup-background; do
+    config-symlink config-fifo config-fifo-race backup-hooks lock backup-lock background backup-background; do
     mode="${scenario#backup-}"; ec=0; mutator=codex
     rm -f "$state/fsmonitor.executed" "$state/background.executed" "$state/child.pid" "$state/claude.evidence.json"
-    # Finish sibling evidence before replacing config, so only the collector can block.
-    [ "$mode" != config-fifo ] || mkfifo "$state/claude.ready"
+    if [ "$mode" = config-fifo-race ]; then
+      mkfifo "$state/claude.ready" "$state/config-race.go" "$state/config-race.done"
+    fi
     case "$scenario" in
       backup-*) mutator=deepseek; collect FIXTURE_MUTATOR="$mutator" FIXTURE_MUTATION="$mode" || ec=$? ;;
       filter-global)
@@ -5079,11 +5376,12 @@ EOF
         filter-global)
           [ "$ec" -eq 0 ] || return 1
           cmp -s "$repo/.git/config" "$state/config.before" || return 1 ;;
-        config-fifo)
+        config-fifo|config-fifo-race)
           [ "$ec" -eq 1 ] && [ ! -e "$collection" ] || return 1
           grep -q "shared git config changed: $repo/.git/config" "$work/collect-$n.err" || return 1
           [ -f "$repo/.git/config" ] && [ ! -L "$repo/.git/config" ] || return 1
-          cmp -s "$repo/.git/config" "$state/config.before" || return 1 ;;
+          cmp -s "$repo/.git/config" "$state/config.before" || return 1
+          [ "$mode" != config-fifo-race ] || [ -f "$state/config-race.exercised" ] ;;
         config-symlink)
           [ "$ec" -eq 1 ] && [ ! -e "$collection" ] || return 1
           grep -q "shared git config changed: $repo/.git/config" "$work/collect-$n.err" || return 1
@@ -5354,6 +5652,11 @@ test_risk_tier_and_backup_config
 test_risk_effort_reaches_claude_and_grok
 test_preflight_risk_and_backups
 test_backup_leg_collection
+test_collector_completion_order
+test_collector_reap_rescan
+test_collector_config_includes
+test_collector_surface_leftovers
+test_collector_subdirectory_root
 test_walk_root_hides_env_files
 
 echo ""

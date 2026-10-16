@@ -3,7 +3,7 @@
 # this runner owns provider identity, repository/PR binding, and artifact hashes.
 set -euo pipefail
 umask 077
-export LC_ALL=C
+export LC_ALL=C GIT_NO_REPLACE_OBJECTS=1
 unset BASH_ENV ENV CDPATH GLOBIGNORE
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CONFIG_PARAMETERS \
@@ -107,8 +107,11 @@ kill_leg() {
   done < <(ps -eo sid=,pgid= | awk -v sid="$pid" '$1 == sid && !seen[$2]++ { print $2 }')
 }
 
-reject_worktree_config() {
-  local enabled rc
+reject_uncontained_config() {
+  local enabled rc entries
+  entries="$(config_entries "$CONFIG_SNAPSHOT")" || die "cannot parse common repository config"
+  printf '%s' "$entries" | jq -e 'keys | all(.[]; test("^(include|includeif)\\.") | not)' >/dev/null \
+    || die "sealed collection does not support repository config include/includeIf directives; use a clone without them"
   enabled="$(git -C "$1" config --type=bool --get extensions.worktreeConfig)" || {
     rc=$?
     [ "$rc" -eq 1 ] || die "cannot read extensions.worktreeConfig"
@@ -136,18 +139,34 @@ load_safe_directories() {
   done
 }
 
+copy_surface_file() {
+  # Bound even the open: a live sibling can replace a checked path with a FIFO.
+  # Check the opened fd before reading, and expose only a private regular copy.
+  timeout -k 1 2 bash -c '
+    [ -f "$1" ] && [ ! -L "$1" ] || exit 1
+    exec 3< "$1"
+    [ -f /proc/self/fd/3 ] || exit 1
+    cat <&3
+  ' _ "$1" > "$2"
+}
+
 config_entries() {
-  [ -f "$1" ] && [ ! -L "$1" ] || return 1
-  # Parsing a regular file executes nothing; bypass the recursive surface guard.
-  GIT_DIR="$SURFACE_GITDIR" GIT_COMMON_DIR="$SURFACE_COMMON" hardened_git config --file "$1" --list --no-includes --null 2>/dev/null \
-    | jq -Rs 'split("\u0000")[:-1] | group_by(split("\n")[0])
-      | map({key:(.[0] | split("\n")[0]), value:.}) | from_entries'
+  local copy rc=0
+  copy="$(mktemp)" || return 1
+  if copy_surface_file "$1" "$copy"; then
+    # Parse only the private copy; bypass the recursive surface guard.
+    GIT_DIR="$SURFACE_GITDIR" GIT_COMMON_DIR="$SURFACE_COMMON" hardened_git config --file "$copy" --list --no-includes --null 2>/dev/null \
+      | jq -Rs 'split("\u0000")[:-1] | group_by(split("\n")[0])
+        | map({key:(.[0] | split("\n")[0]), value:.}) | from_entries' || rc=$?
+  else rc=1; fi
+  rm -f -- "$copy"
+  return "$rc"
 }
 
 changed_config_keys() {
   local before after
   before="$(config_entries "$CONFIG_SNAPSHOT")" || return 1
-  after="$(config_entries "$CONFIG_FILE")" || return 1
+  after="$(config_entries "$1")" || return 1
   printf '%s\n%s\n' "$before" "$after" | jq -s '
     .[0] as $before | .[1] as $after
     | [($before + $after | keys[]) | select($before[.] != $after[.])]'
@@ -204,7 +223,11 @@ same_surface_dir() {
 }
 
 same_surface_file() {
-  [ -f "$1" ] && [ ! -L "$1" ] && cmp -s -- "$1" "$SURFACE_SNAPSHOTS/$2"
+  local copy rc=0
+  copy="$(mktemp "$SURFACE_SNAPSHOTS/current.XXXXXX")" || return 1
+  copy_surface_file "$1" "$copy" && cmp -s -- "$copy" "$SURFACE_SNAPSHOTS/$2" || rc=1
+  rm -f -- "$copy"
+  return "$rc"
 }
 
 restore_surface_file() {
@@ -227,7 +250,7 @@ restore_surface_file() {
 }
 
 check_git_surface() {
-  local changes problem="" root_git git_ok=0 common_ok=0 root_bad=0 commondir_bad=0
+  local changes config_copy problem="" root_git git_ok=0 common_ok=0 root_bad=0 commondir_bad=0
   [ "$SURFACE_FAILED" -eq 0 ] || return 1
   [ "$SURFACE_PINNED" -eq 1 ] || return 0
   root_git="$SURFACE_ROOT/.git"
@@ -267,9 +290,14 @@ check_git_surface() {
     fi
     return 1
   fi
-  if [ -f "$CONFIG_FILE" ] && [ ! -L "$CONFIG_FILE" ]; then
-    cmp -s "$CONFIG_SNAPSHOT" "$CONFIG_FILE" && return 0
-    if changes="$(changed_config_keys)"; then
+  config_copy="$(mktemp "$SURFACE_SNAPSHOTS/current.XXXXXX")" || return 1
+  if copy_surface_file "$CONFIG_FILE" "$config_copy"; then
+    if cmp -s "$CONFIG_SNAPSHOT" "$config_copy"; then
+      rm -f -- "$config_copy"
+      return 0
+    fi
+    if changes="$(changed_config_keys "$config_copy")"; then
+      rm -f -- "$config_copy"
       # Upstream tracking writes from concurrent operator sessions are legitimate.
       printf '%s' "$changes" | jq -e 'all(.[]; startswith("branch."))' >/dev/null && return 0
       changes="$(printf '%s' "$changes" | jq -r '.[:20][]')"
@@ -277,8 +305,9 @@ check_git_surface() {
       changes='config key names unavailable (cannot parse config)'
     fi
   else
-    changes='config path is missing, symbolic, or not a regular file'
+    changes='config path is missing, symbolic, not a regular file, or cannot be read within the deadline'
   fi
+  rm -f -- "$config_copy"
   restore_surface_file "$CONFIG_FILE" config \
     || { printf 'cannot restore shared git config: %s\n' "$CONFIG_FILE" >&2; return 1; }
   printf 'tribunal evidence: shared git config changed: %s (restored)\n%s\n' "$CONFIG_FILE" "$changes" >&2
@@ -325,6 +354,11 @@ cleanup() {
     for review_worktree in "${REVIEW_WORKTREES[@]}"; do
       git -C "$REVIEW_SOURCE" worktree remove -f -f "$review_worktree" >/dev/null 2>&1 || true
     done
+  elif [ "$SURFACE_FAILED" -eq 1 ] && [ -n "${REVIEW_WORKTREES[0]:-}" ]; then
+    for review_worktree in "${REVIEW_WORKTREES[@]}"; do
+      printf 'tribunal evidence: leftover review worktree: %s\n' "$review_worktree" >&2
+    done
+    printf 'tribunal evidence: after restoring the Git surface, remove leftover worktrees and run git worktree prune\n' >&2
   fi
   [ -z "$STAGING" ] || [ ! -e "$STAGING" ] || rm -rf -- "$STAGING"
   [ -z "$FINAL_TMP1" ] || [ ! -e "$FINAL_TMP1" ] || rm -f -- "$FINAL_TMP1"
@@ -336,8 +370,10 @@ trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
 require_tools() {
+  (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3) )) \
+    || die "bash 4.3+ is required for wait -n"
   local tool
-  for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp stat flock setsid ps; do
+  for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp stat flock setsid ps timeout; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
   done
 }
@@ -583,14 +619,24 @@ run_wrapper() {
 }
 
 wait_wrappers() {
-  local index pid name rc
-  for index in "${!REVIEW_PIDS[@]}"; do
-    pid="${REVIEW_PIDS[$index]}"; name="${REVIEW_NAMES[$index]}"; rc=0
-    wait "$pid" || rc=$?
-    kill_leg "$pid"
-    check_git_surface || die "git surface changed; collection rejected"
-    printf '%s\n' "$rc" > "$STAGING/wrappers/$name.exit"
-    printf '%s\n' "$(now)" > "$STAGING/wrappers/$name.finished"
+  local index pid name rc running reaped remaining="${#REVIEW_PIDS[@]}"
+  while [ "$remaining" -gt 0 ]; do
+    running="$(jobs -pr)"
+    reaped=0
+    for index in "${!REVIEW_PIDS[@]}"; do
+      pid="${REVIEW_PIDS[$index]}"; name="${REVIEW_NAMES[$index]}"
+      [[ $'\n'"$running"$'\n' != *$'\n'"$pid"$'\n'* ]] || continue
+      rc=0
+      wait "$pid" || rc=$?
+      kill_leg "$pid"
+      unset 'REVIEW_PIDS[index]' 'REVIEW_NAMES[index]'
+      remaining=$((remaining - 1))
+      reaped=1
+      check_git_surface || die "git surface changed; collection rejected"
+      printf '%s\n' "$rc" > "$STAGING/wrappers/$name.exit"
+      printf '%s\n' "$(now)" > "$STAGING/wrappers/$name.finished"
+    done
+    if [ "$remaining" -gt 0 ] && [ "$reaped" -eq 0 ]; then wait -n || true; fi
   done
   REVIEW_PIDS=(); REVIEW_NAMES=()
 }
@@ -635,7 +681,7 @@ collect() {
   set +m
   local root="" pr="" output="" started binding head_oid base_oid parent review_tmp bundle
   local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json deleted_paths_json
-  local mutation_gate_json
+  local mutation_gate_json sensitive_paths sensitive_paths_sha256="" source line path content
   local codex_worktree gemini_worktree deepseek_worktree qwen_worktree grok_worktree muse_worktree claude_worktree review_worktree
   local min_ok_legs backup_legs backups backup limited
   local -A mutation_errors=() review_gitdirs=()
@@ -657,9 +703,9 @@ collect() {
   SURFACE_ROOT="$root"
   load_safe_directories
   require_git_version
-  pin_git_surface
-  reject_worktree_config "$root"
   [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || die "--repo-root is not a Git worktree root"
+  pin_git_surface
+  reject_uncontained_config "$root"
   case "$output" in /*) ;; *) die "--output must be absolute" ;; esac
   [ ! -e "$output" ] && [ ! -L "$output" ] || die "collection output already exists"
   parent="$(dirname "$output")"; parent="$(real_dir "$parent")"
@@ -684,6 +730,24 @@ collect() {
   if [ "$(printf '%s' "$ignored_paths_json" | jq 'length')" -gt 0 ]; then
     printf '%s' "$ignored_paths_json" | jq -S . > "$STAGING/ignored-paths.json"
     validate_ignored_paths "$STAGING/ignored-paths.json" || die "internal ignored-path evidence is invalid"
+    sensitive_paths="[]"
+    while IFS=$'\t' read -r source line path; do
+      content="$(git -C "$root" show "$head_oid:$source")" || die "cannot read ignored-path policy: $source"
+      if printf '%s\n' "$content" | sed -n "1,${line}p" | awk -v line="$line" '
+        NR >= line { exit }
+        /^[[:space:]]*#/ {
+          if (tolower($0) ~ /(^|[^[:alnum:]])(secret|pii|credential|key)([^[:alnum:]]|$)/ \
+              || tolower($0) ~ /(^|[^[:alnum:]])never[[:space:]]+commit([^[:alnum:]]|$)/) sensitive=1
+          next
+        }
+        /^[[:space:]]*$/ { sensitive=0 }
+        END { exit !sensitive }
+      '; then
+        sensitive_paths="$(jq -c --arg path "$path" '. + [$path]' <<<"$sensitive_paths")"
+      fi
+    done < <(jq -r '.[] | [.source, (.line | tostring), .path] | @tsv' "$STAGING/ignored-paths.json")
+    printf '%s' "$sensitive_paths" | jq -S . > "$STAGING/sensitive-paths.json"
+    sensitive_paths_sha256="$(sha_file "$STAGING/sensitive-paths.json")"
   fi
   deleted_paths_json="$(cd "$root" && tribunal_deleted_policy_paths "$base_oid")"
   if [ "$(printf '%s' "$deleted_paths_json" | jq 'length')" -gt 0 ]; then
@@ -797,6 +861,11 @@ collect() {
   mkdir "$STAGING/git-surface"
   cp -- "$SURFACE_SNAPSHOTS/"* "$STAGING/git-surface/"
   chmod 0400 "$STAGING/git-surface/"*
+  if [ -n "$sensitive_paths_sha256" ]; then
+    [ -f "$STAGING/sensitive-paths.json" ] && [ ! -L "$STAGING/sensitive-paths.json" ] \
+      && [ "$(sha_file "$STAGING/sensitive-paths.json")" = "$sensitive_paths_sha256" ] \
+      || die "sensitive-path evidence changed during review"
+  fi
   jq -S -n --arg schema "$SCHEMA_COLLECTION" --arg started_at "$started" \
     --arg completed_at "$(now)" --argjson binding "$binding" \
     --argjson git_surface "$SURFACE_STATE" \
@@ -806,6 +875,8 @@ collect() {
     --argjson diff_bytes "$(bytes_file "$STAGING/review.diff")" \
     --arg ignored_paths_sha256 "$([ ! -f "$STAGING/ignored-paths.json" ] || sha_file "$STAGING/ignored-paths.json")" \
     --argjson ignored_paths_bytes "$([ ! -f "$STAGING/ignored-paths.json" ] && printf '0' || bytes_file "$STAGING/ignored-paths.json")" \
+    --arg sensitive_paths_sha256 "$([ ! -f "$STAGING/sensitive-paths.json" ] || sha_file "$STAGING/sensitive-paths.json")" \
+    --argjson sensitive_paths_bytes "$([ ! -f "$STAGING/sensitive-paths.json" ] && printf '0' || bytes_file "$STAGING/sensitive-paths.json")" \
     --arg deleted_paths_sha256 "$([ ! -f "$STAGING/deleted-paths.json" ] || sha_file "$STAGING/deleted-paths.json")" \
     --argjson deleted_paths_bytes "$([ ! -f "$STAGING/deleted-paths.json" ] && printf '0' || bytes_file "$STAGING/deleted-paths.json")" \
     --arg mutation_gate_sha256 "$([ ! -f "$STAGING/mutation-gate.json" ] || sha_file "$STAGING/mutation-gate.json")" \
@@ -830,7 +901,8 @@ collect() {
       providers:$providers,
       panel_policy:{min_ok_legs:$min_ok_legs,source:"env"}}
       + (if $ignored_paths_sha256 == "" then {} else
-          {ignored_paths:{path:"ignored-paths.json",sha256:$ignored_paths_sha256,bytes:$ignored_paths_bytes}} end)
+          {ignored_paths:{path:"ignored-paths.json",sha256:$ignored_paths_sha256,bytes:$ignored_paths_bytes},
+           sensitive_paths:{path:"sensitive-paths.json",sha256:$sensitive_paths_sha256,bytes:$sensitive_paths_bytes}} end)
       + (if $deleted_paths_sha256 == "" then {} else
           {deleted_paths:{path:"deleted-paths.json",sha256:$deleted_paths_sha256,bytes:$deleted_paths_bytes}} end)
       + (if $mutation_gate_sha256 == "" then {} else
@@ -838,7 +910,7 @@ collect() {
     > "$STAGING/manifest.json"
   rm -f "$providers_json"
   chmod 0444 "$STAGING/manifest.json" "$STAGING/pr-body.txt" "$STAGING/review.diff" "$STAGING/providers/"*.json
-  [ ! -f "$STAGING/ignored-paths.json" ] || chmod 0444 "$STAGING/ignored-paths.json"
+  [ ! -f "$STAGING/ignored-paths.json" ] || chmod 0444 "$STAGING/ignored-paths.json" "$STAGING/sensitive-paths.json"
   [ ! -f "$STAGING/deleted-paths.json" ] || chmod 0444 "$STAGING/deleted-paths.json"
   [ ! -f "$STAGING/mutation-gate.json" ] || chmod 0444 "$STAGING/mutation-gate.json"
   mv -T -- "$STAGING" "$output" 2>/dev/null \
@@ -863,7 +935,7 @@ validate_manifest_shape() {
     def snapshot: exact(["sha256","bytes","mode"];["sha256","bytes","mode"])
       and (.sha256|sha) and (.bytes|uint) and (.mode|type=="string" and test("^[0-7]{3,4}$"));
     def stamp: type=="string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
-    exact(["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","ignored_paths","deleted_paths","mutation_gate","panel_policy"];
+    exact(["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","ignored_paths","sensitive_paths","deleted_paths","mutation_gate","panel_policy"];
           ["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers"])
     and .schema==$schema and (.started_at|stamp) and (.completed_at|stamp) and .started_at<=.completed_at
     and (.git_surface | exact(["schema","root_git","git_dir","git_dir_identity","common_dir","common_dir_identity","commondir","config"];
@@ -890,6 +962,10 @@ validate_manifest_shape() {
     and ((has("ignored_paths")|not) or
          (.ignored_paths | exact(["path","sha256","bytes"];["path","sha256","bytes"])
           and .path=="ignored-paths.json" and (.sha256|sha) and (.bytes|uint and .>0)))
+    and (has("ignored_paths") == has("sensitive_paths"))
+    and ((has("sensitive_paths")|not) or
+         (.sensitive_paths | exact(["path","sha256","bytes"];["path","sha256","bytes"])
+          and .path=="sensitive-paths.json" and (.sha256|sha) and (.bytes|uint and .>0)))
     and ((has("deleted_paths")|not) or
          (.deleted_paths | exact(["path","sha256","bytes"];["path","sha256","bytes"])
           and .path=="deleted-paths.json" and (.sha256|sha) and (.bytes|uint and .>0)))
@@ -998,7 +1074,7 @@ verify_collection_internal() {
   load_git_surface "$manifest"
   load_safe_directories
   require_git_version
-  reject_worktree_config "$SURFACE_ROOT"
+  reject_uncontained_config "$SURFACE_ROOT"
   if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
     [ -f "$dir/ignored-paths.json" ] && [ ! -L "$dir/ignored-paths.json" ] \
       || die "ignored-path artifact missing or symbolic"
@@ -1007,8 +1083,19 @@ verify_collection_internal() {
     [ "$(bytes_file "$dir/ignored-paths.json")" = "$(jq -r .ignored_paths.bytes "$manifest")" ] \
       || die "ignored-path artifact size mismatch"
     validate_ignored_paths "$dir/ignored-paths.json" || die "ignored-path artifact schema invalid"
+    [ -f "$dir/sensitive-paths.json" ] && [ ! -L "$dir/sensitive-paths.json" ] \
+      || die "sensitive-path artifact missing or symbolic"
+    [ "$(sha_file "$dir/sensitive-paths.json")" = "$(jq -r .sensitive_paths.sha256 "$manifest")" ] \
+      || die "sensitive-path artifact digest mismatch"
+    [ "$(bytes_file "$dir/sensitive-paths.json")" = "$(jq -r .sensitive_paths.bytes "$manifest")" ] \
+      || die "sensitive-path artifact size mismatch"
+    jq -e --slurpfile ignored "$dir/ignored-paths.json" '
+      type == "array" and (length == (unique | length))
+      and ((. - [$ignored[0][].path]) | length == 0)
+    ' "$dir/sensitive-paths.json" >/dev/null || die "sensitive-path artifact schema invalid"
   else
     [ ! -e "$dir/ignored-paths.json" ] || die "unbound ignored-path artifact"
+    [ ! -e "$dir/sensitive-paths.json" ] || die "unbound sensitive-path artifact"
   fi
   if jq -e 'has("deleted_paths")' "$manifest" >/dev/null; then
     [ -f "$dir/deleted-paths.json" ] && [ ! -L "$dir/deleted-paths.json" ] \
@@ -1070,7 +1157,7 @@ verify_collection_internal() {
 }
 
 validate_arbitration() {
-  local arbitration="$1" manifest="$2" statuses dir evidence ignored_paths deleted_paths mutation_gate sensitive_paths root source line path
+  local arbitration="$1" manifest="$2" statuses dir evidence ignored_paths deleted_paths mutation_gate sensitive_paths
   local min_ok_legs
   statuses="$(jq -c '[.providers[]|{key:.provider,value:.status}]|from_entries' "$manifest")"
   # Sealed floor only — never re-read ambient TRIBUNAL_MIN_OK_LEGS (issue #519).
@@ -1099,22 +1186,8 @@ validate_arbitration() {
     mutation_gate="[]"
   fi
   sensitive_paths="[]"
-  root="$(jq -r .repository.root "$manifest")"
   if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
-    while IFS=$'\t' read -r source line path; do
-      if git -C "$root" show "HEAD:$source" 2>/dev/null | sed -n "1,${line}p" | awk -v line="$line" '
-        NR >= line { exit }
-        /^[[:space:]]*#/ {
-          if (tolower($0) ~ /(^|[^[:alnum:]])(secret|pii|credential|key)([^[:alnum:]]|$)/ \
-              || tolower($0) ~ /(^|[^[:alnum:]])never[[:space:]]+commit([^[:alnum:]]|$)/) sensitive=1
-          next
-        }
-        /^[[:space:]]*$/ { sensitive=0 }
-        END { exit !sensitive }
-      '; then
-        sensitive_paths="$(jq -c --arg path "$path" '. + [$path]' <<<"$sensitive_paths")"
-      fi
-    done < <(jq -r '.[] | [.source, (.line | tostring), .path] | @tsv' "$dir/ignored-paths.json")
+    sensitive_paths="$(jq -c . "$dir/sensitive-paths.json")"
   fi
   jq -e --argjson statuses "$statuses" --argjson min_ok_legs "$min_ok_legs" --argjson evidence "$evidence" \
     --argjson ignored_paths "$ignored_paths" --argjson deleted_paths "$deleted_paths" \
