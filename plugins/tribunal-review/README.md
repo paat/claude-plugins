@@ -152,7 +152,7 @@ DeepSeek uses the direct DeepSeek API and walks the repository with a read-only 
 | `TRIBUNAL_MUSE_MODEL` | _(CLI default)_ | Model passed to `muse exec --model`. Unset runs the CLI default (currently `muse-spark-1.3-contributor`). When set, a run that configured another model is a provider failure. The leg reports the configured model in its output `model` field. |
 | `TRIBUNAL_MUSE_EFFORT` | the `TRIBUNAL_RISK` effort, else CLI default | Muse `--reasoning-effort` (`minimal` through `max`). |
 | `TRIBUNAL_MUSE_TIMEOUT_SECONDS` | `600` | Wall timeout (30..1800). |
-| `TRIBUNAL_MUSE_MAX_STEPS` | `40` | `--max-model-steps` budget (1..70). |
+| `TRIBUNAL_MUSE_MAX_STEPS` | `40` | `--max-model-steps` budget (1..80). |
 | `TRIBUNAL_CLAUDE` | `on` | Set to `off` to skip the Claude diff-only leg. **On by default**; when off the arbiter reports Claude as `disabled`, not failed. Only the literal `off` disables. |
 | `TRIBUNAL_CLAUDE_MODEL` | `sonnet` | Model passed to `claude -p --model` for the diff-only leg. Accepts an alias (`sonnet`, `haiku`, `opus`) or a full id (e.g. `claude-sonnet-5-5`). |
 | `TRIBUNAL_CLAUDE_EFFORT` | the `TRIBUNAL_RISK` effort, else CLI default | Claude `--effort` for the diff-only leg; never passed to a Haiku model. |
