@@ -368,7 +368,7 @@ tribunal_mutation_gate() {
     git -C "$repo_root" worktree add --detach --quiet "$worktree" "$base_commit" \
       || { printf 'cannot create base worktree for mutation gate\n' >&2; exit 1; }
     # shellcheck disable=SC2064
-    trap 'git -C "$repo_root" worktree remove --force "$worktree" >/dev/null 2>&1 || true; rm -rf -- "$temp_root"' EXIT
+    trap 'git -C "$repo_root" worktree remove -f -f "$worktree" >/dev/null 2>&1 || true; rm -rf -- "$temp_root"' EXIT
 
     for path in "${targets[@]}"; do
       parent="$(dirname -- "$path")"

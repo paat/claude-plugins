@@ -9,10 +9,57 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CONFIG_PARAMETERS \
   GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_SSH_COMMAND
 
-for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp codex agy opencode qwen grok muse claude; do
+for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp stat setsid ps kill codex agy opencode qwen grok muse claude; do
   unset -f "$command_name" 2>/dev/null || true
 done
 unset command_name
+
+# Also covers library helpers and traps; never exported to reviewer shells.
+git() {
+  check_git_surface || die "git surface validation failed"
+  local target="$PWD" i
+  local -a args=("$@")
+  for ((i=0; i<${#args[@]}; i+=2)); do
+    case "${args[$i]}" in
+      -C) target="${args[$((i+1))]}" ;;
+      -c) ;;
+      *) break ;;
+    esac
+  done
+  if [ "$SURFACE_PINNED" -eq 1 ] && [ "$target" = "$SURFACE_ROOT" ]; then
+    local -x GIT_DIR="$SURFACE_GITDIR" GIT_COMMON_DIR="$SURFACE_COMMON" GIT_WORK_TREE="$SURFACE_ROOT"
+  fi
+  hardened_git "$@"
+}
+
+hardened_git() {
+  local arg upload_pack=""
+  local -a options=() invocation protections upload_invocation
+  # Ignore external config and worktree attributes, including '=' driver names.
+  invocation=(env GIT_NO_LAZY_FETCH=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+    GIT_CONFIG_COUNT="$SAFE_DIRECTORY_COUNT" "${SAFE_DIRECTORY_ENV[@]+"${SAFE_DIRECTORY_ENV[@]}"}"
+    git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904)
+  protections=(-c core.attributesFile=/dev/null -c core.fsmonitor=false -c core.hooksPath=/dev/null)
+  while [ "${1:-}" = -c ] || [ "${1:-}" = -C ]; do
+    options+=("$1" "$2"); shift 2
+  done
+  if [ "${1:-}" = clone ]; then
+    shift
+    # Local clone drops command-scope config in its upload-pack child.
+    # Reapply the same pinned environment there, quoted for Git's POSIX shell.
+    upload_invocation=(env)
+    if [ -n "${GIT_DIR:-}" ]; then
+      upload_invocation+=("GIT_DIR=$GIT_DIR" "GIT_COMMON_DIR=$GIT_COMMON_DIR")
+    fi
+    for arg in "${upload_invocation[@]}" "${invocation[@]}" "${protections[@]}" upload-pack; do
+      upload_pack+="'${arg//\'/\'\\\'\'}' "
+    done
+    set -- clone "--upload-pack=$upload_pack" "$@"
+    # The clone destination must not inherit the source repository's pins.
+    invocation=(env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE "${invocation[@]}")
+  fi
+  "${invocation[@]}" "${options[@]+"${options[@]}"}" "${protections[@]}" "$@"
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
@@ -24,6 +71,24 @@ PROVIDERS="codex gemini glm deepseek qwen grok muse claude"
 STAGING=""
 REVIEW_SOURCE=""
 REVIEW_WORKTREES=()
+REVIEW_PIDS=()
+REVIEW_NAMES=()
+CONFIG_FILE=""
+CONFIG_SNAPSHOT=""
+SAFE_DIRECTORY_COUNT=0
+SAFE_DIRECTORY_ENV=()
+SURFACE_ROOT=""
+SURFACE_GITDIR=""
+SURFACE_COMMON=""
+SURFACE_ID=""
+SURFACE_KIND=""
+SURFACE_GITDIR_ID=""
+SURFACE_COMMON_ID=""
+SURFACE_STATE=""
+SURFACE_SNAPSHOTS=""
+SURFACE_FAILED=0
+SURFACE_PINNED=0
+VERIFIED_COLLECTION=""
 FINAL_TMP1=""
 FINAL_TMP2=""
 
@@ -32,24 +97,257 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 sha_file() { sha256sum -- "$1" | awk '{print $1}'; }
 bytes_file() { wc -c < "$1" | tr -d ' '; }
 
+kill_leg() {
+  local pid="$1" group
+  # timeout may create nested groups. Kill every group in the wrapper's session;
+  # SIGKILL has no handler/grace period and we never wait for orphan descendants.
+  kill -KILL "$pid" 2>/dev/null || true
+  while read -r group; do
+    kill -KILL -- "-$group" 2>/dev/null || true
+  done < <(ps -eo sid=,pgid= | awk -v sid="$pid" '$1 == sid && !seen[$2]++ { print $2 }')
+}
+
+reject_worktree_config() {
+  local enabled rc
+  enabled="$(git -C "$1" config --type=bool --get extensions.worktreeConfig)" || {
+    rc=$?
+    [ "$rc" -eq 1 ] || die "cannot read extensions.worktreeConfig"
+  }
+  [ "$enabled" != true ] || die "sealed collection does not support extensions.worktreeConfig (per-worktree config cannot be contained); disable it or run tribunal from a clone without it"
+}
+
+load_safe_directories() {
+  local scope values value rc
+  if [ "$SURFACE_PINNED" -eq 1 ]; then
+    local -x GIT_DIR="$SURFACE_GITDIR" GIT_COMMON_DIR="$SURFACE_COMMON"
+  fi
+  # Read only the operator's protected scopes, before any reviewer can change them.
+  for scope in system global; do
+    values="$(command git -C "$SURFACE_ROOT" config --"$scope" --includes --null --get-all safe.directory \
+      | jq -Rs 'split("\u0000")[:-1]')" || {
+      rc=$?
+      [ "$rc" -eq 1 ] || die "cannot read protected safe.directory ($scope)"
+    }
+    while IFS= read -r -d '' value; do
+      SAFE_DIRECTORY_ENV+=("GIT_CONFIG_KEY_$SAFE_DIRECTORY_COUNT=safe.directory"
+        "GIT_CONFIG_VALUE_$SAFE_DIRECTORY_COUNT=$value")
+      SAFE_DIRECTORY_COUNT=$((SAFE_DIRECTORY_COUNT + 1))
+    done < <(printf '%s' "$values" | jq -j '.[] | ., "\u0000"')
+  done
+}
+
+config_entries() {
+  [ -f "$1" ] && [ ! -L "$1" ] || return 1
+  # Parsing a regular file executes nothing; bypass the recursive surface guard.
+  GIT_DIR="$SURFACE_GITDIR" GIT_COMMON_DIR="$SURFACE_COMMON" hardened_git config --file "$1" --list --no-includes --null 2>/dev/null \
+    | jq -Rs 'split("\u0000")[:-1] | group_by(split("\n")[0])
+      | map({key:(.[0] | split("\n")[0]), value:.}) | from_entries'
+}
+
+changed_config_keys() {
+  local before after
+  before="$(config_entries "$CONFIG_SNAPSHOT")" || return 1
+  after="$(config_entries "$CONFIG_FILE")" || return 1
+  printf '%s\n%s\n' "$before" "$after" | jq -s '
+    .[0] as $before | .[1] as $after
+    | [($before + $after | keys[]) | select($before[.] != $after[.])]'
+}
+
+pin_git_surface() {
+  local root_git="$SURFACE_ROOT/.git" kind common
+  [ ! -L "$root_git" ] || die "symbolic root git path: $root_git"
+  if [ -d "$root_git" ]; then kind=directory
+  elif [ -f "$root_git" ]; then kind=file
+  else die "root git path is not a directory or gitfile: $root_git"; fi
+  # Resolve only before legs launch; subsequent resolution checks use no Git.
+  SURFACE_GITDIR="$(real_dir "$(hardened_git -C "$SURFACE_ROOT" rev-parse --absolute-git-dir)")"
+  common="$(hardened_git -C "$SURFACE_ROOT" rev-parse --git-common-dir)"
+  case "$common" in /*) ;; *) common="$SURFACE_ROOT/$common" ;; esac
+  SURFACE_COMMON="$(real_dir "$common")"
+  SURFACE_SNAPSHOTS="$(mktemp -d)"
+  if [ "$kind" = file ]; then snapshot_surface_file "$root_git" root.git; fi
+  if [ -e "$SURFACE_GITDIR/commondir" ] || [ -L "$SURFACE_GITDIR/commondir" ]; then
+    snapshot_surface_file "$SURFACE_GITDIR/commondir" commondir
+  fi
+  CONFIG_FILE="$SURFACE_COMMON/config"
+  snapshot_surface_file "$CONFIG_FILE" config
+  CONFIG_SNAPSHOT="$SURFACE_SNAPSHOTS/config"
+  SURFACE_STATE="$(jq -nc --arg kind "$kind" --arg root_id "$(stat -c '%d:%i' -- "$root_git")" \
+    --arg git_dir "$SURFACE_GITDIR" --arg git_id "$(stat -c '%d:%i' -- "$SURFACE_GITDIR")" \
+    --arg common_dir "$SURFACE_COMMON" --arg common_id "$(stat -c '%d:%i' -- "$SURFACE_COMMON")" \
+    --argjson root_file "$(surface_file_metadata root.git)" \
+    --argjson commondir "$(surface_file_metadata commondir)" \
+    --argjson config "$(surface_file_metadata config)" \
+    '{schema:"tribunal-git-surface/v2",root_git:{kind:$kind,identity:$root_id,file:$root_file},
+      git_dir:$git_dir,git_dir_identity:$git_id,common_dir:$common_dir,common_dir_identity:$common_id,
+      commondir:$commondir,config:$config}')"
+  set_surface_identities
+  SURFACE_PINNED=1
+  check_git_surface || die "cannot pin git surface"
+}
+
+snapshot_surface_file() {
+  [ -f "$1" ] && [ ! -L "$1" ] || die "git surface is not a regular file: $1"
+  cp -p -- "$1" "$SURFACE_SNAPSHOTS/$2"
+}
+
+surface_file_metadata() {
+  local file="$SURFACE_SNAPSHOTS/$1"
+  if [ ! -f "$file" ]; then printf 'null'; return; fi
+  jq -nc --arg sha256 "$(sha_file "$file")" --argjson bytes "$(bytes_file "$file")" \
+    --arg mode "$(stat -c '%a' -- "$file")" '{sha256:$sha256,bytes:$bytes,mode:$mode}'
+}
+
+same_surface_dir() {
+  [ -d "$1" ] && [ ! -L "$1" ] \
+    && [ "$(stat -c '%d:%i' -- "$1")" = "$2" ] && [ "$(real_dir "$1")" = "$1" ]
+}
+
+same_surface_file() {
+  [ -f "$1" ] && [ ! -L "$1" ] && cmp -s -- "$1" "$SURFACE_SNAPSHOTS/$2"
+}
+
+restore_surface_file() {
+  local path="$1" snapshot="$SURFACE_SNAPSHOTS/$2" mode replacement
+  mode="$(printf '%s' "$SURFACE_STATE" | jq -r --arg key "$2" \
+    'if $key == "root.git" then .root_git.file.mode else .[$key].mode end')"
+  # Preserve the pinned gitfile inode; replace other paths without following links.
+  if [ "$2" = root.git ] && [ -f "$path" ] && [ ! -L "$path" ] \
+    && [ "$(stat -c '%d:%i' -- "$path")" = "$SURFACE_ID" ]; then
+    chmod u+w -- "$path" && cat -- "$snapshot" > "$path" && chmod "$mode" "$path"
+    return
+  fi
+  replacement="$(mktemp "$(dirname "$path")/.tribunal-restore.XXXXXX")" || return 1
+  if cp -- "$snapshot" "$replacement" && chmod "$mode" "$replacement"; then
+    if [ -d "$path" ] && [ ! -L "$path" ]; then rm -rf -- "$path"; fi
+    if mv -fT -- "$replacement" "$path"; then return 0; fi
+  fi
+  rm -f -- "$replacement"
+  return 1
+}
+
+check_git_surface() {
+  local changes problem="" root_git git_ok=0 common_ok=0 root_bad=0 commondir_bad=0
+  [ "$SURFACE_FAILED" -eq 0 ] || return 1
+  [ "$SURFACE_PINNED" -eq 1 ] || return 0
+  root_git="$SURFACE_ROOT/.git"
+  if same_surface_dir "$SURFACE_GITDIR" "$SURFACE_GITDIR_ID"; then git_ok=1; fi
+  if same_surface_dir "$SURFACE_COMMON" "$SURFACE_COMMON_ID"; then common_ok=1; fi
+  if [ "$(stat -c '%d:%i' -- "$root_git" 2>/dev/null)" != "$SURFACE_ID" ] || [ -L "$root_git" ]; then
+    root_bad=1
+  elif [ "$SURFACE_KIND" = directory ]; then
+    [ -d "$root_git" ] && [ "$(real_dir "$root_git")" = "$SURFACE_GITDIR" ] || root_bad=1
+  else
+    same_surface_file "$root_git" root.git || root_bad=1
+  fi
+  if [ "$root_bad" -eq 1 ]; then problem="$root_git (original $SURFACE_KIND changed)"
+  elif [ "$git_ok" -eq 0 ]; then problem="$SURFACE_GITDIR (git-dir identity or realpath changed)"
+  elif [ "$common_ok" -eq 0 ]; then problem="$SURFACE_COMMON (common-dir identity or realpath changed)"; fi
+  if [ "$git_ok" -eq 1 ]; then
+    if [ -f "$SURFACE_SNAPSHOTS/commondir" ]; then
+      same_surface_file "$SURFACE_GITDIR/commondir" commondir || commondir_bad=1
+    elif [ -e "$SURFACE_GITDIR/commondir" ] || [ -L "$SURFACE_GITDIR/commondir" ]; then commondir_bad=1; fi
+    if [ "$commondir_bad" -eq 1 ]; then
+      problem="${problem:+$problem; }$SURFACE_GITDIR/commondir (resolution changed)"
+    fi
+  fi
+  if [ -n "$problem" ]; then
+    SURFACE_FAILED=1
+    printf 'tribunal evidence: git surface changed: %s\n' "$problem" >&2
+    if [ "$root_bad" -eq 1 ] && [ "$SURFACE_KIND" = file ]; then
+      restore_surface_file "$root_git" root.git || printf 'cannot restore gitfile: %s\n' "$root_git" >&2
+    fi
+    if [ "$commondir_bad" -eq 1 ]; then
+      if [ -f "$SURFACE_SNAPSHOTS/commondir" ]; then
+        restore_surface_file "$SURFACE_GITDIR/commondir" commondir \
+          || printf 'cannot restore commondir: %s\n' "$SURFACE_GITDIR/commondir" >&2
+      else
+        rm -f -- "$SURFACE_GITDIR/commondir" || printf 'cannot remove planted commondir: %s\n' "$SURFACE_GITDIR/commondir" >&2
+      fi
+    fi
+    return 1
+  fi
+  if [ -f "$CONFIG_FILE" ] && [ ! -L "$CONFIG_FILE" ]; then
+    cmp -s "$CONFIG_SNAPSHOT" "$CONFIG_FILE" && return 0
+    if changes="$(changed_config_keys)"; then
+      # Upstream tracking writes from concurrent operator sessions are legitimate.
+      printf '%s' "$changes" | jq -e 'all(.[]; startswith("branch."))' >/dev/null && return 0
+      changes="$(printf '%s' "$changes" | jq -r '.[:20][]')"
+    else
+      changes='config key names unavailable (cannot parse config)'
+    fi
+  else
+    changes='config path is missing, symbolic, or not a regular file'
+  fi
+  restore_surface_file "$CONFIG_FILE" config \
+    || { printf 'cannot restore shared git config: %s\n' "$CONFIG_FILE" >&2; return 1; }
+  printf 'tribunal evidence: shared git config changed: %s (restored)\n%s\n' "$CONFIG_FILE" "$changes" >&2
+  return 1
+}
+
+load_git_surface() {
+  local manifest="$1" name metadata file
+  SURFACE_STATE="$(jq -c .git_surface "$manifest")"
+  SURFACE_ROOT="$(jq -r .repository.root "$manifest")"
+  SURFACE_GITDIR="$(printf '%s' "$SURFACE_STATE" | jq -r .git_dir)"
+  SURFACE_COMMON="$(printf '%s' "$SURFACE_STATE" | jq -r .common_dir)"
+  # Copy authenticated snapshots to private storage so cleanup never removes evidence.
+  SURFACE_SNAPSHOTS="$(mktemp -d)"
+  [ -d "$(dirname "$manifest")/git-surface" ] && [ ! -L "$(dirname "$manifest")/git-surface" ] \
+    || die "git surface snapshots missing or symbolic"
+  for name in root.git commondir config; do
+    metadata="$(printf '%s' "$SURFACE_STATE" | jq -c --arg key "$name" \
+      'if $key == "root.git" then .root_git.file else .[$key] end')"
+    [ "$metadata" != null ] || continue
+    file="$(dirname "$manifest")/git-surface/$name"
+    [ -f "$file" ] && [ ! -L "$file" ] || die "git surface snapshot missing or symbolic: $name"
+    cp -- "$file" "$SURFACE_SNAPSHOTS/$name"
+    [ "$(sha_file "$SURFACE_SNAPSHOTS/$name")" = "$(printf '%s' "$metadata" | jq -r .sha256)" ] \
+      && [ "$(bytes_file "$SURFACE_SNAPSHOTS/$name")" = "$(printf '%s' "$metadata" | jq -r .bytes)" ] \
+      || die "git surface snapshot digest/size mismatch: $name"
+  done
+  CONFIG_FILE="$SURFACE_COMMON/config"; CONFIG_SNAPSHOT="$SURFACE_SNAPSHOTS/config"
+  set_surface_identities
+  SURFACE_PINNED=1
+  check_git_surface || die "git surface changed; collection rejected"
+}
+
+set_surface_identities() {
+  IFS=$'\t' read -r SURFACE_KIND SURFACE_ID SURFACE_GITDIR_ID SURFACE_COMMON_ID < <(
+    printf '%s' "$SURFACE_STATE" | jq -r '[.root_git.kind,.root_git.identity,.git_dir_identity,.common_dir_identity] | @tsv')
+}
+
 cleanup() {
-  local review_worktree
-  if [ -n "$REVIEW_SOURCE" ]; then
+  local rc=$? review_worktree pid
+  for pid in ${REVIEW_PIDS[@]+"${REVIEW_PIDS[@]}"}; do kill_leg "$pid"; done
+  check_git_surface || rc=1
+  if [ "$SURFACE_FAILED" -eq 0 ] && [ -n "$REVIEW_SOURCE" ]; then
     for review_worktree in "${REVIEW_WORKTREES[@]}"; do
-      [ ! -d "$review_worktree" ] || git -C "$REVIEW_SOURCE" worktree remove --force "$review_worktree" >/dev/null 2>&1 || true
+      git -C "$REVIEW_SOURCE" worktree remove -f -f "$review_worktree" >/dev/null 2>&1 || true
     done
   fi
   [ -z "$STAGING" ] || [ ! -e "$STAGING" ] || rm -rf -- "$STAGING"
   [ -z "$FINAL_TMP1" ] || [ ! -e "$FINAL_TMP1" ] || rm -f -- "$FINAL_TMP1"
   [ -z "$FINAL_TMP2" ] || [ ! -e "$FINAL_TMP2" ] || rm -f -- "$FINAL_TMP2"
+  [ -z "$SURFACE_SNAPSHOTS" ] || rm -rf -- "$SURFACE_SNAPSHOTS"
+  exit "$rc"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 
 require_tools() {
   local tool
-  for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp flock; do
+  for tool in git gh jq sha256sum awk sed wc date mktemp chmod cmp stat flock setsid ps; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
   done
+}
+
+require_git_version() {
+  local version
+  version="$(command git --version)"
+  [[ "$version" =~ ^git\ version\ ([0-9]+)\.([0-9]+) ]] \
+    && (( BASH_REMATCH[1] > 2 || (BASH_REMATCH[1] == 2 && BASH_REMATCH[2] >= 41) )) \
+    || die "git 2.41+ is required for --attr-source (found: $version)"
 }
 
 real_dir() {
@@ -238,16 +536,18 @@ write_failed_provider() {
 
 fail_mutated_providers() {
   local expected_head="$1" dir="$2" provider name worktree_var worktree artifact actual_head dirty paths message changed_paths
-  # Worktree variables and mutation_errors belong to the active collect invocation.
+  local -x GIT_DIR GIT_COMMON_DIR="$SURFACE_COMMON" GIT_WORK_TREE
+  # Worktree variables, review_gitdirs and mutation_errors belong to the active collect invocation.
   for provider in $PROVIDERS; do
     artifact="$dir/providers/$provider.json"
     [ "$(provider_status "$artifact")" != disabled ] || continue
     [ -z "${mutation_errors[$provider]:-}" ] || continue
     case "$provider" in glm|deepseek) name=opencode ;; *) name="$provider" ;; esac
     worktree_var="${name}_worktree"; worktree="${!worktree_var}"
-    actual_head="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$worktree" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" \
+    GIT_DIR="${review_gitdirs[$worktree]}"; GIT_WORK_TREE="$worktree"
+    actual_head="$(git -C "$worktree" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" \
       || actual_head=unresolvable
-    dirty="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$worktree" status --porcelain --untracked-files=all 2>/dev/null)" \
+    dirty="$(git -C "$worktree" status --porcelain --untracked-files=all 2>/dev/null)" \
       || dirty="git status failed"
     [ "$actual_head" != "$expected_head" ] || [ -n "$dirty" ] || continue
     message="provider mutated its review worktree"
@@ -255,7 +555,7 @@ fail_mutated_providers() {
     if [ "$actual_head" != "$expected_head" ]; then
       message="$message: HEAD moved from $expected_head to $actual_head"
       if [ "$actual_head" != unresolvable ]; then
-        changed_paths="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$worktree" diff --no-ext-diff --no-textconv --name-status "$expected_head" "$actual_head" 2>/dev/null)" \
+        changed_paths="$(git -C "$worktree" diff --no-ext-diff --no-textconv --name-status "$expected_head" "$actual_head" 2>/dev/null)" \
           || changed_paths="git diff failed"
         paths="$paths"$'\n'"$changed_paths"
       fi
@@ -271,12 +571,23 @@ fail_mutated_providers() {
 run_wrapper() {
   local name="$1" script="$2" worktree="$3" base_oid="$4" dir="$5"
   printf '%s\n' "$(now)" > "$dir/$name.started"
-  set +e
-  (cd "$worktree" && ulimit -f 65536 && TRIBUNAL_BASE_REF="$base_oid" bash "$script") \
-    > "$dir/$name.raw" 2> "$dir/$name.stderr"
-  printf '%s\n' "$?" > "$dir/$name.exit"
-  set -e
-  printf '%s\n' "$(now)" > "$dir/$name.finished"
+  # With monitor mode off, $! is not a group leader: setsid execs without forking.
+  (cd "$worktree" && ulimit -f 65536 && exec setsid env TRIBUNAL_BASE_REF="$base_oid" bash "$script") \
+    > "$dir/$name.raw" 2> "$dir/$name.stderr" &
+  REVIEW_PIDS+=("$!"); REVIEW_NAMES+=("$name")
+}
+
+wait_wrappers() {
+  local index pid name rc
+  for index in "${!REVIEW_PIDS[@]}"; do
+    pid="${REVIEW_PIDS[$index]}"; name="${REVIEW_NAMES[$index]}"; rc=0
+    wait "$pid" || rc=$?
+    kill_leg "$pid"
+    check_git_surface || die "git surface changed; collection rejected"
+    printf '%s\n' "$rc" > "$STAGING/wrappers/$name.exit"
+    printf '%s\n' "$(now)" > "$STAGING/wrappers/$name.finished"
+  done
+  REVIEW_PIDS=(); REVIEW_NAMES=()
 }
 
 normalize_single() {
@@ -339,12 +650,14 @@ wrapper_for_provider() {
 collect() {
   # Crashing legs must not leave core files in their sealed review worktrees.
   ulimit -c 0 || true
+  set +m
   local root="" pr="" output="" started binding head_oid base_oid parent review_tmp bundle
   local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json deleted_paths_json
   local mutation_gate_json
   local codex_worktree gemini_worktree opencode_worktree qwen_worktree grok_worktree muse_worktree claude_worktree review_worktree
   local min_ok_legs backup_legs backups backup limited idle
-  local -A mutation_errors=()
+  local backup_glm backup_deepseek
+  local -A mutation_errors=() review_gitdirs=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --repo-root) [ "$#" -ge 2 ] || die "--repo-root needs a value"; root="$2"; shift 2 ;;
@@ -360,6 +673,11 @@ collect() {
   tribunal_risk_tier >/dev/null || exit 1
   backup_legs="$(tribunal_backup_legs)" || exit 1
   root="$(real_dir "$root")"
+  SURFACE_ROOT="$root"
+  load_safe_directories
+  require_git_version
+  pin_git_surface
+  reject_worktree_config "$root"
   [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || die "--repo-root is not a Git worktree root"
   case "$output" in /*) ;; *) die "--output must be absolute" ;; esac
   [ ! -e "$output" ] && [ ! -L "$output" ] || die "collection output already exists"
@@ -401,7 +719,10 @@ collect() {
   for name in codex gemini opencode qwen grok muse claude; do
     review_tmp="$(mktemp -d "${TMPDIR:-/tmp}/tribunal-$name.XXXXXX")"; rmdir "$review_tmp"
     git -C "$root" worktree add --detach --quiet "$review_tmp" "$head_oid"
+    review_tmp="$(real_dir "$review_tmp")"
     REVIEW_WORKTREES+=("$review_tmp")
+    # Pin the admin directory, including its worktree id, before any reviewer runs.
+    review_gitdirs["$review_tmp"]="$(real_dir "$(git -C "$review_tmp" rev-parse --absolute-git-dir)")"
     case "$name" in
       codex) codex_worktree="$review_tmp" ;;
       gemini) gemini_worktree="$review_tmp" ;;
@@ -413,14 +734,14 @@ collect() {
     esac
   done
 
-  run_wrapper codex "$SCRIPT_DIR/run-codex-review.sh" "$codex_worktree" "$base_oid" "$STAGING/wrappers" &
-  run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers" &
-  run_wrapper opencode "$SCRIPT_DIR/run-opencode-review.sh" "$opencode_worktree" "$base_oid" "$STAGING/wrappers" &
-  run_wrapper qwen "$SCRIPT_DIR/run-qwen-review.sh" "$qwen_worktree" "$base_oid" "$STAGING/wrappers" &
-  run_wrapper grok "$SCRIPT_DIR/run-grok-review.sh" "$grok_worktree" "$base_oid" "$STAGING/wrappers" &
-  run_wrapper muse "$SCRIPT_DIR/run-muse-review.sh" "$muse_worktree" "$base_oid" "$STAGING/wrappers" &
-  run_wrapper claude "$SCRIPT_DIR/run-claude-review.sh" "$claude_worktree" "$base_oid" "$STAGING/wrappers" &
-  wait
+  run_wrapper codex "$SCRIPT_DIR/run-codex-review.sh" "$codex_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper opencode "$SCRIPT_DIR/run-opencode-review.sh" "$opencode_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper qwen "$SCRIPT_DIR/run-qwen-review.sh" "$qwen_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper grok "$SCRIPT_DIR/run-grok-review.sh" "$grok_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper muse "$SCRIPT_DIR/run-muse-review.sh" "$muse_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper claude "$SCRIPT_DIR/run-claude-review.sh" "$claude_worktree" "$base_oid" "$STAGING/wrappers"
+  wait_wrappers
 
   for name in codex gemini qwen grok muse claude; do
     rc="$(cat "$STAGING/wrappers/$name.exit")"
@@ -451,19 +772,19 @@ collect() {
   if [ -n "$backups" ]; then
     printf 'tribunal evidence: running backup legs for plan-limited legs:%s\n' "$backups" >&2
     case "$backups" in *" glm "*|*" deepseek "*)
-      ( case "$backups" in *" glm "*) export TRIBUNAL_GLM=on ;; esac
-        case "$backups" in *" deepseek "*) export TRIBUNAL_DEEPSEEK=on ;; esac
-        run_wrapper opencode "$SCRIPT_DIR/run-opencode-review.sh" "$opencode_worktree" "$base_oid" "$STAGING/wrappers" ) & ;;
+      backup_glm="${TRIBUNAL_GLM:-off}"; backup_deepseek="${TRIBUNAL_DEEPSEEK:-off}"
+      case "$backups" in *" glm "*) backup_glm=on ;; esac
+      case "$backups" in *" deepseek "*) backup_deepseek=on ;; esac
+      TRIBUNAL_GLM="$backup_glm" TRIBUNAL_DEEPSEEK="$backup_deepseek" \
+        run_wrapper opencode "$SCRIPT_DIR/run-opencode-review.sh" "$opencode_worktree" "$base_oid" "$STAGING/wrappers" ;;
     esac
     case "$backups" in *" gemini "*)
-      ( export TRIBUNAL_GEMINI=on
-        run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers" ) & ;;
+      TRIBUNAL_GEMINI=on run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers" ;;
     esac
     case "$backups" in *" qwen "*)
-      ( export TRIBUNAL_QWEN=on
-        run_wrapper qwen "$SCRIPT_DIR/run-qwen-review.sh" "$qwen_worktree" "$base_oid" "$STAGING/wrappers" ) & ;;
+      TRIBUNAL_QWEN=on run_wrapper qwen "$SCRIPT_DIR/run-qwen-review.sh" "$qwen_worktree" "$base_oid" "$STAGING/wrappers" ;;
     esac
-    wait
+    wait_wrappers
     for backup in $backups; do
       case "$backup" in gemini|qwen)
         normalize_single "$backup" "$STAGING/wrappers/$backup.raw" "$(cat "$STAGING/wrappers/$backup.exit")" \
@@ -476,7 +797,6 @@ collect() {
     esac
     fail_mutated_providers "$head_oid" "$STAGING"
   fi
-
   providers_json="$STAGING/providers.jsonl"; : > "$providers_json"
   for provider in $PROVIDERS; do
     artifact="$STAGING/providers/$provider.json"
@@ -505,11 +825,15 @@ collect() {
   for review_worktree in "${REVIEW_WORKTREES[@]}"; do
     # A leg may delete its .git file; remove that disposable directory before deregistering it.
     [ -e "$review_worktree/.git" ] || rm -rf -- "$review_worktree"
-    git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$root" worktree remove --force "$review_worktree" >/dev/null
+    git -C "$root" worktree remove -f -f "$review_worktree" >/dev/null
   done
   REVIEW_WORKTREES=(); REVIEW_SOURCE=""
+  mkdir "$STAGING/git-surface"
+  cp -- "$SURFACE_SNAPSHOTS/"* "$STAGING/git-surface/"
+  chmod 0400 "$STAGING/git-surface/"*
   jq -S -n --arg schema "$SCHEMA_COLLECTION" --arg started_at "$started" \
     --arg completed_at "$(now)" --argjson binding "$binding" \
+    --argjson git_surface "$SURFACE_STATE" \
     --arg body_sha256 "$(sha_file "$STAGING/pr-body.txt")" \
     --argjson body_bytes "$(bytes_file "$STAGING/pr-body.txt")" \
     --arg diff_sha256 "$(sha_file "$STAGING/review.diff")" \
@@ -529,6 +853,7 @@ collect() {
     --slurpfile providers "$providers_json" \
     '{schema:$schema,started_at:$started_at,completed_at:$completed_at,
       repository:$binding.repository,
+      git_surface:$git_surface,
       pull_request:{number:$binding.pull_request.number,url:$binding.pull_request.url,state:$binding.pull_request.state,
         base_ref:$binding.pull_request.baseRefName,base_oid:$binding.pull_request.baseRefOid,
         head_ref:$binding.pull_request.headRefName,head_oid:$binding.pull_request.headRefOid,
@@ -568,10 +893,21 @@ validate_manifest_shape() {
     def sha: type=="string" and test("^[0-9a-f]{64}$");
     def oid: type=="string" and test("^[0-9a-f]{40}$");
     def uint: type=="number" and .>=0 and .==floor;
+    def identity: type=="string" and test("^[0-9]+:[0-9]+$");
+    def snapshot: exact(["sha256","bytes","mode"];["sha256","bytes","mode"])
+      and (.sha256|sha) and (.bytes|uint) and (.mode|type=="string" and test("^[0-7]{3,4}$"));
     def stamp: type=="string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
-    exact(["schema","started_at","completed_at","repository","pull_request","diff","runner","providers","ignored_paths","deleted_paths","mutation_gate","panel_policy"];
-          ["schema","started_at","completed_at","repository","pull_request","diff","runner","providers"])
+    exact(["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","ignored_paths","deleted_paths","mutation_gate","panel_policy"];
+          ["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers"])
     and .schema==$schema and (.started_at|stamp) and (.completed_at|stamp) and .started_at<=.completed_at
+    and (.git_surface | exact(["schema","root_git","git_dir","git_dir_identity","common_dir","common_dir_identity","commondir","config"];
+                              ["schema","root_git","git_dir","git_dir_identity","common_dir","common_dir_identity","commondir","config"])
+         and .schema=="tribunal-git-surface/v2"
+         and (.git_dir|text and startswith("/")) and (.common_dir|text and startswith("/"))
+         and (.git_dir_identity|identity) and (.common_dir_identity|identity)
+         and (.root_git | exact(["kind","identity","file"];["kind","identity","file"])
+              and (.identity|identity) and ((.kind=="directory" and .file==null) or (.kind=="file" and (.file|snapshot))))
+         and (.commondir==null or (.commondir|snapshot)) and (.config|snapshot))
     and (.repository | exact(["root","host","name_with_owner","url"];
                              ["root","host","name_with_owner","url"])
          and (.root|text and startswith("/")) and (.host|test("^[A-Za-z0-9.-]+$"))
@@ -690,7 +1026,13 @@ verify_collection_internal() {
   [ -f "$dir/pr-body.txt" ] && [ ! -L "$dir/pr-body.txt" ] || die "retained PR body missing or symbolic"
   [ -f "$dir/review.diff" ] && [ ! -L "$dir/review.diff" ] || die "retained diff missing or symbolic"
   [ "$expected_sha" = "$(sha_file "$manifest")" ] || die "collection manifest digest mismatch"
+  jq -e '.git_surface.schema == "tribunal-git-surface/v2"' "$manifest" >/dev/null \
+    || die "collection manifest lacks git_surface identity; recollect with this runner (older manifests are unsupported)"
   validate_manifest_shape "$manifest" || die "collection manifest schema invalid"
+  load_git_surface "$manifest"
+  load_safe_directories
+  require_git_version
+  reject_worktree_config "$SURFACE_ROOT"
   if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
     [ -f "$dir/ignored-paths.json" ] && [ ! -L "$dir/ignored-paths.json" ] \
       || die "ignored-path artifact missing or symbolic"
@@ -758,7 +1100,7 @@ verify_collection_internal() {
       || die "provider wrapper digest mismatch: $provider"
   done
   verify_live_binding "$dir" "$manifest"
-  printf '%s\n' "$dir"
+  VERIFIED_COLLECTION="$dir"
 }
 
 validate_arbitration() {
@@ -992,10 +1334,11 @@ idempotent_finalize_result() {
 
 finalize() {
   parse_collection_args "$@"
+  local dir manifest canonical retained_tmp proof_tmp lock_fd
+  verify_collection_internal "$COLLECTION" "$EXPECTED_MANIFEST"
+  dir="$VERIFIED_COLLECTION"
   [ -n "$ARBITRATION" ] || die "finalize requires --arbitration"
   [ -f "$ARBITRATION" ] && [ ! -L "$ARBITRATION" ] || die "arbitration file missing or symbolic"
-  local dir manifest canonical retained_tmp proof_tmp lock_fd
-  dir="$(verify_collection_internal "$COLLECTION" "$EXPECTED_MANIFEST")"
   manifest="$dir/manifest.json"
   validate_arbitration "$ARBITRATION" "$manifest" || die "arbitration schema or provider status is invalid"
   canonical="$(mktemp "${TMPDIR:-/tmp}/tribunal-arbitration.XXXXXX")"; FINAL_TMP1="$canonical"
@@ -1045,7 +1388,8 @@ verify_collection_cmd() {
   parse_collection_args "$@"
   [ -z "$ARBITRATION" ] && [ -z "$EXPECTED_PROOF" ] || die "unexpected verify-collection argument"
   local dir
-  dir="$(verify_collection_internal "$COLLECTION" "$EXPECTED_MANIFEST")"
+  verify_collection_internal "$COLLECTION" "$EXPECTED_MANIFEST"
+  dir="$VERIFIED_COLLECTION"
   jq -nc --arg collection "$dir" --arg manifest_sha256 "$EXPECTED_MANIFEST" \
     '{collection:$collection,manifest_sha256:$manifest_sha256,status:"valid"}'
 }
@@ -1056,7 +1400,8 @@ verify_proof_cmd() {
   case "$EXPECTED_PROOF" in *[!0-9a-f]*|'') die "invalid expected proof digest" ;; esac
   [ "${#EXPECTED_PROOF}" -eq 64 ] || die "invalid expected proof digest"
   local dir
-  dir="$(verify_collection_internal "$COLLECTION" "$EXPECTED_MANIFEST")"
+  verify_collection_internal "$COLLECTION" "$EXPECTED_MANIFEST"
+  dir="$VERIFIED_COLLECTION"
   verify_proof_internal "$dir" "$EXPECTED_MANIFEST" "$EXPECTED_PROOF"
   jq -nc --arg collection "$dir" --arg proof_sha256 "$EXPECTED_PROOF" \
     '{collection:$collection,proof_sha256:$proof_sha256,status:"valid"}'

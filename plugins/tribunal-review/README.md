@@ -10,7 +10,7 @@ process before merge.
 
 ## Prerequisites
 
-- Bash 4+, Git, and standard `awk`/`sed`/coreutils commands
+- Bash 4+, git 2.41+ (sealed collection uses `--attr-source`), and standard `awk`/`sed`/coreutils commands
 - [OpenAI Codex CLI](https://github.com/openai/codex) (`npm install -g @openai/codex`)
 - [Antigravity CLI](https://antigravity.google/docs/cli/install/) (`agy`) — **optional**, only for the Gemini leg (opt-in via `TRIBUNAL_GEMINI=on`; off by default). Sign in once with a Google AI Pro/Ultra account, or set `GEMINI_API_KEY` for API-key mode. Gemini CLI no longer serves personal Google accounts
 - [OpenCode CLI](https://opencode.ai) (≥ 1.15) — **optional**, only for two opt-in legs:
@@ -25,6 +25,7 @@ process before merge.
 - `python3` (fallback UUID generation when `uuidgen` and `/proc/sys/kernel/random/uuid` are unavailable)
 - `sha256sum` (used to seal PR delivery manifests and retained artifacts)
 - `flock` (used to make proof finalization concurrency- and crash-safe)
+- Sealed collection requires Linux: `setsid` (util-linux), procps `ps -o sid`, and GNU `stat -c` for session containment and Git directory identity/config checks. On macOS, run sealed collection in a Linux container; the `gtimeout` guidance below applies only to standalone reviewer legs.
 - `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or it will fall back to an error-JSON for that reviewer) — caps Codex, Gemini, Qwen, Grok, Muse, and Claude at 10 minutes and each opt-in OpenCode leg (GLM, DeepSeek) at 12 minutes (single attempt, no retry). The two OpenCode legs are serialized in one call and can take up to ~24 minutes combined; a leg that exceeds its cap simply degrades to the available quorum. OpenCode runs the GLM/DeepSeek reasoning models via `opencode run --agent plan`; their latency is inherent generation time with a heavy tail (the `--variant` reasoning-effort flag does **not** meaningfully change it), so the genuine speed lever is swapping in faster non-reasoning models for those slots — a quality/reliability tradeoff left to you
 - Valid API keys / auth configured for each enabled CLI
 
@@ -60,6 +61,14 @@ are never merge authority. Failed provider artifacts retain the failure phase,
 exit code, byte counts, and truncation flags. Set `TRIBUNAL_DIAGNOSTIC_TAILS=on`
 only for local troubleshooting to add printable-ASCII 2 KiB stdout/stderr tails;
 tails are otherwise omitted by default because provider errors can contain credentials.
+Sealed collection does not support `extensions.worktreeConfig=true` (per-worktree config cannot be contained); disable it or run tribunal from a clone without it.
+Sealed collection supports main checkouts and linked worktrees. Before legs launch it
+pins the root `.git` directory or gitfile, resolved Git/common directories and their
+identities, any existing `commondir` bytes (or absence), and the common config.
+Resolution changes fail closed before Git runs; changed resolution files are restored.
+Only `branch.*` config changes are accepted; other changes name the keys and restore
+config bytes and mode. Private `git-surface/` snapshots in the collection let verification
+and finalization enforce the same pins. Older surface manifests require recollection.
 For either OpenCode leg, exit 0 with no review JSON and non-whitespace stderr is a
 `phase=execution` failure. Known gates get a credential-free classified message;
 stderr tails remain opt-in through `TRIBUNAL_DIAGNOSTIC_TAILS=on`, limited to the
