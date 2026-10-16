@@ -11,7 +11,7 @@ standalone invocation. Be token-frugal: run the wrapper without reading extra fi
 
 ## Run this
 
-Use one Bash call with a tool timeout of at least 780000 ms:
+Use one Bash call with a tool timeout of 600000 ms:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/run-deepseek-review.sh"

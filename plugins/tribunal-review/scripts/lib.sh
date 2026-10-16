@@ -523,7 +523,8 @@ tribunal_error_with_diagnostics() {
   [[ "$exit_code" =~ ^[0-9]+$ ]] || exit_code=255
   # The collector replaces a plan-limited leg with a backup leg (TRIBUNAL_BACKUP_LEGS).
   [ "$exit_code" != 153 ] || message="file size limit (SIGXFSZ): $message"
-  if [ "$phase" = execution ] && tribunal_plan_limited "$exit_code" "$stdout_file" "$stderr_file"; then
+  # DeepSeek classifies its structured stderr causes in the runner.
+  if [ "$provider" != deepseek ] && [ "$phase" = execution ] && tribunal_plan_limited "$exit_code" "$stdout_file" "$stderr_file"; then
     message="plan limit: $message"
   fi
   if [ -f "$stdout_file" ] && [ ! -L "$stdout_file" ]; then

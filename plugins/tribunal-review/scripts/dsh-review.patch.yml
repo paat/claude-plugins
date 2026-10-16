@@ -1,5 +1,3 @@
-- id: agent-default-model
-  config: {provider: deepseek-official, model: deepseek-v4-pro, reasoningEffort: high}
 - id: sandbox-policy
   config: {mode: read-only, workspaceRoot: !!js process.cwd()}
 - id: approval

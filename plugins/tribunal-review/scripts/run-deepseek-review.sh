@@ -23,20 +23,18 @@ WALK_ROOT="$(tribunal_walk_root "$TMPDIR/walk")" \
 MODEL="$(tribunal_deepseek_model)"
 EFFORT="$(tribunal_risk_effort deepseek)" || { tribunal_error deepseek 'invalid TRIBUNAL_RISK'; exit 0; }
 case "$EFFORT" in
-  low|off|max) ;;
+  low) ;;
   ''|medium|high) EFFORT=high ;;
 esac
 MODEL_CONFIG="$(jq -nc --arg model "$MODEL" --arg effort "$EFFORT" \
   '{provider:"deepseek-official",model:$model,reasoningEffort:$effort}')"
 {
-  IFS= read -r model_row
-  IFS= read -r default_config
-  printf '%s\n  config: %s\n' "$model_row" "$MODEL_CONFIG"
-  cat
-} < "$SCRIPT_DIR/dsh-review.patch.yml" > "$TMPDIR/review.patch.yml"
+  cat "$SCRIPT_DIR/dsh-review.patch.yml"
+  printf '%s\n  config: %s\n' '- id: agent-default-model' "$MODEL_CONFIG"
+} > "$TMPDIR/review.patch.yml"
 
 PROMPT_FILE="$TMPDIR/prompt.md"
-RUN_TIMEOUT=720
+RUN_TIMEOUT=600
 if [ "$MODE" = smoke ]; then
   RUN_TIMEOUT="${TRIBUNAL_SMOKE_TIMEOUT_SECONDS:-60}"
   tribunal_smoke_prompt deepseek > "$PROMPT_FILE"
@@ -65,9 +63,9 @@ if [ "$rc" -ne 0 ]; then
     *)
       message="dsh execution failed (exit=$rc)"
       for cause in MISSING_CREDENTIAL INVALID_REQUEST RATE_LIMIT QUOTA; do
-        if grep -qw "$cause" "$ERR" "$OUT"; then
+        if grep -q "^dsh: $cause:" "$ERR"; then
           message="dsh $cause"
-          case "$cause" in RATE_LIMIT) message="plan limit: $message" ;; esac
+          case "$cause" in RATE_LIMIT|QUOTA) message="plan limit: $message" ;; esac
           break
         fi
       done

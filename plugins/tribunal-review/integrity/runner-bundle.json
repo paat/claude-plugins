@@ -14,7 +14,7 @@
     },
     {
       "path": "scripts/dsh-review.patch.yml",
-      "sha256": "ccf9ec0bd402092931e851ad17143df3f66e246ebfc68b63ac2086366e3f6a32"
+      "sha256": "401cb01ba51a487ae6b8f8b5f2cb2707cc40278918badcbd5211aa4342061a6f"
     },
     {
       "path": "scripts/generate-runner-bundle.sh",
@@ -22,7 +22,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "cb01a692fcf95529d47042ab3819df3eb1ff7ae3910508e6198785f74d807bac"
+      "sha256": "e20b353e41d6cb9b098308c7d1a61b6dcd0156f46fdc50ad6834bd172338ccf8"
     },
     {
       "path": "scripts/run-claude-review.sh",
@@ -46,7 +46,7 @@
     },
     {
       "path": "scripts/run-deepseek-review.sh",
-      "sha256": "3eca5914437a769c0bf6c72578a00db5994344d4fd96b8459a50f0c9b60ee3cf"
+      "sha256": "e3b1f05a34d108b6b6cbc080ef7eb5d86b31394be497f96a1fdd729acf5487e9"
     },
     {
       "path": "scripts/run-qwen-review.sh",

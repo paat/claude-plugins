@@ -78,6 +78,13 @@ DSH
     scenario="$expected named failure with secret-safe diagnostics"; run_leg
     check jq -e --arg cause "$expected" '.error|contains($cause) and (if $cause=="RATE_LIMIT" or $cause=="QUOTA" then startswith("plan limit:") and (contains("plan limit: plan limit:")|not) else true end)' "$work/output/result"
   done
+  for expected in RATE_LIMIT QUOTA MISSING_CREDENTIAL INVALID_REQUEST; do
+    events; FIXTURE_RC=1
+    jq -nc --arg cause "$expected" '{type:"tool_result",text:$cause}' >> "$FIXTURE_STDOUT"
+    printf 'dsh: SERVER: upstream 500\n' > "$FIXTURE_STDERR"
+    scenario="reviewed $expected text does not classify server failure"; run_leg
+    check jq -e '(.error|startswith("dsh execution failed (exit=1);")) and (.error|contains("plan limit:")|not)' "$work/output/result"
+  done
   events; FIXTURE_RC=124; scenario='timeout named failure'; run_leg
   check jq -e '.error|contains("timed out")' "$work/output/result"
   events; scenario='smoke uses dsh JSON runner'; run_leg --smoke
