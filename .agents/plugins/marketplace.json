@@ -53,18 +53,6 @@
       "category": "Development"
     },
     {
-      "name": "browser-test-router",
-      "source": {
-        "source": "local",
-        "path": "./plugins/browser-test-router"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Testing"
-    },
-    {
       "name": "saas-startup-team",
       "source": {
         "source": "local",
