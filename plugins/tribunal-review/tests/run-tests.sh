@@ -2657,11 +2657,13 @@ test_trusted_evidence_collection() {
   cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
 #!/usr/bin/env bash
 if [ "${FIXTURE_TAMPER_SENSITIVE:-off}" = on ]; then
-  staging="$(dirname "$(dirname "$(readlink /proc/$$/fd/1)")")"
+  read -r host_pid rest < /proc/self/stat
+  staging="$(dirname "$(dirname "$(readlink /proc/$host_pid/fd/1)")")"
   printf '[]\n' > "$staging/sensitive-paths.json"
 fi
 if [ "${FIXTURE_REPLACE_IGNORE:-off}" = on ]; then
-  staging="$(dirname "$(dirname "$(readlink /proc/$$/fd/1)")")"
+  read -r host_pid rest < /proc/self/stat
+  staging="$(dirname "$(dirname "$(readlink /proc/$host_pid/fd/1)")")"
   cp "$staging/sensitive-paths.json" "$FIXTURE_SENSITIVE_CAPTURE" 2>/dev/null || true
   blob="$(git rev-parse HEAD:.gitignore)"
   replacement="$(printf '# ordinary artifacts\nscratch/\n' | git hash-object -w --stdin)"
@@ -3122,6 +3124,42 @@ EOF
     echo -e "  ${GREEN}PASS${NC} leg rewriting sensitive-path evidence is rejected with a named error"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} leg rewriting sensitive-path evidence is rejected with a named error"; FAIL=$((FAIL+1)); FAILURES+=("pre-leg sensitive-path digest")
+  fi
+
+  # Swap immediately after the pre-seal digest check, without a timing race.
+  mkdir "$work/digest-state"
+  cat > "$fake/sha256sum" <<'EOF'
+#!/usr/bin/env bash
+EOF
+  printf 'digest="$(%q "$@")" || exit $?\n' "$(command -v sha256sum)" >> "$fake/sha256sum"
+  cat >> "$fake/sha256sum" <<'EOF'
+if [ -n "${FIXTURE_DIGEST_STATE:-}" ] && [[ "${@: -1}" = */sensitive-paths.json ]]; then
+  if [ ! -f "$FIXTURE_DIGEST_STATE/pinned" ]; then
+    printf '%s\n' "${digest%% *}" > "$FIXTURE_DIGEST_STATE/pinned"
+  elif [ ! -f "$FIXTURE_DIGEST_STATE/swapped" ]; then
+    printf '[]\n' > "${@: -1}"
+    touch "$FIXTURE_DIGEST_STATE/swapped"
+  fi
+fi
+printf '%s\n' "$digest"
+EOF
+  chmod +x "$fake/sha256sum"
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    FIXTURE_DIGEST_STATE="$work/digest-state" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/check-to-seal" > "$work/check-to-seal.json"
+  rm "$fake/sha256sum"
+  local seal_ec=0
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" verify-collection --collection "$work/check-to-seal" \
+      --expected-manifest-sha256 "$(jq -r .manifest_sha256 "$work/check-to-seal.json")" \
+      >/dev/null 2> "$work/check-to-seal.err" || seal_ec=$?
+  if [ "$seal_ec" -ne 0 ] && [ -f "$work/digest-state/swapped" ] \
+    && [ "$(jq -r .sensitive_paths.sha256 "$work/check-to-seal/manifest.json")" = "$(cat "$work/digest-state/pinned")" ] \
+    && grep -Fq 'sensitive-path artifact digest mismatch' "$work/check-to-seal.err"; then
+    echo -e "  ${GREEN}PASS${NC} sensitive-path manifest pins the pre-leg digest across check-to-seal swap"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} sensitive-path manifest pins the pre-leg digest across check-to-seal swap"; FAIL=$((FAIL+1)); FAILURES+=("sensitive-path check-to-seal digest")
   fi
 
   local replace_base="$base" replace_head="$head" replace_manifest replace_ec
@@ -4624,6 +4662,82 @@ LEG
   rm -rf "$work"
 }
 
+test_collector_pid_namespace() {
+  local work mode ec
+  if ! unshare --user --map-current-user --pid --fork --kill-child true 2>/dev/null; then
+    echo "  SKIP PID namespace regressions: unprivileged namespaces unavailable"; SKIP=$((SKIP+1)); return
+  fi
+  work="$(mktemp -d)"
+  sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$work/lib.sh"
+  cat > "$work/escape.py" <<'PY'
+import os, time
+if os.fork():
+    os._exit(0)
+os.setsid()
+if os.fork():
+    os._exit(0)
+with open('/proc/self/stat') as f:
+    host_pid = f.read().split()[0]
+with open('child.pid', 'w') as f:
+    f.write(host_pid)
+with open('ready', 'w') as f:
+    f.write('ready\n')
+time.sleep(0.4)
+with open('staging/wrappers/escape.raw', 'w') as f:
+    f.write('{"provider":"codex","error":"forged"}\n')
+open('rewritten', 'w').close()
+PY
+  cat > "$work/escape.sh" <<'LEG'
+id -u > uid
+printf '%s\n' "$$" > init.pid
+python3 escape.py >/dev/null 2>&1
+read -r ready < ready
+printf '%s\n' '{"provider":"codex","error":"original"}'
+if [ "$FIXTURE_EXIT" = abort ]; then printf 'ready\n' > abort.ready; sleep 5; fi
+exit 23
+LEG
+  for mode in complete abort; do
+    mkdir -p "$work/staging/wrappers"
+    mkfifo "$work/ready" "$work/abort.ready"
+    ec=0
+    FIXTURE_EXIT="$mode" timeout -k 1 10 bash -c '
+      . "$1/collector-functions.sh"
+      set +m
+      STAGING="$1/staging"
+      if declare -F probe_containment >/dev/null; then probe_containment; fi
+      run_wrapper escape "$1/escape.sh" "$1" unused "$STAGING/wrappers"
+      if [ "$FIXTURE_EXIT" = abort ]; then
+        # Wait for the leg to finish the double-fork handshake, then exercise EXIT.
+        read -r ready < "$1/abort.ready"
+        exit 19
+      fi
+      wait_wrappers
+      # Hold normalization until after an escaped child would have rewritten raw.
+      sleep 0.6
+      normalize_single codex "$STAGING/wrappers/escape.raw" 0 "$1/normalized.json"
+      STAGING=""
+    ' _ "$work" > "$work/out" 2> "$work/err" || ec=$?
+    namespace_descendants_gone() {
+      [ -s "$work/child.pid" ] && [ ! -e "$work/rewritten" ] || return 1
+      case "$(ps -o stat= -p "$(cat "$work/child.pid")")" in ''|Z*) ;; *) return 1 ;; esac
+      if [ "$mode" = complete ]; then
+        [ "$ec" -eq 0 ] && jq -e '.error == "original"' "$work/normalized.json" >/dev/null \
+          && [ "$(cat "$work/staging/wrappers/escape.exit")" = 23 ]
+      else [ "$ec" -eq 19 ]; fi
+    }
+    tr_check "PID namespace kills setsid double-fork before $mode normalization/cleanup" namespace_descendants_gone
+    if [ "$mode" = complete ]; then
+      tr_check "PID namespace wrapper is PID 1" test "$(cat "$work/init.pid")" = 1
+      tr_check "PID namespace preserves caller uid" test "$(cat "$work/uid")" = "$(id -u)"
+    fi
+    # The base runner leaves the adversary alive; stop it before removing fixtures.
+    [ ! -s "$work/child.pid" ] || kill -KILL "$(cat "$work/child.pid")" 2>/dev/null || true
+    rm -rf "$work/staging" "$work/ready" "$work/abort.ready" "$work/rewritten" "$work/child.pid"
+  done
+  rm -rf "$work"
+}
+
 test_collector_completion_order() {
   local work ec=0
   work="$(mktemp -d)"
@@ -5035,7 +5149,8 @@ HOOK
       # timeout creates a nested group, as the real reviewer wrappers do.
       timeout 10 bash -c '
         trap "" TERM
-        printf "%s\n" "$BASHPID" > "$FIXTURE_STATE/child.pid"
+        read -r host_pid rest < /proc/self/stat
+        printf "%s\n" "$host_pid" > "$FIXTURE_STATE/child.pid"
         printf "ready\n" > "$FIXTURE_STATE/ready"
         sleep 0.3
         printf "forged\n" > "$1/wrappers/$2.raw"
@@ -5167,6 +5282,41 @@ EOF
   }
   status_of() { jq -r --arg p "$1" '.providers[] | select(.provider == $p) | .status' "$collection/manifest.json"; }
   runs() { [ -f "$state/deepseek.runs" ] && wc -l < "$state/deepseek.runs" | tr -d ' ' || printf 0; }
+
+  cat > "$fake/unshare" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FIXTURE_STATE/unshare.calls"
+if [ "${1:-}" = --help ]; then printf '%s\n' --map-current-user; exit 0; fi
+printf 'fixture namespaces denied\n' >&2
+exit 1
+EOF
+  chmod +x "$fake/unshare"
+  ec=0; collect || ec=$?
+  namespace_fallback_sealed() {
+    [ "$ec" -eq 0 ] && [ "$(status_of deepseek)" = ok ] || return 1
+    [ "$(grep -c '^tribunal evidence: containment degraded:' "$work/collect-$n.err")" -eq 1 ] \
+      && grep -Fq 'fixture namespaces denied' "$work/collect-$n.err" \
+      && [ "$(grep -c -- '--user --map-current-user --pid --fork --kill-child true' "$state/unshare.calls")" -eq 1 ] \
+      && jq -e '.containment == "session" and all(.providers[]; .containment == "session")' "$collection/manifest.json" >/dev/null
+  }
+  tr_check "unavailable namespaces degrade once, seal session containment and keep backup legs" namespace_fallback_sealed
+  rm "$fake/unshare"
+  if unshare --user --map-current-user --pid --fork --kill-child true 2>/dev/null; then
+    cp "$plugin/scripts/run-grok-review.sh" "$work/grok.disabled"
+    sed 's/claude/grok/g' "$plugin/scripts/run-claude-review.sh" > "$plugin/scripts/run-grok-review.sh"
+    "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
+    ec=0; collect TRIBUNAL_GROK_SANDBOX=read-only || ec=$?
+    grok_namespace_fallback_sealed() {
+      [ "$ec" -eq 0 ] && [ "$(status_of deepseek)" = ok ] && [ "$(status_of grok)" = ok ] || return 1
+      grep -Fq 'tribunal evidence: containment degraded: grok:' "$work/collect-$n.err" \
+        && jq -e '.containment == "session" and all(.providers[];
+          if .provider == "grok" then .containment == "session" else .containment == "pid-namespace" end)' "$collection/manifest.json" >/dev/null
+    }
+    tr_check "Grok read-only fallback is named and sealed per leg without disabling other namespaces" grok_namespace_fallback_sealed
+    mv "$work/grok.disabled" "$plugin/scripts/run-grok-review.sh"
+    "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
+  fi
+  rm -f "$state/wrappers.started"
 
   worktree_config_message='sealed collection does not support extensions.worktreeConfig (per-worktree config cannot be contained); disable it or run tribunal from a clone without it'
   worktree_config_rejected() {
@@ -5431,6 +5581,10 @@ EOF
     tr_check "leg containment: $scenario never runs the redirected filter driver" test ! -e "$state/driver.executed"
     tr_check "leg containment: $scenario preserves sibling evidence" cmp -s "$state/claude.evidence.json" "$state/claude.expected.json"
     tr_check "leg containment: $scenario reports the mutated leg" worktree_redirect_reported
+    if [ "$scenario" = worktree-gitfile ]; then
+      tr_check "redirected gitfile cleanup names leftover worktrees and prune hint" \
+        bash -c 'grep -q "leftover review worktree:" "$1" && grep -q "git worktree prune" "$1"' _ "$work/collect-$n.err"
+    fi
     while IFS= read -r wt; do
       [ "$wt" = "$repo" ] || { rm -rf -- "$wt"; git -C "$repo" worktree remove -f -f "$wt"; }
     done < <(git -C "$repo" worktree list --porcelain | sed -n 's/^worktree //p')
@@ -5653,6 +5807,7 @@ test_risk_effort_reaches_claude_and_grok
 test_preflight_risk_and_backups
 test_backup_leg_collection
 test_collector_completion_order
+test_collector_pid_namespace
 test_collector_reap_rescan
 test_collector_config_includes
 test_collector_surface_leftovers

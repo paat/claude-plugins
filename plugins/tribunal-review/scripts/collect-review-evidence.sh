@@ -9,7 +9,7 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CONFIG_PARAMETERS \
   GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_SSH_COMMAND
 
-for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp stat setsid ps kill codex agy dsh qwen grok muse claude; do
+for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp stat setsid unshare ps kill codex agy dsh qwen grok muse claude; do
   unset -f "$command_name" 2>/dev/null || true
 done
 unset command_name
@@ -73,6 +73,8 @@ REVIEW_SOURCE=""
 REVIEW_WORKTREES=()
 REVIEW_PIDS=()
 REVIEW_NAMES=()
+CONTAINMENT=session
+declare -A LEG_CONTAINMENT=() NAMESPACE_PIDS=()
 CONFIG_FILE=""
 CONFIG_SNAPSHOT=""
 SAFE_DIRECTORY_COUNT=0
@@ -98,13 +100,45 @@ sha_file() { sha256sum -- "$1" | awk '{print $1}'; }
 bytes_file() { wc -c < "$1" | tr -d ' '; }
 
 kill_leg() {
-  local pid="$1" group
+  local pid="$1" group child children
+  if [ "${NAMESPACE_PIDS[$pid]:-}" = yes ]; then
+    # Leave unshare alive to wait for PID 1: its wait completes only after the
+    # kernel has killed and reaped the namespace, including detached sessions.
+    children="$(ps -o pid= --ppid "$pid")" || children=""
+    if [ -n "$children" ]; then
+      for child in $children; do kill -KILL "$child" 2>/dev/null || true; done
+      wait "$pid" 2>/dev/null || true
+      unset 'NAMESPACE_PIDS[$pid]'
+      return
+    fi
+    # The launcher has finished or has not forked yet; --kill-child covers death
+    # during startup. No reviewer can run before that parent-death guard is set.
+  fi
   # timeout may create nested groups. Kill every group in the wrapper's session;
   # SIGKILL has no handler/grace period and we never wait for orphan descendants.
   kill -KILL "$pid" 2>/dev/null || true
   while read -r group; do
     kill -KILL -- "-$group" 2>/dev/null || true
   done < <(ps -eo sid=,pgid= | awk -v sid="$pid" '$1 == sid && !seen[$2]++ { print $2 }')
+  wait "$pid" 2>/dev/null || true
+  unset 'NAMESPACE_PIDS[$pid]'
+}
+
+probe_containment() {
+  local reason help
+  CONTAINMENT=session
+  if ! command -v unshare >/dev/null 2>&1; then
+    reason="unshare is unavailable"
+  elif help="$(unshare --help 2>&1)" && [[ "$help" = *--map-current-user* ]]; then
+    if reason="$(timeout -k 1 5 unshare --user --map-current-user --pid --fork --kill-child true 2>&1)"; then
+      CONTAINMENT=pid-namespace
+      return
+    fi
+    reason="user/PID namespace probe failed: ${reason%%$'\n'*}"
+  else
+    reason="unshare lacks --map-current-user (util-linux 2.38+ required)"
+  fi
+  printf 'tribunal evidence: containment degraded: %s\n' "$reason" >&2
 }
 
 reject_uncontained_config() {
@@ -347,19 +381,23 @@ set_surface_identities() {
 }
 
 cleanup() {
-  local rc=$? review_worktree pid
+  local rc=$? review_worktree pid leftovers=0
   for pid in ${REVIEW_PIDS[@]+"${REVIEW_PIDS[@]}"}; do kill_leg "$pid"; done
   check_git_surface || rc=1
   if [ "$SURFACE_FAILED" -eq 0 ] && [ -n "$REVIEW_SOURCE" ]; then
     for review_worktree in "${REVIEW_WORKTREES[@]}"; do
-      git -C "$REVIEW_SOURCE" worktree remove -f -f "$review_worktree" >/dev/null 2>&1 || true
+      if ! git -C "$REVIEW_SOURCE" worktree remove -f -f "$review_worktree" >/dev/null 2>&1; then
+        printf 'tribunal evidence: leftover review worktree: %s\n' "$review_worktree" >&2
+        leftovers=1
+      fi
     done
   elif [ "$SURFACE_FAILED" -eq 1 ] && [ -n "${REVIEW_WORKTREES[0]:-}" ]; then
     for review_worktree in "${REVIEW_WORKTREES[@]}"; do
       printf 'tribunal evidence: leftover review worktree: %s\n' "$review_worktree" >&2
     done
-    printf 'tribunal evidence: after restoring the Git surface, remove leftover worktrees and run git worktree prune\n' >&2
+    leftovers=1
   fi
+  [ "$leftovers" -eq 0 ] || printf 'tribunal evidence: after restoring the Git surface, remove leftover worktrees and run git worktree prune\n' >&2
   [ -z "$STAGING" ] || [ ! -e "$STAGING" ] || rm -rf -- "$STAGING"
   [ -z "$FINAL_TMP1" ] || [ ! -e "$FINAL_TMP1" ] || rm -f -- "$FINAL_TMP1"
   [ -z "$FINAL_TMP2" ] || [ ! -e "$FINAL_TMP2" ] || rm -f -- "$FINAL_TMP2"
@@ -610,12 +648,26 @@ wrapper_exit_message() {
 }
 
 run_wrapper() {
-  local name="$1" script="$2" worktree="$3" base_oid="$4" dir="$5"
+  local name="$1" script="$2" worktree="$3" base_oid="$4" dir="$5" pid
+  local -a launch=()
+  LEG_CONTAINMENT[$name]="$CONTAINMENT"
+  if [ "$CONTAINMENT" = pid-namespace ]; then
+    if [ "$name" = grok ] && [ "${TRIBUNAL_GROK_SANDBOX:-${GROK_SANDBOX:-none}}" = read-only ]; then
+      # Grok's bwrap addresses /proc with namespace PIDs; without a private proc
+      # mount that opt-in sandbox fails. Keep its sandbox and run the leg.
+      LEG_CONTAINMENT[$name]=session
+      printf 'tribunal evidence: containment degraded: grok: read-only sandbox requires host PID visibility\n' >&2
+    else
+      launch=(unshare --user --map-current-user --pid --fork --kill-child)
+    fi
+  fi
   printf '%s\n' "$(now)" > "$dir/$name.started"
   # With monitor mode off, $! is not a group leader: setsid execs without forking.
-  (cd "$worktree" && ulimit -f 4194304 && exec setsid env TRIBUNAL_BASE_REF="$base_oid" bash "$script") \
+  (cd "$worktree" && ulimit -f 4194304 && exec setsid "${launch[@]+"${launch[@]}"}" env TRIBUNAL_BASE_REF="$base_oid" bash "$script") \
     > "$dir/$name.raw" 2> "$dir/$name.stderr" &
-  REVIEW_PIDS+=("$!"); REVIEW_NAMES+=("$name")
+  pid=$!
+  REVIEW_PIDS+=("$pid"); REVIEW_NAMES+=("$name")
+  if [ "${LEG_CONTAINMENT[$name]}" = pid-namespace ]; then NAMESPACE_PIDS[$pid]=yes; fi
 }
 
 wait_wrappers() {
@@ -628,7 +680,10 @@ wait_wrappers() {
       [[ $'\n'"$running"$'\n' != *$'\n'"$pid"$'\n'* ]] || continue
       rc=0
       wait "$pid" || rc=$?
-      kill_leg "$pid"
+      if [ "${NAMESPACE_PIDS[$pid]:-}" = yes ]; then
+        # unshare waited for namespace teardown; never signal a reaped PID.
+        unset 'NAMESPACE_PIDS[$pid]'
+      else kill_leg "$pid"; fi
       unset 'REVIEW_PIDS[index]' 'REVIEW_NAMES[index]'
       remaining=$((remaining - 1))
       reaped=1
@@ -779,6 +834,7 @@ collect() {
     esac
   done
 
+  probe_containment
   run_wrapper codex "$SCRIPT_DIR/run-codex-review.sh" "$codex_worktree" "$base_oid" "$STAGING/wrappers"
   run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers"
   run_wrapper deepseek "$SCRIPT_DIR/run-deepseek-review.sh" "$deepseek_worktree" "$base_oid" "$STAGING/wrappers"
@@ -837,7 +893,7 @@ collect() {
     name="$provider"
     status="$(provider_status "$artifact")"
     stderr="$STAGING/wrappers/$name.stderr"
-    jq -nc --arg provider "$provider" --arg status "$status" \
+    jq -nc --arg provider "$provider" --arg status "$status" --arg containment "${LEG_CONTAINMENT[$provider]}" \
       --arg wrapper_path "$wrapper" --arg wrapper_sha256 "$(sha_file "$wrapper")" \
       --arg artifact_path "providers/$provider.json" --arg artifact_sha256 "$(sha_file "$artifact")" \
       --argjson artifact_bytes "$(bytes_file "$artifact")" \
@@ -845,7 +901,7 @@ collect() {
       --arg finished_at "$(cat "$STAGING/wrappers/$name.finished")" \
       --argjson exit_code "$(cat "$STAGING/wrappers/$name.exit")" \
       --arg stderr_sha256 "$(sha_file "$stderr")" --argjson stderr_bytes "$(bytes_file "$stderr")" \
-      '{provider:$provider,status:$status,wrapper:{path:$wrapper_path,sha256:$wrapper_sha256},
+      '{provider:$provider,status:$status,containment:$containment,wrapper:{path:$wrapper_path,sha256:$wrapper_sha256},
         artifact:{path:$artifact_path,sha256:$artifact_sha256,bytes:$artifact_bytes},
         started_at:$started_at,finished_at:$finished_at,exit_code:$exit_code,
         stderr:{sha256:$stderr_sha256,bytes:$stderr_bytes}}' >> "$providers_json"
@@ -856,6 +912,7 @@ collect() {
     # A leg may delete its .git file; remove that disposable directory before deregistering it.
     [ -e "$review_worktree/.git" ] || rm -rf -- "$review_worktree"
     git -C "$root" worktree remove -f -f "$review_worktree" >/dev/null
+    REVIEW_WORKTREES=("${REVIEW_WORKTREES[@]:1}")
   done
   REVIEW_WORKTREES=(); REVIEW_SOURCE=""
   mkdir "$STAGING/git-surface"
@@ -875,7 +932,7 @@ collect() {
     --argjson diff_bytes "$(bytes_file "$STAGING/review.diff")" \
     --arg ignored_paths_sha256 "$([ ! -f "$STAGING/ignored-paths.json" ] || sha_file "$STAGING/ignored-paths.json")" \
     --argjson ignored_paths_bytes "$([ ! -f "$STAGING/ignored-paths.json" ] && printf '0' || bytes_file "$STAGING/ignored-paths.json")" \
-    --arg sensitive_paths_sha256 "$([ ! -f "$STAGING/sensitive-paths.json" ] || sha_file "$STAGING/sensitive-paths.json")" \
+    --arg sensitive_paths_sha256 "$sensitive_paths_sha256" \
     --argjson sensitive_paths_bytes "$([ ! -f "$STAGING/sensitive-paths.json" ] && printf '0' || bytes_file "$STAGING/sensitive-paths.json")" \
     --arg deleted_paths_sha256 "$([ ! -f "$STAGING/deleted-paths.json" ] || sha_file "$STAGING/deleted-paths.json")" \
     --argjson deleted_paths_bytes "$([ ! -f "$STAGING/deleted-paths.json" ] && printf '0' || bytes_file "$STAGING/deleted-paths.json")" \
@@ -899,6 +956,7 @@ collect() {
       runner:{path:$runner_path,sha256:$runner_sha256,library_path:$library_path,library_sha256:$library_sha256,
         bundle_manifest_path:$bundle_manifest_path,bundle_manifest_sha256:$bundle_manifest_sha256},
       providers:$providers,
+      containment:(if all($providers[]; .containment == "pid-namespace") then "pid-namespace" else "session" end),
       panel_policy:{min_ok_legs:$min_ok_legs,source:"env"}}
       + (if $ignored_paths_sha256 == "" then {} else
           {ignored_paths:{path:"ignored-paths.json",sha256:$ignored_paths_sha256,bytes:$ignored_paths_bytes},
@@ -935,9 +993,13 @@ validate_manifest_shape() {
     def snapshot: exact(["sha256","bytes","mode"];["sha256","bytes","mode"])
       and (.sha256|sha) and (.bytes|uint) and (.mode|type=="string" and test("^[0-7]{3,4}$"));
     def stamp: type=="string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
-    exact(["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","ignored_paths","sensitive_paths","deleted_paths","mutation_gate","panel_policy"];
+    exact(["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","ignored_paths","sensitive_paths","deleted_paths","mutation_gate","panel_policy","containment"];
           ["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers"])
     and .schema==$schema and (.started_at|stamp) and (.completed_at|stamp) and .started_at<=.completed_at
+    and (if has("containment") then
+      all(.providers[]; .containment|IN("pid-namespace","session"))
+      and .containment == (if all(.providers[]; .containment == "pid-namespace") then "pid-namespace" else "session" end)
+      else all(.providers[]; has("containment")|not) end)
     and (.git_surface | exact(["schema","root_git","git_dir","git_dir_identity","common_dir","common_dir_identity","commondir","config"];
                               ["schema","root_git","git_dir","git_dir_identity","common_dir","common_dir_identity","commondir","config"])
          and .schema=="tribunal-git-surface/v2"
@@ -984,7 +1046,7 @@ validate_manifest_shape() {
     and (.providers|type=="array" and length==7
          and ([.[].provider]|sort)==(["claude","codex","deepseek","gemini","grok","muse","qwen"])
          and all(.[];
-           exact(["provider","status","wrapper","artifact","started_at","finished_at","exit_code","stderr"];
+           exact(["provider","status","wrapper","artifact","started_at","finished_at","exit_code","stderr","containment"];
                  ["provider","status","wrapper","artifact","started_at","finished_at","exit_code","stderr"])
            and (.provider|IN("codex","gemini","deepseek","qwen","grok","muse","claude"))
            and (.status|IN("ok","failed","disabled"))
